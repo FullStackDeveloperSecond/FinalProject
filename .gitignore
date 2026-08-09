@@ -1,0 +1,41 @@
+# Only track the two project folders and repository-level files.
+/*
+!/.gitignore
+!/README.md
+!/FP.dev/
+!/FP.sheet/
+
+# .NET
+**/bin/
+**/obj/
+**/.vs/
+**/*.user
+**/*.suo
+
+# Node / Vue
+**/node_modules/
+**/dist/
+**/.vite/
+**/coverage/
+
+# Local configuration and secrets
+**/.env
+**/.env.*
+!**/.env.example
+**/appsettings.Development.json
+**/appsettings.Local.json
+**/secrets.json
+**/*.pfx
+**/*.p12
+**/*.key
+
+# Logs and temporary files
+**/*.log
+**/.DS_Store
+**/Thumbs.db
+**/*.tmp
+
+# Obsidian local workspace state
+**/.obsidian/workspace.json
+**/.obsidian/workspace-mobile.json
+**/.trash/
