@@ -50,13 +50,13 @@
 
 | 使用案例 | 單元／評估重點 | 整合測試重點 | E2E | 負責人 |
 |---|---|---|---|---|
-| UC-AI-SEARCH-01 | Schema 與意圖評估 | OpenAI Stub、後端驗證 | 核心 E2E 1 | terry／kafen；alex AI 覆核 |
-| UC-AI-SEARCH-02 | 候選與理由 Grounding | SQL／相容性／庫存邊界 | 核心 E2E 1 | terry／kafen；alex AI 覆核 |
-| UC-AI-SEARCH-03 | 錯誤分類與重試 | 逾時、限流、格式修復 | AI 降級 | alex／terry、kafen 提供案例 |
-| UC-AI-SUPPORT-01 | 同意版本規則 | 同意紀錄、拒絕不呼叫 | 核心 E2E 4 | kafen／terry；haru 提供同意案例 |
-| UC-AI-SUPPORT-02 | 遮蔽與工具 DTO | 本人訂單、跨會員拒絕 | 核心 E2E 4 | kafen／terry；alex 安全覆核 |
-| UC-AI-SUPPORT-03 | 工具白名單 | 無寫入工具、Prompt Injection | 核心 E2E 4 | kafen／terry；alex 安全覆核 |
-| UC-AI-SUPPORT-04 | 額度與成本門檻 | Interaction、清理、停用 | 非 Demo 流量停用 | alex／kafen、terry 提供案例 |
+| UC-AI-SEARCH-01 | Schema 與意圖評估 | OpenAI Stub、後端驗證 | 核心 E2E 1 | alex 主責；terry 提供商品資料與領域覆核 |
+| UC-AI-SEARCH-02 | 候選與理由 Grounding | SQL／相容性／庫存邊界 | 核心 E2E 1 | alex 主責；terry 提供庫存、組裝與相容性案例及覆核 |
+| UC-AI-SEARCH-03 | 錯誤分類與重試 | 逾時、限流、格式修復 | AI 降級 | alex 主責；terry、kafen 提供降級案例 |
+| UC-AI-SUPPORT-01 | 同意版本規則 | 同意紀錄、拒絕不呼叫 | 核心 E2E 4 | alex 主責；haru 提供登入與同意案例，kafen 領域覆核 |
+| UC-AI-SUPPORT-02 | 遮蔽與工具 DTO | 本人訂單、跨會員拒絕 | 核心 E2E 4 | alex 主責；haru 提供本人訂單授權案例，kafen 領域覆核 |
+| UC-AI-SUPPORT-03 | 工具白名單 | 無寫入工具、Prompt Injection | 核心 E2E 4 | alex 主責；kafen 提供客服案例與領域覆核 |
+| UC-AI-SUPPORT-04 | 額度與成本門檻 | Interaction、清理、停用 | 非 Demo 流量停用 | alex 主責；kafen、terry 提供流量與降級案例 |
 | UC-SUPPORT-01 | 狀態、指派、取消 | 佇列、權限、歷程 | 案件處理 | kafen／terry |
 | UC-SUPPORT-02 | 檔案數量 400、大小 413、格式 415、惡意內容 422、掃描失敗 503 | Defender Stub、私有下載、`file_*` 契約 | 上傳與拒絕 | kafen／terry |
 | UC-SLA-01 | 計時、暫停、重開 | Hangfire 提醒與逾時 | SLA 工作台 | kafen／terry |
