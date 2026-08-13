@@ -82,7 +82,7 @@ Socket 相同但晶片組／世代不支援
 | Socket＋晶片組／CPU 世代 | 中 | 平台是否原則支援 |
 | 型號＋CPU＋最低 BIOS | 高 | 特定主機板版本能否直接啟動 |
 
-本專案草稿傾向第一版採「Socket 與世代映射做阻擋，可能需要更新 BIOS 時顯示警告」，不維護所有主機板的最低版本。這能降低資料維護成本，但畫面必須誠實呈現不確定性。
+本專案第一版已確認採「Socket 與世代映射做阻擋，可能需要更新 BIOS 時顯示警告」，不維護所有主機板的最低版本。這能降低資料維護成本，但畫面必須誠實呈現不確定性。
 
 ## 商品資料要求
 
@@ -102,4 +102,4 @@ Socket 相同但晶片組／世代不支援
 - [AMD Socket AM5 Chipsets](https://www.amd.com/en/products/processors/chipsets/am5.html)
 - [AMD Socket AM4 Chipsets](https://www.amd.com/en/products/processors/chipsets/am4.html)
 - [[02-領域需求/商品、組裝與相容性]]
-- [[05-規劃/決策/00-互動中/DEC-BATCH-002-第二批核心決策]]
+- [[05-規劃/決策/02-已寫回/DEC-BATCH-002-第二批核心決策]]

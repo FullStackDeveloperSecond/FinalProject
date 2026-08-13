@@ -103,4 +103,4 @@ PrimeVue 的 Styled Mode 使用 design token，分為 primitive、semantic 及 c
 - [PrimeVue 官方文件](https://primevue.org/)
 - [PrimeVue Styled Mode](https://primevue.org/theming/styled)
 - [PrimeVue Accessibility](https://primevue.org/guides/accessibility/)
-- [[05-規劃/決策/00-互動中/DEC-BATCH-002-第二批核心決策]]
+- [[05-規劃/決策/02-已寫回/DEC-BATCH-002-第二批核心決策]]

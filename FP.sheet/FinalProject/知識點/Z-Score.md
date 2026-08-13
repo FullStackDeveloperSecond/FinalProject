@@ -70,7 +70,7 @@ z = (residual - 殘差平均) / 殘差標準差
 
 回答「今天相對既有趨勢是否異常」，較能排除趨勢影響，但模型與解釋更複雜。
 
-目前草稿只寫「使用 Z-score」，尚未正式指定對原始銷量或殘差計算。實作前必須定案，不能讓前端與後端各自解讀。
+目前正式規則已確認使用 Z-score 與 `|z| > 2` 門檻，但尚未指定對原始銷量或迴歸殘差計算。實作前仍須補足此計算口徑，不能讓前端與後端各自解讀。
 
 ## 邊界條件
 
@@ -110,4 +110,4 @@ AnomalyPoint
 
 - [NIST：Detection of Outliers](https://itl.nist.gov/div898/handbook/eda/section3/eda35h.htm)
 - [NIST：ISO 13528 ZSCORE](https://www.itl.nist.gov/div898/software/dataplot/refman2/auxillar/zscore.htm)
-- [[05-規劃/決策/00-互動中/DEC-BATCH-002-第二批核心決策]]
+- [[05-規劃/決策/02-已寫回/DEC-BATCH-002-第二批核心決策]]

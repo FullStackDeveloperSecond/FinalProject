@@ -15,6 +15,8 @@ related:
   - "[[03-架構/系統架構]]"
   - "[[知識點/Brevo SMTP]]"
   - "[[知識點/SLA]]"
+  - "[[知識點/Transactional Outbox]]"
+  - "[[知識點/冪等性]]"
 ---
 
 # Hangfire
@@ -129,4 +131,4 @@ Hangfire Dashboard 會顯示方法名稱、序列化參數，且可重試、刪�
 - [Hangfire：Using SQL Server](https://docs.hangfire.io/en/latest/configuration/using-sql-server.html)
 - [Hangfire：Dealing with Exceptions](https://docs.hangfire.io/en/latest/background-processing/dealing-with-exceptions.html)
 - [Hangfire：Using Dashboard UI](https://docs.hangfire.io/en/latest/configuration/using-dashboard.html)
-- [[05-規劃/決策/00-互動中/DEC-BATCH-002-第二批核心決策]]
+- [[05-規劃/決策/02-已寫回/DEC-BATCH-002-第二批核心決策]]

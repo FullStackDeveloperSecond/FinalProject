@@ -84,26 +84,9 @@
 
 ### 知識點
 
-- [[知識點/README|系統知識點索引]]
-- [[知識點/SLA|SLA（服務等級協議）]]
-- [[知識點/SKU|SKU（庫存單位）]]
-- [[知識點/Socket與BIOS|CPU Socket 與 BIOS 相容性]]
-- [[知識點/PSU瓦數級距|PSU 瓦數級距與選擇規則]]
-- [[知識點/Microsoft Defender掃描規則|Microsoft Defender 檔案掃描規則]]
-- [[知識點/ASP.NET Core Identity|ASP.NET Core Identity]]
-- [[知識點/CSRF|CSRF（跨站請求偽造）]]
-- [[知識點/CORS|CORS（跨來源資源共享）]]
-- [[知識點/Credentials|Credentials（Fetch／CORS 認證資料模式）]]
-- [[知識點/Antiforgery|Antiforgery（ASP.NET Core 防偽機制）]]
-- [[知識點/Cursor分頁|Cursor 分頁]]
-- [[知識點/SQL Server rowversion|SQL Server rowversion]]
-- [[知識點/30天線性迴歸|30 天線性迴歸]]
-- [[知識點/Z-Score|Z-score（標準分數）]]
-- [[知識點/PrimeVue|PrimeVue]]
-- [[知識點/TanStack Query|TanStack Query]]
-- [[知識點/Brevo SMTP|Brevo SMTP]]
-- [[知識點/Hangfire|Hangfire]]
-- [[知識點/資料庫正規化與反正規化|資料庫正規化與反正規化]]
+- [[知識點/README|系統知識點索引（35 個主題）]]
+
+知識點已依電商領域、身分與安全、API 契約、資料一致性、報表統計、前端、基礎設施及 AI 分類；完整清單、篩選準則與建議閱讀路徑統一維護於索引，不在根目錄重複列出。
 
 ## 文件狀態標記
 

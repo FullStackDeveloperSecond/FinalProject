@@ -14,6 +14,8 @@ created_at: 2026-08-09
 related:
   - "[[02-領域需求/會員、驗證與通知]]"
   - "[[知識點/Hangfire]]"
+  - "[[知識點/Secrets管理]]"
+  - "[[知識點/Transactional Outbox]]"
 ---
 
 # Brevo SMTP
@@ -113,4 +115,4 @@ public interface IEmailSender
 
 - [Brevo：SMTP relay integration](https://developers.brevo.com/docs/smtp-integration)
 - [[02-領域需求/會員、驗證與通知]]
-- [[05-規劃/決策/00-互動中/DEC-BATCH-002-第二批核心決策]]
+- [[05-規劃/決策/02-已寫回/DEC-BATCH-002-第二批核心決策]]

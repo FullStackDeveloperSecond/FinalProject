@@ -14,6 +14,7 @@ created_at: 2026-08-09
 related:
   - "[[03-架構/系統架構]]"
   - "[[知識點/PrimeVue]]"
+  - "[[知識點/OpenAPI與Typed Client]]"
 ---
 
 # TanStack Query
@@ -123,4 +124,4 @@ const updateProduct = useMutation({
 - [TanStack Vue Query 官方文件](https://tanstack.com/query/latest/docs/framework/vue)
 - [TanStack Query：Query Keys](https://tanstack.com/query/latest/docs/framework/vue/guides/query-keys)
 - [TanStack Query：Query Options](https://tanstack.com/query/latest/docs/framework/vue/guides/query-options)
-- [[05-規劃/決策/00-互動中/DEC-BATCH-002-第二批核心決策]]
+- [[05-規劃/決策/02-已寫回/DEC-BATCH-002-第二批核心決策]]
