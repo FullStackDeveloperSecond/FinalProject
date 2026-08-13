@@ -2,9 +2,11 @@
 type: decision-interaction
 batch_id: DEC-BATCH-002
 title: 第二批核心決策
-status: drafting
+status: applied
+submission_feedback: "✅ 本批 30 項決策已寫回正式文件並封存。"
 created_at: 2026-08-09
-submitted_at:
+submitted_at: 2026-08-10
+decision_snapshot: "[[05-規劃/決策/02-已寫回/DEC-BATCH-002-第二批核心決策]]"
 decision_count: 30
 decision_range: DEC-P11～DEC-P40
 q01_choice: protected_semantic_keys
@@ -13,59 +15,59 @@ q02_choice: validate_then_atomic
 q02_custom: ""
 q03_choice: immutable_sku_code
 q03_custom: ""
-q04_choice: ""
+q04_choice: disable_used_fields
 q04_custom: ""
-q05_choice: ""
+q05_choice: enable_threshold_test
 q05_custom: ""
-q06_choice: ""
+q06_choice: generation_map_with_warning
 q06_custom: ""
-q07_choice: ""
+q07_choice: sum_plus_30_percent
 q07_custom: ""
-q08_choice: ""
+q08_choice: multiple_with_jobs
 q08_custom: ""
-q09_choice: ""
+q09_choice: no_expiry_revocable
 q09_custom: ""
-q10_choice: ""
+q10_choice: searchable_store_dataset
 q10_custom: ""
-q11_choice: ""
+q11_choice: limit_45_105_5
 q11_custom: ""
-q12_choice: ""
+q12_choice: store_cod_10000
 q12_custom: ""
-q13_choice: ""
+q13_choice: unified_view_separate_queues
 q13_custom: ""
-q14_choice: ""
+q14_choice: new_supervisor_role
 q14_custom: ""
-q15_choice: ""
+q15_choice: rule_default_staff_adjust
 q15_custom: ""
-q16_choice: ""
+q16_choice: calendar_24_7
 q16_custom: ""
-q17_choice: ""
+q17_choice: tiered_standard
 q17_custom: ""
-q18_choice: ""
+q18_choice: pause_customer_three_days
 q18_custom: ""
-q19_choice: ""
+q19_choice: same_limit_all_domains
 q19_custom: ""
-q20_choice: ""
+q20_choice: defender_and_validation
 q20_custom: ""
-q21_choice: ""
+q21_choice: order_item_cost_snapshot
 q21_custom: ""
-q22_choice: ""
+q22_choice: realtime_sql_first
 q22_custom: ""
-q23_choice: ""
+q23_choice: net_revenue_80_95
 q23_custom: ""
-q24_choice: ""
+q24_choice: sku_pair_thresholds
 q24_custom: ""
-q25_choice: ""
+q25_choice: linear_and_zscore
 q25_custom: ""
-q26_choice: ""
+q26_choice: primevue
 q26_custom: ""
-q27_choice: ""
+q27_choice: tanstack_query_plus_pinia
 q27_custom: ""
-q28_choice: ""
+q28_choice: openapi_typescript_fetch
 q28_custom: ""
-q29_choice: ""
+q29_choice: brevo_smtp
 q29_custom: ""
-q30_choice: ""
+q30_choice: hangfire_sqlserver
 q30_custom: ""
 ---
 
@@ -693,6 +695,8 @@ INPUT[textArea(placeholder('補充背景工作套件、持久化或重試策略'
 
 `BUTTON[submit-decision-batch,restore-draft]`
 
+送出結果：`VIEW[{submission_feedback}]`
+
 ```meta-bind-button
 label: 送出本批 30 項決策
 style: primary
@@ -703,6 +707,10 @@ actions:
     bindTarget: status
     evaluate: false
     value: submitted
+  - type: updateMetadata
+    bindTarget: submission_feedback
+    evaluate: false
+    value: "✅ 已送出本批 30 項決策；答案已保存，可交由 Codex 收束。"
 ```
 
 ```meta-bind-button
@@ -715,4 +723,8 @@ actions:
     bindTarget: status
     evaluate: false
     value: drafting
+  - type: updateMetadata
+    bindTarget: submission_feedback
+    evaluate: false
+    value: "📝 已退回草稿；可繼續修改答案。"
 ```
