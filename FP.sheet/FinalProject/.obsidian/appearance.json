@@ -1,5 +1,7 @@
 {
   "theme": "obsidian",
   "interfaceFontFamily": "清松手寫體5",
-  "textFontFamily": "清松手寫體5"
+  "textFontFamily": "清松手寫體5",
+  "monospaceFontFamily": "清松手寫體5",
+  "baseFontSize": 20
 }
