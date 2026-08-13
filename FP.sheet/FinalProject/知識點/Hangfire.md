@@ -120,8 +120,8 @@ Hangfire Dashboard 會顯示方法名稱、序列化參數，且可重試、刪�
 
 應依工作重要性分 Queue，例如 `critical`、`mail`、`reports`，避免耗時報表阻塞庫存釋放。
 
-> [!warning] 專案決策邊界
-> 專案已確認第一版使用 Hangfire＋SQL Server。Queue、重試、Dashboard 權限、Schema 部署與 Outbox 邊界仍需在實作前定案。
+> [!note] 專案決策邊界
+> 專案已確認 Hangfire＋SQL Server、四個 Queue、4 Workers、3／2／0 類型化重試、SuperAdmin＋TOTP 唯讀 Dashboard、Transactional Outbox、20 筆／5 秒 Dispatcher 與人工稽核重送。只剩套件安裝、Schema、Job／Consumer 程式及整合測試待實作，詳見 [[03-架構/背景工作與Hangfire設計]]。
 
 ## 參考資料
 

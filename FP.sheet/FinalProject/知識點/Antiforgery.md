@@ -134,8 +134,8 @@ function isUnsafeMethod(method: string) {
 - Preflight 允許 `X-XSRF-TOKEN` Header。
 - API 回傳穩定錯誤格式與 Trace ID，不洩漏 Token 值。
 
-> [!warning] 專案決策邊界
-> DEC-P50 已確認所有狀態變更請求使用 Antiforgery Header；Filter／Middleware 方案、Header 名稱、Token Endpoint 與失敗錯誤碼仍待實作設計，正式邊界見 [[03-架構/API共通規範]]。
+> [!note] 專案採用方式
+> 全域保護 Cookie 認證的非安全方法；前端由 `GET /api/v1/security/antiforgery-token` 取得 Request Token，以 `X-XSRF-TOKEN` Header 傳送，失敗回 400＋`antiforgery_validation_failed`。精確 ASP.NET Core 註冊程式屬實作，正式邊界見 [[03-架構/API共通規範]]。
 
 ## 參考資料
 

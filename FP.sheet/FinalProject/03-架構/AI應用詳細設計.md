@@ -1,6 +1,6 @@
 ---
-文件狀態: 部分已確認
-最後更新: 2026-08-12
+文件狀態: 已確認
+最後更新: 2026-08-13
 追蹤項目:
   - AI-01
   - AI-02
@@ -12,7 +12,7 @@
 
 # AI 應用詳細設計
 
-本文件把已確認的 AI 邊界轉成可實作流程。模型分工、API、用途 Enum、補問條件、工具與引用欄位已定案；SearchIntent 其他 Enum、DTO 長度與數量上限仍待契約定版。
+本文件把已確認的 AI 邊界轉成可實作流程。模型分工、API、用途 Enum、補問條件、搜尋意圖、必要規格結構、工具結果、引用、既有零件輸入格式及 DTO 上限均已定案。
 
 ## 共通原則
 
@@ -45,17 +45,17 @@ flowchart TD
 
 ### SearchIntent 契約骨架
 
-下表只固定已確認的業務概念；精確 JSON 型別、Enum 值、長度與數量上限由後續決策定版。
+下表固定已確認的業務概念與主要結構；既有零件支援站內 SKU 或經使用者確認的結構化手填資料。
 
 | 欄位群組 | 意義 | 後端處理 | 狀態 |
 |---|---|---|---|
-| `intent` | 單品、整機或組裝需求 | 只接受白名單 Enum | 精確 Enum 待決策 |
+| `intent` | 單品、整機或組裝需求 | 只接受 `SingleProduct`、`PrebuiltComputer`、`CustomBuild` | 已確認 |
 | `purposes` | 使用目的，可多選 | 固定對應系統用途標籤 | 已確認八項 Enum |
 | `budget` | 預算下限、上限與幣別 | 新台幣、非負值、上下限一致 | 概念已確認 |
 | `brands` | 偏好與排除品牌 | 只對應既有品牌識別 | 概念已確認 |
-| `requiredSpecs` | 必要規格 | 轉成分類規格白名單，不接受 DB 欄名 | 欄位待決策 |
+| `requiredSpecs` | 必要規格 | `{ semanticKey, operator, value, unit }[]`；後端驗證語意鍵與單位白名單 | 主要結構已確認 |
 | `preferences` | 軟性偏好 | 只影響排序，不放寬硬限制 | 概念已確認 |
-| `existingParts` | 已有零件 | 轉成相容性檢查輸入 | 識別格式待決策 |
+| `existingParts` | 已有零件 | 只接受站內 SKU 或使用者確認的結構化手填資料，再交相容性規則 | 已確認 |
 | `clarificationQuestions` | 缺少必要資訊時的補問 | 有值時不執行商品查詢；每次最多 2 題 | 觸發規則已確認 |
 
 `purposes` 只接受：
@@ -72,6 +72,59 @@ General
 ```
 
 模型不得建立新 Enum；無法對應時保留待澄清，而不是把任意文字直接帶入 SQL。
+
+`requiredSpecs.operator` 只允許 `eq`、`gte`、`lte`、`in`。模型不得傳入資料庫欄名；`semanticKey` 與 `unit` 必須由分類規格白名單解析。重複或互相衝突的條件交由後端拒絕或要求澄清，不由模型自行取捨。
+
+### SearchIntent 大小與型別限制
+
+| 項目 | 上限／型別 |
+|---|---|
+| 使用者自然語言輸入 | 2,000 Unicode 字元 |
+| `purposes` | 最多 4 個唯一 Enum |
+| `budget.min`／`max` | decimal 語意、0～10,000,000 TWD |
+| 偏好／排除品牌 | 各最多 5 個既有 Brand PublicId，不可重複或同時偏好與排除 |
+| `requiredSpecs` | 最多 12 筆 |
+| `semanticKey` | 最多 64 個 ASCII 小寫字母、數字、`.`、`_`、`-` |
+| `value` | `string`（100 字）、decimal、boolean 或最多 10 個各 100 字的 string array |
+| `unit` | Null 或最多 16 字元的受控 Unit Code |
+| `preferences` | 最多 10 筆，每筆 Key 64 字、值 100 字 |
+| `existingParts` | 最多 12 筆；使用下列 `ExistingPartInput` Union |
+| `clarificationQuestions` | 最多 2 題，每題 160 字 |
+
+超過上限在呼叫 OpenAI 前回 400；模型回傳超限或型別錯誤視為 Schema 無效，不截斷後繼續查詢。
+
+### ExistingPartInput
+
+```json
+{
+  "source": "CatalogSku",
+  "skuPublicId": "019...",
+  "quantity": 1,
+  "confirmedByUser": true
+}
+```
+
+或：
+
+```json
+{
+  "source": "StructuredManual",
+  "categoryCode": "GPU",
+  "displayName": "使用者既有顯示卡",
+  "quantity": 1,
+  "specifications": [
+    { "semanticKey": "gpu.tgp_w", "value": 285, "unit": "W" }
+  ],
+  "confirmedByUser": true
+}
+```
+
+- `source` 只接受 `CatalogSku` 或 `StructuredManual`；兩種型別欄位互斥。
+- `quantity` 為 1～8；`displayName` 最多 160 字；手填規格最多 12 筆，沿用 requiredSpecs 的 Semantic Key、Value 與 Unit 上限。
+- `CatalogSku` 由後端讀取目前結構化規格，不接受前端同時覆寫規格。
+- `StructuredManual` 必須包含該零件分類參與相容性硬規則的所有必要欄位；缺少時回補問或 `InsufficientData`，不得推測。
+- 自然語言可由 AI 解析成 `ProposedExistingPart` 候選，但候選不得進入 `existingParts` 或相容性計算；前端必須顯示解析欄位並由使用者確認，確認後才設定 `confirmedByUser=true`。
+- AI 不可把自由文字直接匹配成某個站內 SKU；若提供候選 SKU，必須列出可辨識差異並等待使用者選擇。
 
 ### 必要資訊與補問
 
@@ -124,7 +177,18 @@ sequenceDiagram
 | `get_return_policy` | 主題、可選訂單情境 | 適用規則、限制、政策版本與來源 | 政策為公開內容；個案判斷仍以後端資料為準 |
 | `get_public_product_detail` | 系統商品或 SKU 識別 | 公開名稱、規格、價格、庫存狀態與來源 | 只回傳上架且可公開欄位 |
 
-工具發生 `not_found`、`forbidden`、`state_conflict` 或暫時性錯誤時，回傳穩定結果碼，不把內部例外或其他顧客資料交給模型。工具描述需明列輸入、輸出、錯誤及不得推論的範圍；這也符合 OpenAI 對工具契約應明確描述欄位、型別與錯誤行為的建議。
+工具永遠回傳 Result Union：`ok`、`not_found`、`forbidden`、`state_conflict`、`unavailable`。失敗結果只包含安全錯誤碼與模型可見的最小提示，不丟出 Exception 訊息、不回傳 Stack Trace，也不把其他顧客資料交給模型。工具描述需明列輸入、輸出、錯誤、是否可重試及不得推論的範圍。
+
+### 工具 DTO 限制
+
+| 工具 | 輸入上限 | 輸出上限 |
+|---|---|---|
+| `get_my_order_summary` | 訂單編號 32 字 | 最多 30 個明細；狀態／流程提示各 300 字 |
+| `search_public_faq` | Query 500 字、單一受控分類 | 最多 5 筆；每筆答案 1,500 字 |
+| `get_return_policy` | Topic 100 字、單一情境 Enum | 最多 5 條規則；每條 800 字 |
+| `get_public_product_detail` | Product／SKU PublicId | 最多 20 個公開規格；規格顯示值 200 字 |
+
+共同回應的安全訊息最多 300 字、來源最多 8 個；工具結果超過上限時由 Application 依穩定排序裁切並明示 `isTruncated`，不能讓模型猜測遺漏內容。
 
 ### 引用契約骨架
 
@@ -169,4 +233,4 @@ sequenceDiagram
 - 若帳號無法使用選定模型或 Snapshot，不得由開發者自行換模；需記錄成本、品質與相容性後重新決策。
 - OpenAI Request 是否保存必須明確設定，且不取代本系統自身的 90／180 天保存規則。
 
-目前仍需定版 SearchIntent 的 `intent` Enum、規格欄位型別／數量上限，以及四個工具的最終 DTO 長度與錯誤範例。
+既有零件識別格式與 Clarification Precision／Recall 發布門檻均已定版；目前剩餘工作為建立實際 Schema 檔、Stub、120 筆評估資料、基準結果及 Adapter 程式。

@@ -37,6 +37,7 @@ tags:
 
 - [[知識點/Cursor分頁|Cursor 分頁]]
 - [[知識點/SQL Server rowversion|SQL Server rowversion]]
+- [[知識點/資料庫正規化與反正規化|資料庫正規化與反正規化]]
 
 ## 報表與統計
 

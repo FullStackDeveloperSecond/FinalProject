@@ -95,8 +95,8 @@ PrimeVue 的 Styled Mode 使用 design token，分為 primitive、semantic 及 c
 - 升級 PrimeVue 後未檢查 theme package、圖示及元件 breaking changes。
 - 認為元件庫宣告可及性就不需要頁面層測試；實際標籤、焦點順序與錯誤訊息仍由專案負責。
 
-> [!warning] 專案決策邊界
-> 專案已確認前台與後台使用 PrimeVue；套件版本、主題 preset 與包裝層規範仍需在前端基線建立時確認。
+> [!note] 專案決策邊界
+> 專案已確認前台與後台使用 PrimeVue、Styled Mode、Aura 作第一版基礎 Preset，並建立 `ui/` 包裝層。精確套件版本在實際建立前端專案時依 lock file 鎖定，屬安裝實作而非產品決策。
 
 ## 參考資料
 

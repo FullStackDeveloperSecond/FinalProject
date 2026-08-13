@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-12
+最後更新: 2026-08-13
 追蹤項目:
   - DES-11
 ---
@@ -17,6 +17,8 @@
 - 前端以 code 選擇操作及語系文字，不解析中文 `detail`。
 - `401`、`403`、`404` 必須依安全邊界避免洩漏帳號、訂單、附件或其他會員資源是否存在。
 - 欄位格式與一般輸入錯誤使用 `validation_failed` 並在 `errors` 提供欄位；明確業務原因使用下列 code。
+- Endpoint 目錄不得使用 `shipment_*` 等萬用碼；每個可能回傳的錯誤都必須以完整 code 登錄。
+- 檔案上傳只使用本目錄的 `file_*` 系列；舊草稿中的 `attachment_*`、`file_too_large`、`file_type_not_allowed`、`file_signature_mismatch`、`file_scan_rejected` 不得實作。
 
 ## 共通與驗證
 
@@ -35,8 +37,10 @@
 | Code | HTTP | 使用時機 |
 |---|---:|---|
 | `account_email_unverified` | 403 | 會員尚未完成 Email 驗證 |
+| `account_email_in_use` | 409 | 註冊 Email 已存在；只用於註冊提交，不用於忘記密碼或驗證碼申請 |
 | `account_suspended` | 403 | 帳號已停權且 Session／登入被拒絕 |
 | `account_locked` | 423 | 登入失敗達鎖定門檻 |
+| `invalid_credentials` | 401 | Email 或密碼錯誤；不得指出是哪一欄錯誤 |
 | `email_token_invalid` | 400 | Email 驗證 Token 無效、已使用或撤銷 |
 | `email_token_expired` | 400 | Email 驗證 Token 已過期 |
 | `password_reset_token_invalid` | 400 | 重設 Token 無效、已使用或撤銷 |
@@ -54,11 +58,13 @@
 |---|---:|---|
 | `product_unavailable` | 409 | 商品下架、停用或不接受新交易 |
 | `sku_unavailable` | 409 | SKU 停用、下架或不能加入購物車 |
+| `sku_code_duplicate` | 409 | 新增 SKU 的 Code 已存在 |
 | `sku_code_immutable` | 409 | 嘗試修改已建立的 SKU Code |
 | `sku_delete_referenced` | 409 | SKU 已被訂單、庫存或其他資料引用，不能實體刪除 |
 | `search_sort_unsupported` | 400 | 排序欄位或方向不在 Endpoint 白名單 |
 | `search_filter_unsupported` | 400 | 篩選欄位、規格或運算不在白名單 |
 | `sale_price_period_overlap` | 409 | 同一 SKU 的有效特價期間重疊 |
+| `specification_invalid` | 400 | 規格語意鍵、型別、單位或值不符合分類規格定義 |
 | `import_format_unsupported` | 400 | 不是支援的 XLSX／CSV 格式或版本 |
 | `import_dataset_missing` | 400 | Product、SKU 或 Specification 必要資料集缺少 |
 | `import_lookup_not_found` | 400 | 分類、品牌或規格語意鍵不存在 |
@@ -86,7 +92,9 @@
 | `inventory_insufficient` | 409 | 任一 SKU 可售庫存不足，訂單整筆回滾 |
 | `inventory_reservation_not_active` | 409 | 嘗試消耗或釋放非 Active 保留 |
 | `inventory_reservation_already_processed` | 409 | 保留已消耗、釋放或逾時 |
+| `inventory_import_validation_failed` | 400 | 庫存調整預覽含錯誤，整批不得提交 |
 | `order_state_conflict` | 409 | 目前訂單狀態不允許所要求操作 |
+| `order_total_changed` | 409 | 結帳重算後總額與使用者確認快照不同，需重新確認 |
 | `order_cancellation_not_allowed` | 409 | 訂單已出貨、組裝已開始或不符合取消條件 |
 | `order_payment_deadline_expired` | 409 | 訂單付款期限已到，不能建立新付款嘗試 |
 | `coupon_invalid` | 400 | 優惠碼格式或基本資料無效 |
@@ -100,6 +108,8 @@
 | Code | HTTP | 使用時機 |
 |---|---:|---|
 | `payment_method_not_allowed` | 409 | 訂單、商品或配送方式不允許該付款方式 |
+| `payment_state_conflict` | 409 | 付款嘗試目前狀態不允許要求的完成、失敗或逾時操作 |
+| `payment_attempt_expired` | 409 | 指定付款嘗試已超過自身有效期限 |
 | `payment_cod_amount_exceeded` | 409 | COD 最終應付金額超過 NT$20,000 |
 | `payment_cod_restricted_item` | 409 | COD 訂單含組裝電腦或限制品 |
 | `payment_event_duplicate` | 409 | Provider Event 已處理；API 可依 Provider 契約回安全冪等結果 |
@@ -109,6 +119,8 @@
 | `shipping_tracking_duplicate` | 409 | 物流單號已被使用 |
 | `shipping_batch_limit_exceeded` | 400 | 批次出貨超過 100 筆 |
 | `shipping_order_not_ready` | 409 | 付款、組裝、保留或狀態尚未符合出貨條件 |
+| `package_limit_period_overlap` | 409 | 同一物流 Provider 的包裹限制版本生效期間重疊 |
+| `store_code_duplicate` | 409 | 同一 Provider 下的示範門市代碼已存在 |
 | `return_deadline_expired` | 409 | 不符合一般退貨期限且不屬例外原因 |
 | `return_quantity_exceeded` | 409 | 申請數量超過可退數量 |
 | `return_shipment_deadline_expired` | 409 | 核准後未在期限內交寄，申請已取消 |
@@ -116,18 +128,20 @@
 | `refund_amount_exceeded` | 409 | 金額超過可退款餘額 |
 | `refund_state_conflict` | 409 | 退款交易目前狀態不允許操作 |
 
-## 客服、附件與 AI
+## 客服、檔案上傳與 AI
 
 | Code | HTTP | 使用時機 |
 |---|---:|---|
 | `support_ticket_state_conflict` | 409 | 目前客服狀態不允許操作 |
 | `support_ticket_cancel_not_allowed` | 409 | 顧客已超過取消邊界或操作者無取消條件 |
 | `support_ticket_assignment_conflict` | 409 | 案件已由其他客服領取或轉派 |
-| `attachment_count_exceeded` | 400 | 案件附件超過 3 個 |
-| `attachment_size_exceeded` | 400 | 單一附件超過 10 MB |
-| `attachment_format_invalid` | 400 | 副檔名、MIME 或檔案簽章不允許 |
-| `attachment_scan_failed` | 503 | Defender 不可用、逾時或結果不明，採 Fail Closed |
-| `attachment_malware_detected` | 400 | 掃描確認惡意內容 |
+| `file_count_exceeded` | 400 | 同一資源的檔案數超過該 Endpoint 上限；尚未讀取檔案內容 |
+| `file_size_exceeded` | 413 | 單檔或整體 Multipart 超過 Endpoint 上限 |
+| `file_format_invalid` | 415 | 副檔名、MIME 或檔案簽章不在白名單或彼此不一致 |
+| `file_malware_detected` | 422 | 格式可解析，但 Defender 確認內容有惡意程式 |
+| `file_scan_unavailable` | 503 | Defender 不可用、逾時或結果不明，採 Fail Closed |
+| `image_processing_failed` | 422 | 圖片格式已接受，但無法解碼、轉向或產生安全衍生圖 |
+| `image_metadata_incomplete` | 422 | 商品圖片缺少第一版要求的 Alt、來源或授權欄位 |
 | `ai_consent_required` | 409 | 尚未同意目前 AI 處理版本 |
 | `ai_usage_limit_exceeded` | 429 | 使用者當日 AI 額度已用完 |
 | `ai_budget_protection_active` | 503 | 非 Demo 流量因成本門檻停用 |
@@ -135,6 +149,19 @@
 | `ai_service_unavailable` | 503 | OpenAI 逾時、限流或暫時性錯誤重試後仍失敗 |
 | `ai_order_access_denied` | 404 | AI 工具嘗試取得非當前會員訂單 |
 | `ai_tool_not_allowed` | 403 | 模型要求未列入白名單或寫入型工具 |
+
+## 報表
+
+| Code | HTTP | 使用時機 |
+|---|---:|---|
+| `report_key_invalid` | 400 | Report Key 不存在、不在第一版白名單或不支援該輸出形式 |
+| `report_range_invalid` | 400 | 日期區間、粒度或比較期間不符合該報表限制 |
+
+## Endpoint 覆蓋稽核
+
+- 2026-08-13 稽核發現 53 筆未正式登錄引用：52 個明確別名與 1 個 `shipment_*` 萬用碼。
+- 已將同義別名改為本目錄既有 code，新增確實具有不同前端處理方式的 code，並把 `shipment_*` 拆成三個正式物流錯誤。
+- 驗收條件：[[03-架構/API Endpoint目錄]] 中所有反引號包覆的 snake_case 錯誤碼都必須存在於本目錄；自動檢查結果必須為 `Missing = 0`。
 
 ## 維護與驗收
 

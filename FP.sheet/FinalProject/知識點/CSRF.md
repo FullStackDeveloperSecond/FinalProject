@@ -118,8 +118,8 @@ CORS 主要限制瀏覽器能否讓 JavaScript **讀取**跨來源回應，不�
 - 登入、登出與切換帳號後舊 Token 的行為符合設計。
 - `GET` 端點不產生資料變更。
 
-> [!warning] 專案決策邊界
-> DEC-P50 已確認明確 Origin 白名單＋Credentials，並要求所有狀態變更請求使用 Antiforgery Header；Header 名稱、Token Endpoint 與驗證套用方式仍待實作設計，正式邊界見 [[03-架構/API共通規範]]。
+> [!note] 專案採用方式
+> 專案採明確 Origin 白名單＋Credentials，Cookie 認證的狀態變更請求全域驗證 Antiforgery；Header 為 `X-XSRF-TOKEN`，Token Endpoint 為 `/api/v1/security/antiforgery-token`，詳見 [[03-架構/API共通規範]]。
 
 ## 參考資料
 
