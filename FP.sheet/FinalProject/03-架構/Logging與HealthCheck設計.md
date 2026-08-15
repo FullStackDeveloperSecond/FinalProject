@@ -1,6 +1,6 @@
 ---
-文件狀態: 部分已確認
-最後更新: 2026-08-12
+文件狀態: 已確認
+最後更新: 2026-08-15
 追蹤項目:
   - TECH-07
 ---
@@ -11,6 +11,7 @@
 
 - 使用 Serilog，輸出結構化 JSON 至 Console 與每日 Rolling File。
 - HTTP Request Log 至少包含時間、Level、Request Method、Path Template、Status、Elapsed、Correlation ID、Trace ID 及使用者類型。
+- HTTP Request 的 Correlation Header 固定為 `X-Correlation-ID`；只接受 1～64 字元 ASCII 英數、`-`、`_`、`.`，無效或缺少時由 API 重建，並在 Response Header 與 Problem Details `correlationId` 回傳。
 - 背景工作、Email、OpenAI、模擬付款與物流呼叫沿用同一 Correlation／Trace 關聯。
 - 不記錄密碼、Cookie、Anti-forgery Token、API Key、連線字串、完整地址、完整付款資料或未遮蔽 AI 個資。
 - Rolling File 保存 14 天；單檔達 100 MB 後切檔，Log 總量達 2 GB 時提出磁碟容量警告。

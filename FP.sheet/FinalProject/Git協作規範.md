@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-11
+最後更新: 2026-08-14
 追蹤項目:
   - DEV-01
 ---
@@ -79,6 +79,13 @@ PR 合併前至少通過：
 
 只有組長核准與必要自動檢查皆通過後才能合併。合併到 `dev` 後執行五條核心 Playwright E2E；實際五條流程由 [[03-架構/測試策略]] 追蹤。
 
+### GitHub 合併與保護設定
+
+- `main` 與 `dev` 依本文件使用受保護分支與 PR 流程，組員不得直接 Push。
+- Repository 允許的 PR 合併方式固定為 **Squash Merge**，不使用 Merge Commit 或 Rebase Merge 合併 PR。
+- 組長帳號保留 Branch Protection／Repository Rules 的 Bypass 權限；其他組員仍必須遵守 PR、核准與必要檢查。
+- PR 合併後由 GitHub 自動刪除來源分支，避免已完成的遠端短分支持續累積。
+
 ## 3. 用最新 `dev` 更新自己的 Branch
 
 開發期間需要同步 `dev` 時，使用 **Rebase**，不要一直把 `dev` Merge 進自己的 Branch。
@@ -128,3 +135,10 @@ git rebase --abort
 - 只 Rebase 自己的個人 Branch，不要 Rebase `main`、`dev` 或其他組員的 Branch。
 - 不要反覆執行 `git merge dev`，避免產生大量無意義的 Merge Commit。
 - 不要使用 `git push --force`；一律使用較安全的 `git push --force-with-lease`。
+
+## 4. Obsidian 設定提交邊界
+
+- `.obsidian/appearance.json` 的共用外觀設定可以提交；提交前必須確認不是個人暫時操作造成的變更。
+- `.obsidian/graph.json` 保留儲存庫既有基準，但後續本機 Graph View 變更不得納入 Commit。
+- 暫時性的介面縮放比例不是專案設定，出現變更時恢復成儲存庫版本，不提交。
+- Commit 前應以 `git diff` 個別確認 Obsidian 設定檔，不能因為位於同一資料夾就整批加入。

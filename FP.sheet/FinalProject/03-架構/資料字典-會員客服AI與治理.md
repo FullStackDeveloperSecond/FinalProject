@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-13
+最後更新: 2026-08-15
 追蹤項目:
   - DES-07
   - DES-08
@@ -102,7 +102,7 @@
 | Table／Profile | 額外欄位 | Constraint／Index |
 |---|---|---|
 | `ImportBatches`／MutableEntity | `ImportType varchar(24)`、`TemplateVersion int`、`Status varchar(24)`、`OwnerAdminUserId nvarchar(450)`、`ContentHash binary(32)`、`Total/New/Updated/Unchanged/ErrorCount int`、`ExpiresAtUtc/ConfirmedAtUtc datetime2(3) NULL`、`ResultSummary nvarchar(1000) NULL` | 同 Owner＋Type 最多一個未結束 Filtered UX；`IX_ImportBatches_Status_ExpiresAtUtc` |
-| `ImportRows` | `Id bigint identity`、`ImportBatchId bigint`、`Dataset varchar(32)`、`SourceRowNumber int`、`ImportKey nvarchar(64)`、`Action varchar(16)`、`NormalizedPayloadJson nvarchar(max)`、`RawJson nvarchar(max) NULL`、`RowHash binary(32)`、`ErrorCodes nvarchar(2000) NULL` | Batch Cascade 白名單；Application 限兩個 JSON 各 32 KB；`UX_ImportRows_Batch_Dataset_Row` |
+| `ImportRows` | `Id bigint identity`、`ImportBatchId bigint`、`Dataset varchar(32)`、`SourceRowNumber int`、`ImportKey nvarchar(64)`、`Action varchar(16)`、`NormalizedPayloadJson nvarchar(max)`、`RawJson nvarchar(max) NULL`、`RowHash binary(32)`、`ErrorCodes nvarchar(2000) NULL` | 正式名稱固定為 `Dataset`／`RawJson`，不得改用 `DatasetType`／`RawPayloadJson`；Batch Cascade 白名單；Application 限兩個 JSON 各 32 KB；`UX_ImportRows_Batch_Dataset_Row`；批次內 ImportKey 唯一 |
 | `OutboxMessages`／Entity | `EventId uniqueidentifier`、`EventType nvarchar(128)`、`SchemaVersion int`、`AggregateType nvarchar(64)`、`AggregatePublicId uniqueidentifier`、`PayloadJson nvarchar(8000)`、`OccurredAtUtc/AvailableAtUtc datetime2(3)`、`ProcessedAtUtc datetime2(3) NULL`、`AttemptCount int`、`Status varchar(24)`、`LastErrorCode nvarchar(64) NULL` | EventId UX；`IX_OutboxMessages_Status_AvailableAtUtc`；Payload 最小化 |
 | `IdempotencyRecords`／MutableEntity | `Scope nvarchar(128)`、`KeyHash binary(32)`、`RequestHash binary(32)`、`Status varchar(16)`、`ResponseStatus int NULL`、`ResponseBody nvarchar(8000) NULL`、`ExpiresAtUtc datetime2(3)` | `UX_IdempotencyRecords_Scope_KeyHash`；相同 Key 不同 RequestHash 回 409 |
 | `AuditLogs`／Entity | `ActorUserPublicId uniqueidentifier NULL`、`ActorRoleSnapshot nvarchar(500) NULL`、`Action nvarchar(128)`、`EntityType nvarchar(64)`、`EntityPublicId uniqueidentifier NULL`、`Outcome varchar(24)`、`BeforeJson/AfterJson nvarchar(16000) NULL`、`Reason nvarchar(1000) NULL`、`IpAddress varchar(45) NULL`、`TraceId nvarchar(64)`、`OccurredAtUtc datetime2(3)`、`RetentionUntilUtc datetime2(3) NULL`、`LegalHold bit` | append-only；`IX_AuditLogs_EntityType_EntityPublicId_OccurredAtUtc`、`IX_AuditLogs_Actor_OccurredAtUtc` |

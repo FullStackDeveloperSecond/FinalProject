@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-12
+最後更新: 2026-08-14
 追蹤項目:
   - TECH-03
 ---
@@ -9,11 +9,24 @@
 
 ## 選型
 
-- ASP.NET Core API 產生 OpenAPI 文件。
+- API 專案採 ASP.NET Core Web API Controller 範本建立：`dotnet new webapi --use-controllers`。
+- 商業 API 以 Controller 與 `[ApiController]` 實作，不以 Minimal API 作為主要端點形式。
+- 使用 `Microsoft.AspNetCore.OpenApi` 產生第一方 OpenAPI 文件，預設 JSON 位址為 `/openapi/v1.json`。
+- 使用 `Scalar.AspNetCore` 提供互動式 API 文件介面。
+- OpenAPI JSON 與 Scalar 介面只在 `Development` 環境啟用。
+- 不安裝 Swagger UI，避免同時維護兩套互動式文件介面。
 - `openapi-typescript` 將 OpenAPI Schema 轉成 TypeScript 型別。
 - `openapi-fetch` 提供 typed fetch client。
 - 前台與後台使用同一份產生型別及共用 wrapper；產生檔不可手動修改。
 - 套件精確版本由 lock file 固定，升級必須重新產生、Typecheck 並通過契約 Diff。
+
+## API 啟動設定基準
+
+- 服務註冊：`AddControllers()`、`AddOpenApi()`。
+- 端點映射：`MapControllers()`。
+- 僅在 `app.Environment.IsDevelopment()` 成立時映射 `MapOpenApi()` 與 `MapScalarApiReference()`。
+- Scalar 讀取 `/openapi/v1.json`，不得另建人工維護的第二份 API 規格。
+- 健康檢查、OpenAPI 等框架型基礎設施端點可使用框架提供的映射方法；商業領域端點仍使用 Controller。
 
 ## 目錄責任
 

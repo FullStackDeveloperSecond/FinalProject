@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認（邏輯模型）
-最後更新: 2026-08-13
+最後更新: 2026-08-15
 追蹤項目:
   - DES-07
   - DES-08
@@ -77,12 +77,19 @@ erDiagram
     Order ||--o{ OrderCoupon : applies
     Coupon ||--o{ OrderCoupon : snapshots
     Coupon ||--o{ CouponRedemption : redeems
+    Coupon ||--o{ CouponCategory : includes
+    Category ||--o{ CouponCategory : scopes
+    Coupon ||--o{ CouponProduct : includes
+    Product ||--o{ CouponProduct : scopes
+    Coupon ||--o{ CouponExcludedProduct : excludes
+    Product ||--o{ CouponExcludedProduct : excluded
 ```
 
 - OrderItem 保存商品名稱、SKU、成交單價、成本、折扣分攤、組裝群組及數量快照。
 - Order 保存收件、運費、免運規則、組裝費、優惠與總額快照；歷史訂單不受後台設定變更影響。
 - 會員 Address 是可變主資料；Order 以明確 Owned 欄位保存不可變地址快照。
 - OrderCoupon 保存優惠與規則版本快照，OrderItem 保存實際折扣分攤；退款不得查目前 Coupon 重算。
+- Coupon 以 ScopeType 搭配分類、商品與排除商品三張正規化關聯表定義範圍；排除優先，第一版不以 Promotions 重複保存 SalePrice。
 - Shipment／Order 保存 Provider Profile Version FK 及成立時門市、限制與運費精確值。
 - PaymentAttempt 與物流模擬通知需要外部識別、冪等鍵、狀態及原始事件摘要。
 - 訪客訂單不強制關聯 Member，使用另行保護的存取 Token 查詢。

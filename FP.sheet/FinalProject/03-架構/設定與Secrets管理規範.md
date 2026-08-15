@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-13
+最後更新: 2026-08-14
 追蹤項目:
   - DEV-05
 ---
@@ -13,7 +13,7 @@
 |---|---|---|
 | 公開設定 | API Base URL、語系、Feature Flag 顯示值 | `appsettings*.json` 或 Vue `VITE_*`；可進 Git |
 | 環境設定 | SQL Instance、資料根目錄、Log Level | 未含憑證者可放未追蹤的本機設定；提供 `.example` |
-| Secret | Connection String 密碼、OpenAI API Key、Brevo SMTP Key、Cookie／Data Protection Key | .NET User Secrets（開發）或系統環境變數（Demo）；不得進 Git／Vue Bundle |
+| Secret | 含密碼的 Connection String、OpenAI API Key、Brevo SMTP Key、Cookie／Data Protection Key | .NET User Secrets（開發）或系統環境變數（Demo）；不得進 Git／Vue Bundle |
 | 一次性 Token | Email 驗證、密碼重設、Guest Order OTP | 由後端短期產生／驗證；不寫設定檔或 Log |
 
 ## 設定來源與優先序
@@ -34,7 +34,7 @@ appsettings.json
 
 | Key | Secret | 必填條件 |
 |---|:---:|---|
-| `ConnectionStrings__DefaultConnection` | ✓ | API 啟動必填 |
+| `ConnectionStrings__DefaultConnection` | 條件 | API 啟動必填；目前 Windows Authentication 範例不含 Secret，若改用 SQL Login 則整值為 Secret |
 | `OpenAI__ApiKey` | ✓ | AI 功能啟用時必填 |
 | `OpenAI__Model` |  | 有安全預設，可由設定覆寫 |
 | `Email__SmtpHost` |  | Email 功能啟用時必填 |
@@ -52,11 +52,25 @@ Vue 只允許 `VITE_API_BASE_URL`、`VITE_APP_DISPLAY_NAME`、`VITE_DEFAULT_LOCA
 
 ## 團隊設定流程
 
-1. Repository 只保存 `appsettings.Development.example.json` 與 `.env.example` 的 Key／假值。
+1. Repository 只保存 `appsettings.Development.example.json` 與 `.env.example` 的 Key／假值；SQL 可保存 Windows Authentication 無密碼範例，不保存 SQL Login 密碼。
 2. 每位開發者以 `dotnet user-secrets set <Key> <Value>` 設定本機 Secret，不在聊天、Issue 或 PR 貼值。
 3. 組長以面對面或受控密碼管理工具提供必要 Secret；更換成員或疑似外洩立即 Rotation。
 4. 啟動前 Configuration Validation 只回報缺少的 Key 名，不輸出值。
 5. Log、Health Check、Problem Details、Audit 與備份 Manifest 只顯示 Provider 是否已設定，不顯示帳號或 Secret。
+
+## SQL Server 連線設定
+
+本機與 Demo 採 Windows Authentication：
+
+```text
+ConnectionStrings:DefaultConnection
+Server=.\SQL2025;Database=DoSelectDb;Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=True;
+```
+
+- `ConnectionStrings:DefaultConnection` 是 .NET Configuration Key；環境變數使用 `ConnectionStrings__DefaultConnection`。
+- 上述範例沒有密碼，可以作為文件與 `.example` 值；實際執行者仍只取得 Windows 身分已獲授權的資料庫權限。
+- User Secrets 可用 `dotnet user-secrets set "ConnectionStrings:DefaultConnection" "<local value>"` 覆寫本機 Instance；文件不得填入任何成員的 Windows Credential。
+- 若未來改成 SQL Login、雲端資料庫或非 Windows Host，必須重新審查 TLS、Credential Rotation、最小權限與 CI Secret；不得把 `User ID`／`Password` 直接加進已追蹤設定檔。
 
 ## Demo 電腦
 

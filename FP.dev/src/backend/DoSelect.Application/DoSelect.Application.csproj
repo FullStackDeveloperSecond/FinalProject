@@ -1,0 +1,7 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\DoSelect.Domain\DoSelect.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

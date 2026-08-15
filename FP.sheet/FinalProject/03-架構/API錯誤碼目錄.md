@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-13
+最後更新: 2026-08-15
 追蹤項目:
   - DES-11
 ---
@@ -31,6 +31,11 @@
 | `concurrency_conflict` | 409 | `rowversion` 或版本已被其他人更新 | 重新載入後再操作 |
 | `idempotency_payload_conflict` | 409 | 同一 Idempotency-Key 搭配不同 Payload | 不自動重試或換 Key 重送同操作 |
 | `rate_limit_exceeded` | 429 | 登入、驗證、AI 或其他用途超過限制 | 顯示可安全揭露的重試時間 |
+| `request_method_not_allowed` | 405 | Route 存在但 HTTP Method 不支援 | 修正 Method，不自動重送寫入操作 |
+| `request_content_type_unsupported` | 415 | Request Content-Type 不受端點支援 | 使用 OpenAPI 宣告的媒體類型重送 |
+| `request_conflict` | 409 | 回應沒有更精確領域 code 的一般衝突保底；商業端點不得用它取代具名衝突 | 重新取得最新狀態；開發端應補上精確領域 code |
+| `service_unavailable` | 503 | API 必要依賴或基礎能力暫時不可用，且沒有更精確領域 code | 顯示稍後重試；不得洩漏依賴名稱或拓樸 |
+| `unexpected_error` | 500 | 未處理例外或無法安全分類的伺服器錯誤 | 顯示通用錯誤並以 traceId／correlationId 協助查詢 |
 
 ## 會員與管理員驗證
 
@@ -57,6 +62,10 @@
 | Code | HTTP | 使用時機 |
 |---|---:|---|
 | `product_unavailable` | 409 | 商品下架、停用或不接受新交易 |
+| `product_code_duplicate` | 409 | 新增商品的 Product Code 已存在 |
+| `brand_code_duplicate` | 409 | 品牌 Code 已存在 |
+| `category_code_duplicate` | 409 | 分類 Code 已存在 |
+| `tag_code_duplicate` | 409 | 標籤 Code 已存在 |
 | `sku_unavailable` | 409 | SKU 停用、下架或不能加入購物車 |
 | `sku_code_duplicate` | 409 | 新增 SKU 的 Code 已存在 |
 | `sku_code_immutable` | 409 | 嘗試修改已建立的 SKU Code |
@@ -65,6 +74,9 @@
 | `search_filter_unsupported` | 400 | 篩選欄位、規格或運算不在白名單 |
 | `sale_price_period_overlap` | 409 | 同一 SKU 的有效特價期間重疊 |
 | `specification_invalid` | 400 | 規格語意鍵、型別、單位或值不符合分類規格定義 |
+| `specification_semantic_key_duplicate` | 409 | 同一範圍的規格語意鍵已存在 |
+| `specification_definition_referenced` | 409 | 規格定義已被商品、搜尋、匯入或相容性規則引用，只能停用 |
+| `compatibility_threshold_out_of_range` | 400 | 相容性警告門檻不在程式允許的安全範圍 |
 | `import_format_unsupported` | 400 | 不是支援的 XLSX／CSV 格式或版本 |
 | `import_dataset_missing` | 400 | Product、SKU 或 Specification 必要資料集缺少 |
 | `import_lookup_not_found` | 400 | 分類、品牌或規格語意鍵不存在 |
@@ -72,6 +84,8 @@
 | `import_sku_update_not_found` | 400 | 指定更新的 SKU Code 不存在 |
 | `import_validation_failed` | 400 | 匯入預覽含一個以上逐欄錯誤，禁止提交 |
 | `import_preview_expired` | 409 | 提交所引用的預覽已失效或來源檔改變 |
+| `import_already_committed` | 409 | 匯入批次已成功提交，不得再次提交 |
+| `import_batch_expired` | 410 | 匯入批次已超過 24 小時保存期限 |
 
 ## 購物車、組裝與相容性
 
@@ -102,6 +116,8 @@
 | `coupon_not_applicable` | 409 | 商品、分類、會員或最低消費不符合 |
 | `coupon_usage_exhausted` | 409 | 總量或每人次數已用完 |
 | `coupon_multiple_not_allowed` | 409 | 同一訂單嘗試使用多張優惠券 |
+| `coupon_code_duplicate` | 409 | 建立或修改的優惠碼與既有優惠券重複 |
+| `coupon_state_conflict` | 409 | 優惠券目前狀態不允許啟用、暫停、停用或修改 |
 
 ## 付款、物流、退貨與退款
 
@@ -124,6 +140,7 @@
 | `return_deadline_expired` | 409 | 不符合一般退貨期限且不屬例外原因 |
 | `return_quantity_exceeded` | 409 | 申請數量超過可退數量 |
 | `return_shipment_deadline_expired` | 409 | 核准後未在期限內交寄，申請已取消 |
+| `return_shipment_extension_not_allowed` | 409 | 退貨交寄期限已到、已延長一次或目前狀態不允許延長 |
 | `return_state_conflict` | 409 | 目前退貨狀態不允許操作 |
 | `refund_amount_exceeded` | 409 | 金額超過可退款餘額 |
 | `refund_state_conflict` | 409 | 退款交易目前狀態不允許操作 |
@@ -161,6 +178,7 @@
 
 - 2026-08-13 稽核發現 53 筆未正式登錄引用：52 個明確別名與 1 個 `shipment_*` 萬用碼。
 - 已將同義別名改為本目錄既有 code，新增確實具有不同前端處理方式的 code，並把 `shipment_*` 拆成三個正式物流錯誤。
+- 2026-08-14 因 M 桌面 UI 補齊商品、會員、購物車、訂單、型錄、庫存、售後、優惠券及客服支撐 Endpoint；同步新增 12 個具有獨立前端處理語意的正式 code，再次自動稽核結果為 `Missing = 0`。
 - 驗收條件：[[03-架構/API Endpoint目錄]] 中所有反引號包覆的 snake_case 錯誤碼都必須存在於本目錄；自動檢查結果必須為 `Missing = 0`。
 
 ## 維護與驗收
