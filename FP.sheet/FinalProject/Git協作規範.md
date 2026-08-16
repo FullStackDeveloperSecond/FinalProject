@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-15
+最後更新: 2026-08-16
 追蹤項目:
   - DEV-01
   - DEV-06
@@ -78,7 +78,7 @@ PR 合併前至少通過：
 - `Frontend (customer-web)`、`Frontend (admin-web)`：鎖檔安裝、Type Check、零警告 Lint、單元／元件測試、Production Build 與正式相依弱點檢查。
 - Migration、登入授權、金額退款或庫存相關變更必須附對應測試。
 
-Branch Protection 固定要求彙總 Check `CI Required`；只有 `Backend` 與兩個 Frontend Job 全部成功才會通過。只有組長核准與必要自動檢查皆通過後才能合併。合併到 `dev` 後執行五條核心 Playwright E2E；實際五條流程由 [[03-架構/測試策略]] 追蹤。
+Branch Protection 固定要求彙總 Check `CI Required`；只有 `Backend` 與兩個 Frontend Job 全部成功才會通過。`main`／`dev` 均使用 Strict Status Check，PR 必須先更新至最新目標分支並重新通過。只有組長核准與必要自動檢查皆通過後才能合併。合併到 `dev` 後執行五條核心 Playwright E2E；實際五條流程由 [[03-架構/測試策略]] 追蹤。
 
 ### GitHub 合併與保護設定
 
