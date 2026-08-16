@@ -77,12 +77,24 @@ npm run dev
 
 Development 環境提供 `/openapi/v1.json` 與 Scalar 互動式 API 文件；非 Development 環境不映射這兩個端點。
 
+第一次啟動前可將 `src/backend/DoSelect.Api/appsettings.Development.example.json` 複製為未追蹤的 `appsettings.Development.json`，再依本機環境調整非敏感設定；OpenAI 與 SMTP Secret 使用 .NET User Secrets 或環境變數，不得填入範例檔。AI 與 Email 預設停用，因此 Fresh Clone 不需要 Secret 即可啟動；若明確啟用但缺少必要 Key，API 會在啟動時失敗。
+
+健康檢查：
+
+- `GET /health/live`：確認 API 程序可處理請求。
+- `GET /health/ready`：目前確認本機 `Storage:DataRoot` 可寫；SQL Server、Migration 與 Hangfire 檢查待其 Infrastructure 完成後加入。
+- 公開回應只包含 `status`，不輸出實體路徑、連線資訊或例外。
+
+Serilog 會將結構化 JSON 輸出到 Console，並在 `{Storage:DataRoot}/logs` 建立每日 Rolling File；單檔 100 MB、最長保存 14 天且最多 20 個檔案。可在測試設定 `Observability:FileLoggingEnabled=false` 停用檔案輸出。
+
 API 共通管線已提供：
 
 - `X-Correlation-ID` Request／Response Header；缺少或不合法時由 API 產生。
 - RFC Problem Details，固定包含穩定 `code`、`traceId` 與 `correlationId`。
 - `[ApiController]` DataAnnotations／Model Binding 驗證失敗的統一 400 回應。
 - 全域未處理例外安全轉換與無 Body HTTP 錯誤的 Problem Details 回應。
+- Serilog 結構化 Request Log，包含 Path Template、狀態碼、耗時、Correlation ID、Trace ID 與使用者類型。
+- 啟動時條件式設定驗證；錯誤只列 Configuration Key，不輸出 Secret 值。
 
 ## 目前邊界
 

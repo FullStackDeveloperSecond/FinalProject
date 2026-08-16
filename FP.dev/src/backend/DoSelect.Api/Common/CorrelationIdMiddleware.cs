@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace DoSelect.Api.Common;
 
 public sealed class CorrelationIdMiddleware
@@ -16,6 +18,7 @@ public sealed class CorrelationIdMiddleware
     public async Task InvokeAsync(HttpContext context, ILogger<CorrelationIdMiddleware> logger)
     {
         var correlationId = GetOrCreateCorrelationId(context);
+        var traceId = Activity.Current?.TraceId.ToString() ?? context.TraceIdentifier;
 
         context.Items[ItemKey] = correlationId;
         context.TraceIdentifier = correlationId;
@@ -31,6 +34,7 @@ public sealed class CorrelationIdMiddleware
         using (logger.BeginScope(new Dictionary<string, object>
         {
             ["CorrelationId"] = correlationId,
+            ["TraceId"] = traceId,
         }))
         {
             await _next(context);

@@ -41,7 +41,7 @@ Health Check 也不應執行昂貴查詢或產生商業副作用。需要較深�
 Port 已開不代表應用程式可用。啟動腳本應等 Readiness 通過；監控則需關注狀態改變及持續時間，避免每次輪詢都產生大量 Log。
 
 > [!note] 專案決策邊界
-> 專案使用 `/health/live` 與 `/health/ready`；SQL Server 與必要本機目錄屬 Ready 條件，OpenAI／Brevo 可 Degraded。正式內容見 [[03-架構/Logging與HealthCheck設計]]。
+> 專案使用 `/health/live` 與 `/health/ready`；v1 目標以 SQL Server 與必要本機目錄作為 Ready 條件，OpenAI／Brevo可 Degraded。SH-11A 第一階段目前只實作本機資料根目錄可寫探針，SQL／Migration／Hangfire 待 Infrastructure 完成後加入。正式內容見 [[03-架構/Logging與HealthCheck設計]]。
 
 ## 參考資料
 

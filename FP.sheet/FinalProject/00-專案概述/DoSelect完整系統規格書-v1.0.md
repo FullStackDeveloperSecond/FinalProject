@@ -635,7 +635,7 @@ AvailableQuantity = OnHandQuantity - ReservedQuantity
 ### 16.2 可用性與復原
 
 - AI、Email 或背景工作失敗不得拖垮交易主流程；錯誤需可觀測、可重試及可降級。
-- `/health/live` 檢查 Process；`/health/ready` 檢查 SQL Server 與必要依賴。
+- `/health/live` 檢查 Process；`/health/ready` 的 v1 目標檢查 SQL Server 與必要依賴。SH-11A 第一階段先驗證本機資料根目錄可寫，SQL／Migration／Hangfire 依 Infrastructure 完成後加入。
 - 可由空白資料庫套 Migration、固定 Seed 重建；重設不得覆蓋 Secret。
 - 每日完整備份，重大 Migration／Demo 重設前額外備份；RPO 24 小時、RTO 2 小時。
 
@@ -645,7 +645,7 @@ AvailableQuantity = OnHandQuantity - ReservedQuantity
 - 前台支援 Chrome、Edge、Firefox、Safari 最新及前一版；後台支援 Chrome、Edge 最新及前一版。
 - 第一版前後台繁中；日文、韓文及長字串格式為 S。
 - Domain＋Application 行覆蓋率 ≥70%；前端核心 Composable／Store ≥60%。
-- Rolling Log 14 天、單檔 100MB；總量 2GB 警告；一般 Log 只記 PublicId 及遮蔽 IP。
+- Rolling Log 最長 14 天、單檔 100 MB、最多 20 檔，將理論上限控制在約 2 GB；一般 Log 只記 PublicId 及遮蔽 IP。
 
 ## 17. 測試、驗收與交付閘門
 

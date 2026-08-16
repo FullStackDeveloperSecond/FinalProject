@@ -1,8 +1,9 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-14
+最後更新: 2026-08-16
 追蹤項目:
   - DEV-05
+  - DEV-08
 ---
 
 # 設定與 Secrets 管理規範
@@ -42,17 +43,18 @@ appsettings.json
 | `Email__UserName` | ✓ | Brevo SMTP 啟用時必填 |
 | `Email__Password` | ✓ | Brevo SMTP 啟用時必填 |
 | `Email__SenderAddress` |  | 必須是已驗證寄件者 |
-| `Storage__DataRoot` |  | Demo 預設 `E:\FinalProjectData`，啟動時驗證絕對路徑 |
+| `Storage__DataRoot` |  | Development 未覆寫時使用系統暫存目錄下的 `DoSelectData`；Demo 設為 `E:\FinalProjectData`；啟動時驗證為非磁碟根目錄的絕對路徑，檔案 Logging 啟用時另驗證可寫 |
 | `Security__DataProtectionKeyPath` | ✓ | Demo 固定登入／Token 跨重啟時必填 |
-| `Features__AiEnabled` |  | Boolean；缺 OpenAI Key 時強制降級 false |
-| `Features__EmailEnabled` |  | Boolean；缺 SMTP Secret 時強制降級 false |
+| `Features__AiEnabled` |  | Boolean，安全預設 `false`；明確設為 `true` 時必須通過 OpenAI 設定驗證 |
+| `Features__EmailEnabled` |  | Boolean，安全預設 `false`；明確設為 `true` 時必須通過 SMTP 設定驗證 |
+| `Observability__FileLoggingEnabled` |  | Boolean，預設 `true`；停用時只保留 Console JSON |
 | `Demo__SimulationEndpointsEnabled` |  | 只允許 Demo Environment 為 true |
 
 Vue 只允許 `VITE_API_BASE_URL`、`VITE_APP_DISPLAY_NAME`、`VITE_DEFAULT_LOCALE` 等公開值。任何 `VITE_*` 都視為會出現在瀏覽器，不得放 API Key、SMTP、Connection String、JWT／Cookie Key。
 
 ## 團隊設定流程
 
-1. Repository 只保存 `appsettings.Development.example.json` 與 `.env.example` 的 Key／假值；SQL 可保存 Windows Authentication 無密碼範例，不保存 SQL Login 密碼。
+1. Repository 只保存 `appsettings.Development.example.json` 與 `.env.example` 的 Key／空值；SQL 可保存 Windows Authentication 無密碼範例，不保存 SQL Login 密碼。範例檔需複製為未追蹤的 `appsettings.Development.json` 或改由 User Secrets／環境變數覆寫。
 2. 每位開發者以 `dotnet user-secrets set <Key> <Value>` 設定本機 Secret，不在聊天、Issue 或 PR 貼值。
 3. 組長以面對面或受控密碼管理工具提供必要 Secret；更換成員或疑似外洩立即 Rotation。
 4. 啟動前 Configuration Validation 只回報缺少的 Key 名，不輸出值。
@@ -78,7 +80,9 @@ Server=.\SQL2025;Database=DoSelectDb;Trusted_Connection=True;TrustServerCertific
 - `Demo` 設定檔可保存服務開關與路徑，但 Secret 仍由環境變數提供。
 - Demo 前檢查只測試 SQL、OpenAI、Brevo 可用性；不可把 Secret 截圖或錄入備援影片。
 - 預錄完成或專題結束後 Rotation OpenAI／SMTP Key，清除展示使用者環境變數與 User Secrets。
-- AI／Email Secret 缺失時 API 仍可啟動，Health 顯示 Degraded，電商核心功能保持可用。
+- AI／Email 未啟用時，即使沒有對應 Secret，API 仍可啟動且核心電商功能保持可用；未啟用的外部服務不使公開 Health 失敗。
+
+上述降級只適用於 `Features:AiEnabled=false` 或 `Features:EmailEnabled=false`。若操作人員明確啟用功能卻漏填必要設定，API 必須在啟動時失敗，只列出缺少或不合法的 Configuration Key，不得靜默改回 false。
 
 ## Git 與掃描
 
@@ -88,7 +92,7 @@ Server=.\SQL2025;Database=DoSelectDb;Trusted_Connection=True;TrustServerCertific
 
 ## 驗收
 
-- Fresh Clone 缺 Secret 時給安全且可理解的 Key 名錯誤，核心非 AI／Email 功能仍能依設定啟動。
+- Fresh Clone 以 AI／Email 預設停用，可在沒有 Secret 時啟動核心 API；明確啟用任一功能但缺少設定時，以安全且可理解的 Key 名啟動失敗。
 - 前端建置產物搜尋不到 OpenAI、SMTP、Connection String 或 Data Protection Key。
 - Repository、Log、Health、Audit、備份、錯誤頁與 Demo 影片均不含 Secret。
 - `Demo__SimulationEndpointsEnabled=true` 在非 Demo Environment 時啟動失敗。
