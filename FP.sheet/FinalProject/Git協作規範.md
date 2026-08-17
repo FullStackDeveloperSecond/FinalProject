@@ -52,6 +52,8 @@ git switch -c feature/shopping-cart
 - 已在自己電腦完成基本測試，專案可以正常啟動與建置。
 - 已同步最新 `dev`，並處理完衝突。
 - 已檢查變更內容，沒有 `.env`、密碼、API Key、Token、連線字串或無關檔案。
+- 若新增 Package，已確認精確名稱與版本存在於正式 Registry，官方文件／來源 Repository 身分一致，並提交中央版本或 Lock File。
+- 若變更私人資料的讀取、修改或刪除，已加入 User A／User B 越權負面測試；前端隱藏按鈕或刪除確認視窗不能取代後端授權。
 
 若功能尚未完成，但希望其他組員先查看或討論，可以開 **Draft PR**。
 
@@ -77,6 +79,11 @@ PR 合併前至少通過：
 - `Backend`：.NET Restore、零警告 Build、Format Verify、Solution Test 與 NuGet 弱點檢查。
 - `Frontend (customer-web)`、`Frontend (admin-web)`：鎖檔安裝、Type Check、零警告 Lint、單元／元件測試、Production Build 與正式相依弱點檢查。
 - Migration、登入授權、金額退款或庫存相關變更必須附對應測試。
+- 私人資源讀取／修改／刪除變更必須通過 Actor A／B 資源所有權測試，並證明拒絕後沒有資料或副作用變更。
+- 新增 Package 必須通過乾淨 Restore／Install、Lock File 一致性、正式來源核對及直接／間接弱點檢查。
+- Commit 與 PR 內容必須通過 Secret 檢查；具體自動掃描工具完成前，PR 需附人工 Diff、Repository 搜尋與前端產物搜尋結果。
+
+以上項目的詳細阻擋條件見 [[03-架構/安全與供應鏈強制驗收標準]]；任一項沒有證據不得合併，即使組長使用 Bypass 亦應先完成並在 PR 留痕。
 
 Branch Protection 固定要求彙總 Check `CI Required`；只有 `Backend` 與兩個 Frontend Job 全部成功才會通過。`main`／`dev` 均使用 Strict Status Check，PR 必須先更新至最新目標分支並重新通過。只有組長核准與必要自動檢查皆通過後才能合併。合併到 `dev` 後執行五條核心 Playwright E2E；實際五條流程由 [[03-架構/測試策略]] 追蹤。
 

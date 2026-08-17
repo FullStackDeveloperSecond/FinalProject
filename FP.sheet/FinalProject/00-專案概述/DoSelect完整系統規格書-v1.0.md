@@ -609,9 +609,12 @@ AvailableQuantity = OnHandQuantity - ReservedQuantity
 
 - 會員／管理員 Cookie Scheme 隔離，管理員強制 TOTP。
 - API 驗證角色、Policy、資源所有權、狀態、金額與庫存；Router Guard 不是授權。
+- 所有私人資源都必須以 User A／User B 負面測試證明：其他使用者無法從明細、列表、搜尋、匯出、附件、AI、快取或背景結果讀取、修改或刪除；拒絕後不得有資料或副作用變更。
+- 任何 Hard／Soft／附件／批次刪除都必須在伺服器端異動前驗證角色、Actor Scope、資源所有權與業務狀態；前端確認視窗不是授權。
 - Request 價格、角色、庫存、折扣、運費及組裝費全部視為不可信。
 - Vue 預設轉義；禁止未清理 `v-html`；EF 使用參數化查詢；CSV／XLSX 防公式注入。
 - Secret、OpenAI Key、SMTP 憑證、SQL Login 連線及 Token 不得進 Git／Log。
+- 新增 Package 必須能由正式 Registry 乾淨 Restore／Install，精確名稱與版本需核對官方來源並提交 Lock／中央版本檔；Commit／PR／Build Artifact 必須通過 Secret 檢查。
 - 檔案以私有路徑、簽章／MIME／大小驗證、伺服器檔名及授權下載防止路徑穿越與公開存取。
 - Prompt Injection 內容與系統指令隔離；工具後端重新授權；模型沒有寫入工具。
 - 高風險 Audit 至少保存 Actor、角色、Action、Entity、Before／After、UTC、IP、TraceId 及結果；敏感值遮蔽。
@@ -690,11 +693,13 @@ AvailableQuantity = OnHandQuantity - ReservedQuantity
 - Build、Lint、Typecheck、測試、Coverage、契約 Diff 與 Review 通過。
 - Migration 可由空白 SQL Server 重建且通過安全審查；Seed 可重現。
 - Log、Audit、Health、背景工作及失敗復原可驗證。
+- [[03-架構/安全與供應鏈強制驗收標準]] 的五項阻擋條件都有證據；新增私人資源具 Actor A／B 測試，新增 Package 具來源與 Restore／Install 證據，提交內容不含 Secret。
 - Demo 腳本與備援路徑完成彩排，文件與決策同步。
 
 ### 17.6 No-Go
 
 - 未解決的角色／資源越權、個資外洩、重複退款、超賣、金額錯誤或不可恢復 Migration。
+- 任何跨使用者讀取／修改／刪除未證明隔離、Package 無法查證或提交內容疑似含真實 Secret。
 - API／DTO／資料字典互相衝突而未先更新規格。
 - OpenAI 故障會使一般購物、訂單或人工客服案件無法使用。
 - Demo Seed 無法重建、核心 E2E 未通過或備份／復原未驗證。
@@ -724,7 +729,7 @@ AvailableQuantity = OnHandQuantity - ReservedQuantity
 | 狀態／一致性 | [[03-架構/狀態機設計]]、[[03-架構/資料一致性、Outbox與冪等設計]] |
 | 資料 | [[03-架構/資料模型與ERD]]、[[03-架構/資料字典索引]]、三份領域資料字典、[[03-架構/PublicId與資料完整性設計]] |
 | AI | [[03-架構/AI應用詳細設計]]、[[03-架構/AI測試與評估規格]] |
-| 安全／非功能 | [[03-架構/威脅模型與安全檢查表]]、[[03-架構/非功能需求]]、[[03-架構/設定與Secrets管理規範]] |
+| 安全／非功能 | [[03-架構/威脅模型與安全檢查表]]、[[03-架構/安全與供應鏈強制驗收標準]]、[[03-架構/非功能需求]]、[[03-架構/設定與Secrets管理規範]] |
 | 測試／Demo | [[03-架構/測試策略]]、[[03-架構/M功能測試案例目錄]]、[[04-展示/Demo流程]]、[[04-展示/Demo操作腳本]] |
 
 ## 19. 開發分工與尚待產出
