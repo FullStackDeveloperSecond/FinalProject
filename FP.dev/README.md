@@ -63,6 +63,26 @@ npm audit --omit=dev
 
 ## 開發啟動
 
+建議在 `FP.dev` 執行一鍵腳本。預設使用 `Development`，固定網址為 API `http://localhost:5126`、消費者前台 `http://localhost:5173`、管理後台 `http://localhost:5174/admin/`：
+
+```powershell
+.\scripts\start-all.ps1
+.\scripts\status.ps1
+.\scripts\stop-all.ps1
+```
+
+展示環境需明確指定：
+
+```powershell
+.\scripts\start-all.ps1 -Environment Demo
+```
+
+啟動前會驗證 `dotnet`、Node、npm、`sqlcmd`、SQL Server `\.\SQL2025` Windows Authentication 與三個固定 Port。PID、程序啟動時間及 stdout／stderr 保存在已忽略版控的 `.run/`；停止腳本只終止身分與啟動時間吻合的本專案程序，不停止 SQL Server，也不批次終止電腦上的其他 Node 或 .NET 程序。
+
+若固定 Port 已被占用，腳本會停止並顯示占用 PID，不會自動改用其他 Port。
+
+### 個別啟動
+
 API：
 
 ```powershell

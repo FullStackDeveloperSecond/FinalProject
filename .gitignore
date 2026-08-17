@@ -33,6 +33,7 @@
 
 # Logs and temporary files
 **/*.log
+**/.run/
 **/.DS_Store
 **/Thumbs.db
 **/*.tmp
