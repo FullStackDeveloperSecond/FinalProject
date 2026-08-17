@@ -68,6 +68,7 @@ npm audit --omit=dev
 ```powershell
 .\scripts\start-all.ps1
 .\scripts\status.ps1
+.\scripts\health-check.ps1
 .\scripts\stop-all.ps1
 ```
 
@@ -80,6 +81,8 @@ npm audit --omit=dev
 啟動前會驗證 `dotnet`、Node、npm、`sqlcmd`、SQL Server `\.\SQL2025` Windows Authentication 與三個固定 Port。PID、程序啟動時間及 stdout／stderr 保存在已忽略版控的 `.run/`；停止腳本只終止身分與啟動時間吻合的本專案程序，不停止 SQL Server，也不批次終止電腦上的其他 Node 或 .NET 程序。
 
 若固定 Port 已被占用，腳本會停止並顯示占用 PID，不會自動改用其他 Port。
+
+`health-check.ps1` 不依賴 PID 判斷，會直接驗證 SQL Server、API Liveness／Readiness、消費者前台與管理後台；必要檢查失敗時回傳非零結束碼。Readiness 的 `Degraded` 代表可降級的外部依賴異常，基本服務仍可用，因此會警告但不視為整體失敗。Hangfire、OpenAI 與 Brevo 的實際檢查會在對應 Infrastructure 完成後加入，不以假檢查宣稱就緒。
 
 ### 個別啟動
 
