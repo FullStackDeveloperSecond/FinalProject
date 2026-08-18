@@ -239,7 +239,7 @@ tests/
 | 訪客訂單驗證碼 | 10 分鐘 |
 | Guest Order Access | 30 分鐘 |
 
-- Token／驗證碼單次使用且可撤銷，不得寫入一般 Log。
+- Email 驗證、密碼重設 Token 與 Guest 六位數驗證碼單次使用；驗證後的限單 Guest Access Cookie 可在 30 分鐘內多次使用。所有憑證均可撤銷且不得寫入一般 Log。
 - 會員連續失敗 5 次鎖定 15 分鐘；管理員 5 次鎖定 30 分鐘。
 - 未驗證會員保存 7 天；沒有必須保留的關聯資料時清除。
 - 會員刪除採軟刪除與可移除個資匿名化；交易、付款、物流、退貨、退款及 Audit 不刪除。
@@ -602,14 +602,14 @@ AvailableQuantity = OnHandQuantity - ReservedQuantity
 | 身分 | Identity User、MemberProfile、AdminProfile、Address、RoleAssignment、Notification |
 | 商品 | Brand、Category、Product、Sku、ProductImage、SpecificationDefinition／Value、SalePrice |
 | 庫存 | InventoryBalance、InventoryMovement、InventoryReservation、ReconciliationCase |
-| 組裝 | BuildList、BuildListItem、BuildShareToken、CompatibilityCheckResult、AssemblyJob |
-| 購物 | Cart、CartItem、Order、OrderItem、Coupon、CouponCategory／Product／ExcludedProduct、OrderCoupon、CouponRedemption |
+| 組裝 | BuildList、BuildListItem、BuildShareToken、CompatibilityCheckResult、AssemblyJob、AssemblyJobStatusHistory |
+| 購物 | Cart、CartItem、Order、OrderItem、GuestOrderAccessRequest／Token、Coupon、CouponCategory／Product／ExcludedProduct、OrderCoupon、CouponRedemption |
 | 付款物流 | PaymentAttempt／Event、Shipment、ShippingMethod、ConvenienceStore、PackageLimitVersion |
 | 售後 | ReturnRequest／Item／Inspection／Attachment、ReturnShipment／Event、Refund／Allocation、SimulatedInvoice／Allowance |
 | 客服 | SupportTicket／Message／Attachment／AssignmentHistory／SlaEvent、ReportCase |
 | AI／治理 | AiConsent、Conversation、Interaction、ToolInvocation、Citation、UsageLedger、Outbox、IdempotencyRecord、AuditLog |
 
-實際 Entity、Fluent Mapping、Index、Check Constraint、Filtered Unique 及 Migration 必須逐項比對三份資料字典。Kafen、Terry、Yinyin 已收束的欄位級交付統一由 [[03-架構/資料表實作交付/README]] 進入；該交付可用於 Entity／Configuration 實作，但不取代正式資料字典，也不代表 Migration 已核准。
+實際 Entity、Fluent Mapping、Index、Check Constraint、Filtered Unique 及 Migration 必須逐項比對三份資料字典。Haru、Kafen、Terry、Yinyin 已收束或待覆核的欄位級交付統一由 [[03-架構/資料表實作交付/README]] 進入；該交付可用於 Entity／Configuration 實作，但不取代正式資料字典，也不代表 Migration 已核准。
 
 資料責任補充：`SalePrices` 是 SKU 特價唯一可寫來源，第一版不建立重複的 `Promotions.SpecialPrice`；優惠券範圍以正規化關聯表保存。`BuildShareTokens.ExpiresAtUtc` 可為 Null 表示不自動到期；物流 COD 欄位只表達配送能力，最終資格仍由 Application 依金額、組裝及 SKU 預付旗標驗證。`ImportRows` 與 `ImportBatches` 欄位及物流狀態列舉以三份資料字典與狀態機文件為唯一來源。Owner／Assignee 使用 Identity FK；Identity 有交易相依時採停權、軟刪除或匿名化，中央 AuditLog 保存不可變 Actor PublicId／角色快照。
 
@@ -772,6 +772,7 @@ AvailableQuantity = OnHandQuantity - ReservedQuantity
 
 | 版本 | 日期 | 狀態 | 說明 |
 |---|---|---|---|
+| `v1.0` | 2026-08-18 | 已確認／READY | 寫回 DEC-P263～DEC-P270：Guest Challenge／限流／清理、30 分鐘限單 Cookie、AssemblyJob 獨立歷程、結構化地址、差異化 Lockout 與 Haru DES-20 Review Gate；功能範圍與版本號不變 |
 | `v1.0` | 2026-08-17 | 已確認／READY | 寫回 DEC-P250～DEC-P262：Order-only Reservation、完整評價生命週期、ImportBatch 契約、Identity／Audit 邊界、SKU 預付旗標、獨立退貨物流、12 欄工作台、檢舉狀態／權限及 Checkout-bound CouponRedemption；功能範圍與版本號不變 |
 | `v1.0` | 2026-08-15 | 已確認／READY | 依 DEC-P243～DEC-P249 收斂分享期限、COD 資料責任、特價唯一來源、ImportRows Schema、優惠券範圍及物流狀態資料契約；功能範圍與版本號不變 |
 | `v1.0` | 2026-08-14 | 已確認／READY | 將既有正式需求、架構、UI、API、資料、安全、AI、非功能、測試、Demo 及交付閘門整合為可獨立閱讀的完整系統規格主文件；依 DEC-P73 統一一般宅配與超取 COD 規則 |

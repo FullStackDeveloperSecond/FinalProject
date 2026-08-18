@@ -1,10 +1,11 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-16
+最後更新: 2026-08-18
 追蹤項目:
   - DES-09
   - DES-11
   - DES-12
+  - DES-20
 ---
 
 # API 共通規範
@@ -192,10 +193,12 @@ pageSize    預設 20，最大 100
 | Email 驗證 | 24 小時 |
 | 密碼重設 | 1 小時 |
 | 訪客訂單一次性驗證碼 | 10 分鐘 |
-| 驗證後的 `GuestOrderAccessToken` | 30 分鐘 |
+| 驗證後的 `GuestOrderAccessToken`／HttpOnly Cookie | 30 分鐘 |
 
-- Token／驗證碼必須單次使用、可撤銷，且不可寫入一般 Log。
+- Email 驗證、密碼重設 Token 與 Guest 驗證碼必須單次使用；Guest Access Cookie 可在 30 分鐘內多次使用，但只授權一筆訂單。全部憑證都必須可撤銷且不可寫入一般 Log。
+- Guest Challenge 最多錯 5 次，60 秒後才可重寄，初次寄送計入最多 3 封；15 分鐘內每 IP Hash 10 次、Email HMAC 5 次、訂單 Lookup Hash 5 次。
 - 會員連續登入失敗 5 次鎖定 15 分鐘；管理員連續失敗 5 次鎖定 30 分鐘。
+- 登入失敗沿用 Identity 計數，由共用 Application Service 依 AccountType 原子設定不同 LockoutEnd；不得只靠單一 DefaultLockoutTimeSpan 假裝完成差異化期限。
 - 成功登入後重設失敗次數；人工解鎖需要授權並保存稽核紀錄。
 
 ## 待實作驗證

@@ -7,7 +7,7 @@ tags:
 
 # 系統知識點
 
-本資料夾整理專案需求、架構與實作過程中反覆出現的專業術語及背景知識。目前共 35 個主題頁。
+本資料夾整理專案需求、架構與實作過程中反覆出現的專業術語及背景知識。目前共 36 個主題頁。
 
 知識點文件用來協助團隊理解概念，不直接代表專案已確認需求；實際行為仍以需求文件、決策紀錄及未完成項目追蹤表為準。
 
@@ -70,10 +70,11 @@ tags:
 - [[知識點/PrimeVue|PrimeVue]]
 - [[知識點/TanStack Query|TanStack Query]]
 
-## 基礎設施
+## 基礎設施與交付
 
 - [[知識點/Brevo SMTP|Brevo SMTP]]
 - [[知識點/Hangfire|Hangfire]]
+- [[知識點/CI與CD|CI 與 CD（持續整合與持續交付）]]
 
 ## AI 與智慧搜尋
 
@@ -85,4 +86,5 @@ tags:
 - Cookie Web 安全：[[知識點/ASP.NET Core Identity]] → [[知識點/Credentials]] → [[知識點/CORS]] → [[知識點/CSRF]] → [[知識點/Antiforgery]]。
 - Typed API：[[知識點/DTO與API Schema]] → [[知識點/OpenAPI與Typed Client]] → [[知識點/Problem Details]] → [[知識點/Correlation ID與Trace ID]]。
 - 可靠交易：[[知識點/SQL Server rowversion]] → [[知識點/冪等性]] → [[知識點/Transactional Outbox]] → [[知識點/Hangfire]] → [[知識點/Audit Log]]。
+- 交付流程：[[知識點/CI與CD]] → [[知識點/OpenAPI與Typed Client]] → [[知識點/Secrets管理]] → [[知識點/Health Check]]。
 - AI 搜尋：[[知識點/Structured Outputs與JSON Schema]] → [[知識點/Embeddings與向量檢索]]；首版採前者與結構化 SQL，不採向量檢索。

@@ -1,10 +1,11 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-17
+最後更新: 2026-08-18
 追蹤項目:
   - DES-07
   - DES-08
   - DES-15
+  - DES-20
 ---
 
 # 資料字典｜會員、客服、AI 與治理
@@ -34,7 +35,7 @@
 |---|---|---|
 | `MemberProfiles` | `UserId nvarchar(450)` PK/FK、`PublicId uniqueidentifier` UX、`DisplayName nvarchar(100)`、`BirthDate date NULL`、`CreatedAtUtc/UpdatedAtUtc`、`RowVersion` | 不保存第二份 Email／電話；匿名化改 DisplayName 並清除選填個資 |
 | `AdminProfiles` | `UserId nvarchar(450)` PK/FK、`PublicId uniqueidentifier` UX、`EmployeeCode nvarchar(64)`、`DisplayName nvarchar(100)`、`IsActive bit`、`CreatedAtUtc/UpdatedAtUtc`、`RowVersion` | EmployeeCode UX；管理員不得使用同帳號前台購買 |
-| `MemberAddresses`／MutableEntity | `MemberUserId nvarchar(450)`、`RecipientName nvarchar(100)`、`Phone nvarchar(32)`、`PostalCode nvarchar(16)`、`AddressLine1 nvarchar(300)`、`AddressLine2 nvarchar(300) NULL`、`IsDefault bit`、`DeletedAtUtc datetime2(3) NULL` | 每會員最多一筆有效 Default Filtered UX；軟刪除；地址不得覆寫訂單快照 |
+| `MemberAddresses`／MutableEntity | `MemberUserId nvarchar(450)`、`Label nvarchar(50)`、`RecipientName nvarchar(100)`、`Phone nvarchar(32)`、`PostalCode nvarchar(16)`、`City nvarchar(50)`、`District nvarchar(50)`、`AddressLine1 nvarchar(300)`、`AddressLine2 nvarchar(300) NULL`、`IsDefault bit`、`DeletedAtUtc datetime2(3) NULL` | 每會員最多一筆有效 Default Filtered UX；軟刪除；Label 只供地址簿辨識，不進訂單；地址不得覆寫訂單快照 |
 
 角色使用 Identity `AspNetRoles`／`AspNetUserRoles`；角色名稱只表達粗粒度，精確操作仍由程式 Policy 控制。角色異動同交易寫 AuditLog 並更新 Security Stamp。
 

@@ -1,6 +1,10 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <PackageReference Include="MailKit" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\DoSelect.Application\DoSelect.Application.csproj" />
     <ProjectReference Include="..\DoSelect.Domain\DoSelect.Domain.csproj" />
   </ItemGroup>

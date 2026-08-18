@@ -1,9 +1,10 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-17
+最後更新: 2026-08-18
 追蹤項目:
   - DES-10
   - DES-16
+  - DES-20
   - REQ-02
   - REQ-03
 ---
@@ -52,7 +53,7 @@
 | M 站內通知支撐 | `GET /api/v1/notifications`；`POST /api/v1/notifications/{id}/actions/read`；`POST /api/v1/notifications/actions/read-all` | Member | `PageResult<NotificationDto>`；讀取命令冪等 | `resource_not_found` |
 | M 管理 Session 支撐 | `GET /api/v1/admin/auth/session` | Public／Admin | 未登入或未完成 2FA 均不回管理權限；成功回角色／Policy 摘要 | — |
 | UC-ADMIN-AUTH-01 | `POST /api/v1/admin/auth/login`；`POST /api/v1/admin/auth/totp/verify`；`POST /api/v1/admin/auth/recovery-codes/use` | Admin | 兩階段管理員 Cookie | `admin_two_factor_required`、`admin_two_factor_invalid`、`admin_recovery_code_invalid` |
-| UC-GUEST-ORDER-01 | `POST /api/v1/guest-orders/access-requests`；`POST /api/v1/guest-orders/access-verifications` | Public | Email＋訂單編號／Token → 短效限單 Cookie | `guest_order_verification_invalid`、`guest_order_access_expired`、`guest_order_scope_mismatch` |
+| UC-GUEST-ORDER-01 | `POST /api/v1/guest-orders/access-requests`；`POST /api/v1/guest-orders/access-requests/{requestPublicId}/actions/resend`；`POST /api/v1/guest-orders/access-verifications` | Public | `GuestOrderAccessRequest` → 永遠 202 `GuestOrderAccessRequestAcceptedDto`；Resend 維持安全回應；Verification → 30 分鐘限單 HttpOnly Cookie | `guest_order_verification_invalid`、`guest_order_access_expired`、`guest_order_scope_mismatch`、`rate_limit_exceeded` |
 
 ## 購物車、配送、訂單、付款與售後
 

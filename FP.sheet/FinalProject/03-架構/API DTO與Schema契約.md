@@ -1,8 +1,9 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-17
+最後更新: 2026-08-18
 追蹤項目:
   - DES-10
+  - DES-20
   - REQ-03
 ---
 
@@ -58,7 +59,8 @@
 | `AdminLoginRequest` | `email`、`password`；回 `requiresTwoFactor`、`twoFactorChallengePublicId?` |
 | `TotpVerifyRequest` | `challengePublicId`、`code:string(6)`；Recovery Code 使用獨立 `code:string(8..64)` |
 | `GuestOrderAccessRequest` | `orderNumber:string(1..32)`、`email:string(3..320)`；永遠回 202 |
-| `GuestOrderAccessVerification` | `requestPublicId`、`code:string(6)`；成功回 HttpOnly 存取 Cookie 與 `expiresAtUtc` |
+| `GuestOrderAccessRequestAcceptedDto` | `requestPublicId`、`expiresAtUtc`、`resendAvailableAtUtc`；有效／無效輸入回相同 Schema，不表示訂單或 Email 是否存在 |
+| `GuestOrderAccessVerification` | `requestPublicId`、`code:string(6)`；成功回限單、可撤銷、30 分鐘內可多次使用的 HttpOnly Cookie 與 `expiresAtUtc`；Challenge 本身單次使用 |
 | `CurrentUserDto` | `publicId`、`displayName`、`emailMasked`、`emailVerified`、`locale`、`roles?:string[]`（只在管理端） |
 | `AuthSessionDto` | `isAuthenticated`、`user?:CurrentUserDto`、`expiresAtUtc?`、`requiresTwoFactor?:bool`；管理端只有完成 2FA 才回 Roles／Policies |
 | `MemberProfileDto` | `publicId`、`displayName`、`emailMasked`、`emailVerified`、`phone?`、`locale`、`createdAtUtc`、`rowVersion` |
@@ -83,7 +85,7 @@
 | `CartMergeResultDto` | `cart:CartDto`、`conflicts:{guestItemPublicId,skuPublicId,reason,acceptedQuantity}[]` |
 | `ApplyCouponRequest` | `code:string(1..64)`、`cartRowVersion` |
 | `CreateOrderRequest` | `cartPublicId`、`cartRowVersion`、`buyer:{email,name,phone}`、`shipping:{methodCode,address?:AddressInput,storePublicId?:uuid}`、`paymentMethod:enum`、`invoice:{type:simulated,carrier?:string(64)}`、`acceptPolicyVersions:{terms,return,privacy}` |
-| `AddressInput` | `recipientName:string(1..100)`、`phone:string(6..32)`、`postalCode?:string(1..16)`、`addressLine1?:string(1..300)`、`addressLine2?:string(0..300)` |
+| `AddressInput` | `recipientName:string(1..100)`、`phone:string(6..32)`、`postalCode?:string(1..16)`、`city?:string(1..50)`、`district?:string(1..50)`、`addressLine1?:string(1..300)`、`addressLine2?:string(0..300)`；宅配時地址欄全部必填，超取不得用地址取代 storePublicId；不接受地址簿 Label |
 | `OrderDto` | `publicId`、`orderNumber`、五個狀態、`items:OrderItemDto[]`、收件遮蔽摘要、物流摘要、付款摘要、`amounts`、`paymentDueAtUtc?`、合法 `availableActions:string[]`、各事件時間、`rowVersion` |
 | `ShippingOptionsDto` | `cartPublicId`、`options:{methodCode,name,fee,isEligible,ineligibleReasonCode?,freeShippingThreshold?,requiresAddress,requiresStore,allowedPaymentMethods[]}[]`、`evaluatedAtUtc`、`cartRowVersion` |
 | `ConvenienceStoreQuery` | `providerCode?:string(64)`、`city?:string(50)`、`district?:string(50)`、`q?:string(100)`、`pageNumber/pageSize` |

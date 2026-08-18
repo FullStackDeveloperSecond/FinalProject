@@ -1,10 +1,11 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-17
+最後更新: 2026-08-18
 追蹤項目:
   - QA-03
   - REQ-02
   - REQ-03
+  - DES-20
 ---
 
 # M 功能測試案例目錄
@@ -16,10 +17,10 @@
 | 使用案例 | 單元測試重點 | 整合測試重點 | E2E | 負責人 |
 |---|---|---|---|---|
 | UC-AUTH-01 | 驗證期限與帳號狀態 | 唯一欄位、Token、Email 工作 | 註冊→驗證→登入 | haru／yinyin |
-| UC-AUTH-02 | 鎖定計數與狀態 | Cookie、登出、鎖定、停權 | 登入與鎖定提示 | haru／yinyin |
-| UC-AUTH-03 | Token 單次性與失效 | 寄信、重設、工作階段撤銷 | 忘記密碼主流程 | haru／yinyin |
+| UC-AUTH-02 | Identity 失敗計數、會員 15 分鐘／管理員 30 分鐘 Lockout | 共用登入服務、Cookie、登出、鎖定、停權 | 登入與鎖定提示 | haru／yinyin |
+| UC-AUTH-03 | Email／密碼 Token 單次性與失效 | 寄信、重設、工作階段撤銷 | 忘記密碼主流程 | haru／yinyin |
 | UC-ADMIN-AUTH-01 | TOTP 驗證規則 | 2FA Cookie 與恢復流程 | 管理員登入 | haru／yinyin；alex 安全覆核 |
-| UC-GUEST-ORDER-01 | 存取 Token 期限 | Email＋訂單編號、資源授權 | 訪客查單 | haru／yinyin |
+| UC-GUEST-ORDER-01 | Challenge 5／60／3、三 Scope 限流、10／30 分鐘期限與限單授權 | 相同 202、HMAC、重寄、Cookie 多次使用、跨訂單拒絕、30 天清理 | 訪客查單→物流→退貨／退款進度 | haru／yinyin；alex 安全覆核 |
 | UC-CART-01 | 價格／庫存重驗結果 | 購物車讀寫與錯誤碼 | 庫存變化提示 | terry／kafen |
 | UC-CART-02 | SKU 合併與組裝群組 | 訪客／會員 Cart 交易合併 | 登入後處理衝突 | terry／kafen |
 | UC-CHECKOUT-01 | 金額快照與保留計算 | 交易、冪等、最後庫存併發 | 核心 E2E 2、3 | terry／kafen；alex 整合覆核 |

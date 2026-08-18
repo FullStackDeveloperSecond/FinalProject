@@ -28,7 +28,7 @@ evals/ai/v1/
 
 ## 必要環境
 
-- .NET SDK 10.0.302；由 `global.json` 鎖定 Feature Band。
+- .NET SDK 10.0.302；由 `global.json` 精確鎖定，其他 Patch／Feature Band 皆不替代。
 - Node.js 24 LTS；由 `.nvmrc` 記錄 Major。
 - npm 11。
 - SQL Server 2025 Developer Edition；資料庫實作開始後使用 `DoSelectDb`。
@@ -102,7 +102,9 @@ API 專案已設定 `UserSecretsId`。Brevo SMTP Username／SMTP Key 只由目�
 .\scripts\test-brevo-smtp.ps1
 ```
 
-設定腳本固定使用 Brevo relay `smtp-relay.brevo.com:587`、STARTTLS 與已驗證單一寄件者 `alex <alexyang920528@gmail.com>`。測試腳本只寄送一封不含會員資料或 Token 的純文字驗證信到已確認的同一地址；SMTP 接受後仍需在收件匣與 Brevo Transactional Log 確認最終投遞。此腳本只驗證展示帳號與 SMTP 設定，正式 `IEmailSender`、Outbox、重試及失敗處理由 `SH-07` 實作。
+設定腳本固定使用 Brevo relay `smtp-relay.brevo.com:587`、STARTTLS 與已驗證單一寄件者 `alex <alexyang920528@gmail.com>`。測試腳本只寄送一封不含會員資料或 Token 的純文字驗證信到已確認的同一地址；SMTP 接受後仍需在收件匣與 Brevo Transactional Log 確認最終投遞。
+
+正式應用由 Application `IEmailSender` 抽象使用 Email；Email 關閉時採明確回傳 `Suppressed` 的本機實作，啟用時採 MailKit Brevo SMTP Adapter。Adapter 每次只做一次傳輸並將結果分類為 `Sent`、`TransientFailure` 或 `PermanentFailure`；Outbox、三次遞增退避、模板、站內通知與人工重送仍由 `SH-07`／`SH-08` 隨正式資料模型及 Hangfire Consumer 實作，不可在商業交易內直接呼叫 SMTP。
 
 ### 個別啟動
 

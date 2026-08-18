@@ -1,9 +1,12 @@
 using System.Net;
 using System.Text.Json;
 using DoSelect.Api.Common;
+using DoSelect.Application.Notifications;
+using DoSelect.Infrastructure.Email;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace DoSelect.Api.IntegrationTests;
 
@@ -84,6 +87,46 @@ public sealed class ObservabilityTests : IClassFixture<WebApplicationFactory<Pro
         });
 
         using var client = factory.CreateClient();
+    }
+
+    [Fact]
+    public async Task EmailSender_WhenEmailFeatureIsDisabled_IsExplicitlySuppressed()
+    {
+        using var factory = CreateFactory(new Dictionary<string, string?>
+        {
+            ["Features:EmailEnabled"] = "false",
+        });
+        using var client = factory.CreateClient();
+        var sender = factory.Services.GetRequiredService<IEmailSender>();
+
+        var result = await sender.SendAsync(new EmailMessage(
+            "member@example.test",
+            "Synthetic subject",
+            "Synthetic body"));
+
+        Assert.Equal(EmailDeliveryStatus.Suppressed, result.Status);
+        Assert.Equal(EmailDeliveryErrorCodes.Suppressed, result.ErrorCode);
+    }
+
+    [Fact]
+    public void EmailSender_WhenEmailFeatureIsEnabled_RegistersSmtpAdapterWithoutSending()
+    {
+        using var factory = CreateFactory(new Dictionary<string, string?>
+        {
+            ["Features:EmailEnabled"] = "true",
+            ["Email:SmtpHost"] = "smtp.example.test",
+            ["Email:SmtpPort"] = "587",
+            ["Email:UserName"] = "smtp-user",
+            ["Email:Password"] = "synthetic-test-password",
+            ["Email:SenderName"] = "DoSelect Test",
+            ["Email:SenderAddress"] = "sender@example.test",
+            ["Email:TimeoutMilliseconds"] = "15000",
+        });
+        using var client = factory.CreateClient();
+
+        var sender = factory.Services.GetRequiredService<IEmailSender>();
+
+        Assert.IsType<SmtpEmailSender>(sender);
     }
 
     [Fact]

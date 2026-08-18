@@ -1,4 +1,5 @@
 using System.Net.Mail;
+using DoSelect.Infrastructure.Email;
 using Microsoft.Extensions.Options;
 
 namespace DoSelect.Api.Configuration;
@@ -20,8 +21,8 @@ public static class ConfigurationValidationExtensions
             .BindConfiguration(OpenAiOptions.SectionName)
             .ValidateOnStart();
         services
-            .AddOptions<EmailOptions>()
-            .BindConfiguration(EmailOptions.SectionName)
+            .AddOptions<SmtpEmailOptions>()
+            .BindConfiguration(SmtpEmailOptions.SectionName)
             .ValidateOnStart();
         services
             .AddOptions<DemoOptions>()
@@ -34,7 +35,7 @@ public static class ConfigurationValidationExtensions
 
         services.AddSingleton<IValidateOptions<StorageOptions>, StorageOptionsValidator>();
         services.AddSingleton<IValidateOptions<OpenAiOptions>, OpenAiOptionsValidator>();
-        services.AddSingleton<IValidateOptions<EmailOptions>, EmailOptionsValidator>();
+        services.AddSingleton<IValidateOptions<SmtpEmailOptions>, EmailOptionsValidator>();
         services.AddSingleton<IValidateOptions<DemoOptions>, DemoOptionsValidator>();
 
         return services;
@@ -113,7 +114,7 @@ internal sealed class OpenAiOptionsValidator : IValidateOptions<OpenAiOptions>
     }
 }
 
-internal sealed class EmailOptionsValidator : IValidateOptions<EmailOptions>
+internal sealed class EmailOptionsValidator : IValidateOptions<SmtpEmailOptions>
 {
     private readonly IOptions<FeatureOptions> _features;
 
@@ -122,7 +123,7 @@ internal sealed class EmailOptionsValidator : IValidateOptions<EmailOptions>
         _features = features;
     }
 
-    public ValidateOptionsResult Validate(string? name, EmailOptions options)
+    public ValidateOptionsResult Validate(string? name, SmtpEmailOptions options)
     {
         if (!_features.Value.EmailEnabled)
         {
@@ -133,12 +134,19 @@ internal sealed class EmailOptionsValidator : IValidateOptions<EmailOptions>
         AddRequiredFailure(failures, options.SmtpHost, "Email:SmtpHost");
         AddRequiredFailure(failures, options.UserName, "Email:UserName");
         AddRequiredFailure(failures, options.Password, "Email:Password");
+        AddRequiredFailure(failures, options.SenderName, "Email:SenderName");
         AddRequiredFailure(failures, options.SenderAddress, "Email:SenderAddress");
 
         if (options.SmtpPort is < 1 or > 65535)
         {
             failures.Add(
                 "Configuration key 'Email:SmtpPort' must be between 1 and 65535.");
+        }
+
+        if (options.TimeoutMilliseconds is < 1000 or > 60000)
+        {
+            failures.Add(
+                "Configuration key 'Email:TimeoutMilliseconds' must be between 1000 and 60000.");
         }
 
         if (!string.IsNullOrWhiteSpace(options.SenderAddress) &&

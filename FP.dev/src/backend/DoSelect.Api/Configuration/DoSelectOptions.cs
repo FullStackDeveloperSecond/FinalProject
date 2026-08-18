@@ -25,21 +25,6 @@ public sealed class OpenAiOptions
     public string Model { get; set; } = "gpt-5.6-luna";
 }
 
-public sealed class EmailOptions
-{
-    public const string SectionName = "Email";
-
-    public string? SmtpHost { get; set; }
-
-    public int SmtpPort { get; set; } = 587;
-
-    public string? UserName { get; set; }
-
-    public string? Password { get; set; }
-
-    public string? SenderAddress { get; set; }
-}
-
 public sealed class DemoOptions
 {
     public const string SectionName = "Demo";
