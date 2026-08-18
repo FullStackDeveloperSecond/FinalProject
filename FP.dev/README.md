@@ -12,6 +12,7 @@ src/backend/
   DoSelect.Domain/
   DoSelect.Infrastructure/
 frontend/
+  shared/
   customer-web/
   admin-web/
 tests/
@@ -60,6 +61,10 @@ npm test
 npm run build
 npm audit --omit=dev
 ```
+
+`frontend/shared` 是兩個 Vue 應用透過本機 npm dependency 共用的來源套件；不需另外安裝。customer-web 的 `npm run lint` 會同時檢查共享來源，兩個應用的 Typecheck、Test 與 Build 都會實際解析共享套件。
+
+兩個 Vue 應用預設呼叫 `http://localhost:5126`。需要覆寫時，將各自的 `.env.example` 複製為未追蹤的 `.env.local`，再設定非機密的 `VITE_API_BASE_URL`；值必須是沒有帳密、Query 或 Fragment 的絕對 HTTP／HTTPS URL。
 
 ## 開發啟動
 
@@ -132,7 +137,7 @@ API 共通管線已提供：
 
 ## 目前邊界
 
-- 已完成 Solution、專案參考、共用建置設定、套件鎖版、兩個 Vue 應用、API 共通錯誤／驗證管線及最小測試基線。
+- 已完成 Solution、專案參考、共用建置設定、套件鎖版、兩個 Vue 應用、Vue 共用 API／Query／狀態基礎、API 共通錯誤／驗證管線及最小測試基線。
 - 尚未加入業務模組、EF Core Entity、DbContext、Migration、Seed、認證授權或資料庫連線。
 - PrimeVue 已納入相依套件，但主題與實際元件由畫面設計工作包導入。
-- OpenAPI TypeScript Client 的流程已定義；待商業 API 契約加入後再產生實際 Client。
+- OpenAPI TypeScript Client 的流程與共用 generic client factory 已建立；待商業 API 契約加入後再產生 `schema.d.ts` 並建立實際 typed client instance。

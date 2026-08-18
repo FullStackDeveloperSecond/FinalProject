@@ -5,4 +5,7 @@ import vue from '@vitejs/plugin-vue'
 export default defineConfig({
   base: '/admin/',
   plugins: [vue()],
+  resolve: {
+    preserveSymlinks: true,
+  },
 })

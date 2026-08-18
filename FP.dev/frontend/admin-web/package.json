@@ -13,6 +13,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@doselect/web-shared": "file:../shared",
     "@tanstack/vue-query": "5.101.4",
     "openapi-fetch": "0.17.0",
     "pinia": "4.0.3",
