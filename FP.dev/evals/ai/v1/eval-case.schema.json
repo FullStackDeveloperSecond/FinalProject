@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:doselect:ai-eval-case:v1",
+  "title": "DoSelect AI evaluation case v1",
+  "type": "object",
+  "required": [
+    "caseId",
+    "datasetVersion",
+    "language",
+    "split",
+    "primaryGroup",
+    "feature",
+    "tags",
+    "actor",
+    "input",
+    "prerequisites",
+    "expected",
+    "evidence",
+    "annotation"
+  ],
+  "properties": {
+    "caseId": { "type": "string", "pattern": "^[A-Z-]+-[0-9]{3}$" },
+    "datasetVersion": { "const": "zh-TW-v1.0.0-draft" },
+    "language": { "const": "zh-TW" },
+    "split": { "enum": ["development", "release", "challenge"] },
+    "primaryGroup": {
+      "enum": [
+        "SEARCH-NOVICE",
+        "SEARCH-CREATOR",
+        "SEARCH-COMPATIBILITY",
+        "SEARCH-NO-RESULT-DEGRADED",
+        "SUPPORT-POLICY",
+        "SUPPORT-SECURITY"
+      ]
+    },
+    "feature": { "enum": ["product_search", "ai_support"] },
+    "tags": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+    "actor": {
+      "type": "object",
+      "required": ["type", "authenticated", "aiConsent"],
+      "properties": {
+        "type": { "enum": ["anonymous", "member", "guest_order_scope"] },
+        "authenticated": { "type": "boolean" },
+        "aiConsent": { "enum": ["not_applicable", "granted", "denied", "missing"] }
+      },
+      "additionalProperties": false
+    },
+    "input": {
+      "type": "object",
+      "required": ["message"],
+      "properties": { "message": { "type": "string", "minLength": 1, "maxLength": 2000 } },
+      "additionalProperties": false
+    },
+    "prerequisites": {
+      "type": "object",
+      "required": ["fixtureIds", "serviceCondition"],
+      "properties": {
+        "fixtureIds": { "type": "array", "items": { "type": "string" }, "minItems": 1, "uniqueItems": true },
+        "serviceCondition": { "enum": ["available", "timeout", "rate_limited", "unavailable", "schema_invalid", "truncated", "refusal", "quota_exceeded"] }
+      },
+      "additionalProperties": false
+    },
+    "expected": {
+      "type": "object",
+      "required": ["outcome", "modelCall", "httpStatus", "intentFields", "clarification", "compatibility", "allowedCandidateIds", "tools", "citations", "answer", "fallback", "hardFailRules"],
+      "properties": {
+        "outcome": { "type": "string" },
+        "modelCall": { "enum": ["allowed", "forbidden"] },
+        "httpStatus": { "type": "integer", "minimum": 200, "maximum": 599 },
+        "intentFields": { "type": "object" },
+        "clarification": { "type": "object" },
+        "compatibility": { "type": ["object", "null"] },
+        "allowedCandidateIds": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "tools": { "type": "object" },
+        "citations": { "type": "object" },
+        "answer": { "type": "object" },
+        "fallback": { "type": "string" },
+        "hardFailRules": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      }
+    },
+    "evidence": { "type": "object" },
+    "annotation": {
+      "type": "object",
+      "required": ["primaryAnnotator", "reviewer", "status"],
+      "properties": {
+        "primaryAnnotator": { "enum": ["terry", "kafen"] },
+        "reviewer": { "const": "alex" },
+        "status": { "enum": ["draft", "approved", "rejected"] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

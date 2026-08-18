@@ -20,6 +20,10 @@ tests/
   DoSelect.Application.Tests/
   DoSelect.Infrastructure.Tests/
   DoSelect.Api.IntegrationTests/
+evals/ai/v1/
+  dataset.zh-TW.v1.jsonl
+  context-fixtures.v1.json
+  grader-contract.v1.json
 ```
 
 ## 必要環境
@@ -115,6 +119,17 @@ npm run dev
 ```
 
 Development 環境提供 `/openapi/v1.json` 與 Scalar 互動式 API 文件；非 Development 環境不映射這兩個端點。
+
+## AI 評估資料集
+
+第一版繁中資料集固定 120 筆，完整格式、分組、Fixture、Grader 與審核邊界見 `evals/ai/v1/README.md`。本機與 CI 的 deterministic 檢查不呼叫 OpenAI：
+
+```powershell
+node .\scripts\build-ai-eval-dataset.mjs --check
+node .\scripts\validate-ai-eval-dataset.mjs
+```
+
+只有修改 `cases-source.mjs` 後才執行不含 `--check` 的產生指令；產生檔必須與來源一起提交。Live baseline 必須等待 Prompt、Schema、Adapter 與明確成本核准，不得由一般 PR 自動呼叫。
 
 第一次啟動前可將 `src/backend/DoSelect.Api/appsettings.Development.example.json` 複製為未追蹤的 `appsettings.Development.json`，再依本機環境調整非敏感設定；OpenAI 與 SMTP Secret 使用 .NET User Secrets 或環境變數，不得填入範例檔。AI 與 Email 預設停用，因此 Fresh Clone 不需要 Secret 即可啟動；若明確啟用但缺少必要 Key，API 會在啟動時失敗。
 

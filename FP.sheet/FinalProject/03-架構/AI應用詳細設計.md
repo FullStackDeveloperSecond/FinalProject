@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-13
+最後更新: 2026-08-18
 追蹤項目:
   - AI-01
   - AI-02
@@ -233,4 +233,4 @@ sequenceDiagram
 - 若帳號無法使用選定模型或 Snapshot，不得由開發者自行換模；需記錄成本、品質與相容性後重新決策。
 - OpenAI Request 是否保存必須明確設定，且不取代本系統自身的 90／180 天保存規則。
 
-既有零件識別格式與 Clarification Precision／Recall 發布門檻均已定版；目前剩餘工作為建立實際 Schema 檔、Stub、120 筆評估資料、基準結果及 Adapter 程式。
+既有零件識別格式與 Clarification Precision／Recall 發布門檻均已定版；120 筆繁中 draft 評估資料、合成 Fixture、Grader Contract 與 deterministic 驗證已建立於 `FP.dev/evals/ai/v1`。目前剩餘工作為 Terry／Kafen 標註覆核、實際 SearchIntent Schema、Stub、Prompt、基準結果及 Adapter 程式。
