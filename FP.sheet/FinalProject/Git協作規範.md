@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-16
+最後更新: 2026-08-18
 追蹤項目:
   - DEV-01
   - DEV-06
@@ -9,6 +9,13 @@
 # Git 協作規範
 
 這份規範提供組員日常開發使用。GitHub Branch Protection、PR 審核與其他 Repository Rules 由專案主導者統一設定。
+
+## Codex／自動化工具的 Git 執行環境
+
+- Codex 執行 `git add`、`git commit`、`git push` 及推送後狀態確認時，固定使用**系統環境 PowerShell**，不得使用沙盒 PowerShell。
+- 原因是 GitHub CLI、Git Credential Manager 與 Windows Keyring 認證保存在主機環境；沙盒可能顯示假性的未登入或缺少認證。
+- 文件檢查、內容搜尋與不需要認證的唯讀分析仍可在受限環境執行；真正改變 Git 歷史或遠端狀態的命令必須回到系統環境。
+- `graph.json` 不納入提交；`appearance.json` 只有在組長明確要求時才提交。
 
 ## 1. Branch 規則
 
