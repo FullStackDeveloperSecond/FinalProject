@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-16
+最後更新: 2026-08-17
 追蹤項目:
   - DEV-05
   - DEV-08
@@ -45,6 +45,7 @@ appsettings.json
 | `Email__SenderAddress` |  | 必須是已驗證寄件者 |
 | `Storage__DataRoot` |  | Development 未覆寫時使用系統暫存目錄下的 `DoSelectData`；Demo 設為 `E:\FinalProjectData`；啟動時驗證為非磁碟根目錄的絕對路徑，檔案 Logging 啟用時另驗證可寫 |
 | `Security__DataProtectionKeyPath` | ✓ | Demo 固定登入／Token 跨重啟時必填 |
+| `Security__CouponGuestUsageHmacKeyV1` | ✓ | 訪客使用具每人限制的公開優惠券前必填；至少 32 bytes 隨機值，只用於 HMAC-SHA-256，不得回傳、記錄或放入 Repository |
 | `Features__AiEnabled` |  | Boolean，安全預設 `false`；明確設為 `true` 時必須通過 OpenAI 設定驗證 |
 | `Features__EmailEnabled` |  | Boolean，安全預設 `false`；明確設為 `true` 時必須通過 SMTP 設定驗證 |
 | `Observability__FileLoggingEnabled` |  | Boolean，預設 `true`；停用時只保留 Console JSON |
@@ -59,6 +60,10 @@ Vue 只允許 `VITE_API_BASE_URL`、`VITE_APP_DISPLAY_NAME`、`VITE_DEFAULT_LOCA
 3. 組長以面對面或受控密碼管理工具提供必要 Secret；更換成員或疑似外洩立即 Rotation。
 4. 啟動前 Configuration Validation 只回報缺少的 Key 名，不輸出值。
 5. Log、Health Check、Problem Details、Audit 與備份 Manifest 只顯示 Provider 是否已設定，不顯示帳號或 Secret。
+
+DoSelect.Api 已提交非敏感的 `UserSecretsId`。Brevo 展示設定由 `FP.dev/scripts/configure-brevo-secrets.ps1` 在目前 Windows 使用者的 User Secrets 中建立；SMTP Key 只能在互動式隱藏輸入提示中輸入。`test-brevo-smtp.ps1` 只用於寄送單封無個資、無 Token 的驗證信，不等同正式 `IEmailSender` 或重試流程。
+
+訪客優惠券 HMAC V1 Secret 由每位開發者及 Demo 使用者分別透過 User Secrets／使用者層級環境變數設定。缺少或長度不足時不得接受具每人限制的訪客優惠券，也不得降級為明文 Email、一般未加密 Hash 或硬編碼預設值。V1 不輪替；未來要輪替時須先新增版本欄位與相容讀取決策。
 
 ## SQL Server 連線設定
 

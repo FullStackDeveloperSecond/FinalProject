@@ -258,6 +258,7 @@ tests/
 - 支援品牌、分類、標籤、圖片排序、動態規格、草稿／上架／下架、售價及特價。
 - SKU Code 建立後不可變更；已被引用的 SKU 只能停用／下架，不得實體刪除。
 - 同一 SKU 有效特價期間不得重疊。
+- SKU 以 `RequiresPrepayment` 明確標示限制品；任一 SKU 為 true 或含組裝電腦時，Checkout 不提供 COD。
 - 搜尋只回公開可售資料；不同篩選群組用 AND，同一多選欄位用 OR；未知欄位、排序或運算拒絕。
 - 有關鍵字依相關度，無關鍵字依近期銷售熱度；同值以時間及不可變 SKU Code 穩定排序。
 
@@ -268,6 +269,7 @@ tests/
 - 分類、品牌、規格語意鍵只能引用既有 Lookup；不得隱式新增。
 - 預覽保存 24 小時，顯示新增／更新／無變更／錯誤及逐列穩定錯誤碼。
 - 任一列失敗整批回滾；商品匯入不得直接調庫存。
+- ImportBatch 固定保存建立者、三組來源檔 Hash／安全顯示名、RowCount、結果 JSON、正規化內容版本與 CorrelationId；商品使用三組來源，庫存只用第一組。不得保留單一 ContentHash 第二版 Schema。
 - CSV 固定 UTF-8 BOM、逗號、英文 Header、ISO 8601、`.` 小數；Null 為 `\N`，空欄為空字串。
 
 ### 6.3 組裝清單
@@ -304,7 +306,8 @@ tests/
 - 計算順序：原價 → 特價 → 商品優惠券 → 組裝費 → 配送／滿額免運 → 免運券 → 總額。
 - 組裝費不參與商品折扣；只有免運券可折運費。
 - 折扣依符合資格商品成交金額比例分攤至明細；`AwayFromZero` 到兩位小數，最後一筆吸收尾差。
-- 優惠券名額、每人次數及建單在同一交易驗證；取消／付款逾時／商家取消返還名額，完成後退貨不返券。
+- 購物車只預覽優惠，不保留名額；優惠券名額、每人次數、Order 與 CouponRedemption 在同一交易驗證／建立。取消／付款逾時／商家取消返還名額，完成後退貨不返券。
+- 訪客每人使用鍵為伺服器以 Secret 對正規化訂單 Email 計算的 HMAC-SHA-256，只保存 binary(32) Hash；V1 Secret Version 固定為 1 且 Secret 不進儲存庫。
 
 ### 7.3 訂單與快照
 
@@ -318,7 +321,7 @@ tests/
 
 - 即時：信用卡、LINE Pay、Apple Pay、Google Pay；支援成功、失敗、取消及重複回呼。
 - 延遲：ATM、超商代碼，產生模擬帳號／代碼與到期時間。
-- COD：一般宅配與超取皆可使用；最終應付金額上限 NT$20,000，組裝電腦及限制品不得使用。
+- COD：一般宅配與超取皆可使用；最終應付金額上限 NT$20,000，組裝電腦及任一 `RequiresPrepayment` SKU 不得使用。跨模組判斷使用 Terry 提供的用途專用 Eligibility Query／DTO，不直讀 Repository。
 - 一般宅配 COD 於 `Delivered` 且完成收款時 Paid；超取 COD 於 `PickedUp` 且完成收款時 Paid。
 - 一次付款失敗不立即取消訂單；可在原付款期限內重試，期限到期才取消並釋放庫存。
 
@@ -328,6 +331,7 @@ tests/
 AvailableQuantity = OnHandQuantity - ReservedQuantity
 ```
 
+- Cart 不保留庫存。Checkout 在同一 SQL Transaction 先建立 Order，再以 OrderId 原子建立 Reservation 並更新 Balance；Reservation 不保存 CartId。
 - 建立訂單時以 SQL Server 交易原子保留全部 SKU；最後一件競爭只允許一筆成功。
 - 付款成功不扣 OnHand；取消／逾時釋放 Reserved；出貨同時減少 OnHand 與 Reserved；完成不再改實體庫存。
 - 保留期限：即時付款 15 分鐘；ATM／超商代碼 3 天；COD 建立後直接確認但仍只保留至出貨。
@@ -362,6 +366,8 @@ AvailableQuantity = OnHandQuantity - ReservedQuantity
 - 客製組裝在 AssemblyStarted 後不接受無理由取消／退貨，但瑕疵、規格錯誤或組裝錯誤仍須處理。
 - 核准後 7 日內交寄；主管可在到期前延長一次 7 日並留下理由及 Audit。
 - 訪客經限單 Email 驗證後可取消及申請退貨，不需客服帳號。
+- 退貨寄回使用 Kafen 所有的獨立 ReturnShipment／Event，不重用 outbound Shipment；每案同時最多一個有效寄回批次，事件以 Source＋ExternalEventId 去重。
+- 宅配取件地址嵌入不可變快照且可不同於原訂單地址；ReturnRequest 不建立 SupportTicketId，補件、附件、審核與通知均留在退貨流程。
 
 ### 8.3 部分退款
 
@@ -407,6 +413,8 @@ AvailableQuantity = OnHandQuantity - ReservedQuantity
 - SupportTicket、ReportCase、ReturnRequest 為獨立 Aggregate、資料表及狀態機。
 - 統一工作台只用授權後的唯讀 `UNION ALL` View 顯示摘要及導向，不建立第四個可寫案件表。
 - 寫入仍呼叫原領域 Use Case；工作台可見不代表取得跨領域處理權。
+- 工作台 V1 只回 CaseType、CasePublicId、CaseNumber、Title、Status、Priority、RequesterDisplay、AssigneePublicId、CreatedAtUtc、LastActivityAtUtc、SlaDueAtUtc、IsOverdue，不回 RowVersion／CustomerReplyState／另一套 AssignmentState。
+- 檢舉固定 `Open → Assigned → InReview → Actioned/Rejected → Closed`；補件是 InReview Action。一般檢舉由 CustomerService 自領，高風險案件須 CustomerServiceSupervisor 指派或覆核，不新增角色。
 
 ### 9.4 附件
 
@@ -597,13 +605,13 @@ AvailableQuantity = OnHandQuantity - ReservedQuantity
 | 組裝 | BuildList、BuildListItem、BuildShareToken、CompatibilityCheckResult、AssemblyJob |
 | 購物 | Cart、CartItem、Order、OrderItem、Coupon、CouponCategory／Product／ExcludedProduct、OrderCoupon、CouponRedemption |
 | 付款物流 | PaymentAttempt／Event、Shipment、ShippingMethod、ConvenienceStore、PackageLimitVersion |
-| 售後 | ReturnRequest／Item／Inspection、Refund／Allocation、SimulatedInvoice／Allowance |
+| 售後 | ReturnRequest／Item／Inspection／Attachment、ReturnShipment／Event、Refund／Allocation、SimulatedInvoice／Allowance |
 | 客服 | SupportTicket／Message／Attachment／AssignmentHistory／SlaEvent、ReportCase |
 | AI／治理 | AiConsent、Conversation、Interaction、ToolInvocation、Citation、UsageLedger、Outbox、IdempotencyRecord、AuditLog |
 
-實際 Entity、Fluent Mapping、Index、Check Constraint、Filtered Unique 及 Migration 必須逐項比對三份資料字典；組員提案及跨模組 ERD Review 通過前不得建立正式 Migration。
+實際 Entity、Fluent Mapping、Index、Check Constraint、Filtered Unique 及 Migration 必須逐項比對三份資料字典。Kafen、Terry、Yinyin 已收束的欄位級交付統一由 [[03-架構/資料表實作交付/README]] 進入；該交付可用於 Entity／Configuration 實作，但不取代正式資料字典，也不代表 Migration 已核准。
 
-資料責任補充：`SalePrices` 是 SKU 特價唯一可寫來源，第一版不建立重複的 `Promotions.SpecialPrice`；優惠券範圍以正規化關聯表保存。`BuildShareTokens.ExpiresAtUtc` 可為 Null 表示不自動到期；物流 COD 欄位只表達配送能力，最終資格仍由 Application 依金額與商品內容驗證。`ImportRows` 欄位及物流狀態列舉以三份資料字典與狀態機文件為唯一來源。
+資料責任補充：`SalePrices` 是 SKU 特價唯一可寫來源，第一版不建立重複的 `Promotions.SpecialPrice`；優惠券範圍以正規化關聯表保存。`BuildShareTokens.ExpiresAtUtc` 可為 Null 表示不自動到期；物流 COD 欄位只表達配送能力，最終資格仍由 Application 依金額、組裝及 SKU 預付旗標驗證。`ImportRows` 與 `ImportBatches` 欄位及物流狀態列舉以三份資料字典與狀態機文件為唯一來源。Owner／Assignee 使用 Identity FK；Identity 有交易相依時採停權、軟刪除或匿名化，中央 AuditLog 保存不可變 Actor PublicId／角色快照。
 
 ## 15. 安全、隱私、檔案與稽核
 
@@ -727,7 +735,7 @@ AvailableQuantity = OnHandQuantity - ReservedQuantity
 | UI | [[03-架構/M功能桌面UI與Route規格]] |
 | API | [[03-架構/API共通規範]]、[[03-架構/API Endpoint目錄]]、[[03-架構/API DTO與Schema契約]]、[[03-架構/API錯誤碼目錄]] |
 | 狀態／一致性 | [[03-架構/狀態機設計]]、[[03-架構/資料一致性、Outbox與冪等設計]] |
-| 資料 | [[03-架構/資料模型與ERD]]、[[03-架構/資料字典索引]]、三份領域資料字典、[[03-架構/PublicId與資料完整性設計]] |
+| 資料 | [[03-架構/資料模型與ERD]]、[[03-架構/資料字典索引]]、三份領域資料字典、[[03-架構/資料表實作交付/README]]、[[03-架構/PublicId與資料完整性設計]] |
 | AI | [[03-架構/AI應用詳細設計]]、[[03-架構/AI測試與評估規格]] |
 | 安全／非功能 | [[03-架構/威脅模型與安全檢查表]]、[[03-架構/安全與供應鏈強制驗收標準]]、[[03-架構/非功能需求]]、[[03-架構/設定與Secrets管理規範]] |
 | 測試／Demo | [[03-架構/測試策略]]、[[03-架構/M功能測試案例目錄]]、[[04-展示/Demo流程]]、[[04-展示/Demo操作腳本]] |
@@ -738,9 +746,9 @@ AvailableQuantity = OnHandQuantity - ReservedQuantity
 
 - alex：專案／資料庫／API 共用基線、全部 AI、整合、非功能及 Demo 環境。
 - haru：會員、驗證、訂單及 S-01 收藏。
-- kafen：退貨、客服、報表、檢舉、S-07 RWD 及 PM-02 品牌視覺。
+- kafen：退貨、客服、檢舉、S-07 RWD 及 PM-02 品牌視覺。
 - yinyin：優惠券、付款、退款、發票及付款庫存物流 E2E。
-- terry：商品、購物車、庫存、物流、組裝、相容性及 S-02 評價審核。
+- terry：商品、購物車、庫存、物流、組裝、相容性、M-15 一般與進階營運報表及 S-02 評價審核。
 - 待分配：S-04 多語系、DEMO-06 備援影片、DEMO-07 完整彩排。
 
 ### 19.2 未完成但不構成規格缺口
@@ -764,5 +772,6 @@ AvailableQuantity = OnHandQuantity - ReservedQuantity
 
 | 版本 | 日期 | 狀態 | 說明 |
 |---|---|---|---|
+| `v1.0` | 2026-08-17 | 已確認／READY | 寫回 DEC-P250～DEC-P262：Order-only Reservation、完整評價生命週期、ImportBatch 契約、Identity／Audit 邊界、SKU 預付旗標、獨立退貨物流、12 欄工作台、檢舉狀態／權限及 Checkout-bound CouponRedemption；功能範圍與版本號不變 |
 | `v1.0` | 2026-08-15 | 已確認／READY | 依 DEC-P243～DEC-P249 收斂分享期限、COD 資料責任、特價唯一來源、ImportRows Schema、優惠券範圍及物流狀態資料契約；功能範圍與版本號不變 |
 | `v1.0` | 2026-08-14 | 已確認／READY | 將既有正式需求、架構、UI、API、資料、安全、AI、非功能、測試、Demo 及交付閘門整合為可獨立閱讀的完整系統規格主文件；依 DEC-P73 統一一般宅配與超取 COD 規則 |

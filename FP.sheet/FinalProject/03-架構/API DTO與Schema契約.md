@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-14
+最後更新: 2026-08-17
 追蹤項目:
   - DES-10
   - REQ-03
@@ -111,6 +111,9 @@
 | `AdminReturnDetailDto` | `ReturnRequestDto`＋可授權訂單摘要、檢查結果、可退款分攤預覽、內部歷程及 `availableActions[]` |
 | `AdminRefundQuery` | `statuses?`、`from/to?`、`q?`、`pageNumber/pageSize` |
 | `ReturnProcessActionRequest` | `action` 對應 `receive/inspect/extend-shipment-deadline` 的具名 oneOf Payload；皆含理由與 RowVersion，延長另含新期限 |
+| `CreateReturnShipmentRequest` | `shippingMethodPublicId`、`pickupAddress?` 或 `store/selfShip` 具名 oneOf、`returnRowVersion`；宅配取件地址不得由後端強制覆寫成原訂單地址 |
+| `ReturnShipmentDto` | PublicId、ReturnPublicId、Method／Provider 摘要、ShipmentNumber、Status、TrackingNumber?、遮蔽取件／門市快照、事件摘要、時間、RowVersion |
+| `AppendReturnShipmentEventRequest` | `source:string(1..32)`、`externalEventId:string(1..128)`、`eventType:string(1..64)`、`occurredAtUtc`、安全摘要；Source＋ExternalEventId 冪等 |
 | `CouponDto` | PublicId、Code、Name、Type、Status、期間、門檻、折扣／上限、使用量、適用／排除範圍、是否排除特價、RowVersion |
 | `CreateCouponRequest` | Code、Name、Type、期間、規則、總量／每人限制、Scope 與排除項目；百分比必填最大折抵 |
 | `UpdateCouponRequest` | Create 欄位＋RowVersion；已產生 Redemption 後不可改寫 Code 或歷史快照 |
@@ -122,7 +125,7 @@
 
 | Schema | 精確欄位 |
 |---|---|
-| `CreateSkuRequest` | `skuCode:string(1..64)`、`nameZhTw:string(1..160)`、`listPrice/unitCost:money`、`salePrice?:money`、尺寸／重量、`status`、`isDefault`、`specifications:SpecValueInput[0..100]` |
+| `CreateSkuRequest` | `skuCode:string(1..64)`、`nameZhTw:string(1..160)`、`listPrice/unitCost:money`、尺寸／重量、`status`、`isDefault`、`requiresPrepayment:bool`、`specifications:SpecValueInput[0..100]`；特價不得內嵌，改走 SalePrice 契約 |
 | `UpdateSkuRequest` | Create 欄位但 `skuCode` 不可改；加 `rowVersion` |
 | `SpecValueInput` | `semanticKey:string(1..64)`、`valueType:enum`、四值欄 oneOf |
 | `SkuDto` | PublicId、SkuCode、Product 摘要、全部可編輯欄位、Spec DTO、庫存摘要、時間、RowVersion；非 Finance/Catalog 不回 UnitCost |
@@ -148,7 +151,7 @@
 | `InventoryReservationDto` | PublicId、Order／SKU 摘要、Quantity、Status、ExpiresAtUtc、CreatedAtUtc、合法 `availableActions[]`、RowVersion |
 | `InventoryMovementQuery` | `skuPublicId?`、`movementTypes?`、`from/to?`、`pageNumber/pageSize` |
 | `InventoryMovementDto` | PublicId、SKU 摘要、Type、Before／Delta／After、ReasonCode、Actor 摘要、Reference Type／PublicId、OccurredAtUtc |
-| `ProductImportBatchDto`／`InventoryImportBatchDto` | Batch PublicId、Type、Template Version、Status、新增／更新／無變更／錯誤統計、ExpiresAtUtc、RowVersion |
+| `ProductImportBatchDto`／`InventoryImportBatchDto` | Batch PublicId、Type、Template Version、Status、建立者摘要、三組來源檔安全顯示名／Hash 是否存在、RowCount、新增／更新／無變更／錯誤統計、NormalizedContentVersion、CorrelationId、ResultSummary、ExpiresAtUtc、RowVersion；庫存匯入第 2／3 組為 Null |
 | `ProductImportRowDto`／`InventoryImportRowDto` | Dataset、SourceRowNumber、StableKey、Action、ErrorCodes[]、安全欄位摘要；不回未清理原始公式 |
 
 商品與庫存匯入 DTO、Header、Preview 與 Confirm 見 [[03-架構/匯入暫存與庫存調整設計]]；圖片／附件 DTO 見 [[03-架構/檔案與圖片儲存設計]]。
@@ -171,7 +174,7 @@
 | `SupportTicketActionRequest` | Action 對應 claim／assign／transfer／change-priority／change-status／cancel／reopen 的具名 oneOf Payload；指派、優先級、取消及重開必填理由，皆帶 RowVersion |
 | `SupportSlaItemDto` | Ticket PublicId／案件編號、Priority、Assignee、Status、FirstResponseDueAtUtc、ResolutionDueAtUtc、使用比例、IsOverdue、LastActivityAtUtc、RowVersion |
 | `CaseWorkbenchQuery` | `caseTypes?:support/report/return[1..3]`、`statuses?:string[0..10]`、`priorities?:string[0..4]`、`assigneePublicId?:uuid`、`overdue?:bool`、`cursor?:string(512)`、`pageSize:int(1..100)` |
-| `CaseWorkbenchItemDto` | 固定 12 欄：CaseType、CasePublicId、DisplayNumber、Title、Status、Priority、CustomerDisplay、AssigneePublicId?、CreatedAtUtc、LastActivityAtUtc、DueAtUtc?、IsOverdue |
+| `CaseWorkbenchItemDto` | 固定 12 欄：CaseType、CasePublicId、CaseNumber、Title、Status、Priority、RequesterDisplay、AssigneePublicId?、CreatedAtUtc、LastActivityAtUtc、SlaDueAtUtc?、IsOverdue；不得加入 CustomerReplyState、工作台 RowVersion 或 AssignmentState |
 
 四個 AI 工具的 Request／Result 上限與安全 Union 以 [[03-架構/AI應用詳細設計]] 為準；工具不是公開 Endpoint。
 

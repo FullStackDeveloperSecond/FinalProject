@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-15
+最後更新: 2026-08-17
 追蹤項目:
   - DES-11
 ---
@@ -127,7 +127,7 @@
 | `payment_state_conflict` | 409 | 付款嘗試目前狀態不允許要求的完成、失敗或逾時操作 |
 | `payment_attempt_expired` | 409 | 指定付款嘗試已超過自身有效期限 |
 | `payment_cod_amount_exceeded` | 409 | COD 最終應付金額超過 NT$20,000 |
-| `payment_cod_restricted_item` | 409 | COD 訂單含組裝電腦或限制品 |
+| `payment_cod_restricted_item` | 409 | COD 訂單含組裝電腦或任一 `RequiresPrepayment` SKU |
 | `payment_event_duplicate` | 409 | Provider Event 已處理；API 可依 Provider 契約回安全冪等結果 |
 | `shipping_method_not_allowed` | 409 | 商品尺寸、重量、分類或組裝限制不允許配送方式 |
 | `shipping_store_inactive` | 409 | 選取門市已停用 |

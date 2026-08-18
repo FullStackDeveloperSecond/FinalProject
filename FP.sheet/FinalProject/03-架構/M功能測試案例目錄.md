@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-14
+最後更新: 2026-08-17
 追蹤項目:
   - QA-03
   - REQ-02
@@ -61,7 +61,7 @@
 | UC-SUPPORT-02 | 檔案數量 400、大小 413、格式 415、惡意內容 422、掃描失敗 503 | Defender Stub、私有下載、`file_*` 契約 | 上傳與拒絕 | kafen／terry |
 | UC-SLA-01 | 計時、暫停、重開 | Hangfire 提醒與逾時 | SLA 工作台 | kafen／terry |
 | UC-WORKBENCH-01 | 正規化排序 | 三領域 Union、授權、分頁 | 工作台篩選 | kafen／terry |
-| UC-REPORT-01 | 指標公式 | SQL 彙總、退款後數字 | 核心 E2E 5 | kafen／terry；yinyin 覆核退款數字 |
+| UC-REPORT-01 | 指標公式 | SQL 彙總、退款後數字 | 核心 E2E 5 | terry 主責；kafen 交叉覆核，yinyin 覆核退款數字 |
 
 ## M 桌面頁面支撐 Endpoint 契約測試
 

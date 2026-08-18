@@ -84,6 +84,17 @@ npm audit --omit=dev
 
 `health-check.ps1` 不依賴 PID 判斷，會直接驗證 SQL Server、API Liveness／Readiness、消費者前台與管理後台；必要檢查失敗時回傳非零結束碼。Readiness 的 `Degraded` 代表可降級的外部依賴異常，基本服務仍可用，因此會警告但不視為整體失敗。Hangfire、OpenAI 與 Brevo 的實際檢查會在對應 Infrastructure 完成後加入，不以假檢查宣稱就緒。
 
+### Brevo SMTP 展示設定
+
+API 專案已設定 `UserSecretsId`。Brevo SMTP Username／SMTP Key 只由目前 Windows 使用者在本機終端輸入，不得寫入命令紀錄、聊天、Issue、文件或 Repository：
+
+```powershell
+.\scripts\configure-brevo-secrets.ps1
+.\scripts\test-brevo-smtp.ps1
+```
+
+設定腳本固定使用 Brevo relay `smtp-relay.brevo.com:587`、STARTTLS 與已驗證單一寄件者 `alex <alexyang920528@gmail.com>`。測試腳本只寄送一封不含會員資料或 Token 的純文字驗證信到已確認的同一地址；SMTP 接受後仍需在收件匣與 Brevo Transactional Log 確認最終投遞。此腳本只驗證展示帳號與 SMTP 設定，正式 `IEmailSender`、Outbox、重試及失敗處理由 `SH-07` 實作。
+
 ### 個別啟動
 
 API：

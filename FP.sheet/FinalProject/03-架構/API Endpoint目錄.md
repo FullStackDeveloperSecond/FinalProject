@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-14
+最後更新: 2026-08-17
 追蹤項目:
   - DES-10
   - DES-16
@@ -102,6 +102,7 @@
 |---|---|---|---|---|
 | UC-RETURN-01 後台查詢 | `GET /api/v1/admin/returns`；`GET /api/v1/admin/returns/{id}` | OrderManager／SuperAdmin；其他角色依矩陣只讀摘要 | `AdminReturnQuery` → `PageResult<AdminReturnSummaryDto>`；`AdminReturnDetailDto` | `resource_not_found`、`authorization_forbidden` |
 | UC-RETURN-01 後台流程 | `POST /api/v1/admin/returns/{id}/actions/{action}` | OrderManager／SuperAdmin | Action 白名單：`receive`、`inspect`、`extend-shipment-deadline`；各命令含 RowVersion 與理由 | `return_state_conflict`、`return_shipment_extension_not_allowed`、`concurrency_conflict` |
+| UC-RETURN-01 寄回物流 | `GET /api/v1/admin/returns/{id}/shipment`；`POST /api/v1/admin/returns/{id}/shipment`；`POST /api/v1/admin/returns/{id}/shipment/events` | OrderManager／SuperAdmin；事件端點限模擬 Provider／內部工作 | `CreateReturnShipmentRequest`、`ReturnShipmentDto`、`AppendReturnShipmentEventRequest`；每案最多一個有效寄回批次 | `return_state_conflict`、`concurrency_conflict`、`authorization_forbidden` |
 | UC-REFUND-01 退貨審核 | `POST /api/v1/admin/returns/{id}/actions/review` | `Return.Approve`：OrderManager／SuperAdmin | `ApproveReturnRequest` → `ReturnRequestDto` | `return_state_conflict`、`concurrency_conflict` |
 | UC-REFUND-01 退款 | `GET /api/v1/admin/refunds`；`GET /api/v1/admin/refunds/{id}`；`POST /api/v1/admin/refunds/{id}/actions/execute` | FinanceManager／SuperAdmin；查詢依角色矩陣 | `AdminRefundQuery`、`PageResult<RefundDto>`、`ExecuteRefundRequest` | `refund_amount_exceeded`、`refund_state_conflict`、`concurrency_conflict` |
 | M 優惠券管理支撐 | `GET/POST /api/v1/admin/coupons`；`GET/PUT /api/v1/admin/coupons/{id}`；`POST /api/v1/admin/coupons/{id}/actions/{action}` | FinanceManager／MarketingAnalyst／SuperAdmin | Action 白名單：`activate`、`pause`、`disable`；`CouponDto` 與管理 Request | `coupon_code_duplicate`、`coupon_state_conflict`、`validation_failed`、`concurrency_conflict` |
@@ -119,7 +120,7 @@
 | UC-SLA-01 | `GET /api/v1/admin/support-tickets/sla` | CustomerService／Supervisor | `CursorPage<SupportSlaItemDto>` | `authorization_forbidden` |
 | UC-WORKBENCH-01 | `GET /api/v1/admin/case-workbench` | 各角色只見可授權領域 | `CaseWorkbenchQuery` → `CursorPage<CaseWorkbenchItemDto>` | `search_sort_unsupported` |
 
-工作台固定使用 `LastActivityAtUtc／CasePublicId` Cursor，12 個共通欄位、UNION 分支授權與驗收見 [[03-架構/統一案件工作台設計]]。
+工作台固定使用 `LastActivityAtUtc／CasePublicId` Cursor，且只回傳正式 12 欄；RowVersion 與 AvailableActions 必須向來源領域詳情取得。UNION 分支授權與驗收見 [[03-架構/統一案件工作台設計]]。
 
 ## 報表
 
