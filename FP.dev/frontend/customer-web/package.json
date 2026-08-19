@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "generate:api": "openapi-typescript http://localhost:5126/openapi/v1.json -o src/api/generated/schema.d.ts",
     "build": "vue-tsc -b && vite build",
     "typecheck": "vue-tsc -b",
     "lint": "eslint . --max-warnings 0 && cd ../shared && node ../customer-web/node_modules/eslint/bin/eslint.js . --max-warnings 0",
