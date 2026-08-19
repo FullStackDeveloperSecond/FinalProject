@@ -12,6 +12,11 @@ public static class CatalogServiceCollectionExtensions
         services.AddScoped<IProductSearchService, EfProductSearchService>();
         services.AddScoped<IProductDetailService, EfProductDetailService>();
         services.AddScoped<ICatalogFilterOptionsService, EfCatalogFilterOptionsService>();
+        services.AddScoped<IBrandAdminService, EfBrandAdminService>();
+        services.AddScoped<ICategoryAdminService, EfCategoryAdminService>();
+        services.AddScoped<ITagAdminService, EfTagAdminService>();
+        services.AddScoped<IProductAdminService, EfProductAdminService>();
+        services.AddScoped<ISkuAdminService, EfSkuAdminService>();
 
         return services;
     }
