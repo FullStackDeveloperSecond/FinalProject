@@ -24,30 +24,6 @@ public static class DemoAllowanceNumber
 }
 
 /// <summary>
-/// 不能建立折讓的原因。
-/// API錯誤碼目錄尚未登錄發票錯誤碼，因此本層回傳型別化原因，字串代碼的對應待目錄補齊。
-/// </summary>
-public enum InvoiceAllowanceRejection
-{
-    None,
-
-    /// <summary>發票狀態不允許折讓。</summary>
-    InvoiceNotAllowable,
-
-    /// <summary>該筆退款已經有折讓；每筆 Refund 最多一筆折讓。</summary>
-    RefundAlreadyAllowed,
-
-    /// <summary>沒有任何可折讓的明細。</summary>
-    NoAllowableLines,
-
-    /// <summary>要折讓的明細不屬於這張發票。</summary>
-    LineNotOnInvoice,
-
-    /// <summary>累計折讓超過該明細的可折讓數量或金額。</summary>
-    LineCapacityExceeded,
-}
-
-/// <summary>
 /// 原發票明細目前的可折讓餘額。
 /// </summary>
 public sealed record InvoiceAllowanceCapacity(
@@ -63,9 +39,10 @@ public sealed record InvoiceAllowanceCapacity(
 }
 
 /// <summary>
-/// 要折讓的明細。<see cref="GrossAmount"/> 來自退款分攤，不由折讓端重算。
+/// 由成功 Refund 的分攤推導出的折讓明細。金額必須由後端依成功退款與原發票明細推導，
+/// 不接受前端指定（DEC-BATCH-014 第 9 項）。
 /// </summary>
-public sealed record InvoiceAllowanceLineRequest(
+public sealed record RefundedInvoiceLine(
     Guid SimulatedInvoiceItemPublicId,
     int Quantity,
     decimal GrossAmount);
@@ -74,7 +51,7 @@ public sealed record InvoiceAllowanceRequest(
     SimulatedInvoiceStatus InvoiceStatus,
     bool RefundAlreadyHasAllowance,
     IReadOnlyList<InvoiceAllowanceCapacity> Capacities,
-    IReadOnlyList<InvoiceAllowanceLineRequest> Lines);
+    IReadOnlyList<RefundedInvoiceLine> RefundedLines);
 
 public sealed record InvoiceAllowanceLineBreakdown(
     Guid SimulatedInvoiceItemPublicId,
@@ -84,19 +61,19 @@ public sealed record InvoiceAllowanceLineBreakdown(
     decimal GrossAmount);
 
 /// <summary>
-/// 折讓試算結果。失敗時只帶拒絕原因，不丟例外。
+/// 折讓試算結果。失敗時只帶錯誤碼，不丟例外。
 /// </summary>
 public sealed class InvoiceAllowanceResult
 {
     private InvoiceAllowanceResult(
-        InvoiceAllowanceRejection rejection,
+        string? errorCode,
         decimal netAmount,
         decimal taxAmount,
         decimal amount,
         bool fullyAllowed,
         IReadOnlyList<InvoiceAllowanceLineBreakdown> lines)
     {
-        Rejection = rejection;
+        ErrorCode = errorCode;
         NetAmount = netAmount;
         TaxAmount = taxAmount;
         Amount = amount;
@@ -104,10 +81,11 @@ public sealed class InvoiceAllowanceResult
         Lines = lines;
     }
 
-    public bool IsSuccess => Rejection == InvoiceAllowanceRejection.None;
+    public bool IsSuccess => ErrorCode is null;
 
-    public InvoiceAllowanceRejection Rejection { get; }
+    public string? ErrorCode { get; }
 
+    /// <summary>折讓表頭未稅，由折讓含稅總額回推，並精確等於各明細未稅合計。</summary>
     public decimal NetAmount { get; }
 
     public decimal TaxAmount { get; }
@@ -125,8 +103,8 @@ public sealed class InvoiceAllowanceResult
 
     public IReadOnlyList<InvoiceAllowanceLineBreakdown> Lines { get; }
 
-    public static InvoiceAllowanceResult Failure(InvoiceAllowanceRejection rejection) =>
-        new(rejection, 0m, 0m, 0m, false, []);
+    public static InvoiceAllowanceResult Failure(string errorCode) =>
+        new(errorCode, 0m, 0m, 0m, false, []);
 
     public static InvoiceAllowanceResult Success(
         decimal netAmount,
@@ -134,5 +112,5 @@ public sealed class InvoiceAllowanceResult
         decimal amount,
         bool fullyAllowed,
         IReadOnlyList<InvoiceAllowanceLineBreakdown> lines) =>
-        new(InvoiceAllowanceRejection.None, netAmount, taxAmount, amount, fullyAllowed, lines);
+        new(null, netAmount, taxAmount, amount, fullyAllowed, lines);
 }
