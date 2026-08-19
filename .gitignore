@@ -2,6 +2,8 @@
 /*
 !/.gitignore
 !/README.md
+!/.github/
+!/.github/**
 !/FP.dev/
 !/FP.sheet/
 
