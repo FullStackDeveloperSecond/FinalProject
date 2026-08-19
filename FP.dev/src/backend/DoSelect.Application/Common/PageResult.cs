@@ -1,0 +1,8 @@
+namespace DoSelect.Application.Common;
+
+public sealed record PageResult<T>(IReadOnlyList<T> Items, int PageNumber, int PageSize, int TotalCount)
+{
+    public int TotalPages => PageSize <= 0
+        ? 0
+        : (int)Math.Ceiling(TotalCount / (double)PageSize);
+}

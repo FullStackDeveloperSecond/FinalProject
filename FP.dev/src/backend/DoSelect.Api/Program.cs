@@ -1,6 +1,7 @@
 using DoSelect.Api.Common;
 using DoSelect.Api.Observability;
 using DoSelect.Application.Notifications;
+using DoSelect.Infrastructure.Catalog;
 using DoSelect.Infrastructure.Email;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Seeding;
@@ -15,6 +16,7 @@ builder.Services.AddApiFoundation();
 builder.Services.AddOpenApi();
 builder.Services.AddDoSelectPersistence(builder.Configuration);
 builder.Services.AddDoSelectSecurity(builder.Environment, builder.Configuration);
+builder.Services.AddDoSelectCatalogServices();
 builder.Services.AddSingleton<IEmailSender>(services =>
 {
     var emailEnabled = builder.Configuration.GetValue<bool>("Features:EmailEnabled");
