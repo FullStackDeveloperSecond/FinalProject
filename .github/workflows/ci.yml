@@ -1,0 +1,153 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+      - dev
+  push:
+    branches:
+      - main
+      - dev
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "1"
+  NUGET_XMLDOC_MODE: skip
+
+jobs:
+  ai-evaluation-contract:
+    name: AI Evaluation Contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: FP.dev/.nvmrc
+
+      - name: Verify generated evaluation artifacts are current
+        run: node scripts/build-ai-eval-dataset.mjs --check
+        working-directory: FP.dev
+
+      - name: Validate evaluation dataset contract
+        run: node scripts/validate-ai-eval-dataset.mjs
+        working-directory: FP.dev
+
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: FP.dev
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          global-json-file: FP.dev/global.json
+
+      - name: Restore with warnings as errors
+        run: dotnet restore DoSelect.slnx -warnaserror
+
+      - name: Build with warnings as errors
+        run: dotnet build DoSelect.slnx --no-restore -warnaserror
+
+      - name: Verify formatting
+        run: dotnet format DoSelect.slnx --verify-no-changes --no-restore
+
+      - name: Run .NET tests
+        run: dotnet test DoSelect.slnx --no-build --no-restore
+
+      - name: Report vulnerable NuGet packages
+        run: dotnet list DoSelect.slnx package --vulnerable --include-transitive
+
+  frontend:
+    name: Frontend (${{ matrix.app }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        app:
+          - customer-web
+          - admin-web
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: FP.dev/.nvmrc
+          cache: npm
+          cache-dependency-path: FP.dev/frontend/${{ matrix.app }}/package-lock.json
+
+      - name: Install locked dependencies
+        run: npm ci
+        working-directory: FP.dev/frontend/${{ matrix.app }}
+
+      - name: Type-check
+        run: npm run typecheck
+        working-directory: FP.dev/frontend/${{ matrix.app }}
+
+      - name: Lint with zero warnings
+        run: npm run lint -- --max-warnings 0
+        working-directory: FP.dev/frontend/${{ matrix.app }}
+
+      - name: Run frontend tests
+        run: npm test
+        working-directory: FP.dev/frontend/${{ matrix.app }}
+
+      - name: Build production assets
+        run: npm run build
+        working-directory: FP.dev/frontend/${{ matrix.app }}
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+        working-directory: FP.dev/frontend/${{ matrix.app }}
+
+  required:
+    name: CI Required
+    if: ${{ always() }}
+    needs:
+      - ai-evaluation-contract
+      - backend
+      - frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Verify all required jobs succeeded
+        env:
+          AI_EVAL_RESULT: ${{ needs.ai-evaluation-contract.result }}
+          BACKEND_RESULT: ${{ needs.backend.result }}
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
+        run: |
+          test "$AI_EVAL_RESULT" = "success"
+          test "$BACKEND_RESULT" = "success"
+          test "$FRONTEND_RESULT" = "success"

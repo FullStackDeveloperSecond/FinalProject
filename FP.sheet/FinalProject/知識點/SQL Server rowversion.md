@@ -16,6 +16,8 @@ related:
   - "[[01-需求/專案名詞表]]"
   - "[[02-領域需求/庫存規則]]"
   - "[[03-架構/狀態機設計]]"
+  - "[[知識點/冪等性]]"
+  - "[[知識點/DTO與API Schema]]"
 ---
 
 # SQL Server rowversion
@@ -109,7 +111,7 @@ ETag: "AAAAAAAAB9M="
 If-Match: "AAAAAAAAB9M="
 ```
 
-專案需統一選擇 Body Token 或 ETag，避免不同端點各自發明格式。若依目前草稿採 Body Token，併發衝突可回：
+專案已統一採 Body Token：Response 回傳 Base64 `rowVersion`，Update／Command Request 必須原樣帶回；併發衝突回：
 
 ```http
 409 Conflict

@@ -1,13 +1,21 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-11
+最後更新: 2026-08-18
 追蹤項目:
   - DEV-01
+  - DEV-06
 ---
 
 # Git 協作規範
 
 這份規範提供組員日常開發使用。GitHub Branch Protection、PR 審核與其他 Repository Rules 由專案主導者統一設定。
+
+## Codex／自動化工具的 Git 執行環境
+
+- Codex 執行 `git add`、`git commit`、`git push` 及推送後狀態確認時，固定使用**系統環境 PowerShell**，不得使用沙盒 PowerShell。
+- 原因是 GitHub CLI、Git Credential Manager 與 Windows Keyring 認證保存在主機環境；沙盒可能顯示假性的未登入或缺少認證。
+- 文件檢查、內容搜尋與不需要認證的唯讀分析仍可在受限環境執行；真正改變 Git 歷史或遠端狀態的命令必須回到系統環境。
+- `graph.json` 不納入提交；`appearance.json` 只有在組長明確要求時才提交。
 
 ## 1. Branch 規則
 
@@ -51,6 +59,8 @@ git switch -c feature/shopping-cart
 - 已在自己電腦完成基本測試，專案可以正常啟動與建置。
 - 已同步最新 `dev`，並處理完衝突。
 - 已檢查變更內容，沒有 `.env`、密碼、API Key、Token、連線字串或無關檔案。
+- 若新增 Package，已確認精確名稱與版本存在於正式 Registry，官方文件／來源 Repository 身分一致，並提交中央版本或 Lock File。
+- 若變更私人資料的讀取、修改或刪除，已加入 User A／User B 越權負面測試；前端隱藏按鈕或刪除確認視窗不能取代後端授權。
 
 若功能尚未完成，但希望其他組員先查看或討論，可以開 **Draft PR**。
 
@@ -73,11 +83,23 @@ PR 建立後不要自行合併。只有組長可以核准並合併 PR；其他�
 
 PR 合併前至少通過：
 
-- .NET Build、單元測試與受影響的 API 整合測試。
-- Vue Lint、Type Check 與單元／元件測試。
+- `Backend`：.NET Restore、零警告 Build、Format Verify、Solution Test 與 NuGet 弱點檢查。
+- `Frontend (customer-web)`、`Frontend (admin-web)`：鎖檔安裝、Type Check、零警告 Lint、單元／元件測試、Production Build 與正式相依弱點檢查。
 - Migration、登入授權、金額退款或庫存相關變更必須附對應測試。
+- 私人資源讀取／修改／刪除變更必須通過 Actor A／B 資源所有權測試，並證明拒絕後沒有資料或副作用變更。
+- 新增 Package 必須通過乾淨 Restore／Install、Lock File 一致性、正式來源核對及直接／間接弱點檢查。
+- Commit 與 PR 內容必須通過 Secret 檢查；具體自動掃描工具完成前，PR 需附人工 Diff、Repository 搜尋與前端產物搜尋結果。
 
-只有組長核准與必要自動檢查皆通過後才能合併。合併到 `dev` 後執行五條核心 Playwright E2E；實際五條流程由 [[03-架構/測試策略]] 追蹤。
+以上項目的詳細阻擋條件見 [[03-架構/安全與供應鏈強制驗收標準]]；任一項沒有證據不得合併，即使組長使用 Bypass 亦應先完成並在 PR 留痕。
+
+Branch Protection 固定要求彙總 Check `CI Required`；只有 `Backend` 與兩個 Frontend Job 全部成功才會通過。`main`／`dev` 均使用 Strict Status Check，PR 必須先更新至最新目標分支並重新通過。只有組長核准與必要自動檢查皆通過後才能合併。合併到 `dev` 後執行五條核心 Playwright E2E；實際五條流程由 [[03-架構/測試策略]] 追蹤。
+
+### GitHub 合併與保護設定
+
+- `main` 與 `dev` 依本文件使用受保護分支與 PR 流程，組員不得直接 Push。
+- Repository 允許的 PR 合併方式固定為 **Squash Merge**，不使用 Merge Commit 或 Rebase Merge 合併 PR。
+- 組長帳號保留 Branch Protection／Repository Rules 的 Bypass 權限；其他組員仍必須遵守 PR、核准與必要檢查。
+- PR 合併後由 GitHub 自動刪除來源分支，避免已完成的遠端短分支持續累積。
 
 ## 3. 用最新 `dev` 更新自己的 Branch
 
@@ -128,3 +150,10 @@ git rebase --abort
 - 只 Rebase 自己的個人 Branch，不要 Rebase `main`、`dev` 或其他組員的 Branch。
 - 不要反覆執行 `git merge dev`，避免產生大量無意義的 Merge Commit。
 - 不要使用 `git push --force`；一律使用較安全的 `git push --force-with-lease`。
+
+## 4. Obsidian 設定提交邊界
+
+- `.obsidian/appearance.json` 的共用外觀設定可以提交；提交前必須確認不是個人暫時操作造成的變更。
+- `.obsidian/graph.json` 保留儲存庫既有基準，但後續本機 Graph View 變更不得納入 Commit。
+- 暫時性的介面縮放比例不是專案設定，出現變更時恢復成儲存庫版本，不提交。
+- Commit 前應以 `git diff` 個別確認 Obsidian 設定檔，不能因為位於同一資料夾就整批加入。

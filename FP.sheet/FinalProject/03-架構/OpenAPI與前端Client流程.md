@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-12
+最後更新: 2026-08-18
 追蹤項目:
   - TECH-03
 ---
@@ -9,11 +9,24 @@
 
 ## 選型
 
-- ASP.NET Core API 產生 OpenAPI 文件。
+- API 專案採 ASP.NET Core Web API Controller 範本建立：`dotnet new webapi --use-controllers`。
+- 商業 API 以 Controller 與 `[ApiController]` 實作，不以 Minimal API 作為主要端點形式。
+- 使用 `Microsoft.AspNetCore.OpenApi` 產生第一方 OpenAPI 文件，預設 JSON 位址為 `/openapi/v1.json`。
+- 使用 `Scalar.AspNetCore` 提供互動式 API 文件介面。
+- OpenAPI JSON 與 Scalar 介面只在 `Development` 環境啟用。
+- 不安裝 Swagger UI，避免同時維護兩套互動式文件介面。
 - `openapi-typescript` 將 OpenAPI Schema 轉成 TypeScript 型別。
 - `openapi-fetch` 提供 typed fetch client。
 - 前台與後台使用同一份產生型別及共用 wrapper；產生檔不可手動修改。
 - 套件精確版本由 lock file 固定，升級必須重新產生、Typecheck 並通過契約 Diff。
+
+## API 啟動設定基準
+
+- 服務註冊：`AddControllers()`、`AddOpenApi()`。
+- 端點映射：`MapControllers()`。
+- 僅在 `app.Environment.IsDevelopment()` 成立時映射 `MapOpenApi()` 與 `MapScalarApiReference()`。
+- Scalar 讀取 `/openapi/v1.json`，不得另建人工維護的第二份 API 規格。
+- 健康檢查、OpenAPI 等框架型基礎設施端點可使用框架提供的映射方法；商業領域端點仍使用 Controller。
 
 ## 目錄責任
 
@@ -21,11 +34,14 @@
 contracts/
 └─ openapi.v1.json             # API 匯出的固定契約
 
-frontend/shared/api/
-├─ generated/schema.d.ts       # openapi-typescript 產生；禁止手改
-├─ client.ts                   # openapi-fetch 初始化
-├─ http-wrapper.ts             # Credentials、CSRF、Correlation ID、Problem Details
-└─ errors.ts                   # 穩定業務錯誤碼轉換
+frontend/shared/src/
+├─ api/
+│  ├─ generated/schema.d.ts    # openapi-typescript 產生；禁止手改，商業契約形成後加入
+│  ├─ client.ts                # openapi-fetch generic client 與 HTTP middleware
+│  ├─ correlation-id.ts        # Correlation ID 產生與格式檢查
+│  └─ errors.ts                # Problem Details、穩定錯誤碼與追蹤識別
+├─ query/                      # TanStack Query 共通重試與快取基線
+└─ components/                 # Loading／Empty／Error／HTTP Status 共用狀態
 ```
 
 實際 Solution 建立時可以調整根目錄，但四項責任不可混合進 Vue Component 或 Pinia Store。
@@ -77,3 +93,11 @@ PR 中只要 API Contract、Controller、DTO 或 OpenAPI 設定改動，就執�
 5. 任一步失敗即禁止合併。
 
 不得在 CI 自動 Commit 產生檔，避免未審核契約直接進入分支。
+
+## 目前實作狀態
+
+- `frontend/shared` 已建立為兩個 Vue 應用共用的本機 npm package。
+- 共用 generic client 已固定 `credentials: include`、合法 Correlation ID、可注入 Anti-forgery Token Provider、Problem Details 解析與 `onApiError` 回呼；Query 僅對網路或 5xx 查詢失敗重試一次，Mutation 不自動重試。
+- customer-web 與 admin-web 已由 `VITE_API_BASE_URL` 建立各自的 generic client factory；預設本機 API 為 `http://localhost:5126`。
+- 正式 `schema.d.ts`、`api:export`、`api:generate`、`api:check` 與 CI Contract Diff 尚未加入；必須等第一批商業 Controller／DTO 形成後由同一份 OpenAPI 產生，不得先手寫假路徑契約。
+- Anti-forgery Header 注入能力已建立，但 Token Endpoint、記憶體 Token Provider 與登入後刷新流程仍依賴 SH-05 Identity／Cookie 實作。

@@ -17,6 +17,8 @@ related:
   - "[[03-架構/系統架構]]"
   - "[[知識點/CSRF]]"
   - "[[知識點/CORS]]"
+  - "[[知識點/TOTP]]"
+  - "[[知識點/RBAC與Policy授權]]"
 ---
 
 # ASP.NET Core Identity

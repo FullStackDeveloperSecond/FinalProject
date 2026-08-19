@@ -102,4 +102,4 @@ AND 沒有其他購買限制
 
 - [GS1 Global Traceability Standard](https://ref.gs1.org/standards/global-traceability/2.0.0/)
 - [[01-需求/專案名詞表]]
-- [[05-規劃/決策/00-互動中/DEC-BATCH-002-第二批核心決策]]
+- [[05-規劃/決策/02-已寫回/DEC-BATCH-002-第二批核心決策]]

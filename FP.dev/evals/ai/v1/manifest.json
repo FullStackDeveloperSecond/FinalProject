@@ -1,0 +1,37 @@
+{
+  "datasetVersion": "zh-TW-v1.0.0-draft",
+  "language": "zh-TW",
+  "caseFile": "dataset.zh-TW.v1.jsonl",
+  "caseSchema": "eval-case.schema.json",
+  "fixtureFile": "context-fixtures.v1.json",
+  "graderContract": "grader-contract.v1.json",
+  "caseCount": 120,
+  "splits": {
+    "development": 72,
+    "release": 36,
+    "challenge": 12
+  },
+  "primaryGroups": {
+    "SEARCH-NOVICE": 30,
+    "SEARCH-CREATOR": 20,
+    "SEARCH-COMPATIBILITY": 20,
+    "SEARCH-NO-RESULT-DEGRADED": 15,
+    "SUPPORT-POLICY": 15,
+    "SUPPORT-SECURITY": 20
+  },
+  "versions": {
+    "prompt": "not-implemented",
+    "searchIntentSchema": "contract-draft-2026-08-13",
+    "toolContract": "contract-v1",
+    "grader": "deterministic-v1.0.0",
+    "fixture": "v1.0.0"
+  },
+  "candidateModels": {
+    "productSearch": "gpt-5.6-luna",
+    "aiSupport": "gpt-5.6-terra"
+  },
+  "annotationStatus": "draft_pending_terry_kafen_review",
+  "liveBaselineStatus": "not_run",
+  "containsProductionData": false,
+  "containsRealPersonalData": false
+}

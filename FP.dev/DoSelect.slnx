@@ -1,0 +1,15 @@
+<Solution>
+  <Folder Name="/src/" />
+  <Folder Name="/src/backend/">
+    <Project Path="src/backend/DoSelect.Api/DoSelect.Api.csproj" />
+    <Project Path="src/backend/DoSelect.Application/DoSelect.Application.csproj" />
+    <Project Path="src/backend/DoSelect.Domain/DoSelect.Domain.csproj" />
+    <Project Path="src/backend/DoSelect.Infrastructure/DoSelect.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/DoSelect.Api.IntegrationTests/DoSelect.Api.IntegrationTests.csproj" />
+    <Project Path="tests/DoSelect.Application.Tests/DoSelect.Application.Tests.csproj" />
+    <Project Path="tests/DoSelect.Domain.Tests/DoSelect.Domain.Tests.csproj" />
+    <Project Path="tests/DoSelect.Infrastructure.Tests/DoSelect.Infrastructure.Tests.csproj" />
+  </Folder>
+</Solution>

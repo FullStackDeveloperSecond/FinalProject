@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-13
+最後更新: 2026-08-18
 追蹤項目:
   - AI-09
   - AI-13
@@ -27,7 +27,9 @@ AI 測試分成「確定性安全閘門」與「品質評估」兩類。安全�
 
 同一案例可帶有多個標籤，但只能計入一個主要分組，避免重複計數。M 階段 120 筆全部使用繁體中文；啟動多語系 S 時，額外加入日文 30 筆與韓文 30 筆，不減少或重分配既有 120 筆繁中安全案例。
 
-標註與覆核責任：terry 主標商品搜尋與相容性；kafen 主標客服、授權與越權案例；alex 執行第二審及發布核准。主標者不得單獨核准自己修改的 Prompt、Schema 或評估答案。
+第一版實際資料集固定分成 72 筆 `development`、36 筆 `release` 與 12 筆 `challenge`。Challenge 可供團隊與評審檢視，但不得用於調整 Prompt；若修改案例或期待值，必須提升資料集版本並記錄原因，不能以原版本覆寫。
+
+標註與覆核責任：terry 主標商品搜尋、相容性與營運報表基準；kafen 主標客服、授權與越權案例；alex 執行第二審及發布核准。主標者不得單獨核准自己修改的 Prompt、Schema 或評估答案。
 
 ## 評估資料集分組
 
@@ -99,12 +101,15 @@ AI 測試分成「確定性安全閘門」與「品質評估」兩類。安全�
 
 一般 PR 只執行 Stub、Schema、授權與安全整合測試，不呼叫真實 OpenAI。完整真實評估由明確的手動工作流執行，至少在 Day 35 功能凍結前執行一次；觸發前必須顯示並確認預估成本，結果保存模型、版本、時間與核准者。
 
+目前 Repository 已建立 `FP.dev/evals/ai/v1`：包含 120 筆 `dataset.zh-TW.v1.jsonl`、合成／去識別 Fixture、案例 JSON Schema、Grader Contract、可讀來源、穩定產生器與 deterministic 驗證器。CI 只確認產物未過期、數量／分布／引用／預算／補問／Hard fail／標註責任與常見個資／Secret 樣式；不呼叫 OpenAI，也不把此結果當成模型品質 baseline。
+
 若 P95 或平均單次成本超過門檻，停止自動升級模型，先檢查 Prompt、上下文、工具結果大小與候選數；不得為通過展示而刪除失敗案例。
 
 OpenAI 官方建議以代表實際使用分布、包含正常與邊界案例的評估資料，並持續在變更後重新執行，詳見 [Evaluation best practices](https://developers.openai.com/api/docs/guides/evaluation-best-practices)。
 
 ## 待實作
 
-- 建立 120 筆繁中實際資料並保存基準結果；只有表格與數量不算完成評估集。
+- 120 筆繁中實際案例、Fixture、Schema、Grader 與本機／CI deterministic 驗證已建立；仍須由 Terry 覆核商品／相容性、Kafen 覆核客服／安全，Alex 第二審後把案例從 `draft` 提升為已核准版本。
+- Prompt、SearchIntent Schema、Tool Adapter 與 AI 功能形成後，建立不洩漏 Secret、需成本確認且可保存 sanitized 結果的手動 live runner，並保存首次品質、P95、Token 與成本基準。
 - 啟動 S 後建立日文 30 筆、韓文 30 筆，並指定具語言能力的覆核者。
-- 將 Stub PR 閘門、手動真實評估、成本確認及結果保存落實為可重複工作流。
+- 將 Stub／Schema／授權安全測試接入正式 Adapter；目前 CI 只驗證資料契約，尚不能取代 Application／API 整合測試。

@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認（邏輯模型）
-最後更新: 2026-08-13
+最後更新: 2026-08-17
 追蹤項目:
   - DES-07
   - DES-08
@@ -56,7 +56,7 @@ erDiagram
 - Product 是共用商品資訊，SKU 是可定價、可庫存與可下單單位。
 - 同一 SKU 同一時間不可有重疊有效特價。
 - InventoryBalance 保存目前聚合數量；所有保留、釋放、出貨、退貨回補與隔離需留下 InventoryMovement。
-- InventoryReservation 必須能回連 Cart／Order 用途、數量、到期時間與釋放原因。
+- InventoryReservation 只回連 Order、SKU、數量、到期時間與釋放原因；Cart 不建立保留，也不保存 CartId。
 - 相容性結果必須保存規則版本；AI 不能修改或取代結果。
 
 ## 購物車、訂單、付款與物流
@@ -77,12 +77,21 @@ erDiagram
     Order ||--o{ OrderCoupon : applies
     Coupon ||--o{ OrderCoupon : snapshots
     Coupon ||--o{ CouponRedemption : redeems
+    Order ||--o{ CouponRedemption : reserves
+    Coupon ||--o{ CouponCategory : includes
+    Category ||--o{ CouponCategory : scopes
+    Coupon ||--o{ CouponProduct : includes
+    Product ||--o{ CouponProduct : scopes
+    Coupon ||--o{ CouponExcludedProduct : excludes
+    Product ||--o{ CouponExcludedProduct : excluded
 ```
 
 - OrderItem 保存商品名稱、SKU、成交單價、成本、折扣分攤、組裝群組及數量快照。
 - Order 保存收件、運費、免運規則、組裝費、優惠與總額快照；歷史訂單不受後台設定變更影響。
 - 會員 Address 是可變主資料；Order 以明確 Owned 欄位保存不可變地址快照。
 - OrderCoupon 保存優惠與規則版本快照，OrderItem 保存實際折扣分攤；退款不得查目前 Coupon 重算。
+- Coupon 以 ScopeType 搭配分類、商品與排除商品三張正規化關聯表定義範圍；排除優先，第一版不以 Promotions 重複保存 SalePrice。
+- CouponRedemption 只在 Checkout 的 Order 交易建立；會員以 MemberUserId、訪客以正規化 Email 的 HMAC Hash 識別每人使用量，兩者恰一存在。
 - Shipment／Order 保存 Provider Profile Version FK 及成立時門市、限制與運費精確值。
 - PaymentAttempt 與物流模擬通知需要外部識別、冪等鍵、狀態及原始事件摘要。
 - 訪客訂單不強制關聯 Member，使用另行保護的存取 Token 查詢。
@@ -95,6 +104,8 @@ erDiagram
     ReturnRequest ||--|{ ReturnItem : contains
     OrderItem ||--o{ ReturnItem : returns
     ReturnRequest ||--o{ ReturnAttachment : attaches
+    ReturnRequest ||--o| ReturnShipment : returns_by
+    ReturnShipment ||--o{ ReturnShipmentEvent : tracks
     ReturnRequest ||--o{ Refund : results
     Refund ||--|{ RefundAllocation : allocates
     OrderItem ||--o{ RefundAllocation : receives
@@ -109,8 +120,9 @@ erDiagram
 ```
 
 - SupportTicket、ReportCase 與 ReturnRequest 是三個獨立 Aggregate，不共用案件主表。
+- ReturnShipment／Event 屬退貨領域且不重用 outbound Shipment；取件地址嵌入不可變快照。ReturnRequest 不建立 SupportTicketId，客服關聯不構成退貨狀態條件。
 - 統一工作台是三領域的唯讀投影／查詢模型，不因此建立可跨領域寫入的共同 Entity。
-- 工作台固定投影 12 個共通欄位，授權條件套在每個 UNION 分支，使用 `LastActivityAtUtc DESC, CasePublicId DESC` Cursor 分頁；完整設計見 [[03-架構/統一案件工作台設計]]。
+- 工作台固定投影 12 個共通欄位，不含 CustomerReplyState、RowVersion 或另一套 AssignmentState；授權條件套在每個 UNION 分支，使用 `LastActivityAtUtc DESC, CasePublicId DESC` Cursor 分頁；完整設計見 [[03-架構/統一案件工作台設計]]。
 - 第一版由 SQL `UNION ALL` View＋EF Core Keyless Entity 實作，不建立持久化共同案件表。
 - 退款分攤必須回連原 OrderItem 與原折扣快照，支援單項退貨及部分退款。
 - 附件資料表只保存私有儲存識別與中繼資料，檔案內容不放 SQL Server。
@@ -132,6 +144,7 @@ erDiagram
 - AiInteraction 保存用途、模型、Token、成本估算、結果、降級與 Prompt／Schema／工具契約版本，不保存不必要個資。
 - 報表第一版以正式交易表即時彙總；ReportSnapshot 是否建立只由效能量測後的決策決定。
 - AuditLog 必須能識別操作者、操作、資源、時間、結果、Correlation ID 與必要差異摘要，禁止保存密碼或完整 Token。
+- Owner／Assignee 使用 Identity FK；append-only History 的 Actor FK 可為 Null。Identity 有交易相依時採停權、軟刪除或匿名化，中央 AuditLog 保存不可變 Actor PublicId／角色快照，不在每張 History 重複完整快照。
 
 ## 重要約束清單
 

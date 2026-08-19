@@ -102,4 +102,4 @@ RawRequiredWattage = 663 W
 
 - [Intel：How to Choose a Power Supply for PC](https://www.intel.com/content/www/us/en/gaming/resources/power-supply.html)
 - [[02-領域需求/商品、組裝與相容性]]
-- [[05-規劃/決策/00-互動中/DEC-BATCH-002-第二批核心決策]]
+- [[05-規劃/決策/02-已寫回/DEC-BATCH-002-第二批核心決策]]

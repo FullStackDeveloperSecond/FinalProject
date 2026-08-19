@@ -21,7 +21,7 @@ related:
 
 Microsoft Defender 掃描是上傳防護的一層，不能取代檔案大小、副檔名、MIME、檔案簽章、授權與安全儲存等驗證。
 
-本專案草稿規劃由 `IFileScanner` 隔離掃描器實作，第一版在 Windows 展示電腦以 Microsoft Defender 掃描暫存檔。
+本專案已確認由 `IFileScanner` 隔離掃描器實作，第一版在 Windows 展示電腦以 Microsoft Defender 掃描暫存檔；掃描不可用或結果不明時拒絕保存。
 
 ## 建議處理流程
 
@@ -101,4 +101,4 @@ FileScanResult
 
 - [Microsoft Learn：使用 MpCmdRun 管理 Microsoft Defender Antivirus](https://learn.microsoft.com/en-us/defender-endpoint/command-line-arguments-microsoft-defender-antivirus)
 - [Microsoft Learn：ASP.NET Core 檔案上傳安全](https://learn.microsoft.com/en-us/aspnet/core/mvc/models/file-uploads?view=aspnetcore-10.0)
-- [[05-規劃/決策/00-互動中/DEC-BATCH-002-第二批核心決策]]
+- [[05-規劃/決策/02-已寫回/DEC-BATCH-002-第二批核心決策]]

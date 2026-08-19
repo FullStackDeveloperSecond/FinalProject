@@ -1,0 +1,6 @@
+@DoSelect.Api_HostAddress = http://localhost:5126
+
+GET {{DoSelect.Api_HostAddress}}/openapi/v1.json
+Accept: application/json
+
+###
