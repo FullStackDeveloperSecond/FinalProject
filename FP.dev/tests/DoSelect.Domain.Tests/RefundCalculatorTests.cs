@@ -47,6 +47,48 @@ public sealed class RefundCalculatorTests
         Assert.Equal(900m, result.NetRefundAmount);
     }
 
+    [Theory]
+    [InlineData(RefundAllocationType.ItemRefund, RefundAllocationDirection.Credit)]
+    [InlineData(RefundAllocationType.OriginalShipping, RefundAllocationDirection.Credit)]
+    [InlineData(RefundAllocationType.ReturnShipping, RefundAllocationDirection.Credit)]
+    [InlineData(RefundAllocationType.AssemblyFee, RefundAllocationDirection.Credit)]
+    [InlineData(RefundAllocationType.DiscountClawback, RefundAllocationDirection.Debit)]
+    [InlineData(RefundAllocationType.ShippingClawback, RefundAllocationDirection.Debit)]
+    public void AllocationDirectionFollowsTheType(
+        RefundAllocationType type,
+        RefundAllocationDirection expected) =>
+        Assert.Equal(expected, RefundPolicy.DirectionOf(type));
+
+    [Fact]
+    public void OtherAdjustmentIsBannedInTheFirstVersion()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            RefundPolicy.DirectionOf(RefundAllocationType.OtherAdjustment));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new RefundAllocation(
+            Guid.NewGuid(), 1, 1, RefundAllocationType.OtherAdjustment, 100m, 0m,
+            new DateTime(2026, 8, 19, 2, 0, 0, DateTimeKind.Utc)));
+    }
+
+    [Fact]
+    public void EveryComponentAmountIsPositive()
+    {
+        var result = Calculate(
+            Snapshot(
+                shippingFeePaid: 0m,
+                shippingMethodBaseFee: 150m,
+                freeShippingThreshold: 5000m,
+                assemblyFee: 300m,
+                couponDiscountTotal: 300m,
+                couponMinimumSpend: 3500m),
+            [new RefundLineRequest(LineA, 1)],
+            reason: ReturnReason.Defective,
+            assemblyDisposition: AssemblyFeeDisposition.AssemblyFault,
+            returnShippingCost: 80m);
+
+        Assert.True(result.IsSuccess);
+        Assert.All(result.Components, component => Assert.True(component.Amount > 0m));
+    }
+
     [Fact]
     public void PartialReturn_DoesNotRefundTheOriginalShipping()
     {
@@ -56,7 +98,7 @@ public sealed class RefundCalculatorTests
 
         Assert.DoesNotContain(
             result.Components,
-            component => component.Component == RefundComponent.OriginalShipping);
+            component => component.Type == RefundAllocationType.OriginalShipping);
     }
 
     [Fact]
@@ -67,7 +109,7 @@ public sealed class RefundCalculatorTests
             [new RefundLineRequest(LineA, 2), new RefundLineRequest(LineB, 1)]);
 
         Assert.True(result.IsSuccess);
-        Assert.Equal(150m, ComponentAmount(result, RefundComponent.OriginalShipping));
+        Assert.Equal(150m, ComponentAmount(result, RefundAllocationType.OriginalShipping));
     }
 
     [Fact]
@@ -80,13 +122,13 @@ public sealed class RefundCalculatorTests
         Assert.True(result.IsSuccess);
         Assert.DoesNotContain(
             result.Components,
-            component => component.Component == RefundComponent.OriginalShipping);
+            component => component.Type == RefundAllocationType.ShippingClawback);
     }
 
     [Fact]
-    public void PartialReturn_BelowTheFreeShippingThreshold_RecollectsTheShippingFee()
+    public void PartialReturn_BelowTheFreeShippingThreshold_ClawsBackTheShippingFee()
     {
-        // 保留 1 個 LineA 共 1,000 元，未達 5,000 免運門檻，因此重新收取 150 元運費。
+        // 保留 1 個 LineA 共 1,000 元，未達 5,000 免運門檻，因此扣回 150 元運費。
         var result = Calculate(
             Snapshot(
                 shippingFeePaid: 0m,
@@ -96,7 +138,11 @@ public sealed class RefundCalculatorTests
             [new RefundLineRequest(LineA, 1), new RefundLineRequest(LineB, 1)]);
 
         Assert.True(result.IsSuccess);
-        Assert.Equal(-150m, ComponentAmount(result, RefundComponent.OriginalShipping));
+        Assert.Equal(150m, ComponentAmount(result, RefundAllocationType.ShippingClawback));
+        Assert.Equal(
+            RefundAllocationDirection.Debit,
+            result.Components.Single(component =>
+                component.Type == RefundAllocationType.ShippingClawback).Direction);
     }
 
     [Fact]
@@ -112,7 +158,7 @@ public sealed class RefundCalculatorTests
 
         Assert.DoesNotContain(
             result.Components,
-            component => component.Component == RefundComponent.OriginalShipping);
+            component => component.Type == RefundAllocationType.ShippingClawback);
     }
 
     [Fact]
@@ -125,7 +171,7 @@ public sealed class RefundCalculatorTests
             [new RefundLineRequest(LineA, 1)]);
 
         Assert.True(result.IsSuccess);
-        Assert.Equal(-200m, ComponentAmount(result, RefundComponent.DiscountClawback));
+        Assert.Equal(200m, ComponentAmount(result, RefundAllocationType.DiscountClawback));
         Assert.Equal(700m, result.NetRefundAmount);
     }
 
@@ -138,7 +184,7 @@ public sealed class RefundCalculatorTests
 
         Assert.DoesNotContain(
             result.Components,
-            component => component.Component == RefundComponent.DiscountClawback);
+            component => component.Type == RefundAllocationType.DiscountClawback);
     }
 
     [Fact]
@@ -151,7 +197,7 @@ public sealed class RefundCalculatorTests
 
         Assert.DoesNotContain(
             result.Components,
-            component => component.Component == RefundComponent.AssemblyFee);
+            component => component.Type == RefundAllocationType.AssemblyFee);
     }
 
     [Fact]
@@ -162,7 +208,7 @@ public sealed class RefundCalculatorTests
             [new RefundLineRequest(LineA, 2), new RefundLineRequest(LineB, 1)],
             assemblyDisposition: AssemblyFeeDisposition.MerchantFaultWholeUnit);
 
-        Assert.Equal(300m, ComponentAmount(result, RefundComponent.AssemblyFee));
+        Assert.Equal(300m, ComponentAmount(result, RefundAllocationType.AssemblyFee));
     }
 
     [Fact]
@@ -180,10 +226,10 @@ public sealed class RefundCalculatorTests
             reason: ReturnReason.CustomerProcessDeviation,
             returnShippingCost: 80m);
 
-        Assert.Equal(80m, ComponentAmount(merchant, RefundComponent.ReturnShipping));
+        Assert.Equal(80m, ComponentAmount(merchant, RefundAllocationType.ReturnShipping));
         Assert.DoesNotContain(
             customer.Components,
-            component => component.Component == RefundComponent.ReturnShipping);
+            component => component.Type == RefundAllocationType.ReturnShipping);
     }
 
     [Fact]
@@ -199,7 +245,7 @@ public sealed class RefundCalculatorTests
         Assert.True(result.RequiresManualReview);
         Assert.DoesNotContain(
             result.Components,
-            component => component.Component == RefundComponent.ReturnShipping);
+            component => component.Type == RefundAllocationType.ReturnShipping);
     }
 
     [Fact]
@@ -221,7 +267,10 @@ public sealed class RefundCalculatorTests
         Assert.True(result.IsSuccess);
         Assert.Equal(
             result.NetRefundAmount,
-            result.Components.Sum(component => component.Amount));
+            result.Components.Sum(component =>
+                component.Direction == RefundAllocationDirection.Credit
+                    ? component.Amount
+                    : -component.Amount));
     }
 
     [Fact]
@@ -303,8 +352,8 @@ public sealed class RefundCalculatorTests
 
     private static decimal ComponentAmount(
         RefundCalculationResult result,
-        RefundComponent component) =>
-        result.Components.Single(item => item.Component == component).Amount;
+        RefundAllocationType type) =>
+        result.Components.Single(component => component.Type == type).Amount;
 
     private static RefundCalculationResult Calculate(
         RefundOrderSnapshot order,

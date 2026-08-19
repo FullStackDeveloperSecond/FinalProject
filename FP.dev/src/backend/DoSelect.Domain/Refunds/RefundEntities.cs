@@ -13,13 +13,30 @@ public enum RefundStatus
     Cancelled,
 }
 
+/// <summary>
+/// 退款金額的組成類型。金額一律為正值，加減方向由類型決定（DEC-BATCH-014 第 8 項）。
+/// </summary>
 public enum RefundAllocationType
 {
+    /// <summary>增加退款：品項成交金額扣除折扣分攤後的淨額。</summary>
     ItemRefund,
+
+    /// <summary>從退款扣回：退貨後不符優惠門檻，追回仍留在保留商品上的折扣。</summary>
     DiscountClawback,
+
+    /// <summary>增加退款：整筆退貨時退還原本實際支付的運費。</summary>
     OriginalShipping,
+
+    /// <summary>從退款扣回：原本免運但退貨後未達門檻，重新收取原配送方式運費。</summary>
+    ShippingClawback,
+
+    /// <summary>增加退款：退貨寄回運費由商家負擔時退還。</summary>
     ReturnShipping,
+
+    /// <summary>增加退款：依政策退還的組裝費。</summary>
     AssemblyFee,
+
+    /// <summary>第一版禁止寫入，避免出現方向不明的金額。</summary>
     OtherAdjustment,
 }
 
@@ -137,6 +154,13 @@ public sealed class RefundAllocation : PublicEntity
         if (refundId <= 0 || orderItemId is <= 0 || amount <= 0 || originalDiscountAllocation < 0)
         {
             throw new ArgumentOutOfRangeException(nameof(refundId));
+        }
+
+        if (allocationType == RefundAllocationType.OtherAdjustment)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(allocationType),
+                "OtherAdjustment cannot be written in the first version.");
         }
         RefundId = refundId;
         OrderItemId = orderItemId;

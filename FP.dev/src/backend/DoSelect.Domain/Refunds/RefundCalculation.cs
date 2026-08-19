@@ -71,18 +71,25 @@ public enum AssemblyFeeDisposition
 }
 
 /// <summary>
-/// 退款金額的組成。金額為有號數：正值退給顧客，負值自退款中扣回。
+/// 退款組成的加減方向。金額一律為正值，方向由 <see cref="RefundAllocationType"/> 決定。
 /// </summary>
-public enum RefundComponent
+public enum RefundAllocationDirection
 {
-    ItemRefund,
-    DiscountClawback,
-    OriginalShipping,
-    ReturnShipping,
-    AssemblyFee,
+    /// <summary>增加退款。</summary>
+    Credit,
+
+    /// <summary>從退款扣回。</summary>
+    Debit,
 }
 
-public sealed record RefundComponentAmount(RefundComponent Component, decimal Amount);
+/// <summary>
+/// 退款金額的一項組成。<see cref="Amount"/> 一律為正值，與
+/// <c>RefundAllocation.Amount &gt; 0</c> 的資料庫限制一致。
+/// </summary>
+public sealed record RefundComponentAmount(RefundAllocationType Type, decimal Amount)
+{
+    public RefundAllocationDirection Direction => RefundPolicy.DirectionOf(Type);
+}
 
 /// <summary>
 /// 訂單品項在成立當時的交易快照。金額不得依目前商品或優惠券設定回推。
@@ -147,7 +154,9 @@ public sealed class RefundCalculationResult
 
     public string? ErrorCode { get; }
 
-    /// <summary>最終退款金額，已扣除追回的折扣與重新收取的運費。</summary>
+    /// <summary>
+    /// 最終退款金額，等於增加退款類型合計減去扣回類型合計。
+    /// </summary>
     public decimal NetRefundAmount { get; }
 
     /// <summary>退貨運費負擔者需要人工審核時為 <c>true</c>；本計算不預先給顧客或商家有利的結果。</summary>
@@ -156,7 +165,9 @@ public sealed class RefundCalculationResult
     /// <summary>逐品項的成交金額、折扣分攤與淨退款。</summary>
     public IReadOnlyList<RefundItemBreakdown> Items { get; }
 
-    /// <summary>退款明細組成，合計等於 <see cref="NetRefundAmount"/>。</summary>
+    /// <summary>
+    /// 退款明細組成，全為正值。增加退款合計減去扣回合計等於 <see cref="NetRefundAmount"/>。
+    /// </summary>
     public IReadOnlyList<RefundComponentAmount> Components { get; }
 
     public static RefundCalculationResult Failure(string errorCode) =>

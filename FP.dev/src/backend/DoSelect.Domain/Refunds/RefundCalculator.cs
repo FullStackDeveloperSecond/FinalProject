@@ -3,6 +3,22 @@ namespace DoSelect.Domain.Refunds;
 public static class RefundPolicy
 {
     /// <summary>
+    /// 退款組成的加減方向。金額一律為正值，方向由類型決定（DEC-BATCH-014 第 8 項）。
+    /// </summary>
+    public static RefundAllocationDirection DirectionOf(RefundAllocationType type) => type switch
+    {
+        RefundAllocationType.ItemRefund or RefundAllocationType.OriginalShipping or
+            RefundAllocationType.ReturnShipping or
+            RefundAllocationType.AssemblyFee => RefundAllocationDirection.Credit,
+        RefundAllocationType.DiscountClawback or
+            RefundAllocationType.ShippingClawback => RefundAllocationDirection.Debit,
+        RefundAllocationType.OtherAdjustment => throw new ArgumentOutOfRangeException(
+            nameof(type),
+            "OtherAdjustment cannot be written in the first version."),
+        _ => throw new ArgumentOutOfRangeException(nameof(type)),
+    };
+
+    /// <summary>
     /// 退貨寄回運費的負擔者。依 02-領域需求/退貨與退款政策 的負擔表判定。
     /// </summary>
     public static ReturnShippingBearer ResolveReturnShippingBearer(ReturnReason reason) => reason switch
@@ -88,7 +104,6 @@ public static class RefundCalculator
             returnedByLine.GetValueOrDefault(line.OrderItemPublicId) == line.Quantity);
 
         var retainedEligibleSubtotal = CalculateRetainedEligibleSubtotal(order, returnedByLine);
-        var originalShipping = ResolveOriginalShipping(order, isFullReturn, retainedEligibleSubtotal);
         var discountClawback = ResolveDiscountClawback(order, returnedByLine, retainedEligibleSubtotal);
 
         var assemblyFee = RefundPolicy.RefundsAssemblyFee(request.AssemblyDisposition)
@@ -102,15 +117,23 @@ public static class RefundCalculator
 
         var components = new List<RefundComponentAmount>
         {
-            new(RefundComponent.ItemRefund, itemRefundTotal),
+            new(RefundAllocationType.ItemRefund, itemRefundTotal),
         };
 
-        AddWhenNonZero(components, RefundComponent.OriginalShipping, originalShipping);
-        AddWhenNonZero(components, RefundComponent.DiscountClawback, -discountClawback);
-        AddWhenNonZero(components, RefundComponent.AssemblyFee, assemblyFee);
-        AddWhenNonZero(components, RefundComponent.ReturnShipping, returnShipping);
+        // 整筆退貨退還實付運費；部分退貨若原本免運且退後未達門檻，改為扣回運費。
+        AddWhenPositive(
+            components,
+            RefundAllocationType.OriginalShipping,
+            isFullReturn ? Round(order.ShippingFeePaid) : 0m);
+        AddWhenPositive(
+            components,
+            RefundAllocationType.ShippingClawback,
+            isFullReturn ? 0m : ResolveShippingClawback(order, retainedEligibleSubtotal));
+        AddWhenPositive(components, RefundAllocationType.DiscountClawback, discountClawback);
+        AddWhenPositive(components, RefundAllocationType.AssemblyFee, assemblyFee);
+        AddWhenPositive(components, RefundAllocationType.ReturnShipping, returnShipping);
 
-        var netRefundAmount = components.Sum(component => component.Amount);
+        var netRefundAmount = SumSigned(components);
         if (netRefundAmount <= 0m)
         {
             return RefundCalculationResult.Failure(RefundErrorCodes.RefundAmountExceeded);
@@ -158,24 +181,19 @@ public static class RefundCalculator
                 returnedByLine.GetValueOrDefault(line.OrderItemPublicId))));
 
     /// <summary>
-    /// 整筆合法退貨退還原本實際支付的運費，且不補收原免運。部分退貨不退原始運費；
-    /// 但原本免運而退貨後剩餘金額未達門檻時，從退款中重新收取原配送方式運費。
+    /// 部分退貨不退原始運費。但原本免運而退貨後剩餘金額未達門檻時，
+    /// 從退款中重新收取原配送方式運費。整筆退貨不補收原免運，因此不走這裡。
     /// </summary>
-    private static decimal ResolveOriginalShipping(
+    private static decimal ResolveShippingClawback(
         RefundOrderSnapshot order,
-        bool isFullReturn,
         decimal retainedEligibleSubtotal)
     {
-        if (isFullReturn)
-        {
-            return Round(order.ShippingFeePaid);
-        }
-
         var wasFreeShipping = order.ShippingFeePaid <= 0m;
+
         return wasFreeShipping &&
             order.FreeShippingThreshold is { } threshold &&
             retainedEligibleSubtotal < threshold
-            ? -Round(order.ShippingMethodBaseFee)
+            ? Round(order.ShippingMethodBaseFee)
             : 0m;
     }
 
@@ -204,16 +222,22 @@ public static class RefundCalculator
         return clawback > 0m ? clawback : 0m;
     }
 
-    private static void AddWhenNonZero(
+    private static void AddWhenPositive(
         List<RefundComponentAmount> components,
-        RefundComponent component,
+        RefundAllocationType type,
         decimal amount)
     {
-        if (amount != 0m)
+        if (amount > 0m)
         {
-            components.Add(new RefundComponentAmount(component, amount));
+            components.Add(new RefundComponentAmount(type, amount));
         }
     }
+
+    /// <summary>最終退款金額 = 增加退款類型合計 - 扣回類型合計。</summary>
+    private static decimal SumSigned(IReadOnlyList<RefundComponentAmount> components) =>
+        components.Sum(component => component.Direction == RefundAllocationDirection.Credit
+            ? component.Amount
+            : -component.Amount);
 
     private static decimal Round(decimal value) =>
         Math.Round(value, AmountScale, MidpointRounding.AwayFromZero);
