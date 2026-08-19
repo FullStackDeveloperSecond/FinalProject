@@ -43,6 +43,11 @@ body {
   text-decoration: none;
 }
 
+.site-header nav {
+  display: flex;
+  gap: 1rem;
+}
+
 .brand-link {
   font-weight: 700;
 }

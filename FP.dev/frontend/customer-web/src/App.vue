@@ -11,6 +11,9 @@
         <RouterLink to="/">
           首頁
         </RouterLink>
+        <RouterLink to="/products">
+          商品
+        </RouterLink>
       </nav>
     </header>
     <main class="site-main">
