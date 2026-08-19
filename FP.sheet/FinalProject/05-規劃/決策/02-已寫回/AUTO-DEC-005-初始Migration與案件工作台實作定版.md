@@ -30,7 +30,7 @@ applied_at: 2026-08-19
 - 建立：93 張應用／Identity 資料表、315 個索引與 `vw_CaseWorkbench`
 - Snapshot：模型無 Pending Change
 - Review SQL：`FP.dev/database-deploy/initial-create/InitialCreate.review.sql`
-- Review SQL SHA-256：`CFC5D74F0907D7F3DDA7516332CEE80CD8ABA82A812B4D2514C7EA42959ABC5C`
+- Review SQL SHA-256：`7C1BC94EE0CFDF425764D044EC57B9D9874A4B7DE697D20C86EB0B2ADF2B74BC`
 - `Up` 無 Drop／Alter／Delete／UpdateData；`Down` 的 93 個 DropTable 只作未套用初始 Migration 的對稱回復。
 - 尚未連線套用 Migration，`DoSelectDb` 仍不存在。
 
