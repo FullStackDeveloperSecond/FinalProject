@@ -97,6 +97,21 @@ public sealed class SimulatedInvoice : MutablePublicEntity
         MarkUpdated(voidedAtUtc);
     }
 
+    /// <summary>
+    /// 記錄一筆折讓。已開立或已部分折讓的發票可以再折讓；折讓不回寫也不刪除原發票金額。
+    /// </summary>
+    public void RecordAllowance(bool fullyAllowed, DateTime occurredAtUtc)
+    {
+        if (Status is not (SimulatedInvoiceStatus.Issued or SimulatedInvoiceStatus.PartiallyAllowed))
+        {
+            throw new InvalidOperationException("Only an issued or partially allowed invoice can record an allowance.");
+        }
+
+        occurredAtUtc = RequireUtc(occurredAtUtc, nameof(occurredAtUtc));
+        Status = fullyAllowed ? SimulatedInvoiceStatus.FullyAllowed : SimulatedInvoiceStatus.PartiallyAllowed;
+        MarkUpdated(occurredAtUtc);
+    }
+
     private static string? NormalizeOptional(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
 
