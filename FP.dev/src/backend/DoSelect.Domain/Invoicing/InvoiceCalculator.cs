@@ -4,66 +4,54 @@ public static class InvoicePolicy
 {
     /// <summary>
     /// 線上付款成功後開立；貨到付款在完成收款時開立；未付款或取消訂單不開立。
-    /// 每張訂單最多一張發票。
+    /// 每張訂單最多一張發票。可以開立時回傳 <c>null</c>，否則回傳錯誤碼。
     /// </summary>
-    public static InvoiceIssuanceRejection FindIssuanceRejection(
+    public static string? FindIssuanceRejection(
         InvoiceIssuanceTrigger trigger,
-        bool orderAlreadyHasInvoice,
-        int invoiceableLineCount)
+        bool orderAlreadyHasInvoice)
     {
         if (orderAlreadyHasInvoice)
         {
-            return InvoiceIssuanceRejection.AlreadyIssued;
+            return InvoiceErrorCodes.InvoiceAlreadyExists;
         }
 
-        var triggerRejection = trigger switch
+        return trigger switch
         {
             InvoiceIssuanceTrigger.OnlinePaymentSucceeded or
-                InvoiceIssuanceTrigger.CashOnDeliveryCollected => InvoiceIssuanceRejection.None,
-            InvoiceIssuanceTrigger.NotPaid => InvoiceIssuanceRejection.OrderNotPaid,
-            InvoiceIssuanceTrigger.OrderCancelled => InvoiceIssuanceRejection.OrderCancelled,
+                InvoiceIssuanceTrigger.CashOnDeliveryCollected => null,
+            InvoiceIssuanceTrigger.NotPaid => InvoiceErrorCodes.InvoiceOrderUnpaid,
+            InvoiceIssuanceTrigger.OrderCancelled => InvoiceErrorCodes.InvoiceOrderCancelled,
             _ => throw new ArgumentOutOfRangeException(nameof(trigger)),
         };
-
-        if (triggerRejection != InvoiceIssuanceRejection.None)
-        {
-            return triggerRejection;
-        }
-
-        return invoiceableLineCount > 0
-            ? InvoiceIssuanceRejection.None
-            : InvoiceIssuanceRejection.NoInvoiceableLines;
     }
 
     /// <summary>
     /// 付款成功後又整筆取消且未進入退款者可作廢。已發生金流退款時必須建立折讓，
-    /// 不回寫也不刪除原發票。
+    /// 不回寫也不刪除原發票。可以作廢時回傳 <c>null</c>，否則回傳錯誤碼。
     /// </summary>
-    public static InvoiceVoidRejection FindVoidRejection(
+    public static string? FindVoidRejection(
         SimulatedInvoiceStatus status,
         bool orderFullyCancelled,
         bool hasSettledRefund)
     {
         if (status != SimulatedInvoiceStatus.Issued)
         {
-            return InvoiceVoidRejection.NotIssued;
+            return InvoiceErrorCodes.InvoiceStateConflict;
         }
 
         if (hasSettledRefund)
         {
-            return InvoiceVoidRejection.RefundAlreadySettled;
+            return InvoiceErrorCodes.InvoiceAllowanceRequired;
         }
 
-        return orderFullyCancelled
-            ? InvoiceVoidRejection.None
-            : InvoiceVoidRejection.OrderNotFullyCancelled;
+        return orderFullyCancelled ? null : InvoiceErrorCodes.InvoiceStateConflict;
     }
 }
 
 /// <summary>
-/// 模擬發票金額的純計算。含稅金額來自訂單交易快照，未稅與稅額由含稅金額回推。
+/// 模擬發票金額的純計算。訂單成交總額視為含稅金額，未稅由含稅總額回推後再分攤到各明細。
 /// 台灣營業稅率 5%，未稅與稅額取整數元，與統一發票的呈現一致。
-/// 逐列回推可確保各明細合計精確等於發票總額，也精確等於顧客實付金額。
+/// 先算表頭再分攤，最後一筆合法明細吸收尾差，因此明細加總與表頭完全一致。
 /// </summary>
 public static class InvoiceCalculator
 {
@@ -94,45 +82,77 @@ public static class InvoiceCalculator
             }
         }
 
-        var invoiceableLines = request.Lines.Where(line => line.GrossAmount > 0m).ToArray();
         var rejection = InvoicePolicy.FindIssuanceRejection(
             request.Trigger,
-            request.OrderAlreadyHasInvoice,
-            invoiceableLines.Length);
+            request.OrderAlreadyHasInvoice);
 
-        if (rejection != InvoiceIssuanceRejection.None)
+        if (rejection is not null)
         {
             return InvoiceCalculationResult.Failure(rejection);
         }
 
-        var lines = invoiceableLines.Select(BuildLineBreakdown).ToArray();
+        var invoiceableLines = request.Lines.Where(line => line.GrossAmount > 0m).ToArray();
+        if (invoiceableLines.Length == 0)
+        {
+            // 已付款的訂單不可能沒有任何金額；出現代表快照有誤。
+            throw new ArgumentException(
+                "A paid order must carry at least one chargeable line.",
+                nameof(request));
+        }
+
+        var issuedAmount = invoiceableLines.Sum(line => line.GrossAmount);
+        var netAmount = BackOutNetAmount(issuedAmount);
 
         return InvoiceCalculationResult.Success(
-            lines.Sum(line => line.NetAmount),
-            lines.Sum(line => line.TaxAmount),
-            lines.Sum(line => line.GrossAmount),
-            lines);
+            netAmount,
+            issuedAmount - netAmount,
+            issuedAmount,
+            AllocateNetAmount(netAmount, issuedAmount, invoiceableLines));
     }
 
     /// <summary>
-    /// 由含稅金額回推未稅與稅額。稅額取含稅減未稅，因此兩者相加必定等於含稅金額，
-    /// 不會因為分別四捨五入而產生一元誤差。
+    /// 由含稅金額回推未稅金額。稅額另取含稅減未稅，因此兩者相加必定等於含稅金額。
     /// </summary>
-    private static InvoiceLineBreakdown BuildLineBreakdown(InvoiceOrderLine line)
-    {
-        var netAmount = Round(line.GrossAmount / (1m + BusinessTaxRate));
+    public static decimal BackOutNetAmount(decimal grossAmount) => Math.Round(
+        grossAmount / (1m + BusinessTaxRate),
+        AmountScale,
+        MidpointRounding.AwayFromZero);
 
-        return new InvoiceLineBreakdown(
-            line.OrderItemPublicId,
-            line.Kind,
-            line.ProductNameSnapshot,
-            line.SkuCodeSnapshot,
-            line.Quantity,
-            line.UnitPrice,
-            line.DiscountAmount,
-            netAmount,
-            line.GrossAmount - netAmount,
-            line.GrossAmount);
+    /// <summary>
+    /// 依含稅金額比例把表頭未稅分攤到各明細。非末筆夾在剩餘未分攤金額以內，
+    /// 最後一筆合法明細吸收尾差，因此明細未稅合計精確等於表頭未稅，且每筆皆不為負。
+    /// </summary>
+    private static IReadOnlyList<InvoiceLineBreakdown> AllocateNetAmount(
+        decimal netAmount,
+        decimal issuedAmount,
+        IReadOnlyList<InvoiceOrderLine> lines)
+    {
+        var breakdowns = new InvoiceLineBreakdown[lines.Count];
+        var allocated = 0m;
+
+        for (var index = 0; index < lines.Count; index++)
+        {
+            var line = lines[index];
+            var remaining = netAmount - allocated;
+            var lineNetAmount = index == lines.Count - 1
+                ? remaining
+                : Math.Min(Round(netAmount * line.GrossAmount / issuedAmount), remaining);
+
+            allocated += lineNetAmount;
+            breakdowns[index] = new InvoiceLineBreakdown(
+                line.OrderItemPublicId,
+                line.Kind,
+                line.ProductNameSnapshot,
+                line.SkuCodeSnapshot,
+                line.Quantity,
+                line.UnitPrice,
+                line.DiscountAmount,
+                lineNetAmount,
+                line.GrossAmount - lineNetAmount,
+                line.GrossAmount);
+        }
+
+        return breakdowns;
     }
 
     private static decimal Round(decimal value) =>

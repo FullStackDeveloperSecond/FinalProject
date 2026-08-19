@@ -68,22 +68,33 @@ public sealed class IssueInvoiceServiceTests
 
         var result = await service.IssueAsync(new IssueInvoiceRequest(OrderPublicId));
 
-        Assert.False(result.IsSuccess);
-        Assert.False(result.OrderFound);
+        Assert.Equal(InvoiceErrorCodes.ResourceNotFound, result.ErrorCode);
         Assert.Null(result.Plan);
     }
 
-    [Fact]
-    public async Task IssueAsync_SurfacesTheIssuanceRejection()
+    [Theory]
+    [InlineData(InvoiceIssuanceTrigger.NotPaid, InvoiceErrorCodes.InvoiceOrderUnpaid)]
+    [InlineData(InvoiceIssuanceTrigger.OrderCancelled, InvoiceErrorCodes.InvoiceOrderCancelled)]
+    public async Task IssueAsync_SurfacesTheIssuanceErrorCode(
+        InvoiceIssuanceTrigger trigger,
+        string expectedErrorCode)
     {
-        var service = CreateService(new FakeInvoiceIssuanceReader(
-            Snapshot(trigger: InvoiceIssuanceTrigger.NotPaid)));
+        var service = CreateService(new FakeInvoiceIssuanceReader(Snapshot(trigger: trigger)));
 
         var result = await service.IssueAsync(new IssueInvoiceRequest(OrderPublicId));
 
-        Assert.False(result.IsSuccess);
-        Assert.True(result.OrderFound);
-        Assert.Equal(InvoiceIssuanceRejection.OrderNotPaid, result.Rejection);
+        Assert.Equal(expectedErrorCode, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task IssueAsync_ReportsAnOrderThatAlreadyHasAnInvoice()
+    {
+        var service = CreateService(new FakeInvoiceIssuanceReader(
+            Snapshot(orderAlreadyHasInvoice: true)));
+
+        var result = await service.IssueAsync(new IssueInvoiceRequest(OrderPublicId));
+
+        Assert.Equal(InvoiceErrorCodes.InvoiceAlreadyExists, result.ErrorCode);
     }
 
     [Fact]
@@ -105,11 +116,12 @@ public sealed class IssueInvoiceServiceTests
         InvoiceIssuanceTrigger trigger = InvoiceIssuanceTrigger.OnlinePaymentSucceeded,
         SimulatedInvoiceBuyerType buyerType = SimulatedInvoiceBuyerType.Individual,
         string? companyTaxId = null,
-        string? companyName = null) =>
+        string? companyName = null,
+        bool orderAlreadyHasInvoice = false) =>
         new(
             OrderId: 7L,
             trigger,
-            OrderAlreadyHasInvoice: false,
+            orderAlreadyHasInvoice,
             buyerType,
             BuyerEmail: "buyer@example.com",
             CarrierType: null,

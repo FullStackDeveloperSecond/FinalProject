@@ -56,33 +56,21 @@ public sealed record InvoiceIssuancePlan(
 
 public sealed class IssueInvoiceResult
 {
-    private IssueInvoiceResult(
-        bool orderFound,
-        InvoiceIssuanceRejection rejection,
-        InvoiceIssuancePlan? plan)
+    private IssueInvoiceResult(string? errorCode, InvoiceIssuancePlan? plan)
     {
-        OrderFound = orderFound;
-        Rejection = rejection;
+        ErrorCode = errorCode;
         Plan = plan;
     }
 
-    public bool IsSuccess => Plan is not null;
+    public bool IsSuccess => ErrorCode is null;
 
-    /// <summary>訂單不存在或依安全策略不可揭露時為 <c>false</c>。</summary>
-    public bool OrderFound { get; }
-
-    public InvoiceIssuanceRejection Rejection { get; }
+    public string? ErrorCode { get; }
 
     public InvoiceIssuancePlan? Plan { get; }
 
-    public static IssueInvoiceResult NotFound() =>
-        new(false, InvoiceIssuanceRejection.None, null);
+    public static IssueInvoiceResult Failure(string errorCode) => new(errorCode, null);
 
-    public static IssueInvoiceResult Rejected(InvoiceIssuanceRejection rejection) =>
-        new(true, rejection, null);
-
-    public static IssueInvoiceResult Approved(InvoiceIssuancePlan plan) =>
-        new(true, InvoiceIssuanceRejection.None, plan);
+    public static IssueInvoiceResult Approved(InvoiceIssuancePlan plan) => new(null, plan);
 }
 
 /// <summary>
@@ -115,7 +103,7 @@ public sealed class IssueInvoiceService
 
         if (snapshot is null)
         {
-            return IssueInvoiceResult.NotFound();
+            return IssueInvoiceResult.Failure(InvoiceErrorCodes.ResourceNotFound);
         }
 
         var calculation = InvoiceCalculator.Calculate(new InvoiceIssuanceRequest(
@@ -125,7 +113,7 @@ public sealed class IssueInvoiceService
 
         if (!calculation.IsSuccess)
         {
-            return IssueInvoiceResult.Rejected(calculation.Rejection);
+            return IssueInvoiceResult.Failure(calculation.ErrorCode!);
         }
 
         var issuedAtUtc = _timeProvider.GetUtcNow().UtcDateTime;

@@ -1,6 +1,21 @@
 namespace DoSelect.Domain.Invoicing;
 
 /// <summary>
+/// 模擬發票的錯誤碼。值必須與 API錯誤碼目錄 一致（DEC-BATCH-014）。
+/// 共用錯誤沿用既有代碼，不新增同義別名。
+/// </summary>
+public static class InvoiceErrorCodes
+{
+    public const string InvoiceOrderUnpaid = "invoice_order_unpaid";
+    public const string InvoiceOrderCancelled = "invoice_order_cancelled";
+    public const string InvoiceAlreadyExists = "invoice_already_exists";
+    public const string InvoiceStateConflict = "invoice_state_conflict";
+    public const string InvoiceAllowanceRequired = "invoice_allowance_required";
+    public const string ResourceNotFound = "resource_not_found";
+    public const string IdempotencyPayloadConflict = "idempotency_payload_conflict";
+}
+
+/// <summary>
 /// 模擬發票號碼。格式為 <c>DEMO-yyyyMM-NNNNNN</c>，明確標示為展示資料，
 /// 且刻意不採用真實統一發票的兩碼字軌加八碼數字格式。
 /// </summary>
@@ -53,44 +68,6 @@ public enum InvoiceIssuanceTrigger
 }
 
 /// <summary>
-/// 不能開立模擬發票的原因。
-/// API錯誤碼目錄尚未登錄發票錯誤碼，因此本層回傳型別化原因，字串代碼的對應待目錄補齊。
-/// </summary>
-public enum InvoiceIssuanceRejection
-{
-    None,
-
-    /// <summary>未付款不開立。</summary>
-    OrderNotPaid,
-
-    /// <summary>取消訂單不開立。</summary>
-    OrderCancelled,
-
-    /// <summary>沒有任何可開立的明細。</summary>
-    NoInvoiceableLines,
-
-    /// <summary>已存在該訂單的發票；每張訂單最多一張。</summary>
-    AlreadyIssued,
-}
-
-/// <summary>
-/// 不能作廢模擬發票的原因。
-/// </summary>
-public enum InvoiceVoidRejection
-{
-    None,
-
-    /// <summary>只有已開立的發票能作廢。</summary>
-    NotIssued,
-
-    /// <summary>訂單並未整筆取消。</summary>
-    OrderNotFullyCancelled,
-
-    /// <summary>已發生金流退款，必須建立折讓而不是作廢。</summary>
-    RefundAlreadySettled,
-}
-
-/// <summary>
 /// 開立發票所需的訂單交易快照。<see cref="GrossAmount"/> 為該列的含稅實付金額。
 /// </summary>
 public sealed record InvoiceOrderLine(
@@ -121,32 +98,32 @@ public sealed record InvoiceLineBreakdown(
     decimal GrossAmount);
 
 /// <summary>
-/// 模擬發票試算結果。失敗時只帶拒絕原因，不丟例外。
+/// 模擬發票試算結果。失敗時只帶錯誤碼，不丟例外。
 /// </summary>
 public sealed class InvoiceCalculationResult
 {
     private InvoiceCalculationResult(
-        InvoiceIssuanceRejection rejection,
+        string? errorCode,
         decimal netAmount,
         decimal taxAmount,
         decimal issuedAmount,
         IReadOnlyList<InvoiceLineBreakdown> lines)
     {
-        Rejection = rejection;
+        ErrorCode = errorCode;
         NetAmount = netAmount;
         TaxAmount = taxAmount;
         IssuedAmount = issuedAmount;
         Lines = lines;
     }
 
-    public bool IsSuccess => Rejection == InvoiceIssuanceRejection.None;
+    public bool IsSuccess => ErrorCode is null;
 
-    public InvoiceIssuanceRejection Rejection { get; }
+    public string? ErrorCode { get; }
 
-    /// <summary>未稅金額，等於各明細未稅金額合計。</summary>
+    /// <summary>表頭未稅金額，由含稅總額回推，並精確等於各明細未稅金額合計。</summary>
     public decimal NetAmount { get; }
 
-    /// <summary>稅額，等於各明細稅額合計。</summary>
+    /// <summary>表頭稅額，精確等於各明細稅額合計。</summary>
     public decimal TaxAmount { get; }
 
     /// <summary>含稅總額，等於顧客實付金額，也精確等於未稅加稅額。</summary>
@@ -154,13 +131,13 @@ public sealed class InvoiceCalculationResult
 
     public IReadOnlyList<InvoiceLineBreakdown> Lines { get; }
 
-    public static InvoiceCalculationResult Failure(InvoiceIssuanceRejection rejection) =>
-        new(rejection, 0m, 0m, 0m, []);
+    public static InvoiceCalculationResult Failure(string errorCode) =>
+        new(errorCode, 0m, 0m, 0m, []);
 
     public static InvoiceCalculationResult Success(
         decimal netAmount,
         decimal taxAmount,
         decimal issuedAmount,
         IReadOnlyList<InvoiceLineBreakdown> lines) =>
-        new(InvoiceIssuanceRejection.None, netAmount, taxAmount, issuedAmount, lines);
+        new(null, netAmount, taxAmount, issuedAmount, lines);
 }
