@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-18
+最後更新: 2026-08-19
 負責人: kafen
 追蹤項目:
   - DES-17
@@ -13,11 +13,12 @@
   - DEC-P258
   - DEC-P259
   - DEC-P260
+  - AUTO-DEC-005
 ---
 
 # Kafen｜客服、退貨與檢舉最終 Schema 實作交付
 
-> 版本：2026-08-18｜SQL Server 最終實作交付版
+> 版本：2026-08-19｜SQL Server 最終實作交付版
 >
 > 依據：`FinalProject` 已確認資料字典、狀態機、統一案件工作台及目前 UI。
 >
@@ -228,6 +229,7 @@ SLA：Low 24h／5d、Normal 8h／3d、High 4h／24h、Urgent 1h／8h；24×7 日
 | `OrderId` | BIGINT | 否 | 建議 FK → Orders |
 | `RequesterUserId` | NVARCHAR(450) | 是 | 會員；訪客由 AccessToken 驗證 |
 | `Status` | VARCHAR(24) | 否 | `Requested/UnderReview/Approved/AwaitingShipment/InTransit/Received/Inspecting/AwaitingRefund/Completed/Rejected/Cancelled` |
+| `Priority` | VARCHAR(16) | 否 | `Low/Normal/High/Urgent`；DEFAULT `Normal` |
 | `ReasonCode` | VARCHAR(64) | 否 | 受控原因 |
 | `Description` | NVARCHAR(1000) | 否 | 必填退貨說明；Entity、Request DTO、前端及 Problem Details 欄位錯誤須一致驗證 |
 | `AssigneeAdminUserId` | NVARCHAR(450) | 是 | 退貨審核承辦人 |
@@ -237,6 +239,9 @@ SLA：Low 24h／5d、Normal 8h／3d、High 4h／24h、Urgent 1h／8h；24×7 日
 | `ReturnShipmentDueAtUtc` | DATETIME2(3) | 是 | 核准後 7 日；一次延長另留 Audit |
 | `CreatedAtUtc/UpdatedAtUtc` | DATETIME2(3) | 否 | UTC |
 | `RowVersion` | ROWVERSION | 否 | 併發控制 |
+
+- 退貨建立時固定為 `Normal`；後台只能經具名商業操作調整四級 Priority，並更新 `UpdatedAtUtc`。
+- 工作台查詢索引為 `Status + Priority + AssigneeAdminUserId + UpdatedAtUtc`；不得依 View 即時計算或以狀態暗中改級。
 
 ### 退貨補件與溝通規則
 
@@ -342,7 +347,7 @@ SLA：Low 24h／5d、Normal 8h／3d、High 4h／24h、Urgent 1h／8h；24×7 日
 
 - Index：`IX_ReportCases_Status_AssigneeAdminUserId_LastActivityAtUtc`。
 - Index：`IX_ReportCases_TargetType_TargetPublicId_Status`。
-- 同 `ReporterUserId + TargetType + TargetPublicId + ReasonCode + 未結案範圍` 視為重複，回傳既有案件；以持久化 `OpenCaseKey`＋Filtered Unique Index 或等價資料庫唯一方案保證併發冪等，關閉後才可重建。
+- 同 `ReporterUserId + TargetType + TargetPublicId + ReasonCode + 未結案範圍` 視為重複，回傳既有案件；實作採上述四欄正規值計算 SHA-256 `OpenCaseKeyHash BINARY(32) NULL`，建立 `UX_ReportCases_OpenCaseKeyHash WHERE OpenCaseKeyHash IS NOT NULL`。案件關閉時清空 Hash，關閉後才可重建；不得只採「先查再新增」。
 - 審核者不能因工作台而取得商品、會員或客服管理權；處置必須呼叫對應領域 Command。
 
 ### 檢舉正式狀態機
@@ -392,6 +397,16 @@ SLA：Low 24h／5d、Normal 8h／3d、High 4h／24h、Urgent 1h／8h；24×7 日
 正式查詢契約只輸出上述 12 欄，支援 `CaseType`、`Status`、`Priority`、`AssigneePublicId`、`IsOverdue`、關鍵字及 Cursor；預設排序固定為 `LastActivityAtUtc DESC, CasePublicId DESC`，不使用 Offset／PageNumber。Cursor 同時編碼這兩個排序鍵。`CustomerReplyState`、`RowVersion`、Assignment State 與 AvailableActions 均不屬 V1 工作台投影。
 
 工作台 View、Query DTO、API Response 與前端型別必須使用相同欄名。授權條件套用於每個 `UNION ALL` 分支；開啟或寫入案件仍須回到來源 Aggregate Endpoint，以正式 Policy 再次授權。常用索引至少覆蓋 `LastActivityAtUtc`、狀態、承辦人及常用篩選欄位。
+
+### 13.1 V1 View 欄位來源定版
+
+| 分支 | `Title` | `RequesterDisplay` | `Priority` | `LastActivityAtUtc` | SLA |
+|---|---|---|---|---|---|
+| Support | `Category` 受控代碼 | `會員` | `SupportTickets.Priority` | `SupportTickets.LastActivityAtUtc` | 首回前使用首回期限；首回後使用結案期限並計入最多 72 小時顧客等待暫停 |
+| Return | `ReasonCode` 受控代碼 | `RequesterUserId` 為 Null 時 `訪客`，否則 `會員` | `ReturnRequests.Priority`，建立時 `Normal` | `ReturnRequests.UpdatedAtUtc` | Null／false |
+| Report | `ReasonCode` 受控代碼 | `會員` | `ReportCases.Priority` | `ReportCases.LastActivityAtUtc` | Null／false |
+
+`Title` 不直接輸出 Subject／Description，`RequesterDisplay` 不輸出姓名、Email、電話或內部 UserId。三分支的 `AssigneePublicId` 都由 `AdminProfiles.PublicId` 取得，未指派或 Profile 不存在時為 Null。
 
 ## 14. 案件指標 Query 與 M-15 責任邊界
 

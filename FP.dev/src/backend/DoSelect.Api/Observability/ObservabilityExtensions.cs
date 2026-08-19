@@ -48,7 +48,12 @@ public static class ObservabilityExtensions
                 tags: ["live"])
             .AddCheck<StorageReadinessHealthCheck>(
                 "storage",
+                tags: ["ready"])
+            .AddCheck<DatabaseReadinessHealthCheck>(
+                "database",
                 tags: ["ready"]);
+
+        builder.Services.AddSingleton<IDatabaseReadinessProbe, EfCoreDatabaseReadinessProbe>();
 
         return builder;
     }
@@ -126,6 +131,7 @@ public static class ObservabilityExtensions
         loggerConfiguration
             .MinimumLevel.Is(minimumLevel)
             .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
+            .MinimumLevel.Override("Microsoft.EntityFrameworkCore", LogEventLevel.Warning)
             .MinimumLevel.Override("Microsoft.Hosting.Lifetime", LogEventLevel.Information)
             .Enrich.FromLogContext()
             .Enrich.WithProperty("Application", "DoSelect.Api")

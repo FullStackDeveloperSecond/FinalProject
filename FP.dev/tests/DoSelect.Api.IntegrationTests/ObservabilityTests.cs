@@ -1,12 +1,14 @@
 using System.Net;
 using System.Text.Json;
 using DoSelect.Api.Common;
+using DoSelect.Api.Observability;
 using DoSelect.Application.Notifications;
 using DoSelect.Infrastructure.Email;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace DoSelect.Api.IntegrationTests;
 
@@ -73,6 +75,22 @@ public sealed class ObservabilityTests : IClassFixture<WebApplicationFactory<Pro
         {
             File.Delete(filePath);
         }
+    }
+
+    [Fact]
+    public async Task GetReady_WhenDatabaseReadFails_ReturnsSafeUnhealthyResponse()
+    {
+        using var factory = CreateFactory(databaseReady: false);
+        using var client = factory.CreateClient();
+
+        using var response = await client.GetAsync("/health/ready");
+        var responseBody = await response.Content.ReadAsStringAsync();
+        using var document = JsonDocument.Parse(responseBody);
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        Assert.Equal("Unhealthy", document.RootElement.GetProperty("status").GetString());
+        Assert.Single(document.RootElement.EnumerateObject());
+        Assert.DoesNotContain("database", responseBody, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -274,7 +292,8 @@ public sealed class ObservabilityTests : IClassFixture<WebApplicationFactory<Pro
     }
 
     private WebApplicationFactory<Program> CreateFactory(
-        IReadOnlyDictionary<string, string?>? settings = null)
+        IReadOnlyDictionary<string, string?>? settings = null,
+        bool databaseReady = true)
     {
         var dataRoot = Path.Combine(
             Path.GetTempPath(),
@@ -302,6 +321,12 @@ public sealed class ObservabilityTests : IClassFixture<WebApplicationFactory<Pro
             builder.UseEnvironment("Production");
             builder.ConfigureAppConfiguration(configuration =>
                 configuration.AddInMemoryCollection(defaults));
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<IDatabaseReadinessProbe>();
+                services.AddSingleton<IDatabaseReadinessProbe>(
+                    new StubDatabaseReadinessProbe(databaseReady));
+            });
         });
     }
 
@@ -347,5 +372,12 @@ public sealed class ObservabilityTests : IClassFixture<WebApplicationFactory<Pro
         }
 
         return lines;
+    }
+
+    private sealed class StubDatabaseReadinessProbe(bool isReady)
+        : IDatabaseReadinessProbe
+    {
+        public Task<bool> CanReadAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(isReady);
     }
 }

@@ -1142,7 +1142,7 @@ BuildList
 | 欄位 | SQL Server 型別 | Null | 預設值 | PK／FK | Unique／Index | 限制與說明 |
 |---|---|:---:|---|---|---|---|
 | `Id` | bigint | 否 | identity(1,1) | PK | 叢集 PK | 內部主鍵 |
-| `PublicId` | uniqueidentifier | 否 | 無（應用層產生 UUID v7） |  | `UX_ReviewImages_PublicId` | 對外附件識別碼 |
+| `PublicId` | uniqueidentifier | 否 | 無（應用層產生 UUID v7） |  | `UX_BuildListItems_PublicId` | 對外識別碼 |
 | `BuildListId` | bigint | 否 | 無 | FK→`BuildLists.Id` | `UX_BuildListItems_BuildListId_SkuId` | Cascade（白名單） |
 | `SkuId` | bigint | 否 | 無 | FK→`Skus.Id` | 同上 | Restrict |
 | `Quantity` | int | 否 | 無 |  |  | 1～8 |
@@ -1391,6 +1391,7 @@ BuildList
 - [x] `ConvenienceStores` 補 `City`／`District`／`IsDemoData` 及查詢索引。
 - [x] 補上批次出貨流程說明（M-11／Shipments）。
 - [x] `Shipments.Status` 改為正式九值列舉，不再待確認。
+- [x] 修正 `BuildListItems.PublicId` 的誤植索引與說明：正式名稱為 `UX_BuildListItems_PublicId`，用途為對外識別碼，不再錯用 `UX_ReviewImages_PublicId`／附件描述。
 
 ## M-15｜營運報表唯讀契約
 

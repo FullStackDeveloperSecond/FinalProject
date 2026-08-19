@@ -3,7 +3,7 @@ type: decision-interaction
 batch_id: DEC-BATCH-013
 title: Haru 會員、訂單與訪客存取 Schema 定版
 status: applied
-submission_feedback: ✅ 本批 8 項決策已於 2026-08-18 寫回 Haru 正式交付、需求、資料字典、API、狀態機、決策紀錄與追蹤表；DES-20 等待 yinyin 交叉覆核。
+submission_feedback: ✅ 本批 8 項決策已於 2026-08-18 寫回；yinyin 後續已完成交叉覆核，DES-20 已關閉。Entity、Configuration 與 Migration 仍另行實作及審查。
 created_at: 2026-08-18
 submitted_at: 2026-08-18
 applied_at: 2026-08-18

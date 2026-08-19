@@ -27,6 +27,20 @@ function Get-RequiredCommand {
     return $command.Source
 }
 
+function Get-SqlCmdCommand {
+    $preferredSqlCmd = Join-Path $env:ProgramFiles 'Microsoft SQL Server\Client SDK\ODBC\180\Tools\Binn\SQLCMD.EXE'
+    if (Test-Path -LiteralPath $preferredSqlCmd -PathType Leaf) {
+        return $preferredSqlCmd
+    }
+
+    $command = Get-Command 'sqlcmd.exe' -ErrorAction SilentlyContinue
+    if ($null -eq $command) {
+        return $null
+    }
+
+    return $command.Source
+}
+
 function Test-SqlServerConnection {
     $service = Get-Service -Name $script:SqlServiceName -ErrorAction SilentlyContinue
     if ($null -eq $service) {
@@ -43,15 +57,15 @@ function Test-SqlServerConnection {
         }
     }
 
-    $sqlcmd = Get-Command 'sqlcmd.exe' -ErrorAction SilentlyContinue
+    $sqlcmd = Get-SqlCmdCommand
     if ($null -eq $sqlcmd) {
         return [pscustomobject]@{
             IsReady = $false
-            Detail = "sqlcmd.exe was not found in PATH."
+            Detail = "sqlcmd.exe was not found in ODBC 18 tools or PATH."
         }
     }
 
-    $null = & $sqlcmd.Source -S $script:SqlInstance -E -b -l 5 -Q 'SET NOCOUNT ON; SELECT 1;' 2>&1
+    $null = & $sqlcmd -S $script:SqlInstance -E -C -b -l 5 -Q 'SET NOCOUNT ON; SELECT 1;' 2>&1
     if ($LASTEXITCODE -ne 0) {
         return [pscustomobject]@{
             IsReady = $false

@@ -74,7 +74,10 @@ try {
     $dotnet = Get-RequiredCommand -Name 'dotnet.exe'
     $null = Get-RequiredCommand -Name 'node.exe'
     $npm = Get-RequiredCommand -Name 'npm.cmd'
-    $null = Get-RequiredCommand -Name 'sqlcmd.exe'
+    $sqlcmd = Get-SqlCmdCommand
+    if ($null -eq $sqlcmd) {
+        throw 'Required command sqlcmd.exe was not found in ODBC 18 tools or PATH.'
+    }
 
     $sql = Test-SqlServerConnection
     if (-not $sql.IsReady) {

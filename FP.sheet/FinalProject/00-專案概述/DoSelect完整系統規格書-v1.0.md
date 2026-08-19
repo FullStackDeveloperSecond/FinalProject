@@ -414,6 +414,8 @@ AvailableQuantity = OnHandQuantity - ReservedQuantity
 - 統一工作台只用授權後的唯讀 `UNION ALL` View 顯示摘要及導向，不建立第四個可寫案件表。
 - 寫入仍呼叫原領域 Use Case；工作台可見不代表取得跨領域處理權。
 - 工作台 V1 只回 CaseType、CasePublicId、CaseNumber、Title、Status、Priority、RequesterDisplay、AssigneePublicId、CreatedAtUtc、LastActivityAtUtc、SlaDueAtUtc、IsOverdue，不回 RowVersion／CustomerReplyState／另一套 AssignmentState。
+- V1 Title 採受控代碼：客服使用 Category、退貨與檢舉使用 ReasonCode；不得直接投影可能含個資的 Subject／Description。RequesterDisplay 只回 `會員`／`訪客`，不回姓名或內部 UserId。
+- ReturnRequest 正式保存 Low／Normal／High／Urgent 四級 Priority，建立預設 Normal，後台以具名操作調整；Support 的有效 SLA 依首回／結案階段及最多 72 小時 WaitingForCustomer 暫停計算，Return／Report 的 SLA 欄位為 Null。
 - 檢舉固定 `Open → Assigned → InReview → Actioned/Rejected → Closed`；補件是 InReview Action。一般檢舉由 CustomerService 自領，高風險案件須 CustomerServiceSupervisor 指派或覆核，不新增角色。
 
 ### 9.4 附件

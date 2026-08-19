@@ -1,5 +1,5 @@
 ---
-文件狀態: 待 yinyin 交叉覆核
+文件狀態: 已確認
 最後更新: 2026-08-18
 負責人: haru
 覆核人: yinyin
@@ -17,7 +17,7 @@
 本文件收束 Haru 兩次上交內容、驗收報告及 DEC-P263～DEC-P270，作為會員 Identity／Profile、地址、收藏、訂單、訪客訂單存取與組裝工作的欄位級實作依據。
 
 > [!important]
-> alex 已完成決策與跨文件整合；固定備援人 `yinyin` 尚須交叉覆核。覆核前不得建立或套用本工作包的 EF Core Migration。若本文件與正式資料字典、狀態機或 API 契約衝突，以正式文件為準並回報，不得由實作者自行選擇。
+> alex 已完成決策與跨文件整合；固定備援人 `yinyin` 已完成欄位、索引、狀態、授權、交易與跨模組交叉覆核。Schema 文件完成不代表 Entity、Configuration、測試或 Migration 已完成；若本文件與正式資料字典、狀態機或 API 契約衝突，以正式文件為準並回報，不得由實作者自行選擇。
 
 ## 1. 共通基線
 
@@ -310,8 +310,8 @@
 - [x] 地址 City／District 與訂單快照已對齊，訂單不保存 Label。
 - [x] AssemblyJob 使用獨立 append-only 歷程表。
 - [x] 差異化 Lockout 有可實作的 Application Service 邊界。
-- [ ] yinyin 已完成欄位、索引、狀態、授權及交易交叉覆核。
+- [x] yinyin 已完成欄位、索引、狀態、授權及交易交叉覆核。
 - [ ] Haru 已依本文件建立 Entity／Fluent Configuration 與必要整合測試。
 - [ ] Migration 已由獨立流程產生並完成 SQL／Snapshot 審查。
 
-只有 yinyin 覆核完成後才能將 DES-20 標示為 Schema 文件完成；Entity／測試／Migration 仍由各自工作項目及 Gate 管理。
+yinyin 覆核已完成，DES-20 可標示為 Schema 文件完成；Entity／測試／Migration 仍由各自工作項目及 Gate 管理。

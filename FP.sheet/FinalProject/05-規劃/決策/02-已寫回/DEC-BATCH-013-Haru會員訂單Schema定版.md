@@ -26,6 +26,11 @@ source: "[[05-規劃/決策/00-互動中/DEC-BATCH-013-Haru會員訂單Schema定
 | DEC-P269 | 會員與管理員共用登入 Application Service；第五次失敗依 AccountType 設定 LockoutEnd 為 15／30 分鐘，不依賴單一 DefaultLockoutTimeSpan。 |
 | DEC-P270 | 建立 Haru 正式 Owner Schema 交付，以 DES-20 追蹤；yinyin 交叉覆核、alex 整合，覆核前不得建立 Migration。 |
 
+## 後續狀態
+
+- 2026-08-18：yinyin 已完成欄位、索引、狀態、授權、交易及跨模組交叉覆核，DES-20 已關閉。
+- 本次 Gate 只確認 Schema 文件；Entity、Fluent Configuration、測試與 Migration 仍須獨立實作及審查。
+
 ## 寫回範圍
 
 - [[03-架構/資料表實作交付/Haru-會員登入訂單與訪客存取最終Schema]]
