@@ -119,6 +119,13 @@ public sealed record CouponUsageState(int TotalRedeemedCount, int MemberRedeemed
 /// <summary>
 /// 一次優惠券試算的完整輸入。計算器為純函式，不含任何 I/O。
 /// </summary>
+/// <summary>
+/// 一次優惠券試算的完整輸入。
+/// <paramref name="IsAssemblyDelivery"/> 由配送方式對應而來：
+/// <c>IsAssemblyDelivery = (ShippingMethod.Kind == "HomeDeliveryAssembly")</c>。
+/// 目前的三個 Kind 值為 <c>HomeDeliveryStandard</c>、<c>HomeDeliveryAssembly</c>、
+/// <c>ConvenienceStorePickup</c>，常數將由配送模組定義。
+/// </summary>
 public sealed record CouponCalculationRequest(
     CouponRule Rule,
     CouponScopeRules Scope,

@@ -78,7 +78,8 @@ public static class CouponCalculator
 
         var eligibleSubtotal = Round(eligibleLines.Sum(line => line.LineSubtotal));
 
-        // 最低消費門檻比對「符合優惠券範圍的商品小計」，不含運費、組裝費與範圍外商品。
+        // 最低消費門檻的基準（DEC-BATCH-014 第 1 項）：商品特價後、優惠券折扣前，
+        // 只計入符合該券適用範圍的商品，不含其他商品、運費、組裝費與贈品。
         if (coupon.MinimumSpend is { } minimumSpend && eligibleSubtotal < minimumSpend)
         {
             return CouponCalculationResult.Failure(CouponCalculationErrorCodes.CouponNotApplicable);

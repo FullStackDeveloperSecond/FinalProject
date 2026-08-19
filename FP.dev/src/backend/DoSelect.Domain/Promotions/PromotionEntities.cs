@@ -67,6 +67,53 @@ public sealed class Coupon : MutablePublicEntity
     public CouponScopeType ScopeType { get; private set; }
     public CouponStatus Status { get; private set; }
     public int RuleVersion { get; private set; }
+
+    /// <summary>
+    /// 優惠券生命週期的正式轉移表（DEC-BATCH-014 第 2 項）。
+    /// `Expired` 與 `Disabled` 為終態。Entity 是狀態的唯一真實來源；
+    /// <see cref="CouponRule"/> 只承載查詢當下的快照，不得用來改狀態。
+    /// </summary>
+    private static readonly IReadOnlyDictionary<CouponStatus, CouponStatus[]> AllowedTransitions =
+        new Dictionary<CouponStatus, CouponStatus[]>
+        {
+            [CouponStatus.Draft] = [CouponStatus.Scheduled, CouponStatus.Active, CouponStatus.Disabled],
+            [CouponStatus.Scheduled] = [CouponStatus.Active, CouponStatus.Expired, CouponStatus.Disabled],
+            [CouponStatus.Active] = [CouponStatus.Paused, CouponStatus.Exhausted, CouponStatus.Expired, CouponStatus.Disabled],
+            [CouponStatus.Paused] = [CouponStatus.Active, CouponStatus.Expired, CouponStatus.Disabled],
+            [CouponStatus.Exhausted] = [CouponStatus.Active, CouponStatus.Expired, CouponStatus.Disabled],
+            [CouponStatus.Expired] = [],
+            [CouponStatus.Disabled] = [],
+        };
+
+    /// <summary>排入預定檔期。</summary>
+    public void Schedule(DateTime occurredAtUtc) => Transition(CouponStatus.Scheduled, occurredAtUtc);
+
+    /// <summary>啟用。名額返還且使用量重新低於限制時，`Exhausted` 也可以回到 `Active`。</summary>
+    public void Activate(DateTime occurredAtUtc) => Transition(CouponStatus.Active, occurredAtUtc);
+
+    /// <summary>暫時停止。要再啟用請用 <see cref="Activate"/>。</summary>
+    public void Pause(DateTime occurredAtUtc) => Transition(CouponStatus.Paused, occurredAtUtc);
+
+    /// <summary>名額用盡。</summary>
+    public void MarkExhausted(DateTime occurredAtUtc) => Transition(CouponStatus.Exhausted, occurredAtUtc);
+
+    /// <summary>到期。終態，返還名額不會恢復可用。</summary>
+    public void MarkExpired(DateTime occurredAtUtc) => Transition(CouponStatus.Expired, occurredAtUtc);
+
+    /// <summary>永久停用。終態，不可重新啟用。</summary>
+    public void Disable(DateTime occurredAtUtc) => Transition(CouponStatus.Disabled, occurredAtUtc);
+
+    private void Transition(CouponStatus next, DateTime occurredAtUtc)
+    {
+        if (!AllowedTransitions[Status].Contains(next))
+        {
+            throw new InvalidOperationException($"Coupon cannot move from {Status} to {next}.");
+        }
+
+        occurredAtUtc = RequireUtc(occurredAtUtc, nameof(occurredAtUtc));
+        Status = next;
+        MarkUpdated(occurredAtUtc);
+    }
 }
 
 public sealed class CouponRedemption : MutablePublicEntity

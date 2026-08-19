@@ -117,6 +117,25 @@ public sealed class CouponCalculatorTests
     }
 
     [Fact]
+    public void MinimumSpend_UsesTheRulingsCreator10Example()
+    {
+        // DEC-BATCH-014 第 1 項：NT$18,000 顯卡（適用）加 NT$5,000 螢幕（不適用）
+        // 仍不符合 NT$20,000 門檻，因為門檻只計適用範圍內的商品。
+        var scope = new CouponScopeRules(CouponScopeType.Restricted, [2L], [], []);
+
+        var result = Calculate(
+            Rule(CouponDiscountType.Percentage, discountValue: 0.1m, minimumSpend: 20000m,
+                maximumDiscount: 2000m, scopeType: CouponScopeType.Restricted),
+            scope,
+            [
+                Line(LineA, quantity: 1, unitPrice: 18000m, categoryIds: [2L]),
+                Line(LineB, quantity: 1, unitPrice: 5000m, categoryIds: [9L]),
+            ]);
+
+        Assert.Equal(CouponCalculationErrorCodes.CouponNotApplicable, result.ErrorCode);
+    }
+
+    [Fact]
     public void MinimumSpend_ComparesTheEligibleSubtotalOnly()
     {
         var scope = new CouponScopeRules(CouponScopeType.Restricted, [], [7L], []);
