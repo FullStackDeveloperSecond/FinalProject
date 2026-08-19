@@ -27,6 +27,17 @@ public sealed class IssueInvoiceAllowanceServiceTests
     }
 
     [Fact]
+    public async Task IssueAsync_TakesTheAmountFromTheRefundNotTheCaller()
+    {
+        // 請求只帶 refundPublicId 與 Idempotency-Key，沒有任何金額欄位可以指定。
+        var service = CreateService(new FakeInvoiceAllowanceReader(Snapshot(refundedGross: 500m)));
+
+        var result = await service.IssueAsync(Request());
+
+        Assert.Equal(500m, result.Plan!.Amount);
+    }
+
+    [Fact]
     public async Task IssueAsync_NumbersTheAllowanceWithTheDemoMarker()
     {
         var service = CreateService(new FakeInvoiceAllowanceReader(Snapshot(), sequence: 7));
@@ -36,6 +47,22 @@ public sealed class IssueInvoiceAllowanceServiceTests
         Assert.Equal("DEMO-A-202608-000007", result.Plan!.AllowanceNumber);
         Assert.Equal(NowUtc, result.Plan.IssuedAtUtc);
     }
+
+    [Fact]
+    public async Task IssueAsync_CarriesTheIdempotencyKeyIntoThePlan()
+    {
+        var service = CreateService(new FakeInvoiceAllowanceReader(Snapshot()));
+
+        var result = await service.IssueAsync(Request(idempotencyKey: "  allow-1  "));
+
+        Assert.Equal("allow-1", result.Plan!.IdempotencyKey);
+    }
+
+    [Fact]
+    public async Task IssueAsync_RequiresAnIdempotencyKey() =>
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            CreateService(new FakeInvoiceAllowanceReader(Snapshot()))
+                .IssueAsync(Request(idempotencyKey: "   ")));
 
     [Fact]
     public async Task IssueAsync_MarksTheInvoiceFullyAllowedWhenNothingRemains()
@@ -55,30 +82,26 @@ public sealed class IssueInvoiceAllowanceServiceTests
 
         var result = await service.IssueAsync(Request());
 
-        Assert.False(result.IsSuccess);
-        Assert.False(result.RefundFound);
+        Assert.Equal(InvoiceErrorCodes.ResourceNotFound, result.ErrorCode);
     }
 
     [Fact]
-    public async Task IssueAsync_SurfacesTheAllowanceRejection()
+    public async Task IssueAsync_SurfacesTheAllowanceErrorCode()
     {
         var service = CreateService(new FakeInvoiceAllowanceReader(
             Snapshot(refundAlreadyHasAllowance: true)));
 
         var result = await service.IssueAsync(Request());
 
-        Assert.False(result.IsSuccess);
-        Assert.True(result.RefundFound);
-        Assert.Equal(InvoiceAllowanceRejection.RefundAlreadyAllowed, result.Rejection);
+        Assert.Equal(InvoiceErrorCodes.InvoiceStateConflict, result.ErrorCode);
     }
 
     [Fact]
     public async Task IssueAsync_DoesNotTakeASequenceWhenTheAllowanceIsRejected()
     {
         var reader = new FakeInvoiceAllowanceReader(Snapshot(refundAlreadyHasAllowance: true));
-        var service = CreateService(reader);
 
-        await service.IssueAsync(Request());
+        await CreateService(reader).IssueAsync(Request());
 
         Assert.Null(reader.RequestedIssuedAtUtc);
     }
@@ -86,19 +109,21 @@ public sealed class IssueInvoiceAllowanceServiceTests
     private static IssueInvoiceAllowanceService CreateService(IInvoiceAllowanceReader reader) =>
         new(reader, new FixedTimeProvider(new DateTimeOffset(NowUtc, TimeSpan.Zero)));
 
-    private static IssueInvoiceAllowanceRequest Request() =>
-        new(RefundPublicId, [new InvoiceAllowanceLineRequest(ItemA, 1, 1000m)]);
+    private static IssueInvoiceAllowanceRequest Request(string idempotencyKey = "allow-1") =>
+        new(RefundPublicId, idempotencyKey);
 
     private static InvoiceAllowanceSnapshot Snapshot(
         int quantity = 2,
         decimal gross = 2000m,
+        decimal refundedGross = 1000m,
         bool refundAlreadyHasAllowance = false) =>
         new(
             SimulatedInvoiceId: 5L,
             RefundId: 9L,
             SimulatedInvoiceStatus.Issued,
             refundAlreadyHasAllowance,
-            [new InvoiceAllowanceCapacity(ItemA, quantity, 0, gross, 0m)]);
+            [new InvoiceAllowanceCapacity(ItemA, quantity, 0, gross, 0m)],
+            [new RefundedInvoiceLine(ItemA, 1, refundedGross)]);
 
     private sealed class FakeInvoiceAllowanceReader : IInvoiceAllowanceReader
     {

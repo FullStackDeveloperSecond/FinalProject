@@ -3,7 +3,7 @@ using DoSelect.Domain.Invoicing;
 namespace DoSelect.Application.Invoicing;
 
 /// <summary>
-/// 一筆退款要開立折讓時，原發票的狀態與各明細可折讓餘額。
+/// 一筆退款要開立折讓時，原發票的狀態、各明細可折讓餘額，以及由成功 Refund 推導出的折讓明細。
 /// <paramref name="SimulatedInvoiceId"/> 與 <paramref name="RefundId"/> 為內部識別，不得對外回傳。
 /// </summary>
 public sealed record InvoiceAllowanceSnapshot(
@@ -11,7 +11,8 @@ public sealed record InvoiceAllowanceSnapshot(
     long RefundId,
     SimulatedInvoiceStatus InvoiceStatus,
     bool RefundAlreadyHasAllowance,
-    IReadOnlyList<InvoiceAllowanceCapacity> Capacities);
+    IReadOnlyList<InvoiceAllowanceCapacity> Capacities,
+    IReadOnlyList<RefundedInvoiceLine> RefundedLines);
 
 /// <summary>
 /// 開立折讓所需的讀取埠。實作屬於 Infrastructure，不在此層存取 DbContext。
@@ -19,7 +20,8 @@ public sealed record InvoiceAllowanceSnapshot(
 public interface IInvoiceAllowanceReader
 {
     /// <summary>
-    /// 以退款的對外識別找出原發票與可折讓餘額。餘額必須與本次開立在同一交易內取得。
+    /// 以退款的對外識別找出原發票、可折讓餘額，以及由成功 Refund 分攤推導出的折讓明細。
+    /// 全部必須與本次開立在同一交易內取得。
     /// </summary>
     Task<InvoiceAllowanceSnapshot?> FindByRefundAsync(
         Guid refundPublicId,
@@ -34,9 +36,11 @@ public interface IInvoiceAllowanceReader
         CancellationToken cancellationToken = default);
 }
 
-public sealed record IssueInvoiceAllowanceRequest(
-    Guid RefundPublicId,
-    IReadOnlyList<InvoiceAllowanceLineRequest> Lines);
+/// <summary>
+/// 折讓請求只帶退款識別與冪等金鑰。金額一律由後端依成功 Refund 與原發票明細推導，
+/// 不接受前端指定（DEC-BATCH-014 第 9 項）。
+/// </summary>
+public sealed record IssueInvoiceAllowanceRequest(Guid RefundPublicId, string IdempotencyKey);
 
 /// <summary>
 /// 通過檢查後要建立的折讓。實際寫入、原發票狀態轉移與狀態歷程由折讓端點負責。
@@ -45,6 +49,7 @@ public sealed record InvoiceAllowancePlan(
     long SimulatedInvoiceId,
     long RefundId,
     string AllowanceNumber,
+    string IdempotencyKey,
     decimal NetAmount,
     decimal TaxAmount,
     decimal Amount,
@@ -54,33 +59,22 @@ public sealed record InvoiceAllowancePlan(
 
 public sealed class IssueInvoiceAllowanceResult
 {
-    private IssueInvoiceAllowanceResult(
-        bool refundFound,
-        InvoiceAllowanceRejection rejection,
-        InvoiceAllowancePlan? plan)
+    private IssueInvoiceAllowanceResult(string? errorCode, InvoiceAllowancePlan? plan)
     {
-        RefundFound = refundFound;
-        Rejection = rejection;
+        ErrorCode = errorCode;
         Plan = plan;
     }
 
-    public bool IsSuccess => Plan is not null;
+    public bool IsSuccess => ErrorCode is null;
 
-    /// <summary>退款不存在或沒有對應發票時為 <c>false</c>。</summary>
-    public bool RefundFound { get; }
-
-    public InvoiceAllowanceRejection Rejection { get; }
+    public string? ErrorCode { get; }
 
     public InvoiceAllowancePlan? Plan { get; }
 
-    public static IssueInvoiceAllowanceResult NotFound() =>
-        new(false, InvoiceAllowanceRejection.None, null);
-
-    public static IssueInvoiceAllowanceResult Rejected(InvoiceAllowanceRejection rejection) =>
-        new(true, rejection, null);
+    public static IssueInvoiceAllowanceResult Failure(string errorCode) => new(errorCode, null);
 
     public static IssueInvoiceAllowanceResult Approved(InvoiceAllowancePlan plan) =>
-        new(true, InvoiceAllowanceRejection.None, plan);
+        new(null, plan);
 }
 
 /// <summary>
@@ -108,7 +102,12 @@ public sealed class IssueInvoiceAllowanceService
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(request.Lines);
+
+        // Idempotency-Key 為必填 Header，缺少時由 API 層以驗證錯誤擋下。
+        if (string.IsNullOrWhiteSpace(request.IdempotencyKey))
+        {
+            throw new ArgumentException("The idempotency key is required.", nameof(request));
+        }
 
         var snapshot = await _allowanceReader.FindByRefundAsync(
             request.RefundPublicId,
@@ -116,18 +115,18 @@ public sealed class IssueInvoiceAllowanceService
 
         if (snapshot is null)
         {
-            return IssueInvoiceAllowanceResult.NotFound();
+            return IssueInvoiceAllowanceResult.Failure(InvoiceErrorCodes.ResourceNotFound);
         }
 
         var calculation = InvoiceAllowanceCalculator.Calculate(new InvoiceAllowanceRequest(
             snapshot.InvoiceStatus,
             snapshot.RefundAlreadyHasAllowance,
             snapshot.Capacities,
-            request.Lines));
+            snapshot.RefundedLines));
 
         if (!calculation.IsSuccess)
         {
-            return IssueInvoiceAllowanceResult.Rejected(calculation.Rejection);
+            return IssueInvoiceAllowanceResult.Failure(calculation.ErrorCode!);
         }
 
         var issuedAtUtc = _timeProvider.GetUtcNow().UtcDateTime;
@@ -139,6 +138,7 @@ public sealed class IssueInvoiceAllowanceService
             snapshot.SimulatedInvoiceId,
             snapshot.RefundId,
             DemoAllowanceNumber.Format(issuedAtUtc, sequence),
+            request.IdempotencyKey.Trim(),
             calculation.NetAmount,
             calculation.TaxAmount,
             calculation.Amount,
