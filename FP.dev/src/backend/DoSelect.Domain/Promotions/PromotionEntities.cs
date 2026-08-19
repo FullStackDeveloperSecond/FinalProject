@@ -35,7 +35,7 @@ public sealed class Coupon : MutablePublicEntity
             throw new ArgumentOutOfRangeException(nameof(creation));
         }
 
-        Code = RequireText(creation.Code, nameof(creation.Code)).Normalize().ToUpperInvariant();
+        Code = CouponCode.Normalize(RequireText(creation.Code, nameof(creation.Code)));
         NameZhTw = RequireText(creation.NameZhTw, nameof(creation.NameZhTw));
         DiscountType = creation.DiscountType;
         DiscountValue = creation.DiscountValue;
