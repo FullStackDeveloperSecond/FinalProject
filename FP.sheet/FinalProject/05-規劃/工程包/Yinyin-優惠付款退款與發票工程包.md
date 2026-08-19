@@ -78,7 +78,8 @@ dotnet tool run dotnet-ef -- database update InitialCreate `
 - `/api/v1/orders/{orderId}/payment-attempts` 與 `/api/v1/simulated-payments/{attemptId}/actions/complete`。
 - `/api/v1/admin/refunds*` 與具 Idempotency-Key 的 execute Action。
 - `/api/v1/admin/coupons*` 管理與 activate／pause／disable。
-- 發票與折讓依正式 Endpoint／DTO 目錄實作；不得用付款資料表假裝發票資料。
+- `GET /api/v1/orders/{orderId}/invoice` 提供會員本人或有效訪客限單 Scope 查詢。
+- `GET /api/v1/admin/invoices`、`GET /api/v1/admin/invoices/{id}`、`POST /api/v1/admin/orders/{orderId}/invoices`、`POST /api/v1/admin/invoices/{id}/actions/void`、`POST /api/v1/admin/invoices/{id}/allowances`；開立與折讓需 Idempotency-Key。不得用付款資料表假裝發票資料。
 
 前台重點 Page ID：`C-13`～`C-15`、`C-18`、`C-20`。後台：`A-20` 的退款預覽協作、`A-21`～`A-23`。完整 Route 與錯誤狀態見 [[03-架構/M功能桌面UI與Route規格]]。
 
@@ -87,12 +88,16 @@ dotnet tool run dotnet-ef -- database update InitialCreate `
 ## 6. 不可破壞的金額與狀態規則
 
 - 優惠券的門檻、範圍、使用次數與分攤在後端重算；前端送代碼與選擇，不送可信價格。
+- 最低消費只比對優惠券適用商品小計；購物車不持久化優惠碼，每次預覽由前端帶入，Checkout 再次驗證。
+- 部分退貨使用 `OrderCoupon.MinimumSpendAmount` 與 `OrderItem.IsCouponEligible` 快照，不回查目前 Coupon；`RefundAllocation.Amount` 保持正值並由 AllocationType 固定加減方向。
 - CouponRedemption 在 Checkout-bound 交易處理；失敗或到期是否返還依正式狀態規則，不以刪除紀錄處理。
 - PaymentAttempt 一筆代表一次嘗試；失敗、取消、到期後建立新紀錄，終態不倒退。
-- 即時付款期限 15 分鐘；ATM 與超商代碼 3 天；COD 在交付／取貨時完成付款。
+- 即時付款最長 15 分鐘；ATM 與超商代碼最長 3 天；實際期限取付款方式期限與訂單原付款期限較早者，COD 在交付／取貨時完成付款。
 - 退款核准與執行分離；執行使用 Idempotency-Key，累計不得超過可退款餘額。
 - 退款保存商品、折扣追回、運費、組裝費與調整分攤；不能只存一個總額。
 - 付款、退款、折讓 Event 採 append-only／冪等；不可修改歷史偽裝成新事件。
+- 模擬發票與折讓固定採 5% 稅率與 TWD 整數元：`Net = Round(Gross / 1.05, 0, AwayFromZero)`、`Tax = Gross - Net`，最後一筆合法明細吸收尾差；1,000 元案例必須得到 952／48／1,000。
+- 開立、作廢與折讓失敗使用正式 `invoice_order_unpaid`、`invoice_order_cancelled`、`invoice_already_exists`、`invoice_state_conflict`、`invoice_allowance_required`，不得自行新增文字型拒絕代碼。
 
 ## 7. 跨模組契約
 
@@ -119,7 +124,7 @@ dotnet tool run dotnet-ef -- database update InitialCreate `
 
 ## 9. 必要測試
 
-至少覆蓋 `UC-PAY-01`、`UC-COUPON-01`、`UC-REFUND-01`，以及 `UC-CHECKOUT-01`／COD 中你負責的金額與付款部分。必要情境：重複 Idempotency-Key 同結果、同 Key 不同 Payload 衝突、付款重複回呼、逾時、優惠券併發最後名額、部分退款上限、折扣／運費／組裝費分攤、失敗後無重複副作用。
+至少覆蓋 `UC-PAY-01`、`UC-COUPON-01`、`UC-REFUND-01`，以及 `UC-CHECKOUT-01`／COD 中你負責的金額與付款部分。必要情境：重複 Idempotency-Key 同結果、同 Key 不同 Payload 衝突、付款重複回呼、期限取較早者、優惠券併發最後名額、適用商品小計門檻、Exhausted 返還、部分退貨門檻重算、正值 Allocation 的折扣／免運扣回、組裝費分攤及失敗後無重複副作用。發票另測未付款、取消、重複開立、非法作廢、退款後必須折讓、1,000→952＋48、明細尾差及跨訂單授權。`CouponRuleReader` 必須以 SQL Server Provider-backed 整合測試驗證，不新增 InMemory／SQLite 取代。
 
 固定由 haru 做第一線覆核；退貨案例由 kafen 提供；庫存、配送與報表金額由 terry 共同驗證。金額／退款／私人財務資料必須含未授權角色與 Actor A／B 負面測試。
 

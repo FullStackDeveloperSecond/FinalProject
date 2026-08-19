@@ -1,11 +1,13 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-18
+最後更新: 2026-08-19
 追蹤項目:
   - QA-03
   - REQ-02
   - REQ-03
   - DES-20
+  - DES-21
+  - DES-22
 ---
 
 # M 功能測試案例目錄
@@ -25,10 +27,10 @@
 | UC-CART-02 | SKU 合併與組裝群組 | 訪客／會員 Cart 交易合併 | 登入後處理衝突 | terry／kafen |
 | UC-CHECKOUT-01 | 金額快照與保留計算 | 交易、冪等、最後庫存併發 | 核心 E2E 2、3 | terry／kafen；alex 整合覆核 |
 | UC-CHECKOUT-COD-01 | COD 配送限制 | 訂單確認與庫存保留 | COD 超商流程 | terry／kafen |
-| UC-PAY-01 | 付款狀態與重試期限 | 重複回呼、逾時 Job | 付款成功／失敗 | yinyin／haru |
-| UC-COUPON-01 | 折扣、門檻、分攤 | 併發用券與快照 | 結帳套券 | yinyin／haru |
+| UC-PAY-01 | 付款狀態、重試及 `Min(付款方式期限, 訂單期限)` | 重複回呼、逾時 Job、重試不得延長訂單 | 付款成功／失敗 | yinyin／haru |
+| UC-COUPON-01 | 適用商品小計門檻、折扣、分攤、狀態轉移 | SQL Server CouponRuleReader、併發用券與最低消費／適用旗標快照 | 結帳套券 | yinyin／haru |
 | UC-RETURN-01 | 可退數量與期限 | 單項退貨狀態、附件、庫存 | 核心 E2E 5 | kafen／terry |
-| UC-REFUND-01 | 部分退款分攤 | 審核、冪等、付款退款模擬 | 核心 E2E 5 | yinyin／haru；kafen 提供退貨案例 |
+| UC-REFUND-01 | 部分退款、門檻重算與正值 Allocation 加減方向 | 審核、冪等、折扣／免運扣回、付款退款模擬 | 核心 E2E 5 | yinyin／haru；kafen 提供退貨案例 |
 
 ## 商品、搜尋、組裝與後台
 
@@ -79,7 +81,7 @@
 | API-M-07 後台型錄 | 商品 CRUD、SKU、Lookup、規格範本、批次、匯出、圖片 | Policy、受保護 Semantic Key、不可變 Code、圖片授權與 RowVersion | 商品列表→編輯→圖片→發布／批次 |
 | API-M-08 匯入與庫存 | 商品／庫存 Preview、Status、Rows、Errors、Confirm；庫存 Balance／Movement／Reservation | 建立者範圍、24h、Hash、Cursor、原子提交、釋放只一次 | 預覽→錯誤下載／確認；保留釋放 |
 | API-M-09 後台訂單物流 | 訂單列表／明細／收件、合法 Action、包裹版本、門市、批次出貨 | Policy、個資用途稽核、Action 白名單、逐筆交易 | 訂單→出貨→CSV 結果 |
-| API-M-10 售後與優惠券 | 退貨列表／明細／收貨／檢查／延長／審核、退款查詢／執行、優惠券管理 | Return.Approve 與 Refund.Execute 分離、冪等、金額上限、RowVersion | 退貨審核→部分退款；優惠券建立→套用 |
+| API-M-10 售後、優惠券與發票 | 退貨列表／明細／收貨／檢查／延長／審核、退款查詢／執行、優惠券管理、發票查詢／開立／作廢／折讓 | Return.Approve 與 Refund.Execute 分離、冪等、金額上限、RowVersion；五個發票 409 code、5% 整數元、1,000→952＋48及尾差 | 退貨審核→部分退款→折讓；優惠券建立→套用；訂單→模擬發票 |
 | API-M-11 客服工作台 | 會員案件列表、後台明細、內部備註、自領／指派／轉派／優先級／狀態 | Owner、內部備註隔離、競爭自領、理由與歷程 | 會員送件→客服承接→回覆／結案 |
 | API-M-12 報表與 AI 用量 | 七個 Report Key、匯出、會員／後台 AI 用量 | Report Policy、日期與 Cursor、成本明細權限、匯出公式注入 | 報表篩選／匯出、AI 額度提示 |
 

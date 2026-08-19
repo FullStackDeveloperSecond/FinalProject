@@ -1,10 +1,11 @@
 ---
 文件狀態: 已確認（邏輯模型）
-最後更新: 2026-08-17
+最後更新: 2026-08-19
 追蹤項目:
   - DES-07
   - DES-08
   - DES-13
+  - DES-21
 ---
 
 # 資料模型與 ERD
@@ -89,7 +90,7 @@ erDiagram
 - OrderItem 保存商品名稱、SKU、成交單價、成本、折扣分攤、組裝群組及數量快照。
 - Order 保存收件、運費、免運規則、組裝費、優惠與總額快照；歷史訂單不受後台設定變更影響。
 - 會員 Address 是可變主資料；Order 以明確 Owned 欄位保存不可變地址快照。
-- OrderCoupon 保存優惠與規則版本快照，OrderItem 保存實際折扣分攤；退款不得查目前 Coupon 重算。
+- OrderCoupon 保存優惠、規則版本、最低消費門檻與適用小計快照；OrderItem 保存 `IsCouponEligible` 及實際折扣分攤。退款不得查目前 Coupon 或商品分類重算。
 - Coupon 以 ScopeType 搭配分類、商品與排除商品三張正規化關聯表定義範圍；排除優先，第一版不以 Promotions 重複保存 SalePrice。
 - CouponRedemption 只在 Checkout 的 Order 交易建立；會員以 MemberUserId、訪客以正規化 Email 的 HMAC Hash 識別每人使用量，兩者恰一存在。
 - Shipment／Order 保存 Provider Profile Version FK 及成立時門市、限制與運費精確值。

@@ -1,15 +1,17 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-18
+最後更新: 2026-08-19
 負責人: haru
 覆核人: yinyin
 最終整合驗收: alex
 追蹤項目:
   - DES-20
+  - DES-21
 依據決策:
   - DEC-BATCH-012
   - DEC-BATCH-013
   - DEC-P60
+  - DEC-P277
 ---
 
 # Haru｜會員、登入、訂單與訪客存取最終 Schema 實作交付
@@ -167,9 +169,10 @@
 
 ### 4.2 OrderItems（Entity）
 
-`OrderId bigint`、`SkuId bigint NULL`、`SkuCodeSnapshot nvarchar(64)`、`ProductNameSnapshot/SkuNameSnapshot nvarchar(160)`、`Quantity int`、`ListUnitPrice/SaleUnitPrice/FinalUnitPrice/UnitCostSnapshot/LineSubtotal/DiscountAllocation/LineTotal decimal(18,2)`、`AssemblyGroupKey uniqueidentifier NULL`、`ReturnableQuantity/ReturnedQuantity int`。
+`OrderId bigint`、`SkuId bigint NULL`、`SkuCodeSnapshot nvarchar(64)`、`ProductNameSnapshot/SkuNameSnapshot nvarchar(160)`、`Quantity int`、`ListUnitPrice/SaleUnitPrice/FinalUnitPrice/UnitCostSnapshot/LineSubtotal/DiscountAllocation/LineTotal decimal(18,2)`、`IsCouponEligible bit`、`AssemblyGroupKey uniqueidentifier NULL`、`ReturnableQuantity/ReturnedQuantity int`。
 
 - Quantity > 0；`ReturnedQuantity <= ReturnableQuantity <= Quantity`。
+- `IsCouponEligible` 為下單時不可變快照，第一版每張訂單最多一張優惠券；不得以 `DiscountAllocation > 0` 反推。既有 Initial Migration 尚未含此欄，依 DES-21 與 yinyin 的 `OrderCoupons.MinimumSpendAmount` 同批審查。
 - 索引：OrderId、SkuId、`(OrderId,AssemblyGroupKey)`。
 - 商品改名／改價不得改變快照；退款依 OrderItem 與 Yinyin 的 RefundAllocation 計算。
 

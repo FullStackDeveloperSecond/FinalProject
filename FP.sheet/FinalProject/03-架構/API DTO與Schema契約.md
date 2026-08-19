@@ -1,9 +1,10 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-18
+最後更新: 2026-08-19
 追蹤項目:
   - DES-10
   - DES-20
+  - DES-22
   - REQ-03
 ---
 
@@ -122,6 +123,22 @@
 | `CouponActionRequest` | `reasonCode`、`note?`、`rowVersion`；Action 只接受 activate／pause／disable |
 
 退貨核准使用 `Return.Approve`（OrderManager／SuperAdmin）；退款金額核定與執行使用 `Refund.Execute`（FinanceManager／SuperAdmin）。兩者採不同 Policy；皆需合法狀態、RowVersion、理由與 Audit，退款另需 Idempotency-Key。
+
+## Simulated Invoice 與 Allowance
+
+| Schema | 精確欄位 |
+|---|---|
+| `IssueSimulatedInvoiceRequest` | `orderRowVersion`；發票買受人、品項及金額只讀取訂單交易快照；`Idempotency-Key` 使用 Header |
+| `SimulatedInvoiceItemDto` | `publicId`、`orderItemPublicId?`、商品／SKU 顯示快照、`quantity`、`unitPrice`、`discountAmount`、`netAmount`、`taxAmount`、`grossAmount` |
+| `SimulatedInvoiceAllowanceDto` | `publicId`、`allowanceNumber`、`invoicePublicId`、`refundPublicId`、`netAmount`、`taxAmount`、`grossAmount`、`items[]`、`issuedAtUtc`、`demoMarker` |
+| `SimulatedInvoiceDto` | `publicId`、`invoiceNumber`、`orderPublicId`、`status`、遮蔽買受人摘要、`netAmount`、`taxAmount`、`grossAmount`、`currency:TWD`、`taxRate:0.05`、`items[]`、`allowances[]`、開立／作廢時間、`demoMarker`、`rowVersion` |
+| `AdminInvoiceQuery` | `statuses?`、`from/to?`、`q?`、`pageNumber/pageSize`；一般頁碼分頁 |
+| `AdminInvoiceSummaryDto` | PublicId、發票號碼、Order 摘要、Status、未稅／稅額／含稅、開立時間、DemoMarker、RowVersion；不回完整個資 |
+| `AdminInvoiceDto` | `SimulatedInvoiceDto`＋管理歷程摘要、`availableActions[]`；完整個資仍需 `PersonalData.ViewFull`，不得因 FinanceManager 身分直接回傳 |
+| `VoidSimulatedInvoiceRequest` | `reasonCode:string(1..64)`、`note?:string(0..1000)`、`rowVersion` |
+| `CreateSimulatedInvoiceAllowanceRequest` | `refundPublicId`、`invoiceRowVersion`；金額由後端成功 Refund 及原發票明細推導，不接受客戶端金額；`Idempotency-Key` 使用 Header |
+
+模擬發票總額視為含稅，固定 `taxRate = 0.05`、金額位數為 TWD 整數元：`netAmount = Round(grossAmount / 1.05, 0, AwayFromZero)`，`taxAmount = grossAmount - netAmount`。明細最後一筆吸收尾差，發票與折讓皆須滿足明細合計等於表頭；例如 NT$1,000 固定為未稅 952、稅額 48。
 
 ## 後台型錄、庫存與物流
 

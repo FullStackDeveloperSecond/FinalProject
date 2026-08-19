@@ -1,10 +1,11 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-18
+最後更新: 2026-08-19
 追蹤項目:
   - DES-10
   - DES-16
   - DES-20
+  - DES-22
   - REQ-02
   - REQ-03
 ---
@@ -65,6 +66,7 @@
 | UC-COUPON-01 | `POST /api/v1/cart/coupon`；`DELETE /api/v1/cart/coupon` | Public Cart／Member | `ApplyCouponRequest` → 更新後 `CartDto` | `coupon_not_applicable`、`coupon_usage_exhausted`、`coupon_not_active` |
 | M 配送選項支撐 | `GET /api/v1/cart/shipping-options`；`GET /api/v1/convenience-stores` | Public Cart／Member | `ShippingOptionsDto`；門市使用 `ConvenienceStoreQuery` → `PageResult<ConvenienceStoreOptionDto>` | `shipping_method_not_allowed`、`shipping_constraint_exceeded` |
 | M 訂單查詢支撐 | `GET /api/v1/orders`；`GET /api/v1/orders/{id}` | Member Owner；單筆亦允許有效 GuestOrderAccessToken | `OrderQuery` → `PageResult<OrderSummaryDto>`；`OrderDto` | `resource_not_found`、`guest_order_access_expired`、`guest_order_scope_mismatch` |
+| M 模擬發票查詢支撐 | `GET /api/v1/orders/{orderId}/invoice` | Member Owner／有效 GuestOrderAccessToken | `SimulatedInvoiceDto`；只回遮蔽買受人資料及 DEMO 標記 | `resource_not_found`、`guest_order_access_expired`、`guest_order_scope_mismatch` |
 | UC-CHECKOUT-01 | `POST /api/v1/orders` | Public／Member | `CreateOrderRequest` → `201 OrderDto`；需 Idempotency-Key | `inventory_insufficient`、`order_total_changed`、`cart_item_requires_attention` |
 | UC-CHECKOUT-COD-01 | 同 `POST /api/v1/orders` | Public／Member | `paymentMethod = cashOnDelivery` | `payment_method_not_allowed`、`payment_cod_amount_exceeded`、`payment_cod_restricted_item`、`shipping_method_not_allowed` |
 | M 訂單取消支撐 | `POST /api/v1/orders/{id}/actions/cancel` | Owner Member／有效 GuestOrderAccessToken | `CancelOrderRequest`＋RowVersion → `OrderDto` | `order_cancellation_not_allowed`、`order_state_conflict`、`concurrency_conflict` |
@@ -97,7 +99,7 @@
 | UC-ADM-ORDER-02 | `GET /api/v1/admin/orders/{id}/recipient` | OrderManager／PrivacyAdmin／SuperAdmin，依用途 | `OrderRecipientDto` | `resource_not_found`、`authorization_forbidden` |
 | UC-ADM-SHIP-02 | `POST /api/v1/admin/shipments/batches`；`GET /api/v1/admin/shipments/batches/{id}/result.csv` | OrderManager／SuperAdmin | 最多 100 筆 → `BatchShipmentResultDto` | `shipping_batch_limit_exceeded`；逐筆 `shipping_order_not_ready`、`shipping_tracking_duplicate`、`shipping_method_not_allowed` |
 
-## 管理後台退貨、退款與優惠券
+## 管理後台退貨、退款、優惠券與模擬發票
 
 | 範圍／使用案例 | Method／Route | 權限 | Request／Response 契約 | 主要錯誤 |
 |---|---|---|---|---|
@@ -107,6 +109,10 @@
 | UC-REFUND-01 退貨審核 | `POST /api/v1/admin/returns/{id}/actions/review` | `Return.Approve`：OrderManager／SuperAdmin | `ApproveReturnRequest` → `ReturnRequestDto` | `return_state_conflict`、`concurrency_conflict` |
 | UC-REFUND-01 退款 | `GET /api/v1/admin/refunds`；`GET /api/v1/admin/refunds/{id}`；`POST /api/v1/admin/refunds/{id}/actions/execute` | FinanceManager／SuperAdmin；查詢依角色矩陣 | `AdminRefundQuery`、`PageResult<RefundDto>`、`ExecuteRefundRequest` | `refund_amount_exceeded`、`refund_state_conflict`、`concurrency_conflict` |
 | M 優惠券管理支撐 | `GET/POST /api/v1/admin/coupons`；`GET/PUT /api/v1/admin/coupons/{id}`；`POST /api/v1/admin/coupons/{id}/actions/{action}` | FinanceManager／MarketingAnalyst／SuperAdmin | Action 白名單：`activate`、`pause`、`disable`；`CouponDto` 與管理 Request | `coupon_code_duplicate`、`coupon_state_conflict`、`validation_failed`、`concurrency_conflict` |
+| M 模擬發票查詢支撐 | `GET /api/v1/admin/invoices`；`GET /api/v1/admin/invoices/{id}` | FinanceManager／SuperAdmin | `AdminInvoiceQuery` → `PageResult<AdminInvoiceSummaryDto>`；`AdminInvoiceDto` | `resource_not_found`、`authorization_forbidden` |
+| M 模擬發票開立 | `POST /api/v1/admin/orders/{orderId}/invoices` | FinanceManager／SuperAdmin | `IssueSimulatedInvoiceRequest` → `201 AdminInvoiceDto`；需 Idempotency-Key | `invoice_order_unpaid`、`invoice_order_cancelled`、`invoice_already_exists`、`idempotency_payload_conflict`、`concurrency_conflict` |
+| M 模擬發票作廢 | `POST /api/v1/admin/invoices/{id}/actions/void` | FinanceManager／SuperAdmin | `VoidSimulatedInvoiceRequest` → `AdminInvoiceDto` | `invoice_state_conflict`、`invoice_allowance_required`、`concurrency_conflict` |
+| M 模擬折讓建立 | `POST /api/v1/admin/invoices/{id}/allowances` | FinanceManager／SuperAdmin | `CreateSimulatedInvoiceAllowanceRequest` → `201 SimulatedInvoiceAllowanceDto`；需 Idempotency-Key；金額由成功 Refund 推導 | `invoice_state_conflict`、`refund_state_conflict`、`idempotency_payload_conflict`、`concurrency_conflict` |
 
 ## AI 客服、人工客服與案件工作台
 
@@ -131,7 +137,7 @@
 
 ## 分頁契約索引
 
-- 一般列表固定使用 `pageNumber/pageSize` 與 `PageResult<T>`；商品、會員訂單、組裝清單、通知、門市、分類、品牌、標籤、SKU、規格、庫存餘額／異動、退貨、退款及優惠券不得自行改用 Cursor。
+- 一般列表固定使用 `pageNumber/pageSize` 與 `PageResult<T>`；商品、會員訂單、組裝清單、通知、門市、分類、品牌、標籤、SKU、規格、庫存餘額／異動、退貨、退款、優惠券及模擬發票不得自行改用 Cursor。
 - 只有下列快速變動或大筆逐列資料使用 `cursor/pageSize` 與 `CursorPage<T>`：庫存保留、後台訂單、客服 SLA 佇列、統一案件工作台、匯入預覽列、報表明細列。
 - 商品與庫存匯入預覽列分別使用 `GET /api/v1/admin/product-imports/{id}/rows` 與 `GET /api/v1/admin/inventory-imports/{id}/rows`；新增 Cursor 例外必須同時更新 [[03-架構/API共通規範]] 與本索引。
 

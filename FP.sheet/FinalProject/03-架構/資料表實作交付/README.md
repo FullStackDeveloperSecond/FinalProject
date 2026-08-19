@@ -6,11 +6,12 @@
   - DES-18
   - DES-19
   - DES-20
+  - DES-21
 ---
 
 # 資料表實作交付索引
 
-本資料夾收束 Haru、Kafen、Terry、Yinyin 的資料表上繳稿，套用 DEC-BATCH-012／013 與既有正式規格後，作為 Owner 建立 Entity／Fluent Configuration 的欄位級交付文件。
+本資料夾收束 Haru、Kafen、Terry、Yinyin 的資料表上繳稿，套用 DEC-BATCH-012～014 與既有正式規格後，作為 Owner 建立 Entity／Fluent Configuration 的欄位級交付文件。
 
 | Owner | 最終交付 | 範圍 | 狀態 |
 |---|---|---|---|
@@ -44,12 +45,13 @@
 - 跨模組 FK 與 Application Query／DTO 實作。
 - 交易、併發、冪等、授權與資料完整性整合測試。
 - Migration 已產生、完成靜態 SQL 審閱並套用至本機 `DoSelectDb`；93 張表、315 個索引、View 12 欄及 Migration History 已驗證。仍待 Down／空庫重新建立演練與專用 Provider-backed 整合測試資料庫。
+- DEC-BATCH-014 在 Initial Migration 後新增 `OrderCoupons.MinimumSpendAmount`、`OrderItems.IsCouponEligible`、`ShippingClawback` 與 Coupon 狀態方法要求；DES-21 完成前，現有 Model／Migration 仍不具完整退貨優惠重算能力。
 
 ## EF Core 實作進度
 
 | Owner | Entity／Configuration | 驗證 | 尚待事項 |
 |---|---|---|---|
-| Haru | 已完成 Identity 擴充與 11 張自有資料表 | 模型、Migration 結構與本機 SQL 套用驗證通過 | 跨模組 FK 與初始 Migration 已納入；待交易／授權整合測試 |
+| Haru | 已完成 Identity 擴充與 11 張自有資料表 | 模型、Migration 結構與本機 SQL 套用驗證通過 | 初始 Migration 已納入；DES-21 待補 `OrderItems.IsCouponEligible`、測試與後續 Migration |
 | Terry | 已完成 42 張資料表 | 模型、Migration 結構與本機 SQL 套用驗證通過 | 初始 Migration 已納入；待交易／併發整合測試 |
-| Yinyin | 已完成 14 張優惠券、付款、退款與模擬發票資料表 | 模型、Migration 結構與本機 SQL 套用驗證通過 | `Refunds.ReturnRequestId` Restrict FK 與初始 Migration 已納入；待交易／冪等整合測試 |
+| Yinyin | 已完成 14 張優惠券、付款、退款與模擬發票資料表 | 模型、Migration 結構與本機 SQL 套用驗證通過 | 初始 Migration 已納入；DES-21 待補 `MinimumSpendAmount`、退款方向、Coupon 狀態、SQL Server 查詢測試與後續 Migration |
 | Kafen | 已完成 19 張客服、退貨、檢舉資料表與 1 個唯讀工作台 View | 模型、Migration 結構、View 12 欄與本機 SQL 套用驗證通過 | Return Priority、View SQL 與初始 Migration 已納入；待工作台資料列與 SLA 情境整合測試 |

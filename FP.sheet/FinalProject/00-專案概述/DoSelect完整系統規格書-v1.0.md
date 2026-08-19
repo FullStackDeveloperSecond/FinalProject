@@ -307,6 +307,7 @@ tests/
 - 組裝費不參與商品折扣；只有免運券可折運費。
 - 折扣依符合資格商品成交金額比例分攤至明細；`AwayFromZero` 到兩位小數，最後一筆吸收尾差。
 - 購物車只預覽優惠，不保留名額；優惠券名額、每人次數、Order 與 CouponRedemption 在同一交易驗證／建立。取消／付款逾時／商家取消返還名額，完成後退貨不返券。
+- 優惠券最低消費只比對適用範圍商品小計；購物車不持久化優惠碼，Checkout 必須重新驗證。
 - 訪客每人使用鍵為伺服器以 Secret 對正規化訂單 Email 計算的 HMAC-SHA-256，只保存 binary(32) Hash；V1 Secret Version 固定為 1 且 Secret 不進儲存庫。
 
 ### 7.3 訂單與快照
@@ -372,7 +373,7 @@ AvailableQuantity = OnHandQuantity - ReservedQuantity
 ### 8.3 部分退款
 
 - 一張訂單可多次部分退款，累計不得超過可退款餘額。
-- 退款使用原訂單快照及折扣分攤，不以目前商品、優惠券或政策重算。
+- 退款使用原訂單快照及折扣分攤，不以目前商品、優惠券或政策重算；`OrderCoupon` 保存最低消費門檻，`OrderItem` 保存優惠適用旗標，扣回金額以正值 Allocation Type 表達方向。
 - 部分退貨原運費不退；若原免運資格失效，從退款重新收取原配送方式運費。
 - 組裝未開始、商家取消或服務瑕疵時退組裝費；正常完成後只退單一零件不退組裝費。
 - 綁定贈品或門檻失效時需退回；缺少／損壞交人工審核。
@@ -382,6 +383,8 @@ AvailableQuantity = OnHandQuantity - ReservedQuantity
 
 - 線上付款成功後開立；COD 收款完成後開立；未付款或取消不開立。
 - 退款成功依原發票建立模擬折讓，不刪除或覆寫原發票。
+- 固定採 5% 稅率與 TWD 整數元；成交總額視為含稅，`Net = Round(Gross / 1.05, 0, AwayFromZero)`、`Tax = Gross - Net`，最後一筆明細吸收尾差。含稅 1,000 固定拆為未稅 952、稅額 48。
+- 前台提供本人／有效訪客限單 Scope 發票查詢；後台由 FinanceManager／SuperAdmin 查詢、開立、作廢及依成功退款建立折讓，使用正式 Endpoint、DTO 與五個發票 409 錯誤碼。
 - 所有畫面與匯出明示為 DEMO／模擬資料。
 
 ## 9. 客服、SLA、案件工作台與附件
@@ -774,6 +777,7 @@ AvailableQuantity = OnHandQuantity - ReservedQuantity
 
 | 版本 | 日期 | 狀態 | 說明 |
 |---|---|---|---|
+| `v1.0` | 2026-08-19 | 已確認／READY | 寫回 DEC-P271～DEC-P280：優惠門檻基準、Coupon 狀態機、Cart 不持久化優惠碼、SQL Server 查詢測試、付款期限、訂單優惠快照、退款 Allocation 方向，以及模擬發票 Endpoint／錯誤碼／5% 整數元契約；實作由 DES-21／DES-22 追蹤，功能範圍與版本號不變 |
 | `v1.0` | 2026-08-18 | 已確認／READY | 寫回 DEC-P263～DEC-P270：Guest Challenge／限流／清理、30 分鐘限單 Cookie、AssemblyJob 獨立歷程、結構化地址、差異化 Lockout 與 Haru DES-20 Review Gate；功能範圍與版本號不變 |
 | `v1.0` | 2026-08-17 | 已確認／READY | 寫回 DEC-P250～DEC-P262：Order-only Reservation、完整評價生命週期、ImportBatch 契約、Identity／Audit 邊界、SKU 預付旗標、獨立退貨物流、12 欄工作台、檢舉狀態／權限及 Checkout-bound CouponRedemption；功能範圍與版本號不變 |
 | `v1.0` | 2026-08-15 | 已確認／READY | 依 DEC-P243～DEC-P249 收斂分享期限、COD 資料責任、特價唯一來源、ImportRows Schema、優惠券範圍及物流狀態資料契約；功能範圍與版本號不變 |

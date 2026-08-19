@@ -1,18 +1,27 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-18
+最後更新: 2026-08-19
 負責人: yinyin
 追蹤項目:
   - DES-19
+  - DES-21
+  - DES-22
 依據決策:
   - DEC-P250
   - DEC-P261
   - DEC-P262
+  - DEC-P271
+  - DEC-P272
+  - DEC-P275
+  - DEC-P276
+  - DEC-P278
+  - DEC-P279
+  - DEC-P280
 ---
 
 # Yinyin｜優惠券、付款、部分退款與模擬發票最終 Schema 實作交付
 
-> 依據：原上繳修正版、DEC-BATCH-012 與正式領域資料字典。
+> 依據：原上繳修正版、DEC-BATCH-012、DEC-BATCH-014 與正式領域資料字典。
 >
 > 範圍：M-07 優惠券與促銷計算、M-09 模擬付款、M-13 部分退款、M-20 模擬發票與折讓、INT-02 跨模組協調
 >
@@ -143,12 +152,15 @@
 | DiscountType | `varchar(16)` | NO | — | — | — | 類型快照 |
 | RuleVersion | `int` | NO | — | — | — | 規則版本快照 |
 | DiscountValue | `decimal(18,2)` | YES | `NULL` | — | — | 優惠值快照；百分比使用 0～1 |
+| MinimumSpendAmount | `decimal(18,2)` | YES | `NULL` | — | — | 下單時最低消費門檻；Null 表示無門檻 |
 | AppliedAmount | `decimal(18,2)` | NO | `0` | — | — | 實際折抵 |
 | EligibleSubtotal | `decimal(18,2)` | NO | `0` | — | — | 適用商品小計 |
 | IsFreeShipping | `bit` | NO | `0` | — | — | 是否實際免運 |
 | CreatedAtUtc | `datetime2(3)` | NO | 應用層寫入 | — | — | 建立時間 |
 
 `UX_OrderCoupons_OrderId` 必須實體建立。若 `RedemptionId` 有值，其 `OrderId`／`CouponId` 必須與本快照相符，由同一交易驗證與整合測試保證。
+
+最低消費只比對商品特價後、優惠券折扣前的適用商品小計。部分退貨使用 `MinimumSpendAmount` 與 Haru `OrderItems.IsCouponEligible` 快照，不回查目前 Coupon 或商品分類；既有 Initial Migration 尚未包含兩欄，依 DES-21 建立後續 Migration。
 
 ---
 
@@ -263,6 +275,8 @@ COMMIT
 | UpdatedAtUtc | `datetime2(3)` | NO | 應用層寫入 | — | — | 更新時間 |
 | RowVersion | `rowversion` | NO | DB 自動 | — | — | 併發控制 |
 
+`InstructionExpiresAtUtc` 取付款方式期限與 Order 原 `PaymentDueAtUtc` 較早者；即時付款最長 15 分鐘，ATM／超商代碼最長 3 天，重試不得延長訂單期限。COD 不建立線上付款指示期限。
+
 ---
 
 ## 8. PaymentEvents
@@ -356,14 +370,16 @@ COMMIT
 | PublicId | `uniqueidentifier` | NO | 應用層產生 | — | UNIQUE | 對外識別 |
 | RefundId | `bigint` | NO | — | FK → Refunds.Id | INDEX | Restrict |
 | OrderItemId | `bigint` | YES | `NULL` | 跨模組 FK → OrderItems.Id | INDEX | Restrict |
-| AllocationType | `varchar(24)` | NO | — | — | INDEX | ItemRefund、DiscountClawback、OriginalShipping、ReturnShipping、AssemblyFee、OtherAdjustment |
+| AllocationType | `varchar(24)` | NO | — | — | INDEX | ItemRefund、DiscountClawback、ShippingClawback、OriginalShipping、ReturnShipping、AssemblyFee；OtherAdjustment 第一版禁止寫入 |
 | Amount | `decimal(18,2)` | NO | — | — | — | 此分攤金額 |
 | OriginalDiscountAllocation | `decimal(18,2)` | NO | `0` | — | — | 原始優惠分攤 |
 | CreatedAtUtc | `datetime2(3)` | NO | 應用層寫入 | — | — | 建立時間 |
 
 ### 規則
-- `Amount > 0`，Allocation 加總 = 核准／成功退款金額
-- 優惠追回、運費、退貨運費、組裝費必須獨立表達
+- `Amount > 0`，不使用正負號表達方向。
+- 增加退款：ItemRefund、OriginalShipping、ReturnShipping、AssemblyFee。
+- 從退款扣回：DiscountClawback、ShippingClawback。
+- 增加型合計－扣回型合計 = 核准／成功退款金額；優惠追回、運費、退貨運費與組裝費必須獨立表達。
 
 ---
 
@@ -392,6 +408,8 @@ Succeeded / Failed
 ---
 
 # 八、M-20 模擬發票與折讓
+
+> 計算契約（DEC-P280）：`BusinessTaxRate = 0.05m`、`AmountScale = 0`。訂單成交總額視為含稅，`NetAmount = Round(GrossAmount / 1.05, 0, AwayFromZero)`、`TaxAmount = GrossAmount - NetAmount`；明細最後一筆吸收尾差。欄位維持 `decimal(18,2)`，但發票與折讓的未稅、稅額、含稅寫入值均須為整數元。
 
 ## 11. SimulatedInvoices
 
@@ -483,6 +501,8 @@ Succeeded / Failed
 - 折讓明細建立於 `SimulatedInvoiceAllowanceItems`
 - 不得因退款回寫或刪除原始發票金額與明細
 - 發票與折讓皆保留完整歷史
+- 發票與折讓固定採 5% 稅率與 TWD 整數元；例如含稅 1,000 固定保存未稅 952、稅額 48、含稅 1,000
+- 各明細採相同規則，最後一筆吸收尾差；明細加總必須與表頭三種金額完全相等
 
 ---
 
@@ -520,7 +540,7 @@ Succeeded / Failed
 1. 商品原價
 2. 商品特價（由 `SalePrices` 提供）
 3. 判斷優惠券適用商品
-4. 套用固定金額或百分比優惠券
+4. 以適用商品小計比對最低消費並套用固定金額或百分比優惠券
 5. 加入每台 NT$300 組裝費
 6. 判斷配送方式與滿額免運
 7. 套用免運券
@@ -638,6 +658,8 @@ IdempotencyRecords
 - [x] 無 Promotions 第二套價格來源
 - [x] 無 Cart / Shipment 第二套真實來源
 - [x] 已補跨模組、Outbox、AuditLog、Idempotency 關係
+- [ ] 依 DEC-P276～P278 補入 `OrderCoupons.MinimumSpendAmount`、`OrderItems.IsCouponEligible`、`ShippingClawback` 及方向公式的 Entity／Configuration／測試與後續 Migration（DES-21）
+- [ ] 依 DEC-P279～P280 補齊發票 Endpoint／DTO／錯誤碼、5% 整數元計算及尾差測試（DES-22）；本文件不代表 Controller／OpenAPI 已完成
 
 ---
 
@@ -648,3 +670,4 @@ IdempotencyRecords
 - 跨模組只依公開 Application Query／DTO 取得 Order、Cart、Return、SKU 預付與 ShippingMethod 摘要，不共享 Repository／DbContext。
 - MutableEntity 的 `UpdatedAtUtc` 必須 NOT NULL；Append-only Entity 不得後改事件內容。
 - 本文件完成只關閉 DES-19 的「Schema 文件」缺口；建立 Migration 前仍須完成 Entity、Configuration、跨模組 FK、交易／冪等測試清單及獨立 Migration Review。
+- DEC-BATCH-014 在 Initial Migration 後補強訂單優惠快照；DES-21 完成前，現有資料庫模型不得宣稱已支援退貨後優惠門檻重算。
