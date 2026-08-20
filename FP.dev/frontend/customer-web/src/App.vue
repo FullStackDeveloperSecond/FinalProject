@@ -1,3 +1,21 @@
+<script setup lang="ts">
+import { onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { useSessionStore } from './stores/session'
+
+const sessionStore = useSessionStore()
+const router = useRouter()
+
+onMounted(() => {
+  void sessionStore.refresh()
+})
+
+async function handleLogout(): Promise<void> {
+  await sessionStore.logout()
+  await router.push('/')
+}
+</script>
+
 <template>
   <div class="app-shell">
     <header class="site-header">
@@ -11,7 +29,20 @@
         <RouterLink to="/">
           首頁
         </RouterLink>
-        <RouterLink to="/register">
+        <template v-if="sessionStore.isAuthenticated">
+          <span class="site-header__member">{{ sessionStore.user?.displayName }}</span>
+          <button
+            type="button"
+            class="site-header__logout"
+            @click="handleLogout"
+          >
+            登出
+          </button>
+        </template>
+        <RouterLink
+          v-else-if="sessionStore.status !== 'loading'"
+          to="/register"
+        >
           登入／註冊
         </RouterLink>
       </nav>

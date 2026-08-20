@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using DoSelect.Api.Common;
 using DoSelect.Application.Notifications;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -22,7 +23,8 @@ public sealed class AuthControllerTests : IClassFixture<WebApplicationFactory<Pr
     [Fact]
     public async Task Register_WhenSubmissionIsValid_ReturnsAcceptedWithMemberSummary()
     {
-        using var client = _factory.CreateClient();
+        using var client = CreateIsolatedFactory().CreateClient();
+        await PrimeAntiforgeryAsync(client);
 
         using var response = await client.PostAsJsonAsync("/api/v1/auth/register", new
         {
@@ -42,7 +44,8 @@ public sealed class AuthControllerTests : IClassFixture<WebApplicationFactory<Pr
     [Fact]
     public async Task Register_WhenEmailIsAlreadyRegistered_ReturnsConflictWithAccountEmailInUseCode()
     {
-        using var client = _factory.CreateClient();
+        using var client = CreateIsolatedFactory().CreateClient();
+        await PrimeAntiforgeryAsync(client);
         var email = UniqueEmail();
         var payload = new
         {
@@ -67,7 +70,8 @@ public sealed class AuthControllerTests : IClassFixture<WebApplicationFactory<Pr
     [Fact]
     public async Task Register_WhenPasswordIsTooShort_ReturnsValidationProblemForPasswordField()
     {
-        using var client = _factory.CreateClient();
+        using var client = CreateIsolatedFactory().CreateClient();
+        await PrimeAntiforgeryAsync(client);
 
         using var response = await client.PostAsJsonAsync("/api/v1/auth/register", new
         {
@@ -88,7 +92,8 @@ public sealed class AuthControllerTests : IClassFixture<WebApplicationFactory<Pr
     [Fact]
     public async Task ConfirmEmailVerification_WhenTokenIsInvalid_ReturnsEmailTokenInvalidCode()
     {
-        using var client = _factory.CreateClient();
+        using var client = CreateIsolatedFactory().CreateClient();
+        await PrimeAntiforgeryAsync(client);
 
         using var response = await client.PostAsJsonAsync("/api/v1/auth/email-verifications/confirm", new
         {
@@ -107,14 +112,12 @@ public sealed class AuthControllerTests : IClassFixture<WebApplicationFactory<Pr
     public async Task RegisterThenConfirm_WhenTokenFromVerificationEmailIsUsed_ActivatesTheAccount()
     {
         var capturingEmailSender = new CapturingEmailSender();
-        using var factory = _factory.WithWebHostBuilder(builder =>
+        using var factory = CreateIsolatedFactory(services =>
         {
-            builder.ConfigureServices(services =>
-            {
-                services.Replace(ServiceDescriptor.Singleton<IEmailSender>(capturingEmailSender));
-            });
+            services.Replace(ServiceDescriptor.Singleton<IEmailSender>(capturingEmailSender));
         });
         using var client = factory.CreateClient();
+        await PrimeAntiforgeryAsync(client);
 
         using var registerResponse = await client.PostAsJsonAsync("/api/v1/auth/register", new
         {
@@ -139,6 +142,21 @@ public sealed class AuthControllerTests : IClassFixture<WebApplicationFactory<Pr
         Assert.Equal("active", confirmBody.GetProperty("accountStatus").GetString());
     }
 
+    // Each test gets its own host with an in-memory DataProtection key ring. Without this, hosts
+    // spun up by different test classes race over the real on-disk key ring (from
+    // PersistenceServiceCollectionExtensions.AddDataProtection), which silently corrupts
+    // antiforgery token validation across concurrently-running test classes.
+    private WebApplicationFactory<Program> CreateIsolatedFactory(
+        Action<IServiceCollection>? configureServices = null) =>
+        _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
+                configureServices?.Invoke(services);
+            });
+        });
+
     private static (Guid PublicId, string Token) ExtractVerificationLink(string emailTextBody)
     {
         var match = Regex.Match(
@@ -149,6 +167,15 @@ public sealed class AuthControllerTests : IClassFixture<WebApplicationFactory<Pr
         return (
             Guid.Parse(match.Groups["publicId"].Value),
             Uri.UnescapeDataString(match.Groups["token"].Value));
+    }
+
+    private static async Task PrimeAntiforgeryAsync(HttpClient client)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/security/antiforgery-token");
+        request.Headers.Add("X-DoSelect-Client", "member");
+        using var response = await client.SendAsync(request);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        client.DefaultRequestHeaders.Add("X-XSRF-TOKEN", body.GetProperty("requestToken").GetString());
     }
 
     private static string UniqueEmail() => $"auth-controller-test-{Guid.NewGuid():N}@example.com";
