@@ -2,6 +2,7 @@ namespace DoSelect.Api.Common;
 
 public static class ApiErrorCodes
 {
+    public const string AntiforgeryValidationFailed = "antiforgery_validation_failed";
     public const string AuthenticationRequired = "authentication_required";
     public const string AuthorizationForbidden = "authorization_forbidden";
     public const string ConcurrencyConflict = "concurrency_conflict";

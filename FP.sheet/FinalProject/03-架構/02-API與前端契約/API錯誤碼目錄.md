@@ -27,6 +27,7 @@
 | Code | HTTP | 使用時機 | 前端／安全行為 |
 |---|---:|---|---|
 | `validation_failed` | 400 | 欄位、格式、範圍、分頁或必填驗證失敗 | 顯示欄位 errors |
+| `antiforgery_validation_failed` | 400 | Cookie 認證的非安全方法缺少、失效或身分不相符的 Anti-forgery Token | 清除記憶體 Token、重新取得一次；不得保存、顯示或記錄 Token |
 | `authentication_required` | 401 | 尚未登入或 Session 已失效 | 導向正確登入入口 |
 | `authorization_forbidden` | 403 | 已登入但角色、Policy 或資源範圍不足 | 不顯示內部權限細節 |
 | `resource_not_found` | 404 | 資源不存在或依安全策略不可揭露 | 不區分不存在與無權限 |

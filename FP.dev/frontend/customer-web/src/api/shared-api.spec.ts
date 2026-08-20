@@ -1,4 +1,4 @@
-import { ApiError, createApiError, createCorrelationId, createDoSelectClient, isValidCorrelationId, resolveApiBaseUrl } from '@doselect/web-shared/api'
+import { ApiError, createAntiforgeryTokenProvider, createApiError, createCorrelationId, createDoSelectClient, isValidCorrelationId, resolveApiBaseUrl } from '@doselect/web-shared/api'
 import { shouldRetryQuery } from '@doselect/web-shared/query'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -133,5 +133,53 @@ describe('shared API foundation', () => {
       correlationId: 'request-403',
     })
     expect(onApiError).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps one antiforgery token in memory until the session changes', async () => {
+    const fetchStub = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ requestToken: 'first-token' }))
+      .mockResolvedValueOnce(Response.json({ requestToken: 'second-token' }))
+    const provider = createAntiforgeryTokenProvider({
+      baseUrl: 'http://localhost:5126',
+      client: 'member',
+      fetch: fetchStub,
+    })
+
+    await expect(Promise.all([provider.getToken(), provider.getToken()]))
+      .resolves.toEqual(['first-token', 'first-token'])
+    expect(fetchStub).toHaveBeenCalledTimes(1)
+
+    provider.reset()
+
+    await expect(provider.getToken()).resolves.toBe('second-token')
+    expect(fetchStub).toHaveBeenCalledTimes(2)
+    expect(fetchStub.mock.calls[0]?.[1]).toMatchObject({ credentials: 'include' })
+    expect(new Headers(fetchStub.mock.calls[0]?.[1]?.headers).get('X-DoSelect-Client'))
+      .toBe('member')
+  })
+
+  it('does not reuse a token request that completes after a session reset', async () => {
+    let resolveStaleRequest!: (response: Response) => void
+    const staleResponse = new Promise<Response>((resolve) => {
+      resolveStaleRequest = resolve
+    })
+    const fetchStub = vi.fn<typeof fetch>()
+      .mockReturnValueOnce(staleResponse)
+      .mockResolvedValueOnce(Response.json({ requestToken: 'fresh-token' }))
+    const provider = createAntiforgeryTokenProvider({
+      baseUrl: 'http://localhost:5126',
+      client: 'member',
+      fetch: fetchStub,
+    })
+
+    const staleToken = provider.getToken()
+    provider.reset()
+    const freshToken = provider.getToken()
+    resolveStaleRequest(Response.json({ requestToken: 'stale-token' }))
+
+    await expect(staleToken).rejects.toThrow(/reset/)
+    await expect(freshToken).resolves.toBe('fresh-token')
+    await expect(provider.getToken()).resolves.toBe('fresh-token')
+    expect(fetchStub).toHaveBeenCalledTimes(2)
   })
 })
