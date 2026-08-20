@@ -7,13 +7,13 @@ using Microsoft.AspNetCore.Mvc;
 namespace DoSelect.Api.Security;
 
 [ApiController]
-[AllowAnonymous]
 [Route("api/v1/security")]
 public sealed class SecurityController(IAntiforgery antiforgery) : ControllerBase
 {
     public const string ClientHeaderName = "X-DoSelect-Client";
 
     [HttpGet("antiforgery-token")]
+    [AllowAnonymous]
     [ProducesResponseType(typeof(AntiforgeryTokenResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<AntiforgeryTokenResponse>> GetAntiforgeryToken(
