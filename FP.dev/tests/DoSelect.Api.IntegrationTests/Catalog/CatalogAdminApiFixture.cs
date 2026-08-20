@@ -1,8 +1,12 @@
+using System.Net.Http.Json;
 using System.Text.Json;
+using DoSelect.Api.Security;
 using DoSelect.Infrastructure.Persistence;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace DoSelect.Api.IntegrationTests.Catalog;
 
@@ -65,7 +69,22 @@ public sealed class CatalogAdminApiFixture : IAsyncLifetime
         try
         {
             _factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
-                builder.UseEnvironment("Production"));
+            {
+                builder.UseEnvironment("Development");
+                builder.ConfigureServices(services =>
+                {
+                    // Ephemeral keys, not the real (Production-only) persisted ring — matches
+                    // SecurityFoundationTests.CreateFactory, needed for antiforgery/cookie auth
+                    // to work at all inside a test host.
+                    services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
+                    // Exposes the test-only /__tests/security/sign-in/{accountType} endpoint
+                    // (defined in SecurityFoundationTests.cs) so these tests can authenticate
+                    // as a CatalogManager/SuperAdmin admin without needing real Identity users.
+                    services
+                        .AddControllers()
+                        .AddApplicationPart(typeof(SecurityFoundationTestController).Assembly);
+                });
+            });
             Client = _factory.CreateClient();
         }
         finally
@@ -88,6 +107,47 @@ public sealed class CatalogAdminApiFixture : IAsyncLifetime
 
     /// <summary>Opens a fresh <see cref="DoSelectDbContext"/> for seeding data the admin HTTP API has no endpoint for (e.g. inventory balances).</summary>
     public DoSelectDbContext CreateScopedContext() => CreateContext();
+
+    /// <summary>A brand-new, unauthenticated client with its own cookie jar — use for 401/anonymous scenarios.</summary>
+    public HttpClient CreateClient() => _factory.CreateClient();
+
+    /// <summary>
+    /// A fresh client signed in as an admin (with the MFA claim admin policies require —
+    /// see SecurityFoundationTests.AdminCookie_WithoutMfaClaim_IsForbidden) holding the given
+    /// roles. Defaults to CatalogManager, the role these controllers' policy actually grants.
+    /// </summary>
+    public async Task<HttpClient> CreateAuthenticatedAdminClientAsync(params string[] roles)
+    {
+        var client = CreateClient();
+        var effectiveRoles = roles.Length > 0 ? roles : [DoSelectRoles.CatalogManager];
+        var signInToken = await GetAdminAntiforgeryTokenAsync(client);
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/__tests/security/sign-in/admin")
+        {
+            Content = JsonContent.Create(new { includeMfa = true, roles = effectiveRoles }),
+        };
+        request.Headers.Add("X-XSRF-TOKEN", signInToken);
+        using var response = await client.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+        return client;
+    }
+
+    /// <summary>Fetches a fresh antiforgery token bound to the admin scheme for the given (already-signed-in-or-not) client.</summary>
+    public static async Task<string> GetAdminAntiforgeryTokenAsync(HttpClient client)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/security/antiforgery-token");
+        request.Headers.Add("X-DoSelect-Client", "admin");
+        using var response = await client.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        return body.GetProperty("requestToken").GetString()!;
+    }
+
+    /// <summary>Attaches a fresh admin antiforgery token to an unsafe (POST/PUT/DELETE) request just before sending it.</summary>
+    public static async Task<HttpResponseMessage> SendWithAntiforgeryAsync(HttpClient client, HttpRequestMessage request)
+    {
+        request.Headers.Add("X-XSRF-TOKEN", await GetAdminAntiforgeryTokenAsync(client));
+        return await client.SendAsync(request);
+    }
 
     // Guid.NewGuid() (random), not Guid.CreateVersion7() (time-ordered), because
     // CreateVersion7's leading hex characters encode a millisecond timestamp and can
