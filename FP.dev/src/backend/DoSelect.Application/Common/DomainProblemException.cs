@@ -26,4 +26,7 @@ public sealed class DomainProblemException : Exception
 
     public static DomainProblemException Conflict(string code, string message) =>
         new(409, code, message);
+
+    public static DomainProblemException Validation(string message) =>
+        new(400, DomainErrorCodes.ValidationFailed, message);
 }

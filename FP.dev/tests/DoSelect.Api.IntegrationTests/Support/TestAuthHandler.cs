@@ -16,6 +16,7 @@ public sealed class TestAuthHandler : AuthenticationHandler<AuthenticationScheme
 {
     public const string SchemeName = "Test";
     public const string MemberHeaderName = "X-Test-Member-Id";
+    public const string RolesHeaderName = "X-Test-Roles";
 
     public TestAuthHandler(
         IOptionsMonitor<AuthenticationSchemeOptions> options,
@@ -33,9 +34,15 @@ public sealed class TestAuthHandler : AuthenticationHandler<AuthenticationScheme
             return Task.FromResult(AuthenticateResult.NoResult());
         }
 
-        var identity = new ClaimsIdentity(
-            [new Claim(ClaimTypes.NameIdentifier, memberId.ToString())],
-            SchemeName);
+        var claims = new List<Claim> { new(ClaimTypes.NameIdentifier, memberId.ToString()) };
+        if (Request.Headers.TryGetValue(RolesHeaderName, out var roles))
+        {
+            claims.AddRange(roles.ToString()
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(role => new Claim(ClaimTypes.Role, role)));
+        }
+
+        var identity = new ClaimsIdentity(claims, SchemeName);
         var ticket = new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName);
         return Task.FromResult(AuthenticateResult.Success(ticket));
     }

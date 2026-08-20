@@ -12,6 +12,8 @@ public static class SupportInfrastructureServiceCollectionExtensions
         services.AddScoped<ISupportTicketStore, SupportTicketStore>();
         services.AddScoped<IOrderOwnershipLookup, OrderOwnershipLookup>();
         services.AddScoped<IAdminSupportTicketStore, AdminSupportTicketStore>();
+        services.AddScoped<ISupportSlaQueueStore, SupportSlaQueueStore>();
+        services.AddScoped<ICaseWorkbenchStore, CaseWorkbenchStore>();
         return services;
     }
 }
