@@ -5,6 +5,7 @@ using DoSelect.Infrastructure.Email;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Seeding;
 using DoSelect.Api.Security;
+using DoSelect.Infrastructure.Refunds;
 using Microsoft.Extensions.Options;
 using Scalar.AspNetCore;
 
@@ -15,6 +16,7 @@ builder.Services.AddApiFoundation();
 builder.Services.AddOpenApi();
 builder.Services.AddDoSelectPersistence(builder.Configuration);
 builder.Services.AddDoSelectSecurity(builder.Environment, builder.Configuration);
+builder.Services.AddDoSelectRefunds();
 builder.Services.AddSingleton<IEmailSender>(services =>
 {
     var emailEnabled = builder.Configuration.GetValue<bool>("Features:EmailEnabled");
