@@ -82,7 +82,7 @@
 | API-M-07 後台型錄 | 商品 CRUD、SKU、Lookup、規格範本、批次、匯出、圖片 | Policy、受保護 Semantic Key、不可變 Code、圖片授權與 RowVersion | 商品列表→編輯→圖片→發布／批次 |
 | API-M-08 匯入與庫存 | 商品／庫存 Preview、Status、Rows、Errors、Confirm；庫存 Balance／Movement／Reservation | 建立者範圍、24h、Hash、Cursor、原子提交、釋放只一次 | 預覽→錯誤下載／確認；保留釋放 |
 | API-M-09 後台訂單物流 | 訂單列表／明細／收件、合法 Action、包裹版本、門市、批次出貨 | Policy、個資用途稽核、Action 白名單、逐筆交易 | 訂單→出貨→CSV 結果 |
-| API-M-10 售後、優惠券與發票 | 退貨列表／明細／收貨／檢查／延長／審核、退款查詢／執行、優惠券管理、發票查詢／開立／作廢／折讓 | Return.Approve 與 Refund.Execute 分離、冪等、金額上限、RowVersion；五個發票 409 code、5% 整數元、1,000→952＋48及尾差 | 退貨審核→部分退款→折讓；優惠券建立→套用；訂單→模擬發票 |
+| API-M-10 售後、優惠券與發票 | 退貨列表／明細／收貨／檢查／延長／審核、退款查詢／執行、優惠券管理、發票查詢／開立／作廢／折讓 | Return.Approve 與 Refund.Execute 分離；`Coupon.Manage` 僅 FinanceManager／MarketingAnalyst／SuperAdmin，`Invoice.Manage` 僅 FinanceManager／SuperAdmin，皆驗證管理員 TOTP／MFA 正反例；另驗冪等、金額上限、RowVersion、五個發票 409 code、5% 整數元、1,000→952＋48及尾差 | 退貨審核→部分退款→折讓；優惠券建立→套用；訂單→模擬發票 |
 | API-M-11 客服工作台 | 會員案件列表、後台明細、內部備註、自領／指派／轉派／優先級／狀態 | Owner、內部備註隔離；Handle 允許 CS／CSS 且拒絕僅 SA；Supervise 允許 CSS／SA 且拒絕僅 CS；多角色聯集；競爭自領 409 不回承辦人擴充欄位，前端失效並重查明細與佇列；理由、RowVersion 與歷程 | 會員送件→客服承接→回覆／結案 |
 | API-M-12 報表與 AI 用量 | 七個 Report Key、匯出、會員／後台 AI 用量 | Report Policy、日期與 Cursor、成本明細權限、匯出公式注入 | 報表篩選／匯出、AI 額度提示 |
 
