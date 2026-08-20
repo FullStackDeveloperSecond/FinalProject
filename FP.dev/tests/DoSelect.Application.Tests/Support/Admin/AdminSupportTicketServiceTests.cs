@@ -83,6 +83,71 @@ public sealed class AdminSupportTicketServiceTests
         Assert.Contains("PublicId", properties);
     }
 
+    [Fact]
+    public async Task GetDetailAsync_MapsInternalMessagesAndUsesFixedServerTime()
+    {
+        var store = new StubAdminSupportTicketStore
+        {
+            Detail = NewDetail(firstResponseDueAtUtc: Now.UtcDateTime.AddMinutes(-1), messages:
+            [
+                new(Guid.NewGuid(), SupportSenderType.Member, false, false, "public sentinel", "zh-TW", Now.UtcDateTime.AddMinutes(-3)),
+                new(Guid.NewGuid(), SupportSenderType.Admin, false, true, "internal sentinel", "en", Now.UtcDateTime.AddMinutes(-2)),
+            ]),
+        };
+
+        var result = await new AdminSupportTicketService(store, new FixedTimeProvider(Now))
+            .GetDetailAsync(store.Detail!.PublicId, CancellationToken.None);
+
+        Assert.True(result.IsOverdue);
+        Assert.Equal(store.Detail.PublicId, store.DetailTicketPublicId);
+        Assert.Equal("Visible Agent", result.Assignee?.DisplayName);
+        Assert.Collection(result.Messages,
+            message => Assert.False(message.IsInternal),
+            message => Assert.True(message.IsInternal));
+    }
+
+    [Theory]
+    [InlineData(false, SupportTicketStatus.Open, true)]
+    [InlineData(true, SupportTicketStatus.Open, true)]
+    [InlineData(true, SupportTicketStatus.InProgress, true)]
+    [InlineData(true, SupportTicketStatus.Resolved, false)]
+    [InlineData(true, SupportTicketStatus.Closed, false)]
+    [InlineData(true, SupportTicketStatus.Cancelled, false)]
+    public async Task GetDetailAsync_ComputesActiveSlaTargetAndTerminalState(bool humanReply, SupportTicketStatus status, bool expected)
+    {
+        var store = new StubAdminSupportTicketStore
+        {
+            Detail = NewDetail(status, firstHumanResponseAtUtc: humanReply ? Now.UtcDateTime.AddHours(-1) : null,
+                firstResponseDueAtUtc: humanReply ? Now.UtcDateTime.AddHours(-2) : Now.UtcDateTime.AddMinutes(-1),
+                resolutionDueAtUtc: humanReply ? Now.UtcDateTime.AddMinutes(-1) : Now.UtcDateTime.AddHours(2)),
+        };
+
+        var result = await new AdminSupportTicketService(store, new FixedTimeProvider(Now))
+            .GetDetailAsync(store.Detail.PublicId, CancellationToken.None);
+
+        Assert.Equal(expected, result.IsOverdue);
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_WhenMissing_ThrowsStandardNotFound()
+    {
+        var exception = await Assert.ThrowsAsync<DomainProblemException>(() =>
+            new AdminSupportTicketService(new StubAdminSupportTicketStore(), new FixedTimeProvider(Now))
+                .GetDetailAsync(Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal(404, exception.StatusCode);
+        Assert.Equal(DomainErrorCodes.ResourceNotFound, exception.Code);
+    }
+
+    [Fact]
+    public void AdminDetailContracts_ExposeOnlyExplicitPublicSafePropertyNames()
+    {
+        Assert.Equal(["PublicId", "SenderType", "AiGenerated", "IsInternal", "Body", "Language", "SentAtUtc"],
+            typeof(AdminSupportMessageDto).GetProperties().Select(p => p.Name));
+        var names = typeof(AdminSupportTicketDetailDto).GetProperties().Select(p => p.Name).ToArray();
+        Assert.DoesNotContain(names, name => name is "Id" or "MemberUserId" or "AssigneeAdminUserId" or "Email" or "StorageKey" or "SenderUserId");
+    }
+
     private static bool IsValid(object model)
     {
         var results = new List<ValidationResult>();
@@ -109,12 +174,25 @@ public sealed class AdminSupportTicketServiceTests
         ReopenCount: 0,
         rowVersion);
 
+    private static AdminSupportTicketDetail NewDetail(
+        SupportTicketStatus status = SupportTicketStatus.Open,
+        DateTime? firstHumanResponseAtUtc = null,
+        DateTime? firstResponseDueAtUtc = null,
+        DateTime? resolutionDueAtUtc = null,
+        IReadOnlyList<AdminSupportMessageProjection>? messages = null) => new(
+        Guid.NewGuid(), "CS-DETAIL", SupportTicketCategory.Other, "Detail", status, CasePriority.High,
+        Guid.NewGuid(), Guid.NewGuid(), "Visible Agent", Now.UtcDateTime.AddDays(-1), Now.UtcDateTime.AddMinutes(-2),
+        firstResponseDueAtUtc ?? Now.UtcDateTime.AddHours(1), resolutionDueAtUtc ?? Now.UtcDateTime.AddHours(8),
+        firstHumanResponseAtUtc, null, null, 2, new byte[8], messages ?? []);
+
     private sealed class StubAdminSupportTicketStore : IAdminSupportTicketStore
     {
         public SupportTicketClaimResult Result { get; init; } = SupportTicketClaimResult.NotFound;
         public string? AdminUserId { get; private set; }
         public byte[]? ExpectedRowVersion { get; private set; }
         public DateTime OccurredAtUtc { get; private set; }
+        public AdminSupportTicketDetail? Detail { get; init; }
+        public Guid DetailTicketPublicId { get; private set; }
 
         public Task<SupportTicketClaimResult> ClaimAsync(
             Guid ticketPublicId,
@@ -127,6 +205,12 @@ public sealed class AdminSupportTicketServiceTests
             ExpectedRowVersion = expectedRowVersion;
             OccurredAtUtc = occurredAtUtc;
             return Task.FromResult(Result);
+        }
+
+        public Task<AdminSupportTicketDetail?> GetDetailAsync(Guid ticketPublicId, CancellationToken cancellationToken)
+        {
+            DetailTicketPublicId = ticketPublicId;
+            return Task.FromResult(Detail);
         }
     }
 }

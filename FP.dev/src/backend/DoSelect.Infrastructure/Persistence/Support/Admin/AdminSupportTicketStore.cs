@@ -151,4 +151,87 @@ public sealed class AdminSupportTicketStore : IAdminSupportTicketStore
             throw;
         }
     }
+
+    public async Task<AdminSupportTicketDetail?> GetDetailAsync(
+        Guid ticketPublicId,
+        CancellationToken cancellationToken)
+    {
+        // A single query with left joins onto Orders and active AdminProfiles keeps the ticket
+        // shell + assignee + order lookup at one round trip; messages are a second, separately
+        // bounded query. Neither scales with the number of messages or historical assignees, so
+        // this is a constant query count rather than N+1.
+        var row = await (
+            from t in _dbContext.SupportTickets.AsNoTracking()
+            where t.PublicId == ticketPublicId
+            join o in _dbContext.Orders.AsNoTracking() on t.OrderId equals (long?)o.Id into orderGroup
+            from o in orderGroup.DefaultIfEmpty()
+            join a in _dbContext.AdminProfiles.AsNoTracking().Where(p => p.IsActive)
+                on t.AssigneeAdminUserId equals a.UserId into assigneeGroup
+            from a in assigneeGroup.DefaultIfEmpty()
+            select new
+            {
+                t.Id,
+                t.PublicId,
+                t.TicketNumber,
+                t.Category,
+                t.Subject,
+                t.Status,
+                t.Priority,
+                OrderPublicId = o == null ? (Guid?)null : o.PublicId,
+                AssigneePublicId = a == null ? (Guid?)null : a.PublicId,
+                AssigneeDisplayName = a == null ? null : a.DisplayName,
+                t.CreatedAtUtc,
+                t.LastActivityAtUtc,
+                t.FirstResponseDueAtUtc,
+                t.ResolutionDueAtUtc,
+                t.FirstHumanResponseAtUtc,
+                t.ResolvedAtUtc,
+                t.ClosedAtUtc,
+                t.ReopenCount,
+                t.RowVersion,
+            }).SingleOrDefaultAsync(cancellationToken);
+
+        if (row is null)
+        {
+            return null;
+        }
+
+        // Deterministic order for admin readers: chronological, with PublicId as the stable
+        // unique tie-break for messages sharing the same SentAtUtc.
+        var messages = await _dbContext.SupportMessages
+            .AsNoTracking()
+            .Where(m => m.SupportTicketId == row.Id)
+            .OrderBy(m => m.SentAtUtc)
+            .ThenBy(m => m.PublicId)
+            .Select(m => new AdminSupportMessageProjection(
+                m.PublicId,
+                m.SenderType,
+                m.AiGenerated,
+                m.IsInternal,
+                m.Body,
+                m.Language,
+                m.SentAtUtc))
+            .ToListAsync(cancellationToken);
+
+        return new AdminSupportTicketDetail(
+            row.PublicId,
+            row.TicketNumber,
+            row.Category,
+            row.Subject,
+            row.Status,
+            row.Priority,
+            row.OrderPublicId,
+            row.AssigneePublicId,
+            row.AssigneeDisplayName,
+            row.CreatedAtUtc,
+            row.LastActivityAtUtc,
+            row.FirstResponseDueAtUtc,
+            row.ResolutionDueAtUtc,
+            row.FirstHumanResponseAtUtc,
+            row.ResolvedAtUtc,
+            row.ClosedAtUtc,
+            row.ReopenCount,
+            row.RowVersion,
+            messages);
+    }
 }

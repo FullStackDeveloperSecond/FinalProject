@@ -1,5 +1,6 @@
 using DoSelect.Application.Common;
 using DoSelect.Application.Support.Admin.Dtos;
+using DoSelect.Domain.Support;
 
 namespace DoSelect.Application.Support.Admin;
 
@@ -47,6 +48,69 @@ public sealed class AdminSupportTicketService : IAdminSupportTicketService
             _ => throw new InvalidOperationException($"Unhandled claim outcome '{result.Outcome}'."),
         };
     }
+
+    public async Task<AdminSupportTicketDetailDto> GetDetailAsync(
+        Guid ticketPublicId,
+        CancellationToken cancellationToken)
+    {
+        var detail = await _store.GetDetailAsync(ticketPublicId, cancellationToken);
+        if (detail is null)
+        {
+            throw DomainProblemException.NotFound("The support ticket was not found.");
+        }
+
+        var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        return ToDetailDto(detail, nowUtc);
+    }
+
+    /// <summary>
+    /// Mirrors ISupportTicketService's overdue rule: overdue tracks whichever SLA target is
+    /// still active (FirstResponse until a human has replied, then Resolution) and is always
+    /// false once the ticket has left active work, regardless of how the due dates compare to
+    /// now. Kept in lockstep with SupportTicketService.ComputeIsOverdue by design intent.
+    /// </summary>
+    private static bool ComputeIsOverdue(AdminSupportTicketDetail detail, DateTime nowUtc)
+    {
+        if (detail.Status is SupportTicketStatus.Resolved or SupportTicketStatus.Closed or SupportTicketStatus.Cancelled)
+        {
+            return false;
+        }
+
+        var activeDueAtUtc = detail.FirstHumanResponseAtUtc is null
+            ? detail.FirstResponseDueAtUtc
+            : detail.ResolutionDueAtUtc;
+        return nowUtc > activeDueAtUtc;
+    }
+
+    private static AdminSupportTicketDetailDto ToDetailDto(AdminSupportTicketDetail detail, DateTime nowUtc) => new(
+        detail.PublicId,
+        detail.TicketNumber,
+        detail.Category,
+        detail.Subject,
+        detail.Status,
+        detail.Priority,
+        detail.OrderPublicId,
+        detail.AssigneeAdminPublicId is null
+            ? null
+            : new AdminAssigneeSummaryDto(detail.AssigneeAdminPublicId.Value, detail.AssigneeAdminDisplayName!),
+        detail.CreatedAtUtc,
+        detail.LastActivityAtUtc,
+        detail.FirstResponseDueAtUtc,
+        detail.ResolutionDueAtUtc,
+        ComputeIsOverdue(detail, nowUtc),
+        detail.FirstHumanResponseAtUtc,
+        detail.ResolvedAtUtc,
+        detail.ClosedAtUtc,
+        detail.ReopenCount,
+        detail.RowVersion,
+        [.. detail.Messages.Select(m => new AdminSupportMessageDto(
+            m.PublicId,
+            m.SenderType,
+            m.AiGenerated,
+            m.IsInternal,
+            m.Body,
+            m.Language,
+            m.SentAtUtc))]);
 
     private static AdminSupportTicketDto ToDto(ClaimedSupportTicket ticket) => new(
         ticket.PublicId,

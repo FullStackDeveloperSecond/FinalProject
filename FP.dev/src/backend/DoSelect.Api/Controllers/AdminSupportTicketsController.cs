@@ -29,6 +29,15 @@ public sealed class AdminSupportTicketsController : ControllerBase
         _slaQueueService = slaQueueService;
     }
 
+    [HttpGet("{id:guid}")]
+    public async Task<ActionResult<AdminSupportTicketDetailDto>> GetDetail(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        var result = await _service.GetDetailAsync(id, cancellationToken);
+        return Ok(result);
+    }
+
     [HttpPost("{id:guid}/actions/claim")]
     public async Task<ActionResult<AdminSupportTicketDto>> Claim(
         Guid id,

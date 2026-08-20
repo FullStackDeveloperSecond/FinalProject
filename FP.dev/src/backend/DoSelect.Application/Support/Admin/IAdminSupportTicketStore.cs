@@ -26,6 +26,14 @@ public interface IAdminSupportTicketStore
         byte[] expectedRowVersion,
         DateTime occurredAtUtc,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Loads the admin-facing detail projection for one ticket, including internal notes, in a
+    /// bounded query shape (ticket/assignee/order in one query, messages in a second) rather
+    /// than lazily loading per-message or per-assignee data. Returns null when the ticket does
+    /// not exist so the Application layer can map that to the standard 404.
+    /// </summary>
+    Task<AdminSupportTicketDetail?> GetDetailAsync(Guid ticketPublicId, CancellationToken cancellationToken);
 }
 
 public enum SupportTicketClaimOutcome
@@ -83,3 +91,42 @@ public sealed record ClaimedSupportTicket(
     DateTime? ClosedAtUtc,
     int ReopenCount,
     byte[] RowVersion);
+
+/// <summary>
+/// Admin-facing ticket detail projection. Like ClaimedSupportTicket, carries only public-safe
+/// identifiers. AssigneeAdminPublicId/AssigneeAdminDisplayName are both null when the ticket is
+/// unassigned or when the assignee has no active public AdminProfile to project.
+/// </summary>
+public sealed record AdminSupportTicketDetail(
+    Guid PublicId,
+    string TicketNumber,
+    SupportTicketCategory Category,
+    string Subject,
+    SupportTicketStatus Status,
+    CasePriority Priority,
+    Guid? OrderPublicId,
+    Guid? AssigneeAdminPublicId,
+    string? AssigneeAdminDisplayName,
+    DateTime CreatedAtUtc,
+    DateTime LastActivityAtUtc,
+    DateTime FirstResponseDueAtUtc,
+    DateTime ResolutionDueAtUtc,
+    DateTime? FirstHumanResponseAtUtc,
+    DateTime? ResolvedAtUtc,
+    DateTime? ClosedAtUtc,
+    int ReopenCount,
+    byte[] RowVersion,
+    IReadOnlyList<AdminSupportMessageProjection> Messages);
+
+/// <summary>
+/// A single message or internal note as projected for admin use. Never carries SenderUserId,
+/// the internal bigint Id, or any storage key — only what AdminSupportMessageDto exposes.
+/// </summary>
+public sealed record AdminSupportMessageProjection(
+    Guid PublicId,
+    SupportSenderType SenderType,
+    bool AiGenerated,
+    bool IsInternal,
+    string Body,
+    string Language,
+    DateTime SentAtUtc);

@@ -69,6 +69,72 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
         Assert.Equal(0, fakes.ClaimCalls);
     }
 
+    [Fact]
+    public async Task Detail_WhenAnonymous_Returns401WithoutCallingService()
+    {
+        var fakes = new SupportHttpFakes();
+        using var factory = CreateFactory(fakes);
+        using var client = factory.CreateClient();
+
+        using var response = await client.GetAsync($"/api/v1/admin/support-tickets/{Guid.NewGuid()}");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(0, fakes.DetailCalls);
+    }
+
+    [Theory]
+    [InlineData("SuperAdmin", HttpStatusCode.Forbidden)]
+    [InlineData("Member", HttpStatusCode.Forbidden)]
+    [InlineData("CustomerService", HttpStatusCode.OK)]
+    [InlineData("CustomerServiceSupervisor", HttpStatusCode.OK)]
+    [InlineData("SuperAdmin,CustomerService", HttpStatusCode.OK)]
+    [InlineData("SuperAdmin,CustomerServiceSupervisor", HttpStatusCode.OK)]
+    public async Task Detail_EnforcesHandleRoleMatrix(string rolesCsv, HttpStatusCode expected)
+    {
+        var fakes = new SupportHttpFakes();
+        using var factory = CreateFactory(fakes);
+        using var client = CreateClient(factory, rolesCsv.Split(','));
+
+        using var response = await client.GetAsync($"/api/v1/admin/support-tickets/{Guid.NewGuid()}");
+
+        Assert.Equal(expected, response.StatusCode);
+        Assert.Equal(expected == HttpStatusCode.OK ? 1 : 0, fakes.DetailCalls);
+    }
+
+    [Fact]
+    public async Task Detail_WhenAuthorized_ReturnsInternalFlagsWithoutSensitiveNamesOrSentinelValues()
+    {
+        var fakes = new SupportHttpFakes();
+        using var factory = CreateFactory(fakes);
+        using var client = CreateClient(factory, "CustomerService");
+
+        using var response = await client.GetAsync($"/api/v1/admin/support-tickets/{fakes.DetailResult.PublicId}");
+        var jsonText = await response.Content.ReadAsStringAsync();
+        using var json = JsonDocument.Parse(jsonText);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal([false, true], json.RootElement.GetProperty("messages").EnumerateArray().Select(x => x.GetProperty("isInternal").GetBoolean()));
+        foreach (var forbidden in new[] { "email", "memberUserId", "assigneeAdminUserId", "senderUserId", "storageKey", "identity-member-sentinel", "identity-admin-sentinel" })
+        {
+            Assert.DoesNotContain(forbidden, jsonText, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
+    public async Task Detail_WhenServiceReportsMissing_ReturnsStandard404ProblemDetails()
+    {
+        var fakes = new SupportHttpFakes { ThrowDetailNotFound = true };
+        using var factory = CreateFactory(fakes);
+        using var client = CreateClient(factory, "CustomerServiceSupervisor");
+
+        using var response = await client.GetAsync($"/api/v1/admin/support-tickets/{Guid.NewGuid()}");
+        using var json = await ReadJsonAsync(response);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(DomainErrorCodes.ResourceNotFound, json.RootElement.GetProperty("code").GetString());
+    }
+
     [Theory]
     [InlineData("SuperAdmin")]
     [InlineData("Member")]
@@ -202,19 +268,39 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
     private sealed class SupportHttpFakes : IAdminSupportTicketService, ISupportSlaQueueService, ICaseWorkbenchService
     {
         public int ClaimCalls { get; private set; }
-        public int TotalCalls => ClaimCalls + (SlaQuery is null ? 0 : 1) + (WorkbenchQuery is null ? 0 : 1);
+        public int DetailCalls { get; private set; }
+        public int TotalCalls => ClaimCalls + DetailCalls + (SlaQuery is null ? 0 : 1) + (WorkbenchQuery is null ? 0 : 1);
         public string? ClaimAdminId { get; private set; }
         public Guid ClaimTicketId { get; private set; }
         public SupportSlaQueueQuery? SlaQuery { get; private set; }
         public CaseWorkbenchQuery? WorkbenchQuery { get; private set; }
         public IReadOnlyCollection<CaseWorkbenchCaseType>? AuthorizedCaseTypes { get; private set; }
         public bool ThrowAssignmentConflict { get; init; }
+        public bool ThrowDetailNotFound { get; init; }
         public AdminSupportTicketDto ClaimResult { get; } = new(
             Guid.NewGuid(), "ST-ACCEPTANCE", SupportTicketCategory.Other, "Public subject",
             SupportTicketStatus.Open, CasePriority.Normal, null,
             new AdminAssigneeSummaryDto(Guid.NewGuid(), "Support Agent"),
             DateTime.UtcNow, DateTime.UtcNow, DateTime.UtcNow.AddHours(1), DateTime.UtcNow.AddHours(8),
             null, null, null, 0, new byte[8]);
+        public AdminSupportTicketDetailDto DetailResult { get; } = new(
+            Guid.NewGuid(), "ST-DETAIL", SupportTicketCategory.Other, "Safe subject", SupportTicketStatus.Open,
+            CasePriority.High, null, null, DateTime.UtcNow.AddHours(-1), DateTime.UtcNow,
+            DateTime.UtcNow.AddHours(1), DateTime.UtcNow.AddHours(8), false, null, null, null, 0, new byte[8],
+            [
+                new(Guid.NewGuid(), SupportSenderType.Member, false, false, "public body", "zh-TW", DateTime.UtcNow.AddMinutes(-2)),
+                new(Guid.NewGuid(), SupportSenderType.Admin, false, true, "internal body", "zh-TW", DateTime.UtcNow.AddMinutes(-1)),
+            ]);
+
+        public Task<AdminSupportTicketDetailDto> GetDetailAsync(Guid ticketPublicId, CancellationToken cancellationToken)
+        {
+            DetailCalls++;
+            if (ThrowDetailNotFound)
+            {
+                throw DomainProblemException.NotFound("The support ticket was not found.");
+            }
+            return Task.FromResult(DetailResult);
+        }
 
         public Task<AdminSupportTicketDto> ClaimAsync(string adminUserId, Guid ticketPublicId,
             ClaimSupportTicketRequest request, CancellationToken cancellationToken)

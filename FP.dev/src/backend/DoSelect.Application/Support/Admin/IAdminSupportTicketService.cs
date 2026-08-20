@@ -20,4 +20,12 @@ public interface IAdminSupportTicketService
         Guid ticketPublicId,
         ClaimSupportTicketRequest request,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Loads the full admin-facing detail for one ticket, including internal notes. A read does
+    /// not need an acting admin identity beyond the SupportTicket.Handle authorization already
+    /// enforced by the caller. Throws DomainProblemException with ResourceNotFound (404) when
+    /// the ticket does not exist.
+    /// </summary>
+    Task<AdminSupportTicketDetailDto> GetDetailAsync(Guid ticketPublicId, CancellationToken cancellationToken);
 }
