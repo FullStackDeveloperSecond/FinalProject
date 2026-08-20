@@ -154,8 +154,9 @@ Cancelled
 ### 指派與共用佇列
 
 - 尚未指派的客服案件進入共用佇列。
-- 客服人員可以自行領取未指派案件。
-- `CustomerServiceSupervisor` 可以指派及轉派案件。
+- 具 `SupportTicket.Handle` 的客服人員可以自行領取未指派案件，並執行公開回覆、內部備註、一般優先級調整、合法狀態處理、取消與重開。
+- 指派、轉派與優先級覆核／覆寫要求 `SupportTicket.Supervise`；允許 `CustomerServiceSupervisor` 與 `SuperAdmin`。
+- `SuperAdmin` 單一角色不符合 `SupportTicket.Handle`；如需日常處理案件，必須另有 `CustomerService` 或 `CustomerServiceSupervisor` 角色。多角色仍採允許權限聯集。
 - 每次自領、指派及轉派都必須保存操作者、原負責人、新負責人、時間及原因。
 - 客服案件與一般檢舉使用不同佇列；`CustomerService` 可在各自佇列自領。個資、安全、詐欺、法律或其他高風險檢舉須由 `CustomerServiceSupervisor` 指派或覆核；退貨仍使用獨立售後佇列。
 
@@ -166,7 +167,7 @@ Cancelled
 - 系統依案件分類及關鍵條件產生預設優先級。
 - 會員不能自行選擇或提高優先級。
 - 客服人員可以依實際情況調高或調低，必須填寫原因。
-- `CustomerServiceSupervisor` 可以覆核優先級異動。
+- `CustomerServiceSupervisor` 或 `SuperAdmin` 可以透過 `SupportTicket.Supervise` 覆核／覆寫優先級異動；覆核仍須理由、RowVersion、歷程與 Audit。
 
 | 優先級 | 建立時條件 |
 |---|---|

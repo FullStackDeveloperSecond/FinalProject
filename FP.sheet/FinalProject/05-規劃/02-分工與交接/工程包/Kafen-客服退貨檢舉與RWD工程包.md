@@ -90,6 +90,11 @@ Application 層新增客服／退貨 Use Case、授權 Query 與 DTO；API 使�
 
 角色重點：客服 `CustomerService`、主管 `CustomerServiceSupervisor`；退貨由 `OrderManager`／相應 Return Policy；不同角色在工作台只看到獲授權分支。前端隱藏卡片不等於後端分支授權。
 
+- `SupportTicket.Handle`：允許 `CustomerService`、`CustomerServiceSupervisor`；套用於 internal-notes、claim、一般 priority 調整、status、cancel、reopen 及日常案件處理。
+- `SupportTicket.Supervise`：允許 `CustomerServiceSupervisor`、`SuperAdmin`；套用於 assign、transfer、priority 覆核／覆寫。
+- `SuperAdmin` 單一角色不得通過 `SupportTicket.Handle`；需要日常客服處理時必須另授客服角色。所有 Policy 仍須檢查狀態、RowVersion、理由與 Audit。
+- `409 support_ticket_assignment_conflict` 只回標準 Problem Details，不加入最新承辦人欄位；前端顯示衝突提示後，失效並重新查詢該案件明細與目前佇列，以新 DTO 更新 Assignee、RowVersion、AvailableActions。
+
 ## 6. 不可破壞的領域規則
 
 - SupportTicket、ReturnRequest、ReportCase 是三個獨立 Aggregate；工作台只是 `UNION ALL` 唯讀投影，不能提供共用寫入 Entity。
@@ -125,7 +130,7 @@ RWD 啟動後，覆蓋整個消費者前台核心流程，不代表你接手其�
 
 ## 9. 必要測試
 
-至少覆蓋 `UC-RETURN-01`、`UC-SUPPORT-01`～`02`、`UC-SLA-01`、`UC-WORKBENCH-01`。必要負面案例：Actor A／B 案件與附件隔離、客服角色越權、工作台分支洩漏、重複自領／轉派衝突、SLA 暫停上限、Closed 不可重開、退貨數量／期限、寄回 Event 去重、未完成 Inspection 不回補庫存。
+至少覆蓋 `UC-RETURN-01`、`UC-SUPPORT-01`～`02`、`UC-SLA-01`、`UC-WORKBENCH-01`。必要負面案例：Actor A／B 案件與附件隔離、Handle／Supervise 各角色允許與拒絕、SuperAdmin 單角色不可日常處理、多角色聯集、工作台分支洩漏、重複自領／轉派衝突、409 無承辦人擴充欄位且前端重查、SLA 暫停上限、Closed 不可重開、退貨數量／期限、寄回 Event 去重、未完成 Inspection 不回補庫存。
 
 固定由 terry 做第一線覆核；退款與分攤由 yinyin 協作；本人訂單／Guest Scope 由 haru 提供；AI 客服與摘要由 alex 最終驗收。
 

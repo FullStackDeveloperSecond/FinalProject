@@ -1,9 +1,10 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-19
+最後更新: 2026-08-20
 追蹤項目:
   - DES-11
   - DES-22
+  - DES-23
 ---
 
 # API 錯誤碼目錄
@@ -162,7 +163,7 @@
 |---|---:|---|
 | `support_ticket_state_conflict` | 409 | 目前客服狀態不允許操作 |
 | `support_ticket_cancel_not_allowed` | 409 | 顧客已超過取消邊界或操作者無取消條件 |
-| `support_ticket_assignment_conflict` | 409 | 案件已由其他客服領取或轉派 |
+| `support_ticket_assignment_conflict` | 409 | 案件已由其他客服領取或轉派；只回標準 Problem Details，不附最新承辦人 PublicId／DisplayName；前端須失效並重新查詢案件明細與所屬佇列 |
 | `file_count_exceeded` | 400 | 同一資源的檔案數超過該 Endpoint 上限；尚未讀取檔案內容 |
 | `file_size_exceeded` | 413 | 單檔或整體 Multipart 超過 Endpoint 上限 |
 | `file_format_invalid` | 415 | 副檔名、MIME 或檔案簽章不在白名單或彼此不一致 |

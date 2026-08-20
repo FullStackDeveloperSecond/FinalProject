@@ -1,10 +1,11 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-19
+最後更新: 2026-08-20
 追蹤項目:
   - DES-10
   - DES-20
   - DES-22
+  - DES-23
   - REQ-03
 ---
 
@@ -190,10 +191,12 @@
 | `SupportTicketSummaryDto` | PublicId、案件編號、Category、Subject、Status、最近活動、是否等待會員、未讀回覆數、RowVersion |
 | `CreateSupportMessageRequest` | `body:string(1..4000)`、`isInternal:false`（前台不可指定 true）、`rowVersion` |
 | `CreateInternalNoteRequest` | `body:string(1..4000)`、`rowVersion`；只存在後台 Schema，不得進會員 Response 或 AI Context |
-| `SupportTicketActionRequest` | Action 對應 claim／assign／transfer／change-priority／change-status／cancel／reopen 的具名 oneOf Payload；指派、優先級、取消及重開必填理由，皆帶 RowVersion |
+| `SupportTicketActionRequest` | Action 對應 claim／assign／transfer／change-priority／change-status／cancel／reopen 的具名 oneOf Payload；指派、優先級、取消及重開必填理由，皆帶 RowVersion。claim、一般 change-priority、change-status、cancel、reopen 使用 `SupportTicket.Handle`；assign、transfer、優先級覆核／覆寫使用 `SupportTicket.Supervise` |
 | `SupportSlaItemDto` | Ticket PublicId／案件編號、Priority、Assignee、Status、FirstResponseDueAtUtc、ResolutionDueAtUtc、使用比例、IsOverdue、LastActivityAtUtc、RowVersion |
 | `CaseWorkbenchQuery` | `caseTypes?:support/report/return[1..3]`、`statuses?:string[0..10]`、`priorities?:string[0..4]`、`assigneePublicId?:uuid`、`overdue?:bool`、`cursor?:string(512)`、`pageSize:int(1..100)` |
 | `CaseWorkbenchItemDto` | 固定 12 欄：CaseType、CasePublicId、CaseNumber、Title、Status、Priority、RequesterDisplay、AssigneePublicId?、CreatedAtUtc、LastActivityAtUtc、SlaDueAtUtc?、IsOverdue；不得加入 CustomerReplyState、工作台 RowVersion 或 AssignmentState |
+
+`409 support_ticket_assignment_conflict` 僅回 [[03-架構/02-API與前端契約/API共通規範]] 定義的標準 Problem Details（包含 `code`、`traceId`、`correlationId`），不得擴充 `currentAssigneePublicId`、`currentAssigneeDisplayName` 或其他承辦人資料。最新承辦人、RowVersion 與 AvailableActions 只由重新查詢後的 `SupportTicketDto` 提供。
 
 四個 AI 工具的 Request／Result 上限與安全 Union 以 [[03-架構/06-AI設計/AI應用詳細設計]] 為準；工具不是公開 Endpoint。
 

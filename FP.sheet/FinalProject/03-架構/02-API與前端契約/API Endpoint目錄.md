@@ -1,11 +1,12 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-19
+最後更新: 2026-08-20
 追蹤項目:
   - DES-10
   - DES-16
   - DES-20
   - DES-22
+  - DES-23
   - REQ-02
   - REQ-03
 ---
@@ -123,9 +124,11 @@
 | UC-AI-SUPPORT-04 | `GET /api/v1/ai/usage/me`；`GET /api/v1/admin/ai/usage` | Member；後台依角色矩陣 | `AiUsageDto`、`AdminAiUsageReportDto` | `ai_usage_limit_exceeded`、`ai_budget_protection_active`、`authorization_forbidden` |
 | UC-SUPPORT-01 顧客端 | `GET /api/v1/support-tickets`；`POST /api/v1/support-tickets`；`GET /api/v1/support-tickets/{id}`；`POST /api/v1/support-tickets/{id}/messages`；`POST /api/v1/support-tickets/{id}/actions/cancel` | Member Owner | `SupportTicketQuery`、`PageResult<SupportTicketSummaryDto>`、Ticket／Message／Cancel DTO | `support_ticket_state_conflict`、`support_ticket_cancel_not_allowed`、`resource_not_found` |
 | UC-SUPPORT-02 | `POST /api/v1/support-tickets/{id}/attachments`；`GET /api/v1/private-attachments/{id}/content` | 案件擁有者／授權客服 | Multipart／授權串流 | `file_count_exceeded`、`file_size_exceeded`、`file_format_invalid`、`file_malware_detected`、`file_scan_unavailable` |
-| UC-SUPPORT-01 後台明細 | `GET /api/v1/admin/support-tickets/{id}`；`POST /api/v1/admin/support-tickets/{id}/internal-notes`；`POST /api/v1/admin/support-tickets/{id}/actions/{action}` | CustomerService／Supervisor | Action 白名單：`claim`、`assign`、`transfer`、`change-priority`、`change-status`、`cancel`、`reopen` | `support_ticket_assignment_conflict`、`support_ticket_state_conflict`、`support_ticket_cancel_not_allowed`、`concurrency_conflict` |
+| UC-SUPPORT-01 後台明細 | `GET /api/v1/admin/support-tickets/{id}`；`POST /api/v1/admin/support-tickets/{id}/internal-notes`；`POST /api/v1/admin/support-tickets/{id}/actions/{action}` | 讀取依客服角色；internal-notes、`claim`、一般 `change-priority`、`change-status`、`cancel`、`reopen`：`SupportTicket.Handle`；`assign`、`transfer`、優先級覆核／覆寫：`SupportTicket.Supervise` | Action 白名單：`claim`、`assign`、`transfer`、`change-priority`、`change-status`、`cancel`、`reopen`；同一 `change-priority` 命令依是否為一般調整或主管覆核／覆寫選用 Policy，不新增未定義 Action | `support_ticket_assignment_conflict`、`support_ticket_state_conflict`、`support_ticket_cancel_not_allowed`、`concurrency_conflict` |
 | UC-SLA-01 | `GET /api/v1/admin/support-tickets/sla` | CustomerService／Supervisor | `CursorPage<SupportSlaItemDto>` | `authorization_forbidden` |
 | UC-WORKBENCH-01 | `GET /api/v1/admin/case-workbench` | 各角色只見可授權領域 | `CaseWorkbenchQuery` → `CursorPage<CaseWorkbenchItemDto>` | `search_sort_unsupported` |
+
+客服指派競爭回 `409 support_ticket_assignment_conflict` 時只使用標準 Problem Details，不附最新承辦人 PublicId 或 DisplayName。前端收到後必須失效並重新查詢案件明細與所屬佇列，以最新 `SupportTicketDto` 的 Assignee、RowVersion 與 AvailableActions 重建畫面。
 
 工作台固定使用 `LastActivityAtUtc／CasePublicId` Cursor，且只回傳正式 12 欄；RowVersion 與 AvailableActions 必須向來源領域詳情取得。UNION 分支授權與驗收見 [[03-架構/07-領域設計/統一案件工作台設計]]。
 
