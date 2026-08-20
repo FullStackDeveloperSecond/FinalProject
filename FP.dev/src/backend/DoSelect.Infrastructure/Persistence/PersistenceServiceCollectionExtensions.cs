@@ -1,3 +1,4 @@
+using DoSelect.Application.Members;
 using DoSelect.Infrastructure.Persistence.Identity;
 using DoSelect.Infrastructure.Persistence.Seeding;
 using Microsoft.AspNetCore.Identity;
@@ -31,11 +32,27 @@ public static class PersistenceServiceCollectionExtensions
                 sqlServerOptions => sqlServerOptions.MigrationsAssembly(
                     typeof(DoSelectDbContext).Assembly.FullName)));
 
-        services
-            .AddIdentityCore<ApplicationUser>()
-            .AddRoles<IdentityRole>()
-            .AddEntityFrameworkStores<DoSelectDbContext>();
+        services.AddDataProtection();
 
+        services
+            .AddIdentityCore<ApplicationUser>(options =>
+            {
+                // RegisterRequest.password contract bounds length to 12..128; no composition
+                // rule is documented, so composition requirements are disabled rather than
+                // guessed. See FP.sheet/.../API DTO與Schema契約.md.
+                options.Password.RequiredLength = 12;
+                options.Password.RequiredUniqueChars = 1;
+                options.Password.RequireNonAlphanumeric = false;
+                options.Password.RequireUppercase = false;
+                options.Password.RequireLowercase = false;
+                options.Password.RequireDigit = false;
+            })
+            .AddRoles<IdentityRole>()
+            .AddEntityFrameworkStores<DoSelectDbContext>()
+            .AddDefaultTokenProviders();
+
+        services.AddSingleton(TimeProvider.System);
+        services.AddScoped<IMemberRegistrationGateway, MemberRegistrationGateway>();
         services.AddScoped<MinimalDevelopmentDataSeeder>();
 
         return services;

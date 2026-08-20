@@ -1,6 +1,13 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <!-- Needed for the full Microsoft.AspNetCore.Identity assembly (DataProtectorTokenProvider,
+         AddDefaultTokenProviders) — Microsoft.Extensions.Identity.Core/Stores alone only ship the
+         framework-independent subset. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="MailKit" />
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design">

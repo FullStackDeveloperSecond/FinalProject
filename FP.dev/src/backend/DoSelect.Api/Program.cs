@@ -1,5 +1,6 @@
 using DoSelect.Api.Common;
 using DoSelect.Api.Observability;
+using DoSelect.Application;
 using DoSelect.Application.Notifications;
 using DoSelect.Infrastructure.Email;
 using DoSelect.Infrastructure.Persistence;
@@ -7,12 +8,27 @@ using DoSelect.Infrastructure.Persistence.Seeding;
 using Microsoft.Extensions.Options;
 using Scalar.AspNetCore;
 
+const string FrontendCorsPolicy = "Frontend";
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddObservability();
 builder.Services.AddApiFoundation();
 builder.Services.AddOpenApi();
 builder.Services.AddDoSelectPersistence(builder.Configuration);
+builder.Services.AddDoSelectApplication();
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy(FrontendCorsPolicy, policy =>
+    {
+        var frontendBaseUrl = builder.Configuration["Frontend:BaseUrl"] ?? "http://localhost:5173";
+        policy
+            .WithOrigins(frontendBaseUrl)
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .AllowCredentials();
+    });
+});
 builder.Services.AddSingleton<IEmailSender>(services =>
 {
     var emailEnabled = builder.Configuration.GetValue<bool>("Features:EmailEnabled");
@@ -47,6 +63,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+app.UseCors(FrontendCorsPolicy);
 
 app.UseAuthorization();
 
