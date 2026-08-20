@@ -13,6 +13,7 @@ namespace DoSelect.Infrastructure.Tests.Catalog;
 public sealed class CatalogDetailAndFilterOptionsCollection : ICollectionFixture<CatalogDetailAndFilterOptionsFixture>;
 
 [Collection(nameof(CatalogDetailAndFilterOptionsCollection))]
+[Trait("Category", "RequiresSqlServer")]
 public sealed class EfProductDetailServiceTests
 {
     [Fact]
@@ -83,6 +84,7 @@ public sealed class EfProductDetailServiceTests
 }
 
 [Collection(nameof(CatalogDetailAndFilterOptionsCollection))]
+[Trait("Category", "RequiresSqlServer")]
 public sealed class EfCatalogFilterOptionsServiceTests
 {
     [Fact]
