@@ -1,4 +1,4 @@
-import type { components } from '../../api/generated/schema'
+import type { components } from '@doselect/web-shared/api'
 
 export type ProductCardDto = components['schemas']['ProductCardDto']
 export type ProductDetailDto = components['schemas']['ProductDetailDto']
