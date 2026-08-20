@@ -9,6 +9,7 @@ public static class CouponCalculationErrorCodes
     public const string CouponNotActive = "coupon_not_active";
     public const string CouponNotApplicable = "coupon_not_applicable";
     public const string CouponUsageExhausted = "coupon_usage_exhausted";
+    public const string CouponStateConflict = "coupon_state_conflict";
 }
 
 /// <summary>

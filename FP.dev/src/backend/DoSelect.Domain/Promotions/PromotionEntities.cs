@@ -85,24 +85,114 @@ public sealed class Coupon : MutablePublicEntity
             [CouponStatus.Disabled] = [],
         };
 
-    /// <summary>排入預定檔期。</summary>
-    public void Schedule(DateTime occurredAtUtc) => Transition(CouponStatus.Scheduled, occurredAtUtc);
+    /// <summary>
+    /// 折扣規則本身是否完整。百分比券必須同時有折扣率與最高折抵；定額券必須有折扣金額。
+    /// 適用範圍是否完整由 <see cref="CouponCalculator"/> 判定並回 `coupon_invalid`，
+    /// 因為範圍資料不在本 Entity 上。
+    /// </summary>
+    public bool HasCompleteDiscountRule => DiscountType switch
+    {
+        CouponDiscountType.FixedAmount => DiscountValue is > 0,
+        CouponDiscountType.Percentage => DiscountValue is > 0 and <= 1 && MaximumDiscount is > 0,
+        CouponDiscountType.FreeShipping or CouponDiscountType.AssemblyFreeShipping => true,
+        _ => false,
+    };
 
-    /// <summary>啟用。名額返還且使用量重新低於限制時，`Exhausted` 也可以回到 `Active`。</summary>
-    public void Activate(DateTime occurredAtUtc) => Transition(CouponStatus.Active, occurredAtUtc);
+    /// <summary>指定時點是否落在有效期間內。</summary>
+    public bool IsWithinUsagePeriod(DateTime occurredAtUtc) =>
+        occurredAtUtc >= StartsAtUtc && occurredAtUtc < EndsAtUtc;
 
-    /// <summary>暫時停止。要再啟用請用 <see cref="Activate"/>。</summary>
+    /// <summary>總名額是否仍有剩餘。</summary>
+    public bool HasRemainingQuota(CouponUsageState usage)
+    {
+        ArgumentNullException.ThrowIfNull(usage);
+
+        return TotalUsageLimit is not { } limit || usage.TotalRedeemedCount < limit;
+    }
+
+    // ── 管理員操作 ──────────────────────────────────────────────
+
+    /// <summary>
+    /// 排定未來生效。要求開始時間晚於目前時間，且折扣規則完整。
+    /// </summary>
+    public void ScheduleForLaterStart(DateTime occurredAtUtc)
+    {
+        occurredAtUtc = RequireUtc(occurredAtUtc, nameof(occurredAtUtc));
+
+        if (StartsAtUtc <= occurredAtUtc || !HasCompleteDiscountRule)
+        {
+            throw new InvalidOperationException(
+                "A coupon can only be scheduled before its start time and with a complete rule.");
+        }
+
+        Transition(CouponStatus.Scheduled, occurredAtUtc);
+    }
+
+    /// <summary>
+    /// 立即啟用。要求已進入有效期間、折扣規則完整，且總名額仍有剩餘。
+    /// `Exhausted` 在名額返還且使用量重新低於限制時，也是經由這個方法回到 `Active`。
+    /// </summary>
+    public void ActivateNow(CouponUsageState usage, DateTime occurredAtUtc)
+    {
+        ArgumentNullException.ThrowIfNull(usage);
+        occurredAtUtc = RequireUtc(occurredAtUtc, nameof(occurredAtUtc));
+
+        if (!IsWithinUsagePeriod(occurredAtUtc) ||
+            !HasCompleteDiscountRule ||
+            !HasRemainingQuota(usage))
+        {
+            throw new InvalidOperationException(
+                "A coupon can only be activated inside its period, with a complete rule and remaining quota.");
+        }
+
+        Transition(CouponStatus.Active, occurredAtUtc);
+    }
+
+    /// <summary>暫時停止使用，不改變有效期間。只有 `Active` 能暫停。</summary>
     public void Pause(DateTime occurredAtUtc) => Transition(CouponStatus.Paused, occurredAtUtc);
-
-    /// <summary>名額用盡。</summary>
-    public void MarkExhausted(DateTime occurredAtUtc) => Transition(CouponStatus.Exhausted, occurredAtUtc);
-
-    /// <summary>到期。終態，返還名額不會恢復可用。</summary>
-    public void MarkExpired(DateTime occurredAtUtc) => Transition(CouponStatus.Expired, occurredAtUtc);
 
     /// <summary>永久停用。終態，不可重新啟用。</summary>
     public void Disable(DateTime occurredAtUtc) => Transition(CouponStatus.Disabled, occurredAtUtc);
 
+    // ── 排程與名額事件 ──────────────────────────────────────────
+
+    /// <summary>
+    /// 名額耗盡。要求有設定總名額且使用量已達上限，避免無上限的券被標成耗盡。
+    /// </summary>
+    public void MarkExhausted(CouponUsageState usage, DateTime occurredAtUtc)
+    {
+        ArgumentNullException.ThrowIfNull(usage);
+        occurredAtUtc = RequireUtc(occurredAtUtc, nameof(occurredAtUtc));
+
+        if (TotalUsageLimit is not { } limit || usage.TotalRedeemedCount < limit)
+        {
+            throw new InvalidOperationException(
+                "A coupon is only exhausted once its total usage limit is reached.");
+        }
+
+        Transition(CouponStatus.Exhausted, occurredAtUtc);
+    }
+
+    /// <summary>
+    /// 到期。要求已到達結束時間。終態，返還名額不會恢復可用。背景工作可冪等呼叫。
+    /// </summary>
+    public void MarkExpired(DateTime occurredAtUtc)
+    {
+        occurredAtUtc = RequireUtc(occurredAtUtc, nameof(occurredAtUtc));
+
+        if (occurredAtUtc < EndsAtUtc)
+        {
+            throw new InvalidOperationException(
+                "A coupon can only expire once its end time has passed.");
+        }
+
+        Transition(CouponStatus.Expired, occurredAtUtc);
+    }
+
+    /// <summary>
+    /// 非法轉移丟 <see cref="InvalidOperationException"/>，由 API 層映射為
+    /// <see cref="CouponCalculationErrorCodes.CouponStateConflict"/>。
+    /// </summary>
     private void Transition(CouponStatus next, DateTime occurredAtUtc)
     {
         if (!AllowedTransitions[Status].Contains(next))
