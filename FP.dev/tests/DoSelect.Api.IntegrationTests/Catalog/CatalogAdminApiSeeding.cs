@@ -11,18 +11,25 @@ internal readonly record struct SeededCategory(Guid PublicId, string Code, strin
 /// Seeds catalog data purely through the admin HTTP API so <see cref="CatalogAdminApiTests"/>
 /// stays a black-box HTTP test suite (the one exception is inventory balances, which have
 /// no admin endpoint yet — see AdminSkusApiTests.Delete_WhenSkuHasInventoryBalance_...).
+/// Every write goes through <see cref="CatalogAdminApiFixture.SendWithAntiforgeryAsync"/>
+/// since the admin controllers are behind the CatalogManager policy and the global
+/// antiforgery filter now applies to every unsafe request — callers must pass an already
+/// signed-in client (<see cref="CatalogAdminApiFixture.CreateAuthenticatedAdminClientAsync"/>).
 /// </summary>
 internal static class CatalogAdminApiSeeding
 {
     public static Task<HttpResponseMessage> PostBrandAsync(HttpClient client, string code) =>
-        client.PostAsJsonAsync("/api/v1/admin/brands", new
+        CatalogAdminApiFixture.SendWithAntiforgeryAsync(client, new HttpRequestMessage(HttpMethod.Post, "/api/v1/admin/brands")
         {
-            code,
-            nameZhTw = "測試品牌",
-            description = (string?)null,
-            websiteUrl = (string?)null,
-            sortOrder = 0,
-            isActive = true,
+            Content = JsonContent.Create(new
+            {
+                code,
+                nameZhTw = "測試品牌",
+                description = (string?)null,
+                websiteUrl = (string?)null,
+                sortOrder = 0,
+                isActive = true,
+            }),
         });
 
     public static async Task<SeededBrand> CreateBrandAsync(HttpClient client, string? code = null)
@@ -38,15 +45,18 @@ internal static class CatalogAdminApiSeeding
     }
 
     public static Task<HttpResponseMessage> PostCategoryAsync(HttpClient client, string code, string? slug = null) =>
-        client.PostAsJsonAsync("/api/v1/admin/categories", new
+        CatalogAdminApiFixture.SendWithAntiforgeryAsync(client, new HttpRequestMessage(HttpMethod.Post, "/api/v1/admin/categories")
         {
-            code,
-            nameZhTw = "測試分類",
-            slug = slug ?? "slug-" + Guid.NewGuid().ToString("N")[..12],
-            description = (string?)null,
-            parentCategoryPublicId = (Guid?)null,
-            sortOrder = 0,
-            isActive = true,
+            Content = JsonContent.Create(new
+            {
+                code,
+                nameZhTw = "測試分類",
+                slug = slug ?? "slug-" + Guid.NewGuid().ToString("N")[..12],
+                description = (string?)null,
+                parentCategoryPublicId = (Guid?)null,
+                sortOrder = 0,
+                isActive = true,
+            }),
         });
 
     public static async Task<SeededCategory> CreateCategoryAsync(HttpClient client, string? code = null)
@@ -64,12 +74,15 @@ internal static class CatalogAdminApiSeeding
     }
 
     public static Task<HttpResponseMessage> PostTagAsync(HttpClient client, string code) =>
-        client.PostAsJsonAsync("/api/v1/admin/tags", new
+        CatalogAdminApiFixture.SendWithAntiforgeryAsync(client, new HttpRequestMessage(HttpMethod.Post, "/api/v1/admin/tags")
         {
-            code,
-            nameZhTw = "新品",
-            sortOrder = 0,
-            isActive = true,
+            Content = JsonContent.Create(new
+            {
+                code,
+                nameZhTw = "新品",
+                sortOrder = 0,
+                isActive = true,
+            }),
         });
 
     public static async Task<(Guid BrandPublicId, Guid CategoryPublicId)> CreateBrandAndCategoryAsync(HttpClient client)
@@ -81,16 +94,19 @@ internal static class CatalogAdminApiSeeding
 
     public static Task<HttpResponseMessage> PostProductAsync(
         HttpClient client, Guid brandPublicId, Guid categoryPublicId, string? code = null) =>
-        client.PostAsJsonAsync("/api/v1/admin/products", new
+        CatalogAdminApiFixture.SendWithAntiforgeryAsync(client, new HttpRequestMessage(HttpMethod.Post, "/api/v1/admin/products")
         {
-            productCode = code ?? CatalogAdminApiFixture.UniqueCode("PROD"),
-            nameZhTw = "測試商品",
-            brandPublicId,
-            categoryPublicId,
-            descriptionZhTw = (string?)null,
-            warrantyMonths = (int?)null,
-            tagPublicIds = Array.Empty<Guid>(),
-            status = "Draft",
+            Content = JsonContent.Create(new
+            {
+                productCode = code ?? CatalogAdminApiFixture.UniqueCode("PROD"),
+                nameZhTw = "測試商品",
+                brandPublicId,
+                categoryPublicId,
+                descriptionZhTw = (string?)null,
+                warrantyMonths = (int?)null,
+                tagPublicIds = Array.Empty<Guid>(),
+                status = "Draft",
+            }),
         });
 
     public static async Task<Guid> CreateProductWithCatalogAsync(HttpClient client)
@@ -103,19 +119,22 @@ internal static class CatalogAdminApiSeeding
     }
 
     public static Task<HttpResponseMessage> PostSkuAsync(HttpClient client, Guid productPublicId, string? code = null) =>
-        client.PostAsJsonAsync($"/api/v1/admin/products/{productPublicId}/skus", new
+        CatalogAdminApiFixture.SendWithAntiforgeryAsync(client, new HttpRequestMessage(HttpMethod.Post, $"/api/v1/admin/products/{productPublicId}/skus")
         {
-            skuCode = code ?? CatalogAdminApiFixture.UniqueCode("SKU"),
-            nameZhTw = "標準版",
-            listPrice = 10_000m,
-            unitCost = 7_000m,
-            weightKg = (decimal?)null,
-            lengthCm = (decimal?)null,
-            widthCm = (decimal?)null,
-            heightCm = (decimal?)null,
-            status = "Draft",
-            isDefault = false,
-            requiresPrepayment = false,
-            specifications = Array.Empty<object>(),
+            Content = JsonContent.Create(new
+            {
+                skuCode = code ?? CatalogAdminApiFixture.UniqueCode("SKU"),
+                nameZhTw = "標準版",
+                listPrice = 10_000m,
+                unitCost = 7_000m,
+                weightKg = (decimal?)null,
+                lengthCm = (decimal?)null,
+                widthCm = (decimal?)null,
+                heightCm = (decimal?)null,
+                status = "Draft",
+                isDefault = false,
+                requiresPrepayment = false,
+                specifications = Array.Empty<object>(),
+            }),
         });
 }

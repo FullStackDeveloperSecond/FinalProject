@@ -11,6 +11,7 @@ namespace DoSelect.Infrastructure.Tests.Catalog;
 public sealed class CatalogAdminCollection : ICollectionFixture<CatalogAdminFixture>;
 
 [Collection(nameof(CatalogAdminCollection))]
+[Trait("Category", "RequiresSqlServer")]
 public sealed class BrandAdminServiceTests
 {
     [Fact]
@@ -66,6 +67,7 @@ public sealed class BrandAdminServiceTests
 }
 
 [Collection(nameof(CatalogAdminCollection))]
+[Trait("Category", "RequiresSqlServer")]
 public sealed class CategoryAdminServiceTests
 {
     [Fact]
@@ -106,6 +108,7 @@ public sealed class CategoryAdminServiceTests
 }
 
 [Collection(nameof(CatalogAdminCollection))]
+[Trait("Category", "RequiresSqlServer")]
 public sealed class TagAdminServiceTests
 {
     [Fact]
@@ -122,6 +125,7 @@ public sealed class TagAdminServiceTests
 }
 
 [Collection(nameof(CatalogAdminCollection))]
+[Trait("Category", "RequiresSqlServer")]
 public sealed class ProductAdminServiceTests
 {
     [Fact]
@@ -214,6 +218,7 @@ public sealed class ProductAdminServiceTests
 }
 
 [Collection(nameof(CatalogAdminCollection))]
+[Trait("Category", "RequiresSqlServer")]
 public sealed class SkuAdminServiceTests
 {
     [Fact]

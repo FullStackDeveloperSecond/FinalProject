@@ -1,13 +1,13 @@
 using DoSelect.Api.Common;
+using DoSelect.Api.Security;
 using DoSelect.Application.Catalog;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace DoSelect.Api.Catalog;
 
-// TODO(catalog-search): add [Authorize(Policy = "CatalogManager")] once alex's
-// shared Cookie/Policy work package registers the CatalogManager policy
-// (工程包 2/6 節：Policy 由 alex 的共用工作包推進，本次不得以臨時授權替代)。
 [ApiController]
+[Authorize(Policy = DoSelectPolicies.CatalogManager)]
 public sealed class AdminSkusController : ControllerBase
 {
     private readonly ISkuAdminService _skuAdminService;
