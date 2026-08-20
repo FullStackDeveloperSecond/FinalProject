@@ -149,6 +149,10 @@ public static class SecurityServiceCollectionExtensions
             DoSelectRoles.OrderManager, DoSelectRoles.SuperAdmin);
         AddAdminPolicy(options, DoSelectPolicies.RefundExecute,
             DoSelectRoles.FinanceManager, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.InvoiceManage,
+            DoSelectRoles.FinanceManager, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.CouponManage,
+            DoSelectRoles.FinanceManager, DoSelectRoles.MarketingAnalyst, DoSelectRoles.SuperAdmin);
         AddAdminPolicy(options, DoSelectPolicies.ReportHighRiskReview,
             DoSelectRoles.CustomerServiceSupervisor, DoSelectRoles.SuperAdmin);
         AddAdminPolicy(options, DoSelectPolicies.RoleAssignmentManage,
