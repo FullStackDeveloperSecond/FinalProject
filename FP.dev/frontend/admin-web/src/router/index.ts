@@ -10,6 +10,37 @@ const router = createRouter({
       component: () => import('../pages/HomePage.vue'),
     },
     {
+      path: '/brands',
+      name: 'brands',
+      component: () => import('../pages/BrandsPage.vue'),
+    },
+    {
+      path: '/categories',
+      name: 'categories',
+      component: () => import('../pages/CategoriesPage.vue'),
+    },
+    {
+      path: '/tags',
+      name: 'tags',
+      component: () => import('../pages/TagsPage.vue'),
+    },
+    {
+      path: '/products',
+      name: 'products',
+      component: () => import('../pages/ProductsPage.vue'),
+    },
+    {
+      path: '/products/new',
+      name: 'product-new',
+      component: () => import('../pages/ProductEditPage.vue'),
+    },
+    {
+      path: '/products/:id/edit',
+      name: 'product-edit',
+      component: () => import('../pages/ProductEditPage.vue'),
+      props: true,
+    },
+    {
       path: '/unauthorized',
       name: 'unauthorized',
       component: HttpStatusPage,
