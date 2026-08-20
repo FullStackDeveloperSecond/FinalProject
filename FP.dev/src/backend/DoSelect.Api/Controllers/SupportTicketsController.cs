@@ -2,6 +2,7 @@ using System.Security.Claims;
 using DoSelect.Application.Common;
 using DoSelect.Application.Support;
 using DoSelect.Application.Support.Dtos;
+using DoSelect.Api.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -12,7 +13,7 @@ namespace DoSelect.Api.Controllers;
 /// tickets — a member can never see or affect another member's case (Actor Scope).
 /// </summary>
 [ApiController]
-[Authorize]
+[Authorize(Policy = DoSelectPolicies.Member)]
 [Route("api/v1/support-tickets")]
 public sealed class SupportTicketsController : ControllerBase
 {

@@ -2,12 +2,10 @@
 import { isApiError } from '@doselect/web-shared/api'
 import { computed, reactive } from 'vue'
 import { useRouter } from 'vue-router'
-import { useDevSessionStore } from '../../stores/devSession'
 import { useCreateSupportTicketMutation } from '../../features/support/queries'
 import { categoryLabels } from '../../features/support/labels'
 import type { SupportTicketCategory } from '../../features/support/types'
 
-const session = useDevSessionStore()
 const router = useRouter()
 const mutation = useCreateSupportTicketMutation()
 
@@ -41,12 +39,7 @@ async function handleSubmit() {
       建立客服案件
     </h1>
 
-    <p v-if="!session.isSignedIn">
-      請先登入才能建立客服案件。
-    </p>
-
     <form
-      v-else
       class="support-ticket-form"
       @submit.prevent="handleSubmit"
     >

@@ -2,12 +2,10 @@
 import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
 import { ref } from 'vue'
-import { useDevSessionStore } from '../../stores/devSession'
 import { useSupportTicketsQuery } from '../../features/support/queries'
 import { categoryLabels, formatDateTime, statusLabels } from '../../features/support/labels'
 import type { SupportTicketCategory, SupportTicketStatus } from '../../features/support/types'
 
-const session = useDevSessionStore()
 const statusFilter = ref<SupportTicketStatus | ''>('')
 const categoryFilter = ref<SupportTicketCategory | ''>('')
 
@@ -31,103 +29,97 @@ const { data, isPending, isError, error, refetch } = useSupportTicketsQuery(() =
       </RouterLink>
     </div>
 
-    <p v-if="!session.isSignedIn">
-      請先登入才能查看您的客服案件。
-    </p>
-
-    <template v-else>
-      <div class="support-tickets__filters">
-        <label>
-          狀態
-          <select v-model="statusFilter">
-            <option value="">
-              全部
-            </option>
-            <option
-              v-for="(label, value) in statusLabels"
-              :key="value"
-              :value="value"
-            >
-              {{ label }}
-            </option>
-          </select>
-        </label>
-        <label>
-          分類
-          <select v-model="categoryFilter">
-            <option value="">
-              全部
-            </option>
-            <option
-              v-for="(label, value) in categoryLabels"
-              :key="value"
-              :value="value"
-            >
-              {{ label }}
-            </option>
-          </select>
-        </label>
-      </div>
-
-      <LoadingState v-if="isPending" />
-      <ErrorState
-        v-else-if="isError"
-        :description="isApiError(error) ? error.message : '請稍後再試一次。'"
-        :correlation-id="isApiError(error) ? error.correlationId : undefined"
-        :trace-id="isApiError(error) ? error.traceId : undefined"
-        @retry="refetch()"
-      />
-      <EmptyState
-        v-else-if="data && data.items.length === 0"
-        title="目前沒有客服案件"
-        description="建立新案件後，會顯示在這裡。"
-      />
-      <table
-        v-else-if="data"
-        class="support-tickets__table"
-      >
-        <thead>
-          <tr>
-            <th scope="col">
-              案件編號
-            </th>
-            <th scope="col">
-              分類
-            </th>
-            <th scope="col">
-              主旨
-            </th>
-            <th scope="col">
-              狀態
-            </th>
-            <th scope="col">
-              最後活動時間
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="ticket in data.items"
-            :key="ticket.publicId"
+    <div class="support-tickets__filters">
+      <label>
+        狀態
+        <select v-model="statusFilter">
+          <option value="">
+            全部
+          </option>
+          <option
+            v-for="(label, value) in statusLabels"
+            :key="value"
+            :value="value"
           >
-            <td>
-              <RouterLink :to="`/support/tickets/${ticket.publicId}`">
-                {{ ticket.ticketNumber }}
-              </RouterLink>
-            </td>
-            <td>{{ categoryLabels[ticket.category] }}</td>
-            <td>{{ ticket.subject }}</td>
-            <td>
-              <span class="support-tickets__status">{{ statusLabels[ticket.status] }}</span>
-            </td>
-            <td>{{ formatDateTime(ticket.lastActivityAtUtc) }}</td>
-          </tr>
-        </tbody>
-      </table>
-      <p class="support-tickets__count">
-        共 {{ data?.totalCount ?? 0 }} 筆
-      </p>
-    </template>
+            {{ label }}
+          </option>
+        </select>
+      </label>
+      <label>
+        分類
+        <select v-model="categoryFilter">
+          <option value="">
+            全部
+          </option>
+          <option
+            v-for="(label, value) in categoryLabels"
+            :key="value"
+            :value="value"
+          >
+            {{ label }}
+          </option>
+        </select>
+      </label>
+    </div>
+
+    <LoadingState v-if="isPending" />
+    <ErrorState
+      v-else-if="isError"
+      :description="isApiError(error) ? error.message : '請稍後再試一次。'"
+      :correlation-id="isApiError(error) ? error.correlationId : undefined"
+      :trace-id="isApiError(error) ? error.traceId : undefined"
+      @retry="refetch()"
+    />
+    <EmptyState
+      v-else-if="data && data.items.length === 0"
+      title="目前沒有客服案件"
+      description="建立新案件後，會顯示在這裡。"
+    />
+    <table
+      v-else-if="data"
+      class="support-tickets__table"
+    >
+      <thead>
+        <tr>
+          <th scope="col">
+            案件編號
+          </th>
+          <th scope="col">
+            分類
+          </th>
+          <th scope="col">
+            主旨
+          </th>
+          <th scope="col">
+            狀態
+          </th>
+          <th scope="col">
+            最後活動時間
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr
+          v-for="ticket in data.items"
+          :key="ticket.publicId"
+        >
+          <td>
+            <RouterLink :to="`/support/tickets/${ticket.publicId}`">
+              {{ ticket.ticketNumber }}
+            </RouterLink>
+          </td>
+          <td>{{ categoryLabels[ticket.category] }}</td>
+          <td>{{ ticket.subject }}</td>
+          <td>
+            <span class="support-tickets__status">{{ statusLabels[ticket.status] }}</span>
+          </td>
+          <td>{{ formatDateTime(ticket.lastActivityAtUtc) }}</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="support-tickets__count">
+      共 {{ data?.totalCount ?? 0 }} 筆
+    </p>
   </section>
 </template>
 

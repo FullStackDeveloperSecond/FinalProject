@@ -1,4 +1,4 @@
-using DoSelect.Api.Common;
+using DoSelect.Api.Security;
 using DoSelect.Application.Common;
 using DoSelect.Application.Support.Admin;
 using DoSelect.Application.Support.Admin.Dtos;
@@ -13,7 +13,7 @@ namespace DoSelect.Api.Controllers;
 /// who satisfies SupportTicket.Handle is authorized for Support-scoped rows only.
 /// </summary>
 [ApiController]
-[Authorize(Policy = SupportAuthorizationPolicies.Handle)]
+[Authorize(Policy = DoSelectPolicies.SupportTicketHandle)]
 [Route("api/v1/admin/case-workbench")]
 public sealed class CaseWorkbenchController : ControllerBase
 {

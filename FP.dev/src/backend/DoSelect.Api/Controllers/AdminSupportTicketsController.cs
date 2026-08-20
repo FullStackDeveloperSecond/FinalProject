@@ -1,5 +1,5 @@
 using System.Security.Claims;
-using DoSelect.Api.Common;
+using DoSelect.Api.Security;
 using DoSelect.Application.Common;
 using DoSelect.Application.Support.Admin;
 using DoSelect.Application.Support.Admin.Dtos;
@@ -14,7 +14,7 @@ namespace DoSelect.Api.Controllers;
 /// SupportTicket.Handle policy (CustomerService or CustomerServiceSupervisor).
 /// </summary>
 [ApiController]
-[Authorize(Policy = SupportAuthorizationPolicies.Handle)]
+[Authorize(Policy = DoSelectPolicies.SupportTicketHandle)]
 [Route("api/v1/admin/support-tickets")]
 public sealed class AdminSupportTicketsController : ControllerBase
 {

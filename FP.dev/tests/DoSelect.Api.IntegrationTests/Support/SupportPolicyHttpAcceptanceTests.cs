@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Json;
 using DoSelect.Api.Common;
+using DoSelect.Api.Security;
 using DoSelect.Application.Common;
 using DoSelect.Application.Support.Admin;
 using DoSelect.Application.Support.Admin.Dtos;
@@ -26,14 +27,14 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
 
     public static TheoryData<string, string[], bool> PolicyMatrix => new()
     {
-        { SupportAuthorizationPolicies.Handle, ["CustomerService"], true },
-        { SupportAuthorizationPolicies.Handle, ["CustomerServiceSupervisor"], true },
-        { SupportAuthorizationPolicies.Handle, ["SuperAdmin"], false },
-        { SupportAuthorizationPolicies.Handle, ["SuperAdmin", "CustomerService"], true },
-        { SupportAuthorizationPolicies.Handle, ["SuperAdmin", "CustomerServiceSupervisor"], true },
-        { SupportAuthorizationPolicies.Supervise, ["CustomerServiceSupervisor"], true },
-        { SupportAuthorizationPolicies.Supervise, ["SuperAdmin"], true },
-        { SupportAuthorizationPolicies.Supervise, ["CustomerService"], false },
+        { DoSelectPolicies.SupportTicketHandle, [DoSelectRoles.CustomerService], true },
+        { DoSelectPolicies.SupportTicketHandle, [DoSelectRoles.CustomerServiceSupervisor], true },
+        { DoSelectPolicies.SupportTicketHandle, [DoSelectRoles.SuperAdmin], false },
+        { DoSelectPolicies.SupportTicketHandle, [DoSelectRoles.SuperAdmin, DoSelectRoles.CustomerService], true },
+        { DoSelectPolicies.SupportTicketHandle, [DoSelectRoles.SuperAdmin, DoSelectRoles.CustomerServiceSupervisor], true },
+        { DoSelectPolicies.SupportTicketSupervise, [DoSelectRoles.CustomerServiceSupervisor], true },
+        { DoSelectPolicies.SupportTicketSupervise, [DoSelectRoles.SuperAdmin], true },
+        { DoSelectPolicies.SupportTicketSupervise, [DoSelectRoles.CustomerService], false },
     };
 
     [Theory]
@@ -42,7 +43,10 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
     {
         using var scope = _baseFactory.Services.CreateScope();
         var authorization = scope.ServiceProvider.GetRequiredService<IAuthorizationService>();
-        var identity = new ClaimsIdentity(roles.Select(role => new Claim(ClaimTypes.Role, role)), "matrix");
+        var claims = roles.Select(role => new Claim(ClaimTypes.Role, role)).ToList();
+        claims.Add(new Claim(DoSelectClaimTypes.AccountType, DoSelectClaimValues.Admin));
+        claims.Add(new Claim(DoSelectClaimTypes.AuthenticationMethod, DoSelectClaimValues.MultiFactor));
+        var identity = new ClaimsIdentity(claims, DoSelectAuthenticationSchemes.Admin);
 
         var result = await authorization.AuthorizeAsync(new ClaimsPrincipal(identity), null, policy);
 
@@ -56,9 +60,10 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
         using var factory = CreateFactory(fakes);
         using var client = factory.CreateClient();
 
-        using var response = await client.PostAsJsonAsync(
+        using var response = await client.PostAsJsonWithAntiforgeryAsync(
             $"/api/v1/admin/support-tickets/{Guid.NewGuid()}/actions/claim",
-            new { rowVersion = Convert.ToBase64String(new byte[8]) });
+            new { rowVersion = Convert.ToBase64String(new byte[8]) },
+            DoSelectClaimValues.Admin);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.Equal(0, fakes.ClaimCalls);
@@ -73,9 +78,10 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
         using var factory = CreateFactory(fakes);
         using var client = CreateClient(factory, role);
 
-        using var claim = await client.PostAsJsonAsync(
+        using var claim = await client.PostAsJsonWithAntiforgeryAsync(
             $"/api/v1/admin/support-tickets/{Guid.NewGuid()}/actions/claim",
-            new { rowVersion = Convert.ToBase64String(new byte[8]) });
+            new { rowVersion = Convert.ToBase64String(new byte[8]) },
+            DoSelectClaimValues.Admin);
         using var sla = await client.GetAsync("/api/v1/admin/support-tickets/sla?pageSize=17&cursor=opaque");
         using var workbench = await client.GetAsync("/api/v1/admin/case-workbench?pageSize=19");
 
@@ -93,9 +99,10 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
         using var client = CreateClient(factory, "CustomerService");
         var ticketId = Guid.NewGuid();
 
-        using var response = await client.PostAsJsonAsync(
+        using var response = await client.PostAsJsonWithAntiforgeryAsync(
             $"/api/v1/admin/support-tickets/{ticketId}/actions/claim",
-            new { rowVersion = Convert.ToBase64String(new byte[8]) });
+            new { rowVersion = Convert.ToBase64String(new byte[8]) },
+            DoSelectClaimValues.Admin);
         using var json = await ReadJsonAsync(response);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -115,9 +122,10 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
         using var client = CreateClient(factory, "CustomerServiceSupervisor");
         client.DefaultRequestHeaders.Add(CorrelationIdMiddleware.HeaderName, correlationId);
 
-        using var response = await client.PostAsJsonAsync(
+        using var response = await client.PostAsJsonWithAntiforgeryAsync(
             $"/api/v1/admin/support-tickets/{Guid.NewGuid()}/actions/claim",
-            new { rowVersion = Convert.ToBase64String(new byte[8]) });
+            new { rowVersion = Convert.ToBase64String(new byte[8]) },
+            DoSelectClaimValues.Admin);
         using var json = await ReadJsonAsync(response);
         var root = json.RootElement;
 
@@ -171,8 +179,7 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
     private WebApplicationFactory<Program> CreateFactory(SupportHttpFakes fakes) =>
         _baseFactory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
         {
-            services.AddAuthentication(TestAuthHandler.SchemeName)
-                .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { });
+            TestAuthHandler.Configure(services);
             services.RemoveAll<IAdminSupportTicketService>();
             services.RemoveAll<ISupportSlaQueueService>();
             services.RemoveAll<ICaseWorkbenchService>();

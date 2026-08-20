@@ -47,7 +47,6 @@ builder.Services.AddHostedService<EmailDispatchBackgroundService>();
 builder.Services.AddHostedService<UnverifiedMemberCleanupBackgroundService>();
 
 builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddSupportAuthorizationPolicies();
 builder.Services.AddSupportInfrastructure();
 builder.Services.AddScoped<ISupportTicketService, SupportTicketService>();
 builder.Services.AddScoped<IAdminSupportTicketService, AdminSupportTicketService>();

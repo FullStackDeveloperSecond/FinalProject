@@ -1,6 +1,11 @@
 using System.Security.Claims;
 using System.Text.Encodings.Web;
+using System.Net.Http.Json;
+using System.Text.Json;
+using DoSelect.Api.Security;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -18,6 +23,32 @@ public sealed class TestAuthHandler : AuthenticationHandler<AuthenticationScheme
     public const string MemberHeaderName = "X-Test-Member-Id";
     public const string RolesHeaderName = "X-Test-Roles";
 
+    public static void Configure(IServiceCollection services)
+    {
+        services
+            .AddAuthentication(SchemeName)
+            .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(SchemeName, _ => { });
+        services.AddAuthorization(options =>
+        {
+            options.AddPolicy(DoSelectPolicies.Member, new AuthorizationPolicyBuilder(SchemeName)
+                .RequireAuthenticatedUser()
+                .RequireClaim(DoSelectClaimTypes.AccountType, DoSelectClaimValues.Member)
+                .Build());
+            options.AddPolicy(DoSelectPolicies.SupportTicketHandle, new AuthorizationPolicyBuilder(SchemeName)
+                .RequireAuthenticatedUser()
+                .RequireClaim(DoSelectClaimTypes.AccountType, DoSelectClaimValues.Admin)
+                .RequireClaim(DoSelectClaimTypes.AuthenticationMethod, DoSelectClaimValues.MultiFactor)
+                .RequireRole(DoSelectRoles.CustomerService, DoSelectRoles.CustomerServiceSupervisor)
+                .Build());
+            options.AddPolicy(DoSelectPolicies.SupportTicketSupervise, new AuthorizationPolicyBuilder(SchemeName)
+                .RequireAuthenticatedUser()
+                .RequireClaim(DoSelectClaimTypes.AccountType, DoSelectClaimValues.Admin)
+                .RequireClaim(DoSelectClaimTypes.AuthenticationMethod, DoSelectClaimValues.MultiFactor)
+                .RequireRole(DoSelectRoles.CustomerServiceSupervisor, DoSelectRoles.SuperAdmin)
+                .Build());
+        });
+    }
+
     public TestAuthHandler(
         IOptionsMonitor<AuthenticationSchemeOptions> options,
         ILoggerFactory logger,
@@ -34,9 +65,19 @@ public sealed class TestAuthHandler : AuthenticationHandler<AuthenticationScheme
             return Task.FromResult(AuthenticateResult.NoResult());
         }
 
-        var claims = new List<Claim> { new(ClaimTypes.NameIdentifier, memberId.ToString()) };
-        if (Request.Headers.TryGetValue(RolesHeaderName, out var roles))
+        var hasRoles = Request.Headers.TryGetValue(RolesHeaderName, out var roles)
+            && !string.IsNullOrWhiteSpace(roles);
+        var claims = new List<Claim>
         {
+            new(ClaimTypes.NameIdentifier, memberId.ToString()),
+            new(DoSelectClaimTypes.AccountType,
+                hasRoles ? DoSelectClaimValues.Admin : DoSelectClaimValues.Member),
+        };
+        if (hasRoles)
+        {
+            claims.Add(new Claim(
+                DoSelectClaimTypes.AuthenticationMethod,
+                DoSelectClaimValues.MultiFactor));
             claims.AddRange(roles.ToString()
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Select(role => new Claim(ClaimTypes.Role, role)));
@@ -45,5 +86,31 @@ public sealed class TestAuthHandler : AuthenticationHandler<AuthenticationScheme
         var identity = new ClaimsIdentity(claims, SchemeName);
         var ticket = new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName);
         return Task.FromResult(AuthenticateResult.Success(ticket));
+    }
+}
+
+public static class AntiforgeryTestClient
+{
+    public static async Task<HttpResponseMessage> PostAsJsonWithAntiforgeryAsync<T>(
+        this HttpClient client,
+        string requestUri,
+        T value,
+        string clientType)
+    {
+        using var tokenRequest = new HttpRequestMessage(
+            HttpMethod.Get,
+            "/api/v1/security/antiforgery-token");
+        tokenRequest.Headers.Add(SecurityController.ClientHeaderName, clientType);
+        using var tokenResponse = await client.SendAsync(tokenRequest);
+        tokenResponse.EnsureSuccessStatusCode();
+        using var tokenDocument = JsonDocument.Parse(await tokenResponse.Content.ReadAsStringAsync());
+        var token = tokenDocument.RootElement.GetProperty("requestToken").GetString()!;
+
+        var request = new HttpRequestMessage(HttpMethod.Post, requestUri)
+        {
+            Content = JsonContent.Create(value),
+        };
+        request.Headers.Add("X-XSRF-TOKEN", token);
+        return await client.SendAsync(request);
     }
 }

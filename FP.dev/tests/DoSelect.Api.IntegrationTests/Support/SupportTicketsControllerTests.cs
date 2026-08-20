@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using DoSelect.Api.Common;
+using DoSelect.Api.Security;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using Microsoft.AspNetCore.Authentication;
@@ -35,9 +36,7 @@ public sealed class SupportTicketsControllerTests : IClassFixture<WebApplication
         {
             builder.ConfigureTestServices(services =>
             {
-                services
-                    .AddAuthentication(TestAuthHandler.SchemeName)
-                    .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ => { });
+                TestAuthHandler.Configure(services);
             });
         });
     }
@@ -69,12 +68,12 @@ public sealed class SupportTicketsControllerTests : IClassFixture<WebApplication
     {
         using var client = CreateClient(_memberAId);
 
-        using var createResponse = await client.PostAsJsonAsync("/api/v1/support-tickets", new
+        using var createResponse = await client.PostAsJsonWithAntiforgeryAsync("/api/v1/support-tickets", new
         {
             category = "order",
             subject = "訂單延遲問題",
             message = "我的包裹已經超過預計送達時間三天了",
-        });
+        }, DoSelectClaimValues.Member);
         var created = await ReadJsonAsync(createResponse);
 
         Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
@@ -94,12 +93,12 @@ public sealed class SupportTicketsControllerTests : IClassFixture<WebApplication
     public async Task GetDetail_WhenTicketBelongsToAnotherMember_Returns404NotForbidden()
     {
         using var ownerClient = CreateClient(_memberAId);
-        using var createResponse = await ownerClient.PostAsJsonAsync("/api/v1/support-tickets", new
+        using var createResponse = await ownerClient.PostAsJsonWithAntiforgeryAsync("/api/v1/support-tickets", new
         {
             category = "account",
             subject = "帳號登入問題",
             message = "我無法登入我的帳號，一直顯示密碼錯誤",
-        });
+        }, DoSelectClaimValues.Member);
         var created = await ReadJsonAsync(createResponse);
         var publicId = created.RootElement.GetProperty("publicId").GetString();
 
@@ -115,19 +114,20 @@ public sealed class SupportTicketsControllerTests : IClassFixture<WebApplication
     public async Task Cancel_WhenOpenWithNoReply_TransitionsToCancelled()
     {
         using var client = CreateClient(_memberAId);
-        using var createResponse = await client.PostAsJsonAsync("/api/v1/support-tickets", new
+        using var createResponse = await client.PostAsJsonWithAntiforgeryAsync("/api/v1/support-tickets", new
         {
             category = "other",
             subject = "測試取消案件",
             message = "這是一個要被取消的測試案件內容",
-        });
+        }, DoSelectClaimValues.Member);
         var created = await ReadJsonAsync(createResponse);
         var publicId = created.RootElement.GetProperty("publicId").GetString();
         var rowVersion = created.RootElement.GetProperty("rowVersion").GetString();
 
-        using var cancelResponse = await client.PostAsJsonAsync(
+        using var cancelResponse = await client.PostAsJsonWithAntiforgeryAsync(
             $"/api/v1/support-tickets/{publicId}/actions/cancel",
-            new { reasonCode = "no-longer-needed", rowVersion });
+            new { reasonCode = "no-longer-needed", rowVersion },
+            DoSelectClaimValues.Member);
         var cancelled = await ReadJsonAsync(cancelResponse);
 
         Assert.Equal(HttpStatusCode.OK, cancelResponse.StatusCode);
@@ -138,25 +138,27 @@ public sealed class SupportTicketsControllerTests : IClassFixture<WebApplication
     public async Task AddMessage_WhenRowVersionIsStale_Returns409ConcurrencyConflict()
     {
         using var client = CreateClient(_memberAId);
-        using var createResponse = await client.PostAsJsonAsync("/api/v1/support-tickets", new
+        using var createResponse = await client.PostAsJsonWithAntiforgeryAsync("/api/v1/support-tickets", new
         {
             category = "other",
             subject = "測試併發案件",
             message = "這是一個要測試併發衝突的測試案件內容",
-        });
+        }, DoSelectClaimValues.Member);
         var created = await ReadJsonAsync(createResponse);
         var publicId = created.RootElement.GetProperty("publicId").GetString();
         var staleRowVersion = created.RootElement.GetProperty("rowVersion").GetString();
 
         // First write with the real (current) RowVersion succeeds and advances it.
-        await client.PostAsJsonAsync(
+        using var firstResponse = await client.PostAsJsonWithAntiforgeryAsync(
             $"/api/v1/support-tickets/{publicId}/messages",
-            new { body = "第一則追加訊息", rowVersion = staleRowVersion });
+            new { body = "第一則追加訊息", rowVersion = staleRowVersion },
+            DoSelectClaimValues.Member);
 
         // Second write reuses the now-stale RowVersion captured before the first write.
-        using var response = await client.PostAsJsonAsync(
+        using var response = await client.PostAsJsonWithAntiforgeryAsync(
             $"/api/v1/support-tickets/{publicId}/messages",
-            new { body = "第二則追加訊息", rowVersion = staleRowVersion });
+            new { body = "第二則追加訊息", rowVersion = staleRowVersion },
+            DoSelectClaimValues.Member);
         using var document = await ReadProblemDetailsAsync(response);
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
@@ -167,18 +169,19 @@ public sealed class SupportTicketsControllerTests : IClassFixture<WebApplication
     public async Task AddMessage_WhenRowVersionIsOmitted_Returns400ValidationFailedNotConflict()
     {
         using var client = CreateClient(_memberAId);
-        using var createResponse = await client.PostAsJsonAsync("/api/v1/support-tickets", new
+        using var createResponse = await client.PostAsJsonWithAntiforgeryAsync("/api/v1/support-tickets", new
         {
             category = "other",
             subject = "RowVersion 缺漏測試",
             message = "測試訊息缺少 RowVersion 欄位",
-        });
+        }, DoSelectClaimValues.Member);
         var created = await ReadJsonAsync(createResponse);
         var publicId = created.RootElement.GetProperty("publicId").GetString();
 
-        using var response = await client.PostAsJsonAsync(
+        using var response = await client.PostAsJsonWithAntiforgeryAsync(
             $"/api/v1/support-tickets/{publicId}/messages",
-            new { body = "缺少 RowVersion 的訊息" });
+            new { body = "缺少 RowVersion 的訊息" },
+            DoSelectClaimValues.Member);
         using var document = await ReadProblemDetailsAsync(response);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -189,18 +192,19 @@ public sealed class SupportTicketsControllerTests : IClassFixture<WebApplication
     public async Task Cancel_WhenRowVersionIsWrongLength_Returns400ValidationFailedNotConflict()
     {
         using var client = CreateClient(_memberAId);
-        using var createResponse = await client.PostAsJsonAsync("/api/v1/support-tickets", new
+        using var createResponse = await client.PostAsJsonWithAntiforgeryAsync("/api/v1/support-tickets", new
         {
             category = "other",
             subject = "RowVersion 長度測試",
             message = "測試取消時 RowVersion 長度錯誤",
-        });
+        }, DoSelectClaimValues.Member);
         var created = await ReadJsonAsync(createResponse);
         var publicId = created.RootElement.GetProperty("publicId").GetString();
 
-        using var response = await client.PostAsJsonAsync(
+        using var response = await client.PostAsJsonWithAntiforgeryAsync(
             $"/api/v1/support-tickets/{publicId}/actions/cancel",
-            new { reasonCode = "no-longer-needed", rowVersion = Convert.ToBase64String([1, 2, 3, 4]) });
+            new { reasonCode = "no-longer-needed", rowVersion = Convert.ToBase64String([1, 2, 3, 4]) },
+            DoSelectClaimValues.Member);
         using var document = await ReadProblemDetailsAsync(response);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -211,18 +215,19 @@ public sealed class SupportTicketsControllerTests : IClassFixture<WebApplication
     public async Task AddMessage_WhenRowVersionIsNotValidBase64_Returns400ValidationFailed()
     {
         using var client = CreateClient(_memberAId);
-        using var createResponse = await client.PostAsJsonAsync("/api/v1/support-tickets", new
+        using var createResponse = await client.PostAsJsonWithAntiforgeryAsync("/api/v1/support-tickets", new
         {
             category = "other",
             subject = "RowVersion Base64 測試",
             message = "測試 RowVersion 不是合法 Base64",
-        });
+        }, DoSelectClaimValues.Member);
         var created = await ReadJsonAsync(createResponse);
         var publicId = created.RootElement.GetProperty("publicId").GetString();
 
-        using var response = await client.PostAsJsonAsync(
+        using var response = await client.PostAsJsonWithAntiforgeryAsync(
             $"/api/v1/support-tickets/{publicId}/messages",
-            new { body = "非法 Base64 的訊息", rowVersion = "not-valid-base64!!" });
+            new { body = "非法 Base64 的訊息", rowVersion = "not-valid-base64!!" },
+            DoSelectClaimValues.Member);
         using var document = await ReadProblemDetailsAsync(response);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);

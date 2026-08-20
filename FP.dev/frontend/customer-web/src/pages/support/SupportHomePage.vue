@@ -1,23 +1,9 @@
-<script setup lang="ts">
-import { useDevSessionStore } from '../../stores/devSession'
-
-const session = useDevSessionStore()
-</script>
-
 <template>
   <section aria-labelledby="support-home-title">
     <h1 id="support-home-title">
       客服中心
     </h1>
     <p>人工客服僅開放給已登入會員使用；訪客請改用退貨查詢的訂單 Email 驗證入口。</p>
-
-    <p
-      v-if="!session.isSignedIn"
-      class="shared-state"
-      role="status"
-    >
-      您尚未登入，暫時無法建立或查看客服案件。
-    </p>
 
     <div class="support-home__cards">
       <article class="support-home__card">

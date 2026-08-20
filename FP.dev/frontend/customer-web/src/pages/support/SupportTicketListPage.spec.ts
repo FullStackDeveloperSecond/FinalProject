@@ -6,8 +6,6 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import SupportTicketListPage from './SupportTicketListPage.vue'
 
-const sessionStorageKey = 'doselect.dev-session'
-
 // openapi-fetch resolves `fetch` once at client-creation time, so vi.stubGlobal('fetch', ...)
 // never reaches the module-level `apiClient` singleton created in ../../api/client.ts —
 // mirrors the pattern already used in src/api/shared-api.spec.ts (inject fetch directly).
@@ -46,7 +44,6 @@ function samplePage() {
 
 describe('supportTicketListPage', () => {
   beforeEach(() => {
-    localStorage.setItem(sessionStorageKey, 'kafen-test-member-a@doselect.local')
     setActivePinia(createPinia())
   })
 
@@ -60,7 +57,9 @@ describe('supportTicketListPage', () => {
     const router = createRouter({ history: createMemoryHistory(), routes: [] })
     const wrapper = mount(SupportTicketListPage, {
       global: {
-        plugins: [router, [VueQueryPlugin, { queryClient: new QueryClient() }]],
+        plugins: [router, [VueQueryPlugin, {
+          queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+        }]],
       },
     })
 
@@ -72,19 +71,29 @@ describe('supportTicketListPage', () => {
     expect(wrapper.text()).toContain('共 1 筆')
   })
 
-  it('prompts an anonymous visitor to sign in instead of calling the API', () => {
-    localStorage.clear()
-    const fetchSpy = vi.fn(fetchStub)
+  it('lets the formal member policy reject an anonymous request', async () => {
+    const fetchSpy = vi.fn(async () => Response.json({
+      title: 'Authentication required',
+      status: 401,
+      code: 'authentication_required',
+    }, {
+      status: 401,
+      headers: { 'Content-Type': 'application/problem+json' },
+    }))
     fetchStub = fetchSpy
 
     const router = createRouter({ history: createMemoryHistory(), routes: [] })
     const wrapper = mount(SupportTicketListPage, {
       global: {
-        plugins: [router, [VueQueryPlugin, { queryClient: new QueryClient() }]],
+        plugins: [router, [VueQueryPlugin, {
+          queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+        }]],
       },
     })
 
-    expect(wrapper.text()).toContain('請先登入')
-    expect(fetchSpy).not.toHaveBeenCalled()
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('Authentication required')
+    })
+    expect(fetchSpy).toHaveBeenCalledOnce()
   })
 })
