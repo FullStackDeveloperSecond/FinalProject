@@ -17,6 +17,18 @@
         <RouterLink to="/">
           首頁
         </RouterLink>
+        <RouterLink to="/brands">
+          品牌管理
+        </RouterLink>
+        <RouterLink to="/categories">
+          分類管理
+        </RouterLink>
+        <RouterLink to="/tags">
+          標籤管理
+        </RouterLink>
+        <RouterLink to="/products">
+          商品管理
+        </RouterLink>
       </aside>
       <main class="site-main">
         <RouterView />
