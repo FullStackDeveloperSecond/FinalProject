@@ -38,3 +38,10 @@ public sealed class ObservabilityOptions
 
     public bool FileLoggingEnabled { get; set; } = true;
 }
+
+public sealed class CorsOptions
+{
+    public const string SectionName = "Cors";
+
+    public string[] AllowedOrigins { get; set; } = [];
+}

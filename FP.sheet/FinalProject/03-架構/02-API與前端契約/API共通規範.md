@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-18
+最後更新: 2026-08-20
 追蹤項目:
   - DES-09
   - DES-11
@@ -60,6 +60,7 @@
 - 所有會改變狀態的請求都必須附帶 Anti-forgery Token Header，API 同時驗證 Cookie 與 Token。
 - `GET`、`HEAD` 等安全方法不得產生商業資料副作用。
 - 前端以 `GET /api/v1/security/antiforgery-token` 取得 Request Token；回應使用 `Cache-Control: no-store`，Token 只保存在記憶體，不寫入 localStorage／sessionStorage。
+- Token Endpoint 必須帶 `X-DoSelect-Client: member` 或 `X-DoSelect-Client: admin`，API 只以指定的 Cookie Scheme 綁定當前身分；缺少或使用其他值固定回 400 `validation_failed`，不得嘗試合併兩種登入身分。
 - 共用 fetch wrapper 對 `POST`、`PUT`、`PATCH`、`DELETE` 加入 `X-XSRF-TOKEN`；登入、登出或切換會員／管理員 Scheme 後重新取得 Token。
 - API 對 Cookie 認證的非安全方法套用全域 Antiforgery 驗證；失敗回 400 Problem Details 與 `antiforgery_validation_failed`，不回傳 Token 內容。
 

@@ -32,13 +32,54 @@ public static class ConfigurationValidationExtensions
             .AddOptions<ObservabilityOptions>()
             .BindConfiguration(ObservabilityOptions.SectionName)
             .ValidateOnStart();
+        services
+            .AddOptions<CorsOptions>()
+            .BindConfiguration(CorsOptions.SectionName)
+            .ValidateOnStart();
 
         services.AddSingleton<IValidateOptions<StorageOptions>, StorageOptionsValidator>();
         services.AddSingleton<IValidateOptions<OpenAiOptions>, OpenAiOptionsValidator>();
         services.AddSingleton<IValidateOptions<SmtpEmailOptions>, EmailOptionsValidator>();
         services.AddSingleton<IValidateOptions<DemoOptions>, DemoOptionsValidator>();
+        services.AddSingleton<IValidateOptions<CorsOptions>, CorsOptionsValidator>();
 
         return services;
+    }
+}
+
+internal sealed class CorsOptionsValidator : IValidateOptions<CorsOptions>
+{
+    public ValidateOptionsResult Validate(string? name, CorsOptions options)
+    {
+        if (options.AllowedOrigins.Length == 0)
+        {
+            return ValidateOptionsResult.Fail(
+                "Configuration key 'Cors:AllowedOrigins' must contain at least one origin.");
+        }
+
+        var normalizedOrigins = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var rawOrigin in options.AllowedOrigins)
+        {
+            if (!Uri.TryCreate(rawOrigin, UriKind.Absolute, out var origin) ||
+                origin.Scheme is not ("http" or "https") ||
+                !string.IsNullOrEmpty(origin.UserInfo) ||
+                origin.AbsolutePath != "/" ||
+                !string.IsNullOrEmpty(origin.Query) ||
+                !string.IsNullOrEmpty(origin.Fragment))
+            {
+                return ValidateOptionsResult.Fail(
+                    "Each value in 'Cors:AllowedOrigins' must be an HTTP or HTTPS origin without a path, query, fragment, or credentials.");
+            }
+
+            var normalizedOrigin = origin.GetLeftPart(UriPartial.Authority);
+            if (!normalizedOrigins.Add(normalizedOrigin))
+            {
+                return ValidateOptionsResult.Fail(
+                    "Configuration key 'Cors:AllowedOrigins' must not contain duplicate origins.");
+            }
+        }
+
+        return ValidateOptionsResult.Success;
     }
 }
 

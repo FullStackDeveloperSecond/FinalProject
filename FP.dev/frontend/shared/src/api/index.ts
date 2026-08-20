@@ -1,5 +1,7 @@
 export { createDoSelectClient, resolveApiBaseUrl } from './client'
 export type { DoSelectClientOptions } from './client'
+export { createAntiforgeryTokenProvider } from './antiforgery'
+export type { AntiforgeryTokenProvider, AntiforgeryTokenProviderOptions } from './antiforgery'
 export { createCorrelationId, isValidCorrelationId } from './correlation-id'
 export { ApiError, createApiError, createNetworkError, isApiError } from './errors'
 export type { ProblemDetails } from './errors'

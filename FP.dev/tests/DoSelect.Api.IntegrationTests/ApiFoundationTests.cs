@@ -4,7 +4,9 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using DoSelect.Api.Common;
+using DoSelect.Api.Security;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
@@ -42,12 +44,14 @@ public sealed class ApiFoundationTests : IClassFixture<WebApplicationFactory<Pro
     public async Task PostValidation_WhenBodyIsInvalid_ReturnsValidationProblemDetails()
     {
         using var factory = CreateFactory();
-        using var client = factory.CreateClient();
+        using var client = CreateHttpsClient(factory);
+        var antiforgeryToken = await GetAntiforgeryTokenAsync(client);
         using var request = new HttpRequestMessage(HttpMethod.Post, "/__tests/api-foundation/validation")
         {
             Content = JsonContent.Create(new { }),
         };
         request.Headers.Add(CorrelationIdMiddleware.HeaderName, CorrelationId);
+        request.Headers.Add("X-XSRF-TOKEN", antiforgeryToken);
 
         using var response = await client.SendAsync(request);
         using var document = await ReadProblemDetailsAsync(response);
@@ -66,10 +70,16 @@ public sealed class ApiFoundationTests : IClassFixture<WebApplicationFactory<Pro
     public async Task PostValidation_WhenJsonIsMalformed_ReturnsValidationProblemDetails()
     {
         using var factory = CreateFactory();
-        using var client = factory.CreateClient();
+        using var client = CreateHttpsClient(factory);
+        var antiforgeryToken = await GetAntiforgeryTokenAsync(client);
         using var content = new StringContent("{\"name\":", Encoding.UTF8, "application/json");
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/__tests/api-foundation/validation")
+        {
+            Content = content,
+        };
+        request.Headers.Add("X-XSRF-TOKEN", antiforgeryToken);
 
-        using var response = await client.PostAsync("/__tests/api-foundation/validation", content);
+        using var response = await client.SendAsync(request);
         using var document = await ReadProblemDetailsAsync(response);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -155,10 +165,16 @@ public sealed class ApiFoundationTests : IClassFixture<WebApplicationFactory<Pro
     public async Task PostValidation_WhenContentTypeIsUnsupported_ReturnsContentTypeProblemDetails()
     {
         using var factory = CreateFactory();
-        using var client = factory.CreateClient();
+        using var client = CreateHttpsClient(factory);
+        var antiforgeryToken = await GetAntiforgeryTokenAsync(client);
         using var content = new StringContent("{}", Encoding.UTF8, "text/plain");
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/__tests/api-foundation/validation")
+        {
+            Content = content,
+        };
+        request.Headers.Add("X-XSRF-TOKEN", antiforgeryToken);
 
-        using var response = await client.PostAsync("/__tests/api-foundation/validation", content);
+        using var response = await client.SendAsync(request);
         using var document = await ReadProblemDetailsAsync(response);
 
         Assert.Equal(HttpStatusCode.UnsupportedMediaType, response.StatusCode);
@@ -200,6 +216,7 @@ public sealed class ApiFoundationTests : IClassFixture<WebApplicationFactory<Pro
             });
             builder.ConfigureServices(services =>
             {
+                services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
                 services
                     .AddControllers()
                     .AddApplicationPart(typeof(ApiFoundationTestController).Assembly);
@@ -212,6 +229,24 @@ public sealed class ApiFoundationTests : IClassFixture<WebApplicationFactory<Pro
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
         var content = await response.Content.ReadAsStringAsync();
         return JsonDocument.Parse(content);
+    }
+
+    private static HttpClient CreateHttpsClient(WebApplicationFactory<Program> factory) =>
+        factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost"),
+        });
+
+    private static async Task<string> GetAntiforgeryTokenAsync(HttpClient client)
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            "/api/v1/security/antiforgery-token");
+        request.Headers.Add(SecurityController.ClientHeaderName, "member");
+        using var response = await client.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return document.RootElement.GetProperty("requestToken").GetString()!;
     }
 
 }

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding.Metadata;
+using DoSelect.Api.Security;
 
 namespace DoSelect.Api.Common;
 
@@ -32,6 +33,7 @@ public static class ApiFoundationExtensions
             {
                 options.ModelMetadataDetailsProviders.Add(
                     new SystemTextJsonValidationMetadataProvider());
+                options.Filters.Add<GlobalAntiforgeryFilter>();
             })
             .ConfigureApiBehaviorOptions(options =>
             {

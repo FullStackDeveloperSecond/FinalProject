@@ -46,6 +46,7 @@
 
 | 範圍／使用案例 | Method／Route | 權限 | Request／Response 契約 | 主要錯誤 |
 |---|---|---|---|---|
+| SH-05 Anti-forgery 支撐 | `GET /api/v1/security/antiforgery-token` | Public；可依指定 Scheme 綁定既有 Session | Header `X-DoSelect-Client: member\|admin` → `AntiforgeryTokenResponse{requestToken}`；`Cache-Control: no-store`；Token 只存前端記憶體 | `validation_failed` |
 | M 會員 Session 支撐 | `GET /api/v1/auth/session` | Public／Member | 未登入回 `200 AuthSessionDto{isAuthenticated:false}`；登入回會員摘要 | — |
 | UC-AUTH-01 | `POST /api/v1/auth/register`；`POST /api/v1/auth/email-verifications`；`POST /api/v1/auth/email-verifications/confirm` | Public | 註冊／驗證 Request → `202` 或會員摘要 | `account_email_in_use`、`email_token_invalid`、`email_token_expired` |
 | UC-AUTH-02 | `POST /api/v1/auth/login`；`POST /api/v1/auth/logout` | Public／Member | Cookie Session | `invalid_credentials`、`account_locked`、`account_suspended` |

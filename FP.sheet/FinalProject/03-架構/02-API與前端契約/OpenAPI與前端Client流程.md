@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-18
+最後更新: 2026-08-20
 追蹤項目:
   - TECH-03
 ---
@@ -38,6 +38,7 @@ frontend/shared/src/
 ├─ api/
 │  ├─ generated/schema.d.ts    # openapi-typescript 產生；禁止手改，商業契約形成後加入
 │  ├─ client.ts                # openapi-fetch generic client 與 HTTP middleware
+│  ├─ antiforgery.ts           # 分前後台 Scheme 的記憶體 Token Provider
 │  ├─ correlation-id.ts        # Correlation ID 產生與格式檢查
 │  └─ errors.ts                # Problem Details、穩定錯誤碼與追蹤識別
 ├─ query/                      # TanStack Query 共通重試與快取基線
@@ -97,7 +98,7 @@ PR 中只要 API Contract、Controller、DTO 或 OpenAPI 設定改動，就執�
 ## 目前實作狀態
 
 - `frontend/shared` 已建立為兩個 Vue 應用共用的本機 npm package。
-- 共用 generic client 已固定 `credentials: include`、合法 Correlation ID、可注入 Anti-forgery Token Provider、Problem Details 解析與 `onApiError` 回呼；Query 僅對網路或 5xx 查詢失敗重試一次，Mutation 不自動重試。
-- customer-web 與 admin-web 已由 `VITE_API_BASE_URL` 建立各自的 generic client factory；預設本機 API 為 `http://localhost:5126`。
+- 共用 generic client 已固定 `credentials: include`、合法 Correlation ID、Anti-forgery Token Provider、Problem Details 解析與 `onApiError` 回呼；Query 僅對網路或 5xx 查詢失敗重試一次，Mutation 不自動重試。
+- customer-web 與 admin-web 已由 `VITE_API_BASE_URL` 建立各自的 generic client factory；預設本機 API 為 `http://localhost:5126`。兩者分別以 `X-DoSelect-Client: member`／`admin` 取得只存在記憶體的 Token，並提供 Session 改變後清除 Token 的函式。
 - 正式 `schema.d.ts`、`api:export`、`api:generate`、`api:check` 與 CI Contract Diff 尚未加入；必須等第一批商業 Controller／DTO 形成後由同一份 OpenAPI 產生，不得先手寫假路徑契約。
-- Anti-forgery Header 注入能力已建立，但 Token Endpoint、記憶體 Token Provider 與登入後刷新流程仍依賴 SH-05 Identity／Cookie 實作。
+- SH-05 已建立 Token Endpoint、會員／管理員 Cookie Scheme 選擇、記憶體 Provider 與 unsafe method 全域驗證；各登入／登出 Use Case 合併時必須呼叫對應前端的 `resetAntiforgeryToken()`，不得讓登入前 Token 跨 Session 沿用。
