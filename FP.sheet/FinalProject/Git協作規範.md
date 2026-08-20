@@ -90,9 +90,9 @@ PR 合併前至少通過：
 - 新增 Package 必須通過乾淨 Restore／Install、Lock File 一致性、正式來源核對及直接／間接弱點檢查。
 - Commit 與 PR 內容必須通過 Secret 檢查；具體自動掃描工具完成前，PR 需附人工 Diff、Repository 搜尋與前端產物搜尋結果。
 
-以上項目的詳細阻擋條件見 [[03-架構/安全與供應鏈強制驗收標準]]；任一項沒有證據不得合併，即使組長使用 Bypass 亦應先完成並在 PR 留痕。
+以上項目的詳細阻擋條件見 [[03-架構/04-安全與檔案/安全與供應鏈強制驗收標準]]；任一項沒有證據不得合併，即使組長使用 Bypass 亦應先完成並在 PR 留痕。
 
-Branch Protection 固定要求彙總 Check `CI Required`；只有 `Backend` 與兩個 Frontend Job 全部成功才會通過。`main`／`dev` 均使用 Strict Status Check，PR 必須先更新至最新目標分支並重新通過。只有組長核准與必要自動檢查皆通過後才能合併。合併到 `dev` 後執行五條核心 Playwright E2E；實際五條流程由 [[03-架構/測試策略]] 追蹤。
+Branch Protection 固定要求彙總 Check `CI Required`；只有 `Backend` 與兩個 Frontend Job 全部成功才會通過。`main`／`dev` 均使用 Strict Status Check，PR 必須先更新至最新目標分支並重新通過。只有組長核准與必要自動檢查皆通過後才能合併。合併到 `dev` 後執行五條核心 Playwright E2E；實際五條流程由 [[03-架構/08-測試與驗收/測試策略]] 追蹤。
 
 ### GitHub 合併與保護設定
 

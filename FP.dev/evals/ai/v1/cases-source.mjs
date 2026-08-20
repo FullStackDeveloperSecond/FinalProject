@@ -230,18 +230,18 @@ function splitFor(group, index) {
 
 function sourceRefsFor(group) {
   if (group === 'SEARCH-COMPATIBILITY') {
-    return ['02-領域需求/商品、組裝與相容性#相容性規則', '03-架構/AI測試與評估規格#品質指標']
+    return ['02-領域需求/02-商品庫存與組裝/商品、組裝與相容性#相容性規則', '03-架構/06-AI設計/AI測試與評估規格#品質指標']
   }
   if (group === 'SEARCH-NO-RESULT-DEGRADED') {
-    return ['03-架構/AI應用詳細設計#搜尋失敗與降級', '02-領域需求/AI搜尋與客服驗收規格#UC-AI-SEARCH-03']
+    return ['03-架構/06-AI設計/AI應用詳細設計#搜尋失敗與降級', '02-領域需求/90-驗收規格/AI搜尋與客服驗收規格#UC-AI-SEARCH-03｜AI 搜尋故障降級']
   }
   if (group === 'SUPPORT-POLICY') {
-    return ['02-領域需求/退貨與退款政策', '02-領域需求/購物車、訂單、付款與物流']
+    return ['02-領域需求/04-客服與售後/退貨與退款政策', '02-領域需求/03-交易與履約/購物車、訂單、付款與物流']
   }
   if (group === 'SUPPORT-SECURITY') {
-    return ['03-架構/AI應用詳細設計#隱私、授權與紀錄邊界', '02-領域需求/AI搜尋與客服驗收規格#UC-AI-SUPPORT-02']
+    return ['03-架構/06-AI設計/AI應用詳細設計#隱私、授權與紀錄邊界', '02-領域需求/90-驗收規格/AI搜尋與客服驗收規格#UC-AI-SUPPORT-02｜查詢本人訂單並去識別化']
   }
-  return ['03-架構/AI應用詳細設計#AI 商品搜尋與推薦流程', '03-架構/AI應用詳細設計#必要資訊與補問']
+  return ['03-架構/06-AI設計/AI應用詳細設計#AI 商品搜尋與推薦流程', '03-架構/06-AI設計/AI應用詳細設計#必要資訊與補問']
 }
 
 function searchCase(group, definition, index) {

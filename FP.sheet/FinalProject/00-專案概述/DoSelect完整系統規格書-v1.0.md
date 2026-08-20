@@ -1,10 +1,11 @@
 ---
-文件狀態: 已確認
+文件狀態: 已確認／凍結快照
 規格版本: "1.0"
 基線日期: 2026-08-14
 適用範圍: DoSelect 第一版 M 功能與開發驗收基線
 文件負責人: alex
 就緒度: READY
+快照凍結日期: 2026-08-20
 追蹤項目:
   - PM-10
 ---
@@ -20,26 +21,26 @@
 | 規格版本 | `v1.0` |
 | 基線日期 | `2026-08-14` |
 | 適用交付 | 第一版 M 功能、桌面 Web、現場展示 |
-| 核准狀態 | 已確認，可作為多人開發基線 |
+| 核准狀態 | 已確認的 v1.0 單檔快照；2026-08-20 起不再回填後續變更 |
 | Readiness | `READY`；規格可供開發，程式與資料庫實體產物尚待建立 |
 | 文件負責人 | alex |
-| 變更紀錄 | [[05-規劃/決策紀錄]] |
-| 需求追蹤 | [[05-規劃/需求追蹤矩陣]] |
-| 實作待辦 | [[05-規劃/未完成項目追蹤表]] |
+| 變更紀錄 | [[05-規劃/03-需求與決策治理/決策紀錄]] |
+| 需求追蹤 | [[05-規劃/03-需求與決策治理/需求追蹤矩陣]] |
+| 實作待辦 | [[05-規劃/01-時程與進度/未完成項目追蹤表]] |
 
 ### 0.1 文件目的
 
-本文件是 DoSelect v1.0 的完整系統規格主文件，供產品確認、架構設計、資料表 Review、前後端實作、測試及 Demo 驗收共同使用。內容整合已確認的產品需求、商業規則、角色權限、UI、API、資料、安全、AI、非功能需求及完成門檻。
+本文件是 DoSelect v1.0 的完整單檔規格快照，供離線閱讀、交付及追溯 2026-08-20 當時的整合基線。內容涵蓋產品需求、商業規則、角色權限、UI、API、資料、安全、AI、非功能需求及完成門檻。
 
-本文件中的規則具有規範效力。Endpoint 全表、DTO 精確欄位、錯誤碼全表及逐表 SQL 欄位屬低階技術附錄，由本文件第 18 章納入同一份 v1.0 規格包；實作者不得另建與附錄不同的平行契約。
+本快照不再隨後續決策更新。現行開發與 Review 必須從 [[00-專案概述/系統規格書總覽]] 進入最新詳細規格；本文件只在沒有後續覆寫時保留 v1.0 當時的規範意義。Endpoint、DTO、錯誤碼及逐表欄位仍由第 18 章連結的正式附錄維護。
 
 ### 0.2 規格效力
 
 發生衝突時依下列順序處理：
 
-1. 已由組長確認並寫入 [[05-規劃/決策紀錄]] 的後續覆寫決策。
-2. 本文件及第 18 章列出的正式技術附錄。
-3. [[05-規劃/需求追蹤矩陣]] 的需求、使用案例、API、資料及測試回連。
+1. 已由組長確認並寫入 [[05-規劃/03-需求與決策治理/決策紀錄]] 的後續覆寫決策。
+2. [[00-專案概述/系統規格書總覽]] 指定的現行需求與架構文件。
+3. [[05-規劃/03-需求與決策治理/需求追蹤矩陣]] 的需求、使用案例、API、資料及測試回連。
 4. 已寫回的歷史決策快照只供追溯，不得覆蓋後續決策。
 5. 互動中表單、外部原型、聊天內容及程式碼中的臨時行為不構成正式規格。
 
@@ -524,7 +525,7 @@ AvailableQuantity = OnHandQuantity - ReservedQuantity
 | 會員 | `/account`、`/account/addresses`、`/account/orders`、`/account/builds`、`/notifications` |
 | 客服 | `/support`、`/support/ai`、`/support/tickets`、`/support/tickets/new`、`/support/tickets/:ticketId` |
 
-消費者前台不設 `/shop` 或 `/frontend` 共同前綴。完整 C-01～C-30 頁面責任與 API 對照見 [[03-架構/M功能桌面UI與Route規格]]。
+消費者前台不設 `/shop` 或 `/frontend` 共同前綴。完整 C-01～C-30 頁面責任與 API 對照見 [[03-架構/02-API與前端契約/M功能桌面UI與Route規格]]。
 
 ### 12.2 管理後台 Route
 
@@ -576,10 +577,10 @@ AvailableQuantity = OnHandQuantity - ReservedQuantity
 
 ### 13.4 契約權威來源
 
-- 完整 Endpoint／Method／Policy：[[03-架構/API Endpoint目錄]]。
-- 具名 Request／Response／Query／DTO 欄位：[[03-架構/API DTO與Schema契約]]。
-- 完整錯誤碼與 HTTP Status：[[03-架構/API錯誤碼目錄]]。
-- OpenAPI Client 流程：[[03-架構/OpenAPI與前端Client流程]]。
+- 完整 Endpoint／Method／Policy：[[03-架構/02-API與前端契約/API Endpoint目錄]]。
+- 具名 Request／Response／Query／DTO 欄位：[[03-架構/02-API與前端契約/API DTO與Schema契約]]。
+- 完整錯誤碼與 HTTP Status：[[03-架構/02-API與前端契約/API錯誤碼目錄]]。
+- OpenAPI Client 流程：[[03-架構/02-API與前端契約/OpenAPI與前端Client流程]]。
 
 ## 14. 資料規格
 
@@ -614,7 +615,7 @@ AvailableQuantity = OnHandQuantity - ReservedQuantity
 | 客服 | SupportTicket／Message／Attachment／AssignmentHistory／SlaEvent、ReportCase |
 | AI／治理 | AiConsent、Conversation、Interaction、ToolInvocation、Citation、UsageLedger、Outbox、IdempotencyRecord、AuditLog |
 
-實際 Entity、Fluent Mapping、Index、Check Constraint、Filtered Unique 及 Migration 必須逐項比對三份資料字典。Haru、Kafen、Terry、Yinyin 已收束或待覆核的欄位級交付統一由 [[03-架構/資料表實作交付/README]] 進入；該交付可用於 Entity／Configuration 實作，但不取代正式資料字典，也不代表 Migration 已核准。
+實際 Entity、Fluent Mapping、Index、Check Constraint、Filtered Unique 及 Migration 必須逐項比對三份資料字典。Haru、Kafen、Terry、Yinyin 已收束或待覆核的欄位級交付統一由 [[03-架構/09-資料表實作交付/README]] 進入；該交付可用於 Entity／Configuration 實作，但不取代正式資料字典，也不代表 Migration 已核准。
 
 資料責任補充：`SalePrices` 是 SKU 特價唯一可寫來源，第一版不建立重複的 `Promotions.SpecialPrice`；優惠券範圍以正規化關聯表保存。`BuildShareTokens.ExpiresAtUtc` 可為 Null 表示不自動到期；物流 COD 欄位只表達配送能力，最終資格仍由 Application 依金額、組裝及 SKU 預付旗標驗證。`ImportRows` 與 `ImportBatches` 欄位及物流狀態列舉以三份資料字典與狀態機文件為唯一來源。Owner／Assignee 使用 Identity FK；Identity 有交易相依時採停權、軟刪除或匿名化，中央 AuditLog 保存不可變 Actor PublicId／角色快照。
 
@@ -706,7 +707,7 @@ AvailableQuantity = OnHandQuantity - ReservedQuantity
 - Build、Lint、Typecheck、測試、Coverage、契約 Diff 與 Review 通過。
 - Migration 可由空白 SQL Server 重建且通過安全審查；Seed 可重現。
 - Log、Audit、Health、背景工作及失敗復原可驗證。
-- [[03-架構/安全與供應鏈強制驗收標準]] 的五項阻擋條件都有證據；新增私人資源具 Actor A／B 測試，新增 Package 具來源與 Restore／Install 證據，提交內容不含 Secret。
+- [[03-架構/04-安全與檔案/安全與供應鏈強制驗收標準]] 的五項阻擋條件都有證據；新增私人資源具 Actor A／B 測試，新增 Package 具來源與 Restore／Install 證據，提交內容不含 Secret。
 - Demo 腳本與備援路徑完成彩排，文件與決策同步。
 
 ### 17.6 No-Go
@@ -737,13 +738,13 @@ AvailableQuantity = OnHandQuantity - ReservedQuantity
 | 範圍／名詞／商業規則 | [[01-需求/功能範圍]]、[[01-需求/專案名詞表]]、[[01-需求/核心商業規則]] |
 | 授權 | [[01-需求/角色與權限]] |
 | 領域需求 | `02-領域需求` 下各已確認正式規格 |
-| UI | [[03-架構/M功能桌面UI與Route規格]] |
-| API | [[03-架構/API共通規範]]、[[03-架構/API Endpoint目錄]]、[[03-架構/API DTO與Schema契約]]、[[03-架構/API錯誤碼目錄]] |
-| 狀態／一致性 | [[03-架構/狀態機設計]]、[[03-架構/資料一致性、Outbox與冪等設計]] |
-| 資料 | [[03-架構/資料模型與ERD]]、[[03-架構/資料字典索引]]、三份領域資料字典、[[03-架構/資料表實作交付/README]]、[[03-架構/PublicId與資料完整性設計]] |
-| AI | [[03-架構/AI應用詳細設計]]、[[03-架構/AI測試與評估規格]] |
-| 安全／非功能 | [[03-架構/威脅模型與安全檢查表]]、[[03-架構/安全與供應鏈強制驗收標準]]、[[03-架構/非功能需求]]、[[03-架構/設定與Secrets管理規範]] |
-| 測試／Demo | [[03-架構/測試策略]]、[[03-架構/M功能測試案例目錄]]、[[04-展示/Demo流程]]、[[04-展示/Demo操作腳本]] |
+| UI | [[03-架構/02-API與前端契約/M功能桌面UI與Route規格]] |
+| API | [[03-架構/02-API與前端契約/API共通規範]]、[[03-架構/02-API與前端契約/API Endpoint目錄]]、[[03-架構/02-API與前端契約/API DTO與Schema契約]]、[[03-架構/02-API與前端契約/API錯誤碼目錄]] |
+| 狀態／一致性 | [[03-架構/03-資料與一致性/狀態機設計]]、[[03-架構/03-資料與一致性/資料一致性、Outbox與冪等設計]] |
+| 資料 | [[03-架構/03-資料與一致性/資料模型與ERD]]、[[03-架構/03-資料與一致性/資料字典索引]]、三份領域資料字典、[[03-架構/09-資料表實作交付/README]]、[[03-架構/03-資料與一致性/PublicId與資料完整性設計]] |
+| AI | [[03-架構/06-AI設計/AI應用詳細設計]]、[[03-架構/06-AI設計/AI測試與評估規格]] |
+| 安全／非功能 | [[03-架構/04-安全與檔案/威脅模型與安全檢查表]]、[[03-架構/04-安全與檔案/安全與供應鏈強制驗收標準]]、[[03-架構/01-系統與環境/非功能需求]]、[[03-架構/04-安全與檔案/設定與Secrets管理規範]] |
+| 測試／Demo | [[03-架構/08-測試與驗收/測試策略]]、[[03-架構/08-測試與驗收/M功能測試案例目錄]]、[[04-展示/01-Demo與彩排/Demo流程]]、[[04-展示/01-Demo與彩排/Demo操作腳本]] |
 
 ## 19. 開發分工與尚待產出
 
@@ -768,15 +769,16 @@ AvailableQuantity = OnHandQuantity - ReservedQuantity
 
 1. 說明變更原因、影響的 M／S／O、資料、安全、API、UI、測試及 Demo。
 2. 核心或高影響變更由組長確認；低影響實作基線依既定自動定案原則處理。
-3. 同一批更新本文件、所屬詳細附錄及 [[05-規劃/決策紀錄]]。
-4. 影響待辦、狀態、負責人或完成定義時更新 [[05-規劃/未完成項目追蹤表]]。
-5. 影響 M 追溯鏈時更新 [[05-規劃/需求追蹤矩陣]]。
+3. 同一批更新本文件、所屬詳細附錄及 [[05-規劃/03-需求與決策治理/決策紀錄]]。
+4. 影響待辦、狀態、負責人或完成定義時更新 [[05-規劃/01-時程與進度/未完成項目追蹤表]]。
+5. 影響 M 追溯鏈時更新 [[05-規劃/03-需求與決策治理/需求追蹤矩陣]]。
 6. 覆寫舊決策時保留歷史與覆寫關係，不直接刪除舊快照。
 
 ## 21. 修訂紀錄
 
 | 版本 | 日期 | 狀態 | 說明 |
 |---|---|---|---|
+| `v1.0` | 2026-08-20 | 已確認／FROZEN | 完成文件分類與權威來源收束；本單檔規格自此凍結，後續變更改由系統規格書總覽、正式詳細文件與決策紀錄維護 |
 | `v1.0` | 2026-08-19 | 已確認／READY | 寫回 DEC-P271～DEC-P280：優惠門檻基準、Coupon 狀態機、Cart 不持久化優惠碼、SQL Server 查詢測試、付款期限、訂單優惠快照、退款 Allocation 方向，以及模擬發票 Endpoint／錯誤碼／5% 整數元契約；實作由 DES-21／DES-22 追蹤，功能範圍與版本號不變 |
 | `v1.0` | 2026-08-18 | 已確認／READY | 寫回 DEC-P263～DEC-P270：Guest Challenge／限流／清理、30 分鐘限單 Cookie、AssemblyJob 獨立歷程、結構化地址、差異化 Lockout 與 Haru DES-20 Review Gate；功能範圍與版本號不變 |
 | `v1.0` | 2026-08-17 | 已確認／READY | 寫回 DEC-P250～DEC-P262：Order-only Reservation、完整評價生命週期、ImportBatch 契約、Identity／Audit 邊界、SKU 預付旗標、獨立退貨物流、12 欄工作台、檢舉狀態／權限及 Checkout-bound CouponRedemption；功能範圍與版本號不變 |
