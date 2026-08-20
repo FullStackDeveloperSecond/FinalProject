@@ -1,4 +1,5 @@
 using System.Net.Mail;
+using DoSelect.Application.Common;
 using DoSelect.Infrastructure.Email;
 using Microsoft.Extensions.Options;
 
@@ -36,12 +37,17 @@ public static class ConfigurationValidationExtensions
             .AddOptions<CorsOptions>()
             .BindConfiguration(CorsOptions.SectionName)
             .ValidateOnStart();
+        services
+            .AddOptions<FrontendLinkOptions>()
+            .BindConfiguration(FrontendLinkOptions.SectionName)
+            .ValidateOnStart();
 
         services.AddSingleton<IValidateOptions<StorageOptions>, StorageOptionsValidator>();
         services.AddSingleton<IValidateOptions<OpenAiOptions>, OpenAiOptionsValidator>();
         services.AddSingleton<IValidateOptions<SmtpEmailOptions>, EmailOptionsValidator>();
         services.AddSingleton<IValidateOptions<DemoOptions>, DemoOptionsValidator>();
         services.AddSingleton<IValidateOptions<CorsOptions>, CorsOptionsValidator>();
+        services.AddSingleton<IValidateOptions<FrontendLinkOptions>, FrontendLinkOptionsValidator>();
 
         return services;
     }
@@ -212,6 +218,21 @@ internal sealed class EmailOptionsValidator : IValidateOptions<SmtpEmailOptions>
             failures.Add(
                 $"Configuration key '{configurationKey}' is required when 'Features:EmailEnabled' is true.");
         }
+    }
+}
+
+internal sealed class FrontendLinkOptionsValidator : IValidateOptions<FrontendLinkOptions>
+{
+    public ValidateOptionsResult Validate(string? name, FrontendLinkOptions options)
+    {
+        if (!Uri.TryCreate(options.BaseUrl, UriKind.Absolute, out var uri) ||
+            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            return ValidateOptionsResult.Fail(
+                "Configuration key 'Frontend:BaseUrl' must be an absolute HTTP or HTTPS URL.");
+        }
+
+        return ValidateOptionsResult.Success;
     }
 }
 
