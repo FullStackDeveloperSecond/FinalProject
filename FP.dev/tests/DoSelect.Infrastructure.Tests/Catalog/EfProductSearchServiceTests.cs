@@ -13,6 +13,7 @@ namespace DoSelect.Infrastructure.Tests.Catalog;
 public sealed class EfProductSearchServiceCollection : ICollectionFixture<EfProductSearchServiceFixture>;
 
 [Collection(nameof(EfProductSearchServiceCollection))]
+[Trait("Category", "RequiresSqlServer")]
 public sealed class EfProductSearchServiceTests
 {
     [Fact]
