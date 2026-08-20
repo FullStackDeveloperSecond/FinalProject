@@ -77,7 +77,7 @@ public sealed class RegisterMemberService(
                 await SendVerificationEmailAsync(success, cancellationToken);
                 return new RegisterMemberResult.Success(
                     success.PublicId,
-                    MaskEmail(success.Email),
+                    EmailMasking.Mask(success.Email),
                     success.AccountStatus);
 
             default:
@@ -127,19 +127,5 @@ public sealed class RegisterMemberService(
                 locale = default;
                 return false;
         }
-    }
-
-    private static string MaskEmail(string email)
-    {
-        var atIndex = email.IndexOf('@');
-        if (atIndex <= 0)
-        {
-            return "***";
-        }
-
-        var localPart = email[..atIndex];
-        var domainPart = email[atIndex..];
-        var visible = localPart[..1];
-        return $"{visible}{new string('*', Math.Max(localPart.Length - 1, 1))}{domainPart}";
     }
 }

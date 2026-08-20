@@ -9,6 +9,7 @@ public static class ApplicationServiceCollectionExtensions
     {
         services.AddScoped<RegisterMemberService>();
         services.AddScoped<ConfirmEmailVerificationService>();
+        services.AddScoped<LoginMemberService>();
 
         return services;
     }

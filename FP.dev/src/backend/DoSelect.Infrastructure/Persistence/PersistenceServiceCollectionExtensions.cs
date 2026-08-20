@@ -46,13 +46,21 @@ public static class PersistenceServiceCollectionExtensions
                 options.Password.RequireUppercase = false;
                 options.Password.RequireLowercase = false;
                 options.Password.RequireDigit = false;
+
+                // 會員連續登入失敗 5 次鎖定 15 分鐘 (會員、驗證與通知.md). Admin's differentiated
+                // 30-minute window is out of scope until admin login (M-01B) is implemented — a
+                // single global window cannot express both, so this is member-only for now.
+                options.Lockout.MaxFailedAccessAttempts = 5;
+                options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
             })
             .AddRoles<IdentityRole>()
             .AddEntityFrameworkStores<DoSelectDbContext>()
-            .AddDefaultTokenProviders();
+            .AddDefaultTokenProviders()
+            .AddSignInManager();
 
         services.AddSingleton(TimeProvider.System);
         services.AddScoped<IMemberRegistrationGateway, MemberRegistrationGateway>();
+        services.AddScoped<IMemberLoginGateway, MemberLoginGateway>();
         services.AddScoped<MinimalDevelopmentDataSeeder>();
 
         return services;

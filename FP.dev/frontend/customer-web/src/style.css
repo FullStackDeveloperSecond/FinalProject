@@ -47,6 +47,25 @@ body {
   font-weight: 700;
 }
 
+.site-header nav {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.site-header__member {
+  font-weight: 600;
+}
+
+.site-header__logout {
+  min-height: auto;
+  padding: 0.375rem 0.75rem;
+  background: transparent;
+  color: #1f2937;
+  border-color: #d1d5db;
+  font-size: 0.875rem;
+}
+
 .site-main {
   padding-block: 2rem;
 }

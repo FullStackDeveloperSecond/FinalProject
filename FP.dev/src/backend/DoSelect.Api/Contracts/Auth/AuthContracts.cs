@@ -47,6 +47,34 @@ public sealed class EmailVerificationConfirmRequest
 
 public sealed record EmailVerificationConfirmedResponse(string AccountStatus);
 
+public sealed class LoginRequest
+{
+    [Required]
+    [StringLength(320, MinimumLength = 3)]
+    [EmailAddress]
+    public string Email { get; init; } = string.Empty;
+
+    [Required]
+    [StringLength(128, MinimumLength = 1)]
+    public string Password { get; init; } = string.Empty;
+
+    public bool RememberMe { get; init; }
+
+    public LoginMemberCommand ToCommand() => new(Email.Trim(), Password, RememberMe);
+}
+
+public sealed record CurrentUserDto(
+    Guid PublicId,
+    string DisplayName,
+    string EmailMasked,
+    bool EmailVerified,
+    string Locale);
+
+public sealed record AuthSessionDto(
+    bool IsAuthenticated,
+    CurrentUserDto? User = null,
+    DateTimeOffset? ExpiresAtUtc = null);
+
 public static class AccountStatusTokens
 {
     public static string ToToken(AccountStatus accountStatus) => accountStatus switch
@@ -57,5 +85,16 @@ public static class AccountStatusTokens
         AccountStatus.Anonymized => "anonymized",
         AccountStatus.Disabled => "disabled",
         _ => throw new ArgumentOutOfRangeException(nameof(accountStatus)),
+    };
+}
+
+public static class LocaleTokens
+{
+    public static string ToToken(SupportedLocale locale) => locale switch
+    {
+        SupportedLocale.ZhTw => "zh-TW",
+        SupportedLocale.JaJp => "ja-JP",
+        SupportedLocale.KoKr => "ko-KR",
+        _ => throw new ArgumentOutOfRangeException(nameof(locale)),
     };
 }
