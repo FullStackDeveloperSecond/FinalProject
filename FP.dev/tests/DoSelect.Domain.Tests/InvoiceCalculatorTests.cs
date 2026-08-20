@@ -51,7 +51,7 @@ public sealed class InvoiceCalculatorTests
     }
 
     [Fact]
-    public void TheLastLineAbsorbsTheRoundingRemainder()
+    public void TheRemainderIsDistributedWithoutBreakingAnyLine()
     {
         var result = Calculate(
         [
@@ -59,9 +59,64 @@ public sealed class InvoiceCalculatorTests
             Merchandise(ItemB, quantity: 1, gross: 1000m),
         ]);
 
-        Assert.Equal([953m, 952m], result.Lines.Select(line => line.NetAmount));
-        Assert.Equal([47m, 48m], result.Lines.Select(line => line.TaxAmount));
+        Assert.Equal(95m, result.Lines.Sum(line => line.TaxAmount));
+        Assert.Equal(1905m, result.Lines.Sum(line => line.NetAmount));
+        Assert.All(result.Lines, line => Assert.InRange(line.TaxAmount, 0m, line.GrossAmount));
     }
+
+    [Fact]
+    public void FractionalGrossLinesNeverProduceANegativeTax()
+    {
+        // Review 案例：兩列含稅 0.40 與 0.60。表頭未稅取整為 1 時，
+        // 舊的「分攤未稅」寫法會讓末列未稅得到 1、稅額成為 -0.40。
+        var result = Calculate(
+        [
+            Merchandise(ItemA, quantity: 1, gross: 0.40m),
+            Merchandise(ItemB, quantity: 1, gross: 0.60m),
+        ]);
+
+        Assert.All(result.Lines, line =>
+        {
+            Assert.InRange(line.NetAmount, 0m, line.GrossAmount);
+            Assert.InRange(line.TaxAmount, 0m, line.GrossAmount);
+            Assert.Equal(line.GrossAmount, line.NetAmount + line.TaxAmount);
+        });
+    }
+
+    [Fact]
+    public void EveryLineStaysWithinItsOwnGrossAcrossFractionalShapes()
+    {
+        decimal[][] shapes =
+        [
+            [0.40m, 0.60m],
+            [0.01m, 0.01m, 0.01m],
+            [0.33m, 0.33m, 0.34m],
+            [0.05m, 999.95m],
+            [1.00m, 0.50m, 0.50m],
+            [12.34m, 56.78m, 0.88m],
+        ];
+
+        foreach (var shape in shapes)
+        {
+            var result = Calculate(shape
+                .Select((gross, index) => Merchandise(
+                    new Guid(index + 1, 0, 0, new byte[8]), quantity: 1, gross: gross))
+                .ToArray());
+
+            Assert.All(result.Lines, line =>
+            {
+                Assert.InRange(line.NetAmount, 0m, line.GrossAmount);
+                Assert.InRange(line.TaxAmount, 0m, line.GrossAmount);
+                Assert.Equal(line.GrossAmount, line.NetAmount + line.TaxAmount);
+            });
+
+            Assert.Equal(result.NetAmount, result.Lines.Sum(line => line.NetAmount));
+            Assert.Equal(result.TaxAmount, result.Lines.Sum(line => line.TaxAmount));
+            Assert.Equal(result.IssuedAmount, result.Lines.Sum(line => line.GrossAmount));
+            Assert.Equal(result.IssuedAmount, result.NetAmount + result.TaxAmount);
+        }
+    }
+
 
     [Fact]
     public void LineAmountsAlwaysSumToTheHeaderAcrossManyShapes()
