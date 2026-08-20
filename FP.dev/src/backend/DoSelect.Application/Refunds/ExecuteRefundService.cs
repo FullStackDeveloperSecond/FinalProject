@@ -4,13 +4,15 @@ namespace DoSelect.Application.Refunds;
 
 /// <summary>
 /// 一筆退款交易在執行當下的狀態快照。
+/// <paramref name="StoredIdempotencyKey"/> 是建立退款時保存的金鑰，用於比對執行請求。
 /// </summary>
 public sealed record RefundExecutionSnapshot(
     long RefundId,
     RefundStatus Status,
     decimal? ApprovedAmount,
     decimal? SucceededAmount,
-    decimal RefundableBalance);
+    decimal RefundableBalance,
+    string StoredIdempotencyKey);
 
 /// <summary>
 /// 退款執行所需的讀取埠。實作屬於 Infrastructure，不在此層存取 DbContext。
@@ -18,11 +20,23 @@ public sealed record RefundExecutionSnapshot(
 public interface IRefundExecutionReader
 {
     /// <summary>
-    /// <paramref name="refundPublicId"/> 為對外識別。<see cref="RefundExecutionSnapshot.RefundableBalance"/>
-    /// 必須是已扣除先前成功退款後的訂單可退款餘額，且與本次執行在同一交易內取得。
+    /// 唯讀預覽用。<see cref="RefundExecutionSnapshot.RefundableBalance"/> 必須是已扣除先前
+    /// 成功退款後的訂單可退款餘額。此路徑**不保證原子性**，實際執行請使用
+    /// <see cref="IRefundExecutor"/>。
     /// </summary>
     Task<RefundExecutionSnapshot?> FindAsync(
         Guid refundPublicId,
+        CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// 實際執行退款。實作必須把「核對狀態與餘額 → 條件更新退款 → 副作用」放在同一個交易內，
+/// 並以 rowversion 或等價的條件更新保證成功退款累計不超過已付金額。
+/// </summary>
+public interface IRefundExecutor
+{
+    Task<ExecuteRefundResult> ExecuteAsync(
+        ExecuteRefundRequest request,
         CancellationToken cancellationToken = default);
 }
 
@@ -32,7 +46,7 @@ public sealed record ExecuteRefundRequest(
     string ExecutedByAdminUserId);
 
 /// <summary>
-/// 通過檢查後要執行的退款。實際狀態轉移與同交易副作用由退款端點負責。
+/// 通過檢查後要執行的退款。
 /// </summary>
 public sealed record RefundExecutionPlan(
     long RefundId,
@@ -68,46 +82,37 @@ public sealed class ExecuteRefundResult
 
     public static ExecuteRefundResult Approved(RefundExecutionPlan plan) =>
         new(null, null, plan);
+
+    public static ExecuteRefundResult Settled(decimal settledAmount, RefundExecutionPlan plan) =>
+        new(null, settledAmount, plan);
 }
 
 /// <summary>
-/// 決定要不要執行一筆已核准的退款。核准與執行是兩個 Use Case，本服務只負責執行前的檢查，
-/// 不做核准、不寫資料庫。呼叫端必須已完成 TOTP 二次確認與授權；前端確認視窗不是安全邊界。
+/// 退款執行的純決策，讀取預覽與實際執行共用同一份，避免兩處判斷漂移。
 /// </summary>
-public sealed class ExecuteRefundService
+public static class RefundExecutionDecision
 {
-    private readonly IRefundExecutionReader _executionReader;
-
-    public ExecuteRefundService(IRefundExecutionReader executionReader)
+    /// <summary>
+    /// 依快照與請求判定結果。呼叫端必須已完成 TOTP 二次確認與授權；
+    /// 前端確認視窗不是安全邊界。
+    /// </summary>
+    public static ExecuteRefundResult Evaluate(
+        RefundExecutionSnapshot snapshot,
+        ExecuteRefundRequest request)
     {
-        ArgumentNullException.ThrowIfNull(executionReader);
-
-        _executionReader = executionReader;
-    }
-
-    public async Task<ExecuteRefundResult> ExecuteAsync(
-        ExecuteRefundRequest request,
-        CancellationToken cancellationToken = default)
-    {
+        ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(request);
 
-        if (string.IsNullOrWhiteSpace(request.IdempotencyKey))
+        var presentedKey = request.IdempotencyKey.Trim();
+
+        // 金鑰必須與建立退款時保存的一致。金鑰不符代表這不是同一個命令，
+        // 不得對已完成的退款再產生副作用。
+        if (!string.Equals(presentedKey, snapshot.StoredIdempotencyKey, StringComparison.Ordinal))
         {
-            throw new ArgumentException("The idempotency key is required.", nameof(request));
+            return ExecuteRefundResult.Failure(RefundErrorCodes.IdempotencyPayloadConflict);
         }
 
-        if (string.IsNullOrWhiteSpace(request.ExecutedByAdminUserId))
-        {
-            throw new ArgumentException("The executing administrator is required.", nameof(request));
-        }
-
-        var snapshot = await _executionReader.FindAsync(request.RefundPublicId, cancellationToken);
-        if (snapshot is null)
-        {
-            return ExecuteRefundResult.Failure(RefundErrorCodes.ResourceNotFound);
-        }
-
-        // 已成功的退款重送時回同一結果，不產生第二次金流副作用。
+        // 相同金鑰、相同命令，且退款已成功：回同一結果，不再執行一次。
         if (snapshot.Status == RefundStatus.Succeeded)
         {
             return snapshot.SucceededAmount is { } settled
@@ -129,6 +134,53 @@ public sealed class ExecuteRefundService
             snapshot.RefundId,
             amount,
             request.ExecutedByAdminUserId.Trim(),
-            request.IdempotencyKey.Trim()));
+            presentedKey));
+    }
+
+    /// <summary>請求本身的必填檢查。缺漏屬於呼叫端錯誤，由 API 層以驗證錯誤擋下。</summary>
+    public static void RequireWellFormed(ExecuteRefundRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (string.IsNullOrWhiteSpace(request.IdempotencyKey))
+        {
+            throw new ArgumentException("The idempotency key is required.", nameof(request));
+        }
+
+        if (string.IsNullOrWhiteSpace(request.ExecutedByAdminUserId))
+        {
+            throw new ArgumentException("The executing administrator is required.", nameof(request));
+        }
+    }
+}
+
+/// <summary>
+/// 退款執行的**唯讀預覽**：後台在按下執行前顯示會發生什麼。
+/// 這條路徑不保證原子性，兩個並行請求可能同時看到相同餘額，
+/// 因此不得用它決定是否寫入；實際執行請用 <see cref="IRefundExecutor"/>。
+/// 核准與執行是兩個 Use Case，本服務不做核准。
+/// </summary>
+public sealed class ExecuteRefundService
+{
+    private readonly IRefundExecutionReader _executionReader;
+
+    public ExecuteRefundService(IRefundExecutionReader executionReader)
+    {
+        ArgumentNullException.ThrowIfNull(executionReader);
+
+        _executionReader = executionReader;
+    }
+
+    public async Task<ExecuteRefundResult> PreviewAsync(
+        ExecuteRefundRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        RefundExecutionDecision.RequireWellFormed(request);
+
+        var snapshot = await _executionReader.FindAsync(request.RefundPublicId, cancellationToken);
+
+        return snapshot is null
+            ? ExecuteRefundResult.Failure(RefundErrorCodes.ResourceNotFound)
+            : RefundExecutionDecision.Evaluate(snapshot, request);
     }
 }

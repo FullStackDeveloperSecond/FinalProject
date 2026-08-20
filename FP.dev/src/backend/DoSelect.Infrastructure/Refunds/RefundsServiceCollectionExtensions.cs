@@ -1,5 +1,6 @@
 using DoSelect.Application.Refunds;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace DoSelect.Infrastructure.Refunds;
 
@@ -12,7 +13,9 @@ public static class RefundsServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
 
+        services.TryAddSingleton(TimeProvider.System);
         services.AddScoped<IRefundExecutionReader, RefundExecutionReader>();
+        services.AddScoped<IRefundExecutor, RefundExecutor>();
         services.AddScoped<ExecuteRefundService>();
 
         return services;
