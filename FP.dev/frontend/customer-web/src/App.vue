@@ -11,6 +11,9 @@
         <RouterLink to="/">
           首頁
         </RouterLink>
+        <RouterLink to="/register">
+          登入／註冊
+        </RouterLink>
       </nav>
     </header>
     <main class="site-main">

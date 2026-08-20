@@ -10,6 +10,16 @@ const router = createRouter({
       component: () => import('../pages/HomePage.vue'),
     },
     {
+      path: '/register',
+      name: 'register',
+      component: () => import('../pages/RegisterPage.vue'),
+    },
+    {
+      path: '/verify-email',
+      name: 'verify-email',
+      component: () => import('../pages/VerifyEmailPage.vue'),
+    },
+    {
       path: '/unauthorized',
       name: 'unauthorized',
       component: HttpStatusPage,

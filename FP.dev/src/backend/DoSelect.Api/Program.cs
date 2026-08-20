@@ -1,5 +1,7 @@
 using DoSelect.Api.Common;
 using DoSelect.Api.Observability;
+using DoSelect.Api.Security;
+using DoSelect.Application;
 using DoSelect.Application.Notifications;
 using DoSelect.Infrastructure.Catalog;
 using DoSelect.Infrastructure.Email;
@@ -7,9 +9,8 @@ using DoSelect.Infrastructure.Files;
 using DoSelect.Infrastructure.Idempotency;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Seeding;
-using DoSelect.Infrastructure.Shopping;
-using DoSelect.Api.Security;
 using DoSelect.Infrastructure.Refunds;
+using DoSelect.Infrastructure.Shopping;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
 using Scalar.AspNetCore;
@@ -26,6 +27,7 @@ builder.Services.AddDoSelectSecurity(builder.Environment, builder.Configuration)
 builder.Services.AddDoSelectRefunds();
 builder.Services.AddDoSelectCatalogServices();
 builder.Services.AddDoSelectShoppingServices();
+builder.Services.AddDoSelectApplication();
 builder.Services.AddSingleton<IEmailSender>(services =>
 {
     var emailEnabled = builder.Configuration.GetValue<bool>("Features:EmailEnabled");
