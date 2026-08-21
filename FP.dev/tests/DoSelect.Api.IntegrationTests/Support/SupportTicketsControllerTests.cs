@@ -236,7 +236,11 @@ public sealed class SupportTicketsControllerTests : IClassFixture<WebApplication
 
     private HttpClient CreateClient(string? memberUserId)
     {
-        var client = _factory.CreateClient();
+        var client = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost"),
+            AllowAutoRedirect = false,
+        });
         if (memberUserId is not null)
         {
             client.DefaultRequestHeaders.Add(TestAuthHandler.MemberHeaderName, memberUserId);
