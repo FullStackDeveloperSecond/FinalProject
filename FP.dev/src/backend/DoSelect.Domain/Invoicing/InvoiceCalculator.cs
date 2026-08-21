@@ -79,6 +79,16 @@ public static class InvoiceCalculator
                 throw new ArgumentOutOfRangeException(nameof(request), "An invoice line is malformed.");
             }
 
+            // 發票的未稅、稅額與含稅金額都必須是 TWD 整數元（DEC-BATCH-014 第 10 項）。
+            // 含稅金額若帶小數，就無法同時滿足「三者皆為整數元」與「含稅總額等於顧客實付金額」。
+            // 這裡明確拒絕而不是四捨五入，因為四捨五入會讓發票金額與實收金額不符。
+            if (line.GrossAmount != decimal.Truncate(line.GrossAmount))
+            {
+                throw new ArgumentException(
+                    "An invoice line must carry a whole TWD gross amount.",
+                    nameof(request));
+            }
+
             if (line.Kind == InvoiceLineKind.Merchandise && line.OrderItemPublicId is null)
             {
                 throw new ArgumentException(
@@ -177,7 +187,8 @@ public static class InvoiceCalculator
     }
 
     /// <summary>
-    /// 把尾差依序補進仍有空間的明細。多的往上加到含稅金額為止，少的往下扣到零為止。
+    /// 把尾差**從最後一筆往前**補進仍有空間的明細，讓最後一筆合法明細吸收尾差。
+    /// 多的往上加到含稅金額為止，少的往下扣到零為止。
     /// 因為各列含稅金額合計等於表頭含稅金額，且表頭稅額介於零與含稅金額之間，尾差必定分配得完。
     /// </summary>
     private static void DistributeRemainder(
@@ -185,7 +196,7 @@ public static class InvoiceCalculator
         IReadOnlyList<InvoiceOrderLine> lines,
         decimal remainder)
     {
-        for (var index = 0; index < taxes.Length && remainder != 0m; index++)
+        for (var index = taxes.Length - 1; index >= 0 && remainder != 0m; index--)
         {
             if (remainder > 0m)
             {

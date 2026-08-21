@@ -49,51 +49,35 @@ public sealed class InvoiceCalculatorTests
         Assert.Equal(result.NetAmount, result.Lines.Sum(line => line.NetAmount));
         Assert.Equal(result.TaxAmount, result.Lines.Sum(line => line.TaxAmount));
     }
-
     [Fact]
-    public void TheRemainderIsDistributedWithoutBreakingAnyLine()
+    public void TheLastLineAbsorbsTheRoundingRemainder()
     {
+        // 兩列各 1,000：表頭稅額 95，逐列按比例得到 48 + 48 = 96，尾差 -1。
+        // 規格要求最後一筆合法明細吸收尾差，因此扣在末列而不是首列。
         var result = Calculate(
         [
             Merchandise(ItemA, quantity: 1, gross: 1000m),
             Merchandise(ItemB, quantity: 1, gross: 1000m),
         ]);
 
-        Assert.Equal(95m, result.Lines.Sum(line => line.TaxAmount));
-        Assert.Equal(1905m, result.Lines.Sum(line => line.NetAmount));
-        Assert.All(result.Lines, line => Assert.InRange(line.TaxAmount, 0m, line.GrossAmount));
+        Assert.Equal(1905m, result.NetAmount);
+        Assert.Equal(95m, result.TaxAmount);
+        Assert.Equal([952m, 953m], result.Lines.Select(line => line.NetAmount));
+        Assert.Equal([48m, 47m], result.Lines.Select(line => line.TaxAmount));
     }
 
     [Fact]
-    public void FractionalGrossLinesNeverProduceANegativeTax()
-    {
-        // Review 案例：兩列含稅 0.40 與 0.60。表頭未稅取整為 1 時，
-        // 舊的「分攤未稅」寫法會讓末列未稅得到 1、稅額成為 -0.40。
-        var result = Calculate(
-        [
-            Merchandise(ItemA, quantity: 1, gross: 0.40m),
-            Merchandise(ItemB, quantity: 1, gross: 0.60m),
-        ]);
-
-        Assert.All(result.Lines, line =>
-        {
-            Assert.InRange(line.NetAmount, 0m, line.GrossAmount);
-            Assert.InRange(line.TaxAmount, 0m, line.GrossAmount);
-            Assert.Equal(line.GrossAmount, line.NetAmount + line.TaxAmount);
-        });
-    }
-
-    [Fact]
-    public void EveryLineStaysWithinItsOwnGrossAcrossFractionalShapes()
+    public void EveryHeaderAndLineAmountIsAWholeTwdAmount()
     {
         decimal[][] shapes =
         [
-            [0.40m, 0.60m],
-            [0.01m, 0.01m, 0.01m],
-            [0.33m, 0.33m, 0.34m],
-            [0.05m, 999.95m],
-            [1.00m, 0.50m, 0.50m],
-            [12.34m, 56.78m, 0.88m],
+            [1000m],
+            [1000m, 1000m],
+            [2000m, 899m, 150m, 300m],
+            [1m, 1m, 1m],
+            [999m, 1m],
+            [12345m, 6789m, 1m],
+            [33m, 33m, 33m, 33m, 33m],
         ];
 
         foreach (var shape in shapes)
@@ -103,8 +87,15 @@ public sealed class InvoiceCalculatorTests
                     new Guid(index + 1, 0, 0, new byte[8]), quantity: 1, gross: gross))
                 .ToArray());
 
+            AssertWhole(result.NetAmount);
+            AssertWhole(result.TaxAmount);
+            AssertWhole(result.IssuedAmount);
+
             Assert.All(result.Lines, line =>
             {
+                AssertWhole(line.NetAmount);
+                AssertWhole(line.TaxAmount);
+                AssertWhole(line.GrossAmount);
                 Assert.InRange(line.NetAmount, 0m, line.GrossAmount);
                 Assert.InRange(line.TaxAmount, 0m, line.GrossAmount);
                 Assert.Equal(line.GrossAmount, line.NetAmount + line.TaxAmount);
@@ -116,6 +107,32 @@ public sealed class InvoiceCalculatorTests
             Assert.Equal(result.IssuedAmount, result.NetAmount + result.TaxAmount);
         }
     }
+
+    [Theory]
+    [InlineData(10.50)]
+    [InlineData(0.40)]
+    [InlineData(0.60)]
+    [InlineData(999.99)]
+    [InlineData(1000.01)]
+    public void AFractionalGrossAmountIsRejectedAtTheInvoiceBoundary(double gross)
+    {
+        // 含稅金額帶小數時，無法同時滿足「三者皆為整數元」與「含稅總額等於顧客實付金額」。
+        // 明確拒絕而不是四捨五入，否則發票金額會與實收金額不符。
+        Assert.Throws<ArgumentException>(() =>
+            Calculate([Merchandise(ItemA, quantity: 1, gross: (decimal)gross)]));
+    }
+
+    [Fact]
+    public void AFractionalNonMerchandiseLineIsAlsoRejected() =>
+        Assert.Throws<ArgumentException>(() => Calculate(
+        [
+            Merchandise(ItemA, quantity: 1, gross: 1000m),
+            NonMerchandise(InvoiceLineKind.Shipping, "宅配運費", "SHIPPING", 150.50m),
+        ]));
+
+    private static void AssertWhole(decimal amount) =>
+        Assert.Equal(amount, decimal.Truncate(amount));
+
 
 
     [Fact]
