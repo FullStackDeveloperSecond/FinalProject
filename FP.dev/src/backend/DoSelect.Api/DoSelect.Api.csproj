@@ -11,6 +11,14 @@
     <PackageReference Include="Serilog.AspNetCore" />
     <PackageReference Include="Serilog.Sinks.Console" />
     <PackageReference Include="Serilog.Sinks.File" />
+    <!-- The EF Core CLI (dotnet-ef) resolves design-time services through the startup project
+         it is pointed at; it only detects the Design package on that project directly (a
+         PrivateAssets="all" reference on DoSelect.Infrastructure does not flow transitively), so
+         this project needs its own dev-time-only reference for "dotnet ef database update" to work. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
   </ItemGroup>
 
   <ItemGroup>
