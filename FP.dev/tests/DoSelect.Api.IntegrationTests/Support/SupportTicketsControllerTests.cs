@@ -74,7 +74,7 @@ public sealed class SupportTicketsControllerTests : IClassFixture<WebApplication
             subject = "訂單延遲問題",
             message = "我的包裹已經超過預計送達時間三天了",
         }, DoSelectClaimValues.Member);
-        var created = await ReadJsonAsync(createResponse);
+        var created = await ReadCreatedJsonAsync(createResponse);
 
         Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
         Assert.Equal("open", created.RootElement.GetProperty("status").GetString());
@@ -99,7 +99,7 @@ public sealed class SupportTicketsControllerTests : IClassFixture<WebApplication
             subject = "帳號登入問題",
             message = "我無法登入我的帳號，一直顯示密碼錯誤",
         }, DoSelectClaimValues.Member);
-        var created = await ReadJsonAsync(createResponse);
+        var created = await ReadCreatedJsonAsync(createResponse);
         var publicId = created.RootElement.GetProperty("publicId").GetString();
 
         using var otherClient = CreateClient(_memberBId);
@@ -120,7 +120,7 @@ public sealed class SupportTicketsControllerTests : IClassFixture<WebApplication
             subject = "測試取消案件",
             message = "這是一個要被取消的測試案件內容",
         }, DoSelectClaimValues.Member);
-        var created = await ReadJsonAsync(createResponse);
+        var created = await ReadCreatedJsonAsync(createResponse);
         var publicId = created.RootElement.GetProperty("publicId").GetString();
         var rowVersion = created.RootElement.GetProperty("rowVersion").GetString();
 
@@ -144,7 +144,7 @@ public sealed class SupportTicketsControllerTests : IClassFixture<WebApplication
             subject = "測試併發案件",
             message = "這是一個要測試併發衝突的測試案件內容",
         }, DoSelectClaimValues.Member);
-        var created = await ReadJsonAsync(createResponse);
+        var created = await ReadCreatedJsonAsync(createResponse);
         var publicId = created.RootElement.GetProperty("publicId").GetString();
         var staleRowVersion = created.RootElement.GetProperty("rowVersion").GetString();
 
@@ -175,7 +175,7 @@ public sealed class SupportTicketsControllerTests : IClassFixture<WebApplication
             subject = "RowVersion 缺漏測試",
             message = "測試訊息缺少 RowVersion 欄位",
         }, DoSelectClaimValues.Member);
-        var created = await ReadJsonAsync(createResponse);
+        var created = await ReadCreatedJsonAsync(createResponse);
         var publicId = created.RootElement.GetProperty("publicId").GetString();
 
         using var response = await client.PostAsJsonWithAntiforgeryAsync(
@@ -198,7 +198,7 @@ public sealed class SupportTicketsControllerTests : IClassFixture<WebApplication
             subject = "RowVersion 長度測試",
             message = "測試取消時 RowVersion 長度錯誤",
         }, DoSelectClaimValues.Member);
-        var created = await ReadJsonAsync(createResponse);
+        var created = await ReadCreatedJsonAsync(createResponse);
         var publicId = created.RootElement.GetProperty("publicId").GetString();
 
         using var response = await client.PostAsJsonWithAntiforgeryAsync(
@@ -221,7 +221,7 @@ public sealed class SupportTicketsControllerTests : IClassFixture<WebApplication
             subject = "RowVersion Base64 測試",
             message = "測試 RowVersion 不是合法 Base64",
         }, DoSelectClaimValues.Member);
-        var created = await ReadJsonAsync(createResponse);
+        var created = await ReadCreatedJsonAsync(createResponse);
         var publicId = created.RootElement.GetProperty("publicId").GetString();
 
         using var response = await client.PostAsJsonWithAntiforgeryAsync(
@@ -268,6 +268,12 @@ public sealed class SupportTicketsControllerTests : IClassFixture<WebApplication
     {
         var content = await response.Content.ReadAsStringAsync();
         return JsonDocument.Parse(content);
+    }
+
+    private static async Task<JsonDocument> ReadCreatedJsonAsync(HttpResponseMessage response)
+    {
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        return await ReadJsonAsync(response);
     }
 
     private static async Task<JsonDocument> ReadProblemDetailsAsync(HttpResponseMessage response)
