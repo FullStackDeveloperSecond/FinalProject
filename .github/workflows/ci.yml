@@ -93,13 +93,11 @@ jobs:
         run: dotnet format DoSelect.slnx --verify-no-changes --no-restore
 
       - name: Install EF Core CLI tool
-        run: |
-          dotnet tool install --global dotnet-ef --version 10.0.10
-          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+        run: dotnet tool install --global dotnet-ef --version 10.0.10
 
       - name: Apply database migrations
         run: >-
-          dotnet ef database update
+          "$HOME/.dotnet/tools/dotnet-ef" database update
           --project src/backend/DoSelect.Infrastructure
           --startup-project src/backend/DoSelect.Api
           --no-build
