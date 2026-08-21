@@ -2,6 +2,7 @@ using DoSelect.Api.Common;
 using DoSelect.Api.Observability;
 using DoSelect.Application.Notifications;
 using DoSelect.Infrastructure.Email;
+using DoSelect.Infrastructure.Files;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Seeding;
 using DoSelect.Api.Security;
@@ -14,6 +15,7 @@ builder.AddObservability();
 builder.Services.AddApiFoundation();
 builder.Services.AddOpenApi();
 builder.Services.AddDoSelectPersistence(builder.Configuration);
+builder.Services.AddDoSelectFileStorage(builder.Configuration);
 builder.Services.AddDoSelectSecurity(builder.Environment, builder.Configuration);
 builder.Services.AddSingleton<IEmailSender>(services =>
 {
