@@ -2,6 +2,7 @@ import {
   createAntiforgeryTokenProvider,
   createDoSelectClient,
   resolveApiBaseUrl,
+  type paths,
 } from '@doselect/web-shared/api'
 
 export const apiBaseUrl = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL)
@@ -20,3 +21,5 @@ export function createApiClient<Paths extends object>() {
     getAntiforgeryToken: antiforgeryTokenProvider.getToken,
   })
 }
+
+export const apiClient = createApiClient<paths>()
