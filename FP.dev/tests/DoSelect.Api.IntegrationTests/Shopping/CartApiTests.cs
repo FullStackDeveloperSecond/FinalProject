@@ -81,6 +81,27 @@ public sealed class CartApiTests
         Assert.Equal("resource_not_found", code);
     }
 
+    /// <summary>PR #28 review: Quantity had no request-boundary validation, so an out-of-range value reached the Domain layer's ArgumentOutOfRangeException unmapped (500).</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(100)]
+    public async Task AddItem_WhenQuantityIsOutsideOneToNinetyNine_Returns400WithValidationFailed(int quantity)
+    {
+        using var client = _fixture.CreateClient();
+        var guestKey = CartApiFixture.UniqueGuestKey();
+        Sku sku;
+        await using (var context = _fixture.CreateScopedContext())
+        {
+            sku = await CartApiSeeding.CreatePublishedSkuAsync(context);
+        }
+
+        using var response = await PostAddItemAsync(client, guestKey, sku.PublicId, quantity);
+        var (status, code, _) = await CartApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal(400, status);
+        Assert.Equal("validation_failed", code);
+    }
+
     [Fact]
     public async Task AddItem_WhenSkuIsNotPublished_Returns409WithSkuUnavailable()
     {
@@ -310,6 +331,26 @@ public sealed class CartApiTests
         var item = Assert.Single(body.GetProperty("cart").GetProperty("items").EnumerateArray());
         Assert.Equal(5, item.GetProperty("quantity").GetInt32());
         Assert.Equal(0, body.GetProperty("conflicts").GetArrayLength());
+    }
+
+    /// <summary>PR #28 review: guestCartKey (32..256) and idempotencyKey (8..128) had no length validation at the request boundary.</summary>
+    [Theory]
+    [InlineData("too-short", "a-valid-idempotency-key")]
+    [InlineData("a-guest-cart-key-that-is-long-enough-to-pass-the-32-char-floor", "short")]
+    public async Task Merge_WhenGuestKeyOrIdempotencyKeyIsTooShort_Returns400WithValidationFailed(
+        string guestCartKey, string idempotencyKey)
+    {
+        using var memberClient = await _fixture.CreateAuthenticatedMemberClientAsync();
+
+        using var mergeRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/cart/actions/merge")
+        {
+            Content = JsonContent.Create(new { guestCartKey, strategy = "mergeAndReportConflicts", idempotencyKey }),
+        };
+        using var response = await CartApiFixture.SendWithAntiforgeryAsync(memberClient, mergeRequest);
+        var (status, code, _) = await CartApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal(400, status);
+        Assert.Equal("validation_failed", code);
     }
 
     [Fact]

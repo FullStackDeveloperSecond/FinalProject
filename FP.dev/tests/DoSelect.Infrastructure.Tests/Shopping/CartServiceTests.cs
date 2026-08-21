@@ -193,9 +193,7 @@ public sealed class CartServiceTests
     {
         await using var context = CartServiceFixture.CreateContext();
         var service = new EfCartService(context);
-        var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
-        context.InventoryBalances.Add(new InventoryBalance(Guid.CreateVersion7(), sku.Id, onHandQuantity: 2, reorderLevel: 0, DateTime.UtcNow));
-        await context.SaveChangesAsync();
+        var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m, availableQuantity: 2);
 
         var identity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
         await service.AddItemAsync(identity, new AddCartItemRequest(sku.PublicId, 5, null), CancellationToken.None);
@@ -209,19 +207,28 @@ public sealed class CartServiceTests
         Assert.Equal(2, item.MaxPurchasableQuantity);
     }
 
+    /// <summary>
+    /// PR #28 review: a missing InventoryBalance row used to be treated as "unknown, don't
+    /// block" (99 always purchasable) — inconsistent with PR #22's public search, which
+    /// excludes a SKU with no balance row from purchasable results. A SKU the inventory slice
+    /// hasn't populated yet must not be silently checkout-ready.
+    /// </summary>
     [Fact]
-    public async Task RevalidateAsync_WhenNoInventoryBalanceRowExists_DoesNotBlockCheckout()
+    public async Task RevalidateAsync_WhenNoInventoryBalanceRowExists_BlocksCheckout()
     {
         await using var context = CartServiceFixture.CreateContext();
         var service = new EfCartService(context);
-        var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
+        var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m, availableQuantity: null);
         var identity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
         await service.AddItemAsync(identity, new AddCartItemRequest(sku.PublicId, 50, null), CancellationToken.None);
 
         var validation = await service.RevalidateAsync(identity, CancellationToken.None);
 
-        Assert.True(validation.IsCheckoutReady);
-        Assert.Equal("available", Assert.Single(validation.Cart.Items).Availability);
+        Assert.False(validation.IsCheckoutReady);
+        Assert.Contains(validation.Issues, issue => issue.Code == ShoppingWriteException.ErrorCodes.CartItemRequiresAttention);
+        var item = Assert.Single(validation.Cart.Items);
+        Assert.Equal("insufficient_stock", item.Availability);
+        Assert.Equal(0, item.MaxPurchasableQuantity);
     }
 
     [Fact]
@@ -253,6 +260,78 @@ public sealed class CartServiceTests
         var validation = await service.RevalidateAsync(identity, CancellationToken.None);
 
         Assert.Equal(800m, Assert.Single(validation.Cart.Items).UnitPrice);
+    }
+
+    /// <summary>PR #28 review: a successful mutation must extend the cart's TTL, not just leave it at creation + 30 days.</summary>
+    [Fact]
+    public async Task AddItemAsync_OnSuccess_ExtendsCartExpiry()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var service = new EfCartService(context);
+        var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
+        var identity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
+
+        var cartAfterFirstAdd = await service.AddItemAsync(
+            identity, new AddCartItemRequest(sku.PublicId, 1, null), CancellationToken.None);
+        var expiresAfterFirstAdd = await context.Carts.AsNoTracking()
+            .Where(c => c.PublicId == cartAfterFirstAdd.PublicId)
+            .Select(c => c.ExpiresAtUtc)
+            .SingleAsync();
+
+        // Push the deadline back by directly rewriting ExpiresAtUtc to simulate "time has
+        // passed since creation", then confirm a second mutation pushes it back out rather
+        // than leaving the now-stale deadline alone. The raw UPDATE also bumps the row's
+        // rowversion, so the change tracker's cached copy of the cart (with its now-stale
+        // concurrency token) must be cleared before reusing this context, or the next save
+        // fails as a false concurrency conflict.
+        await context.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE Carts SET ExpiresAtUtc = {expiresAfterFirstAdd.AddDays(-1)} WHERE PublicId = {cartAfterFirstAdd.PublicId}");
+        context.ChangeTracker.Clear();
+
+        await service.AddItemAsync(identity, new AddCartItemRequest(sku.PublicId, 1, null), CancellationToken.None);
+        var expiresAfterSecondAdd = await context.Carts.AsNoTracking()
+            .Where(c => c.PublicId == cartAfterFirstAdd.PublicId)
+            .Select(c => c.ExpiresAtUtc)
+            .SingleAsync();
+
+        Assert.True(expiresAfterSecondAdd > expiresAfterFirstAdd.AddDays(-1));
+    }
+
+    /// <summary>
+    /// PR #28 review: a cart still Status=Active but past ExpiresAtUtc must not be reused —
+    /// it gets flipped to Expired (freeing the filtered-unique-index slot) and a fresh cart is
+    /// created, exactly like the "no Active cart yet" path.
+    /// </summary>
+    [Fact]
+    public async Task GetCartAsync_WhenTheExistingActiveCartHasExpired_CreatesAFreshOneAndExpiresTheOld()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var service = new EfCartService(context);
+        var guestKey = CartServiceFixture.UniqueGuestKey();
+        var now = DateTime.UtcNow;
+
+        var expiredCart = Domain.Shopping.Cart.CreateForGuest(
+            Guid.CreateVersion7(), SHA256HashOfGuestKey(guestKey), now.AddMinutes(1), now.AddDays(-40));
+        context.Carts.Add(expiredCart);
+        await context.SaveChangesAsync();
+        // Backdate past "now" directly — the constructor requires ExpiresAtUtc > createdAtUtc,
+        // so the only way to represent an already-expired row is to rewrite it after insert.
+        // Clear the tracker afterwards so the service's query re-reads the backdated value
+        // instead of resolving to the already-tracked (pre-backdate) in-memory instance.
+        await context.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE Carts SET ExpiresAtUtc = {now.AddDays(-10)} WHERE Id = {expiredCart.Id}");
+        context.ChangeTracker.Clear();
+
+        var identity = new CartIdentity(null, guestKey);
+        var cart = await service.GetCartAsync(identity, CancellationToken.None);
+
+        Assert.NotEqual(expiredCart.PublicId, cart.PublicId);
+
+        var expiredCartStatus = await context.Carts.AsNoTracking()
+            .Where(c => c.PublicId == expiredCart.PublicId)
+            .Select(c => c.Status)
+            .SingleAsync();
+        Assert.Equal(Domain.Shopping.CartStatus.Expired, expiredCartStatus);
     }
 
     /// <summary>
@@ -307,8 +386,17 @@ public sealed class CartServiceTests
         Assert.Empty(result.Conflicts);
     }
 
+    /// <summary>
+    /// PR #28 review: UC-CART-02 requires the merge to "keep the item and flag a conflict,
+    /// never auto-truncate" when the combined quantity exceeds the 99 cap or available stock.
+    /// CartItem's own domain invariant hard-caps a row at 99, so there is no legal stored value
+    /// that honestly represents "110" — clamping to Math.Min(combined, 99) used to silently
+    /// pick a number that was neither side's original quantity and permanently drop the
+    /// remainder once the guest cart converted. The fix leaves the member's existing quantity
+    /// untouched and reports the conflict instead of guessing on the shopper's behalf.
+    /// </summary>
     [Fact]
-    public async Task MergeAsync_WhenCombinedQuantityExceedsNinetyNine_ClampsAndReportsConflict()
+    public async Task MergeAsync_WhenCombinedQuantityExceedsNinetyNine_LeavesMemberQuantityUnchangedAndReportsConflict()
     {
         await using var context = CartServiceFixture.CreateContext();
         var service = new EfCartService(context);
@@ -325,10 +413,10 @@ public sealed class CartServiceTests
             CancellationToken.None);
 
         var item = Assert.Single(result.Cart.Items);
-        Assert.Equal(99, item.Quantity);
+        Assert.Equal(50, item.Quantity);
         var conflict = Assert.Single(result.Conflicts);
         Assert.Equal(ShoppingWriteException.ErrorCodes.CartQuantityExceeded, conflict.Reason);
-        Assert.Equal(99, conflict.AcceptedQuantity);
+        Assert.Equal(50, conflict.AcceptedQuantity);
     }
 
     [Fact]

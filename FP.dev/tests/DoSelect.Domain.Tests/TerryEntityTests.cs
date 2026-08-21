@@ -62,6 +62,25 @@ public sealed class TerryEntityTests
         Assert.Equal(CreatedAtUtc.AddMinutes(5), cart.UpdatedAtUtc);
     }
 
+    [Fact]
+    public void ExtendExpiry_PushesExpiryOutAndUpdatesTimestamp()
+    {
+        var cart = Cart.CreateForMember(Guid.NewGuid(), "member-1", CreatedAtUtc.AddDays(30), CreatedAtUtc);
+
+        cart.ExtendExpiry(CreatedAtUtc.AddDays(35), CreatedAtUtc.AddDays(5));
+
+        Assert.Equal(CreatedAtUtc.AddDays(35), cart.ExpiresAtUtc);
+        Assert.Equal(CreatedAtUtc.AddDays(5), cart.UpdatedAtUtc);
+    }
+
+    [Fact]
+    public void ExtendExpiry_RejectsAnExpiryAtOrBeforeTheUpdateTime() =>
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+        {
+            var cart = Cart.CreateForMember(Guid.NewGuid(), "member-1", CreatedAtUtc.AddDays(30), CreatedAtUtc);
+            cart.ExtendExpiry(CreatedAtUtc.AddDays(5), CreatedAtUtc.AddDays(5));
+        });
+
     [Theory]
     [InlineData(0)]
     [InlineData(100)]

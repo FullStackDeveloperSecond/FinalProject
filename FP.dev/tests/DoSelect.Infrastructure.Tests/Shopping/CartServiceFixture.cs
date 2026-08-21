@@ -1,4 +1,5 @@
 using DoSelect.Domain.Catalog;
+using DoSelect.Domain.Inventory;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -44,7 +45,18 @@ public sealed class CartServiceFixture : IAsyncLifetime
         return member.Id;
     }
 
-    public async Task<Sku> SeedPublishedSkuAsync(DoSelectDbContext context, decimal listPrice, bool publish = true)
+    /// <summary>
+    /// <paramref name="availableQuantity"/> defaults to a generous 1000 (not null): after PR
+    /// #28's review a missing InventoryBalance row means "insufficient_stock", so any test
+    /// that isn't specifically exercising that edge case needs a real balance row to avoid
+    /// tripping over it incidentally. Pass <c>null</c> explicitly to test the no-balance-row
+    /// case itself.
+    /// </summary>
+    public async Task<Sku> SeedPublishedSkuAsync(
+        DoSelectDbContext context,
+        decimal listPrice,
+        bool publish = true,
+        int? availableQuantity = 1000)
     {
         var now = DateTime.UtcNow;
         var brand = new Brand(Guid.CreateVersion7(), UniqueCode("BRAND"), "測試品牌", now);
@@ -71,6 +83,13 @@ public sealed class CartServiceFixture : IAsyncLifetime
 
         context.Skus.Add(sku);
         await context.SaveChangesAsync();
+
+        if (availableQuantity.HasValue)
+        {
+            context.InventoryBalances.Add(new InventoryBalance(
+                Guid.CreateVersion7(), sku.Id, onHandQuantity: availableQuantity.Value, reorderLevel: 0, now));
+            await context.SaveChangesAsync();
+        }
 
         return sku;
     }
