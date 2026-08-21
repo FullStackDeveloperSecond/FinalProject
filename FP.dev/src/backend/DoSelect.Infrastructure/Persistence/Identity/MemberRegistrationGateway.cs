@@ -99,6 +99,12 @@ public sealed class MemberRegistrationGateway(
             await userManager.UpdateAsync(user);
         }
 
+        // Rotate the security stamp so the token cannot be replayed: DataProtectorTokenProvider
+        // binds the protected payload to the user's SecurityStamp, so any further
+        // ConfirmEmailAsync call with the same token fails validation before it reaches this
+        // method once the stamp changes.
+        await userManager.UpdateSecurityStampAsync(user);
+
         return new ConfirmMemberEmailOutcome.Success(user.AccountStatus);
     }
 

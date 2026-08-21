@@ -1,12 +1,10 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useRoute } from 'vue-router'
 import { EmptyState } from '@doselect/web-shared/components'
 import { requestPasswordReset } from './api'
+import { consumePendingForgotPasswordEmail } from './forgotPasswordEmailHandoff'
 
-const route = useRoute()
-const emailFromQuery = route.query.email
-const email = ref(typeof emailFromQuery === 'string' ? emailFromQuery : '')
+const email = ref(consumePendingForgotPasswordEmail())
 const submitting = ref(false)
 const submitted = ref(false)
 

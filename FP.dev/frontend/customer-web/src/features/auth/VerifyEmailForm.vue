@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { isApiError } from '@doselect/web-shared/api'
 import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
 import { confirmEmailVerification } from './api'
@@ -8,8 +8,11 @@ import { confirmEmailVerification } from './api'
 type Status = 'loading' | 'success' | 'error' | 'missing-params'
 
 const route = useRoute()
+const router = useRouter()
 const status = ref<Status>('loading')
 const errorMessage = ref('')
+let userPublicId = ''
+let token = ''
 
 function readQueryParam(name: string): string {
   const value = route.query[name]
@@ -17,9 +20,6 @@ function readQueryParam(name: string): string {
 }
 
 async function confirm(): Promise<void> {
-  const userPublicId = readQueryParam('publicId')
-  const token = readQueryParam('token')
-
   if (!userPublicId || !token) {
     status.value = 'missing-params'
     return
@@ -37,7 +37,19 @@ async function confirm(): Promise<void> {
   }
 }
 
-onMounted(confirm)
+onMounted(async () => {
+  userPublicId = readQueryParam('publicId')
+  token = readQueryParam('token')
+
+  // Drop the token from the URL as soon as it has been read: it must not linger in the
+  // address bar, browser history, or get sent onward via Referer once the user navigates away.
+  // The captured values above remain available for a manual retry.
+  if (userPublicId || token) {
+    await router.replace({ path: route.path })
+  }
+
+  await confirm()
+})
 </script>
 
 <template>

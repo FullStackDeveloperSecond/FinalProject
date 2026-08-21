@@ -5,8 +5,10 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.RateLimiting;
 using System.Globalization;
 using System.Security.Claims;
+using System.Threading.RateLimiting;
 
 namespace DoSelect.Api.Security;
 
@@ -17,6 +19,13 @@ public static class SecurityServiceCollectionExtensions
     private static readonly TimeSpan MemberIdleTimeout = TimeSpan.FromHours(8);
     private static readonly TimeSpan MemberAbsoluteLifetime = TimeSpan.FromDays(7);
     private static readonly TimeSpan AdminAbsoluteLifetime = TimeSpan.FromHours(2);
+
+    // Per-IP request budget for auth endpoints that accept an email address (register,
+    // resend-verification, forgot-password). Placeholder default pending a product decision —
+    // see PR discussion. Complements the per-email IEmailRequestThrottle in the Application
+    // layer, which protects a single target account from being hit from many different IPs.
+    private const int PerIpPermitLimit = 5;
+    private static readonly TimeSpan PerIpWindow = TimeSpan.FromHours(1);
 
     public static IServiceCollection AddDoSelectSecurity(
         this IServiceCollection services,
@@ -65,8 +74,31 @@ public static class SecurityServiceCollectionExtensions
             });
         });
 
+        services.AddRateLimiter(options =>
+        {
+            options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+            AddPerIpFixedWindowPolicy(options, RateLimitPolicies.AuthRegister);
+            AddPerIpFixedWindowPolicy(options, RateLimitPolicies.AuthResendVerification);
+            AddPerIpFixedWindowPolicy(options, RateLimitPolicies.AuthForgotPassword);
+        });
+
         return services;
     }
+
+    private static void AddPerIpFixedWindowPolicy(RateLimiterOptions options, string policyName) =>
+        options.AddPolicy(policyName, httpContext => RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: GetClientIpAddress(httpContext),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = PerIpPermitLimit,
+                Window = PerIpWindow,
+                QueueLimit = 0,
+                AutoReplenishment = true,
+            }));
+
+    private static string GetClientIpAddress(HttpContext httpContext) =>
+        httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
     private static string NormalizeOrigin(string rawOrigin) =>
         Uri.TryCreate(rawOrigin, UriKind.Absolute, out var origin)

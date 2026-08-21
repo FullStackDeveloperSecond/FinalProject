@@ -6,6 +6,7 @@ using DoSelect.Application.Members;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace DoSelect.Api.Controllers;
 
@@ -20,9 +21,11 @@ public sealed class AuthController(
     LoginMemberService loginMemberService) : ControllerBase
 {
     [HttpPost("register")]
+    [EnableRateLimiting(RateLimitPolicies.AuthRegister)]
     [ProducesResponseType(typeof(RegisterAcceptedResponse), StatusCodes.Status202Accepted)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public async Task<IActionResult> Register(
         [FromBody] RegisterRequest request,
         CancellationToken cancellationToken)
@@ -44,19 +47,25 @@ public sealed class AuthController(
             RegisterMemberResult.ValidationFailed validationFailed =>
                 BadRequest(ToValidationProblem(validationFailed.Errors)),
 
+            RegisterMemberResult.RateLimited => RateLimitedResult(),
+
             _ => Problem(),
         };
     }
 
     [HttpPost("email-verifications")]
+    [EnableRateLimiting(RateLimitPolicies.AuthResendVerification)]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public async Task<IActionResult> RequestEmailVerification(
         [FromBody] EmailVerificationRequest request,
         CancellationToken cancellationToken)
     {
-        await requestEmailVerificationService.RequestAsync(request.ToCommand(), cancellationToken);
-        return Accepted();
+        var result = await requestEmailVerificationService.RequestAsync(request.ToCommand(), cancellationToken);
+        return result == RequestEmailVerificationResult.RateLimited
+            ? RateLimitedResult()
+            : Accepted();
     }
 
     [HttpPost("email-verifications/confirm")]
@@ -85,14 +94,18 @@ public sealed class AuthController(
     }
 
     [HttpPost("password-resets")]
+    [EnableRateLimiting(RateLimitPolicies.AuthForgotPassword)]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public async Task<IActionResult> RequestPasswordReset(
         [FromBody] PasswordResetRequest request,
         CancellationToken cancellationToken)
     {
-        await requestPasswordResetService.RequestAsync(request.ToCommand(), cancellationToken);
-        return Accepted();
+        var result = await requestPasswordResetService.RequestAsync(request.ToCommand(), cancellationToken);
+        return result == RequestPasswordResetResult.RateLimited
+            ? RateLimitedResult()
+            : Accepted();
     }
 
     [HttpPost("password-resets/confirm")]
@@ -247,4 +260,10 @@ public sealed class AuthController(
         result.ContentTypes.Add("application/problem+json");
         return result;
     }
+
+    private ObjectResult RateLimitedResult() =>
+        ProblemResult(
+            StatusCodes.Status429TooManyRequests,
+            ApiErrorCodes.RateLimitExceeded,
+            "Too many requests for this email address. Try again later.");
 }

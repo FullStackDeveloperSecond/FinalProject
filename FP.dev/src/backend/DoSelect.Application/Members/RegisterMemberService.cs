@@ -23,13 +23,18 @@ public abstract record RegisterMemberResult
 
     public sealed record ValidationFailed(
         IReadOnlyDictionary<string, string[]> Errors) : RegisterMemberResult;
+
+    public sealed record RateLimited : RegisterMemberResult;
 }
 
 public sealed class RegisterMemberService(
     IMemberRegistrationGateway gateway,
-    IEmailSender emailSender,
+    IEmailDispatchQueue emailDispatchQueue,
+    IEmailRequestThrottle emailRequestThrottle,
     IOptions<FrontendLinkOptions> frontendLinkOptions)
 {
+    private const string ThrottlePurpose = "register";
+
     // No terms-of-service version registry is documented yet; the currently accepted
     // version is pinned here until one exists.
     public const int CurrentTermsVersion = 1;
@@ -39,6 +44,11 @@ public sealed class RegisterMemberService(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(command);
+
+        if (!emailRequestThrottle.TryAcquire(ThrottlePurpose, command.Email))
+        {
+            return new RegisterMemberResult.RateLimited();
+        }
 
         var errors = new Dictionary<string, string[]>(StringComparer.Ordinal);
 
@@ -74,7 +84,7 @@ public sealed class RegisterMemberService(
                     });
 
             case CreateMemberOutcome.Success success:
-                await SendVerificationEmailAsync(success, cancellationToken);
+                SendVerificationEmail(success);
                 return new RegisterMemberResult.Success(
                     success.PublicId,
                     EmailMasking.Mask(success.Email),
@@ -86,16 +96,13 @@ public sealed class RegisterMemberService(
         }
     }
 
-    private Task SendVerificationEmailAsync(
-        CreateMemberOutcome.Success success,
-        CancellationToken cancellationToken) =>
-        emailSender.SendAsync(
+    private void SendVerificationEmail(CreateMemberOutcome.Success success) =>
+        emailDispatchQueue.Enqueue(
             MemberVerificationEmailComposer.Compose(
                 success.Email,
                 success.PublicId,
                 success.EmailConfirmationToken,
-                frontendLinkOptions.Value.BaseUrl),
-            cancellationToken);
+                frontendLinkOptions.Value.BaseUrl));
 
     private static bool TryResolveLocale(string? rawLocale, out SupportedLocale locale)
     {

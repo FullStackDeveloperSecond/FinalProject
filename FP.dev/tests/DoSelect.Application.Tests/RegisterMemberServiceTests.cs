@@ -17,7 +17,7 @@ public sealed class RegisterMemberServiceTests
                 "jane.doe@example.com",
                 AccountStatus.PendingEmailVerification,
                 "confirmation-token"));
-        var emailSender = new RecordingEmailSender();
+        var emailSender = new RecordingEmailDispatchQueue();
         var service = CreateService(gateway, emailSender);
 
         var result = await service.RegisterAsync(ValidCommand());
@@ -34,7 +34,7 @@ public sealed class RegisterMemberServiceTests
     public async Task RegisterAsync_WhenEmailIsAlreadyRegistered_ReturnsEmailInUseWithoutSendingEmail()
     {
         var gateway = new FakeMemberRegistrationGateway(_ => new CreateMemberOutcome.EmailInUse());
-        var emailSender = new RecordingEmailSender();
+        var emailSender = new RecordingEmailDispatchQueue();
         var service = CreateService(gateway, emailSender);
 
         var result = await service.RegisterAsync(ValidCommand());
@@ -48,7 +48,7 @@ public sealed class RegisterMemberServiceTests
     {
         var gateway = new FakeMemberRegistrationGateway(
             _ => throw new InvalidOperationException("Gateway should not be called."));
-        var service = CreateService(gateway, new RecordingEmailSender());
+        var service = CreateService(gateway, new RecordingEmailDispatchQueue());
         var command = ValidCommand() with { AcceptTermsVersion = 999 };
 
         var result = await service.RegisterAsync(command);
@@ -62,7 +62,7 @@ public sealed class RegisterMemberServiceTests
     {
         var gateway = new FakeMemberRegistrationGateway(
             _ => throw new InvalidOperationException("Gateway should not be called."));
-        var service = CreateService(gateway, new RecordingEmailSender());
+        var service = CreateService(gateway, new RecordingEmailDispatchQueue());
         var command = ValidCommand() with { Locale = "fr-FR" };
 
         var result = await service.RegisterAsync(command);
@@ -76,7 +76,7 @@ public sealed class RegisterMemberServiceTests
     {
         var gateway = new FakeMemberRegistrationGateway(
             _ => new CreateMemberOutcome.PasswordRejected(["Password too weak."]));
-        var service = CreateService(gateway, new RecordingEmailSender());
+        var service = CreateService(gateway, new RecordingEmailDispatchQueue());
 
         var result = await service.RegisterAsync(ValidCommand());
 
@@ -93,8 +93,8 @@ public sealed class RegisterMemberServiceTests
 
     private static RegisterMemberService CreateService(
         IMemberRegistrationGateway gateway,
-        IEmailSender emailSender) =>
-        new(gateway, emailSender, Options.Create(new FrontendLinkOptions
+        IEmailDispatchQueue emailDispatchQueue) =>
+        new(gateway, emailDispatchQueue, new EmailRequestThrottle(), Options.Create(new FrontendLinkOptions
         {
             BaseUrl = "http://localhost:5173",
         }));
@@ -119,16 +119,10 @@ public sealed class RegisterMemberServiceTests
             throw new NotSupportedException();
     }
 
-    private sealed class RecordingEmailSender : IEmailSender
+    private sealed class RecordingEmailDispatchQueue : IEmailDispatchQueue
     {
         public List<EmailMessage> SentMessages { get; } = [];
 
-        public Task<EmailDeliveryResult> SendAsync(
-            EmailMessage message,
-            CancellationToken cancellationToken = default)
-        {
-            SentMessages.Add(message);
-            return Task.FromResult(new EmailDeliveryResult(EmailDeliveryStatus.Sent));
-        }
+        public void Enqueue(EmailMessage message) => SentMessages.Add(message);
     }
 }

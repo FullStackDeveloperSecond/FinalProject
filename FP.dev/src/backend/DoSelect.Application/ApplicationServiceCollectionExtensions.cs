@@ -1,3 +1,4 @@
+using DoSelect.Application.Common;
 using DoSelect.Application.Members;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -7,6 +8,8 @@ public static class ApplicationServiceCollectionExtensions
 {
     public static IServiceCollection AddDoSelectApplication(this IServiceCollection services)
     {
+        services.AddSingleton<IEmailRequestThrottle, EmailRequestThrottle>();
+
         services.AddScoped<RegisterMemberService>();
         services.AddScoped<ConfirmEmailVerificationService>();
         services.AddScoped<RequestEmailVerificationService>();
