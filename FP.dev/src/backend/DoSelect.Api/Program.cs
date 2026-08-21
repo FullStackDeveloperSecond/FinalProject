@@ -61,9 +61,10 @@ if (app.Environment.IsDevelopment())
     app.MapScalarApiReference();
 }
 
+app.UseCors(SecurityServiceCollectionExtensions.FrontendCorsPolicy);
+
 app.UseHttpsRedirection();
 
-app.UseCors(SecurityServiceCollectionExtensions.FrontendCorsPolicy);
 app.UseAuthentication();
 
 // Cart routes accept both anonymous guests and authenticated members (no [Authorize]

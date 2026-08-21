@@ -47,6 +47,16 @@ public sealed class EmailVerificationConfirmRequest
 
 public sealed record EmailVerificationConfirmedResponse(string AccountStatus);
 
+public sealed class EmailVerificationRequest
+{
+    [Required]
+    [StringLength(320, MinimumLength = 3)]
+    [EmailAddress]
+    public string Email { get; init; } = string.Empty;
+
+    public RequestEmailVerificationCommand ToCommand() => new(Email.Trim());
+}
+
 public sealed class LoginRequest
 {
     [Required]

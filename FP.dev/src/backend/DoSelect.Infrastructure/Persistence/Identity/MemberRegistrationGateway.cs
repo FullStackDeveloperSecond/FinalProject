@@ -101,4 +101,20 @@ public sealed class MemberRegistrationGateway(
 
         return new ConfirmMemberEmailOutcome.Success(user.AccountStatus);
     }
+
+    public async Task<RequestMemberEmailVerificationOutcome> RequestEmailVerificationAsync(
+        string email,
+        CancellationToken cancellationToken = default)
+    {
+        var user = await userManager.FindByEmailAsync(email);
+        if (user is null ||
+            user.AccountType != AccountType.Member ||
+            user.AccountStatus != AccountStatus.PendingEmailVerification)
+        {
+            return new RequestMemberEmailVerificationOutcome.NotEligible();
+        }
+
+        var token = await userManager.GenerateEmailConfirmationTokenAsync(user);
+        return new RequestMemberEmailVerificationOutcome.Issued(user.PublicId, user.Email!, token);
+    }
 }

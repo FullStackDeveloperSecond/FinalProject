@@ -17,6 +17,10 @@ export interface RegisterAcceptedResponseBody {
   accountStatus: string
 }
 
+export interface EmailVerificationRequestBody {
+  email: string
+}
+
 export interface EmailVerificationConfirmRequestBody {
   userPublicId: string
   token: string
@@ -51,6 +55,14 @@ interface AuthPaths {
       requestBody: { content: { 'application/json': RegisterRequestBody } }
       responses: {
         202: { content: { 'application/json': RegisterAcceptedResponseBody } }
+      }
+    }
+  }
+  '/api/v1/auth/email-verifications': {
+    post: {
+      requestBody: { content: { 'application/json': EmailVerificationRequestBody } }
+      responses: {
+        202: { content: never }
       }
     }
   }
@@ -93,6 +105,12 @@ export async function registerMember(
 ): Promise<RegisterAcceptedResponseBody> {
   const { data } = await client.POST('/api/v1/auth/register', { body })
   return data as RegisterAcceptedResponseBody
+}
+
+export async function requestEmailVerification(
+  body: EmailVerificationRequestBody,
+): Promise<void> {
+  await client.POST('/api/v1/auth/email-verifications', { body })
 }
 
 export async function confirmEmailVerification(
