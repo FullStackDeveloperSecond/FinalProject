@@ -56,10 +56,10 @@ public sealed class M14BReadModelSqlServerTests : IClassFixture<WebApplicationFa
             await db.SaveChangesAsync();
         }
 
-        var page = await QuerySlaAsync(now);
-        var pre = Assert.Single(page.Items, item => item.TicketPublicId == preResponse.PublicId);
-        var capped = Assert.Single(page.Items, item => item.TicketPublicId == cappedPause.PublicId);
-        var internalWait = Assert.Single(page.Items, item => item.TicketPublicId == waitingInternal.PublicId);
+        var items = await QueryAllSlaAsync(now);
+        var pre = Assert.Single(items, item => item.TicketPublicId == preResponse.PublicId);
+        var capped = Assert.Single(items, item => item.TicketPublicId == cappedPause.PublicId);
+        var internalWait = Assert.Single(items, item => item.TicketPublicId == waitingInternal.PublicId);
 
         Assert.Equal(preResponse.FirstResponseDueAtUtc, pre.EffectiveDueAtUtc);
         Assert.True(pre.IsOverdue);
@@ -75,7 +75,7 @@ public sealed class M14BReadModelSqlServerTests : IClassFixture<WebApplicationFa
 
         Assert.Equal(waitingInternal.ResolutionDueAtUtc, internalWait.EffectiveDueAtUtc);
         Assert.True(internalWait.IsOverdue);
-        Assert.DoesNotContain(page.Items, item => item.TicketPublicId == terminal.PublicId);
+        Assert.DoesNotContain(items, item => item.TicketPublicId == terminal.PublicId);
     }
 
     [Fact]
@@ -132,11 +132,30 @@ public sealed class M14BReadModelSqlServerTests : IClassFixture<WebApplicationFa
         Assert.Empty(unauthorized.Items);
     }
 
-    private async Task<SupportSlaQueuePage> QuerySlaAsync(DateTime now)
+    private async Task<IReadOnlyList<SupportSlaItemDto>> QueryAllSlaAsync(DateTime now)
     {
-        using var scope = _factory.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
-        return await new SupportSlaQueueStore(db).QueryPageAsync(100, null, now, CancellationToken.None);
+        var items = new List<SupportSlaItemDto>();
+        SupportSlaCursorPosition? after = null;
+
+        for (var pageNumber = 0; pageNumber < 100; pageNumber++)
+        {
+            using var scope = _factory.Services.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+            var page = await new SupportSlaQueueStore(db).QueryPageAsync(
+                100, after, now, CancellationToken.None);
+            items.AddRange(page.Items);
+
+            if (!page.HasMore)
+            {
+                return items;
+            }
+
+            var last = Assert.Single(page.Items.TakeLast(1));
+            after = new SupportSlaCursorPosition(
+                last.IsOverdue, last.EffectiveDueAtUtc, last.TicketPublicId);
+        }
+
+        throw new Xunit.Sdk.XunitException("SLA queue exceeded the 100-page acceptance-test guard.");
     }
 
     private async Task<CaseWorkbenchPage> QueryWorkbenchAsync(
