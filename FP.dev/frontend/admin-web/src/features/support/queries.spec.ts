@@ -4,6 +4,14 @@ import { defineComponent } from 'vue'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const ticketId = '018f2e6a-0000-7000-8000-000000000001'
+let runHarness: () => void
+
+const Harness = defineComponent({
+  setup() {
+    runHarness()
+    return () => null
+  },
+})
 
 describe('admin support queries', () => {
   afterEach(() => {
@@ -20,12 +28,7 @@ describe('admin support queries', () => {
     vi.stubGlobal('fetch', fetchStub)
     const { useSupportSlaQueueQuery } = await import('./queries')
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    const Harness = defineComponent({
-      setup() {
-        useSupportSlaQueueQuery({ pageSize: 20, cursor: 'opaque+cursor/==' })
-        return () => null
-      },
-    })
+    runHarness = () => useSupportSlaQueueQuery({ pageSize: 20, cursor: 'opaque+cursor/==' })
     const wrapper = mount(Harness, {
       global: { plugins: [[VueQueryPlugin, { queryClient }]] },
     })
@@ -55,13 +58,10 @@ describe('admin support queries', () => {
     const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
     let claim!: (request: { rowVersion: string }) => Promise<unknown>
-    const Harness = defineComponent({
-      setup() {
-        const mutation = useClaimSupportTicketMutation(ticketId)
-        claim = request => mutation.mutateAsync(request)
-        return () => null
-      },
-    })
+    runHarness = () => {
+      const mutation = useClaimSupportTicketMutation(ticketId)
+      claim = request => mutation.mutateAsync(request)
+    }
     const wrapper = mount(Harness, {
       global: { plugins: [[VueQueryPlugin, { queryClient }]] },
     })
