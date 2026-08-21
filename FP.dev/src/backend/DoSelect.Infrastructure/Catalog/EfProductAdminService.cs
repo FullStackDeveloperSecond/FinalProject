@@ -48,12 +48,39 @@ public sealed class EfProductAdminService : IProductAdminService
             products = products.Where(row => categoryCodes.Contains(row.category.Code));
         }
 
-        if (query.Statuses is { Count: > 0 })
+        var statuses = AdminCatalogQueryValidator.NormalizeStatuses<ProductStatus>(query.Statuses);
+        if (statuses.Count > 0)
         {
-            var statuses = query.Statuses
-                .Select(status => Enum.Parse<ProductStatus>(status, ignoreCase: true))
-                .ToArray();
             products = products.Where(row => statuses.Contains(row.product.Status));
+        }
+
+        var stockState = AdminCatalogQueryValidator.NormalizeStockState(query.StockState);
+        if (stockState is AdminStockStates.InStock or AdminStockStates.OutOfStock)
+        {
+            // Correlated per-product on-hand sum, filtered before Count/Skip/Take — doing
+            // this after paging (as the previous version did, in memory on an already-sliced
+            // page) made totalCount wrong and could short a page or skip matching products
+            // entirely. EF Core translates an empty Sum() to COALESCE(SUM(...),0), matching
+            // the "no SKUs at all" == 0 on-hand semantics the old in-memory version had.
+            // Local functions can't appear in an expression tree, so the correlated
+            // subquery is inlined in both branches rather than shared via a helper.
+            products = stockState == AdminStockStates.InStock
+                ? products.Where(row => _dbContext.Skus.AsNoTracking()
+                    .Where(sku => sku.ProductId == row.product.Id)
+                    .Join(
+                        _dbContext.InventoryBalances.AsNoTracking(),
+                        sku => sku.Id,
+                        balance => balance.SkuId,
+                        (sku, balance) => balance.OnHandQuantity)
+                    .Sum() > 0)
+                : products.Where(row => _dbContext.Skus.AsNoTracking()
+                    .Where(sku => sku.ProductId == row.product.Id)
+                    .Join(
+                        _dbContext.InventoryBalances.AsNoTracking(),
+                        sku => sku.Id,
+                        balance => balance.SkuId,
+                        (sku, balance) => balance.OnHandQuantity)
+                    .Sum() <= 0);
         }
 
         var totalCount = await products.CountAsync(cancellationToken);
@@ -61,9 +88,22 @@ public sealed class EfProductAdminService : IProductAdminService
         var pageNumber = query.PageNumber < 1 ? 1 : query.PageNumber;
         var pageSize = query.PageSize is < 1 or > 100 ? 20 : query.PageSize;
 
+        var sort = AdminCatalogQueryValidator.NormalizeSort(query.Sort);
+        products = sort switch
+        {
+            AdminProductSortOptions.UpdatedAsc => products
+                .OrderBy(row => row.product.UpdatedAtUtc)
+                .ThenBy(row => row.product.ProductCode),
+            AdminProductSortOptions.CodeAsc => products
+                .OrderBy(row => row.product.ProductCode),
+            AdminProductSortOptions.CodeDesc => products
+                .OrderByDescending(row => row.product.ProductCode),
+            _ => products
+                .OrderByDescending(row => row.product.UpdatedAtUtc)
+                .ThenBy(row => row.product.ProductCode),
+        };
+
         var page = await products
-            .OrderByDescending(row => row.product.UpdatedAtUtc)
-            .ThenBy(row => row.product.ProductCode)
             .Skip((pageNumber - 1) * pageSize)
             .Take(pageSize)
             .ToListAsync(cancellationToken);
@@ -98,11 +138,6 @@ public sealed class EfProductAdminService : IProductAdminService
                 row.product.UpdatedAtUtc,
                 row.product.RowVersion);
         }).ToList();
-
-        if (query.StockState is not (null or "any"))
-        {
-            items = FilterByStockState(items, query.StockState).ToList();
-        }
 
         return new PageResult<AdminProductSummaryDto>(items, pageNumber, pageSize, totalCount);
     }
@@ -167,10 +202,27 @@ public sealed class EfProductAdminService : IProductAdminService
         product.ChangeStatus(status, now);
 
         _dbContext.Products.Add(product);
-        await _dbContext.SaveChangesAsync(cancellationToken);
 
-        await ReplaceTagsAsync(product.Id, request.TagPublicIds, now, cancellationToken);
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        // ReplaceTagsAsync needs product.Id, which SQL Server only assigns once the first
+        // SaveChangesAsync actually inserts the row — so this can't collapse into a single
+        // SaveChangesAsync call. Wrapping both in one transaction is what keeps an invalid
+        // tag reference from leaving an orphaned Product behind: on any failure the whole
+        // transaction rolls back, undoing the already-physically-written insert.
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            await _dbContext.SaveChangesAsync(cancellationToken);
+
+            await ReplaceTagsAsync(product.Id, request.TagPublicIds, now, cancellationToken);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
+        }
 
         return (await BuildDetailAsync(product, cancellationToken))!;
     }
@@ -337,15 +389,6 @@ public sealed class EfProductAdminService : IProductAdminService
 
         return parsed;
     }
-
-    private static IEnumerable<AdminProductSummaryDto> FilterByStockState(
-        IEnumerable<AdminProductSummaryDto> items,
-        string? stockState) => stockState switch
-        {
-            "outOfStock" => items.Where(item => item.TotalOnHandQuantity <= 0),
-            "inStock" => items.Where(item => item.TotalOnHandQuantity > 0),
-            _ => items,
-        };
 
     private static string NormalizeCode(string value) =>
         value.Trim().Normalize(NormalizationForm.FormKC).ToUpperInvariant();

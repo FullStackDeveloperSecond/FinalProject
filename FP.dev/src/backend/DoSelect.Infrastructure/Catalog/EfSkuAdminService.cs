@@ -68,10 +68,28 @@ public sealed class EfSkuAdminService : ISkuAdminService
         sku.ChangeStatus(status, now);
 
         _dbContext.Skus.Add(sku);
-        await _dbContext.SaveChangesAsync(cancellationToken);
 
-        await ReplaceSpecificationsAsync(sku.Id, product.CategoryId, request.Specifications, now, cancellationToken);
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        // ReplaceSpecificationsAsync needs sku.Id, only assigned once the first
+        // SaveChangesAsync inserts the row — can't collapse into one call. Wrapping both in
+        // a transaction means an invalid specification (or the ClearExistingDefaultAsync
+        // side effect above, already pending in the same change tracker) doesn't leave a
+        // half-created SKU or a wrongly-cleared previous default behind: any failure rolls
+        // back the whole thing.
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            await _dbContext.SaveChangesAsync(cancellationToken);
+
+            await ReplaceSpecificationsAsync(sku.Id, product.CategoryId, request.Specifications, now, cancellationToken);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
+        }
 
         return await SkuAdminMapping.ToDtoAsync(_dbContext, sku, product, cancellationToken);
     }
@@ -157,12 +175,21 @@ public sealed class EfSkuAdminService : ISkuAdminService
                 $"SKU '{skuPublicId}' was not found.");
         }
 
+        // Every table below has an OnDelete(DeleteBehavior.Restrict) foreign key to Skus —
+        // this check exists specifically so a real reference surfaces as a stable 409
+        // instead of the SqlException that Restrict would otherwise throw (and that
+        // GlobalExceptionHandler would map to an opaque 500).
         var isReferenced = sku.Status != SkuStatus.Draft ||
             await _dbContext.InventoryBalances.AsNoTracking().AnyAsync(b => b.SkuId == sku.Id, cancellationToken) ||
             await _dbContext.InventoryReservations.AsNoTracking().AnyAsync(r => r.SkuId == sku.Id, cancellationToken) ||
             await _dbContext.InventoryMovements.AsNoTracking().AnyAsync(m => m.SkuId == sku.Id, cancellationToken) ||
+            await _dbContext.InventoryReconciliationCases.AsNoTracking().AnyAsync(c => c.SkuId == sku.Id, cancellationToken) ||
             await _dbContext.CartItems.AsNoTracking().AnyAsync(c => c.SkuId == sku.Id, cancellationToken) ||
-            await _dbContext.BuildListItems.AsNoTracking().AnyAsync(b => b.SkuId == sku.Id, cancellationToken);
+            await _dbContext.BuildListItems.AsNoTracking().AnyAsync(b => b.SkuId == sku.Id, cancellationToken) ||
+            await _dbContext.OrderItems.AsNoTracking().AnyAsync(o => o.SkuId == sku.Id, cancellationToken) ||
+            await _dbContext.ProductImages.AsNoTracking().AnyAsync(i => i.SkuId == sku.Id, cancellationToken) ||
+            await _dbContext.SkuTranslations.AsNoTracking().AnyAsync(t => t.SkuId == sku.Id, cancellationToken) ||
+            await _dbContext.SalePrices.AsNoTracking().AnyAsync(p => p.SkuId == sku.Id, cancellationToken);
         if (isReferenced)
         {
             throw new CatalogWriteException(

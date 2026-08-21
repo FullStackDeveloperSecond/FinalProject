@@ -35,8 +35,15 @@ public sealed class AdminProductsController : ControllerBase
             request.PageNumber,
             request.PageSize);
 
-        var result = await _productAdminService.ListAsync(query, cancellationToken);
-        return Ok(result);
+        try
+        {
+            var result = await _productAdminService.ListAsync(query, cancellationToken);
+            return Ok(result);
+        }
+        catch (CatalogWriteException exception)
+        {
+            return exception.ToActionResult(HttpContext);
+        }
     }
 
     [HttpGet("{id:guid}")]

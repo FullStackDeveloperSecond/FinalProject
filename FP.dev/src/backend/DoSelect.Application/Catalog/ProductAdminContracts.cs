@@ -12,6 +12,31 @@ public sealed record AdminProductQuery(
     int PageNumber,
     int PageSize);
 
+public static class AdminProductSortOptions
+{
+    public const string UpdatedDesc = "updatedDesc";
+    public const string UpdatedAsc = "updatedAsc";
+    public const string CodeAsc = "codeAsc";
+    public const string CodeDesc = "codeDesc";
+
+    public static readonly IReadOnlyCollection<string> All =
+    [
+        UpdatedDesc,
+        UpdatedAsc,
+        CodeAsc,
+        CodeDesc,
+    ];
+}
+
+public static class AdminStockStates
+{
+    public const string Any = "any";
+    public const string InStock = "inStock";
+    public const string OutOfStock = "outOfStock";
+
+    public static readonly IReadOnlyCollection<string> All = [Any, InStock, OutOfStock];
+}
+
 public sealed record AdminProductSummaryDto(
     Guid PublicId,
     string ProductCode,
