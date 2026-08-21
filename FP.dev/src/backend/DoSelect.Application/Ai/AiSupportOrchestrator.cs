@@ -1,3 +1,5 @@
+using DoSelect.Domain.Members;
+
 namespace DoSelect.Application.Ai;
 
 public sealed record AiSupportAccessState(
@@ -5,14 +7,50 @@ public sealed record AiSupportAccessState(
     int RemainingDailyMessages,
     DateTimeOffset ResetAtUtc);
 
-public interface IAiSupportAccessReader
+public sealed record AiSupportReservationResult(
+    bool IsReserved,
+    AiSupportAccessState State);
+
+public interface IAiSupportAdmissionGate
 {
     Task<AiSupportAccessState> ReadAsync(
         Guid memberId,
         CancellationToken cancellationToken);
+
+    Task<AiSupportReservationResult> TryReserveAsync(
+        Guid memberId,
+        Guid requestPublicId,
+        CancellationToken cancellationToken);
 }
 
-public sealed record AiSupportModelAnswer(string Answer);
+public enum AiSupportContextStatus
+{
+    Allowed = 0,
+    ResourceNotFound = 1,
+    Unavailable = 2,
+}
+
+public sealed record AiSupportContextReadResult(
+    AiSupportContextStatus Status,
+    IReadOnlyList<string> DataItems);
+
+public interface IAiSupportContextReader
+{
+    Task<AiSupportContextReadResult> ReadAsync(
+        Guid memberId,
+        IReadOnlyList<Guid> referencedOrderPublicIds,
+        CancellationToken cancellationToken);
+}
+
+public enum AiSupportModelAnswerStatus
+{
+    Answered = 0,
+    Unavailable = 1,
+}
+
+public sealed record AiSupportModelAnswer(
+    string? Answer,
+    AiSupportModelAnswerStatus Status = AiSupportModelAnswerStatus.Answered);
 
 public interface IAiSupportModelClient
 {
@@ -23,8 +61,10 @@ public interface IAiSupportModelClient
 
 public sealed record AiSupportExecutionRequest(
     Guid MemberId,
+    Guid RequestPublicId,
     string Message,
-    IReadOnlyList<string> DataItems);
+    SupportedLocale Locale,
+    IReadOnlyList<Guid> ReferencedOrderPublicIds);
 
 public enum AiSupportExecutionStatus
 {
@@ -42,14 +82,17 @@ public sealed record AiSupportExecutionResult(
 
 public sealed class AiSupportOrchestrator
 {
-    private readonly IAiSupportAccessReader _accessReader;
+    private readonly IAiSupportAdmissionGate _admissionGate;
+    private readonly IAiSupportContextReader _contextReader;
     private readonly IAiSupportModelClient _modelClient;
 
     public AiSupportOrchestrator(
-        IAiSupportAccessReader accessReader,
+        IAiSupportAdmissionGate admissionGate,
+        IAiSupportContextReader contextReader,
         IAiSupportModelClient modelClient)
     {
-        _accessReader = accessReader ?? throw new ArgumentNullException(nameof(accessReader));
+        _admissionGate = admissionGate ?? throw new ArgumentNullException(nameof(admissionGate));
+        _contextReader = contextReader ?? throw new ArgumentNullException(nameof(contextReader));
         _modelClient = modelClient ?? throw new ArgumentNullException(nameof(modelClient));
     }
 
@@ -57,31 +100,39 @@ public sealed class AiSupportOrchestrator
         AiSupportExecutionRequest request,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(request);
-        ArgumentException.ThrowIfNullOrWhiteSpace(request.Message);
-        ArgumentNullException.ThrowIfNull(request.DataItems);
+        ValidateRequest(request);
 
-        if (request.MemberId == Guid.Empty)
+        var access = await _admissionGate.ReadAsync(request.MemberId, cancellationToken);
+        var initialGate = EvaluateAccess(access);
+        if (!initialGate.MayCallModel)
         {
-            throw new ArgumentException("A trusted member identifier is required.", nameof(request));
+            return Reject(initialGate.Reason, initialGate.Fallback, access);
         }
 
-        var access = await _accessReader.ReadAsync(request.MemberId, cancellationToken);
-        var gate = AiSupportRequestGate.Evaluate(
-            new AiSupportRequestContext(
-                AiActorType.Member,
-                IsAuthenticated: true,
-                access.ConsentState,
-                access.RemainingDailyMessages));
-
-        if (!gate.MayCallModel)
+        var context = await _contextReader.ReadAsync(
+            request.MemberId,
+            request.ReferencedOrderPublicIds,
+            cancellationToken);
+        if (context.Status == AiSupportContextStatus.ResourceNotFound)
         {
-            return Reject(gate.Reason, gate.Fallback, access);
+            return Reject(
+                AiSafetyReason.ResourceOwnershipMismatch,
+                AiFallback.HumanSupport,
+                access);
+        }
+
+        if (context.Status != AiSupportContextStatus.Allowed)
+        {
+            return Reject(
+                AiSafetyReason.ServiceUnavailable,
+                AiFallback.HumanSupport,
+                access);
         }
 
         var preparation = AiPromptEnvelopeFactory.TryCreateSupport(
+            request.Locale,
             request.Message,
-            request.DataItems);
+            context.DataItems);
         if (preparation.Envelope is null)
         {
             return Reject(
@@ -90,17 +141,67 @@ public sealed class AiSupportOrchestrator
                 access);
         }
 
+        var reservation = await _admissionGate.TryReserveAsync(
+            request.MemberId,
+            request.RequestPublicId,
+            cancellationToken);
+        if (!reservation.IsReserved)
+        {
+            var reservedGate = EvaluateAccess(reservation.State);
+            var reason = reservedGate.MayCallModel
+                ? AiSafetyReason.ServiceUnavailable
+                : reservedGate.Reason;
+            return Reject(reason, AiFallback.HumanSupport, reservation.State);
+        }
+
         var modelAnswer = await _modelClient.GenerateAsync(
             preparation.Envelope,
             cancellationToken);
+        if (modelAnswer.Status != AiSupportModelAnswerStatus.Answered)
+        {
+            return Reject(
+                AiSafetyReason.ServiceUnavailable,
+                AiFallback.HumanSupport,
+                reservation.State);
+        }
 
         return new AiSupportExecutionResult(
             AiSupportExecutionStatus.Answered,
             modelAnswer.Answer,
             AiSafetyReason.None,
             AiFallback.None,
-            Math.Max(0, access.RemainingDailyMessages - 1),
-            access.ResetAtUtc);
+            reservation.State.RemainingDailyMessages,
+            reservation.State.ResetAtUtc);
+    }
+
+    private static AiSupportRequestDecision EvaluateAccess(AiSupportAccessState access) =>
+        AiSupportRequestGate.Evaluate(
+            new AiSupportRequestContext(
+                AiActorType.Member,
+                IsAuthenticated: true,
+                access.ConsentState,
+                access.RemainingDailyMessages));
+
+    private static void ValidateRequest(AiSupportExecutionRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.Message);
+        ArgumentNullException.ThrowIfNull(request.ReferencedOrderPublicIds);
+
+        if (request.MemberId == Guid.Empty)
+        {
+            throw new ArgumentException("A trusted member identifier is required.", nameof(request));
+        }
+
+        if (request.RequestPublicId == Guid.Empty)
+        {
+            throw new ArgumentException("A request identifier is required.", nameof(request));
+        }
+
+        if (!Enum.IsDefined(request.Locale))
+        {
+            throw new ArgumentOutOfRangeException(nameof(request));
+        }
     }
 
     private static AiSupportExecutionResult Reject(

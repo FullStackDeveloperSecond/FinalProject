@@ -8,7 +8,6 @@ public sealed record AiSupportRequestContext(
 
 public sealed record AiSupportRequestDecision(
     bool MayCallModel,
-    int HttpStatus,
     AiSafetyReason Reason,
     AiFallback Fallback);
 
@@ -21,7 +20,6 @@ public static class AiSupportRequestGate
         if (context.ActorType == AiActorType.GuestOrderScope)
         {
             return Deny(
-                403,
                 AiSafetyReason.MemberScopeRequired,
                 AiFallback.HumanSupport);
         }
@@ -29,7 +27,6 @@ public static class AiSupportRequestGate
         if (context.ActorType != AiActorType.Member || !context.IsAuthenticated)
         {
             return Deny(
-                401,
                 AiSafetyReason.AuthenticationRequired,
                 AiFallback.HumanSupport);
         }
@@ -40,32 +37,28 @@ public static class AiSupportRequestGate
                 ? AiSafetyReason.ConsentDenied
                 : AiSafetyReason.ConsentRequired;
 
-            return Deny(200, reason, AiFallback.HumanSupport);
+            return Deny(reason, AiFallback.HumanSupport);
         }
 
         if (context.RemainingDailyMessages <= 0)
         {
             return Deny(
-                429,
                 AiSafetyReason.DailyQuotaExceeded,
                 AiFallback.HumanSupport);
         }
 
         return new AiSupportRequestDecision(
             MayCallModel: true,
-            HttpStatus: 200,
             AiSafetyReason.None,
             AiFallback.None);
     }
 
     private static AiSupportRequestDecision Deny(
-        int httpStatus,
         AiSafetyReason reason,
         AiFallback fallback)
     {
         return new AiSupportRequestDecision(
             MayCallModel: false,
-            httpStatus,
             reason,
             fallback);
     }

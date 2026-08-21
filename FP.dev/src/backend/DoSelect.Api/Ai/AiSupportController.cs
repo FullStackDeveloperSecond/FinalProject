@@ -1,9 +1,12 @@
 using System.Security.Claims;
 using DoSelect.Api.Common;
+using DoSelect.Api.Configuration;
 using DoSelect.Api.Security;
 using DoSelect.Application.Ai;
+using DoSelect.Domain.Members;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 
 namespace DoSelect.Api.Ai;
 
@@ -14,10 +17,14 @@ public sealed class AiSupportController : ControllerBase
 {
     private const string DisclaimerKey = "ai.support.answerDisclaimer";
     private readonly AiSupportOrchestrator _orchestrator;
+    private readonly FeatureOptions _features;
 
-    public AiSupportController(AiSupportOrchestrator orchestrator)
+    public AiSupportController(
+        AiSupportOrchestrator orchestrator,
+        IOptions<FeatureOptions> features)
     {
         _orchestrator = orchestrator;
+        _features = features.Value;
     }
 
     [HttpPost]
@@ -33,6 +40,13 @@ public sealed class AiSupportController : ControllerBase
         AiSupportMessageRequest request,
         CancellationToken cancellationToken)
     {
+        if (!_features.AiEnabled)
+        {
+            return Problem(
+                StatusCodes.Status503ServiceUnavailable,
+                ApiErrorCodes.AiServiceUnavailable);
+        }
+
         var rawMemberId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (!Guid.TryParse(rawMemberId, out var memberId))
         {
@@ -41,8 +55,14 @@ public sealed class AiSupportController : ControllerBase
                 ApiErrorCodes.AuthenticationRequired);
         }
 
+        var interactionPublicId = Guid.NewGuid();
         var result = await _orchestrator.ExecuteAsync(
-            new AiSupportExecutionRequest(memberId, request.Message, DataItems: []),
+            new AiSupportExecutionRequest(
+                memberId,
+                interactionPublicId,
+                request.Message,
+                ParseLocale(request.Locale),
+                request.ReferencedOrderPublicIds),
             cancellationToken);
 
         if (result.Status == AiSupportExecutionStatus.Rejected)
@@ -59,7 +79,7 @@ public sealed class AiSupportController : ControllerBase
 
         return Ok(new AiSupportAnswerDto(
             request.ConversationPublicId ?? Guid.NewGuid(),
-            Guid.NewGuid(),
+            interactionPublicId,
             result.Answer,
             Citations: [],
             AiSupportResultCodes.Answered,
@@ -85,10 +105,22 @@ public sealed class AiSupportController : ControllerBase
                 StatusCodes.Status400BadRequest,
                 ApiErrorCodes.ValidationFailed,
                 "The message contains sensitive content that cannot be processed by AI."),
+        AiSafetyReason.ResourceOwnershipMismatch =>
+            Problem(
+                StatusCodes.Status404NotFound,
+                ApiErrorCodes.AiOrderAccessDenied),
         _ =>
             Problem(
                 StatusCodes.Status503ServiceUnavailable,
                 ApiErrorCodes.AiServiceUnavailable),
+    };
+
+    private static SupportedLocale ParseLocale(string locale) => locale switch
+    {
+        "zh-TW" => SupportedLocale.ZhTw,
+        "ja-JP" => SupportedLocale.JaJp,
+        "ko-KR" => SupportedLocale.KoKr,
+        _ => throw new ArgumentOutOfRangeException(nameof(locale)),
     };
 
     private ObjectResult Problem(int statusCode, string code, string? detail = null)

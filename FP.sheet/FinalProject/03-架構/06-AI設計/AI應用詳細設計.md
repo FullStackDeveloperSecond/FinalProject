@@ -155,7 +155,8 @@ sequenceDiagram
     participant T as 白名單只讀工具
     participant O as OpenAI
     U->>API: 同意目前版本並提出問題
-    API->>API: 驗證登入、同意、額度與資料最小化
+    API->>API: 驗證登入、同意、額度、Owner 與資料最小化
+    API->>API: 原子預留一次額度
     API->>O: 顧客問題＋核准政策內容
     O-->>API: 要求呼叫白名單工具
     API->>T: 以登入內容執行工具，不採用模型傳入會員 ID
@@ -212,6 +213,8 @@ sequenceDiagram
 
 模型不得自行產生可點擊的任意外部網址；前端只依 `sourceType` 與 `sourceId` 建立系統內允許的導向。
 
+額度預留發生在登入、同意、剩餘額度、內容安全與資源 Owner 檢查全部通過之後、第一次模型呼叫之前。成功預留後即使模型逾時、拒絕或服務失敗也不退還；同一次互動的內部重試沿用同一 Request PublicId，不得再次扣用。正式 Admission Gate 必須以資料庫交易或等價原子操作處理併發與冪等，不可使用「先讀剩餘量、再於記憶體減一」。
+
 ## 隱私、授權與紀錄邊界
 
 - 姓名、Email、電話、地址、密碼、Cookie、Token、API Key 及其他祕密禁止送往 OpenAI。
@@ -234,4 +237,4 @@ sequenceDiagram
 - 若帳號無法使用選定模型或 Snapshot，不得由開發者自行換模；需記錄成本、品質與相容性後重新決策。
 - OpenAI Request 是否保存必須明確設定，且不取代本系統自身的 90／180 天保存規則。
 
-既有零件識別格式與 Clarification Precision／Recall 發布門檻均已定版；120 筆繁中 draft 評估資料、合成 Fixture、Grader Contract 與 deterministic 驗證已建立於 `FP.dev/evals/ai/v1`。Application 已建立 27 項 AI-13 安全測試、可替換 Model Client 邊界、客服前置 Orchestrator、去識別投影、只讀工具白名單、Prompt 信任分層、Semantic Key／預算驗證與故障降級策略；API 已建立 `POST /api/v1/ai/support/messages` 的 Member Policy、Antiforgery、DTO 驗證、Problem Details 與 7 項 Fake Client Integration 測試。預設 Access Reader 採 Fail Closed，尚未接線時不會呼叫外部模型。目前剩餘工作為 Terry／Kafen 標註覆核、完整 SearchIntent Schema、正式 Prompt、正式同意／額度資料來源、OpenAI Adapter、Owner Query、瀏覽器 E2E 及 live baseline。
+既有零件識別格式與 Clarification Precision／Recall 發布門檻均已定版；120 筆繁中 draft 評估資料、合成 Fixture、Grader Contract 與 deterministic 驗證已建立於 `FP.dev/evals/ai/v1`。Application 已建立 31 項 AI 安全測試，包含可替換 Admission Gate／Context Reader／Model Client、原子額度預留、最後一額與併發競爭契約、語系傳遞、Owner Fail Closed、去識別投影、只讀工具白名單、Prompt 信任分層、Semantic Key／預算驗證與故障降級策略；API 已建立 `POST /api/v1/ai/support/messages` 的 Member Policy、Antiforgery、功能旗標、DTO 驗證、Problem Details 與 9 項 Fake Client Integration。預設 Admission Gate、Context Reader 與 Model Client 採 Fail Closed，尚未接線時不會呼叫外部模型。目前剩餘工作為 Terry／Kafen 標註覆核、完整 SearchIntent Schema、正式 Prompt、正式同意／額度持久化、OpenAI Adapter、Owner Query、真正 GuestOrderAccessToken Integration、瀏覽器 E2E 及 live baseline。

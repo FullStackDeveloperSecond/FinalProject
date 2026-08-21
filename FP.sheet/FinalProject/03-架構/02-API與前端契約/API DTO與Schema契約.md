@@ -185,6 +185,10 @@
 | `AiSupportAnswerDto` | `conversationPublicId`、`interactionPublicId`、`answer:string(0..4000)`、`citations:{type,label,resourcePublicId?,url?}[0..10]`、`resultCode:answered/safe_rejection/degraded`、`degradationMode:none/keywordSearch/createSupportTicket`、`disclaimerKey`、`usage{remainingRequests,resetAtUtc}` |
 
 AI 客服訊息若含 Token、API Key、Cookie、密碼或禁止外送的個資，必須在模型呼叫前停止，回 `400 validation_failed` 與不含原文的安全提示；不得指出、記錄或回顯偵測值。此錯誤不建立 `AiSupportAnswerDto`，因此不使用 `safe_rejection`。`safe_rejection` 保留給未來採正常回應呈現、且不含敏感內容的安全拒絕；`degraded` 只在確實執行既定替代流程時使用。
+
+`locale` 必須轉成受控列舉並傳入 Prompt Envelope，不能只做 DTO 驗證後捨棄。`referencedOrderPublicIds` 最多三筆，只能由後端以登入會員做 Owner Query 並產生去識別內容；任何一筆不屬本人或採安全不存在策略時回 `404 ai_order_access_denied` 且不呼叫模型，Owner Query 尚未接線或暫時不可用時回 `503 ai_service_unavailable`，不得忽略參照後繼續回答。
+
+每日額度採「模型呼叫前原子預留」：功能關閉、未登入、未同意、額度耗盡、內容安全拒絕及資源授權拒絕均不扣用；成功預留後即算一次，模型逾時、拒絕或服務失敗不退還；同一互動的內部重試不得重複扣用。Application 只回傳穩定原因，不保存 HTTP Status，由 API 層集中映射 Problem Details。
 | `AiUsageDto` | `feature`、`usedRequests`、`requestLimit`、`inputTokens`、`outputTokens`、`estimatedCostUsd`、`windowStartUtc/resetAtUtc`、`budgetProtectionActive` |
 | `AdminAiUsageReportDto` | 日期區間、功能／模型彙總、成功／失敗／降級次數、Token、估算成本、US$70／90 門檻狀態、資料截至時間；成本明細依 Policy 移除或回傳 |
 | `CreateSupportTicketRequest` | `category:enum`、`subject:string(1..200)`、`message:string(1..4000)`、`orderPublicId?:uuid` |

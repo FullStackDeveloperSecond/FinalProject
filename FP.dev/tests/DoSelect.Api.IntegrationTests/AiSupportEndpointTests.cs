@@ -5,11 +5,13 @@ using System.Text.Json;
 using DoSelect.Api.Common;
 using DoSelect.Api.Security;
 using DoSelect.Application.Ai;
+using DoSelect.Domain.Members;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -18,7 +20,8 @@ namespace DoSelect.Api.IntegrationTests;
 public sealed class AiSupportEndpointTests : IClassFixture<WebApplicationFactory<Program>>
 {
     private const string Endpoint = "/api/v1/ai/support/messages";
-    private const string MemberId = "11111111-1111-1111-1111-111111111111";
+    private static readonly Guid OrderPublicId =
+        Guid.Parse("33333333-3333-3333-3333-333333333333");
     private static readonly DateTimeOffset ResetAtUtc =
         new(2026, 8, 22, 0, 0, 0, TimeSpan.Zero);
     private readonly WebApplicationFactory<Program> _factory;
@@ -42,17 +45,37 @@ public sealed class AiSupportEndpointTests : IClassFixture<WebApplicationFactory
     }
 
     [Fact]
-    public async Task GuestOrderScope_Returns403WithoutCallingModel()
+    public async Task WrongAccountTypeInMemberScheme_Returns403WithoutCallingModel()
     {
         var model = new RecordingModelClient();
         using var factory = CreateFactory(GrantedAccess(), model);
         using var client = factory.CreateClient();
-        await SignInAsync(client, "guest-order");
+        await SignInAsync(client, "wrong-account-type");
         var token = await GetAntiforgeryTokenAsync(client);
 
         using var response = await PostAsync(client, ValidRequest(), token);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(0, model.CallCount);
+    }
+
+    [Fact]
+    public async Task DisabledFeature_Returns503WithoutReadingAccessOrCallingModel()
+    {
+        var model = new RecordingModelClient();
+        var admission = new StubAdmissionGate(GrantedAccess());
+        using var factory = CreateFactory(admission, model, aiEnabled: false);
+        using var client = factory.CreateClient();
+        await SignInAsync(client, "member");
+        var token = await GetAntiforgeryTokenAsync(client);
+
+        using var response = await PostAsync(client, ValidRequest(), token);
+        using var problem = await ReadJsonAsync(response);
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        Assert.Equal(ApiErrorCodes.AiServiceUnavailable, problem.RootElement.GetProperty("code").GetString());
+        Assert.Equal(0, admission.ReadCount);
+        Assert.Equal(0, admission.ReservationCount);
         Assert.Equal(0, model.CallCount);
     }
 
@@ -71,7 +94,7 @@ public sealed class AiSupportEndpointTests : IClassFixture<WebApplicationFactory
         using var problem = await ReadJsonAsync(response);
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
-        Assert.Equal("ai_consent_required", problem.RootElement.GetProperty("code").GetString());
+        Assert.Equal(ApiErrorCodes.AiConsentRequired, problem.RootElement.GetProperty("code").GetString());
         Assert.Equal(0, model.CallCount);
     }
 
@@ -90,7 +113,7 @@ public sealed class AiSupportEndpointTests : IClassFixture<WebApplicationFactory
         using var problem = await ReadJsonAsync(response);
 
         Assert.Equal(HttpStatusCode.TooManyRequests, response.StatusCode);
-        Assert.Equal("ai_usage_limit_exceeded", problem.RootElement.GetProperty("code").GetString());
+        Assert.Equal(ApiErrorCodes.AiUsageLimitExceeded, problem.RootElement.GetProperty("code").GetString());
         Assert.Equal(0, model.CallCount);
     }
 
@@ -132,40 +155,102 @@ public sealed class AiSupportEndpointTests : IClassFixture<WebApplicationFactory
     }
 
     [Fact]
-    public async Task AuthorizedSafeRequest_ReturnsContractAndCallsModelOnce()
+    public async Task UnownedReferencedOrder_Returns404WithoutReservingOrCallingModel()
     {
-        var model = new RecordingModelClient("請至訂單頁提出退貨申請。");
-        using var factory = CreateFactory(GrantedAccess(), model);
+        var model = new RecordingModelClient();
+        var admission = new StubAdmissionGate(GrantedAccess());
+        var context = new StubContextReader(
+            new AiSupportContextReadResult(
+                AiSupportContextStatus.ResourceNotFound,
+                DataItems: []));
+        using var factory = CreateFactory(admission, model, context);
         using var client = factory.CreateClient();
         await SignInAsync(client, "member");
         var token = await GetAntiforgeryTokenAsync(client);
 
-        using var response = await PostAsync(client, ValidRequest(), token);
+        using var response = await PostAsync(
+            client,
+            ValidRequest(referencedOrderPublicIds: [OrderPublicId]),
+            token);
+        using var problem = await ReadJsonAsync(response);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(ApiErrorCodes.AiOrderAccessDenied, problem.RootElement.GetProperty("code").GetString());
+        Assert.Equal(0, admission.ReservationCount);
+        Assert.Equal(0, model.CallCount);
+    }
+
+    [Fact]
+    public async Task AuthorizedSafeRequest_PropagatesLocaleAndOrderContextAndReservesOnce()
+    {
+        var model = new RecordingModelClient("返品申請は注文ページから行えます。");
+        var admission = new StubAdmissionGate(GrantedAccess());
+        var context = new StubContextReader(
+            new AiSupportContextReadResult(
+                AiSupportContextStatus.Allowed,
+                ["owner-verified de-identified order context"]));
+        using var factory = CreateFactory(admission, model, context);
+        using var client = factory.CreateClient();
+        await SignInAsync(client, "member");
+        var token = await GetAntiforgeryTokenAsync(client);
+
+        using var response = await PostAsync(
+            client,
+            ValidRequest(locale: "ja-JP", referencedOrderPublicIds: [OrderPublicId]),
+            token);
         using var document = await ReadJsonAsync(response);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(1, admission.ReservationCount);
         Assert.Equal(1, model.CallCount);
+        Assert.Equal(SupportedLocale.JaJp, model.LastEnvelope?.ResponseLocale);
+        Assert.Equal([OrderPublicId], context.LastReferencedOrderPublicIds);
+        Assert.Equal(
+            "owner-verified de-identified order context",
+            Assert.Single(model.LastEnvelope!.DataItems).Content);
         Assert.Equal("answered", document.RootElement.GetProperty("resultCode").GetString());
-        Assert.Equal("none", document.RootElement.GetProperty("degradationMode").GetString());
         Assert.Equal(19, document.RootElement.GetProperty("usage").GetProperty("remainingRequests").GetInt32());
-        Assert.Equal(0, document.RootElement.GetProperty("citations").GetArrayLength());
     }
 
     private WebApplicationFactory<Program> CreateFactory(
         AiSupportAccessState accessState,
-        RecordingModelClient model) =>
+        RecordingModelClient model,
+        StubContextReader? context = null,
+        bool aiEnabled = true) =>
+        CreateFactory(new StubAdmissionGate(accessState), model, context, aiEnabled);
+
+    private WebApplicationFactory<Program> CreateFactory(
+        StubAdmissionGate admission,
+        RecordingModelClient model,
+        StubContextReader? context = null,
+        bool aiEnabled = true) =>
         _factory.WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("Development");
+            builder.ConfigureAppConfiguration((_, configuration) =>
+            {
+                configuration.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["Features:AiEnabled"] = aiEnabled.ToString(),
+                    ["OpenAI:ApiKey"] = aiEnabled ? "integration-test-placeholder" : null,
+                    ["OpenAI:Model"] = "integration-test-model",
+                });
+            });
             builder.ConfigureServices(services =>
             {
                 services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
                 services
                     .AddControllers()
                     .AddApplicationPart(typeof(AiSupportTestSignInController).Assembly);
-                services.RemoveAll<IAiSupportAccessReader>();
+                services.RemoveAll<IAiSupportAdmissionGate>();
+                services.RemoveAll<IAiSupportContextReader>();
                 services.RemoveAll<IAiSupportModelClient>();
-                services.AddSingleton<IAiSupportAccessReader>(new StubAccessReader(accessState));
+                services.AddSingleton<IAiSupportAdmissionGate>(admission);
+                services.AddSingleton<IAiSupportContextReader>(
+                    context ?? new StubContextReader(
+                        new AiSupportContextReadResult(
+                            AiSupportContextStatus.Allowed,
+                            DataItems: [])));
                 services.AddSingleton<IAiSupportModelClient>(model);
             });
         });
@@ -173,13 +258,16 @@ public sealed class AiSupportEndpointTests : IClassFixture<WebApplicationFactory
     private static AiSupportAccessState GrantedAccess() =>
         new(AiConsentState.Granted, 20, ResetAtUtc);
 
-    private static object ValidRequest(string message = "請說明退貨流程") => new
-    {
-        conversationPublicId = (Guid?)null,
-        message,
-        referencedOrderPublicIds = Array.Empty<Guid>(),
-        locale = "zh-TW",
-    };
+    private static object ValidRequest(
+        string message = "請說明退貨流程",
+        string locale = "zh-TW",
+        Guid[]? referencedOrderPublicIds = null) => new
+        {
+            conversationPublicId = (Guid?)null,
+            message,
+            referencedOrderPublicIds = referencedOrderPublicIds ?? [],
+            locale,
+        };
 
     private static async Task<HttpResponseMessage> PostAsync(
         HttpClient client,
@@ -219,38 +307,87 @@ public sealed class AiSupportEndpointTests : IClassFixture<WebApplicationFactory
     private static async Task<JsonDocument> ReadJsonAsync(HttpResponseMessage response) =>
         JsonDocument.Parse(await response.Content.ReadAsStringAsync());
 
-    private sealed class StubAccessReader : IAiSupportAccessReader
+    private sealed class StubAdmissionGate : IAiSupportAdmissionGate
     {
         private readonly AiSupportAccessState _state;
 
-        public StubAccessReader(AiSupportAccessState state)
+        public StubAdmissionGate(AiSupportAccessState state)
         {
             _state = state;
         }
 
+        public int ReadCount { get; private set; }
+
+        public int ReservationCount { get; private set; }
+
         public Task<AiSupportAccessState> ReadAsync(
             Guid memberId,
-            CancellationToken cancellationToken) =>
-            Task.FromResult(_state);
+            CancellationToken cancellationToken)
+        {
+            ReadCount++;
+            return Task.FromResult(_state);
+        }
+
+        public Task<AiSupportReservationResult> TryReserveAsync(
+            Guid memberId,
+            Guid requestPublicId,
+            CancellationToken cancellationToken)
+        {
+            ReservationCount++;
+            var reserved = _state.ConsentState == AiConsentState.Granted &&
+                _state.RemainingDailyMessages > 0;
+            var state = reserved
+                ? _state with { RemainingDailyMessages = _state.RemainingDailyMessages - 1 }
+                : _state;
+            return Task.FromResult(new AiSupportReservationResult(reserved, state));
+        }
+    }
+
+    private sealed class StubContextReader : IAiSupportContextReader
+    {
+        private readonly AiSupportContextReadResult _result;
+
+        public StubContextReader(AiSupportContextReadResult result)
+        {
+            _result = result;
+        }
+
+        public IReadOnlyList<Guid>? LastReferencedOrderPublicIds { get; private set; }
+
+        public Task<AiSupportContextReadResult> ReadAsync(
+            Guid memberId,
+            IReadOnlyList<Guid> referencedOrderPublicIds,
+            CancellationToken cancellationToken)
+        {
+            LastReferencedOrderPublicIds = referencedOrderPublicIds;
+            return Task.FromResult(_result);
+        }
     }
 
     private sealed class RecordingModelClient : IAiSupportModelClient
     {
-        private readonly string _answer;
+        private readonly string? _answer;
+        private readonly AiSupportModelAnswerStatus _status;
 
-        public RecordingModelClient(string answer = "unused")
+        public RecordingModelClient(
+            string? answer = "unused",
+            AiSupportModelAnswerStatus status = AiSupportModelAnswerStatus.Answered)
         {
             _answer = answer;
+            _status = status;
         }
 
         public int CallCount { get; private set; }
+
+        public AiPromptEnvelope? LastEnvelope { get; private set; }
 
         public Task<AiSupportModelAnswer> GenerateAsync(
             AiPromptEnvelope envelope,
             CancellationToken cancellationToken)
         {
             CallCount++;
-            return Task.FromResult(new AiSupportModelAnswer(_answer));
+            LastEnvelope = envelope;
+            return Task.FromResult(new AiSupportModelAnswer(_answer, _status));
         }
     }
 }
@@ -262,7 +399,7 @@ public sealed class AiSupportTestSignInController : ControllerBase
     [HttpPost("sign-in/{scope}")]
     public async Task<IActionResult> SignIn(string scope)
     {
-        var accountType = scope == "member" ? DoSelectClaimValues.Member : "guest_order";
+        var accountType = scope == "member" ? DoSelectClaimValues.Member : "wrong_account_type";
         var claims = new[]
         {
             new Claim(ClaimTypes.NameIdentifier, AiSupportEndpointTestsMemberId.Value),

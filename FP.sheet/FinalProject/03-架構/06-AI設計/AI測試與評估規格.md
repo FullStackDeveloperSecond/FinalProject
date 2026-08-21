@@ -73,7 +73,7 @@ AI 測試分成「確定性安全閘門」與「品質評估」兩類。安全�
 | AI-FAIL-003 | Structured Output 拒絕／截斷 | 不執行查詢或工具，顯示安全結果 | Integration |
 | AI-COST-001 | 使用者超出每日額度 | 不呼叫 OpenAI，回傳穩定錯誤與替代入口 | Integration |
 
-截至 2026-08-21，已建立 27 項 Application 測試與 7 項 API Integration 測試。API 測試使用可替換的 Fake Model Client，已驗證匿名 `401`、Guest Order Scope `403`、未同意 `409 ai_consent_required`、額度耗盡 `429 ai_usage_limit_exceeded`、敏感內容與空白訊息 `400 validation_failed` 均不呼叫模型；安全會員請求只呼叫模型一次。測試未呼叫 OpenAI，也不消耗外部 API 成本。正式同意／額度資料來源、Owner Query、OpenAI Adapter 與瀏覽器 E2E 仍未完成，因此 `AI-13` 維持進行中。
+截至 2026-08-21，已建立 31 項 Application AI 測試與 9 項 API Integration 測試。API 測試使用可替換的 Fake Admission Gate、Context Reader 與 Model Client，已驗證匿名 `401`、錯誤帳號類型 `403`、功能關閉 `503`、未同意 `409 ai_consent_required`、額度耗盡 `429 ai_usage_limit_exceeded`、敏感內容與空白訊息 `400 validation_failed`、訂單 Owner 拒絕 `404 ai_order_access_denied` 均不呼叫模型；安全會員請求只預留一次額度並呼叫模型一次，且語系與核准資料會傳入 Prompt Envelope。Application 另驗證最後一則額度可正常使用，以及預覽後遇到併發耗盡時不呼叫模型。測試未呼叫 OpenAI，也不消耗外部 API 成本。真正的 GuestOrderAccessToken Scheme 測試、正式同意／額度持久化、Owner Query、OpenAI Adapter 與瀏覽器 E2E 仍未完成，因此 `AI-13` 維持進行中。
 
 ## 品質指標
 
@@ -115,17 +115,17 @@ OpenAI 官方建議以代表實際使用分布、包含正常與邊界案例的�
 
 | 邊界 | 已驗證內容 | 尚未宣稱的內容 |
 |---|---|---|
-| 客服前置閘門 | 匿名、Guest Scope、同意拒絕、每日額度的 `MayCallModel`、安全原因與降級結果 | 尚無正式 AI Controller，因此未證明真實 HTTP Pipeline 的 401／403 |
+| 客服前置閘門 | 匿名、錯誤帳號類型、功能關閉、同意拒絕、每日額度、敏感內容與 Owner 拒絕的 HTTP 狀態、Problem Details 及模型零呼叫；安全路徑只預留與呼叫一次 | 尚未以真正的 GuestOrderAccessToken Scheme 證明 `403`，也尚未接正式同意／額度資料來源 |
 | 訂單／客服歷史投影 | 從可信登入會員 ID 驗證 Owner；輸出 DTO 不含姓名、Email、電話、地址或 Owner ID；跨會員時 Payload 為 Null | 尚未接各 Owner 的正式 Query／Entity |
 | 外送內容與 Prompt Envelope | Token／常見 Secret／個資樣式會阻止 Envelope 建立；System Instructions、User Input、商品資料維持分離信任層級 | 不等同模型 Prompt Injection 品質或拒絕率評估 |
 | 工具與搜尋 | 四個只讀工具白名單、模型 Member ID 不作授權依據、無 SQL／寫入能力、Semantic Key 白名單與預算順序驗證 | 尚未接 OpenAI Tool Adapter 或商品 Query |
 | 故障降級 | 搜尋與客服暫時性錯誤最多重試一次；截斷結果不得執行 Query／Tool；分別降級關鍵字搜尋或人工客服 | 尚未量測真實逾時、P95 或 Token 成本 |
 
-這些測試是 Application 決策與資料最小化契約證據，不取代 API Integration、E2E 或 live evaluation。正式 Controller／Adapter 形成後，必須由相同安全閘門驅動並補上 Mock Model Client 的零呼叫斷言。
+這些測試是 Application 決策、資料最小化與目前 API Pipeline 的契約證據，不取代正式資料來源 Integration、真正 GuestOrderAccessToken、瀏覽器 E2E 或 live evaluation。OpenAI Adapter 形成後仍必須由相同安全閘門驅動，且不得繞過額度預留、Owner Query 與模型零呼叫條件。
 
 ## 待實作
 
 - 120 筆繁中實際案例、Fixture、Schema、Grader 與本機／CI deterministic 驗證已建立；仍須由 Terry 覆核商品／相容性、Kafen 覆核客服／安全，Alex 第二審後把案例從 `draft` 提升為已核准版本。
 - Prompt、SearchIntent Schema、Tool Adapter 與 AI 功能形成後，建立不洩漏 Secret、需成本確認且可保存 sanitized 結果的手動 live runner，並保存首次品質、P95、Token 與成本基準。
 - 啟動 S 後建立日文 30 筆、韓文 30 筆，並指定具語言能力的覆核者。
-- 將既有 21 項 Application 安全測試與安全閘門接入正式 Controller／Adapter；補 API 401／403、Mock Model Client 零呼叫、同意畫面 E2E 與各 Owner Query 整合測試。目前 CI 已同時具有資料契約與 Application deterministic 證據，但尚不能取代 API／E2E 或 live evaluation。
+- 將既有安全閘門接入正式同意／額度資料來源、Owner Query 與 OpenAI Adapter；補真正 GuestOrderAccessToken `403`、資料庫併發／Request PublicId 冪等、同意畫面 E2E 與各 Owner Query 整合測試。目前 CI 已具有資料契約、Application 與 Fake Client API deterministic 證據，但尚不能取代正式資料來源 Integration、E2E 或 live evaluation。

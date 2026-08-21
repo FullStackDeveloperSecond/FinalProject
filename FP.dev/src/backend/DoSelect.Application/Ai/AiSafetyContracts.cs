@@ -28,6 +28,7 @@ public enum AiSafetyReason
     SemanticKeyNotAllowed = 9,
     InvalidBudgetRange = 10,
     InvalidSearchIntent = 11,
+    ServiceUnavailable = 12,
 }
 
 public enum AiFallback
