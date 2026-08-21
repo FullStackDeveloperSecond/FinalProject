@@ -9,6 +9,7 @@ public static class RefundErrorCodes
     public const string RefundStateConflict = "refund_state_conflict";
     public const string ReturnQuantityExceeded = "return_quantity_exceeded";
     public const string IdempotencyPayloadConflict = "idempotency_payload_conflict";
+    public const string ConcurrencyConflict = "concurrency_conflict";
     public const string ResourceNotFound = "resource_not_found";
 }
 

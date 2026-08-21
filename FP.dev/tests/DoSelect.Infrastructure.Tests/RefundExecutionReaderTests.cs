@@ -86,6 +86,34 @@ public sealed class RefundExecutionReaderTests
     }
 
     [Fact]
+    public void TheExecutorHandlesDeadlockAtTheTransactionBoundary()
+    {
+        // alex 以真實 SQL Server 驗出：兩筆並行退款在 Serializable 下會產生死結（1205），
+        // 該 SqlException 被包成 DbUpdateException，只捕 DbUpdateConcurrencyException 會讓它逃出，
+        // 接上 API 後變成非預期的 500。
+        // 修正方式是在交易邊界重跑整段；只重試 SaveChanges 會沿用死結前讀到的舊餘額。
+        var source = File.ReadAllText(ExecutorSourcePath());
+
+        Assert.Contains("1205", source, StringComparison.Ordinal);
+        Assert.Contains("SqlException", source, StringComparison.Ordinal);
+        Assert.Contains("InnerException", source, StringComparison.Ordinal);
+        Assert.Contains("ChangeTracker.Clear()", source, StringComparison.Ordinal);
+        Assert.Contains("RefundErrorCodes.ConcurrencyConflict", source, StringComparison.Ordinal);
+
+        // 重試必須包住整個 ExecuteOnceAsync，而不是只包 SaveChangesAsync。
+        var retryIndex = source.IndexOf("ExecuteOnceAsync(request, cancellationToken)", StringComparison.Ordinal);
+        var catchIndex = source.IndexOf("IsRetryableConflict", StringComparison.Ordinal);
+        Assert.True(retryIndex > 0 && catchIndex > retryIndex);
+    }
+
+    [Fact]
+    public void TheConcurrencyConflictCodeIsRegisteredInTheCatalogue()
+    {
+        // concurrency_conflict 是目錄既有代碼，不是本模組新造的別名。
+        Assert.Equal("concurrency_conflict", RefundErrorCodes.ConcurrencyConflict);
+    }
+
+    [Fact]
     public void TheRefundRowCarriesARowVersionForOptimisticConcurrency()
     {
         using var context = CreateContext();

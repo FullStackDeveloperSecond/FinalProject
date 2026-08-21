@@ -3,6 +3,7 @@ using DoSelect.Application.Refunds;
 using DoSelect.Domain.Payments;
 using DoSelect.Domain.Refunds;
 using DoSelect.Infrastructure.Persistence;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
 namespace DoSelect.Infrastructure.Refunds;
@@ -14,6 +15,15 @@ namespace DoSelect.Infrastructure.Refunds;
 /// </summary>
 public sealed class RefundExecutor : IRefundExecutor
 {
+    /// <summary>SQL Server 的死結受害者錯誤碼。</summary>
+    private const int DeadlockVictimErrorNumber = 1205;
+
+    /// <summary>
+    /// 交易邊界的重試次數。並行退款在 Serializable 下會互相死結，
+    /// 重跑整個「重新讀取 → 重新判斷 → 寫入」才安全。
+    /// </summary>
+    private const int MaximumAttempts = 3;
+
     private readonly DoSelectDbContext _context;
     private readonly TimeProvider _timeProvider;
 
@@ -32,6 +42,32 @@ public sealed class RefundExecutor : IRefundExecutor
     {
         RefundExecutionDecision.RequireWellFormed(request);
 
+        for (var attempt = 1; attempt <= MaximumAttempts; attempt++)
+        {
+            try
+            {
+                return await ExecuteOnceAsync(request, cancellationToken);
+            }
+            catch (Exception exception) when (IsRetryableConflict(exception))
+            {
+                // 整個交易作廢，連同讀到的餘額一起丟掉。
+                // 只重試 SaveChanges 會沿用死結前的舊餘額，因此必須重跑整段。
+                _context.ChangeTracker.Clear();
+
+                if (attempt == MaximumAttempts)
+                {
+                    return ExecuteRefundResult.Failure(RefundErrorCodes.ConcurrencyConflict);
+                }
+            }
+        }
+
+        return ExecuteRefundResult.Failure(RefundErrorCodes.ConcurrencyConflict);
+    }
+
+    private async Task<ExecuteRefundResult> ExecuteOnceAsync(
+        ExecuteRefundRequest request,
+        CancellationToken cancellationToken)
+    {
         await using var transaction = await _context.Database.BeginTransactionAsync(
             IsolationLevel.Serializable,
             cancellationToken);
@@ -66,18 +102,32 @@ public sealed class RefundExecutor : IRefundExecutor
         refund.BeginProcessing(plan.ExecutedByAdminUserId, occurredAtUtc);
         refund.Complete(plan.Amount, occurredAtUtc);
 
-        try
-        {
-            await _context.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-        }
-        catch (DbUpdateConcurrencyException)
-        {
-            // 另一個交易已經動過這筆退款；本次不重試，交由呼叫端重新載入。
-            return ExecuteRefundResult.Failure(RefundErrorCodes.RefundStateConflict);
-        }
+        await _context.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
 
         return ExecuteRefundResult.Settled(plan.Amount, plan);
+    }
+
+    /// <summary>
+    /// 值得重跑整段交易的並行衝突：SQL Server 死結受害者，或 rowversion 樂觀鎖失敗。
+    /// 死結的 <see cref="SqlException"/> 會被層層包裝，因此往內層找。
+    /// </summary>
+    private static bool IsRetryableConflict(Exception exception)
+    {
+        if (exception is DbUpdateConcurrencyException)
+        {
+            return true;
+        }
+
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is SqlException { Number: DeadlockVictimErrorNumber })
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
