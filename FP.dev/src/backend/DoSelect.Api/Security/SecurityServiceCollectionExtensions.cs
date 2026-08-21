@@ -1,9 +1,12 @@
 using DoSelect.Api.Configuration;
+using DoSelect.Infrastructure.Persistence.Identity;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Identity;
 using System.Globalization;
+using System.Security.Claims;
 
 namespace DoSelect.Api.Security;
 
@@ -93,6 +96,28 @@ public static class SecurityServiceCollectionExtensions
                     DateTimeStyles.RoundtripKind,
                     out var absoluteExpiry) ||
                 (context.Options.TimeProvider ?? TimeProvider.System).GetUtcNow() >= absoluteExpiry)
+            {
+                context.RejectPrincipal();
+                await context.HttpContext.SignOutAsync(DoSelectAuthenticationSchemes.Member);
+                return;
+            }
+
+            // Password changes (reset or self-service) rotate Identity's SecurityStamp; comparing
+            // it here invalidates every other outstanding session cookie without a server-side
+            // session store (會員、驗證與通知.md: 密碼變更後使既有工作階段失效). Every cookie issued
+            // by the real login flow carries this claim, so a missing claim only ever means the
+            // principal was never issued that way (e.g. test-only sign-in helpers) and is left
+            // to the rest of the pipeline to authorize or reject on its own terms.
+            var stampClaim = context.Principal?.FindFirstValue(DoSelectClaimTypes.SecurityStamp);
+            if (stampClaim is null)
+            {
+                return;
+            }
+
+            var userManager = context.HttpContext.RequestServices
+                .GetRequiredService<UserManager<ApplicationUser>>();
+            var user = await userManager.GetUserAsync(context.Principal!);
+            if (user is null || !string.Equals(user.SecurityStamp, stampClaim, StringComparison.Ordinal))
             {
                 context.RejectPrincipal();
                 await context.HttpContext.SignOutAsync(DoSelectAuthenticationSchemes.Member);

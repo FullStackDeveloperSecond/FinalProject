@@ -112,6 +112,11 @@ public sealed class RegisterMemberServiceTests
             string token,
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
+
+        public Task<RequestMemberEmailVerificationOutcome> RequestEmailVerificationAsync(
+            string email,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 
     private sealed class RecordingEmailSender : IEmailSender

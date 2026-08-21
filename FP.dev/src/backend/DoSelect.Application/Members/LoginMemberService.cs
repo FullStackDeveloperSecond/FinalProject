@@ -12,7 +12,8 @@ public abstract record LoginMemberResult
         string DisplayName,
         string EmailMasked,
         SupportedLocale Locale,
-        bool RememberMe) : LoginMemberResult;
+        bool RememberMe,
+        string SecurityStamp) : LoginMemberResult;
 
     public sealed record InvalidCredentials : LoginMemberResult;
 
@@ -56,7 +57,8 @@ public sealed class LoginMemberService(IMemberLoginGateway gateway)
                 success.DisplayName,
                 EmailMasking.Mask(success.Email),
                 success.Locale,
-                command.RememberMe),
+                command.RememberMe,
+                success.SecurityStamp),
             MemberLoginOutcome.InvalidCredentials => new LoginMemberResult.InvalidCredentials(),
             MemberLoginOutcome.LockedOut lockedOut => new LoginMemberResult.LockedOut(lockedOut.LockoutEndUtc),
             MemberLoginOutcome.EmailUnverified => new LoginMemberResult.EmailUnverified(),

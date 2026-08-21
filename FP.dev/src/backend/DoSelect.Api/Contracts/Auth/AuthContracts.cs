@@ -57,6 +57,32 @@ public sealed class EmailVerificationRequest
     public RequestEmailVerificationCommand ToCommand() => new(Email.Trim());
 }
 
+public sealed class PasswordResetRequest
+{
+    [Required]
+    [StringLength(320, MinimumLength = 3)]
+    [EmailAddress]
+    public string Email { get; init; } = string.Empty;
+
+    public RequestPasswordResetCommand ToCommand() => new(Email.Trim());
+}
+
+public sealed class PasswordResetConfirmRequest
+{
+    [Required]
+    public Guid UserPublicId { get; init; }
+
+    [Required]
+    [StringLength(2048, MinimumLength = 1)]
+    public string Token { get; init; } = string.Empty;
+
+    [Required]
+    [StringLength(128, MinimumLength = 12)]
+    public string NewPassword { get; init; } = string.Empty;
+
+    public ResetPasswordCommand ToCommand() => new(UserPublicId, Token, NewPassword);
+}
+
 public sealed class LoginRequest
 {
     [Required]

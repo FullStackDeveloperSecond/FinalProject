@@ -13,6 +13,7 @@ const showPassword = ref(false)
 const submitting = ref(false)
 const topLevelError = ref<string | null>(null)
 const emailUnverified = ref(false)
+const accountLocked = ref(false)
 const resendState = ref<'idle' | 'sending' | 'sent'>('idle')
 
 const router = useRouter()
@@ -21,6 +22,7 @@ const sessionStore = useSessionStore()
 async function handleSubmit(): Promise<void> {
   topLevelError.value = null
   emailUnverified.value = false
+  accountLocked.value = false
   resendState.value = 'idle'
   submitting.value = true
 
@@ -34,6 +36,7 @@ async function handleSubmit(): Promise<void> {
   } catch (error) {
     topLevelError.value = resolveErrorMessage(error)
     emailUnverified.value = isApiError(error) && error.code === 'account_email_unverified'
+    accountLocked.value = isApiError(error) && error.code === 'account_locked'
   } finally {
     submitting.value = false
   }
@@ -122,6 +125,37 @@ function resolveErrorMessage(error: unknown): string {
           <span>{{ resendState === 'sending' ? '寄送中…' : resendState === 'sent' ? '已重新寄出' : '重新寄送驗證信' }}</span>
         </button>
       </div>
+      <div
+        v-if="accountLocked"
+        class="form-banner__actions"
+      >
+        <RouterLink
+          class="resend-verification"
+          :to="{ path: '/forgot-password', query: { email: email.trim() } }"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            width="18"
+            height="18"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <rect
+              x="3"
+              y="11"
+              width="18"
+              height="10"
+              rx="2"
+            />
+            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+          </svg>
+          <span>重設密碼</span>
+        </RouterLink>
+      </div>
     </div>
 
     <div class="form-field">
@@ -147,6 +181,12 @@ function resolveErrorMessage(error: unknown): string {
         >
         <PasswordVisibilityToggle v-model="showPassword" />
       </div>
+      <RouterLink
+        to="/forgot-password"
+        class="form-field__forgot-link"
+      >
+        忘記密碼？
+      </RouterLink>
     </div>
 
     <div class="form-checkbox">

@@ -260,11 +260,23 @@ button:focus-visible {
   border: 1px solid #991b1b;
   color: #991b1b;
   font-size: 0.8125rem;
+  text-decoration: none;
 }
 
 .resend-verification:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+.form-field__forgot-link {
+  align-self: flex-end;
+  color: #2563eb;
+  font-size: 0.8125rem;
+  text-decoration: none;
+}
+
+.form-field__forgot-link:hover {
+  text-decoration: underline;
 }
 
 .auth-form__switch {

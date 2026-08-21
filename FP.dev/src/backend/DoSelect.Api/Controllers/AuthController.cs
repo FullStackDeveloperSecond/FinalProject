@@ -15,6 +15,8 @@ public sealed class AuthController(
     RegisterMemberService registerMemberService,
     ConfirmEmailVerificationService confirmEmailVerificationService,
     RequestEmailVerificationService requestEmailVerificationService,
+    RequestPasswordResetService requestPasswordResetService,
+    ResetPasswordService resetPasswordService,
     LoginMemberService loginMemberService) : ControllerBase
 {
     [HttpPost("register")]
@@ -77,6 +79,42 @@ public sealed class AuthController(
                 StatusCodes.Status400BadRequest,
                 AuthErrorCodes.EmailTokenInvalid,
                 "The email verification token is invalid, used, or revoked."),
+
+            _ => Problem(),
+        };
+    }
+
+    [HttpPost("password-resets")]
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> RequestPasswordReset(
+        [FromBody] PasswordResetRequest request,
+        CancellationToken cancellationToken)
+    {
+        await requestPasswordResetService.RequestAsync(request.ToCommand(), cancellationToken);
+        return Accepted();
+    }
+
+    [HttpPost("password-resets/confirm")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ConfirmPasswordReset(
+        [FromBody] PasswordResetConfirmRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await resetPasswordService.ResetAsync(request.ToCommand(), cancellationToken);
+
+        return result switch
+        {
+            ResetPasswordResult.Success => Ok(),
+
+            ResetPasswordResult.TokenInvalid => ProblemResult(
+                StatusCodes.Status400BadRequest,
+                AuthErrorCodes.PasswordResetTokenInvalid,
+                "The password reset token is invalid, used, or expired."),
+
+            ResetPasswordResult.PasswordRejected passwordRejected =>
+                BadRequest(ToValidationProblem(passwordRejected.Errors)),
 
             _ => Problem(),
         };
@@ -177,6 +215,7 @@ public sealed class AuthController(
         {
             new(ClaimTypes.NameIdentifier, success.UserId),
             new(DoSelectClaimTypes.AccountType, DoSelectClaimValues.Member),
+            new(DoSelectClaimTypes.SecurityStamp, success.SecurityStamp),
         };
         var identity = new ClaimsIdentity(claims, DoSelectAuthenticationSchemes.Member);
         var principal = new ClaimsPrincipal(identity);

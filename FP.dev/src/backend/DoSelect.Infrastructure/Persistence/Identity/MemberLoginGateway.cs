@@ -58,7 +58,8 @@ public sealed class MemberLoginGateway(
             displayName,
             user.Email!,
             user.AccountStatus,
-            user.PreferredLocale);
+            user.PreferredLocale,
+            user.SecurityStamp!);
     }
 
     public async Task<MemberSessionSnapshot?> FindActiveMemberByUserIdAsync(
