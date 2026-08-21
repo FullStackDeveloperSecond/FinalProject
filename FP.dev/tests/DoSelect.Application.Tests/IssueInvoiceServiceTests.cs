@@ -109,6 +109,61 @@ public sealed class IssueInvoiceServiceTests
         Assert.Null(reader.RequestedIssuedAtUtc);
     }
 
+    [Theory]
+    [InlineData(null, "測試股份有限公司")]
+    [InlineData("12345678", null)]
+    [InlineData("   ", "測試股份有限公司")]
+    [InlineData("12345678", "   ")]
+    [InlineData(null, null)]
+    public async Task ACompanyInvoiceMissingItsDetailsFailsWithoutTakingASequence(
+        string? companyTaxId,
+        string? companyName)
+    {
+        // SimulatedInvoice 建構子會拒絕缺統編或抬頭的公司發票。
+        // 若等到那時才失敗，就已經回傳了無法持久化的成功計畫並耗掉一個流水號。
+        var reader = new FakeInvoiceIssuanceReader(Snapshot(
+            buyerType: SimulatedInvoiceBuyerType.Company,
+            companyTaxId: companyTaxId,
+            companyName: companyName));
+        var service = CreateService(reader);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.IssueAsync(new IssueInvoiceRequest(OrderPublicId)));
+
+        Assert.Null(reader.RequestedIssuedAtUtc);
+    }
+
+    [Fact]
+    public async Task AnIndividualInvoiceDoesNotNeedCompanyDetails()
+    {
+        var service = CreateService(new FakeInvoiceIssuanceReader(Snapshot(
+            buyerType: SimulatedInvoiceBuyerType.Individual,
+            companyTaxId: null,
+            companyName: null)));
+
+        Assert.True((await service.IssueAsync(new IssueInvoiceRequest(OrderPublicId))).IsSuccess);
+    }
+
+    [Fact]
+    public async Task ACompleteCompanyInvoiceProducesAPersistablePlan()
+    {
+        var service = CreateService(new FakeInvoiceIssuanceReader(Snapshot(
+            buyerType: SimulatedInvoiceBuyerType.Company,
+            companyTaxId: "12345678",
+            companyName: "測試股份有限公司")));
+
+        var plan = (await service.IssueAsync(new IssueInvoiceRequest(OrderPublicId))).Plan!;
+
+        // 計畫必須能真的建立出 SimulatedInvoice，否則就是先前那個假成功。
+        var invoice = new SimulatedInvoice(Guid.NewGuid(), new SimulatedInvoiceCreation(
+            plan.OrderId, plan.InvoiceNumber, plan.BuyerType, plan.BuyerEmail,
+            plan.CarrierType, plan.CarrierValueMasked, plan.CompanyTaxId, plan.CompanyName,
+            plan.NetAmount, plan.TaxAmount, plan.IssuedAmount), NowUtc);
+
+        Assert.Equal(SimulatedInvoiceBuyerType.Company, invoice.BuyerType);
+        Assert.Equal("12345678", invoice.CompanyTaxId);
+    }
+
     private static IssueInvoiceService CreateService(IInvoiceIssuanceReader reader) =>
         new(reader, new FixedTimeProvider(new DateTimeOffset(NowUtc, TimeSpan.Zero)));
 

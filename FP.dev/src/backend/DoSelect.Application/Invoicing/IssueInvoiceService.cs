@@ -108,6 +108,14 @@ public sealed class IssueInvoiceService
             return IssueInvoiceResult.Failure(InvoiceErrorCodes.ResourceNotFound);
         }
 
+        // 公司發票缺統編或抬頭時，SimulatedInvoice 建構子會拒絕。
+        // 先在這裡擋下，否則會回傳一份無法持久化的成功計畫，並白白耗掉一個流水號。
+        if (!InvoicePolicy.HasCompleteBuyerDetails(
+            snapshot.BuyerType, snapshot.CompanyTaxId, snapshot.CompanyName))
+        {
+            throw new InvalidOperationException(
+                "A company invoice requires both the company tax id and the company name.");
+        }
         var calculation = InvoiceCalculator.Calculate(new InvoiceIssuanceRequest(
             snapshot.Trigger,
             snapshot.OrderAlreadyHasInvoice,

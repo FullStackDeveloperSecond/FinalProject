@@ -25,6 +25,18 @@ public static class InvoicePolicy
         };
     }
 
+
+    /// <summary>
+    /// 買受人資料是否完整。公司發票必須同時有統編與公司抬頭，
+    /// 與 <see cref="SimulatedInvoice"/> 建構子的檢查一致。
+    /// 取號前先問這個，避免產生無法持久化的成功計畫並白白消耗流水號。
+    /// </summary>
+    public static bool HasCompleteBuyerDetails(
+        SimulatedInvoiceBuyerType buyerType,
+        string? companyTaxId,
+        string? companyName) =>
+        buyerType != SimulatedInvoiceBuyerType.Company ||
+        (!string.IsNullOrWhiteSpace(companyTaxId) && !string.IsNullOrWhiteSpace(companyName));
     /// <summary>
     /// 付款成功後又整筆取消且未進入退款者可作廢。已發生金流退款時必須建立折讓，
     /// 不回寫也不刪除原發票。可以作廢時回傳 <c>null</c>，否則回傳錯誤碼。
