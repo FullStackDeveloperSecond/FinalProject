@@ -66,6 +66,26 @@ public sealed class EfProductDetailServiceTests
         Assert.Null(detail);
     }
 
+    /// <summary>
+    /// Regression test: the model only guarantees at most one default SKU, never that one
+    /// exists among the published SKUs. A published product with a published non-default
+    /// SKU but an unpublished default SKU used to throw (InvalidOperationException from
+    /// Enumerable.First) instead of safely reporting not-found.
+    /// </summary>
+    [Fact]
+    public async Task GetByPublicIdAsync_WhenNoPublishedSkuIsDefault_ReturnsNullInsteadOfThrowing()
+    {
+        await using var context = CatalogDetailAndFilterOptionsFixture.CreateContext();
+        var service = new EfProductDetailService(context);
+
+        var detail = await service.GetByPublicIdAsync(
+            CatalogDetailAndFilterOptionsFixture.NoPublishedDefaultSkuProductPublicId,
+            SupportedLocale.ZhTw,
+            CancellationToken.None);
+
+        Assert.Null(detail);
+    }
+
     [Fact]
     public async Task GetByPublicIdAsync_WhenLocaleHasPublishedTranslation_UsesTranslatedNameAndDescription()
     {
@@ -164,6 +184,8 @@ public sealed class CatalogDetailAndFilterOptionsFixture : IAsyncLifetime
 
     public static Guid DraftProductPublicId { get; private set; }
 
+    public static Guid NoPublishedDefaultSkuProductPublicId { get; private set; }
+
     private const string ConnectionString =
         "Server=.\\SQL2025;Database=DoSelectCatalogDetailTests;Trusted_Connection=True;" +
         "TrustServerCertificate=True;";
@@ -241,10 +263,19 @@ public sealed class CatalogDetailAndFilterOptionsFixture : IAsyncLifetime
         product.ChangeStatus(ProductStatus.Published, now);
 
         var draftProduct = new Product(Guid.CreateVersion7(), "RTX4090-DETAIL-DRAFT", asus.Id, gpuCategory.Id, "草稿商品", now);
-        context.Products.AddRange(product, draftProduct);
+        var noPublishedDefaultSkuProduct = new Product(
+            Guid.CreateVersion7(),
+            "RTX4080-DETAIL-NODEFAULT",
+            asus.Id,
+            gpuCategory.Id,
+            "無已發布預設SKU商品",
+            now);
+        noPublishedDefaultSkuProduct.ChangeStatus(ProductStatus.Published, now);
+        context.Products.AddRange(product, draftProduct, noPublishedDefaultSkuProduct);
         await context.SaveChangesAsync();
         ProductPublicId = product.PublicId;
         DraftProductPublicId = draftProduct.PublicId;
+        NoPublishedDefaultSkuProductPublicId = noPublishedDefaultSkuProduct.PublicId;
 
         var defaultSku = new Sku(Guid.CreateVersion7(), $"{ProductCode}-A", product.Id, "標準版", 20_000m, 15_000m, now);
         defaultSku.ChangeStatus(SkuStatus.Published, now);
@@ -266,7 +297,41 @@ public sealed class CatalogDetailAndFilterOptionsFixture : IAsyncLifetime
             requiresPrepayment: false,
             now);
 
-        context.Skus.AddRange(defaultSku, otherSku);
+        // Default SKU stays Draft (never published); the non-default sibling is Published —
+        // exercises the "published SKU exists, but no published SKU is the default" case.
+        var unpublishedDefaultSku = new Sku(
+            Guid.CreateVersion7(),
+            "RTX4080-DETAIL-NODEFAULT-A",
+            noPublishedDefaultSkuProduct.Id,
+            "預設版（未發布）",
+            25_000m,
+            19_000m,
+            now);
+        unpublishedDefaultSku.UpdateCommercialDetails(
+            unpublishedDefaultSku.NameZhTw,
+            unpublishedDefaultSku.ListPrice,
+            unpublishedDefaultSku.UnitCost,
+            isDefault: true,
+            requiresPrepayment: false,
+            now);
+        var publishedNonDefaultSku = new Sku(
+            Guid.CreateVersion7(),
+            "RTX4080-DETAIL-NODEFAULT-B",
+            noPublishedDefaultSkuProduct.Id,
+            "其他版本",
+            27_000m,
+            21_000m,
+            now);
+        publishedNonDefaultSku.ChangeStatus(SkuStatus.Published, now);
+        publishedNonDefaultSku.UpdateCommercialDetails(
+            publishedNonDefaultSku.NameZhTw,
+            publishedNonDefaultSku.ListPrice,
+            publishedNonDefaultSku.UnitCost,
+            isDefault: false,
+            requiresPrepayment: false,
+            now);
+
+        context.Skus.AddRange(defaultSku, otherSku, unpublishedDefaultSku, publishedNonDefaultSku);
         await context.SaveChangesAsync();
 
         context.InventoryBalances.AddRange(

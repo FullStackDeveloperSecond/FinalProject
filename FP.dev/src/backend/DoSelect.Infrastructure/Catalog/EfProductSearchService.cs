@@ -56,9 +56,14 @@ public sealed class EfProductSearchService : IProductSearchService
                 SalePrice = salePrice != null ? salePrice.Price : (decimal?)null,
             };
 
+        long? categoryId = null;
         if (!string.IsNullOrWhiteSpace(query.CategoryCode))
         {
             var categoryCode = NormalizeCode(query.CategoryCode);
+            categoryId = await _dbContext.Categories.AsNoTracking()
+                .Where(category => category.Code == categoryCode)
+                .Select(category => (long?)category.Id)
+                .FirstOrDefaultAsync(cancellationToken);
             rows = rows.Where(row => row.Category.Code == categoryCode);
         }
 
@@ -90,14 +95,26 @@ public sealed class EfProductSearchService : IProductSearchService
             rows = rows.Where(row => (row.SalePrice ?? row.Sku.ListPrice) <= maxPrice);
         }
 
-        if (query.InStock == true)
+        // UC-SEARCH-01: a delisted/disabled/unsellable item must never appear in
+        // purchasable results, so out-of-stock is excluded whenever InStock isn't
+        // explicitly false. InStock=false is the caller's explicit opt-out (e.g. a
+        // future "notify me when back in stock" view) — it does not mean "show only
+        // out-of-stock items".
+        if (query.InStock != false)
         {
             rows = rows.Where(row => row.Balance != null && row.Balance.AvailableQuantity > 0);
         }
 
+        if (query.Specs.Count > 0 && categoryId is null)
+        {
+            throw new CatalogSearchException(
+                CatalogSearchException.ErrorCodes.FilterUnsupported,
+                "Specification filters require a category to be selected.");
+        }
+
         foreach (var filter in query.Specs)
         {
-            rows = await ApplySpecFilterAsync(rows, filter, cancellationToken);
+            rows = await ApplySpecFilterAsync(rows, filter, categoryId!.Value, cancellationToken);
         }
 
         var totalCount = await rows.CountAsync(cancellationToken);
@@ -120,11 +137,19 @@ public sealed class EfProductSearchService : IProductSearchService
     private async Task<IQueryable<CatalogSearchRow>> ApplySpecFilterAsync(
         IQueryable<CatalogSearchRow> source,
         SpecFilter filter,
+        long categoryId,
         CancellationToken cancellationToken)
     {
         var semanticKey = NormalizeCode(filter.SemanticKey);
+        // Scoped to the selected category's own public (IsActive) definitions — this is
+        // the same whitelist EfCatalogFilterOptionsService.GetSpecificationFiltersAsync
+        // already exposes to the UI, so a caller can only ever filter on a field it was
+        // actually offered for that category.
         var definitions = await _dbContext.SpecificationDefinitions.AsNoTracking()
-            .Where(definition => definition.SemanticKey == semanticKey && definition.IsActive)
+            .Where(definition =>
+                definition.CategoryId == categoryId &&
+                definition.SemanticKey == semanticKey &&
+                definition.IsActive)
             .Select(definition => new { definition.Id, definition.ValueType })
             .ToListAsync(cancellationToken);
 
@@ -135,9 +160,8 @@ public sealed class EfProductSearchService : IProductSearchService
                 $"The specification '{filter.SemanticKey}' is not recognized.");
         }
 
-        // A semantic key is scoped per category; when more than one active category
-        // shares the same key the first definition is used to decide the comparison
-        // type. Cross-category disambiguation is deferred to a follow-up slice.
+        // Scoped to categoryId above, so a semantic key resolves to at most one
+        // definition here — no cross-category ambiguity to resolve.
         var valueType = definitions[0].ValueType;
         var definitionIds = definitions.Select(definition => definition.Id).ToArray();
 
@@ -321,8 +345,12 @@ public sealed class EfProductSearchService : IProductSearchService
     {
         if (string.IsNullOrWhiteSpace(keyword))
         {
-            // No keyword: browse ordering falls back to a featured/recency proxy
-            // until recent sales popularity can be derived from order history.
+            // UC-SEARCH-01 asks for "近期銷售熱度" (recent sales heat) here, but that
+            // needs a queryable order-history aggregate that doesn't exist yet — the
+            // Orders module has no such summary to read from. Deliberately narrowing
+            // this PR's scope to a featured/recency proxy (same treatment as the SH-06
+            // image-service gaps elsewhere in this file) rather than guessing a formula;
+            // swap this for the real sales-heat ordering once that data is queryable.
             return source
                 .OrderByDescending(row => row.Product.IsFeatured)
                 .ThenByDescending(row => row.Product.CreatedAtUtc)

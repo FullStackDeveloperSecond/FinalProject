@@ -17,7 +17,7 @@ public sealed class EfProductSearchServiceCollection : ICollectionFixture<EfProd
 public sealed class EfProductSearchServiceTests
 {
     [Fact]
-    public async Task SearchAsync_WhenNoFilters_ReturnsOnlyPublishedProductsWithPublishedDefaultSku()
+    public async Task SearchAsync_WhenNoFilters_ReturnsOnlyPublishedInStockProductsWithPublishedDefaultSku()
     {
         await using var context = EfProductSearchServiceFixture.CreateContext();
         var service = new EfProductSearchService(context);
@@ -26,13 +26,28 @@ public sealed class EfProductSearchServiceTests
             EfProductSearchServiceFixture.EmptyQuery(pageSize: 20),
             CancellationToken.None);
 
-        Assert.Equal(2, result.TotalCount);
-        Assert.Contains(result.Items, item => item.ProductCode == EfProductSearchServiceFixture.Rtx4070Code);
-        Assert.Contains(result.Items, item => item.ProductCode == EfProductSearchServiceFixture.Rtx4060Code);
+        // RTX4060 is seeded with zero on-hand quantity — default search excludes it now
+        // (UC-SEARCH-01: unsellable items never appear in purchasable results).
+        var item = Assert.Single(result.Items);
+        Assert.Equal(EfProductSearchServiceFixture.Rtx4070Code, item.ProductCode);
         Assert.DoesNotContain(result.Items, item => item.ProductCode == EfProductSearchServiceFixture.DraftProductCode);
         Assert.DoesNotContain(
             result.Items,
             item => item.ProductCode == EfProductSearchServiceFixture.UnpublishedDefaultSkuProductCode);
+    }
+
+    [Fact]
+    public async Task SearchAsync_WhenInStockIsExplicitlyFalse_IncludesOutOfStockItems()
+    {
+        await using var context = EfProductSearchServiceFixture.CreateContext();
+        var service = new EfProductSearchService(context);
+
+        var result = await service.SearchAsync(
+            EfProductSearchServiceFixture.EmptyQuery(pageSize: 20) with { InStock = false },
+            CancellationToken.None);
+
+        Assert.Equal(2, result.TotalCount);
+        Assert.Contains(result.Items, item => item.ProductCode == EfProductSearchServiceFixture.Rtx4060Code);
     }
 
     [Fact]
@@ -42,7 +57,9 @@ public sealed class EfProductSearchServiceTests
         var service = new EfProductSearchService(context);
 
         var result = await service.SearchAsync(
-            EfProductSearchServiceFixture.EmptyQuery(pageSize: 20) with { BrandCode = "msi" },
+            // RTX4060 (the only MSI product) is out of stock — opt out of the default
+            // in-stock filter so this test isolates brand filtering, not stock filtering.
+            EfProductSearchServiceFixture.EmptyQuery(pageSize: 20) with { BrandCode = "msi", InStock = false },
             CancellationToken.None);
 
         var item = Assert.Single(result.Items);
@@ -105,7 +122,7 @@ public sealed class EfProductSearchServiceTests
         var service = new EfProductSearchService(context);
 
         var result = await service.SearchAsync(
-            EfProductSearchServiceFixture.EmptyQuery(pageSize: 20) with { Sort = "priceAsc" },
+            EfProductSearchServiceFixture.EmptyQuery(pageSize: 20) with { Sort = "priceAsc", InStock = false },
             CancellationToken.None);
 
         Assert.Equal(2, result.Items.Count);
@@ -122,6 +139,7 @@ public sealed class EfProductSearchServiceTests
         var result = await service.SearchAsync(
             EfProductSearchServiceFixture.EmptyQuery(pageSize: 20) with
             {
+                CategoryCode = "GPU",
                 Specs =
                 [
                     new SpecFilter(
@@ -159,7 +177,47 @@ public sealed class EfProductSearchServiceTests
         var exception = await Assert.ThrowsAsync<CatalogSearchException>(() => service.SearchAsync(
             EfProductSearchServiceFixture.EmptyQuery(pageSize: 20) with
             {
+                CategoryCode = "GPU",
                 Specs = [new SpecFilter("does-not-exist", SpecFilterOperator.Eq, "1", null)],
+            },
+            CancellationToken.None));
+
+        Assert.Equal(CatalogSearchException.ErrorCodes.FilterUnsupported, exception.ErrorCode);
+    }
+
+    [Fact]
+    public async Task SearchAsync_WhenSpecFilterIsGivenWithoutACategory_ThrowsCatalogSearchExceptionWithFilterCode()
+    {
+        await using var context = EfProductSearchServiceFixture.CreateContext();
+        var service = new EfProductSearchService(context);
+
+        var exception = await Assert.ThrowsAsync<CatalogSearchException>(() => service.SearchAsync(
+            EfProductSearchServiceFixture.EmptyQuery(pageSize: 20) with
+            {
+                Specs =
+                [
+                    new SpecFilter(EfProductSearchServiceFixture.GpuLengthSemanticKey, SpecFilterOperator.Gte, "280", null),
+                ],
+            },
+            CancellationToken.None));
+
+        Assert.Equal(CatalogSearchException.ErrorCodes.FilterUnsupported, exception.ErrorCode);
+    }
+
+    [Fact]
+    public async Task SearchAsync_WhenSpecDefinitionBelongsToAnotherCategory_ThrowsCatalogSearchExceptionWithFilterCode()
+    {
+        await using var context = EfProductSearchServiceFixture.CreateContext();
+        var service = new EfProductSearchService(context);
+
+        var exception = await Assert.ThrowsAsync<CatalogSearchException>(() => service.SearchAsync(
+            EfProductSearchServiceFixture.EmptyQuery(pageSize: 20) with
+            {
+                CategoryCode = EfProductSearchServiceFixture.OtherCategoryCode,
+                Specs =
+                [
+                    new SpecFilter(EfProductSearchServiceFixture.GpuLengthSemanticKey, SpecFilterOperator.Gte, "280", null),
+                ],
             },
             CancellationToken.None));
 
@@ -173,7 +231,7 @@ public sealed class EfProductSearchServiceTests
         var service = new EfProductSearchService(context);
 
         var result = await service.SearchAsync(
-            EfProductSearchServiceFixture.EmptyQuery(pageSize: 20) with { Locale = SupportedLocale.JaJp },
+            EfProductSearchServiceFixture.EmptyQuery(pageSize: 20) with { Locale = SupportedLocale.JaJp, InStock = false },
             CancellationToken.None);
 
         var translated = Assert.Single(result.Items, item => item.ProductCode == EfProductSearchServiceFixture.Rtx4070Code);
@@ -190,6 +248,7 @@ public sealed class EfProductSearchServiceFixture : IAsyncLifetime
     public const string DraftProductCode = "RTX4090";
     public const string UnpublishedDefaultSkuProductCode = "RTX3050";
     public const string GpuLengthSemanticKey = "GPU_LENGTH_MM";
+    public const string OtherCategoryCode = "CASE";
     public const string Rtx4060ZhTwName = "RTX 4060 顯示卡";
     public const string Rtx4070JapaneseName = "RTX 4070 グラフィックカード";
 
@@ -216,7 +275,8 @@ public sealed class EfProductSearchServiceFixture : IAsyncLifetime
         await context.SaveChangesAsync();
 
         var category = new Category(Guid.CreateVersion7(), "GPU", "gpu", "顯示卡", null, now);
-        context.Categories.Add(category);
+        var otherCategory = new Category(Guid.CreateVersion7(), OtherCategoryCode, "case", "機殼", null, now);
+        context.Categories.AddRange(category, otherCategory);
         await context.SaveChangesAsync();
 
         var definition = new SpecificationDefinition(

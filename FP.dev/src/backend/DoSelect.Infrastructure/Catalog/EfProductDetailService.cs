@@ -43,7 +43,16 @@ public sealed class EfProductDetailService : IProductDetailService
             return null;
         }
 
-        var defaultSku = skus.First(sku => sku.IsDefault);
+        // The model only guarantees at most one default SKU per product, never that one
+        // exists among the *published* SKUs — the true default could be unpublished while
+        // other, non-default SKUs are published. Treat that as "not sellable in its
+        // intended default form" rather than letting a missing default 500 the request.
+        var defaultSku = skus.FirstOrDefault(sku => sku.IsDefault);
+        if (defaultSku is null)
+        {
+            return null;
+        }
+
         var skuIds = skus.Select(sku => sku.Id).ToArray();
 
         var brand = await _dbContext.Brands.AsNoTracking()

@@ -27,21 +27,21 @@ public sealed class ProductsController : ControllerBase
         [FromQuery] ProductSearchRequest request,
         CancellationToken cancellationToken)
     {
-        var query = new ProductSearchQuery(
-            request.Q,
-            request.Category,
-            request.Brand,
-            request.MinPrice,
-            request.MaxPrice,
-            request.InStock,
-            MapSpecs(request.Specs),
-            request.Sort,
-            request.PageNumber,
-            request.PageSize,
-            CatalogLocaleParser.Parse(request.Locale));
-
         try
         {
+            var query = new ProductSearchQuery(
+                request.Q,
+                request.Category,
+                request.Brand,
+                request.MinPrice,
+                request.MaxPrice,
+                request.InStock,
+                MapSpecs(request.Specs),
+                request.Sort,
+                request.PageNumber,
+                request.PageSize,
+                CatalogLocaleParser.Parse(request.Locale));
+
             var result = await _productSearchService.SearchAsync(query, cancellationToken);
             return Ok(result);
         }
