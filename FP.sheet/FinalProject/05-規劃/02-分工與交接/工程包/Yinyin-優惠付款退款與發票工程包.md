@@ -83,7 +83,7 @@ dotnet tool run dotnet-ef -- database update InitialCreate `
 
 前台重點 Page ID：`C-13`～`C-15`、`C-18`、`C-20`。後台：`A-20` 的退款預覽協作、`A-21`～`A-23`。完整 Route 與錯誤狀態見 [[03-架構/02-API與前端契約/M功能桌面UI與Route規格]]。
 
-權限重點：`FinanceManager` 執行退款與財務檢視；優惠券由 `FinanceManager`／`MarketingAnalyst`／`SuperAdmin` 依矩陣操作；退款執行需要 TOTP 二次確認與 Audit，但前端確認框不是安全邊界。
+權限重點：退款執行使用 `Refund.Execute`（`FinanceManager`／`SuperAdmin`）；後台優惠券查詢、建立、修改與 `activate`／`pause`／`disable` 使用 `Coupon.Manage`（`FinanceManager`／`MarketingAnalyst`／`SuperAdmin`）；後台模擬發票查詢、開立、作廢與折讓使用 `Invoice.Manage`（`FinanceManager`／`SuperAdmin`）。三者均沿用管理員 TOTP／MFA 基線；前台購物車套券不使用 `Coupon.Manage`。Policy 只負責授權，狀態、冪等、RowVersion、金額／名額規則與 Audit 仍由各 Use Case 負責，前端確認框不是安全邊界。
 
 ## 6. 不可破壞的金額與狀態規則
 
@@ -124,7 +124,7 @@ dotnet tool run dotnet-ef -- database update InitialCreate `
 
 ## 9. 必要測試
 
-至少覆蓋 `UC-PAY-01`、`UC-COUPON-01`、`UC-REFUND-01`，以及 `UC-CHECKOUT-01`／COD 中你負責的金額與付款部分。必要情境：重複 Idempotency-Key 同結果、同 Key 不同 Payload 衝突、付款重複回呼、期限取較早者、優惠券併發最後名額、適用商品小計門檻、Exhausted 返還、部分退貨門檻重算、正值 Allocation 的折扣／免運扣回、組裝費分攤及失敗後無重複副作用。發票另測未付款、取消、重複開立、非法作廢、退款後必須折讓、1,000→952＋48、明細尾差及跨訂單授權。`CouponRuleReader` 必須以 SQL Server Provider-backed 整合測試驗證，不新增 InMemory／SQLite 取代。
+至少覆蓋 `UC-PAY-01`、`UC-COUPON-01`、`UC-REFUND-01`，以及 `UC-CHECKOUT-01`／COD 中你負責的金額與付款部分。必要情境：重複 Idempotency-Key 同結果、同 Key 不同 Payload 衝突、付款重複回呼、期限取較早者、優惠券併發最後名額、適用商品小計門檻、Exhausted 返還、部分退貨門檻重算、正值 Allocation 的折扣／免運扣回、組裝費分攤及失敗後無重複副作用。發票另測未付款、取消、重複開立、非法作廢、退款後必須折讓、1,000→952＋48、明細尾差及跨訂單授權。後台優惠券與發票 Endpoint 必須分別覆蓋 `Coupon.Manage`、`Invoice.Manage` 的合法角色、錯誤角色、未完成 MFA 與匿名請求；`SuperAdmin` 必須有正向案例。`CouponRuleReader` 必須以 SQL Server Provider-backed 整合測試驗證，不新增 InMemory／SQLite 取代。
 
 固定由 haru 做第一線覆核；退貨案例由 kafen 提供；庫存、配送與報表金額由 terry 共同驗證。金額／退款／私人財務資料必須含未授權角色與 Actor A／B 負面測試。
 

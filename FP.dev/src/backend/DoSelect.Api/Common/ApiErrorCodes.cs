@@ -6,6 +6,12 @@ public static class ApiErrorCodes
     public const string AuthenticationRequired = "authentication_required";
     public const string AuthorizationForbidden = "authorization_forbidden";
     public const string ConcurrencyConflict = "concurrency_conflict";
+    public const string FileCountExceeded = "file_count_exceeded";
+    public const string FileFormatInvalid = "file_format_invalid";
+    public const string FileMalwareDetected = "file_malware_detected";
+    public const string FileScanUnavailable = "file_scan_unavailable";
+    public const string FileSizeExceeded = "file_size_exceeded";
+    public const string ImageProcessingFailed = "image_processing_failed";
     public const string RateLimitExceeded = "rate_limit_exceeded";
     public const string RequestConflict = "request_conflict";
     public const string RequestContentTypeUnsupported = "request_content_type_unsupported";
