@@ -161,7 +161,7 @@ public sealed class LoginControllerTests : IClassFixture<WebApplicationFactory<P
         });
         var registerBody = await registerResponse.Content.ReadFromJsonAsync<JsonElement>();
         var publicId = registerBody.GetProperty("publicId").GetGuid();
-        var (_, token) = ExtractVerificationLink(Assert.Single(capturingEmailSender.SentMessages).TextBody);
+        var (_, token) = ExtractVerificationLink((await capturingEmailSender.WaitForSingleMessageAsync()).TextBody);
 
         using var confirmResponse = await client.PostAsJsonAsync("/api/v1/auth/email-verifications/confirm", new
         {
@@ -233,8 +233,34 @@ public sealed class LoginControllerTests : IClassFixture<WebApplicationFactory<P
             EmailMessage message,
             CancellationToken cancellationToken = default)
         {
-            SentMessages.Add(message);
+            lock (SentMessages)
+            {
+                SentMessages.Add(message);
+            }
+
             return Task.FromResult(new EmailDeliveryResult(EmailDeliveryStatus.Sent));
+        }
+
+        // Email is now dispatched via EmailDispatchBackgroundService (an in-memory Channel
+        // consumer running outside the HTTP request), so it can arrive a beat after the request
+        // that triggered it completes. Poll instead of asserting immediately to avoid flaking.
+        public async Task<EmailMessage> WaitForSingleMessageAsync(TimeSpan? timeout = null)
+        {
+            var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(5));
+            while (DateTime.UtcNow < deadline)
+            {
+                lock (SentMessages)
+                {
+                    if (SentMessages.Count > 0)
+                    {
+                        return Assert.Single(SentMessages);
+                    }
+                }
+
+                await Task.Delay(20);
+            }
+
+            return Assert.Single(SentMessages);
         }
     }
 }

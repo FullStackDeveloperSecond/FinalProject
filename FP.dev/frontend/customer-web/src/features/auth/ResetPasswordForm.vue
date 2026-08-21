@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { isApiError } from '@doselect/web-shared/api'
 import { EmptyState } from '@doselect/web-shared/components'
 import PasswordVisibilityToggle from '../../components/PasswordVisibilityToggle.vue'
@@ -9,6 +9,7 @@ import { confirmPasswordReset } from './api'
 type Status = 'form' | 'success' | 'missing-params'
 
 const route = useRoute()
+const router = useRouter()
 const newPassword = ref('')
 const confirmPassword = ref('')
 const showPassword = ref(false)
@@ -26,6 +27,15 @@ const userPublicId = readQueryParam('publicId')
 const token = readQueryParam('token')
 
 const status = ref<Status>(userPublicId && token ? 'form' : 'missing-params')
+
+onMounted(() => {
+  // Drop the token from the URL as soon as it has been read: it must not linger in the
+  // address bar, browser history, or get sent onward via Referer once the user navigates away.
+  // userPublicId/token above already captured the values for use in handleSubmit.
+  if (userPublicId || token) {
+    void router.replace({ path: route.path })
+  }
+})
 
 const passwordMismatch = computed(() =>
   confirmPassword.value.length > 0 && confirmPassword.value !== newPassword.value,

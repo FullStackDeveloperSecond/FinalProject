@@ -5,6 +5,7 @@ import { isApiError } from '@doselect/web-shared/api'
 import { useSessionStore } from '../../stores/session'
 import PasswordVisibilityToggle from '../../components/PasswordVisibilityToggle.vue'
 import { requestEmailVerification } from './api'
+import { setPendingForgotPasswordEmail } from './forgotPasswordEmailHandoff'
 
 const email = ref('')
 const password = ref('')
@@ -40,6 +41,13 @@ async function handleSubmit(): Promise<void> {
   } finally {
     submitting.value = false
   }
+}
+
+function goToForgotPassword(): void {
+  // The full email must not travel via URL (query string, browser history, Referer); hand it off
+  // through sessionStorage instead, consumed once by ForgotPasswordForm.
+  setPendingForgotPasswordEmail(email.value.trim())
+  void router.push('/forgot-password')
 }
 
 async function handleResendVerification(): Promise<void> {
@@ -129,9 +137,10 @@ function resolveErrorMessage(error: unknown): string {
         v-if="accountLocked"
         class="form-banner__actions"
       >
-        <RouterLink
+        <button
+          type="button"
           class="resend-verification"
-          :to="{ path: '/forgot-password', query: { email: email.trim() } }"
+          @click="goToForgotPassword"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -154,7 +163,7 @@ function resolveErrorMessage(error: unknown): string {
             <path d="M7 11V7a5 5 0 0 1 10 0v4" />
           </svg>
           <span>重設密碼</span>
-        </RouterLink>
+        </button>
       </div>
     </div>
 

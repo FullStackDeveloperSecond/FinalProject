@@ -4,11 +4,12 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import LoginForm from './LoginForm.vue'
 
-const { loginMember, fetchSession, logoutMember, push } = vi.hoisted(() => ({
+const { loginMember, fetchSession, logoutMember, push, setPendingForgotPasswordEmail } = vi.hoisted(() => ({
   loginMember: vi.fn(),
   fetchSession: vi.fn(),
   logoutMember: vi.fn(),
   push: vi.fn(),
+  setPendingForgotPasswordEmail: vi.fn(),
 }))
 
 vi.mock('./api', async (importOriginal) => {
@@ -21,6 +22,8 @@ vi.mock('vue-router', async (importOriginal) => {
   return { ...actual, useRouter: () => ({ push }) }
 })
 
+vi.mock('./forgotPasswordEmailHandoff', () => ({ setPendingForgotPasswordEmail }))
+
 const globalStubs = { RouterLink: { template: '<a><slot /></a>' } }
 
 describe('LoginForm', () => {
@@ -28,6 +31,7 @@ describe('LoginForm', () => {
     setActivePinia(createPinia())
     loginMember.mockClear()
     push.mockClear()
+    setPendingForgotPasswordEmail.mockClear()
   })
 
   it('logs in and navigates home on success', async () => {
@@ -85,5 +89,23 @@ describe('LoginForm', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('登入失敗次數過多')
+  })
+
+  it('hands the email off via sessionStorage instead of a URL query param when 重設密碼 is clicked', async () => {
+    loginMember.mockRejectedValueOnce(new ApiError('Locked', {
+      status: 423,
+      code: 'account_locked',
+    }))
+    const wrapper = mount(LoginForm, { global: { stubs: globalStubs } })
+
+    await wrapper.get('#login-email').setValue('  member@example.com  ')
+    await wrapper.get('#login-password').setValue('wrong-password')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    await wrapper.get('.resend-verification[type="button"]').trigger('click')
+
+    expect(setPendingForgotPasswordEmail).toHaveBeenCalledWith('member@example.com')
+    expect(push).toHaveBeenCalledWith('/forgot-password')
   })
 })

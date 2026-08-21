@@ -35,6 +35,9 @@ builder.Services.AddSingleton<IEmailSender>(services =>
         ? new SmtpEmailSender(services.GetRequiredService<IOptions<SmtpEmailOptions>>().Value)
         : new LocalEmailSender();
 });
+builder.Services.AddSingleton<EmailDispatchChannel>();
+builder.Services.AddSingleton<IEmailDispatchQueue>(services => services.GetRequiredService<EmailDispatchChannel>());
+builder.Services.AddHostedService<EmailDispatchBackgroundService>();
 
 var app = builder.Build();
 
@@ -90,6 +93,7 @@ app.Use(async (context, next) =>
 });
 
 app.UseAuthorization();
+app.UseRateLimiter();
 
 app.MapControllers();
 app.MapObservabilityHealthChecks();
