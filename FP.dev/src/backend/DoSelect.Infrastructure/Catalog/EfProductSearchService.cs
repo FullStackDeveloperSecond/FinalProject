@@ -124,10 +124,17 @@ public sealed class EfProductSearchService : IProductSearchService
         var pageNumber = query.PageNumber < 1 ? 1 : query.PageNumber;
         var pageSize = query.PageSize is < 1 or > 50 ? 20 : query.PageSize;
 
-        var pageRows = await rows
-            .Skip((pageNumber - 1) * pageSize)
-            .Take(pageSize)
-            .ToListAsync(cancellationToken);
+        // (pageNumber - 1) * pageSize can overflow int for a large pageNumber (e.g.
+        // int.MaxValue). Compute in long first; a skip beyond int.MaxValue can never land on
+        // a real row in this table, so it's a legal empty page rather than an error — no
+        // need to round-trip to the database for a page number that could never have data.
+        var skip = (long)(pageNumber - 1) * pageSize;
+        var pageRows = skip > int.MaxValue
+            ? []
+            : await rows
+                .Skip((int)skip)
+                .Take(pageSize)
+                .ToListAsync(cancellationToken);
 
         var items = await MapToCardsAsync(pageRows, query.Locale, cancellationToken);
 
@@ -345,12 +352,13 @@ public sealed class EfProductSearchService : IProductSearchService
     {
         if (string.IsNullOrWhiteSpace(keyword))
         {
-            // UC-SEARCH-01 asks for "近期銷售熱度" (recent sales heat) here, but that
-            // needs a queryable order-history aggregate that doesn't exist yet — the
-            // Orders module has no such summary to read from. Deliberately narrowing
-            // this PR's scope to a featured/recency proxy (same treatment as the SH-06
-            // image-service gaps elsewhere in this file) rather than guessing a formula;
-            // swap this for the real sales-heat ordering once that data is queryable.
+            // KNOWN GAP — UC-SEARCH-01 is not fully implemented here: it asks for "近期
+            // 銷售熱度" (recent sales heat), but that needs a queryable order-history
+            // aggregate that doesn't exist yet — the Orders module has no such summary to
+            // read from. Deliberately narrowing this PR's scope to a featured/recency proxy
+            // (same treatment as the SH-06 image-service gaps elsewhere in this file) rather
+            // than guessing a formula; swap this for the real sales-heat ordering once that
+            // data is queryable. Do not treat this PR as a complete UC-SEARCH-01 delivery.
             return source
                 .OrderByDescending(row => row.Product.IsFeatured)
                 .ThenByDescending(row => row.Product.CreatedAtUtc)

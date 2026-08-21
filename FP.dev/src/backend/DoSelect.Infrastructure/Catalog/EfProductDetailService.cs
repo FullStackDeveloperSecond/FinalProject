@@ -101,6 +101,7 @@ public sealed class EfProductDetailService : IProductDetailService
 
         var definitionLabels = await ResolveDefinitionLabelsAsync(definitionIds, locale, cancellationToken);
         var optionLabels = await ResolveOptionLabelsAsync(optionIds, locale, cancellationToken);
+        var skuNames = await ResolveSkuNamesAsync(skuIds, locale, cancellationToken);
 
         var tags = await (
             from productTag in _dbContext.ProductTags.AsNoTracking()
@@ -134,11 +135,7 @@ public sealed class EfProductDetailService : IProductDetailService
         {
             balances.TryGetValue(sku.Id, out var balance);
             activeSalePrices.TryGetValue(sku.Id, out var salePrice);
-            var skuName = await ResolveNameAsync(
-                _dbContext.SkuTranslations.AsNoTracking().Where(t => t.SkuId == sku.Id),
-                sku.NameZhTw,
-                locale,
-                cancellationToken);
+            var skuName = skuNames.GetValueOrDefault(sku.Id, sku.NameZhTw);
 
             var skuSpecifications = new List<SkuSpecificationSummary>();
             foreach (var value in specValues.Where(value => value.SkuId == sku.Id))
@@ -269,6 +266,27 @@ public sealed class EfProductDetailService : IProductDetailService
             .ToDictionaryAsync(
                 translation => translation.SpecificationOptionId,
                 translation => translation.DisplayName,
+                cancellationToken);
+    }
+
+    private async Task<Dictionary<long, string>> ResolveSkuNamesAsync(
+        IReadOnlyCollection<long> skuIds,
+        SupportedLocale locale,
+        CancellationToken cancellationToken)
+    {
+        if (locale == SupportedLocale.ZhTw || skuIds.Count == 0)
+        {
+            return new Dictionary<long, string>();
+        }
+
+        return await _dbContext.SkuTranslations.AsNoTracking()
+            .Where(translation =>
+                skuIds.Contains(translation.SkuId) &&
+                translation.Locale == locale &&
+                translation.TranslationStatus == TranslationStatus.Published)
+            .ToDictionaryAsync(
+                translation => translation.SkuId,
+                translation => translation.Name,
                 cancellationToken);
     }
 

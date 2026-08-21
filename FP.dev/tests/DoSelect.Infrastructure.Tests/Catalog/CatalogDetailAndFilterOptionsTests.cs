@@ -101,6 +101,34 @@ public sealed class EfProductDetailServiceTests
         Assert.Equal(CatalogDetailAndFilterOptionsFixture.ProductJapaneseName, detail!.Name);
         Assert.Equal(CatalogDetailAndFilterOptionsFixture.ProductJapaneseDescription, detail.Description);
     }
+
+    /// <summary>
+    /// Regression test: SKU names for a non-ZhTw locale used to be resolved one query per SKU
+    /// inside the SKU loop (N+1). Batch-loading by a shared dictionary risks collapsing every
+    /// SKU onto the same name if the mapping is wrong — asserting two SKUs each keep their own
+    /// distinct translation catches that failure mode, not just "no exception was thrown".
+    /// </summary>
+    [Fact]
+    public async Task GetByPublicIdAsync_WhenLocaleHasSkuTranslations_ReturnsDistinctNamePerSku()
+    {
+        await using var context = CatalogDetailAndFilterOptionsFixture.CreateContext();
+        var service = new EfProductDetailService(context);
+
+        var detail = await service.GetByPublicIdAsync(
+            CatalogDetailAndFilterOptionsFixture.ProductPublicId,
+            SupportedLocale.JaJp,
+            CancellationToken.None);
+
+        Assert.NotNull(detail);
+        var defaultSkuDto = Assert.Single(
+            detail!.Skus,
+            sku => sku.SkuCode == $"{CatalogDetailAndFilterOptionsFixture.ProductCode}-A");
+        var otherSkuDto = Assert.Single(
+            detail.Skus,
+            sku => sku.SkuCode == $"{CatalogDetailAndFilterOptionsFixture.ProductCode}-B");
+        Assert.Equal(CatalogDetailAndFilterOptionsFixture.DefaultSkuJapaneseName, defaultSkuDto.Name);
+        Assert.Equal(CatalogDetailAndFilterOptionsFixture.OtherSkuJapaneseName, otherSkuDto.Name);
+    }
 }
 
 [Collection(nameof(CatalogDetailAndFilterOptionsCollection))]
@@ -179,6 +207,8 @@ public sealed class CatalogDetailAndFilterOptionsFixture : IAsyncLifetime
     public const string EmptyBrandCode = "EMPTY-DETAIL";
     public const string ProductJapaneseName = "RTX 4070 グラフィックカード";
     public const string ProductJapaneseDescription = "高性能グラフィックカード";
+    public const string DefaultSkuJapaneseName = "スタンダード版";
+    public const string OtherSkuJapaneseName = "オーバークロック版";
 
     public static Guid ProductPublicId { get; private set; }
 
@@ -352,6 +382,12 @@ public sealed class CatalogDetailAndFilterOptionsFixture : IAsyncLifetime
         var translation = new ProductTranslation(product.Id, SupportedLocale.JaJp, ProductJapaneseName, ProductJapaneseDescription, now);
         translation.Review(adminUser.Id, publish: true, now);
         context.ProductTranslations.Add(translation);
+
+        var defaultSkuTranslation = new SkuTranslation(defaultSku.Id, SupportedLocale.JaJp, DefaultSkuJapaneseName, now);
+        defaultSkuTranslation.Review(adminUser.Id, publish: true, now);
+        var otherSkuTranslation = new SkuTranslation(otherSku.Id, SupportedLocale.JaJp, OtherSkuJapaneseName, now);
+        otherSkuTranslation.Review(adminUser.Id, publish: true, now);
+        context.SkuTranslations.AddRange(defaultSkuTranslation, otherSkuTranslation);
 
         await context.SaveChangesAsync();
     }

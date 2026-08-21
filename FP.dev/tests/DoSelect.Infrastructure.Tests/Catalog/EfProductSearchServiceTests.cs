@@ -50,6 +50,24 @@ public sealed class EfProductSearchServiceTests
         Assert.Contains(result.Items, item => item.ProductCode == EfProductSearchServiceFixture.Rtx4060Code);
     }
 
+    /// <summary>
+    /// Regression test: (pageNumber - 1) * pageSize used int arithmetic and overflowed for a
+    /// large pageNumber, throwing instead of returning a legal empty page.
+    /// </summary>
+    [Fact]
+    public async Task SearchAsync_WhenPageNumberIsExtreme_ReturnsEmptyPageInsteadOfThrowing()
+    {
+        await using var context = EfProductSearchServiceFixture.CreateContext();
+        var service = new EfProductSearchService(context);
+
+        var result = await service.SearchAsync(
+            EfProductSearchServiceFixture.EmptyQuery(pageSize: 50) with { PageNumber = int.MaxValue },
+            CancellationToken.None);
+
+        Assert.Empty(result.Items);
+        Assert.Equal(int.MaxValue, result.PageNumber);
+    }
+
     [Fact]
     public async Task SearchAsync_WhenBrandFilterIsGiven_ReturnsOnlyMatchingBrand()
     {

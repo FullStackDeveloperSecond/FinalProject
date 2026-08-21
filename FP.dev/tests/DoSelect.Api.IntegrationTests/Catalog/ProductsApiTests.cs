@@ -67,6 +67,17 @@ public sealed class ProductsApiTests
     }
 
     [Fact]
+    public async Task Search_WhenPageNumberIsExtreme_ReturnsEmptyPageInsteadOf500()
+    {
+        using var response = await _fixture.Client.GetAsync(
+            "/api/v1/products?pageNumber=2147483647&pageSize=50");
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Empty(body.GetProperty("items").EnumerateArray());
+    }
+
+    [Fact]
     public async Task Search_WhenSpecFilterHasNoCategory_Returns400WithFilterUnsupported()
     {
         using var response = await _fixture.Client.GetAsync(
