@@ -101,9 +101,34 @@ public sealed class AdminSupportTicketServiceTests
         Assert.True(result.IsOverdue);
         Assert.Equal(store.Detail.PublicId, store.DetailTicketPublicId);
         Assert.Equal("Visible Agent", result.Assignee?.DisplayName);
+        Assert.Empty(result.AvailableActions);
         Assert.Collection(result.Messages,
             message => Assert.False(message.IsInternal),
             message => Assert.True(message.IsInternal));
+    }
+
+    [Theory]
+    [InlineData(SupportTicketStatus.Open, false, true)]
+    [InlineData(SupportTicketStatus.Open, true, false)]
+    [InlineData(SupportTicketStatus.Assigned, false, false)]
+    [InlineData(SupportTicketStatus.InProgress, false, false)]
+    [InlineData(SupportTicketStatus.Resolved, false, false)]
+    [InlineData(SupportTicketStatus.Closed, false, false)]
+    public async Task GetDetailAsync_ExposesClaimOnlyWhenOpenAndUnassigned(
+        SupportTicketStatus status,
+        bool assigned,
+        bool expectClaim)
+    {
+        var store = new StubAdminSupportTicketStore
+        {
+            Detail = NewDetail(status, assigned: assigned),
+        };
+
+        var result = await new AdminSupportTicketService(store, new FixedTimeProvider(Now))
+            .GetDetailAsync(store.Detail.PublicId, CancellationToken.None);
+
+        Assert.Equal(expectClaim, result.AvailableActions.Contains("claim"));
+        Assert.Equal(expectClaim ? 1 : 0, result.AvailableActions.Count);
     }
 
     [Theory]
@@ -179,9 +204,10 @@ public sealed class AdminSupportTicketServiceTests
         DateTime? firstHumanResponseAtUtc = null,
         DateTime? firstResponseDueAtUtc = null,
         DateTime? resolutionDueAtUtc = null,
-        IReadOnlyList<AdminSupportMessageProjection>? messages = null) => new(
+        IReadOnlyList<AdminSupportMessageProjection>? messages = null,
+        bool assigned = true) => new(
         Guid.NewGuid(), "CS-DETAIL", SupportTicketCategory.Other, "Detail", status, CasePriority.High,
-        Guid.NewGuid(), Guid.NewGuid(), "Visible Agent", Now.UtcDateTime.AddDays(-1), Now.UtcDateTime.AddMinutes(-2),
+        Guid.NewGuid(), assigned ? Guid.NewGuid() : null, assigned ? "Visible Agent" : null, Now.UtcDateTime.AddDays(-1), Now.UtcDateTime.AddMinutes(-2),
         firstResponseDueAtUtc ?? Now.UtcDateTime.AddHours(1), resolutionDueAtUtc ?? Now.UtcDateTime.AddHours(8),
         firstHumanResponseAtUtc, null, null, 2, new byte[8], messages ?? []);
 

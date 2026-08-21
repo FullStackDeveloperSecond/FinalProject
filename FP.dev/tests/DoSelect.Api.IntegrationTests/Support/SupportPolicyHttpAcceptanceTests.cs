@@ -286,7 +286,7 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
         public AdminSupportTicketDetailDto DetailResult { get; } = new(
             Guid.NewGuid(), "ST-DETAIL", SupportTicketCategory.Other, "Safe subject", SupportTicketStatus.Open,
             CasePriority.High, null, null, DateTime.UtcNow.AddHours(-1), DateTime.UtcNow,
-            DateTime.UtcNow.AddHours(1), DateTime.UtcNow.AddHours(8), false, null, null, null, 0, new byte[8],
+            DateTime.UtcNow.AddHours(1), DateTime.UtcNow.AddHours(8), false, null, null, null, 0, ["claim"], new byte[8],
             [
                 new(Guid.NewGuid(), SupportSenderType.Member, false, false, "public body", "zh-TW", DateTime.UtcNow.AddMinutes(-2)),
                 new(Guid.NewGuid(), SupportSenderType.Admin, false, true, "internal body", "zh-TW", DateTime.UtcNow.AddMinutes(-1)),

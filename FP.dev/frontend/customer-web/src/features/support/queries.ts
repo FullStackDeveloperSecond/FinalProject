@@ -1,11 +1,18 @@
+import {
+  createAntiforgeryTokenProvider,
+  createApiError,
+  createCorrelationId,
+  createNetworkError,
+} from '@doselect/web-shared/api'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { MaybeRefOrGetter } from 'vue'
 import { computed, toValue } from 'vue'
-import { apiClient } from '../../api/client'
+import { apiBaseUrl, apiClient } from '../../api/client'
 import type {
   CancelSupportTicketRequest,
   CreateSupportMessageRequest,
   CreateSupportTicketRequest,
+  SupportAttachmentDto,
   SupportTicketCategory,
   SupportTicketDto,
   SupportTicketPage,
@@ -18,6 +25,15 @@ export interface SupportTicketListFilters {
 }
 
 const listRootKey = 'support-tickets'
+
+// The attachment-upload endpoint (POST /api/v1/support-tickets/{id}/attachments) predates the
+// generated OpenAPI schema (see the SupportAttachmentDto comment in ./types), so it cannot be
+// called through the typed `apiClient`. This provider replicates api/client.ts's antiforgery
+// convention for the one raw multipart request this module needs to make.
+const attachmentAntiforgeryTokenProvider = createAntiforgeryTokenProvider({
+  baseUrl: apiBaseUrl,
+  client: 'member',
+})
 
 export function supportTicketsQueryKey(filters: SupportTicketListFilters = {}) {
   return [listRootKey, 'list', filters] as const
@@ -83,6 +99,44 @@ export function useAddSupportMessageMutation(ticketId: MaybeRefOrGetter<string>)
     },
     onSuccess: (data) => {
       queryClient.setQueryData(supportTicketDetailQueryKey(toValue(ticketId)), data)
+    },
+  })
+}
+
+export function useUploadSupportAttachmentMutation(ticketId: MaybeRefOrGetter<string>) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (file: File): Promise<SupportAttachmentDto> => {
+      const body = new FormData()
+      body.append('file', file)
+
+      const headers = new Headers({ 'X-Correlation-ID': createCorrelationId() })
+      const token = await attachmentAntiforgeryTokenProvider.getToken()
+      if (token) {
+        headers.set('X-XSRF-TOKEN', token)
+      }
+
+      let response: Response
+      try {
+        response = await fetch(`${apiBaseUrl}/api/v1/support-tickets/${toValue(ticketId)}/attachments`, {
+          method: 'POST',
+          credentials: 'include',
+          headers,
+          body,
+        })
+      }
+      catch (cause) {
+        throw createNetworkError(cause)
+      }
+
+      if (!response.ok) {
+        throw await createApiError(response)
+      }
+
+      return await response.json() as SupportAttachmentDto
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: supportTicketDetailQueryKey(toValue(ticketId)) })
     },
   })
 }

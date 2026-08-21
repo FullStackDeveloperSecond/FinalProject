@@ -24,12 +24,17 @@ const canSubmit = computed(() =>
   && !mutation.isPending.value)
 
 async function handleSubmit() {
-  const created = await mutation.mutateAsync({
-    category: form.category,
-    subject: form.subject.trim(),
-    message: form.message.trim(),
-  })
-  await router.push(`/support/tickets/${created.publicId}`)
+  try {
+    const created = await mutation.mutateAsync({
+      category: form.category,
+      subject: form.subject.trim(),
+      message: form.message.trim(),
+    })
+    await router.push(`/support/tickets/${created.publicId}`)
+  }
+  catch {
+    // Failure is already reflected via mutation.isError/error.
+  }
 }
 </script>
 
@@ -38,12 +43,15 @@ async function handleSubmit() {
     <h1 id="support-ticket-new-title">
       建立客服案件
     </h1>
+    <p class="view-lede">
+      請描述您遇到的問題，客服人員將依照您選擇的分類儘速協助處理。
+    </p>
 
     <form
-      class="support-ticket-form"
+      class="support-ticket-form card"
       @submit.prevent="handleSubmit"
     >
-      <label class="support-ticket-form__field">
+      <label class="form-field">
         <span>問題分類</span>
         <select v-model="form.category">
           <option
@@ -56,7 +64,7 @@ async function handleSubmit() {
         </select>
       </label>
 
-      <label class="support-ticket-form__field">
+      <label class="form-field">
         <span>主旨（1–200 字）</span>
         <input
           v-model="form.subject"
@@ -66,7 +74,7 @@ async function handleSubmit() {
         >
       </label>
 
-      <label class="support-ticket-form__field">
+      <label class="form-field">
         <span>問題說明（1–4000 字）</span>
         <textarea
           v-model="form.message"
@@ -79,7 +87,7 @@ async function handleSubmit() {
 
       <p
         v-if="mutation.isError.value"
-        class="support-ticket-form__error"
+        class="form-error"
         role="alert"
       >
         {{ isApiError(mutation.error.value) ? mutation.error.value.message : '建立失敗，請稍後再試。' }}
@@ -99,40 +107,21 @@ async function handleSubmit() {
 .support-ticket-form {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 0.25rem;
   max-width: 36rem;
   margin-top: 1.5rem;
-}
-
-.support-ticket-form__field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.375rem;
-  font-weight: 700;
-}
-
-.support-ticket-form__field select,
-.support-ticket-form__field input,
-.support-ticket-form__field textarea {
-  font-weight: 400;
-  font: inherit;
-  padding: 0.5rem 0.625rem;
-  border: 1px solid #d1d5db;
-  border-radius: 0.375rem;
 }
 
 .support-ticket-form__counter {
   align-self: flex-end;
   font-weight: 400;
   font-size: 0.8125rem;
-  color: #6b7280;
-}
-
-.support-ticket-form__error {
-  color: #b91c1c;
+  color: var(--color-text-muted);
+  margin-top: 0.25rem;
 }
 
 .support-ticket-form button {
   align-self: flex-start;
+  margin-top: 0.5rem;
 }
 </style>

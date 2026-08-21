@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useSessionStore } from './stores/session'
 
-const sessionStore = useSessionStore()
+const route = useRoute()
 const router = useRouter()
+const sessionStore = useSessionStore()
+const isSupportSection = computed(() => route.path === '/support' || route.path.startsWith('/support/'))
 
 onMounted(() => {
   void sessionStore.refresh()
@@ -17,41 +19,62 @@ async function handleLogout(): Promise<void> {
 </script>
 
 <template>
+  <a
+    class="skip-link"
+    href="#main-content"
+  >
+    跳到主要內容
+  </a>
   <div class="app-shell">
     <header class="site-header">
-      <RouterLink
-        class="brand-link"
-        to="/"
-      >
-        DoSelect 懂選
-      </RouterLink>
-      <nav aria-label="主要導覽">
-        <RouterLink to="/">
-          首頁
-        </RouterLink>
-        <RouterLink to="/support">
-          客服中心
-        </RouterLink>
-        <template v-if="sessionStore.isAuthenticated">
-          <span class="site-header__member">{{ sessionStore.user?.displayName }}</span>
-          <button
-            type="button"
-            class="site-header__logout"
-            @click="handleLogout"
-          >
-            登出
-          </button>
-        </template>
+      <div class="header-bar">
         <RouterLink
-          v-else-if="sessionStore.status !== 'loading'"
-          to="/register"
+          class="brand-link"
+          to="/"
         >
-          登入／註冊
+          DoSelect 懂選
         </RouterLink>
-      </nav>
+        <nav
+          class="primary-nav"
+          aria-label="主要導覽"
+        >
+          <RouterLink to="/">
+            首頁
+          </RouterLink>
+          <RouterLink
+            to="/support"
+            :aria-current="isSupportSection ? 'page' : undefined"
+            :class="{ 'router-link-active': isSupportSection }"
+          >
+            客服中心
+          </RouterLink>
+          <template v-if="sessionStore.isAuthenticated">
+            <span class="site-header__member">{{ sessionStore.user?.displayName }}</span>
+            <button
+              type="button"
+              class="site-header__logout"
+              @click="handleLogout"
+            >
+              登出
+            </button>
+          </template>
+          <RouterLink
+            v-else-if="sessionStore.status !== 'loading'"
+            to="/register"
+          >
+            登入／註冊
+          </RouterLink>
+        </nav>
+      </div>
     </header>
-    <main class="site-main">
-      <RouterView />
+    <main
+      id="main-content"
+      class="site-main"
+      tabindex="-1"
+    >
+      <div class="view-shell">
+        <RouterView />
+      </div>
     </main>
     <footer class="site-footer">
       畢業專題展示系統｜商品、付款與物流資料皆為示範用途

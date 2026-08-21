@@ -1,0 +1,96 @@
+import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
+import { mount } from '@vue/test-utils'
+import { defineComponent } from 'vue'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+const ticketId = '018f2e6a-0000-7000-8000-000000000001'
+
+describe('admin support queries', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.resetModules()
+  })
+
+  it('loads the SLA queue with credentials and the opaque cursor', async () => {
+    const fetchStub = vi.fn<typeof fetch>().mockResolvedValue(Response.json({
+      items: [],
+      nextCursor: null,
+      hasMore: false,
+    }))
+    vi.stubGlobal('fetch', fetchStub)
+    const { useSupportSlaQueueQuery } = await import('./queries')
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const Harness = defineComponent({
+      setup() {
+        useSupportSlaQueueQuery({ pageSize: 20, cursor: 'opaque+cursor/==' })
+        return () => null
+      },
+    })
+    const wrapper = mount(Harness, {
+      global: { plugins: [[VueQueryPlugin, { queryClient }]] },
+    })
+
+    await vi.waitFor(() => expect(fetchStub).toHaveBeenCalledOnce())
+    const [input, init] = fetchStub.mock.calls[0] ?? []
+    const url = new URL(String(input))
+    expect(url.pathname).toBe('/api/v1/admin/support-tickets/sla')
+    expect(url.searchParams.get('pageSize')).toBe('20')
+    expect(url.searchParams.get('cursor')).toBe('opaque+cursor/==')
+    expect(init).toMatchObject({ credentials: 'include' })
+    expect(new Headers(init?.headers).get('X-Correlation-ID')).toMatch(/^[0-9a-f]{32}$/)
+
+    wrapper.unmount()
+  })
+
+  it('claims with the current RowVersion and refreshes detail and SLA data on success', async () => {
+    const claimedTicket = {
+      publicId: ticketId,
+      rowVersion: 'AAAAAAAAAAI=',
+    }
+    const fetchStub = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ requestToken: 'admin-csrf-token' }))
+      .mockResolvedValueOnce(Response.json(claimedTicket))
+    vi.stubGlobal('fetch', fetchStub)
+    const { useClaimSupportTicketMutation } = await import('./queries')
+    const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+    let claim!: (request: { rowVersion: string }) => Promise<unknown>
+    const Harness = defineComponent({
+      setup() {
+        const mutation = useClaimSupportTicketMutation(ticketId)
+        claim = request => mutation.mutateAsync(request)
+        return () => null
+      },
+    })
+    const wrapper = mount(Harness, {
+      global: { plugins: [[VueQueryPlugin, { queryClient }]] },
+    })
+
+    await expect(claim({ rowVersion: 'AAAAAAAAAAE=' })).resolves.toEqual(claimedTicket)
+    expect(fetchStub).toHaveBeenCalledTimes(2)
+    expect(fetchStub.mock.calls[0]?.[0])
+      .toBe('http://localhost:5126/api/v1/security/antiforgery-token')
+    expect(new Headers(fetchStub.mock.calls[0]?.[1]?.headers).get('X-DoSelect-Client')).toBe('admin')
+
+    const [claimUrl, claimInit] = fetchStub.mock.calls[1] ?? []
+    expect(claimUrl)
+      .toBe(`http://localhost:5126/api/v1/admin/support-tickets/${ticketId}/actions/claim`)
+    expect(claimInit).toMatchObject({
+      method: 'POST',
+      credentials: 'include',
+      body: JSON.stringify({ rowVersion: 'AAAAAAAAAAE=' }),
+    })
+    const headers = new Headers(claimInit?.headers)
+    expect(headers.get('Content-Type')).toBe('application/json')
+    expect(headers.get('X-XSRF-TOKEN')).toBe('admin-csrf-token')
+    expect(headers.get('X-Correlation-ID')).toMatch(/^[0-9a-f]{32}$/)
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['admin-support-ticket-detail', ticketId],
+    })
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['admin-support-sla-queue'],
+    })
+
+    wrapper.unmount()
+  })
+})

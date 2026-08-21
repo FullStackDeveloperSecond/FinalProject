@@ -22,7 +22,7 @@ const { data, isPending, isError, error, refetch } = useSupportTicketsQuery(() =
         我的客服案件
       </h1>
       <RouterLink
-        class="support-tickets__new-link"
+        class="btn-link"
         to="/support/tickets/new"
       >
         ＋ 建立新案件
@@ -30,8 +30,8 @@ const { data, isPending, isError, error, refetch } = useSupportTicketsQuery(() =
     </div>
 
     <div class="support-tickets__filters">
-      <label>
-        狀態
+      <label class="form-field">
+        <span>狀態</span>
         <select v-model="statusFilter">
           <option value="">
             全部
@@ -45,8 +45,8 @@ const { data, isPending, isError, error, refetch } = useSupportTicketsQuery(() =
           </option>
         </select>
       </label>
-      <label>
-        分類
+      <label class="form-field">
+        <span>分類</span>
         <select v-model="categoryFilter">
           <option value="">
             全部
@@ -75,51 +75,58 @@ const { data, isPending, isError, error, refetch } = useSupportTicketsQuery(() =
       title="目前沒有客服案件"
       description="建立新案件後，會顯示在這裡。"
     />
-    <table
-      v-else-if="data"
-      class="support-tickets__table"
-    >
-      <thead>
-        <tr>
-          <th scope="col">
-            案件編號
-          </th>
-          <th scope="col">
-            分類
-          </th>
-          <th scope="col">
-            主旨
-          </th>
-          <th scope="col">
-            狀態
-          </th>
-          <th scope="col">
-            最後活動時間
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr
-          v-for="ticket in data.items"
-          :key="ticket.publicId"
-        >
-          <td>
-            <RouterLink :to="`/support/tickets/${ticket.publicId}`">
-              {{ ticket.ticketNumber }}
-            </RouterLink>
-          </td>
-          <td>{{ categoryLabels[ticket.category] }}</td>
-          <td>{{ ticket.subject }}</td>
-          <td>
-            <span class="support-tickets__status">{{ statusLabels[ticket.status] }}</span>
-          </td>
-          <td>{{ formatDateTime(ticket.lastActivityAtUtc) }}</td>
-        </tr>
-      </tbody>
-    </table>
-    <p class="support-tickets__count">
-      共 {{ data?.totalCount ?? 0 }} 筆
-    </p>
+    <template v-else-if="data">
+      <div class="support-tickets__table-wrap card">
+        <table class="support-tickets__table">
+          <thead>
+            <tr>
+              <th scope="col">
+                案件編號
+              </th>
+              <th scope="col">
+                分類
+              </th>
+              <th scope="col">
+                主旨
+              </th>
+              <th scope="col">
+                狀態
+              </th>
+              <th scope="col">
+                最後活動時間
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="ticket in data.items"
+              :key="ticket.publicId"
+            >
+              <td data-label="案件編號">
+                <RouterLink :to="`/support/tickets/${ticket.publicId}`">
+                  {{ ticket.ticketNumber }}
+                </RouterLink>
+              </td>
+              <td data-label="分類">
+                {{ categoryLabels[ticket.category] }}
+              </td>
+              <td data-label="主旨">
+                {{ ticket.subject }}
+              </td>
+              <td data-label="狀態">
+                <span class="status-pill">{{ statusLabels[ticket.status] }}</span>
+              </td>
+              <td data-label="最後活動時間">
+                {{ formatDateTime(ticket.lastActivityAtUtc) }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="support-tickets__count">
+        共 {{ data.totalCount }} 筆
+      </p>
+    </template>
   </section>
 </template>
 
@@ -132,36 +139,21 @@ const { data, isPending, isError, error, refetch } = useSupportTicketsQuery(() =
   flex-wrap: wrap;
 }
 
-.support-tickets__new-link {
-  display: inline-block;
-  min-height: 2.75rem;
-  padding: 0.75rem 1rem;
-  border: 1px solid #1d4ed8;
-  border-radius: 0.5rem;
-  background: #2563eb;
-  color: #fff;
-  text-decoration: none;
-}
-
 .support-tickets__filters {
   display: flex;
-  gap: 1rem;
-  margin-block: 1rem;
+  gap: 1.25rem;
+  margin: 1rem 0 1.5rem;
   flex-wrap: wrap;
 }
 
-.support-tickets__filters label {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  font-size: 0.875rem;
+.support-tickets__filters .form-field {
+  min-width: 10rem;
+  margin-bottom: 0;
 }
 
-.support-tickets__filters select {
-  min-height: 2.5rem;
-  padding: 0.375rem 0.5rem;
-  border: 1px solid #d1d5db;
-  border-radius: 0.375rem;
+.support-tickets__table-wrap {
+  padding: 0;
+  overflow-x: auto;
 }
 
 .support-tickets__table {
@@ -171,22 +163,82 @@ const { data, isPending, isError, error, refetch } = useSupportTicketsQuery(() =
 
 .support-tickets__table th,
 .support-tickets__table td {
-  padding: 0.625rem 0.75rem;
-  border-bottom: 1px solid #e5e7eb;
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid var(--color-border-soft);
   text-align: left;
 }
 
-.support-tickets__status {
-  padding: 0.125rem 0.5rem;
-  border-radius: 999px;
-  background: #eff6ff;
-  color: #1d4ed8;
+.support-tickets__table thead th {
+  color: var(--color-text-muted);
   font-size: 0.8125rem;
-  font-weight: 700;
+  font-weight: 600;
+}
+
+.support-tickets__table tbody tr:last-child td {
+  border-bottom: none;
 }
 
 .support-tickets__count {
-  color: #4b5563;
+  margin-top: 1rem;
+  color: var(--color-text-muted);
   font-size: 0.875rem;
+}
+
+@media (max-width: 640px) {
+  .support-tickets__table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .support-tickets__table,
+  .support-tickets__table tbody,
+  .support-tickets__table tr,
+  .support-tickets__table td {
+    display: block;
+    width: 100%;
+  }
+
+  .support-tickets__table-wrap {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+  }
+
+  .support-tickets__table tr {
+    margin-bottom: 0.75rem;
+    background: #fff;
+    border: 1px solid var(--color-border-soft);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+    padding: 0.5rem 1rem;
+  }
+
+  .support-tickets__table td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--color-border-soft);
+    text-align: right;
+  }
+
+  .support-tickets__table td:last-child {
+    border-bottom: none;
+  }
+
+  .support-tickets__table td::before {
+    content: attr(data-label);
+    font-weight: 600;
+    color: var(--color-text-muted);
+    text-align: left;
+  }
 }
 </style>

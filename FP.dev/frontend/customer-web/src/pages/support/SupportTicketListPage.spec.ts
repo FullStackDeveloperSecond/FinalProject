@@ -69,6 +69,12 @@ describe('supportTicketListPage', () => {
 
     expect(wrapper.text()).toContain('訂單延遲問題')
     expect(wrapper.text()).toContain('共 1 筆')
+
+    const expectedMobileLabels = ['案件編號', '分類', '主旨', '狀態', '最後活動時間']
+    expect(wrapper.findAll('tbody td').map((cell) => cell.attributes('data-label')))
+      .toEqual(expectedMobileLabels)
+    expect(wrapper.get('tbody a').attributes('href'))
+      .toBe('/support/tickets/018f2e6a-0000-7000-8000-000000000001')
   })
 
   it('lets the formal member policy reject an anonymous request', async () => {

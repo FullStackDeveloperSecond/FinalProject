@@ -14,9 +14,14 @@
         class="admin-sidebar"
         aria-label="管理功能導覽"
       >
-        <RouterLink to="/">
-          首頁
-        </RouterLink>
+        <nav class="admin-sidebar__nav">
+          <RouterLink to="/">
+            首頁
+          </RouterLink>
+          <RouterLink to="/support">
+            客服 SLA 佇列
+          </RouterLink>
+        </nav>
       </aside>
       <main class="site-main">
         <RouterView />

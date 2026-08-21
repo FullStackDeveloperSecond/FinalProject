@@ -82,6 +82,16 @@ public sealed class AdminSupportTicketService : IAdminSupportTicketService
         return nowUtc > activeDueAtUtc;
     }
 
+    /// <summary>
+    /// Mirrors ClaimAsync's eligibility precondition exactly: claim is only ever accepted by the
+    /// store when the ticket is Open and unassigned (every other state maps to
+    /// AssignmentConflict). Kept in lockstep by design intent, the same way ComputeIsOverdue is.
+    /// </summary>
+    private static IReadOnlyList<string> ComputeAvailableActions(AdminSupportTicketDetail detail) =>
+        detail.Status == SupportTicketStatus.Open && detail.AssigneeAdminPublicId is null
+            ? ["claim"]
+            : [];
+
     private static AdminSupportTicketDetailDto ToDetailDto(AdminSupportTicketDetail detail, DateTime nowUtc) => new(
         detail.PublicId,
         detail.TicketNumber,
@@ -102,6 +112,7 @@ public sealed class AdminSupportTicketService : IAdminSupportTicketService
         detail.ResolvedAtUtc,
         detail.ClosedAtUtc,
         detail.ReopenCount,
+        ComputeAvailableActions(detail),
         detail.RowVersion,
         [.. detail.Messages.Select(m => new AdminSupportMessageDto(
             m.PublicId,

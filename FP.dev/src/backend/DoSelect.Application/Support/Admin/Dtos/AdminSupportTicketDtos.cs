@@ -52,6 +52,11 @@ public sealed record AdminSupportMessageDto(
 /// Full admin-facing ticket detail, including internal notes. Kept separate from
 /// AdminSupportTicketDto (whose Assignee is non-null, matching the claim-result invariant)
 /// because a read can encounter tickets with no assignee at all.
+/// AvailableActions is a public-safe, usability-only hint of which actions the caller may
+/// currently attempt: exactly ["claim"] when the ticket is Open and unassigned, otherwise
+/// empty. The server's SupportTicketHandle policy and AdminSupportTicketService.ClaimAsync's
+/// store-level conditional check remain the sole authorization source; this list never grants
+/// an action the server would otherwise reject.
 /// </summary>
 public sealed record AdminSupportTicketDetailDto(
     Guid PublicId,
@@ -71,5 +76,6 @@ public sealed record AdminSupportTicketDetailDto(
     DateTime? ResolvedAtUtc,
     DateTime? ClosedAtUtc,
     int ReopenCount,
+    IReadOnlyList<string> AvailableActions,
     byte[] RowVersion,
     IReadOnlyList<AdminSupportMessageDto> Messages);
