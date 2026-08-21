@@ -254,4 +254,37 @@ public sealed class CartServiceTests
 
         Assert.Equal(800m, Assert.Single(validation.Cart.Items).UnitPrice);
     }
+
+    /// <summary>
+    /// Regression test for a bug caught live in manual browser verification: CartPage.vue
+    /// fires GET /cart and POST /actions/revalidate concurrently on mount, so for a
+    /// brand-new guest key both requests could see "no Active cart" before either committed
+    /// its INSERT, and the loser died on UX_Carts_GuestCartKeyHash_Active with an unhandled
+    /// 500 instead of just returning the cart the winner created.
+    /// </summary>
+    [Fact]
+    public async Task GetCartAsync_WhenCalledConcurrentlyForTheSameNewGuestKey_DoesNotThrow()
+    {
+        var guestKey = CartServiceFixture.UniqueGuestKey();
+        var identity = new CartIdentity(null, guestKey);
+
+        await using var contextA = CartServiceFixture.CreateContext();
+        await using var contextB = CartServiceFixture.CreateContext();
+        var serviceA = new EfCartService(contextA);
+        var serviceB = new EfCartService(contextB);
+
+        var results = await Task.WhenAll(
+            serviceA.GetCartAsync(identity, CancellationToken.None),
+            serviceB.GetCartAsync(identity, CancellationToken.None));
+
+        Assert.Equal(results[0].PublicId, results[1].PublicId);
+
+        await using var verifyContext = CartServiceFixture.CreateContext();
+        var cartCount = await verifyContext.Carts.CountAsync(
+            c => c.GuestCartKeyHash == SHA256HashOfGuestKey(guestKey));
+        Assert.Equal(1, cartCount);
+    }
+
+    private static byte[] SHA256HashOfGuestKey(string guestKey) =>
+        System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(guestKey));
 }

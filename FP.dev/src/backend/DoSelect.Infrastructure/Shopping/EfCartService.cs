@@ -169,40 +169,68 @@ public sealed class EfCartService : ICartService
     {
         if (identity.MemberUserId is { } memberUserId)
         {
-            var cart = await _dbContext.Carts.FirstOrDefaultAsync(
-                candidate => candidate.OwnerUserId == memberUserId && candidate.Status == CartStatus.Active,
+            return await GetOrCreateCartAsync(
+                () => _dbContext.Carts.FirstOrDefaultAsync(
+                    candidate => candidate.OwnerUserId == memberUserId && candidate.Status == CartStatus.Active,
+                    cancellationToken),
+                () => Cart.CreateForMember(Guid.CreateVersion7(), memberUserId, now.Add(CartLifetime), now),
                 cancellationToken);
-            if (cart is not null)
-            {
-                return cart;
-            }
-
-            cart = Cart.CreateForMember(Guid.CreateVersion7(), memberUserId, now.Add(CartLifetime), now);
-            _dbContext.Carts.Add(cart);
-            await _dbContext.SaveChangesAsync(cancellationToken);
-            return cart;
         }
 
         if (identity.GuestCartKey is { } guestCartKey)
         {
             var hash = HashGuestCartKey(guestCartKey);
-            var cart = await _dbContext.Carts.FirstOrDefaultAsync(
-                candidate => candidate.GuestCartKeyHash == hash && candidate.Status == CartStatus.Active,
+            return await GetOrCreateCartAsync(
+                () => _dbContext.Carts.FirstOrDefaultAsync(
+                    candidate => candidate.GuestCartKeyHash == hash && candidate.Status == CartStatus.Active,
+                    cancellationToken),
+                () => Cart.CreateForGuest(Guid.CreateVersion7(), hash, now.Add(CartLifetime), now),
                 cancellationToken);
-            if (cart is not null)
-            {
-                return cart;
-            }
-
-            cart = Cart.CreateForGuest(Guid.CreateVersion7(), hash, now.Add(CartLifetime), now);
-            _dbContext.Carts.Add(cart);
-            await _dbContext.SaveChangesAsync(cancellationToken);
-            return cart;
         }
 
         throw new ShoppingWriteException(
             ShoppingWriteException.ErrorCodes.ValidationFailed,
             "A member session or guest cart key is required.");
+    }
+
+    /// <summary>
+    /// A plain check-then-insert races: CartPage.vue fires GET /cart and POST
+    /// /actions/revalidate concurrently on mount, so for a brand-new guest key both requests
+    /// can see "no Active cart" before either commits its INSERT, and the second one dies on
+    /// UX_Carts_OwnerUserId_Active / UX_Carts_GuestCartKeyHash_Active (caught live in manual
+    /// browser verification — DbUpdateException wrapping a SqlException 2601). Retrying the
+    /// same lookup after a failed insert picks up whichever request won the race instead of
+    /// surfacing a 500 for what is actually a successful, idempotent "get the cart" outcome.
+    /// </summary>
+    private async Task<Cart> GetOrCreateCartAsync(
+        Func<Task<Cart?>> findExisting,
+        Func<Cart> createNew,
+        CancellationToken cancellationToken)
+    {
+        var existing = await findExisting();
+        if (existing is not null)
+        {
+            return existing;
+        }
+
+        var cart = createNew();
+        _dbContext.Carts.Add(cart);
+        try
+        {
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            return cart;
+        }
+        catch (DbUpdateException)
+        {
+            _dbContext.Entry(cart).State = EntityState.Detached;
+            var concurrentlyCreated = await findExisting();
+            if (concurrentlyCreated is null)
+            {
+                throw;
+            }
+
+            return concurrentlyCreated;
+        }
     }
 
     private async Task<(List<CartItemDto> Items, List<CartIssueDto> Issues)> BuildItemsAsync(
