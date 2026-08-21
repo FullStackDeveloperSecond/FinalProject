@@ -70,6 +70,17 @@ public sealed record SupportTicketSummaryDto(
     DateTime LastActivityAtUtc,
     byte[] RowVersion);
 
+/// <summary>
+/// Public-safe attachment metadata returned after a successful upload. Deliberately excludes
+/// StorageKey, physical paths, uploader identity and the SHA-256 hash.
+/// </summary>
+public sealed record SupportAttachmentDto(
+    Guid PublicId,
+    string OriginalFileName,
+    string MimeType,
+    long FileSizeBytes,
+    DateTime CreatedAtUtc);
+
 public sealed record SupportTicketDto(
     Guid PublicId,
     string TicketNumber,

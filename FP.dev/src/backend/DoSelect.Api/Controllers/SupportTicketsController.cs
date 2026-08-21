@@ -4,6 +4,7 @@ using DoSelect.Application.Support;
 using DoSelect.Application.Support.Dtos;
 using DoSelect.Api.Security;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 namespace DoSelect.Api.Controllers;
@@ -17,11 +18,20 @@ namespace DoSelect.Api.Controllers;
 [Route("api/v1/support-tickets")]
 public sealed class SupportTicketsController : ControllerBase
 {
-    private readonly ISupportTicketService _service;
+    // A few tens of KB above the hard 10 MiB content cap for multipart boundary/header
+    // overhead — the authoritative size check still happens in Application against the actual
+    // file bytes; this is just a cheap framework-level backstop against oversized requests.
+    private const long MultipartBodyLengthLimit = SupportAttachmentUploadLimits.MaxFileSizeBytes + 65_536;
 
-    public SupportTicketsController(ISupportTicketService service)
+    private readonly ISupportTicketService _service;
+    private readonly ISupportAttachmentUploadService _attachmentUploadService;
+
+    public SupportTicketsController(
+        ISupportTicketService service,
+        ISupportAttachmentUploadService attachmentUploadService)
     {
         _service = service;
+        _attachmentUploadService = attachmentUploadService;
     }
 
     [HttpGet]
@@ -57,6 +67,28 @@ public sealed class SupportTicketsController : ControllerBase
     {
         var result = await _service.AddMessageAsync(GetMemberUserId(), id, request, cancellationToken);
         return Ok(result);
+    }
+
+    [HttpPost("{id:guid}/attachments")]
+    [RequestSizeLimit(MultipartBodyLengthLimit)]
+    [RequestFormLimits(MultipartBodyLengthLimit = MultipartBodyLengthLimit, ValueCountLimit = 2)]
+    public async Task<ActionResult<SupportAttachmentDto>> UploadAttachment(
+        Guid id,
+        IFormFile? file,
+        CancellationToken cancellationToken)
+    {
+        // The IFormFile reference itself is only ever produced by ASP.NET Core's model binder
+        // here; the underlying content is not read (OpenReadStream is not invoked) until the
+        // Application service has already cleared ownership, ticket-state and count checks.
+        var incoming = new IncomingAttachmentFile(
+            file?.FileName ?? string.Empty,
+            file?.ContentType ?? string.Empty,
+            file?.Length,
+            file is not null,
+            () => file?.OpenReadStream() ?? Stream.Null);
+
+        var result = await _attachmentUploadService.UploadAsync(GetMemberUserId(), id, incoming, cancellationToken);
+        return StatusCode(StatusCodes.Status201Created, result);
     }
 
     [HttpPost("{id:guid}/actions/cancel")]

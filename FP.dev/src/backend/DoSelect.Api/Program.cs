@@ -53,6 +53,7 @@ builder.Services.AddScoped<IAdminSupportTicketService, AdminSupportTicketService
 builder.Services.AddScoped<ISupportSlaQueueService, SupportSlaQueueService>();
 builder.Services.AddScoped<ICaseWorkbenchService, CaseWorkbenchService>();
 builder.Services.AddScoped<ISupportAttachmentReadService, SupportAttachmentReadService>();
+builder.Services.AddScoped<ISupportAttachmentUploadService, SupportAttachmentUploadService>();
 
 var app = builder.Build();
 

@@ -17,7 +17,10 @@ public static class SupportInfrastructureServiceCollectionExtensions
         services.AddScoped<ISupportSlaQueueStore, SupportSlaQueueStore>();
         services.AddScoped<ICaseWorkbenchStore, CaseWorkbenchStore>();
         services.AddScoped<ISupportAttachmentReadStore, SupportAttachmentReadStore>();
+        services.AddScoped<ISupportAttachmentUploadStore, SupportAttachmentUploadStore>();
         services.AddSingleton<IPrivateFileStorage, LocalPrivateFileStorage>();
+        services.AddSingleton<IPrivateAttachmentUploadStorage, LocalPrivateAttachmentUploadStorage>();
+        services.AddSingleton<IFileScanner, DefenderFileScanner>();
         return services;
     }
 }

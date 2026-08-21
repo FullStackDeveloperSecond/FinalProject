@@ -15,4 +15,10 @@ public static class DomainErrorCodes
     public const string SupportTicketCancelNotAllowed = "support_ticket_cancel_not_allowed";
     public const string SupportTicketAssignmentConflict = "support_ticket_assignment_conflict";
     public const string SupportTicketNumberGenerationFailed = "support_ticket_number_generation_failed";
+
+    public const string FileCountExceeded = "file_count_exceeded";
+    public const string FileSizeExceeded = "file_size_exceeded";
+    public const string FileFormatInvalid = "file_format_invalid";
+    public const string FileMalwareDetected = "file_malware_detected";
+    public const string FileScanUnavailable = "file_scan_unavailable";
 }
