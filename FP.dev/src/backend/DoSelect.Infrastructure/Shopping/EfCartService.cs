@@ -1,7 +1,9 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using DoSelect.Application.Shopping;
 using DoSelect.Domain.Catalog;
+using DoSelect.Domain.Idempotency;
 using DoSelect.Domain.Shopping;
 using DoSelect.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -17,6 +19,9 @@ public sealed class EfCartService : ICartService
     /// every Add/Update/Remove/Merge extends the deadline via <see cref="Cart.ExtendExpiry"/>.
     /// </summary>
     private static readonly TimeSpan CartLifetime = TimeSpan.FromDays(30);
+
+    /// <summary>Stable command name for 資料一致性、Outbox與冪等設計.md's IdempotencyRecord.Operation.</summary>
+    private const string CartMergeOperation = "cart.merge";
 
     private readonly DoSelectDbContext _dbContext;
 
@@ -163,14 +168,13 @@ public sealed class EfCartService : ICartService
     }
 
     /// <summary>
-    /// Merges a guest cart into the caller's member cart on login (UC-CART-02). Idempotency
-    /// is achieved through the guest cart's own status transition rather than a persisted
-    /// idempotency-key column (see the PR description for why): once a guest cart is
-    /// converted, a replayed merge with the same guest key simply finds no Active guest cart
-    /// and returns the member cart unchanged — the one gap this doesn't cover is
-    /// distinguishing "identical replay" from "same key reused with a different payload"
-    /// (idempotency_payload_conflict is never raised this slice), which is an accepted,
-    /// documented trade-off flagged to 組長, not an oversight.
+    /// Merges a guest cart into the caller's member cart on login (UC-CART-02). Idempotency is
+    /// enforced up front by <see cref="ReserveIdempotencySlotAsync"/> per 資料一致性、Outbox與
+    /// 冪等設計.md's IdempotencyRecord design: a replay with the same Key and the same request
+    /// payload returns the original cached result without re-merging anything; the same Key
+    /// with a different payload, or a genuinely concurrent duplicate, gets
+    /// idempotency_payload_conflict instead of silently racing to convert the same guest cart
+    /// twice.
     /// </summary>
     public async Task<CartMergeResultDto> MergeAsync(
         string memberUserId,
@@ -186,6 +190,19 @@ public sealed class EfCartService : ICartService
         }
 
         var now = DateTime.UtcNow;
+
+        // Reserve the idempotency slot *before* doing any merge work: a genuinely concurrent
+        // duplicate request (same Key) loses the race to INSERT this row and never executes the
+        // merge logic at all, rather than both racing to convert the same guest cart.
+        var actorScopeHash = HashUtf8($"user:{memberUserId}");
+        var requestHash = HashUtf8($"{request.GuestCartKey} {request.Strategy}");
+        var reservation = await ReserveIdempotencySlotAsync(
+            actorScopeHash, CartMergeOperation, request.IdempotencyKey, requestHash, now, cancellationToken);
+        if (reservation.CachedResult is not null)
+        {
+            return reservation.CachedResult;
+        }
+
         var memberCart = await ResolveOrCreateCartAsync(new CartIdentity(memberUserId, null), now, cancellationToken);
 
         var guestHash = HashGuestCartKey(request.GuestCartKey);
@@ -292,8 +309,74 @@ public sealed class EfCartService : ICartService
         await SaveWithConcurrencyCheckAsync(cancellationToken);
 
         var cartDto = await MapCartAsync(memberCart, cancellationToken);
-        return new CartMergeResultDto(cartDto, conflicts);
+        var result = new CartMergeResultDto(cartDto, conflicts);
+
+        reservation.Record!.Complete(responseStatusCode: 200, JsonSerializer.Serialize(result), now);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        return result;
     }
+
+    private readonly record struct IdempotencyReservation(IdempotencyRecord? Record, CartMergeResultDto? CachedResult);
+
+    /// <summary>
+    /// Races to INSERT a Processing <see cref="IdempotencyRecord"/> for (actorScopeHash,
+    /// operation, key). On success, the caller owns this reservation and must call
+    /// <see cref="IdempotencyRecord.Complete"/> then save once the command actually runs. On a
+    /// unique-index collision, resolves per 資料一致性、Outbox與冪等設計.md: same RequestHash
+    /// replays the cached result; different hash or a still-Processing sibling both surface as
+    /// idempotency_payload_conflict (the error-code catalog doesn't define a distinct "retry
+    /// shortly" code, so the "still processing" case reuses it with a message that says so).
+    /// </summary>
+    private async Task<IdempotencyReservation> ReserveIdempotencySlotAsync(
+        byte[] actorScopeHash,
+        string operation,
+        string key,
+        byte[] requestHash,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var record = new IdempotencyRecord(actorScopeHash, operation, key, requestHash, now.AddHours(24), now);
+        _dbContext.IdempotencyRecords.Add(record);
+        try
+        {
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            return new IdempotencyReservation(record, null);
+        }
+        catch (DbUpdateException)
+        {
+            _dbContext.Entry(record).State = EntityState.Detached;
+
+            var existing = await _dbContext.IdempotencyRecords.AsNoTracking().FirstOrDefaultAsync(
+                candidate => candidate.ActorScopeHash == actorScopeHash &&
+                    candidate.Operation == operation &&
+                    candidate.Key == key,
+                cancellationToken);
+            if (existing is null)
+            {
+                throw;
+            }
+
+            if (!existing.RequestHash.AsSpan().SequenceEqual(requestHash))
+            {
+                throw new ShoppingWriteException(
+                    ShoppingWriteException.ErrorCodes.IdempotencyPayloadConflict,
+                    "This idempotency key was already used with a different request payload.");
+            }
+
+            if (existing.Status != IdempotencyStatus.Succeeded || existing.ResponseSummary is null)
+            {
+                throw new ShoppingWriteException(
+                    ShoppingWriteException.ErrorCodes.IdempotencyPayloadConflict,
+                    "An identical request is already being processed. Retry shortly.");
+            }
+
+            var cached = JsonSerializer.Deserialize<CartMergeResultDto>(existing.ResponseSummary)!;
+            return new IdempotencyReservation(null, cached);
+        }
+    }
+
+    private static byte[] HashUtf8(string value) => SHA256.HashData(Encoding.UTF8.GetBytes(value));
 
     private async Task<Cart> ResolveOrCreateCartAsync(
         CartIdentity identity,

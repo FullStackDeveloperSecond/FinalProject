@@ -1,5 +1,6 @@
 using DoSelect.Domain.Builds;
 using DoSelect.Domain.Catalog;
+using DoSelect.Domain.Idempotency;
 using DoSelect.Domain.Imports;
 using DoSelect.Domain.Idempotency;
 using DoSelect.Domain.Inventory;
@@ -102,6 +103,8 @@ public sealed class DoSelectDbContext
     public DbSet<ImportRow> ImportRows => Set<ImportRow>();
 
     public DbSet<Cart> Carts => Set<Cart>();
+
+    public DbSet<IdempotencyRecord> IdempotencyRecords => Set<IdempotencyRecord>();
 
     public DbSet<CartItem> CartItems => Set<CartItem>();
 
