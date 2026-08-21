@@ -12,6 +12,10 @@ public interface IMemberRegistrationGateway
         Guid userPublicId,
         string token,
         CancellationToken cancellationToken = default);
+
+    Task<RequestMemberEmailVerificationOutcome> RequestEmailVerificationAsync(
+        string email,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed record CreateMemberRequest(
@@ -38,4 +42,14 @@ public abstract record ConfirmMemberEmailOutcome
     public sealed record Success(AccountStatus AccountStatus) : ConfirmMemberEmailOutcome;
 
     public sealed record TokenRejected : ConfirmMemberEmailOutcome;
+}
+
+public abstract record RequestMemberEmailVerificationOutcome
+{
+    public sealed record Issued(Guid PublicId, string Email, string Token) : RequestMemberEmailVerificationOutcome;
+
+    // Covers "no such member", "not a member account", and "already verified" alike so the
+    // caller cannot infer account existence or state from the outcome (API DTO與Schema契約.md:
+    // EmailVerificationRequest 永遠回 202，不揭露帳號).
+    public sealed record NotEligible : RequestMemberEmailVerificationOutcome;
 }

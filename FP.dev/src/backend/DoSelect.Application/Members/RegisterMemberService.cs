@@ -86,23 +86,16 @@ public sealed class RegisterMemberService(
         }
     }
 
-    private async Task SendVerificationEmailAsync(
+    private Task SendVerificationEmailAsync(
         CreateMemberOutcome.Success success,
-        CancellationToken cancellationToken)
-    {
-        var verificationLink =
-            $"{frontendLinkOptions.Value.BaseUrl.TrimEnd('/')}/verify-email" +
-            $"?publicId={success.PublicId:D}" +
-            $"&token={Uri.EscapeDataString(success.EmailConfirmationToken)}";
-
-        await emailSender.SendAsync(
-            new EmailMessage(
+        CancellationToken cancellationToken) =>
+        emailSender.SendAsync(
+            MemberVerificationEmailComposer.Compose(
                 success.Email,
-                "請驗證您的懂選帳號 Email",
-                $"感謝您註冊懂選會員。請於 24 小時內點擊以下連結完成 Email 驗證：\n{verificationLink}",
-                $"<p>感謝您註冊懂選會員。請於 24 小時內點擊以下連結完成 Email 驗證：</p><p><a href=\"{verificationLink}\">{verificationLink}</a></p>"),
+                success.PublicId,
+                success.EmailConfirmationToken,
+                frontendLinkOptions.Value.BaseUrl),
             cancellationToken);
-    }
 
     private static bool TryResolveLocale(string? rawLocale, out SupportedLocale locale)
     {

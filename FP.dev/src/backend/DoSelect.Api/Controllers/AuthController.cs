@@ -14,6 +14,7 @@ namespace DoSelect.Api.Controllers;
 public sealed class AuthController(
     RegisterMemberService registerMemberService,
     ConfirmEmailVerificationService confirmEmailVerificationService,
+    RequestEmailVerificationService requestEmailVerificationService,
     LoginMemberService loginMemberService) : ControllerBase
 {
     [HttpPost("register")]
@@ -43,6 +44,17 @@ public sealed class AuthController(
 
             _ => Problem(),
         };
+    }
+
+    [HttpPost("email-verifications")]
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> RequestEmailVerification(
+        [FromBody] EmailVerificationRequest request,
+        CancellationToken cancellationToken)
+    {
+        await requestEmailVerificationService.RequestAsync(request.ToCommand(), cancellationToken);
+        return Accepted();
     }
 
     [HttpPost("email-verifications/confirm")]

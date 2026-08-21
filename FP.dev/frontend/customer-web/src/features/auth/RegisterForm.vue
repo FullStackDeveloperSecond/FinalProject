@@ -3,12 +3,15 @@ import { computed, ref } from 'vue'
 import { isApiError } from '@doselect/web-shared/api'
 import { EmptyState } from '@doselect/web-shared/components'
 import { CURRENT_TERMS_VERSION, registerMember, type RegisterAcceptedResponseBody } from './api'
+import PasswordVisibilityToggle from '../../components/PasswordVisibilityToggle.vue'
 
 const email = ref('')
 const password = ref('')
 const confirmPassword = ref('')
 const displayName = ref('')
 const acceptTerms = ref(false)
+const showPassword = ref(false)
+const showConfirmPassword = ref(false)
 
 const submitting = ref(false)
 const fieldErrors = ref<Record<string, string[]>>({})
@@ -111,16 +114,19 @@ async function handleSubmit(): Promise<void> {
 
     <div class="form-field">
       <label for="register-password">密碼</label>
-      <input
-        id="register-password"
-        v-model="password"
-        type="password"
-        autocomplete="new-password"
-        minlength="12"
-        maxlength="128"
-        required
-        :aria-invalid="errorsFor('password').length > 0"
-      >
+      <div class="password-field">
+        <input
+          id="register-password"
+          v-model="password"
+          :type="showPassword ? 'text' : 'password'"
+          autocomplete="new-password"
+          minlength="12"
+          maxlength="128"
+          required
+          :aria-invalid="errorsFor('password').length > 0"
+        >
+        <PasswordVisibilityToggle v-model="showPassword" />
+      </div>
       <p class="form-field__hint">
         至少 12 個字元。
       </p>
@@ -135,14 +141,17 @@ async function handleSubmit(): Promise<void> {
 
     <div class="form-field">
       <label for="register-confirm-password">確認密碼</label>
-      <input
-        id="register-confirm-password"
-        v-model="confirmPassword"
-        type="password"
-        autocomplete="new-password"
-        required
-        :aria-invalid="passwordMismatch || errorsFor('confirmPassword').length > 0"
-      >
+      <div class="password-field">
+        <input
+          id="register-confirm-password"
+          v-model="confirmPassword"
+          :type="showConfirmPassword ? 'text' : 'password'"
+          autocomplete="new-password"
+          required
+          :aria-invalid="passwordMismatch || errorsFor('confirmPassword').length > 0"
+        >
+        <PasswordVisibilityToggle v-model="showConfirmPassword" />
+      </div>
       <p
         v-if="passwordMismatch"
         class="form-field__error"
