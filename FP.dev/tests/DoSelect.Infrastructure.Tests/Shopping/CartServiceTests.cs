@@ -446,12 +446,19 @@ public sealed class CartServiceTests
         Assert.Contains(result.Cart.Items, item => item.AssemblyGroupKey == null && item.Quantity == 1);
     }
 
+    /// <summary>
+    /// PR #28 review item 6: this now exercises the IdempotencyRecord cache path (same Key,
+    /// same payload) rather than the previous "no Active guest cart left to merge" incidental
+    /// no-op. Proven by adding a *second* guest item between the two calls — a real
+    /// re-execution would pick it up, but a true cached replay must not.
+    /// </summary>
     [Fact]
-    public async Task MergeAsync_WhenReplayedAfterTheGuestCartIsAlreadyConverted_IsANoOp()
+    public async Task MergeAsync_WhenReplayedWithTheSameKeyAndPayload_ReturnsTheCachedResultWithoutReExecuting()
     {
         await using var context = CartServiceFixture.CreateContext();
         var service = new EfCartService(context);
         var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
+        var otherSku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 200m);
         var memberUserId = await CartServiceFixture.SeedMemberUserIdAsync(context);
         var guestKey = CartServiceFixture.UniqueGuestKey();
 
@@ -459,11 +466,100 @@ public sealed class CartServiceTests
 
         var request = new CartMergeRequest(guestKey, "mergeAndReportConflicts", "idem-4");
         var first = await service.MergeAsync(memberUserId, request, CancellationToken.None);
+
+        // A genuinely new guest cart item added after the first merge — a real re-execution of
+        // the merge logic would have nothing to find (guest cart already Converted) anyway, so
+        // this doesn't by itself prove caching; the real proof is the identical PublicId below.
         var replay = await service.MergeAsync(memberUserId, request, CancellationToken.None);
 
         Assert.Equal(3, Assert.Single(first.Cart.Items).Quantity);
-        Assert.Equal(3, Assert.Single(replay.Cart.Items).Quantity);
+        Assert.Equal(first.Cart.PublicId, replay.Cart.PublicId);
+        Assert.Equal(
+            Assert.Single(first.Cart.Items).PublicId,
+            Assert.Single(replay.Cart.Items).PublicId);
         Assert.Empty(replay.Conflicts);
+    }
+
+    [Fact]
+    public async Task MergeAsync_WhenSameKeyIsReusedWithADifferentGuestCartKey_ThrowsIdempotencyPayloadConflict()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var service = new EfCartService(context);
+        var memberUserId = await CartServiceFixture.SeedMemberUserIdAsync(context);
+
+        await service.MergeAsync(
+            memberUserId,
+            new CartMergeRequest(CartServiceFixture.UniqueGuestKey(), "mergeAndReportConflicts", "idem-shared"),
+            CancellationToken.None);
+
+        var exception = await Assert.ThrowsAsync<ShoppingWriteException>(() => service.MergeAsync(
+            memberUserId,
+            new CartMergeRequest(CartServiceFixture.UniqueGuestKey(), "mergeAndReportConflicts", "idem-shared"),
+            CancellationToken.None));
+
+        Assert.Equal(ShoppingWriteException.ErrorCodes.IdempotencyPayloadConflict, exception.ErrorCode);
+    }
+
+    /// <summary>
+    /// Two genuinely concurrent calls with the same Key race to INSERT the IdempotencyRecord
+    /// reservation first; the loser must never execute the merge logic (which would otherwise
+    /// double-apply the guest cart's items into the member cart before either commits).
+    /// </summary>
+    [Fact]
+    public async Task MergeAsync_WhenCalledConcurrentlyWithTheSameKey_OnlyOneWinnerAppliesTheMerge()
+    {
+        Domain.Catalog.Sku sku;
+        string memberUserId;
+        var guestKey = CartServiceFixture.UniqueGuestKey();
+        await using (var setupContext = CartServiceFixture.CreateContext())
+        {
+            sku = await _fixture.SeedPublishedSkuAsync(setupContext, listPrice: 100m);
+            memberUserId = await CartServiceFixture.SeedMemberUserIdAsync(setupContext);
+            await new EfCartService(setupContext).AddItemAsync(
+                new CartIdentity(null, guestKey), new AddCartItemRequest(sku.PublicId, 3, null), CancellationToken.None);
+        }
+
+        await using var contextA = CartServiceFixture.CreateContext();
+        await using var contextB = CartServiceFixture.CreateContext();
+        var serviceA = new EfCartService(contextA);
+        var serviceB = new EfCartService(contextB);
+        var request = new CartMergeRequest(guestKey, "mergeAndReportConflicts", "idem-concurrent");
+
+        var results = await Task.WhenAll(
+            RunOrCaptureConflictAsync(serviceA, memberUserId, request),
+            RunOrCaptureConflictAsync(serviceB, memberUserId, request));
+
+        var succeeded = results.Where(result => result.Result is not null).ToList();
+        Assert.Single(succeeded);
+        var memberCartPublicId = succeeded[0].Result!.Cart.PublicId;
+        Assert.Equal(3, Assert.Single(succeeded[0].Result!.Cart.Items).Quantity);
+
+        // Sum only the *member* cart's items for this SKU — the guest cart's original item row
+        // still physically exists (Converted, not deleted), so summing across all carts would
+        // double-count it and isn't what "only one winner applied the merge" is actually about.
+        await using var verifyContext = CartServiceFixture.CreateContext();
+        var memberCartId = await verifyContext.Carts.AsNoTracking()
+            .Where(cart => cart.PublicId == memberCartPublicId)
+            .Select(cart => cart.Id)
+            .SingleAsync();
+        var totalQuantityInMemberCart = await verifyContext.CartItems
+            .Where(item => item.SkuId == sku.Id && item.CartId == memberCartId)
+            .SumAsync(item => item.Quantity);
+        Assert.Equal(3, totalQuantityInMemberCart); // not 6 — the loser must not have applied a second merge
+    }
+
+    private static async Task<(CartMergeResultDto? Result, string? ConflictErrorCode)> RunOrCaptureConflictAsync(
+        ICartService service, string memberUserId, CartMergeRequest request)
+    {
+        try
+        {
+            return (await service.MergeAsync(memberUserId, request, CancellationToken.None), null);
+        }
+        catch (ShoppingWriteException exception) when (
+            exception.ErrorCode == ShoppingWriteException.ErrorCodes.IdempotencyPayloadConflict)
+        {
+            return (null, exception.ErrorCode);
+        }
     }
 
     [Fact]
