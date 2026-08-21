@@ -240,6 +240,7 @@ public sealed class SupportTicketsControllerTests : IClassFixture<WebApplication
         {
             BaseAddress = new Uri("https://localhost"),
             AllowAutoRedirect = false,
+            HandleCookies = false,
         });
         if (memberUserId is not null)
         {
