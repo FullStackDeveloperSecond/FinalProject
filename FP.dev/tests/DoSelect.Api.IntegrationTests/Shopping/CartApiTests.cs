@@ -276,4 +276,70 @@ public sealed class CartApiTests
 
     private static Task<HttpResponseMessage> SendWithAntiforgeryAsync(HttpClient client, HttpRequestMessage request) =>
         CartApiFixture.SendWithAntiforgeryAsync(client, request);
+
+    [Fact]
+    public async Task Merge_WhenAuthenticatedMember_CombinesGuestAndMemberQuantities()
+    {
+        using var guestClient = _fixture.CreateClient();
+        var guestKey = CartApiFixture.UniqueGuestKey();
+        Sku sku;
+        await using (var context = _fixture.CreateScopedContext())
+        {
+            sku = await CartApiSeeding.CreatePublishedSkuAsync(context);
+        }
+
+        using var guestAddResponse = await PostAddItemAsync(guestClient, guestKey, sku.PublicId, quantity: 2);
+        guestAddResponse.EnsureSuccessStatusCode();
+
+        using var memberClient = await _fixture.CreateAuthenticatedMemberClientAsync();
+        using var memberAddRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/cart/items")
+        {
+            Content = JsonContent.Create(new { skuPublicId = sku.PublicId, quantity = 3, cartRowVersion = (string?)null }),
+        };
+        using var memberAddResponse = await CartApiFixture.SendWithAntiforgeryAsync(memberClient, memberAddRequest);
+        memberAddResponse.EnsureSuccessStatusCode();
+
+        using var mergeRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/cart/actions/merge")
+        {
+            Content = JsonContent.Create(new { guestCartKey = guestKey, strategy = "mergeAndReportConflicts", idempotencyKey = "test-merge-key" }),
+        };
+        using var mergeResponse = await CartApiFixture.SendWithAntiforgeryAsync(memberClient, mergeRequest);
+        var body = await mergeResponse.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(HttpStatusCode.OK, mergeResponse.StatusCode);
+        var item = Assert.Single(body.GetProperty("cart").GetProperty("items").EnumerateArray());
+        Assert.Equal(5, item.GetProperty("quantity").GetInt32());
+        Assert.Equal(0, body.GetProperty("conflicts").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task Merge_WhenNotAuthenticated_Returns401()
+    {
+        using var client = _fixture.CreateClient();
+
+        using var mergeRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/cart/actions/merge")
+        {
+            Content = JsonContent.Create(new { guestCartKey = CartApiFixture.UniqueGuestKey(), strategy = "mergeAndReportConflicts", idempotencyKey = "test-merge-key" }),
+        };
+        using var response = await client.SendAsync(mergeRequest);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Merge_WhenGuestCartDoesNotExist_ReturnsOkAsANoOp()
+    {
+        using var memberClient = await _fixture.CreateAuthenticatedMemberClientAsync();
+
+        using var mergeRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/cart/actions/merge")
+        {
+            Content = JsonContent.Create(new { guestCartKey = CartApiFixture.UniqueGuestKey(), strategy = "mergeAndReportConflicts", idempotencyKey = "test-merge-key" }),
+        };
+        using var response = await CartApiFixture.SendWithAntiforgeryAsync(memberClient, mergeRequest);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(0, body.GetProperty("cart").GetProperty("items").GetArrayLength());
+        Assert.Equal(0, body.GetProperty("conflicts").GetArrayLength());
+    }
 }

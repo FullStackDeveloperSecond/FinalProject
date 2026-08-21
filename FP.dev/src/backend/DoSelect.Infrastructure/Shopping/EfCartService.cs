@@ -162,6 +162,126 @@ public sealed class EfCartService : ICartService
         return new CartValidationDto(cartDto, issues.Count == 0, issues, now);
     }
 
+    /// <summary>
+    /// Merges a guest cart into the caller's member cart on login (UC-CART-02). Idempotency
+    /// is achieved through the guest cart's own status transition rather than a persisted
+    /// idempotency-key column (see the PR description for why): once a guest cart is
+    /// converted, a replayed merge with the same guest key simply finds no Active guest cart
+    /// and returns the member cart unchanged — the one gap this doesn't cover is
+    /// distinguishing "identical replay" from "same key reused with a different payload"
+    /// (idempotency_payload_conflict is never raised this slice), which is an accepted,
+    /// documented trade-off, not an oversight.
+    /// </summary>
+    public async Task<CartMergeResultDto> MergeAsync(
+        string memberUserId,
+        CartMergeRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.Strategy != "mergeAndReportConflicts")
+        {
+            throw new ShoppingWriteException(
+                ShoppingWriteException.ErrorCodes.ValidationFailed,
+                $"Unsupported merge strategy '{request.Strategy}'.");
+        }
+
+        var now = DateTime.UtcNow;
+        var memberCart = await ResolveOrCreateCartAsync(new CartIdentity(memberUserId, null), now, cancellationToken);
+
+        var guestHash = HashGuestCartKey(request.GuestCartKey);
+        var guestCart = await _dbContext.Carts.FirstOrDefaultAsync(
+            candidate => candidate.GuestCartKeyHash == guestHash && candidate.Status == CartStatus.Active,
+            cancellationToken);
+
+        var conflicts = new List<CartMergeConflictDto>();
+
+        if (guestCart is not null)
+        {
+            var guestItems = await _dbContext.CartItems
+                .Where(item => item.CartId == guestCart.Id)
+                .ToListAsync(cancellationToken);
+            var memberItems = await _dbContext.CartItems
+                .Where(item => item.CartId == memberCart.Id)
+                .ToListAsync(cancellationToken);
+
+            foreach (var guestItem in guestItems)
+            {
+                var sku = await _dbContext.Skus.AsNoTracking()
+                    .FirstAsync(candidate => candidate.Id == guestItem.SkuId, cancellationToken);
+                CartItem landedItem;
+
+                if (guestItem.AssemblyGroupKey is not null)
+                {
+                    // Assembly groups are never combined with anything, even a coincidentally
+                    // identical AssemblyGroupKey — each guest group lands as its own new row.
+                    landedItem = new CartItem(
+                        Guid.CreateVersion7(),
+                        memberCart.Id,
+                        guestItem.SkuId,
+                        guestItem.Quantity,
+                        guestItem.AssemblyGroupKey,
+                        now);
+                    _dbContext.CartItems.Add(landedItem);
+                }
+                else
+                {
+                    var existingMemberItem = memberItems.FirstOrDefault(
+                        candidate => candidate.SkuId == guestItem.SkuId && candidate.AssemblyGroupKey == null);
+
+                    if (existingMemberItem is not null)
+                    {
+                        var combinedQuantity = existingMemberItem.Quantity + guestItem.Quantity;
+                        var storedQuantity = Math.Min(combinedQuantity, 99);
+                        existingMemberItem.ChangeQuantity(storedQuantity, now);
+                        landedItem = existingMemberItem;
+
+                        if (combinedQuantity > 99)
+                        {
+                            conflicts.Add(new CartMergeConflictDto(
+                                guestItem.PublicId,
+                                sku.PublicId,
+                                ShoppingWriteException.ErrorCodes.CartQuantityExceeded,
+                                storedQuantity));
+                        }
+                    }
+                    else
+                    {
+                        landedItem = new CartItem(
+                            Guid.CreateVersion7(),
+                            memberCart.Id,
+                            guestItem.SkuId,
+                            guestItem.Quantity,
+                            null,
+                            now);
+                        _dbContext.CartItems.Add(landedItem);
+                        memberItems.Add(landedItem);
+                    }
+                }
+
+                // Cart never reserves stock, so an insufficient-stock item is still fully
+                // accepted into the cart — only flagged, never quantity-clamped for this reason.
+                var concern = await GetAvailabilityConcernAsync(sku, landedItem.Quantity, cancellationToken);
+                if (concern.IssueCode is not null)
+                {
+                    conflicts.Add(new CartMergeConflictDto(
+                        guestItem.PublicId,
+                        sku.PublicId,
+                        concern.IssueCode,
+                        landedItem.Quantity));
+                }
+            }
+
+            guestCart.ChangeStatus(CartStatus.Converted, now);
+        }
+
+        memberCart.Touch(now);
+
+        await SaveWithConcurrencyCheckAsync(cancellationToken);
+
+        var cartDto = await MapCartAsync(memberCart, cancellationToken);
+        return new CartMergeResultDto(cartDto, conflicts);
+    }
+
     private async Task<Cart> ResolveOrCreateCartAsync(
         CartIdentity identity,
         DateTime now,
@@ -250,37 +370,18 @@ public sealed class EfCartService : ICartService
             var sku = await _dbContext.Skus.AsNoTracking()
                 .FirstAsync(candidate => candidate.Id == cartItem.SkuId, cancellationToken);
             var effectivePrice = await GetEffectivePriceAsync(sku, now, cancellationToken);
+            var concern = await GetAvailabilityConcernAsync(sku, cartItem.Quantity, cancellationToken);
 
-            // No InventoryBalance row exists yet until the inventory slice populates one —
-            // treated as "unknown, don't block" rather than assuming zero stock.
-            var availableQuantity = await _dbContext.InventoryBalances.AsNoTracking()
-                .Where(balance => balance.SkuId == sku.Id)
-                .Select(balance => (int?)balance.AvailableQuantity)
-                .FirstOrDefaultAsync(cancellationToken);
-
-            var availability = "available";
-            if (sku.Status != SkuStatus.Published)
+            if (concern.IssueCode is not null)
             {
-                availability = "unavailable";
                 issues.Add(new CartIssueDto(
                     cartItem.PublicId,
-                    ShoppingWriteException.ErrorCodes.SkuUnavailable,
-                    "error",
-                    ["remove"]));
+                    concern.IssueCode,
+                    concern.IssueCode == ShoppingWriteException.ErrorCodes.SkuUnavailable ? "error" : "warning",
+                    concern.IssueCode == ShoppingWriteException.ErrorCodes.SkuUnavailable
+                        ? ["remove"]
+                        : ["reduce-quantity", "remove"]));
             }
-            else if (availableQuantity.HasValue && cartItem.Quantity > availableQuantity.Value)
-            {
-                availability = "insufficient_stock";
-                issues.Add(new CartIssueDto(
-                    cartItem.PublicId,
-                    ShoppingWriteException.ErrorCodes.CartItemRequiresAttention,
-                    "warning",
-                    ["reduce-quantity", "remove"]));
-            }
-
-            var maxPurchasableQuantity = availableQuantity.HasValue
-                ? Math.Clamp(availableQuantity.Value, 0, 99)
-                : 99;
 
             items.Add(new CartItemDto(
                 cartItem.PublicId,
@@ -290,9 +391,9 @@ public sealed class EfCartService : ICartService
                 cartItem.Quantity,
                 effectivePrice,
                 effectivePrice * cartItem.Quantity,
-                availability,
+                concern.Availability,
                 PriceChanged: false, // No price-at-add snapshot column exists yet (see PR description).
-                maxPurchasableQuantity,
+                concern.MaxPurchasableQuantity,
                 cartItem.AssemblyGroupKey,
                 CouponAllocatedDiscount: 0m, // Coupon logic belongs to yinyin's slice; see 回覆.md field alignment.
                 cartItem.RowVersion));
@@ -313,6 +414,40 @@ public sealed class EfCartService : ICartService
             .FirstOrDefaultAsync(cancellationToken);
 
         return activeSalePrice ?? sku.ListPrice;
+    }
+
+    private readonly record struct AvailabilityConcern(string Availability, string? IssueCode, int MaxPurchasableQuantity);
+
+    private async Task<AvailabilityConcern> GetAvailabilityConcernAsync(
+        Sku sku,
+        int quantity,
+        CancellationToken cancellationToken)
+    {
+        // No InventoryBalance row exists yet until the inventory slice populates one —
+        // treated as "unknown, don't block" rather than assuming zero stock.
+        var availableQuantity = await _dbContext.InventoryBalances.AsNoTracking()
+            .Where(balance => balance.SkuId == sku.Id)
+            .Select(balance => (int?)balance.AvailableQuantity)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var maxPurchasableQuantity = availableQuantity.HasValue
+            ? Math.Clamp(availableQuantity.Value, 0, 99)
+            : 99;
+
+        if (sku.Status != SkuStatus.Published)
+        {
+            return new AvailabilityConcern("unavailable", ShoppingWriteException.ErrorCodes.SkuUnavailable, maxPurchasableQuantity);
+        }
+
+        if (availableQuantity.HasValue && quantity > availableQuantity.Value)
+        {
+            return new AvailabilityConcern(
+                "insufficient_stock",
+                ShoppingWriteException.ErrorCodes.CartItemRequiresAttention,
+                maxPurchasableQuantity);
+        }
+
+        return new AvailabilityConcern("available", null, maxPurchasableQuantity);
     }
 
     private async Task<CartDto> MapCartAsync(Cart cart, CancellationToken cancellationToken)

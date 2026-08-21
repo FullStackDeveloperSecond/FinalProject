@@ -89,4 +89,9 @@ public interface ICartService
         CancellationToken cancellationToken);
 
     Task<CartValidationDto> RevalidateAsync(CartIdentity identity, CancellationToken cancellationToken);
+
+    Task<CartMergeResultDto> MergeAsync(
+        string memberUserId,
+        CartMergeRequest request,
+        CancellationToken cancellationToken);
 }

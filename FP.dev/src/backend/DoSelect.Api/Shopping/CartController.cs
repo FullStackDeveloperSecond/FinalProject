@@ -1,4 +1,6 @@
+using System.Security.Claims;
 using DoSelect.Api.Common;
+using DoSelect.Api.Security;
 using DoSelect.Application.Shopping;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -6,12 +8,15 @@ using Microsoft.AspNetCore.Mvc;
 namespace DoSelect.Api.Shopping;
 
 /// <summary>
-/// Every action here accepts both anonymous guests (via <see cref="CartIdentityResolver.GuestCartKeyHeaderName"/>)
-/// and authenticated members — no [Authorize] attribute can express that mix, so each action
-/// resolves the caller itself and scopes every query/write to that caller's own cart.
+/// Every action except <see cref="Merge"/> accepts both anonymous guests (via
+/// <see cref="CartIdentityResolver.GuestCartKeyHeaderName"/>) and authenticated members —
+/// no [Authorize] attribute can express that mix, so those actions resolve the caller
+/// themselves and scope every query/write to that caller's own cart. No class-level
+/// [AllowAnonymous]/[Authorize] is used (there is no fallback authorization policy in this
+/// app, so an action with neither attribute is anonymous by default) — that leaves room for
+/// Merge to require the Member policy on its own.
 /// </summary>
 [ApiController]
-[AllowAnonymous]
 [Route("api/v1/cart")]
 public sealed class CartController : ControllerBase
 {
@@ -114,6 +119,29 @@ public sealed class CartController : ControllerBase
 
         var validation = await _cartService.RevalidateAsync(identity, cancellationToken);
         return Ok(validation);
+    }
+
+    [HttpPost("actions/merge")]
+    [Authorize(Policy = DoSelectPolicies.Member)]
+    public async Task<ActionResult<CartMergeResultDto>> Merge(
+        [FromBody] CartMergeRequest request,
+        CancellationToken cancellationToken)
+    {
+        var memberUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(memberUserId))
+        {
+            return IdentityRequiredProblem();
+        }
+
+        try
+        {
+            var result = await _cartService.MergeAsync(memberUserId, request, cancellationToken);
+            return Ok(result);
+        }
+        catch (ShoppingWriteException exception)
+        {
+            return exception.ToActionResult(HttpContext);
+        }
     }
 
     private ActionResult IdentityRequiredProblem()

@@ -285,6 +285,113 @@ public sealed class CartServiceTests
         Assert.Equal(1, cartCount);
     }
 
+    [Fact]
+    public async Task MergeAsync_WhenSameSkuExistsInBothCarts_CombinesQuantities()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var service = new EfCartService(context);
+        var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
+        var memberUserId = await CartServiceFixture.SeedMemberUserIdAsync(context);
+        var guestKey = CartServiceFixture.UniqueGuestKey();
+
+        await service.AddItemAsync(new CartIdentity(null, guestKey), new AddCartItemRequest(sku.PublicId, 3, null), CancellationToken.None);
+        await service.AddItemAsync(new CartIdentity(memberUserId, null), new AddCartItemRequest(sku.PublicId, 4, null), CancellationToken.None);
+
+        var result = await service.MergeAsync(
+            memberUserId,
+            new CartMergeRequest(guestKey, "mergeAndReportConflicts", "idem-1"),
+            CancellationToken.None);
+
+        var item = Assert.Single(result.Cart.Items);
+        Assert.Equal(7, item.Quantity);
+        Assert.Empty(result.Conflicts);
+    }
+
+    [Fact]
+    public async Task MergeAsync_WhenCombinedQuantityExceedsNinetyNine_ClampsAndReportsConflict()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var service = new EfCartService(context);
+        var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
+        var memberUserId = await CartServiceFixture.SeedMemberUserIdAsync(context);
+        var guestKey = CartServiceFixture.UniqueGuestKey();
+
+        await service.AddItemAsync(new CartIdentity(null, guestKey), new AddCartItemRequest(sku.PublicId, 60, null), CancellationToken.None);
+        await service.AddItemAsync(new CartIdentity(memberUserId, null), new AddCartItemRequest(sku.PublicId, 50, null), CancellationToken.None);
+
+        var result = await service.MergeAsync(
+            memberUserId,
+            new CartMergeRequest(guestKey, "mergeAndReportConflicts", "idem-2"),
+            CancellationToken.None);
+
+        var item = Assert.Single(result.Cart.Items);
+        Assert.Equal(99, item.Quantity);
+        var conflict = Assert.Single(result.Conflicts);
+        Assert.Equal(ShoppingWriteException.ErrorCodes.CartQuantityExceeded, conflict.Reason);
+        Assert.Equal(99, conflict.AcceptedQuantity);
+    }
+
+    [Fact]
+    public async Task MergeAsync_WhenGuestItemHasAnAssemblyGroup_NeverCombinesWithAMatchingSku()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var service = new EfCartService(context);
+        var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
+        var memberUserId = await CartServiceFixture.SeedMemberUserIdAsync(context);
+        var guestKey = CartServiceFixture.UniqueGuestKey();
+
+        await service.AddItemAsync(new CartIdentity(memberUserId, null), new AddCartItemRequest(sku.PublicId, 1, null), CancellationToken.None);
+
+        var guestCart = Domain.Shopping.Cart.CreateForGuest(Guid.CreateVersion7(), SHA256HashOfGuestKey(guestKey), DateTime.UtcNow.AddDays(30), DateTime.UtcNow);
+        context.Carts.Add(guestCart);
+        await context.SaveChangesAsync();
+        context.CartItems.Add(new Domain.Shopping.CartItem(Guid.CreateVersion7(), guestCart.Id, sku.Id, 2, Guid.NewGuid(), DateTime.UtcNow));
+        await context.SaveChangesAsync();
+
+        var result = await service.MergeAsync(
+            memberUserId,
+            new CartMergeRequest(guestKey, "mergeAndReportConflicts", "idem-3"),
+            CancellationToken.None);
+
+        Assert.Equal(2, result.Cart.Items.Count);
+        Assert.Contains(result.Cart.Items, item => item.AssemblyGroupKey != null && item.Quantity == 2);
+        Assert.Contains(result.Cart.Items, item => item.AssemblyGroupKey == null && item.Quantity == 1);
+    }
+
+    [Fact]
+    public async Task MergeAsync_WhenReplayedAfterTheGuestCartIsAlreadyConverted_IsANoOp()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var service = new EfCartService(context);
+        var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
+        var memberUserId = await CartServiceFixture.SeedMemberUserIdAsync(context);
+        var guestKey = CartServiceFixture.UniqueGuestKey();
+
+        await service.AddItemAsync(new CartIdentity(null, guestKey), new AddCartItemRequest(sku.PublicId, 3, null), CancellationToken.None);
+
+        var request = new CartMergeRequest(guestKey, "mergeAndReportConflicts", "idem-4");
+        var first = await service.MergeAsync(memberUserId, request, CancellationToken.None);
+        var replay = await service.MergeAsync(memberUserId, request, CancellationToken.None);
+
+        Assert.Equal(3, Assert.Single(first.Cart.Items).Quantity);
+        Assert.Equal(3, Assert.Single(replay.Cart.Items).Quantity);
+        Assert.Empty(replay.Conflicts);
+    }
+
+    [Fact]
+    public async Task MergeAsync_WhenStrategyIsUnsupported_ThrowsValidationFailed()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var service = new EfCartService(context);
+        var memberUserId = await CartServiceFixture.SeedMemberUserIdAsync(context);
+
+        var exception = await Assert.ThrowsAsync<ShoppingWriteException>(() => service.MergeAsync(
+            memberUserId,
+            new CartMergeRequest(CartServiceFixture.UniqueGuestKey(), "overwrite", "idem-5"),
+            CancellationToken.None));
+        Assert.Equal(ShoppingWriteException.ErrorCodes.ValidationFailed, exception.ErrorCode);
+    }
+
     private static byte[] SHA256HashOfGuestKey(string guestKey) =>
         System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(guestKey));
 }

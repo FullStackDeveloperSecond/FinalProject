@@ -1,5 +1,6 @@
 using DoSelect.Domain.Catalog;
 using DoSelect.Infrastructure.Persistence;
+using DoSelect.Infrastructure.Persistence.Identity;
 using Microsoft.EntityFrameworkCore;
 
 namespace DoSelect.Infrastructure.Tests.Shopping;
@@ -32,6 +33,16 @@ public sealed class CartServiceFixture : IAsyncLifetime
     public static string UniqueCode(string prefix) => $"{prefix}-{Guid.NewGuid():N}"[..24];
 
     public static string UniqueGuestKey() => $"guest-{Guid.NewGuid():N}";
+
+    // Carts.OwnerUserId has a foreign key to AspNetUsers, so member-cart tests need a real
+    // seeded ApplicationUser id rather than an arbitrary string.
+    public static async Task<string> SeedMemberUserIdAsync(DoSelectDbContext context)
+    {
+        var member = ApplicationUser.CreateMember(Guid.CreateVersion7(), $"{Guid.NewGuid():N}@doselect.test", DateTime.UtcNow);
+        context.Users.Add(member);
+        await context.SaveChangesAsync();
+        return member.Id;
+    }
 
     public async Task<Sku> SeedPublishedSkuAsync(DoSelectDbContext context, decimal listPrice, bool publish = true)
     {
