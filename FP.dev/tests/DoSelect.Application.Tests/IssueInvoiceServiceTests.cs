@@ -122,12 +122,13 @@ public sealed class IssueInvoiceServiceTests
             OrderId: 7L,
             trigger,
             orderAlreadyHasInvoice,
+            OrderPaidAmount: 1000m,
             buyerType,
             BuyerEmail: "buyer@example.com",
             CarrierType: null,
             CarrierValueMasked: null,
-            companyTaxId,
-            companyName,
+            CompanyTaxId: companyTaxId,
+            CompanyName: companyName,
             [
                 new InvoiceOrderLine(
                     ItemA, InvoiceLineKind.Merchandise, "測試商品", "SKU-1", 1, 1000m, 0m, 1000m),

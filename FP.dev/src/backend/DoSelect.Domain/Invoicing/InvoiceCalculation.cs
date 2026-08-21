@@ -80,9 +80,14 @@ public sealed record InvoiceOrderLine(
     decimal DiscountAmount,
     decimal GrossAmount);
 
+/// <summary>
+/// <paramref name="OrderPaidAmount"/> 是訂單實付金額，已於付款前四捨五入至整數新臺幣。
+/// 明細加總四捨五入後必須等於它，否則視為訂單快照不一致。
+/// </summary>
 public sealed record InvoiceIssuanceRequest(
     InvoiceIssuanceTrigger Trigger,
     bool OrderAlreadyHasInvoice,
+    decimal OrderPaidAmount,
     IReadOnlyList<InvoiceOrderLine> Lines);
 
 public sealed record InvoiceLineBreakdown(
@@ -107,12 +112,14 @@ public sealed class InvoiceCalculationResult
         decimal netAmount,
         decimal taxAmount,
         decimal issuedAmount,
+        decimal roundingAdjustment,
         IReadOnlyList<InvoiceLineBreakdown> lines)
     {
         ErrorCode = errorCode;
         NetAmount = netAmount;
         TaxAmount = taxAmount;
         IssuedAmount = issuedAmount;
+        RoundingAdjustment = roundingAdjustment;
         Lines = lines;
     }
 
@@ -120,24 +127,32 @@ public sealed class InvoiceCalculationResult
 
     public string? ErrorCode { get; }
 
-    /// <summary>表頭未稅金額，由含稅總額回推，並精確等於各明細未稅金額合計。</summary>
+    /// <summary>表頭未稅金額，整數元。<c>Round(IssuedAmount / 1.05, 0, AwayFromZero)</c>。</summary>
     public decimal NetAmount { get; }
 
-    /// <summary>表頭稅額，精確等於各明細稅額合計。</summary>
+    /// <summary>表頭稅額，整數元，精確等於各明細稅額合計。</summary>
     public decimal TaxAmount { get; }
 
-    /// <summary>含稅總額，等於顧客實付金額，也精確等於未稅加稅額。</summary>
+    /// <summary>表頭含稅總額，整數元，等於訂單實付金額。</summary>
     public decimal IssuedAmount { get; }
 
+    /// <summary>
+    /// 表頭含稅總額減去明細含稅加總的尾差。明細允許兩位小數，因此這個值可能不為零。
+    /// 由既有訂單總額與明細加總推導，不需要額外欄位。
+    /// </summary>
+    public decimal RoundingAdjustment { get; }
+
+    /// <summary>明細金額允許兩位小數；每列滿足 <c>Gross = Net + Tax</c> 且不為負。</summary>
     public IReadOnlyList<InvoiceLineBreakdown> Lines { get; }
 
     public static InvoiceCalculationResult Failure(string errorCode) =>
-        new(errorCode, 0m, 0m, 0m, []);
+        new(errorCode, 0m, 0m, 0m, 0m, []);
 
     public static InvoiceCalculationResult Success(
         decimal netAmount,
         decimal taxAmount,
         decimal issuedAmount,
+        decimal roundingAdjustment,
         IReadOnlyList<InvoiceLineBreakdown> lines) =>
-        new(null, netAmount, taxAmount, issuedAmount, lines);
+        new(null, netAmount, taxAmount, issuedAmount, roundingAdjustment, lines);
 }

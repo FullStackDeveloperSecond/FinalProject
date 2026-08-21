@@ -49,22 +49,31 @@ public static class InvoicePolicy
 }
 
 /// <summary>
-/// 模擬發票金額的純計算。訂單成交總額視為含稅金額，稅額由含稅總額回推後再分攤到各明細。
-/// 台灣營業稅率 5%，表頭未稅與稅額取整數元，與統一發票的呈現一致。
+/// 模擬發票金額的純計算，依 alex 依財政部電子發票 MIG 4.1 與商家介接實務重新裁定的規則。
 /// </summary>
 /// <remarks>
-/// 分攤的是**稅額**而不是未稅額，明細未稅一律以 <c>Net = Gross - Tax</c> 回推。
-/// 這樣每列都必然滿足 <c>0 &lt;= Tax &lt;= Gross</c> 與 <c>0 &lt;= Net &lt;= Gross</c>。
-/// 先前分攤未稅額時只限制不超過剩餘未稅，含稅金額帶小數的明細會產生負稅額
-/// （例如兩列含稅 0.40 與 0.60，表頭未稅取整為 1，末列未稅得到 1、稅額成為 -0.40）。
+/// 表頭與明細採不同位數：
+/// <code>
+/// RawGrossAmount     = Sum(Line.GrossAmount)
+/// IssuedAmount       = Round(RawGrossAmount, 0, AwayFromZero)
+/// NetAmount          = Round(IssuedAmount / 1.05, 0, AwayFromZero)
+/// TaxAmount          = IssuedAmount - NetAmount
+/// RoundingAdjustment = IssuedAmount - RawGrossAmount
+/// </code>
+/// 表頭三個金額皆為整數元；明細的 Gross、Net、Tax 可以保留兩位小數。
+/// 分攤的是**稅額**而不是未稅額，明細未稅一律以 <c>Net = Gross - Tax</c> 回推，
+/// 因此每列必然滿足 <c>0 &lt;= Tax &lt;= Gross</c> 與 <c>0 &lt;= Net &lt;= Gross</c>。
 /// </remarks>
 public static class InvoiceCalculator
 {
     /// <summary>台灣營業稅率。</summary>
     public const decimal BusinessTaxRate = 0.05m;
 
-    /// <summary>表頭未稅金額與稅額取整數元。</summary>
+    /// <summary>表頭未稅金額、稅額與含稅總額取整數元。</summary>
     public const int AmountScale = 0;
+
+    /// <summary>明細金額保留兩位小數。</summary>
+    public const int LineAmountScale = 2;
 
     public static InvoiceCalculationResult Calculate(InvoiceIssuanceRequest request)
     {
@@ -77,16 +86,6 @@ public static class InvoiceCalculator
                 line.DiscountAmount < 0 || line.GrossAmount < 0)
             {
                 throw new ArgumentOutOfRangeException(nameof(request), "An invoice line is malformed.");
-            }
-
-            // 發票的未稅、稅額與含稅金額都必須是 TWD 整數元（DEC-BATCH-014 第 10 項）。
-            // 含稅金額若帶小數，就無法同時滿足「三者皆為整數元」與「含稅總額等於顧客實付金額」。
-            // 這裡明確拒絕而不是四捨五入，因為四捨五入會讓發票金額與實收金額不符。
-            if (line.GrossAmount != decimal.Truncate(line.GrossAmount))
-            {
-                throw new ArgumentException(
-                    "An invoice line must carry a whole TWD gross amount.",
-                    nameof(request));
             }
 
             if (line.Kind == InvoiceLineKind.Merchandise && line.OrderItemPublicId is null)
@@ -115,7 +114,18 @@ public static class InvoiceCalculator
                 nameof(request));
         }
 
-        var issuedAmount = invoiceableLines.Sum(line => line.GrossAmount);
+        var rawGrossAmount = invoiceableLines.Sum(line => line.GrossAmount);
+        var issuedAmount = RoundToWholeAmount(rawGrossAmount);
+
+        // 明細帶小數本身不是拒絕理由，但四捨五入後必須等於訂單實付金額；
+        // 不一致代表訂單快照有問題，且不得自行改動發票或實付金額。
+        if (issuedAmount != request.OrderPaidAmount)
+        {
+            throw new ArgumentException(
+                "The invoice lines do not reconcile with the amount the order was paid.",
+                nameof(request));
+        }
+
         var netAmount = BackOutNetAmount(issuedAmount);
         var taxAmount = issuedAmount - netAmount;
 
@@ -123,11 +133,12 @@ public static class InvoiceCalculator
             netAmount,
             taxAmount,
             issuedAmount,
-            AllocateTaxAmount(taxAmount, issuedAmount, invoiceableLines));
+            issuedAmount - rawGrossAmount,
+            AllocateTaxAmount(taxAmount, rawGrossAmount, invoiceableLines));
     }
 
     /// <summary>
-    /// 由含稅金額回推未稅金額並取整數元，再夾在含稅金額以內。
+    /// 由整數元含稅總額回推整數元未稅金額，再夾在含稅金額以內。
     /// 夾住上限是必要的：含稅金額小於約 0.5 時，取整會讓未稅超過含稅而使稅額變成負數。
     /// </summary>
     public static decimal BackOutNetAmount(decimal grossAmount)
@@ -137,22 +148,19 @@ public static class InvoiceCalculator
             return 0m;
         }
 
-        var netAmount = Math.Round(
-            grossAmount / (1m + BusinessTaxRate),
-            AmountScale,
-            MidpointRounding.AwayFromZero);
-
-        return Math.Min(netAmount, grossAmount);
+        return Math.Min(RoundToWholeAmount(grossAmount / (1m + BusinessTaxRate)), grossAmount);
     }
 
+    private static decimal RoundToWholeAmount(decimal value) =>
+        Math.Round(value, AmountScale, MidpointRounding.AwayFromZero);
+
     /// <summary>
-    /// 依含稅金額比例把表頭稅額分攤到各明細，每列夾在 <c>0..GrossAmount</c> 之間，
-    /// 尾差再依序分配給仍有空間的明細。明細稅額合計精確等於表頭稅額，
-    /// 未稅以 <c>Gross - Tax</c> 回推，因此明細未稅合計也精確等於表頭未稅。
+    /// 依含稅金額比例把表頭稅額分攤到各明細，每列取兩位小數並夾在 <c>0..GrossAmount</c> 之間，
+    /// 尾差由最後一筆合法明細吸收。明細稅額合計精確等於表頭稅額。
     /// </summary>
     private static IReadOnlyList<InvoiceLineBreakdown> AllocateTaxAmount(
         decimal taxAmount,
-        decimal issuedAmount,
+        decimal rawGrossAmount,
         IReadOnlyList<InvoiceOrderLine> lines)
     {
         var taxes = new decimal[lines.Count];
@@ -161,8 +169,8 @@ public static class InvoiceCalculator
         for (var index = 0; index < lines.Count; index++)
         {
             var share = Math.Round(
-                taxAmount * lines[index].GrossAmount / issuedAmount,
-                AmountScale,
+                taxAmount * lines[index].GrossAmount / rawGrossAmount,
+                LineAmountScale,
                 MidpointRounding.AwayFromZero);
 
             taxes[index] = Math.Clamp(share, 0m, lines[index].GrossAmount);
@@ -189,7 +197,6 @@ public static class InvoiceCalculator
     /// <summary>
     /// 把尾差**從最後一筆往前**補進仍有空間的明細，讓最後一筆合法明細吸收尾差。
     /// 多的往上加到含稅金額為止，少的往下扣到零為止。
-    /// 因為各列含稅金額合計等於表頭含稅金額，且表頭稅額介於零與含稅金額之間，尾差必定分配得完。
     /// </summary>
     private static void DistributeRemainder(
         decimal[] taxes,

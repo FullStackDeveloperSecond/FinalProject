@@ -9,6 +9,7 @@ public sealed record InvoiceOrderSnapshot(
     long OrderId,
     InvoiceIssuanceTrigger Trigger,
     bool OrderAlreadyHasInvoice,
+    decimal OrderPaidAmount,
     SimulatedInvoiceBuyerType BuyerType,
     string? BuyerEmail,
     string? CarrierType,
@@ -52,6 +53,7 @@ public sealed record InvoiceIssuancePlan(
     decimal NetAmount,
     decimal TaxAmount,
     decimal IssuedAmount,
+    decimal RoundingAdjustment,
     IReadOnlyList<InvoiceLineBreakdown> Lines);
 
 public sealed class IssueInvoiceResult
@@ -109,6 +111,7 @@ public sealed class IssueInvoiceService
         var calculation = InvoiceCalculator.Calculate(new InvoiceIssuanceRequest(
             snapshot.Trigger,
             snapshot.OrderAlreadyHasInvoice,
+            snapshot.OrderPaidAmount,
             snapshot.Lines));
 
         if (!calculation.IsSuccess)
@@ -131,6 +134,7 @@ public sealed class IssueInvoiceService
             calculation.NetAmount,
             calculation.TaxAmount,
             calculation.IssuedAmount,
+            calculation.RoundingAdjustment,
             calculation.Lines));
     }
 }
