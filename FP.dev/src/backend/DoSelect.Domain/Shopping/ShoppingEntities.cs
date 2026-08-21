@@ -69,6 +69,13 @@ public sealed class Cart : MutablePublicEntity
         MarkUpdated(updatedAtUtc);
     }
 
+    /// <summary>
+    /// Advances this cart's RowVersion when a child <see cref="CartItem"/> changes, so
+    /// <c>UpdateCartItemRequest.cartRowVersion</c> stays meaningful even though items are
+    /// their own aggregate root and don't route writes through <see cref="Cart"/>.
+    /// </summary>
+    public void Touch(DateTime updatedAtUtc) => MarkUpdated(updatedAtUtc);
+
     private static string RequireOwner(string value) =>
         string.IsNullOrWhiteSpace(value)
             ? throw new ArgumentException("The owner is required.", nameof(value))
