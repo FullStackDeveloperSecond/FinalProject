@@ -41,12 +41,19 @@ public sealed class EfCategoryAdminService : ICategoryAdminService
         var pageNumber = query.PageNumber < 1 ? 1 : query.PageNumber;
         var pageSize = query.PageSize is < 1 or > 100 ? 20 : query.PageSize;
 
-        var entities = await categories
+        categories = categories
             .OrderBy(category => category.SortOrder)
-            .ThenBy(category => category.Code)
-            .Skip((pageNumber - 1) * pageSize)
-            .Take(pageSize)
-            .ToListAsync(cancellationToken);
+            .ThenBy(category => category.Code);
+
+        // Same int-overflow guard as EfProductAdminService/EfProductSearchService (PR #22):
+        // (pageNumber - 1) * pageSize can overflow int for a large pageNumber.
+        var skip = (long)(pageNumber - 1) * pageSize;
+        var entities = skip > int.MaxValue
+            ? []
+            : await categories
+                .Skip((int)skip)
+                .Take(pageSize)
+                .ToListAsync(cancellationToken);
 
         var parentIds = entities
             .Where(category => category.ParentCategoryId.HasValue)

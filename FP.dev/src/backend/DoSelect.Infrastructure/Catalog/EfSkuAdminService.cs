@@ -380,7 +380,7 @@ public sealed class EfSkuAdminService : ISkuAdminService
 
     private static SkuStatus ParseStatus(string status)
     {
-        if (!Enum.TryParse<SkuStatus>(status, ignoreCase: true, out var parsed))
+        if (!AdminCatalogQueryValidator.TryParseDefinedEnumName<SkuStatus>(status, out var parsed))
         {
             throw new CatalogWriteException(
                 CatalogWriteException.ErrorCodes.ValidationFailed,

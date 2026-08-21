@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using DoSelect.Application.Common;
 
 namespace DoSelect.Application.Catalog;
@@ -52,24 +53,30 @@ public sealed record AdminProductSummaryDto(
     DateTime UpdatedAtUtc,
     byte[] RowVersion);
 
+/// <summary>
+/// Length limits mirror the EF configuration in CatalogConfigurations.cs (Product.ProductCode
+/// nvarchar(64), NameZhTw nvarchar(160), DescriptionZhTw nvarchar(4000)) — enforced here so an
+/// over-long value gets a stable 400 validation_failed at the API boundary instead of riding
+/// through to a SQL Server truncation DbUpdateException (500).
+/// </summary>
 public sealed record CreateProductRequest(
-    string ProductCode,
-    string NameZhTw,
+    [Required, StringLength(64, MinimumLength = 1)] string ProductCode,
+    [Required, StringLength(160, MinimumLength = 1)] string NameZhTw,
     Guid BrandPublicId,
     Guid CategoryPublicId,
-    string? DescriptionZhTw,
+    [StringLength(4000)] string? DescriptionZhTw,
     int? WarrantyMonths,
     IReadOnlyList<Guid> TagPublicIds,
-    string Status);
+    [Required] string Status);
 
 public sealed record UpdateProductRequest(
-    string NameZhTw,
+    [Required, StringLength(160, MinimumLength = 1)] string NameZhTw,
     Guid BrandPublicId,
     Guid CategoryPublicId,
-    string? DescriptionZhTw,
+    [StringLength(4000)] string? DescriptionZhTw,
     int? WarrantyMonths,
     IReadOnlyList<Guid> TagPublicIds,
-    string Status,
+    [Required] string Status,
     byte[] RowVersion);
 
 public sealed record AdminProductDetailDto(

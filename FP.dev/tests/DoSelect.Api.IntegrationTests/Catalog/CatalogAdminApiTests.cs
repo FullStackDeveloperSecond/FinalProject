@@ -131,6 +131,21 @@ public sealed class BrandsAdminApiTests
         Assert.Equal(409, status);
         Assert.Equal("concurrency_conflict", problemCode);
     }
+
+    [Fact]
+    public async Task List_WithExtremePageNumber_ReturnsOkWithEmptyPage()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync();
+
+        // Same int-overflow guard as AdminProductsApiTests.List_WithExtremePageNumber_...,
+        // applied identically across Brands/Categories/Tags — a page this far out is always
+        // legally empty, not a 500.
+        using var response = await client.GetAsync("/api/v1/admin/brands?pageNumber=2147483647&pageSize=100");
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(0, body.GetProperty("items").GetArrayLength());
+    }
 }
 
 [Collection(nameof(CatalogAdminApiCollection))]
@@ -536,6 +551,91 @@ public sealed class AdminProductsApiTests
         Assert.Equal(409, status);
         Assert.Equal("concurrency_conflict", problemCode);
     }
+
+    [Fact]
+    public async Task List_WithUndefinedNumericStatus_Returns400WithValidationFailed()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync();
+
+        // Enum.TryParse<ProductStatus>("999", ...) succeeds as a raw numeric conversion even
+        // though no member has that value — without an Enum.IsDefined guard this used to reach
+        // the query and could 500 rather than a stable validation error.
+        using var response = await client.GetAsync("/api/v1/admin/products?statuses=999");
+        var (status, problemCode, _) = await CatalogAdminApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal(400, status);
+        Assert.Equal("validation_failed", problemCode);
+    }
+
+    [Fact]
+    public async Task Create_WhenStatusIsANumericAlias_Returns400WithValidationFailed()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync();
+        var (brandId, categoryId) = await CatalogAdminApiSeeding.CreateBrandAndCategoryAsync(client);
+
+        // "1" parses to the defined member ProductStatus.Published, but only the formal status
+        // name is a supported input — a numeric alias must still be rejected.
+        using var response = await CatalogAdminApiFixture.SendWithAntiforgeryAsync(client, new HttpRequestMessage(HttpMethod.Post, "/api/v1/admin/products")
+        {
+            Content = JsonContent.Create(new
+            {
+                productCode = CatalogAdminApiFixture.UniqueCode("PROD"),
+                nameZhTw = "測試商品",
+                brandPublicId = brandId,
+                categoryPublicId = categoryId,
+                descriptionZhTw = (string?)null,
+                warrantyMonths = (int?)null,
+                tagPublicIds = Array.Empty<Guid>(),
+                status = "1",
+            }),
+        });
+        var (status, problemCode, _) = await CatalogAdminApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal(400, status);
+        Assert.Equal("validation_failed", problemCode);
+    }
+
+    [Fact]
+    public async Task Create_WhenProductCodeExceedsMaxLength_Returns400WithValidationFailed()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync();
+        var (brandId, categoryId) = await CatalogAdminApiSeeding.CreateBrandAndCategoryAsync(client);
+
+        // Product.ProductCode is nvarchar(64); an over-long value used to ride through to a
+        // SQL Server truncation DbUpdateException (500) instead of a stable 400.
+        using var response = await CatalogAdminApiFixture.SendWithAntiforgeryAsync(client, new HttpRequestMessage(HttpMethod.Post, "/api/v1/admin/products")
+        {
+            Content = JsonContent.Create(new
+            {
+                productCode = new string('A', 65),
+                nameZhTw = "測試商品",
+                brandPublicId = brandId,
+                categoryPublicId = categoryId,
+                descriptionZhTw = (string?)null,
+                warrantyMonths = (int?)null,
+                tagPublicIds = Array.Empty<Guid>(),
+                status = "Draft",
+            }),
+        });
+        var (status, problemCode, _) = await CatalogAdminApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal(400, status);
+        Assert.Equal("validation_failed", problemCode);
+    }
+
+    [Fact]
+    public async Task List_WithExtremePageNumber_ReturnsOkWithEmptyPage()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync();
+
+        // (pageNumber - 1) * pageSize used to overflow int and could 500 for an extreme page
+        // number; a page this far out is always legally empty.
+        using var response = await client.GetAsync("/api/v1/admin/products?pageNumber=2147483647&pageSize=100");
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(0, body.GetProperty("items").GetArrayLength());
+    }
 }
 
 [Collection(nameof(CatalogAdminApiCollection))]
@@ -578,6 +678,70 @@ public sealed class AdminSkusApiTests
 
         Assert.Equal(409, status);
         Assert.Equal("sku_code_duplicate", problemCode);
+    }
+
+    [Fact]
+    public async Task Create_WhenSkuCodeExceedsMaxLength_Returns400WithValidationFailed()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync();
+        var productId = await CatalogAdminApiSeeding.CreateProductWithCatalogAsync(client);
+
+        // Sku.SkuCode is nvarchar(64); an over-long value used to ride through to a SQL Server
+        // truncation DbUpdateException (500) instead of a stable 400.
+        using var response = await CatalogAdminApiFixture.SendWithAntiforgeryAsync(client, new HttpRequestMessage(HttpMethod.Post, $"/api/v1/admin/products/{productId}/skus")
+        {
+            Content = JsonContent.Create(new
+            {
+                skuCode = new string('A', 65),
+                nameZhTw = "標準版",
+                listPrice = 10_000m,
+                unitCost = 7_000m,
+                weightKg = (decimal?)null,
+                lengthCm = (decimal?)null,
+                widthCm = (decimal?)null,
+                heightCm = (decimal?)null,
+                status = "Draft",
+                isDefault = false,
+                requiresPrepayment = false,
+                specifications = Array.Empty<object>(),
+            }),
+        });
+        var (status, problemCode, _) = await CatalogAdminApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal(400, status);
+        Assert.Equal("validation_failed", problemCode);
+    }
+
+    [Fact]
+    public async Task Create_WhenStatusIsANumericAlias_Returns400WithValidationFailed()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync();
+        var productId = await CatalogAdminApiSeeding.CreateProductWithCatalogAsync(client);
+
+        // "0" parses to the defined member SkuStatus.Draft, but only the formal status name is
+        // a supported input — a numeric alias must still be rejected.
+        using var response = await CatalogAdminApiFixture.SendWithAntiforgeryAsync(client, new HttpRequestMessage(HttpMethod.Post, $"/api/v1/admin/products/{productId}/skus")
+        {
+            Content = JsonContent.Create(new
+            {
+                skuCode = CatalogAdminApiFixture.UniqueCode("SKU"),
+                nameZhTw = "標準版",
+                listPrice = 10_000m,
+                unitCost = 7_000m,
+                weightKg = (decimal?)null,
+                lengthCm = (decimal?)null,
+                widthCm = (decimal?)null,
+                heightCm = (decimal?)null,
+                status = "0",
+                isDefault = false,
+                requiresPrepayment = false,
+                specifications = Array.Empty<object>(),
+            }),
+        });
+        var (status, problemCode, _) = await CatalogAdminApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal(400, status);
+        Assert.Equal("validation_failed", problemCode);
     }
 
     [Fact]

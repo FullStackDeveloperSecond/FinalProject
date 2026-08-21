@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace DoSelect.Application.Catalog;
 
 public sealed record ProductRef(Guid PublicId, string ProductCode, string NameZhTw);
@@ -41,29 +43,35 @@ public sealed record SkuDto(
     DateTime UpdatedAtUtc,
     byte[] RowVersion);
 
+/// <summary>
+/// Length limits mirror the EF configuration in CatalogConfigurations.cs (Sku.SkuCode
+/// nvarchar(64), NameZhTw nvarchar(160)) — enforced here so an over-long value gets a stable
+/// 400 validation_failed at the API boundary instead of riding through to a SQL Server
+/// truncation DbUpdateException (500).
+/// </summary>
 public sealed record CreateSkuRequest(
-    string SkuCode,
-    string NameZhTw,
+    [Required, StringLength(64, MinimumLength = 1)] string SkuCode,
+    [Required, StringLength(160, MinimumLength = 1)] string NameZhTw,
     decimal ListPrice,
     decimal UnitCost,
     decimal? WeightKg,
     decimal? LengthCm,
     decimal? WidthCm,
     decimal? HeightCm,
-    string Status,
+    [Required] string Status,
     bool IsDefault,
     bool RequiresPrepayment,
     IReadOnlyList<SpecValueInput> Specifications);
 
 public sealed record UpdateSkuRequest(
-    string NameZhTw,
+    [Required, StringLength(160, MinimumLength = 1)] string NameZhTw,
     decimal ListPrice,
     decimal UnitCost,
     decimal? WeightKg,
     decimal? LengthCm,
     decimal? WidthCm,
     decimal? HeightCm,
-    string Status,
+    [Required] string Status,
     bool IsDefault,
     bool RequiresPrepayment,
     IReadOnlyList<SpecValueInput> Specifications,

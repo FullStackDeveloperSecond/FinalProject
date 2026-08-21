@@ -40,12 +40,19 @@ public sealed class EfBrandAdminService : IBrandAdminService
         var pageNumber = query.PageNumber < 1 ? 1 : query.PageNumber;
         var pageSize = query.PageSize is < 1 or > 100 ? 20 : query.PageSize;
 
-        var entities = await brands
+        brands = brands
             .OrderBy(brand => brand.SortOrder)
-            .ThenBy(brand => brand.Code)
-            .Skip((pageNumber - 1) * pageSize)
-            .Take(pageSize)
-            .ToListAsync(cancellationToken);
+            .ThenBy(brand => brand.Code);
+
+        // Same int-overflow guard as EfProductAdminService/EfProductSearchService (PR #22):
+        // (pageNumber - 1) * pageSize can overflow int for a large pageNumber.
+        var skip = (long)(pageNumber - 1) * pageSize;
+        var entities = skip > int.MaxValue
+            ? []
+            : await brands
+                .Skip((int)skip)
+                .Take(pageSize)
+                .ToListAsync(cancellationToken);
 
         return new PageResult<BrandDto>(entities.Select(ToDto).ToList(), pageNumber, pageSize, totalCount);
     }

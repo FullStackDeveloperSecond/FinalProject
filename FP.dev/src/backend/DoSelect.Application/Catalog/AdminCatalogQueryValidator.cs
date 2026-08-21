@@ -61,7 +61,7 @@ public static class AdminCatalogQueryValidator
         var parsed = new List<TStatus>(statuses.Count);
         foreach (var status in statuses)
         {
-            if (Enum.TryParse<TStatus>(status, ignoreCase: true, out var value))
+            if (TryParseDefinedEnumName<TStatus>(status, out var value))
             {
                 parsed.Add(value);
             }
@@ -79,5 +79,25 @@ public static class AdminCatalogQueryValidator
         }
 
         return parsed;
+    }
+
+    /// <summary>
+    /// A plain <c>Enum.TryParse</c> accepts numeric text ("999") and even succeeds for numbers
+    /// that don't map to any defined member of the enum — either path lets an undefined status
+    /// value reach a query filter or, worse, get persisted through <c>HasConversion&lt;string&gt;</c>
+    /// as whatever <c>ToString()</c> produces for an out-of-range value. This rejects numeric
+    /// aliases outright and requires the parsed value to be an actual defined member, so only
+    /// the formal status name (e.g. "Published", not "1") is ever accepted.
+    /// </summary>
+    public static bool TryParseDefinedEnumName<TStatus>(string? value, out TStatus result)
+        where TStatus : struct, Enum
+    {
+        result = default;
+        if (string.IsNullOrWhiteSpace(value) || long.TryParse(value, out _))
+        {
+            return false;
+        }
+
+        return Enum.TryParse(value, ignoreCase: true, out result) && Enum.IsDefined(result);
     }
 }

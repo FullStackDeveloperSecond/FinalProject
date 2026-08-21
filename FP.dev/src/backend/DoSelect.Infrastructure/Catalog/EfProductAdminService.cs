@@ -103,10 +103,18 @@ public sealed class EfProductAdminService : IProductAdminService
                 .ThenBy(row => row.product.ProductCode),
         };
 
-        var page = await products
-            .Skip((pageNumber - 1) * pageSize)
-            .Take(pageSize)
-            .ToListAsync(cancellationToken);
+        // (pageNumber - 1) * pageSize can overflow int for a large pageNumber (e.g.
+        // int.MaxValue). Compute in long first; a skip beyond int.MaxValue can never land on
+        // a real row in this table, so it's a legal empty page rather than an error — no
+        // need to round-trip to the database for a page number that could never have data.
+        // Mirrors the fix in EfProductSearchService.cs (catalog-search-api PR #22).
+        var skip = (long)(pageNumber - 1) * pageSize;
+        var page = skip > int.MaxValue
+            ? []
+            : await products
+                .Skip((int)skip)
+                .Take(pageSize)
+                .ToListAsync(cancellationToken);
 
         var productIds = page.Select(row => row.product.Id).ToArray();
         var skusByProduct = await _dbContext.Skus.AsNoTracking()
@@ -380,7 +388,7 @@ public sealed class EfProductAdminService : IProductAdminService
 
     private static ProductStatus ParseStatus(string status)
     {
-        if (!Enum.TryParse<ProductStatus>(status, ignoreCase: true, out var parsed))
+        if (!AdminCatalogQueryValidator.TryParseDefinedEnumName<ProductStatus>(status, out var parsed))
         {
             throw new CatalogWriteException(
                 CatalogWriteException.ErrorCodes.ValidationFailed,
