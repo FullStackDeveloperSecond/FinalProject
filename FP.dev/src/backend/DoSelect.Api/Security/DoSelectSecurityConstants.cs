@@ -10,6 +10,7 @@ public static class DoSelectClaimTypes
 {
     public const string AccountType = "doselect:account_type";
     public const string AuthenticationMethod = "amr";
+    public const string SecurityStamp = "doselect:security_stamp";
 }
 
 public static class DoSelectClaimValues

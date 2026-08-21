@@ -29,7 +29,8 @@ public abstract record MemberLoginOutcome
         string DisplayName,
         string Email,
         AccountStatus AccountStatus,
-        SupportedLocale Locale) : MemberLoginOutcome;
+        SupportedLocale Locale,
+        string SecurityStamp) : MemberLoginOutcome;
 
     public sealed record InvalidCredentials : MemberLoginOutcome;
 

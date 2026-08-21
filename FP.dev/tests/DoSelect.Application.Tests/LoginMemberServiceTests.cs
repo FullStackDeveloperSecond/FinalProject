@@ -15,7 +15,8 @@ public sealed class LoginMemberServiceTests
                 "Jane Doe",
                 "jane.doe@example.com",
                 AccountStatus.Active,
-                SupportedLocale.ZhTw));
+                SupportedLocale.ZhTw,
+                "stamp-1"));
         var service = new LoginMemberService(gateway);
 
         var result = await service.LoginAsync(new LoginMemberCommand("jane.doe@example.com", "password", true));

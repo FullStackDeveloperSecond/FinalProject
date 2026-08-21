@@ -12,6 +12,11 @@ public static class PersistenceServiceCollectionExtensions
 {
     public const string ConnectionStringName = "DefaultConnection";
 
+    // Password reset needs its own named token provider because Identity's default provider
+    // (used for Email confirmation) shares one TokenLifespan; 密碼重設 must expire in 1 hour
+    // while Email 驗證 keeps the framework default 24-hour span (會員、驗證與通知.md).
+    private const string PasswordResetTokenProviderName = "PasswordReset";
+
     public static IServiceCollection AddDoSelectPersistence(
         this IServiceCollection services,
         IConfiguration configuration)
@@ -52,15 +57,23 @@ public static class PersistenceServiceCollectionExtensions
                 // single global window cannot express both, so this is member-only for now.
                 options.Lockout.MaxFailedAccessAttempts = 5;
                 options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+
+                options.Tokens.PasswordResetTokenProvider = PasswordResetTokenProviderName;
             })
             .AddRoles<IdentityRole>()
             .AddEntityFrameworkStores<DoSelectDbContext>()
             .AddDefaultTokenProviders()
+            .AddTokenProvider<DataProtectorTokenProvider<ApplicationUser>>(PasswordResetTokenProviderName)
             .AddSignInManager();
+
+        services.Configure<DataProtectionTokenProviderOptions>(
+            PasswordResetTokenProviderName,
+            options => options.TokenLifespan = TimeSpan.FromHours(1));
 
         services.AddSingleton(TimeProvider.System);
         services.AddScoped<IMemberRegistrationGateway, MemberRegistrationGateway>();
         services.AddScoped<IMemberLoginGateway, MemberLoginGateway>();
+        services.AddScoped<IMemberPasswordResetGateway, MemberPasswordResetGateway>();
         services.AddScoped<MinimalDevelopmentDataSeeder>();
 
         return services;

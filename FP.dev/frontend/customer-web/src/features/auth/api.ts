@@ -30,6 +30,16 @@ export interface EmailVerificationConfirmedResponseBody {
   accountStatus: string
 }
 
+export interface PasswordResetRequestBody {
+  email: string
+}
+
+export interface PasswordResetConfirmRequestBody {
+  userPublicId: string
+  token: string
+  newPassword: string
+}
+
 export interface LoginRequestBody {
   email: string
   password: string
@@ -71,6 +81,22 @@ interface AuthPaths {
       requestBody: { content: { 'application/json': EmailVerificationConfirmRequestBody } }
       responses: {
         200: { content: { 'application/json': EmailVerificationConfirmedResponseBody } }
+      }
+    }
+  }
+  '/api/v1/auth/password-resets': {
+    post: {
+      requestBody: { content: { 'application/json': PasswordResetRequestBody } }
+      responses: {
+        202: { content: never }
+      }
+    }
+  }
+  '/api/v1/auth/password-resets/confirm': {
+    post: {
+      requestBody: { content: { 'application/json': PasswordResetConfirmRequestBody } }
+      responses: {
+        200: { content: never }
       }
     }
   }
@@ -118,6 +144,18 @@ export async function confirmEmailVerification(
 ): Promise<EmailVerificationConfirmedResponseBody> {
   const { data } = await client.POST('/api/v1/auth/email-verifications/confirm', { body })
   return data as EmailVerificationConfirmedResponseBody
+}
+
+export async function requestPasswordReset(
+  body: PasswordResetRequestBody,
+): Promise<void> {
+  await client.POST('/api/v1/auth/password-resets', { body })
+}
+
+export async function confirmPasswordReset(
+  body: PasswordResetConfirmRequestBody,
+): Promise<void> {
+  await client.POST('/api/v1/auth/password-resets/confirm', { body })
 }
 
 export async function loginMember(body: LoginRequestBody): Promise<AuthSessionDto> {

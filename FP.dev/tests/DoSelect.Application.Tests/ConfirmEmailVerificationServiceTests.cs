@@ -43,5 +43,10 @@ public sealed class ConfirmEmailVerificationServiceTests
             string token,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(confirmEmail(userPublicId, token));
+
+        public Task<RequestMemberEmailVerificationOutcome> RequestEmailVerificationAsync(
+            string email,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 }
