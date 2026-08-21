@@ -105,12 +105,16 @@ public static class AntiforgeryTestClient
         tokenResponse.EnsureSuccessStatusCode();
         using var tokenDocument = JsonDocument.Parse(await tokenResponse.Content.ReadAsStringAsync());
         var token = tokenDocument.RootElement.GetProperty("requestToken").GetString()!;
+        var antiforgeryCookie = tokenResponse.Headers.GetValues("Set-Cookie")
+            .Select(value => value.Split(';', 2)[0])
+            .Single(value => value.StartsWith(".AspNetCore.Antiforgery.", StringComparison.Ordinal));
 
         var request = new HttpRequestMessage(HttpMethod.Post, requestUri)
         {
             Content = JsonContent.Create(value),
         };
         request.Headers.Add("X-XSRF-TOKEN", token);
+        request.Headers.Add("Cookie", antiforgeryCookie);
         return await client.SendAsync(request);
     }
 }
