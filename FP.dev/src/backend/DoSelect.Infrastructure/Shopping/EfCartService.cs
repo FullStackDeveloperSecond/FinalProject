@@ -12,9 +12,9 @@ public sealed class EfCartService : ICartService
 {
     /// <summary>
     /// No spec doc defines a cart TTL for either guest or member carts (checked the data
-    /// dictionary, the final schema doc, and the Hangfire background-job design). 30 days
-    /// is a reasonable interim default, called out in the PR description as a decision that
-    /// still needs sign-off rather than a silently assumed number.
+    /// dictionary, the final schema doc, and the Hangfire background-job design). 30 days from
+    /// the *last successful mutation* (not creation) is 組長's ruling on PR #28's review —
+    /// every Add/Update/Remove/Merge extends the deadline via <see cref="Cart.ExtendExpiry"/>.
     /// </summary>
     private static readonly TimeSpan CartLifetime = TimeSpan.FromDays(30);
 
@@ -84,7 +84,7 @@ public sealed class EfCartService : ICartService
             _dbContext.CartItems.Add(item);
         }
 
-        cart.Touch(now);
+        cart.ExtendExpiry(now.Add(CartLifetime), now);
 
         await SaveWithConcurrencyCheckAsync(cancellationToken);
 
@@ -116,7 +116,7 @@ public sealed class EfCartService : ICartService
         _dbContext.Entry(item).Property(candidate => candidate.RowVersion).OriginalValue = request.ItemRowVersion;
 
         item.ChangeQuantity(request.Quantity, now);
-        cart.Touch(now);
+        cart.ExtendExpiry(now.Add(CartLifetime), now);
 
         await SaveWithConcurrencyCheckAsync(cancellationToken);
 
@@ -144,7 +144,7 @@ public sealed class EfCartService : ICartService
 
         _dbContext.Entry(item).Property(candidate => candidate.RowVersion).OriginalValue = itemRowVersion;
         _dbContext.CartItems.Remove(item);
-        cart.Touch(now);
+        cart.ExtendExpiry(now.Add(CartLifetime), now);
 
         await SaveWithConcurrencyCheckAsync(cancellationToken);
 
@@ -170,7 +170,7 @@ public sealed class EfCartService : ICartService
     /// and returns the member cart unchanged — the one gap this doesn't cover is
     /// distinguishing "identical replay" from "same key reused with a different payload"
     /// (idempotency_payload_conflict is never raised this slice), which is an accepted,
-    /// documented trade-off, not an oversight.
+    /// documented trade-off flagged to 組長, not an oversight.
     /// </summary>
     public async Task<CartMergeResultDto> MergeAsync(
         string memberUserId,
@@ -190,7 +190,9 @@ public sealed class EfCartService : ICartService
 
         var guestHash = HashGuestCartKey(request.GuestCartKey);
         var guestCart = await _dbContext.Carts.FirstOrDefaultAsync(
-            candidate => candidate.GuestCartKeyHash == guestHash && candidate.Status == CartStatus.Active,
+            candidate => candidate.GuestCartKeyHash == guestHash &&
+                candidate.Status == CartStatus.Active &&
+                candidate.ExpiresAtUtc > now,
             cancellationToken);
 
         var conflicts = new List<CartMergeConflictDto>();
@@ -231,18 +233,29 @@ public sealed class EfCartService : ICartService
                     if (existingMemberItem is not null)
                     {
                         var combinedQuantity = existingMemberItem.Quantity + guestItem.Quantity;
-                        var storedQuantity = Math.Min(combinedQuantity, 99);
-                        existingMemberItem.ChangeQuantity(storedQuantity, now);
-                        landedItem = existingMemberItem;
 
+                        // UC-CART-02: "合併數量超過購買上限或可售庫存，保留項目並標記衝突，不自動截
+                        // 斷" — CartItem's own domain invariant hard-caps a row at 99, so there is no
+                        // legal row value that honestly represents "110". Silently storing
+                        // Math.Min(combined, 99) used to pass a misleading number to neither side's
+                        // original quantity and permanently drop the remainder once the guest cart
+                        // converted. Leaving the member's existing quantity untouched and reporting
+                        // the conflict (front-end already knows the guest cart's contents from
+                        // before merge — it fetched them pre-login) is honest instead: nothing this
+                        // merge decided for the shopper without asking.
                         if (combinedQuantity > 99)
                         {
+                            landedItem = existingMemberItem;
                             conflicts.Add(new CartMergeConflictDto(
                                 guestItem.PublicId,
                                 sku.PublicId,
                                 ShoppingWriteException.ErrorCodes.CartQuantityExceeded,
-                                storedQuantity));
+                                existingMemberItem.Quantity));
+                            continue;
                         }
+
+                        existingMemberItem.ChangeQuantity(combinedQuantity, now);
+                        landedItem = existingMemberItem;
                     }
                     else
                     {
@@ -274,7 +287,7 @@ public sealed class EfCartService : ICartService
             guestCart.ChangeStatus(CartStatus.Converted, now);
         }
 
-        memberCart.Touch(now);
+        memberCart.ExtendExpiry(now.Add(CartLifetime), now);
 
         await SaveWithConcurrencyCheckAsync(cancellationToken);
 
@@ -294,6 +307,7 @@ public sealed class EfCartService : ICartService
                     candidate => candidate.OwnerUserId == memberUserId && candidate.Status == CartStatus.Active,
                     cancellationToken),
                 () => Cart.CreateForMember(Guid.CreateVersion7(), memberUserId, now.Add(CartLifetime), now),
+                now,
                 cancellationToken);
         }
 
@@ -305,6 +319,7 @@ public sealed class EfCartService : ICartService
                     candidate => candidate.GuestCartKeyHash == hash && candidate.Status == CartStatus.Active,
                     cancellationToken),
                 () => Cart.CreateForGuest(Guid.CreateVersion7(), hash, now.Add(CartLifetime), now),
+                now,
                 cancellationToken);
         }
 
@@ -321,16 +336,28 @@ public sealed class EfCartService : ICartService
     /// browser verification — DbUpdateException wrapping a SqlException 2601). Retrying the
     /// same lookup after a failed insert picks up whichever request won the race instead of
     /// surfacing a 500 for what is actually a successful, idempotent "get the cart" outcome.
+    ///
+    /// Also resolves 組長's expiry ruling here: a row that's still Status=Active but past its
+    /// ExpiresAtUtc is not usable — it's flipped to Expired (freeing the filtered-unique-index
+    /// slot on OwnerUserId/GuestCartKeyHash) and a fresh cart is created in its place, exactly
+    /// like the "no Active cart yet" path.
     /// </summary>
     private async Task<Cart> GetOrCreateCartAsync(
         Func<Task<Cart?>> findExisting,
         Func<Cart> createNew,
+        DateTime now,
         CancellationToken cancellationToken)
     {
         var existing = await findExisting();
         if (existing is not null)
         {
-            return existing;
+            if (existing.ExpiresAtUtc > now)
+            {
+                return existing;
+            }
+
+            existing.ChangeStatus(CartStatus.Expired, now);
+            await _dbContext.SaveChangesAsync(cancellationToken);
         }
 
         var cart = createNew();
@@ -344,7 +371,7 @@ public sealed class EfCartService : ICartService
         {
             _dbContext.Entry(cart).State = EntityState.Detached;
             var concurrentlyCreated = await findExisting();
-            if (concurrentlyCreated is null)
+            if (concurrentlyCreated is null || concurrentlyCreated.ExpiresAtUtc <= now)
             {
                 throw;
             }
@@ -353,6 +380,11 @@ public sealed class EfCartService : ICartService
         }
     }
 
+    /// <summary>
+    /// Batch-loads every Sku/active-SalePrice/InventoryBalance the cart's items reference in
+    /// 3 queries total instead of one per item — CartDto allows up to 100 items, so the old
+    /// per-item pattern could round-trip ~301 times for a single GET /cart.
+    /// </summary>
     private async Task<(List<CartItemDto> Items, List<CartIssueDto> Issues)> BuildItemsAsync(
         Cart cart,
         DateTime now,
@@ -362,15 +394,40 @@ public sealed class EfCartService : ICartService
             .Where(item => item.CartId == cart.Id)
             .ToListAsync(cancellationToken);
 
+        var skuIds = cartItems.Select(item => item.SkuId).Distinct().ToArray();
+
+        var skus = await _dbContext.Skus.AsNoTracking()
+            .Where(sku => skuIds.Contains(sku.Id))
+            .ToDictionaryAsync(sku => sku.Id, cancellationToken);
+
+        var effectivePricesBySkuId = await _dbContext.SalePrices.AsNoTracking()
+            .Where(salePrice => skuIds.Contains(salePrice.SkuId) &&
+                salePrice.Status == SalePriceStatus.Active &&
+                salePrice.StartsAtUtc <= now &&
+                salePrice.EndsAtUtc > now)
+            .GroupBy(salePrice => salePrice.SkuId)
+            .Select(group => new
+            {
+                SkuId = group.Key,
+                Price = group.OrderByDescending(salePrice => salePrice.StartsAtUtc).First().Price,
+            })
+            .ToDictionaryAsync(row => row.SkuId, row => row.Price, cancellationToken);
+
+        var availableQuantitiesBySkuId = await _dbContext.InventoryBalances.AsNoTracking()
+            .Where(balance => skuIds.Contains(balance.SkuId))
+            .ToDictionaryAsync(balance => balance.SkuId, balance => balance.AvailableQuantity, cancellationToken);
+
         var items = new List<CartItemDto>();
         var issues = new List<CartIssueDto>();
 
         foreach (var cartItem in cartItems)
         {
-            var sku = await _dbContext.Skus.AsNoTracking()
-                .FirstAsync(candidate => candidate.Id == cartItem.SkuId, cancellationToken);
-            var effectivePrice = await GetEffectivePriceAsync(sku, now, cancellationToken);
-            var concern = await GetAvailabilityConcernAsync(sku, cartItem.Quantity, cancellationToken);
+            var sku = skus[cartItem.SkuId];
+            var effectivePrice = effectivePricesBySkuId.GetValueOrDefault(sku.Id, sku.ListPrice);
+            var availableQuantity = availableQuantitiesBySkuId.TryGetValue(sku.Id, out var quantity)
+                ? quantity
+                : (int?)null;
+            var concern = GetAvailabilityConcern(sku, cartItem.Quantity, availableQuantity);
 
             if (concern.IssueCode is not null)
             {
@@ -392,54 +449,40 @@ public sealed class EfCartService : ICartService
                 effectivePrice,
                 effectivePrice * cartItem.Quantity,
                 concern.Availability,
-                PriceChanged: false, // No price-at-add snapshot column exists yet (see PR description).
+                PriceChanged: false, // No price-at-add snapshot column exists yet (see PR description / tracking issue).
                 concern.MaxPurchasableQuantity,
                 cartItem.AssemblyGroupKey,
-                CouponAllocatedDiscount: 0m, // Coupon logic belongs to yinyin's slice; see 回覆.md field alignment.
                 cartItem.RowVersion));
         }
 
         return (items, issues);
     }
 
-    private async Task<decimal> GetEffectivePriceAsync(Sku sku, DateTime now, CancellationToken cancellationToken)
-    {
-        var activeSalePrice = await _dbContext.SalePrices.AsNoTracking()
-            .Where(salePrice => salePrice.SkuId == sku.Id &&
-                salePrice.Status == SalePriceStatus.Active &&
-                salePrice.StartsAtUtc <= now &&
-                salePrice.EndsAtUtc > now)
-            .OrderByDescending(salePrice => salePrice.StartsAtUtc)
-            .Select(salePrice => (decimal?)salePrice.Price)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        return activeSalePrice ?? sku.ListPrice;
-    }
-
     private readonly record struct AvailabilityConcern(string Availability, string? IssueCode, int MaxPurchasableQuantity);
 
-    private async Task<AvailabilityConcern> GetAvailabilityConcernAsync(
-        Sku sku,
-        int quantity,
-        CancellationToken cancellationToken)
+    /// <summary>
+    /// A missing InventoryBalance row is treated the same as zero stock (not "unknown, don't
+    /// block") — mirrors PR #22's public search, which excludes a SKU with no balance row from
+    /// purchasable results. Previously this returned MaxPurchasableQuantity=99 and no issue,
+    /// so a SKU the inventory slice hasn't populated yet was silently checkout-ready.
+    /// </summary>
+    private static AvailabilityConcern GetAvailabilityConcern(Sku sku, int quantity, int? availableQuantity)
     {
-        // No InventoryBalance row exists yet until the inventory slice populates one —
-        // treated as "unknown, don't block" rather than assuming zero stock.
-        var availableQuantity = await _dbContext.InventoryBalances.AsNoTracking()
-            .Where(balance => balance.SkuId == sku.Id)
-            .Select(balance => (int?)balance.AvailableQuantity)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        var maxPurchasableQuantity = availableQuantity.HasValue
-            ? Math.Clamp(availableQuantity.Value, 0, 99)
-            : 99;
-
         if (sku.Status != SkuStatus.Published)
         {
-            return new AvailabilityConcern("unavailable", ShoppingWriteException.ErrorCodes.SkuUnavailable, maxPurchasableQuantity);
+            return new AvailabilityConcern("unavailable", ShoppingWriteException.ErrorCodes.SkuUnavailable, 0);
         }
 
-        if (availableQuantity.HasValue && quantity > availableQuantity.Value)
+        if (availableQuantity is null || availableQuantity.Value <= 0)
+        {
+            return new AvailabilityConcern(
+                "insufficient_stock",
+                ShoppingWriteException.ErrorCodes.CartItemRequiresAttention,
+                0);
+        }
+
+        var maxPurchasableQuantity = Math.Clamp(availableQuantity.Value, 0, 99);
+        if (quantity > availableQuantity.Value)
         {
             return new AvailabilityConcern(
                 "insufficient_stock",
@@ -448,6 +491,20 @@ public sealed class EfCartService : ICartService
         }
 
         return new AvailabilityConcern("available", null, maxPurchasableQuantity);
+    }
+
+    /// <summary>Single-item variant of <see cref="GetAvailabilityConcern"/> for call sites (Merge) that haven't already batch-loaded balances.</summary>
+    private async Task<AvailabilityConcern> GetAvailabilityConcernAsync(
+        Sku sku,
+        int quantity,
+        CancellationToken cancellationToken)
+    {
+        var availableQuantity = await _dbContext.InventoryBalances.AsNoTracking()
+            .Where(balance => balance.SkuId == sku.Id)
+            .Select(balance => (int?)balance.AvailableQuantity)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return GetAvailabilityConcern(sku, quantity, availableQuantity);
     }
 
     private async Task<CartDto> MapCartAsync(Cart cart, CancellationToken cancellationToken)
@@ -460,20 +517,20 @@ public sealed class EfCartService : ICartService
     {
         var subtotal = items.Sum(item => item.LineTotal);
 
-        return new CartDto(
-            cart.PublicId,
-            items,
-            subtotal,
+        var amounts = new CartAmountsDto(
+            Subtotal: subtotal,
             ItemDiscount: 0m,
-            CouponCode: null,
-            CouponDiscountAmount: 0m,
-            CouponEligibleSubtotal: 0m,
-            IsFreeShipping: false,
-            IsAssemblyFreeShipping: false,
+            CouponDiscount: 0m,
             ShippingEstimate: null,
             AssemblyFee: 0m,
             TotalEstimate: subtotal,
-            Currency: "TWD",
+            Currency: "TWD");
+
+        return new CartDto(
+            cart.PublicId,
+            items,
+            Coupon: null, // Coupon logic belongs to yinyin's slice; see ShoppingCartContracts.cs's CouponAppliedDto remarks.
+            amounts,
             Warnings: [],
             cart.RowVersion);
     }
