@@ -40,6 +40,8 @@ public static class DoSelectPolicies
     public const string CatalogManager = "CatalogManager";
     public const string ReturnApprove = "Return.Approve";
     public const string RefundExecute = "Refund.Execute";
+    public const string InvoiceManage = "Invoice.Manage";
+    public const string CouponManage = "Coupon.Manage";
     public const string ReportHighRiskReview = "Report.HighRiskReview";
     public const string RoleAssignmentManage = "RoleAssignment.Manage";
     public const string PersonalDataViewFull = "PersonalData.ViewFull";
