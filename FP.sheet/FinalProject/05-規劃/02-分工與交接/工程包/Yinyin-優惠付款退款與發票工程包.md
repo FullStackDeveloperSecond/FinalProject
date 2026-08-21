@@ -89,12 +89,13 @@ dotnet tool run dotnet-ef -- database update InitialCreate `
 
 - 優惠券的門檻、範圍、使用次數與分攤在後端重算；前端送代碼與選擇，不送可信價格。
 - 最低消費只比對優惠券適用商品小計；購物車不持久化優惠碼，每次預覽由前端帶入，Checkout 再次驗證。
-- 部分退貨使用 `OrderCoupon.MinimumSpendAmount` 與 `OrderItem.IsCouponEligible` 快照，不回查目前 Coupon；`RefundAllocation.Amount` 保持正值並由 AllocationType 固定加減方向。
+- 部分退貨使用 `OrderCoupon.MinimumSpendAmount` 與 `OrderItem.IsCouponEligible` 快照，不回查目前 Coupon；`RefundAllocation.Amount` 保持正值並由 AllocationType 固定加減方向，ItemRefund 另保存正整數 `Quantity` 作為折讓數量的不可變來源。
 - CouponRedemption 在 Checkout-bound 交易處理；失敗或到期是否返還依正式狀態規則，不以刪除紀錄處理。
 - PaymentAttempt 一筆代表一次嘗試；失敗、取消、到期後建立新紀錄，終態不倒退。
 - 即時付款最長 15 分鐘；ATM 與超商代碼最長 3 天；實際期限取付款方式期限與訂單原付款期限較早者，COD 在交付／取貨時完成付款。
 - 退款核准與執行分離；執行使用 Idempotency-Key，累計不得超過可退款餘額。
 - 退款保存商品、折扣追回、運費、組裝費與調整分攤；不能只存一個總額。
+- 折讓數量只能取自 `RefundAllocation.Quantity`；不得依退款金額比例、固定值或目前退貨申請數量反推。
 - 付款、退款、折讓 Event 採 append-only／冪等；不可修改歷史偽裝成新事件。
 - 模擬發票與折讓固定採 5% 稅率與 TWD 整數元：`Net = Round(Gross / 1.05, 0, AwayFromZero)`、`Tax = Gross - Net`，最後一筆合法明細吸收尾差；1,000 元案例必須得到 952／48／1,000。
 - 開立、作廢與折讓失敗使用正式 `invoice_order_unpaid`、`invoice_order_cancelled`、`invoice_already_exists`、`invoice_state_conflict`、`invoice_allowance_required`，不得自行新增文字型拒絕代碼。
