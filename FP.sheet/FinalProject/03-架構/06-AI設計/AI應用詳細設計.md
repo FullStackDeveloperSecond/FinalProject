@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-18
+最後更新: 2026-08-21
 追蹤項目:
   - AI-01
   - AI-02
@@ -8,6 +8,7 @@
   - AI-05
   - AI-07
   - AI-08
+  - AI-13
 ---
 
 # AI 應用詳細設計
@@ -233,4 +234,4 @@ sequenceDiagram
 - 若帳號無法使用選定模型或 Snapshot，不得由開發者自行換模；需記錄成本、品質與相容性後重新決策。
 - OpenAI Request 是否保存必須明確設定，且不取代本系統自身的 90／180 天保存規則。
 
-既有零件識別格式與 Clarification Precision／Recall 發布門檻均已定版；120 筆繁中 draft 評估資料、合成 Fixture、Grader Contract 與 deterministic 驗證已建立於 `FP.dev/evals/ai/v1`。目前剩餘工作為 Terry／Kafen 標註覆核、實際 SearchIntent Schema、Stub、Prompt、基準結果及 Adapter 程式。
+既有零件識別格式與 Clarification Precision／Recall 發布門檻均已定版；120 筆繁中 draft 評估資料、合成 Fixture、Grader Contract 與 deterministic 驗證已建立於 `FP.dev/evals/ai/v1`。Application 已建立 27 項 AI-13 安全測試、可替換 Model Client 邊界、客服前置 Orchestrator、去識別投影、只讀工具白名單、Prompt 信任分層、Semantic Key／預算驗證與故障降級策略；API 已建立 `POST /api/v1/ai/support/messages` 的 Member Policy、Antiforgery、DTO 驗證、Problem Details 與 7 項 Fake Client Integration 測試。預設 Access Reader 採 Fail Closed，尚未接線時不會呼叫外部模型。目前剩餘工作為 Terry／Kafen 標註覆核、完整 SearchIntent Schema、正式 Prompt、正式同意／額度資料來源、OpenAI Adapter、Owner Query、瀏覽器 E2E 及 live baseline。

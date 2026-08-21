@@ -40,7 +40,7 @@ npm ci
 Set-Location ../..
 ```
 
-必要版本與服務：.NET SDK `10.0.302`、Node.js 24、npm 11、SQL Server 2025 Developer、Instance `.\SQL2025`、Database `DoSelectDb`。完整安裝與連線規則見 [[03-架構/01-系統與環境/本機開發環境與版本基線]]。
+必要版本與服務：.NET SDK `10.0.303`、Node.js 24、npm 11、SQL Server 2025 Developer、Instance `.\SQL2025`、Database `DoSelectDb`。完整安裝與連線規則見 [[03-架構/01-系統與環境/本機開發環境與版本基線]]。
 
 新電腦先明確套用既有 Migration，不要建立新 Migration：
 

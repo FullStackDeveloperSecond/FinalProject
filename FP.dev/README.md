@@ -28,7 +28,7 @@ evals/ai/v1/
 
 ## 必要環境
 
-- .NET SDK 10.0.302；由 `global.json` 精確鎖定，其他 Patch／Feature Band 皆不替代。
+- .NET SDK 10.0.303；由 `global.json` 精確鎖定，其他 Patch／Feature Band 皆不替代。
 - Node.js 24 LTS；由 `.nvmrc` 記錄 Major。
 - npm 11。
 - SQL Server 2025 Developer Edition；本機資料庫固定使用 `DoSelectDb`。

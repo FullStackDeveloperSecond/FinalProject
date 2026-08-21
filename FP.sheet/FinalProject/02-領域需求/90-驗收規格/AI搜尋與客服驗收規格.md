@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-14
+最後更新: 2026-08-21
 追蹤項目:
   - REQ-02
   - REQ-03
@@ -111,4 +111,4 @@ Schema 採小型業務條件且不得暴露資料庫欄位；用途 Enum 與補�
 - 完整自然語言搜尋 JSON Schema 欄位型別與 Enum 已定於 [[03-架構/06-AI設計/AI應用詳細設計]]。
 - AI 客服四個工具、引用欄位及精確 Request／Response DTO 已定於 [[03-架構/06-AI設計/AI應用詳細設計]] 與 [[03-架構/02-API與前端契約/API DTO與Schema契約]]。
 - Prompt、Schema、工具版本規則已確認，實作格式詳見 [[03-架構/06-AI設計/AI應用詳細設計]]。
-- 個資遮蔽、跨會員與 Prompt Injection 的測試規格已建立；實際資料與自動化仍由 `AI-09`、`AI-13` 追蹤，詳見 [[03-架構/06-AI設計/AI測試與評估規格]]。
+- 個資遮蔽、跨會員、同意、唯讀工具、Schema、故障與 Prompt Injection 信任分層已建立 27 項 Application 自動化；正式 AI 客服 Endpoint 已建立 7 項 API Integration，自動驗證 401／403／409／429／敏感內容與空白輸入 400 的 Model Client 零呼叫，以及安全成功路徑單次呼叫。正式同意／額度資料來源、OpenAI Adapter、Owner Query 與瀏覽器 E2E 仍由 `AI-13` 追蹤，詳見 [[03-架構/06-AI設計/AI測試與評估規格]]。

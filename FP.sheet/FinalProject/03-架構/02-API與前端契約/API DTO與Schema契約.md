@@ -182,7 +182,9 @@
 |---|---|
 | `AiConsentRequest` | `policyVersion:int`、`locale:enum`、`accepted:must be true` |
 | `AiSupportMessageRequest` | `conversationPublicId?:uuid`、`message:string(1..2000)`、`referencedOrderPublicIds:uuid[0..3]`、`locale:enum` |
-| `AiSupportAnswerDto` | `conversationPublicId`、`interactionPublicId`、`answer:string(0..4000)`、`citations:{type,label,resourcePublicId?,url?}[0..10]`、`resultCode`、`degradationMode:none/keywordSearch/createSupportTicket`、`disclaimerKey`、`usage{remainingRequests,resetAtUtc}` |
+| `AiSupportAnswerDto` | `conversationPublicId`、`interactionPublicId`、`answer:string(0..4000)`、`citations:{type,label,resourcePublicId?,url?}[0..10]`、`resultCode:answered/safe_rejection/degraded`、`degradationMode:none/keywordSearch/createSupportTicket`、`disclaimerKey`、`usage{remainingRequests,resetAtUtc}` |
+
+AI 客服訊息若含 Token、API Key、Cookie、密碼或禁止外送的個資，必須在模型呼叫前停止，回 `400 validation_failed` 與不含原文的安全提示；不得指出、記錄或回顯偵測值。此錯誤不建立 `AiSupportAnswerDto`，因此不使用 `safe_rejection`。`safe_rejection` 保留給未來採正常回應呈現、且不含敏感內容的安全拒絕；`degraded` 只在確實執行既定替代流程時使用。
 | `AiUsageDto` | `feature`、`usedRequests`、`requestLimit`、`inputTokens`、`outputTokens`、`estimatedCostUsd`、`windowStartUtc/resetAtUtc`、`budgetProtectionActive` |
 | `AdminAiUsageReportDto` | 日期區間、功能／模型彙總、成功／失敗／降級次數、Token、估算成本、US$70／90 門檻狀態、資料截至時間；成本明細依 Policy 移除或回傳 |
 | `CreateSupportTicketRequest` | `category:enum`、`subject:string(1..200)`、`message:string(1..4000)`、`orderPublicId?:uuid` |

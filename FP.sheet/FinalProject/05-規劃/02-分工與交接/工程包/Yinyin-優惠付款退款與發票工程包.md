@@ -37,7 +37,7 @@ npm ci
 Set-Location ../..
 ```
 
-依 `FP.dev/README.md` 與 [[03-架構/01-系統與環境/本機開發環境與版本基線]] 準備 .NET 10.0.302、Node 24、npm 11、SQL Server `.\SQL2025`／`DoSelectDb`。新環境只套用已審查的 `InitialCreate`：
+依 `FP.dev/README.md` 與 [[03-架構/01-系統與環境/本機開發環境與版本基線]] 準備 .NET 10.0.303、Node 24、npm 11、SQL Server `.\SQL2025`／`DoSelectDb`。新環境只套用已審查的 `InitialCreate`：
 
 ```powershell
 dotnet tool run dotnet-ef -- database update InitialCreate `
