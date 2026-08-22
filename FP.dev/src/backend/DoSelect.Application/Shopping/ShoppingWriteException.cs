@@ -19,6 +19,5 @@ public sealed class ShoppingWriteException : Exception
         public const string ConcurrencyConflict = "concurrency_conflict";
         public const string ResourceNotFound = "resource_not_found";
         public const string ValidationFailed = "validation_failed";
-        public const string IdempotencyPayloadConflict = "idempotency_payload_conflict";
     }
 }

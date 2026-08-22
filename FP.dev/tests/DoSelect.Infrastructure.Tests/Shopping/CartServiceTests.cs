@@ -1,10 +1,13 @@
+using DoSelect.Application.Idempotency;
 using DoSelect.Application.Shopping;
 using DoSelect.Domain.Catalog;
 using DoSelect.Domain.Inventory;
+using DoSelect.Infrastructure.Idempotency;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using DoSelect.Infrastructure.Shopping;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace DoSelect.Infrastructure.Tests.Shopping;
 
@@ -15,6 +18,10 @@ public sealed class CartServiceCollection : ICollectionFixture<CartServiceFixtur
 [Trait("Category", "RequiresSqlServer")]
 public sealed class CartServiceTests
 {
+    // Any 32+ UTF-8-byte value works — EfIdempotencyExecutor only enforces a minimum length,
+    // mirrors IdempotencyExecutorFixture.Pepper's role in Idempotency/IdempotencyExecutorTests.cs.
+    private const string TestActorScopePepper = "cart-service-tests-actor-scope-pepper-00";
+
     private readonly CartServiceFixture _fixture;
 
     public CartServiceTests(CartServiceFixture fixture)
@@ -22,11 +29,17 @@ public sealed class CartServiceTests
         _fixture = fixture;
     }
 
+    private static EfCartService CreateService(DoSelectDbContext context) =>
+        new(context, new EfIdempotencyExecutor(
+            context,
+            Options.Create(new IdempotencyOptions { ActorScopePepper = TestActorScopePepper }),
+            TimeProvider.System));
+
     [Fact]
     public async Task AddItemAsync_WhenCartIsEmpty_CreatesGuestCartAndItem()
     {
         await using var context = CartServiceFixture.CreateContext();
-        var service = new EfCartService(context);
+        var service = CreateService(context);
         var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 1000m);
         var identity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
 
@@ -44,7 +57,7 @@ public sealed class CartServiceTests
     public async Task AddItemAsync_WhenSameSkuAddedTwice_CombinesQuantity()
     {
         await using var context = CartServiceFixture.CreateContext();
-        var service = new EfCartService(context);
+        var service = CreateService(context);
         var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 500m);
         var identity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
 
@@ -59,7 +72,7 @@ public sealed class CartServiceTests
     public async Task AddItemAsync_WhenCombinedQuantityExceedsNinetyNine_ThrowsCartQuantityExceeded()
     {
         await using var context = CartServiceFixture.CreateContext();
-        var service = new EfCartService(context);
+        var service = CreateService(context);
         var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
         var identity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
 
@@ -76,7 +89,7 @@ public sealed class CartServiceTests
     public async Task AddItemAsync_WhenSkuIsNotPublished_ThrowsSkuUnavailable()
     {
         await using var context = CartServiceFixture.CreateContext();
-        var service = new EfCartService(context);
+        var service = CreateService(context);
         var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m, publish: false);
         var identity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
 
@@ -91,7 +104,7 @@ public sealed class CartServiceTests
     public async Task AddItemAsync_WhenSkuDoesNotExist_ThrowsResourceNotFound()
     {
         await using var context = CartServiceFixture.CreateContext();
-        var service = new EfCartService(context);
+        var service = CreateService(context);
         var identity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
 
         var exception = await Assert.ThrowsAsync<ShoppingWriteException>(() => service.AddItemAsync(
@@ -105,7 +118,7 @@ public sealed class CartServiceTests
     public async Task UpdateItemQuantityAsync_WhenRowVersionIsStale_ThrowsConcurrencyConflict()
     {
         await using var context = CartServiceFixture.CreateContext();
-        var service = new EfCartService(context);
+        var service = CreateService(context);
         var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
         var identity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
 
@@ -131,7 +144,7 @@ public sealed class CartServiceTests
     public async Task RemoveItemAsync_WhenSuccessful_DeletesTheItem()
     {
         await using var context = CartServiceFixture.CreateContext();
-        var service = new EfCartService(context);
+        var service = CreateService(context);
         var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
         var identity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
 
@@ -147,7 +160,7 @@ public sealed class CartServiceTests
     public async Task RemoveItemAsync_WhenRowVersionIsStale_ThrowsConcurrencyConflict()
     {
         await using var context = CartServiceFixture.CreateContext();
-        var service = new EfCartService(context);
+        var service = CreateService(context);
         var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
         var identity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
 
@@ -173,7 +186,7 @@ public sealed class CartServiceTests
     public async Task RevalidateAsync_WhenSkuIsUnpublished_FlagsSkuUnavailableAndBlocksCheckout()
     {
         await using var context = CartServiceFixture.CreateContext();
-        var service = new EfCartService(context);
+        var service = CreateService(context);
         var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
         var identity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
         await service.AddItemAsync(identity, new AddCartItemRequest(sku.PublicId, 1, null), CancellationToken.None);
@@ -192,7 +205,7 @@ public sealed class CartServiceTests
     public async Task RevalidateAsync_WhenQuantityExceedsAvailableInventory_FlagsInsufficientStock()
     {
         await using var context = CartServiceFixture.CreateContext();
-        var service = new EfCartService(context);
+        var service = CreateService(context);
         var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m, availableQuantity: 2);
 
         var identity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
@@ -217,7 +230,7 @@ public sealed class CartServiceTests
     public async Task RevalidateAsync_WhenNoInventoryBalanceRowExists_BlocksCheckout()
     {
         await using var context = CartServiceFixture.CreateContext();
-        var service = new EfCartService(context);
+        var service = CreateService(context);
         var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m, availableQuantity: null);
         var identity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
         await service.AddItemAsync(identity, new AddCartItemRequest(sku.PublicId, 50, null), CancellationToken.None);
@@ -235,7 +248,7 @@ public sealed class CartServiceTests
     public async Task RevalidateAsync_WhenAnActiveSalePriceIsInWindow_UsesItAsTheEffectivePrice()
     {
         await using var context = CartServiceFixture.CreateContext();
-        var service = new EfCartService(context);
+        var service = CreateService(context);
         var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 1000m);
         var now = DateTime.UtcNow;
         var adminUser = ApplicationUser.CreateAdmin(Guid.CreateVersion7(), $"{Guid.NewGuid():N}@doselect.test", now);
@@ -267,7 +280,7 @@ public sealed class CartServiceTests
     public async Task AddItemAsync_OnSuccess_ExtendsCartExpiry()
     {
         await using var context = CartServiceFixture.CreateContext();
-        var service = new EfCartService(context);
+        var service = CreateService(context);
         var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
         var identity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
 
@@ -306,7 +319,7 @@ public sealed class CartServiceTests
     public async Task GetCartAsync_WhenTheExistingActiveCartHasExpired_CreatesAFreshOneAndExpiresTheOld()
     {
         await using var context = CartServiceFixture.CreateContext();
-        var service = new EfCartService(context);
+        var service = CreateService(context);
         var guestKey = CartServiceFixture.UniqueGuestKey();
         var now = DateTime.UtcNow;
 
@@ -349,8 +362,8 @@ public sealed class CartServiceTests
 
         await using var contextA = CartServiceFixture.CreateContext();
         await using var contextB = CartServiceFixture.CreateContext();
-        var serviceA = new EfCartService(contextA);
-        var serviceB = new EfCartService(contextB);
+        var serviceA = CreateService(contextA);
+        var serviceB = CreateService(contextB);
 
         var results = await Task.WhenAll(
             serviceA.GetCartAsync(identity, CancellationToken.None),
@@ -368,7 +381,7 @@ public sealed class CartServiceTests
     public async Task MergeAsync_WhenSameSkuExistsInBothCarts_CombinesQuantities()
     {
         await using var context = CartServiceFixture.CreateContext();
-        var service = new EfCartService(context);
+        var service = CreateService(context);
         var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
         var memberUserId = await CartServiceFixture.SeedMemberUserIdAsync(context);
         var guestKey = CartServiceFixture.UniqueGuestKey();
@@ -399,7 +412,7 @@ public sealed class CartServiceTests
     public async Task MergeAsync_WhenCombinedQuantityExceedsNinetyNine_LeavesMemberQuantityUnchangedAndReportsConflict()
     {
         await using var context = CartServiceFixture.CreateContext();
-        var service = new EfCartService(context);
+        var service = CreateService(context);
         var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
         var memberUserId = await CartServiceFixture.SeedMemberUserIdAsync(context);
         var guestKey = CartServiceFixture.UniqueGuestKey();
@@ -419,11 +432,105 @@ public sealed class CartServiceTests
         Assert.Equal(50, conflict.AcceptedQuantity);
     }
 
+    /// <summary>
+    /// PR #28 review item 2: a merge conflict must persist past the merge response — converting
+    /// the guest cart must not make it quietly disappear. Every subsequent read (GetCart,
+    /// Revalidate) has to keep surfacing it and blocking checkout until the member explicitly
+    /// resolves it.
+    /// </summary>
+    [Fact]
+    public async Task MergeAsync_WhenCombinedQuantityExceedsNinetyNine_PersistsAConflictThatBlocksCheckoutOnLaterReads()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var service = CreateService(context);
+        var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
+        var memberUserId = await CartServiceFixture.SeedMemberUserIdAsync(context);
+        var guestKey = CartServiceFixture.UniqueGuestKey();
+
+        await service.AddItemAsync(new CartIdentity(null, guestKey), new AddCartItemRequest(sku.PublicId, 60, null), CancellationToken.None);
+        await service.AddItemAsync(new CartIdentity(memberUserId, null), new AddCartItemRequest(sku.PublicId, 50, null), CancellationToken.None);
+        await service.MergeAsync(
+            memberUserId,
+            new CartMergeRequest(guestKey, "mergeAndReportConflicts", "idem-conflict-persist"),
+            CancellationToken.None);
+
+        var memberIdentity = new CartIdentity(memberUserId, null);
+
+        var cart = await service.GetCartAsync(memberIdentity, CancellationToken.None);
+        var warning = Assert.Single(cart.Warnings);
+        Assert.Equal(ShoppingWriteException.ErrorCodes.CartMergeConflict, warning.Code);
+
+        var validation = await service.RevalidateAsync(memberIdentity, CancellationToken.None);
+        Assert.False(validation.IsCheckoutReady);
+        var issue = Assert.Single(validation.Issues, i => i.Code == ShoppingWriteException.ErrorCodes.CartMergeConflict);
+        Assert.Equal("error", issue.Severity);
+        Assert.Equal(Assert.Single(cart.Items).PublicId, issue.ItemPublicId);
+    }
+
+    /// <summary>PR #28 review item 2's resolution path: the member changing the conflicting item's own quantity is treated as their explicit decision, clearing the block.</summary>
+    [Fact]
+    public async Task UpdateItemQuantityAsync_WhenItemHasAnUnresolvedMergeConflict_ResolvesItAndReopensCheckout()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var service = CreateService(context);
+        var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
+        var memberUserId = await CartServiceFixture.SeedMemberUserIdAsync(context);
+        var guestKey = CartServiceFixture.UniqueGuestKey();
+
+        await service.AddItemAsync(new CartIdentity(null, guestKey), new AddCartItemRequest(sku.PublicId, 60, null), CancellationToken.None);
+        await service.AddItemAsync(new CartIdentity(memberUserId, null), new AddCartItemRequest(sku.PublicId, 50, null), CancellationToken.None);
+        await service.MergeAsync(
+            memberUserId,
+            new CartMergeRequest(guestKey, "mergeAndReportConflicts", "idem-conflict-resolve-update"),
+            CancellationToken.None);
+
+        var memberIdentity = new CartIdentity(memberUserId, null);
+        var cart = await service.GetCartAsync(memberIdentity, CancellationToken.None);
+        var item = Assert.Single(cart.Items);
+
+        await service.UpdateItemQuantityAsync(
+            memberIdentity,
+            item.PublicId,
+            new UpdateCartItemRequest(70, item.RowVersion, cart.RowVersion),
+            CancellationToken.None);
+
+        var validation = await service.RevalidateAsync(memberIdentity, CancellationToken.None);
+        Assert.True(validation.IsCheckoutReady);
+        Assert.DoesNotContain(validation.Issues, i => i.Code == ShoppingWriteException.ErrorCodes.CartMergeConflict);
+    }
+
+    [Fact]
+    public async Task RemoveItemAsync_WhenItemHasAnUnresolvedMergeConflict_ResolvesItAndReopensCheckout()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var service = CreateService(context);
+        var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
+        var memberUserId = await CartServiceFixture.SeedMemberUserIdAsync(context);
+        var guestKey = CartServiceFixture.UniqueGuestKey();
+
+        await service.AddItemAsync(new CartIdentity(null, guestKey), new AddCartItemRequest(sku.PublicId, 60, null), CancellationToken.None);
+        await service.AddItemAsync(new CartIdentity(memberUserId, null), new AddCartItemRequest(sku.PublicId, 50, null), CancellationToken.None);
+        await service.MergeAsync(
+            memberUserId,
+            new CartMergeRequest(guestKey, "mergeAndReportConflicts", "idem-conflict-resolve-remove"),
+            CancellationToken.None);
+
+        var memberIdentity = new CartIdentity(memberUserId, null);
+        var cart = await service.GetCartAsync(memberIdentity, CancellationToken.None);
+        var item = Assert.Single(cart.Items);
+
+        await service.RemoveItemAsync(memberIdentity, item.PublicId, item.RowVersion, CancellationToken.None);
+
+        var validation = await service.RevalidateAsync(memberIdentity, CancellationToken.None);
+        Assert.True(validation.IsCheckoutReady);
+        Assert.Empty(validation.Issues);
+    }
+
     [Fact]
     public async Task MergeAsync_WhenGuestItemHasAnAssemblyGroup_NeverCombinesWithAMatchingSku()
     {
         await using var context = CartServiceFixture.CreateContext();
-        var service = new EfCartService(context);
+        var service = CreateService(context);
         var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
         var memberUserId = await CartServiceFixture.SeedMemberUserIdAsync(context);
         var guestKey = CartServiceFixture.UniqueGuestKey();
@@ -456,7 +563,7 @@ public sealed class CartServiceTests
     public async Task MergeAsync_WhenReplayedWithTheSameKeyAndPayload_ReturnsTheCachedResultWithoutReExecuting()
     {
         await using var context = CartServiceFixture.CreateContext();
-        var service = new EfCartService(context);
+        var service = CreateService(context);
         var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
         var otherSku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 200m);
         var memberUserId = await CartServiceFixture.SeedMemberUserIdAsync(context);
@@ -484,7 +591,7 @@ public sealed class CartServiceTests
     public async Task MergeAsync_WhenSameKeyIsReusedWithADifferentGuestCartKey_ThrowsIdempotencyPayloadConflict()
     {
         await using var context = CartServiceFixture.CreateContext();
-        var service = new EfCartService(context);
+        var service = CreateService(context);
         var memberUserId = await CartServiceFixture.SeedMemberUserIdAsync(context);
 
         await service.MergeAsync(
@@ -492,12 +599,12 @@ public sealed class CartServiceTests
             new CartMergeRequest(CartServiceFixture.UniqueGuestKey(), "mergeAndReportConflicts", "idem-shared"),
             CancellationToken.None);
 
-        var exception = await Assert.ThrowsAsync<ShoppingWriteException>(() => service.MergeAsync(
+        var exception = await Assert.ThrowsAsync<IdempotencyConflictException>(() => service.MergeAsync(
             memberUserId,
             new CartMergeRequest(CartServiceFixture.UniqueGuestKey(), "mergeAndReportConflicts", "idem-shared"),
             CancellationToken.None));
 
-        Assert.Equal(ShoppingWriteException.ErrorCodes.IdempotencyPayloadConflict, exception.ErrorCode);
+        Assert.Equal(IdempotencyErrorCodes.PayloadConflict, exception.ErrorCode);
     }
 
     /// <summary>
@@ -515,14 +622,14 @@ public sealed class CartServiceTests
         {
             sku = await _fixture.SeedPublishedSkuAsync(setupContext, listPrice: 100m);
             memberUserId = await CartServiceFixture.SeedMemberUserIdAsync(setupContext);
-            await new EfCartService(setupContext).AddItemAsync(
+            await CreateService(setupContext).AddItemAsync(
                 new CartIdentity(null, guestKey), new AddCartItemRequest(sku.PublicId, 3, null), CancellationToken.None);
         }
 
         await using var contextA = CartServiceFixture.CreateContext();
         await using var contextB = CartServiceFixture.CreateContext();
-        var serviceA = new EfCartService(contextA);
-        var serviceB = new EfCartService(contextB);
+        var serviceA = CreateService(contextA);
+        var serviceB = CreateService(contextB);
         var request = new CartMergeRequest(guestKey, "mergeAndReportConflicts", "idem-concurrent");
 
         var results = await Task.WhenAll(
@@ -555,8 +662,8 @@ public sealed class CartServiceTests
         {
             return (await service.MergeAsync(memberUserId, request, CancellationToken.None), null);
         }
-        catch (ShoppingWriteException exception) when (
-            exception.ErrorCode == ShoppingWriteException.ErrorCodes.IdempotencyPayloadConflict)
+        catch (IdempotencyConflictException exception) when (
+            exception.ErrorCode == IdempotencyErrorCodes.RequestInProgress)
         {
             return (null, exception.ErrorCode);
         }
@@ -566,7 +673,7 @@ public sealed class CartServiceTests
     public async Task MergeAsync_WhenStrategyIsUnsupported_ThrowsValidationFailed()
     {
         await using var context = CartServiceFixture.CreateContext();
-        var service = new EfCartService(context);
+        var service = CreateService(context);
         var memberUserId = await CartServiceFixture.SeedMemberUserIdAsync(context);
 
         var exception = await Assert.ThrowsAsync<ShoppingWriteException>(() => service.MergeAsync(

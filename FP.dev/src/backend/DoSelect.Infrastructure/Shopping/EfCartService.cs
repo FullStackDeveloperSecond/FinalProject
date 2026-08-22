@@ -1,9 +1,9 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using DoSelect.Application.Idempotency;
 using DoSelect.Application.Shopping;
 using DoSelect.Domain.Catalog;
-using DoSelect.Domain.Idempotency;
 using DoSelect.Domain.Shopping;
 using DoSelect.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -23,11 +23,16 @@ public sealed class EfCartService : ICartService
     /// <summary>Stable command name for 資料一致性、Outbox與冪等設計.md's IdempotencyRecord.Operation.</summary>
     private const string CartMergeOperation = "cart.merge";
 
-    private readonly DoSelectDbContext _dbContext;
+    private const string ConflictResolvedByQuantityChange = "member_adjusted_quantity";
+    private const string ConflictResolvedByRemoval = "member_removed_item";
 
-    public EfCartService(DoSelectDbContext dbContext)
+    private readonly DoSelectDbContext _dbContext;
+    private readonly IIdempotencyExecutor _idempotencyExecutor;
+
+    public EfCartService(DoSelectDbContext dbContext, IIdempotencyExecutor idempotencyExecutor)
     {
         _dbContext = dbContext;
+        _idempotencyExecutor = idempotencyExecutor;
     }
 
     public async Task<CartDto> GetCartAsync(CartIdentity identity, CancellationToken cancellationToken)
@@ -123,6 +128,12 @@ public sealed class EfCartService : ICartService
         item.ChangeQuantity(request.Quantity, now);
         cart.ExtendExpiry(now.Add(CartLifetime), now);
 
+        // The member has now made an explicit, informed choice for this SKU's quantity — that
+        // resolves any merge conflict that was blocking checkout on it (相容性 note: this is a
+        // scoped design call, not a spec'd "resolve" endpoint — no doc defines the resolution
+        // UX, flagged for 組長 alongside the other cross-slice gaps this session found).
+        await ResolveConflictsForSkuAsync(cart, item.SkuId, ConflictResolvedByQuantityChange, now, cancellationToken);
+
         await SaveWithConcurrencyCheckAsync(cancellationToken);
 
         return await MapCartAsync(cart, cancellationToken);
@@ -148,8 +159,11 @@ public sealed class EfCartService : ICartService
         }
 
         _dbContext.Entry(item).Property(candidate => candidate.RowVersion).OriginalValue = itemRowVersion;
+        var removedSkuId = item.SkuId;
         _dbContext.CartItems.Remove(item);
         cart.ExtendExpiry(now.Add(CartLifetime), now);
+
+        await ResolveConflictsForSkuAsync(cart, removedSkuId, ConflictResolvedByRemoval, now, cancellationToken);
 
         await SaveWithConcurrencyCheckAsync(cancellationToken);
 
@@ -161,20 +175,21 @@ public sealed class EfCartService : ICartService
         var now = DateTime.UtcNow;
         var cart = await ResolveOrCreateCartAsync(identity, now, cancellationToken);
 
-        var (items, issues) = await BuildItemsAsync(cart, now, cancellationToken);
-        var cartDto = BuildCartDto(cart, items);
+        var (items, issues, _) = await BuildItemsAsync(cart, now, cancellationToken);
+        var cartDto = BuildCartDto(cart, items, warnings: []);
 
         return new CartValidationDto(cartDto, issues.Count == 0, issues, now);
     }
 
     /// <summary>
-    /// Merges a guest cart into the caller's member cart on login (UC-CART-02). Idempotency is
-    /// enforced up front by <see cref="ReserveIdempotencySlotAsync"/> per 資料一致性、Outbox與
-    /// 冪等設計.md's IdempotencyRecord design: a replay with the same Key and the same request
-    /// payload returns the original cached result without re-merging anything; the same Key
-    /// with a different payload, or a genuinely concurrent duplicate, gets
-    /// idempotency_payload_conflict instead of silently racing to convert the same guest cart
-    /// twice.
+    /// Merges a guest cart into the caller's member cart on login (UC-CART-02). The whole
+    /// operation — cart resolution, item merging, conflict persistence, and cart save — runs
+    /// inside <see cref="IIdempotencyExecutor"/>'s single owned transaction: a replay with the
+    /// same Key and the same request payload returns the original cached result without
+    /// re-running any of it; the same Key with a different payload, or a genuinely concurrent
+    /// duplicate, surfaces as a 409 (idempotency_payload_conflict / idempotency_request_in_progress)
+    /// via <c>GlobalExceptionHandler</c> instead of silently racing to convert the same guest
+    /// cart twice.
     /// </summary>
     public async Task<CartMergeResultDto> MergeAsync(
         string memberUserId,
@@ -189,20 +204,37 @@ public sealed class EfCartService : ICartService
                 $"Unsupported merge strategy '{request.Strategy}'.");
         }
 
+        // Actor Scope must be the backend-validated User PublicId (資料一致性、Outbox與冪等設計.md's
+        // Actor Scope table), not the raw ASP.NET Identity Id the controller reads off the
+        // validated claim — PublicId is looked up server-side from that already-authenticated
+        // Id, never accepted from the client.
+        var userPublicId = await _dbContext.Users
+            .Where(user => user.Id == memberUserId)
+            .Select(user => user.PublicId)
+            .SingleAsync(cancellationToken);
+
+        var command = IdempotencyCommand.Create(
+            IdempotencyActorScope.ForUser(userPublicId),
+            CartMergeOperation,
+            request.IdempotencyKey,
+            new { request.GuestCartKey, request.Strategy });
+
+        var result = await _idempotencyExecutor.ExecuteAsync(
+            command,
+            handler: ct => ExecuteMergeAsync(memberUserId, request, ct),
+            replayFactory: (stored, _) => Task.FromResult(
+                JsonSerializer.Deserialize<CartMergeResultDto>(stored.ResponseSummary)!),
+            cancellationToken);
+
+        return result.Body;
+    }
+
+    private async Task<IdempotencyResponse<CartMergeResultDto>> ExecuteMergeAsync(
+        string memberUserId,
+        CartMergeRequest request,
+        CancellationToken cancellationToken)
+    {
         var now = DateTime.UtcNow;
-
-        // Reserve the idempotency slot *before* doing any merge work: a genuinely concurrent
-        // duplicate request (same Key) loses the race to INSERT this row and never executes the
-        // merge logic at all, rather than both racing to convert the same guest cart.
-        var actorScopeHash = HashUtf8($"user:{memberUserId}");
-        var requestHash = HashUtf8($"{request.GuestCartKey} {request.Strategy}");
-        var reservation = await ReserveIdempotencySlotAsync(
-            actorScopeHash, CartMergeOperation, request.IdempotencyKey, requestHash, now, cancellationToken);
-        if (reservation.CachedResult is not null)
-        {
-            return reservation.CachedResult;
-        }
-
         var memberCart = await ResolveOrCreateCartAsync(new CartIdentity(memberUserId, null), now, cancellationToken);
 
         var guestHash = HashGuestCartKey(request.GuestCartKey);
@@ -223,10 +255,20 @@ public sealed class EfCartService : ICartService
                 .Where(item => item.CartId == memberCart.Id)
                 .ToListAsync(cancellationToken);
 
+            // Batch-load every Sku/InventoryBalance the guest cart's items reference up front
+            // instead of one query per item (PR #28 review item 3) — mirrors BuildItemsAsync's
+            // existing batching pattern for GetCart/Revalidate.
+            var skuIds = guestItems.Select(item => item.SkuId).Distinct().ToArray();
+            var skusById = await _dbContext.Skus.AsNoTracking()
+                .Where(sku => skuIds.Contains(sku.Id))
+                .ToDictionaryAsync(sku => sku.Id, cancellationToken);
+            var availableQuantitiesBySkuId = await _dbContext.InventoryBalances.AsNoTracking()
+                .Where(balance => skuIds.Contains(balance.SkuId))
+                .ToDictionaryAsync(balance => balance.SkuId, balance => balance.AvailableQuantity, cancellationToken);
+
             foreach (var guestItem in guestItems)
             {
-                var sku = await _dbContext.Skus.AsNoTracking()
-                    .FirstAsync(candidate => candidate.Id == guestItem.SkuId, cancellationToken);
+                var sku = skusById[guestItem.SkuId];
                 CartItem landedItem;
 
                 if (guestItem.AssemblyGroupKey is not null)
@@ -256,10 +298,11 @@ public sealed class EfCartService : ICartService
                         // legal row value that honestly represents "110". Silently storing
                         // Math.Min(combined, 99) used to pass a misleading number to neither side's
                         // original quantity and permanently drop the remainder once the guest cart
-                        // converted. Leaving the member's existing quantity untouched and reporting
-                        // the conflict (front-end already knows the guest cart's contents from
-                        // before merge — it fetched them pre-login) is honest instead: nothing this
-                        // merge decided for the shopper without asking.
+                        // converted. Leaving the member's existing quantity untouched and persisting
+                        // a CartMergeConflict (PR #28 review item 2) keeps the conflict visible and
+                        // checkout-blocking on every later read — converting the guest cart no longer
+                        // makes the conflict quietly disappear — until the member explicitly resolves
+                        // it by touching that item again.
                         if (combinedQuantity > 99)
                         {
                             landedItem = existingMemberItem;
@@ -268,6 +311,17 @@ public sealed class EfCartService : ICartService
                                 sku.PublicId,
                                 ShoppingWriteException.ErrorCodes.CartQuantityExceeded,
                                 existingMemberItem.Quantity));
+                            _dbContext.CartMergeConflicts.Add(new CartMergeConflict(
+                                Guid.CreateVersion7(),
+                                memberCart.Id,
+                                guestCart.Id,
+                                guestItem.PublicId,
+                                sku.PublicId,
+                                guestItem.Quantity,
+                                existingMemberItem.Quantity,
+                                existingMemberItem.Quantity,
+                                ShoppingWriteException.ErrorCodes.CartQuantityExceeded,
+                                now));
                             continue;
                         }
 
@@ -290,7 +344,13 @@ public sealed class EfCartService : ICartService
 
                 // Cart never reserves stock, so an insufficient-stock item is still fully
                 // accepted into the cart — only flagged, never quantity-clamped for this reason.
-                var concern = await GetAvailabilityConcernAsync(sku, landedItem.Quantity, cancellationToken);
+                // Not persisted as a CartMergeConflict: GetCart/Revalidate already re-derive this
+                // from live InventoryBalance on every read (BuildItemsAsync), so there is nothing
+                // merge-specific to remember once the merge response has reported it once.
+                var availableQuantity = availableQuantitiesBySkuId.TryGetValue(sku.Id, out var quantity)
+                    ? quantity
+                    : (int?)null;
+                var concern = GetAvailabilityConcern(sku, landedItem.Quantity, availableQuantity);
                 if (concern.IssueCode is not null)
                 {
                     conflicts.Add(new CartMergeConflictDto(
@@ -311,72 +371,36 @@ public sealed class EfCartService : ICartService
         var cartDto = await MapCartAsync(memberCart, cancellationToken);
         var result = new CartMergeResultDto(cartDto, conflicts);
 
-        reservation.Record!.Complete(responseStatusCode: 200, JsonSerializer.Serialize(result), now);
-        await _dbContext.SaveChangesAsync(cancellationToken);
-
-        return result;
+        return new IdempotencyResponse<CartMergeResultDto>(
+            StatusCode: 200,
+            Body: result,
+            ResponseSummary: JsonSerializer.Serialize(result));
     }
 
-    private readonly record struct IdempotencyReservation(IdempotencyRecord? Record, CartMergeResultDto? CachedResult);
-
-    /// <summary>
-    /// Races to INSERT a Processing <see cref="IdempotencyRecord"/> for (actorScopeHash,
-    /// operation, key). On success, the caller owns this reservation and must call
-    /// <see cref="IdempotencyRecord.Complete"/> then save once the command actually runs. On a
-    /// unique-index collision, resolves per 資料一致性、Outbox與冪等設計.md: same RequestHash
-    /// replays the cached result; different hash or a still-Processing sibling both surface as
-    /// idempotency_payload_conflict (the error-code catalog doesn't define a distinct "retry
-    /// shortly" code, so the "still processing" case reuses it with a message that says so).
-    /// </summary>
-    private async Task<IdempotencyReservation> ReserveIdempotencySlotAsync(
-        byte[] actorScopeHash,
-        string operation,
-        string key,
-        byte[] requestHash,
+    /// <summary>Clears any unresolved <see cref="CartMergeConflict"/> for this cart+SKU — called once the member has explicitly acted on that item again.</summary>
+    private async Task ResolveConflictsForSkuAsync(
+        Cart cart,
+        long skuId,
+        string resolutionCode,
         DateTime now,
         CancellationToken cancellationToken)
     {
-        var record = new IdempotencyRecord(actorScopeHash, operation, key, requestHash, now.AddHours(24), now);
-        _dbContext.IdempotencyRecords.Add(record);
-        try
+        var skuPublicId = await _dbContext.Skus
+            .Where(sku => sku.Id == skuId)
+            .Select(sku => sku.PublicId)
+            .FirstAsync(cancellationToken);
+
+        var unresolvedConflicts = await _dbContext.CartMergeConflicts
+            .Where(conflict => conflict.MemberCartId == cart.Id &&
+                conflict.SkuPublicId == skuPublicId &&
+                conflict.ResolvedAtUtc == null)
+            .ToListAsync(cancellationToken);
+
+        foreach (var conflict in unresolvedConflicts)
         {
-            await _dbContext.SaveChangesAsync(cancellationToken);
-            return new IdempotencyReservation(record, null);
-        }
-        catch (DbUpdateException)
-        {
-            _dbContext.Entry(record).State = EntityState.Detached;
-
-            var existing = await _dbContext.IdempotencyRecords.AsNoTracking().FirstOrDefaultAsync(
-                candidate => candidate.ActorScopeHash == actorScopeHash &&
-                    candidate.Operation == operation &&
-                    candidate.Key == key,
-                cancellationToken);
-            if (existing is null)
-            {
-                throw;
-            }
-
-            if (!existing.RequestHash.AsSpan().SequenceEqual(requestHash))
-            {
-                throw new ShoppingWriteException(
-                    ShoppingWriteException.ErrorCodes.IdempotencyPayloadConflict,
-                    "This idempotency key was already used with a different request payload.");
-            }
-
-            if (existing.Status != IdempotencyStatus.Succeeded || existing.ResponseSummary is null)
-            {
-                throw new ShoppingWriteException(
-                    ShoppingWriteException.ErrorCodes.IdempotencyPayloadConflict,
-                    "An identical request is already being processed. Retry shortly.");
-            }
-
-            var cached = JsonSerializer.Deserialize<CartMergeResultDto>(existing.ResponseSummary)!;
-            return new IdempotencyReservation(null, cached);
+            conflict.Resolve(resolutionCode, now);
         }
     }
-
-    private static byte[] HashUtf8(string value) => SHA256.HashData(Encoding.UTF8.GetBytes(value));
 
     private async Task<Cart> ResolveOrCreateCartAsync(
         CartIdentity identity,
@@ -466,9 +490,12 @@ public sealed class EfCartService : ICartService
     /// <summary>
     /// Batch-loads every Sku/active-SalePrice/InventoryBalance the cart's items reference in
     /// 3 queries total instead of one per item — CartDto allows up to 100 items, so the old
-    /// per-item pattern could round-trip ~301 times for a single GET /cart.
+    /// per-item pattern could round-trip ~301 times for a single GET /cart. Also batch-loads
+    /// this cart's unresolved <see cref="CartMergeConflict"/> rows (PR #28 review item 2) so a
+    /// merge conflict keeps blocking checkout and showing up on every later read, not just the
+    /// merge response itself.
     /// </summary>
-    private async Task<(List<CartItemDto> Items, List<CartIssueDto> Issues)> BuildItemsAsync(
+    private async Task<(List<CartItemDto> Items, List<CartIssueDto> Issues, List<CartWarningDto> Warnings)> BuildItemsAsync(
         Cart cart,
         DateTime now,
         CancellationToken cancellationToken)
@@ -500,8 +527,13 @@ public sealed class EfCartService : ICartService
             .Where(balance => skuIds.Contains(balance.SkuId))
             .ToDictionaryAsync(balance => balance.SkuId, balance => balance.AvailableQuantity, cancellationToken);
 
+        var unresolvedConflicts = await _dbContext.CartMergeConflicts.AsNoTracking()
+            .Where(conflict => conflict.MemberCartId == cart.Id && conflict.ResolvedAtUtc == null)
+            .ToListAsync(cancellationToken);
+
         var items = new List<CartItemDto>();
         var issues = new List<CartIssueDto>();
+        var warnings = new List<CartWarningDto>();
 
         foreach (var cartItem in cartItems)
         {
@@ -538,7 +570,21 @@ public sealed class EfCartService : ICartService
                 cartItem.RowVersion));
         }
 
-        return (items, issues);
+        foreach (var conflict in unresolvedConflicts)
+        {
+            var conflictItem = items.FirstOrDefault(item => item.SkuPublicId == conflict.SkuPublicId);
+            issues.Add(new CartIssueDto(
+                conflictItem?.PublicId,
+                ShoppingWriteException.ErrorCodes.CartMergeConflict,
+                "error",
+                ["reduce-quantity", "remove"]));
+            warnings.Add(new CartWarningDto(
+                ShoppingWriteException.ErrorCodes.CartMergeConflict,
+                $"Merging your guest cart could not combine one item past the quantity limit; " +
+                $"kept {conflict.AcceptedQuantity}. Adjust that item's quantity to resolve."));
+        }
+
+        return (items, issues, warnings);
     }
 
     private readonly record struct AvailabilityConcern(string Availability, string? IssueCode, int MaxPurchasableQuantity);
@@ -576,27 +622,13 @@ public sealed class EfCartService : ICartService
         return new AvailabilityConcern("available", null, maxPurchasableQuantity);
     }
 
-    /// <summary>Single-item variant of <see cref="GetAvailabilityConcern"/> for call sites (Merge) that haven't already batch-loaded balances.</summary>
-    private async Task<AvailabilityConcern> GetAvailabilityConcernAsync(
-        Sku sku,
-        int quantity,
-        CancellationToken cancellationToken)
-    {
-        var availableQuantity = await _dbContext.InventoryBalances.AsNoTracking()
-            .Where(balance => balance.SkuId == sku.Id)
-            .Select(balance => (int?)balance.AvailableQuantity)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        return GetAvailabilityConcern(sku, quantity, availableQuantity);
-    }
-
     private async Task<CartDto> MapCartAsync(Cart cart, CancellationToken cancellationToken)
     {
-        var (items, _) = await BuildItemsAsync(cart, DateTime.UtcNow, cancellationToken);
-        return BuildCartDto(cart, items);
+        var (items, _, warnings) = await BuildItemsAsync(cart, DateTime.UtcNow, cancellationToken);
+        return BuildCartDto(cart, items, warnings);
     }
 
-    private static CartDto BuildCartDto(Cart cart, List<CartItemDto> items)
+    private static CartDto BuildCartDto(Cart cart, List<CartItemDto> items, List<CartWarningDto> warnings)
     {
         var subtotal = items.Sum(item => item.LineTotal);
 
@@ -614,7 +646,7 @@ public sealed class EfCartService : ICartService
             items,
             Coupon: null, // Coupon logic belongs to yinyin's slice; see ShoppingCartContracts.cs's CouponAppliedDto remarks.
             amounts,
-            Warnings: [],
+            warnings,
             cart.RowVersion);
     }
 

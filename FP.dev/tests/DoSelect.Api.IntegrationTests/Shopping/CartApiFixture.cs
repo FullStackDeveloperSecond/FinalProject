@@ -33,6 +33,8 @@ public sealed class CartApiFixture : IAsyncLifetime
         ["Features__AiEnabled"] = "false",
         ["Features__EmailEnabled"] = "false",
         ["Demo__SimulationEndpointsEnabled"] = "false",
+        // EfIdempotencyExecutor (shared foundation, PR #32) requires >=32 UTF-8 bytes.
+        ["Idempotency__ActorScopePepper"] = "cart-api-tests-actor-scope-pepper-000000",
     };
 
     private readonly string _dataRoot = Path.Combine(
