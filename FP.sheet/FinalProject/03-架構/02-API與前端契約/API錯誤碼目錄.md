@@ -33,6 +33,7 @@
 | `resource_not_found` | 404 | 資源不存在或依安全策略不可揭露 | 不區分不存在與無權限 |
 | `concurrency_conflict` | 409 | `rowversion` 或版本已被其他人更新 | 重新載入後再操作 |
 | `idempotency_payload_conflict` | 409 | 同一 Idempotency-Key 搭配不同 Payload | 不自動重試或換 Key 重送同操作 |
+| `idempotency_request_in_progress` | 409 | 同 Scope／Operation／Key 的相同請求仍在處理 | 依 `Retry-After: 3` 等待後，以相同 Key 與 Payload 重試 |
 | `rate_limit_exceeded` | 429 | 登入、驗證、AI 或其他用途超過限制 | 顯示可安全揭露的重試時間 |
 | `request_method_not_allowed` | 405 | Route 存在但 HTTP Method 不支援 | 修正 Method，不自動重送寫入操作 |
 | `request_content_type_unsupported` | 415 | Request Content-Type 不受端點支援 | 使用 OpenAPI 宣告的媒體類型重送 |
