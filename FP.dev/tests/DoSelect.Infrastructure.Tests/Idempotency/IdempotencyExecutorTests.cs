@@ -20,7 +20,7 @@ public sealed class IdempotencyExecutorTests
 
     public IdempotencyExecutorTests(IdempotencyExecutorFixture fixture) => _fixture = fixture;
 
-    [Fact]
+    [SqlServerFact]
     public async Task ExecuteAsync_WhenSameCommandIsReplayed_RunsHandlerOnceAndReturnsStoredResult()
     {
         await using var context = IdempotencyExecutorFixture.CreateContext();
@@ -53,7 +53,7 @@ public sealed class IdempotencyExecutorTests
         Assert.StartsWith("replayed:", replay.Body, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [SqlServerFact]
     public async Task ExecuteAsync_WhenHandlerFails_RollsBackBusinessDataAndReservationSoRetryCanSucceed()
     {
         Guid userPublicId;
@@ -101,7 +101,7 @@ public sealed class IdempotencyExecutorTests
         }
     }
 
-    [Fact]
+    [SqlServerFact]
     public async Task ExecuteAsync_WhenSameKeyUsesDifferentPayload_ThrowsPayloadConflict()
     {
         var userPublicId = Guid.CreateVersion7();
@@ -124,7 +124,7 @@ public sealed class IdempotencyExecutorTests
         Assert.Null(exception.RetryAfterSeconds);
     }
 
-    [Fact]
+    [SqlServerFact]
     public async Task ExecuteAsync_WhenSameCommandArrivesConcurrently_RejectsLoserWithRetryAfter()
     {
         var userPublicId = Guid.CreateVersion7();
@@ -159,7 +159,7 @@ public sealed class IdempotencyExecutorTests
         Assert.Equal(3, exception.RetryAfterSeconds);
     }
 
-    [Fact]
+    [SqlServerFact]
     public async Task CartMergeConflict_PersistsAsBlockingUntilExplicitResolution()
     {
         Guid conflictPublicId;
@@ -243,11 +243,26 @@ public sealed class IdempotencyExecutorTests
 public sealed class IdempotencyExecutorFixture : IAsyncLifetime
 {
     public const string Pepper = "integration-test-pepper-at-least-thirty-two-bytes";
-    private const string ConnectionString =
+    public const string ConnectionStringEnvironmentVariable =
+        "DOSELECT_SQLSERVER_TEST_CONNECTION";
+    private const string LocalConnectionString =
         "Server=.\\SQL2025;Database=DoSelectIdempotencyTests;Trusted_Connection=True;TrustServerCertificate=True;";
+
+    public static bool IsEnabled =>
+        !string.IsNullOrWhiteSpace(GetConfiguredConnectionString()) ||
+        (OperatingSystem.IsWindows() &&
+         !string.Equals(
+             Environment.GetEnvironmentVariable("CI"),
+             "true",
+             StringComparison.OrdinalIgnoreCase));
 
     public async Task InitializeAsync()
     {
+        if (!IsEnabled)
+        {
+            return;
+        }
+
         await using var context = CreateContext();
         await context.Database.EnsureDeletedAsync();
         await context.Database.EnsureCreatedAsync();
@@ -255,10 +270,31 @@ public sealed class IdempotencyExecutorFixture : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
+        if (!IsEnabled)
+        {
+            return;
+        }
+
         await using var context = CreateContext();
         await context.Database.EnsureDeletedAsync();
     }
 
     public static DoSelectDbContext CreateContext() => new(
-        new DbContextOptionsBuilder<DoSelectDbContext>().UseSqlServer(ConnectionString).Options);
+        new DbContextOptionsBuilder<DoSelectDbContext>()
+            .UseSqlServer(GetConfiguredConnectionString() ?? LocalConnectionString)
+            .Options);
+
+    private static string? GetConfiguredConnectionString() =>
+        Environment.GetEnvironmentVariable(ConnectionStringEnvironmentVariable);
+}
+
+public sealed class SqlServerFactAttribute : FactAttribute
+{
+    public SqlServerFactAttribute()
+    {
+        if (!IdempotencyExecutorFixture.IsEnabled)
+        {
+            Skip = $"Set {IdempotencyExecutorFixture.ConnectionStringEnvironmentVariable} to run SQL Server integration tests.";
+        }
+    }
 }

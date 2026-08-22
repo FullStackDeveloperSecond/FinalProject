@@ -60,6 +60,8 @@ dotnet format DoSelect.slnx --verify-no-changes --no-restore
 dotnet list DoSelect.slnx package --vulnerable --include-transitive
 ```
 
+Idempotency／CartMergeConflict 的 provider-backed 測試在 Windows 非 CI 環境預設使用一次性 `DoSelectIdempotencyTests` 資料庫與 `.\SQL2025`，測試結束會刪除該資料庫。CI 或非 Windows 環境沒有 SQL Server 時會明確 Skip；若 Runner 已準備專用 SQL Server，使用 Secret 設定 `DOSELECT_SQLSERVER_TEST_CONNECTION` 即可啟用，不得指向 `DoSelectDb`。
+
 在 `frontend/customer-web` 與 `frontend/admin-web` 分別執行前端驗證：
 
 ```powershell
