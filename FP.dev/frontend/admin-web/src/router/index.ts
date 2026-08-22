@@ -122,6 +122,11 @@ const router = createRouter({
       meta: { requiresAuth: true, requiredRoles: ['OrderManager', 'SuperAdmin'] },
     },
     {
+      path: '/compatibility',
+      name: 'compatibility-rules',
+      component: () => import('../pages/CompatibilityRulesPage.vue'),
+    },
+    {
       path: '/unauthorized',
       name: 'unauthorized',
       component: HttpStatusPage,

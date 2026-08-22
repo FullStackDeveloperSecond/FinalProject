@@ -106,6 +106,28 @@ const router = createRouter({
       component: () => import('../pages/CartPage.vue'),
     },
     {
+      path: '/account/builds',
+      name: 'build-lists',
+      component: () => import('../pages/BuildListsPage.vue'),
+    },
+    {
+      path: '/builds/new',
+      name: 'build-new',
+      component: () => import('../pages/NewBuildPage.vue'),
+    },
+    {
+      path: '/builds/shared/:shareToken',
+      name: 'build-shared',
+      component: () => import('../pages/SharedBuildPage.vue'),
+      props: true,
+    },
+    {
+      path: '/builds/:buildId',
+      name: 'build-detail',
+      component: () => import('../pages/BuildDetailPage.vue'),
+      props: true,
+    },
+    {
       path: '/unauthorized',
       name: 'unauthorized',
       component: HttpStatusPage,
