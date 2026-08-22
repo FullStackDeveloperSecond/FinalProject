@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using DoSelect.Api.Common;
 using DoSelect.Api.Security;
+using DoSelect.Application.Idempotency;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Mvc;
@@ -108,6 +109,29 @@ public sealed class ApiFoundationTests : IClassFixture<WebApplicationFactory<Pro
             responseBody,
             StringComparison.Ordinal);
         Assert.DoesNotContain("stack", responseBody, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("payload", IdempotencyErrorCodes.PayloadConflict, null)]
+    [InlineData("processing", IdempotencyErrorCodes.RequestInProgress, "3")]
+    public async Task GetIdempotencyConflict_ReturnsCataloguedConflictAndOptionalRetryAfter(
+        string scenario,
+        string expectedCode,
+        string? expectedRetryAfter)
+    {
+        using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+
+        using var response = await client.GetAsync($"/__tests/api-foundation/idempotency/{scenario}");
+        using var document = await ReadProblemDetailsAsync(response);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(expectedCode, document.RootElement.GetProperty("code").GetString());
+        Assert.Equal(
+            expectedRetryAfter,
+            response.Headers.TryGetValues("Retry-After", out var values)
+                ? values.Single()
+                : null);
     }
 
     [Fact]
@@ -269,6 +293,16 @@ public sealed class ApiFoundationTestController : ControllerBase
     [HttpGet("exception")]
     public IActionResult GetException() => throw new InvalidOperationException(
         ApiFoundationTestConstants.SensitiveExceptionMessage);
+
+    [HttpGet("idempotency/{scenario}")]
+    public IActionResult GetIdempotencyConflict(string scenario) => scenario switch
+    {
+        "payload" => throw new IdempotencyConflictException(IdempotencyErrorCodes.PayloadConflict),
+        "processing" => throw new IdempotencyConflictException(
+            IdempotencyErrorCodes.RequestInProgress,
+            retryAfterSeconds: 3),
+        _ => NotFound(),
+    };
 
     [HttpGet("status/{statusCode:int}")]
     public IActionResult GetStatus(int statusCode) => StatusCode(statusCode);

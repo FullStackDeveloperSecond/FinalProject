@@ -28,7 +28,7 @@ evals/ai/v1/
 
 ## 必要環境
 
-- .NET SDK 10.0.302；由 `global.json` 精確鎖定，其他 Patch／Feature Band 皆不替代。
+- .NET SDK 10.0.303；由 `global.json` 精確鎖定，其他 Patch／Feature Band 皆不替代。
 - Node.js 24 LTS；由 `.nvmrc` 記錄 Major。
 - npm 11。
 - SQL Server 2025 Developer Edition；本機資料庫固定使用 `DoSelectDb`。
@@ -138,6 +138,8 @@ node .\scripts\validate-ai-eval-dataset.mjs
 只有修改 `cases-source.mjs` 後才執行不含 `--check` 的產生指令；產生檔必須與來源一起提交。Live baseline 必須等待 Prompt、Schema、Adapter 與明確成本核准，不得由一般 PR 自動呼叫。
 
 第一次啟動前可將 `src/backend/DoSelect.Api/appsettings.Development.example.json` 複製為未追蹤的 `appsettings.Development.json`，再依本機環境調整非敏感設定；OpenAI 與 SMTP Secret 使用 .NET User Secrets 或環境變數，不得填入範例檔。AI 與 Email 預設停用，因此 Fresh Clone 不需要 Secret 即可啟動；若明確啟用但缺少必要 Key，API 會在啟動時失敗。
+
+會呼叫共用 Idempotency Executor 的功能必須以 User Secrets 或部署環境設定 `Idempotency:ActorScopePepper`；值至少 32 UTF-8 bytes，且不得寫入範例設定、Repository、Log 或資料庫。尚未呼叫冪等命令的 Fresh Clone 可不設定；第一次測試購物車合併、建立訂單、退款等冪等端點前必須完成設定。
 
 健康檢查：
 
