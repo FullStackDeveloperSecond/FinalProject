@@ -1,10 +1,11 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-14
+最後更新: 2026-08-23
 追蹤項目:
   - DES-08
   - TECH-09
   - TECH-11
+  - DES-24
 ---
 
 # 資料一致性、Outbox 與冪等設計
@@ -146,3 +147,4 @@ SuperAdmin 匯出只包含時間、Actor Type／PublicId、角色快照、Action
 - Idempotency EF Core Entity、Configuration、共用交易 Executor、SQL Server 競爭鎖與 provider-backed 併發／rollback 整合測試已完成；Migration 已產生並須依部署 Gate 明確套用。
 - `CartMergeConflict` 持久化基礎已完成；各購物車 Use Case 仍須寫入／Resolve 衝突，Checkout 必須查詢 unresolved conflict。
 - Outbox Entity、Dispatcher 鎖定、Email Consumer 與其整合測試仍待實作。
+- 中央 Audit Entity／Configuration／Writer 與同交易 SQL Server Provider-backed rollback 測試仍待 DES-24 實作；退款執行等高風險 Use Case 可以依賴共用 Port，但在中央實作完成前不得以局部 Audit、獨立交易或省略 Audit 合併。

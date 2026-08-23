@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-20
+最後更新: 2026-08-23
 追蹤項目:
   - DES-10
   - DES-20
@@ -108,8 +108,10 @@
 | `CreateReturnRequest` | `items:{orderItemPublicId,quantity,reasonCode,description?:string(0..500)}[1..20]`、`requestReason:string(1..1000)`、`orderRowVersion` |
 | `ReturnRequestDto` | `publicId`、`orderPublicId`、`status`、`items[]`、`attachments[]`、`requestedAtUtc`、審核／收貨／結案時間、`availableActions[]`、`rowVersion` |
 | `ApproveReturnRequest` | `decision:approved/rejected`、`items:{returnItemPublicId,approvedQuantity:int(0..requestedQuantity),inspectionRequired:bool}[1..20]`、`reasonCode:string(1..64)`、`note?:string(0..1000)`、`returnRowVersion` |
-| `ExecuteRefundRequest` | `allocations:{orderItemPublicId?,type:item/shipping/assembly,amount}[1..50]`、`reasonCode:string(1..64)`、`note?:string(0..1000)`、`refundRowVersion`；`Idempotency-Key` 使用 Header |
-| `RefundDto` | `publicId`、`refundNumber`、`orderPublicId`、`returnPublicId?`、`status`、`requested/approved/succeededAmount`、`allocations[]`、`requestedBy/approvedBy/executedBy` 遮蔽管理摘要、時間、`rowVersion` |
+| `ExecuteRefundRequest` | `reasonCode:string(1..64)`、`note?:string(0..1000)`、`refundRowVersion`；`Idempotency-Key` 使用 Header；不接受 `allocations` |
+| `RefundAllocationDto` | `orderItemPublicId?`、`quantity?`、`type:itemRefund/originalShipping/returnShipping/assemblyFee/discountClawback/shippingClawback/otherAdjustment`、`amount`；Amount 一律為正值，V1 新寫入禁止 `otherAdjustment`；`itemRefund` 必須有 OrderItem 與正整數 Quantity，其他類型兩欄皆為 Null |
+| `MaskedAdminSummaryDto` | `publicId`、`maskedLabel`；只回管理員 PublicId，不回 Internal Identity ID；Label 優先使用遮蔽 DisplayName，缺少時使用遮蔽 Email |
+| `RefundDto` | `publicId`、`refundNumber`、`orderPublicId`、`returnPublicId?`、`status`、`requested/approved/succeededAmount`、`allocations:RefundAllocationDto[]`、`requestedBy/approvedBy/executedBy:MaskedAdminSummaryDto?`、時間、`rowVersion` |
 | `AdminReturnQuery` | `statuses?`、`reasonCodes?`、`from/to?`、`q?`、`pageNumber/pageSize` |
 | `AdminReturnSummaryDto` | PublicId、案件編號、Order 摘要、狀態、品項數、申請時間、寄回期限、注意旗標、RowVersion |
 | `AdminReturnDetailDto` | `ReturnRequestDto`＋可授權訂單摘要、檢查結果、可退款分攤預覽、內部歷程及 `availableActions[]` |
@@ -124,6 +126,8 @@
 | `CouponActionRequest` | `reasonCode`、`note?`、`rowVersion`；Action 只接受 activate／pause／disable |
 
 退貨核准使用 `Return.Approve`（OrderManager／SuperAdmin）；退款金額核定與執行使用 `Refund.Execute`（FinanceManager／SuperAdmin）。兩者採不同 Policy；皆需合法狀態、RowVersion、理由與 Audit，退款另需 Idempotency-Key。
+
+退款分攤以後端 `RefundCalculator` 與已核准 Refund／可信交易快照為唯一權威來源，管理端不得指定會計分攤。退款執行的 `reasonCode` 與經白名單處理的 `note` 只寫入中央 Audit，不在 Refund 重複保存；Audit、退款狀態、分攤與冪等完成紀錄必須在同一 SQL Server 交易提交。遮蔽管理摘要不得包含完整姓名、完整 Email 或內部 Identity ID。
 
 ## Simulated Invoice 與 Allowance
 
