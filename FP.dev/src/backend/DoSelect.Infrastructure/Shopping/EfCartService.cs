@@ -203,7 +203,7 @@ public sealed class EfCartService : ICartService
     /// via <c>GlobalExceptionHandler</c> instead of silently racing to convert the same guest
     /// cart twice.
     /// </summary>
-    public async Task<CartMergeResultDto> MergeAsync(
+    public async Task<IdempotencyExecutionResult<CartMergeResultDto>> MergeAsync(
         string memberUserId,
         CartMergeRequest request,
         CancellationToken cancellationToken)
@@ -237,7 +237,7 @@ public sealed class EfCartService : ICartService
             replayFactory: ReplayMergeAsync,
             cancellationToken);
 
-        return result.Body;
+        return result;
     }
 
     /// <summary>
@@ -493,13 +493,26 @@ public sealed class EfCartService : ICartService
         var unchangedCartDto = await MapCartAsync(memberCart, cancellationToken);
         var result = new CartMergeResultDto(unchangedCartDto, conflicts);
 
+        // PR #28 review round 4: the whole merge is rejected, so this must be a 409 like
+        // AddItemAsync's own cart_item_limit_exceeded — not the 200 a normal merge (with or
+        // without per-item conflicts) returns. StatusCode flows through to both the first call
+        // and any later replay of the same Idempotency-Key, since EfIdempotencyExecutor stores
+        // and replays whatever code the handler returns.
         return new IdempotencyResponse<CartMergeResultDto>(
-            StatusCode: 200,
+            StatusCode: 409,
             Body: result,
             ResponseSummary: JsonSerializer.Serialize(new MergeReplaySummary(memberCart.PublicId, conflicts)));
     }
 
-    /// <summary>Clears any unresolved <see cref="CartMergeConflict"/> for this cart+SKU — called once the member has explicitly acted on that item again.</summary>
+    /// <summary>
+    /// Clears any unresolved <see cref="CartMergeConflict"/> for this cart+SKU — called once the
+    /// member has explicitly acted on that item again. Excludes
+    /// <see cref="ShoppingWriteException.ErrorCodes.CartItemLimitExceeded"/>: that reason is a
+    /// cart-level block anchored on one representative SKU only because the schema requires a
+    /// specific GuestItemPublicId／SkuPublicId (PR #28 review round 4) — touching that anchor SKU
+    /// doesn't mean the cart is under 100 items again, so only a successful re-merge (see the
+    /// `member_freed_space_and_remerged` resolution in <see cref="ExecuteMergeAsync"/>) may clear it.
+    /// </summary>
     private async Task ResolveConflictsForSkuAsync(
         Cart cart,
         long skuId,
@@ -515,7 +528,8 @@ public sealed class EfCartService : ICartService
         var unresolvedConflicts = await _dbContext.CartMergeConflicts
             .Where(conflict => conflict.MemberCartId == cart.Id &&
                 conflict.SkuPublicId == skuPublicId &&
-                conflict.ResolvedAtUtc == null)
+                conflict.ResolvedAtUtc == null &&
+                conflict.Reason != ShoppingWriteException.ErrorCodes.CartItemLimitExceeded)
             .ToListAsync(cancellationToken);
 
         foreach (var conflict in unresolvedConflicts)
@@ -707,6 +721,25 @@ public sealed class EfCartService : ICartService
         foreach (var conflict in unresolvedConflicts)
         {
             var conflictItem = items.FirstOrDefault(item => item.SkuPublicId == conflict.SkuPublicId);
+
+            // PR #28 review round 4: this conflict is anchored on one guest item's SKU only
+            // because the schema requires a specific GuestItemPublicId／SkuPublicId, but it
+            // actually blocks the whole cart (>100 items after merging), not that one item —
+            // "reduce/remove this item" is the wrong instruction and can never itself resolve it.
+            if (conflict.Reason == ShoppingWriteException.ErrorCodes.CartItemLimitExceeded)
+            {
+                issues.Add(new CartIssueDto(
+                    null,
+                    ShoppingWriteException.ErrorCodes.CartItemLimitExceeded,
+                    "error",
+                    []));
+                warnings.Add(new CartWarningDto(
+                    ShoppingWriteException.ErrorCodes.CartItemLimitExceeded,
+                    "Merging your guest cart was rejected because it would exceed the 100-item " +
+                    "cart limit. Free up enough space in your cart, then merge again to resolve."));
+                continue;
+            }
+
             issues.Add(new CartIssueDto(
                 conflictItem?.PublicId,
                 ShoppingWriteException.ErrorCodes.CartMergeConflict,

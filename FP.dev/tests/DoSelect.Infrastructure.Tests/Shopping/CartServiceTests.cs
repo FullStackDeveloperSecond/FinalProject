@@ -374,11 +374,13 @@ public sealed class CartServiceTests
             new CartMergeRequest(guestKey, "mergeAndReportConflicts", "item-limit-merge-key"),
             CancellationToken.None);
 
-        var conflict = Assert.Single(result.Conflicts);
+        // PR #28 review round 4: a whole-merge rejection is a 409, not a 200.
+        Assert.Equal(409, result.StatusCode);
+        var conflict = Assert.Single(result.Body.Conflicts);
         Assert.Equal(ShoppingWriteException.ErrorCodes.CartItemLimitExceeded, conflict.Reason);
         Assert.Equal(0, conflict.AcceptedQuantity);
         // Nothing merged: the member cart is exactly what it was before this call.
-        Assert.Equal(100, result.Cart.Items.Count);
+        Assert.Equal(100, result.Body.Cart.Items.Count);
 
         var guestCartStatus = await context.Carts.AsNoTracking()
             .Where(c => c.PublicId == guestCartDto.PublicId).Select(c => c.Status).SingleAsync();
@@ -390,8 +392,10 @@ public sealed class CartServiceTests
 
         var validation = await service.RevalidateAsync(new CartIdentity(memberUserId, null), CancellationToken.None);
         Assert.False(validation.IsCheckoutReady);
+        // PR #28 review round 4: this must surface as cart_item_limit_exceeded (with "free up
+        // space and re-merge" guidance), not the generic per-item cart_merge_conflict code.
         Assert.Contains(
-            validation.Issues, issue => issue.Code == ShoppingWriteException.ErrorCodes.CartMergeConflict);
+            validation.Issues, issue => issue.Code == ShoppingWriteException.ErrorCodes.CartItemLimitExceeded);
     }
 
     /// <summary>
@@ -425,8 +429,9 @@ public sealed class CartServiceTests
         var guestCartDto = await service.AddItemAsync(
             new CartIdentity(null, guestKey), new AddCartItemRequest(guestSku.PublicId, 1, null), CancellationToken.None);
 
-        await service.MergeAsync(
+        var firstAttempt = await service.MergeAsync(
             memberUserId, new CartMergeRequest(guestKey, "mergeAndReportConflicts", "first-attempt"), CancellationToken.None);
+        Assert.Equal(409, firstAttempt.StatusCode);
 
         // Free up room: remove one of the extra member rows.
         context.CartItems.Remove(extraMemberItems[0]);
@@ -435,8 +440,9 @@ public sealed class CartServiceTests
         var retryResult = await service.MergeAsync(
             memberUserId, new CartMergeRequest(guestKey, "mergeAndReportConflicts", "second-attempt"), CancellationToken.None);
 
-        Assert.Empty(retryResult.Conflicts);
-        Assert.Contains(retryResult.Cart.Items, item => item.SkuPublicId == guestSku.PublicId);
+        Assert.Equal(200, retryResult.StatusCode);
+        Assert.Empty(retryResult.Body.Conflicts);
+        Assert.Contains(retryResult.Body.Cart.Items, item => item.SkuPublicId == guestSku.PublicId);
 
         var guestCartStatus = await context.Carts.AsNoTracking()
             .Where(c => c.PublicId == guestCartDto.PublicId).Select(c => c.Status).SingleAsync();
@@ -572,9 +578,10 @@ public sealed class CartServiceTests
             new CartMergeRequest(guestKey, "mergeAndReportConflicts", "idem-1"),
             CancellationToken.None);
 
-        var item = Assert.Single(result.Cart.Items);
+        Assert.Equal(200, result.StatusCode);
+        var item = Assert.Single(result.Body.Cart.Items);
         Assert.Equal(7, item.Quantity);
-        Assert.Empty(result.Conflicts);
+        Assert.Empty(result.Body.Conflicts);
     }
 
     /// <summary>
@@ -603,9 +610,10 @@ public sealed class CartServiceTests
             new CartMergeRequest(guestKey, "mergeAndReportConflicts", "idem-2"),
             CancellationToken.None);
 
-        var item = Assert.Single(result.Cart.Items);
+        Assert.Equal(200, result.StatusCode);
+        var item = Assert.Single(result.Body.Cart.Items);
         Assert.Equal(50, item.Quantity);
-        var conflict = Assert.Single(result.Conflicts);
+        var conflict = Assert.Single(result.Body.Conflicts);
         Assert.Equal(ShoppingWriteException.ErrorCodes.CartQuantityExceeded, conflict.Reason);
         Assert.Equal(50, conflict.AcceptedQuantity);
     }
@@ -726,9 +734,10 @@ public sealed class CartServiceTests
             new CartMergeRequest(guestKey, "mergeAndReportConflicts", "idem-3"),
             CancellationToken.None);
 
-        Assert.Equal(2, result.Cart.Items.Count);
-        Assert.Contains(result.Cart.Items, item => item.AssemblyGroupKey != null && item.Quantity == 2);
-        Assert.Contains(result.Cart.Items, item => item.AssemblyGroupKey == null && item.Quantity == 1);
+        Assert.Equal(200, result.StatusCode);
+        Assert.Equal(2, result.Body.Cart.Items.Count);
+        Assert.Contains(result.Body.Cart.Items, item => item.AssemblyGroupKey != null && item.Quantity == 2);
+        Assert.Contains(result.Body.Cart.Items, item => item.AssemblyGroupKey == null && item.Quantity == 1);
     }
 
     /// <summary>
@@ -757,12 +766,14 @@ public sealed class CartServiceTests
         // this doesn't by itself prove caching; the real proof is the identical PublicId below.
         var replay = await service.MergeAsync(memberUserId, request, CancellationToken.None);
 
-        Assert.Equal(3, Assert.Single(first.Cart.Items).Quantity);
-        Assert.Equal(first.Cart.PublicId, replay.Cart.PublicId);
+        Assert.Equal(200, first.StatusCode);
+        Assert.Equal(200, replay.StatusCode);
+        Assert.Equal(3, Assert.Single(first.Body.Cart.Items).Quantity);
+        Assert.Equal(first.Body.Cart.PublicId, replay.Body.Cart.PublicId);
         Assert.Equal(
-            Assert.Single(first.Cart.Items).PublicId,
-            Assert.Single(replay.Cart.Items).PublicId);
-        Assert.Empty(replay.Conflicts);
+            Assert.Single(first.Body.Cart.Items).PublicId,
+            Assert.Single(replay.Body.Cart.Items).PublicId);
+        Assert.Empty(replay.Body.Conflicts);
     }
 
     [Fact]
@@ -816,8 +827,8 @@ public sealed class CartServiceTests
 
         var succeeded = results.Where(result => result.Result is not null).ToList();
         Assert.Single(succeeded);
-        var memberCartPublicId = succeeded[0].Result!.Cart.PublicId;
-        Assert.Equal(3, Assert.Single(succeeded[0].Result!.Cart.Items).Quantity);
+        var memberCartPublicId = succeeded[0].Result!.Body.Cart.PublicId;
+        Assert.Equal(3, Assert.Single(succeeded[0].Result!.Body.Cart.Items).Quantity);
 
         // Sum only the *member* cart's items for this SKU — the guest cart's original item row
         // still physically exists (Converted, not deleted), so summing across all carts would
@@ -833,7 +844,7 @@ public sealed class CartServiceTests
         Assert.Equal(3, totalQuantityInMemberCart); // not 6 — the loser must not have applied a second merge
     }
 
-    private static async Task<(CartMergeResultDto? Result, string? ConflictErrorCode)> RunOrCaptureConflictAsync(
+    private static async Task<(IdempotencyExecutionResult<CartMergeResultDto>? Result, string? ConflictErrorCode)> RunOrCaptureConflictAsync(
         ICartService service, string memberUserId, CartMergeRequest request)
     {
         try

@@ -554,4 +554,74 @@ public sealed class CartApiTests
 
         Assert.True(secondValidationBody.GetProperty("isCheckoutReady").GetBoolean());
     }
+
+    /// <summary>PR #28 review round 4, end to end: a whole-merge rejection (100-item cap) must return HTTP 409 with cart_item_limit_exceeded, not 200 — the guest cart must stay mergeable later.</summary>
+    [Fact]
+    public async Task Merge_WhenMergingWouldExceedOneHundredItems_Returns409WithCartItemLimitExceeded()
+    {
+        using var guestClient = _fixture.CreateClient();
+        var guestKey = CartApiFixture.UniqueGuestKey();
+        Sku guestSku;
+        Sku memberSku;
+        await using (var context = _fixture.CreateScopedContext())
+        {
+            guestSku = await CartApiSeeding.CreatePublishedSkuAsync(context, listPrice: 100m);
+            memberSku = await CartApiSeeding.CreatePublishedSkuAsync(context, listPrice: 100m);
+        }
+
+        using var guestAddResponse = await PostAddItemAsync(guestClient, guestKey, guestSku.PublicId, quantity: 1);
+        guestAddResponse.EnsureSuccessStatusCode();
+
+        using var memberClient = await _fixture.CreateAuthenticatedMemberClientAsync();
+        using var memberAddRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/cart/items")
+        {
+            Content = JsonContent.Create(new { skuPublicId = memberSku.PublicId, quantity = 1, cartRowVersion = (string?)null }),
+        };
+        using var memberAddResponse = await CartApiFixture.SendWithAntiforgeryAsync(memberClient, memberAddRequest);
+        memberAddResponse.EnsureSuccessStatusCode();
+        var memberCartBody = await memberAddResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var memberCartId = memberCartBody.GetProperty("publicId").GetGuid();
+
+        await using (var context = _fixture.CreateScopedContext())
+        {
+            var dbCartId = await context.Carts.Where(c => c.PublicId == memberCartId).Select(c => c.Id).SingleAsync();
+            var now = DateTime.UtcNow;
+            for (var i = 0; i < 99; i++)
+            {
+                context.CartItems.Add(new DoSelect.Domain.Shopping.CartItem(
+                    Guid.CreateVersion7(), dbCartId, memberSku.Id, 1, Guid.CreateVersion7(), now));
+            }
+
+            await context.SaveChangesAsync();
+        }
+
+        using var mergeRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/cart/actions/merge")
+        {
+            Content = JsonContent.Create(new { guestCartKey = guestKey, strategy = "mergeAndReportConflicts", idempotencyKey = "item-limit-api-key" }),
+        };
+        using var mergeResponse = await CartApiFixture.SendWithAntiforgeryAsync(memberClient, mergeRequest);
+        var mergeBody = await mergeResponse.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(HttpStatusCode.Conflict, mergeResponse.StatusCode);
+        Assert.Equal(100, mergeBody.GetProperty("cart").GetProperty("items").GetArrayLength());
+        var conflict = Assert.Single(mergeBody.GetProperty("conflicts").EnumerateArray());
+        Assert.Equal("cart_item_limit_exceeded", conflict.GetProperty("reason").GetString());
+
+        // Replaying the same rejected Idempotency-Key must also come back 409, not a cached 200.
+        using var replayRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/cart/actions/merge")
+        {
+            Content = JsonContent.Create(new { guestCartKey = guestKey, strategy = "mergeAndReportConflicts", idempotencyKey = "item-limit-api-key" }),
+        };
+        using var replayResponse = await CartApiFixture.SendWithAntiforgeryAsync(memberClient, replayRequest);
+        Assert.Equal(HttpStatusCode.Conflict, replayResponse.StatusCode);
+
+        using var revalidateRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/cart/actions/revalidate");
+        using var revalidateResponse = await CartApiFixture.SendWithAntiforgeryAsync(memberClient, revalidateRequest);
+        var validationBody = await revalidateResponse.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.False(validationBody.GetProperty("isCheckoutReady").GetBoolean());
+        Assert.Contains(
+            validationBody.GetProperty("issues").EnumerateArray(),
+            issue => issue.GetProperty("code").GetString() == "cart_item_limit_exceeded");
+    }
 }

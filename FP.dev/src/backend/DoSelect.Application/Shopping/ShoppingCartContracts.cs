@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using DoSelect.Application.Idempotency;
 
 namespace DoSelect.Application.Shopping;
 
@@ -109,7 +110,12 @@ public interface ICartService
 
     Task<CartValidationDto> RevalidateAsync(CartIdentity identity, CancellationToken cancellationToken);
 
-    Task<CartMergeResultDto> MergeAsync(
+    /// <summary>
+    /// Returns the full execution result (not just the body) because a whole-merge rejection
+    /// (PR #28 round-3 ruling on the 100-item cap) must surface as HTTP 409, not 200 — the
+    /// caller needs <see cref="IdempotencyExecutionResult{T}.StatusCode"/> to know which.
+    /// </summary>
+    Task<IdempotencyExecutionResult<CartMergeResultDto>> MergeAsync(
         string memberUserId,
         CartMergeRequest request,
         CancellationToken cancellationToken);

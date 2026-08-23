@@ -136,7 +136,9 @@ public sealed class CartController : ControllerBase
         try
         {
             var result = await _cartService.MergeAsync(memberUserId, request, cancellationToken);
-            return Ok(result);
+            // PR #28 review round 4: a whole-merge rejection (100-item cap) returns 409, not
+            // 200 — StatusCode() (not Ok()) so that non-200 result actually reaches the client.
+            return StatusCode(result.StatusCode, result.Body);
         }
         catch (ShoppingWriteException exception)
         {
