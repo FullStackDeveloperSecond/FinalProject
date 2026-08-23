@@ -90,6 +90,18 @@ public sealed class EfCartService : ICartService
         }
         else
         {
+            // CartDto.items is documented as [0..100] (API DTO與Schema契約.md) — this only needs
+            // checking on the new-row path, since updating an existing row's quantity above never
+            // changes the row count.
+            var currentItemCount = await _dbContext.CartItems.CountAsync(
+                candidate => candidate.CartId == cart.Id, cancellationToken);
+            if (currentItemCount >= 100)
+            {
+                throw new ShoppingWriteException(
+                    ShoppingWriteException.ErrorCodes.CartItemLimitExceeded,
+                    "The cart already holds the maximum of 100 items.");
+            }
+
             var item = new CartItem(Guid.CreateVersion7(), cart.Id, sku.Id, request.Quantity, null, now);
             _dbContext.CartItems.Add(item);
         }
@@ -175,8 +187,8 @@ public sealed class EfCartService : ICartService
         var now = DateTime.UtcNow;
         var cart = await ResolveOrCreateCartAsync(identity, now, cancellationToken);
 
-        var (items, issues, _) = await BuildItemsAsync(cart, now, cancellationToken);
-        var cartDto = BuildCartDto(cart, items, warnings: []);
+        var (items, issues, warnings) = await BuildItemsAsync(cart, now, cancellationToken);
+        var cartDto = BuildCartDto(cart, items, warnings);
 
         return new CartValidationDto(cartDto, issues.Count == 0, issues, now);
     }
@@ -222,12 +234,30 @@ public sealed class EfCartService : ICartService
         var result = await _idempotencyExecutor.ExecuteAsync(
             command,
             handler: ct => ExecuteMergeAsync(memberUserId, request, ct),
-            replayFactory: (stored, _) => Task.FromResult(
-                JsonSerializer.Deserialize<CartMergeResultDto>(stored.ResponseSummary)!),
+            replayFactory: ReplayMergeAsync,
             cancellationToken);
 
         return result.Body;
     }
+
+    /// <summary>
+    /// A cart at its documented 100-item cap serializes past EfIdempotencyExecutor's 32KB
+    /// ResponseSummary limit if the full CartMergeResultDto (embedding every CartItemDto) is
+    /// stored verbatim — caught by a real 100-item test, not assumed. The stored summary instead
+    /// holds only the small <see cref="MergeReplaySummary"/> receipt; a replay re-fetches the
+    /// cart's current live state, same as any other read, rather than replaying a frozen snapshot.
+    /// </summary>
+    private async Task<CartMergeResultDto> ReplayMergeAsync(
+        StoredIdempotencyResponse stored, CancellationToken cancellationToken)
+    {
+        var receipt = JsonSerializer.Deserialize<MergeReplaySummary>(stored.ResponseSummary)!;
+        var cart = await _dbContext.Carts.AsNoTracking()
+            .FirstAsync(candidate => candidate.PublicId == receipt.MemberCartPublicId, cancellationToken);
+        var cartDto = await MapCartAsync(cart, cancellationToken);
+        return new CartMergeResultDto(cartDto, receipt.Conflicts);
+    }
+
+    private sealed record MergeReplaySummary(Guid MemberCartPublicId, IReadOnlyList<CartMergeConflictDto> Conflicts);
 
     private async Task<IdempotencyResponse<CartMergeResultDto>> ExecuteMergeAsync(
         string memberUserId,
@@ -266,6 +296,10 @@ public sealed class EfCartService : ICartService
                 .Where(balance => skuIds.Contains(balance.SkuId))
                 .ToDictionaryAsync(balance => balance.SkuId, balance => balance.AvailableQuantity, cancellationToken);
 
+            // CartDto.items is documented as [0..100] (API DTO與Schema契約.md); tracked as a
+            // running count since a merge can add many new rows in one call (PR #28 review item 2).
+            var memberItemCount = memberItems.Count;
+
             foreach (var guestItem in guestItems)
             {
                 var sku = skusById[guestItem.SkuId];
@@ -274,7 +308,14 @@ public sealed class EfCartService : ICartService
                 if (guestItem.AssemblyGroupKey is not null)
                 {
                     // Assembly groups are never combined with anything, even a coincidentally
-                    // identical AssemblyGroupKey — each guest group lands as its own new row.
+                    // identical AssemblyGroupKey — each guest group always needs a brand-new row.
+                    if (memberItemCount >= 100)
+                    {
+                        conflicts.Add(new CartMergeConflictDto(
+                            guestItem.PublicId, sku.PublicId, ShoppingWriteException.ErrorCodes.CartItemLimitExceeded, 0));
+                        continue;
+                    }
+
                     landedItem = new CartItem(
                         Guid.CreateVersion7(),
                         memberCart.Id,
@@ -283,6 +324,7 @@ public sealed class EfCartService : ICartService
                         guestItem.AssemblyGroupKey,
                         now);
                     _dbContext.CartItems.Add(landedItem);
+                    memberItemCount++;
                 }
                 else
                 {
@@ -330,6 +372,13 @@ public sealed class EfCartService : ICartService
                     }
                     else
                     {
+                        if (memberItemCount >= 100)
+                        {
+                            conflicts.Add(new CartMergeConflictDto(
+                                guestItem.PublicId, sku.PublicId, ShoppingWriteException.ErrorCodes.CartItemLimitExceeded, 0));
+                            continue;
+                        }
+
                         landedItem = new CartItem(
                             Guid.CreateVersion7(),
                             memberCart.Id,
@@ -339,6 +388,7 @@ public sealed class EfCartService : ICartService
                             now);
                         _dbContext.CartItems.Add(landedItem);
                         memberItems.Add(landedItem);
+                        memberItemCount++;
                     }
                 }
 
@@ -374,7 +424,7 @@ public sealed class EfCartService : ICartService
         return new IdempotencyResponse<CartMergeResultDto>(
             StatusCode: 200,
             Body: result,
-            ResponseSummary: JsonSerializer.Serialize(result));
+            ResponseSummary: JsonSerializer.Serialize(new MergeReplaySummary(memberCart.PublicId, conflicts)));
     }
 
     /// <summary>Clears any unresolved <see cref="CartMergeConflict"/> for this cart+SKU — called once the member has explicitly acted on that item again.</summary>
@@ -464,7 +514,19 @@ public sealed class EfCartService : ICartService
             }
 
             existing.ChangeStatus(CartStatus.Expired, now);
-            await _dbContext.SaveChangesAsync(cancellationToken);
+            try
+            {
+                await _dbContext.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                // A concurrent request (GetCart/Revalidate firing together, PR #28 review) already
+                // expired this exact row first — its own ChangeStatus already succeeded and bumped
+                // RowVersion out from under us. That work doesn't need redoing; stop tracking this
+                // now-stale copy and fall through to the create-a-new-cart path below, which
+                // already retries against the unique-index race for concurrent creates.
+                _dbContext.Entry(existing).State = EntityState.Detached;
+            }
         }
 
         var cart = createNew();

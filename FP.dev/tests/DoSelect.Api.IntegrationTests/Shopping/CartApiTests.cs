@@ -484,6 +484,12 @@ public sealed class CartApiTests
         Assert.Contains(
             validationBody.GetProperty("issues").EnumerateArray(),
             issue => issue.GetProperty("code").GetString() == "cart_merge_conflict");
+        // Regression: RevalidateAsync used to build its CartDto with warnings: [], discarding the
+        // warnings BuildItemsAsync had already computed — so this same merge-conflict warning that
+        // GET /cart shows above would vanish from revalidate's response body.
+        Assert.Contains(
+            validationBody.GetProperty("cart").GetProperty("warnings").EnumerateArray(),
+            responseWarning => responseWarning.GetProperty("code").GetString() == "cart_merge_conflict");
 
         // The member explicitly touching that item's quantity resolves the conflict —
         // Checkout reopens on the next read.

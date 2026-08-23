@@ -25,6 +25,7 @@ internal static class ShoppingWriteExceptionMapper
         ShoppingWriteException.ErrorCodes.ResourceNotFound => StatusCodes.Status404NotFound,
         ShoppingWriteException.ErrorCodes.SkuUnavailable => StatusCodes.Status409Conflict,
         ShoppingWriteException.ErrorCodes.CartQuantityExceeded => StatusCodes.Status409Conflict,
+        ShoppingWriteException.ErrorCodes.CartItemLimitExceeded => StatusCodes.Status409Conflict,
         ShoppingWriteException.ErrorCodes.CartItemRequiresAttention => StatusCodes.Status409Conflict,
         ShoppingWriteException.ErrorCodes.CartMergeConflict => StatusCodes.Status409Conflict,
         ShoppingWriteException.ErrorCodes.ConcurrencyConflict => StatusCodes.Status409Conflict,

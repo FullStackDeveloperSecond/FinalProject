@@ -311,6 +311,71 @@ public sealed class CartServiceTests
     }
 
     /// <summary>
+    /// PR #28 review: CartDto.items is documented as [0..100] (API DTO與Schema契約.md) but
+    /// nothing enforced it on the write path — a 101st distinct row could always be added.
+    /// </summary>
+    [Fact]
+    public async Task AddItemAsync_WhenCartAlreadyHasOneHundredItems_ThrowsCartItemLimitExceeded()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
+        var identity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
+        var service = CreateService(context);
+
+        // Seed straight to 100 rows (each its own assembly group so none combine) rather than
+        // calling AddItemAsync 100 times — the row count is all that matters for this guard.
+        var cart = await service.AddItemAsync(identity, new AddCartItemRequest(sku.PublicId, 1, null), CancellationToken.None);
+        var cartId = await context.Carts.Where(c => c.PublicId == cart.PublicId).Select(c => c.Id).SingleAsync();
+        var now = DateTime.UtcNow;
+        for (var i = 0; i < 99; i++)
+        {
+            context.CartItems.Add(new Domain.Shopping.CartItem(Guid.CreateVersion7(), cartId, sku.Id, 1, Guid.CreateVersion7(), now));
+        }
+
+        await context.SaveChangesAsync();
+        var otherSku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 50m);
+
+        var exception = await Assert.ThrowsAsync<ShoppingWriteException>(() => service.AddItemAsync(
+            identity, new AddCartItemRequest(otherSku.PublicId, 1, null), CancellationToken.None));
+        Assert.Equal(ShoppingWriteException.ErrorCodes.CartItemLimitExceeded, exception.ErrorCode);
+    }
+
+    /// <summary>PR #28 review: a merge could push a member cart past the same [0..100] limit; the guest item that doesn't fit is reported as a conflict instead of silently added.</summary>
+    [Fact]
+    public async Task MergeAsync_WhenMergingWouldExceedOneHundredItems_ReportsConflictAndSkipsThatGuestItem()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var memberUserId = await CartServiceFixture.SeedMemberUserIdAsync(context);
+        var memberSku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
+        var guestSku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
+        var guestKey = CartServiceFixture.UniqueGuestKey();
+        var service = CreateService(context);
+
+        var memberCartDto = await service.AddItemAsync(
+            new CartIdentity(memberUserId, null), new AddCartItemRequest(memberSku.PublicId, 1, null), CancellationToken.None);
+        var memberCartId = await context.Carts.Where(c => c.PublicId == memberCartDto.PublicId).Select(c => c.Id).SingleAsync();
+        var now = DateTime.UtcNow;
+        for (var i = 0; i < 99; i++)
+        {
+            context.CartItems.Add(new Domain.Shopping.CartItem(Guid.CreateVersion7(), memberCartId, memberSku.Id, 1, Guid.CreateVersion7(), now));
+        }
+
+        await context.SaveChangesAsync();
+        await service.AddItemAsync(
+            new CartIdentity(null, guestKey), new AddCartItemRequest(guestSku.PublicId, 1, null), CancellationToken.None);
+
+        var result = await service.MergeAsync(
+            memberUserId,
+            new CartMergeRequest(guestKey, "mergeAndReportConflicts", "item-limit-merge-key"),
+            CancellationToken.None);
+
+        var conflict = Assert.Single(result.Conflicts);
+        Assert.Equal(ShoppingWriteException.ErrorCodes.CartItemLimitExceeded, conflict.Reason);
+        Assert.Equal(0, conflict.AcceptedQuantity);
+        Assert.Equal(100, result.Cart.Items.Count);
+    }
+
+    /// <summary>
     /// PR #28 review: a cart still Status=Active but past ExpiresAtUtc must not be reused —
     /// it gets flipped to Expired (freeing the filtered-unique-index slot) and a fresh cart is
     /// created, exactly like the "no Active cart yet" path.
@@ -375,6 +440,47 @@ public sealed class CartServiceTests
         var cartCount = await verifyContext.Carts.CountAsync(
             c => c.GuestCartKeyHash == SHA256HashOfGuestKey(guestKey));
         Assert.Equal(1, cartCount);
+    }
+
+    /// <summary>
+    /// Regression test for a 組長-flagged bug: CartPage.vue fires GET /cart and POST
+    /// /actions/revalidate concurrently, so two requests can both read the same Active-but-past-
+    /// ExpiresAtUtc cart before either commits its ChangeStatus(Expired). The loser used to hit an
+    /// unhandled DbUpdateConcurrencyException on that SaveChanges and surface as a 500 — it should
+    /// instead fall back to the create/find-concurrently-created path like a brand-new key does.
+    /// </summary>
+    [Fact]
+    public async Task GetCartAsync_WhenTwoRequestsRaceToExpireTheSameCart_NeitherThrows()
+    {
+        var guestKey = CartServiceFixture.UniqueGuestKey();
+        var identity = new CartIdentity(null, guestKey);
+        var now = DateTime.UtcNow;
+
+        await using (var seedContext = CartServiceFixture.CreateContext())
+        {
+            var expiredCart = Domain.Shopping.Cart.CreateForGuest(
+                Guid.CreateVersion7(), SHA256HashOfGuestKey(guestKey), now.AddMinutes(1), now.AddDays(-40));
+            seedContext.Carts.Add(expiredCart);
+            await seedContext.SaveChangesAsync();
+            await seedContext.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE Carts SET ExpiresAtUtc = {now.AddDays(-10)} WHERE Id = {expiredCart.Id}");
+        }
+
+        await using var contextA = CartServiceFixture.CreateContext();
+        await using var contextB = CartServiceFixture.CreateContext();
+        var serviceA = CreateService(contextA);
+        var serviceB = CreateService(contextB);
+
+        var results = await Task.WhenAll(
+            serviceA.GetCartAsync(identity, CancellationToken.None),
+            serviceB.GetCartAsync(identity, CancellationToken.None));
+
+        Assert.Equal(results[0].PublicId, results[1].PublicId);
+
+        await using var verifyContext = CartServiceFixture.CreateContext();
+        var activeCartCount = await verifyContext.Carts.CountAsync(
+            c => c.GuestCartKeyHash == SHA256HashOfGuestKey(guestKey) && c.Status == Domain.Shopping.CartStatus.Active);
+        Assert.Equal(1, activeCartCount);
     }
 
     [Fact]
