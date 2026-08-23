@@ -296,9 +296,44 @@ public sealed class EfCartService : ICartService
                 .Where(balance => skuIds.Contains(balance.SkuId))
                 .ToDictionaryAsync(balance => balance.SkuId, balance => balance.AvailableQuantity, cancellationToken);
 
-            // CartDto.items is documented as [0..100] (API DTO與Schema契約.md); tracked as a
-            // running count since a merge can add many new rows in one call (PR #28 review item 2).
-            var memberItemCount = memberItems.Count;
+            // PR #28 review (組長 2nd-round ruling): a plain "skip the overflowing item and keep
+            // going" used to convert the guest cart anyway, silently losing that item forever —
+            // no read ever showed it again. CartDto.items is documented as [0..100]
+            // (API DTO與Schema契約.md), so this dry-runs the exact same row-creation decisions the
+            // real loop below makes (assembly groups always add a row; a same-SKU/no-group guest
+            // item either combines into an existing row or adds one) to predict the final count
+            // *before* mutating anything. If it would exceed 100, the whole merge is rejected —
+            // nothing merges, the guest cart stays Active — and a single cart-level conflict is
+            // persisted so Checkout keeps being blocked until the member frees up room and
+            // re-merges (with a new Idempotency-Key) successfully.
+            var projectedItemCount = memberItems.Count;
+            foreach (var guestItem in guestItems)
+            {
+                var wouldCreateNewRow = guestItem.AssemblyGroupKey is not null ||
+                    memberItems.All(candidate => candidate.SkuId != guestItem.SkuId || candidate.AssemblyGroupKey is not null);
+                if (wouldCreateNewRow)
+                {
+                    projectedItemCount++;
+                }
+            }
+
+            if (projectedItemCount > 100)
+            {
+                return await RejectMergeForItemLimitAsync(memberCart, guestCart, guestItems[0], skusById, now, cancellationToken);
+            }
+
+            // A prior merge attempt against this same guest cart may have been rejected for the
+            // same reason — this attempt fits under the cap, so that block no longer applies.
+            var priorLimitConflicts = await _dbContext.CartMergeConflicts
+                .Where(conflict => conflict.MemberCartId == memberCart.Id &&
+                    conflict.GuestCartId == guestCart.Id &&
+                    conflict.Reason == ShoppingWriteException.ErrorCodes.CartItemLimitExceeded &&
+                    conflict.ResolvedAtUtc == null)
+                .ToListAsync(cancellationToken);
+            foreach (var conflict in priorLimitConflicts)
+            {
+                conflict.Resolve("member_freed_space_and_remerged", now);
+            }
 
             foreach (var guestItem in guestItems)
             {
@@ -309,13 +344,6 @@ public sealed class EfCartService : ICartService
                 {
                     // Assembly groups are never combined with anything, even a coincidentally
                     // identical AssemblyGroupKey — each guest group always needs a brand-new row.
-                    if (memberItemCount >= 100)
-                    {
-                        conflicts.Add(new CartMergeConflictDto(
-                            guestItem.PublicId, sku.PublicId, ShoppingWriteException.ErrorCodes.CartItemLimitExceeded, 0));
-                        continue;
-                    }
-
                     landedItem = new CartItem(
                         Guid.CreateVersion7(),
                         memberCart.Id,
@@ -324,7 +352,6 @@ public sealed class EfCartService : ICartService
                         guestItem.AssemblyGroupKey,
                         now);
                     _dbContext.CartItems.Add(landedItem);
-                    memberItemCount++;
                 }
                 else
                 {
@@ -372,13 +399,6 @@ public sealed class EfCartService : ICartService
                     }
                     else
                     {
-                        if (memberItemCount >= 100)
-                        {
-                            conflicts.Add(new CartMergeConflictDto(
-                                guestItem.PublicId, sku.PublicId, ShoppingWriteException.ErrorCodes.CartItemLimitExceeded, 0));
-                            continue;
-                        }
-
                         landedItem = new CartItem(
                             Guid.CreateVersion7(),
                             memberCart.Id,
@@ -388,7 +408,6 @@ public sealed class EfCartService : ICartService
                             now);
                         _dbContext.CartItems.Add(landedItem);
                         memberItems.Add(landedItem);
-                        memberItemCount++;
                     }
                 }
 
@@ -420,6 +439,59 @@ public sealed class EfCartService : ICartService
 
         var cartDto = await MapCartAsync(memberCart, cancellationToken);
         var result = new CartMergeResultDto(cartDto, conflicts);
+
+        return new IdempotencyResponse<CartMergeResultDto>(
+            StatusCode: 200,
+            Body: result,
+            ResponseSummary: JsonSerializer.Serialize(new MergeReplaySummary(memberCart.PublicId, conflicts)));
+    }
+
+    /// <summary>
+    /// The whole merge is rejected: no item lands, the guest cart is left Active (not Converted)
+    /// so a later retry can find it again. Persists one cart-level <see cref="CartMergeConflict"/>
+    /// (anchored on the first guest item, since the schema requires a specific
+    /// GuestItemPublicId／SkuPublicId — PR #32's shared entity, not something this branch owns to
+    /// reshape) so it keeps showing up and blocking Checkout on every later GetCart／Revalidate
+    /// until a subsequent merge attempt succeeds and resolves it.
+    /// </summary>
+    private async Task<IdempotencyResponse<CartMergeResultDto>> RejectMergeForItemLimitAsync(
+        Cart memberCart,
+        Cart guestCart,
+        CartItem triggerGuestItem,
+        IReadOnlyDictionary<long, Sku> skusById,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var triggerSku = skusById[triggerGuestItem.SkuId];
+
+        var alreadyPersisted = await _dbContext.CartMergeConflicts.AnyAsync(
+            conflict => conflict.MemberCartId == memberCart.Id &&
+                conflict.GuestCartId == guestCart.Id &&
+                conflict.Reason == ShoppingWriteException.ErrorCodes.CartItemLimitExceeded &&
+                conflict.ResolvedAtUtc == null,
+            cancellationToken);
+        if (!alreadyPersisted)
+        {
+            _dbContext.CartMergeConflicts.Add(new CartMergeConflict(
+                Guid.CreateVersion7(),
+                memberCart.Id,
+                guestCart.Id,
+                triggerGuestItem.PublicId,
+                triggerSku.PublicId,
+                triggerGuestItem.Quantity,
+                memberQuantity: 0,
+                acceptedQuantity: 0,
+                ShoppingWriteException.ErrorCodes.CartItemLimitExceeded,
+                now));
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
+
+        var conflicts = new List<CartMergeConflictDto>
+        {
+            new(triggerGuestItem.PublicId, triggerSku.PublicId, ShoppingWriteException.ErrorCodes.CartItemLimitExceeded, 0),
+        };
+        var unchangedCartDto = await MapCartAsync(memberCart, cancellationToken);
+        var result = new CartMergeResultDto(unchangedCartDto, conflicts);
 
         return new IdempotencyResponse<CartMergeResultDto>(
             StatusCode: 200,

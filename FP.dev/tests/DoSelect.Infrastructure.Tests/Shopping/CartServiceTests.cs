@@ -340,9 +340,14 @@ public sealed class CartServiceTests
         Assert.Equal(ShoppingWriteException.ErrorCodes.CartItemLimitExceeded, exception.ErrorCode);
     }
 
-    /// <summary>PR #28 review: a merge could push a member cart past the same [0..100] limit; the guest item that doesn't fit is reported as a conflict instead of silently added.</summary>
+    /// <summary>
+    /// PR #28 review (組長 2nd-round ruling): a merge that would push the member cart past the
+    /// [0..100] limit must reject the *whole* merge — nothing lands, the guest cart stays Active
+    /// (not Converted) — rather than the earlier round's per-item skip, which silently converted
+    /// the guest cart anyway and lost the skipped item forever.
+    /// </summary>
     [Fact]
-    public async Task MergeAsync_WhenMergingWouldExceedOneHundredItems_ReportsConflictAndSkipsThatGuestItem()
+    public async Task MergeAsync_WhenMergingWouldExceedOneHundredItems_RejectsTheWholeMergeAndKeepsTheGuestCartActive()
     {
         await using var context = CartServiceFixture.CreateContext();
         var memberUserId = await CartServiceFixture.SeedMemberUserIdAsync(context);
@@ -361,7 +366,7 @@ public sealed class CartServiceTests
         }
 
         await context.SaveChangesAsync();
-        await service.AddItemAsync(
+        var guestCartDto = await service.AddItemAsync(
             new CartIdentity(null, guestKey), new AddCartItemRequest(guestSku.PublicId, 1, null), CancellationToken.None);
 
         var result = await service.MergeAsync(
@@ -372,7 +377,74 @@ public sealed class CartServiceTests
         var conflict = Assert.Single(result.Conflicts);
         Assert.Equal(ShoppingWriteException.ErrorCodes.CartItemLimitExceeded, conflict.Reason);
         Assert.Equal(0, conflict.AcceptedQuantity);
+        // Nothing merged: the member cart is exactly what it was before this call.
         Assert.Equal(100, result.Cart.Items.Count);
+
+        var guestCartStatus = await context.Carts.AsNoTracking()
+            .Where(c => c.PublicId == guestCartDto.PublicId).Select(c => c.Status).SingleAsync();
+        Assert.Equal(Domain.Shopping.CartStatus.Active, guestCartStatus);
+
+        var persistedConflict = await context.CartMergeConflicts.AsNoTracking().SingleAsync(
+            c => c.MemberCartId == memberCartId && c.Reason == ShoppingWriteException.ErrorCodes.CartItemLimitExceeded);
+        Assert.True(persistedConflict.IsBlocking);
+
+        var validation = await service.RevalidateAsync(new CartIdentity(memberUserId, null), CancellationToken.None);
+        Assert.False(validation.IsCheckoutReady);
+        Assert.Contains(
+            validation.Issues, issue => issue.Code == ShoppingWriteException.ErrorCodes.CartMergeConflict);
+    }
+
+    /// <summary>
+    /// PR #28 review: once the member frees up room, a fresh merge attempt (new Idempotency-Key,
+    /// same guest cart) must succeed, resolve the earlier cart-level conflict, and convert the
+    /// guest cart — no separate Resolve API, per 組長's ruling.
+    /// </summary>
+    [Fact]
+    public async Task MergeAsync_WhenRetriedAfterFreeingSpace_ResolvesThePriorConflictAndConvertsTheGuestCart()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var memberUserId = await CartServiceFixture.SeedMemberUserIdAsync(context);
+        var memberSku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
+        var guestSku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
+        var guestKey = CartServiceFixture.UniqueGuestKey();
+        var service = CreateService(context);
+
+        var memberCartDto = await service.AddItemAsync(
+            new CartIdentity(memberUserId, null), new AddCartItemRequest(memberSku.PublicId, 1, null), CancellationToken.None);
+        var memberCartId = await context.Carts.Where(c => c.PublicId == memberCartDto.PublicId).Select(c => c.Id).SingleAsync();
+        var now = DateTime.UtcNow;
+        var extraMemberItems = new List<Domain.Shopping.CartItem>();
+        for (var i = 0; i < 99; i++)
+        {
+            var extra = new Domain.Shopping.CartItem(Guid.CreateVersion7(), memberCartId, memberSku.Id, 1, Guid.CreateVersion7(), now);
+            extraMemberItems.Add(extra);
+            context.CartItems.Add(extra);
+        }
+
+        await context.SaveChangesAsync();
+        var guestCartDto = await service.AddItemAsync(
+            new CartIdentity(null, guestKey), new AddCartItemRequest(guestSku.PublicId, 1, null), CancellationToken.None);
+
+        await service.MergeAsync(
+            memberUserId, new CartMergeRequest(guestKey, "mergeAndReportConflicts", "first-attempt"), CancellationToken.None);
+
+        // Free up room: remove one of the extra member rows.
+        context.CartItems.Remove(extraMemberItems[0]);
+        await context.SaveChangesAsync();
+
+        var retryResult = await service.MergeAsync(
+            memberUserId, new CartMergeRequest(guestKey, "mergeAndReportConflicts", "second-attempt"), CancellationToken.None);
+
+        Assert.Empty(retryResult.Conflicts);
+        Assert.Contains(retryResult.Cart.Items, item => item.SkuPublicId == guestSku.PublicId);
+
+        var guestCartStatus = await context.Carts.AsNoTracking()
+            .Where(c => c.PublicId == guestCartDto.PublicId).Select(c => c.Status).SingleAsync();
+        Assert.Equal(Domain.Shopping.CartStatus.Converted, guestCartStatus);
+
+        var priorConflict = await context.CartMergeConflicts.AsNoTracking().SingleAsync(
+            c => c.MemberCartId == memberCartId && c.Reason == ShoppingWriteException.ErrorCodes.CartItemLimitExceeded);
+        Assert.False(priorConflict.IsBlocking);
     }
 
     /// <summary>

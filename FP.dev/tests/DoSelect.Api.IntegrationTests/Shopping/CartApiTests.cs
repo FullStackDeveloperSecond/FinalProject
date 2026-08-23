@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using DoSelect.Domain.Catalog;
+using Microsoft.EntityFrameworkCore;
 
 namespace DoSelect.Api.IntegrationTests.Shopping;
 
@@ -120,6 +121,49 @@ public sealed class CartApiTests
 
         Assert.Equal(409, status);
         Assert.Equal("sku_unavailable", code);
+    }
+
+    /// <summary>PR #28 review: cart_item_limit_exceeded is now formally registered as 409 (API錯誤碼目錄.md) — proves the wiring, business logic is covered at CartServiceTests.</summary>
+    [Fact]
+    public async Task AddItem_WhenCartAlreadyHasOneHundredItems_Returns409WithCartItemLimitExceeded()
+    {
+        using var client = _fixture.CreateClient();
+        var guestKey = CartApiFixture.UniqueGuestKey();
+        Sku sku;
+        await using (var context = _fixture.CreateScopedContext())
+        {
+            sku = await CartApiSeeding.CreatePublishedSkuAsync(context, listPrice: 100m);
+        }
+
+        using var firstAddResponse = await PostAddItemAsync(client, guestKey, sku.PublicId, quantity: 1);
+        firstAddResponse.EnsureSuccessStatusCode();
+        var firstAddBody = await firstAddResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var cartId = firstAddBody.GetProperty("publicId").GetGuid();
+
+        await using (var context = _fixture.CreateScopedContext())
+        {
+            var dbCartId = await context.Carts.Where(c => c.PublicId == cartId).Select(c => c.Id).SingleAsync();
+            var now = DateTime.UtcNow;
+            for (var i = 0; i < 99; i++)
+            {
+                context.CartItems.Add(new DoSelect.Domain.Shopping.CartItem(
+                    Guid.CreateVersion7(), dbCartId, sku.Id, 1, Guid.CreateVersion7(), now));
+            }
+
+            await context.SaveChangesAsync();
+        }
+
+        Sku otherSku;
+        await using (var context = _fixture.CreateScopedContext())
+        {
+            otherSku = await CartApiSeeding.CreatePublishedSkuAsync(context, listPrice: 50m);
+        }
+
+        using var response = await PostAddItemAsync(client, guestKey, otherSku.PublicId, quantity: 1);
+        var (status, code, _) = await CartApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal(409, status);
+        Assert.Equal("cart_item_limit_exceeded", code);
     }
 
     [Fact]
