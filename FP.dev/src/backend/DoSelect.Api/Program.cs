@@ -5,6 +5,7 @@ using DoSelect.Infrastructure.Catalog;
 using DoSelect.Infrastructure.Email;
 using DoSelect.Infrastructure.Files;
 using DoSelect.Infrastructure.Idempotency;
+using DoSelect.Infrastructure.Inventory;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Seeding;
 using DoSelect.Infrastructure.Shopping;
@@ -26,6 +27,7 @@ builder.Services.AddDoSelectSecurity(builder.Environment, builder.Configuration)
 builder.Services.AddDoSelectRefunds();
 builder.Services.AddDoSelectCatalogServices();
 builder.Services.AddDoSelectShoppingServices();
+builder.Services.AddDoSelectInventory();
 builder.Services.AddSingleton<IEmailSender>(services =>
 {
     var emailEnabled = builder.Configuration.GetValue<bool>("Features:EmailEnabled");

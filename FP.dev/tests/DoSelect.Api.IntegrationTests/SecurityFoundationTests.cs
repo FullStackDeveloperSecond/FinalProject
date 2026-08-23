@@ -312,7 +312,8 @@ public sealed record SecurityFoundationWriteRequest(string Value);
 /// <summary>
 /// UserId is optional and defaults to a random GUID (the original behavior). Pass a real
 /// ApplicationUser.Id when the signed-in principal needs to satisfy a foreign key — e.g.
-/// Carts.OwnerUserId references AspNetUsers, so member-owned-cart tests must sign in as
-/// a real seeded user rather than an arbitrary fake identifier.
+/// Carts.OwnerUserId or InventoryMovements.ActorUserId references AspNetUsers, so
+/// member-owned-cart tests and admin release/resolve action tests must sign in as a real
+/// seeded user rather than an arbitrary fake identifier.
 /// </summary>
 public sealed record SecurityFoundationSignInRequest(bool IncludeMfa, string[] Roles, string? UserId = null);
