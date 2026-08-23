@@ -78,7 +78,11 @@ jobs:
         run: dotnet format DoSelect.slnx --verify-no-changes --no-restore
 
       - name: Run .NET tests
-        run: dotnet test DoSelect.slnx --no-build --no-restore
+        # DEV-07: SQL Server Provider-backed integration tests need a live SQL Server
+        # (no Docker/SQL runner is authorized for this required Linux CI yet), so they're
+        # excluded here via Category=RequiresSqlServer and still run locally/on a
+        # SQL-Server-capable machine with a plain `dotnet test` (no filter).
+        run: dotnet test DoSelect.slnx --no-build --no-restore --filter "Category!=RequiresSqlServer"
 
       - name: Report vulnerable NuGet packages
         run: dotnet list DoSelect.slnx package --vulnerable --include-transitive

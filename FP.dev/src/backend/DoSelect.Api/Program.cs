@@ -1,6 +1,7 @@
 using DoSelect.Api.Common;
 using DoSelect.Api.Observability;
 using DoSelect.Application.Notifications;
+using DoSelect.Infrastructure.Catalog;
 using DoSelect.Infrastructure.Email;
 using DoSelect.Infrastructure.Files;
 using DoSelect.Infrastructure.Idempotency;
@@ -21,6 +22,7 @@ builder.Services.AddDoSelectIdempotency(builder.Configuration);
 builder.Services.AddDoSelectFileStorage(builder.Configuration);
 builder.Services.AddDoSelectSecurity(builder.Environment, builder.Configuration);
 builder.Services.AddDoSelectRefunds();
+builder.Services.AddDoSelectCatalogServices();
 builder.Services.AddSingleton<IEmailSender>(services =>
 {
     var emailEnabled = builder.Configuration.GetValue<bool>("Features:EmailEnabled");
