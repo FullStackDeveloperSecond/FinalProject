@@ -100,6 +100,12 @@ async function onLogout(): Promise<void> {
           >
             優惠券管理
           </RouterLink>
+          <RouterLink to="/inventory">
+            庫存管理
+          </RouterLink>
+          <RouterLink to="/inventory/reservations">
+            庫存保留佇列
+          </RouterLink>
           <RouterLink to="/support">
             客服 SLA 佇列
           </RouterLink>
