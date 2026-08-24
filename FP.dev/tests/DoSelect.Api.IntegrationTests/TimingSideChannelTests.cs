@@ -69,6 +69,37 @@ public sealed class TimingSideChannelTests(WebApplicationFactory<Program> factor
         AssertNoReliableTimingDifference(eligibleLatencies, ineligibleLatencies);
     }
 
+    [Fact]
+    public async Task Register_FreshAndAlreadyRegisteredEmails_HaveNoReliablyDistinguishableLatency()
+    {
+        // A fresh registration hashes the password, opens a transaction, inserts the User and
+        // MemberProfile rows, and generates a token; an already-registered email must pay a
+        // comparable cost rather than short-circuiting, or response latency itself becomes an
+        // account-enumeration oracle even though both responses have the same shape, status, and
+        // synthetic-PublicId UUID version (Alex review, 2026-08-24). MemberRegistrationGateway no
+        // longer pre-checks FindByEmailAsync for exactly this reason — see its CreateMemberAsync.
+        var capturingEmailSender = new CapturingEmailSender();
+        using var isolatedFactory = CreateIsolatedFactory(capturingEmailSender);
+
+        var alreadyRegisteredEmails = await CreateUnconfirmedMembersAsync(isolatedFactory, SampleCount);
+        var freshEmails = Enumerable.Range(0, SampleCount).Select(_ => UniqueEmail()).ToList();
+
+        await using var scope = isolatedFactory.Services.CreateAsyncScope();
+        var registerService = scope.ServiceProvider.GetRequiredService<RegisterMemberService>();
+
+        var (freshLatencies, alreadyRegisteredLatencies) = await MeasureInterleavedAsync(
+            freshEmails,
+            alreadyRegisteredEmails,
+            email => registerService.RegisterAsync(new RegisterMemberCommand(
+                email,
+                "correct-horse-battery-staple",
+                "整合測試會員",
+                null,
+                RegisterMemberService.CurrentTermsVersion)));
+
+        AssertNoReliableTimingDifference(freshLatencies, alreadyRegisteredLatencies);
+    }
+
     private WebApplicationFactory<Program> CreateIsolatedFactory(CapturingEmailSender capturingEmailSender) =>
         factory.WithWebHostBuilder(builder =>
         {
