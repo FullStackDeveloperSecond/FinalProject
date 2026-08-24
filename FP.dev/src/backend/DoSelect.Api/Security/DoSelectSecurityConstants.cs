@@ -39,6 +39,9 @@ public static class DoSelectPolicies
     public const string Admin = "Admin";
     public const string CatalogManager = "CatalogManager";
     public const string InventoryManager = "InventoryManager";
+    public const string OrderManager = "OrderManager";
+    /// <summary>UC-ADM-STORE-01: convenience-store reads are shared with CatalogManager (writes stay OrderManager-only).</summary>
+    public const string ConvenienceStoreView = "ConvenienceStore.View";
     public const string ReturnApprove = "Return.Approve";
     public const string RefundExecute = "Refund.Execute";
     public const string InvoiceManage = "Invoice.Manage";
