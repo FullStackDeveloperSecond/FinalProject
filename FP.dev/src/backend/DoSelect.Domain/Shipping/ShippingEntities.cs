@@ -3,6 +3,18 @@ using DoSelect.Domain.Orders;
 
 namespace DoSelect.Domain.Shipping;
 
+/// <summary>
+/// The two fixed v1 shipping providers (購物車、訂單、付款與物流.md §超商門市與包裹限制). There is no
+/// FK between ShippingMethod and ShippingProviderProfile in the schema — ShippingMethod.Kind is
+/// matched against ShippingProviderProfile.ProviderCode by convention (Terry's own design call,
+/// flagged in the PR since no doc names this mapping).
+/// </summary>
+public static class ShippingProviderCodes
+{
+    public const string ConvenienceStore = "ConvenienceStore";
+    public const string HomeDelivery = "HomeDelivery";
+}
+
 public sealed class ShippingMethod : MutablePublicEntity
 {
     private ShippingMethod() { }
@@ -104,6 +116,29 @@ public sealed class ShippingProviderProfile : MutablePublicEntity
     public DateTime? EffectiveToUtc { get; private set; }
     public string ConfigurationJson { get; private set; } = string.Empty;
     public int SchemaVersion { get; private set; }
+
+    public const string DraftStatus = "Draft";
+    public const string PublishedStatus = "Published";
+    public const string SupersededStatus = "Superseded";
+
+    /// <summary>
+    /// UC-ADM-SHIP-01: no Application layer existed yet to call this, so the entity had no
+    /// state-transition method at all (Status was constructor-only). Mirrors Shipment.ChangeStatus's
+    /// bare-invariant style — the "is this actually still Draft" business check belongs to the
+    /// calling service, not the entity.
+    /// </summary>
+    public void Publish(DateTime updatedAtUtc)
+    {
+        Status = PublishedStatus;
+        MarkUpdated(updatedAtUtc);
+    }
+
+    /// <summary>Demotes a previously-Published version once a new one takes its place, so the filtered unique index (one Published row per ProviderCode) keeps holding.</summary>
+    public void Supersede(DateTime updatedAtUtc)
+    {
+        Status = SupersededStatus;
+        MarkUpdated(updatedAtUtc);
+    }
 }
 
 public sealed class PackageLimitVersion : MutablePublicEntity
@@ -204,6 +239,16 @@ public sealed class ConvenienceStore : MutablePublicEntity
     public void SetActive(bool isActive, DateTime updatedAtUtc)
     {
         IsActive = isActive;
+        MarkUpdated(updatedAtUtc);
+    }
+
+    /// <summary>UC-ADM-STORE-01 edit. ProviderCode／StoreCode stay immutable after creation — they are the unique-index identity a cart/order snapshot may already reference.</summary>
+    public void UpdateDetails(string storeName, string address, string city, string district, DateTime updatedAtUtc)
+    {
+        StoreName = RequireText(storeName, nameof(storeName));
+        Address = RequireText(address, nameof(address));
+        City = RequireText(city, nameof(city));
+        District = RequireText(district, nameof(district));
         MarkUpdated(updatedAtUtc);
     }
 }

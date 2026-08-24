@@ -30,6 +30,27 @@ internal static class MinimalDevelopmentSeedDefinitions
     internal static readonly DateTime CreatedAtUtc =
         new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
+    internal static readonly Guid CvsPickupMethodPublicId =
+        Guid.Parse("2a9e4a2d-3f7a-4d2a-9a2e-6f6a8f8e2f01");
+
+    internal static readonly Guid HomeDeliveryMethodPublicId =
+        Guid.Parse("2a9e4a2d-3f7a-4d2a-9a2e-6f6a8f8e2f02");
+
+    internal static readonly Guid HomeDeliveryAssemblyMethodPublicId =
+        Guid.Parse("2a9e4a2d-3f7a-4d2a-9a2e-6f6a8f8e2f03");
+
+    internal static readonly Guid ConvenienceStoreProviderProfilePublicId =
+        Guid.Parse("2a9e4a2d-3f7a-4d2a-9a2e-6f6a8f8e2f11");
+
+    internal static readonly Guid ConvenienceStorePackageLimitPublicId =
+        Guid.Parse("2a9e4a2d-3f7a-4d2a-9a2e-6f6a8f8e2f12");
+
+    internal static readonly Guid HomeDeliveryProviderProfilePublicId =
+        Guid.Parse("2a9e4a2d-3f7a-4d2a-9a2e-6f6a8f8e2f21");
+
+    internal static readonly Guid HomeDeliveryPackageLimitPublicId =
+        Guid.Parse("2a9e4a2d-3f7a-4d2a-9a2e-6f6a8f8e2f22");
+
     internal static IReadOnlyList<string> RoleNames { get; } =
     [
         "SuperAdmin",
