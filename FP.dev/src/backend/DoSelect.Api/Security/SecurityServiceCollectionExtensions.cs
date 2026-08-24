@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.DependencyInjection;
 using System.Globalization;
 using System.Security.Claims;
 using System.Threading.RateLimiting;
@@ -20,6 +21,9 @@ public static class SecurityServiceCollectionExtensions
     private static readonly TimeSpan MemberIdleTimeout = TimeSpan.FromHours(8);
     private static readonly TimeSpan MemberAbsoluteLifetime = TimeSpan.FromDays(7);
     private static readonly TimeSpan AdminAbsoluteLifetime = TimeSpan.FromHours(2);
+
+    /// <summary>⚠ 新增：AdminChallenge Cookie 效期，密碼驗證成功後到完成 2FA 前的短暫視窗。</summary>
+    private static readonly TimeSpan AdminChallengeLifetime = TimeSpan.FromMinutes(10);
 
     public static IServiceCollection AddDoSelectSecurity(
         this IServiceCollection services,
@@ -35,7 +39,9 @@ public static class SecurityServiceCollectionExtensions
             .AddCookie(DoSelectAuthenticationSchemes.Member, options =>
                 ConfigureMemberCookie(options, environment))
             .AddCookie(DoSelectAuthenticationSchemes.Admin, options =>
-                ConfigureAdminCookie(options, environment));
+                ConfigureAdminCookie(options, environment))
+            .AddCookie(DoSelectAuthenticationSchemes.AdminChallenge, options =>
+                ConfigureAdminChallengeCookie(options, environment));
 
         services.AddAuthorization(options => ConfigurePolicies(options));
         services.AddAntiforgery(options =>
@@ -179,6 +185,50 @@ public static class SecurityServiceCollectionExtensions
         ConfigureCookieDefaults(options, environment, ".DoSelect.Admin");
         options.ExpireTimeSpan = AdminAbsoluteLifetime;
         options.SlidingExpiration = false;
+
+        // ⚠ 待 alex 覆核：讓「TOTP 重新綁定／解除、密碼變更、停用」真正撤銷既有管理 Session。
+        // Cookie 是純票證式驗證，本身不查任何撤銷清單；這裡用 Identity 既有的
+        // SecurityStamp 機制補上撤銷檢查——bump SecurityStamp 後，舊 Cookie 內嵌的
+        // stamp 跟 UserManager 讀到的即時值不一致，就強制登出。
+        options.Events.OnValidatePrincipal = async context =>
+        {
+            var stampInCookie = context.Principal?.FindFirstValue(DoSelectClaimTypes.SecurityStamp);
+
+            // ⚠ 待 alex 覆核的設計取捨：沒有 SecurityStamp claim 的 Cookie 略過檢查而不拒絕。
+            // 這是為了與既有的測試簽發（SecurityFoundationTestController 等，不帶此 claim）
+            // 及其他既有管理端整合測試相容；本次登入流程簽發的 Cookie 一定帶這個 claim
+            // （見 AdminAuthController.BuildAdminPrincipalAsync），撤銷檢查仍會生效。
+            if (string.IsNullOrEmpty(stampInCookie))
+            {
+                return;
+            }
+
+            var userId = context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier);
+            var userManager = context.HttpContext.RequestServices
+                .GetRequiredService<UserManager<ApplicationUser>>();
+            var user = string.IsNullOrEmpty(userId) ? null : await userManager.FindByIdAsync(userId);
+            var currentStamp = user is null ? null : await userManager.GetSecurityStampAsync(user);
+
+            if (user is null || !string.Equals(stampInCookie, currentStamp, StringComparison.Ordinal))
+            {
+                context.RejectPrincipal();
+                await context.HttpContext.SignOutAsync(DoSelectAuthenticationSchemes.Admin);
+            }
+        };
+    }
+
+    /// <summary>
+    /// ⚠ 新增：規格未定義的暫時憑證，代表「密碼已驗證、2FA 尚未完成」。
+    /// 不帶 AccountType／amr claim，端點以 <c>AuthenticationSchemes = AdminChallenge</c>
+    /// 個別授權，不透過 <see cref="AddAdminPolicy"/>。
+    /// </summary>
+    private static void ConfigureAdminChallengeCookie(
+        CookieAuthenticationOptions options,
+        IHostEnvironment environment)
+    {
+        ConfigureCookieDefaults(options, environment, ".DoSelect.AdminChallenge");
+        options.ExpireTimeSpan = AdminChallengeLifetime;
+        options.SlidingExpiration = false;
     }
 
     private static void ConfigureCookieDefaults(
@@ -242,6 +292,14 @@ public static class SecurityServiceCollectionExtensions
         AddAdminPolicy(options, DoSelectPolicies.SupportTicketHandle,
             DoSelectRoles.CustomerService, DoSelectRoles.CustomerServiceSupervisor);
         AddAdminPolicy(options, DoSelectPolicies.SupportTicketSupervise,
+            DoSelectRoles.CustomerServiceSupervisor, DoSelectRoles.SuperAdmin);
+
+        // ⚠ PENDING ALEX POLICY REVIEW：後台會員管理是這次新增的範圍，沒有既有規格。
+        // 角色對應比照 SupportTicket.Handle／Supervise 的分級模式（一般客服可查看/編輯基本
+        // 資料，變更帳號狀態或密碼需要主管層級），是合理猜測，非既有核准的規則。
+        AddAdminPolicy(options, DoSelectPolicies.MemberManage,
+            DoSelectRoles.CustomerService, DoSelectRoles.CustomerServiceSupervisor, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.MemberManageSensitive,
             DoSelectRoles.CustomerServiceSupervisor, DoSelectRoles.SuperAdmin);
     }
 

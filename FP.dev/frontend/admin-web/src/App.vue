@@ -1,5 +1,32 @@
+<script setup lang="ts">
+import { computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useAdminAuthStore } from './features/auth/stores/useAdminAuthStore'
+
+const route = useRoute()
+const router = useRouter()
+const auth = useAdminAuthStore()
+
+const isAuthPage = computed(() => route.path.startsWith('/login'))
+
+async function onLogout(): Promise<void> {
+  await auth.logout()
+  await router.push('/login')
+}
+</script>
+
 <template>
-  <div class="app-shell">
+  <div
+    v-if="isAuthPage"
+    class="app-shell app-shell--bare"
+  >
+    <RouterView />
+  </div>
+
+  <div
+    v-else
+    class="app-shell"
+  >
     <header class="site-header">
       <RouterLink
         class="brand-link"
@@ -7,7 +34,21 @@
       >
         DoSelect 懂選｜管理後台
       </RouterLink>
-      <span class="demo-badge">DEMO DATA</span>
+      <div class="site-header__end">
+        <span class="demo-badge">DEMO DATA</span>
+        <span
+          v-if="auth.currentUser"
+          class="current-user"
+        >{{ auth.currentUser.displayName }}</span>
+        <button
+          v-if="auth.isAuthenticated"
+          type="button"
+          class="logout-button"
+          @click="onLogout"
+        >
+          登出
+        </button>
+      </div>
     </header>
     <div class="admin-frame">
       <aside

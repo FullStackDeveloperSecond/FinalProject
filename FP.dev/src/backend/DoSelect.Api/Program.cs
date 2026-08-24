@@ -14,6 +14,7 @@ using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using DoSelect.Infrastructure.Persistence.Seeding;
 using DoSelect.Infrastructure.Refunds;
+using DoSelect.Infrastructure.Security;
 using DoSelect.Infrastructure.Shopping;
 using Microsoft.AspNetCore.Authentication;
 using DoSelect.Infrastructure.Persistence.Support;
@@ -30,6 +31,8 @@ builder.Services.AddDoSelectPersistence(builder.Configuration);
 builder.Services.AddDoSelectIdempotency(builder.Configuration);
 builder.Services.AddDoSelectFileStorage();
 builder.Services.AddDoSelectSecurity(builder.Environment, builder.Configuration);
+builder.Services.AddDoSelectAdminAuth();
+builder.Services.AddDoSelectAdminMembers();
 builder.Services.AddDoSelectRefunds();
 builder.Services.AddDoSelectCatalogServices();
 builder.Services.AddDoSelectShoppingServices();
@@ -80,9 +83,24 @@ if (app.Environment.IsDevelopment())
     app.MapScalarApiReference();
 }
 
+// ⚠ 待 alex 覆核：UseCors 移到 UseHttpsRedirection 之前，且 UseHttpsRedirection
+// 只在非 Development 環境套用。原因：
+// 1) 排序——CORS 預檢（OPTIONS）若先被 UseHttpsRedirection 導向 https，瀏覽器規範
+//    禁止對預檢請求跟隨轉址，會直接失敗（"Redirect is not allowed for a preflight
+//    request"）。
+// 2) Development 停用 HTTPS 轉址——工程包／README 文件明確記載本機 API 網址是
+//    http://localhost:5126（前端 resolveApiBaseUrl 預設值也是 http），但
+//    UseHttpsRedirection 會把所有請求（含正式的 GET/POST，不只預檢）導去
+//    https://localhost:7031。瀏覽器對這個轉址目標會做獨立的 CORS 檢查，而該處使用
+//    ASP.NET Core 開發用自簽憑證，瀏覽器預設不信任，導致請求整個失敗（表現成
+//    CORS 錯誤，其實是 TLS 信任問題）。跟文件記載的 HTTP 本機開發流程衝突。
+// 這兩點都是既有 pipeline 設定的問題，不是本次新增的行為，只是這次第一次真的從
+// 瀏覽器打到 API 才浮現。
 app.UseCors(SecurityServiceCollectionExtensions.FrontendCorsPolicy);
-
-app.UseHttpsRedirection();
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
 
 app.UseAuthentication();
 
