@@ -23,7 +23,8 @@ public sealed class AdminAuthController(
     IAdminAuthGateway authGateway,
     UserManager<ApplicationUser> userManager,
     IOptions<IdentityOptions> identityOptions,
-    TimeProvider timeProvider) : ControllerBase
+    TimeProvider timeProvider,
+    ILogger<AdminAuthController> logger) : ControllerBase
 {
     [HttpGet("session")]
     [AllowAnonymous]
@@ -178,6 +179,60 @@ public sealed class AdminAuthController(
         var authResult = await CompleteAdminSignInAsync(result.User!);
         return Ok(new TotpEnrollConfirmResponseDto(result.RecoveryCodes!, ToCurrentUserDto(result.User!), authResult));
     }
+
+    /// <summary>
+    /// ⚠ 新增端點：讓已登入管理員重新綁定 TOTP（例如換手機）。完成 Session 撤銷情境
+    /// （UC-ADMIN-AUTH-01：「TOTP 重新綁定，既有 Session 失效」），見 ConfirmRebind。
+    /// </summary>
+    [HttpPost("totp/rebind/begin")]
+    [Authorize(Policy = DoSelectPolicies.Admin)]
+    [ProducesResponseType(typeof(TotpEnrollBeginResponseDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> BeginRebind(CancellationToken cancellationToken)
+    {
+        var userId = RequireCurrentAdminUserId();
+        var begin = await twoFactorUseCase.BeginRebindAsync(userId, cancellationToken);
+        return Ok(new TotpEnrollBeginResponseDto(begin.SecretKey, begin.OtpAuthUri, begin.QrCodeDataUri));
+    }
+
+    /// <summary>
+    /// 驗證新裝置算出的碼、重新產生 Recovery Code，接著 bump SecurityStamp 撤銷所有
+    /// 其他既有 Session，並用新 Stamp 重新簽發「這個」請求所在的 Session（不會把自己登出）。
+    /// 目前沒有 AuditLogs 資料表（⚠ 待 alex 確認是否需要正式 Audit 機制），先用結構化
+    /// Log 記錄這次異動。
+    /// </summary>
+    [HttpPost("totp/rebind/confirm")]
+    [Authorize(Policy = DoSelectPolicies.Admin)]
+    [ProducesResponseType(typeof(TotpEnrollConfirmResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ConfirmRebind(
+        [FromBody] TotpRebindConfirmRequest request, CancellationToken cancellationToken)
+    {
+        var userId = RequireCurrentAdminUserId();
+        var result = await twoFactorUseCase.ConfirmRebindAsync(userId, request.Code, cancellationToken);
+        if (!result.IsSuccess)
+        {
+            return BadRequest(ApiProblemDetailsFactory.Create(
+                HttpContext, StatusCodes.Status400BadRequest, result.ErrorCode!));
+        }
+
+        var applicationUser = await userManager.FindByIdAsync(userId);
+        if (applicationUser is not null)
+        {
+            await userManager.UpdateSecurityStampAsync(applicationUser);
+        }
+
+        logger.LogWarning(
+            "Admin {AdminUserId} rebound TOTP; existing sessions on other devices are now revoked.",
+            userId);
+
+        var authResult = await CompleteAdminSignInAsync(result.User!);
+        return Ok(new TotpEnrollConfirmResponseDto(result.RecoveryCodes!, ToCurrentUserDto(result.User!), authResult));
+    }
+
+    /// <summary>`[Authorize(Policy = DoSelectPolicies.Admin)]` 已保證 User 是完整登入的管理員。</summary>
+    private string RequireCurrentAdminUserId() =>
+        User.FindFirstValue(ClaimTypes.NameIdentifier)
+        ?? throw new InvalidOperationException("The authenticated admin principal has no NameIdentifier claim.");
 
     /// <summary>密碼驗證成功後簽發短效 AdminChallenge Cookie，代表「密碼已驗證、2FA 尚未完成」。</summary>
     private async Task SignInChallengeAsync(string userId, string challengeKind, Guid challengePublicId)

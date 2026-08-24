@@ -476,6 +476,12 @@ select {
   font-size: 0.875rem;
 }
 
+.totp-rebind-link {
+  color: #4b5563;
+  font-size: 0.875rem;
+  text-decoration: underline;
+}
+
 .admin-sidebar {
   display: flex;
   flex-direction: column;

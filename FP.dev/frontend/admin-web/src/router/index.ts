@@ -37,6 +37,12 @@ const router = createRouter({
       meta: { guestOnly: true },
     },
     {
+      path: '/security/totp-rebind',
+      name: 'totp-rebind',
+      component: () => import('../features/auth/pages/TotpRebindPage.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/members',
       name: 'member-list',
       component: () => import('../features/members/pages/MemberListPage.vue'),

@@ -103,6 +103,18 @@ public sealed class IdentityAdminAuthGateway : IAdminAuthGateway
         return new AdminTotpSecret(key!, otpAuthUri);
     }
 
+    public async Task<AdminTotpSecret> ResetAuthenticatorSecretAsync(
+        string userId, CancellationToken cancellationToken = default)
+    {
+        var user = await RequireUserAsync(userId);
+
+        await _userManager.ResetAuthenticatorKeyAsync(user);
+        var key = await _userManager.GetAuthenticatorKeyAsync(user);
+
+        var otpAuthUri = BuildOtpAuthUri(user.Email ?? user.UserName ?? userId, key!);
+        return new AdminTotpSecret(key!, otpAuthUri);
+    }
+
     public async Task<bool> VerifyTotpCodeAsync(
         string userId, string code, CancellationToken cancellationToken = default)
     {

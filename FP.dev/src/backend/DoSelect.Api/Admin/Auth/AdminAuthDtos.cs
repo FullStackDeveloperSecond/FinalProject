@@ -53,3 +53,10 @@ public sealed record TotpEnrollConfirmResponseDto(
     IReadOnlyList<string> RecoveryCodes,
     CurrentUserDto User,
     DateTimeOffset ExpiresAtUtc);
+
+/// <summary>
+/// ⚠ 新增端點請求：已登入管理員重新綁定 TOTP 的確認步驟（換手機情境）。
+/// 對應 UC-ADMIN-AUTH-01「TOTP 重新綁定，既有 Session 失效」的觸發入口。
+/// </summary>
+public sealed record TotpRebindConfirmRequest(
+    [Required, RegularExpression(@"^\d{6}$")] string Code);
