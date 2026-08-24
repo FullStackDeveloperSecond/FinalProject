@@ -4,6 +4,240 @@
  */
 
 export interface paths {
+    "/api/v1/cart": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["CartDto"];
+                        "application/json": components["schemas"]["CartDto"];
+                        "text/json": components["schemas"]["CartDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cart/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AddCartItemRequest"];
+                    "text/json": components["schemas"]["AddCartItemRequest"];
+                    "application/*+json": components["schemas"]["AddCartItemRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["CartDto"];
+                        "application/json": components["schemas"]["CartDto"];
+                        "text/json": components["schemas"]["CartDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cart/items/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RemoveCartItemRequest"];
+                    "text/json": components["schemas"]["RemoveCartItemRequest"];
+                    "application/*+json": components["schemas"]["RemoveCartItemRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["CartDto"];
+                        "application/json": components["schemas"]["CartDto"];
+                        "text/json": components["schemas"]["CartDto"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateCartItemRequest"];
+                    "text/json": components["schemas"]["UpdateCartItemRequest"];
+                    "application/*+json": components["schemas"]["UpdateCartItemRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["CartDto"];
+                        "application/json": components["schemas"]["CartDto"];
+                        "text/json": components["schemas"]["CartDto"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/v1/cart/actions/revalidate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["CartValidationDto"];
+                        "application/json": components["schemas"]["CartValidationDto"];
+                        "text/json": components["schemas"]["CartValidationDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cart/actions/merge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CartMergeRequest"];
+                    "text/json": components["schemas"]["CartMergeRequest"];
+                    "application/*+json": components["schemas"]["CartMergeRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["CartMergeResultDto"];
+                        "application/json": components["schemas"]["CartMergeResultDto"];
+                        "text/json": components["schemas"]["CartMergeResultDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/security/antiforgery-token": {
         parameters: {
             query?: never;
@@ -1257,6 +1491,14 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AddCartItemRequest: {
+            /** Format: uuid */
+            skuPublicId: string;
+            /** Format: int32 */
+            quantity: number | string;
+            /** Format: byte */
+            cartRowVersion: null | string;
+        };
         AdminAssigneeSummaryDto: {
             /** Format: uuid */
             publicId: string;
@@ -1408,6 +1650,89 @@ export interface components {
             /** Format: byte */
             rowVersion?: string;
         };
+        CartAmountsDto: {
+            /** Format: double */
+            subtotal: number | string;
+            /** Format: double */
+            itemDiscount: number | string;
+            /** Format: double */
+            couponDiscount: number | string;
+            /** Format: double */
+            shippingEstimate: null | number | string;
+            /** Format: double */
+            assemblyFee: number | string;
+            /** Format: double */
+            totalEstimate: number | string;
+            currency: string;
+        };
+        CartDto: {
+            /** Format: uuid */
+            publicId: string;
+            items: components["schemas"]["CartItemDto"][];
+            coupon: null | components["schemas"]["CouponAppliedDto"];
+            amounts: components["schemas"]["CartAmountsDto"];
+            warnings: components["schemas"]["CartWarningDto"][];
+            /** Format: byte */
+            rowVersion: string;
+        };
+        CartIssueDto: {
+            /** Format: uuid */
+            itemPublicId: null | string;
+            code: string;
+            severity: string;
+            availableActions: string[];
+        };
+        CartItemDto: {
+            /** Format: uuid */
+            publicId: string;
+            /** Format: uuid */
+            skuPublicId: string;
+            skuCode: string;
+            name: string;
+            /** Format: int32 */
+            quantity: number | string;
+            /** Format: double */
+            unitPrice: number | string;
+            /** Format: double */
+            lineTotal: number | string;
+            availability: string;
+            priceChanged: boolean;
+            /** Format: int32 */
+            maxPurchasableQuantity: number | string;
+            /** Format: uuid */
+            assemblyGroupKey: null | string;
+            /** Format: byte */
+            rowVersion: string;
+        };
+        CartMergeConflictDto: {
+            /** Format: uuid */
+            guestItemPublicId: string;
+            /** Format: uuid */
+            skuPublicId: string;
+            reason: string;
+            /** Format: int32 */
+            acceptedQuantity: number | string;
+        };
+        CartMergeRequest: {
+            guestCartKey: string;
+            strategy: string;
+            idempotencyKey: string;
+        };
+        CartMergeResultDto: {
+            cart: components["schemas"]["CartDto"];
+            conflicts: components["schemas"]["CartMergeConflictDto"][];
+        };
+        CartValidationDto: {
+            cart: components["schemas"]["CartDto"];
+            isCheckoutReady: boolean;
+            issues: components["schemas"]["CartIssueDto"][];
+            /** Format: date-time */
+            validatedAtUtc: string;
+        };
+        CartWarningDto: {
+            code: string;
+            message: string;
+        };
         /** @enum {unknown} */
         CasePriority: "low" | "normal" | "high" | "urgent";
         /** @enum {unknown} */
@@ -1473,6 +1798,11 @@ export interface components {
         ClaimSupportTicketRequest: {
             /** Format: byte */
             rowVersion?: string;
+        };
+        CouponAppliedDto: {
+            code: string;
+            /** Format: double */
+            discountAmount: number | string;
         };
         CreateBrandRequest: {
             code: string;
@@ -1731,6 +2061,10 @@ export interface components {
             dimensions: components["schemas"]["SkuDimensionsSummary"];
             isDefault: boolean;
         };
+        RemoveCartItemRequest: {
+            /** Format: byte */
+            itemRowVersion: string;
+        };
         ShippingRestrictionDto: {
             method: string;
             allowed: boolean;
@@ -1944,6 +2278,14 @@ export interface components {
             isActive: boolean;
             /** Format: byte */
             rowVersion: string;
+        };
+        UpdateCartItemRequest: {
+            /** Format: int32 */
+            quantity: number | string;
+            /** Format: byte */
+            itemRowVersion: string;
+            /** Format: byte */
+            cartRowVersion: string;
         };
         UpdateCategoryRequest: {
             nameZhTw: string;
