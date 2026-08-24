@@ -12,10 +12,4 @@ export type CreateSupportMessageRequest = components['schemas']['CreateSupportMe
 export type CancelSupportTicketRequest = components['schemas']['CancelSupportTicketRequest']
 export type SupportTicketPage = components['schemas']['PageResultOfSupportTicketSummaryDto']
 
-/**
- * The generated OpenAPI schema predates the attachment-upload endpoint (contracts have not been
- * regenerated yet), so this shape is authored by hand from the backend's
- * `SupportAttachmentDto` record. It is deliberately public-safe: no StorageKey, physical path,
- * hash, or scanner output.
- */
 export type SupportAttachmentDto = components['schemas']['SupportAttachmentDto']

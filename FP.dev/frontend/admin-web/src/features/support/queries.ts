@@ -1,3 +1,4 @@
+import { isApiError } from '@doselect/web-shared/api'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { MaybeRefOrGetter } from 'vue'
 import { computed, toValue } from 'vue'
@@ -72,6 +73,16 @@ export function useClaimSupportTicketMutation(ticketId: MaybeRefOrGetter<string>
       // replace the cached AdminSupportTicketDetailDto directly — invalidate and refetch instead.
       await queryClient.invalidateQueries({ queryKey: supportTicketDetailQueryKey(toValue(ticketId)) })
       await queryClient.invalidateQueries({ queryKey: [slaQueueRootKey] })
+    },
+    onError: async (error) => {
+      if (isApiError(error)
+        && error.status === 409
+        && error.code === 'support_ticket_assignment_conflict') {
+        // Another administrator won the assignment race. Refresh both projections so the
+        // assignee, RowVersion and available actions immediately reflect the server state.
+        await queryClient.invalidateQueries({ queryKey: supportTicketDetailQueryKey(toValue(ticketId)) })
+        await queryClient.invalidateQueries({ queryKey: [slaQueueRootKey] })
+      }
     },
   })
 }

@@ -44,6 +44,7 @@ public sealed class SupportTicketsController : ControllerBase
     }
 
     [HttpPost]
+    [ProducesResponseType<SupportTicketDto>(StatusCodes.Status201Created)]
     public async Task<ActionResult<SupportTicketDto>> Create(
         [FromBody] CreateSupportTicketRequest request,
         CancellationToken cancellationToken)
@@ -70,6 +71,8 @@ public sealed class SupportTicketsController : ControllerBase
     }
 
     [HttpPost("{id:guid}/attachments")]
+    [Consumes("multipart/form-data")]
+    [ProducesResponseType<SupportAttachmentDto>(StatusCodes.Status201Created)]
     [RequestSizeLimit(MultipartBodyLengthLimit)]
     [RequestFormLimits(MultipartBodyLengthLimit = MultipartBodyLengthLimit, ValueCountLimit = 2)]
     public async Task<ActionResult<SupportAttachmentDto>> UploadAttachment(

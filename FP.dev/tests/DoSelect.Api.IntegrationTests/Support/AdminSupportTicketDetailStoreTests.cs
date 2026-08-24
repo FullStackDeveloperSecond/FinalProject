@@ -19,7 +19,7 @@ public sealed class AdminSupportTicketDetailStoreTests : IClassFixture<WebApplic
     public AdminSupportTicketDetailStoreTests(WebApplicationFactory<Program> factory) => _factory = factory;
 
     [Fact]
-    public async Task GetDetailAsync_ProjectsPublicAndInternalMessagesInStableOrderUsingTwoQueries()
+    public async Task GetDetailAsync_ProjectsMessagesAndAttachmentsUsingThreeQueries()
     {
         var fixture = await SeedAsync(activeAssignee: true);
         var counter = new ReaderCommandCounter();
@@ -29,7 +29,7 @@ public sealed class AdminSupportTicketDetailStoreTests : IClassFixture<WebApplic
             .GetDetailAsync(fixture.TicketPublicId, CancellationToken.None);
 
         Assert.NotNull(detail);
-        Assert.Equal(2, counter.ReaderCommands);
+        Assert.Equal(3, counter.ReaderCommands);
         Assert.Equal(fixture.AssigneePublicId, detail.AssigneeAdminPublicId);
         Assert.Equal("Public Agent", detail.AssigneeAdminDisplayName);
         Assert.Equal([fixture.EarlierPublicId, fixture.LaterInternalLowPublicId, fixture.LaterInternalHighPublicId],

@@ -4,6 +4,7 @@ import {
   createCorrelationId,
   createNetworkError,
 } from '@doselect/web-shared/api'
+import type { paths } from '@doselect/web-shared/api'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import type { MaybeRefOrGetter } from 'vue'
 import { computed, toValue } from 'vue'
@@ -28,10 +29,14 @@ export interface SupportTicketListFilters {
 
 const listRootKey = 'support-tickets'
 
-// The attachment-upload endpoint (POST /api/v1/support-tickets/{id}/attachments) predates the
-// generated OpenAPI schema (see the SupportAttachmentDto comment in ./types), so it cannot be
-// called through the typed `apiClient`. This provider replicates api/client.ts's antiforgery
-// convention for the one raw multipart request this module needs to make.
+type AttachmentUploadOperation = paths['/api/v1/support-tickets/{id}/attachments']['post']
+type AttachmentUploadForm = AttachmentUploadOperation['requestBody']['content']['multipart/form-data']
+type AttachmentUploadResponse = AttachmentUploadOperation['responses'][201]['content']['application/json']
+const attachmentUploadPath: keyof paths = '/api/v1/support-tickets/{id}/attachments'
+const attachmentFileField: keyof AttachmentUploadForm = 'file'
+
+// openapi-fetch does not serialize browser File values into FormData. Keep that transport adapter
+// explicit while constraining its route and response to the generated OpenAPI operation.
 const attachmentAntiforgeryTokenProvider = createAntiforgeryTokenProvider({
   baseUrl: apiBaseUrl,
   client: 'member',
@@ -112,7 +117,7 @@ export function useUploadSupportAttachmentMutation(ticketId: MaybeRefOrGetter<st
   return useMutation({
     mutationFn: async (file: File): Promise<SupportAttachmentDto> => {
       const body = new FormData()
-      body.append('file', file)
+      body.append(attachmentFileField, file)
 
       const headers = new Headers({ 'X-Correlation-ID': createCorrelationId() })
       const token = await attachmentAntiforgeryTokenProvider.getToken()
@@ -122,7 +127,8 @@ export function useUploadSupportAttachmentMutation(ticketId: MaybeRefOrGetter<st
 
       let response: Response
       try {
-        response = await fetch(`${apiBaseUrl}/api/v1/support-tickets/${toValue(ticketId)}/attachments`, {
+        const route = attachmentUploadPath.replace('{id}', encodeURIComponent(toValue(ticketId)))
+        response = await fetch(`${apiBaseUrl}${route}`, {
           method: 'POST',
           credentials: 'include',
           headers,
@@ -137,7 +143,7 @@ export function useUploadSupportAttachmentMutation(ticketId: MaybeRefOrGetter<st
         throw await createApiError(response)
       }
 
-      return await response.json() as SupportAttachmentDto
+      return await response.json() as AttachmentUploadResponse
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: supportTicketDetailQueryKey(toValue(ticketId)) })

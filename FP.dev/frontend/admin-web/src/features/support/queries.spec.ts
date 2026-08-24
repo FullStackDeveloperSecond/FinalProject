@@ -95,4 +95,42 @@ describe('admin support queries', () => {
 
     wrapper.unmount()
   })
+
+  it('refreshes detail and SLA data when another administrator wins the claim race', async () => {
+    const fetchStub = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ requestToken: 'admin-csrf-token' }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        status: 409,
+        code: 'support_ticket_assignment_conflict',
+        detail: 'The ticket has already been assigned.',
+      }), {
+        status: 409,
+        headers: { 'Content-Type': 'application/problem+json' },
+      }))
+    vi.stubGlobal('fetch', fetchStub)
+    const { useClaimSupportTicketMutation } = await import('./queries')
+    const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+    let claim!: (request: { rowVersion: string }) => Promise<unknown>
+    runHarness = () => {
+      const mutation = useClaimSupportTicketMutation(ticketId)
+      claim = request => mutation.mutateAsync(request)
+    }
+    const wrapper = mount(Harness, {
+      global: { plugins: [[VueQueryPlugin, { queryClient }]] },
+    })
+
+    await expect(claim({ rowVersion: 'AAAAAAAAAAE=' })).rejects.toMatchObject({
+      status: 409,
+      code: 'support_ticket_assignment_conflict',
+    })
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['admin-support-ticket-detail', ticketId],
+    })
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['admin-support-sla-queue'],
+    })
+
+    wrapper.unmount()
+  })
 })
