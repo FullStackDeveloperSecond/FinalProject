@@ -25,6 +25,7 @@ public sealed class EfCartService : ICartService
 
     private const string ConflictResolvedByQuantityChange = "member_adjusted_quantity";
     private const string ConflictResolvedByRemoval = "member_removed_item";
+    private const string ConflictResolvedByGuestCartExpiry = "guest_cart_expired";
 
     private readonly DoSelectDbContext _dbContext;
     private readonly IIdempotencyExecutor _idempotencyExecutor;
@@ -464,6 +465,14 @@ public sealed class EfCartService : ICartService
     {
         var triggerSku = skusById[triggerGuestItem.SkuId];
 
+        // PR #28 review round 5 (組長 ruling): the only path that resolves this conflict is a
+        // later successful re-merge, which needs to still find this exact guest cart
+        // (Status == Active && ExpiresAtUtc > now). Without this, a guest cart that expires
+        // before the member gets around to freeing up space would leave the conflict — and
+        // Checkout — permanently blocked. Extending here gives the member the full cart
+        // lifetime to come back, same as any other cart mutation.
+        guestCart.ExtendExpiry(now.Add(CartLifetime), now);
+
         var alreadyPersisted = await _dbContext.CartMergeConflicts.AnyAsync(
             conflict => conflict.MemberCartId == memberCart.Id &&
                 conflict.GuestCartId == guestCart.Id &&
@@ -483,8 +492,9 @@ public sealed class EfCartService : ICartService
                 acceptedQuantity: 0,
                 ShoppingWriteException.ErrorCodes.CartItemLimitExceeded,
                 now));
-            await _dbContext.SaveChangesAsync(cancellationToken);
         }
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
 
         var conflicts = new List<CartMergeConflictDto>
         {
@@ -648,6 +658,8 @@ public sealed class EfCartService : ICartService
         DateTime now,
         CancellationToken cancellationToken)
     {
+        await ResolveConflictsForExpiredGuestCartsAsync(cart, now, cancellationToken);
+
         var cartItems = await _dbContext.CartItems.AsNoTracking()
             .Where(item => item.CartId == cart.Id)
             .ToListAsync(cancellationToken);
@@ -752,6 +764,66 @@ public sealed class EfCartService : ICartService
         }
 
         return (items, issues, warnings);
+    }
+
+    /// <summary>
+    /// PR #28 review round 5 (組長 ruling): a persisted <c>cart_item_limit_exceeded</c> conflict
+    /// used to only resolve via a successful re-merge — which requires the same guest cart to
+    /// still be found Active and unexpired. If the member never comes back before that guest
+    /// cart's (extended, see <see cref="RejectMergeForItemLimitAsync"/>) expiry finally elapses,
+    /// there was no path left to clear the block, leaving Checkout permanently gated. This
+    /// self-heals on every read: once the guest cart is confirmed gone (not Active, or expired),
+    /// the conflict resolves with a distinct reason so the member isn't stuck forever over a
+    /// guest cart that no longer exists to retry against.
+    /// </summary>
+    private async Task ResolveConflictsForExpiredGuestCartsAsync(Cart cart, DateTime now, CancellationToken cancellationToken)
+    {
+        var unresolvedLimitConflicts = await _dbContext.CartMergeConflicts
+            .Where(conflict => conflict.MemberCartId == cart.Id &&
+                conflict.Reason == ShoppingWriteException.ErrorCodes.CartItemLimitExceeded &&
+                conflict.ResolvedAtUtc == null)
+            .ToListAsync(cancellationToken);
+        if (unresolvedLimitConflicts.Count == 0)
+        {
+            return;
+        }
+
+        var guestCartIds = unresolvedLimitConflicts.Select(conflict => conflict.GuestCartId).Distinct().ToArray();
+        var guestCartStates = await _dbContext.Carts.AsNoTracking()
+            .Where(candidate => guestCartIds.Contains(candidate.Id))
+            .ToDictionaryAsync(candidate => candidate.Id, candidate => (candidate.Status, candidate.ExpiresAtUtc), cancellationToken);
+
+        var resolvedAny = false;
+        foreach (var conflict in unresolvedLimitConflicts)
+        {
+            var stillRetryable = guestCartStates.TryGetValue(conflict.GuestCartId, out var guestCartState) &&
+                guestCartState.Status == CartStatus.Active &&
+                guestCartState.ExpiresAtUtc > now;
+            if (!stillRetryable)
+            {
+                conflict.Resolve(ConflictResolvedByGuestCartExpiry, now);
+                resolvedAny = true;
+            }
+        }
+
+        if (!resolvedAny)
+        {
+            return;
+        }
+
+        try
+        {
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // A concurrent read already resolved the same conflict(s) first — nothing left to
+            // do; the AsNoTracking read right after this call picks up that already-saved state.
+            foreach (var conflict in unresolvedLimitConflicts)
+            {
+                _dbContext.Entry(conflict).State = EntityState.Detached;
+            }
+        }
     }
 
     private readonly record struct AvailabilityConcern(string Availability, string? IssueCode, int MaxPurchasableQuantity);

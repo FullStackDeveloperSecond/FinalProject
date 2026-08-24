@@ -399,6 +399,116 @@ public sealed class CartServiceTests
     }
 
     /// <summary>
+    /// PR #28 review round 4/5: even when the member's own cart happens to already hold the
+    /// exact SKU the cart-level conflict is anchored on (a schema artifact — the conflict has to
+    /// point at *some* GuestItemPublicId／SkuPublicId), touching that one SKU must not clear a
+    /// block that is actually about the whole cart being over 100 items.
+    /// </summary>
+    [Fact]
+    public async Task UpdateItemQuantityAsync_WhenTouchingTheAnchorSkuOfAnItemLimitConflict_DoesNotResolveIt()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var memberUserId = await CartServiceFixture.SeedMemberUserIdAsync(context);
+        var fillerSku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
+        var anchorSku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
+        var guestKey = CartServiceFixture.UniqueGuestKey();
+        var service = CreateService(context);
+
+        // The member's cart already holds the SKU that will become the merge conflict's anchor —
+        // this is the scenario the schema constraint (anchor = first guest item's SKU) can
+        // collide with an unrelated, already-present member item.
+        var memberCartDto = await service.AddItemAsync(
+            new CartIdentity(memberUserId, null), new AddCartItemRequest(anchorSku.PublicId, 1, null), CancellationToken.None);
+        var memberCartId = await context.Carts.Where(c => c.PublicId == memberCartDto.PublicId).Select(c => c.Id).SingleAsync();
+        var now = DateTime.UtcNow;
+        for (var i = 0; i < 99; i++)
+        {
+            context.CartItems.Add(new Domain.Shopping.CartItem(Guid.CreateVersion7(), memberCartId, fillerSku.Id, 1, Guid.CreateVersion7(), now));
+        }
+
+        await context.SaveChangesAsync();
+
+        // Insert the guest item directly as an assembly-group row (mirrors
+        // MergeAsync_WhenGuestItemHasAnAssemblyGroup_NeverCombinesWithAMatchingSku) so it always
+        // creates a new row on merge — pushing the projected count to 101 — even though its SKU
+        // already matches an existing member row that would otherwise just combine quantities.
+        var guestCart = Domain.Shopping.Cart.CreateForGuest(Guid.CreateVersion7(), SHA256HashOfGuestKey(guestKey), now.AddDays(30), now);
+        context.Carts.Add(guestCart);
+        await context.SaveChangesAsync();
+        context.CartItems.Add(new Domain.Shopping.CartItem(Guid.CreateVersion7(), guestCart.Id, anchorSku.Id, 1, Guid.NewGuid(), now));
+        await context.SaveChangesAsync();
+
+        var mergeResult = await service.MergeAsync(
+            memberUserId, new CartMergeRequest(guestKey, "mergeAndReportConflicts", "anchor-sku-key"), CancellationToken.None);
+        Assert.Equal(409, mergeResult.StatusCode);
+
+        var cartAfterMerge = await service.GetCartAsync(new CartIdentity(memberUserId, null), CancellationToken.None);
+        var anchorItem = cartAfterMerge.Items.Single(item => item.SkuPublicId == anchorSku.PublicId);
+
+        await service.UpdateItemQuantityAsync(
+            new CartIdentity(memberUserId, null),
+            anchorItem.PublicId,
+            new UpdateCartItemRequest(2, anchorItem.RowVersion, cartAfterMerge.RowVersion),
+            CancellationToken.None);
+
+        var conflict = await context.CartMergeConflicts.AsNoTracking().SingleAsync(
+            c => c.MemberCartId == memberCartId && c.Reason == ShoppingWriteException.ErrorCodes.CartItemLimitExceeded);
+        Assert.True(conflict.IsBlocking);
+
+        var validation = await service.RevalidateAsync(new CartIdentity(memberUserId, null), CancellationToken.None);
+        Assert.False(validation.IsCheckoutReady);
+    }
+
+    /// <summary>
+    /// PR #28 review round 5 (組長 ruling): if the member never frees up space before the guest
+    /// cart's (extended) expiry finally elapses, there is no successful re-merge left to resolve
+    /// the block — it must self-heal instead of trapping the member forever.
+    /// </summary>
+    [Fact]
+    public async Task RevalidateAsync_WhenTheBlockingGuestCartHasFinallyExpired_ResolvesTheConflictAndReopensCheckout()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var memberUserId = await CartServiceFixture.SeedMemberUserIdAsync(context);
+        var memberSku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
+        var guestSku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
+        var guestKey = CartServiceFixture.UniqueGuestKey();
+        var service = CreateService(context);
+
+        var memberCartDto = await service.AddItemAsync(
+            new CartIdentity(memberUserId, null), new AddCartItemRequest(memberSku.PublicId, 1, null), CancellationToken.None);
+        var memberCartId = await context.Carts.Where(c => c.PublicId == memberCartDto.PublicId).Select(c => c.Id).SingleAsync();
+        var now = DateTime.UtcNow;
+        for (var i = 0; i < 99; i++)
+        {
+            context.CartItems.Add(new Domain.Shopping.CartItem(Guid.CreateVersion7(), memberCartId, memberSku.Id, 1, Guid.CreateVersion7(), now));
+        }
+
+        await context.SaveChangesAsync();
+        var guestCartDto = await service.AddItemAsync(
+            new CartIdentity(null, guestKey), new AddCartItemRequest(guestSku.PublicId, 1, null), CancellationToken.None);
+
+        await service.MergeAsync(
+            memberUserId, new CartMergeRequest(guestKey, "mergeAndReportConflicts", "expiry-key"), CancellationToken.None);
+
+        var blockedValidation = await service.RevalidateAsync(new CartIdentity(memberUserId, null), CancellationToken.None);
+        Assert.False(blockedValidation.IsCheckoutReady);
+
+        // Simulate the guest cart's (extended) expiry finally elapsing — no member action ever
+        // came to free up space or retry the merge.
+        await context.Carts
+            .Where(c => c.PublicId == guestCartDto.PublicId)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(c => c.ExpiresAtUtc, DateTime.UtcNow.AddDays(-1)));
+
+        var validation = await service.RevalidateAsync(new CartIdentity(memberUserId, null), CancellationToken.None);
+
+        Assert.True(validation.IsCheckoutReady);
+        var conflict = await context.CartMergeConflicts.AsNoTracking().SingleAsync(
+            c => c.MemberCartId == memberCartId && c.Reason == ShoppingWriteException.ErrorCodes.CartItemLimitExceeded);
+        Assert.False(conflict.IsBlocking);
+        Assert.Equal("guest_cart_expired", conflict.ResolutionCode);
+    }
+
+    /// <summary>
     /// PR #28 review: once the member frees up room, a fresh merge attempt (new Idempotency-Key,
     /// same guest cart) must succeed, resolve the earlier cart-level conflict, and convert the
     /// guest cart — no separate Resolve API, per 組長's ruling.

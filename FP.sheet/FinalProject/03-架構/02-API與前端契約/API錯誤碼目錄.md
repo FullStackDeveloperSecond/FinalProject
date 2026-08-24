@@ -98,7 +98,7 @@
 | `cart_item_requires_attention` | 409 | 價格、庫存、上下架或相容性衝突尚未處理 |
 | `cart_quantity_exceeded` | 409 | 合併或修改後超過購買上限 |
 | `cart_item_limit_exceeded` | 409 | 購物車已達 100 品項上限，無法再新增；合併訪客購物車時若會超過上限則整次合併被拒絕，訪客購物車維持 Active |
-| `cart_merge_conflict` | 409 | 購物車合併存在需使用者決定的項目 |
+| `cart_merge_conflict` | 200 | 購物車合併存在需使用者決定的個別品項衝突；合併本身仍成功，衝突項目列在回應的 `conflicts` 陣列中 |
 | `build_incomplete` | 400 | 組裝清單缺少必要零件 |
 | `build_incompatible` | 409 | 確定性規則判定零件不相容 |
 | `build_unavailable_item` | 409 | 組裝群組內必要 SKU 缺貨、下架或停用 |
