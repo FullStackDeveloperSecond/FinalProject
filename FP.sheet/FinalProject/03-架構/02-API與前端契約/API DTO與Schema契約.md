@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-23
+最後更新: 2026-08-25
 追蹤項目:
   - DES-10
   - DES-20
@@ -142,6 +142,8 @@
 | `AdminInvoiceDto` | `SimulatedInvoiceDto`＋管理歷程摘要、`availableActions[]`；完整個資仍需 `PersonalData.ViewFull`，不得因 FinanceManager 身分直接回傳 |
 | `VoidSimulatedInvoiceRequest` | `reasonCode:string(1..64)`、`note?:string(0..1000)`、`rowVersion` |
 | `CreateSimulatedInvoiceAllowanceRequest` | `refundPublicId`、`invoiceRowVersion`；金額由後端成功 Refund 及原發票明細推導，不接受客戶端金額；`Idempotency-Key` 使用 Header |
+
+折讓 Reader 依 DEC-P298 將成功 Refund 的七類分攤映射到同一張原發票：`ItemRefund` 建立折讓明細；`OriginalShipping`／`AssemblyFee` 只在原發票有對應收費且本次退還時建立；`ReturnShipping` 不建立；`DiscountClawback`／`ShippingClawback` 只作退款扣回，不建立獨立負值折讓明細；`OtherAdjustment` 第一版拒絕。折讓累計數量與金額不得超過原發票各明細可折讓上限。
 
 模擬發票總額視為含稅，固定 `taxRate = 0.05`、金額位數為 TWD 整數元：`netAmount = Round(grossAmount / 1.05, 0, AwayFromZero)`，`taxAmount = grossAmount - netAmount`。明細最後一筆吸收尾差，發票與折讓皆須滿足明細合計等於表頭；例如 NT$1,000 固定為未稅 952、稅額 48。
 

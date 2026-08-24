@@ -97,6 +97,7 @@ dotnet tool run dotnet-ef -- database update InitialCreate `
 - 退款核准與執行分離；執行使用 Idempotency-Key，累計不得超過可退款餘額。
 - 退款回應固定輸出 `itemRefund`、`originalShipping`、`returnShipping`、`assemblyFee`、`discountClawback`、`shippingClawback`、`otherAdjustment` 七類分攤；Amount 一律為正值並由類型決定方向，V1 新寫入禁止 `otherAdjustment`。
 - 折讓數量只能取自 `RefundAllocation.Quantity`；不得依退款金額比例、固定值或目前退貨申請數量反推。
+- 折讓來源依 DEC-P298 固定映射：`ItemRefund` 建立折讓；原發票確實收取且本次退還的 `OriginalShipping`／`AssemblyFee` 建立折讓；`ReturnShipping`、`DiscountClawback`、`ShippingClawback` 不建立折讓明細；`OtherAdjustment` 第一版禁止。不得把退貨寄回成本或退款扣回偽裝成原發票折讓。
 - 退款執行的 `reasonCode`／安全處理後的 `note` 只寫中央 Audit，不在 Refund 重複建欄位；Audit 與退款狀態、分攤、冪等完成紀錄同交易提交，中央 Audit 實作未完成前 PR #16 不得合併。
 - `requestedBy`／`approvedBy`／`executedBy` 只回 `{ publicId, maskedLabel }`；不得回傳 Internal Identity ID、完整 DisplayName 或完整 Email。
 - 付款、退款、折讓 Event 採 append-only／冪等；不可修改歷史偽裝成新事件。
@@ -128,7 +129,7 @@ dotnet tool run dotnet-ef -- database update InitialCreate `
 
 ## 9. 必要測試
 
-至少覆蓋 `UC-PAY-01`、`UC-COUPON-01`、`UC-REFUND-01`，以及 `UC-CHECKOUT-01`／COD 中你負責的金額與付款部分。必要情境：重複 Idempotency-Key 同結果、同 Key 不同 Payload 衝突、付款重複回呼、期限取較早者、優惠券併發最後名額、適用商品小計門檻、Exhausted 返還、部分退貨門檻重算、後端從可信快照產生完整七類分攤、正值 Allocation 的折扣／免運扣回、組裝費分攤及失敗後無重複副作用。退款另須測 Request 不接受 allocations、ItemRefund 數量不變量、V1 拒絕 OtherAdjustment、Audit 寫入失敗整體回滾，以及管理員摘要不含 Internal Id／完整姓名／完整 Email。發票另測未付款、取消、重複開立、非法作廢、退款後必須折讓、1,000→952＋48、明細尾差及跨訂單授權。後台優惠券與發票 Endpoint 必須分別覆蓋 `Coupon.Manage`、`Invoice.Manage` 的合法角色、錯誤角色、未完成 MFA 與匿名請求；`SuperAdmin` 必須有正向案例。`CouponRuleReader` 與退款／Audit 交易必須以 SQL Server Provider-backed 整合測試驗證，不新增 InMemory／SQLite 取代。
+至少覆蓋 `UC-PAY-01`、`UC-COUPON-01`、`UC-REFUND-01`，以及 `UC-CHECKOUT-01`／COD 中你負責的金額與付款部分。必要情境：重複 Idempotency-Key 同結果、同 Key 不同 Payload 衝突、付款重複回呼、期限取較早者、優惠券併發最後名額、適用商品小計門檻、Exhausted 返還、部分退貨門檻重算、後端從可信快照產生完整七類分攤、正值 Allocation 的折扣／免運扣回、組裝費分攤及失敗後無重複副作用。退款另須測 Request 不接受 allocations、ItemRefund 數量不變量、V1 拒絕 OtherAdjustment、Audit 寫入失敗整體回滾，以及管理員摘要不含 Internal Id／完整姓名／完整 Email。發票另測未付款、取消、重複開立、非法作廢、退款後必須折讓、商品＋原始運費＋組裝費完整退款不漏記並進入 `FullyAllowed`、ReturnShipping／兩種 Clawback 不建立折讓明細、1,000→952＋48、明細尾差及跨訂單授權。後台優惠券與發票 Endpoint 必須分別覆蓋 `Coupon.Manage`、`Invoice.Manage` 的合法角色、錯誤角色、未完成 MFA 與匿名請求；`SuperAdmin` 必須有正向案例。`CouponRuleReader`、退款／Audit 交易與折讓 Reader 必須以 SQL Server Provider-backed 整合測試驗證，不新增 InMemory／SQLite 取代。
 
 固定由 haru 做第一線覆核；退貨案例由 kafen 提供；庫存、配送與報表金額由 terry 共同驗證。金額／退款／私人財務資料必須含未授權角色與 Actor A／B 負面測試。
 
