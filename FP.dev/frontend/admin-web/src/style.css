@@ -134,3 +134,449 @@ button:focus-visible {
     transform: rotate(360deg);
   }
 }
+
+/* ---- 登入 / 2FA ---- */
+
+.app-shell--bare {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  background: #f3f4f6;
+}
+
+.auth-page {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  padding: 2rem;
+}
+
+.auth-card {
+  display: grid;
+  gap: 1rem;
+  width: min(100%, 24rem);
+  padding: 2.5rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.75rem;
+  background: #fff;
+  box-shadow: 0 10px 30px rgb(0 0 0 / 8%);
+}
+
+.auth-card h1 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+.auth-card__subtitle {
+  margin: -0.5rem 0 0;
+  color: #6b7280;
+}
+
+.auth-card__submit {
+  width: 100%;
+}
+
+.auth-card__link {
+  background: none;
+  border: none;
+  color: #2563eb;
+  min-height: auto;
+  padding: 0;
+  text-decoration: underline;
+  justify-self: center;
+}
+
+.field {
+  display: grid;
+  gap: 0.375rem;
+}
+
+.field__label {
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.field--checkbox {
+  grid-auto-flow: column;
+  justify-content: start;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.field-error {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 0.875rem;
+}
+
+input[type='text'],
+input[type='email'],
+input[type='password'],
+input[type='search'],
+input[type='date'],
+select {
+  min-height: 2.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  font: inherit;
+}
+
+.totp-qr-code {
+  width: 12rem;
+  height: 12rem;
+  justify-self: center;
+}
+
+.totp-secret {
+  text-align: center;
+  color: #4b5563;
+  font-size: 0.875rem;
+  word-break: break-all;
+}
+
+.recovery-code-list {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.5rem;
+  margin: 0;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  background: #f9fafb;
+  list-style: none;
+  font-family: ui-monospace, monospace;
+}
+
+/* ---- 後台共用版面 ---- */
+
+.site-header__end {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.current-user {
+  color: #4b5563;
+  font-size: 0.875rem;
+}
+
+.logout-button {
+  min-height: 2.25rem;
+  padding: 0.375rem 0.75rem;
+  font-size: 0.875rem;
+}
+
+.admin-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.admin-sidebar a {
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+}
+
+.admin-sidebar a.router-link-active {
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 700;
+}
+
+.page {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.page__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.page__header h1 {
+  margin: 0;
+}
+
+.link-button {
+  justify-self: start;
+  background: none;
+  border: none;
+  color: #2563eb;
+  min-height: auto;
+  padding: 0;
+  cursor: pointer;
+}
+
+/* ---- 統計 Chip / 篩選列 / 表格 ---- */
+
+.stat-chips {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.stat-chip {
+  display: grid;
+  gap: 0.125rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  background: #f9fafb;
+  text-align: center;
+}
+
+.stat-chip__label {
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.75rem;
+}
+
+.filter-bar__search {
+  flex: 1 1 16rem;
+}
+
+.filter-bar__field {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: #4b5563;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+}
+
+.data-table th,
+.data-table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #e5e7eb;
+  text-align: left;
+}
+
+.data-table__id {
+  font-family: ui-monospace, monospace;
+  color: #6b7280;
+}
+
+.data-table__actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.data-table__actions button {
+  min-height: 2.25rem;
+  padding: 0.375rem 0.75rem;
+  font-size: 0.875rem;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.125rem 0.625rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.badge--active {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.badge--inactive {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+}
+
+.pagination button {
+  min-height: 2.25rem;
+  padding: 0.375rem 0.75rem;
+}
+
+/* ---- 會員中心 ---- */
+
+.member-header {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas: 'avatar info id' 'avatar info actions';
+  align-items: center;
+  gap: 0.5rem 1.5rem;
+  padding: 1.5rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.75rem;
+  background: #fff;
+}
+
+.member-header__avatar {
+  grid-area: avatar;
+  display: grid;
+  place-items: center;
+  width: 4rem;
+  height: 4rem;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.member-header__info {
+  grid-area: info;
+}
+
+.member-header__info h1 {
+  margin: 0 0 0.25rem;
+}
+
+.member-header__info p {
+  margin: 0;
+  color: #4b5563;
+  font-size: 0.875rem;
+}
+
+.member-header__id {
+  grid-area: id;
+  color: #6b7280;
+  font-family: ui-monospace, monospace;
+  justify-self: end;
+}
+
+.member-header__actions {
+  grid-area: actions;
+  display: flex;
+  gap: 0.5rem;
+  justify-self: end;
+}
+
+.member-header__actions button {
+  min-height: 2.25rem;
+  padding: 0.375rem 0.75rem;
+  font-size: 0.875rem;
+}
+
+.action-message {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.member-columns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.5rem;
+}
+
+.member-column {
+  display: grid;
+  align-content: start;
+  gap: 1rem;
+  padding: 1.5rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.75rem;
+  background: #fff;
+}
+
+.member-column h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.detail-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.375rem 0.75rem;
+  margin: 0;
+}
+
+.detail-list dt {
+  color: #6b7280;
+}
+
+.detail-list dd {
+  margin: 0;
+}
+
+.detail-list--stats {
+  padding-top: 1rem;
+  border-top: 1px solid #e5e7eb;
+}
+
+.edit-form {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.edit-form__actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.order-list,
+.activity-log {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.order-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid #f3f4f6;
+  font-size: 0.875rem;
+}
+
+.activity-log {
+  border-inline-start: 2px solid #e5e7eb;
+  padding-inline-start: 1rem;
+}
+
+.activity-log li {
+  padding-bottom: 0.75rem;
+}
+
+.activity-log time {
+  display: block;
+  color: #6b7280;
+  font-size: 0.75rem;
+}
+
+.activity-log p {
+  margin: 0.125rem 0 0;
+}
+
+.empty-hint {
+  color: #9ca3af;
+  font-size: 0.875rem;
+}
+
+@media (width <= 960px) {
+  .member-columns {
+    grid-template-columns: 1fr;
+  }
+}

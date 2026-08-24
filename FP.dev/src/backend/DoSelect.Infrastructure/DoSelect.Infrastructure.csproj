@@ -1,6 +1,12 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <!-- AddDefaultTokenProviders／SignInManager 等 API 只在 ASP.NET Core 共用框架組件，
+         Microsoft.Extensions.Identity.Core NuGet 套件本身不含；TOTP／Recovery Code 綁定必須用到。 -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="MailKit" />
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
@@ -8,6 +14,7 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
+    <PackageReference Include="QRCoder" />
     <PackageReference Include="SixLabors.ImageSharp" />
   </ItemGroup>
 
