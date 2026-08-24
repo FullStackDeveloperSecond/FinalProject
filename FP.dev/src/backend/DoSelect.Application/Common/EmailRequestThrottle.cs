@@ -1,4 +1,5 @@
 using System.Threading.RateLimiting;
+using Microsoft.Extensions.Options;
 
 namespace DoSelect.Application.Common;
 
@@ -10,20 +11,24 @@ namespace DoSelect.Application.Common;
 /// </summary>
 public sealed class EmailRequestThrottle : IEmailRequestThrottle, IDisposable
 {
-    // 3 requests per purpose per email per hour (register / resend-verification /
-    // forgot-password). Placeholder default pending a product decision — see PR discussion.
-    private const int PermitLimit = 3;
-    private static readonly TimeSpan Window = TimeSpan.FromHours(1);
+    private readonly PartitionedRateLimiter<string> _limiter;
 
-    private readonly PartitionedRateLimiter<string> _limiter =
-        PartitionedRateLimiter.Create<string, string>(key =>
+    public EmailRequestThrottle(IOptions<RateLimitOptions> options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        var permitLimit = options.Value.EmailPurposePermitLimit;
+        var window = TimeSpan.FromHours(options.Value.EmailPurposeWindowHours);
+
+        _limiter = PartitionedRateLimiter.Create<string, string>(key =>
             RateLimitPartition.GetFixedWindowLimiter(key, _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = PermitLimit,
-                Window = Window,
+                PermitLimit = permitLimit,
+                Window = window,
                 QueueLimit = 0,
                 AutoReplenishment = true,
             }));
+    }
 
     public bool TryAcquire(string purpose, string email)
     {

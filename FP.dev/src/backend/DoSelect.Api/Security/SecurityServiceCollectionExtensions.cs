@@ -1,4 +1,5 @@
 using DoSelect.Api.Configuration;
+using DoSelect.Application.Common;
 using DoSelect.Infrastructure.Persistence.Identity;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -19,22 +20,6 @@ public static class SecurityServiceCollectionExtensions
     private static readonly TimeSpan MemberIdleTimeout = TimeSpan.FromHours(8);
     private static readonly TimeSpan MemberAbsoluteLifetime = TimeSpan.FromDays(7);
     private static readonly TimeSpan AdminAbsoluteLifetime = TimeSpan.FromHours(2);
-
-    // Per-IP request budget for auth endpoints that accept an email address (register,
-    // resend-verification, forgot-password). Placeholder default pending a product decision —
-    // see PR discussion. Complements the per-email IEmailRequestThrottle in the Application
-    // layer, which protects a single target account from being hit from many different IPs.
-    private const int PerIpPermitLimit = 5;
-    private static readonly TimeSpan PerIpWindow = TimeSpan.FromHours(1);
-
-    // Login is legitimately called far more often than the endpoints above (a real user can
-    // easily mistype a password a few times), so it gets its own, higher budget — high enough to
-    // not annoy a genuine user, low enough to make a password-spray sweep across many accounts
-    // from one source impractical. Identity's per-account Lockout (MemberLoginGateway) is the
-    // other half of this defense; this limiter is the per-IP half. Placeholder default pending a
-    // product decision.
-    private const int LoginPerIpPermitLimit = 20;
-    private static readonly TimeSpan LoginPerIpWindow = TimeSpan.FromHours(1);
 
     public static IServiceCollection AddDoSelectSecurity(
         this IServiceCollection services,
@@ -83,14 +68,30 @@ public static class SecurityServiceCollectionExtensions
             });
         });
 
+        // V1 展示版限流門檻，經 Alex 裁定定版（2026-08-24 review，方案 A1）— see RateLimitOptions.
+        var rateLimits = configuration.GetSection(RateLimitOptions.SectionName).Get<RateLimitOptions>()
+            ?? new RateLimitOptions();
+        var perIpWindow = TimeSpan.FromHours(rateLimits.PerIpWindowHours);
+        var loginPerIpWindow = TimeSpan.FromHours(rateLimits.LoginPerIpWindowHours);
+
         services.AddRateLimiter(options =>
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
-            AddPerIpFixedWindowPolicy(options, RateLimitPolicies.AuthRegister, PerIpPermitLimit, PerIpWindow);
-            AddPerIpFixedWindowPolicy(options, RateLimitPolicies.AuthResendVerification, PerIpPermitLimit, PerIpWindow);
-            AddPerIpFixedWindowPolicy(options, RateLimitPolicies.AuthForgotPassword, PerIpPermitLimit, PerIpWindow);
-            AddPerIpFixedWindowPolicy(options, RateLimitPolicies.AuthLogin, LoginPerIpPermitLimit, LoginPerIpWindow);
+            AddPerIpFixedWindowPolicy(
+                options, RateLimitPolicies.AuthRegister, rateLimits.PerIpPermitLimit, perIpWindow);
+            AddPerIpFixedWindowPolicy(
+                options, RateLimitPolicies.AuthResendVerification, rateLimits.PerIpPermitLimit, perIpWindow);
+            AddPerIpFixedWindowPolicy(
+                options, RateLimitPolicies.AuthForgotPassword, rateLimits.PerIpPermitLimit, perIpWindow);
+            // Login is legitimately called far more often than the endpoints above (a real user
+            // can easily mistype a password a few times), so it gets its own, higher budget —
+            // high enough to not annoy a genuine user, low enough to make a password-spray sweep
+            // across many accounts from one source impractical. Identity's per-account Lockout
+            // (MemberLoginGateway) is the other half of this defense; this limiter is the per-IP
+            // half.
+            AddPerIpFixedWindowPolicy(
+                options, RateLimitPolicies.AuthLogin, rateLimits.LoginPerIpPermitLimit, loginPerIpWindow);
         });
 
         return services;

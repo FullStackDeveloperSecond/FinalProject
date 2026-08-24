@@ -76,9 +76,13 @@ public sealed class RegisterMemberService(
                 // already-registered email must be indistinguishable from a fresh registration —
                 // same status code, same shape, no real PublicId of the existing account. Emitting
                 // a distinct 409/error here (as before) let an unauthenticated caller test which
-                // emails are already members, which the acceptance spec explicitly forbids.
+                // emails are already members, which the acceptance spec explicitly forbids. The
+                // synthetic PublicId must also use the same UUID version as a real one
+                // (CreateVersion7): a v4 fallback here was itself an oracle — the version nibble
+                // in the returned GUID told an attacker new vs. duplicate apart even though the
+                // rest of the response was identical (Alex review, 2026-08-24).
                 return new RegisterMemberResult.Success(
-                    Guid.NewGuid(),
+                    Guid.CreateVersion7(),
                     EmailMasking.Mask(command.Email),
                     AccountStatus.PendingEmailVerification);
 
