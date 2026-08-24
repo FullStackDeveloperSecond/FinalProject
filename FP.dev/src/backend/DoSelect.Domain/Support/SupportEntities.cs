@@ -76,6 +76,22 @@ public sealed class SupportTicket : MutablePublicEntity
         LastActivityAtUtc = RequireUtc(occurredAtUtc, nameof(occurredAtUtc));
         MarkUpdated(occurredAtUtc);
     }
+
+    /// <summary>
+    /// Bumps LastActivityAtUtc for events that do not change Status, such as a new
+    /// message on a ticket that is already InProgress. Closed/Cancelled are terminal —
+    /// no further activity should be recorded against them.
+    /// </summary>
+    public void RecordActivity(DateTime occurredAtUtc)
+    {
+        if (Status is SupportTicketStatus.Closed or SupportTicketStatus.Cancelled)
+        {
+            throw new InvalidOperationException($"A {Status} ticket cannot record new activity.");
+        }
+
+        LastActivityAtUtc = RequireUtc(occurredAtUtc, nameof(occurredAtUtc));
+        MarkUpdated(occurredAtUtc);
+    }
 }
 
 public sealed class SupportMessage : PublicEntity

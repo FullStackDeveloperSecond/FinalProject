@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import DevSessionWidget from './components/DevSessionWidget.vue'
 import { useSessionStore } from './stores/session'
 
 const sessionStore = useSessionStore()
 const router = useRouter()
+const isDevBuild = import.meta.env.DEV
 
 onMounted(() => {
   void sessionStore.refresh()
@@ -29,6 +31,9 @@ async function handleLogout(): Promise<void> {
         <RouterLink to="/">
           首頁
         </RouterLink>
+        <RouterLink to="/support">
+          客服中心
+        </RouterLink>
         <template v-if="sessionStore.isAuthenticated">
           <span class="site-header__member">{{ sessionStore.user?.displayName }}</span>
           <button
@@ -46,6 +51,7 @@ async function handleLogout(): Promise<void> {
           登入／註冊
         </RouterLink>
       </nav>
+      <DevSessionWidget v-if="isDevBuild" />
     </header>
     <main class="site-main">
       <RouterView />
