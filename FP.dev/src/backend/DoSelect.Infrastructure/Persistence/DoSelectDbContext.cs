@@ -1,7 +1,7 @@
 using DoSelect.Domain.Builds;
 using DoSelect.Domain.Catalog;
-using DoSelect.Domain.Imports;
 using DoSelect.Domain.Idempotency;
+using DoSelect.Domain.Imports;
 using DoSelect.Domain.Inventory;
 using DoSelect.Domain.Invoicing;
 using DoSelect.Domain.Members;
