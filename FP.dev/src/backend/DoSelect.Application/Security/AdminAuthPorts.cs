@@ -55,6 +55,14 @@ public interface IAdminAuthGateway
     Task<AdminTotpSecret> GetOrCreateAuthenticatorSecretAsync(
         string userId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// ⚠ 新增：無條件重設 TOTP 秘鑰（換手機等情境）。跟 <see cref="GetOrCreateAuthenticatorSecretAsync"/>
+    /// 不同——後者有既有秘鑰就直接回傳，這個一定產生新的一組。呼叫端須在確認新碼後
+    /// bump SecurityStamp 撤銷其他既有 Session（UC-ADMIN-AUTH-01）。
+    /// </summary>
+    Task<AdminTotpSecret> ResetAuthenticatorSecretAsync(
+        string userId, CancellationToken cancellationToken = default);
+
     Task<bool> VerifyTotpCodeAsync(
         string userId, string code, CancellationToken cancellationToken = default);
 

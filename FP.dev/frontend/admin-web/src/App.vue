@@ -40,6 +40,13 @@ async function onLogout(): Promise<void> {
           v-if="auth.currentUser"
           class="current-user"
         >{{ auth.currentUser.displayName }}</span>
+        <RouterLink
+          v-if="auth.isAuthenticated"
+          to="/security/totp-rebind"
+          class="totp-rebind-link"
+        >
+          重新綁定 TOTP
+        </RouterLink>
         <button
           v-if="auth.isAuthenticated"
           type="button"

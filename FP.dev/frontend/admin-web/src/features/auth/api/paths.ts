@@ -57,6 +57,10 @@ export interface TotpEnrollConfirmResponseDto {
   expiresAtUtc: string
 }
 
+export interface TotpRebindConfirmRequest {
+  code: string
+}
+
 interface ProblemDetails {
   code?: string
   detail?: string
@@ -122,6 +126,23 @@ export interface AdminAuthPaths {
   '/api/v1/admin/auth/totp/enroll/confirm': {
     post: {
       requestBody: { content: { 'application/json': TotpEnrollConfirmRequest } }
+      responses: {
+        200: { content: { 'application/json': TotpEnrollConfirmResponseDto } }
+        400: { content: { 'application/problem+json': ProblemDetails } }
+      }
+    }
+  }
+  '/api/v1/admin/auth/totp/rebind/begin': {
+    post: {
+      responses: {
+        200: { content: { 'application/json': TotpEnrollBeginResponseDto } }
+        401: { content: { 'application/problem+json': ProblemDetails } }
+      }
+    }
+  }
+  '/api/v1/admin/auth/totp/rebind/confirm': {
+    post: {
+      requestBody: { content: { 'application/json': TotpRebindConfirmRequest } }
       responses: {
         200: { content: { 'application/json': TotpEnrollConfirmResponseDto } }
         400: { content: { 'application/problem+json': ProblemDetails } }

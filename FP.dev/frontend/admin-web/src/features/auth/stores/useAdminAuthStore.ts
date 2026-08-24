@@ -209,6 +209,53 @@ export const useAdminAuthStore = defineStore('adminAuth', {
       }
     },
 
+    /// ⚠ 讓已登入管理員重新綁定 TOTP（例如換手機）。跟 beginEnrollment/confirmEnrollment
+    /// 不同，這裡的呼叫者已經是完整登入狀態，不經過 challenge 流程。
+    async beginRebind(): Promise<TotpEnrollBeginResponseDto | null> {
+      this.loading = true
+      this.errorMessage = null
+      try {
+        const { data, error } = await client().POST('/api/v1/admin/auth/totp/rebind/begin')
+        if (error) {
+          this.errorMessage = messageForCode(error.code)
+          return null
+        }
+        return data ?? null
+      } catch (caught) {
+        this.errorMessage = isApiError(caught) ? messageForCode(caught.code) : '無法連線到伺服器。'
+        return null
+      } finally {
+        this.loading = false
+      }
+    },
+
+    async confirmRebind(code: string): Promise<string[] | null> {
+      this.loading = true
+      this.errorMessage = null
+      try {
+        const { data, error } = await client().POST('/api/v1/admin/auth/totp/rebind/confirm', {
+          body: { code },
+        })
+        if (error) {
+          this.errorMessage = messageForCode(error.code)
+          return null
+        }
+        if (data) {
+          this.session = { isAuthenticated: true, user: data.user, expiresAtUtc: data.expiresAtUtc, requiresTwoFactor: null }
+          // 完成後這個請求所在的 Session 會用新的 SecurityStamp 重新簽發，
+          // 其他既有裝置的 Session 全部失效。保守起見一併重抓 antiforgery token。
+          resetAntiforgeryToken()
+          return data.recoveryCodes
+        }
+        return null
+      } catch (caught) {
+        this.errorMessage = isApiError(caught) ? messageForCode(caught.code) : '無法連線到伺服器。'
+        return null
+      } finally {
+        this.loading = false
+      }
+    },
+
     async logout(): Promise<void> {
       await client().POST('/api/v1/admin/auth/logout')
       this.session = { isAuthenticated: false, user: null, expiresAtUtc: null, requiresTwoFactor: null }

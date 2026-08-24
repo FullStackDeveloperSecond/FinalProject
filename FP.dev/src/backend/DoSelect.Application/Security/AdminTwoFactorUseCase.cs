@@ -140,4 +140,41 @@ public sealed class AdminTwoFactorUseCase
             ? AdminEnrollmentConfirmResult.Failure(AdminAuthErrorCodes.TwoFactorInvalid)
             : AdminEnrollmentConfirmResult.Success(user, recoveryCodes);
     }
+
+    /// <summary>
+    /// ⚠ 新增：讓已登入管理員重新綁定 TOTP（例如換手機）。跟 <see cref="BeginEnrollmentAsync"/>
+    /// 不同——這裡呼叫 <see cref="IAdminAuthGateway.ResetAuthenticatorSecretAsync"/>，
+    /// 無條件產生新秘鑰，取代舊的。呼叫端（Api 層）需在 Confirm 成功後 bump
+    /// SecurityStamp，讓既有 Session 失效（UC-ADMIN-AUTH-01 的撤銷情境）。
+    /// </summary>
+    public async Task<AdminEnrollmentBeginResult> BeginRebindAsync(
+        string userId, CancellationToken cancellationToken = default)
+    {
+        var secret = await _gateway.ResetAuthenticatorSecretAsync(userId, cancellationToken);
+        var qrCodeDataUri = _qrCodeGenerator.CreatePngDataUri(secret.OtpAuthUri);
+        return new AdminEnrollmentBeginResult(secret.SecretKey, secret.OtpAuthUri, qrCodeDataUri);
+    }
+
+    /// <summary>驗證新裝置的碼、重新產生 Recovery Code（舊的一併失效）。</summary>
+    public async Task<AdminEnrollmentConfirmResult> ConfirmRebindAsync(
+        string userId, string code, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            return AdminEnrollmentConfirmResult.Failure(AdminAuthErrorCodes.TwoFactorInvalid);
+        }
+
+        if (!await _gateway.VerifyTotpCodeAsync(userId, code.Trim(), cancellationToken))
+        {
+            return AdminEnrollmentConfirmResult.Failure(AdminAuthErrorCodes.TwoFactorInvalid);
+        }
+
+        var recoveryCodes = await _gateway.GenerateRecoveryCodesAsync(
+            userId, RecoveryCodeCount, cancellationToken);
+
+        var user = await _gateway.FindAdminByIdAsync(userId, cancellationToken);
+        return user is null
+            ? AdminEnrollmentConfirmResult.Failure(AdminAuthErrorCodes.TwoFactorInvalid)
+            : AdminEnrollmentConfirmResult.Success(user, recoveryCodes);
+    }
 }
