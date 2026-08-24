@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using DoSelect.Application.Common;
 using DoSelect.Domain.Support;
 
 namespace DoSelect.Application.Support.Dtos;
@@ -6,13 +7,16 @@ namespace DoSelect.Application.Support.Dtos;
 public sealed record CreateSupportTicketRequest
 {
     [Required]
-    public SupportTicketCategory Category { get; init; }
+    [EnumDataType(typeof(SupportTicketCategory))]
+    public SupportTicketCategory? Category { get; init; }
 
     [Required]
+    [NotWhiteSpace]
     [StringLength(200, MinimumLength = 1)]
     public string Subject { get; init; } = string.Empty;
 
     [Required]
+    [NotWhiteSpace]
     [StringLength(4000, MinimumLength = 1)]
     public string Message { get; init; } = string.Empty;
 
@@ -22,6 +26,7 @@ public sealed record CreateSupportTicketRequest
 public sealed record CreateSupportMessageRequest
 {
     [Required]
+    [NotWhiteSpace]
     [StringLength(4000, MinimumLength = 1)]
     public string Body { get; init; } = string.Empty;
 
@@ -32,6 +37,7 @@ public sealed record CreateSupportMessageRequest
 public sealed record CancelSupportTicketRequest
 {
     [Required]
+    [NotWhiteSpace]
     [StringLength(500, MinimumLength = 1)]
     public string ReasonCode { get; init; } = string.Empty;
 
@@ -100,4 +106,7 @@ public sealed record SupportTicketDto(
     int ReopenCount,
     IReadOnlyList<string> AvailableActions,
     IReadOnlyList<SupportMessageDto> Messages,
-    byte[] RowVersion);
+    byte[] RowVersion)
+{
+    public IReadOnlyList<SupportAttachmentDto> Attachments { get; init; } = [];
+}

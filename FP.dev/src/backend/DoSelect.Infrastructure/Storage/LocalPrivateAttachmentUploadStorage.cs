@@ -1,6 +1,6 @@
 using DoSelect.Application.Storage;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace DoSelect.Infrastructure.Storage;
 
@@ -19,15 +19,11 @@ public sealed class LocalPrivateAttachmentUploadStorage : IPrivateAttachmentUplo
     private readonly ILogger<LocalPrivateAttachmentUploadStorage> _logger;
 
     public LocalPrivateAttachmentUploadStorage(
-        IConfiguration configuration,
+        IOptions<StorageOptions> options,
         ILogger<LocalPrivateAttachmentUploadStorage> logger)
     {
         _logger = logger;
-        var dataRoot = configuration["Storage:DataRoot"];
-        if (string.IsNullOrWhiteSpace(dataRoot))
-        {
-            throw new InvalidOperationException("Configuration key 'Storage:DataRoot' is required.");
-        }
+        var dataRoot = options.Value.DataRoot;
 
         _finalRoot = Path.GetFullPath(Path.Combine(dataRoot, "private", "support"));
         _tempRoot = Path.GetFullPath(Path.Combine(dataRoot, "private", "support-uploads-tmp"));

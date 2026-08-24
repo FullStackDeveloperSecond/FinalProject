@@ -35,12 +35,13 @@ describe('admin support queries', () => {
 
     await vi.waitFor(() => expect(fetchStub).toHaveBeenCalledOnce())
     const [input, init] = fetchStub.mock.calls[0] ?? []
-    const url = new URL(String(input))
+    const request = input instanceof Request ? input : new Request(String(input), init)
+    const url = new URL(request.url)
     expect(url.pathname).toBe('/api/v1/admin/support-tickets/sla')
-    expect(url.searchParams.get('pageSize')).toBe('20')
-    expect(url.searchParams.get('cursor')).toBe('opaque+cursor/==')
-    expect(init).toMatchObject({ credentials: 'include' })
-    expect(new Headers(init?.headers).get('X-Correlation-ID')).toMatch(/^[0-9a-f]{32}$/)
+    expect(url.searchParams.get('PageSize')).toBe('20')
+    expect(url.searchParams.get('Cursor')).toBe('opaque+cursor/==')
+    expect(request.credentials).toBe('include')
+    expect(request.headers.get('X-Correlation-ID')).toMatch(/^[0-9a-f]{32}$/)
 
     wrapper.unmount()
   })
@@ -73,14 +74,15 @@ describe('admin support queries', () => {
     expect(new Headers(fetchStub.mock.calls[0]?.[1]?.headers).get('X-DoSelect-Client')).toBe('admin')
 
     const [claimUrl, claimInit] = fetchStub.mock.calls[1] ?? []
-    expect(claimUrl)
+    const claimRequest = claimUrl instanceof Request
+      ? claimUrl
+      : new Request(String(claimUrl), claimInit)
+    expect(claimRequest.url)
       .toBe(`http://localhost:5126/api/v1/admin/support-tickets/${ticketId}/actions/claim`)
-    expect(claimInit).toMatchObject({
-      method: 'POST',
-      credentials: 'include',
-      body: JSON.stringify({ rowVersion: 'AAAAAAAAAAE=' }),
-    })
-    const headers = new Headers(claimInit?.headers)
+    expect(claimRequest.method).toBe('POST')
+    expect(claimRequest.credentials).toBe('include')
+    await expect(claimRequest.clone().json()).resolves.toEqual({ rowVersion: 'AAAAAAAAAAE=' })
+    const headers = claimRequest.headers
     expect(headers.get('Content-Type')).toBe('application/json')
     expect(headers.get('X-XSRF-TOKEN')).toBe('admin-csrf-token')
     expect(headers.get('X-Correlation-ID')).toMatch(/^[0-9a-f]{32}$/)

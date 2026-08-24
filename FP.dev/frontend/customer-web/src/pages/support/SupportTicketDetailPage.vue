@@ -17,6 +17,7 @@ import {
   maxAttachmentSizeBytes,
 } from '../../features/support/attachments'
 import type { AttachmentChangeEvent, AttachmentFile, AttachmentInputElement } from '../../features/support/attachments'
+import { apiBaseUrl } from '../../api/client'
 import type { SupportAttachmentDto } from '../../features/support/types'
 
 const route = useRoute()
@@ -38,6 +39,13 @@ const attachmentInput = ref<AttachmentInputElement | null>(null)
 const selectedAttachment = ref<AttachmentFile | null>(null)
 const attachmentValidationError = ref('')
 const uploadedAttachments = ref<SupportAttachmentDto[]>([])
+const displayedAttachments = computed(() => {
+  const byId = new Map<string, SupportAttachmentDto>()
+  for (const attachment of [...(ticket.value?.attachments ?? []), ...uploadedAttachments.value]) {
+    byId.set(attachment.publicId, attachment)
+  }
+  return [...byId.values()]
+})
 
 function resetAttachmentInput() {
   if (attachmentInput.value) {
@@ -77,7 +85,7 @@ async function handleUploadAttachment() {
 
   try {
     const uploaded = await uploadAttachmentMutation.mutateAsync(selectedAttachment.value)
-    uploadedAttachments.value = [...uploadedAttachments.value, uploaded]
+    uploadedAttachments.value.push(uploaded)
     selectedAttachment.value = null
     resetAttachmentInput()
   }
@@ -266,16 +274,19 @@ async function handleCancel() {
         </form>
 
         <ul
-          v-if="uploadedAttachments.length > 0"
+          v-if="displayedAttachments.length"
           class="support-ticket-detail__attachment-list"
         >
           <li
-            v-for="attachment in uploadedAttachments"
+            v-for="attachment in displayedAttachments"
             :key="attachment.publicId"
           >
             <span class="tag">已上傳</span>
-            {{ attachment.originalFileName }}
-            （{{ formatFileSize(attachment.fileSizeBytes) }}・{{ formatDateTime(attachment.createdAtUtc) }}）
+            <a
+              :href="`${apiBaseUrl}/api/v1/private-attachments/${attachment.publicId}/content`"
+              class="support-ticket-detail__attachment-link"
+            >{{ attachment.originalFileName }}</a>
+            （{{ formatFileSize(Number(attachment.fileSizeBytes)) }}・{{ formatDateTime(attachment.createdAtUtc) }}）
           </li>
         </ul>
       </section>

@@ -18,10 +18,4 @@ export type SupportTicketPage = components['schemas']['PageResultOfSupportTicket
  * `SupportAttachmentDto` record. It is deliberately public-safe: no StorageKey, physical path,
  * hash, or scanner output.
  */
-export interface SupportAttachmentDto {
-  publicId: string
-  originalFileName: string
-  mimeType: string
-  fileSizeBytes: number
-  createdAtUtc: string
-}
+export type SupportAttachmentDto = components['schemas']['SupportAttachmentDto']

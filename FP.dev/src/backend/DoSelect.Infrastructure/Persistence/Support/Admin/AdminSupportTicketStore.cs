@@ -1,4 +1,5 @@
 using DoSelect.Application.Support.Admin;
+using DoSelect.Application.Support.Dtos;
 using DoSelect.Domain.Support;
 using Microsoft.EntityFrameworkCore;
 
@@ -213,6 +214,21 @@ public sealed class AdminSupportTicketStore : IAdminSupportTicketStore
                 m.SentAtUtc))
             .ToListAsync(cancellationToken);
 
+        var attachments = await _dbContext.SupportAttachments
+            .AsNoTracking()
+            .Where(a => a.SupportTicketId == row.Id &&
+                a.DeletedAtUtc == null &&
+                a.ScanStatus == PrivateAttachmentScanStatus.Clean)
+            .OrderBy(a => a.CreatedAtUtc)
+            .ThenBy(a => a.PublicId)
+            .Select(a => new SupportAttachmentDto(
+                a.PublicId,
+                a.OriginalFileName,
+                a.MimeType,
+                a.FileSizeBytes,
+                a.CreatedAtUtc))
+            .ToListAsync(cancellationToken);
+
         return new AdminSupportTicketDetail(
             row.PublicId,
             row.TicketNumber,
@@ -232,6 +248,7 @@ public sealed class AdminSupportTicketStore : IAdminSupportTicketStore
             row.ClosedAtUtc,
             row.ReopenCount,
             row.RowVersion,
-            messages);
+            messages,
+            attachments);
     }
 }

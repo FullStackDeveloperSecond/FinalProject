@@ -128,7 +128,7 @@ const errorTitle = computed(() => {
                 {{ formatDateTime(item.effectiveDueAtUtc) }}
               </td>
               <td data-label="SLA 使用率">
-                {{ formatSlaUsage(item.usageRatio) }}
+                {{ formatSlaUsage(Number(item.usageRatio)) }}
               </td>
               <td data-label="最後活動時間">
                 {{ formatDateTime(item.lastActivityAtUtc) }}

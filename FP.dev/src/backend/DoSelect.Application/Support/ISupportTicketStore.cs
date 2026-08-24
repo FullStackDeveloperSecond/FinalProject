@@ -42,6 +42,10 @@ public interface ISupportTicketStore
         long ticketId,
         CancellationToken cancellationToken);
 
+    Task<IReadOnlyList<SupportAttachmentDto>> ListCleanAttachmentsAsync(
+        long ticketId,
+        CancellationToken cancellationToken);
+
     Task<Guid?> FindOrderPublicIdAsync(long orderId, CancellationToken cancellationToken);
 
     /// <summary>

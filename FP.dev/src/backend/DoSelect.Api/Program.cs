@@ -28,7 +28,7 @@ builder.Services.AddAiSupport();
 builder.Services.AddOpenApi();
 builder.Services.AddDoSelectPersistence(builder.Configuration);
 builder.Services.AddDoSelectIdempotency(builder.Configuration);
-builder.Services.AddDoSelectFileStorage(builder.Configuration);
+builder.Services.AddDoSelectFileStorage();
 builder.Services.AddDoSelectSecurity(builder.Environment, builder.Configuration);
 builder.Services.AddDoSelectRefunds();
 builder.Services.AddDoSelectCatalogServices();

@@ -1,5 +1,5 @@
 using DoSelect.Application.Storage;
-using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 
 namespace DoSelect.Infrastructure.Storage;
 
@@ -14,15 +14,9 @@ public sealed class LocalPrivateFileStorage : IPrivateFileStorage
 {
     private readonly string _rootPath;
 
-    public LocalPrivateFileStorage(IConfiguration configuration)
+    public LocalPrivateFileStorage(IOptions<StorageOptions> options)
     {
-        var dataRoot = configuration["Storage:DataRoot"];
-        if (string.IsNullOrWhiteSpace(dataRoot))
-        {
-            throw new InvalidOperationException("Configuration key 'Storage:DataRoot' is required.");
-        }
-
-        _rootPath = Path.GetFullPath(Path.Combine(dataRoot, "private", "support"));
+        _rootPath = Path.GetFullPath(Path.Combine(options.Value.DataRoot, "private", "support"));
     }
 
     public Task<Stream?> OpenReadAsync(string storageKey, CancellationToken cancellationToken)

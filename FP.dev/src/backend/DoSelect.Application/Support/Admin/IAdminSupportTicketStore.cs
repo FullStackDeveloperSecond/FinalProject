@@ -1,3 +1,4 @@
+using DoSelect.Application.Support.Dtos;
 using DoSelect.Domain.Support;
 
 namespace DoSelect.Application.Support.Admin;
@@ -116,7 +117,8 @@ public sealed record AdminSupportTicketDetail(
     DateTime? ClosedAtUtc,
     int ReopenCount,
     byte[] RowVersion,
-    IReadOnlyList<AdminSupportMessageProjection> Messages);
+    IReadOnlyList<AdminSupportMessageProjection> Messages,
+    IReadOnlyList<SupportAttachmentDto> Attachments);
 
 /// <summary>
 /// A single message or internal note as projected for admin use. Never carries SenderUserId,

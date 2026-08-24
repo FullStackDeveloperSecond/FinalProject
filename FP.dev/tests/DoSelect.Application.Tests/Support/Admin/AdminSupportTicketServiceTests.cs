@@ -209,7 +209,7 @@ public sealed class AdminSupportTicketServiceTests
         Guid.NewGuid(), "CS-DETAIL", SupportTicketCategory.Other, "Detail", status, CasePriority.High,
         Guid.NewGuid(), assigned ? Guid.NewGuid() : null, assigned ? "Visible Agent" : null, Now.UtcDateTime.AddDays(-1), Now.UtcDateTime.AddMinutes(-2),
         firstResponseDueAtUtc ?? Now.UtcDateTime.AddHours(1), resolutionDueAtUtc ?? Now.UtcDateTime.AddHours(8),
-        firstHumanResponseAtUtc, null, null, 2, new byte[8], messages ?? []);
+        firstHumanResponseAtUtc, null, null, 2, new byte[8], messages ?? [], []);
 
     private sealed class StubAdminSupportTicketStore : IAdminSupportTicketStore
     {

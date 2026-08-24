@@ -42,7 +42,7 @@ public static class ApiFoundationExtensions
             {
                 // API DTO契約: enums serialize as stable camelCase tokens, never raw ints.
                 options.JsonSerializerOptions.Converters.Add(
-                    new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
+                    new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false));
             })
             .ConfigureApiBehaviorOptions(options =>
             {
@@ -64,7 +64,7 @@ public static class ApiFoundationExtensions
         services.ConfigureHttpJsonOptions(options =>
         {
             options.SerializerOptions.Converters.Add(
-                new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
+                new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false));
         });
 
         return services;

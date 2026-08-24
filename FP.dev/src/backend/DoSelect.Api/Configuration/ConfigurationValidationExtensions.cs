@@ -1,5 +1,6 @@
 using System.Net.Mail;
 using DoSelect.Application.Common;
+using DoSelect.Application.Storage;
 using DoSelect.Infrastructure.Email;
 using Microsoft.Extensions.Options;
 

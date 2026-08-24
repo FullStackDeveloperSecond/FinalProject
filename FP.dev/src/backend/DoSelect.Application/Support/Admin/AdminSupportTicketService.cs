@@ -121,7 +121,10 @@ public sealed class AdminSupportTicketService : IAdminSupportTicketService
             m.IsInternal,
             m.Body,
             m.Language,
-            m.SentAtUtc))]);
+            m.SentAtUtc))])
+    {
+        Attachments = detail.Attachments,
+    };
 
     private static AdminSupportTicketDto ToDto(ClaimedSupportTicket ticket) => new(
         ticket.PublicId,

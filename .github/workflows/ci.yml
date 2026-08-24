@@ -131,6 +131,38 @@ jobs:
           --startup-project src/backend/DoSelect.Api
           --no-build
 
+      - name: Set up Node.js for OpenAPI contract check
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: FP.dev/.nvmrc
+          cache: npm
+          cache-dependency-path: FP.dev/frontend/customer-web/package-lock.json
+
+      - name: Install OpenAPI generator dependencies
+        run: npm ci
+        working-directory: FP.dev/frontend/customer-web
+
+      - name: Verify committed OpenAPI client is current
+        shell: bash
+        run: |
+          ASPNETCORE_URLS=http://127.0.0.1:5126 dotnet run \
+            --project src/backend/DoSelect.Api/DoSelect.Api.csproj --no-build \
+            > "$RUNNER_TEMP/doselect-api.log" 2>&1 &
+          api_pid=$!
+          trap 'kill "$api_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:5126/openapi/v1.json > /dev/null; then
+              break
+            fi
+            if ! kill -0 "$api_pid" 2>/dev/null; then
+              cat "$RUNNER_TEMP/doselect-api.log"
+              exit 1
+            fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:5126/openapi/v1.json > /dev/null
+          npm run api:check --prefix frontend/customer-web
+
       - name: Run .NET tests
         # DEV-07: SQL Server Provider-backed integration tests need a live SQL Server
         # (no Docker/SQL runner is authorized for this required Linux CI yet), so they're

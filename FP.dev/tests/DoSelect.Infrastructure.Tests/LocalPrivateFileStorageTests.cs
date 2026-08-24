@@ -1,5 +1,6 @@
+using DoSelect.Application.Storage;
 using DoSelect.Infrastructure.Storage;
-using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 
 namespace DoSelect.Infrastructure.Tests;
 
@@ -50,9 +51,7 @@ public sealed class LocalPrivateFileStorageTests : IDisposable
 
     private LocalPrivateFileStorage CreateStorage()
     {
-        var configuration = new ConfigurationBuilder().AddInMemoryCollection(
-            new Dictionary<string, string?> { ["Storage:DataRoot"] = _dataRoot }).Build();
-        return new LocalPrivateFileStorage(configuration);
+        return new LocalPrivateFileStorage(Options.Create(new StorageOptions { DataRoot = _dataRoot }));
     }
 
     public void Dispose()

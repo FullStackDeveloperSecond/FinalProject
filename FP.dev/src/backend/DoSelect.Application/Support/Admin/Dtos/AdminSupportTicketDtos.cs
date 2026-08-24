@@ -78,4 +78,7 @@ public sealed record AdminSupportTicketDetailDto(
     int ReopenCount,
     IReadOnlyList<string> AvailableActions,
     byte[] RowVersion,
-    IReadOnlyList<AdminSupportMessageDto> Messages);
+    IReadOnlyList<AdminSupportMessageDto> Messages)
+{
+    public IReadOnlyList<SupportAttachmentDto> Attachments { get; init; } = [];
+}

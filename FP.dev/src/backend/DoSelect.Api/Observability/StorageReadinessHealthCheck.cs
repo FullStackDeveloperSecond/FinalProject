@@ -1,4 +1,4 @@
-using DoSelect.Api.Configuration;
+using DoSelect.Application.Storage;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 

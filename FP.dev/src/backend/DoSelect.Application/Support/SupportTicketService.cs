@@ -59,7 +59,7 @@ public sealed class SupportTicketService : ISupportTicketService
                 ticketNumber,
                 memberUserId,
                 orderId,
-                request.Category,
+                request.Category!.Value,
                 request.Subject,
                 priority,
                 firstResponseDueAtUtc,
@@ -150,8 +150,12 @@ public sealed class SupportTicketService : ISupportTicketService
     {
         var ticket = await LoadOwnedTicketAsync(memberUserId, ticketPublicId, cancellationToken);
         var messages = await _store.ListPublicMessagesAsync(ticket.Id, cancellationToken);
+        var attachments = await _store.ListCleanAttachmentsAsync(ticket.Id, cancellationToken);
         var orderPublicId = await ResolveOrderPublicIdAsync(ticket.OrderId, cancellationToken);
-        return ToDto(ticket, orderPublicId, messages, _timeProvider.GetUtcNow().UtcDateTime);
+        return ToDto(ticket, orderPublicId, messages, _timeProvider.GetUtcNow().UtcDateTime) with
+        {
+            Attachments = attachments,
+        };
     }
 
     public async Task<SupportTicketDto> AddMessageAsync(

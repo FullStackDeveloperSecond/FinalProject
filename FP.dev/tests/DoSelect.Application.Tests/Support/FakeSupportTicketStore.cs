@@ -106,6 +106,11 @@ internal sealed class FakeSupportTicketStore : ISupportTicketStore
                 .OrderBy(m => m.SentAtUtc)
                 .ToList());
 
+    public Task<IReadOnlyList<SupportAttachmentDto>> ListCleanAttachmentsAsync(
+        long ticketId,
+        CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<SupportAttachmentDto>>([]);
+
     public Task<Guid?> FindOrderPublicIdAsync(long orderId, CancellationToken cancellationToken) =>
         Task.FromResult<Guid?>(null);
 

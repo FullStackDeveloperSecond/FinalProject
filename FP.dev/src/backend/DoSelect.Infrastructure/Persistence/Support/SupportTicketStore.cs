@@ -122,6 +122,24 @@ public sealed class SupportTicketStore : ISupportTicketStore
             .ThenBy(m => m.Id)
             .ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<SupportAttachmentDto>> ListCleanAttachmentsAsync(
+        long ticketId,
+        CancellationToken cancellationToken) =>
+        await _dbContext.SupportAttachments
+            .AsNoTracking()
+            .Where(a => a.SupportTicketId == ticketId &&
+                a.DeletedAtUtc == null &&
+                a.ScanStatus == PrivateAttachmentScanStatus.Clean)
+            .OrderBy(a => a.CreatedAtUtc)
+            .ThenBy(a => a.PublicId)
+            .Select(a => new SupportAttachmentDto(
+                a.PublicId,
+                a.OriginalFileName,
+                a.MimeType,
+                a.FileSizeBytes,
+                a.CreatedAtUtc))
+            .ToListAsync(cancellationToken);
+
     public async Task<Guid?> FindOrderPublicIdAsync(long orderId, CancellationToken cancellationToken) =>
         await _dbContext.Orders
             .Where(o => o.Id == orderId)

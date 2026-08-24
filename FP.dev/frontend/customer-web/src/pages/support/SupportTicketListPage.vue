@@ -1,18 +1,28 @@
 <script setup lang="ts">
 import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
-import { ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useSupportTicketsQuery } from '../../features/support/queries'
 import { categoryLabels, formatDateTime, statusLabels } from '../../features/support/labels'
 import type { SupportTicketCategory, SupportTicketStatus } from '../../features/support/types'
 
 const statusFilter = ref<SupportTicketStatus | ''>('')
 const categoryFilter = ref<SupportTicketCategory | ''>('')
+const pageNumber = ref(1)
+const pageSize = 20
 
 const { data, isPending, isError, error, refetch } = useSupportTicketsQuery(() => ({
   status: statusFilter.value || undefined,
   category: categoryFilter.value || undefined,
+  pageNumber: pageNumber.value,
+  pageSize,
 }))
+
+watch([statusFilter, categoryFilter], () => {
+  pageNumber.value = 1
+})
+
+const totalPages = computed(() => Math.max(1, Math.ceil(Number(data.value?.totalCount ?? 0) / pageSize)))
 </script>
 
 <template>
@@ -126,6 +136,26 @@ const { data, isPending, isError, error, refetch } = useSupportTicketsQuery(() =
       <p class="support-tickets__count">
         共 {{ data.totalCount }} 筆
       </p>
+      <nav
+        class="support-tickets__pagination"
+        aria-label="客服案件分頁"
+      >
+        <button
+          type="button"
+          :disabled="pageNumber <= 1"
+          @click="pageNumber--"
+        >
+          上一頁
+        </button>
+        <span>第 {{ pageNumber }} / {{ totalPages }} 頁</span>
+        <button
+          type="button"
+          :disabled="pageNumber >= totalPages"
+          @click="pageNumber++"
+        >
+          下一頁
+        </button>
+      </nav>
     </template>
   </section>
 </template>
@@ -182,6 +212,14 @@ const { data, isPending, isError, error, refetch } = useSupportTicketsQuery(() =
   margin-top: 1rem;
   color: var(--color-text-muted);
   font-size: 0.875rem;
+}
+
+.support-tickets__pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1rem;
 }
 
 @media (max-width: 640px) {

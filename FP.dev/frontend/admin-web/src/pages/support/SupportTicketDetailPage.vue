@@ -5,6 +5,7 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useClaimSupportTicketMutation, useSupportTicketDetailQuery } from '../../features/support/queries'
 import { categoryLabels, formatDateTime, priorityLabels, senderTypeLabels, statusLabels } from '../../features/support/labels'
+import { apiBaseUrl } from '../../api/client'
 
 const route = useRoute()
 const ticketId = computed(() => String(route.params.ticketId))
@@ -205,6 +206,34 @@ async function handleClaim() {
           </li>
         </ul>
       </section>
+
+      <section
+        class="support-ticket-detail__attachments"
+        aria-labelledby="support-ticket-attachments-title"
+      >
+        <h2 id="support-ticket-attachments-title">
+          案件附件
+        </h2>
+        <EmptyState
+          v-if="!ticket.attachments?.length"
+          title="沒有可下載的附件"
+          description="只有通過安全掃描且未刪除的附件會顯示在這裡。"
+        />
+        <ul
+          v-else
+          class="support-ticket-detail__attachment-list"
+        >
+          <li
+            v-for="attachment in ticket.attachments"
+            :key="attachment.publicId"
+          >
+            <a :href="`${apiBaseUrl}/api/v1/private-attachments/${attachment.publicId}/content`">
+              {{ attachment.originalFileName }}
+            </a>
+            <span>・{{ Math.ceil(Number(attachment.fileSizeBytes) / 1024) }} KB</span>
+          </li>
+        </ul>
+      </section>
     </template>
   </section>
 </template>
@@ -254,6 +283,16 @@ async function handleClaim() {
 
 .support-ticket-detail__messages {
   margin-top: 2rem;
+}
+
+.support-ticket-detail__attachments {
+  margin-top: 2rem;
+}
+
+.support-ticket-detail__attachment-list {
+  display: grid;
+  gap: 0.5rem;
+  padding-left: 1.25rem;
 }
 
 .support-ticket-detail__message-list {

@@ -22,6 +22,8 @@ import type {
 export interface SupportTicketListFilters {
   status?: SupportTicketStatus
   category?: SupportTicketCategory
+  pageNumber?: number
+  pageSize?: number
 }
 
 const listRootKey = 'support-tickets'
@@ -53,6 +55,8 @@ export function useSupportTicketsQuery(filters: MaybeRefOrGetter<SupportTicketLi
           query: {
             Statuses: current.status ? [current.status] : undefined,
             Category: current.category,
+            PageNumber: current.pageNumber ?? 1,
+            PageSize: current.pageSize ?? 20,
           },
         },
       })

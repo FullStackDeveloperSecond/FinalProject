@@ -1,7 +1,8 @@
+using DoSelect.Application.Storage;
 using DoSelect.Infrastructure.Storage;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace DoSelect.Infrastructure.Tests;
 
@@ -68,8 +69,7 @@ public sealed class LocalPrivateAttachmentUploadStorageTests : IDisposable
     }
 
     private LocalPrivateAttachmentUploadStorage CreateStorage(ILogger<LocalPrivateAttachmentUploadStorage>? logger = null) => new(
-        new ConfigurationBuilder().AddInMemoryCollection(
-            new Dictionary<string, string?> { ["Storage:DataRoot"] = _root }).Build(),
+        Options.Create(new StorageOptions { DataRoot = _root }),
         logger ?? NullLogger<LocalPrivateAttachmentUploadStorage>.Instance);
 
     private sealed class RecordingLogger<T> : ILogger<T>

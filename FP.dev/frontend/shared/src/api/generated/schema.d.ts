@@ -4,7 +4,96 @@
  */
 
 export interface paths {
-    "/api/v1/dev/test-sign-in": {
+    "/api/v1/security/antiforgery-token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: {
+                    "X-DoSelect-Client"?: string;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AntiforgeryTokenResponse"];
+                        "application/json": components["schemas"]["AntiforgeryTokenResponse"];
+                        "text/json": components["schemas"]["AntiforgeryTokenResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/support-tickets/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminSupportTicketDetailDto"];
+                        "application/json": components["schemas"]["AdminSupportTicketDetailDto"];
+                        "text/json": components["schemas"]["AdminSupportTicketDetailDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/support-tickets/{id}/actions/claim": {
         parameters: {
             query?: never;
             header?: never;
@@ -17,12 +106,16 @@ export interface paths {
             parameters: {
                 query?: never;
                 header?: never;
-                path?: never;
+                path: {
+                    id: string;
+                };
                 cookie?: never;
             };
             requestBody: {
                 content: {
-                    "application/json": components["schemas"]["TestSignInRequest"];
+                    "application/json": components["schemas"]["ClaimSupportTicketRequest"];
+                    "text/json": components["schemas"]["ClaimSupportTicketRequest"];
+                    "application/*+json": components["schemas"]["ClaimSupportTicketRequest"];
                 };
             };
             responses: {
@@ -31,7 +124,11 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "text/plain": components["schemas"]["AdminSupportTicketDto"];
+                        "application/json": components["schemas"]["AdminSupportTicketDto"];
+                        "text/json": components["schemas"]["AdminSupportTicketDto"];
+                    };
                 };
             };
         };
@@ -41,20 +138,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/dev/test-sign-out": {
+    "/api/v1/admin/support-tickets/sla": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        get: {
+            parameters: {
+                query?: {
+                    PageSize?: number | string;
+                    Cursor?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["CursorPageOfSupportSlaItemDto"];
+                        "application/json": components["schemas"]["CursorPageOfSupportSlaItemDto"];
+                        "text/json": components["schemas"]["CursorPageOfSupportSlaItemDto"];
+                    };
+                };
+            };
+        };
         put?: never;
-        post: {
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/case-workbench": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    CaseTypes?: components["schemas"]["CaseWorkbenchCaseType"][];
+                    Statuses?: string[];
+                    Priorities?: components["schemas"]["CasePriority"][];
+                    AssigneePublicId?: string;
+                    OverdueOnly?: boolean;
+                    Keyword?: string;
+                    Cursor?: string;
+                    PageSize?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["CursorPageOfCaseWorkbenchItemDto"];
+                        "application/json": components["schemas"]["CursorPageOfCaseWorkbenchItemDto"];
+                        "text/json": components["schemas"]["CursorPageOfCaseWorkbenchItemDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/private-attachments/{id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
             parameters: {
                 query?: never;
                 header?: never;
-                path?: never;
+                path: {
+                    id: string;
+                };
                 cookie?: never;
             };
             requestBody?: never;
@@ -68,6 +251,8 @@ export interface paths {
                 };
             };
         };
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -227,6 +412,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/support-tickets/{id}/attachments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "multipart/form-data": {
+                        file?: components["schemas"]["IFormFile"];
+                    };
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["SupportAttachmentDto"];
+                        "application/json": components["schemas"]["SupportAttachmentDto"];
+                        "text/json": components["schemas"]["SupportAttachmentDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/support-tickets/{id}/actions/cancel": {
         parameters: {
             query?: never;
@@ -272,10 +502,907 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/products": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    Q?: string;
+                    BrandCodes?: string[];
+                    CategoryCodes?: string[];
+                    Statuses?: string[];
+                    StockState?: string;
+                    Sort?: string;
+                    PageNumber?: number | string;
+                    PageSize?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["PageResultOfAdminProductSummaryDto"];
+                        "application/json": components["schemas"]["PageResultOfAdminProductSummaryDto"];
+                        "text/json": components["schemas"]["PageResultOfAdminProductSummaryDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateProductRequest"];
+                    "text/json": components["schemas"]["CreateProductRequest"];
+                    "application/*+json": components["schemas"]["CreateProductRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminProductDetailDto"];
+                        "application/json": components["schemas"]["AdminProductDetailDto"];
+                        "text/json": components["schemas"]["AdminProductDetailDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/products/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminProductDetailDto"];
+                        "application/json": components["schemas"]["AdminProductDetailDto"];
+                        "text/json": components["schemas"]["AdminProductDetailDto"];
+                    };
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateProductRequest"];
+                    "text/json": components["schemas"]["UpdateProductRequest"];
+                    "application/*+json": components["schemas"]["UpdateProductRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminProductDetailDto"];
+                        "application/json": components["schemas"]["AdminProductDetailDto"];
+                        "text/json": components["schemas"]["AdminProductDetailDto"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/products/{productId}/skus": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    productId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateSkuRequest"];
+                    "text/json": components["schemas"]["CreateSkuRequest"];
+                    "application/*+json": components["schemas"]["CreateSkuRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["SkuDto"];
+                        "application/json": components["schemas"]["SkuDto"];
+                        "text/json": components["schemas"]["SkuDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/skus/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["SkuDto"];
+                        "application/json": components["schemas"]["SkuDto"];
+                        "text/json": components["schemas"]["SkuDto"];
+                    };
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateSkuRequest"];
+                    "text/json": components["schemas"]["UpdateSkuRequest"];
+                    "application/*+json": components["schemas"]["UpdateSkuRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["SkuDto"];
+                        "application/json": components["schemas"]["SkuDto"];
+                        "text/json": components["schemas"]["SkuDto"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["DeleteSkuRequest"];
+                    "text/json": components["schemas"]["DeleteSkuRequest"];
+                    "application/*+json": components["schemas"]["DeleteSkuRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/brands": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    Q?: string;
+                    IsActive?: boolean;
+                    PageNumber?: number | string;
+                    PageSize?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["PageResultOfBrandDto"];
+                        "application/json": components["schemas"]["PageResultOfBrandDto"];
+                        "text/json": components["schemas"]["PageResultOfBrandDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateBrandRequest"];
+                    "text/json": components["schemas"]["CreateBrandRequest"];
+                    "application/*+json": components["schemas"]["CreateBrandRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["BrandDto"];
+                        "application/json": components["schemas"]["BrandDto"];
+                        "text/json": components["schemas"]["BrandDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/brands/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateBrandRequest"];
+                    "text/json": components["schemas"]["UpdateBrandRequest"];
+                    "application/*+json": components["schemas"]["UpdateBrandRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["BrandDto"];
+                        "application/json": components["schemas"]["BrandDto"];
+                        "text/json": components["schemas"]["BrandDto"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/catalog/filter-options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    Category?: string;
+                    Locale?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["CatalogFilterOptionsDto"];
+                        "application/json": components["schemas"]["CatalogFilterOptionsDto"];
+                        "text/json": components["schemas"]["CatalogFilterOptionsDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    Q?: string;
+                    IsActive?: boolean;
+                    PageNumber?: number | string;
+                    PageSize?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["PageResultOfCategoryDto"];
+                        "application/json": components["schemas"]["PageResultOfCategoryDto"];
+                        "text/json": components["schemas"]["PageResultOfCategoryDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateCategoryRequest"];
+                    "text/json": components["schemas"]["CreateCategoryRequest"];
+                    "application/*+json": components["schemas"]["CreateCategoryRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["CategoryDto"];
+                        "application/json": components["schemas"]["CategoryDto"];
+                        "text/json": components["schemas"]["CategoryDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/categories/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateCategoryRequest"];
+                    "text/json": components["schemas"]["UpdateCategoryRequest"];
+                    "application/*+json": components["schemas"]["UpdateCategoryRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["CategoryDto"];
+                        "application/json": components["schemas"]["CategoryDto"];
+                        "text/json": components["schemas"]["CategoryDto"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/products": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    Q?: string;
+                    Category?: string;
+                    Brand?: string;
+                    MinPrice?: number | string;
+                    MaxPrice?: number | string;
+                    InStock?: boolean;
+                    Specs?: components["schemas"]["SpecFilterRequest"][];
+                    Sort?: string;
+                    PageNumber?: number | string;
+                    PageSize?: number | string;
+                    Locale?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["PageResultOfProductCardDto"];
+                        "application/json": components["schemas"]["PageResultOfProductCardDto"];
+                        "text/json": components["schemas"]["PageResultOfProductCardDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/products/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    locale?: string;
+                };
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProductDetailDto"];
+                        "application/json": components["schemas"]["ProductDetailDto"];
+                        "text/json": components["schemas"]["ProductDetailDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    Q?: string;
+                    IsActive?: boolean;
+                    PageNumber?: number | string;
+                    PageSize?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["PageResultOfCatalogLookupDto"];
+                        "application/json": components["schemas"]["PageResultOfCatalogLookupDto"];
+                        "text/json": components["schemas"]["PageResultOfCatalogLookupDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateTagRequest"];
+                    "text/json": components["schemas"]["CreateTagRequest"];
+                    "application/*+json": components["schemas"]["CreateTagRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["CatalogLookupDto"];
+                        "application/json": components["schemas"]["CatalogLookupDto"];
+                        "text/json": components["schemas"]["CatalogLookupDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/tags/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateTagRequest"];
+                    "text/json": components["schemas"]["UpdateTagRequest"];
+                    "application/*+json": components["schemas"]["UpdateTagRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["CatalogLookupDto"];
+                        "application/json": components["schemas"]["CatalogLookupDto"];
+                        "text/json": components["schemas"]["CatalogLookupDto"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AdminAssigneeSummaryDto: {
+            /** Format: uuid */
+            publicId: string;
+            displayName: string;
+        };
+        AdminProductDetailDto: {
+            /** Format: uuid */
+            publicId: string;
+            productCode: string;
+            nameZhTw: string;
+            brand: components["schemas"]["ProductBrandRef"];
+            category: components["schemas"]["ProductCategoryRef"];
+            descriptionZhTw: null | string;
+            /** Format: int32 */
+            warrantyMonths: null | number | string;
+            status: string;
+            isFeatured: boolean;
+            tags: components["schemas"]["TagRef"][];
+            images: components["schemas"]["ProductImageDto"][];
+            skus: components["schemas"]["SkuDto"][];
+            /** Format: date-time */
+            createdAtUtc: string;
+            /** Format: date-time */
+            updatedAtUtc: string;
+            /** Format: byte */
+            rowVersion: string;
+        };
+        AdminProductSummaryDto: {
+            /** Format: uuid */
+            publicId: string;
+            productCode: string;
+            nameZhTw: string;
+            brand: components["schemas"]["ProductBrandRef"];
+            category: components["schemas"]["ProductCategoryRef"];
+            status: string;
+            /** Format: int32 */
+            skuCount: number | string;
+            /** Format: double */
+            minPrice: number | string;
+            /** Format: double */
+            maxPrice: number | string;
+            /** Format: int32 */
+            totalOnHandQuantity: number | string;
+            primaryImage: null | components["schemas"]["ProductImageSummary"];
+            /** Format: date-time */
+            updatedAtUtc: string;
+            /** Format: byte */
+            rowVersion: string;
+        };
+        AdminSupportMessageDto: {
+            /** Format: uuid */
+            publicId: string;
+            senderType: components["schemas"]["SupportSenderType"];
+            aiGenerated: boolean;
+            isInternal: boolean;
+            body: string;
+            language: string;
+            /** Format: date-time */
+            sentAtUtc: string;
+        };
+        AdminSupportTicketDetailDto: {
+            /** Format: uuid */
+            publicId: string;
+            ticketNumber: string;
+            category: components["schemas"]["SupportTicketCategory"];
+            subject: string;
+            status: components["schemas"]["SupportTicketStatus"];
+            priority: components["schemas"]["CasePriority"];
+            /** Format: uuid */
+            orderPublicId: null | string;
+            assignee: null | components["schemas"]["AdminAssigneeSummaryDto"];
+            /** Format: date-time */
+            createdAtUtc: string;
+            /** Format: date-time */
+            lastActivityAtUtc: string;
+            /** Format: date-time */
+            firstResponseDueAtUtc: string;
+            /** Format: date-time */
+            resolutionDueAtUtc: string;
+            isOverdue: boolean;
+            /** Format: date-time */
+            firstHumanResponseAtUtc: null | string;
+            /** Format: date-time */
+            resolvedAtUtc: null | string;
+            /** Format: date-time */
+            closedAtUtc: null | string;
+            /** Format: int32 */
+            reopenCount: number | string;
+            availableActions: string[];
+            /** Format: byte */
+            rowVersion: string;
+            messages: components["schemas"]["AdminSupportMessageDto"][];
+            attachments?: components["schemas"]["SupportAttachmentDto"][];
+        };
+        AdminSupportTicketDto: {
+            /** Format: uuid */
+            publicId: string;
+            ticketNumber: string;
+            category: components["schemas"]["SupportTicketCategory"];
+            subject: string;
+            status: components["schemas"]["SupportTicketStatus"];
+            priority: components["schemas"]["CasePriority"];
+            /** Format: uuid */
+            orderPublicId: null | string;
+            assignee: components["schemas"]["AdminAssigneeSummaryDto"];
+            /** Format: date-time */
+            createdAtUtc: string;
+            /** Format: date-time */
+            lastActivityAtUtc: string;
+            /** Format: date-time */
+            firstResponseDueAtUtc: string;
+            /** Format: date-time */
+            resolutionDueAtUtc: string;
+            /** Format: date-time */
+            firstHumanResponseAtUtc: null | string;
+            /** Format: date-time */
+            resolvedAtUtc: null | string;
+            /** Format: date-time */
+            closedAtUtc: null | string;
+            /** Format: int32 */
+            reopenCount: number | string;
+            /** Format: byte */
+            rowVersion: string;
+        };
+        AntiforgeryTokenResponse: {
+            requestToken: string;
+        };
+        BrandDto: {
+            /** Format: uuid */
+            publicId: string;
+            code: string;
+            nameZhTw: string;
+            description: null | string;
+            websiteUrl: null | string;
+            isActive: boolean;
+            /** Format: int32 */
+            sortOrder: number | string;
+            /** Format: byte */
+            rowVersion: string;
+        };
+        BrandFilterOption: {
+            code: string;
+            name: string;
+            /** Format: uuid */
+            publicId: string;
+        };
         CancelSupportTicketRequest: {
             reasonCode: string;
             /** Format: byte */
@@ -283,17 +1410,212 @@ export interface components {
         };
         /** @enum {unknown} */
         CasePriority: "low" | "normal" | "high" | "urgent";
+        /** @enum {unknown} */
+        CaseWorkbenchCaseType: "support" | "return" | "report";
+        CaseWorkbenchItemDto: {
+            caseType: string;
+            /** Format: uuid */
+            casePublicId: string;
+            caseNumber: string;
+            title: string;
+            status: string;
+            priority: components["schemas"]["CasePriority"];
+            requesterDisplay: string;
+            /** Format: uuid */
+            assigneePublicId: null | string;
+            /** Format: date-time */
+            createdAtUtc: string;
+            /** Format: date-time */
+            lastActivityAtUtc: string;
+            /** Format: date-time */
+            slaDueAtUtc: null | string;
+            isOverdue: boolean;
+        };
+        CatalogFilterOptionsDto: {
+            categories: components["schemas"]["CategoryFilterOption"][];
+            brands: components["schemas"]["BrandFilterOption"][];
+            priceRange: null | components["schemas"]["PriceRangeDto"];
+            specificationFilters: components["schemas"]["SpecificationFilterOptionDto"][];
+            sortOptions: string[];
+        };
+        CatalogLookupDto: {
+            /** Format: uuid */
+            publicId: string;
+            code: string;
+            nameZhTw: string;
+            isActive: boolean;
+            /** Format: int32 */
+            sortOrder: number | string;
+            /** Format: byte */
+            rowVersion: string;
+        };
+        CategoryDto: {
+            /** Format: uuid */
+            publicId: string;
+            code: string;
+            nameZhTw: string;
+            slug: string;
+            description: null | string;
+            /** Format: uuid */
+            parentCategoryPublicId: null | string;
+            isActive: boolean;
+            /** Format: int32 */
+            sortOrder: number | string;
+            /** Format: byte */
+            rowVersion: string;
+        };
+        CategoryFilterOption: {
+            code: string;
+            name: string;
+            /** Format: uuid */
+            publicId: string;
+        };
+        ClaimSupportTicketRequest: {
+            /** Format: byte */
+            rowVersion?: string;
+        };
+        CreateBrandRequest: {
+            code: string;
+            nameZhTw: string;
+            description: null | string;
+            websiteUrl: null | string;
+            /** Format: int32 */
+            sortOrder: number | string;
+            isActive: boolean;
+        };
+        CreateCategoryRequest: {
+            code: string;
+            nameZhTw: string;
+            slug: string;
+            description: null | string;
+            /** Format: uuid */
+            parentCategoryPublicId: null | string;
+            /** Format: int32 */
+            sortOrder: number | string;
+            isActive: boolean;
+        };
+        CreateProductRequest: {
+            productCode: string;
+            nameZhTw: string;
+            /** Format: uuid */
+            brandPublicId: string;
+            /** Format: uuid */
+            categoryPublicId: string;
+            descriptionZhTw: null | string;
+            /** Format: int32 */
+            warrantyMonths: null | number | string;
+            tagPublicIds: string[];
+            status: string;
+        };
+        CreateSkuRequest: {
+            skuCode: string;
+            nameZhTw: string;
+            /** Format: double */
+            listPrice: number | string;
+            /** Format: double */
+            unitCost: number | string;
+            /** Format: double */
+            weightKg: null | number | string;
+            /** Format: double */
+            lengthCm: null | number | string;
+            /** Format: double */
+            widthCm: null | number | string;
+            /** Format: double */
+            heightCm: null | number | string;
+            status: string;
+            isDefault: boolean;
+            requiresPrepayment: boolean;
+            specifications: components["schemas"]["SpecValueInput"][];
+        };
         CreateSupportMessageRequest: {
             body: string;
             /** Format: byte */
             rowVersion?: string;
         };
         CreateSupportTicketRequest: {
-            category: components["schemas"]["SupportTicketCategory"];
+            category: null | components["schemas"]["SupportTicketCategory"];
             subject: string;
             message: string;
             /** Format: uuid */
             orderPublicId?: null | string;
+        };
+        CreateTagRequest: {
+            code: string;
+            nameZhTw: string;
+            /** Format: int32 */
+            sortOrder: number | string;
+            isActive: boolean;
+        };
+        CursorPageOfCaseWorkbenchItemDto: {
+            items: components["schemas"]["CaseWorkbenchItemDto"][];
+            nextCursor: null | string;
+            hasMore: boolean;
+        };
+        CursorPageOfSupportSlaItemDto: {
+            items: components["schemas"]["SupportSlaItemDto"][];
+            nextCursor: null | string;
+            hasMore: boolean;
+        };
+        DeleteSkuRequest: {
+            /** Format: byte */
+            rowVersion: string;
+        };
+        /** Format: binary */
+        IFormFile: string;
+        PageResultOfAdminProductSummaryDto: {
+            items: components["schemas"]["AdminProductSummaryDto"][];
+            /** Format: int32 */
+            pageNumber: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+            /** Format: int32 */
+            totalCount: number | string;
+            /** Format: int32 */
+            totalPages?: number | string;
+        };
+        PageResultOfBrandDto: {
+            items: components["schemas"]["BrandDto"][];
+            /** Format: int32 */
+            pageNumber: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+            /** Format: int32 */
+            totalCount: number | string;
+            /** Format: int32 */
+            totalPages?: number | string;
+        };
+        PageResultOfCatalogLookupDto: {
+            items: components["schemas"]["CatalogLookupDto"][];
+            /** Format: int32 */
+            pageNumber: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+            /** Format: int32 */
+            totalCount: number | string;
+            /** Format: int32 */
+            totalPages?: number | string;
+        };
+        PageResultOfCategoryDto: {
+            items: components["schemas"]["CategoryDto"][];
+            /** Format: int32 */
+            pageNumber: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+            /** Format: int32 */
+            totalCount: number | string;
+            /** Format: int32 */
+            totalPages?: number | string;
+        };
+        PageResultOfProductCardDto: {
+            items: components["schemas"]["ProductCardDto"][];
+            /** Format: int32 */
+            pageNumber: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+            /** Format: int32 */
+            totalCount: number | string;
+            /** Format: int32 */
+            totalPages?: number | string;
         };
         PageResultOfSupportTicketSummaryDto: {
             items: components["schemas"]["SupportTicketSummaryDto"][];
@@ -306,6 +1628,226 @@ export interface components {
             /** Format: int32 */
             totalPages?: number | string;
         };
+        PriceRangeDto: {
+            /** Format: double */
+            min: number | string;
+            /** Format: double */
+            max: number | string;
+        };
+        ProblemDetails: {
+            type?: null | string;
+            title?: null | string;
+            /** Format: int32 */
+            status?: null | number | string;
+            detail?: null | string;
+            instance?: null | string;
+        };
+        ProductBrandRef: {
+            code: string;
+            name: string;
+        };
+        ProductCardDto: {
+            /** Format: uuid */
+            productPublicId: string;
+            /** Format: uuid */
+            defaultSkuPublicId: string;
+            productCode: string;
+            skuCode: string;
+            name: string;
+            brand: components["schemas"]["ProductBrandRef"];
+            category: components["schemas"]["ProductCategoryRef"];
+            price: components["schemas"]["ProductPrice"];
+            availability: string;
+            primaryImage: null | components["schemas"]["ProductImageSummary"];
+            badges: string[];
+        };
+        ProductCategoryRef: {
+            code: string;
+            name: string;
+        };
+        ProductDetailDto: {
+            /** Format: uuid */
+            productPublicId: string;
+            /** Format: uuid */
+            defaultSkuPublicId: string;
+            productCode: string;
+            skuCode: string;
+            name: string;
+            brand: components["schemas"]["ProductBrandRef"];
+            category: components["schemas"]["ProductCategoryRef"];
+            price: components["schemas"]["ProductPrice"];
+            availability: string;
+            primaryImage: null | components["schemas"]["ProductImageSummary"];
+            badges: string[];
+            description: null | string;
+            tags: components["schemas"]["TagRef"][];
+            images: components["schemas"]["ProductImageDto"][];
+            skus: components["schemas"]["PublicSkuDto"][];
+            specificationGroups: components["schemas"]["SpecificationGroupDto"][];
+            shippingRestrictions: components["schemas"]["ShippingRestrictionDto"][];
+            /** Format: int32 */
+            warrantyMonths: null | number | string;
+        };
+        ProductImageDto: {
+            url: string;
+            alt: string;
+            /** Format: int32 */
+            width: number | string;
+            /** Format: int32 */
+            height: number | string;
+            isPrimary: boolean;
+        };
+        ProductImageSummary: {
+            url: string;
+            alt: string;
+            /** Format: int32 */
+            width: number | string;
+            /** Format: int32 */
+            height: number | string;
+        };
+        ProductPrice: {
+            /** Format: double */
+            list: number | string;
+            /** Format: double */
+            sale: null | number | string;
+            currency: string;
+        };
+        ProductRef: {
+            /** Format: uuid */
+            publicId: string;
+            productCode: string;
+            nameZhTw: string;
+        };
+        PublicSkuDto: {
+            /** Format: uuid */
+            publicId: string;
+            skuCode: string;
+            name: string;
+            price: components["schemas"]["ProductPrice"];
+            availability: string;
+            /** Format: int32 */
+            maxPurchasableQuantity: number | string;
+            specifications: components["schemas"]["SkuSpecificationSummary"][];
+            dimensions: components["schemas"]["SkuDimensionsSummary"];
+            isDefault: boolean;
+        };
+        ShippingRestrictionDto: {
+            method: string;
+            allowed: boolean;
+            reasonCode: null | string;
+        };
+        SkuDimensionsSummary: {
+            /** Format: double */
+            weightKg: null | number | string;
+            /** Format: double */
+            lengthCm: null | number | string;
+            /** Format: double */
+            widthCm: null | number | string;
+            /** Format: double */
+            heightCm: null | number | string;
+        };
+        SkuDto: {
+            /** Format: uuid */
+            publicId: string;
+            skuCode: string;
+            product: components["schemas"]["ProductRef"];
+            nameZhTw: string;
+            /** Format: double */
+            listPrice: number | string;
+            /** Format: double */
+            unitCost: number | string;
+            /** Format: double */
+            weightKg: null | number | string;
+            /** Format: double */
+            lengthCm: null | number | string;
+            /** Format: double */
+            widthCm: null | number | string;
+            /** Format: double */
+            heightCm: null | number | string;
+            status: string;
+            isDefault: boolean;
+            requiresPrepayment: boolean;
+            specifications: components["schemas"]["SkuSpecValueDto"][];
+            inventory: null | components["schemas"]["SkuInventorySummary"];
+            /** Format: date-time */
+            createdAtUtc: string;
+            /** Format: date-time */
+            updatedAtUtc: string;
+            /** Format: byte */
+            rowVersion: string;
+        };
+        SkuInventorySummary: {
+            /** Format: int32 */
+            onHandQuantity: number | string;
+            /** Format: int32 */
+            reservedQuantity: number | string;
+            /** Format: int32 */
+            availableQuantity: number | string;
+        };
+        SkuSpecificationSummary: {
+            semanticKey: string;
+            label: string;
+            unit: null | string;
+            value: string;
+        };
+        SkuSpecValueDto: {
+            semanticKey: string;
+            label: string;
+            valueType: string;
+            stringValue: null | string;
+            /** Format: double */
+            decimalValue: null | number | string;
+            booleanValue: null | boolean;
+            optionCode: null | string;
+        };
+        SpecFilterRequest: {
+            semanticKey: string;
+            operator: string;
+            value?: null | string;
+            values?: null | string[];
+        };
+        SpecificationFilterOptionDto: {
+            semanticKey: string;
+            label: string;
+            valueType: string;
+            unit: null | string;
+            operators: string[];
+            options: null | components["schemas"]["SpecificationOptionRef"][];
+        };
+        SpecificationGroupDto: {
+            semanticKey: string;
+            label: string;
+            unit: null | string;
+            values: components["schemas"]["SpecificationGroupValue"][];
+        };
+        SpecificationGroupValue: {
+            /** Format: uuid */
+            skuPublicId: string;
+            value: string;
+        };
+        SpecificationOptionRef: {
+            code: string;
+            label: string;
+        };
+        SpecValueInput: {
+            semanticKey: string;
+            valueType: string;
+            stringValue: null | string;
+            /** Format: double */
+            decimalValue: null | number | string;
+            booleanValue: null | boolean;
+            optionCode: null | string;
+        };
+        SupportAttachmentDto: {
+            /** Format: uuid */
+            publicId: string;
+            originalFileName: string;
+            mimeType: string;
+            /** Format: int64 */
+            fileSizeBytes: number | string;
+            /** Format: date-time */
+            createdAtUtc: string;
+        };
         SupportMessageDto: {
             /** Format: uuid */
             publicId: string;
@@ -317,6 +1859,27 @@ export interface components {
         };
         /** @enum {unknown} */
         SupportSenderType: "member" | "admin" | "system";
+        SupportSlaItemDto: {
+            /** Format: uuid */
+            ticketPublicId: string;
+            ticketNumber: string;
+            priority: components["schemas"]["CasePriority"];
+            assignee: null | components["schemas"]["AdminAssigneeSummaryDto"];
+            status: components["schemas"]["SupportTicketStatus"];
+            /** Format: date-time */
+            firstResponseDueAtUtc: string;
+            /** Format: date-time */
+            resolutionDueAtUtc: string;
+            /** Format: date-time */
+            effectiveDueAtUtc: string;
+            /** Format: double */
+            usageRatio: number | string;
+            isOverdue: boolean;
+            /** Format: date-time */
+            lastActivityAtUtc: string;
+            /** Format: byte */
+            rowVersion: string;
+        };
         /** @enum {unknown} */
         SupportTicketCategory: "order" | "payment" | "logistics" | "productWarranty" | "returnHelp" | "account" | "other";
         SupportTicketDto: {
@@ -350,6 +1913,7 @@ export interface components {
             messages: components["schemas"]["SupportMessageDto"][];
             /** Format: byte */
             rowVersion: string;
+            attachments?: components["schemas"]["SupportAttachmentDto"][];
         };
         /** @enum {unknown} */
         SupportTicketStatus: "open" | "assigned" | "inProgress" | "waitingForCustomer" | "waitingForInternal" | "resolved" | "closed" | "cancelled";
@@ -367,8 +1931,74 @@ export interface components {
             /** Format: byte */
             rowVersion: string;
         };
-        TestSignInRequest: {
-            email: string;
+        TagRef: {
+            code: string;
+            name: string;
+        };
+        UpdateBrandRequest: {
+            nameZhTw: string;
+            description: null | string;
+            websiteUrl: null | string;
+            /** Format: int32 */
+            sortOrder: number | string;
+            isActive: boolean;
+            /** Format: byte */
+            rowVersion: string;
+        };
+        UpdateCategoryRequest: {
+            nameZhTw: string;
+            slug: string;
+            description: null | string;
+            /** Format: uuid */
+            parentCategoryPublicId: null | string;
+            /** Format: int32 */
+            sortOrder: number | string;
+            isActive: boolean;
+            /** Format: byte */
+            rowVersion: string;
+        };
+        UpdateProductRequest: {
+            nameZhTw: string;
+            /** Format: uuid */
+            brandPublicId: string;
+            /** Format: uuid */
+            categoryPublicId: string;
+            descriptionZhTw: null | string;
+            /** Format: int32 */
+            warrantyMonths: null | number | string;
+            tagPublicIds: string[];
+            status: string;
+            /** Format: byte */
+            rowVersion: string;
+        };
+        UpdateSkuRequest: {
+            nameZhTw: string;
+            /** Format: double */
+            listPrice: number | string;
+            /** Format: double */
+            unitCost: number | string;
+            /** Format: double */
+            weightKg: null | number | string;
+            /** Format: double */
+            lengthCm: null | number | string;
+            /** Format: double */
+            widthCm: null | number | string;
+            /** Format: double */
+            heightCm: null | number | string;
+            status: string;
+            isDefault: boolean;
+            requiresPrepayment: boolean;
+            specifications: components["schemas"]["SpecValueInput"][];
+            /** Format: byte */
+            rowVersion: string;
+        };
+        UpdateTagRequest: {
+            nameZhTw: string;
+            /** Format: int32 */
+            sortOrder: number | string;
+            isActive: boolean;
+            /** Format: byte */
+            rowVersion: string;
         };
     };
     responses: never;
