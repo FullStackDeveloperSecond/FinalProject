@@ -1,20 +1,35 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { isApiError } from '@doselect/web-shared/api'
 import { EmptyState } from '@doselect/web-shared/components'
 import { requestPasswordReset } from './api'
 
 const email = ref('')
 const submitting = ref(false)
 const submitted = ref(false)
+const topLevelError = ref<string | null>(null)
 
 async function handleSubmit(): Promise<void> {
+  topLevelError.value = null
   submitting.value = true
   try {
     await requestPasswordReset({ email: email.value.trim() })
     submitted.value = true
+  } catch (error) {
+    // A failure here must not reveal whether the email belongs to an account — only report that
+    // the *request* didn't go through, never anything account-specific (Alex review, 2026-08-24).
+    topLevelError.value = resolveErrorMessage(error)
   } finally {
     submitting.value = false
   }
+}
+
+function resolveErrorMessage(error: unknown): string {
+  if (isApiError(error) && error.code === 'rate_limit_exceeded') {
+    return '請求過於頻繁，請稍後再試一次。'
+  }
+
+  return '寄送重設連結時發生錯誤，請稍後再試一次。'
 }
 </script>
 
@@ -35,6 +50,14 @@ async function handleSubmit(): Promise<void> {
     novalidate
     @submit.prevent="handleSubmit"
   >
+    <p
+      v-if="topLevelError"
+      class="form-banner form-banner--error"
+      role="alert"
+    >
+      {{ topLevelError }}
+    </p>
+
     <div class="form-field">
       <label for="forgot-password-email">電子郵件</label>
       <input

@@ -262,15 +262,19 @@ public sealed class AuthControllerTests : IClassFixture<WebApplicationFactory<Pr
     [Fact]
     public async Task ConfirmEmailVerification_WhenPersistingTheConfirmationFails_DoesNotReportSuccess()
     {
-        // MemberRegistrationGateway.ConfirmEmailAsync now checks the IdentityResult from both
-        // UpdateAsync (persisting user.ConfirmEmail()) and UpdateSecurityStampAsync, throwing
-        // instead of silently reporting success when either fails (Alex review, 2026-08-21).
-        // FailingUpdateUserManager intercepts exactly those two calls with a synthetic failure
-        // while every other UserManager operation (including the built-in ConfirmEmailAsync token
-        // validation) still runs against the real, SQL-Server-backed store underneath. The
-        // confirm call is driven directly against the gateway (not through HTTP) so the same
-        // manually-created scope resolves both the gateway and the UserManager it depends on,
-        // making the failure controllable from the test.
+        // MemberRegistrationGateway.ConfirmEmailAsync now wraps Identity's ConfirmEmailAsync (which
+        // persists EmailConfirmed=true as a side effect of successful token validation), the
+        // AccountStatus transition, and the security-stamp rotation in one transaction, throwing
+        // instead of silently reporting success when either later step fails (Alex review,
+        // 2026-08-21, hardened 2026-08-24 after a follow-up review found EmailConfirmed itself
+        // could still be left true even though AccountStatus correctly rolled back). This test
+        // fails the AccountStatus-persisting UpdateAsync call and checks both fields land back at
+        // their pre-confirmation values, not just AccountStatus. FailingUpdateUserManager
+        // intercepts that one call with a synthetic failure while every other UserManager
+        // operation (including the built-in ConfirmEmailAsync token validation) still runs against
+        // the real, SQL-Server-backed store underneath. The confirm call is driven directly against
+        // the gateway (not through HTTP) so the same manually-created scope resolves both the
+        // gateway and the UserManager it depends on, making the failure controllable from the test.
         var capturingEmailSender = new CapturingEmailSender();
         using var factory = CreateIsolatedFactory(services =>
         {
@@ -303,8 +307,55 @@ public sealed class AuthControllerTests : IClassFixture<WebApplicationFactory<Pr
                 () => gateway.ConfirmEmailAsync(publicId, token, CancellationToken.None));
         }
 
-        // The failed attempt must not have left the account confirmed.
+        // The failed attempt must not have left the account confirmed in either field: the
+        // AccountStatus transition and the EmailConfirmed flag Identity wrote inside the same
+        // transaction must both have rolled back together.
         Assert.Equal("pendingEmailVerification", await GetAccountStatusAsync(factory, publicId));
+        Assert.False(await GetEmailConfirmedAsync(factory, publicId));
+    }
+
+    [Fact]
+    public async Task ConfirmEmailVerification_WhenSecurityStampRotationFails_RollsBackTheWholeConfirmation()
+    {
+        // The other failure boundary in the same atomic confirmation: if the security-stamp
+        // rotation fails *after* EmailConfirmed and AccountStatus were already written earlier in
+        // the transaction, all three must still roll back together — otherwise a confirmed account
+        // could be left with a stale SecurityStamp, letting the original (now-consumed) token
+        // replay past the guard the stamp rotation exists to enforce (Alex review, 2026-08-24).
+        var capturingEmailSender = new CapturingEmailSender();
+        using var factory = CreateIsolatedFactory(services =>
+        {
+            services.Replace(ServiceDescriptor.Singleton<IEmailSender>(capturingEmailSender));
+            services.Replace(ServiceDescriptor.Scoped<UserManager<ApplicationUser>>(
+                sp => new FailingUpdateUserManager(sp)));
+        });
+        using var client = factory.CreateClient();
+        await PrimeAntiforgeryAsync(client);
+
+        using var registerResponse = await client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            email = UniqueEmail(),
+            password = "correct-horse-battery-staple",
+            displayName = "整合測試會員",
+            acceptTermsVersion = 1,
+        });
+        var registerBody = await registerResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var publicId = registerBody.GetProperty("publicId").GetGuid();
+        var (_, token) = ExtractVerificationLink((await capturingEmailSender.WaitForSingleMessageAsync()).TextBody);
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var manager = (FailingUpdateUserManager)scope.ServiceProvider
+                .GetRequiredService<UserManager<ApplicationUser>>();
+            manager.FailNextSecurityStampUpdate = true;
+
+            var gateway = scope.ServiceProvider.GetRequiredService<IMemberRegistrationGateway>();
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => gateway.ConfirmEmailAsync(publicId, token, CancellationToken.None));
+        }
+
+        Assert.Equal("pendingEmailVerification", await GetAccountStatusAsync(factory, publicId));
+        Assert.False(await GetEmailConfirmedAsync(factory, publicId));
     }
 
     [Fact]
@@ -647,6 +698,14 @@ public sealed class AuthControllerTests : IClassFixture<WebApplicationFactory<Pr
         return AccountStatusTokens.ToToken(user.AccountStatus);
     }
 
+    private static async Task<bool> GetEmailConfirmedAsync(WebApplicationFactory<Program> factory, Guid userPublicId)
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var user = await userManager.Users.SingleAsync(candidate => candidate.PublicId == userPublicId);
+        return user.EmailConfirmed;
+    }
+
     private static (Guid PublicId, string Token) ExtractVerificationLink(string emailTextBody)
     {
         var match = Regex.Match(
@@ -741,6 +800,8 @@ public sealed class AuthControllerTests : IClassFixture<WebApplicationFactory<Pr
 
         public bool FailNextUpdate { get; set; }
 
+        public bool FailNextSecurityStampUpdate { get; set; }
+
         public override Task<IdentityResult> UpdateAsync(ApplicationUser user)
         {
             if (FailNextUpdate)
@@ -750,6 +811,17 @@ public sealed class AuthControllerTests : IClassFixture<WebApplicationFactory<Pr
             }
 
             return base.UpdateAsync(user);
+        }
+
+        public override Task<IdentityResult> UpdateSecurityStampAsync(ApplicationUser user)
+        {
+            if (FailNextSecurityStampUpdate)
+            {
+                FailNextSecurityStampUpdate = false;
+                return Task.FromResult(IdentityResult.Failed(SyntheticFailure));
+            }
+
+            return base.UpdateSecurityStampAsync(user);
         }
     }
 }

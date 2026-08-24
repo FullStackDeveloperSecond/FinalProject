@@ -16,12 +16,6 @@ public sealed class MemberRegistrationGateway(
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var existing = await userManager.FindByEmailAsync(request.Email);
-        if (existing is not null)
-        {
-            return new CreateMemberOutcome.EmailInUse();
-        }
-
         var nowUtc = timeProvider.GetUtcNow().UtcDateTime;
         var user = ApplicationUser.CreateMember(Guid.CreateVersion7(), request.Email, nowUtc);
         user.ChangePreferredLocale(request.Locale, nowUtc);
@@ -29,13 +23,30 @@ public sealed class MemberRegistrationGateway(
         await using var transaction =
             await dbContext.Database.BeginTransactionAsync(cancellationToken);
 
+        // Deliberately no upfront FindByEmailAsync short-circuit here: UserManager.CreateAsync
+        // hashes the password *before* checking uniqueness regardless of outcome, so routing every
+        // request through it (rather than pre-checking and returning early for a duplicate) means
+        // the expensive part of a fresh registration is already paid identically on the
+        // already-registered path. Skipping straight to a rejection here would let response latency
+        // itself become an account-enumeration oracle (Alex review, 2026-08-24).
         var createResult = await userManager.CreateAsync(user, request.Password);
         if (!createResult.Succeeded)
         {
+            var isDuplicate = createResult.Errors.Any(
+                error => error.Code.Contains("DuplicateEmail", StringComparison.Ordinal) ||
+                         error.Code.Contains("DuplicateUserName", StringComparison.Ordinal));
+
+            if (isDuplicate)
+            {
+                // Match the cost of the token-generation step the success path below performs (a
+                // discarded token here, in-memory only) so a duplicate email doesn't short-circuit
+                // out before that work the way it would if we returned immediately on failure.
+                await userManager.GenerateEmailConfirmationTokenAsync(user);
+            }
+
             await transaction.RollbackAsync(cancellationToken);
 
-            if (createResult.Errors.Any(error => error.Code.Contains("DuplicateEmail", StringComparison.Ordinal) ||
-                                                   error.Code.Contains("DuplicateUserName", StringComparison.Ordinal)))
+            if (isDuplicate)
             {
                 return new CreateMemberOutcome.EmailInUse();
             }
@@ -92,9 +103,21 @@ public sealed class MemberRegistrationGateway(
             return new ConfirmMemberEmailOutcome.TokenRejected();
         }
 
+        // EmailConfirmed, AccountStatus, and SecurityStamp must move together: Identity's
+        // ConfirmEmailAsync persists EmailConfirmed=true as a side effect of successful token
+        // validation, independent of the AccountStatus transition and stamp rotation that follow.
+        // Without a shared transaction, a failure or interruption between these calls could leave
+        // EmailConfirmed=true stuck on a still-PendingEmailVerification account, or an Active
+        // account whose reset-token-invalidating stamp rotation never happened (Alex review,
+        // 2026-08-24). Wrapping all three in one transaction makes the confirmation atomic: either
+        // every write lands, or none of them do.
+        await using var transaction =
+            await dbContext.Database.BeginTransactionAsync(cancellationToken);
+
         var confirmResult = await userManager.ConfirmEmailAsync(user, token);
         if (!confirmResult.Succeeded)
         {
+            await transaction.RollbackAsync(cancellationToken);
             return new ConfirmMemberEmailOutcome.TokenRejected();
         }
 
@@ -103,6 +126,7 @@ public sealed class MemberRegistrationGateway(
         var updateResult = await userManager.UpdateAsync(user);
         if (!updateResult.Succeeded)
         {
+            await transaction.RollbackAsync(cancellationToken);
             throw new InvalidOperationException(
                 $"Failed to persist email confirmation for user '{user.PublicId}': " +
                 string.Join("; ", updateResult.Errors.Select(error => error.Description)));
@@ -115,10 +139,13 @@ public sealed class MemberRegistrationGateway(
         var stampResult = await userManager.UpdateSecurityStampAsync(user);
         if (!stampResult.Succeeded)
         {
+            await transaction.RollbackAsync(cancellationToken);
             throw new InvalidOperationException(
                 $"Failed to rotate security stamp for user '{user.PublicId}': " +
                 string.Join("; ", stampResult.Errors.Select(error => error.Description)));
         }
+
+        await transaction.CommitAsync(cancellationToken);
 
         return new ConfirmMemberEmailOutcome.Success(user.AccountStatus);
     }

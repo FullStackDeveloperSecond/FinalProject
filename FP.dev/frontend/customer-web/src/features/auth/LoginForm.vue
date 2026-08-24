@@ -13,7 +13,8 @@ const showPassword = ref(false)
 const submitting = ref(false)
 const topLevelError = ref<string | null>(null)
 const emailUnverified = ref(false)
-const resendState = ref<'idle' | 'sending' | 'sent'>('idle')
+const resendState = ref<'idle' | 'sending' | 'sent' | 'error'>('idle')
+const resendError = ref<string | null>(null)
 
 const router = useRouter()
 const sessionStore = useSessionStore()
@@ -22,6 +23,7 @@ async function handleSubmit(): Promise<void> {
   topLevelError.value = null
   emailUnverified.value = false
   resendState.value = 'idle'
+  resendError.value = null
   submitting.value = true
 
   try {
@@ -45,11 +47,18 @@ async function handleResendVerification(): Promise<void> {
   }
 
   resendState.value = 'sending'
+  resendError.value = null
   try {
     await requestEmailVerification({ email: email.value.trim() })
     resendState.value = 'sent'
-  } catch {
-    resendState.value = 'idle'
+  } catch (error) {
+    // Falling back to 'idle' here used to swallow the failure entirely — the button just
+    // re-enabled with no indication the resend never happened. Surface it instead, without
+    // revealing anything account-specific (Alex review, 2026-08-24).
+    resendState.value = 'error'
+    resendError.value = isApiError(error) && error.code === 'rate_limit_exceeded'
+      ? '請求過於頻繁，請稍後再試一次。'
+      : '重新寄送驗證信時發生錯誤，請稍後再試一次。'
   }
 }
 
@@ -122,6 +131,12 @@ function resolveErrorMessage(error: unknown): string {
           </svg>
           <span>{{ resendState === 'sending' ? '寄送中…' : resendState === 'sent' ? '已重新寄出' : '重新寄送驗證信' }}</span>
         </button>
+        <p
+          v-if="resendState === 'error'"
+          class="form-field__error"
+        >
+          {{ resendError }}
+        </p>
       </div>
     </div>
 

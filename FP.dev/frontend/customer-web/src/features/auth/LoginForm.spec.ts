@@ -4,16 +4,17 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import LoginForm from './LoginForm.vue'
 
-const { loginMember, fetchSession, logoutMember, push } = vi.hoisted(() => ({
+const { loginMember, fetchSession, logoutMember, requestEmailVerification, push } = vi.hoisted(() => ({
   loginMember: vi.fn(),
   fetchSession: vi.fn(),
   logoutMember: vi.fn(),
+  requestEmailVerification: vi.fn(),
   push: vi.fn(),
 }))
 
 vi.mock('./api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./api')>()
-  return { ...actual, loginMember, fetchSession, logoutMember }
+  return { ...actual, loginMember, fetchSession, logoutMember, requestEmailVerification }
 })
 
 vi.mock('vue-router', async (importOriginal) => {
@@ -73,5 +74,32 @@ describe('LoginForm', () => {
 
     expect(wrapper.text()).toContain('Email 或密碼錯誤')
     expect(push).not.toHaveBeenCalled()
+  })
+
+  it('shows an error and re-enables retry when resending the verification email fails', async () => {
+    // handleResendVerification used to swallow every failure and just fall back to 'idle' with no
+    // feedback (Alex review, 2026-08-24) — the user had no way to know the resend never happened.
+    loginMember.mockRejectedValueOnce(new ApiError('Forbidden', {
+      status: 403,
+      code: 'account_email_unverified',
+    }))
+    requestEmailVerification.mockRejectedValueOnce(new ApiError('Too Many Requests', {
+      status: 429,
+      code: 'rate_limit_exceeded',
+    }))
+    const wrapper = mount(LoginForm, { global: { stubs: globalStubs } })
+
+    await wrapper.get('#login-email').setValue('member@example.com')
+    await wrapper.get('#login-password').setValue('correct-horse-battery-staple')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    const resendButton = wrapper.get('.resend-verification')
+    await resendButton.trigger('click')
+    await flushPromises()
+
+    expect(requestEmailVerification).toHaveBeenCalledWith({ email: 'member@example.com' })
+    expect(wrapper.text()).toContain('請求過於頻繁')
+    expect(resendButton.attributes('disabled')).toBeUndefined()
   })
 })
