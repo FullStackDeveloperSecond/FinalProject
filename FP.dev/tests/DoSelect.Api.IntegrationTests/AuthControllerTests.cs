@@ -3,12 +3,18 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using DoSelect.Api.Common;
+using DoSelect.Api.Contracts.Auth;
+using DoSelect.Application.Members;
 using DoSelect.Application.Notifications;
 using DoSelect.Infrastructure.Persistence.Identity;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace DoSelect.Api.IntegrationTests;
 
@@ -43,9 +49,17 @@ public sealed class AuthControllerTests : IClassFixture<WebApplicationFactory<Pr
     }
 
     [Fact]
-    public async Task Register_WhenEmailIsAlreadyRegistered_ReturnsConflictWithAccountEmailInUseCode()
+    public async Task Register_WhenEmailIsAlreadyRegistered_ReturnsTheSameAcceptedShapeAsAFreshRegistration()
     {
-        using var client = CreateIsolatedFactory().CreateClient();
+        // Non-enumerable by design (Alex review, 2026-08-21): the public response for a
+        // duplicate registration must be indistinguishable from a fresh one — same status code,
+        // same body shape, and no real PublicId of the existing account.
+        var capturingEmailSender = new CapturingEmailSender();
+        using var factory = CreateIsolatedFactory(services =>
+        {
+            services.Replace(ServiceDescriptor.Singleton<IEmailSender>(capturingEmailSender));
+        });
+        using var client = factory.CreateClient();
         await PrimeAntiforgeryAsync(client);
         var email = UniqueEmail();
         var payload = new
@@ -58,14 +72,24 @@ public sealed class AuthControllerTests : IClassFixture<WebApplicationFactory<Pr
 
         using var firstResponse = await client.PostAsJsonAsync("/api/v1/auth/register", payload);
         Assert.Equal(HttpStatusCode.Accepted, firstResponse.StatusCode);
+        var firstBody = await firstResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var realPublicId = firstBody.GetProperty("publicId").GetGuid();
 
         using var secondResponse = await client.PostAsJsonAsync("/api/v1/auth/register", payload);
-        using var document = await ReadProblemDetailsAsync(secondResponse);
+        var secondBody = await secondResponse.Content.ReadFromJsonAsync<JsonElement>();
 
-        Assert.Equal(HttpStatusCode.Conflict, secondResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Accepted, secondResponse.StatusCode);
         Assert.Equal(
-            AuthErrorCodes.AccountEmailInUse,
-            document.RootElement.GetProperty("code").GetString());
+            firstBody.GetProperty("emailMasked").GetString(),
+            secondBody.GetProperty("emailMasked").GetString());
+        Assert.Equal(
+            firstBody.GetProperty("accountStatus").GetString(),
+            secondBody.GetProperty("accountStatus").GetString());
+        Assert.NotEqual(realPublicId, secondBody.GetProperty("publicId").GetGuid());
+
+        // A duplicate registration attempt must not trigger a second verification email either.
+        var singleMessage = await capturingEmailSender.WaitForSingleMessageAsync();
+        Assert.Contains(realPublicId.ToString("D"), singleMessage.TextBody);
     }
 
     [Fact]
@@ -189,6 +213,146 @@ public sealed class AuthControllerTests : IClassFixture<WebApplicationFactory<Pr
     }
 
     [Fact]
+    public async Task ConfirmEmailVerification_WhenAccountWasSuspendedAfterTheTokenWasIssued_RejectsTheTokenAndLeavesTheAccountSuspended()
+    {
+        // A token issued while pending verification must not be able to reactivate an account
+        // that was suspended in the meantime (Alex review, 2026-08-21): ApplicationUser.ConfirmEmail
+        // now requires PendingEmailVerification, and MemberRegistrationGateway guards on status
+        // before even calling UserManager.ConfirmEmailAsync.
+        var capturingEmailSender = new CapturingEmailSender();
+        using var factory = CreateIsolatedFactory(services =>
+        {
+            services.Replace(ServiceDescriptor.Singleton<IEmailSender>(capturingEmailSender));
+        });
+        using var client = factory.CreateClient();
+        await PrimeAntiforgeryAsync(client);
+
+        using var registerResponse = await client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            email = UniqueEmail(),
+            password = "correct-horse-battery-staple",
+            displayName = "整合測試會員",
+            acceptTermsVersion = 1,
+        });
+        var registerBody = await registerResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var publicId = registerBody.GetProperty("publicId").GetGuid();
+        var (_, token) = ExtractVerificationLink((await capturingEmailSender.WaitForSingleMessageAsync()).TextBody);
+
+        await SuspendUserAsync(factory, publicId);
+
+        using var confirmResponse = await client.PostAsJsonAsync("/api/v1/auth/email-verifications/confirm", new
+        {
+            userPublicId = publicId,
+            token,
+        });
+        using var document = await ReadProblemDetailsAsync(confirmResponse);
+
+        Assert.Equal(HttpStatusCode.BadRequest, confirmResponse.StatusCode);
+        Assert.Equal(
+            AuthErrorCodes.EmailTokenInvalid,
+            document.RootElement.GetProperty("code").GetString());
+        Assert.Equal("suspended", await GetAccountStatusAsync(factory, publicId));
+    }
+
+    [Fact]
+    public async Task ConfirmEmailVerification_WhenPersistingTheConfirmationFails_DoesNotReportSuccess()
+    {
+        // MemberRegistrationGateway.ConfirmEmailAsync now checks the IdentityResult from both
+        // UpdateAsync (persisting user.ConfirmEmail()) and UpdateSecurityStampAsync, throwing
+        // instead of silently reporting success when either fails (Alex review, 2026-08-21).
+        // FailingUpdateUserManager intercepts exactly those two calls with a synthetic failure
+        // while every other UserManager operation (including the built-in ConfirmEmailAsync token
+        // validation) still runs against the real, SQL-Server-backed store underneath. The
+        // confirm call is driven directly against the gateway (not through HTTP) so the same
+        // manually-created scope resolves both the gateway and the UserManager it depends on,
+        // making the failure controllable from the test.
+        var capturingEmailSender = new CapturingEmailSender();
+        using var factory = CreateIsolatedFactory(services =>
+        {
+            services.Replace(ServiceDescriptor.Singleton<IEmailSender>(capturingEmailSender));
+            services.Replace(ServiceDescriptor.Scoped<UserManager<ApplicationUser>>(
+                sp => new FailingUpdateUserManager(sp)));
+        });
+        using var client = factory.CreateClient();
+        await PrimeAntiforgeryAsync(client);
+
+        using var registerResponse = await client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            email = UniqueEmail(),
+            password = "correct-horse-battery-staple",
+            displayName = "整合測試會員",
+            acceptTermsVersion = 1,
+        });
+        var registerBody = await registerResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var publicId = registerBody.GetProperty("publicId").GetGuid();
+        var (_, token) = ExtractVerificationLink((await capturingEmailSender.WaitForSingleMessageAsync()).TextBody);
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var manager = (FailingUpdateUserManager)scope.ServiceProvider
+                .GetRequiredService<UserManager<ApplicationUser>>();
+            manager.FailNextUpdate = true;
+
+            var gateway = scope.ServiceProvider.GetRequiredService<IMemberRegistrationGateway>();
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => gateway.ConfirmEmailAsync(publicId, token, CancellationToken.None));
+        }
+
+        // The failed attempt must not have left the account confirmed.
+        Assert.Equal("pendingEmailVerification", await GetAccountStatusAsync(factory, publicId));
+    }
+
+    [Fact]
+    public async Task ConfirmPasswordReset_WhenAccountWasSuspendedAfterTheTokenWasIssued_RejectsTheToken()
+    {
+        // A password reset token generated while the account was eligible must stop working the
+        // instant the account is suspended (Alex review, 2026-08-21): MemberPasswordResetGateway
+        // now re-checks eligibility when the token is consumed, not just when it is issued.
+        var capturingEmailSender = new CapturingEmailSender();
+        using var factory = CreateIsolatedFactory(services =>
+        {
+            services.Replace(ServiceDescriptor.Singleton<IEmailSender>(capturingEmailSender));
+        });
+        using var client = factory.CreateClient();
+        await PrimeAntiforgeryAsync(client);
+
+        var email = UniqueEmail();
+        using var registerResponse = await client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            email,
+            password = "correct-horse-battery-staple",
+            displayName = "整合測試會員",
+            acceptTermsVersion = 1,
+        });
+        var registerBody = await registerResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var publicId = registerBody.GetProperty("publicId").GetGuid();
+        var (verifyPublicId, verifyToken) =
+            ExtractVerificationLink((await capturingEmailSender.WaitForSingleMessageAsync()).TextBody);
+        using var verifyResponse = await client.PostAsJsonAsync(
+            "/api/v1/auth/email-verifications/confirm",
+            new { userPublicId = verifyPublicId, token = verifyToken });
+        Assert.Equal(HttpStatusCode.OK, verifyResponse.StatusCode);
+        capturingEmailSender.SentMessages.Clear();
+
+        using var requestResetResponse = await client.PostAsJsonAsync("/api/v1/auth/password-resets", new { email });
+        Assert.Equal(HttpStatusCode.Accepted, requestResetResponse.StatusCode);
+        var (resetPublicId, resetToken) =
+            ExtractVerificationLink((await capturingEmailSender.WaitForSingleMessageAsync()).TextBody);
+
+        await SuspendUserAsync(factory, resetPublicId);
+
+        using var confirmResetResponse = await client.PostAsJsonAsync(
+            "/api/v1/auth/password-resets/confirm",
+            new { userPublicId = resetPublicId, token = resetToken, newPassword = "new-correct-horse-battery" });
+        using var document = await ReadProblemDetailsAsync(confirmResetResponse);
+
+        Assert.Equal(HttpStatusCode.BadRequest, confirmResetResponse.StatusCode);
+        Assert.Equal(
+            AuthErrorCodes.PasswordResetTokenInvalid,
+            document.RootElement.GetProperty("code").GetString());
+    }
+
+    [Fact]
     public async Task ConfirmPasswordReset_WhenTokenHasExceededItsConfiguredLifespan_ReturnsPasswordResetTokenInvalidCode()
     {
         var shortLifespan = TimeSpan.FromMilliseconds(200);
@@ -263,16 +427,17 @@ public sealed class AuthControllerTests : IClassFixture<WebApplicationFactory<Pr
 
         // IEmailRequestThrottle currently permits 3 requests per email per hour for the
         // "register" purpose (EmailRequestThrottle). The first consumes the account; the next two
-        // still consume budget even though the account already exists (EmailInUse), because the
-        // throttle is checked before the gateway call and must not itself leak account existence.
+        // still consume budget even though the account already exists, because the throttle is
+        // checked before the gateway call and must not itself leak account existence. Duplicate
+        // attempts return the same 202 shape as the first (non-enumerable registration).
         using var firstResponse = await client.PostAsJsonAsync("/api/v1/auth/register", Payload());
         Assert.Equal(HttpStatusCode.Accepted, firstResponse.StatusCode);
 
         using var secondResponse = await client.PostAsJsonAsync("/api/v1/auth/register", Payload());
-        Assert.Equal(HttpStatusCode.Conflict, secondResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Accepted, secondResponse.StatusCode);
 
         using var thirdResponse = await client.PostAsJsonAsync("/api/v1/auth/register", Payload());
-        Assert.Equal(HttpStatusCode.Conflict, thirdResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Accepted, thirdResponse.StatusCode);
 
         using var fourthResponse = await client.PostAsJsonAsync("/api/v1/auth/register", Payload());
         using var document = await ReadProblemDetailsAsync(fourthResponse);
@@ -456,6 +621,27 @@ public sealed class AuthControllerTests : IClassFixture<WebApplicationFactory<Pr
             });
         });
 
+    // No admin-suspend endpoint is exposed on this branch yet, so tests that need a suspended
+    // account reach past the HTTP surface and drive the domain method directly — the same one a
+    // future admin flow would call — to prove the fix at the layer that actually matters.
+    private static async Task SuspendUserAsync(WebApplicationFactory<Program> factory, Guid userPublicId)
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var user = await userManager.Users.SingleAsync(candidate => candidate.PublicId == userPublicId);
+        user.Suspend(DateTime.UtcNow);
+        var result = await userManager.UpdateAsync(user);
+        Assert.True(result.Succeeded);
+    }
+
+    private static async Task<string> GetAccountStatusAsync(WebApplicationFactory<Program> factory, Guid userPublicId)
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var user = await userManager.Users.SingleAsync(candidate => candidate.PublicId == userPublicId);
+        return AccountStatusTokens.ToToken(user.AccountStatus);
+    }
+
     private static (Guid PublicId, string Token) ExtractVerificationLink(string emailTextBody)
     {
         var match = Regex.Match(
@@ -522,6 +708,41 @@ public sealed class AuthControllerTests : IClassFixture<WebApplicationFactory<Pr
             }
 
             return Assert.Single(SentMessages);
+        }
+    }
+
+    // UserManager<TUser>.UpdateAsync/UpdateSecurityStampAsync are virtual specifically to support
+    // this kind of test seam: every other operation (including the built-in ConfirmEmailAsync
+    // token validation) still goes through the real, DI-resolved store, so this only fakes the
+    // exact two calls MemberRegistrationGateway.ConfirmEmailAsync now checks the result of.
+    private sealed class FailingUpdateUserManager(IServiceProvider services) : UserManager<ApplicationUser>(
+        services.GetRequiredService<IUserStore<ApplicationUser>>(),
+        services.GetRequiredService<IOptions<IdentityOptions>>(),
+        services.GetRequiredService<IPasswordHasher<ApplicationUser>>(),
+        services.GetServices<IUserValidator<ApplicationUser>>(),
+        services.GetServices<IPasswordValidator<ApplicationUser>>(),
+        services.GetRequiredService<ILookupNormalizer>(),
+        services.GetRequiredService<IdentityErrorDescriber>(),
+        services,
+        services.GetRequiredService<ILogger<UserManager<ApplicationUser>>>())
+    {
+        private static readonly IdentityError SyntheticFailure = new()
+        {
+            Code = "SyntheticTestFailure",
+            Description = "Synthetic persistence failure injected by a test.",
+        };
+
+        public bool FailNextUpdate { get; set; }
+
+        public override Task<IdentityResult> UpdateAsync(ApplicationUser user)
+        {
+            if (FailNextUpdate)
+            {
+                FailNextUpdate = false;
+                return Task.FromResult(IdentityResult.Failed(SyntheticFailure));
+            }
+
+            return base.UpdateAsync(user);
         }
     }
 }

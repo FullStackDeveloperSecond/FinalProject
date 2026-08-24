@@ -72,7 +72,7 @@ async function handleSubmit(): Promise<void> {
   <EmptyState
     v-if="registered"
     title="請完成 Email 驗證"
-    :description="`我們已寄出驗證信至 ${registered.emailMasked}，請於 24 小時內點擊信中連結完成驗證。`"
+    :description="`若 ${registered.emailMasked} 尚未註冊過，我們已寄出驗證信，請於 24 小時內點擊信中連結完成驗證；若此信箱已經註冊過，請直接查看您原本收到的驗證信或改用登入頁。`"
   >
     <RouterLink to="/">
       回首頁

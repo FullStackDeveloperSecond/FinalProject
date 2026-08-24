@@ -2,9 +2,8 @@
 import { ref } from 'vue'
 import { EmptyState } from '@doselect/web-shared/components'
 import { requestPasswordReset } from './api'
-import { consumePendingForgotPasswordEmail } from './forgotPasswordEmailHandoff'
 
-const email = ref(consumePendingForgotPasswordEmail())
+const email = ref('')
 const submitting = ref(false)
 const submitted = ref(false)
 

@@ -13,9 +13,7 @@ public sealed class MemberPasswordResetGateway(
         CancellationToken cancellationToken = default)
     {
         var user = await userManager.FindByEmailAsync(email);
-        if (user is null ||
-            user.AccountType != AccountType.Member ||
-            user.AccountStatus is AccountStatus.Suspended or AccountStatus.Anonymized or AccountStatus.Disabled)
+        if (user is null || !IsEligibleForPasswordReset(user))
         {
             return new RequestMemberPasswordResetOutcome.NotEligible();
         }
@@ -34,7 +32,10 @@ public sealed class MemberPasswordResetGateway(
             candidate => candidate.PublicId == userPublicId,
             cancellationToken);
 
-        if (user is null)
+        // Re-check eligibility at consume time, not just at issue time: a token generated while
+        // the account was eligible must not still work after the account is suspended,
+        // anonymized, or disabled in the interim.
+        if (user is null || !IsEligibleForPasswordReset(user))
         {
             return new ResetMemberPasswordOutcome.TokenRejected();
         }
@@ -53,4 +54,8 @@ public sealed class MemberPasswordResetGateway(
         return new ResetMemberPasswordOutcome.PasswordRejected(
             result.Errors.Select(error => error.Description).ToArray());
     }
+
+    private static bool IsEligibleForPasswordReset(ApplicationUser user) =>
+        user.AccountType == AccountType.Member &&
+        user.AccountStatus is not (AccountStatus.Suspended or AccountStatus.Anonymized or AccountStatus.Disabled);
 }

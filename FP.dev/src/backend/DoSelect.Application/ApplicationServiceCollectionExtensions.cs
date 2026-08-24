@@ -16,6 +16,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<LoginMemberService>();
         services.AddScoped<RequestPasswordResetService>();
         services.AddScoped<ResetPasswordService>();
+        services.AddScoped<PurgeStaleUnverifiedMembersService>();
 
         return services;
     }

@@ -74,7 +74,43 @@ public sealed class LoginControllerTests : IClassFixture<WebApplicationFactory<P
     }
 
     [Fact]
-    public async Task Login_AfterFiveWrongPasswords_ReturnsAccountLocked()
+    public async Task Login_AfterFiveWrongPasswords_StillReturnsGenericInvalidCredentialsButBlocksEvenTheCorrectPassword()
+    {
+        // Locked-out and merely-wrong-password must be indistinguishable externally, otherwise
+        // the distinct response itself becomes an oracle an attacker can use both to enumerate
+        // accounts and to confirm a lockout attack landed (Alex review, 2026-08-21). Identity's
+        // Lockout must still actually block the account internally, though — this proves both
+        // halves: the external response never leaks 423/account_locked, and a subsequent attempt
+        // with the *correct* password is still rejected while the lockout window is active.
+        var (client, email) = await CreateClientWithActivatedMemberAsync();
+
+        HttpResponseMessage? lastResponse = null;
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            lastResponse?.Dispose();
+            lastResponse = await LoginAsync(client, email, "totally-wrong-password", rememberMe: false);
+        }
+
+        using (var response = lastResponse!)
+        {
+            using var document = await ReadProblemDetailsAsync(response);
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+            Assert.Equal(
+                AuthErrorCodes.InvalidCredentials,
+                document.RootElement.GetProperty("code").GetString());
+        }
+
+        using var correctPasswordResponse = await LoginAsync(client, email, Password, rememberMe: false);
+        using var correctPasswordDocument = await ReadProblemDetailsAsync(correctPasswordResponse);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, correctPasswordResponse.StatusCode);
+        Assert.Equal(
+            AuthErrorCodes.InvalidCredentials,
+            correctPasswordDocument.RootElement.GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task Login_LockedAccountAndUnknownAccount_ReturnIndistinguishableResponses()
     {
         var (client, email) = await CreateClientWithActivatedMemberAsync();
 
@@ -85,12 +121,42 @@ public sealed class LoginControllerTests : IClassFixture<WebApplicationFactory<P
             lastResponse = await LoginAsync(client, email, "totally-wrong-password", rememberMe: false);
         }
 
-        using var response = lastResponse!;
-        using var document = await ReadProblemDetailsAsync(response);
+        using var lockedResponse = lastResponse!;
+        using var lockedDocument = await ReadProblemDetailsAsync(lockedResponse);
 
-        Assert.Equal(HttpStatusCode.Locked, response.StatusCode);
+        using var unknownAccountResponse =
+            await LoginAsync(client, UniqueEmail(), "totally-wrong-password", rememberMe: false);
+        using var unknownAccountDocument = await ReadProblemDetailsAsync(unknownAccountResponse);
+
+        Assert.Equal(lockedResponse.StatusCode, unknownAccountResponse.StatusCode);
         Assert.Equal(
-            AuthErrorCodes.AccountLocked,
+            lockedDocument.RootElement.GetProperty("code").GetString(),
+            unknownAccountDocument.RootElement.GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task Login_WhenTheSameIpExceedsThePerIpBudgetWithinTheHour_ReturnsRateLimitExceededCode()
+    {
+        using var client = CreateIsolatedFactory().CreateClient();
+        await PrimeAntiforgeryAsync(client);
+
+        // The per-IP login policy (SecurityServiceCollectionExtensions.AuthLogin) currently
+        // permits 20 requests per hour; each call targets a distinct, nonexistent account to
+        // model a password-spray sweep across many accounts from a single source.
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            using var response =
+                await LoginAsync(client, UniqueEmail(), "totally-wrong-password", rememberMe: false);
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        }
+
+        using var rateLimitedResponse =
+            await LoginAsync(client, UniqueEmail(), "totally-wrong-password", rememberMe: false);
+        using var document = await ReadProblemDetailsAsync(rateLimitedResponse);
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, rateLimitedResponse.StatusCode);
+        Assert.Equal(
+            ApiErrorCodes.RateLimitExceeded,
             document.RootElement.GetProperty("code").GetString());
     }
 

@@ -31,15 +31,20 @@ public sealed class RegisterMemberServiceTests
     }
 
     [Fact]
-    public async Task RegisterAsync_WhenEmailIsAlreadyRegistered_ReturnsEmailInUseWithoutSendingEmail()
+    public async Task RegisterAsync_WhenEmailIsAlreadyRegistered_ReturnsTheSameSuccessShapeAsAFreshRegistrationWithoutSendingEmail()
     {
+        // Non-enumerable by design: an unauthenticated caller must not be able to tell an
+        // already-registered email apart from a brand-new one (Alex review, 2026-08-21).
         var gateway = new FakeMemberRegistrationGateway(_ => new CreateMemberOutcome.EmailInUse());
         var emailSender = new RecordingEmailDispatchQueue();
         var service = CreateService(gateway, emailSender);
 
         var result = await service.RegisterAsync(ValidCommand());
 
-        Assert.IsType<RegisterMemberResult.EmailInUse>(result);
+        var success = Assert.IsType<RegisterMemberResult.Success>(result);
+        Assert.Equal("j*******@example.com", success.EmailMasked);
+        Assert.Equal(AccountStatus.PendingEmailVerification, success.AccountStatus);
+        Assert.NotEqual(Guid.Empty, success.PublicId);
         Assert.Empty(emailSender.SentMessages);
     }
 
