@@ -46,10 +46,8 @@
 | Code | HTTP | 使用時機 |
 |---|---:|---|
 | `account_email_unverified` | 403 | 會員尚未完成 Email 驗證 |
-| `account_email_in_use` | 409 | 註冊 Email 已存在；只用於註冊提交，不用於忘記密碼或驗證碼申請 |
 | `account_suspended` | 403 | 帳號已停權且 Session／登入被拒絕 |
-| `account_locked` | 423 | 登入失敗達鎖定門檻 |
-| `invalid_credentials` | 401 | Email 或密碼錯誤；不得指出是哪一欄錯誤 |
+| `invalid_credentials` | 401 | Email 或密碼錯誤、帳號不存在或帳號已鎖定；三種情形回應完全相同、不得區分（避免帳號枚舉與鎖定攻擊 oracle） |
 | `email_token_invalid` | 400 | Email 驗證 Token 無效、已使用或撤銷 |
 | `email_token_expired` | 400 | Email 驗證 Token 已過期 |
 | `password_reset_token_invalid` | 400 | 重設 Token 無效、已使用或撤銷 |

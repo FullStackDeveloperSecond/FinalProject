@@ -87,6 +87,11 @@ public sealed class AuthControllerTests : IClassFixture<WebApplicationFactory<Pr
             secondBody.GetProperty("accountStatus").GetString());
         Assert.NotEqual(realPublicId, secondBody.GetProperty("publicId").GetGuid());
 
+        // The synthetic PublicId's UUID version must match a real one, too — a v4 fallback would
+        // itself be an oracle even though every other part of the response is identical (Alex
+        // review, 2026-08-24).
+        Assert.Equal(UuidVersion(realPublicId), UuidVersion(secondBody.GetProperty("publicId").GetGuid()));
+
         // A duplicate registration attempt must not trigger a second verification email either.
         var singleMessage = await capturingEmailSender.WaitForSingleMessageAsync();
         Assert.Contains(realPublicId.ToString("D"), singleMessage.TextBody);
@@ -664,6 +669,8 @@ public sealed class AuthControllerTests : IClassFixture<WebApplicationFactory<Pr
     }
 
     private static string UniqueEmail() => $"auth-controller-test-{Guid.NewGuid():N}@example.com";
+
+    private static int UuidVersion(Guid guid) => Convert.ToInt32(guid.ToString("N")[12].ToString(), 16);
 
     private static async Task<JsonDocument> ReadProblemDetailsAsync(HttpResponseMessage response)
     {

@@ -41,6 +41,10 @@ public static class ConfigurationValidationExtensions
             .AddOptions<FrontendLinkOptions>()
             .BindConfiguration(FrontendLinkOptions.SectionName)
             .ValidateOnStart();
+        services
+            .AddOptions<RateLimitOptions>()
+            .BindConfiguration(RateLimitOptions.SectionName)
+            .ValidateOnStart();
 
         services.AddSingleton<IValidateOptions<StorageOptions>, StorageOptionsValidator>();
         services.AddSingleton<IValidateOptions<OpenAiOptions>, OpenAiOptionsValidator>();
@@ -48,6 +52,7 @@ public static class ConfigurationValidationExtensions
         services.AddSingleton<IValidateOptions<DemoOptions>, DemoOptionsValidator>();
         services.AddSingleton<IValidateOptions<CorsOptions>, CorsOptionsValidator>();
         services.AddSingleton<IValidateOptions<FrontendLinkOptions>, FrontendLinkOptionsValidator>();
+        services.AddSingleton<IValidateOptions<RateLimitOptions>, RateLimitOptionsValidator>();
 
         return services;
     }
@@ -233,6 +238,32 @@ internal sealed class FrontendLinkOptionsValidator : IValidateOptions<FrontendLi
         }
 
         return ValidateOptionsResult.Success;
+    }
+}
+
+internal sealed class RateLimitOptionsValidator : IValidateOptions<RateLimitOptions>
+{
+    public ValidateOptionsResult Validate(string? name, RateLimitOptions options)
+    {
+        var failures = new List<string>();
+        AddPositiveFailure(failures, options.EmailPurposePermitLimit, "RateLimiting:EmailPurposePermitLimit");
+        AddPositiveFailure(failures, options.EmailPurposeWindowHours, "RateLimiting:EmailPurposeWindowHours");
+        AddPositiveFailure(failures, options.PerIpPermitLimit, "RateLimiting:PerIpPermitLimit");
+        AddPositiveFailure(failures, options.PerIpWindowHours, "RateLimiting:PerIpWindowHours");
+        AddPositiveFailure(failures, options.LoginPerIpPermitLimit, "RateLimiting:LoginPerIpPermitLimit");
+        AddPositiveFailure(failures, options.LoginPerIpWindowHours, "RateLimiting:LoginPerIpWindowHours");
+
+        return failures.Count == 0
+            ? ValidateOptionsResult.Success
+            : ValidateOptionsResult.Fail(failures);
+    }
+
+    private static void AddPositiveFailure(ICollection<string> failures, int value, string configurationKey)
+    {
+        if (value <= 0)
+        {
+            failures.Add($"Configuration key '{configurationKey}' must be greater than zero.");
+        }
     }
 }
 

@@ -49,6 +49,24 @@ public sealed class RegisterMemberServiceTests
     }
 
     [Fact]
+    public async Task RegisterAsync_WhenEmailIsAlreadyRegistered_ReturnsAPublicIdWithTheSameUuidVersionAsARealOne()
+    {
+        // A v4 GUID for the synthetic duplicate-email PublicId was itself an oracle: the version
+        // nibble told an attacker new-vs-duplicate apart even though every other part of the
+        // response was identical (Alex review, 2026-08-24). Real accounts get their PublicId from
+        // Guid.CreateVersion7() (see CreateMemberAsync), so the synthetic one must match.
+        var gateway = new FakeMemberRegistrationGateway(_ => new CreateMemberOutcome.EmailInUse());
+        var service = CreateService(gateway, new RecordingEmailDispatchQueue());
+
+        var result = await service.RegisterAsync(ValidCommand());
+
+        var success = Assert.IsType<RegisterMemberResult.Success>(result);
+        Assert.Equal(7, UuidVersion(success.PublicId));
+    }
+
+    private static int UuidVersion(Guid guid) => Convert.ToInt32(guid.ToString("N")[12].ToString(), 16);
+
+    [Fact]
     public async Task RegisterAsync_WhenTermsVersionIsNotCurrent_ReturnsValidationFailedWithoutCallingGateway()
     {
         var gateway = new FakeMemberRegistrationGateway(
@@ -99,7 +117,7 @@ public sealed class RegisterMemberServiceTests
     private static RegisterMemberService CreateService(
         IMemberRegistrationGateway gateway,
         IEmailDispatchQueue emailDispatchQueue) =>
-        new(gateway, emailDispatchQueue, new EmailRequestThrottle(), Options.Create(new FrontendLinkOptions
+        new(gateway, emailDispatchQueue, new EmailRequestThrottle(Options.Create(new RateLimitOptions())), Options.Create(new FrontendLinkOptions
         {
             BaseUrl = "http://localhost:5173",
         }));
