@@ -19,8 +19,6 @@ public abstract record RegisterMemberResult
         string EmailMasked,
         AccountStatus AccountStatus) : RegisterMemberResult;
 
-    public sealed record EmailInUse : RegisterMemberResult;
-
     public sealed record ValidationFailed(
         IReadOnlyDictionary<string, string[]> Errors) : RegisterMemberResult;
 
@@ -74,7 +72,15 @@ public sealed class RegisterMemberService(
         switch (outcome)
         {
             case CreateMemberOutcome.EmailInUse:
-                return new RegisterMemberResult.EmailInUse();
+                // Non-enumerable by design (Alex review, 2026-08-21): the public response for an
+                // already-registered email must be indistinguishable from a fresh registration —
+                // same status code, same shape, no real PublicId of the existing account. Emitting
+                // a distinct 409/error here (as before) let an unauthenticated caller test which
+                // emails are already members, which the acceptance spec explicitly forbids.
+                return new RegisterMemberResult.Success(
+                    Guid.NewGuid(),
+                    EmailMasking.Mask(command.Email),
+                    AccountStatus.PendingEmailVerification);
 
             case CreateMemberOutcome.PasswordRejected passwordRejected:
                 return new RegisterMemberResult.ValidationFailed(

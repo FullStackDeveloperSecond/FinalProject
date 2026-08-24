@@ -81,7 +81,13 @@ public sealed class MemberRegistrationGateway(
             candidate => candidate.PublicId == userPublicId,
             cancellationToken);
 
-        if (user is null)
+        // Guard on status before touching UserManager.ConfirmEmailAsync at all: that call sets
+        // EmailConfirmed=true and persists as a side effect of successful token validation,
+        // independent of AccountStatus. A token issued while pending verification must not be
+        // able to reactivate a Suspended (or otherwise non-pending) account, so ineligible status
+        // is rejected up front rather than relying on the domain method's guard as the only line
+        // of defense.
+        if (user is null || user.AccountStatus != AccountStatus.PendingEmailVerification)
         {
             return new ConfirmMemberEmailOutcome.TokenRejected();
         }
@@ -93,17 +99,26 @@ public sealed class MemberRegistrationGateway(
         }
 
         var nowUtc = timeProvider.GetUtcNow().UtcDateTime;
-        if (user.AccountStatus != AccountStatus.Active)
+        user.ConfirmEmail(nowUtc);
+        var updateResult = await userManager.UpdateAsync(user);
+        if (!updateResult.Succeeded)
         {
-            user.ConfirmEmail(nowUtc);
-            await userManager.UpdateAsync(user);
+            throw new InvalidOperationException(
+                $"Failed to persist email confirmation for user '{user.PublicId}': " +
+                string.Join("; ", updateResult.Errors.Select(error => error.Description)));
         }
 
         // Rotate the security stamp so the token cannot be replayed: DataProtectorTokenProvider
         // binds the protected payload to the user's SecurityStamp, so any further
         // ConfirmEmailAsync call with the same token fails validation before it reaches this
         // method once the stamp changes.
-        await userManager.UpdateSecurityStampAsync(user);
+        var stampResult = await userManager.UpdateSecurityStampAsync(user);
+        if (!stampResult.Succeeded)
+        {
+            throw new InvalidOperationException(
+                $"Failed to rotate security stamp for user '{user.PublicId}': " +
+                string.Join("; ", stampResult.Errors.Select(error => error.Description)));
+        }
 
         return new ConfirmMemberEmailOutcome.Success(user.AccountStatus);
     }

@@ -8,6 +8,7 @@ using DoSelect.Infrastructure.Email;
 using DoSelect.Infrastructure.Files;
 using DoSelect.Infrastructure.Idempotency;
 using DoSelect.Infrastructure.Persistence;
+using DoSelect.Infrastructure.Persistence.Identity;
 using DoSelect.Infrastructure.Persistence.Seeding;
 using DoSelect.Infrastructure.Refunds;
 using DoSelect.Infrastructure.Shopping;
@@ -38,6 +39,7 @@ builder.Services.AddSingleton<IEmailSender>(services =>
 builder.Services.AddSingleton<EmailDispatchChannel>();
 builder.Services.AddSingleton<IEmailDispatchQueue>(services => services.GetRequiredService<EmailDispatchChannel>());
 builder.Services.AddHostedService<EmailDispatchBackgroundService>();
+builder.Services.AddHostedService<UnverifiedMemberCleanupBackgroundService>();
 
 var app = builder.Build();
 

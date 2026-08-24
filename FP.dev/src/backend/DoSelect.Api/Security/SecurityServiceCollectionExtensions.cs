@@ -27,6 +27,15 @@ public static class SecurityServiceCollectionExtensions
     private const int PerIpPermitLimit = 5;
     private static readonly TimeSpan PerIpWindow = TimeSpan.FromHours(1);
 
+    // Login is legitimately called far more often than the endpoints above (a real user can
+    // easily mistype a password a few times), so it gets its own, higher budget — high enough to
+    // not annoy a genuine user, low enough to make a password-spray sweep across many accounts
+    // from one source impractical. Identity's per-account Lockout (MemberLoginGateway) is the
+    // other half of this defense; this limiter is the per-IP half. Placeholder default pending a
+    // product decision.
+    private const int LoginPerIpPermitLimit = 20;
+    private static readonly TimeSpan LoginPerIpWindow = TimeSpan.FromHours(1);
+
     public static IServiceCollection AddDoSelectSecurity(
         this IServiceCollection services,
         IHostEnvironment environment,
@@ -78,21 +87,26 @@ public static class SecurityServiceCollectionExtensions
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
-            AddPerIpFixedWindowPolicy(options, RateLimitPolicies.AuthRegister);
-            AddPerIpFixedWindowPolicy(options, RateLimitPolicies.AuthResendVerification);
-            AddPerIpFixedWindowPolicy(options, RateLimitPolicies.AuthForgotPassword);
+            AddPerIpFixedWindowPolicy(options, RateLimitPolicies.AuthRegister, PerIpPermitLimit, PerIpWindow);
+            AddPerIpFixedWindowPolicy(options, RateLimitPolicies.AuthResendVerification, PerIpPermitLimit, PerIpWindow);
+            AddPerIpFixedWindowPolicy(options, RateLimitPolicies.AuthForgotPassword, PerIpPermitLimit, PerIpWindow);
+            AddPerIpFixedWindowPolicy(options, RateLimitPolicies.AuthLogin, LoginPerIpPermitLimit, LoginPerIpWindow);
         });
 
         return services;
     }
 
-    private static void AddPerIpFixedWindowPolicy(RateLimiterOptions options, string policyName) =>
+    private static void AddPerIpFixedWindowPolicy(
+        RateLimiterOptions options,
+        string policyName,
+        int permitLimit,
+        TimeSpan window) =>
         options.AddPolicy(policyName, httpContext => RateLimitPartition.GetFixedWindowLimiter(
             partitionKey: GetClientIpAddress(httpContext),
             factory: _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = PerIpPermitLimit,
-                Window = PerIpWindow,
+                PermitLimit = permitLimit,
+                Window = window,
                 QueueLimit = 0,
                 AutoReplenishment = true,
             }));

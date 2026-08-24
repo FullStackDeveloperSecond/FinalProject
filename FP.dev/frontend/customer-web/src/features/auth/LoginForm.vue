@@ -5,7 +5,6 @@ import { isApiError } from '@doselect/web-shared/api'
 import { useSessionStore } from '../../stores/session'
 import PasswordVisibilityToggle from '../../components/PasswordVisibilityToggle.vue'
 import { requestEmailVerification } from './api'
-import { setPendingForgotPasswordEmail } from './forgotPasswordEmailHandoff'
 
 const email = ref('')
 const password = ref('')
@@ -14,7 +13,6 @@ const showPassword = ref(false)
 const submitting = ref(false)
 const topLevelError = ref<string | null>(null)
 const emailUnverified = ref(false)
-const accountLocked = ref(false)
 const resendState = ref<'idle' | 'sending' | 'sent'>('idle')
 
 const router = useRouter()
@@ -23,7 +21,6 @@ const sessionStore = useSessionStore()
 async function handleSubmit(): Promise<void> {
   topLevelError.value = null
   emailUnverified.value = false
-  accountLocked.value = false
   resendState.value = 'idle'
   submitting.value = true
 
@@ -37,17 +34,9 @@ async function handleSubmit(): Promise<void> {
   } catch (error) {
     topLevelError.value = resolveErrorMessage(error)
     emailUnverified.value = isApiError(error) && error.code === 'account_email_unverified'
-    accountLocked.value = isApiError(error) && error.code === 'account_locked'
   } finally {
     submitting.value = false
   }
-}
-
-function goToForgotPassword(): void {
-  // The full email must not travel via URL (query string, browser history, Referer); hand it off
-  // through sessionStorage instead, consumed once by ForgotPasswordForm.
-  setPendingForgotPasswordEmail(email.value.trim())
-  void router.push('/forgot-password')
 }
 
 async function handleResendVerification(): Promise<void> {
@@ -71,9 +60,10 @@ function resolveErrorMessage(error: unknown): string {
 
   switch (error.code) {
     case 'invalid_credentials':
+      // Also covers an internally-locked account: the API deliberately returns the same
+      // invalid_credentials response for both so a locked account and a wrong password (or a
+      // nonexistent account) cannot be told apart from the outside.
       return 'Email 或密碼錯誤，請再試一次。'
-    case 'account_locked':
-      return '登入失敗次數過多，帳號已暫時鎖定，請稍後再試。'
     case 'account_email_unverified':
       return '此帳號尚未完成 Email 驗證，請查看您的信箱完成驗證後再登入。'
     case 'account_suspended':
@@ -131,38 +121,6 @@ function resolveErrorMessage(error: unknown): string {
             <path d="m2 7 10 6 10-6" />
           </svg>
           <span>{{ resendState === 'sending' ? '寄送中…' : resendState === 'sent' ? '已重新寄出' : '重新寄送驗證信' }}</span>
-        </button>
-      </div>
-      <div
-        v-if="accountLocked"
-        class="form-banner__actions"
-      >
-        <button
-          type="button"
-          class="resend-verification"
-          @click="goToForgotPassword"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            width="18"
-            height="18"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <rect
-              x="3"
-              y="11"
-              width="18"
-              height="10"
-              rx="2"
-            />
-            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-          </svg>
-          <span>重設密碼</span>
         </button>
       </div>
     </div>

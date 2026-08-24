@@ -67,7 +67,15 @@ public sealed class ApplicationUser : IdentityUser
 
     public void ConfirmEmail(DateTime confirmedAtUtc)
     {
-        EnsureNotTerminal();
+        // Only a fresh registration may complete email confirmation. Without this, a token
+        // issued while the account was still pending verification could be replayed after the
+        // account moved to Suspended (or any other non-pending state) and silently reactivate it.
+        if (AccountStatus != AccountStatus.PendingEmailVerification)
+        {
+            throw new InvalidOperationException(
+                "Only a pending-email-verification account can complete email confirmation.");
+        }
+
         EnsureUtc(confirmedAtUtc, nameof(confirmedAtUtc));
         EmailConfirmed = true;
         AccountStatus = AccountStatus.Active;
@@ -80,6 +88,11 @@ public sealed class ApplicationUser : IdentityUser
         EnsureUtc(suspendedAtUtc, nameof(suspendedAtUtc));
         AccountStatus = AccountStatus.Suspended;
         UpdatedAtUtc = suspendedAtUtc;
+
+        // Rotate SecurityStamp so every standing credential tied to the previous stamp — email
+        // confirmation tokens, password reset tokens, and signed-in session cookies — stops
+        // validating the instant the account is suspended.
+        SecurityStamp = Guid.NewGuid().ToString();
     }
 
     public void Reactivate(DateTime reactivatedAtUtc)
@@ -106,6 +119,10 @@ public sealed class ApplicationUser : IdentityUser
         PhoneNumber = null;
         UserName = $"anonymized-{PublicId:D}";
         NormalizedUserName = UserName.ToUpperInvariant();
+
+        // See Suspend(): rotates SecurityStamp so any standing token or session cookie stops
+        // validating once the account is anonymized.
+        SecurityStamp = Guid.NewGuid().ToString();
     }
 
     public void ChangePreferredLocale(SupportedLocale locale, DateTime updatedAtUtc)

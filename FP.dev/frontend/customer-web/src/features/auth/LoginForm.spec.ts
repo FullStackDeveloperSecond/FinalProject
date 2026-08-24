@@ -4,12 +4,11 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import LoginForm from './LoginForm.vue'
 
-const { loginMember, fetchSession, logoutMember, push, setPendingForgotPasswordEmail } = vi.hoisted(() => ({
+const { loginMember, fetchSession, logoutMember, push } = vi.hoisted(() => ({
   loginMember: vi.fn(),
   fetchSession: vi.fn(),
   logoutMember: vi.fn(),
   push: vi.fn(),
-  setPendingForgotPasswordEmail: vi.fn(),
 }))
 
 vi.mock('./api', async (importOriginal) => {
@@ -22,8 +21,6 @@ vi.mock('vue-router', async (importOriginal) => {
   return { ...actual, useRouter: () => ({ push }) }
 })
 
-vi.mock('./forgotPasswordEmailHandoff', () => ({ setPendingForgotPasswordEmail }))
-
 const globalStubs = { RouterLink: { template: '<a><slot /></a>' } }
 
 describe('LoginForm', () => {
@@ -31,7 +28,6 @@ describe('LoginForm', () => {
     setActivePinia(createPinia())
     loginMember.mockClear()
     push.mockClear()
-    setPendingForgotPasswordEmail.mockClear()
   })
 
   it('logs in and navigates home on success', async () => {
@@ -61,6 +57,9 @@ describe('LoginForm', () => {
   })
 
   it('shows a generic message for invalid credentials without naming the field', async () => {
+    // The API returns this same invalid_credentials code whether the password was wrong, the
+    // account does not exist, or the account is internally locked out (AuthController.Login) —
+    // the frontend has no separate "locked" code to branch on, by design.
     loginMember.mockRejectedValueOnce(new ApiError('Unauthorized', {
       status: 401,
       code: 'invalid_credentials',
@@ -74,38 +73,5 @@ describe('LoginForm', () => {
 
     expect(wrapper.text()).toContain('Email 或密碼錯誤')
     expect(push).not.toHaveBeenCalled()
-  })
-
-  it('shows a lockout message when the account is locked', async () => {
-    loginMember.mockRejectedValueOnce(new ApiError('Locked', {
-      status: 423,
-      code: 'account_locked',
-    }))
-    const wrapper = mount(LoginForm, { global: { stubs: globalStubs } })
-
-    await wrapper.get('#login-email').setValue('member@example.com')
-    await wrapper.get('#login-password').setValue('wrong-password')
-    await wrapper.get('form').trigger('submit')
-    await flushPromises()
-
-    expect(wrapper.text()).toContain('登入失敗次數過多')
-  })
-
-  it('hands the email off via sessionStorage instead of a URL query param when 重設密碼 is clicked', async () => {
-    loginMember.mockRejectedValueOnce(new ApiError('Locked', {
-      status: 423,
-      code: 'account_locked',
-    }))
-    const wrapper = mount(LoginForm, { global: { stubs: globalStubs } })
-
-    await wrapper.get('#login-email').setValue('  member@example.com  ')
-    await wrapper.get('#login-password').setValue('wrong-password')
-    await wrapper.get('form').trigger('submit')
-    await flushPromises()
-
-    await wrapper.get('.resend-verification[type="button"]').trigger('click')
-
-    expect(setPendingForgotPasswordEmail).toHaveBeenCalledWith('member@example.com')
-    expect(push).toHaveBeenCalledWith('/forgot-password')
   })
 })
