@@ -60,6 +60,7 @@ function sampleTicket(availableActions = ['addMessage', 'cancel']) {
     resolutionDueAtUtc: '2026-08-20T03:00:00Z',
     rowVersion: 'AAAAAAAAAAE=',
     availableActions,
+    attachments: [],
     messages: [
       {
         publicId: '018f2e6a-0000-7000-8000-000000000002',
@@ -126,7 +127,7 @@ describe('SupportTicketDetailPage', () => {
     const input = wrapper.get('#support-ticket-attachment-input')
 
     expect(wrapper.get('section[aria-labelledby="support-ticket-attachments-title"] h2').text())
-      .toBe('上傳附件')
+      .toBe('案件附件')
     expect(wrapper.get('label[for="support-ticket-attachment-input"]').text())
       .toContain('選擇檔案')
     expect(input.attributes('type')).toBe('file')
@@ -140,6 +141,26 @@ describe('SupportTicketDetailPage', () => {
     expect(restrictedWrapper.find('#support-ticket-attachment-input').exists()).toBe(false)
     expect(restrictedWrapper.find('textarea').exists()).toBe(false)
     expect(restrictedWrapper.find('.support-ticket-detail__cancel').exists()).toBe(false)
+  })
+
+  it('keeps existing attachments visible after replies are no longer allowed', async () => {
+    supportMocks.ticket.value = {
+      ...sampleTicket([]),
+      attachments: [{
+        publicId: '018f2e6a-0000-7000-8000-000000000099',
+        originalFileName: 'receipt.pdf',
+        mimeType: 'application/pdf',
+        fileSizeBytes: 7,
+        createdAtUtc: '2026-08-19T03:30:00Z',
+      }],
+    }
+
+    const wrapper = await mountPage()
+
+    expect(wrapper.get('section[aria-labelledby="support-ticket-attachments-title"] h2').text())
+      .toBe('案件附件')
+    expect(wrapper.get('.support-ticket-detail__attachment-link').text()).toBe('receipt.pdf')
+    expect(wrapper.find('#support-ticket-attachment-input').exists()).toBe(false)
   })
 
   it('rejects unsupported extensions and files larger than 10 MiB before upload', async () => {

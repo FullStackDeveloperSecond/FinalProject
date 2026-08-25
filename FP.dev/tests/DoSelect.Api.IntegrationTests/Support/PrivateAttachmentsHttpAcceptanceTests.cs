@@ -50,22 +50,22 @@ public sealed class PrivateAttachmentsHttpAcceptanceTests : IClassFixture<WebApp
     }
 
     [Fact]
-    public async Task MemberCookieWinsWhenBothSchemesAuthenticate()
+    public async Task SupportAdminCookieWinsWhenBothSchemesAuthenticate()
     {
         var fake = new AttachmentServiceFake();
         using var factory = CreateFactory(fake);
         using var client = factory.CreateClient();
-        var member = $"member-{Guid.NewGuid():N}";
-        client.DefaultRequestHeaders.Add(MemberHeader, member);
-        client.DefaultRequestHeaders.Add(AdminHeader, $"admin-{Guid.NewGuid():N}");
+        var admin = $"admin-{Guid.NewGuid():N}";
+        client.DefaultRequestHeaders.Add(MemberHeader, $"member-{Guid.NewGuid():N}");
+        client.DefaultRequestHeaders.Add(AdminHeader, admin);
         client.DefaultRequestHeaders.Add(AdminRolesHeader, DoSelectRoles.CustomerService);
         client.DefaultRequestHeaders.Add(AdminMfaHeader, "true");
 
         using var response = await client.GetAsync($"/api/v1/private-attachments/{Guid.NewGuid()}/content");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(SupportAttachmentActorType.Member, fake.Actor?.Type);
-        Assert.Equal(member, fake.Actor?.UserId);
+        Assert.Equal(SupportAttachmentActorType.SupportHandler, fake.Actor?.Type);
+        Assert.Equal(admin, fake.Actor?.UserId);
     }
 
     [Theory]

@@ -44,7 +44,7 @@ public sealed class PrivateAttachmentsController : ControllerBase
         var actor = await ResolveActorAsync(cancellationToken);
         if (actor is null)
         {
-            // Covers anonymous callers, a member cookie alone, an admin without MFA, and an
+            // Covers anonymous callers, an admin without MFA, and an
             // admin whose role is not CustomerService/CustomerServiceSupervisor (SuperAdmin
             // included) — none of these ever reach the Application layer or storage.
             throw DomainProblemException.NotFound(NotFoundMessage);
@@ -70,18 +70,8 @@ public sealed class PrivateAttachmentsController : ControllerBase
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var memberResult = await HttpContext.AuthenticateAsync(DoSelectAuthenticationSchemes.Member);
-        if (memberResult.Succeeded &&
-            memberResult.Principal is { } memberPrincipal &&
-            memberPrincipal.HasClaim(DoSelectClaimTypes.AccountType, DoSelectClaimValues.Member))
-        {
-            var memberUserId = memberPrincipal.FindFirstValue(ClaimTypes.NameIdentifier);
-            if (!string.IsNullOrEmpty(memberUserId))
-            {
-                return new SupportAttachmentActor(SupportAttachmentActorType.Member, memberUserId);
-            }
-        }
-
+        // A support handler with completed MFA takes precedence when both authentication
+        // cookies are valid, so an admin can inspect attachments owned by another member.
         var adminResult = await HttpContext.AuthenticateAsync(DoSelectAuthenticationSchemes.Admin);
         if (adminResult.Succeeded &&
             adminResult.Principal is { } adminPrincipal &&
@@ -91,6 +81,18 @@ public sealed class PrivateAttachmentsController : ControllerBase
             if (!string.IsNullOrEmpty(adminUserId))
             {
                 return new SupportAttachmentActor(SupportAttachmentActorType.SupportHandler, adminUserId);
+            }
+        }
+
+        var memberResult = await HttpContext.AuthenticateAsync(DoSelectAuthenticationSchemes.Member);
+        if (memberResult.Succeeded &&
+            memberResult.Principal is { } memberPrincipal &&
+            memberPrincipal.HasClaim(DoSelectClaimTypes.AccountType, DoSelectClaimValues.Member))
+        {
+            var memberUserId = memberPrincipal.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (!string.IsNullOrEmpty(memberUserId))
+            {
+                return new SupportAttachmentActor(SupportAttachmentActorType.Member, memberUserId);
             }
         }
 

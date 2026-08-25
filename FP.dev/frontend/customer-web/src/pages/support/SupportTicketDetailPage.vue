@@ -213,18 +213,22 @@ async function handleCancel() {
       </section>
 
       <section
-        v-if="canAddMessage"
+        v-if="canAddMessage || displayedAttachments.length"
         class="support-ticket-detail__attachments card"
         aria-labelledby="support-ticket-attachments-title"
       >
         <h2 id="support-ticket-attachments-title">
-          上傳附件
+          案件附件
         </h2>
-        <p class="inline-note">
+        <p
+          v-if="canAddMessage"
+          class="inline-note"
+        >
           僅接受 PNG、JPEG 或 PDF 檔案，單一檔案不可超過 10 MB。
         </p>
 
         <form
+          v-if="canAddMessage"
           class="support-ticket-detail__attachment-form"
           @submit.prevent="handleUploadAttachment"
         >

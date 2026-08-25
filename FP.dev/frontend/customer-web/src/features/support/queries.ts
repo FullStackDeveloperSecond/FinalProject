@@ -106,8 +106,8 @@ export function useAddSupportMessageMutation(ticketId: MaybeRefOrGetter<string>)
       })
       return data as SupportTicketDto
     },
-    onSuccess: (data) => {
-      queryClient.setQueryData(supportTicketDetailQueryKey(toValue(ticketId)), data)
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: supportTicketDetailQueryKey(toValue(ticketId)) })
     },
   })
 }
@@ -161,8 +161,8 @@ export function useCancelSupportTicketMutation(ticketId: MaybeRefOrGetter<string
       })
       return data as SupportTicketDto
     },
-    onSuccess: async (data) => {
-      queryClient.setQueryData(supportTicketDetailQueryKey(toValue(ticketId)), data)
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: supportTicketDetailQueryKey(toValue(ticketId)) })
       await queryClient.invalidateQueries({ queryKey: [listRootKey, 'list'] })
     },
   })
