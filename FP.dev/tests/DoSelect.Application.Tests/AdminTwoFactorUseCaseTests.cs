@@ -74,7 +74,8 @@ public sealed class AdminTwoFactorUseCaseTests
     {
         var gateway = new FakeAdminAuthGateway
         {
-            VerifyTotpCode = (_, _) => true, FindById = _ => RemovedFromAdminProfile,
+            VerifyTotpCode = (_, _) => true,
+            FindById = _ => RemovedFromAdminProfile,
         };
         var useCase = new AdminTwoFactorUseCase(gateway, new FakeQrCodeGenerator());
 
@@ -89,7 +90,8 @@ public sealed class AdminTwoFactorUseCaseTests
     {
         var gateway = new FakeAdminAuthGateway
         {
-            RedeemRecoveryCode = (_, _) => true, FindById = _ => SuspendedAdmin,
+            RedeemRecoveryCode = (_, _) => true,
+            FindById = _ => SuspendedAdmin,
         };
         var useCase = new AdminTwoFactorUseCase(gateway, new FakeQrCodeGenerator());
 
