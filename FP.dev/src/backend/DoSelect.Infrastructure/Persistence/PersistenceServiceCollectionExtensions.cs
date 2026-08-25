@@ -1,3 +1,4 @@
+using DoSelect.Application.Members;
 using DoSelect.Infrastructure.Persistence.Identity;
 using DoSelect.Infrastructure.Persistence.Seeding;
 using Microsoft.AspNetCore.Identity;
@@ -10,6 +11,13 @@ namespace DoSelect.Infrastructure.Persistence;
 public static class PersistenceServiceCollectionExtensions
 {
     public const string ConnectionStringName = "DefaultConnection";
+
+    // Password reset uses its own provider *type* (PasswordResetTokenProvider, not the shared
+    // DataProtectorTokenProvider<TUser>) because DataProtectorTokenProvider resolves its options
+    // via the unnamed IOptions<DataProtectionTokenProviderOptions> — a named Configure<> call
+    // against that shared type is never observed by the constructed instance. 密碼重設 must expire
+    // in 1 hour while Email 驗證 keeps the framework default 24-hour span (會員、驗證與通知.md).
+    private const string PasswordResetTokenProviderName = "PasswordReset";
 
     public static IServiceCollection AddDoSelectPersistence(
         this IServiceCollection services,
@@ -31,11 +39,43 @@ public static class PersistenceServiceCollectionExtensions
                 sqlServerOptions => sqlServerOptions.MigrationsAssembly(
                     typeof(DoSelectDbContext).Assembly.FullName)));
 
-        services
-            .AddIdentityCore<ApplicationUser>()
-            .AddRoles<IdentityRole>()
-            .AddEntityFrameworkStores<DoSelectDbContext>();
+        services.AddDataProtection();
 
+        services
+            .AddIdentityCore<ApplicationUser>(options =>
+            {
+                // RegisterRequest.password contract bounds length to 12..128; no composition
+                // rule is documented, so composition requirements are disabled rather than
+                // guessed. See FP.sheet/.../API DTO與Schema契約.md.
+                options.Password.RequiredLength = 12;
+                options.Password.RequiredUniqueChars = 1;
+                options.Password.RequireNonAlphanumeric = false;
+                options.Password.RequireUppercase = false;
+                options.Password.RequireLowercase = false;
+                options.Password.RequireDigit = false;
+
+                // 會員連續登入失敗 5 次鎖定 15 分鐘 (會員、驗證與通知.md). Admin's differentiated
+                // 30-minute window is out of scope until admin login (M-01B) is implemented — a
+                // single global window cannot express both, so this is member-only for now.
+                options.Lockout.MaxFailedAccessAttempts = 5;
+                options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+
+                options.Tokens.PasswordResetTokenProvider = PasswordResetTokenProviderName;
+            })
+            .AddRoles<IdentityRole>()
+            .AddEntityFrameworkStores<DoSelectDbContext>()
+            .AddDefaultTokenProviders()
+            .AddTokenProvider<PasswordResetTokenProvider<ApplicationUser>>(PasswordResetTokenProviderName)
+            .AddSignInManager();
+
+        services.Configure<PasswordResetTokenProviderOptions>(
+            options => options.TokenLifespan = TimeSpan.FromHours(1));
+
+        services.AddSingleton(TimeProvider.System);
+        services.AddScoped<IMemberRegistrationGateway, MemberRegistrationGateway>();
+        services.AddScoped<IMemberLoginGateway, MemberLoginGateway>();
+        services.AddScoped<IMemberPasswordResetGateway, MemberPasswordResetGateway>();
+        services.AddScoped<IMemberCleanupGateway, MemberCleanupGateway>();
         services.AddScoped<MinimalDevelopmentDataSeeder>();
 
         return services;

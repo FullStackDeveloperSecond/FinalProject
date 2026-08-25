@@ -1,9 +1,15 @@
 using DoSelect.Api.Configuration;
+using DoSelect.Application.Common;
+using DoSelect.Infrastructure.Persistence.Identity;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.RateLimiting;
 using System.Globalization;
+using System.Security.Claims;
+using System.Threading.RateLimiting;
 
 namespace DoSelect.Api.Security;
 
@@ -62,8 +68,52 @@ public static class SecurityServiceCollectionExtensions
             });
         });
 
+        // V1 展示版限流門檻，經 Alex 裁定定版（2026-08-24 review，方案 A1）— see RateLimitOptions.
+        var rateLimits = configuration.GetSection(RateLimitOptions.SectionName).Get<RateLimitOptions>()
+            ?? new RateLimitOptions();
+        var perIpWindow = TimeSpan.FromHours(rateLimits.PerIpWindowHours);
+        var loginPerIpWindow = TimeSpan.FromHours(rateLimits.LoginPerIpWindowHours);
+
+        services.AddRateLimiter(options =>
+        {
+            options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+            AddPerIpFixedWindowPolicy(
+                options, RateLimitPolicies.AuthRegister, rateLimits.PerIpPermitLimit, perIpWindow);
+            AddPerIpFixedWindowPolicy(
+                options, RateLimitPolicies.AuthResendVerification, rateLimits.PerIpPermitLimit, perIpWindow);
+            AddPerIpFixedWindowPolicy(
+                options, RateLimitPolicies.AuthForgotPassword, rateLimits.PerIpPermitLimit, perIpWindow);
+            // Login is legitimately called far more often than the endpoints above (a real user
+            // can easily mistype a password a few times), so it gets its own, higher budget —
+            // high enough to not annoy a genuine user, low enough to make a password-spray sweep
+            // across many accounts from one source impractical. Identity's per-account Lockout
+            // (MemberLoginGateway) is the other half of this defense; this limiter is the per-IP
+            // half.
+            AddPerIpFixedWindowPolicy(
+                options, RateLimitPolicies.AuthLogin, rateLimits.LoginPerIpPermitLimit, loginPerIpWindow);
+        });
+
         return services;
     }
+
+    private static void AddPerIpFixedWindowPolicy(
+        RateLimiterOptions options,
+        string policyName,
+        int permitLimit,
+        TimeSpan window) =>
+        options.AddPolicy(policyName, httpContext => RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: GetClientIpAddress(httpContext),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = permitLimit,
+                Window = window,
+                QueueLimit = 0,
+                AutoReplenishment = true,
+            }));
+
+    private static string GetClientIpAddress(HttpContext httpContext) =>
+        httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
     private static string NormalizeOrigin(string rawOrigin) =>
         Uri.TryCreate(rawOrigin, UriKind.Absolute, out var origin)
@@ -93,6 +143,28 @@ public static class SecurityServiceCollectionExtensions
                     DateTimeStyles.RoundtripKind,
                     out var absoluteExpiry) ||
                 (context.Options.TimeProvider ?? TimeProvider.System).GetUtcNow() >= absoluteExpiry)
+            {
+                context.RejectPrincipal();
+                await context.HttpContext.SignOutAsync(DoSelectAuthenticationSchemes.Member);
+                return;
+            }
+
+            // Password changes (reset or self-service) rotate Identity's SecurityStamp; comparing
+            // it here invalidates every other outstanding session cookie without a server-side
+            // session store (會員、驗證與通知.md: 密碼變更後使既有工作階段失效). Every cookie issued
+            // by the real login flow carries this claim, so a missing claim only ever means the
+            // principal was never issued that way (e.g. test-only sign-in helpers) and is left
+            // to the rest of the pipeline to authorize or reject on its own terms.
+            var stampClaim = context.Principal?.FindFirstValue(DoSelectClaimTypes.SecurityStamp);
+            if (stampClaim is null)
+            {
+                return;
+            }
+
+            var userManager = context.HttpContext.RequestServices
+                .GetRequiredService<UserManager<ApplicationUser>>();
+            var user = await userManager.GetUserAsync(context.Principal!);
+            if (user is null || !string.Equals(user.SecurityStamp, stampClaim, StringComparison.Ordinal))
             {
                 context.RejectPrincipal();
                 await context.HttpContext.SignOutAsync(DoSelectAuthenticationSchemes.Member);

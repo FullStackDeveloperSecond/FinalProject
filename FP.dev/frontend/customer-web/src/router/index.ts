@@ -10,6 +10,31 @@ const router = createRouter({
       component: () => import('../pages/HomePage.vue'),
     },
     {
+      path: '/register',
+      name: 'register',
+      component: () => import('../pages/RegisterPage.vue'),
+    },
+    {
+      path: '/login',
+      name: 'login',
+      component: () => import('../pages/LoginPage.vue'),
+    },
+    {
+      path: '/verify-email',
+      name: 'verify-email',
+      component: () => import('../pages/VerifyEmailPage.vue'),
+    },
+    {
+      path: '/forgot-password',
+      name: 'forgot-password',
+      component: () => import('../pages/ForgotPasswordPage.vue'),
+    },
+    {
+      path: '/reset-password',
+      name: 'reset-password',
+      component: () => import('../pages/ResetPasswordPage.vue'),
+    },
+    {
       path: '/unauthorized',
       name: 'unauthorized',
       component: HttpStatusPage,

@@ -1,16 +1,18 @@
 using DoSelect.Api.Common;
 using DoSelect.Api.Ai;
 using DoSelect.Api.Observability;
+using DoSelect.Api.Security;
+using DoSelect.Application;
 using DoSelect.Application.Notifications;
 using DoSelect.Infrastructure.Catalog;
 using DoSelect.Infrastructure.Email;
 using DoSelect.Infrastructure.Files;
 using DoSelect.Infrastructure.Idempotency;
 using DoSelect.Infrastructure.Persistence;
+using DoSelect.Infrastructure.Persistence.Identity;
 using DoSelect.Infrastructure.Persistence.Seeding;
-using DoSelect.Infrastructure.Shopping;
-using DoSelect.Api.Security;
 using DoSelect.Infrastructure.Refunds;
+using DoSelect.Infrastructure.Shopping;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
 using Scalar.AspNetCore;
@@ -28,6 +30,7 @@ builder.Services.AddDoSelectSecurity(builder.Environment, builder.Configuration)
 builder.Services.AddDoSelectRefunds();
 builder.Services.AddDoSelectCatalogServices();
 builder.Services.AddDoSelectShoppingServices();
+builder.Services.AddDoSelectApplication();
 builder.Services.AddSingleton<IEmailSender>(services =>
 {
     var emailEnabled = builder.Configuration.GetValue<bool>("Features:EmailEnabled");
@@ -35,6 +38,10 @@ builder.Services.AddSingleton<IEmailSender>(services =>
         ? new SmtpEmailSender(services.GetRequiredService<IOptions<SmtpEmailOptions>>().Value)
         : new LocalEmailSender();
 });
+builder.Services.AddSingleton<EmailDispatchChannel>();
+builder.Services.AddSingleton<IEmailDispatchQueue>(services => services.GetRequiredService<EmailDispatchChannel>());
+builder.Services.AddHostedService<EmailDispatchBackgroundService>();
+builder.Services.AddHostedService<UnverifiedMemberCleanupBackgroundService>();
 
 var app = builder.Build();
 
@@ -61,9 +68,10 @@ if (app.Environment.IsDevelopment())
     app.MapScalarApiReference();
 }
 
+app.UseCors(SecurityServiceCollectionExtensions.FrontendCorsPolicy);
+
 app.UseHttpsRedirection();
 
-app.UseCors(SecurityServiceCollectionExtensions.FrontendCorsPolicy);
 app.UseAuthentication();
 
 // Cart routes accept both anonymous guests and authenticated members (no [Authorize]
@@ -89,6 +97,7 @@ app.Use(async (context, next) =>
 });
 
 app.UseAuthorization();
+app.UseRateLimiter();
 
 app.MapControllers();
 app.MapObservabilityHealthChecks();

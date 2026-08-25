@@ -1,4 +1,5 @@
 using System.Net.Mail;
+using DoSelect.Application.Common;
 using DoSelect.Infrastructure.Email;
 using Microsoft.Extensions.Options;
 
@@ -36,12 +37,22 @@ public static class ConfigurationValidationExtensions
             .AddOptions<CorsOptions>()
             .BindConfiguration(CorsOptions.SectionName)
             .ValidateOnStart();
+        services
+            .AddOptions<FrontendLinkOptions>()
+            .BindConfiguration(FrontendLinkOptions.SectionName)
+            .ValidateOnStart();
+        services
+            .AddOptions<RateLimitOptions>()
+            .BindConfiguration(RateLimitOptions.SectionName)
+            .ValidateOnStart();
 
         services.AddSingleton<IValidateOptions<StorageOptions>, StorageOptionsValidator>();
         services.AddSingleton<IValidateOptions<OpenAiOptions>, OpenAiOptionsValidator>();
         services.AddSingleton<IValidateOptions<SmtpEmailOptions>, EmailOptionsValidator>();
         services.AddSingleton<IValidateOptions<DemoOptions>, DemoOptionsValidator>();
         services.AddSingleton<IValidateOptions<CorsOptions>, CorsOptionsValidator>();
+        services.AddSingleton<IValidateOptions<FrontendLinkOptions>, FrontendLinkOptionsValidator>();
+        services.AddSingleton<IValidateOptions<RateLimitOptions>, RateLimitOptionsValidator>();
 
         return services;
     }
@@ -211,6 +222,47 @@ internal sealed class EmailOptionsValidator : IValidateOptions<SmtpEmailOptions>
         {
             failures.Add(
                 $"Configuration key '{configurationKey}' is required when 'Features:EmailEnabled' is true.");
+        }
+    }
+}
+
+internal sealed class FrontendLinkOptionsValidator : IValidateOptions<FrontendLinkOptions>
+{
+    public ValidateOptionsResult Validate(string? name, FrontendLinkOptions options)
+    {
+        if (!Uri.TryCreate(options.BaseUrl, UriKind.Absolute, out var uri) ||
+            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            return ValidateOptionsResult.Fail(
+                "Configuration key 'Frontend:BaseUrl' must be an absolute HTTP or HTTPS URL.");
+        }
+
+        return ValidateOptionsResult.Success;
+    }
+}
+
+internal sealed class RateLimitOptionsValidator : IValidateOptions<RateLimitOptions>
+{
+    public ValidateOptionsResult Validate(string? name, RateLimitOptions options)
+    {
+        var failures = new List<string>();
+        AddPositiveFailure(failures, options.EmailPurposePermitLimit, "RateLimiting:EmailPurposePermitLimit");
+        AddPositiveFailure(failures, options.EmailPurposeWindowHours, "RateLimiting:EmailPurposeWindowHours");
+        AddPositiveFailure(failures, options.PerIpPermitLimit, "RateLimiting:PerIpPermitLimit");
+        AddPositiveFailure(failures, options.PerIpWindowHours, "RateLimiting:PerIpWindowHours");
+        AddPositiveFailure(failures, options.LoginPerIpPermitLimit, "RateLimiting:LoginPerIpPermitLimit");
+        AddPositiveFailure(failures, options.LoginPerIpWindowHours, "RateLimiting:LoginPerIpWindowHours");
+
+        return failures.Count == 0
+            ? ValidateOptionsResult.Success
+            : ValidateOptionsResult.Fail(failures);
+    }
+
+    private static void AddPositiveFailure(ICollection<string> failures, int value, string configurationKey)
+    {
+        if (value <= 0)
+        {
+            failures.Add($"Configuration key '{configurationKey}' must be greater than zero.");
         }
     }
 }

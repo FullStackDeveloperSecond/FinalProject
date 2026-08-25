@@ -85,6 +85,21 @@ jobs:
     defaults:
       run:
         working-directory: FP.dev
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "CiOnly_P@ssw0rd2026"
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P CiOnly_P@ssw0rd2026 -Q 'SELECT 1' || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ConnectionStrings__DefaultConnection: "Server=localhost,1433;Database=DoSelectDb;User Id=sa;Password=CiOnly_P@ssw0rd2026;TrustServerCertificate=True;MultipleActiveResultSets=True;"
 
     steps:
       - name: Checkout repository
@@ -105,6 +120,16 @@ jobs:
 
       - name: Verify formatting
         run: dotnet format DoSelect.slnx --verify-no-changes --no-restore
+
+      - name: Install EF Core CLI tool
+        run: dotnet tool install --global dotnet-ef --version 10.0.10
+
+      - name: Apply database migrations
+        run: >-
+          "$HOME/.dotnet/tools/dotnet-ef" database update
+          --project src/backend/DoSelect.Infrastructure
+          --startup-project src/backend/DoSelect.Api
+          --no-build
 
       - name: Run .NET tests
         # DEV-07: SQL Server Provider-backed integration tests need a live SQL Server
