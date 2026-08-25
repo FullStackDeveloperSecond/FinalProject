@@ -142,20 +142,25 @@ public sealed class AdminTwoFactorUseCase
     }
 
     /// <summary>
-    /// ⚠ 新增：讓已登入管理員重新綁定 TOTP（例如換手機）。跟 <see cref="BeginEnrollmentAsync"/>
-    /// 不同——這裡呼叫 <see cref="IAdminAuthGateway.ResetAuthenticatorSecretAsync"/>，
-    /// 無條件產生新秘鑰，取代舊的。呼叫端（Api 層）需在 Confirm 成功後 bump
-    /// SecurityStamp，讓既有 Session 失效（UC-ADMIN-AUTH-01 的撤銷情境）。
+    /// ⚠ 新增：讓已登入管理員重新綁定 TOTP（例如換手機）。新秘鑰先存在待確認 slot
+    /// （見 <see cref="IAdminAuthGateway.BeginRebindSecretAsync"/>），舊的正式 authenticator
+    /// key 在 Confirm 成功前完全不受影響——中途放棄或確認失敗，舊裝置仍可正常登入。
+    /// 呼叫端（Api 層）需在 Confirm 成功後 bump SecurityStamp，讓既有 Session 失效
+    /// （UC-ADMIN-AUTH-01 的撤銷情境）。
     /// </summary>
     public async Task<AdminEnrollmentBeginResult> BeginRebindAsync(
         string userId, CancellationToken cancellationToken = default)
     {
-        var secret = await _gateway.ResetAuthenticatorSecretAsync(userId, cancellationToken);
+        var secret = await _gateway.BeginRebindSecretAsync(userId, cancellationToken);
         var qrCodeDataUri = _qrCodeGenerator.CreatePngDataUri(secret.OtpAuthUri);
         return new AdminEnrollmentBeginResult(secret.SecretKey, secret.OtpAuthUri, qrCodeDataUri);
     }
 
-    /// <summary>驗證新裝置的碼、重新產生 Recovery Code（舊的一併失效）。</summary>
+    /// <summary>
+    /// 驗證新裝置的碼、把待確認秘鑰提升為正式 key、重新產生 Recovery Code（舊的一併失效）。
+    /// 驗證失敗時 <see cref="IAdminAuthGateway.PromotePendingSecretAndVerifyAsync"/> 回傳
+    /// false——呼叫端須在同一交易中 rollback，讓「提升為正式 key」這步也一併復原。
+    /// </summary>
     public async Task<AdminEnrollmentConfirmResult> ConfirmRebindAsync(
         string userId, string code, CancellationToken cancellationToken = default)
     {
@@ -164,7 +169,7 @@ public sealed class AdminTwoFactorUseCase
             return AdminEnrollmentConfirmResult.Failure(AdminAuthErrorCodes.TwoFactorInvalid);
         }
 
-        if (!await _gateway.VerifyTotpCodeAsync(userId, code.Trim(), cancellationToken))
+        if (!await _gateway.PromotePendingSecretAndVerifyAsync(userId, code.Trim(), cancellationToken))
         {
             return AdminEnrollmentConfirmResult.Failure(AdminAuthErrorCodes.TwoFactorInvalid);
         }

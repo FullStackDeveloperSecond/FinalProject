@@ -56,12 +56,23 @@ public interface IAdminAuthGateway
         string userId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// ⚠ 新增：無條件重設 TOTP 秘鑰（換手機等情境）。跟 <see cref="GetOrCreateAuthenticatorSecretAsync"/>
-    /// 不同——後者有既有秘鑰就直接回傳，這個一定產生新的一組。呼叫端須在確認新碼後
-    /// bump SecurityStamp 撤銷其他既有 Session（UC-ADMIN-AUTH-01）。
+    /// ⚠ 新增：產生一組新的待確認 TOTP 秘鑰（換手機等情境），但只暫存在獨立的 pending
+    /// slot，不影響目前正式生效的 authenticator key。舊裝置在確認前仍可正常驗證。
+    /// 呼叫 <see cref="PromotePendingSecretAndVerifyAsync"/> 成功後，新秘鑰才會真正取代
+    /// 舊的（UC-ADMIN-AUTH-01：Rebind 必須原子化，失敗不得摧毀既有金鑰）。
     /// </summary>
-    Task<AdminTotpSecret> ResetAuthenticatorSecretAsync(
+    Task<AdminTotpSecret> BeginRebindSecretAsync(
         string userId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 將 <see cref="BeginRebindSecretAsync"/> 產生的待確認秘鑰，正式提升為 TOTP 驗證用的
+    /// authenticator key，再驗證 <paramref name="code"/>。驗證失敗回傳 false——呼叫端須在
+    /// 同一交易中 rollback，讓提升動作一併復原、舊金鑰維持有效（見
+    /// IdentityAdminAuthGateway 的實作註解，此方法依賴 ASP.NET Core Identity 內部慣例存放
+    /// 正式 key 的位置）。呼叫端須在確認新碼後 bump SecurityStamp 撤銷其他既有 Session。
+    /// </summary>
+    Task<bool> PromotePendingSecretAndVerifyAsync(
+        string userId, string code, CancellationToken cancellationToken = default);
 
     Task<bool> VerifyTotpCodeAsync(
         string userId, string code, CancellationToken cancellationToken = default);
