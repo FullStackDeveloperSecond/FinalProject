@@ -157,6 +157,18 @@ function isConflict(err: unknown): boolean {
         </div>
       </dl>
 
+      <section
+        v-if="data.return.description"
+        aria-labelledby="admin-return-description-title"
+      >
+        <h2 id="admin-return-description-title">
+          顧客申請說明
+        </h2>
+        <p class="admin-return-detail__description">
+          {{ data.return.description }}
+        </p>
+      </section>
+
       <section aria-labelledby="admin-return-items-title">
         <h2 id="admin-return-items-title">
           退貨品項
@@ -455,5 +467,10 @@ function isConflict(err: unknown): boolean {
 .admin-return-detail__hint {
   color: #6b7280;
   font-size: 0.875rem;
+}
+
+.admin-return-detail__description {
+  white-space: pre-wrap;
+  color: #374151;
 }
 </style>

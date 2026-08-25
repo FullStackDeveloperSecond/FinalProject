@@ -79,7 +79,6 @@ public sealed class AdminReturnService : IAdminReturnService
 
         return new AdminReturnDetailDto(
             dto with { AvailableActions = availableActions },
-            null,
             [.. inspections.OrderBy(i => i.InspectedAtUtc)],
             [.. items
                 .Where(i => i.RestockDisposition.HasValue)

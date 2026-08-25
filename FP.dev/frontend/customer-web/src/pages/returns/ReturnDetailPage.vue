@@ -72,6 +72,18 @@ async function handleFileChange(event: Event) {
         </div>
       </dl>
 
+      <section
+        v-if="returnRequest.description"
+        aria-labelledby="return-description-title"
+      >
+        <h2 id="return-description-title">
+          申請說明
+        </h2>
+        <p class="return-detail__description">
+          {{ returnRequest.description }}
+        </p>
+      </section>
+
       <section aria-labelledby="return-items-title">
         <h2 id="return-items-title">
           退貨品項
@@ -197,6 +209,11 @@ async function handleFileChange(event: Event) {
   flex-direction: column;
   gap: 0.5rem;
   padding-left: 1.25rem;
+}
+
+.return-detail__description {
+  white-space: pre-wrap;
+  color: #374151;
 }
 
 .return-detail__upload {

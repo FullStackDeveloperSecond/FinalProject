@@ -62,16 +62,22 @@ public sealed class ReturnOrderEligibilityLookup : IReturnOrderEligibilityPort
 }
 
 /// <summary>
-/// Reads the already-finalized GuestOrderAccessTokens schema directly. The mint flow
-/// (C-17 /guest-orders/verify) does not exist anywhere in origin/dev, so no cookie name or
-/// hashing algorithm is fixed by any merged code yet — this picks plain SHA-256 of the raw
-/// token bytes (the schema doc allows "SHA-256／HMAC-SHA-256" without pinning one down, and
-/// there is no shared pepper/secret published to compute an HMAC with). This MUST be confirmed
-/// against haru's eventual SH-05 mint implementation before a real guest return flow ships —
-/// see the implementation report.
+/// Reads the already-finalized GuestOrderAccessTokens schema directly (haru's
+/// Haru-會員登入訂單與訪客存取最終Schema.md §5.2). The mint flow (C-17 /guest-orders/verify,
+/// UC-GUEST-ORDER-01) does not exist anywhere in origin/dev — only the schema and EF
+/// configuration are merged — so no cookie NAME is fixed by any code yet. What the schema doc
+/// *does* pin down, and this class follows exactly: `TokenHash` is "高熵 Token 的
+/// SHA-256／HMAC-SHA-256，不存明文" (plain SHA-256 of the raw high-entropy token is explicitly
+/// allowed, no shared pepper/secret required, unlike RequesterIpHash/EmailKeyHash/
+/// OrderLookupKeyHash which are server-secret HMACs used only for rate-limiting), and the token
+/// is valid for 30 minutes after issuance and reusable within that window. Only the literal
+/// cookie name string remains unconfirmed pending haru's actual C-17 controller — update
+/// <see cref="GuestOrderAccessCookieName"/> once that lands; see the implementation report for
+/// the current status of this gap.
 /// </summary>
 public sealed class GuestOrderAccessValidator : IGuestOrderAccessValidator
 {
+    /// <summary>Provisional — no C-17 mint endpoint exists yet to define the real cookie name.</summary>
     public const string GuestOrderAccessCookieName = ".DoSelect.GuestOrderAccess";
 
     private readonly DoSelectDbContext _dbContext;

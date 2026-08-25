@@ -119,7 +119,6 @@ public sealed record RefundableItemPreviewDto(
 
 public sealed record AdminReturnDetailDto(
     ReturnRequestDto Return,
-    string? MaskedRequesterEmail,
     IReadOnlyList<ReturnInspectionDto> Inspections,
     IReadOnlyList<RefundableItemPreviewDto> RefundableItemsPreview,
     IReadOnlyList<ReturnHistoryEntryDto> History,
