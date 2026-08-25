@@ -15,6 +15,7 @@ public static class InvoicingServiceCollectionExtensions
 
         services.TryAddSingleton(TimeProvider.System);
         services.AddScoped<IInvoiceAllowanceReader, InvoiceAllowanceReader>();
+        services.AddScoped<IInvoiceAllowanceWriter, InvoiceAllowanceWriter>();
         services.AddScoped<IssueInvoiceAllowanceService>();
 
         return services;

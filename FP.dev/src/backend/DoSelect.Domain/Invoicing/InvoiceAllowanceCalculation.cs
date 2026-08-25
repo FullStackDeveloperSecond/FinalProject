@@ -2,6 +2,19 @@ using DoSelect.Domain.Refunds;
 
 namespace DoSelect.Domain.Invoicing;
 
+public sealed class InvoiceAllowanceSourceException : Exception
+{
+    public InvoiceAllowanceSourceException(string message)
+        : base(message)
+    {
+    }
+
+    public InvoiceAllowanceSourceException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+    }
+}
+
 /// <summary>
 /// 模擬折讓單號。格式為 <c>DEMO-A-yyyyMM-NNNNNN</c>，與發票號碼一樣明確標示為展示資料。
 /// </summary>
@@ -54,8 +67,10 @@ public static class InvoiceAllowancePolicy
             RefundAllocationType.DiscountClawback => false,
             RefundAllocationType.ShippingClawback => false,
 
-            // 第一版禁止寫入，出現即為資料錯誤。
-            RefundAllocationType.OtherAdjustment => false,
+            // 第一版禁止寫入。把它當成「不建立明細」會靜默少記折讓，
+            // 因此任何讀到的既有值也必須拒絕，而不是過濾掉。
+            RefundAllocationType.OtherAdjustment => throw new InvoiceAllowanceSourceException(
+                "OtherAdjustment cannot be mapped to an invoice allowance."),
 
             _ => throw new ArgumentOutOfRangeException(nameof(allocationType)),
         };

@@ -118,6 +118,18 @@ public sealed class IssueInvoiceAllowanceServiceTests
     }
 
     [Fact]
+    public async Task ARefundForAnotherInvoiceIsAMissingResourceAndDoesNotTakeASequence()
+    {
+        var reader = new FakeInvoiceAllowanceReader(Snapshot());
+
+        var result = await CreateService(reader).IssueAsync(
+            new IssueInvoiceAllowanceRequest(RefundPublicId, "allow-1", 99L));
+
+        Assert.Equal(InvoiceErrorCodes.ResourceNotFound, result.ErrorCode);
+        Assert.Null(reader.RequestedIssuedAtUtc);
+    }
+
+    [Fact]
     public async Task IssueAsync_SurfacesTheAllowanceErrorCode()
     {
         var service = CreateService(new FakeInvoiceAllowanceReader(

@@ -288,6 +288,108 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/invoices/{id}/allowances": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": string;
+                };
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateSimulatedInvoiceAllowanceRequest"];
+                    "text/json": components["schemas"]["CreateSimulatedInvoiceAllowanceRequest"];
+                    "application/*+json": components["schemas"]["CreateSimulatedInvoiceAllowanceRequest"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["SimulatedInvoiceAllowanceDto"];
+                        "application/json": components["schemas"]["SimulatedInvoiceAllowanceDto"];
+                        "text/json": components["schemas"]["SimulatedInvoiceAllowanceDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/support-tickets/{id}": {
         parameters: {
             query?: never;
@@ -2443,6 +2545,12 @@ export interface components {
             tagPublicIds: string[];
             status: string;
         };
+        CreateSimulatedInvoiceAllowanceRequest: {
+            /** Format: uuid */
+            refundPublicId: string;
+            /** Format: byte */
+            invoiceRowVersion: string;
+        };
         CreateSkuRequest: {
             skuCode: string;
             nameZhTw: string;
@@ -2517,6 +2625,8 @@ export interface components {
         };
         /** Format: binary */
         IFormFile: string;
+        /** @enum {unknown} */
+        InvoiceLineKind: "merchandise" | "shipping" | "assemblyFee";
         LoginRequest: {
             email: string;
             password: string;
@@ -2722,6 +2832,40 @@ export interface components {
             method: string;
             allowed: boolean;
             reasonCode: null | string;
+        };
+        SimulatedInvoiceAllowanceDto: {
+            /** Format: uuid */
+            publicId: string;
+            allowanceNumber: string;
+            /** Format: uuid */
+            invoicePublicId: string;
+            /** Format: uuid */
+            refundPublicId: string;
+            /** Format: double */
+            netAmount: number | string;
+            /** Format: double */
+            taxAmount: number | string;
+            /** Format: double */
+            grossAmount: number | string;
+            items: components["schemas"]["SimulatedInvoiceAllowanceItemDto"][];
+            /** Format: date-time */
+            issuedAtUtc: string;
+            demoMarker: string;
+        };
+        SimulatedInvoiceAllowanceItemDto: {
+            /** Format: uuid */
+            publicId: string;
+            /** Format: uuid */
+            invoiceItemPublicId: string;
+            kind: components["schemas"]["InvoiceLineKind"];
+            /** Format: int32 */
+            quantity: number | string;
+            /** Format: double */
+            netAmount: number | string;
+            /** Format: double */
+            taxAmount: number | string;
+            /** Format: double */
+            grossAmount: number | string;
         };
         SkuDimensionsSummary: {
             /** Format: double */
