@@ -1,5 +1,6 @@
 using DoSelect.Application.Invoicing;
 using DoSelect.Domain.Invoicing;
+using DoSelect.Domain.Refunds;
 
 namespace DoSelect.Application.Tests;
 
@@ -85,6 +86,37 @@ public sealed class IssueInvoiceAllowanceServiceTests
         Assert.Equal(InvoiceErrorCodes.ResourceNotFound, result.ErrorCode);
     }
 
+    [Theory]
+    [InlineData(RefundStatus.PendingReview)]
+    [InlineData(RefundStatus.Approved)]
+    [InlineData(RefundStatus.Processing)]
+    [InlineData(RefundStatus.Failed)]
+    [InlineData(RefundStatus.Rejected)]
+    [InlineData(RefundStatus.Cancelled)]
+    public async Task ARefundThatHasNotSettledIsAStateConflictNotAMissingResource(
+        RefundStatus refundStatus)
+    {
+        // 退款存在只是還沒成功。回 resource_not_found 會讓呼叫端以為查錯了對象。
+        var reader = new FakeInvoiceAllowanceReader(Snapshot(refundStatus: refundStatus));
+
+        var result = await CreateService(reader).IssueAsync(Request());
+
+        Assert.Equal(RefundErrorCodes.RefundStateConflict, result.ErrorCode);
+        Assert.Null(reader.RequestedIssuedAtUtc);
+    }
+
+    [Fact]
+    public async Task ASettledRefundWithoutAnInvoiceIsAMissingResource()
+    {
+        var reader = new FakeInvoiceAllowanceReader(new InvoiceAllowanceSnapshot(
+            RefundStatus.Succeeded, 9L, null, null, false, [], []));
+
+        var result = await CreateService(reader).IssueAsync(Request());
+
+        Assert.Equal(InvoiceErrorCodes.ResourceNotFound, result.ErrorCode);
+        Assert.Null(reader.RequestedIssuedAtUtc);
+    }
+
     [Fact]
     public async Task IssueAsync_SurfacesTheAllowanceErrorCode()
     {
@@ -116,10 +148,12 @@ public sealed class IssueInvoiceAllowanceServiceTests
         int quantity = 2,
         decimal gross = 2000m,
         decimal refundedGross = 1000m,
-        bool refundAlreadyHasAllowance = false) =>
+        bool refundAlreadyHasAllowance = false,
+        RefundStatus refundStatus = RefundStatus.Succeeded) =>
         new(
-            SimulatedInvoiceId: 5L,
+            refundStatus,
             RefundId: 9L,
+            SimulatedInvoiceId: 5L,
             SimulatedInvoiceStatus.Issued,
             refundAlreadyHasAllowance,
             [new InvoiceAllowanceCapacity(ItemA, quantity, 0, gross, 0m)],

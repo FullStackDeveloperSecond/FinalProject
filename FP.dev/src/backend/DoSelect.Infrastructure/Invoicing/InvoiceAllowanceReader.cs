@@ -41,10 +41,17 @@ public sealed class InvoiceAllowanceReader : IInvoiceAllowanceReader
             .Select(candidate => new { candidate.Id, candidate.OrderId, candidate.Status })
             .SingleOrDefaultAsync(cancellationToken);
 
-        // 只有成功的退款才建立折讓。
-        if (refund is null || refund.Status != RefundStatus.Succeeded)
+        // 退款不存在才回 null；存在但狀態不對要把狀態帶回去，
+        // 讓上層能回報 refund_state_conflict 而不是 resource_not_found。
+        if (refund is null)
         {
             return null;
+        }
+
+        if (refund.Status != RefundStatus.Succeeded)
+        {
+            return new InvoiceAllowanceSnapshot(
+                refund.Status, refund.Id, null, null, false, [], []);
         }
 
         var invoice = await _context.SimulatedInvoices
@@ -102,8 +109,9 @@ public sealed class InvoiceAllowanceReader : IInvoiceAllowanceReader
             .ToDictionary(item => item.OrderItemId!.Value, item => item.PublicId);
 
         return new InvoiceAllowanceSnapshot(
-            invoice.Id,
+            refund.Status,
             refund.Id,
+            invoice.Id,
             invoice.Status,
             await HasAllowanceAsync(refund.Id, cancellationToken),
             capacities,
@@ -217,23 +225,44 @@ public sealed class InvoiceAllowanceReader : IInvoiceAllowanceReader
         IReadOnlyDictionary<long, Guid> invoiceItemByOrderItemId,
         CancellationToken cancellationToken)
     {
-        var orderItemIds = await _context.RefundAllocations
+        var allocations = await _context.RefundAllocations
             .AsNoTracking()
-            .Where(allocation =>
-                allocation.RefundId == refundId &&
-                allocation.AllocationType == RefundAllocationType.ItemRefund &&
-                allocation.OrderItemId != null)
-            .Select(allocation => allocation.OrderItemId!.Value)
+            .Where(allocation => allocation.RefundId == refundId)
+            .Select(allocation => new
+            {
+                allocation.AllocationType,
+                allocation.OrderItemId,
+            })
             .ToArrayAsync(cancellationToken);
 
-        if (orderItemIds.Any(invoiceItemByOrderItemId.ContainsKey))
+        var allowable = allocations
+            .Where(allocation => InvoiceAllowancePolicy.CreatesAllowanceLine(allocation.AllocationType))
+            .ToArray();
+
+        // 對應得到原發票商品列的分攤：數量必須取自 RefundAllocations.Quantity。
+        if (allowable.Any(allocation =>
+                InvoiceAllowancePolicy.MapsToAnOrderItem(allocation.AllocationType) &&
+                allocation.OrderItemId is { } orderItemId &&
+                invoiceItemByOrderItemId.ContainsKey(orderItemId)))
         {
             throw new InvalidOperationException(
                 "A credit note line needs RefundAllocations.Quantity, which has not shipped yet. " +
                 "Deriving the quantity from the refunded amount is not permitted by DEC-P286.");
         }
 
-        // 沒有對應得上的商品分攤，交由計算器以既有錯誤碼拒絕。
+        // 運費與組裝費分攤在原發票上是 OrderItemId 為 null 的明細，但
+        // SimulatedInvoiceItem 沒有持久化 InvoiceLineKind，兩者在資料庫裡無法區分。
+        // 少記這些明細會讓折讓金額短少，且完整退款後發票永遠進不了 FullyAllowed，
+        // 因此在欄位補上之前寧可拒絕，不猜測對應關係。
+        if (allowable.Any(allocation =>
+                !InvoiceAllowancePolicy.MapsToAnOrderItem(allocation.AllocationType)))
+        {
+            throw new InvalidOperationException(
+                "Shipping and assembly credit note lines cannot be matched to their invoice lines " +
+                "because SimulatedInvoiceItem does not persist InvoiceLineKind.");
+        }
+
+        // 沒有任何可折讓的分攤，交由計算器以既有錯誤碼拒絕。
         return [];
     }
 }

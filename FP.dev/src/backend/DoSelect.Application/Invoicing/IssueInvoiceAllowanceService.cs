@@ -1,4 +1,5 @@
 using DoSelect.Domain.Invoicing;
+using DoSelect.Domain.Refunds;
 
 namespace DoSelect.Application.Invoicing;
 
@@ -6,10 +7,15 @@ namespace DoSelect.Application.Invoicing;
 /// 一筆退款要開立折讓時，原發票的狀態、各明細可折讓餘額，以及由成功 Refund 推導出的折讓明細。
 /// <paramref name="SimulatedInvoiceId"/> 與 <paramref name="RefundId"/> 為內部識別，不得對外回傳。
 /// </summary>
+/// <remarks>
+/// 退款存在但尚未成功時，發票相關欄位為 <c>null</c>：那些資料還不該被讀取，
+/// 填入預設值只會把「退款狀態不對」偽裝成別的失敗。
+/// </remarks>
 public sealed record InvoiceAllowanceSnapshot(
-    long SimulatedInvoiceId,
+    RefundStatus RefundStatus,
     long RefundId,
-    SimulatedInvoiceStatus InvoiceStatus,
+    long? SimulatedInvoiceId,
+    SimulatedInvoiceStatus? InvoiceStatus,
     bool RefundAlreadyHasAllowance,
     IReadOnlyList<InvoiceAllowanceCapacity> Capacities,
     IReadOnlyList<RefundedInvoiceLine> RefundedLines);
@@ -113,13 +119,27 @@ public sealed class IssueInvoiceAllowanceService
             request.RefundPublicId,
             cancellationToken);
 
+        // 退款不存在才是 resource_not_found。
         if (snapshot is null)
         {
             return IssueInvoiceAllowanceResult.Failure(InvoiceErrorCodes.ResourceNotFound);
         }
 
+        // 退款存在但還沒成功，是狀態問題而不是找不到資源。
+        if (snapshot.RefundStatus != RefundStatus.Succeeded)
+        {
+            return IssueInvoiceAllowanceResult.Failure(RefundErrorCodes.RefundStateConflict);
+        }
+
+        // 成功的退款卻找不到原發票，代表沒有可折讓的對象。
+        if (snapshot.SimulatedInvoiceId is not { } simulatedInvoiceId ||
+            snapshot.InvoiceStatus is not { } invoiceStatus)
+        {
+            return IssueInvoiceAllowanceResult.Failure(InvoiceErrorCodes.ResourceNotFound);
+        }
+
         var calculation = InvoiceAllowanceCalculator.Calculate(new InvoiceAllowanceRequest(
-            snapshot.InvoiceStatus,
+            invoiceStatus,
             snapshot.RefundAlreadyHasAllowance,
             snapshot.Capacities,
             snapshot.RefundedLines));
@@ -135,7 +155,7 @@ public sealed class IssueInvoiceAllowanceService
             cancellationToken);
 
         return IssueInvoiceAllowanceResult.Approved(new InvoiceAllowancePlan(
-            snapshot.SimulatedInvoiceId,
+            simulatedInvoiceId,
             snapshot.RefundId,
             DemoAllowanceNumber.Format(issuedAtUtc, sequence),
             request.IdempotencyKey.Trim(),

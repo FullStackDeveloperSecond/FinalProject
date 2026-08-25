@@ -1,3 +1,5 @@
+using DoSelect.Domain.Refunds;
+
 namespace DoSelect.Domain.Invoicing;
 
 /// <summary>
@@ -21,6 +23,43 @@ public static class DemoAllowanceNumber
 
         return $"{Prefix}-{issuedAtUtc:yyyyMM}-{sequence:D6}";
     }
+}
+
+/// <summary>
+/// 哪些退款分攤會變成折讓明細（alex 2026-08-24 裁定）。
+/// </summary>
+public static class InvoiceAllowancePolicy
+{
+    /// <summary>
+    /// 只有原發票實際開立過的銷售金額才折讓。扣回方向與退貨寄回運費都不建立明細。
+    /// </summary>
+    public static bool CreatesAllowanceLine(RefundAllocationType allocationType) =>
+        allocationType switch
+        {
+            // 商品退款、原始運費與組裝費都在原發票上收過，退還時要折讓。
+            RefundAllocationType.ItemRefund => true,
+            RefundAllocationType.OriginalShipping => true,
+            RefundAllocationType.AssemblyFee => true,
+
+            // 退貨寄回運費是另外發生的費用，不是原發票的銷售金額。
+            RefundAllocationType.ReturnShipping => false,
+
+            // 扣回方向會減少退款金額，本身不是折讓明細。
+            RefundAllocationType.DiscountClawback => false,
+            RefundAllocationType.ShippingClawback => false,
+
+            // 第一版禁止寫入，出現即為資料錯誤。
+            RefundAllocationType.OtherAdjustment => false,
+
+            _ => throw new ArgumentOutOfRangeException(nameof(allocationType)),
+        };
+
+    /// <summary>
+    /// 該類型的折讓明細是否需要對應到原發票的商品列。
+    /// 運費與組裝費列在發票上沒有 <c>OrderItemId</c>，靠明細種類辨識。
+    /// </summary>
+    public static bool MapsToAnOrderItem(RefundAllocationType allocationType) =>
+        allocationType == RefundAllocationType.ItemRefund;
 }
 
 /// <summary>
@@ -70,6 +109,7 @@ public sealed class InvoiceAllowanceResult
         decimal netAmount,
         decimal taxAmount,
         decimal amount,
+        decimal roundingAdjustment,
         bool fullyAllowed,
         IReadOnlyList<InvoiceAllowanceLineBreakdown> lines)
     {
@@ -77,6 +117,7 @@ public sealed class InvoiceAllowanceResult
         NetAmount = netAmount;
         TaxAmount = taxAmount;
         Amount = amount;
+        RoundingAdjustment = roundingAdjustment;
         FullyAllowed = fullyAllowed;
         Lines = lines;
     }
@@ -90,8 +131,14 @@ public sealed class InvoiceAllowanceResult
 
     public decimal TaxAmount { get; }
 
-    /// <summary>折讓含稅總額，精確等於未稅加稅額。</summary>
+    /// <summary>折讓含稅總額，取整數元，精確等於未稅加稅額。</summary>
     public decimal Amount { get; }
+
+    /// <summary>
+    /// 表頭取整數元與各明細含稅合計之間的差額（<c>Amount - Sum(Line.GrossAmount)</c>）。
+    /// 明細帶小數時必然不為零，這個差額只記錄在表頭，不塞進任何一列。
+    /// </summary>
+    public decimal RoundingAdjustment { get; }
 
     /// <summary>這筆折讓之後，原發票各明細是否已全數折讓完畢。</summary>
     public bool FullyAllowed { get; }
@@ -104,13 +151,14 @@ public sealed class InvoiceAllowanceResult
     public IReadOnlyList<InvoiceAllowanceLineBreakdown> Lines { get; }
 
     public static InvoiceAllowanceResult Failure(string errorCode) =>
-        new(errorCode, 0m, 0m, 0m, false, []);
+        new(errorCode, 0m, 0m, 0m, 0m, false, []);
 
     public static InvoiceAllowanceResult Success(
         decimal netAmount,
         decimal taxAmount,
         decimal amount,
+        decimal roundingAdjustment,
         bool fullyAllowed,
         IReadOnlyList<InvoiceAllowanceLineBreakdown> lines) =>
-        new(null, netAmount, taxAmount, amount, fullyAllowed, lines);
+        new(null, netAmount, taxAmount, amount, roundingAdjustment, fullyAllowed, lines);
 }

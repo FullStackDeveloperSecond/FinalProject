@@ -163,7 +163,7 @@ public static class InvoiceCalculator
         return Math.Min(RoundToWholeAmount(grossAmount / (1m + BusinessTaxRate)), grossAmount);
     }
 
-    private static decimal RoundToWholeAmount(decimal value) =>
+    internal static decimal RoundToWholeAmount(decimal value) =>
         Math.Round(value, AmountScale, MidpointRounding.AwayFromZero);
 
     /// <summary>
@@ -175,21 +175,10 @@ public static class InvoiceCalculator
         decimal rawGrossAmount,
         IReadOnlyList<InvoiceOrderLine> lines)
     {
-        var taxes = new decimal[lines.Count];
-        var allocated = 0m;
-
-        for (var index = 0; index < lines.Count; index++)
-        {
-            var share = Math.Round(
-                taxAmount * lines[index].GrossAmount / rawGrossAmount,
-                LineAmountScale,
-                MidpointRounding.AwayFromZero);
-
-            taxes[index] = Math.Clamp(share, 0m, lines[index].GrossAmount);
-            allocated += taxes[index];
-        }
-
-        DistributeRemainder(taxes, lines, taxAmount - allocated);
+        var taxes = AllocateTaxByGrossShare(
+            taxAmount,
+            rawGrossAmount,
+            lines.Select(line => line.GrossAmount).ToArray());
 
         return lines
             .Select((line, index) => new InvoiceLineBreakdown(
@@ -207,19 +196,55 @@ public static class InvoiceCalculator
     }
 
     /// <summary>
+    /// 依含稅金額比例把表頭稅額分攤到各明細，每列取兩位小數並夾在 <c>0..GrossAmount</c> 之間，
+    /// 尾差由最後一筆仍有空間的明細吸收。回傳的稅額合計精確等於 <paramref name="taxAmount"/>。
+    /// </summary>
+    /// <remarks>
+    /// 分攤的是**稅額**而不是未稅金額。分攤未稅再以「含稅減未稅」求稅額時，
+    /// 極小金額的明細會因為取整而讓未稅超過含稅，產生負稅額。
+    /// 發票與退款折讓共用這一份，兩邊的取位口徑不可能漂移。
+    /// </remarks>
+    internal static decimal[] AllocateTaxByGrossShare(
+        decimal taxAmount,
+        decimal rawGrossAmount,
+        decimal[] grossAmounts)
+    {
+        var taxes = new decimal[grossAmounts.Length];
+        if (grossAmounts.Length == 0 || rawGrossAmount <= 0m)
+        {
+            return taxes;
+        }
+
+        var allocated = 0m;
+        for (var index = 0; index < grossAmounts.Length; index++)
+        {
+            var share = Math.Round(
+                taxAmount * grossAmounts[index] / rawGrossAmount,
+                LineAmountScale,
+                MidpointRounding.AwayFromZero);
+
+            taxes[index] = Math.Clamp(share, 0m, grossAmounts[index]);
+            allocated += taxes[index];
+        }
+
+        DistributeRemainder(taxes, grossAmounts, taxAmount - allocated);
+        return taxes;
+    }
+
+    /// <summary>
     /// 把尾差**從最後一筆往前**補進仍有空間的明細，讓最後一筆合法明細吸收尾差。
     /// 多的往上加到含稅金額為止，少的往下扣到零為止。
     /// </summary>
     private static void DistributeRemainder(
         decimal[] taxes,
-        IReadOnlyList<InvoiceOrderLine> lines,
+        decimal[] grossAmounts,
         decimal remainder)
     {
         for (var index = taxes.Length - 1; index >= 0 && remainder != 0m; index--)
         {
             if (remainder > 0m)
             {
-                var headroom = lines[index].GrossAmount - taxes[index];
+                var headroom = grossAmounts[index] - taxes[index];
                 var added = Math.Min(remainder, headroom);
                 taxes[index] += added;
                 remainder -= added;

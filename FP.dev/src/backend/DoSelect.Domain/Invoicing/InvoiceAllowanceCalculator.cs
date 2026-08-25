@@ -58,7 +58,15 @@ public static class InvoiceAllowanceCalculator
                 (refunded.Quantity, refunded.GrossAmount);
         }
 
-        var amount = allowableLines.Sum(line => line.GrossAmount);
+        // 表頭取整數元，與發票同口徑；明細維持自身含稅金額並可保留兩位小數。
+        // 兩者的差額由 RoundingAdjustment 記錄，不塞進任何一列。
+        var rawGrossAmount = allowableLines.Sum(line => line.GrossAmount);
+        var amount = InvoiceCalculator.RoundToWholeAmount(rawGrossAmount);
+        if (amount <= 0m)
+        {
+            return InvoiceAllowanceResult.Failure(InvoiceErrorCodes.InvoiceStateConflict);
+        }
+
         var netAmount = InvoiceCalculator.BackOutNetAmount(amount);
 
         var fullyAllowed = request.Capacities.All(capacity =>
@@ -72,44 +80,32 @@ public static class InvoiceAllowanceCalculator
             netAmount,
             amount - netAmount,
             amount,
+            amount - rawGrossAmount,
             fullyAllowed,
-            AllocateNetAmount(netAmount, amount, allowableLines));
+            AllocateTaxAmount(amount - netAmount, rawGrossAmount, allowableLines));
     }
 
     /// <summary>
-    /// 依含稅金額比例把折讓表頭未稅分攤到各明細，非末筆夾在剩餘未分攤金額以內，
-    /// 最後一筆吸收尾差，因此明細未稅與稅額合計精確等於表頭。
+    /// 把折讓表頭稅額分攤到各明細。直接沿用 <see cref="InvoiceCalculator"/> 的正式口徑，
+    /// 不另外實作一份，兩邊的取位規則因此不可能漂移。
     /// </summary>
-    private static IReadOnlyList<InvoiceAllowanceLineBreakdown> AllocateNetAmount(
-        decimal netAmount,
-        decimal amount,
+    private static IReadOnlyList<InvoiceAllowanceLineBreakdown> AllocateTaxAmount(
+        decimal taxAmount,
+        decimal rawGrossAmount,
         IReadOnlyList<RefundedInvoiceLine> lines)
     {
-        var breakdowns = new InvoiceAllowanceLineBreakdown[lines.Count];
-        var allocated = 0m;
+        var taxes = InvoiceCalculator.AllocateTaxByGrossShare(
+            taxAmount,
+            rawGrossAmount,
+            lines.Select(line => line.GrossAmount).ToArray());
 
-        for (var index = 0; index < lines.Count; index++)
-        {
-            var line = lines[index];
-            var remaining = netAmount - allocated;
-            var lineNetAmount = index == lines.Count - 1
-                ? remaining
-                : Math.Min(
-                    Math.Round(
-                        netAmount * line.GrossAmount / amount,
-                        InvoiceCalculator.AmountScale,
-                        MidpointRounding.AwayFromZero),
-                    remaining);
-
-            allocated += lineNetAmount;
-            breakdowns[index] = new InvoiceAllowanceLineBreakdown(
+        return lines
+            .Select((line, index) => new InvoiceAllowanceLineBreakdown(
                 line.SimulatedInvoiceItemPublicId,
                 line.Quantity,
-                lineNetAmount,
-                line.GrossAmount - lineNetAmount,
-                line.GrossAmount);
-        }
-
-        return breakdowns;
+                line.GrossAmount - taxes[index],
+                taxes[index],
+                line.GrossAmount))
+            .ToArray();
     }
 }
