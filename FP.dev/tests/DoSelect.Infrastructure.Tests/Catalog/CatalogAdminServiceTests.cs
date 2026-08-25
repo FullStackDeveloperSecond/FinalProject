@@ -761,6 +761,51 @@ public sealed class SkuAdminServiceTests
         Assert.False(await verifyContext.Skus.AnyAsync(sku => sku.SkuCode == skuCode.ToUpperInvariant()));
     }
 
+    /// <summary>
+    /// 組長 PR #24 round 9 review, P2: CreateAsync's second SaveChangesAsync (after
+    /// product.Touch) used to let DbUpdateConcurrencyException escape as a raw, unhandled
+    /// exception — GlobalExceptionHandler mapped that to an opaque 500 (unexpected_error) instead
+    /// of the 409 concurrency_conflict Update/Delete already give for the equivalent race.
+    ///
+    /// Unlike UpdateAsync's own concurrency test above, CreateAsync takes no caller-supplied
+    /// Product RowVersion to force stale on purpose — its only protection is EF Core's own
+    /// concurrency check against whatever RowVersion the tracked `product` entity already holds
+    /// when SaveChanges runs. `product` here is tracked in `context` from CreateProductAsync;
+    /// EF's identity resolution means CreateAsync's own internal product lookup (same DbContext)
+    /// returns this exact tracked instance rather than re-querying, so its RowVersion is
+    /// whatever `context` last saw — which the separate `otherContext` update below is about to
+    /// make stale, for real, against the actual database row.
+    /// </summary>
+    [Fact]
+    public async Task CreateAsync_WhenAnotherAdminUpdatesTheProductAfterThisRequestLoadedIt_ThrowsConcurrencyConflict()
+    {
+        await using var context = CatalogAdminFixture.CreateContext();
+        var (brand, category, _) = await CatalogAdminFixture.SeedCatalogAsync(context);
+        var product = await CatalogAdminFixture.CreateProductAsync(context, brand, category);
+        var skuService = new EfSkuAdminService(context);
+
+        await using var otherContext = CatalogAdminFixture.CreateContext();
+        var otherProductService = new EfProductAdminService(otherContext);
+        var currentProduct = (await otherProductService.GetByPublicIdAsync(product.PublicId, CancellationToken.None))!;
+        await otherProductService.UpdateAsync(
+            product.PublicId,
+            new UpdateProductRequest("測試商品（並發更新）", brand.PublicId, category.PublicId, null, null, [], "Draft", currentProduct.RowVersion),
+            CancellationToken.None);
+
+        var skuCode = CatalogAdminFixture.UniqueCode("SKU");
+        var exception = await Assert.ThrowsAsync<CatalogWriteException>(() => skuService.CreateAsync(
+            product.PublicId,
+            new CreateSkuRequest(skuCode, "新規格", 10_000m, 7_000m, null, null, null, null, "Draft", false, false, []),
+            CancellationToken.None));
+
+        Assert.Equal(CatalogWriteException.ErrorCodes.ConcurrencyConflict, exception.ErrorCode);
+
+        // No half-created SKU (and no incorrectly-cleared previous default, if there had been
+        // one) survives the rollback.
+        await using var verifyContext = CatalogAdminFixture.CreateContext();
+        Assert.False(await verifyContext.Skus.AnyAsync(sku => sku.SkuCode == skuCode.ToUpperInvariant()));
+    }
+
     /// <summary>組長 PR #24 round 5 review, item 3: WeightKg's Domain guard only requires >0 and
     /// the SQL column is decimal(10,3) — 0.001 must be the true floor, not an arbitrarily larger
     /// "practical minimum" the API boundary invented.</summary>

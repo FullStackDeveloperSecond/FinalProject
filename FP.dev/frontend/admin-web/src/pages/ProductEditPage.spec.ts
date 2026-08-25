@@ -403,6 +403,152 @@ describe('ProductEditPage', () => {
   })
 
   /**
+   * Regression test (組長 PR #24 review round 9, P1, scenario 1): being clean when a SKU
+   * mutation *starts* doesn't mean still clean when it *succeeds* — nothing disables the product
+   * form's text inputs while a SKU write is in flight. If the admin edits the product name during
+   * that window, the SKU write's resync must not silently apply the refetch snapshot over that
+   * in-progress edit (which would both discard it and validly advance the token the admin is
+   * about to submit stale fields against) — it must leave the form as-is and surface an explicit
+   * conflict instead.
+   */
+  it('does not overwrite an edit made while a SKU mutation is in flight, and surfaces a conflict instead of silently advancing the token', async () => {
+    mockGetAdminProduct.mockResolvedValue(product)
+    mockListBrands.mockResolvedValue({ items: [{ publicId: 'brand-1', code: 'ACME', nameZhTw: 'Acme' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    mockListCategories.mockResolvedValue({ items: [{ publicId: 'cat-1', code: 'CAT-A', nameZhTw: 'Category A' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    mockListTags.mockResolvedValue({ items: [{ publicId: 'tag-legacy', code: 'LEGACY-TAG', nameZhTw: 'Legacy Tag' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    let resolveCreateSku!: (value: { publicId: string, skuCode: string, isDefault: boolean }) => void
+    mockCreateSku.mockReturnValueOnce(new Promise((resolve) => { resolveCreateSku = resolve }))
+
+    const wrapper = await mountPage()
+    await flushPromises()
+
+    await wrapper.find('input[aria-label="新 SKU 代碼"]').setValue('NEW-1')
+    await wrapper.find('input[aria-label="新 SKU 名稱"]').setValue('New SKU')
+    await wrapper.findAll('button').find((button) => button.text() === '新增 SKU')!.trigger('click')
+    await flushPromises()
+
+    // The SKU create is still in flight — the admin edits the product name while waiting.
+    const nameInput = wrapper.findAll('label').find((label) => label.text().includes('名稱'))!.find('input')
+    await nameInput.setValue('Edited While SKU Was Saving')
+
+    mockGetAdminProduct.mockResolvedValueOnce({ ...product, rowVersion: 'BBB=' })
+    resolveCreateSku({ publicId: 'sku-new', skuCode: 'NEW-1', isDefault: false })
+    await flushPromises()
+
+    expect(nameInput.element.value).toBe('Edited While SKU Was Saving')
+    expect(wrapper.text()).toContain('無法確定要保留哪一份內容')
+
+    // The token must still be the original — never silently advanced to BBB= behind this edit.
+    mockUpdateProduct.mockResolvedValueOnce(product)
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(mockUpdateProduct).toHaveBeenCalledWith('p1', expect.objectContaining({ rowVersion: 'AAA=' }))
+  })
+
+  /**
+   * Regression test (組長 PR #24 review round 9, P1, scenario 2): the success handler used to
+   * copy the *live* form into `savedForm`, not what was actually submitted. If the admin edits
+   * again (X -> Y) before the save response for X arrives, the server only ever persisted X — the
+   * new baseline must be X, so the admin's further edit (now showing Y) correctly stays dirty
+   * against what the server actually has, rather than the two silently agreeing on content that
+   * was never sent.
+   */
+  it('uses the submitted value as the new baseline, not whatever the admin typed next before the response arrived', async () => {
+    mockGetAdminProduct.mockResolvedValue(product)
+    mockListBrands.mockResolvedValue({ items: [{ publicId: 'brand-1', code: 'ACME', nameZhTw: 'Acme' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    mockListCategories.mockResolvedValue({ items: [{ publicId: 'cat-1', code: 'CAT-A', nameZhTw: 'Category A' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    mockListTags.mockResolvedValue({ items: [{ publicId: 'tag-legacy', code: 'LEGACY-TAG', nameZhTw: 'Legacy Tag' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    let resolveUpdateProduct!: (value: typeof product) => void
+    mockUpdateProduct.mockReturnValueOnce(new Promise((resolve) => { resolveUpdateProduct = resolve }))
+
+    const wrapper = await mountPage()
+    await flushPromises()
+
+    const nameInput = wrapper.findAll('label').find((label) => label.text().includes('名稱'))!.find('input')
+    await nameInput.setValue('X')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    // The save for X is still in flight — the admin keeps editing before it resolves.
+    await nameInput.setValue('Y')
+
+    // The server only ever received and persisted X.
+    resolveUpdateProduct({ ...product, nameZhTw: 'X', rowVersion: 'BBB=' })
+    await flushPromises()
+
+    expect(nameInput.element.value).toBe('Y')
+
+    mockUpdateProduct.mockResolvedValueOnce(product)
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    // Submitting Y must use the token from the X save (BBB=) — proving the baseline is the
+    // server's actual X, and this submit is a genuinely new, still-dirty edit on top of it.
+    expect(mockUpdateProduct).toHaveBeenLastCalledWith('p1', expect.objectContaining({
+      nameZhTw: 'Y',
+      rowVersion: 'BBB=',
+    }))
+  })
+
+  /**
+   * Regression test (組長 PR #24 review round 9, P1): the product save and a SKU write could
+   * previously both start independently and overlap, which is exactly the pair of concurrent
+   * writes the round 9 P2 backend fix exists to handle — but preventing the overlap from
+   * starting at all is cheaper than relying on the server to reject one side.
+   */
+  it('disables the product save button while a SKU mutation is pending', async () => {
+    mockGetAdminProduct.mockResolvedValue(product)
+    mockListBrands.mockResolvedValue({ items: [{ publicId: 'brand-1', code: 'ACME', nameZhTw: 'Acme' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    mockListCategories.mockResolvedValue({ items: [{ publicId: 'cat-1', code: 'CAT-A', nameZhTw: 'Category A' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    mockListTags.mockResolvedValue({ items: [{ publicId: 'tag-legacy', code: 'LEGACY-TAG', nameZhTw: 'Legacy Tag' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    let resolveCreateSku!: (value: { publicId: string, skuCode: string, isDefault: boolean }) => void
+    mockCreateSku.mockReturnValueOnce(new Promise((resolve) => { resolveCreateSku = resolve }))
+
+    const wrapper = await mountPage()
+    await flushPromises()
+
+    await wrapper.find('input[aria-label="新 SKU 代碼"]').setValue('NEW-1')
+    await wrapper.find('input[aria-label="新 SKU 名稱"]').setValue('New SKU')
+    await wrapper.findAll('button').find((button) => button.text() === '新增 SKU')!.trigger('click')
+    await flushPromises()
+
+    const saveButton = wrapper.findAll('button').find((button) => button.text() === '儲存')!
+    expect(saveButton.attributes('disabled')).toBeDefined()
+
+    resolveCreateSku({ publicId: 'sku-new', skuCode: 'NEW-1', isDefault: false })
+    await flushPromises()
+
+    expect(saveButton.attributes('disabled')).toBeUndefined()
+  })
+
+  /** Regression test (組長 PR #24 review round 9, P1): the reverse direction of the above. */
+  it('disables SKU operations while the product save itself is pending', async () => {
+    mockGetAdminProduct.mockResolvedValue(product)
+    mockListBrands.mockResolvedValue({ items: [{ publicId: 'brand-1', code: 'ACME', nameZhTw: 'Acme' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    mockListCategories.mockResolvedValue({ items: [{ publicId: 'cat-1', code: 'CAT-A', nameZhTw: 'Category A' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    mockListTags.mockResolvedValue({ items: [{ publicId: 'tag-legacy', code: 'LEGACY-TAG', nameZhTw: 'Legacy Tag' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    let resolveUpdateProduct!: (value: typeof product) => void
+    mockUpdateProduct.mockReturnValueOnce(new Promise((resolve) => { resolveUpdateProduct = resolve }))
+
+    const wrapper = await mountPage()
+    await flushPromises()
+
+    const nameInput = wrapper.findAll('label').find((label) => label.text().includes('名稱'))!.find('input')
+    await nameInput.setValue('X')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    const addSkuButton = wrapper.findAll('button').find((button) => button.text() === '新增 SKU')!
+    expect(addSkuButton.attributes('disabled')).toBeDefined()
+
+    resolveUpdateProduct({ ...product, nameZhTw: 'X', rowVersion: 'BBB=' })
+    await flushPromises()
+
+    expect(addSkuButton.attributes('disabled')).toBeUndefined()
+  })
+
+  /**
    * Regression test (組長 PR #24 review round 7, P2): useCreateSku(props.productId ?? '') used
    * to capture the productId once as a plain string at setup time. Vue Router reuses this same
    * component instance across a param-only navigation on the same route record — the query and

@@ -6,7 +6,7 @@
  * created with an empty specifications array.
  */
 import { isApiError } from '@doselect/web-shared/api'
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { useDeleteSku, useUpdateSku } from '../../features/skus/useSkus'
 import type { SkuDto, UpdateSkuRequest } from '../../features/skus/types'
 import { describeApiError } from '../../features/shared/errorMessages'
@@ -48,6 +48,14 @@ const emit = defineEmits<{
 
 const updateMutation = useUpdateSku()
 const deleteMutation = useDeleteSku()
+
+// PR #24 review round 9 (P1): exposed so the parent can disable the product save button while
+// any row's own SKU write is in flight — a concurrent product save racing this row's write is
+// exactly the pair of writes that can produce the P2 concurrency-conflict scenario reported this
+// round, and disabling it here at the point of overlap is cheaper and clearer than discovering it
+// only after the server rejects one side.
+const isMutating = computed(() => updateMutation.isPending.value || deleteMutation.isPending.value)
+defineExpose({ isMutating })
 
 const editing = ref(false)
 // PR #24 review round 7 (P1): captured once at startEdit, alongside the rest of the edit
@@ -163,7 +171,7 @@ function remove() {
       <button
         type="button"
         :disabled="operationsDisabled"
-        :title="operationsDisabled ? '商品資料有未儲存的變更，請先儲存或還原後再操作 SKU' : undefined"
+        :title="operationsDisabled ? '商品資料有未儲存的變更或正在儲存中，請稍候再操作 SKU' : undefined"
         @click="startEdit"
       >
         編輯
@@ -171,7 +179,7 @@ function remove() {
       <button
         type="button"
         :disabled="sku.isDefault || deleteMutation.isPending.value || operationsDisabled"
-        :title="sku.isDefault ? '無法刪除目前的預設 SKU，請先將其他 SKU 設為預設' : (operationsDisabled ? '商品資料有未儲存的變更，請先儲存或還原後再操作 SKU' : undefined)"
+        :title="sku.isDefault ? '無法刪除目前的預設 SKU，請先將其他 SKU 設為預設' : (operationsDisabled ? '商品資料有未儲存的變更或正在儲存中，請稍候再操作 SKU' : undefined)"
         @click="remove"
       >
         刪除
@@ -237,7 +245,7 @@ function remove() {
       <button
         type="button"
         :disabled="updateMutation.isPending.value || operationsDisabled"
-        :title="operationsDisabled ? '商品資料有未儲存的變更，請先儲存或還原後再操作 SKU' : undefined"
+        :title="operationsDisabled ? '商品資料有未儲存的變更或正在儲存中，請稍候再操作 SKU' : undefined"
         @click="submit"
       >
         儲存

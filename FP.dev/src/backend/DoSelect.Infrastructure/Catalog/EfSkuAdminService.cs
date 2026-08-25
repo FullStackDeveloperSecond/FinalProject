@@ -102,12 +102,29 @@ public sealed class EfSkuAdminService : ISkuAdminService
                 await transaction.CommitAsync(cancellationToken);
             }
         }
-        catch
+        // 組長 PR #24 round 9 review, P2: the second SaveChangesAsync (product.Touch, above) can
+        // race a concurrent Product/Category update and throw DbUpdateConcurrencyException just
+        // like Update/Delete's own single SaveChangesAsync already handles below — but this catch
+        // used to be a bare rethrow, so it surfaced as an opaque 500 (unexpected_error) instead of
+        // the same 409 concurrency_conflict Update/Delete give for the equivalent race. Rollback
+        // must still happen first regardless of exception type (a concurrency conflict is still a
+        // failure the transaction needs to undo), so the exception-type check comes after, not
+        // instead of, the existing rollback — never skip it just because this one case now
+        // translates the exception afterward.
+        catch (Exception exception)
         {
             if (transaction is not null)
             {
                 await transaction.RollbackAsync(cancellationToken);
             }
+
+            if (exception is DbUpdateConcurrencyException)
+            {
+                throw new CatalogWriteException(
+                    CatalogWriteException.ErrorCodes.ConcurrencyConflict,
+                    "The product was updated by someone else. Reload and try again.");
+            }
+
             throw;
         }
         finally

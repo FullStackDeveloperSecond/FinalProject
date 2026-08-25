@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ErrorState, HttpStatusPage, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, useTemplateRef, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import SkuEditorRow from '../components/catalog/SkuEditorRow.vue'
 import { useAdminProductDetail, useCreateProduct, useUpdateProduct } from '../features/products/useProducts'
@@ -162,6 +162,15 @@ watch([product, brandResult, categoryResult, tagResult, areLookupsPending, areLo
   applyProductSnapshot(value)
 }, { immediate: true })
 
+// PR #24 review round 9 (P1): set when a SKU mutation succeeds but the admin dirtied the product
+// form again *while that request was in flight* (see syncRowVersionAfterOwnSkuMutation below) —
+// the server's Product RowVersion has genuinely moved on past whatever this page last confirmed,
+// but applying that new snapshot would discard the admin's fresh edits, and keeping the old token
+// would let a subsequent save silently overwrite the SKU-driven change with no 409. Neither is
+// safe, so this instead surfaces as an explicit, unmissable prompt to reload (discarding the
+// in-between edits) rather than guessing which side should win.
+const productSyncConflict = ref(false)
+
 /**
  * PR #24 review round 8 (P1): round 7 refreshed *only* the token after a SKU mutation this admin
  * performed on this page, keeping the form fields untouched — but the SKU write only validates
@@ -171,9 +180,19 @@ watch([product, brandResult, categoryResult, tagResult, areLookupsPending, areLo
  * fields with a *validly advanced* token — the server sees no conflict, and the other admin's
  * change to the product fields is silently overwritten. The minimal safe fix the review asked
  * for: SKU operations are disabled whenever `isProductFormDirty` (see SkuEditorRow below), so this
- * only ever runs when the form already matches `savedForm` — meaning there is nothing unsaved to
- * discard, and it's safe (and correct — it also surfaces anything the other admin changed) to
- * resync the *entire* snapshot, fields included, not just the token.
+ * only ever runs when the form already matches `savedForm` at the moment the mutation *starts* —
+ * meaning there is nothing unsaved to discard, and it's safe (and correct — it also surfaces
+ * anything the other admin changed) to resync the *entire* snapshot, fields included.
+ *
+ * PR #24 review round 9 (P1): being clean at *start* doesn't mean still clean at *success* —
+ * nothing stops the admin from typing into the product form while the SKU request is in flight
+ * (only the SKU buttons were disabled, not the text inputs). Re-checking `isProductFormDirty`
+ * here, right before applying, closes that window: if the form is still clean, the resync is
+ * exactly as safe as before; if it was dirtied in the meantime, applying the snapshot would
+ * silently discard that in-progress edit, so this instead sets `productSyncConflict` and leaves
+ * the form and token untouched — the admin's edits survive, and the *stale* token they're still
+ * holding will itself now correctly draw a 409 from the server if they try to save without
+ * resolving the conflict first.
  *
  * `mutatedProductId` is the id the SKU mutation was actually pinned to (from its own frozen
  * variables — see useSkus.ts) — round 8 (P2): if the admin has since navigated to a different
@@ -185,14 +204,31 @@ async function syncRowVersionAfterOwnSkuMutation(mutatedProductId: string) {
     return
   }
   const result = await refetch()
-  if (result.data && props.productId === mutatedProductId) {
+  if (props.productId !== mutatedProductId || !result.data) {
+    return
+  }
+  if (isProductFormDirty.value) {
+    productSyncConflict.value = true
+    return
+  }
+  applyProductSnapshot(result.data)
+}
+
+// PR #24 review round 9 (P1): the explicit way out of a `productSyncConflict` — discards
+// whatever the admin typed after the SKU mutation started (which is exactly the content
+// `productSyncConflict` exists to protect from being silently applied *without* the admin asking
+// for it) and adopts the current server state as the new baseline.
+async function reloadAfterProductSyncConflict() {
+  const result = await refetch()
+  if (result.data) {
     applyProductSnapshot(result.data)
+    productSyncConflict.value = false
   }
 }
 
-function tagPublicIds(): string[] {
+function tagPublicIds(tagCodes: string[]): string[] {
   const tags = tagResult.value?.items ?? []
-  return form.tagCodes
+  return tagCodes
     .map((code) => tags.find((tag) => tag.code === code)?.publicId)
     .filter((value): value is string => Boolean(value))
 }
@@ -205,7 +241,7 @@ function submitCreate() {
     categoryPublicId: form.categoryPublicId,
     descriptionZhTw: form.descriptionZhTw || null,
     warrantyMonths: form.warrantyMonths,
-    tagPublicIds: tagPublicIds(),
+    tagPublicIds: tagPublicIds(form.tagCodes),
     status: form.status,
     defaultSku: {
       skuCode: initialSku.skuCode,
@@ -231,16 +267,32 @@ function submitUpdate() {
     return
   }
   const productPublicId = product.value.publicId
+  // PR #24 review round 9 (P1): captured once, here, at the moment of submission — *not* read
+  // again inside onSuccess. The admin can keep typing while this request is in flight (nothing
+  // blocks the text inputs), so by the time the response arrives `form` may already hold a further
+  // edit the server never saw. Using a submission-time snapshot as the new `savedForm` baseline
+  // means that further edit correctly stays "dirty" against what the server actually persisted,
+  // instead of the admin's screen and the server silently agreeing on content that was never
+  // actually saved.
+  const submittedSnapshot = {
+    nameZhTw: form.nameZhTw,
+    brandPublicId: form.brandPublicId,
+    categoryPublicId: form.categoryPublicId,
+    descriptionZhTw: form.descriptionZhTw,
+    warrantyMonths: form.warrantyMonths,
+    status: form.status,
+    tagCodes: [...form.tagCodes],
+  }
   updateMutation.mutate({
     publicId: productPublicId,
     request: {
-      nameZhTw: form.nameZhTw,
-      brandPublicId: form.brandPublicId,
-      categoryPublicId: form.categoryPublicId,
-      descriptionZhTw: form.descriptionZhTw || null,
-      warrantyMonths: form.warrantyMonths,
-      tagPublicIds: tagPublicIds(),
-      status: form.status,
+      nameZhTw: submittedSnapshot.nameZhTw,
+      brandPublicId: submittedSnapshot.brandPublicId,
+      categoryPublicId: submittedSnapshot.categoryPublicId,
+      descriptionZhTw: submittedSnapshot.descriptionZhTw || null,
+      warrantyMonths: submittedSnapshot.warrantyMonths,
+      tagPublicIds: tagPublicIds(submittedSnapshot.tagCodes),
+      status: submittedSnapshot.status,
       rowVersion: editRowVersion.value,
     },
   }, {
@@ -255,13 +307,13 @@ function submitUpdate() {
         return
       }
       editRowVersion.value = updated.rowVersion
-      savedForm.nameZhTw = form.nameZhTw
-      savedForm.brandPublicId = form.brandPublicId
-      savedForm.categoryPublicId = form.categoryPublicId
-      savedForm.descriptionZhTw = form.descriptionZhTw
-      savedForm.warrantyMonths = form.warrantyMonths
-      savedForm.status = form.status
-      savedForm.tagCodes = [...form.tagCodes]
+      savedForm.nameZhTw = submittedSnapshot.nameZhTw
+      savedForm.brandPublicId = submittedSnapshot.brandPublicId
+      savedForm.categoryPublicId = submittedSnapshot.categoryPublicId
+      savedForm.descriptionZhTw = submittedSnapshot.descriptionZhTw
+      savedForm.warrantyMonths = submittedSnapshot.warrantyMonths
+      savedForm.status = submittedSnapshot.status
+      savedForm.tagCodes = submittedSnapshot.tagCodes
     },
   })
 }
@@ -275,6 +327,20 @@ function submitUpdate() {
 // flight. productPublicId is now supplied per-call as part of the mutation's own variables (see
 // submitNewSku), so mutationFn and onSuccess both see the exact id this specific request was for.
 const createSkuMutation = useCreateSku()
+
+// PR #24 review round 9 (P1): the product save and a SKU write could previously start
+// independently and overlap — the save button didn't know a SKU write was pending, and vice
+// versa. Vue populates this as an array of the mounted SkuEditorRow instances, in v-for order;
+// each exposes `isMutating` (see SkuEditorRow.vue) for its own update/delete mutation.
+const skuRowRefs = useTemplateRef<InstanceType<typeof SkuEditorRow>[]>('skuRowRefs')
+const isAnySkuMutationPending = computed(() =>
+  createSkuMutation.isPending.value ||
+  (skuRowRefs.value?.some((row) => row.isMutating) ?? false))
+// PR #24 review round 9 (P1): the reverse direction of the same overlap — a SKU write must not
+// start while the product save itself is in flight, since a successful product save also advances
+// the RowVersion a concurrently-submitted SKU write's own Product.Touch() would be racing.
+const skuOperationsDisabled = computed(() => isProductFormDirty.value || updateMutation.isPending.value)
+
 const initialSku = reactive({
   skuCode: '',
   nameZhTw: '',
@@ -312,7 +378,7 @@ watch(() => props.productId, () => {
 })
 
 function submitNewSku() {
-  if (!props.productId || isProductFormDirty.value) {
+  if (!props.productId || skuOperationsDisabled.value) {
     return
   }
   const productPublicId = props.productId
@@ -556,7 +622,7 @@ function submitNewSku() {
         </fieldset>
         <button
           type="submit"
-          :disabled="createMutation.isPending.value || updateMutation.isPending.value || areLookupsPending || areLookupsErrored"
+          :disabled="createMutation.isPending.value || updateMutation.isPending.value || areLookupsPending || areLookupsErrored || isAnySkuMutationPending"
         >
           儲存
         </button>
@@ -576,6 +642,24 @@ function submitNewSku() {
             @click="retryLookups"
           >
             重試
+          </button>
+        </p>
+        <p
+          v-if="isAnySkuMutationPending"
+          class="product-form__hint"
+        >
+          有 SKU 操作正在進行中，請稍候再儲存商品，以避免併發衝突。
+        </p>
+        <p
+          v-if="productSyncConflict"
+          class="product-form__error"
+        >
+          SKU 操作完成時，商品資料同時被修改，無法確定要保留哪一份內容。目前畫面上的商品欄位變更尚未送出；請選擇重新載入伺服器上的最新資料（將捨棄畫面上的變更）。
+          <button
+            type="button"
+            @click="reloadAfterProductSyncConflict"
+          >
+            重新載入
           </button>
         </p>
         <p
@@ -606,6 +690,12 @@ function submitNewSku() {
         >
           商品資料有未儲存的變更，請先儲存或還原後再操作 SKU。
         </p>
+        <p
+          v-else-if="updateMutation.isPending.value"
+          class="product-form__hint"
+        >
+          商品資料正在儲存中，請稍候再操作 SKU。
+        </p>
         <table class="product-skus__table">
           <thead>
             <tr>
@@ -622,10 +712,11 @@ function submitNewSku() {
           <tbody>
             <SkuEditorRow
               v-for="sku in product.skus"
+              ref="skuRowRefs"
               :key="sku.publicId"
               :sku="sku"
               :product-public-id="product.publicId"
-              :operations-disabled="isProductFormDirty"
+              :operations-disabled="skuOperationsDisabled"
               @sku-mutated="syncRowVersionAfterOwnSkuMutation"
             />
             <tr>
@@ -686,8 +777,8 @@ function submitNewSku() {
               <td>
                 <button
                   type="button"
-                  :disabled="createSkuMutation.isPending.value || isProductFormDirty"
-                  :title="isProductFormDirty ? '商品資料有未儲存的變更，請先儲存或還原後再操作 SKU' : undefined"
+                  :disabled="createSkuMutation.isPending.value || skuOperationsDisabled"
+                  :title="skuOperationsDisabled ? '商品資料有未儲存的變更或正在儲存中，請稍候再操作 SKU' : undefined"
                   @click="submitNewSku"
                 >
                   新增 SKU
