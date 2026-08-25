@@ -22,10 +22,13 @@ public interface IAdminSupportTicketService
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Loads the full admin-facing detail for one ticket, including internal notes. A read does
-    /// not need an acting admin identity beyond the SupportTicket.Handle authorization already
-    /// enforced by the caller. Throws DomainProblemException with ResourceNotFound (404) when
-    /// the ticket does not exist.
+    /// Loads the full admin-facing detail for one ticket, including internal notes. The acting
+    /// admin identity and supervisor scope are required so assignment visibility is applied before
+    /// sensitive data is loaded. Missing and out-of-scope tickets both map to the standard 404.
     /// </summary>
-    Task<AdminSupportTicketDetailDto> GetDetailAsync(Guid ticketPublicId, CancellationToken cancellationToken);
+    Task<AdminSupportTicketDetailDto> GetDetailAsync(
+        string adminUserId,
+        bool canSupervise,
+        Guid ticketPublicId,
+        CancellationToken cancellationToken);
 }

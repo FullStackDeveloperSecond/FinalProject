@@ -20,20 +20,24 @@ public sealed class SupportAttachmentReadStoreSqlServerTests : IClassFixture<Web
         var run = Guid.NewGuid().ToString("N");
         var now = DateTime.UtcNow;
         Guid cleanId, deletedId, pendingId, rejectedId;
-        string ownerId, memberBId;
+        string ownerId, memberBId, handlerBId;
         using (var scope = _factory.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
             var owner = ApplicationUser.CreateMember(Guid.NewGuid(), $"att-owner-{run}@example.test", now);
             var memberB = ApplicationUser.CreateMember(Guid.NewGuid(), $"att-other-{run}@example.test", now);
-            db.Users.AddRange(owner, memberB);
+            var handlerB = ApplicationUser.CreateAdmin(Guid.NewGuid(), $"att-handler-{run}@example.test", now);
+            db.Users.AddRange(owner, memberB, handlerB);
             await db.SaveChangesAsync();
             ownerId = owner.Id;
             memberBId = memberB.Id;
+            handlerBId = handlerB.Id;
             var ticket = new SupportTicket(Guid.NewGuid(), $"AT-{run[..20]}", owner.Id, null,
                 SupportTicketCategory.Other, $"attachment-{run}", CasePriority.Normal,
                 now.AddHours(1), now.AddHours(8), now);
             db.SupportTickets.Add(ticket);
+            await db.SaveChangesAsync();
+            ticket.Assign(handlerB.Id, now.AddMilliseconds(1));
             await db.SaveChangesAsync();
 
             var clean = NewAttachment(ticket.Id, owner.Id, run + "-clean", now);
@@ -51,11 +55,18 @@ public sealed class SupportAttachmentReadStoreSqlServerTests : IClassFixture<Web
 
         Assert.NotNull(await FindAsync(cleanId, new(SupportAttachmentActorType.Member, ownerId)));
         Assert.Null(await FindAsync(cleanId, new(SupportAttachmentActorType.Member, memberBId)));
-        Assert.NotNull(await FindAsync(cleanId, new(SupportAttachmentActorType.SupportHandler, $"admin-{Guid.NewGuid():N}")));
+        Assert.NotNull(await FindAsync(cleanId, new(SupportAttachmentActorType.SupportHandler, handlerBId)));
+        Assert.Null(await FindAsync(cleanId, new(
+            SupportAttachmentActorType.SupportHandler,
+            $"other-handler-{Guid.NewGuid():N}")));
+        Assert.NotNull(await FindAsync(cleanId, new(
+            SupportAttachmentActorType.SupportHandler,
+            $"supervisor-{Guid.NewGuid():N}",
+            CanSupervise: true)));
         Assert.Null(await FindAsync(deletedId, new(SupportAttachmentActorType.Member, ownerId)));
         Assert.Null(await FindAsync(pendingId, new(SupportAttachmentActorType.Member, ownerId)));
-        Assert.Null(await FindAsync(rejectedId, new(SupportAttachmentActorType.SupportHandler, $"admin-{Guid.NewGuid():N}")));
-        Assert.Null(await FindAsync(Guid.NewGuid(), new(SupportAttachmentActorType.SupportHandler, $"admin-{Guid.NewGuid():N}")));
+        Assert.Null(await FindAsync(rejectedId, new(SupportAttachmentActorType.SupportHandler, handlerBId)));
+        Assert.Null(await FindAsync(Guid.NewGuid(), new(SupportAttachmentActorType.SupportHandler, handlerBId)));
     }
 
     private async Task<SupportAttachmentReadRecord?> FindAsync(Guid id, SupportAttachmentActor actor)

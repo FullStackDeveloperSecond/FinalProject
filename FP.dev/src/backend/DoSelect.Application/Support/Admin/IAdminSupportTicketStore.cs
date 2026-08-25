@@ -32,9 +32,13 @@ public interface IAdminSupportTicketStore
     /// Loads the admin-facing detail projection for one ticket, including internal notes, in a
     /// bounded query shape (ticket/assignee/order in one query, messages in a second) rather
     /// than lazily loading per-message or per-assignee data. Returns null when the ticket does
-    /// not exist so the Application layer can map that to the standard 404.
+    /// not exist or is outside the actor assignment scope, so both map to the standard 404.
     /// </summary>
-    Task<AdminSupportTicketDetail?> GetDetailAsync(Guid ticketPublicId, CancellationToken cancellationToken);
+    Task<AdminSupportTicketDetail?> GetDetailAsync(
+        Guid ticketPublicId,
+        string adminUserId,
+        bool canSupervise,
+        CancellationToken cancellationToken);
 }
 
 public enum SupportTicketClaimOutcome

@@ -155,6 +155,8 @@ public sealed class AdminSupportTicketStore : IAdminSupportTicketStore
 
     public async Task<AdminSupportTicketDetail?> GetDetailAsync(
         Guid ticketPublicId,
+        string adminUserId,
+        bool canSupervise,
         CancellationToken cancellationToken)
     {
         // A single query with left joins onto Orders and active AdminProfiles keeps the ticket
@@ -163,7 +165,8 @@ public sealed class AdminSupportTicketStore : IAdminSupportTicketStore
         // this is a constant query count rather than N+1.
         var row = await (
             from t in _dbContext.SupportTickets.AsNoTracking()
-            where t.PublicId == ticketPublicId
+            where t.PublicId == ticketPublicId &&
+                (canSupervise || t.AssigneeAdminUserId == null || t.AssigneeAdminUserId == adminUserId)
             join o in _dbContext.Orders.AsNoTracking() on t.OrderId equals (long?)o.Id into orderGroup
             from o in orderGroup.DefaultIfEmpty()
             join a in _dbContext.AdminProfiles.AsNoTracking().Where(p => p.IsActive)

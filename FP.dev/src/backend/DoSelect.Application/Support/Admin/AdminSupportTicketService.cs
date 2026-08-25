@@ -50,10 +50,16 @@ public sealed class AdminSupportTicketService : IAdminSupportTicketService
     }
 
     public async Task<AdminSupportTicketDetailDto> GetDetailAsync(
+        string adminUserId,
+        bool canSupervise,
         Guid ticketPublicId,
         CancellationToken cancellationToken)
     {
-        var detail = await _store.GetDetailAsync(ticketPublicId, cancellationToken);
+        var detail = await _store.GetDetailAsync(
+            ticketPublicId,
+            adminUserId,
+            canSupervise,
+            cancellationToken);
         if (detail is null)
         {
             throw DomainProblemException.NotFound("The support ticket was not found.");

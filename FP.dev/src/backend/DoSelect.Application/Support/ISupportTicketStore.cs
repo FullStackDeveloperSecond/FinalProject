@@ -62,6 +62,8 @@ public interface ISupportTicketStore
     Task AddMessageAsync(SupportMessage message, CancellationToken cancellationToken);
 
     Task AddStatusHistoryAsync(SupportStatusHistory history, CancellationToken cancellationToken);
+
+    Task AddSlaEventAsync(SupportSlaEvent slaEvent, CancellationToken cancellationToken);
 }
 
 public sealed record SupportTicketCreationResult(

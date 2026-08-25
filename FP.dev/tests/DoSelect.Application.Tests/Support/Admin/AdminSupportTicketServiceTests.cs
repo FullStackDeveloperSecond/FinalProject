@@ -96,7 +96,7 @@ public sealed class AdminSupportTicketServiceTests
         };
 
         var result = await new AdminSupportTicketService(store, new FixedTimeProvider(Now))
-            .GetDetailAsync(store.Detail!.PublicId, CancellationToken.None);
+            .GetDetailAsync("admin-a", false, store.Detail!.PublicId, CancellationToken.None);
 
         Assert.True(result.IsOverdue);
         Assert.Equal(store.Detail.PublicId, store.DetailTicketPublicId);
@@ -125,7 +125,7 @@ public sealed class AdminSupportTicketServiceTests
         };
 
         var result = await new AdminSupportTicketService(store, new FixedTimeProvider(Now))
-            .GetDetailAsync(store.Detail.PublicId, CancellationToken.None);
+            .GetDetailAsync("admin-a", false, store.Detail.PublicId, CancellationToken.None);
 
         Assert.Equal(expectClaim, result.AvailableActions.Contains("claim"));
         Assert.Equal(expectClaim ? 1 : 0, result.AvailableActions.Count);
@@ -148,7 +148,7 @@ public sealed class AdminSupportTicketServiceTests
         };
 
         var result = await new AdminSupportTicketService(store, new FixedTimeProvider(Now))
-            .GetDetailAsync(store.Detail.PublicId, CancellationToken.None);
+            .GetDetailAsync("admin-a", false, store.Detail.PublicId, CancellationToken.None);
 
         Assert.Equal(expected, result.IsOverdue);
     }
@@ -158,7 +158,7 @@ public sealed class AdminSupportTicketServiceTests
     {
         var exception = await Assert.ThrowsAsync<DomainProblemException>(() =>
             new AdminSupportTicketService(new StubAdminSupportTicketStore(), new FixedTimeProvider(Now))
-                .GetDetailAsync(Guid.NewGuid(), CancellationToken.None));
+                .GetDetailAsync("admin-a", false, Guid.NewGuid(), CancellationToken.None));
 
         Assert.Equal(404, exception.StatusCode);
         Assert.Equal(DomainErrorCodes.ResourceNotFound, exception.Code);
@@ -233,7 +233,11 @@ public sealed class AdminSupportTicketServiceTests
             return Task.FromResult(Result);
         }
 
-        public Task<AdminSupportTicketDetail?> GetDetailAsync(Guid ticketPublicId, CancellationToken cancellationToken)
+        public Task<AdminSupportTicketDetail?> GetDetailAsync(
+            Guid ticketPublicId,
+            string adminUserId,
+            bool canSupervise,
+            CancellationToken cancellationToken)
         {
             DetailTicketPublicId = ticketPublicId;
             return Task.FromResult(Detail);

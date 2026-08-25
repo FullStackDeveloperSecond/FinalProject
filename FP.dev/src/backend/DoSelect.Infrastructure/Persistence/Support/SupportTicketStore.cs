@@ -170,4 +170,7 @@ public sealed class SupportTicketStore : ISupportTicketStore
 
     public async Task AddStatusHistoryAsync(SupportStatusHistory history, CancellationToken cancellationToken) =>
         await _dbContext.SupportStatusHistories.AddAsync(history, cancellationToken);
+
+    public async Task AddSlaEventAsync(SupportSlaEvent slaEvent, CancellationToken cancellationToken) =>
+        await _dbContext.SupportSlaEvents.AddAsync(slaEvent, cancellationToken);
 }

@@ -80,7 +80,10 @@ public sealed class PrivateAttachmentsController : ControllerBase
             var adminUserId = adminPrincipal.FindFirstValue(ClaimTypes.NameIdentifier);
             if (!string.IsNullOrEmpty(adminUserId))
             {
-                return new SupportAttachmentActor(SupportAttachmentActorType.SupportHandler, adminUserId);
+                return new SupportAttachmentActor(
+                    SupportAttachmentActorType.SupportHandler,
+                    adminUserId,
+                    adminPrincipal.IsInRole(DoSelectRoles.CustomerServiceSupervisor));
             }
         }
 

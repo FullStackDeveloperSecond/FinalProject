@@ -292,7 +292,11 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
                 new(Guid.NewGuid(), SupportSenderType.Admin, false, true, "internal body", "zh-TW", DateTime.UtcNow.AddMinutes(-1)),
             ]);
 
-        public Task<AdminSupportTicketDetailDto> GetDetailAsync(Guid ticketPublicId, CancellationToken cancellationToken)
+        public Task<AdminSupportTicketDetailDto> GetDetailAsync(
+            string adminUserId,
+            bool canSupervise,
+            Guid ticketPublicId,
+            CancellationToken cancellationToken)
         {
             DetailCalls++;
             if (ThrowDetailNotFound)

@@ -26,7 +26,7 @@ public sealed class AdminSupportTicketDetailStoreTests : IClassFixture<WebApplic
         await using var db = CreateCountingContext(counter);
 
         var detail = await new AdminSupportTicketStore(db)
-            .GetDetailAsync(fixture.TicketPublicId, CancellationToken.None);
+            .GetDetailAsync(fixture.TicketPublicId, "supervisor", true, CancellationToken.None);
 
         Assert.NotNull(detail);
         Assert.Equal(3, counter.ReaderCommands);
@@ -45,7 +45,7 @@ public sealed class AdminSupportTicketDetailStoreTests : IClassFixture<WebApplic
         using var scope = _factory.Services.CreateScope();
         var store = scope.ServiceProvider.GetRequiredService<IAdminSupportTicketStore>();
 
-        var detail = await store.GetDetailAsync(fixture.TicketPublicId, CancellationToken.None);
+        var detail = await store.GetDetailAsync(fixture.TicketPublicId, "supervisor", true, CancellationToken.None);
 
         Assert.NotNull(detail);
         Assert.Null(detail.AssigneeAdminPublicId);
@@ -53,12 +53,39 @@ public sealed class AdminSupportTicketDetailStoreTests : IClassFixture<WebApplic
     }
 
     [Fact]
+    public async Task GetDetailAsync_EnforcesAssigneeScopeForRegularHandlerAndAllowsSupervisor()
+    {
+        var fixture = await SeedAsync(activeAssignee: true);
+        using var scope = _factory.Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IAdminSupportTicketStore>();
+
+        var ownerDetail = await store.GetDetailAsync(
+            fixture.TicketPublicId,
+            fixture.AssigneeUserId,
+            canSupervise: false,
+            CancellationToken.None);
+        var otherHandlerDetail = await store.GetDetailAsync(
+            fixture.TicketPublicId,
+            $"other-handler-{Guid.NewGuid():N}",
+            canSupervise: false,
+            CancellationToken.None);
+        var supervisorDetail = await store.GetDetailAsync(
+            fixture.TicketPublicId,
+            $"supervisor-{Guid.NewGuid():N}",
+            canSupervise: true,
+            CancellationToken.None);
+
+        Assert.NotNull(ownerDetail);
+        Assert.Null(otherHandlerDetail);
+        Assert.NotNull(supervisorDetail);
+    }
+    [Fact]
     public async Task GetDetailAsync_WhenMissing_StopsAfterTicketQuery()
     {
         var counter = new ReaderCommandCounter();
         await using var db = CreateCountingContext(counter);
 
-        var detail = await new AdminSupportTicketStore(db).GetDetailAsync(Guid.NewGuid(), CancellationToken.None);
+        var detail = await new AdminSupportTicketStore(db).GetDetailAsync(Guid.NewGuid(), "supervisor", true, CancellationToken.None);
 
         Assert.Null(detail);
         Assert.Equal(1, counter.ReaderCommands);
@@ -108,10 +135,10 @@ public sealed class AdminSupportTicketDetailStoreTests : IClassFixture<WebApplic
             new SupportMessage(earlier, ticket.Id, SupportSenderType.Member, member.Id, "public earlier", false, false, null, "zh-TW", now.AddMinutes(1)),
             new SupportMessage(laterLow, ticket.Id, SupportSenderType.Admin, admin.Id, "internal low", true, false, null, "zh-TW", now.AddMinutes(2)));
         await db.SaveChangesAsync();
-        return new Fixture(ticket.PublicId, assigneePublicId, earlier, laterLow, laterHigh);
+        return new Fixture(ticket.PublicId, admin.Id, assigneePublicId, earlier, laterLow, laterHigh);
     }
 
-    private sealed record Fixture(Guid TicketPublicId, Guid AssigneePublicId, Guid EarlierPublicId,
+    private sealed record Fixture(Guid TicketPublicId, string AssigneeUserId, Guid AssigneePublicId, Guid EarlierPublicId,
         Guid LaterInternalLowPublicId, Guid LaterInternalHighPublicId);
 
     private sealed class ReaderCommandCounter : DbCommandInterceptor

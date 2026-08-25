@@ -141,6 +141,12 @@ internal sealed class FakeSupportTicketStore : ISupportTicketStore
         StatusHistories.Add(history);
         return Task.CompletedTask;
     }
+
+    public Task AddSlaEventAsync(SupportSlaEvent slaEvent, CancellationToken cancellationToken)
+    {
+        SlaEvents.Add(slaEvent);
+        return Task.CompletedTask;
+    }
 }
 
 internal sealed class FakeOrderOwnershipLookup : IOrderOwnershipLookup

@@ -31,10 +31,16 @@ public sealed class SupportAttachmentReadStore : ISupportAttachmentReadStore
 
         // A member may only read an attachment on a ticket that member owns; a support handler
         // (CustomerService/CustomerServiceSupervisor with MFA, already established by the Api
-        // layer) may read the attachment on any support ticket.
+        // layer) is limited to the shared queue/current assignment unless supervisor scope applies.
         if (actor.Type == SupportAttachmentActorType.Member)
         {
             query = query.Where(x => x.ticket.MemberUserId == actor.UserId);
+        }
+        else if (!actor.CanSupervise)
+        {
+            query = query.Where(x =>
+                x.ticket.AssigneeAdminUserId == null ||
+                x.ticket.AssigneeAdminUserId == actor.UserId);
         }
 
         return await query

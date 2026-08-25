@@ -166,7 +166,7 @@ public sealed class SupportTicketService : ISupportTicketService
     {
         var ticket = await LoadOwnedTicketAsync(memberUserId, ticketPublicId, cancellationToken);
 
-        if (ticket.Status is SupportTicketStatus.Closed or SupportTicketStatus.Cancelled)
+        if (ticket.Status is SupportTicketStatus.Resolved or SupportTicketStatus.Closed or SupportTicketStatus.Cancelled)
         {
             throw DomainProblemException.Conflict(
                 DomainErrorCodes.SupportTicketStateConflict,
@@ -186,8 +186,45 @@ public sealed class SupportTicketService : ISupportTicketService
             language: "zh-TW",
             sentAtUtc: nowUtc);
 
-        ticket.RecordActivity(nowUtc);
+        SupportStatusHistory? statusHistory = null;
+        SupportSlaEvent? slaEvent = null;
+        if (ticket.Status == SupportTicketStatus.WaitingForCustomer)
+        {
+            var fromStatus = ticket.Status;
+            var resumedSeconds = ticket.ResumeFromCustomerWait(nowUtc);
+            statusHistory = new SupportStatusHistory(
+                ticket.Id,
+                fromStatus,
+                SupportTicketStatus.InProgress,
+                reasonCode: "customer-replied",
+                note: "Customer replied while the ticket was waiting for customer.",
+                actorUserId: memberUserId,
+                occurredAtUtc: nowUtc);
+            slaEvent = new SupportSlaEvent(
+                ticket.Id,
+                SupportSlaEventType.Resumed,
+                SupportSlaTargetType.Resolution,
+                ticket.ResolutionDueAtUtc.AddSeconds(ticket.PausedSeconds),
+                resumedSeconds,
+                nowUtc,
+                metadataJson: null);
+        }
+        else
+        {
+            ticket.RecordActivity(nowUtc);
+        }
+
         await _store.AddMessageAsync(message, cancellationToken);
+        if (statusHistory is not null)
+        {
+            await _store.AddStatusHistoryAsync(statusHistory, cancellationToken);
+        }
+
+        if (slaEvent is not null)
+        {
+            await _store.AddSlaEventAsync(slaEvent, cancellationToken);
+        }
+
         await _store.SaveTicketChangesAsync(ticket, request.RowVersion, cancellationToken);
 
         var messages = await _store.ListPublicMessagesAsync(ticket.Id, cancellationToken);
@@ -267,7 +304,10 @@ public sealed class SupportTicketService : ISupportTicketService
     private static IReadOnlyList<string> ComputeAvailableActions(SupportTicket ticket)
     {
         var actions = new List<string>();
-        if (ticket.Status is not (SupportTicketStatus.Closed or SupportTicketStatus.Cancelled))
+        if (ticket.Status is not (
+            SupportTicketStatus.Resolved or
+            SupportTicketStatus.Closed or
+            SupportTicketStatus.Cancelled))
         {
             actions.Add("addMessage");
         }

@@ -25,7 +25,10 @@ public enum SupportAttachmentActorType
 /// this instead of a ClaimsPrincipal keeps Application free of ASP.NET Core identity types and
 /// removes any chance of Application re-deriving account type from ambiguous merged claims.
 /// </summary>
-public sealed record SupportAttachmentActor(SupportAttachmentActorType Type, string UserId);
+public sealed record SupportAttachmentActor(
+    SupportAttachmentActorType Type,
+    string UserId,
+    bool CanSupervise = false);
 
 /// <summary>
 /// The minimal, already-authorized payload needed to stream a private attachment back to the

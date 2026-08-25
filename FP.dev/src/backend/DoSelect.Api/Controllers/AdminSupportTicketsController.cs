@@ -34,7 +34,11 @@ public sealed class AdminSupportTicketsController : ControllerBase
         Guid id,
         CancellationToken cancellationToken)
     {
-        var result = await _service.GetDetailAsync(id, cancellationToken);
+        var result = await _service.GetDetailAsync(
+            GetAdminUserId(),
+            User.IsInRole(DoSelectRoles.CustomerServiceSupervisor),
+            id,
+            cancellationToken);
         return Ok(result);
     }
 

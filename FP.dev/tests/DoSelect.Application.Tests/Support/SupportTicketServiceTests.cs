@@ -149,6 +149,83 @@ public sealed class SupportTicketServiceTests
     }
 
     [Fact]
+    public async Task AddMessageAsync_WhenWaitingForCustomer_ResumesStatusPauseAndSlaInOneSave()
+    {
+        var store = new FakeSupportTicketStore();
+        var orders = new FakeOrderOwnershipLookup();
+        var createService = new SupportTicketService(
+            store,
+            orders,
+            new FixedTimeProvider(NowOffset.AddHours(-2)));
+        var created = await createService.CreateAsync(
+            "member-a",
+            new CreateSupportTicketRequest
+            {
+                Category = SupportTicketCategory.Other,
+                Subject = "案件",
+                Message = "初始訊息內容",
+            },
+            CancellationToken.None);
+        var ticket = store.Tickets.Single(t => t.PublicId == created.PublicId);
+        ticket.Assign("agent", NowUtc.AddMinutes(-110));
+        ticket.Transition(SupportTicketStatus.InProgress, NowUtc.AddMinutes(-100));
+        ticket.AddPausedSeconds(71 * 60 * 60, NowUtc.AddMinutes(-91));
+        ticket.Transition(SupportTicketStatus.WaitingForCustomer, NowUtc.AddMinutes(-90));
+        var service = new SupportTicketService(store, orders, new FixedTimeProvider(NowOffset));
+
+        var result = await service.AddMessageAsync(
+            "member-a",
+            created.PublicId,
+            new CreateSupportMessageRequest { Body = "已補充資料", RowVersion = ticket.RowVersion },
+            CancellationToken.None);
+
+        Assert.Equal(SupportTicketStatus.InProgress, result.Status);
+        Assert.Equal(72 * 60 * 60, ticket.PausedSeconds);
+        Assert.Null(ticket.WaitingForCustomerStartedAtUtc);
+        var history = Assert.Single(store.StatusHistories, h => h.FromStatus == SupportTicketStatus.WaitingForCustomer);
+        Assert.Equal(SupportTicketStatus.InProgress, history.ToStatus);
+        Assert.Equal("customer-replied", history.ReasonCode);
+        var resumed = Assert.Single(store.SlaEvents, e => e.EventType == SupportSlaEventType.Resumed);
+        Assert.Equal(SupportSlaTargetType.Resolution, resumed.TargetType);
+        Assert.Equal(60 * 60, resumed.DurationSeconds);
+        Assert.Equal(ticket.ResolutionDueAtUtc.AddHours(72), resumed.DueAtUtc);
+        Assert.Contains(result.Messages, message => message.Body == "已補充資料");
+    }
+
+    [Fact]
+    public async Task AddMessageAsync_WhenResolved_RejectsWithoutAppendingArtifacts()
+    {
+        var (service, store, _) = CreateSut();
+        var created = await service.CreateAsync(
+            "member-a",
+            new CreateSupportTicketRequest
+            {
+                Category = SupportTicketCategory.Other,
+                Subject = "案件",
+                Message = "初始訊息內容",
+            },
+            CancellationToken.None);
+        var ticket = store.Tickets.Single(t => t.PublicId == created.PublicId);
+        ticket.Assign("agent", NowUtc.AddMinutes(1));
+        ticket.Transition(SupportTicketStatus.InProgress, NowUtc.AddMinutes(2));
+        ticket.Transition(SupportTicketStatus.Resolved, NowUtc.AddMinutes(3));
+        var messageCount = store.Messages.Count;
+        var historyCount = store.StatusHistories.Count;
+        var slaEventCount = store.SlaEvents.Count;
+
+        var exception = await Assert.ThrowsAsync<DomainProblemException>(() => service.AddMessageAsync(
+            "member-a",
+            created.PublicId,
+            new CreateSupportMessageRequest { Body = "問題仍未解決", RowVersion = ticket.RowVersion },
+            CancellationToken.None));
+
+        Assert.Equal(DomainErrorCodes.SupportTicketStateConflict, exception.Code);
+        Assert.Equal(SupportTicketStatus.Resolved, ticket.Status);
+        Assert.Equal(messageCount, store.Messages.Count);
+        Assert.Equal(historyCount, store.StatusHistories.Count);
+        Assert.Equal(slaEventCount, store.SlaEvents.Count);
+    }
+    [Fact]
     public async Task AddMessageAsync_WhenSaveReportsConcurrencyConflict_SurfacesAsDomainConflict()
     {
         var (service, store, _) = CreateSut();
