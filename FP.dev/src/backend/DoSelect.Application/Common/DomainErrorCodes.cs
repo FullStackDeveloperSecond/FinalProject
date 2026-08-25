@@ -22,4 +22,15 @@ public static class DomainErrorCodes
     public const string FileFormatInvalid = "file_format_invalid";
     public const string FileMalwareDetected = "file_malware_detected";
     public const string FileScanUnavailable = "file_scan_unavailable";
+
+    public const string ImportFormatUnsupported = "import_format_unsupported";
+    public const string ImportDatasetMissing = "import_dataset_missing";
+    public const string ImportLookupNotFound = "import_lookup_not_found";
+    public const string ImportSkuCodeDuplicate = "import_sku_code_duplicate";
+    public const string ImportSkuUpdateNotFound = "import_sku_update_not_found";
+    public const string ImportValidationFailed = "import_validation_failed";
+    public const string ImportPreviewExpired = "import_preview_expired";
+    public const string ImportAlreadyCommitted = "import_already_committed";
+    public const string ImportBatchExpired = "import_batch_expired";
+    public const string ImportBatchInProgress = "import_batch_in_progress";
 }

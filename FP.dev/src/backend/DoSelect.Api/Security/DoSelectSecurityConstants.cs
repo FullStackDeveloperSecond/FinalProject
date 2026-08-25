@@ -87,4 +87,7 @@ public static class DoSelectPolicies
     public const string OutboxRetry = "Outbox.Retry";
     public const string ShippingManage = "Shipping.Manage";
     public const string ShippingRead = "Shipping.Read";
+    public const string CatalogImportExecute = "CatalogImport.Execute";
+    public const string CatalogImportRead = "CatalogImport.Read";
+    public const string CatalogImportReadAll = "CatalogImport.ReadAll";
 }
