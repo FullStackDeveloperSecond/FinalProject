@@ -10,13 +10,15 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 namespace DoSelect.Api.IntegrationTests;
 
 /// <summary>
-/// Both password-reset and email-verification requests always return the same 202/void shape
-/// regardless of whether the target email belongs to an eligible account (API DTO與Schema契約.md:
-/// 永遠回 202，不揭露帳號). That only holds if the two code paths also take the same amount of
-/// *time* — otherwise response latency itself becomes an oracle an attacker can use to enumerate
-/// accounts. These tests drive the Application services directly (bypassing HTTP, antiforgery,
-/// and rate-limiting middleware, none of which differ between the eligible/ineligible branches)
-/// against the real SQL-Server-backed gateway, and compare measured latency.
+/// Password-reset and email-verification requests always return the same 202/void shape, and
+/// login always returns the same invalid_credentials shape, regardless of whether the target
+/// email belongs to an eligible/existing account (API DTO與Schema契約.md: 永遠回 202，不揭露帳號;
+/// AuthController.Login unifies wrong-password, nonexistent, and locked-out responses). That only
+/// holds if the underlying code paths also take the same amount of *time* — otherwise response
+/// latency itself becomes an oracle an attacker can use to enumerate accounts or their lockout
+/// state. These tests drive the Application services directly (bypassing HTTP, antiforgery, and
+/// rate-limiting middleware, none of which differ between the compared branches) against the real
+/// SQL-Server-backed gateway, and compare measured latency.
 ///
 /// The 20-sample / 20ms-tolerance / median-comparison approach is the finalized V1 acceptance
 /// threshold (Alex review decision A1, 2026-08-25): it accepts "reduced distinguishability" on
@@ -32,6 +34,9 @@ public sealed class TimingSideChannelTests(WebApplicationFactory<Program> factor
 {
     private const int SampleCount = 20;
     private const double ToleranceMilliseconds = 20;
+    private const string ActivatedMemberPassword = "correct-horse-battery-staple";
+    private const string WrongPassword = "definitely-the-wrong-password";
+    private const int LockoutThresholdAttempts = 5;
 
     [Fact]
     public async Task RequestPasswordReset_EligibleAndIneligibleAccounts_HaveNoReliablyDistinguishableLatency()
@@ -104,6 +109,56 @@ public sealed class TimingSideChannelTests(WebApplicationFactory<Program> factor
         AssertNoReliableTimingDifference(freshLatencies, alreadyRegisteredLatencies);
     }
 
+    [Fact]
+    public async Task Login_NonexistentAccountAndWrongPasswordForExistingAccount_HaveNoReliablyDistinguishableLatency()
+    {
+        // MemberLoginGateway used to return InvalidCredentials for a nonexistent email without
+        // ever hashing/verifying a password, while a wrong-password attempt against a real account
+        // always paid that cost — response latency was an account-existence oracle even though
+        // both responses are the identical invalid_credentials shape (Alex review, 2026-08-25).
+        // MemberLoginGateway.PerformDummyPasswordVerification now closes that gap.
+        var capturingEmailSender = new CapturingEmailSender();
+        using var isolatedFactory = CreateIsolatedFactory(capturingEmailSender);
+
+        var existingEmails = await CreateActivatedMembersAsync(isolatedFactory, capturingEmailSender, SampleCount);
+        var nonexistentEmails = Enumerable.Range(0, SampleCount).Select(_ => UniqueEmail()).ToList();
+
+        await using var scope = isolatedFactory.Services.CreateAsyncScope();
+        var loginService = scope.ServiceProvider.GetRequiredService<LoginMemberService>();
+
+        var (existingLatencies, nonexistentLatencies) = await MeasureInterleavedAsync(
+            existingEmails,
+            nonexistentEmails,
+            email => loginService.LoginAsync(new LoginMemberCommand(email, WrongPassword, false)));
+
+        AssertNoReliableTimingDifference(existingLatencies, nonexistentLatencies);
+    }
+
+    [Fact]
+    public async Task Login_AlreadyLockedOutAccountAndWrongPasswordForExistingAccount_HaveNoReliablyDistinguishableLatency()
+    {
+        // Identity's SignInManager.CheckPasswordSignInAsync checks lockout status *before*
+        // verifying the password, so an already-locked-out account used to skip the
+        // hash-verification cost the same way a nonexistent account did — MemberLoginGateway now
+        // pre-checks lockout itself and pays an equivalent dummy verification before returning
+        // LockedOut (Alex review, 2026-08-25).
+        var capturingEmailSender = new CapturingEmailSender();
+        using var isolatedFactory = CreateIsolatedFactory(capturingEmailSender);
+
+        var stillActiveEmails = await CreateActivatedMembersAsync(isolatedFactory, capturingEmailSender, SampleCount);
+        var lockedOutEmails = await CreateLockedOutMembersAsync(isolatedFactory, capturingEmailSender, SampleCount);
+
+        await using var scope = isolatedFactory.Services.CreateAsyncScope();
+        var loginService = scope.ServiceProvider.GetRequiredService<LoginMemberService>();
+
+        var (activeLatencies, lockedOutLatencies) = await MeasureInterleavedAsync(
+            stillActiveEmails,
+            lockedOutEmails,
+            email => loginService.LoginAsync(new LoginMemberCommand(email, WrongPassword, false)));
+
+        AssertNoReliableTimingDifference(activeLatencies, lockedOutLatencies);
+    }
+
     private WebApplicationFactory<Program> CreateIsolatedFactory(CapturingEmailSender capturingEmailSender) =>
         factory.WithWebHostBuilder(builder =>
         {
@@ -117,7 +172,8 @@ public sealed class TimingSideChannelTests(WebApplicationFactory<Program> factor
     private static async Task<List<string>> CreateActivatedMembersAsync(
         WebApplicationFactory<Program> isolatedFactory,
         CapturingEmailSender capturingEmailSender,
-        int count)
+        int count,
+        int messageIndexOffset = 0)
     {
         var emails = new List<string>();
         await using var scope = isolatedFactory.Services.CreateAsyncScope();
@@ -129,19 +185,47 @@ public sealed class TimingSideChannelTests(WebApplicationFactory<Program> factor
             var email = UniqueEmail();
             var registerResult = await registerService.RegisterAsync(new RegisterMemberCommand(
                 email,
-                "correct-horse-battery-staple",
+                ActivatedMemberPassword,
                 "整合測試會員",
                 null,
                 RegisterMemberService.CurrentTermsVersion));
             Assert.IsType<RegisterMemberResult.Success>(registerResult);
 
-            var message = await capturingEmailSender.WaitForMessageAtIndexAsync(i);
+            // messageIndexOffset lets a caller create a second batch of activated members against
+            // a CapturingEmailSender that already holds messages from an earlier batch in the same
+            // test (e.g. Login_AlreadyLockedOutAccountAndWrongPasswordForExistingAccount below) —
+            // without it, index i would collide with the first batch's already-sent messages.
+            var message = await capturingEmailSender.WaitForMessageAtIndexAsync(messageIndexOffset + i);
             var (publicId, token) = ExtractVerificationLink(message.TextBody);
 
             var confirmResult = await confirmService.ConfirmAsync(new ConfirmEmailVerificationCommand(publicId, token));
             Assert.IsType<ConfirmEmailVerificationResult.Success>(confirmResult);
 
             emails.Add(email);
+        }
+
+        return emails;
+    }
+
+    private static async Task<List<string>> CreateLockedOutMembersAsync(
+        WebApplicationFactory<Program> isolatedFactory,
+        CapturingEmailSender capturingEmailSender,
+        int count)
+    {
+        // A second batch, so its confirmation emails land at indices [count..2*count) of the same
+        // sender the first batch (created by the caller) already populated at [0..count).
+        var emails = await CreateActivatedMembersAsync(
+            isolatedFactory, capturingEmailSender, count, messageIndexOffset: count);
+
+        await using var scope = isolatedFactory.Services.CreateAsyncScope();
+        var loginService = scope.ServiceProvider.GetRequiredService<LoginMemberService>();
+
+        foreach (var email in emails)
+        {
+            for (var attempt = 0; attempt < LockoutThresholdAttempts; attempt++)
+            {
+                await loginService.LoginAsync(new LoginMemberCommand(email, WrongPassword, false));
+            }
         }
 
         return emails;

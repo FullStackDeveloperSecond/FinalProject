@@ -12,6 +12,8 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace DoSelect.Api.IntegrationTests;
 
@@ -93,12 +95,59 @@ public sealed class MemberCleanupTests(WebApplicationFactory<Program> factory)
         Assert.Equal("pendingEmailVerification", reRegisterBody.GetProperty("accountStatus").GetString());
     }
 
-    private WebApplicationFactory<Program> CreateIsolatedFactory() =>
+    [Fact]
+    public async Task PurgeAsync_WhenOneAccountsUpdateFails_StillAnonymizesTheOtherAccountIndependently()
+    {
+        // MemberCleanupGateway used to process the whole batch through the one DbContext it was
+        // constructed with: rolling back a failed account's transaction only undoes what reached
+        // the database, not the EF ChangeTracker's in-memory Modified state on the entities it had
+        // already mutated, so the *next* account's SaveChanges could flush that stale tracked
+        // state right alongside its own. Each account now gets its own DI scope/DbContext, so one
+        // account's failure must not touch another's outcome at all (Alex review, 2026-08-25).
+        var userIdsToFailUpdate = new HashSet<string>();
+        using var isolatedFactory = CreateIsolatedFactory(services =>
+        {
+            services.Replace(ServiceDescriptor.Scoped<UserManager<ApplicationUser>>(
+                sp => new SelectivelyFailingUserManager(sp, userIdsToFailUpdate)));
+        });
+        using var client = isolatedFactory.CreateClient();
+        await PrimeAntiforgeryAsync(client);
+
+        var failingEmail = UniqueEmail();
+        var failingPublicId = await RegisterAsync(client, failingEmail, "會員小美");
+        var okEmail = UniqueEmail();
+        var okPublicId = await RegisterAsync(client, okEmail, "會員小明");
+
+        var cutoff = DateTime.UtcNow - PurgeStaleUnverifiedMembersService.UnverifiedRetentionPeriod - TimeSpan.FromHours(1);
+        await BackdateCreatedAtAsync(isolatedFactory, failingPublicId, cutoff);
+        await BackdateCreatedAtAsync(isolatedFactory, okPublicId, cutoff);
+
+        userIdsToFailUpdate.Add(await GetIdentityUserIdAsync(isolatedFactory, failingPublicId));
+
+        var anonymizedCount = await RunPurgeAsync(isolatedFactory);
+        Assert.Equal(1, anonymizedCount);
+
+        // The account whose UpdateAsync failed is left exactly as it was — not partially mutated.
+        var (failingStatus, failingEmailField, failingDisplayName, _) =
+            await GetMemberSnapshotAsync(isolatedFactory, failingPublicId);
+        Assert.Equal("pendingEmailVerification", failingStatus);
+        Assert.Equal(failingEmail, failingEmailField);
+        Assert.Equal("會員小美", failingDisplayName);
+
+        // The other account succeeds independently, unaffected by the first one's failure.
+        var (okStatus, okEmailField, okDisplayName, _) = await GetMemberSnapshotAsync(isolatedFactory, okPublicId);
+        Assert.Equal("anonymized", okStatus);
+        Assert.Null(okEmailField);
+        Assert.Equal("匿名會員", okDisplayName);
+    }
+
+    private WebApplicationFactory<Program> CreateIsolatedFactory(Action<IServiceCollection>? configureServices = null) =>
         factory.WithWebHostBuilder(builder =>
         {
             builder.ConfigureServices(services =>
             {
                 services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
+                configureServices?.Invoke(services);
             });
         });
 
@@ -147,6 +196,15 @@ public sealed class MemberCleanupTests(WebApplicationFactory<Program> factory)
         return (AccountStatusTokens.ToToken(user.AccountStatus), user.Email, profile?.DisplayName, profile?.BirthDate);
     }
 
+    private static async Task<string> GetIdentityUserIdAsync(
+        WebApplicationFactory<Program> targetFactory, Guid userPublicId)
+    {
+        await using var scope = targetFactory.Services.CreateAsyncScope();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var user = await userManager.Users.SingleAsync(candidate => candidate.PublicId == userPublicId);
+        return user.Id;
+    }
+
     private static async Task PrimeAntiforgeryAsync(HttpClient client)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/security/antiforgery-token");
@@ -157,4 +215,33 @@ public sealed class MemberCleanupTests(WebApplicationFactory<Program> factory)
     }
 
     private static string UniqueEmail() => $"member-cleanup-test-{Guid.NewGuid():N}@example.com";
+
+    // Every DI scope MemberCleanupGateway creates (one per account, see its TryAnonymizeOneAsync)
+    // resolves its own instance of this — correctly bound to that scope's own store/DbContext —
+    // but all instances share the same userIdsToFail set passed in by reference, so the test can
+    // target exactly one account's UpdateAsync for failure regardless of which scope processes it.
+    private sealed class SelectivelyFailingUserManager(
+        IServiceProvider services,
+        HashSet<string> userIdsToFail) : UserManager<ApplicationUser>(
+        services.GetRequiredService<IUserStore<ApplicationUser>>(),
+        services.GetRequiredService<IOptions<IdentityOptions>>(),
+        services.GetRequiredService<IPasswordHasher<ApplicationUser>>(),
+        services.GetServices<IUserValidator<ApplicationUser>>(),
+        services.GetServices<IPasswordValidator<ApplicationUser>>(),
+        services.GetRequiredService<ILookupNormalizer>(),
+        services.GetRequiredService<IdentityErrorDescriber>(),
+        services,
+        services.GetRequiredService<ILogger<UserManager<ApplicationUser>>>())
+    {
+        private static readonly IdentityError SyntheticFailure = new()
+        {
+            Code = "SyntheticTestFailure",
+            Description = "Synthetic persistence failure injected by a test.",
+        };
+
+        public override Task<IdentityResult> UpdateAsync(ApplicationUser user) =>
+            userIdsToFail.Contains(user.Id)
+                ? Task.FromResult(IdentityResult.Failed(SyntheticFailure))
+                : base.UpdateAsync(user);
+    }
 }
