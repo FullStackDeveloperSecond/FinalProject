@@ -23,4 +23,17 @@ public sealed class RateLimitOptions
     public int LoginPerIpPermitLimit { get; set; } = 20;
 
     public int LoginPerIpWindowHours { get; set; } = 1;
+
+    /// <summary>
+    /// 訪客查單 Challenge 建立／重寄的三 Scope 限流（DEC-P266）。15 分鐘視窗內，
+    /// 每 IP Hash 最多 10 次、每 Email HMAC 最多 5 次、每訂單 Lookup Hash 最多 5 次，
+    /// 三者同時通過才建立／寄送。
+    /// </summary>
+    public int GuestOrderAccessIpPermitLimit { get; set; } = 10;
+
+    public int GuestOrderAccessEmailPermitLimit { get; set; } = 5;
+
+    public int GuestOrderAccessOrderLookupPermitLimit { get; set; } = 5;
+
+    public int GuestOrderAccessWindowMinutes { get; set; } = 15;
 }
