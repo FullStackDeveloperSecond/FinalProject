@@ -26,13 +26,18 @@ public static class DemoAllowanceNumber
 }
 
 /// <summary>
-/// 哪些退款分攤會變成折讓明細（alex 2026-08-24 裁定）。
+/// 哪些退款分攤會變成折讓明細（DEC-BATCH-021／DEC-P298）。
 /// </summary>
 public static class InvoiceAllowancePolicy
 {
     /// <summary>
     /// 只有原發票實際開立過的銷售金額才折讓。扣回方向與退貨寄回運費都不建立明細。
     /// </summary>
+    /// <remarks>
+    /// <c>OriginalShipping</c> 與 <c>AssemblyFee</c> 另有前提：原發票確實收取過該筆費用，
+    /// 且本次退款確實退還。無法由同一張原發票的交易快照確認時必須拒絕建立折讓，
+    /// 不得猜測或改讀目前設定 —— 這是 DEC-P298 明訂的停止條件。
+    /// </remarks>
     public static bool CreatesAllowanceLine(RefundAllocationType allocationType) =>
         allocationType switch
         {
@@ -44,7 +49,8 @@ public static class InvoiceAllowancePolicy
             // 退貨寄回運費是另外發生的費用，不是原發票的銷售金額。
             RefundAllocationType.ReturnShipping => false,
 
-            // 扣回方向會減少退款金額，本身不是折讓明細。
+            // 扣回方向只參與退款淨額計算（DEC-P278），
+            // 不得寫成負值折讓明細去湊現金退款總額。
             RefundAllocationType.DiscountClawback => false,
             RefundAllocationType.ShippingClawback => false,
 
