@@ -318,14 +318,60 @@ describe('ProductEditPage', () => {
   })
 
   /**
-   * Regression test (組長 PR #24 round 7 review, P1, point 3): the one deliberate exception to
-   * the rule above — a SKU mutation this admin performs *on this page* legitimately advances the
-   * Product's RowVersion (Product.Touch(), round 5), and the next product save should be checked
-   * against that new value rather than being stuck on a token the server will now reject as
-   * stale. Distinguishing this from an arbitrary background refetch is the point: this only
-   * happens via the explicit onSuccess handler of a mutation the admin themselves just fired.
+   * Regression test (組長 PR #24 round 8 review, P1): round 7's `syncRowVersionAfterOwnSkuMutation`
+   * refreshed only the token after a SKU write, leaving stale form fields paired with an advanced
+   * token — round 8 found this still lets a SKU write silently ride past a change another admin
+   * made to the *product* fields (the SKU write only validates its own token, not the Product's).
+   * The minimal safe fix: disable SKU operations entirely while the product form has unsaved
+   * edits, so a SKU write can only ever happen when the form already matches the server.
    */
-  it('syncs the concurrency token, but not the form fields, after this page creates a SKU', async () => {
+  it('disables SKU operations while the product form has unsaved edits', async () => {
+    mockGetAdminProduct.mockResolvedValue({
+      ...product,
+      skus: [{
+        publicId: 'sku-1', skuCode: 'SKU-1', nameZhTw: 'Existing SKU', listPrice: 100, unitCost: 60,
+        weightKg: null, lengthCm: null, widthCm: null, heightCm: null, status: 'Draft',
+        isDefault: true, requiresPrepayment: false, specifications: [], inventory: null,
+        rowVersion: 'SKU-AAA=',
+      }],
+    })
+    mockListBrands.mockResolvedValue({ items: [{ publicId: 'brand-1', code: 'ACME', nameZhTw: 'Acme' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    mockListCategories.mockResolvedValue({ items: [{ publicId: 'cat-1', code: 'CAT-A', nameZhTw: 'Category A' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    mockListTags.mockResolvedValue({ items: [{ publicId: 'tag-legacy', code: 'LEGACY-TAG', nameZhTw: 'Legacy Tag' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+
+    const wrapper = await mountPage()
+    await flushPromises()
+
+    const nameInput = wrapper.findAll('label').find((label) => label.text().includes('名稱'))!.find('input')
+    await nameInput.setValue('Product 1（管理員正在編輯中）')
+    await flushPromises()
+
+    const addSkuButton = wrapper.findAll('button').find((button) => button.text() === '新增 SKU')!
+    expect(addSkuButton.attributes('disabled')).toBeDefined()
+
+    const editSkuButton = wrapper.findAll('button').find((button) => button.text() === '編輯')!
+    expect(editSkuButton.attributes('disabled')).toBeDefined()
+
+    // Clicking a disabled edit button never opens the row for edit, so the 儲存/取消 pair never
+    // appears — confirms the guard actually blocks the action, not just the button's own state.
+    await editSkuButton.trigger('click')
+    expect(wrapper.findAll('button').some((button) => button.text() === '取消')).toBe(false)
+
+    await wrapper.find('input[aria-label="新 SKU 代碼"]').setValue('NEW-1')
+    await wrapper.find('input[aria-label="新 SKU 名稱"]').setValue('New SKU')
+    await addSkuButton.trigger('click')
+    await flushPromises()
+    expect(mockCreateSku).not.toHaveBeenCalled()
+  })
+
+  /**
+   * Regression test (組長 PR #24 round 8 review, P1): once the form has no unsaved edits, SKU
+   * creation is allowed again — and because there's nothing unsaved to lose, the resulting resync
+   * refreshes the *entire* snapshot (fields included, not just the token), so this admin also
+   * sees whatever another admin changed on the product in the meantime instead of silently
+   * carrying stale field values forward under a freshly-advanced token.
+   */
+  it('resyncs both the token and any externally-changed fields after creating a SKU with a clean form', async () => {
     mockGetAdminProduct.mockResolvedValue(product)
     mockListBrands.mockResolvedValue({ items: [{ publicId: 'brand-1', code: 'ACME', nameZhTw: 'Acme' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
     mockListCategories.mockResolvedValue({ items: [{ publicId: 'cat-1', code: 'CAT-A', nameZhTw: 'Category A' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
@@ -336,25 +382,22 @@ describe('ProductEditPage', () => {
     const wrapper = await mountPage()
     await flushPromises()
 
-    const nameInput = wrapper.findAll('label').find((label) => label.text().includes('名稱'))!.find('input')
-    await nameInput.setValue('Product 1（管理員正在編輯中）')
-
-    // The mutation's own onSuccess invalidation and this page's explicit sync refetch both race
-    // to refetch the same query — like two real idempotent GETs against an unchanged server
-    // state, both must consistently see the same post-mutation value.
-    mockGetAdminProduct.mockResolvedValue({ ...product, rowVersion: 'BBB=' })
+    // Another admin renamed the product between this admin's last sync and this SKU creation —
+    // the form was never touched here, so it's safe (and correct) to pick that up too.
+    mockGetAdminProduct.mockResolvedValue({ ...product, nameZhTw: 'Renamed By Another Admin', rowVersion: 'BBB=' })
     await wrapper.find('input[aria-label="新 SKU 代碼"]').setValue('NEW-1')
     await wrapper.find('input[aria-label="新 SKU 名稱"]').setValue('New SKU')
     await wrapper.findAll('button').find((button) => button.text() === '新增 SKU')!.trigger('click')
     await flushPromises()
 
-    expect(nameInput.element.value).toBe('Product 1（管理員正在編輯中）')
+    const nameInput = wrapper.findAll('label').find((label) => label.text().includes('名稱'))!.find('input')
+    expect(nameInput.element.value).toBe('Renamed By Another Admin')
 
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
     expect(mockUpdateProduct).toHaveBeenCalledWith('p1', expect.objectContaining({
-      nameZhTw: 'Product 1（管理員正在編輯中）',
+      nameZhTw: 'Renamed By Another Admin',
       rowVersion: 'BBB=',
     }))
   })
@@ -402,6 +445,176 @@ describe('ProductEditPage', () => {
     await flushPromises()
 
     expect(mockCreateSku).toHaveBeenCalledWith('p2', expect.objectContaining({ skuCode: 'NEW-1' }))
+  })
+
+  /**
+   * Regression test (組長 PR #24 round 8 review, P2): pinning productPublicId into the mutation's
+   * own variables (useSkus.ts) fixes the *write* target, but the page-level onSuccess handler
+   * still needs its own guard — if this admin submits "新增 SKU" for product A and then navigates
+   * to product B *before* A's response arrives, the response must not touch B's page state
+   * (resetting B's own in-progress newSku draft, or resyncing B's token from a refetch that was
+   * never actually about B) just because it happens to resolve while B is showing.
+   */
+  it('ignores a SKU creation response that resolves after the admin has navigated to a different product', async () => {
+    mockGetAdminProduct.mockImplementation((publicId: string) =>
+      Promise.resolve({ ...product, publicId, productCode: publicId.toUpperCase(), rowVersion: `${publicId}-AAA=` }))
+    mockListBrands.mockResolvedValue({ items: [{ publicId: 'brand-1', code: 'ACME', nameZhTw: 'Acme' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    mockListCategories.mockResolvedValue({ items: [{ publicId: 'cat-1', code: 'CAT-A', nameZhTw: 'Category A' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    mockListTags.mockResolvedValue({ items: [{ publicId: 'tag-legacy', code: 'LEGACY-TAG', nameZhTw: 'Legacy Tag' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    mockUpdateProduct.mockResolvedValueOnce(product)
+    let resolveCreateSku!: (value: { publicId: string, skuCode: string, isDefault: boolean }) => void
+    mockCreateSku.mockReturnValueOnce(new Promise((resolve) => { resolveCreateSku = resolve }))
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/products/:productId', name: 'product-edit', component: ProductEditPage, props: true }],
+    })
+    await router.push('/products/p1')
+    await router.isReady()
+    const wrapper = mount(RouterView, {
+      global: { plugins: [[VueQueryPlugin, { queryClient }], router] },
+    })
+    await flushPromises()
+
+    // Submit "新增 SKU" for p1 — the request is now in flight and will not resolve until told to.
+    await wrapper.find('input[aria-label="新 SKU 代碼"]').setValue('NEW-1')
+    await wrapper.find('input[aria-label="新 SKU 名稱"]').setValue('New SKU')
+    await wrapper.findAll('button').find((button) => button.text() === '新增 SKU')!.trigger('click')
+    await flushPromises()
+
+    // Navigate away to p2 before p1's request settles.
+    await router.push('/products/p2')
+    await flushPromises()
+
+    // p1's request finally resolves while the admin is looking at p2.
+    resolveCreateSku({ publicId: 'sku-new', skuCode: 'NEW-1', isDefault: false })
+    await flushPromises()
+
+    // p2's own token (from its own load) must still be what gets submitted — not corrupted by
+    // p1's stale success handler running a refetch/resync against p2's page state.
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(mockUpdateProduct).toHaveBeenCalledWith('p2', expect.objectContaining({ rowVersion: 'p2-AAA=' }))
+  })
+
+  /**
+   * Regression test (組長 PR #24 round 8 review, P2): the same interleaving as above, but for the
+   * product form's own save — a slow update response for A must not stamp its result onto B's
+   * `editRowVersion`/`savedForm` after the admin has moved on to editing B.
+   */
+  it('ignores a product update response that resolves after the admin has navigated to a different product', async () => {
+    mockGetAdminProduct.mockImplementation((publicId: string) =>
+      Promise.resolve({ ...product, publicId, productCode: publicId.toUpperCase(), rowVersion: `${publicId}-AAA=` }))
+    mockListBrands.mockResolvedValue({ items: [{ publicId: 'brand-1', code: 'ACME', nameZhTw: 'Acme' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    mockListCategories.mockResolvedValue({ items: [{ publicId: 'cat-1', code: 'CAT-A', nameZhTw: 'Category A' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    mockListTags.mockResolvedValue({ items: [{ publicId: 'tag-legacy', code: 'LEGACY-TAG', nameZhTw: 'Legacy Tag' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    let resolveUpdateProduct!: (value: typeof product) => void
+    mockUpdateProduct.mockReturnValueOnce(new Promise((resolve) => { resolveUpdateProduct = resolve }))
+    mockUpdateProduct.mockResolvedValueOnce(product)
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/products/:productId', name: 'product-edit', component: ProductEditPage, props: true }],
+    })
+    await router.push('/products/p1')
+    await router.isReady()
+    const wrapper = mount(RouterView, {
+      global: { plugins: [[VueQueryPlugin, { queryClient }], router] },
+    })
+    await flushPromises()
+
+    const nameInput = wrapper.findAll('label').find((label) => label.text().includes('名稱'))!.find('input')
+    await nameInput.setValue('Edited on p1')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    // Navigate away to p2 before p1's save response arrives.
+    await router.push('/products/p2')
+    await flushPromises()
+
+    // p1's slow response finally resolves with p1's own new RowVersion.
+    resolveUpdateProduct({ ...product, publicId: 'p1', nameZhTw: 'Edited on p1', rowVersion: 'p1-BBB=' })
+    await flushPromises()
+
+    // p2's token must still be p2's own — not overwritten by p1's stale response.
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(mockUpdateProduct).toHaveBeenLastCalledWith('p2', expect.objectContaining({ rowVersion: 'p2-AAA=' }))
+  })
+
+  /**
+   * Regression test (組長 PR #24 round 8 review, P2): the productId-change watcher reset most of
+   * the draft SKU row but missed `status` — a status picked while looking at product A's page
+   * (e.g. Published) would still be selected for the draft after navigating to B, even though
+   * every other field had been cleared.
+   */
+  it('resets the draft SKU status back to Draft after navigating to a different product', async () => {
+    mockGetAdminProduct.mockImplementation((publicId: string) =>
+      Promise.resolve({ ...product, publicId, productCode: publicId.toUpperCase() }))
+    mockListBrands.mockResolvedValue({ items: [{ publicId: 'brand-1', code: 'ACME', nameZhTw: 'Acme' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    mockListCategories.mockResolvedValue({ items: [{ publicId: 'cat-1', code: 'CAT-A', nameZhTw: 'Category A' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    mockListTags.mockResolvedValue({ items: [{ publicId: 'tag-legacy', code: 'LEGACY-TAG', nameZhTw: 'Legacy Tag' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/products/:productId', name: 'product-edit', component: ProductEditPage, props: true }],
+    })
+    await router.push('/products/p1')
+    await router.isReady()
+    const wrapper = mount(RouterView, {
+      global: { plugins: [[VueQueryPlugin, { queryClient }], router] },
+    })
+    await flushPromises()
+
+    await wrapper.find('select[aria-label="新 SKU 狀態"]').setValue('Published')
+
+    await router.push('/products/p2')
+    await flushPromises()
+
+    const statusSelect = wrapper.find('select[aria-label="新 SKU 狀態"]')
+    expect((statusSelect.element as HTMLSelectElement).value).toBe('Draft')
+  })
+
+  /**
+   * Regression test (組長 PR #24 round 8 review, P2): a create/update error left over from the
+   * previous product stayed visible (and misleading) after navigating to a different one, since
+   * the mutation objects themselves aren't recreated by a param-only navigation.
+   */
+  it('clears the previous product\'s SKU-creation error after navigating to a different product', async () => {
+    mockGetAdminProduct.mockImplementation((publicId: string) =>
+      Promise.resolve({ ...product, publicId, productCode: publicId.toUpperCase() }))
+    mockListBrands.mockResolvedValue({ items: [{ publicId: 'brand-1', code: 'ACME', nameZhTw: 'Acme' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    mockListCategories.mockResolvedValue({ items: [{ publicId: 'cat-1', code: 'CAT-A', nameZhTw: 'Category A' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    mockListTags.mockResolvedValue({ items: [{ publicId: 'tag-legacy', code: 'LEGACY-TAG', nameZhTw: 'Legacy Tag' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    mockCreateSku.mockRejectedValueOnce(new ApiError('Conflict', { status: 409, code: 'sku_code_duplicate' }))
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/products/:productId', name: 'product-edit', component: ProductEditPage, props: true }],
+    })
+    await router.push('/products/p1')
+    await router.isReady()
+    const wrapper = mount(RouterView, {
+      global: { plugins: [[VueQueryPlugin, { queryClient }], router] },
+    })
+    await flushPromises()
+
+    await wrapper.find('input[aria-label="新 SKU 代碼"]').setValue('DUP-1')
+    await wrapper.find('input[aria-label="新 SKU 名稱"]').setValue('Dup SKU')
+    await wrapper.findAll('button').find((button) => button.text() === '新增 SKU')!.trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.product-form__error').exists()).toBe(true)
+
+    await router.push('/products/p2')
+    await flushPromises()
+
+    expect(wrapper.find('.product-form__error').exists()).toBe(false)
   })
 
   /**

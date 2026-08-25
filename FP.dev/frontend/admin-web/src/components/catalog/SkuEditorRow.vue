@@ -11,10 +11,25 @@ import { useDeleteSku, useUpdateSku } from '../../features/skus/useSkus'
 import type { SkuDto, UpdateSkuRequest } from '../../features/skus/types'
 import { describeApiError } from '../../features/shared/errorMessages'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   sku: SkuDto
   productPublicId: string
-}>()
+  /**
+   * PR #24 review round 8 (P1): true while the product form above has unsaved edits. A
+   * SKU write legitimately advances the parent Product's RowVersion (Product.Touch(), round 5),
+   * and the parent resyncs its own edit token in response — but the product form's *fields*
+   * stay whatever the admin typed when they started editing. If the admin also had unsaved
+   * product-field changes in progress, a SKU write in between would silently advance the token
+   * they'll eventually submit those stale fields against, without ever showing them whatever
+   * changed on the product in the meantime — a lost update the same way a live-read RowVersion
+   * was. Disabling SKU operations while the product form is dirty forces the admin to resolve
+   * (save or discard) that first, so a SKU write only ever happens against a form that already
+   * matches the server.
+   */
+  operationsDisabled?: boolean
+}>(), {
+  operationsDisabled: false,
+})
 
 const emit = defineEmits<{
   /**
@@ -22,12 +37,17 @@ const emit = defineEmits<{
    * both legitimately advance the parent Product's RowVersion (Product.Touch(), round 5). The
    * parent explicitly refetches and re-snapshots its own edit token in response, rather than
    * treating every background refetch of the product query as safe to adopt.
+   *
+   * PR #24 review round 8 (P2): carries the productPublicId the mutation was actually pinned to
+   * (from the mutation's own frozen variables, not a live prop re-read) — the parent must ignore
+   * this event if it no longer matches the product currently shown, since this row's mutation may
+   * resolve after the admin has already navigated to a different product.
    */
-  skuMutated: []
+  skuMutated: [productPublicId: string]
 }>()
 
-const updateMutation = useUpdateSku(props.productPublicId)
-const deleteMutation = useDeleteSku(props.productPublicId)
+const updateMutation = useUpdateSku()
+const deleteMutation = useDeleteSku()
 
 const editing = ref(false)
 // PR #24 review round 7 (P1): captured once at startEdit, alongside the rest of the edit
@@ -69,6 +89,9 @@ const state = reactive(stateFromSku(props.sku))
 // RowVersion) over a value that had actually changed since. Rebuilding from the latest
 // props on every startEdit, and discarding the draft on cancel, keeps the form honest.
 function startEdit() {
+  if (props.operationsDisabled) {
+    return
+  }
   Object.assign(state, stateFromSku(props.sku))
   editRowVersion.value = props.sku.rowVersion
   editing.value = true
@@ -80,6 +103,9 @@ function cancelEdit() {
 }
 
 function submit() {
+  if (props.operationsDisabled) {
+    return
+  }
   const request: UpdateSkuRequest = {
     nameZhTw: state.nameZhTw,
     listPrice: state.listPrice,
@@ -101,20 +127,25 @@ function submit() {
     })),
     rowVersion: editRowVersion.value,
   }
-  updateMutation.mutate({ skuPublicId: props.sku.publicId, request }, {
+  const productPublicId = props.productPublicId
+  updateMutation.mutate({ productPublicId, skuPublicId: props.sku.publicId, request }, {
     onSuccess: () => {
       editing.value = false
-      emit('skuMutated')
+      emit('skuMutated', productPublicId)
     },
   })
 }
 
 function remove() {
+  if (props.operationsDisabled) {
+    return
+  }
   if (!globalThis.confirm(`確定要刪除 SKU「${props.sku.skuCode}」嗎？`)) {
     return
   }
-  deleteMutation.mutate({ skuPublicId: props.sku.publicId, rowVersion: props.sku.rowVersion }, {
-    onSuccess: () => emit('skuMutated'),
+  const productPublicId = props.productPublicId
+  deleteMutation.mutate({ productPublicId, skuPublicId: props.sku.publicId, rowVersion: props.sku.rowVersion }, {
+    onSuccess: () => emit('skuMutated', productPublicId),
   })
 }
 </script>
@@ -131,14 +162,16 @@ function remove() {
     <td>
       <button
         type="button"
+        :disabled="operationsDisabled"
+        :title="operationsDisabled ? '商品資料有未儲存的變更，請先儲存或還原後再操作 SKU' : undefined"
         @click="startEdit"
       >
         編輯
       </button>
       <button
         type="button"
-        :disabled="sku.isDefault || deleteMutation.isPending.value"
-        :title="sku.isDefault ? '無法刪除目前的預設 SKU，請先將其他 SKU 設為預設' : undefined"
+        :disabled="sku.isDefault || deleteMutation.isPending.value || operationsDisabled"
+        :title="sku.isDefault ? '無法刪除目前的預設 SKU，請先將其他 SKU 設為預設' : (operationsDisabled ? '商品資料有未儲存的變更，請先儲存或還原後再操作 SKU' : undefined)"
         @click="remove"
       >
         刪除
@@ -203,7 +236,8 @@ function remove() {
     <td>
       <button
         type="button"
-        :disabled="updateMutation.isPending.value"
+        :disabled="updateMutation.isPending.value || operationsDisabled"
+        :title="operationsDisabled ? '商品資料有未儲存的變更，請先儲存或還原後再操作 SKU' : undefined"
         @click="submit"
       >
         儲存

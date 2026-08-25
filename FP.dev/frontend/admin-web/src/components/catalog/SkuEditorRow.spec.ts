@@ -37,13 +37,16 @@ function baseSku(overrides: Record<string, unknown> = {}) {
   }
 }
 
-function mountRow(sku: ReturnType<typeof baseSku>) {
+function mountRow(sku: ReturnType<typeof baseSku>, operationsDisabled = false) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
   return mount(
-    { components: { SkuEditorRow }, template: '<table><tbody><SkuEditorRow :sku="sku" product-public-id="p1" /></tbody></table>' },
-    { data: () => ({ sku }), global: { plugins: [[VueQueryPlugin, { queryClient }]] } },
+    {
+      components: { SkuEditorRow },
+      template: '<table><tbody><SkuEditorRow :sku="sku" product-public-id="p1" :operations-disabled="operationsDisabled" /></tbody></table>',
+    },
+    { data: () => ({ sku, operationsDisabled }), global: { plugins: [[VueQueryPlugin, { queryClient }]] } },
   )
 }
 
@@ -129,6 +132,25 @@ describe('SkuEditorRow', () => {
     await flushPromises()
 
     expect(mockUpdateSku).toHaveBeenCalledWith('sku-1', expect.objectContaining({ rowVersion: 'AAA=' }))
+  })
+
+  /**
+   * Regression test (組長 PR #24 review round 8, P1): a SKU write only validates the SKU's own
+   * token, not the parent Product's, so it can silently ride past a change another admin made to
+   * the product fields while this admin has unsaved edits open there. Disabling every SKU
+   * operation while the product form is dirty (parent-owned `operationsDisabled`) is the minimal
+   * safe fix.
+   */
+  it('disables edit and delete when operationsDisabled is true, and startEdit/remove are no-ops', async () => {
+    const wrapper = mountRow(baseSku(), true)
+
+    const editButton = wrapper.findAll('button').find((button) => button.text() === '編輯')!
+    const deleteButton = wrapper.findAll('button').find((button) => button.text() === '刪除')!
+    expect(editButton.attributes('disabled')).toBeDefined()
+    expect(deleteButton.attributes('disabled')).toBeDefined()
+
+    await editButton.trigger('click')
+    expect(wrapper.findAll('button').some((button) => button.text() === '取消')).toBe(false)
   })
 
   it('disables the delete button for the current default SKU', () => {
