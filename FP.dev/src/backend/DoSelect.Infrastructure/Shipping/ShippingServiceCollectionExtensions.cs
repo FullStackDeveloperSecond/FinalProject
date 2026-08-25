@@ -12,6 +12,8 @@ public static class ShippingServiceCollectionExtensions
         services.AddScoped<IShippingOptionsService, EfShippingOptionsService>();
         services.AddScoped<ICodEligibilityService, EfCodEligibilityService>();
         services.AddScoped<IConvenienceStoreQueryService, EfConvenienceStoreQueryService>();
+        services.AddScoped<IPackageLimitService, EfPackageLimitService>();
+        services.AddScoped<IConvenienceStoreAdminService, EfConvenienceStoreAdminService>();
 
         return services;
     }

@@ -51,6 +51,20 @@ public sealed class ShippingServiceFixture : IAsyncLifetime
         await context.ShippingMethods.ExecuteDeleteAsync();
     }
 
+    /// <summary>Same rationale as <see cref="ClearShippingMethodsAsync"/> — package-limit
+    /// version/overlap logic reads every row for a providerCode, so tests need a clean slate.
+    /// PackageLimitVersions first: Restrict FK to ShippingProviderProfiles.</summary>
+    public static async Task ClearPackageLimitDataAsync(DoSelectDbContext context)
+    {
+        await context.PackageLimitVersions.ExecuteDeleteAsync();
+        await context.ShippingProviderProfiles.ExecuteDeleteAsync();
+    }
+
+    public static async Task ClearConvenienceStoresAsync(DoSelectDbContext context)
+    {
+        await context.ConvenienceStores.ExecuteDeleteAsync();
+    }
+
     public static string UniqueGuestKey() => $"guest-{Guid.NewGuid():N}";
 
     public static async Task<Sku> SeedPublishedSkuAsync(

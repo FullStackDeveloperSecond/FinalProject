@@ -1,3 +1,4 @@
+using System.Net.Http.Json;
 using System.Text.Json;
 using DoSelect.Api.Security;
 using DoSelect.Infrastructure.Persistence;
@@ -81,6 +82,41 @@ public sealed class ShippingApiFixture : IAsyncLifetime
     public DoSelectDbContext CreateScopedContext() => CreateContext();
 
     public static string UniqueGuestKey() => $"guest-{Guid.NewGuid():N}";
+
+    /// <summary>A brand-new, unauthenticated client — use for 401/anonymous scenarios.</summary>
+    public HttpClient CreateClient() => _factory.CreateClient();
+
+    /// <summary>Same shape as Catalog.CatalogAdminApiFixture.CreateAuthenticatedAdminClientAsync.</summary>
+    public async Task<HttpClient> CreateAuthenticatedAdminClientAsync(params string[] roles)
+    {
+        var client = CreateClient();
+        var signInToken = await GetAdminAntiforgeryTokenAsync(client);
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/__tests/security/sign-in/admin")
+        {
+            Content = System.Net.Http.Json.JsonContent.Create(new { includeMfa = true, roles }),
+        };
+        request.Headers.Add("X-XSRF-TOKEN", signInToken);
+        using var response = await client.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+        return client;
+    }
+
+    public static async Task<string> GetAdminAntiforgeryTokenAsync(HttpClient client)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/security/antiforgery-token");
+        request.Headers.Add("X-DoSelect-Client", "admin");
+        using var response = await client.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        return body.GetProperty("requestToken").GetString()!;
+    }
+
+    /// <summary>Attaches a fresh admin antiforgery token to an unsafe (POST/PUT) request just before sending it.</summary>
+    public static async Task<HttpResponseMessage> SendWithAntiforgeryAsync(HttpClient client, HttpRequestMessage request)
+    {
+        request.Headers.Add("X-XSRF-TOKEN", await GetAdminAntiforgeryTokenAsync(client));
+        return await client.SendAsync(request);
+    }
 
     public static async Task<(int Status, string? Code, JsonElement Root)> ReadProblemAsync(HttpResponseMessage response)
     {

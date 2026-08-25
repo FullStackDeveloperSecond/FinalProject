@@ -412,6 +412,12 @@ public static class SecurityServiceCollectionExtensions
             DoSelectRoles.CatalogManager, DoSelectRoles.SuperAdmin);
         AddAdminPolicy(options, DoSelectPolicies.OutboxRetry,
             DoSelectRoles.SuperAdmin);
+        // UC-ADM-SHIP-01 / UC-ADM-STORE-01: package limits and demo stores are OrderManager's
+        // to write; CatalogManager gets read-only per the same use cases' role table.
+        AddAdminPolicy(options, DoSelectPolicies.ShippingManage,
+            DoSelectRoles.OrderManager, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.ShippingRead,
+            DoSelectRoles.OrderManager, DoSelectRoles.CatalogManager, DoSelectRoles.SuperAdmin);
     }
 
     private static bool AllowsHttpAntiforgeryCookie(IHostEnvironment environment) =>

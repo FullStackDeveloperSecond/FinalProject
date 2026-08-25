@@ -85,4 +85,6 @@ public static class DoSelectPolicies
     public const string CompatibilityRuleManageActivation = "CompatibilityRule.ManageActivation";
     public const string CompatibilityRuleTest = "CompatibilityRule.Test";
     public const string OutboxRetry = "Outbox.Retry";
+    public const string ShippingManage = "Shipping.Manage";
+    public const string ShippingRead = "Shipping.Read";
 }

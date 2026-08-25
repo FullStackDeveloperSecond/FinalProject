@@ -111,6 +111,41 @@ public sealed class ShippingProviderProfile : MutablePublicEntity
     public DateTime? EffectiveToUtc { get; private set; }
     public string ConfigurationJson { get; private set; } = string.Empty;
     public int SchemaVersion { get; private set; }
+
+    /// <summary>
+    /// Draft -> Published. 只有一個 Published／ProviderCode 的不變量由呼叫端在同一交易內
+    /// 先 <see cref="Supersede"/> 前一個已發布版本來維持——本方法本身不查詢其他列。
+    /// </summary>
+    public void Publish(DateTime updatedAtUtc)
+    {
+        if (Status != ShippingProviderProfileStatuses.Draft)
+        {
+            throw new InvalidOperationException($"Only a Draft profile can be published; current status is {Status}.");
+        }
+
+        Status = ShippingProviderProfileStatuses.Published;
+        MarkUpdated(updatedAtUtc);
+    }
+
+    /// <summary>Ends a previously Published version's effective window when a newer one is published.</summary>
+    public void Supersede(DateTime effectiveToUtc, DateTime updatedAtUtc)
+    {
+        if (Status != ShippingProviderProfileStatuses.Published)
+        {
+            throw new InvalidOperationException($"Only a Published profile can be superseded; current status is {Status}.");
+        }
+
+        Status = ShippingProviderProfileStatuses.Superseded;
+        EffectiveToUtc = effectiveToUtc;
+        MarkUpdated(updatedAtUtc);
+    }
+}
+
+public static class ShippingProviderProfileStatuses
+{
+    public const string Draft = "Draft";
+    public const string Published = "Published";
+    public const string Superseded = "Superseded";
 }
 
 public sealed class PackageLimitVersion : MutablePublicEntity
@@ -210,6 +245,24 @@ public sealed class ConvenienceStore : MutablePublicEntity
 
     public void SetActive(bool isActive, DateTime updatedAtUtc)
     {
+        IsActive = isActive;
+        MarkUpdated(updatedAtUtc);
+    }
+
+    /// <summary>ProviderCode/StoreCode are immutable after creation — they're the identity
+    /// half of the unique index; only the display/location fields and active state can change.</summary>
+    public void UpdateDetails(
+        string storeName,
+        string address,
+        string city,
+        string district,
+        bool isActive,
+        DateTime updatedAtUtc)
+    {
+        StoreName = RequireText(storeName, nameof(storeName));
+        Address = RequireText(address, nameof(address));
+        City = RequireText(city, nameof(city));
+        District = RequireText(district, nameof(district));
         IsActive = isActive;
         MarkUpdated(updatedAtUtc);
     }
