@@ -43,6 +43,55 @@ public sealed class InvoiceAllowanceCalculatorTests
         Assert.Equal(expected, InvoiceAllowancePolicy.MapsToAnOrderItem(allocationType));
 
     [Fact]
+    public void AMerchandiseLineIsIdentifiedByItsOrderItem() =>
+        Assert.Equal(
+            InvoiceLineKind.Merchandise,
+            InvoiceLineSkuCodes.ResolveKind(orderItemId: 7L, skuCodeSnapshot: "SKU-1"));
+
+    [Fact]
+    public void AShippingLineIsIdentifiedByItsReservedSkuCode() =>
+        Assert.Equal(
+            InvoiceLineKind.Shipping,
+            InvoiceLineSkuCodes.ResolveKind(null, InvoiceLineSkuCodes.Shipping));
+
+    [Fact]
+    public void AnAssemblyFeeLineIsIdentifiedByItsReservedSkuCode() =>
+        Assert.Equal(
+            InvoiceLineKind.AssemblyFee,
+            InvoiceLineSkuCodes.ResolveKind(null, InvoiceLineSkuCodes.AssemblyFee));
+
+    [Theory]
+    [InlineData("SHIPPING")]
+    [InlineData("__INVOICE_UNKNOWN__")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void AnUnknownNonMerchandiseLineIsRejected(string? skuCodeSnapshot) =>
+        // 靜默略過會讓折讓金額短少卻沒有任何跡象，歸類成別的種類則會扭曲財務歷史。
+        Assert.Throws<ArgumentException>(() =>
+            InvoiceLineSkuCodes.ResolveKind(null, skuCodeSnapshot));
+
+    [Theory]
+    [InlineData("__INVOICE_SHIPPING__")]
+    [InlineData("__INVOICE_ASSEMBLY_FEE__")]
+    public void AMerchandiseLineCannotBorrowAReservedSkuCode(string skuCodeSnapshot) =>
+        Assert.Throws<ArgumentException>(() =>
+            InvoiceLineSkuCodes.ResolveKind(orderItemId: 7L, skuCodeSnapshot));
+
+    [Theory]
+    [InlineData(InvoiceLineKind.Merchandise, "merchandise")]
+    [InlineData(InvoiceLineKind.Shipping, "shipping")]
+    [InlineData(InvoiceLineKind.AssemblyFee, "assemblyFee")]
+    public void ThePublicKindNeverLeaksTheReservedSkuCode(
+        InvoiceLineKind kind,
+        string expected)
+    {
+        var publicKind = InvoiceLineSkuCodes.ToPublicKind(kind);
+
+        Assert.Equal(expected, publicKind);
+        Assert.DoesNotContain("__", publicKind, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ATinyLineNextToALargeOneNeverProducesNegativeTax()
     {
         // alex 在 review 給的實例：分攤未稅時 0.53 這列會取整成 Net=1，
