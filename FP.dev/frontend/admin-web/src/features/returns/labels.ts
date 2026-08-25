@@ -1,30 +1,31 @@
-// See customer-web/src/features/returns/labels.ts for why these are numeric-keyed: origin/dev
-// has no global JsonStringEnumConverter yet, so enums serialize as raw ordinal ints.
-export const statusLabels: Record<number, string> = {
-  0: '已申請', // Requested
-  1: '審核中', // UnderReview
-  2: '已核准', // Approved
-  3: '等待寄回', // AwaitingShipment
-  4: '寄回運送中', // InTransit
-  5: '商家已收件', // Received
-  6: '商品檢查中', // Inspecting
-  7: '等待退款', // AwaitingRefund
-  8: '已完成', // Completed
-  9: '已拒絕', // Rejected
-  10: '已取消', // Cancelled
+// The shared ApiFoundationExtensions now registers a global JsonStringEnumConverter
+// (JsonNamingPolicy.CamelCase, allowIntegerValues: false) — added by the merged Support PR —
+// so every enum on the wire is a camelCase string, not a raw ordinal int.
+export const statusLabels: Record<string, string> = {
+  requested: '已申請',
+  underReview: '審核中',
+  approved: '已核准',
+  awaitingShipment: '等待寄回',
+  inTransit: '寄回運送中',
+  received: '商家已收件',
+  inspecting: '商品檢查中',
+  awaitingRefund: '等待退款',
+  completed: '已完成',
+  rejected: '已拒絕',
+  cancelled: '已取消',
 }
 
-export const priorityLabels: Record<number, string> = {
-  0: '低', // Low
-  1: '一般', // Normal
-  2: '高', // High
-  3: '急件', // Urgent
+export const priorityLabels: Record<string, string> = {
+  low: '低',
+  normal: '一般',
+  high: '高',
+  urgent: '急件',
 }
 
-export const restockDispositionLabels: Record<number, string> = {
-  0: '可轉售 Resellable',
-  1: '隔離 Quarantine',
-  2: '報廢 Scrap',
+export const restockDispositionLabels: Record<string, string> = {
+  resellable: '可轉售 Resellable',
+  quarantine: '隔離 Quarantine',
+  scrap: '報廢 Scrap',
 }
 
 export const conditionCodeOptions = [

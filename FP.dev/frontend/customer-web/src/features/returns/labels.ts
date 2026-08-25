@@ -1,21 +1,19 @@
-// origin/dev's shared ApiFoundationExtensions does not register a global
-// JsonStringEnumConverter (unlike the Support module's own branch) — changing that is shared
-// infrastructure out of this PR's scope, so every enum on the wire is presently a raw ordinal
-// int, not a camelCase string. Keys below are DoSelect.Domain.Returns.ReturnRequestStatus's
-// declared enum order; if the team later adds a global string converter, switch these to
-// string keys.
-export const statusLabels: Record<number, string> = {
-  0: '已申請', // Requested
-  1: '審核中', // UnderReview
-  2: '已核准', // Approved
-  3: '等待寄回', // AwaitingShipment
-  4: '寄回運送中', // InTransit
-  5: '商家已收件', // Received
-  6: '商品檢查中', // Inspecting
-  7: '等待退款', // AwaitingRefund
-  8: '已完成', // Completed
-  9: '已拒絕', // Rejected
-  10: '已取消', // Cancelled
+// The shared ApiFoundationExtensions now registers a global JsonStringEnumConverter
+// (JsonNamingPolicy.CamelCase, allowIntegerValues: false) — added by the merged Support PR —
+// so every enum on the wire is a camelCase string, not a raw ordinal int. Keys below are
+// DoSelect.Domain.Returns.ReturnRequestStatus's names camelCased to match.
+export const statusLabels: Record<string, string> = {
+  requested: '已申請',
+  underReview: '審核中',
+  approved: '已核准',
+  awaitingShipment: '等待寄回',
+  inTransit: '寄回運送中',
+  received: '商家已收件',
+  inspecting: '商品檢查中',
+  awaitingRefund: '等待退款',
+  completed: '已完成',
+  rejected: '已拒絕',
+  cancelled: '已取消',
 }
 
 export const reasonLabels: Record<string, string> = {

@@ -11,6 +11,7 @@ import {
   useReviewReturnMutation,
 } from '../../features/returns/queries'
 import { conditionCodeOptions, formatDateTime, priorityLabels, statusLabels } from '../../features/returns/labels'
+import type { RestockDisposition } from '../../features/returns/types'
 
 const route = useRoute()
 const returnId = computed(() => String(route.params.returnId))
@@ -25,7 +26,7 @@ const reviewReasonCode = ref('')
 const reviewNote = ref('')
 const receiveNote = ref('')
 const extendReasonCode = ref('')
-const inspectionLines = reactive<Record<string, { conditionCode: string, disposition: 0 | 1 | 2, note: string }>>({})
+const inspectionLines = reactive<Record<string, { conditionCode: string, disposition: RestockDisposition, note: string }>>({})
 
 const canReview = computed(() => data.value?.availableActions.includes('review') ?? false)
 const canReceive = computed(() => data.value?.availableActions.includes('receive') ?? false)
@@ -33,7 +34,7 @@ const canInspect = computed(() => data.value?.availableActions.includes('inspect
 const canExtend = computed(() => data.value?.availableActions.includes('extendShipmentDeadline') ?? false)
 
 function ensureInspectionLine(itemPublicId: string) {
-  inspectionLines[itemPublicId] ??= { conditionCode: conditionCodeOptions[0], disposition: 0, note: '' }
+  inspectionLines[itemPublicId] ??= { conditionCode: conditionCodeOptions[0], disposition: 'resellable', note: '' }
   return inspectionLines[itemPublicId]
 }
 
@@ -296,14 +297,14 @@ function isConflict(err: unknown): boolean {
           </label>
           <label>
             <span>回補判定</span>
-            <select v-model.number="ensureInspectionLine(item.publicId).disposition">
-              <option :value="0">
+            <select v-model="ensureInspectionLine(item.publicId).disposition">
+              <option value="resellable">
                 可轉售 Resellable
               </option>
-              <option :value="1">
+              <option value="quarantine">
                 隔離 Quarantine
               </option>
-              <option :value="2">
+              <option value="scrap">
                 報廢 Scrap
               </option>
             </select>

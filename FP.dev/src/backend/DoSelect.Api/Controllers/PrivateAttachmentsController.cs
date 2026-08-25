@@ -1,17 +1,25 @@
 using System.Security.Claims;
 using DoSelect.Api.Security;
 using DoSelect.Application.Common;
+using DoSelect.Application.Returns;
 using DoSelect.Application.Support;
+using DoSelect.Infrastructure.Persistence.Returns;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Mvc;
+using ReturnFileStorage = DoSelect.Application.Files.IPrivateFileStorage;
 
 namespace DoSelect.Api.Controllers;
 
 /// <summary>
-/// Generic private-attachment content route. V1 resolves support-ticket attachments only;
-/// every other case — including a PublicId that belongs to a domain this endpoint does not
-/// yet know about — returns the same 404 as a missing attachment (Actor Scope + no existence
-/// leakage).
+/// Generic private-attachment content route shared by every private-attachment domain (客服/
+/// 退貨), per 檔案與圖片儲存設計.md. Resolves Support-ticket attachments first (unchanged actor/
+/// authorization logic — see the many PrivateAttachmentsHttpAcceptanceTests scenarios this must
+/// keep passing), then falls back to Return attachments (unchanged Member/Admin/Guest-cookie
+/// authorization logic that used to live on its own, now-removed, colliding
+/// PrivateReturnAttachmentsController). Neither domain's resolution/authorization code changed —
+/// only the routing point where they meet did. Every unresolved/unauthorized id converges on the
+/// same DomainProblemException.NotFound, from either domain, so a caller can never learn which
+/// domain (or whether any domain) an id belongs to.
 ///
 /// This endpoint intentionally does not use [Authorize]. A declarative policy that lists both
 /// the Member and Admin cookie schemes would let ASP.NET Core merge both principals into one
@@ -31,42 +39,29 @@ public sealed class PrivateAttachmentsController : ControllerBase
     private const string FallbackDownloadFileName = "attachment";
     private const string FallbackContentType = "application/octet-stream";
 
-    private readonly ISupportAttachmentReadService _service;
+    private readonly ISupportAttachmentReadService _supportService;
+    private readonly IReturnStore _returnStore;
+    private readonly ReturnFileStorage _returnFileStorage;
 
-    public PrivateAttachmentsController(ISupportAttachmentReadService service)
+    public PrivateAttachmentsController(
+        ISupportAttachmentReadService supportService, IReturnStore returnStore, ReturnFileStorage returnFileStorage)
     {
-        _service = service;
+        _supportService = supportService;
+        _returnStore = returnStore;
+        _returnFileStorage = returnFileStorage;
     }
 
     [HttpGet("{id:guid}/content")]
     public async Task<IActionResult> GetContent(Guid id, CancellationToken cancellationToken)
     {
-        var actors = await ResolveActorsAsync(cancellationToken);
-        if (actors.Count == 0)
-        {
-            throw DomainProblemException.NotFound(NotFoundMessage);
-        }
-
-        PrivateAttachmentContent? content = null;
-        foreach (var actor in actors)
-        {
-            try
-            {
-                content = await _service.GetContentAsync(actor, id, cancellationToken);
-                break;
-            }
-            catch (DomainProblemException exception) when (
-                exception.StatusCode == StatusCodes.Status404NotFound)
-            {
-                // Each principal completes the full resource authorization independently.
-                // A denial for one identity must not prevent another valid identity from reading.
-            }
-        }
+        var content = await TryResolveSupportAttachmentAsync(id, cancellationToken)
+            ?? await TryResolveReturnAttachmentAsync(id, cancellationToken);
 
         if (content is null)
         {
             throw DomainProblemException.NotFound(NotFoundMessage);
         }
+
         try
         {
             return File(
@@ -82,7 +77,83 @@ public sealed class PrivateAttachmentsController : ControllerBase
         }
     }
 
-    private async Task<IReadOnlyList<SupportAttachmentActor>> ResolveActorsAsync(CancellationToken cancellationToken)
+    private async Task<PrivateAttachmentContent?> TryResolveSupportAttachmentAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var actors = await ResolveSupportActorsAsync(cancellationToken);
+        foreach (var actor in actors)
+        {
+            try
+            {
+                return await _supportService.GetContentAsync(actor, id, cancellationToken);
+            }
+            catch (DomainProblemException exception) when (
+                exception.StatusCode == StatusCodes.Status404NotFound)
+            {
+                // Each principal completes the full resource authorization independently.
+                // A denial for one identity must not prevent another valid identity from reading.
+            }
+        }
+
+        return null;
+    }
+
+    private async Task<PrivateAttachmentContent?> TryResolveReturnAttachmentAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var access = await _returnStore.FindAttachmentAccessAsync(id, cancellationToken);
+        if (access is null || !await IsAuthorizedForReturnAsync(access, cancellationToken))
+        {
+            return null;
+        }
+
+        var stream = await _returnFileStorage.OpenReadAsync(access.StorageKey, cancellationToken);
+        if (stream is null)
+        {
+            return null;
+        }
+
+        return new PrivateAttachmentContent(stream, access.ContentType, access.OriginalFileName);
+    }
+
+    private async Task<bool> IsAuthorizedForReturnAsync(ReturnAttachmentAccess access, CancellationToken cancellationToken)
+    {
+        var memberAuth = await HttpContext.AuthenticateAsync(DoSelectAuthenticationSchemes.Member);
+        if (memberAuth.Succeeded &&
+            memberAuth.Principal?.HasClaim(DoSelectClaimTypes.AccountType, DoSelectClaimValues.Member) == true)
+        {
+            var memberUserId = memberAuth.Principal.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (!string.IsNullOrWhiteSpace(memberUserId) && memberUserId == access.MemberUserId)
+            {
+                return true;
+            }
+        }
+
+        var adminAuth = await HttpContext.AuthenticateAsync(DoSelectAuthenticationSchemes.Admin);
+        if (adminAuth.Succeeded &&
+            adminAuth.Principal?.HasClaim(DoSelectClaimTypes.AccountType, DoSelectClaimValues.Admin) == true &&
+            adminAuth.Principal.HasClaim(DoSelectClaimTypes.AuthenticationMethod, DoSelectClaimValues.MultiFactor) &&
+            (adminAuth.Principal.IsInRole(DoSelectRoles.OrderManager) || adminAuth.Principal.IsInRole(DoSelectRoles.SuperAdmin)))
+        {
+            return true;
+        }
+
+        if (access.MemberUserId is null &&
+            HttpContext.Request.Cookies.TryGetValue(GuestOrderAccessValidator.GuestOrderAccessCookieName, out var rawToken) &&
+            !string.IsNullOrWhiteSpace(rawToken))
+        {
+            var guestValidator = HttpContext.RequestServices.GetRequiredService<IGuestOrderAccessValidator>();
+            var timeProvider = HttpContext.RequestServices.GetRequiredService<TimeProvider>();
+            var validatedOrderId = await guestValidator.ValidateAsync(
+                rawToken, access.OrderId, timeProvider.GetUtcNow().UtcDateTime, cancellationToken);
+            if (validatedOrderId == access.OrderId)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private async Task<IReadOnlyList<SupportAttachmentActor>> ResolveSupportActorsAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var actors = new List<SupportAttachmentActor>(capacity: 2);
