@@ -39,6 +39,7 @@
     "vue-tsc": "3.3.9"
   },
   "allowScripts": {
-    "vue-demi@0.14.10": true
+    "vue-demi@0.14.10": true,
+    "fsevents": false
   }
 }

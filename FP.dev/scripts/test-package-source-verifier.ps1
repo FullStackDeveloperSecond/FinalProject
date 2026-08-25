@@ -13,16 +13,16 @@ function Copy-VerificationInputs {
     param([Parameter(Mandatory)][string] $Destination)
 
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
-    foreach ($relativeFile in @('NuGet.config', '.npmrc', 'Directory.Packages.props')) {
+    foreach ($relativeFile in @('NuGet.config', 'Directory.Packages.props')) {
         Copy-Item -LiteralPath (Join-Path $repositoryRoot $relativeFile) -Destination (Join-Path $Destination $relativeFile)
     }
 
     $sourceFiles = @(
         Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'src') -Recurse -File -Filter '*.csproj'
         Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'tests') -Recurse -File -Filter '*.csproj'
-        Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'frontend') -Recurse -File |
+        Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'frontend') -Recurse -File -Force |
             Where-Object {
-                $_.Name -in @('package.json', 'package-lock.json') -and
+                $_.Name -in @('package.json', 'package-lock.json', '.npmrc') -and
                 $_.FullName -notmatch '[\\/]node_modules[\\/]'
             }
     )
@@ -37,9 +37,18 @@ function Copy-VerificationInputs {
 function Invoke-Verifier {
     param([Parameter(Mandatory)][string] $TargetRoot)
 
-    $output = @(& $enginePath -NoProfile -NonInteractive -File $verifierPath -RepositoryRoot $TargetRoot 2>&1)
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $output = @(& $enginePath -NoProfile -NonInteractive -File $verifierPath -RepositoryRoot $TargetRoot 2>&1)
+        $exitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+
     return [pscustomobject]@{
-        ExitCode = $LASTEXITCODE
+        ExitCode = $exitCode
         Output = ($output -join "`n")
     }
 }
@@ -76,21 +85,28 @@ try {
         throw 'Verifier did not reject an unapproved npm lock source.'
     }
 
-    $invalidNestedNpmRoot = Join-Path $fixtureRoot 'invalid-nested-npmrc'
-    Copy-VerificationInputs -Destination $invalidNestedNpmRoot
-    $nestedNpmConfigPath = Join-Path $invalidNestedNpmRoot 'frontend/customer-web/.npmrc'
+    $invalidUnexpectedNpmRoot = Join-Path $fixtureRoot 'invalid-unexpected-npmrc'
+    Copy-VerificationInputs -Destination $invalidUnexpectedNpmRoot
+    $unexpectedNpmConfigPath = Join-Path $invalidUnexpectedNpmRoot 'frontend/shared/.npmrc'
     [IO.File]::WriteAllText(
-        $nestedNpmConfigPath,
+        $unexpectedNpmConfigPath,
         'registry=https://registry.example.invalid/',
         [Text.UTF8Encoding]::new($false))
-    $invalidNestedNpmResult = Invoke-Verifier -TargetRoot $invalidNestedNpmRoot
-    if ($invalidNestedNpmResult.ExitCode -eq 0) {
-        throw 'Verifier did not reject a nested npm registry override.'
+    $invalidUnexpectedNpmResult = Invoke-Verifier -TargetRoot $invalidUnexpectedNpmRoot
+    if ($invalidUnexpectedNpmResult.ExitCode -eq 0) {
+        throw 'Verifier did not reject an unexpected npm registry override.'
     }
 
+    $missingNpmConfigRoot = Join-Path $fixtureRoot 'missing-package-npmrc'
+    Copy-VerificationInputs -Destination $missingNpmConfigRoot
+    Remove-Item -LiteralPath (Join-Path $missingNpmConfigRoot 'frontend/admin-web/.npmrc') -Force
+    $missingNpmConfigResult = Invoke-Verifier -TargetRoot $missingNpmConfigRoot
+    if ($missingNpmConfigResult.ExitCode -eq 0) {
+        throw 'Verifier did not reject a missing package-level npm configuration.'
+    }
     $invalidStrictScriptsRoot = Join-Path $fixtureRoot 'invalid-strict-scripts'
     Copy-VerificationInputs -Destination $invalidStrictScriptsRoot
-    $invalidStrictNpmConfigPath = Join-Path $invalidStrictScriptsRoot '.npmrc'
+    $invalidStrictNpmConfigPath = Join-Path $invalidStrictScriptsRoot 'frontend/customer-web/.npmrc'
     $originalStrictNpmConfig = [IO.File]::ReadAllText($invalidStrictNpmConfigPath)
     $invalidStrictNpmConfig = $originalStrictNpmConfig.Replace(
         'strict-allow-scripts=true',
@@ -105,6 +121,19 @@ try {
     $invalidStrictScriptsResult = Invoke-Verifier -TargetRoot $invalidStrictScriptsRoot
     if ($invalidStrictScriptsResult.ExitCode -eq 0) {
         throw 'Verifier did not reject disabled strict install-script enforcement.'
+    }
+    $dangerousScriptRoot = Join-Path $fixtureRoot 'dangerous-global-script-approval'
+    Copy-VerificationInputs -Destination $dangerousScriptRoot
+    $dangerousNpmConfigPath = Join-Path $dangerousScriptRoot 'frontend/admin-web/.npmrc'
+    $dangerousNpmConfig = [IO.File]::ReadAllText($dangerousNpmConfigPath) +
+        "dangerously-allow-all-scripts=true`n"
+    [IO.File]::WriteAllText(
+        $dangerousNpmConfigPath,
+        $dangerousNpmConfig,
+        [Text.UTF8Encoding]::new($false))
+    $dangerousScriptResult = Invoke-Verifier -TargetRoot $dangerousScriptRoot
+    if ($dangerousScriptResult.ExitCode -eq 0) {
+        throw 'Verifier did not reject dangerous global install-script approval.'
     }
 
     $invalidScriptApprovalRoot = Join-Path $fixtureRoot 'invalid-script-approval'
@@ -126,7 +155,26 @@ try {
         throw 'Verifier did not reject a non-versioned install-script approval.'
     }
 
-    Write-Output 'Package source verifier self-test passed: valid fixture accepted; invalid NuGet, npm lock, nested npm, disabled strict-script policy, and non-versioned script approval rejected.'
+    $invalidVersionedDenialRoot = Join-Path $fixtureRoot 'invalid-versioned-script-denial'
+    Copy-VerificationInputs -Destination $invalidVersionedDenialRoot
+    $invalidDenialManifestPath = Join-Path $invalidVersionedDenialRoot 'frontend/admin-web/package.json'
+    $originalDenialManifest = [IO.File]::ReadAllText($invalidDenialManifestPath)
+    $invalidDenialManifest = $originalDenialManifest.Replace(
+        '"fsevents": false',
+        '"fsevents@2.3.3": false')
+    if ($invalidDenialManifest -eq $originalDenialManifest) {
+        throw 'Install-script denial fixture could not be prepared.'
+    }
+    [IO.File]::WriteAllText(
+        $invalidDenialManifestPath,
+        $invalidDenialManifest,
+        [Text.UTF8Encoding]::new($false))
+    $invalidVersionedDenialResult = Invoke-Verifier -TargetRoot $invalidVersionedDenialRoot
+    if ($invalidVersionedDenialResult.ExitCode -eq 0) {
+        throw 'Verifier did not reject a version-pinned install-script denial.'
+    }
+
+    Write-Output 'Package source verifier self-test passed: valid fixture accepted; invalid NuGet, npm lock, unexpected or missing package npm config, disabled strict-script policy, dangerous global approval, non-versioned approval, and version-pinned denial rejected.'
 }
 finally {
     if (Test-Path -LiteralPath $fixtureRoot) {

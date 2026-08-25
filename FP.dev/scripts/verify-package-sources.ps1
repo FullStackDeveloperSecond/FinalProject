@@ -141,44 +141,50 @@ foreach ($packageId in $centralVersions.Keys) {
 }
 $nugetPackageCount = $referencedNugetPackages.Count
 
-$npmConfigPath = Join-Path $repositoryPath '.npmrc'
-if (-not (Test-Path -LiteralPath $npmConfigPath -PathType Leaf)) {
-    Add-Failure ".npmrc is required at '$npmConfigPath'."
-}
-else {
-    $registrySettings = @(Get-Content -LiteralPath $npmConfigPath |
+$requiredNpmConfigPaths = @(
+    (Join-Path $repositoryPath 'frontend/customer-web/.npmrc')
+    (Join-Path $repositoryPath 'frontend/admin-web/.npmrc')
+)
+foreach ($npmConfigPath in $requiredNpmConfigPaths) {
+    if (-not (Test-Path -LiteralPath $npmConfigPath -PathType Leaf)) {
+        Add-Failure ".npmrc is required beside each npm manifest; missing '$npmConfigPath'."
+        continue
+    }
+
+    $npmConfigLines = @(Get-Content -LiteralPath $npmConfigPath |
         ForEach-Object { $_.Trim() } |
-        Where-Object { $_ -and -not $_.StartsWith('#') -and $_ -match '(^|:)registry\s*=' })
+        Where-Object { $_ -and -not $_.StartsWith('#') })
+    $registrySettings = @($npmConfigLines |
+        Where-Object { $_ -match '(^|:)registry\s*=' })
     if ($registrySettings.Count -ne 1 -or $registrySettings[0] -ne 'registry=https://registry.npmjs.org/') {
-        Add-Failure '.npmrc must define exactly one registry: https://registry.npmjs.org/.'
+        Add-Failure "'$npmConfigPath' must define exactly one registry: https://registry.npmjs.org/."
     }
-}
 
-if (Test-Path -LiteralPath $npmConfigPath -PathType Leaf) {
-    $strictScriptSettings = @(Get-Content -LiteralPath $npmConfigPath |
-        ForEach-Object { $_.Trim() } |
-        Where-Object { $_ -and -not $_.StartsWith('#') -and $_ -match '^strict-allow-scripts\s*=' })
+    $strictScriptSettings = @($npmConfigLines |
+        Where-Object { $_ -match '^strict-allow-scripts\s*=' })
     if ($strictScriptSettings.Count -ne 1 -or $strictScriptSettings[0] -ne 'strict-allow-scripts=true') {
-        Add-Failure '.npmrc must enforce strict-allow-scripts=true.'
+        Add-Failure "'$npmConfigPath' must enforce strict-allow-scripts=true."
     }
 
-    $dangerousScriptSettings = @(Get-Content -LiteralPath $npmConfigPath |
-        ForEach-Object { $_.Trim() } |
+    $dangerousScriptSettings = @($npmConfigLines |
         Where-Object { $_ -match '^dangerously-allow-all-scripts\s*=\s*true$' })
     if ($dangerousScriptSettings.Count -gt 0) {
-        Add-Failure '.npmrc must not bypass script review with dangerously-allow-all-scripts=true.'
+        Add-Failure "'$npmConfigPath' must not bypass script review with dangerously-allow-all-scripts=true."
     }
 }
 
+$allowedNpmConfigPaths = @{}
+foreach ($requiredNpmConfigPath in $requiredNpmConfigPaths) {
+    $allowedNpmConfigPaths[[IO.Path]::GetFullPath($requiredNpmConfigPath)] = $true
+}
 $additionalNpmConfigs = @(Get-ChildItem -LiteralPath $repositoryPath -Recurse -File -Force -Filter '.npmrc' |
     Where-Object {
-        $_.FullName -ne $npmConfigPath -and
+        -not $allowedNpmConfigPaths.ContainsKey([IO.Path]::GetFullPath($_.FullName)) -and
         $_.FullName -notmatch '[\\/]node_modules[\\/]'
     })
 foreach ($additionalNpmConfig in $additionalNpmConfigs) {
-    Add-Failure "Only the repository-root .npmrc is allowed; found '$($additionalNpmConfig.FullName)'."
+    Add-Failure "Only package-level .npmrc files beside the two frontend manifests are allowed; found '$($additionalNpmConfig.FullName)'."
 }
-
 $allowedLocalPackages = @{
     '@doselect/web-shared' = 'file:../shared'
 }
@@ -207,11 +213,18 @@ foreach ($lockFile in $lockFiles) {
     $allowScripts = Get-JsonPropertyValue -Object $manifest -Name 'allowScripts'
     if ($null -ne $allowScripts) {
         foreach ($approval in $allowScripts.PSObject.Properties) {
-            if ($approval.Name -notmatch '^(@[^/]+/[^@]+|[^@/]+)@\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
-                Add-Failure "npm install-script approval '$($approval.Name)' in '$manifestPath' must use an exact package@version key."
+            if ($approval.Value -isnot [bool]) {
+                Add-Failure "npm install-script policy '$($approval.Name)' in '$manifestPath' must be boolean."
+                continue
             }
-            if ($approval.Value -ne $true) {
-                Add-Failure "npm install-script approval '$($approval.Name)' in '$manifestPath' must be true."
+
+            if ($approval.Value -eq $true) {
+                if ($approval.Name -notmatch '^(@[^/]+/[^@]+|[^@/]+)@\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
+                    Add-Failure "npm install-script approval '$($approval.Name)' in '$manifestPath' must use an exact package@version key."
+                }
+            }
+            elseif ($approval.Name -notmatch '^(@[^/]+/[^@]+|[^@/]+)$') {
+                Add-Failure "npm install-script denial '$($approval.Name)' in '$manifestPath' must use a name-only package key."
             }
         }
     }
