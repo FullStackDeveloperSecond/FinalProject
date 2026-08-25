@@ -98,6 +98,61 @@ public sealed class AuthControllerTests : IClassFixture<WebApplicationFactory<Pr
     }
 
     [Fact]
+    public async Task Register_WhenTwoRequestsRaceForTheSameNewEmail_BothReturnAcceptedInsteadOfOneFailing()
+    {
+        // Identity's own uniqueness check inside UserManager.CreateAsync is a plain SELECT before
+        // the INSERT, so two concurrent registrations for the same brand-new email can both pass
+        // it and both reach the actual insert — only one wins the unique index, and the loser used
+        // to bubble a raw DbUpdateException into a 500, breaking the "register always returns a
+        // fixed 202" non-enumerable contract (Alex review, 2026-08-25).
+        // MemberRegistrationGateway.CreateMemberAsync now catches that specific SQL Server
+        // unique-index violation (2601/2627) and maps it to the same Accepted shape an
+        // already-registered email gets. Two separate HttpClients (independent DI scope/DbContext
+        // per request, same as two real concurrent browsers) drive the race.
+        var capturingEmailSender = new CapturingEmailSender();
+        using var factory = CreateIsolatedFactory(services =>
+        {
+            services.Replace(ServiceDescriptor.Singleton<IEmailSender>(capturingEmailSender));
+        });
+        using var firstClient = factory.CreateClient();
+        using var secondClient = factory.CreateClient();
+        await PrimeAntiforgeryAsync(firstClient);
+        await PrimeAntiforgeryAsync(secondClient);
+
+        var email = UniqueEmail();
+        var payload = new
+        {
+            email,
+            password = "correct-horse-battery-staple",
+            displayName = "整合測試會員",
+            acceptTermsVersion = 1,
+        };
+
+        var responses = await Task.WhenAll(
+            firstClient.PostAsJsonAsync("/api/v1/auth/register", payload),
+            secondClient.PostAsJsonAsync("/api/v1/auth/register", payload));
+        using var firstResponse = responses[0];
+        using var secondResponse = responses[1];
+
+        Assert.Equal(HttpStatusCode.Accepted, firstResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Accepted, secondResponse.StatusCode);
+
+        var firstBody = await firstResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var secondBody = await secondResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(
+            firstBody.GetProperty("emailMasked").GetString(),
+            secondBody.GetProperty("emailMasked").GetString());
+        Assert.Equal(
+            firstBody.GetProperty("accountStatus").GetString(),
+            secondBody.GetProperty("accountStatus").GetString());
+
+        // Exactly one account was actually created no matter which request won the race, so
+        // exactly one verification email goes out.
+        var singleMessage = await capturingEmailSender.WaitForSingleMessageAsync();
+        Assert.NotNull(singleMessage);
+    }
+
+    [Fact]
     public async Task Register_WhenPasswordIsTooShort_ReturnsValidationProblemForPasswordField()
     {
         using var client = CreateIsolatedFactory().CreateClient();

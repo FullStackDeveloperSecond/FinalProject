@@ -35,7 +35,10 @@ public sealed class EmailRequestThrottle : IEmailRequestThrottle, IDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(purpose);
         ArgumentException.ThrowIfNullOrWhiteSpace(email);
 
-        var key = $"{purpose}:{email.Trim().ToUpperInvariant()}";
+        // Canonicalize the same way Auth Request DTOs do (InputNormalization.Canonicalize) before
+        // bucketing, so a Unicode-variant of an email a caller already spent its budget on cannot
+        // be used to get a fresh one (Alex review, 2026-08-25).
+        var key = $"{purpose}:{InputNormalization.Canonicalize(email).ToUpperInvariant()}";
         using var lease = _limiter.AttemptAcquire(key);
         return lease.IsAcquired;
     }

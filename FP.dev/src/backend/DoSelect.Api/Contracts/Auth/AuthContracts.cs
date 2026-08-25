@@ -1,9 +1,12 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
+using DoSelect.Application.Common;
 using DoSelect.Application.Members;
 using DoSelect.Domain.Members;
 
 namespace DoSelect.Api.Contracts.Auth;
 
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class RegisterRequest
 {
     [Required]
@@ -24,8 +27,12 @@ public sealed class RegisterRequest
     [Required]
     public int AcceptTermsVersion { get; init; }
 
-    public RegisterMemberCommand ToCommand() =>
-        new(Email.Trim(), Password, DisplayName.Trim(), Locale, AcceptTermsVersion);
+    public RegisterMemberCommand ToCommand() => new(
+        InputNormalization.Canonicalize(Email),
+        Password,
+        InputNormalization.Canonicalize(DisplayName),
+        Locale,
+        AcceptTermsVersion);
 }
 
 public sealed record RegisterAcceptedResponse(
@@ -33,6 +40,7 @@ public sealed record RegisterAcceptedResponse(
     string EmailMasked,
     string AccountStatus);
 
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class EmailVerificationConfirmRequest
 {
     [Required]
@@ -47,6 +55,7 @@ public sealed class EmailVerificationConfirmRequest
 
 public sealed record EmailVerificationConfirmedResponse(string AccountStatus);
 
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class EmailVerificationRequest
 {
     [Required]
@@ -54,9 +63,10 @@ public sealed class EmailVerificationRequest
     [EmailAddress]
     public string Email { get; init; } = string.Empty;
 
-    public RequestEmailVerificationCommand ToCommand() => new(Email.Trim());
+    public RequestEmailVerificationCommand ToCommand() => new(InputNormalization.Canonicalize(Email));
 }
 
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class PasswordResetRequest
 {
     [Required]
@@ -64,9 +74,10 @@ public sealed class PasswordResetRequest
     [EmailAddress]
     public string Email { get; init; } = string.Empty;
 
-    public RequestPasswordResetCommand ToCommand() => new(Email.Trim());
+    public RequestPasswordResetCommand ToCommand() => new(InputNormalization.Canonicalize(Email));
 }
 
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class PasswordResetConfirmRequest
 {
     [Required]
@@ -83,6 +94,7 @@ public sealed class PasswordResetConfirmRequest
     public ResetPasswordCommand ToCommand() => new(UserPublicId, Token, NewPassword);
 }
 
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class LoginRequest
 {
     [Required]
@@ -96,7 +108,7 @@ public sealed class LoginRequest
 
     public bool RememberMe { get; init; }
 
-    public LoginMemberCommand ToCommand() => new(Email.Trim(), Password, RememberMe);
+    public LoginMemberCommand ToCommand() => new(InputNormalization.Canonicalize(Email), Password, RememberMe);
 }
 
 public sealed record CurrentUserDto(

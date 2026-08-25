@@ -1,6 +1,7 @@
 using DoSelect.Application.Members;
 using DoSelect.Domain.Members;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
 namespace DoSelect.Infrastructure.Persistence.Identity;
@@ -10,6 +11,16 @@ public sealed class MemberRegistrationGateway(
     UserManager<ApplicationUser> userManager,
     TimeProvider timeProvider) : IMemberRegistrationGateway
 {
+    // SQL Server unique-index violation numbers (duplicate key). Identity's own uniqueness
+    // pre-check (inside CreateAsync) is a plain SELECT before the INSERT, so two concurrent
+    // registrations for the same brand-new email can both pass it and both reach Store.CreateAsync
+    // — only one INSERT wins; the loser throws here rather than returning a graceful
+    // IdentityResult. Without catching it, that races into a raw 500 instead of the fixed 202
+    // every registration is supposed to return (Alex review, 2026-08-25).
+    private const int DuplicateKeyOnUniqueIndex = 2601;
+    private const int DuplicateKeyOnPrimaryOrUniqueConstraint = 2627;
+
+
     public async Task<CreateMemberOutcome> CreateMemberAsync(
         CreateMemberRequest request,
         CancellationToken cancellationToken = default)
@@ -29,7 +40,17 @@ public sealed class MemberRegistrationGateway(
         // the expensive part of a fresh registration is already paid identically on the
         // already-registered path. Skipping straight to a rejection here would let response latency
         // itself become an account-enumeration oracle (Alex review, 2026-08-24).
-        var createResult = await userManager.CreateAsync(user, request.Password);
+        IdentityResult createResult;
+        try
+        {
+            createResult = await userManager.CreateAsync(user, request.Password);
+        }
+        catch (DbUpdateException dbUpdateException) when (IsUniqueIndexViolation(dbUpdateException))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return new CreateMemberOutcome.EmailInUse();
+        }
+
         if (!createResult.Succeeded)
         {
             var isDuplicate = createResult.Errors.Any(
@@ -81,6 +102,24 @@ public sealed class MemberRegistrationGateway(
             user.Email!,
             user.AccountStatus,
             token);
+    }
+
+    // Only recognizes the specific unique-index violation this race can produce; any other
+    // DbUpdateException (a real constraint violation, connectivity failure, etc.) is left to
+    // propagate rather than being silently mapped to EmailInUse.
+    private static bool IsUniqueIndexViolation(DbUpdateException exception)
+    {
+        for (var current = (Exception)exception; current is not null; current = current.InnerException!)
+        {
+            if (current is SqlException sqlException &&
+                sqlException.Errors.Cast<SqlError>().Any(error =>
+                    error.Number is DuplicateKeyOnUniqueIndex or DuplicateKeyOnPrimaryOrUniqueConstraint))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public async Task<ConfirmMemberEmailOutcome> ConfirmEmailAsync(
