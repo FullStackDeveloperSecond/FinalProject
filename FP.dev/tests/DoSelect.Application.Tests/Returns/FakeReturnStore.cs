@@ -173,10 +173,17 @@ internal sealed class FakeReturnStore : IReturnStore
     public Task<bool> ShipmentEventExistsAsync(string source, string externalEventId, CancellationToken cancellationToken) =>
         Task.FromResult(ShipmentEvents.Any(e => e.Source == source && e.ExternalEventId == externalEventId));
 
+    /// <summary>The exact expectedRowVersion byte[] instance/value the most recent
+    /// SaveTransitionAsync call received — lets a test assert the caller's own supplied
+    /// RowVersion travelled through, rather than some freshly-loaded entity value.</summary>
+    public byte[]? LastSaveTransitionExpectedRowVersion { get; private set; }
+
     public Task SaveTransitionAsync(
         ReturnRequest request, IReadOnlyList<ReturnItem>? itemsToUpdate, IReadOnlyList<ReturnInspection>? inspectionsToAdd,
         ReturnStatusHistory? historyToAdd, byte[] expectedRowVersion, CancellationToken cancellationToken)
     {
+        LastSaveTransitionExpectedRowVersion = expectedRowVersion;
+
         if (SimulateConcurrencyConflictOnNextSave)
         {
             SimulateConcurrencyConflictOnNextSave = false;

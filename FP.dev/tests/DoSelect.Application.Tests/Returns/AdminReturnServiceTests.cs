@@ -109,6 +109,34 @@ public sealed class AdminReturnServiceTests
     }
 
     [Fact]
+    public async Task InspectAsync_PassesTheCallersOwnReturnRowVersion_NotTheFreshlyLoadedEntityRowVersion()
+    {
+        // Regression test for the P1 defect: InspectAsync used to call SaveTransitionAsync with
+        // returnRequest.RowVersion (the value just loaded inside this same call) instead of
+        // request.ReturnRowVersion (the value the caller actually submitted), which silently
+        // defeats optimistic concurrency — a stale caller could never be rejected, because the
+        // "expected" version was always re-derived from whatever the server currently holds.
+        // Here the two are made deliberately different so only the fix's precise plumbing —
+        // not an accidental match — can make the assertion pass.
+        var (service, store, request) = CreateSutWithRequestedReturn();
+        await service.ReviewAsync(
+            request.PublicId, "admin-1",
+            new ApproveReturnRequest(true, [new ApproveReturnItemLine(store.Items[0].PublicId, 1, true)], "eligible", null, request.RowVersion),
+            CancellationToken.None);
+        await service.ReceiveAsync(request.PublicId, "admin-1", new ReceiveReturnRequest(null, request.RowVersion), CancellationToken.None);
+
+        var callerSuppliedRowVersion = new byte[] { 9, 9, 9, 9, 9, 9, 9, 9 };
+        Assert.NotEqual(callerSuppliedRowVersion, request.RowVersion);
+        var inspect = new InspectReturnRequest(
+            [new InspectReturnItemLine(store.Items[0].PublicId, "Unopened", RestockDisposition.Resellable, null)],
+            callerSuppliedRowVersion);
+
+        await service.InspectAsync(request.PublicId, "admin-1", inspect, CancellationToken.None);
+
+        Assert.Equal(callerSuppliedRowVersion, store.LastSaveTransitionExpectedRowVersion);
+    }
+
+    [Fact]
     public async Task ExtendShipmentDeadlineAsync_SecondCall_ThrowsExtensionNotAllowed()
     {
         var (service, store, request) = CreateSutWithRequestedReturn();

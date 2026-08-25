@@ -212,7 +212,7 @@ public sealed class AdminReturnService : IAdminReturnService
         var history = new ReturnStatusHistory(
             returnRequest.Id, fromStatus, returnRequest.Status, "inspection-complete", null, adminUserId, nowUtc);
 
-        await _store.SaveTransitionAsync(returnRequest, updatedItems, newInspections, history, returnRequest.RowVersion, cancellationToken);
+        await _store.SaveTransitionAsync(returnRequest, updatedItems, newInspections, history, request.ReturnRowVersion, cancellationToken);
 
         return await GetDetailDtoAsync(returnRequest, cancellationToken);
     }
