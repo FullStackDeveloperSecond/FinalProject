@@ -164,6 +164,8 @@
 
 最低消費只比對商品特價後、優惠券折扣前的適用商品小計。部分退貨使用 `MinimumSpendAmount` 與 Haru `OrderItems.IsCouponEligible` 快照，不回查目前 Coupon 或商品分類；既有 Initial Migration 尚未包含兩欄，依 DES-21 建立後續 Migration。
 
+依 DEC-P300，`OrderCoupons.MinimumSpendAmount` 不由優惠券計算／生命週期 PR 單獨修改 ModelSnapshot，而是與 `OrderItems.IsCouponEligible`、`RefundAllocations.Quantity`、`ShippingClawback` 集中於一支基於最新 `dev` 的 DES-21 Migration PR。該 PR 由 Yinyin 單一維護 ModelSnapshot、Haru 複核訂單欄位，只 scaffold／review／執行 SQL Server provider-backed 測試，不套用資料庫。
+
 ---
 
 ## 4. CouponCategories
@@ -462,6 +464,13 @@ Succeeded / Failed
 | GrossAmount | `decimal(18,2)` | NO | — | — | — | 含稅小計 |
 | CreatedAtUtc | `datetime2(3)` | NO | 應用層寫入 | — | — | 建立時間 |
 
+
+依 DEC-P299，第一版不新增 `InvoiceLineKind` 欄位；`SkuCodeSnapshot` 同時承載下列受控識別：
+
+- 商品列：`OrderItemId IS NOT NULL`，且 `SkuCodeSnapshot` 不得為保留值。
+- 運費列：`OrderItemId IS NULL`，`SkuCodeSnapshot = '__INVOICE_SHIPPING__'`。
+- 組裝費列：`OrderItemId IS NULL`，`SkuCodeSnapshot = '__INVOICE_ASSEMBLY_FEE__'`。
+- 任何其他 `OrderItemId IS NULL` 值均為不合法交易快照，Writer／Reader 必須拒絕；不得以 `OtherAdjustment` 或靜默過濾處理。兩個保留值由 Domain 中央常數提供，DTO 只映射為穩定的 `merchandise`／`shipping`／`assemblyFee`。
 ---
 
 ## 13. SimulatedInvoiceAllowances
@@ -664,7 +673,7 @@ IdempotencyRecords
 - [x] 無 Promotions 第二套價格來源
 - [x] 無 Cart / Shipment 第二套真實來源
 - [x] 已補跨模組、Outbox、AuditLog、Idempotency 關係
-- [ ] 依 DEC-P276～P278、DEC-P286 補入 `OrderCoupons.MinimumSpendAmount`、`OrderItems.IsCouponEligible`、`ShippingClawback`、退款方向公式與 `RefundAllocations.Quantity` 的 Entity／Configuration／測試及後續 Migration（DES-21）
+- [ ] 依 DEC-P276～P278、DEC-P286、DEC-P299～P300 補入 `OrderCoupons.MinimumSpendAmount`、`OrderItems.IsCouponEligible`、`ShippingClawback`、退款方向公式與 `RefundAllocations.Quantity` 的 Entity／Configuration／測試；由最新 `dev` 的單一 DES-21 Migration PR 交付 Migration／ModelSnapshot，並完成 SQL Server provider-backed 驗證，不 apply 資料庫
 - [ ] 依 DEC-P279～P280、DEC-P285 補齊發票 Endpoint／DTO／錯誤碼、5% 表頭整數元、明細兩位小數、付款前整數化、三條核對口徑及尾差測試（DES-22）；本文件不代表 Controller／OpenAPI 已完成
 
 ---
@@ -677,3 +686,4 @@ IdempotencyRecords
 - MutableEntity 的 `UpdatedAtUtc` 必須 NOT NULL；Append-only Entity 不得後改事件內容。
 - 本文件完成只關閉 DES-19 的「Schema 文件」缺口；建立 Migration 前仍須完成 Entity、Configuration、跨模組 FK、交易／冪等測試清單及獨立 Migration Review。
 - DEC-BATCH-014 與 DEC-BATCH-018 在 Initial Migration 後補強訂單優惠快照及退款數量快照；DES-21 完成前，現有資料庫模型不得宣稱已支援退貨後優惠門檻重算或依精確數量建立折讓。
+- DES-21 Migration PR 必須證明無 pending model changes、Up／Down 與空資料庫重建可行；不得讓 PR #7 或其他功能 PR 各自更新 ModelSnapshot。DEC-P299 不增加資料欄位，若發現正式歷史資料使用其他非商品識別值，停止合併並另案裁定資料轉換。

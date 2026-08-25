@@ -98,6 +98,7 @@ dotnet tool run dotnet-ef -- database update InitialCreate `
 - 退款回應固定輸出 `itemRefund`、`originalShipping`、`returnShipping`、`assemblyFee`、`discountClawback`、`shippingClawback`、`otherAdjustment` 七類分攤；Amount 一律為正值並由類型決定方向，V1 新寫入禁止 `otherAdjustment`。
 - 折讓數量只能取自 `RefundAllocation.Quantity`；不得依退款金額比例、固定值或目前退貨申請數量反推。
 - 折讓來源依 DEC-P298 固定映射：`ItemRefund` 建立折讓；原發票確實收取且本次退還的 `OriginalShipping`／`AssemblyFee` 建立折讓；`ReturnShipping`、`DiscountClawback`、`ShippingClawback` 不建立折讓明細；`OtherAdjustment` 第一版禁止。不得把退貨寄回成本或退款扣回偽裝成原發票折讓。
+- 依 DEC-P299，發票商品列必須有 `OrderItemId` 且不得使用保留碼；非商品列必須沒有 `OrderItemId`，並只接受 Domain 中央常數 `__INVOICE_SHIPPING__`／`__INVOICE_ASSEMBLY_FEE__`。Writer、Reader 與 DTO 映射共用常數，API 對外回 `kind = merchandise|shipping|assemblyFee`；未知非商品列與 `OtherAdjustment` 必須拒絕，不得靜默略過。
 - 退款執行的 `reasonCode`／安全處理後的 `note` 只寫中央 Audit，不在 Refund 重複建欄位；Audit 與退款狀態、分攤、冪等完成紀錄同交易提交，中央 Audit 實作未完成前 PR #16 不得合併。
 - `requestedBy`／`approvedBy`／`executedBy` 只回 `{ publicId, maskedLabel }`；不得回傳 Internal Identity ID、完整 DisplayName 或完整 Email。
 - 付款、退款、折讓 Event 採 append-only／冪等；不可修改歷史偽裝成新事件。
@@ -127,6 +128,10 @@ dotnet tool run dotnet-ef -- database update InitialCreate `
 
 每個切片獨立 PR，不要等四個 M 工作包一次完成才交付。
 
+分支交付依 DEC-P300～P301：PR #7 移除 `OrderCoupon.MinimumSpendAmount` Entity／Configuration，維持純計算與 Coupon lifecycle；另從最新 `dev` 建立單一 DES-21 Migration PR，由 Yinyin 維護 ModelSnapshot、Haru 複核訂單欄位，只 scaffold／review／測試而不 apply。PR #9 直接基於最新 `dev` 且只保留自身兩個付款 commits；PR #8 因使用 PR #7 契約，維持依賴 PR #7。
+
+實際 rebase、重建 branch 或修改 PR base 必須另經 alex 授權。
+
 ## 9. 必要測試
 
 至少覆蓋 `UC-PAY-01`、`UC-COUPON-01`、`UC-REFUND-01`，以及 `UC-CHECKOUT-01`／COD 中你負責的金額與付款部分。必要情境：重複 Idempotency-Key 同結果、同 Key 不同 Payload 衝突、付款重複回呼、期限取較早者、優惠券併發最後名額、適用商品小計門檻、Exhausted 返還、部分退貨門檻重算、後端從可信快照產生完整七類分攤、正值 Allocation 的折扣／免運扣回、組裝費分攤及失敗後無重複副作用。退款另須測 Request 不接受 allocations、ItemRefund 數量不變量、V1 拒絕 OtherAdjustment、Audit 寫入失敗整體回滾，以及管理員摘要不含 Internal Id／完整姓名／完整 Email。發票另測未付款、取消、重複開立、非法作廢、退款後必須折讓、商品＋原始運費＋組裝費完整退款不漏記並進入 `FullyAllowed`、ReturnShipping／兩種 Clawback 不建立折讓明細、1,000→952＋48、明細尾差及跨訂單授權。後台優惠券與發票 Endpoint 必須分別覆蓋 `Coupon.Manage`、`Invoice.Manage` 的合法角色、錯誤角色、未完成 MFA 與匿名請求；`SuperAdmin` 必須有正向案例。`CouponRuleReader`、退款／Audit 交易與折讓 Reader 必須以 SQL Server Provider-backed 整合測試驗證，不新增 InMemory／SQLite 取代。
@@ -147,6 +152,7 @@ dotnet list DoSelect.slnx package --vulnerable --include-transitive
 ## 10. PR、日誌與停止條件
 
 - 遵守 [[Git協作規範]]；PR 合併至 `dev`，由 alex 核准，Squash Merge。
+- PR #6 在 DEC-P299、`RefundAllocation.Quantity` 與必要測試完成前維持 Draft；PR #16 在可設定隔離策略、管理員 actor scope、中央 Audit、遮罩器、數量／可信快照及最終契約／OpenAPI 完成前維持 Draft。全部阻擋與 CI 解除後才轉 Ready 並重新完整 review；GitHub 狀態變更仍須另行授權。
 - 依 [[日誌/README]] 記錄 DTO、金額公式、Idempotency-Key、狀態、Outbox、資料庫與跨模組契約；必須讓 haru 能重跑付款／退款案例。
 - Typed Client 由第一批 API 穩定後依 [[03-架構/02-API與前端契約/OpenAPI與前端Client流程]] 產生，不手寫平行 DTO。
 - 不自行 scaffold／apply Migration；Schema 需求交 alex 走 Gate。

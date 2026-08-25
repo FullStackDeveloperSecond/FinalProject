@@ -13,6 +13,7 @@
 
 ## 最近完成批次
 
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-022-發票明細識別DES-21與Yinyin分支交付裁定|DEC-BATCH-022｜發票明細識別、DES-21 與 Yinyin 分支交付裁定]]：`DEC-P299～DEC-P302`，4 項，已於 2026-08-25 寫回；發票非商品列識別、集中 Migration PR、PR #9 分支拆離及 PR #6／#16 Draft gate 依裁定追蹤。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/AUTO-DEC-013-Gitleaks-CLI自動Secret掃描定版|AUTO-DEC-013｜Gitleaks CLI 自動 Secret 掃描定版]]：已於 2026-08-25 寫回；固定 CLI 8.30.1 與官方 SHA-256，掃描完整 Git 歷史及雙 Vue `dist`，使用 `--redact` 並納入 `CI Required`；QA-08 其餘授權與 Package 證據仍待完成。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-021-退款分攤與折讓映射裁定|DEC-BATCH-021｜退款分攤與折讓映射裁定]]：`DEC-P298`，1 項，已於 2026-08-25 寫回；七類 RefundAllocation 到原發票折讓的映射與測試由 DES-21 追蹤。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-020-會員驗證管理員登入與會員管理裁定|DEC-BATCH-020｜會員驗證、管理員登入與後台會員管理裁定]]：`DEC-P291～DEC-P297`，7 項，已於 2026-08-24 寫回；會員驗證、PR 拆分、最小權限、Session 撤銷與 Audit Gate 依各工程包追蹤。

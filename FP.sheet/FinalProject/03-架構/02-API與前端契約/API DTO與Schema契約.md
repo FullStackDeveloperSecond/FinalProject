@@ -134,7 +134,7 @@
 | Schema | 精確欄位 |
 |---|---|
 | `IssueSimulatedInvoiceRequest` | `orderRowVersion`；發票買受人、品項及金額只讀取訂單交易快照；`Idempotency-Key` 使用 Header |
-| `SimulatedInvoiceItemDto` | `publicId`、`orderItemPublicId?`、商品／SKU 顯示快照、`quantity`、`unitPrice`、`discountAmount`、`netAmount`、`taxAmount`、`grossAmount` |
+| `SimulatedInvoiceItemDto` | `publicId`、`orderItemPublicId?`、`kind:merchandise\|shipping\|assemblyFee`、商品／SKU 顯示快照、`quantity`、`unitPrice`、`discountAmount`、`netAmount`、`taxAmount`、`grossAmount` |
 | `SimulatedInvoiceAllowanceDto` | `publicId`、`allowanceNumber`、`invoicePublicId`、`refundPublicId`、`netAmount`、`taxAmount`、`grossAmount`、`items[]`、`issuedAtUtc`、`demoMarker` |
 | `SimulatedInvoiceDto` | `publicId`、`invoiceNumber`、`orderPublicId`、`status`、遮蔽買受人摘要、`netAmount`、`taxAmount`、`grossAmount`、`currency:TWD`、`taxRate:0.05`、`items[]`、`allowances[]`、開立／作廢時間、`demoMarker`、`rowVersion` |
 | `AdminInvoiceQuery` | `statuses?`、`from/to?`、`q?`、`pageNumber/pageSize`；一般頁碼分頁 |
@@ -144,6 +144,8 @@
 | `CreateSimulatedInvoiceAllowanceRequest` | `refundPublicId`、`invoiceRowVersion`；金額由後端成功 Refund 及原發票明細推導，不接受客戶端金額；`Idempotency-Key` 使用 Header |
 
 折讓 Reader 依 DEC-P298 將成功 Refund 的七類分攤映射到同一張原發票：`ItemRefund` 建立折讓明細；`OriginalShipping`／`AssemblyFee` 只在原發票有對應收費且本次退還時建立；`ReturnShipping` 不建立；`DiscountClawback`／`ShippingClawback` 只作退款扣回，不建立獨立負值折讓明細；`OtherAdjustment` 第一版拒絕。折讓累計數量與金額不得超過原發票各明細可折讓上限。
+
+依 DEC-P299，`kind` 由 Domain 中央常數與交易快照映射：有 `OrderItemId` 的一般 SKU 為 `merchandise`；無 `OrderItemId` 且 `SkuCodeSnapshot` 分別為 `__INVOICE_SHIPPING__`／`__INVOICE_ASSEMBLY_FEE__` 時映射為 `shipping`／`assemblyFee`。保留值不得作為 API 列舉值公開；未知非商品值與 `OtherAdjustment` 必須拒絕，不得靜默過濾。
 
 模擬發票固定 `taxRate = 0.05`。表頭以明細含稅加總四捨五入至 TWD 整數元，`netAmount = Round(issuedAmount / 1.05, 0, AwayFromZero)`、`taxAmount = issuedAmount - netAmount`；表頭 Gross／Net／Tax 均為整數。發票明細可保留兩位小數，每筆維持 `gross = net + tax` 且不得為負；核對採 `Round(Sum(line.gross), 0) = header.issued`、`Round(Sum(line.net), 0) = header.net`、`Sum(line.tax) = header.tax`，最後一筆合法明細吸收稅額尾差。`issuedAmount` 必須等於付款前已整數化的訂單實付金額，不一致時拒絕；例如 NT$1,000 固定為未稅 952、稅額 48。折讓取位仍依 DEC-P280，未由 DEC-P285 覆寫。
 
