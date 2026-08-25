@@ -73,6 +73,7 @@ public sealed class InvoiceAllowanceReader : IInvoiceAllowanceReader
                 item.Id,
                 item.PublicId,
                 item.OrderItemId,
+                item.SkuCodeSnapshot,
                 item.Quantity,
                 item.GrossAmount,
             })
@@ -104,9 +105,15 @@ public sealed class InvoiceAllowanceReader : IInvoiceAllowanceReader
             })
             .ToArray();
 
-        var invoiceItemByOrderItemId = items
-            .Where(item => item.OrderItemId.HasValue)
-            .ToDictionary(item => item.OrderItemId!.Value, item => item.PublicId);
+        // 每一列都必須能明確歸類。未知的非商品識別值會在這裡丟例外，
+        // 不靜默略過 —— 略過會讓折讓金額短少，卻沒有任何跡象（DEC-P299）。
+        var lines = items
+            .Select(item => new AllowanceInvoiceLine(
+                item.PublicId,
+                item.OrderItemId,
+                InvoiceLineSkuCodes.ResolveKind(item.OrderItemId, item.SkuCodeSnapshot),
+                item.Quantity))
+            .ToArray();
 
         return new InvoiceAllowanceSnapshot(
             refund.Status,
@@ -115,9 +122,15 @@ public sealed class InvoiceAllowanceReader : IInvoiceAllowanceReader
             invoice.Status,
             await HasAllowanceAsync(refund.Id, cancellationToken),
             capacities,
-            await BuildRefundedLinesAsync(
-                refund.Id, invoiceItemByOrderItemId, cancellationToken));
+            await BuildRefundedLinesAsync(refund.Id, lines, capacities, cancellationToken));
     }
+
+    /// <summary>原發票的一列，已解析出種類。折讓明細要對應回這裡。</summary>
+    private sealed record AllowanceInvoiceLine(
+        Guid PublicId,
+        long? OrderItemId,
+        InvoiceLineKind Kind,
+        int Quantity);
 
     /// <summary>
     /// 取得下一個折讓流水號。
@@ -215,14 +228,17 @@ public sealed class InvoiceAllowanceReader : IInvoiceAllowanceReader
     /// 以 <c>OrderItemId</c> 對應到原發票明細。扣回類型與非商品組成不建立折讓明細。
     /// </summary>
     /// <remarks>
-    /// 折讓數量必須取自 <c>RefundAllocations.Quantity</c>（DEC-P286）。該欄位尚未隨 DES-21 的
-    /// Migration Gate 落地，因此目前沒有可信的數量來源；裁定明文禁止以金額比例、固定值或
-    /// <c>ReturnItems.Quantity</c> 反推。在欄位落地前，有商品分攤的退款一律拒絕開立折讓，
+    /// 運費與組裝費依 DEC-P299 以 <c>SkuCodeSnapshot</c> 保留值對應到原發票明細，
+    /// 數量取自原發票該列本身，不需要退款分攤的數量。
+    /// 商品折讓的數量必須取自 <c>RefundAllocations.Quantity</c>（DEC-P286），
+    /// 該欄位尚未隨 DES-21 落地，且裁定禁止以金額比例、固定值或
+    /// <c>ReturnItems.Quantity</c> 反推，因此有商品分攤時一律拒絕，
     /// 而不是以估算數量建立不可變的財務紀錄。
     /// </remarks>
     private async Task<IReadOnlyList<RefundedInvoiceLine>> BuildRefundedLinesAsync(
         long refundId,
-        IReadOnlyDictionary<long, Guid> invoiceItemByOrderItemId,
+        IReadOnlyList<AllowanceInvoiceLine> invoiceLines,
+        IReadOnlyList<InvoiceAllowanceCapacity> capacities,
         CancellationToken cancellationToken)
     {
         var allocations = await _context.RefundAllocations
@@ -232,6 +248,7 @@ public sealed class InvoiceAllowanceReader : IInvoiceAllowanceReader
             {
                 allocation.AllocationType,
                 allocation.OrderItemId,
+                allocation.Amount,
             })
             .ToArrayAsync(cancellationToken);
 
@@ -239,30 +256,60 @@ public sealed class InvoiceAllowanceReader : IInvoiceAllowanceReader
             .Where(allocation => InvoiceAllowancePolicy.CreatesAllowanceLine(allocation.AllocationType))
             .ToArray();
 
-        // 對應得到原發票商品列的分攤：數量必須取自 RefundAllocations.Quantity。
+        var merchandiseByOrderItemId = invoiceLines
+            .Where(line => line.Kind == InvoiceLineKind.Merchandise && line.OrderItemId.HasValue)
+            .ToDictionary(line => line.OrderItemId!.Value, line => line);
+
+        // 商品折讓的數量沒有可信來源前不得開立。
         if (allowable.Any(allocation =>
                 InvoiceAllowancePolicy.MapsToAnOrderItem(allocation.AllocationType) &&
                 allocation.OrderItemId is { } orderItemId &&
-                invoiceItemByOrderItemId.ContainsKey(orderItemId)))
+                merchandiseByOrderItemId.ContainsKey(orderItemId)))
         {
             throw new InvalidOperationException(
                 "A credit note line needs RefundAllocations.Quantity, which has not shipped yet. " +
                 "Deriving the quantity from the refunded amount is not permitted by DEC-P286.");
         }
 
-        // 運費與組裝費分攤在原發票上是 OrderItemId 為 null 的明細，但
-        // SimulatedInvoiceItem 沒有持久化 InvoiceLineKind，兩者在資料庫裡無法區分。
-        // 少記這些明細會讓折讓金額短少，且完整退款後發票永遠進不了 FullyAllowed，
-        // 因此在欄位補上之前寧可拒絕，不猜測對應關係。
-        if (allowable.Any(allocation =>
-                !InvoiceAllowancePolicy.MapsToAnOrderItem(allocation.AllocationType)))
+        var refunded = new List<RefundedInvoiceLine>();
+
+        foreach (var (allocationType, kind) in NonMerchandiseKinds)
         {
-            throw new InvalidOperationException(
-                "Shipping and assembly credit note lines cannot be matched to their invoice lines " +
-                "because SimulatedInvoiceItem does not persist InvoiceLineKind.");
+            var amount = allowable
+                .Where(allocation => allocation.AllocationType == allocationType)
+                .Sum(allocation => allocation.Amount);
+
+            if (amount <= 0m)
+            {
+                continue;
+            }
+
+            // 原發票必須確實收取過這筆費用，否則沒有可折讓的對象（DEC-P298）。
+            var line = invoiceLines.SingleOrDefault(candidate => candidate.Kind == kind)
+                ?? throw new InvalidOperationException(
+                    $"The refund allocates {allocationType} but the invoice has no {kind} line.");
+
+            var capacity = capacities.Single(candidate =>
+                candidate.SimulatedInvoiceItemPublicId == line.PublicId);
+
+            // 退款不得超過原發票該列剩餘可折讓金額。
+            if (amount > capacity.RemainingGrossAmount)
+            {
+                throw new InvalidOperationException(
+                    $"The refunded {kind} amount exceeds what the invoice line can still allow.");
+            }
+
+            refunded.Add(new RefundedInvoiceLine(line.PublicId, line.Quantity, amount));
         }
 
-        // 沒有任何可折讓的分攤，交由計算器以既有錯誤碼拒絕。
-        return [];
+        return refunded;
     }
+
+    /// <summary>非商品分攤與原發票明細種類的固定對應（DEC-P298）。</summary>
+    private static readonly (RefundAllocationType AllocationType, InvoiceLineKind Kind)[]
+        NonMerchandiseKinds =
+        [
+            (RefundAllocationType.OriginalShipping, InvoiceLineKind.Shipping),
+            (RefundAllocationType.AssemblyFee, InvoiceLineKind.AssemblyFee),
+        ];
 }
