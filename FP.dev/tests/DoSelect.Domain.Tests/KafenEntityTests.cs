@@ -73,4 +73,26 @@ public sealed class KafenEntityTests
 
     [Fact]
     public void PrivateAttachment_RejectsFilesOverTenMegabytes() => Assert.Throws<ArgumentOutOfRangeException>(() => new SupportAttachment(Guid.NewGuid(), 1, null, "member", "large.pdf", "private/large", "pdf", "application/pdf", 10_485_761, new byte[32], CreatedAtUtc));
+
+    [Fact]
+    public void SupportTicket_RecordActivity_TouchesLastActivityWithoutChangingStatus()
+    {
+        var ticket = new SupportTicket(Guid.NewGuid(), "CS-2", "member", null, SupportTicketCategory.Order, "訂單問題", CasePriority.Normal, CreatedAtUtc.AddHours(8), CreatedAtUtc.AddDays(3), CreatedAtUtc);
+        ticket.Assign("agent", CreatedAtUtc.AddMinutes(1)); ticket.Transition(SupportTicketStatus.InProgress, CreatedAtUtc.AddMinutes(2));
+
+        ticket.RecordActivity(CreatedAtUtc.AddMinutes(5));
+
+        Assert.Equal(SupportTicketStatus.InProgress, ticket.Status);
+        Assert.Equal(CreatedAtUtc.AddMinutes(5), ticket.LastActivityAtUtc);
+        Assert.Equal(CreatedAtUtc.AddMinutes(5), ticket.UpdatedAtUtc);
+    }
+
+    [Fact]
+    public void SupportTicket_RecordActivity_RejectsTerminalStatuses()
+    {
+        var ticket = new SupportTicket(Guid.NewGuid(), "CS-3", "member", null, SupportTicketCategory.Order, "訂單問題", CasePriority.Normal, CreatedAtUtc.AddHours(8), CreatedAtUtc.AddDays(3), CreatedAtUtc);
+        ticket.Transition(SupportTicketStatus.Cancelled, CreatedAtUtc.AddMinutes(1));
+
+        Assert.Throws<InvalidOperationException>(() => ticket.RecordActivity(CreatedAtUtc.AddMinutes(2)));
+    }
 }

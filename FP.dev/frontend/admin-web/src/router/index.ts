@@ -10,6 +10,16 @@ const router = createRouter({
       component: () => import('../pages/HomePage.vue'),
     },
     {
+      path: '/support',
+      name: 'support-sla-queue',
+      component: () => import('../pages/support/SupportSlaQueuePage.vue'),
+    },
+    {
+      path: '/support/tickets/:ticketId',
+      name: 'support-ticket-detail',
+      component: () => import('../pages/support/SupportTicketDetailPage.vue'),
+    },
+    {
       path: '/unauthorized',
       name: 'unauthorized',
       component: HttpStatusPage,

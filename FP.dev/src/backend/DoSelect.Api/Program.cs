@@ -4,6 +4,8 @@ using DoSelect.Api.Observability;
 using DoSelect.Api.Security;
 using DoSelect.Application;
 using DoSelect.Application.Notifications;
+using DoSelect.Application.Support;
+using DoSelect.Application.Support.Admin;
 using DoSelect.Infrastructure.Catalog;
 using DoSelect.Infrastructure.Email;
 using DoSelect.Infrastructure.Files;
@@ -14,6 +16,7 @@ using DoSelect.Infrastructure.Persistence.Seeding;
 using DoSelect.Infrastructure.Refunds;
 using DoSelect.Infrastructure.Shopping;
 using Microsoft.AspNetCore.Authentication;
+using DoSelect.Infrastructure.Persistence.Support;
 using Microsoft.Extensions.Options;
 using Scalar.AspNetCore;
 
@@ -25,7 +28,7 @@ builder.Services.AddAiSupport();
 builder.Services.AddOpenApi();
 builder.Services.AddDoSelectPersistence(builder.Configuration);
 builder.Services.AddDoSelectIdempotency(builder.Configuration);
-builder.Services.AddDoSelectFileStorage(builder.Configuration);
+builder.Services.AddDoSelectFileStorage();
 builder.Services.AddDoSelectSecurity(builder.Environment, builder.Configuration);
 builder.Services.AddDoSelectRefunds();
 builder.Services.AddDoSelectCatalogServices();
@@ -42,6 +45,15 @@ builder.Services.AddSingleton<EmailDispatchChannel>();
 builder.Services.AddSingleton<IEmailDispatchQueue>(services => services.GetRequiredService<EmailDispatchChannel>());
 builder.Services.AddHostedService<EmailDispatchBackgroundService>();
 builder.Services.AddHostedService<UnverifiedMemberCleanupBackgroundService>();
+
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSupportInfrastructure();
+builder.Services.AddScoped<ISupportTicketService, SupportTicketService>();
+builder.Services.AddScoped<IAdminSupportTicketService, AdminSupportTicketService>();
+builder.Services.AddScoped<ISupportSlaQueueService, SupportSlaQueueService>();
+builder.Services.AddScoped<ICaseWorkbenchService, CaseWorkbenchService>();
+builder.Services.AddScoped<ISupportAttachmentReadService, SupportAttachmentReadService>();
+builder.Services.AddScoped<ISupportAttachmentUploadService, SupportAttachmentUploadService>();
 
 var app = builder.Build();
 

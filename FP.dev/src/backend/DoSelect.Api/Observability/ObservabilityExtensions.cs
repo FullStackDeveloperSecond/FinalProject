@@ -3,6 +3,7 @@ using System.Security;
 using System.Text.Json;
 using DoSelect.Api.Common;
 using DoSelect.Api.Configuration;
+using DoSelect.Application.Storage;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;

@@ -54,11 +54,39 @@ public sealed class SupportTicket : MutablePublicEntity
     {
         if (!AllowedTransitions[Status].Contains(next)) throw new InvalidOperationException($"Support ticket cannot move from {Status} to {next}.");
         occurredAtUtc = RequireUtc(occurredAtUtc, nameof(occurredAtUtc));
-        if (Status == SupportTicketStatus.Resolved && next == SupportTicketStatus.InProgress) ReopenCount++;
-        Status = next; WaitingForCustomerStartedAtUtc = next == SupportTicketStatus.WaitingForCustomer ? occurredAtUtc : WaitingForCustomerStartedAtUtc;
+        var previousStatus = Status;
+        if (previousStatus == SupportTicketStatus.Resolved && next == SupportTicketStatus.InProgress) ReopenCount++;
+        Status = next;
+        WaitingForCustomerStartedAtUtc = next == SupportTicketStatus.WaitingForCustomer
+            ? occurredAtUtc
+            : previousStatus == SupportTicketStatus.WaitingForCustomer
+                ? null
+                : WaitingForCustomerStartedAtUtc;
         ResolvedAtUtc = next == SupportTicketStatus.Resolved ? occurredAtUtc : ResolvedAtUtc; ClosedAtUtc = next == SupportTicketStatus.Closed ? occurredAtUtc : ClosedAtUtc;
         LastActivityAtUtc = occurredAtUtc; MarkUpdated(occurredAtUtc);
     }
+    public int ResumeFromCustomerWait(DateTime occurredAtUtc)
+    {
+        if (Status != SupportTicketStatus.WaitingForCustomer || WaitingForCustomerStartedAtUtc is null)
+        {
+            throw new InvalidOperationException("The ticket is not waiting for the customer.");
+        }
+
+        occurredAtUtc = RequireUtc(occurredAtUtc, nameof(occurredAtUtc));
+        var elapsedSeconds = Math.Max(
+            0L,
+            (long)(occurredAtUtc - WaitingForCustomerStartedAtUtc.Value).TotalSeconds);
+        var addedSeconds = (int)Math.Min(elapsedSeconds, 259_200 - PausedSeconds);
+
+        Transition(SupportTicketStatus.InProgress, occurredAtUtc);
+        if (addedSeconds > 0)
+        {
+            AddPausedSeconds(addedSeconds, occurredAtUtc);
+        }
+
+        return addedSeconds;
+    }
+
     public void RecordFirstHumanResponse(DateTime occurredAtUtc)
     {
         if (FirstHumanResponseAtUtc.HasValue) return;
@@ -73,6 +101,22 @@ public sealed class SupportTicket : MutablePublicEntity
         }
 
         PausedSeconds += seconds;
+        LastActivityAtUtc = RequireUtc(occurredAtUtc, nameof(occurredAtUtc));
+        MarkUpdated(occurredAtUtc);
+    }
+
+    /// <summary>
+    /// Bumps LastActivityAtUtc for events that do not change Status, such as a new
+    /// message on a ticket that is already InProgress. Closed/Cancelled are terminal —
+    /// no further activity should be recorded against them.
+    /// </summary>
+    public void RecordActivity(DateTime occurredAtUtc)
+    {
+        if (Status is SupportTicketStatus.Closed or SupportTicketStatus.Cancelled)
+        {
+            throw new InvalidOperationException($"A {Status} ticket cannot record new activity.");
+        }
+
         LastActivityAtUtc = RequireUtc(occurredAtUtc, nameof(occurredAtUtc));
         MarkUpdated(occurredAtUtc);
     }

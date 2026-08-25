@@ -10,7 +10,10 @@
     "lint": "eslint . --max-warnings 0 && cd ../shared && node ../customer-web/node_modules/eslint/bin/eslint.js . --max-warnings 0",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "api:export": "node scripts/export-openapi.mjs",
+    "api:generate": "openapi-typescript ../../contracts/openapi.v1.json -o ../shared/src/api/generated/schema.d.ts",
+    "api:check": "npm run api:export && npm run api:generate && git diff --exit-code -- ../../contracts/openapi.v1.json ../shared/src/api/generated/schema.d.ts"
   },
   "dependencies": {
     "@doselect/web-shared": "file:../shared",

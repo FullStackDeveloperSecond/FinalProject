@@ -35,6 +35,26 @@ const router = createRouter({
       component: () => import('../pages/ResetPasswordPage.vue'),
     },
     {
+      path: '/support',
+      name: 'support-home',
+      component: () => import('../pages/support/SupportHomePage.vue'),
+    },
+    {
+      path: '/support/tickets',
+      name: 'support-ticket-list',
+      component: () => import('../pages/support/SupportTicketListPage.vue'),
+    },
+    {
+      path: '/support/tickets/new',
+      name: 'support-ticket-new',
+      component: () => import('../pages/support/SupportTicketNewPage.vue'),
+    },
+    {
+      path: '/support/tickets/:ticketId',
+      name: 'support-ticket-detail',
+      component: () => import('../pages/support/SupportTicketDetailPage.vue'),
+    },
+    {
       path: '/unauthorized',
       name: 'unauthorized',
       component: HttpStatusPage,
