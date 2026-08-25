@@ -159,15 +159,17 @@ public sealed class ReturnStore : IReturnStore
                 _dbContext.OrderItems,
                 i => i.OrderItemId,
                 oi => oi.Id,
-                (i, oi) => new ReturnItemDto(
-                    i.PublicId,
-                    oi.PublicId,
-                    oi.SkuCodeSnapshot,
-                    oi.ProductNameSnapshot,
-                    i.Quantity,
-                    i.InspectionStatus,
-                    i.RestockDisposition))
-            .OrderBy(dto => dto.PublicId)
+                (i, oi) => new { Item = i, OrderItem = oi })
+            .OrderBy(pair => pair.Item.PublicId)
+            .Select(pair => new ReturnItemDto(
+                pair.Item.PublicId,
+                pair.OrderItem.PublicId,
+                pair.OrderItem.SkuCodeSnapshot,
+                pair.OrderItem.ProductNameSnapshot,
+                pair.Item.Description,
+                pair.Item.Quantity,
+                pair.Item.InspectionStatus,
+                pair.Item.RestockDisposition))
             .ToListAsync(cancellationToken);
 
     public async Task<IReadOnlyList<ReturnAttachmentDto>> ListCleanAttachmentSummariesAsync(

@@ -66,6 +66,8 @@ public sealed class ReturnServiceTests
         Assert.Equal("Defective", dto.ReasonCode);
         Assert.Single(dto.Items);
         Assert.Single(store.Requests);
+        Assert.Equal("面板有亮點", dto.Items.Single().Description);
+        Assert.Equal("面板有亮點", store.Items.Single().Description);
         Assert.StartsWith("RT-20260824-", dto.ReturnNumber);
     }
 

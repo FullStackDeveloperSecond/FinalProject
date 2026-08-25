@@ -74,15 +74,34 @@ public sealed class ReturnRequest : MutablePublicEntity
 public sealed class ReturnItem : PublicEntity
 {
     private ReturnItem() { }
-    public ReturnItem(Guid publicId, long returnRequestId, long orderItemId, int quantity, decimal requestedRefund, string inspectionStatus, DateTime createdAtUtc) : base(publicId, createdAtUtc)
-    { if (returnRequestId <= 0 || orderItemId <= 0 || quantity <= 0 || requestedRefund < 0) throw new ArgumentOutOfRangeException(nameof(returnRequestId)); ReturnRequestId = returnRequestId; OrderItemId = orderItemId; Quantity = quantity; RequestedRefund = requestedRefund; InspectionStatus = RequireText(inspectionStatus, nameof(inspectionStatus)); }
+    public ReturnItem(Guid publicId, long returnRequestId, long orderItemId, int quantity, decimal requestedRefund, string inspectionStatus, DateTime createdAtUtc, string? description = null) : base(publicId, createdAtUtc)
+    {
+        if (returnRequestId <= 0 || orderItemId <= 0 || quantity <= 0 || requestedRefund < 0) throw new ArgumentOutOfRangeException(nameof(returnRequestId));
+        ReturnRequestId = returnRequestId;
+        OrderItemId = orderItemId;
+        Quantity = quantity;
+        RequestedRefund = requestedRefund;
+        InspectionStatus = RequireText(inspectionStatus, nameof(inspectionStatus));
+        Description = OptionalDescription(description);
+    }
     public long ReturnRequestId { get; private set; }
     public long OrderItemId { get; private set; }
     public int Quantity { get; private set; }
     public decimal RequestedRefund { get; private set; }
+    public string? Description { get; private set; }
     public string InspectionStatus { get; private set; } = string.Empty; public RestockDisposition? RestockDisposition { get; private set; }
     public void RecordInspectionSummary(string inspectionStatus, RestockDisposition? disposition)
     { InspectionStatus = RequireText(inspectionStatus, nameof(inspectionStatus)); RestockDisposition = disposition; }
+    private static string? OptionalDescription(string? value)
+    {
+        var normalized = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        if (normalized is { Length: > 500 })
+        {
+            throw new ArgumentException("Return item description cannot exceed 500 characters.", nameof(value));
+        }
+
+        return normalized;
+    }
 }
 
 public sealed class ReturnInspection : PublicEntity

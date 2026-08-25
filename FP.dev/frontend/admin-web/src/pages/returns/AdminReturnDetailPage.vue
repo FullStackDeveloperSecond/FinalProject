@@ -179,6 +179,7 @@ function isConflict(err: unknown): boolean {
             :key="item.publicId"
           >
             {{ item.productNameSnapshot || item.skuCodeSnapshot }}｜數量 {{ item.quantity }}｜檢查狀態 {{ item.inspectionStatus }}
+            <span v-if="item.description">｜品項說明 {{ item.description }}</span>
           </li>
         </ul>
       </section>

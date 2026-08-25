@@ -121,6 +121,52 @@ public sealed class ReturnStoreConcurrencyTests
         var resultA = await taskA;
         Assert.Single(resultA.Items);
     }
+    [SqlServerFact]
+    public async Task CreateWithItemsAsync_PersistsMaxLengthAndNullDescriptions_AndReadModelRoundTripsBoth()
+    {
+        long orderId;
+        long describedItemId;
+        long nullItemId;
+        await using (var seed = ReturnStoreConcurrencyFixture.CreateContext())
+        {
+            (orderId, describedItemId) = await SeedOrderWithItemAsync(seed, returnableQuantity: 1);
+            nullItemId = await SeedAdditionalItemAsync(seed, orderId, returnableQuantity: 1);
+        }
+
+        await using var context = ReturnStoreConcurrencyFixture.CreateContext();
+        var store = new ReturnStore(context);
+        var maximumDescription = new string('說', 500);
+        var budgets = new[]
+        {
+            new ReturnItemQuantityBudget(describedItemId, RequestedQuantity: 1, MaximumReturnableQuantity: 1),
+            new ReturnItemQuantityBudget(nullItemId, RequestedQuantity: 1, MaximumReturnableQuantity: 1),
+        };
+
+        var creation = await store.CreateWithItemsAsync(
+            NewRequest(orderId, "RT-DESC-0001"),
+            budgets,
+            requestId =>
+            [
+                new ReturnItem(Guid.CreateVersion7(), requestId, describedItemId, 1, 0m, "NotInspected", NowUtc, maximumDescription),
+                new ReturnItem(Guid.CreateVersion7(), requestId, nullItemId, 1, 0m, "NotInspected", NowUtc, description: null),
+            ],
+            CancellationToken.None);
+
+        context.ChangeTracker.Clear();
+        var persisted = await context.ReturnItems
+            .AsNoTracking()
+            .Where(item => item.ReturnRequestId == creation.Request.Id)
+            .OrderBy(item => item.OrderItemId)
+            .ToListAsync();
+
+        Assert.Equal(2, persisted.Count);
+        Assert.Equal(maximumDescription, persisted.Single(item => item.OrderItemId == describedItemId).Description);
+        Assert.Null(persisted.Single(item => item.OrderItemId == nullItemId).Description);
+
+        var summaries = await store.ListItemSummariesAsync(creation.Request.Id, CancellationToken.None);
+        Assert.Equal(maximumDescription, summaries.Single(item => item.Description is not null).Description);
+        Assert.Null(summaries.Single(item => item.Description is null).Description);
+    }
 
     private static async Task<(bool Success, Exception? Error)> RunCreateAsync(
         ReturnStore store, long orderId, long orderItemId, string returnNumber, IReadOnlyList<ReturnItemQuantityBudget> budgets)

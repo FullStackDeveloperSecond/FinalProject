@@ -27,6 +27,7 @@ public sealed record ReturnItemDto(
     Guid OrderItemPublicId,
     string SkuCodeSnapshot,
     string ProductNameSnapshot,
+    string? Description,
     int Quantity,
     string InspectionStatus,
     RestockDisposition? RestockDisposition);

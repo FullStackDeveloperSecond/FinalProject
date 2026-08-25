@@ -89,7 +89,7 @@ internal sealed class FakeReturnStore : IReturnStore
         Task.FromResult<IReadOnlyList<ReturnItemDto>>(
         [
             .. Items.Where(i => i.ReturnRequestId == returnRequestId)
-                .Select(i => new ReturnItemDto(i.PublicId, Guid.NewGuid(), "SKU", "Product", i.Quantity, i.InspectionStatus, i.RestockDisposition)),
+                .Select(i => new ReturnItemDto(i.PublicId, Guid.NewGuid(), "SKU", "Product", i.Description, i.Quantity, i.InspectionStatus, i.RestockDisposition)),
         ]);
 
     public Task<IReadOnlyList<ReturnAttachmentDto>> ListCleanAttachmentSummariesAsync(long returnRequestId, CancellationToken cancellationToken) =>

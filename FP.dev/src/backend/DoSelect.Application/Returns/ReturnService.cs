@@ -164,7 +164,8 @@ public sealed class ReturnService : IReturnService
                             pair.Line.Quantity,
                             requestedRefund: 0m,
                             inspectionStatus: "NotInspected",
-                            nowUtc))
+                            nowUtc,
+                            pair.Line.Description))
                         .ToList(),
                     cancellationToken);
 
@@ -174,6 +175,7 @@ public sealed class ReturnService : IReturnService
                         pair.Item.OrderItemPublicId,
                         pair.Item.SkuCodeSnapshot,
                         pair.Item.ProductNameSnapshot,
+                        createdItem.Description,
                         createdItem.Quantity,
                         createdItem.InspectionStatus,
                         createdItem.RestockDisposition))
@@ -337,12 +339,10 @@ public sealed class ReturnService : IReturnService
     }
 
     /// <summary>
-    /// A ReturnRequest carries one aggregate ReasonCode (no per-item column exists on the
-    /// finalized ReturnItem schema — see 資料字典-購物交易與售後.md), and the policy doc itself
-    /// treats a return as following one path ("一般退貨與瑕疵、保固流程必須分開處理"). All lines
-    /// in one request must therefore share the same reasonCode; per-item free-text descriptions
-    /// are validated for shape but not separately persisted (documented decision, not silently
-    /// dropped — see the implementation report).
+    /// A ReturnRequest carries one aggregate ReasonCode, and the policy doc treats a return as
+    /// following one path ("一般退貨與瑕疵、保固流程必須分開處理"). All lines in one request
+    /// must therefore share the same reasonCode. Optional per-item descriptions are persisted on
+    /// ReturnItem and do not change the shared policy path.
     /// </summary>
     private static ReturnReasonType ParseSharedReasonType(CreateReturnRequest request)
     {

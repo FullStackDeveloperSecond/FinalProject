@@ -94,6 +94,7 @@ async function handleFileChange(event: Event) {
             :key="item.publicId"
           >
             {{ item.productNameSnapshot || item.skuCodeSnapshot }}｜數量 {{ item.quantity }}｜{{ item.inspectionStatus }}
+            <span v-if="item.description">｜說明 {{ item.description }}</span>
           </li>
         </ul>
       </section>
