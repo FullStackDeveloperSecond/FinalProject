@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using DoSelect.Api.Common;
 using DoSelect.Api.Contracts.Auth;
+using DoSelect.Application.Common;
 using DoSelect.Application.Members;
 using DoSelect.Application.Notifications;
 using DoSelect.Infrastructure.Persistence.Identity;
@@ -172,6 +173,76 @@ public sealed class AuthControllerTests : IClassFixture<WebApplicationFactory<Pr
             ApiErrorCodes.ValidationFailed,
             document.RootElement.GetProperty("code").GetString());
         Assert.True(document.RootElement.GetProperty("errors").TryGetProperty("password", out _));
+    }
+
+    [Fact]
+    public async Task Register_WhenEmailNeedsNfkcNormalization_NormalizesBeforeModelValidation()
+    {
+        var capturingEmailSender = new CapturingEmailSender();
+        using var factory = CreateIsolatedFactory(services =>
+        {
+            services.Replace(ServiceDescriptor.Singleton<IEmailSender>(capturingEmailSender));
+        });
+        using var client = factory.CreateClient();
+        await PrimeAntiforgeryAsync(client);
+
+        var rawEmail = $"ｎｆｋｃ－{Guid.NewGuid():N}＠ｅｘａｍｐｌｅ．ｃｏｍ";
+        var canonicalEmail = InputNormalization.Canonicalize(rawEmail);
+        using var response = await client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            email = rawEmail,
+            password = "correct-horse-battery-staple",
+            displayName = "整合測試會員",
+            acceptTermsVersion = 1,
+        });
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        var message = await capturingEmailSender.WaitForSingleMessageAsync();
+        Assert.Equal(canonicalEmail, message.RecipientAddress);
+    }
+
+    [Fact]
+    public async Task Register_WhenDisplayNameExceedsTheLimitAfterNfkcNormalization_ReturnsValidationProblem()
+    {
+        using var client = CreateIsolatedFactory().CreateClient();
+        await PrimeAntiforgeryAsync(client);
+
+        using var response = await client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            email = UniqueEmail(),
+            password = "correct-horse-battery-staple",
+            displayName = new string('\uFB03', 100),
+            acceptTermsVersion = 1,
+        });
+        using var document = await ReadProblemDetailsAsync(response);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(
+            ApiErrorCodes.ValidationFailed,
+            document.RootElement.GetProperty("code").GetString());
+        Assert.True(document.RootElement.GetProperty("errors").TryGetProperty("displayName", out _));
+    }
+
+    [Fact]
+    public async Task Register_WhenRequestContainsAnUnknownField_ReturnsValidationProblem()
+    {
+        using var client = CreateIsolatedFactory().CreateClient();
+        await PrimeAntiforgeryAsync(client);
+
+        using var response = await client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            email = UniqueEmail(),
+            password = "correct-horse-battery-staple",
+            displayName = "整合測試會員",
+            acceptTermsVersion = 1,
+            unexpectedField = true,
+        });
+        using var document = await ReadProblemDetailsAsync(response);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(
+            ApiErrorCodes.ValidationFailed,
+            document.RootElement.GetProperty("code").GetString());
     }
 
     [Fact]

@@ -141,6 +141,38 @@ public sealed class MemberCleanupTests(WebApplicationFactory<Program> factory)
         Assert.Equal("匿名會員", okDisplayName);
     }
 
+    [Fact]
+    public async Task PurgeAsync_WhenCandidateBecomesActiveBeforeItsChildScopeLoads_DoesNotAnonymizeIt()
+    {
+        using var isolatedFactory = CreateIsolatedFactory();
+        using var client = isolatedFactory.CreateClient();
+        await PrimeAntiforgeryAsync(client);
+
+        var email = UniqueEmail();
+        var publicId = await RegisterAsync(client, email, "剛完成驗證的會員");
+        var cutoff = DateTime.UtcNow - PurgeStaleUnverifiedMembersService.UnverifiedRetentionPeriod;
+        await BackdateCreatedAtAsync(isolatedFactory, publicId, cutoff - TimeSpan.FromHours(1));
+        var userId = await GetIdentityUserIdAsync(isolatedFactory, publicId);
+
+        await using var gatewayScope = isolatedFactory.Services.CreateAsyncScope();
+        var services = gatewayScope.ServiceProvider;
+        var gateway = new MemberCleanupGateway(
+            services.GetRequiredService<UserManager<ApplicationUser>>(),
+            services.GetRequiredService<TimeProvider>(),
+            new ActivateMemberBeforeFirstChildScopeFactory(
+                services.GetRequiredService<IServiceScopeFactory>(),
+                userId),
+            services.GetRequiredService<ILogger<MemberCleanupGateway>>());
+
+        var anonymizedCount = await gateway.AnonymizeStaleUnverifiedMembersAsync(cutoff);
+
+        Assert.Equal(0, anonymizedCount);
+        var (status, emailField, displayName, _) = await GetMemberSnapshotAsync(isolatedFactory, publicId);
+        Assert.Equal("active", status);
+        Assert.Equal(email, emailField);
+        Assert.Equal("剛完成驗證的會員", displayName);
+    }
+
     private WebApplicationFactory<Program> CreateIsolatedFactory(Action<IServiceCollection>? configureServices = null) =>
         factory.WithWebHostBuilder(builder =>
         {
@@ -215,6 +247,30 @@ public sealed class MemberCleanupTests(WebApplicationFactory<Program> factory)
     }
 
     private static string UniqueEmail() => $"member-cleanup-test-{Guid.NewGuid():N}@example.com";
+
+    private sealed class ActivateMemberBeforeFirstChildScopeFactory(
+        IServiceScopeFactory inner,
+        string userId) : IServiceScopeFactory
+    {
+        private int _shouldActivate = 1;
+
+        public IServiceScope CreateScope()
+        {
+            if (Interlocked.Exchange(ref _shouldActivate, 0) == 1)
+            {
+                using var activationScope = inner.CreateScope();
+                var dbContext = activationScope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+                var nowUtc = DateTime.UtcNow;
+                var concurrencyStamp = Guid.NewGuid().ToString("D");
+                var activeStatus = nameof(AccountStatus.Active);
+
+                dbContext.Database.ExecuteSqlInterpolated(
+                    $"UPDATE AspNetUsers SET AccountStatus = {activeStatus}, EmailConfirmed = {true}, UpdatedAtUtc = {nowUtc}, ConcurrencyStamp = {concurrencyStamp} WHERE Id = {userId}");
+            }
+
+            return inner.CreateScope();
+        }
+    }
 
     // Every DI scope MemberCleanupGateway creates (one per account, see its TryAnonymizeOneAsync)
     // resolves its own instance of this — correctly bound to that scope's own store/DbContext —

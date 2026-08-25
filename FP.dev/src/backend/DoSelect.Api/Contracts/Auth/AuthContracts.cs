@@ -9,10 +9,18 @@ namespace DoSelect.Api.Contracts.Auth;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class RegisterRequest
 {
+    private string _email = string.Empty;
+    private string _displayName = string.Empty;
+    private string? _locale;
+
     [Required]
     [StringLength(320, MinimumLength = 3)]
     [EmailAddress]
-    public string Email { get; init; } = string.Empty;
+    public string Email
+    {
+        get => _email;
+        init => _email = InputNormalization.Canonicalize(value);
+    }
 
     [Required]
     [StringLength(128, MinimumLength = 12)]
@@ -20,17 +28,25 @@ public sealed class RegisterRequest
 
     [Required]
     [StringLength(100, MinimumLength = 1)]
-    public string DisplayName { get; init; } = string.Empty;
+    public string DisplayName
+    {
+        get => _displayName;
+        init => _displayName = InputNormalization.Canonicalize(value);
+    }
 
-    public string? Locale { get; init; }
+    public string? Locale
+    {
+        get => _locale;
+        init => _locale = value is null ? null : InputNormalization.Canonicalize(value);
+    }
 
     [Required]
     public int AcceptTermsVersion { get; init; }
 
     public RegisterMemberCommand ToCommand() => new(
-        InputNormalization.Canonicalize(Email),
+        Email,
         Password,
-        InputNormalization.Canonicalize(DisplayName),
+        DisplayName,
         Locale,
         AcceptTermsVersion);
 }
@@ -58,23 +74,35 @@ public sealed record EmailVerificationConfirmedResponse(string AccountStatus);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class EmailVerificationRequest
 {
+    private string _email = string.Empty;
+
     [Required]
     [StringLength(320, MinimumLength = 3)]
     [EmailAddress]
-    public string Email { get; init; } = string.Empty;
+    public string Email
+    {
+        get => _email;
+        init => _email = InputNormalization.Canonicalize(value);
+    }
 
-    public RequestEmailVerificationCommand ToCommand() => new(InputNormalization.Canonicalize(Email));
+    public RequestEmailVerificationCommand ToCommand() => new(Email);
 }
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class PasswordResetRequest
 {
+    private string _email = string.Empty;
+
     [Required]
     [StringLength(320, MinimumLength = 3)]
     [EmailAddress]
-    public string Email { get; init; } = string.Empty;
+    public string Email
+    {
+        get => _email;
+        init => _email = InputNormalization.Canonicalize(value);
+    }
 
-    public RequestPasswordResetCommand ToCommand() => new(InputNormalization.Canonicalize(Email));
+    public RequestPasswordResetCommand ToCommand() => new(Email);
 }
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
@@ -97,10 +125,16 @@ public sealed class PasswordResetConfirmRequest
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class LoginRequest
 {
+    private string _email = string.Empty;
+
     [Required]
     [StringLength(320, MinimumLength = 3)]
     [EmailAddress]
-    public string Email { get; init; } = string.Empty;
+    public string Email
+    {
+        get => _email;
+        init => _email = InputNormalization.Canonicalize(value);
+    }
 
     [Required]
     [StringLength(128, MinimumLength = 1)]
@@ -108,7 +142,7 @@ public sealed class LoginRequest
 
     public bool RememberMe { get; init; }
 
-    public LoginMemberCommand ToCommand() => new(InputNormalization.Canonicalize(Email), Password, RememberMe);
+    public LoginMemberCommand ToCommand() => new(Email, Password, RememberMe);
 }
 
 public sealed record CurrentUserDto(

@@ -40,7 +40,7 @@ public sealed class MemberCleanupGateway(
             // account whose own UpdateAsync had actually failed (Alex review, 2026-08-25 — verified
             // live: reverting to a shared DbContext reproduces exactly this, caught by
             // MemberCleanupTests.PurgeAsync_WhenOneAccountsUpdateFails_StillAnonymizesTheOtherAccountIndependently).
-            if (await TryAnonymizeOneAsync(userId, nowUtc, cancellationToken))
+            if (await TryAnonymizeOneAsync(userId, olderThanUtc, nowUtc, cancellationToken))
             {
                 anonymizedCount++;
             }
@@ -51,6 +51,7 @@ public sealed class MemberCleanupGateway(
 
     private async Task<bool> TryAnonymizeOneAsync(
         string userId,
+        DateTime olderThanUtc,
         DateTime nowUtc,
         CancellationToken cancellationToken)
     {
@@ -60,6 +61,15 @@ public sealed class MemberCleanupGateway(
 
         var user = await scopedUserManager.FindByIdAsync(userId);
         if (user is null)
+        {
+            return false;
+        }
+
+        // The candidate list is only a snapshot. Re-check every eligibility condition using the
+        // child scope's fresh entity so an account verified after that snapshot is never anonymized.
+        if (user.AccountType != AccountType.Member ||
+            user.AccountStatus != AccountStatus.PendingEmailVerification ||
+            user.CreatedAtUtc >= olderThanUtc)
         {
             return false;
         }
