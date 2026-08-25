@@ -108,16 +108,17 @@ Production Secret 不應提供給 Pull Request CI；能使用短期身分或 OID
 | Job／規則 | 目前內容 |
 |---|---|
 | `AI Evaluation Contract` | 驗證 120 筆評估資料、產物時效與契約；不呼叫 OpenAI |
+| `Package Source Evidence` | 驗證 NuGet／npm 官方 Registry、中央與直接精確版本、Lock 來源與 Integrity，並測試非官方來源會被拒絕 |
 | `Backend` | Restore、`-warnaserror` Build、Format Verify、.NET Test、NuGet 弱點報告 |
 | `Frontend` Matrix | 兩個 Vue 專案分別執行 `npm ci`、Typecheck、零警告 Lint、Vitest、Build、Gitleaks `dist` 掃描與 Production Dependency Audit |
 | `Secret Scan` | Gitleaks CLI `8.30.1` 經官方 SHA-256 校驗後掃描完整 Git 歷史；輸出使用 `--redact` |
-| `CI Required` | 彙總 Secret Scan、AI Evaluation Contract、Backend 與兩個 Frontend；供 `main`／`dev` Branch Protection 使用 |
+| `CI Required` | 彙總 Secret Scan、AI Evaluation Contract、Package Source Evidence、Backend 與兩個 Frontend；供 `main`／`dev` Branch Protection 使用 |
 | 權限與供應鏈 | `contents: read`、Checkout 不保留 Credential、官方 Action 固定完整 SHA |
 | 外部依賴 | 基礎 CI 不取得 SQL、OpenAI、Brevo 或其他 Secret |
 
 Workflow 在指向 `main`／`dev` 的 Pull Request、Push 與手動觸發時執行；同一分支的新 Commit 會取消已過期的舊執行。
 
-目前尚未完成正式 CD。本專案第一版只需在單一 Windows 展示電腦執行，不部署公網；自動 Secret Scanner 已落實，Coverage 失敗門檻、OpenAPI Client Diff、SQL Server Provider-backed 整合測試、部署 Artifact、Environment、Migration Deployment 及自動回復仍須依追蹤項目逐步落實。
+目前尚未完成正式 CD。本專案第一版只需在單一 Windows 展示電腦執行，不部署公網；自動 Secret Scanner 與 Package 來源證據流程已落實，Coverage 失敗門檻、OpenAPI Client Diff、SQL Server Provider-backed 整合測試、部署 Artifact、Environment、Migration Deployment 及自動回復仍須依追蹤項目逐步落實。
 
 > [!note] 專案決策邊界
 > 已完成的是 GitHub Actions 基礎 CI 與 Branch Protection，不是正式環境自動部署。實際通過項目及尚待工作以 [[03-架構/08-測試與驗收/測試策略]]、[[03-架構/01-系統與環境/本機開發環境與版本基線]] 和 [[05-規劃/01-時程與進度/未完成項目追蹤表]] 為準。

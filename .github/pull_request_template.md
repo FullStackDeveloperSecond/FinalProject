@@ -67,7 +67,13 @@
 - [ ] 本次沒有新增或擴大 `.gitleaksignore`、Allowlist 或 `gitleaks:allow`
 - [ ] 本次有最小 Secret Scan 忽略規則，已說明合成值、範圍與不可改寫原因
 
-Package／Secret Scan 證據或例外說明：
+Package 來源證據（新增直接 Package 時，每個 Package 填一列；沒有新增時填「不適用」）：
+
+| 生態系 | Package | 精確版本 | 用途 | Registry 頁面 | 官方專案／來源 Repository |
+|---|---|---|---|---|---|
+| 不適用 | — | — | — | — | — |
+
+Secret Scan 證據或例外說明：
 
 - （請填寫；不適用時填「不適用」）
 
