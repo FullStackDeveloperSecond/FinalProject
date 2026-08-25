@@ -242,32 +242,9 @@ public sealed class CouponLifecycleTests
         Assert.Equal(CouponStatus.Paused, CouponRule.From(coupon).Status);
     }
 
-    [Fact]
-    public void OrderCouponSnapshotsTheMinimumSpendAtCheckout()
-    {
-        var snapshot = new OrderCoupon(Guid.NewGuid(), 1, 1, 1, "WELCOME300", "新會員",
-            CouponDiscountType.FixedAmount, 1, 300m, minimumSpendAmount: 3000m,
-            appliedAmount: 300m, eligibleSubtotal: 4000m, isFreeShipping: false, StartsAtUtc);
-
-        Assert.Equal(3000m, snapshot.MinimumSpendAmount);
-    }
-
-    [Fact]
-    public void OrderCouponAcceptsNoMinimumSpend()
-    {
-        var snapshot = new OrderCoupon(Guid.NewGuid(), 1, 1, 1, "FREESHIP", "免運",
-            CouponDiscountType.FreeShipping, 1, null, minimumSpendAmount: null,
-            appliedAmount: 0m, eligibleSubtotal: 4000m, isFreeShipping: true, StartsAtUtc);
-
-        Assert.Null(snapshot.MinimumSpendAmount);
-    }
-
-    [Fact]
-    public void OrderCouponRejectsANegativeMinimumSpend() =>
-        Assert.Throws<ArgumentOutOfRangeException>(() => new OrderCoupon(
-            Guid.NewGuid(), 1, 1, 1, "BAD", "錯誤", CouponDiscountType.FixedAmount, 1, 300m,
-            minimumSpendAmount: -1m, appliedAmount: 300m, eligibleSubtotal: 4000m,
-            isFreeShipping: false, StartsAtUtc));
+    // OrderCoupon.MinimumSpendAmount 的快照測試隨該欄位一起移到 DES-21 的 Migration PR
+    // （DEC-P300）：Entity、Configuration、Migration、ModelSnapshot 與 Provider-backed
+    // 驗證必須一次交付，本 PR 只保留計算規則與 Coupon 生命週期。
 
     private static Coupon CreateActiveCoupon(int? totalUsageLimit = 100)
     {
