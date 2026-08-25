@@ -1265,6 +1265,25 @@ public sealed class CatalogAdminAuthorizationTests
         Assert.Equal(HttpStatusCode.Created, followUp.StatusCode);
     }
 
+    [Fact]
+    public async Task Anonymous_DeleteSku_Returns401AndDoesNotDeleteResource()
+    {
+        using var adminClient = await _fixture.CreateAuthenticatedAdminClientAsync();
+        var productId = await CatalogAdminApiSeeding.CreateProductWithCatalogAsync(adminClient);
+        using var created = await CatalogAdminApiSeeding.PostSkuAsync(adminClient, productId);
+        var sku = await created.Content.ReadFromJsonAsync<JsonElement>();
+        var publicId = sku.GetProperty("publicId").GetGuid();
+        var rowVersion = sku.GetProperty("rowVersion").GetString();
+
+        using var client = _fixture.CreateClient();
+        using var response = await client.SendAsync(new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/admin/skus/{publicId}")
+        {
+            Content = JsonContent.Create(new { rowVersion }),
+        });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        await AssertSkuUnchangedAsync(publicId, rowVersion!);
+    }
     [Theory]
     [InlineData("/api/v1/admin/brands")]
     [InlineData("/api/v1/admin/categories")]
@@ -1305,6 +1324,25 @@ public sealed class CatalogAdminAuthorizationTests
     }
 
     [Fact]
+    public async Task SignedInWithoutCatalogManagerRole_DeleteSku_Returns403AndDoesNotDeleteResource()
+    {
+        using var adminClient = await _fixture.CreateAuthenticatedAdminClientAsync();
+        var productId = await CatalogAdminApiSeeding.CreateProductWithCatalogAsync(adminClient);
+        using var created = await CatalogAdminApiSeeding.PostSkuAsync(adminClient, productId);
+        var sku = await created.Content.ReadFromJsonAsync<JsonElement>();
+        var publicId = sku.GetProperty("publicId").GetGuid();
+        var rowVersion = sku.GetProperty("rowVersion").GetString();
+
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync(DoSelectRoles.OrderManager);
+        using var response = await CatalogAdminApiFixture.SendWithAntiforgeryAsync(client, new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/admin/skus/{publicId}")
+        {
+            Content = JsonContent.Create(new { rowVersion }),
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        await AssertSkuUnchangedAsync(publicId, rowVersion!);
+    }
+    [Fact]
     public async Task CatalogManagerRole_CanListAndCreateBrand()
     {
         using var client = await _fixture.CreateAuthenticatedAdminClientAsync(DoSelectRoles.CatalogManager);
@@ -1326,5 +1364,11 @@ public sealed class CatalogAdminAuthorizationTests
 
         Assert.Equal(HttpStatusCode.OK, listResponse.StatusCode);
         Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+    }
+    private async Task AssertSkuUnchangedAsync(Guid publicId, string rowVersion)
+    {
+        await using var context = _fixture.CreateScopedContext();
+        var persisted = await context.Skus.AsNoTracking().SingleAsync(candidate => candidate.PublicId == publicId);
+        Assert.Equal(Convert.FromBase64String(rowVersion), persisted.RowVersion);
     }
 }
