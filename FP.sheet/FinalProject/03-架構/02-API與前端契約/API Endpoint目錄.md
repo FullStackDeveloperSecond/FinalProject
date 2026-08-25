@@ -48,9 +48,9 @@
 |---|---|---|---|---|
 | SH-05 Anti-forgery 支撐 | `GET /api/v1/security/antiforgery-token` | Public；可依指定 Scheme 綁定既有 Session | Header `X-DoSelect-Client: member\|admin` → `AntiforgeryTokenResponse{requestToken}`；`Cache-Control: no-store`；Token 只存前端記憶體 | `validation_failed` |
 | M 會員 Session 支撐 | `GET /api/v1/auth/session` | Public／Member | 未登入回 `200 AuthSessionDto{isAuthenticated:false}`；登入回會員摘要 | — |
-| UC-AUTH-01 | `POST /api/v1/auth/register`；`POST /api/v1/auth/email-verifications`；`POST /api/v1/auth/email-verifications/confirm` | Public | 註冊／驗證 Request → `202` 或會員摘要；註冊回應不可枚舉，已註冊與未註冊 Email 回傳完全相同的 `202` 形狀（相同 Shape，PublicId 為不指向真實帳號的合成值） | `email_token_invalid`、`email_token_expired`、`rate_limit_exceeded` |
+| UC-AUTH-01 | `POST /api/v1/auth/register`；`POST /api/v1/auth/email-verifications`；`POST /api/v1/auth/email-verifications/confirm` | Public | 註冊／驗證 Request → `202` 或會員摘要；註冊回應不可枚舉，已註冊與未註冊 Email 回傳完全相同的 `202` 形狀（相同 Shape，PublicId 為不指向真實帳號的合成值） | `email_token_invalid`（無效、已使用、撤銷、過期統一回應，決議 B1）、`rate_limit_exceeded` |
 | UC-AUTH-02 | `POST /api/v1/auth/login`；`POST /api/v1/auth/logout` | Public／Member | Cookie Session；帳號鎖定、密碼錯誤與帳號不存在統一回 `invalid_credentials`，不對外區分（避免枚舉與鎖定攻擊 oracle） | `invalid_credentials`、`account_suspended`、`rate_limit_exceeded` |
-| UC-AUTH-03 | `POST /api/v1/auth/password-resets`；`POST /api/v1/auth/password-resets/confirm` | Public | Request 不洩漏帳號是否存在 | `password_reset_token_invalid`、`password_reset_token_expired`、`rate_limit_exceeded` |
+| UC-AUTH-03 | `POST /api/v1/auth/password-resets`；`POST /api/v1/auth/password-resets/confirm` | Public | Request 不洩漏帳號是否存在 | `password_reset_token_invalid`（無效、已使用、撤銷、過期統一回應，決議 B1）、`rate_limit_exceeded` |
 | M 會員資料支撐 | `GET /api/v1/members/me`；`PUT /api/v1/members/me` | Member | `MemberProfileDto`／`UpdateMemberProfileRequest`＋RowVersion | `concurrency_conflict` |
 | M 收件地址支撐 | `GET /api/v1/members/me/addresses`；`POST /api/v1/members/me/addresses`；`PUT /api/v1/members/me/addresses/{id}`；`DELETE /api/v1/members/me/addresses/{id}` | Owner Member | `MemberAddressDto` 與 Create／Update Request；刪除不改歷史訂單快照 | `resource_not_found`、`concurrency_conflict` |
 | M 站內通知支撐 | `GET /api/v1/notifications`；`POST /api/v1/notifications/{id}/actions/read`；`POST /api/v1/notifications/actions/read-all` | Member | `PageResult<NotificationDto>`；讀取命令冪等 | `resource_not_found` |

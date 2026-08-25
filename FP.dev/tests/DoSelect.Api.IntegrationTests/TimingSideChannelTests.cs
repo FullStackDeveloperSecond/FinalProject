@@ -18,10 +18,14 @@ namespace DoSelect.Api.IntegrationTests;
 /// and rate-limiting middleware, none of which differ between the eligible/ineligible branches)
 /// against the real SQL-Server-backed gateway, and compare measured latency.
 ///
-/// The 20-sample / 20ms-tolerance / median-comparison approach is a default pending a product
-/// decision (Alex review follow-up, 2026-08-24), matching how rate-limit thresholds were handled
-/// elsewhere in this PR — CI runners are noisy shared machines, so this deliberately trades
-/// sensitivity for stability rather than chasing sub-millisecond precision.
+/// The 20-sample / 20ms-tolerance / median-comparison approach is the finalized V1 acceptance
+/// threshold (Alex review decision A1, 2026-08-25): it accepts "reduced distinguishability" on
+/// SQL Server with 20 interleaved samples and a 20ms median-difference budget, not a strict
+/// timing-attack-proof guarantee — CI runners are noisy shared machines, so this deliberately
+/// trades sensitivity for stability rather than chasing sub-millisecond precision. Register
+/// additionally still carries a small residual gap from the fresh path's extra MemberProfile
+/// INSERT (see MemberRegistrationGateway.CreateMemberAsync), which the per-email/IP throttles in
+/// EmailRequestThrottle/RateLimitPolicies bound the practical exploitability of.
 /// </summary>
 public sealed class TimingSideChannelTests(WebApplicationFactory<Program> factory)
     : IClassFixture<WebApplicationFactory<Program>>
