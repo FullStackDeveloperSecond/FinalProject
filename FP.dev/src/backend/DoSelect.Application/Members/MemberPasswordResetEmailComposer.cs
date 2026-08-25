@@ -12,7 +12,7 @@ internal static class MemberPasswordResetEmailComposer
     {
         var resetLink =
             $"{frontendBaseUrl.TrimEnd('/')}/reset-password" +
-            $"?publicId={publicId:D}" +
+            $"#publicId={publicId:D}" +
             $"&token={Uri.EscapeDataString(token)}";
 
         return new EmailMessage(

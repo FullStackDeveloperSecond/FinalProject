@@ -18,13 +18,21 @@ const submitting = ref(false)
 const topLevelError = ref<string | null>(null)
 const fieldErrors = ref<Record<string, string[]>>({})
 
-function readQueryParam(name: string): string {
-  const value = route.query[name]
-  return typeof value === 'string' ? value : ''
+function readLinkParam(name: string): string {
+  const queryValue = route.query[name]
+  if (typeof queryValue === 'string') {
+    return queryValue
+  }
+
+  const hash = route.hash ?? ''
+  const fragment = hash.startsWith('#') ? hash.slice(1) : hash
+  return new globalThis.URLSearchParams(fragment).get(name) ?? ''
 }
 
-const userPublicId = readQueryParam('publicId')
-const token = readQueryParam('token')
+// New links carry one-time values in the fragment so they never reach the frontend host or
+// Referer header. Query parsing remains as a compatibility path for links already issued.
+const userPublicId = readLinkParam('publicId')
+const token = readLinkParam('token')
 
 const status = ref<Status>(userPublicId && token ? 'form' : 'missing-params')
 

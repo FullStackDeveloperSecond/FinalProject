@@ -25,6 +25,7 @@ const globalStubs = { RouterLink: { template: '<a><slot /></a>' } }
 beforeEach(() => {
   routerReplace.mockReset().mockResolvedValue(undefined)
   useRouter.mockReturnValue({ replace: routerReplace })
+  confirmEmailVerification.mockReset()
 })
 
 describe('VerifyEmailForm', () => {
@@ -51,6 +52,24 @@ describe('VerifyEmailForm', () => {
       userPublicId: '018f1f0a-70d1-7c53-9a3f-000000000000',
       token: 'a-token',
     })
+    expect(wrapper.text()).toContain('Email 驗證成功')
+  })
+
+  it('confirms the token from the URL fragment without sending it to the server', async () => {
+    useRoute.mockReturnValue({
+      path: '/verify-email',
+      query: {},
+      hash: '#publicId=018f1f0a-70d1-7c53-9a3f-000000000000&token=a-token',
+    })
+    confirmEmailVerification.mockResolvedValueOnce({ accountStatus: 'active' })
+    const wrapper = mount(VerifyEmailForm, { global: { stubs: globalStubs } })
+    await flushPromises()
+
+    expect(confirmEmailVerification).toHaveBeenCalledWith({
+      userPublicId: '018f1f0a-70d1-7c53-9a3f-000000000000',
+      token: 'a-token',
+    })
+    expect(routerReplace).toHaveBeenCalledWith({ path: '/verify-email' })
     expect(wrapper.text()).toContain('Email 驗證成功')
   })
 

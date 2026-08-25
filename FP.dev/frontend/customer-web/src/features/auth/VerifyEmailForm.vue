@@ -14,9 +14,15 @@ const errorMessage = ref('')
 let userPublicId = ''
 let token = ''
 
-function readQueryParam(name: string): string {
-  const value = route.query[name]
-  return typeof value === 'string' ? value : ''
+function readLinkParam(name: string): string {
+  const queryValue = route.query[name]
+  if (typeof queryValue === 'string') {
+    return queryValue
+  }
+
+  const hash = route.hash ?? ''
+  const fragment = hash.startsWith('#') ? hash.slice(1) : hash
+  return new globalThis.URLSearchParams(fragment).get(name) ?? ''
 }
 
 async function confirm(): Promise<void> {
@@ -38,8 +44,10 @@ async function confirm(): Promise<void> {
 }
 
 onMounted(async () => {
-  userPublicId = readQueryParam('publicId')
-  token = readQueryParam('token')
+  // New links carry one-time values in the fragment so they never reach the frontend host or
+  // Referer header. Query parsing remains as a compatibility path for links already issued.
+  userPublicId = readLinkParam('publicId')
+  token = readLinkParam('token')
 
   // Drop the token from the URL as soon as it has been read: it must not linger in the
   // address bar, browser history, or get sent onward via Referer once the user navigates away.

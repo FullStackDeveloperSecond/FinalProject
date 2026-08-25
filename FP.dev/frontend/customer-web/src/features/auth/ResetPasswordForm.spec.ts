@@ -74,6 +74,29 @@ describe('ResetPasswordForm', () => {
     expect(wrapper.text()).toContain('密碼已重設')
   })
 
+  it('submits the publicId and token from the URL fragment', async () => {
+    useRoute.mockReturnValue({
+      path: '/reset-password',
+      query: {},
+      hash: '#publicId=018f1f0a-70d1-7c53-9a3f-000000000000&token=a-token',
+    })
+    confirmPasswordReset.mockResolvedValueOnce(undefined)
+    const wrapper = mount(ResetPasswordForm, { global: { stubs: globalStubs } })
+    await flushPromises()
+
+    await fillMatchingPasswords(wrapper)
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(confirmPasswordReset).toHaveBeenCalledWith({
+      userPublicId: '018f1f0a-70d1-7c53-9a3f-000000000000',
+      token: 'a-token',
+      newPassword: 'correct-horse-battery-staple',
+    })
+    expect(routerReplace).toHaveBeenCalledWith({ path: '/reset-password' })
+    expect(wrapper.text()).toContain('密碼已重設')
+  })
+
   it('blocks submission when the passwords do not match', async () => {
     useRoute.mockReturnValue({
       path: '/reset-password',

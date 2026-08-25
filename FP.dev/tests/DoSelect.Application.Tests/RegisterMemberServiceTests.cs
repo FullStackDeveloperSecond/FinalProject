@@ -27,6 +27,8 @@ public sealed class RegisterMemberServiceTests
         Assert.Equal(AccountStatus.PendingEmailVerification, success.AccountStatus);
         Assert.Single(emailSender.SentMessages);
         Assert.Contains("verify-email", emailSender.SentMessages[0].TextBody);
+        Assert.Contains("verify-email#publicId=", emailSender.SentMessages[0].TextBody);
+        Assert.DoesNotContain("verify-email?publicId=", emailSender.SentMessages[0].TextBody);
         Assert.Contains(success.PublicId.ToString("D"), emailSender.SentMessages[0].TextBody);
     }
 

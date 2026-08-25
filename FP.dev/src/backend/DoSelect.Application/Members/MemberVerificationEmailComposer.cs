@@ -12,7 +12,7 @@ internal static class MemberVerificationEmailComposer
     {
         var verificationLink =
             $"{frontendBaseUrl.TrimEnd('/')}/verify-email" +
-            $"?publicId={publicId:D}" +
+            $"#publicId={publicId:D}" +
             $"&token={Uri.EscapeDataString(token)}";
 
         return new EmailMessage(
