@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAdminAuthStore } from '../stores/useAdminAuthStore'
 
@@ -8,6 +8,14 @@ const router = useRouter()
 
 const code = ref('')
 const useRecoveryCode = ref(false)
+
+// router guard 的 requiresChallenge 已經會擋下這個情境，這裡是第二層防呆
+// （例如未來有其他方式導覽進來），避免卡在沒有 challenge 可用的死頁面。
+onMounted(() => {
+  if (!auth.challenge) {
+    router.replace({ name: 'login' })
+  }
+})
 
 async function onSubmit(): Promise<void> {
   const succeeded = useRecoveryCode.value

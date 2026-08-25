@@ -15,6 +15,13 @@ const acknowledged = ref(false)
 const initializing = ref(true)
 
 onMounted(async () => {
+  // router guard 的 requiresChallenge 已經會擋下這個情境，這裡是第二層防呆——沒有
+  // challenge 就呼叫 beginEnrollment 只會靜默失敗，留下一個看起來像壞掉的空白表單。
+  if (!auth.challenge) {
+    await router.replace({ name: 'login' })
+    return
+  }
+
   const begin = await auth.beginEnrollment()
   if (begin) {
     secretKey.value = begin.secretKey
