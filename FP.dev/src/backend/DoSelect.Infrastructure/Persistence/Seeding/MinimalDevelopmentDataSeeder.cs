@@ -1,5 +1,6 @@
 using DoSelect.Domain.Catalog;
 using DoSelect.Domain.Members;
+using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Persistence.Identity;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -25,13 +26,15 @@ public sealed class MinimalDevelopmentDataSeeder(
         await EnsureRolesAsync(counters);
         await EnsureUsersAndProfilesAsync(passwords, counters, cancellationToken);
         await EnsureCatalogAsync(counters, cancellationToken);
+        await EnsureShippingMethodsAsync(counters, cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
         return new MinimalDevelopmentSeedResult(
             counters.RolesCreated,
             counters.UsersCreated,
             counters.ProfilesCreated,
-            counters.CatalogRecordsCreated);
+            counters.CatalogRecordsCreated,
+            counters.ShippingRecordsCreated);
     }
 
     private async Task EnsureRolesAsync(SeedCounters counters)
@@ -237,6 +240,79 @@ public sealed class MinimalDevelopmentDataSeeder(
         counters.CatalogRecordsCreated++;
     }
 
+    /// <summary>
+    /// Unlike the rest of this seeder's catalog data (a single fake dev-only product), the
+    /// three <see cref="ShippingMethod"/> rows below are real, fixed business reference data —
+    /// 購物車、訂單、付款與物流.md's 配送方式與費用 table names exactly these three, with these fees
+    /// and thresholds, as the whole v1 shipping surface (no admin-creatable methods exist).
+    /// They live here for now because this seeder is the only idempotent "ensure this row
+    /// exists" mechanism in the codebase; worth confirming with the team whether reference data
+    /// that must exist in every environment (not just local dev) deserves its own seeding path
+    /// instead of riding along on a seeder gated behind `--seed-minimal`.
+    /// </summary>
+    private async Task EnsureShippingMethodsAsync(SeedCounters counters, CancellationToken cancellationToken)
+    {
+        var existingCodes = await dbContext.ShippingMethods
+            .Select(method => method.Code)
+            .ToListAsync(cancellationToken);
+
+        var definitions = new[]
+        {
+            (
+                PublicId: MinimalDevelopmentSeedDefinitions.StorePickupMethodPublicId,
+                Code: "StorePickup",
+                NameZhTw: "超商取貨",
+                Kind: "StorePickup",
+                BaseFee: 60m,
+                FreeShippingThreshold: (decimal?)2000m,
+                AllowsCod: true,
+                RequiresPrepayment: false),
+            (
+                PublicId: MinimalDevelopmentSeedDefinitions.HomeDeliveryMethodPublicId,
+                Code: "HomeDelivery",
+                NameZhTw: "一般宅配",
+                Kind: "HomeDelivery",
+                BaseFee: 150m,
+                FreeShippingThreshold: (decimal?)5000m,
+                AllowsCod: true,
+                RequiresPrepayment: false),
+            (
+                PublicId: MinimalDevelopmentSeedDefinitions.HomeDeliveryAssemblyMethodPublicId,
+                Code: "HomeDeliveryAssembly",
+                NameZhTw: "組裝電腦宅配",
+                Kind: "HomeDeliveryAssembly",
+                BaseFee: 300m,
+                FreeShippingThreshold: (decimal?)30000m,
+                AllowsCod: false,
+                RequiresPrepayment: true),
+        };
+
+        foreach (var definition in definitions)
+        {
+            if (existingCodes.Contains(definition.Code))
+            {
+                continue;
+            }
+
+            dbContext.ShippingMethods.Add(new ShippingMethod(
+                definition.PublicId,
+                definition.Code,
+                definition.NameZhTw,
+                definition.Kind,
+                definition.BaseFee,
+                definition.FreeShippingThreshold,
+                definition.AllowsCod,
+                definition.RequiresPrepayment,
+                MinimalDevelopmentSeedDefinitions.CreatedAtUtc));
+            counters.ShippingRecordsCreated++;
+        }
+
+        if (counters.ShippingRecordsCreated > 0)
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+    }
+
     private static void EnsureSucceeded(string action, IdentityResult result)
     {
         if (result.Succeeded)
@@ -258,6 +334,8 @@ public sealed class MinimalDevelopmentDataSeeder(
         public int ProfilesCreated { get; set; }
 
         public int CatalogRecordsCreated { get; set; }
+
+        public int ShippingRecordsCreated { get; set; }
     }
 }
 
@@ -265,4 +343,5 @@ public sealed record MinimalDevelopmentSeedResult(
     int RolesCreated,
     int UsersCreated,
     int ProfilesCreated,
-    int CatalogRecordsCreated);
+    int CatalogRecordsCreated,
+    int ShippingRecordsCreated);

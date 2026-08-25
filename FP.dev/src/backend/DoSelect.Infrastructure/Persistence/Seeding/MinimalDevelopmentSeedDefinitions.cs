@@ -27,6 +27,15 @@ internal static class MinimalDevelopmentSeedDefinitions
     internal static readonly Guid SkuPublicId =
         Guid.Parse("719dfd4a-77f0-4887-b3bf-239263d4ee1f");
 
+    internal static readonly Guid StorePickupMethodPublicId =
+        Guid.Parse("3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a01");
+
+    internal static readonly Guid HomeDeliveryMethodPublicId =
+        Guid.Parse("3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a02");
+
+    internal static readonly Guid HomeDeliveryAssemblyMethodPublicId =
+        Guid.Parse("3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a03");
+
     internal static readonly DateTime CreatedAtUtc =
         new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 

@@ -1,0 +1,18 @@
+using DoSelect.Application.Shipping;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace DoSelect.Infrastructure.Shipping;
+
+public static class ShippingServiceCollectionExtensions
+{
+    public static IServiceCollection AddDoSelectShippingServices(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.AddScoped<IShippingOptionsService, EfShippingOptionsService>();
+        services.AddScoped<ICodEligibilityService, EfCodEligibilityService>();
+        services.AddScoped<IConvenienceStoreQueryService, EfConvenienceStoreQueryService>();
+
+        return services;
+    }
+}
