@@ -87,6 +87,47 @@ jobs:
       - name: Report vulnerable NuGet packages
         run: dotnet list DoSelect.slnx package --vulnerable --include-transitive
 
+  openapi-contract:
+    name: OpenAPI Contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          global-json-file: FP.dev/global.json
+
+      - name: Set up Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: FP.dev/.nvmrc
+          cache: npm
+          cache-dependency-path: |
+            FP.dev/frontend/customer-web/package-lock.json
+            FP.dev/frontend/admin-web/package-lock.json
+
+      - name: Restore .NET dependencies
+        run: dotnet restore DoSelect.slnx -warnaserror
+        working-directory: FP.dev
+
+      - name: Install locked customer frontend dependencies
+        run: npm ci
+        working-directory: FP.dev/frontend/customer-web
+
+      - name: Install locked admin frontend dependencies
+        run: npm ci
+        working-directory: FP.dev/frontend/admin-web
+
+      - name: Verify OpenAPI contract, generated types, and consumers
+        run: npm run api:check
+        working-directory: FP.dev/frontend/shared
+
   frontend:
     name: Frontend (${{ matrix.app }})
     runs-on: ubuntu-latest
@@ -141,6 +182,7 @@ jobs:
     needs:
       - ai-evaluation-contract
       - backend
+      - openapi-contract
       - frontend
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -150,8 +192,10 @@ jobs:
         env:
           AI_EVAL_RESULT: ${{ needs.ai-evaluation-contract.result }}
           BACKEND_RESULT: ${{ needs.backend.result }}
+          OPENAPI_CONTRACT_RESULT: ${{ needs.openapi-contract.result }}
           FRONTEND_RESULT: ${{ needs.frontend.result }}
         run: |
           test "$AI_EVAL_RESULT" = "success"
           test "$BACKEND_RESULT" = "success"
+          test "$OPENAPI_CONTRACT_RESULT" = "success"
           test "$FRONTEND_RESULT" = "success"

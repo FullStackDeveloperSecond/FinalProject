@@ -3,6 +3,11 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "scripts": {
+    "api:export": "node ../../scripts/export-openapi.mjs",
+    "api:generate": "node ../customer-web/node_modules/openapi-typescript/bin/cli.js ../../contracts/openapi.v1.json -o src/api/generated/schema.d.ts",
+    "api:check": "npm run api:export && npm run api:generate && npm --prefix ../customer-web run typecheck && npm --prefix ../admin-web run typecheck && git diff --exit-code -- ../../contracts/openapi.v1.json src/api/generated/schema.d.ts"
+  },
   "exports": {
     "./api": "./src/api/index.ts",
     "./components": "./src/components/index.ts",
