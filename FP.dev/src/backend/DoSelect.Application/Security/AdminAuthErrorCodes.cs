@@ -15,4 +15,7 @@ public static class AdminAuthErrorCodes
 
     /// <summary>⚠ 新增：帳密正確但尚未綁定 TOTP，必須先完成綁定流程。</summary>
     public const string EnrollmentRequired = "admin_two_factor_enrollment_required";
+
+    /// <summary>⚠ 新增：2FA 挑戰嘗試次數超過門檻，challenge 已被強制失效。</summary>
+    public const string ChallengeRateLimited = "admin_challenge_rate_limited";
 }

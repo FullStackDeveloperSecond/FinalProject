@@ -1,6 +1,4 @@
 using DoSelect.Application.Security;
-using DoSelect.Infrastructure.Persistence.Identity;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace DoSelect.Infrastructure.Security;
@@ -11,16 +9,15 @@ public static class AdminAuthServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
 
-        // AddDefaultTokenProviders()（TOTP／Recovery Code 驗證所需）只在 ASP.NET Core 共用框架
-        // 組件內，刻意不放在 AddDoSelectPersistence（純單元測試專案也會呼叫那個方法）。
-        // 這裡用同一個 IServiceCollection 重新包一個 IdentityBuilder 補註冊，
-        // 不會重覆 AddIdentityCore／AddEntityFrameworkStores。
-        new IdentityBuilder(typeof(ApplicationUser), typeof(IdentityRole), services)
-            .AddDefaultTokenProviders();
+        // AddDefaultTokenProviders()（TOTP／Recovery Code 驗證所需）現在已由
+        // PersistenceServiceCollectionExtensions.AddDoSelectPersistence 註冊（PR #27 後併入），
+        // 這裡不必再補一個 IdentityBuilder 重複呼叫。
 
         services.AddSingleton(TimeProvider.System);
         services.AddScoped<IAdminAuthGateway, IdentityAdminAuthGateway>();
         services.AddSingleton<ITotpQrCodeGenerator, QrCodeGenerator>();
+        services.AddScoped<IAdminSecurityAuditWriter, EfAdminSecurityAuditWriter>();
+        services.AddSingleton<IAdminChallengeRateLimiter, AdminChallengeRateLimiter>();
         services.AddScoped<AdminLoginUseCase>();
         services.AddScoped<AdminTwoFactorUseCase>();
 

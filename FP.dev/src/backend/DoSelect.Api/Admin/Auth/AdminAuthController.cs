@@ -2,12 +2,13 @@ using System.Security.Claims;
 using DoSelect.Api.Common;
 using DoSelect.Api.Security;
 using DoSelect.Application.Security;
+using DoSelect.Domain.Security;
+using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Options;
 
 namespace DoSelect.Api.Admin.Auth;
 
@@ -21,8 +22,10 @@ public sealed class AdminAuthController(
     AdminLoginUseCase loginUseCase,
     AdminTwoFactorUseCase twoFactorUseCase,
     IAdminAuthGateway authGateway,
+    IAdminSecurityAuditWriter auditWriter,
+    IAdminChallengeRateLimiter rateLimiter,
+    DoSelectDbContext dbContext,
     UserManager<ApplicationUser> userManager,
-    IOptions<IdentityOptions> identityOptions,
     TimeProvider timeProvider,
     ILogger<AdminAuthController> logger) : ControllerBase
 {
@@ -99,7 +102,12 @@ public sealed class AdminAuthController(
                 HttpContext, StatusCodes.Status400BadRequest, AdminAuthErrorCodes.ChallengeInvalid));
         }
 
-        var result = await twoFactorUseCase.VerifyTotpAsync(challenge, request.Code, cancellationToken);
+        if (!TryAcquireChallengeAttempt(challenge))
+        {
+            return await RejectChallengeRateLimitedAsync(challenge, cancellationToken);
+        }
+
+        var result = await twoFactorUseCase.VerifyTotpAsync(challenge.UserId, request.Code, cancellationToken);
         if (!result.IsSuccess)
         {
             return BadRequest(ApiProblemDetailsFactory.Create(
@@ -124,11 +132,41 @@ public sealed class AdminAuthController(
                 HttpContext, StatusCodes.Status400BadRequest, AdminAuthErrorCodes.ChallengeInvalid));
         }
 
-        var result = await twoFactorUseCase.RedeemRecoveryCodeAsync(challenge, request.Code, cancellationToken);
+        if (!TryAcquireChallengeAttempt(challenge))
+        {
+            return await RejectChallengeRateLimitedAsync(challenge, cancellationToken);
+        }
+
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+        var result = await twoFactorUseCase.RedeemRecoveryCodeAsync(challenge.UserId, request.Code, cancellationToken);
         if (!result.IsSuccess)
         {
+            await transaction.RollbackAsync(cancellationToken);
             return BadRequest(ApiProblemDetailsFactory.Create(
                 HttpContext, StatusCodes.Status400BadRequest, result.ErrorCode!));
+        }
+
+        await auditWriter.WriteAsync(
+            new AdminSecurityAuditEvent(
+                AdminSecurityAuditEventType.RecoveryCodeRedeemed,
+                challenge.UserId,
+                GetClientIpAddress(),
+                null,
+                timeProvider.GetUtcNow()),
+            cancellationToken);
+
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch
+        {
+            // 稽核寫入失敗：Recovery Code 兌換（已在 UserManager 內部隨這個交易 SaveChanges）
+            // 一併回滾，不留下「兌換成功但沒有稽核」的狀態（alex review P1#5）。
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
         }
 
         var authResult = await CompleteAdminSignInAsync(result.User!);
@@ -150,7 +188,7 @@ public sealed class AdminAuthController(
                 HttpContext, StatusCodes.Status400BadRequest, AdminAuthErrorCodes.ChallengeInvalid));
         }
 
-        var begin = await twoFactorUseCase.BeginEnrollmentAsync(challenge, cancellationToken);
+        var begin = await twoFactorUseCase.BeginEnrollmentAsync(challenge.UserId, cancellationToken);
         return Ok(new TotpEnrollBeginResponseDto(begin.SecretKey, begin.OtpAuthUri, begin.QrCodeDataUri));
     }
 
@@ -169,7 +207,12 @@ public sealed class AdminAuthController(
                 HttpContext, StatusCodes.Status400BadRequest, AdminAuthErrorCodes.ChallengeInvalid));
         }
 
-        var result = await twoFactorUseCase.ConfirmEnrollmentAsync(challenge, request.Code, cancellationToken);
+        if (!TryAcquireChallengeAttempt(challenge))
+        {
+            return await RejectChallengeRateLimitedAsync(challenge, cancellationToken);
+        }
+
+        var result = await twoFactorUseCase.ConfirmEnrollmentAsync(challenge.UserId, request.Code, cancellationToken);
         if (!result.IsSuccess)
         {
             return BadRequest(ApiProblemDetailsFactory.Create(
@@ -197,8 +240,9 @@ public sealed class AdminAuthController(
     /// <summary>
     /// 驗證新裝置算出的碼、重新產生 Recovery Code，接著 bump SecurityStamp 撤銷所有
     /// 其他既有 Session，並用新 Stamp 重新簽發「這個」請求所在的 Session（不會把自己登出）。
-    /// 目前沒有 AuditLogs 資料表（⚠ 待 alex 確認是否需要正式 Audit 機制），先用結構化
-    /// Log 記錄這次異動。
+    /// 秘鑰提升、SecurityStamp 變更與稽核紀錄都在同一個交易內，任何一步失敗都整個回滾，
+    /// 不會出現「Session 已撤銷但沒有稽核」或「稽核寫了但 Stamp 沒真的更新」的半成功狀態
+    /// （alex review P1#5）。
     /// </summary>
     [HttpPost("totp/rebind/confirm")]
     [Authorize(Policy = DoSelectPolicies.Admin)]
@@ -208,17 +252,68 @@ public sealed class AdminAuthController(
         [FromBody] TotpRebindConfirmRequest request, CancellationToken cancellationToken)
     {
         var userId = RequireCurrentAdminUserId();
+
+        // Rebind 不是 Challenge Cookie 流程（已是完整登入的管理員），沒有 challengeId 可用，
+        // 固定用 "rebind" 當作 challengeKey——限流仍依 IP＋帳號組合生效（alex review P1#3）。
+        if (!rateLimiter.TryAcquire(GetClientIpAddress(), "rebind", userId))
+        {
+            await WriteAuditAsync(
+                AdminSecurityAuditEventType.ChallengeInvalidatedRateLimit, userId, "rebind/confirm", cancellationToken);
+
+            return StatusCode(
+                StatusCodes.Status429TooManyRequests,
+                ApiProblemDetailsFactory.Create(
+                    HttpContext, StatusCodes.Status429TooManyRequests, AdminAuthErrorCodes.ChallengeRateLimited));
+        }
+
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+
         var result = await twoFactorUseCase.ConfirmRebindAsync(userId, request.Code, cancellationToken);
         if (!result.IsSuccess)
         {
+            // Rollback 也復原了 ConfirmRebindAsync 內把待確認秘鑰提升為正式 key 的動作——
+            // 舊裝置的 authenticator key 維持有效（見 IdentityAdminAuthGateway 的實作說明）。
+            await transaction.RollbackAsync(cancellationToken);
+            await WriteAuditAsync(
+                AdminSecurityAuditEventType.RebindFailed, userId, result.ErrorCode, cancellationToken);
             return BadRequest(ApiProblemDetailsFactory.Create(
                 HttpContext, StatusCodes.Status400BadRequest, result.ErrorCode!));
         }
 
         var applicationUser = await userManager.FindByIdAsync(userId);
-        if (applicationUser is not null)
+        if (applicationUser is null)
         {
-            await userManager.UpdateSecurityStampAsync(applicationUser);
+            await transaction.RollbackAsync(cancellationToken);
+            return BadRequest(ApiProblemDetailsFactory.Create(
+                HttpContext, StatusCodes.Status400BadRequest, AdminAuthErrorCodes.TwoFactorInvalid));
+        }
+
+        var stampResult = await userManager.UpdateSecurityStampAsync(applicationUser);
+        if (!stampResult.Succeeded)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return BadRequest(ApiProblemDetailsFactory.Create(
+                HttpContext, StatusCodes.Status400BadRequest, AdminAuthErrorCodes.TwoFactorInvalid));
+        }
+
+        await auditWriter.WriteAsync(
+            new AdminSecurityAuditEvent(
+                AdminSecurityAuditEventType.RebindConfirmed,
+                userId,
+                GetClientIpAddress(),
+                null,
+                timeProvider.GetUtcNow()),
+            cancellationToken);
+
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
         }
 
         logger.LogWarning(
@@ -229,18 +324,40 @@ public sealed class AdminAuthController(
         return Ok(new TotpEnrollConfirmResponseDto(result.RecoveryCodes!, ToCurrentUserDto(result.User!), authResult));
     }
 
+    /// <summary>單筆稽核寫入＋SaveChanges，用在不需要跟其他變更同一交易的場景（例如失敗紀錄）。</summary>
+    private async Task WriteAuditAsync(
+        AdminSecurityAuditEventType eventType, string? userId, string? detail, CancellationToken cancellationToken)
+    {
+        await auditWriter.WriteAsync(
+            new AdminSecurityAuditEvent(eventType, userId, GetClientIpAddress(), detail, timeProvider.GetUtcNow()),
+            cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
     /// <summary>`[Authorize(Policy = DoSelectPolicies.Admin)]` 已保證 User 是完整登入的管理員。</summary>
     private string RequireCurrentAdminUserId() =>
         User.FindFirstValue(ClaimTypes.NameIdentifier)
         ?? throw new InvalidOperationException("The authenticated admin principal has no NameIdentifier claim.");
 
-    /// <summary>密碼驗證成功後簽發短效 AdminChallenge Cookie，代表「密碼已驗證、2FA 尚未完成」。</summary>
+    /// <summary>
+    /// 密碼驗證成功後簽發短效 AdminChallenge Cookie，代表「密碼已驗證、2FA 尚未完成」。
+    /// 同時嵌入當下的 SecurityStamp——若這段期間管理員在別處被停權、被撤銷 Session 或
+    /// 完成另一次 Rebind，Stamp 會變動，讓進行中的 challenge 自動失效（見
+    /// RequireChallengeAsync；沿用 Admin Cookie 已驗證過的同一套撤銷機制，alex review P1#4）。
+    /// </summary>
     private async Task SignInChallengeAsync(string userId, string challengeKind, Guid challengePublicId)
     {
         var identity = new ClaimsIdentity(DoSelectAuthenticationSchemes.AdminChallenge);
         identity.AddClaim(new Claim(ClaimTypes.NameIdentifier, userId));
         identity.AddClaim(new Claim(DoSelectClaimTypes.ChallengeKind, challengeKind));
         identity.AddClaim(new Claim(DoSelectClaimTypes.ChallengeId, challengePublicId.ToString()));
+
+        var applicationUser = await userManager.FindByIdAsync(userId);
+        var securityStamp = applicationUser is null ? null : await userManager.GetSecurityStampAsync(applicationUser);
+        if (!string.IsNullOrEmpty(securityStamp))
+        {
+            identity.AddClaim(new Claim(DoSelectClaimTypes.SecurityStamp, securityStamp));
+        }
 
         await HttpContext.SignInAsync(
             DoSelectAuthenticationSchemes.AdminChallenge,
@@ -262,7 +379,7 @@ public sealed class AdminAuthController(
     /// 驗證通過，實際授權改用這裡的 challengePublicId 比對——這組值只在登入回應中
     /// 揭露過一次，等同專屬於這次挑戰的防偽金鑰，安全性不因此下降。
     /// </remarks>
-    private async Task<string?> RequireChallengeAsync(string expectedKind, Guid challengePublicId)
+    private async Task<AdminChallengeContext?> RequireChallengeAsync(string expectedKind, Guid challengePublicId)
     {
         var challengeAuth = await HttpContext.AuthenticateAsync(DoSelectAuthenticationSchemes.AdminChallenge);
         if (!challengeAuth.Succeeded || challengeAuth.Principal is null)
@@ -274,6 +391,7 @@ public sealed class AdminAuthController(
         var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
         var kind = principal.FindFirstValue(DoSelectClaimTypes.ChallengeKind);
         var idClaim = principal.FindFirstValue(DoSelectClaimTypes.ChallengeId);
+        var stampClaim = principal.FindFirstValue(DoSelectClaimTypes.SecurityStamp);
 
         if (string.IsNullOrEmpty(userId) ||
             !string.Equals(kind, expectedKind, StringComparison.Ordinal) ||
@@ -283,7 +401,51 @@ public sealed class AdminAuthController(
             return null;
         }
 
-        return userId;
+        // ⚠ 沒有 SecurityStamp claim 就略過檢查而不拒絕——理由跟 Admin Cookie 的
+        // OnValidatePrincipal 一致：只是為了跟舊測試簽發相容，本次登入流程一定會設這個
+        // claim（見上方 SignInChallengeAsync），撤銷檢查仍會生效。
+        if (!string.IsNullOrEmpty(stampClaim))
+        {
+            var applicationUser = await userManager.FindByIdAsync(userId);
+            var currentStamp = applicationUser is null
+                ? null
+                : await userManager.GetSecurityStampAsync(applicationUser);
+            if (applicationUser is null || !string.Equals(stampClaim, currentStamp, StringComparison.Ordinal))
+            {
+                return null;
+            }
+        }
+
+        return new AdminChallengeContext(userId, challengeId);
+    }
+
+    /// <summary>解出的 AdminChallenge 內容：使用者 Id 與這次挑戰的公開識別碼。</summary>
+    private sealed record AdminChallengeContext(string UserId, Guid ChallengeId);
+
+    private string GetClientIpAddress() => HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+    /// <summary>
+    /// 消耗一次 2FA 挑戰嘗試配額（alex review P1#3）。回傳 false 代表已超過門檻，
+    /// 呼叫端應改呼叫 <see cref="RejectChallengeRateLimitedAsync"/>。
+    /// </summary>
+    private bool TryAcquireChallengeAttempt(AdminChallengeContext challenge) =>
+        rateLimiter.TryAcquire(GetClientIpAddress(), challenge.ChallengeId.ToString(), challenge.UserId);
+
+    /// <summary>超過嘗試上限：簽出 AdminChallenge（讓 challenge 立即失效）、寫入稽核、回 429。</summary>
+    private async Task<IActionResult> RejectChallengeRateLimitedAsync(
+        AdminChallengeContext challenge, CancellationToken cancellationToken)
+    {
+        await HttpContext.SignOutAsync(DoSelectAuthenticationSchemes.AdminChallenge);
+        await WriteAuditAsync(
+            AdminSecurityAuditEventType.ChallengeInvalidatedRateLimit,
+            challenge.UserId,
+            $"challengeId={challenge.ChallengeId}",
+            cancellationToken);
+
+        return StatusCode(
+            StatusCodes.Status429TooManyRequests,
+            ApiProblemDetailsFactory.Create(
+                HttpContext, StatusCodes.Status429TooManyRequests, AdminAuthErrorCodes.ChallengeRateLimited));
     }
 
     /// <summary>2FA 完成後：簽出 AdminChallenge、簽入完整 Admin Cookie，回傳實際到期時間。</summary>
@@ -313,8 +475,7 @@ public sealed class AdminAuthController(
             : await userManager.GetSecurityStampAsync(applicationUser);
         if (!string.IsNullOrEmpty(securityStamp))
         {
-            identity.AddClaim(new Claim(
-                identityOptions.Value.ClaimsIdentity.SecurityStampClaimType, securityStamp));
+            identity.AddClaim(new Claim(DoSelectClaimTypes.SecurityStamp, securityStamp));
         }
 
         foreach (var role in user.Roles)

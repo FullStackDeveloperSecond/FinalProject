@@ -1,3 +1,5 @@
+using DoSelect.Domain.Members;
+
 namespace DoSelect.Application.Security;
 
 /// <summary>TOTP 驗證或 Recovery Code 兌換的結果。</summary>
@@ -86,9 +88,17 @@ public sealed class AdminTwoFactorUseCase
         }
 
         var user = await _gateway.FindAdminByIdAsync(userId, cancellationToken);
-        return user is null
-            ? AdminTwoFactorResult.Failure(AdminAuthErrorCodes.TwoFactorInvalid)
-            : AdminTwoFactorResult.Success(user);
+        if (user is null)
+        {
+            return AdminTwoFactorResult.Failure(AdminAuthErrorCodes.TwoFactorInvalid);
+        }
+
+        // ⚠ 重新驗證管理員資格：密碼驗證通過到完成 2FA 之間，帳號可能已被停權或移除
+        // 管理員資格。沒有這個檢查，被停權的帳號仍能完成 2FA 取得新 Session（alex review
+        // P1#4）。
+        return IsEligible(user)
+            ? AdminTwoFactorResult.Success(user)
+            : AdminTwoFactorResult.Failure(AdminAuthErrorCodes.AccountSuspended);
     }
 
     public async Task<AdminTwoFactorResult> RedeemRecoveryCodeAsync(
@@ -105,9 +115,14 @@ public sealed class AdminTwoFactorUseCase
         }
 
         var user = await _gateway.FindAdminByIdAsync(userId, cancellationToken);
-        return user is null
-            ? AdminTwoFactorResult.Failure(AdminAuthErrorCodes.RecoveryCodeInvalid)
-            : AdminTwoFactorResult.Success(user);
+        if (user is null)
+        {
+            return AdminTwoFactorResult.Failure(AdminAuthErrorCodes.RecoveryCodeInvalid);
+        }
+
+        return IsEligible(user)
+            ? AdminTwoFactorResult.Success(user)
+            : AdminTwoFactorResult.Failure(AdminAuthErrorCodes.AccountSuspended);
     }
 
     public async Task<AdminEnrollmentBeginResult> BeginEnrollmentAsync(
@@ -136,9 +151,14 @@ public sealed class AdminTwoFactorUseCase
             userId, RecoveryCodeCount, cancellationToken);
 
         var user = await _gateway.FindAdminByIdAsync(userId, cancellationToken);
-        return user is null
-            ? AdminEnrollmentConfirmResult.Failure(AdminAuthErrorCodes.TwoFactorInvalid)
-            : AdminEnrollmentConfirmResult.Success(user, recoveryCodes);
+        if (user is null)
+        {
+            return AdminEnrollmentConfirmResult.Failure(AdminAuthErrorCodes.TwoFactorInvalid);
+        }
+
+        return IsEligible(user)
+            ? AdminEnrollmentConfirmResult.Success(user, recoveryCodes)
+            : AdminEnrollmentConfirmResult.Failure(AdminAuthErrorCodes.AccountSuspended);
     }
 
     /// <summary>
@@ -178,8 +198,21 @@ public sealed class AdminTwoFactorUseCase
             userId, RecoveryCodeCount, cancellationToken);
 
         var user = await _gateway.FindAdminByIdAsync(userId, cancellationToken);
-        return user is null
-            ? AdminEnrollmentConfirmResult.Failure(AdminAuthErrorCodes.TwoFactorInvalid)
-            : AdminEnrollmentConfirmResult.Success(user, recoveryCodes);
+        if (user is null)
+        {
+            return AdminEnrollmentConfirmResult.Failure(AdminAuthErrorCodes.TwoFactorInvalid);
+        }
+
+        return IsEligible(user)
+            ? AdminEnrollmentConfirmResult.Success(user, recoveryCodes)
+            : AdminEnrollmentConfirmResult.Failure(AdminAuthErrorCodes.AccountSuspended);
     }
+
+    /// <summary>
+    /// 密碼驗證通過後到完成 2FA 之間，帳號可能已被停權或移除管理員資格；這裡用跟登入
+    /// 相同的兩個旗標重新檢查一次，避免用「舊資格」完成 2FA 取得新 Session（alex review
+    /// P1#4）。
+    /// </summary>
+    private static bool IsEligible(AdminAuthUserSnapshot user) =>
+        user.AccountStatus == AccountStatus.Active && user.IsAdminProfileActive;
 }

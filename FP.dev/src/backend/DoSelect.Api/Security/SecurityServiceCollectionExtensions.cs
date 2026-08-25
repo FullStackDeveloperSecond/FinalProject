@@ -1,5 +1,8 @@
 using DoSelect.Api.Configuration;
 using DoSelect.Application.Common;
+using DoSelect.Application.Security;
+using DoSelect.Domain.Security;
+using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -211,6 +214,21 @@ public static class SecurityServiceCollectionExtensions
 
             if (user is null || !string.Equals(stampInCookie, currentStamp, StringComparison.Ordinal))
             {
+                // 停權或 SecurityStamp 變更必須立即撤銷既有 Session；連同稽核事件一起寫入，
+                // 不自己開交易——這是單一寫入，沒有其他狀態變更需要一起 commit／rollback
+                // （alex review P1#5）。
+                var auditWriter = context.HttpContext.RequestServices
+                    .GetRequiredService<IAdminSecurityAuditWriter>();
+                var dbContext = context.HttpContext.RequestServices.GetRequiredService<DoSelectDbContext>();
+                var timeProvider = context.HttpContext.RequestServices.GetRequiredService<TimeProvider>();
+                await auditWriter.WriteAsync(new AdminSecurityAuditEvent(
+                    AdminSecurityAuditEventType.SessionsRevoked,
+                    userId,
+                    context.HttpContext.Connection.RemoteIpAddress?.ToString(),
+                    "security_stamp_mismatch",
+                    timeProvider.GetUtcNow()));
+                await dbContext.SaveChangesAsync();
+
                 context.RejectPrincipal();
                 await context.HttpContext.SignOutAsync(DoSelectAuthenticationSchemes.Admin);
             }
