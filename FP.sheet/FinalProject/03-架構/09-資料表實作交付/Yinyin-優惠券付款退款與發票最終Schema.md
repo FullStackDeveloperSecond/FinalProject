@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-19
+最後更新: 2026-08-21
 負責人: yinyin
 追蹤項目:
   - DES-19
@@ -18,6 +18,7 @@
   - DEC-P279
   - DEC-P280
   - DEC-P285
+  - DEC-P286
 ---
 
 # Yinyin｜優惠券、付款、部分退款與模擬發票最終 Schema 實作交付
@@ -371,6 +372,7 @@ COMMIT
 | PublicId | `uniqueidentifier` | NO | 應用層產生 | — | UNIQUE | 對外識別 |
 | RefundId | `bigint` | NO | — | FK → Refunds.Id | INDEX | Restrict |
 | OrderItemId | `bigint` | YES | `NULL` | 跨模組 FK → OrderItems.Id | INDEX | Restrict |
+| Quantity | `int` | YES | `NULL` | — | — | ItemRefund 的不可變核准數量快照；其他分攤必須為 Null |
 | AllocationType | `varchar(24)` | NO | — | — | INDEX | ItemRefund、DiscountClawback、ShippingClawback、OriginalShipping、ReturnShipping、AssemblyFee；OtherAdjustment 第一版禁止寫入 |
 | Amount | `decimal(18,2)` | NO | — | — | — | 此分攤金額 |
 | OriginalDiscountAllocation | `decimal(18,2)` | NO | `0` | — | — | 原始優惠分攤 |
@@ -378,6 +380,8 @@ COMMIT
 
 ### 規則
 - `Amount > 0`，不使用正負號表達方向。
+- `ItemRefund` 必須同時具有 `OrderItemId` 與 `Quantity > 0`；其他分攤類型的 `Quantity` 必須為 Null。
+- `Quantity` 在退款分攤定案時保存為不可變快照；折讓不得依金額比例、固定值或目前 `ReturnItems.Quantity` 反推。
 - 增加退款：ItemRefund、OriginalShipping、ReturnShipping、AssemblyFee。
 - 從退款扣回：DiscountClawback、ShippingClawback。
 - 增加型合計－扣回型合計 = 核准／成功退款金額；優惠追回、運費、退貨運費與組裝費必須獨立表達。
@@ -503,8 +507,8 @@ Succeeded / Failed
 - 不得因退款回寫或刪除原始發票金額與明細
 - 發票與折讓皆保留完整歷史
 - 發票固定採 5% 稅率；表頭 Gross／Net／Tax 為 TWD 整數元，例如含稅 1,000 固定保存未稅 952、稅額 48、含稅 1,000
-- 發票明細可保留兩位小數，每筆 Gross=Net+Tax 且不得為負；依 `Round(Sum(Gross))=Header.Issued`、`Round(Sum(Net))=Header.Net`、`Sum(Tax)=Header.Tax` 核對，最後一筆合法明細吸收稅額尾差
 - 折讓仍依 DEC-P280 的 5% 整數元與尾差規則；小數發票明細的部分折讓若需不同取位規則，另案裁定
+- 各明細採相同規則，最後一筆吸收尾差；明細加總必須與表頭三種金額完全相等
 
 ---
 
@@ -660,7 +664,7 @@ IdempotencyRecords
 - [x] 無 Promotions 第二套價格來源
 - [x] 無 Cart / Shipment 第二套真實來源
 - [x] 已補跨模組、Outbox、AuditLog、Idempotency 關係
-- [ ] 依 DEC-P276～P278 補入 `OrderCoupons.MinimumSpendAmount`、`OrderItems.IsCouponEligible`、`ShippingClawback` 及方向公式的 Entity／Configuration／測試與後續 Migration（DES-21）
+- [ ] 依 DEC-P276～P278、DEC-P286 補入 `OrderCoupons.MinimumSpendAmount`、`OrderItems.IsCouponEligible`、`ShippingClawback`、退款方向公式與 `RefundAllocations.Quantity` 的 Entity／Configuration／測試及後續 Migration（DES-21）
 - [ ] 依 DEC-P279～P280、DEC-P285 補齊發票 Endpoint／DTO／錯誤碼、5% 表頭整數元、明細兩位小數、付款前整數化、三條核對口徑及尾差測試（DES-22）；本文件不代表 Controller／OpenAPI 已完成
 
 ---
@@ -672,4 +676,4 @@ IdempotencyRecords
 - 跨模組只依公開 Application Query／DTO 取得 Order、Cart、Return、SKU 預付與 ShippingMethod 摘要，不共享 Repository／DbContext。
 - MutableEntity 的 `UpdatedAtUtc` 必須 NOT NULL；Append-only Entity 不得後改事件內容。
 - 本文件完成只關閉 DES-19 的「Schema 文件」缺口；建立 Migration 前仍須完成 Entity、Configuration、跨模組 FK、交易／冪等測試清單及獨立 Migration Review。
-- DEC-BATCH-014 在 Initial Migration 後補強訂單優惠快照；DES-21 完成前，現有資料庫模型不得宣稱已支援退貨後優惠門檻重算。
+- DEC-BATCH-014 與 DEC-BATCH-018 在 Initial Migration 後補強訂單優惠快照及退款數量快照；DES-21 完成前，現有資料庫模型不得宣稱已支援退貨後優惠門檻重算或依精確數量建立折讓。

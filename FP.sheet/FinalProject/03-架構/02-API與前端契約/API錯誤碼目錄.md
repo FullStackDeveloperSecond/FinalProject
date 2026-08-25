@@ -33,6 +33,7 @@
 | `resource_not_found` | 404 | 資源不存在或依安全策略不可揭露 | 不區分不存在與無權限 |
 | `concurrency_conflict` | 409 | `rowversion` 或版本已被其他人更新 | 重新載入後再操作 |
 | `idempotency_payload_conflict` | 409 | 同一 Idempotency-Key 搭配不同 Payload | 不自動重試或換 Key 重送同操作 |
+| `idempotency_request_in_progress` | 409 | 同 Scope／Operation／Key 的相同請求仍在處理 | 依 `Retry-After: 3` 等待後，以相同 Key 與 Payload 重試 |
 | `rate_limit_exceeded` | 429 | 登入、驗證、AI 或其他用途超過限制 | 顯示可安全揭露的重試時間 |
 | `request_method_not_allowed` | 405 | Route 存在但 HTTP Method 不支援 | 修正 Method，不自動重送寫入操作 |
 | `request_content_type_unsupported` | 415 | Request Content-Type 不受端點支援 | 使用 OpenAPI 宣告的媒體類型重送 |
@@ -96,7 +97,8 @@
 |---|---:|---|
 | `cart_item_requires_attention` | 409 | 價格、庫存、上下架或相容性衝突尚未處理 |
 | `cart_quantity_exceeded` | 409 | 合併或修改後超過購買上限 |
-| `cart_merge_conflict` | 409 | 購物車合併存在需使用者決定的項目 |
+| `cart_item_limit_exceeded` | 409 | 購物車已達 100 品項上限，無法再新增；合併訪客購物車時若會超過上限則整次合併被拒絕，訪客購物車維持 Active |
+| `cart_merge_conflict` | 200 | 購物車合併存在需使用者決定的個別品項衝突；合併本身仍成功，衝突項目列在回應的 `conflicts` 陣列中 |
 | `build_incomplete` | 400 | 組裝清單缺少必要零件 |
 | `build_incompatible` | 409 | 確定性規則判定零件不相容 |
 | `build_unavailable_item` | 409 | 組裝群組內必要 SKU 缺貨、下架或停用 |

@@ -1,0 +1,627 @@
+using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
+using DoSelect.Domain.Catalog;
+using Microsoft.EntityFrameworkCore;
+
+namespace DoSelect.Api.IntegrationTests.Shopping;
+
+/// <summary>
+/// HTTP-layer coverage for <c>CartController</c>: routing, the mixed guest/member identity
+/// resolution, JSON (de)serialization, and ProblemDetails status-code mapping. The equivalent
+/// business rules are already unit-tested in-process at DoSelect.Infrastructure.Tests
+/// (CartServiceTests) — this layer only proves the wiring on top of that.
+/// </summary>
+[Collection(nameof(CartApiCollection))]
+[Trait("Category", "RequiresSqlServer")]
+public sealed class CartApiTests
+{
+    private const string GuestHeaderName = "X-DoSelect-Guest-Cart-Key";
+
+    private readonly CartApiFixture _fixture;
+
+    public CartApiTests(CartApiFixture fixture) => _fixture = fixture;
+
+    [Fact]
+    public async Task GetCart_WhenGuestHeaderPresent_ReturnsOkWithEmptyCart()
+    {
+        using var client = _fixture.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/cart");
+        request.Headers.Add(GuestHeaderName, CartApiFixture.UniqueGuestKey());
+
+        using var response = await client.SendAsync(request);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(0, body.GetProperty("items").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task GetCart_WhenNoIdentityIsPresent_Returns400WithValidationFailed()
+    {
+        using var client = _fixture.CreateClient();
+
+        using var response = await client.GetAsync("/api/v1/cart");
+        var (status, code, _) = await CartApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal(400, status);
+        Assert.Equal("validation_failed", code);
+    }
+
+    [Fact]
+    public async Task AddItem_WhenSkuIsPublished_ReturnsOkWithTheItem()
+    {
+        using var client = _fixture.CreateClient();
+        var guestKey = CartApiFixture.UniqueGuestKey();
+        Sku sku;
+        await using (var context = _fixture.CreateScopedContext())
+        {
+            sku = await CartApiSeeding.CreatePublishedSkuAsync(context, listPrice: 1500m);
+        }
+
+        using var response = await PostAddItemAsync(client, guestKey, sku.PublicId, quantity: 3);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var item = Assert.Single(body.GetProperty("items").EnumerateArray());
+        Assert.Equal(sku.PublicId, item.GetProperty("skuPublicId").GetGuid());
+        Assert.Equal(3, item.GetProperty("quantity").GetInt32());
+        Assert.Equal(1500m, item.GetProperty("unitPrice").GetDecimal());
+    }
+
+    [Fact]
+    public async Task AddItem_WhenSkuDoesNotExist_Returns404WithResourceNotFound()
+    {
+        using var client = _fixture.CreateClient();
+        var guestKey = CartApiFixture.UniqueGuestKey();
+
+        using var response = await PostAddItemAsync(client, guestKey, Guid.NewGuid(), quantity: 1);
+        var (status, code, _) = await CartApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal(404, status);
+        Assert.Equal("resource_not_found", code);
+    }
+
+    /// <summary>PR #28 review: Quantity had no request-boundary validation, so an out-of-range value reached the Domain layer's ArgumentOutOfRangeException unmapped (500).</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(100)]
+    public async Task AddItem_WhenQuantityIsOutsideOneToNinetyNine_Returns400WithValidationFailed(int quantity)
+    {
+        using var client = _fixture.CreateClient();
+        var guestKey = CartApiFixture.UniqueGuestKey();
+        Sku sku;
+        await using (var context = _fixture.CreateScopedContext())
+        {
+            sku = await CartApiSeeding.CreatePublishedSkuAsync(context);
+        }
+
+        using var response = await PostAddItemAsync(client, guestKey, sku.PublicId, quantity);
+        var (status, code, _) = await CartApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal(400, status);
+        Assert.Equal("validation_failed", code);
+    }
+
+    [Fact]
+    public async Task AddItem_WhenSkuIsNotPublished_Returns409WithSkuUnavailable()
+    {
+        using var client = _fixture.CreateClient();
+        var guestKey = CartApiFixture.UniqueGuestKey();
+        Sku sku;
+        await using (var context = _fixture.CreateScopedContext())
+        {
+            sku = await CartApiSeeding.CreatePublishedSkuAsync(context, listPrice: 100m);
+            sku.ChangeStatus(SkuStatus.Unpublished, DateTime.UtcNow);
+            await context.SaveChangesAsync();
+        }
+
+        using var response = await PostAddItemAsync(client, guestKey, sku.PublicId, quantity: 1);
+        var (status, code, _) = await CartApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal(409, status);
+        Assert.Equal("sku_unavailable", code);
+    }
+
+    /// <summary>PR #28 review: cart_item_limit_exceeded is now formally registered as 409 (API錯誤碼目錄.md) — proves the wiring, business logic is covered at CartServiceTests.</summary>
+    [Fact]
+    public async Task AddItem_WhenCartAlreadyHasOneHundredItems_Returns409WithCartItemLimitExceeded()
+    {
+        using var client = _fixture.CreateClient();
+        var guestKey = CartApiFixture.UniqueGuestKey();
+        Sku sku;
+        await using (var context = _fixture.CreateScopedContext())
+        {
+            sku = await CartApiSeeding.CreatePublishedSkuAsync(context, listPrice: 100m);
+        }
+
+        using var firstAddResponse = await PostAddItemAsync(client, guestKey, sku.PublicId, quantity: 1);
+        firstAddResponse.EnsureSuccessStatusCode();
+        var firstAddBody = await firstAddResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var cartId = firstAddBody.GetProperty("publicId").GetGuid();
+
+        await using (var context = _fixture.CreateScopedContext())
+        {
+            var dbCartId = await context.Carts.Where(c => c.PublicId == cartId).Select(c => c.Id).SingleAsync();
+            var now = DateTime.UtcNow;
+            for (var i = 0; i < 99; i++)
+            {
+                context.CartItems.Add(new DoSelect.Domain.Shopping.CartItem(
+                    Guid.CreateVersion7(), dbCartId, sku.Id, 1, Guid.CreateVersion7(), now));
+            }
+
+            await context.SaveChangesAsync();
+        }
+
+        Sku otherSku;
+        await using (var context = _fixture.CreateScopedContext())
+        {
+            otherSku = await CartApiSeeding.CreatePublishedSkuAsync(context, listPrice: 50m);
+        }
+
+        using var response = await PostAddItemAsync(client, guestKey, otherSku.PublicId, quantity: 1);
+        var (status, code, _) = await CartApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal(409, status);
+        Assert.Equal("cart_item_limit_exceeded", code);
+    }
+
+    [Fact]
+    public async Task UpdateItemQuantity_WhenSuccessful_ReturnsOkWithNewQuantityAndRowVersion()
+    {
+        using var client = _fixture.CreateClient();
+        var guestKey = CartApiFixture.UniqueGuestKey();
+        Sku sku;
+        await using (var context = _fixture.CreateScopedContext())
+        {
+            sku = await CartApiSeeding.CreatePublishedSkuAsync(context);
+        }
+
+        using var addResponse = await PostAddItemAsync(client, guestKey, sku.PublicId, quantity: 1);
+        var addBody = await addResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var item = addBody.GetProperty("items")[0];
+        var itemPublicId = item.GetProperty("publicId").GetGuid();
+        var itemRowVersion = item.GetProperty("rowVersion").GetString();
+        var cartRowVersion = addBody.GetProperty("rowVersion").GetString();
+
+        using var updateRequest = new HttpRequestMessage(HttpMethod.Patch, $"/api/v1/cart/items/{itemPublicId}")
+        {
+            Content = JsonContent.Create(new { quantity = 5, itemRowVersion, cartRowVersion }),
+        };
+        updateRequest.Headers.Add(GuestHeaderName, guestKey);
+        using var updateResponse = await SendWithAntiforgeryAsync(client, updateRequest);
+        var updateBody = await updateResponse.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
+        var updatedItem = updateBody.GetProperty("items")[0];
+        Assert.Equal(5, updatedItem.GetProperty("quantity").GetInt32());
+        Assert.NotEqual(itemRowVersion, updatedItem.GetProperty("rowVersion").GetString());
+    }
+
+    [Fact]
+    public async Task UpdateItemQuantity_WhenRowVersionIsStale_Returns409WithConcurrencyConflict()
+    {
+        using var client = _fixture.CreateClient();
+        var guestKey = CartApiFixture.UniqueGuestKey();
+        Sku sku;
+        await using (var context = _fixture.CreateScopedContext())
+        {
+            sku = await CartApiSeeding.CreatePublishedSkuAsync(context);
+        }
+
+        using var addResponse = await PostAddItemAsync(client, guestKey, sku.PublicId, quantity: 1);
+        var addBody = await addResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var item = addBody.GetProperty("items")[0];
+        var itemPublicId = item.GetProperty("publicId").GetGuid();
+        var staleItemRowVersion = item.GetProperty("rowVersion").GetString();
+        var staleCartRowVersion = addBody.GetProperty("rowVersion").GetString();
+
+        using var firstUpdate = await SendWithAntiforgeryAsync(client, GuestPatch(guestKey, itemPublicId, 2, staleItemRowVersion, staleCartRowVersion));
+        firstUpdate.EnsureSuccessStatusCode();
+
+        using var response = await SendWithAntiforgeryAsync(client, GuestPatch(guestKey, itemPublicId, 3, staleItemRowVersion, staleCartRowVersion));
+        var (status, code, _) = await CartApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal(409, status);
+        Assert.Equal("concurrency_conflict", code);
+    }
+
+    [Fact]
+    public async Task RemoveItem_WhenSuccessful_ReturnsOkWithEmptyCart()
+    {
+        using var client = _fixture.CreateClient();
+        var guestKey = CartApiFixture.UniqueGuestKey();
+        Sku sku;
+        await using (var context = _fixture.CreateScopedContext())
+        {
+            sku = await CartApiSeeding.CreatePublishedSkuAsync(context);
+        }
+
+        using var addResponse = await PostAddItemAsync(client, guestKey, sku.PublicId, quantity: 1);
+        var addBody = await addResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var item = addBody.GetProperty("items")[0];
+        var itemPublicId = item.GetProperty("publicId").GetGuid();
+        var itemRowVersion = item.GetProperty("rowVersion").GetString();
+
+        using var deleteRequest = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/cart/items/{itemPublicId}")
+        {
+            Content = JsonContent.Create(new { itemRowVersion }),
+        };
+        deleteRequest.Headers.Add(GuestHeaderName, guestKey);
+        using var response = await SendWithAntiforgeryAsync(client, deleteRequest);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(0, body.GetProperty("items").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task AddItem_WithAuthenticatedMember_IsScopedToTheMemberNotAGuestKey()
+    {
+        using var client = await _fixture.CreateAuthenticatedMemberClientAsync();
+        Sku sku;
+        await using (var context = _fixture.CreateScopedContext())
+        {
+            sku = await CartApiSeeding.CreatePublishedSkuAsync(context);
+        }
+
+        using var addRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/cart/items")
+        {
+            Content = JsonContent.Create(new { skuPublicId = sku.PublicId, quantity = 1, cartRowVersion = (string?)null }),
+        };
+        using var addResponse = await CartApiFixture.SendWithAntiforgeryAsync(client, addRequest);
+        addResponse.EnsureSuccessStatusCode();
+
+        using var getResponse = await client.GetAsync("/api/v1/cart");
+        var body = await getResponse.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
+        Assert.Equal(1, body.GetProperty("items").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task Revalidate_WhenSkuBecomesUnpublished_ReturnsAnIssueAndBlocksCheckout()
+    {
+        using var client = _fixture.CreateClient();
+        var guestKey = CartApiFixture.UniqueGuestKey();
+        Sku sku;
+        await using (var context = _fixture.CreateScopedContext())
+        {
+            sku = await CartApiSeeding.CreatePublishedSkuAsync(context);
+        }
+
+        using var addResponse = await PostAddItemAsync(client, guestKey, sku.PublicId, quantity: 1);
+        addResponse.EnsureSuccessStatusCode();
+
+        await using (var context = _fixture.CreateScopedContext())
+        {
+            var tracked = await context.Skus.FindAsync(sku.Id);
+            tracked!.ChangeStatus(SkuStatus.Unpublished, DateTime.UtcNow);
+            await context.SaveChangesAsync();
+        }
+
+        using var revalidateRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/cart/actions/revalidate");
+        revalidateRequest.Headers.Add(GuestHeaderName, guestKey);
+        using var response = await SendWithAntiforgeryAsync(client, revalidateRequest);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.False(body.GetProperty("isCheckoutReady").GetBoolean());
+        Assert.True(body.GetProperty("issues").GetArrayLength() >= 1);
+    }
+
+    private static Task<HttpResponseMessage> PostAddItemAsync(
+        HttpClient client,
+        string guestKey,
+        Guid skuPublicId,
+        int quantity)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/cart/items")
+        {
+            Content = JsonContent.Create(new { skuPublicId, quantity, cartRowVersion = (string?)null }),
+        };
+        request.Headers.Add(GuestHeaderName, guestKey);
+        return SendWithAntiforgeryAsync(client, request);
+    }
+
+    private static HttpRequestMessage GuestPatch(
+        string guestKey,
+        Guid itemPublicId,
+        int quantity,
+        string? itemRowVersion,
+        string? cartRowVersion)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Patch, $"/api/v1/cart/items/{itemPublicId}")
+        {
+            Content = JsonContent.Create(new { quantity, itemRowVersion, cartRowVersion }),
+        };
+        request.Headers.Add(GuestHeaderName, guestKey);
+        return request;
+    }
+
+    private static Task<HttpResponseMessage> SendWithAntiforgeryAsync(HttpClient client, HttpRequestMessage request) =>
+        CartApiFixture.SendWithAntiforgeryAsync(client, request);
+
+    [Fact]
+    public async Task Merge_WhenAuthenticatedMember_CombinesGuestAndMemberQuantities()
+    {
+        using var guestClient = _fixture.CreateClient();
+        var guestKey = CartApiFixture.UniqueGuestKey();
+        Sku sku;
+        await using (var context = _fixture.CreateScopedContext())
+        {
+            sku = await CartApiSeeding.CreatePublishedSkuAsync(context);
+        }
+
+        using var guestAddResponse = await PostAddItemAsync(guestClient, guestKey, sku.PublicId, quantity: 2);
+        guestAddResponse.EnsureSuccessStatusCode();
+
+        using var memberClient = await _fixture.CreateAuthenticatedMemberClientAsync();
+        using var memberAddRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/cart/items")
+        {
+            Content = JsonContent.Create(new { skuPublicId = sku.PublicId, quantity = 3, cartRowVersion = (string?)null }),
+        };
+        using var memberAddResponse = await CartApiFixture.SendWithAntiforgeryAsync(memberClient, memberAddRequest);
+        memberAddResponse.EnsureSuccessStatusCode();
+
+        using var mergeRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/cart/actions/merge")
+        {
+            Content = JsonContent.Create(new { guestCartKey = guestKey, strategy = "mergeAndReportConflicts", idempotencyKey = "test-merge-key" }),
+        };
+        using var mergeResponse = await CartApiFixture.SendWithAntiforgeryAsync(memberClient, mergeRequest);
+        var body = await mergeResponse.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(HttpStatusCode.OK, mergeResponse.StatusCode);
+        var item = Assert.Single(body.GetProperty("cart").GetProperty("items").EnumerateArray());
+        Assert.Equal(5, item.GetProperty("quantity").GetInt32());
+        Assert.Equal(0, body.GetProperty("conflicts").GetArrayLength());
+    }
+
+    /// <summary>PR #28 review: guestCartKey (32..256) and idempotencyKey (8..128) had no length validation at the request boundary.</summary>
+    [Theory]
+    [InlineData("too-short", "a-valid-idempotency-key")]
+    [InlineData("a-guest-cart-key-that-is-long-enough-to-pass-the-32-char-floor", "short")]
+    public async Task Merge_WhenGuestKeyOrIdempotencyKeyIsTooShort_Returns400WithValidationFailed(
+        string guestCartKey, string idempotencyKey)
+    {
+        using var memberClient = await _fixture.CreateAuthenticatedMemberClientAsync();
+
+        using var mergeRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/cart/actions/merge")
+        {
+            Content = JsonContent.Create(new { guestCartKey, strategy = "mergeAndReportConflicts", idempotencyKey }),
+        };
+        using var response = await CartApiFixture.SendWithAntiforgeryAsync(memberClient, mergeRequest);
+        var (status, code, _) = await CartApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal(400, status);
+        Assert.Equal("validation_failed", code);
+    }
+
+    [Fact]
+    public async Task Merge_WhenNotAuthenticated_Returns401()
+    {
+        using var client = _fixture.CreateClient();
+
+        using var mergeRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/cart/actions/merge")
+        {
+            Content = JsonContent.Create(new { guestCartKey = CartApiFixture.UniqueGuestKey(), strategy = "mergeAndReportConflicts", idempotencyKey = "test-merge-key" }),
+        };
+        using var response = await client.SendAsync(mergeRequest);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Merge_WhenGuestCartDoesNotExist_ReturnsOkAsANoOp()
+    {
+        using var memberClient = await _fixture.CreateAuthenticatedMemberClientAsync();
+
+        using var mergeRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/cart/actions/merge")
+        {
+            Content = JsonContent.Create(new { guestCartKey = CartApiFixture.UniqueGuestKey(), strategy = "mergeAndReportConflicts", idempotencyKey = "test-merge-key" }),
+        };
+        using var response = await CartApiFixture.SendWithAntiforgeryAsync(memberClient, mergeRequest);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(0, body.GetProperty("cart").GetProperty("items").GetArrayLength());
+        Assert.Equal(0, body.GetProperty("conflicts").GetArrayLength());
+    }
+
+    /// <summary>PR #28 review item 1/6: the shared IIdempotencyExecutor, exercised end-to-end over HTTP — a replayed merge must return the original result, not re-run the merge.</summary>
+    [Fact]
+    public async Task Merge_WhenReplayedWithTheSameIdempotencyKeyAndPayload_ReturnsTheCachedResult()
+    {
+        using var guestClient = _fixture.CreateClient();
+        var guestKey = CartApiFixture.UniqueGuestKey();
+        Sku sku;
+        await using (var context = _fixture.CreateScopedContext())
+        {
+            sku = await CartApiSeeding.CreatePublishedSkuAsync(context);
+        }
+
+        using var guestAddResponse = await PostAddItemAsync(guestClient, guestKey, sku.PublicId, quantity: 2);
+        guestAddResponse.EnsureSuccessStatusCode();
+
+        using var memberClient = await _fixture.CreateAuthenticatedMemberClientAsync();
+
+        static HttpRequestMessage MergeRequest(string guestCartKey) => new(HttpMethod.Post, "/api/v1/cart/actions/merge")
+        {
+            Content = JsonContent.Create(new { guestCartKey, strategy = "mergeAndReportConflicts", idempotencyKey = "replay-key" }),
+        };
+
+        using var firstResponse = await CartApiFixture.SendWithAntiforgeryAsync(memberClient, MergeRequest(guestKey));
+        var firstBody = await firstResponse.Content.ReadFromJsonAsync<JsonElement>();
+
+        using var replayResponse = await CartApiFixture.SendWithAntiforgeryAsync(memberClient, MergeRequest(guestKey));
+        var replayBody = await replayResponse.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(HttpStatusCode.OK, firstResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, replayResponse.StatusCode);
+        Assert.Equal(
+            firstBody.GetProperty("cart").GetProperty("publicId").GetString(),
+            replayBody.GetProperty("cart").GetProperty("publicId").GetString());
+        Assert.Equal(2, Assert.Single(replayBody.GetProperty("cart").GetProperty("items").EnumerateArray())
+            .GetProperty("quantity").GetInt32());
+    }
+
+    [Fact]
+    public async Task Merge_WhenSameIdempotencyKeyReusedWithADifferentGuestCartKey_Returns409WithIdempotencyPayloadConflict()
+    {
+        using var memberClient = await _fixture.CreateAuthenticatedMemberClientAsync();
+
+        static HttpRequestMessage MergeRequest(string guestCartKey) => new(HttpMethod.Post, "/api/v1/cart/actions/merge")
+        {
+            Content = JsonContent.Create(new { guestCartKey, strategy = "mergeAndReportConflicts", idempotencyKey = "shared-key" }),
+        };
+
+        using var firstResponse = await CartApiFixture.SendWithAntiforgeryAsync(memberClient, MergeRequest(CartApiFixture.UniqueGuestKey()));
+        firstResponse.EnsureSuccessStatusCode();
+
+        using var secondResponse = await CartApiFixture.SendWithAntiforgeryAsync(memberClient, MergeRequest(CartApiFixture.UniqueGuestKey()));
+        var (status, code, _) = await CartApiFixture.ReadProblemAsync(secondResponse);
+
+        Assert.Equal(409, status);
+        Assert.Equal("idempotency_payload_conflict", code);
+    }
+
+    /// <summary>PR #28 review item 2, end to end: a merge conflict must keep blocking Checkout on every later read — converting the guest cart must not make it disappear.</summary>
+    [Fact]
+    public async Task Merge_WhenCombinedQuantityExceedsLimit_ConflictPersistsAndBlocksCheckoutOnRevalidate()
+    {
+        using var guestClient = _fixture.CreateClient();
+        var guestKey = CartApiFixture.UniqueGuestKey();
+        Sku sku;
+        await using (var context = _fixture.CreateScopedContext())
+        {
+            sku = await CartApiSeeding.CreatePublishedSkuAsync(context);
+        }
+
+        using var guestAddResponse = await PostAddItemAsync(guestClient, guestKey, sku.PublicId, quantity: 60);
+        guestAddResponse.EnsureSuccessStatusCode();
+
+        using var memberClient = await _fixture.CreateAuthenticatedMemberClientAsync();
+        using var memberAddRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/cart/items")
+        {
+            Content = JsonContent.Create(new { skuPublicId = sku.PublicId, quantity = 50, cartRowVersion = (string?)null }),
+        };
+        using var memberAddResponse = await CartApiFixture.SendWithAntiforgeryAsync(memberClient, memberAddRequest);
+        memberAddResponse.EnsureSuccessStatusCode();
+
+        using var mergeRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/cart/actions/merge")
+        {
+            Content = JsonContent.Create(new { guestCartKey = guestKey, strategy = "mergeAndReportConflicts", idempotencyKey = "conflict-persist-key" }),
+        };
+        using var mergeResponse = await CartApiFixture.SendWithAntiforgeryAsync(memberClient, mergeRequest);
+        mergeResponse.EnsureSuccessStatusCode();
+
+        using var getResponse = await memberClient.GetAsync("/api/v1/cart");
+        var cartBody = await getResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var warning = Assert.Single(cartBody.GetProperty("warnings").EnumerateArray());
+        Assert.Equal("cart_merge_conflict", warning.GetProperty("code").GetString());
+
+        using var revalidateRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/cart/actions/revalidate");
+        using var revalidateResponse = await CartApiFixture.SendWithAntiforgeryAsync(memberClient, revalidateRequest);
+        var validationBody = await revalidateResponse.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.False(validationBody.GetProperty("isCheckoutReady").GetBoolean());
+        Assert.Contains(
+            validationBody.GetProperty("issues").EnumerateArray(),
+            issue => issue.GetProperty("code").GetString() == "cart_merge_conflict");
+        // Regression: RevalidateAsync used to build its CartDto with warnings: [], discarding the
+        // warnings BuildItemsAsync had already computed — so this same merge-conflict warning that
+        // GET /cart shows above would vanish from revalidate's response body.
+        Assert.Contains(
+            validationBody.GetProperty("cart").GetProperty("warnings").EnumerateArray(),
+            responseWarning => responseWarning.GetProperty("code").GetString() == "cart_merge_conflict");
+
+        // The member explicitly touching that item's quantity resolves the conflict —
+        // Checkout reopens on the next read.
+        var item = Assert.Single(cartBody.GetProperty("items").EnumerateArray());
+        using var updateRequest = GuestPatch(
+            guestKey: string.Empty,
+            itemPublicId: item.GetProperty("publicId").GetGuid(),
+            quantity: 70,
+            itemRowVersion: item.GetProperty("rowVersion").GetString(),
+            cartRowVersion: cartBody.GetProperty("rowVersion").GetString());
+        updateRequest.Headers.Remove(GuestHeaderName);
+        using var updateResponse = await CartApiFixture.SendWithAntiforgeryAsync(memberClient, updateRequest);
+        updateResponse.EnsureSuccessStatusCode();
+
+        using var secondRevalidateRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/cart/actions/revalidate");
+        using var secondRevalidateResponse = await CartApiFixture.SendWithAntiforgeryAsync(memberClient, secondRevalidateRequest);
+        var secondValidationBody = await secondRevalidateResponse.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.True(secondValidationBody.GetProperty("isCheckoutReady").GetBoolean());
+    }
+
+    /// <summary>PR #28 review round 4, end to end: a whole-merge rejection (100-item cap) must return HTTP 409 with cart_item_limit_exceeded, not 200 — the guest cart must stay mergeable later.</summary>
+    [Fact]
+    public async Task Merge_WhenMergingWouldExceedOneHundredItems_Returns409WithCartItemLimitExceeded()
+    {
+        using var guestClient = _fixture.CreateClient();
+        var guestKey = CartApiFixture.UniqueGuestKey();
+        Sku guestSku;
+        Sku memberSku;
+        await using (var context = _fixture.CreateScopedContext())
+        {
+            guestSku = await CartApiSeeding.CreatePublishedSkuAsync(context, listPrice: 100m);
+            memberSku = await CartApiSeeding.CreatePublishedSkuAsync(context, listPrice: 100m);
+        }
+
+        using var guestAddResponse = await PostAddItemAsync(guestClient, guestKey, guestSku.PublicId, quantity: 1);
+        guestAddResponse.EnsureSuccessStatusCode();
+
+        using var memberClient = await _fixture.CreateAuthenticatedMemberClientAsync();
+        using var memberAddRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/cart/items")
+        {
+            Content = JsonContent.Create(new { skuPublicId = memberSku.PublicId, quantity = 1, cartRowVersion = (string?)null }),
+        };
+        using var memberAddResponse = await CartApiFixture.SendWithAntiforgeryAsync(memberClient, memberAddRequest);
+        memberAddResponse.EnsureSuccessStatusCode();
+        var memberCartBody = await memberAddResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var memberCartId = memberCartBody.GetProperty("publicId").GetGuid();
+
+        await using (var context = _fixture.CreateScopedContext())
+        {
+            var dbCartId = await context.Carts.Where(c => c.PublicId == memberCartId).Select(c => c.Id).SingleAsync();
+            var now = DateTime.UtcNow;
+            for (var i = 0; i < 99; i++)
+            {
+                context.CartItems.Add(new DoSelect.Domain.Shopping.CartItem(
+                    Guid.CreateVersion7(), dbCartId, memberSku.Id, 1, Guid.CreateVersion7(), now));
+            }
+
+            await context.SaveChangesAsync();
+        }
+
+        using var mergeRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/cart/actions/merge")
+        {
+            Content = JsonContent.Create(new { guestCartKey = guestKey, strategy = "mergeAndReportConflicts", idempotencyKey = "item-limit-api-key" }),
+        };
+        using var mergeResponse = await CartApiFixture.SendWithAntiforgeryAsync(memberClient, mergeRequest);
+        var mergeBody = await mergeResponse.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(HttpStatusCode.Conflict, mergeResponse.StatusCode);
+        Assert.Equal(100, mergeBody.GetProperty("cart").GetProperty("items").GetArrayLength());
+        var conflict = Assert.Single(mergeBody.GetProperty("conflicts").EnumerateArray());
+        Assert.Equal("cart_item_limit_exceeded", conflict.GetProperty("reason").GetString());
+
+        // Replaying the same rejected Idempotency-Key must also come back 409, not a cached 200.
+        using var replayRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/cart/actions/merge")
+        {
+            Content = JsonContent.Create(new { guestCartKey = guestKey, strategy = "mergeAndReportConflicts", idempotencyKey = "item-limit-api-key" }),
+        };
+        using var replayResponse = await CartApiFixture.SendWithAntiforgeryAsync(memberClient, replayRequest);
+        Assert.Equal(HttpStatusCode.Conflict, replayResponse.StatusCode);
+
+        using var revalidateRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/cart/actions/revalidate");
+        using var revalidateResponse = await CartApiFixture.SendWithAntiforgeryAsync(memberClient, revalidateRequest);
+        var validationBody = await revalidateResponse.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.False(validationBody.GetProperty("isCheckoutReady").GetBoolean());
+        Assert.Contains(
+            validationBody.GetProperty("issues").EnumerateArray(),
+            issue => issue.GetProperty("code").GetString() == "cart_item_limit_exceeded");
+    }
+}

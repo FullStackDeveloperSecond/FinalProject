@@ -270,7 +270,7 @@ public sealed class SecurityFoundationTestController : ControllerBase
             : DoSelectClaimValues.Admin;
         var claims = new List<Claim>
         {
-            new(ClaimTypes.NameIdentifier, Guid.NewGuid().ToString("D")),
+            new(ClaimTypes.NameIdentifier, request.UserId ?? Guid.NewGuid().ToString("D")),
             new(DoSelectClaimTypes.AccountType, accountTypeValue),
         };
         claims.AddRange(request.Roles.Select(role => new Claim(ClaimTypes.Role, role)));
@@ -309,4 +309,10 @@ public sealed class SecurityFoundationTestController : ControllerBase
 
 public sealed record SecurityFoundationWriteRequest(string Value);
 
-public sealed record SecurityFoundationSignInRequest(bool IncludeMfa, string[] Roles);
+/// <summary>
+/// UserId is optional and defaults to a random GUID (the original behavior). Pass a real
+/// ApplicationUser.Id when the signed-in principal needs to satisfy a foreign key — e.g.
+/// Carts.OwnerUserId references AspNetUsers, so member-owned-cart tests must sign in as
+/// a real seeded user rather than an arbitrary fake identifier.
+/// </summary>
+public sealed record SecurityFoundationSignInRequest(bool IncludeMfa, string[] Roles, string? UserId = null);

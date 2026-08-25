@@ -2,11 +2,16 @@ using DoSelect.Api.Common;
 using DoSelect.Api.Ai;
 using DoSelect.Api.Observability;
 using DoSelect.Application.Notifications;
+using DoSelect.Infrastructure.Catalog;
 using DoSelect.Infrastructure.Email;
 using DoSelect.Infrastructure.Files;
+using DoSelect.Infrastructure.Idempotency;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Seeding;
+using DoSelect.Infrastructure.Shopping;
 using DoSelect.Api.Security;
+using DoSelect.Infrastructure.Refunds;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
 using Scalar.AspNetCore;
 
@@ -17,8 +22,12 @@ builder.Services.AddApiFoundation();
 builder.Services.AddAiSupport();
 builder.Services.AddOpenApi();
 builder.Services.AddDoSelectPersistence(builder.Configuration);
+builder.Services.AddDoSelectIdempotency(builder.Configuration);
 builder.Services.AddDoSelectFileStorage(builder.Configuration);
 builder.Services.AddDoSelectSecurity(builder.Environment, builder.Configuration);
+builder.Services.AddDoSelectRefunds();
+builder.Services.AddDoSelectCatalogServices();
+builder.Services.AddDoSelectShoppingServices();
 builder.Services.AddSingleton<IEmailSender>(services =>
 {
     var emailEnabled = builder.Configuration.GetValue<bool>("Features:EmailEnabled");
@@ -56,6 +65,29 @@ app.UseHttpsRedirection();
 
 app.UseCors(SecurityServiceCollectionExtensions.FrontendCorsPolicy);
 app.UseAuthentication();
+
+// Cart routes accept both anonymous guests and authenticated members (no [Authorize]
+// forces early authentication the way it does on every other controller), but the
+// antiforgery filter still validates each unsafe request's token against
+// HttpContext.User — ASP.NET Core's default token generator embeds the caller's
+// identity, so a token minted for a signed-in member fails validation if User is
+// still anonymous by the time the filter runs. This opportunistically authenticates
+// the Member scheme (same call SecurityController.GetAntiforgeryToken already makes)
+// before MVC's filter pipeline, without gating anonymous cart requests.
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/api/v1/cart"))
+    {
+        var result = await context.AuthenticateAsync(DoSelectAuthenticationSchemes.Member);
+        if (result.Succeeded && result.Principal is not null)
+        {
+            context.User = result.Principal;
+        }
+    }
+
+    await next(context);
+});
+
 app.UseAuthorization();
 
 app.MapControllers();

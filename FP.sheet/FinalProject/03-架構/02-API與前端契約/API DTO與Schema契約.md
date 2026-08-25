@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-20
+最後更新: 2026-08-25
 追蹤項目:
   - DES-10
   - DES-20
@@ -108,8 +108,10 @@
 | `CreateReturnRequest` | `items:{orderItemPublicId,quantity,reasonCode,description?:string(0..500)}[1..20]`、`requestReason:string(1..1000)`、`orderRowVersion` |
 | `ReturnRequestDto` | `publicId`、`orderPublicId`、`status`、`items[]`、`attachments[]`、`requestedAtUtc`、審核／收貨／結案時間、`availableActions[]`、`rowVersion` |
 | `ApproveReturnRequest` | `decision:approved/rejected`、`items:{returnItemPublicId,approvedQuantity:int(0..requestedQuantity),inspectionRequired:bool}[1..20]`、`reasonCode:string(1..64)`、`note?:string(0..1000)`、`returnRowVersion` |
-| `ExecuteRefundRequest` | `allocations:{orderItemPublicId?,type:item/shipping/assembly,amount}[1..50]`、`reasonCode:string(1..64)`、`note?:string(0..1000)`、`refundRowVersion`；`Idempotency-Key` 使用 Header |
-| `RefundDto` | `publicId`、`refundNumber`、`orderPublicId`、`returnPublicId?`、`status`、`requested/approved/succeededAmount`、`allocations[]`、`requestedBy/approvedBy/executedBy` 遮蔽管理摘要、時間、`rowVersion` |
+| `ExecuteRefundRequest` | `reasonCode:string(1..64)`、`note?:string(0..1000)`、`refundRowVersion`；`Idempotency-Key` 使用 Header；不接受 `allocations` |
+| `RefundAllocationDto` | `orderItemPublicId?`、`quantity?`、`type:itemRefund/originalShipping/returnShipping/assemblyFee/discountClawback/shippingClawback/otherAdjustment`、`amount`；Amount 一律為正值，V1 新寫入禁止 `otherAdjustment`；`itemRefund` 必須有 OrderItem 與正整數 Quantity，其他類型兩欄皆為 Null |
+| `MaskedAdminSummaryDto` | `publicId`、`maskedLabel`；只回管理員 PublicId，不回 Internal Identity ID；Label 優先使用遮蔽 DisplayName，缺少時使用遮蔽 Email |
+| `RefundDto` | `publicId`、`refundNumber`、`orderPublicId`、`returnPublicId?`、`status`、`requested/approved/succeededAmount`、`allocations:RefundAllocationDto[]`、`requestedBy/approvedBy/executedBy:MaskedAdminSummaryDto?`、時間、`rowVersion` |
 | `AdminReturnQuery` | `statuses?`、`reasonCodes?`、`from/to?`、`q?`、`pageNumber/pageSize` |
 | `AdminReturnSummaryDto` | PublicId、案件編號、Order 摘要、狀態、品項數、申請時間、寄回期限、注意旗標、RowVersion |
 | `AdminReturnDetailDto` | `ReturnRequestDto`＋可授權訂單摘要、檢查結果、可退款分攤預覽、內部歷程及 `availableActions[]` |
@@ -125,6 +127,8 @@
 
 退貨核准使用 `Return.Approve`（OrderManager／SuperAdmin）；退款金額核定與執行使用 `Refund.Execute`（FinanceManager／SuperAdmin）。兩者採不同 Policy；皆需合法狀態、RowVersion、理由與 Audit，退款另需 Idempotency-Key。
 
+退款分攤以後端 `RefundCalculator` 與已核准 Refund／可信交易快照為唯一權威來源，管理端不得指定會計分攤。退款執行的 `reasonCode` 與經白名單處理的 `note` 只寫入中央 Audit，不在 Refund 重複保存；Audit、退款狀態、分攤與冪等完成紀錄必須在同一 SQL Server 交易提交。遮蔽管理摘要不得包含完整姓名、完整 Email 或內部 Identity ID。
+
 ## Simulated Invoice 與 Allowance
 
 | Schema | 精確欄位 |
@@ -138,6 +142,8 @@
 | `AdminInvoiceDto` | `SimulatedInvoiceDto`＋管理歷程摘要、`availableActions[]`；完整個資仍需 `PersonalData.ViewFull`，不得因 FinanceManager 身分直接回傳 |
 | `VoidSimulatedInvoiceRequest` | `reasonCode:string(1..64)`、`note?:string(0..1000)`、`rowVersion` |
 | `CreateSimulatedInvoiceAllowanceRequest` | `refundPublicId`、`invoiceRowVersion`；金額由後端成功 Refund 及原發票明細推導，不接受客戶端金額；`Idempotency-Key` 使用 Header |
+
+折讓 Reader 依 DEC-P298 將成功 Refund 的七類分攤映射到同一張原發票：`ItemRefund` 建立折讓明細；`OriginalShipping`／`AssemblyFee` 只在原發票有對應收費且本次退還時建立；`ReturnShipping` 不建立；`DiscountClawback`／`ShippingClawback` 只作退款扣回，不建立獨立負值折讓明細；`OtherAdjustment` 第一版拒絕。折讓累計數量與金額不得超過原發票各明細可折讓上限。
 
 模擬發票固定 `taxRate = 0.05`。表頭以明細含稅加總四捨五入至 TWD 整數元，`netAmount = Round(issuedAmount / 1.05, 0, AwayFromZero)`、`taxAmount = issuedAmount - netAmount`；表頭 Gross／Net／Tax 均為整數。發票明細可保留兩位小數，每筆維持 `gross = net + tax` 且不得為負；核對採 `Round(Sum(line.gross), 0) = header.issued`、`Round(Sum(line.net), 0) = header.net`、`Sum(line.tax) = header.tax`，最後一筆合法明細吸收稅額尾差。`issuedAmount` 必須等於付款前已整數化的訂單實付金額，不一致時拒絕；例如 NT$1,000 固定為未稅 952、稅額 48。折讓取位仍依 DEC-P280，未由 DEC-P285 覆寫。
 
@@ -182,13 +188,7 @@
 |---|---|
 | `AiConsentRequest` | `policyVersion:int`、`locale:enum`、`accepted:must be true` |
 | `AiSupportMessageRequest` | `conversationPublicId?:uuid`、`message:string(1..2000)`、`referencedOrderPublicIds:uuid[0..3]`、`locale:enum` |
-| `AiSupportAnswerDto` | `conversationPublicId`、`interactionPublicId`、`answer:string(0..4000)`、`citations:{type,label,resourcePublicId?,url?}[0..10]`、`resultCode:answered/safe_rejection/degraded`、`degradationMode:none/keywordSearch/createSupportTicket`、`disclaimerKey`、`usage{remainingRequests,resetAtUtc}` |
-
-AI 客服訊息若含 Token、API Key、Cookie、密碼或禁止外送的個資，必須在模型呼叫前停止，回 `400 validation_failed` 與不含原文的安全提示；不得指出、記錄或回顯偵測值。此錯誤不建立 `AiSupportAnswerDto`，因此不使用 `safe_rejection`。`safe_rejection` 保留給未來採正常回應呈現、且不含敏感內容的安全拒絕；`degraded` 只在確實執行既定替代流程時使用。
-
-`locale` 必須轉成受控列舉並傳入 Prompt Envelope，不能只做 DTO 驗證後捨棄。`referencedOrderPublicIds` 最多三筆，只能由後端以登入會員做 Owner Query 並產生去識別內容；任何一筆不屬本人或採安全不存在策略時回 `404 ai_order_access_denied` 且不呼叫模型，Owner Query 尚未接線或暫時不可用時回 `503 ai_service_unavailable`，不得忽略參照後繼續回答。
-
-每日額度採「模型呼叫前原子預留」：功能關閉、未登入、未同意、額度耗盡、內容安全拒絕及資源授權拒絕均不扣用；成功預留後即算一次，模型逾時、拒絕或服務失敗不退還；同一互動的內部重試不得重複扣用。Application 只回傳穩定原因，不保存 HTTP Status，由 API 層集中映射 Problem Details。
+| `AiSupportAnswerDto` | `conversationPublicId`、`interactionPublicId`、`answer:string(0..4000)`、`citations:{type,label,resourcePublicId?,url?}[0..10]`、`resultCode`、`degradationMode:none/keywordSearch/createSupportTicket`、`disclaimerKey`、`usage{remainingRequests,resetAtUtc}` |
 | `AiUsageDto` | `feature`、`usedRequests`、`requestLimit`、`inputTokens`、`outputTokens`、`estimatedCostUsd`、`windowStartUtc/resetAtUtc`、`budgetProtectionActive` |
 | `AdminAiUsageReportDto` | 日期區間、功能／模型彙總、成功／失敗／降級次數、Token、估算成本、US$70／90 門檻狀態、資料截至時間；成本明細依 Policy 移除或回傳 |
 | `CreateSupportTicketRequest` | `category:enum`、`subject:string(1..200)`、`message:string(1..4000)`、`orderPublicId?:uuid` |

@@ -1,10 +1,11 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-14
+最後更新: 2026-08-23
 追蹤項目:
   - DES-08
   - TECH-09
   - TECH-11
+  - DES-24
 ---
 
 # 資料一致性、Outbox 與冪等設計
@@ -76,6 +77,9 @@ Dispatcher 每 5 秒輪詢，每批最多鎖定 20 筆；同一 Aggregate 依 `O
 - 同 Key 同時抵達時只有一筆能建立 Processing 紀錄；其他請求回 `409 Conflict`、穩定錯誤碼及 `Retry-After: 3`。
 - ResponseSummary 最多 32 KB，使用版本化 JSON，只保存 Status、允許的 Headers 與可安全回放 Body；超過時保存結果資源 PublicId 並重新讀取。
 - 逾期清理不得刪除仍在 Processing 或被調查保留的紀錄。
+- 共用 `IIdempotencyExecutor` 擁有 SQL Server 交易；reservation、業務 Entity 的 `SaveChanges`、ResponseSummary 與完成狀態在同一交易提交，Handler 失敗時全部 rollback。
+- 同鍵競爭使用 transaction-owned SQL Server application lock 加上唯一索引雙重保護；鎖定中的 loser 使用 `idempotency_request_in_progress`，不得誤用只代表 Payload 不同的 `idempotency_payload_conflict`。
+- Server Pepper 由 `Idempotency:ActorScopePepper` Secret 提供，至少 32 UTF-8 bytes，不得寫入 Repository。
 
 ## AuditLog
 
@@ -138,6 +142,9 @@ SuperAdmin 匯出只包含時間、Actor Type／PublicId、角色快照、Action
 - 資料庫只保存 Scope 的 SHA-256＋伺服器 Pepper Hash，不保存原始 Cookie、Token、Email、IP 或 User-Agent。
 - 公開且沒有可驗證 Actor 的操作不得使用可造成商業副作用的 Idempotency Record；只適用一般 Rate Limit。
 
-## 待實作
+## 實作狀態
 
-- EF Core Entity、Configuration、Migration、Dispatcher 鎖定、Email Consumer 與併發整合測試。
+- Idempotency EF Core Entity、Configuration、共用交易 Executor、SQL Server 競爭鎖與 provider-backed 併發／rollback 整合測試已完成；Migration 已產生並須依部署 Gate 明確套用。
+- `CartMergeConflict` 持久化基礎已完成；各購物車 Use Case 仍須寫入／Resolve 衝突，Checkout 必須查詢 unresolved conflict。
+- Outbox Entity、Dispatcher 鎖定、Email Consumer 與其整合測試仍待實作。
+- 中央 Audit Entity／Configuration／Writer 與同交易 SQL Server Provider-backed rollback 測試仍待 DES-24 實作；退款執行等高風險 Use Case 可以依賴共用 Port，但在中央實作完成前不得以局部 Audit、獨立交易或省略 Audit 合併。

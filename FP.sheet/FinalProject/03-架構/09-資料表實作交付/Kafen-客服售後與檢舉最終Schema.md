@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-19
+最後更新: 2026-08-21
 負責人: kafen
 追蹤項目:
   - DES-17
@@ -13,6 +13,7 @@
   - DEC-P258
   - DEC-P259
   - DEC-P260
+  - DEC-P286
   - AUTO-DEC-005
 ---
 
@@ -265,12 +266,13 @@ SLA：Low 24h／5d、Normal 8h／3d、High 4h／24h、Urgent 1h／8h；24×7 日
 | `Id/PublicId` | BIGINT IDENTITY／UNIQUEIDENTIFIER | PK／UX |
 | `ReturnRequestId` | BIGINT | FK；一案可一或多個品項 |
 | `OrderItemId` | BIGINT | 建議 FK → OrderItems |
-| `Quantity` | INT | >0；不得超過可退數量 |
+| `Quantity` | INT | >0；申請退貨數量，不得超過可退數量；不是退款或折讓的數量真實來源 |
 | `RequestedRefund` | DECIMAL(18,2) | ≥0；非最終退款真實來源 |
 | `InspectionStatus` | VARCHAR(24) | 檢查狀態 |
 | `RestockDisposition` | VARCHAR(24) NULL | `Resellable/Quarantine/Scrap` |
 
 - UX：`ReturnRequestId + OrderItemId`。
+- 退款模組在分攤定案時將核准商品數量保存於 `RefundAllocations.Quantity`；售後模組不得把目前 `ReturnItems.Quantity` 當成退款或折讓的不可變快照。
 
 ### ReturnInspections
 

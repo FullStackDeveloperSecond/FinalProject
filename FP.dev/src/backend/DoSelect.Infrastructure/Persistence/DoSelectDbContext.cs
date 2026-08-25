@@ -1,5 +1,6 @@
 using DoSelect.Domain.Builds;
 using DoSelect.Domain.Catalog;
+using DoSelect.Domain.Idempotency;
 using DoSelect.Domain.Imports;
 using DoSelect.Domain.Inventory;
 using DoSelect.Domain.Invoicing;
@@ -103,6 +104,10 @@ public sealed class DoSelectDbContext
     public DbSet<Cart> Carts => Set<Cart>();
 
     public DbSet<CartItem> CartItems => Set<CartItem>();
+
+    public DbSet<CartMergeConflict> CartMergeConflicts => Set<CartMergeConflict>();
+
+    public DbSet<IdempotencyRecord> IdempotencyRecords => Set<IdempotencyRecord>();
 
     public DbSet<InventoryBalance> InventoryBalances => Set<InventoryBalance>();
 

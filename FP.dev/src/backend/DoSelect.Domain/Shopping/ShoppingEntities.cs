@@ -69,6 +69,31 @@ public sealed class Cart : MutablePublicEntity
         MarkUpdated(updatedAtUtc);
     }
 
+    /// <summary>
+    /// Advances this cart's RowVersion when a child <see cref="CartItem"/> changes, so
+    /// <c>UpdateCartItemRequest.cartRowVersion</c> stays meaningful even though items are
+    /// their own aggregate root and don't route writes through <see cref="Cart"/>.
+    /// </summary>
+    public void Touch(DateTime updatedAtUtc) => MarkUpdated(updatedAtUtc);
+
+    /// <summary>
+    /// Pushes <see cref="ExpiresAtUtc"/> out to <paramref name="expiresAtUtc"/> and marks the
+    /// cart updated in one call — every successful Add/Update/Remove/Merge extends the TTL
+    /// (組長's ruling: both guest and member carts expire 30 days after the *last* mutation,
+    /// not 30 days from creation), so callers use this in place of a bare <see cref="Touch"/>.
+    /// </summary>
+    public void ExtendExpiry(DateTime expiresAtUtc, DateTime updatedAtUtc)
+    {
+        expiresAtUtc = RequireUtc(expiresAtUtc, nameof(expiresAtUtc));
+        if (expiresAtUtc <= updatedAtUtc)
+        {
+            throw new ArgumentOutOfRangeException(nameof(expiresAtUtc));
+        }
+
+        ExpiresAtUtc = expiresAtUtc;
+        MarkUpdated(updatedAtUtc);
+    }
+
     private static string RequireOwner(string value) =>
         string.IsNullOrWhiteSpace(value)
             ? throw new ArgumentException("The owner is required.", nameof(value))
