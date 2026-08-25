@@ -66,6 +66,16 @@ const router = createRouter({
       props: true,
     },
     {
+      path: '/orders/:orderId/returns/new',
+      name: 'return-new',
+      component: () => import('../pages/returns/ReturnNewPage.vue'),
+    },
+    {
+      path: '/returns/:returnId',
+      name: 'return-detail',
+      component: () => import('../pages/returns/ReturnDetailPage.vue'),
+    },
+    {
       path: '/unauthorized',
       name: 'unauthorized',
       component: HttpStatusPage,

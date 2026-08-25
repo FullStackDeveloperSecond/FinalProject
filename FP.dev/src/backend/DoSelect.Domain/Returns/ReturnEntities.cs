@@ -45,6 +45,27 @@ public sealed class ReturnRequest : MutablePublicEntity
     { if (!Enum.IsDefined(priority)) throw new ArgumentOutOfRangeException(nameof(priority)); Priority = priority; MarkUpdated(occurredAtUtc); }
     public void Approve(string adminUserId, bool requiresShipment, DateTime occurredAtUtc)
     { if (Status != ReturnRequestStatus.UnderReview) throw new InvalidOperationException("The return is not under review."); ReviewedByAdminUserId = RequireText(adminUserId, nameof(adminUserId)); Transition(ReturnRequestStatus.Approved, occurredAtUtc); ApprovedAtUtc = occurredAtUtc; if (requiresShipment) { ReturnShipmentDueAtUtc = occurredAtUtc.AddDays(7); Transition(ReturnRequestStatus.AwaitingShipment, occurredAtUtc); } else Transition(ReturnRequestStatus.AwaitingRefund, occurredAtUtc); }
+    /// <summary>Rejects the request from UnderReview (ineligible) or Inspecting (failed inspection) — both are legal Transition targets already.</summary>
+    public void Reject(string adminUserId, DateTime occurredAtUtc)
+    { ReviewedByAdminUserId = RequireText(adminUserId, nameof(adminUserId)); Transition(ReturnRequestStatus.Rejected, occurredAtUtc); }
+    /// <summary>
+    /// True once the shipment deadline no longer equals its original Approve-time value
+    /// (Approved + 7 days) — derives the one-time-extension guard from two fields that are
+    /// already persisted, instead of adding a new column or a synthetic history marker row.
+    /// </summary>
+    public bool HasShipmentDeadlineBeenExtended =>
+        ApprovedAtUtc.HasValue && ReturnShipmentDueAtUtc.HasValue &&
+        ReturnShipmentDueAtUtc.Value != ApprovedAtUtc.Value.AddDays(7);
+    public void ExtendShipmentDeadline(DateTime occurredAtUtc)
+    {
+        if (Status != ReturnRequestStatus.AwaitingShipment) throw new InvalidOperationException("Only a return awaiting shipment can have its deadline extended.");
+        if (ReturnShipmentDueAtUtc is null) throw new InvalidOperationException("The return has no shipment deadline to extend.");
+        occurredAtUtc = RequireUtc(occurredAtUtc, nameof(occurredAtUtc));
+        if (occurredAtUtc >= ReturnShipmentDueAtUtc.Value) throw new InvalidOperationException("The shipment deadline has already expired.");
+        if (HasShipmentDeadlineBeenExtended) throw new InvalidOperationException("The shipment deadline has already been extended once.");
+        ReturnShipmentDueAtUtc = ReturnShipmentDueAtUtc.Value.AddDays(7);
+        MarkUpdated(occurredAtUtc);
+    }
     public void Transition(ReturnRequestStatus next, DateTime occurredAtUtc)
     { if (!Allowed[Status].Contains(next)) throw new InvalidOperationException($"Return cannot move from {Status} to {next}."); occurredAtUtc = RequireUtc(occurredAtUtc, nameof(occurredAtUtc)); Status = next; ReceivedAtUtc = next == ReturnRequestStatus.Received ? occurredAtUtc : ReceivedAtUtc; ClosedAtUtc = next is ReturnRequestStatus.Completed or ReturnRequestStatus.Rejected or ReturnRequestStatus.Cancelled ? occurredAtUtc : ClosedAtUtc; MarkUpdated(occurredAtUtc); }
     private static string? Optional(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
@@ -134,8 +155,35 @@ public sealed class ReturnStatusHistory
 public sealed class ReturnShipment : MutablePublicEntity
 {
     private ReturnShipment() { }
-    public ReturnShipment(Guid publicId, long returnRequestId, string shipmentNumber, ReturnShipmentMethod method, string? carrierCode, string? trackingNumber, DateTime createdAtUtc) : base(publicId, createdAtUtc)
-    { if (returnRequestId <= 0) throw new ArgumentOutOfRangeException(nameof(returnRequestId)); ReturnRequestId = returnRequestId; ShipmentNumber = RequireText(shipmentNumber, nameof(shipmentNumber)); Method = method; CarrierCode = Optional(carrierCode); TrackingNumber = Optional(trackingNumber); Status = ReturnShipmentStatus.Pending; }
+    /// <summary>
+    /// Recipient/store fields are an immutable snapshot taken at creation (per policy: home
+    /// pickup captures the recipient/address actually used for that pickup, never the order's
+    /// live address); there is deliberately no setter for them after construction.
+    /// </summary>
+    public ReturnShipment(
+        Guid publicId, long returnRequestId, string shipmentNumber, ReturnShipmentMethod method,
+        string? carrierCode, string? trackingNumber,
+        string? recipientName, string? recipientPhone, string? postalCode, string? addressLine,
+        string? storeCode, string? storeName,
+        DateTime createdAtUtc) : base(publicId, createdAtUtc)
+    {
+        if (returnRequestId <= 0) throw new ArgumentOutOfRangeException(nameof(returnRequestId));
+        if (method == ReturnShipmentMethod.HomePickup &&
+            (string.IsNullOrWhiteSpace(recipientName) || string.IsNullOrWhiteSpace(recipientPhone) ||
+             string.IsNullOrWhiteSpace(postalCode) || string.IsNullOrWhiteSpace(addressLine)))
+        {
+            throw new ArgumentException("Home pickup requires a recipient, phone, postal code and address.", nameof(method));
+        }
+        if (method == ReturnShipmentMethod.ConvenienceStore &&
+            (string.IsNullOrWhiteSpace(storeCode) || string.IsNullOrWhiteSpace(storeName)))
+        {
+            throw new ArgumentException("Convenience-store drop-off requires a store code and name.", nameof(method));
+        }
+        ReturnRequestId = returnRequestId; ShipmentNumber = RequireText(shipmentNumber, nameof(shipmentNumber)); Method = method; CarrierCode = Optional(carrierCode); TrackingNumber = Optional(trackingNumber);
+        RecipientName = Optional(recipientName); RecipientPhone = Optional(recipientPhone); PostalCode = Optional(postalCode); AddressLine = Optional(addressLine);
+        StoreCode = Optional(storeCode); StoreName = Optional(storeName);
+        Status = ReturnShipmentStatus.Pending;
+    }
     public long ReturnRequestId { get; private set; }
     public string ShipmentNumber { get; private set; } = string.Empty; public ReturnShipmentMethod Method { get; private set; }
     public string? CarrierCode { get; private set; }
@@ -150,6 +198,29 @@ public sealed class ReturnShipment : MutablePublicEntity
     public DateTime? ScheduledPickupAtUtc { get; private set; }
     public DateTime? ShippedAtUtc { get; private set; }
     public DateTime? ReceivedAtUtc { get; private set; }
+    /// <summary>
+    /// Denormalized carrier-facing status, driven by append-only ReturnShipmentEvents. The
+    /// authoritative business flow is ReturnRequestStatus's own AwaitingShipment → InTransit →
+    /// Received transitions; this only tracks the shipment sub-entity's own last-known state
+    /// and refuses to move once it reaches a terminal value.
+    /// </summary>
+    public void ApplyEventStatus(ReturnShipmentStatus status, DateTime occurredAtUtc)
+    {
+        if (Status is ReturnShipmentStatus.Delivered or ReturnShipmentStatus.Cancelled)
+        {
+            throw new InvalidOperationException($"A {Status} shipment cannot change status.");
+        }
+
+        occurredAtUtc = RequireUtc(occurredAtUtc, nameof(occurredAtUtc));
+        Status = status;
+        ShippedAtUtc = status is ReturnShipmentStatus.InTransit or ReturnShipmentStatus.PickedUp
+            ? ShippedAtUtc ?? occurredAtUtc
+            : ShippedAtUtc;
+        ReceivedAtUtc = status == ReturnShipmentStatus.Delivered ? occurredAtUtc : ReceivedAtUtc;
+        MarkUpdated(occurredAtUtc);
+    }
+    public void RecordTrackingNumber(string trackingNumber, DateTime occurredAtUtc)
+    { TrackingNumber = RequireText(trackingNumber, nameof(trackingNumber)); MarkUpdated(occurredAtUtc); }
     private static string? Optional(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
 

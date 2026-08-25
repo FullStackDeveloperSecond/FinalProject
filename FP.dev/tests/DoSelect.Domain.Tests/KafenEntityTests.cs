@@ -95,4 +95,80 @@ public sealed class KafenEntityTests
 
         Assert.Throws<InvalidOperationException>(() => ticket.RecordActivity(CreatedAtUtc.AddMinutes(2)));
     }
+
+    [Fact]
+    public void ReturnRequest_RejectCapturesReviewerFromUnderReviewOrInspecting()
+    {
+        var request = new ReturnRequest(Guid.NewGuid(), "RT-3", 1, "member", "Defect", "商品故障", 1, CreatedAtUtc);
+        request.Transition(ReturnRequestStatus.UnderReview, CreatedAtUtc.AddMinutes(1));
+        request.Reject("manager", CreatedAtUtc.AddMinutes(2));
+
+        Assert.Equal(ReturnRequestStatus.Rejected, request.Status);
+        Assert.Equal("manager", request.ReviewedByAdminUserId);
+        Assert.Equal(CreatedAtUtc.AddMinutes(2), request.ClosedAtUtc);
+    }
+
+    [Fact]
+    public void ReturnRequest_ShipmentDeadline_CanBeExtendedExactlyOnce()
+    {
+        var request = new ReturnRequest(Guid.NewGuid(), "RT-4", 1, "member", "Defect", "商品故障", 1, CreatedAtUtc);
+        request.Transition(ReturnRequestStatus.UnderReview, CreatedAtUtc.AddMinutes(1));
+        request.Approve("manager", requiresShipment: true, CreatedAtUtc.AddMinutes(2));
+        var originalDue = request.ReturnShipmentDueAtUtc!.Value;
+
+        Assert.False(request.HasShipmentDeadlineBeenExtended);
+
+        request.ExtendShipmentDeadline(CreatedAtUtc.AddDays(1));
+
+        Assert.Equal(originalDue.AddDays(7), request.ReturnShipmentDueAtUtc);
+        Assert.True(request.HasShipmentDeadlineBeenExtended);
+        Assert.Throws<InvalidOperationException>(() => request.ExtendShipmentDeadline(CreatedAtUtc.AddDays(2)));
+    }
+
+    [Fact]
+    public void ReturnRequest_ShipmentDeadline_RejectsExtensionAfterExpiry()
+    {
+        var request = new ReturnRequest(Guid.NewGuid(), "RT-5", 1, "member", "Defect", "商品故障", 1, CreatedAtUtc);
+        request.Transition(ReturnRequestStatus.UnderReview, CreatedAtUtc.AddMinutes(1));
+        request.Approve("manager", requiresShipment: true, CreatedAtUtc.AddMinutes(2));
+        var pastDue = request.ReturnShipmentDueAtUtc!.Value.AddDays(1);
+
+        Assert.Throws<InvalidOperationException>(() => request.ExtendShipmentDeadline(pastDue));
+    }
+
+    [Fact]
+    public void ReturnRequest_ShipmentDeadline_RejectsExtensionOutsideAwaitingShipment()
+    {
+        var request = new ReturnRequest(Guid.NewGuid(), "RT-6", 1, "member", "Defect", "商品故障", 1, CreatedAtUtc);
+        request.Transition(ReturnRequestStatus.UnderReview, CreatedAtUtc.AddMinutes(1));
+        request.Approve("manager", requiresShipment: false, CreatedAtUtc.AddMinutes(2));
+
+        Assert.Equal(ReturnRequestStatus.AwaitingRefund, request.Status);
+        Assert.Throws<InvalidOperationException>(() => request.ExtendShipmentDeadline(CreatedAtUtc.AddMinutes(3)));
+    }
+
+    [Fact]
+    public void ReturnShipment_HomePickup_RequiresRecipientSnapshot() =>
+        Assert.Throws<ArgumentException>(() => new ReturnShipment(
+            Guid.NewGuid(), 1, "RS-1", ReturnShipmentMethod.HomePickup,
+            carrierCode: "black-cat", trackingNumber: null,
+            recipientName: null, recipientPhone: null, postalCode: null, addressLine: null,
+            storeCode: null, storeName: null, CreatedAtUtc));
+
+    [Fact]
+    public void ReturnShipment_ApplyEventStatus_RefusesChangeAfterTerminalState()
+    {
+        var shipment = new ReturnShipment(
+            Guid.NewGuid(), 1, "RS-2", ReturnShipmentMethod.SelfShip,
+            carrierCode: null, trackingNumber: null,
+            recipientName: null, recipientPhone: null, postalCode: null, addressLine: null,
+            storeCode: null, storeName: null, CreatedAtUtc);
+
+        shipment.ApplyEventStatus(ReturnShipmentStatus.InTransit, CreatedAtUtc.AddHours(1));
+        shipment.ApplyEventStatus(ReturnShipmentStatus.Delivered, CreatedAtUtc.AddHours(2));
+
+        Assert.Equal(ReturnShipmentStatus.Delivered, shipment.Status);
+        Assert.Equal(CreatedAtUtc.AddHours(2), shipment.ReceivedAtUtc);
+        Assert.Throws<InvalidOperationException>(() => shipment.ApplyEventStatus(ReturnShipmentStatus.InTransit, CreatedAtUtc.AddHours(3)));
+    }
 }

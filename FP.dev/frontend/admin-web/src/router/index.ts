@@ -79,6 +79,16 @@ const router = createRouter({
       props: true,
     },
     {
+      path: '/returns',
+      name: 'admin-return-queue',
+      component: () => import('../pages/returns/AdminReturnQueuePage.vue'),
+    },
+    {
+      path: '/returns/:returnId',
+      name: 'admin-return-detail',
+      component: () => import('../pages/returns/AdminReturnDetailPage.vue'),
+    },
+    {
       path: '/unauthorized',
       name: 'unauthorized',
       component: HttpStatusPage,
