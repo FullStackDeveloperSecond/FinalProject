@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-17
+最後更新: 2026-08-25
 追蹤項目:
   - DEV-05
   - DEV-08
@@ -92,7 +92,9 @@ Server=.\SQL2025;Database=DoSelectDb;Trusted_Connection=True;TrustServerCertific
 ## Git 與掃描
 
 - `.gitignore` 必須涵蓋 `.env`、`*.secrets.json`、本機覆寫設定、Data Protection Keys、資料庫備份與附件目錄。
-- PR／CI 掃描常見 API Key、Connection String 密碼、Private Key Header；發現疑似 Secret 時阻擋合併。
+- PR／CI 使用固定版本 Gitleaks CLI `8.30.1`；完整 Git 歷史與兩個 Vue Production `dist` 都必須通過，工具下載先核對官方 SHA-256，掃描輸出固定使用 `--redact`。
+- 不使用 `latest`、不建立廣泛路徑 Allowlist。合成測試值優先改成明顯無效格式；必要忽略只能限制於特定 Fingerprint／單一值並在 PR 留下理由。
+- Gitleaks 通過不代表絕對沒有 Secret；人工 Diff、設定範例、Log、Health、Problem Details 與 Artifact 邊界仍須 Review。
 - Secret 一旦進入 Git，即使刪除檔案也視為外洩：先撤銷／Rotation，再評估清理歷史，不只做新 Commit 刪除。
 
 ## 驗收

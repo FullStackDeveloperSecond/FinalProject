@@ -23,8 +23,37 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: "1"
   DOTNET_NOLOGO: "1"
   NUGET_XMLDOC_MODE: skip
+  GITLEAKS_VERSION: "8.30.1"
+  GITLEAKS_LINUX_X64_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
 
 jobs:
+  secret-scan:
+    name: Secret Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout complete history
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install pinned Gitleaks CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="/tmp/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl --fail --silent --show-error --location \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            --output "$archive"
+          echo "${GITLEAKS_LINUX_X64_SHA256}  ${archive}" | sha256sum --check --strict
+          tar -xzf "$archive" -C /tmp gitleaks
+          /tmp/gitleaks version
+
+      - name: Scan complete Git history for secrets
+        run: /tmp/gitleaks git --redact --no-banner --verbose .
+
   ai-evaluation-contract:
     name: AI Evaluation Contract
     runs-on: ubuntu-latest
@@ -131,6 +160,21 @@ jobs:
         run: npm run build
         working-directory: FP.dev/frontend/${{ matrix.app }}
 
+      - name: Install pinned Gitleaks CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="/tmp/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl --fail --silent --show-error --location \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            --output "$archive"
+          echo "${GITLEAKS_LINUX_X64_SHA256}  ${archive}" | sha256sum --check --strict
+          tar -xzf "$archive" -C /tmp gitleaks
+
+      - name: Scan production assets for secrets
+        run: /tmp/gitleaks dir --redact --no-banner dist
+        working-directory: FP.dev/frontend/${{ matrix.app }}
+
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
         working-directory: FP.dev/frontend/${{ matrix.app }}
@@ -139,6 +183,7 @@ jobs:
     name: CI Required
     if: ${{ always() }}
     needs:
+      - secret-scan
       - ai-evaluation-contract
       - backend
       - frontend
@@ -148,10 +193,12 @@ jobs:
     steps:
       - name: Verify all required jobs succeeded
         env:
+          SECRET_SCAN_RESULT: ${{ needs.secret-scan.result }}
           AI_EVAL_RESULT: ${{ needs.ai-evaluation-contract.result }}
           BACKEND_RESULT: ${{ needs.backend.result }}
           FRONTEND_RESULT: ${{ needs.frontend.result }}
         run: |
+          test "$SECRET_SCAN_RESULT" = "success"
           test "$AI_EVAL_RESULT" = "success"
           test "$BACKEND_RESULT" = "success"
           test "$FRONTEND_RESULT" = "success"

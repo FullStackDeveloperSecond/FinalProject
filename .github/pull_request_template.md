@@ -59,6 +59,20 @@
 
 ---
 
+## 安全與供應鏈
+
+- [ ] Gitleaks Repository／Production Build Artifact 掃描已通過，或失敗原因已在下方說明
+- [ ] 本次沒有新增直接 NuGet／npm Package
+- [ ] 本次有新增直接 Package，已提供正式 Registry、官方來源、精確版本與用途
+- [ ] 本次沒有新增或擴大 `.gitleaksignore`、Allowlist 或 `gitleaks:allow`
+- [ ] 本次有最小 Secret Scan 忽略規則，已說明合成值、範圍與不可改寫原因
+
+Package／Secret Scan 證據或例外說明：
+
+- （請填寫；不適用時填「不適用」）
+
+---
+
 ## 提交前確認
 
 - [ ] PR 標題清楚描述修改內容

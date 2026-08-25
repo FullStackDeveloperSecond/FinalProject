@@ -1,4 +1,5 @@
 using DoSelect.Api.Common;
+using DoSelect.Api.Ai;
 using DoSelect.Api.Observability;
 using DoSelect.Application.Notifications;
 using DoSelect.Infrastructure.Catalog;
@@ -18,6 +19,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.AddObservability();
 builder.Services.AddApiFoundation();
+builder.Services.AddAiSupport();
 builder.Services.AddOpenApi();
 builder.Services.AddDoSelectPersistence(builder.Configuration);
 builder.Services.AddDoSelectIdempotency(builder.Configuration);
