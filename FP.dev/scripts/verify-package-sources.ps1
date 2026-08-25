@@ -154,7 +154,7 @@ else {
     }
 }
 
-$additionalNpmConfigs = @(Get-ChildItem -LiteralPath $repositoryPath -Recurse -File -Filter '.npmrc' |
+$additionalNpmConfigs = @(Get-ChildItem -LiteralPath $repositoryPath -Recurse -File -Force -Filter '.npmrc' |
     Where-Object {
         $_.FullName -ne $npmConfigPath -and
         $_.FullName -notmatch '[\\/]node_modules[\\/]'
