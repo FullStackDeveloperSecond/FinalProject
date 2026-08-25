@@ -24,6 +24,8 @@ public interface ICaseWorkbenchStore
         string? keyword,
         int pageSize,
         CaseWorkbenchCursorPosition? after,
+        string adminUserId,
+        bool canSupervise,
         CancellationToken cancellationToken);
 }
 

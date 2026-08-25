@@ -26,13 +26,18 @@ public sealed class SupportSlaQueueStore : ISupportSlaQueueStore
         int pageSize,
         SupportSlaCursorPosition? after,
         DateTime nowUtc,
+        string adminUserId,
+        bool canSupervise,
         CancellationToken cancellationToken)
     {
         var active = _dbContext.SupportTickets
             .AsNoTracking()
             .Where(t => t.Status != SupportTicketStatus.Resolved
                 && t.Status != SupportTicketStatus.Closed
-                && t.Status != SupportTicketStatus.Cancelled);
+                && t.Status != SupportTicketStatus.Cancelled)
+            .Where(t => canSupervise
+                || t.AssigneeAdminUserId == null
+                || t.AssigneeAdminUserId == adminUserId);
 
         var withPause = active.Select(t => new
         {

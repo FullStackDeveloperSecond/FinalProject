@@ -19,6 +19,8 @@ public interface ISupportSlaQueueStore
         int pageSize,
         SupportSlaCursorPosition? after,
         DateTime nowUtc,
+        string adminUserId,
+        bool canSupervise,
         CancellationToken cancellationToken);
 }
 

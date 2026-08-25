@@ -9,9 +9,9 @@ using Microsoft.AspNetCore.Mvc;
 namespace DoSelect.Api.Controllers;
 
 /// <summary>
-/// Admin-facing support ticket endpoints. Unlike SupportTicketsController (Actor Scope: a
-/// member's own tickets), every action here operates across all tickets and requires the
-/// SupportTicket.Handle policy (CustomerService or CustomerServiceSupervisor).
+/// Admin-facing support ticket endpoints protected by SupportTicket.Handle. Read operations
+/// apply the acting admin's assignment scope: regular handlers can read unassigned or personally
+/// assigned tickets, while CustomerServiceSupervisor can read all support tickets.
 /// </summary>
 [ApiController]
 [Authorize(Policy = DoSelectPolicies.SupportTicketHandle)]
@@ -57,7 +57,11 @@ public sealed class AdminSupportTicketsController : ControllerBase
         [FromQuery] SupportSlaQueueQuery query,
         CancellationToken cancellationToken)
     {
-        var result = await _slaQueueService.GetPageAsync(query, cancellationToken);
+        var result = await _slaQueueService.GetPageAsync(
+            query,
+            GetAdminUserId(),
+            User.IsInRole(DoSelectRoles.CustomerServiceSupervisor),
+            cancellationToken);
         return Ok(result);
     }
 

@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using DoSelect.Api.Security;
 using DoSelect.Application.Common;
 using DoSelect.Application.Support.Admin;
@@ -9,8 +10,8 @@ namespace DoSelect.Api.Controllers;
 
 /// <summary>
 /// Admin-facing unified case workbench (UC-WORKBENCH-01). Only the Support case-type scope is
-/// confirmed for this slice — Report/Return scope mappings are not yet decided, so every caller
-/// who satisfies SupportTicket.Handle is authorized for Support-scoped rows only.
+/// confirmed for this slice — Report/Return scope mappings are not yet decided. Support rows are
+/// additionally restricted to the acting admin's assignment scope before SQL materialization.
 /// </summary>
 [ApiController]
 [Authorize(Policy = DoSelectPolicies.SupportTicketHandle)]
@@ -32,7 +33,14 @@ public sealed class CaseWorkbenchController : ControllerBase
         [FromQuery] CaseWorkbenchQuery query,
         CancellationToken cancellationToken)
     {
-        var result = await _service.GetPageAsync(query, AuthorizedCaseTypes, cancellationToken);
+        var adminUserId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? throw new InvalidOperationException("The authenticated request is missing a NameIdentifier claim.");
+        var result = await _service.GetPageAsync(
+            query,
+            AuthorizedCaseTypes,
+            adminUserId,
+            User.IsInRole(DoSelectRoles.CustomerServiceSupervisor),
+            cancellationToken);
         return Ok(result);
     }
 }

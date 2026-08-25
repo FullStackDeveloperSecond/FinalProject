@@ -21,5 +21,7 @@ public interface ICaseWorkbenchService
     Task<CursorPage<CaseWorkbenchItemDto>> GetPageAsync(
         CaseWorkbenchQuery query,
         IReadOnlyCollection<CaseWorkbenchCaseType> authorizedCaseTypes,
+        string adminUserId,
+        bool canSupervise,
         CancellationToken cancellationToken);
 }

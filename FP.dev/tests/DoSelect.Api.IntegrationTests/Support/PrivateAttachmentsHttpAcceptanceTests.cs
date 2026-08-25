@@ -68,6 +68,29 @@ public sealed class PrivateAttachmentsHttpAcceptanceTests : IClassFixture<WebApp
         Assert.Equal(admin, fake.Actor?.UserId);
     }
 
+    [Fact]
+    public async Task DualCookies_WhenAdminScopeDeniesButMemberOwnsAttachment_ReturnsContent()
+    {
+        var fake = new AttachmentServiceFake
+        {
+            DeniedActorType = SupportAttachmentActorType.SupportHandler,
+        };
+        using var factory = CreateFactory(fake);
+        using var client = factory.CreateClient();
+        var member = $"member-{Guid.NewGuid():N}";
+        client.DefaultRequestHeaders.Add(MemberHeader, member);
+        client.DefaultRequestHeaders.Add(AdminHeader, $"other-admin-{Guid.NewGuid():N}");
+        client.DefaultRequestHeaders.Add(AdminRolesHeader, DoSelectRoles.CustomerService);
+        client.DefaultRequestHeaders.Add(AdminMfaHeader, "true");
+
+        using var response = await client.GetAsync($"/api/v1/private-attachments/{Guid.NewGuid()}/content");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(
+            [SupportAttachmentActorType.SupportHandler, SupportAttachmentActorType.Member],
+            fake.Actors.Select(actor => actor.Type));
+        Assert.Equal(member, fake.Actors[^1].UserId);
+    }
     [Theory]
     [InlineData(DoSelectRoles.CustomerService, true, HttpStatusCode.OK)]
     [InlineData(DoSelectRoles.CustomerServiceSupervisor, true, HttpStatusCode.OK)]
@@ -171,6 +194,8 @@ public sealed class PrivateAttachmentsHttpAcceptanceTests : IClassFixture<WebApp
     {
         public int Calls { get; private set; }
         public bool ThrowNotFound { get; set; }
+        public SupportAttachmentActorType? DeniedActorType { get; init; }
+        public List<SupportAttachmentActor> Actors { get; } = [];
         public byte[] Bytes { get; init; } = [7, 8, 9];
         public string ContentType { get; init; } = "application/octet-stream";
         public string FileName { get; init; } = "attachment.bin";
@@ -179,7 +204,9 @@ public sealed class PrivateAttachmentsHttpAcceptanceTests : IClassFixture<WebApp
         {
             Calls++;
             Actor = actor;
-            if (ThrowNotFound) throw DomainProblemException.NotFound("The attachment was not found.");
+            Actors.Add(actor);
+            if (ThrowNotFound || DeniedActorType == actor.Type)
+                throw DomainProblemException.NotFound("The attachment was not found.");
             return Task.FromResult(new PrivateAttachmentContent(new MemoryStream(Bytes), ContentType, FileName));
         }
     }

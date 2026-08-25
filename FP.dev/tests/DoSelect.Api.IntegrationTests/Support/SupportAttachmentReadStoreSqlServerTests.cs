@@ -69,6 +69,59 @@ public sealed class SupportAttachmentReadStoreSqlServerTests : IClassFixture<Web
         Assert.Null(await FindAsync(Guid.NewGuid(), new(SupportAttachmentActorType.SupportHandler, handlerBId)));
     }
 
+    [Fact]
+    public async Task DualCookieActors_AdminOutsideAssignmentIsDeniedButOwningMemberIsReadable()
+    {
+        var run = Guid.NewGuid().ToString("N");
+        var now = DateTime.UtcNow;
+        Guid attachmentId;
+        string ownerId;
+        string otherHandlerId;
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+            var owner = ApplicationUser.CreateMember(Guid.NewGuid(), $"dual-owner-{run}@example.test", now);
+            var assignedHandler = ApplicationUser.CreateAdmin(Guid.NewGuid(), $"dual-assigned-{run}@example.test", now);
+            var otherHandler = ApplicationUser.CreateAdmin(Guid.NewGuid(), $"dual-other-{run}@example.test", now);
+            db.Users.AddRange(owner, assignedHandler, otherHandler);
+            await db.SaveChangesAsync();
+            ownerId = owner.Id;
+            otherHandlerId = otherHandler.Id;
+
+            var ticket = new SupportTicket(
+                Guid.NewGuid(),
+                $"DU-{run[..20]}",
+                owner.Id,
+                null,
+                SupportTicketCategory.Other,
+                $"dual-cookie-{run}",
+                CasePriority.Normal,
+                now.AddHours(1),
+                now.AddHours(8),
+                now);
+            db.SupportTickets.Add(ticket);
+            await db.SaveChangesAsync();
+            ticket.Assign(assignedHandler.Id, now.AddMilliseconds(1));
+            await db.SaveChangesAsync();
+
+            var attachment = NewAttachment(ticket.Id, owner.Id, run, now);
+            attachment.RecordScan(PrivateAttachmentScanStatus.Clean, now.AddSeconds(1));
+            db.SupportAttachments.Add(attachment);
+            await db.SaveChangesAsync();
+            attachmentId = attachment.PublicId;
+        }
+
+        var adminResult = await FindAsync(
+            attachmentId,
+            new(SupportAttachmentActorType.SupportHandler, otherHandlerId));
+        var memberResult = await FindAsync(
+            attachmentId,
+            new(SupportAttachmentActorType.Member, ownerId));
+
+        Assert.Null(adminResult);
+        Assert.NotNull(memberResult);
+    }
     private async Task<SupportAttachmentReadRecord?> FindAsync(Guid id, SupportAttachmentActor actor)
     {
         using var scope = _factory.Services.CreateScope();

@@ -21,6 +21,8 @@ public sealed class SupportSlaQueueService : ISupportSlaQueueService
 
     public async Task<CursorPage<SupportSlaItemDto>> GetPageAsync(
         SupportSlaQueueQuery query,
+        string adminUserId,
+        bool canSupervise,
         CancellationToken cancellationToken)
     {
         if (query.PageSize is < 1 or > 100)
@@ -28,10 +30,15 @@ public sealed class SupportSlaQueueService : ISupportSlaQueueService
             throw DomainProblemException.Validation("pageSize must be between 1 and 100.");
         }
 
+        var fingerprint = OpaqueCursorCodec.ComputeFingerprint(
+            FingerprintTag,
+            adminUserId,
+            canSupervise.ToString());
+
         SupportSlaCursorPosition? after = null;
         if (query.Cursor is not null)
         {
-            if (!OpaqueCursorCodec.TryDecode<SupportSlaCursorPosition>(query.Cursor, FingerprintTag, out var decoded))
+            if (!OpaqueCursorCodec.TryDecode<SupportSlaCursorPosition>(query.Cursor, fingerprint, out var decoded))
             {
                 throw DomainProblemException.Validation("The cursor is invalid or no longer applicable.");
             }
@@ -40,7 +47,8 @@ public sealed class SupportSlaQueueService : ISupportSlaQueueService
         }
 
         var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
-        var page = await _store.QueryPageAsync(query.PageSize, after, nowUtc, cancellationToken);
+        var page = await _store.QueryPageAsync(
+            query.PageSize, after, nowUtc, adminUserId, canSupervise, cancellationToken);
 
         string? nextCursor = null;
         if (page.HasMore && page.Items.Count > 0)
@@ -48,7 +56,7 @@ public sealed class SupportSlaQueueService : ISupportSlaQueueService
             var last = page.Items[^1];
             nextCursor = OpaqueCursorCodec.Encode(
                 new SupportSlaCursorPosition(last.IsOverdue, last.EffectiveDueAtUtc, last.TicketPublicId),
-                FingerprintTag);
+                fingerprint);
         }
 
         return new CursorPage<SupportSlaItemDto>(page.Items, nextCursor, page.HasMore);

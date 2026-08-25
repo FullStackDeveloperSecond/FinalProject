@@ -132,6 +132,70 @@ public sealed class M14BReadModelSqlServerTests : IClassFixture<WebApplicationFa
         Assert.Empty(unauthorized.Items);
     }
 
+    [Fact]
+    public async Task ReadQueues_ApplyAssignmentScopeForAgentAndSupervisorBeforeMaterialization()
+    {
+        var now = DateTime.UtcNow;
+        var marker = $"SCOPE{Guid.NewGuid():N}"[..16];
+        var member = await SeedMemberAsync(marker);
+        var agentA = await SeedAdminAsync(marker + "A");
+        var agentB = await SeedAdminAsync(marker + "B");
+        var createdAt = now.AddYears(-20);
+        var unassigned = NewTicket(marker + "U", member.Id, createdAt, createdAt.AddHours(1), createdAt.AddHours(8));
+        var assignedA = NewTicket(marker + "A", member.Id, createdAt, createdAt.AddHours(1), createdAt.AddHours(8));
+        var assignedB = NewTicket(marker + "B", member.Id, createdAt, createdAt.AddHours(1), createdAt.AddHours(8));
+        assignedA.Assign(agentA.UserId, createdAt.AddMinutes(30));
+        assignedB.Assign(agentB.UserId, createdAt.AddMinutes(30));
+
+        using (var seedScope = _factory.Services.CreateScope())
+        {
+            var db = seedScope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+            db.SupportTickets.AddRange(unassigned, assignedA, assignedB);
+            await db.SaveChangesAsync();
+        }
+
+        using var scope = _factory.Services.CreateScope();
+        var scopedDb = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+        var agentSla = await new SupportSlaQueueStore(scopedDb).QueryPageAsync(
+            100, null, now, agentA.UserId, canSupervise: false, CancellationToken.None);
+        var supervisorSla = await new SupportSlaQueueStore(scopedDb).QueryPageAsync(
+            100, null, now, agentA.UserId, canSupervise: true, CancellationToken.None);
+
+        Assert.Contains(agentSla.Items, item => item.TicketPublicId == unassigned.PublicId);
+        Assert.Contains(agentSla.Items, item => item.TicketPublicId == assignedA.PublicId);
+        Assert.DoesNotContain(agentSla.Items, item => item.TicketPublicId == assignedB.PublicId);
+        Assert.Contains(supervisorSla.Items, item => item.TicketPublicId == assignedB.PublicId);
+
+        var agentWorkbench = await new CaseWorkbenchStore(scopedDb).QueryPageAsync(
+            [CaseWorkbenchCaseType.Support],
+            statuses: null,
+            priorities: null,
+            assigneePublicId: null,
+            overdueOnly: null,
+            keyword: marker,
+            pageSize: 100,
+            after: null,
+            agentA.UserId,
+            canSupervise: false,
+            CancellationToken.None);
+        var supervisorWorkbench = await new CaseWorkbenchStore(scopedDb).QueryPageAsync(
+            [CaseWorkbenchCaseType.Support],
+            statuses: null,
+            priorities: null,
+            assigneePublicId: null,
+            overdueOnly: null,
+            keyword: marker,
+            pageSize: 100,
+            after: null,
+            agentA.UserId,
+            canSupervise: true,
+            CancellationToken.None);
+
+        Assert.Contains(agentWorkbench.Items, item => item.CasePublicId == unassigned.PublicId);
+        Assert.Contains(agentWorkbench.Items, item => item.CasePublicId == assignedA.PublicId);
+        Assert.DoesNotContain(agentWorkbench.Items, item => item.CasePublicId == assignedB.PublicId);
+        Assert.Contains(supervisorWorkbench.Items, item => item.CasePublicId == assignedB.PublicId);
+    }
     private async Task<IReadOnlyList<SupportSlaItemDto>> QueryAllSlaAsync(DateTime now)
     {
         var items = new List<SupportSlaItemDto>();
@@ -142,7 +206,7 @@ public sealed class M14BReadModelSqlServerTests : IClassFixture<WebApplicationFa
             using var scope = _factory.Services.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
             var page = await new SupportSlaQueueStore(db).QueryPageAsync(
-                100, after, now, CancellationToken.None);
+                100, after, now, "sql-test-supervisor", canSupervise: true, CancellationToken.None);
             items.AddRange(page.Items);
 
             if (!page.HasMore)
@@ -175,6 +239,8 @@ public sealed class M14BReadModelSqlServerTests : IClassFixture<WebApplicationFa
             keyword: marker,
             pageSize,
             after,
+            "sql-test-supervisor",
+            canSupervise: true,
             CancellationToken.None);
     }
 

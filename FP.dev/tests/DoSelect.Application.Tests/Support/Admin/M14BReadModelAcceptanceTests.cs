@@ -216,6 +216,49 @@ public sealed class M14BReadModelAcceptanceTests
         await AssertValidationAsync(service, original with { Cursor = page.NextCursor }, [CaseWorkbenchCaseType.Support, CaseWorkbenchCaseType.Report]);
     }
 
+    [Fact]
+    public async Task QueueCursors_AreBoundToAdminIdentityAndSupervisionScope()
+    {
+        var slaStore = new RecordingSlaStore
+        {
+            Result = new SupportSlaQueuePage(
+                [SlaItem(Guid.NewGuid(), overdue: false, Now.UtcDateTime.AddHours(1))],
+                HasMore: true),
+        };
+        var slaService = new SupportSlaQueueService(slaStore, new FixedTimeProvider(Now));
+        var slaPage = await slaService.GetPageAsync(
+            new SupportSlaQueueQuery(1, null), "agent-a", canSupervise: false, CancellationToken.None);
+        var slaError = await Assert.ThrowsAsync<DomainProblemException>(() =>
+            slaService.GetPageAsync(
+                new SupportSlaQueueQuery(1, slaPage.NextCursor),
+                "agent-b",
+                canSupervise: false,
+                CancellationToken.None));
+
+        var workbenchStore = new RecordingWorkbenchStore
+        {
+            Result = new CaseWorkbenchPage(
+                [WorkbenchItem(Guid.NewGuid(), Now.UtcDateTime)],
+                HasMore: true),
+        };
+        var workbenchService = new CaseWorkbenchService(workbenchStore);
+        var workbenchPage = await workbenchService.GetPageAsync(
+            WorkbenchQuery(pageSize: 1),
+            [CaseWorkbenchCaseType.Support],
+            "agent-a",
+            canSupervise: false,
+            CancellationToken.None);
+        var workbenchError = await Assert.ThrowsAsync<DomainProblemException>(() =>
+            workbenchService.GetPageAsync(
+                WorkbenchQuery(pageSize: 1) with { Cursor = workbenchPage.NextCursor },
+                [CaseWorkbenchCaseType.Support],
+                "agent-a",
+                canSupervise: true,
+                CancellationToken.None));
+
+        Assert.Equal(DomainErrorCodes.ValidationFailed, slaError.Code);
+        Assert.Equal(DomainErrorCodes.ValidationFailed, workbenchError.Code);
+    }
     private static async Task AssertValidationAsync(
         CaseWorkbenchService service,
         CaseWorkbenchQuery query,
@@ -252,7 +295,8 @@ public sealed class M14BReadModelAcceptanceTests
         public DateTime NowUtc { get; private set; }
 
         public Task<SupportSlaQueuePage> QueryPageAsync(
-            int pageSize, SupportSlaCursorPosition? after, DateTime nowUtc, CancellationToken cancellationToken)
+            int pageSize, SupportSlaCursorPosition? after, DateTime nowUtc,
+            string adminUserId, bool canSupervise, CancellationToken cancellationToken)
         {
             After = after;
             NowUtc = nowUtc;
@@ -282,6 +326,8 @@ public sealed class M14BReadModelAcceptanceTests
             string? keyword,
             int pageSize,
             CaseWorkbenchCursorPosition? after,
+            string adminUserId,
+            bool canSupervise,
             CancellationToken cancellationToken)
         {
             CallCount++;
@@ -296,4 +342,23 @@ public sealed class M14BReadModelAcceptanceTests
             return Task.FromResult(Result);
         }
     }
+}
+
+internal static class M14BServiceTestExtensions
+{
+    private const string UnitTestAdminUserId = "unit-test-admin";
+
+    public static Task<CursorPage<SupportSlaItemDto>> GetPageAsync(
+        this SupportSlaQueueService service,
+        SupportSlaQueueQuery query,
+        CancellationToken cancellationToken) =>
+        service.GetPageAsync(query, UnitTestAdminUserId, canSupervise: false, cancellationToken);
+
+    public static Task<CursorPage<CaseWorkbenchItemDto>> GetPageAsync(
+        this CaseWorkbenchService service,
+        CaseWorkbenchQuery query,
+        IReadOnlyCollection<CaseWorkbenchCaseType> authorizedCaseTypes,
+        CancellationToken cancellationToken) =>
+        service.GetPageAsync(
+            query, authorizedCaseTypes, UnitTestAdminUserId, canSupervise: false, cancellationToken);
 }

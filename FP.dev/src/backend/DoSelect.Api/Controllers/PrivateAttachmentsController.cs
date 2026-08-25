@@ -41,16 +41,32 @@ public sealed class PrivateAttachmentsController : ControllerBase
     [HttpGet("{id:guid}/content")]
     public async Task<IActionResult> GetContent(Guid id, CancellationToken cancellationToken)
     {
-        var actor = await ResolveActorAsync(cancellationToken);
-        if (actor is null)
+        var actors = await ResolveActorsAsync(cancellationToken);
+        if (actors.Count == 0)
         {
-            // Covers anonymous callers, an admin without MFA, and an
-            // admin whose role is not CustomerService/CustomerServiceSupervisor (SuperAdmin
-            // included) — none of these ever reach the Application layer or storage.
             throw DomainProblemException.NotFound(NotFoundMessage);
         }
 
-        var content = await _service.GetContentAsync(actor, id, cancellationToken);
+        PrivateAttachmentContent? content = null;
+        foreach (var actor in actors)
+        {
+            try
+            {
+                content = await _service.GetContentAsync(actor, id, cancellationToken);
+                break;
+            }
+            catch (DomainProblemException exception) when (
+                exception.StatusCode == StatusCodes.Status404NotFound)
+            {
+                // Each principal completes the full resource authorization independently.
+                // A denial for one identity must not prevent another valid identity from reading.
+            }
+        }
+
+        if (content is null)
+        {
+            throw DomainProblemException.NotFound(NotFoundMessage);
+        }
         try
         {
             return File(
@@ -66,12 +82,13 @@ public sealed class PrivateAttachmentsController : ControllerBase
         }
     }
 
-    private async Task<SupportAttachmentActor?> ResolveActorAsync(CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<SupportAttachmentActor>> ResolveActorsAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        var actors = new List<SupportAttachmentActor>(capacity: 2);
 
-        // A support handler with completed MFA takes precedence when both authentication
-        // cookies are valid, so an admin can inspect attachments owned by another member.
+        // Member and admin are independent principals. Resource authorization tries each actor
+        // separately and succeeds when either principal can read the attachment.
         var adminResult = await HttpContext.AuthenticateAsync(DoSelectAuthenticationSchemes.Admin);
         if (adminResult.Succeeded &&
             adminResult.Principal is { } adminPrincipal &&
@@ -80,10 +97,10 @@ public sealed class PrivateAttachmentsController : ControllerBase
             var adminUserId = adminPrincipal.FindFirstValue(ClaimTypes.NameIdentifier);
             if (!string.IsNullOrEmpty(adminUserId))
             {
-                return new SupportAttachmentActor(
+                actors.Add(new SupportAttachmentActor(
                     SupportAttachmentActorType.SupportHandler,
                     adminUserId,
-                    adminPrincipal.IsInRole(DoSelectRoles.CustomerServiceSupervisor));
+                    adminPrincipal.IsInRole(DoSelectRoles.CustomerServiceSupervisor)));
             }
         }
 
@@ -95,11 +112,11 @@ public sealed class PrivateAttachmentsController : ControllerBase
             var memberUserId = memberPrincipal.FindFirstValue(ClaimTypes.NameIdentifier);
             if (!string.IsNullOrEmpty(memberUserId))
             {
-                return new SupportAttachmentActor(SupportAttachmentActorType.Member, memberUserId);
+                actors.Add(new SupportAttachmentActor(SupportAttachmentActorType.Member, memberUserId));
             }
         }
 
-        return null;
+        return actors;
     }
 
     private static bool IsSupportHandler(ClaimsPrincipal principal) =>

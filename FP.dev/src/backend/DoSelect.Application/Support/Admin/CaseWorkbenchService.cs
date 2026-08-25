@@ -29,6 +29,8 @@ public sealed class CaseWorkbenchService : ICaseWorkbenchService
     public async Task<CursorPage<CaseWorkbenchItemDto>> GetPageAsync(
         CaseWorkbenchQuery query,
         IReadOnlyCollection<CaseWorkbenchCaseType> authorizedCaseTypes,
+        string adminUserId,
+        bool canSupervise,
         CancellationToken cancellationToken)
     {
         if (query.PageSize is < 1 or > 100)
@@ -68,7 +70,7 @@ public sealed class CaseWorkbenchService : ICaseWorkbenchService
             ? query.CaseTypes.Distinct().Where(authorizedScope.Contains).OrderBy(t => t).ToArray()
             : authorizedScope;
 
-        var fingerprint = ComputeFingerprint(query, authorizedScope);
+        var fingerprint = ComputeFingerprint(query, authorizedScope, adminUserId, canSupervise);
 
         CaseWorkbenchCursorPosition? after = null;
         if (query.Cursor is not null)
@@ -98,6 +100,8 @@ public sealed class CaseWorkbenchService : ICaseWorkbenchService
             query.Keyword,
             query.PageSize,
             after,
+            adminUserId,
+            canSupervise,
             cancellationToken);
 
         string? nextCursor = null;
@@ -120,7 +124,9 @@ public sealed class CaseWorkbenchService : ICaseWorkbenchService
     /// </summary>
     private static string ComputeFingerprint(
         CaseWorkbenchQuery query,
-        IReadOnlyCollection<CaseWorkbenchCaseType> authorizedScope)
+        IReadOnlyCollection<CaseWorkbenchCaseType> authorizedScope,
+        string adminUserId,
+        bool canSupervise)
     {
         var scope = string.Join(",", authorizedScope.OrderBy(t => t));
         var requestedCaseTypes = query.CaseTypes is { Count: > 0 }
@@ -141,6 +147,8 @@ public sealed class CaseWorkbenchService : ICaseWorkbenchService
             priorities,
             query.AssigneePublicId?.ToString("D"),
             query.OverdueOnly?.ToString(),
-            query.Keyword?.Trim());
+            query.Keyword?.Trim(),
+            adminUserId,
+            canSupervise.ToString());
     }
 }

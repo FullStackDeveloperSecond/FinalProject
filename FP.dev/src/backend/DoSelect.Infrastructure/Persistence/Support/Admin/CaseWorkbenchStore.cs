@@ -29,6 +29,8 @@ public sealed class CaseWorkbenchStore : ICaseWorkbenchStore
         string? keyword,
         int pageSize,
         CaseWorkbenchCursorPosition? after,
+        string adminUserId,
+        bool canSupervise,
         CancellationToken cancellationToken)
     {
         // CaseWorkbenchCaseType member names match vw_CaseWorkbench.CaseType exactly
@@ -39,6 +41,16 @@ public sealed class CaseWorkbenchStore : ICaseWorkbenchStore
         var query = _dbContext.CaseWorkbench
             .AsNoTracking()
             .Where(r => caseTypeNames.Contains(r.CaseType));
+
+        if (!canSupervise)
+        {
+            query = query.Where(r => r.AssigneePublicId == null
+                || _dbContext.AdminProfiles.Any(profile =>
+                    profile.IsActive
+                    && profile.UserId == adminUserId
+                    && profile.PublicId == r.AssigneePublicId));
+        }
+
 
         if (statuses is { Count: > 0 })
         {

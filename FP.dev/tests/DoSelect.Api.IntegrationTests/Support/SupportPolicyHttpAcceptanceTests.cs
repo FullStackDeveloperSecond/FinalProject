@@ -321,14 +321,16 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
         }
 
         public Task<CursorPage<SupportSlaItemDto>> GetPageAsync(
-            SupportSlaQueueQuery query, CancellationToken cancellationToken)
+            SupportSlaQueueQuery query, string adminUserId, bool canSupervise,
+            CancellationToken cancellationToken)
         {
             SlaQuery = query;
             return Task.FromResult(new CursorPage<SupportSlaItemDto>([], null, false));
         }
 
         public Task<CursorPage<CaseWorkbenchItemDto>> GetPageAsync(CaseWorkbenchQuery query,
-            IReadOnlyCollection<CaseWorkbenchCaseType> authorizedCaseTypes, CancellationToken cancellationToken)
+            IReadOnlyCollection<CaseWorkbenchCaseType> authorizedCaseTypes,
+            string adminUserId, bool canSupervise, CancellationToken cancellationToken)
         {
             WorkbenchQuery = query;
             AuthorizedCaseTypes = authorizedCaseTypes.ToArray();
