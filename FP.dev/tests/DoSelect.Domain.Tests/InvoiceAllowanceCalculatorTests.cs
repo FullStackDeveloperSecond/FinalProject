@@ -1,4 +1,5 @@
 using DoSelect.Domain.Invoicing;
+using DoSelect.Domain.Refunds;
 
 namespace DoSelect.Domain.Tests;
 
@@ -7,6 +8,139 @@ public sealed class InvoiceAllowanceCalculatorTests
     private static readonly DateTime IssuedAtUtc = new(2026, 8, 19, 2, 0, 0, DateTimeKind.Utc);
     private static readonly Guid ItemA = new("11111111-1111-1111-1111-111111111111");
     private static readonly Guid ItemB = new("22222222-2222-2222-2222-222222222222");
+    private static readonly Guid ItemC = new("33333333-3333-3333-3333-333333333333");
+
+    [Theory]
+    [InlineData(RefundAllocationType.ItemRefund, true)]
+    [InlineData(RefundAllocationType.OriginalShipping, true)]
+    [InlineData(RefundAllocationType.AssemblyFee, true)]
+    [InlineData(RefundAllocationType.ReturnShipping, false)]
+    [InlineData(RefundAllocationType.DiscountClawback, false)]
+    [InlineData(RefundAllocationType.ShippingClawback, false)]
+    [InlineData(RefundAllocationType.OtherAdjustment, false)]
+    public void OnlyAmountsTheInvoiceActuallyChargedBecomeAllowanceLines(
+        RefundAllocationType allocationType,
+        bool expected) =>
+        Assert.Equal(expected, InvoiceAllowancePolicy.CreatesAllowanceLine(allocationType));
+
+    [Fact]
+    public void EveryAllocationTypeHasARuling()
+    {
+        // 新增分攤類型時必須同時裁定折讓行為，不能靜默落到預設值。
+        foreach (var allocationType in Enum.GetValues<RefundAllocationType>())
+        {
+            InvoiceAllowancePolicy.CreatesAllowanceLine(allocationType);
+        }
+    }
+
+    [Theory]
+    [InlineData(RefundAllocationType.ItemRefund, true)]
+    [InlineData(RefundAllocationType.OriginalShipping, false)]
+    [InlineData(RefundAllocationType.AssemblyFee, false)]
+    public void OnlyItemRefundsMapToAnOrderItem(
+        RefundAllocationType allocationType,
+        bool expected) =>
+        Assert.Equal(expected, InvoiceAllowancePolicy.MapsToAnOrderItem(allocationType));
+
+    [Fact]
+    public void ATinyLineNextToALargeOneNeverProducesNegativeTax()
+    {
+        // alex 在 review 給的實例：分攤未稅時 0.53 這列會取整成 Net=1，
+        // 再以 Gross - Net 求稅額就變成 -0.47。分攤稅額才不會出現這種明細。
+        var result = Calculate(
+            [Capacity(ItemA, 1, 0.53m), Capacity(ItemB, 1, 1000m)],
+            [new RefundedInvoiceLine(ItemA, 1, 0.53m), new RefundedInvoiceLine(ItemB, 1, 1000m)]);
+
+        Assert.True(result.IsSuccess);
+        Assert.All(result.Lines, line =>
+        {
+            Assert.InRange(line.TaxAmount, 0m, line.GrossAmount);
+            Assert.InRange(line.NetAmount, 0m, line.GrossAmount);
+            Assert.Equal(line.GrossAmount, line.NetAmount + line.TaxAmount);
+        });
+    }
+
+    [Fact]
+    public void TheHeaderIsWholeTwdAndTheRoundingAdjustmentRecordsTheDifference()
+    {
+        var result = Calculate(
+            [Capacity(ItemA, 1, 0.53m), Capacity(ItemB, 1, 1000m)],
+            [new RefundedInvoiceLine(ItemA, 1, 0.53m), new RefundedInvoiceLine(ItemB, 1, 1000m)]);
+
+        // 明細含稅合計 1000.53，表頭取整數元為 1001，差額記在 RoundingAdjustment。
+        Assert.Equal(1001m, result.Amount);
+        Assert.Equal(decimal.Truncate(result.Amount), result.Amount);
+        Assert.Equal(0.47m, result.RoundingAdjustment);
+        Assert.Equal(result.Amount, result.NetAmount + result.TaxAmount);
+    }
+
+    [Fact]
+    public void LineTaxAlwaysSumsExactlyToTheHeaderTax()
+    {
+        var result = Calculate(
+            [Capacity(ItemA, 1, 333.33m), Capacity(ItemB, 1, 333.33m), Capacity(ItemC, 1, 333.34m)],
+            [
+                new RefundedInvoiceLine(ItemA, 1, 333.33m),
+                new RefundedInvoiceLine(ItemB, 1, 333.33m),
+                new RefundedInvoiceLine(ItemC, 1, 333.34m),
+            ]);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(result.TaxAmount, result.Lines.Sum(line => line.TaxAmount));
+    }
+
+    [Theory]
+    [InlineData("0.01")]
+    [InlineData("0.49")]
+    [InlineData("0.50")]
+    [InlineData("0.99")]
+    public void AnExtremelySmallAllowanceStaysConsistent(string grossText)
+    {
+        var gross = decimal.Parse(grossText, System.Globalization.CultureInfo.InvariantCulture);
+
+        var result = Calculate(
+            [Capacity(ItemA, 1, gross)],
+            [new RefundedInvoiceLine(ItemA, 1, gross)]);
+
+        if (!result.IsSuccess)
+        {
+            // 取整後為零的折讓寫不進去，Amount > 0 是資料庫層的限制。
+            Assert.Equal(InvoiceErrorCodes.InvoiceStateConflict, result.ErrorCode);
+            return;
+        }
+
+        Assert.True(result.Amount > 0m);
+        Assert.Equal(result.Amount, result.NetAmount + result.TaxAmount);
+        Assert.All(result.Lines, line =>
+        {
+            Assert.InRange(line.TaxAmount, 0m, line.GrossAmount);
+            Assert.InRange(line.NetAmount, 0m, line.GrossAmount);
+        });
+    }
+
+    [Fact]
+    public void TheAllowanceUsesTheSameRoundingContractAsTheInvoice()
+    {
+        // 折讓與發票共用 InvoiceCalculator 的分攤函式，兩邊的取位不可能漂移。
+        var source = File.ReadAllText(CalculatorSourcePath());
+
+        Assert.Contains("InvoiceCalculator.AllocateTaxByGrossShare", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("MidpointRounding", source, StringComparison.Ordinal);
+    }
+
+    private static string CalculatorSourcePath()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "src")))
+        {
+            directory = directory.Parent;
+        }
+
+        Assert.NotNull(directory);
+        return Path.Combine(
+            directory!.FullName,
+            "src", "backend", "DoSelect.Domain", "Invoicing", "InvoiceAllowanceCalculator.cs");
+    }
 
     [Fact]
     public void AllowanceBacksTaxOutTheSameWayTheInvoiceDid()
@@ -25,14 +159,17 @@ public sealed class InvoiceAllowanceCalculatorTests
     [Fact]
     public void TheHeaderIsBackedOutOfTheAllowanceTotalAndLinesAbsorbTheRemainder()
     {
-        // 兩列各 1,000。逐列回推會得到 1904，由總額回推是 1905，末列吸收尾差。
+        // 兩列各 1,000。表頭取整數元後回推未稅 1905、稅額 95。
+        // 明細依 DEC-BATCH-017 可保留兩位小數，因此稅額平分為 47.5，未稅為 952.5，
+        // 不需要把尾差硬塞給某一列 —— 合計仍精確等於表頭。
         var result = Calculate(
             [Capacity(ItemA, quantity: 1, gross: 1000m), Capacity(ItemB, quantity: 1, gross: 1000m)],
             [new RefundedInvoiceLine(ItemA, 1, 1000m), new RefundedInvoiceLine(ItemB, 1, 1000m)]);
 
         Assert.Equal(1905m, result.NetAmount);
         Assert.Equal(95m, result.TaxAmount);
-        Assert.Equal([953m, 952m], result.Lines.Select(line => line.NetAmount));
+        Assert.Equal([952.5m, 952.5m], result.Lines.Select(line => line.NetAmount));
+        Assert.Equal([47.5m, 47.5m], result.Lines.Select(line => line.TaxAmount));
         Assert.Equal(result.NetAmount, result.Lines.Sum(line => line.NetAmount));
         Assert.Equal(result.TaxAmount, result.Lines.Sum(line => line.TaxAmount));
     }

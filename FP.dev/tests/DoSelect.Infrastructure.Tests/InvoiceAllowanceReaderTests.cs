@@ -3,6 +3,7 @@ using DoSelect.Domain.Invoicing;
 using DoSelect.Domain.Refunds;
 using DoSelect.Infrastructure.Invoicing;
 using DoSelect.Infrastructure.Persistence;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -12,16 +13,25 @@ namespace DoSelect.Infrastructure.Tests;
 /// <summary>
 /// 折讓 Reader 的 SQL Server Provider-backed 測試環境。
 /// 沿用 <c>IdempotencyExecutorFixture</c> 的做法：預設連本機具名執行個體，
-/// 可用環境變數覆寫；CI 上未設定連線字串時整組跳過。
+/// 伺服器可用環境變數覆寫；CI 上未設定連線字串時整組跳過。
 /// </summary>
+/// <remarks>
+/// 環境變數只決定**伺服器**，資料庫名稱一律強制為這組測試專屬的名稱。
+/// 多組 SQL Server 測試共用同一個環境變數時，若也共用資料庫，
+/// 各自的 <c>EnsureDeleted</c> 會在平行執行時互相把對方的資料庫刪掉。
+/// </remarks>
 public sealed class InvoiceAllowanceSqlFixture : IAsyncLifetime
 {
     public const string ConnectionStringEnvironmentVariable =
         "DOSELECT_SQLSERVER_TEST_CONNECTION";
 
-    private const string LocalConnectionString =
-        "Server=.\\SQL2025;Database=DoSelectAllowanceReaderTests;" +
-        "Trusted_Connection=True;TrustServerCertificate=True;";
+    /// <summary>
+    /// 這組測試專屬的資料庫名稱。共用環境變數指到的資料庫會被別組的
+    /// <c>EnsureDeleted</c> 直接刪掉，因此不論連線從哪裡來，一律改指到這個名稱。
+    /// </summary>
+    private const string DatabaseName = "DoSelectAllowanceReaderTests";
+
+    private const string LocalServer = "Server=.\\SQL2025;";
 
     public static bool IsEnabled =>
         !string.IsNullOrWhiteSpace(GetConfiguredConnectionString()) ||
@@ -56,8 +66,30 @@ public sealed class InvoiceAllowanceSqlFixture : IAsyncLifetime
 
     public static DoSelectDbContext CreateContext() => new(
         new DbContextOptionsBuilder<DoSelectDbContext>()
-            .UseSqlServer(GetConfiguredConnectionString() ?? LocalConnectionString)
+            .UseSqlServer(BuildConnectionString())
             .Options);
+
+    /// <summary>
+    /// 取用共用環境變數的**伺服器**設定，但強制換掉資料庫名稱。
+    /// 這樣多組 SQL Server 測試指向同一台伺服器時也不會互相刪除資料庫。
+    /// </summary>
+    private static string BuildConnectionString()
+    {
+        var configured = GetConfiguredConnectionString();
+        var builder = new SqlConnectionStringBuilder(
+            string.IsNullOrWhiteSpace(configured) ? LocalServer : configured)
+        {
+            InitialCatalog = DatabaseName,
+            TrustServerCertificate = true,
+        };
+
+        if (string.IsNullOrWhiteSpace(configured))
+        {
+            builder.IntegratedSecurity = true;
+        }
+
+        return builder.ConnectionString;
+    }
 
     private static string? GetConfiguredConnectionString() =>
         Environment.GetEnvironmentVariable(ConnectionStringEnvironmentVariable);
@@ -82,6 +114,7 @@ public sealed class InvoiceAllowanceSqlCollection : ICollectionFixture<InvoiceAl
 /// 實際對 SQL Server 執行查詢的折讓 Reader 測試。
 /// </summary>
 [Collection(nameof(InvoiceAllowanceSqlCollection))]
+[Trait("Category", "RequiresSqlServer")]
 public sealed class InvoiceAllowanceReaderSqlServerTests
 {
     private static readonly DateTime IssuedAtUtc = new(2026, 8, 24, 2, 0, 0, DateTimeKind.Utc);
@@ -174,6 +207,16 @@ public sealed class InvoiceAllowanceReaderSqlServerTests
         var reader = new InvoiceAllowanceReader(context);
 
         Assert.Null(await reader.FindByRefundAsync(Guid.NewGuid()));
+    }
+
+    [InvoiceAllowanceSqlFact]
+    public async Task ThisFixtureNeverSharesADatabaseWithAnotherSuite()
+    {
+        // 這組會 EnsureDeleted。指到別組的資料庫就會把對方的測試資料刪掉，
+        // 因此資料庫名稱必須固定，不隨環境變數改變。
+        await using var context = InvoiceAllowanceSqlFixture.CreateContext();
+
+        Assert.Equal("DoSelectAllowanceReaderTests", context.Database.GetDbConnection().Database);
     }
 }
 
