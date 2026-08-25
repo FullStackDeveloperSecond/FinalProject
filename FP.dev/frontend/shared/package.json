@@ -6,7 +6,7 @@
   "scripts": {
     "api:export": "curl -sf http://localhost:5126/openapi/v1.json -o ../../contracts/openapi.v1.json",
     "api:generate": "node ../customer-web/node_modules/openapi-typescript/bin/cli.js ../../contracts/openapi.v1.json -o src/api/generated/schema.d.ts",
-    "api:check": "git diff --exit-code -- ../../contracts/openapi.v1.json src/api/generated/schema.d.ts"
+    "api:check": "npm run api:export && npm run api:generate && git diff --exit-code -- ../../contracts/openapi.v1.json src/api/generated/schema.d.ts"
   },
   "exports": {
     "./api": "./src/api/index.ts",

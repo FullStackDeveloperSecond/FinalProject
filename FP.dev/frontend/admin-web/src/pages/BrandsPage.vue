@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, ref } from 'vue'
 import CatalogLookupTable, { type CatalogLookupItem } from '../components/catalog/CatalogLookupTable.vue'
 import { useBrandList, useCreateBrand, useUpdateBrand } from '../features/brands/useBrands'
+import { useSearchFilters } from '../features/shared/useSearchFilters'
 import type { BrandDto } from '../features/brands/types'
 
 interface BrandCreateState {
@@ -13,19 +14,9 @@ interface BrandCreateState {
   isActive: boolean
 }
 
-const pageSize = 20
-const filters = reactive({ q: '', pageNumber: 1 })
-const listParams = computed(() => ({ q: filters.q, pageNumber: filters.pageNumber, pageSize }))
+const { filters, listParams, search, goToPage } = useSearchFilters(20)
 const { data: result, isPending, isError, error, refetch } = useBrandList(listParams)
 const totalPages = computed(() => Number(result.value?.totalPages ?? 0))
-
-function search() {
-  filters.pageNumber = 1
-}
-
-function goToPage(nextPage: number) {
-  filters.pageNumber = nextPage
-}
 
 const createMutation = useCreateBrand()
 const updateMutation = useUpdateBrand()

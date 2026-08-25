@@ -1,6 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
-import { createMemoryHistory, createRouter } from 'vue-router'
+import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@doselect/web-shared/api'
 
@@ -20,7 +20,8 @@ vi.mock('../features/products/api', () => ({
 vi.mock('../features/brands/api', () => ({ listBrands: mockListBrands }))
 vi.mock('../features/categories/api', () => ({ listCategories: mockListCategories }))
 vi.mock('../features/tags/api', () => ({ listTags: mockListTags }))
-vi.mock('../features/skus/api', () => ({ createSku: vi.fn(), updateSku: vi.fn(), deleteSku: vi.fn() }))
+const mockCreateSku = vi.fn()
+vi.mock('../features/skus/api', () => ({ createSku: mockCreateSku, updateSku: vi.fn(), deleteSku: vi.fn() }))
 
 const { default: ProductEditPage } = await import('./ProductEditPage.vue')
 
@@ -265,15 +266,16 @@ describe('ProductEditPage', () => {
   })
 
   /**
-   * Regression test (組長 PR #24 round 6 review, P1): creating/editing a SKU below now touches
-   * the Product's RowVersion (round 5's concurrency fix) and refetches ['admin-products',
-   * 'detail', publicId] — the initializer used to key on publicId+rowVersion, so that refetch
-   * re-ran it and silently overwrote whatever the admin had typed into the form above, mid-edit.
-   * The concurrency token must still stay in sync on its own (submitUpdate reads
-   * product.value.rowVersion fresh, not a copy stashed in the form) without ever re-populating
-   * dirty fields.
+   * Regression test (組長 PR #24 round 7 review, P1). Round 6 stopped a background refetch from
+   * re-populating the form fields, but submitUpdate() still read product.value.rowVersion live —
+   * so a refetch caused by something other than this admin's own action (another admin's edit
+   * landing via window-refocus, an unrelated cache invalidation) would silently swap in a newer
+   * token. Submitting would then send that newer token, the server's optimistic-concurrency check
+   * would see a "match" against the row's current state, and accept the write — discarding
+   * whatever the other change was with no 409 ever raised. The token actually used on submit must
+   * stay pinned to what it was when editing began, exactly like the form fields.
    */
-  it('keeps an in-progress product edit and still submits with the latest RowVersion after a SKU update refetches the product', async () => {
+  it('submits with the RowVersion captured when editing began, not one picked up by an unrelated background refetch', async () => {
     mockGetAdminProduct.mockResolvedValue(product)
     mockListBrands.mockResolvedValue({ items: [{ publicId: 'brand-1', code: 'ACME', nameZhTw: 'Acme' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
     mockListCategories.mockResolvedValue({ items: [{ publicId: 'cat-1', code: 'CAT-A', nameZhTw: 'Category A' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
@@ -297,9 +299,9 @@ describe('ProductEditPage', () => {
     await nameInput.setValue('Product 1（管理員正在編輯中）')
     expect(nameInput.element.value).toBe('Product 1（管理員正在編輯中）')
 
-    // Simulate the SkuEditorRow below successfully saving a SKU: useSkus.ts's
-    // invalidateProduct() invalidates ['admin-products', 'detail', publicId], which refetches
-    // the product with a bumped RowVersion (Product.Touch) but otherwise-identical fields.
+    // Simulates a cause unrelated to this admin's own actions on this page: another admin saved
+    // a change to the same product elsewhere, and this page's query picked it up via an
+    // unrelated invalidation/window-refocus refetch.
     mockGetAdminProduct.mockResolvedValueOnce({ ...product, rowVersion: 'BBB=' })
     await queryClient.invalidateQueries({ queryKey: ['admin-products', 'detail', 'p1'] })
     await flushPromises()
@@ -311,8 +313,95 @@ describe('ProductEditPage', () => {
 
     expect(mockUpdateProduct).toHaveBeenCalledWith('p1', expect.objectContaining({
       nameZhTw: 'Product 1（管理員正在編輯中）',
+      rowVersion: 'AAA=',
+    }))
+  })
+
+  /**
+   * Regression test (組長 PR #24 round 7 review, P1, point 3): the one deliberate exception to
+   * the rule above — a SKU mutation this admin performs *on this page* legitimately advances the
+   * Product's RowVersion (Product.Touch(), round 5), and the next product save should be checked
+   * against that new value rather than being stuck on a token the server will now reject as
+   * stale. Distinguishing this from an arbitrary background refetch is the point: this only
+   * happens via the explicit onSuccess handler of a mutation the admin themselves just fired.
+   */
+  it('syncs the concurrency token, but not the form fields, after this page creates a SKU', async () => {
+    mockGetAdminProduct.mockResolvedValue(product)
+    mockListBrands.mockResolvedValue({ items: [{ publicId: 'brand-1', code: 'ACME', nameZhTw: 'Acme' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    mockListCategories.mockResolvedValue({ items: [{ publicId: 'cat-1', code: 'CAT-A', nameZhTw: 'Category A' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    mockListTags.mockResolvedValue({ items: [{ publicId: 'tag-legacy', code: 'LEGACY-TAG', nameZhTw: 'Legacy Tag' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    mockCreateSku.mockResolvedValueOnce({ publicId: 'sku-new', skuCode: 'NEW-1', isDefault: false })
+    mockUpdateProduct.mockResolvedValueOnce(product)
+
+    const wrapper = await mountPage()
+    await flushPromises()
+
+    const nameInput = wrapper.findAll('label').find((label) => label.text().includes('名稱'))!.find('input')
+    await nameInput.setValue('Product 1（管理員正在編輯中）')
+
+    // The mutation's own onSuccess invalidation and this page's explicit sync refetch both race
+    // to refetch the same query — like two real idempotent GETs against an unchanged server
+    // state, both must consistently see the same post-mutation value.
+    mockGetAdminProduct.mockResolvedValue({ ...product, rowVersion: 'BBB=' })
+    await wrapper.find('input[aria-label="新 SKU 代碼"]').setValue('NEW-1')
+    await wrapper.find('input[aria-label="新 SKU 名稱"]').setValue('New SKU')
+    await wrapper.findAll('button').find((button) => button.text() === '新增 SKU')!.trigger('click')
+    await flushPromises()
+
+    expect(nameInput.element.value).toBe('Product 1（管理員正在編輯中）')
+
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(mockUpdateProduct).toHaveBeenCalledWith('p1', expect.objectContaining({
+      nameZhTw: 'Product 1（管理員正在編輯中）',
       rowVersion: 'BBB=',
     }))
+  })
+
+  /**
+   * Regression test (組長 PR #24 review round 7, P2): useCreateSku(props.productId ?? '') used
+   * to capture the productId once as a plain string at setup time. Vue Router reuses this same
+   * component instance across a param-only navigation on the same route record — the query and
+   * form already switch to the new product, but the mutation's captured productId stayed on the
+   * old one, so "新增 SKU" on a page visibly showing product B could silently write the new SKU
+   * onto product A instead and invalidate A's cache entry rather than B's.
+   */
+  it('creates a new SKU against the product currently shown, not the one this instance first loaded', async () => {
+    mockGetAdminProduct.mockImplementation((publicId: string) =>
+      Promise.resolve({ ...product, publicId, productCode: publicId.toUpperCase() }))
+    mockListBrands.mockResolvedValue({ items: [{ publicId: 'brand-1', code: 'ACME', nameZhTw: 'Acme' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    mockListCategories.mockResolvedValue({ items: [{ publicId: 'cat-1', code: 'CAT-A', nameZhTw: 'Category A' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    mockListTags.mockResolvedValue({ items: [{ publicId: 'tag-legacy', code: 'LEGACY-TAG', nameZhTw: 'Legacy Tag' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    mockCreateSku.mockResolvedValueOnce({ publicId: 'sku-new', skuCode: 'NEW-1', isDefault: false })
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/products/:productId', name: 'product-edit', component: ProductEditPage, props: true }],
+    })
+    await router.push('/products/p1')
+    await router.isReady()
+    // Mounted through RouterView (not with a static `props:` object) so `props: true` on the
+    // route actually re-injects the current route param reactively on navigation, the same way
+    // it does in the real app — a directly-mounted instance with a fixed prop would never
+    // exercise this bug at all.
+    const wrapper = mount(RouterView, {
+      global: { plugins: [[VueQueryPlugin, { queryClient }], router] },
+    })
+    await flushPromises()
+
+    // Param-only navigation on the same matched route record — Vue Router reuses this instance
+    // rather than remounting it.
+    await router.push('/products/p2')
+    await flushPromises()
+
+    await wrapper.find('input[aria-label="新 SKU 代碼"]').setValue('NEW-1')
+    await wrapper.find('input[aria-label="新 SKU 名稱"]').setValue('New SKU')
+    await wrapper.findAll('button').find((button) => button.text() === '新增 SKU')!.trigger('click')
+    await flushPromises()
+
+    expect(mockCreateSku).toHaveBeenCalledWith('p2', expect.objectContaining({ skuCode: 'NEW-1' }))
   })
 
   /**

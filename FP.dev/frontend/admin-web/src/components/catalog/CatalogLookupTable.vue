@@ -45,6 +45,12 @@ const emit = defineEmits<{
 
 const editingId = ref<string | null>(null)
 const editState = reactive<Record<string, unknown>>({})
+// PR #24 review round 7 (P1): captured once at startEdit alongside editState — submitEdit() must
+// send the token read when editing began, not item.rowVersion re-read live at submit time (item
+// comes from the parent's list query, which can refetch in the background — e.g. another admin
+// editing the same row, or window-refocus — while this row is mid-edit, silently swapping in a
+// newer token and defeating the optimistic-concurrency check).
+const editRowVersion = ref<string | null>(null)
 
 const creatingRow = ref(false)
 const createState = reactive<Record<string, unknown>>({})
@@ -54,6 +60,7 @@ function startEdit(item: CatalogLookupItem) {
     return
   }
   editingId.value = item.publicId
+  editRowVersion.value = item.rowVersion
   Object.assign(editState, props.makeEditState(item))
 }
 
@@ -62,10 +69,10 @@ function cancelEdit() {
 }
 
 function submitEdit(item: CatalogLookupItem) {
-  if (props.operationsDisabled) {
+  if (props.operationsDisabled || !editRowVersion.value) {
     return
   }
-  emit('update', item.publicId, item.rowVersion, editState)
+  emit('update', item.publicId, editRowVersion.value, editState)
 }
 
 function startCreate() {

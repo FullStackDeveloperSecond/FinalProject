@@ -16,10 +16,26 @@ const props = defineProps<{
   productPublicId: string
 }>()
 
+const emit = defineEmits<{
+  /**
+   * PR #24 review round 7 (P1): fired after this row's own update/delete mutation succeeds —
+   * both legitimately advance the parent Product's RowVersion (Product.Touch(), round 5). The
+   * parent explicitly refetches and re-snapshots its own edit token in response, rather than
+   * treating every background refetch of the product query as safe to adopt.
+   */
+  skuMutated: []
+}>()
+
 const updateMutation = useUpdateSku(props.productPublicId)
 const deleteMutation = useDeleteSku(props.productPublicId)
 
 const editing = ref(false)
+// PR #24 review round 7 (P1): captured once at startEdit, alongside the rest of the edit
+// snapshot in `state` — submit() must send the token read at the moment editing began, not
+// whatever props.sku.rowVersion has become by the time the admin clicks 儲存 (a background
+// refetch between those two moments would otherwise silently swap in a newer token and defeat
+// the optimistic-concurrency check, same class of bug as ProductEditPage's editRowVersion).
+const editRowVersion = ref(props.sku.rowVersion)
 
 function formatSkuStatus(status: string): string {
   return {
@@ -54,6 +70,7 @@ const state = reactive(stateFromSku(props.sku))
 // props on every startEdit, and discarding the draft on cancel, keeps the form honest.
 function startEdit() {
   Object.assign(state, stateFromSku(props.sku))
+  editRowVersion.value = props.sku.rowVersion
   editing.value = true
 }
 
@@ -82,10 +99,13 @@ function submit() {
       booleanValue: spec.booleanValue,
       optionCode: spec.optionCode,
     })),
-    rowVersion: props.sku.rowVersion,
+    rowVersion: editRowVersion.value,
   }
   updateMutation.mutate({ skuPublicId: props.sku.publicId, request }, {
-    onSuccess: () => { editing.value = false },
+    onSuccess: () => {
+      editing.value = false
+      emit('skuMutated')
+    },
   })
 }
 
@@ -93,7 +113,9 @@ function remove() {
   if (!globalThis.confirm(`確定要刪除 SKU「${props.sku.skuCode}」嗎？`)) {
     return
   }
-  deleteMutation.mutate({ skuPublicId: props.sku.publicId, rowVersion: props.sku.rowVersion })
+  deleteMutation.mutate({ skuPublicId: props.sku.publicId, rowVersion: props.sku.rowVersion }, {
+    onSuccess: () => emit('skuMutated'),
+  })
 }
 </script>
 

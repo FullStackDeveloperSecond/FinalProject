@@ -106,6 +106,31 @@ describe('SkuEditorRow', () => {
    * deleting the current default SKU directly — the row-level controls must not offer an action
    * that will always 409.
    */
+  /**
+   * Regression test (組長 PR #24 review round 7, P1): submit() used to read props.sku.rowVersion
+   * live, not the value captured when editing started. A background refetch of the parent's
+   * product query while this row is mid-edit (another admin's change, window-refocus) would
+   * silently swap in a newer token — submit would then send that newer token, and the server's
+   * optimistic-concurrency check would accept the write as if it matched the state the admin
+   * actually started editing from, discarding whatever the background change was with no 409.
+   */
+  it('submits with the RowVersion captured when editing began, not one that arrives via a prop update mid-edit', async () => {
+    mockUpdateSku.mockResolvedValueOnce(baseSku({ nameZhTw: 'Edited Name', rowVersion: 'CCC=' }))
+    const wrapper = mountRow(baseSku({ nameZhTw: 'Original Name', rowVersion: 'AAA=' }))
+
+    await wrapper.find('button').trigger('click') // 編輯
+    await wrapper.find('input[aria-label="名稱"]').setValue('Edited Name')
+
+    // Simulates the parent's product query refetching in the background (unrelated to this
+    // edit) and re-passing a SkuDto with a newer RowVersion while the row is still open for edit.
+    await wrapper.setData({ sku: baseSku({ nameZhTw: 'Original Name', rowVersion: 'BBB=' }) })
+
+    await wrapper.findAll('button').find((button) => button.text() === '儲存')!.trigger('click')
+    await flushPromises()
+
+    expect(mockUpdateSku).toHaveBeenCalledWith('sku-1', expect.objectContaining({ rowVersion: 'AAA=' }))
+  })
+
   it('disables the delete button for the current default SKU', () => {
     const wrapper = mountRow(baseSku({ isDefault: true }))
 

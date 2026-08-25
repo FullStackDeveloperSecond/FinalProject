@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, ref } from 'vue'
 import CatalogLookupTable, { type CatalogLookupItem } from '../components/catalog/CatalogLookupTable.vue'
 import { useCategoryList, useCreateCategory, useFullCategoryList, useUpdateCategory } from '../features/categories/useCategories'
+import { useSearchFilters } from '../features/shared/useSearchFilters'
 import type { CategoryDto } from '../features/categories/types'
 
 interface CategoryCreateState {
@@ -14,9 +15,7 @@ interface CategoryCreateState {
   isActive: boolean
 }
 
-const pageSize = 20
-const filters = reactive({ q: '', pageNumber: 1 })
-const listParams = computed(() => ({ q: filters.q, pageNumber: filters.pageNumber, pageSize }))
+const { filters, listParams, search, goToPage } = useSearchFilters(20)
 const { data: result, isPending, isError, error, refetch } = useCategoryList(listParams)
 const totalPages = computed(() => Number(result.value?.totalPages ?? 0))
 
@@ -33,14 +32,6 @@ const {
 
 function retryAllCategories() {
   refetchAllCategories()
-}
-
-function search() {
-  filters.pageNumber = 1
-}
-
-function goToPage(nextPage: number) {
-  filters.pageNumber = nextPage
 }
 
 const createMutation = useCreateCategory()

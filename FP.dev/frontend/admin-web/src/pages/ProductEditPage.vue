@@ -76,12 +76,22 @@ const form = reactive({
 // PR #24 review round 6: the key used to also include rowVersion, which reintroduced the exact
 // stomp this guard exists to prevent — creating/editing a SKU below now touches the Product's
 // RowVersion (round 5's concurrency fix), so that refetch re-ran this block and overwrote
-// whatever the admin had typed into the form above, mid-edit. rowVersion isn't form state to
-// begin with: submitUpdate() already reads product.value.rowVersion fresh at submit time, so the
-// concurrency token stays correct on its own without this watcher ever touching it. Keying on
-// publicId alone means the form is (re)populated once per product and never again for the same
-// product, no matter what causes it to refetch.
+// whatever the admin had typed into the form above, mid-edit. Keying on publicId alone means the
+// form is (re)populated once per product and never again for the same product, no matter what
+// causes it to refetch.
 const initializedFor = ref<string | null>(null)
+// PR #24 review round 7 (P1): round 6 stopped this block from touching the form fields, but
+// submitUpdate() still read product.value.rowVersion *live* at submit time — the concurrency
+// token itself is not exempt from the same background-refetch problem. Scenario: admin A opens
+// this page, admin B saves a change to the same product elsewhere, a background refetch here
+// (window refocus, an unrelated invalidation) picks up B's new RowVersion into product.value.
+// A submits their still-unsaved-since-open edits; submitUpdate() would send B's RowVersion, the
+// optimistic-concurrency check on the server sees a "match" against what's now the current row,
+// and silently accepts A's write over B's, discarding B's change with no 409 ever raised — the
+// exact lost update the RowVersion check exists to prevent. editRowVersion is the token actually
+// sent on submit; it is captured once, at the same moment as the form fields above, and is never
+// updated by this watcher.
+const editRowVersion = ref<string | null>(null)
 watch([product, brandResult, categoryResult, tagResult, areLookupsPending, areLookupsErrored], () => {
   const value = product.value
   if (!value || areLookupsPending.value || areLookupsErrored.value) {
@@ -99,6 +109,7 @@ watch([product, brandResult, categoryResult, tagResult, areLookupsPending, areLo
   form.warrantyMonths = value.warrantyMonths == null ? null : Number(value.warrantyMonths)
   form.status = value.status
   form.tagCodes = value.tags.map((tag) => tag.code)
+  editRowVersion.value = value.rowVersion
   const brand = brandResult.value?.items.find((candidate) => candidate.code === value.brand.code)
   if (brand) {
     form.brandPublicId = brand.publicId
@@ -108,6 +119,21 @@ watch([product, brandResult, categoryResult, tagResult, areLookupsPending, areLo
     form.categoryPublicId = category.publicId
   }
 }, { immediate: true })
+
+// The one deliberate, traceable exception to "never resync the token from a background
+// refetch": a SKU mutation *this admin just performed on this page* (creating a SKU below, or
+// editing/deleting one in a SkuEditorRow) legitimately advances the Product's RowVersion
+// (Product.Touch(), round 5). refetch() is called explicitly here — its return value is *this*
+// specific fetch's result, not whatever product.value happens to hold by the time this runs — so
+// editRowVersion only ever advances in response to an action this admin knowingly took, never
+// because some other cause (another admin's edit, a window-refocus refetch) happened to update
+// the query in the background.
+async function syncRowVersionAfterOwnSkuMutation() {
+  const result = await refetch()
+  if (result.data) {
+    editRowVersion.value = result.data.rowVersion
+  }
+}
 
 function tagPublicIds(): string[] {
   const tags = tagResult.value?.items ?? []
@@ -146,7 +172,7 @@ function submitCreate() {
 }
 
 function submitUpdate() {
-  if (!product.value) {
+  if (!product.value || !editRowVersion.value) {
     return
   }
   updateMutation.mutate({
@@ -159,15 +185,25 @@ function submitUpdate() {
       warrantyMonths: form.warrantyMonths,
       tagPublicIds: tagPublicIds(),
       status: form.status,
-      rowVersion: product.value.rowVersion,
+      rowVersion: editRowVersion.value,
+    },
+  }, {
+    // A successful save is itself a deliberate, traceable action this admin just took — the
+    // response carries the RowVersion that resulted from it, so the next save (if the admin
+    // keeps editing) is checked against that, not re-fetched.
+    onSuccess: (updated) => {
+      editRowVersion.value = updated.rowVersion
     },
   })
 }
 
 // props.productId (the route param) already equals the product's publicId in edit mode, so the
-// mutation composable can be called unconditionally at setup top-level as Vue requires,
-// without waiting for `product` to finish loading.
-const createSkuMutation = useCreateSku(props.productId ?? '')
+// mutation composable can be called unconditionally at setup top-level as Vue requires, without
+// waiting for `product` to finish loading. Passed as a getter (PR #24 review round 7, P2): Vue
+// Router reuses this component instance across a param-only navigation (/products/A ->
+// /products/B), so a plain string captured here at setup would stay A even after the page has
+// visibly switched to B.
+const createSkuMutation = useCreateSku(() => props.productId ?? '')
 const initialSku = reactive({
   skuCode: '',
   nameZhTw: '',
@@ -184,6 +220,18 @@ const newSku = reactive({
   status: 'Draft',
   isDefault: false,
   requiresPrepayment: false,
+})
+
+// PR #24 review round 7 (P2): a leftover draft in this row would otherwise ride along across a
+// param-only navigation and could be submitted against whichever product the page has since
+// switched to.
+watch(() => props.productId, () => {
+  newSku.skuCode = ''
+  newSku.nameZhTw = ''
+  newSku.listPrice = 0
+  newSku.unitCost = 0
+  newSku.isDefault = false
+  newSku.requiresPrepayment = false
 })
 
 function submitNewSku() {
@@ -208,6 +256,7 @@ function submitNewSku() {
       newSku.unitCost = 0
       newSku.isDefault = false
       newSku.requiresPrepayment = false
+      void syncRowVersionAfterOwnSkuMutation()
     },
   })
 }
@@ -479,6 +528,7 @@ function submitNewSku() {
               :key="sku.publicId"
               :sku="sku"
               :product-public-id="product.publicId"
+              @sku-mutated="syncRowVersionAfterOwnSkuMutation"
             />
             <tr>
               <td>
