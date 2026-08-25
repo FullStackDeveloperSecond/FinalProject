@@ -33,7 +33,8 @@ function mountPage() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
-  return mount(InventoryReservationsPage, { global: { plugins: [[VueQueryPlugin, { queryClient }]] } })
+  const wrapper = mount(InventoryReservationsPage, { global: { plugins: [[VueQueryPlugin, { queryClient }]] } })
+  return { wrapper, queryClient }
 }
 
 describe('InventoryReservationsPage', () => {
@@ -46,7 +47,7 @@ describe('InventoryReservationsPage', () => {
   it('renders the loaded reservation queue', async () => {
     mockListReservations.mockResolvedValue({ items: [reservation()], nextCursor: null, hasMore: false })
 
-    const wrapper = mountPage()
+    const { wrapper } = mountPage()
     await flushPromises()
 
     expect(wrapper.text()).toContain('ORD-1')
@@ -63,7 +64,7 @@ describe('InventoryReservationsPage', () => {
       hasMore: false,
     })
 
-    const wrapper = mountPage()
+    const { wrapper } = mountPage()
     await flushPromises()
 
     const releaseButtons = wrapper.findAll('button').filter((button) => button.text() === '釋放')
@@ -76,14 +77,14 @@ describe('InventoryReservationsPage', () => {
     mockReleaseReservation.mockResolvedValueOnce(undefined)
     vi.spyOn(globalThis, 'confirm').mockReturnValue(true)
 
-    const wrapper = mountPage()
+    const { wrapper } = mountPage()
     await flushPromises()
 
     await wrapper.findAll('button').find((button) => button.text() === '釋放')!.trigger('click')
     const confirmButton = wrapper.findAll('button').find((button) => button.text() === '確認釋放')
     expect(confirmButton!.attributes('disabled')).toBeDefined()
 
-    await wrapper.find('input[aria-label="原因代碼"]').setValue('customer_cancelled')
+    await wrapper.find('select[aria-label="原因代碼"]').setValue('customer_cancelled')
     await wrapper.find('input[aria-label="備註"]').setValue('客戶取消訂單')
     expect(confirmButton!.attributes('disabled')).toBeUndefined()
 
@@ -102,11 +103,11 @@ describe('InventoryReservationsPage', () => {
     mockListReservations.mockResolvedValue({ items: [reservation()], nextCursor: null, hasMore: false })
     vi.spyOn(globalThis, 'confirm').mockReturnValue(false)
 
-    const wrapper = mountPage()
+    const { wrapper } = mountPage()
     await flushPromises()
 
     await wrapper.findAll('button').find((button) => button.text() === '釋放')!.trigger('click')
-    await wrapper.find('input[aria-label="原因代碼"]').setValue('customer_cancelled')
+    await wrapper.find('select[aria-label="原因代碼"]').setValue('customer_cancelled')
     await wrapper.find('input[aria-label="備註"]').setValue('客戶取消訂單')
     await wrapper.findAll('button').find((button) => button.text() === '確認釋放')!.trigger('click')
     await flushPromises()
@@ -121,7 +122,7 @@ describe('InventoryReservationsPage', () => {
       hasMore: true,
     })
 
-    const wrapper = mountPage()
+    const { wrapper } = mountPage()
     await flushPromises()
     expect(wrapper.findAll('tbody > tr').length).toBeGreaterThanOrEqual(1)
 
@@ -136,5 +137,43 @@ describe('InventoryReservationsPage', () => {
 
     expect(wrapper.text()).toContain('ORD-1')
     expect(wrapper.text()).toContain('ORD-2')
+  })
+
+  /**
+   * Regression test (組長 PR #37 review, item 3): a background refetch of an already-loaded page
+   * (window refocus, reconnect, TanStack Query's own retry) used to re-append that page's items
+   * on top of themselves, since the watcher only checked "is cursor.value set", not "have I
+   * already loaded this page's items".
+   */
+  it('does not duplicate rows when the current page refetches with the same items', async () => {
+    mockListReservations.mockResolvedValueOnce({
+      items: [reservation({ publicId: 'r1' })],
+      nextCursor: 'cursor-2',
+      hasMore: true,
+    })
+    const { wrapper, queryClient } = mountPage()
+    await flushPromises()
+
+    mockListReservations.mockResolvedValueOnce({
+      items: [reservation({ publicId: 'r2', order: { publicId: 'o2', orderNumber: 'ORD-2' } })],
+      nextCursor: null,
+      hasMore: false,
+    })
+    const loadMoreButton = wrapper.findAll('button').find((button) => button.text() === '載入更多')
+    await loadMoreButton!.trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('tbody > tr').length).toBe(2)
+
+    // Simulate a background refetch of the *current* page (cursor unchanged) returning the same
+    // items again — not a new page, just TanStack Query re-running the same query.
+    mockListReservations.mockResolvedValueOnce({
+      items: [reservation({ publicId: 'r2', order: { publicId: 'o2', orderNumber: 'ORD-2' } })],
+      nextCursor: null,
+      hasMore: false,
+    })
+    await queryClient.invalidateQueries()
+    await flushPromises()
+
+    expect(wrapper.findAll('tbody > tr').length).toBe(2)
   })
 })

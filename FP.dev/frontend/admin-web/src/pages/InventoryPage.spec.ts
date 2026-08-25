@@ -13,6 +13,7 @@ vi.mock('../features/inventory/api', () => ({
 }))
 
 const { default: InventoryPage } = await import('./InventoryPage.vue')
+const { startOfLocalDay, endOfLocalDayExclusiveBoundary } = await import('../features/inventory/dateRange')
 
 function mountPage() {
   const queryClient = new QueryClient({
@@ -84,5 +85,33 @@ describe('InventoryPage', () => {
     await flushPromises()
 
     expect(mockListMovements).toHaveBeenLastCalledWith(expect.objectContaining({ movementTypes: ['StockIn'] }))
+  })
+
+  /**
+   * Regression test (組長 PR #37 review, item 2): `to` used to be `new Date('2026-08-25').toISOString()`,
+   * which is UTC midnight of that date — combined with the backend's inclusive `<= To` comparison,
+   * that excluded nearly the entire day the admin actually selected. Asserts the sent `to` is the
+   * *end* of the selected local day (via the same helper the fix uses), not its UTC-midnight start.
+   */
+  it('sends a whole-local-day [from, to) range when filtering movements by date', async () => {
+    mockListBalances.mockResolvedValue({ items: [], pageNumber: 1, pageSize: 20, totalCount: 0 })
+    mockListMovements.mockResolvedValue(emptyMovements)
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.find('input[aria-label="起始日期"]').setValue('2026-08-25')
+    await wrapper.find('input[aria-label="結束日期"]').setValue('2026-08-25')
+    await wrapper.find('form[aria-label="異動明細篩選"]').trigger('submit')
+    await flushPromises()
+
+    expect(mockListMovements).toHaveBeenLastCalledWith(expect.objectContaining({
+      from: startOfLocalDay('2026-08-25').toISOString(),
+      to: endOfLocalDayExclusiveBoundary('2026-08-25').toISOString(),
+    }))
+    // The old bug's exact output — must NOT be what gets sent.
+    expect(mockListMovements).not.toHaveBeenLastCalledWith(expect.objectContaining({
+      to: new Date('2026-08-25').toISOString(),
+    }))
   })
 })

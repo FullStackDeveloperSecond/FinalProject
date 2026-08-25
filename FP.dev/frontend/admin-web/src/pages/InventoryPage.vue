@@ -4,6 +4,7 @@ import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/compo
 import { isApiError } from '@doselect/web-shared/api'
 import { computed, reactive } from 'vue'
 import { useInventoryBalanceList, useInventoryMovementList } from '../features/inventory/useInventory'
+import { endOfLocalDayExclusiveBoundary, startOfLocalDay } from '../features/inventory/dateRange'
 
 const MOVEMENT_TYPE_OPTIONS = [
   'StockIn', 'Reserve', 'Release', 'Ship', 'ReturnToStock',
@@ -44,8 +45,9 @@ const movementFilters = reactive({ movementTypes: [] as string[], from: '', to: 
 const movementPageSize = 20
 const movementParams = computed(() => ({
   movementTypes: movementFilters.movementTypes.length > 0 ? movementFilters.movementTypes : undefined,
-  from: movementFilters.from ? new Date(movementFilters.from).toISOString() : undefined,
-  to: movementFilters.to ? new Date(movementFilters.to).toISOString() : undefined,
+  // [from, to) against the browser's local calendar day, not UTC midnight — see dateRange.ts.
+  from: movementFilters.from ? startOfLocalDay(movementFilters.from).toISOString() : undefined,
+  to: movementFilters.to ? endOfLocalDayExclusiveBoundary(movementFilters.to).toISOString() : undefined,
   pageNumber: movementFilters.pageNumber,
   pageSize: movementPageSize,
 }))

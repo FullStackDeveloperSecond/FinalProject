@@ -7,6 +7,19 @@ import { useInventoryReservationList, useReleaseReservation } from '../features/
 import type { InventoryReservationDto } from '../features/inventory/types'
 import { describeApiError } from '../features/shared/errorMessages'
 
+// 組長 PR #37 review, item 4: released reservations no longer let admins free-type a reason
+// code — must match the backend's controlled whitelist (InventoryReleaseReasonCodes.All on
+// feature/inventory-reservation-api). Mirrors InventoryPage.vue's own inline
+// MOVEMENT_TYPE_OPTIONS pattern rather than a shared contracts file, since there is still no
+// generated OpenAPI client for this module (see types.ts's doc comment).
+const RELEASE_REASON_CODE_OPTIONS = [
+  { value: 'customer_cancelled', label: '顧客取消' },
+  { value: 'duplicate_order', label: '重複訂單' },
+  { value: 'risk_rejected', label: '風控拒絕' },
+  { value: 'inventory_correction', label: '庫存校正' },
+  { value: 'other', label: '其他' },
+]
+
 const filters = reactive({ status: '' })
 const cursor = ref<string | undefined>(undefined)
 const loadedItems = ref<InventoryReservationDto[]>([])
@@ -14,13 +27,24 @@ const loadedItems = ref<InventoryReservationDto[]>([])
 const listParams = computed(() => ({ status: filters.status || undefined, cursor: cursor.value, pageSize: 20 }))
 const { data: page, isPending, isError, error, refetch } = useInventoryReservationList(listParams)
 
-// Cursor pagination accumulates: each successful fetch's items get appended, not replaced,
-// so 載入更多 grows the visible list instead of swapping pages.
+// Cursor pagination accumulates: each successful fetch's items get appended, not replaced, so
+// 載入更多 grows the visible list instead of swapping pages. A bare "cursor.value truthy" check
+// can't tell a genuine next-page fetch apart from TanStack Query re-running the *same* query key
+// (window refocus, network reconnect, a manual retry) — that would re-append the same page's
+// items on top of themselves. Dedup by publicId instead (組長 PR #37 review, item 3): a refetch
+// of an already-loaded page contributes nothing new, and a real next page's items pass through
+// untouched.
 watch(page, (value) => {
   if (!value) {
     return
   }
-  loadedItems.value = cursor.value ? [...loadedItems.value, ...value.items] : value.items
+  if (!cursor.value) {
+    loadedItems.value = value.items
+    return
+  }
+  const alreadyLoaded = new Set(loadedItems.value.map((item) => item.publicId))
+  const newItems = value.items.filter((item) => !alreadyLoaded.has(item.publicId))
+  loadedItems.value = [...loadedItems.value, ...newItems]
 })
 
 function search() {
@@ -161,12 +185,25 @@ function formatDateTime(value: string | null): string {
                 <div class="release-form">
                   <label>
                     原因代碼
-                    <input
+                    <select
                       v-model="releaseForm.reasonCode"
-                      maxlength="32"
                       required
                       aria-label="原因代碼"
                     >
+                      <option
+                        value=""
+                        disabled
+                      >
+                        請選擇原因
+                      </option>
+                      <option
+                        v-for="option in RELEASE_REASON_CODE_OPTIONS"
+                        :key="option.value"
+                        :value="option.value"
+                      >
+                        {{ option.label }}
+                      </option>
+                    </select>
                   </label>
                   <label>
                     備註
