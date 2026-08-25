@@ -78,6 +78,27 @@ jobs:
         run: node scripts/validate-ai-eval-dataset.mjs
         working-directory: FP.dev
 
+  package-source-evidence:
+    name: Package Source Evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Verify package source policy
+        shell: pwsh
+        run: ./scripts/verify-package-sources.ps1
+        working-directory: FP.dev
+
+      - name: Verify source-policy rejection paths
+        shell: pwsh
+        run: ./scripts/test-package-source-verifier.ps1
+        working-directory: FP.dev
+
   backend:
     name: Backend
     runs-on: ubuntu-latest
@@ -113,7 +134,7 @@ jobs:
           global-json-file: FP.dev/global.json
 
       - name: Restore with warnings as errors
-        run: dotnet restore DoSelect.slnx -warnaserror
+        run: dotnet restore DoSelect.slnx --configfile NuGet.config --no-cache -warnaserror
 
       - name: Build with warnings as errors
         run: dotnet build DoSelect.slnx --no-restore -warnaserror
@@ -242,6 +263,7 @@ jobs:
     needs:
       - secret-scan
       - ai-evaluation-contract
+      - package-source-evidence
       - backend
       - frontend
     runs-on: ubuntu-latest
@@ -252,10 +274,12 @@ jobs:
         env:
           SECRET_SCAN_RESULT: ${{ needs.secret-scan.result }}
           AI_EVAL_RESULT: ${{ needs.ai-evaluation-contract.result }}
+          PACKAGE_SOURCE_RESULT: ${{ needs.package-source-evidence.result }}
           BACKEND_RESULT: ${{ needs.backend.result }}
           FRONTEND_RESULT: ${{ needs.frontend.result }}
         run: |
           test "$SECRET_SCAN_RESULT" = "success"
           test "$AI_EVAL_RESULT" = "success"
+          test "$PACKAGE_SOURCE_RESULT" = "success"
           test "$BACKEND_RESULT" = "success"
           test "$FRONTEND_RESULT" = "success"
