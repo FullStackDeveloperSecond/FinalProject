@@ -4,8 +4,12 @@ import HomePage from './HomePage.vue'
 
 describe('HomePage', () => {
   it('renders the customer foundation status', () => {
-    const wrapper = mount(HomePage)
+    const wrapper = mount(HomePage, {
+      global: {
+        stubs: ['RouterLink'],
+      },
+    })
 
-    expect(wrapper.get('h1').text()).toBe('前台基礎環境已就緒')
+    expect(wrapper.get('h1').text()).toBe('DoSelect 懂選')
   })
 })

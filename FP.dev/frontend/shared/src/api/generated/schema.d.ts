@@ -2544,6 +2544,7 @@ export interface components {
             warrantyMonths: null | number | string;
             tagPublicIds: string[];
             status: string;
+            defaultSku: components["schemas"]["CreateSkuRequest"];
         };
         CreateSimulatedInvoiceAllowanceRequest: {
             /** Format: uuid */

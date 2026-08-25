@@ -159,7 +159,7 @@
 | `SkuDto` | PublicId、SkuCode、Product 摘要、全部可編輯欄位、Spec DTO、庫存摘要、時間、RowVersion；非 Finance/Catalog 不回 UnitCost |
 | `AdminProductQuery` | `q?`、`brandCodes?`、`categoryCodes?`、`statuses?`、`stockState?`、`sort?`、`pageNumber/pageSize`；排序與篩選使用白名單 |
 | `AdminProductSummaryDto` | Product PublicId／Code／名稱、品牌、分類、狀態、SKU 數、價格區間、加總庫存、主要圖片、更新時間、RowVersion |
-| `CreateProductRequest` | `productCode:string(1..64)`、`nameZhTw:string(1..160)`、`brandPublicId`、`categoryPublicId`、`descriptionZhTw?:string(0..4000)`、`warrantyMonths?:int(0..120)`、`tagPublicIds:uuid[0..20]`、`status:draft/published/unpublished` |
+| `CreateProductRequest` | `productCode:string(1..64)`、`nameZhTw:string(1..160)`、`brandPublicId`、`categoryPublicId`、`descriptionZhTw?:string(0..4000)`、`warrantyMonths?:int(0..120)`、`tagPublicIds:uuid[0..20]`、`status:draft/published/unpublished/discontinued`、必填 `defaultSku:CreateSkuRequest`；服務端固定 `defaultSku.isDefault=true`，Product、Tags 與第一個預設 SKU 必須同交易全部成功或全部回滾 |
 | `UpdateProductRequest` | Create 欄位但 Product Code 不可改；加 `rowVersion` |
 | `AdminProductDetailDto` | Product 全部可編輯欄位、`skus:SkuDto[]`、`images[]`、規格範本摘要、稽核時間及 RowVersion |
 | `BulkProductActionRequest` | `productPublicIds:uuid[1..100]`、`rowVersions:{productPublicId,rowVersion}[]`；`adjust-price` 另帶受控調價模式與值、原因 |

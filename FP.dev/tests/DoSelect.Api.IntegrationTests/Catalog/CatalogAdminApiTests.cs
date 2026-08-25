@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using DoSelect.Api.Security;
+using DoSelect.Domain.Catalog;
 using DoSelect.Domain.Inventory;
 using Microsoft.EntityFrameworkCore;
 
@@ -440,6 +441,8 @@ public sealed class AdminProductsApiTests
         var publicId = created.GetProperty("publicId").GetGuid();
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var defaultSku = Assert.Single(created.GetProperty("skus").EnumerateArray());
+        Assert.True(defaultSku.GetProperty("isDefault").GetBoolean());
 
         using var followUp = await client.GetAsync(response.Headers.Location);
         var fetched = await followUp.Content.ReadFromJsonAsync<JsonElement>();
@@ -474,6 +477,34 @@ public sealed class AdminProductsApiTests
 
         Assert.Equal(409, status);
         Assert.Equal("product_code_duplicate", problemCode);
+    }
+
+    [Fact]
+    public async Task Create_WhenDefaultSkuIsMissing_Returns400WithValidationFailed()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync();
+        var (brandId, categoryId) = await CatalogAdminApiSeeding.CreateBrandAndCategoryAsync(client);
+
+        using var response = await CatalogAdminApiFixture.SendWithAntiforgeryAsync(
+            client,
+            new HttpRequestMessage(HttpMethod.Post, "/api/v1/admin/products")
+            {
+                Content = JsonContent.Create(new
+                {
+                    productCode = CatalogAdminApiFixture.UniqueCode("PROD"),
+                    nameZhTw = "測試商品",
+                    brandPublicId = brandId,
+                    categoryPublicId = categoryId,
+                    descriptionZhTw = (string?)null,
+                    warrantyMonths = (int?)null,
+                    tagPublicIds = Array.Empty<Guid>(),
+                    status = "Draft",
+                }),
+            });
+        var (status, problemCode, _) = await CatalogAdminApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal(400, status);
+        Assert.Equal("validation_failed", problemCode);
     }
 
     [Fact]
@@ -587,6 +618,17 @@ public sealed class AdminProductsApiTests
                 warrantyMonths = (int?)null,
                 tagPublicIds = Array.Empty<Guid>(),
                 status = "1",
+                defaultSku = new
+                {
+                    skuCode = CatalogAdminApiFixture.UniqueCode("SKU"),
+                    nameZhTw = "預設規格",
+                    listPrice = 10_000m,
+                    unitCost = 7_000m,
+                    status = "Draft",
+                    isDefault = true,
+                    requiresPrepayment = false,
+                    specifications = Array.Empty<object>(),
+                },
             }),
         });
         var (status, problemCode, _) = await CatalogAdminApiFixture.ReadProblemAsync(response);
@@ -615,6 +657,17 @@ public sealed class AdminProductsApiTests
                 warrantyMonths = (int?)null,
                 tagPublicIds = Array.Empty<Guid>(),
                 status = "Draft",
+                defaultSku = new
+                {
+                    skuCode = CatalogAdminApiFixture.UniqueCode("SKU"),
+                    nameZhTw = "預設規格",
+                    listPrice = 10_000m,
+                    unitCost = 7_000m,
+                    status = "Draft",
+                    isDefault = true,
+                    requiresPrepayment = false,
+                    specifications = Array.Empty<object>(),
+                },
             }),
         });
         var (status, problemCode, _) = await CatalogAdminApiFixture.ReadProblemAsync(response);
@@ -710,6 +763,220 @@ public sealed class AdminSkusApiTests
 
         Assert.Equal(400, status);
         Assert.Equal("validation_failed", problemCode);
+    }
+
+    /// <summary>組長 PR #24 round 4 review, item 4: a negative price used to reach
+    /// CatalogGuard.NonNegative and throw ArgumentOutOfRangeException, which
+    /// GlobalExceptionHandler turns into an opaque 500 instead of a stable 400.</summary>
+    [Fact]
+    public async Task Create_WhenListPriceIsNegative_Returns400WithValidationFailed()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync();
+        var productId = await CatalogAdminApiSeeding.CreateProductWithCatalogAsync(client);
+
+        using var response = await CatalogAdminApiFixture.SendWithAntiforgeryAsync(client, new HttpRequestMessage(HttpMethod.Post, $"/api/v1/admin/products/{productId}/skus")
+        {
+            Content = JsonContent.Create(new
+            {
+                skuCode = CatalogAdminApiFixture.UniqueCode("SKU"),
+                nameZhTw = "標準版",
+                listPrice = -1m,
+                unitCost = 7_000m,
+                weightKg = (decimal?)null,
+                lengthCm = (decimal?)null,
+                widthCm = (decimal?)null,
+                heightCm = (decimal?)null,
+                status = "Draft",
+                isDefault = false,
+                requiresPrepayment = false,
+                specifications = Array.Empty<object>(),
+            }),
+        });
+        var (status, problemCode, _) = await CatalogAdminApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal(400, status);
+        Assert.Equal("validation_failed", problemCode);
+    }
+
+    /// <summary>組長 PR #24 round 5 review, item 3: WeightKg's SQL column is decimal(10,3) —
+    /// 0.001 is the true smallest valid value, not an arbitrarily larger "practical minimum"
+    /// the [Range] bound might have invented.</summary>
+    [Fact]
+    public async Task Create_WhenWeightKgIsAtTheSmallestValidPrecision_Returns201()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync();
+        var productId = await CatalogAdminApiSeeding.CreateProductWithCatalogAsync(client);
+
+        using var response = await CatalogAdminApiFixture.SendWithAntiforgeryAsync(client, new HttpRequestMessage(HttpMethod.Post, $"/api/v1/admin/products/{productId}/skus")
+        {
+            Content = JsonContent.Create(new
+            {
+                skuCode = CatalogAdminApiFixture.UniqueCode("SKU"),
+                nameZhTw = "標準版",
+                listPrice = 10_000m,
+                unitCost = 7_000m,
+                weightKg = 0.001m,
+                lengthCm = (decimal?)null,
+                widthCm = (decimal?)null,
+                heightCm = (decimal?)null,
+                status = "Draft",
+                isDefault = false,
+                requiresPrepayment = false,
+                specifications = Array.Empty<object>(),
+            }),
+        });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+    }
+
+    /// <summary>組長 PR #24 round 5 review, item 3: the old double.MaxValue upper bound was
+    /// nowhere near ListPrice's actual SQL column limit (decimal(18,2)) — an over-large value
+    /// used to ride through to a truncation/overflow DbUpdateException (500).</summary>
+    [Fact]
+    public async Task Create_WhenListPriceExceedsTheSqlColumnPrecision_Returns400WithValidationFailed()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync();
+        var productId = await CatalogAdminApiSeeding.CreateProductWithCatalogAsync(client);
+
+        using var response = await CatalogAdminApiFixture.SendWithAntiforgeryAsync(client, new HttpRequestMessage(HttpMethod.Post, $"/api/v1/admin/products/{productId}/skus")
+        {
+            Content = JsonContent.Create(new
+            {
+                skuCode = CatalogAdminApiFixture.UniqueCode("SKU"),
+                nameZhTw = "標準版",
+                // decimal(18,2) tops out at 9999999999999999.99 — one order of magnitude over.
+                listPrice = 99_999_999_999_999_999.99m,
+                unitCost = 7_000m,
+                weightKg = (decimal?)null,
+                lengthCm = (decimal?)null,
+                widthCm = (decimal?)null,
+                heightCm = (decimal?)null,
+                status = "Draft",
+                isDefault = false,
+                requiresPrepayment = false,
+                specifications = Array.Empty<object>(),
+            }),
+        });
+        var (status, problemCode, _) = await CatalogAdminApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal(400, status);
+        Assert.Equal("validation_failed", problemCode);
+    }
+
+    /// <summary>Same rationale as the negative-price test — CatalogGuard.OptionalPositive
+    /// throws for zero or negative dimensions.</summary>
+    [Fact]
+    public async Task Create_WhenWeightKgIsZero_Returns400WithValidationFailed()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync();
+        var productId = await CatalogAdminApiSeeding.CreateProductWithCatalogAsync(client);
+
+        using var response = await CatalogAdminApiFixture.SendWithAntiforgeryAsync(client, new HttpRequestMessage(HttpMethod.Post, $"/api/v1/admin/products/{productId}/skus")
+        {
+            Content = JsonContent.Create(new
+            {
+                skuCode = CatalogAdminApiFixture.UniqueCode("SKU"),
+                nameZhTw = "標準版",
+                listPrice = 10_000m,
+                unitCost = 7_000m,
+                weightKg = 0m,
+                lengthCm = (decimal?)null,
+                widthCm = (decimal?)null,
+                heightCm = (decimal?)null,
+                status = "Draft",
+                isDefault = false,
+                requiresPrepayment = false,
+                specifications = Array.Empty<object>(),
+            }),
+        });
+        var (status, problemCode, _) = await CatalogAdminApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal(400, status);
+        Assert.Equal("validation_failed", problemCode);
+    }
+
+    [Fact]
+    public async Task Create_WhenPublishedAndSpecificationsAreEmptyButCategoryRequiresOne_Returns400WithMissingRequiredSpecification()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync();
+        var (brandPublicId, categoryPublicId) = await CatalogAdminApiSeeding.CreateBrandAndCategoryAsync(client);
+
+        // No admin HTTP endpoint exists for specification definitions (managed via seed/
+        // migration data, not this admin surface), so this one seed step reaches into the
+        // DbContext directly — same precedent as Delete_WhenSkuHasInventoryBalance_... above.
+        await using (var context = _fixture.CreateScopedContext())
+        {
+            var categoryId = await context.Categories
+                .Where(candidate => candidate.PublicId == categoryPublicId)
+                .Select(candidate => candidate.Id)
+                .FirstAsync();
+            context.SpecificationDefinitions.Add(new SpecificationDefinition(
+                Guid.CreateVersion7(), categoryId, CatalogAdminApiFixture.UniqueCode("SPEC"), "必要規格",
+                SpecificationValueType.Decimal, null, isRequired: true, isProtected: false, sortOrder: 0, DateTime.UtcNow));
+            await context.SaveChangesAsync();
+        }
+
+        using var productResponse = await CatalogAdminApiSeeding.PostProductAsync(client, brandPublicId, categoryPublicId);
+        productResponse.EnsureSuccessStatusCode();
+        var productId = (await productResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("publicId").GetGuid();
+
+        using var response = await CatalogAdminApiFixture.SendWithAntiforgeryAsync(client, new HttpRequestMessage(HttpMethod.Post, $"/api/v1/admin/products/{productId}/skus")
+        {
+            Content = JsonContent.Create(new
+            {
+                skuCode = CatalogAdminApiFixture.UniqueCode("SKU"),
+                nameZhTw = "標準版",
+                listPrice = 10_000m,
+                unitCost = 7_000m,
+                weightKg = (decimal?)null,
+                lengthCm = (decimal?)null,
+                widthCm = (decimal?)null,
+                heightCm = (decimal?)null,
+                status = "Published",
+                isDefault = false,
+                requiresPrepayment = false,
+                specifications = Array.Empty<object>(),
+            }),
+        });
+        var (status, problemCode, _) = await CatalogAdminApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal(400, status);
+        Assert.Equal("sku_missing_required_specification", problemCode);
+    }
+
+    [Fact]
+    public async Task Update_WhenUnsettingTheCurrentDefaultSku_Returns409WithSkuDefaultRequired()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync();
+        var productId = await CatalogAdminApiSeeding.CreateProductWithCatalogAsync(client);
+        using var productResponse = await client.GetAsync($"/api/v1/admin/products/{productId}");
+        var product = await productResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var defaultSku = product.GetProperty("skus").EnumerateArray().Single(sku => sku.GetProperty("isDefault").GetBoolean());
+        var publicId = defaultSku.GetProperty("publicId").GetGuid();
+        var rowVersion = defaultSku.GetProperty("rowVersion");
+
+        using var response = await CatalogAdminApiFixture.SendWithAntiforgeryAsync(client, new HttpRequestMessage(HttpMethod.Put, $"/api/v1/admin/skus/{publicId}")
+        {
+            Content = JsonContent.Create(new
+            {
+                nameZhTw = "標準版",
+                listPrice = 10_000m,
+                unitCost = 7_000m,
+                weightKg = (decimal?)null,
+                lengthCm = (decimal?)null,
+                widthCm = (decimal?)null,
+                heightCm = (decimal?)null,
+                status = "Draft",
+                isDefault = false,
+                requiresPrepayment = false,
+                specifications = Array.Empty<object>(),
+                rowVersion,
+            }),
+        });
+        var (status, problemCode, _) = await CatalogAdminApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal(409, status);
+        Assert.Equal("sku_default_required", problemCode);
     }
 
     [Fact]

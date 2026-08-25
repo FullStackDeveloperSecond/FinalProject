@@ -41,7 +41,7 @@
 | UC-IMPORT-01 | 欄位驗證、`\\N`、NFKC 與差異分類 | 24h Staging、擁有者／Hash、原子提交、錯誤檔 | 後台匯入預覽 | terry／kafen |
 | UC-BUILD-01 | 組裝費與快照 | 保存、分享 Token、加入購物車 | 核心 E2E 1 | terry／kafen |
 | UC-COMPAT-01 | 六類相容規則 | 規則版本與商品資料 | 核心 E2E 1 | terry／kafen；alex 整合覆核 |
-| UC-ADM-PROD-01 | 變體合法性 | 建立交易、稽核、權限 | 建立商品變體 | terry／kafen |
+| UC-ADM-PROD-01 | 變體合法性；非變體商品必有第一個預設 SKU | Product、Tags、預設 SKU 同交易建立與失敗全回滾、稽核、權限 | 建立商品與第一個預設 SKU | terry／kafen |
 | UC-ADM-PROD-02 | 可修改欄位與價格期間 | RowVersion、唯一鍵、稽核 | 修改 SKU | terry／kafen |
 | UC-ADM-INV-01 | 可釋放條件與核對差異 | 庫存異動、Balance 同交易、每日核對、併發、權限 | 手動釋放 | terry／kafen |
 | UC-ADM-SHIP-01 | 版本期間驗證 | 唯一有效版本、RowVersion | 發布包裹設定 | terry／kafen |
