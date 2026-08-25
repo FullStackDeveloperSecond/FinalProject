@@ -17,17 +17,22 @@ public sealed class InvoiceAllowanceCalculatorTests
     [InlineData(RefundAllocationType.ReturnShipping, false)]
     [InlineData(RefundAllocationType.DiscountClawback, false)]
     [InlineData(RefundAllocationType.ShippingClawback, false)]
-    [InlineData(RefundAllocationType.OtherAdjustment, false)]
     public void OnlyAmountsTheInvoiceActuallyChargedBecomeAllowanceLines(
         RefundAllocationType allocationType,
         bool expected) =>
         Assert.Equal(expected, InvoiceAllowancePolicy.CreatesAllowanceLine(allocationType));
 
     [Fact]
+    public void OtherAdjustmentIsRejectedInsteadOfSilentlyFiltered() =>
+        Assert.Throws<InvoiceAllowanceSourceException>(() =>
+            InvoiceAllowancePolicy.CreatesAllowanceLine(RefundAllocationType.OtherAdjustment));
+
+    [Fact]
     public void EveryAllocationTypeHasARuling()
     {
         // 新增分攤類型時必須同時裁定折讓行為，不能靜默落到預設值。
-        foreach (var allocationType in Enum.GetValues<RefundAllocationType>())
+        foreach (var allocationType in Enum.GetValues<RefundAllocationType>()
+                     .Where(value => value != RefundAllocationType.OtherAdjustment))
         {
             InvoiceAllowancePolicy.CreatesAllowanceLine(allocationType);
         }

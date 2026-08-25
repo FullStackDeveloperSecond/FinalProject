@@ -22,6 +22,7 @@ public sealed class TestAuthHandler : AuthenticationHandler<AuthenticationScheme
     public const string SchemeName = "Test";
     public const string MemberHeaderName = "X-Test-Member-Id";
     public const string RolesHeaderName = "X-Test-Roles";
+    public const string WithoutMfaHeaderName = "X-Test-Without-Mfa";
 
     public static void Configure(IServiceCollection services)
     {
@@ -45,6 +46,12 @@ public sealed class TestAuthHandler : AuthenticationHandler<AuthenticationScheme
                 .RequireClaim(DoSelectClaimTypes.AccountType, DoSelectClaimValues.Admin)
                 .RequireClaim(DoSelectClaimTypes.AuthenticationMethod, DoSelectClaimValues.MultiFactor)
                 .RequireRole(DoSelectRoles.CustomerServiceSupervisor, DoSelectRoles.SuperAdmin)
+                .Build());
+            options.AddPolicy(DoSelectPolicies.InvoiceManage, new AuthorizationPolicyBuilder(SchemeName)
+                .RequireAuthenticatedUser()
+                .RequireClaim(DoSelectClaimTypes.AccountType, DoSelectClaimValues.Admin)
+                .RequireClaim(DoSelectClaimTypes.AuthenticationMethod, DoSelectClaimValues.MultiFactor)
+                .RequireRole(DoSelectRoles.FinanceManager, DoSelectRoles.SuperAdmin)
                 .Build());
         });
     }
@@ -75,9 +82,12 @@ public sealed class TestAuthHandler : AuthenticationHandler<AuthenticationScheme
         };
         if (hasRoles)
         {
-            claims.Add(new Claim(
-                DoSelectClaimTypes.AuthenticationMethod,
-                DoSelectClaimValues.MultiFactor));
+            if (!Request.Headers.ContainsKey(WithoutMfaHeaderName))
+            {
+                claims.Add(new Claim(
+                    DoSelectClaimTypes.AuthenticationMethod,
+                    DoSelectClaimValues.MultiFactor));
+            }
             claims.AddRange(roles.ToString()
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Select(role => new Claim(ClaimTypes.Role, role)));

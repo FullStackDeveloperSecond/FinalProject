@@ -107,13 +107,23 @@ public sealed class InvoiceAllowanceReader : IInvoiceAllowanceReader
 
         // 每一列都必須能明確歸類。未知的非商品識別值會在這裡丟例外，
         // 不靜默略過 —— 略過會讓折讓金額短少，卻沒有任何跡象（DEC-P299）。
-        var lines = items
-            .Select(item => new AllowanceInvoiceLine(
-                item.PublicId,
-                item.OrderItemId,
-                InvoiceLineSkuCodes.ResolveKind(item.OrderItemId, item.SkuCodeSnapshot),
-                item.Quantity))
-            .ToArray();
+        AllowanceInvoiceLine[] lines;
+        try
+        {
+            lines = items
+                .Select(item => new AllowanceInvoiceLine(
+                    item.PublicId,
+                    item.OrderItemId,
+                    InvoiceLineSkuCodes.ResolveKind(item.OrderItemId, item.SkuCodeSnapshot),
+                    item.Quantity))
+                .ToArray();
+        }
+        catch (ArgumentException exception)
+        {
+            throw new InvoiceAllowanceSourceException(
+                "The original invoice contains an unknown or reserved line identity.",
+                exception);
+        }
 
         return new InvoiceAllowanceSnapshot(
             refund.Status,
@@ -230,10 +240,8 @@ public sealed class InvoiceAllowanceReader : IInvoiceAllowanceReader
     /// <remarks>
     /// 運費與組裝費依 DEC-P299 以 <c>SkuCodeSnapshot</c> 保留值對應到原發票明細，
     /// 數量取自原發票該列本身，不需要退款分攤的數量。
-    /// 商品折讓的數量必須取自 <c>RefundAllocations.Quantity</c>（DEC-P286），
-    /// 該欄位尚未隨 DES-21 落地，且裁定禁止以金額比例、固定值或
-    /// <c>ReturnItems.Quantity</c> 反推，因此有商品分攤時一律拒絕，
-    /// 而不是以估算數量建立不可變的財務紀錄。
+    /// 商品折讓的數量只取自 <c>RefundAllocations.Quantity</c>（DEC-P286），
+    /// 禁止以金額比例、固定值或 <c>ReturnItems.Quantity</c> 反推。
     /// </remarks>
     private async Task<IReadOnlyList<RefundedInvoiceLine>> BuildRefundedLinesAsync(
         long refundId,
@@ -248,30 +256,61 @@ public sealed class InvoiceAllowanceReader : IInvoiceAllowanceReader
             {
                 allocation.AllocationType,
                 allocation.OrderItemId,
+                allocation.Quantity,
                 allocation.Amount,
             })
             .ToArrayAsync(cancellationToken);
+
+        // OtherAdjustment 第一版禁止。不能和 ReturnShipping／Clawback 一樣被 Where
+        // 靜默濾掉，否則現金退款有來源不明的調整、折讓卻看起來正常。
+        if (allocations.Any(allocation =>
+                allocation.AllocationType == RefundAllocationType.OtherAdjustment))
+        {
+            throw new InvoiceAllowanceSourceException(
+                "OtherAdjustment cannot be used to create an invoice allowance.");
+        }
 
         var allowable = allocations
             .Where(allocation => InvoiceAllowancePolicy.CreatesAllowanceLine(allocation.AllocationType))
             .ToArray();
 
-        var merchandiseByOrderItemId = invoiceLines
+        var merchandiseLines = invoiceLines
             .Where(line => line.Kind == InvoiceLineKind.Merchandise && line.OrderItemId.HasValue)
+            .ToArray();
+        if (merchandiseLines
+            .GroupBy(line => line.OrderItemId!.Value)
+            .Any(group => group.Count() != 1))
+        {
+            throw new InvoiceAllowanceSourceException(
+                "The original invoice maps an order item to more than one merchandise line.");
+        }
+        var merchandiseByOrderItemId = merchandiseLines
             .ToDictionary(line => line.OrderItemId!.Value, line => line);
 
-        // 商品折讓的數量沒有可信來源前不得開立。
-        if (allowable.Any(allocation =>
-                InvoiceAllowancePolicy.MapsToAnOrderItem(allocation.AllocationType) &&
-                allocation.OrderItemId is { } orderItemId &&
-                merchandiseByOrderItemId.ContainsKey(orderItemId)))
-        {
-            throw new InvalidOperationException(
-                "A credit note line needs RefundAllocations.Quantity, which has not shipped yet. " +
-                "Deriving the quantity from the refunded amount is not permitted by DEC-P286.");
-        }
-
         var refunded = new List<RefundedInvoiceLine>();
+
+        foreach (var itemGroup in allowable
+                     .Where(allocation =>
+                         InvoiceAllowancePolicy.MapsToAnOrderItem(allocation.AllocationType))
+                     .GroupBy(allocation => allocation.OrderItemId))
+        {
+            if (itemGroup.Key is not { } orderItemId ||
+                !merchandiseByOrderItemId.TryGetValue(orderItemId, out var line))
+            {
+                throw new InvoiceAllowanceSourceException(
+                    "An item refund does not map to a merchandise line on the original invoice.");
+            }
+
+            var quantity = itemGroup.Sum(allocation => allocation.Quantity ?? 0);
+            var amount = itemGroup.Sum(allocation => allocation.Amount);
+            if (quantity <= 0 || amount <= 0m)
+            {
+                throw new InvoiceAllowanceSourceException(
+                    "An item refund requires a positive quantity and amount snapshot.");
+            }
+
+            refunded.Add(new RefundedInvoiceLine(line.PublicId, quantity, amount));
+        }
 
         foreach (var (allocationType, kind) in NonMerchandiseKinds)
         {
@@ -285,9 +324,13 @@ public sealed class InvoiceAllowanceReader : IInvoiceAllowanceReader
             }
 
             // 原發票必須確實收取過這筆費用，否則沒有可折讓的對象（DEC-P298）。
-            var line = invoiceLines.SingleOrDefault(candidate => candidate.Kind == kind)
-                ?? throw new InvalidOperationException(
-                    $"The refund allocates {allocationType} but the invoice has no {kind} line.");
+            var matchingLines = invoiceLines.Where(candidate => candidate.Kind == kind).ToArray();
+            if (matchingLines.Length != 1)
+            {
+                throw new InvoiceAllowanceSourceException(
+                    $"The refund allocates {allocationType} but the invoice does not have exactly one {kind} line.");
+            }
+            var line = matchingLines[0];
 
             var capacity = capacities.Single(candidate =>
                 candidate.SimulatedInvoiceItemPublicId == line.PublicId);
@@ -295,7 +338,7 @@ public sealed class InvoiceAllowanceReader : IInvoiceAllowanceReader
             // 退款不得超過原發票該列剩餘可折讓金額。
             if (amount > capacity.RemainingGrossAmount)
             {
-                throw new InvalidOperationException(
+                throw new InvoiceAllowanceSourceException(
                     $"The refunded {kind} amount exceeds what the invoice line can still allow.");
             }
 

@@ -46,10 +46,14 @@ public interface IInvoiceAllowanceReader
 /// 折讓請求只帶退款識別與冪等金鑰。金額一律由後端依成功 Refund 與原發票明細推導，
 /// 不接受前端指定（DEC-BATCH-014 第 9 項）。
 /// </summary>
-public sealed record IssueInvoiceAllowanceRequest(Guid RefundPublicId, string IdempotencyKey);
+public sealed record IssueInvoiceAllowanceRequest(
+    Guid RefundPublicId,
+    string IdempotencyKey,
+    long? ExpectedSimulatedInvoiceId = null);
 
 /// <summary>
-/// 通過檢查後要建立的折讓。實際寫入、原發票狀態轉移與狀態歷程由折讓端點負責。
+/// 通過檢查後要建立的折讓。實際寫入、原發票狀態轉移、Audit 與同交易提交由 Writer 負責。
+/// API 端點只傳遞請求與 actor context，不協調交易。
 /// </summary>
 public sealed record InvoiceAllowancePlan(
     long SimulatedInvoiceId,
@@ -134,6 +138,12 @@ public sealed class IssueInvoiceAllowanceService
         // 成功的退款卻找不到原發票，代表沒有可折讓的對象。
         if (snapshot.SimulatedInvoiceId is not { } simulatedInvoiceId ||
             snapshot.InvoiceStatus is not { } invoiceStatus)
+        {
+            return IssueInvoiceAllowanceResult.Failure(InvoiceErrorCodes.ResourceNotFound);
+        }
+
+        if (request.ExpectedSimulatedInvoiceId is { } expectedInvoiceId &&
+            simulatedInvoiceId != expectedInvoiceId)
         {
             return IssueInvoiceAllowanceResult.Failure(InvoiceErrorCodes.ResourceNotFound);
         }

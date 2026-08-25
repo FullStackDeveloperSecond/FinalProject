@@ -312,7 +312,7 @@ public sealed class InvoiceAllowanceReaderTests
     {
         // DEC-P286：折讓數量只能取自 RefundAllocations.Quantity，
         // 禁止以金額比例、固定值或 ReturnItems.Quantity 反推。
-        // 該欄位隨 DES-21 落地前，這裡必須沒有任何推導殘留。
+        // DES-21 已落地；這裡同時防止日後又加入任何比例或固定值推導。
         var source = File.ReadAllText(ReaderSourcePath());
 
         Assert.DoesNotContain("DeriveQuantity", source, StringComparison.Ordinal);
