@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { LoadingState } from '@doselect/web-shared/components'
 import { useAdminAuthStore } from '../stores/useAdminAuthStore'
 
 const auth = useAdminAuthStore()
@@ -17,11 +16,15 @@ const acknowledged = ref(false)
 const started = ref(false)
 
 async function onStart(): Promise<void> {
-  started.value = true
+  // 只有拿到 secret 才切到 started=true——原本先設 true 再打 API，失敗時（401／500／
+  // 網路異常）secretKey 依然是空字串，畫面永遠卡在 LoadingState，沒有錯誤訊息也沒有
+  // 重試按鈕（alex review P2）。失敗時維持在「開始」卡片，auth.errorMessage 會顯示
+  // 原因，按鈕本身就是重試入口。
   const begin = await auth.beginRebind()
   if (begin) {
     secretKey.value = begin.secretKey
     qrCodeDataUri.value = begin.qrCodeDataUri
+    started.value = true
   }
 }
 
@@ -55,16 +58,22 @@ async function onAcknowledge(): Promise<void> {
         ⚠ 按下開始後，目前的驗證碼設定會立刻失效，其他所有裝置上既有的登入 Session
         也會全部失效。請確定手邊已經有新的 Authenticator App 準備好再繼續。
       </p>
+      <p
+        v-if="auth.errorMessage"
+        class="field-error"
+        role="alert"
+      >
+        {{ auth.errorMessage }}
+      </p>
       <button
         type="button"
         class="auth-card__submit"
+        :disabled="auth.loading"
         @click="onStart"
       >
-        開始重新綁定
+        {{ auth.loading ? '處理中…' : '開始重新綁定' }}
       </button>
     </div>
-
-    <LoadingState v-else-if="!secretKey && !recoveryCodes" />
 
     <div
       v-else-if="recoveryCodes"

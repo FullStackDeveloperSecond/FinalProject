@@ -40,6 +40,8 @@ function messageForCode(code: string | undefined): string {
       return '備援碼無效或已使用過。'
     case 'admin_challenge_invalid':
       return '驗證流程已過期，請重新登入。'
+    case 'admin_challenge_rate_limited':
+      return '嘗試次數過多，請重新登入。'
     default:
       return '發生錯誤，請稍後再試。'
   }
@@ -108,6 +110,12 @@ export const useAdminAuthStore = defineStore('adminAuth', {
         })
         if (error) {
           this.errorMessage = messageForCode(error.code)
+          // 後端已經讓 challenge 失效（簽出 AdminChallenge Cookie）；清掉本地的
+          // challenge，讓 router guard 的 requiresChallenge 檢查把使用者導回登入頁，
+          // 而不是留著一個已經死掉的 challenge 讓頁面看起來還能用（alex review P2）。
+          if (error.code === 'admin_challenge_rate_limited') {
+            this.challenge = null
+          }
           return false
         }
         if (data) {
@@ -138,6 +146,9 @@ export const useAdminAuthStore = defineStore('adminAuth', {
         })
         if (error) {
           this.errorMessage = messageForCode(error.code)
+          if (error.code === 'admin_challenge_rate_limited') {
+            this.challenge = null
+          }
           return false
         }
         if (data) {
@@ -191,6 +202,9 @@ export const useAdminAuthStore = defineStore('adminAuth', {
         })
         if (error) {
           this.errorMessage = messageForCode(error.code)
+          if (error.code === 'admin_challenge_rate_limited') {
+            this.challenge = null
+          }
           return null
         }
         if (data) {

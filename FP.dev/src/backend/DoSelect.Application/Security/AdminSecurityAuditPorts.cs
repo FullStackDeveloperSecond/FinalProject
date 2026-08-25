@@ -1,6 +1,15 @@
-using DoSelect.Domain.Security;
-
 namespace DoSelect.Application.Security;
+
+/// <summary>M-01B 需要稽核的安全事件種類，只涵蓋這次範圍，不預先擴充。</summary>
+public enum AdminSecurityAuditEventType
+{
+    ChallengeInvalidatedRateLimit,
+    RebindConfirmed,
+    RebindFailed,
+    RecoveryCodeRedeemed,
+    EnrollmentConfirmed,
+    SessionsRevoked,
+}
 
 public sealed record AdminSecurityAuditEvent(
     AdminSecurityAuditEventType EventType,
@@ -10,16 +19,12 @@ public sealed record AdminSecurityAuditEvent(
     DateTimeOffset OccurredAtUtc);
 
 /// <summary>
-/// SH-11／DES-24 中央 AuditLog 落地前的最小替代介面，只涵蓋 M-01B（管理員登入／TOTP／
-/// Recovery Code／Rebind／Session 撤銷）需要的安全事件。之後 alex 的正式 AuditLog 完成後，
-/// 可整個替換底層實作而不影響呼叫端。
+/// ⚠ alex review（PR #38 第二輪）：不得為此建立資料表或 Migration——SH-11／DES-24
+/// 中央 AuditLog 落地前，安全事件一律只寫結構化 Log，不建立臨時 Schema。這個介面
+/// 只是把「寫一筆安全事件」的呼叫點抽象出來，之後中央 AuditLog 完成後可直接替換
+/// 底層實作（改成寫真正的 Audit 表），呼叫端不需要跟著改。
 /// </summary>
 public interface IAdminSecurityAuditWriter
 {
-    /// <summary>
-    /// 把事件加入目前 DbContext 的變更追蹤，不自行呼叫 SaveChanges——交易邊界由呼叫端
-    /// （Controller）控制，讓安全狀態變更與稽核紀錄能在同一交易 commit／rollback，
-    /// 稽核寫入失敗時安全狀態變更也必須一併回滾。
-    /// </summary>
-    Task WriteAsync(AdminSecurityAuditEvent auditEvent, CancellationToken cancellationToken = default);
+    void Write(AdminSecurityAuditEvent auditEvent);
 }

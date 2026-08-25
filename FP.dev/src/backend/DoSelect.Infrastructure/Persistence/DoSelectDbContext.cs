@@ -12,7 +12,6 @@ using DoSelect.Domain.Reports;
 using DoSelect.Domain.Reviews;
 using DoSelect.Domain.Refunds;
 using DoSelect.Domain.Returns;
-using DoSelect.Domain.Security;
 using DoSelect.Domain.Shopping;
 using DoSelect.Domain.Shipping;
 using DoSelect.Domain.Support;
@@ -189,7 +188,6 @@ public sealed class DoSelectDbContext
     public DbSet<ReportAssignmentHistory> ReportAssignmentHistories => Set<ReportAssignmentHistory>();
     public DbSet<ReportStatusHistory> ReportStatusHistories => Set<ReportStatusHistory>();
     public DbSet<CaseWorkbenchRow> CaseWorkbench => Set<CaseWorkbenchRow>();
-    public DbSet<AdminSecurityAuditEntry> AdminSecurityAuditEntries => Set<AdminSecurityAuditEntry>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {

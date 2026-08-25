@@ -19,12 +19,6 @@ namespace DoSelect.Api.IntegrationTests.Admin;
 /// （alex review P1#6）。目前完全沒有對應測試，這裡覆蓋審查要求的核心情境；
 /// challenge 逾時（時間流逝）不易在測試中可靠模擬，未涵蓋，詳見 PR 說明。
 /// </summary>
-/// <remarks>
-/// ⚠ 涉及 Recovery Code 兌換／Rebind confirm 的測試會寫入新增的
-/// <c>AdminSecurityAuditEntries</c> 資料表——本次未產生對應 EF Core Migration
-/// （本機 SDK 版本不符，見 commit 說明），這些測試須在已套用該 Migration 的資料庫
-/// 才能通過；其餘測試不受影響。
-/// </remarks>
 public sealed class AdminAuthControllerTests : IClassFixture<WebApplicationFactory<Program>>
 {
     private const string Password = "correct-horse-battery-staple";
@@ -161,6 +155,34 @@ public sealed class AdminAuthControllerTests : IClassFixture<WebApplicationFacto
 
         Assert.Equal(HttpStatusCode.BadRequest, verifyResponse.StatusCode);
         Assert.Equal("account_suspended", document.RootElement.GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task Session_WhenTheAdminIsSuspendedAfterACompletedLogin_IsRevokedImmediatelyEvenWithoutASecurityStampChange()
+    {
+        // alex review 第二輪 P1#3 核心回歸測試：原本的 Cookie 驗證只比對 SecurityStamp，
+        // 如果停權路徑忘記 bump Stamp，舊 Cookie 在到期前（最長 2 小時）仍會通過驗證。
+        // 這裡完全不動 SecurityStamp，只改 AdminProfile.IsActive，證明 Cookie 驗證本身
+        // 就會重新確認資格，不依賴其他程式碼是否記得撤銷 Stamp。
+        var (client, email, secret, userId, factory) = await CreateEnrolledAdminWithUserIdAsync();
+        using var verifyResponse = await FullyLogInAsync(client, email, secret);
+        Assert.Equal(HttpStatusCode.OK, verifyResponse.StatusCode);
+
+        using var beforeSuspendSession = await client.GetAsync("/api/v1/admin/auth/session");
+        var beforeSuspendBody = await beforeSuspendSession.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(beforeSuspendBody.GetProperty("isAuthenticated").GetBoolean());
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+            var profile = await dbContext.AdminProfiles.SingleAsync(p => p.UserId == userId);
+            profile.SetActive(false, DateTime.UtcNow);
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var afterSuspendSession = await client.GetAsync("/api/v1/admin/auth/session");
+        var afterSuspendBody = await afterSuspendSession.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(afterSuspendBody.GetProperty("isAuthenticated").GetBoolean());
     }
 
     [Fact]

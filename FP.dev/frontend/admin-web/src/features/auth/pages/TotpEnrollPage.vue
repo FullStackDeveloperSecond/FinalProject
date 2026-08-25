@@ -34,6 +34,12 @@ async function onConfirm(): Promise<void> {
   const codes = await auth.confirmEnrollment(code.value)
   if (codes) {
     recoveryCodes.value = codes
+    return
+  }
+  // 超過嘗試上限時 store 會清掉 challenge（後端也已讓它失效），這裡導回登入頁，
+  // 而不是留在一個再也送不出去的表單上（alex review P2）。
+  if (!auth.challenge) {
+    await router.replace({ name: 'login' })
   }
 }
 

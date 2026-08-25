@@ -16,7 +16,7 @@ public static class AdminAuthServiceCollectionExtensions
         services.AddSingleton(TimeProvider.System);
         services.AddScoped<IAdminAuthGateway, IdentityAdminAuthGateway>();
         services.AddSingleton<ITotpQrCodeGenerator, QrCodeGenerator>();
-        services.AddScoped<IAdminSecurityAuditWriter, EfAdminSecurityAuditWriter>();
+        services.AddSingleton<IAdminSecurityAuditWriter, LoggingAdminSecurityAuditWriter>();
         services.AddSingleton<IAdminChallengeRateLimiter, AdminChallengeRateLimiter>();
         services.AddScoped<AdminLoginUseCase>();
         services.AddScoped<AdminTwoFactorUseCase>();

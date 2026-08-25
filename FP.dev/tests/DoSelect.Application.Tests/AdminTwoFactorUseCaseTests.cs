@@ -102,13 +102,19 @@ public sealed class AdminTwoFactorUseCaseTests
     }
 
     [Fact]
-    public async Task ConfirmEnrollmentAsync_WhenAccountWasSuspendedAfterPasswordCheck_ReturnsAccountSuspended()
+    public async Task ConfirmEnrollmentAsync_WhenAccountWasSuspendedAfterPasswordCheck_ReturnsAccountSuspendedWithoutEnablingTwoFactor()
     {
+        // alex review 第二輪 P1#4 核心回歸測試：資格檢查必須在啟用 2FA／產生 Recovery
+        // Codes 之前。修正前的順序會先啟用、再檢查，讓停權帳號留下「2FA 已啟用但
+        // 使用者拿不到新 Recovery Codes」的半成功狀態。這裡刻意讓 EnableTwoFactor／
+        // GenerateRecoveryCodes 拋例外，只要它們被呼叫測試就會失敗，藉此鎖住呼叫順序。
         var gateway = new FakeAdminAuthGateway
         {
             VerifyTotpCode = (_, _) => true,
-            EnableTwoFactor = _ => { },
-            GenerateRecoveryCodes = (_, _) => ["code-1"],
+            EnableTwoFactor = _ => throw new InvalidOperationException(
+                "2FA must not be enabled before the eligibility check."),
+            GenerateRecoveryCodes = (_, _) => throw new InvalidOperationException(
+                "Recovery codes must not be generated before the eligibility check."),
             FindById = _ => SuspendedAdmin,
         };
         var useCase = new AdminTwoFactorUseCase(gateway, new FakeQrCodeGenerator());

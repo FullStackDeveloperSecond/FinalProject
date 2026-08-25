@@ -102,6 +102,7 @@ export interface AdminAuthPaths {
       responses: {
         200: { content: { 'application/json': AdminAuthResultDto } }
         400: { content: { 'application/problem+json': ProblemDetails } }
+        429: { content: { 'application/problem+json': ProblemDetails } }
       }
     }
   }
@@ -111,6 +112,7 @@ export interface AdminAuthPaths {
       responses: {
         200: { content: { 'application/json': AdminAuthResultDto } }
         400: { content: { 'application/problem+json': ProblemDetails } }
+        429: { content: { 'application/problem+json': ProblemDetails } }
       }
     }
   }
@@ -129,6 +131,7 @@ export interface AdminAuthPaths {
       responses: {
         200: { content: { 'application/json': TotpEnrollConfirmResponseDto } }
         400: { content: { 'application/problem+json': ProblemDetails } }
+        429: { content: { 'application/problem+json': ProblemDetails } }
       }
     }
   }
@@ -146,6 +149,7 @@ export interface AdminAuthPaths {
       responses: {
         200: { content: { 'application/json': TotpEnrollConfirmResponseDto } }
         400: { content: { 'application/problem+json': ProblemDetails } }
+        429: { content: { 'application/problem+json': ProblemDetails } }
       }
     }
   }

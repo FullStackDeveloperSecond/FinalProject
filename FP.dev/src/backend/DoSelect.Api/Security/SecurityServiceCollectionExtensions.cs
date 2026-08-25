@@ -1,7 +1,7 @@
 using DoSelect.Api.Configuration;
 using DoSelect.Application.Common;
 using DoSelect.Application.Security;
-using DoSelect.Domain.Security;
+using DoSelect.Domain.Members;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using Microsoft.AspNetCore.Authentication;
@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using System.Globalization;
 using System.Security.Claims;
@@ -211,23 +212,33 @@ public static class SecurityServiceCollectionExtensions
                 .GetRequiredService<UserManager<ApplicationUser>>();
             var user = string.IsNullOrEmpty(userId) ? null : await userManager.FindByIdAsync(userId);
             var currentStamp = user is null ? null : await userManager.GetSecurityStampAsync(user);
+            var stampMismatch = user is null || !string.Equals(stampInCookie, currentStamp, StringComparison.Ordinal);
 
-            if (user is null || !string.Equals(stampInCookie, currentStamp, StringComparison.Ordinal))
+            // ⚠ alex review 第二輪 P1#3：只比對 SecurityStamp 不夠——如果某個停權路徑忘記
+            // bump SecurityStamp，舊 Cookie 在到期前（最長 2 小時）仍會通過驗證並視為
+            // isAuthenticated=true。這裡直接重新確認目前的 AccountStatus／
+            // AdminProfile.IsActive，不依賴其他程式碼是否記得撤銷 Stamp。
+            var isEligible = false;
+            if (user is not null)
             {
-                // 停權或 SecurityStamp 變更必須立即撤銷既有 Session；連同稽核事件一起寫入，
-                // 不自己開交易——這是單一寫入，沒有其他狀態變更需要一起 commit／rollback
-                // （alex review P1#5）。
+                var dbContext = context.HttpContext.RequestServices.GetRequiredService<DoSelectDbContext>();
+                var profile = await dbContext.AdminProfiles
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(p => p.UserId == user.Id);
+                isEligible = user.AccountStatus == AccountStatus.Active && (profile?.IsActive ?? false);
+            }
+
+            if (stampMismatch || !isEligible)
+            {
                 var auditWriter = context.HttpContext.RequestServices
                     .GetRequiredService<IAdminSecurityAuditWriter>();
-                var dbContext = context.HttpContext.RequestServices.GetRequiredService<DoSelectDbContext>();
                 var timeProvider = context.HttpContext.RequestServices.GetRequiredService<TimeProvider>();
-                await auditWriter.WriteAsync(new AdminSecurityAuditEvent(
+                auditWriter.Write(new AdminSecurityAuditEvent(
                     AdminSecurityAuditEventType.SessionsRevoked,
                     userId,
                     context.HttpContext.Connection.RemoteIpAddress?.ToString(),
-                    "security_stamp_mismatch",
+                    stampMismatch ? "security_stamp_mismatch" : "account_not_eligible",
                     timeProvider.GetUtcNow()));
-                await dbContext.SaveChangesAsync();
 
                 context.RejectPrincipal();
                 await context.HttpContext.SignOutAsync(DoSelectAuthenticationSchemes.Admin);

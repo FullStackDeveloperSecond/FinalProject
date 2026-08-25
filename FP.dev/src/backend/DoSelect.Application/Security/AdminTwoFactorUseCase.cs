@@ -146,19 +146,29 @@ public sealed class AdminTwoFactorUseCase
             return AdminEnrollmentConfirmResult.Failure(AdminAuthErrorCodes.TwoFactorInvalid);
         }
 
+        // ⚠ alex review 第二輪 P1#4：資格檢查必須在「啟用 2FA、產生 Recovery Codes」之前。
+        // 原本檢查放在最後——管理員在流程中被停權時，API 雖然回 account_suspended，但
+        // 2FA 已經啟用、舊 Recovery Codes 已作廢，使用者卻拿不到這次產生的新 codes，
+        // 帳號會卡在半啟用、無法使用的狀態。
+        var userBeforeMutation = await _gateway.FindAdminByIdAsync(userId, cancellationToken);
+        if (userBeforeMutation is null)
+        {
+            return AdminEnrollmentConfirmResult.Failure(AdminAuthErrorCodes.TwoFactorInvalid);
+        }
+
+        if (!IsEligible(userBeforeMutation))
+        {
+            return AdminEnrollmentConfirmResult.Failure(AdminAuthErrorCodes.AccountSuspended);
+        }
+
         await _gateway.EnableTwoFactorAsync(userId, cancellationToken);
         var recoveryCodes = await _gateway.GenerateRecoveryCodesAsync(
             userId, RecoveryCodeCount, cancellationToken);
 
         var user = await _gateway.FindAdminByIdAsync(userId, cancellationToken);
-        if (user is null)
-        {
-            return AdminEnrollmentConfirmResult.Failure(AdminAuthErrorCodes.TwoFactorInvalid);
-        }
-
-        return IsEligible(user)
-            ? AdminEnrollmentConfirmResult.Success(user, recoveryCodes)
-            : AdminEnrollmentConfirmResult.Failure(AdminAuthErrorCodes.AccountSuspended);
+        return user is null
+            ? AdminEnrollmentConfirmResult.Failure(AdminAuthErrorCodes.TwoFactorInvalid)
+            : AdminEnrollmentConfirmResult.Success(user, recoveryCodes);
     }
 
     /// <summary>

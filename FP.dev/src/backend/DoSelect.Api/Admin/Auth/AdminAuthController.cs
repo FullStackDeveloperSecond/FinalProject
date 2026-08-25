@@ -2,7 +2,6 @@ using System.Security.Claims;
 using DoSelect.Api.Common;
 using DoSelect.Api.Security;
 using DoSelect.Application.Security;
-using DoSelect.Domain.Security;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using Microsoft.AspNetCore.Authentication;
@@ -104,7 +103,7 @@ public sealed class AdminAuthController(
 
         if (!TryAcquireChallengeAttempt(challenge))
         {
-            return await RejectChallengeRateLimitedAsync(challenge, cancellationToken);
+            return await RejectChallengeRateLimitedAsync(challenge);
         }
 
         var result = await twoFactorUseCase.VerifyTotpAsync(challenge.UserId, request.Code, cancellationToken);
@@ -134,40 +133,17 @@ public sealed class AdminAuthController(
 
         if (!TryAcquireChallengeAttempt(challenge))
         {
-            return await RejectChallengeRateLimitedAsync(challenge, cancellationToken);
+            return await RejectChallengeRateLimitedAsync(challenge);
         }
-
-        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
 
         var result = await twoFactorUseCase.RedeemRecoveryCodeAsync(challenge.UserId, request.Code, cancellationToken);
         if (!result.IsSuccess)
         {
-            await transaction.RollbackAsync(cancellationToken);
             return BadRequest(ApiProblemDetailsFactory.Create(
                 HttpContext, StatusCodes.Status400BadRequest, result.ErrorCode!));
         }
 
-        await auditWriter.WriteAsync(
-            new AdminSecurityAuditEvent(
-                AdminSecurityAuditEventType.RecoveryCodeRedeemed,
-                challenge.UserId,
-                GetClientIpAddress(),
-                null,
-                timeProvider.GetUtcNow()),
-            cancellationToken);
-
-        try
-        {
-            await dbContext.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-        }
-        catch
-        {
-            // 稽核寫入失敗：Recovery Code 兌換（已在 UserManager 內部隨這個交易 SaveChanges）
-            // 一併回滾，不留下「兌換成功但沒有稽核」的狀態（alex review P1#5）。
-            await transaction.RollbackAsync(cancellationToken);
-            throw;
-        }
+        WriteAudit(AdminSecurityAuditEventType.RecoveryCodeRedeemed, challenge.UserId, null);
 
         var authResult = await CompleteAdminSignInAsync(result.User!);
         return Ok(new AdminAuthResultDto(ToCurrentUserDto(result.User!), authResult));
@@ -192,7 +168,13 @@ public sealed class AdminAuthController(
         return Ok(new TotpEnrollBeginResponseDto(begin.SecretKey, begin.OtpAuthUri, begin.QrCodeDataUri));
     }
 
-    /// <summary>⚠ 新增端點：確認 TOTP 綁定，回傳僅顯示一次的 Recovery Code 並完成登入。</summary>
+    /// <summary>
+    /// ⚠ 新增端點：確認 TOTP 綁定，回傳僅顯示一次的 Recovery Code 並完成登入。
+    /// 資格檢查（帳號是否仍 Active／AdminProfile 是否仍啟用）在啟用 2FA 之前就完成
+    /// （見 AdminTwoFactorUseCase.ConfirmEnrollmentAsync），這裡的交易則保護「啟用
+    /// 2FA」與「產生 Recovery Codes」兩個各自獨立的 Identity 呼叫本身的原子性——
+    /// 任一失敗都不留下部分完成的 2FA 狀態（alex review 第二輪 P1#4）。
+    /// </summary>
     [HttpPost("totp/enroll/confirm")]
     [AllowAnonymous]
     [ProducesResponseType(typeof(TotpEnrollConfirmResponseDto), StatusCodes.Status200OK)]
@@ -209,15 +191,21 @@ public sealed class AdminAuthController(
 
         if (!TryAcquireChallengeAttempt(challenge))
         {
-            return await RejectChallengeRateLimitedAsync(challenge, cancellationToken);
+            return await RejectChallengeRateLimitedAsync(challenge);
         }
+
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
 
         var result = await twoFactorUseCase.ConfirmEnrollmentAsync(challenge.UserId, request.Code, cancellationToken);
         if (!result.IsSuccess)
         {
+            await transaction.RollbackAsync(cancellationToken);
             return BadRequest(ApiProblemDetailsFactory.Create(
                 HttpContext, StatusCodes.Status400BadRequest, result.ErrorCode!));
         }
+
+        await transaction.CommitAsync(cancellationToken);
+        WriteAudit(AdminSecurityAuditEventType.EnrollmentConfirmed, challenge.UserId, null);
 
         var authResult = await CompleteAdminSignInAsync(result.User!);
         return Ok(new TotpEnrollConfirmResponseDto(result.RecoveryCodes!, ToCurrentUserDto(result.User!), authResult));
@@ -254,11 +242,11 @@ public sealed class AdminAuthController(
         var userId = RequireCurrentAdminUserId();
 
         // Rebind 不是 Challenge Cookie 流程（已是完整登入的管理員），沒有 challengeId 可用，
-        // 固定用 "rebind" 當作 challengeKey——限流仍依 IP＋帳號組合生效（alex review P1#3）。
+        // 固定用 "rebind" 當作 challengeKey——限流仍依 IP＋帳號＋challengeKey 三個獨立
+        // bucket 生效（alex review 第二輪 P1#2）。
         if (!rateLimiter.TryAcquire(GetClientIpAddress(), "rebind", userId))
         {
-            await WriteAuditAsync(
-                AdminSecurityAuditEventType.ChallengeInvalidatedRateLimit, userId, "rebind/confirm", cancellationToken);
+            WriteAudit(AdminSecurityAuditEventType.ChallengeInvalidatedRateLimit, userId, "rebind/confirm");
 
             return StatusCode(
                 StatusCodes.Status429TooManyRequests,
@@ -274,8 +262,7 @@ public sealed class AdminAuthController(
             // Rollback 也復原了 ConfirmRebindAsync 內把待確認秘鑰提升為正式 key 的動作——
             // 舊裝置的 authenticator key 維持有效（見 IdentityAdminAuthGateway 的實作說明）。
             await transaction.RollbackAsync(cancellationToken);
-            await WriteAuditAsync(
-                AdminSecurityAuditEventType.RebindFailed, userId, result.ErrorCode, cancellationToken);
+            WriteAudit(AdminSecurityAuditEventType.RebindFailed, userId, result.ErrorCode);
             return BadRequest(ApiProblemDetailsFactory.Create(
                 HttpContext, StatusCodes.Status400BadRequest, result.ErrorCode!));
         }
@@ -296,25 +283,8 @@ public sealed class AdminAuthController(
                 HttpContext, StatusCodes.Status400BadRequest, AdminAuthErrorCodes.TwoFactorInvalid));
         }
 
-        await auditWriter.WriteAsync(
-            new AdminSecurityAuditEvent(
-                AdminSecurityAuditEventType.RebindConfirmed,
-                userId,
-                GetClientIpAddress(),
-                null,
-                timeProvider.GetUtcNow()),
-            cancellationToken);
-
-        try
-        {
-            await dbContext.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-        }
-        catch
-        {
-            await transaction.RollbackAsync(cancellationToken);
-            throw;
-        }
+        await transaction.CommitAsync(cancellationToken);
+        WriteAudit(AdminSecurityAuditEventType.RebindConfirmed, userId, null);
 
         logger.LogWarning(
             "Admin {AdminUserId} rebound TOTP; existing sessions on other devices are now revoked.",
@@ -324,15 +294,10 @@ public sealed class AdminAuthController(
         return Ok(new TotpEnrollConfirmResponseDto(result.RecoveryCodes!, ToCurrentUserDto(result.User!), authResult));
     }
 
-    /// <summary>單筆稽核寫入＋SaveChanges，用在不需要跟其他變更同一交易的場景（例如失敗紀錄）。</summary>
-    private async Task WriteAuditAsync(
-        AdminSecurityAuditEventType eventType, string? userId, string? detail, CancellationToken cancellationToken)
-    {
-        await auditWriter.WriteAsync(
-            new AdminSecurityAuditEvent(eventType, userId, GetClientIpAddress(), detail, timeProvider.GetUtcNow()),
-            cancellationToken);
-        await dbContext.SaveChangesAsync(cancellationToken);
-    }
+    /// <summary>寫一筆結構化 Log 形式的安全事件（不落地資料表，見 IAdminSecurityAuditWriter）。</summary>
+    private void WriteAudit(AdminSecurityAuditEventType eventType, string? userId, string? detail) =>
+        auditWriter.Write(new AdminSecurityAuditEvent(
+            eventType, userId, GetClientIpAddress(), detail, timeProvider.GetUtcNow()));
 
     /// <summary>`[Authorize(Policy = DoSelectPolicies.Admin)]` 已保證 User 是完整登入的管理員。</summary>
     private string RequireCurrentAdminUserId() =>
@@ -432,15 +397,13 @@ public sealed class AdminAuthController(
         rateLimiter.TryAcquire(GetClientIpAddress(), challenge.ChallengeId.ToString(), challenge.UserId);
 
     /// <summary>超過嘗試上限：簽出 AdminChallenge（讓 challenge 立即失效）、寫入稽核、回 429。</summary>
-    private async Task<IActionResult> RejectChallengeRateLimitedAsync(
-        AdminChallengeContext challenge, CancellationToken cancellationToken)
+    private async Task<IActionResult> RejectChallengeRateLimitedAsync(AdminChallengeContext challenge)
     {
         await HttpContext.SignOutAsync(DoSelectAuthenticationSchemes.AdminChallenge);
-        await WriteAuditAsync(
+        WriteAudit(
             AdminSecurityAuditEventType.ChallengeInvalidatedRateLimit,
             challenge.UserId,
-            $"challengeId={challenge.ChallengeId}",
-            cancellationToken);
+            $"challengeId={challenge.ChallengeId}");
 
         return StatusCode(
             StatusCodes.Status429TooManyRequests,
