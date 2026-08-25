@@ -307,6 +307,7 @@ public sealed class CartApiTests
         var item = addBody.GetProperty("items")[0];
         var itemPublicId = item.GetProperty("publicId").GetGuid();
         var itemRowVersion = item.GetProperty("rowVersion").GetString();
+        var cartCountBefore = await GetCartCountAsync();
 
         using var response = await SendWithAntiforgeryAsync(
             actorBClient,
@@ -321,6 +322,7 @@ public sealed class CartApiTests
         Assert.Equal(1, persistedItem.Quantity);
         Assert.Equal(Convert.FromBase64String(itemRowVersion!), persistedItem.RowVersion);
         Assert.Equal(Convert.FromBase64String(cartRowVersion!), persistedCart.RowVersion);
+        Assert.Equal(cartCountBefore, await GetCartCountAsync());
     }
 
     [Fact]
@@ -343,6 +345,7 @@ public sealed class CartApiTests
         var item = addBody.GetProperty("items")[0];
         var itemPublicId = item.GetProperty("publicId").GetGuid();
         var itemRowVersion = item.GetProperty("rowVersion").GetString();
+        var cartCountBefore = await GetCartCountAsync();
 
         using var deleteRequest = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/cart/items/{itemPublicId}")
         {
@@ -360,7 +363,9 @@ public sealed class CartApiTests
         Assert.Equal(1, persistedItem.Quantity);
         Assert.Equal(Convert.FromBase64String(itemRowVersion!), persistedItem.RowVersion);
         Assert.Equal(Convert.FromBase64String(cartRowVersion!), persistedCart.RowVersion);
+        Assert.Equal(cartCountBefore, await GetCartCountAsync());
     }
+
     [Fact]
     public async Task GetCart_WhenActorBIsAnotherMember_DoesNotExposeActorAItems()
     {
@@ -404,6 +409,7 @@ public sealed class CartApiTests
         var item = addBody.GetProperty("items")[0];
         var itemPublicId = item.GetProperty("publicId").GetGuid();
         var itemRowVersion = item.GetProperty("rowVersion").GetString();
+        var cartCountBefore = await GetCartCountAsync();
 
         using var updateRequest = new HttpRequestMessage(HttpMethod.Patch, $"/api/v1/cart/items/{itemPublicId}")
         {
@@ -415,6 +421,7 @@ public sealed class CartApiTests
         Assert.Equal(404, status);
         Assert.Equal("resource_not_found", code);
         await AssertCartItemUnchangedAsync(cartPublicId, itemPublicId, quantity: 1, cartRowVersion!, itemRowVersion!);
+        Assert.Equal(cartCountBefore, await GetCartCountAsync());
     }
 
     [Fact]
@@ -435,6 +442,7 @@ public sealed class CartApiTests
         var item = addBody.GetProperty("items")[0];
         var itemPublicId = item.GetProperty("publicId").GetGuid();
         var itemRowVersion = item.GetProperty("rowVersion").GetString();
+        var cartCountBefore = await GetCartCountAsync();
 
         using var deleteRequest = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/cart/items/{itemPublicId}")
         {
@@ -446,7 +454,9 @@ public sealed class CartApiTests
         Assert.Equal(404, status);
         Assert.Equal("resource_not_found", code);
         await AssertCartItemUnchangedAsync(cartPublicId, itemPublicId, quantity: 1, cartRowVersion!, itemRowVersion!);
+        Assert.Equal(cartCountBefore, await GetCartCountAsync());
     }
+
     [Fact]
     public async Task AddItem_WithAuthenticatedMember_IsScopedToTheMemberNotAGuestKey()
     {
@@ -542,6 +552,13 @@ public sealed class CartApiTests
         Assert.Equal(Convert.FromBase64String(itemRowVersion), persistedItem.RowVersion);
         Assert.Equal(Convert.FromBase64String(cartRowVersion), persistedCart.RowVersion);
     }
+
+    private async Task<int> GetCartCountAsync()
+    {
+        await using var context = _fixture.CreateScopedContext();
+        return await context.Carts.CountAsync();
+    }
+
     private static HttpRequestMessage GuestPatch(
         string guestKey,
         Guid itemPublicId,

@@ -141,6 +141,85 @@ public sealed class CartServiceTests
     }
 
     [Fact]
+    public async Task UpdateItemQuantityAsync_WhenOwnedCartHasExpired_ThrowsNotFoundWithoutChangingCart()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var service = CreateService(context);
+        var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
+        var identity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
+
+        var cart = await service.AddItemAsync(
+            identity,
+            new AddCartItemRequest(sku.PublicId, 1, null),
+            CancellationToken.None);
+        var item = Assert.Single(cart.Items);
+        var expiredAtUtc = DateTime.UtcNow.AddDays(-1);
+
+        await context.Database.ExecuteSqlInterpolatedAsync(
+            $"UPDATE Carts SET ExpiresAtUtc = {expiredAtUtc} WHERE PublicId = {cart.PublicId}");
+        context.ChangeTracker.Clear();
+
+        var cartBefore = await context.Carts.AsNoTracking()
+            .Where(candidate => candidate.PublicId == cart.PublicId)
+            .Select(candidate => new
+            {
+                candidate.Status,
+                candidate.ExpiresAtUtc,
+                candidate.UpdatedAtUtc,
+                candidate.RowVersion,
+            })
+            .SingleAsync();
+        var itemBefore = await context.CartItems.AsNoTracking()
+            .Where(candidate => candidate.PublicId == item.PublicId)
+            .Select(candidate => new
+            {
+                candidate.Quantity,
+                candidate.UpdatedAtUtc,
+                candidate.RowVersion,
+            })
+            .SingleAsync();
+        var cartCountBefore = await context.Carts.CountAsync();
+
+        var exception = await Assert.ThrowsAsync<ShoppingWriteException>(() => service.UpdateItemQuantityAsync(
+            identity,
+            item.PublicId,
+            new UpdateCartItemRequest(2, item.RowVersion, cart.RowVersion),
+            CancellationToken.None));
+
+        Assert.Equal(ShoppingWriteException.ErrorCodes.ResourceNotFound, exception.ErrorCode);
+
+        context.ChangeTracker.Clear();
+        var cartAfter = await context.Carts.AsNoTracking()
+            .Where(candidate => candidate.PublicId == cart.PublicId)
+            .Select(candidate => new
+            {
+                candidate.Status,
+                candidate.ExpiresAtUtc,
+                candidate.UpdatedAtUtc,
+                candidate.RowVersion,
+            })
+            .SingleAsync();
+        var itemAfter = await context.CartItems.AsNoTracking()
+            .Where(candidate => candidate.PublicId == item.PublicId)
+            .Select(candidate => new
+            {
+                candidate.Quantity,
+                candidate.UpdatedAtUtc,
+                candidate.RowVersion,
+            })
+            .SingleAsync();
+
+        Assert.Equal(cartCountBefore, await context.Carts.CountAsync());
+        Assert.Equal(cartBefore.Status, cartAfter.Status);
+        Assert.Equal(cartBefore.ExpiresAtUtc, cartAfter.ExpiresAtUtc);
+        Assert.Equal(cartBefore.UpdatedAtUtc, cartAfter.UpdatedAtUtc);
+        Assert.Equal(cartBefore.RowVersion, cartAfter.RowVersion);
+        Assert.Equal(itemBefore.Quantity, itemAfter.Quantity);
+        Assert.Equal(itemBefore.UpdatedAtUtc, itemAfter.UpdatedAtUtc);
+        Assert.Equal(itemBefore.RowVersion, itemAfter.RowVersion);
+    }
+
+    [Fact]
     public async Task RemoveItemAsync_WhenSuccessful_DeletesTheItem()
     {
         await using var context = CartServiceFixture.CreateContext();
