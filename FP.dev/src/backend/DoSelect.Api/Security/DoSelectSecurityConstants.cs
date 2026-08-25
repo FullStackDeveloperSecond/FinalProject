@@ -64,10 +64,4 @@ public static class DoSelectPolicies
     public const string AuditExport = "Audit.Export";
     public const string SupportTicketHandle = "SupportTicket.Handle";
     public const string SupportTicketSupervise = "SupportTicket.Supervise";
-
-    /// <summary>⚠ 新提案，待 alex 覆核：後台會員管理查看／編輯基本資料。</summary>
-    public const string MemberManage = "Member.Manage";
-
-    /// <summary>⚠ 新提案，待 alex 覆核：更改密碼／重設權限等高風險會員操作。</summary>
-    public const string MemberManageSensitive = "Member.ManageSensitive";
 }

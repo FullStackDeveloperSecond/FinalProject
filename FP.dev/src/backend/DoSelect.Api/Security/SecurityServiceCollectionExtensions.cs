@@ -293,14 +293,6 @@ public static class SecurityServiceCollectionExtensions
             DoSelectRoles.CustomerService, DoSelectRoles.CustomerServiceSupervisor);
         AddAdminPolicy(options, DoSelectPolicies.SupportTicketSupervise,
             DoSelectRoles.CustomerServiceSupervisor, DoSelectRoles.SuperAdmin);
-
-        // ⚠ PENDING ALEX POLICY REVIEW：後台會員管理是這次新增的範圍，沒有既有規格。
-        // 角色對應比照 SupportTicket.Handle／Supervise 的分級模式（一般客服可查看/編輯基本
-        // 資料，變更帳號狀態或密碼需要主管層級），是合理猜測，非既有核准的規則。
-        AddAdminPolicy(options, DoSelectPolicies.MemberManage,
-            DoSelectRoles.CustomerService, DoSelectRoles.CustomerServiceSupervisor, DoSelectRoles.SuperAdmin);
-        AddAdminPolicy(options, DoSelectPolicies.MemberManageSensitive,
-            DoSelectRoles.CustomerServiceSupervisor, DoSelectRoles.SuperAdmin);
     }
 
     private static void AddAdminPolicy(

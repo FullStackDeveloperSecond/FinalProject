@@ -32,7 +32,6 @@ builder.Services.AddDoSelectIdempotency(builder.Configuration);
 builder.Services.AddDoSelectFileStorage();
 builder.Services.AddDoSelectSecurity(builder.Environment, builder.Configuration);
 builder.Services.AddDoSelectAdminAuth();
-builder.Services.AddDoSelectAdminMembers();
 builder.Services.AddDoSelectRefunds();
 builder.Services.AddDoSelectCatalogServices();
 builder.Services.AddDoSelectShoppingServices();

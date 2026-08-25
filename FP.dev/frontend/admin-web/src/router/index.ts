@@ -43,18 +43,6 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
-      path: '/members',
-      name: 'member-list',
-      component: () => import('../features/members/pages/MemberListPage.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
-      path: '/members/:publicId',
-      name: 'member-detail',
-      component: () => import('../features/members/pages/MemberDetailPage.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
       path: '/support',
       name: 'support-sla-queue',
       component: () => import('../pages/support/SupportSlaQueuePage.vue'),
