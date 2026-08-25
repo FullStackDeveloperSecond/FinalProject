@@ -126,6 +126,17 @@ public sealed class ReturnService : IReturnService
             }
         }
 
+        // Only the static ceiling (ReturnableQuantity − ReturnedQuantity) travels from this
+        // already-RowVersion-checked snapshot; the dynamic part — how much of it concurrent
+        // creates have already consumed — is re-verified by the store itself under lock, inside
+        // the same transaction as the insert. See ReturnItemQuantityBudget's doc comment.
+        var quantityBudgets = resolvedLines
+            .Select(pair => new ReturnItemQuantityBudget(
+                pair.Item.OrderItemId,
+                pair.Line.Quantity,
+                pair.Item.ReturnableQuantity - pair.Item.ReturnedQuantity))
+            .ToList();
+
         const int maxReturnNumberAttempts = 5;
         for (var attempt = 1; attempt <= maxReturnNumberAttempts; attempt++)
         {
@@ -144,6 +155,7 @@ public sealed class ReturnService : IReturnService
             {
                 var creation = await _store.CreateWithItemsAsync(
                     returnRequest,
+                    quantityBudgets,
                     returnRequestId => resolvedLines
                         .Select(pair => new ReturnItem(
                             Guid.CreateVersion7(),
@@ -173,6 +185,16 @@ public sealed class ReturnService : IReturnService
             {
                 // Another request took this ReturnNumber between our existence check and the
                 // insert; retry the whole create-with-items transaction on a new number.
+            }
+            catch (ReturnQuantityConflictException)
+            {
+                // The store's lock-protected re-check found the remaining quantity already
+                // consumed by a request that committed after our snapshot was taken. Retrying
+                // with a new ReturnNumber cannot help here — this is a stable business outcome,
+                // not a transient collision — so it surfaces immediately as the documented error.
+                throw new ReturnsWriteException(
+                    ReturnsWriteException.ErrorCodes.ReturnQuantityExceeded,
+                    "Requested quantity exceeds the remaining returnable quantity.");
             }
         }
 

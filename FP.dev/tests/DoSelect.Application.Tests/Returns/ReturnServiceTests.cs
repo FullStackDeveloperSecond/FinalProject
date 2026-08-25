@@ -143,6 +143,28 @@ public sealed class ReturnServiceTests
     }
 
     [Fact]
+    public async Task CreateAsync_WhenStoreDetectsConcurrentQuantityConflictUnderLock_MapsToStableQuantityExceededError()
+    {
+        // The store's pre-transaction snapshot check (CreateSut's own returnableQuantity) has
+        // room, but the lock-protected re-check inside CreateWithItemsAsync represents a
+        // concurrent sibling request that committed first and already consumed the budget —
+        // FakeReturnStore.SimulateQuantityConflictOnNextCreate stands in for that real-SQL-Server
+        // race (see the SqlServer-backed regression tests in DoSelect.Infrastructure.Tests for
+        // the actual concurrent-transaction proof). This test only verifies the Application
+        // layer maps ReturnQuantityConflictException to the same stable, documented error code a
+        // same-request over-quantity failure gets — never a raw/internal exception.
+        var (service, store, _, orderPublicId, orderItemPublicId) = CreateSut(returnableQuantity: 2);
+        var actor = new ReturnActor("member-a", null);
+        store.SimulateQuantityConflictOnNextCreate = true;
+
+        var exception = await Assert.ThrowsAsync<ReturnsWriteException>(() =>
+            service.CreateAsync(actor, orderPublicId, DefectiveRequest(orderItemPublicId, 1, [1, 2, 3, 4, 5, 6, 7, 8]), CancellationToken.None));
+
+        Assert.Equal(ReturnsWriteException.ErrorCodes.ReturnQuantityExceeded, exception.ErrorCode);
+        Assert.Empty(store.Requests);
+    }
+
+    [Fact]
     public async Task CreateAsync_CoolingOffPastDeadline_ThrowsDeadlineExpired()
     {
         var (service, _, _, orderPublicId, orderItemPublicId) = CreateSut(deliveredAtUtc: NowUtc.AddDays(-10));

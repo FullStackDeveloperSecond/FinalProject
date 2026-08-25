@@ -33,16 +33,30 @@ internal sealed class FakeReturnStore : IReturnStore
     public int SimulateCollisionsRemaining { get; set; }
     public bool SimulateConcurrencyConflictOnNextSave { get; set; }
 
+    /// <summary>Simulates the store's lock-protected re-check losing a race to a concurrent
+    /// create — set to make the next CreateWithItemsAsync call behave as if another request
+    /// already consumed the budget, regardless of what this call's own budgets say.</summary>
+    public bool SimulateQuantityConflictOnNextCreate { get; set; }
+
     public Task<bool> ReturnNumberExistsAsync(string returnNumber, CancellationToken cancellationToken) =>
         Task.FromResult(Requests.Any(r => r.ReturnNumber == returnNumber));
 
     public Task<ReturnCreationResult> CreateWithItemsAsync(
-        ReturnRequest request, Func<long, IReadOnlyList<ReturnItem>> itemsFactory, CancellationToken cancellationToken)
+        ReturnRequest request,
+        IReadOnlyList<ReturnItemQuantityBudget> quantityBudgets,
+        Func<long, IReadOnlyList<ReturnItem>> itemsFactory,
+        CancellationToken cancellationToken)
     {
         if (SimulateCollisionsRemaining > 0)
         {
             SimulateCollisionsRemaining--;
             throw new ReturnNumberCollisionException(request.ReturnNumber, new InvalidOperationException("Simulated collision."));
+        }
+
+        if (SimulateQuantityConflictOnNextCreate)
+        {
+            SimulateQuantityConflictOnNextCreate = false;
+            throw new ReturnQuantityConflictException(quantityBudgets[0].OrderItemId);
         }
 
         ReturnRequestIdField.SetValue(request, _nextId++);

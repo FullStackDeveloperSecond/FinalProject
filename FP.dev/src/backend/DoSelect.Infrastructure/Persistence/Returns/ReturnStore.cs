@@ -11,6 +11,18 @@ public sealed class ReturnStore : IReturnStore
     private const int UniqueConstraintViolation = 2627;
     private const string ReturnNumberUniqueIndexName = "UX_ReturnRequests_ReturnNumber";
 
+    /// <summary>SQL Server's deadlock-victim error number.</summary>
+    private const int DeadlockVictimErrorNumber = 1205;
+
+    /// <summary>
+    /// Attempts for the whole locked create transaction. Ascending-Id lock ordering (see
+    /// <see cref="CreateWithItemsOnceAsync"/>) makes a deadlock between two of *this* code path's
+    /// own lock acquisitions essentially impossible, but SQL Server can still pick either side as
+    /// a victim under contention from elsewhere — the entire attempt (lock, re-sum, insert) must
+    /// rerun on a deadlock, not just the failed statement, since the sum it read is now stale.
+    /// </summary>
+    private const int MaximumLockRetryAttempts = 3;
+
     private readonly DoSelectDbContext _dbContext;
 
     public ReturnStore(DoSelectDbContext dbContext)
@@ -23,12 +35,60 @@ public sealed class ReturnStore : IReturnStore
 
     public async Task<ReturnCreationResult> CreateWithItemsAsync(
         ReturnRequest request,
+        IReadOnlyList<ReturnItemQuantityBudget> quantityBudgets,
+        Func<long, IReadOnlyList<ReturnItem>> itemsFactory,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 1; attempt <= MaximumLockRetryAttempts; attempt++)
+        {
+            try
+            {
+                return await CreateWithItemsOnceAsync(request, quantityBudgets, itemsFactory, cancellationToken);
+            }
+            catch (Exception ex) when (attempt < MaximumLockRetryAttempts && IsDeadlockVictim(ex))
+            {
+                _dbContext.ChangeTracker.Clear();
+            }
+        }
+
+        throw new ReturnsWriteException(
+            ReturnsWriteException.ErrorCodes.ConcurrencyConflict,
+            "Unable to create the return due to repeated concurrency conflicts. Please try again.");
+    }
+
+    private async Task<ReturnCreationResult> CreateWithItemsOnceAsync(
+        ReturnRequest request,
+        IReadOnlyList<ReturnItemQuantityBudget> quantityBudgets,
         Func<long, IReadOnlyList<ReturnItem>> itemsFactory,
         CancellationToken cancellationToken)
     {
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
         try
         {
+            // Closes the check-then-insert race: SumActiveRequestedQuantityAsync used to run
+            // outside any transaction, so two concurrent creates for the same OrderItem could
+            // both read "0 already requested" and both pass. Locking each distinct OrderItem's
+            // own PK row (not a Serializable range-scan over ReturnItems, which has no
+            // OrderItemId-leading index and would range-lock unrelated items too — see the
+            // implementation report) means only creates that actually target the SAME
+            // OrderItemId ever block each other; different items proceed independently.
+            foreach (var orderItemId in quantityBudgets.Select(b => b.OrderItemId).Distinct().OrderBy(id => id))
+            {
+                await _dbContext.Database.SqlQuery<int>(
+                    $"SELECT TOP (1) 1 AS Value FROM dbo.OrderItems WITH (UPDLOCK, HOLDLOCK) WHERE Id = {orderItemId}")
+                    .ToListAsync(cancellationToken);
+            }
+
+            foreach (var budget in quantityBudgets)
+            {
+                var alreadyRequested = await SumActiveRequestedQuantityAsync(budget.OrderItemId, cancellationToken);
+                var remaining = budget.MaximumReturnableQuantity - alreadyRequested;
+                if (budget.RequestedQuantity > remaining)
+                {
+                    throw new ReturnQuantityConflictException(budget.OrderItemId);
+                }
+            }
+
             await _dbContext.ReturnRequests.AddAsync(request, cancellationToken);
 
             try
@@ -53,6 +113,19 @@ public sealed class ReturnStore : IReturnStore
             await transaction.RollbackAsync(cancellationToken);
             throw;
         }
+    }
+
+    private static bool IsDeadlockVictim(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is SqlException { Number: DeadlockVictimErrorNumber })
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public Task<ReturnRequest?> FindOwnedAsync(

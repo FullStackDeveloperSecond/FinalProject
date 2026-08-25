@@ -61,6 +61,18 @@ public interface IGuestOrderAccessValidator
 
 public sealed record ReturnCreationResult(long ReturnRequestId, ReturnRequest Request, IReadOnlyList<ReturnItem> Items);
 
+/// <summary>
+/// One line's quantity ceiling for <see cref="IReturnStore.CreateWithItemsAsync"/> to
+/// re-verify itself, under lock, inside its own transaction — the Application layer's
+/// pre-transaction sum check (against a snapshot read outside any transaction) is only a cheap
+/// fast-fail; it is never sufficient on its own to prevent two concurrent creates from both
+/// reading the same "remaining" quantity and both succeeding. <see cref="MaximumReturnableQuantity"/>
+/// is the static per-OrderItem ceiling (ReturnableQuantity − ReturnedQuantity) from the caller's
+/// already-RowVersion-checked Order snapshot; only the *dynamic* part — how much of that ceiling
+/// concurrent ReturnRequests have already consumed — needs a fresh, lock-protected re-read.
+/// </summary>
+public sealed record ReturnItemQuantityBudget(long OrderItemId, int RequestedQuantity, int MaximumReturnableQuantity);
+
 public sealed record ReturnAttachmentAccess(
     long ReturnRequestId,
     string? MemberUserId,
@@ -76,12 +88,19 @@ public interface IReturnStore
     /// <summary>
     /// Persists the request and its items atomically (one transaction), assigning the request's
     /// generated Id to the item factories before they run — mirrors
-    /// SupportTicketStore.CreateTicketWithArtifactsAsync. Throws
-    /// <see cref="ReturnNumberCollisionException"/> (never a raw DbUpdateException) on a real
-    /// SQL unique-constraint violation of the ReturnNumber index.
+    /// SupportTicketStore.CreateTicketWithArtifactsAsync. Before inserting, locks each distinct
+    /// <paramref name="quantityBudgets"/> OrderItem row (ascending by Id, to avoid deadlocking
+    /// against another multi-item create touching the same items in a different order) and
+    /// re-sums each item's already-active ReturnItem quantity under that lock, throwing
+    /// <see cref="ReturnQuantityConflictException"/> if a concurrent create has since consumed
+    /// the remaining budget — this is the actual concurrency gate; the Application layer's own
+    /// pre-check is only a fast-fail hint. Throws <see cref="ReturnNumberCollisionException"/>
+    /// (never a raw DbUpdateException) on a real SQL unique-constraint violation of the
+    /// ReturnNumber index.
     /// </summary>
     Task<ReturnCreationResult> CreateWithItemsAsync(
         ReturnRequest request,
+        IReadOnlyList<ReturnItemQuantityBudget> quantityBudgets,
         Func<long, IReadOnlyList<ReturnItem>> itemsFactory,
         CancellationToken cancellationToken);
 
@@ -202,6 +221,23 @@ public sealed class ReturnNumberCollisionException : Exception
     }
 
     public string ReturnNumber { get; }
+}
+
+/// <summary>Signals that a concurrent create consumed the remaining returnable quantity for an
+/// OrderItem between the caller's snapshot check and this transaction's lock-protected re-sum —
+/// the actual race this whole locking scheme exists to close. An internal store-level signal,
+/// mirroring <see cref="ReturnNumberCollisionException"/>; the Application layer maps it to the
+/// stable <c>return_quantity_exceeded</c> error, never lets it (or any raw SQL detail) reach the
+/// API.</summary>
+public sealed class ReturnQuantityConflictException : Exception
+{
+    public ReturnQuantityConflictException(long orderItemId)
+        : base($"OrderItem {orderItemId} no longer has enough remaining returnable quantity.")
+    {
+        OrderItemId = orderItemId;
+    }
+
+    public long OrderItemId { get; }
 }
 
 public sealed class ReturnsWriteException : Exception
