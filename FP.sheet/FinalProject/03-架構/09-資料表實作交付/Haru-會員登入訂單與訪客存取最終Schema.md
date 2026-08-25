@@ -155,7 +155,7 @@
 |---|---|---|
 | 識別 | `OrderNumber nvarchar(32)`、`MemberUserId nvarchar(450) NULL`、`GuestEmailNormalized nvarchar(320) NULL` | OrderNumber UX；會員／訪客識別至少一者存在 |
 | 狀態 | `OrderStatus/PaymentStatus/FulfillmentStatus/AssemblyStatus/OrderRefundStatus varchar(32)` | 只接受正式狀態機值；不得混用維度 |
-| 金額 | `MerchandiseSubtotal/ItemDiscountTotal/ShippingFee/AssemblyFee/GrandTotal/PaidAmount/RefundedAmount decimal(18,2)`、`Currency char(3)` | 非負；第一版 TWD；後端重算 |
+| 金額 | `MerchandiseSubtotal/ItemDiscountTotal/ShippingFee/AssemblyFee/GrandTotal/PaidAmount/RefundedAmount decimal(18,2)`、`Currency char(3)` | 非負；第一版 TWD；明細與分攤可兩位小數，GrandTotal 在付款前以 AwayFromZero 取整數且等於 PaymentAttempt.Amount／PaidAmount；尾差由總額減明細加總推導，不新增欄位 |
 | 收件快照 | `RecipientName nvarchar(100)`、`RecipientPhone nvarchar(32)`、`RecipientEmail nvarchar(320)`、`PostalCode nvarchar(16) NULL`、`RecipientCity nvarchar(50) NULL`、`RecipientDistrict nvarchar(50) NULL`、`AddressLine1 nvarchar(300) NULL`、`AddressLine2 nvarchar(300) NULL` | 宅配時 PostalCode／City／District／AddressLine1 必填；不保存地址簿 Label |
 | 物流快照 | `ShippingMethodCode nvarchar(64)`、`ShippingProviderProfileVersionId bigint`、`StoreCode/StoreName/StoreAddress nvarchar(...) NULL`、`ShippingConstraintPolicyVersion int` | 成立後不可被目前設定覆寫 |
 | 政策／時間 | `ReturnPolicyVersion int`、`CouponPolicyVersion int NULL`、各狀態時間 `datetime2(3) NULL` | 依合法轉移填入 |

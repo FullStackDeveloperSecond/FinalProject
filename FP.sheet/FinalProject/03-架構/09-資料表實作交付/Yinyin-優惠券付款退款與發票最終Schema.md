@@ -17,6 +17,7 @@
   - DEC-P278
   - DEC-P279
   - DEC-P280
+  - DEC-P285
 ---
 
 # Yinyin｜優惠券、付款、部分退款與模擬發票最終 Schema 實作交付
@@ -409,7 +410,7 @@ Succeeded / Failed
 
 # 八、M-20 模擬發票與折讓
 
-> 計算契約（DEC-P280）：`BusinessTaxRate = 0.05m`、`AmountScale = 0`。訂單成交總額視為含稅，`NetAmount = Round(GrossAmount / 1.05, 0, AwayFromZero)`、`TaxAmount = GrossAmount - NetAmount`；明細最後一筆吸收尾差。欄位維持 `decimal(18,2)`，但發票與折讓的未稅、稅額、含稅寫入值均須為整數元。
+> 計算契約（DEC-P280、DEC-P285）：`BusinessTaxRate = 0.05m`。發票表頭 `IssuedAmount = Round(Sum(Line.GrossAmount), 0, AwayFromZero)`、`NetAmount = Round(IssuedAmount / 1.05, 0, AwayFromZero)`、`TaxAmount = IssuedAmount - NetAmount`，三者為整數元；發票明細可保留兩位小數，並依三條核對口徑與表頭一致。欄位維持 `decimal(18,2)`，尾差由表頭總額與明細加總推導，不新增欄位。折讓仍依 DEC-P280 的整數元規則。
 
 ## 11. SimulatedInvoices
 
@@ -501,8 +502,9 @@ Succeeded / Failed
 - 折讓明細建立於 `SimulatedInvoiceAllowanceItems`
 - 不得因退款回寫或刪除原始發票金額與明細
 - 發票與折讓皆保留完整歷史
-- 發票與折讓固定採 5% 稅率與 TWD 整數元；例如含稅 1,000 固定保存未稅 952、稅額 48、含稅 1,000
-- 各明細採相同規則，最後一筆吸收尾差；明細加總必須與表頭三種金額完全相等
+- 發票固定採 5% 稅率；表頭 Gross／Net／Tax 為 TWD 整數元，例如含稅 1,000 固定保存未稅 952、稅額 48、含稅 1,000
+- 發票明細可保留兩位小數，每筆 Gross=Net+Tax 且不得為負；依 `Round(Sum(Gross))=Header.Issued`、`Round(Sum(Net))=Header.Net`、`Sum(Tax)=Header.Tax` 核對，最後一筆合法明細吸收稅額尾差
+- 折讓仍依 DEC-P280 的 5% 整數元與尾差規則；小數發票明細的部分折讓若需不同取位規則，另案裁定
 
 ---
 
@@ -659,7 +661,7 @@ IdempotencyRecords
 - [x] 無 Cart / Shipment 第二套真實來源
 - [x] 已補跨模組、Outbox、AuditLog、Idempotency 關係
 - [ ] 依 DEC-P276～P278 補入 `OrderCoupons.MinimumSpendAmount`、`OrderItems.IsCouponEligible`、`ShippingClawback` 及方向公式的 Entity／Configuration／測試與後續 Migration（DES-21）
-- [ ] 依 DEC-P279～P280 補齊發票 Endpoint／DTO／錯誤碼、5% 整數元計算及尾差測試（DES-22）；本文件不代表 Controller／OpenAPI 已完成
+- [ ] 依 DEC-P279～P280、DEC-P285 補齊發票 Endpoint／DTO／錯誤碼、5% 表頭整數元、明細兩位小數、付款前整數化、三條核對口徑及尾差測試（DES-22）；本文件不代表 Controller／OpenAPI 已完成
 
 ---
 

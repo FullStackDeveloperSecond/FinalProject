@@ -139,7 +139,7 @@
 | `VoidSimulatedInvoiceRequest` | `reasonCode:string(1..64)`、`note?:string(0..1000)`、`rowVersion` |
 | `CreateSimulatedInvoiceAllowanceRequest` | `refundPublicId`、`invoiceRowVersion`；金額由後端成功 Refund 及原發票明細推導，不接受客戶端金額；`Idempotency-Key` 使用 Header |
 
-模擬發票總額視為含稅，固定 `taxRate = 0.05`、金額位數為 TWD 整數元：`netAmount = Round(grossAmount / 1.05, 0, AwayFromZero)`，`taxAmount = grossAmount - netAmount`。明細最後一筆吸收尾差，發票與折讓皆須滿足明細合計等於表頭；例如 NT$1,000 固定為未稅 952、稅額 48。
+模擬發票固定 `taxRate = 0.05`。表頭以明細含稅加總四捨五入至 TWD 整數元，`netAmount = Round(issuedAmount / 1.05, 0, AwayFromZero)`、`taxAmount = issuedAmount - netAmount`；表頭 Gross／Net／Tax 均為整數。發票明細可保留兩位小數，每筆維持 `gross = net + tax` 且不得為負；核對採 `Round(Sum(line.gross), 0) = header.issued`、`Round(Sum(line.net), 0) = header.net`、`Sum(line.tax) = header.tax`，最後一筆合法明細吸收稅額尾差。`issuedAmount` 必須等於付款前已整數化的訂單實付金額，不一致時拒絕；例如 NT$1,000 固定為未稅 952、稅額 48。折讓取位仍依 DEC-P280，未由 DEC-P285 覆寫。
 
 ## 後台型錄、庫存與物流
 
