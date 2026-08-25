@@ -35,6 +35,11 @@ const router = createRouter({
       component: () => import('../pages/ResetPasswordPage.vue'),
     },
     {
+      path: '/orders/:orderId',
+      name: 'order-detail',
+      component: () => import('../features/orders/OrderDetailPage.vue'),
+    },
+    {
       path: '/unauthorized',
       name: 'unauthorized',
       component: HttpStatusPage,
