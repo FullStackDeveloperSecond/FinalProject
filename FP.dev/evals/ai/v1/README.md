@@ -42,4 +42,5 @@ node .\scripts\validate-ai-eval-dataset.mjs
 - 目前全部案例狀態是 `draft`，不代表 Terry／Kafen 已完成內容覆核。
 - 目前沒有 Prompt、SearchIntent Schema、Adapter 或可執行 AI 功能，因此沒有 live baseline、延遲、Token 或成本結果。
 - PR／CI 只執行資料產物與 deterministic contract 檢查，不呼叫 OpenAI。
+- `DoSelect.Application.Tests` 以 31 個 AI 測試固定 AI-13 的隱私、授權、同意、額度預留、最後一額、併發競爭、Owner、語系、唯讀工具、Schema 與降級契約；另有 9 個 Fake Client API Integration 固定目前 HTTP Pipeline。兩者都不取代正式資料來源、真正 GuestOrderAccessToken、瀏覽器 E2E 或 live model 證據。
 - 未來 live runner 必須在呼叫前顯示預估成本，保存模型／Prompt／Schema／Tool／資料集／Grader／Commit 版本，且不得輸出 API Key。

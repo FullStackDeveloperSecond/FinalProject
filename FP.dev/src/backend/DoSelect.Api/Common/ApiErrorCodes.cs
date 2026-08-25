@@ -2,6 +2,11 @@ namespace DoSelect.Api.Common;
 
 public static class ApiErrorCodes
 {
+    public const string AiConsentRequired = "ai_consent_required";
+    public const string AiOrderAccessDenied = "ai_order_access_denied";
+    public const string AiOutputInvalid = "ai_output_invalid";
+    public const string AiServiceUnavailable = "ai_service_unavailable";
+    public const string AiUsageLimitExceeded = "ai_usage_limit_exceeded";
     public const string AntiforgeryValidationFailed = "antiforgery_validation_failed";
     public const string AuthenticationRequired = "authentication_required";
     public const string AuthorizationForbidden = "authorization_forbidden";

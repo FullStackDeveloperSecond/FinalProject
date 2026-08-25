@@ -101,7 +101,7 @@ dotnet tool run dotnet-ef -- database update InitialCreate `
 - 退款執行的 `reasonCode`／安全處理後的 `note` 只寫中央 Audit，不在 Refund 重複建欄位；Audit 與退款狀態、分攤、冪等完成紀錄同交易提交，中央 Audit 實作未完成前 PR #16 不得合併。
 - `requestedBy`／`approvedBy`／`executedBy` 只回 `{ publicId, maskedLabel }`；不得回傳 Internal Identity ID、完整 DisplayName 或完整 Email。
 - 付款、退款、折讓 Event 採 append-only／冪等；不可修改歷史偽裝成新事件。
-- 模擬發票與折讓固定採 5% 稅率與 TWD 整數元：`Net = Round(Gross / 1.05, 0, AwayFromZero)`、`Tax = Gross - Net`，最後一筆合法明細吸收尾差；1,000 元案例必須得到 952／48／1,000。
+- 模擬發票固定採 5% 稅率；最終應付在付款前以 AwayFromZero 取整數，且 `Order.GrandTotal = PaymentAttempt.Amount = Order.PaidAmount = Invoice.IssuedAmount`。發票表頭 Gross／Net／Tax 為整數元，明細可保留兩位小數並依三條核對口徑與表頭一致，最後一筆合法明細吸收稅額尾差；1,000 元案例必須得到 952／48／1,000。折讓仍依 DEC-P280，未由 DEC-P285 覆寫。
 - 開立、作廢與折讓失敗使用正式 `invoice_order_unpaid`、`invoice_order_cancelled`、`invoice_already_exists`、`invoice_state_conflict`、`invoice_allowance_required`，不得自行新增文字型拒絕代碼。
 
 ## 7. 跨模組契約

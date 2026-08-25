@@ -123,7 +123,7 @@
 | 範圍／使用案例 | Method／Route | 權限 | Request／Response 契約 | 主要錯誤 |
 |---|---|---|---|---|
 | UC-AI-SUPPORT-01 | `POST /api/v1/ai/consents`；`DELETE /api/v1/ai/consents/current` | Member | 同意版本／撤回 | `ai_consent_required` |
-| UC-AI-SUPPORT-02／03 | `POST /api/v1/ai/support/messages` | Member＋有效同意 | `AiSupportMessageRequest` → `AiSupportAnswerDto`；只讀工具且不執行商業寫入 | `ai_order_access_denied`、`ai_tool_not_allowed` |
+| UC-AI-SUPPORT-02／03 | `POST /api/v1/ai/support/messages` | Member＋有效同意 | `AiSupportMessageRequest` → `AiSupportAnswerDto`；只讀工具且不執行商業寫入；功能旗標關閉時 Fail Closed | `validation_failed`、`ai_consent_required`、`ai_usage_limit_exceeded`、`ai_order_access_denied`、`ai_output_invalid`、`ai_service_unavailable`、`ai_tool_not_allowed` |
 | UC-AI-SUPPORT-04 | `GET /api/v1/ai/usage/me`；`GET /api/v1/admin/ai/usage` | Member；後台依角色矩陣 | `AiUsageDto`、`AdminAiUsageReportDto` | `ai_usage_limit_exceeded`、`ai_budget_protection_active`、`authorization_forbidden` |
 | UC-SUPPORT-01 顧客端 | `GET /api/v1/support-tickets`；`POST /api/v1/support-tickets`；`GET /api/v1/support-tickets/{id}`；`POST /api/v1/support-tickets/{id}/messages`；`POST /api/v1/support-tickets/{id}/actions/cancel` | Member Owner | `SupportTicketQuery`、`PageResult<SupportTicketSummaryDto>`、Ticket／Message／Cancel DTO | `support_ticket_state_conflict`、`support_ticket_cancel_not_allowed`、`resource_not_found` |
 | UC-SUPPORT-02 | `POST /api/v1/support-tickets/{id}/attachments`；`GET /api/v1/private-attachments/{id}/content` | 案件擁有者／授權客服 | Multipart／授權串流 | `file_count_exceeded`、`file_size_exceeded`、`file_format_invalid`、`file_malware_detected`、`file_scan_unavailable` |

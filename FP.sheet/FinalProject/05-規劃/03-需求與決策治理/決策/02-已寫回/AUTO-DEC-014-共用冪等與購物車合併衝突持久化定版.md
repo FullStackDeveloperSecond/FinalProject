@@ -1,6 +1,6 @@
 ---
 type: decision-record
-batch_id: AUTO-DEC-011
+batch_id: AUTO-DEC-014
 title: 共用冪等與購物車合併衝突持久化定版
 status: applied
 created_at: 2026-08-22
@@ -8,7 +8,7 @@ applied_at: 2026-08-22
 source: alex 選擇 B，先由 alex 完成共用前置並合併至 dev，再請 terry rebase 修正 PR #28
 ---
 
-# AUTO-DEC-011｜共用冪等與購物車合併衝突持久化定版
+# AUTO-DEC-014｜共用冪等與購物車合併衝突持久化定版
 
 ## 正式決策
 
