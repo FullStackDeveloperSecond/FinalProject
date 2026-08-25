@@ -21,6 +21,13 @@ public static class SecurityServiceCollectionExtensions
     private static readonly TimeSpan MemberAbsoluteLifetime = TimeSpan.FromDays(7);
     private static readonly TimeSpan AdminAbsoluteLifetime = TimeSpan.FromHours(2);
 
+    /// <summary>
+    /// GuestOrderAccess Cookie 效期，DEC-P264「30 分鐘內可多次使用」。從核發起算的
+    /// 固定視窗（<c>SlidingExpiration = false</c>），不因操作而展延——待覆核：
+    /// 決議文字沒有明講是否要 Sliding，這裡採比較保守（較短有效期）的解讀。
+    /// </summary>
+    private static readonly TimeSpan GuestOrderAccessLifetime = TimeSpan.FromMinutes(30);
+
     public static IServiceCollection AddDoSelectSecurity(
         this IServiceCollection services,
         IHostEnvironment environment,
@@ -35,7 +42,9 @@ public static class SecurityServiceCollectionExtensions
             .AddCookie(DoSelectAuthenticationSchemes.Member, options =>
                 ConfigureMemberCookie(options, environment))
             .AddCookie(DoSelectAuthenticationSchemes.Admin, options =>
-                ConfigureAdminCookie(options, environment));
+                ConfigureAdminCookie(options, environment))
+            .AddCookie(DoSelectAuthenticationSchemes.GuestOrderAccess, options =>
+                ConfigureGuestOrderAccessCookie(options, environment));
 
         services.AddAuthorization(options => ConfigurePolicies(options));
         services.AddAntiforgery(options =>
@@ -178,6 +187,22 @@ public static class SecurityServiceCollectionExtensions
     {
         ConfigureCookieDefaults(options, environment, ".DoSelect.Admin");
         options.ExpireTimeSpan = AdminAbsoluteLifetime;
+        options.SlidingExpiration = false;
+    }
+
+    /// <summary>
+    /// 訪客查單驗證成功後的限單存取憑證。只帶一個不透明權杖明文 Claim
+    /// （<c>GuestOrderAccessClaimTypes.TokenValue</c>），不帶訂單識別碼——是哪一筆訂單、
+    /// 是否已過期或撤銷一律由 <c>GuestOrderAccessScopeAuthorizer</c> 查 DB 決定,Cookie
+    /// 過期時間只是傳輸層的第一道防線,不是唯一依據。端點用
+    /// <c>AuthenticationSchemes = GuestOrderAccess</c> 個別授權，不透過 <see cref="DoSelectPolicies"/>。
+    /// </summary>
+    private static void ConfigureGuestOrderAccessCookie(
+        CookieAuthenticationOptions options,
+        IHostEnvironment environment)
+    {
+        ConfigureCookieDefaults(options, environment, ".DoSelect.GuestOrderAccess");
+        options.ExpireTimeSpan = GuestOrderAccessLifetime;
         options.SlidingExpiration = false;
     }
 

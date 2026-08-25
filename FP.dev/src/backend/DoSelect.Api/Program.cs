@@ -14,6 +14,7 @@ using DoSelect.Infrastructure.Idempotency;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using DoSelect.Infrastructure.Invoicing;
+using DoSelect.Infrastructure.Persistence.Orders;
 using DoSelect.Infrastructure.Persistence.Seeding;
 using DoSelect.Infrastructure.Refunds;
 using DoSelect.Infrastructure.Shopping;
@@ -36,6 +37,7 @@ builder.Services.AddDoSelectSecurity(builder.Environment, builder.Configuration)
 builder.Services.AddDoSelectRefunds();
 builder.Services.AddDoSelectCatalogServices();
 builder.Services.AddDoSelectShoppingServices();
+builder.Services.AddDoSelectGuestOrderAccess(builder.Configuration);
 builder.Services.AddDoSelectApplication();
 builder.Services.AddDoSelectInvoicing();
 builder.Services.AddSingleton<IEmailSender>(services =>
