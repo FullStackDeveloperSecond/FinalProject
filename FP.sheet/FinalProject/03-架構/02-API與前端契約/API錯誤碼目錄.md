@@ -48,10 +48,8 @@
 | `account_email_unverified` | 403 | 會員尚未完成 Email 驗證 |
 | `account_suspended` | 403 | 帳號已停權且 Session／登入被拒絕 |
 | `invalid_credentials` | 401 | Email 或密碼錯誤、帳號不存在或帳號已鎖定；三種情形回應完全相同、不得區分（避免帳號枚舉與鎖定攻擊 oracle） |
-| `email_token_invalid` | 400 | Email 驗證 Token 無效、已使用或撤銷 |
-| `email_token_expired` | 400 | Email 驗證 Token 已過期 |
-| `password_reset_token_invalid` | 400 | 重設 Token 無效、已使用或撤銷 |
-| `password_reset_token_expired` | 400 | 重設 Token 已過期 |
+| `email_token_invalid` | 400 | Email 驗證 Token 無效、已使用、撤銷或過期；四種情形統一回應（決議 B1，Alex review，2026-08-25） |
+| `password_reset_token_invalid` | 400 | 重設 Token 無效、已使用、撤銷或過期；四種情形統一回應（決議 B1，Alex review，2026-08-25） |
 | `admin_two_factor_required` | 403 | 管理員密碼正確但尚未完成 TOTP |
 | `admin_two_factor_invalid` | 400 | TOTP 不正確或不在允許時間窗 |
 | `admin_recovery_code_invalid` | 400 | Recovery Code 無效或已使用 |
