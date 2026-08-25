@@ -1,3 +1,4 @@
+using DoSelect.Application.Common;
 using DoSelect.Application.Security;
 using Microsoft.Extensions.Options;
 
