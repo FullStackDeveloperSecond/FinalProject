@@ -148,7 +148,7 @@ public sealed class RefundAllocation : PublicEntity
 
     public RefundAllocation(Guid publicId, long refundId, long? orderItemId,
         RefundAllocationType allocationType, decimal amount,
-        decimal originalDiscountAllocation, DateTime createdAtUtc)
+        decimal originalDiscountAllocation, DateTime createdAtUtc, int? quantity = null)
         : base(publicId, createdAtUtc)
     {
         if (refundId <= 0 || orderItemId is <= 0 || amount <= 0 || originalDiscountAllocation < 0)
@@ -162,11 +162,22 @@ public sealed class RefundAllocation : PublicEntity
                 nameof(allocationType),
                 "OtherAdjustment cannot be written in the first version.");
         }
+
+        var isItemRefund = allocationType == RefundAllocationType.ItemRefund;
+        if (isItemRefund && (orderItemId is null || quantity is null or <= 0) ||
+            !isItemRefund && (orderItemId is not null || quantity is not null))
+        {
+            throw new ArgumentException(
+                "Item refunds require an order item and positive quantity; non-item allocations require neither.",
+                nameof(allocationType));
+        }
+
         RefundId = refundId;
         OrderItemId = orderItemId;
         AllocationType = allocationType;
         Amount = amount;
         OriginalDiscountAllocation = originalDiscountAllocation;
+        Quantity = quantity;
     }
 
     public long RefundId { get; private set; }
@@ -174,4 +185,5 @@ public sealed class RefundAllocation : PublicEntity
     public RefundAllocationType AllocationType { get; private set; }
     public decimal Amount { get; private set; }
     public decimal OriginalDiscountAllocation { get; private set; }
+    public int? Quantity { get; private set; }
 }
