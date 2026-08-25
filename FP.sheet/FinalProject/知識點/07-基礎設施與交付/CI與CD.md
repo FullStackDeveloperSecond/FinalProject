@@ -108,7 +108,7 @@ Production Secret 不應提供給 Pull Request CI；能使用短期身分或 OID
 | Job／規則 | 目前內容 |
 |---|---|
 | `AI Evaluation Contract` | 驗證 120 筆評估資料、產物時效與契約；不呼叫 OpenAI |
-| `Package Source Evidence` | 驗證 NuGet／npm 官方 Registry、中央與直接精確版本、Lock 來源與 Integrity，並測試非官方來源會被拒絕 |
+| `Package Source Evidence` | 驗證 NuGet／npm 官方 Registry、中央與直接精確版本、Lock 來源與 Integrity、嚴格安裝腳本模式及精確版本核准；測試非官方來源、關閉嚴格模式與非版本化核准會被拒絕 |
 | `Backend` | Restore、`-warnaserror` Build、Format Verify、.NET Test、NuGet 弱點報告 |
 | `Frontend` Matrix | 兩個 Vue 專案分別執行 `npm ci`、Typecheck、零警告 Lint、Vitest、Build、Gitleaks `dist` 掃描與 Production Dependency Audit |
 | `Secret Scan` | Gitleaks CLI `8.30.1` 經官方 SHA-256 校驗後掃描完整 Git 歷史；輸出使用 `--redact` |

@@ -154,6 +154,22 @@ else {
     }
 }
 
+if (Test-Path -LiteralPath $npmConfigPath -PathType Leaf) {
+    $strictScriptSettings = @(Get-Content -LiteralPath $npmConfigPath |
+        ForEach-Object { $_.Trim() } |
+        Where-Object { $_ -and -not $_.StartsWith('#') -and $_ -match '^strict-allow-scripts\s*=' })
+    if ($strictScriptSettings.Count -ne 1 -or $strictScriptSettings[0] -ne 'strict-allow-scripts=true') {
+        Add-Failure '.npmrc must enforce strict-allow-scripts=true.'
+    }
+
+    $dangerousScriptSettings = @(Get-Content -LiteralPath $npmConfigPath |
+        ForEach-Object { $_.Trim() } |
+        Where-Object { $_ -match '^dangerously-allow-all-scripts\s*=\s*true$' })
+    if ($dangerousScriptSettings.Count -gt 0) {
+        Add-Failure '.npmrc must not bypass script review with dangerously-allow-all-scripts=true.'
+    }
+}
+
 $additionalNpmConfigs = @(Get-ChildItem -LiteralPath $repositoryPath -Recurse -File -Force -Filter '.npmrc' |
     Where-Object {
         $_.FullName -ne $npmConfigPath -and
@@ -186,6 +202,18 @@ foreach ($lockFile in $lockFiles) {
     $lock = $lockJson | ConvertFrom-Json
     if ([int] $lock.lockfileVersion -ne 3) {
         Add-Failure "'$($lockFile.FullName)' must use lockfileVersion 3."
+    }
+
+    $allowScripts = Get-JsonPropertyValue -Object $manifest -Name 'allowScripts'
+    if ($null -ne $allowScripts) {
+        foreach ($approval in $allowScripts.PSObject.Properties) {
+            if ($approval.Name -notmatch '^(@[^/]+/[^@]+|[^@/]+)@\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
+                Add-Failure "npm install-script approval '$($approval.Name)' in '$manifestPath' must use an exact package@version key."
+            }
+            if ($approval.Value -ne $true) {
+                Add-Failure "npm install-script approval '$($approval.Name)' in '$manifestPath' must be true."
+            }
+        }
     }
 
     $rootLock = Get-JsonPropertyValue -Object $lock.packages -Name '__doselectRoot__'

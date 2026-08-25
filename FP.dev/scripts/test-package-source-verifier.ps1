@@ -88,7 +88,45 @@ try {
         throw 'Verifier did not reject a nested npm registry override.'
     }
 
-    Write-Output 'Package source verifier self-test passed: valid fixture accepted; invalid NuGet, npm lock, and nested npm sources rejected.'
+    $invalidStrictScriptsRoot = Join-Path $fixtureRoot 'invalid-strict-scripts'
+    Copy-VerificationInputs -Destination $invalidStrictScriptsRoot
+    $invalidStrictNpmConfigPath = Join-Path $invalidStrictScriptsRoot '.npmrc'
+    $originalStrictNpmConfig = [IO.File]::ReadAllText($invalidStrictNpmConfigPath)
+    $invalidStrictNpmConfig = $originalStrictNpmConfig.Replace(
+        'strict-allow-scripts=true',
+        'strict-allow-scripts=false')
+    if ($invalidStrictNpmConfig -eq $originalStrictNpmConfig) {
+        throw 'Strict install-script fixture could not be prepared.'
+    }
+    [IO.File]::WriteAllText(
+        $invalidStrictNpmConfigPath,
+        $invalidStrictNpmConfig,
+        [Text.UTF8Encoding]::new($false))
+    $invalidStrictScriptsResult = Invoke-Verifier -TargetRoot $invalidStrictScriptsRoot
+    if ($invalidStrictScriptsResult.ExitCode -eq 0) {
+        throw 'Verifier did not reject disabled strict install-script enforcement.'
+    }
+
+    $invalidScriptApprovalRoot = Join-Path $fixtureRoot 'invalid-script-approval'
+    Copy-VerificationInputs -Destination $invalidScriptApprovalRoot
+    $invalidScriptManifestPath = Join-Path $invalidScriptApprovalRoot 'frontend/customer-web/package.json'
+    $originalScriptManifest = [IO.File]::ReadAllText($invalidScriptManifestPath)
+    $invalidScriptManifest = $originalScriptManifest.Replace(
+        '"vue-demi@0.14.10": true',
+        '"vue-demi": true')
+    if ($invalidScriptManifest -eq $originalScriptManifest) {
+        throw 'Install-script approval fixture could not be prepared.'
+    }
+    [IO.File]::WriteAllText(
+        $invalidScriptManifestPath,
+        $invalidScriptManifest,
+        [Text.UTF8Encoding]::new($false))
+    $invalidScriptApprovalResult = Invoke-Verifier -TargetRoot $invalidScriptApprovalRoot
+    if ($invalidScriptApprovalResult.ExitCode -eq 0) {
+        throw 'Verifier did not reject a non-versioned install-script approval.'
+    }
+
+    Write-Output 'Package source verifier self-test passed: valid fixture accepted; invalid NuGet, npm lock, nested npm, disabled strict-script policy, and non-versioned script approval rejected.'
 }
 finally {
     if (Test-Path -LiteralPath $fixtureRoot) {
