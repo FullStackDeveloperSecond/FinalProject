@@ -689,7 +689,8 @@ public sealed class SkuAdminServiceTests
             1000m,
             null,
             0,
-            now));
+            now,
+            false));
         await context.SaveChangesAsync();
 
         var exception = await Assert.ThrowsAsync<CatalogWriteException>(

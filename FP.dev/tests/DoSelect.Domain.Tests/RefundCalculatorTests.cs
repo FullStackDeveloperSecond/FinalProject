@@ -70,6 +70,76 @@ public sealed class RefundCalculatorTests
     }
 
     [Fact]
+    public void ItemRefundAllocationRequiresAnOrderItemAndPositiveQuantity()
+    {
+        var occurredAtUtc = new DateTime(2026, 8, 19, 2, 0, 0, DateTimeKind.Utc);
+
+        Assert.Throws<ArgumentException>(() => new RefundAllocation(
+            Guid.NewGuid(), 1, null, RefundAllocationType.ItemRefund, 100m, 0m,
+            occurredAtUtc, quantity: 1));
+        Assert.Throws<ArgumentException>(() => new RefundAllocation(
+            Guid.NewGuid(), 1, 1, RefundAllocationType.ItemRefund, 100m, 0m,
+            occurredAtUtc, quantity: null));
+
+        var allocation = new RefundAllocation(
+            Guid.NewGuid(), 1, 1, RefundAllocationType.ItemRefund, 100m, 0m,
+            occurredAtUtc, quantity: 2);
+
+        Assert.Equal(2, allocation.Quantity);
+    }
+
+    [Fact]
+    public void NonItemAllocationRejectsAnOrderItemOrQuantity()
+    {
+        var occurredAtUtc = new DateTime(2026, 8, 19, 2, 0, 0, DateTimeKind.Utc);
+
+        Assert.Throws<ArgumentException>(() => new RefundAllocation(
+            Guid.NewGuid(), 1, 1, RefundAllocationType.ShippingClawback, 100m, 0m,
+            occurredAtUtc));
+        Assert.Throws<ArgumentException>(() => new RefundAllocation(
+            Guid.NewGuid(), 1, null, RefundAllocationType.ShippingClawback, 100m, 0m,
+            occurredAtUtc, quantity: 1));
+    }
+
+    [Fact]
+    public void SuccessfulCalculationBuildsImmutableAllocationDraftsWithItemQuantities()
+    {
+        var result = Calculate(
+            Snapshot(
+                shippingFeePaid: 0m,
+                shippingMethodBaseFee: 150m,
+                freeShippingThreshold: 5000m,
+                couponMinimumSpend: null),
+            [new RefundLineRequest(LineA, 1), new RefundLineRequest(LineB, 1)]);
+
+        var drafts = RefundAllocationDrafts.From(result);
+
+        Assert.Equal(3, drafts.Count);
+        Assert.Collection(
+            drafts.Where(draft => draft.Type == RefundAllocationType.ItemRefund)
+                .OrderBy(draft => draft.OrderItemPublicId),
+            first =>
+            {
+                Assert.Equal(LineA, first.OrderItemPublicId);
+                Assert.Equal(1, first.Quantity);
+                Assert.Equal(900m, first.Amount);
+                Assert.Equal(100m, first.OriginalDiscountAllocation);
+            },
+            second =>
+            {
+                Assert.Equal(LineB, second.OrderItemPublicId);
+                Assert.Equal(1, second.Quantity);
+                Assert.Equal(1900m, second.Amount);
+                Assert.Equal(100m, second.OriginalDiscountAllocation);
+            });
+        var clawback = drafts.Single(draft =>
+            draft.Type == RefundAllocationType.ShippingClawback);
+        Assert.Null(clawback.OrderItemPublicId);
+        Assert.Null(clawback.Quantity);
+        Assert.Equal(150m, clawback.Amount);
+    }
+
+    [Fact]
     public void EveryComponentAmountIsPositive()
     {
         var result = Calculate(

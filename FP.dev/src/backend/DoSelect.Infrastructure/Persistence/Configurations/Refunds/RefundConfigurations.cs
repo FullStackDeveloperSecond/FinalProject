@@ -54,11 +54,20 @@ public sealed class RefundAllocationConfiguration : IEntityTypeConfiguration<Ref
         builder.Property(x => x.AllocationType).HasConversion<string>().HasMaxLength(24).IsUnicode(false).IsRequired();
         builder.Property(x => x.Amount).HasPrecision(18, 2).IsRequired();
         builder.Property(x => x.OriginalDiscountAllocation).HasPrecision(18, 2).HasDefaultValue(0m).IsRequired();
+        builder.Property(x => x.Quantity);
         builder.HasIndex(x => x.RefundId).HasDatabaseName("IX_RefundAllocations_RefundId");
         builder.HasIndex(x => x.OrderItemId).HasDatabaseName("IX_RefundAllocations_OrderItemId");
         builder.HasIndex(x => x.AllocationType).HasDatabaseName("IX_RefundAllocations_AllocationType");
         builder.HasOne<Refund>().WithMany().HasForeignKey(x => x.RefundId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<OrderItem>().WithMany().HasForeignKey(x => x.OrderItemId).OnDelete(DeleteBehavior.Restrict);
-        builder.ToTable("RefundAllocations", table => table.HasCheckConstraint("CK_RefundAllocations_Amounts", "[Amount] > 0 AND [OriginalDiscountAllocation] >= 0"));
+        builder.ToTable("RefundAllocations", table =>
+        {
+            table.HasCheckConstraint(
+                "CK_RefundAllocations_Amounts",
+                "[Amount] > 0 AND [OriginalDiscountAllocation] >= 0");
+            table.HasCheckConstraint(
+                "CK_RefundAllocations_TypeAndShape",
+                "[AllocationType] IN ('ItemRefund', 'OriginalShipping', 'ShippingClawback', 'DiscountClawback', 'AssemblyFee', 'ReturnShipping') AND (([AllocationType] = 'ItemRefund' AND [OrderItemId] IS NOT NULL AND [Quantity] > 0) OR ([AllocationType] <> 'ItemRefund' AND [OrderItemId] IS NULL AND [Quantity] IS NULL))");
+        });
     }
 }
