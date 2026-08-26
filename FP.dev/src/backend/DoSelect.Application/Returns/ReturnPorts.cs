@@ -205,15 +205,17 @@ public interface IReturnStore
     /// even when the event does not advance any state — and only when
     /// <paramref name="shipmentToUpdate"/> is non-null (the caller already called
     /// ApplyEventStatus on it) persists the shipment's denormalized status change, optionally
-    /// also transitioning the owning ReturnRequest (AwaitingShipment→InTransit /
-    /// InTransit→Received) with its own history row. A delayed/out-of-order/non-advancing event
-    /// passes null for both, so it changes no state at all — only its own history row exists.
+    /// also transitioning the owning ReturnRequest with one history row per hop (e.g. a first-
+    /// ever Delivered event cascades AwaitingShipment→InTransit→Received in the Domain's own
+    /// legal sequence, producing two history rows, not one that skips a step). A delayed/out-of-
+    /// order/non-advancing event passes null and an empty list, so it changes no state at all —
+    /// only its own event row exists.
     /// </summary>
     Task AppendShipmentEventAsync(
         ReturnShipmentEvent shipmentEvent,
         ReturnShipment? shipmentToUpdate,
         ReturnRequest? requestToTransition,
-        ReturnStatusHistory? requestHistory,
+        IReadOnlyList<ReturnStatusHistory> requestHistories,
         CancellationToken cancellationToken);
 
     /// <summary>

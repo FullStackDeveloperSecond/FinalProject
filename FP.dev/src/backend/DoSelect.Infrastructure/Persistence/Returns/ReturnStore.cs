@@ -484,7 +484,7 @@ public sealed class ReturnStore : IReturnStore
         ReturnShipmentEvent shipmentEvent,
         ReturnShipment? shipmentToUpdate,
         ReturnRequest? requestToTransition,
-        ReturnStatusHistory? requestHistory,
+        IReadOnlyList<ReturnStatusHistory> requestHistories,
         CancellationToken cancellationToken)
     {
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
@@ -512,9 +512,9 @@ public sealed class ReturnStore : IReturnStore
                 _dbContext.Entry(requestToTransition).State = EntityState.Modified;
             }
 
-            if (requestHistory is not null)
+            if (requestHistories.Count > 0)
             {
-                await _dbContext.ReturnStatusHistories.AddAsync(requestHistory, cancellationToken);
+                await _dbContext.ReturnStatusHistories.AddRangeAsync(requestHistories, cancellationToken);
             }
 
             try

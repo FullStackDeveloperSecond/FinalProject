@@ -62,6 +62,22 @@ public sealed class AdminReturnValidationHttpTests
         Assert.Equal(0, inspectionCount);
     }
 
+    /// <summary>Scoped to this return's own shipment — a bare, unscoped count over
+    /// ReturnShipmentEvents would false-fail/false-pass depending on execution order, since this
+    /// fixture's database is shared across every test in the collection.</summary>
+    private async Task AssertNoShipmentEventsAsync(Guid returnPublicId)
+    {
+        await using var context = _fixture.CreateScopedContext();
+        var eventCount = await context.Set<ReturnShipmentEvent>()
+            .Join(
+                context.Set<ReturnShipment>().Join(
+                    context.ReturnRequests.Where(r => r.PublicId == returnPublicId),
+                    s => s.ReturnRequestId, r => r.Id, (s, _) => s),
+                e => e.ReturnShipmentId, s => s.Id, (e, _) => e)
+            .CountAsync();
+        Assert.Equal(0, eventCount);
+    }
+
     // ---- Review (Approve) ----
 
     [Fact]
@@ -106,7 +122,9 @@ public sealed class AdminReturnValidationHttpTests
         {
             approved = true,
             items = new[] { new { returnItemPublicId = itemIds[0], approvedQuantity = 1, inspectionRequired = true } },
-            reasonCode = new string('x', 101),
+            // Exactly one past the real DB column length (64) — not the old, looser DTO limit —
+            // per the review's explicit "test the actual DB boundary" requirement.
+            reasonCode = new string('x', 65),
             returnRowVersion = Convert.ToBase64String(rowVersion),
         });
 
@@ -198,7 +216,8 @@ public sealed class AdminReturnValidationHttpTests
 
         var response = await PostAdminAsync(client, $"/api/v1/admin/returns/{returnPublicId}/actions/receive", new
         {
-            note = new string('n', 1001),
+            // Exactly one past the real ReturnStatusHistories.Note column length (500).
+            note = new string('n', 501),
             returnRowVersion = Convert.ToBase64String(rowVersion),
         });
 
@@ -291,9 +310,7 @@ public sealed class AdminReturnValidationHttpTests
             """{"source":"carrier","externalEventId":"evt-1","eventType":"InTransit","occurredAtUtc":"2026-01-01T00:00:00","description":null}""");
 
         await AssertValidationFailedAsync(response);
-        await using var context = _fixture.CreateScopedContext();
-        var eventCount = await context.Set<ReturnShipmentEvent>().CountAsync();
-        Assert.Equal(0, eventCount);
+        await AssertNoShipmentEventsAsync(returnPublicId);
     }
 
     [Fact]
@@ -308,9 +325,7 @@ public sealed class AdminReturnValidationHttpTests
             """{"externalEventId":"evt-1","eventType":"InTransit","occurredAtUtc":"2026-01-01T00:00:00Z","description":null}""");
 
         await AssertValidationFailedAsync(response);
-        await using var context = _fixture.CreateScopedContext();
-        var eventCount = await context.Set<ReturnShipmentEvent>().CountAsync();
-        Assert.Equal(0, eventCount);
+        await AssertNoShipmentEventsAsync(returnPublicId);
     }
 
     [Fact]
@@ -330,8 +345,93 @@ public sealed class AdminReturnValidationHttpTests
         });
 
         await AssertValidationFailedAsync(response);
+        await AssertNoShipmentEventsAsync(returnPublicId);
+    }
+
+    [Fact]
+    public async Task ShipmentEvent_SourceExceedsMaxLength_Returns400ValidationFailedAndDoesNotMutate()
+    {
+        var client = await _fixture.CreateAuthenticatedOrderManagerClientAsync();
+        var (returnPublicId, _, _, _) =
+            await _fixture.SeedReturnAsync(ReturnRequestStatus.AwaitingShipment, withShipment: true);
+
+        var response = await PostAdminAsync(client, $"/api/v1/admin/returns/{returnPublicId}/shipment/events", new
+        {
+            // Exactly one past the real ReturnShipmentEvents.Source column length (32).
+            source = new string('s', 33),
+            externalEventId = "evt-1",
+            eventType = "InTransit",
+            occurredAtUtc = DateTime.UtcNow,
+            description = (string?)null,
+        });
+
+        await AssertValidationFailedAsync(response);
+        await AssertNoShipmentEventsAsync(returnPublicId);
+    }
+
+    [Fact]
+    public async Task ShipmentEvent_ExternalEventIdExceedsMaxLength_Returns400ValidationFailedAndDoesNotMutate()
+    {
+        var client = await _fixture.CreateAuthenticatedOrderManagerClientAsync();
+        var (returnPublicId, _, _, _) =
+            await _fixture.SeedReturnAsync(ReturnRequestStatus.AwaitingShipment, withShipment: true);
+
+        var response = await PostAdminAsync(client, $"/api/v1/admin/returns/{returnPublicId}/shipment/events", new
+        {
+            source = "carrier",
+            // Exactly one past the real ReturnShipmentEvents.ExternalEventId column length (128).
+            externalEventId = new string('e', 129),
+            eventType = "InTransit",
+            occurredAtUtc = DateTime.UtcNow,
+            description = (string?)null,
+        });
+
+        await AssertValidationFailedAsync(response);
+        await AssertNoShipmentEventsAsync(returnPublicId);
+    }
+
+    [Fact]
+    public async Task ShipmentEvent_DescriptionExceedsMaxLength_Returns400ValidationFailedAndDoesNotMutate()
+    {
+        var client = await _fixture.CreateAuthenticatedOrderManagerClientAsync();
+        var (returnPublicId, _, _, _) =
+            await _fixture.SeedReturnAsync(ReturnRequestStatus.AwaitingShipment, withShipment: true);
+
+        var response = await PostAdminAsync(client, $"/api/v1/admin/returns/{returnPublicId}/shipment/events", new
+        {
+            source = "carrier",
+            externalEventId = "evt-1",
+            eventType = "InTransit",
+            occurredAtUtc = DateTime.UtcNow,
+            // Exactly one past the real ReturnShipmentEvents.Description column length (500).
+            description = new string('d', 501),
+        });
+
+        await AssertValidationFailedAsync(response);
+        await AssertNoShipmentEventsAsync(returnPublicId);
+    }
+
+    // ---- Create shipment ----
+
+    [Fact]
+    public async Task CreateShipment_CarrierCodeExceedsMaxLength_Returns400ValidationFailedAndDoesNotMutate()
+    {
+        var client = await _fixture.CreateAuthenticatedOrderManagerClientAsync();
+        var (returnPublicId, rowVersion, _, _) = await _fixture.SeedReturnAsync(ReturnRequestStatus.AwaitingShipment);
+
+        var response = await PostAdminAsync(client, $"/api/v1/admin/returns/{returnPublicId}/shipment", new
+        {
+            method = "SelfShip",
+            // Exactly one past the real ReturnShipments.CarrierCode column length (32).
+            carrierCode = new string('c', 33),
+            returnRowVersion = Convert.ToBase64String(rowVersion),
+        });
+
+        await AssertValidationFailedAsync(response);
+        await AssertReturnUnchangedAsync(returnPublicId, rowVersion);
         await using var context = _fixture.CreateScopedContext();
-        var eventCount = await context.Set<ReturnShipmentEvent>().CountAsync();
-        Assert.Equal(0, eventCount);
+        var returnRequestId = await context.ReturnRequests.Where(r => r.PublicId == returnPublicId).Select(r => r.Id).SingleAsync();
+        var shipmentCount = await context.Set<ReturnShipment>().CountAsync(s => s.ReturnRequestId == returnRequestId);
+        Assert.Equal(0, shipmentCount);
     }
 }

@@ -316,7 +316,7 @@ public sealed class AdminReturnService : IAdminReturnService
         // last one applied AND moves the main sequence strictly forward.
         ReturnShipment? shipmentToUpdate = null;
         ReturnRequest? requestToTransition = null;
-        ReturnStatusHistory? requestHistory = null;
+        var requestHistories = new List<ReturnStatusHistory>();
         if (Enum.TryParse<ReturnShipmentStatus>(request.EventType, ignoreCase: false, out var mappedStatus) &&
             shipment.CanAdvanceTo(mappedStatus, request.OccurredAtUtc))
         {
@@ -330,22 +330,37 @@ public sealed class AdminReturnService : IAdminReturnService
                 returnRequest.Status == ReturnRequestStatus.AwaitingShipment)
             {
                 requestToTransition = returnRequest;
-                requestToTransition.Transition(ReturnRequestStatus.InTransit, request.OccurredAtUtc);
-                requestHistory = new ReturnStatusHistory(
-                    returnRequest.Id, ReturnRequestStatus.AwaitingShipment, ReturnRequestStatus.InTransit,
-                    "shipment-event", request.EventType, actorUserId: null, request.OccurredAtUtc);
+                requestHistories.Add(TransitionAndRecord(
+                    requestToTransition, ReturnRequestStatus.InTransit, "shipment-event", request.EventType, request.OccurredAtUtc));
             }
-            else if (mappedStatus == ReturnShipmentStatus.Delivered && returnRequest.Status == ReturnRequestStatus.InTransit)
+            else if (mappedStatus == ReturnShipmentStatus.Delivered)
             {
+                // A carrier can report Delivered without this shipment ever having reported an
+                // intermediate InTransit/PickedUp event first (e.g. a single terminal webhook).
+                // ReturnRequest still has no "AwaitingShipment -> Received" edge in its own
+                // Allowed-transition graph, so this cascades through the Domain's own legal
+                // sequence — one Transition call and one history row per hop — rather than skip
+                // a step the state machine was never taught to skip.
                 requestToTransition = returnRequest;
-                requestToTransition.Transition(ReturnRequestStatus.Received, request.OccurredAtUtc);
-                requestHistory = new ReturnStatusHistory(
-                    returnRequest.Id, ReturnRequestStatus.InTransit, ReturnRequestStatus.Received,
-                    "shipment-event", request.EventType, actorUserId: null, request.OccurredAtUtc);
+                if (requestToTransition.Status == ReturnRequestStatus.AwaitingShipment)
+                {
+                    requestHistories.Add(TransitionAndRecord(
+                        requestToTransition, ReturnRequestStatus.InTransit, "shipment-event", request.EventType, request.OccurredAtUtc));
+                }
+
+                if (requestToTransition.Status == ReturnRequestStatus.InTransit)
+                {
+                    requestHistories.Add(TransitionAndRecord(
+                        requestToTransition, ReturnRequestStatus.Received, "shipment-event", request.EventType, request.OccurredAtUtc));
+                }
+                else
+                {
+                    requestToTransition = null;
+                }
             }
         }
 
-        await _store.AppendShipmentEventAsync(newEvent, shipmentToUpdate, requestToTransition, requestHistory, cancellationToken);
+        await _store.AppendShipmentEventAsync(newEvent, shipmentToUpdate, requestToTransition, requestHistories, cancellationToken);
 
         var events = await _store.ListShipmentEventsAsync(shipment.Id, cancellationToken);
         return ReturnDtoMapper.ToShipmentDto(shipment, events);
@@ -354,6 +369,18 @@ public sealed class AdminReturnService : IAdminReturnService
     private async Task<ReturnRequest> LoadAsync(Guid returnPublicId, CancellationToken cancellationToken) =>
         await _store.FindByPublicIdAsync(returnPublicId, cancellationToken)
         ?? throw new ReturnsWriteException(ReturnsWriteException.ErrorCodes.ResourceNotFound, "The return request was not found.");
+
+    /// <summary>One state-machine hop plus its own history row, both stamped with the same
+    /// caller-supplied occurredAtUtc — used to cascade a single shipment event across more than
+    /// one legal ReturnRequest transition without duplicating the Transition/History pairing at
+    /// each call site.</summary>
+    private static ReturnStatusHistory TransitionAndRecord(
+        ReturnRequest request, ReturnRequestStatus toStatus, string reasonCode, string? note, DateTime occurredAtUtc)
+    {
+        var fromStatus = request.Status;
+        request.Transition(toStatus, occurredAtUtc);
+        return new ReturnStatusHistory(request.Id, fromStatus, toStatus, reasonCode, note, actorUserId: null, occurredAtUtc);
+    }
 
     private async Task<ReturnRequestDto> GetDetailDtoAsync(ReturnRequest request, CancellationToken cancellationToken)
     {

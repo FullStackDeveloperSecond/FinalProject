@@ -141,15 +141,22 @@ public sealed record ApproveReturnItemLine(
     [Range(1, int.MaxValue)] int ApprovedQuantity,
     bool InspectionRequired);
 
+/// <summary>
+/// Items must never be null, but MAY be an empty array — Approved=false (rejection) requires no
+/// items at all, and Approved=true's "must cover every item on this return exactly once" rule is
+/// enforced by ValidateExactItemSet in the Application layer (an empty submission naturally fails
+/// that check when the return has any items), not by a DTO-level MinLength that would also block
+/// the legitimate empty-array rejection payload.
+/// </summary>
 public sealed record ApproveReturnRequest(
     bool Approved,
-    [Required, MinLength(1)] IReadOnlyList<ApproveReturnItemLine> Items,
-    [Required, NotWhiteSpace, StringLength(100, MinimumLength = 1)] string ReasonCode,
-    [StringLength(1000)] string? Note,
+    [Required] IReadOnlyList<ApproveReturnItemLine> Items,
+    [Required, NotWhiteSpace, StringLength(64, MinimumLength = 1)] string ReasonCode,
+    [StringLength(500)] string? Note,
     [RowVersionRequired] byte[] ReturnRowVersion);
 
 public sealed record ReceiveReturnRequest(
-    [StringLength(1000)] string? Note,
+    [StringLength(500)] string? Note,
     [RowVersionRequired] byte[] ReturnRowVersion);
 
 public sealed record InspectReturnItemLine(
@@ -163,12 +170,12 @@ public sealed record InspectReturnRequest(
     [RowVersionRequired] byte[] ReturnRowVersion);
 
 public sealed record ExtendShipmentDeadlineRequest(
-    [Required, NotWhiteSpace, StringLength(100, MinimumLength = 1)] string ReasonCode,
+    [Required, NotWhiteSpace, StringLength(64, MinimumLength = 1)] string ReasonCode,
     [RowVersionRequired] byte[] ReturnRowVersion);
 
 public sealed record CreateReturnShipmentRequest(
     ReturnShipmentMethod Method,
-    [StringLength(50)] string? CarrierCode,
+    [StringLength(32)] string? CarrierCode,
     [StringLength(100)] string? RecipientName,
     [StringLength(30)] string? RecipientPhone,
     [StringLength(10)] string? PostalCode,
@@ -178,8 +185,8 @@ public sealed record CreateReturnShipmentRequest(
     [RowVersionRequired] byte[] ReturnRowVersion);
 
 public sealed record AppendReturnShipmentEventRequest(
-    [Required, NotWhiteSpace, StringLength(100, MinimumLength = 1)] string Source,
-    [Required, NotWhiteSpace, StringLength(200, MinimumLength = 1)] string ExternalEventId,
+    [Required, NotWhiteSpace, StringLength(32, MinimumLength = 1)] string Source,
+    [Required, NotWhiteSpace, StringLength(128, MinimumLength = 1)] string ExternalEventId,
     [Required, NotWhiteSpace, StringLength(50, MinimumLength = 1)] string EventType,
     [UtcDateTime] DateTime OccurredAtUtc,
-    [StringLength(1000)] string? Description);
+    [StringLength(500)] string? Description);

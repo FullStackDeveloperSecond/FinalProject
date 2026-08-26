@@ -357,4 +357,33 @@ public sealed class AdminReturnServiceTests
         Assert.Equal(ReturnRequestStatus.Received, store.Histories[^1].ToStatus);
         Assert.Equal(occurredAtUtc, store.Histories[^1].OccurredAtUtc);
     }
+
+    [Fact]
+    public async Task AppendShipmentEventAsync_FirstEventIsDelivered_CascadesThroughInTransitToReceivedWithTwoHistoryRows()
+    {
+        var (service, store, request) = await CreateSutWithAwaitingShipmentReturnAsync();
+        var historyCountBefore = store.Histories.Count;
+        var occurredAtUtc = NowUtc.AddDays(-1);
+
+        // No InTransit/PickedUp event ever preceded this one — the shipment jumps straight from
+        // Pending to Delivered, mirroring a carrier that only reports a single terminal webhook.
+        var dto = await service.AppendShipmentEventAsync(
+            request.PublicId,
+            new AppendReturnShipmentEventRequest("carrier", "evt-delivered-first", "Delivered", occurredAtUtc, null),
+            CancellationToken.None);
+
+        Assert.Equal(ReturnShipmentStatus.Delivered, dto.Status);
+        Assert.Equal(ReturnRequestStatus.Received, request.Status);
+
+        var newHistories = store.Histories.Skip(historyCountBefore).ToList();
+        Assert.Equal(2, newHistories.Count);
+        Assert.Equal(ReturnRequestStatus.AwaitingShipment, newHistories[0].FromStatus);
+        Assert.Equal(ReturnRequestStatus.InTransit, newHistories[0].ToStatus);
+        Assert.Equal(occurredAtUtc, newHistories[0].OccurredAtUtc);
+        Assert.Equal(ReturnRequestStatus.InTransit, newHistories[1].FromStatus);
+        Assert.Equal(ReturnRequestStatus.Received, newHistories[1].ToStatus);
+        Assert.Equal(occurredAtUtc, newHistories[1].OccurredAtUtc);
+
+        Assert.Single(store.ShipmentEvents);
+    }
 }

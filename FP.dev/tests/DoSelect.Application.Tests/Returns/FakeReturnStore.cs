@@ -225,13 +225,10 @@ internal sealed class FakeReturnStore : IReturnStore
 
     public Task AppendShipmentEventAsync(
         ReturnShipmentEvent shipmentEvent, ReturnShipment? shipmentToUpdate, ReturnRequest? requestToTransition,
-        ReturnStatusHistory? requestHistory, CancellationToken cancellationToken)
+        IReadOnlyList<ReturnStatusHistory> requestHistories, CancellationToken cancellationToken)
     {
         ShipmentEvents.Add(shipmentEvent);
-        if (requestHistory is not null)
-        {
-            Histories.Add(requestHistory);
-        }
+        Histories.AddRange(requestHistories);
 
         return Task.CompletedTask;
     }

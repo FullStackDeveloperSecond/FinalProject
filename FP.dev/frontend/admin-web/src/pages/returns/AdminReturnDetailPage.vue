@@ -202,6 +202,7 @@ function isConflict(err: unknown): boolean {
           <input
             v-model="reviewReasonCode"
             type="text"
+            maxlength="64"
           >
         </label>
         <label>
@@ -209,6 +210,7 @@ function isConflict(err: unknown): boolean {
           <textarea
             v-model="reviewNote"
             rows="2"
+            maxlength="500"
           />
         </label>
         <label class="admin-return-detail__checkbox-row">
@@ -270,6 +272,7 @@ function isConflict(err: unknown): boolean {
           <textarea
             v-model="receiveNote"
             rows="2"
+            maxlength="500"
           />
         </label>
         <p
@@ -358,6 +361,7 @@ function isConflict(err: unknown): boolean {
           <input
             v-model="extendReasonCode"
             type="text"
+            maxlength="64"
           >
         </label>
         <p

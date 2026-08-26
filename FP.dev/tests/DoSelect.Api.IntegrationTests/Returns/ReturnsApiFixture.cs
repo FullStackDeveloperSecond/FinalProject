@@ -300,16 +300,30 @@ public sealed class ReturnsApiFixture : IAsyncLifetime
             "HOME_DELIVERY", shippingProviderProfileId, null, null, null,
             1, 1, null, null, $"checkout-{Guid.NewGuid():N}", null);
 
-    /// <summary>A fresh client signed in as an admin with the OrderManager role — satisfies the
-    /// Return.Approve policy every AdminReturnsController action requires.</summary>
+    /// <summary>
+    /// A fresh client signed in as an admin with the OrderManager role — satisfies the
+    /// Return.Approve policy every AdminReturnsController action requires. Seeds a real
+    /// ApplicationUser row and signs in as that exact id: ReturnRequests.ReviewedByAdminUserId
+    /// has a foreign key to AspNetUsers, so an arbitrary test-only identifier (the sign-in
+    /// endpoint's random-GUID fallback) fails with a 500 the moment Review/Reject writes it.
+    /// </summary>
     public async Task<HttpClient> CreateAuthenticatedOrderManagerClientAsync()
     {
+        string adminUserId;
+        await using (var context = CreateContext())
+        {
+            var admin = ApplicationUser.CreateAdmin(Guid.CreateVersion7(), $"{Guid.NewGuid():N}@doselect.test", DateTime.UtcNow);
+            context.Users.Add(admin);
+            await context.SaveChangesAsync();
+            adminUserId = admin.Id;
+        }
+
         var client = CreateClient();
         var signInToken = await GetAdminAntiforgeryTokenAsync(client);
         using var request = new HttpRequestMessage(HttpMethod.Post, "/__tests/security/sign-in/admin")
         {
             // Return.Approve's policy also requires the MultiFactor authentication-method claim.
-            Content = JsonContent.Create(new { includeMfa = true, roles = new[] { "OrderManager" } }),
+            Content = JsonContent.Create(new { includeMfa = true, roles = new[] { "OrderManager" }, userId = adminUserId }),
         };
         request.Headers.Add("X-XSRF-TOKEN", signInToken);
         using var response = await client.SendAsync(request);
