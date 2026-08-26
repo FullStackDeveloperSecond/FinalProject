@@ -80,13 +80,6 @@ public sealed class EfGuestOrderAccessGateway(DoSelectDbContext dbContext) : IGu
     public async Task<int> PurgeExpiredAsync(
         DateTime cutoffUtc, int batchSize, CancellationToken cancellationToken = default)
     {
-        var expiredRequestIds = await dbContext.GuestOrderAccessRequests
-            .Where(r => r.ExpiresAtUtc < cutoffUtc)
-            .OrderBy(r => r.Id)
-            .Select(r => r.Id)
-            .Take(batchSize)
-            .ToListAsync(cancellationToken);
-
         var expiredTokenIds = await dbContext.GuestOrderAccessTokens
             .Where(t => t.ExpiresAtUtc < cutoffUtc)
             .OrderBy(t => t.Id)
@@ -94,23 +87,28 @@ public sealed class EfGuestOrderAccessGateway(DoSelectDbContext dbContext) : IGu
             .Take(batchSize)
             .ToListAsync(cancellationToken);
 
+        var deletedTokenCount = 0;
         if (expiredTokenIds.Count > 0)
         {
-            await dbContext.GuestOrderAccessTokens
+            deletedTokenCount = await dbContext.GuestOrderAccessTokens
                 .Where(t => expiredTokenIds.Contains(t.Id))
                 .ExecuteDeleteAsync(cancellationToken);
         }
 
         // Token 對 Request 有外鍵（RequestId），先刪 Token 再刪 Request 才不會違反約束——
         // 到期的 Request 底下的 Token 理論上也早就到期，兩批清理最終會把兩邊都清乾淨,
-        // 只是可能跨好幾天的執行周期。
+        // 只是可能跨好幾天的執行周期。DEC-P267：單一 batch 的 Request＋Token 刪除總量
+        // 不得超過 batchSize，所以 Request 只能用 Token 花剩的預算，不能各自獨立取滿。
+        var remainingBudget = batchSize - deletedTokenCount;
         var deletedRequestCount = 0;
-        if (expiredRequestIds.Count > 0)
+        if (remainingBudget > 0)
         {
             var deletableRequestIds = await dbContext.GuestOrderAccessRequests
-                .Where(r => expiredRequestIds.Contains(r.Id))
+                .Where(r => r.ExpiresAtUtc < cutoffUtc)
                 .Where(r => !dbContext.GuestOrderAccessTokens.Any(t => t.RequestId == r.Id))
+                .OrderBy(r => r.Id)
                 .Select(r => r.Id)
+                .Take(remainingBudget)
                 .ToListAsync(cancellationToken);
 
             if (deletableRequestIds.Count > 0)
@@ -121,7 +119,7 @@ public sealed class EfGuestOrderAccessGateway(DoSelectDbContext dbContext) : IGu
             }
         }
 
-        return expiredTokenIds.Count + deletedRequestCount;
+        return deletedTokenCount + deletedRequestCount;
     }
 
     public async Task SaveChangesAsync(CancellationToken cancellationToken = default)
