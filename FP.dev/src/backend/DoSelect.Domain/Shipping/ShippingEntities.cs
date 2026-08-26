@@ -262,6 +262,10 @@ public sealed class Shipment : MutablePublicEntity
     public string ShipmentNumber { get; private set; } = string.Empty;
     public FulfillmentStatus Status { get; private set; }
     public string? TrackingNumber { get; private set; }
+    /// <summary>
+    /// Checkout-time shipping method base fee, even when the order actually paid zero shipping.
+    /// Refund calculations must not replace this immutable value with the current method fee.
+    /// </summary>
     public decimal FeeSnapshot { get; private set; }
     public DateTime? ShippedAtUtc { get; private set; }
     public DateTime? DeliveredAtUtc { get; private set; }

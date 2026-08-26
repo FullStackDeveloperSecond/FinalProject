@@ -163,6 +163,7 @@ public sealed class HaruEntityTests
         Assert.Equal(OrderRefundStatus.None, order.OrderRefundStatus);
         Assert.Equal(CreatedAtUtc, order.CreatedAtUtc);
         Assert.Equal(CreatedAtUtc, order.UpdatedAtUtc);
+        Assert.Equal(2_000m, order.ShippingFreeThresholdSnapshot);
     }
 
     [Fact]
@@ -264,7 +265,8 @@ public sealed class HaruEntityTests
             null,
             CreatedAtUtc.AddDays(3),
             "checkout-0001",
-            null);
+            null,
+            2_000m);
 
     private static byte[] Hash() => Enumerable.Repeat((byte)1, 32).ToArray();
 }

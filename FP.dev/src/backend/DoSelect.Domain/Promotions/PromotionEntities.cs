@@ -145,6 +145,7 @@ public sealed class OrderCoupon : PublicEntity
         CouponDiscountType discountType,
         int ruleVersion,
         decimal? discountValue,
+        decimal? minimumSpendAmount,
         decimal appliedAmount,
         decimal eligibleSubtotal,
         bool isFreeShipping,
@@ -152,6 +153,7 @@ public sealed class OrderCoupon : PublicEntity
         : base(publicId, createdAtUtc)
     {
         if (orderId <= 0 || ruleVersion <= 0 || discountValue is < 0 ||
+            minimumSpendAmount is < 0 ||
             appliedAmount < 0 || eligibleSubtotal < 0)
         {
             throw new ArgumentOutOfRangeException(nameof(orderId));
@@ -165,6 +167,7 @@ public sealed class OrderCoupon : PublicEntity
         DiscountType = discountType;
         RuleVersion = ruleVersion;
         DiscountValue = discountValue;
+        MinimumSpendAmount = minimumSpendAmount;
         AppliedAmount = appliedAmount;
         EligibleSubtotal = eligibleSubtotal;
         IsFreeShipping = isFreeShipping;
@@ -178,6 +181,7 @@ public sealed class OrderCoupon : PublicEntity
     public CouponDiscountType DiscountType { get; private set; }
     public int RuleVersion { get; private set; }
     public decimal? DiscountValue { get; private set; }
+    public decimal? MinimumSpendAmount { get; private set; }
     public decimal AppliedAmount { get; private set; }
     public decimal EligibleSubtotal { get; private set; }
     public bool IsFreeShipping { get; private set; }
