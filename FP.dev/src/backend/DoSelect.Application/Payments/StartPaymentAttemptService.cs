@@ -15,7 +15,15 @@ public sealed record ExistingPaymentAttempt(
 /// <summary>
 /// 訂單的付款狀態快照。<paramref name="OrderId"/> 為內部識別，不得對外回傳。
 /// </summary>
-public sealed record OrderPaymentSnapshot(long OrderId, OrderPaymentContext Context);
+/// <remarks>
+/// <paramref name="RowVersion"/> 是讀取當下的訂單版本，用來比對呼叫端持有的
+/// <c>orderRowVersion</c>。<see cref="OrderPaymentContext.PayableAmount"/> 是唯一的
+/// 可信金額來源；呼叫端不得指定金額。
+/// </remarks>
+public sealed record OrderPaymentSnapshot(
+    long OrderId,
+    byte[] RowVersion,
+    OrderPaymentContext Context);
 
 /// <summary>
 /// 建立付款嘗試所需的讀取埠。實作屬於 Infrastructure，不在此層存取 DbContext。
@@ -35,10 +43,14 @@ public interface IPaymentAttemptReader
         CancellationToken cancellationToken = default);
 }
 
+/// <summary>
+/// 建立付款嘗試的請求。依正式契約只帶 <paramref name="Method"/> 與
+/// <paramref name="OrderRowVersion"/>，**沒有金額欄位** —— 金額由後端訂單決定。
+/// </summary>
 public sealed record StartPaymentAttemptRequest(
     Guid OrderPublicId,
     PaymentMethod Method,
-    decimal Amount,
+    byte[] OrderRowVersion,
     string IdempotencyKey);
 
 /// <summary>
@@ -131,13 +143,22 @@ public sealed class StartPaymentAttemptService
             return StartPaymentAttemptResult.Failure(PaymentErrorCodes.ResourceNotFound);
         }
 
+        // 呼叫端持有的版本與訂單目前版本不符，代表它看到的金額或狀態已經過期。
+        if (!RowVersionMatches(request.OrderRowVersion, snapshot.RowVersion))
+        {
+            return StartPaymentAttemptResult.Failure(PaymentErrorCodes.ConcurrencyConflict);
+        }
+
+        // 金額只有一個來源：後端訂單。以下的冪等比對、政策檢查與計畫全部用它。
+        var payableAmount = snapshot.Context.PayableAmount;
+
         var existing = await _attemptReader.FindByIdempotencyKeyAsync(
             idempotencyKey,
             cancellationToken);
 
         if (existing is not null)
         {
-            return IsSamePayload(existing, snapshot.OrderId, request)
+            return IsSamePayload(existing, snapshot.OrderId, request.Method, payableAmount)
                 ? StartPaymentAttemptResult.Replay(existing.PublicId)
                 : StartPaymentAttemptResult.Failure(PaymentErrorCodes.IdempotencyPayloadConflict);
         }
@@ -145,7 +166,7 @@ public sealed class StartPaymentAttemptService
         var requestedAtUtc = _timeProvider.GetUtcNow().UtcDateTime;
         var rejection = PaymentAttemptPolicy.FindStartRejection(
             snapshot.Context,
-            new PaymentAttemptRequest(request.Method, request.Amount, requestedAtUtc));
+            new PaymentAttemptRequest(request.Method, requestedAtUtc));
 
         if (rejection is not null)
         {
@@ -155,7 +176,7 @@ public sealed class StartPaymentAttemptService
         return StartPaymentAttemptResult.Approved(new PaymentAttemptPlan(
             snapshot.OrderId,
             request.Method,
-            request.Amount,
+            payableAmount,
             idempotencyKey,
             PaymentMethodPolicy.KindOf(request.Method),
             PaymentMethodPolicy.ResolveInstructionExpiry(
@@ -164,11 +185,17 @@ public sealed class StartPaymentAttemptService
                 snapshot.Context.PaymentDueAtUtc)));
     }
 
+    private static bool RowVersionMatches(byte[]? presented, byte[]? current) =>
+        presented is not null &&
+        current is not null &&
+        presented.AsSpan().SequenceEqual(current);
+
     private static bool IsSamePayload(
         ExistingPaymentAttempt existing,
         long orderId,
-        StartPaymentAttemptRequest request) =>
+        PaymentMethod method,
+        decimal payableAmount) =>
         existing.OrderId == orderId &&
-        existing.Method == request.Method &&
-        existing.Amount == request.Amount;
+        existing.Method == method &&
+        existing.Amount == payableAmount;
 }

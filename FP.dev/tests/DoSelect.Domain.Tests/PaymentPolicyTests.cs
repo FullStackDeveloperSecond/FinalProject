@@ -1,3 +1,4 @@
+using DoSelect.Domain.Orders;
 using DoSelect.Domain.Payments;
 
 namespace DoSelect.Domain.Tests;
@@ -142,31 +143,29 @@ public sealed class PaymentPolicyTests
         Assert.Equal(
             PaymentErrorCodes.PaymentMethodNotAllowed,
             PaymentAttemptPolicy.FindCashOnDeliveryRejection(
-                Eligibility(shippingMethodAllowsCashOnDelivery: false)));
+                Eligibility(shippingMethodAllowsCashOnDelivery: false), 1000m));
 
     [Fact]
     public void CashOnDelivery_RejectsAssemblyBuilds() =>
         Assert.Equal(
             PaymentErrorCodes.PaymentCodRestrictedItem,
             PaymentAttemptPolicy.FindCashOnDeliveryRejection(
-                Eligibility(containsAssemblyBuild: true)));
+                Eligibility(containsAssemblyBuild: true), 1000m));
 
     [Fact]
     public void CashOnDelivery_RejectsPrepaymentOnlySkus() =>
         Assert.Equal(
             PaymentErrorCodes.PaymentCodRestrictedItem,
             PaymentAttemptPolicy.FindCashOnDeliveryRejection(
-                Eligibility(containsPrepaymentOnlySku: true)));
+                Eligibility(containsPrepaymentOnlySku: true), 1000m));
 
     [Fact]
     public void CashOnDelivery_AcceptsExactlyTheAmountCeiling()
     {
-        Assert.Null(PaymentAttemptPolicy.FindCashOnDeliveryRejection(
-            Eligibility(finalPayableAmount: 20000m)));
+        Assert.Null(PaymentAttemptPolicy.FindCashOnDeliveryRejection(Eligibility(), 20000m));
         Assert.Equal(
             PaymentErrorCodes.PaymentCodAmountExceeded,
-            PaymentAttemptPolicy.FindCashOnDeliveryRejection(
-                Eligibility(finalPayableAmount: 20000.01m)));
+            PaymentAttemptPolicy.FindCashOnDeliveryRejection(Eligibility(), 20000.01m));
     }
 
     [Fact]
@@ -174,13 +173,67 @@ public sealed class PaymentPolicyTests
         Assert.Equal(
             PaymentErrorCodes.PaymentCodRestrictedItem,
             PaymentAttemptPolicy.FindCashOnDeliveryRejection(
-                Eligibility(containsAssemblyBuild: true, finalPayableAmount: 99999m)));
+                Eligibility(containsAssemblyBuild: true), 99999m));
+
+    [Fact]
+    public void TheCodCeilingUsesTheSameAmountTheAttemptWouldBeCreatedWith()
+    {
+        // 上限比對與實際建立金額必須是同一個數字。分成兩個來源時，
+        // 資格檢查可能用低金額通過、實際卻建立高金額的付款嘗試。
+        var context = Context(latestAttemptStatus: null, payableAmount: 20000.01m);
+
+        Assert.Equal(
+            PaymentErrorCodes.PaymentCodAmountExceeded,
+            PaymentAttemptPolicy.FindStartRejection(
+                context, Request(PaymentMethod.CashOnDelivery)));
+    }
+
+    [Theory]
+    [InlineData(OrderStatus.PendingPayment, true)]
+    [InlineData(OrderStatus.Confirmed, true)]
+    [InlineData(OrderStatus.Processing, true)]
+    [InlineData(OrderStatus.Completed, false)]
+    [InlineData(OrderStatus.Cancelled, false)]
+    public void OnlyAnOrderThatStillOwesMoneyIsPayable(
+        OrderStatus orderStatus,
+        bool expected) =>
+        Assert.Equal(expected, PaymentAttemptPolicy.IsPayable(orderStatus));
+
+    [Fact]
+    public void EveryOrderStatusHasAPayabilityRuling()
+    {
+        // 新增訂單狀態時必須同時裁定可否付款，不能靜默落到預設值。
+        foreach (var orderStatus in Enum.GetValues<OrderStatus>())
+        {
+            PaymentAttemptPolicy.IsPayable(orderStatus);
+        }
+    }
+
+    [Fact]
+    public void ACancelledOrderCannotStartAPaymentAttemptEvenThoughItIsNotPaid()
+    {
+        // 已取消的訂單 IsPaid 也是 false。只看付款旗標會讓它通過檢查。
+        var context = Context(latestAttemptStatus: null, orderStatus: OrderStatus.Cancelled);
+
+        Assert.False(context.IsPaid);
+        Assert.Equal(
+            PaymentErrorCodes.PaymentStateConflict,
+            PaymentAttemptPolicy.FindStartRejection(context, Request(PaymentMethod.CreditCard)));
+    }
+
+    [Fact]
+    public void ACompletedOrderCannotStartAPaymentAttempt() =>
+        Assert.Equal(
+            PaymentErrorCodes.PaymentStateConflict,
+            PaymentAttemptPolicy.FindStartRejection(
+                Context(latestAttemptStatus: null, orderStatus: OrderStatus.Completed),
+                Request(PaymentMethod.CreditCard)));
 
     [Fact]
     public void FindStartRejection_RejectsNonPositiveAmounts() =>
         Assert.Throws<ArgumentOutOfRangeException>(() => PaymentAttemptPolicy.FindStartRejection(
-            Context(latestAttemptStatus: null),
-            new PaymentAttemptRequest(PaymentMethod.CreditCard, 0m, NowUtc)));
+            Context(latestAttemptStatus: null, payableAmount: 0m),
+            new PaymentAttemptRequest(PaymentMethod.CreditCard, NowUtc)));
 
     [Fact]
     public void FindStartRejection_RejectsNonUtcRequestTime() =>
@@ -188,30 +241,31 @@ public sealed class PaymentPolicyTests
             Context(latestAttemptStatus: null),
             new PaymentAttemptRequest(
                 PaymentMethod.CreditCard,
-                1000m,
                 new DateTime(2026, 8, 19, 2, 0, 0, DateTimeKind.Local))));
 
     private static OrderPaymentContext Context(
         PaymentAttemptStatus? latestAttemptStatus,
         bool isPaid = false,
-        DateTime? paymentDueAtUtc = null) =>
+        DateTime? paymentDueAtUtc = null,
+        OrderStatus orderStatus = OrderStatus.PendingPayment,
+        decimal payableAmount = 1000m) =>
         new(
+            orderStatus,
+            payableAmount,
             isPaid,
             latestAttemptStatus,
             paymentDueAtUtc ?? NowUtc.AddMinutes(30),
             Eligibility());
 
     private static PaymentAttemptRequest Request(PaymentMethod method) =>
-        new(method, 1000m, NowUtc);
+        new(method, NowUtc);
 
     private static CashOnDeliveryEligibility Eligibility(
         bool shippingMethodAllowsCashOnDelivery = true,
         bool containsAssemblyBuild = false,
-        bool containsPrepaymentOnlySku = false,
-        decimal finalPayableAmount = 1000m) =>
+        bool containsPrepaymentOnlySku = false) =>
         new(
             shippingMethodAllowsCashOnDelivery,
             containsAssemblyBuild,
-            containsPrepaymentOnlySku,
-            finalPayableAmount);
+            containsPrepaymentOnlySku);
 }

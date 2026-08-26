@@ -1,3 +1,4 @@
+using DoSelect.Domain.Orders;
 using DoSelect.Application.Payments;
 using DoSelect.Domain.Payments;
 
@@ -63,16 +64,18 @@ public sealed class StartPaymentAttemptServiceTests
     }
 
     [Theory]
-    [InlineData(PaymentMethod.ATM, 1000)]
-    [InlineData(PaymentMethod.CreditCard, 2000)]
-    public async Task StartAsync_ConflictsOnTheSameKeyWithADifferentPayload(
-        PaymentMethod method,
-        int amount)
+    [InlineData(PaymentMethod.ATM)]
+    [InlineData(PaymentMethod.ConvenienceCode)]
+    [InlineData(PaymentMethod.CashOnDelivery)]
+    public async Task StartAsync_ConflictsOnTheSameKeyWithADifferentPayload(PaymentMethod method)
     {
+        // 既有嘗試是 CreditCard。付款方式不同就不是同一個命令。
+        // 金額不再是 Payload 的一部分，改由 TheIdempotencyPayloadIsComparedAgainstTheOrderAmount
+        // 驗證「訂單金額變動時也視為不同命令」。
         var reader = new FakePaymentAttemptReader(Snapshot(), Existing());
         var service = CreateService(reader);
 
-        var result = await service.StartAsync(Request(method, amount));
+        var result = await service.StartAsync(Request(method));
 
         Assert.Equal(PaymentErrorCodes.IdempotencyPayloadConflict, result.ErrorCode);
     }
@@ -146,29 +149,98 @@ public sealed class StartPaymentAttemptServiceTests
             () => service.StartAsync(Request(idempotencyKey: "   ")));
     }
 
+    [Fact]
+    public void TheRequestHasNoAmountFieldToTamperWith()
+    {
+        // 契約層級的保證：呼叫端連指定金額的欄位都沒有，
+        // 因此不可能要求建立與訂單總額不同的付款嘗試。
+        var amountProperties = typeof(StartPaymentAttemptRequest)
+            .GetProperties()
+            .Where(property => property.PropertyType == typeof(decimal) ||
+                               property.PropertyType == typeof(decimal?))
+            .ToArray();
+
+        Assert.Empty(amountProperties);
+    }
+
+    [Fact]
+    public async Task ThePlanAmountAlwaysComesFromTheOrderNotTheCaller()
+    {
+        var service = CreateService(new FakePaymentAttemptReader(
+            Snapshot(payableAmount: 4321m)));
+
+        var result = await service.StartAsync(Request());
+
+        Assert.Equal(4321m, result.Plan!.Amount);
+    }
+
+    [Fact]
+    public async Task AStaleOrderRowVersionIsRejected()
+    {
+        // 呼叫端看到的訂單金額或狀態已經過期，不能據此建立付款嘗試。
+        var service = CreateService(new FakePaymentAttemptReader(Snapshot()));
+
+        var result = await service.StartAsync(Request(orderRowVersion: StaleRowVersion));
+
+        Assert.Equal(PaymentErrorCodes.ConcurrencyConflict, result.ErrorCode);
+        Assert.Null(result.Plan);
+    }
+
+    [Fact]
+    public async Task ACancelledOrderIsRejectedEvenThoughItIsNotPaid()
+    {
+        var service = CreateService(new FakePaymentAttemptReader(
+            Snapshot(orderStatus: OrderStatus.Cancelled)));
+
+        var result = await service.StartAsync(Request());
+
+        Assert.Equal(PaymentErrorCodes.PaymentStateConflict, result.ErrorCode);
+        Assert.Null(result.Plan);
+    }
+
+    [Fact]
+    public async Task TheIdempotencyPayloadIsComparedAgainstTheOrderAmount()
+    {
+        // 既有嘗試的金額若與訂單目前應付金額不同，就不是同一個命令。
+        var service = CreateService(new FakePaymentAttemptReader(
+            Snapshot(payableAmount: 2000m),
+            Existing(status: PaymentAttemptStatus.AwaitingPayment)));
+
+        var result = await service.StartAsync(Request());
+
+        Assert.Equal(PaymentErrorCodes.IdempotencyPayloadConflict, result.ErrorCode);
+    }
+
     private static StartPaymentAttemptService CreateService(IPaymentAttemptReader reader) =>
         new(reader, new FixedTimeProvider(new DateTimeOffset(NowUtc, TimeSpan.Zero)));
 
+    private static readonly byte[] CurrentRowVersion = [1, 2, 3, 4, 5, 6, 7, 8];
+    private static readonly byte[] StaleRowVersion = [1, 2, 3, 4, 5, 6, 7, 9];
+
     private static StartPaymentAttemptRequest Request(
         PaymentMethod method = PaymentMethod.CreditCard,
-        decimal amount = 1000m,
+        byte[]? orderRowVersion = null,
         string idempotencyKey = "pay-1") =>
-        new(OrderPublicId, method, amount, idempotencyKey);
+        new(OrderPublicId, method, orderRowVersion ?? CurrentRowVersion, idempotencyKey);
 
     private static OrderPaymentSnapshot Snapshot(
         PaymentAttemptStatus? latestAttemptStatus = null,
-        DateTime? paymentDueAtUtc = null) =>
+        DateTime? paymentDueAtUtc = null,
+        OrderStatus orderStatus = OrderStatus.PendingPayment,
+        decimal payableAmount = 1000m) =>
         new(
             OrderId: 7L,
+            CurrentRowVersion,
             new OrderPaymentContext(
+                orderStatus,
+                payableAmount,
                 IsPaid: false,
                 latestAttemptStatus,
                 paymentDueAtUtc ?? NowUtc.AddMinutes(30),
                 new CashOnDeliveryEligibility(
                     ShippingMethodAllowsCashOnDelivery: true,
                     ContainsAssemblyBuild: false,
-                    ContainsPrepaymentOnlySku: false,
-                    FinalPayableAmount: 1000m)));
+                    ContainsPrepaymentOnlySku: false)));
 
     private static ExistingPaymentAttempt Existing(
         long orderId = 7L,

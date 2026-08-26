@@ -1,3 +1,5 @@
+using DoSelect.Domain.Orders;
+
 namespace DoSelect.Domain.Payments;
 
 /// <summary>
@@ -13,6 +15,7 @@ public static class PaymentErrorCodes
     public const string PaymentEventDuplicate = "payment_event_duplicate";
     public const string OrderPaymentDeadlineExpired = "order_payment_deadline_expired";
     public const string IdempotencyPayloadConflict = "idempotency_payload_conflict";
+    public const string ConcurrencyConflict = "concurrency_conflict";
     public const string ResourceNotFound = "resource_not_found";
 }
 
@@ -94,24 +97,37 @@ public static class PaymentMethodPolicy
 /// <summary>
 /// 貨到付款資格的輸入。配送能力、組裝與 SKU 預付旗標由配送與型錄模組提供，本層只做判斷。
 /// </summary>
+/// <remarks>
+/// 刻意不帶金額。貨到付款上限與付款嘗試金額必須是同一份後端數字，
+/// 分成兩個欄位就可能出現「資格用一個金額、實際建立用另一個」的矛盾。
+/// </remarks>
 public sealed record CashOnDeliveryEligibility(
     bool ShippingMethodAllowsCashOnDelivery,
     bool ContainsAssemblyBuild,
-    bool ContainsPrepaymentOnlySku,
-    decimal FinalPayableAmount);
+    bool ContainsPrepaymentOnlySku);
 
 /// <summary>
 /// 一張訂單在建立新付款嘗試當下的付款狀態。由呼叫端於同一交易內查得後傳入。
 /// </summary>
+/// <remarks>
+/// <paramref name="PayableAmount"/> 是後端訂單的最終應付金額，也是唯一可信來源。
+/// 呼叫端不得指定金額：正式契約要求
+/// <c>Order.GrandTotal = PaymentAttempt.Amount = Order.PaidAmount = Invoice.IssuedAmount</c>。
+/// </remarks>
 public sealed record OrderPaymentContext(
+    OrderStatus OrderStatus,
+    decimal PayableAmount,
     bool IsPaid,
     PaymentAttemptStatus? LatestAttemptStatus,
     DateTime? PaymentDueAtUtc,
     CashOnDeliveryEligibility CashOnDelivery);
 
+/// <summary>
+/// 建立付款嘗試的請求。刻意沒有金額欄位 —— 金額一律取自
+/// <see cref="OrderPaymentContext.PayableAmount"/>。
+/// </summary>
 public sealed record PaymentAttemptRequest(
     PaymentMethod Method,
-    decimal Amount,
     DateTime RequestedAtUtc);
 
 public static class PaymentAttemptPolicy
@@ -137,14 +153,21 @@ public static class PaymentAttemptPolicy
         ArgumentNullException.ThrowIfNull(context.CashOnDelivery);
         ArgumentNullException.ThrowIfNull(request);
 
-        if (request.Amount <= 0)
+        if (context.PayableAmount <= 0)
         {
-            throw new ArgumentOutOfRangeException(nameof(request));
+            throw new ArgumentOutOfRangeException(nameof(context));
         }
 
         if (request.RequestedAtUtc.Kind != DateTimeKind.Utc)
         {
             throw new ArgumentException("The value must use UTC.", nameof(request));
+        }
+
+        // 訂單狀態先於付款旗標判斷。已取消的訂單 IsPaid 也是 false，
+        // 只看付款旗標會讓它通過檢查並建立新的付款嘗試。
+        if (!IsPayable(context.OrderStatus))
+        {
+            return PaymentErrorCodes.PaymentStateConflict;
         }
 
         if (context.IsPaid)
@@ -170,15 +193,34 @@ public static class PaymentAttemptPolicy
         }
 
         return isCashOnDelivery
-            ? FindCashOnDeliveryRejection(context.CashOnDelivery)
+            ? FindCashOnDeliveryRejection(context.CashOnDelivery, context.PayableAmount)
             : null;
     }
+
+    /// <summary>
+    /// 哪些訂單狀態還能建立付款嘗試。已取消或已完成的訂單都不行。
+    /// </summary>
+    public static bool IsPayable(OrderStatus orderStatus) => orderStatus switch
+    {
+        OrderStatus.PendingPayment => true,
+
+        // 貨到付款的訂單先確認再收款，因此這兩個狀態仍可能建立嘗試。
+        OrderStatus.Confirmed => true,
+        OrderStatus.Processing => true,
+
+        OrderStatus.Completed => false,
+        OrderStatus.Cancelled => false,
+
+        _ => throw new ArgumentOutOfRangeException(nameof(orderStatus)),
+    };
 
     /// <summary>
     /// 貨到付款資格：配送方式必須支援，訂單不得含組裝電腦或任一預付限定 SKU，
     /// 且折扣後含運費的最終應付金額不得超過上限。
     /// </summary>
-    public static string? FindCashOnDeliveryRejection(CashOnDeliveryEligibility eligibility)
+    public static string? FindCashOnDeliveryRejection(
+        CashOnDeliveryEligibility eligibility,
+        decimal payableAmount)
     {
         ArgumentNullException.ThrowIfNull(eligibility);
 
@@ -192,7 +234,8 @@ public static class PaymentAttemptPolicy
             return PaymentErrorCodes.PaymentCodRestrictedItem;
         }
 
-        return eligibility.FinalPayableAmount > PaymentMethodPolicy.CashOnDeliveryMaximumAmount
+        // 上限比對的金額與實際建立的付款嘗試金額是同一個，不會互相矛盾。
+        return payableAmount > PaymentMethodPolicy.CashOnDeliveryMaximumAmount
             ? PaymentErrorCodes.PaymentCodAmountExceeded
             : null;
     }
