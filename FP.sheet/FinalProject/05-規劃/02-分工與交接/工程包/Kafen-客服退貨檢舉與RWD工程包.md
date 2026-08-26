@@ -1,5 +1,6 @@
 ---
 文件狀態: 可開發
+最後更新: 2026-08-26
 適用對象: kafen
 主要覆核: terry
 最終整合: alex
@@ -38,10 +39,10 @@ npm ci
 Set-Location ../..
 ```
 
-環境、SQL Server `.\SQL2025`／`DoSelectDb`、既有 `InitialCreate`、啟動與檢查完全依 `FP.dev/README.md` 與 [[03-架構/01-系統與環境/本機開發環境與版本基線]]。不要建立新資料庫設計或每模組 Migration。
+環境、SQL Server `.\SQL2025`／`DoSelectDb`、目前四支 Migration、啟動與檢查完全依 `FP.dev/README.md` 與 [[03-架構/01-系統與環境/本機開發環境與版本基線]]。不要建立新資料庫設計或每模組 Migration。
 
 ```powershell
-dotnet tool run dotnet-ef -- database update InitialCreate `
+dotnet tool run dotnet-ef -- database update `
   --project src/backend/DoSelect.Infrastructure `
   --startup-project src/backend/DoSelect.Infrastructure `
   --context DoSelectDbContext
@@ -50,9 +51,17 @@ dotnet tool run dotnet-ef -- database update InitialCreate `
 .\scripts\health-check.ps1
 ```
 
+截至 2026-08-26，`dev` 的單一 Migration 歷程共四支：
+
+1. `20260819013357_InitialCreate`
+2. `20260822041051_AddIdempotencyAndCartMergeConflicts`
+3. `20260825171312_AddDes21RefundSnapshots`
+4. `20260825174929_AddCentralAuditLogs`
+
+不指定 Migration 名稱的 `database update` 會依序套用至最新的 `AddCentralAuditLogs`。不得只停在 `InitialCreate`，也不得在功能分支自行 scaffold／apply 新 Migration；Schema 需求交 alex 走 Migration Gate。
 需要最小帳號時，以 Visual Studio 管理 User Secrets 後，用 PATH 中的 `dotnet` 執行 API `--seed-minimal`。現有 Seed PowerShell 腳本含組長本機 `.NET` 絕對路徑；不要直接依賴或在客服 PR 順便修正。
 
-首次 Clone 若沒有 `appsettings.Development.json`，由同目錄的 `.example.json` 複製後調整非機密 `Storage:DataRoot`，本機檔案不得提交。正式 Cookie／Policy、私有檔案掃描與儲存、Outbox／Hangfire 及 Typed Client 仍由 alex 的共用工作包推進；你可以先完成案件／退貨規則、Application 契約與 Stub 邊界，但不得把檔案放 `wwwroot`、同步寄通知或自建排程器。
+首次 Clone 若沒有 `appsettings.Development.json`，由同目錄的 `.example.json` 複製後調整非機密 `Storage:DataRoot`，本機檔案不得提交。Cookie／Policy、私有檔案掃描與儲存、共用 OpenAPI Typed Client 已合併；客服／SLA／附件前後台垂直切片亦已由 PR #10 進入 `dev`。Outbox／Hangfire 仍未完成，因此不得把檔案放 `wwwroot`、同步寄通知或自建排程器。
 
 ## 3. 權威規格閱讀順序
 
@@ -75,7 +84,7 @@ dotnet tool run dotnet-ef -- database update InitialCreate `
 
 Application 層新增客服／退貨 Use Case、授權 Query 與 DTO；API 使用 Controller；前台 feature 使用 `returns`、`support`，後台使用 `returns`、`cases`。Page 只協調 Query／Mutation 與 UI 狀態，不直接承載 SLA 或退貨規則。
 
-附件第一版為網站根目錄之外的私有目錄，下載一律經授權 API。實際掃描與儲存共用能力 `SH-06` 由 alex 負責；你負責案件側數量、關聯、Actor Scope 與狀態，不可把附件放 `wwwroot`。
+附件第一版為網站根目錄之外的私有目錄，下載一律經授權 API。`SH-06` 私有儲存、影像處理、Defender 掃描與授權下載基礎已合併；你負責案件側數量、關聯、Actor Scope 與狀態，並沿用既有服務，不可把附件放 `wwwroot`。
 
 ## 5. 你必須交付的 API 與頁面
 
