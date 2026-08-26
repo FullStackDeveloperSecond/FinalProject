@@ -235,17 +235,39 @@ public sealed class ReturnShipment : MutablePublicEntity
     public DateTime? ScheduledPickupAtUtc { get; private set; }
     public DateTime? ShippedAtUtc { get; private set; }
     public DateTime? ReceivedAtUtc { get; private set; }
+    /// <summary>Forward-only ordinal for the main carrier sequence — Failed/Cancelled are
+    /// terminal side-branches reachable from any non-terminal rank, never ranked against it.</summary>
+    private static readonly IReadOnlyDictionary<ReturnShipmentStatus, int> MainSequenceRank =
+        new Dictionary<ReturnShipmentStatus, int>
+        {
+            [ReturnShipmentStatus.Pending] = 0,
+            [ReturnShipmentStatus.Scheduled] = 1,
+            [ReturnShipmentStatus.PickedUp] = 2,
+            [ReturnShipmentStatus.InTransit] = 3,
+            [ReturnShipmentStatus.Delivered] = 4,
+        };
+
     /// <summary>
     /// Denormalized carrier-facing status, driven by append-only ReturnShipmentEvents. The
     /// authoritative business flow is ReturnRequestStatus's own AwaitingShipment → InTransit →
-    /// Received transitions; this only tracks the shipment sub-entity's own last-known state
-    /// and refuses to move once it reaches a terminal value.
+    /// Received transitions; this only tracks the shipment sub-entity's own last-known state.
+    /// Once Delivered/Cancelled/Failed is reached it is terminal, and within the main sequence a
+    /// later-arriving event can never move status backward (e.g. InTransit → PickedUp is
+    /// rejected) — carrier webhooks are not guaranteed to arrive in order, so the caller is
+    /// expected to have already checked <paramref name="occurredAtUtc"/> against the shipment's
+    /// most recently applied event before calling this.
     /// </summary>
     public void ApplyEventStatus(ReturnShipmentStatus status, DateTime occurredAtUtc)
     {
-        if (Status is ReturnShipmentStatus.Delivered or ReturnShipmentStatus.Cancelled)
+        if (Status is ReturnShipmentStatus.Delivered or ReturnShipmentStatus.Cancelled or ReturnShipmentStatus.Failed)
         {
             throw new InvalidOperationException($"A {Status} shipment cannot change status.");
+        }
+
+        if (MainSequenceRank.TryGetValue(status, out var newRank) &&
+            MainSequenceRank.TryGetValue(Status, out var currentRank) && newRank < currentRank)
+        {
+            throw new InvalidOperationException($"Shipment status cannot regress from {Status} to {status}.");
         }
 
         occurredAtUtc = RequireUtc(occurredAtUtc, nameof(occurredAtUtc));

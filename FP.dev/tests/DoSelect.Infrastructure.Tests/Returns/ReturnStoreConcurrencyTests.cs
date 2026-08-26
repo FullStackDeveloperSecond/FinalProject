@@ -199,7 +199,8 @@ public sealed class ReturnStoreConcurrencyTests
             NowUtc);
         attachment.RecordScan(DoSelect.Domain.Support.PrivateAttachmentScanStatus.Clean, NowUtc);
 
-        await store.AddAttachmentAsync(attachment, CancellationToken.None);
+        var inserted = await store.TryAddAttachmentAsync(attachment, maxActiveAttachments: 3, CancellationToken.None);
+        Assert.True(inserted);
 
         context.ChangeTracker.Clear();
         var persisted = await context.ReturnAttachments

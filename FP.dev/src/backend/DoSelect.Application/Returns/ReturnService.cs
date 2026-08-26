@@ -269,9 +269,14 @@ public sealed class ReturnService : IReturnService
             nowUtc);
         attachment.RecordScan(PrivateAttachmentScanStatus.Clean, nowUtc);
 
+        bool inserted;
         try
         {
-            await _store.AddAttachmentAsync(attachment, cancellationToken);
+            // The early CountActiveAttachmentsAsync check above is only a fast-fail hint (read
+            // outside any lock, before the file I/O below); TryAddAttachmentAsync re-counts under
+            // a row lock immediately before inserting, so it is the actual concurrency gate that
+            // closes the race between two uploads that both passed the hint concurrently.
+            inserted = await _store.TryAddAttachmentAsync(attachment, MaximumAttachments, cancellationToken);
         }
         catch (Exception)
         {
@@ -295,6 +300,31 @@ public sealed class ReturnService : IReturnService
             }
 
             throw;
+        }
+
+        if (!inserted)
+        {
+            // Lost the race under lock: the cap was already reached by the time this upload's
+            // slot was checked for real. Same file-compensation obligation as the exception path
+            // above — the physical file must not be left orphaned just because no exception fired.
+            bool cleanupSucceeded;
+            try
+            {
+                cleanupSucceeded = await _fileStorage.DeleteAsync(stored.StorageKey, CancellationToken.None);
+            }
+            catch (Exception cleanupFailure)
+            {
+                throw new ReturnAttachmentCompensationException(stored.StorageKey, cleanupFailure);
+            }
+
+            if (!cleanupSucceeded)
+            {
+                throw new ReturnAttachmentCompensationException(stored.StorageKey, cleanupFailure: null);
+            }
+
+            throw new ReturnsWriteException(
+                ReturnsWriteException.ErrorCodes.FileCountExceeded,
+                "This return already has the maximum of 3 attachments.");
         }
 
         return new ReturnAttachmentDto(attachment.PublicId, attachment.OriginalFileName, attachment.CreatedAtUtc);

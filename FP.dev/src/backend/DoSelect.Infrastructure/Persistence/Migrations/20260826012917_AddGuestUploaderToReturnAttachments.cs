@@ -48,6 +48,19 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            // Reversing this migration is only safe when no row has ever recorded a guest
+            // uploader: restoring the old NOT NULL UploadedByUserId column would otherwise force
+            // every guest-attributed row to a fabricated empty string, silently corrupting
+            // upload attribution. Fail fast — before any of the drops/alters below run — rather
+            // than perform a lossy rollback. Roll forward instead of back if this fires.
+            migrationBuilder.Sql(
+                """
+                IF EXISTS (SELECT 1 FROM [ReturnAttachments] WHERE [UploadedByGuestOrderId] IS NOT NULL)
+                BEGIN
+                    THROW 51000, 'Cannot roll back AddGuestUploaderToReturnAttachments: ReturnAttachments rows exist with a non-null UploadedByGuestOrderId. Reversing this migration would corrupt guest-uploaded attachment attribution. Resolve or archive those rows before rolling back, or roll forward instead.', 1;
+                END
+                """);
+
             migrationBuilder.DropForeignKey(
                 name: "FK_ReturnAttachments_Orders_UploadedByGuestOrderId",
                 table: "ReturnAttachments");

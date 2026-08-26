@@ -303,6 +303,17 @@ public sealed class AdminReturnService : IAdminReturnService
             return ReturnDtoMapper.ToShipmentDto(shipment, existingEvents);
         }
 
+        // Carrier webhooks are not guaranteed to arrive in order — reject (before any mutation)
+        // an event whose own OccurredAtUtc precedes the latest event already applied to this
+        // shipment, rather than letting a late/out-of-order delivery overwrite newer state.
+        var priorEvents = await _store.ListShipmentEventsAsync(shipment.Id, cancellationToken);
+        if (priorEvents.Count > 0 && request.OccurredAtUtc < priorEvents.Max(e => e.OccurredAtUtc))
+        {
+            throw new ReturnsWriteException(
+                ReturnsWriteException.ErrorCodes.ValidationFailed,
+                "This event's OccurredAtUtc precedes the most recently applied shipment event.");
+        }
+
         var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
         var newEvent = new ReturnShipmentEvent(
             shipment.Id, request.ExternalEventId, request.Source, request.EventType,
@@ -312,24 +323,27 @@ public sealed class AdminReturnService : IAdminReturnService
         ReturnStatusHistory? requestHistory = null;
         if (Enum.TryParse<ReturnShipmentStatus>(request.EventType, ignoreCase: false, out var mappedStatus))
         {
-            shipment.ApplyEventStatus(mappedStatus, nowUtc);
+            // Business/audit timestamps reflect when the carrier event actually occurred, not
+            // when this server happened to receive/process it (nowUtc is only ever used above,
+            // for the event's own ReceivedAtUtc ingestion stamp).
+            shipment.ApplyEventStatus(mappedStatus, request.OccurredAtUtc);
 
             if (mappedStatus is ReturnShipmentStatus.PickedUp or ReturnShipmentStatus.InTransit &&
                 returnRequest.Status == ReturnRequestStatus.AwaitingShipment)
             {
                 requestToTransition = returnRequest;
-                requestToTransition.Transition(ReturnRequestStatus.InTransit, nowUtc);
+                requestToTransition.Transition(ReturnRequestStatus.InTransit, request.OccurredAtUtc);
                 requestHistory = new ReturnStatusHistory(
                     returnRequest.Id, ReturnRequestStatus.AwaitingShipment, ReturnRequestStatus.InTransit,
-                    "shipment-event", request.EventType, actorUserId: null, nowUtc);
+                    "shipment-event", request.EventType, actorUserId: null, request.OccurredAtUtc);
             }
             else if (mappedStatus == ReturnShipmentStatus.Delivered && returnRequest.Status == ReturnRequestStatus.InTransit)
             {
                 requestToTransition = returnRequest;
-                requestToTransition.Transition(ReturnRequestStatus.Received, nowUtc);
+                requestToTransition.Transition(ReturnRequestStatus.Received, request.OccurredAtUtc);
                 requestHistory = new ReturnStatusHistory(
                     returnRequest.Id, ReturnRequestStatus.InTransit, ReturnRequestStatus.Received,
-                    "shipment-event", request.EventType, actorUserId: null, nowUtc);
+                    "shipment-event", request.EventType, actorUserId: null, request.OccurredAtUtc);
             }
         }
 

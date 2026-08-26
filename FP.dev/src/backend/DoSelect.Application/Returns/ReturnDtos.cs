@@ -1,3 +1,6 @@
+using System.ComponentModel.DataAnnotations;
+using DoSelect.Application.Common;
+using DoSelect.Application.Support.Dtos;
 using DoSelect.Domain.Returns;
 using DoSelect.Domain.Support;
 
@@ -133,41 +136,50 @@ public sealed record AdminReturnDetailDto(
 /// per-item "approved quantity" column, so <see cref="ApprovedQuantity"/> is validated to equal
 /// the original requested quantity rather than silently accepted and ignored.
 /// </summary>
-public sealed record ApproveReturnItemLine(Guid ReturnItemPublicId, int ApprovedQuantity, bool InspectionRequired);
+public sealed record ApproveReturnItemLine(
+    Guid ReturnItemPublicId,
+    [property: Range(1, int.MaxValue)] int ApprovedQuantity,
+    bool InspectionRequired);
 
 public sealed record ApproveReturnRequest(
     bool Approved,
-    IReadOnlyList<ApproveReturnItemLine> Items,
-    string ReasonCode,
-    string? Note,
-    byte[] ReturnRowVersion);
+    [property: Required, MinLength(1)] IReadOnlyList<ApproveReturnItemLine> Items,
+    [property: Required, NotWhiteSpace, StringLength(100, MinimumLength = 1)] string ReasonCode,
+    [property: StringLength(1000)] string? Note,
+    [property: RowVersionRequired] byte[] ReturnRowVersion);
 
-public sealed record ReceiveReturnRequest(string? Note, byte[] ReturnRowVersion);
+public sealed record ReceiveReturnRequest(
+    [property: StringLength(1000)] string? Note,
+    [property: RowVersionRequired] byte[] ReturnRowVersion);
 
 public sealed record InspectReturnItemLine(
     Guid ReturnItemPublicId,
-    string ConditionCode,
+    [property: Required, NotWhiteSpace, StringLength(50, MinimumLength = 1)] string ConditionCode,
     RestockDisposition Disposition,
-    string? Note);
+    [property: StringLength(1000)] string? Note);
 
-public sealed record InspectReturnRequest(IReadOnlyList<InspectReturnItemLine> Items, byte[] ReturnRowVersion);
+public sealed record InspectReturnRequest(
+    [property: Required, MinLength(1)] IReadOnlyList<InspectReturnItemLine> Items,
+    [property: RowVersionRequired] byte[] ReturnRowVersion);
 
-public sealed record ExtendShipmentDeadlineRequest(string ReasonCode, byte[] ReturnRowVersion);
+public sealed record ExtendShipmentDeadlineRequest(
+    [property: Required, NotWhiteSpace, StringLength(100, MinimumLength = 1)] string ReasonCode,
+    [property: RowVersionRequired] byte[] ReturnRowVersion);
 
 public sealed record CreateReturnShipmentRequest(
     ReturnShipmentMethod Method,
-    string? CarrierCode,
-    string? RecipientName,
-    string? RecipientPhone,
-    string? PostalCode,
-    string? AddressLine,
-    string? StoreCode,
-    string? StoreName,
-    byte[] ReturnRowVersion);
+    [property: StringLength(50)] string? CarrierCode,
+    [property: StringLength(100)] string? RecipientName,
+    [property: StringLength(30)] string? RecipientPhone,
+    [property: StringLength(10)] string? PostalCode,
+    [property: StringLength(200)] string? AddressLine,
+    [property: StringLength(50)] string? StoreCode,
+    [property: StringLength(100)] string? StoreName,
+    [property: RowVersionRequired] byte[] ReturnRowVersion);
 
 public sealed record AppendReturnShipmentEventRequest(
-    string Source,
-    string ExternalEventId,
-    string EventType,
-    DateTime OccurredAtUtc,
-    string? Description);
+    [property: Required, NotWhiteSpace, StringLength(100, MinimumLength = 1)] string Source,
+    [property: Required, NotWhiteSpace, StringLength(200, MinimumLength = 1)] string ExternalEventId,
+    [property: Required, NotWhiteSpace, StringLength(50, MinimumLength = 1)] string EventType,
+    [property: UtcDateTime] DateTime OccurredAtUtc,
+    [property: StringLength(1000)] string? Description);

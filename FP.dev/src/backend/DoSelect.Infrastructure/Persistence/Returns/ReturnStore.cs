@@ -185,10 +185,59 @@ public sealed class ReturnStore : IReturnStore
             a => a.ReturnRequestId == returnRequestId && a.DeletedAtUtc == null,
             cancellationToken);
 
-    public async Task AddAttachmentAsync(ReturnAttachment attachment, CancellationToken cancellationToken)
+    public async Task<bool> TryAddAttachmentAsync(
+        ReturnAttachment attachment, int maxActiveAttachments, CancellationToken cancellationToken)
     {
-        await _dbContext.ReturnAttachments.AddAsync(attachment, cancellationToken);
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        for (var attempt = 1; attempt <= MaximumLockRetryAttempts; attempt++)
+        {
+            try
+            {
+                return await TryAddAttachmentOnceAsync(attachment, maxActiveAttachments, cancellationToken);
+            }
+            catch (Exception ex) when (attempt < MaximumLockRetryAttempts && IsDeadlockVictim(ex))
+            {
+                _dbContext.ChangeTracker.Clear();
+            }
+        }
+
+        throw new ReturnsWriteException(
+            ReturnsWriteException.ErrorCodes.ConcurrencyConflict,
+            "Unable to add the attachment due to repeated concurrency conflicts. Please try again.");
+    }
+
+    private async Task<bool> TryAddAttachmentOnceAsync(
+        ReturnAttachment attachment, int maxActiveAttachments, CancellationToken cancellationToken)
+    {
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            // Same shape as CreateWithItemsOnceAsync's OrderItem lock: lock the parent row so
+            // only uploads targeting the SAME return case ever block each other, then re-count
+            // under that lock immediately before inserting.
+            await _dbContext.Database.SqlQuery<int>(
+                $"SELECT TOP (1) 1 AS Value FROM dbo.ReturnRequests WITH (UPDLOCK, HOLDLOCK) WHERE Id = {attachment.ReturnRequestId}")
+                .ToListAsync(cancellationToken);
+
+            var activeCount = await _dbContext.ReturnAttachments.CountAsync(
+                a => a.ReturnRequestId == attachment.ReturnRequestId && a.DeletedAtUtc == null,
+                cancellationToken);
+
+            if (activeCount >= maxActiveAttachments)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return false;
+            }
+
+            await _dbContext.ReturnAttachments.AddAsync(attachment, cancellationToken);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return true;
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
+        }
     }
 
     public Task<ReturnAttachmentAccess?> FindAttachmentAccessAsync(Guid attachmentPublicId, CancellationToken cancellationToken) =>

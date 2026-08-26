@@ -103,15 +103,21 @@ internal sealed class FakeReturnStore : IReturnStore
     public Task<int> CountActiveAttachmentsAsync(long returnRequestId, CancellationToken cancellationToken) =>
         Task.FromResult(Attachments.Count(a => a.ReturnRequestId == returnRequestId && a.DeletedAtUtc is null));
 
-    public Task AddAttachmentAsync(ReturnAttachment attachment, CancellationToken cancellationToken)
+    public Task<bool> TryAddAttachmentAsync(ReturnAttachment attachment, int maxActiveAttachments, CancellationToken cancellationToken)
     {
         if (AddAttachmentException is not null)
         {
             throw AddAttachmentException;
         }
 
+        var activeCount = Attachments.Count(a => a.ReturnRequestId == attachment.ReturnRequestId && a.DeletedAtUtc is null);
+        if (activeCount >= maxActiveAttachments)
+        {
+            return Task.FromResult(false);
+        }
+
         Attachments.Add(attachment);
-        return Task.CompletedTask;
+        return Task.FromResult(true);
     }
 
     public Task<ReturnAttachmentAccess?> FindAttachmentAccessAsync(Guid attachmentPublicId, CancellationToken cancellationToken)

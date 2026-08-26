@@ -127,9 +127,22 @@ public interface IReturnStore
         long returnRequestId,
         CancellationToken cancellationToken);
 
+    /// <summary>Fast-fail hint only, read outside any lock — the real cap enforcement is
+    /// <see cref="TryAddAttachmentAsync"/>, which re-counts under a row lock immediately before
+    /// inserting.</summary>
     Task<int> CountActiveAttachmentsAsync(long returnRequestId, CancellationToken cancellationToken);
 
-    Task AddAttachmentAsync(ReturnAttachment attachment, CancellationToken cancellationToken);
+    /// <summary>
+    /// Locks the owning ReturnRequest row (UPDLOCK/HOLDLOCK, mirroring
+    /// <see cref="CreateWithItemsAsync"/>'s OrderItem locking), re-counts active attachments under
+    /// that lock, and only inserts if still under <paramref name="maxActiveAttachments"/> —
+    /// closes the race where two concurrent uploads both read "count &lt; cap" before either
+    /// commits. Returns false (no row inserted, no exception) when the cap was already reached by
+    /// the time the lock was acquired; the caller is responsible for compensating (deleting the
+    /// physical file it already stored) in that case.
+    /// </summary>
+    Task<bool> TryAddAttachmentAsync(
+        ReturnAttachment attachment, int maxActiveAttachments, CancellationToken cancellationToken);
 
     /// <summary>Everything the download endpoint needs in one query: enough to check Actor
     /// Scope (owning member/order) and to stream the file — null for anonymous/wrong-domain
