@@ -212,6 +212,58 @@ public sealed class GuestOrderAccessUseCaseTests
         Assert.IsType<GuestOrderAccessAcceptedResult.RateLimited>(last);
     }
 
+    [Fact]
+    public async Task RequestAccessAsync_CountsInitialSendTowardTheThreeSendLimit()
+    {
+        // 規格「最多 3 封」＝初次寄送 + 最多 2 次 resend；初次寄送本身要計入 SendCount，
+        // 不能變成初次寄送額外再加 3 次 resend（共 4 封）。
+        var gateway = new FakeGuestOrderAccessGateway();
+        gateway.SeedOrder(ValidOrderNumber, "GUEST@EXAMPLE.COM", orderId: 1, orderPublicId: Guid.CreateVersion7());
+        var emailQueue = new RecordingEmailDispatchQueue();
+        var timeProvider = new ManualTimeProvider(DateTimeOffset.UtcNow);
+        var useCase = CreateUseCase(gateway, emailDispatchQueue: emailQueue, timeProvider: timeProvider);
+        var accepted = (GuestOrderAccessAcceptedResult.Accepted)
+            await useCase.RequestAccessAsync(ValidOrderNumber, ValidEmail, RequesterIp);
+        Assert.Single(emailQueue.SentMessages);
+
+        timeProvider.Advance(TimeSpan.FromSeconds(61));
+        await useCase.ResendAsync(accepted.RequestPublicId, RequesterIp);
+        timeProvider.Advance(TimeSpan.FromSeconds(61));
+        await useCase.ResendAsync(accepted.RequestPublicId, RequesterIp);
+        Assert.Equal(3, emailQueue.SentMessages.Count);
+
+        timeProvider.Advance(TimeSpan.FromSeconds(61));
+        var fourthAttempt = await useCase.ResendAsync(accepted.RequestPublicId, RequesterIp);
+
+        Assert.IsType<GuestOrderAccessAcceptedResult.Accepted>(fourthAttempt);
+        Assert.Equal(3, emailQueue.SentMessages.Count);
+    }
+
+    [Fact]
+    public async Task ResendAsync_UsesTheCurrentCallerIp_NotTheIpStoredAtCreation()
+    {
+        // 方法收到的是「這次呼叫當下」的 requester IP，限流要用這把 Hash，不能沿用
+        // Request 建立當時保存的舊 IP bucket——同一張 Challenge 換網路重寄時才會準確。
+        var gateway = new FakeGuestOrderAccessGateway();
+        gateway.SeedOrder(ValidOrderNumber, "GUEST@EXAMPLE.COM", orderId: 1, orderPublicId: Guid.CreateVersion7());
+        var hasher = new FakeGuestOrderAccessHasher();
+        var throttle = new RecordingThrottle();
+        var timeProvider = new ManualTimeProvider(DateTimeOffset.UtcNow);
+        var useCase = new GuestOrderAccessUseCase(
+            gateway, hasher, throttle, new RecordingEmailDispatchQueue(), timeProvider);
+        var accepted = (GuestOrderAccessAcceptedResult.Accepted)
+            await useCase.RequestAccessAsync(ValidOrderNumber, ValidEmail, RequesterIp);
+
+        const string differentIp = "198.51.100.7";
+        timeProvider.Advance(TimeSpan.FromSeconds(61));
+        await useCase.ResendAsync(accepted.RequestPublicId, differentIp);
+
+        Assert.Equal(2, throttle.IpHashes.Count);
+        Assert.Equal(hasher.HashIp(RequesterIp), throttle.IpHashes[0]);
+        Assert.Equal(hasher.HashIp(differentIp), throttle.IpHashes[1]);
+        Assert.NotEqual(throttle.IpHashes[0], throttle.IpHashes[1]);
+    }
+
     private static GuestOrderAccessUseCase CreateUseCase(
         FakeGuestOrderAccessGateway gateway,
         FakeGuestOrderAccessHasher? hasher = null,
@@ -229,6 +281,22 @@ public sealed class GuestOrderAccessUseCaseTests
         public List<EmailMessage> SentMessages { get; } = [];
 
         public void Enqueue(EmailMessage message) => SentMessages.Add(message);
+    }
+
+    /// <summary>只記錄每次呼叫收到的 Hash，不做真的限流，用來斷言呼叫端傳入了「哪把」Hash。</summary>
+    private sealed class RecordingThrottle : IGuestOrderAccessThrottle
+    {
+        public List<byte[]> IpHashes { get; } = [];
+
+        public bool TryAcquireIp(byte[] ipHash)
+        {
+            IpHashes.Add(ipHash);
+            return true;
+        }
+
+        public bool TryAcquireEmail(byte[] emailHash) => true;
+
+        public bool TryAcquireOrderLookup(byte[] orderLookupHash) => true;
     }
 
     /// <summary>

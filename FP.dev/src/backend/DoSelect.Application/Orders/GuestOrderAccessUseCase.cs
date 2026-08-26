@@ -91,6 +91,9 @@ public sealed class GuestOrderAccessUseCase(
             orderLookupHash,
             expiresAtUtc,
             nowUtc);
+        // 初次寄送本身也要計入 SendCount／LastSentAtUtc，否則規格「最多 3 封」會被繞過成
+        // 「初次寄送＋3 次 resend」共 4 封。
+        request.RecordSend(nowUtc);
         await gateway.AddRequestAsync(request, cancellationToken);
         await gateway.SaveChangesAsync(cancellationToken);
         emailDispatchQueue.Enqueue(GuestOrderAccessEmailComposer.Compose(email, orderNumber, code));
@@ -121,8 +124,10 @@ public sealed class GuestOrderAccessUseCase(
 
         // Decoy 走到這裡跟有效 Request 共用同一組限流／寄送上限檢查——差異只在最後
         // 「有沒有真訂單可以寄信」，不能在限流之前就分岔，否則有效／Decoy 的 202 對 429
-        // 比例會不同，變成訂單存在性 Oracle。
-        if (!throttle.TryAcquireIp(request.RequesterIpHash) ||
+        // 比例會不同，變成訂單存在性 Oracle。IP Scope 一律用「這次呼叫收到的目前 IP」，
+        // 不用 Request 建立當下保存的舊 IP bucket——同一張 Challenge 之後換網路重寄，
+        // 限流才會準確反映實際發出重寄請求的來源。
+        if (!throttle.TryAcquireIp(hasher.HashIp(requesterIp)) ||
             !throttle.TryAcquireEmail(request.EmailKeyHash) ||
             !throttle.TryAcquireOrderLookup(request.OrderLookupKeyHash))
         {
