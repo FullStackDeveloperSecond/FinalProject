@@ -500,6 +500,10 @@ public sealed class GuestOrderAccessUseCaseTests
             DateTime cutoffUtc, int batchSize, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        public Task IncrementScopeViolationAsync(
+            long tokenId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         /// <summary>
         /// 設成 N，接下來 N 次 <see cref="SaveChangesAsync"/> 呼叫會模擬樂觀並行衝突
         /// （比照 EF Core RowVersion 不符時，Gateway 拋出的 <see cref="DomainProblemException"/>），

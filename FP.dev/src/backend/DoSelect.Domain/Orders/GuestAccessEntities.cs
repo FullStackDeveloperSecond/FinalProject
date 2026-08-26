@@ -240,14 +240,6 @@ public sealed class GuestOrderAccessToken : PublicEntity
 
     public int ScopeViolationCount { get; private set; }
 
-    public void RecordScopeViolation()
-    {
-        checked
-        {
-            ScopeViolationCount++;
-        }
-    }
-
     public void Revoke(DateTime revokedAtUtc)
     {
         RevokedAtUtc ??= RequireUtc(revokedAtUtc, nameof(revokedAtUtc));

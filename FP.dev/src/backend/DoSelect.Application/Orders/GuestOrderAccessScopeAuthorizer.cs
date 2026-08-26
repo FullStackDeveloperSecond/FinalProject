@@ -57,8 +57,10 @@ public sealed class GuestOrderAccessScopeAuthorizer(
 
         if (context.OrderPublicId != targetOrderPublicId)
         {
-            context.Token.RecordScopeViolation();
-            await gateway.SaveChangesAsync(cancellationToken);
+            // 用資料庫端原子 UPDATE 遞增，不走「讀出 Entity → 呼叫 Domain 方法 → SaveChanges」
+            // 的 read-modify-write——GuestOrderAccessToken 沒有 RowVersion，平行跨訂單存取
+            // 會讀到同一個舊值，各自 +1 存回去，遺失其中幾次違規次數。
+            await gateway.IncrementScopeViolationAsync(context.Token.Id, cancellationToken);
 
             // TODO(DES-24): 待 Alex 在 AuditContracts.cs 的 AuditWritePolicy 白名單新增
             // GuestOrderScopeViolation（Order 資源型別）後，接回央 IAuditWriter 記錄這起違規。

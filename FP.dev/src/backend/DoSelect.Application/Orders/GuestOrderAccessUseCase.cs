@@ -123,9 +123,16 @@ public sealed class GuestOrderAccessUseCase(
         // Request 根本不存在（不是 Decoy，是查無此 PublicId 或已完全失效）：沒有任何儲存的
         // Scope Hash 可用，仍消耗目前呼叫者 IP 的等量限流，避免完全不消耗預算，維持跟下面
         // 「找得到 Request」分支相同的回應形狀與大致延遲特徵，不讓存在性變成可探測的 Oracle。
+        // IP Scope 的結果一定要照實回應——不能只計不擋，否則攻擊者能用隨機 GUID 無限打
+        // DB lookup 而永遠拿到 202，等於這條公開分支沒有實際 abuse protection。Email／
+        // OrderLookup 兩個 Scope 因為沒有可信 Hash 可用，無法計數，可以接受略過。
         if (request is null)
         {
-            throttle.TryAcquireIp(hasher.HashIp(requesterIp));
+            if (!throttle.TryAcquireIp(hasher.HashIp(requesterIp)))
+            {
+                return new GuestOrderAccessAcceptedResult.RateLimited();
+            }
+
             return new GuestOrderAccessAcceptedResult.Accepted(
                 requestPublicId, nowUtc.Add(RequestLifetime), nowUtc.Add(ResendInterval));
         }

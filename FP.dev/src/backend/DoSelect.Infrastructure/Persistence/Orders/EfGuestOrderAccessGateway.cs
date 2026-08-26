@@ -77,6 +77,15 @@ public sealed class EfGuestOrderAccessGateway(DoSelectDbContext dbContext) : IGu
         return new GuestOrderAccessTokenContext(token, orderPublicId);
     }
 
+    public Task IncrementScopeViolationAsync(
+        long tokenId, CancellationToken cancellationToken = default) =>
+        dbContext.GuestOrderAccessTokens
+            .Where(t => t.Id == tokenId)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(
+                    t => t.ScopeViolationCount, t => t.ScopeViolationCount + 1),
+                cancellationToken);
+
     public async Task<int> PurgeExpiredAsync(
         DateTime cutoffUtc, int batchSize, CancellationToken cancellationToken = default)
     {

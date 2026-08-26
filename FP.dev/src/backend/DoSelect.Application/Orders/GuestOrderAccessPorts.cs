@@ -58,6 +58,14 @@ public interface IGuestOrderAccessGateway
         byte[] tokenHash, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// 原子遞增 <see cref="GuestOrderAccessToken.ScopeViolationCount"/>——<c>GuestOrderAccessToken</c>
+    /// 沒有 RowVersion（只繼承 <c>PublicEntity</c>），一般 read-modify-write 在平行跨訂單存取下
+    /// 會遺失更新。實作必須用資料庫端原子 UPDATE（例如 EF Core <c>ExecuteUpdateAsync</c>），
+    /// 不能先讀出 Entity、呼叫 Domain 方法再 SaveChanges。
+    /// </summary>
+    Task IncrementScopeViolationAsync(long tokenId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// 依主鍵分批刪除到期滿 30 天的 Request／Token（DEC-P267）。回傳實際刪除筆數；
     /// 呼叫端（背景服務）用 0 判斷是否已清完當次可清的資料。
     /// </summary>
