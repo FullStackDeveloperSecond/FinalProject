@@ -17,9 +17,10 @@ public static class GuestOrderAccessServiceCollectionExtensions
         services.Configure<GuestOrderAccessOptions>(
             configuration.GetSection(GuestOrderAccessOptions.SectionName));
 
-        // Scoped, not Singleton——建構子驗證 Pepper 長度會丟例外，比照
-        // EfIdempotencyExecutor 的取捨：讓還沒設定 Pepper 的 Fresh Clone 能正常啟動，
-        // 只在第一次真的呼叫訪客查單端點時才失敗，而不是整個 API 啟動失敗。
+        // Scoped，不是 Singleton——跟其餘走 Scoped DbContext 的埠一致。Pepper 長度不足時
+        // 應用程式現在會在啟動當下就 fail fast（見 ConfigurationValidationExtensions 的
+        // GuestOrderAccessOptionsValidator／ValidateOnStart），不再是只在第一次真的呼叫
+        // 訪客查單端點時才失敗。
         services.AddScoped<IGuestOrderAccessHasher, GuestOrderAccessHasher>();
         services.AddScoped<IGuestOrderAccessGateway, EfGuestOrderAccessGateway>();
         services.AddHostedService<GuestOrderAccessCleanupBackgroundService>();

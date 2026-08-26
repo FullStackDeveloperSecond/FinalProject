@@ -1,7 +1,9 @@
 using System.Net.Mail;
+using System.Text;
 using DoSelect.Application.Common;
 using DoSelect.Application.Storage;
 using DoSelect.Infrastructure.Email;
+using DoSelect.Infrastructure.Security;
 using Microsoft.Extensions.Options;
 
 namespace DoSelect.Api.Configuration;
@@ -46,6 +48,10 @@ public static class ConfigurationValidationExtensions
             .AddOptions<RateLimitOptions>()
             .BindConfiguration(RateLimitOptions.SectionName)
             .ValidateOnStart();
+        services
+            .AddOptions<GuestOrderAccessOptions>()
+            .BindConfiguration(GuestOrderAccessOptions.SectionName)
+            .ValidateOnStart();
 
         services.AddSingleton<IValidateOptions<StorageOptions>, StorageOptionsValidator>();
         services.AddSingleton<IValidateOptions<OpenAiOptions>, OpenAiOptionsValidator>();
@@ -54,6 +60,7 @@ public static class ConfigurationValidationExtensions
         services.AddSingleton<IValidateOptions<CorsOptions>, CorsOptionsValidator>();
         services.AddSingleton<IValidateOptions<FrontendLinkOptions>, FrontendLinkOptionsValidator>();
         services.AddSingleton<IValidateOptions<RateLimitOptions>, RateLimitOptionsValidator>();
+        services.AddSingleton<IValidateOptions<GuestOrderAccessOptions>, GuestOrderAccessOptionsValidator>();
 
         return services;
     }
@@ -265,6 +272,20 @@ internal sealed class RateLimitOptionsValidator : IValidateOptions<RateLimitOpti
         {
             failures.Add($"Configuration key '{configurationKey}' must be greater than zero.");
         }
+    }
+}
+
+internal sealed class GuestOrderAccessOptionsValidator : IValidateOptions<GuestOrderAccessOptions>
+{
+    public ValidateOptionsResult Validate(string? name, GuestOrderAccessOptions options)
+    {
+        if (Encoding.UTF8.GetByteCount(options.Pepper) < 32)
+        {
+            return ValidateOptionsResult.Fail(
+                "Configuration key 'GuestOrderAccess:Pepper' must contain at least 32 UTF-8 bytes.");
+        }
+
+        return ValidateOptionsResult.Success;
     }
 }
 
