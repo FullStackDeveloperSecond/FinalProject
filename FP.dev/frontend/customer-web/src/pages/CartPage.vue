@@ -3,7 +3,7 @@ import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/compo
 import { isApiError } from '@doselect/web-shared/api'
 import { computed, onMounted, ref } from 'vue'
 import CartLineItem from '../features/cart/components/CartLineItem.vue'
-import { useCart, useRemoveCartItem, useRevalidateCart, useUpdateCartItemQuantity } from '../features/cart/useCart'
+import { useCart, useReloadCart, useRemoveCartItem, useRevalidateCart, useUpdateCartItemQuantity } from '../features/cart/useCart'
 import type { CartItemDto, CartIssueDto } from '../features/cart/types'
 
 // 組長 PR #29 review: bare issue codes ("cart_item_requires_attention") aren't something a
@@ -35,6 +35,7 @@ const { data: cart, isPending, isError, error, refetch } = useCart()
 const updateQuantity = useUpdateCartItemQuantity()
 const removeItem = useRemoveCartItem()
 const revalidate = useRevalidateCart()
+const reloadCart = useReloadCart()
 
 interface CartItemGroup {
   assemblyGroupKey: string | null
@@ -79,6 +80,16 @@ const itemGroups = computed<CartItemGroup[]>(() => {
 // before the shopper tries again, instead of letting them retry against data that's already wrong.
 const itemActionError = ref<{ itemPublicId: string, message: string } | null>(null)
 
+// 組長 PR #29 review round 3, P2: the original fix fired `void refetch()` and considered recovery
+// done — but the mutation's own `isPending` (part of `isBusy`) had already gone false by the time
+// this ran, so the shopper could click another action using the same stale RowVersion before the
+// refetch even landed, walking straight into a second conflict. `isRecoveringFromConflict` keeps
+// every control disabled for the whole recovery window; a failed refetch shows its own error
+// instead of silently leaving the "已重新載入" message up for a reload that never happened; and a
+// successful refetch is followed by a real revalidate (awaited, not fire-and-forget) so `issues`/
+// `isCheckoutReady` reflect the just-reloaded cart, not whatever they were before the conflict.
+const isRecoveringFromConflict = ref(false)
+
 function describeItemActionError(caught: unknown): string {
   if (isApiError(caught) && caught.code === 'concurrency_conflict') {
     return '此品項已被更新，購物車已重新載入，請確認後再試一次。'
@@ -89,10 +100,20 @@ function describeItemActionError(caught: unknown): string {
   return '操作失敗，請重試。'
 }
 
-function onItemActionError(itemPublicId: string, caught: unknown): void {
+async function onItemActionError(itemPublicId: string, caught: unknown): Promise<void> {
   itemActionError.value = { itemPublicId, message: describeItemActionError(caught) }
-  if (isApiError(caught) && caught.code === 'concurrency_conflict') {
-    void refetch()
+  if (!isApiError(caught) || caught.code !== 'concurrency_conflict') {
+    return
+  }
+
+  isRecoveringFromConflict.value = true
+  try {
+    await reloadCart()
+    await runRevalidate()
+  } catch {
+    itemActionError.value = { itemPublicId, message: '購物車重新載入失敗，請重試。' }
+  } finally {
+    isRecoveringFromConflict.value = false
   }
 }
 
@@ -151,7 +172,7 @@ function onChangeQuantity(itemPublicId: string, itemRowVersion: string, quantity
     { itemPublicId, quantity, itemRowVersion, cartRowVersion: cart.value.rowVersion },
     {
       onSuccess: () => { void runRevalidate() },
-      onError: (caught) => onItemActionError(itemPublicId, caught),
+      onError: (caught) => { void onItemActionError(itemPublicId, caught) },
     },
   )
 }
@@ -166,13 +187,13 @@ function onRemoveItem(itemPublicId: string, itemRowVersion: string): void {
     { itemPublicId, itemRowVersion },
     {
       onSuccess: () => { void runRevalidate() },
-      onError: (caught) => onItemActionError(itemPublicId, caught),
+      onError: (caught) => { void onItemActionError(itemPublicId, caught) },
     },
   )
 }
 
 const isMutating = computed(() => updateQuantity.isPending.value || removeItem.isPending.value)
-const isBusy = computed(() => isMutating.value || revalidate.isPending.value)
+const isBusy = computed(() => isMutating.value || revalidate.isPending.value || isRecoveringFromConflict.value)
 
 function formatTwd(amount: number | string): string {
   return `NT$${Number(amount).toLocaleString('zh-Hant-TW')}`

@@ -1,7 +1,9 @@
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 import { mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import { defineComponent, h } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { useSessionStore } from '../../stores/session'
 import type { CartDto } from './types'
 
 const mockGetCart = vi.fn<() => Promise<CartDto>>()
@@ -41,8 +43,11 @@ const emptyCart: CartDto = {
 
 function withQueryClient(setup: () => unknown) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  useSessionStore().status = 'anonymous'
   const TestComponent = defineComponent({ setup: () => { setup(); return () => h('div') } })
-  return mount(TestComponent, { global: { plugins: [[VueQueryPlugin, { queryClient }]] } })
+  return mount(TestComponent, { global: { plugins: [[VueQueryPlugin, { queryClient }], pinia] } })
 }
 
 beforeEach(() => {

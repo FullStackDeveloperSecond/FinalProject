@@ -19,6 +19,26 @@ const availabilityLabel = computed(() => ({
   insufficient_stock: '庫存不足',
 } as Record<string, string | null>)[props.item.availability])
 
+/**
+ * 組長 PR #29 review round 3, P3: the quantity `<select>` used to offer
+ * `1..Math.max(maxPurchasableQuantity, quantity)` — if stock dropped below the quantity already
+ * in the cart (e.g. 10 in cart, only 2 now purchasable), every value from 1 up to the stale 10
+ * was still offered as if legal, and the backend would accept a change to any of them even
+ * though revalidate would immediately flag the cart as blocked again. Only 1..maxPurchasableQuantity
+ * are ever legal now; the current (now-illegal) quantity is shown as a disabled marker option
+ * instead of silently folded into the legal range.
+ */
+const legalQuantityOptions = computed(() => {
+  const max = Number(props.item.maxPurchasableQuantity)
+  return Array.from({ length: Math.max(max, 0) }, (_, index) => index + 1)
+})
+
+const isOutOfPurchasableStock = computed(() => Number(props.item.maxPurchasableQuantity) <= 0)
+
+const quantityExceedsLimit = computed(() =>
+  Number(props.item.quantity) > Number(props.item.maxPurchasableQuantity),
+)
+
 function onQuantityInput(event: Event): void {
   const value = Number((event.target as HTMLSelectElement).value)
   if (Number.isFinite(value) && value >= 1) {
@@ -56,21 +76,36 @@ function formatTwd(amount: number | string): string {
       {{ formatTwd(item.unitPrice) }}
     </div>
 
-    <select
-      class="cart-line-item__quantity"
-      :value="item.quantity"
-      :disabled="pending"
-      aria-label="數量"
-      @change="onQuantityInput"
-    >
-      <option
-        v-for="quantity in Math.max(Number(item.maxPurchasableQuantity), Number(item.quantity))"
-        :key="quantity"
-        :value="quantity"
+    <div class="cart-line-item__quantity-group">
+      <select
+        class="cart-line-item__quantity"
+        :value="item.quantity"
+        :disabled="pending || isOutOfPurchasableStock"
+        aria-label="數量"
+        @change="onQuantityInput"
       >
-        {{ quantity }}
-      </option>
-    </select>
+        <option
+          v-if="quantityExceedsLimit"
+          :value="item.quantity"
+          disabled
+        >
+          {{ item.quantity }}（超過可購數量）
+        </option>
+        <option
+          v-for="quantity in legalQuantityOptions"
+          :key="quantity"
+          :value="quantity"
+        >
+          {{ quantity }}
+        </option>
+      </select>
+      <p
+        v-if="isOutOfPurchasableStock"
+        class="cart-line-item__out-of-stock-hint"
+      >
+        已無足夠庫存，請移除此品項。
+      </p>
+    </div>
 
     <div class="cart-line-item__line-total">
       {{ formatTwd(item.lineTotal) }}
@@ -139,12 +174,24 @@ function formatTwd(amount: number | string): string {
   font-variant-numeric: tabular-nums;
 }
 
+.cart-line-item__quantity-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
 .cart-line-item__quantity {
   min-height: 2.5rem;
   padding: 0.25rem 0.5rem;
   border: 1px solid #d1d5db;
   border-radius: 0.5rem;
   font: inherit;
+}
+
+.cart-line-item__out-of-stock-hint {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 0.75rem;
 }
 
 .cart-line-item__remove {

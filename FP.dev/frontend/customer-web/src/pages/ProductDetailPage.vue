@@ -5,6 +5,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useProductDetail } from '../features/catalog/useProductSearch'
 import type { PublicSkuDto } from '../features/catalog/types'
+import { useAddCartItem } from '../features/cart/useCart'
 
 const route = useRoute()
 const productPublicId = computed(() => route.params.productId as string)
@@ -15,6 +16,57 @@ const selectedSkuPublicId = ref<string>()
 const selectedSku = computed<PublicSkuDto | undefined>(() =>
   product.value?.skus.find((sku) => sku.publicId === selectedSkuPublicId.value) ?? product.value?.skus[0],
 )
+
+// 組長 PR #29 review round 3, P1: the "加入購物車" button was permanently disabled with a
+// "coming soon" label — useAddCartItem() existed but nothing on this page ever called it, so the
+// primary product -> cart flow (UC-CART-01) didn't actually work for any shopper.
+const addCartItemMutation = useAddCartItem()
+const addToCartError = ref<string | null>(null)
+const addToCartSucceeded = ref(false)
+
+const ADD_TO_CART_ERROR_MESSAGES: Record<string, string> = {
+  sku_unavailable: '此規格已下架，請選擇其他規格。',
+  cart_quantity_exceeded: '已超過此規格可購買的數量上限。',
+  cart_item_limit_exceeded: '購物車已達 100 件上限，請先清空部分品項。',
+  resource_not_found: '找不到此規格，可能已被下架。',
+}
+
+function describeAddToCartError(caught: unknown): string {
+  if (isApiError(caught)) {
+    return ADD_TO_CART_ERROR_MESSAGES[caught.code] ?? `加入購物車失敗（${caught.code}），請重試。`
+  }
+  return '加入購物車失敗，請重試。'
+}
+
+const isAddToCartDisabled = computed(() => {
+  if (!selectedSku.value || addCartItemMutation.isPending.value) {
+    return true
+  }
+  return selectedSku.value.availability === 'outOfStock' || Number(selectedSku.value.maxPurchasableQuantity) <= 0
+})
+
+function onAddToCart(): void {
+  if (isAddToCartDisabled.value || !selectedSku.value) {
+    return
+  }
+
+  addToCartError.value = null
+  addToCartSucceeded.value = false
+  addCartItemMutation.mutate(
+    { skuPublicId: selectedSku.value.publicId, quantity: 1, cartRowVersion: null },
+    {
+      onSuccess: () => { addToCartSucceeded.value = true },
+      onError: (caught) => { addToCartError.value = describeAddToCartError(caught) },
+    },
+  )
+}
+
+// Switching to a different SKU makes a stale success/error message from the previous SKU
+// misleading (it looks like it applies to the newly-selected one).
+watch(selectedSkuPublicId, () => {
+  addToCartError.value = null
+  addToCartSucceeded.value = false
+})
 
 /**
  * PR #24 review round 10 (P3): `selectedSkuPublicId` was never reset when the product data
@@ -161,11 +213,26 @@ const isNotFound = computed(() => isApiError(error.value) && error.value.status 
 
       <button
         type="button"
-        disabled
-        title="購物車功能尚在開發中（M-06）"
+        :disabled="isAddToCartDisabled"
+        @click="onAddToCart"
       >
-        加入購物車（開發中）
+        {{ addCartItemMutation.isPending.value ? '加入中…' : '加入購物車' }}
       </button>
+      <p
+        v-if="addToCartSucceeded"
+        class="product-detail__add-to-cart-success"
+      >
+        已加入購物車。
+        <RouterLink to="/cart">
+          前往購物車
+        </RouterLink>
+      </p>
+      <p
+        v-if="addToCartError"
+        class="product-detail__add-to-cart-error"
+      >
+        {{ addToCartError }}
+      </p>
     </section>
 
     <section
@@ -363,6 +430,18 @@ button[disabled] {
   background: #9ca3af;
   border-color: #9ca3af;
   cursor: not-allowed;
+}
+
+.product-detail__add-to-cart-success {
+  margin: 0;
+  color: #166534;
+  font-size: 0.875rem;
+}
+
+.product-detail__add-to-cart-error {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 0.875rem;
 }
 
 .product-detail__specs {
