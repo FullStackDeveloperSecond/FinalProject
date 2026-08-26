@@ -18,9 +18,12 @@ namespace DoSelect.Api.IntegrationTests.Inventory;
 /// <summary>Real SQL Server-backed <see cref="WebApplicationFactory{Program}"/> for AdminInventoryController.</summary>
 public sealed class AdminInventoryApiFixture : IAsyncLifetime
 {
-    private const string ConnectionString =
-        "Server=.\\SQL2025;Database=DoSelectAdminInventoryApiTests;Trusted_Connection=True;" +
-        "TrustServerCertificate=True;";
+    // 組長 PR #36: was hardcoded to the local ".\SQL2025" instance and, worse, actively
+    // overwrote CI's own ConnectionStrings__DefaultConnection env var with that local value via
+    // EnvironmentOverrides below — every test in this fixture failed to connect in CI despite
+    // passing locally.
+    private static readonly string ConnectionString =
+        SqlServerTestConnection.Build("DoSelectAdminInventoryApiTests");
 
     private static readonly IReadOnlyDictionary<string, string> EnvironmentOverrides = new Dictionary<string, string>
     {

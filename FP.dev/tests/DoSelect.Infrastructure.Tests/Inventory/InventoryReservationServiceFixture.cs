@@ -10,9 +10,11 @@ namespace DoSelect.Infrastructure.Tests.Inventory;
 
 public sealed class InventoryReservationServiceFixture : IAsyncLifetime
 {
-    private const string ConnectionString =
-        "Server=.\\SQL2025;Database=DoSelectInventoryReservationServiceTests;Trusted_Connection=True;" +
-        "TrustServerCertificate=True;";
+    // 組長 PR #36: was hardcoded to the local ".\SQL2025" instance — CI's SQL Server runs in a
+    // container reachable only via DOSELECT_SQLSERVER_TEST_CONNECTION (SQL auth, localhost:1433),
+    // so every test in this fixture failed with a connection error in CI despite passing locally.
+    private static readonly string ConnectionString =
+        SqlServerTestConnection.Build("DoSelectInventoryReservationServiceTests");
 
     public Task InitializeAsync() => ResetDatabaseAsync();
 
