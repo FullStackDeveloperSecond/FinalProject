@@ -174,8 +174,8 @@ function onRemoveItem(itemPublicId: string, itemRowVersion: string): void {
 const isMutating = computed(() => updateQuantity.isPending.value || removeItem.isPending.value)
 const isBusy = computed(() => isMutating.value || revalidate.isPending.value)
 
-function formatTwd(amount: number): string {
-  return `NT$${amount.toLocaleString('zh-Hant-TW')}`
+function formatTwd(amount: number | string): string {
+  return `NT$${Number(amount).toLocaleString('zh-Hant-TW')}`
 }
 
 // Testability only: lets a test drive the coalescing behavior directly (a disabled button

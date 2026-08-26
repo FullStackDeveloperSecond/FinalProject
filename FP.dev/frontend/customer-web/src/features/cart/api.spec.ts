@@ -1,6 +1,7 @@
 import { createDoSelectClient } from '@doselect/web-shared/api'
+import type { paths } from '@doselect/web-shared/api'
 import { describe, expect, it, vi } from 'vitest'
-import type { CartApiPaths, CartDto } from './types'
+import type { CartDto } from './types'
 
 const emptyCart: CartDto = {
   publicId: 'cart-1',
@@ -26,7 +27,7 @@ describe('cart api wire format', () => {
       requests.push(new Request(input, init))
       return Response.json(emptyCart)
     }
-    const client = createDoSelectClient<CartApiPaths>({ baseUrl: 'http://localhost:5126', fetch: fetchStub })
+    const client = createDoSelectClient<paths>({ baseUrl: 'http://localhost:5126', fetch: fetchStub })
 
     await client.GET('/api/v1/cart', { headers: { 'X-DoSelect-Guest-Cart-Key': 'guest-abc' } })
 
@@ -40,7 +41,7 @@ describe('cart api wire format', () => {
       requests.push(request)
       return Response.json(emptyCart)
     })
-    const client = createDoSelectClient<CartApiPaths>({
+    const client = createDoSelectClient<paths>({
       baseUrl: 'http://localhost:5126',
       fetch: fetchStub,
       getAntiforgeryToken: async () => 'csrf-token',
@@ -67,7 +68,7 @@ describe('cart api wire format', () => {
       requests.push(new Request(input, init))
       return Response.json({ cart: emptyCart, conflicts: [] })
     }
-    const client = createDoSelectClient<CartApiPaths>({ baseUrl: 'http://localhost:5126', fetch: fetchStub })
+    const client = createDoSelectClient<paths>({ baseUrl: 'http://localhost:5126', fetch: fetchStub })
 
     await client.POST('/api/v1/cart/actions/merge', {
       body: { guestCartKey: 'guest-abc', strategy: 'mergeAndReportConflicts', idempotencyKey: 'idem-1' },

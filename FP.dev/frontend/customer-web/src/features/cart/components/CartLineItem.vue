@@ -26,8 +26,8 @@ function onQuantityInput(event: Event): void {
   }
 }
 
-function formatTwd(amount: number): string {
-  return `NT$${amount.toLocaleString('zh-Hant-TW')}`
+function formatTwd(amount: number | string): string {
+  return `NT$${Number(amount).toLocaleString('zh-Hant-TW')}`
 }
 </script>
 
@@ -64,7 +64,7 @@ function formatTwd(amount: number): string {
       @change="onQuantityInput"
     >
       <option
-        v-for="quantity in Math.max(item.maxPurchasableQuantity, item.quantity)"
+        v-for="quantity in Math.max(Number(item.maxPurchasableQuantity), Number(item.quantity))"
         :key="quantity"
         :value="quantity"
       >
