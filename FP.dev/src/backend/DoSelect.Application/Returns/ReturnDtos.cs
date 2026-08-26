@@ -138,48 +138,48 @@ public sealed record AdminReturnDetailDto(
 /// </summary>
 public sealed record ApproveReturnItemLine(
     Guid ReturnItemPublicId,
-    [property: Range(1, int.MaxValue)] int ApprovedQuantity,
+    [Range(1, int.MaxValue)] int ApprovedQuantity,
     bool InspectionRequired);
 
 public sealed record ApproveReturnRequest(
     bool Approved,
-    [property: Required, MinLength(1)] IReadOnlyList<ApproveReturnItemLine> Items,
-    [property: Required, NotWhiteSpace, StringLength(100, MinimumLength = 1)] string ReasonCode,
-    [property: StringLength(1000)] string? Note,
-    [property: RowVersionRequired] byte[] ReturnRowVersion);
+    [Required, MinLength(1)] IReadOnlyList<ApproveReturnItemLine> Items,
+    [Required, NotWhiteSpace, StringLength(100, MinimumLength = 1)] string ReasonCode,
+    [StringLength(1000)] string? Note,
+    [RowVersionRequired] byte[] ReturnRowVersion);
 
 public sealed record ReceiveReturnRequest(
-    [property: StringLength(1000)] string? Note,
-    [property: RowVersionRequired] byte[] ReturnRowVersion);
+    [StringLength(1000)] string? Note,
+    [RowVersionRequired] byte[] ReturnRowVersion);
 
 public sealed record InspectReturnItemLine(
     Guid ReturnItemPublicId,
-    [property: Required, NotWhiteSpace, StringLength(50, MinimumLength = 1)] string ConditionCode,
+    [Required, NotWhiteSpace, StringLength(50, MinimumLength = 1)] string ConditionCode,
     RestockDisposition Disposition,
-    [property: StringLength(1000)] string? Note);
+    [StringLength(1000)] string? Note);
 
 public sealed record InspectReturnRequest(
-    [property: Required, MinLength(1)] IReadOnlyList<InspectReturnItemLine> Items,
-    [property: RowVersionRequired] byte[] ReturnRowVersion);
+    [Required, MinLength(1)] IReadOnlyList<InspectReturnItemLine> Items,
+    [RowVersionRequired] byte[] ReturnRowVersion);
 
 public sealed record ExtendShipmentDeadlineRequest(
-    [property: Required, NotWhiteSpace, StringLength(100, MinimumLength = 1)] string ReasonCode,
-    [property: RowVersionRequired] byte[] ReturnRowVersion);
+    [Required, NotWhiteSpace, StringLength(100, MinimumLength = 1)] string ReasonCode,
+    [RowVersionRequired] byte[] ReturnRowVersion);
 
 public sealed record CreateReturnShipmentRequest(
     ReturnShipmentMethod Method,
-    [property: StringLength(50)] string? CarrierCode,
-    [property: StringLength(100)] string? RecipientName,
-    [property: StringLength(30)] string? RecipientPhone,
-    [property: StringLength(10)] string? PostalCode,
-    [property: StringLength(200)] string? AddressLine,
-    [property: StringLength(50)] string? StoreCode,
-    [property: StringLength(100)] string? StoreName,
-    [property: RowVersionRequired] byte[] ReturnRowVersion);
+    [StringLength(50)] string? CarrierCode,
+    [StringLength(100)] string? RecipientName,
+    [StringLength(30)] string? RecipientPhone,
+    [StringLength(10)] string? PostalCode,
+    [StringLength(200)] string? AddressLine,
+    [StringLength(50)] string? StoreCode,
+    [StringLength(100)] string? StoreName,
+    [RowVersionRequired] byte[] ReturnRowVersion);
 
 public sealed record AppendReturnShipmentEventRequest(
-    [property: Required, NotWhiteSpace, StringLength(100, MinimumLength = 1)] string Source,
-    [property: Required, NotWhiteSpace, StringLength(200, MinimumLength = 1)] string ExternalEventId,
-    [property: Required, NotWhiteSpace, StringLength(50, MinimumLength = 1)] string EventType,
-    [property: UtcDateTime] DateTime OccurredAtUtc,
-    [property: StringLength(1000)] string? Description);
+    [Required, NotWhiteSpace, StringLength(100, MinimumLength = 1)] string Source,
+    [Required, NotWhiteSpace, StringLength(200, MinimumLength = 1)] string ExternalEventId,
+    [Required, NotWhiteSpace, StringLength(50, MinimumLength = 1)] string EventType,
+    [UtcDateTime] DateTime OccurredAtUtc,
+    [StringLength(1000)] string? Description);

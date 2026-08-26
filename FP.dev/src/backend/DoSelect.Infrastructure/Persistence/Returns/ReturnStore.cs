@@ -482,7 +482,7 @@ public sealed class ReturnStore : IReturnStore
 
     public async Task AppendShipmentEventAsync(
         ReturnShipmentEvent shipmentEvent,
-        ReturnShipment shipment,
+        ReturnShipment? shipmentToUpdate,
         ReturnRequest? requestToTransition,
         ReturnStatusHistory? requestHistory,
         CancellationToken cancellationToken)
@@ -492,12 +492,15 @@ public sealed class ReturnStore : IReturnStore
         {
             await _dbContext.ReturnShipmentEvents.AddAsync(shipmentEvent, cancellationToken);
 
-            if (_dbContext.Entry(shipment).State == EntityState.Detached)
+            if (shipmentToUpdate is not null)
             {
-                _dbContext.ReturnShipments.Attach(shipment);
-            }
+                if (_dbContext.Entry(shipmentToUpdate).State == EntityState.Detached)
+                {
+                    _dbContext.ReturnShipments.Attach(shipmentToUpdate);
+                }
 
-            _dbContext.Entry(shipment).State = EntityState.Modified;
+                _dbContext.Entry(shipmentToUpdate).State = EntityState.Modified;
+            }
 
             if (requestToTransition is not null)
             {

@@ -240,4 +240,121 @@ public sealed class AdminReturnServiceTests
         Assert.Equal(ReturnRequestStatus.Received, request.Status);
         Assert.Empty(store.Inspections);
     }
+
+    private static async Task<(AdminReturnService Service, FakeReturnStore Store, ReturnRequest Request)> CreateSutWithAwaitingShipmentReturnAsync()
+    {
+        var (service, store, request) = CreateSutWithRequestedReturn();
+        await service.ReviewAsync(
+            request.PublicId, "admin-1",
+            new ApproveReturnRequest(true, [new ApproveReturnItemLine(store.Items[0].PublicId, 1, true)], "eligible", null, request.RowVersion),
+            CancellationToken.None);
+        await service.CreateShipmentAsync(
+            request.PublicId,
+            new CreateReturnShipmentRequest(
+                ReturnShipmentMethod.SelfShip, null, null, null, null, null, null, null, request.RowVersion),
+            CancellationToken.None);
+        return (service, store, request);
+    }
+
+    [Fact]
+    public async Task AppendShipmentEventAsync_DelayedLowerRankEvent_IsPersistedButDoesNotRegressStatus()
+    {
+        var (service, store, request) = await CreateSutWithAwaitingShipmentReturnAsync();
+        await service.AppendShipmentEventAsync(
+            request.PublicId,
+            new AppendReturnShipmentEventRequest("carrier", "evt-1", "InTransit", NowUtc.AddHours(3), null),
+            CancellationToken.None);
+
+        // A different ExternalEventId, naming an earlier main-sequence status, arrives late.
+        var dto = await service.AppendShipmentEventAsync(
+            request.PublicId,
+            new AppendReturnShipmentEventRequest("carrier", "evt-0-delayed", "PickedUp", NowUtc.AddHours(1), null),
+            CancellationToken.None);
+
+        Assert.Equal(ReturnShipmentStatus.InTransit, dto.Status);
+        Assert.Equal(2, store.ShipmentEvents.Count);
+        Assert.Contains(store.ShipmentEvents, e => e.ExternalEventId == "evt-0-delayed");
+    }
+
+    [Fact]
+    public async Task AppendShipmentEventAsync_EventOlderThanLastApplied_IsPersistedButDoesNotRegressStatus()
+    {
+        var (service, store, request) = await CreateSutWithAwaitingShipmentReturnAsync();
+        await service.AppendShipmentEventAsync(
+            request.PublicId,
+            new AppendReturnShipmentEventRequest("carrier", "evt-1", "InTransit", NowUtc.AddHours(3), null),
+            CancellationToken.None);
+
+        // A HIGHER-rank target status would normally advance the shipment, but its own
+        // OccurredAtUtc precedes the last applied event's — the timing guard alone (not rank)
+        // must reject it.
+        var dto = await service.AppendShipmentEventAsync(
+            request.PublicId,
+            new AppendReturnShipmentEventRequest("carrier", "evt-2-delayed", "Delivered", NowUtc.AddHours(1), null),
+            CancellationToken.None);
+
+        Assert.Equal(ReturnShipmentStatus.InTransit, dto.Status);
+        Assert.Equal(2, store.ShipmentEvents.Count);
+        Assert.Equal(ReturnRequestStatus.InTransit, request.Status);
+    }
+
+    [Fact]
+    public async Task AppendShipmentEventAsync_EventAfterTerminal_PersistsEventWithoutReopening()
+    {
+        var (service, store, request) = await CreateSutWithAwaitingShipmentReturnAsync();
+        await service.AppendShipmentEventAsync(
+            request.PublicId,
+            new AppendReturnShipmentEventRequest("carrier", "evt-1", "InTransit", NowUtc.AddHours(1), null),
+            CancellationToken.None);
+        await service.AppendShipmentEventAsync(
+            request.PublicId,
+            new AppendReturnShipmentEventRequest("carrier", "evt-2", "Delivered", NowUtc.AddHours(2), null),
+            CancellationToken.None);
+
+        var dto = await service.AppendShipmentEventAsync(
+            request.PublicId,
+            new AppendReturnShipmentEventRequest("carrier", "evt-3-stale", "InTransit", NowUtc.AddHours(4), null),
+            CancellationToken.None);
+
+        Assert.Equal(ReturnShipmentStatus.Delivered, dto.Status);
+        Assert.Equal(3, store.ShipmentEvents.Count);
+        Assert.Equal(ReturnRequestStatus.Received, request.Status);
+    }
+
+    [Fact]
+    public async Task AppendShipmentEventAsync_SameExternalEventId_IsIdempotentAndDoesNotDuplicateHistory()
+    {
+        var (service, store, request) = await CreateSutWithAwaitingShipmentReturnAsync();
+        var eventRequest = new AppendReturnShipmentEventRequest("carrier", "evt-1", "InTransit", NowUtc.AddHours(1), null);
+
+        await service.AppendShipmentEventAsync(request.PublicId, eventRequest, CancellationToken.None);
+        var historyCountAfterFirst = store.Histories.Count;
+        var dto = await service.AppendShipmentEventAsync(request.PublicId, eventRequest, CancellationToken.None);
+
+        Assert.Single(store.ShipmentEvents);
+        Assert.Equal(historyCountAfterFirst, store.Histories.Count);
+        Assert.Equal(ReturnShipmentStatus.InTransit, dto.Status);
+    }
+
+    [Fact]
+    public async Task AppendShipmentEventAsync_ForwardEvent_UsesOccurredAtUtcForStatusTimestampsAndAdvancesReturnRequest()
+    {
+        var (service, store, request) = await CreateSutWithAwaitingShipmentReturnAsync();
+        await service.AppendShipmentEventAsync(
+            request.PublicId,
+            new AppendReturnShipmentEventRequest("carrier", "evt-1", "InTransit", NowUtc.AddDays(-2), null),
+            CancellationToken.None);
+        Assert.Equal(ReturnRequestStatus.InTransit, request.Status);
+
+        var occurredAtUtc = NowUtc.AddDays(-1);
+        var dto = await service.AppendShipmentEventAsync(
+            request.PublicId,
+            new AppendReturnShipmentEventRequest("carrier", "evt-2", "Delivered", occurredAtUtc, null),
+            CancellationToken.None);
+
+        Assert.Equal(occurredAtUtc, dto.ReceivedAtUtc);
+        Assert.Equal(ReturnRequestStatus.Received, request.Status);
+        Assert.Equal(ReturnRequestStatus.Received, store.Histories[^1].ToStatus);
+        Assert.Equal(occurredAtUtc, store.Histories[^1].OccurredAtUtc);
+    }
 }

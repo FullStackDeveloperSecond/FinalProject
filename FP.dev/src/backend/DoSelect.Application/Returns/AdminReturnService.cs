@@ -303,30 +303,28 @@ public sealed class AdminReturnService : IAdminReturnService
             return ReturnDtoMapper.ToShipmentDto(shipment, existingEvents);
         }
 
-        // Carrier webhooks are not guaranteed to arrive in order — reject (before any mutation)
-        // an event whose own OccurredAtUtc precedes the latest event already applied to this
-        // shipment, rather than letting a late/out-of-order delivery overwrite newer state.
-        var priorEvents = await _store.ListShipmentEventsAsync(shipment.Id, cancellationToken);
-        if (priorEvents.Count > 0 && request.OccurredAtUtc < priorEvents.Max(e => e.OccurredAtUtc))
-        {
-            throw new ReturnsWriteException(
-                ReturnsWriteException.ErrorCodes.ValidationFailed,
-                "This event's OccurredAtUtc precedes the most recently applied shipment event.");
-        }
-
         var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
         var newEvent = new ReturnShipmentEvent(
             shipment.Id, request.ExternalEventId, request.Source, request.EventType,
             eventCode: null, request.Description, request.OccurredAtUtc, nowUtc, payloadHash: null, payloadSummaryJson: null);
 
+        // Append-only: every distinct (Source, ExternalEventId) is recorded regardless of
+        // whether it can move state forward — a delayed/out-of-order carrier webhook must never
+        // be rejected or lost, only prevented from moving the shipment/request backward.
+        // shipmentToUpdate stays null (so AppendShipmentEventAsync changes no shipment/request
+        // state at all) unless CanAdvanceTo says this specific event is actually newer than the
+        // last one applied AND moves the main sequence strictly forward.
+        ReturnShipment? shipmentToUpdate = null;
         ReturnRequest? requestToTransition = null;
         ReturnStatusHistory? requestHistory = null;
-        if (Enum.TryParse<ReturnShipmentStatus>(request.EventType, ignoreCase: false, out var mappedStatus))
+        if (Enum.TryParse<ReturnShipmentStatus>(request.EventType, ignoreCase: false, out var mappedStatus) &&
+            shipment.CanAdvanceTo(mappedStatus, request.OccurredAtUtc))
         {
             // Business/audit timestamps reflect when the carrier event actually occurred, not
             // when this server happened to receive/process it (nowUtc is only ever used above,
             // for the event's own ReceivedAtUtc ingestion stamp).
             shipment.ApplyEventStatus(mappedStatus, request.OccurredAtUtc);
+            shipmentToUpdate = shipment;
 
             if (mappedStatus is ReturnShipmentStatus.PickedUp or ReturnShipmentStatus.InTransit &&
                 returnRequest.Status == ReturnRequestStatus.AwaitingShipment)
@@ -347,7 +345,7 @@ public sealed class AdminReturnService : IAdminReturnService
             }
         }
 
-        await _store.AppendShipmentEventAsync(newEvent, shipment, requestToTransition, requestHistory, cancellationToken);
+        await _store.AppendShipmentEventAsync(newEvent, shipmentToUpdate, requestToTransition, requestHistory, cancellationToken);
 
         var events = await _store.ListShipmentEventsAsync(shipment.Id, cancellationToken);
         return ReturnDtoMapper.ToShipmentDto(shipment, events);

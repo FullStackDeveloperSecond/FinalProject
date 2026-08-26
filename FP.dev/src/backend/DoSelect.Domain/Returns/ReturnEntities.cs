@@ -235,8 +235,17 @@ public sealed class ReturnShipment : MutablePublicEntity
     public DateTime? ScheduledPickupAtUtc { get; private set; }
     public DateTime? ShippedAtUtc { get; private set; }
     public DateTime? ReceivedAtUtc { get; private set; }
-    /// <summary>Forward-only ordinal for the main carrier sequence — Failed/Cancelled are
-    /// terminal side-branches reachable from any non-terminal rank, never ranked against it.</summary>
+
+    /// <summary>The OccurredAtUtc of the last ReturnShipmentEvent that actually advanced this
+    /// shipment's Status — distinct from MutablePublicEntity's own UpdatedAtUtc audit stamp
+    /// (which other, non-state-changing writers could touch), so this stays a pure anchor for
+    /// <see cref="CanAdvanceTo"/>'s monotonicity check.</summary>
+    public DateTime? LastAppliedEventAtUtc { get; private set; }
+
+    /// <summary>Forward-only ordinal for the main carrier sequence. Failed/Cancelled share the
+    /// terminal rank — either is always reachable as a forward jump from any non-terminal rank,
+    /// but (like Delivered) can never be entered from the other, since ApplyEventStatus's own
+    /// terminal guard blocks all further changes once either is reached.</summary>
     private static readonly IReadOnlyDictionary<ReturnShipmentStatus, int> MainSequenceRank =
         new Dictionary<ReturnShipmentStatus, int>
         {
@@ -245,29 +254,53 @@ public sealed class ReturnShipment : MutablePublicEntity
             [ReturnShipmentStatus.PickedUp] = 2,
             [ReturnShipmentStatus.InTransit] = 3,
             [ReturnShipmentStatus.Delivered] = 4,
+            [ReturnShipmentStatus.Failed] = 5,
+            [ReturnShipmentStatus.Cancelled] = 5,
         };
+
+    /// <summary>
+    /// Pure query: would applying <paramref name="status"/> at <paramref name="occurredAtUtc"/>
+    /// actually move this shipment forward? Carrier webhooks are not guaranteed to arrive in
+    /// order or exactly once — the caller is expected to always append the raw event to history
+    /// regardless of this answer, and only call <see cref="ApplyEventStatus"/> when it is true,
+    /// so a delayed/out-of-order/duplicate-status event is recorded but never regresses state.
+    /// </summary>
+    public bool CanAdvanceTo(ReturnShipmentStatus status, DateTime occurredAtUtc)
+    {
+        if (Status is ReturnShipmentStatus.Delivered or ReturnShipmentStatus.Cancelled or ReturnShipmentStatus.Failed)
+        {
+            return false;
+        }
+
+        if (occurredAtUtc.Kind != DateTimeKind.Utc)
+        {
+            return false;
+        }
+
+        if (LastAppliedEventAtUtc is { } lastAppliedAtUtc && occurredAtUtc < lastAppliedAtUtc)
+        {
+            return false;
+        }
+
+        return !MainSequenceRank.TryGetValue(status, out var newRank) ||
+            !MainSequenceRank.TryGetValue(Status, out var currentRank) ||
+            newRank > currentRank;
+    }
 
     /// <summary>
     /// Denormalized carrier-facing status, driven by append-only ReturnShipmentEvents. The
     /// authoritative business flow is ReturnRequestStatus's own AwaitingShipment → InTransit →
     /// Received transitions; this only tracks the shipment sub-entity's own last-known state.
-    /// Once Delivered/Cancelled/Failed is reached it is terminal, and within the main sequence a
-    /// later-arriving event can never move status backward (e.g. InTransit → PickedUp is
-    /// rejected) — carrier webhooks are not guaranteed to arrive in order, so the caller is
-    /// expected to have already checked <paramref name="occurredAtUtc"/> against the shipment's
-    /// most recently applied event before calling this.
+    /// Callers must check <see cref="CanAdvanceTo"/> first — this method re-asserts the same
+    /// terminal/rank/timing guards defensively, but does not decide whether to skip a
+    /// non-advancing event the way CanAdvanceTo does.
     /// </summary>
     public void ApplyEventStatus(ReturnShipmentStatus status, DateTime occurredAtUtc)
     {
-        if (Status is ReturnShipmentStatus.Delivered or ReturnShipmentStatus.Cancelled or ReturnShipmentStatus.Failed)
+        if (!CanAdvanceTo(status, occurredAtUtc))
         {
-            throw new InvalidOperationException($"A {Status} shipment cannot change status.");
-        }
-
-        if (MainSequenceRank.TryGetValue(status, out var newRank) &&
-            MainSequenceRank.TryGetValue(Status, out var currentRank) && newRank < currentRank)
-        {
-            throw new InvalidOperationException($"Shipment status cannot regress from {Status} to {status}.");
+            throw new InvalidOperationException(
+                $"Shipment status cannot move from {Status} to {status} at {occurredAtUtc:O}.");
         }
 
         occurredAtUtc = RequireUtc(occurredAtUtc, nameof(occurredAtUtc));
@@ -276,6 +309,7 @@ public sealed class ReturnShipment : MutablePublicEntity
             ? ShippedAtUtc ?? occurredAtUtc
             : ShippedAtUtc;
         ReceivedAtUtc = status == ReturnShipmentStatus.Delivered ? occurredAtUtc : ReceivedAtUtc;
+        LastAppliedEventAtUtc = occurredAtUtc;
         MarkUpdated(occurredAtUtc);
     }
     public void RecordTrackingNumber(string trackingNumber, DateTime occurredAtUtc)

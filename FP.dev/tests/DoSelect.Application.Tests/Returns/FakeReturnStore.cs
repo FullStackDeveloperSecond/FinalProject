@@ -218,12 +218,13 @@ internal sealed class FakeReturnStore : IReturnStore
     public Task<ReturnShipment> CreateShipmentAsync(
         ReturnShipment shipment, long returnRequestId, byte[] expectedReturnRowVersion, CancellationToken cancellationToken)
     {
+        ReturnRequestIdField.SetValue(shipment, _nextId++);
         Shipments.Add(shipment);
         return Task.FromResult(shipment);
     }
 
     public Task AppendShipmentEventAsync(
-        ReturnShipmentEvent shipmentEvent, ReturnShipment shipment, ReturnRequest? requestToTransition,
+        ReturnShipmentEvent shipmentEvent, ReturnShipment? shipmentToUpdate, ReturnRequest? requestToTransition,
         ReturnStatusHistory? requestHistory, CancellationToken cancellationToken)
     {
         ShipmentEvents.Add(shipmentEvent);

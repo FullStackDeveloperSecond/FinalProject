@@ -1,7 +1,9 @@
+using DoSelect.Application.Files;
 using DoSelect.Application.Returns;
 using DoSelect.Domain.Orders;
 using DoSelect.Domain.Returns;
 using DoSelect.Domain.Shipping;
+using DoSelect.Infrastructure.Files;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Returns;
 using Microsoft.EntityFrameworkCore;
@@ -208,6 +210,143 @@ public sealed class ReturnStoreConcurrencyTests
             .SingleAsync(candidate => candidate.PublicId == attachment.PublicId);
         Assert.Null(persisted.UploadedByUserId);
         Assert.Equal(orderId, persisted.UploadedByGuestOrderId);
+    }
+
+    /// <summary>
+    /// B1 review finding: the pre-Codex-review version of this test only swapped the Store call
+    /// name and asserted a bool. This exercises the real ReturnService (real disk-backed
+    /// LocalPrivateFileStorage, two independent DbContext/ReturnStore/ReturnService instances —
+    /// mirroring two concurrent HTTP requests), so it also proves the file-compensation path
+    /// (the loser's own newly-stored blob is deleted) actually fires end to end, not just that
+    /// TryAddAttachmentAsync returns the right bool.
+    /// </summary>
+    // Real PNG magic bytes — LocalPrivateFileStorage.StoreAsync runs a genuine format validator,
+    // so an arbitrary byte array with an "image/png" content-type would be rejected as
+    // FormatInvalid before ever reaching the attachment-count logic under test here.
+    private static readonly byte[] ValidPngBytes = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 17, 255];
+
+    [SqlServerFact]
+    public async Task UploadAttachmentAsync_TwoConcurrentUploadsForTheLastSlot_OnlyOneSucceedsAndTheLoserFileIsDeleted()
+    {
+        var dataRoot = Path.Combine(Path.GetTempPath(), $"doselect-return-attach-race-{Guid.NewGuid():N}");
+        try
+        {
+            await RunConcurrentAttachmentUploadRaceAsync(dataRoot);
+        }
+        finally
+        {
+            if (Directory.Exists(dataRoot))
+            {
+                Directory.Delete(dataRoot, recursive: true);
+            }
+        }
+    }
+
+    private async Task RunConcurrentAttachmentUploadRaceAsync(string dataRoot)
+    {
+        const int maxAttachments = 3;
+        var scanner = new AlwaysCleanFileScanner();
+        var seedStorage = new LocalPrivateFileStorage(dataRoot, scanner);
+
+        long orderId;
+        long orderItemId;
+        long returnRequestId;
+        Guid returnPublicId;
+        await using (var seed = ReturnStoreConcurrencyFixture.CreateContext())
+        {
+            (orderId, orderItemId) = await SeedOrderWithItemAsync(seed, returnableQuantity: 5);
+            var seedStore = new ReturnStore(seed);
+            var creation = await seedStore.CreateWithItemsAsync(
+                NewRequest(orderId, "RT-ATTACH-RACE1"),
+                [new ReturnItemQuantityBudget(orderItemId, RequestedQuantity: 1, MaximumReturnableQuantity: 5)],
+                requestId => [new ReturnItem(Guid.CreateVersion7(), requestId, orderItemId, 1, 0m, "NotInspected", NowUtc)],
+                CancellationToken.None);
+            returnRequestId = creation.Request.Id;
+            returnPublicId = creation.Request.PublicId;
+
+            // Pre-fill two of the three slots with real, already-committed files on disk.
+            for (var i = 0; i < maxAttachments - 1; i++)
+            {
+                var stored = await seedStorage.StoreAsync(
+                    new PrivateFileUpload(new MemoryStream(ValidPngBytes), $"existing-{i}.png", "image/png"),
+                    CancellationToken.None);
+                Assert.True(stored.IsStored);
+                var existingAttachment = new ReturnAttachment(
+                    Guid.CreateVersion7(), returnRequestId, uploadedByUserId: null, uploadedByGuestOrderId: orderId,
+                    stored.File!.OriginalFileName, stored.File.StorageKey, stored.File.Extension, stored.File.ContentType,
+                    stored.File.FileSizeBytes, stored.File.Sha256, NowUtc);
+                existingAttachment.RecordScan(DoSelect.Domain.Support.PrivateAttachmentScanStatus.Clean, NowUtc);
+                // A generous cap here only seeds the fixture — it is not the cap under test.
+                Assert.True(await seedStore.TryAddAttachmentAsync(existingAttachment, maxActiveAttachments: 999, CancellationToken.None));
+            }
+        }
+
+        var actor = new ReturnActor(MemberUserId: null, GuestOrderId: orderId);
+        await using var contextA = ReturnStoreConcurrencyFixture.CreateContext();
+        await using var contextB = ReturnStoreConcurrencyFixture.CreateContext();
+        var serviceA = new ReturnService(
+            new ReturnStore(contextA), new ThrowingOrderEligibilityPort(), new LocalPrivateFileStorage(dataRoot, scanner),
+            TimeProvider.System);
+        var serviceB = new ReturnService(
+            new ReturnStore(contextB), new ThrowingOrderEligibilityPort(), new LocalPrivateFileStorage(dataRoot, scanner),
+            TimeProvider.System);
+
+        var taskA = RunUploadAsync(serviceA, actor, returnPublicId, "race-a.png");
+        var taskB = RunUploadAsync(serviceB, actor, returnPublicId, "race-b.png");
+        var (successA, errorA) = await taskA;
+        var (successB, errorB) = await taskB;
+
+        var successes = new[] { successA, successB }.Count(s => s);
+        Assert.Equal(1, successes);
+        var loserError = successA ? errorB : errorA;
+        var loserException = Assert.IsType<ReturnsWriteException>(loserError);
+        Assert.Equal(ReturnsWriteException.ErrorCodes.FileCountExceeded, loserException.ErrorCode);
+
+        await using var verify = ReturnStoreConcurrencyFixture.CreateContext();
+        var activeCount = await verify.ReturnAttachments
+            .CountAsync(a => a.ReturnRequestId == returnRequestId && a.DeletedAtUtc == null);
+        Assert.Equal(maxAttachments, activeCount);
+
+        // The loser's own newly-stored blob must be compensation-deleted: exactly `maxAttachments`
+        // .blob files remain on disk (2 pre-existing + 1 winner), even though StoreAsync
+        // physically wrote a file for BOTH the winner and the loser before the lock was checked.
+        var remainingBlobFiles = Directory.GetFiles(dataRoot, "*.blob", SearchOption.AllDirectories);
+        Assert.Equal(maxAttachments, remainingBlobFiles.Length);
+    }
+
+    private static async Task<(bool Success, Exception? Error)> RunUploadAsync(
+        IReturnService service, ReturnActor actor, Guid returnPublicId, string fileName)
+    {
+        try
+        {
+            await service.UploadAttachmentAsync(
+                actor, returnPublicId,
+                new PrivateFileUpload(new MemoryStream(ValidPngBytes), fileName, "image/png"),
+                CancellationToken.None);
+            return (true, null);
+        }
+        catch (Exception ex)
+        {
+            return (false, ex);
+        }
+    }
+
+    private sealed class AlwaysCleanFileScanner : IFileScanner
+    {
+        public Task<FileScanResult> ScanAsync(string quarantinedFilePath, CancellationToken cancellationToken = default)
+        {
+            var now = DateTimeOffset.UtcNow;
+            return Task.FromResult(new FileScanResult(FileScanOutcome.Clean, "test-fake", now, now));
+        }
+    }
+
+    private sealed class ThrowingOrderEligibilityPort : IReturnOrderEligibilityPort
+    {
+        public Task<OrderEligibilitySnapshot?> FindByPublicIdAsync(Guid orderPublicId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException("UploadAttachmentAsync never consults order eligibility.");
+
+        public Task<OrderEligibilitySnapshot?> FindByIdAsync(long orderId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException("UploadAttachmentAsync never consults order eligibility.");
     }
 
 

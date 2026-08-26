@@ -201,13 +201,17 @@ public interface IReturnStore
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// One transaction: insert the (already deduplication-checked) event, update the shipment's
-    /// denormalized status, and optionally transition the owning ReturnRequest
-    /// (AwaitingShipment→InTransit / InTransit→Received) with its own history row.
+    /// One transaction: always inserts the (already deduplication-checked) event — append-only,
+    /// even when the event does not advance any state — and only when
+    /// <paramref name="shipmentToUpdate"/> is non-null (the caller already called
+    /// ApplyEventStatus on it) persists the shipment's denormalized status change, optionally
+    /// also transitioning the owning ReturnRequest (AwaitingShipment→InTransit /
+    /// InTransit→Received) with its own history row. A delayed/out-of-order/non-advancing event
+    /// passes null for both, so it changes no state at all — only its own history row exists.
     /// </summary>
     Task AppendShipmentEventAsync(
         ReturnShipmentEvent shipmentEvent,
-        ReturnShipment shipment,
+        ReturnShipment? shipmentToUpdate,
         ReturnRequest? requestToTransition,
         ReturnStatusHistory? requestHistory,
         CancellationToken cancellationToken);

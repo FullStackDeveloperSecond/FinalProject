@@ -113,17 +113,25 @@ if (!app.Environment.IsDevelopment())
 
 app.UseAuthentication();
 
-// Cart routes accept both anonymous guests and authenticated members (no [Authorize]
-// forces early authentication the way it does on every other controller), but the
-// antiforgery filter still validates each unsafe request's token against
-// HttpContext.User — ASP.NET Core's default token generator embeds the caller's
-// identity, so a token minted for a signed-in member fails validation if User is
-// still anonymous by the time the filter runs. This opportunistically authenticates
-// the Member scheme (same call SecurityController.GetAntiforgeryToken already makes)
-// before MVC's filter pipeline, without gating anonymous cart requests.
+// Cart, Orders and Returns routes all accept both anonymous/validated-guest and
+// authenticated members on the same route (no [Authorize] forces early authentication
+// the way it does on every other controller — ReturnActorResolver/CartIdentityResolver
+// resolve the caller manually, inside the action), but the antiforgery filter still
+// validates each unsafe request's token against HttpContext.User — ASP.NET Core's
+// default token generator embeds the caller's identity, so a token minted for a
+// signed-in member fails validation if User is still anonymous by the time the filter
+// runs. GlobalAntiforgeryFilter runs in the MVC Authorization filter stage, which is
+// before the action body (and therefore before ReturnActorResolver's own
+// AuthenticateAsync call) ever executes — so without this, a Member's Returns/Orders
+// write would fail antiforgery validation even with a correctly-minted token. This
+// opportunistically authenticates the Member scheme (same call
+// SecurityController.GetAntiforgeryToken already makes) before MVC's filter pipeline,
+// without gating anonymous/guest requests on any of these routes.
 app.Use(async (context, next) =>
 {
-    if (context.Request.Path.StartsWithSegments("/api/v1/cart"))
+    if (context.Request.Path.StartsWithSegments("/api/v1/cart") ||
+        context.Request.Path.StartsWithSegments("/api/v1/orders") ||
+        context.Request.Path.StartsWithSegments("/api/v1/returns"))
     {
         var result = await context.AuthenticateAsync(DoSelectAuthenticationSchemes.Member);
         if (result.Succeeded && result.Principal is not null)

@@ -13,7 +13,7 @@ namespace DoSelect.Application.Support.Dtos;
 /// separate ModelState error, which [ApiController] turns into the same 400 validation_failed
 /// response before the action runs.
 /// </summary>
-[AttributeUsage(AttributeTargets.Property)]
+[AttributeUsage(AttributeTargets.Property | AttributeTargets.Parameter)]
 public sealed class RowVersionRequiredAttribute : ValidationAttribute
 {
     private const int ExpectedByteLength = 8;
