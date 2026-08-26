@@ -124,6 +124,64 @@ public sealed class GuestOrderAccessUseCaseTests
     }
 
     [Fact]
+    public async Task VerifyAsync_WrongCode_RetriesOnConcurrencyConflictAndStillCountsTheAttempt()
+    {
+        // 模擬「平行錯碼」：SaveChangesAsync 前兩次都因為別的平行請求先寫入而樂觀並行衝突，
+        // UseCase 必須重新載入、重算後重試，讓這一次猜測依然確實被計數一次——不能因為
+        // 衝突就悄悄漏記，也不能讓例外原樣往外傳變成 500。
+        var gateway = new FakeGuestOrderAccessGateway();
+        gateway.SeedOrder(ValidOrderNumber, "GUEST@EXAMPLE.COM", orderId: 1, orderPublicId: Guid.CreateVersion7());
+        var useCase = CreateUseCase(gateway);
+        var accepted = (GuestOrderAccessAcceptedResult.Accepted)
+            await useCase.RequestAccessAsync(ValidOrderNumber, ValidEmail, RequesterIp);
+        gateway.SaveChangesConflictCountdown = 2;
+
+        var result = await useCase.VerifyAsync(accepted.RequestPublicId, "000000");
+
+        var failure = Assert.IsType<GuestOrderAccessVerifyResult.Failure>(result);
+        Assert.Equal(GuestOrderErrorCodes.VerificationInvalid, failure.ErrorCode);
+        Assert.Equal(1, gateway.Requests[accepted.RequestPublicId].AttemptCount);
+        Assert.Equal(0, gateway.SaveChangesConflictCountdown);
+    }
+
+    [Fact]
+    public async Task VerifyAsync_WrongCode_GivesUpSafelyAfterExhaustingConcurrencyRetries()
+    {
+        // 重試次數用盡仍持續衝突的極端邊界——不能讓例外往外傳，維持標準安全失敗回應。
+        var gateway = new FakeGuestOrderAccessGateway();
+        gateway.SeedOrder(ValidOrderNumber, "GUEST@EXAMPLE.COM", orderId: 1, orderPublicId: Guid.CreateVersion7());
+        var useCase = CreateUseCase(gateway);
+        var accepted = (GuestOrderAccessAcceptedResult.Accepted)
+            await useCase.RequestAccessAsync(ValidOrderNumber, ValidEmail, RequesterIp);
+        gateway.SaveChangesConflictCountdown = 1000;
+
+        var result = await useCase.VerifyAsync(accepted.RequestPublicId, "000000");
+
+        Assert.IsType<GuestOrderAccessVerifyResult.Failure>(result);
+    }
+
+    [Fact]
+    public async Task VerifyAsync_CorrectCode_WhenAnotherRequestWonTheRace_FailsWithoutIssuingASecondToken()
+    {
+        // 模擬「兩個平行正確碼」：本次驗證通過比對後，寫入 Token 那一刻才發現別的平行請求
+        // 已經先消耗掉同一個 Request（樂觀並行衝突）——同一張 Challenge 只能核發一個 Token，
+        // 這裡必須安全失敗，且不能有 Token 被寫入。
+        var gateway = new FakeGuestOrderAccessGateway();
+        gateway.SeedOrder(ValidOrderNumber, "GUEST@EXAMPLE.COM", orderId: 1, orderPublicId: Guid.CreateVersion7());
+        var hasher = new FakeGuestOrderAccessHasher();
+        var useCase = CreateUseCase(gateway, hasher: hasher);
+        var accepted = (GuestOrderAccessAcceptedResult.Accepted)
+            await useCase.RequestAccessAsync(ValidOrderNumber, ValidEmail, RequesterIp);
+        var correctCode = hasher.LastHashedCode!;
+        gateway.SaveChangesConflictCountdown = 1;
+
+        var result = await useCase.VerifyAsync(accepted.RequestPublicId, correctCode);
+
+        Assert.IsType<GuestOrderAccessVerifyResult.Failure>(result);
+        Assert.Empty(gateway.Tokens);
+    }
+
+    [Fact]
     public async Task ResendAsync_WhenRequestDoesNotExist_ReturnsTheSameAcceptedShape()
     {
         var gateway = new FakeGuestOrderAccessGateway();
@@ -346,8 +404,25 @@ public sealed class GuestOrderAccessUseCaseTests
         private static readonly PropertyInfo IdProperty =
             typeof(Entity).GetProperty(nameof(Entity.Id))!;
 
+        /// <summary>
+        /// <see cref="ReloadRequestAsync"/> 要能真的把「還沒 SaveChanges 成功」的本機異動蓋掉，
+        /// 才能如實驗證重試迴圈——不然重試只是對著同一個已經被本機改過的物件重複疊加。
+        /// </summary>
+        private static readonly PropertyInfo[] RequestMutableProperties =
+        [
+            typeof(GuestOrderAccessRequest).GetProperty(nameof(GuestOrderAccessRequest.CodeHash))!,
+            typeof(GuestOrderAccessRequest).GetProperty(nameof(GuestOrderAccessRequest.AttemptCount))!,
+            typeof(GuestOrderAccessRequest).GetProperty(nameof(GuestOrderAccessRequest.SendCount))!,
+            typeof(GuestOrderAccessRequest).GetProperty(nameof(GuestOrderAccessRequest.LastSentAtUtc))!,
+            typeof(GuestOrderAccessRequest).GetProperty(nameof(GuestOrderAccessRequest.LockedAtUtc))!,
+            typeof(GuestOrderAccessRequest).GetProperty(nameof(GuestOrderAccessRequest.ConsumedAtUtc))!,
+            typeof(GuestOrderAccessRequest).GetProperty(nameof(GuestOrderAccessRequest.RevokedAtUtc))!,
+        ];
+
         private readonly Dictionary<string, GuestOrderLookup> _ordersByLookupKey = new(StringComparer.Ordinal);
         private readonly Dictionary<long, GuestOrderLookup> _ordersById = new();
+        private readonly Dictionary<Guid, object?[]> _committedRequestState = [];
+        private readonly List<GuestOrderAccessToken> _pendingTokens = [];
         private long _nextRequestId = 1;
         private long _nextTokenId = 1;
 
@@ -375,6 +450,7 @@ public sealed class GuestOrderAccessUseCaseTests
         {
             IdProperty.SetValue(request, _nextRequestId++);
             Requests[request.PublicId] = request;
+            CommitRequestState(request);
             return Task.CompletedTask;
         }
 
@@ -398,8 +474,11 @@ public sealed class GuestOrderAccessUseCaseTests
         public Task AddTokenAsync(
             GuestOrderAccessToken token, CancellationToken cancellationToken = default)
         {
+            // 只是「排隊等寫入」（比照 EF ChangeTracker 的 Added 狀態），成功 SaveChangesAsync
+            // 才會真的出現在 Tokens——否則模擬並行衝突時，測試會看到一個「其實沒真的寫進去」
+            // 的 Token，跟真實 Rollback 行為對不起來。
             IdProperty.SetValue(token, _nextTokenId++);
-            Tokens.Add(token);
+            _pendingTokens.Add(token);
             return Task.CompletedTask;
         }
 
@@ -421,7 +500,52 @@ public sealed class GuestOrderAccessUseCaseTests
             DateTime cutoffUtc, int batchSize, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
-        public Task SaveChangesAsync(CancellationToken cancellationToken = default) =>
-            Task.CompletedTask;
+        /// <summary>
+        /// 設成 N，接下來 N 次 <see cref="SaveChangesAsync"/> 呼叫會模擬樂觀並行衝突
+        /// （比照 EF Core RowVersion 不符時，Gateway 拋出的 <see cref="DomainProblemException"/>），
+        /// 用來驗證 UseCase 的重試邏輯不會漏記、也不會讓例外原樣往外傳。
+        /// </summary>
+        public int SaveChangesConflictCountdown { get; set; }
+
+        public Task SaveChangesAsync(CancellationToken cancellationToken = default)
+        {
+            if (SaveChangesConflictCountdown > 0)
+            {
+                SaveChangesConflictCountdown--;
+                throw DomainProblemException.Conflict(
+                    DomainErrorCodes.ConcurrencyConflict, "Simulated concurrency conflict.");
+            }
+
+            if (_pendingTokens.Count > 0)
+            {
+                Tokens.AddRange(_pendingTokens);
+                _pendingTokens.Clear();
+            }
+
+            foreach (var request in Requests.Values)
+            {
+                CommitRequestState(request);
+            }
+
+            return Task.CompletedTask;
+        }
+
+        public Task ReloadRequestAsync(
+            GuestOrderAccessRequest request, CancellationToken cancellationToken = default)
+        {
+            if (_committedRequestState.TryGetValue(request.PublicId, out var values))
+            {
+                for (var i = 0; i < RequestMutableProperties.Length; i++)
+                {
+                    RequestMutableProperties[i].SetValue(request, values[i]);
+                }
+            }
+
+            return Task.CompletedTask;
+        }
+
+        private void CommitRequestState(GuestOrderAccessRequest request) =>
+            _committedRequestState[request.PublicId] =
+                RequestMutableProperties.Select(property => property.GetValue(request)).ToArray();
     }
 }

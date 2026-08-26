@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using DoSelect.Application.Common;
 using DoSelect.Application.Notifications;
 using DoSelect.Domain.Orders;
 
@@ -41,6 +42,13 @@ public sealed class GuestOrderAccessUseCase(
     public static readonly TimeSpan RequestLifetime = TimeSpan.FromMinutes(10);
     public static readonly TimeSpan TokenLifetime = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan ResendInterval = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    /// 錯誤驗證碼的樂觀並行衝突重試上限。只保護「每一次猜測都要計數」這件事——
+    /// 正常情況下平行猜測的次數遠小於這個值,超過只在極端壓力下發生,超過就安全失敗，
+    /// 不冒著無限重試或 500 的風險。
+    /// </summary>
+    private const int MaxFailedAttemptConcurrencyRetries = 5;
 
     public async Task<GuestOrderAccessAcceptedResult> RequestAccessAsync(
         string orderNumber,
@@ -190,14 +198,36 @@ public sealed class GuestOrderAccessUseCase(
         var codeHash = hasher.HashCode(code);
         if (!CryptographicOperations.FixedTimeEquals(codeHash, request.CodeHash))
         {
-            try
+            // Read-Modify-Write 在平行錯碼下會遺失更新：兩個請求可能讀到同一個 AttemptCount，
+            // 各自 +1 存回去，RowVersion 只保護「其中一個先存成功」，另一個會拋並行衝突而不是
+            // 靜靜蓋過去——靠這裡重新載入最新版本、重算一次，確保每一次猜測都確實被計數，
+            // 第五次也才會可靠地原子鎖定，而不是被併發吃掉。
+            for (var attempt = 0; ; attempt++)
             {
-                request.RecordFailedAttempt(nowUtc);
-                await gateway.SaveChangesAsync(cancellationToken);
-            }
-            catch (InvalidOperationException)
-            {
-                // 已經在這次呼叫前就失效（過期／鎖定／撤銷）——不再重覆記一次嘗試。
+                try
+                {
+                    request.RecordFailedAttempt(nowUtc);
+                    await gateway.SaveChangesAsync(cancellationToken);
+                    break;
+                }
+                catch (InvalidOperationException)
+                {
+                    // 已經在這次呼叫前就失效（過期／鎖定／撤銷）——不再重覆記一次嘗試。
+                    break;
+                }
+                catch (DomainProblemException exception)
+                    when (exception.Code == DomainErrorCodes.ConcurrencyConflict)
+                {
+                    if (attempt >= MaxFailedAttemptConcurrencyRetries)
+                    {
+                        // 重試次數用盡仍持續衝突——安全放棄，維持標準失敗回應，
+                        // 不讓例外繼續往上傳變成非預期的錯誤形狀。
+                        break;
+                    }
+
+                    await gateway.ReloadRequestAsync(request, cancellationToken);
+                    nowUtc = timeProvider.GetUtcNow().UtcDateTime;
+                }
             }
 
             return new GuestOrderAccessVerifyResult.Failure(GuestOrderErrorCodes.VerificationInvalid);
@@ -231,7 +261,17 @@ public sealed class GuestOrderAccessUseCase(
             tokenExpiresAtUtc,
             nowUtc);
         await gateway.AddTokenAsync(token, cancellationToken);
-        await gateway.SaveChangesAsync(cancellationToken);
+
+        try
+        {
+            await gateway.SaveChangesAsync(cancellationToken);
+        }
+        catch (DomainProblemException exception) when (exception.Code == DomainErrorCodes.ConcurrencyConflict)
+        {
+            // 平行的另一個正確碼已經先消耗掉這個 Request（同一張 Challenge 只能核發一個
+            // Token）——這裡永遠是輸的那一邊，直接安全失敗，不重新嘗試核發第二個 Token。
+            return new GuestOrderAccessVerifyResult.Failure(GuestOrderErrorCodes.VerificationInvalid);
+        }
 
         return new GuestOrderAccessVerifyResult.Success(rawToken, lookup.OrderPublicId, tokenExpiresAtUtc);
     }

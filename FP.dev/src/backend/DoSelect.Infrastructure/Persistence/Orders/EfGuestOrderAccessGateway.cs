@@ -1,3 +1,4 @@
+using DoSelect.Application.Common;
 using DoSelect.Application.Orders;
 using DoSelect.Domain.Orders;
 using Microsoft.EntityFrameworkCore;
@@ -123,6 +124,22 @@ public sealed class EfGuestOrderAccessGateway(DoSelectDbContext dbContext) : IGu
         return expiredTokenIds.Count + deletedRequestCount;
     }
 
-    public Task SaveChangesAsync(CancellationToken cancellationToken = default) =>
-        dbContext.SaveChangesAsync(cancellationToken);
+    public async Task SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException exception)
+        {
+            throw DomainProblemException.Conflict(
+                DomainErrorCodes.ConcurrencyConflict,
+                "The guest order access request was modified by another request.")
+                .WithInnerException(exception);
+        }
+    }
+
+    public Task ReloadRequestAsync(
+        GuestOrderAccessRequest request, CancellationToken cancellationToken = default) =>
+        dbContext.Entry(request).ReloadAsync(cancellationToken);
 }
