@@ -986,9 +986,10 @@ public sealed class CartServiceTests
     }
 
     /// <summary>
-    /// Two genuinely concurrent calls with the same Key race to INSERT the IdempotencyRecord
-    /// reservation first; the loser must never execute the merge logic (which would otherwise
-    /// double-apply the guest cart's items into the member cart before either commits).
+    /// Two calls launched together with the same Key race to INSERT the IdempotencyRecord
+    /// reservation first. Depending on scheduling, the second call either overlaps and receives
+    /// request-in-progress, or starts after commit and replays the stored result. In both cases,
+    /// only one original execution may apply the merge.
     /// </summary>
     [Fact]
     public async Task MergeAsync_WhenCalledConcurrentlyWithTheSameKey_OnlyOneWinnerAppliesTheMerge()
@@ -1014,10 +1015,21 @@ public sealed class CartServiceTests
             RunOrCaptureConflictAsync(serviceA, memberUserId, request),
             RunOrCaptureConflictAsync(serviceB, memberUserId, request));
 
-        var succeeded = results.Where(result => result.Result is not null).ToList();
-        Assert.Single(succeeded);
-        var memberCartPublicId = succeeded[0].Result!.Body.Cart.PublicId;
-        Assert.Equal(3, Assert.Single(succeeded[0].Result!.Body.Cart.Items).Quantity);
+        var original = Assert.Single(results, result => result.Result is { IsReplay: false });
+        var memberCartPublicId = original.Result!.Body.Cart.PublicId;
+        Assert.Equal(3, Assert.Single(original.Result.Body.Cart.Items).Quantity);
+
+        var replayed = results.Where(result => result.Result is { IsReplay: true }).ToList();
+        var conflicted = results
+            .Where(result => result.ConflictErrorCode == IdempotencyErrorCodes.RequestInProgress)
+            .ToList();
+        Assert.Equal(1, replayed.Count + conflicted.Count);
+
+        if (replayed.Count == 1)
+        {
+            Assert.Equal(memberCartPublicId, replayed[0].Result!.Body.Cart.PublicId);
+            Assert.Equal(3, Assert.Single(replayed[0].Result!.Body.Cart.Items).Quantity);
+        }
 
         // Sum only the *member* cart's items for this SKU — the guest cart's original item row
         // still physically exists (Converted, not deleted), so summing across all carts would
