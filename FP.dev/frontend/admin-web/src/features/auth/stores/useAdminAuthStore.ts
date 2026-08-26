@@ -82,13 +82,13 @@ export const useAdminAuthStore = defineStore('adminAuth', {
       this.loading = true
       this.errorMessage = null
       try {
-        const { data, error } = await client().POST('/api/v1/admin/auth/login', {
+        // ⚠ alex review：共用 client 的 middleware 對非 2xx 一律 throw（見
+        // frontend/shared/src/api/client.ts 的 onResponse），openapi-fetch 回傳的
+        // `error` 欄位實際上永遠不會有值——這裡就算解構出來也是死碼，統一改在下面的
+        // catch 依 ApiError.code 處理，不要再寫一次一定進不去的 `if (error)` 分支。
+        const { data } = await client().POST('/api/v1/admin/auth/login', {
           body: { email, password },
         })
-        if (error) {
-          this.errorMessage = messageForCode(error.code)
-          return
-        }
         if (data) {
           this.challenge = {
             kind: data.requiresEnrollment ? 'enroll' : 'totp',
@@ -112,21 +112,9 @@ export const useAdminAuthStore = defineStore('adminAuth', {
       this.loading = true
       this.errorMessage = null
       try {
-        const { data, error } = await client().POST('/api/v1/admin/auth/totp/verify', {
+        const { data } = await client().POST('/api/v1/admin/auth/totp/verify', {
           body: { challengePublicId: this.challenge.publicId, code },
         })
-        if (error) {
-          this.errorMessage = messageForCode(error.code)
-          // 後端已經讓 challenge 失效（簽出 AdminChallenge Cookie）；清掉本地的
-          // challenge，讓 router guard 的 requiresChallenge 檢查把使用者導回登入頁，
-          // 而不是留著一個已經死掉的 challenge 讓頁面看起來還能用。admin_challenge_invalid
-          // （過期／SecurityStamp 不符）跟 admin_challenge_rate_limited 都代表同一件事——
-          // 這個 challenge 已經死了，原本只處理後者是漏網之魚（alex review P2#7）。
-          if (error.code === 'admin_challenge_rate_limited' || error.code === 'admin_challenge_invalid') {
-            this.challenge = null
-          }
-          return false
-        }
         if (data) {
           this.session = { isAuthenticated: true, user: data.user, expiresAtUtc: data.expiresAtUtc, requiresTwoFactor: null }
           this.challenge = null
@@ -137,6 +125,18 @@ export const useAdminAuthStore = defineStore('adminAuth', {
         return false
       } catch (caught) {
         this.errorMessage = isApiError(caught) ? messageForCode(caught.code) : '無法連線到伺服器。'
+        // ⚠ alex review：共用 client 對非 2xx 一律 throw，所以這個 catch 才是真正會被
+        // 執行到的分支——challenge 的清除邏輯必須放在這裡，放在上面解構出的 `error` 裡
+        // 是永遠進不去的死碼（之前的修正因此完全沒有生效）。後端已經讓 challenge 失效
+        // （簽出 AdminChallenge Cookie）；清掉本地的 challenge，讓 router guard 的
+        // requiresChallenge 檢查把使用者導回登入頁，而不是留著一個已經死掉的 challenge
+        // 讓頁面看起來還能用。admin_challenge_invalid（過期／SecurityStamp 不符）跟
+        // admin_challenge_rate_limited 都代表同一件事——這個 challenge 已經死了；純粹
+        // 驗證碼輸錯（admin_two_factor_invalid）則不會讓 challenge 失效，維持可以重試。
+        if (isApiError(caught) &&
+          (caught.code === 'admin_challenge_rate_limited' || caught.code === 'admin_challenge_invalid')) {
+          this.challenge = null
+        }
         return false
       } finally {
         this.loading = false
@@ -150,18 +150,9 @@ export const useAdminAuthStore = defineStore('adminAuth', {
       this.loading = true
       this.errorMessage = null
       try {
-        const { data, error } = await client().POST('/api/v1/admin/auth/recovery-codes/use', {
+        const { data } = await client().POST('/api/v1/admin/auth/recovery-codes/use', {
           body: { challengePublicId: this.challenge.publicId, code },
         })
-        if (error) {
-          this.errorMessage = messageForCode(error.code)
-          // 跟 verifyTotp／confirmRebind 一致：admin_challenge_invalid（過期／SecurityStamp
-          // 不符）也代表這個 challenge 已經死了，不能只處理 rate_limited（alex review P2）。
-          if (error.code === 'admin_challenge_rate_limited' || error.code === 'admin_challenge_invalid') {
-            this.challenge = null
-          }
-          return false
-        }
         if (data) {
           this.session = { isAuthenticated: true, user: data.user, expiresAtUtc: data.expiresAtUtc, requiresTwoFactor: null }
           this.challenge = null
@@ -172,6 +163,13 @@ export const useAdminAuthStore = defineStore('adminAuth', {
         return false
       } catch (caught) {
         this.errorMessage = isApiError(caught) ? messageForCode(caught.code) : '無法連線到伺服器。'
+        // 跟 verifyTotp 一致：admin_challenge_invalid（過期／SecurityStamp 不符）也代表
+        // 這個 challenge 已經死了，不能只處理 rate_limited；清除邏輯必須放在 catch，放在
+        // 解構出的 `error` 裡是永遠進不去的死碼（alex review）。
+        if (isApiError(caught) &&
+          (caught.code === 'admin_challenge_rate_limited' || caught.code === 'admin_challenge_invalid')) {
+          this.challenge = null
+        }
         return false
       } finally {
         this.loading = false
@@ -185,13 +183,9 @@ export const useAdminAuthStore = defineStore('adminAuth', {
       this.loading = true
       this.errorMessage = null
       try {
-        const { data, error } = await client().POST('/api/v1/admin/auth/totp/enroll/begin', {
+        const { data } = await client().POST('/api/v1/admin/auth/totp/enroll/begin', {
           params: { query: { challengePublicId: this.challenge.publicId } },
         })
-        if (error) {
-          this.errorMessage = messageForCode(error.code)
-          return null
-        }
         return data ?? null
       } catch (caught) {
         this.errorMessage = isApiError(caught) ? messageForCode(caught.code) : '無法連線到伺服器。'
@@ -208,18 +202,9 @@ export const useAdminAuthStore = defineStore('adminAuth', {
       this.loading = true
       this.errorMessage = null
       try {
-        const { data, error } = await client().POST('/api/v1/admin/auth/totp/enroll/confirm', {
+        const { data } = await client().POST('/api/v1/admin/auth/totp/enroll/confirm', {
           body: { challengePublicId: this.challenge.publicId, code },
         })
-        if (error) {
-          this.errorMessage = messageForCode(error.code)
-          // 跟 verifyTotp／confirmRebind 一致：admin_challenge_invalid 也代表這個 challenge
-          // 已經死了，不能只處理 rate_limited（alex review P2）。
-          if (error.code === 'admin_challenge_rate_limited' || error.code === 'admin_challenge_invalid') {
-            this.challenge = null
-          }
-          return null
-        }
         if (data) {
           this.session = { isAuthenticated: true, user: data.user, expiresAtUtc: data.expiresAtUtc, requiresTwoFactor: null }
           this.challenge = null
@@ -230,6 +215,12 @@ export const useAdminAuthStore = defineStore('adminAuth', {
         return null
       } catch (caught) {
         this.errorMessage = isApiError(caught) ? messageForCode(caught.code) : '無法連線到伺服器。'
+        // 跟 verifyTotp／confirmRebind 一致：admin_challenge_invalid 也代表這個 challenge
+        // 已經死了，不能只處理 rate_limited；清除邏輯必須放在 catch（alex review）。
+        if (isApiError(caught) &&
+          (caught.code === 'admin_challenge_rate_limited' || caught.code === 'admin_challenge_invalid')) {
+          this.challenge = null
+        }
         return null
       } finally {
         this.loading = false
@@ -246,15 +237,11 @@ export const useAdminAuthStore = defineStore('adminAuth', {
       this.loading = true
       this.errorMessage = null
       try {
-        const { data, error } = await client().POST('/api/v1/admin/auth/totp/rebind/begin', {
+        const { data } = await client().POST('/api/v1/admin/auth/totp/rebind/begin', {
           body: 'totpCode' in stepUp
             ? { totpCode: stepUp.totpCode, recoveryCode: null }
             : { totpCode: null, recoveryCode: stepUp.recoveryCode },
         })
-        if (error) {
-          this.errorMessage = messageForCode(error.code)
-          return null
-        }
         if (data) {
           this.rebindChallengePublicId = data.challengePublicId
         }
@@ -274,19 +261,9 @@ export const useAdminAuthStore = defineStore('adminAuth', {
       this.loading = true
       this.errorMessage = null
       try {
-        const { data, error } = await client().POST('/api/v1/admin/auth/totp/rebind/confirm', {
+        const { data } = await client().POST('/api/v1/admin/auth/totp/rebind/confirm', {
           body: { challengePublicId: this.rebindChallengePublicId, code },
         })
-        if (error) {
-          this.errorMessage = messageForCode(error.code)
-          // 跟登入流程一致：challenge 已經死掉（過期／限流／SecurityStamp 不符）就清掉本地
-          // 狀態，逼使用者回到「開始重新綁定」重新拿一組新的 challenge，而不是讓表單卡在
-          // 一個後端已經拒絕、重送也不會成功的舊 challengePublicId 上。
-          if (error.code === 'admin_challenge_rate_limited' || error.code === 'admin_challenge_invalid') {
-            this.rebindChallengePublicId = null
-          }
-          return null
-        }
         if (data) {
           this.session = { isAuthenticated: true, user: data.user, expiresAtUtc: data.expiresAtUtc, requiresTwoFactor: null }
           this.rebindChallengePublicId = null
@@ -298,6 +275,16 @@ export const useAdminAuthStore = defineStore('adminAuth', {
         return null
       } catch (caught) {
         this.errorMessage = isApiError(caught) ? messageForCode(caught.code) : '無法連線到伺服器。'
+        // 後端 ConfirmRebind 不論成功或失敗，這張單次 rebind challenge 都會被簽出／作廢
+        // （見 AdminAuthController.ConfirmRebind：任何失敗分支都會 SignOutAsync
+        // AdminChallenge），所以任何 ApiError（包含輸錯驗證碼的 admin_two_factor_invalid，
+        // 不只 admin_challenge_invalid／admin_challenge_rate_limited）都代表這組
+        // challengePublicId 已經死了。清掉本地狀態，逼使用者回到「開始重新綁定」重新拿
+        // 一組新的 challenge，而不是讓表單卡在一個重送也不會成功的舊 ID 上（alex review：
+        // 清除邏輯必須放在 catch，且要涵蓋 admin_two_factor_invalid）。
+        if (isApiError(caught)) {
+          this.rebindChallengePublicId = null
+        }
         return null
       } finally {
         this.loading = false

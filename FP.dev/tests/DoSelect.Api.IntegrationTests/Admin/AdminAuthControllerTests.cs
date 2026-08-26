@@ -265,6 +265,48 @@ public sealed class AdminAuthControllerTests : IClassFixture<WebApplicationFacto
             .ToListAsync();
         Assert.Single(lockoutAudits);
         Assert.Equal(AuditResult.Rejected, lockoutAudits[0].Result);
+
+        // ⚠ alex review 最新一輪 P1#2：Actor 必須是 System，不能把被鎖定的管理員自己記成
+        // 施暴的 Actor——匿名密碼嘗試造成的鎖定，沒有真正「登入的人」可以當 Actor。
+        Assert.Equal(AuditActorType.System, lockoutAudits[0].ActorType);
+        Assert.Null(lockoutAudits[0].ActorPublicId);
+    }
+
+    [Fact]
+    public async Task Login_WhenTheFifthWrongPasswordTriggersLockoutForAZeroRoleAdmin_StillLocksTheAccountWithoutA500()
+    {
+        // ⚠ alex review 最新一輪 P1#2 核心回歸測試：修正前，Lockout Audit 把被鎖定的管理員自己
+        // 記成 Actor；AuditActor.Create(Admin, ..., roles) 對零角色的 Admin Actor 會直接拋例外
+        // （見 AuditContracts.cs），而 Lockout 與 Audit 又在同一交易——例外會讓整筆鎖定 rollback，
+        // 回應變成 500，鎖定門檻形同虛設。目前登入資格與 Admin policy 都沒有要求至少一個角色，
+        // 所以零角色管理員是真實可能發生的狀態，不能靠「反正一定有角色」規避這個情境。
+        var (client, email, userId, factory) = await CreateEnrolledAdminWithoutAnyRoleAsync();
+
+        for (var attempt = 0; attempt < 4; attempt++)
+        {
+            using var wrongResponse = await LoginAsync(client, email, "wrong-password");
+            Assert.Equal(HttpStatusCode.Unauthorized, wrongResponse.StatusCode);
+        }
+
+        using var fifthResponse = await LoginAsync(client, email, "wrong-password");
+        using var fifthDocument = await ReadProblemDetailsAsync(fifthResponse);
+        Assert.Equal(HttpStatusCode.Unauthorized, fifthResponse.StatusCode);
+        Assert.Equal(
+            AdminAuthErrorCodes.InvalidCredentials, fifthDocument.RootElement.GetProperty("code").GetString());
+
+        using var scope = factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+        var user = await scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>().FindByIdAsync(userId);
+        Assert.NotNull(await scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>()
+            .GetLockoutEndDateAsync(user!));
+
+        var lockoutAudits = await dbContext.AuditLogs
+            .Where(a => a.Action == AuditActions.AdminAccountLockout && a.ResourcePublicId == user!.PublicId)
+            .ToListAsync();
+        Assert.Single(lockoutAudits);
+        Assert.Equal(AuditActorType.System, lockoutAudits[0].ActorType);
+        Assert.Null(lockoutAudits[0].ActorPublicId);
+        Assert.Equal(user!.PublicId, lockoutAudits[0].ResourcePublicId);
     }
 
     [Fact]
@@ -324,6 +366,42 @@ public sealed class AdminAuthControllerTests : IClassFixture<WebApplicationFacto
         await PrimeAdminAntiforgeryAsync(client);
         using var reloginResponse = await FullyLogInAsync(client, email, secret);
         Assert.Equal(HttpStatusCode.OK, reloginResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task BeginRebind_WhenStepUpAttemptsExceedTheRateLimit_Returns429EvenWithACorrectCode()
+    {
+        // ⚠ alex review 最新一輪 P1#1：Rebind step-up 原本只套用 per-IP 的 AuthLogin 限流
+        // （每小時 20 次），沒有重用既有的三桶（IP＋step-up＋帳號）限流器——Admin Session 被偷後
+        // 換 IP 就能對同一帳號無限猜舊 TOTP／Recovery Code，密碼 Lockout 也保護不到這個端點。
+        // 這裡把門檻調小到 2 次，證明額度用滿後，就算第三次真的帶正確的 TOTP 碼，也會在驗證
+        // 憑證「之前」被擋下（429），不會走到 BeginRebindAsync、不會建立 pending secret。三桶
+        // 各自獨立、換 IP／換 Session 不會重置額度的細節已由 AdminChallengeRateLimiterTests
+        // 涵蓋，這裡只證明 BeginRebind 端點真的有套用同一套限流器。
+        var (client, email, secret) = await CreateEnrolledAdminAsync(rateLimitOverride: new RateLimitOptions
+        {
+            AdminChallengePermitLimit = 2,
+            AdminChallengeWindowMinutes = 15,
+        });
+        using var fullLoginResponse = await FullyLogInAsync(client, email, secret);
+        Assert.Equal(HttpStatusCode.OK, fullLoginResponse.StatusCode);
+
+        await PrimeAdminAntiforgeryAsync(client);
+
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            using var wrongResponse = await client.PostAsJsonAsync(
+                "/api/v1/admin/auth/totp/rebind/begin", new { totpCode = "000000", recoveryCode = (string?)null });
+            Assert.Equal(HttpStatusCode.BadRequest, wrongResponse.StatusCode);
+        }
+
+        var correctCode = TotpTestHelper.GenerateCode(secret);
+        using var rateLimitedResponse = await client.PostAsJsonAsync(
+            "/api/v1/admin/auth/totp/rebind/begin", new { totpCode = correctCode, recoveryCode = (string?)null });
+        using var rateLimitedDocument = await ReadProblemDetailsAsync(rateLimitedResponse);
+        Assert.Equal(HttpStatusCode.TooManyRequests, rateLimitedResponse.StatusCode);
+        Assert.Equal(
+            AdminAuthErrorCodes.ChallengeRateLimited, rateLimitedDocument.RootElement.GetProperty("code").GetString());
     }
 
     [Fact]
@@ -477,6 +555,36 @@ public sealed class AdminAuthControllerTests : IClassFixture<WebApplicationFacto
         await dbContext.SaveChangesAsync();
 
         return (client, email);
+    }
+
+    /// <summary>
+    /// ⚠ 刻意不指派任何角色（不呼叫 <see cref="EnsureSuperAdminRoleAsync"/>）——用來重現
+    /// Lockout Audit 誤把被鎖定管理員當 Actor 時，零角色會讓 AuditActor.Create 拋例外的那個
+    /// bug（alex review 最新一輪 P1#2）。目前登入資格與 Admin policy 都沒有要求至少一個角色，
+    /// 零角色管理員是真實可能發生的狀態。
+    /// </summary>
+    private async Task<(HttpClient Client, string Email, string UserId, WebApplicationFactory<Program> Factory)>
+        CreateEnrolledAdminWithoutAnyRoleAsync()
+    {
+        var factory = CreateIsolatedFactory();
+        var client = factory.CreateClient();
+        await PrimeAdminAntiforgeryAsync(client);
+
+        var email = UniqueEmail();
+        using var scope = factory.Services.CreateScope();
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var dbContext = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+
+        var now = DateTime.UtcNow;
+        var user = ApplicationUser.CreateAdmin(Guid.NewGuid(), email, now);
+        user.ConfirmEmail(now);
+        var createResult = await userManager.CreateAsync(user, Password);
+        Assert.True(createResult.Succeeded, string.Join(";", createResult.Errors.Select(e => e.Description)));
+
+        dbContext.AdminProfiles.Add(new AdminProfile(user.Id, Guid.NewGuid(), UniqueEmployeeCode(), "整合測試管理員", now));
+        await dbContext.SaveChangesAsync();
+
+        return (client, email, user.Id, factory);
     }
 
     /// <summary>

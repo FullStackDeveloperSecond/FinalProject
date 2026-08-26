@@ -36,6 +36,13 @@ public sealed class AdminAuthController(
     // ChangedFieldsJson／ErrorCode），也避免踩到 AuditFieldChange.RequireSafeCode 的禁用字清單
     // （例如 "totp"、"recovery"、"token" 都不能出現在 reason／errorCode 裡）。
     private const string AuditReasonCode = "admin_auth_state_change";
+
+    /// <summary>
+    /// Rebind step-up（BeginRebind）在拿到真正的 rebind challenge 之前就要限流；沒有
+    /// challengePublicId 可用，固定用這個字串當三桶限流的「challenge」維度（alex review）。
+    /// </summary>
+    private const string RebindStepUpChallengeKey = "rebind-step-up";
+
     [HttpGet("session")]
     [AllowAnonymous]
     [ProducesResponseType(typeof(AuthSessionDto), StatusCodes.Status200OK)]
@@ -84,11 +91,17 @@ public sealed class AdminAuthController(
         var result = await loginUseCase.ExecuteAsync(request.Email, request.Password, cancellationToken);
         if (!result.IsSuccess)
         {
-            if (result.LockoutAuditUser is not null)
+            if (result.LockoutAuditResourcePublicId is { } lockedOutAdminPublicId)
             {
-                RecordAdminAudit(
+                // ⚠ alex review：這一刻的呼叫者是匿名的（連續猜密碼的人，可能是真正的管理員，
+                // 也可能是攻擊者）——Actor 必須是 System，不能把被鎖定的管理員自己記成施暴的
+                // Actor。也不能沿用 RecordAdminAudit（那個 overload 硬性把傳入的
+                // AdminAuthUserSnapshot 同時當 Actor 與 Resource，且要求 Admin Actor 至少一個
+                // 角色——零角色管理員被鎖定時會直接拋例外，讓鎖定寫入一併 rollback，鎖定機制
+                // 形同虛設）。
+                RecordSystemAdminAudit(
                     AuditActions.AdminAccountLockout,
-                    result.LockoutAuditUser,
+                    lockedOutAdminPublicId,
                     AuditResult.Rejected,
                     AdminAuthErrorCodes.AccountLocked,
                     [AuditFieldChange.Changed("lockoutEnd")]);
@@ -118,6 +131,8 @@ public sealed class AdminAuthController(
     [HttpPost("logout")]
     [Authorize(Policy = DoSelectPolicies.Admin)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> Logout()
     {
         await HttpContext.SignOutAsync(DoSelectAuthenticationSchemes.Admin);
@@ -294,12 +309,19 @@ public sealed class AdminAuthController(
     /// Session Cookie 被偷就能整套重綁走人。這裡改成必須先完成 step-up：驗證現有 TOTP，或消耗
     /// 一組 Recovery Code；兩者都沒有時不允許自助重綁（改走 SuperAdmin／人工安全重設流程）。
     /// Step-up 失敗一律 rollback，不會呼叫 BeginRebindAsync——不會建立或替換待確認秘鑰。
+    /// 再一輪 review 又指出：光靠 `[EnableRateLimiting(AuthLogin)]`（單純 per-IP）不夠——Session
+    /// 被偷後換 IP 就能對同一帳號無限猜舊 TOTP／Recovery Code，密碼 Lockout 也保護不到這個
+    /// 端點。在驗證憑證「之前」重用既有三桶限流器（IP＋step-up 專用桶＋帳號），任一超限即拒絕
+    /// 並寫中央 Audit，不建立 pending secret。
     /// </summary>
     [HttpPost("totp/rebind/begin")]
     [Authorize(Policy = DoSelectPolicies.Admin)]
     [EnableRateLimiting(RateLimitPolicies.AuthLogin)]
     [ProducesResponseType(typeof(TotpRebindBeginResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public async Task<IActionResult> BeginRebind(
         [FromBody] TotpRebindBeginRequest request, CancellationToken cancellationToken)
     {
@@ -311,6 +333,14 @@ public sealed class AdminAuthController(
         {
             return BadRequest(ApiProblemDetailsFactory.Create(
                 HttpContext, StatusCodes.Status400BadRequest, AdminAuthErrorCodes.RebindStepUpRequired));
+        }
+
+        // 三桶限流必須在驗證憑證之前消耗——跟 TryAcquireChallengeAttempt 同一套機制，這裡還
+        // 沒有真正的 challenge（要 step-up 通過才會簽發），所以用固定的
+        // RebindStepUpChallengeKey 當「challenge」維度；IP 與帳號兩個維度仍然各自獨立。
+        if (!rateLimiter.TryAcquire(GetClientIpAddress(), RebindStepUpChallengeKey, userId))
+        {
+            return await RejectRebindStepUpRateLimitedAsync(userId, cancellationToken);
         }
 
         await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
@@ -372,6 +402,8 @@ public sealed class AdminAuthController(
     [Authorize(Policy = DoSelectPolicies.Admin)]
     [ProducesResponseType(typeof(TotpEnrollConfirmResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public async Task<IActionResult> ConfirmRebind(
         [FromBody] TotpRebindConfirmRequest request, CancellationToken cancellationToken)
@@ -464,6 +496,33 @@ public sealed class AdminAuthController(
             action,
             AuditResourceTypes.AdminAccount,
             user.PublicId,
+            result,
+            errorCode,
+            changes,
+            AuditReasonCode,
+            CorrelationIdMiddleware.GetCorrelationId(HttpContext),
+            GetTraceId(),
+            jobPublicId: null,
+            HttpContext.Connection.RemoteIpAddress));
+
+    /// <summary>
+    /// 寫入中央 AuditLog，Actor 是 <see cref="AuditActorType.System"/>（不帶 PublicId／Roles）——
+    /// 用在系統自動判定、沒有真正登入使用者當 Actor 的事件（目前只有匿名密碼嘗試觸發的
+    /// 30 分鐘 Lockout）。被影響的管理員只當 Resource，不會被誤記成施暴的 Actor，也不會因為
+    /// 該管理員零角色而讓 <see cref="AuditActor.Create"/> 拋例外（alex review 最新一輪 P1#2）。
+    /// </summary>
+    private void RecordSystemAdminAudit(
+        string action,
+        Guid resourcePublicId,
+        AuditResult result,
+        string? errorCode,
+        IReadOnlyCollection<AuditFieldChange> changes) =>
+        auditWriter.Add(AuditWriteRequest.Create(
+            Guid.CreateVersion7(),
+            AuditActor.Create(AuditActorType.System, publicId: null, roles: []),
+            action,
+            AuditResourceTypes.AdminAccount,
+            resourcePublicId,
             result,
             errorCode,
             changes,
@@ -607,6 +666,29 @@ public sealed class AdminAuthController(
         await RecordAdminAuditForUserIdAsync(
             AuditActions.AdminChallengeRateLimited,
             challenge.UserId,
+            AuditResult.Rejected,
+            AdminAuthErrorCodes.ChallengeRateLimited,
+            cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return StatusCode(
+            StatusCodes.Status429TooManyRequests,
+            ApiProblemDetailsFactory.Create(
+                HttpContext, StatusCodes.Status429TooManyRequests, AdminAuthErrorCodes.ChallengeRateLimited));
+    }
+
+    /// <summary>
+    /// Rebind step-up 超過嘗試上限：寫入稽核、回 429。跟 <see cref="RejectChallengeRateLimitedAsync"/>
+    /// 不同之處是這裡還沒有 rebind challenge 可以簽出（step-up 通過才會簽發），也沒有既有
+    /// AdminChallenge Cookie 需要作廢——呼叫者的完整 Admin Session 本身不受影響，只是這次
+    /// 重新綁定的嘗試被拒絕。
+    /// </summary>
+    private async Task<IActionResult> RejectRebindStepUpRateLimitedAsync(
+        string userId, CancellationToken cancellationToken)
+    {
+        await RecordAdminAuditForUserIdAsync(
+            AuditActions.AdminChallengeRateLimited,
+            userId,
             AuditResult.Rejected,
             AdminAuthErrorCodes.ChallengeRateLimited,
             cancellationToken);

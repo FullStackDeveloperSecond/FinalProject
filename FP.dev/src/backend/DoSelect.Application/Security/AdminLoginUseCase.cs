@@ -14,14 +14,14 @@ public sealed class AdminLoginResult
         bool requiresTwoFactor,
         string? userId,
         Guid? publicId,
-        AdminAuthUserSnapshot? lockoutAuditUser)
+        Guid? lockoutAuditResourcePublicId)
     {
         ErrorCode = errorCode;
         RequiresEnrollment = requiresEnrollment;
         RequiresTwoFactor = requiresTwoFactor;
         UserId = userId;
         PublicId = publicId;
-        LockoutAuditUser = lockoutAuditUser;
+        LockoutAuditResourcePublicId = lockoutAuditResourcePublicId;
     }
 
     public bool IsSuccess => ErrorCode is null;
@@ -41,13 +41,16 @@ public sealed class AdminLoginResult
     /// （避免帳號枚舉），真正的鎖定狀態只在這次呼叫「剛好觸發」鎖定時透過這個欄位往上帶，讓
     /// Controller 能寫一筆中央 Audit（見 AdminAuthController.Login）。已經處於鎖定狀態的後續嘗試
     /// 不會再帶這個欄位——那次鎖定在第一次觸發時就已經有稽核紀錄了。
+    /// 只帶 PublicId（被鎖定帳號當 Audit 的 Resource），不帶整個使用者快照——匿名密碼嘗試
+    /// 造成的鎖定，Actor 必須是 System，不能把被鎖定的管理員自己當成施暴的 Actor（見
+    /// AdminAuthController.RecordSystemAdminAudit；alex review 最新一輪 P1#2）。
     /// </summary>
-    public AdminAuthUserSnapshot? LockoutAuditUser { get; }
+    public Guid? LockoutAuditResourcePublicId { get; }
 
     public static AdminLoginResult Failure(string errorCode) => new(errorCode, false, false, null, null, null);
 
     public static AdminLoginResult FailureWithLockoutAudit(AdminAuthUserSnapshot user) =>
-        new(AdminAuthErrorCodes.InvalidCredentials, false, false, user.UserId, user.PublicId, user);
+        new(AdminAuthErrorCodes.InvalidCredentials, false, false, user.UserId, user.PublicId, user.PublicId);
 
     public static AdminLoginResult NeedsEnrollment(string userId, Guid publicId) =>
         new(null, true, false, userId, publicId, null);

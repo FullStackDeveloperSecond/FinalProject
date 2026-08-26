@@ -107,6 +107,8 @@ export interface AdminAuthPaths {
     post: {
       responses: {
         204: { content: never }
+        401: { content: { 'application/problem+json': ProblemDetails } }
+        403: { content: { 'application/problem+json': ProblemDetails } }
       }
     }
   }
@@ -156,6 +158,8 @@ export interface AdminAuthPaths {
         200: { content: { 'application/json': TotpRebindBeginResponseDto } }
         400: { content: { 'application/problem+json': ProblemDetails } }
         401: { content: { 'application/problem+json': ProblemDetails } }
+        403: { content: { 'application/problem+json': ProblemDetails } }
+        429: { content: { 'application/problem+json': ProblemDetails } }
       }
     }
   }
@@ -165,6 +169,8 @@ export interface AdminAuthPaths {
       responses: {
         200: { content: { 'application/json': TotpEnrollConfirmResponseDto } }
         400: { content: { 'application/problem+json': ProblemDetails } }
+        401: { content: { 'application/problem+json': ProblemDetails } }
+        403: { content: { 'application/problem+json': ProblemDetails } }
         429: { content: { 'application/problem+json': ProblemDetails } }
       }
     }

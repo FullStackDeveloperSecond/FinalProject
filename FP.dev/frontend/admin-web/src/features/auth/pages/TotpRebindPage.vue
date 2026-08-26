@@ -85,7 +85,7 @@ async function onAcknowledge(): Promise<void> {
       @submit.prevent="onStepUpSubmit"
     >
       <p class="field-error">
-        ⚠ 確認身分後，目前的驗證碼設定會立刻失效，其他所有裝置上既有的登入 Session
+        ⚠ 完成重新綁定後，目前的驗證碼設定會失效，其他所有裝置上既有的登入 Session
         也會全部失效。請確定手邊已經有新的 Authenticator App 準備好再繼續。
       </p>
 
