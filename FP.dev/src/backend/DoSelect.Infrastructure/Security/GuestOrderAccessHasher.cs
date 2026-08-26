@@ -6,8 +6,10 @@ using Microsoft.Extensions.Options;
 namespace DoSelect.Infrastructure.Security;
 
 /// <summary>
-/// HMAC-SHA256 實作，金鑰來自 <see cref="GuestOrderAccessOptions.Pepper"/>。比照
-/// <c>EfIdempotencyExecutor</c> 對 Pepper 長度的驗證方式。
+/// HMAC-SHA256 實作，金鑰來自 <see cref="GuestOrderAccessOptions.Pepper"/>。長度檢查現在
+/// 由 <c>ConfigurationValidationExtensions.AddValidatedConfiguration</c> 的
+/// <c>ValidateOnStart()</c> 在應用程式啟動時就先擋下，這裡的建構子檢查是第二層防線
+/// （例如測試直接 new 這個類別、繞過完整 DI 啟動流程時）。
 /// </summary>
 public sealed class GuestOrderAccessHasher : IGuestOrderAccessHasher
 {
