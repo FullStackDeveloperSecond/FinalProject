@@ -21,6 +21,9 @@ namespace DoSelect.Infrastructure.Tests.Returns;
 [Trait("Category", "RequiresSqlServer")]
 public sealed class AddGuestUploaderMigrationSqlServerTests
 {
+    private const string ConnectionStringEnvironmentVariable = "DOSELECT_SQLSERVER_TEST_CONNECTION";
+    private const string LocalConnectionString =
+        "Server=.\\SQL2025;Database=DoSelect;Trusted_Connection=True;Encrypt=False;";
     private const string TargetMigrationId = "20260826012917_AddGuestUploaderToReturnAttachments";
     private const string PriorMigrationId = "20260825174929_AddCentralAuditLogs";
     private static readonly DateTime NowUtc = new(2026, 8, 26, 4, 0, 0, DateTimeKind.Utc);
@@ -186,9 +189,12 @@ public sealed class AddGuestUploaderMigrationSqlServerTests
 
     private static async Task RunAgainstFreshDatabaseAsync(Func<DoSelectDbContext, Task> test)
     {
-        var connectionString =
-            $"Server=.\\SQL2025;Database=DoSelectGuestUploaderMigration_{Guid.NewGuid():N};" +
-            "Trusted_Connection=True;TrustServerCertificate=True;";
+        var connectionString = new SqlConnectionStringBuilder(
+            Environment.GetEnvironmentVariable(ConnectionStringEnvironmentVariable) ??
+            LocalConnectionString)
+        {
+            InitialCatalog = $"DoSelectGuestUploaderMigration_{Guid.NewGuid():N}",
+        }.ConnectionString;
         var options = new DbContextOptionsBuilder<DoSelectDbContext>().UseSqlServer(connectionString).Options;
         await using var context = new DoSelectDbContext(options);
         try
