@@ -155,6 +155,63 @@ public sealed class GuestOrderAccessUseCaseTests
         Assert.IsType<GuestOrderAccessAcceptedResult.Accepted>(last);
     }
 
+    [Fact]
+    public async Task ResendAsync_ForValidRequest_RotatesCodeAndSendsNewEmail()
+    {
+        // 修正前：Resend 不寄信、也不換碼，只是白算 SaveChanges。修正後每次重寄要換發
+        // 新碼、原子取代舊 CodeHash（舊碼立即失效），並實際 Enqueue 一封新信。
+        var gateway = new FakeGuestOrderAccessGateway();
+        var orderPublicId = Guid.CreateVersion7();
+        gateway.SeedOrder(ValidOrderNumber, "GUEST@EXAMPLE.COM", orderId: 1, orderPublicId: orderPublicId);
+        var hasher = new FakeGuestOrderAccessHasher();
+        var emailQueue = new RecordingEmailDispatchQueue();
+        var timeProvider = new ManualTimeProvider(DateTimeOffset.UtcNow);
+        var useCase = CreateUseCase(
+            gateway, hasher: hasher, emailDispatchQueue: emailQueue, timeProvider: timeProvider);
+        var accepted = (GuestOrderAccessAcceptedResult.Accepted)
+            await useCase.RequestAccessAsync(ValidOrderNumber, ValidEmail, RequesterIp);
+        var originalCode = hasher.LastHashedCode!;
+
+        timeProvider.Advance(TimeSpan.FromSeconds(61));
+        var resendResult = await useCase.ResendAsync(accepted.RequestPublicId, RequesterIp);
+        var newCode = hasher.LastHashedCode!;
+
+        Assert.IsType<GuestOrderAccessAcceptedResult.Accepted>(resendResult);
+        Assert.NotEqual(originalCode, newCode);
+        Assert.Equal(2, emailQueue.SentMessages.Count);
+        Assert.Equal("GUEST@EXAMPLE.COM", emailQueue.SentMessages[1].RecipientAddress);
+
+        var oldCodeResult = await useCase.VerifyAsync(accepted.RequestPublicId, originalCode);
+        Assert.IsType<GuestOrderAccessVerifyResult.Failure>(oldCodeResult);
+
+        var newCodeResult = await useCase.VerifyAsync(accepted.RequestPublicId, newCode);
+        var success = Assert.IsType<GuestOrderAccessVerifyResult.Success>(newCodeResult);
+        Assert.Equal(orderPublicId, success.OrderPublicId);
+    }
+
+    [Fact]
+    public async Task ResendAsync_ForDecoyRequest_IsRateLimitedJustLikeARealRequest()
+    {
+        // 修正前：request.OrderId is null（Decoy）會在限流檢查之前就直接回 202，
+        // 永遠不會被限流；有效 Request 卻會，形成 202/429 的訂單存在性 Oracle。
+        // 修正後 Decoy 跟有效 Request 共用同一組限流 Scope，達到上限一樣回 429。
+        var gateway = new FakeGuestOrderAccessGateway();
+        var timeProvider = new ManualTimeProvider(DateTimeOffset.UtcNow);
+        var useCase = CreateUseCase(gateway, timeProvider: timeProvider);
+        var accepted = (GuestOrderAccessAcceptedResult.Accepted)
+            await useCase.RequestAccessAsync("NO-SUCH-ORDER", "nobody@example.com", RequesterIp);
+        var orderLookupPermitLimit = new RateLimitOptions().GuestOrderAccessOrderLookupPermitLimit;
+
+        GuestOrderAccessAcceptedResult? last = null;
+        for (var i = 0; i < orderLookupPermitLimit; i++)
+        {
+            timeProvider.Advance(TimeSpan.FromSeconds(61));
+            last = await useCase.ResendAsync(accepted.RequestPublicId, RequesterIp);
+        }
+
+        Assert.IsType<GuestOrderAccessAcceptedResult.RateLimited>(last);
+    }
+
     private static GuestOrderAccessUseCase CreateUseCase(
         FakeGuestOrderAccessGateway gateway,
         FakeGuestOrderAccessHasher? hasher = null,
@@ -232,7 +289,7 @@ public sealed class GuestOrderAccessUseCaseTests
 
         public void SeedOrder(string orderNumber, string emailNormalized, long orderId, Guid orderPublicId)
         {
-            var lookup = new GuestOrderLookup(orderId, orderPublicId);
+            var lookup = new GuestOrderLookup(orderId, orderPublicId, orderNumber, emailNormalized);
             _ordersByLookupKey[$"{orderNumber}:{emailNormalized}"] = lookup;
             _ordersById[orderId] = lookup;
         }

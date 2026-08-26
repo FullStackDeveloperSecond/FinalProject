@@ -2,8 +2,16 @@ using DoSelect.Domain.Orders;
 
 namespace DoSelect.Application.Orders;
 
-/// <summary>訪客查單時比對到的訂單（只回內部 Id 與 PublicId，不帶其他欄位）。</summary>
-public sealed record GuestOrderLookup(long OrderId, Guid OrderPublicId);
+/// <summary>
+/// 訪客查單時比對到的訂單。<see cref="OrderNumber"/>／<see cref="GuestEmailNormalized"/>
+/// 只給 Resend 重新組信件用——Challenge／Token 表本身仍只存 Hash，這裡讀的是 Order
+/// 自己的欄位（訂單聯絡資訊本來就需要明文，跟 Challenge 專表的雜湊規則是兩回事）。
+/// </summary>
+public sealed record GuestOrderLookup(
+    long OrderId,
+    Guid OrderPublicId,
+    string OrderNumber,
+    string? GuestEmailNormalized);
 
 /// <summary>
 /// 查到 Token 時一併回傳其所屬訂單的 PublicId——Scope 比對一律用 PublicId

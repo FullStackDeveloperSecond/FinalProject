@@ -109,14 +109,19 @@ public sealed class GuestOrderAccessUseCase(
         var nowUtc = timeProvider.GetUtcNow().UtcDateTime;
         var request = await gateway.FindActiveRequestAsync(requestPublicId, nowUtc, cancellationToken);
 
-        // 「維持安全回應」：request 不存在或已失效時，仍回跟成功相同的 Accepted 形狀，
-        // 只是用當下時間推算的合理數值，不對應任何真實紀錄。
-        if (request is null || request.OrderId is null || request.CodeHash is null)
+        // Request 根本不存在（不是 Decoy，是查無此 PublicId 或已完全失效）：沒有任何儲存的
+        // Scope Hash 可用，仍消耗目前呼叫者 IP 的等量限流，避免完全不消耗預算，維持跟下面
+        // 「找得到 Request」分支相同的回應形狀與大致延遲特徵，不讓存在性變成可探測的 Oracle。
+        if (request is null)
         {
+            throttle.TryAcquireIp(hasher.HashIp(requesterIp));
             return new GuestOrderAccessAcceptedResult.Accepted(
                 requestPublicId, nowUtc.Add(RequestLifetime), nowUtc.Add(ResendInterval));
         }
 
+        // Decoy 走到這裡跟有效 Request 共用同一組限流／寄送上限檢查——差異只在最後
+        // 「有沒有真訂單可以寄信」，不能在限流之前就分岔，否則有效／Decoy 的 202 對 429
+        // 比例會不同，變成訂單存在性 Oracle。
         if (!throttle.TryAcquireIp(request.RequesterIpHash) ||
             !throttle.TryAcquireEmail(request.EmailKeyHash) ||
             !throttle.TryAcquireOrderLookup(request.OrderLookupKeyHash))
@@ -124,9 +129,21 @@ public sealed class GuestOrderAccessUseCase(
             return new GuestOrderAccessAcceptedResult.RateLimited();
         }
 
+        var isDecoy = request.OrderId is null || request.CodeHash is null;
+        var code = GenerateSixDigitCode();
+        var codeHash = hasher.HashCode(code);
+
         try
         {
-            request.RecordSend(nowUtc);
+            if (isDecoy)
+            {
+                request.RecordSend(nowUtc);
+            }
+            else
+            {
+                // 每次重寄都換發新碼，原子取代舊 CodeHash，讓舊碼立即失效。
+                request.RecordResend(codeHash, nowUtc);
+            }
         }
         catch (InvalidOperationException)
         {
@@ -137,11 +154,15 @@ public sealed class GuestOrderAccessUseCase(
 
         await gateway.SaveChangesAsync(cancellationToken);
 
-        var order = await gateway.FindGuestOrderByIdAsync(request.OrderId.Value, cancellationToken);
-        // Resend 不重新產生驗證碼——沿用同一個 Request 已存的 CodeHash，只是再寄一次
-        // 使用者已收過的碼，因此這裡沒有明文碼可寄。⚠ 待 alex 覆核：若要求 Resend 換發新碼，
-        // 需要改 Entity 補一個可覆寫 CodeHash 的方法，目前 Entity 沒有這個能力。
-        _ = order;
+        if (!isDecoy)
+        {
+            var order = await gateway.FindGuestOrderByIdAsync(request.OrderId!.Value, cancellationToken);
+            if (order is not null && !string.IsNullOrWhiteSpace(order.GuestEmailNormalized))
+            {
+                emailDispatchQueue.Enqueue(GuestOrderAccessEmailComposer.Compose(
+                    order.GuestEmailNormalized, order.OrderNumber, code));
+            }
+        }
 
         return new GuestOrderAccessAcceptedResult.Accepted(
             requestPublicId, request.ExpiresAtUtc, nowUtc.Add(ResendInterval));
