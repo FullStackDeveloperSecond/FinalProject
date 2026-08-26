@@ -22,9 +22,8 @@ namespace DoSelect.Api.IntegrationTests.Shopping;
 /// </summary>
 public sealed class CartApiFixture : IAsyncLifetime
 {
-    private const string ConnectionString =
-        "Server=.\\SQL2025;Database=DoSelectCartApiTests;Trusted_Connection=True;" +
-        "TrustServerCertificate=True;";
+    private static readonly string ConnectionString =
+        global::DoSelect.Api.IntegrationTests.SqlServerTestConnection.Build("DoSelectCartApiTests");
 
     private static readonly IReadOnlyDictionary<string, string> EnvironmentOverrides = new Dictionary<string, string>
     {

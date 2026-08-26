@@ -1480,9 +1480,8 @@ public sealed class SkuAdminServiceTests
 
 public sealed class CatalogAdminFixture : IAsyncLifetime
 {
-    private const string ConnectionString =
-        "Server=.\\SQL2025;Database=DoSelectCatalogAdminTests;Trusted_Connection=True;" +
-        "TrustServerCertificate=True;";
+    private static readonly string ConnectionString =
+        global::DoSelect.Infrastructure.Tests.SqlServerTestConnection.Build("DoSelectCatalogAdminTests");
 
     public Task InitializeAsync() => ResetDatabaseAsync();
 
