@@ -96,6 +96,11 @@ const router = createRouter({
       component: () => import('../pages/returns/ReturnDetailPage.vue'),
     },
     {
+      path: '/cart',
+      name: 'cart',
+      component: () => import('../pages/CartPage.vue'),
+    },
+    {
       path: '/unauthorized',
       name: 'unauthorized',
       component: HttpStatusPage,

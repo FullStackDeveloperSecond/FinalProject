@@ -14,6 +14,14 @@ export default tseslint.config(
         parser: tseslint.parser,
       },
     },
+    rules: {
+      // typescript-eslint's recommended config already turns this off for .ts/.tsx (the
+      // TypeScript compiler catches undefined identifiers, including DOM lib globals like
+      // Event/HTMLSelectElement, far more accurately) — that override doesn't reach .vue
+      // SFCs on its own, so repeat it here rather than let every DOM-typed event handler
+      // in a .vue file hit a false positive.
+      'no-undef': 'off',
+    },
   },
   {
     // TypeScript-eslint's official guidance: no-undef is redundant (and unreliable, e.g. for
