@@ -1,6 +1,9 @@
+using DoSelect.Api.Common;
 using DoSelect.Api.Configuration;
+using DoSelect.Application.Auditing;
 using DoSelect.Application.Common;
 using DoSelect.Application.Security;
+using DoSelect.Domain.Auditing;
 using DoSelect.Domain.Members;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
@@ -12,6 +15,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using System.Diagnostics;
 using System.Globalization;
 using System.Security.Claims;
 using System.Threading.RateLimiting;
@@ -210,6 +214,7 @@ public static class SecurityServiceCollectionExtensions
             var userId = context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier);
             var userManager = context.HttpContext.RequestServices
                 .GetRequiredService<UserManager<ApplicationUser>>();
+            var dbContext = context.HttpContext.RequestServices.GetRequiredService<DoSelectDbContext>();
             var user = string.IsNullOrEmpty(userId) ? null : await userManager.FindByIdAsync(userId);
             var currentStamp = user is null ? null : await userManager.GetSecurityStampAsync(user);
             var stampMismatch = user is null || !string.Equals(stampInCookie, currentStamp, StringComparison.Ordinal);
@@ -221,7 +226,6 @@ public static class SecurityServiceCollectionExtensions
             var isEligible = false;
             if (user is not null)
             {
-                var dbContext = context.HttpContext.RequestServices.GetRequiredService<DoSelectDbContext>();
                 var profile = await dbContext.AdminProfiles
                     .AsNoTracking()
                     .FirstOrDefaultAsync(p => p.UserId == user.Id);
@@ -230,15 +234,32 @@ public static class SecurityServiceCollectionExtensions
 
             if (stampMismatch || !isEligible)
             {
-                var auditWriter = context.HttpContext.RequestServices
-                    .GetRequiredService<IAdminSecurityAuditWriter>();
-                var timeProvider = context.HttpContext.RequestServices.GetRequiredService<TimeProvider>();
-                auditWriter.Write(new AdminSecurityAuditEvent(
-                    AdminSecurityAuditEventType.SessionsRevoked,
-                    userId,
-                    context.HttpContext.Connection.RemoteIpAddress?.ToString(),
-                    stampMismatch ? "security_stamp_mismatch" : "account_not_eligible",
-                    timeProvider.GetUtcNow()));
+                // DEC-P296：寫入中央 AuditLog，取代原本只寫一般 Log 的 IAdminSecurityAuditWriter。
+                // 沒有角色的帳號（極端邊角情況）略過稽核寫入，但撤銷本身照常生效——不能讓稽核
+                // 邊角情況擋住這條安全關鍵路徑。
+                if (user is not null)
+                {
+                    var roles = await userManager.GetRolesAsync(user);
+                    if (roles.Count > 0)
+                    {
+                        var auditWriter = context.HttpContext.RequestServices.GetRequiredService<IAuditWriter>();
+                        auditWriter.Add(AuditWriteRequest.Create(
+                            Guid.CreateVersion7(),
+                            AuditActor.Create(AuditActorType.Admin, user.PublicId, roles.ToArray()),
+                            AuditActions.AdminSessionsRevoked,
+                            AuditResourceTypes.AdminAccount,
+                            user.PublicId,
+                            AuditResult.Rejected,
+                            stampMismatch ? "security_stamp_mismatch" : "account_not_eligible",
+                            [AuditFieldChange.Changed("securityStamp")],
+                            "admin_auth_state_change",
+                            CorrelationIdMiddleware.GetCorrelationId(context.HttpContext),
+                            Activity.Current?.TraceId.ToString() ?? ActivityTraceId.CreateRandom().ToString(),
+                            jobPublicId: null,
+                            context.HttpContext.Connection.RemoteIpAddress));
+                        await dbContext.SaveChangesAsync();
+                    }
+                }
 
                 context.RejectPrincipal();
                 await context.HttpContext.SignOutAsync(DoSelectAuthenticationSchemes.Admin);

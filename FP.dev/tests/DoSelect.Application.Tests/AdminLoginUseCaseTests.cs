@@ -59,7 +59,7 @@ public sealed class AdminLoginUseCaseTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_WhenEmailIsUnknown_ReturnsInvalidCredentials()
+    public async Task ExecuteAsync_WhenEmailIsUnknown_ReturnsInvalidCredentialsAndPerformsDummyVerification()
     {
         var gateway = new FakeAdminAuthGateway { FindByEmail = _ => null };
         var useCase = new AdminLoginUseCase(gateway, TimeProvider.System);
@@ -68,16 +68,17 @@ public sealed class AdminLoginUseCaseTests
 
         Assert.False(result.IsSuccess);
         Assert.Equal(AdminAuthErrorCodes.InvalidCredentials, result.ErrorCode);
+        Assert.Equal(1, gateway.DummyPasswordVerificationCallCount);
     }
 
     [Fact]
-    public async Task ExecuteAsync_WhenPasswordIsWrong_IncrementsFailedCountAndReturnsInvalidCredentials()
+    public async Task ExecuteAsync_WhenPasswordIsWrong_RegistersFailedAttemptAndReturnsInvalidCredentials()
     {
         var gateway = new FakeAdminAuthGateway
         {
             FindByEmail = _ => ActiveAdminWithTwoFactor,
             CheckPassword = (_, _) => false,
-            AccessFailedCount = 1,
+            RegisterFailedAttempt = (_, _) => null,
         };
         var useCase = new AdminLoginUseCase(gateway, TimeProvider.System);
 
@@ -85,7 +86,7 @@ public sealed class AdminLoginUseCaseTests
 
         Assert.False(result.IsSuccess);
         Assert.Equal(AdminAuthErrorCodes.InvalidCredentials, result.ErrorCode);
-        Assert.Equal(1, gateway.IncrementCallCount);
+        Assert.Equal(1, gateway.RegisterFailedAttemptCallCount);
     }
 
     [Fact]
@@ -97,7 +98,11 @@ public sealed class AdminLoginUseCaseTests
         {
             FindByEmail = _ => ActiveAdminWithTwoFactor,
             CheckPassword = (_, _) => false,
-            AccessFailedCount = 5,
+            RegisterFailedAttempt = (_, lockoutDuration) =>
+            {
+                Assert.Equal(TimeSpan.FromMinutes(30), lockoutDuration);
+                return now.Add(lockoutDuration);
+            },
         };
         var useCase = new AdminLoginUseCase(gateway, timeProvider);
 
@@ -105,11 +110,10 @@ public sealed class AdminLoginUseCaseTests
 
         Assert.False(result.IsSuccess);
         Assert.Equal(AdminAuthErrorCodes.AccountLocked, result.ErrorCode);
-        Assert.Equal(now.AddMinutes(30), gateway.LockoutEndSet);
     }
 
     [Fact]
-    public async Task ExecuteAsync_WhenAnExistingLockoutIsStillActive_ReturnsAccountLockedWithoutCheckingThePassword()
+    public async Task ExecuteAsync_WhenAnExistingLockoutIsStillActive_ReturnsAccountLockedWithoutCheckingThePasswordButPerformsDummyVerification()
     {
         var now = DateTimeOffset.UtcNow;
         var gateway = new FakeAdminAuthGateway
@@ -124,15 +128,18 @@ public sealed class AdminLoginUseCaseTests
 
         Assert.False(result.IsSuccess);
         Assert.Equal(AdminAuthErrorCodes.AccountLocked, result.ErrorCode);
+        Assert.Equal(1, gateway.DummyPasswordVerificationCallCount);
     }
 
     [Fact]
-    public async Task ExecuteAsync_WhenAccountIsSuspended_ReturnsAccountSuspendedWithoutCheckingThePassword()
+    public async Task ExecuteAsync_WhenAccountIsSuspendedAndPasswordIsCorrect_ReturnsAccountSuspended()
     {
+        // ⚠ alex review：帳號狀態列舉——停權狀態只在密碼驗證通過後才判斷，不能在密碼檢查前
+        // 就提早回傳，否則沒有密碼的人也能用回應差異探測帳號是否存在／目前狀態。
         var gateway = new FakeAdminAuthGateway
         {
             FindByEmail = _ => SuspendedAdmin,
-            CheckPassword = (_, _) => throw new InvalidOperationException("Password must not be checked while suspended."),
+            CheckPassword = (_, _) => true,
         };
         var useCase = new AdminLoginUseCase(gateway, TimeProvider.System);
 
@@ -140,6 +147,26 @@ public sealed class AdminLoginUseCaseTests
 
         Assert.False(result.IsSuccess);
         Assert.Equal(AdminAuthErrorCodes.AccountSuspended, result.ErrorCode);
+        Assert.True(gateway.AccessFailedCountWasReset);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenAccountIsSuspendedAndPasswordIsWrong_ReturnsInvalidCredentialsNotAccountSuspended()
+    {
+        // 停權帳號＋錯誤密碼一律回跟一般帳號相同的 invalid_credentials，不洩漏「這個帳號存在
+        // 且已停權」——只有正確密碼才有資格得知帳號狀態。
+        var gateway = new FakeAdminAuthGateway
+        {
+            FindByEmail = _ => SuspendedAdmin,
+            CheckPassword = (_, _) => false,
+            RegisterFailedAttempt = (_, _) => null,
+        };
+        var useCase = new AdminLoginUseCase(gateway, TimeProvider.System);
+
+        var result = await useCase.ExecuteAsync("admin@example.com", "wrong-password");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(AdminAuthErrorCodes.InvalidCredentials, result.ErrorCode);
     }
 
     private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
@@ -153,15 +180,15 @@ public sealed class AdminLoginUseCaseTests
 
         public Func<string, string, bool>? CheckPassword { get; init; }
 
-        public int AccessFailedCount { get; set; }
+        public Func<string, TimeSpan, DateTimeOffset?>? RegisterFailedAttempt { get; init; }
 
         public DateTimeOffset? LockoutEnd { get; set; }
 
-        public int IncrementCallCount { get; private set; }
+        public int RegisterFailedAttemptCallCount { get; private set; }
+
+        public int DummyPasswordVerificationCallCount { get; private set; }
 
         public bool AccessFailedCountWasReset { get; private set; }
-
-        public DateTimeOffset? LockoutEndSet { get; private set; }
 
         public Task<AdminAuthUserSnapshot?> FindAdminByEmailAsync(
             string email, CancellationToken cancellationToken = default) =>
@@ -175,14 +202,10 @@ public sealed class AdminLoginUseCaseTests
             string userId, string password, CancellationToken cancellationToken = default) =>
             Task.FromResult(CheckPassword is null ? false : CheckPassword(userId, password));
 
-        public Task<int> GetAccessFailedCountAsync(
-            string userId, CancellationToken cancellationToken = default) =>
-            Task.FromResult(AccessFailedCount);
-
-        public Task IncrementAccessFailedCountAsync(
-            string userId, CancellationToken cancellationToken = default)
+        public Task PerformDummyPasswordVerificationAsync(
+            string password, CancellationToken cancellationToken = default)
         {
-            IncrementCallCount++;
+            DummyPasswordVerificationCallCount++;
             return Task.CompletedTask;
         }
 
@@ -197,11 +220,13 @@ public sealed class AdminLoginUseCaseTests
             string userId, CancellationToken cancellationToken = default) =>
             Task.FromResult(LockoutEnd);
 
-        public Task SetLockoutEndAsync(
-            string userId, DateTimeOffset lockoutEndUtc, CancellationToken cancellationToken = default)
+        public Task<DateTimeOffset?> RegisterFailedAttemptAsync(
+            string userId,
+            TimeSpan lockoutDurationOnThreshold,
+            CancellationToken cancellationToken = default)
         {
-            LockoutEndSet = lockoutEndUtc;
-            return Task.CompletedTask;
+            RegisterFailedAttemptCallCount++;
+            return Task.FromResult(RegisterFailedAttempt?.Invoke(userId, lockoutDurationOnThreshold));
         }
 
         public Task<AdminTotpSecret> GetOrCreateAuthenticatorSecretAsync(

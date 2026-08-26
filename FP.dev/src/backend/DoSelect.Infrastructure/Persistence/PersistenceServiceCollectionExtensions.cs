@@ -54,9 +54,10 @@ public static class PersistenceServiceCollectionExtensions
                 options.Password.RequireLowercase = false;
                 options.Password.RequireDigit = false;
 
-                // 會員連續登入失敗 5 次鎖定 15 分鐘 (會員、驗證與通知.md). Admin's differentiated
-                // 30-minute window is handled separately in AdminLoginUseCase (hardcoded, not
-                // via IdentityOptions.Lockout) — a single global window here can't express both.
+                // 會員連續登入失敗 5 次鎖定 15 分鐘 (會員、驗證與通知.md)——這是一個全域值，
+                // 無法同時表達 Member 15 分鐘與 Admin 30 分鐘兩種時長（DEC-P269）。Admin
+                // 差異化的 30 分鐘改由 IdentityAdminAuthGateway.RegisterFailedAttemptAsync
+                // 在同一交易內原子覆蓋，不依賴這個全域 DefaultLockoutTimeSpan。
                 options.Lockout.MaxFailedAccessAttempts = 5;
                 options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
 

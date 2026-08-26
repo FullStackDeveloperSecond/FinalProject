@@ -29,16 +29,29 @@ public sealed class IdentityAdminAuthGateway : IAdminAuthGateway
     private const string IdentityAuthenticatorLoginProvider = "[AspNetUserStore]";
     private const string IdentityAuthenticatorKeyTokenName = "AuthenticatorKey";
 
+    // 跟 MemberLoginGateway 同一套手法：密碼雜湊驗證本身就是刻意昂貴的計算，任何略過它的
+    // 路徑（帳號不存在／已鎖定）耗時都會明顯較短。對一個固定假使用者的雜湊跑一次「不可能
+    // 成功」的驗證，把耗時拉平，回應延遲就不再是帳號是否存在／是否鎖定的旁路訊號。
+    private static readonly ApplicationUser DummyUser =
+        ApplicationUser.CreateMember(Guid.CreateVersion7(), "dummy-timing-guard@example.invalid", DateTime.UtcNow);
+
+    private static readonly string DummyPasswordHash =
+        new PasswordHasher<ApplicationUser>().HashPassword(DummyUser, Guid.NewGuid().ToString("N"));
+
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly DoSelectDbContext _dbContext;
+    private readonly TimeProvider _timeProvider;
 
-    public IdentityAdminAuthGateway(UserManager<ApplicationUser> userManager, DoSelectDbContext dbContext)
+    public IdentityAdminAuthGateway(
+        UserManager<ApplicationUser> userManager, DoSelectDbContext dbContext, TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(userManager);
         ArgumentNullException.ThrowIfNull(dbContext);
+        ArgumentNullException.ThrowIfNull(timeProvider);
 
         _userManager = userManager;
         _dbContext = dbContext;
+        _timeProvider = timeProvider;
     }
 
     public async Task<AdminAuthUserSnapshot?> FindAdminByEmailAsync(
@@ -66,18 +79,11 @@ public sealed class IdentityAdminAuthGateway : IAdminAuthGateway
         return user is not null && await _userManager.CheckPasswordAsync(user, password);
     }
 
-    public async Task<int> GetAccessFailedCountAsync(
-        string userId, CancellationToken cancellationToken = default)
+    public Task PerformDummyPasswordVerificationAsync(
+        string password, CancellationToken cancellationToken = default)
     {
-        var user = await RequireUserAsync(userId);
-        return await _userManager.GetAccessFailedCountAsync(user);
-    }
-
-    public async Task IncrementAccessFailedCountAsync(
-        string userId, CancellationToken cancellationToken = default)
-    {
-        var user = await RequireUserAsync(userId);
-        ThrowIfFailed(await _userManager.AccessFailedAsync(user), nameof(IncrementAccessFailedCountAsync), userId);
+        _userManager.PasswordHasher.VerifyHashedPassword(DummyUser, DummyPasswordHash, password);
+        return Task.CompletedTask;
     }
 
     public async Task ResetAccessFailedCountAsync(
@@ -95,12 +101,43 @@ public sealed class IdentityAdminAuthGateway : IAdminAuthGateway
         return await _userManager.GetLockoutEndDateAsync(user);
     }
 
-    public async Task SetLockoutEndAsync(
-        string userId, DateTimeOffset lockoutEndUtc, CancellationToken cancellationToken = default)
+    public async Task<DateTimeOffset?> RegisterFailedAttemptAsync(
+        string userId,
+        TimeSpan lockoutDurationOnThreshold,
+        CancellationToken cancellationToken = default)
     {
         var user = await RequireUserAsync(userId);
+
+        // ⚠ DEC-P269：Identity 的 AccessFailedAsync 一旦達到 Options.Lockout.MaxFailedAccessAttempts
+        // 門檻（全域設定，Member／Admin 共用同一個 5 次門檻——只有「鎖多久」需要依 AccountType
+        // 分開，見 PersistenceServiceCollectionExtensions），會在同一次呼叫內「順便」用全域
+        // DefaultLockoutTimeSpan（15 分鐘）鎖定帳號、並把 AccessFailedCount 重設回 0——這兩者都是
+        // Identity 內建、無法關掉的副作用。
+        //
+        // ⚠ 這個重設正是原本 bug 的根源：如果改用「呼叫後讀 AccessFailedCount 判斷是否達門檻」，
+        // 命中門檻的那一次呼叫讀到的其實是重設後的 0，永遠不會被判定為「剛好鎖定」，30 分鐘的
+        // 覆蓋動作永遠不會執行（實測用真正的 UserManager／SQL Server 才發現，fake gateway 測不出
+        // 來）。改成呼叫後用 IsLockedOutAsync 直接問 Identity「現在是不是被鎖住了」，不管是這次
+        // 呼叫剛觸發的、還是之前就已經鎖著的，一律覆蓋成 AccountType 對應的正確時長。
+        //
+        // 兩次寫入（Identity 自己的 15 分鐘、這裡覆蓋的正確時長）包在同一個交易內，任一失敗就整個
+        // rollback，避免中途只留下較弱的 15 分鐘鎖定成為既成事實（alex review P1#2）。
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+        ThrowIfFailed(await _userManager.AccessFailedAsync(user), nameof(RegisterFailedAttemptAsync), userId);
+        if (!await _userManager.IsLockedOutAsync(user))
+        {
+            await transaction.CommitAsync(cancellationToken);
+            return null;
+        }
+
+        var lockoutEnd = _timeProvider.GetUtcNow().Add(lockoutDurationOnThreshold);
         ThrowIfFailed(
-            await _userManager.SetLockoutEndDateAsync(user, lockoutEndUtc), nameof(SetLockoutEndAsync), userId);
+            await _userManager.SetLockoutEndDateAsync(user, lockoutEnd),
+            nameof(RegisterFailedAttemptAsync),
+            userId);
+        await transaction.CommitAsync(cancellationToken);
+        return lockoutEnd;
     }
 
     public async Task<AdminTotpSecret> GetOrCreateAuthenticatorSecretAsync(
@@ -111,10 +148,14 @@ public sealed class IdentityAdminAuthGateway : IAdminAuthGateway
         var key = await _userManager.GetAuthenticatorKeyAsync(user);
         if (string.IsNullOrEmpty(key))
         {
-            // ResetAuthenticatorKeyAsync returns plain Task (Identity exposes no IdentityResult
-            // here) — a failed persist would leave the key empty, so read it back and fail loudly
-            // instead of silently continuing with a null/empty secret.
-            await _userManager.ResetAuthenticatorKeyAsync(user);
+            // ⚠ alex review P2#6：ResetAuthenticatorKeyAsync 其實回傳 IdentityResult（先前註解
+            // 誤判成 plain Task），原本被直接丟棄——一旦 Identity Store 內部寫入失敗（例如
+            // Concurrency），程式碼仍會當作成功繼續往下走。這裡改成跟其他呼叫一致，透過
+            // ThrowIfFailed 檢查；下面的讀回檢查繼續保留，作為第二道防線。
+            ThrowIfFailed(
+                await _userManager.ResetAuthenticatorKeyAsync(user),
+                nameof(GetOrCreateAuthenticatorSecretAsync),
+                userId);
             key = await _userManager.GetAuthenticatorKeyAsync(user);
             if (string.IsNullOrEmpty(key))
             {
@@ -194,7 +235,19 @@ public sealed class IdentityAdminAuthGateway : IAdminAuthGateway
     {
         var user = await RequireUserAsync(userId);
         var codes = await _userManager.GenerateNewTwoFactorRecoveryCodesAsync(user, count);
-        return codes?.ToArray() ?? [];
+
+        // ⚠ alex review P2#6：null 回傳（Identity token provider 內部失敗）先前被直接轉成空
+        // 陣列，呼叫端仍會回報成功——管理員以為拿到新 Recovery Code，實際上一組都沒有、
+        // 永久失去救援管道。改成明確失敗，讓呼叫端的交易一併 rollback。
+        var codeArray = codes?.ToArray() ?? [];
+        if (codeArray.Length != count)
+        {
+            throw new InvalidOperationException(
+                $"Failed to generate {count} recovery codes for admin user '{userId}' " +
+                $"(received {codeArray.Length}).");
+        }
+
+        return codeArray;
     }
 
     public async Task<bool> RedeemRecoveryCodeAsync(

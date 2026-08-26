@@ -6,6 +6,7 @@ import type {
   AuthSessionDto,
   CurrentUserDto,
   TotpEnrollBeginResponseDto,
+  TotpRebindBeginResponseDto,
 } from '../api/paths'
 
 type ChallengeKind = 'totp' | 'enroll'
@@ -18,6 +19,9 @@ interface Challenge {
 interface AdminAuthState {
   session: AuthSessionDto | null
   challenge: Challenge | null
+  // Rebind 是獨立於登入流程的短效 Challenge（DEC-P297）：BeginRebind 簽發、ConfirmRebind
+  // 消耗，跟登入用的 `challenge` 不共用同一個欄位，避免兩個流程的狀態互相污染。
+  rebindChallengePublicId: string | null
   loading: boolean
   errorMessage: string | null
 }
@@ -51,6 +55,7 @@ export const useAdminAuthStore = defineStore('adminAuth', {
   state: (): AdminAuthState => ({
     session: null,
     challenge: null,
+    rebindChallengePublicId: null,
     loading: false,
     errorMessage: null,
   }),
@@ -112,8 +117,10 @@ export const useAdminAuthStore = defineStore('adminAuth', {
           this.errorMessage = messageForCode(error.code)
           // 後端已經讓 challenge 失效（簽出 AdminChallenge Cookie）；清掉本地的
           // challenge，讓 router guard 的 requiresChallenge 檢查把使用者導回登入頁，
-          // 而不是留著一個已經死掉的 challenge 讓頁面看起來還能用（alex review P2）。
-          if (error.code === 'admin_challenge_rate_limited') {
+          // 而不是留著一個已經死掉的 challenge 讓頁面看起來還能用。admin_challenge_invalid
+          // （過期／SecurityStamp 不符）跟 admin_challenge_rate_limited 都代表同一件事——
+          // 這個 challenge 已經死了，原本只處理後者是漏網之魚（alex review P2#7）。
+          if (error.code === 'admin_challenge_rate_limited' || error.code === 'admin_challenge_invalid') {
             this.challenge = null
           }
           return false
@@ -224,8 +231,10 @@ export const useAdminAuthStore = defineStore('adminAuth', {
     },
 
     /// ⚠ 讓已登入管理員重新綁定 TOTP（例如換手機）。跟 beginEnrollment/confirmEnrollment
-    /// 不同，這裡的呼叫者已經是完整登入狀態，不經過 challenge 流程。
-    async beginRebind(): Promise<TotpEnrollBeginResponseDto | null> {
+    /// 不同，這裡的呼叫者已經是完整登入狀態；但 DEC-P297 仍要求一組短效、單次、綁定使用者
+    /// 的 Challenge，跟後端 AdminChallenge Cookie 配對，記在 rebindChallengePublicId
+    /// （alex review P1#3）。
+    async beginRebind(): Promise<TotpRebindBeginResponseDto | null> {
       this.loading = true
       this.errorMessage = null
       try {
@@ -233,6 +242,9 @@ export const useAdminAuthStore = defineStore('adminAuth', {
         if (error) {
           this.errorMessage = messageForCode(error.code)
           return null
+        }
+        if (data) {
+          this.rebindChallengePublicId = data.challengePublicId
         }
         return data ?? null
       } catch (caught) {
@@ -244,18 +256,28 @@ export const useAdminAuthStore = defineStore('adminAuth', {
     },
 
     async confirmRebind(code: string): Promise<string[] | null> {
+      if (!this.rebindChallengePublicId) {
+        return null
+      }
       this.loading = true
       this.errorMessage = null
       try {
         const { data, error } = await client().POST('/api/v1/admin/auth/totp/rebind/confirm', {
-          body: { code },
+          body: { challengePublicId: this.rebindChallengePublicId, code },
         })
         if (error) {
           this.errorMessage = messageForCode(error.code)
+          // 跟登入流程一致：challenge 已經死掉（過期／限流／SecurityStamp 不符）就清掉本地
+          // 狀態，逼使用者回到「開始重新綁定」重新拿一組新的 challenge，而不是讓表單卡在
+          // 一個後端已經拒絕、重送也不會成功的舊 challengePublicId 上。
+          if (error.code === 'admin_challenge_rate_limited' || error.code === 'admin_challenge_invalid') {
+            this.rebindChallengePublicId = null
+          }
           return null
         }
         if (data) {
           this.session = { isAuthenticated: true, user: data.user, expiresAtUtc: data.expiresAtUtc, requiresTwoFactor: null }
+          this.rebindChallengePublicId = null
           // 完成後這個請求所在的 Session 會用新的 SecurityStamp 重新簽發，
           // 其他既有裝置的 Session 全部失效。保守起見一併重抓 antiforgery token。
           resetAntiforgeryToken()
@@ -274,6 +296,7 @@ export const useAdminAuthStore = defineStore('adminAuth', {
       await client().POST('/api/v1/admin/auth/logout')
       this.session = { isAuthenticated: false, user: null, expiresAtUtc: null, requiresTwoFactor: null }
       this.challenge = null
+      this.rebindChallengePublicId = null
       resetAntiforgeryToken()
     },
   },

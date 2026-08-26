@@ -37,11 +37,13 @@ public interface IAdminAuthGateway
     Task<bool> CheckPasswordAsync(
         string userId, string password, CancellationToken cancellationToken = default);
 
-    Task<int> GetAccessFailedCountAsync(
-        string userId, CancellationToken cancellationToken = default);
-
-    Task IncrementAccessFailedCountAsync(
-        string userId, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// 對一個固定的假使用者跑一次真的密碼雜湊驗證，純粹燒掉跟 <see cref="CheckPasswordAsync"/>
+    /// 等量的 CPU 時間。用在「帳號不存在」／「已被鎖定」這類略過真正密碼檢查的路徑，讓回應
+    /// 延遲不會變成帳號是否存在／是否被鎖定的旁路訊號（alex review：帳號狀態列舉）。
+    /// </summary>
+    Task PerformDummyPasswordVerificationAsync(
+        string password, CancellationToken cancellationToken = default);
 
     Task ResetAccessFailedCountAsync(
         string userId, CancellationToken cancellationToken = default);
@@ -49,8 +51,19 @@ public interface IAdminAuthGateway
     Task<DateTimeOffset?> GetLockoutEndAsync(
         string userId, CancellationToken cancellationToken = default);
 
-    Task SetLockoutEndAsync(
-        string userId, DateTimeOffset lockoutEndUtc, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// 記一次登入失敗；一旦帳號因此被 Identity 判定為鎖定狀態（門檻由全域
+    /// IdentityOptions.Lockout.MaxFailedAccessAttempts 決定，Member／Admin 共用），就在同一個
+    /// 交易內把 LockoutEnd 原子覆蓋為 <paramref name="lockoutDurationOnThreshold"/>（依 AccountType
+    /// 決定 15／30 分鐘，見 DEC-P269），取代「先讓 Identity 用全域 DefaultLockoutTimeSpan 鎖 15
+    /// 分鐘、之後再用第二次獨立寫入覆蓋成 30 分鐘」的不可靠兩段式寫法——中途失敗會整個
+    /// rollback，不會留下較弱的 15 分鐘鎖定成為既成事實。回傳剛設定的 LockoutEnd；未達門檻則
+    /// 回傳 null。
+    /// </summary>
+    Task<DateTimeOffset?> RegisterFailedAttemptAsync(
+        string userId,
+        TimeSpan lockoutDurationOnThreshold,
+        CancellationToken cancellationToken = default);
 
     Task<AdminTotpSecret> GetOrCreateAuthenticatorSecretAsync(
         string userId, CancellationToken cancellationToken = default);

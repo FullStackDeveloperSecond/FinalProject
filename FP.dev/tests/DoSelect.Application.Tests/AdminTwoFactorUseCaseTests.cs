@@ -216,12 +216,8 @@ public sealed class AdminTwoFactorUseCaseTests
             string userId, string password, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
-        public Task<int> GetAccessFailedCountAsync(
-            string userId, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
-
-        public Task IncrementAccessFailedCountAsync(
-            string userId, CancellationToken cancellationToken = default) =>
+        public Task PerformDummyPasswordVerificationAsync(
+            string password, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
         public Task ResetAccessFailedCountAsync(
@@ -232,8 +228,10 @@ public sealed class AdminTwoFactorUseCaseTests
             string userId, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
-        public Task SetLockoutEndAsync(
-            string userId, DateTimeOffset lockoutEndUtc, CancellationToken cancellationToken = default) =>
+        public Task<DateTimeOffset?> RegisterFailedAttemptAsync(
+            string userId,
+            TimeSpan lockoutDurationOnThreshold,
+            CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
         public Task<AdminTotpSecret> GetOrCreateAuthenticatorSecretAsync(

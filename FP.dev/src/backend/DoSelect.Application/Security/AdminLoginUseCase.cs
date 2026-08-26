@@ -49,10 +49,11 @@ public sealed class AdminLoginResult
 /// </summary>
 public sealed class AdminLoginUseCase
 {
-    private const int MaxFailedAttempts = 5;
-
-    // ⚠ 設計決策：寫死 30 分鐘，不依賴 IdentityOptions.Lockout.DefaultLockoutTimeSpan——
-    // 那是單一全域值，無法同時滿足 Admin 30 分鐘與（未來）Member 15 分鐘兩種時長。
+    // DEC-P269：Member／Admin 依 AccountType 各自 15／30 分鐘，不依賴單一全域
+    // IdentityOptions.Lockout.DefaultLockoutTimeSpan——見 IAdminAuthGateway.RegisterFailedAttemptAsync，
+    // 該方法在同一交易內把這個時長原子寫入，取代 Identity 內建、無法設定 AccountType 差異的全域鎖定。
+    // 「幾次失敗才鎖」則沿用 Member／Admin 共用的全域 MaxFailedAccessAttempts（見
+    // PersistenceServiceCollectionExtensions），不在這裡重複維護一份門檻常數。
     private static readonly TimeSpan AdminLockoutDuration = TimeSpan.FromMinutes(30);
 
     private readonly IAdminAuthGateway _gateway;
@@ -77,41 +78,42 @@ public sealed class AdminLoginUseCase
             return AdminLoginResult.Failure(AdminAuthErrorCodes.InvalidCredentials);
         }
 
+        // ⚠ alex review：帳號狀態列舉——未知帳號、密碼錯誤、已鎖定帳號在密碼驗證完成前必須
+        // 回同一種公開結果（invalid_credentials），停權狀態則要等密碼驗證通過後才判斷（見下方）。
+        // 未知帳號與已鎖定帳號都會略過真正的密碼雜湊驗證，所以各自補一次假驗證，讓回應延遲
+        // 不會變成「這個帳號存不存在／是否被鎖定」的旁路訊號（跟 MemberLoginGateway 同一套手法）。
         var user = await _gateway.FindAdminByEmailAsync(email.Trim(), cancellationToken);
         if (user is null)
         {
+            await _gateway.PerformDummyPasswordVerificationAsync(password, cancellationToken);
             return AdminLoginResult.Failure(AdminAuthErrorCodes.InvalidCredentials);
         }
 
         var lockoutEnd = await _gateway.GetLockoutEndAsync(user.UserId, cancellationToken);
         if (lockoutEnd is { } end && end > _timeProvider.GetUtcNow())
         {
+            await _gateway.PerformDummyPasswordVerificationAsync(password, cancellationToken);
             return AdminLoginResult.Failure(AdminAuthErrorCodes.AccountLocked);
-        }
-
-        if (user.AccountStatus != AccountStatus.Active || !user.IsAdminProfileActive)
-        {
-            return AdminLoginResult.Failure(AdminAuthErrorCodes.AccountSuspended);
         }
 
         if (!await _gateway.CheckPasswordAsync(user.UserId, password, cancellationToken))
         {
-            await _gateway.IncrementAccessFailedCountAsync(user.UserId, cancellationToken);
-            var failedCount = await _gateway.GetAccessFailedCountAsync(user.UserId, cancellationToken);
+            var newLockoutEnd = await _gateway.RegisterFailedAttemptAsync(
+                user.UserId, AdminLockoutDuration, cancellationToken);
 
-            if (failedCount >= MaxFailedAttempts)
-            {
-                await _gateway.SetLockoutEndAsync(
-                    user.UserId,
-                    _timeProvider.GetUtcNow().Add(AdminLockoutDuration),
-                    cancellationToken);
-                return AdminLoginResult.Failure(AdminAuthErrorCodes.AccountLocked);
-            }
-
-            return AdminLoginResult.Failure(AdminAuthErrorCodes.InvalidCredentials);
+            return newLockoutEnd is not null
+                ? AdminLoginResult.Failure(AdminAuthErrorCodes.AccountLocked)
+                : AdminLoginResult.Failure(AdminAuthErrorCodes.InvalidCredentials);
         }
 
         await _gateway.ResetAccessFailedCountAsync(user.UserId, cancellationToken);
+
+        // 帳號生命週期（停權／移除管理員資格）只在密碼已確認正確後才揭露——沒有正確密碼的人
+        // 無法用這個狀態差異來探測帳號是否存在或目前的狀態（alex review：帳號狀態列舉）。
+        if (user.AccountStatus != AccountStatus.Active || !user.IsAdminProfileActive)
+        {
+            return AdminLoginResult.Failure(AdminAuthErrorCodes.AccountSuspended);
+        }
 
         return user.TwoFactorEnabled
             ? AdminLoginResult.NeedsTwoFactor(user.UserId, user.PublicId)

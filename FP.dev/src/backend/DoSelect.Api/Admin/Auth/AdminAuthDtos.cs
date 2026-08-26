@@ -55,8 +55,17 @@ public sealed record TotpEnrollConfirmResponseDto(
     DateTimeOffset ExpiresAtUtc);
 
 /// <summary>
+/// ⚠ 新增端點回應：Rebind 第一步。跟 <see cref="TotpEnrollBeginResponseDto"/> 不同之處是多帶一個
+/// 短效、單次、綁定使用者的 ChallengePublicId（DEC-P297）——confirm 必須附上同一組值才算數。
+/// </summary>
+public sealed record TotpRebindBeginResponseDto(
+    string SecretKey, string OtpAuthUri, string QrCodeDataUri, Guid ChallengePublicId);
+
+/// <summary>
 /// ⚠ 新增端點請求：已登入管理員重新綁定 TOTP 的確認步驟（換手機情境）。
-/// 對應 UC-ADMIN-AUTH-01「TOTP 重新綁定，既有 Session 失效」的觸發入口。
+/// 對應 UC-ADMIN-AUTH-01「TOTP 重新綁定，既有 Session 失效」的觸發入口。ChallengePublicId
+/// 必須符合 BeginRebind 簽發的短效 Challenge（DEC-P297，alex review P1#3）。
 /// </summary>
 public sealed record TotpRebindConfirmRequest(
+    Guid ChallengePublicId,
     [Required, RegularExpression(@"^\d{6}$")] string Code);

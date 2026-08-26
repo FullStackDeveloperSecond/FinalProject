@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using DoSelect.Api.Security;
 using DoSelect.Application.Common;
 using DoSelect.Application.Security;
 using DoSelect.Domain.Members;
@@ -207,10 +208,12 @@ public sealed class AdminAuthControllerTests : IClassFixture<WebApplicationFacto
         Assert.Equal(HttpStatusCode.OK, beginResponse.StatusCode);
         var beginBody = await beginResponse.Content.ReadFromJsonAsync<JsonElement>();
         var newSecret = beginBody.GetProperty("secretKey").GetString()!;
+        var rebindChallengePublicId = beginBody.GetProperty("challengePublicId").GetGuid();
 
         var newCode = TotpTestHelper.GenerateCode(newSecret);
         using var confirmResponse = await loginClient.PostAsJsonAsync(
-            "/api/v1/admin/auth/totp/rebind/confirm", new { code = newCode });
+            "/api/v1/admin/auth/totp/rebind/confirm",
+            new { challengePublicId = rebindChallengePublicId, code = newCode });
         Assert.Equal(HttpStatusCode.OK, confirmResponse.StatusCode);
 
         // 「另一台裝置」用舊 Cookie 打受保護端點應該已經失效。
@@ -232,9 +235,12 @@ public sealed class AdminAuthControllerTests : IClassFixture<WebApplicationFacto
         await PrimeAdminAntiforgeryAsync(client);
         using var beginResponse = await client.PostAsync("/api/v1/admin/auth/totp/rebind/begin", content: null);
         Assert.Equal(HttpStatusCode.OK, beginResponse.StatusCode);
+        var beginBody = await beginResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var rebindChallengePublicId = beginBody.GetProperty("challengePublicId").GetGuid();
 
         using var confirmResponse = await client.PostAsJsonAsync(
-            "/api/v1/admin/auth/totp/rebind/confirm", new { code = "000000" });
+            "/api/v1/admin/auth/totp/rebind/confirm",
+            new { challengePublicId = rebindChallengePublicId, code = "000000" });
         Assert.Equal(HttpStatusCode.BadRequest, confirmResponse.StatusCode);
 
         // 用「原本」的秘鑰重新走一次完整登入，證明舊裝置依然能正常運作。
@@ -279,6 +285,7 @@ public sealed class AdminAuthControllerTests : IClassFixture<WebApplicationFacto
             user.ConfirmEmail(now);
             var createResult = await userManager.CreateAsync(user, Password);
             Assert.True(createResult.Succeeded, string.Join(";", createResult.Errors.Select(e => e.Description)));
+            await EnsureSuperAdminRoleAsync(scope.ServiceProvider, user);
 
             dbContext.AdminProfiles.Add(
                 new AdminProfile(user.Id, Guid.NewGuid(), UniqueEmployeeCode(), "整合測試管理員", now));
@@ -311,11 +318,32 @@ public sealed class AdminAuthControllerTests : IClassFixture<WebApplicationFacto
         user.ConfirmEmail(now);
         var createResult = await userManager.CreateAsync(user, Password);
         Assert.True(createResult.Succeeded, string.Join(";", createResult.Errors.Select(e => e.Description)));
+        await EnsureSuperAdminRoleAsync(scope.ServiceProvider, user);
 
         dbContext.AdminProfiles.Add(new AdminProfile(user.Id, Guid.NewGuid(), UniqueEmployeeCode(), "整合測試管理員", now));
         await dbContext.SaveChangesAsync();
 
         return (client, email);
+    }
+
+    /// <summary>
+    /// 中央 AuditLog 的 AuditActor 要求 Admin Actor 至少要有一個角色（見
+    /// AuditContracts.AuditActor.Create）——這裡的測試管理員也要跟
+    /// MinimalDevelopmentDataSeeder 的正式管理員一樣至少有一個角色，稽核寫入
+    /// （enrollment／verify 429／rebind 等）才不會因為零角色而丟例外。角色資料表本身
+    /// 不保證在測試環境已被種好，所以先確保角色存在再指派。
+    /// </summary>
+    private static async Task EnsureSuperAdminRoleAsync(IServiceProvider services, ApplicationUser user)
+    {
+        var roleManager = services.GetRequiredService<RoleManager<IdentityRole>>();
+        if (!await roleManager.RoleExistsAsync(DoSelectRoles.SuperAdmin))
+        {
+            await roleManager.CreateAsync(new IdentityRole(DoSelectRoles.SuperAdmin));
+        }
+
+        var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
+        var roleResult = await userManager.AddToRoleAsync(user, DoSelectRoles.SuperAdmin);
+        Assert.True(roleResult.Succeeded, string.Join(";", roleResult.Errors.Select(e => e.Description)));
     }
 
     private static async Task<Guid> ReadChallengePublicIdAsync(HttpResponseMessage loginResponse, bool requiresEnrollment)

@@ -109,6 +109,20 @@ public sealed class AdminTwoFactorUseCase
             return AdminTwoFactorResult.Failure(AdminAuthErrorCodes.RecoveryCodeInvalid);
         }
 
+        // ⚠ alex review P1#5：資格檢查必須在兌換之前。Recovery Code 是單次有效——原本先兌換
+        // 再檢查資格，若帳號在 challenge 期間被停權，API 雖然回 account_suspended，但這組碼
+        // 已經永久失效，管理員平白少了一組救援碼卻什麼都沒換到。
+        var userBeforeRedeem = await _gateway.FindAdminByIdAsync(userId, cancellationToken);
+        if (userBeforeRedeem is null)
+        {
+            return AdminTwoFactorResult.Failure(AdminAuthErrorCodes.RecoveryCodeInvalid);
+        }
+
+        if (!IsEligible(userBeforeRedeem))
+        {
+            return AdminTwoFactorResult.Failure(AdminAuthErrorCodes.AccountSuspended);
+        }
+
         if (!await _gateway.RedeemRecoveryCodeAsync(userId, code.Trim(), cancellationToken))
         {
             return AdminTwoFactorResult.Failure(AdminAuthErrorCodes.RecoveryCodeInvalid);

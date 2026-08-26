@@ -57,7 +57,15 @@ export interface TotpEnrollConfirmResponseDto {
   expiresAtUtc: string
 }
 
+export interface TotpRebindBeginResponseDto {
+  secretKey: string
+  otpAuthUri: string
+  qrCodeDataUri: string
+  challengePublicId: string
+}
+
 export interface TotpRebindConfirmRequest {
+  challengePublicId: string
   code: string
 }
 
@@ -138,7 +146,7 @@ export interface AdminAuthPaths {
   '/api/v1/admin/auth/totp/rebind/begin': {
     post: {
       responses: {
-        200: { content: { 'application/json': TotpEnrollBeginResponseDto } }
+        200: { content: { 'application/json': TotpRebindBeginResponseDto } }
         401: { content: { 'application/problem+json': ProblemDetails } }
       }
     }

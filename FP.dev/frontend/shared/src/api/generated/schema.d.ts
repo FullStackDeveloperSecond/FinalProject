@@ -2327,6 +2327,17 @@ export interface paths {
                         "text/json": components["schemas"]["ProblemDetails"];
                     };
                 };
+                /** @description Too Many Requests */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
             };
         };
         delete?: never;
@@ -2372,6 +2383,17 @@ export interface paths {
                 };
                 /** @description Bad Request */
                 400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Too Many Requests */
+                429: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -2485,6 +2507,17 @@ export interface paths {
                         "text/json": components["schemas"]["ProblemDetails"];
                     };
                 };
+                /** @description Too Many Requests */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
             };
         };
         delete?: never;
@@ -2517,9 +2550,9 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "text/plain": components["schemas"]["TotpEnrollBeginResponseDto"];
-                        "application/json": components["schemas"]["TotpEnrollBeginResponseDto"];
-                        "text/json": components["schemas"]["TotpEnrollBeginResponseDto"];
+                        "text/plain": components["schemas"]["TotpRebindBeginResponseDto"];
+                        "application/json": components["schemas"]["TotpRebindBeginResponseDto"];
+                        "text/json": components["schemas"]["TotpRebindBeginResponseDto"];
                     };
                 };
             };
@@ -2567,6 +2600,17 @@ export interface paths {
                 };
                 /** @description Bad Request */
                 400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Too Many Requests */
+                429: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -3529,7 +3573,16 @@ export interface components {
             /** Format: date-time */
             expiresAtUtc: string;
         };
+        TotpRebindBeginResponseDto: {
+            secretKey: string;
+            otpAuthUri: string;
+            qrCodeDataUri: string;
+            /** Format: uuid */
+            challengePublicId: string;
+        };
         TotpRebindConfirmRequest: {
+            /** Format: uuid */
+            challengePublicId: string;
             code: string;
         };
         TotpVerifyRequest: {
