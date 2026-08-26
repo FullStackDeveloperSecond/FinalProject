@@ -174,13 +174,8 @@ public sealed class AdminReturnService : IAdminReturnService
         }
 
         var items = await _store.ListItemsAsync(returnRequest.Id, cancellationToken);
+        ValidateExactItemSet(items, [.. request.Items.Select(l => l.ReturnItemPublicId)]);
         var itemsById = items.ToDictionary(i => i.PublicId);
-        if (request.Items.Count != items.Count || request.Items.Any(line => !itemsById.ContainsKey(line.ReturnItemPublicId)))
-        {
-            throw new ReturnsWriteException(
-                ReturnsWriteException.ErrorCodes.ValidationFailed,
-                "The inspection must cover every item on this return exactly once.");
-        }
 
         var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
         var updatedItems = new List<ReturnItem>();
@@ -364,32 +359,51 @@ public sealed class AdminReturnService : IAdminReturnService
 
     private static void ValidateFullQuantityApproval(IReadOnlyList<ReturnItem> items, IReadOnlyList<ApproveReturnItemLine> approvalLines)
     {
-        var itemsById = items.ToDictionary(i => i.PublicId);
-        if (approvalLines.Count != items.Count)
-        {
-            throw new ReturnsWriteException(
-                ReturnsWriteException.ErrorCodes.ValidationFailed,
-                "The approval must cover every item on this return exactly once.");
-        }
+        ValidateExactItemSet(items, [.. approvalLines.Select(l => l.ReturnItemPublicId)]);
 
+        var itemsById = items.ToDictionary(i => i.PublicId);
         foreach (var line in approvalLines)
         {
-            if (!itemsById.TryGetValue(line.ReturnItemPublicId, out var item))
+            // Partial-quantity approval is not implemented in M-12 — ReturnItem.Quantity has
+            // no setter and the finalized schema carries no per-item approved-quantity
+            // column. See the implementation report. Exact-set validation above already
+            // guarantees line.ReturnItemPublicId resolves here.
+            if (line.ApprovedQuantity != itemsById[line.ReturnItemPublicId].Quantity)
             {
-                throw new ReturnsWriteException(
-                    ReturnsWriteException.ErrorCodes.ValidationFailed,
-                    $"Return item '{line.ReturnItemPublicId}' does not belong to this return.");
-            }
-
-            if (line.ApprovedQuantity != item.Quantity)
-            {
-                // Partial-quantity approval is not implemented in M-12 — ReturnItem.Quantity has
-                // no setter and the finalized schema carries no per-item approved-quantity
-                // column. See the implementation report.
                 throw new ReturnsWriteException(
                     ReturnsWriteException.ErrorCodes.ValidationFailed,
                     "Partial-quantity approval is not supported; approvedQuantity must equal the requested quantity.");
             }
+        }
+    }
+
+    /// <summary>
+    /// Shared by ReviewAsync's approval path and InspectAsync: the distinct submitted ReturnItem
+    /// PublicId set must equal the return's full persisted item set exactly. Equal cardinality
+    /// alone is not sufficient — it lets a duplicated ID silently stand in for an omitted
+    /// different item while still passing a naive count check. Duplicate, missing, and foreign
+    /// IDs are all validation_failed, and this must run before any status/inspection/history
+    /// mutation is applied.
+    /// </summary>
+    private static void ValidateExactItemSet(IReadOnlyList<ReturnItem> items, IReadOnlyList<Guid> submittedItemPublicIds)
+    {
+        var distinctSubmitted = new HashSet<Guid>();
+        foreach (var id in submittedItemPublicIds)
+        {
+            if (!distinctSubmitted.Add(id))
+            {
+                throw new ReturnsWriteException(
+                    ReturnsWriteException.ErrorCodes.ValidationFailed,
+                    $"Return item '{id}' was submitted more than once.");
+            }
+        }
+
+        var actualItemIds = items.Select(i => i.PublicId).ToHashSet();
+        if (!distinctSubmitted.SetEquals(actualItemIds))
+        {
+            throw new ReturnsWriteException(
+                ReturnsWriteException.ErrorCodes.ValidationFailed,
+                "The submission must cover every item on this return exactly once.");
         }
     }
 

@@ -24,6 +24,10 @@ const extendMutation = useExtendShipmentDeadlineMutation(returnId)
 
 const reviewReasonCode = ref('')
 const reviewNote = ref('')
+// Defaults to true (the physical-return path). Deliberately a plain ref, not derived from the
+// query's `data`, so a background refetch while the admin is mid-review never silently resets
+// their choice.
+const requiresShipmentInspection = ref(true)
 const receiveNote = ref('')
 const extendReasonCode = ref('')
 const inspectionLines = reactive<Record<string, { conditionCode: string, disposition: RestockDisposition, note: string }>>({})
@@ -48,7 +52,7 @@ async function handleApprove() {
     items: data.value.return.items.map((item) => ({
       returnItemPublicId: item.publicId,
       approvedQuantity: item.quantity,
-      inspectionRequired: true,
+      inspectionRequired: requiresShipmentInspection.value,
     })),
     reasonCode: reviewReasonCode.value.trim() || 'eligible',
     note: reviewNote.value.trim() || null,
@@ -207,6 +211,21 @@ function isConflict(err: unknown): boolean {
             rows="2"
           />
         </label>
+        <label class="admin-return-detail__checkbox-row">
+          <input
+            v-model="requiresShipmentInspection"
+            type="checkbox"
+          >
+          <span>需要寄回檢查</span>
+        </label>
+        <p class="admin-return-detail__hint">
+          <template v-if="requiresShipmentInspection">
+            核准後將要求顧客寄回商品，待收貨與檢查完成後才會進入等待退款。
+          </template>
+          <template v-else>
+            核准後將跳過實體寄回與商品檢查，直接進入等待退款（適用於無需寄回的核准，例如商譽退款）。
+          </template>
+        </p>
         <p
           v-if="isConflict(reviewMutation.error.value)"
           class="admin-return-detail__conflict"
@@ -446,6 +465,18 @@ function isConflict(err: unknown): boolean {
   padding: 0.5rem 0.625rem;
   border: 1px solid #d1d5db;
   border-radius: 0.375rem;
+}
+
+.admin-return-detail__checkbox-row {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 0.5rem !important;
+}
+
+.admin-return-detail__checkbox-row input {
+  padding: 0 !important;
+  border: none !important;
+  width: auto;
 }
 
 .admin-return-detail__inspect-row {

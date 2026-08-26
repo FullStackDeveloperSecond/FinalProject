@@ -258,7 +258,8 @@ public sealed class ReturnService : IReturnService
         var attachment = new ReturnAttachment(
             Guid.CreateVersion7(),
             request.Id,
-            actor.MemberUserId ?? $"guest-order:{actor.GuestOrderId}",
+            actor.MemberUserId,
+            actor.GuestOrderId,
             stored.OriginalFileName,
             stored.StorageKey,
             stored.Extension,
@@ -268,7 +269,33 @@ public sealed class ReturnService : IReturnService
             nowUtc);
         attachment.RecordScan(PrivateAttachmentScanStatus.Clean, nowUtc);
 
-        await _store.AddAttachmentAsync(attachment, cancellationToken);
+        try
+        {
+            await _store.AddAttachmentAsync(attachment, cancellationToken);
+        }
+        catch (Exception)
+        {
+            // The physical file is already committed; a metadata-write failure (or the caller
+            // cancelling mid-write) must not leave it orphaned. Cleanup always targets exactly
+            // the key just created here — never any pre-existing file — and always runs with its
+            // own token, since the original token may itself be the reason this catch fired.
+            bool cleanupSucceeded;
+            try
+            {
+                cleanupSucceeded = await _fileStorage.DeleteAsync(stored.StorageKey, CancellationToken.None);
+            }
+            catch (Exception cleanupFailure)
+            {
+                throw new ReturnAttachmentCompensationException(stored.StorageKey, cleanupFailure);
+            }
+
+            if (!cleanupSucceeded)
+            {
+                throw new ReturnAttachmentCompensationException(stored.StorageKey, cleanupFailure: null);
+            }
+
+            throw;
+        }
 
         return new ReturnAttachmentDto(attachment.PublicId, attachment.OriginalFileName, attachment.CreatedAtUtc);
     }

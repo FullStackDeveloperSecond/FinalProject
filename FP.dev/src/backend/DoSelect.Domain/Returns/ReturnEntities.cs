@@ -118,10 +118,28 @@ public sealed class ReturnInspection : PublicEntity
 public sealed class ReturnAttachment : MutablePublicEntity
 {
     private ReturnAttachment() { }
-    public ReturnAttachment(Guid publicId, long returnRequestId, string uploadedByUserId, string originalFileName, string storageKey, string extension, string mimeType, long fileSizeBytes, byte[] sha256, DateTime createdAtUtc) : base(publicId, createdAtUtc)
-    { AttachmentRules.Validate(fileSizeBytes, sha256); if (returnRequestId <= 0) throw new ArgumentOutOfRangeException(nameof(returnRequestId)); ReturnRequestId = returnRequestId; UploadedByUserId = RequireText(uploadedByUserId, nameof(uploadedByUserId)); OriginalFileName = RequireText(originalFileName, nameof(originalFileName)); StorageKey = RequireText(storageKey, nameof(storageKey)); Extension = RequireText(extension, nameof(extension)); MimeType = RequireText(mimeType, nameof(mimeType)); FileSizeBytes = fileSizeBytes; Sha256 = sha256.ToArray(); ScanStatus = PrivateAttachmentScanStatus.Pending; }
+    /// <summary>
+    /// Exactly one of <paramref name="uploadedByUserId"/> (a real Member FK) or
+    /// <paramref name="uploadedByGuestOrderId"/> (a real Orders FK) must be supplied — never a
+    /// synthetic string like "guest-order:{id}" crammed into the Member FK column, which is a
+    /// required ApplicationUser reference and cannot legitimately hold a guest identity.
+    /// </summary>
+    public ReturnAttachment(Guid publicId, long returnRequestId, string? uploadedByUserId, long? uploadedByGuestOrderId, string originalFileName, string storageKey, string extension, string mimeType, long fileSizeBytes, byte[] sha256, DateTime createdAtUtc) : base(publicId, createdAtUtc)
+    {
+        AttachmentRules.Validate(fileSizeBytes, sha256);
+        if (returnRequestId <= 0) throw new ArgumentOutOfRangeException(nameof(returnRequestId));
+        var hasMember = !string.IsNullOrWhiteSpace(uploadedByUserId);
+        var hasGuest = uploadedByGuestOrderId is > 0;
+        if (hasMember == hasGuest) throw new ArgumentException("Exactly one of uploadedByUserId or uploadedByGuestOrderId is required.");
+        ReturnRequestId = returnRequestId;
+        UploadedByUserId = hasMember ? uploadedByUserId!.Trim() : null;
+        UploadedByGuestOrderId = hasGuest ? uploadedByGuestOrderId : null;
+        OriginalFileName = RequireText(originalFileName, nameof(originalFileName)); StorageKey = RequireText(storageKey, nameof(storageKey)); Extension = RequireText(extension, nameof(extension)); MimeType = RequireText(mimeType, nameof(mimeType)); FileSizeBytes = fileSizeBytes; Sha256 = sha256.ToArray(); ScanStatus = PrivateAttachmentScanStatus.Pending;
+    }
     public long ReturnRequestId { get; private set; }
-    public string UploadedByUserId { get; private set; } = string.Empty; public string OriginalFileName { get; private set; } = string.Empty; public string StorageKey { get; private set; } = string.Empty;
+    public string? UploadedByUserId { get; private set; }
+    public long? UploadedByGuestOrderId { get; private set; }
+    public string OriginalFileName { get; private set; } = string.Empty; public string StorageKey { get; private set; } = string.Empty;
     public string Extension { get; private set; } = string.Empty; public string MimeType { get; private set; } = string.Empty; public long FileSizeBytes { get; private set; }
     public byte[] Sha256 { get; private set; } = [];
     public PrivateAttachmentScanStatus ScanStatus { get; private set; }

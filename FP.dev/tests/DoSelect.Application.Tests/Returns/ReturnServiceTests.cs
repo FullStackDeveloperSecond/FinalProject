@@ -254,7 +254,7 @@ public sealed class ReturnServiceTests
         for (var i = 0; i < 3; i++)
         {
             store.Attachments.Add(new ReturnAttachment(
-                Guid.NewGuid(), requestId, "member-a", $"f{i}.pdf", $"private-files/xx/{i}.blob", "pdf", "application/pdf", 100, new byte[32], NowUtc));
+                Guid.NewGuid(), requestId, "member-a", null, $"f{i}.pdf", $"private-files/xx/{i}.blob", "pdf", "application/pdf", 100, new byte[32], NowUtc));
         }
 
         var upload = new PrivateFileUpload(new MemoryStream([1, 2, 3]), "evidence.pdf", "application/pdf");

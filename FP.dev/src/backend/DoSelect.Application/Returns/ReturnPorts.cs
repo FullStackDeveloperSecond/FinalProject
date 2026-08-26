@@ -240,6 +240,31 @@ public sealed class ReturnQuantityConflictException : Exception
     public long OrderItemId { get; }
 }
 
+/// <summary>
+/// Raised when a return-attachment upload fails to write metadata after the physical file was
+/// already committed, and the follow-up compensation delete of that orphaned file also fails (or
+/// the delete itself throws) — mirrors Support's SupportAttachmentCompensationException. Carries
+/// the compensation failure as <see cref="Exception.InnerException"/> so it is never silently
+/// dropped; the API layer maps this to a generic server error and never echoes
+/// <see cref="StorageKey"/> or any path back to the client.
+/// </summary>
+public sealed class ReturnAttachmentCompensationException : Exception
+{
+    public ReturnAttachmentCompensationException(string storageKey, Exception? cleanupFailure)
+        : base(BuildMessage(storageKey, cleanupFailure), cleanupFailure)
+    {
+        StorageKey = storageKey;
+    }
+
+    /// <summary>The opaque, server-generated storage key of the orphaned file. Never a physical path.</summary>
+    public string StorageKey { get; }
+
+    private static string BuildMessage(string storageKey, Exception? cleanupFailure) =>
+        cleanupFailure is null
+            ? $"Failed to compensate orphaned return-attachment storage key '{storageKey}' after a metadata write failure."
+            : $"Failed to compensate orphaned return-attachment storage key '{storageKey}' after a metadata write failure: {cleanupFailure.Message}";
+}
+
 public sealed class ReturnsWriteException : Exception
 {
     public ReturnsWriteException(string errorCode, string message)

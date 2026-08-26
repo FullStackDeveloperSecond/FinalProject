@@ -23,15 +23,30 @@ public static class ReturnEligibilityPolicy
 {
     public const int MaximumLineCount = 20;
 
+    /// <summary>
+    /// The project persists UTC but every business/calendar rule is Asia/Taipei local time.
+    /// Resolved via the IANA id, which .NET's cross-platform (ICU-backed) time zone database
+    /// supports on both Windows and Linux since .NET 6 — no server-locale dependency and no
+    /// extra package.
+    /// </summary>
+    private static readonly TimeZoneInfo TaipeiTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Taipei");
+
     public static bool TryParseReasonType(string reasonCode, out ReturnReasonType reasonType) =>
         Enum.TryParse(reasonCode, ignoreCase: false, out reasonType) && Enum.IsDefined(reasonType);
 
     /// <summary>
     /// "到貨翌日起 7 日內提出申請" — the window starts the calendar day AFTER delivery and runs
-    /// 7 full days, so the deadline is the delivery date plus 8 days at UTC midnight.
+    /// 7 full days, so the deadline is the *local* (Asia/Taipei) delivery date plus 8 days at
+    /// local midnight, converted back to UTC for comparison. Deliberately not
+    /// <c>deliveredAtUtc.Date.AddDays(8)</c>: that computes UTC midnight, which is 08:00 Taipei
+    /// time and silently shifts the calendar-day boundary the policy actually describes.
     /// </summary>
-    public static DateTime ComputeCoolingOffDeadlineUtc(DateTime deliveredAtUtc) =>
-        deliveredAtUtc.Date.AddDays(8);
+    public static DateTime ComputeCoolingOffDeadlineUtc(DateTime deliveredAtUtc)
+    {
+        var deliveredLocal = TimeZoneInfo.ConvertTimeFromUtc(deliveredAtUtc, TaipeiTimeZone);
+        var deadlineLocalMidnight = DateTime.SpecifyKind(deliveredLocal.Date.AddDays(8), DateTimeKind.Unspecified);
+        return TimeZoneInfo.ConvertTimeToUtc(deadlineLocalMidnight, TaipeiTimeZone);
+    }
 
     /// <summary>
     /// Only the CoolingOff (無理由) path is time-boxed and blocked once custom assembly has

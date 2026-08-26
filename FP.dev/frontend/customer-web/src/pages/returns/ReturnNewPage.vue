@@ -2,19 +2,63 @@
 /**
  * C-19 /orders/:orderId/returns/new
  *
- * The order detail page (C-18) that should hand off the order's eligible items and current
- * RowVersion does not exist in this codebase yet (haru's page). Until it does, this page
- * accepts those as optional query parameters (?orderRowVersion=&item=orderItemPublicId:name)
- * pre-filled by whoever links here, and otherwise lets the member fill them in manually so the
- * page is independently usable and testable now. Only the create endpoint itself is contract-
- * accurate; the "known eligible items" list is a placeholder until C-18 ships.
+ * The order detail page (C-18) that should hand off this order's eligible return items and its
+ * current RowVersion does not exist in this codebase yet (haru's page). An ordinary customer
+ * must never be asked to type an internal orderItemPublicId or a Base64 RowVersion by hand, so
+ * this page does not render an editable form until it receives trusted handoff data.
+ *
+ * Trusted handoff contract (client-side navigation convention only — no new backend API):
+ * the linking page navigates here with query parameters
+ *   - `orderRowVersion`: the order's current RowVersion, Base64-encoded
+ *   - `items`: a JSON-encoded array of `{ orderItemPublicId, skuName, maxQuantity }` describing
+ *     this customer's own already-verified eligible order items
+ * Until both are present and well-formed, the page shows a dependency notice, keeps the route
+ * reachable for integration testing, and disables formal submission. Once C-18 exists, it is
+ * C-18's responsibility to construct this query — this page does not fetch or invent order data
+ * on its own.
  */
+import { EmptyState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
 import { computed, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useCreateReturnMutation } from '../../features/returns/queries'
 import { reasonLabels } from '../../features/returns/labels'
-import type { CreateReturnItemLine } from '../../features/returns/types'
+
+interface HandoffItem {
+  orderItemPublicId: string
+  skuName: string
+  maxQuantity: number
+}
+
+interface LineState {
+  key: number
+  orderItemPublicId: string
+  skuName: string
+  quantity: number
+  reasonCode: string
+  description: string
+}
+
+function parseHandoffItems(raw: unknown): HandoffItem[] {
+  if (typeof raw !== 'string' || raw.length === 0) {
+    return []
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+
+    return parsed.filter((entry): entry is HandoffItem =>
+      typeof entry?.orderItemPublicId === 'string' && entry.orderItemPublicId.length > 0
+      && typeof entry?.skuName === 'string' && entry.skuName.length > 0
+      && typeof entry?.maxQuantity === 'number' && entry.maxQuantity > 0)
+  }
+  catch {
+    return []
+  }
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -22,16 +66,21 @@ const orderId = computed(() => String(route.params.orderId))
 
 const mutation = useCreateReturnMutation(orderId)
 
-const orderRowVersionInput = ref(typeof route.query.orderRowVersion === 'string' ? route.query.orderRowVersion : '')
-const requestReason = ref('')
-const lines = reactive<Array<CreateReturnItemLine & { key: number }>>([
-  { key: 0, orderItemPublicId: '', quantity: 1, reasonCode: 'Defective', description: '' },
-])
-let nextKey = 1
+const orderRowVersion = typeof route.query.orderRowVersion === 'string' && route.query.orderRowVersion.length > 0
+  ? route.query.orderRowVersion
+  : null
+const handoffItems = parseHandoffItems(route.query.items)
+const hasTrustedHandoff = orderRowVersion !== null && handoffItems.length > 0
 
-function addLine() {
-  lines.push({ key: nextKey++, orderItemPublicId: '', quantity: 1, reasonCode: 'Defective', description: '' })
-}
+const requestReason = ref('')
+const lines = reactive<LineState[]>(handoffItems.map((item, index) => ({
+  key: index,
+  orderItemPublicId: item.orderItemPublicId,
+  skuName: item.skuName,
+  quantity: 1,
+  reasonCode: 'Defective',
+  description: '',
+})))
 
 function removeLine(key: number) {
   const index = lines.findIndex((line) => line.key === key)
@@ -41,15 +90,18 @@ function removeLine(key: number) {
 }
 
 const canSubmit = computed(() =>
-  orderRowVersionInput.value.trim().length > 0
+  hasTrustedHandoff
   && requestReason.value.trim().length > 0
   && requestReason.value.length <= 1000
-  && lines.every((line) => line.orderItemPublicId.trim().length > 0 && Number(line.quantity) > 0)
+  && lines.length > 0
+  && lines.every((line) => Number(line.quantity) > 0)
   && !mutation.isPending.value)
 
 async function handleSubmit() {
-  // RowVersion travels as a base64 string on the wire (System.Text.Json's byte[] convention) —
-  // no client-side encoding needed, just forward the value as typed/pasted.
+  if (!hasTrustedHandoff || orderRowVersion === null) {
+    return
+  }
+
   const created = await mutation.mutateAsync({
     items: lines.map((line) => ({
       orderItemPublicId: line.orderItemPublicId,
@@ -58,7 +110,7 @@ async function handleSubmit() {
       description: line.description,
     })),
     requestReason: requestReason.value.trim(),
-    orderRowVersion: orderRowVersionInput.value.trim(),
+    orderRowVersion,
   })
   await router.push(`/returns/${created.publicId}`)
 }
@@ -71,7 +123,14 @@ async function handleSubmit() {
     </h1>
     <p>訂單 #{{ orderId }}</p>
 
+    <EmptyState
+      v-if="!hasTrustedHandoff"
+      title="等待訂單明細（C-18）整合"
+      description="退貨申請目前需要從訂單明細頁面進入，以確認可退品項與訂單版本。此功能上線後，請由「我的訂單」中的訂單明細頁面點選退貨即可開始申請；您不需要也不應該自行輸入商品編號或訂單版本。"
+    />
+
     <form
+      v-else
       class="return-form"
       @submit.prevent="handleSubmit"
     >
@@ -81,15 +140,9 @@ async function handleSubmit() {
         class="return-form__item"
       >
         <legend>退貨商品 {{ index + 1 }}</legend>
-        <label>
-          <span>訂單品項 ID</span>
-          <input
-            v-model="line.orderItemPublicId"
-            type="text"
-            required
-            placeholder="訂單明細的 orderItemPublicId"
-          >
-        </label>
+        <p class="return-form__readonly-item">
+          {{ line.skuName }}
+        </p>
         <label>
           <span>數量</span>
           <input
@@ -128,14 +181,6 @@ async function handleSubmit() {
         </button>
       </fieldset>
 
-      <button
-        type="button"
-        class="return-form__add"
-        @click="addLine"
-      >
-        ＋ 新增退貨品項
-      </button>
-
       <label class="return-form__field">
         <span>整體退貨說明（1–1000 字）</span>
         <textarea
@@ -144,16 +189,6 @@ async function handleSubmit() {
           maxlength="1000"
           required
         />
-      </label>
-
-      <label class="return-form__field">
-        <span>訂單目前版本（orderRowVersion，Base64）</span>
-        <input
-          v-model="orderRowVersionInput"
-          type="text"
-          required
-          placeholder="從訂單詳情頁取得"
-        >
       </label>
 
       <p
@@ -192,6 +227,11 @@ async function handleSubmit() {
   border-radius: 0.5rem;
 }
 
+.return-form__readonly-item {
+  margin: 0;
+  font-weight: 700;
+}
+
 .return-form__item label,
 .return-form__field {
   display: flex;
@@ -210,10 +250,6 @@ async function handleSubmit() {
   padding: 0.5rem 0.625rem;
   border: 1px solid #d1d5db;
   border-radius: 0.375rem;
-}
-
-.return-form__add {
-  align-self: flex-start;
 }
 
 .return-form__error {
