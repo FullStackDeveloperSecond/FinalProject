@@ -33,7 +33,8 @@ public sealed record OrderCreation(
     int? CouponPolicyVersion,
     DateTime? PaymentDueAtUtc,
     string CheckoutIdempotencyKey,
-    Guid? SourceCartPublicId);
+    Guid? SourceCartPublicId,
+    decimal? ShippingFreeThresholdSnapshot = null);
 
 public sealed class Order : MutablePublicEntity
 {
@@ -115,6 +116,12 @@ public sealed class Order : MutablePublicEntity
             creation.CheckoutIdempotencyKey,
             nameof(creation.CheckoutIdempotencyKey));
         SourceCartPublicId = creation.SourceCartPublicId;
+        ShippingFreeThresholdSnapshot = creation.ShippingFreeThresholdSnapshot is >= 0m
+            ? creation.ShippingFreeThresholdSnapshot
+            : creation.ShippingFreeThresholdSnapshot is null
+                ? null
+                : throw new ArgumentOutOfRangeException(
+                    nameof(creation.ShippingFreeThresholdSnapshot));
     }
 
     public string OrderNumber { get; private set; } = string.Empty;
@@ -198,6 +205,12 @@ public sealed class Order : MutablePublicEntity
     public string CheckoutIdempotencyKey { get; private set; } = string.Empty;
 
     public Guid? SourceCartPublicId { get; private set; }
+
+    /// <summary>
+    /// Checkout-time free-shipping threshold. A null value means the trusted snapshot is
+    /// unavailable, so later refund calculations must not infer it from a mutable shipping method.
+    /// </summary>
+    public decimal? ShippingFreeThresholdSnapshot { get; private set; }
 
     public static Order Create(Guid publicId, OrderCreation creation, DateTime createdAtUtc) =>
         new(publicId, creation, createdAtUtc);
@@ -325,7 +338,8 @@ public sealed class OrderItem : PublicEntity
         decimal lineTotal,
         Guid? assemblyGroupKey,
         int returnableQuantity,
-        DateTime createdAtUtc)
+        DateTime createdAtUtc,
+        bool isCouponEligible)
         : base(publicId, createdAtUtc)
     {
         if (orderId <= 0 || quantity <= 0 || returnableQuantity < 0 ||
@@ -364,6 +378,7 @@ public sealed class OrderItem : PublicEntity
         LineTotal = lineTotal;
         AssemblyGroupKey = assemblyGroupKey;
         ReturnableQuantity = returnableQuantity;
+        IsCouponEligible = isCouponEligible;
     }
 
     public long OrderId { get; private set; }
@@ -397,6 +412,8 @@ public sealed class OrderItem : PublicEntity
     public int ReturnableQuantity { get; private set; }
 
     public int ReturnedQuantity { get; private set; }
+
+    public bool IsCouponEligible { get; private set; }
 
     public void RecordReturnedQuantity(int quantity)
     {

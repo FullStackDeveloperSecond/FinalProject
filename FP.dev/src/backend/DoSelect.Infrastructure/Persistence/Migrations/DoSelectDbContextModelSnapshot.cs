@@ -22,6 +22,147 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("DoSelect.Domain.Auditing.AuditLog", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(128)");
+
+                    b.Property<Guid?>("ActorPublicId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ActorRolesJson")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("ActorType")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(16)");
+
+                    b.Property<string>("ChangedFieldsJson")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<int>("ChangedFieldsSchemaVersion")
+                        .HasColumnType("int");
+
+                    b.Property<string>("CorrelationId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<string>("ErrorCode")
+                        .HasMaxLength(128)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(128)");
+
+                    b.Property<string>("HoldReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<bool>("IsLegalHold")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid?>("JobPublicId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("MaskedIpAddress")
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<DateTime>("OccurredAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<Guid>("PublicId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<Guid>("ResourcePublicId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ResourceType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<string>("Result")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(16)");
+
+                    b.Property<DateTime>("RetentionUntilUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<string>("TraceId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OccurredAtUtc")
+                        .HasDatabaseName("IX_AuditLogs_OccurredAtUtc");
+
+                    b.HasIndex("PublicId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_AuditLogs_PublicId");
+
+                    b.HasIndex("Action", "OccurredAtUtc")
+                        .HasDatabaseName("IX_AuditLogs_Action_OccurredAtUtc");
+
+                    b.HasIndex("ActorPublicId", "OccurredAtUtc")
+                        .HasDatabaseName("IX_AuditLogs_ActorPublicId_OccurredAtUtc");
+
+                    b.HasIndex("IsLegalHold", "RetentionUntilUtc")
+                        .HasDatabaseName("IX_AuditLogs_Retention");
+
+                    b.HasIndex("ResourceType", "ResourcePublicId", "OccurredAtUtc")
+                        .HasDatabaseName("IX_AuditLogs_Resource_OccurredAtUtc");
+
+                    b.ToTable("AuditLogs", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_AuditLogs_Actor", "(([ActorType] = 'System' AND [ActorPublicId] IS NULL) OR ([ActorType] IN ('Member', 'Admin', 'Guest') AND [ActorPublicId] IS NOT NULL)) AND (([ActorType] = 'Admin' AND [ActorRolesJson] <> '[]') OR ([ActorType] <> 'Admin' AND [ActorRolesJson] = '[]'))");
+
+                            t.HasCheckConstraint("CK_AuditLogs_Json", "ISJSON([ActorRolesJson]) = 1 AND ISJSON([ChangedFieldsJson]) = 1");
+
+                            t.HasCheckConstraint("CK_AuditLogs_LegalHold", "([IsLegalHold] = 0 AND [HoldReason] IS NULL) OR ([IsLegalHold] = 1 AND [HoldReason] IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_AuditLogs_Result", "([Result] = 'Success' AND [ErrorCode] IS NULL) OR ([Result] IN ('Rejected', 'Conflict', 'Failed') AND [ErrorCode] IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_AuditLogs_Retention", "[RetentionUntilUtc] >= [OccurredAtUtc]");
+
+                            t.HasCheckConstraint("CK_AuditLogs_SchemaVersion", "[ChangedFieldsSchemaVersion] > 0");
+                        });
+                });
+
             modelBuilder.Entity("DoSelect.Domain.Builds.BuildList", b =>
                 {
                     b.Property<long>("Id")
@@ -3343,6 +3484,10 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
 
+                    b.Property<decimal?>("ShippingFreeThresholdSnapshot")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
                     b.Property<string>("ShippingMethodCode")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -3410,6 +3555,8 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("CK_Orders_PolicyVersions", "[ShippingConstraintPolicyVersion] > 0 AND [ReturnPolicyVersion] > 0 AND ([CouponPolicyVersion] IS NULL OR [CouponPolicyVersion] > 0)");
 
                             t.HasCheckConstraint("CK_Orders_RefundedAmount", "[RefundedAmount] <= [PaidAmount]");
+
+                            t.HasCheckConstraint("CK_Orders_ShippingFreeThresholdSnapshot", "[ShippingFreeThresholdSnapshot] IS NULL OR [ShippingFreeThresholdSnapshot] >= 0");
                         });
                 });
 
@@ -3435,6 +3582,9 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                     b.Property<decimal>("FinalUnitPrice")
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
+
+                    b.Property<bool>("IsCouponEligible")
+                        .HasColumnType("bit");
 
                     b.Property<decimal>("LineSubtotal")
                         .HasPrecision(18, 2)
@@ -4104,6 +4254,10 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                         .HasColumnType("bit")
                         .HasDefaultValue(false);
 
+                    b.Property<decimal?>("MinimumSpendAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
                     b.Property<string>("NameSnapshot")
                         .IsRequired()
                         .HasMaxLength(160)
@@ -4140,7 +4294,7 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
 
                     b.ToTable("OrderCoupons", null, t =>
                         {
-                            t.HasCheckConstraint("CK_OrderCoupons_Amounts", "([DiscountValue] IS NULL OR [DiscountValue] >= 0) AND [AppliedAmount] >= 0 AND [EligibleSubtotal] >= 0 AND [RuleVersion] > 0");
+                            t.HasCheckConstraint("CK_OrderCoupons_Amounts", "([DiscountValue] IS NULL OR [DiscountValue] >= 0) AND ([MinimumSpendAmount] IS NULL OR [MinimumSpendAmount] >= 0) AND [AppliedAmount] >= 0 AND [EligibleSubtotal] >= 0 AND [RuleVersion] > 0");
                         });
                 });
 
@@ -4305,6 +4459,9 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("PublicId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<int?>("Quantity")
+                        .HasColumnType("int");
+
                     b.Property<long>("RefundId")
                         .HasColumnType("bigint");
 
@@ -4326,6 +4483,8 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                     b.ToTable("RefundAllocations", null, t =>
                         {
                             t.HasCheckConstraint("CK_RefundAllocations_Amounts", "[Amount] > 0 AND [OriginalDiscountAllocation] >= 0");
+
+                            t.HasCheckConstraint("CK_RefundAllocations_TypeAndShape", "[AllocationType] IN ('ItemRefund', 'OriginalShipping', 'ShippingClawback', 'DiscountClawback', 'AssemblyFee', 'ReturnShipping') AND (([AllocationType] = 'ItemRefund' AND [OrderItemId] IS NOT NULL AND [Quantity] > 0) OR ([AllocationType] <> 'ItemRefund' AND [OrderItemId] IS NULL AND [Quantity] IS NULL))");
                         });
                 });
 

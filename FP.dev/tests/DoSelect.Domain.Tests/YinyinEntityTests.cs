@@ -61,6 +61,17 @@ public sealed class YinyinEntityTests
     }
 
     [Fact]
+    public void OrderCouponStoresTheCheckoutMinimumSpendSnapshot()
+    {
+        var coupon = new OrderCoupon(
+            Guid.NewGuid(), 1, 1, 1, "SAVE100", "滿額折抵",
+            CouponDiscountType.FixedAmount, 1, 100m, 1000m, 100m, 1200m,
+            false, CreatedAtUtc);
+
+        Assert.Equal(1000m, coupon.MinimumSpendAmount);
+    }
+
+    [Fact]
     public void PaymentAttempt_EnforcesDocumentedStateMachine()
     {
         var attempt = new PaymentAttempt(Guid.NewGuid(), 1, PaymentMethod.CreditCard,
