@@ -168,6 +168,48 @@ public sealed class ReturnStoreConcurrencyTests
         Assert.Null(summaries.Single(item => item.Description is null).Description);
     }
 
+    [SqlServerFact]
+    public async Task AddAttachmentAsync_GuestUploader_PersistsOrderForeignKeyWithoutApplicationUser()
+    {
+        long orderId;
+        long orderItemId;
+        await using (var seed = ReturnStoreConcurrencyFixture.CreateContext())
+        {
+            (orderId, orderItemId) = await SeedOrderWithItemAsync(seed, returnableQuantity: 1);
+        }
+
+        await using var context = ReturnStoreConcurrencyFixture.CreateContext();
+        var store = new ReturnStore(context);
+        var creation = await store.CreateWithItemsAsync(
+            NewRequest(orderId, "RT-GUEST-UP01"),
+            [new ReturnItemQuantityBudget(orderItemId, RequestedQuantity: 1, MaximumReturnableQuantity: 1)],
+            requestId => [new ReturnItem(Guid.CreateVersion7(), requestId, orderItemId, 1, 0m, "NotInspected", NowUtc)],
+            CancellationToken.None);
+        var attachment = new ReturnAttachment(
+            Guid.CreateVersion7(),
+            creation.Request.Id,
+            uploadedByUserId: null,
+            uploadedByGuestOrderId: orderId,
+            "guest-proof.pdf",
+            $"private-files/returns/{Guid.NewGuid():N}.blob",
+            "pdf",
+            "application/pdf",
+            3,
+            new byte[32],
+            NowUtc);
+        attachment.RecordScan(DoSelect.Domain.Support.PrivateAttachmentScanStatus.Clean, NowUtc);
+
+        await store.AddAttachmentAsync(attachment, CancellationToken.None);
+
+        context.ChangeTracker.Clear();
+        var persisted = await context.ReturnAttachments
+            .AsNoTracking()
+            .SingleAsync(candidate => candidate.PublicId == attachment.PublicId);
+        Assert.Null(persisted.UploadedByUserId);
+        Assert.Equal(orderId, persisted.UploadedByGuestOrderId);
+    }
+
+
     private static async Task<(bool Success, Exception? Error)> RunCreateAsync(
         ReturnStore store, long orderId, long orderItemId, string returnNumber, IReadOnlyList<ReturnItemQuantityBudget> budgets)
     {
@@ -205,7 +247,7 @@ public sealed class ReturnStoreConcurrencyTests
             Guid.CreateVersion7(), order.Id, skuId: null, "SKU-1", "27型螢幕", "27型螢幕 White",
             quantity: returnableQuantity, listUnitPrice: 100m, saleUnitPrice: 100m, finalUnitPrice: 100m,
             unitCostSnapshot: 60m, lineSubtotal: 100m * returnableQuantity, discountAllocation: 0m,
-            lineTotal: 100m * returnableQuantity, assemblyGroupKey: null, returnableQuantity: returnableQuantity, NowUtc);
+            lineTotal: 100m * returnableQuantity, assemblyGroupKey: null, returnableQuantity: returnableQuantity, NowUtc, isCouponEligible: true);
         context.OrderItems.Add(item);
         await context.SaveChangesAsync();
 
@@ -218,7 +260,7 @@ public sealed class ReturnStoreConcurrencyTests
             Guid.CreateVersion7(), orderId, skuId: null, "SKU-2", "機械式鍵盤", "機械式鍵盤 87key",
             quantity: returnableQuantity, listUnitPrice: 80m, saleUnitPrice: 80m, finalUnitPrice: 80m,
             unitCostSnapshot: 40m, lineSubtotal: 80m * returnableQuantity, discountAllocation: 0m,
-            lineTotal: 80m * returnableQuantity, assemblyGroupKey: null, returnableQuantity: returnableQuantity, NowUtc);
+            lineTotal: 80m * returnableQuantity, assemblyGroupKey: null, returnableQuantity: returnableQuantity, NowUtc, isCouponEligible: true);
         context.OrderItems.Add(item);
         await context.SaveChangesAsync();
         return item.Id;

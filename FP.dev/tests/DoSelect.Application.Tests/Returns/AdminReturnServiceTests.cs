@@ -34,6 +34,14 @@ public sealed class AdminReturnServiceTests
         return (service, store, request);
     }
 
+    private static ReturnItem AddSecondItem(FakeReturnStore store)
+    {
+        var item = new ReturnItem(Guid.NewGuid(), 1, 11, 1, 0m, "NotInspected", NowUtc);
+        ItemIdField.SetValue(item, 101L);
+        store.Items.Add(item);
+        return item;
+    }
+
     [Fact]
     public async Task ReviewAsync_Approve_WithInspectionRequired_MovesToAwaitingShipment()
     {
@@ -166,5 +174,70 @@ public sealed class AdminReturnServiceTests
             service.ReviewAsync(request.PublicId, "admin-1", approval, CancellationToken.None));
 
         Assert.Equal(ReturnsWriteException.ErrorCodes.ReturnStateConflict, exception.ErrorCode);
+    }
+
+
+    [Fact]
+    public async Task ReviewAsync_DuplicateItemThatOmitsAnotherItem_ThrowsBeforeMutation()
+    {
+        var (service, store, request) = CreateSutWithRequestedReturn();
+        AddSecondItem(store);
+        var duplicatedId = store.Items[0].PublicId;
+        var approval = new ApproveReturnRequest(
+            true,
+            [
+                new ApproveReturnItemLine(duplicatedId, 1, true),
+                new ApproveReturnItemLine(duplicatedId, 1, true),
+            ],
+            "eligible",
+            null,
+            request.RowVersion);
+
+        var exception = await Assert.ThrowsAsync<ReturnsWriteException>(() =>
+            service.ReviewAsync(request.PublicId, "admin-1", approval, CancellationToken.None));
+
+        Assert.Equal(ReturnsWriteException.ErrorCodes.ValidationFailed, exception.ErrorCode);
+        Assert.Equal(ReturnRequestStatus.Requested, request.Status);
+        Assert.Empty(store.Histories);
+    }
+
+    [Fact]
+    public async Task InspectAsync_DuplicateItemThatOmitsAnotherItem_ThrowsBeforeInspectionMutation()
+    {
+        var (service, store, request) = CreateSutWithRequestedReturn();
+        var secondItem = AddSecondItem(store);
+        await service.ReviewAsync(
+            request.PublicId,
+            "admin-1",
+            new ApproveReturnRequest(
+                true,
+                [
+                    new ApproveReturnItemLine(store.Items[0].PublicId, 1, true),
+                    new ApproveReturnItemLine(secondItem.PublicId, 1, true),
+                ],
+                "eligible",
+                null,
+                request.RowVersion),
+            CancellationToken.None);
+        await service.ReceiveAsync(
+            request.PublicId,
+            "admin-1",
+            new ReceiveReturnRequest(null, request.RowVersion),
+            CancellationToken.None);
+
+        var duplicatedId = store.Items[0].PublicId;
+        var inspection = new InspectReturnRequest(
+            [
+                new InspectReturnItemLine(duplicatedId, "Unopened", RestockDisposition.Resellable, null),
+                new InspectReturnItemLine(duplicatedId, "Unopened", RestockDisposition.Resellable, null),
+            ],
+            request.RowVersion);
+
+        var exception = await Assert.ThrowsAsync<ReturnsWriteException>(() =>
+            service.InspectAsync(request.PublicId, "admin-1", inspection, CancellationToken.None));
+
+        Assert.Equal(ReturnsWriteException.ErrorCodes.ValidationFailed, exception.ErrorCode);
+        Assert.Equal(ReturnRequestStatus.Received, request.Status);
+        Assert.Empty(store.Inspections);
     }
 }

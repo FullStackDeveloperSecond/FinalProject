@@ -7,6 +7,7 @@ namespace DoSelect.Application.Tests.Returns;
 internal sealed class FakePrivateFileStorage : IPrivateFileStorage
 {
     public PrivateFileStoreStatus NextStatus { get; set; } = PrivateFileStoreStatus.Stored;
+    public List<string> DeletedStorageKeys { get; } = [];
 
     public Task<PrivateFileStoreResult> StoreAsync(PrivateFileUpload upload, CancellationToken cancellationToken = default) =>
         Task.FromResult(NextStatus == PrivateFileStoreStatus.Stored
@@ -18,8 +19,11 @@ internal sealed class FakePrivateFileStorage : IPrivateFileStorage
     public Task<Stream?> OpenReadAsync(string storageKey, CancellationToken cancellationToken = default) =>
         Task.FromResult<Stream?>(null);
 
-    public Task<bool> DeleteAsync(string storageKey, CancellationToken cancellationToken = default) =>
-        Task.FromResult(true);
+    public Task<bool> DeleteAsync(string storageKey, CancellationToken cancellationToken = default)
+    {
+        DeletedStorageKeys.Add(storageKey);
+        return Task.FromResult(true);
+    }
 }
 
 public sealed class ReturnServiceTests
@@ -33,11 +37,14 @@ public sealed class ReturnServiceTests
         FakeReturnStore Store,
         FakeReturnOrderEligibilityPort OrderPort,
         Guid OrderPublicId,
-        Guid OrderItemPublicId) CreateSut(int returnableQuantity = 2, DateTime? deliveredAtUtc = null)
+        Guid OrderItemPublicId) CreateSut(
+            int returnableQuantity = 2,
+            DateTime? deliveredAtUtc = null,
+            FakePrivateFileStorage? fileStorage = null)
     {
         var store = new FakeReturnStore();
         var orderPort = new FakeReturnOrderEligibilityPort();
-        var fileStorage = new FakePrivateFileStorage();
+        fileStorage ??= new FakePrivateFileStorage();
         var orderPublicId = Guid.NewGuid();
         var orderItemPublicId = Guid.NewGuid();
         orderPort.Register(new OrderEligibilitySnapshot(
@@ -262,5 +269,73 @@ public sealed class ReturnServiceTests
             service.UploadAttachmentAsync(actor, created.PublicId, upload, CancellationToken.None));
 
         Assert.Equal(ReturnsWriteException.ErrorCodes.FileCountExceeded, exception.ErrorCode);
+    }
+
+
+    [Fact]
+    public async Task UploadAttachmentAsync_GuestOwner_PersistsGuestOrderIdentityWithoutSyntheticUser()
+    {
+        var (service, store, _, orderPublicId, orderItemPublicId) = CreateSut();
+        var actor = new ReturnActor(null, GuestOrderId: 1);
+        var created = await service.CreateAsync(
+            actor,
+            orderPublicId,
+            DefectiveRequest(orderItemPublicId, 1, [1, 2, 3, 4, 5, 6, 7, 8]),
+            CancellationToken.None);
+
+        await service.UploadAttachmentAsync(
+            actor,
+            created.PublicId,
+            new PrivateFileUpload(new MemoryStream([1, 2, 3]), "guest-evidence.pdf", "application/pdf"),
+            CancellationToken.None);
+
+        var attachment = Assert.Single(store.Attachments);
+        Assert.Null(attachment.UploadedByUserId);
+        Assert.Equal(1, attachment.UploadedByGuestOrderId);
+    }
+
+    [Fact]
+    public async Task UploadAttachmentAsync_WhenMetadataWriteFails_DeletesStoredFileAndRethrowsOriginalException()
+    {
+        var fileStorage = new FakePrivateFileStorage();
+        var (service, store, _, orderPublicId, orderItemPublicId) = CreateSut(fileStorage: fileStorage);
+        var actor = new ReturnActor("member-a", null);
+        var created = await service.CreateAsync(
+            actor,
+            orderPublicId,
+            DefectiveRequest(orderItemPublicId, 1, [1, 2, 3, 4, 5, 6, 7, 8]),
+            CancellationToken.None);
+        var expected = new InvalidOperationException("simulated metadata failure");
+        store.AddAttachmentException = expected;
+
+        var actual = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UploadAttachmentAsync(
+                actor,
+                created.PublicId,
+                new PrivateFileUpload(new MemoryStream([1, 2, 3]), "evidence.pdf", "application/pdf"),
+                CancellationToken.None));
+
+        Assert.Same(expected, actual);
+        Assert.Single(fileStorage.DeletedStorageKeys);
+        Assert.Empty(store.Attachments);
+    }
+
+    [Theory]
+    [InlineData("2026-08-20T15:59:00Z", "2026-08-27T16:00:00Z")]
+    [InlineData("2026-08-20T16:01:00Z", "2026-08-28T16:00:00Z")]
+    public void ComputeCoolingOffDeadlineUtc_UsesAsiaTaipeiCalendarDay(
+        string deliveredAtUtcText,
+        string expectedDeadlineUtcText)
+    {
+        var deliveredAtUtc = DateTime.Parse(
+            deliveredAtUtcText,
+            null,
+            System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal);
+        var expectedDeadlineUtc = DateTime.Parse(
+            expectedDeadlineUtcText,
+            null,
+            System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal);
+
+        Assert.Equal(expectedDeadlineUtc, ReturnEligibilityPolicy.ComputeCoolingOffDeadlineUtc(deliveredAtUtc));
     }
 }

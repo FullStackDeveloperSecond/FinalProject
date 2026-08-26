@@ -132,7 +132,7 @@ public sealed class AdminReturnServiceRowVersionTests
             Guid.CreateVersion7(), order.Id, skuId: null, "SKU-1", "27型螢幕", "27型螢幕 White",
             quantity: 1, listUnitPrice: 100m, saleUnitPrice: 100m, finalUnitPrice: 100m,
             unitCostSnapshot: 60m, lineSubtotal: 100m, discountAllocation: 0m,
-            lineTotal: 100m, assemblyGroupKey: null, returnableQuantity: 1, NowUtc);
+            lineTotal: 100m, assemblyGroupKey: null, returnableQuantity: 1, NowUtc, isCouponEligible: true);
         context.OrderItems.Add(orderItem);
         await context.SaveChangesAsync();
 

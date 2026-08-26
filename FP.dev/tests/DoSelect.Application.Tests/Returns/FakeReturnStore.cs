@@ -21,6 +21,7 @@ internal sealed class FakeReturnStore : IReturnStore
         typeof(ReturnItem).BaseType!.BaseType!.GetField("<Id>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic)!;
 
     private long _nextId = 1;
+    public Exception? AddAttachmentException { get; set; }
 
     public List<ReturnRequest> Requests { get; } = [];
     public List<ReturnItem> Items { get; } = [];
@@ -104,6 +105,11 @@ internal sealed class FakeReturnStore : IReturnStore
 
     public Task AddAttachmentAsync(ReturnAttachment attachment, CancellationToken cancellationToken)
     {
+        if (AddAttachmentException is not null)
+        {
+            throw AddAttachmentException;
+        }
+
         Attachments.Add(attachment);
         return Task.CompletedTask;
     }
