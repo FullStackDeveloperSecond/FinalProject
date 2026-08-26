@@ -129,22 +129,57 @@ public sealed class Coupon : MutablePublicEntity
     }
 
     /// <summary>
-    /// 立即啟用。要求已進入有效期間、折扣規則完整，且總名額仍有剩餘。
-    /// `Exhausted` 在名額返還且使用量重新低於限制時，也是經由這個方法回到 `Active`。
+    /// 管理員立即啟用。只接受 `Draft` 或 `Paused`，並要求已進入有效期間、
+    /// 折扣規則完整，且總名額仍有剩餘。
     /// </summary>
     public void ActivateNow(CouponUsageState usage, DateTime occurredAtUtc)
     {
         ArgumentNullException.ThrowIfNull(usage);
         occurredAtUtc = RequireUtc(occurredAtUtc, nameof(occurredAtUtc));
 
-        if (!IsWithinUsagePeriod(occurredAtUtc) ||
-            !HasCompleteDiscountRule ||
-            !HasRemainingQuota(usage))
+        if (Status is not (CouponStatus.Draft or CouponStatus.Paused))
         {
-            throw new InvalidOperationException(
-                "A coupon can only be activated inside its period, with a complete rule and remaining quota.");
+            throw new InvalidOperationException("Only a draft or paused coupon can be activated by an administrator.");
         }
 
+        EnsureCanBecomeActive(usage, occurredAtUtc);
+        Transition(CouponStatus.Active, occurredAtUtc);
+    }
+
+    /// <summary>
+    /// 排程到達開始時間。只接受 `Scheduled`，且當下仍須重新驗證期間、規則與名額。
+    /// </summary>
+    public void ActivateScheduled(CouponUsageState usage, DateTime occurredAtUtc)
+    {
+        ArgumentNullException.ThrowIfNull(usage);
+        occurredAtUtc = RequireUtc(occurredAtUtc, nameof(occurredAtUtc));
+
+        if (Status != CouponStatus.Scheduled)
+        {
+            throw new InvalidOperationException("Only a scheduled coupon can be activated by the scheduler.");
+        }
+
+        EnsureCanBecomeActive(usage, occurredAtUtc);
+        Transition(CouponStatus.Active, occurredAtUtc);
+    }
+
+    /// <summary>
+    /// 名額返還後恢復使用。只接受 `Exhausted`，且使用量必須重新低於既有總量上限。
+    /// </summary>
+    public void ReactivateAfterQuotaRelease(CouponUsageState usage, DateTime occurredAtUtc)
+    {
+        ArgumentNullException.ThrowIfNull(usage);
+        occurredAtUtc = RequireUtc(occurredAtUtc, nameof(occurredAtUtc));
+
+        if (Status != CouponStatus.Exhausted ||
+            TotalUsageLimit is not { } limit ||
+            usage.TotalRedeemedCount >= limit)
+        {
+            throw new InvalidOperationException(
+                "Only an exhausted coupon with returned quota can become active again.");
+        }
+
+        EnsureCanBecomeActive(usage, occurredAtUtc);
         Transition(CouponStatus.Active, occurredAtUtc);
     }
 
@@ -186,7 +221,23 @@ public sealed class Coupon : MutablePublicEntity
                 "A coupon can only expire once its end time has passed.");
         }
 
+        if (Status == CouponStatus.Expired)
+        {
+            return;
+        }
+
         Transition(CouponStatus.Expired, occurredAtUtc);
+    }
+
+    private void EnsureCanBecomeActive(CouponUsageState usage, DateTime occurredAtUtc)
+    {
+        if (!IsWithinUsagePeriod(occurredAtUtc) ||
+            !HasCompleteDiscountRule ||
+            !HasRemainingQuota(usage))
+        {
+            throw new InvalidOperationException(
+                "A coupon can only be activated inside its period, with a complete rule and remaining quota.");
+        }
     }
 
     /// <summary>

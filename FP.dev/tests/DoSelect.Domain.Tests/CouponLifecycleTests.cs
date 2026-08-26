@@ -76,9 +76,18 @@ public sealed class CouponLifecycleTests
         var coupon = CreateCoupon();
         coupon.ScheduleForLaterStart(BeforeStart);
 
-        coupon.ActivateNow(Unused, InsidePeriod);
+        coupon.ActivateScheduled(Unused, InsidePeriod);
 
         Assert.Equal(CouponStatus.Active, coupon.Status);
+    }
+
+    [Fact]
+    public void TheAdministratorActivateCommandDoesNotConsumeScheduledEvents()
+    {
+        var coupon = CreateCoupon();
+        coupon.ScheduleForLaterStart(BeforeStart);
+
+        Assert.Throws<InvalidOperationException>(() => coupon.ActivateNow(Unused, InsidePeriod));
     }
 
     [Fact]
@@ -140,10 +149,22 @@ public sealed class CouponLifecycleTests
         coupon.MarkExhausted(new CouponUsageState(100, 0), InsidePeriod.AddHours(1));
 
         Assert.Throws<InvalidOperationException>(() =>
-            coupon.ActivateNow(new CouponUsageState(100, 0), InsidePeriod.AddHours(2)));
+            coupon.ReactivateAfterQuotaRelease(
+                new CouponUsageState(100, 0),
+                InsidePeriod.AddHours(2)));
 
-        coupon.ActivateNow(new CouponUsageState(99, 0), InsidePeriod.AddHours(3));
+        coupon.ReactivateAfterQuotaRelease(new CouponUsageState(99, 0), InsidePeriod.AddHours(3));
         Assert.Equal(CouponStatus.Active, coupon.Status);
+    }
+
+    [Fact]
+    public void TheAdministratorActivateCommandDoesNotConsumeQuotaReleaseEvents()
+    {
+        var coupon = CreateActiveCoupon();
+        coupon.MarkExhausted(new CouponUsageState(100, 0), InsidePeriod.AddHours(1));
+
+        Assert.Throws<InvalidOperationException>(() =>
+            coupon.ActivateNow(new CouponUsageState(99, 0), InsidePeriod.AddHours(2)));
     }
 
     [Fact]
@@ -153,7 +174,7 @@ public sealed class CouponLifecycleTests
         coupon.MarkExhausted(new CouponUsageState(100, 0), InsidePeriod.AddHours(1));
 
         Assert.Throws<InvalidOperationException>(() =>
-            coupon.ActivateNow(new CouponUsageState(0, 0), AfterEnd));
+            coupon.ReactivateAfterQuotaRelease(new CouponUsageState(0, 0), AfterEnd));
     }
 
     [Fact]
@@ -176,6 +197,19 @@ public sealed class CouponLifecycleTests
         coupon.MarkExpired(AfterEnd);
 
         Assert.Equal(CouponStatus.Expired, coupon.Status);
+    }
+
+    [Fact]
+    public void ExpiryCanBeRetriedWithoutChangingTheCompletedTransition()
+    {
+        var coupon = CreateActiveCoupon();
+        coupon.MarkExpired(AfterEnd);
+        var firstUpdatedAtUtc = coupon.UpdatedAtUtc;
+
+        coupon.MarkExpired(AfterEnd.AddMinutes(1));
+
+        Assert.Equal(CouponStatus.Expired, coupon.Status);
+        Assert.Equal(firstUpdatedAtUtc, coupon.UpdatedAtUtc);
     }
 
     [Fact]
@@ -242,9 +276,9 @@ public sealed class CouponLifecycleTests
         Assert.Equal(CouponStatus.Paused, CouponRule.From(coupon).Status);
     }
 
-    // OrderCoupon.MinimumSpendAmount 的快照測試隨該欄位一起移到 DES-21 的 Migration PR
-    // （DEC-P300）：Entity、Configuration、Migration、ModelSnapshot 與 Provider-backed
-    // 驗證必須一次交付，本 PR 只保留計算規則與 Coupon 生命週期。
+    // OrderCoupon.MinimumSpendAmount 的 Entity、Configuration、Migration、ModelSnapshot
+    // 與 Provider-backed 驗證已由獨立 DES-21 Migration PR 交付；本測試類別只驗證
+    // Coupon 生命週期（DEC-P300）。
 
     private static Coupon CreateActiveCoupon(int? totalUsageLimit = 100)
     {
