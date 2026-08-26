@@ -144,6 +144,132 @@ public sealed class GuestOrderAccessControllerTests : IClassFixture<WebApplicati
     }
 
     [Fact]
+    public async Task Verify_FiveOrMoreParallelWrongCodes_AllAreReliablyCountedAndTheChallengeLocks()
+    {
+        // Alex review #5：Fake gateway 測試無法證明平行 read-modify-write 在真實 SQL Server
+        // RowVersion 樂觀鎖下不會漏記。用同一個 HttpClient 真的平行送出多個請求——ASP.NET
+        // Core 對每個請求都會建立獨立的 DI Scope／DbContext，形成真實競爭，不是 Fake 預先
+        // 安排的例外。
+        var capturingEmailSender = new CapturingEmailSender();
+        using var factory = CreateFactory(services =>
+        {
+            services.Replace(ServiceDescriptor.Singleton<IEmailSender>(capturingEmailSender));
+        });
+        var (_, _, orderNumber, email) = await SeedGuestOrderAsync(factory);
+        using var client = factory.CreateClient();
+        await PrimeAntiforgeryAsync(client);
+        var requestPublicId = await RequestAccessAsync(client, orderNumber, email);
+        await capturingEmailSender.WaitForSingleMessageAsync();
+
+        const int concurrentAttempts = 6;
+        var tasks = Enumerable.Range(0, concurrentAttempts)
+            .Select(_ => client.PostAsJsonAsync("/api/v1/guest-orders/access-verifications", new
+            {
+                requestPublicId,
+                code = "000000",
+            }))
+            .ToArray();
+        var responses = await Task.WhenAll(tasks);
+        foreach (var response in responses)
+        {
+            response.Dispose();
+        }
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+        var persisted = await dbContext.GuestOrderAccessRequests
+            .SingleAsync(r => r.PublicId == requestPublicId);
+
+        // 6 個平行錯碼，但上限是 5——確實計數到 5（不能因為並行衝突悄悄漏記變少），
+        // 且第 5 次要可靠地鎖定，不能因為平行而被繞過。
+        Assert.Equal(GuestOrderAccessRequest.MaximumAttempts, persisted.AttemptCount);
+        Assert.NotNull(persisted.LockedAtUtc);
+    }
+
+    [Fact]
+    public async Task Verify_TwoParallelCorrectCodes_IssuesExactlyOneToken()
+    {
+        var capturingEmailSender = new CapturingEmailSender();
+        using var factory = CreateFactory(services =>
+        {
+            services.Replace(ServiceDescriptor.Singleton<IEmailSender>(capturingEmailSender));
+        });
+        var (orderId, _, orderNumber, email) = await SeedGuestOrderAsync(factory);
+        using var client = factory.CreateClient();
+        await PrimeAntiforgeryAsync(client);
+        var requestPublicId = await RequestAccessAsync(client, orderNumber, email);
+        var correctCode = ExtractCode((await capturingEmailSender.WaitForSingleMessageAsync()).TextBody);
+
+        var tasks = new[]
+        {
+            client.PostAsJsonAsync(
+                "/api/v1/guest-orders/access-verifications", new { requestPublicId, code = correctCode }),
+            client.PostAsJsonAsync(
+                "/api/v1/guest-orders/access-verifications", new { requestPublicId, code = correctCode }),
+        };
+        var responses = await Task.WhenAll(tasks);
+        var successCount = responses.Count(r => r.StatusCode == HttpStatusCode.OK);
+        var failureCount = responses.Count(r => r.StatusCode == HttpStatusCode.BadRequest);
+        foreach (var response in responses)
+        {
+            response.Dispose();
+        }
+
+        // 同一張 Challenge 只能核發一個 Token：兩個平行正確碼，剛好一個 200、一個 400，
+        // 不能兩個都成功（DB 留下兩筆 Token），也不能兩個都失敗（Token 憑空消失）。
+        Assert.Equal(1, successCount);
+        Assert.Equal(1, failureCount);
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+        var tokenCount = await dbContext.GuestOrderAccessTokens.CountAsync(t => t.OrderId == orderId);
+        Assert.Equal(1, tokenCount);
+    }
+
+    [Fact]
+    public async Task Resend_TwoParallelCallsOnTheSameChallenge_OnlyOneSucceedsInCreatingASuccessor()
+    {
+        // 對應這次 review #4 新加的「Resend 建立延續 Row＋撤銷舊 Row」：平行重寄不能核發出
+        // 兩筆同時有效的延續 Row，DB 裡永遠只能有一筆「仍然有效」（RevokedAtUtc is null）。
+        var capturingEmailSender = new CapturingEmailSender();
+        using var factory = CreateFactory(services =>
+        {
+            services.Replace(ServiceDescriptor.Singleton<IEmailSender>(capturingEmailSender));
+        });
+        var (orderId, _, orderNumber, email) = await SeedGuestOrderAsync(factory);
+        using var client = factory.CreateClient();
+        await PrimeAntiforgeryAsync(client);
+        var requestPublicId = await RequestAccessAsync(client, orderNumber, email);
+        await capturingEmailSender.WaitForSingleMessageAsync();
+
+        var resendUrl = $"/api/v1/guest-orders/access-requests/{requestPublicId}/actions/resend";
+        var tasks = new[]
+        {
+            client.PostAsync(resendUrl, content: null),
+            client.PostAsync(resendUrl, content: null),
+        };
+        var responses = await Task.WhenAll(tasks);
+        foreach (var response in responses)
+        {
+            // 兩邊都維持恆定 202——不能因為輸掉競爭就回不同的狀態碼，那本身會洩漏
+            // 「誰先誰後」這種跟訂單存在性無關、但一樣不該外洩的時序資訊。
+            Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+            response.Dispose();
+        }
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+        var chain = await dbContext.GuestOrderAccessRequests
+            .Where(r => r.OrderId == orderId)
+            .ToListAsync();
+
+        // 原始 Row＋剛好一筆延續 Row（另一個平行呼叫沒有真的核發出第二筆），
+        // 且任何時間點只有一筆是「仍然有效」。
+        Assert.Equal(2, chain.Count);
+        Assert.Single(chain, r => r.RevokedAtUtc is null);
+    }
+
+    [Fact]
     public async Task GuestOrderAccessCookie_CanBeUsedRepeatedlyForItsOwnOrderButRejectedForAnotherOrder()
     {
         // 負面授權測試核心案例：Actor A 的限單 Cookie 不得用來存取 Order B（跨訂單拒絕），
