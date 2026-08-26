@@ -6,6 +6,7 @@ using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Files;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Returns;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
 namespace DoSelect.Infrastructure.Tests.Returns;
@@ -446,6 +447,7 @@ public sealed class ReturnStoreConcurrencyFixture
     public const string ConnectionStringEnvironmentVariable = "DOSELECT_SQLSERVER_TEST_CONNECTION";
     private const string LocalConnectionString =
         "Server=.\\SQL2025;Database=DoSelectReturnConcurrencyTests;Trusted_Connection=True;TrustServerCertificate=True;";
+    private static readonly string IsolatedConnectionString = BuildIsolatedConnectionString();
 
     public static bool IsEnabled =>
         !string.IsNullOrWhiteSpace(GetConfiguredConnectionString()) ||
@@ -454,8 +456,14 @@ public sealed class ReturnStoreConcurrencyFixture
 
     public static DoSelectDbContext CreateContext() => new(
         new DbContextOptionsBuilder<DoSelectDbContext>()
-            .UseSqlServer(GetConfiguredConnectionString() ?? LocalConnectionString)
+            .UseSqlServer(IsolatedConnectionString)
             .Options);
+
+    private static string BuildIsolatedConnectionString() => new SqlConnectionStringBuilder(
+        GetConfiguredConnectionString() ?? LocalConnectionString)
+    {
+        InitialCatalog = $"DoSelectReturnConcurrencyTests_{Guid.NewGuid():N}",
+    }.ConnectionString;
 
     private static string? GetConfiguredConnectionString() =>
         Environment.GetEnvironmentVariable(ConnectionStringEnvironmentVariable);

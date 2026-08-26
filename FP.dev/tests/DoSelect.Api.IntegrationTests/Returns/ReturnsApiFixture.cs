@@ -7,6 +7,7 @@ using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.Data.SqlClient;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
@@ -23,9 +24,14 @@ namespace DoSelect.Api.IntegrationTests.Returns;
 /// </summary>
 public sealed class ReturnsApiFixture : IAsyncLifetime
 {
-    private const string ConnectionString =
-        "Server=.\\SQL2025;Database=DoSelectReturnsApiTests;Trusted_Connection=True;" +
-        "TrustServerCertificate=True;";
+    private const string ConnectionStringEnvironmentVariable = "DOSELECT_SQLSERVER_TEST_CONNECTION";
+    private const string LocalConnectionString =
+        "Server=.\\SQL2025;Database=DoSelectReturnsApiTests;Trusted_Connection=True;TrustServerCertificate=True;";
+    private static readonly string ConnectionString = new SqlConnectionStringBuilder(
+        Environment.GetEnvironmentVariable(ConnectionStringEnvironmentVariable) ?? LocalConnectionString)
+    {
+        InitialCatalog = $"DoSelectReturnsApiTests_{Guid.NewGuid():N}",
+    }.ConnectionString;
 
     private static readonly IReadOnlyDictionary<string, string> EnvironmentOverrides = new Dictionary<string, string>
     {
