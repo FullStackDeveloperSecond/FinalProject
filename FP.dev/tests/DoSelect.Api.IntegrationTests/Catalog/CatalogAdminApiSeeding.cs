@@ -106,6 +106,21 @@ internal static class CatalogAdminApiSeeding
                 warrantyMonths = (int?)null,
                 tagPublicIds = Array.Empty<Guid>(),
                 status = "Draft",
+                defaultSku = new
+                {
+                    skuCode = CatalogAdminApiFixture.UniqueCode("SKU"),
+                    nameZhTw = "預設規格",
+                    listPrice = 10_000m,
+                    unitCost = 7_000m,
+                    weightKg = (decimal?)null,
+                    lengthCm = (decimal?)null,
+                    widthCm = (decimal?)null,
+                    heightCm = (decimal?)null,
+                    status = "Draft",
+                    isDefault = true,
+                    requiresPrepayment = false,
+                    specifications = Array.Empty<object>(),
+                },
             }),
         });
 

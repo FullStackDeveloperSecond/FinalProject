@@ -170,6 +170,13 @@ public sealed class EfProductAdminService : IProductAdminService
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        if (request.DefaultSku is null)
+        {
+            throw new CatalogWriteException(
+                CatalogWriteException.ErrorCodes.ValidationFailed,
+                "A default SKU is required when creating a product.");
+        }
+
         var normalizedCode = NormalizeCode(request.ProductCode);
         var codeExists = await _dbContext.Products.AsNoTracking()
             .AnyAsync(candidate => candidate.ProductCode == normalizedCode, cancellationToken);
@@ -189,6 +196,15 @@ public sealed class EfProductAdminService : IProductAdminService
             throw new CatalogWriteException(
                 CatalogWriteException.ErrorCodes.ValidationFailed,
                 "Warranty months must be between 0 and 120.");
+        }
+
+        // 組長 PR #24 round 4 review, item 6: API DTO與Schema契約.md documents tagPublicIds as
+        // 0..20, but nothing enforced it — a caller (or a buggy client) could attach unbounded tags.
+        if (request.TagPublicIds.Count > 20)
+        {
+            throw new CatalogWriteException(
+                CatalogWriteException.ErrorCodes.ValidationFailed,
+                "A product accepts at most 20 tags.");
         }
 
         var now = DateTime.UtcNow;
@@ -211,11 +227,10 @@ public sealed class EfProductAdminService : IProductAdminService
 
         _dbContext.Products.Add(product);
 
-        // ReplaceTagsAsync needs product.Id, which SQL Server only assigns once the first
-        // SaveChangesAsync actually inserts the row — so this can't collapse into a single
-        // SaveChangesAsync call. Wrapping both in one transaction is what keeps an invalid
-        // tag reference from leaving an orphaned Product behind: on any failure the whole
-        // transaction rolls back, undoing the already-physically-written insert.
+        // Product tags and SKU specification values both need database-assigned bigint keys,
+        // so this use case necessarily spans multiple SaveChanges calls. The outer
+        // transaction owns the whole operation; EfSkuAdminService detects the ambient
+        // transaction and reuses it instead of committing independently.
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
         try
         {
@@ -224,11 +239,34 @@ public sealed class EfProductAdminService : IProductAdminService
             await ReplaceTagsAsync(product.Id, request.TagPublicIds, now, cancellationToken);
             await _dbContext.SaveChangesAsync(cancellationToken);
 
+            var skuService = new EfSkuAdminService(_dbContext);
+            await skuService.CreateAsync(
+                product.PublicId,
+                request.DefaultSku with { IsDefault = true },
+                cancellationToken);
+
             await transaction.CommitAsync(cancellationToken);
         }
-        catch
+        // 組長 PR #24 round 10 review, P2: the AnyAsync check above is a plain SELECT before the
+        // INSERT — two concurrent creates for the same brand-new ProductCode can both pass it, and
+        // only one INSERT actually wins; the loser used to surface as a bare rethrow, which
+        // GlobalExceptionHandler maps to an opaque 500 instead of the documented 409
+        // product_code_duplicate. Rollback always happens first regardless of exception type; only
+        // a genuine UX_Products_ProductCode violation gets translated, so an unrelated
+        // DbUpdateException (a different constraint, connectivity failure) still propagates as-is
+        // rather than being mislabeled as a duplicate code.
+        catch (Exception exception)
         {
             await transaction.RollbackAsync(cancellationToken);
+
+            if (exception is DbUpdateException dbUpdateException &&
+                SqlUniqueIndexViolations.Matches(dbUpdateException, "UX_Products_ProductCode"))
+            {
+                throw new CatalogWriteException(
+                    CatalogWriteException.ErrorCodes.ProductCodeDuplicate,
+                    $"Product code '{request.ProductCode}' already exists.");
+            }
+
             throw;
         }
 
@@ -260,6 +298,51 @@ public sealed class EfProductAdminService : IProductAdminService
             throw new CatalogWriteException(
                 CatalogWriteException.ErrorCodes.ValidationFailed,
                 "Warranty months must be between 0 and 120.");
+        }
+
+        // 組長 PR #24 round 4+5 review, item 3/1: changing category while existing SKUs still
+        // carry the old category's specification values would leave the product detail page
+        // showing stale specs while search/filter behavior already switched to the new category
+        // — lowest-cost fix per his ruling is to reject outright rather than attempt an atomic
+        // spec remap now; that's future work if it's ever actually needed. Round 5 found this
+        // alone still let a Published SKU with *empty* specs slip through: switch to a category
+        // with a required spec, and the now-Published SKU immediately violates it — so this also
+        // rejects when any Published SKU exists and the target category has any required spec,
+        // regardless of whether specs are currently populated.
+        if (categoryId != product.CategoryId)
+        {
+            var hasExistingSpecValues = await _dbContext.SkuSpecificationValues.AsNoTracking()
+                .AnyAsync(value => _dbContext.Skus
+                    .Where(sku => sku.ProductId == product.Id)
+                    .Select(sku => sku.Id)
+                    .Contains(value.SkuId), cancellationToken);
+            if (hasExistingSpecValues)
+            {
+                throw new CatalogWriteException(
+                    CatalogWriteException.ErrorCodes.ValidationFailed,
+                    "Cannot change category while this product's SKUs still carry specification values from the old category.");
+            }
+
+            var hasPublishedSku = await _dbContext.Skus.AsNoTracking()
+                .AnyAsync(sku => sku.ProductId == product.Id && sku.Status == SkuStatus.Published, cancellationToken);
+            if (hasPublishedSku)
+            {
+                var targetCategoryHasRequiredSpec = await _dbContext.SpecificationDefinitions.AsNoTracking()
+                    .AnyAsync(definition => definition.CategoryId == categoryId && definition.IsRequired && definition.IsActive, cancellationToken);
+                if (targetCategoryHasRequiredSpec)
+                {
+                    throw new CatalogWriteException(
+                        CatalogWriteException.ErrorCodes.ValidationFailed,
+                        "Cannot change category while a Published SKU exists and the target category has required specifications it cannot yet satisfy.");
+                }
+            }
+        }
+
+        if (request.TagPublicIds.Count > 20)
+        {
+            throw new CatalogWriteException(
+                CatalogWriteException.ErrorCodes.ValidationFailed,
+                "A product accepts at most 20 tags.");
         }
 
         _dbContext.Entry(product).Property(candidate => candidate.RowVersion).OriginalValue = request.RowVersion;

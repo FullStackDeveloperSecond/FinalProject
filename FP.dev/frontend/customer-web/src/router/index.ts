@@ -55,6 +55,17 @@ const router = createRouter({
       component: () => import('../pages/support/SupportTicketDetailPage.vue'),
     },
     {
+      path: '/products',
+      name: 'products',
+      component: () => import('../pages/ProductsPage.vue'),
+    },
+    {
+      path: '/products/:productId',
+      name: 'product-detail',
+      component: () => import('../pages/ProductDetailPage.vue'),
+      props: true,
+    },
+    {
       path: '/unauthorized',
       name: 'unauthorized',
       component: HttpStatusPage,

@@ -18,6 +18,12 @@
           <RouterLink to="/">
             首頁
           </RouterLink>
+          <RouterLink to="/catalog/lookups">
+            品牌／分類／標籤管理
+          </RouterLink>
+          <RouterLink to="/products">
+            商品管理
+          </RouterLink>
           <RouterLink to="/support">
             客服 SLA 佇列
           </RouterLink>

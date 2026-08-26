@@ -41,6 +41,9 @@ async function handleLogout(): Promise<void> {
           <RouterLink to="/">
             首頁
           </RouterLink>
+          <RouterLink to="/products">
+            商品
+          </RouterLink>
           <RouterLink
             to="/support"
             :aria-current="isSupportSection ? 'page' : undefined"
