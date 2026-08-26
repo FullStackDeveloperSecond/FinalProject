@@ -206,6 +206,66 @@ public sealed class EfGuestOrderAccessGatewayTests : IAsyncLifetime
         Assert.Equal(1, await verifyContext.GuestOrderAccessRequests.CountAsync());
     }
 
+    [Fact]
+    public async Task PurgeExpiredAsync_WhenRequestsAndTokensAreBothExpired_CapsCombinedDeletesAtBatchSize()
+    {
+        // DEC-P267：每批最多 500 筆，是 Request＋Token「合計」的上限，不是各自 500。
+        // 這裡用 batchSize=3、2 個過期 Token＋2 個（沒有 Token 的）過期 Request，
+        // 驗證第一批只花掉 Token 的 2 筆額度後,剩下 1 筆額度只夠刪 1 個 Request，
+        // 不會變成 2+2=4 筆。
+        var orderId = await SeedOrderAsync(Guid.CreateVersion7(), "DS-0008", "GUEST@EXAMPLE.COM");
+
+        await using (var context = CreateContext())
+        {
+            var gateway = new EfGuestOrderAccessGateway(context);
+
+            for (var i = 0; i < 2; i++)
+            {
+                var expiredWithToken = GuestOrderAccessRequest.CreateValid(
+                    Guid.CreateVersion7(), orderId, Hash(1), Hash(2), Hash(3), Hash(4),
+                    CreatedAtUtc.AddMinutes(10), CreatedAtUtc);
+                await gateway.AddRequestAsync(expiredWithToken);
+                await gateway.SaveChangesAsync();
+
+                var expiredToken = new GuestOrderAccessToken(
+                    Guid.CreateVersion7(), orderId, expiredWithToken.Id, Hash((byte)(10 + i)),
+                    CreatedAtUtc.AddMinutes(30), CreatedAtUtc);
+                await gateway.AddTokenAsync(expiredToken);
+                await gateway.SaveChangesAsync();
+            }
+
+            for (var i = 0; i < 2; i++)
+            {
+                var expiredWithoutToken = GuestOrderAccessRequest.CreateDecoy(
+                    Guid.CreateVersion7(), Hash(1), Hash(2), Hash(3),
+                    CreatedAtUtc.AddMinutes(10), CreatedAtUtc);
+                await gateway.AddRequestAsync(expiredWithoutToken);
+            }
+
+            await gateway.SaveChangesAsync();
+        }
+
+        var cutoffUtc = CreatedAtUtc.AddDays(31);
+
+        await using (var context = CreateContext())
+        {
+            var gateway = new EfGuestOrderAccessGateway(context);
+
+            var firstBatchDeleted = await gateway.PurgeExpiredAsync(cutoffUtc, batchSize: 3);
+            Assert.Equal(3, firstBatchDeleted);
+
+            var secondBatchDeleted = await gateway.PurgeExpiredAsync(cutoffUtc, batchSize: 3);
+            Assert.Equal(3, secondBatchDeleted);
+
+            var thirdBatchDeleted = await gateway.PurgeExpiredAsync(cutoffUtc, batchSize: 3);
+            Assert.Equal(0, thirdBatchDeleted);
+        }
+
+        await using var verifyContext = CreateContext();
+        Assert.Equal(0, await verifyContext.GuestOrderAccessTokens.CountAsync());
+        Assert.Equal(0, await verifyContext.GuestOrderAccessRequests.CountAsync());
+    }
+
     private async Task<long> SeedOrderAsync(Guid publicId, string orderNumber, string guestEmailNormalized)
     {
         await using var context = CreateContext();
