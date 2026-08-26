@@ -1,6 +1,7 @@
 using DoSelect.Api.Common;
 using DoSelect.Api.Ai;
 using DoSelect.Api.Observability;
+using DoSelect.Api.Returns;
 using DoSelect.Api.Security;
 using DoSelect.Application;
 using DoSelect.Application.Notifications;
@@ -14,6 +15,7 @@ using DoSelect.Infrastructure.Idempotency;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using DoSelect.Infrastructure.Invoicing;
+using DoSelect.Infrastructure.Persistence.Returns;
 using DoSelect.Infrastructure.Persistence.Seeding;
 using DoSelect.Infrastructure.Refunds;
 using DoSelect.Infrastructure.Security;
@@ -42,6 +44,8 @@ builder.Services.AddDoSelectShoppingServices();
 builder.Services.AddDoSelectApplication();
 builder.Services.AddDoSelectInvoicing();
 builder.Services.AddDoSelectPromotions();
+builder.Services.AddDoSelectReturnsServices();
+builder.Services.AddScoped<ReturnActorResolver>();
 builder.Services.AddSingleton<IEmailSender>(services =>
 {
     var emailEnabled = builder.Configuration.GetValue<bool>("Features:EmailEnabled");
