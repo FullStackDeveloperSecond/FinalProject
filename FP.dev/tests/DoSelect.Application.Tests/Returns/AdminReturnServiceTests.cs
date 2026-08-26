@@ -42,11 +42,46 @@ public sealed class AdminReturnServiceTests
         return item;
     }
 
+    // Positional-argument factory helpers — ApproveReturnRequest/ReceiveReturnRequest/
+    // ExtendShipmentDeadlineRequest/CreateReturnShipmentRequest/AppendReturnShipmentEventRequest
+    // are property-init records (not primary-constructor positional records), since the native
+    // OpenApi generator only reads DataAnnotations from properties — see the doc comment on
+    // ApproveReturnRequest. These preserve the old positional-call shape for every test below.
+    private static ApproveReturnRequest Approve(
+        bool approved, IReadOnlyList<ApproveReturnItemLine> items, string reasonCode, string? note, byte[] rowVersion) =>
+        new() { Approved = approved, Items = items, ReasonCode = reasonCode, Note = note, ReturnRowVersion = rowVersion };
+
+    private static ReceiveReturnRequest Receive(string? note, byte[] rowVersion) =>
+        new() { Note = note, ReturnRowVersion = rowVersion };
+
+    private static ExtendShipmentDeadlineRequest Extend(string reasonCode, byte[] rowVersion) =>
+        new() { ReasonCode = reasonCode, ReturnRowVersion = rowVersion };
+
+    private static CreateReturnShipmentRequest CreateShipment(
+        ReturnShipmentMethod method, string? carrierCode, string? recipientName, string? recipientPhone,
+        string? postalCode, string? addressLine, string? storeCode, string? storeName, byte[] rowVersion) =>
+        new()
+        {
+            Method = method,
+            CarrierCode = carrierCode,
+            RecipientName = recipientName,
+            RecipientPhone = recipientPhone,
+            PostalCode = postalCode,
+            AddressLine = addressLine,
+            StoreCode = storeCode,
+            StoreName = storeName,
+            ReturnRowVersion = rowVersion,
+        };
+
+    private static AppendReturnShipmentEventRequest ShipmentEvent(
+        string source, string externalEventId, string eventType, DateTime occurredAtUtc, string? description) =>
+        new() { Source = source, ExternalEventId = externalEventId, EventType = eventType, OccurredAtUtc = occurredAtUtc, Description = description };
+
     [Fact]
     public async Task ReviewAsync_Approve_WithInspectionRequired_MovesToAwaitingShipment()
     {
         var (service, store, request) = CreateSutWithRequestedReturn();
-        var approval = new ApproveReturnRequest(
+        var approval = Approve(
             true, [new ApproveReturnItemLine(store.Items[0].PublicId, 1, InspectionRequired: true)], "eligible", null, request.RowVersion);
 
         var dto = await service.ReviewAsync(request.PublicId, "admin-1", approval, CancellationToken.None);
@@ -60,7 +95,7 @@ public sealed class AdminReturnServiceTests
     public async Task ReviewAsync_Approve_WithoutInspectionRequired_MovesStraightToAwaitingRefund()
     {
         var (service, store, request) = CreateSutWithRequestedReturn();
-        var approval = new ApproveReturnRequest(
+        var approval = Approve(
             true, [new ApproveReturnItemLine(store.Items[0].PublicId, 1, InspectionRequired: false)], "goodwill", null, request.RowVersion);
 
         var dto = await service.ReviewAsync(request.PublicId, "admin-1", approval, CancellationToken.None);
@@ -73,7 +108,7 @@ public sealed class AdminReturnServiceTests
     public async Task ReviewAsync_Reject_MovesToRejectedWithReason()
     {
         var (service, store, request) = CreateSutWithRequestedReturn();
-        var rejection = new ApproveReturnRequest(false, [], "not-eligible", "超過期限", request.RowVersion);
+        var rejection = Approve(false, [], "not-eligible", "超過期限", request.RowVersion);
 
         var dto = await service.ReviewAsync(request.PublicId, "admin-1", rejection, CancellationToken.None);
 
@@ -86,7 +121,7 @@ public sealed class AdminReturnServiceTests
     public async Task ReviewAsync_PartialQuantityApproval_ThrowsValidationFailed()
     {
         var (service, store, request) = CreateSutWithRequestedReturn();
-        var approval = new ApproveReturnRequest(
+        var approval = Approve(
             true, [new ApproveReturnItemLine(store.Items[0].PublicId, 0, InspectionRequired: true)], "partial", null, request.RowVersion);
 
         var exception = await Assert.ThrowsAsync<ReturnsWriteException>(() =>
@@ -101,10 +136,10 @@ public sealed class AdminReturnServiceTests
         var (service, store, request) = CreateSutWithRequestedReturn();
         await service.ReviewAsync(
             request.PublicId, "admin-1",
-            new ApproveReturnRequest(true, [new ApproveReturnItemLine(store.Items[0].PublicId, 1, true)], "eligible", null, request.RowVersion),
+            Approve(true, [new ApproveReturnItemLine(store.Items[0].PublicId, 1, true)], "eligible", null, request.RowVersion),
             CancellationToken.None);
 
-        await service.ReceiveAsync(request.PublicId, "admin-1", new ReceiveReturnRequest(null, request.RowVersion), CancellationToken.None);
+        await service.ReceiveAsync(request.PublicId, "admin-1", Receive(null, request.RowVersion), CancellationToken.None);
         Assert.Equal(ReturnRequestStatus.Received, request.Status);
 
         var inspect = new InspectReturnRequest(
@@ -129,9 +164,9 @@ public sealed class AdminReturnServiceTests
         var (service, store, request) = CreateSutWithRequestedReturn();
         await service.ReviewAsync(
             request.PublicId, "admin-1",
-            new ApproveReturnRequest(true, [new ApproveReturnItemLine(store.Items[0].PublicId, 1, true)], "eligible", null, request.RowVersion),
+            Approve(true, [new ApproveReturnItemLine(store.Items[0].PublicId, 1, true)], "eligible", null, request.RowVersion),
             CancellationToken.None);
-        await service.ReceiveAsync(request.PublicId, "admin-1", new ReceiveReturnRequest(null, request.RowVersion), CancellationToken.None);
+        await service.ReceiveAsync(request.PublicId, "admin-1", Receive(null, request.RowVersion), CancellationToken.None);
 
         var callerSuppliedRowVersion = new byte[] { 9, 9, 9, 9, 9, 9, 9, 9 };
         Assert.NotEqual(callerSuppliedRowVersion, request.RowVersion);
@@ -150,10 +185,10 @@ public sealed class AdminReturnServiceTests
         var (service, store, request) = CreateSutWithRequestedReturn();
         await service.ReviewAsync(
             request.PublicId, "admin-1",
-            new ApproveReturnRequest(true, [new ApproveReturnItemLine(store.Items[0].PublicId, 1, true)], "eligible", null, request.RowVersion),
+            Approve(true, [new ApproveReturnItemLine(store.Items[0].PublicId, 1, true)], "eligible", null, request.RowVersion),
             CancellationToken.None);
 
-        var extend = new ExtendShipmentDeadlineRequest("customer-requested", request.RowVersion);
+        var extend = Extend("customer-requested", request.RowVersion);
         await service.ExtendShipmentDeadlineAsync(request.PublicId, "admin-1", extend, CancellationToken.None);
 
         var exception = await Assert.ThrowsAsync<ReturnsWriteException>(() =>
@@ -166,7 +201,7 @@ public sealed class AdminReturnServiceTests
     public async Task ReviewAsync_WhenAlreadyDecided_ThrowsStateConflict()
     {
         var (service, store, request) = CreateSutWithRequestedReturn();
-        var approval = new ApproveReturnRequest(
+        var approval = Approve(
             true, [new ApproveReturnItemLine(store.Items[0].PublicId, 1, true)], "eligible", null, request.RowVersion);
         await service.ReviewAsync(request.PublicId, "admin-1", approval, CancellationToken.None);
 
@@ -183,7 +218,7 @@ public sealed class AdminReturnServiceTests
         var (service, store, request) = CreateSutWithRequestedReturn();
         AddSecondItem(store);
         var duplicatedId = store.Items[0].PublicId;
-        var approval = new ApproveReturnRequest(
+        var approval = Approve(
             true,
             [
                 new ApproveReturnItemLine(duplicatedId, 1, true),
@@ -209,7 +244,7 @@ public sealed class AdminReturnServiceTests
         await service.ReviewAsync(
             request.PublicId,
             "admin-1",
-            new ApproveReturnRequest(
+            Approve(
                 true,
                 [
                     new ApproveReturnItemLine(store.Items[0].PublicId, 1, true),
@@ -222,7 +257,7 @@ public sealed class AdminReturnServiceTests
         await service.ReceiveAsync(
             request.PublicId,
             "admin-1",
-            new ReceiveReturnRequest(null, request.RowVersion),
+            Receive(null, request.RowVersion),
             CancellationToken.None);
 
         var duplicatedId = store.Items[0].PublicId;
@@ -246,11 +281,11 @@ public sealed class AdminReturnServiceTests
         var (service, store, request) = CreateSutWithRequestedReturn();
         await service.ReviewAsync(
             request.PublicId, "admin-1",
-            new ApproveReturnRequest(true, [new ApproveReturnItemLine(store.Items[0].PublicId, 1, true)], "eligible", null, request.RowVersion),
+            Approve(true, [new ApproveReturnItemLine(store.Items[0].PublicId, 1, true)], "eligible", null, request.RowVersion),
             CancellationToken.None);
         await service.CreateShipmentAsync(
             request.PublicId,
-            new CreateReturnShipmentRequest(
+            CreateShipment(
                 ReturnShipmentMethod.SelfShip, null, null, null, null, null, null, null, request.RowVersion),
             CancellationToken.None);
         return (service, store, request);
@@ -262,13 +297,13 @@ public sealed class AdminReturnServiceTests
         var (service, store, request) = await CreateSutWithAwaitingShipmentReturnAsync();
         await service.AppendShipmentEventAsync(
             request.PublicId,
-            new AppendReturnShipmentEventRequest("carrier", "evt-1", "InTransit", NowUtc.AddHours(3), null),
+            ShipmentEvent("carrier", "evt-1", "InTransit", NowUtc.AddHours(3), null),
             CancellationToken.None);
 
         // A different ExternalEventId, naming an earlier main-sequence status, arrives late.
         var dto = await service.AppendShipmentEventAsync(
             request.PublicId,
-            new AppendReturnShipmentEventRequest("carrier", "evt-0-delayed", "PickedUp", NowUtc.AddHours(1), null),
+            ShipmentEvent("carrier", "evt-0-delayed", "PickedUp", NowUtc.AddHours(1), null),
             CancellationToken.None);
 
         Assert.Equal(ReturnShipmentStatus.InTransit, dto.Status);
@@ -282,7 +317,7 @@ public sealed class AdminReturnServiceTests
         var (service, store, request) = await CreateSutWithAwaitingShipmentReturnAsync();
         await service.AppendShipmentEventAsync(
             request.PublicId,
-            new AppendReturnShipmentEventRequest("carrier", "evt-1", "InTransit", NowUtc.AddHours(3), null),
+            ShipmentEvent("carrier", "evt-1", "InTransit", NowUtc.AddHours(3), null),
             CancellationToken.None);
 
         // A HIGHER-rank target status would normally advance the shipment, but its own
@@ -290,7 +325,7 @@ public sealed class AdminReturnServiceTests
         // must reject it.
         var dto = await service.AppendShipmentEventAsync(
             request.PublicId,
-            new AppendReturnShipmentEventRequest("carrier", "evt-2-delayed", "Delivered", NowUtc.AddHours(1), null),
+            ShipmentEvent("carrier", "evt-2-delayed", "Delivered", NowUtc.AddHours(1), null),
             CancellationToken.None);
 
         Assert.Equal(ReturnShipmentStatus.InTransit, dto.Status);
@@ -304,16 +339,16 @@ public sealed class AdminReturnServiceTests
         var (service, store, request) = await CreateSutWithAwaitingShipmentReturnAsync();
         await service.AppendShipmentEventAsync(
             request.PublicId,
-            new AppendReturnShipmentEventRequest("carrier", "evt-1", "InTransit", NowUtc.AddHours(1), null),
+            ShipmentEvent("carrier", "evt-1", "InTransit", NowUtc.AddHours(1), null),
             CancellationToken.None);
         await service.AppendShipmentEventAsync(
             request.PublicId,
-            new AppendReturnShipmentEventRequest("carrier", "evt-2", "Delivered", NowUtc.AddHours(2), null),
+            ShipmentEvent("carrier", "evt-2", "Delivered", NowUtc.AddHours(2), null),
             CancellationToken.None);
 
         var dto = await service.AppendShipmentEventAsync(
             request.PublicId,
-            new AppendReturnShipmentEventRequest("carrier", "evt-3-stale", "InTransit", NowUtc.AddHours(4), null),
+            ShipmentEvent("carrier", "evt-3-stale", "InTransit", NowUtc.AddHours(4), null),
             CancellationToken.None);
 
         Assert.Equal(ReturnShipmentStatus.Delivered, dto.Status);
@@ -325,7 +360,7 @@ public sealed class AdminReturnServiceTests
     public async Task AppendShipmentEventAsync_SameExternalEventId_IsIdempotentAndDoesNotDuplicateHistory()
     {
         var (service, store, request) = await CreateSutWithAwaitingShipmentReturnAsync();
-        var eventRequest = new AppendReturnShipmentEventRequest("carrier", "evt-1", "InTransit", NowUtc.AddHours(1), null);
+        var eventRequest = ShipmentEvent("carrier", "evt-1", "InTransit", NowUtc.AddHours(1), null);
 
         await service.AppendShipmentEventAsync(request.PublicId, eventRequest, CancellationToken.None);
         var historyCountAfterFirst = store.Histories.Count;
@@ -342,14 +377,14 @@ public sealed class AdminReturnServiceTests
         var (service, store, request) = await CreateSutWithAwaitingShipmentReturnAsync();
         await service.AppendShipmentEventAsync(
             request.PublicId,
-            new AppendReturnShipmentEventRequest("carrier", "evt-1", "InTransit", NowUtc.AddDays(-2), null),
+            ShipmentEvent("carrier", "evt-1", "InTransit", NowUtc.AddDays(-2), null),
             CancellationToken.None);
         Assert.Equal(ReturnRequestStatus.InTransit, request.Status);
 
         var occurredAtUtc = NowUtc.AddDays(-1);
         var dto = await service.AppendShipmentEventAsync(
             request.PublicId,
-            new AppendReturnShipmentEventRequest("carrier", "evt-2", "Delivered", occurredAtUtc, null),
+            ShipmentEvent("carrier", "evt-2", "Delivered", occurredAtUtc, null),
             CancellationToken.None);
 
         Assert.Equal(occurredAtUtc, dto.ReceivedAtUtc);
@@ -369,7 +404,7 @@ public sealed class AdminReturnServiceTests
         // Pending to Delivered, mirroring a carrier that only reports a single terminal webhook.
         var dto = await service.AppendShipmentEventAsync(
             request.PublicId,
-            new AppendReturnShipmentEventRequest("carrier", "evt-delivered-first", "Delivered", occurredAtUtc, null),
+            ShipmentEvent("carrier", "evt-delivered-first", "Delivered", occurredAtUtc, null),
             CancellationToken.None);
 
         Assert.Equal(ReturnShipmentStatus.Delivered, dto.Status);

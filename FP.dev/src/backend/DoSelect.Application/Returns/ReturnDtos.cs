@@ -147,17 +147,48 @@ public sealed record ApproveReturnItemLine(
 /// enforced by ValidateExactItemSet in the Application layer (an empty submission naturally fails
 /// that check when the return has any items), not by a DTO-level MinLength that would also block
 /// the legitimate empty-array rejection payload.
+///
+/// Property-style (not a positional primary constructor) — the generated native OpenApi document
+/// only reads DataAnnotations from properties. A record with a primary constructor either omits
+/// parameter-level validation metadata from the schema entirely (bare attributes), or throws
+/// InvalidOperationException at request time the moment ANY property-targeted metadata exists
+/// alongside it ("validation metadata ... must be associated with the constructor parameter") —
+/// confirmed by testing both a property-only and a dual (property + parameter) placement on this
+/// exact record before converting it. See ReturnDtosOpenApiContractTests for the regression test.
+///
+/// Every property that used to be a required positional-constructor parameter (no C# default
+/// value, so System.Text.Json rejected a JSON body omitting it) carries the `required` MODIFIER
+/// here — not just a [Required] attribute — to keep that same omission rejected at the
+/// deserialization layer, and to keep it out of the schema's `required` set. [Required] alone
+/// only rejects null/empty *string* values; a value type like bool or byte[] silently binds to
+/// its C# default when its JSON property is absent, which would otherwise be a real behavior
+/// regression versus the old positional record.
 /// </summary>
-public sealed record ApproveReturnRequest(
-    bool Approved,
-    [Required] IReadOnlyList<ApproveReturnItemLine> Items,
-    [Required, NotWhiteSpace, StringLength(64, MinimumLength = 1)] string ReasonCode,
-    [StringLength(500)] string? Note,
-    [RowVersionRequired] byte[] ReturnRowVersion);
+public sealed record ApproveReturnRequest
+{
+    public required bool Approved { get; init; }
 
-public sealed record ReceiveReturnRequest(
-    [StringLength(500)] string? Note,
-    [RowVersionRequired] byte[] ReturnRowVersion);
+    [Required]
+    public required IReadOnlyList<ApproveReturnItemLine> Items { get; init; }
+
+    [Required, NotWhiteSpace, StringLength(64, MinimumLength = 1)]
+    public required string ReasonCode { get; init; }
+
+    [StringLength(500)]
+    public string? Note { get; init; }
+
+    [RowVersionRequired]
+    public required byte[] ReturnRowVersion { get; init; }
+}
+
+public sealed record ReceiveReturnRequest
+{
+    [StringLength(500)]
+    public string? Note { get; init; }
+
+    [RowVersionRequired]
+    public required byte[] ReturnRowVersion { get; init; }
+}
 
 public sealed record InspectReturnItemLine(
     Guid ReturnItemPublicId,
@@ -169,24 +200,58 @@ public sealed record InspectReturnRequest(
     [Required, MinLength(1)] IReadOnlyList<InspectReturnItemLine> Items,
     [RowVersionRequired] byte[] ReturnRowVersion);
 
-public sealed record ExtendShipmentDeadlineRequest(
-    [Required, NotWhiteSpace, StringLength(64, MinimumLength = 1)] string ReasonCode,
-    [RowVersionRequired] byte[] ReturnRowVersion);
+public sealed record ExtendShipmentDeadlineRequest
+{
+    [Required, NotWhiteSpace, StringLength(64, MinimumLength = 1)]
+    public required string ReasonCode { get; init; }
 
-public sealed record CreateReturnShipmentRequest(
-    ReturnShipmentMethod Method,
-    [StringLength(32)] string? CarrierCode,
-    [StringLength(100)] string? RecipientName,
-    [StringLength(30)] string? RecipientPhone,
-    [StringLength(10)] string? PostalCode,
-    [StringLength(200)] string? AddressLine,
-    [StringLength(50)] string? StoreCode,
-    [StringLength(100)] string? StoreName,
-    [RowVersionRequired] byte[] ReturnRowVersion);
+    [RowVersionRequired]
+    public required byte[] ReturnRowVersion { get; init; }
+}
 
-public sealed record AppendReturnShipmentEventRequest(
-    [Required, NotWhiteSpace, StringLength(32, MinimumLength = 1)] string Source,
-    [Required, NotWhiteSpace, StringLength(128, MinimumLength = 1)] string ExternalEventId,
-    [Required, NotWhiteSpace, StringLength(50, MinimumLength = 1)] string EventType,
-    [UtcDateTime] DateTime OccurredAtUtc,
-    [StringLength(500)] string? Description);
+public sealed record CreateReturnShipmentRequest
+{
+    public required ReturnShipmentMethod Method { get; init; }
+
+    [StringLength(32)]
+    public string? CarrierCode { get; init; }
+
+    [StringLength(100)]
+    public string? RecipientName { get; init; }
+
+    [StringLength(30)]
+    public string? RecipientPhone { get; init; }
+
+    [StringLength(10)]
+    public string? PostalCode { get; init; }
+
+    [StringLength(200)]
+    public string? AddressLine { get; init; }
+
+    [StringLength(50)]
+    public string? StoreCode { get; init; }
+
+    [StringLength(100)]
+    public string? StoreName { get; init; }
+
+    [RowVersionRequired]
+    public required byte[] ReturnRowVersion { get; init; }
+}
+
+public sealed record AppendReturnShipmentEventRequest
+{
+    [Required, NotWhiteSpace, StringLength(32, MinimumLength = 1)]
+    public required string Source { get; init; }
+
+    [Required, NotWhiteSpace, StringLength(128, MinimumLength = 1)]
+    public required string ExternalEventId { get; init; }
+
+    [Required, NotWhiteSpace, StringLength(50, MinimumLength = 1)]
+    public required string EventType { get; init; }
+
+    [UtcDateTime]
+    public required DateTime OccurredAtUtc { get; init; }
+
+    [StringLength(500)]
+    public string? Description { get; init; }
+}
