@@ -124,6 +124,25 @@ const isProductFormDirty = computed(() => {
     currentTags.some((code, index) => code !== savedTags[index])
 })
 
+// PR #24 review round 9 (P1): set when a SKU mutation succeeds but the admin dirtied the product
+// form again *while that request was in flight* (see syncRowVersionAfterOwnSkuMutation below) —
+// the server's Product RowVersion has genuinely moved on past whatever this page last confirmed,
+// but applying that new snapshot would discard the admin's fresh edits, and keeping the old token
+// would let a subsequent save silently overwrite the SKU-driven change with no 409. Neither is
+// safe, so this instead surfaces as an explicit, unmissable prompt to reload (discarding the
+// in-between edits) rather than guessing which side should win.
+//
+// PR #24 review round 10 (P2): declared above applyProductSnapshot specifically so that function
+// can be the single place that clears it — applying a snapshot IS the trustworthy state this flag
+// exists to gate, so every path that reaches a trustworthy state (initial load, a clean SKU-driven
+// resync, or the explicit reload below) clears it the same way, instead of each caller needing to
+// remember to do so itself. Round 9's version left it set forever once raised: the productId watcher
+// didn't reset it (so it leaked onto whatever product the admin navigated to next), and neither did
+// a successful product save on the *same* product (though see submitUpdate below for why that path
+// only reaches success at all in an edge case, since the stale token it's still holding would
+// normally draw its own 409 first).
+const productSyncConflict = ref(false)
+
 function applyProductSnapshot(value: NonNullable<typeof product.value>) {
   form.productCode = value.productCode
   form.nameZhTw = value.nameZhTw
@@ -147,6 +166,7 @@ function applyProductSnapshot(value: NonNullable<typeof product.value>) {
   savedForm.status = form.status
   savedForm.tagCodes = [...form.tagCodes]
   editRowVersion.value = value.rowVersion
+  productSyncConflict.value = false
 }
 
 watch([product, brandResult, categoryResult, tagResult, areLookupsPending, areLookupsErrored], () => {
@@ -161,15 +181,6 @@ watch([product, brandResult, categoryResult, tagResult, areLookupsPending, areLo
   initializedFor.value = key
   applyProductSnapshot(value)
 }, { immediate: true })
-
-// PR #24 review round 9 (P1): set when a SKU mutation succeeds but the admin dirtied the product
-// form again *while that request was in flight* (see syncRowVersionAfterOwnSkuMutation below) —
-// the server's Product RowVersion has genuinely moved on past whatever this page last confirmed,
-// but applying that new snapshot would discard the admin's fresh edits, and keeping the old token
-// would let a subsequent save silently overwrite the SKU-driven change with no 409. Neither is
-// safe, so this instead surfaces as an explicit, unmissable prompt to reload (discarding the
-// in-between edits) rather than guessing which side should win.
-const productSyncConflict = ref(false)
 
 /**
  * PR #24 review round 8 (P1): round 7 refreshed *only* the token after a SKU mutation this admin
@@ -222,7 +233,6 @@ async function reloadAfterProductSyncConflict() {
   const result = await refetch()
   if (result.data) {
     applyProductSnapshot(result.data)
-    productSyncConflict.value = false
   }
 }
 
@@ -314,6 +324,9 @@ function submitUpdate() {
       savedForm.warrantyMonths = submittedSnapshot.warrantyMonths
       savedForm.status = submittedSnapshot.status
       savedForm.tagCodes = submittedSnapshot.tagCodes
+      // PR #24 review round 10 (P2): a successful save is itself a trustworthy state, same as
+      // applyProductSnapshot — clear any conflict a preceding SKU mutation might have raised.
+      productSyncConflict.value = false
     },
   })
 }
@@ -365,6 +378,14 @@ const newSku = reactive({
 // picked for product A's draft SKU would still be selected after switching to B. Also resets the
 // previous product's create/update mutation error state, which otherwise stayed visible (and
 // stale) on the new product's page.
+//
+// PR #24 review round 10 (P2): `productSyncConflict` had the exact same leak — A's conflict
+// banner (see syncRowVersionAfterOwnSkuMutation above) stayed lit after navigating to B, even
+// though B's own snapshot had already loaded cleanly. The applyProductSnapshot() call the init
+// watcher makes for B does clear it too (every trustworthy-snapshot path does now), but that
+// watcher and this one both react to the same productId change and Vue does not guarantee which
+// runs first — clearing it here as well means the banner never has even a single tick where it's
+// visibly wrong for the new product, regardless of ordering.
 watch(() => props.productId, () => {
   newSku.skuCode = ''
   newSku.nameZhTw = ''
@@ -375,6 +396,7 @@ watch(() => props.productId, () => {
   newSku.requiresPrepayment = false
   createSkuMutation.reset()
   updateMutation.reset()
+  productSyncConflict.value = false
 })
 
 function submitNewSku() {

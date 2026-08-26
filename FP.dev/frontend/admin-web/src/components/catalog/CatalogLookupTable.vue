@@ -41,6 +41,16 @@ const emit = defineEmits<{
   retry: []
   create: [state: Record<string, unknown>]
   update: [publicId: string, rowVersion: string, state: Record<string, unknown>]
+  /**
+   * PR #24 review round 10 (P3): `createError`/`updateError` are owned by the parent's mutation
+   * objects, which don't reset themselves just because this table moved on to editing/creating a
+   * different row — a failed update on item A left `updateError` set, and reopening edit on item
+   * B (still `editingId === B.publicId && updateError`) showed A's stale error underneath B's
+   * form. Fired at the start of a new create/edit session so the parent can reset its mutation
+   * before this table renders that session's own (so far nonexistent) error.
+   */
+  editStarted: []
+  createStarted: []
 }>()
 
 const editingId = ref<string | null>(null)
@@ -62,6 +72,7 @@ function startEdit(item: CatalogLookupItem) {
   editingId.value = item.publicId
   editRowVersion.value = item.rowVersion
   Object.assign(editState, props.makeEditState(item))
+  emit('editStarted')
 }
 
 function cancelEdit() {
@@ -81,6 +92,7 @@ function startCreate() {
   }
   creatingRow.value = true
   Object.assign(createState, props.makeCreateState())
+  emit('createStarted')
 }
 
 function cancelCreate() {

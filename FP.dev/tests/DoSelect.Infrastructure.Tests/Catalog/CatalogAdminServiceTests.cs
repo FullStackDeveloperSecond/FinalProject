@@ -665,6 +665,59 @@ public sealed class ProductAdminServiceTests
         Assert.Equal(CatalogWriteException.ErrorCodes.ConcurrencyConflict, exception.ErrorCode);
     }
 
+    /// <summary>
+    /// 組長 PR #24 round 10 review, P2: CreateAsync's ProductCode uniqueness check is a plain
+    /// AnyAsync (SELECT) before the INSERT — two concurrent creates for the same brand-new code
+    /// can both pass it. Uses the same ManualResetEventSlim-gated Task.WhenAll pattern as
+    /// AdminSupportTicketClaimStoreTests.ClaimAsync_TwoAdminsRace (each side gets its own
+    /// DbContext/service instance, both gated to start the racy call at the same instant) rather
+    /// than the round-9 identity-resolution trick, since this is a genuine two-concurrent-INSERTs
+    /// race, not one entity going stale under a single tracked reference.
+    /// </summary>
+    [Fact]
+    public async Task CreateAsync_WhenTwoConcurrentRequestsUseTheSameNewProductCode_TheLoserThrowsProductCodeDuplicate()
+    {
+        await using var seedContext = CatalogAdminFixture.CreateContext();
+        var (brand, category, _) = await CatalogAdminFixture.SeedCatalogAsync(seedContext);
+        var productCode = CatalogAdminFixture.UniqueCode("PROD");
+        using var gate = new ManualResetEventSlim(false);
+
+        async Task<object> CreateInNewContextAsync(string skuCodeSuffix)
+        {
+            await using var context = CatalogAdminFixture.CreateContext();
+            var service = new EfProductAdminService(context);
+            var request = new CreateProductRequest(
+                productCode, "測試商品", brand.PublicId, category.PublicId, null, null, [],
+                "Draft", CatalogAdminFixture.CreateDefaultSkuRequest(CatalogAdminFixture.UniqueCode("SKU-" + skuCodeSuffix)));
+            gate.Wait();
+            try
+            {
+                return await service.CreateAsync(request, CancellationToken.None);
+            }
+            catch (CatalogWriteException exception)
+            {
+                return exception;
+            }
+        }
+
+        // Task.Run, not a direct call: CreateInNewContextAsync's synchronous prefix (up to its
+        // first await) runs on the calling thread otherwise, and gate.Wait() inside it is a
+        // blocking (not async) call — calling it directly here would block this very test method
+        // before it ever reaches the code that creates the second task or calls gate.Set(),
+        // deadlocking the test on itself rather than exercising the database race at all.
+        var firstTask = Task.Run(() => CreateInNewContextAsync("A"));
+        var secondTask = Task.Run(() => CreateInNewContextAsync("B"));
+        gate.Set();
+        var results = await Task.WhenAll(firstTask, secondTask);
+
+        Assert.Single(results, result => result is AdminProductDetailDto);
+        var failure = Assert.Single(results, result => result is CatalogWriteException);
+        Assert.Equal(CatalogWriteException.ErrorCodes.ProductCodeDuplicate, ((CatalogWriteException)failure).ErrorCode);
+
+        await using var verifyContext = CatalogAdminFixture.CreateContext();
+        Assert.Equal(1, await verifyContext.Products.CountAsync(p => p.ProductCode == productCode.ToUpperInvariant()));
+    }
+
     private static async Task CreateSkuWithOnHandAsync(
         DoSelectDbContext context,
         EfSkuAdminService skuService,
@@ -804,6 +857,50 @@ public sealed class SkuAdminServiceTests
         // one) survives the rollback.
         await using var verifyContext = CatalogAdminFixture.CreateContext();
         Assert.False(await verifyContext.Skus.AnyAsync(sku => sku.SkuCode == skuCode.ToUpperInvariant()));
+    }
+
+    /// <summary>
+    /// 組長 PR #24 round 10 review, P2: same class of race as the ProductCode test above, but for
+    /// CreateAsync's SkuCode uniqueness check — two concurrent SKU creates for the same product
+    /// using the same brand-new SkuCode can both pass the AnyAsync pre-check.
+    /// </summary>
+    [Fact]
+    public async Task CreateAsync_WhenTwoConcurrentRequestsUseTheSameNewSkuCode_TheLoserThrowsSkuCodeDuplicate()
+    {
+        await using var seedContext = CatalogAdminFixture.CreateContext();
+        var (brand, category, _) = await CatalogAdminFixture.SeedCatalogAsync(seedContext);
+        var product = await CatalogAdminFixture.CreateProductAsync(seedContext, brand, category);
+        var skuCode = CatalogAdminFixture.UniqueCode("SKU");
+        using var gate = new ManualResetEventSlim(false);
+
+        async Task<object> CreateInNewContextAsync()
+        {
+            await using var context = CatalogAdminFixture.CreateContext();
+            var service = new EfSkuAdminService(context);
+            var request = new CreateSkuRequest(skuCode, "新規格", 10_000m, 7_000m, null, null, null, null, "Draft", false, false, []);
+            gate.Wait();
+            try
+            {
+                return await service.CreateAsync(product.PublicId, request, CancellationToken.None);
+            }
+            catch (CatalogWriteException exception)
+            {
+                return exception;
+            }
+        }
+
+        // See the ProductCode test above for why this must be Task.Run and not a direct call.
+        var firstTask = Task.Run(() => CreateInNewContextAsync());
+        var secondTask = Task.Run(() => CreateInNewContextAsync());
+        gate.Set();
+        var results = await Task.WhenAll(firstTask, secondTask);
+
+        Assert.Single(results, result => result is SkuDto);
+        var failure = Assert.Single(results, result => result is CatalogWriteException);
+        Assert.Equal(CatalogWriteException.ErrorCodes.SkuCodeDuplicate, ((CatalogWriteException)failure).ErrorCode);
+
+        await using var verifyContext = CatalogAdminFixture.CreateContext();
+        Assert.Equal(1, await verifyContext.Skus.CountAsync(sku => sku.SkuCode == skuCode.ToUpperInvariant()));
     }
 
     /// <summary>組長 PR #24 round 5 review, item 3: WeightKg's Domain guard only requires >0 and

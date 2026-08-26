@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ErrorState, HttpStatusPage, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useProductDetail } from '../features/catalog/useProductSearch'
 import type { PublicSkuDto } from '../features/catalog/types'
@@ -15,6 +15,28 @@ const selectedSkuPublicId = ref<string>()
 const selectedSku = computed<PublicSkuDto | undefined>(() =>
   product.value?.skus.find((sku) => sku.publicId === selectedSkuPublicId.value) ?? product.value?.skus[0],
 )
+
+/**
+ * PR #24 review round 10 (P3): `selectedSkuPublicId` was never reset when the product data
+ * changed. Vue Router reuses this component instance across a param-only navigation on the same
+ * route record (/products/A -> /products/B) — after picking a non-default SKU on A and then
+ * navigating to B, `selectedSku` above already falls back to `product.skus[0]` correctly (since
+ * `.find()` returns undefined for a publicId that isn't in B's list), but the `<select>` element
+ * itself stays bound to A's stale publicId via v-model, which doesn't match any of B's `<option>`
+ * values — the dropdown can render blank even though the price/spec content below it is already
+ * showing B's first SKU, an inconsistent-looking mix. Reset explicitly to the new product's
+ * default SKU (or its first SKU, if for some reason none is marked default) whenever the loaded
+ * product changes and the current selection doesn't belong to it.
+ */
+watch(product, (value) => {
+  if (!value) {
+    return
+  }
+  if (value.skus.some((sku) => sku.publicId === selectedSkuPublicId.value)) {
+    return
+  }
+  selectedSkuPublicId.value = value.skus.find((sku) => sku.isDefault)?.publicId ?? value.skus[0]?.publicId
+})
 
 const availabilityLabel = computed(() => {
   const availability = selectedSku.value?.availability

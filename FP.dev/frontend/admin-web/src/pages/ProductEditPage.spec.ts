@@ -447,6 +447,87 @@ describe('ProductEditPage', () => {
   })
 
   /**
+   * Regression test (組長 PR #24 review round 10, P2): `productSyncConflict` (round 9) was never
+   * reset — the productId-change watcher reset the SKU draft and mutation errors but not this —
+   * so product A's conflict banner stayed lit after navigating to product B, even though B's own
+   * snapshot had already loaded cleanly and had nothing to do with A's conflict.
+   */
+  it('does not carry a conflict banner over to a different product navigated to afterward', async () => {
+    mockGetAdminProduct.mockImplementation((publicId: string) =>
+      Promise.resolve({ ...product, publicId, productCode: publicId.toUpperCase() }))
+    mockListBrands.mockResolvedValue({ items: [{ publicId: 'brand-1', code: 'ACME', nameZhTw: 'Acme' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    mockListCategories.mockResolvedValue({ items: [{ publicId: 'cat-1', code: 'CAT-A', nameZhTw: 'Category A' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    mockListTags.mockResolvedValue({ items: [{ publicId: 'tag-legacy', code: 'LEGACY-TAG', nameZhTw: 'Legacy Tag' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    let resolveCreateSku!: (value: { publicId: string, skuCode: string, isDefault: boolean }) => void
+    mockCreateSku.mockReturnValueOnce(new Promise((resolve) => { resolveCreateSku = resolve }))
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/products/:productId', name: 'product-edit', component: ProductEditPage, props: true }],
+    })
+    await router.push('/products/p1')
+    await router.isReady()
+    const wrapper = mount(RouterView, { global: { plugins: [[VueQueryPlugin, { queryClient }], router] } })
+    await flushPromises()
+
+    await wrapper.find('input[aria-label="新 SKU 代碼"]').setValue('NEW-1')
+    await wrapper.find('input[aria-label="新 SKU 名稱"]').setValue('New SKU')
+    await wrapper.findAll('button').find((button) => button.text() === '新增 SKU')!.trigger('click')
+    await flushPromises()
+
+    const nameInput = wrapper.findAll('label').find((label) => label.text().includes('名稱'))!.find('input')
+    await nameInput.setValue('Edited While SKU Was Saving')
+
+    mockGetAdminProduct.mockResolvedValueOnce({ ...product, publicId: 'p1', rowVersion: 'BBB=' })
+    resolveCreateSku({ publicId: 'sku-new', skuCode: 'NEW-1', isDefault: false })
+    await flushPromises()
+    expect(wrapper.text()).toContain('無法確定要保留哪一份內容')
+
+    await router.push('/products/p2')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('無法確定要保留哪一份內容')
+  })
+
+  /**
+   * Regression test (組長 PR #24 review round 10, P2): the explicit "重新載入" action must clear
+   * the conflict banner, not just refresh the form — round 9's version left it set even after the
+   * admin resolved it exactly the way the banner asked them to.
+   */
+  it('clears the conflict banner once the admin explicitly reloads', async () => {
+    mockGetAdminProduct.mockResolvedValue(product)
+    mockListBrands.mockResolvedValue({ items: [{ publicId: 'brand-1', code: 'ACME', nameZhTw: 'Acme' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    mockListCategories.mockResolvedValue({ items: [{ publicId: 'cat-1', code: 'CAT-A', nameZhTw: 'Category A' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    mockListTags.mockResolvedValue({ items: [{ publicId: 'tag-legacy', code: 'LEGACY-TAG', nameZhTw: 'Legacy Tag' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    let resolveCreateSku!: (value: { publicId: string, skuCode: string, isDefault: boolean }) => void
+    mockCreateSku.mockReturnValueOnce(new Promise((resolve) => { resolveCreateSku = resolve }))
+
+    const wrapper = await mountPage()
+    await flushPromises()
+
+    await wrapper.find('input[aria-label="新 SKU 代碼"]').setValue('NEW-1')
+    await wrapper.find('input[aria-label="新 SKU 名稱"]').setValue('New SKU')
+    await wrapper.findAll('button').find((button) => button.text() === '新增 SKU')!.trigger('click')
+    await flushPromises()
+
+    const nameInput = wrapper.findAll('label').find((label) => label.text().includes('名稱'))!.find('input')
+    await nameInput.setValue('Edited While SKU Was Saving')
+
+    mockGetAdminProduct.mockResolvedValueOnce({ ...product, rowVersion: 'BBB=' })
+    resolveCreateSku({ publicId: 'sku-new', skuCode: 'NEW-1', isDefault: false })
+    await flushPromises()
+    expect(wrapper.text()).toContain('無法確定要保留哪一份內容')
+
+    mockGetAdminProduct.mockResolvedValueOnce({ ...product, nameZhTw: 'Reloaded From Server', rowVersion: 'CCC=' })
+    await wrapper.findAll('button').find((button) => button.text() === '重新載入')!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('無法確定要保留哪一份內容')
+    expect(nameInput.element.value).toBe('Reloaded From Server')
+  })
+
+  /**
    * Regression test (組長 PR #24 review round 9, P1, scenario 2): the success handler used to
    * copy the *live* form into `savedForm`, not what was actually submitted. If the admin edits
    * again (X -> Y) before the save response for X arrives, the server only ever persisted X — the

@@ -247,9 +247,26 @@ public sealed class EfProductAdminService : IProductAdminService
 
             await transaction.CommitAsync(cancellationToken);
         }
-        catch
+        // 組長 PR #24 round 10 review, P2: the AnyAsync check above is a plain SELECT before the
+        // INSERT — two concurrent creates for the same brand-new ProductCode can both pass it, and
+        // only one INSERT actually wins; the loser used to surface as a bare rethrow, which
+        // GlobalExceptionHandler maps to an opaque 500 instead of the documented 409
+        // product_code_duplicate. Rollback always happens first regardless of exception type; only
+        // a genuine UX_Products_ProductCode violation gets translated, so an unrelated
+        // DbUpdateException (a different constraint, connectivity failure) still propagates as-is
+        // rather than being mislabeled as a duplicate code.
+        catch (Exception exception)
         {
             await transaction.RollbackAsync(cancellationToken);
+
+            if (exception is DbUpdateException dbUpdateException &&
+                SqlUniqueIndexViolations.Matches(dbUpdateException, "UX_Products_ProductCode"))
+            {
+                throw new CatalogWriteException(
+                    CatalogWriteException.ErrorCodes.ProductCodeDuplicate,
+                    $"Product code '{request.ProductCode}' already exists.");
+            }
+
             throw;
         }
 

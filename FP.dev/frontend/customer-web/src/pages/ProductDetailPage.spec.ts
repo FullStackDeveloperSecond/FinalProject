@@ -108,4 +108,67 @@ describe('ProductDetailPage', () => {
     expect(wrapper.text()).toContain('不可配送')
     expect(wrapper.text()).toContain('oversized')
   })
+
+  /**
+   * Regression test (組長 PR #24 review round 10, P3): `selectedSkuPublicId` never reset when
+   * the product data changed. useRoute()'s productPublicId is reactive independent of how this
+   * component is mounted, so a param-only navigation on the same route record (/products/A ->
+   * /products/B) re-fetches and swaps `product` in place — but the SKU `<select>` stayed bound to
+   * whichever publicId was selected on A, which doesn't match any of B's options.
+   */
+  it('resets the selected SKU to the new product\'s default after navigating to a different product', async () => {
+    const productA = productDetail({
+      productPublicId: 'p1',
+      skus: [
+        {
+          publicId: 'a-default', skuCode: 'A-DEFAULT', name: 'A Default',
+          price: { list: 1000, sale: null, currency: 'TWD' }, availability: 'inStock',
+          maxPurchasableQuantity: 10, specifications: [], dimensions: { weightKg: null, lengthCm: null, widthCm: null, heightCm: null },
+          isDefault: true,
+        },
+        {
+          publicId: 'a2', skuCode: 'A2', name: 'A Variant 2',
+          price: { list: 1200, sale: null, currency: 'TWD' }, availability: 'inStock',
+          maxPurchasableQuantity: 10, specifications: [], dimensions: { weightKg: null, lengthCm: null, widthCm: null, heightCm: null },
+          isDefault: false,
+        },
+      ],
+    })
+    const productB = productDetail({
+      productPublicId: 'p2',
+      skus: [
+        {
+          publicId: 'b-default', skuCode: 'B-DEFAULT', name: 'B Default',
+          price: { list: 2000, sale: null, currency: 'TWD' }, availability: 'inStock',
+          maxPurchasableQuantity: 10, specifications: [{ semanticKey: 'color', label: '顏色', value: 'Black', unit: null }],
+          dimensions: { weightKg: null, lengthCm: null, widthCm: null, heightCm: null },
+          isDefault: true,
+        },
+      ],
+    })
+    mockGetProductDetail.mockImplementation((id: string) => Promise.resolve(id === 'p2' ? productB : productA))
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/products/:productId', name: 'product-detail', component: ProductDetailPage, props: true }],
+    })
+    await router.push('/products/p1')
+    await router.isReady()
+    const wrapper = mount(ProductDetailPage, { global: { plugins: [[VueQueryPlugin, { queryClient }], router] } })
+    await flushPromises()
+
+    await wrapper.find('#sku-select').setValue('a2')
+    await flushPromises()
+    expect((wrapper.find('#sku-select').element as HTMLSelectElement).value).toBe('a2')
+
+    await router.push('/products/p2')
+    await flushPromises()
+
+    // B has only one SKU, so the dropdown itself isn't rendered — the fallback shows through the
+    // price/spec content directly, which must be B's default SKU, not a blank/stale selection.
+    expect(wrapper.find('#sku-select').exists()).toBe(false)
+    expect(wrapper.text()).toContain('NT$2,000')
+    expect(wrapper.text()).toContain('Black')
+  })
 })

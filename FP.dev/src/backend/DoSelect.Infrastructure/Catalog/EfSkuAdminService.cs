@@ -111,6 +111,13 @@ public sealed class EfSkuAdminService : ISkuAdminService
         // failure the transaction needs to undo), so the exception-type check comes after, not
         // instead of, the existing rollback — never skip it just because this one case now
         // translates the exception afterward.
+        //
+        // 組長 PR #24 round 10 review, P2: the *first* SaveChangesAsync (the SKU insert itself)
+        // has the same race as EfProductAdminService.CreateAsync's ProductCode check — the
+        // AnyAsync check above is a plain SELECT, so two concurrent creates for the same
+        // brand-new SkuCode can both pass it, and the losing INSERT hits UX_Skus_SkuCode. Checked
+        // after DbUpdateConcurrencyException (a subclass of DbUpdateException — order matters) and
+        // only for that specific index, so an unrelated DbUpdateException still propagates as-is.
         catch (Exception exception)
         {
             if (transaction is not null)
@@ -123,6 +130,14 @@ public sealed class EfSkuAdminService : ISkuAdminService
                 throw new CatalogWriteException(
                     CatalogWriteException.ErrorCodes.ConcurrencyConflict,
                     "The product was updated by someone else. Reload and try again.");
+            }
+
+            if (exception is DbUpdateException dbUpdateException &&
+                SqlUniqueIndexViolations.Matches(dbUpdateException, "UX_Skus_SkuCode"))
+            {
+                throw new CatalogWriteException(
+                    CatalogWriteException.ErrorCodes.SkuCodeDuplicate,
+                    $"SKU code '{request.SkuCode}' already exists.");
             }
 
             throw;

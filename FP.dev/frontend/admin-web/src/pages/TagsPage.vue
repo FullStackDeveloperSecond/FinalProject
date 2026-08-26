@@ -97,6 +97,8 @@ function handleUpdate(publicId: string, rowVersion: string, rawState: Record<str
       @retry="refetch"
       @create="handleCreate"
       @update="handleUpdate"
+      @create-started="createMutation.reset()"
+      @edit-started="updateMutation.reset()"
     />
     <nav
       v-if="totalPages > 1"

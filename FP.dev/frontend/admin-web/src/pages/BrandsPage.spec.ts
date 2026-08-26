@@ -128,6 +128,39 @@ describe('BrandsPage', () => {
     expect(wrapper.text()).toContain('代碼已存在')
   })
 
+  /**
+   * Regression test (組長 PR #24 review round 10, P3): createError/updateError are owned by the
+   * page's mutation objects, which don't reset themselves just because the table moved on to a
+   * different row — a failed edit on brand A left updateError set, and opening edit on brand B
+   * (unrelated, never itself failed) rendered A's stale error underneath B's own edit form.
+   */
+  it('does not carry a failed edit\'s error over to a different row opened afterward', async () => {
+    mockListBrands.mockResolvedValue({
+      items: [
+        { publicId: 'b1', code: 'ACME', nameZhTw: 'Acme', description: null, websiteUrl: null, isActive: true, sortOrder: 0, rowVersion: 'AAA=' },
+        { publicId: 'b2', code: 'OTHER', nameZhTw: 'Other', description: null, websiteUrl: null, isActive: true, sortOrder: 0, rowVersion: 'AAA=' },
+      ],
+      pageNumber: 1,
+      pageSize: 20,
+      totalCount: 2,
+    })
+    mockUpdateBrand.mockRejectedValueOnce(new ApiError('Conflict', { status: 409, code: 'brand_code_duplicate' }))
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const editButtons = wrapper.findAll('button').filter((button) => button.text() === '編輯')
+    await editButtons[0]!.trigger('click')
+    await wrapper.findAll('button').find((button) => button.text() === '儲存')!.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('代碼已存在')
+
+    await wrapper.findAll('button').find((button) => button.text() === '取消')!.trigger('click')
+    await wrapper.findAll('button').filter((button) => button.text() === '編輯')[1]!.trigger('click')
+
+    expect(wrapper.text()).not.toContain('代碼已存在')
+  })
+
   /** PR #24 review: brand management was capped at the backend's default page size (20) with no way to reach later rows. */
   it('requests the next page and re-fetches when 下一頁 is clicked', async () => {
     mockListBrands.mockResolvedValue({
