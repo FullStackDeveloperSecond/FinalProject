@@ -1,5 +1,4 @@
 using System.Security.Claims;
-using DoSelect.Application.Security;
 
 namespace DoSelect.Application.Orders;
 
@@ -30,7 +29,6 @@ public abstract record GuestOrderAccessAuthorizationResult
 public sealed class GuestOrderAccessScopeAuthorizer(
     IGuestOrderAccessGateway gateway,
     IGuestOrderAccessHasher hasher,
-    IAuditLogWriter auditLogWriter,
     TimeProvider timeProvider)
 {
     public async Task<GuestOrderAccessAuthorizationResult> AuthorizeAsync(
@@ -61,18 +59,10 @@ public sealed class GuestOrderAccessScopeAuthorizer(
         {
             context.Token.RecordScopeViolation();
             await gateway.SaveChangesAsync(cancellationToken);
-            await auditLogWriter.RecordAsync(
-                new AuditLogEntryDraft(
-                    ActorType: "guest",
-                    ActorUserId: context.Token.PublicId.ToString(),
-                    ActorPublicId: context.Token.PublicId,
-                    ActorRoles: [],
-                    Action: "guest_order.access.scope_violation",
-                    ResourceType: "order",
-                    ResourcePublicId: targetOrderPublicId,
-                    Outcome: AuditLogOutcomes.Denied,
-                    ErrorCode: GuestOrderErrorCodes.ScopeMismatch),
-                cancellationToken);
+
+            // TODO(DES-24): 待 Alex 在 AuditContracts.cs 的 AuditWritePolicy 白名單新增
+            // GuestOrderScopeViolation（Order 資源型別）後，接回央 IAuditWriter 記錄這起違規。
+            // 目前刻意不寫 Audit，避免在這支乾淨分支直接改動 Alex 主責的共用契約檔案。
 
             return new GuestOrderAccessAuthorizationResult.Failure(GuestOrderErrorCodes.ScopeMismatch);
         }
