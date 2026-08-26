@@ -1206,10 +1206,9 @@ public sealed class AdminSkusApiTests
 /// Per Terry-PR12修正書.md P1: the 5 admin Catalog controllers must reject anonymous and
 /// under-privileged callers, and accept both roles the CatalogManager policy actually grants
 /// (CatalogManager itself, and SuperAdmin per the policy matrix in
-/// SecurityServiceCollectionExtensions.ConfigurePolicies). Representative across the 5
-/// controllers, not exhaustive per endpoint — the [Authorize] attribute is identical on all 5,
-/// so the wiring risk is "did I forget it on one controller", not "does it behave differently
-/// per controller".
+/// SecurityServiceCollectionExtensions.ConfigurePolicies). Read wiring is representative across
+/// the 5 controllers. Every write route is enumerated because SEC-ACC-02 requires rejected writes
+/// to prove both the HTTP authorization result and a database snapshot with no side effects.
 /// </summary>
 [Collection(nameof(CatalogAdminApiCollection))]
 [Trait("Category", "RequiresSqlServer")]
@@ -1219,6 +1218,20 @@ public sealed class CatalogAdminAuthorizationTests
 
     public CatalogAdminAuthorizationTests(CatalogAdminApiFixture fixture) => _fixture = fixture;
 
+    public static TheoryData<string, string> CatalogWriteRoutes =>
+        new()
+        {
+            { "POST", "/api/v1/admin/brands" },
+            { "PUT", "/api/v1/admin/brands/00000000-0000-0000-0000-000000000001" },
+            { "POST", "/api/v1/admin/categories" },
+            { "PUT", "/api/v1/admin/categories/00000000-0000-0000-0000-000000000001" },
+            { "POST", "/api/v1/admin/tags" },
+            { "PUT", "/api/v1/admin/tags/00000000-0000-0000-0000-000000000001" },
+            { "POST", "/api/v1/admin/products" },
+            { "PUT", "/api/v1/admin/products/00000000-0000-0000-0000-000000000001" },
+            { "POST", "/api/v1/admin/products/00000000-0000-0000-0000-000000000001/skus" },
+            { "PUT", "/api/v1/admin/skus/00000000-0000-0000-0000-000000000001" },
+        };
     [Theory]
     [InlineData("/api/v1/admin/brands")]
     [InlineData("/api/v1/admin/categories")]
@@ -1265,6 +1278,25 @@ public sealed class CatalogAdminAuthorizationTests
         Assert.Equal(HttpStatusCode.Created, followUp.StatusCode);
     }
 
+    [Fact]
+    public async Task Anonymous_DeleteSku_Returns401AndDoesNotDeleteResource()
+    {
+        using var adminClient = await _fixture.CreateAuthenticatedAdminClientAsync();
+        var productId = await CatalogAdminApiSeeding.CreateProductWithCatalogAsync(adminClient);
+        using var created = await CatalogAdminApiSeeding.PostSkuAsync(adminClient, productId);
+        var sku = await created.Content.ReadFromJsonAsync<JsonElement>();
+        var publicId = sku.GetProperty("publicId").GetGuid();
+        var rowVersion = sku.GetProperty("rowVersion").GetString();
+
+        using var client = _fixture.CreateClient();
+        using var response = await client.SendAsync(new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/admin/skus/{publicId}")
+        {
+            Content = JsonContent.Create(new { rowVersion }),
+        });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        await AssertSkuUnchangedAsync(publicId, rowVersion!);
+    }
     [Theory]
     [InlineData("/api/v1/admin/brands")]
     [InlineData("/api/v1/admin/categories")]
@@ -1278,6 +1310,32 @@ public sealed class CatalogAdminAuthorizationTests
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
+    [Theory]
+    [MemberData(nameof(CatalogWriteRoutes))]
+    public async Task WriteEndpoint_RejectsAnonymousAndWrongRoleWithoutCatalogSideEffects(
+        string method,
+        string path)
+    {
+        var before = await ReadCatalogSnapshotAsync();
+
+        using (var anonymousClient = _fixture.CreateClient())
+        using (var anonymousRequest = CreateWriteRequest(method, path))
+        using (var anonymousResponse = await anonymousClient.SendAsync(anonymousRequest))
+        {
+            Assert.Equal(HttpStatusCode.Unauthorized, anonymousResponse.StatusCode);
+        }
+
+        using (var wrongRoleClient = await _fixture.CreateAuthenticatedAdminClientAsync(DoSelectRoles.OrderManager))
+        using (var wrongRoleRequest = CreateWriteRequest(method, path))
+        using (var wrongRoleResponse = await CatalogAdminApiFixture.SendWithAntiforgeryAsync(
+                   wrongRoleClient,
+                   wrongRoleRequest))
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, wrongRoleResponse.StatusCode);
+        }
+
+        Assert.Equal(before, await ReadCatalogSnapshotAsync());
+    }
     [Fact]
     public async Task SignedInWithoutCatalogManagerRole_CreateBrand_Returns403AndDoesNotCreateResource()
     {
@@ -1305,6 +1363,25 @@ public sealed class CatalogAdminAuthorizationTests
     }
 
     [Fact]
+    public async Task SignedInWithoutCatalogManagerRole_DeleteSku_Returns403AndDoesNotDeleteResource()
+    {
+        using var adminClient = await _fixture.CreateAuthenticatedAdminClientAsync();
+        var productId = await CatalogAdminApiSeeding.CreateProductWithCatalogAsync(adminClient);
+        using var created = await CatalogAdminApiSeeding.PostSkuAsync(adminClient, productId);
+        var sku = await created.Content.ReadFromJsonAsync<JsonElement>();
+        var publicId = sku.GetProperty("publicId").GetGuid();
+        var rowVersion = sku.GetProperty("rowVersion").GetString();
+
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync(DoSelectRoles.OrderManager);
+        using var response = await CatalogAdminApiFixture.SendWithAntiforgeryAsync(client, new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/admin/skus/{publicId}")
+        {
+            Content = JsonContent.Create(new { rowVersion }),
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        await AssertSkuUnchangedAsync(publicId, rowVersion!);
+    }
+    [Fact]
     public async Task CatalogManagerRole_CanListAndCreateBrand()
     {
         using var client = await _fixture.CreateAuthenticatedAdminClientAsync(DoSelectRoles.CatalogManager);
@@ -1326,5 +1403,52 @@ public sealed class CatalogAdminAuthorizationTests
 
         Assert.Equal(HttpStatusCode.OK, listResponse.StatusCode);
         Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+    }
+    private async Task AssertSkuUnchangedAsync(Guid publicId, string rowVersion)
+    {
+        await using var context = _fixture.CreateScopedContext();
+        var persisted = await context.Skus.AsNoTracking().SingleAsync(candidate => candidate.PublicId == publicId);
+        Assert.Equal(Convert.FromBase64String(rowVersion), persisted.RowVersion);
+    }
+
+    private static HttpRequestMessage CreateWriteRequest(string method, string path) =>
+        new(new HttpMethod(method), path)
+        {
+            Content = JsonContent.Create(new { authorizationMustRunBeforeBinding = true }),
+        };
+
+    private async Task<string> ReadCatalogSnapshotAsync()
+    {
+        await using var context = _fixture.CreateScopedContext();
+        var snapshot = new
+        {
+            Brands = await context.Brands.AsNoTracking()
+                .OrderBy(entity => entity.Id)
+                .Select(entity => new { entity.Id, entity.PublicId, entity.RowVersion })
+                .ToArrayAsync(),
+            Categories = await context.Categories.AsNoTracking()
+                .OrderBy(entity => entity.Id)
+                .Select(entity => new { entity.Id, entity.PublicId, entity.RowVersion })
+                .ToArrayAsync(),
+            Tags = await context.Tags.AsNoTracking()
+                .OrderBy(entity => entity.Id)
+                .Select(entity => new { entity.Id, entity.PublicId, entity.RowVersion })
+                .ToArrayAsync(),
+            Products = await context.Products.AsNoTracking()
+                .OrderBy(entity => entity.Id)
+                .Select(entity => new { entity.Id, entity.PublicId, entity.RowVersion })
+                .ToArrayAsync(),
+            Skus = await context.Skus.AsNoTracking()
+                .OrderBy(entity => entity.Id)
+                .Select(entity => new { entity.Id, entity.PublicId, entity.RowVersion })
+                .ToArrayAsync(),
+            ProductTags = await context.ProductTags.AsNoTracking()
+                .OrderBy(entity => entity.ProductId)
+                .ThenBy(entity => entity.TagId)
+                .Select(entity => new { entity.ProductId, entity.TagId })
+                .ToArrayAsync(),
+        };
+
+        return JsonSerializer.Serialize(snapshot);
     }
 }

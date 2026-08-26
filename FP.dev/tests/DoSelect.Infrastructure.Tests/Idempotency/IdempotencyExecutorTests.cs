@@ -245,8 +245,6 @@ public sealed class IdempotencyExecutorFixture : IAsyncLifetime
     public const string Pepper = "integration-test-pepper-at-least-thirty-two-bytes";
     public const string ConnectionStringEnvironmentVariable =
         "DOSELECT_SQLSERVER_TEST_CONNECTION";
-    private const string LocalConnectionString =
-        "Server=.\\SQL2025;Database=DoSelectIdempotencyTests;Trusted_Connection=True;TrustServerCertificate=True;";
 
     public static bool IsEnabled =>
         !string.IsNullOrWhiteSpace(GetConfiguredConnectionString()) ||
@@ -281,7 +279,9 @@ public sealed class IdempotencyExecutorFixture : IAsyncLifetime
 
     public static DoSelectDbContext CreateContext() => new(
         new DbContextOptionsBuilder<DoSelectDbContext>()
-            .UseSqlServer(GetConfiguredConnectionString() ?? LocalConnectionString)
+            .UseSqlServer(
+                global::DoSelect.Infrastructure.Tests.SqlServerTestConnection.Build(
+                    "DoSelectIdempotencyTests"))
             .Options);
 
     private static string? GetConfiguredConnectionString() =>

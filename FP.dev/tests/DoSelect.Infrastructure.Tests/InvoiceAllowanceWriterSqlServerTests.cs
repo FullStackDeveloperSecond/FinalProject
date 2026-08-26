@@ -124,6 +124,42 @@ public sealed class InvoiceAllowanceWriterSqlServerTests
     }
 
     [SqlServerFact]
+    public async Task RefundForAnotherInvoiceIsRejectedWithoutDatabaseSideEffects()
+    {
+        await RunInMigratedDatabaseAsync(async context =>
+        {
+            var seeded = await SeedAsync(context);
+            var unrelatedInvoice = await SeedUnrelatedInvoiceAsync(context);
+            var writer = CreateWriter(context);
+
+            var exception = await Assert.ThrowsAsync<DomainProblemException>(() =>
+                writer.CreateAsync(Command(
+                    seeded with
+                    {
+                        InvoicePublicId = unrelatedInvoice.PublicId,
+                        InvoiceRowVersion = unrelatedInvoice.RowVersion,
+                    },
+                    "allowance-cross-invoice")));
+
+            Assert.Equal(InvoiceErrorCodes.ResourceNotFound, exception.Code);
+
+            context.ChangeTracker.Clear();
+            Assert.Empty(await context.SimulatedInvoiceAllowances.ToArrayAsync());
+            Assert.Empty(await context.SimulatedInvoiceAllowanceItems.ToArrayAsync());
+            Assert.Empty(await context.AuditLogs.ToArrayAsync());
+            Assert.Empty(await context.IdempotencyRecords.ToArrayAsync());
+
+            var originalInvoice = await context.SimulatedInvoices.AsNoTracking()
+                .SingleAsync(invoice => invoice.PublicId == seeded.InvoicePublicId);
+            var unrelatedInvoiceAfter = await context.SimulatedInvoices.AsNoTracking()
+                .SingleAsync(invoice => invoice.PublicId == unrelatedInvoice.PublicId);
+            Assert.Equal(SimulatedInvoiceStatus.Issued, originalInvoice.Status);
+            Assert.Equal(seeded.InvoiceRowVersion, originalInvoice.RowVersion);
+            Assert.Equal(SimulatedInvoiceStatus.Issued, unrelatedInvoiceAfter.Status);
+            Assert.Equal(unrelatedInvoice.RowVersion, unrelatedInvoiceAfter.RowVersion);
+        });
+    }
+    [SqlServerFact]
     public async Task AuditFailureRollsBackAllowanceInvoiceTransitionAndIdempotency()
     {
         await RunInMigratedDatabaseAsync(async context =>
@@ -349,6 +385,72 @@ public sealed class InvoiceAllowanceWriterSqlServerTests
             admin.Id);
     }
 
+    private static async Task<SeededInvoice> SeedUnrelatedInvoiceAsync(DoSelectDbContext context)
+    {
+        var createdAtUtc = Now.UtcDateTime.AddDays(-1);
+        var profileId = await context.ShippingProviderProfiles
+            .Select(profile => profile.Id)
+            .SingleAsync();
+        var order = Order.Create(
+            Guid.NewGuid(),
+            new OrderCreation(
+                $"ORD-{Guid.NewGuid():N}"[..32],
+                null,
+                $"guest-{Guid.NewGuid():N}@example.test",
+                OrderStatus.Completed,
+                PaymentStatus.Paid,
+                FulfillmentStatus.Delivered,
+                AssemblyStatus.NotRequired,
+                100m,
+                0m,
+                10m,
+                5m,
+                115m,
+                "Unrelated Recipient",
+                "0900000000",
+                "unrelated@example.test",
+                "100",
+                "Taipei",
+                "Zhongzheng",
+                "Unrelated address",
+                null,
+                "HOME",
+                profileId,
+                null,
+                null,
+                null,
+                1,
+                1,
+                null,
+                null,
+                $"checkout-{Guid.NewGuid():N}",
+                null,
+                1000m),
+            createdAtUtc);
+        context.Orders.Add(order);
+        await context.SaveChangesAsync();
+
+        var invoice = new SimulatedInvoice(
+            Guid.NewGuid(),
+            new SimulatedInvoiceCreation(
+                order.Id,
+                $"DEMO-{Guid.NewGuid():N}"[..32],
+                SimulatedInvoiceBuyerType.Individual,
+                "unrelated@example.test",
+                null,
+                null,
+                null,
+                null,
+                109.52m,
+                5.48m,
+                115m),
+            createdAtUtc);
+        invoice.Issue(createdAtUtc.AddHours(1));
+        context.SimulatedInvoices.Add(invoice);
+        await context.SaveChangesAsync();
+
+        return new SeededInvoice(invoice.PublicId, invoice.RowVersion.ToArray());
+    }
     private static async Task RunInMigratedDatabaseAsync(
         Func<DoSelectDbContext, Task> test)
     {
@@ -374,6 +476,7 @@ public sealed class InvoiceAllowanceWriterSqlServerTests
         }
     }
 
+    private sealed record SeededInvoice(Guid PublicId, byte[] RowVersion);
     private sealed record SeededAllowance(
         Guid InvoicePublicId,
         byte[] InvoiceRowVersion,

@@ -216,9 +216,8 @@ public sealed class CatalogDetailAndFilterOptionsFixture : IAsyncLifetime
 
     public static Guid NoPublishedDefaultSkuProductPublicId { get; private set; }
 
-    private const string ConnectionString =
-        "Server=.\\SQL2025;Database=DoSelectCatalogDetailTests;Trusted_Connection=True;" +
-        "TrustServerCertificate=True;";
+    private static readonly string ConnectionString =
+        global::DoSelect.Infrastructure.Tests.SqlServerTestConnection.Build("DoSelectCatalogDetailTests");
 
     public async Task InitializeAsync()
     {

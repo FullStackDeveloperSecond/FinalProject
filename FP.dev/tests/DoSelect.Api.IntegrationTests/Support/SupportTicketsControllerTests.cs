@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using DoSelect.Api.Common;
 using DoSelect.Api.Security;
+using DoSelect.Domain.Support;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using Microsoft.AspNetCore.Authentication;
@@ -110,6 +111,107 @@ public sealed class SupportTicketsControllerTests : IClassFixture<WebApplication
         Assert.Equal(ApiErrorCodes.ResourceNotFound, document.RootElement.GetProperty("code").GetString());
     }
 
+    [Fact]
+    public async Task List_WhenTicketBelongsToActorA_DoesNotExposeItToActorB()
+    {
+        using var actorAClient = CreateClient(_memberAId);
+        using var createResponse = await actorAClient.PostAsJsonWithAntiforgeryAsync("/api/v1/support-tickets", new
+        {
+            category = "other",
+            subject = $"Actor A list isolation {Guid.NewGuid():N}",
+            message = "這個案件只能出現在建立者自己的列表中",
+        }, DoSelectClaimValues.Member);
+        var created = await ReadCreatedJsonAsync(createResponse);
+        var publicId = created.RootElement.GetProperty("publicId").GetGuid();
+
+        using var actorAListResponse = await actorAClient.GetAsync("/api/v1/support-tickets?pageSize=100");
+        using var actorAList = await ReadJsonAsync(actorAListResponse);
+        using var actorBClient = CreateClient(_memberBId);
+        using var actorBListResponse = await actorBClient.GetAsync("/api/v1/support-tickets?pageSize=100");
+        using var actorBList = await ReadJsonAsync(actorBListResponse);
+
+        Assert.Equal(HttpStatusCode.OK, actorAListResponse.StatusCode);
+        Assert.Contains(actorAList.RootElement.GetProperty("items").EnumerateArray(),
+            item => item.GetProperty("publicId").GetGuid() == publicId);
+        Assert.Equal(HttpStatusCode.OK, actorBListResponse.StatusCode);
+        Assert.DoesNotContain(actorBList.RootElement.GetProperty("items").EnumerateArray(),
+            item => item.GetProperty("publicId").GetGuid() == publicId);
+    }
+
+    [Fact]
+    public async Task AddMessage_WhenActorBUsesActorATicketId_Returns404WithoutSideEffects()
+    {
+        using var actorAClient = CreateClient(_memberAId);
+        using var createResponse = await actorAClient.PostAsJsonWithAntiforgeryAsync("/api/v1/support-tickets", new
+        {
+            category = "other",
+            subject = "Actor B 不可追加訊息",
+            message = "原始訊息必須保持不變",
+        }, DoSelectClaimValues.Member);
+        var created = await ReadCreatedJsonAsync(createResponse);
+        var publicId = created.RootElement.GetProperty("publicId").GetGuid();
+        var rowVersion = created.RootElement.GetProperty("rowVersion").GetString();
+
+        using var actorBClient = CreateClient(_memberBId);
+        using var response = await actorBClient.PostAsJsonWithAntiforgeryAsync(
+            $"/api/v1/support-tickets/{publicId}/messages",
+            new { body = "越權追加的訊息", rowVersion },
+            DoSelectClaimValues.Member);
+        using var document = await ReadProblemDetailsAsync(response);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(ApiErrorCodes.ResourceNotFound, document.RootElement.GetProperty("code").GetString());
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+        var ticket = await dbContext.SupportTickets.AsNoTracking().SingleAsync(candidate => candidate.PublicId == publicId);
+        Assert.Equal(SupportTicketStatus.Open, ticket.Status);
+        Assert.Equal(Convert.FromBase64String(rowVersion!), ticket.RowVersion);
+        Assert.Equal(1, await dbContext.SupportMessages.CountAsync(message => message.SupportTicketId == ticket.Id));
+    }
+
+    [Fact]
+    public async Task Cancel_WhenActorBUsesActorATicketId_Returns404WithoutSideEffects()
+    {
+        using var actorAClient = CreateClient(_memberAId);
+        using var createResponse = await actorAClient.PostAsJsonWithAntiforgeryAsync("/api/v1/support-tickets", new
+        {
+            category = "other",
+            subject = "Actor B 不可取消案件",
+            message = "案件狀態與歷程必須保持不變",
+        }, DoSelectClaimValues.Member);
+        var created = await ReadCreatedJsonAsync(createResponse);
+        var publicId = created.RootElement.GetProperty("publicId").GetGuid();
+        var rowVersion = created.RootElement.GetProperty("rowVersion").GetString();
+        long ticketId;
+        int statusHistoryCountBefore;
+        using (var beforeScope = _factory.Services.CreateScope())
+        {
+            var beforeContext = beforeScope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+            ticketId = await beforeContext.SupportTickets
+                .Where(candidate => candidate.PublicId == publicId)
+                .Select(candidate => candidate.Id)
+                .SingleAsync();
+            statusHistoryCountBefore = await beforeContext.SupportStatusHistories
+                .CountAsync(history => history.SupportTicketId == ticketId);
+        }
+
+        using var actorBClient = CreateClient(_memberBId);
+        using var response = await actorBClient.PostAsJsonWithAntiforgeryAsync(
+            $"/api/v1/support-tickets/{publicId}/actions/cancel",
+            new { reasonCode = "unauthorized-attempt", rowVersion },
+            DoSelectClaimValues.Member);
+        using var document = await ReadProblemDetailsAsync(response);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(ApiErrorCodes.ResourceNotFound, document.RootElement.GetProperty("code").GetString());
+        using var verifyScope = _factory.Services.CreateScope();
+        var verifyContext = verifyScope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+        var ticket = await verifyContext.SupportTickets.AsNoTracking().SingleAsync(candidate => candidate.Id == ticketId);
+        Assert.Equal(SupportTicketStatus.Open, ticket.Status);
+        Assert.Equal(Convert.FromBase64String(rowVersion!), ticket.RowVersion);
+        Assert.Equal(statusHistoryCountBefore,
+            await verifyContext.SupportStatusHistories.CountAsync(history => history.SupportTicketId == ticketId));
+    }
     [Fact]
     public async Task Cancel_WhenOpenWithNoReply_TransitionsToCancelled()
     {
