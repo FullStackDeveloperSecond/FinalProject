@@ -18,4 +18,10 @@ public static class AdminAuthErrorCodes
 
     /// <summary>⚠ 新增：2FA 挑戰嘗試次數超過門檻，challenge 已被強制失效。</summary>
     public const string ChallengeRateLimited = "admin_challenge_rate_limited";
+
+    /// <summary>
+    /// ⚠ 新增（alex review 裁定 A1）：Rebind 簽發前必須先驗證現有 TOTP 或消耗一組 Recovery
+    /// Code；請求沒有恰好帶其中一種憑證時使用。
+    /// </summary>
+    public const string RebindStepUpRequired = "admin_rebind_step_up_required";
 }

@@ -64,20 +64,48 @@ public sealed class AdminAuthController(
         return Ok(new AuthSessionDto(false, null, null, requiresTwoFactor ? true : null));
     }
 
+    /// <summary>
+    /// ⚠ alex review：狀態碼依正式契約（API錯誤碼目錄.md）調整——invalid_credentials 回 401、
+    /// 密碼正確後才可揭露的 account_suspended 回 403，取代原本一律 400。這裡開交易是為了
+    /// RegisterFailedAttemptAsync 的鎖定寫入與觸發鎖定當下那筆中央 Audit 能同一交易邊界，
+    /// Audit 失敗時鎖定也一併 rollback（alex review）。
+    /// </summary>
     [HttpPost("login")]
     [AllowAnonymous]
     [EnableRateLimiting(RateLimitPolicies.AuthLogin)]
     [ProducesResponseType(typeof(AdminLoginResponseDto), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> Login(
         [FromBody] AdminLoginRequest request, CancellationToken cancellationToken)
     {
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+
         var result = await loginUseCase.ExecuteAsync(request.Email, request.Password, cancellationToken);
         if (!result.IsSuccess)
         {
-            return BadRequest(ApiProblemDetailsFactory.Create(
-                HttpContext, StatusCodes.Status400BadRequest, result.ErrorCode!));
+            if (result.LockoutAuditUser is not null)
+            {
+                RecordAdminAudit(
+                    AuditActions.AdminAccountLockout,
+                    result.LockoutAuditUser,
+                    AuditResult.Rejected,
+                    AdminAuthErrorCodes.AccountLocked,
+                    [AuditFieldChange.Changed("lockoutEnd")]);
+            }
+
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+
+            var statusCode = result.ErrorCode == AdminAuthErrorCodes.AccountSuspended
+                ? StatusCodes.Status403Forbidden
+                : StatusCodes.Status401Unauthorized;
+            return StatusCode(
+                statusCode,
+                ApiProblemDetailsFactory.Create(HttpContext, statusCode, result.ErrorCode!));
         }
+
+        await transaction.CommitAsync(cancellationToken);
 
         var challengeKind = result.RequiresEnrollment ? "enroll" : "totp";
         var challengePublicId = Guid.CreateVersion7();
@@ -262,14 +290,68 @@ public sealed class AdminAuthController(
     /// DEC-P297：光有既有 Admin Cookie 不夠——另外簽發一張跟登入流程同一套機制的短效
     /// （10 分鐘）、單次、綁定使用者的 Challenge，Confirm 必須附上同一組 ChallengePublicId
     /// 才算數（alex review P1#3：原本只驗 Admin Cookie，pending secret 沒有效期）。
+    /// 最新一輪 review（裁定 A1）再指出：只驗 Admin Cookie 仍不足以簽發這張 rebind challenge——
+    /// Session Cookie 被偷就能整套重綁走人。這裡改成必須先完成 step-up：驗證現有 TOTP，或消耗
+    /// 一組 Recovery Code；兩者都沒有時不允許自助重綁（改走 SuperAdmin／人工安全重設流程）。
+    /// Step-up 失敗一律 rollback，不會呼叫 BeginRebindAsync——不會建立或替換待確認秘鑰。
     /// </summary>
     [HttpPost("totp/rebind/begin")]
     [Authorize(Policy = DoSelectPolicies.Admin)]
+    [EnableRateLimiting(RateLimitPolicies.AuthLogin)]
     [ProducesResponseType(typeof(TotpRebindBeginResponseDto), StatusCodes.Status200OK)]
-    public async Task<IActionResult> BeginRebind(CancellationToken cancellationToken)
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> BeginRebind(
+        [FromBody] TotpRebindBeginRequest request, CancellationToken cancellationToken)
     {
         var userId = RequireCurrentAdminUserId();
+
+        var hasTotpCode = !string.IsNullOrWhiteSpace(request.TotpCode);
+        var hasRecoveryCode = !string.IsNullOrWhiteSpace(request.RecoveryCode);
+        if (hasTotpCode == hasRecoveryCode)
+        {
+            return BadRequest(ApiProblemDetailsFactory.Create(
+                HttpContext, StatusCodes.Status400BadRequest, AdminAuthErrorCodes.RebindStepUpRequired));
+        }
+
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+        if (hasRecoveryCode)
+        {
+            if (!await authGateway.RedeemRecoveryCodeAsync(userId, request.RecoveryCode!.Trim(), cancellationToken))
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return BadRequest(ApiProblemDetailsFactory.Create(
+                    HttpContext, StatusCodes.Status400BadRequest, AdminAuthErrorCodes.RecoveryCodeInvalid));
+            }
+
+            var user = await authGateway.FindAdminByIdAsync(userId, cancellationToken);
+            if (user is null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return BadRequest(ApiProblemDetailsFactory.Create(
+                    HttpContext, StatusCodes.Status400BadRequest, AdminAuthErrorCodes.RecoveryCodeInvalid));
+            }
+
+            // 沿用既有 AdminRecoveryCodeRedeem action——語意上跟登入流程兌換 Recovery Code是
+            // 同一件事：單次有效的救援碼被消耗掉一組，必須同一交易寫入中央 Audit。
+            RecordAdminAudit(
+                AuditActions.AdminRecoveryCodeRedeem,
+                user,
+                AuditResult.Success,
+                errorCode: null,
+                [AuditFieldChange.Changed("recoveryCodesRemaining")]);
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        else if (!await authGateway.VerifyTotpCodeAsync(userId, request.TotpCode!.Trim(), cancellationToken))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return BadRequest(ApiProblemDetailsFactory.Create(
+                HttpContext, StatusCodes.Status400BadRequest, AdminAuthErrorCodes.TwoFactorInvalid));
+        }
+
+        // Step-up 通過後才建立待確認秘鑰——驗證失敗的分支都已經在上面 return，不會執行到這裡。
         var begin = await twoFactorUseCase.BeginRebindAsync(userId, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
 
         var challengePublicId = Guid.CreateVersion7();
         await SignInChallengeAsync(userId, "rebind", challengePublicId);

@@ -13,13 +13,15 @@ public sealed class AdminLoginResult
         bool requiresEnrollment,
         bool requiresTwoFactor,
         string? userId,
-        Guid? publicId)
+        Guid? publicId,
+        AdminAuthUserSnapshot? lockoutAuditUser)
     {
         ErrorCode = errorCode;
         RequiresEnrollment = requiresEnrollment;
         RequiresTwoFactor = requiresTwoFactor;
         UserId = userId;
         PublicId = publicId;
+        LockoutAuditUser = lockoutAuditUser;
     }
 
     public bool IsSuccess => ErrorCode is null;
@@ -34,13 +36,24 @@ public sealed class AdminLoginResult
 
     public Guid? PublicId { get; }
 
-    public static AdminLoginResult Failure(string errorCode) => new(errorCode, false, false, null, null);
+    /// <summary>
+    /// ⚠ alex review：帳號鎖定的公開回應永遠是 <see cref="AdminAuthErrorCodes.InvalidCredentials"/>
+    /// （避免帳號枚舉），真正的鎖定狀態只在這次呼叫「剛好觸發」鎖定時透過這個欄位往上帶，讓
+    /// Controller 能寫一筆中央 Audit（見 AdminAuthController.Login）。已經處於鎖定狀態的後續嘗試
+    /// 不會再帶這個欄位——那次鎖定在第一次觸發時就已經有稽核紀錄了。
+    /// </summary>
+    public AdminAuthUserSnapshot? LockoutAuditUser { get; }
+
+    public static AdminLoginResult Failure(string errorCode) => new(errorCode, false, false, null, null, null);
+
+    public static AdminLoginResult FailureWithLockoutAudit(AdminAuthUserSnapshot user) =>
+        new(AdminAuthErrorCodes.InvalidCredentials, false, false, user.UserId, user.PublicId, user);
 
     public static AdminLoginResult NeedsEnrollment(string userId, Guid publicId) =>
-        new(null, true, false, userId, publicId);
+        new(null, true, false, userId, publicId, null);
 
     public static AdminLoginResult NeedsTwoFactor(string userId, Guid publicId) =>
-        new(null, false, true, userId, publicId);
+        new(null, false, true, userId, publicId, null);
 }
 
 /// <summary>
@@ -89,11 +102,16 @@ public sealed class AdminLoginUseCase
             return AdminLoginResult.Failure(AdminAuthErrorCodes.InvalidCredentials);
         }
 
+        // ⚠ alex review：已鎖定帳號原本回 account_locked，跟「密碼錯誤」的 invalid_credentials
+        // 可被攻擊者區分——對任意 Email 連續送錯密碼，存在的管理員帳號最後會變成
+        // account_locked，不存在帳號仍是 invalid_credentials，因此仍能枚舉帳號。真正的鎖定
+        // 狀態只留在中央 Audit（見 RegisterFailedAttemptAsync 觸發鎖定當下那一次），不透過這裡
+        // 的公開回應揭露。
         var lockoutEnd = await _gateway.GetLockoutEndAsync(user.UserId, cancellationToken);
         if (lockoutEnd is { } end && end > _timeProvider.GetUtcNow())
         {
             await _gateway.PerformDummyPasswordVerificationAsync(password, cancellationToken);
-            return AdminLoginResult.Failure(AdminAuthErrorCodes.AccountLocked);
+            return AdminLoginResult.Failure(AdminAuthErrorCodes.InvalidCredentials);
         }
 
         if (!await _gateway.CheckPasswordAsync(user.UserId, password, cancellationToken))
@@ -101,8 +119,10 @@ public sealed class AdminLoginUseCase
             var newLockoutEnd = await _gateway.RegisterFailedAttemptAsync(
                 user.UserId, AdminLockoutDuration, cancellationToken);
 
+            // 同上：公開回應一律 invalid_credentials。這次呼叫剛好把帳號鎖起來時，把使用者快照
+            // 往上帶給 Controller，讓它在同一個交易內補一筆中央 Audit（alex review）。
             return newLockoutEnd is not null
-                ? AdminLoginResult.Failure(AdminAuthErrorCodes.AccountLocked)
+                ? AdminLoginResult.FailureWithLockoutAudit(user)
                 : AdminLoginResult.Failure(AdminAuthErrorCodes.InvalidCredentials);
         }
 

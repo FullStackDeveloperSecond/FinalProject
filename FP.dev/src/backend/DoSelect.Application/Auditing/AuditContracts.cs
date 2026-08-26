@@ -22,6 +22,9 @@ public static class AuditActions
     public const string AdminRecoveryCodeRedeem = "admin.recovery_code.redeem";
     public const string AdminChallengeRateLimited = "admin.challenge.rate_limited";
     public const string AdminSessionsRevoked = "admin.sessions.revoked";
+
+    // ⚠ alex review：30 分鐘 Lockout 必須跟中央 Audit 同一交易——見 AdminAuthController.Login。
+    public const string AdminAccountLockout = "admin.account.lockout";
 }
 
 public static class AuditResourceTypes
@@ -421,6 +424,10 @@ internal static class AuditWritePolicy
                 AuditActions.AdminSessionsRevoked,
                 AuditResourceTypes.AdminAccount,
                 "securityStamp"),
+            [AuditActions.AdminAccountLockout] = Definition(
+                AuditActions.AdminAccountLockout,
+                AuditResourceTypes.AdminAccount,
+                "lockoutEnd"),
         };
 
     public static AuditActionDefinition RequireDefinition(string action)

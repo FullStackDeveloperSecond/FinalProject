@@ -2229,8 +2229,19 @@ export interface paths {
                         "text/json": components["schemas"]["AdminLoginResponseDto"];
                     };
                 };
-                /** @description Bad Request */
-                400: {
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -2542,7 +2553,13 @@ export interface paths {
                 path?: never;
                 cookie?: never;
             };
-            requestBody?: never;
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["TotpRebindBeginRequest"];
+                    "text/json": components["schemas"]["TotpRebindBeginRequest"];
+                    "application/*+json": components["schemas"]["TotpRebindBeginRequest"];
+                };
+            };
             responses: {
                 /** @description OK */
                 200: {
@@ -2553,6 +2570,17 @@ export interface paths {
                         "text/plain": components["schemas"]["TotpRebindBeginResponseDto"];
                         "application/json": components["schemas"]["TotpRebindBeginResponseDto"];
                         "text/json": components["schemas"]["TotpRebindBeginResponseDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
                     };
                 };
             };
@@ -3572,6 +3600,10 @@ export interface components {
             user: components["schemas"]["CurrentUserDto"];
             /** Format: date-time */
             expiresAtUtc: string;
+        };
+        TotpRebindBeginRequest: {
+            totpCode: null | string;
+            recoveryCode: null | string;
         };
         TotpRebindBeginResponseDto: {
             secretKey: string;

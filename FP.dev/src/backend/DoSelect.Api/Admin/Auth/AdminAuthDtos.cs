@@ -62,6 +62,15 @@ public sealed record TotpRebindBeginResponseDto(
     string SecretKey, string OtpAuthUri, string QrCodeDataUri, Guid ChallengePublicId);
 
 /// <summary>
+/// ⚠ 新增端點請求（alex review 裁定 A1）：Rebind 簽發前的 step-up 身分驗證。只有 Admin Cookie
+/// 不夠——必須另外提供目前仍有效的 TOTP 驗證碼，或消耗一組 Recovery Code，兩者恰好擇一。都沒帶
+/// 或兩者都帶都視為無效請求（<see cref="DoSelect.Application.Security.AdminAuthErrorCodes.RebindStepUpRequired"/>）。
+/// </summary>
+public sealed record TotpRebindBeginRequest(
+    [RegularExpression(@"^\d{6}$")] string? TotpCode,
+    [StringLength(64, MinimumLength = 8)] string? RecoveryCode);
+
+/// <summary>
 /// ⚠ 新增端點請求：已登入管理員重新綁定 TOTP 的確認步驟（換手機情境）。
 /// 對應 UC-ADMIN-AUTH-01「TOTP 重新綁定，既有 Session 失效」的觸發入口。ChallengePublicId
 /// 必須符合 BeginRebind 簽發的短效 Challenge（DEC-P297，alex review P1#3）。

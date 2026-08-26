@@ -64,6 +64,11 @@ export interface TotpRebindBeginResponseDto {
   challengePublicId: string
 }
 
+export interface TotpRebindBeginRequest {
+  totpCode: string | null
+  recoveryCode: string | null
+}
+
 export interface TotpRebindConfirmRequest {
   challengePublicId: string
   code: string
@@ -93,7 +98,8 @@ export interface AdminAuthPaths {
       requestBody: { content: { 'application/json': AdminLoginRequest } }
       responses: {
         200: { content: { 'application/json': AdminLoginResponseDto } }
-        400: { content: { 'application/problem+json': ProblemDetails } }
+        401: { content: { 'application/problem+json': ProblemDetails } }
+        403: { content: { 'application/problem+json': ProblemDetails } }
       }
     }
   }
@@ -145,8 +151,10 @@ export interface AdminAuthPaths {
   }
   '/api/v1/admin/auth/totp/rebind/begin': {
     post: {
+      requestBody: { content: { 'application/json': TotpRebindBeginRequest } }
       responses: {
         200: { content: { 'application/json': TotpRebindBeginResponseDto } }
+        400: { content: { 'application/problem+json': ProblemDetails } }
         401: { content: { 'application/problem+json': ProblemDetails } }
       }
     }

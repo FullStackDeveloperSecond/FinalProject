@@ -2,8 +2,10 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using DoSelect.Api.Security;
+using DoSelect.Application.Auditing;
 using DoSelect.Application.Common;
 using DoSelect.Application.Security;
+using DoSelect.Domain.Auditing;
 using DoSelect.Domain.Members;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
@@ -204,7 +206,9 @@ public sealed class AdminAuthControllerTests : IClassFixture<WebApplicationFacto
         Assert.True(beforeRebindBody.GetProperty("isAuthenticated").GetBoolean());
 
         await PrimeAdminAntiforgeryAsync(loginClient);
-        using var beginResponse = await loginClient.PostAsync("/api/v1/admin/auth/totp/rebind/begin", content: null);
+        var stepUpCode = TotpTestHelper.GenerateCode(secret);
+        using var beginResponse = await loginClient.PostAsJsonAsync(
+            "/api/v1/admin/auth/totp/rebind/begin", new { totpCode = stepUpCode, recoveryCode = (string?)null });
         Assert.Equal(HttpStatusCode.OK, beginResponse.StatusCode);
         var beginBody = await beginResponse.Content.ReadFromJsonAsync<JsonElement>();
         var newSecret = beginBody.GetProperty("secretKey").GetString()!;
@@ -223,6 +227,153 @@ public sealed class AdminAuthControllerTests : IClassFixture<WebApplicationFacto
     }
 
     [Fact]
+    public async Task Login_WhenTheFifthWrongPasswordTriggersLockout_ReturnsInvalidCredentialsPubliclyButWritesACentralAuditEntry()
+    {
+        // ⚠ alex review：帳號枚舉 + 30 分鐘 Lockout 必須跟中央 Audit 同一交易——公開回應永遠是
+        // invalid_credentials（不能回 account_locked），但觸發鎖定當下必須留下一筆可稽核紀錄。
+        var (client, email, _, userId, factory) = await CreateEnrolledAdminWithUserIdAsync();
+
+        for (var attempt = 0; attempt < 4; attempt++)
+        {
+            using var wrongResponse = await LoginAsync(client, email, "wrong-password");
+            Assert.Equal(HttpStatusCode.Unauthorized, wrongResponse.StatusCode);
+        }
+
+        using var fifthResponse = await LoginAsync(client, email, "wrong-password");
+        using var fifthDocument = await ReadProblemDetailsAsync(fifthResponse);
+        Assert.Equal(HttpStatusCode.Unauthorized, fifthResponse.StatusCode);
+        Assert.Equal(
+            AdminAuthErrorCodes.InvalidCredentials, fifthDocument.RootElement.GetProperty("code").GetString());
+
+        // 就算帳號現在已經鎖定，第六次嘗試（正確密碼也一樣）公開回應仍然是同一種
+        // invalid_credentials，不會變成 account_locked。
+        using var sixthResponse = await LoginAsync(client, email, Password);
+        using var sixthDocument = await ReadProblemDetailsAsync(sixthResponse);
+        Assert.Equal(HttpStatusCode.Unauthorized, sixthResponse.StatusCode);
+        Assert.Equal(
+            AdminAuthErrorCodes.InvalidCredentials, sixthDocument.RootElement.GetProperty("code").GetString());
+
+        using var scope = factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+        var user = await scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>().FindByIdAsync(userId);
+        Assert.NotNull(await scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>()
+            .GetLockoutEndDateAsync(user!));
+
+        // 剛好觸發鎖定的那一次（第五次）寫了一筆 Audit；已經鎖定後的第六次不會再重複寫入。
+        var lockoutAudits = await dbContext.AuditLogs
+            .Where(a => a.Action == AuditActions.AdminAccountLockout && a.ResourcePublicId == user!.PublicId)
+            .ToListAsync();
+        Assert.Single(lockoutAudits);
+        Assert.Equal(AuditResult.Rejected, lockoutAudits[0].Result);
+    }
+
+    [Fact]
+    public async Task Login_WhenTheAccountIsSuspendedAndThePasswordIsCorrect_Returns403AccountSuspended()
+    {
+        var (client, email, _, userId, factory) = await CreateEnrolledAdminWithUserIdAsync();
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+            var profile = await dbContext.AdminProfiles.SingleAsync(p => p.UserId == userId);
+            profile.SetActive(false, DateTime.UtcNow);
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var response = await LoginAsync(client, email, Password);
+        using var document = await ReadProblemDetailsAsync(response);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(AdminAuthErrorCodes.AccountSuspended, document.RootElement.GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task BeginRebind_WithoutStepUpCredentials_ReturnsStepUpRequiredAndDoesNotIssueAChallenge()
+    {
+        var (client, email, secret) = await CreateEnrolledAdminAsync();
+        using var fullLoginResponse = await FullyLogInAsync(client, email, secret);
+        Assert.Equal(HttpStatusCode.OK, fullLoginResponse.StatusCode);
+
+        await PrimeAdminAntiforgeryAsync(client);
+        using var response = await client.PostAsJsonAsync(
+            "/api/v1/admin/auth/totp/rebind/begin", new { totpCode = (string?)null, recoveryCode = (string?)null });
+        using var document = await ReadProblemDetailsAsync(response);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(
+            AdminAuthErrorCodes.RebindStepUpRequired, document.RootElement.GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task BeginRebind_WithAnInvalidTotpCode_ReturnsTwoFactorInvalidAndTheOriginalSecretStillWorks()
+    {
+        var (client, email, secret) = await CreateEnrolledAdminAsync();
+        using var fullLoginResponse = await FullyLogInAsync(client, email, secret);
+        Assert.Equal(HttpStatusCode.OK, fullLoginResponse.StatusCode);
+
+        await PrimeAdminAntiforgeryAsync(client);
+        using var response = await client.PostAsJsonAsync(
+            "/api/v1/admin/auth/totp/rebind/begin", new { totpCode = "000000", recoveryCode = (string?)null });
+        using var document = await ReadProblemDetailsAsync(response);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(AdminAuthErrorCodes.TwoFactorInvalid, document.RootElement.GetProperty("code").GetString());
+
+        // 沒有 pending secret 也沒有簽發 rebind challenge——原本的裝置重新登入仍然有效。
+        client.DefaultRequestHeaders.Remove("X-XSRF-TOKEN");
+        await PrimeAdminAntiforgeryAsync(client);
+        using var reloginResponse = await FullyLogInAsync(client, email, secret);
+        Assert.Equal(HttpStatusCode.OK, reloginResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task BeginRebind_WithTheCurrentTotpCode_SucceedsAndIssuesARebindChallenge()
+    {
+        var (client, email, secret) = await CreateEnrolledAdminAsync();
+        using var fullLoginResponse = await FullyLogInAsync(client, email, secret);
+        Assert.Equal(HttpStatusCode.OK, fullLoginResponse.StatusCode);
+
+        await PrimeAdminAntiforgeryAsync(client);
+        var totpCode = TotpTestHelper.GenerateCode(secret);
+        using var response = await client.PostAsJsonAsync(
+            "/api/v1/admin/auth/totp/rebind/begin", new { totpCode, recoveryCode = (string?)null });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.NotEqual(Guid.Empty, body.GetProperty("challengePublicId").GetGuid());
+    }
+
+    [Fact]
+    public async Task BeginRebind_WithARecoveryCode_SucceedsAndConsumesTheCodeSoItCannotBeReusedAfterward()
+    {
+        var (client, email, secret, userId, factory) = await CreateEnrolledAdminWithUserIdAsync();
+        string recoveryCode;
+        using (var scope = factory.Services.CreateScope())
+        {
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var user = await userManager.FindByIdAsync(userId);
+            var codes = await userManager.GenerateNewTwoFactorRecoveryCodesAsync(user!, 10);
+            recoveryCode = codes!.First();
+        }
+
+        using var fullLoginResponse = await FullyLogInAsync(client, email, secret);
+        Assert.Equal(HttpStatusCode.OK, fullLoginResponse.StatusCode);
+
+        await PrimeAdminAntiforgeryAsync(client);
+        using var response = await client.PostAsJsonAsync(
+            "/api/v1/admin/auth/totp/rebind/begin", new { totpCode = (string?)null, recoveryCode });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        // 同一組 Recovery Code 是單次有效——用同一組碼再嘗試一次 step-up 必須失敗。
+        using var reuseResponse = await client.PostAsJsonAsync(
+            "/api/v1/admin/auth/totp/rebind/begin", new { totpCode = (string?)null, recoveryCode });
+        using var reuseDocument = await ReadProblemDetailsAsync(reuseResponse);
+        Assert.Equal(HttpStatusCode.BadRequest, reuseResponse.StatusCode);
+        Assert.Equal(
+            AdminAuthErrorCodes.RecoveryCodeInvalid, reuseDocument.RootElement.GetProperty("code").GetString());
+    }
+
+    [Fact]
     public async Task Rebind_ConfirmWithTheWrongCode_RollsBackAndTheOriginalSecretStillWorks()
     {
         // 這支測試就是能抓到 P2#7 那個 bug 的測試：修正前，BeginRebindAsync 會立即無條件
@@ -233,7 +384,9 @@ public sealed class AdminAuthControllerTests : IClassFixture<WebApplicationFacto
         Assert.Equal(HttpStatusCode.OK, fullLoginResponse.StatusCode);
 
         await PrimeAdminAntiforgeryAsync(client);
-        using var beginResponse = await client.PostAsync("/api/v1/admin/auth/totp/rebind/begin", content: null);
+        var stepUpCode = TotpTestHelper.GenerateCode(secret);
+        using var beginResponse = await client.PostAsJsonAsync(
+            "/api/v1/admin/auth/totp/rebind/begin", new { totpCode = stepUpCode, recoveryCode = (string?)null });
         Assert.Equal(HttpStatusCode.OK, beginResponse.StatusCode);
         var beginBody = await beginResponse.Content.ReadFromJsonAsync<JsonElement>();
         var rebindChallengePublicId = beginBody.GetProperty("challengePublicId").GetGuid();

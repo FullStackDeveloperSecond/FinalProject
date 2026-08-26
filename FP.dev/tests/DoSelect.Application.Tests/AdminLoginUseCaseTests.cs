@@ -90,8 +90,11 @@ public sealed class AdminLoginUseCaseTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_WhenTheFifthWrongPasswordIsSubmitted_LocksTheAccountFor30Minutes()
+    public async Task ExecuteAsync_WhenTheFifthWrongPasswordIsSubmitted_LocksTheAccountButReturnsInvalidCredentialsPublicly()
     {
+        // ⚠ alex review：帳號枚舉——鎖定觸發當下的公開回應必須跟一般密碼錯誤一樣是
+        // invalid_credentials,不能回 account_locked,否則攻擊者能靠回應差異探測帳號是否存在。
+        // 真正的鎖定狀態改由 LockoutAuditUser 往上帶給 Controller 寫中央 Audit（見下方斷言）。
         var now = DateTimeOffset.UtcNow;
         var timeProvider = new FixedTimeProvider(now);
         var gateway = new FakeAdminAuthGateway
@@ -109,11 +112,13 @@ public sealed class AdminLoginUseCaseTests
         var result = await useCase.ExecuteAsync("admin@example.com", "wrong-password");
 
         Assert.False(result.IsSuccess);
-        Assert.Equal(AdminAuthErrorCodes.AccountLocked, result.ErrorCode);
+        Assert.Equal(AdminAuthErrorCodes.InvalidCredentials, result.ErrorCode);
+        Assert.NotNull(result.LockoutAuditUser);
+        Assert.Equal(ActiveAdminWithTwoFactor.PublicId, result.LockoutAuditUser!.PublicId);
     }
 
     [Fact]
-    public async Task ExecuteAsync_WhenAnExistingLockoutIsStillActive_ReturnsAccountLockedWithoutCheckingThePasswordButPerformsDummyVerification()
+    public async Task ExecuteAsync_WhenAnExistingLockoutIsStillActive_ReturnsInvalidCredentialsWithoutCheckingThePasswordOrWritingANewAudit()
     {
         var now = DateTimeOffset.UtcNow;
         var gateway = new FakeAdminAuthGateway
@@ -127,8 +132,11 @@ public sealed class AdminLoginUseCaseTests
         var result = await useCase.ExecuteAsync("admin@example.com", "correct-password");
 
         Assert.False(result.IsSuccess);
-        Assert.Equal(AdminAuthErrorCodes.AccountLocked, result.ErrorCode);
+        Assert.Equal(AdminAuthErrorCodes.InvalidCredentials, result.ErrorCode);
         Assert.Equal(1, gateway.DummyPasswordVerificationCallCount);
+        // 這次呼叫沒有「剛好觸發」鎖定——帳號在呼叫前就已經鎖著了,那次鎖定在第一次觸發時就已經
+        // 寫過 Audit,這裡不應該再帶一次要求 Controller 重複寫入。
+        Assert.Null(result.LockoutAuditUser);
     }
 
     [Fact]

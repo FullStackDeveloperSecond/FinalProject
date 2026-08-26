@@ -46,6 +46,8 @@ function messageForCode(code: string | undefined): string {
       return '驗證流程已過期，請重新登入。'
     case 'admin_challenge_rate_limited':
       return '嘗試次數過多，請重新登入。'
+    case 'admin_rebind_step_up_required':
+      return '請輸入目前的驗證碼或一組備援碼以確認身分。'
     default:
       return '發生錯誤，請稍後再試。'
   }
@@ -153,7 +155,9 @@ export const useAdminAuthStore = defineStore('adminAuth', {
         })
         if (error) {
           this.errorMessage = messageForCode(error.code)
-          if (error.code === 'admin_challenge_rate_limited') {
+          // 跟 verifyTotp／confirmRebind 一致：admin_challenge_invalid（過期／SecurityStamp
+          // 不符）也代表這個 challenge 已經死了，不能只處理 rate_limited（alex review P2）。
+          if (error.code === 'admin_challenge_rate_limited' || error.code === 'admin_challenge_invalid') {
             this.challenge = null
           }
           return false
@@ -209,7 +213,9 @@ export const useAdminAuthStore = defineStore('adminAuth', {
         })
         if (error) {
           this.errorMessage = messageForCode(error.code)
-          if (error.code === 'admin_challenge_rate_limited') {
+          // 跟 verifyTotp／confirmRebind 一致：admin_challenge_invalid 也代表這個 challenge
+          // 已經死了，不能只處理 rate_limited（alex review P2）。
+          if (error.code === 'admin_challenge_rate_limited' || error.code === 'admin_challenge_invalid') {
             this.challenge = null
           }
           return null
@@ -234,11 +240,17 @@ export const useAdminAuthStore = defineStore('adminAuth', {
     /// 不同，這裡的呼叫者已經是完整登入狀態；但 DEC-P297 仍要求一組短效、單次、綁定使用者
     /// 的 Challenge，跟後端 AdminChallenge Cookie 配對，記在 rebindChallengePublicId
     /// （alex review P1#3）。
-    async beginRebind(): Promise<TotpRebindBeginResponseDto | null> {
+    // ⚠ alex review 裁定 A1：只有既有 Admin Cookie 不足以簽發 rebind challenge——必須先證明
+    // 目前仍握有一組有效的 TOTP 驗證碼或 Recovery Code，兩者恰好擇一。
+    async beginRebind(stepUp: { totpCode: string } | { recoveryCode: string }): Promise<TotpRebindBeginResponseDto | null> {
       this.loading = true
       this.errorMessage = null
       try {
-        const { data, error } = await client().POST('/api/v1/admin/auth/totp/rebind/begin')
+        const { data, error } = await client().POST('/api/v1/admin/auth/totp/rebind/begin', {
+          body: 'totpCode' in stepUp
+            ? { totpCode: stepUp.totpCode, recoveryCode: null }
+            : { totpCode: null, recoveryCode: stepUp.recoveryCode },
+        })
         if (error) {
           this.errorMessage = messageForCode(error.code)
           return null

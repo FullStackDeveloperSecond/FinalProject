@@ -120,14 +120,13 @@ public sealed class IdentityAdminAuthGateway : IAdminAuthGateway
         // 來）。改成呼叫後用 IsLockedOutAsync 直接問 Identity「現在是不是被鎖住了」，不管是這次
         // 呼叫剛觸發的、還是之前就已經鎖著的，一律覆蓋成 AccountType 對應的正確時長。
         //
-        // 兩次寫入（Identity 自己的 15 分鐘、這裡覆蓋的正確時長）包在同一個交易內，任一失敗就整個
-        // rollback，避免中途只留下較弱的 15 分鐘鎖定成為既成事實（alex review P1#2）。
-        await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
-
+        // ⚠ alex review：這裡不再自己開/關交易——兩次寫入（Identity 自己的 15 分鐘、這裡覆蓋的
+        // 正確時長）與呼叫端（AdminAuthController.Login）之後補寫的中央 Audit 必須同一個交易，
+        // Audit 失敗要讓鎖定也一併 rollback。交易邊界改由呼叫端持有，跟 recovery-codes/use、
+        // totp/enroll/confirm、totp/rebind/confirm 一致；本方法只負責寫入，不 Commit／Rollback。
         ThrowIfFailed(await _userManager.AccessFailedAsync(user), nameof(RegisterFailedAttemptAsync), userId);
         if (!await _userManager.IsLockedOutAsync(user))
         {
-            await transaction.CommitAsync(cancellationToken);
             return null;
         }
 
@@ -136,7 +135,6 @@ public sealed class IdentityAdminAuthGateway : IAdminAuthGateway
             await _userManager.SetLockoutEndDateAsync(user, lockoutEnd),
             nameof(RegisterFailedAttemptAsync),
             userId);
-        await transaction.CommitAsync(cancellationToken);
         return lockoutEnd;
     }
 
