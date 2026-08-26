@@ -20,6 +20,19 @@ public sealed record GuestOrderLookup(
 public sealed record GuestOrderAccessTokenContext(GuestOrderAccessToken Token, Guid OrderPublicId);
 
 /// <summary>
+/// 三 Scope 限流的視窗參數（DEC-P266：15 分鐘視窗，預設 IP 10 次、Email 5 次、
+/// OrderLookup 5 次，三者同時通過才建立／寄送）。
+/// </summary>
+public sealed record GuestOrderAccessRateLimitWindow(
+    byte[] IpHash,
+    int IpPermitLimit,
+    byte[] EmailHash,
+    int EmailPermitLimit,
+    byte[] OrderLookupHash,
+    int OrderLookupPermitLimit,
+    DateTime WindowStartUtc);
+
+/// <summary>
 /// 訪客查單 Challenge／Token 的讀寫埠。刻意直接操作 Domain Entity（而非像
 /// <c>IAdminAuthGateway</c> 那樣回傳 Snapshot）——這兩個 Entity 是純 Domain 物件，不像
 /// Admin／Member 綁定 ASP.NET Identity 的 UserManager，沒有跨型別轉換的必要，維持 EF
@@ -39,8 +52,29 @@ public interface IGuestOrderAccessGateway
     Task<GuestOrderLookup?> FindGuestOrderByIdAsync(
         long orderId, CancellationToken cancellationToken = default);
 
-    Task AddRequestAsync(
-        GuestOrderAccessRequest request, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// 建立新 Challenge Row（首次建立，或 Resend 產生的延續 Row）前，在同一個 Serializable
+    /// 交易內原子核對三 Scope 15 分鐘視窗既有筆數——沿用 <c>GuestOrderAccessRequests</c>
+    /// 既有的三組 (Hash, CreatedAtUtc) 索引（DEC-P266），不新增限流表／Migration。任一
+    /// Scope 達到上限就整個 rollback、不寫入，回傳 false；三者都通過才新增
+    /// <paramref name="newRequest"/>（若 <paramref name="requestToRevoke"/> 不為 null，
+    /// 同一交易內一併撤銷——Resend 情境，讓舊 Row／舊碼立即失效）並 commit，回傳 true。
+    /// 有效與 Decoy 都走這個方法，維持恆定 202／429 的回應形狀。實作必須在 SQL Server
+    /// 死結／並行衝突時自行重試整段交易，不能把例外原樣往外傳。
+    /// </summary>
+    Task<bool> TryCreateRequestWithinRateLimitAsync(
+        GuestOrderAccessRateLimitWindow window,
+        GuestOrderAccessRequest newRequest,
+        GuestOrderAccessRequest? requestToRevoke,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Resend 對查無此 PublicId／已完全失效的呼叫：沒有任何儲存的 Scope Hash 可用來核對
+    /// Email／OrderLookup，也沒有 Row 可寫入，只能核對目前呼叫者 IP 這一個 Scope。用同一組
+    /// 既有索引唯讀計數，不需要交易——結果一定要照實回應，不能只計不擋（見 review #6）。
+    /// </summary>
+    Task<bool> IsIpWithinRateLimitAsync(
+        byte[] ipHash, int permitLimit, DateTime windowStartUtc, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 找一筆「仍然有效」的 Request（未過期、未消耗、未鎖定、未撤銷、AttemptCount &lt; 5）。
@@ -106,21 +140,4 @@ public interface IGuestOrderAccessHasher
     byte[] HashCode(string sixDigitCode);
 
     byte[] HashToken(string rawToken);
-}
-
-/// <summary>
-/// 訪客查單 Challenge 建立／重寄的三 Scope 限流（DEC-P266：15 分鐘視窗，每 IP Hash
-/// 10 次、每 Email HMAC 5 次、每訂單 Lookup Hash 5 次，三者同時通過才建立／寄送）。
-/// 純 Application 層服務，不透過 ASP.NET RateLimiter Middleware——Email／OrderLookup
-/// 兩個 Scope 的 Key 來自 Request Body，Middleware 在 Model Binding 前難以乾淨取得；
-/// 比照 <c>IEmailRequestThrottle</c> 的既有分工（Middleware 只管跟連線相關的 Scope，
-/// 其餘 Scope 由 Application 服務接手）。
-/// </summary>
-public interface IGuestOrderAccessThrottle
-{
-    bool TryAcquireIp(byte[] ipHash);
-
-    bool TryAcquireEmail(byte[] emailHash);
-
-    bool TryAcquireOrderLookup(byte[] orderLookupHash);
 }

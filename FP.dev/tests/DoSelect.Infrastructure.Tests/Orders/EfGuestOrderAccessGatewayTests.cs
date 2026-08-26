@@ -72,19 +72,18 @@ public sealed class EfGuestOrderAccessGatewayTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task AddRequestAsync_ThenFindActiveRequestAsync_RoundTrips()
+    public async Task SeededRequest_ThenFindActiveRequestAsync_RoundTrips()
     {
         var orderId = await SeedOrderAsync(Guid.CreateVersion7(), "DS-0004", "GUEST@EXAMPLE.COM");
         var requestPublicId = Guid.CreateVersion7();
 
         await using (var context = CreateContext())
         {
-            var gateway = new EfGuestOrderAccessGateway(context);
             var request = GuestOrderAccessRequest.CreateValid(
                 requestPublicId, orderId, Hash(1), Hash(2), Hash(3), Hash(4),
                 CreatedAtUtc.AddMinutes(10), CreatedAtUtc);
-            await gateway.AddRequestAsync(request);
-            await gateway.SaveChangesAsync();
+            context.GuestOrderAccessRequests.Add(request);
+            await context.SaveChangesAsync();
         }
 
         await using (var context = CreateContext())
@@ -106,12 +105,11 @@ public sealed class EfGuestOrderAccessGatewayTests : IAsyncLifetime
 
         await using (var context = CreateContext())
         {
-            var gateway = new EfGuestOrderAccessGateway(context);
             var request = GuestOrderAccessRequest.CreateValid(
                 requestPublicId, orderId, Hash(1), Hash(2), Hash(3), Hash(4),
                 CreatedAtUtc.AddMinutes(10), CreatedAtUtc);
-            await gateway.AddRequestAsync(request);
-            await gateway.SaveChangesAsync();
+            context.GuestOrderAccessRequests.Add(request);
+            await context.SaveChangesAsync();
         }
 
         await using var verifyContext = CreateContext();
@@ -121,6 +119,111 @@ public sealed class EfGuestOrderAccessGatewayTests : IAsyncLifetime
 
         Assert.Null(found);
     }
+
+    [Fact]
+    public async Task TryCreateRequestWithinRateLimitAsync_WhenWithinLimit_CreatesRequestAndRevokesPrevious()
+    {
+        var orderId = await SeedOrderAsync(Guid.CreateVersion7(), "DS-0009", "GUEST@EXAMPLE.COM");
+        var previousPublicId = Guid.CreateVersion7();
+
+        await using var context = CreateContext();
+        var gateway = new EfGuestOrderAccessGateway(context);
+        var previous = GuestOrderAccessRequest.CreateValid(
+            previousPublicId, orderId, Hash(1), Hash(2), Hash(3), Hash(4),
+            CreatedAtUtc.AddMinutes(10), CreatedAtUtc);
+        previous.RecordSend(CreatedAtUtc);
+        context.GuestOrderAccessRequests.Add(previous);
+        await context.SaveChangesAsync();
+
+        var successorPublicId = Guid.CreateVersion7();
+        var successor = GuestOrderAccessRequest.CreateResend(
+            successorPublicId, previous, Hash(5), CreatedAtUtc.AddMinutes(1));
+
+        var created = await gateway.TryCreateRequestWithinRateLimitAsync(
+            DefaultWindow(Hash(2), Hash(3), Hash(4), CreatedAtUtc.AddMinutes(-14)),
+            successor,
+            requestToRevoke: previous);
+
+        Assert.True(created);
+
+        await using var verifyContext = CreateContext();
+        var revokedPrevious = await verifyContext.GuestOrderAccessRequests
+            .SingleAsync(r => r.PublicId == previousPublicId);
+        Assert.NotNull(revokedPrevious.RevokedAtUtc);
+
+        var persistedSuccessor = await verifyContext.GuestOrderAccessRequests
+            .SingleAsync(r => r.PublicId == successorPublicId);
+        Assert.Equal(2, persistedSuccessor.SendCount);
+    }
+
+    [Fact]
+    public async Task TryCreateRequestWithinRateLimitAsync_WhenScopeExceedsLimit_DoesNotCreateOrRevoke()
+    {
+        var orderId = await SeedOrderAsync(Guid.CreateVersion7(), "DS-0010", "GUEST@EXAMPLE.COM");
+        var previousPublicId = Guid.CreateVersion7();
+
+        await using var context = CreateContext();
+        var gateway = new EfGuestOrderAccessGateway(context);
+        var previous = GuestOrderAccessRequest.CreateValid(
+            previousPublicId, orderId, Hash(1), Hash(2), Hash(3), Hash(4),
+            CreatedAtUtc.AddMinutes(10), CreatedAtUtc);
+        context.GuestOrderAccessRequests.Add(previous);
+        await context.SaveChangesAsync();
+
+        var successor = GuestOrderAccessRequest.CreateResend(
+            Guid.CreateVersion7(), previous, Hash(5), CreatedAtUtc.AddMinutes(1));
+
+        // IP 上限設成 0——existing 的 previous 這筆 Row 本身就已經佔滿（0 個名額），
+        // 任一 Scope 超限就整段 rollback，不建立新 Row，也不撤銷 previous。
+        var window = DefaultWindow(Hash(2), Hash(3), Hash(4), CreatedAtUtc.AddMinutes(-14)) with
+        {
+            IpPermitLimit = 0,
+        };
+
+        var created = await gateway.TryCreateRequestWithinRateLimitAsync(
+            window, successor, requestToRevoke: previous);
+
+        Assert.False(created);
+
+        await using var verifyContext = CreateContext();
+        var stillActivePrevious = await verifyContext.GuestOrderAccessRequests
+            .SingleAsync(r => r.PublicId == previousPublicId);
+        Assert.Null(stillActivePrevious.RevokedAtUtc);
+        Assert.Equal(1, await verifyContext.GuestOrderAccessRequests.CountAsync());
+    }
+
+    [Fact]
+    public async Task IsIpWithinRateLimitAsync_ReflectsExistingRowsWithinWindow()
+    {
+        await using (var context = CreateContext())
+        {
+            var decoy = GuestOrderAccessRequest.CreateDecoy(
+                Guid.CreateVersion7(), Hash(7), Hash(2), Hash(3),
+                CreatedAtUtc.AddMinutes(10), CreatedAtUtc);
+            context.GuestOrderAccessRequests.Add(decoy);
+            await context.SaveChangesAsync();
+        }
+
+        await using var verifyContext = CreateContext();
+        var gateway = new EfGuestOrderAccessGateway(verifyContext);
+
+        var withinLimit = await gateway.IsIpWithinRateLimitAsync(
+            Hash(7), permitLimit: 1, windowStartUtc: CreatedAtUtc.AddMinutes(-1));
+        var overLimit = await gateway.IsIpWithinRateLimitAsync(
+            Hash(7), permitLimit: 0, windowStartUtc: CreatedAtUtc.AddMinutes(-1));
+        var outsideWindow = await gateway.IsIpWithinRateLimitAsync(
+            Hash(7), permitLimit: 1, windowStartUtc: CreatedAtUtc.AddMinutes(1));
+
+        // 已有 1 筆：上限 1 剛好佔滿（false），上限 0 更早就超（false），
+        // 視窗開始時間晚於這筆 Row 的建立時間（不在視窗內）則不計入（true）。
+        Assert.False(withinLimit);
+        Assert.False(overLimit);
+        Assert.True(outsideWindow);
+    }
+
+    private static GuestOrderAccessRateLimitWindow DefaultWindow(
+        byte[] ipHash, byte[] emailHash, byte[] orderLookupHash, DateTime windowStartUtc) =>
+        new(ipHash, 10, emailHash, 5, orderLookupHash, 5, windowStartUtc);
 
     [Fact]
     public async Task AddTokenAsync_ThenFindTokenByHashAsync_ReturnsContextWithOrderPublicId()
@@ -135,8 +238,8 @@ public sealed class EfGuestOrderAccessGatewayTests : IAsyncLifetime
             var request = GuestOrderAccessRequest.CreateValid(
                 Guid.CreateVersion7(), orderId, Hash(1), Hash(2), Hash(3), Hash(4),
                 CreatedAtUtc.AddMinutes(10), CreatedAtUtc);
-            await gateway.AddRequestAsync(request);
-            await gateway.SaveChangesAsync();
+            context.GuestOrderAccessRequests.Add(request);
+            await context.SaveChangesAsync();
 
             var token = new GuestOrderAccessToken(
                 Guid.CreateVersion7(), orderId, request.Id, tokenHash,
@@ -171,20 +274,19 @@ public sealed class EfGuestOrderAccessGatewayTests : IAsyncLifetime
 
         await using (var context = CreateContext())
         {
-            var gateway = new EfGuestOrderAccessGateway(context);
             for (var i = 0; i < 3; i++)
             {
                 var expired = GuestOrderAccessRequest.CreateDecoy(
                     Guid.CreateVersion7(), Hash(1), Hash(2), Hash(3),
                     CreatedAtUtc.AddMinutes(10), CreatedAtUtc);
-                await gateway.AddRequestAsync(expired);
+                context.GuestOrderAccessRequests.Add(expired);
             }
 
             var stillFresh = GuestOrderAccessRequest.CreateValid(
                 Guid.CreateVersion7(), orderId, Hash(1), Hash(2), Hash(3), Hash(4),
                 CreatedAtUtc.AddDays(60), CreatedAtUtc.AddDays(59));
-            await gateway.AddRequestAsync(stillFresh);
-            await gateway.SaveChangesAsync();
+            context.GuestOrderAccessRequests.Add(stillFresh);
+            await context.SaveChangesAsync();
         }
 
         var cutoffUtc = CreatedAtUtc.AddMinutes(10).AddDays(30).AddSeconds(1);
@@ -224,8 +326,8 @@ public sealed class EfGuestOrderAccessGatewayTests : IAsyncLifetime
                 var expiredWithToken = GuestOrderAccessRequest.CreateValid(
                     Guid.CreateVersion7(), orderId, Hash(1), Hash(2), Hash(3), Hash(4),
                     CreatedAtUtc.AddMinutes(10), CreatedAtUtc);
-                await gateway.AddRequestAsync(expiredWithToken);
-                await gateway.SaveChangesAsync();
+                context.GuestOrderAccessRequests.Add(expiredWithToken);
+                await context.SaveChangesAsync();
 
                 var expiredToken = new GuestOrderAccessToken(
                     Guid.CreateVersion7(), orderId, expiredWithToken.Id, Hash((byte)(10 + i)),
@@ -239,10 +341,10 @@ public sealed class EfGuestOrderAccessGatewayTests : IAsyncLifetime
                 var expiredWithoutToken = GuestOrderAccessRequest.CreateDecoy(
                     Guid.CreateVersion7(), Hash(1), Hash(2), Hash(3),
                     CreatedAtUtc.AddMinutes(10), CreatedAtUtc);
-                await gateway.AddRequestAsync(expiredWithoutToken);
+                context.GuestOrderAccessRequests.Add(expiredWithoutToken);
             }
 
-            await gateway.SaveChangesAsync();
+            await context.SaveChangesAsync();
         }
 
         var cutoffUtc = CreatedAtUtc.AddDays(31);

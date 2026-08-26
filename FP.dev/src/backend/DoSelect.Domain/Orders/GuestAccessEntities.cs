@@ -108,17 +108,42 @@ public sealed class GuestOrderAccessRequest : MutablePublicEntity
     }
 
     /// <summary>
-    /// 重寄且換發新碼：跟 <see cref="RecordSend"/> 同一組寄送上限／間隔檢查，額外原子替換
-    /// <see cref="CodeHash"/>，讓舊碼立即失效。只適用有真實訂單的 Request——Decoy 沒有
-    /// CodeHash 可換，重寄仍呼叫 <see cref="RecordSend"/>。
+    /// 重寄：驗證 <paramref name="previous"/>（同一張 Challenge 目前這一筆有效 Row）是否仍可
+    /// 寄送（沿用 <see cref="EnsureCanSend"/> 的寄送上限／間隔規則），成功才建立一筆延續同一組
+    /// Scope Hash／到期時間的新 Row——<see cref="SendCount"/> 從舊 Row 累加、
+    /// <see cref="AttemptCount"/> 歸零。呼叫端必須在同一交易內對 <paramref name="previous"/>
+    /// 呼叫 <see cref="Revoke"/> 讓舊 Row／舊碼立即失效；這個工廠方法只讀取 previous 目前的
+    /// 狀態做驗證與延續，不會修改 previous 本身。有效與 Decoy 都走這個工廠（Decoy 傳
+    /// <paramref name="newCodeHash"/> 為 null）——三 Scope 限流用的是「新增一筆 Row」，
+    /// 兩種情況都要留下可計數的 Row，不能只有有效請求才新增。
     /// </summary>
-    public void RecordResend(byte[] newCodeHash, DateTime sentAtUtc)
+    public static GuestOrderAccessRequest CreateResend(
+        Guid publicId, GuestOrderAccessRequest previous, byte[]? newCodeHash, DateTime sentAtUtc)
     {
-        EnsureCanSend(sentAtUtc);
-        CodeHash = RequireHash(newCodeHash, nameof(newCodeHash));
-        SendCount++;
-        LastSentAtUtc = sentAtUtc;
-        MarkUpdated(sentAtUtc);
+        ArgumentNullException.ThrowIfNull(previous);
+        previous.EnsureCanSend(sentAtUtc);
+
+        var successor = previous.OrderId is null
+            ? CreateDecoy(
+                publicId,
+                previous.RequesterIpHash,
+                previous.EmailKeyHash,
+                previous.OrderLookupKeyHash,
+                previous.ExpiresAtUtc,
+                sentAtUtc)
+            : CreateValid(
+                publicId,
+                previous.OrderId.Value,
+                newCodeHash ?? throw new ArgumentNullException(nameof(newCodeHash)),
+                previous.RequesterIpHash,
+                previous.EmailKeyHash,
+                previous.OrderLookupKeyHash,
+                previous.ExpiresAtUtc,
+                sentAtUtc);
+
+        successor.SendCount = previous.SendCount + 1;
+        successor.LastSentAtUtc = sentAtUtc;
+        return successor;
     }
 
     private void EnsureCanSend(DateTime sentAtUtc)

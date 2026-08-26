@@ -195,7 +195,9 @@ public sealed class GuestOrderAccessUseCaseTests
     [Fact]
     public async Task ResendAsync_AfterThreeSends_StillReturnsAcceptedWithoutError()
     {
-        // "維持安全回應"：已達寄送上限也不能揭露原因，回應形狀必須跟成功一致。
+        // "維持安全回應"：已達寄送上限也不能揭露原因，回應形狀必須跟成功一致。每次成功
+        // 重寄都會撤銷舊 Row、核發新的 RequestPublicId，所以要沿著回傳值往下接著呼叫——
+        // 不能沿用最初那個 PublicId（撤銷後查不到，等同 Request 不存在）。
         var gateway = new FakeGuestOrderAccessGateway();
         gateway.SeedOrder(ValidOrderNumber, "GUEST@EXAMPLE.COM", orderId: 1, orderPublicId: Guid.CreateVersion7());
         var timeProvider = new ManualTimeProvider(DateTimeOffset.UtcNow);
@@ -203,11 +205,16 @@ public sealed class GuestOrderAccessUseCaseTests
         var accepted = (GuestOrderAccessAcceptedResult.Accepted)
             await useCase.RequestAccessAsync(ValidOrderNumber, ValidEmail, RequesterIp);
 
+        var currentRequestPublicId = accepted.RequestPublicId;
         GuestOrderAccessAcceptedResult? last = null;
         for (var i = 0; i < GuestOrderAccessRequest.MaximumSends; i++)
         {
             timeProvider.Advance(TimeSpan.FromSeconds(61));
-            last = await useCase.ResendAsync(accepted.RequestPublicId, RequesterIp);
+            last = await useCase.ResendAsync(currentRequestPublicId, RequesterIp);
+            if (last is GuestOrderAccessAcceptedResult.Accepted stepAccepted)
+            {
+                currentRequestPublicId = stepAccepted.RequestPublicId;
+            }
         }
 
         Assert.IsType<GuestOrderAccessAcceptedResult.Accepted>(last);
@@ -216,8 +223,9 @@ public sealed class GuestOrderAccessUseCaseTests
     [Fact]
     public async Task ResendAsync_ForValidRequest_RotatesCodeAndSendsNewEmail()
     {
-        // 修正前：Resend 不寄信、也不換碼，只是白算 SaveChanges。修正後每次重寄要換發
-        // 新碼、原子取代舊 CodeHash（舊碼立即失效），並實際 Enqueue 一封新信。
+        // 修正前：Resend 不寄信、也不換碼，只是白算 SaveChanges。修正後每次重寄要建立一筆
+        // 新 Row（換發新碼）、同一交易內撤銷舊 Row（舊碼／舊 RequestPublicId 立即失效），
+        // 並實際 Enqueue 一封新信。
         var gateway = new FakeGuestOrderAccessGateway();
         var orderPublicId = Guid.CreateVersion7();
         gateway.SeedOrder(ValidOrderNumber, "GUEST@EXAMPLE.COM", orderId: 1, orderPublicId: orderPublicId);
@@ -234,15 +242,17 @@ public sealed class GuestOrderAccessUseCaseTests
         var resendResult = await useCase.ResendAsync(accepted.RequestPublicId, RequesterIp);
         var newCode = hasher.LastHashedCode!;
 
-        Assert.IsType<GuestOrderAccessAcceptedResult.Accepted>(resendResult);
+        var resendAccepted = Assert.IsType<GuestOrderAccessAcceptedResult.Accepted>(resendResult);
+        Assert.NotEqual(accepted.RequestPublicId, resendAccepted.RequestPublicId);
         Assert.NotEqual(originalCode, newCode);
         Assert.Equal(2, emailQueue.SentMessages.Count);
         Assert.Equal("GUEST@EXAMPLE.COM", emailQueue.SentMessages[1].RecipientAddress);
 
-        var oldCodeResult = await useCase.VerifyAsync(accepted.RequestPublicId, originalCode);
-        Assert.IsType<GuestOrderAccessVerifyResult.Failure>(oldCodeResult);
+        // 舊 RequestPublicId 已經撤銷立即失效——不論用舊碼還是新碼都查不到有效 Request。
+        var oldRequestResult = await useCase.VerifyAsync(accepted.RequestPublicId, originalCode);
+        Assert.IsType<GuestOrderAccessVerifyResult.Failure>(oldRequestResult);
 
-        var newCodeResult = await useCase.VerifyAsync(accepted.RequestPublicId, newCode);
+        var newCodeResult = await useCase.VerifyAsync(resendAccepted.RequestPublicId, newCode);
         var success = Assert.IsType<GuestOrderAccessVerifyResult.Success>(newCodeResult);
         Assert.Equal(orderPublicId, success.OrderPublicId);
     }
@@ -252,22 +262,24 @@ public sealed class GuestOrderAccessUseCaseTests
     {
         // 修正前：request.OrderId is null（Decoy）會在限流檢查之前就直接回 202，
         // 永遠不會被限流；有效 Request 卻會，形成 202/429 的訂單存在性 Oracle。
-        // 修正後 Decoy 跟有效 Request 共用同一組限流 Scope，達到上限一樣回 429。
+        // 修正後 Decoy 跟有效 Request 走同一個 Gateway 方法、同一組限流 Scope，
+        // 達到上限一樣回 429。上限刻意調低到小於寄送上限（3），確保在寄送上限先擋下來、
+        // 這次呼叫從沒新增過 Row 之前，就能先觀察到限流生效。
         var gateway = new FakeGuestOrderAccessGateway();
         var timeProvider = new ManualTimeProvider(DateTimeOffset.UtcNow);
-        var useCase = CreateUseCase(gateway, timeProvider: timeProvider);
+        var rateLimitOptions = new RateLimitOptions { GuestOrderAccessOrderLookupPermitLimit = 2 };
+        var useCase = CreateUseCase(gateway, timeProvider: timeProvider, rateLimitOptions: rateLimitOptions);
         var accepted = (GuestOrderAccessAcceptedResult.Accepted)
             await useCase.RequestAccessAsync("NO-SUCH-ORDER", "nobody@example.com", RequesterIp);
-        var orderLookupPermitLimit = new RateLimitOptions().GuestOrderAccessOrderLookupPermitLimit;
 
-        GuestOrderAccessAcceptedResult? last = null;
-        for (var i = 0; i < orderLookupPermitLimit; i++)
-        {
-            timeProvider.Advance(TimeSpan.FromSeconds(61));
-            last = await useCase.ResendAsync(accepted.RequestPublicId, RequesterIp);
-        }
+        timeProvider.Advance(TimeSpan.FromSeconds(61));
+        var firstResend = (GuestOrderAccessAcceptedResult.Accepted)
+            await useCase.ResendAsync(accepted.RequestPublicId, RequesterIp);
 
-        Assert.IsType<GuestOrderAccessAcceptedResult.RateLimited>(last);
+        timeProvider.Advance(TimeSpan.FromSeconds(61));
+        var secondResend = await useCase.ResendAsync(firstResend.RequestPublicId, RequesterIp);
+
+        Assert.IsType<GuestOrderAccessAcceptedResult.RateLimited>(secondResend);
     }
 
     [Fact]
@@ -285,13 +297,15 @@ public sealed class GuestOrderAccessUseCaseTests
         Assert.Single(emailQueue.SentMessages);
 
         timeProvider.Advance(TimeSpan.FromSeconds(61));
-        await useCase.ResendAsync(accepted.RequestPublicId, RequesterIp);
+        var firstResend = (GuestOrderAccessAcceptedResult.Accepted)
+            await useCase.ResendAsync(accepted.RequestPublicId, RequesterIp);
         timeProvider.Advance(TimeSpan.FromSeconds(61));
-        await useCase.ResendAsync(accepted.RequestPublicId, RequesterIp);
+        var secondResend = (GuestOrderAccessAcceptedResult.Accepted)
+            await useCase.ResendAsync(firstResend.RequestPublicId, RequesterIp);
         Assert.Equal(3, emailQueue.SentMessages.Count);
 
         timeProvider.Advance(TimeSpan.FromSeconds(61));
-        var fourthAttempt = await useCase.ResendAsync(accepted.RequestPublicId, RequesterIp);
+        var fourthAttempt = await useCase.ResendAsync(secondResend.RequestPublicId, RequesterIp);
 
         Assert.IsType<GuestOrderAccessAcceptedResult.Accepted>(fourthAttempt);
         Assert.Equal(3, emailQueue.SentMessages.Count);
@@ -300,37 +314,61 @@ public sealed class GuestOrderAccessUseCaseTests
     [Fact]
     public async Task ResendAsync_UsesTheCurrentCallerIp_NotTheIpStoredAtCreation()
     {
-        // 方法收到的是「這次呼叫當下」的 requester IP，限流要用這把 Hash，不能沿用
-        // Request 建立當時保存的舊 IP bucket——同一張 Challenge 換網路重寄時才會準確。
+        // 方法收到的是「這次呼叫當下」的 requester IP，重寄產生的新 Row 要存這把 Hash，
+        // 不能沿用 Request 建立當時保存的舊 IP bucket——同一張 Challenge 換網路重寄時
+        // 才會準確。直接檢查新 Row 實際存的 RequesterIpHash，比記錄限流呼叫更貼近
+        // 「持久化到 DB 的資料是否正確」這件事本身。
         var gateway = new FakeGuestOrderAccessGateway();
         gateway.SeedOrder(ValidOrderNumber, "GUEST@EXAMPLE.COM", orderId: 1, orderPublicId: Guid.CreateVersion7());
         var hasher = new FakeGuestOrderAccessHasher();
-        var throttle = new RecordingThrottle();
         var timeProvider = new ManualTimeProvider(DateTimeOffset.UtcNow);
-        var useCase = new GuestOrderAccessUseCase(
-            gateway, hasher, throttle, new RecordingEmailDispatchQueue(), timeProvider);
+        var useCase = CreateUseCase(gateway, hasher: hasher, timeProvider: timeProvider);
         var accepted = (GuestOrderAccessAcceptedResult.Accepted)
             await useCase.RequestAccessAsync(ValidOrderNumber, ValidEmail, RequesterIp);
 
         const string differentIp = "198.51.100.7";
         timeProvider.Advance(TimeSpan.FromSeconds(61));
-        await useCase.ResendAsync(accepted.RequestPublicId, differentIp);
+        var resendResult = (GuestOrderAccessAcceptedResult.Accepted)
+            await useCase.ResendAsync(accepted.RequestPublicId, differentIp);
 
-        Assert.Equal(2, throttle.IpHashes.Count);
-        Assert.Equal(hasher.HashIp(RequesterIp), throttle.IpHashes[0]);
-        Assert.Equal(hasher.HashIp(differentIp), throttle.IpHashes[1]);
-        Assert.NotEqual(throttle.IpHashes[0], throttle.IpHashes[1]);
+        var successorIpHash = gateway.Requests[resendResult.RequestPublicId].RequesterIpHash;
+        Assert.Equal(hasher.HashIp(differentIp), successorIpHash);
+        Assert.NotEqual(hasher.HashIp(RequesterIp), successorIpHash);
+    }
+
+    [Fact]
+    public async Task ResendAsync_RetriesOnConcurrencyConflictAndStillIssuesExactlyOneSuccessor()
+    {
+        // 模擬撤銷舊 Row 時撞到 SQL Server 死結／樂觀鎖：UseCase 必須重新載入 request 最新
+        // 狀態、重新跑一次 CreateResend 資格判斷後重試，而不是讓例外原樣往外傳，也不能因為
+        // 重試而核發出兩筆延續 Row。
+        var gateway = new FakeGuestOrderAccessGateway();
+        gateway.SeedOrder(ValidOrderNumber, "GUEST@EXAMPLE.COM", orderId: 1, orderPublicId: Guid.CreateVersion7());
+        var timeProvider = new ManualTimeProvider(DateTimeOffset.UtcNow);
+        var useCase = CreateUseCase(gateway, timeProvider: timeProvider);
+        var accepted = (GuestOrderAccessAcceptedResult.Accepted)
+            await useCase.RequestAccessAsync(ValidOrderNumber, ValidEmail, RequesterIp);
+        gateway.TryCreateRequestConflictCountdown = 2;
+
+        timeProvider.Advance(TimeSpan.FromSeconds(61));
+        var result = await useCase.ResendAsync(accepted.RequestPublicId, RequesterIp);
+
+        var resendAccepted = Assert.IsType<GuestOrderAccessAcceptedResult.Accepted>(result);
+        Assert.NotEqual(accepted.RequestPublicId, resendAccepted.RequestPublicId);
+        Assert.Equal(0, gateway.TryCreateRequestConflictCountdown);
+        Assert.Equal(2, gateway.Requests.Count);
     }
 
     private static GuestOrderAccessUseCase CreateUseCase(
         FakeGuestOrderAccessGateway gateway,
         FakeGuestOrderAccessHasher? hasher = null,
         IEmailDispatchQueue? emailDispatchQueue = null,
-        TimeProvider? timeProvider = null) =>
+        TimeProvider? timeProvider = null,
+        RateLimitOptions? rateLimitOptions = null) =>
         new(
             gateway,
             hasher ?? new FakeGuestOrderAccessHasher(),
-            new GuestOrderAccessThrottle(Options.Create(new RateLimitOptions())),
+            Options.Create(rateLimitOptions ?? new RateLimitOptions()),
             emailDispatchQueue ?? new RecordingEmailDispatchQueue(),
             timeProvider ?? TimeProvider.System);
 
@@ -339,22 +377,6 @@ public sealed class GuestOrderAccessUseCaseTests
         public List<EmailMessage> SentMessages { get; } = [];
 
         public void Enqueue(EmailMessage message) => SentMessages.Add(message);
-    }
-
-    /// <summary>只記錄每次呼叫收到的 Hash，不做真的限流，用來斷言呼叫端傳入了「哪把」Hash。</summary>
-    private sealed class RecordingThrottle : IGuestOrderAccessThrottle
-    {
-        public List<byte[]> IpHashes { get; } = [];
-
-        public bool TryAcquireIp(byte[] ipHash)
-        {
-            IpHashes.Add(ipHash);
-            return true;
-        }
-
-        public bool TryAcquireEmail(byte[] emailHash) => true;
-
-        public bool TryAcquireOrderLookup(byte[] orderLookupHash) => true;
     }
 
     /// <summary>
@@ -445,14 +467,68 @@ public sealed class GuestOrderAccessUseCaseTests
             long orderId, CancellationToken cancellationToken = default) =>
             Task.FromResult(_ordersById.GetValueOrDefault(orderId));
 
-        public Task AddRequestAsync(
-            GuestOrderAccessRequest request, CancellationToken cancellationToken = default)
+        /// <summary>
+        /// 用 <see cref="Requests"/>（所有曾經建立過的 Row，不論之後是否被撤銷）依
+        /// (Hash, CreatedAtUtc) 模擬真實索引的視窗計數——比照 EF Gateway 的 Serializable
+        /// 交易語意：三者都通過才撤銷 <paramref name="requestToRevoke"/>、新增
+        /// <paramref name="newRequest"/>，任一超限就整個不寫入。
+        /// </summary>
+        /// <summary>
+        /// 設成 N，接下來 N 次 <see cref="TryCreateRequestWithinRateLimitAsync"/> 呼叫會模擬
+        /// SQL Server 死結／並行衝突（比照 <see cref="SaveChangesConflictCountdown"/>），
+        /// 用來驗證 <c>ResendAsync</c> 的重試迴圈會重新載入 <c>request</c> 最新狀態、重新
+        /// 判斷資格，而不是讓例外原樣往外傳或憑空核發第二筆 Row。
+        /// </summary>
+        public int TryCreateRequestConflictCountdown { get; set; }
+
+        public Task<bool> TryCreateRequestWithinRateLimitAsync(
+            GuestOrderAccessRateLimitWindow window,
+            GuestOrderAccessRequest newRequest,
+            GuestOrderAccessRequest? requestToRevoke,
+            CancellationToken cancellationToken = default)
         {
-            IdProperty.SetValue(request, _nextRequestId++);
-            Requests[request.PublicId] = request;
-            CommitRequestState(request);
-            return Task.CompletedTask;
+            if (TryCreateRequestConflictCountdown > 0)
+            {
+                TryCreateRequestConflictCountdown--;
+                throw DomainProblemException.Conflict(
+                    DomainErrorCodes.ConcurrencyConflict, "Simulated rate limit conflict.");
+            }
+
+            var ipCount = CountWithinWindow(r => r.RequesterIpHash, window.IpHash, window.WindowStartUtc);
+            var emailCount = CountWithinWindow(r => r.EmailKeyHash, window.EmailHash, window.WindowStartUtc);
+            var orderLookupCount = CountWithinWindow(
+                r => r.OrderLookupKeyHash, window.OrderLookupHash, window.WindowStartUtc);
+
+            if (ipCount >= window.IpPermitLimit ||
+                emailCount >= window.EmailPermitLimit ||
+                orderLookupCount >= window.OrderLookupPermitLimit)
+            {
+                return Task.FromResult(false);
+            }
+
+            if (requestToRevoke is not null)
+            {
+                requestToRevoke.Revoke(newRequest.CreatedAtUtc);
+                CommitRequestState(requestToRevoke);
+            }
+
+            IdProperty.SetValue(newRequest, _nextRequestId++);
+            Requests[newRequest.PublicId] = newRequest;
+            CommitRequestState(newRequest);
+            return Task.FromResult(true);
         }
+
+        public Task<bool> IsIpWithinRateLimitAsync(
+            byte[] ipHash, int permitLimit, DateTime windowStartUtc, CancellationToken cancellationToken = default)
+        {
+            var count = CountWithinWindow(r => r.RequesterIpHash, ipHash, windowStartUtc);
+            return Task.FromResult(count < permitLimit);
+        }
+
+        private int CountWithinWindow(
+            Func<GuestOrderAccessRequest, byte[]> selector, byte[] hash, DateTime windowStartUtc) =>
+            Requests.Values.Count(r =>
+                r.CreatedAtUtc > windowStartUtc && selector(r).AsSpan().SequenceEqual(hash));
 
         public Task<GuestOrderAccessRequest?> FindActiveRequestAsync(
             Guid requestPublicId, DateTime nowUtc, CancellationToken cancellationToken = default)

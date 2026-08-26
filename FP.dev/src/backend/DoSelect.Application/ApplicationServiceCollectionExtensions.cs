@@ -10,7 +10,6 @@ public static class ApplicationServiceCollectionExtensions
     public static IServiceCollection AddDoSelectApplication(this IServiceCollection services)
     {
         services.AddSingleton<IEmailRequestThrottle, EmailRequestThrottle>();
-        services.AddSingleton<IGuestOrderAccessThrottle, GuestOrderAccessThrottle>();
 
         services.AddScoped<RegisterMemberService>();
         services.AddScoped<ConfirmEmailVerificationService>();

@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using DoSelect.Application.Common;
 using DoSelect.Application.Notifications;
 using DoSelect.Domain.Orders;
+using Microsoft.Extensions.Options;
 
 namespace DoSelect.Application.Orders;
 
@@ -35,7 +36,7 @@ public abstract record GuestOrderAccessVerifyResult
 public sealed class GuestOrderAccessUseCase(
     IGuestOrderAccessGateway gateway,
     IGuestOrderAccessHasher hasher,
-    IGuestOrderAccessThrottle throttle,
+    IOptions<RateLimitOptions> rateLimitOptions,
     IEmailDispatchQueue emailDispatchQueue,
     TimeProvider timeProvider)
 {
@@ -65,25 +66,24 @@ public sealed class GuestOrderAccessUseCase(
         var emailHash = hasher.HashEmail(emailNormalized);
         var orderLookupHash = hasher.HashOrderLookup(orderNumber, emailNormalized);
 
-        if (!throttle.TryAcquireIp(ipHash) ||
-            !throttle.TryAcquireEmail(emailHash) ||
-            !throttle.TryAcquireOrderLookup(orderLookupHash))
-        {
-            return new GuestOrderAccessAcceptedResult.RateLimited();
-        }
-
         var nowUtc = timeProvider.GetUtcNow().UtcDateTime;
         var expiresAtUtc = nowUtc.Add(RequestLifetime);
+        var window = CreateWindow(ipHash, emailHash, orderLookupHash, nowUtc);
         var lookup = await gateway.FindGuestOrderAsync(orderNumber, emailNormalized, cancellationToken);
 
-        // 兩分支都要建立一筆 Request、都做同樣份量的雜湊工作，維持恆定 202 與等效延遲——
-        // 不能只在其中一支加假延遲，那本身會製造新的計時側channel。
+        // 兩分支都要建立一筆 Request、都呼叫同一個 Gateway 方法（同樣的三 Scope 原子核對＋
+        // 寫入），維持恆定 202／429 與等效延遲——不能只在其中一支加假延遲，那本身會製造
+        // 新的計時側channel。
         if (lookup is null)
         {
             var decoyRequest = GuestOrderAccessRequest.CreateDecoy(
                 Guid.CreateVersion7(), ipHash, emailHash, orderLookupHash, expiresAtUtc, nowUtc);
-            await gateway.AddRequestAsync(decoyRequest, cancellationToken);
-            await gateway.SaveChangesAsync(cancellationToken);
+            var created = await TryCreateRequestWithRetryAsync(window, decoyRequest, cancellationToken);
+            if (!created)
+            {
+                return new GuestOrderAccessAcceptedResult.RateLimited();
+            }
+
             return new GuestOrderAccessAcceptedResult.Accepted(
                 decoyRequest.PublicId, expiresAtUtc, nowUtc.Add(ResendInterval));
         }
@@ -102,8 +102,12 @@ public sealed class GuestOrderAccessUseCase(
         // 初次寄送本身也要計入 SendCount／LastSentAtUtc，否則規格「最多 3 封」會被繞過成
         // 「初次寄送＋3 次 resend」共 4 封。
         request.RecordSend(nowUtc);
-        await gateway.AddRequestAsync(request, cancellationToken);
-        await gateway.SaveChangesAsync(cancellationToken);
+        var accepted = await TryCreateRequestWithRetryAsync(window, request, cancellationToken);
+        if (!accepted)
+        {
+            return new GuestOrderAccessAcceptedResult.RateLimited();
+        }
+
         emailDispatchQueue.Enqueue(GuestOrderAccessEmailComposer.Compose(email, orderNumber, code));
 
         return new GuestOrderAccessAcceptedResult.Accepted(
@@ -119,16 +123,21 @@ public sealed class GuestOrderAccessUseCase(
 
         var nowUtc = timeProvider.GetUtcNow().UtcDateTime;
         var request = await gateway.FindActiveRequestAsync(requestPublicId, nowUtc, cancellationToken);
+        var ipHash = hasher.HashIp(requesterIp);
 
         // Request 根本不存在（不是 Decoy，是查無此 PublicId 或已完全失效）：沒有任何儲存的
-        // Scope Hash 可用，仍消耗目前呼叫者 IP 的等量限流，避免完全不消耗預算，維持跟下面
-        // 「找得到 Request」分支相同的回應形狀與大致延遲特徵，不讓存在性變成可探測的 Oracle。
-        // IP Scope 的結果一定要照實回應——不能只計不擋，否則攻擊者能用隨機 GUID 無限打
-        // DB lookup 而永遠拿到 202，等於這條公開分支沒有實際 abuse protection。Email／
-        // OrderLookup 兩個 Scope 因為沒有可信 Hash 可用，無法計數，可以接受略過。
+        // Scope Hash 可用，也沒有 Row 可寫入，只能核對目前呼叫者 IP 這一個 Scope。結果一定要
+        // 照實回應——不能只計不擋，否則攻擊者能用隨機 GUID 無限打 DB lookup 而永遠拿到 202，
+        // 等於這條公開分支沒有實際 abuse protection。Email／OrderLookup 兩個 Scope 因為沒有
+        // 可信 Hash 可用，無法計數，可以接受略過。
         if (request is null)
         {
-            if (!throttle.TryAcquireIp(hasher.HashIp(requesterIp)))
+            var withinIpLimit = await gateway.IsIpWithinRateLimitAsync(
+                ipHash,
+                rateLimitOptions.Value.GuestOrderAccessIpPermitLimit,
+                WindowStartUtc(nowUtc),
+                cancellationToken);
+            if (!withinIpLimit)
             {
                 return new GuestOrderAccessAcceptedResult.RateLimited();
             }
@@ -137,46 +146,63 @@ public sealed class GuestOrderAccessUseCase(
                 requestPublicId, nowUtc.Add(RequestLifetime), nowUtc.Add(ResendInterval));
         }
 
-        // Decoy 走到這裡跟有效 Request 共用同一組限流／寄送上限檢查——差異只在最後
-        // 「有沒有真訂單可以寄信」，不能在限流之前就分岔，否則有效／Decoy 的 202 對 429
-        // 比例會不同，變成訂單存在性 Oracle。IP Scope 一律用「這次呼叫收到的目前 IP」，
-        // 不用 Request 建立當下保存的舊 IP bucket——同一張 Challenge 之後換網路重寄，
-        // 限流才會準確反映實際發出重寄請求的來源。
-        if (!throttle.TryAcquireIp(hasher.HashIp(requesterIp)) ||
-            !throttle.TryAcquireEmail(request.EmailKeyHash) ||
-            !throttle.TryAcquireOrderLookup(request.OrderLookupKeyHash))
+        // 每次重寄都建立一筆延續同一組 Scope Hash／到期時間的新 Row，同一交易內撤銷舊 Row，
+        // 讓舊碼／舊 Request 立即失效（DEC-P266 持久化限流：三 Scope 的視窗計數依賴「新增
+        // 一筆可被 (Hash, CreatedAtUtc) 索引數到的 Row」，Decoy 也要走同一條路徑，不能只有
+        // 有效請求才新增，否則 Decoy／有效的 202 對 429 比例會不同，變成訂單存在性 Oracle）。
+        // IP Scope 一律用「這次呼叫收到的目前 IP」，不用 Request 建立當下保存的舊 IP bucket。
+        var isDecoy = request.OrderId is null || request.CodeHash is null;
+        var code = GenerateSixDigitCode();
+        var codeHash = hasher.HashCode(code);
+        var window = CreateWindow(ipHash, request.EmailKeyHash, request.OrderLookupKeyHash, nowUtc);
+
+        GuestOrderAccessRequest successor;
+        var created = false;
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                successor = GuestOrderAccessRequest.CreateResend(
+                    Guid.CreateVersion7(), request, isDecoy ? null : codeHash, nowUtc);
+            }
+            catch (InvalidOperationException)
+            {
+                // 已達 3 封上限或未滿 60 秒間隔——維持安全回應，不揭露原因；沒有新 Row 要
+                // 寫入，這次呼叫不消耗三 Scope 的視窗預算。
+                return new GuestOrderAccessAcceptedResult.Accepted(
+                    requestPublicId, request.ExpiresAtUtc, nowUtc.Add(ResendInterval));
+            }
+
+            try
+            {
+                created = await gateway.TryCreateRequestWithinRateLimitAsync(
+                    window, successor, requestToRevoke: request, cancellationToken);
+                break;
+            }
+            catch (DomainProblemException exception)
+                when (exception.Code == DomainErrorCodes.ConcurrencyConflict)
+            {
+                // SQL Server 死結，或撤銷舊 Row 時撞到樂觀鎖——重新載入 request 目前狀態
+                // （RowVersion、SendCount、RevokedAtUtc…）用最新資料重跑一次資格判斷。若同
+                // 一瞬間有另一個重寄贏得競爭，重載後 request 會已經 Revoked，下一輪
+                // CreateResend 會自然拋 InvalidOperationException 安全失敗，不會核發第二筆。
+                if (attempt >= MaxFailedAttemptConcurrencyRetries)
+                {
+                    return new GuestOrderAccessAcceptedResult.RateLimited();
+                }
+
+                await gateway.ReloadRequestAsync(request, cancellationToken);
+            }
+        }
+
+        if (!created)
         {
             return new GuestOrderAccessAcceptedResult.RateLimited();
         }
 
-        var isDecoy = request.OrderId is null || request.CodeHash is null;
-        var code = GenerateSixDigitCode();
-        var codeHash = hasher.HashCode(code);
-
-        try
-        {
-            if (isDecoy)
-            {
-                request.RecordSend(nowUtc);
-            }
-            else
-            {
-                // 每次重寄都換發新碼，原子取代舊 CodeHash，讓舊碼立即失效。
-                request.RecordResend(codeHash, nowUtc);
-            }
-        }
-        catch (InvalidOperationException)
-        {
-            // 已達 3 封上限或未滿 60 秒間隔——維持安全回應，不揭露原因。
-            return new GuestOrderAccessAcceptedResult.Accepted(
-                requestPublicId, request.ExpiresAtUtc, nowUtc.Add(ResendInterval));
-        }
-
-        await gateway.SaveChangesAsync(cancellationToken);
-
         if (!isDecoy)
         {
-            var order = await gateway.FindGuestOrderByIdAsync(request.OrderId!.Value, cancellationToken);
+            var order = await gateway.FindGuestOrderByIdAsync(successor.OrderId!.Value, cancellationToken);
             if (order is not null && !string.IsNullOrWhiteSpace(order.GuestEmailNormalized))
             {
                 emailDispatchQueue.Enqueue(GuestOrderAccessEmailComposer.Compose(
@@ -185,7 +211,7 @@ public sealed class GuestOrderAccessUseCase(
         }
 
         return new GuestOrderAccessAcceptedResult.Accepted(
-            requestPublicId, request.ExpiresAtUtc, nowUtc.Add(ResendInterval));
+            successor.PublicId, successor.ExpiresAtUtc, nowUtc.Add(ResendInterval));
     }
 
     public async Task<GuestOrderAccessVerifyResult> VerifyAsync(
@@ -282,6 +308,48 @@ public sealed class GuestOrderAccessUseCase(
 
         return new GuestOrderAccessVerifyResult.Success(rawToken, lookup.OrderPublicId, tokenExpiresAtUtc);
     }
+
+    /// <summary>
+    /// 首次建立（Decoy／有效皆同）沒有 <c>requestToRevoke</c>，<paramref name="newRequest"/>
+    /// 的欄位不依賴任何會變動的既有資料——遇到 SQL Server 死結／並行衝突，直接用同一個
+    /// Entity 重跑整段交易即可，不需要像 <see cref="ResendAsync"/> 那樣重新載入、重算資格。
+    /// </summary>
+    private async Task<bool> TryCreateRequestWithRetryAsync(
+        GuestOrderAccessRateLimitWindow window,
+        GuestOrderAccessRequest newRequest,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                return await gateway.TryCreateRequestWithinRateLimitAsync(
+                    window, newRequest, requestToRevoke: null, cancellationToken);
+            }
+            catch (DomainProblemException exception)
+                when (exception.Code == DomainErrorCodes.ConcurrencyConflict)
+            {
+                if (attempt >= MaxFailedAttemptConcurrencyRetries)
+                {
+                    return false;
+                }
+            }
+        }
+    }
+
+    private DateTime WindowStartUtc(DateTime nowUtc) =>
+        nowUtc.Add(-TimeSpan.FromMinutes(rateLimitOptions.Value.GuestOrderAccessWindowMinutes));
+
+    private GuestOrderAccessRateLimitWindow CreateWindow(
+        byte[] ipHash, byte[] emailHash, byte[] orderLookupHash, DateTime nowUtc) =>
+        new(
+            ipHash,
+            rateLimitOptions.Value.GuestOrderAccessIpPermitLimit,
+            emailHash,
+            rateLimitOptions.Value.GuestOrderAccessEmailPermitLimit,
+            orderLookupHash,
+            rateLimitOptions.Value.GuestOrderAccessOrderLookupPermitLimit,
+            WindowStartUtc(nowUtc));
 
     private static string Normalize(string email) => email.Trim().ToUpperInvariant();
 
