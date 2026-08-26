@@ -163,7 +163,7 @@ public sealed class GuestOrderAccessUseCase(
             try
             {
                 successor = GuestOrderAccessRequest.CreateResend(
-                    Guid.CreateVersion7(), request, isDecoy ? null : codeHash, nowUtc);
+                    Guid.CreateVersion7(), request, ipHash, isDecoy ? null : codeHash, nowUtc);
             }
             catch (InvalidOperationException)
             {

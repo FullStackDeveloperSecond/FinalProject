@@ -1,3 +1,4 @@
+using DoSelect.Application.Orders;
 using DoSelect.Domain.Orders;
 using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Persistence;
@@ -9,9 +10,9 @@ namespace DoSelect.Infrastructure.Tests.Orders;
 
 public sealed class EfGuestOrderAccessGatewayTests : IAsyncLifetime
 {
-    private const string ConnectionString =
-        "Server=.\\SQL2025;Database=DoSelectEfGuestOrderAccessGatewayTests;Trusted_Connection=True;" +
-        "TrustServerCertificate=True;";
+    private static readonly string ConnectionString =
+        global::DoSelect.Infrastructure.Tests.SqlServerTestConnection.Build(
+            "DoSelectEfGuestOrderAccessGatewayTests");
 
     private static readonly DateTime CreatedAtUtc = new(2026, 8, 25, 0, 0, 0, DateTimeKind.Utc);
 
@@ -137,7 +138,7 @@ public sealed class EfGuestOrderAccessGatewayTests : IAsyncLifetime
 
         var successorPublicId = Guid.CreateVersion7();
         var successor = GuestOrderAccessRequest.CreateResend(
-            successorPublicId, previous, Hash(5), CreatedAtUtc.AddMinutes(1));
+            successorPublicId, previous, Hash(2), Hash(5), CreatedAtUtc.AddMinutes(1));
 
         var created = await gateway.TryCreateRequestWithinRateLimitAsync(
             DefaultWindow(Hash(2), Hash(3), Hash(4), CreatedAtUtc.AddMinutes(-14)),
@@ -171,7 +172,7 @@ public sealed class EfGuestOrderAccessGatewayTests : IAsyncLifetime
         await context.SaveChangesAsync();
 
         var successor = GuestOrderAccessRequest.CreateResend(
-            Guid.CreateVersion7(), previous, Hash(5), CreatedAtUtc.AddMinutes(1));
+            Guid.CreateVersion7(), previous, Hash(2), Hash(5), CreatedAtUtc.AddMinutes(1));
 
         // IP 上限設成 0——existing 的 previous 這筆 Row 本身就已經佔滿（0 個名額），
         // 任一 Scope 超限就整段 rollback，不建立新 Row，也不撤銷 previous。

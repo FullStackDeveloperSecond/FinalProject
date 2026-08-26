@@ -111,14 +111,22 @@ public sealed class GuestOrderAccessRequest : MutablePublicEntity
     /// 重寄：驗證 <paramref name="previous"/>（同一張 Challenge 目前這一筆有效 Row）是否仍可
     /// 寄送（沿用 <see cref="EnsureCanSend"/> 的寄送上限／間隔規則），成功才建立一筆延續同一組
     /// Scope Hash／到期時間的新 Row——<see cref="SendCount"/> 從舊 Row 累加、
-    /// <see cref="AttemptCount"/> 歸零。呼叫端必須在同一交易內對 <paramref name="previous"/>
-    /// 呼叫 <see cref="Revoke"/> 讓舊 Row／舊碼立即失效；這個工廠方法只讀取 previous 目前的
-    /// 狀態做驗證與延續，不會修改 previous 本身。有效與 Decoy 都走這個工廠（Decoy 傳
-    /// <paramref name="newCodeHash"/> 為 null）——三 Scope 限流用的是「新增一筆 Row」，
-    /// 兩種情況都要留下可計數的 Row，不能只有有效請求才新增。
+    /// <see cref="AttemptCount"/> 歸零。<paramref name="requesterIpHash"/> 一律用「這次呼叫
+    /// 收到的目前 IP」，不沿用 <paramref name="previous"/> 建立當下保存的舊 IP——同一張
+    /// Challenge 之後換網路重寄時，新 Row 才會準確反映實際發出重寄請求的來源；Email／
+    /// OrderLookup 兩個 Scope 的 Hash 則沿用 previous（訂單編號與 Email 不會因為重寄而變）。
+    /// 呼叫端必須在同一交易內對 <paramref name="previous"/> 呼叫 <see cref="Revoke"/> 讓舊
+    /// Row／舊碼立即失效；這個工廠方法只讀取 previous 目前的狀態做驗證與延續，不會修改
+    /// previous 本身。有效與 Decoy 都走這個工廠（Decoy 傳 <paramref name="newCodeHash"/> 為
+    /// null）——三 Scope 限流用的是「新增一筆 Row」，兩種情況都要留下可計數的 Row，不能只有
+    /// 有效請求才新增。
     /// </summary>
     public static GuestOrderAccessRequest CreateResend(
-        Guid publicId, GuestOrderAccessRequest previous, byte[]? newCodeHash, DateTime sentAtUtc)
+        Guid publicId,
+        GuestOrderAccessRequest previous,
+        byte[] requesterIpHash,
+        byte[]? newCodeHash,
+        DateTime sentAtUtc)
     {
         ArgumentNullException.ThrowIfNull(previous);
         previous.EnsureCanSend(sentAtUtc);
@@ -126,7 +134,7 @@ public sealed class GuestOrderAccessRequest : MutablePublicEntity
         var successor = previous.OrderId is null
             ? CreateDecoy(
                 publicId,
-                previous.RequesterIpHash,
+                requesterIpHash,
                 previous.EmailKeyHash,
                 previous.OrderLookupKeyHash,
                 previous.ExpiresAtUtc,
@@ -135,7 +143,7 @@ public sealed class GuestOrderAccessRequest : MutablePublicEntity
                 publicId,
                 previous.OrderId.Value,
                 newCodeHash ?? throw new ArgumentNullException(nameof(newCodeHash)),
-                previous.RequesterIpHash,
+                requesterIpHash,
                 previous.EmailKeyHash,
                 previous.OrderLookupKeyHash,
                 previous.ExpiresAtUtc,
