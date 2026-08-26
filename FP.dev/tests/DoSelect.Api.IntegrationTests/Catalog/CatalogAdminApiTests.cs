@@ -18,8 +18,9 @@ namespace DoSelect.Api.IntegrationTests.Catalog;
 /// signs in as an admin with the CatalogManager role via
 /// <see cref="CatalogAdminApiFixture.CreateAuthenticatedAdminClientAsync"/> — see
 /// <see cref="CatalogAdminAuthorizationTests"/> for the 401/403/role-matrix coverage itself.
-/// [Trait("Category", "RequiresSqlServer")] SQL Server Provider-backed
-/// (see AssemblyInfo/ci.yml — this suite is excluded from required Linux CI per DEV-07).
+/// [Trait("Category", "RequiresSqlServer")] SQL Server Provider-backed. Required CI
+/// provides SQL Server 2025 and a connection template; the fixture overrides InitialCatalog
+/// with its dedicated test database before applying migrations.
 /// </summary>
 [Collection(nameof(CatalogAdminApiCollection))]
 [Trait("Category", "RequiresSqlServer")]
