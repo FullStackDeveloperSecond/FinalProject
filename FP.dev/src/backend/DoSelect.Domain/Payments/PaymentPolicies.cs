@@ -163,9 +163,9 @@ public static class PaymentAttemptPolicy
             throw new ArgumentException("The value must use UTC.", nameof(request));
         }
 
-        // 訂單狀態先於付款旗標判斷。已取消的訂單 IsPaid 也是 false，
+        // 付款方式與訂單狀態的組合先於付款旗標判斷。已取消的訂單 IsPaid 也是 false，
         // 只看付款旗標會讓它通過檢查並建立新的付款嘗試。
-        if (!IsPayable(context.OrderStatus))
+        if (!IsPayable(request.Method, context.OrderStatus))
         {
             return PaymentErrorCodes.PaymentStateConflict;
         }
@@ -198,21 +198,48 @@ public static class PaymentAttemptPolicy
     }
 
     /// <summary>
-    /// 哪些訂單狀態還能建立付款嘗試。已取消或已完成的訂單都不行。
+    /// 付款方式與訂單狀態的合法組合矩陣。
     /// </summary>
-    public static bool IsPayable(OrderStatus orderStatus) => orderStatus switch
+    /// <remarks>
+    /// 兩個維度必須一起判斷 —— 只看訂單狀態會放行不合法的組合。
+    /// <list type="bullet">
+    /// <item>
+    /// 線上付款（即時與延遲）只在 <c>PendingPayment</c> 建立。付款失敗或顧客取消不會取消
+    /// 訂單，在訂單原付款期限內可以再建立一筆，但訂單此時仍是 <c>PendingPayment</c>
+    /// （「購物車、訂單、付款與物流」付款重試與訂單期限一節）。
+    /// </item>
+    /// <item>
+    /// 貨到付款只在 <c>Confirmed</c> 建立。COD 訂單建立成功時即為
+    /// <c>OrderStatus = Confirmed</c> 且 COD Payment 為 <c>AwaitingPayment</c>
+    /// （商品訂單物流後台驗收規格）。因此 <c>PendingPayment + CashOnDelivery</c>
+    /// 不是合法組合，COD 訂單也不得再建立線上付款嘗試。
+    /// </item>
+    /// <item>
+    /// <c>Processing</c> 之後不再建立任何新的付款嘗試；<c>Completed</c> 與
+    /// <c>Cancelled</c> 是終態。
+    /// </item>
+    /// </list>
+    /// </remarks>
+    public static bool IsPayable(PaymentMethod method, OrderStatus orderStatus)
     {
-        OrderStatus.PendingPayment => true,
+        var isCashOnDelivery = PaymentMethodPolicy.KindOf(method) ==
+            PaymentSettlementKind.CashOnDelivery;
 
-        // 貨到付款的訂單先確認再收款，因此這兩個狀態仍可能建立嘗試。
-        OrderStatus.Confirmed => true,
-        OrderStatus.Processing => true,
+        return orderStatus switch
+        {
+            // 線上付款的初次建立與重試都在這個狀態；COD 訂單不會停在這裡。
+            OrderStatus.PendingPayment => !isCashOnDelivery,
 
-        OrderStatus.Completed => false,
-        OrderStatus.Cancelled => false,
+            // COD 在建立訂單時直接產生付款紀錄，訂單同時進入 Confirmed。
+            OrderStatus.Confirmed => isCashOnDelivery,
 
-        _ => throw new ArgumentOutOfRangeException(nameof(orderStatus)),
-    };
+            OrderStatus.Processing => false,
+            OrderStatus.Completed => false,
+            OrderStatus.Cancelled => false,
+
+            _ => throw new ArgumentOutOfRangeException(nameof(orderStatus)),
+        };
+    }
 
     /// <summary>
     /// 貨到付款資格：配送方式必須支援，訂單不得含組裝電腦或任一預付限定 SKU，

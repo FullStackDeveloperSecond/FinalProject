@@ -135,7 +135,10 @@ public sealed class PaymentPolicyTests
     [Fact]
     public void CashOnDelivery_IgnoresTheOnlinePaymentDeadline() =>
         Assert.Null(PaymentAttemptPolicy.FindStartRejection(
-            Context(latestAttemptStatus: null, paymentDueAtUtc: NowUtc.AddDays(-1)),
+            Context(
+                latestAttemptStatus: null,
+                orderStatus: OrderStatus.Confirmed,
+                paymentDueAtUtc: NowUtc.AddDays(-1)),
             Request(PaymentMethod.CashOnDelivery)));
 
     [Fact]
@@ -180,7 +183,10 @@ public sealed class PaymentPolicyTests
     {
         // 上限比對與實際建立金額必須是同一個數字。分成兩個來源時，
         // 資格檢查可能用低金額通過、實際卻建立高金額的付款嘗試。
-        var context = Context(latestAttemptStatus: null, payableAmount: 20000.01m);
+        var context = Context(
+            latestAttemptStatus: null,
+            orderStatus: OrderStatus.Confirmed,
+            payableAmount: 20000.01m);
 
         Assert.Equal(
             PaymentErrorCodes.PaymentCodAmountExceeded,
@@ -188,25 +194,72 @@ public sealed class PaymentPolicyTests
                 context, Request(PaymentMethod.CashOnDelivery)));
     }
 
+    // 線上付款只在 PendingPayment；COD 只在 Confirmed。兩個維度必須一起判斷。
     [Theory]
-    [InlineData(OrderStatus.PendingPayment, true)]
-    [InlineData(OrderStatus.Confirmed, true)]
-    [InlineData(OrderStatus.Processing, true)]
-    [InlineData(OrderStatus.Completed, false)]
-    [InlineData(OrderStatus.Cancelled, false)]
-    public void OnlyAnOrderThatStillOwesMoneyIsPayable(
+    [InlineData(PaymentMethod.CreditCard, OrderStatus.PendingPayment, true)]
+    [InlineData(PaymentMethod.CreditCard, OrderStatus.Confirmed, false)]
+    [InlineData(PaymentMethod.CreditCard, OrderStatus.Processing, false)]
+    [InlineData(PaymentMethod.CreditCard, OrderStatus.Completed, false)]
+    [InlineData(PaymentMethod.CreditCard, OrderStatus.Cancelled, false)]
+    [InlineData(PaymentMethod.LinePay, OrderStatus.PendingPayment, true)]
+    [InlineData(PaymentMethod.LinePay, OrderStatus.Confirmed, false)]
+    [InlineData(PaymentMethod.ApplePay, OrderStatus.PendingPayment, true)]
+    [InlineData(PaymentMethod.ApplePay, OrderStatus.Confirmed, false)]
+    [InlineData(PaymentMethod.GooglePay, OrderStatus.PendingPayment, true)]
+    [InlineData(PaymentMethod.GooglePay, OrderStatus.Confirmed, false)]
+    [InlineData(PaymentMethod.ATM, OrderStatus.PendingPayment, true)]
+    [InlineData(PaymentMethod.ATM, OrderStatus.Confirmed, false)]
+    [InlineData(PaymentMethod.ATM, OrderStatus.Processing, false)]
+    [InlineData(PaymentMethod.ConvenienceCode, OrderStatus.PendingPayment, true)]
+    [InlineData(PaymentMethod.ConvenienceCode, OrderStatus.Confirmed, false)]
+    [InlineData(PaymentMethod.CashOnDelivery, OrderStatus.PendingPayment, false)]
+    [InlineData(PaymentMethod.CashOnDelivery, OrderStatus.Confirmed, true)]
+    [InlineData(PaymentMethod.CashOnDelivery, OrderStatus.Processing, false)]
+    [InlineData(PaymentMethod.CashOnDelivery, OrderStatus.Completed, false)]
+    [InlineData(PaymentMethod.CashOnDelivery, OrderStatus.Cancelled, false)]
+    public void ThePaymentMethodAndOrderStatusMatrixIsExplicit(
+        PaymentMethod method,
         OrderStatus orderStatus,
         bool expected) =>
-        Assert.Equal(expected, PaymentAttemptPolicy.IsPayable(orderStatus));
+        Assert.Equal(expected, PaymentAttemptPolicy.IsPayable(method, orderStatus));
 
     [Fact]
-    public void EveryOrderStatusHasAPayabilityRuling()
+    public void EveryMethodAndStatusCombinationHasARuling()
     {
-        // 新增訂單狀態時必須同時裁定可否付款，不能靜默落到預設值。
-        foreach (var orderStatus in Enum.GetValues<OrderStatus>())
+        // 新增付款方式或訂單狀態時必須同時裁定，不能靜默落到預設值。
+        foreach (var method in Enum.GetValues<PaymentMethod>())
         {
-            PaymentAttemptPolicy.IsPayable(orderStatus);
+            foreach (var orderStatus in Enum.GetValues<OrderStatus>())
+            {
+                PaymentAttemptPolicy.IsPayable(method, orderStatus);
+            }
         }
+    }
+
+    [Fact]
+    public void ACodOrderCannotStartAnOnlinePaymentAttempt()
+    {
+        // COD 訂單進入 Confirmed 後，不得再建立信用卡或 ATM 等線上付款嘗試。
+        var context = Context(latestAttemptStatus: null, orderStatus: OrderStatus.Confirmed);
+
+        Assert.Equal(
+            PaymentErrorCodes.PaymentStateConflict,
+            PaymentAttemptPolicy.FindStartRejection(context, Request(PaymentMethod.CreditCard)));
+        Assert.Equal(
+            PaymentErrorCodes.PaymentStateConflict,
+            PaymentAttemptPolicy.FindStartRejection(context, Request(PaymentMethod.ATM)));
+    }
+
+    [Fact]
+    public void APendingPaymentOrderCannotStartACashOnDeliveryAttempt()
+    {
+        // COD 在建立訂單時就產生付款紀錄並讓訂單進入 Confirmed，
+        // 因此沒有「PendingPayment 的訂單再補一筆 COD」這種流程。
+        Assert.Equal(
+            PaymentErrorCodes.PaymentStateConflict,
+            PaymentAttemptPolicy.FindStartRejection(
+                Context(latestAttemptStatus: null, orderStatus: OrderStatus.PendingPayment),
+                Request(PaymentMethod.CashOnDelivery)));
     }
 
     [Fact]

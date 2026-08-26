@@ -40,7 +40,9 @@ public sealed class StartPaymentAttemptServiceTests
     [Fact]
     public async Task StartAsync_PlansNoWindowForCashOnDelivery()
     {
-        var service = CreateService(new FakePaymentAttemptReader(Snapshot()));
+        // COD 只在 Confirmed 的訂單上建立（訂單建立時同時產生付款紀錄）。
+        var service = CreateService(new FakePaymentAttemptReader(
+            Snapshot(orderStatus: OrderStatus.Confirmed)));
 
         var result = await service.StartAsync(Request(PaymentMethod.CashOnDelivery));
 
@@ -199,16 +201,55 @@ public sealed class StartPaymentAttemptServiceTests
     }
 
     [Fact]
-    public async Task TheIdempotencyPayloadIsComparedAgainstTheOrderAmount()
+    public async Task AReplayStillWorksAfterTheOrderVersionChanged()
     {
-        // 既有嘗試的金額若與訂單目前應付金額不同，就不是同一個命令。
+        // 第一次建立成功但回應遺失，之後訂單版本又改變。呼叫端以原 Key 與原 Request
+        // 重送時必須拿回原本那筆 —— 那次建立已經發生了，不能回 concurrency_conflict。
         var service = CreateService(new FakePaymentAttemptReader(
-            Snapshot(payableAmount: 2000m),
-            Existing(status: PaymentAttemptStatus.AwaitingPayment)));
+            Snapshot(rowVersion: NewerRowVersion),
+            Existing(orderRowVersion: CurrentRowVersion)));
+
+        var result = await service.StartAsync(Request(orderRowVersion: CurrentRowVersion));
+
+        Assert.True(result.IsReplay);
+        Assert.Equal(ExistingAttemptPublicId, result.ExistingAttemptPublicId);
+    }
+
+    [Fact]
+    public async Task TheSameKeyWithADifferentRowVersionIsAPayloadConflict()
+    {
+        // 換上新的 orderRowVersion 就是不同的 Request，即使目前訂單金額與付款方式相同。
+        var service = CreateService(new FakePaymentAttemptReader(
+            Snapshot(rowVersion: NewerRowVersion),
+            Existing(orderRowVersion: CurrentRowVersion)));
+
+        var result = await service.StartAsync(Request(orderRowVersion: NewerRowVersion));
+
+        Assert.Equal(PaymentErrorCodes.IdempotencyPayloadConflict, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task TheSameKeyWithADifferentMethodIsAPayloadConflict()
+    {
+        var service = CreateService(new FakePaymentAttemptReader(
+            Snapshot(),
+            Existing(method: PaymentMethod.CreditCard)));
+
+        var result = await service.StartAsync(Request(PaymentMethod.ATM));
+
+        Assert.Equal(PaymentErrorCodes.IdempotencyPayloadConflict, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ThePlanCarriesTheVersionTheDecisionWasMadeOn()
+    {
+        // Writer 必須能在同一交易內再次比對這個版本；服務讀取當下的比對不足以
+        // 封住「讀取完成到寫入之間」訂單被改變的競態。
+        var service = CreateService(new FakePaymentAttemptReader(Snapshot()));
 
         var result = await service.StartAsync(Request());
 
-        Assert.Equal(PaymentErrorCodes.IdempotencyPayloadConflict, result.ErrorCode);
+        Assert.Equal(CurrentRowVersion, result.Plan!.ExpectedOrderRowVersion);
     }
 
     private static StartPaymentAttemptService CreateService(IPaymentAttemptReader reader) =>
@@ -216,6 +257,7 @@ public sealed class StartPaymentAttemptServiceTests
 
     private static readonly byte[] CurrentRowVersion = [1, 2, 3, 4, 5, 6, 7, 8];
     private static readonly byte[] StaleRowVersion = [1, 2, 3, 4, 5, 6, 7, 9];
+    private static readonly byte[] NewerRowVersion = [9, 9, 9, 9, 9, 9, 9, 9];
 
     private static StartPaymentAttemptRequest Request(
         PaymentMethod method = PaymentMethod.CreditCard,
@@ -227,10 +269,11 @@ public sealed class StartPaymentAttemptServiceTests
         PaymentAttemptStatus? latestAttemptStatus = null,
         DateTime? paymentDueAtUtc = null,
         OrderStatus orderStatus = OrderStatus.PendingPayment,
-        decimal payableAmount = 1000m) =>
+        decimal payableAmount = 1000m,
+        byte[]? rowVersion = null) =>
         new(
             OrderId: 7L,
-            CurrentRowVersion,
+            rowVersion ?? CurrentRowVersion,
             new OrderPaymentContext(
                 orderStatus,
                 payableAmount,
@@ -244,8 +287,16 @@ public sealed class StartPaymentAttemptServiceTests
 
     private static ExistingPaymentAttempt Existing(
         long orderId = 7L,
-        PaymentAttemptStatus status = PaymentAttemptStatus.AwaitingPayment) =>
-        new(ExistingAttemptPublicId, orderId, PaymentMethod.CreditCard, 1000m, status);
+        PaymentAttemptStatus status = PaymentAttemptStatus.AwaitingPayment,
+        byte[]? orderRowVersion = null,
+        PaymentMethod method = PaymentMethod.CreditCard) =>
+        new(
+            ExistingAttemptPublicId,
+            orderId,
+            method,
+            1000m,
+            orderRowVersion ?? CurrentRowVersion,
+            status);
 
     private sealed class FakePaymentAttemptReader : IPaymentAttemptReader
     {
