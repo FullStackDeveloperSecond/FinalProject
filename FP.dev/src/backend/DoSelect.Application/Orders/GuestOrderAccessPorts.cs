@@ -64,7 +64,21 @@ public interface IGuestOrderAccessGateway
     Task<int> PurgeExpiredAsync(
         DateTime cutoffUtc, int batchSize, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// 樂觀並行寫入衝突（RowVersion 不符）時，實作必須拋出
+    /// <see cref="DoSelect.Application.Common.DomainProblemException"/>（Code＝
+    /// <see cref="DoSelect.Application.Common.DomainErrorCodes.ConcurrencyConflict"/>），
+    /// 不能讓 EF Core 例外原樣往上傳——Application 層不依賴 EF Core，靠這個型別重試。
+    /// </summary>
     Task SaveChangesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 樂觀並行衝突後，重新從資料庫載入 Request 目前欄位值（含 RowVersion），供重試使用。
+    /// 不能改用 <see cref="FindActiveRequestAsync"/> 重查——同一個 DbContext 內這個 Entity
+    /// 已經在追蹤中，重查預設只會拿回同一個、還停在舊版本的記憶體實例。
+    /// </summary>
+    Task ReloadRequestAsync(
+        GuestOrderAccessRequest request, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
