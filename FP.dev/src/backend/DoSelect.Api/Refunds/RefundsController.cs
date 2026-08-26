@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using DoSelect.Api.Common;
 using DoSelect.Api.Security;
 using DoSelect.Application.Refunds;
@@ -33,6 +34,7 @@ public sealed class RefundsController(IRefundExecutor refundExecutor) : Controll
     public async Task<ActionResult<RefundExecutionResponse>> Execute(
         Guid refundPublicId,
         [FromHeader(Name = IdempotencyKeyHeaderName)] string? idempotencyKey,
+        [FromBody] ExecuteRefundRequestBody body,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(idempotencyKey))
@@ -40,6 +42,11 @@ public sealed class RefundsController(IRefundExecutor refundExecutor) : Controll
             ModelState.AddModelError(
                 "idempotencyKey",
                 $"{IdempotencyKeyHeaderName} is required.");
+            return BadRequest(ApiProblemDetailsFactory.CreateValidation(HttpContext, ModelState));
+        }
+
+        if (!ModelState.IsValid)
+        {
             return BadRequest(ApiProblemDetailsFactory.CreateValidation(HttpContext, ModelState));
         }
 
@@ -53,7 +60,14 @@ public sealed class RefundsController(IRefundExecutor refundExecutor) : Controll
         }
 
         var result = await refundExecutor.ExecuteAsync(
-            new ExecuteRefundRequest(refundPublicId, idempotencyKey, executedBy),
+            new ExecuteRefundRequest(
+                refundPublicId,
+                idempotencyKey,
+                executedBy,
+                body.ReasonCode,
+                body.Note,
+                HttpContext.TraceIdentifier,
+                HttpContext.TraceIdentifier),
             cancellationToken);
 
         if (result.ErrorCode is { } errorCode)
@@ -79,6 +93,26 @@ public sealed class RefundsController(IRefundExecutor refundExecutor) : Controll
 
     private ObjectResult Problem(Microsoft.AspNetCore.Mvc.ProblemDetails problemDetails) =>
         StatusCode(problemDetails.Status ?? StatusCodes.Status409Conflict, problemDetails);
+}
+
+/// <summary>
+/// 執行退款的 Request Body。
+/// </summary>
+/// <remarks>
+/// 刻意沒有 <c>allocations</c> 或任何金額欄位（DEC-P287）：分攤一律由後端依可信交易
+/// 快照產生。<c>reasonCode</c> 與 <c>note</c> 只寫進中央 AuditLog，不存回 Refund。
+/// </remarks>
+public sealed record ExecuteRefundRequestBody
+{
+    [Required]
+    [StringLength(64, MinimumLength = 1)]
+    public required string ReasonCode { get; init; }
+
+    [StringLength(1000)]
+    public string? Note { get; init; }
+
+    [Required]
+    public required byte[] RefundRowVersion { get; init; }
 }
 
 /// <summary>

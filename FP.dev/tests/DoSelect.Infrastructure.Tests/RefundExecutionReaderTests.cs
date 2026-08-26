@@ -82,7 +82,59 @@ public sealed class RefundExecutionReaderTests
         Assert.Contains("IsolationLevel.Serializable", source, StringComparison.Ordinal);
         Assert.Contains("CommitAsync", source, StringComparison.Ordinal);
         Assert.Contains("DbUpdateConcurrencyException", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("AsNoTracking", source, StringComparison.Ordinal);
+
+        // 退款列必須被追蹤才能在同一交易內條件更新。
+        // 其他唯讀查詢（例如把 Identity Id 換成管理員 PublicId）可以用 AsNoTracking。
+        var refundQuery = source[source.IndexOf("_context.Refunds", StringComparison.Ordinal)..];
+        var refundQueryEnd = refundQuery.IndexOf("cancellationToken);", StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "AsNoTracking",
+            refundQuery[..refundQueryEnd],
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheAuditIsWrittenInsideTheRefundTransaction()
+    {
+        // DEC-P289：稽核與退款狀態必須同批提交，任一失敗即整體回滾。
+        // Audit 若在 SaveChanges 之後或另一個交易寫入，退款就可能沒有稽核紀錄。
+        var source = File.ReadAllText(ExecutorSourcePath());
+
+        // 比對的是呼叫點的順序，不是方法定義的位置。
+        var auditCall = source.IndexOf("WriteAudit(refund", StringComparison.Ordinal);
+        var saveIndex = source.IndexOf(
+            "await _context.SaveChangesAsync(cancellationToken);",
+            StringComparison.Ordinal);
+        var commitIndex = source.IndexOf(
+            "await transaction.CommitAsync(cancellationToken);",
+            StringComparison.Ordinal);
+
+        Assert.True(auditCall > 0, "The executor must write a central audit entry.");
+        Assert.Contains("_auditWriter.Add", source, StringComparison.Ordinal);
+        Assert.InRange(auditCall, 0, saveIndex);
+        Assert.InRange(saveIndex, 0, commitIndex);
+    }
+
+    [Fact]
+    public void TheExecutionReasonNeverReachesTheRefundRow()
+    {
+        // reasonCode 與 note 只寫中央 AuditLog，不寫回 Refund（DEC-P289）。
+        var source = File.ReadAllText(ExecutorSourcePath());
+
+        Assert.DoesNotContain("refund.ReasonCode =", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("refund.Note", source, StringComparison.Ordinal);
+        Assert.Contains("reason: BuildReason(request)", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheAuditActorUsesThePublicIdNotTheIdentityId()
+    {
+        // DEC-P290：稽核與管理員摘要都不得出現內部 Identity Id。
+        var source = File.ReadAllText(ExecutorSourcePath());
+
+        Assert.Contains("admin.PublicId", source, StringComparison.Ordinal);
+        Assert.Contains("AuditActorType.Admin", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("AuditActor.Create(AuditActorType.Admin, adminUserId", source, StringComparison.Ordinal);
     }
 
     [Fact]

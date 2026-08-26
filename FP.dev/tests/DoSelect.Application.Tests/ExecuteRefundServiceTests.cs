@@ -136,10 +136,42 @@ public sealed class ExecuteRefundServiceTests
             new ExecuteRefundService(new FakeRefundExecutionReader(Snapshot()))
                 .PreviewAsync(Request(executedByAdminUserId: "  ")));
 
+    [Fact]
+    public void TheRequestCarriesNoAllocationsOrAmounts()
+    {
+        // DEC-P287：分攤與金額一律由後端依可信交易快照產生，
+        // 呼叫端連可以指定的欄位都沒有。
+        var properties = typeof(ExecuteRefundRequest).GetProperties();
+
+        Assert.DoesNotContain(properties, p => p.Name.Contains("Allocation", StringComparison.Ordinal));
+        Assert.DoesNotContain(properties, p =>
+            p.PropertyType == typeof(decimal) || p.PropertyType == typeof(decimal?));
+    }
+
+    [Fact]
+    public void TheExecutionReasonIsNotStoredOnTheRefund()
+    {
+        // DEC-P289：reasonCode 與 note 只寫中央 AuditLog，
+        // 不得在 Refund 上新增理由欄位形成第二份事實來源。
+        var refundProperties = typeof(Refund).GetProperties().Select(p => p.Name).ToArray();
+
+        Assert.DoesNotContain("Note", refundProperties);
+        Assert.DoesNotContain("ExecutionReasonCode", refundProperties);
+    }
+
     private static ExecuteRefundRequest Request(
         string idempotencyKey = StoredKey,
-        string executedByAdminUserId = "  finance-1  ") =>
-        new(RefundPublicId, idempotencyKey, executedByAdminUserId);
+        string executedByAdminUserId = "  finance-1  ",
+        string reasonCode = "customer_request",
+        string? note = null) =>
+        new(
+            RefundPublicId,
+            idempotencyKey,
+            executedByAdminUserId,
+            reasonCode,
+            note,
+            CorrelationId: "corr-1",
+            TraceId: "trace-1");
 
     private static RefundExecutionSnapshot Snapshot(
         RefundStatus status = RefundStatus.Approved,

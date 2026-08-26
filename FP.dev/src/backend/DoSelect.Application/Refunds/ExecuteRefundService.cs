@@ -40,10 +40,23 @@ public interface IRefundExecutor
         CancellationToken cancellationToken = default);
 }
 
+/// <summary>
+/// 執行退款的請求。
+/// </summary>
+/// <remarks>
+/// 刻意沒有金額或分攤欄位（DEC-P287）：分攤一律由後端 <c>RefundCalculator</c> 依可信
+/// 交易快照產生。<paramref name="ReasonCode"/> 與 <paramref name="Note"/> 只寫進中央
+/// <c>AuditLog</c>，不在 <c>Refund</c> 重複保存（DEC-P289）。
+/// <paramref name="ExecutedByAdminPublicId"/> 是管理員的 PublicId，不是內部 Identity Id。
+/// </remarks>
 public sealed record ExecuteRefundRequest(
     Guid RefundPublicId,
     string IdempotencyKey,
-    string ExecutedByAdminUserId);
+    string ExecutedByAdminUserId,
+    string ReasonCode,
+    string? Note,
+    string CorrelationId,
+    string TraceId);
 
 /// <summary>
 /// 通過檢查後要執行的退款。

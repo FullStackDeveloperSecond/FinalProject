@@ -147,6 +147,14 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
             request.Headers.Add("X-XSRF-TOKEN", await GetAntiforgeryTokenAsync(client, "admin"));
         }
 
+        // Body 只帶理由與 RowVersion，沒有 allocations 也沒有金額（DEC-P287）。
+        request.Content = JsonContent.Create(new
+        {
+            reasonCode = "customer_request",
+            note = (string?)null,
+            refundRowVersion = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 },
+        });
+
         return await client.SendAsync(request);
     }
 
