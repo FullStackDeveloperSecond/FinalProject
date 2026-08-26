@@ -165,6 +165,14 @@ public sealed class AdminAuthController(
         }
 
         var begin = await twoFactorUseCase.BeginEnrollmentAsync(challenge.UserId, cancellationToken);
+
+        // ⚠ 首次建立 authenticator key 會經由 Identity 的 ResetAuthenticatorKeyAsync，
+        // 副作用是 bump SecurityStamp——若不重新簽發這張 challenge cookie，等一下呼叫
+        // enroll/confirm 時 RequireChallengeAsync 比對到的還是舊 Stamp，會被誤判成
+        // 「Session 已撤銷」而回 admin_challenge_invalid，first-time enrollment 因此
+        // 永遠無法完成（實測發現的真實 bug）。
+        await SignInChallengeAsync(challenge.UserId, "enroll", challengePublicId);
+
         return Ok(new TotpEnrollBeginResponseDto(begin.SecretKey, begin.OtpAuthUri, begin.QrCodeDataUri));
     }
 
