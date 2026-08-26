@@ -110,11 +110,20 @@ describe('ProductDetailPage', () => {
   })
 
   /**
-   * Regression test (組長 PR #24 review round 10, P3): `selectedSkuPublicId` never reset when
-   * the product data changed. useRoute()'s productPublicId is reactive independent of how this
-   * component is mounted, so a param-only navigation on the same route record (/products/A ->
-   * /products/B) re-fetches and swaps `product` in place — but the SKU `<select>` stayed bound to
-   * whichever publicId was selected on A, which doesn't match any of B's options.
+   * Regression test (組長 PR #24 review round 10, P3; strengthened round 11, P3): `selectedSkuPublicId`
+   * never reset when the product data changed. useRoute()'s productPublicId is reactive independent
+   * of how this component is mounted, so a param-only navigation on the same route record
+   * (/products/A -> /products/B) re-fetches and swaps `product` in place — but the SKU `<select>`
+   * stayed bound to whichever publicId was selected on A, which doesn't match any of B's options.
+   *
+   * Round 11 review caught that the original version of this test gave B only a single SKU, so
+   * `#sku-select` wasn't rendered at all after navigating — the assertions on price/spec text
+   * passed regardless of whether the fix's `watch(product, ...)` existed, because `selectedSku`'s
+   * pre-existing fallback to `product.skus[0]` produces the same result by coincidence. B now has
+   * two SKUs (matching A's shape) so the `<select>` stays rendered post-navigation, and the test
+   * asserts its `.value` directly landed on B's default — which only the watch can produce, since
+   * without it the `<select>`'s v-model would still hold A's stale selected publicId ('a2'), a
+   * value that isn't one of B's `<option>`s.
    */
   it('resets the selected SKU to the new product\'s default after navigating to a different product', async () => {
     const productA = productDetail({
@@ -144,6 +153,13 @@ describe('ProductDetailPage', () => {
           dimensions: { weightKg: null, lengthCm: null, widthCm: null, heightCm: null },
           isDefault: true,
         },
+        {
+          publicId: 'b2', skuCode: 'B2', name: 'B Variant 2',
+          price: { list: 2500, sale: null, currency: 'TWD' }, availability: 'inStock',
+          maxPurchasableQuantity: 10, specifications: [{ semanticKey: 'color', label: '顏色', value: 'White', unit: null }],
+          dimensions: { weightKg: null, lengthCm: null, widthCm: null, heightCm: null },
+          isDefault: false,
+        },
       ],
     })
     mockGetProductDetail.mockImplementation((id: string) => Promise.resolve(id === 'p2' ? productB : productA))
@@ -165,9 +181,10 @@ describe('ProductDetailPage', () => {
     await router.push('/products/p2')
     await flushPromises()
 
-    // B has only one SKU, so the dropdown itself isn't rendered — the fallback shows through the
-    // price/spec content directly, which must be B's default SKU, not a blank/stale selection.
-    expect(wrapper.find('#sku-select').exists()).toBe(false)
+    // B's dropdown still renders (2 SKUs) — its value must have been reset to B's default
+    // ('b-default'), not left holding A's stale 'a2' (which isn't one of B's options at all).
+    expect(wrapper.find('#sku-select').exists()).toBe(true)
+    expect((wrapper.find('#sku-select').element as HTMLSelectElement).value).toBe('b-default')
     expect(wrapper.text()).toContain('NT$2,000')
     expect(wrapper.text()).toContain('Black')
   })

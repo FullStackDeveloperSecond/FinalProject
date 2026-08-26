@@ -8,6 +8,8 @@ using DoSelect.Infrastructure.Catalog;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using System.Data.Common;
 
 namespace DoSelect.Infrastructure.Tests.Catalog;
 
@@ -668,11 +670,11 @@ public sealed class ProductAdminServiceTests
     /// <summary>
     /// 組長 PR #24 round 10 review, P2: CreateAsync's ProductCode uniqueness check is a plain
     /// AnyAsync (SELECT) before the INSERT — two concurrent creates for the same brand-new code
-    /// can both pass it. Uses the same ManualResetEventSlim-gated Task.WhenAll pattern as
-    /// AdminSupportTicketClaimStoreTests.ClaimAsync_TwoAdminsRace (each side gets its own
-    /// DbContext/service instance, both gated to start the racy call at the same instant) rather
-    /// than the round-9 identity-resolution trick, since this is a genuine two-concurrent-INSERTs
-    /// race, not one entity going stale under a single tracked reference.
+    /// can both pass it. Round 11 review: a ManualResetEventSlim gating only the *start* of each
+    /// call doesn't guarantee both sides' AnyAsync pre-check completes before either reaches
+    /// INSERT — see <see cref="CatalogAdminFixture.TwoPartyExistsCheckBarrier"/> for the SQL-level
+    /// barrier added to actually force that, and the <c>Arrivals</c> assertion below proving it
+    /// engaged for both sides.
     /// </summary>
     [Fact]
     public async Task CreateAsync_WhenTwoConcurrentRequestsUseTheSameNewProductCode_TheLoserThrowsProductCodeDuplicate()
@@ -681,10 +683,11 @@ public sealed class ProductAdminServiceTests
         var (brand, category, _) = await CatalogAdminFixture.SeedCatalogAsync(seedContext);
         var productCode = CatalogAdminFixture.UniqueCode("PROD");
         using var gate = new ManualResetEventSlim(false);
+        var existsCheckBarrier = new CatalogAdminFixture.TwoPartyExistsCheckBarrier("[ProductCode]");
 
         async Task<object> CreateInNewContextAsync(string skuCodeSuffix)
         {
-            await using var context = CatalogAdminFixture.CreateContext();
+            await using var context = CatalogAdminFixture.CreateContext(existsCheckBarrier);
             var service = new EfProductAdminService(context);
             var request = new CreateProductRequest(
                 productCode, "測試商品", brand.PublicId, category.PublicId, null, null, [],
@@ -709,6 +712,11 @@ public sealed class ProductAdminServiceTests
         var secondTask = Task.Run(() => CreateInNewContextAsync("B"));
         gate.Set();
         var results = await Task.WhenAll(firstTask, secondTask);
+
+        // Proves both sides' AnyAsync pre-check actually ran through the intercepted codepath and
+        // was gated by the barrier — i.e. this isn't silently back to the weaker "whichever
+        // finished first never met the second" guarantee the round-10 test only provided.
+        Assert.Equal(2, existsCheckBarrier.Arrivals);
 
         Assert.Single(results, result => result is AdminProductDetailDto);
         var failure = Assert.Single(results, result => result is CatalogWriteException);
@@ -862,7 +870,9 @@ public sealed class SkuAdminServiceTests
     /// <summary>
     /// 組長 PR #24 round 10 review, P2: same class of race as the ProductCode test above, but for
     /// CreateAsync's SkuCode uniqueness check — two concurrent SKU creates for the same product
-    /// using the same brand-new SkuCode can both pass the AnyAsync pre-check.
+    /// using the same brand-new SkuCode can both pass the AnyAsync pre-check. Round 11 review:
+    /// see <see cref="CatalogAdminFixture.TwoPartyExistsCheckBarrier"/> — the SQL-level barrier
+    /// this test now uses so both sides' pre-check provably completes before either INSERTs.
     /// </summary>
     [Fact]
     public async Task CreateAsync_WhenTwoConcurrentRequestsUseTheSameNewSkuCode_TheLoserThrowsSkuCodeDuplicate()
@@ -872,10 +882,11 @@ public sealed class SkuAdminServiceTests
         var product = await CatalogAdminFixture.CreateProductAsync(seedContext, brand, category);
         var skuCode = CatalogAdminFixture.UniqueCode("SKU");
         using var gate = new ManualResetEventSlim(false);
+        var existsCheckBarrier = new CatalogAdminFixture.TwoPartyExistsCheckBarrier("[SkuCode]");
 
         async Task<object> CreateInNewContextAsync()
         {
-            await using var context = CatalogAdminFixture.CreateContext();
+            await using var context = CatalogAdminFixture.CreateContext(existsCheckBarrier);
             var service = new EfSkuAdminService(context);
             var request = new CreateSkuRequest(skuCode, "新規格", 10_000m, 7_000m, null, null, null, null, "Draft", false, false, []);
             gate.Wait();
@@ -894,6 +905,11 @@ public sealed class SkuAdminServiceTests
         var secondTask = Task.Run(() => CreateInNewContextAsync());
         gate.Set();
         var results = await Task.WhenAll(firstTask, secondTask);
+
+        // Proves both sides' AnyAsync pre-check actually ran through the intercepted codepath and
+        // was gated by the barrier, not silently degraded back to a "whoever's fastest wins
+        // unobserved" race.
+        Assert.Equal(2, existsCheckBarrier.Arrivals);
 
         Assert.Single(results, result => result is SkuDto);
         var failure = Assert.Single(results, result => result is CatalogWriteException);
@@ -1476,12 +1492,91 @@ public sealed class CatalogAdminFixture : IAsyncLifetime
         await context.Database.EnsureDeletedAsync();
     }
 
-    public static DoSelectDbContext CreateContext()
+    public static DoSelectDbContext CreateContext(params IInterceptor[] interceptors)
     {
-        var options = new DbContextOptionsBuilder<DoSelectDbContext>()
-            .UseSqlServer(ConnectionString)
-            .Options;
-        return new DoSelectDbContext(options);
+        var builder = new DbContextOptionsBuilder<DoSelectDbContext>()
+            .UseSqlServer(ConnectionString);
+        if (interceptors.Length > 0)
+        {
+            builder.AddInterceptors(interceptors);
+        }
+
+        return new DoSelectDbContext(builder.Options);
+    }
+
+    /// <summary>
+    /// 組長 PR #24 round 11 review: the round-10 race tests gated both sides' *start* with a
+    /// ManualResetEventSlim, but nothing forced both requests' in-app AnyAsync duplicate
+    /// pre-check to actually complete before either one raced ahead to INSERT — a fast first
+    /// request could run the whole CreateAsync (pre-check through INSERT) before the second even
+    /// reached its own pre-check, in which case the second correctly sees the row via the
+    /// in-app AnyAsync and throws duplicate WITHOUT ever exercising the SQL 2601/2627 ->
+    /// SqlUniqueIndexViolations translation the test exists to prove — a false green even if that
+    /// translation were deleted entirely.
+    ///
+    /// This barrier closes that gap at the SQL level. It recognizes the specific AnyAsync-
+    /// generated EXISTS query by a caller-supplied, column-specific text fragment (so it can't be
+    /// confused with an unrelated existence check, e.g. a Brand/Category resolve), and makes
+    /// whichever of the two DbContexts finishes that query's SELECT first wait for the second to
+    /// finish its own before either context's execution resumes. Both AnyAsync calls therefore
+    /// provably observe "does not exist" before either can proceed to INSERT, forcing the actual
+    /// race down to SQL Server's own unique index rather than letting one side take the easy
+    /// in-app duplicate-check exit. EF Core's SQL Server provider may compile AnyAsync as either
+    /// a reader- or scalar-returning command depending on shape, so both overrides are hooked.
+    /// <see cref="Arrivals"/> lets the test assert the barrier actually engaged for both sides
+    /// (i.e. that the text-fragment match didn't silently fail to fire, which would otherwise
+    /// silently degrade the test back to the original, weaker guarantee).
+    /// </summary>
+    public sealed class TwoPartyExistsCheckBarrier : DbCommandInterceptor
+    {
+        private readonly string _mustContain;
+        private readonly TaskCompletionSource _firstArrived = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _arrivals;
+
+        public TwoPartyExistsCheckBarrier(string mustContain)
+        {
+            _mustContain = mustContain;
+        }
+
+        public int Arrivals => _arrivals;
+
+        public override async ValueTask<DbDataReader> ReaderExecutedAsync(
+            DbCommand command,
+            CommandExecutedEventData eventData,
+            DbDataReader result,
+            CancellationToken cancellationToken = default)
+        {
+            await WaitForBothAsync(command, cancellationToken);
+            return await base.ReaderExecutedAsync(command, eventData, result, cancellationToken);
+        }
+
+        public override async ValueTask<object?> ScalarExecutedAsync(
+            DbCommand command,
+            CommandExecutedEventData eventData,
+            object? result,
+            CancellationToken cancellationToken = default)
+        {
+            await WaitForBothAsync(command, cancellationToken);
+            return await base.ScalarExecutedAsync(command, eventData, result, cancellationToken);
+        }
+
+        private async Task WaitForBothAsync(DbCommand command, CancellationToken cancellationToken)
+        {
+            if (!command.CommandText.Contains("EXISTS", StringComparison.Ordinal) ||
+                !command.CommandText.Contains(_mustContain, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            if (Interlocked.Increment(ref _arrivals) == 1)
+            {
+                await _firstArrived.Task.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
+            }
+            else
+            {
+                _firstArrived.TrySetResult();
+            }
+        }
     }
 
     // Guid.NewGuid() (random) is used here instead of Guid.CreateVersion7() (time-ordered)
