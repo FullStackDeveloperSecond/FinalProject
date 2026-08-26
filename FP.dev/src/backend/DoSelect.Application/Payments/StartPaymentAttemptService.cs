@@ -3,21 +3,6 @@ using DoSelect.Domain.Payments;
 namespace DoSelect.Application.Payments;
 
 /// <summary>
-/// 既有付款嘗試的最小識別資料，用於 Idempotency-Key 重播比對。
-/// </summary>
-/// <remarks>
-/// <paramref name="OrderRowVersion"/> 是**建立當下**呼叫端持有的訂單版本，
-/// 屬於原始 Request 的一部分。重播比對必須用它，不能用目前的訂單快照。
-/// </remarks>
-public sealed record ExistingPaymentAttempt(
-    Guid PublicId,
-    long OrderId,
-    PaymentMethod Method,
-    decimal Amount,
-    byte[] OrderRowVersion,
-    PaymentAttemptStatus Status);
-
-/// <summary>
 /// 訂單的付款狀態快照。<paramref name="OrderId"/> 為內部識別，不得對外回傳。
 /// </summary>
 /// <remarks>
@@ -35,14 +20,6 @@ public sealed record OrderPaymentSnapshot(
 /// </summary>
 public interface IPaymentAttemptReader
 {
-    /// <summary>
-    /// 以 Idempotency-Key 找既有嘗試。`UX_PaymentAttempts_IdempotencyKey` 為全域唯一，
-    /// 因此不需要再以訂單縮小範圍。
-    /// </summary>
-    Task<ExistingPaymentAttempt?> FindByIdempotencyKeyAsync(
-        string idempotencyKey,
-        CancellationToken cancellationToken = default);
-
     Task<OrderPaymentSnapshot?> FindOrderPaymentSnapshotAsync(
         Guid orderPublicId,
         CancellationToken cancellationToken = default);
@@ -77,17 +54,13 @@ public sealed record PaymentAttemptPlan(
     byte[] ExpectedOrderRowVersion);
 
 /// <summary>
-/// 建立付款嘗試的決策結果。三種情形：拒絕、既有嘗試重播、通過並帶出建立計畫。
+/// 建立付款嘗試的決策結果：拒絕，或通過並帶出建立計畫。
 /// </summary>
 public sealed class StartPaymentAttemptResult
 {
-    private StartPaymentAttemptResult(
-        string? errorCode,
-        Guid? existingAttemptPublicId,
-        PaymentAttemptPlan? plan)
+    private StartPaymentAttemptResult(string? errorCode, PaymentAttemptPlan? plan)
     {
         ErrorCode = errorCode;
-        ExistingAttemptPublicId = existingAttemptPublicId;
         Plan = plan;
     }
 
@@ -95,28 +68,29 @@ public sealed class StartPaymentAttemptResult
 
     public string? ErrorCode { get; }
 
-    /// <summary>同一 Idempotency-Key 搭配相同 Payload 時，回傳既有嘗試而不建立第二筆。</summary>
-    public bool IsReplay => IsSuccess && Plan is null;
-
-    public Guid? ExistingAttemptPublicId { get; }
-
-    /// <summary>重播時為 <c>null</c>。</summary>
+    /// <summary>拒絕時為 <c>null</c>。</summary>
     public PaymentAttemptPlan? Plan { get; }
 
-    public static StartPaymentAttemptResult Failure(string errorCode) =>
-        new(errorCode, null, null);
+    public static StartPaymentAttemptResult Failure(string errorCode) => new(errorCode, null);
 
-    public static StartPaymentAttemptResult Replay(Guid existingAttemptPublicId) =>
-        new(null, existingAttemptPublicId, null);
-
-    public static StartPaymentAttemptResult Approved(PaymentAttemptPlan plan) =>
-        new(null, null, plan);
+    public static StartPaymentAttemptResult Approved(PaymentAttemptPlan plan) => new(null, plan);
 }
 
 /// <summary>
-/// 決定要不要為一張訂單建立新的付款嘗試。本服務只做決策與冪等比對，不寫資料庫，
-/// 也不自建冪等表；冪等以 <c>PaymentAttempt.IdempotencyKey</c> 的唯一索引為準。
+/// 決定要不要為一張訂單建立新的付款嘗試。本服務只做決策，不寫資料庫。
 /// </summary>
+/// <remarks>
+/// **冪等不由本服務負責。** 重播與 Payload 衝突判斷屬於呼叫端外層的共用
+/// <c>IIdempotencyExecutor</c>，Request Hash 至少涵蓋
+/// <c>orderPublicId + method + orderRowVersion</c>。
+/// <para>
+/// 本服務曾經自行比對既有付款嘗試，但那需要保存「建立當下的原始 Request」，
+/// 而 <c>PaymentAttempts</c> 沒有這個欄位；改用目前訂單快照代替則會把
+/// 「訂單版本改變後真正的重播被誤判成衝突」與「同 Key 換新版本被誤判成重播」
+/// 兩個錯誤放回來。因此改由共用 Executor 負責，
+/// <c>PaymentAttempt.IdempotencyKey</c> 的唯一索引只作資料庫最後防線。
+/// </para>
+/// </remarks>
 public sealed class StartPaymentAttemptService
 {
     private readonly IPaymentAttemptReader _attemptReader;
@@ -158,23 +132,9 @@ public sealed class StartPaymentAttemptService
         // 金額只有一個來源：後端訂單。
         var payableAmount = snapshot.Context.PayableAmount;
 
-        // 冪等重播必須先於 RowVersion 閘門。
-        // 第一次建立成功但回應遺失、之後訂單版本又改變時，呼叫端以原 Key 與原 Request
-        // 重送應該拿回原本那筆，而不是 concurrency_conflict —— 那次建立已經發生了，
-        // 版本閘門只適用於「首次建立」。
-        var existing = await _attemptReader.FindByIdempotencyKeyAsync(
-            idempotencyKey,
-            cancellationToken);
-
-        if (existing is not null)
-        {
-            return IsSamePayload(existing, snapshot.OrderId, request)
-                ? StartPaymentAttemptResult.Replay(existing.PublicId)
-                : StartPaymentAttemptResult.Failure(PaymentErrorCodes.IdempotencyPayloadConflict);
-        }
-
-        // 首次建立才檢查版本：呼叫端持有的版本與訂單目前版本不符，
-        // 代表它看到的金額或狀態已經過期。
+        // 呼叫端持有的版本與訂單目前版本不符，代表它看到的金額或狀態已經過期。
+        // 重播與 Payload 衝突由外層的 IIdempotencyExecutor 在此之前判斷完畢，
+        // 走到這裡的一定是首次建立。
         if (!RowVersionMatches(request.OrderRowVersion, snapshot.RowVersion))
         {
             return StartPaymentAttemptResult.Failure(PaymentErrorCodes.ConcurrencyConflict);
@@ -207,21 +167,4 @@ public sealed class StartPaymentAttemptService
         presented is not null &&
         current is not null &&
         presented.AsSpan().SequenceEqual(current);
-
-    /// <summary>
-    /// 是否為同一個命令。
-    /// </summary>
-    /// <remarks>
-    /// 比對的是**建立當下保存的原始 Request**，不是目前的訂單快照。
-    /// 用目前訂單金額代替原始 payload 會有兩個錯誤方向：訂單金額事後改變會讓真正的
-    /// 重播被誤判成衝突；相同 Key 換上新的 <c>orderRowVersion</c> 也會因為目前金額
-    /// 相同而被誤判成重播。
-    /// </remarks>
-    private static bool IsSamePayload(
-        ExistingPaymentAttempt existing,
-        long orderId,
-        StartPaymentAttemptRequest request) =>
-        existing.OrderId == orderId &&
-        existing.Method == request.Method &&
-        RowVersionMatches(request.OrderRowVersion, existing.OrderRowVersion);
 }
