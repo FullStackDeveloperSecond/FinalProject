@@ -182,11 +182,21 @@ public interface IAdminInvoiceReader
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 顧客查看自己訂單的發票。<paramref name="ownerPublicId"/> 必須是訂單擁有者，
-    /// 不是的話回 <c>null</c> —— 不得讓別人的發票因為知道訂單識別就看得到。
+    /// 顧客查看自己訂單的發票。
     /// </summary>
-    Task<CustomerInvoiceDto?> FindForOwnerAsync(
-        Guid orderPublicId,
-        Guid ownerPublicId,
+    /// <param name="orderId">
+    /// **已完成擁有者驗證**的內部訂單鍵。擁有者比對由本模組的 Application／授權層
+    /// 以 <c>IOrderIdentityReader</c> 取得的 <c>MemberUserId</c> 與登入者 claim 完成，
+    /// 不在這個 reader 內判斷 —— 授權是本模組 endpoint 的職責，Orders 的 reader
+    /// 只負責提供資料。
+    /// </param>
+    /// <remarks>
+    /// 呼叫順序必須是「先驗證擁有者、再取發票」：
+    /// <c>IOrderIdentityReader.FindByPublicIdAsync</c> 回 <c>null</c> 或
+    /// <c>MemberUserId</c> 與登入者不符時就直接擋掉，不得先把 DTO 生出來再篩
+    /// （工程包「不得先取出他人資料再由 DTO 或 Vue 隱藏」）。
+    /// </remarks>
+    Task<CustomerInvoiceDto?> FindByOrderIdAsync(
+        long orderId,
         CancellationToken cancellationToken = default);
 }
