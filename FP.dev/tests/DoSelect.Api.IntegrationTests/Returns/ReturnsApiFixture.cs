@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using DoSelect.Api.Security;
+using DoSelect.Application.Files;
 using DoSelect.Domain.Orders;
 using DoSelect.Domain.Returns;
 using DoSelect.Domain.Shipping;
@@ -12,6 +13,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace DoSelect.Api.IntegrationTests.Returns;
 
@@ -56,6 +58,10 @@ public sealed class ReturnsApiFixture : IAsyncLifetime
     {
         await ResetDatabaseAsync();
 
+        var previousEnvironment = EnvironmentOverrides.Keys
+            .Append("Storage__DataRoot")
+            .ToDictionary(key => key, Environment.GetEnvironmentVariable);
+
         foreach (var (key, value) in EnvironmentOverrides)
         {
             Environment.SetEnvironmentVariable(key, value);
@@ -69,6 +75,8 @@ public sealed class ReturnsApiFixture : IAsyncLifetime
                 builder.UseEnvironment("Development");
                 builder.ConfigureServices(services =>
                 {
+                    services.RemoveAll<IFileScanner>();
+                    services.AddSingleton<IFileScanner>(new CleanFileScanner());
                     services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
                     services
                         .AddControllers()
@@ -79,14 +87,27 @@ public sealed class ReturnsApiFixture : IAsyncLifetime
         }
         finally
         {
-            foreach (var key in EnvironmentOverrides.Keys)
+            foreach (var (key, value) in previousEnvironment)
             {
-                Environment.SetEnvironmentVariable(key, null);
+                Environment.SetEnvironmentVariable(key, value);
             }
-            Environment.SetEnvironmentVariable("Storage__DataRoot", null);
         }
     }
 
+    private sealed class CleanFileScanner : IFileScanner
+    {
+        public Task<FileScanResult> ScanAsync(
+            string quarantinedFilePath,
+            CancellationToken cancellationToken = default)
+        {
+            var now = DateTimeOffset.UtcNow;
+            return Task.FromResult(new FileScanResult(
+                FileScanOutcome.Clean,
+                nameof(CleanFileScanner),
+                now,
+                now));
+        }
+    }
     public async Task DisposeAsync()
     {
         Client.Dispose();
