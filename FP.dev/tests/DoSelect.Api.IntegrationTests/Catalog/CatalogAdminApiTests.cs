@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using DoSelect.Api.Security;
+using DoSelect.Domain.Catalog;
 using DoSelect.Domain.Inventory;
 using Microsoft.EntityFrameworkCore;
 
@@ -17,8 +18,9 @@ namespace DoSelect.Api.IntegrationTests.Catalog;
 /// signs in as an admin with the CatalogManager role via
 /// <see cref="CatalogAdminApiFixture.CreateAuthenticatedAdminClientAsync"/> — see
 /// <see cref="CatalogAdminAuthorizationTests"/> for the 401/403/role-matrix coverage itself.
-/// [Trait("Category", "RequiresSqlServer")] SQL Server Provider-backed
-/// (see AssemblyInfo/ci.yml — this suite is excluded from required Linux CI per DEV-07).
+/// [Trait("Category", "RequiresSqlServer")] SQL Server Provider-backed. Required CI
+/// provides SQL Server 2025 and a connection template; the fixture overrides InitialCatalog
+/// with its dedicated test database before applying migrations.
 /// </summary>
 [Collection(nameof(CatalogAdminApiCollection))]
 [Trait("Category", "RequiresSqlServer")]
@@ -440,6 +442,8 @@ public sealed class AdminProductsApiTests
         var publicId = created.GetProperty("publicId").GetGuid();
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var defaultSku = Assert.Single(created.GetProperty("skus").EnumerateArray());
+        Assert.True(defaultSku.GetProperty("isDefault").GetBoolean());
 
         using var followUp = await client.GetAsync(response.Headers.Location);
         var fetched = await followUp.Content.ReadFromJsonAsync<JsonElement>();
@@ -474,6 +478,34 @@ public sealed class AdminProductsApiTests
 
         Assert.Equal(409, status);
         Assert.Equal("product_code_duplicate", problemCode);
+    }
+
+    [Fact]
+    public async Task Create_WhenDefaultSkuIsMissing_Returns400WithValidationFailed()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync();
+        var (brandId, categoryId) = await CatalogAdminApiSeeding.CreateBrandAndCategoryAsync(client);
+
+        using var response = await CatalogAdminApiFixture.SendWithAntiforgeryAsync(
+            client,
+            new HttpRequestMessage(HttpMethod.Post, "/api/v1/admin/products")
+            {
+                Content = JsonContent.Create(new
+                {
+                    productCode = CatalogAdminApiFixture.UniqueCode("PROD"),
+                    nameZhTw = "測試商品",
+                    brandPublicId = brandId,
+                    categoryPublicId = categoryId,
+                    descriptionZhTw = (string?)null,
+                    warrantyMonths = (int?)null,
+                    tagPublicIds = Array.Empty<Guid>(),
+                    status = "Draft",
+                }),
+            });
+        var (status, problemCode, _) = await CatalogAdminApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal(400, status);
+        Assert.Equal("validation_failed", problemCode);
     }
 
     [Fact]
@@ -587,6 +619,17 @@ public sealed class AdminProductsApiTests
                 warrantyMonths = (int?)null,
                 tagPublicIds = Array.Empty<Guid>(),
                 status = "1",
+                defaultSku = new
+                {
+                    skuCode = CatalogAdminApiFixture.UniqueCode("SKU"),
+                    nameZhTw = "預設規格",
+                    listPrice = 10_000m,
+                    unitCost = 7_000m,
+                    status = "Draft",
+                    isDefault = true,
+                    requiresPrepayment = false,
+                    specifications = Array.Empty<object>(),
+                },
             }),
         });
         var (status, problemCode, _) = await CatalogAdminApiFixture.ReadProblemAsync(response);
@@ -615,6 +658,17 @@ public sealed class AdminProductsApiTests
                 warrantyMonths = (int?)null,
                 tagPublicIds = Array.Empty<Guid>(),
                 status = "Draft",
+                defaultSku = new
+                {
+                    skuCode = CatalogAdminApiFixture.UniqueCode("SKU"),
+                    nameZhTw = "預設規格",
+                    listPrice = 10_000m,
+                    unitCost = 7_000m,
+                    status = "Draft",
+                    isDefault = true,
+                    requiresPrepayment = false,
+                    specifications = Array.Empty<object>(),
+                },
             }),
         });
         var (status, problemCode, _) = await CatalogAdminApiFixture.ReadProblemAsync(response);
@@ -710,6 +764,220 @@ public sealed class AdminSkusApiTests
 
         Assert.Equal(400, status);
         Assert.Equal("validation_failed", problemCode);
+    }
+
+    /// <summary>組長 PR #24 round 4 review, item 4: a negative price used to reach
+    /// CatalogGuard.NonNegative and throw ArgumentOutOfRangeException, which
+    /// GlobalExceptionHandler turns into an opaque 500 instead of a stable 400.</summary>
+    [Fact]
+    public async Task Create_WhenListPriceIsNegative_Returns400WithValidationFailed()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync();
+        var productId = await CatalogAdminApiSeeding.CreateProductWithCatalogAsync(client);
+
+        using var response = await CatalogAdminApiFixture.SendWithAntiforgeryAsync(client, new HttpRequestMessage(HttpMethod.Post, $"/api/v1/admin/products/{productId}/skus")
+        {
+            Content = JsonContent.Create(new
+            {
+                skuCode = CatalogAdminApiFixture.UniqueCode("SKU"),
+                nameZhTw = "標準版",
+                listPrice = -1m,
+                unitCost = 7_000m,
+                weightKg = (decimal?)null,
+                lengthCm = (decimal?)null,
+                widthCm = (decimal?)null,
+                heightCm = (decimal?)null,
+                status = "Draft",
+                isDefault = false,
+                requiresPrepayment = false,
+                specifications = Array.Empty<object>(),
+            }),
+        });
+        var (status, problemCode, _) = await CatalogAdminApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal(400, status);
+        Assert.Equal("validation_failed", problemCode);
+    }
+
+    /// <summary>組長 PR #24 round 5 review, item 3: WeightKg's SQL column is decimal(10,3) —
+    /// 0.001 is the true smallest valid value, not an arbitrarily larger "practical minimum"
+    /// the [Range] bound might have invented.</summary>
+    [Fact]
+    public async Task Create_WhenWeightKgIsAtTheSmallestValidPrecision_Returns201()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync();
+        var productId = await CatalogAdminApiSeeding.CreateProductWithCatalogAsync(client);
+
+        using var response = await CatalogAdminApiFixture.SendWithAntiforgeryAsync(client, new HttpRequestMessage(HttpMethod.Post, $"/api/v1/admin/products/{productId}/skus")
+        {
+            Content = JsonContent.Create(new
+            {
+                skuCode = CatalogAdminApiFixture.UniqueCode("SKU"),
+                nameZhTw = "標準版",
+                listPrice = 10_000m,
+                unitCost = 7_000m,
+                weightKg = 0.001m,
+                lengthCm = (decimal?)null,
+                widthCm = (decimal?)null,
+                heightCm = (decimal?)null,
+                status = "Draft",
+                isDefault = false,
+                requiresPrepayment = false,
+                specifications = Array.Empty<object>(),
+            }),
+        });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+    }
+
+    /// <summary>組長 PR #24 round 5 review, item 3: the old double.MaxValue upper bound was
+    /// nowhere near ListPrice's actual SQL column limit (decimal(18,2)) — an over-large value
+    /// used to ride through to a truncation/overflow DbUpdateException (500).</summary>
+    [Fact]
+    public async Task Create_WhenListPriceExceedsTheSqlColumnPrecision_Returns400WithValidationFailed()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync();
+        var productId = await CatalogAdminApiSeeding.CreateProductWithCatalogAsync(client);
+
+        using var response = await CatalogAdminApiFixture.SendWithAntiforgeryAsync(client, new HttpRequestMessage(HttpMethod.Post, $"/api/v1/admin/products/{productId}/skus")
+        {
+            Content = JsonContent.Create(new
+            {
+                skuCode = CatalogAdminApiFixture.UniqueCode("SKU"),
+                nameZhTw = "標準版",
+                // decimal(18,2) tops out at 9999999999999999.99 — one order of magnitude over.
+                listPrice = 99_999_999_999_999_999.99m,
+                unitCost = 7_000m,
+                weightKg = (decimal?)null,
+                lengthCm = (decimal?)null,
+                widthCm = (decimal?)null,
+                heightCm = (decimal?)null,
+                status = "Draft",
+                isDefault = false,
+                requiresPrepayment = false,
+                specifications = Array.Empty<object>(),
+            }),
+        });
+        var (status, problemCode, _) = await CatalogAdminApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal(400, status);
+        Assert.Equal("validation_failed", problemCode);
+    }
+
+    /// <summary>Same rationale as the negative-price test — CatalogGuard.OptionalPositive
+    /// throws for zero or negative dimensions.</summary>
+    [Fact]
+    public async Task Create_WhenWeightKgIsZero_Returns400WithValidationFailed()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync();
+        var productId = await CatalogAdminApiSeeding.CreateProductWithCatalogAsync(client);
+
+        using var response = await CatalogAdminApiFixture.SendWithAntiforgeryAsync(client, new HttpRequestMessage(HttpMethod.Post, $"/api/v1/admin/products/{productId}/skus")
+        {
+            Content = JsonContent.Create(new
+            {
+                skuCode = CatalogAdminApiFixture.UniqueCode("SKU"),
+                nameZhTw = "標準版",
+                listPrice = 10_000m,
+                unitCost = 7_000m,
+                weightKg = 0m,
+                lengthCm = (decimal?)null,
+                widthCm = (decimal?)null,
+                heightCm = (decimal?)null,
+                status = "Draft",
+                isDefault = false,
+                requiresPrepayment = false,
+                specifications = Array.Empty<object>(),
+            }),
+        });
+        var (status, problemCode, _) = await CatalogAdminApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal(400, status);
+        Assert.Equal("validation_failed", problemCode);
+    }
+
+    [Fact]
+    public async Task Create_WhenPublishedAndSpecificationsAreEmptyButCategoryRequiresOne_Returns400WithMissingRequiredSpecification()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync();
+        var (brandPublicId, categoryPublicId) = await CatalogAdminApiSeeding.CreateBrandAndCategoryAsync(client);
+
+        // No admin HTTP endpoint exists for specification definitions (managed via seed/
+        // migration data, not this admin surface), so this one seed step reaches into the
+        // DbContext directly — same precedent as Delete_WhenSkuHasInventoryBalance_... above.
+        await using (var context = _fixture.CreateScopedContext())
+        {
+            var categoryId = await context.Categories
+                .Where(candidate => candidate.PublicId == categoryPublicId)
+                .Select(candidate => candidate.Id)
+                .FirstAsync();
+            context.SpecificationDefinitions.Add(new SpecificationDefinition(
+                Guid.CreateVersion7(), categoryId, CatalogAdminApiFixture.UniqueCode("SPEC"), "必要規格",
+                SpecificationValueType.Decimal, null, isRequired: true, isProtected: false, sortOrder: 0, DateTime.UtcNow));
+            await context.SaveChangesAsync();
+        }
+
+        using var productResponse = await CatalogAdminApiSeeding.PostProductAsync(client, brandPublicId, categoryPublicId);
+        productResponse.EnsureSuccessStatusCode();
+        var productId = (await productResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("publicId").GetGuid();
+
+        using var response = await CatalogAdminApiFixture.SendWithAntiforgeryAsync(client, new HttpRequestMessage(HttpMethod.Post, $"/api/v1/admin/products/{productId}/skus")
+        {
+            Content = JsonContent.Create(new
+            {
+                skuCode = CatalogAdminApiFixture.UniqueCode("SKU"),
+                nameZhTw = "標準版",
+                listPrice = 10_000m,
+                unitCost = 7_000m,
+                weightKg = (decimal?)null,
+                lengthCm = (decimal?)null,
+                widthCm = (decimal?)null,
+                heightCm = (decimal?)null,
+                status = "Published",
+                isDefault = false,
+                requiresPrepayment = false,
+                specifications = Array.Empty<object>(),
+            }),
+        });
+        var (status, problemCode, _) = await CatalogAdminApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal(400, status);
+        Assert.Equal("sku_missing_required_specification", problemCode);
+    }
+
+    [Fact]
+    public async Task Update_WhenUnsettingTheCurrentDefaultSku_Returns409WithSkuDefaultRequired()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync();
+        var productId = await CatalogAdminApiSeeding.CreateProductWithCatalogAsync(client);
+        using var productResponse = await client.GetAsync($"/api/v1/admin/products/{productId}");
+        var product = await productResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var defaultSku = product.GetProperty("skus").EnumerateArray().Single(sku => sku.GetProperty("isDefault").GetBoolean());
+        var publicId = defaultSku.GetProperty("publicId").GetGuid();
+        var rowVersion = defaultSku.GetProperty("rowVersion");
+
+        using var response = await CatalogAdminApiFixture.SendWithAntiforgeryAsync(client, new HttpRequestMessage(HttpMethod.Put, $"/api/v1/admin/skus/{publicId}")
+        {
+            Content = JsonContent.Create(new
+            {
+                nameZhTw = "標準版",
+                listPrice = 10_000m,
+                unitCost = 7_000m,
+                weightKg = (decimal?)null,
+                lengthCm = (decimal?)null,
+                widthCm = (decimal?)null,
+                heightCm = (decimal?)null,
+                status = "Draft",
+                isDefault = false,
+                requiresPrepayment = false,
+                specifications = Array.Empty<object>(),
+                rowVersion,
+            }),
+        });
+        var (status, problemCode, _) = await CatalogAdminApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal(409, status);
+        Assert.Equal("sku_default_required", problemCode);
     }
 
     [Fact]
@@ -939,10 +1207,9 @@ public sealed class AdminSkusApiTests
 /// Per Terry-PR12修正書.md P1: the 5 admin Catalog controllers must reject anonymous and
 /// under-privileged callers, and accept both roles the CatalogManager policy actually grants
 /// (CatalogManager itself, and SuperAdmin per the policy matrix in
-/// SecurityServiceCollectionExtensions.ConfigurePolicies). Representative across the 5
-/// controllers, not exhaustive per endpoint — the [Authorize] attribute is identical on all 5,
-/// so the wiring risk is "did I forget it on one controller", not "does it behave differently
-/// per controller".
+/// SecurityServiceCollectionExtensions.ConfigurePolicies). Read wiring is representative across
+/// the 5 controllers. Every write route is enumerated because SEC-ACC-02 requires rejected writes
+/// to prove both the HTTP authorization result and a database snapshot with no side effects.
 /// </summary>
 [Collection(nameof(CatalogAdminApiCollection))]
 [Trait("Category", "RequiresSqlServer")]
@@ -952,6 +1219,20 @@ public sealed class CatalogAdminAuthorizationTests
 
     public CatalogAdminAuthorizationTests(CatalogAdminApiFixture fixture) => _fixture = fixture;
 
+    public static TheoryData<string, string> CatalogWriteRoutes =>
+        new()
+        {
+            { "POST", "/api/v1/admin/brands" },
+            { "PUT", "/api/v1/admin/brands/00000000-0000-0000-0000-000000000001" },
+            { "POST", "/api/v1/admin/categories" },
+            { "PUT", "/api/v1/admin/categories/00000000-0000-0000-0000-000000000001" },
+            { "POST", "/api/v1/admin/tags" },
+            { "PUT", "/api/v1/admin/tags/00000000-0000-0000-0000-000000000001" },
+            { "POST", "/api/v1/admin/products" },
+            { "PUT", "/api/v1/admin/products/00000000-0000-0000-0000-000000000001" },
+            { "POST", "/api/v1/admin/products/00000000-0000-0000-0000-000000000001/skus" },
+            { "PUT", "/api/v1/admin/skus/00000000-0000-0000-0000-000000000001" },
+        };
     [Theory]
     [InlineData("/api/v1/admin/brands")]
     [InlineData("/api/v1/admin/categories")]
@@ -998,6 +1279,25 @@ public sealed class CatalogAdminAuthorizationTests
         Assert.Equal(HttpStatusCode.Created, followUp.StatusCode);
     }
 
+    [Fact]
+    public async Task Anonymous_DeleteSku_Returns401AndDoesNotDeleteResource()
+    {
+        using var adminClient = await _fixture.CreateAuthenticatedAdminClientAsync();
+        var productId = await CatalogAdminApiSeeding.CreateProductWithCatalogAsync(adminClient);
+        using var created = await CatalogAdminApiSeeding.PostSkuAsync(adminClient, productId);
+        var sku = await created.Content.ReadFromJsonAsync<JsonElement>();
+        var publicId = sku.GetProperty("publicId").GetGuid();
+        var rowVersion = sku.GetProperty("rowVersion").GetString();
+
+        using var client = _fixture.CreateClient();
+        using var response = await client.SendAsync(new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/admin/skus/{publicId}")
+        {
+            Content = JsonContent.Create(new { rowVersion }),
+        });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        await AssertSkuUnchangedAsync(publicId, rowVersion!);
+    }
     [Theory]
     [InlineData("/api/v1/admin/brands")]
     [InlineData("/api/v1/admin/categories")]
@@ -1011,6 +1311,32 @@ public sealed class CatalogAdminAuthorizationTests
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
+    [Theory]
+    [MemberData(nameof(CatalogWriteRoutes))]
+    public async Task WriteEndpoint_RejectsAnonymousAndWrongRoleWithoutCatalogSideEffects(
+        string method,
+        string path)
+    {
+        var before = await ReadCatalogSnapshotAsync();
+
+        using (var anonymousClient = _fixture.CreateClient())
+        using (var anonymousRequest = CreateWriteRequest(method, path))
+        using (var anonymousResponse = await anonymousClient.SendAsync(anonymousRequest))
+        {
+            Assert.Equal(HttpStatusCode.Unauthorized, anonymousResponse.StatusCode);
+        }
+
+        using (var wrongRoleClient = await _fixture.CreateAuthenticatedAdminClientAsync(DoSelectRoles.OrderManager))
+        using (var wrongRoleRequest = CreateWriteRequest(method, path))
+        using (var wrongRoleResponse = await CatalogAdminApiFixture.SendWithAntiforgeryAsync(
+                   wrongRoleClient,
+                   wrongRoleRequest))
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, wrongRoleResponse.StatusCode);
+        }
+
+        Assert.Equal(before, await ReadCatalogSnapshotAsync());
+    }
     [Fact]
     public async Task SignedInWithoutCatalogManagerRole_CreateBrand_Returns403AndDoesNotCreateResource()
     {
@@ -1038,6 +1364,25 @@ public sealed class CatalogAdminAuthorizationTests
     }
 
     [Fact]
+    public async Task SignedInWithoutCatalogManagerRole_DeleteSku_Returns403AndDoesNotDeleteResource()
+    {
+        using var adminClient = await _fixture.CreateAuthenticatedAdminClientAsync();
+        var productId = await CatalogAdminApiSeeding.CreateProductWithCatalogAsync(adminClient);
+        using var created = await CatalogAdminApiSeeding.PostSkuAsync(adminClient, productId);
+        var sku = await created.Content.ReadFromJsonAsync<JsonElement>();
+        var publicId = sku.GetProperty("publicId").GetGuid();
+        var rowVersion = sku.GetProperty("rowVersion").GetString();
+
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync(DoSelectRoles.OrderManager);
+        using var response = await CatalogAdminApiFixture.SendWithAntiforgeryAsync(client, new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/admin/skus/{publicId}")
+        {
+            Content = JsonContent.Create(new { rowVersion }),
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        await AssertSkuUnchangedAsync(publicId, rowVersion!);
+    }
+    [Fact]
     public async Task CatalogManagerRole_CanListAndCreateBrand()
     {
         using var client = await _fixture.CreateAuthenticatedAdminClientAsync(DoSelectRoles.CatalogManager);
@@ -1059,5 +1404,52 @@ public sealed class CatalogAdminAuthorizationTests
 
         Assert.Equal(HttpStatusCode.OK, listResponse.StatusCode);
         Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+    }
+    private async Task AssertSkuUnchangedAsync(Guid publicId, string rowVersion)
+    {
+        await using var context = _fixture.CreateScopedContext();
+        var persisted = await context.Skus.AsNoTracking().SingleAsync(candidate => candidate.PublicId == publicId);
+        Assert.Equal(Convert.FromBase64String(rowVersion), persisted.RowVersion);
+    }
+
+    private static HttpRequestMessage CreateWriteRequest(string method, string path) =>
+        new(new HttpMethod(method), path)
+        {
+            Content = JsonContent.Create(new { authorizationMustRunBeforeBinding = true }),
+        };
+
+    private async Task<string> ReadCatalogSnapshotAsync()
+    {
+        await using var context = _fixture.CreateScopedContext();
+        var snapshot = new
+        {
+            Brands = await context.Brands.AsNoTracking()
+                .OrderBy(entity => entity.Id)
+                .Select(entity => new { entity.Id, entity.PublicId, entity.RowVersion })
+                .ToArrayAsync(),
+            Categories = await context.Categories.AsNoTracking()
+                .OrderBy(entity => entity.Id)
+                .Select(entity => new { entity.Id, entity.PublicId, entity.RowVersion })
+                .ToArrayAsync(),
+            Tags = await context.Tags.AsNoTracking()
+                .OrderBy(entity => entity.Id)
+                .Select(entity => new { entity.Id, entity.PublicId, entity.RowVersion })
+                .ToArrayAsync(),
+            Products = await context.Products.AsNoTracking()
+                .OrderBy(entity => entity.Id)
+                .Select(entity => new { entity.Id, entity.PublicId, entity.RowVersion })
+                .ToArrayAsync(),
+            Skus = await context.Skus.AsNoTracking()
+                .OrderBy(entity => entity.Id)
+                .Select(entity => new { entity.Id, entity.PublicId, entity.RowVersion })
+                .ToArrayAsync(),
+            ProductTags = await context.ProductTags.AsNoTracking()
+                .OrderBy(entity => entity.ProductId)
+                .ThenBy(entity => entity.TagId)
+                .Select(entity => new { entity.ProductId, entity.TagId })
+                .ToArrayAsync(),
+        };
+
+        return JsonSerializer.Serialize(snapshot);
     }
 }

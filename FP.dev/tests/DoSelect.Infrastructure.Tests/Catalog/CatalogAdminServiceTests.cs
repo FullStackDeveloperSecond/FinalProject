@@ -8,6 +8,8 @@ using DoSelect.Infrastructure.Catalog;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using System.Data.Common;
 
 namespace DoSelect.Infrastructure.Tests.Catalog;
 
@@ -141,12 +143,22 @@ public sealed class ProductAdminServiceTests
         var code = CatalogAdminFixture.UniqueCode("PROD");
 
         var product = await service.CreateAsync(
-            new CreateProductRequest(code, "測試商品", brand.PublicId, category.PublicId, "描述", 12, [], "Draft"),
+            new CreateProductRequest(
+                code,
+                "測試商品",
+                brand.PublicId,
+                category.PublicId,
+                "描述",
+                12,
+                [],
+                "Draft",
+                CatalogAdminFixture.CreateDefaultSkuRequest()),
             CancellationToken.None);
 
         Assert.Equal(code.ToUpperInvariant(), product.ProductCode);
         Assert.Equal("Draft", product.Status);
-        Assert.Empty(product.Skus);
+        var defaultSku = Assert.Single(product.Skus);
+        Assert.True(defaultSku.IsDefault);
     }
 
     [Fact]
@@ -157,11 +169,29 @@ public sealed class ProductAdminServiceTests
         var service = new EfProductAdminService(context);
         var code = CatalogAdminFixture.UniqueCode("PROD");
         await service.CreateAsync(
-            new CreateProductRequest(code, "測試商品", brand.PublicId, category.PublicId, null, null, [], "Draft"),
+            new CreateProductRequest(
+                code,
+                "測試商品",
+                brand.PublicId,
+                category.PublicId,
+                null,
+                null,
+                [],
+                "Draft",
+                CatalogAdminFixture.CreateDefaultSkuRequest()),
             CancellationToken.None);
 
         var exception = await Assert.ThrowsAsync<CatalogWriteException>(() => service.CreateAsync(
-            new CreateProductRequest(code, "另一個商品", brand.PublicId, category.PublicId, null, null, [], "Draft"),
+            new CreateProductRequest(
+                code,
+                "另一個商品",
+                brand.PublicId,
+                category.PublicId,
+                null,
+                null,
+                [],
+                "Draft",
+                CatalogAdminFixture.CreateDefaultSkuRequest()),
             CancellationToken.None));
 
         Assert.Equal(CatalogWriteException.ErrorCodes.ProductCodeDuplicate, exception.ErrorCode);
@@ -183,7 +213,8 @@ public sealed class ProductAdminServiceTests
                 null,
                 null,
                 [],
-                "Draft"),
+                "Draft",
+                CatalogAdminFixture.CreateDefaultSkuRequest()),
             CancellationToken.None));
 
         Assert.Equal(CatalogWriteException.ErrorCodes.ReferenceNotFound, exception.ErrorCode);
@@ -198,7 +229,16 @@ public sealed class ProductAdminServiceTests
         var service = new EfProductAdminService(context);
         var matchingCode = CatalogAdminFixture.UniqueCode("PROD");
         await service.CreateAsync(
-            new CreateProductRequest(matchingCode, "符合", brand.PublicId, category.PublicId, null, null, [], "Draft"),
+            new CreateProductRequest(
+                matchingCode,
+                "符合",
+                brand.PublicId,
+                category.PublicId,
+                null,
+                null,
+                [],
+                "Draft",
+                CatalogAdminFixture.CreateDefaultSkuRequest()),
             CancellationToken.None);
         await service.CreateAsync(
             new CreateProductRequest(
@@ -209,7 +249,8 @@ public sealed class ProductAdminServiceTests
                 null,
                 null,
                 [],
-                "Draft"),
+                "Draft",
+                CatalogAdminFixture.CreateDefaultSkuRequest()),
             CancellationToken.None);
 
         var result = await service.ListAsync(
@@ -241,12 +282,46 @@ public sealed class ProductAdminServiceTests
                 null,
                 null,
                 [Guid.NewGuid()],
-                "Draft"),
+                "Draft",
+                CatalogAdminFixture.CreateDefaultSkuRequest()),
             CancellationToken.None));
 
         await using var verifyContext = CatalogAdminFixture.CreateContext();
         var exists = await verifyContext.Products.AnyAsync(p => p.ProductCode == code.ToUpperInvariant());
         Assert.False(exists);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WhenDefaultSkuSpecificationIsInvalid_RollsBackProductAndSku()
+    {
+        await using var context = CatalogAdminFixture.CreateContext();
+        var (brand, category, _) = await CatalogAdminFixture.SeedCatalogAsync(context);
+        var service = new EfProductAdminService(context);
+        var productCode = CatalogAdminFixture.UniqueCode("PROD");
+        var skuCode = CatalogAdminFixture.UniqueCode("SKU");
+
+        var exception = await Assert.ThrowsAsync<CatalogWriteException>(() => service.CreateAsync(
+            new CreateProductRequest(
+                productCode,
+                "測試商品",
+                brand.PublicId,
+                category.PublicId,
+                null,
+                null,
+                [],
+                "Draft",
+                CatalogAdminFixture.CreateDefaultSkuRequest(
+                    skuCode,
+                    [new SpecValueInput("does-not-exist", "String", "x", null, null, null)])),
+            CancellationToken.None));
+
+        Assert.Equal(CatalogWriteException.ErrorCodes.SpecificationInvalid, exception.ErrorCode);
+
+        await using var verifyContext = CatalogAdminFixture.CreateContext();
+        Assert.False(await verifyContext.Products.AnyAsync(
+            product => product.ProductCode == productCode.ToUpperInvariant()));
+        Assert.False(await verifyContext.Skus.AnyAsync(
+            sku => sku.SkuCode == skuCode.ToUpperInvariant()));
     }
 
     [Fact]
@@ -258,10 +333,28 @@ public sealed class ProductAdminServiceTests
         var codeA = CatalogAdminFixture.UniqueCode("PROD");
         var codeB = CatalogAdminFixture.UniqueCode("PROD");
         await service.CreateAsync(
-            new CreateProductRequest(codeA, "A", brand.PublicId, category.PublicId, null, null, [], "Draft"),
+            new CreateProductRequest(
+                codeA,
+                "A",
+                brand.PublicId,
+                category.PublicId,
+                null,
+                null,
+                [],
+                "Draft",
+                CatalogAdminFixture.CreateDefaultSkuRequest()),
             CancellationToken.None);
         await service.CreateAsync(
-            new CreateProductRequest(codeB, "B", brand.PublicId, category.PublicId, null, null, [], "Draft"),
+            new CreateProductRequest(
+                codeB,
+                "B",
+                brand.PublicId,
+                category.PublicId,
+                null,
+                null,
+                [],
+                "Draft",
+                CatalogAdminFixture.CreateDefaultSkuRequest()),
             CancellationToken.None);
         var expectedAscending = new[] { codeA.ToUpperInvariant(), codeB.ToUpperInvariant() }
             .OrderBy(code => code, StringComparer.Ordinal)
@@ -285,10 +378,28 @@ public sealed class ProductAdminServiceTests
         var (brand, category, _) = await CatalogAdminFixture.SeedCatalogAsync(context);
         var service = new EfProductAdminService(context);
         var older = await service.CreateAsync(
-            new CreateProductRequest(CatalogAdminFixture.UniqueCode("PROD"), "先建立", brand.PublicId, category.PublicId, null, null, [], "Draft"),
+            new CreateProductRequest(
+                CatalogAdminFixture.UniqueCode("PROD"),
+                "先建立",
+                brand.PublicId,
+                category.PublicId,
+                null,
+                null,
+                [],
+                "Draft",
+                CatalogAdminFixture.CreateDefaultSkuRequest()),
             CancellationToken.None);
         var newer = await service.CreateAsync(
-            new CreateProductRequest(CatalogAdminFixture.UniqueCode("PROD"), "後建立", brand.PublicId, category.PublicId, null, null, [], "Draft"),
+            new CreateProductRequest(
+                CatalogAdminFixture.UniqueCode("PROD"),
+                "後建立",
+                brand.PublicId,
+                category.PublicId,
+                null,
+                null,
+                [],
+                "Draft",
+                CatalogAdminFixture.CreateDefaultSkuRequest()),
             CancellationToken.None);
 
         // Touch "older" again so it becomes the more-recently-updated of the two, decoupling
@@ -383,6 +494,238 @@ public sealed class ProductAdminServiceTests
         Assert.Equal(CatalogWriteException.ErrorCodes.ValidationFailed, exception.ErrorCode);
     }
 
+    /// <summary>組長 PR #24 round 4 review, item 3: changing category while SKUs still carry the
+    /// old category's specification values would leave stale specs on the detail page while
+    /// search/filter already switched to the new category.</summary>
+    [Fact]
+    public async Task UpdateAsync_WhenChangingCategoryAndSkusHaveSpecificationValues_ThrowsValidationFailed()
+    {
+        await using var context = CatalogAdminFixture.CreateContext();
+        var (brand, category, definition) = await CatalogAdminFixture.SeedCatalogAsync(context);
+        var otherCategory = new Category(
+            Guid.CreateVersion7(), CatalogAdminFixture.UniqueCode("CAT"), "cat-" + Guid.NewGuid().ToString("N")[..12], "另一個分類", null, DateTime.UtcNow);
+        context.Categories.Add(otherCategory);
+        await context.SaveChangesAsync();
+        var productService = new EfProductAdminService(context);
+        var product = await productService.CreateAsync(
+            new CreateProductRequest(
+                CatalogAdminFixture.UniqueCode("PROD"), "測試商品", brand.PublicId, category.PublicId, null, null, [],
+                "Draft",
+                CatalogAdminFixture.CreateDefaultSkuRequest(
+                    specifications: [new SpecValueInput(definition.SemanticKey, "Decimal", null, 12.5m, null, null)])),
+            CancellationToken.None);
+
+        var exception = await Assert.ThrowsAsync<CatalogWriteException>(() => productService.UpdateAsync(
+            product.PublicId,
+            new UpdateProductRequest("測試商品", brand.PublicId, otherCategory.PublicId, null, null, [], "Draft", product.RowVersion),
+            CancellationToken.None));
+
+        Assert.Equal(CatalogWriteException.ErrorCodes.ValidationFailed, exception.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WhenChangingCategoryAndNoSkuHasSpecificationValues_Succeeds()
+    {
+        await using var context = CatalogAdminFixture.CreateContext();
+        var (brand, category, _) = await CatalogAdminFixture.SeedCatalogAsync(context);
+        var otherCategory = new Category(
+            Guid.CreateVersion7(), CatalogAdminFixture.UniqueCode("CAT"), "cat-" + Guid.NewGuid().ToString("N")[..12], "另一個分類", null, DateTime.UtcNow);
+        context.Categories.Add(otherCategory);
+        await context.SaveChangesAsync();
+        var productService = new EfProductAdminService(context);
+        var product = await productService.CreateAsync(
+            new CreateProductRequest(
+                CatalogAdminFixture.UniqueCode("PROD"), "測試商品", brand.PublicId, category.PublicId, null, null, [],
+                "Draft", CatalogAdminFixture.CreateDefaultSkuRequest()),
+            CancellationToken.None);
+
+        var updated = await productService.UpdateAsync(
+            product.PublicId,
+            new UpdateProductRequest("測試商品", brand.PublicId, otherCategory.PublicId, null, null, [], "Draft", product.RowVersion),
+            CancellationToken.None);
+
+        Assert.Equal(otherCategory.Code, updated.Category.Code);
+    }
+
+    /// <summary>組長 PR #24 round 4 review, item 6: API DTO與Schema契約.md documents tagPublicIds as 0..20.</summary>
+    [Fact]
+    public async Task CreateAsync_WhenTagPublicIdsExceedsTwenty_ThrowsValidationFailed()
+    {
+        await using var context = CatalogAdminFixture.CreateContext();
+        var (brand, category, _) = await CatalogAdminFixture.SeedCatalogAsync(context);
+        var service = new EfProductAdminService(context);
+        var tagPublicIds = Enumerable.Range(0, 21).Select(_ => Guid.NewGuid()).ToArray();
+
+        var exception = await Assert.ThrowsAsync<CatalogWriteException>(() => service.CreateAsync(
+            new CreateProductRequest(
+                CatalogAdminFixture.UniqueCode("PROD"), "測試商品", brand.PublicId, category.PublicId, null, null,
+                tagPublicIds, "Draft", CatalogAdminFixture.CreateDefaultSkuRequest()),
+            CancellationToken.None));
+
+        Assert.Equal(CatalogWriteException.ErrorCodes.ValidationFailed, exception.ErrorCode);
+    }
+
+    /// <summary>組長 PR #24 round 5 review, item 1: a Published SKU with *empty* specs used to
+    /// slip a category switch through (the round-4 fix only checked for *existing* spec values)
+    /// even though the target category has a required specification the SKU can never satisfy
+    /// with an empty array.</summary>
+    [Fact]
+    public async Task UpdateAsync_WhenPublishedSkuHasEmptySpecsAndTargetCategoryHasRequiredSpec_ThrowsValidationFailed()
+    {
+        await using var context = CatalogAdminFixture.CreateContext();
+        var (brand, category, _) = await CatalogAdminFixture.SeedCatalogAsync(context);
+        var otherCategory = new Category(
+            Guid.CreateVersion7(), CatalogAdminFixture.UniqueCode("CAT"), "cat-" + Guid.NewGuid().ToString("N")[..12], "另一個分類", null, DateTime.UtcNow);
+        context.Categories.Add(otherCategory);
+        await context.SaveChangesAsync();
+        context.SpecificationDefinitions.Add(new SpecificationDefinition(
+            Guid.CreateVersion7(), otherCategory.Id, CatalogAdminFixture.UniqueCode("SPEC"), "必要規格",
+            SpecificationValueType.Decimal, null, isRequired: true, isProtected: false, sortOrder: 0, DateTime.UtcNow));
+        await context.SaveChangesAsync();
+        var productService = new EfProductAdminService(context);
+        var product = await productService.CreateAsync(
+            new CreateProductRequest(
+                CatalogAdminFixture.UniqueCode("PROD"), "測試商品", brand.PublicId, category.PublicId, null, null, [],
+                "Published", CatalogAdminFixture.CreateDefaultSkuRequest(specifications: [])
+                    with
+                { Status = "Published" }),
+            CancellationToken.None);
+
+        var exception = await Assert.ThrowsAsync<CatalogWriteException>(() => productService.UpdateAsync(
+            product.PublicId,
+            new UpdateProductRequest("測試商品", brand.PublicId, otherCategory.PublicId, null, null, [], "Published", product.RowVersion),
+            CancellationToken.None));
+
+        Assert.Equal(CatalogWriteException.ErrorCodes.ValidationFailed, exception.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WhenChangingCategoryAndOnlyDraftSkusExist_SucceedsEvenIfTargetHasRequiredSpec()
+    {
+        await using var context = CatalogAdminFixture.CreateContext();
+        var (brand, category, _) = await CatalogAdminFixture.SeedCatalogAsync(context);
+        var otherCategory = new Category(
+            Guid.CreateVersion7(), CatalogAdminFixture.UniqueCode("CAT"), "cat-" + Guid.NewGuid().ToString("N")[..12], "另一個分類", null, DateTime.UtcNow);
+        context.Categories.Add(otherCategory);
+        await context.SaveChangesAsync();
+        context.SpecificationDefinitions.Add(new SpecificationDefinition(
+            Guid.CreateVersion7(), otherCategory.Id, CatalogAdminFixture.UniqueCode("SPEC"), "必要規格",
+            SpecificationValueType.Decimal, null, isRequired: true, isProtected: false, sortOrder: 0, DateTime.UtcNow));
+        await context.SaveChangesAsync();
+        var productService = new EfProductAdminService(context);
+        var product = await productService.CreateAsync(
+            new CreateProductRequest(
+                CatalogAdminFixture.UniqueCode("PROD"), "測試商品", brand.PublicId, category.PublicId, null, null, [],
+                "Draft", CatalogAdminFixture.CreateDefaultSkuRequest()),
+            CancellationToken.None);
+
+        var updated = await productService.UpdateAsync(
+            product.PublicId,
+            new UpdateProductRequest("測試商品", brand.PublicId, otherCategory.PublicId, null, null, [], "Draft", product.RowVersion),
+            CancellationToken.None);
+
+        Assert.Equal(otherCategory.Code, updated.Category.Code);
+    }
+
+    /// <summary>
+    /// 組長 PR #24 round 5 review, item 2: a SKU specification write never used to advance the
+    /// parent Product's RowVersion. No category switch here on purpose — mixing one in would
+    /// also trip the item-1 "existing spec values" business rule and mask what this test is
+    /// actually proving: that Product.Touch (called from EfSkuAdminService after a spec write)
+    /// makes *any* concurrent Product update against a now-stale RowVersion fail closed.
+    /// </summary>
+    [Fact]
+    public async Task UpdateAsync_WhenASkuSpecificationChangedSinceTheProductWasLoaded_ThrowsConcurrencyConflict()
+    {
+        await using var context = CatalogAdminFixture.CreateContext();
+        var (brand, category, definition) = await CatalogAdminFixture.SeedCatalogAsync(context);
+        var productService = new EfProductAdminService(context);
+        var skuService = new EfSkuAdminService(context);
+        var product = await productService.CreateAsync(
+            new CreateProductRequest(
+                CatalogAdminFixture.UniqueCode("PROD"), "測試商品", brand.PublicId, category.PublicId, null, null, [],
+                "Draft", CatalogAdminFixture.CreateDefaultSkuRequest()),
+            CancellationToken.None);
+        var staleRowVersion = product.RowVersion;
+
+        // Simulate a concurrent admin editing a SKU's specifications while this request still
+        // holds the product's earlier RowVersion.
+        var defaultSku = (await productService.GetByPublicIdAsync(product.PublicId, CancellationToken.None))!.Skus.Single();
+        await skuService.UpdateAsync(
+            defaultSku.PublicId,
+            new UpdateSkuRequest(
+                defaultSku.NameZhTw, defaultSku.ListPrice, defaultSku.UnitCost, null, null, null, null, "Draft", true, false,
+                [new SpecValueInput(definition.SemanticKey, "Decimal", null, 12.5m, null, null)],
+                defaultSku.RowVersion),
+            CancellationToken.None);
+
+        var exception = await Assert.ThrowsAsync<CatalogWriteException>(() => productService.UpdateAsync(
+            product.PublicId,
+            new UpdateProductRequest("測試商品（同一分類的其他欄位更新）", brand.PublicId, category.PublicId, null, null, [], "Draft", staleRowVersion),
+            CancellationToken.None));
+
+        Assert.Equal(CatalogWriteException.ErrorCodes.ConcurrencyConflict, exception.ErrorCode);
+    }
+
+    /// <summary>
+    /// 組長 PR #24 round 10 review, P2: CreateAsync's ProductCode uniqueness check is a plain
+    /// AnyAsync (SELECT) before the INSERT — two concurrent creates for the same brand-new code
+    /// can both pass it. Round 11 review: a ManualResetEventSlim gating only the *start* of each
+    /// call doesn't guarantee both sides' AnyAsync pre-check completes before either reaches
+    /// INSERT — see <see cref="CatalogAdminFixture.TwoPartyExistsCheckBarrier"/> for the SQL-level
+    /// barrier added to actually force that, and the <c>Arrivals</c> assertion below proving it
+    /// engaged for both sides.
+    /// </summary>
+    [Fact]
+    public async Task CreateAsync_WhenTwoConcurrentRequestsUseTheSameNewProductCode_TheLoserThrowsProductCodeDuplicate()
+    {
+        await using var seedContext = CatalogAdminFixture.CreateContext();
+        var (brand, category, _) = await CatalogAdminFixture.SeedCatalogAsync(seedContext);
+        var productCode = CatalogAdminFixture.UniqueCode("PROD");
+        using var gate = new ManualResetEventSlim(false);
+        var existsCheckBarrier = new CatalogAdminFixture.TwoPartyExistsCheckBarrier("[ProductCode]");
+
+        async Task<object> CreateInNewContextAsync(string skuCodeSuffix)
+        {
+            await using var context = CatalogAdminFixture.CreateContext(existsCheckBarrier);
+            var service = new EfProductAdminService(context);
+            var request = new CreateProductRequest(
+                productCode, "測試商品", brand.PublicId, category.PublicId, null, null, [],
+                "Draft", CatalogAdminFixture.CreateDefaultSkuRequest(CatalogAdminFixture.UniqueCode("SKU-" + skuCodeSuffix)));
+            gate.Wait();
+            try
+            {
+                return await service.CreateAsync(request, CancellationToken.None);
+            }
+            catch (CatalogWriteException exception)
+            {
+                return exception;
+            }
+        }
+
+        // Task.Run, not a direct call: CreateInNewContextAsync's synchronous prefix (up to its
+        // first await) runs on the calling thread otherwise, and gate.Wait() inside it is a
+        // blocking (not async) call — calling it directly here would block this very test method
+        // before it ever reaches the code that creates the second task or calls gate.Set(),
+        // deadlocking the test on itself rather than exercising the database race at all.
+        var firstTask = Task.Run(() => CreateInNewContextAsync("A"));
+        var secondTask = Task.Run(() => CreateInNewContextAsync("B"));
+        gate.Set();
+        var results = await Task.WhenAll(firstTask, secondTask);
+
+        // Proves both sides' AnyAsync pre-check actually ran through the intercepted codepath and
+        // was gated by the barrier — i.e. this isn't silently back to the weaker "whichever
+        // finished first never met the second" guarantee the round-10 test only provided.
+        Assert.Equal(2, existsCheckBarrier.Arrivals);
+
+        Assert.Single(results, result => result is AdminProductDetailDto);
+        var failure = Assert.Single(results, result => result is CatalogWriteException);
+        Assert.Equal(CatalogWriteException.ErrorCodes.ProductCodeDuplicate, ((CatalogWriteException)failure).ErrorCode);
+
+        await using var verifyContext = CatalogAdminFixture.CreateContext();
+        Assert.Equal(1, await verifyContext.Products.CountAsync(p => p.ProductCode == productCode.ToUpperInvariant()));
+    }
+
     private static async Task CreateSkuWithOnHandAsync(
         DoSelectDbContext context,
         EfSkuAdminService skuService,
@@ -448,6 +791,152 @@ public sealed class SkuAdminServiceTests
         Assert.True(sku.IsDefault);
         var spec = Assert.Single(sku.Specifications);
         Assert.Equal(300m, spec.DecimalValue);
+    }
+
+    /// <summary>組長 PR #24 round 5 review, item 4: the same SemanticKey twice used to hit
+    /// SkuSpecificationValues' (SkuId, SpecificationDefinitionId) unique index as an unhandled
+    /// DbUpdateException (500) — the IsRequired check dedupes via ToHashSet before validating,
+    /// but the write loop still added one row per input, not per distinct key.</summary>
+    [Fact]
+    public async Task CreateAsync_WhenSpecificationsContainADuplicateSemanticKey_ThrowsSpecificationInvalid()
+    {
+        await using var context = CatalogAdminFixture.CreateContext();
+        var (brand, category, definition) = await CatalogAdminFixture.SeedCatalogAsync(context);
+        var product = await CatalogAdminFixture.CreateProductAsync(context, brand, category);
+        var service = new EfSkuAdminService(context);
+
+        var skuCode = CatalogAdminFixture.UniqueCode("SKU");
+        var exception = await Assert.ThrowsAsync<CatalogWriteException>(() => service.CreateAsync(
+            product.PublicId,
+            new CreateSkuRequest(
+                skuCode, "標準版", 10_000m, 7_000m, null, null, null, null, "Draft", false, false,
+                [
+                    new SpecValueInput(definition.SemanticKey, "Decimal", null, 300m, null, null),
+                    new SpecValueInput(definition.SemanticKey, "Decimal", null, 400m, null, null),
+                ]),
+            CancellationToken.None));
+
+        Assert.Equal(CatalogWriteException.ErrorCodes.SpecificationInvalid, exception.ErrorCode);
+
+        await using var verifyContext = CatalogAdminFixture.CreateContext();
+        Assert.False(await verifyContext.Skus.AnyAsync(sku => sku.SkuCode == skuCode.ToUpperInvariant()));
+    }
+
+    /// <summary>
+    /// 組長 PR #24 round 9 review, P2: CreateAsync's second SaveChangesAsync (after
+    /// product.Touch) used to let DbUpdateConcurrencyException escape as a raw, unhandled
+    /// exception — GlobalExceptionHandler mapped that to an opaque 500 (unexpected_error) instead
+    /// of the 409 concurrency_conflict Update/Delete already give for the equivalent race.
+    ///
+    /// Unlike UpdateAsync's own concurrency test above, CreateAsync takes no caller-supplied
+    /// Product RowVersion to force stale on purpose — its only protection is EF Core's own
+    /// concurrency check against whatever RowVersion the tracked `product` entity already holds
+    /// when SaveChanges runs. `product` here is tracked in `context` from CreateProductAsync;
+    /// EF's identity resolution means CreateAsync's own internal product lookup (same DbContext)
+    /// returns this exact tracked instance rather than re-querying, so its RowVersion is
+    /// whatever `context` last saw — which the separate `otherContext` update below is about to
+    /// make stale, for real, against the actual database row.
+    /// </summary>
+    [Fact]
+    public async Task CreateAsync_WhenAnotherAdminUpdatesTheProductAfterThisRequestLoadedIt_ThrowsConcurrencyConflict()
+    {
+        await using var context = CatalogAdminFixture.CreateContext();
+        var (brand, category, _) = await CatalogAdminFixture.SeedCatalogAsync(context);
+        var product = await CatalogAdminFixture.CreateProductAsync(context, brand, category);
+        var skuService = new EfSkuAdminService(context);
+
+        await using var otherContext = CatalogAdminFixture.CreateContext();
+        var otherProductService = new EfProductAdminService(otherContext);
+        var currentProduct = (await otherProductService.GetByPublicIdAsync(product.PublicId, CancellationToken.None))!;
+        await otherProductService.UpdateAsync(
+            product.PublicId,
+            new UpdateProductRequest("測試商品（並發更新）", brand.PublicId, category.PublicId, null, null, [], "Draft", currentProduct.RowVersion),
+            CancellationToken.None);
+
+        var skuCode = CatalogAdminFixture.UniqueCode("SKU");
+        var exception = await Assert.ThrowsAsync<CatalogWriteException>(() => skuService.CreateAsync(
+            product.PublicId,
+            new CreateSkuRequest(skuCode, "新規格", 10_000m, 7_000m, null, null, null, null, "Draft", false, false, []),
+            CancellationToken.None));
+
+        Assert.Equal(CatalogWriteException.ErrorCodes.ConcurrencyConflict, exception.ErrorCode);
+
+        // No half-created SKU (and no incorrectly-cleared previous default, if there had been
+        // one) survives the rollback.
+        await using var verifyContext = CatalogAdminFixture.CreateContext();
+        Assert.False(await verifyContext.Skus.AnyAsync(sku => sku.SkuCode == skuCode.ToUpperInvariant()));
+    }
+
+    /// <summary>
+    /// 組長 PR #24 round 10 review, P2: same class of race as the ProductCode test above, but for
+    /// CreateAsync's SkuCode uniqueness check — two concurrent SKU creates for the same product
+    /// using the same brand-new SkuCode can both pass the AnyAsync pre-check. Round 11 review:
+    /// see <see cref="CatalogAdminFixture.TwoPartyExistsCheckBarrier"/> — the SQL-level barrier
+    /// this test now uses so both sides' pre-check provably completes before either INSERTs.
+    /// </summary>
+    [Fact]
+    public async Task CreateAsync_WhenTwoConcurrentRequestsUseTheSameNewSkuCode_TheLoserThrowsSkuCodeDuplicate()
+    {
+        await using var seedContext = CatalogAdminFixture.CreateContext();
+        var (brand, category, _) = await CatalogAdminFixture.SeedCatalogAsync(seedContext);
+        var product = await CatalogAdminFixture.CreateProductAsync(seedContext, brand, category);
+        var skuCode = CatalogAdminFixture.UniqueCode("SKU");
+        using var gate = new ManualResetEventSlim(false);
+        var existsCheckBarrier = new CatalogAdminFixture.TwoPartyExistsCheckBarrier("[SkuCode]");
+
+        async Task<object> CreateInNewContextAsync()
+        {
+            await using var context = CatalogAdminFixture.CreateContext(existsCheckBarrier);
+            var service = new EfSkuAdminService(context);
+            var request = new CreateSkuRequest(skuCode, "新規格", 10_000m, 7_000m, null, null, null, null, "Draft", false, false, []);
+            gate.Wait();
+            try
+            {
+                return await service.CreateAsync(product.PublicId, request, CancellationToken.None);
+            }
+            catch (CatalogWriteException exception)
+            {
+                return exception;
+            }
+        }
+
+        // See the ProductCode test above for why this must be Task.Run and not a direct call.
+        var firstTask = Task.Run(() => CreateInNewContextAsync());
+        var secondTask = Task.Run(() => CreateInNewContextAsync());
+        gate.Set();
+        var results = await Task.WhenAll(firstTask, secondTask);
+
+        // Proves both sides' AnyAsync pre-check actually ran through the intercepted codepath and
+        // was gated by the barrier, not silently degraded back to a "whoever's fastest wins
+        // unobserved" race.
+        Assert.Equal(2, existsCheckBarrier.Arrivals);
+
+        Assert.Single(results, result => result is SkuDto);
+        var failure = Assert.Single(results, result => result is CatalogWriteException);
+        Assert.Equal(CatalogWriteException.ErrorCodes.SkuCodeDuplicate, ((CatalogWriteException)failure).ErrorCode);
+
+        await using var verifyContext = CatalogAdminFixture.CreateContext();
+        Assert.Equal(1, await verifyContext.Skus.CountAsync(sku => sku.SkuCode == skuCode.ToUpperInvariant()));
+    }
+
+    /// <summary>組長 PR #24 round 5 review, item 3: WeightKg's Domain guard only requires >0 and
+    /// the SQL column is decimal(10,3) — 0.001 must be the true floor, not an arbitrarily larger
+    /// "practical minimum" the API boundary invented.</summary>
+    [Fact]
+    public async Task CreateAsync_WhenWeightKgIsAtTheSmallestValidPrecision_Succeeds()
+    {
+        await using var context = CatalogAdminFixture.CreateContext();
+        var (brand, category, _) = await CatalogAdminFixture.SeedCatalogAsync(context);
+        var product = await CatalogAdminFixture.CreateProductAsync(context, brand, category);
+        var service = new EfSkuAdminService(context);
+
+        var sku = await service.CreateAsync(
+            product.PublicId,
+            new CreateSkuRequest(
+                CatalogAdminFixture.UniqueCode("SKU"), "標準版", 10_000m, 7_000m, 0.001m, null, null, null, "Draft", false, false, []),
+            CancellationToken.None);
+
+        Assert.Equal(0.001m, sku.WeightKg);
     }
 
     [Fact]
@@ -850,13 +1339,149 @@ public sealed class SkuAdminServiceTests
         var reloaded = await service.GetByPublicIdAsync(sku.PublicId, CancellationToken.None);
         Assert.Null(reloaded);
     }
+
+    /// <summary>組長 PR #24 round 4 review, item 1: the only valid way to change which SKU is
+    /// default is to PATCH a *different* SKU with IsDefault=true — directly unsetting the
+    /// current default with no successor must be rejected.</summary>
+    [Fact]
+    public async Task UpdateAsync_WhenUnsettingTheCurrentDefaultSku_ThrowsSkuDefaultRequired()
+    {
+        await using var context = CatalogAdminFixture.CreateContext();
+        var (brand, category, _) = await CatalogAdminFixture.SeedCatalogAsync(context);
+        var product = await CatalogAdminFixture.CreateProductAsync(context, brand, category);
+        var service = new EfSkuAdminService(context);
+        var defaultSku = await service.CreateAsync(
+            product.PublicId,
+            new CreateSkuRequest(CatalogAdminFixture.UniqueCode("SKU"), "預設版", 10_000m, 7_000m, null, null, null, null, "Draft", true, false, []),
+            CancellationToken.None);
+
+        var exception = await Assert.ThrowsAsync<CatalogWriteException>(() => service.UpdateAsync(
+            defaultSku.PublicId,
+            new UpdateSkuRequest("預設版", 10_000m, 7_000m, null, null, null, null, "Draft", false, false, [], defaultSku.RowVersion),
+            CancellationToken.None));
+
+        Assert.Equal(CatalogWriteException.ErrorCodes.SkuDefaultRequired, exception.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WhenMarkingADifferentSkuAsDefault_AtomicallyClearsThePreviousOne()
+    {
+        await using var context = CatalogAdminFixture.CreateContext();
+        var (brand, category, _) = await CatalogAdminFixture.SeedCatalogAsync(context);
+        var product = await CatalogAdminFixture.CreateProductAsync(context, brand, category);
+        var service = new EfSkuAdminService(context);
+        var originalDefault = await service.CreateAsync(
+            product.PublicId,
+            new CreateSkuRequest(CatalogAdminFixture.UniqueCode("SKU"), "原本預設版", 10_000m, 7_000m, null, null, null, null, "Draft", true, false, []),
+            CancellationToken.None);
+        var (candidate, _) = await CreateDraftSkuAsync(context, service, product);
+
+        await service.UpdateAsync(
+            candidate.PublicId,
+            new UpdateSkuRequest("新的預設版", 10_000m, 7_000m, null, null, null, null, "Draft", true, false, [], candidate.RowVersion),
+            CancellationToken.None);
+
+        var reloadedOriginal = await service.GetByPublicIdAsync(originalDefault.PublicId, CancellationToken.None);
+        Assert.False(reloadedOriginal!.IsDefault);
+    }
+
+    /// <summary>組長 PR #24 round 4 review, item 1: deleting the current default SKU (even a
+    /// never-referenced Draft one) would leave the product with zero default SKUs.</summary>
+    [Fact]
+    public async Task DeleteAsync_WhenSkuIsTheCurrentDefault_ThrowsSkuDefaultRequired()
+    {
+        await using var context = CatalogAdminFixture.CreateContext();
+        var (brand, category, _) = await CatalogAdminFixture.SeedCatalogAsync(context);
+        var product = await CatalogAdminFixture.CreateProductAsync(context, brand, category);
+        var service = new EfSkuAdminService(context);
+        var defaultSku = await service.CreateAsync(
+            product.PublicId,
+            new CreateSkuRequest(CatalogAdminFixture.UniqueCode("SKU"), "預設版", 10_000m, 7_000m, null, null, null, null, "Draft", true, false, []),
+            CancellationToken.None);
+
+        var exception = await Assert.ThrowsAsync<CatalogWriteException>(
+            () => service.DeleteAsync(defaultSku.PublicId, defaultSku.RowVersion, CancellationToken.None));
+
+        Assert.Equal(CatalogWriteException.ErrorCodes.SkuDefaultRequired, exception.ErrorCode);
+    }
+
+    /// <summary>組長 PR #24 round 4 review, item 2: Draft can be incomplete, but Published must
+    /// have a value for every IsRequired specification the category defines.</summary>
+    [Fact]
+    public async Task CreateAsync_WhenPublishedAndMissingARequiredSpecification_ThrowsSkuMissingRequiredSpecification()
+    {
+        await using var context = CatalogAdminFixture.CreateContext();
+        var (brand, category, _) = await CatalogAdminFixture.SeedCatalogAsync(context);
+        var requiredDefinition = new SpecificationDefinition(
+            Guid.CreateVersion7(), category.Id, CatalogAdminFixture.UniqueCode("SPEC"), "必要規格",
+            SpecificationValueType.Decimal, null, isRequired: true, isProtected: false, sortOrder: 0, DateTime.UtcNow);
+        context.SpecificationDefinitions.Add(requiredDefinition);
+        await context.SaveChangesAsync();
+        var product = await CatalogAdminFixture.CreateProductAsync(context, brand, category);
+        var service = new EfSkuAdminService(context);
+
+        var exception = await Assert.ThrowsAsync<CatalogWriteException>(() => service.CreateAsync(
+            product.PublicId,
+            new CreateSkuRequest(CatalogAdminFixture.UniqueCode("SKU"), "版本", 10_000m, 7_000m, null, null, null, null, "Published", false, false, []),
+            CancellationToken.None));
+
+        Assert.Equal(CatalogWriteException.ErrorCodes.SkuMissingRequiredSpecification, exception.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WhenDraftAndMissingARequiredSpecification_Succeeds()
+    {
+        await using var context = CatalogAdminFixture.CreateContext();
+        var (brand, category, _) = await CatalogAdminFixture.SeedCatalogAsync(context);
+        var requiredDefinition = new SpecificationDefinition(
+            Guid.CreateVersion7(), category.Id, CatalogAdminFixture.UniqueCode("SPEC"), "必要規格",
+            SpecificationValueType.Decimal, null, isRequired: true, isProtected: false, sortOrder: 0, DateTime.UtcNow);
+        context.SpecificationDefinitions.Add(requiredDefinition);
+        await context.SaveChangesAsync();
+        var product = await CatalogAdminFixture.CreateProductAsync(context, brand, category);
+        var service = new EfSkuAdminService(context);
+
+        var sku = await service.CreateAsync(
+            product.PublicId,
+            new CreateSkuRequest(CatalogAdminFixture.UniqueCode("SKU"), "版本", 10_000m, 7_000m, null, null, null, null, "Draft", false, false, []),
+            CancellationToken.None);
+
+        Assert.Equal("Draft", sku.Status);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WhenSwitchingToPublishedWithAllRequiredSpecificationsProvided_Succeeds()
+    {
+        await using var context = CatalogAdminFixture.CreateContext();
+        var (brand, category, _) = await CatalogAdminFixture.SeedCatalogAsync(context);
+        var requiredDefinition = new SpecificationDefinition(
+            Guid.CreateVersion7(), category.Id, CatalogAdminFixture.UniqueCode("SPEC"), "必要規格",
+            SpecificationValueType.Decimal, null, isRequired: true, isProtected: false, sortOrder: 0, DateTime.UtcNow);
+        context.SpecificationDefinitions.Add(requiredDefinition);
+        await context.SaveChangesAsync();
+        var product = await CatalogAdminFixture.CreateProductAsync(context, brand, category);
+        var service = new EfSkuAdminService(context);
+        var draft = await service.CreateAsync(
+            product.PublicId,
+            new CreateSkuRequest(CatalogAdminFixture.UniqueCode("SKU"), "版本", 10_000m, 7_000m, null, null, null, null, "Draft", false, false, []),
+            CancellationToken.None);
+
+        var published = await service.UpdateAsync(
+            draft.PublicId,
+            new UpdateSkuRequest(
+                "版本", 10_000m, 7_000m, null, null, null, null, "Published", false, false,
+                [new SpecValueInput(requiredDefinition.SemanticKey, "Decimal", null, 42m, null, null)],
+                draft.RowVersion),
+            CancellationToken.None);
+
+        Assert.Equal("Published", published.Status);
+    }
 }
 
 public sealed class CatalogAdminFixture : IAsyncLifetime
 {
-    private const string ConnectionString =
-        "Server=.\\SQL2025;Database=DoSelectCatalogAdminTests;Trusted_Connection=True;" +
-        "TrustServerCertificate=True;";
+    private static readonly string ConnectionString =
+        global::DoSelect.Infrastructure.Tests.SqlServerTestConnection.Build("DoSelectCatalogAdminTests");
 
     public Task InitializeAsync() => ResetDatabaseAsync();
 
@@ -866,12 +1491,91 @@ public sealed class CatalogAdminFixture : IAsyncLifetime
         await context.Database.EnsureDeletedAsync();
     }
 
-    public static DoSelectDbContext CreateContext()
+    public static DoSelectDbContext CreateContext(params IInterceptor[] interceptors)
     {
-        var options = new DbContextOptionsBuilder<DoSelectDbContext>()
-            .UseSqlServer(ConnectionString)
-            .Options;
-        return new DoSelectDbContext(options);
+        var builder = new DbContextOptionsBuilder<DoSelectDbContext>()
+            .UseSqlServer(ConnectionString);
+        if (interceptors.Length > 0)
+        {
+            builder.AddInterceptors(interceptors);
+        }
+
+        return new DoSelectDbContext(builder.Options);
+    }
+
+    /// <summary>
+    /// 組長 PR #24 round 11 review: the round-10 race tests gated both sides' *start* with a
+    /// ManualResetEventSlim, but nothing forced both requests' in-app AnyAsync duplicate
+    /// pre-check to actually complete before either one raced ahead to INSERT — a fast first
+    /// request could run the whole CreateAsync (pre-check through INSERT) before the second even
+    /// reached its own pre-check, in which case the second correctly sees the row via the
+    /// in-app AnyAsync and throws duplicate WITHOUT ever exercising the SQL 2601/2627 ->
+    /// SqlUniqueIndexViolations translation the test exists to prove — a false green even if that
+    /// translation were deleted entirely.
+    ///
+    /// This barrier closes that gap at the SQL level. It recognizes the specific AnyAsync-
+    /// generated EXISTS query by a caller-supplied, column-specific text fragment (so it can't be
+    /// confused with an unrelated existence check, e.g. a Brand/Category resolve), and makes
+    /// whichever of the two DbContexts finishes that query's SELECT first wait for the second to
+    /// finish its own before either context's execution resumes. Both AnyAsync calls therefore
+    /// provably observe "does not exist" before either can proceed to INSERT, forcing the actual
+    /// race down to SQL Server's own unique index rather than letting one side take the easy
+    /// in-app duplicate-check exit. EF Core's SQL Server provider may compile AnyAsync as either
+    /// a reader- or scalar-returning command depending on shape, so both overrides are hooked.
+    /// <see cref="Arrivals"/> lets the test assert the barrier actually engaged for both sides
+    /// (i.e. that the text-fragment match didn't silently fail to fire, which would otherwise
+    /// silently degrade the test back to the original, weaker guarantee).
+    /// </summary>
+    public sealed class TwoPartyExistsCheckBarrier : DbCommandInterceptor
+    {
+        private readonly string _mustContain;
+        private readonly TaskCompletionSource _firstArrived = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _arrivals;
+
+        public TwoPartyExistsCheckBarrier(string mustContain)
+        {
+            _mustContain = mustContain;
+        }
+
+        public int Arrivals => _arrivals;
+
+        public override async ValueTask<DbDataReader> ReaderExecutedAsync(
+            DbCommand command,
+            CommandExecutedEventData eventData,
+            DbDataReader result,
+            CancellationToken cancellationToken = default)
+        {
+            await WaitForBothAsync(command, cancellationToken);
+            return await base.ReaderExecutedAsync(command, eventData, result, cancellationToken);
+        }
+
+        public override async ValueTask<object?> ScalarExecutedAsync(
+            DbCommand command,
+            CommandExecutedEventData eventData,
+            object? result,
+            CancellationToken cancellationToken = default)
+        {
+            await WaitForBothAsync(command, cancellationToken);
+            return await base.ScalarExecutedAsync(command, eventData, result, cancellationToken);
+        }
+
+        private async Task WaitForBothAsync(DbCommand command, CancellationToken cancellationToken)
+        {
+            if (!command.CommandText.Contains("EXISTS", StringComparison.Ordinal) ||
+                !command.CommandText.Contains(_mustContain, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            if (Interlocked.Increment(ref _arrivals) == 1)
+            {
+                await _firstArrived.Task.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
+            }
+            else
+            {
+                _firstArrived.TrySetResult();
+            }
+        }
     }
 
     // Guid.NewGuid() (random) is used here instead of Guid.CreateVersion7() (time-ordered)
@@ -879,6 +1583,23 @@ public sealed class CatalogAdminFixture : IAsyncLifetime
     // can collide when this helper is called more than once within the same millisecond,
     // e.g. when a test seeds two brands back-to-back.
     public static string UniqueCode(string prefix) => $"{prefix}-{Guid.NewGuid():N}"[..24];
+
+    public static CreateSkuRequest CreateDefaultSkuRequest(
+        string? skuCode = null,
+        IReadOnlyList<SpecValueInput>? specifications = null) =>
+        new(
+            skuCode ?? UniqueCode("SKU"),
+            "預設規格",
+            10_000m,
+            7_000m,
+            null,
+            null,
+            null,
+            null,
+            "Draft",
+            IsDefault: true,
+            RequiresPrepayment: false,
+            specifications ?? []);
 
     public static async Task<(Brand Brand, Category Category, SpecificationDefinition Definition)> SeedCatalogAsync(
         DoSelectDbContext context)

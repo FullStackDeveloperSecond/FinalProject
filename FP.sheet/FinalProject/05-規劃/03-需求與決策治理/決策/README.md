@@ -15,6 +15,8 @@
 
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-022-發票明細識別DES-21與Yinyin分支交付裁定|DEC-BATCH-022｜發票明細識別、DES-21 與 Yinyin 分支交付裁定]]：`DEC-P299～DEC-P302`，4 項，已於 2026-08-25 寫回；發票非商品列識別、集中 Migration PR、PR #9 分支拆離及 PR #6／#16 Draft gate 依裁定追蹤。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-023-npm安裝腳本與PR同步策略定版|DEC-BATCH-023｜npm 安裝腳本與 PR 同步策略定版]]：`DEC-P303～DEC-P306`，4 項，已於 2026-08-25 寫回；精確核准 `vue-demi@0.14.10`、名稱型拒絕 `fsevents`、強制嚴格安裝腳本政策、追蹤既有 `glob` 提示，PR #41 延至 Review 完成後才同步 `dev`。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-024-SQLServer整合測試納入RequiredCI|DEC-BATCH-024｜SQL Server 整合測試納入 Required CI]]：`DEC-P307`，1 項，已於 2026-08-25 寫回；沿用既有 SQL Server 2025 service、Migration 與連線設定，移除 `RequiresSqlServer` 排除條件，不新增 Runner 或基礎設施。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-025-購物車越權拒絕零資料副作用定版|DEC-BATCH-025｜購物車越權拒絕零資料副作用定版]]：`DEC-P308`，1 項，已於 2026-08-25 寫回；修改／刪除只查既有可用 Cart，拒絕時維持 404 且不得建立 Actor B 空購物車，讀取／新增／重新驗證／Merge 行為不變。
 
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/AUTO-DEC-013-Gitleaks-CLI自動Secret掃描定版|AUTO-DEC-013｜Gitleaks CLI 自動 Secret 掃描定版]]：已於 2026-08-25 寫回；固定 CLI 8.30.1 與官方 SHA-256，掃描完整 Git 歷史及雙 Vue `dist`，使用 `--redact` 並納入 `CI Required`；Package 來源證據已由 PR #41／DEC-BATCH-023 落實，QA-08 其餘 Actor A／B 與刪除無副作用仍待完成。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-021-退款分攤與折讓映射裁定|DEC-BATCH-021｜退款分攤與折讓映射裁定]]：`DEC-P298`，1 項，已於 2026-08-25 寫回；七類 RefundAllocation 到原發票折讓的映射與測試由 DES-21 追蹤。

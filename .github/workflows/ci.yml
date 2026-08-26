@@ -121,6 +121,7 @@ jobs:
           --health-retries 10
     env:
       ConnectionStrings__DefaultConnection: "Server=localhost,1433;Database=DoSelectDb;User Id=sa;Password=CiOnly_P@ssw0rd2026;TrustServerCertificate=True;MultipleActiveResultSets=True;"
+      DOSELECT_SQLSERVER_TEST_CONNECTION: "Server=localhost,1433;Database=DoSelectDb;User Id=sa;Password=CiOnly_P@ssw0rd2026;TrustServerCertificate=True;MultipleActiveResultSets=True;"
 
     steps:
       - name: Checkout repository
@@ -185,11 +186,10 @@ jobs:
           npm run api:check --prefix frontend/customer-web
 
       - name: Run .NET tests
-        # DEV-07: SQL Server Provider-backed integration tests need a live SQL Server
-        # (no Docker/SQL runner is authorized for this required Linux CI yet), so they're
-        # excluded here via Category=RequiresSqlServer and still run locally/on a
-        # SQL-Server-capable machine with a plain `dotnet test` (no filter).
-        run: dotnet test DoSelect.slnx --no-build --no-restore --filter "Category!=RequiresSqlServer"
+        # The Backend job already provisions SQL Server, applies migrations, and exposes the
+        # same connection string to the test host. Keep provider-backed authorization and
+        # persistence tests inside the Required gate instead of silently filtering them out.
+        run: dotnet test DoSelect.slnx --no-build --no-restore
 
       - name: Report vulnerable NuGet packages
         run: dotnet list DoSelect.slnx package --vulnerable --include-transitive

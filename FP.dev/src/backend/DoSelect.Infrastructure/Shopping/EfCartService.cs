@@ -123,7 +123,7 @@ public sealed class EfCartService : ICartService
         ArgumentNullException.ThrowIfNull(request);
 
         var now = DateTime.UtcNow;
-        var cart = await ResolveOrCreateCartAsync(identity, now, cancellationToken);
+        var cart = await ResolveExistingCartForItemAsync(identity, itemPublicId, now, cancellationToken);
 
         var item = await _dbContext.CartItems.FirstOrDefaultAsync(
             candidate => candidate.PublicId == itemPublicId && candidate.CartId == cart.Id,
@@ -159,7 +159,7 @@ public sealed class EfCartService : ICartService
         CancellationToken cancellationToken)
     {
         var now = DateTime.UtcNow;
-        var cart = await ResolveOrCreateCartAsync(identity, now, cancellationToken);
+        var cart = await ResolveExistingCartForItemAsync(identity, itemPublicId, now, cancellationToken);
 
         var item = await _dbContext.CartItems.FirstOrDefaultAsync(
             candidate => candidate.PublicId == itemPublicId && candidate.CartId == cart.Id,
@@ -546,6 +546,43 @@ public sealed class EfCartService : ICartService
         {
             conflict.Resolve(resolutionCode, now);
         }
+    }
+
+    private async Task<Cart> ResolveExistingCartForItemAsync(
+        CartIdentity identity,
+        Guid itemPublicId,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        Cart? cart;
+        if (identity.MemberUserId is { } memberUserId)
+        {
+            cart = await _dbContext.Carts.FirstOrDefaultAsync(
+                candidate => candidate.OwnerUserId == memberUserId && candidate.Status == CartStatus.Active,
+                cancellationToken);
+        }
+        else if (identity.GuestCartKey is { } guestCartKey)
+        {
+            var hash = HashGuestCartKey(guestCartKey);
+            cart = await _dbContext.Carts.FirstOrDefaultAsync(
+                candidate => candidate.GuestCartKeyHash == hash && candidate.Status == CartStatus.Active,
+                cancellationToken);
+        }
+        else
+        {
+            throw new ShoppingWriteException(
+                ShoppingWriteException.ErrorCodes.ValidationFailed,
+                "A member session or guest cart key is required.");
+        }
+
+        if (cart is null || cart.ExpiresAtUtc <= now)
+        {
+            throw new ShoppingWriteException(
+                ShoppingWriteException.ErrorCodes.ResourceNotFound,
+                $"Cart item '{itemPublicId}' was not found.");
+        }
+
+        return cart;
     }
 
     private async Task<Cart> ResolveOrCreateCartAsync(

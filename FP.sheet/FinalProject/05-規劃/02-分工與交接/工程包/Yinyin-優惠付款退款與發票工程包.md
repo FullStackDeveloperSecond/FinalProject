@@ -1,5 +1,6 @@
 ---
 文件狀態: 可開發
+最後更新: 2026-08-26
 適用對象: yinyin
 主要覆核: haru
 最終整合: alex
@@ -37,18 +38,26 @@ npm ci
 Set-Location ../..
 ```
 
-依 `FP.dev/README.md` 與 [[03-架構/01-系統與環境/本機開發環境與版本基線]] 準備 .NET 10.0.303、Node 24、npm 11、SQL Server `.\SQL2025`／`DoSelectDb`。新環境只套用已審查的 `InitialCreate`：
+依 `FP.dev/README.md` 與 [[03-架構/01-系統與環境/本機開發環境與版本基線]] 準備 .NET 10.0.303、Node 24、npm 11、SQL Server `.\SQL2025`／`DoSelectDb`。新環境套用 `dev` 目前全部已審查 Migration：
 
 ```powershell
-dotnet tool run dotnet-ef -- database update InitialCreate `
+dotnet tool run dotnet-ef -- database update `
   --project src/backend/DoSelect.Infrastructure `
   --startup-project src/backend/DoSelect.Infrastructure `
   --context DoSelectDbContext
 ```
 
+截至 2026-08-26，`dev` 的單一 Migration 歷程共四支：
+
+1. `20260819013357_InitialCreate`
+2. `20260822041051_AddIdempotencyAndCartMergeConflicts`
+3. `20260825171312_AddDes21RefundSnapshots`
+4. `20260825174929_AddCentralAuditLogs`
+
+不指定 Migration 名稱的 `database update` 會依序套用至最新的 `AddCentralAuditLogs`。不得只停在 `InitialCreate`，也不得在功能分支自行 scaffold／apply 新 Migration；Schema 需求交 alex 走 Migration Gate。
 需要最小帳號時，以 Visual Studio 管理 `Seed:MemberPassword`、`Seed:AdminPassword` User Secrets，再用 PATH 中的 `dotnet` 執行 API `--seed-minimal`。兩支 Seed 腳本目前含組長本機 `.NET` 絕對路徑，其他帳號不要直接依賴，也不要混入金流 PR 修改。
 
-首次 Clone 若沒有 `appsettings.Development.json`，由同目錄的 `.example.json` 複製後調整非機密 `Storage:DataRoot`，本機檔案不得提交。退款執行須沿用已完成的共用 `IIdempotencyExecutor`；Outbox／Hangfire、Audit 與 TOTP／Policy 由 alex 的共用工作包推進。你先定義並測試 Application 契約與同交易資料寫入，不要自建第二套冪等表、排程器、Audit 或授權方式。
+首次 Clone 若沒有 `appsettings.Development.json`，由同目錄的 `.example.json` 複製後調整非機密 `Storage:DataRoot`，本機檔案不得提交。退款執行須沿用已合併的 `IIdempotencyExecutor`、中央 `IAuditWriter` 與 `Refund.Execute`／`Coupon.Manage`／`Invoice.Manage` Policy；完整管理員 TOTP 流程以 PR #38 為準，Outbox／Hangfire 仍未完成。不要自建第二套冪等表、排程器、Audit 或授權方式。
 
 ## 3. 權威規格閱讀順序
 
@@ -68,7 +77,7 @@ dotnet tool run dotnet-ef -- database update InitialCreate `
 | 退款 | `DoSelect.Domain/Refunds/` | `Configurations/Refunds/` |
 | 模擬發票 | `DoSelect.Domain/Invoicing/` | `Configurations/Invoicing/` |
 
-根路徑為 `FP.dev/src/backend/`。現有 Entity／Mapping 與初始 Migration 已完成；新工作以 Application Use Case／Query／DTO、API Controller、前端 feature 與各層測試為主。
+根路徑為 `FP.dev/src/backend/`。現有 Entity／Mapping 與四支 Migration 已完成；新工作以 Application Use Case／Query／DTO、API Controller、前端 feature 與各層測試為主。
 
 前台 feature：`cart`／`checkout`／`orders` 的優惠、付款與發票部分。後台 feature：`coupons`、`refunds`。不要把付款狀態塞回 OrderStatus，也不要讓 Controller 或 Vue 指定任意狀態。
 
@@ -99,7 +108,7 @@ dotnet tool run dotnet-ef -- database update InitialCreate `
 - 折讓數量只能取自 `RefundAllocation.Quantity`；不得依退款金額比例、固定值或目前退貨申請數量反推。
 - 折讓來源依 DEC-P298 固定映射：`ItemRefund` 建立折讓；原發票確實收取且本次退還的 `OriginalShipping`／`AssemblyFee` 建立折讓；`ReturnShipping`、`DiscountClawback`、`ShippingClawback` 不建立折讓明細；`OtherAdjustment` 第一版禁止。不得把退貨寄回成本或退款扣回偽裝成原發票折讓。
 - 依 DEC-P299，發票商品列必須有 `OrderItemId` 且不得使用保留碼；非商品列必須沒有 `OrderItemId`，並只接受 Domain 中央常數 `__INVOICE_SHIPPING__`／`__INVOICE_ASSEMBLY_FEE__`。Writer、Reader 與 DTO 映射共用常數，API 對外回 `kind = merchandise|shipping|assemblyFee`；未知非商品列與 `OtherAdjustment` 必須拒絕，不得靜默略過。
-- 退款執行的 `reasonCode`／安全處理後的 `note` 只寫中央 Audit，不在 Refund 重複建欄位；Audit 與退款狀態、分攤、冪等完成紀錄同交易提交，中央 Audit 實作未完成前 PR #16 不得合併。
+- 退款執行的 `reasonCode`／安全處理後的 `note` 只寫已合併的中央 Audit，不在 Refund 重複建欄位；PR #16 必須把 Audit、退款狀態、分攤與冪等完成紀錄納入同一 SQL Server 交易，並以 Audit 失敗整體回滾測試後才可合併。
 - `requestedBy`／`approvedBy`／`executedBy` 只回 `{ publicId, maskedLabel }`；不得回傳 Internal Identity ID、完整 DisplayName 或完整 Email。
 - 付款、退款、折讓 Event 採 append-only／冪等；不可修改歷史偽裝成新事件。
 - 模擬發票固定採 5% 稅率；最終應付在付款前以 AwayFromZero 取整數，且 `Order.GrandTotal = PaymentAttempt.Amount = Order.PaidAmount = Invoice.IssuedAmount`。發票表頭 Gross／Net／Tax 為整數元，明細可保留兩位小數並依三條核對口徑與表頭一致，最後一筆合法明細吸收稅額尾差；1,000 元案例必須得到 952／48／1,000。折讓仍依 DEC-P280，未由 DEC-P285 覆寫。
@@ -112,7 +121,7 @@ dotnet tool run dotnet-ef -- database update InitialCreate `
 | haru | PaymentAttempt、付款／退款彙總、Invoice 結果 | Order、OrderItem、付款期限、擁有者與金額快照 |
 | terry | Coupon 計算結果、付款／退款狀態 | Cart、SKU、ShippingMethod、COD Eligibility、RequiresPrepayment 摘要 |
 | kafen | Refund 執行與分攤結果 | 已核准 Return、Inspection 與可退款項目摘要 |
-| alex | 付款／退款 Outbox payload、財務測試案例 | 已完成的 Idempotency Executor，以及待完成的 Outbox Dispatcher、Audit、TOTP／Policy 共用能力 |
+| alex | 付款／退款 Outbox payload、財務測試案例 | 已完成的 Idempotency Executor、中央 Audit 與 Policy 基線；待完成的 Outbox Dispatcher／Hangfire 與完整管理員 TOTP 流程 |
 
 不得讀取其他模組 Repository／DbContext 或底層表。跨模組同步交易由 Application Use Case 協調同一 Unit of Work；通知與外部副作用使用版本化 Outbox Event。
 
@@ -128,7 +137,7 @@ dotnet tool run dotnet-ef -- database update InitialCreate `
 
 每個切片獨立 PR，不要等四個 M 工作包一次完成才交付。
 
-分支交付依 DEC-P300～P301：PR #7 移除 `OrderCoupon.MinimumSpendAmount` Entity／Configuration，維持純計算與 Coupon lifecycle；另從最新 `dev` 建立單一 DES-21 Migration PR，由 Yinyin 維護 ModelSnapshot、Haru 複核訂單欄位，只 scaffold／review／測試而不 apply。PR #9 直接基於最新 `dev` 且只保留自身兩個付款 commits；PR #8 因使用 PR #7 契約，維持依賴 PR #7。
+分支交付現況：PR #7 已合併純計算與 Coupon lifecycle；PR #45 已合併單一 DES-21 Migration、可信退款快照與 ModelSnapshot。PR #9 仍須直接基於最新 `dev` 且只保留付款範圍；PR #8 應在 PR #7 已合併基線上完成 `CouponRuleReader` 與 SQL Server Provider-backed 證據。
 
 實際 rebase、重建 branch 或修改 PR base 必須另經 alex 授權。
 
@@ -152,8 +161,8 @@ dotnet list DoSelect.slnx package --vulnerable --include-transitive
 ## 10. PR、日誌與停止條件
 
 - 遵守 [[Git協作規範]]；PR 合併至 `dev`，由 alex 核准，Squash Merge。
-- PR #6 在 DEC-P299、`RefundAllocation.Quantity` 與必要測試完成前維持 Draft；PR #16 在可設定隔離策略、管理員 actor scope、中央 Audit、遮罩器、數量／可信快照及最終契約／OpenAPI 完成前維持 Draft。全部阻擋與 CI 解除後才轉 Ready 並重新完整 review；GitHub 狀態變更仍須另行授權。
+- PR #6 已合併退款折讓 API／Writer／Reader 與 SQL 測試。PR #16 仍維持 Draft；已解除中央 Audit 與 DES-21 快照基礎阻擋，剩餘 Gate 是串接 `IAuditWriter` 的同交易回滾、可設定隔離策略、管理員 actor scope、遮罩後摘要、最終契約／OpenAPI 及完整 Provider-backed 測試。全部阻擋與 CI 解除後才轉 Ready 並重新完整 review。
 - 依 [[日誌/README]] 記錄 DTO、金額公式、Idempotency-Key、狀態、Outbox、資料庫與跨模組契約；必須讓 haru 能重跑付款／退款案例。
-- Typed Client 由第一批 API 穩定後依 [[03-架構/02-API與前端契約/OpenAPI與前端Client流程]] 產生，不手寫平行 DTO。
+- 共用 OpenAPI schema、產生的 Typed Client 型別與 wrapper 已在 `dev`；API 變更後依 [[03-架構/02-API與前端契約/OpenAPI與前端Client流程]] 執行 `api:generate`／`api:check`，不手寫平行 DTO。
 - 不自行 scaffold／apply Migration；Schema 需求交 alex 走 Gate。
 - 公式或退款政策不明、需要改其他 Owner Entity、共用 TOTP／Policy／Outbox、錯誤碼未登錄、新增套件或文件衝突時，停止並詢問 alex。

@@ -5204,7 +5204,8 @@
           "descriptionZhTw",
           "warrantyMonths",
           "tagPublicIds",
-          "status"
+          "status",
+          "defaultSku"
         ],
         "type": "object",
         "properties": {
@@ -5246,6 +5247,9 @@
           },
           "status": {
             "type": "string"
+          },
+          "defaultSku": {
+            "$ref": "#/components/schemas/CreateSkuRequest"
           }
         }
       },

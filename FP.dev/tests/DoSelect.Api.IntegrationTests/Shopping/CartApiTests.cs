@@ -256,6 +256,208 @@ public sealed class CartApiTests
     }
 
     [Fact]
+    public async Task GetCart_WhenActorBUsesAnotherGuestKey_DoesNotExposeActorAItems()
+    {
+        using var actorAClient = _fixture.CreateClient();
+        using var actorBClient = _fixture.CreateClient();
+        var actorAKey = CartApiFixture.UniqueGuestKey();
+        var actorBKey = CartApiFixture.UniqueGuestKey();
+        Sku sku;
+        await using (var context = _fixture.CreateScopedContext())
+        {
+            sku = await CartApiSeeding.CreatePublishedSkuAsync(context);
+        }
+
+        using var addResponse = await PostAddItemAsync(actorAClient, actorAKey, sku.PublicId, quantity: 1);
+        addResponse.EnsureSuccessStatusCode();
+
+        using var actorARequest = new HttpRequestMessage(HttpMethod.Get, "/api/v1/cart");
+        actorARequest.Headers.Add(GuestHeaderName, actorAKey);
+        using var actorAResponse = await actorAClient.SendAsync(actorARequest);
+        var actorABody = await actorAResponse.Content.ReadFromJsonAsync<JsonElement>();
+
+        using var actorBRequest = new HttpRequestMessage(HttpMethod.Get, "/api/v1/cart");
+        actorBRequest.Headers.Add(GuestHeaderName, actorBKey);
+        using var actorBResponse = await actorBClient.SendAsync(actorBRequest);
+        var actorBBody = await actorBResponse.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(HttpStatusCode.OK, actorAResponse.StatusCode);
+        Assert.Single(actorABody.GetProperty("items").EnumerateArray());
+        Assert.Equal(HttpStatusCode.OK, actorBResponse.StatusCode);
+        Assert.Empty(actorBBody.GetProperty("items").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task UpdateItemQuantity_WhenActorBUsesActorAItemId_Returns404WithoutSideEffects()
+    {
+        using var actorAClient = _fixture.CreateClient();
+        using var actorBClient = _fixture.CreateClient();
+        var actorAKey = CartApiFixture.UniqueGuestKey();
+        var actorBKey = CartApiFixture.UniqueGuestKey();
+        Sku sku;
+        await using (var context = _fixture.CreateScopedContext())
+        {
+            sku = await CartApiSeeding.CreatePublishedSkuAsync(context);
+        }
+
+        using var addResponse = await PostAddItemAsync(actorAClient, actorAKey, sku.PublicId, quantity: 1);
+        var addBody = await addResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var cartPublicId = addBody.GetProperty("publicId").GetGuid();
+        var cartRowVersion = addBody.GetProperty("rowVersion").GetString();
+        var item = addBody.GetProperty("items")[0];
+        var itemPublicId = item.GetProperty("publicId").GetGuid();
+        var itemRowVersion = item.GetProperty("rowVersion").GetString();
+        var cartCountBefore = await GetCartCountAsync();
+
+        using var response = await SendWithAntiforgeryAsync(
+            actorBClient,
+            GuestPatch(actorBKey, itemPublicId, 9, itemRowVersion, cartRowVersion));
+        var (status, code, _) = await CartApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal(404, status);
+        Assert.Equal("resource_not_found", code);
+        await using var verify = _fixture.CreateScopedContext();
+        var persistedCart = await verify.Carts.AsNoTracking().SingleAsync(candidate => candidate.PublicId == cartPublicId);
+        var persistedItem = await verify.CartItems.AsNoTracking().SingleAsync(candidate => candidate.PublicId == itemPublicId);
+        Assert.Equal(1, persistedItem.Quantity);
+        Assert.Equal(Convert.FromBase64String(itemRowVersion!), persistedItem.RowVersion);
+        Assert.Equal(Convert.FromBase64String(cartRowVersion!), persistedCart.RowVersion);
+        Assert.Equal(cartCountBefore, await GetCartCountAsync());
+    }
+
+    [Fact]
+    public async Task RemoveItem_WhenActorBUsesActorAItemId_Returns404WithoutSideEffects()
+    {
+        using var actorAClient = _fixture.CreateClient();
+        using var actorBClient = _fixture.CreateClient();
+        var actorAKey = CartApiFixture.UniqueGuestKey();
+        var actorBKey = CartApiFixture.UniqueGuestKey();
+        Sku sku;
+        await using (var context = _fixture.CreateScopedContext())
+        {
+            sku = await CartApiSeeding.CreatePublishedSkuAsync(context);
+        }
+
+        using var addResponse = await PostAddItemAsync(actorAClient, actorAKey, sku.PublicId, quantity: 1);
+        var addBody = await addResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var cartPublicId = addBody.GetProperty("publicId").GetGuid();
+        var cartRowVersion = addBody.GetProperty("rowVersion").GetString();
+        var item = addBody.GetProperty("items")[0];
+        var itemPublicId = item.GetProperty("publicId").GetGuid();
+        var itemRowVersion = item.GetProperty("rowVersion").GetString();
+        var cartCountBefore = await GetCartCountAsync();
+
+        using var deleteRequest = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/cart/items/{itemPublicId}")
+        {
+            Content = JsonContent.Create(new { itemRowVersion }),
+        };
+        deleteRequest.Headers.Add(GuestHeaderName, actorBKey);
+        using var response = await SendWithAntiforgeryAsync(actorBClient, deleteRequest);
+        var (status, code, _) = await CartApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal(404, status);
+        Assert.Equal("resource_not_found", code);
+        await using var verify = _fixture.CreateScopedContext();
+        var persistedCart = await verify.Carts.AsNoTracking().SingleAsync(candidate => candidate.PublicId == cartPublicId);
+        var persistedItem = await verify.CartItems.AsNoTracking().SingleAsync(candidate => candidate.PublicId == itemPublicId);
+        Assert.Equal(1, persistedItem.Quantity);
+        Assert.Equal(Convert.FromBase64String(itemRowVersion!), persistedItem.RowVersion);
+        Assert.Equal(Convert.FromBase64String(cartRowVersion!), persistedCart.RowVersion);
+        Assert.Equal(cartCountBefore, await GetCartCountAsync());
+    }
+
+    [Fact]
+    public async Task GetCart_WhenActorBIsAnotherMember_DoesNotExposeActorAItems()
+    {
+        using var actorAClient = await _fixture.CreateAuthenticatedMemberClientAsync();
+        using var actorBClient = await _fixture.CreateAuthenticatedMemberClientAsync();
+        Sku sku;
+        await using (var context = _fixture.CreateScopedContext())
+        {
+            sku = await CartApiSeeding.CreatePublishedSkuAsync(context);
+        }
+
+        using var addResponse = await PostMemberAddItemAsync(actorAClient, sku.PublicId, quantity: 1);
+        addResponse.EnsureSuccessStatusCode();
+
+        using var actorAResponse = await actorAClient.GetAsync("/api/v1/cart");
+        var actorABody = await actorAResponse.Content.ReadFromJsonAsync<JsonElement>();
+        using var actorBResponse = await actorBClient.GetAsync("/api/v1/cart");
+        var actorBBody = await actorBResponse.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(HttpStatusCode.OK, actorAResponse.StatusCode);
+        Assert.Single(actorABody.GetProperty("items").EnumerateArray());
+        Assert.Equal(HttpStatusCode.OK, actorBResponse.StatusCode);
+        Assert.Empty(actorBBody.GetProperty("items").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task UpdateItemQuantity_WhenActorBIsAnotherMember_Returns404WithoutSideEffects()
+    {
+        using var actorAClient = await _fixture.CreateAuthenticatedMemberClientAsync();
+        using var actorBClient = await _fixture.CreateAuthenticatedMemberClientAsync();
+        Sku sku;
+        await using (var context = _fixture.CreateScopedContext())
+        {
+            sku = await CartApiSeeding.CreatePublishedSkuAsync(context);
+        }
+
+        using var addResponse = await PostMemberAddItemAsync(actorAClient, sku.PublicId, quantity: 1);
+        var addBody = await addResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var cartPublicId = addBody.GetProperty("publicId").GetGuid();
+        var cartRowVersion = addBody.GetProperty("rowVersion").GetString();
+        var item = addBody.GetProperty("items")[0];
+        var itemPublicId = item.GetProperty("publicId").GetGuid();
+        var itemRowVersion = item.GetProperty("rowVersion").GetString();
+        var cartCountBefore = await GetCartCountAsync();
+
+        using var updateRequest = new HttpRequestMessage(HttpMethod.Patch, $"/api/v1/cart/items/{itemPublicId}")
+        {
+            Content = JsonContent.Create(new { quantity = 9, itemRowVersion, cartRowVersion }),
+        };
+        using var response = await SendWithAntiforgeryAsync(actorBClient, updateRequest);
+        var (status, code, _) = await CartApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal(404, status);
+        Assert.Equal("resource_not_found", code);
+        await AssertCartItemUnchangedAsync(cartPublicId, itemPublicId, quantity: 1, cartRowVersion!, itemRowVersion!);
+        Assert.Equal(cartCountBefore, await GetCartCountAsync());
+    }
+
+    [Fact]
+    public async Task RemoveItem_WhenActorBIsAnotherMember_Returns404WithoutSideEffects()
+    {
+        using var actorAClient = await _fixture.CreateAuthenticatedMemberClientAsync();
+        using var actorBClient = await _fixture.CreateAuthenticatedMemberClientAsync();
+        Sku sku;
+        await using (var context = _fixture.CreateScopedContext())
+        {
+            sku = await CartApiSeeding.CreatePublishedSkuAsync(context);
+        }
+
+        using var addResponse = await PostMemberAddItemAsync(actorAClient, sku.PublicId, quantity: 1);
+        var addBody = await addResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var cartPublicId = addBody.GetProperty("publicId").GetGuid();
+        var cartRowVersion = addBody.GetProperty("rowVersion").GetString();
+        var item = addBody.GetProperty("items")[0];
+        var itemPublicId = item.GetProperty("publicId").GetGuid();
+        var itemRowVersion = item.GetProperty("rowVersion").GetString();
+        var cartCountBefore = await GetCartCountAsync();
+
+        using var deleteRequest = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/cart/items/{itemPublicId}")
+        {
+            Content = JsonContent.Create(new { itemRowVersion }),
+        };
+        using var response = await SendWithAntiforgeryAsync(actorBClient, deleteRequest);
+        var (status, code, _) = await CartApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal(404, status);
+        Assert.Equal("resource_not_found", code);
+        await AssertCartItemUnchangedAsync(cartPublicId, itemPublicId, quantity: 1, cartRowVersion!, itemRowVersion!);
+        Assert.Equal(cartCountBefore, await GetCartCountAsync());
+    }
+
+    [Fact]
     public async Task AddItem_WithAuthenticatedMember_IsScopedToTheMemberNotAGuestKey()
     {
         using var client = await _fixture.CreateAuthenticatedMemberClientAsync();
@@ -322,6 +524,39 @@ public sealed class CartApiTests
         };
         request.Headers.Add(GuestHeaderName, guestKey);
         return SendWithAntiforgeryAsync(client, request);
+    }
+
+    private static Task<HttpResponseMessage> PostMemberAddItemAsync(
+        HttpClient client,
+        Guid skuPublicId,
+        int quantity)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/cart/items")
+        {
+            Content = JsonContent.Create(new { skuPublicId, quantity, cartRowVersion = (string?)null }),
+        };
+        return SendWithAntiforgeryAsync(client, request);
+    }
+
+    private async Task AssertCartItemUnchangedAsync(
+        Guid cartPublicId,
+        Guid itemPublicId,
+        int quantity,
+        string cartRowVersion,
+        string itemRowVersion)
+    {
+        await using var verify = _fixture.CreateScopedContext();
+        var persistedCart = await verify.Carts.AsNoTracking().SingleAsync(candidate => candidate.PublicId == cartPublicId);
+        var persistedItem = await verify.CartItems.AsNoTracking().SingleAsync(candidate => candidate.PublicId == itemPublicId);
+        Assert.Equal(quantity, persistedItem.Quantity);
+        Assert.Equal(Convert.FromBase64String(itemRowVersion), persistedItem.RowVersion);
+        Assert.Equal(Convert.FromBase64String(cartRowVersion), persistedCart.RowVersion);
+    }
+
+    private async Task<int> GetCartCountAsync()
+    {
+        await using var context = _fixture.CreateScopedContext();
+        return await context.Carts.CountAsync();
     }
 
     private static HttpRequestMessage GuestPatch(

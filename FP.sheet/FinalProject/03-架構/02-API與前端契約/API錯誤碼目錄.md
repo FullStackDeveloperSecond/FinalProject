@@ -70,6 +70,8 @@
 | `sku_code_duplicate` | 409 | 新增 SKU 的 Code 已存在 |
 | `sku_code_immutable` | 409 | 嘗試修改已建立的 SKU Code |
 | `sku_delete_referenced` | 409 | SKU 已被訂單、庫存或其他資料引用，不能實體刪除 |
+| `sku_default_required` | 409 | 嘗試直接取消或刪除商品目前唯一的預設 SKU；須先將其他 SKU 設為預設 |
+| `sku_missing_required_specification` | 400 | SKU 切換為 Published 時，缺少分類定義的必要規格值 |
 | `search_sort_unsupported` | 400 | 排序欄位或方向不在 Endpoint 白名單 |
 | `search_filter_unsupported` | 400 | 篩選欄位、規格或運算不在白名單 |
 | `sale_price_period_overlap` | 409 | 同一 SKU 的有效特價期間重疊 |

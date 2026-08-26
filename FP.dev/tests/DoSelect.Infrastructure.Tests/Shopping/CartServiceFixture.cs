@@ -8,9 +8,8 @@ namespace DoSelect.Infrastructure.Tests.Shopping;
 
 public sealed class CartServiceFixture : IAsyncLifetime
 {
-    private const string ConnectionString =
-        "Server=.\\SQL2025;Database=DoSelectCartServiceTests;Trusted_Connection=True;" +
-        "TrustServerCertificate=True;";
+    private static readonly string ConnectionString =
+        global::DoSelect.Infrastructure.Tests.SqlServerTestConnection.Build("DoSelectCartServiceTests");
 
     public Task InitializeAsync() => ResetDatabaseAsync();
 

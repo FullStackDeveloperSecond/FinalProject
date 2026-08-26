@@ -162,6 +162,17 @@ public sealed class Product : MutablePublicEntity
         Status = status;
         MarkUpdated(updatedAtUtc);
     }
+
+    /// <summary>
+    /// Advances this product's RowVersion when a child Sku's specification values change, even
+    /// though nothing on Product itself changed — a category switch (EfProductAdminService.
+    /// UpdateAsync) validates against the *current* set of SKU specification values before
+    /// committing, and without this, two admins racing a spec edit against a category switch
+    /// could both read a consistent-looking state and both succeed, leaving the switch's
+    /// validation checked against data that's already stale by the time it commits (組長 PR #24
+    /// round 5 review, item 2). Mirrors Cart.Touch's rationale for the same shape of problem.
+    /// </summary>
+    public void Touch(DateTime updatedAtUtc) => MarkUpdated(updatedAtUtc);
 }
 
 public sealed class Sku : MutablePublicEntity

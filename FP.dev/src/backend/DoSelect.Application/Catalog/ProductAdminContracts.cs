@@ -67,7 +67,8 @@ public sealed record CreateProductRequest(
     [StringLength(4000)] string? DescriptionZhTw,
     int? WarrantyMonths,
     IReadOnlyList<Guid> TagPublicIds,
-    [Required] string Status);
+    [Required] string Status,
+    [Required] CreateSkuRequest DefaultSku);
 
 public sealed record UpdateProductRequest(
     [Required, StringLength(160, MinimumLength = 1)] string NameZhTw,

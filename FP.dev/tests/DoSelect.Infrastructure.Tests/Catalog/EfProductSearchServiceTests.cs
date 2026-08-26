@@ -270,9 +270,8 @@ public sealed class EfProductSearchServiceFixture : IAsyncLifetime
     public const string Rtx4060ZhTwName = "RTX 4060 顯示卡";
     public const string Rtx4070JapaneseName = "RTX 4070 グラフィックカード";
 
-    private const string ConnectionString =
-        "Server=.\\SQL2025;Database=DoSelectCatalogSearchTests;Trusted_Connection=True;" +
-        "TrustServerCertificate=True;";
+    private static readonly string ConnectionString =
+        global::DoSelect.Infrastructure.Tests.SqlServerTestConnection.Build("DoSelectCatalogSearchTests");
 
     public async Task InitializeAsync()
     {

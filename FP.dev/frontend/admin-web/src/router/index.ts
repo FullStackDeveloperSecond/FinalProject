@@ -54,6 +54,31 @@ const router = createRouter({
       component: () => import('../pages/support/SupportTicketDetailPage.vue'),
     },
     {
+      // Confirmed Route contract (M功能桌面UI與Route規格.md A-08): one page manages
+      // brand／category／tag together, not three separate routes.
+      path: '/catalog/lookups',
+      name: 'catalog-lookups',
+      component: () => import('../pages/CatalogLookupsPage.vue'),
+    },
+    {
+      path: '/products',
+      name: 'products',
+      component: () => import('../pages/ProductsPage.vue'),
+    },
+    {
+      path: '/products/new',
+      name: 'product-new',
+      component: () => import('../pages/ProductEditPage.vue'),
+    },
+    {
+      // Confirmed Route contract (M功能桌面UI與Route規格.md A-06): /admin/products/:productId,
+      // not /admin/products/:id/edit.
+      path: '/products/:productId',
+      name: 'product-edit',
+      component: () => import('../pages/ProductEditPage.vue'),
+      props: true,
+    },
+    {
       path: '/unauthorized',
       name: 'unauthorized',
       component: HttpStatusPage,
