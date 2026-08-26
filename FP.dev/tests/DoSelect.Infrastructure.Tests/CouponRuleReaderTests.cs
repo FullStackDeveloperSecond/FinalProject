@@ -17,16 +17,19 @@ public sealed class CouponRuleReaderTests
     private static readonly DateTime CreatedAtUtc =
         new(2026, 8, 19, 2, 0, 0, DateTimeKind.Utc);
 
+    private static readonly DateTime EvaluatedAtUtc = CreatedAtUtc.AddHours(2);
+
     [Theory]
     [InlineData(CouponRedemptionStatus.Reserved, true)]
     [InlineData(CouponRedemptionStatus.Consumed, true)]
     [InlineData(CouponRedemptionStatus.Released, false)]
     [InlineData(CouponRedemptionStatus.Expired, false)]
-    public void OccupiesUsageSeat_CountsReservedAndConsumedOnly(
+    public void OccupiesUsageSeat_CountsConsumedAndUnexpiredReserved(
         CouponRedemptionStatus status,
         bool expected)
     {
-        var redemption = CreateRedemption();
+        // 保留尚未到期（ExpiresAtUtc 在評估時間之後）。
+        var redemption = CreateRedemption(expiresAtUtc: EvaluatedAtUtc.AddHours(1));
         switch (status)
         {
             case CouponRedemptionStatus.Consumed:
@@ -40,10 +43,62 @@ public sealed class CouponRuleReaderTests
                 break;
         }
 
-        var occupies = CouponRuleReader.OccupiesUsageSeat.Compile();
+        var occupies = CouponRuleReader.OccupiesUsageSeatAt(EvaluatedAtUtc).Compile();
 
         Assert.Equal(status, redemption.Status);
         Assert.Equal(expected, occupies(redemption));
+    }
+
+    [Fact]
+    public void AnExpiredReservationNoLongerOccupiesASeat()
+    {
+        // 正式 Schema 的名額計算是「Consumed + 尚未過期的 Reserved」。
+        // 保留已逾時、但背景工作還沒轉成 Expired 的那段期間，若仍算入名額，
+        // 優惠券會提早額滿並持續擋住其他人。
+        var redemption = CreateRedemption(expiresAtUtc: EvaluatedAtUtc.AddSeconds(-1));
+
+        var occupies = CouponRuleReader.OccupiesUsageSeatAt(EvaluatedAtUtc).Compile();
+
+        Assert.Equal(CouponRedemptionStatus.Reserved, redemption.Status);
+        Assert.False(occupies(redemption));
+    }
+
+    [Fact]
+    public void AReservationExactlyAtItsExpiryNoLongerOccupiesASeat()
+    {
+        // 邊界：ExpiresAtUtc 等於評估時間視為已過期（判斷式是嚴格大於）。
+        var redemption = CreateRedemption(expiresAtUtc: EvaluatedAtUtc);
+
+        Assert.False(CouponRuleReader.OccupiesUsageSeatAt(EvaluatedAtUtc).Compile()(redemption));
+    }
+
+    [Fact]
+    public void AReservationWithoutAnExpiryAlwaysOccupiesASeat()
+    {
+        // ExpiresAtUtc 可為 NULL（Schema 第 122 行），代表沒有保留逾時。
+        var redemption = CreateRedemption(expiresAtUtc: null);
+
+        Assert.True(CouponRuleReader.OccupiesUsageSeatAt(EvaluatedAtUtc).Compile()(redemption));
+    }
+
+    [Fact]
+    public void AConsumedRedemptionOccupiesASeatEvenAfterItsReservationWindow()
+    {
+        // 已消耗的名額不會因為原保留視窗過期而歸還。
+        var redemption = CreateRedemption(expiresAtUtc: EvaluatedAtUtc.AddSeconds(-1));
+        redemption.Consume(CreatedAtUtc.AddHours(1));
+
+        Assert.True(CouponRuleReader.OccupiesUsageSeatAt(EvaluatedAtUtc).Compile()(redemption));
+    }
+
+    [Fact]
+    public async Task GetUsageAsync_RejectsANonUtcEvaluationTime()
+    {
+        await using var context = CreateContext();
+        var reader = new CouponRuleReader(context);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => reader.GetUsageAsync(
+            1L, "member-1", null, new DateTime(2026, 8, 19, 2, 0, 0, DateTimeKind.Local)));
     }
 
     [Fact]
@@ -119,8 +174,8 @@ public sealed class CouponRuleReaderTests
         Assert.Null(await reader.FindByCodeAsync("   "));
     }
 
-    private static CouponRedemption CreateRedemption() =>
-        new(Guid.NewGuid(), 1, 1, "member-1", null, CreatedAtUtc, null, CreatedAtUtc);
+    private static CouponRedemption CreateRedemption(DateTime? expiresAtUtc = null) =>
+        new(Guid.NewGuid(), 1, 1, "member-1", null, CreatedAtUtc, expiresAtUtc, CreatedAtUtc);
 
     private static ServiceProvider BuildProvider()
     {
