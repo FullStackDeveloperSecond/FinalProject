@@ -15,10 +15,12 @@ public sealed class EfGuestOrderAccessGateway(DoSelectDbContext dbContext) : IGu
                 o.OrderNumber == orderNumber &&
                 o.GuestEmailNormalized != null &&
                 o.GuestEmailNormalized == emailNormalized)
-            .Select(o => new { o.Id, o.PublicId })
+            .Select(o => new { o.Id, o.PublicId, o.OrderNumber, o.GuestEmailNormalized })
             .FirstOrDefaultAsync(cancellationToken);
 
-        return order is null ? null : new GuestOrderLookup(order.Id, order.PublicId);
+        return order is null
+            ? null
+            : new GuestOrderLookup(order.Id, order.PublicId, order.OrderNumber, order.GuestEmailNormalized);
     }
 
     public async Task<GuestOrderLookup?> FindGuestOrderByIdAsync(
@@ -27,10 +29,12 @@ public sealed class EfGuestOrderAccessGateway(DoSelectDbContext dbContext) : IGu
         var order = await dbContext.Orders
             .AsNoTracking()
             .Where(o => o.Id == orderId)
-            .Select(o => new { o.Id, o.PublicId })
+            .Select(o => new { o.Id, o.PublicId, o.OrderNumber, o.GuestEmailNormalized })
             .FirstOrDefaultAsync(cancellationToken);
 
-        return order is null ? null : new GuestOrderLookup(order.Id, order.PublicId);
+        return order is null
+            ? null
+            : new GuestOrderLookup(order.Id, order.PublicId, order.OrderNumber, order.GuestEmailNormalized);
     }
 
     public async Task AddRequestAsync(

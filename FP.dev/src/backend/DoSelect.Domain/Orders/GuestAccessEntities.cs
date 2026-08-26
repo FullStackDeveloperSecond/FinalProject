@@ -101,6 +101,28 @@ public sealed class GuestOrderAccessRequest : MutablePublicEntity
 
     public void RecordSend(DateTime sentAtUtc)
     {
+        EnsureCanSend(sentAtUtc);
+        SendCount++;
+        LastSentAtUtc = sentAtUtc;
+        MarkUpdated(sentAtUtc);
+    }
+
+    /// <summary>
+    /// 重寄且換發新碼：跟 <see cref="RecordSend"/> 同一組寄送上限／間隔檢查，額外原子替換
+    /// <see cref="CodeHash"/>，讓舊碼立即失效。只適用有真實訂單的 Request——Decoy 沒有
+    /// CodeHash 可換，重寄仍呼叫 <see cref="RecordSend"/>。
+    /// </summary>
+    public void RecordResend(byte[] newCodeHash, DateTime sentAtUtc)
+    {
+        EnsureCanSend(sentAtUtc);
+        CodeHash = RequireHash(newCodeHash, nameof(newCodeHash));
+        SendCount++;
+        LastSentAtUtc = sentAtUtc;
+        MarkUpdated(sentAtUtc);
+    }
+
+    private void EnsureCanSend(DateTime sentAtUtc)
+    {
         EnsureActive(sentAtUtc);
         if (SendCount >= MaximumSends)
         {
@@ -111,10 +133,6 @@ public sealed class GuestOrderAccessRequest : MutablePublicEntity
         {
             throw new InvalidOperationException("The resend interval has not elapsed.");
         }
-
-        SendCount++;
-        LastSentAtUtc = sentAtUtc;
-        MarkUpdated(sentAtUtc);
     }
 
     public void RecordFailedAttempt(DateTime attemptedAtUtc)
