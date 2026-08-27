@@ -61,4 +61,3 @@ The first timezone test run expected one day too late. Repository policy says lo
 - C-19 remains dependency-gated until C-18 supplies eligible item IDs and order RowVersion.
 - The overdue cancellation use case remains callable but unscheduled per D1.
 - Physical inventory restoration and refund execution remain outside M-12.
-

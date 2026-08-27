@@ -45,4 +45,3 @@
 ## Next-stage instructions
 
 Force-push the rebased `feature/returns-m12` branch with an explicit lease, update PR #42 with the new base/head, repair summary, test counts and remaining dependency boundaries, then wait for Required CI before asking the group lead to re-review.
-
