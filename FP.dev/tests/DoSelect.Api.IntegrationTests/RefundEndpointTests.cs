@@ -166,6 +166,7 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
     [InlineData(RefundErrorCodes.RefundStateConflict, HttpStatusCode.Conflict)]
     [InlineData(RefundErrorCodes.RefundAmountExceeded, HttpStatusCode.Conflict)]
     [InlineData(RefundErrorCodes.IdempotencyPayloadConflict, HttpStatusCode.Conflict)]
+    [InlineData(RefundErrorCodes.RefundSnapshotUnavailable, HttpStatusCode.Conflict)]
     public async Task DomainErrorCodesMapToTheDocumentedStatuses(
         string errorCode,
         HttpStatusCode expected)

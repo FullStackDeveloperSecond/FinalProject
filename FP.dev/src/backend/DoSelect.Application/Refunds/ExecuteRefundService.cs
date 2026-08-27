@@ -196,9 +196,13 @@ public static class RefundExecutionDecision
         // E1：上游可信快照未齊全時必須拒絕，不得以估算值或管理端傳入的分攤補齊。
         // 一筆沒有分攤的成功退款，會讓對帳、發票折讓與稽核的 allocationCount 全部失真，
         // 而且寫進去之後不可變 —— 拒絕比事後修正便宜得多。
+        //
+        // 這裡刻意**不用** refund_state_conflict：那個碼的意思是「退款目前狀態不允許
+        // 操作」，管理員收到會去查退款狀態，但實際原因與退款狀態無關，而是退貨核准端
+        // 的可信資料還沒齊。alex 於 PR #16 裁定專屬碼 refund_snapshot_unavailable。
         if (snapshot.TrustedInputs is not { } trustedInputs)
         {
-            return ExecuteRefundResult.Failure(RefundErrorCodes.RefundStateConflict);
+            return ExecuteRefundResult.Failure(RefundErrorCodes.RefundSnapshotUnavailable);
         }
 
         var calculation = RefundCalculator.Calculate(new RefundCalculationRequest(

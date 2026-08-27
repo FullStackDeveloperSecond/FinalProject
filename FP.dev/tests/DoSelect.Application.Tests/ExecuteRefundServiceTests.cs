@@ -152,9 +152,12 @@ public sealed class ExecuteRefundServiceTests
     {
         // E1：上游可信資料未齊全時必須拒絕，不得以估算值或管理端傳入的分攤補齊。
         // 分攤寫入即不可變，估算值會讓對帳與發票折讓永久失真。
+        //
+        // 專屬碼而非 refund_state_conflict：後者會讓管理員去查退款狀態，
+        // 但實際原因是退貨核准端的資料還沒齊（alex 於 PR #16 裁定）。
         var result = await EvaluateAsync(Request(), Snapshot(withTrustedInputs: false));
 
-        Assert.Equal(RefundErrorCodes.RefundStateConflict, result.ErrorCode);
+        Assert.Equal(RefundErrorCodes.RefundSnapshotUnavailable, result.ErrorCode);
         Assert.Null(result.Plan);
     }
 

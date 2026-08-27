@@ -237,7 +237,8 @@ public sealed class RefundExecutor : IRefundExecutor
     private Task<RefundTrustedInputs?> FindTrustedInputsAsync(
         Refund refund,
         CancellationToken cancellationToken) =>
-        Task.FromResult<RefundTrustedInputs?>(null);
+        new RefundTrustedInputsReader(_context)
+            .FindAsync(refund.OrderId, refund.ReturnRequestId, cancellationToken);
 
     /// <summary>
     /// 把後端算出的分攤寫進 <c>RefundAllocations</c>，回傳實際寫入筆數。
