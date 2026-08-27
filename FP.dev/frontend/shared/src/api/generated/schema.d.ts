@@ -288,6 +288,512 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/returns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    Statuses?: components["schemas"]["ReturnRequestStatus"][];
+                    ReasonCodes?: string[];
+                    From?: string;
+                    To?: string;
+                    Q?: string;
+                    PageNumber?: number | string;
+                    PageSize?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["PageResultOfAdminReturnSummaryDto"];
+                        "application/json": components["schemas"]["PageResultOfAdminReturnSummaryDto"];
+                        "text/json": components["schemas"]["PageResultOfAdminReturnSummaryDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/returns/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminReturnDetailDto"];
+                        "application/json": components["schemas"]["AdminReturnDetailDto"];
+                        "text/json": components["schemas"]["AdminReturnDetailDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/returns/{id}/actions/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ApproveReturnRequest"];
+                    "text/json": components["schemas"]["ApproveReturnRequest"];
+                    "application/*+json": components["schemas"]["ApproveReturnRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ReturnRequestDto"];
+                        "application/json": components["schemas"]["ReturnRequestDto"];
+                        "text/json": components["schemas"]["ReturnRequestDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/returns/{id}/actions/receive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ReceiveReturnRequest"];
+                    "text/json": components["schemas"]["ReceiveReturnRequest"];
+                    "application/*+json": components["schemas"]["ReceiveReturnRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ReturnRequestDto"];
+                        "application/json": components["schemas"]["ReturnRequestDto"];
+                        "text/json": components["schemas"]["ReturnRequestDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/returns/{id}/actions/inspect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["InspectReturnRequest"];
+                    "text/json": components["schemas"]["InspectReturnRequest"];
+                    "application/*+json": components["schemas"]["InspectReturnRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ReturnRequestDto"];
+                        "application/json": components["schemas"]["ReturnRequestDto"];
+                        "text/json": components["schemas"]["ReturnRequestDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/returns/{id}/actions/extend-shipment-deadline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ExtendShipmentDeadlineRequest"];
+                    "text/json": components["schemas"]["ExtendShipmentDeadlineRequest"];
+                    "application/*+json": components["schemas"]["ExtendShipmentDeadlineRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ReturnRequestDto"];
+                        "application/json": components["schemas"]["ReturnRequestDto"];
+                        "text/json": components["schemas"]["ReturnRequestDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/returns/{id}/shipment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ReturnShipmentDto"];
+                        "application/json": components["schemas"]["ReturnShipmentDto"];
+                        "text/json": components["schemas"]["ReturnShipmentDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateReturnShipmentRequest"];
+                    "text/json": components["schemas"]["CreateReturnShipmentRequest"];
+                    "application/*+json": components["schemas"]["CreateReturnShipmentRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ReturnShipmentDto"];
+                        "application/json": components["schemas"]["ReturnShipmentDto"];
+                        "text/json": components["schemas"]["ReturnShipmentDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/returns/{id}/shipment/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AppendReturnShipmentEventRequest"];
+                    "text/json": components["schemas"]["AppendReturnShipmentEventRequest"];
+                    "application/*+json": components["schemas"]["AppendReturnShipmentEventRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ReturnShipmentDto"];
+                        "application/json": components["schemas"]["ReturnShipmentDto"];
+                        "text/json": components["schemas"]["ReturnShipmentDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/orders/{orderId}/returns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orderId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateReturnRequestBody"];
+                    "text/json": components["schemas"]["CreateReturnRequestBody"];
+                    "application/*+json": components["schemas"]["CreateReturnRequestBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ReturnRequestDto"];
+                        "application/json": components["schemas"]["ReturnRequestDto"];
+                        "text/json": components["schemas"]["ReturnRequestDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/returns/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ReturnRequestDto"];
+                        "application/json": components["schemas"]["ReturnRequestDto"];
+                        "text/json": components["schemas"]["ReturnRequestDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/returns/{id}/attachments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "multipart/form-data": {
+                        file?: components["schemas"]["IFormFile"];
+                    };
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ReturnAttachmentDto"];
+                        "application/json": components["schemas"]["ReturnAttachmentDto"];
+                        "text/json": components["schemas"]["ReturnAttachmentDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/guest-orders/access-requests": {
         parameters: {
             query?: never;
@@ -2978,6 +3484,32 @@ export interface components {
             /** Format: byte */
             rowVersion: string;
         };
+        AdminReturnDetailDto: {
+            return: components["schemas"]["ReturnRequestDto"];
+            inspections: components["schemas"]["ReturnInspectionDto"][];
+            refundableItemsPreview: components["schemas"]["RefundableItemPreviewDto"][];
+            history: components["schemas"]["ReturnHistoryEntryDto"][];
+            availableActions: string[];
+        };
+        AdminReturnSummaryDto: {
+            /** Format: uuid */
+            publicId: string;
+            returnNumber: string;
+            /** Format: uuid */
+            orderPublicId: string;
+            orderNumber: string;
+            status: components["schemas"]["ReturnRequestStatus"];
+            priority: components["schemas"]["CasePriority"];
+            /** Format: int32 */
+            itemCount: number | string;
+            /** Format: date-time */
+            requestedAtUtc: null | string;
+            /** Format: date-time */
+            returnShipmentDueAtUtc: null | string;
+            needsAttention: boolean;
+            /** Format: byte */
+            rowVersion: string;
+        };
         AdminSupportMessageDto: {
             /** Format: uuid */
             publicId: string;
@@ -3087,6 +3619,29 @@ export interface components {
         };
         AntiforgeryTokenResponse: {
             requestToken: string;
+        };
+        AppendReturnShipmentEventRequest: {
+            source: string;
+            externalEventId: string;
+            eventType: string;
+            /** Format: date-time */
+            occurredAtUtc: string;
+            description?: null | string;
+        };
+        ApproveReturnItemLine: {
+            /** Format: uuid */
+            returnItemPublicId: string;
+            /** Format: int32 */
+            approvedQuantity: number | string;
+            inspectionRequired: boolean;
+        };
+        ApproveReturnRequest: {
+            approved: boolean;
+            items: components["schemas"]["ApproveReturnItemLine"][];
+            reasonCode: string;
+            note?: null | string;
+            /** Format: byte */
+            returnRowVersion: string;
         };
         AuthSessionDto: {
             isAuthenticated: boolean;
@@ -3306,6 +3861,32 @@ export interface components {
             status: string;
             defaultSku: components["schemas"]["CreateSkuRequest"];
         };
+        CreateReturnItemLine: {
+            /** Format: uuid */
+            orderItemPublicId: string;
+            /** Format: int32 */
+            quantity: number | string;
+            reasonCode: string;
+            description: null | string;
+        };
+        CreateReturnRequestBody: {
+            items: components["schemas"]["CreateReturnItemLine"][];
+            requestReason: string;
+            /** Format: byte */
+            orderRowVersion: string;
+        };
+        CreateReturnShipmentRequest: {
+            method: components["schemas"]["ReturnShipmentMethod"];
+            carrierCode?: null | string;
+            recipientName?: null | string;
+            recipientPhone?: null | string;
+            postalCode?: null | string;
+            addressLine?: null | string;
+            storeCode?: null | string;
+            storeName?: null | string;
+            /** Format: byte */
+            returnRowVersion: string;
+        };
         CreateSimulatedInvoiceAllowanceRequest: {
             /** Format: uuid */
             refundPublicId: string;
@@ -3384,6 +3965,11 @@ export interface components {
         EmailVerificationRequest: {
             email: string;
         };
+        ExtendShipmentDeadlineRequest: {
+            reasonCode: string;
+            /** Format: byte */
+            returnRowVersion: string;
+        };
         GuestOrderAccessRequestAcceptedDto: {
             /** Format: uuid */
             requestPublicId: string;
@@ -3409,6 +3995,18 @@ export interface components {
         };
         /** Format: binary */
         IFormFile: string;
+        InspectReturnItemLine: {
+            /** Format: uuid */
+            returnItemPublicId: string;
+            conditionCode: string;
+            disposition: components["schemas"]["RestockDisposition"];
+            note: null | string;
+        };
+        InspectReturnRequest: {
+            items: components["schemas"]["InspectReturnItemLine"][];
+            /** Format: byte */
+            returnRowVersion: string;
+        };
         /** @enum {unknown} */
         InvoiceLineKind: "merchandise" | "shipping" | "assemblyFee";
         LoginRequest: {
@@ -3418,6 +4016,17 @@ export interface components {
         };
         PageResultOfAdminProductSummaryDto: {
             items: components["schemas"]["AdminProductSummaryDto"][];
+            /** Format: int32 */
+            pageNumber: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+            /** Format: int32 */
+            totalCount: number | string;
+            /** Format: int32 */
+            totalPages?: number | string;
+        };
+        PageResultOfAdminReturnSummaryDto: {
+            items: components["schemas"]["AdminReturnSummaryDto"][];
             /** Format: int32 */
             pageNumber: number | string;
             /** Format: int32 */
@@ -3594,10 +4203,23 @@ export interface components {
             dimensions: components["schemas"]["SkuDimensionsSummary"];
             isDefault: boolean;
         };
+        ReceiveReturnRequest: {
+            note?: null | string;
+            /** Format: byte */
+            returnRowVersion: string;
+        };
         RecoveryCodeUseRequest: {
             /** Format: uuid */
             challengePublicId: string;
             code: string;
+        };
+        RefundableItemPreviewDto: {
+            /** Format: uuid */
+            returnItemPublicId: string;
+            skuCodeSnapshot: string;
+            /** Format: int32 */
+            quantity: number | string;
+            restockDisposition: null | components["schemas"]["RestockDisposition"];
         };
         RegisterAcceptedResponse: {
             /** Format: uuid */
@@ -3617,6 +4239,107 @@ export interface components {
             /** Format: byte */
             itemRowVersion: string;
         };
+        /** @enum {unknown} */
+        RestockDisposition: "resellable" | "quarantine" | "scrap" | null;
+        ReturnAttachmentDto: {
+            /** Format: uuid */
+            publicId: string;
+            originalFileName: string;
+            /** Format: date-time */
+            createdAtUtc: string;
+        };
+        ReturnHistoryEntryDto: {
+            fromStatus: null | components["schemas"]["ReturnRequestStatus"];
+            toStatus: components["schemas"]["ReturnRequestStatus"];
+            reasonCode: null | string;
+            note: null | string;
+            /** Format: date-time */
+            occurredAtUtc: string;
+        };
+        ReturnInspectionDto: {
+            /** Format: uuid */
+            returnItemPublicId: string;
+            result: string;
+            conditionCode: string;
+            note: null | string;
+            /** Format: date-time */
+            inspectedAtUtc: string;
+        };
+        ReturnItemDto: {
+            /** Format: uuid */
+            publicId: string;
+            /** Format: uuid */
+            orderItemPublicId: string;
+            skuCodeSnapshot: string;
+            productNameSnapshot: string;
+            description: null | string;
+            /** Format: int32 */
+            quantity: number | string;
+            inspectionStatus: string;
+            restockDisposition: null | components["schemas"]["RestockDisposition"];
+        };
+        ReturnRequestDto: {
+            /** Format: uuid */
+            publicId: string;
+            returnNumber: string;
+            /** Format: uuid */
+            orderPublicId: string;
+            orderNumber: string;
+            status: components["schemas"]["ReturnRequestStatus"];
+            priority: components["schemas"]["CasePriority"];
+            reasonCode: string;
+            description: string;
+            items: components["schemas"]["ReturnItemDto"][];
+            attachments: components["schemas"]["ReturnAttachmentDto"][];
+            /** Format: date-time */
+            requestedAtUtc: null | string;
+            /** Format: date-time */
+            approvedAtUtc: null | string;
+            /** Format: date-time */
+            receivedAtUtc: null | string;
+            /** Format: date-time */
+            closedAtUtc: null | string;
+            /** Format: date-time */
+            returnShipmentDueAtUtc: null | string;
+            shipmentDeadlineExtended: boolean;
+            shipment: null | components["schemas"]["ReturnShipmentDto"];
+            availableActions: string[];
+            /** Format: byte */
+            rowVersion: string;
+        };
+        /** @enum {unknown} */
+        ReturnRequestStatus: "requested" | "underReview" | "approved" | "awaitingShipment" | "inTransit" | "received" | "inspecting" | "awaitingRefund" | "completed" | "rejected" | "cancelled";
+        ReturnShipmentDto: {
+            /** Format: uuid */
+            publicId: string;
+            shipmentNumber: string;
+            method: components["schemas"]["ReturnShipmentMethod"];
+            status: components["schemas"]["ReturnShipmentStatus"];
+            carrierCode: null | string;
+            trackingNumber: null | string;
+            maskedRecipientName: null | string;
+            maskedRecipientPhone: null | string;
+            maskedAddress: null | string;
+            storeCode: null | string;
+            storeName: null | string;
+            /** Format: date-time */
+            shippedAtUtc: null | string;
+            /** Format: date-time */
+            receivedAtUtc: null | string;
+            events: components["schemas"]["ReturnShipmentEventSummaryDto"][];
+            /** Format: byte */
+            rowVersion: string;
+        };
+        ReturnShipmentEventSummaryDto: {
+            source: string;
+            eventType: string;
+            /** Format: date-time */
+            occurredAtUtc: string;
+        };
+        /** @enum {unknown} */
+        ReturnShipmentMethod: "homePickup" | "convenienceStore" | "selfShip";
+        /** @enum {unknown} */
+        ReturnShipmentStatus: "pending" | "scheduled" | "pickedUp" | "inTransit" | "delivered" | "failed" | "cancelled";
         ShippingRestrictionDto: {
             method: string;
             allowed: boolean;

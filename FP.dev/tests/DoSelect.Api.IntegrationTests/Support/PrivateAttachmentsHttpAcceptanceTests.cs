@@ -1,8 +1,11 @@
 using System.Net;
+using System.Reflection;
 using System.Security.Claims;
 using System.Text.Json;
 using DoSelect.Api.Security;
 using DoSelect.Application.Common;
+using DoSelect.Application.Files;
+using DoSelect.Application.Returns;
 using DoSelect.Application.Support;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
@@ -91,6 +94,39 @@ public sealed class PrivateAttachmentsHttpAcceptanceTests : IClassFixture<WebApp
             fake.Actors.Select(actor => actor.Type));
         Assert.Equal(member, fake.Actors[^1].UserId);
     }
+
+    [Fact]
+    public async Task SupportMiss_WhenMemberOwnsReturnAttachment_ReturnsContent()
+    {
+        var support = new AttachmentServiceFake { ThrowNotFound = true };
+        var attachmentId = Guid.NewGuid();
+        var member = $"member-{Guid.NewGuid():N}";
+        var returnStore = DispatchProxy.Create<IReturnStore, ReturnStoreFake>();
+        var returnStoreFake = (ReturnStoreFake)(object)returnStore;
+        returnStoreFake.AttachmentId = attachmentId;
+        returnStoreFake.Access = new ReturnAttachmentAccess(
+            ReturnRequestId: 42,
+            MemberUserId: member,
+            OrderId: 84,
+            StorageKey: "returns/owned-proof.png",
+            OriginalFileName: "owned-proof.png",
+            ContentType: "image/png");
+        var returnFiles = new ReturnFileStorageFake([10, 20, 30]);
+
+        using var factory = CreateFactory(support, returnStore, returnFiles);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add(MemberHeader, member);
+
+        using var response = await client.GetAsync($"/api/v1/private-attachments/{attachmentId}/content");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal([10, 20, 30], await response.Content.ReadAsByteArrayAsync());
+        Assert.Equal("image/png", response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("owned-proof.png", response.Content.Headers.ContentDisposition?.FileNameStar);
+        Assert.Equal(1, support.Calls);
+        Assert.Equal("returns/owned-proof.png", returnFiles.OpenedStorageKey);
+    }
+
     [Theory]
     [InlineData(DoSelectRoles.CustomerService, true, HttpStatusCode.OK)]
     [InlineData(DoSelectRoles.CustomerServiceSupervisor, true, HttpStatusCode.OK)]
@@ -181,14 +217,62 @@ public sealed class PrivateAttachmentsHttpAcceptanceTests : IClassFixture<WebApp
         Assert.DoesNotContain("\u0001", headers, StringComparison.Ordinal);
     }
 
-    private WebApplicationFactory<Program> CreateFactory(AttachmentServiceFake fake) =>
+    private WebApplicationFactory<Program> CreateFactory(
+        AttachmentServiceFake fake,
+        IReturnStore? returnStore = null,
+        IPrivateFileStorage? returnFileStorage = null) =>
         _baseFactory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
         {
             services.RemoveAll<IAuthenticationHandlerProvider>();
             services.AddSingleton<IAuthenticationHandlerProvider, HeaderAuthenticationHandlerProvider>();
             services.RemoveAll<ISupportAttachmentReadService>();
             services.AddSingleton<ISupportAttachmentReadService>(fake);
+            if (returnStore is not null)
+            {
+                services.RemoveAll<IReturnStore>();
+                services.AddSingleton(returnStore);
+            }
+            if (returnFileStorage is not null)
+            {
+                services.RemoveAll<IPrivateFileStorage>();
+                services.AddSingleton(returnFileStorage);
+            }
         }));
+
+    private class ReturnStoreFake : DispatchProxy
+    {
+        public Guid AttachmentId { get; set; }
+        public ReturnAttachmentAccess? Access { get; set; }
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod?.Name == nameof(IReturnStore.FindAttachmentAccessAsync))
+            {
+                var requestedId = (Guid)args![0]!;
+                return Task.FromResult(requestedId == AttachmentId ? Access : null);
+            }
+
+            throw new NotSupportedException($"Unexpected return-store call: {targetMethod?.Name}");
+        }
+    }
+
+    private sealed class ReturnFileStorageFake(byte[] bytes) : IPrivateFileStorage
+    {
+        public string? OpenedStorageKey { get; private set; }
+
+        public Task<PrivateFileStoreResult> StoreAsync(
+            PrivateFileUpload upload, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<Stream?> OpenReadAsync(string storageKey, CancellationToken cancellationToken = default)
+        {
+            OpenedStorageKey = storageKey;
+            return Task.FromResult<Stream?>(new MemoryStream(bytes));
+        }
+
+        public Task<bool> DeleteAsync(string storageKey, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+    }
 
     private sealed class AttachmentServiceFake : ISupportAttachmentReadService
     {

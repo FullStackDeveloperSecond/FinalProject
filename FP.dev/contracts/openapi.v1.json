@@ -6,7 +6,7 @@
   },
   "servers": [
     {
-      "url": "http://localhost:5126/"
+      "url": "http://127.0.0.1:5127/"
     }
   ],
   "paths": {
@@ -335,6 +335,697 @@
               "text/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/returns": {
+      "get": {
+        "tags": [
+          "AdminReturns"
+        ],
+        "parameters": [
+          {
+            "name": "Statuses",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/ReturnRequestStatus"
+              }
+            }
+          },
+          {
+            "name": "ReasonCodes",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "From",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "To",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "Q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "PageNumber",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "PageSize",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageResultOfAdminReturnSummaryDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageResultOfAdminReturnSummaryDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageResultOfAdminReturnSummaryDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/returns/{id}": {
+      "get": {
+        "tags": [
+          "AdminReturns"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReturnDetailDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReturnDetailDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReturnDetailDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/returns/{id}/actions/review": {
+      "post": {
+        "tags": [
+          "AdminReturns"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveReturnRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveReturnRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveReturnRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnRequestDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnRequestDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnRequestDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/returns/{id}/actions/receive": {
+      "post": {
+        "tags": [
+          "AdminReturns"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReceiveReturnRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReceiveReturnRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReceiveReturnRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnRequestDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnRequestDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnRequestDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/returns/{id}/actions/inspect": {
+      "post": {
+        "tags": [
+          "AdminReturns"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InspectReturnRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InspectReturnRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/InspectReturnRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnRequestDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnRequestDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnRequestDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/returns/{id}/actions/extend-shipment-deadline": {
+      "post": {
+        "tags": [
+          "AdminReturns"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtendShipmentDeadlineRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtendShipmentDeadlineRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtendShipmentDeadlineRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnRequestDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnRequestDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnRequestDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/returns/{id}/shipment": {
+      "get": {
+        "tags": [
+          "AdminReturns"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnShipmentDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnShipmentDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnShipmentDto"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "AdminReturns"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateReturnShipmentRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateReturnShipmentRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateReturnShipmentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnShipmentDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnShipmentDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnShipmentDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/returns/{id}/shipment/events": {
+      "post": {
+        "tags": [
+          "AdminReturns"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppendReturnShipmentEventRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppendReturnShipmentEventRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppendReturnShipmentEventRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnShipmentDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnShipmentDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnShipmentDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orders/{orderId}/returns": {
+      "post": {
+        "tags": [
+          "OrderReturns"
+        ],
+        "parameters": [
+          {
+            "name": "orderId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateReturnRequestBody"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateReturnRequestBody"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateReturnRequestBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnRequestDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnRequestDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnRequestDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/returns/{id}": {
+      "get": {
+        "tags": [
+          "Returns"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnRequestDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnRequestDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnRequestDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/returns/{id}/attachments": {
+      "post": {
+        "tags": [
+          "Returns"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "$ref": "#/components/schemas/IFormFile"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnAttachmentDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnAttachmentDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReturnAttachmentDto"
                 }
               }
             }
@@ -4330,6 +5021,112 @@
           }
         }
       },
+      "AdminReturnDetailDto": {
+        "required": [
+          "return",
+          "inspections",
+          "refundableItemsPreview",
+          "history",
+          "availableActions"
+        ],
+        "type": "object",
+        "properties": {
+          "return": {
+            "$ref": "#/components/schemas/ReturnRequestDto"
+          },
+          "inspections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReturnInspectionDto"
+            }
+          },
+          "refundableItemsPreview": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RefundableItemPreviewDto"
+            }
+          },
+          "history": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReturnHistoryEntryDto"
+            }
+          },
+          "availableActions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "AdminReturnSummaryDto": {
+        "required": [
+          "publicId",
+          "returnNumber",
+          "orderPublicId",
+          "orderNumber",
+          "status",
+          "priority",
+          "itemCount",
+          "requestedAtUtc",
+          "returnShipmentDueAtUtc",
+          "needsAttention",
+          "rowVersion"
+        ],
+        "type": "object",
+        "properties": {
+          "publicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "returnNumber": {
+            "type": "string"
+          },
+          "orderPublicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "orderNumber": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReturnRequestStatus"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/CasePriority"
+          },
+          "itemCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "requestedAtUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "returnShipmentDueAtUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "needsAttention": {
+            "type": "boolean"
+          },
+          "rowVersion": {
+            "type": "string",
+            "format": "byte"
+          }
+        }
+      },
       "AdminSupportMessageDto": {
         "required": [
           "publicId",
@@ -4740,6 +5537,106 @@
         "properties": {
           "requestToken": {
             "type": "string"
+          }
+        }
+      },
+      "AppendReturnShipmentEventRequest": {
+        "required": [
+          "source",
+          "externalEventId",
+          "eventType",
+          "occurredAtUtc"
+        ],
+        "type": "object",
+        "properties": {
+          "source": {
+            "maxLength": 32,
+            "minLength": 1,
+            "type": "string"
+          },
+          "externalEventId": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "eventType": {
+            "maxLength": 50,
+            "minLength": 1,
+            "type": "string"
+          },
+          "occurredAtUtc": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "description": {
+            "maxLength": 500,
+            "minLength": 0,
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "ApproveReturnItemLine": {
+        "required": [
+          "returnItemPublicId",
+          "approvedQuantity",
+          "inspectionRequired"
+        ],
+        "type": "object",
+        "properties": {
+          "returnItemPublicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "approvedQuantity": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "inspectionRequired": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApproveReturnRequest": {
+        "required": [
+          "approved",
+          "items",
+          "reasonCode",
+          "returnRowVersion"
+        ],
+        "type": "object",
+        "properties": {
+          "approved": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApproveReturnItemLine"
+            }
+          },
+          "reasonCode": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          },
+          "note": {
+            "maxLength": 500,
+            "minLength": 0,
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "returnRowVersion": {
+            "type": "string",
+            "format": "byte"
           }
         }
       },
@@ -5611,6 +6508,133 @@
           }
         }
       },
+      "CreateReturnItemLine": {
+        "required": [
+          "orderItemPublicId",
+          "quantity",
+          "reasonCode",
+          "description"
+        ],
+        "type": "object",
+        "properties": {
+          "orderItemPublicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "quantity": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "reasonCode": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "CreateReturnRequestBody": {
+        "required": [
+          "items",
+          "requestReason",
+          "orderRowVersion"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CreateReturnItemLine"
+            }
+          },
+          "requestReason": {
+            "type": "string"
+          },
+          "orderRowVersion": {
+            "type": "string",
+            "format": "byte"
+          }
+        }
+      },
+      "CreateReturnShipmentRequest": {
+        "required": [
+          "method",
+          "returnRowVersion"
+        ],
+        "type": "object",
+        "properties": {
+          "method": {
+            "$ref": "#/components/schemas/ReturnShipmentMethod"
+          },
+          "carrierCode": {
+            "maxLength": 32,
+            "minLength": 0,
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "recipientName": {
+            "maxLength": 100,
+            "minLength": 0,
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "recipientPhone": {
+            "maxLength": 30,
+            "minLength": 0,
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "postalCode": {
+            "maxLength": 10,
+            "minLength": 0,
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "addressLine": {
+            "maxLength": 200,
+            "minLength": 0,
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "storeCode": {
+            "maxLength": 50,
+            "minLength": 0,
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "storeName": {
+            "maxLength": 100,
+            "minLength": 0,
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "returnRowVersion": {
+            "type": "string",
+            "format": "byte"
+          }
+        }
+      },
       "CreateSimulatedInvoiceAllowanceRequest": {
         "required": [
           "refundPublicId",
@@ -5936,6 +6960,24 @@
         },
         "additionalProperties": false
       },
+      "ExtendShipmentDeadlineRequest": {
+        "required": [
+          "reasonCode",
+          "returnRowVersion"
+        ],
+        "type": "object",
+        "properties": {
+          "reasonCode": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          },
+          "returnRowVersion": {
+            "type": "string",
+            "format": "byte"
+          }
+        }
+      },
       "GuestOrderAccessRequestAcceptedDto": {
         "required": [
           "requestPublicId",
@@ -6016,6 +7058,52 @@
         "type": "string",
         "format": "binary"
       },
+      "InspectReturnItemLine": {
+        "required": [
+          "returnItemPublicId",
+          "conditionCode",
+          "disposition",
+          "note"
+        ],
+        "type": "object",
+        "properties": {
+          "returnItemPublicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "conditionCode": {
+            "type": "string"
+          },
+          "disposition": {
+            "$ref": "#/components/schemas/RestockDisposition"
+          },
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "InspectReturnRequest": {
+        "required": [
+          "items",
+          "returnRowVersion"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InspectReturnItemLine"
+            }
+          },
+          "returnRowVersion": {
+            "type": "string",
+            "format": "byte"
+          }
+        }
+      },
       "InvoiceLineKind": {
         "enum": [
           "merchandise",
@@ -6059,6 +7147,55 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/AdminProductSummaryDto"
+            }
+          },
+          "pageNumber": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "pageSize": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "totalCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "totalPages": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "PageResultOfAdminReturnSummaryDto": {
+        "required": [
+          "items",
+          "pageNumber",
+          "pageSize",
+          "totalCount"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminReturnSummaryDto"
             }
           },
           "pageNumber": {
@@ -6822,6 +7959,26 @@
           }
         }
       },
+      "ReceiveReturnRequest": {
+        "required": [
+          "returnRowVersion"
+        ],
+        "type": "object",
+        "properties": {
+          "note": {
+            "maxLength": 500,
+            "minLength": 0,
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "returnRowVersion": {
+            "type": "string",
+            "format": "byte"
+          }
+        }
+      },
       "RecoveryCodeUseRequest": {
         "required": [
           "challengePublicId",
@@ -6835,6 +7992,42 @@
           },
           "code": {
             "type": "string"
+          }
+        }
+      },
+      "RefundableItemPreviewDto": {
+        "required": [
+          "returnItemPublicId",
+          "skuCodeSnapshot",
+          "quantity",
+          "restockDisposition"
+        ],
+        "type": "object",
+        "properties": {
+          "returnItemPublicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "skuCodeSnapshot": {
+            "type": "string"
+          },
+          "quantity": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "restockDisposition": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RestockDisposition"
+              }
+            ]
           }
         }
       },
@@ -6910,6 +8103,440 @@
             "format": "byte"
           }
         }
+      },
+      "RestockDisposition": {
+        "enum": [
+          "resellable",
+          "quarantine",
+          "scrap",
+          null
+        ]
+      },
+      "ReturnAttachmentDto": {
+        "required": [
+          "publicId",
+          "originalFileName",
+          "createdAtUtc"
+        ],
+        "type": "object",
+        "properties": {
+          "publicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "originalFileName": {
+            "type": "string"
+          },
+          "createdAtUtc": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ReturnHistoryEntryDto": {
+        "required": [
+          "fromStatus",
+          "toStatus",
+          "reasonCode",
+          "note",
+          "occurredAtUtc"
+        ],
+        "type": "object",
+        "properties": {
+          "fromStatus": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ReturnRequestStatus"
+              }
+            ]
+          },
+          "toStatus": {
+            "$ref": "#/components/schemas/ReturnRequestStatus"
+          },
+          "reasonCode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "occurredAtUtc": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ReturnInspectionDto": {
+        "required": [
+          "returnItemPublicId",
+          "result",
+          "conditionCode",
+          "note",
+          "inspectedAtUtc"
+        ],
+        "type": "object",
+        "properties": {
+          "returnItemPublicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "result": {
+            "type": "string"
+          },
+          "conditionCode": {
+            "type": "string"
+          },
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "inspectedAtUtc": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ReturnItemDto": {
+        "required": [
+          "publicId",
+          "orderItemPublicId",
+          "skuCodeSnapshot",
+          "productNameSnapshot",
+          "description",
+          "quantity",
+          "inspectionStatus",
+          "restockDisposition"
+        ],
+        "type": "object",
+        "properties": {
+          "publicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "orderItemPublicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "skuCodeSnapshot": {
+            "type": "string"
+          },
+          "productNameSnapshot": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "quantity": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "inspectionStatus": {
+            "type": "string"
+          },
+          "restockDisposition": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RestockDisposition"
+              }
+            ]
+          }
+        }
+      },
+      "ReturnRequestDto": {
+        "required": [
+          "publicId",
+          "returnNumber",
+          "orderPublicId",
+          "orderNumber",
+          "status",
+          "priority",
+          "reasonCode",
+          "description",
+          "items",
+          "attachments",
+          "requestedAtUtc",
+          "approvedAtUtc",
+          "receivedAtUtc",
+          "closedAtUtc",
+          "returnShipmentDueAtUtc",
+          "shipmentDeadlineExtended",
+          "shipment",
+          "availableActions",
+          "rowVersion"
+        ],
+        "type": "object",
+        "properties": {
+          "publicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "returnNumber": {
+            "type": "string"
+          },
+          "orderPublicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "orderNumber": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReturnRequestStatus"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/CasePriority"
+          },
+          "reasonCode": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReturnItemDto"
+            }
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReturnAttachmentDto"
+            }
+          },
+          "requestedAtUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "approvedAtUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "receivedAtUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "closedAtUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "returnShipmentDueAtUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "shipmentDeadlineExtended": {
+            "type": "boolean"
+          },
+          "shipment": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ReturnShipmentDto"
+              }
+            ]
+          },
+          "availableActions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rowVersion": {
+            "type": "string",
+            "format": "byte"
+          }
+        }
+      },
+      "ReturnRequestStatus": {
+        "enum": [
+          "requested",
+          "underReview",
+          "approved",
+          "awaitingShipment",
+          "inTransit",
+          "received",
+          "inspecting",
+          "awaitingRefund",
+          "completed",
+          "rejected",
+          "cancelled"
+        ]
+      },
+      "ReturnShipmentDto": {
+        "required": [
+          "publicId",
+          "shipmentNumber",
+          "method",
+          "status",
+          "carrierCode",
+          "trackingNumber",
+          "maskedRecipientName",
+          "maskedRecipientPhone",
+          "maskedAddress",
+          "storeCode",
+          "storeName",
+          "shippedAtUtc",
+          "receivedAtUtc",
+          "events",
+          "rowVersion"
+        ],
+        "type": "object",
+        "properties": {
+          "publicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "shipmentNumber": {
+            "type": "string"
+          },
+          "method": {
+            "$ref": "#/components/schemas/ReturnShipmentMethod"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReturnShipmentStatus"
+          },
+          "carrierCode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "trackingNumber": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "maskedRecipientName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "maskedRecipientPhone": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "maskedAddress": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "storeCode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "storeName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "shippedAtUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "receivedAtUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReturnShipmentEventSummaryDto"
+            }
+          },
+          "rowVersion": {
+            "type": "string",
+            "format": "byte"
+          }
+        }
+      },
+      "ReturnShipmentEventSummaryDto": {
+        "required": [
+          "source",
+          "eventType",
+          "occurredAtUtc"
+        ],
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "eventType": {
+            "type": "string"
+          },
+          "occurredAtUtc": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ReturnShipmentMethod": {
+        "enum": [
+          "homePickup",
+          "convenienceStore",
+          "selfShip"
+        ]
+      },
+      "ReturnShipmentStatus": {
+        "enum": [
+          "pending",
+          "scheduled",
+          "pickedUp",
+          "inTransit",
+          "delivered",
+          "failed",
+          "cancelled"
+        ]
       },
       "ShippingRestrictionDto": {
         "required": [
@@ -8313,6 +9940,15 @@
     },
     {
       "name": "Security"
+    },
+    {
+      "name": "AdminReturns"
+    },
+    {
+      "name": "OrderReturns"
+    },
+    {
+      "name": "Returns"
     },
     {
       "name": "GuestOrderAccess"
