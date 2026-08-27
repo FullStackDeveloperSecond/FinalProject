@@ -1,3 +1,4 @@
+using System.Data;
 using DoSelect.Application.Idempotency;
 using DoSelect.Domain.Idempotency;
 using DoSelect.Domain.Shopping;
@@ -5,6 +6,7 @@ using DoSelect.Infrastructure.Idempotency;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Options;
 
 namespace DoSelect.Infrastructure.Tests.Idempotency;
@@ -157,6 +159,30 @@ public sealed class IdempotencyExecutorTests
         Assert.Equal("winner", winner.Body);
         Assert.Equal(IdempotencyErrorCodes.RequestInProgress, exception.ErrorCode);
         Assert.Equal(3, exception.RetryAfterSeconds);
+    }
+
+    [SqlServerFact]
+    public async Task ExecuteAsync_WhenSerializableIsRequested_HandlerRunsInsideSerializableTransaction()
+    {
+        var userPublicId = Guid.CreateVersion7();
+        await using var context = IdempotencyExecutorFixture.CreateContext();
+        var observedIsolationLevel = IsolationLevel.Unspecified;
+
+        await CreateExecutor(context).ExecuteAsync(
+            Command(userPublicId, "serializable-key-001", new { value = 1 }),
+            _ =>
+            {
+                observedIsolationLevel = context.Database.CurrentTransaction!
+                    .GetDbTransaction()
+                    .IsolationLevel;
+                return Task.FromResult(
+                    new IdempotencyResponse<string>(200, "ok", "{\"version\":1}"));
+            },
+            (stored, _) => Task.FromResult(stored.ResponseSummary),
+            CancellationToken.None,
+            IsolationLevel.Serializable);
+
+        Assert.Equal(IsolationLevel.Serializable, observedIsolationLevel);
     }
 
     [SqlServerFact]

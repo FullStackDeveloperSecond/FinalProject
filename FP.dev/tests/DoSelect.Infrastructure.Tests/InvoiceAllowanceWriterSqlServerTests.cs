@@ -73,6 +73,13 @@ public sealed class InvoiceAllowanceWriterSqlServerTests
             Assert.Equal(
                 IdempotencyStatus.Succeeded,
                 (await context.IdempotencyRecords.SingleAsync()).Status);
+            var adminPublicId = await context.Users
+                .Where(user => user.Id == seeded.AdminUserId)
+                .Select(user => user.PublicId)
+                .SingleAsync();
+            Assert.Equal(
+                IdempotencyActorScope.ForAdmin(adminPublicId).ComputeHash(TestPepper),
+                (await context.IdempotencyRecords.SingleAsync()).ActorScopeHash);
         });
     }
 

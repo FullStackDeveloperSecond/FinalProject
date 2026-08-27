@@ -28,7 +28,8 @@ public sealed class AuditWriterTests
         Assert.Equal(Now.UtcDateTime, audit.OccurredAtUtc);
         Assert.Equal(Now.UtcDateTime.AddDays(365), audit.RetentionUntilUtc);
         using var document = JsonDocument.Parse(audit.ChangedFieldsJson);
-        Assert.Equal(1, document.RootElement.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(2, document.RootElement.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(JsonValueKind.Null, document.RootElement.GetProperty("note").ValueKind);
         Assert.DoesNotContain("@", audit.ChangedFieldsJson, StringComparison.Ordinal);
         Assert.DoesNotContain("token", audit.ChangedFieldsJson,
             StringComparison.OrdinalIgnoreCase);
@@ -53,6 +54,88 @@ public sealed class AuditWriterTests
             changes: [AuditFieldChange.Changed("email")]));
         Assert.Throws<ArgumentException>(() => Request(
             changes: [AuditFieldChange.Code("status", "Approved", "admin@example.com")]));
+    }
+
+    [Fact]
+    public void Request_AllowsABoundedNoteOnlyForAnAllowListedAction()
+    {
+        using var context = CreateContext();
+        var writer = new EfAuditWriter(context, new FixedTimeProvider(Now));
+        var request = Request(note: "人工確認後重新執行退款。", reason: "refund.manual_retry");
+
+        var audit = writer.Add(request);
+
+        using var document = JsonDocument.Parse(audit.ChangedFieldsJson);
+        Assert.Equal("人工確認後重新執行退款。", document.RootElement.GetProperty("note").GetString());
+        Assert.Equal("refund.manual_retry", audit.Reason);
+    }
+
+    [Theory]
+    [InlineData(AuditActions.MemberRestore, AuditResourceTypes.Member, "status")]
+    [InlineData(AuditActions.AuditQuery, AuditResourceTypes.AuditLog, "filter")]
+    public void Request_RejectsNoteForActionsThatDoNotAllowIt(
+        string action,
+        string resourceType,
+        string field)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => Request(
+            action: action,
+            resourceType: resourceType,
+            changes: [AuditFieldChange.Changed(field)],
+            note: "這個動作不接受自由文字備註"));
+    }
+
+    [Theory]
+    [InlineData("admin@example.com")]
+    [InlineData("token-reset-value")]
+    public void Request_RejectsSensitiveAuditNote(string note)
+    {
+        Assert.Throws<ArgumentException>(() => Request(note: note));
+    }
+
+    [Fact]
+    public void Request_RejectsAnOversizedAuditNote()
+    {
+        Assert.Throws<ArgumentException>(() => Request(note: new string('字', 1001)));
+    }
+
+    [Fact]
+    public void Writer_PersistsAThousandCharacterUnicodeNoteWithinTheJsonColumnLimit()
+    {
+        using var context = CreateContext();
+        var writer = new EfAuditWriter(context, new FixedTimeProvider(Now));
+        var note = new string('字', 1000);
+
+        var audit = writer.Add(Request(note: note));
+
+        Assert.True(audit.ChangedFieldsJson.Length <= 4_000);
+        using var document = JsonDocument.Parse(audit.ChangedFieldsJson);
+        Assert.Equal(note, document.RootElement.GetProperty("note").GetString());
+    }
+
+    [Theory]
+    [InlineData(AuditActions.CouponCreate, false)]
+    [InlineData(AuditActions.CouponUpdate, false)]
+    [InlineData(AuditActions.CouponActivate, true)]
+    [InlineData(AuditActions.CouponPause, true)]
+    [InlineData(AuditActions.CouponDisable, true)]
+    public void Request_AcceptsCouponAuditDefinitions(string action, bool allowsNote)
+    {
+        var request = Request(
+            action: action,
+            resourceType: AuditResourceTypes.Coupon,
+            changes:
+            [
+                AuditFieldChange.Code("status", "Draft", "Active"),
+                AuditFieldChange.Changed("ruleVersion"),
+                AuditFieldChange.Changed("changedFields"),
+            ],
+            reason: "coupon.admin_action",
+            note: allowsNote ? "人工覆核完成" : null);
+
+        Assert.Equal(action, request.Action);
+        Assert.Equal(AuditResourceTypes.Coupon, request.ResourceType);
+        Assert.Equal(allowsNote ? "人工覆核完成" : null, request.Note);
     }
 
     [Theory]
@@ -84,9 +167,11 @@ public sealed class AuditWriterTests
 
     private static AuditWriteRequest Request(
         string action = AuditActions.RefundExecute,
+        string resourceType = AuditResourceTypes.Refund,
         IReadOnlyCollection<string>? roles = null,
         IReadOnlyCollection<AuditFieldChange>? changes = null,
-        string reason = "refund.approved") =>
+        string reason = "refund.approved",
+        string? note = null) =>
         AuditWriteRequest.Create(
             Guid.NewGuid(),
             AuditActor.Create(
@@ -94,7 +179,7 @@ public sealed class AuditWriterTests
                 Guid.NewGuid(),
                 roles ?? ["SuperAdmin", "FinanceManager"]),
             action,
-            AuditResourceTypes.Refund,
+            resourceType,
             Guid.NewGuid(),
             AuditResult.Success,
             errorCode: null,
@@ -107,7 +192,8 @@ public sealed class AuditWriterTests
             "correlation-1",
             "0123456789abcdef0123456789abcdef",
             jobPublicId: null,
-            IPAddress.Parse("203.0.113.42"));
+            IPAddress.Parse("203.0.113.42"),
+            note);
 
     private static DoSelectDbContext CreateContext() => new(
         new DbContextOptionsBuilder<DoSelectDbContext>()

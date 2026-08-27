@@ -1,3 +1,4 @@
+using System.Data;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -28,6 +29,16 @@ public readonly record struct IdempotencyActorScope
         }
 
         return new IdempotencyActorScope($"guest-cart:{cartPublicId:D}");
+    }
+
+    public static IdempotencyActorScope ForAdmin(Guid adminPublicId)
+    {
+        if (adminPublicId == Guid.Empty)
+        {
+            throw new ArgumentException("Admin PublicId is required.", nameof(adminPublicId));
+        }
+
+        return new IdempotencyActorScope($"admin:{adminPublicId:D}");
     }
 
     public byte[] ComputeHash(string pepper)
@@ -122,7 +133,8 @@ public interface IIdempotencyExecutor
         IdempotencyCommand command,
         Func<CancellationToken, Task<IdempotencyResponse<T>>> handler,
         Func<StoredIdempotencyResponse, CancellationToken, Task<T>> replayFactory,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        IsolationLevel isolationLevel = IsolationLevel.ReadCommitted);
 }
 
 public static class IdempotencyErrorCodes

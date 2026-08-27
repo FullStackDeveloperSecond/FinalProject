@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Unicode;
 using DoSelect.Application.Auditing;
 using DoSelect.Domain.Auditing;
 using DoSelect.Infrastructure.Persistence;
@@ -9,10 +11,11 @@ namespace DoSelect.Infrastructure.Auditing;
 
 public sealed class EfAuditWriter : IAuditWriter
 {
-    private const int ChangedFieldsSchemaVersion = 1;
+    private const int ChangedFieldsSchemaVersion = 2;
     private static readonly TimeSpan Retention = TimeSpan.FromDays(365);
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
+        Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
 
@@ -39,7 +42,8 @@ public sealed class EfAuditWriter : IAuditWriter
                     change.Field,
                     change.BeforeCode,
                     change.AfterCode,
-                    change.ChangedOnly)).ToArray()),
+                    change.ChangedOnly)).ToArray(),
+                request.Note),
             JsonOptions);
         var audit = new AuditLog(
             request.AuditPublicId,
@@ -68,7 +72,8 @@ public sealed class EfAuditWriter : IAuditWriter
 
     private sealed record ChangedFieldsEnvelope(
         int SchemaVersion,
-        IReadOnlyList<ChangedField> Changes);
+        IReadOnlyList<ChangedField> Changes,
+        string? Note);
 
     private sealed record ChangedField(
         string Field,

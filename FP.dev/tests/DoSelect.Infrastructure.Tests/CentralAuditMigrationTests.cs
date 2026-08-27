@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 using DoSelect.Application.Auditing;
 using DoSelect.Domain.Auditing;
 using DoSelect.Domain.Idempotency;
@@ -98,6 +99,11 @@ public sealed class CentralAuditSqlServerTests
             var storedAudit = await context.AuditLogs.SingleAsync(candidate =>
                 candidate.PublicId == audit.PublicId);
             Assert.Equal("refund.approved", storedAudit.Reason);
+            using var changedFields = JsonDocument.Parse(storedAudit.ChangedFieldsJson);
+            Assert.Equal(2, changedFields.RootElement.GetProperty("schemaVersion").GetInt32());
+            Assert.Equal(
+                "人工覆核退款資料後執行。",
+                changedFields.RootElement.GetProperty("note").GetString());
             Assert.DoesNotContain("@", storedAudit.ChangedFieldsJson, StringComparison.Ordinal);
             Assert.DoesNotContain("token", storedAudit.ChangedFieldsJson,
                 StringComparison.OrdinalIgnoreCase);
@@ -151,7 +157,8 @@ public sealed class CentralAuditSqlServerTests
             "correlation-audit-test",
             "0123456789abcdef0123456789abcdef",
             jobPublicId: null,
-            IPAddress.Parse("203.0.113.42"));
+            IPAddress.Parse("203.0.113.42"),
+            "人工覆核退款資料後執行。");
 
     private static IdempotencyRecord Idempotency(string operation) =>
         new(
