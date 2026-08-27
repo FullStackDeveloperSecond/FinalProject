@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAdminAuthStore } from '../stores/useAdminAuthStore'
+import { resolveSafeRedirect } from '../../../router/safeRedirect'
 
 const auth = useAdminAuthStore()
 const router = useRouter()
+const route = useRoute()
 
 const code = ref('')
 const useRecoveryCode = ref(false)
@@ -22,7 +24,10 @@ async function onSubmit(): Promise<void> {
     ? await auth.useRecoveryCode(code.value)
     : await auth.verifyTotp(code.value)
   if (succeeded) {
-    await router.push('/')
+    // ⚠ alex review 第三輪 P2#4：完成 MFA 後導回原本要去的深層連結，而不是永遠固定回首頁；
+    // route.query.redirect 是使用者可控的查詢參數（可能來自惡意連結），在這個唯一的消費點
+    // 用 resolveSafeRedirect 驗證只接受同源站內路徑。
+    await router.push(resolveSafeRedirect(route.query.redirect))
     return
   }
   // 超過嘗試上限時 store 會清掉 challenge（後端也已讓它失效），這裡導回登入頁，

@@ -12,6 +12,19 @@ public sealed class SecurityController(IAntiforgery antiforgery) : ControllerBas
 {
     public const string ClientHeaderName = "X-DoSelect-Client";
 
+    /// <summary>
+    /// 把 <see cref="ClientHeaderName"/> 的值對應到唯一一個對應的驗證 Scheme——「唯一」是重點：
+    /// 呼叫端（這裡的 token 簽發，以及 <see cref="GlobalAntiforgeryFilter"/> 的驗證）
+    /// 都必須用同一個對應表，簽發與驗證才會看到同一個 HttpContext.User（alex review 第三輪
+    /// P1#1）。不合法或缺少的值回傳 null，呼叫端自行決定 fallback 行為。
+    /// </summary>
+    public static string? ResolveAuthenticationScheme(string? client) => client switch
+    {
+        DoSelectClaimValues.Member => DoSelectAuthenticationSchemes.Member,
+        DoSelectClaimValues.Admin => DoSelectAuthenticationSchemes.Admin,
+        _ => null,
+    };
+
     [HttpGet("antiforgery-token")]
     [AllowAnonymous]
     [ProducesResponseType(typeof(AntiforgeryTokenResponse), StatusCodes.Status200OK)]
@@ -19,12 +32,7 @@ public sealed class SecurityController(IAntiforgery antiforgery) : ControllerBas
     public async Task<ActionResult<AntiforgeryTokenResponse>> GetAntiforgeryToken(
         [FromHeader(Name = ClientHeaderName)] string client)
     {
-        var authenticationScheme = client switch
-        {
-            DoSelectClaimValues.Member => DoSelectAuthenticationSchemes.Member,
-            DoSelectClaimValues.Admin => DoSelectAuthenticationSchemes.Admin,
-            _ => null,
-        };
+        var authenticationScheme = ResolveAuthenticationScheme(client);
         if (authenticationScheme is null)
         {
             ModelState.AddModelError(

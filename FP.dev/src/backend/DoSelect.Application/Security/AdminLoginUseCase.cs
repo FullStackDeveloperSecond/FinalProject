@@ -133,7 +133,12 @@ public sealed class AdminLoginUseCase
 
         // 帳號生命週期（停權／移除管理員資格）只在密碼已確認正確後才揭露——沒有正確密碼的人
         // 無法用這個狀態差異來探測帳號是否存在或目前的狀態（alex review：帳號狀態列舉）。
-        if (user.AccountStatus != AccountStatus.Active || !user.IsAdminProfileActive)
+        //
+        // ⚠ alex 裁定 A1（第三輪 P1#2）：零角色管理員可以存在於建立／配置中的過渡狀態，但不具
+        // 登入資格——必須配置至少一個有效角色後才能取得 AdminChallenge／完整 Session。沿用既有
+        // account_suspended／403 公開契約，不新增可被枚舉的公開狀態差異。這裡是唯一的登入邊界，
+        // 擋在這裡就能保證零角色管理員永遠不會走到後面任何一段會建立 Admin Audit Actor 的流程。
+        if (user.AccountStatus != AccountStatus.Active || !user.IsAdminProfileActive || user.Roles.Count == 0)
         {
             return AdminLoginResult.Failure(AdminAuthErrorCodes.AccountSuspended);
         }

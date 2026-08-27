@@ -223,42 +223,51 @@ public static class SecurityServiceCollectionExtensions
             // bump SecurityStamp，舊 Cookie 在到期前（最長 2 小時）仍會通過驗證並視為
             // isAuthenticated=true。這裡直接重新確認目前的 AccountStatus／
             // AdminProfile.IsActive，不依賴其他程式碼是否記得撤銷 Stamp。
+            //
+            // ⚠ alex 裁定 A1（第三輪 P1#2）：角色也要重新確認——零角色管理員不具登入資格，
+            // 既有 Session 一旦被移除全部角色，必須立即撤銷，不能等到 Cookie 自然到期（最長
+            // 2 小時）。roles 順便先查出來，撤銷時若要寫 Audit 也能直接重用，不必再查一次。
             var isEligible = false;
+            IList<string> roles = Array.Empty<string>();
             if (user is not null)
             {
                 var profile = await dbContext.AdminProfiles
                     .AsNoTracking()
                     .FirstOrDefaultAsync(p => p.UserId == user.Id);
-                isEligible = user.AccountStatus == AccountStatus.Active && (profile?.IsActive ?? false);
+                roles = await userManager.GetRolesAsync(user);
+                isEligible = user.AccountStatus == AccountStatus.Active &&
+                    (profile?.IsActive ?? false) &&
+                    roles.Count > 0;
             }
 
             if (stampMismatch || !isEligible)
             {
                 // DEC-P296：寫入中央 AuditLog，取代原本只寫一般 Log 的 IAdminSecurityAuditWriter。
-                // 沒有角色的帳號（極端邊角情況）略過稽核寫入，但撤銷本身照常生效——不能讓稽核
-                // 邊角情況擋住這條安全關鍵路徑。
                 if (user is not null)
                 {
-                    var roles = await userManager.GetRolesAsync(user);
-                    if (roles.Count > 0)
-                    {
-                        var auditWriter = context.HttpContext.RequestServices.GetRequiredService<IAuditWriter>();
-                        auditWriter.Add(AuditWriteRequest.Create(
-                            Guid.CreateVersion7(),
-                            AuditActor.Create(AuditActorType.Admin, user.PublicId, roles.ToArray()),
-                            AuditActions.AdminSessionsRevoked,
-                            AuditResourceTypes.AdminAccount,
-                            user.PublicId,
-                            AuditResult.Rejected,
-                            stampMismatch ? "security_stamp_mismatch" : "account_not_eligible",
-                            [AuditFieldChange.Changed("securityStamp")],
-                            "admin_auth_state_change",
-                            CorrelationIdMiddleware.GetCorrelationId(context.HttpContext),
-                            Activity.Current?.TraceId.ToString() ?? ActivityTraceId.CreateRandom().ToString(),
-                            jobPublicId: null,
-                            context.HttpContext.Connection.RemoteIpAddress));
-                        await dbContext.SaveChangesAsync();
-                    }
+                    // ⚠ alex 裁定 A1：零角色帳號被撤銷時（含撤銷原因就是「角色被清空」的情況）
+                    // 不能再建立空角色的 Admin Actor——AuditActor.Create 會拋例外。改用 System
+                    // Actor，被撤銷的帳號只當 Resource，撤銷本身跟稽核寫入都照常生效，不會因為
+                    // 這個邊角情況而讓整條安全關鍵路徑掛掉。
+                    var actor = roles.Count > 0
+                        ? AuditActor.Create(AuditActorType.Admin, user.PublicId, roles.ToArray())
+                        : AuditActor.Create(AuditActorType.System, publicId: null, roles: []);
+                    var auditWriter = context.HttpContext.RequestServices.GetRequiredService<IAuditWriter>();
+                    auditWriter.Add(AuditWriteRequest.Create(
+                        Guid.CreateVersion7(),
+                        actor,
+                        AuditActions.AdminSessionsRevoked,
+                        AuditResourceTypes.AdminAccount,
+                        user.PublicId,
+                        AuditResult.Rejected,
+                        stampMismatch ? "security_stamp_mismatch" : "account_not_eligible",
+                        [AuditFieldChange.Changed("securityStamp")],
+                        "admin_auth_state_change",
+                        CorrelationIdMiddleware.GetCorrelationId(context.HttpContext),
+                        Activity.Current?.TraceId.ToString() ?? ActivityTraceId.CreateRandom().ToString(),
+                        jobPublicId: null,
+                        context.HttpContext.Connection.RemoteIpAddress));
+                    await dbContext.SaveChangesAsync();
                 }
 
                 context.RejectPrincipal();

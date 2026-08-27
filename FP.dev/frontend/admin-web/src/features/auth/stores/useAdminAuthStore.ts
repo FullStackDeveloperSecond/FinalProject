@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
 import { isApiError } from '@doselect/web-shared/api'
 import { createApiClient, resetAntiforgeryToken } from '../../../api/client'
+import router from '../../../router'
+import { resolveSafeRedirect } from '../../../router/safeRedirect'
 import type {
   AdminAuthPaths,
   AuthSessionDto,
@@ -297,6 +299,20 @@ export const useAdminAuthStore = defineStore('adminAuth', {
       this.challenge = null
       this.rebindChallengePublicId = null
       resetAntiforgeryToken()
+    },
+
+    /// ⚠ alex review 第三輪 P2#4：受保護頁面的 API 呼叫回 401（Session 已過期／被撤銷）時，
+    /// 由共用 client 的 onApiError 呼叫這裡——清掉本地快取的 Session／challenge 狀態（避免
+    /// 畫面顯示「已登入」卻其實每個請求都會再次 401），導向登入頁並保留目前所在的站內路徑，
+    /// 讓登入／MFA 完成後可以導回原本要去的頁面。redirect 的值只在消費點（各 auth 頁面的
+    /// 導覽目標）才需要驗證是否為安全的站內路徑，這裡只是原樣存進 query，來源是 Vue Router
+    /// 自己的 currentRoute.fullPath，不是使用者輸入。
+    async handleSessionExpired(currentPath: string): Promise<void> {
+      this.session = { isAuthenticated: false, user: null, expiresAtUtc: null, requiresTwoFactor: null }
+      this.challenge = null
+      this.rebindChallengePublicId = null
+      resetAntiforgeryToken()
+      await router.push({ name: 'login', query: { redirect: resolveSafeRedirect(currentPath) } })
     },
   },
 })

@@ -39,9 +39,14 @@ public sealed class AdminAuthController(
 
     /// <summary>
     /// Rebind step-up（BeginRebind）在拿到真正的 rebind challenge 之前就要限流；沒有
-    /// challengePublicId 可用，固定用這個字串當三桶限流的「challenge」維度（alex review）。
+    /// challengePublicId 可用，用這個字首＋userId 當三桶限流的「challenge」維度。
+    /// ⚠ alex review 第三輪 P2#3：原本是固定字串常數，跟「帳號」桶疊在一起看似三桶，
+    /// 實際上等於「所有管理員共用同一個 challenge 桶」——管理員 A 用完額度後，帳號、
+    /// Session、IP 都不同的管理員 B 也會一起被擋 15 分鐘。改成每帳號各自獨立（雖然因此
+    /// 跟「帳號」桶用同一個 userId，實質只剩兩個真正獨立的維度：IP 與帳號），至少先修掉
+    /// 「跨管理員互相拖累」這個立即可利用的問題。
     /// </summary>
-    private const string RebindStepUpChallengeKey = "rebind-step-up";
+    private const string RebindStepUpChallengeKeyPrefix = "rebind-step-up";
 
     [HttpGet("session")]
     [AllowAnonymous]
@@ -338,7 +343,7 @@ public sealed class AdminAuthController(
         // 三桶限流必須在驗證憑證之前消耗——跟 TryAcquireChallengeAttempt 同一套機制，這裡還
         // 沒有真正的 challenge（要 step-up 通過才會簽發），所以用固定的
         // RebindStepUpChallengeKey 當「challenge」維度；IP 與帳號兩個維度仍然各自獨立。
-        if (!rateLimiter.TryAcquire(GetClientIpAddress(), RebindStepUpChallengeKey, userId))
+        if (!rateLimiter.TryAcquire(GetClientIpAddress(), $"{RebindStepUpChallengeKeyPrefix}:{userId}", userId))
         {
             return await RejectRebindStepUpRateLimitedAsync(userId, cancellationToken);
         }
@@ -484,6 +489,15 @@ public sealed class AdminAuthController(
     /// <c>SaveChangesAsync</c>）之前，讓這筆稽核紀錄真的落地，高風險狀態變更與稽核紀錄才會是
     /// 同一個原子邊界：Audit 沒寫成功，狀態變更也不會提交。
     /// </summary>
+    /// <remarks>
+    /// ⚠ alex 裁定 A1（第三輪 P1#2）：正常情況下 <see cref="AdminLoginUseCase"/> 與
+    /// <see cref="AdminTwoFactorUseCase"/> 的資格檢查已經擋下零角色管理員，這裡不應該收到
+    /// 零角色的 <paramref name="user"/>。但 <see cref="RejectChallengeRateLimitedAsync"/>／
+    /// <see cref="RejectRebindStepUpRateLimitedAsync"/> 是限流拒絕路徑，發生在任何資格檢查
+    /// 之前——如果角色剛好在這個時間點被清空，仍會走到這裡。防禦性地退回 System Actor
+    /// （帳號只當 Resource），而不是讓 <see cref="AuditActor.Create"/> 對零角色 Admin
+    /// 拋例外，把一個限流拒絕變成 500。
+    /// </remarks>
     private void RecordAdminAudit(
         string action,
         AdminAuthUserSnapshot user,
@@ -492,7 +506,9 @@ public sealed class AdminAuthController(
         IReadOnlyCollection<AuditFieldChange> changes) =>
         auditWriter.Add(AuditWriteRequest.Create(
             Guid.CreateVersion7(),
-            AuditActor.Create(AuditActorType.Admin, user.PublicId, user.Roles),
+            user.Roles.Count > 0
+                ? AuditActor.Create(AuditActorType.Admin, user.PublicId, user.Roles)
+                : AuditActor.Create(AuditActorType.System, publicId: null, roles: []),
             action,
             AuditResourceTypes.AdminAccount,
             user.PublicId,

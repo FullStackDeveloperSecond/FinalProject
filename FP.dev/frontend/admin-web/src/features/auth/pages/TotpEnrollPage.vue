@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { LoadingState } from '@doselect/web-shared/components'
 import { useAdminAuthStore } from '../stores/useAdminAuthStore'
+import { resolveSafeRedirect } from '../../../router/safeRedirect'
 
 const auth = useAdminAuthStore()
 const router = useRouter()
+const route = useRoute()
 
 const secretKey = ref('')
 const qrCodeDataUri = ref('')
@@ -45,7 +47,9 @@ async function onConfirm(): Promise<void> {
 
 async function onAcknowledge(): Promise<void> {
   acknowledged.value = true
-  await router.push('/')
+  // ⚠ alex review 第三輪 P2#4：同 TotpVerifyPage——導回原本要去的深層連結，經
+  // resolveSafeRedirect 驗證只接受同源站內路徑，而不是永遠固定回首頁。
+  await router.push(resolveSafeRedirect(route.query.redirect))
 }
 </script>
 

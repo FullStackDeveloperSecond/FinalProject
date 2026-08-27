@@ -128,9 +128,11 @@ router.beforeEach(async (to) => {
   // challengePublicId 只存在 Pinia 記憶體（全站沒有任何 persistence plugin）。重新整理
   // /login/verify 或 /login/enroll 會讓它遺失；雖然 .DoSelect.AdminChallenge Cookie 本身
   // reload 後仍有效，但對前端 JS 是 httponly 不可讀，沒有辦法還原這個值。與其讓使用者卡在
-  // 一個沒有 challenge 可用的死頁面（原本的 bug），直接導回登入頁重新開始。
+  // 一個沒有 challenge 可用的死頁面（原本的 bug），直接導回登入頁重新開始。保留原本帶著的
+  // redirect（如果有）——不這樣做，從深層連結進來、半路遺失 challenge 重新走一次登入的人，
+  // 完成後會被導回首頁而不是原本要去的頁面（alex review 第三輪 P2#4）。
   if (to.meta.requiresChallenge && auth.challenge === null) {
-    return { name: 'login' }
+    return { name: 'login', query: to.query.redirect ? { redirect: to.query.redirect } : {} }
   }
 
   return true

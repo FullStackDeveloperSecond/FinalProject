@@ -85,6 +85,20 @@ describe('admin router challenge guard', () => {
     },
   )
 
+  // alex review 第三輪 P2#4：深層連結（?redirect=...）在半路遺失 challenge、被彈回登入頁
+  // 重新開始時，這個值不能跟著弄丟——完成登入後才有機會導回原本要去的頁面。
+  it('preserves the redirect query param when bouncing back to /login for a missing challenge', async () => {
+    const auth = useAdminAuthStore()
+    auth.session = { isAuthenticated: false, user: null, expiresAtUtc: null, requiresTwoFactor: null }
+    auth.challenge = null
+
+    await router.push('/login/verify?redirect=%2Fproducts%2F123')
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('login')
+    expect(router.currentRoute.value.query.redirect).toBe('/products/123')
+  })
+
   it.each([
     ['/login/verify', 'login-verify'],
     ['/login/enroll', 'login-enroll'],

@@ -234,9 +234,12 @@ public sealed class AdminTwoFactorUseCase
 
     /// <summary>
     /// 密碼驗證通過後到完成 2FA 之間，帳號可能已被停權或移除管理員資格；這裡用跟登入
-    /// 相同的兩個旗標重新檢查一次，避免用「舊資格」完成 2FA 取得新 Session（alex review
+    /// 相同的旗標重新檢查一次，避免用「舊資格」完成 2FA 取得新 Session（alex review
     /// P1#4）。
+    /// ⚠ alex 裁定 A1（第三輪 P1#2）：角色也可能在 MFA 進行期間被全部移除——零角色管理員不具
+    /// 登入資格，這裡跟登入邊界用同一組判斷，MFA 流程中途角色被清空一樣視為 account_suspended，
+    /// 不是新的公開狀態，也不會走到後面任何一段建立 Admin Audit Actor 的成功路徑。
     /// </summary>
     private static bool IsEligible(AdminAuthUserSnapshot user) =>
-        user.AccountStatus == AccountStatus.Active && user.IsAdminProfileActive;
+        user.AccountStatus == AccountStatus.Active && user.IsAdminProfileActive && user.Roles.Count > 0;
 }
