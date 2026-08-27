@@ -9,6 +9,19 @@ public sealed class CouponQuoteServiceTests
     private static readonly Guid LineA = new("11111111-1111-1111-1111-111111111111");
 
     [Fact]
+    public async Task TheUsageCountAndThePeriodCheckShareOneEvaluationInstant()
+    {
+        // 使用量的「Reserved 是否過期」與計算器的期間判斷若用不同時鐘，
+        // 兩者可能對同一張券得出矛盾的結論。服務只能取一次時間。
+        var reader = new FakeCouponRuleReader(ActiveCoupon());
+        var service = CreateService(reader);
+
+        await service.QuoteAsync(Request("WELCOME300"));
+
+        Assert.Equal(NowUtc, reader.RequestedEvaluatedAtUtc);
+    }
+
+    [Fact]
     public async Task QuoteAsync_NormalizesTheCouponCodeBeforeLookup()
     {
         var reader = new FakeCouponRuleReader(ActiveCoupon());
@@ -165,12 +178,16 @@ public sealed class CouponQuoteServiceTests
             return Task.FromResult(_snapshot);
         }
 
+        public DateTime? RequestedEvaluatedAtUtc { get; private set; }
+
         public Task<CouponUsageState> GetUsageAsync(
             long couponId,
             string? memberUserId,
             byte[]? guestUsageKeyHash,
+            DateTime evaluatedAtUtc,
             CancellationToken cancellationToken = default)
         {
+            RequestedEvaluatedAtUtc = evaluatedAtUtc;
             RequestedMemberUserId = memberUserId;
             RequestedGuestUsageKeyHash = guestUsageKeyHash;
             return Task.FromResult(_usage);
