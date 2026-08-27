@@ -132,10 +132,21 @@ app.UseAuthentication();
 // write would fail antiforgery validation even with a correctly-minted token. This
 // opportunistically authenticates the Member scheme (same call
 // SecurityController.GetAntiforgeryToken already makes) before MVC's filter pipeline,
-// without gating anonymous/guest requests on any of these routes.
+// without gating anonymous/guest requests on any of these routes. Hangfire's dashboard
+// is not an MVC endpoint, so it likewise authenticates the Admin scheme explicitly
+// before its synchronous authorization filter reads HttpContext.User. This preserves
+// the deliberate absence of a global default authentication scheme.
 app.Use(async (context, next) =>
 {
-    if (context.Request.Path.StartsWithSegments("/api/v1/cart") ||
+    if (context.Request.Path.StartsWithSegments("/hangfire"))
+    {
+        var result = await context.AuthenticateAsync(DoSelectAuthenticationSchemes.Admin);
+        if (result.Succeeded && result.Principal is not null)
+        {
+            context.User = result.Principal;
+        }
+    }
+    else if (context.Request.Path.StartsWithSegments("/api/v1/cart") ||
         context.Request.Path.StartsWithSegments("/api/v1/orders") ||
         context.Request.Path.StartsWithSegments("/api/v1/returns"))
     {

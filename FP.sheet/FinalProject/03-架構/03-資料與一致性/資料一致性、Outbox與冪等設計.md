@@ -152,5 +152,5 @@ SuperAdmin 匯出只包含時間、Actor Type／PublicId、角色快照、Action
 
 - Idempotency EF Core Entity、Configuration、共用交易 Executor、SQL Server 競爭鎖與 provider-backed 併發／rollback 整合測試已完成；Migration 已產生並須依部署 Gate 明確套用。
 - `CartMergeConflict` 持久化基礎已完成；各購物車 Use Case 仍須寫入／Resolve 衝突，Checkout 必須查詢 unresolved conflict。
-- Outbox Entity、Dispatcher 鎖定、Email Consumer 與其整合測試仍待實作。
+- Outbox Entity、Dispatcher 鎖定、通知／Email Consumer 與 SQL Server 整合測試已於 SH-08 基礎完成；各業務流程仍需在交易內寫入對應事件，人工重送與清理作業也尚待後續串接。
 - 中央 Audit Entity／Configuration／Writer、ChangedFieldsJson schema v2 note、同交易 SQL Server Provider-backed commit／rollback 測試已完成；高風險 Use Case 必須接上共用 Port，不得建立局部 Audit 或獨立交易。

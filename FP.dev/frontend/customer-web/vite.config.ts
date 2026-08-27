@@ -15,7 +15,7 @@ export default defineConfig({
     // concern owned by alex's SH-04 work package) just to preview pages.
     proxy: {
       '/api': {
-        target: 'http://localhost:5126',
+        target: 'http://127.0.0.1:5126',
         changeOrigin: true,
       },
     },

@@ -4250,6 +4250,9 @@ export interface components {
             decimalValue: null | number | string;
             booleanValue: null | boolean;
             optionCode: null | string;
+            optionCodes?: null | string[];
+            /** Format: uuid */
+            specificationSourcePublicId?: null | string;
         };
         SpecFilterRequest: {
             semanticKey: string;
@@ -4288,6 +4291,9 @@ export interface components {
             decimalValue: null | number | string;
             booleanValue: null | boolean;
             optionCode: null | string;
+            optionCodes?: null | string[];
+            /** Format: uuid */
+            specificationSourcePublicId?: null | string;
         };
         SupportAttachmentDto: {
             /** Format: uuid */
