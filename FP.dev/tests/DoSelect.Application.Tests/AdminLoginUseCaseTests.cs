@@ -1,3 +1,4 @@
+using DoSelect.Application.Auditing;
 using DoSelect.Application.Security;
 using DoSelect.Domain.Members;
 
@@ -15,13 +16,16 @@ public sealed class AdminLoginUseCaseTests
         EmailConfirmed: true,
         IsAdminProfileActive: true,
         TwoFactorEnabled: true,
-        Roles: []);
+        Roles: [AuditRoleNames.SuperAdmin]);
 
     private static readonly AdminAuthUserSnapshot ActiveAdminWithoutTwoFactor =
         ActiveAdminWithTwoFactor with { TwoFactorEnabled = false };
 
     private static readonly AdminAuthUserSnapshot SuspendedAdmin =
         ActiveAdminWithTwoFactor with { AccountStatus = AccountStatus.Suspended };
+
+    private static readonly AdminAuthUserSnapshot ZeroRoleAdmin =
+        ActiveAdminWithTwoFactor with { Roles = [] };
 
     [Fact]
     public async Task ExecuteAsync_WhenPasswordIsCorrectAndTwoFactorIsEnabled_ReturnsNeedsTwoFactor()
@@ -149,6 +153,23 @@ public sealed class AdminLoginUseCaseTests
         var gateway = new FakeAdminAuthGateway
         {
             FindByEmail = _ => SuspendedAdmin,
+            CheckPassword = (_, _) => true,
+        };
+        var useCase = new AdminLoginUseCase(gateway, TimeProvider.System);
+
+        var result = await useCase.ExecuteAsync("admin@example.com", "correct-password");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(AdminAuthErrorCodes.AccountSuspended, result.ErrorCode);
+        Assert.True(gateway.AccessFailedCountWasReset);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenAdminHasNoRolesAndPasswordIsCorrect_ReturnsAccountSuspended()
+    {
+        var gateway = new FakeAdminAuthGateway
+        {
+            FindByEmail = _ => ZeroRoleAdmin,
             CheckPassword = (_, _) => true,
         };
         var useCase = new AdminLoginUseCase(gateway, TimeProvider.System);

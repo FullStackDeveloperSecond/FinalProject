@@ -1,3 +1,4 @@
+using DoSelect.Application.Auditing;
 using DoSelect.Application.Security;
 using DoSelect.Domain.Members;
 
@@ -19,7 +20,7 @@ public sealed class AdminTwoFactorUseCaseTests
         EmailConfirmed: true,
         IsAdminProfileActive: true,
         TwoFactorEnabled: true,
-        Roles: []);
+        Roles: [AuditRoleNames.SuperAdmin]);
 
     private static readonly AdminAuthUserSnapshot SuspendedAdmin = ActiveAdmin with
     {
@@ -29,6 +30,11 @@ public sealed class AdminTwoFactorUseCaseTests
     private static readonly AdminAuthUserSnapshot RemovedFromAdminProfile = ActiveAdmin with
     {
         IsAdminProfileActive = false,
+    };
+
+    private static readonly AdminAuthUserSnapshot ZeroRoleAdmin = ActiveAdmin with
+    {
+        Roles = [],
     };
 
     [Fact]
@@ -86,6 +92,22 @@ public sealed class AdminTwoFactorUseCaseTests
     }
 
     [Fact]
+    public async Task VerifyTotpAsync_WhenAllRolesWereRemovedAfterPasswordCheck_ReturnsAccountSuspended()
+    {
+        var gateway = new FakeAdminAuthGateway
+        {
+            VerifyTotpCode = (_, _) => true,
+            FindById = _ => ZeroRoleAdmin,
+        };
+        var useCase = new AdminTwoFactorUseCase(gateway, new FakeQrCodeGenerator());
+
+        var result = await useCase.VerifyTotpAsync("user-1", "123456");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(AdminAuthErrorCodes.AccountSuspended, result.ErrorCode);
+    }
+
+    [Fact]
     public async Task RedeemRecoveryCodeAsync_WhenAccountWasSuspendedAfterPasswordCheck_ReturnsAccountSuspended()
     {
         var gateway = new FakeAdminAuthGateway
@@ -99,6 +121,28 @@ public sealed class AdminTwoFactorUseCaseTests
 
         Assert.False(result.IsSuccess);
         Assert.Equal(AdminAuthErrorCodes.AccountSuspended, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task RedeemRecoveryCodeAsync_WhenAllRolesWereRemovedAfterPasswordCheck_ReturnsAccountSuspended()
+    {
+        var recoveryCodeRedeemed = false;
+        var gateway = new FakeAdminAuthGateway
+        {
+            RedeemRecoveryCode = (_, _) =>
+            {
+                recoveryCodeRedeemed = true;
+                return true;
+            },
+            FindById = _ => ZeroRoleAdmin,
+        };
+        var useCase = new AdminTwoFactorUseCase(gateway, new FakeQrCodeGenerator());
+
+        var result = await useCase.RedeemRecoveryCodeAsync("user-1", "aaaaaaaa");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(AdminAuthErrorCodes.AccountSuspended, result.ErrorCode);
+        Assert.False(recoveryCodeRedeemed);
     }
 
     [Fact]
@@ -116,6 +160,26 @@ public sealed class AdminTwoFactorUseCaseTests
             GenerateRecoveryCodes = (_, _) => throw new InvalidOperationException(
                 "Recovery codes must not be generated before the eligibility check."),
             FindById = _ => SuspendedAdmin,
+        };
+        var useCase = new AdminTwoFactorUseCase(gateway, new FakeQrCodeGenerator());
+
+        var result = await useCase.ConfirmEnrollmentAsync("user-1", "123456");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(AdminAuthErrorCodes.AccountSuspended, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ConfirmEnrollmentAsync_WhenAdminHasNoRoles_ReturnsAccountSuspendedWithoutEnablingTwoFactor()
+    {
+        var gateway = new FakeAdminAuthGateway
+        {
+            VerifyTotpCode = (_, _) => true,
+            EnableTwoFactor = _ => throw new InvalidOperationException(
+                "2FA must not be enabled for an admin without any role."),
+            GenerateRecoveryCodes = (_, _) => throw new InvalidOperationException(
+                "Recovery codes must not be generated for an admin without any role."),
+            FindById = _ => ZeroRoleAdmin,
         };
         var useCase = new AdminTwoFactorUseCase(gateway, new FakeQrCodeGenerator());
 
@@ -174,6 +238,23 @@ public sealed class AdminTwoFactorUseCaseTests
             PromotePendingSecretAndVerify = (_, _) => true,
             GenerateRecoveryCodes = (_, _) => ["new-code-1"],
             FindById = _ => SuspendedAdmin,
+        };
+        var useCase = new AdminTwoFactorUseCase(gateway, new FakeQrCodeGenerator());
+
+        var result = await useCase.ConfirmRebindAsync("user-1", "123456");
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(AdminAuthErrorCodes.AccountSuspended, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ConfirmRebindAsync_WhenAllRolesWereRemovedAfterBegin_ReturnsAccountSuspended()
+    {
+        var gateway = new FakeAdminAuthGateway
+        {
+            PromotePendingSecretAndVerify = (_, _) => true,
+            GenerateRecoveryCodes = (_, _) => ["new-code-1"],
+            FindById = _ => ZeroRoleAdmin,
         };
         var useCase = new AdminTwoFactorUseCase(gateway, new FakeQrCodeGenerator());
 

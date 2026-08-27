@@ -22,15 +22,16 @@ namespace DoSelect.Api.IntegrationTests.Admin;
 /// （alex review P1#6）。目前完全沒有對應測試，這裡覆蓋審查要求的核心情境；
 /// challenge 逾時（時間流逝）不易在測試中可靠模擬，未涵蓋，詳見 PR 說明。
 /// </summary>
-public sealed class AdminAuthControllerTests : IClassFixture<WebApplicationFactory<Program>>
+[Collection(nameof(AdminAuthApiCollection))]
+public sealed class AdminAuthControllerTests
 {
     private const string Password = "correct-horse-battery-staple";
 
     private readonly WebApplicationFactory<Program> _factory;
 
-    public AdminAuthControllerTests(WebApplicationFactory<Program> factory)
+    public AdminAuthControllerTests(AdminAuthApiFixture fixture)
     {
-        _factory = factory;
+        _factory = fixture.Factory;
     }
 
     [Fact]
@@ -189,6 +190,43 @@ public sealed class AdminAuthControllerTests : IClassFixture<WebApplicationFacto
     }
 
     [Fact]
+    public async Task Session_WhenAllAdminRolesAreRemoved_IsRevokedAndAuditedAsSystem()
+    {
+        var (client, email, secret, userId, factory) = await CreateEnrolledAdminWithUserIdAsync();
+        using var verifyResponse = await FullyLogInAsync(client, email, secret);
+        Assert.Equal(HttpStatusCode.OK, verifyResponse.StatusCode);
+
+        Guid userPublicId;
+        using (var scope = factory.Services.CreateScope())
+        {
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var user = await userManager.FindByIdAsync(userId);
+            Assert.NotNull(user);
+            userPublicId = user!.PublicId;
+            var removeRoleResult = await userManager.RemoveFromRoleAsync(user, DoSelectRoles.SuperAdmin);
+            Assert.True(
+                removeRoleResult.Succeeded,
+                string.Join(";", removeRoleResult.Errors.Select(error => error.Description)));
+        }
+
+        using var sessionResponse = await client.GetAsync("/api/v1/admin/auth/session");
+        var sessionBody = await sessionResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(sessionBody.GetProperty("isAuthenticated").GetBoolean());
+
+        using var auditScope = factory.Services.CreateScope();
+        var dbContext = auditScope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+        var audits = await dbContext.AuditLogs
+            .Where(a =>
+                a.Action == AuditActions.AdminSessionsRevoked &&
+                a.ResourcePublicId == userPublicId)
+            .ToListAsync();
+        var audit = Assert.Single(audits);
+        Assert.Equal(AuditActorType.System, audit.ActorType);
+        Assert.Null(audit.ActorPublicId);
+        Assert.Equal(AuditResult.Rejected, audit.Result);
+    }
+
+    [Fact]
     public async Task Rebind_ConfirmWithTheCorrectCode_RevokesTheOldSessionCookie()
     {
         var (loginClient, email, secret, _, factory) = await CreateEnrolledAdminWithUserIdAsync();
@@ -278,8 +316,8 @@ public sealed class AdminAuthControllerTests : IClassFixture<WebApplicationFacto
         // ⚠ alex review 最新一輪 P1#2 核心回歸測試：修正前，Lockout Audit 把被鎖定的管理員自己
         // 記成 Actor；AuditActor.Create(Admin, ..., roles) 對零角色的 Admin Actor 會直接拋例外
         // （見 AuditContracts.cs），而 Lockout 與 Audit 又在同一交易——例外會讓整筆鎖定 rollback，
-        // 回應變成 500，鎖定門檻形同虛設。目前登入資格與 Admin policy 都沒有要求至少一個角色，
-        // 所以零角色管理員是真實可能發生的狀態，不能靠「反正一定有角色」規避這個情境。
+        // 回應變成 500，鎖定門檻形同虛設。零角色管理員可以存在於建立／配置中的過渡狀態，
+        // 雖然不能登入，仍必須能被密碼失敗鎖定，不能靠「反正一定有角色」規避這個情境。
         var (client, email, userId, factory) = await CreateEnrolledAdminWithoutAnyRoleAsync();
 
         for (var attempt = 0; attempt < 4; attempt++)
@@ -307,6 +345,27 @@ public sealed class AdminAuthControllerTests : IClassFixture<WebApplicationFacto
         Assert.Equal(AuditActorType.System, lockoutAudits[0].ActorType);
         Assert.Null(lockoutAudits[0].ActorPublicId);
         Assert.Equal(user!.PublicId, lockoutAudits[0].ResourcePublicId);
+    }
+
+    [Fact]
+    public async Task Login_WhenAdminHasNoRolesAndPasswordIsCorrect_Returns403WithoutIssuingAChallenge()
+    {
+        var (client, email, _, _) = await CreateEnrolledAdminWithoutAnyRoleAsync();
+
+        using var response = await LoginAsync(client, email, Password);
+        using var document = await ReadProblemDetailsAsync(response);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(
+            AdminAuthErrorCodes.AccountSuspended,
+            document.RootElement.GetProperty("code").GetString());
+        Assert.DoesNotContain(
+            response.Headers.TryGetValues("Set-Cookie", out var values) ? values : [],
+            value => value.StartsWith(".DoSelect.AdminChallenge=", StringComparison.Ordinal));
+
+        using var sessionResponse = await client.GetAsync("/api/v1/admin/auth/session");
+        var sessionBody = await sessionResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(sessionBody.GetProperty("isAuthenticated").GetBoolean());
     }
 
     [Fact]
@@ -372,12 +431,12 @@ public sealed class AdminAuthControllerTests : IClassFixture<WebApplicationFacto
     public async Task BeginRebind_WhenStepUpAttemptsExceedTheRateLimit_Returns429EvenWithACorrectCode()
     {
         // ⚠ alex review 最新一輪 P1#1：Rebind step-up 原本只套用 per-IP 的 AuthLogin 限流
-        // （每小時 20 次），沒有重用既有的三桶（IP＋step-up＋帳號）限流器——Admin Session 被偷後
+        // （每小時 20 次），沒有重用既有的 IP＋帳號限流器——Admin Session 被偷後
         // 換 IP 就能對同一帳號無限猜舊 TOTP／Recovery Code，密碼 Lockout 也保護不到這個端點。
         // 這裡把門檻調小到 3 次，證明額度用滿後，就算之後真的帶正確的 TOTP 碼，也會在驗證
-        // 憑證「之前」被擋下（429），不會走到 BeginRebindAsync、不會建立 pending secret。三桶
-        // 各自獨立、換 IP／換 Session 不會重置額度的細節已由 AdminChallengeRateLimiterTests
-        // 涵蓋，這裡只證明 BeginRebind 端點真的有套用同一套限流器。
+        // 憑證「之前」被擋下（429），不會走到 BeginRebindAsync、不會建立 pending secret。
+        // 這裡只證明 BeginRebind 端點真的有套用同一套 IP＋帳號限流器；尚未簽發 challenge 前
+        // 沒有第三個獨立維度，不能把 namespaced account key 重複計成第三桶。
         //
         // ⚠ alex review：門檻不能設成 2——FullyLogInAsync 走完整登入時，TOTP 驗證那一步已經對
         // 同一個「帳號」桶消耗了 1 次額度（見 TryAcquireChallengeAttempt），跟 Rebind step-up
@@ -567,8 +626,8 @@ public sealed class AdminAuthControllerTests : IClassFixture<WebApplicationFacto
     /// <summary>
     /// ⚠ 刻意不指派任何角色（不呼叫 <see cref="EnsureSuperAdminRoleAsync"/>）——用來重現
     /// Lockout Audit 誤把被鎖定管理員當 Actor 時，零角色會讓 AuditActor.Create 拋例外的那個
-    /// bug（alex review 最新一輪 P1#2）。目前登入資格與 Admin policy 都沒有要求至少一個角色，
-    /// 零角色管理員是真實可能發生的狀態。
+    /// bug（alex review 最新一輪 P1#2）。零角色管理員可以存在於建立／配置中的過渡狀態，
+    /// 但依 A1 裁定不具登入資格；這個 fixture 同時覆蓋鎖定與登入拒絕路徑。
     /// </summary>
     private async Task<(HttpClient Client, string Email, string UserId, WebApplicationFactory<Program> Factory)>
         CreateEnrolledAdminWithoutAnyRoleAsync()

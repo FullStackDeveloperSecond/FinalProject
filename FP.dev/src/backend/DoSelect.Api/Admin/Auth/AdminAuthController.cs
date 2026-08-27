@@ -39,12 +39,9 @@ public sealed class AdminAuthController(
 
     /// <summary>
     /// Rebind step-up（BeginRebind）在拿到真正的 rebind challenge 之前就要限流；沒有
-    /// challengePublicId 可用，用這個字首＋userId 當三桶限流的「challenge」維度。
-    /// ⚠ alex review 第三輪 P2#3：原本是固定字串常數，跟「帳號」桶疊在一起看似三桶，
-    /// 實際上等於「所有管理員共用同一個 challenge 桶」——管理員 A 用完額度後，帳號、
-    /// Session、IP 都不同的管理員 B 也會一起被擋 15 分鐘。改成每帳號各自獨立（雖然因此
-    /// 跟「帳號」桶用同一個 userId，實質只剩兩個真正獨立的維度：IP 與帳號），至少先修掉
-    /// 「跨管理員互相拖累」這個立即可利用的問題。
+    /// challengePublicId 可用，以這個字首＋userId 隔離不同管理員的 step-up 額度。
+    /// BeginRebind 此時沒有可作為第三個獨立維度的 challenge／session id，因此實際安全維度是
+    /// IP 與帳號；這個 namespaced key 只供既有限流器介面使用，不能宣稱成第三個獨立桶。
     /// </summary>
     private const string RebindStepUpChallengeKeyPrefix = "rebind-step-up";
 
@@ -316,8 +313,8 @@ public sealed class AdminAuthController(
     /// Step-up 失敗一律 rollback，不會呼叫 BeginRebindAsync——不會建立或替換待確認秘鑰。
     /// 再一輪 review 又指出：光靠 `[EnableRateLimiting(AuthLogin)]`（單純 per-IP）不夠——Session
     /// 被偷後換 IP 就能對同一帳號無限猜舊 TOTP／Recovery Code，密碼 Lockout 也保護不到這個
-    /// 端點。在驗證憑證「之前」重用既有三桶限流器（IP＋step-up 專用桶＋帳號），任一超限即拒絕
-    /// 並寫中央 Audit，不建立 pending secret。
+    /// 端點。在驗證憑證「之前」重用既有限流器，以 IP 與帳號兩個獨立維度限制嘗試；任一超限
+    /// 即拒絕並寫中央 Audit，不建立 pending secret，也不讓某一管理員耗盡其他管理員的額度。
     /// </summary>
     [HttpPost("totp/rebind/begin")]
     [Authorize(Policy = DoSelectPolicies.Admin)]
@@ -340,9 +337,9 @@ public sealed class AdminAuthController(
                 HttpContext, StatusCodes.Status400BadRequest, AdminAuthErrorCodes.RebindStepUpRequired));
         }
 
-        // 三桶限流必須在驗證憑證之前消耗——跟 TryAcquireChallengeAttempt 同一套機制，這裡還
-        // 沒有真正的 challenge（要 step-up 通過才會簽發），所以用固定的
-        // RebindStepUpChallengeKey 當「challenge」維度；IP 與帳號兩個維度仍然各自獨立。
+        // 限流必須在驗證憑證之前消耗。這裡還沒有真正的 challenge（要 step-up 通過才會簽發），
+        // 所以把 namespaced userId 傳入既有限流器的 challengeKey 位置；它與 accountKey 都由
+        // userId 衍生，安全上只計為同一個帳號維度，另一個真正獨立的維度是 IP。
         if (!rateLimiter.TryAcquire(GetClientIpAddress(), $"{RebindStepUpChallengeKeyPrefix}:{userId}", userId))
         {
             return await RejectRebindStepUpRateLimitedAsync(userId, cancellationToken);
