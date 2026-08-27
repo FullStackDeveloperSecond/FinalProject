@@ -397,11 +397,12 @@ public sealed class EfInventoryReservationService : IInventoryReservationService
             var beforeReserved = balance.ReservedQuantity;
             var afterReserved = beforeReserved - reservation.Quantity;
             balance.ApplyQuantities(beforeOnHand, afterReserved, now);
-            // note (up to 500 chars, required by ReleaseReservationRequest per the DTO contract)
-            // has no column to land in: ReleaseReason/ReasonCode are both HasMaxLength(32) domain
-            // reason codes, and there is no Audit Log subsystem yet (alex's shared infrastructure,
-            // not built) to hold free text. It is validated but not persisted here — flagged in
-            // the PR as a known gap rather than truncating it into a 32-char column.
+            // note has no column to land in: ReleaseReason/ReasonCode are both HasMaxLength(32)
+            // domain reason codes. 組長 PR #36 review, item 4: the central Audit Log/IAuditWriter
+            // this originally waited on has since merged into dev, but wiring manual release up to
+            // it (same-transaction write, Action/Resource whitelist) is explicitly deferred to a
+            // follow-up PR — this PR keeps the manual-release/reconciliation-resolve HTTP
+            // endpoints withdrawn, so note stays validated but not persisted here for now.
             reservation.Release(reasonCode, expired, now);
             movements.Add(new InventoryMovement(
                 Guid.CreateVersion7(), reservation.SkuId, reservation.Id, InventoryMovementTypes.Release,

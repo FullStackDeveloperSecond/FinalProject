@@ -3,6 +3,7 @@ using System.Text.Json;
 using DoSelect.Api.Security;
 using DoSelect.Domain.Catalog;
 using DoSelect.Domain.Inventory;
+using DoSelect.Domain.Invoicing;
 using DoSelect.Domain.Orders;
 using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Persistence;
@@ -45,6 +46,20 @@ public sealed class AdminInventoryApiFixture : IAsyncLifetime
     {
         await ResetDatabaseAsync();
 
+        // 組長 PR #36 review, item 2: this used to unconditionally null out every overridden key
+        // in the finally block below, instead of restoring whatever value CI had already set
+        // (e.g. ConnectionStrings__DefaultConnection pointing at the container-hosted SQL
+        // Server). Environment variables are process-global, so any fixture from a different
+        // xUnit collection whose factory construction happens to run concurrently with — or
+        // right after — this one's InitializeAsync/finally window could read the wiped value
+        // instead of CI's real one. Capture the real prior value (including "key was unset", i.e.
+        // null) for every key up front, and restore exactly that, not null.
+        var priorValues = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (var key in EnvironmentOverrides.Keys.Append("Storage__DataRoot"))
+        {
+            priorValues[key] = Environment.GetEnvironmentVariable(key);
+        }
+
         foreach (var (key, value) in EnvironmentOverrides)
         {
             Environment.SetEnvironmentVariable(key, value);
@@ -68,11 +83,10 @@ public sealed class AdminInventoryApiFixture : IAsyncLifetime
         }
         finally
         {
-            foreach (var key in EnvironmentOverrides.Keys)
+            foreach (var (key, priorValue) in priorValues)
             {
-                Environment.SetEnvironmentVariable(key, null);
+                Environment.SetEnvironmentVariable(key, priorValue);
             }
-            Environment.SetEnvironmentVariable("Storage__DataRoot", null);
         }
     }
 
@@ -191,16 +205,53 @@ public sealed class AdminInventoryApiFixture : IAsyncLifetime
         context.ShippingProviderProfiles.Add(shippingProfile);
         await context.SaveChangesAsync();
 
+        var packageLimit = new PackageLimitVersion(
+            Guid.CreateVersion7(), shippingProfile.Id, 1, 30m, 150m, 100m, 100m, 250m, 50_000m,
+            null, null, now);
+        context.PackageLimitVersions.Add(packageLimit);
+        await context.SaveChangesAsync();
+
         var order = Order.Create(
             Guid.CreateVersion7(),
             new OrderCreation(
-                UniqueCode("ORD"), null, $"{Guid.NewGuid():N}@doselect.test",
-                OrderStatus.PendingPayment, PaymentStatus.Pending, FulfillmentStatus.Pending, AssemblyStatus.NotRequired,
-                1000m, 0m, 0m, 0m, 1000m,
-                "測試收件人", "0912345678", "recipient@doselect.test",
-                "100", "台北市", "中正區", "測試路 1 號", null,
-                "home_delivery", shippingProfile.Id, null, null, null,
-                1, 1, null, now.AddMinutes(15), UniqueCode("IDEMP"), null),
+                OrderNumber: UniqueCode("ORD"),
+                MemberUserId: null,
+                GuestEmailNormalized: $"{Guid.NewGuid():N}@doselect.test",
+                OrderStatus: OrderStatus.PendingPayment,
+                PaymentStatus: PaymentStatus.Pending,
+                FulfillmentStatus: FulfillmentStatus.Pending,
+                AssemblyStatus: AssemblyStatus.NotRequired,
+                MerchandiseSubtotal: 1000m,
+                ItemDiscountTotal: 0m,
+                ShippingFee: 0m,
+                AssemblyFee: 0m,
+                GrandTotal: 1000m,
+                RecipientName: "測試收件人",
+                RecipientPhone: "0912345678",
+                RecipientEmail: "recipient@doselect.test",
+                PostalCode: "100",
+                RecipientCity: "台北市",
+                RecipientDistrict: "中正區",
+                AddressLine1: "測試路 1 號",
+                AddressLine2: null,
+                ShippingMethodCode: "home_delivery",
+                ShippingProviderProfileVersionId: shippingProfile.Id,
+                StoreCode: null,
+                StoreName: null,
+                StoreAddress: null,
+                ShippingConstraintPolicyVersion: 1,
+                ReturnPolicyVersion: 1,
+                CouponPolicyVersion: null,
+                PaymentDueAtUtc: now.AddMinutes(15),
+                CheckoutIdempotencyKey: UniqueCode("IDEMP"),
+                SourceCartPublicId: null,
+                TermsPolicyVersion: 1,
+                PrivacyPolicyVersion: 1,
+                InvoicePreference: new OrderInvoicePreference(
+                    SimulatedInvoiceBuyerType.Individual, "recipient@doselect.test", null, null, null, null),
+                ShippingFreeThresholdSnapshot: null,
+                DeliveryNote: null,
+                PackageSnapshot: new OrderPackageSnapshot(packageLimit.Id, 1m, 40m, 30m, 20m, 90m, 1000m)),
             now);
         context.Orders.Add(order);
         await context.SaveChangesAsync();

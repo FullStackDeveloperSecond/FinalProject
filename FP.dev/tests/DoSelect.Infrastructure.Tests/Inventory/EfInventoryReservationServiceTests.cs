@@ -1,8 +1,10 @@
+using System.Data.Common;
 using DoSelect.Application.Inventory;
 using DoSelect.Domain.Inventory;
 using DoSelect.Infrastructure.Inventory;
 using DoSelect.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Xunit;
 
 namespace DoSelect.Infrastructure.Tests.Inventory;
@@ -70,6 +72,83 @@ public sealed class EfInventoryReservationServiceTests
         var plentifulBalance = await context.InventoryBalances.AsNoTracking().SingleAsync(b => b.SkuId == plentifulSku.Id);
         Assert.Equal(0, plentifulBalance.ReservedQuantity);
         Assert.Empty(await context.InventoryReservations.AsNoTracking().Where(r => r.OrderId == orderId).ToListAsync());
+    }
+
+    /// <summary>
+    /// 組長 PR #36 review, item 3: the existing "insufficient stock" rollback test above never
+    /// reaches SaveChangesAsync at all — EnsureSufficientStock throws before either write. This
+    /// exercises the actually-atomic-only-via-ambient-transaction claim ReserveAsync's own doc
+    /// comment makes: Balance/Reservation write and *commit* fine on the first SaveChangesAsync,
+    /// then the second SaveChangesAsync (the InventoryMovement insert) fails, and only the
+    /// caller's ambient transaction — never committed here — is what actually undoes the first
+    /// write. <see cref="ThrowOnInventoryMovementInsertInterceptor"/> forces that specific,
+    /// otherwise near-impossible-to-trigger-in-a-test failure deterministically.
+    /// </summary>
+    [Fact]
+    public async Task ReserveAsync_WhenTheMovementInsertFails_RollsBackTheEarlierBalanceAndReservationWriteToo()
+    {
+        await using var seedContext = InventoryReservationServiceFixture.CreateContext();
+        var sku = await _fixture.SeedSkuWithBalanceAsync(seedContext, onHandQuantity: 10);
+        var orderId = await _fixture.SeedOrderAsync(seedContext);
+
+        var interceptor = new ThrowOnInventoryMovementInsertInterceptor();
+        await using var context = InventoryReservationServiceFixture.CreateContext(interceptor);
+        var service = new EfInventoryReservationService(context);
+
+        await using (var transaction = await context.Database.BeginTransactionAsync())
+        {
+            // EF wraps the interceptor's InvalidOperationException in a DbUpdateException.
+            await Assert.ThrowsAsync<DbUpdateException>(() => service.ReserveAsync(
+                orderId, [new ReservationLine(sku.PublicId, 3)], null, DateTime.UtcNow, CancellationToken.None));
+
+            // Deliberately no transaction.CommitAsync() — disposing an uncommitted transaction
+            // rolls it back, which is the only thing that can undo the Balance/Reservation write
+            // that already reached SQL Server via the first, successful SaveChangesAsync.
+        }
+        Assert.True(interceptor.Engaged);
+
+        await using var verifyContext = InventoryReservationServiceFixture.CreateContext();
+        var balance = await verifyContext.InventoryBalances.AsNoTracking().SingleAsync(b => b.SkuId == sku.Id);
+        Assert.Equal(0, balance.ReservedQuantity);
+        Assert.Equal(10, balance.AvailableQuantity);
+        Assert.Empty(await verifyContext.InventoryReservations.AsNoTracking().Where(r => r.OrderId == orderId).ToListAsync());
+        Assert.Empty(await verifyContext.InventoryMovements.AsNoTracking().Where(m => m.SkuId == sku.Id).ToListAsync());
+    }
+
+    /// <summary>Throws only when the SQL text is an INSERT into InventoryMovements — lets the earlier Balance/Reservation SaveChangesAsync succeed normally.</summary>
+    private sealed class ThrowOnInventoryMovementInsertInterceptor : DbCommandInterceptor
+    {
+        public bool Engaged { get; private set; }
+
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            ThrowIfMovementInsert(command);
+            return base.NonQueryExecutingAsync(command, eventData, result, cancellationToken);
+        }
+
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            ThrowIfMovementInsert(command);
+            return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
+        }
+
+        private void ThrowIfMovementInsert(DbCommand command)
+        {
+            if (command.CommandText.Contains("INSERT", StringComparison.OrdinalIgnoreCase) &&
+                command.CommandText.Contains("[InventoryMovements]", StringComparison.OrdinalIgnoreCase))
+            {
+                Engaged = true;
+                throw new InvalidOperationException("Injected InventoryMovement insert failure.");
+            }
+        }
     }
 
     [Fact]

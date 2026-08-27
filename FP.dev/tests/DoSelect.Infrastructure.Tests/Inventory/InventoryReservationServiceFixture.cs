@@ -1,10 +1,12 @@
 using DoSelect.Domain.Catalog;
 using DoSelect.Domain.Inventory;
+using DoSelect.Domain.Invoicing;
 using DoSelect.Domain.Orders;
 using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace DoSelect.Infrastructure.Tests.Inventory;
 
@@ -24,12 +26,16 @@ public sealed class InventoryReservationServiceFixture : IAsyncLifetime
         await context.Database.EnsureDeletedAsync();
     }
 
-    public static DoSelectDbContext CreateContext()
+    public static DoSelectDbContext CreateContext(params IInterceptor[] interceptors)
     {
-        var options = new DbContextOptionsBuilder<DoSelectDbContext>()
-            .UseSqlServer(ConnectionString)
-            .Options;
-        return new DoSelectDbContext(options);
+        var builder = new DbContextOptionsBuilder<DoSelectDbContext>()
+            .UseSqlServer(ConnectionString);
+        if (interceptors.Length > 0)
+        {
+            builder.AddInterceptors(interceptors);
+        }
+
+        return new DoSelectDbContext(builder.Options);
     }
 
     // Guid.NewGuid() (random), not Guid.CreateVersion7(), to avoid collisions when a test seeds
@@ -88,6 +94,12 @@ public sealed class InventoryReservationServiceFixture : IAsyncLifetime
         context.ShippingProviderProfiles.Add(shippingProfile);
         await context.SaveChangesAsync();
 
+        var packageLimit = new PackageLimitVersion(
+            Guid.CreateVersion7(), shippingProfile.Id, 1, 30m, 150m, 100m, 100m, 250m, 50_000m,
+            null, null, now);
+        context.PackageLimitVersions.Add(packageLimit);
+        await context.SaveChangesAsync();
+
         var creation = new OrderCreation(
             OrderNumber: UniqueCode("ORD"),
             MemberUserId: null,
@@ -119,7 +131,14 @@ public sealed class InventoryReservationServiceFixture : IAsyncLifetime
             CouponPolicyVersion: null,
             PaymentDueAtUtc: now.AddMinutes(15),
             CheckoutIdempotencyKey: UniqueCode("IDEMP"),
-            SourceCartPublicId: null);
+            SourceCartPublicId: null,
+            TermsPolicyVersion: 1,
+            PrivacyPolicyVersion: 1,
+            InvoicePreference: new OrderInvoicePreference(
+                SimulatedInvoiceBuyerType.Individual, "recipient@doselect.test", null, null, null, null),
+            ShippingFreeThresholdSnapshot: null,
+            DeliveryNote: null,
+            PackageSnapshot: new OrderPackageSnapshot(packageLimit.Id, 1m, 40m, 30m, 20m, 90m, 1000m));
 
         var order = Order.Create(Guid.CreateVersion7(), creation, now);
         context.Orders.Add(order);
