@@ -141,12 +141,40 @@ public sealed class AddGuestUploaderMigrationSqlServerTests
 
         var orderId = await InsertLegacyOrderAsync(context, member.Id, shippingProfile.Id);
 
-        var returnRequest = new ReturnRequest(
-            Guid.CreateVersion7(), $"RT-{Guid.NewGuid():N}"[..12], orderId, member.Id, "Defective", "面板有亮點", 1, NowUtc);
-        context.ReturnRequests.Add(returnRequest);
-        await context.SaveChangesAsync();
+        var returnRequestId = await InsertLegacyReturnRequestAsync(context, orderId, member.Id);
 
-        return (member.Id, returnRequest.Id, orderId);
+        return (member.Id, returnRequestId, orderId);
+    }
+
+    private static async Task<long> InsertLegacyReturnRequestAsync(
+        DoSelectDbContext context,
+        long orderId,
+        string memberUserId)
+    {
+        var publicId = Guid.CreateVersion7();
+        var returnNumber = $"RT-{Guid.NewGuid():N}"[..12];
+
+        // This test deliberately migrates only to AddGuestUploaderToReturnAttachments. Seed with
+        // that historical schema rather than the current EF model, which may contain columns
+        // introduced by later migrations and therefore cannot write to this database revision.
+        await context.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO [ReturnRequests]
+            (
+                [ReturnNumber], [OrderId], [RequesterUserId], [Status], [Priority],
+                [ReasonCode], [Description], [PolicyVersion], [RequestedAtUtc],
+                [CreatedAtUtc], [PublicId], [UpdatedAtUtc]
+            )
+            VALUES
+            (
+                {returnNumber}, {orderId}, {memberUserId}, {ReturnRequestStatus.Requested.ToString()},
+                {CasePriority.Normal.ToString()}, {"Defective"}, {"面板有亮點"}, {1}, {NowUtc},
+                {NowUtc}, {publicId}, {NowUtc}
+            );
+            """);
+
+        return await context.Database
+            .SqlQuery<long>($"SELECT [Id] AS [Value] FROM [ReturnRequests] WHERE [PublicId] = {publicId}")
+            .SingleAsync();
     }
 
     private static async Task<long> InsertLegacyOrderAsync(
