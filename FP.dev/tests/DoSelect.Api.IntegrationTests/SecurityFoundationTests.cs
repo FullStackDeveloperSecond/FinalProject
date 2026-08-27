@@ -35,6 +35,7 @@ public sealed class SecurityFoundationTests : IClassFixture<WebApplicationFactor
             Content = JsonContent.Create(new { value = "accepted" }),
         };
         request.Headers.Add("X-XSRF-TOKEN", token);
+        request.Headers.Add(SecurityController.ClientHeaderName, "member");
 
         using var response = await client.SendAsync(request);
 
@@ -148,10 +149,66 @@ public sealed class SecurityFoundationTests : IClassFixture<WebApplicationFactor
             Content = JsonContent.Create(new { value = "member-write" }),
         };
         request.Headers.Add("X-XSRF-TOKEN", token);
+        request.Headers.Add(SecurityController.ClientHeaderName, "member");
 
         using var response = await client.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task MemberCookie_DoesNotPreventSigningInToTheAdminScheme()
+    {
+        using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+        await SignInAsync(client, "member", includeMfa: false);
+
+        await SignInAsync(client, "admin", includeMfa: true, DoSelectRoles.SuperAdmin);
+
+        using var memberResponse = await client.GetAsync("/__tests/security/member");
+        using var adminResponse = await client.GetAsync("/__tests/security/admin");
+        Assert.Equal(HttpStatusCode.OK, memberResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, adminResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task AdminCookie_DoesNotPreventSigningInToTheMemberScheme()
+    {
+        using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+        await SignInAsync(client, "admin", includeMfa: true, DoSelectRoles.SuperAdmin);
+
+        await SignInAsync(client, "member", includeMfa: false);
+
+        using var adminResponse = await client.GetAsync("/__tests/security/admin");
+        using var memberResponse = await client.GetAsync("/__tests/security/member");
+        Assert.Equal(HttpStatusCode.OK, adminResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, memberResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task MemberAndAdminCookies_UseTheDeclaredSchemeForUnsafeRequests()
+    {
+        using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+        await SignInAsync(client, "member", includeMfa: false);
+        await SignInAsync(client, "admin", includeMfa: true, DoSelectRoles.SuperAdmin);
+        var memberToken = await GetAntiforgeryTokenAsync(client, "member");
+        var adminToken = await GetAntiforgeryTokenAsync(client, "admin");
+
+        using var memberResponse = await SendUnsafeAsync(
+            client,
+            "/__tests/security/member-write",
+            "member",
+            memberToken);
+        using var adminResponse = await SendUnsafeAsync(
+            client,
+            "/__tests/security/admin-write",
+            "admin",
+            adminToken);
+
+        Assert.Equal(HttpStatusCode.OK, memberResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, adminResponse.StatusCode);
     }
 
     [Theory]
@@ -220,8 +277,24 @@ public sealed class SecurityFoundationTests : IClassFixture<WebApplicationFactor
             Content = JsonContent.Create(new { includeMfa, roles }),
         };
         request.Headers.Add("X-XSRF-TOKEN", token);
+        request.Headers.Add(SecurityController.ClientHeaderName, accountType);
         using var response = await client.SendAsync(request);
         response.EnsureSuccessStatusCode();
+    }
+
+    private static Task<HttpResponseMessage> SendUnsafeAsync(
+        HttpClient client,
+        string route,
+        string clientType,
+        string token)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, route)
+        {
+            Content = JsonContent.Create(new { value = clientType }),
+        };
+        request.Headers.Add("X-XSRF-TOKEN", token);
+        request.Headers.Add(SecurityController.ClientHeaderName, clientType);
+        return client.SendAsync(request);
     }
 
     private static async Task<string> GetAntiforgeryTokenAsync(HttpClient client, string clientType)
@@ -298,6 +371,10 @@ public sealed class SecurityFoundationTestController : ControllerBase
     [HttpGet("admin")]
     [Authorize(Policy = DoSelectPolicies.Admin)]
     public IActionResult AdminOnly() => Ok();
+
+    [HttpPost("admin-write")]
+    [Authorize(Policy = DoSelectPolicies.Admin)]
+    public IActionResult AdminWrite(SecurityFoundationWriteRequest request) => Ok(request);
 
     [HttpGet("support-handle")]
     [Authorize(Policy = DoSelectPolicies.SupportTicketHandle)]

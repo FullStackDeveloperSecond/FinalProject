@@ -1,6 +1,6 @@
 ---
 文件狀態: 持續更新
-最後更新: 2026-08-25
+最後更新: 2026-08-27
 ---
 
 # 決策工作區
@@ -13,6 +13,7 @@
 
 ## 最近完成批次
 
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-026-相容性規則中央稽核與API契約定版|DEC-BATCH-026｜相容性規則中央稽核與 API 契約定版]]：`DEC-P309～DEC-P312`，4 項，已於 2026-08-27 寫回；沿用中央 Audit 且不新增 Migration，FactsJson 固定 Schema Version 1，啟停改用 PATCH Route，移除 `BuildListDto.owner`。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-022-發票明細識別DES-21與Yinyin分支交付裁定|DEC-BATCH-022｜發票明細識別、DES-21 與 Yinyin 分支交付裁定]]：`DEC-P299～DEC-P302`，4 項，已於 2026-08-25 寫回；發票非商品列識別、集中 Migration PR、PR #9 分支拆離及 PR #6／#16 Draft gate 依裁定追蹤。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-023-npm安裝腳本與PR同步策略定版|DEC-BATCH-023｜npm 安裝腳本與 PR 同步策略定版]]：`DEC-P303～DEC-P306`，4 項，已於 2026-08-25 寫回；精確核准 `vue-demi@0.14.10`、名稱型拒絕 `fsevents`、強制嚴格安裝腳本政策、追蹤既有 `glob` 提示，PR #41 延至 Review 完成後才同步 `dev`。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-024-SQLServer整合測試納入RequiredCI|DEC-BATCH-024｜SQL Server 整合測試納入 Required CI]]：`DEC-P307`，1 項，已於 2026-08-25 寫回；沿用既有 SQL Server 2025 service、Migration 與連線設定，移除 `RequiresSqlServer` 排除條件，不新增 Runner 或基礎設施。

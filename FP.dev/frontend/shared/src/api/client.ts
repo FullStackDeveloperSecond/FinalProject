@@ -9,6 +9,15 @@ export interface DoSelectClientOptions {
   fetch?: typeof globalThis.fetch
   getAntiforgeryToken?: () => Promise<string | undefined>
   onApiError?: (error: ApiError) => void
+  /**
+   * ⚠ alex review 第三輪 P1#1：後端的 antiforgery 驗證（GlobalAntiforgeryFilter）現在會依
+   * X-DoSelect-Client 這個 header 精準挑選要驗證的 Member／Admin scheme，要跟簽發 token
+   * 當下（SecurityController，同一個 header）用的邏輯一致。之前這個 header 只有在打
+   * /security/antiforgery-token 那個 GET 請求時才會帶，實際會被驗證的 unsafe request
+   * 本身完全沒帶，後端沒有依據可以判斷「這次呼叫是想以哪個身分驗證」。這裡帶入同一個值，
+   * 讓每個 unsafe request 都附帶。
+   */
+  client?: 'member' | 'admin'
 }
 
 export function createDoSelectClient<Paths extends object>(
@@ -40,10 +49,15 @@ function createHttpMiddleware(options: DoSelectClientOptions): Middleware {
         headers.set('X-Correlation-ID', createCorrelationId())
       }
 
-      if (unsafeMethods.has(request.method.toUpperCase()) && options.getAntiforgeryToken) {
-        const token = await options.getAntiforgeryToken()
-        if (token) {
-          headers.set('X-XSRF-TOKEN', token)
+      if (unsafeMethods.has(request.method.toUpperCase())) {
+        if (options.client) {
+          headers.set('X-DoSelect-Client', options.client)
+        }
+        if (options.getAntiforgeryToken) {
+          const token = await options.getAntiforgeryToken()
+          if (token) {
+            headers.set('X-XSRF-TOKEN', token)
+          }
         }
       }
 

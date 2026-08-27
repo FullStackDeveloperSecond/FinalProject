@@ -36,4 +36,12 @@ public sealed class RateLimitOptions
     public int GuestOrderAccessOrderLookupPermitLimit { get; set; } = 5;
 
     public int GuestOrderAccessWindowMinutes { get; set; } = 15;
+
+    /// <summary>
+    /// Per (IP, challenge, admin account), for the 2FA challenge-guessing endpoints (TOTP verify,
+    /// recovery-code redeem, enrollment confirm, rebind confirm) — alex review P1#3.
+    /// </summary>
+    public int AdminChallengePermitLimit { get; set; } = 5;
+
+    public int AdminChallengeWindowMinutes { get; set; } = 15;
 }

@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-25
+最後更新: 2026-08-26
 追蹤項目:
   - DES-10
   - DES-20
@@ -40,7 +40,7 @@
 | `CreateBuildListRequest` | `name:string(1..160)`、`items:BuildItemInput[1..20]` |
 | `UpdateBuildListRequest` | Create 欄位＋`rowVersion` |
 | `BuildItemInput` | `skuPublicId`、`quantity:int(1..8)` |
-| `BuildListDto` | `publicId`、`name`、`owner:member`、`items:BuildItemDto[]`、`compatibility{overall,ruleSetVersion,settingsVersion,results[]}`、`totals{merchandise,assemblyFee,grandTotal,currency}`、`updatedAtUtc`、`rowVersion` |
+| `BuildListDto` | `publicId`、`name`、`items:BuildItemDto[]`、`compatibility{overall,ruleSetVersion,settingsVersion,results[]}`、`totals{merchandise,assemblyFee,grandTotal,currency}`、`updatedAtUtc`、`rowVersion`；擁有權由後端 Actor Scope／Owner Query 驗證，不回傳固定 Owner 欄位 |
 | `BuildListSummaryDto` | `publicId`、`name`、`itemCount`、`compatibilityOverall`、`grandTotal`、`isShared`、`updatedAtUtc`、`rowVersion` |
 | `BuildShareDto` | `sharePublicId`、`url`、`expiresAtUtc` |
 | `SharedBuildDto` | `sharePublicId`、`name`、去識別化 `items`、目前價格／庫存／相容性結果、`canCopy`、`canAddToCart`；不回 Owner |
