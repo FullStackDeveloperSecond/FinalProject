@@ -420,6 +420,47 @@ public sealed class CartServiceTests
     }
 
     /// <summary>
+    /// PR #34 review: AddAssemblyGroupsAsync (build-list add-to-cart) added unitCount *
+    /// perUnitItems.Count new rows with no cap check at all — a cart at 90 items plus two 8-item
+    /// assemblies (106 rows) would have violated the same [0..100] contract AddItemAsync already
+    /// enforced.
+    /// </summary>
+    [Fact]
+    public async Task AddAssemblyGroupsAsync_WhenAddingWouldExceedOneHundredItems_ThrowsCartItemLimitExceededAndAddsNothing()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
+        var identity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
+        var service = CreateService(context);
+
+        var cart = await service.AddItemAsync(identity, new AddCartItemRequest(sku.PublicId, 1, null), CancellationToken.None);
+        var cartId = await context.Carts.Where(c => c.PublicId == cart.PublicId).Select(c => c.Id).SingleAsync();
+        var now = DateTime.UtcNow;
+        for (var i = 0; i < 93; i++)
+        {
+            context.CartItems.Add(new Domain.Shopping.CartItem(Guid.CreateVersion7(), cartId, sku.Id, 1, Guid.CreateVersion7(), now));
+        }
+
+        await context.SaveChangesAsync();
+
+        // Cart now has 94 items. One assembly unit of 8 SKUs would land at 102 — over the cap.
+        var assemblySkus = new List<Sku>();
+        for (var i = 0; i < 8; i++)
+        {
+            assemblySkus.Add(await _fixture.SeedPublishedSkuAsync(context, listPrice: 50m));
+        }
+
+        var perUnitItems = assemblySkus.Select(assemblySku => new AssemblyGroupItemInput(assemblySku.PublicId, 1)).ToList();
+
+        var exception = await Assert.ThrowsAsync<ShoppingWriteException>(() => service.AddAssemblyGroupsAsync(
+            identity, perUnitItems, unitCount: 1, CancellationToken.None));
+        Assert.Equal(ShoppingWriteException.ErrorCodes.CartItemLimitExceeded, exception.ErrorCode);
+
+        var itemCountAfter = await context.CartItems.CountAsync(item => item.CartId == cartId);
+        Assert.Equal(94, itemCountAfter);
+    }
+
+    /// <summary>
     /// PR #28 review (組長 2nd-round ruling): a merge that would push the member cart past the
     /// [0..100] limit must reject the *whole* merge — nothing lands, the guest cart stays Active
     /// (not Converted) — rather than the earlier round's per-item skip, which silently converted

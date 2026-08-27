@@ -203,6 +203,81 @@ public sealed class CompatibilityCheckRun : PublicEntity
     public DateTime EvaluatedAtUtc { get; private set; }
 }
 
+/// <summary>
+/// One multi-value compatibility fact for a Sku (e.g. one of a motherboard's several supported
+/// storage interfaces, or one of a PSU's available connector types). Per 商品、組裝與相容性.md:
+/// "標籤、介面類型等真正多值資料使用明確 Join Entity，不把多值塞入同一規格值" — genuinely multi-valued
+/// facts get one row each here rather than being packed into a single <c>SkuSpecificationValue</c>.
+/// Scoped to the Builds bounded context: the compatibility engine's own read model over Sku facts,
+/// not a general-purpose Catalog display attribute.
+/// </summary>
+public sealed class SkuCompatibilityAttribute : Entity
+{
+    private SkuCompatibilityAttribute() { }
+
+    public SkuCompatibilityAttribute(
+        long skuId,
+        string attributeKey,
+        string attributeValue,
+        DateTime createdAtUtc)
+        : base(createdAtUtc)
+    {
+        if (skuId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(skuId));
+        }
+
+        SkuId = skuId;
+        AttributeKey = RequireText(attributeKey, nameof(attributeKey));
+        AttributeValue = RequireText(attributeValue, nameof(attributeValue));
+    }
+
+    public long SkuId { get; private set; }
+    public string AttributeKey { get; private set; } = string.Empty;
+    public string AttributeValue { get; private set; } = string.Empty;
+}
+
+/// <summary>
+/// One storage interface a motherboard exposes, with the real count of physical ports it offers
+/// (e.g. a board with 4 SATA and 2 M.2 slots is two rows here). Split out from
+/// <see cref="SkuCompatibilityAttribute"/> (組長 PR #34 round-4 review, item 1): packing
+/// "{interface}:{portCount}" into that entity's free-text AttributeValue let the same interface
+/// appear twice with different counts (its unique index is on the whole value string, e.g.
+/// "SATA:4" and "SATA:6" both pass), and the reader had no ordering guarantee for which row
+/// would win writing into a Dictionary. The unique index here is scoped to (SkuId, InterfaceCode)
+/// specifically so that ambiguity can't exist at the schema level.
+/// </summary>
+public sealed class SkuStorageInterfacePort : Entity
+{
+    private SkuStorageInterfacePort() { }
+
+    public SkuStorageInterfacePort(
+        long skuId,
+        string interfaceCode,
+        int portCount,
+        DateTime createdAtUtc)
+        : base(createdAtUtc)
+    {
+        if (skuId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(skuId));
+        }
+
+        if (portCount is < 1 or > CompatibilityAttributeLimits.MaxStorageInterfacePortCount)
+        {
+            throw new ArgumentOutOfRangeException(nameof(portCount));
+        }
+
+        SkuId = skuId;
+        InterfaceCode = RequireText(interfaceCode, nameof(interfaceCode));
+        PortCount = portCount;
+    }
+
+    public long SkuId { get; private set; }
+    public string InterfaceCode { get; private set; } = string.Empty;
+    public int PortCount { get; private set; }
+}
+
 public sealed class CompatibilityCheckResult
 {
     private CompatibilityCheckResult() { }

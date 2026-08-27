@@ -87,6 +87,9 @@ public sealed record CartMergeRequest(
 
 public sealed record CartMergeResultDto(CartDto Cart, IReadOnlyList<CartMergeConflictDto> Conflicts);
 
+/// <summary>One SKU's per-physical-unit quantity for a build-derived assembly group (see <see cref="ICartService.AddAssemblyGroupsAsync"/>).</summary>
+public sealed record AssemblyGroupItemInput(Guid SkuPublicId, int Quantity);
+
 public interface ICartService
 {
     Task<CartDto> GetCartAsync(CartIdentity identity, CancellationToken cancellationToken);
@@ -118,5 +121,21 @@ public interface ICartService
     Task<IdempotencyExecutionResult<CartMergeResultDto>> MergeAsync(
         string memberUserId,
         CartMergeRequest request,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// UC-BUILD-01 加入購物車: creates <paramref name="unitCount"/> physical builds from
+    /// <paramref name="perUnitItems"/> — one new <c>AssemblyGroupKey</c> per unit, each group's
+    /// rows carrying the per-unit (not multiplied) quantity, matching Terry-商品庫存物流組裝與
+    /// 報表最終Schema.md's "AssemblyGroupKey 仍以「一台主機」為單位分組，購買 N 台即產生 N 組不同
+    /// 的 AssemblyGroupKey". Every row is a brand-new insert (assembly groups are never merged
+    /// into existing cart rows, mirroring <c>MergeAsync</c>'s guest-item handling) — callers are
+    /// expected to have already validated Sku status/price/stock/compatibility themselves, since
+    /// this is an internal cross-slice contract, not a public HTTP one.
+    /// </summary>
+    Task<CartDto> AddAssemblyGroupsAsync(
+        CartIdentity identity,
+        IReadOnlyList<AssemblyGroupItemInput> perUnitItems,
+        int unitCount,
         CancellationToken cancellationToken);
 }

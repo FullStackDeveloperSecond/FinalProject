@@ -124,6 +124,15 @@ public sealed class CompatibilityCheckRunConfiguration
         builder.Property(entity => entity.EvaluatedAtUtc).HasPrecision(3).IsRequired();
         builder.HasIndex(entity => new { entity.BuildListId, entity.EvaluatedAtUtc })
             .HasDatabaseName("IX_CompatibilityCheckRuns_BuildListId_EvaluatedAtUtc");
+        // 組長 PR #34 round-5 review, item 3: BuildListId leads the index above, so
+        // EfCompatibilityCheckService.PurgeExpiredRunsAsync's BuildListId-less date filter can't
+        // seek on it — it was scanning/sorting the whole table every batch. Public compatibility
+        // checks are anonymous and unrate-limited beyond 30/min/IP, so this table can grow to tens
+        // of thousands of rows/day; a date-leading index keeps a 500-row retention batch to an
+        // index seek. Id (the identity PK) trails EvaluatedAtUtc so ties between rows sharing a
+        // millisecond timestamp still sort deterministically, matching the query's ThenBy(Id).
+        builder.HasIndex(entity => new { entity.EvaluatedAtUtc, entity.Id })
+            .HasDatabaseName("IX_CompatibilityCheckRuns_EvaluatedAtUtc_Id");
         builder.HasOne<BuildList>()
             .WithMany()
             .HasForeignKey(entity => entity.BuildListId)
@@ -137,6 +146,47 @@ public sealed class CompatibilityCheckRunConfiguration
                 "CK_CompatibilityCheckRuns_Overall",
                 "[Overall] IN ('Compatible','Warning','Blocked','InsufficientData')");
         });
+    }
+}
+
+public sealed class SkuCompatibilityAttributeConfiguration
+    : IEntityTypeConfiguration<SkuCompatibilityAttribute>
+{
+    public void Configure(EntityTypeBuilder<SkuCompatibilityAttribute> builder)
+    {
+        builder.ToTable("SkuCompatibilityAttributes");
+        builder.HasKey(entity => entity.Id);
+        builder.Property(entity => entity.Id).UseIdentityColumn();
+        builder.Property(entity => entity.AttributeKey).HasMaxLength(64).IsUnicode(false).IsRequired();
+        builder.Property(entity => entity.AttributeValue).HasMaxLength(64).IsUnicode(false).IsRequired();
+        builder.HasIndex(entity => new { entity.SkuId, entity.AttributeKey, entity.AttributeValue })
+            .IsUnique()
+            .HasDatabaseName("UX_SkuCompatibilityAttributes_SkuId_AttributeKey_AttributeValue");
+        builder.HasOne<DoSelect.Domain.Catalog.Sku>()
+            .WithMany()
+            .HasForeignKey(entity => entity.SkuId)
+            .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+public sealed class SkuStorageInterfacePortConfiguration
+    : IEntityTypeConfiguration<SkuStorageInterfacePort>
+{
+    public void Configure(EntityTypeBuilder<SkuStorageInterfacePort> builder)
+    {
+        builder.ToTable("SkuStorageInterfacePorts", table => table.HasCheckConstraint(
+            "CK_SkuStorageInterfacePorts_PortCount",
+            $"[PortCount] > 0 AND [PortCount] <= {CompatibilityAttributeLimits.MaxStorageInterfacePortCount}"));
+        builder.HasKey(entity => entity.Id);
+        builder.Property(entity => entity.Id).UseIdentityColumn();
+        builder.Property(entity => entity.InterfaceCode).HasMaxLength(64).IsUnicode(false).IsRequired();
+        builder.HasIndex(entity => new { entity.SkuId, entity.InterfaceCode })
+            .IsUnique()
+            .HasDatabaseName("UX_SkuStorageInterfacePorts_SkuId_InterfaceCode");
+        builder.HasOne<DoSelect.Domain.Catalog.Sku>()
+            .WithMany()
+            .HasForeignKey(entity => entity.SkuId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }
 

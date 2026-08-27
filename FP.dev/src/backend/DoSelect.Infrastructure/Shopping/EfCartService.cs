@@ -183,6 +183,57 @@ public sealed class EfCartService : ICartService
         return await MapCartAsync(cart, cancellationToken);
     }
 
+    public async Task<CartDto> AddAssemblyGroupsAsync(
+        CartIdentity identity,
+        IReadOnlyList<AssemblyGroupItemInput> perUnitItems,
+        int unitCount,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(perUnitItems);
+        if (unitCount < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(unitCount));
+        }
+
+        var now = DateTime.UtcNow;
+        var cart = await ResolveOrCreateCartAsync(identity, now, cancellationToken);
+
+        var requestedPublicIds = perUnitItems.Select(item => item.SkuPublicId).Distinct().ToArray();
+        var skuIdByPublicId = await _dbContext.Skus
+            .Where(sku => requestedPublicIds.Contains(sku.PublicId))
+            .ToDictionaryAsync(sku => sku.PublicId, sku => sku.Id, cancellationToken);
+
+        // CartDto.items is documented as [0..100] — every assembly unit adds perUnitItems.Count
+        // new rows (each with its own AssemblyGroupKey, so none of them can combine with an
+        // existing row), unlike a normal AddItemAsync call which only ever adds at most one. The
+        // whole add is rejected if it would exceed the cap — no partial assembly ever lands in
+        // the cart — matching AddItemAsync's own cart_item_limit_exceeded check.
+        var currentItemCount = await _dbContext.CartItems.CountAsync(
+            candidate => candidate.CartId == cart.Id, cancellationToken);
+        if (currentItemCount + unitCount * perUnitItems.Count > 100)
+        {
+            throw new ShoppingWriteException(
+                ShoppingWriteException.ErrorCodes.CartItemLimitExceeded,
+                "Adding this build would exceed the maximum of 100 items.");
+        }
+
+        for (var unit = 0; unit < unitCount; unit++)
+        {
+            var assemblyGroupKey = Guid.CreateVersion7();
+            foreach (var item in perUnitItems)
+            {
+                var skuId = skuIdByPublicId[item.SkuPublicId];
+                _dbContext.CartItems.Add(new CartItem(
+                    Guid.CreateVersion7(), cart.Id, skuId, item.Quantity, assemblyGroupKey, now));
+            }
+        }
+
+        cart.ExtendExpiry(now.Add(CartLifetime), now);
+        await SaveWithConcurrencyCheckAsync(cancellationToken);
+
+        return await MapCartAsync(cart, cancellationToken);
+    }
+
     public async Task<CartValidationDto> RevalidateAsync(CartIdentity identity, CancellationToken cancellationToken)
     {
         var now = DateTime.UtcNow;

@@ -1,6 +1,7 @@
 using System.Text;
 using DoSelect.Application.Catalog;
 using DoSelect.Application.Common;
+using DoSelect.Domain.Builds;
 using DoSelect.Domain.Catalog;
 using DoSelect.Domain.Inventory;
 using DoSelect.Infrastructure.Persistence;
@@ -327,6 +328,26 @@ public sealed class EfProductAdminService : IProductAdminService
                 throw new CatalogWriteException(
                     CatalogWriteException.ErrorCodes.ValidationFailed,
                     "Cannot change category while this product's SKUs still carry specification values from the old category.");
+            }
+
+            // 組長 PR #34 round-5 review, item 2: same reasoning as the SkuSpecificationValues
+            // check above, extended to the compatibility facts PR #34 introduced. These two
+            // tables are Builds-owned (SkuCompatibilityAttributes/SkuStorageInterfacePorts), but
+            // Catalog still owns the invariant that a category change must not silently orphan
+            // category-specific per-SKU data — a draft product with no spec values could
+            // otherwise save compatibility facts for one category, switch to another, and leave
+            // stale facts the rule engine now ignores for that SKU's role.
+            var skuIdsForProduct = _dbContext.Skus.Where(sku => sku.ProductId == product.Id).Select(sku => sku.Id);
+            var hasExistingCompatibilityData =
+                await _dbContext.SkuCompatibilityAttributes.AsNoTracking()
+                    .AnyAsync(attribute => skuIdsForProduct.Contains(attribute.SkuId), cancellationToken) ||
+                await _dbContext.SkuStorageInterfacePorts.AsNoTracking()
+                    .AnyAsync(port => skuIdsForProduct.Contains(port.SkuId), cancellationToken);
+            if (hasExistingCompatibilityData)
+            {
+                throw new CatalogWriteException(
+                    CatalogWriteException.ErrorCodes.ValidationFailed,
+                    "Cannot change category while this product's SKUs still carry compatibility attribute or storage port data from the old category.");
             }
 
             var hasPublishedSku = await _dbContext.Skus.AsNoTracking()
