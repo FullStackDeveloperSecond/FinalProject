@@ -1,4 +1,5 @@
 using System.Reflection;
+using DoSelect.Domain.Refunds;
 using DoSelect.Domain.Reports;
 using DoSelect.Domain.Returns;
 using DoSelect.Domain.Support;
@@ -36,6 +37,32 @@ public sealed class KafenEntityTests
         var request = new ReturnRequest(Guid.NewGuid(), "RT-1", 1, "member", "Defect", "商品故障", 1, CreatedAtUtc);
         request.Transition(ReturnRequestStatus.UnderReview, CreatedAtUtc.AddMinutes(1)); request.Approve("manager", true, CreatedAtUtc.AddMinutes(2));
         Assert.Equal(ReturnRequestStatus.AwaitingShipment, request.Status); Assert.Equal(CreatedAtUtc.AddMinutes(2).AddDays(7), request.ReturnShipmentDueAtUtc);
+    }
+
+    [Fact]
+    public void ReturnRequest_RefundTrustedInputs_PreserveKnownZeroAndAreImmutable()
+    {
+        var request = new ReturnRequest(Guid.NewGuid(), "RT-SNAPSHOT-1", 1, "member", "Defective", "商品故障", 1, CreatedAtUtc);
+        request.Transition(ReturnRequestStatus.UnderReview, CreatedAtUtc.AddMinutes(1));
+
+        request.CaptureRefundTrustedInputs(AssemblyFeeDisposition.NotApplicable, 0m, CreatedAtUtc.AddMinutes(2));
+
+        Assert.Equal(AssemblyFeeDisposition.NotApplicable, request.AssemblyFeeDisposition);
+        Assert.Equal(0m, request.ReturnShippingCost);
+        Assert.Throws<InvalidOperationException>(() =>
+            request.CaptureRefundTrustedInputs(AssemblyFeeDisposition.AssemblyFault, 120m, CreatedAtUtc.AddMinutes(3)));
+    }
+
+    [Fact]
+    public void ReturnRequest_RefundTrustedInputs_RejectNegativeShippingCost()
+    {
+        var request = new ReturnRequest(Guid.NewGuid(), "RT-SNAPSHOT-2", 1, "member", "Defective", "商品故障", 1, CreatedAtUtc);
+        request.Transition(ReturnRequestStatus.UnderReview, CreatedAtUtc.AddMinutes(1));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            request.CaptureRefundTrustedInputs(AssemblyFeeDisposition.NotApplicable, -0.01m, CreatedAtUtc.AddMinutes(2)));
+        Assert.Null(request.AssemblyFeeDisposition);
+        Assert.Null(request.ReturnShippingCost);
     }
 
     [Fact]

@@ -1,4 +1,5 @@
 using DoSelect.Application.Common;
+using DoSelect.Domain.Refunds;
 using DoSelect.Domain.Returns;
 
 namespace DoSelect.Application.Returns;
@@ -104,6 +105,9 @@ public sealed class AdminReturnService : IAdminReturnService
             ValidateFullQuantityApproval(items, request.Items);
         }
 
+        var requiresShipment = request.Approved && request.Items.Any(i => i.InspectionRequired);
+        ValidateReviewRefundTrustedInputs(request, requiresShipment);
+
         var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
         var histories = new List<ReturnStatusHistory>();
         if (returnRequest.Status == ReturnRequestStatus.Requested)
@@ -116,7 +120,13 @@ public sealed class AdminReturnService : IAdminReturnService
         {
             // Approve performs two legal Domain transitions. Preserve each edge separately in
             // the audit trail even though the aggregate method applies both in one call.
-            var requiresShipment = request.Items.Any(i => i.InspectionRequired);
+            if (!requiresShipment)
+            {
+                returnRequest.CaptureRefundTrustedInputs(
+                    request.AssemblyFeeDisposition!.Value,
+                    request.ReturnShippingCost!.Value,
+                    nowUtc);
+            }
             returnRequest.Approve(adminUserId, requiresShipment, nowUtc);
             histories.Add(new ReturnStatusHistory(
                 returnRequest.Id, ReturnRequestStatus.UnderReview, ReturnRequestStatus.Approved,
@@ -179,11 +189,7 @@ public sealed class AdminReturnService : IAdminReturnService
 
         var items = await _store.ListItemsAsync(returnRequest.Id, cancellationToken);
         ValidateExactItemSet(items, [.. request.Items.Select(l => l.ReturnItemPublicId)]);
-        var itemsById = items.ToDictionary(i => i.PublicId);
-
-        var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
-        var updatedItems = new List<ReturnItem>();
-        var newInspections = new List<ReturnInspection>();
+        ValidateRequiredRefundTrustedInputs(request.AssemblyFeeDisposition, request.ReturnShippingCost);
         foreach (var line in request.Items)
         {
             if (!ConditionCodes.Contains(line.ConditionCode, StringComparer.Ordinal))
@@ -192,7 +198,19 @@ public sealed class AdminReturnService : IAdminReturnService
                     ReturnsWriteException.ErrorCodes.ValidationFailed,
                     $"Unknown condition code '{line.ConditionCode}'.");
             }
+        }
 
+        var itemsById = items.ToDictionary(i => i.PublicId);
+
+        var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        returnRequest.CaptureRefundTrustedInputs(
+            request.AssemblyFeeDisposition!.Value,
+            request.ReturnShippingCost!.Value,
+            nowUtc);
+        var updatedItems = new List<ReturnItem>();
+        var newInspections = new List<ReturnInspection>();
+        foreach (var line in request.Items)
+        {
             var item = itemsById[line.ReturnItemPublicId];
             item.RecordInspectionSummary(line.Disposition.ToString(), line.Disposition);
             updatedItems.Add(item);
@@ -400,6 +418,44 @@ public sealed class AdminReturnService : IAdminReturnService
                     ReturnsWriteException.ErrorCodes.ValidationFailed,
                     "Partial-quantity approval is not supported; approvedQuantity must equal the requested quantity.");
             }
+        }
+    }
+
+    private static void ValidateReviewRefundTrustedInputs(ApproveReturnRequest request, bool requiresShipment)
+    {
+        if (!request.Approved || requiresShipment)
+        {
+            if (request.AssemblyFeeDisposition.HasValue || request.ReturnShippingCost.HasValue)
+            {
+                throw new ReturnsWriteException(
+                    ReturnsWriteException.ErrorCodes.ValidationFailed,
+                    request.Approved
+                        ? "Refund trusted inputs must be captured after inspection when shipment is required."
+                        : "Refund trusted inputs are not accepted when rejecting a return.");
+            }
+
+            return;
+        }
+
+        ValidateRequiredRefundTrustedInputs(request.AssemblyFeeDisposition, request.ReturnShippingCost);
+    }
+
+    private static void ValidateRequiredRefundTrustedInputs(
+        AssemblyFeeDisposition? assemblyFeeDisposition,
+        decimal? returnShippingCost)
+    {
+        if (!assemblyFeeDisposition.HasValue || !returnShippingCost.HasValue)
+        {
+            throw new ReturnsWriteException(
+                ReturnsWriteException.ErrorCodes.ValidationFailed,
+                "Assembly fee disposition and return shipping cost are both required before a return can await refund.");
+        }
+
+        if (!Enum.IsDefined(assemblyFeeDisposition.Value) || returnShippingCost.Value < 0)
+        {
+            throw new ReturnsWriteException(
+                ReturnsWriteException.ErrorCodes.ValidationFailed,
+                "Refund trusted inputs contain an unsupported assembly fee disposition or a negative return shipping cost.");
         }
     }
 

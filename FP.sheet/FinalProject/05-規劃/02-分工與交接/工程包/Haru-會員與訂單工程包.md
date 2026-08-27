@@ -1,6 +1,6 @@
 ---
 文件狀態: 可開發
-最後更新: 2026-08-26
+最後更新: 2026-08-27
 適用對象: haru
 主要覆核: yinyin
 最終整合: alex
@@ -52,14 +52,23 @@ dotnet tool run dotnet-ef -- database update `
   --context DoSelectDbContext
 ```
 
-截至 2026-08-26，`dev` 的單一 Migration 歷程共四支：
+截至 2026-08-27，`origin/dev@8ef986c` 的單一 Migration 歷程仍是下列四支；目前 alex 的整合分支另有六支待 Review／Merge，合併前不得由組員手動複製或套用：
 
 1. `20260819013357_InitialCreate`
 2. `20260822041051_AddIdempotencyAndCartMergeConflicts`
 3. `20260825171312_AddDes21RefundSnapshots`
 4. `20260825174929_AddCentralAuditLogs`
 
-不指定 Migration 名稱的 `database update` 會依序套用至最新的 `AddCentralAuditLogs`。不得只停在 `InitialCreate`，也不得在功能分支自行 scaffold／apply 新 Migration；Schema 需求交 alex 走 Migration Gate。
+整合分支待合併：
+
+5. `20260826134828_AddTransactionalOutbox`
+6. `20260826173241_AddNotificationDeliveryInfrastructure`
+7. `20260827020034_AlignCheckoutRoundingAndIdempotency`
+8. `20260827034327_AddCheckoutPolicyInvoiceShippingAndPaymentIdempotency`
+9. `20260827054739_AddOrderPackageAndSpecificationSnapshots`
+10. `20260827065535_AddMultiValueSpecificationProvenance`
+
+在整合分支合併前，`dev` 的 `database update` 只會套至 `AddCentralAuditLogs`；合併並拉取新 `dev` 後，才由不指定 Migration 名稱的命令依序套至當時最新版本。不得只停在 `InitialCreate`，也不得在功能分支自行 scaffold／apply 新 Migration；Schema 需求交 alex 走 Migration Gate。
 最小 Seed 帳號為 `member@doselect.local` 與 `admin@doselect.local`。密碼只放 .NET User Secrets 的 `Seed:MemberPassword`、`Seed:AdminPassword`；不得寫入文件、聊天、Commit 或終端歷史。可用 Visual Studio「管理使用者祕密」設定後執行：
 
 ```powershell
@@ -100,7 +109,7 @@ SH-05 共用安全基線已合併：會員／管理員獨立 Cookie Scheme、`Us
 |---|---|---|
 | Domain | `FP.dev/src/backend/DoSelect.Domain/Members/`、`Orders/` | 沿用封裝型 Entity；狀態只經具名方法轉移 |
 | Identity | `FP.dev/src/backend/DoSelect.Infrastructure/Persistence/Identity/ApplicationUser.cs` | 不另建會員帳號表或第二套 Identity Store |
-| EF Mapping | `FP.dev/src/backend/DoSelect.Infrastructure/Persistence/Configurations/Members/`、`Orders/` | 已納入目前四支 Migration 歷程；變更先列出 Schema 影響 |
+| EF Mapping | `FP.dev/src/backend/DoSelect.Infrastructure/Persistence/Configurations/Members/`、`Orders/` | 依你目前拉取的 `dev` 完整 Migration 歷程；變更先列出 Schema 影響 |
 | Application | `FP.dev/src/backend/DoSelect.Application/` | 新增公開 Use Case／Query／DTO；不得讓 Controller 直接寫 DbContext |
 | API | `FP.dev/src/backend/DoSelect.Api/` | 商業端點使用 `[ApiController]` Controller，沿用 Problem Details |
 | 前台 | `FP.dev/frontend/customer-web/src/` | `features/auth`、`members`、`orders`；Page 只協調狀態 |

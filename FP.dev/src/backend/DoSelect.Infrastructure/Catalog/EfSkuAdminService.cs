@@ -294,11 +294,15 @@ public sealed class EfSkuAdminService : ISkuAdminService
             .Where(value => value.SkuId == sku.Id)
             .ToListAsync(cancellationToken);
         _dbContext.SkuSpecificationValues.RemoveRange(specValues);
+        var optionSelections = await _dbContext.SkuSpecificationOptionSelections
+            .Where(selection => selection.SkuId == sku.Id)
+            .ToListAsync(cancellationToken);
+        _dbContext.SkuSpecificationOptionSelections.RemoveRange(optionSelections);
         _dbContext.Skus.Remove(sku);
 
         // 組長 PR #24 round 5 review, item 2: removing this SKU's spec values changes the same
         // state a category switch validates against, same rationale as the Create/Update touch.
-        if (specValues.Count > 0)
+        if (specValues.Count > 0 || optionSelections.Count > 0)
         {
             var product = await _dbContext.Products.FirstAsync(candidate => candidate.Id == sku.ProductId, cancellationToken);
             product.Touch(DateTime.UtcNow);
@@ -379,6 +383,10 @@ public sealed class EfSkuAdminService : ISkuAdminService
             .Where(value => value.SkuId == skuId)
             .ToListAsync(cancellationToken);
         _dbContext.SkuSpecificationValues.RemoveRange(existing);
+        var existingSelections = await _dbContext.SkuSpecificationOptionSelections
+            .Where(selection => selection.SkuId == skuId)
+            .ToListAsync(cancellationToken);
+        _dbContext.SkuSpecificationOptionSelections.RemoveRange(existingSelections);
 
         if (specifications.Count == 0)
         {
@@ -436,6 +444,45 @@ public sealed class EfSkuAdminService : ISkuAdminService
             decimal? decimalValue = null;
             bool? booleanValue = null;
             long? optionId = null;
+            var specificationSourceId = await ResolveSpecificationSourceIdAsync(
+                input.SpecificationSourcePublicId,
+                CompatibilityCatalogContract.HardRuleSemanticKeys.Contains(key),
+                input.SemanticKey,
+                cancellationToken);
+
+            if (definition.AllowsMultiple)
+            {
+                if (definition.ValueType != SpecificationValueType.Option ||
+                    !string.IsNullOrWhiteSpace(input.OptionCode))
+                {
+                    throw new CatalogWriteException(
+                        CatalogWriteException.ErrorCodes.SpecificationInvalid,
+                        $"Specification '{input.SemanticKey}' requires OptionCodes only.");
+                }
+
+                var optionIds = await ResolveOptionIdsAsync(
+                    definition.Id,
+                    input.OptionCodes,
+                    cancellationToken);
+                foreach (var selectedOptionId in optionIds)
+                {
+                    _dbContext.SkuSpecificationOptionSelections.Add(
+                        new SkuSpecificationOptionSelection(
+                            skuId,
+                            selectedOptionId,
+                            now,
+                            specificationSourceId));
+                }
+
+                continue;
+            }
+
+            if (input.OptionCodes is { Count: > 0 })
+            {
+                throw new CatalogWriteException(
+                    CatalogWriteException.ErrorCodes.SpecificationInvalid,
+                    $"Specification '{input.SemanticKey}' does not allow multiple options.");
+            }
 
             switch (definition.ValueType)
             {
@@ -460,9 +507,41 @@ public sealed class EfSkuAdminService : ISkuAdminService
                 decimalValue,
                 booleanValue,
                 optionId,
-                null,
+                specificationSourceId,
                 now));
         }
+    }
+
+    private async Task<long?> ResolveSpecificationSourceIdAsync(
+        Guid? sourcePublicId,
+        bool isRequired,
+        string semanticKey,
+        CancellationToken cancellationToken)
+    {
+        if (!sourcePublicId.HasValue || sourcePublicId.Value == Guid.Empty)
+        {
+            if (isRequired)
+            {
+                throw new CatalogWriteException(
+                    CatalogWriteException.ErrorCodes.SpecificationInvalid,
+                    $"Compatibility specification '{semanticKey}' requires a reviewed source.");
+            }
+
+            return null;
+        }
+
+        var sourceId = await _dbContext.SpecificationSources.AsNoTracking()
+            .Where(source => source.PublicId == sourcePublicId.Value)
+            .Select(source => (long?)source.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (!sourceId.HasValue)
+        {
+            throw new CatalogWriteException(
+                CatalogWriteException.ErrorCodes.ReferenceNotFound,
+                $"Specification source '{sourcePublicId}' was not found.");
+        }
+
+        return sourceId.Value;
     }
 
     private async Task<long> ResolveOptionIdAsync(
@@ -494,6 +573,45 @@ public sealed class EfSkuAdminService : ISkuAdminService
         }
 
         return optionId.Value;
+    }
+
+    private async Task<IReadOnlyList<long>> ResolveOptionIdsAsync(
+        long definitionId,
+        IReadOnlyList<string>? codes,
+        CancellationToken cancellationToken)
+    {
+        if (codes is null || codes.Count == 0 || codes.Count > 20)
+        {
+            throw new CatalogWriteException(
+                CatalogWriteException.ErrorCodes.SpecificationInvalid,
+                "A multi-option specification requires 1 to 20 option codes.");
+        }
+
+        var normalized = codes.Select(NormalizeCode).ToArray();
+        if (normalized.Distinct(StringComparer.Ordinal).Count() != normalized.Length)
+        {
+            throw new CatalogWriteException(
+                CatalogWriteException.ErrorCodes.SpecificationInvalid,
+                "A multi-option specification cannot contain duplicate option codes.");
+        }
+
+        var options = await _dbContext.SpecificationOptions.AsNoTracking()
+            .Where(option =>
+                option.SpecificationDefinitionId == definitionId &&
+                normalized.Contains(option.Code) &&
+                option.IsActive)
+            .Select(option => new { option.Id, option.Code })
+            .ToListAsync(cancellationToken);
+        if (options.Count != normalized.Length)
+        {
+            throw new CatalogWriteException(
+                CatalogWriteException.ErrorCodes.SpecificationInvalid,
+                "One or more specification option codes are unknown or inactive.");
+        }
+
+        return options.OrderBy(option => option.Code, StringComparer.Ordinal)
+            .Select(option => option.Id)
+            .ToArray();
     }
 
     private static T RequireValue<T>(T? value, string semanticKey)

@@ -1,6 +1,7 @@
 using DoSelect.Application.Catalog;
 using DoSelect.Domain.Catalog;
 using DoSelect.Domain.Inventory;
+using DoSelect.Domain.Invoicing;
 using DoSelect.Domain.Members;
 using DoSelect.Domain.Orders;
 using DoSelect.Domain.Shipping;
@@ -793,6 +794,76 @@ public sealed class SkuAdminServiceTests
         Assert.Equal(300m, spec.DecimalValue);
     }
 
+    [Fact]
+    public async Task CreateAsync_WithMultiOptionSpecification_PersistsNormalizedSelections()
+    {
+        await using var context = CatalogAdminFixture.CreateContext();
+        var (brand, category, _) = await CatalogAdminFixture.SeedCatalogAsync(context);
+        var definition = new SpecificationDefinition(
+            Guid.CreateVersion7(), category.Id, "CPU_SOCKET", "支援 Socket",
+            SpecificationValueType.Option, null, true, true, 1, DateTime.UtcNow,
+            allowsMultiple: true);
+        context.SpecificationDefinitions.Add(definition);
+        await context.SaveChangesAsync();
+        context.SpecificationOptions.AddRange(
+            new SpecificationOption(Guid.CreateVersion7(), definition.Id, "AM4", "AM4", 1, DateTime.UtcNow),
+            new SpecificationOption(Guid.CreateVersion7(), definition.Id, "AM5", "AM5", 2, DateTime.UtcNow));
+        await context.SaveChangesAsync();
+        var reviewer = ApplicationUser.CreateAdmin(
+            Guid.CreateVersion7(),
+            $"catalog-reviewer-{Guid.NewGuid():N}@example.test",
+            DateTime.UtcNow);
+        context.Users.Add(reviewer);
+        await context.SaveChangesAsync();
+        var source = new SpecificationSource(
+            Guid.CreateVersion7(),
+            SpecificationSourceType.Manufacturer,
+            "AMD",
+            "https://www.amd.com/en/products/processors/chipsets/am5.html",
+            "Socket",
+            DateTime.UtcNow,
+            DateTime.UtcNow,
+            reviewer.Id,
+            "v1",
+            DateTime.UtcNow);
+        context.SpecificationSources.Add(source);
+        await context.SaveChangesAsync();
+        var product = await CatalogAdminFixture.CreateProductAsync(context, brand, category);
+        var service = new EfSkuAdminService(context);
+
+        var sku = await service.CreateAsync(
+            product.PublicId,
+            CatalogAdminFixture.CreateDefaultSkuRequest(
+                specifications:
+                [
+                    new SpecValueInput(
+                        definition.SemanticKey,
+                        "Option",
+                        null,
+                        null,
+                        null,
+                        null,
+                        ["am5", "am4"],
+                        source.PublicId),
+                ]),
+            CancellationToken.None);
+
+        var specification = Assert.Single(sku.Specifications);
+        Assert.Equal(["AM4", "AM5"], specification.OptionCodes);
+        Assert.Null(specification.OptionCode);
+        Assert.Equal(source.PublicId, specification.SpecificationSourcePublicId);
+        Assert.Equal(2, await context.SkuSpecificationOptionSelections
+            .CountAsync(selection => selection.SkuId == context.Skus.Single(x => x.PublicId == sku.PublicId).Id));
+        Assert.All(
+            await context.SkuSpecificationOptionSelections
+                .Where(selection => selection.SkuId == context.Skus.Single(x => x.PublicId == sku.PublicId).Id)
+                .ToListAsync(),
+            selection => Assert.Equal(source.Id, selection.SpecificationSourceId));
+        Assert.Empty(await context.SkuSpecificationValues
+            .Where(value => value.SkuId == context.Skus.Single(x => x.PublicId == sku.PublicId).Id)
+            .ToListAsync());
+    }
+
     /// <summary>組長 PR #24 round 5 review, item 4: the same SemanticKey twice used to hit
     /// SkuSpecificationValues' (SkuId, SpecificationDefinitionId) unique index as an unhandled
     /// DbUpdateException (500) — the IsRequired check dedupes via ToHashSet before validating,
@@ -1122,6 +1193,11 @@ public sealed class SkuAdminServiceTests
             Guid.CreateVersion7(), CatalogAdminFixture.UniqueCode("SHIP"), 1, "Active", null, null, "{}", 1, now);
         context.ShippingProviderProfiles.Add(shippingProfile);
         await context.SaveChangesAsync();
+        var packageLimit = new PackageLimitVersion(
+            Guid.CreateVersion7(), shippingProfile.Id, 1, 30m, 150m, 100m, 100m, 250m, 50_000m,
+            null, null, now);
+        context.PackageLimitVersions.Add(packageLimit);
+        await context.SaveChangesAsync();
 
         var order = Order.Create(
             Guid.CreateVersion7(),
@@ -1154,9 +1230,22 @@ public sealed class SkuAdminServiceTests
                 1,
                 1,
                 null,
-                null,
-                CatalogAdminFixture.UniqueCode("IDEM"),
-                null),
+                 null,
+                 CatalogAdminFixture.UniqueCode("IDEM"),
+                 null,
+                 1,
+                 1,
+                 new OrderInvoicePreference(
+                     SimulatedInvoiceBuyerType.Individual,
+                     "guest@doselect.test",
+                      null,
+                      null,
+                      null,
+                      null),
+                  null,
+                  null,
+                  new OrderPackageSnapshot(
+                      packageLimit.Id, 1m, 40m, 30m, 20m, 90m, 1000m)),
             now);
         context.Orders.Add(order);
         await context.SaveChangesAsync();
@@ -1179,7 +1268,8 @@ public sealed class SkuAdminServiceTests
             null,
             0,
             now,
-            false));
+            false,
+            new OrderItemSpecificationSnapshot("Test specification", "{}", 1)));
         await context.SaveChangesAsync();
 
         var exception = await Assert.ThrowsAsync<CatalogWriteException>(

@@ -258,6 +258,89 @@ jobs:
         run: npm audit --omit=dev --audit-level=high
         working-directory: FP.dev/frontend/${{ matrix.app }}
 
+  e2e:
+    name: Browser E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2025-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "CiOnly_P@ssw0rd2026"
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P CiOnly_P@ssw0rd2026 -Q 'SELECT 1' || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ConnectionStrings__DefaultConnection: "Server=localhost,1433;Database=DoSelectE2e;User Id=sa;Password=CiOnly_P@ssw0rd2026;TrustServerCertificate=True;MultipleActiveResultSets=True;"
+      Seed__AdminPassword: "E2e_Admin_123!"
+      Seed__MemberPassword: "E2e_Member_123!"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          global-json-file: FP.dev/global.json
+
+      - name: Set up Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: FP.dev/.nvmrc
+          cache: npm
+          cache-dependency-path: |
+            FP.dev/frontend/customer-web/package-lock.json
+            FP.dev/frontend/admin-web/package-lock.json
+
+      - name: Restore and build API
+        run: |
+          dotnet restore DoSelect.slnx --configfile NuGet.config --no-cache -warnaserror
+          dotnet build DoSelect.slnx --no-restore -warnaserror
+        working-directory: FP.dev
+
+      - name: Install frontend dependencies
+        run: |
+          npm ci --prefix frontend/customer-web
+          npm ci --prefix frontend/admin-web
+        working-directory: FP.dev
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: FP.dev/frontend/customer-web
+
+      - name: Prepare disposable E2E database
+        run: |
+          dotnet tool install --global dotnet-ef --version 10.0.10
+          "$HOME/.dotnet/tools/dotnet-ef" database update \
+            --project src/backend/DoSelect.Infrastructure \
+            --startup-project src/backend/DoSelect.Api \
+            --no-build
+          dotnet run --project src/backend/DoSelect.Api --no-build --no-launch-profile -- --seed-minimal
+        working-directory: FP.dev
+
+      - name: Run browser journeys
+        run: npm run test:e2e
+        working-directory: FP.dev/frontend/customer-web
+
+      - name: Upload Playwright failure evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: playwright-report
+          path: |
+            FP.dev/frontend/customer-web/playwright-report
+            FP.dev/frontend/customer-web/test-results
+          if-no-files-found: ignore
+          retention-days: 7
+
   required:
     name: CI Required
     if: ${{ always() }}
@@ -267,6 +350,7 @@ jobs:
       - package-source-evidence
       - backend
       - frontend
+      - e2e
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -278,9 +362,11 @@ jobs:
           PACKAGE_SOURCE_RESULT: ${{ needs.package-source-evidence.result }}
           BACKEND_RESULT: ${{ needs.backend.result }}
           FRONTEND_RESULT: ${{ needs.frontend.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
         run: |
           test "$SECRET_SCAN_RESULT" = "success"
           test "$AI_EVAL_RESULT" = "success"
           test "$PACKAGE_SOURCE_RESULT" = "success"
           test "$BACKEND_RESULT" = "success"
           test "$FRONTEND_RESULT" = "success"
+          test "$E2E_RESULT" = "success"

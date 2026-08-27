@@ -1,3 +1,4 @@
+using DoSelect.Domain.Invoicing;
 using DoSelect.Domain.Orders;
 using DoSelect.Domain.Promotions;
 using DoSelect.Domain.Shipping;
@@ -339,6 +340,21 @@ public sealed class CouponRuleReaderSqlServerTests
             createdAtUtc);
         context.Add(profile);
         await context.SaveChangesAsync();
+        var packageLimit = new PackageLimitVersion(
+            Guid.NewGuid(),
+            profile.Id,
+            1,
+            30m,
+            150m,
+            100m,
+            100m,
+            250m,
+            50_000m,
+            null,
+            null,
+            createdAtUtc);
+        context.PackageLimitVersions.Add(packageLimit);
+        await context.SaveChangesAsync();
 
         var order = Order.Create(
             Guid.NewGuid(),
@@ -374,7 +390,25 @@ public sealed class CouponRuleReaderSqlServerTests
                 null,
                 $"checkout-{Guid.NewGuid():N}",
                 null,
-                1000m),
+                1,
+                1,
+                new OrderInvoicePreference(
+                    SimulatedInvoiceBuyerType.Individual,
+                    "guest@example.test",
+                    null,
+                    null,
+                    null,
+                    null),
+                1000m,
+                null,
+                new OrderPackageSnapshot(
+                    packageLimit.Id,
+                    1m,
+                    40m,
+                    30m,
+                    20m,
+                    90m,
+                    100m)),
             createdAtUtc);
 
         context.Orders.Add(order);

@@ -134,7 +134,8 @@ public sealed class SpecificationDefinition : MutablePublicEntity
         bool isRequired,
         bool isProtected,
         int sortOrder,
-        DateTime createdAtUtc)
+        DateTime createdAtUtc,
+        bool allowsMultiple = false)
         : base(publicId, createdAtUtc)
     {
         if (valueType != SpecificationValueType.Decimal && measurementUnitId.HasValue)
@@ -142,6 +143,13 @@ public sealed class SpecificationDefinition : MutablePublicEntity
             throw new ArgumentException(
                 "Only decimal definitions may use a measurement unit.",
                 nameof(measurementUnitId));
+        }
+
+        if (allowsMultiple && valueType != SpecificationValueType.Option)
+        {
+            throw new ArgumentException(
+                "Only option definitions may allow multiple selections.",
+                nameof(allowsMultiple));
         }
 
         CategoryId = CatalogGuard.Id(categoryId, nameof(categoryId));
@@ -153,6 +161,7 @@ public sealed class SpecificationDefinition : MutablePublicEntity
             nameof(measurementUnitId));
         IsRequired = isRequired;
         IsProtected = isProtected;
+        AllowsMultiple = allowsMultiple;
         IsActive = true;
         SortOrder = sortOrder;
     }
@@ -164,6 +173,7 @@ public sealed class SpecificationDefinition : MutablePublicEntity
     public long? MeasurementUnitId { get; private set; }
     public bool IsRequired { get; private set; }
     public bool IsProtected { get; private set; }
+    public bool AllowsMultiple { get; private set; }
     public bool IsActive { get; private set; }
     public int SortOrder { get; private set; }
 }
@@ -284,6 +294,31 @@ public sealed class SkuSpecificationValue : MutableEntity
     public decimal? DecimalValue { get; private set; }
     public bool? BooleanValue { get; private set; }
     public long? OptionId { get; private set; }
+    public long? SpecificationSourceId { get; private set; }
+}
+
+public sealed class SkuSpecificationOptionSelection : MutableEntity
+{
+    private SkuSpecificationOptionSelection() { }
+
+    public SkuSpecificationOptionSelection(
+        long skuId,
+        long specificationOptionId,
+        DateTime createdAtUtc,
+        long? specificationSourceId = null)
+        : base(createdAtUtc)
+    {
+        SkuId = CatalogGuard.Id(skuId, nameof(skuId));
+        SpecificationOptionId = CatalogGuard.Id(
+            specificationOptionId,
+            nameof(specificationOptionId));
+        SpecificationSourceId = CatalogGuard.OptionalId(
+            specificationSourceId,
+            nameof(specificationSourceId));
+    }
+
+    public long SkuId { get; private set; }
+    public long SpecificationOptionId { get; private set; }
     public long? SpecificationSourceId { get; private set; }
 }
 

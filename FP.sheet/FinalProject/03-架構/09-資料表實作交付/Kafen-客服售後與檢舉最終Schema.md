@@ -238,11 +238,14 @@ SLA：Low 24h／5d、Normal 8h／3d、High 4h／24h、Urgent 1h／8h；24×7 日
 | `PolicyVersion` | INT | 否 | 申請時政策版本 |
 | `Requested/Approved/Received/ClosedAtUtc` | DATETIME2(3) | 是 | 階段時間 |
 | `ReturnShipmentDueAtUtc` | DATETIME2(3) | 是 | 核准後 7 日；一次延長另留 Audit |
+| `AssemblyFeeDisposition` | VARCHAR(32) | 是 | 退款可信快照；值沿用 `Refunds.AssemblyFeeDisposition`；Null 表示未取得，不得視為 `NotApplicable` |
+| `ReturnShippingCost` | DECIMAL(18,2) | 是 | 退款可信快照；`>= 0`；Null 表示未取得，`0` 表示已確認為零 |
 | `CreatedAtUtc/UpdatedAtUtc` | DATETIME2(3) | 否 | UTC |
 | `RowVersion` | ROWVERSION | 否 | 併發控制 |
 
 - 退貨建立時固定為 `Normal`；後台只能經具名商業操作調整四級 Priority，並更新 `UpdatedAtUtc`。
 - 工作台查詢索引為 `Status + Priority + AssigneeAdminUserId + UpdatedAtUtc`；不得依 View 即時計算或以狀態暗中改級。
+- `AssemblyFeeDisposition` 與 `ReturnShippingCost` 必須同為 Null 或同為非 Null；一旦在核准／驗收流程寫入即不可覆寫。既有資料保留 Null，退款執行遇到缺漏回 `refund_snapshot_unavailable`，不得猜測或回填預設值。
 
 ### 退貨補件與溝通規則
 
@@ -253,6 +256,8 @@ SLA：Low 24h／5d、Normal 8h／3d、High 4h／24h、Urgent 1h／8h；24×7 日
 ### 退貨核准與退款執行責任
 
 - 本模組只負責建立與審核退貨、驗收退貨品項、保存狀態／審核結果，以及提供退款所需的核准資料。
+- `ReasonCode` 只接受 `CoolingOff/Defective/WrongItem/ShippingDamage/Warranty`，與退款 `ReturnReason` 同名一對一映射；退款專用的 `LateNonDefectiveGoodwill/CustomerProcessDeviation` 在 Returns 有正式輸入路徑前不得由 Reader 猜測。
+- 不需寄回／驗收的案件在核准並進入 `AwaitingRefund` 前保存組裝費處置與退貨運費；需寄回的案件在驗收完成並進入 `AwaitingRefund` 前保存，避免核准時過早固定尚未發生的運費。
 - 本模組不得新增或更新 `Refunds`、`RefundAllocations` 或模擬發票折讓資料；只能唯讀取得退款結果。
 - 退貨核准使用正式 `ApproveReturnRequest`；退款模組另以 `ExecuteRefundRequest` 和 `Idempotency-Key` 執行退款。兩者是不同的 Application Use Case。
 - 重試退款不得重複建立退款交易；退款狀態、單項分攤、完成時間與折讓結果由退款模組提供。

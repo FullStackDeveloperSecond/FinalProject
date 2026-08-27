@@ -316,6 +316,12 @@ public sealed class EfProductAdminService : IProductAdminService
                     .Where(sku => sku.ProductId == product.Id)
                     .Select(sku => sku.Id)
                     .Contains(value.SkuId), cancellationToken);
+            hasExistingSpecValues = hasExistingSpecValues ||
+                await _dbContext.SkuSpecificationOptionSelections.AsNoTracking()
+                    .AnyAsync(selection => _dbContext.Skus
+                        .Where(sku => sku.ProductId == product.Id)
+                        .Select(sku => sku.Id)
+                        .Contains(selection.SkuId), cancellationToken);
             if (hasExistingSpecValues)
             {
                 throw new CatalogWriteException(

@@ -112,6 +112,7 @@
 | `inventory_import_validation_failed` | 400 | 庫存調整預覽含錯誤，整批不得提交 |
 | `order_state_conflict` | 409 | 目前訂單狀態不允許所要求操作 |
 | `order_total_changed` | 409 | 結帳重算後總額與使用者確認快照不同，需重新確認 |
+| `order_total_below_minimum` | 409 | 後端完成折扣、運費、組裝費與整數化後，最終應付低於 NT$1；結帳零副作用，前端提示移除優惠券或調整購物車後重新送出，不把折扣偷偷截短 |
 | `order_cancellation_not_allowed` | 409 | 訂單已出貨、組裝已開始或不符合取消條件 |
 | `order_payment_deadline_expired` | 409 | 訂單付款期限已到，不能建立新付款嘗試 |
 | `coupon_invalid` | 400 | 優惠碼格式或基本資料無效 |
@@ -147,6 +148,7 @@
 | `return_state_conflict` | 409 | 目前退貨狀態不允許操作 |
 | `refund_amount_exceeded` | 409 | 金額超過可退款餘額 |
 | `refund_state_conflict` | 409 | 退款交易目前狀態不允許操作 |
+| `refund_snapshot_unavailable` | 409 | 退款所需的受控退貨原因、組裝費處置或退貨運費可信快照缺漏；不得以預設值或目前設定回推 |
 
 ## 模擬發票與折讓
 

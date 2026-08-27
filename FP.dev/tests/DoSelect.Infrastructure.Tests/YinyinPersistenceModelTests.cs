@@ -66,14 +66,14 @@ public sealed class YinyinPersistenceModelTests
     }
 
     [Fact]
-    public void PaymentAndRefund_UseRequiredIdempotencyAndFilteredProviderReferenceIndexes()
+    public void PaymentUsesScopedCentralIdempotencyAndFilteredProviderReferenceIndex()
     {
         using var context = CreateContext();
         var payment = context.Model.FindEntityType(typeof(PaymentAttempt))!;
         var refund = context.Model.FindEntityType(typeof(Refund))!;
 
-        Assert.Contains(payment.GetIndexes(), index => index.IsUnique &&
-            index.GetDatabaseName() == "UX_PaymentAttempts_IdempotencyKey");
+        Assert.Contains(payment.GetIndexes(), index => !index.IsUnique &&
+            index.GetDatabaseName() == "IX_PaymentAttempts_IdempotencyKey");
         Assert.Contains(payment.GetIndexes(), index => index.IsUnique &&
             index.GetDatabaseName() == "UX_PaymentAttempts_ExternalReference" &&
             index.GetFilter() == "[ExternalReference] IS NOT NULL");

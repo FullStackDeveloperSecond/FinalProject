@@ -6,7 +6,11 @@ namespace DoSelect.Application.Promotions;
 /// 一張優惠券的規則與適用範圍，由 Infrastructure 於同一交易內讀出並以
 /// <see cref="CouponRule.From(Coupon)"/> 對應。<paramref name="CouponId"/> 供使用量查詢使用。
 /// </summary>
-public sealed record CouponRuleSnapshot(long CouponId, CouponRule Rule, CouponScopeRules Scope);
+public sealed record CouponRuleSnapshot(
+    long CouponId,
+    CouponRule Rule,
+    CouponScopeRules Scope,
+    string NameZhTw = "");
 
 /// <summary>
 /// 優惠券試算所需的讀取埠。實作屬於 Infrastructure，不在此層存取 DbContext。

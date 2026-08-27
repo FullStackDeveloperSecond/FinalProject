@@ -1316,6 +1316,50 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("DoSelect.Domain.Catalog.SkuSpecificationOptionSelection", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<long>("SkuId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("SpecificationOptionId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("SpecificationSourceId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SpecificationOptionId");
+
+                    b.HasIndex("SpecificationSourceId");
+
+                    b.HasIndex("SkuId", "SpecificationOptionId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_SkuSpecificationOptionSelections_SkuId_OptionId");
+
+                    b.ToTable("SkuSpecificationOptionSelections", (string)null);
+                });
+
             modelBuilder.Entity("DoSelect.Domain.Catalog.SkuSpecificationValue", b =>
                 {
                     b.Property<long>("Id")
@@ -1454,6 +1498,11 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                         .HasColumnType("bigint");
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<bool>("AllowsMultiple")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
 
                     b.Property<long>("CategoryId")
                         .HasColumnType("bigint");
@@ -3017,6 +3066,177 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                     b.ToTable("MemberProfiles", (string)null);
                 });
 
+            modelBuilder.Entity("DoSelect.Domain.Notifications.EmailDelivery", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("AttemptCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(0);
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<DateTime?>("FailedAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<string>("LastErrorCode")
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<DateTime?>("NextAttemptAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<Guid>("NotificationPublicId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ProviderMessageId")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("RecipientEmailNormalized")
+                        .IsRequired()
+                        .HasMaxLength(320)
+                        .HasColumnType("nvarchar(320)");
+
+                    b.Property<string>("RecipientPurpose")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<string>("RecipientUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<DateTime?>("SentAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(24)");
+
+                    b.Property<string>("TemplateCode")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<int>("TemplateVersion")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NotificationPublicId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_EmailDeliveries_NotificationPublicId");
+
+                    b.HasIndex("RecipientUserId");
+
+                    b.HasIndex("Status", "NextAttemptAtUtc")
+                        .HasDatabaseName("IX_EmailDeliveries_Status_NextAttemptAtUtc");
+
+                    b.ToTable("EmailDeliveries", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_EmailDeliveries_AttemptCount", "[AttemptCount] >= 0");
+
+                            t.HasCheckConstraint("CK_EmailDeliveries_State", "([Status] = 'Pending' AND [NextAttemptAtUtc] IS NOT NULL AND [SentAtUtc] IS NULL) OR ([Status] = 'Processing' AND [NextAttemptAtUtc] IS NULL AND [SentAtUtc] IS NULL) OR ([Status] = 'Sent' AND [NextAttemptAtUtc] IS NULL AND [SentAtUtc] IS NOT NULL) OR ([Status] IN ('Suppressed', 'Failed') AND [NextAttemptAtUtc] IS NULL AND [SentAtUtc] IS NULL AND [FailedAtUtc] IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_EmailDeliveries_TemplateVersion", "[TemplateVersion] > 0");
+                        });
+                });
+
+            modelBuilder.Entity("DoSelect.Domain.Notifications.Notification", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<DateTime?>("ExpiresAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<Guid>("PublicId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("ReadAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<string>("RecipientUserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<Guid?>("ResourcePublicId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ResourceType")
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PublicId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Notifications_PublicId");
+
+                    b.HasIndex("RecipientUserId", "ReadAtUtc", "CreatedAtUtc")
+                        .HasDatabaseName("IX_Notifications_RecipientUserId_ReadAtUtc_CreatedAtUtc");
+
+                    b.ToTable("Notifications", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Notifications_ExpiresAtUtc", "[ExpiresAtUtc] IS NULL OR [ExpiresAtUtc] > [CreatedAtUtc]");
+
+                            t.HasCheckConstraint("CK_Notifications_Resource", "([ResourceType] IS NULL AND [ResourcePublicId] IS NULL) OR ([ResourceType] IS NOT NULL AND [ResourcePublicId] IS NOT NULL)");
+                        });
+                });
+
             modelBuilder.Entity("DoSelect.Domain.Orders.AssemblyJob", b =>
                 {
                     b.Property<long>("Id")
@@ -3353,6 +3573,10 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                         .HasPrecision(3)
                         .HasColumnType("datetime2(3)");
 
+                    b.Property<string>("CountryCode")
+                        .IsUnicode(false)
+                        .HasColumnType("char(2)");
+
                     b.Property<int?>("CouponPolicyVersion")
                         .HasColumnType("int");
 
@@ -3369,6 +3593,10 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                         .HasPrecision(3)
                         .HasColumnType("datetime2(3)");
 
+                    b.Property<string>("DeliveryNote")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
                     b.Property<string>("FulfillmentStatus")
                         .IsRequired()
                         .HasMaxLength(32)
@@ -3382,6 +3610,33 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                     b.Property<string>("GuestEmailNormalized")
                         .HasMaxLength(320)
                         .HasColumnType("nvarchar(320)");
+
+                    b.Property<string>("InvoiceBuyerEmail")
+                        .HasMaxLength(320)
+                        .HasColumnType("nvarchar(320)");
+
+                    b.Property<string>("InvoiceBuyerType")
+                        .HasMaxLength(20)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(20)");
+
+                    b.Property<string>("InvoiceCarrierType")
+                        .HasMaxLength(30)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(30)");
+
+                    b.Property<string>("InvoiceCarrierValueMasked")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("InvoiceCompanyName")
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)");
+
+                    b.Property<string>("InvoiceCompanyTaxId")
+                        .HasMaxLength(8)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(8)");
 
                     b.Property<decimal>("ItemDiscountTotal")
                         .HasPrecision(18, 2)
@@ -3412,6 +3667,33 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                         .IsUnicode(false)
                         .HasColumnType("varchar(32)");
 
+                    b.Property<decimal?>("PackageDeclaredValueSnapshot")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal?>("PackageHeightCmSnapshot")
+                        .HasPrecision(10, 2)
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<decimal?>("PackageLengthCmSnapshot")
+                        .HasPrecision(10, 2)
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<long?>("PackageLimitVersionId")
+                        .HasColumnType("bigint");
+
+                    b.Property<decimal?>("PackageTotalCmSnapshot")
+                        .HasPrecision(10, 2)
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<decimal?>("PackageWeightKgSnapshot")
+                        .HasPrecision(10, 3)
+                        .HasColumnType("decimal(10,3)");
+
+                    b.Property<decimal?>("PackageWidthCmSnapshot")
+                        .HasPrecision(10, 2)
+                        .HasColumnType("decimal(10,2)");
+
                     b.Property<decimal>("PaidAmount")
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
@@ -3433,6 +3715,9 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                     b.Property<string>("PostalCode")
                         .HasMaxLength(16)
                         .HasColumnType("nvarchar(16)");
+
+                    b.Property<int?>("PrivacyPolicyVersion")
+                        .HasColumnType("int");
 
                     b.Property<Guid>("PublicId")
                         .HasColumnType("uniqueidentifier");
@@ -3511,6 +3796,9 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                         .HasMaxLength(160)
                         .HasColumnType("nvarchar(160)");
 
+                    b.Property<int?>("TermsPolicyVersion")
+                        .HasColumnType("int");
+
                     b.Property<DateTime>("UpdatedAtUtc")
                         .HasPrecision(3)
                         .HasColumnType("datetime2(3)");
@@ -3518,8 +3806,7 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CheckoutIdempotencyKey")
-                        .IsUnique()
-                        .HasDatabaseName("UX_Orders_CheckoutIdempotencyKey");
+                        .HasDatabaseName("IX_Orders_CheckoutIdempotencyKey");
 
                     b.HasIndex("CompletedAtUtc")
                         .HasDatabaseName("IX_Orders_CompletedAtUtc");
@@ -3527,6 +3814,8 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                     b.HasIndex("OrderNumber")
                         .IsUnique()
                         .HasDatabaseName("UX_Orders_OrderNumber");
+
+                    b.HasIndex("PackageLimitVersionId");
 
                     b.HasIndex("PublicId")
                         .IsUnique()
@@ -3544,15 +3833,23 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("CK_Orders_Amounts_Nonnegative", "[MerchandiseSubtotal] >= 0 AND [ItemDiscountTotal] >= 0 AND [ShippingFee] >= 0 AND [AssemblyFee] >= 0 AND [GrandTotal] >= 0 AND [PaidAmount] >= 0 AND [RefundedAmount] >= 0");
 
+                            t.HasCheckConstraint("CK_Orders_CountryCode", "[CountryCode] IS NULL OR [CountryCode] = 'TW'");
+
                             t.HasCheckConstraint("CK_Orders_Currency", "[Currency] = 'TWD'");
 
-                            t.HasCheckConstraint("CK_Orders_GrandTotal", "[GrandTotal] = [MerchandiseSubtotal] - [ItemDiscountTotal] + [ShippingFee] + [AssemblyFee]");
+                            t.HasCheckConstraint("CK_Orders_GrandTotal", "[GrandTotal] = ROUND([MerchandiseSubtotal] - [ItemDiscountTotal] + [ShippingFee] + [AssemblyFee], 0)");
+
+                            t.HasCheckConstraint("CK_Orders_InvoiceCarrier", "([InvoiceCarrierType] IS NULL AND [InvoiceCarrierValueMasked] IS NULL) OR ([InvoiceCarrierType] IS NOT NULL AND [InvoiceCarrierValueMasked] IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_Orders_InvoiceCompany", "([InvoiceBuyerType] IS NULL AND [InvoiceBuyerEmail] IS NULL AND [InvoiceCarrierType] IS NULL AND [InvoiceCarrierValueMasked] IS NULL AND [InvoiceCompanyTaxId] IS NULL AND [InvoiceCompanyName] IS NULL) OR ([InvoiceBuyerType] = 'Company' AND [InvoiceBuyerEmail] IS NOT NULL AND [InvoiceCompanyTaxId] IS NOT NULL AND [InvoiceCompanyName] IS NOT NULL) OR ([InvoiceBuyerType] = 'Individual' AND [InvoiceBuyerEmail] IS NOT NULL AND [InvoiceCompanyTaxId] IS NULL AND [InvoiceCompanyName] IS NULL)");
 
                             t.HasCheckConstraint("CK_Orders_Owner", "[MemberUserId] IS NOT NULL OR [GuestEmailNormalized] IS NOT NULL");
 
+                            t.HasCheckConstraint("CK_Orders_PackageSnapshot", "([PackageLimitVersionId] IS NULL AND [PackageWeightKgSnapshot] IS NULL AND [PackageLengthCmSnapshot] IS NULL AND [PackageWidthCmSnapshot] IS NULL AND [PackageHeightCmSnapshot] IS NULL AND [PackageTotalCmSnapshot] IS NULL AND [PackageDeclaredValueSnapshot] IS NULL) OR ([PackageLimitVersionId] IS NOT NULL AND [PackageWeightKgSnapshot] > 0 AND [PackageLengthCmSnapshot] > 0 AND [PackageWidthCmSnapshot] > 0 AND [PackageHeightCmSnapshot] > 0 AND [PackageTotalCmSnapshot] = [PackageLengthCmSnapshot] + [PackageWidthCmSnapshot] + [PackageHeightCmSnapshot] AND [PackageDeclaredValueSnapshot] >= 0)");
+
                             t.HasCheckConstraint("CK_Orders_PaidAmount", "[PaidAmount] <= [GrandTotal]");
 
-                            t.HasCheckConstraint("CK_Orders_PolicyVersions", "[ShippingConstraintPolicyVersion] > 0 AND [ReturnPolicyVersion] > 0 AND ([CouponPolicyVersion] IS NULL OR [CouponPolicyVersion] > 0)");
+                            t.HasCheckConstraint("CK_Orders_PolicyVersions", "[ShippingConstraintPolicyVersion] > 0 AND [ReturnPolicyVersion] > 0 AND ([TermsPolicyVersion] IS NULL OR [TermsPolicyVersion] > 0) AND ([PrivacyPolicyVersion] IS NULL OR [PrivacyPolicyVersion] > 0) AND ([CouponPolicyVersion] IS NULL OR [CouponPolicyVersion] > 0)");
 
                             t.HasCheckConstraint("CK_Orders_RefundedAmount", "[RefundedAmount] <= [PaidAmount]");
 
@@ -3635,6 +3932,17 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                         .HasMaxLength(160)
                         .HasColumnType("nvarchar(160)");
 
+                    b.Property<string>("SpecificationJsonSnapshot")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<int?>("SpecificationSchemaVersion")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SpecificationSummarySnapshot")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
                     b.Property<decimal>("UnitCostSnapshot")
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
@@ -3661,6 +3969,8 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("CK_OrderItems_Quantity", "[Quantity] > 0");
 
                             t.HasCheckConstraint("CK_OrderItems_ReturnedQuantity", "[ReturnedQuantity] >= 0 AND [ReturnableQuantity] >= [ReturnedQuantity] AND [Quantity] >= [ReturnableQuantity]");
+
+                            t.HasCheckConstraint("CK_OrderItems_SpecificationSnapshot", "([SpecificationSummarySnapshot] IS NULL AND [SpecificationJsonSnapshot] IS NULL AND [SpecificationSchemaVersion] IS NULL) OR ([SpecificationSummarySnapshot] IS NOT NULL AND [SpecificationJsonSnapshot] IS NOT NULL AND [SpecificationSchemaVersion] > 0)");
                         });
                 });
 
@@ -3729,6 +4039,111 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("IX_OrderStatusHistories_OrderId_OccurredAtUtc");
 
                     b.ToTable("OrderStatusHistories", (string)null);
+                });
+
+            modelBuilder.Entity("DoSelect.Domain.Outbox.OutboxMessage", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<Guid>("AggregatePublicId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("AggregateType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<int>("AttemptCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(0);
+
+                    b.Property<DateTime>("AvailableAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<string>("CorrelationId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<string>("LastErrorCode")
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<DateTime>("OccurredAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasMaxLength(8000)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(8000)");
+
+                    b.Property<int>("PayloadVersion")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("ProcessedAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<Guid>("PublicId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(24)");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(128)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PublicId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_OutboxMessages_PublicId");
+
+                    b.HasIndex("Status", "AvailableAtUtc")
+                        .HasDatabaseName("IX_OutboxMessages_Status_AvailableAtUtc");
+
+                    b.HasIndex("AggregateType", "AggregatePublicId", "OccurredAtUtc")
+                        .HasDatabaseName("IX_OutboxMessages_Aggregate_OccurredAtUtc");
+
+                    b.ToTable("OutboxMessages", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_OutboxMessages_AttemptCount", "[AttemptCount] >= 0");
+
+                            t.HasCheckConstraint("CK_OutboxMessages_Availability", "[AvailableAtUtc] >= [OccurredAtUtc]");
+
+                            t.HasCheckConstraint("CK_OutboxMessages_PayloadJson", "ISJSON([PayloadJson]) = 1");
+
+                            t.HasCheckConstraint("CK_OutboxMessages_PayloadVersion", "[PayloadVersion] > 0");
+
+                            t.HasCheckConstraint("CK_OutboxMessages_ProcessedState", "([Status] = 'Processed' AND [ProcessedAtUtc] IS NOT NULL) OR ([Status] <> 'Processed' AND [ProcessedAtUtc] IS NULL)");
+                        });
                 });
 
             modelBuilder.Entity("DoSelect.Domain.Payments.PaymentAttempt", b =>
@@ -3817,8 +4232,7 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("IX_PaymentAttempts_FailureCode");
 
                     b.HasIndex("IdempotencyKey")
-                        .IsUnique()
-                        .HasDatabaseName("UX_PaymentAttempts_IdempotencyKey");
+                        .HasDatabaseName("IX_PaymentAttempts_IdempotencyKey");
 
                     b.HasIndex("InstructionExpiresAtUtc")
                         .HasDatabaseName("IX_PaymentAttempts_InstructionExpiresAtUtc");
@@ -5174,6 +5588,11 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                         .HasPrecision(3)
                         .HasColumnType("datetime2(3)");
 
+                    b.Property<string>("AssemblyFeeDisposition")
+                        .HasMaxLength(32)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(32)");
+
                     b.Property<string>("AssigneeAdminUserId")
                         .HasMaxLength(450)
                         .HasColumnType("nvarchar(450)");
@@ -5235,6 +5654,10 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                         .HasPrecision(3)
                         .HasColumnType("datetime2(3)");
 
+                    b.Property<decimal?>("ReturnShippingCost")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
                     b.Property<string>("ReviewedByAdminUserId")
                         .HasMaxLength(450)
                         .HasColumnType("nvarchar(450)");
@@ -5280,6 +5703,10 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                     b.ToTable("ReturnRequests", null, t =>
                         {
                             t.HasCheckConstraint("CK_ReturnRequests_PolicyVersion", "[PolicyVersion] > 0");
+
+                            t.HasCheckConstraint("CK_ReturnRequests_RefundTrustedInputs", "([AssemblyFeeDisposition] IS NULL AND [ReturnShippingCost] IS NULL) OR ([AssemblyFeeDisposition] IS NOT NULL AND [ReturnShippingCost] IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_ReturnRequests_ReturnShippingCost", "[ReturnShippingCost] IS NULL OR [ReturnShippingCost] >= 0");
                         });
                 });
 
@@ -6093,6 +6520,10 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                         .HasMaxLength(160)
                         .HasColumnType("nvarchar(160)");
 
+                    b.Property<string>("ProviderCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
                     b.Property<Guid>("PublicId")
                         .HasColumnType("uniqueidentifier");
 
@@ -6119,6 +6550,9 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                     b.HasIndex("Code")
                         .IsUnique()
                         .HasDatabaseName("UX_ShippingMethods_Code");
+
+                    b.HasIndex("ProviderCode")
+                        .HasDatabaseName("IX_ShippingMethods_ProviderCode");
 
                     b.HasIndex("PublicId")
                         .IsUnique()
@@ -7398,6 +7832,26 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("DoSelect.Domain.Catalog.SkuSpecificationOptionSelection", b =>
+                {
+                    b.HasOne("DoSelect.Domain.Catalog.Sku", null)
+                        .WithMany()
+                        .HasForeignKey("SkuId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("DoSelect.Domain.Catalog.SpecificationOption", null)
+                        .WithMany()
+                        .HasForeignKey("SpecificationOptionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("DoSelect.Domain.Catalog.SpecificationSource", null)
+                        .WithMany()
+                        .HasForeignKey("SpecificationSourceId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
             modelBuilder.Entity("DoSelect.Domain.Catalog.SkuSpecificationValue", b =>
                 {
                     b.HasOne("DoSelect.Domain.Catalog.SpecificationOption", null)
@@ -7677,6 +8131,23 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("DoSelect.Domain.Notifications.EmailDelivery", b =>
+                {
+                    b.HasOne("DoSelect.Infrastructure.Persistence.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("RecipientUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("DoSelect.Domain.Notifications.Notification", b =>
+                {
+                    b.HasOne("DoSelect.Infrastructure.Persistence.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("RecipientUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("DoSelect.Domain.Orders.AssemblyJob", b =>
                 {
                     b.HasOne("DoSelect.Infrastructure.Persistence.Identity.ApplicationUser", null)
@@ -7733,6 +8204,11 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                     b.HasOne("DoSelect.Infrastructure.Persistence.Identity.ApplicationUser", null)
                         .WithMany()
                         .HasForeignKey("MemberUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("DoSelect.Domain.Shipping.PackageLimitVersion", null)
+                        .WithMany()
+                        .HasForeignKey("PackageLimitVersionId")
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("DoSelect.Domain.Shipping.ShippingProviderProfile", null)

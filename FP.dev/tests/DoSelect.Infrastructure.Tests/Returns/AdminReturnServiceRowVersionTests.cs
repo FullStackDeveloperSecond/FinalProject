@@ -1,5 +1,7 @@
 using DoSelect.Application.Returns;
+using DoSelect.Domain.Invoicing;
 using DoSelect.Domain.Orders;
+using DoSelect.Domain.Refunds;
 using DoSelect.Domain.Returns;
 using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Persistence;
@@ -48,7 +50,9 @@ public sealed class AdminReturnServiceRowVersionTests
 
         var inspectRequest = new InspectReturnRequest(
             [new InspectReturnItemLine(returnItemPublicId, "Unopened", RestockDisposition.Resellable, null)],
-            staleRowVersion);
+            staleRowVersion,
+            AssemblyFeeDisposition.NotApplicable,
+            0m);
 
         var exception = await Assert.ThrowsAsync<ReturnsWriteException>(() =>
             service.InspectAsync(returnPublicId, adminUserId, inspectRequest, CancellationToken.None));
@@ -99,7 +103,9 @@ public sealed class AdminReturnServiceRowVersionTests
 
         var inspectRequest = new InspectReturnRequest(
             [new InspectReturnItemLine(returnItemPublicId, "Unopened", RestockDisposition.Resellable, null)],
-            validRowVersion);
+            validRowVersion,
+            AssemblyFeeDisposition.NotApplicable,
+            0m);
 
         var dto = await service.InspectAsync(returnPublicId, adminUserId, inspectRequest, CancellationToken.None);
 
@@ -124,7 +130,17 @@ public sealed class AdminReturnServiceRowVersionTests
         context.Set<ShippingProviderProfile>().Add(shippingProfile);
         await context.SaveChangesAsync();
 
-        var order = Order.Create(Guid.CreateVersion7(), ValidOrderCreation(shippingProfile.Id), NowUtc);
+        var packageLimit = new PackageLimitVersion(
+            Guid.CreateVersion7(), shippingProfile.Id, 1,
+            20m, 100m, 100m, 100m, 200m, 100_000m,
+            null, null, NowUtc);
+        context.Set<PackageLimitVersion>().Add(packageLimit);
+        await context.SaveChangesAsync();
+
+        var order = Order.Create(
+            Guid.CreateVersion7(),
+            ValidOrderCreation(shippingProfile.Id, packageLimit.Id),
+            NowUtc);
         context.Orders.Add(order);
         await context.SaveChangesAsync();
 
@@ -132,7 +148,9 @@ public sealed class AdminReturnServiceRowVersionTests
             Guid.CreateVersion7(), order.Id, skuId: null, "SKU-1", "27型螢幕", "27型螢幕 White",
             quantity: 1, listUnitPrice: 100m, saleUnitPrice: 100m, finalUnitPrice: 100m,
             unitCostSnapshot: 60m, lineSubtotal: 100m, discountAllocation: 0m,
-            lineTotal: 100m, assemblyGroupKey: null, returnableQuantity: 1, NowUtc, isCouponEligible: true);
+            lineTotal: 100m, assemblyGroupKey: null, returnableQuantity: 1, NowUtc,
+            isCouponEligible: true,
+            new OrderItemSpecificationSnapshot("Test specification", "{}", 1));
         context.OrderItems.Add(orderItem);
         await context.SaveChangesAsync();
 
@@ -159,7 +177,9 @@ public sealed class AdminReturnServiceRowVersionTests
         return (returnRequest.PublicId, creation.Items[0].PublicId, returnRequest.RowVersion, admin.Id);
     }
 
-    private static OrderCreation ValidOrderCreation(long shippingProviderProfileId) =>
+    private static OrderCreation ValidOrderCreation(
+        long shippingProviderProfileId,
+        long packageLimitVersionId) =>
         new(
             $"DS{Guid.NewGuid():N}"[..15],
             null,
@@ -191,5 +211,18 @@ public sealed class AdminReturnServiceRowVersionTests
             null,
             null,
             $"checkout-{Guid.NewGuid():N}",
-            null);
+            null,
+            1,
+            1,
+            new OrderInvoicePreference(
+                SimulatedInvoiceBuyerType.Individual,
+                "guest@example.com",
+                null,
+                null,
+                null,
+                null),
+            null,
+            null,
+            new OrderPackageSnapshot(
+                packageLimitVersionId, 1m, 40m, 30m, 20m, 90m, 1_325m));
 }

@@ -19,6 +19,8 @@
 **/dist/
 **/.vite/
 **/coverage/
+**/playwright-report/
+**/test-results/
 
 # Local configuration and secrets
 **/.env

@@ -251,6 +251,22 @@ public sealed class ObservabilityTests : IClassFixture<WebApplicationFactory<Pro
     }
 
     [Fact]
+    public void Start_WhenCheckoutPolicyVersionIsNotPositive_FailsFast()
+    {
+        using var factory = CreateFactory(new Dictionary<string, string?>
+        {
+            ["CheckoutPolicy:ShippingConstraintVersion"] = "0",
+        });
+
+        var exception = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
+
+        Assert.Contains(
+            "CheckoutPolicy:ShippingConstraintVersion",
+            exception.ToString(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RequestLog_WhenRequestCompletes_ContainsRequiredStructuredProperties()
     {
         var dataRoot = Path.Combine(

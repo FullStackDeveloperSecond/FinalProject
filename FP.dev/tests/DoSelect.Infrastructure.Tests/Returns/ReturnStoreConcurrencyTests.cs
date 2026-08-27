@@ -1,5 +1,6 @@
 using DoSelect.Application.Files;
 using DoSelect.Application.Returns;
+using DoSelect.Domain.Invoicing;
 using DoSelect.Domain.Orders;
 using DoSelect.Domain.Returns;
 using DoSelect.Domain.Shipping;
@@ -380,7 +381,17 @@ public sealed class ReturnStoreConcurrencyTests
         context.Set<ShippingProviderProfile>().Add(shippingProfile);
         await context.SaveChangesAsync();
 
-        var order = Order.Create(Guid.CreateVersion7(), ValidOrderCreation(shippingProfile.Id), NowUtc);
+        var packageLimit = new PackageLimitVersion(
+            Guid.CreateVersion7(), shippingProfile.Id, 1,
+            20m, 100m, 100m, 100m, 200m, 100_000m,
+            null, null, NowUtc);
+        context.Set<PackageLimitVersion>().Add(packageLimit);
+        await context.SaveChangesAsync();
+
+        var order = Order.Create(
+            Guid.CreateVersion7(),
+            ValidOrderCreation(shippingProfile.Id, packageLimit.Id),
+            NowUtc);
         context.Orders.Add(order);
         await context.SaveChangesAsync();
 
@@ -388,7 +399,9 @@ public sealed class ReturnStoreConcurrencyTests
             Guid.CreateVersion7(), order.Id, skuId: null, "SKU-1", "27型螢幕", "27型螢幕 White",
             quantity: returnableQuantity, listUnitPrice: 100m, saleUnitPrice: 100m, finalUnitPrice: 100m,
             unitCostSnapshot: 60m, lineSubtotal: 100m * returnableQuantity, discountAllocation: 0m,
-            lineTotal: 100m * returnableQuantity, assemblyGroupKey: null, returnableQuantity: returnableQuantity, NowUtc, isCouponEligible: true);
+            lineTotal: 100m * returnableQuantity, assemblyGroupKey: null,
+            returnableQuantity: returnableQuantity, NowUtc, isCouponEligible: true,
+            new OrderItemSpecificationSnapshot("Test specification", "{}", 1));
         context.OrderItems.Add(item);
         await context.SaveChangesAsync();
 
@@ -401,13 +414,17 @@ public sealed class ReturnStoreConcurrencyTests
             Guid.CreateVersion7(), orderId, skuId: null, "SKU-2", "機械式鍵盤", "機械式鍵盤 87key",
             quantity: returnableQuantity, listUnitPrice: 80m, saleUnitPrice: 80m, finalUnitPrice: 80m,
             unitCostSnapshot: 40m, lineSubtotal: 80m * returnableQuantity, discountAllocation: 0m,
-            lineTotal: 80m * returnableQuantity, assemblyGroupKey: null, returnableQuantity: returnableQuantity, NowUtc, isCouponEligible: true);
+            lineTotal: 80m * returnableQuantity, assemblyGroupKey: null,
+            returnableQuantity: returnableQuantity, NowUtc, isCouponEligible: true,
+            new OrderItemSpecificationSnapshot("Test specification", "{}", 1));
         context.OrderItems.Add(item);
         await context.SaveChangesAsync();
         return item.Id;
     }
 
-    private static OrderCreation ValidOrderCreation(long shippingProviderProfileId) =>
+    private static OrderCreation ValidOrderCreation(
+        long shippingProviderProfileId,
+        long packageLimitVersionId) =>
         new(
             $"DS{Guid.NewGuid():N}"[..15],
             null,
@@ -439,7 +456,20 @@ public sealed class ReturnStoreConcurrencyTests
             null,
             null,
             $"checkout-{Guid.NewGuid():N}",
-            null);
+            null,
+            1,
+            1,
+            new OrderInvoicePreference(
+                SimulatedInvoiceBuyerType.Individual,
+                "guest@example.com",
+                null,
+                null,
+                null,
+                null),
+            null,
+            null,
+            new OrderPackageSnapshot(
+                packageLimitVersionId, 1m, 40m, 30m, 20m, 90m, 1_325m));
 }
 
 public sealed class ReturnStoreConcurrencyFixture

@@ -40,11 +40,21 @@ public sealed class HaruPersistenceModelTests
 
         Assert.Equal(18, entity.FindProperty(nameof(Order.GrandTotal))?.GetPrecision());
         Assert.Equal(2, entity.FindProperty(nameof(Order.GrandTotal))?.GetScale());
+        Assert.True(entity.FindProperty(nameof(Order.TermsPolicyVersion))?.IsNullable);
+        Assert.True(entity.FindProperty(nameof(Order.PrivacyPolicyVersion))?.IsNullable);
+        Assert.True(entity.FindProperty(nameof(Order.InvoiceBuyerType))?.IsNullable);
+        Assert.True(entity.FindProperty(nameof(Order.InvoiceBuyerEmail))?.IsNullable);
+        Assert.Equal("varchar(20)", entity.FindProperty(nameof(Order.InvoiceBuyerType))?.GetColumnType());
+        Assert.Equal(320, entity.FindProperty(nameof(Order.InvoiceBuyerEmail))?.GetMaxLength());
+        Assert.Equal(30, entity.FindProperty(nameof(Order.InvoiceCarrierType))?.GetMaxLength());
+        Assert.Equal(100, entity.FindProperty(nameof(Order.InvoiceCarrierValueMasked))?.GetMaxLength());
+        Assert.Equal(8, entity.FindProperty(nameof(Order.InvoiceCompanyTaxId))?.GetMaxLength());
+        Assert.Equal(160, entity.FindProperty(nameof(Order.InvoiceCompanyName))?.GetMaxLength());
         Assert.Contains(entity.GetIndexes(), index =>
             index.IsUnique && index.GetDatabaseName() == "UX_Orders_OrderNumber");
         Assert.Contains(entity.GetIndexes(), index =>
-            index.IsUnique &&
-            index.GetDatabaseName() == "UX_Orders_CheckoutIdempotencyKey");
+            !index.IsUnique &&
+            index.GetDatabaseName() == "IX_Orders_CheckoutIdempotencyKey");
         Assert.Contains(entity.GetForeignKeys(), foreignKey =>
             foreignKey.Properties.Single().Name == nameof(Order.MemberUserId) &&
             foreignKey.DeleteBehavior == DeleteBehavior.Restrict);

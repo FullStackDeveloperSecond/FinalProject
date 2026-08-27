@@ -81,6 +81,8 @@ public sealed class AdminReturnHistoryAndConcurrencyHttpTests
             {
                 new { returnItemPublicId = itemIds[0], conditionCode = "Unopened", disposition = "resellable", note = "ok" },
             },
+            assemblyFeeDisposition = "notApplicable",
+            returnShippingCost = 0m,
             returnRowVersion = Convert.ToBase64String(rowVersion),
         });
 

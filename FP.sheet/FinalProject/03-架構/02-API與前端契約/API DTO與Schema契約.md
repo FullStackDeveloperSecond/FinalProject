@@ -96,7 +96,7 @@
 | `OrderSummaryDto` | `publicId`、`orderNumber`、主要摘要狀態與徽章、`itemCount`、`total`、`currency`、配送／付款摘要、`createdAtUtc`、`availableActions[]` |
 | `CancelOrderRequest` | `reasonCode:string(1..64)`、`note?:string(0..500)`、`orderRowVersion`；會員／訪客只能使用顧客可選理由 |
 
-`POST /orders` 的 `Idempotency-Key` Header 必填；Body 不重複保存 Key。宅配需 Address，超取需 Store PublicId；符合 NT$20,000 上限且未含組裝電腦或限制品時，一般宅配與超取均可使用 COD，組裝電腦宅配必須先付款。
+`POST /orders` 的 `Idempotency-Key` Header 必填；Body 不重複保存 Key。宅配需 Address，超取需 Store PublicId；符合 NT$20,000 上限且未含組裝電腦或限制品時，一般宅配與超取均可使用 COD，組裝電腦宅配必須先付款。所有可信折扣與費用完成並整數化後，`GrandTotal` 必須至少 NT$1；低於時回 `409 order_total_below_minimum`，成功 Response／PaymentAttempt 不會建立。
 
 ## Payment、Return 與 Refund
 
@@ -107,7 +107,8 @@
 | `CompleteSimulatedPaymentRequest` | `outcome:succeeded/failed/expired`、`simulationKey:string(8..128)`；展示端點只在 Demo Profile 開放 |
 | `CreateReturnRequest` | `items:{orderItemPublicId,quantity,reasonCode,description?:string(0..500)}[1..20]`、`requestReason:string(1..1000)`、`orderRowVersion` |
 | `ReturnRequestDto` | `publicId`、`orderPublicId`、`status`、`items[]`、`attachments[]`、`requestedAtUtc`、審核／收貨／結案時間、`availableActions[]`、`rowVersion` |
-| `ApproveReturnRequest` | `decision:approved/rejected`、`items:{returnItemPublicId,approvedQuantity:int(0..requestedQuantity),inspectionRequired:bool}[1..20]`、`reasonCode:string(1..64)`、`note?:string(0..1000)`、`returnRowVersion` |
+| `ApproveReturnRequest` | `decision:approved/rejected`、`items:{returnItemPublicId,approvedQuantity:int(0..requestedQuantity),inspectionRequired:bool}[1..20]`、`reasonCode:string(1..64)`、`note?:string(0..500)`、`assemblyFeeDisposition?:enum`、`returnShippingCost?:decimal(18,2)>=0`、`returnRowVersion`；核准且不需寄回／驗收時兩個退款快照欄位成對必填，需寄回或拒絕時不得提供 |
+| `InspectReturnRequest` | `items:{returnItemPublicId,conditionCode,disposition,note?}[1..20]`、`assemblyFeeDisposition:enum`、`returnShippingCost:decimal(18,2)>=0`、`returnRowVersion`；完成驗收並進入 `AwaitingRefund` 前兩個退款快照欄位成對必填 |
 | `ExecuteRefundRequest` | `reasonCode:string(1..64)`、`note?:string(0..1000)`、`refundRowVersion`；`Idempotency-Key` 使用 Header；不接受 `allocations` |
 | `RefundAllocationDto` | `orderItemPublicId?`、`quantity?`、`type:itemRefund/originalShipping/returnShipping/assemblyFee/discountClawback/shippingClawback/otherAdjustment`、`amount`；Amount 一律為正值，V1 新寫入禁止 `otherAdjustment`；`itemRefund` 必須有 OrderItem 與正整數 Quantity，其他類型兩欄皆為 Null |
 | `MaskedAdminSummaryDto` | `publicId`、`maskedLabel`；只回管理員 PublicId，不回 Internal Identity ID；Label 優先使用遮蔽 DisplayName，缺少時使用遮蔽 Email |

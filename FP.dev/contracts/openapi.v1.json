@@ -5634,11 +5634,43 @@
               "string"
             ]
           },
+          "assemblyFeeDisposition": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AssemblyFeeDisposition"
+              }
+            ]
+          },
+          "returnShippingCost": {
+            "maximum": 79228162514264337593543950335,
+            "minimum": 0,
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
           "returnRowVersion": {
             "type": "string",
             "format": "byte"
           }
         }
+      },
+      "AssemblyFeeDisposition": {
+        "enum": [
+          "notApplicable",
+          "notStarted",
+          "merchantCancelled",
+          "assemblyFault",
+          "merchantFaultWholeUnit",
+          "completedPartialReturn",
+          null
+        ]
       },
       "AuthSessionDto": {
         "required": [
@@ -7093,6 +7125,7 @@
         "type": "object",
         "properties": {
           "items": {
+            "minItems": 1,
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/InspectReturnItemLine"
@@ -7101,6 +7134,27 @@
           "returnRowVersion": {
             "type": "string",
             "format": "byte"
+          },
+          "assemblyFeeDisposition": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AssemblyFeeDisposition"
+              }
+            ]
+          },
+          "returnShippingCost": {
+            "maximum": 79228162514264337593543950335,
+            "minimum": 0,
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
           }
         }
       },
@@ -8967,6 +9021,22 @@
               "null",
               "string"
             ]
+          },
+          "optionCodes": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "specificationSourcePublicId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },
@@ -9151,6 +9221,22 @@
               "null",
               "string"
             ]
+          },
+          "optionCodes": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "specificationSourcePublicId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },

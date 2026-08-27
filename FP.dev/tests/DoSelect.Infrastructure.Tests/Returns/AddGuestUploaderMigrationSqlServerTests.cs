@@ -139,27 +139,87 @@ public sealed class AddGuestUploaderMigrationSqlServerTests
         context.Set<ShippingProviderProfile>().Add(shippingProfile);
         await context.SaveChangesAsync();
 
-        var order = Order.Create(Guid.CreateVersion7(), ValidOrderCreation(member.Id, shippingProfile.Id), NowUtc);
-        context.Orders.Add(order);
-        await context.SaveChangesAsync();
+        var orderId = await InsertLegacyOrderAsync(context, member.Id, shippingProfile.Id);
 
-        var returnRequest = new ReturnRequest(
-            Guid.CreateVersion7(), $"RT-{Guid.NewGuid():N}"[..12], order.Id, member.Id, "Defective", "面板有亮點", 1, NowUtc);
-        context.ReturnRequests.Add(returnRequest);
-        await context.SaveChangesAsync();
+        var returnRequestId = await InsertLegacyReturnRequestAsync(context, orderId, member.Id);
 
-        return (member.Id, returnRequest.Id, order.Id);
+        return (member.Id, returnRequestId, orderId);
     }
 
-    private static OrderCreation ValidOrderCreation(string memberUserId, long shippingProviderProfileId) =>
-        new(
-            $"DS{Guid.NewGuid():N}"[..15], memberUserId, null,
-            OrderStatus.Processing, PaymentStatus.Paid, FulfillmentStatus.Delivered, AssemblyStatus.NotRequired,
-            1_200m, 100m, 225m, 0m, 1_325m,
-            "Member", "0912345678", "member@example.com",
-            "100", "Taipei", "Zhongzheng", "No. 1", null,
-            "HOME_DELIVERY", shippingProviderProfileId, null, null, null,
-            1, 1, null, null, $"checkout-{Guid.NewGuid():N}", null);
+    private static async Task<long> InsertLegacyReturnRequestAsync(
+        DoSelectDbContext context,
+        long orderId,
+        string memberUserId)
+    {
+        var publicId = Guid.CreateVersion7();
+        var returnNumber = $"RT-{Guid.NewGuid():N}"[..12];
+
+        // This test deliberately migrates only to AddGuestUploaderToReturnAttachments. Seed with
+        // that historical schema rather than the current EF model, which may contain columns
+        // introduced by later migrations and therefore cannot write to this database revision.
+        await context.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO [ReturnRequests]
+            (
+                [ReturnNumber], [OrderId], [RequesterUserId], [Status], [Priority],
+                [ReasonCode], [Description], [PolicyVersion], [RequestedAtUtc],
+                [CreatedAtUtc], [PublicId], [UpdatedAtUtc]
+            )
+            VALUES
+            (
+                {returnNumber}, {orderId}, {memberUserId}, {ReturnRequestStatus.Requested.ToString()},
+                {CasePriority.Normal.ToString()}, {"Defective"}, {"面板有亮點"}, {1}, {NowUtc},
+                {NowUtc}, {publicId}, {NowUtc}
+            );
+            """);
+
+        return await context.Database
+            .SqlQuery<long>($"SELECT [Id] AS [Value] FROM [ReturnRequests] WHERE [PublicId] = {publicId}")
+            .SingleAsync();
+    }
+
+    private static async Task<long> InsertLegacyOrderAsync(
+        DoSelectDbContext context,
+        string memberUserId,
+        long shippingProviderProfileId)
+    {
+        var publicId = Guid.CreateVersion7();
+        var orderNumber = $"DS{Guid.NewGuid():N}"[..15];
+        var checkoutKey = $"checkout-{Guid.NewGuid():N}";
+
+        await context.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO [Orders]
+            (
+                [PublicId], [CreatedAtUtc], [UpdatedAtUtc], [OrderNumber],
+                [MemberUserId], [GuestEmailNormalized], [OrderStatus], [PaymentStatus],
+                [FulfillmentStatus], [AssemblyStatus], [OrderRefundStatus],
+                [MerchandiseSubtotal], [ItemDiscountTotal], [ShippingFee], [AssemblyFee],
+                [GrandTotal], [PaidAmount], [RefundedAmount], [Currency],
+                [RecipientName], [RecipientPhone], [RecipientEmail], [PostalCode],
+                [RecipientCity], [RecipientDistrict], [AddressLine1], [AddressLine2],
+                [ShippingMethodCode], [ShippingProviderProfileVersionId],
+                [StoreCode], [StoreName], [StoreAddress],
+                [ShippingConstraintPolicyVersion], [ReturnPolicyVersion],
+                [CouponPolicyVersion], [PaymentDueAtUtc], [CheckoutIdempotencyKey],
+                [SourceCartPublicId]
+            )
+            VALUES
+            (
+                {publicId}, {NowUtc}, {NowUtc}, {orderNumber},
+                {memberUserId}, NULL, {OrderStatus.Processing.ToString()}, {PaymentStatus.Paid.ToString()},
+                {FulfillmentStatus.Delivered.ToString()}, {AssemblyStatus.NotRequired.ToString()},
+                {OrderRefundStatus.None.ToString()},
+                {1_200m}, {100m}, {225m}, {0m}, {1_325m}, {0m}, {0m}, {"TWD"},
+                {"Member"}, {"0912345678"}, {"member@example.com"}, {"100"},
+                {"Taipei"}, {"Zhongzheng"}, {"No. 1"}, NULL,
+                {"HOME_DELIVERY"}, {shippingProviderProfileId},
+                NULL, NULL, NULL, {1}, {1}, NULL, NULL, {checkoutKey}, NULL
+            );
+            """);
+
+        return await context.Database
+            .SqlQuery<long>($"SELECT [Id] AS [Value] FROM [Orders] WHERE [PublicId] = {publicId}")
+            .SingleAsync();
+    }
 
     private static async Task<bool> ColumnExistsAsync(DoSelectDbContext context, string table, string column)
     {

@@ -10,12 +10,11 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
-    // Same-origin proxy so the browser never makes a cross-origin request to
-    // the API in local dev; avoids needing a CORS policy decision (a shared
-    // concern owned by alex's SH-04 work package) just to preview pages.
+    // Same-origin proxy keeps local development and browser E2E on the frontend
+    // origin while forwarding API requests to the explicitly bound backend.
     proxy: {
       '/api': {
-        target: 'http://localhost:5126',
+        target: 'http://127.0.0.1:5126',
         changeOrigin: true,
       },
     },
