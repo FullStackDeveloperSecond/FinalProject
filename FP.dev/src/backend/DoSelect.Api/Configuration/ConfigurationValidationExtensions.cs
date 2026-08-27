@@ -260,6 +260,30 @@ internal sealed class RateLimitOptionsValidator : IValidateOptions<RateLimitOpti
         AddPositiveFailure(failures, options.PerIpWindowHours, "RateLimiting:PerIpWindowHours");
         AddPositiveFailure(failures, options.LoginPerIpPermitLimit, "RateLimiting:LoginPerIpPermitLimit");
         AddPositiveFailure(failures, options.LoginPerIpWindowHours, "RateLimiting:LoginPerIpWindowHours");
+        AddPositiveFailure(
+            failures,
+            options.GuestOrderAccessIpPermitLimit,
+            "RateLimiting:GuestOrderAccessIpPermitLimit");
+        AddPositiveFailure(
+            failures,
+            options.GuestOrderAccessEmailPermitLimit,
+            "RateLimiting:GuestOrderAccessEmailPermitLimit");
+        AddPositiveFailure(
+            failures,
+            options.GuestOrderAccessOrderLookupPermitLimit,
+            "RateLimiting:GuestOrderAccessOrderLookupPermitLimit");
+        AddPositiveFailure(
+            failures,
+            options.GuestOrderAccessWindowMinutes,
+            "RateLimiting:GuestOrderAccessWindowMinutes");
+        AddPositiveFailure(
+            failures,
+            options.AdminChallengePermitLimit,
+            "RateLimiting:AdminChallengePermitLimit");
+        AddPositiveFailure(
+            failures,
+            options.AdminChallengeWindowMinutes,
+            "RateLimiting:AdminChallengeWindowMinutes");
 
         return failures.Count == 0
             ? ValidateOptionsResult.Success

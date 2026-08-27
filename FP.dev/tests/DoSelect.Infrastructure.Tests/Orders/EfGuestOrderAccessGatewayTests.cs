@@ -1,6 +1,9 @@
+using DoSelect.Application.Auditing;
 using DoSelect.Application.Orders;
+using DoSelect.Domain.Auditing;
 using DoSelect.Domain.Orders;
 using DoSelect.Domain.Shipping;
+using DoSelect.Infrastructure.Auditing;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using DoSelect.Infrastructure.Persistence.Orders;
@@ -334,6 +337,57 @@ public sealed class EfGuestOrderAccessGatewayTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task RecordScopeViolationAsync_PersistsCounterAndAuditInOneTransaction()
+    {
+        var orderPublicId = Guid.CreateVersion7();
+        var orderId = await SeedOrderAsync(orderPublicId, "DS-0009", "GUEST@EXAMPLE.COM");
+        var (tokenId, tokenPublicId) = await SeedTokenAsync(orderId);
+        var targetOrderPublicId = Guid.CreateVersion7();
+
+        await using (var context = CreateContext())
+        {
+            var gateway = new EfGuestOrderAccessGateway(
+                context,
+                new EfAuditWriter(context, TimeProvider.System));
+
+            await gateway.RecordScopeViolationAsync(
+                tokenId,
+                CreateScopeViolationAudit(tokenPublicId, targetOrderPublicId));
+        }
+
+        await using var verifyContext = CreateContext();
+        var token = await verifyContext.GuestOrderAccessTokens.SingleAsync(t => t.Id == tokenId);
+        var audit = await verifyContext.AuditLogs.SingleAsync();
+        Assert.Equal(1, token.ScopeViolationCount);
+        Assert.Equal(AuditActions.GuestOrderScopeViolation, audit.Action);
+        Assert.Equal(tokenPublicId, audit.ActorPublicId);
+        Assert.Equal(targetOrderPublicId, audit.ResourcePublicId);
+    }
+
+    [Fact]
+    public async Task RecordScopeViolationAsync_WhenAuditWriterFails_RollsBackCounter()
+    {
+        var orderPublicId = Guid.CreateVersion7();
+        var orderId = await SeedOrderAsync(orderPublicId, "DS-0010", "GUEST@EXAMPLE.COM");
+        var (tokenId, tokenPublicId) = await SeedTokenAsync(orderId);
+
+        await using (var context = CreateContext())
+        {
+            var gateway = new EfGuestOrderAccessGateway(context, new ThrowingAuditWriter());
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                gateway.RecordScopeViolationAsync(
+                    tokenId,
+                    CreateScopeViolationAudit(tokenPublicId, Guid.CreateVersion7())));
+        }
+
+        await using var verifyContext = CreateContext();
+        var token = await verifyContext.GuestOrderAccessTokens.SingleAsync(t => t.Id == tokenId);
+        Assert.Equal(0, token.ScopeViolationCount);
+        Assert.Empty(verifyContext.AuditLogs);
+    }
+
+    [Fact]
     public async Task PurgeExpiredAsync_OnlyDeletesRowsPastCutoffAndRespectsBatchSize()
     {
         var orderId = await SeedOrderAsync(Guid.CreateVersion7(), "DS-0007", "GUEST@EXAMPLE.COM");
@@ -450,6 +504,46 @@ public sealed class EfGuestOrderAccessGatewayTests : IAsyncLifetime
         return order.Id;
     }
 
+    private static async Task<(long TokenId, Guid TokenPublicId)> SeedTokenAsync(long orderId)
+    {
+        await using var context = CreateContext();
+        var request = GuestOrderAccessRequest.CreateValid(
+            Guid.CreateVersion7(), orderId, Hash(1), Hash(2), Hash(3), Hash(4),
+            CreatedAtUtc.AddMinutes(10), CreatedAtUtc);
+        context.GuestOrderAccessRequests.Add(request);
+        await context.SaveChangesAsync();
+
+        var tokenPublicId = Guid.CreateVersion7();
+        var token = new GuestOrderAccessToken(
+            tokenPublicId,
+            orderId,
+            request.Id,
+            Hash(9),
+            CreatedAtUtc.AddMinutes(30),
+            CreatedAtUtc);
+        context.GuestOrderAccessTokens.Add(token);
+        await context.SaveChangesAsync();
+        return (token.Id, tokenPublicId);
+    }
+
+    private static AuditWriteRequest CreateScopeViolationAudit(
+        Guid tokenPublicId,
+        Guid targetOrderPublicId) =>
+        AuditWriteRequest.Create(
+            Guid.CreateVersion7(),
+            AuditActor.Create(AuditActorType.Guest, tokenPublicId, roles: []),
+            AuditActions.GuestOrderScopeViolation,
+            AuditResourceTypes.Order,
+            targetOrderPublicId,
+            AuditResult.Rejected,
+            "guest_order_scope_mismatch",
+            [AuditFieldChange.Changed("scopeViolationCount")],
+            "cross_order_access_rejected",
+            "guest-order-test",
+            "0123456789abcdef0123456789abcdef",
+            jobPublicId: null,
+            remoteIpAddress: null);
+
     private async Task SeedMemberOrderAsync(string orderNumber)
     {
         await using var context = CreateContext();
@@ -516,4 +610,10 @@ public sealed class EfGuestOrderAccessGatewayTests : IAsyncLifetime
 
     private static DoSelectDbContext CreateContext() => new(
         new DbContextOptionsBuilder<DoSelectDbContext>().UseSqlServer(ConnectionString).Options);
+
+    private sealed class ThrowingAuditWriter : IAuditWriter
+    {
+        public AuditLog Add(AuditWriteRequest request) =>
+            throw new InvalidOperationException("Synthetic audit failure.");
+    }
 }

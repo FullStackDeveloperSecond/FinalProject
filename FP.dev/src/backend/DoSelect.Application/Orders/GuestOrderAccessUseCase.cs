@@ -78,6 +78,9 @@ public sealed class GuestOrderAccessUseCase(
         {
             var decoyRequest = GuestOrderAccessRequest.CreateDecoy(
                 Guid.CreateVersion7(), ipHash, emailHash, orderLookupHash, expiresAtUtc, nowUtc);
+            // Decoy 不會真的寄信，但仍須記錄等價的初次寄送狀態；否則它可以立即重寄，
+            // 有效 Request 卻要等 60 秒，RequestPublicId 是否改變會成為訂單存在性 Oracle。
+            decoyRequest.RecordSend(nowUtc);
             var created = await TryCreateRequestWithRetryAsync(window, decoyRequest, cancellationToken);
             if (!created)
             {
@@ -183,7 +186,7 @@ public sealed class GuestOrderAccessUseCase(
                     {
                         return new GuestOrderAccessAcceptedResult.Accepted(
                             currentSuccessor.PublicId,
-                            currentSuccessor.ExpiresAtUtc,
+                            AsUtc(currentSuccessor.ExpiresAtUtc),
                             nowUtc.Add(ResendInterval));
                     }
                 }
@@ -192,7 +195,7 @@ public sealed class GuestOrderAccessUseCase(
                 // Row——維持安全回應，不揭露原因；沒有新 Row 要寫入，這次呼叫不消耗三 Scope
                 // 的視窗預算。
                 return new GuestOrderAccessAcceptedResult.Accepted(
-                    requestPublicId, request.ExpiresAtUtc, nowUtc.Add(ResendInterval));
+                    requestPublicId, AsUtc(request.ExpiresAtUtc), nowUtc.Add(ResendInterval));
             }
 
             try
@@ -245,13 +248,16 @@ public sealed class GuestOrderAccessUseCase(
 
         var nowUtc = timeProvider.GetUtcNow().UtcDateTime;
         var request = await gateway.FindActiveRequestAsync(requestPublicId, nowUtc, cancellationToken);
-        if (request is null || request.OrderId is null || request.CodeHash is null)
+        if (request is null)
         {
             return new GuestOrderAccessVerifyResult.Failure(GuestOrderErrorCodes.VerificationInvalid);
         }
 
         var codeHash = hasher.HashCode(code);
-        if (!CryptographicOperations.FixedTimeEquals(codeHash, request.CodeHash))
+        var codeMatches = request.OrderId is not null &&
+            request.CodeHash is not null &&
+            CryptographicOperations.FixedTimeEquals(codeHash, request.CodeHash);
+        if (!codeMatches)
         {
             // Read-Modify-Write 在平行錯碼下會遺失更新：兩個請求可能讀到同一個 AttemptCount，
             // 各自 +1 存回去，RowVersion 只保護「其中一個先存成功」，另一個會拋並行衝突而不是
@@ -288,6 +294,13 @@ public sealed class GuestOrderAccessUseCase(
             return new GuestOrderAccessVerifyResult.Failure(GuestOrderErrorCodes.VerificationInvalid);
         }
 
+        // codeMatches 為 true 時必定是有效 Request；保留明確 guard 讓 nullable flow 與未來修改都
+        // 安全失敗，不讓不完整資料核發 Token。
+        if (request.OrderId is not long orderId)
+        {
+            return new GuestOrderAccessVerifyResult.Failure(GuestOrderErrorCodes.VerificationInvalid);
+        }
+
         try
         {
             request.Consume(nowUtc);
@@ -297,7 +310,7 @@ public sealed class GuestOrderAccessUseCase(
             return new GuestOrderAccessVerifyResult.Failure(GuestOrderErrorCodes.VerificationInvalid);
         }
 
-        var lookup = await gateway.FindGuestOrderByIdAsync(request.OrderId.Value, cancellationToken);
+        var lookup = await gateway.FindGuestOrderByIdAsync(orderId, cancellationToken);
         if (lookup is null)
         {
             // 訂單在 Challenge 有效期間被刪除／不再是訪客訂單——理論上不會發生，
@@ -310,7 +323,7 @@ public sealed class GuestOrderAccessUseCase(
         var tokenExpiresAtUtc = nowUtc.Add(TokenLifetime);
         var token = new GuestOrderAccessToken(
             Guid.CreateVersion7(),
-            request.OrderId.Value,
+            orderId,
             request.Id,
             hasher.HashToken(rawToken),
             tokenExpiresAtUtc,
@@ -405,6 +418,9 @@ public sealed class GuestOrderAccessUseCase(
             WindowStartUtc(nowUtc));
 
     private static string Normalize(string email) => email.Trim().ToUpperInvariant();
+
+    private static DateTime AsUtc(DateTime value) =>
+        value.Kind == DateTimeKind.Utc ? value : DateTime.SpecifyKind(value, DateTimeKind.Utc);
 
     private static string GenerateSixDigitCode() =>
         RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6");

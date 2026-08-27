@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
 using System.Security.Claims;
@@ -394,7 +395,13 @@ public sealed class SecurityFoundationTestController : ControllerBase
     public async Task<IActionResult> GuestOrder(
         Guid orderPublicId, [FromServices] GuestOrderAccessScopeAuthorizer authorizer)
     {
-        var result = await authorizer.AuthorizeAsync(User, orderPublicId);
+        var result = await authorizer.AuthorizeAsync(
+            User,
+            orderPublicId,
+            new GuestOrderAccessAuthorizationAuditContext(
+                CorrelationIdMiddleware.GetCorrelationId(HttpContext),
+                Activity.Current?.TraceId.ToString() ?? ActivityTraceId.CreateRandom().ToString(),
+                HttpContext.Connection.RemoteIpAddress));
         return result switch
         {
             GuestOrderAccessAuthorizationResult.Success => Ok(),

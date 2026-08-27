@@ -1,14 +1,32 @@
 using System.Data;
+using DoSelect.Application.Auditing;
 using DoSelect.Application.Common;
 using DoSelect.Application.Orders;
 using DoSelect.Domain.Orders;
+using DoSelect.Infrastructure.Auditing;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
 namespace DoSelect.Infrastructure.Persistence.Orders;
 
-public sealed class EfGuestOrderAccessGateway(DoSelectDbContext dbContext) : IGuestOrderAccessGateway
+public sealed class EfGuestOrderAccessGateway : IGuestOrderAccessGateway
 {
+    private readonly DoSelectDbContext dbContext;
+    private readonly IAuditWriter auditWriter;
+
+    public EfGuestOrderAccessGateway(DoSelectDbContext dbContext, IAuditWriter auditWriter)
+    {
+        ArgumentNullException.ThrowIfNull(dbContext);
+        ArgumentNullException.ThrowIfNull(auditWriter);
+        this.dbContext = dbContext;
+        this.auditWriter = auditWriter;
+    }
+
+    internal EfGuestOrderAccessGateway(DoSelectDbContext dbContext)
+        : this(dbContext, new EfAuditWriter(dbContext, TimeProvider.System))
+    {
+    }
+
     /// <summary>SQL Server 的死結受害者錯誤碼（比照 <c>RefundExecutor</c> 的既有判斷）。</summary>
     private const int DeadlockVictimErrorNumber = 1205;
 
@@ -218,14 +236,31 @@ public sealed class EfGuestOrderAccessGateway(DoSelectDbContext dbContext) : IGu
         return new GuestOrderAccessTokenContext(token, orderPublicId);
     }
 
-    public Task IncrementScopeViolationAsync(
-        long tokenId, CancellationToken cancellationToken = default) =>
-        dbContext.GuestOrderAccessTokens
+    public async Task RecordScopeViolationAsync(
+        long tokenId,
+        AuditWriteRequest auditRequest,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(auditRequest);
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(
+            IsolationLevel.ReadCommitted,
+            cancellationToken);
+        var updated = await dbContext.GuestOrderAccessTokens
             .Where(t => t.Id == tokenId)
             .ExecuteUpdateAsync(
                 setters => setters.SetProperty(
                     t => t.ScopeViolationCount, t => t.ScopeViolationCount + 1),
                 cancellationToken);
+
+        if (updated != 1)
+        {
+            throw new InvalidOperationException("The guest order access token no longer exists.");
+        }
+
+        auditWriter.Add(auditRequest);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+    }
 
     public async Task<int> PurgeExpiredAsync(
         DateTime cutoffUtc, int batchSize, CancellationToken cancellationToken = default)

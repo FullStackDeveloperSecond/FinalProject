@@ -3,13 +3,14 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using DoSelect.Api.Contracts.Orders;
+using DoSelect.Application.Auditing;
 using DoSelect.Application.Notifications;
+using DoSelect.Application.Orders;
+using DoSelect.Domain.Auditing;
 using DoSelect.Domain.Orders;
 using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
-using Microsoft.AspNetCore.DataProtection;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -17,25 +18,10 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace DoSelect.Api.IntegrationTests;
 
-public sealed class GuestOrderAccessControllerTests : IClassFixture<WebApplicationFactory<Program>>
+[Collection(nameof(GuestOrderAccessApiCollection))]
+public sealed class GuestOrderAccessControllerTests(GuestOrderAccessApiFixture fixture)
 {
     private static readonly DateTime CreatedAtUtc = DateTime.UtcNow.AddMinutes(-5);
-    private readonly WebApplicationFactory<Program> _factory;
-
-    static GuestOrderAccessControllerTests()
-    {
-        // GuestOrderAccessHasher (Scoped) validates this at first resolution — a fresh test
-        // run has no appsettings.Development.json, so this must be supplied here rather than
-        // relying on the (empty) example config. Set once, before any test in this class
-        // resolves it, mirroring CartApiFixture's environment-variable override approach.
-        Environment.SetEnvironmentVariable(
-            "GuestOrderAccess__Pepper", "guest-order-access-controller-tests-pepper-00000");
-    }
-
-    public GuestOrderAccessControllerTests(WebApplicationFactory<Program> factory)
-    {
-        _factory = factory;
-    }
 
     [Fact]
     public async Task RequestAccess_WhenOrderExists_ReturnsAcceptedAndDeliversSixDigitCode()
@@ -87,6 +73,43 @@ public sealed class GuestOrderAccessControllerTests : IClassFixture<WebApplicati
         Assert.NotEqual(Guid.Empty, body!.RequestPublicId);
         await Task.Delay(200);
         Assert.Empty(capturingEmailSender.SentMessages);
+    }
+
+    [Fact]
+    public async Task ImmediateResend_ValidAndDecoyRequestsBothKeepTheOriginalRequestId()
+    {
+        var capturingEmailSender = new CapturingEmailSender();
+        using var factory = CreateFactory(services =>
+        {
+            services.Replace(ServiceDescriptor.Singleton<IEmailSender>(capturingEmailSender));
+        });
+        var (_, _, orderNumber, email) = await SeedGuestOrderAsync(factory);
+        using var client = factory.CreateClient();
+        await PrimeAntiforgeryAsync(client);
+
+        var validRequestId = await RequestAccessAsync(client, orderNumber, email);
+        var decoyRequestId = await RequestAccessAsync(
+            client,
+            $"NO-SUCH-{Guid.NewGuid():N}"[..20],
+            "nobody@example.com");
+
+        using var validResend = await client.PostAsync(
+            $"/api/v1/guest-orders/access-requests/{validRequestId}/actions/resend",
+            content: null);
+        using var decoyResend = await client.PostAsync(
+            $"/api/v1/guest-orders/access-requests/{decoyRequestId}/actions/resend",
+            content: null);
+        var validBody = await validResend.Content.ReadFromJsonAsync<GuestOrderAccessRequestAcceptedDto>();
+        var decoyBody = await decoyResend.Content.ReadFromJsonAsync<GuestOrderAccessRequestAcceptedDto>();
+
+        Assert.Equal(HttpStatusCode.Accepted, validResend.StatusCode);
+        Assert.Equal(HttpStatusCode.Accepted, decoyResend.StatusCode);
+        Assert.Equal(validRequestId, validBody!.RequestPublicId);
+        Assert.Equal(decoyRequestId, decoyBody!.RequestPublicId);
+        Assert.Equal(DateTimeKind.Utc, validBody.ExpiresAtUtc.Kind);
+        Assert.Equal(DateTimeKind.Utc, decoyBody.ExpiresAtUtc.Kind);
+        Assert.Equal(DateTimeKind.Utc, validBody.ResendAvailableAtUtc.Kind);
+        Assert.Equal(DateTimeKind.Utc, decoyBody.ResendAvailableAtUtc.Kind);
     }
 
     [Fact]
@@ -325,6 +348,16 @@ public sealed class GuestOrderAccessControllerTests : IClassFixture<WebApplicati
             .Where(t => t.OrderId == GetOrderId(orderAPublicId, dbContext))
             .SingleAsync();
         Assert.Equal(1, token.ScopeViolationCount);
+
+        var audit = await dbContext.AuditLogs
+            .SingleAsync(entry => entry.Action == AuditActions.GuestOrderScopeViolation);
+        Assert.Equal(AuditActorType.Guest, audit.ActorType);
+        Assert.Equal(token.PublicId, audit.ActorPublicId);
+        Assert.Equal(AuditResourceTypes.Order, audit.ResourceType);
+        Assert.Equal(orderBPublicId, audit.ResourcePublicId);
+        Assert.Equal(AuditResult.Rejected, audit.Result);
+        Assert.Equal(GuestOrderErrorCodes.ScopeMismatch, audit.ErrorCode);
+        Assert.Contains("scopeViolationCount", audit.ChangedFieldsJson, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -354,18 +387,7 @@ public sealed class GuestOrderAccessControllerTests : IClassFixture<WebApplicati
     }
 
     private WebApplicationFactory<Program> CreateFactory(Action<IServiceCollection>? configureServices = null) =>
-        _factory.WithWebHostBuilder(builder =>
-        {
-            builder.UseEnvironment("Development");
-            builder.ConfigureServices(services =>
-            {
-                services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
-                services
-                    .AddControllers()
-                    .AddApplicationPart(typeof(SecurityFoundationTestController).Assembly);
-                configureServices?.Invoke(services);
-            });
-        });
+        fixture.CreateFactory(configureServices);
 
     private static async Task<(long OrderId, Guid OrderPublicId, string OrderNumber, string Email)>
         SeedGuestOrderAsync(WebApplicationFactory<Program> factory)

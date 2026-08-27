@@ -1,3 +1,4 @@
+using DoSelect.Application.Auditing;
 using DoSelect.Domain.Orders;
 
 namespace DoSelect.Application.Orders;
@@ -118,7 +119,10 @@ public interface IGuestOrderAccessGateway
     /// 會遺失更新。實作必須用資料庫端原子 UPDATE（例如 EF Core <c>ExecuteUpdateAsync</c>），
     /// 不能先讀出 Entity、呼叫 Domain 方法再 SaveChanges。
     /// </summary>
-    Task IncrementScopeViolationAsync(long tokenId, CancellationToken cancellationToken = default);
+    Task RecordScopeViolationAsync(
+        long tokenId,
+        AuditWriteRequest auditRequest,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 依主鍵分批刪除到期滿 30 天的 Request／Token（DEC-P267）。回傳實際刪除筆數；

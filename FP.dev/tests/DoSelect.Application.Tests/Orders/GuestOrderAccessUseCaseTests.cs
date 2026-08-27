@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Security.Cryptography;
+using DoSelect.Application.Auditing;
 using DoSelect.Application.Common;
 using DoSelect.Application.Notifications;
 using DoSelect.Application.Orders;
@@ -45,6 +46,30 @@ public sealed class GuestOrderAccessUseCaseTests
         var accepted = Assert.IsType<GuestOrderAccessAcceptedResult.Accepted>(result);
         Assert.NotEqual(Guid.Empty, accepted.RequestPublicId);
         Assert.Empty(emailQueue.SentMessages);
+    }
+
+    [Fact]
+    public async Task RequestAccessAsync_ValidAndDecoyRequestsHaveEquivalentInitialSendAndImmediateResendState()
+    {
+        var gateway = new FakeGuestOrderAccessGateway();
+        gateway.SeedOrder(ValidOrderNumber, "GUEST@EXAMPLE.COM", orderId: 1, orderPublicId: Guid.CreateVersion7());
+        var timeProvider = new ManualTimeProvider(DateTimeOffset.UtcNow);
+        var useCase = CreateUseCase(gateway, timeProvider: timeProvider);
+
+        var valid = Assert.IsType<GuestOrderAccessAcceptedResult.Accepted>(
+            await useCase.RequestAccessAsync(ValidOrderNumber, ValidEmail, RequesterIp));
+        var decoy = Assert.IsType<GuestOrderAccessAcceptedResult.Accepted>(
+            await useCase.RequestAccessAsync("NO-SUCH-ORDER", "nobody@example.com", RequesterIp));
+
+        var validImmediateResend = Assert.IsType<GuestOrderAccessAcceptedResult.Accepted>(
+            await useCase.ResendAsync(valid.RequestPublicId, RequesterIp));
+        var decoyImmediateResend = Assert.IsType<GuestOrderAccessAcceptedResult.Accepted>(
+            await useCase.ResendAsync(decoy.RequestPublicId, RequesterIp));
+
+        Assert.Equal(valid.RequestPublicId, validImmediateResend.RequestPublicId);
+        Assert.Equal(decoy.RequestPublicId, decoyImmediateResend.RequestPublicId);
+        Assert.Equal(1, gateway.Requests[valid.RequestPublicId].SendCount);
+        Assert.Equal(1, gateway.Requests[decoy.RequestPublicId].SendCount);
     }
 
     [Fact]
@@ -101,6 +126,25 @@ public sealed class GuestOrderAccessUseCaseTests
 
         var failure = Assert.IsType<GuestOrderAccessVerifyResult.Failure>(result);
         Assert.Equal(GuestOrderErrorCodes.VerificationInvalid, failure.ErrorCode);
+    }
+
+    [Fact]
+    public async Task VerifyAsync_DecoyRequestRecordsAndLocksAfterFiveFailedAttempts()
+    {
+        var gateway = new FakeGuestOrderAccessGateway();
+        var useCase = CreateUseCase(gateway);
+        var accepted = Assert.IsType<GuestOrderAccessAcceptedResult.Accepted>(
+            await useCase.RequestAccessAsync("NO-SUCH-ORDER", "nobody@example.com", RequesterIp));
+
+        for (var i = 0; i < GuestOrderAccessRequest.MaximumAttempts; i++)
+        {
+            var result = await useCase.VerifyAsync(accepted.RequestPublicId, "000000");
+            Assert.IsType<GuestOrderAccessVerifyResult.Failure>(result);
+        }
+
+        var decoy = gateway.Requests[accepted.RequestPublicId];
+        Assert.Equal(GuestOrderAccessRequest.MaximumAttempts, decoy.AttemptCount);
+        Assert.NotNull(decoy.LockedAtUtc);
     }
 
     [Fact]
@@ -620,8 +664,10 @@ public sealed class GuestOrderAccessUseCaseTests
             DateTime cutoffUtc, int batchSize, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
-        public Task IncrementScopeViolationAsync(
-            long tokenId, CancellationToken cancellationToken = default) =>
+        public Task RecordScopeViolationAsync(
+            long tokenId,
+            AuditWriteRequest auditRequest,
+            CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
         /// <summary>
