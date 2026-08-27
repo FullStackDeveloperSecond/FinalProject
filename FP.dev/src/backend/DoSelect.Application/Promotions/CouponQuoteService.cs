@@ -18,12 +18,17 @@ public interface ICouponRuleReader
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 已完成的使用量。會員以 MemberUserId 計數，訪客以 GuestUsageKeyHash 計數。
+    /// 占用名額的使用量。會員以 MemberUserId 計數，訪客以 GuestUsageKeyHash 計數。
     /// </summary>
+    /// <param name="evaluatedAtUtc">
+    /// 判定「Reserved 是否已過期」的基準時間。必須與呼叫端傳給
+    /// <see cref="CouponCalculator"/> 的時間是**同一個瞬間**，否則使用量與期間判斷會用不同時鐘。
+    /// </param>
     Task<CouponUsageState> GetUsageAsync(
         long couponId,
         string? memberUserId,
         byte[]? guestUsageKeyHash,
+        DateTime evaluatedAtUtc,
         CancellationToken cancellationToken = default);
 }
 
@@ -70,10 +75,15 @@ public sealed class CouponQuoteService
             return CouponCalculationResult.Failure(CouponCalculationErrorCodes.CouponInvalid);
         }
 
+        // 只取一次時間。使用量的「Reserved 是否過期」與計算器的期間判斷
+        // 必須用同一個瞬間，否則兩者可能對同一張券得出矛盾的結論。
+        var evaluatedAtUtc = _timeProvider.GetUtcNow().UtcDateTime;
+
         var usage = await _ruleReader.GetUsageAsync(
             snapshot.CouponId,
             request.MemberUserId,
             request.GuestUsageKeyHash,
+            evaluatedAtUtc,
             cancellationToken);
 
         return CouponCalculator.Calculate(new CouponCalculationRequest(
@@ -83,6 +93,6 @@ public sealed class CouponQuoteService
             request.Lines,
             IsAuthenticatedMember: !string.IsNullOrWhiteSpace(request.MemberUserId),
             request.IsAssemblyDelivery,
-            _timeProvider.GetUtcNow().UtcDateTime));
+            evaluatedAtUtc));
     }
 }

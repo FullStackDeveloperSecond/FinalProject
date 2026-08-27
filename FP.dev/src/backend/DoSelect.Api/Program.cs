@@ -20,6 +20,7 @@ using DoSelect.Infrastructure.Security;
 using DoSelect.Infrastructure.Shopping;
 using Microsoft.AspNetCore.Authentication;
 using DoSelect.Infrastructure.Persistence.Support;
+using DoSelect.Infrastructure.Promotions;
 using Microsoft.Extensions.Options;
 using Scalar.AspNetCore;
 
@@ -40,6 +41,7 @@ builder.Services.AddDoSelectCatalogServices();
 builder.Services.AddDoSelectShoppingServices();
 builder.Services.AddDoSelectApplication();
 builder.Services.AddDoSelectInvoicing();
+builder.Services.AddDoSelectPromotions();
 builder.Services.AddSingleton<IEmailSender>(services =>
 {
     var emailEnabled = builder.Configuration.GetValue<bool>("Features:EmailEnabled");

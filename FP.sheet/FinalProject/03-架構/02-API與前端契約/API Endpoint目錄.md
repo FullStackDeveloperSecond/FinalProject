@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-20
+最後更新: 2026-08-26
 追蹤項目:
   - DES-10
   - DES-16
@@ -86,7 +86,7 @@
 | M 規格範本 | `GET/POST /api/v1/admin/specification-definitions`；`PUT /api/v1/admin/specification-definitions/{id}`；`POST /api/v1/admin/specification-definitions/{id}/actions/disable` | CatalogManager／SuperAdmin | `SpecificationDefinitionDto`；Semantic Key／型別受保護 | `specification_semantic_key_duplicate`、`specification_definition_referenced`、`concurrency_conflict` |
 | M 商品圖片 | `POST /api/v1/admin/products/{productId}/images`；`GET /api/v1/admin/product-images/{imageId}/preview/{variant}`；`PATCH /api/v1/admin/product-images/{imageId}`；`POST /api/v1/admin/product-images/{imageId}/actions/publish`；`DELETE /api/v1/admin/product-images/{imageId}` | CatalogImage 對應 Policy | DTO 與檔案限制依 [[03-架構/04-安全與檔案/檔案與圖片儲存設計]] | `file_size_exceeded`、`file_format_invalid`、`file_malware_detected`、`file_scan_unavailable`、`image_processing_failed`、`image_metadata_incomplete`、`concurrency_conflict` |
 | UC-IMPORT-01 | `GET /api/v1/admin/import-templates/products/current`；`POST /api/v1/admin/product-imports/preview`；`GET /api/v1/admin/product-imports/{id}`；`GET /api/v1/admin/product-imports/{id}/rows`；`GET /api/v1/admin/product-imports/{id}/errors`；`POST /api/v1/admin/product-imports/{id}/actions/confirm` | CatalogManager／SuperAdmin | Multipart、`ProductImportBatchDto`、`CursorPage<ProductImportRowDto>` | `import_format_unsupported`、`import_validation_failed`、`import_preview_expired`、`import_already_committed`、`import_batch_expired` |
-| UC-COMPAT-01 後台 | `GET /api/v1/admin/compatibility-rules`；`PATCH /api/v1/admin/compatibility-rules/{ruleCode}/warning-settings`；`POST /api/v1/admin/compatibility-rules/{ruleCode}/actions/set-activation`；`POST /api/v1/admin/compatibility-rules/test` | CatalogManager／SuperAdmin；啟停限 SuperAdmin | DTO 依 [[03-架構/07-領域設計/相容性規則後台設計]] | `compatibility_threshold_out_of_range`、`concurrency_conflict`、`authorization_forbidden` |
+| UC-COMPAT-01 後台 | `GET /api/v1/admin/compatibility-rules`；`PATCH /api/v1/admin/compatibility-rules/{ruleCode}/warning-settings`；`PATCH /api/v1/admin/compatibility-rules/{ruleCode}/activation`；`POST /api/v1/admin/compatibility-rules/test` | CatalogManager／SuperAdmin；啟停限 SuperAdmin | DTO 依 [[03-架構/07-領域設計/相容性規則後台設計]] | `compatibility_threshold_out_of_range`、`concurrency_conflict`、`authorization_forbidden` |
 
 ## 管理後台庫存、訂單與物流
 
