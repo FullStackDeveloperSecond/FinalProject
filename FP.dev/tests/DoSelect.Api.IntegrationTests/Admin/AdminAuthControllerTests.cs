@@ -374,13 +374,20 @@ public sealed class AdminAuthControllerTests : IClassFixture<WebApplicationFacto
         // ⚠ alex review 最新一輪 P1#1：Rebind step-up 原本只套用 per-IP 的 AuthLogin 限流
         // （每小時 20 次），沒有重用既有的三桶（IP＋step-up＋帳號）限流器——Admin Session 被偷後
         // 換 IP 就能對同一帳號無限猜舊 TOTP／Recovery Code，密碼 Lockout 也保護不到這個端點。
-        // 這裡把門檻調小到 2 次，證明額度用滿後，就算第三次真的帶正確的 TOTP 碼，也會在驗證
+        // 這裡把門檻調小到 3 次，證明額度用滿後，就算之後真的帶正確的 TOTP 碼，也會在驗證
         // 憑證「之前」被擋下（429），不會走到 BeginRebindAsync、不會建立 pending secret。三桶
         // 各自獨立、換 IP／換 Session 不會重置額度的細節已由 AdminChallengeRateLimiterTests
         // 涵蓋，這裡只證明 BeginRebind 端點真的有套用同一套限流器。
+        //
+        // ⚠ alex review：門檻不能設成 2——FullyLogInAsync 走完整登入時，TOTP 驗證那一步已經對
+        // 同一個「帳號」桶消耗了 1 次額度（見 TryAcquireChallengeAttempt），跟 Rebind step-up
+        // 共用同一個帳號維度的桶。門檻=2 會讓迴圈的第二次錯誤嘗試（帳號桶第 3 次使用）就已經
+        // 超限回 429，而不是原本預期的 400（wrong code），導致測試斷言在還沒送出正確碼前就先
+        // 對不上。改成 3：登入 TOTP 驗證用掉 1 次，兩次錯誤 rebind 各用掉 1 次（共 3/3），最後
+        // 送出正確碼時第 4 次使用超限，才會如預期回 429。
         var (client, email, secret) = await CreateEnrolledAdminAsync(rateLimitOverride: new RateLimitOptions
         {
-            AdminChallengePermitLimit = 2,
+            AdminChallengePermitLimit = 3,
             AdminChallengeWindowMinutes = 15,
         });
         using var fullLoginResponse = await FullyLogInAsync(client, email, secret);
