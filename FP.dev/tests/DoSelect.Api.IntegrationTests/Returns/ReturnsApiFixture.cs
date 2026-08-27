@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using DoSelect.Api.Security;
 using DoSelect.Application.Files;
+using DoSelect.Domain.Invoicing;
 using DoSelect.Domain.Orders;
 using DoSelect.Domain.Returns;
 using DoSelect.Domain.Shipping;
@@ -154,7 +155,17 @@ public sealed class ReturnsApiFixture : IAsyncLifetime
             context.Set<ShippingProviderProfile>().Add(shippingProfile);
             await context.SaveChangesAsync();
 
-            var order = Order.Create(Guid.CreateVersion7(), ValidOrderCreation(memberUserId, shippingProfile.Id), nowUtc);
+            var packageLimit = new PackageLimitVersion(
+                Guid.CreateVersion7(), shippingProfile.Id, 1,
+                20m, 100m, 100m, 100m, 200m, 100_000m,
+                null, null, nowUtc);
+            context.Set<PackageLimitVersion>().Add(packageLimit);
+            await context.SaveChangesAsync();
+
+            var order = Order.Create(
+                Guid.CreateVersion7(),
+                ValidOrderCreation(memberUserId, shippingProfile.Id, packageLimit.Id),
+                nowUtc);
             context.Orders.Add(order);
             await context.SaveChangesAsync();
 
@@ -166,7 +177,8 @@ public sealed class ReturnsApiFixture : IAsyncLifetime
                 quantity: returnableQuantity, listUnitPrice: 100m, saleUnitPrice: 100m, finalUnitPrice: 100m,
                 unitCostSnapshot: 60m, lineSubtotal: 100m * returnableQuantity, discountAllocation: 0m,
                 lineTotal: 100m * returnableQuantity, assemblyGroupKey: null, returnableQuantity: returnableQuantity,
-                nowUtc, isCouponEligible: true);
+                nowUtc, isCouponEligible: true,
+                new OrderItemSpecificationSnapshot("Test specification", "{}", 1));
             context.OrderItems.Add(item);
             await context.SaveChangesAsync();
 
@@ -207,7 +219,17 @@ public sealed class ReturnsApiFixture : IAsyncLifetime
         context.Set<ShippingProviderProfile>().Add(shippingProfile);
         await context.SaveChangesAsync();
 
-        var order = Order.Create(Guid.CreateVersion7(), ValidGuestOrderCreation(shippingProfile.Id), nowUtc);
+        var packageLimit = new PackageLimitVersion(
+            Guid.CreateVersion7(), shippingProfile.Id, 1,
+            20m, 100m, 100m, 100m, 200m, 100_000m,
+            null, null, nowUtc);
+        context.Set<PackageLimitVersion>().Add(packageLimit);
+        await context.SaveChangesAsync();
+
+        var order = Order.Create(
+            Guid.CreateVersion7(),
+            ValidGuestOrderCreation(shippingProfile.Id, packageLimit.Id),
+            nowUtc);
         context.Orders.Add(order);
         await context.SaveChangesAsync();
         order.ApplyFulfillmentProjection(FulfillmentStatus.Delivered, nowUtc.AddDays(-10));
@@ -226,7 +248,9 @@ public sealed class ReturnsApiFixture : IAsyncLifetime
                 Guid.CreateVersion7(), order.Id, skuId: null, $"SKU-{i}", $"品項{i}", $"品項{i} White",
                 quantity: 1, listUnitPrice: 100m, saleUnitPrice: 100m, finalUnitPrice: 100m,
                 unitCostSnapshot: 60m, lineSubtotal: 100m, discountAllocation: 0m, lineTotal: 100m,
-                assemblyGroupKey: null, returnableQuantity: 1, nowUtc, isCouponEligible: true);
+                assemblyGroupKey: null, returnableQuantity: 1, nowUtc,
+                isCouponEligible: true,
+                new OrderItemSpecificationSnapshot("Test specification", "{}", 1));
             context.OrderItems.Add(orderItem);
             await context.SaveChangesAsync();
 
@@ -285,7 +309,9 @@ public sealed class ReturnsApiFixture : IAsyncLifetime
         }
     }
 
-    private static OrderCreation ValidGuestOrderCreation(long shippingProviderProfileId) =>
+    private static OrderCreation ValidGuestOrderCreation(
+        long shippingProviderProfileId,
+        long packageLimitVersionId) =>
         new(
             $"DS{Guid.NewGuid():N}"[..15],
             null,
@@ -298,7 +324,19 @@ public sealed class ReturnsApiFixture : IAsyncLifetime
             "Guest", "0912345678", "guest@example.com",
             "100", "Taipei", "Zhongzheng", "No. 1", null,
             "HOME_DELIVERY", shippingProviderProfileId, null, null, null,
-            1, 1, null, null, $"checkout-{Guid.NewGuid():N}", null);
+            1, 1, null, null, $"checkout-{Guid.NewGuid():N}", null,
+            1, 1,
+            new OrderInvoicePreference(
+                SimulatedInvoiceBuyerType.Individual,
+                "guest@example.com",
+                null,
+                null,
+                null,
+                null),
+            null,
+            null,
+            new OrderPackageSnapshot(
+                packageLimitVersionId, 1m, 40m, 30m, 20m, 90m, 1_325m));
 
     /// <summary>
     /// A fresh client signed in as an admin with the OrderManager role — satisfies the
@@ -372,7 +410,10 @@ public sealed class ReturnsApiFixture : IAsyncLifetime
         return ((int)response.StatusCode, code, root);
     }
 
-    private static OrderCreation ValidOrderCreation(string memberUserId, long shippingProviderProfileId) =>
+    private static OrderCreation ValidOrderCreation(
+        string memberUserId,
+        long shippingProviderProfileId,
+        long packageLimitVersionId) =>
         new(
             $"DS{Guid.NewGuid():N}"[..15],
             memberUserId,
@@ -404,7 +445,20 @@ public sealed class ReturnsApiFixture : IAsyncLifetime
             null,
             null,
             $"checkout-{Guid.NewGuid():N}",
-            null);
+            null,
+            1,
+            1,
+            new OrderInvoicePreference(
+                SimulatedInvoiceBuyerType.Individual,
+                "member@example.com",
+                null,
+                null,
+                null,
+                null),
+            null,
+            null,
+            new OrderPackageSnapshot(
+                packageLimitVersionId, 1m, 40m, 30m, 20m, 90m, 1_325m));
 
     private static DoSelectDbContext CreateContext()
     {

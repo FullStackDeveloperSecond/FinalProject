@@ -27,6 +27,9 @@ internal static class MinimalDevelopmentSeedDefinitions
     internal static readonly Guid SkuPublicId =
         Guid.Parse("719dfd4a-77f0-4887-b3bf-239263d4ee1f");
 
+    internal static readonly Guid InventoryBalancePublicId =
+        Guid.Parse("fc3ad2c7-a879-408f-8794-a755efa4e0ad");
+
     internal static readonly DateTime CreatedAtUtc =
         new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 

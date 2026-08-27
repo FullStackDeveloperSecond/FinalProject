@@ -1,4 +1,5 @@
 using DoSelect.Application.Catalog;
+using DoSelect.Application.Builds;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace DoSelect.Infrastructure.Catalog;
@@ -17,6 +18,7 @@ public static class CatalogServiceCollectionExtensions
         services.AddScoped<ITagAdminService, EfTagAdminService>();
         services.AddScoped<IProductAdminService, EfProductAdminService>();
         services.AddScoped<ISkuAdminService, EfSkuAdminService>();
+        services.AddScoped<ICompatibilityCatalogReader, EfCompatibilityCatalogReader>();
 
         return services;
     }

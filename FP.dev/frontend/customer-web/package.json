@@ -10,6 +10,7 @@
     "lint": "eslint . --max-warnings 0 && cd ../shared && node ../customer-web/node_modules/eslint/bin/eslint.js . --max-warnings 0",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
     "preview": "vite preview",
     "api:export": "node scripts/export-openapi.mjs",
     "api:generate": "openapi-typescript ../../contracts/openapi.v1.json -o ../shared/src/api/generated/schema.d.ts",
@@ -26,6 +27,7 @@
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "@playwright/test": "1.62.1",
     "@types/node": "24.13.3",
     "@vitejs/plugin-vue": "6.0.8",
     "@vitest/coverage-v8": "4.1.10",

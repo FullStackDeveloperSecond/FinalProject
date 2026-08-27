@@ -10,7 +10,9 @@ public sealed record SpecValueInput(
     string? StringValue,
     decimal? DecimalValue,
     bool? BooleanValue,
-    string? OptionCode);
+    string? OptionCode,
+    IReadOnlyList<string>? OptionCodes = null,
+    Guid? SpecificationSourcePublicId = null);
 
 public sealed record SkuSpecValueDto(
     string SemanticKey,
@@ -19,7 +21,9 @@ public sealed record SkuSpecValueDto(
     string? StringValue,
     decimal? DecimalValue,
     bool? BooleanValue,
-    string? OptionCode);
+    string? OptionCode,
+    IReadOnlyList<string>? OptionCodes = null,
+    Guid? SpecificationSourcePublicId = null);
 
 public sealed record SkuInventorySummary(int OnHandQuantity, int ReservedQuantity, int AvailableQuantity);
 

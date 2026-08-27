@@ -10,6 +10,7 @@ public static class DomainErrorCodes
     public const string AuthorizationForbidden = "authorization_forbidden";
     public const string ConcurrencyConflict = "concurrency_conflict";
     public const string ValidationFailed = "validation_failed";
+    public const string OrderTotalBelowMinimum = "order_total_below_minimum";
 
     public const string SupportTicketStateConflict = "support_ticket_state_conflict";
     public const string SupportTicketCancelNotAllowed = "support_ticket_cancel_not_allowed";

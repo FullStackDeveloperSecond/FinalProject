@@ -37,6 +37,7 @@ public sealed class TerryCatalogPersistenceModelTests
         { typeof(SpecificationOption), "SpecificationOptions" },
         { typeof(SpecificationSource), "SpecificationSources" },
         { typeof(SkuSpecificationValue), "SkuSpecificationValues" },
+        { typeof(SkuSpecificationOptionSelection), "SkuSpecificationOptionSelections" },
         { typeof(SalePrice), "SalePrices" },
         { typeof(ImportBatch), "ImportBatches" },
         { typeof(ImportRow), "ImportRows" },
@@ -128,6 +129,21 @@ public sealed class TerryCatalogPersistenceModelTests
     }
 
     [Fact]
+    public void ShippingMethod_ProviderCodeSupportsLegacyRowsAndLookup()
+    {
+        using var context = CreateContext();
+        var entity = context.Model.FindEntityType(typeof(ShippingMethod));
+        var providerCode = entity?.FindProperty(nameof(ShippingMethod.ProviderCode));
+
+        Assert.NotNull(providerCode);
+        Assert.True(providerCode.IsNullable);
+        Assert.Equal(64, providerCode.GetMaxLength());
+        Assert.Contains(entity!.GetIndexes(), index =>
+            !index.IsUnique &&
+            index.GetDatabaseName() == "IX_ShippingMethods_ProviderCode");
+    }
+
+    [Fact]
     public void TerryCascadeWhitelistChildren_AreMappedAsCascade()
     {
         using var context = CreateContext();
@@ -164,6 +180,22 @@ public sealed class TerryCatalogPersistenceModelTests
         Assert.Equal(
             ["Compatible", "Warning", "Blocked", "InsufficientData"],
             Enum.GetNames<CompatibilityOverall>());
+    }
+
+    [Fact]
+    public void MultiOptionSpecification_ModelUsesNormalizedSelectionAndLegacySafeDefault()
+    {
+        using var context = CreateContext();
+        var definition = context.Model.FindEntityType(typeof(SpecificationDefinition));
+        var selection = context.Model.FindEntityType(typeof(SkuSpecificationOptionSelection));
+
+        Assert.Equal(false, definition!.FindProperty(nameof(SpecificationDefinition.AllowsMultiple))!
+            .GetDefaultValue());
+        Assert.Contains(selection!.GetIndexes(), index =>
+            index.IsUnique &&
+            index.GetDatabaseName() == "UX_SkuSpecificationOptionSelections_SkuId_OptionId");
+        Assert.All(selection.GetForeignKeys(), foreignKey =>
+            Assert.Equal(DeleteBehavior.Restrict, foreignKey.DeleteBehavior));
     }
 
     private static DoSelectDbContext CreateContext()

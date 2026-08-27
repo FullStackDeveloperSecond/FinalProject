@@ -8673,6 +8673,22 @@
               "null",
               "string"
             ]
+          },
+          "optionCodes": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "specificationSourcePublicId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },
@@ -8857,6 +8873,22 @@
               "null",
               "string"
             ]
+          },
+          "optionCodes": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "specificationSourcePublicId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },

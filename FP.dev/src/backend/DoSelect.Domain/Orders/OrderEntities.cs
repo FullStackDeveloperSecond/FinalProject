@@ -1,6 +1,29 @@
 using DoSelect.Domain.Common;
+using DoSelect.Domain.Invoicing;
 
 namespace DoSelect.Domain.Orders;
+
+public sealed record OrderInvoicePreference(
+    SimulatedInvoiceBuyerType BuyerType,
+    string BuyerEmail,
+    string? CarrierType,
+    string? CarrierValueMasked,
+    string? CompanyTaxId,
+    string? CompanyName);
+
+public sealed record OrderPackageSnapshot(
+    long PackageLimitVersionId,
+    decimal WeightKg,
+    decimal LengthCm,
+    decimal WidthCm,
+    decimal HeightCm,
+    decimal TotalCm,
+    decimal DeclaredValue);
+
+public sealed record OrderItemSpecificationSnapshot(
+    string Summary,
+    string Json,
+    int SchemaVersion);
 
 public sealed record OrderCreation(
     string OrderNumber,
@@ -34,7 +57,12 @@ public sealed record OrderCreation(
     DateTime? PaymentDueAtUtc,
     string CheckoutIdempotencyKey,
     Guid? SourceCartPublicId,
-    decimal? ShippingFreeThresholdSnapshot = null);
+    int TermsPolicyVersion,
+    int PrivacyPolicyVersion,
+    OrderInvoicePreference InvoicePreference,
+    decimal? ShippingFreeThresholdSnapshot,
+    string? DeliveryNote,
+    OrderPackageSnapshot PackageSnapshot);
 
 public sealed class Order : MutablePublicEntity
 {
@@ -88,6 +116,8 @@ public sealed class Order : MutablePublicEntity
         RecipientDistrict = NormalizeOptional(creation.RecipientDistrict);
         AddressLine1 = NormalizeOptional(creation.AddressLine1);
         AddressLine2 = NormalizeOptional(creation.AddressLine2);
+        CountryCode = "TW";
+        DeliveryNote = NormalizeOptional(creation.DeliveryNote);
         ShippingMethodCode = RequireText(
             creation.ShippingMethodCode,
             nameof(creation.ShippingMethodCode));
@@ -104,6 +134,12 @@ public sealed class Order : MutablePublicEntity
         ReturnPolicyVersion = RequirePositive(
             creation.ReturnPolicyVersion,
             nameof(creation.ReturnPolicyVersion));
+        TermsPolicyVersion = RequirePositive(
+            creation.TermsPolicyVersion,
+            nameof(creation.TermsPolicyVersion));
+        PrivacyPolicyVersion = RequirePositive(
+            creation.PrivacyPolicyVersion,
+            nameof(creation.PrivacyPolicyVersion));
         CouponPolicyVersion = creation.CouponPolicyVersion.HasValue
             ? RequirePositive(
                 creation.CouponPolicyVersion.Value,
@@ -116,12 +152,27 @@ public sealed class Order : MutablePublicEntity
             creation.CheckoutIdempotencyKey,
             nameof(creation.CheckoutIdempotencyKey));
         SourceCartPublicId = creation.SourceCartPublicId;
+        var invoicePreference = ValidateInvoicePreference(creation.InvoicePreference);
+        InvoiceBuyerType = invoicePreference.BuyerType;
+        InvoiceBuyerEmail = invoicePreference.BuyerEmail;
+        InvoiceCarrierType = invoicePreference.CarrierType;
+        InvoiceCarrierValueMasked = invoicePreference.CarrierValueMasked;
+        InvoiceCompanyTaxId = invoicePreference.CompanyTaxId;
+        InvoiceCompanyName = invoicePreference.CompanyName;
         ShippingFreeThresholdSnapshot = creation.ShippingFreeThresholdSnapshot is >= 0m
             ? creation.ShippingFreeThresholdSnapshot
             : creation.ShippingFreeThresholdSnapshot is null
                 ? null
                 : throw new ArgumentOutOfRangeException(
                     nameof(creation.ShippingFreeThresholdSnapshot));
+        var package = ValidatePackageSnapshot(creation.PackageSnapshot);
+        PackageLimitVersionId = package.PackageLimitVersionId;
+        PackageWeightKgSnapshot = package.WeightKg;
+        PackageLengthCmSnapshot = package.LengthCm;
+        PackageWidthCmSnapshot = package.WidthCm;
+        PackageHeightCmSnapshot = package.HeightCm;
+        PackageTotalCmSnapshot = package.TotalCm;
+        PackageDeclaredValueSnapshot = package.DeclaredValue;
     }
 
     public string OrderNumber { get; private set; } = string.Empty;
@@ -172,6 +223,11 @@ public sealed class Order : MutablePublicEntity
 
     public string? AddressLine2 { get; private set; }
 
+    /// <summary>Null only for orders created before country snapshots were introduced.</summary>
+    public string? CountryCode { get; private set; }
+
+    public string? DeliveryNote { get; private set; }
+
     public string ShippingMethodCode { get; private set; } = string.Empty;
 
     public long ShippingProviderProfileVersionId { get; private set; }
@@ -185,6 +241,12 @@ public sealed class Order : MutablePublicEntity
     public int ShippingConstraintPolicyVersion { get; private set; }
 
     public int ReturnPolicyVersion { get; private set; }
+
+    /// <summary>Null only for legacy orders created before policy acceptance snapshots existed.</summary>
+    public int? TermsPolicyVersion { get; private set; }
+
+    /// <summary>Null only for legacy orders created before policy acceptance snapshots existed.</summary>
+    public int? PrivacyPolicyVersion { get; private set; }
 
     public int? CouponPolicyVersion { get; private set; }
 
@@ -206,11 +268,39 @@ public sealed class Order : MutablePublicEntity
 
     public Guid? SourceCartPublicId { get; private set; }
 
+    /// <summary>Null only for legacy orders created before Checkout captured invoice preference.</summary>
+    public SimulatedInvoiceBuyerType? InvoiceBuyerType { get; private set; }
+
+    public string? InvoiceBuyerEmail { get; private set; }
+
+    public string? InvoiceCarrierType { get; private set; }
+
+    public string? InvoiceCarrierValueMasked { get; private set; }
+
+    public string? InvoiceCompanyTaxId { get; private set; }
+
+    public string? InvoiceCompanyName { get; private set; }
+
     /// <summary>
     /// Checkout-time free-shipping threshold. A null value means the trusted snapshot is
     /// unavailable, so later refund calculations must not infer it from a mutable shipping method.
     /// </summary>
     public decimal? ShippingFreeThresholdSnapshot { get; private set; }
+
+    /// <summary>Null only for orders created before package snapshots were introduced.</summary>
+    public long? PackageLimitVersionId { get; private set; }
+
+    public decimal? PackageWeightKgSnapshot { get; private set; }
+
+    public decimal? PackageLengthCmSnapshot { get; private set; }
+
+    public decimal? PackageWidthCmSnapshot { get; private set; }
+
+    public decimal? PackageHeightCmSnapshot { get; private set; }
+
+    public decimal? PackageTotalCmSnapshot { get; private set; }
+
+    public decimal? PackageDeclaredValueSnapshot { get; private set; }
 
     public static Order Create(Guid publicId, OrderCreation creation, DateTime createdAtUtc) =>
         new(publicId, creation, createdAtUtc);
@@ -297,16 +387,67 @@ public sealed class Order : MutablePublicEntity
             throw new ArgumentOutOfRangeException(nameof(creation), "Amounts cannot be negative.");
         }
 
-        var expectedTotal = creation.MerchandiseSubtotal - creation.ItemDiscountTotal +
+        var rawPayableAmount = creation.MerchandiseSubtotal - creation.ItemDiscountTotal +
             creation.ShippingFee + creation.AssemblyFee;
+        var expectedTotal = Math.Round(
+            rawPayableAmount,
+            decimals: 0,
+            MidpointRounding.AwayFromZero);
         if (creation.GrandTotal != expectedTotal)
         {
-            throw new ArgumentException("GrandTotal does not match its components.", nameof(creation));
+            throw new ArgumentException(
+                "GrandTotal must equal the raw payable amount rounded to an integer TWD amount.",
+                nameof(creation));
         }
     }
 
     private static string? NormalizeOptional(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static OrderInvoicePreference ValidateInvoicePreference(OrderInvoicePreference preference)
+    {
+        ArgumentNullException.ThrowIfNull(preference);
+
+        var buyerEmail = RequireText(preference.BuyerEmail, nameof(preference.BuyerEmail));
+        var carrierType = NormalizeOptional(preference.CarrierType);
+        var carrierValueMasked = NormalizeOptional(preference.CarrierValueMasked);
+        var companyTaxId = NormalizeOptional(preference.CompanyTaxId);
+        var companyName = NormalizeOptional(preference.CompanyName);
+
+        if ((carrierType is null) != (carrierValueMasked is null) ||
+            preference.BuyerType == SimulatedInvoiceBuyerType.Company &&
+            (companyTaxId is null || companyName is null) ||
+            preference.BuyerType == SimulatedInvoiceBuyerType.Individual &&
+            (companyTaxId is not null || companyName is not null))
+        {
+            throw new ArgumentException("The order invoice preference is invalid.", nameof(preference));
+        }
+
+        return new OrderInvoicePreference(
+            preference.BuyerType,
+            buyerEmail,
+            carrierType,
+            carrierValueMasked,
+            companyTaxId,
+            companyName);
+    }
+
+    private static OrderPackageSnapshot ValidatePackageSnapshot(OrderPackageSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (snapshot.PackageLimitVersionId <= 0 ||
+            snapshot.WeightKg <= 0 ||
+            snapshot.LengthCm <= 0 ||
+            snapshot.WidthCm <= 0 ||
+            snapshot.HeightCm <= 0 ||
+            snapshot.TotalCm != snapshot.LengthCm + snapshot.WidthCm + snapshot.HeightCm ||
+            snapshot.DeclaredValue < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(snapshot));
+        }
+
+        return snapshot;
+    }
 
     private static int RequirePositive(int value, string parameterName) =>
         value > 0 ? value : throw new ArgumentOutOfRangeException(parameterName);
@@ -339,7 +480,8 @@ public sealed class OrderItem : PublicEntity
         Guid? assemblyGroupKey,
         int returnableQuantity,
         DateTime createdAtUtc,
-        bool isCouponEligible)
+        bool isCouponEligible,
+        OrderItemSpecificationSnapshot specificationSnapshot)
         : base(publicId, createdAtUtc)
     {
         if (orderId <= 0 || quantity <= 0 || returnableQuantity < 0 ||
@@ -379,6 +521,16 @@ public sealed class OrderItem : PublicEntity
         AssemblyGroupKey = assemblyGroupKey;
         ReturnableQuantity = returnableQuantity;
         IsCouponEligible = isCouponEligible;
+        ArgumentNullException.ThrowIfNull(specificationSnapshot);
+        SpecificationSummarySnapshot = RequireText(
+            specificationSnapshot.Summary,
+            nameof(specificationSnapshot.Summary));
+        SpecificationJsonSnapshot = RequireText(
+            specificationSnapshot.Json,
+            nameof(specificationSnapshot.Json));
+        SpecificationSchemaVersion = specificationSnapshot.SchemaVersion > 0
+            ? specificationSnapshot.SchemaVersion
+            : throw new ArgumentOutOfRangeException(nameof(specificationSnapshot.SchemaVersion));
     }
 
     public long OrderId { get; private set; }
@@ -414,6 +566,13 @@ public sealed class OrderItem : PublicEntity
     public int ReturnedQuantity { get; private set; }
 
     public bool IsCouponEligible { get; private set; }
+
+    /// <summary>Null only for order items created before specification snapshots existed.</summary>
+    public string? SpecificationSummarySnapshot { get; private set; }
+
+    public string? SpecificationJsonSnapshot { get; private set; }
+
+    public int? SpecificationSchemaVersion { get; private set; }
 
     public void RecordReturnedQuantity(int quantity)
     {

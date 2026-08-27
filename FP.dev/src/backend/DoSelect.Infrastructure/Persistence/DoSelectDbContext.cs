@@ -6,7 +6,9 @@ using DoSelect.Domain.Imports;
 using DoSelect.Domain.Inventory;
 using DoSelect.Domain.Invoicing;
 using DoSelect.Domain.Members;
+using DoSelect.Domain.Notifications;
 using DoSelect.Domain.Orders;
+using DoSelect.Domain.Outbox;
 using DoSelect.Domain.Payments;
 using DoSelect.Domain.Promotions;
 using DoSelect.Domain.Reports;
@@ -98,6 +100,9 @@ public sealed class DoSelectDbContext
     public DbSet<SkuSpecificationValue> SkuSpecificationValues =>
         Set<SkuSpecificationValue>();
 
+    public DbSet<SkuSpecificationOptionSelection> SkuSpecificationOptionSelections =>
+        Set<SkuSpecificationOptionSelection>();
+
     public DbSet<SalePrice> SalePrices => Set<SalePrice>();
 
     public DbSet<ImportBatch> ImportBatches => Set<ImportBatch>();
@@ -111,6 +116,12 @@ public sealed class DoSelectDbContext
     public DbSet<CartMergeConflict> CartMergeConflicts => Set<CartMergeConflict>();
 
     public DbSet<IdempotencyRecord> IdempotencyRecords => Set<IdempotencyRecord>();
+
+    public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
+
+    public DbSet<Notification> Notifications => Set<Notification>();
+
+    public DbSet<EmailDelivery> EmailDeliveries => Set<EmailDelivery>();
 
     public DbSet<InventoryBalance> InventoryBalances => Set<InventoryBalance>();
 

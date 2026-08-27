@@ -21,7 +21,7 @@ public sealed class PaymentAttemptConfiguration : IEntityTypeConfiguration<Payme
         builder.Property(x => x.FailureCode).HasMaxLength(64);
         builder.Property(x => x.IdempotencyKey).HasMaxLength(128).IsRequired();
         builder.HasIndex(x => x.ExternalReference).IsUnique().HasFilter("[ExternalReference] IS NOT NULL").HasDatabaseName("UX_PaymentAttempts_ExternalReference");
-        builder.HasIndex(x => x.IdempotencyKey).IsUnique().HasDatabaseName("UX_PaymentAttempts_IdempotencyKey");
+        builder.HasIndex(x => x.IdempotencyKey).HasDatabaseName("IX_PaymentAttempts_IdempotencyKey");
         builder.HasIndex(x => new { x.OrderId, x.CreatedAtUtc }).HasDatabaseName("IX_PaymentAttempts_OrderId_CreatedAtUtc");
         builder.HasIndex(x => x.Method).HasDatabaseName("IX_PaymentAttempts_Method");
         builder.HasIndex(x => x.Status).HasDatabaseName("IX_PaymentAttempts_Status");
