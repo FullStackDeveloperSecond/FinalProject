@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using DoSelect.Application.Outbox;
 using DoSelect.Application.Common;
 using DoSelect.Application.Notifications;
 using DoSelect.Domain.Orders;
@@ -37,7 +38,6 @@ public sealed class GuestOrderAccessUseCase(
     IGuestOrderAccessGateway gateway,
     IGuestOrderAccessHasher hasher,
     IOptions<RateLimitOptions> rateLimitOptions,
-    IEmailDispatchQueue emailDispatchQueue,
     TimeProvider timeProvider)
 {
     public static readonly TimeSpan RequestLifetime = TimeSpan.FromMinutes(10);
@@ -81,7 +81,8 @@ public sealed class GuestOrderAccessUseCase(
             // Decoy 不會真的寄信，但仍須記錄等價的初次寄送狀態；否則它可以立即重寄，
             // 有效 Request 卻要等 60 秒，RequestPublicId 是否改變會成為訂單存在性 Oracle。
             decoyRequest.RecordSend(nowUtc);
-            var created = await TryCreateRequestWithRetryAsync(window, decoyRequest, cancellationToken);
+            var created = await TryCreateRequestWithRetryAsync(
+                window, decoyRequest, notification: null, cancellationToken);
             if (!created)
             {
                 return new GuestOrderAccessAcceptedResult.RateLimited();
@@ -91,10 +92,12 @@ public sealed class GuestOrderAccessUseCase(
                 decoyRequest.PublicId, expiresAtUtc, nowUtc.Add(ResendInterval));
         }
 
-        var code = GenerateSixDigitCode();
+        var requestPublicId = Guid.CreateVersion7();
+        const int initialSendNumber = 1;
+        var code = hasher.DeriveVerificationCode(requestPublicId, initialSendNumber);
         var codeHash = hasher.HashCode(code);
         var request = GuestOrderAccessRequest.CreateValid(
-            Guid.CreateVersion7(),
+            requestPublicId,
             lookup.OrderId,
             codeHash,
             ipHash,
@@ -105,13 +108,13 @@ public sealed class GuestOrderAccessUseCase(
         // 初次寄送本身也要計入 SendCount／LastSentAtUtc，否則規格「最多 3 封」會被繞過成
         // 「初次寄送＋3 次 resend」共 4 封。
         request.RecordSend(nowUtc);
-        var accepted = await TryCreateRequestWithRetryAsync(window, request, cancellationToken);
+        var notification = CreateNotification(request.PublicId, initialSendNumber, nowUtc);
+        var accepted = await TryCreateRequestWithRetryAsync(
+            window, request, notification, cancellationToken);
         if (!accepted)
         {
             return new GuestOrderAccessAcceptedResult.RateLimited();
         }
-
-        emailDispatchQueue.Enqueue(GuestOrderAccessEmailComposer.Compose(email, orderNumber, code));
 
         return new GuestOrderAccessAcceptedResult.Accepted(
             request.PublicId, expiresAtUtc, nowUtc.Add(ResendInterval));
@@ -153,13 +156,14 @@ public sealed class GuestOrderAccessUseCase(
         // rate-limit event，讓這次呼叫的 IP 與原 Challenge 的 Email／OrderLookup 三個 Scope
         // 都能被既有索引計數。有效與 Decoy 都走相同交易，避免存在性 Oracle。
         var isDecoy = request.OrderId is null || request.CodeHash is null;
-        var code = GenerateSixDigitCode();
-        var codeHash = hasher.HashCode(code);
         var window = CreateWindow(ipHash, request.EmailKeyHash, request.OrderLookupKeyHash, nowUtc);
 
         var recorded = false;
         for (var attempt = 0; ; attempt++)
         {
+            var nextSendNumber = request.SendCount + 1;
+            var code = hasher.DeriveVerificationCode(request.PublicId, nextSendNumber);
+            var codeHash = hasher.HashCode(code);
             var rateLimitEvent = GuestOrderAccessRequest.CreateResendRateLimitEvent(
                 Guid.CreateVersion7(),
                 ipHash,
@@ -176,6 +180,7 @@ public sealed class GuestOrderAccessUseCase(
                     rateLimitEvent,
                     isDecoy ? null : codeHash,
                     nowUtc,
+                    isDecoy ? null : CreateNotification(request.PublicId, nextSendNumber, nowUtc),
                     cancellationToken);
                 break;
             }
@@ -203,16 +208,6 @@ public sealed class GuestOrderAccessUseCase(
         if (!recorded)
         {
             return new GuestOrderAccessAcceptedResult.RateLimited();
-        }
-
-        if (!isDecoy)
-        {
-            var order = await gateway.FindGuestOrderByIdAsync(request.OrderId!.Value, cancellationToken);
-            if (order is not null && !string.IsNullOrWhiteSpace(order.GuestEmailNormalized))
-            {
-                emailDispatchQueue.Enqueue(GuestOrderAccessEmailComposer.Compose(
-                    order.GuestEmailNormalized, order.OrderNumber, code));
-            }
         }
 
         return new GuestOrderAccessAcceptedResult.Accepted(
@@ -332,6 +327,7 @@ public sealed class GuestOrderAccessUseCase(
     private async Task<bool> TryCreateRequestWithRetryAsync(
         GuestOrderAccessRateLimitWindow window,
         GuestOrderAccessRequest newRequest,
+        OutboxWriteRequest? notification,
         CancellationToken cancellationToken)
     {
         for (var attempt = 0; ; attempt++)
@@ -339,7 +335,7 @@ public sealed class GuestOrderAccessUseCase(
             try
             {
                 return await gateway.TryCreateRequestWithinRateLimitAsync(
-                    window, newRequest, cancellationToken);
+                    window, newRequest, notification, cancellationToken);
             }
             catch (DomainProblemException exception)
                 when (exception.Code == DomainErrorCodes.ConcurrencyConflict)
@@ -402,8 +398,28 @@ public sealed class GuestOrderAccessUseCase(
     private static DateTime AsUtc(DateTime value) =>
         value.Kind == DateTimeKind.Utc ? value : DateTime.SpecifyKind(value, DateTimeKind.Utc);
 
-    private static string GenerateSixDigitCode() =>
-        RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6");
+    private static OutboxWriteRequest CreateNotification(
+        Guid requestPublicId,
+        int sendNumber,
+        DateTime occurredAtUtc)
+    {
+        var notificationPublicId = Guid.CreateVersion7();
+        return OutboxWriteRequest.Create(
+            notificationPublicId,
+            GuestOrderAccessNotificationContract.ResourceType,
+            requestPublicId,
+            new EmailNotificationRequestedV1(
+                notificationPublicId,
+                GuestOrderAccessNotificationContract.TemplateKey,
+                GuestOrderAccessNotificationContract.RecipientPurpose,
+                GuestOrderAccessNotificationContract.ResourceType,
+                requestPublicId,
+                GuestOrderAccessNotificationContract.Locale,
+                sendNumber),
+            occurredAtUtc,
+            occurredAtUtc,
+            requestPublicId.ToString("N"));
+    }
 
     private static string GenerateRawToken() =>
         Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));

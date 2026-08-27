@@ -1,4 +1,6 @@
+using System.Security.Cryptography;
 using DoSelect.Application.Notifications;
+using DoSelect.Application.Orders;
 using DoSelect.Application.Outbox;
 using DoSelect.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -64,7 +66,10 @@ public sealed class InAppNotificationContentRenderer : IInAppNotificationContent
     }
 }
 
-public sealed class EmailNotificationContentResolver(DoSelectDbContext context)
+public sealed class EmailNotificationContentResolver(
+    DoSelectDbContext context,
+    IGuestOrderAccessHasher guestOrderAccessHasher,
+    TimeProvider timeProvider)
     : IEmailNotificationContentResolver
 {
     public async Task<EmailNotificationContent?> ResolveAsync(
@@ -72,6 +77,16 @@ public sealed class EmailNotificationContentResolver(DoSelectDbContext context)
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (request is
+            {
+                TemplateKey: GuestOrderAccessNotificationContract.TemplateKey,
+                RecipientPurpose: GuestOrderAccessNotificationContract.RecipientPurpose,
+                ResourceType: GuestOrderAccessNotificationContract.ResourceType,
+            })
+        {
+            return await ResolveGuestOrderAccessAsync(request, cancellationToken);
+        }
+
         var template = NotificationTemplateCatalog.Find(request.TemplateKey, request.Locale);
         if (template is null || !PurposeMatchesResource(request.RecipientPurpose, request.ResourceType))
         {
@@ -90,6 +105,51 @@ public sealed class EmailNotificationContentResolver(DoSelectDbContext context)
         return new EmailNotificationContent(
             recipient.Value.UserId,
             new EmailMessage(recipient.Value.Email, template.Subject, template.Body));
+    }
+
+    private async Task<EmailNotificationContent?> ResolveGuestOrderAccessAsync(
+        EmailNotificationRequestedV1 request,
+        CancellationToken cancellationToken)
+    {
+        var nowUtc = timeProvider.GetUtcNow().UtcDateTime;
+        var resource = await (
+            from accessRequest in context.GuestOrderAccessRequests.AsNoTracking()
+            join order in context.Orders.AsNoTracking() on accessRequest.OrderId equals order.Id
+            where accessRequest.PublicId == request.ResourcePublicId &&
+                  accessRequest.SendCount == request.ParameterSetVersion &&
+                  accessRequest.CodeHash != null &&
+                  accessRequest.ExpiresAtUtc > nowUtc &&
+                  accessRequest.ConsumedAtUtc == null &&
+                  accessRequest.LockedAtUtc == null &&
+                  accessRequest.RevokedAtUtc == null
+            select new
+            {
+                accessRequest.CodeHash,
+                order.RecipientEmail,
+                order.OrderNumber,
+            })
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (resource is null || string.IsNullOrWhiteSpace(resource.RecipientEmail))
+        {
+            return null;
+        }
+
+        var code = guestOrderAccessHasher.DeriveVerificationCode(
+            request.ResourcePublicId,
+            request.ParameterSetVersion);
+        var codeHash = guestOrderAccessHasher.HashCode(code);
+        if (!CryptographicOperations.FixedTimeEquals(codeHash, resource.CodeHash!))
+        {
+            return null;
+        }
+
+        return new EmailNotificationContent(
+            RecipientUserId: null,
+            GuestOrderAccessEmailComposer.Compose(
+                resource.RecipientEmail,
+                resource.OrderNumber,
+                code));
     }
 
     private async Task<(string? UserId, string Email)?> ResolveRecipientAsync(

@@ -1,4 +1,5 @@
 using DoSelect.Application.Auditing;
+using DoSelect.Application.Outbox;
 using DoSelect.Domain.Orders;
 
 namespace DoSelect.Application.Orders;
@@ -49,7 +50,7 @@ public interface IGuestOrderAccessGateway
     Task<GuestOrderLookup?> FindGuestOrderAsync(
         string orderNumber, string emailNormalized, CancellationToken cancellationToken = default);
 
-    /// <summary>Resend／驗證成功後用內部 Id 反查訂單 PublicId，用於回應與 Cookie Claim。</summary>
+    /// <summary>驗證成功後用內部 Id 反查訂單 PublicId，用於回應與 Cookie Claim。</summary>
     Task<GuestOrderLookup?> FindGuestOrderByIdAsync(
         long orderId, CancellationToken cancellationToken = default);
 
@@ -65,6 +66,7 @@ public interface IGuestOrderAccessGateway
     Task<bool> TryCreateRequestWithinRateLimitAsync(
         GuestOrderAccessRateLimitWindow window,
         GuestOrderAccessRequest newRequest,
+        OutboxWriteRequest? notification,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -79,6 +81,7 @@ public interface IGuestOrderAccessGateway
         GuestOrderAccessRequest rateLimitEvent,
         byte[]? newCodeHash,
         DateTime sentAtUtc,
+        OutboxWriteRequest? notification,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -161,6 +164,12 @@ public interface IGuestOrderAccessHasher
     byte[] HashOrderLookup(string orderNumber, string emailNormalized);
 
     byte[] HashCode(string sixDigitCode);
+
+    /// <summary>
+    /// 依穩定 Request PublicId 與寄送序號重建六位數驗證碼。明碼不持久化；Outbox consumer
+    /// 只需持有 resource PublicId 與 parameter-set version，即可在寄送時重建同一組碼。
+    /// </summary>
+    string DeriveVerificationCode(Guid requestPublicId, int sendNumber);
 
     byte[] HashToken(string rawToken);
 }

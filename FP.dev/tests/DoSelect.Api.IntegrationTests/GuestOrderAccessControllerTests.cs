@@ -6,9 +6,13 @@ using DoSelect.Api.Contracts.Orders;
 using DoSelect.Application.Auditing;
 using DoSelect.Application.Notifications;
 using DoSelect.Application.Orders;
+using DoSelect.Application.Returns;
 using DoSelect.Domain.Auditing;
+using DoSelect.Domain.Invoicing;
 using DoSelect.Domain.Orders;
+using DoSelect.Domain.Outbox;
 using DoSelect.Domain.Shipping;
+using DoSelect.Infrastructure.Outbox;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -44,6 +48,7 @@ public sealed class GuestOrderAccessControllerTests(GuestOrderAccessApiFixture f
 
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
         Assert.NotEqual(Guid.Empty, body!.RequestPublicId);
+        await ConsumeEmailOutboxAsync(factory, body.RequestPublicId);
         var message = await capturingEmailSender.WaitForSingleMessageAsync();
         Assert.Equal(email, message.RecipientAddress);
         Assert.Equal(6, ExtractCode(message.TextBody).Length);
@@ -71,8 +76,11 @@ public sealed class GuestOrderAccessControllerTests(GuestOrderAccessApiFixture f
 
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
         Assert.NotEqual(Guid.Empty, body!.RequestPublicId);
-        await Task.Delay(200);
         Assert.Empty(capturingEmailSender.SentMessages);
+        await using var scope = factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+        Assert.False(await dbContext.OutboxMessages.AnyAsync(candidate =>
+            candidate.AggregatePublicId == body.RequestPublicId));
     }
 
     [Fact]
@@ -146,6 +154,7 @@ public sealed class GuestOrderAccessControllerTests(GuestOrderAccessApiFixture f
         using var client = factory.CreateClient();
         await PrimeAntiforgeryAsync(client);
         var requestPublicId = await RequestAccessAsync(client, orderNumber, email);
+        await ConsumeEmailOutboxAsync(factory, requestPublicId);
         var correctCode = ExtractCode((await capturingEmailSender.WaitForSingleMessageAsync()).TextBody);
 
         for (var i = 0; i < GuestOrderAccessRequest.MaximumAttempts; i++)
@@ -182,6 +191,7 @@ public sealed class GuestOrderAccessControllerTests(GuestOrderAccessApiFixture f
         using var client = factory.CreateClient();
         await PrimeAntiforgeryAsync(client);
         var requestPublicId = await RequestAccessAsync(client, orderNumber, email);
+        await ConsumeEmailOutboxAsync(factory, requestPublicId);
         await capturingEmailSender.WaitForSingleMessageAsync();
 
         const int concurrentAttempts = 6;
@@ -221,6 +231,7 @@ public sealed class GuestOrderAccessControllerTests(GuestOrderAccessApiFixture f
         using var client = factory.CreateClient();
         await PrimeAntiforgeryAsync(client);
         var requestPublicId = await RequestAccessAsync(client, orderNumber, email);
+        await ConsumeEmailOutboxAsync(factory, requestPublicId);
         var correctCode = ExtractCode((await capturingEmailSender.WaitForSingleMessageAsync()).TextBody);
 
         var tasks = new[]
@@ -271,6 +282,7 @@ public sealed class GuestOrderAccessControllerTests(GuestOrderAccessApiFixture f
         using var client = factory.CreateClient();
         await PrimeAntiforgeryAsync(client);
         var requestPublicId = await RequestAccessAsync(client, orderNumber, email);
+        await ConsumeEmailOutboxAsync(factory, requestPublicId);
         await capturingEmailSender.WaitForSingleMessageAsync();
 
         timeProvider.Advance(TimeSpan.FromSeconds(61));
@@ -328,6 +340,7 @@ public sealed class GuestOrderAccessControllerTests(GuestOrderAccessApiFixture f
         using var client = factory.CreateClient();
         await PrimeAntiforgeryAsync(client);
         var requestPublicId = await RequestAccessAsync(client, orderANumber, orderAEmail);
+        await ConsumeEmailOutboxAsync(factory, requestPublicId);
         var code = ExtractCode((await capturingEmailSender.WaitForSingleMessageAsync()).TextBody);
 
         using var verifyResponse = await client.PostAsJsonAsync("/api/v1/guest-orders/access-verifications", new
@@ -365,6 +378,67 @@ public sealed class GuestOrderAccessControllerTests(GuestOrderAccessApiFixture f
     }
 
     [Fact]
+    public async Task GuestOrderAccessCookie_MintedByVerify_IsAcceptedByFormalReturnsResolver()
+    {
+        var capturingEmailSender = new CapturingEmailSender();
+        var returnService = new CapturingReturnService();
+        using var factory = CreateFactory(services =>
+        {
+            services.Replace(ServiceDescriptor.Singleton<IEmailSender>(capturingEmailSender));
+            services.RemoveAll<IReturnService>();
+            services.AddSingleton<IReturnService>(returnService);
+        });
+        var (orderId, orderPublicId, orderNumber, email) = await SeedGuestOrderAsync(factory);
+        var (_, otherOrderPublicId, _, _) = await SeedGuestOrderAsync(factory);
+        using var client = factory.CreateClient();
+        await PrimeAntiforgeryAsync(client);
+        var requestPublicId = await RequestAccessAsync(client, orderNumber, email);
+        await ConsumeEmailOutboxAsync(factory, requestPublicId);
+        var code = ExtractCode((await capturingEmailSender.WaitForSingleMessageAsync()).TextBody);
+
+        using var verifyResponse = await client.PostAsJsonAsync(
+            "/api/v1/guest-orders/access-verifications",
+            new { requestPublicId, code });
+        Assert.Equal(HttpStatusCode.OK, verifyResponse.StatusCode);
+
+        using var returnResponse = await client.PostAsJsonAsync(
+            $"/api/v1/orders/{orderPublicId:D}/returns",
+            new
+            {
+                items = Array.Empty<object>(),
+                requestReason = "test-only",
+                orderRowVersion = Array.Empty<byte>(),
+            });
+
+        Assert.Equal(HttpStatusCode.BadRequest, returnResponse.StatusCode);
+        Assert.NotNull(returnService.Actor);
+        Assert.Null(returnService.Actor.MemberUserId);
+        Assert.Equal(orderId, returnService.Actor.GuestOrderId);
+        Assert.Equal(orderPublicId, returnService.OrderPublicId);
+
+        returnService.Reset();
+        using var crossOrderResponse = await client.PostAsJsonAsync(
+            $"/api/v1/orders/{otherOrderPublicId:D}/returns",
+            new
+            {
+                items = Array.Empty<object>(),
+                requestReason = "test-only",
+                orderRowVersion = Array.Empty<byte>(),
+            });
+
+        Assert.Equal(HttpStatusCode.NotFound, crossOrderResponse.StatusCode);
+        Assert.Null(returnService.Actor);
+        await using var scope = factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+        var token = await dbContext.GuestOrderAccessTokens.SingleAsync(candidate =>
+            candidate.OrderId == orderId);
+        Assert.Equal(1, token.ScopeViolationCount);
+        Assert.True(await dbContext.AuditLogs.AnyAsync(entry =>
+            entry.Action == AuditActions.GuestOrderScopeViolation &&
+            entry.ResourcePublicId == otherOrderPublicId));
+    }
+
+    [Fact]
     public async Task GuestOrder_WithoutAnyCookie_ReturnsUnauthorized()
     {
         using var factory = CreateFactory();
@@ -390,6 +464,24 @@ public sealed class GuestOrderAccessControllerTests(GuestOrderAccessApiFixture f
         return body!.RequestPublicId;
     }
 
+    private static async Task ConsumeEmailOutboxAsync(
+        WebApplicationFactory<Program> factory,
+        Guid requestPublicId)
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+        var message = await dbContext.OutboxMessages.SingleAsync(candidate =>
+            candidate.AggregateType == GuestOrderAccessNotificationContract.ResourceType &&
+            candidate.AggregatePublicId == requestPublicId &&
+            candidate.Status == OutboxMessageStatus.Pending);
+        var consumer = scope.ServiceProvider.GetServices<IOutboxConsumer>()
+            .Single(candidate => candidate.EventType == message.Type);
+
+        var result = await consumer.ConsumeAsync(message);
+
+        Assert.True(result.Succeeded, result.ErrorCode);
+    }
+
     private WebApplicationFactory<Program> CreateFactory(Action<IServiceCollection>? configureServices = null) =>
         fixture.CreateFactory(configureServices);
 
@@ -406,6 +498,11 @@ public sealed class GuestOrderAccessControllerTests(GuestOrderAccessApiFixture f
         var shippingProfile = new ShippingProviderProfile(
             Guid.CreateVersion7(), $"SHIP-{unique}", 1, "Active", null, null, "{}", 1, CreatedAtUtc);
         dbContext.ShippingProviderProfiles.Add(shippingProfile);
+        await dbContext.SaveChangesAsync();
+        var packageLimit = new PackageLimitVersion(
+            Guid.CreateVersion7(), shippingProfile.Id, 1, 30m, 150m, 100m, 100m, 250m, 50_000m,
+            null, null, CreatedAtUtc);
+        dbContext.PackageLimitVersions.Add(packageLimit);
         await dbContext.SaveChangesAsync();
 
         var orderPublicId = Guid.CreateVersion7();
@@ -442,7 +539,20 @@ public sealed class GuestOrderAccessControllerTests(GuestOrderAccessApiFixture f
                 null,
                 CreatedAtUtc.AddDays(3),
                 $"checkout-{unique}",
-                null),
+                null,
+                1,
+                1,
+                new OrderInvoicePreference(
+                    SimulatedInvoiceBuyerType.Individual,
+                    email,
+                    null,
+                    null,
+                    null,
+                    null),
+                null,
+                null,
+                new OrderPackageSnapshot(
+                    packageLimit.Id, 1m, 40m, 30m, 20m, 90m, 1_200m)),
             CreatedAtUtc);
         dbContext.Orders.Add(order);
         await dbContext.SaveChangesAsync();
@@ -481,7 +591,9 @@ public sealed class GuestOrderAccessControllerTests(GuestOrderAccessApiFixture f
                 SentMessages.Add(message);
             }
 
-            return Task.FromResult(new EmailDeliveryResult(EmailDeliveryStatus.Sent));
+            return Task.FromResult(new EmailDeliveryResult(
+                EmailDeliveryStatus.Sent,
+                $"test-{Guid.NewGuid():N}"));
         }
 
         public async Task<EmailMessage> WaitForSingleMessageAsync(TimeSpan? timeout = null)
@@ -502,6 +614,44 @@ public sealed class GuestOrderAccessControllerTests(GuestOrderAccessApiFixture f
 
             return Assert.Single(SentMessages);
         }
+    }
+
+    private sealed class CapturingReturnService : IReturnService
+    {
+        public ReturnActor? Actor { get; private set; }
+        public Guid? OrderPublicId { get; private set; }
+
+        public void Reset()
+        {
+            Actor = null;
+            OrderPublicId = null;
+        }
+
+        public Task<ReturnRequestDto> CreateAsync(
+            ReturnActor actor,
+            Guid orderPublicId,
+            CreateReturnRequest request,
+            CancellationToken cancellationToken)
+        {
+            Actor = actor;
+            OrderPublicId = orderPublicId;
+            throw new ReturnsWriteException(
+                ReturnsWriteException.ErrorCodes.ValidationFailed,
+                "Synthetic post-authorization validation failure.");
+        }
+
+        public Task<ReturnRequestDto> GetDetailAsync(
+            ReturnActor actor,
+            Guid returnPublicId,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<ReturnAttachmentDto> UploadAttachmentAsync(
+            ReturnActor actor,
+            Guid returnPublicId,
+            DoSelect.Application.Files.PrivateFileUpload upload,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 
     /// <summary>

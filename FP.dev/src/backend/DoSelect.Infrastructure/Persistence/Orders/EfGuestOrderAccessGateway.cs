@@ -2,8 +2,10 @@ using System.Data;
 using DoSelect.Application.Auditing;
 using DoSelect.Application.Common;
 using DoSelect.Application.Orders;
+using DoSelect.Application.Outbox;
 using DoSelect.Domain.Orders;
 using DoSelect.Infrastructure.Auditing;
+using DoSelect.Infrastructure.Outbox;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
@@ -13,17 +15,31 @@ public sealed class EfGuestOrderAccessGateway : IGuestOrderAccessGateway
 {
     private readonly DoSelectDbContext dbContext;
     private readonly IAuditWriter auditWriter;
+    private readonly IOutboxWriter outboxWriter;
 
-    public EfGuestOrderAccessGateway(DoSelectDbContext dbContext, IAuditWriter auditWriter)
+    public EfGuestOrderAccessGateway(
+        DoSelectDbContext dbContext,
+        IAuditWriter auditWriter,
+        IOutboxWriter outboxWriter)
     {
         ArgumentNullException.ThrowIfNull(dbContext);
         ArgumentNullException.ThrowIfNull(auditWriter);
+        ArgumentNullException.ThrowIfNull(outboxWriter);
         this.dbContext = dbContext;
         this.auditWriter = auditWriter;
+        this.outboxWriter = outboxWriter;
     }
 
     internal EfGuestOrderAccessGateway(DoSelectDbContext dbContext)
-        : this(dbContext, new EfAuditWriter(dbContext, TimeProvider.System))
+        : this(
+            dbContext,
+            new EfAuditWriter(dbContext, TimeProvider.System),
+            new EfOutboxWriter(dbContext, TimeProvider.System))
+    {
+    }
+
+    internal EfGuestOrderAccessGateway(DoSelectDbContext dbContext, IAuditWriter auditWriter)
+        : this(dbContext, auditWriter, new EfOutboxWriter(dbContext, TimeProvider.System))
     {
     }
 
@@ -75,6 +91,7 @@ public sealed class EfGuestOrderAccessGateway : IGuestOrderAccessGateway
     public async Task<bool> TryCreateRequestWithinRateLimitAsync(
         GuestOrderAccessRateLimitWindow window,
         GuestOrderAccessRequest newRequest,
+        OutboxWriteRequest? notification,
         CancellationToken cancellationToken = default)
     {
         await using var transaction = await dbContext.Database.BeginTransactionAsync(
@@ -101,6 +118,11 @@ public sealed class EfGuestOrderAccessGateway : IGuestOrderAccessGateway
             }
 
             await dbContext.GuestOrderAccessRequests.AddAsync(newRequest, cancellationToken);
+            if (notification is not null)
+            {
+                outboxWriter.Add(notification);
+            }
+
             await dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return true;
@@ -126,6 +148,7 @@ public sealed class EfGuestOrderAccessGateway : IGuestOrderAccessGateway
         GuestOrderAccessRequest rateLimitEvent,
         byte[]? newCodeHash,
         DateTime sentAtUtc,
+        OutboxWriteRequest? notification,
         CancellationToken cancellationToken = default)
     {
         await using var transaction = await dbContext.Database.BeginTransactionAsync(
@@ -153,6 +176,11 @@ public sealed class EfGuestOrderAccessGateway : IGuestOrderAccessGateway
 
             request.RecordResend(newCodeHash, sentAtUtc);
             await dbContext.GuestOrderAccessRequests.AddAsync(rateLimitEvent, cancellationToken);
+            if (notification is not null)
+            {
+                outboxWriter.Add(notification);
+            }
+
             await dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return true;

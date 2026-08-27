@@ -2,8 +2,8 @@ using System.Reflection;
 using System.Security.Cryptography;
 using DoSelect.Application.Auditing;
 using DoSelect.Application.Common;
-using DoSelect.Application.Notifications;
 using DoSelect.Application.Orders;
+using DoSelect.Application.Outbox;
 using DoSelect.Domain.Common;
 using DoSelect.Domain.Orders;
 using Microsoft.Extensions.Options;
@@ -21,14 +21,14 @@ public sealed class GuestOrderAccessUseCaseTests
     {
         var gateway = new FakeGuestOrderAccessGateway();
         gateway.SeedOrder(ValidOrderNumber, "GUEST@EXAMPLE.COM", orderId: 1, orderPublicId: Guid.CreateVersion7());
-        var emailQueue = new RecordingEmailDispatchQueue();
-        var useCase = CreateUseCase(gateway, emailDispatchQueue: emailQueue);
+        var useCase = CreateUseCase(gateway);
 
         var result = await useCase.RequestAccessAsync(ValidOrderNumber, ValidEmail, RequesterIp);
 
         var accepted = Assert.IsType<GuestOrderAccessAcceptedResult.Accepted>(result);
         Assert.NotEqual(Guid.Empty, accepted.RequestPublicId);
-        Assert.Single(emailQueue.SentMessages);
+        var notification = Assert.Single(gateway.Notifications);
+        Assert.Equal(accepted.RequestPublicId, notification.AggregatePublicId);
     }
 
     [Fact]
@@ -38,14 +38,13 @@ public sealed class GuestOrderAccessUseCaseTests
         // order/email combination exists from the response shape (Haru-會員登入訂單與訪客存取最終
         // Schema.md 第 5 節：相同 202 與等效延遲）.
         var gateway = new FakeGuestOrderAccessGateway();
-        var emailQueue = new RecordingEmailDispatchQueue();
-        var useCase = CreateUseCase(gateway, emailDispatchQueue: emailQueue);
+        var useCase = CreateUseCase(gateway);
 
         var result = await useCase.RequestAccessAsync("NO-SUCH-ORDER", "nobody@example.com", RequesterIp);
 
         var accepted = Assert.IsType<GuestOrderAccessAcceptedResult.Accepted>(result);
         Assert.NotEqual(Guid.Empty, accepted.RequestPublicId);
-        Assert.Empty(emailQueue.SentMessages);
+        Assert.Empty(gateway.Notifications);
     }
 
     [Fact]
@@ -272,10 +271,9 @@ public sealed class GuestOrderAccessUseCaseTests
         var orderPublicId = Guid.CreateVersion7();
         gateway.SeedOrder(ValidOrderNumber, "GUEST@EXAMPLE.COM", orderId: 1, orderPublicId: orderPublicId);
         var hasher = new FakeGuestOrderAccessHasher();
-        var emailQueue = new RecordingEmailDispatchQueue();
         var timeProvider = new ManualTimeProvider(DateTimeOffset.UtcNow);
         var useCase = CreateUseCase(
-            gateway, hasher: hasher, emailDispatchQueue: emailQueue, timeProvider: timeProvider);
+            gateway, hasher: hasher, timeProvider: timeProvider);
         var accepted = (GuestOrderAccessAcceptedResult.Accepted)
             await useCase.RequestAccessAsync(ValidOrderNumber, ValidEmail, RequesterIp);
         var originalCode = hasher.LastHashedCode!;
@@ -287,8 +285,10 @@ public sealed class GuestOrderAccessUseCaseTests
         var resendAccepted = Assert.IsType<GuestOrderAccessAcceptedResult.Accepted>(resendResult);
         Assert.Equal(accepted.RequestPublicId, resendAccepted.RequestPublicId);
         Assert.NotEqual(originalCode, newCode);
-        Assert.Equal(2, emailQueue.SentMessages.Count);
-        Assert.Equal("GUEST@EXAMPLE.COM", emailQueue.SentMessages[1].RecipientAddress);
+        Assert.Equal(2, gateway.Notifications.Count);
+        var resendNotification = Assert.IsType<EmailNotificationRequestedV1>(
+            gateway.Notifications[1].Payload);
+        Assert.Equal(2, resendNotification.ParameterSetVersion);
 
         // 同一個 RequestPublicId 下，舊碼立即失效，新碼成功。
         var oldRequestResult = await useCase.VerifyAsync(accepted.RequestPublicId, originalCode);
@@ -331,12 +331,11 @@ public sealed class GuestOrderAccessUseCaseTests
         // 不能變成初次寄送額外再加 3 次 resend（共 4 封）。
         var gateway = new FakeGuestOrderAccessGateway();
         gateway.SeedOrder(ValidOrderNumber, "GUEST@EXAMPLE.COM", orderId: 1, orderPublicId: Guid.CreateVersion7());
-        var emailQueue = new RecordingEmailDispatchQueue();
         var timeProvider = new ManualTimeProvider(DateTimeOffset.UtcNow);
-        var useCase = CreateUseCase(gateway, emailDispatchQueue: emailQueue, timeProvider: timeProvider);
+        var useCase = CreateUseCase(gateway, timeProvider: timeProvider);
         var accepted = (GuestOrderAccessAcceptedResult.Accepted)
             await useCase.RequestAccessAsync(ValidOrderNumber, ValidEmail, RequesterIp);
-        Assert.Single(emailQueue.SentMessages);
+        Assert.Single(gateway.Notifications);
 
         timeProvider.Advance(TimeSpan.FromSeconds(61));
         var firstResend = (GuestOrderAccessAcceptedResult.Accepted)
@@ -344,13 +343,13 @@ public sealed class GuestOrderAccessUseCaseTests
         timeProvider.Advance(TimeSpan.FromSeconds(61));
         var secondResend = (GuestOrderAccessAcceptedResult.Accepted)
             await useCase.ResendAsync(firstResend.RequestPublicId, RequesterIp);
-        Assert.Equal(3, emailQueue.SentMessages.Count);
+        Assert.Equal(3, gateway.Notifications.Count);
 
         timeProvider.Advance(TimeSpan.FromSeconds(61));
         var fourthAttempt = await useCase.ResendAsync(secondResend.RequestPublicId, RequesterIp);
 
         Assert.IsType<GuestOrderAccessAcceptedResult.Accepted>(fourthAttempt);
-        Assert.Equal(3, emailQueue.SentMessages.Count);
+        Assert.Equal(3, gateway.Notifications.Count);
     }
 
     [Fact]
@@ -407,22 +406,13 @@ public sealed class GuestOrderAccessUseCaseTests
     private static GuestOrderAccessUseCase CreateUseCase(
         FakeGuestOrderAccessGateway gateway,
         FakeGuestOrderAccessHasher? hasher = null,
-        IEmailDispatchQueue? emailDispatchQueue = null,
         TimeProvider? timeProvider = null,
         RateLimitOptions? rateLimitOptions = null) =>
         new(
             gateway,
             hasher ?? new FakeGuestOrderAccessHasher(),
             Options.Create(rateLimitOptions ?? new RateLimitOptions()),
-            emailDispatchQueue ?? new RecordingEmailDispatchQueue(),
             timeProvider ?? TimeProvider.System);
-
-    private sealed class RecordingEmailDispatchQueue : IEmailDispatchQueue
-    {
-        public List<EmailMessage> SentMessages { get; } = [];
-
-        public void Enqueue(EmailMessage message) => SentMessages.Add(message);
-    }
 
     /// <summary>
     /// 確定性雜湊（不需要真的 Pepper）。<see cref="HashCode"/> 是明碼六位數驗證碼唯一會經過的
@@ -445,6 +435,9 @@ public sealed class GuestOrderAccessUseCaseTests
             LastHashedCode = sixDigitCode;
             return Hash("code", sixDigitCode);
         }
+
+        public string DeriveVerificationCode(Guid requestPublicId, int sendNumber) =>
+            sendNumber.ToString("D6", System.Globalization.CultureInfo.InvariantCulture);
 
         public byte[] HashToken(string rawToken) => Hash("token", rawToken);
 
@@ -497,6 +490,8 @@ public sealed class GuestOrderAccessUseCaseTests
 
         public List<GuestOrderAccessToken> Tokens { get; } = [];
 
+        public List<OutboxWriteRequest> Notifications { get; } = [];
+
         public void SeedOrder(string orderNumber, string emailNormalized, long orderId, Guid orderPublicId)
         {
             var lookup = new GuestOrderLookup(orderId, orderPublicId, orderNumber, emailNormalized);
@@ -528,6 +523,7 @@ public sealed class GuestOrderAccessUseCaseTests
         public Task<bool> TryCreateRequestWithinRateLimitAsync(
             GuestOrderAccessRateLimitWindow window,
             GuestOrderAccessRequest newRequest,
+            OutboxWriteRequest? notification,
             CancellationToken cancellationToken = default)
         {
             if (TryCreateRequestConflictCountdown > 0)
@@ -552,6 +548,11 @@ public sealed class GuestOrderAccessUseCaseTests
             IdProperty.SetValue(newRequest, _nextRequestId++);
             Requests[newRequest.PublicId] = newRequest;
             CommitRequestState(newRequest);
+            if (notification is not null)
+            {
+                Notifications.Add(notification);
+            }
+
             return Task.FromResult(true);
         }
 
@@ -563,6 +564,7 @@ public sealed class GuestOrderAccessUseCaseTests
             GuestOrderAccessRequest rateLimitEvent,
             byte[]? newCodeHash,
             DateTime sentAtUtc,
+            OutboxWriteRequest? notification,
             CancellationToken cancellationToken = default)
         {
             if (TryRecordResendConflictCountdown > 0)
@@ -589,6 +591,11 @@ public sealed class GuestOrderAccessUseCaseTests
             IdProperty.SetValue(rateLimitEvent, _nextRequestId++);
             Requests[rateLimitEvent.PublicId] = rateLimitEvent;
             CommitRequestState(rateLimitEvent);
+            if (notification is not null)
+            {
+                Notifications.Add(notification);
+            }
+
             return Task.FromResult(true);
         }
 

@@ -1,39 +1,49 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Reflection;
+using System.Security.Claims;
 using System.Text.Json;
 using DoSelect.Api.Security;
 using DoSelect.Application.Files;
+using DoSelect.Application.Orders;
 using DoSelect.Application.Returns;
 using DoSelect.Infrastructure.Persistence.Returns;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 
 namespace DoSelect.Api.IntegrationTests.Returns;
 
-public sealed class GuestReturnAttachmentHttpTests : IClassFixture<WebApplicationFactory<Program>>
+[Collection(nameof(GuestOrderAccessApiCollection))]
+public sealed class GuestReturnAttachmentHttpTests(GuestOrderAccessApiFixture fixture)
 {
-    private readonly WebApplicationFactory<Program> _baseFactory;
-
-    public GuestReturnAttachmentHttpTests(WebApplicationFactory<Program> baseFactory) => _baseFactory = baseFactory;
-
     [Fact]
     public async Task UploadAttachment_WithValidGuestCookie_PassesGuestOrderActorToReturnService()
     {
         var returnService = DispatchProxy.Create<IReturnService, ReturnServiceFake>();
         var serviceFake = (ReturnServiceFake)(object)returnService;
-        using var factory = _baseFactory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+        using var factory = fixture.CreateFactory(services =>
         {
             services.RemoveAll<IReturnService>();
             services.AddSingleton(returnService);
             services.RemoveAll<IGuestOrderAccessValidator>();
             services.AddSingleton<IGuestOrderAccessValidator>(new GuestOrderAccessValidatorFake(guestOrderId: 42));
-        }));
+        });
         using var client = factory.CreateClient();
+        var cookieOptions = factory.Services
+            .GetRequiredService<IOptionsMonitor<CookieAuthenticationOptions>>()
+            .Get(DoSelectAuthenticationSchemes.GuestOrderAccess);
+        var identity = new ClaimsIdentity(DoSelectAuthenticationSchemes.GuestOrderAccess);
+        identity.AddClaim(new Claim(GuestOrderAccessClaimTypes.TokenValue, "valid-guest-token"));
+        var protectedTicket = cookieOptions.TicketDataFormat.Protect(new AuthenticationTicket(
+            new ClaimsPrincipal(identity),
+            DoSelectAuthenticationSchemes.GuestOrderAccess));
         client.DefaultRequestHeaders.Add(
             "Cookie",
-            $"{GuestOrderAccessValidator.GuestOrderAccessCookieName}=valid-guest-token");
+            $"{GuestOrderAccessValidator.GuestOrderAccessCookieName}={protectedTicket}");
         using var form = new MultipartFormDataContent();
         using var tokenRequest = new HttpRequestMessage(HttpMethod.Get, "/api/v1/security/antiforgery-token");
         tokenRequest.Headers.Add(SecurityController.ClientHeaderName, "member");

@@ -36,11 +36,11 @@ public interface IReturnOrderEligibilityPort
 }
 
 /// <summary>
-/// Validates a presented guest-order-access cookie value. The mint flow (C-17
-/// /guest-orders/verify) does not exist anywhere in origin/dev yet, so no cookie name or
-/// hashing algorithm is fixed by merged code. This reads the already-finalized
-/// GuestOrderAccessTokens schema directly (SHA-256 of the raw token) — see the implementation
-/// result report for the alignment risk this creates with haru's eventual SH-05 mint flow.
+/// Validates the raw token claim extracted from the protected GuestOrderAccess authentication
+/// ticket. Known target-order operations should use GuestOrderAccessScopeAuthorizer so rejected
+/// cross-order attempts also increment the violation counter and write the central audit event;
+/// this narrower adapter remains for resource-keyed Returns routes that must first resolve the
+/// token's own bound OrderId.
 /// </summary>
 public interface IGuestOrderAccessValidator
 {

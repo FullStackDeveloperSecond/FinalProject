@@ -1,6 +1,8 @@
 using DoSelect.Application.Auditing;
 using DoSelect.Application.Orders;
+using DoSelect.Application.Outbox;
 using DoSelect.Domain.Auditing;
+using DoSelect.Domain.Invoicing;
 using DoSelect.Domain.Orders;
 using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Auditing;
@@ -139,7 +141,8 @@ public sealed class EfGuestOrderAccessGatewayTests : IAsyncLifetime
 
         var created = await gateway.TryCreateRequestWithinRateLimitAsync(
             DefaultWindow(Hash(2), Hash(3), Hash(4), CreatedAtUtc.AddMinutes(-14)),
-            request);
+            request,
+            CreateNotification(requestPublicId, sendNumber: 1));
 
         Assert.True(created);
 
@@ -147,6 +150,8 @@ public sealed class EfGuestOrderAccessGatewayTests : IAsyncLifetime
         var persisted = await verifyContext.GuestOrderAccessRequests.SingleAsync();
         Assert.Equal(requestPublicId, persisted.PublicId);
         Assert.Equal(1, persisted.SendCount);
+        var outbox = await verifyContext.OutboxMessages.SingleAsync();
+        Assert.Equal(requestPublicId, outbox.AggregatePublicId);
     }
 
     [Fact]
@@ -173,12 +178,13 @@ public sealed class EfGuestOrderAccessGatewayTests : IAsyncLifetime
         };
 
         var created = await gateway.TryCreateRequestWithinRateLimitAsync(
-            window, newRequest);
+            window, newRequest, CreateNotification(newRequest.PublicId, sendNumber: 1));
 
         Assert.False(created);
 
         await using var verifyContext = CreateContext();
         Assert.Equal(1, await verifyContext.GuestOrderAccessRequests.CountAsync());
+        Assert.Empty(await verifyContext.OutboxMessages.ToListAsync());
     }
 
     [Fact]
@@ -206,7 +212,8 @@ public sealed class EfGuestOrderAccessGatewayTests : IAsyncLifetime
             request,
             rateLimitEvent,
             Hash(5),
-            sentAtUtc);
+            sentAtUtc,
+            CreateNotification(requestPublicId, sendNumber: 2));
 
         Assert.True(recorded);
 
@@ -214,6 +221,8 @@ public sealed class EfGuestOrderAccessGatewayTests : IAsyncLifetime
         var persistedRequest = await verifyContext.GuestOrderAccessRequests
             .SingleAsync(r => r.PublicId == requestPublicId);
         Assert.Equal(Hash(5), persistedRequest.CodeHash);
+        var outbox = await verifyContext.OutboxMessages.SingleAsync();
+        Assert.Equal(requestPublicId, outbox.AggregatePublicId);
         Assert.Equal(2, persistedRequest.SendCount);
         Assert.Null(persistedRequest.RevokedAtUtc);
 
@@ -253,7 +262,7 @@ public sealed class EfGuestOrderAccessGatewayTests : IAsyncLifetime
         };
 
         var recorded = await gateway.TryRecordResendWithinRateLimitAsync(
-            window, request, rateLimitEvent, Hash(5), sentAtUtc);
+            window, request, rateLimitEvent, Hash(5), sentAtUtc, notification: null);
 
         Assert.False(recorded);
 
@@ -291,13 +300,15 @@ public sealed class EfGuestOrderAccessGatewayTests : IAsyncLifetime
                 request,
                 duplicatePublicIdEvent,
                 Hash(5),
-                sentAtUtc));
+                sentAtUtc,
+                CreateNotification(requestPublicId, sendNumber: 2)));
 
         await using var verifyContext = CreateContext();
         var persistedRequest = await verifyContext.GuestOrderAccessRequests.SingleAsync();
         Assert.Equal(requestPublicId, persistedRequest.PublicId);
         Assert.Equal(Hash(1), persistedRequest.CodeHash);
         Assert.Equal(1, persistedRequest.SendCount);
+        Assert.Empty(await verifyContext.OutboxMessages.ToListAsync());
     }
 
     [Fact]
@@ -551,12 +562,14 @@ public sealed class EfGuestOrderAccessGatewayTests : IAsyncLifetime
     private async Task<long> SeedOrderAsync(Guid publicId, string orderNumber, string guestEmailNormalized)
     {
         await using var context = CreateContext();
-        var shippingProfileId = await SeedShippingProviderProfileAsync(context, orderNumber);
+        var (shippingProfileId, packageLimitId) =
+            await SeedShippingProviderProfileAsync(context, orderNumber);
         var order = Order.Create(
             publicId,
             ValidOrderCreation(orderNumber, guestEmailNormalized) with
             {
                 ShippingProviderProfileVersionId = shippingProfileId,
+                PackageSnapshot = TestPackageSnapshot(packageLimitId),
             },
             CreatedAtUtc);
         context.Orders.Add(order);
@@ -607,7 +620,8 @@ public sealed class EfGuestOrderAccessGatewayTests : IAsyncLifetime
     private async Task SeedMemberOrderAsync(string orderNumber)
     {
         await using var context = CreateContext();
-        var shippingProfileId = await SeedShippingProviderProfileAsync(context, orderNumber);
+        var (shippingProfileId, packageLimitId) =
+            await SeedShippingProviderProfileAsync(context, orderNumber);
         var member = ApplicationUser.CreateMember(Guid.CreateVersion7(), $"{orderNumber}@example.com", CreatedAtUtc);
         context.Users.Add(member);
         await context.SaveChangesAsync();
@@ -616,20 +630,26 @@ public sealed class EfGuestOrderAccessGatewayTests : IAsyncLifetime
         {
             MemberUserId = member.Id,
             ShippingProviderProfileVersionId = shippingProfileId,
+            PackageSnapshot = TestPackageSnapshot(packageLimitId),
         };
         var order = Order.Create(Guid.CreateVersion7(), creation, CreatedAtUtc);
         context.Orders.Add(order);
         await context.SaveChangesAsync();
     }
 
-    private static async Task<long> SeedShippingProviderProfileAsync(
+    private static async Task<(long ProfileId, long PackageLimitId)> SeedShippingProviderProfileAsync(
         DoSelectDbContext context, string discriminator)
     {
         var profile = new ShippingProviderProfile(
             Guid.CreateVersion7(), $"SHIP-{discriminator}", 1, "Active", null, null, "{}", 1, CreatedAtUtc);
         context.ShippingProviderProfiles.Add(profile);
         await context.SaveChangesAsync();
-        return profile.Id;
+        var packageLimit = new PackageLimitVersion(
+            Guid.CreateVersion7(), profile.Id, 1, 30m, 150m, 100m, 100m, 250m, 50_000m,
+            null, null, CreatedAtUtc);
+        context.PackageLimitVersions.Add(packageLimit);
+        await context.SaveChangesAsync();
+        return (profile.Id, packageLimit.Id);
     }
 
     private static OrderCreation ValidOrderCreation(string orderNumber, string? guestEmailNormalized) =>
@@ -664,7 +684,42 @@ public sealed class EfGuestOrderAccessGatewayTests : IAsyncLifetime
             null,
             CreatedAtUtc.AddDays(3),
             $"checkout-{orderNumber}",
-            null);
+            null,
+            1,
+            1,
+            new OrderInvoicePreference(
+                SimulatedInvoiceBuyerType.Individual,
+                "guest@example.com",
+                null,
+                null,
+                null,
+                null),
+            null,
+            null,
+            TestPackageSnapshot(1));
+
+    private static OrderPackageSnapshot TestPackageSnapshot(long packageLimitId) =>
+        new(packageLimitId, 1m, 40m, 30m, 20m, 90m, 1_200m);
+
+    private static OutboxWriteRequest CreateNotification(Guid requestPublicId, int sendNumber)
+    {
+        var notificationPublicId = Guid.CreateVersion7();
+        return OutboxWriteRequest.Create(
+            notificationPublicId,
+            GuestOrderAccessNotificationContract.ResourceType,
+            requestPublicId,
+            new EmailNotificationRequestedV1(
+                notificationPublicId,
+                GuestOrderAccessNotificationContract.TemplateKey,
+                GuestOrderAccessNotificationContract.RecipientPurpose,
+                GuestOrderAccessNotificationContract.ResourceType,
+                requestPublicId,
+                GuestOrderAccessNotificationContract.Locale,
+                sendNumber),
+            CreatedAtUtc,
+            CreatedAtUtc,
+            requestPublicId.ToString("N"));
+    }
 
     private static byte[] Hash(byte fill) => Enumerable.Repeat(fill, 32).ToArray();
 

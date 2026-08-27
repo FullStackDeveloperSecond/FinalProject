@@ -38,6 +38,23 @@ public sealed class GuestOrderAccessHasher : IGuestOrderAccessHasher
 
     public byte[] HashCode(string sixDigitCode) => Hash("code", sixDigitCode.Trim());
 
+    public string DeriveVerificationCode(Guid requestPublicId, int sendNumber)
+    {
+        if (requestPublicId == Guid.Empty)
+        {
+            throw new ArgumentException("Request PublicId is required.", nameof(requestPublicId));
+        }
+
+        if (sendNumber <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(sendNumber));
+        }
+
+        var digest = Hash("verification-code", $"{requestPublicId:N}:{sendNumber}");
+        var value = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(digest);
+        return (value % 1_000_000).ToString("D6", System.Globalization.CultureInfo.InvariantCulture);
+    }
+
     public byte[] HashToken(string rawToken) => Hash("token", rawToken.Trim());
 
     private byte[] Hash(string scope, string value) =>
