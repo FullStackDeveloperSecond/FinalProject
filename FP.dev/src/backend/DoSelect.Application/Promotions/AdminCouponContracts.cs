@@ -275,7 +275,8 @@ public static class AdminCouponQueryValidator
                 "A fixed-amount or percentage coupon requires a positive discountValue.");
         }
 
-        // 限定範圍卻沒有任何適用分類或商品，等於一張永遠算不出折扣的券。
+        // 最終Schema「範圍規則」：`ScopeType=Restricted` 至少需一筆分類或商品。
+        // 限定範圍卻沒有任何適用項目，等於一張永遠算不出折扣的券。
         if (scopeType == CouponScopeType.Restricted &&
             (categoryPublicIds is null or { Count: 0 }) &&
             (productPublicIds is null or { Count: 0 }))
@@ -284,9 +285,33 @@ public static class AdminCouponQueryValidator
                 "A restricted coupon requires at least one category or product.");
         }
 
+        // 最終Schema「範圍規則」：`ScopeType=All` 不建立包含範圍。
+        // 這不只是資料整潔問題 —— CouponCalculator 在 All 模式直接視為全部適用，
+        // 完全不看包含集合。存進去會讓 API 回一份實際上不生效的設定。
+        if (scopeType == CouponScopeType.All &&
+            (categoryPublicIds is { Count: > 0 } || productPublicIds is { Count: > 0 }))
+        {
+            throw DomainProblemException.Validation(
+                "A coupon scoped to All cannot carry included categories or products.");
+        }
+
         RequireScopeListIsSane(categoryPublicIds, "categoryPublicIds");
         RequireScopeListIsSane(productPublicIds, "productPublicIds");
         RequireScopeListIsSane(excludedProductPublicIds, "excludedProductPublicIds");
+
+        // 最終Schema「範圍規則」：同商品不得同時存在 CouponProducts 與
+        // CouponExcludedProducts。規則另定「排除商品優先」，所以這種設定不會壞掉，
+        // 但它表達的是兩個相反的意圖，管理員多半是誤設；靜默讓排除勝出等於
+        // 幫他選了一邊。
+        if (productPublicIds is { Count: > 0 } && excludedProductPublicIds is { Count: > 0 })
+        {
+            var overlapping = productPublicIds.Intersect(excludedProductPublicIds).ToArray();
+            if (overlapping.Length > 0)
+            {
+                throw DomainProblemException.Validation(
+                    "A product cannot be both included and excluded by the same coupon.");
+            }
+        }
     }
 
     private static void RequireScopeListIsSane(IReadOnlyList<Guid>? publicIds, string field)

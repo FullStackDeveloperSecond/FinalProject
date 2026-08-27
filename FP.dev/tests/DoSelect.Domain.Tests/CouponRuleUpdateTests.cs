@@ -22,7 +22,7 @@ public sealed class CouponRuleUpdateTests
         var coupon = CreateCoupon();
         var before = coupon.RuleVersion;
 
-        var change = coupon.UpdateRules(RevisionOf(coupon), hasRedemptions: false, InsidePeriod);
+        var change = coupon.UpdateRules(RevisionOf(coupon), hasRedemptions: false, scopeChanged: false, InsidePeriod);
 
         Assert.False(change.HasChanges);
         Assert.False(change.RuleVersionAdvanced);
@@ -41,6 +41,7 @@ public sealed class CouponRuleUpdateTests
         var change = coupon.UpdateRules(
             RevisionOf(coupon) with { DiscountValue = 500m },
             hasRedemptions: false,
+            scopeChanged: false,
             InsidePeriod);
 
         Assert.True(change.RuleVersionAdvanced);
@@ -60,6 +61,7 @@ public sealed class CouponRuleUpdateTests
         var change = coupon.UpdateRules(
             RevisionOf(coupon) with { NameZhTw = "新會員（改名）" },
             hasRedemptions: false,
+            scopeChanged: false,
             InsidePeriod);
 
         Assert.True(change.HasChanges);
@@ -82,10 +84,83 @@ public sealed class CouponRuleUpdateTests
                 PerMemberLimit = 2,
             },
             hasRedemptions: false,
+            scopeChanged: false,
             InsidePeriod);
 
         Assert.Equal(before + 1, coupon.RuleVersion);
         Assert.Equal(3, change.ChangedFields.Count);
+    }
+
+    [Fact]
+    public void AScopeOnlyChangeAdvancesTheRuleVersion()
+    {
+        // 適用範圍是計算的一部分。若「只改範圍」被判定成沒有任何變動，
+        // Entity 不會被修改，EF 也就不會對 Coupons 發出 UPDATE ——
+        // 呼叫端的 RowVersion 因此從未被比對。
+        var coupon = CreateCoupon();
+        var before = coupon.RuleVersion;
+        var updatedBefore = coupon.UpdatedAtUtc;
+
+        var change = coupon.UpdateRules(
+            RevisionOf(coupon),
+            hasRedemptions: false,
+            scopeChanged: true,
+            InsidePeriod);
+
+        Assert.True(change.HasChanges);
+        Assert.True(change.RuleVersionAdvanced);
+        Assert.Equal(before + 1, coupon.RuleVersion);
+        Assert.Equal([Coupon.ScopeFieldName], change.ChangedFields);
+        Assert.NotEqual(updatedBefore, coupon.UpdatedAtUtc);
+    }
+
+    [Fact]
+    public void AScopeChangeAlongsideRuleChangesStillAdvancesTheVersionOnce()
+    {
+        var coupon = CreateCoupon();
+        var before = coupon.RuleVersion;
+
+        var change = coupon.UpdateRules(
+            RevisionOf(coupon) with { MinimumSpend = 4000m },
+            hasRedemptions: false,
+            scopeChanged: true,
+            InsidePeriod);
+
+        Assert.Equal(before + 1, coupon.RuleVersion);
+        Assert.Equal(2, change.ChangedFields.Count);
+        Assert.Contains(nameof(Coupon.MinimumSpend), change.ChangedFields);
+        Assert.Contains(Coupon.ScopeFieldName, change.ChangedFields);
+    }
+
+    [Fact]
+    public void AScopeChangeIsRecordedSeparatelyFromTheScopeType()
+    {
+        // ScopeType 與三個集合是兩件事：All → Restricted 會同時改變兩者，
+        // 但只換分類時 ScopeType 不動，changedFields 仍必須看得到範圍變了。
+        var coupon = CreateCoupon();
+
+        var change = coupon.UpdateRules(
+            RevisionOf(coupon) with { ScopeType = CouponScopeType.Restricted },
+            hasRedemptions: false,
+            scopeChanged: true,
+            InsidePeriod);
+
+        Assert.Contains(nameof(Coupon.ScopeType), change.ChangedFields);
+        Assert.Contains(Coupon.ScopeFieldName, change.ChangedFields);
+    }
+
+    [Fact]
+    public void AScopeOnlyChangeIsStillBlockedOnATerminalCoupon()
+    {
+        var coupon = CreateCoupon();
+        coupon.Disable(InsidePeriod);
+
+        Assert.Throws<InvalidOperationException>(
+            () => coupon.UpdateRules(
+                RevisionOf(coupon),
+                hasRedemptions: false,
+                scopeChanged: true,
+                InsidePeriod));
     }
 
     [Fact]
@@ -98,6 +173,7 @@ public sealed class CouponRuleUpdateTests
             () => coupon.UpdateRules(
                 RevisionOf(coupon) with { Code = "WELCOME500" },
                 hasRedemptions: true,
+                scopeChanged: false,
                 InsidePeriod));
 
         Assert.Contains("frozen", exception.Message, StringComparison.OrdinalIgnoreCase);
@@ -112,6 +188,7 @@ public sealed class CouponRuleUpdateTests
         var change = coupon.UpdateRules(
             RevisionOf(coupon) with { Code = "WELCOME500" },
             hasRedemptions: false,
+            scopeChanged: false,
             InsidePeriod);
 
         Assert.Equal("WELCOME500", coupon.Code);
@@ -128,6 +205,7 @@ public sealed class CouponRuleUpdateTests
         var change = coupon.UpdateRules(
             RevisionOf(coupon) with { MinimumSpend = 4000m },
             hasRedemptions: true,
+            scopeChanged: false,
             InsidePeriod);
 
         Assert.Equal("WELCOME300", coupon.Code);
@@ -143,6 +221,7 @@ public sealed class CouponRuleUpdateTests
         var change = coupon.UpdateRules(
             RevisionOf(coupon) with { Code = "  welcome300  " },
             hasRedemptions: true,
+            scopeChanged: false,
             InsidePeriod);
 
         Assert.False(change.HasChanges);
@@ -172,6 +251,7 @@ public sealed class CouponRuleUpdateTests
             () => coupon.UpdateRules(
                 RevisionOf(coupon) with { MinimumSpend = 1m },
                 hasRedemptions: false,
+                scopeChanged: false,
                 InsidePeriod));
     }
 
@@ -189,6 +269,7 @@ public sealed class CouponRuleUpdateTests
         var change = coupon.UpdateRules(
             RevisionOf(coupon) with { NameZhTw = "改名" },
             hasRedemptions: false,
+            scopeChanged: false,
             InsidePeriod);
 
         Assert.True(change.HasChanges);
@@ -205,6 +286,7 @@ public sealed class CouponRuleUpdateTests
         coupon.UpdateRules(
             RevisionOf(coupon) with { EndsAtUtc = InsidePeriod.AddMinutes(-1) },
             hasRedemptions: false,
+            scopeChanged: false,
             InsidePeriod);
 
         Assert.Equal(CouponStatus.Active, coupon.Status);
@@ -219,6 +301,7 @@ public sealed class CouponRuleUpdateTests
             () => coupon.UpdateRules(
                 RevisionOf(coupon) with { EndsAtUtc = StartsAtUtc },
                 hasRedemptions: false,
+                scopeChanged: false,
                 InsidePeriod));
     }
 
@@ -233,6 +316,7 @@ public sealed class CouponRuleUpdateTests
             () => coupon.UpdateRules(
                 RevisionOf(coupon) with { TotalUsageLimit = limit },
                 hasRedemptions: false,
+                scopeChanged: false,
                 InsidePeriod));
     }
 
@@ -250,6 +334,7 @@ public sealed class CouponRuleUpdateTests
                     DiscountValue = 10m,
                 },
                 hasRedemptions: false,
+                scopeChanged: false,
                 InsidePeriod));
     }
 
@@ -262,6 +347,7 @@ public sealed class CouponRuleUpdateTests
             () => coupon.UpdateRules(
                 RevisionOf(coupon) with { MinimumSpend = -1m },
                 hasRedemptions: false,
+                scopeChanged: false,
                 InsidePeriod));
     }
 
@@ -277,6 +363,7 @@ public sealed class CouponRuleUpdateTests
             () => coupon.UpdateRules(
                 RevisionOf(coupon) with { NameZhTw = "改名", MinimumSpend = -1m },
                 hasRedemptions: false,
+                scopeChanged: false,
                 InsidePeriod));
 
         Assert.Equal(name, coupon.NameZhTw);
@@ -292,6 +379,7 @@ public sealed class CouponRuleUpdateTests
             () => coupon.UpdateRules(
                 RevisionOf(coupon),
                 hasRedemptions: false,
+                scopeChanged: false,
                 new DateTime(2026, 8, 21, 0, 0, 0, DateTimeKind.Local)));
     }
 
@@ -306,6 +394,7 @@ public sealed class CouponRuleUpdateTests
         coupon.UpdateRules(
             RevisionOf(coupon) with { MaximumDiscount = 2000m },
             hasRedemptions: false,
+            scopeChanged: false,
             InsidePeriod);
 
         Assert.True(coupon.HasCompleteDiscountRule);

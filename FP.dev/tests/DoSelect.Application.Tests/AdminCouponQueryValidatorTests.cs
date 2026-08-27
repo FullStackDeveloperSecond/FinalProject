@@ -157,6 +157,76 @@ public sealed class AdminCouponQueryValidatorTests
             categoryPublicIds: [Guid.NewGuid()]);
 
     [Fact]
+    public void AnAllScopeCouponCannotCarryIncludedCategories()
+    {
+        // 最終Schema「範圍規則」：ScopeType=All 不建立包含範圍。
+        // CouponCalculator 在 All 模式直接視為全部適用，完全不看包含集合 ——
+        // 存進去等於讓 API 回一份實際上不生效的設定。
+        var exception = Assert.Throws<DomainProblemException>(
+            () => RequireValidRule(
+                CouponDiscountType.FixedAmount,
+                300m,
+                null,
+                CouponScopeType.All,
+                categoryPublicIds: [Guid.NewGuid()]));
+
+        Assert.Equal(400, exception.StatusCode);
+    }
+
+    [Fact]
+    public void AnAllScopeCouponCannotCarryIncludedProducts() =>
+        Assert.Throws<DomainProblemException>(
+            () => RequireValidRule(
+                CouponDiscountType.FixedAmount,
+                300m,
+                null,
+                CouponScopeType.All,
+                productPublicIds: [Guid.NewGuid()]));
+
+    [Fact]
+    public void AProductCannotBeBothIncludedAndExcluded()
+    {
+        // 最終Schema「範圍規則」：同商品不得同時存在 CouponProducts 與
+        // CouponExcludedProducts。另一條規則說「排除商品優先」，所以這不會壞掉 ——
+        // 但那兩個設定表達相反的意圖，靜默讓排除勝出等於幫管理員選了一邊。
+        var product = Guid.NewGuid();
+
+        var exception = Assert.Throws<DomainProblemException>(
+            () => RequireValidRule(
+                CouponDiscountType.FixedAmount,
+                300m,
+                null,
+                CouponScopeType.Restricted,
+                productPublicIds: [product],
+                excludedProductPublicIds: [product]));
+
+        Assert.Equal(400, exception.StatusCode);
+    }
+
+    [Fact]
+    public void AnOverlapIsDetectedEvenWhenOtherEntriesDiffer() =>
+        Assert.Throws<DomainProblemException>(
+            () => RequireValidRule(
+                CouponDiscountType.FixedAmount,
+                300m,
+                null,
+                CouponScopeType.Restricted,
+                productPublicIds: [Guid.NewGuid(), SharedProduct, Guid.NewGuid()],
+                excludedProductPublicIds: [Guid.NewGuid(), SharedProduct]));
+
+    [Fact]
+    public void DisjointIncludeAndExcludeListsAreAccepted() =>
+        RequireValidRule(
+            CouponDiscountType.FixedAmount,
+            300m,
+            null,
+            CouponScopeType.Restricted,
+            productPublicIds: [Guid.NewGuid()],
+            excludedProductPublicIds: [Guid.NewGuid()]);
+
+    private static readonly Guid SharedProduct = Guid.NewGuid();
+
+    [Fact]
     public void AnAllScopeCouponMayStillCarryExclusions() =>
         // 全站券也可以排除特定商品，這是既有 Reader 的行為。
         RequireValidRule(

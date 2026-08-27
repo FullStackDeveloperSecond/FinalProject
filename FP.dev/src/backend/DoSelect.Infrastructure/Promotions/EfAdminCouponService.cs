@@ -1,8 +1,10 @@
+using System.Data;
 using DoSelect.Application.Common;
 using DoSelect.Application.Promotions;
 using DoSelect.Domain.Promotions;
 using DoSelect.Infrastructure.Catalog;
 using DoSelect.Infrastructure.Persistence;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
 namespace DoSelect.Infrastructure.Promotions;
@@ -19,6 +21,8 @@ namespace DoSelect.Infrastructure.Promotions;
 public sealed class EfAdminCouponService : IAdminCouponService
 {
     private const string CouponCodeIndexName = "UX_Coupons_Code";
+    private const int DeadlockVictimErrorNumber = 1205;
+    private const int MaximumDeadlockRetries = 1;
 
     private readonly DoSelectDbContext _context;
     private readonly TimeProvider _timeProvider;
@@ -112,73 +116,73 @@ public sealed class EfAdminCouponService : IAdminCouponService
             request.ProductPublicIds,
             request.ExcludedProductPublicIds);
 
-        var now = _timeProvider.GetUtcNow().UtcDateTime;
-        var categoryIds = await ResolveCategoryIdsAsync(request.CategoryPublicIds, cancellationToken);
-        var productIds = await ResolveProductIdsAsync(request.ProductPublicIds, cancellationToken);
-        var excludedProductIds =
-            await ResolveProductIdsAsync(request.ExcludedProductPublicIds, cancellationToken);
-
-        Coupon coupon;
-        try
-        {
-            coupon = new Coupon(
-                Guid.NewGuid(),
-                new CouponCreation(
-                    request.Code,
-                    request.NameZhTw,
-                    request.DiscountType,
-                    request.DiscountValue,
-                    request.MinimumSpend,
-                    request.MaximumDiscount,
-                    RequireUtc(request.StartsAtUtc, "startsAtUtc"),
-                    RequireUtc(request.EndsAtUtc, "endsAtUtc"),
-                    request.TotalUsageLimit,
-                    request.PerMemberLimit,
-                    request.MemberOnly,
-                    request.ExcludeSaleItems,
-                    request.ScopeType),
-                now);
-        }
-        catch (ArgumentException exception)
-        {
-            throw DomainProblemException.Validation(exception.Message);
-        }
-
-        // 先查一次是為了在正常情況給出明確的 409；真正的保證是 UX_Coupons_Code，
-        // 兩個並行建立都可能通過這個 SELECT，輸的那個由下方的唯一索引接住。
-        var normalizedCode = coupon.Code;
-        if (await _context.Coupons.AnyAsync(
-                candidate => candidate.Code == normalizedCode, cancellationToken))
-        {
-            throw DuplicateCode(normalizedCode);
-        }
-
-        await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
-        try
-        {
-            _context.Coupons.Add(coupon);
-            await _context.SaveChangesAsync(cancellationToken);
-
-            AddScope(coupon.Id, categoryIds, productIds, excludedProductIds, now);
-            await _context.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
-        }
-        catch (Exception exception)
-        {
-            await transaction.RollbackAsync(cancellationToken);
-
-            // 只翻譯 UX_Coupons_Code；其他唯一索引或連線失敗照原樣往上拋，
-            // 不能被誤標成優惠碼重複。
-            if (exception is DbUpdateException dbUpdateException &&
-                SqlUniqueIndexViolations.Matches(dbUpdateException, CouponCodeIndexName))
+        // 最終Schema「範圍規則」：驗證與寫入需於同一 Transaction 完成。
+        // 範圍解析（PublicId → 內部主鍵）也是驗證的一部分，因此一併納入。
+        var publicIdForReload = await InSerializableTransactionAsync(
+            async token =>
             {
-                throw DuplicateCode(normalizedCode);
-            }
+                var now = _timeProvider.GetUtcNow().UtcDateTime;
+                var categoryIds = await ResolveCategoryIdsAsync(request.CategoryPublicIds, token);
+                var productIds = await ResolveProductIdsAsync(request.ProductPublicIds, token);
+                var excludedProductIds =
+                    await ResolveProductIdsAsync(request.ExcludedProductPublicIds, token);
 
-            throw;
-        }
+                Coupon coupon;
+                try
+                {
+                    coupon = new Coupon(
+                        Guid.NewGuid(),
+                        new CouponCreation(
+                            request.Code,
+                            request.NameZhTw,
+                            request.DiscountType,
+                            request.DiscountValue,
+                            request.MinimumSpend,
+                            request.MaximumDiscount,
+                            RequireUtc(request.StartsAtUtc, "startsAtUtc"),
+                            RequireUtc(request.EndsAtUtc, "endsAtUtc"),
+                            request.TotalUsageLimit,
+                            request.PerMemberLimit,
+                            request.MemberOnly,
+                            request.ExcludeSaleItems,
+                            request.ScopeType),
+                        now);
+                }
+                catch (ArgumentException exception)
+                {
+                    throw DomainProblemException.Validation(exception.Message);
+                }
 
-        return (await FindByPublicIdAsync(coupon.PublicId, cancellationToken))!;
+                // 先查一次是為了在正常情況給出明確的 409；真正的保證仍是
+                // UX_Coupons_Code，唯一索引違反在下面被翻譯成同一個錯誤碼。
+                var normalizedCode = coupon.Code;
+                if (await _context.Coupons.AnyAsync(
+                        candidate => candidate.Code == normalizedCode, token))
+                {
+                    throw DuplicateCode(normalizedCode);
+                }
+
+                try
+                {
+                    _context.Coupons.Add(coupon);
+                    await _context.SaveChangesAsync(token);
+
+                    AddScope(coupon.Id, categoryIds, productIds, excludedProductIds, now);
+                    await _context.SaveChangesAsync(token);
+                }
+                // 只翻譯 UX_Coupons_Code；其他唯一索引或連線失敗照原樣往上拋，
+                // 不能被誤標成優惠碼重複。
+                catch (DbUpdateException exception)
+                    when (SqlUniqueIndexViolations.Matches(exception, CouponCodeIndexName))
+                {
+                    throw DuplicateCode(normalizedCode);
+                }
+
+                return coupon.PublicId;
+            },
+            cancellationToken);
+
+        return (await FindByPublicIdAsync(publicIdForReload, cancellationToken))!;
     }
 
     public async Task<CouponDto> UpdateAsync(
@@ -196,56 +200,77 @@ public sealed class EfAdminCouponService : IAdminCouponService
             request.ProductPublicIds,
             request.ExcludedProductPublicIds);
 
-        var coupon = await _context.Coupons
-            .SingleOrDefaultAsync(candidate => candidate.PublicId == publicId, cancellationToken)
-            ?? throw DomainProblemException.NotFound($"Coupon '{publicId}' was not found.");
+        var publicIdForReload = await InSerializableTransactionAsync(
+            async token =>
+            {
+                var coupon = await _context.Coupons
+                    .SingleOrDefaultAsync(candidate => candidate.PublicId == publicId, token)
+                    ?? throw DomainProblemException.NotFound($"Coupon '{publicId}' was not found.");
 
-        var now = _timeProvider.GetUtcNow().UtcDateTime;
-        var hasRedemptions = await _context.CouponRedemptions
-            .AnyAsync(redemption => redemption.CouponId == coupon.Id, cancellationToken);
+                RequireCurrentRowVersion(request.RowVersion, coupon.RowVersion);
 
-        var categoryIds = await ResolveCategoryIdsAsync(request.CategoryPublicIds, cancellationToken);
-        var productIds = await ResolveProductIdsAsync(request.ProductPublicIds, cancellationToken);
-        var excludedProductIds =
-            await ResolveProductIdsAsync(request.ExcludedProductPublicIds, cancellationToken);
+                var now = _timeProvider.GetUtcNow().UtcDateTime;
 
-        _context.Entry(coupon).Property(entity => entity.RowVersion).OriginalValue =
-            request.RowVersion;
+                // 這一筆讀取必須與寫入同交易。`Coupon` 的 RowVersion 攔不到它 ——
+                // Checkout 新增 CouponRedemption 不會動到 Coupons 那一列，所以在
+                // ReadCommitted 下「查完沒有 Redemption」到「寫入新 Code」之間
+                // 插進來的一筆保留，會讓已凍結的優惠碼被改掉。
+                var hasRedemptions = await _context.CouponRedemptions
+                    .AnyAsync(redemption => redemption.CouponId == coupon.Id, token);
 
-        try
-        {
-            coupon.UpdateRules(
-                new CouponRuleRevision(
-                    request.Code,
-                    request.NameZhTw,
-                    request.DiscountType,
-                    request.DiscountValue,
-                    request.MinimumSpend,
-                    request.MaximumDiscount,
-                    RequireUtc(request.StartsAtUtc, "startsAtUtc"),
-                    RequireUtc(request.EndsAtUtc, "endsAtUtc"),
-                    request.TotalUsageLimit,
-                    request.PerMemberLimit,
-                    request.MemberOnly,
-                    request.ExcludeSaleItems,
-                    request.ScopeType),
-                hasRedemptions,
-                now);
-        }
-        catch (InvalidOperationException exception)
-        {
-            throw StateConflict(exception.Message);
-        }
-        catch (ArgumentException exception)
-        {
-            throw DomainProblemException.Validation(exception.Message);
-        }
+                var categoryIds = await ResolveCategoryIdsAsync(request.CategoryPublicIds, token);
+                var productIds = await ResolveProductIdsAsync(request.ProductPublicIds, token);
+                var excludedProductIds =
+                    await ResolveProductIdsAsync(request.ExcludedProductPublicIds, token);
 
-        await ReplaceScopeAsync(
-            coupon.Id, categoryIds, productIds, excludedProductIds, now, cancellationToken);
+                var scopeChanged = await ScopeDiffersAsync(
+                    coupon.Id, categoryIds, productIds, excludedProductIds, token);
 
-        await SaveWithConflictMappingAsync(coupon.Code, cancellationToken);
-        return (await FindByPublicIdAsync(coupon.PublicId, cancellationToken))!;
+                _context.Entry(coupon).Property(entity => entity.RowVersion).OriginalValue =
+                    request.RowVersion;
+
+                try
+                {
+                    coupon.UpdateRules(
+                        new CouponRuleRevision(
+                            request.Code,
+                            request.NameZhTw,
+                            request.DiscountType,
+                            request.DiscountValue,
+                            request.MinimumSpend,
+                            request.MaximumDiscount,
+                            RequireUtc(request.StartsAtUtc, "startsAtUtc"),
+                            RequireUtc(request.EndsAtUtc, "endsAtUtc"),
+                            request.TotalUsageLimit,
+                            request.PerMemberLimit,
+                            request.MemberOnly,
+                            request.ExcludeSaleItems,
+                            request.ScopeType),
+                        hasRedemptions,
+                        scopeChanged,
+                        now);
+                }
+                catch (InvalidOperationException exception)
+                {
+                    throw StateConflict(exception.Message);
+                }
+                catch (ArgumentException exception)
+                {
+                    throw DomainProblemException.Validation(exception.Message);
+                }
+
+                if (scopeChanged)
+                {
+                    await ReplaceScopeAsync(
+                        coupon.Id, categoryIds, productIds, excludedProductIds, now, token);
+                }
+
+                await SaveWithConflictMappingAsync(coupon.Code, token);
+                return coupon.PublicId;
+            },
+            cancellationToken);
+
+        return (await FindByPublicIdAsync(publicIdForReload, cancellationToken))!;
     }
 
     /// <summary>
@@ -273,38 +298,47 @@ public sealed class EfAdminCouponService : IAdminCouponService
             throw DomainProblemException.NotFound($"Action '{action}' is not supported.");
         }
 
-        var coupon = await _context.Coupons
-            .SingleOrDefaultAsync(candidate => candidate.PublicId == publicId, cancellationToken)
-            ?? throw DomainProblemException.NotFound($"Coupon '{publicId}' was not found.");
-
-        var now = _timeProvider.GetUtcNow().UtcDateTime;
-        _context.Entry(coupon).Property(entity => entity.RowVersion).OriginalValue =
-            request.RowVersion;
-
-        try
-        {
-            switch (action.Trim())
+        var publicIdForReload = await InSerializableTransactionAsync(
+            async token =>
             {
-                case AdminCouponActions.Activate:
-                    await ActivateAsync(coupon, now, cancellationToken);
-                    break;
-                case AdminCouponActions.Pause:
-                    coupon.Pause(now);
-                    break;
-                case AdminCouponActions.Disable:
-                    coupon.Disable(now);
-                    break;
-                default:
-                    throw new ArgumentOutOfRangeException(nameof(action));
-            }
-        }
-        catch (InvalidOperationException exception)
-        {
-            throw StateConflict(exception.Message);
-        }
+                var coupon = await _context.Coupons
+                    .SingleOrDefaultAsync(candidate => candidate.PublicId == publicId, token)
+                    ?? throw DomainProblemException.NotFound($"Coupon '{publicId}' was not found.");
 
-        await SaveWithConflictMappingAsync(coupon.Code, cancellationToken);
-        return (await FindByPublicIdAsync(coupon.PublicId, cancellationToken))!;
+                RequireCurrentRowVersion(request.RowVersion, coupon.RowVersion);
+
+                var now = _timeProvider.GetUtcNow().UtcDateTime;
+                _context.Entry(coupon).Property(entity => entity.RowVersion).OriginalValue =
+                    request.RowVersion;
+
+                try
+                {
+                    switch (action.Trim())
+                    {
+                        case AdminCouponActions.Activate:
+                            await ActivateAsync(coupon, now, token);
+                            break;
+                        case AdminCouponActions.Pause:
+                            coupon.Pause(now);
+                            break;
+                        case AdminCouponActions.Disable:
+                            coupon.Disable(now);
+                            break;
+                        default:
+                            throw new ArgumentOutOfRangeException(nameof(action));
+                    }
+                }
+                catch (InvalidOperationException exception)
+                {
+                    throw StateConflict(exception.Message);
+                }
+
+                await SaveWithConflictMappingAsync(coupon.Code, token);
+                return coupon.PublicId;
+            },
+            cancellationToken);
+
+        return (await FindByPublicIdAsync(publicIdForReload, cancellationToken))!;
     }
 
     /// <summary>
@@ -588,6 +622,118 @@ public sealed class EfAdminCouponService : IAdminCouponService
         {
             throw DuplicateCode(code);
         }
+    }
+
+    /// <summary>
+    /// 在一個 <see cref="IsolationLevel.Serializable"/> 交易內執行 <paramref name="work"/>，
+    /// 死結受害者重跑一次。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 最終Schema「範圍規則」要求「驗證與寫入需於同一 Transaction 完成」。Serializable
+    /// 是必要的而非保守：`hasRedemptions` 與名額計數都是**範圍查詢**，在
+    /// <see cref="IsolationLevel.ReadCommitted"/> 下沒有任何防護，讀完之後仍可能被
+    /// 插入新的 <c>CouponRedemption</c>。而新增 Redemption 不會更新 <c>Coupons</c>
+    /// 那一列，所以 Coupon 的 RowVersion 攔不到這個競爭。
+    /// </para>
+    /// <para>
+    /// 只重試 SQL Server 死結（1205）。<see cref="DbUpdateConcurrencyException"/>
+    /// **不重試** —— 那代表呼叫端持有的 RowVersion 已經過期，重跑只會再失敗一次，
+    /// 正確行為是回 <c>concurrency_conflict</c> 讓對方重新載入。
+    /// </para>
+    /// </remarks>
+    private async Task<T> InSerializableTransactionAsync<T>(
+        Func<CancellationToken, Task<T>> work,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            await using var transaction = await _context.Database.BeginTransactionAsync(
+                IsolationLevel.Serializable,
+                cancellationToken);
+
+            try
+            {
+                var result = await work(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+                return result;
+            }
+            catch (Exception exception)
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+
+                if (attempt >= MaximumDeadlockRetries || !IsDeadlockVictim(exception))
+                {
+                    throw;
+                }
+
+                // 重跑前必須丟掉追蹤狀態，否則第二次會沿用上一輪已被回滾的修改。
+                _context.ChangeTracker.Clear();
+            }
+        }
+    }
+
+    private static bool IsDeadlockVictim(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is SqlException { Number: DeadlockVictimErrorNumber })
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// 比對呼叫端持有的版本與資料庫目前版本。
+    /// </summary>
+    /// <remarks>
+    /// EF 的 <c>OriginalValue</c> 只在該實體真的被修改、實際發出 UPDATE 時才會比對。
+    /// 一次「只改適用範圍」或完全沒有變動的請求不會修改 <c>Coupons</c> 那一列，
+    /// 樂觀鎖因此**從未執行**。這個前置檢查讓過期版本在任何情況下都被擋下。
+    /// </remarks>
+    private static void RequireCurrentRowVersion(byte[]? presented, byte[]? current)
+    {
+        if (presented is null || current is null ||
+            !presented.AsSpan().SequenceEqual(current))
+        {
+            throw DomainProblemException.Conflict(
+                DomainErrorCodes.ConcurrencyConflict,
+                "The coupon was updated by someone else. Reload and try again.");
+        }
+    }
+
+    /// <summary>
+    /// 三個範圍集合是否與資料庫目前保存的不同（集合語意，與順序無關）。
+    /// </summary>
+    private async Task<bool> ScopeDiffersAsync(
+        long couponId,
+        IReadOnlyList<long> categoryIds,
+        IReadOnlyList<long> productIds,
+        IReadOnlyList<long> excludedProductIds,
+        CancellationToken cancellationToken)
+    {
+        var currentCategoryIds = await _context.CouponCategories
+            .AsNoTracking()
+            .Where(link => link.CouponId == couponId)
+            .Select(link => link.CategoryId)
+            .ToArrayAsync(cancellationToken);
+        var currentProductIds = await _context.CouponProducts
+            .AsNoTracking()
+            .Where(link => link.CouponId == couponId)
+            .Select(link => link.ProductId)
+            .ToArrayAsync(cancellationToken);
+        var currentExcludedProductIds = await _context.CouponExcludedProducts
+            .AsNoTracking()
+            .Where(link => link.CouponId == couponId)
+            .Select(link => link.ProductId)
+            .ToArrayAsync(cancellationToken);
+
+        return !currentCategoryIds.ToHashSet().SetEquals(categoryIds) ||
+            !currentProductIds.ToHashSet().SetEquals(productIds) ||
+            !currentExcludedProductIds.ToHashSet().SetEquals(excludedProductIds);
     }
 
     private static DateTime RequireUtc(DateTime value, string field) =>

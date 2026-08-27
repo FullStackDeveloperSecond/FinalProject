@@ -259,6 +259,194 @@ public sealed class AdminCouponServiceSqlServerTests
     }
 
     [AdminCouponSqlFact]
+    public async Task AScopeOnlyUpdateAdvancesTheVersionInTheDatabase()
+    {
+        // 只換適用商品、ScopeType 不變。修好之前這條更新不會修改 Coupons 那一列，
+        // RuleVersion 與 RowVersion 都不動。
+        await using var context = AdminCouponSqlFixture.CreateContext();
+        var (_, product, other) = await SeedCatalogAsync(context);
+        var created = await CreateService(context).CreateAsync(
+            CreateRequest(UniqueCode()) with
+            {
+                ScopeType = CouponScopeType.Restricted,
+                ProductPublicIds = [product],
+            });
+
+        await using var update = AdminCouponSqlFixture.CreateContext();
+        var updated = await CreateService(update).UpdateAsync(
+            created.PublicId,
+            UpdateRequest(created) with { ProductPublicIds = [other] });
+
+        Assert.Equal(created.RuleVersion + 1, updated.RuleVersion);
+        Assert.NotEqual(created.RowVersion, updated.RowVersion);
+        Assert.Equal([other], updated.Scope.ProductPublicIds);
+    }
+
+    [AdminCouponSqlFact]
+    public async Task AStaleScopeOnlyUpdateIsRejected()
+    {
+        // 這是上面那條缺陷的實際後果：拿過期版本做純範圍修改會覆蓋別人的變更。
+        await using var context = AdminCouponSqlFixture.CreateContext();
+        var (category, product, other) = await SeedCatalogAsync(context);
+        var created = await CreateService(context).CreateAsync(
+            CreateRequest(UniqueCode()) with
+            {
+                ScopeType = CouponScopeType.Restricted,
+                ProductPublicIds = [product],
+            });
+
+        await using var first = AdminCouponSqlFixture.CreateContext();
+        await CreateService(first).UpdateAsync(
+            created.PublicId,
+            UpdateRequest(created) with { CategoryPublicIds = [category] });
+
+        await using var second = AdminCouponSqlFixture.CreateContext();
+        var exception = await Assert.ThrowsAsync<DomainProblemException>(
+            () => CreateService(second).UpdateAsync(
+                created.PublicId,
+                UpdateRequest(created) with { ProductPublicIds = [other] }));
+
+        Assert.Equal(409, exception.StatusCode);
+        Assert.Equal(DomainErrorCodes.ConcurrencyConflict, exception.Code);
+    }
+
+    [AdminCouponSqlFact]
+    public async Task ChangingSeveralScopeCollectionsAdvancesTheVersionOnlyOnce()
+    {
+        await using var context = AdminCouponSqlFixture.CreateContext();
+        var (category, product, other) = await SeedCatalogAsync(context);
+        var created = await CreateService(context).CreateAsync(
+            CreateRequest(UniqueCode()) with
+            {
+                ScopeType = CouponScopeType.Restricted,
+                ProductPublicIds = [product],
+            });
+
+        await using var update = AdminCouponSqlFixture.CreateContext();
+        var updated = await CreateService(update).UpdateAsync(
+            created.PublicId,
+            UpdateRequest(created) with
+            {
+                CategoryPublicIds = [category],
+                ProductPublicIds = [other],
+                ExcludedProductPublicIds = [product],
+            });
+
+        Assert.Equal(created.RuleVersion + 1, updated.RuleVersion);
+    }
+
+    [AdminCouponSqlFact]
+    public async Task ReorderingTheSameScopeIsNotTreatedAsAChange()
+    {
+        // 集合語意比較：順序不同不是變更，不該平白推進版本。
+        await using var context = AdminCouponSqlFixture.CreateContext();
+        var (_, product, other) = await SeedCatalogAsync(context);
+        var created = await CreateService(context).CreateAsync(
+            CreateRequest(UniqueCode()) with
+            {
+                ScopeType = CouponScopeType.Restricted,
+                ProductPublicIds = [product, other],
+            });
+
+        await using var update = AdminCouponSqlFixture.CreateContext();
+        var updated = await CreateService(update).UpdateAsync(
+            created.PublicId,
+            UpdateRequest(created) with { ProductPublicIds = [other, product] });
+
+        Assert.Equal(created.RuleVersion, updated.RuleVersion);
+    }
+
+    [AdminCouponSqlFact]
+    public async Task TheRedemptionRangeIsLockedWhileTheUpdateTransactionIsOpen()
+    {
+        // 這條證明「有 Redemption 後 Code 凍結」的競態確實被關上，而不是靠時序碰運氣。
+        //
+        // 缺陷長這樣：`hasRedemptions` 查完為 false，Checkout 在另一個交易插入一筆
+        // Redemption，管理端接著寫入新的 Code —— 已凍結的優惠碼就被改掉了。
+        // 新增 Redemption 不會更新 Coupons 那一列，所以 Coupon 的 RowVersion 攔不到。
+        //
+        // 在 Serializable 下，那個 AnyAsync 會對這個 CouponId 的範圍取得 range lock，
+        // 第二個連線的 INSERT 必須等待。這裡用短的 LOCK_TIMEOUT 讓「被擋住」
+        // 變成一個確定的失敗，而不是不確定的延遲。
+        await using var context = AdminCouponSqlFixture.CreateContext();
+        var created = await CreateService(context).CreateAsync(CreateRequest(UniqueCode()));
+        var couponId = await context.Coupons
+            .Where(coupon => coupon.PublicId == created.PublicId)
+            .Select(coupon => coupon.Id)
+            .SingleAsync();
+
+        // 訂單與物流設定檔在鎖定範圍外先建好：它們與 CouponRedemptions 無關，
+        // 留在裡面只會讓這條測試變慢，也模糊了究竟是哪一個 INSERT 被擋住。
+        var orderId = (await SeedOrderAsync(context)).Id;
+
+        await using var holder = AdminCouponSqlFixture.CreateContext();
+        await using var transaction = await holder.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.Serializable);
+
+        // 與 UpdateAsync 內完全相同的範圍查詢。
+        await holder.CouponRedemptions
+            .AnyAsync(redemption => redemption.CouponId == couponId);
+
+        await using var intruder = AdminCouponSqlFixture.CreateContext();
+
+        // 連線必須顯式開著：`SET LOCK_TIMEOUT` 只作用於當下這條連線，
+        // 讓 EF 自行開關會把連線還給 pool，下一個語句可能拿到另一條而失去設定。
+        await intruder.Database.OpenConnectionAsync();
+        try
+        {
+            await intruder.Database.ExecuteSqlRawAsync("SET LOCK_TIMEOUT 3000;");
+
+            var blocked = await Assert.ThrowsAnyAsync<Exception>(
+                () => InsertRedemptionAsync(intruder, couponId, orderId));
+
+            Assert.True(
+                IsLockTimeout(blocked),
+                $"Expected a lock timeout, got: {blocked.GetType().Name}: {blocked.Message}");
+        }
+        finally
+        {
+            await intruder.Database.CloseConnectionAsync();
+        }
+
+        await transaction.RollbackAsync();
+    }
+
+    private static async Task InsertRedemptionAsync(
+        DoSelectDbContext context,
+        long couponId,
+        long orderId)
+    {
+        var hash = new byte[32];
+        Random.Shared.NextBytes(hash);
+
+        context.CouponRedemptions.Add(new CouponRedemption(
+            Guid.NewGuid(),
+            couponId,
+            orderId,
+            memberUserId: null,
+            guestUsageKeyHash: hash,
+            reservedAtUtc: NowUtc.AddHours(-1),
+            expiresAtUtc: null,
+            createdAtUtc: NowUtc.AddHours(-1)));
+
+        await context.SaveChangesAsync();
+    }
+
+    private static bool IsLockTimeout(Exception exception)
+    {
+        // 1222 = Lock request time out period exceeded.
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is Microsoft.Data.SqlClient.SqlException { Number: 1222 })
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    [AdminCouponSqlFact]
     public async Task AStaleRowVersionIsRejectedAsAConcurrencyConflict()
     {
         await using var context = AdminCouponSqlFixture.CreateContext();

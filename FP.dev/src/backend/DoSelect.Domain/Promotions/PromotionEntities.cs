@@ -51,6 +51,13 @@ public sealed record CouponRuleChange(
 
 public sealed class Coupon : MutablePublicEntity
 {
+    /// <summary>
+    /// 三個範圍集合在 <see cref="CouponRuleChange.ChangedFields"/> 中的欄位名稱。
+    /// 分類、商品與排除商品合併為一個名稱：它們共同構成「適用範圍」這一個概念，
+    /// 而且中央 Audit 的 changedFields 只需要知道範圍變了。
+    /// </summary>
+    public const string ScopeFieldName = "Scope";
+
     private Coupon() { }
 
     public Coupon(Guid publicId, CouponCreation creation, DateTime createdAtUtc)
@@ -153,6 +160,18 @@ public sealed class Coupon : MutablePublicEntity
     /// 這張券是否已經產生任何 <see cref="CouponRedemption"/>。由呼叫端在同一交易內查出；
     /// 本 Entity 不持有集合導覽屬性，無法自行判斷。
     /// </param>
+    /// <param name="scopeChanged">
+    /// 適用分類、適用商品或排除商品三個集合是否有任何變動（以集合語意比較，與順序無關）。
+    /// 與 <paramref name="hasRedemptions"/> 同理由呼叫端算出：那三個集合在
+    /// <c>CouponCategories</c>／<c>CouponProducts</c>／<c>CouponExcludedProducts</c>
+    /// 三張關聯表上，本 Entity 看不到。
+    /// <para>
+    /// 這個參數不能省。只改範圍、<see cref="ScopeType"/> 不變時，本方法會判定
+    /// 「沒有任何欄位變動」而完全不改動這個 Entity —— 於是 EF 不會對 Coupons 發出
+    /// UPDATE，呼叫端設定的 <c>RowVersion</c> 原始值也就**從未被比對**，
+    /// 拿過期版本做純範圍修改會直接覆蓋別人的變更。
+    /// </para>
+    /// </param>
     /// <param name="occurredAtUtc">修改時間。</param>
     /// <remarks>
     /// <para>
@@ -174,6 +193,7 @@ public sealed class Coupon : MutablePublicEntity
     public CouponRuleChange UpdateRules(
         CouponRuleRevision revision,
         bool hasRedemptions,
+        bool scopeChanged,
         DateTime occurredAtUtc)
     {
         ArgumentNullException.ThrowIfNull(revision);
@@ -239,6 +259,7 @@ public sealed class Coupon : MutablePublicEntity
         Rule(nameof(MemberOnly), revision.MemberOnly != MemberOnly);
         Rule(nameof(ExcludeSaleItems), revision.ExcludeSaleItems != ExcludeSaleItems);
         Rule(nameof(ScopeType), revision.ScopeType != ScopeType);
+        Rule(ScopeFieldName, scopeChanged);
 
         if (changedFields.Count == 0)
         {
