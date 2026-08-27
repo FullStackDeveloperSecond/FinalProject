@@ -165,6 +165,7 @@ public sealed class HaruEntityTests
         Assert.Equal(CreatedAtUtc, order.CreatedAtUtc);
         Assert.Equal(CreatedAtUtc, order.UpdatedAtUtc);
         Assert.Equal(2_000m, order.ShippingFreeThresholdSnapshot);
+        Assert.Equal(225m, order.ShippingMethodBaseFeeSnapshot);
         Assert.Equal(3, order.TermsPolicyVersion);
         Assert.Equal(4, order.PrivacyPolicyVersion);
         Assert.Equal(SimulatedInvoiceBuyerType.Individual, order.InvoiceBuyerType);
@@ -229,6 +230,18 @@ public sealed class HaruEntityTests
         var order = Order.Create(Guid.NewGuid(), creation, CreatedAtUtc);
 
         Assert.Equal(1_326m, order.GrandTotal);
+    }
+
+    [Fact]
+    public void Order_CreateWithNegativeShippingMethodBaseFeeSnapshot_RejectsCreation()
+    {
+        var creation = ValidOrderCreation() with
+        {
+            ShippingMethodBaseFeeSnapshot = -1m,
+        };
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            Order.Create(Guid.NewGuid(), creation, CreatedAtUtc));
     }
 
     [Fact]
@@ -388,7 +401,8 @@ public sealed class HaruEntityTests
                 null),
             2_000m,
             "Leave with reception",
-            new OrderPackageSnapshot(7, 5m, 55m, 40m, 30m, 125m, 4_000m));
+            new OrderPackageSnapshot(7, 5m, 55m, 40m, 30m, 125m, 4_000m),
+            ShippingMethodBaseFeeSnapshot: 225m);
 
     private static byte[] Hash() => Enumerable.Repeat((byte)1, 32).ToArray();
 }

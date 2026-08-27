@@ -62,7 +62,8 @@ public sealed record OrderCreation(
     OrderInvoicePreference InvoicePreference,
     decimal? ShippingFreeThresholdSnapshot,
     string? DeliveryNote,
-    OrderPackageSnapshot PackageSnapshot);
+    OrderPackageSnapshot PackageSnapshot,
+    decimal? ShippingMethodBaseFeeSnapshot = null);
 
 public sealed class Order : MutablePublicEntity
 {
@@ -165,6 +166,12 @@ public sealed class Order : MutablePublicEntity
                 ? null
                 : throw new ArgumentOutOfRangeException(
                     nameof(creation.ShippingFreeThresholdSnapshot));
+        ShippingMethodBaseFeeSnapshot = creation.ShippingMethodBaseFeeSnapshot is >= 0m
+            ? creation.ShippingMethodBaseFeeSnapshot
+            : creation.ShippingMethodBaseFeeSnapshot is null
+                ? null
+                : throw new ArgumentOutOfRangeException(
+                    nameof(creation.ShippingMethodBaseFeeSnapshot));
         var package = ValidatePackageSnapshot(creation.PackageSnapshot);
         PackageLimitVersionId = package.PackageLimitVersionId;
         PackageWeightKgSnapshot = package.WeightKg;
@@ -286,6 +293,13 @@ public sealed class Order : MutablePublicEntity
     /// unavailable, so later refund calculations must not infer it from a mutable shipping method.
     /// </summary>
     public decimal? ShippingFreeThresholdSnapshot { get; private set; }
+
+    /// <summary>
+    /// Checkout-time shipping method base fee before free-shipping rules are applied. A null
+    /// value means the historical fee was never captured and must not be inferred from the
+    /// mutable current shipping method.
+    /// </summary>
+    public decimal? ShippingMethodBaseFeeSnapshot { get; private set; }
 
     /// <summary>Null only for orders created before package snapshots were introduced.</summary>
     public long? PackageLimitVersionId { get; private set; }
