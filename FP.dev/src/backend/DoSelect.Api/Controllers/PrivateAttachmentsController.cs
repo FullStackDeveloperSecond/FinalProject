@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using DoSelect.Api.Security;
 using DoSelect.Application.Common;
+using DoSelect.Application.Orders;
 using DoSelect.Application.Returns;
 using DoSelect.Application.Support;
 using DoSelect.Infrastructure.Persistence.Returns;
@@ -136,17 +137,23 @@ public sealed class PrivateAttachmentsController : ControllerBase
             return true;
         }
 
-        if (access.MemberUserId is null &&
-            HttpContext.Request.Cookies.TryGetValue(GuestOrderAccessValidator.GuestOrderAccessCookieName, out var rawToken) &&
-            !string.IsNullOrWhiteSpace(rawToken))
+        if (access.MemberUserId is null)
         {
-            var guestValidator = HttpContext.RequestServices.GetRequiredService<IGuestOrderAccessValidator>();
-            var timeProvider = HttpContext.RequestServices.GetRequiredService<TimeProvider>();
-            var validatedOrderId = await guestValidator.ValidateAsync(
-                rawToken, access.OrderId, timeProvider.GetUtcNow().UtcDateTime, cancellationToken);
-            if (validatedOrderId == access.OrderId)
+            var guestAuth = await HttpContext.AuthenticateAsync(
+                DoSelectAuthenticationSchemes.GuestOrderAccess);
+            var rawToken = guestAuth.Succeeded
+                ? guestAuth.Principal?.FindFirstValue(GuestOrderAccessClaimTypes.TokenValue)
+                : null;
+            if (!string.IsNullOrWhiteSpace(rawToken))
             {
-                return true;
+                var guestValidator = HttpContext.RequestServices.GetRequiredService<IGuestOrderAccessValidator>();
+                var timeProvider = HttpContext.RequestServices.GetRequiredService<TimeProvider>();
+                var validatedOrderId = await guestValidator.ValidateAsync(
+                    rawToken, access.OrderId, timeProvider.GetUtcNow().UtcDateTime, cancellationToken);
+                if (validatedOrderId == access.OrderId)
+                {
+                    return true;
+                }
             }
         }
 

@@ -6,10 +6,19 @@ public static class DoSelectAuthenticationSchemes
     public const string Admin = "DoSelect.Admin";
 
     /// <summary>
-    /// ⚠ 新增：密碼驗證成功、TOTP 尚未完成前的短效憑證。刻意不帶 AccountType／amr claim，
+    /// 密碼驗證成功、TOTP 尚未完成前的短效憑證。刻意不帶 AccountType／amr claim，
     /// 因此結構上無法通過任何 <see cref="DoSelectPolicies"/>。用來取代新建資料表表示 2FA 挑戰狀態。
     /// </summary>
     public const string AdminChallenge = "DoSelect.AdminChallenge";
+
+    /// <summary>
+    /// 訪客查單驗證成功後核發的限單存取憑證（DEC-P264，30 分鐘內可多次使用）。
+    /// 只帶一個不透明權杖明文 Claim（<c>GuestOrderAccessClaimTypes.TokenValue</c>），比對哪一筆
+    /// 訂單、是否已過期／撤銷一律查 DB（見 <c>GuestOrderAccessScopeAuthorizer</c>），Cookie 本身
+    /// 不帶訂單識別碼。端點用 <c>AuthenticationSchemes = GuestOrderAccess</c> 個別授權，不透過
+    /// <see cref="DoSelectPolicies"/>。
+    /// </summary>
+    public const string GuestOrderAccess = "DoSelect.GuestOrderAccess";
 }
 
 public static class DoSelectClaimTypes

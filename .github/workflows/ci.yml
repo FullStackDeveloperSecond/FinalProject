@@ -122,6 +122,7 @@ jobs:
     env:
       ConnectionStrings__DefaultConnection: "Server=localhost,1433;Database=DoSelectDb;User Id=sa;Password=CiOnly_P@ssw0rd2026;TrustServerCertificate=True;MultipleActiveResultSets=True;"
       DOSELECT_SQLSERVER_TEST_CONNECTION: "Server=localhost,1433;Database=DoSelectDb;User Id=sa;Password=CiOnly_P@ssw0rd2026;TrustServerCertificate=True;MultipleActiveResultSets=True;"
+      GuestOrderAccess__Pepper: "ci-only-guest-order-access-pepper-32-bytes"
 
     steps:
       - name: Checkout repository
@@ -276,6 +277,7 @@ jobs:
           --health-retries 10
     env:
       ConnectionStrings__DefaultConnection: "Server=localhost,1433;Database=DoSelectE2e;User Id=sa;Password=CiOnly_P@ssw0rd2026;TrustServerCertificate=True;MultipleActiveResultSets=True;"
+      GuestOrderAccess__Pepper: "ci-only-guest-order-access-pepper-32-bytes"
       Seed__AdminPassword: "E2e_Admin_123!"
       Seed__MemberPassword: "E2e_Member_123!"
 

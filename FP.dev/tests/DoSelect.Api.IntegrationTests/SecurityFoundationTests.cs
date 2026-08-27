@@ -1,9 +1,11 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Json;
 using DoSelect.Api.Common;
 using DoSelect.Api.Security;
+using DoSelect.Application.Orders;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
@@ -382,6 +384,33 @@ public sealed class SecurityFoundationTestController : ControllerBase
     [HttpGet("support-supervise")]
     [Authorize(Policy = DoSelectPolicies.SupportTicketSupervise)]
     public IActionResult SupportSupervise() => Ok();
+
+    /// <summary>
+    /// 訪客查單負面授權測試用的最小端點——正式訂單查詢／取消端點（工程包切片 5）尚未存在，
+    /// 這裡先用同一套 GuestOrderAccessScopeAuthorizer 驗證 Cookie 對「這一筆」訂單是否放行,
+    /// 之後的正式端點應該直接呼叫同一個 Authorizer,不要重寫 Scope 比對邏輯。
+    /// </summary>
+    [HttpGet("guest-order/{orderPublicId:guid}")]
+    [Authorize(AuthenticationSchemes = DoSelectAuthenticationSchemes.GuestOrderAccess)]
+    public async Task<IActionResult> GuestOrder(
+        Guid orderPublicId, [FromServices] GuestOrderAccessScopeAuthorizer authorizer)
+    {
+        var result = await authorizer.AuthorizeAsync(
+            User,
+            orderPublicId,
+            new GuestOrderAccessAuthorizationAuditContext(
+                CorrelationIdMiddleware.GetCorrelationId(HttpContext),
+                Activity.Current?.TraceId.ToString() ?? ActivityTraceId.CreateRandom().ToString(),
+                HttpContext.Connection.RemoteIpAddress));
+        return result switch
+        {
+            GuestOrderAccessAuthorizationResult.Success => Ok(),
+            GuestOrderAccessAuthorizationResult.Failure failure
+                when failure.ErrorCode == GuestOrderErrorCodes.AccessExpired => Unauthorized(),
+            GuestOrderAccessAuthorizationResult.Failure => NotFound(),
+            _ => Problem(),
+        };
+    }
 }
 
 public sealed record SecurityFoundationWriteRequest(string Value);

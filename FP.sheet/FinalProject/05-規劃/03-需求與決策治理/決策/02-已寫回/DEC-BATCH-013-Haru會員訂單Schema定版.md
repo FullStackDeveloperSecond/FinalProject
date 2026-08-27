@@ -30,6 +30,8 @@ source: 原始 Meta Bind 互動表單；依 AUTO-DEC-008 由 Git 歷史追溯
 
 - 2026-08-18：yinyin 已完成欄位、索引、狀態、授權、交易及跨模組交叉覆核，DES-20 已關閉。
 - 本次 Gate 只確認 Schema 文件；Entity、Fluent Configuration、測試與 Migration 仍須獨立實作及審查。
+- 2026-08-27（PR #40，alex 裁定 A1）：Guest Challenge 的 `RequestPublicId` 在重寄時維持穩定；同一筆 Request 原地更新 CodeHash／SendCount／LastSentAtUtc，並在同一個 Serializable transaction 以 `GuestOrderAccessRequests` 新增不可驗證的限流事件 Row，消耗本次 IP Hash 與原 Email／OrderLookup Hash 三個 Scope。此為 DEC-P263／P266 的無 Schema 實作細化，不新增欄位、Migration 或第二張限流表，也不得再用 `(EmailHash, OrderHash, ExpiresAtUtc)` 猜測 successor chain。
+- 2026-08-27（PR #40，alex 裁定 B1）：中央 Outbox 完成前，PR #40 不 Approve、不 Merge。最終 Gate 必須讓 Challenge 建立／重寄與 Email Outbox Message 在同一 SQL Server transaction 提交，並由中央 Dispatcher 在 commit 後投遞；不得在訪客查單模組建立第二套局部 Outbox。
 
 ## 寫回範圍
 

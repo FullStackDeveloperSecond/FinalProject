@@ -6,7 +6,7 @@
   },
   "servers": [
     {
-      "url": "http://localhost:5126/"
+      "url": "http://127.0.0.1:5126/"
     }
   ],
   "paths": {
@@ -1026,6 +1026,224 @@
               "text/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ReturnAttachmentDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/guest-orders/access-requests": {
+      "post": {
+        "tags": [
+          "GuestOrderAccess"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuestOrderAccessRequestDto"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuestOrderAccessRequestDto"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuestOrderAccessRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestOrderAccessRequestAcceptedDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestOrderAccessRequestAcceptedDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestOrderAccessRequestAcceptedDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/guest-orders/access-requests/{requestPublicId}/actions/resend": {
+      "post": {
+        "tags": [
+          "GuestOrderAccess"
+        ],
+        "parameters": [
+          {
+            "name": "requestPublicId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestOrderAccessRequestAcceptedDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestOrderAccessRequestAcceptedDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestOrderAccessRequestAcceptedDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/guest-orders/access-verifications": {
+      "post": {
+        "tags": [
+          "GuestOrderAccess"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuestOrderAccessVerificationDto"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuestOrderAccessVerificationDto"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuestOrderAccessVerificationDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestOrderAccessVerifiedDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestOrderAccessVerifiedDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestOrderAccessVerifiedDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
                 }
               }
             }
@@ -6994,6 +7212,82 @@
           "returned"
         ]
       },
+      "GuestOrderAccessRequestAcceptedDto": {
+        "required": [
+          "requestPublicId",
+          "expiresAtUtc",
+          "resendAvailableAtUtc"
+        ],
+        "type": "object",
+        "properties": {
+          "requestPublicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expiresAtUtc": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "resendAvailableAtUtc": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "GuestOrderAccessRequestDto": {
+        "required": [
+          "orderNumber",
+          "email"
+        ],
+        "type": "object",
+        "properties": {
+          "orderNumber": {
+            "maxLength": 32,
+            "minLength": 1,
+            "type": "string"
+          },
+          "email": {
+            "maxLength": 320,
+            "minLength": 3,
+            "type": "string"
+          }
+        }
+      },
+      "GuestOrderAccessVerificationDto": {
+        "required": [
+          "requestPublicId",
+          "code"
+        ],
+        "type": "object",
+        "properties": {
+          "requestPublicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
+            "maxLength": 6,
+            "minLength": 6,
+            "type": "string"
+          }
+        }
+      },
+      "GuestOrderAccessVerifiedDto": {
+        "required": [
+          "orderPublicId",
+          "expiresAtUtc"
+        ],
+        "type": "object",
+        "properties": {
+          "orderPublicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expiresAtUtc": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "IFormFile": {
         "type": "string",
         "format": "binary"
@@ -10374,6 +10668,9 @@
     },
     {
       "name": "Returns"
+    },
+    {
+      "name": "GuestOrderAccess"
     },
     {
       "name": "Orders"

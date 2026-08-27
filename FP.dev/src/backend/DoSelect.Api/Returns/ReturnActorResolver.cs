@@ -1,7 +1,9 @@
+using System.Diagnostics;
 using System.Security.Claims;
+using DoSelect.Api.Common;
 using DoSelect.Api.Security;
+using DoSelect.Application.Orders;
 using DoSelect.Application.Returns;
-using DoSelect.Infrastructure.Persistence.Returns;
 using Microsoft.AspNetCore.Authentication;
 
 namespace DoSelect.Api.Returns;
@@ -17,15 +19,18 @@ public sealed class ReturnActorResolver
 {
     private readonly IReturnOrderEligibilityPort _orderPort;
     private readonly IGuestOrderAccessValidator _guestValidator;
+    private readonly GuestOrderAccessScopeAuthorizer _guestAuthorizer;
     private readonly TimeProvider _timeProvider;
 
     public ReturnActorResolver(
         IReturnOrderEligibilityPort orderPort,
         IGuestOrderAccessValidator guestValidator,
+        GuestOrderAccessScopeAuthorizer guestAuthorizer,
         TimeProvider timeProvider)
     {
         _orderPort = orderPort;
         _guestValidator = guestValidator;
+        _guestAuthorizer = guestAuthorizer;
         _timeProvider = timeProvider;
     }
 
@@ -42,8 +47,8 @@ public sealed class ReturnActorResolver
             }
         }
 
-        if (httpContext.Request.Cookies.TryGetValue(GuestOrderAccessValidator.GuestOrderAccessCookieName, out var rawToken) &&
-            !string.IsNullOrWhiteSpace(rawToken))
+        var guestPrincipal = await ResolveGuestPrincipalAsync(httpContext);
+        if (guestPrincipal is not null)
         {
             var order = await _orderPort.FindByPublicIdAsync(orderPublicId, cancellationToken);
             if (order is null)
@@ -51,11 +56,17 @@ public sealed class ReturnActorResolver
                 return null;
             }
 
-            var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
-            var validatedOrderId = await _guestValidator.ValidateAsync(rawToken, order.OrderId, nowUtc, cancellationToken);
-            if (validatedOrderId is { } guestOrderId)
+            var authorization = await _guestAuthorizer.AuthorizeAsync(
+                guestPrincipal,
+                orderPublicId,
+                new GuestOrderAccessAuthorizationAuditContext(
+                    CorrelationIdMiddleware.GetCorrelationId(httpContext),
+                    Activity.Current?.TraceId.ToString() ?? ActivityTraceId.CreateRandom().ToString(),
+                    httpContext.Connection.RemoteIpAddress),
+                cancellationToken);
+            if (authorization is GuestOrderAccessAuthorizationResult.Success)
             {
-                return new ReturnActor(null, guestOrderId);
+                return new ReturnActor(null, order.OrderId);
             }
         }
 
@@ -79,8 +90,9 @@ public sealed class ReturnActorResolver
             }
         }
 
-        if (httpContext.Request.Cookies.TryGetValue(GuestOrderAccessValidator.GuestOrderAccessCookieName, out var rawToken) &&
-            !string.IsNullOrWhiteSpace(rawToken))
+        var guestPrincipal = await ResolveGuestPrincipalAsync(httpContext);
+        var rawToken = guestPrincipal?.FindFirstValue(GuestOrderAccessClaimTypes.TokenValue);
+        if (!string.IsNullOrWhiteSpace(rawToken))
         {
             var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
             var guestOrderId = await _guestValidator.ResolveOrderIdAsync(rawToken, nowUtc, cancellationToken);
@@ -91,5 +103,17 @@ public sealed class ReturnActorResolver
         }
 
         return null;
+    }
+
+    private static async Task<ClaimsPrincipal?> ResolveGuestPrincipalAsync(HttpContext httpContext)
+    {
+        var authenticationResult = await httpContext.AuthenticateAsync(
+            DoSelectAuthenticationSchemes.GuestOrderAccess);
+        if (!authenticationResult.Succeeded)
+        {
+            return null;
+        }
+
+        return authenticationResult.Principal;
     }
 }

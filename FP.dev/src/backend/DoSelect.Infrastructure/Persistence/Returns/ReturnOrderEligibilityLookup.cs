@@ -1,5 +1,4 @@
-using System.Security.Cryptography;
-using System.Text;
+using DoSelect.Application.Orders;
 using DoSelect.Application.Returns;
 using DoSelect.Domain.Orders;
 using Microsoft.EntityFrameworkCore;
@@ -62,29 +61,23 @@ public sealed class ReturnOrderEligibilityLookup : IReturnOrderEligibilityPort
 }
 
 /// <summary>
-/// Reads the already-finalized GuestOrderAccessTokens schema directly (haru's
-/// Haru-會員登入訂單與訪客存取最終Schema.md §5.2). The mint flow (C-17 /guest-orders/verify,
-/// UC-GUEST-ORDER-01) does not exist anywhere in origin/dev — only the schema and EF
-/// configuration are merged — so no cookie NAME is fixed by any code yet. What the schema doc
-/// *does* pin down, and this class follows exactly: `TokenHash` is "高熵 Token 的
-/// SHA-256／HMAC-SHA-256，不存明文" (plain SHA-256 of the raw high-entropy token is explicitly
-/// allowed, no shared pepper/secret required, unlike RequesterIpHash/EmailKeyHash/
-/// OrderLookupKeyHash which are server-secret HMACs used only for rate-limiting), and the token
-/// is valid for 30 minutes after issuance and reusable within that window. Only the literal
-/// cookie name string remains unconfirmed pending haru's actual C-17 controller — update
-/// <see cref="GuestOrderAccessCookieName"/> once that lands; see the implementation report for
-/// the current status of this gap.
+/// Validates the raw token claim extracted from the protected GuestOrderAccess authentication
+/// ticket. Token hashing must use the same HMAC implementation as the mint flow; callers must
+/// never pass the encrypted cookie ticket itself as though it were the raw token.
 /// </summary>
 public sealed class GuestOrderAccessValidator : IGuestOrderAccessValidator
 {
-    /// <summary>Provisional — no C-17 mint endpoint exists yet to define the real cookie name.</summary>
     public const string GuestOrderAccessCookieName = ".DoSelect.GuestOrderAccess";
 
     private readonly DoSelectDbContext _dbContext;
+    private readonly IGuestOrderAccessHasher _hasher;
 
-    public GuestOrderAccessValidator(DoSelectDbContext dbContext)
+    public GuestOrderAccessValidator(
+        DoSelectDbContext dbContext,
+        IGuestOrderAccessHasher hasher)
     {
         _dbContext = dbContext;
+        _hasher = hasher;
     }
 
     public async Task<long?> ValidateAsync(
@@ -95,7 +88,7 @@ public sealed class GuestOrderAccessValidator : IGuestOrderAccessValidator
             return null;
         }
 
-        var tokenHash = SHA256.HashData(Encoding.UTF8.GetBytes(rawToken));
+        var tokenHash = _hasher.HashToken(rawToken);
 
         // GuestOrderAccessTokens has no uniqueness on OrderId alone (a guest may re-verify and
         // mint more than one token for the same order over time) — the hash must be part of the
@@ -119,7 +112,7 @@ public sealed class GuestOrderAccessValidator : IGuestOrderAccessValidator
             return null;
         }
 
-        var tokenHash = SHA256.HashData(Encoding.UTF8.GetBytes(rawToken));
+        var tokenHash = _hasher.HashToken(rawToken);
         var token = await _dbContext.Set<GuestOrderAccessToken>()
             .SingleOrDefaultAsync(t => t.TokenHash == tokenHash, cancellationToken);
 
