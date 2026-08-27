@@ -202,11 +202,31 @@ public sealed record InspectReturnItemLine(
     RestockDisposition Disposition,
     [StringLength(1000)] string? Note);
 
-public sealed record InspectReturnRequest(
-    [Required, MinLength(1)] IReadOnlyList<InspectReturnItemLine> Items,
-    [RowVersionRequired] byte[] ReturnRowVersion,
-    AssemblyFeeDisposition? AssemblyFeeDisposition = null,
-    [property: Range(typeof(decimal), "0", "79228162514264337593543950335")] decimal? ReturnShippingCost = null);
+public sealed record InspectReturnRequest
+{
+    public InspectReturnRequest(
+        IReadOnlyList<InspectReturnItemLine> items,
+        byte[] returnRowVersion,
+        AssemblyFeeDisposition? assemblyFeeDisposition = null,
+        decimal? returnShippingCost = null)
+    {
+        Items = items;
+        ReturnRowVersion = returnRowVersion;
+        AssemblyFeeDisposition = assemblyFeeDisposition;
+        ReturnShippingCost = returnShippingCost;
+    }
+
+    [Required, MinLength(1)]
+    public IReadOnlyList<InspectReturnItemLine> Items { get; init; }
+
+    [RowVersionRequired]
+    public byte[] ReturnRowVersion { get; init; }
+
+    public AssemblyFeeDisposition? AssemblyFeeDisposition { get; init; }
+
+    [Range(typeof(decimal), "0", "79228162514264337593543950335")]
+    public decimal? ReturnShippingCost { get; init; }
+}
 
 public sealed record ExtendShipmentDeadlineRequest
 {
