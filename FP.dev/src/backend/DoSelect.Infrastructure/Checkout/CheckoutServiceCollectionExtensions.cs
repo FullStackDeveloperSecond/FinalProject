@@ -10,6 +10,8 @@ public static class CheckoutServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         services.AddSingleton<ICheckoutPolicyProvider, CheckoutPolicyProvider>();
         services.AddScoped<IOrderNumberGenerator, SqlOrderNumberGenerator>();
+        services.AddScoped<ICheckoutTransactionGateway, EfCheckoutTransactionGateway>();
+        services.AddScoped<CheckoutService>();
         return services;
     }
 }

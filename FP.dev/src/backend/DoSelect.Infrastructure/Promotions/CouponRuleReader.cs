@@ -83,7 +83,8 @@ public sealed class CouponRuleReader : ICouponRuleReader
                 coupon.ScopeType,
                 includedCategoryIds,
                 includedProductIds,
-                excludedProductIds));
+                excludedProductIds),
+            coupon.NameZhTw);
     }
 
     public async Task<CouponUsageState> GetUsageAsync(

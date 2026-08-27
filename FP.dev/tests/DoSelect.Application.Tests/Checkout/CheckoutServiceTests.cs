@@ -1,3 +1,4 @@
+using System.Data;
 using System.Text.Json;
 using DoSelect.Application.Checkout;
 using DoSelect.Application.Idempotency;
@@ -36,6 +37,7 @@ public sealed class CheckoutServiceTests
         Assert.Equal(created, result.Body);
         Assert.Equal("order.create", executor.Command?.Operation);
         Assert.Equal("checkout-key", executor.Command?.Key);
+        Assert.Equal(IsolationLevel.ReadCommitted, executor.CapturedIsolationLevel);
         Assert.Equal(1, gateway.ExecuteCount);
     }
 
@@ -59,14 +61,17 @@ public sealed class CheckoutServiceTests
     private sealed class CapturingIdempotencyExecutor : IIdempotencyExecutor
     {
         public IdempotencyCommand? Command { get; private set; }
+        public IsolationLevel? CapturedIsolationLevel { get; private set; }
 
         public async Task<IdempotencyExecutionResult<T>> ExecuteAsync<T>(
             IdempotencyCommand command,
             Func<CancellationToken, Task<IdempotencyResponse<T>>> handler,
             Func<StoredIdempotencyResponse, CancellationToken, Task<T>> replayFactory,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            IsolationLevel isolationLevel = IsolationLevel.ReadCommitted)
         {
             Command = command;
+            CapturedIsolationLevel = isolationLevel;
             var response = await handler(cancellationToken);
             return new IdempotencyExecutionResult<T>(
                 response.StatusCode,

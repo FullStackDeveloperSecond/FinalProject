@@ -1,6 +1,6 @@
 ---
 文件狀態: 可開發
-最後更新: 2026-08-26
+最後更新: 2026-08-27
 適用對象: kafen
 主要覆核: terry
 最終整合: alex
@@ -39,7 +39,7 @@ npm ci
 Set-Location ../..
 ```
 
-環境、SQL Server `.\SQL2025`／`DoSelectDb`、目前四支 Migration、啟動與檢查完全依 `FP.dev/README.md` 與 [[03-架構/01-系統與環境/本機開發環境與版本基線]]。不要建立新資料庫設計或每模組 Migration。
+環境、SQL Server `.\SQL2025`／`DoSelectDb`、目前 `dev` 的完整 Migration、啟動與檢查完全依 `FP.dev/README.md` 與 [[03-架構/01-系統與環境/本機開發環境與版本基線]]。不要建立新資料庫設計或每模組 Migration。
 
 ```powershell
 dotnet tool run dotnet-ef -- database update `
@@ -51,14 +51,23 @@ dotnet tool run dotnet-ef -- database update `
 .\scripts\health-check.ps1
 ```
 
-截至 2026-08-26，`dev` 的單一 Migration 歷程共四支：
+截至 2026-08-27，`origin/dev@8ef986c` 的單一 Migration 歷程仍是下列四支；目前 alex 的整合分支另有六支待 Review／Merge，合併前不得由組員手動複製或套用：
 
 1. `20260819013357_InitialCreate`
 2. `20260822041051_AddIdempotencyAndCartMergeConflicts`
 3. `20260825171312_AddDes21RefundSnapshots`
 4. `20260825174929_AddCentralAuditLogs`
 
-不指定 Migration 名稱的 `database update` 會依序套用至最新的 `AddCentralAuditLogs`。不得只停在 `InitialCreate`，也不得在功能分支自行 scaffold／apply 新 Migration；Schema 需求交 alex 走 Migration Gate。
+整合分支待合併：
+
+5. `20260826134828_AddTransactionalOutbox`
+6. `20260826173241_AddNotificationDeliveryInfrastructure`
+7. `20260827020034_AlignCheckoutRoundingAndIdempotency`
+8. `20260827034327_AddCheckoutPolicyInvoiceShippingAndPaymentIdempotency`
+9. `20260827054739_AddOrderPackageAndSpecificationSnapshots`
+10. `20260827065535_AddMultiValueSpecificationProvenance`
+
+在整合分支合併前，`dev` 的 `database update` 只會套至 `AddCentralAuditLogs`；合併並拉取新 `dev` 後，才由不指定 Migration 名稱的命令依序套至當時最新版本。不得只停在 `InitialCreate`，也不得在功能分支自行 scaffold／apply 新 Migration；Schema 需求交 alex 走 Migration Gate。
 需要最小帳號時，以 Visual Studio 管理 User Secrets 後，用 PATH 中的 `dotnet` 執行 API `--seed-minimal`。現有 Seed PowerShell 腳本含組長本機 `.NET` 絕對路徑；不要直接依賴或在客服 PR 順便修正。
 
 首次 Clone 若沒有 `appsettings.Development.json`，由同目錄的 `.example.json` 複製後調整非機密 `Storage:DataRoot`，本機檔案不得提交。Cookie／Policy、私有檔案掃描與儲存、共用 OpenAPI Typed Client 已合併；客服／SLA／附件前後台垂直切片亦已由 PR #10 進入 `dev`。Outbox／Hangfire 仍未完成，因此不得把檔案放 `wwwroot`、同步寄通知或自建排程器。

@@ -118,6 +118,40 @@ public sealed class CheckoutCommandFactoryTests
             new CheckoutPolicySnapshot(4, 4, 5, 6)));
     }
 
+    [Fact]
+    public void Create_HomeDeliveryWithIncompleteAddress_RejectsRequest()
+    {
+        var request = Request(
+            Guid.NewGuid(),
+            new CheckoutShippingInput(
+                "HOME_DELIVERY",
+                new CheckoutAddressInput(
+                    "Recipient",
+                    "0987654321",
+                    null,
+                    "Taipei",
+                    "Zhongzheng",
+                    "No. 1",
+                    null),
+                null),
+            new CheckoutInvoiceInput(
+                CheckoutInvoiceType.Simulated,
+                CheckoutInvoiceBuyerType.Personal,
+                null,
+                null,
+                null,
+                null));
+
+        var exception = Assert.Throws<DomainProblemException>(() => CheckoutCommandFactory.Create(
+            CheckoutActor.ForGuest("guest-cart-key"),
+            request,
+            "checkout-key",
+            new CheckoutPolicySnapshot(3, 4, 5, 6)));
+
+        Assert.Equal(400, exception.StatusCode);
+        Assert.Equal(DomainErrorCodes.ValidationFailed, exception.Code);
+    }
+
     private static CreateOrderRequest Request(
         Guid cartPublicId,
         CheckoutShippingInput shipping,

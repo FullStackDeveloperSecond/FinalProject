@@ -1,6 +1,6 @@
 ---
 文件狀態: 可開發
-最後更新: 2026-08-26
+最後更新: 2026-08-27
 適用對象: yinyin
 主要覆核: haru
 最終整合: alex
@@ -47,14 +47,23 @@ dotnet tool run dotnet-ef -- database update `
   --context DoSelectDbContext
 ```
 
-截至 2026-08-26，`dev` 的單一 Migration 歷程共四支：
+截至 2026-08-27，`origin/dev@8ef986c` 的單一 Migration 歷程仍是下列四支；目前 alex 的整合分支另有六支待 Review／Merge，合併前不得由組員手動複製或套用：
 
 1. `20260819013357_InitialCreate`
 2. `20260822041051_AddIdempotencyAndCartMergeConflicts`
 3. `20260825171312_AddDes21RefundSnapshots`
 4. `20260825174929_AddCentralAuditLogs`
 
-不指定 Migration 名稱的 `database update` 會依序套用至最新的 `AddCentralAuditLogs`。不得只停在 `InitialCreate`，也不得在功能分支自行 scaffold／apply 新 Migration；Schema 需求交 alex 走 Migration Gate。
+整合分支待合併：
+
+5. `20260826134828_AddTransactionalOutbox`
+6. `20260826173241_AddNotificationDeliveryInfrastructure`
+7. `20260827020034_AlignCheckoutRoundingAndIdempotency`
+8. `20260827034327_AddCheckoutPolicyInvoiceShippingAndPaymentIdempotency`
+9. `20260827054739_AddOrderPackageAndSpecificationSnapshots`
+10. `20260827065535_AddMultiValueSpecificationProvenance`
+
+在整合分支合併前，`dev` 的 `database update` 只會套至 `AddCentralAuditLogs`；合併並拉取新 `dev` 後，才由不指定 Migration 名稱的命令依序套至當時最新版本。不得只停在 `InitialCreate`，也不得在功能分支自行 scaffold／apply 新 Migration；Schema 需求交 alex 走 Migration Gate。
 需要最小帳號時，以 Visual Studio 管理 `Seed:MemberPassword`、`Seed:AdminPassword` User Secrets，再用 PATH 中的 `dotnet` 執行 API `--seed-minimal`。兩支 Seed 腳本目前含組長本機 `.NET` 絕對路徑，其他帳號不要直接依賴，也不要混入金流 PR 修改。
 
 首次 Clone 若沒有 `appsettings.Development.json`，由同目錄的 `.example.json` 複製後調整非機密 `Storage:DataRoot`，本機檔案不得提交。退款執行須沿用已合併的 `IIdempotencyExecutor`、中央 `IAuditWriter` 與 `Refund.Execute`／`Coupon.Manage`／`Invoice.Manage` Policy；完整管理員 TOTP 流程以 PR #38 為準，Outbox／Hangfire 仍未完成。不要自建第二套冪等表、排程器、Audit 或授權方式。
@@ -77,7 +86,7 @@ dotnet tool run dotnet-ef -- database update `
 | 退款 | `DoSelect.Domain/Refunds/` | `Configurations/Refunds/` |
 | 模擬發票 | `DoSelect.Domain/Invoicing/` | `Configurations/Invoicing/` |
 
-根路徑為 `FP.dev/src/backend/`。現有 Entity／Mapping 與四支 Migration 已完成；新工作以 Application Use Case／Query／DTO、API Controller、前端 feature 與各層測試為主。
+根路徑為 `FP.dev/src/backend/`。現有 Entity／Mapping 依目前拉取的 `dev` 完整 Migration 歷程管理；新工作以 Application Use Case／Query／DTO、API Controller、前端 feature 與各層測試為主。
 
 前台 feature：`cart`／`checkout`／`orders` 的優惠、付款與發票部分。後台 feature：`coupons`、`refunds`。不要把付款狀態塞回 OrderStatus，也不要讓 Controller 或 Vue 指定任意狀態。
 

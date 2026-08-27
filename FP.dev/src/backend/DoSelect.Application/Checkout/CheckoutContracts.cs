@@ -243,10 +243,10 @@ public static class CheckoutCommandFactory
             Require(address.Phone, 32, "Recipient phone"),
             buyerEmail,
             "TW",
-            Optional(address.PostalCode, 16, "Postal code"),
-            Optional(address.City, 50, "City"),
-            Optional(address.District, 50, "District"),
-            Optional(address.AddressLine1, 300, "Address line 1"),
+            Require(address.PostalCode ?? string.Empty, 16, "Postal code"),
+            Require(address.City ?? string.Empty, 50, "City"),
+            Require(address.District ?? string.Empty, 50, "District"),
+            Require(address.AddressLine1 ?? string.Empty, 300, "Address line 1"),
             Optional(address.AddressLine2, 300, "Address line 2"));
     }
 

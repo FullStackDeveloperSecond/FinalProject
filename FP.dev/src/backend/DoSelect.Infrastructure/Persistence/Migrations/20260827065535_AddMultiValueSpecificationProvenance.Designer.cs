@@ -4,6 +4,7 @@ using DoSelect.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace DoSelect.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(DoSelectDbContext))]
-    partial class DoSelectDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260827065535_AddMultiValueSpecificationProvenance")]
+    partial class AddMultiValueSpecificationProvenance
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -5424,10 +5427,8 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                         .HasPrecision(3)
                         .HasColumnType("datetime2(3)");
 
-                    b.Property<long?>("UploadedByGuestOrderId")
-                        .HasColumnType("bigint");
-
                     b.Property<string>("UploadedByUserId")
+                        .IsRequired()
                         .HasMaxLength(450)
                         .HasColumnType("nvarchar(450)");
 
@@ -5444,15 +5445,11 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasDatabaseName("UX_ReturnAttachments_StorageKey");
 
-                    b.HasIndex("UploadedByGuestOrderId");
-
                     b.HasIndex("UploadedByUserId");
 
                     b.ToTable("ReturnAttachments", null, t =>
                         {
                             t.HasCheckConstraint("CK_ReturnAttachments_FileSize", "[FileSizeBytes] >= 1 AND [FileSizeBytes] <= 10485760");
-
-                            t.HasCheckConstraint("CK_ReturnAttachments_UploaderIdentity", "([UploadedByUserId] IS NOT NULL AND [UploadedByGuestOrderId] IS NULL) OR ([UploadedByUserId] IS NULL AND [UploadedByGuestOrderId] IS NOT NULL)");
                         });
                 });
 
@@ -5524,10 +5521,6 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasPrecision(3)
                         .HasColumnType("datetime2(3)");
-
-                    b.Property<string>("Description")
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
 
                     b.Property<string>("InspectionStatus")
                         .IsRequired()
@@ -5715,10 +5708,6 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                         .HasColumnType("varchar(32)");
 
                     b.Property<DateTime>("CreatedAtUtc")
-                        .HasPrecision(3)
-                        .HasColumnType("datetime2(3)");
-
-                    b.Property<DateTime?>("LastAppliedEventAtUtc")
                         .HasPrecision(3)
                         .HasColumnType("datetime2(3)");
 
@@ -8483,15 +8472,11 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("DoSelect.Domain.Orders.Order", null)
-                        .WithMany()
-                        .HasForeignKey("UploadedByGuestOrderId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.HasOne("DoSelect.Infrastructure.Persistence.Identity.ApplicationUser", null)
                         .WithMany()
                         .HasForeignKey("UploadedByUserId")
-                        .OnDelete(DeleteBehavior.Restrict);
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("DoSelect.Domain.Returns.ReturnInspection", b =>
