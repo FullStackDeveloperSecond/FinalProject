@@ -19,6 +19,7 @@ export function createApiClient<Paths extends object>() {
   return createDoSelectClient<Paths>({
     baseUrl: apiBaseUrl,
     getAntiforgeryToken: antiforgeryTokenProvider.getToken,
+    client: 'member',
   })
 }
 

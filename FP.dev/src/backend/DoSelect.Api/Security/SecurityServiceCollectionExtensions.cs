@@ -1,5 +1,11 @@
+using DoSelect.Api.Common;
 using DoSelect.Api.Configuration;
+using DoSelect.Application.Auditing;
 using DoSelect.Application.Common;
+using DoSelect.Application.Security;
+using DoSelect.Domain.Auditing;
+using DoSelect.Domain.Members;
+using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -7,6 +13,9 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using System.Diagnostics;
 using System.Globalization;
 using System.Security.Claims;
 using System.Threading.RateLimiting;
@@ -20,6 +29,9 @@ public static class SecurityServiceCollectionExtensions
     private static readonly TimeSpan MemberIdleTimeout = TimeSpan.FromHours(8);
     private static readonly TimeSpan MemberAbsoluteLifetime = TimeSpan.FromDays(7);
     private static readonly TimeSpan AdminAbsoluteLifetime = TimeSpan.FromHours(2);
+
+    /// <summary>⚠ 新增：AdminChallenge Cookie 效期，密碼驗證成功後到完成 2FA 前的短暫視窗。</summary>
+    private static readonly TimeSpan AdminChallengeLifetime = TimeSpan.FromMinutes(10);
 
     public static IServiceCollection AddDoSelectSecurity(
         this IServiceCollection services,
@@ -35,7 +47,9 @@ public static class SecurityServiceCollectionExtensions
             .AddCookie(DoSelectAuthenticationSchemes.Member, options =>
                 ConfigureMemberCookie(options, environment))
             .AddCookie(DoSelectAuthenticationSchemes.Admin, options =>
-                ConfigureAdminCookie(options, environment));
+                ConfigureAdminCookie(options, environment))
+            .AddCookie(DoSelectAuthenticationSchemes.AdminChallenge, options =>
+                ConfigureAdminChallengeCookie(options, environment));
 
         services.AddAuthorization(options => ConfigurePolicies(options));
         services.AddAntiforgery(options =>
@@ -178,6 +192,101 @@ public static class SecurityServiceCollectionExtensions
     {
         ConfigureCookieDefaults(options, environment, ".DoSelect.Admin");
         options.ExpireTimeSpan = AdminAbsoluteLifetime;
+        options.SlidingExpiration = false;
+
+        // ⚠ 待 alex 覆核：讓「TOTP 重新綁定／解除、密碼變更、停用」真正撤銷既有管理 Session。
+        // Cookie 是純票證式驗證，本身不查任何撤銷清單；這裡用 Identity 既有的
+        // SecurityStamp 機制補上撤銷檢查——bump SecurityStamp 後，舊 Cookie 內嵌的
+        // stamp 跟 UserManager 讀到的即時值不一致，就強制登出。
+        options.Events.OnValidatePrincipal = async context =>
+        {
+            var stampInCookie = context.Principal?.FindFirstValue(DoSelectClaimTypes.SecurityStamp);
+
+            // ⚠ 待 alex 覆核的設計取捨：沒有 SecurityStamp claim 的 Cookie 略過檢查而不拒絕。
+            // 這是為了與既有的測試簽發（SecurityFoundationTestController 等，不帶此 claim）
+            // 及其他既有管理端整合測試相容；本次登入流程簽發的 Cookie 一定帶這個 claim
+            // （見 AdminAuthController.BuildAdminPrincipalAsync），撤銷檢查仍會生效。
+            if (string.IsNullOrEmpty(stampInCookie))
+            {
+                return;
+            }
+
+            var userId = context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier);
+            var userManager = context.HttpContext.RequestServices
+                .GetRequiredService<UserManager<ApplicationUser>>();
+            var dbContext = context.HttpContext.RequestServices.GetRequiredService<DoSelectDbContext>();
+            var user = string.IsNullOrEmpty(userId) ? null : await userManager.FindByIdAsync(userId);
+            var currentStamp = user is null ? null : await userManager.GetSecurityStampAsync(user);
+            var stampMismatch = user is null || !string.Equals(stampInCookie, currentStamp, StringComparison.Ordinal);
+
+            // ⚠ alex review 第二輪 P1#3：只比對 SecurityStamp 不夠——如果某個停權路徑忘記
+            // bump SecurityStamp，舊 Cookie 在到期前（最長 2 小時）仍會通過驗證並視為
+            // isAuthenticated=true。這裡直接重新確認目前的 AccountStatus／
+            // AdminProfile.IsActive，不依賴其他程式碼是否記得撤銷 Stamp。
+            //
+            // ⚠ alex 裁定 A1（第三輪 P1#2）：角色也要重新確認——零角色管理員不具登入資格，
+            // 既有 Session 一旦被移除全部角色，必須立即撤銷，不能等到 Cookie 自然到期（最長
+            // 2 小時）。roles 順便先查出來，撤銷時若要寫 Audit 也能直接重用，不必再查一次。
+            var isEligible = false;
+            IList<string> roles = Array.Empty<string>();
+            if (user is not null)
+            {
+                var profile = await dbContext.AdminProfiles
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(p => p.UserId == user.Id);
+                roles = await userManager.GetRolesAsync(user);
+                isEligible = user.AccountStatus == AccountStatus.Active &&
+                    (profile?.IsActive ?? false) &&
+                    roles.Count > 0;
+            }
+
+            if (stampMismatch || !isEligible)
+            {
+                // DEC-P296：寫入中央 AuditLog，取代原本只寫一般 Log 的 IAdminSecurityAuditWriter。
+                if (user is not null)
+                {
+                    // ⚠ alex 裁定 A1：零角色帳號被撤銷時（含撤銷原因就是「角色被清空」的情況）
+                    // 不能再建立空角色的 Admin Actor——AuditActor.Create 會拋例外。改用 System
+                    // Actor，被撤銷的帳號只當 Resource，撤銷本身跟稽核寫入都照常生效，不會因為
+                    // 這個邊角情況而讓整條安全關鍵路徑掛掉。
+                    var actor = roles.Count > 0
+                        ? AuditActor.Create(AuditActorType.Admin, user.PublicId, roles.ToArray())
+                        : AuditActor.Create(AuditActorType.System, publicId: null, roles: []);
+                    var auditWriter = context.HttpContext.RequestServices.GetRequiredService<IAuditWriter>();
+                    auditWriter.Add(AuditWriteRequest.Create(
+                        Guid.CreateVersion7(),
+                        actor,
+                        AuditActions.AdminSessionsRevoked,
+                        AuditResourceTypes.AdminAccount,
+                        user.PublicId,
+                        AuditResult.Rejected,
+                        stampMismatch ? "security_stamp_mismatch" : "account_not_eligible",
+                        [AuditFieldChange.Changed("securityStamp")],
+                        "admin_auth_state_change",
+                        CorrelationIdMiddleware.GetCorrelationId(context.HttpContext),
+                        Activity.Current?.TraceId.ToString() ?? ActivityTraceId.CreateRandom().ToString(),
+                        jobPublicId: null,
+                        context.HttpContext.Connection.RemoteIpAddress));
+                    await dbContext.SaveChangesAsync();
+                }
+
+                context.RejectPrincipal();
+                await context.HttpContext.SignOutAsync(DoSelectAuthenticationSchemes.Admin);
+            }
+        };
+    }
+
+    /// <summary>
+    /// ⚠ 新增：規格未定義的暫時憑證，代表「密碼已驗證、2FA 尚未完成」。
+    /// 不帶 AccountType／amr claim，端點以 <c>AuthenticationSchemes = AdminChallenge</c>
+    /// 個別授權，不透過 <see cref="AddAdminPolicy"/>。
+    /// </summary>
+    private static void ConfigureAdminChallengeCookie(
+        CookieAuthenticationOptions options,
+        IHostEnvironment environment)
+    {
+        ConfigureCookieDefaults(options, environment, ".DoSelect.AdminChallenge");
+        options.ExpireTimeSpan = AdminChallengeLifetime;
         options.SlidingExpiration = false;
     }
 

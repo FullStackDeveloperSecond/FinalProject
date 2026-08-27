@@ -4,6 +4,12 @@ public static class DoSelectAuthenticationSchemes
 {
     public const string Member = "DoSelect.Member";
     public const string Admin = "DoSelect.Admin";
+
+    /// <summary>
+    /// ⚠ 新增：密碼驗證成功、TOTP 尚未完成前的短效憑證。刻意不帶 AccountType／amr claim，
+    /// 因此結構上無法通過任何 <see cref="DoSelectPolicies"/>。用來取代新建資料表表示 2FA 挑戰狀態。
+    /// </summary>
+    public const string AdminChallenge = "DoSelect.AdminChallenge";
 }
 
 public static class DoSelectClaimTypes
@@ -11,6 +17,12 @@ public static class DoSelectClaimTypes
     public const string AccountType = "doselect:account_type";
     public const string AuthenticationMethod = "amr";
     public const string SecurityStamp = "doselect:security_stamp";
+
+    /// <summary>⚠ 新增：AdminChallenge Cookie 專用，"totp" 或 "enroll"。</summary>
+    public const string ChallengeKind = "doselect:challenge_kind";
+
+    /// <summary>⚠ 新增：AdminChallenge Cookie 專用，對應回傳給前端的 twoFactorChallengePublicId。</summary>
+    public const string ChallengeId = "doselect:challenge_id";
 }
 
 public static class DoSelectClaimValues

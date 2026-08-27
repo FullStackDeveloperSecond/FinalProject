@@ -13,6 +13,18 @@ public static class AuditActions
     public const string MemberUpdate = "member.update";
     public const string AuditQuery = "audit.query";
     public const string AuditExport = "audit.export";
+
+    // PR #38（M-01B 管理員登入／TOTP／Recovery Code）用，DEC-P296：高風險安全狀態變更
+    // 與稽核紀錄同一交易，Audit 失敗整筆 rollback。
+    public const string AdminTotpEnrollmentConfirm = "admin.totp_enrollment.confirm";
+    public const string AdminTotpRebindConfirm = "admin.totp_rebind.confirm";
+    public const string AdminTotpRebindFailed = "admin.totp_rebind.failed";
+    public const string AdminRecoveryCodeRedeem = "admin.recovery_code.redeem";
+    public const string AdminChallengeRateLimited = "admin.challenge.rate_limited";
+    public const string AdminSessionsRevoked = "admin.sessions.revoked";
+
+    // ⚠ alex review：30 分鐘 Lockout 必須跟中央 Audit 同一交易——見 AdminAuthController.Login。
+    public const string AdminAccountLockout = "admin.account.lockout";
 }
 
 public static class AuditResourceTypes
@@ -21,6 +33,7 @@ public static class AuditResourceTypes
     public const string SimulatedInvoiceAllowance = "SimulatedInvoiceAllowance";
     public const string Member = "Member";
     public const string AuditLog = "AuditLog";
+    public const string AdminAccount = "AdminAccount";
 }
 
 public static class AuditRoleNames
@@ -389,6 +402,32 @@ internal static class AuditWritePolicy
                 AuditActions.AuditExport,
                 AuditResourceTypes.AuditLog,
                 "exportedFields"),
+            [AuditActions.AdminTotpEnrollmentConfirm] = Definition(
+                AuditActions.AdminTotpEnrollmentConfirm,
+                AuditResourceTypes.AdminAccount,
+                "twoFactorEnabled"),
+            [AuditActions.AdminTotpRebindConfirm] = Definition(
+                AuditActions.AdminTotpRebindConfirm,
+                AuditResourceTypes.AdminAccount,
+                "securityStamp"),
+            [AuditActions.AdminTotpRebindFailed] = Definition(
+                AuditActions.AdminTotpRebindFailed,
+                AuditResourceTypes.AdminAccount),
+            [AuditActions.AdminRecoveryCodeRedeem] = Definition(
+                AuditActions.AdminRecoveryCodeRedeem,
+                AuditResourceTypes.AdminAccount,
+                "recoveryCodesRemaining"),
+            [AuditActions.AdminChallengeRateLimited] = Definition(
+                AuditActions.AdminChallengeRateLimited,
+                AuditResourceTypes.AdminAccount),
+            [AuditActions.AdminSessionsRevoked] = Definition(
+                AuditActions.AdminSessionsRevoked,
+                AuditResourceTypes.AdminAccount,
+                "securityStamp"),
+            [AuditActions.AdminAccountLockout] = Definition(
+                AuditActions.AdminAccountLockout,
+                AuditResourceTypes.AdminAccount,
+                "lockoutEnd"),
         };
 
     public static AuditActionDefinition RequireDefinition(string action)
