@@ -367,7 +367,10 @@ public sealed class GuestOrderAccessControllerTests(GuestOrderAccessApiFixture f
         Assert.Equal(1, token.ScopeViolationCount);
 
         var audit = await dbContext.AuditLogs
-            .SingleAsync(entry => entry.Action == AuditActions.GuestOrderScopeViolation);
+            .SingleAsync(entry =>
+                entry.Action == AuditActions.GuestOrderScopeViolation &&
+                entry.ActorPublicId == token.PublicId &&
+                entry.ResourcePublicId == orderBPublicId);
         Assert.Equal(AuditActorType.Guest, audit.ActorType);
         Assert.Equal(token.PublicId, audit.ActorPublicId);
         Assert.Equal(AuditResourceTypes.Order, audit.ResourceType);
