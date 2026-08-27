@@ -128,6 +128,33 @@ public sealed class GuestOrderAccessRequest : MutablePublicEntity
             expiresAtUtc,
             createdAtUtc);
 
+    /// <summary>
+    /// 已知 Challenge 成功重寄時的持久化限流事件。它沿用 Challenge 的 Email／OrderLookup
+    /// Hash，並保存這次呼叫的 IP Hash，讓三個 Scope 都能透過既有
+    /// (Hash, CreatedAtUtc) 索引計數；不保存訂單、驗證碼，也永遠不回傳給呼叫端。
+    /// 建立後立即標記撤銷，確保即使 PublicId 被取得也不能被當成可驗證的 Decoy Challenge。
+    /// </summary>
+    public static GuestOrderAccessRequest CreateResendRateLimitEvent(
+        Guid publicId,
+        byte[] requesterIpHash,
+        byte[] emailKeyHash,
+        byte[] orderLookupKeyHash,
+        DateTime expiresAtUtc,
+        DateTime createdAtUtc)
+    {
+        var rateLimitEvent = new GuestOrderAccessRequest(
+            publicId,
+            null,
+            null,
+            requesterIpHash,
+            emailKeyHash,
+            orderLookupKeyHash,
+            expiresAtUtc,
+            createdAtUtc);
+        rateLimitEvent.Revoke(createdAtUtc);
+        return rateLimitEvent;
+    }
+
     public void RecordSend(DateTime sentAtUtc)
     {
         EnsureCanSend(sentAtUtc);
@@ -137,57 +164,24 @@ public sealed class GuestOrderAccessRequest : MutablePublicEntity
     }
 
     /// <summary>
-    /// 重寄：驗證 <paramref name="previous"/>（同一張 Challenge 目前這一筆有效 Row）是否仍可
-    /// 寄送（沿用 <see cref="EnsureCanSend"/> 的寄送上限／間隔規則），成功才建立一筆延續同一組
-    /// Scope Hash／到期時間的新 Row——<see cref="SendCount"/> 從舊 Row 累加、
-    /// <see cref="AttemptCount"/> 歸零。<paramref name="requesterIpHash"/> 一律用「這次呼叫
-    /// 收到的目前 IP」，不沿用 <paramref name="previous"/> 建立當下保存的舊 IP——同一張
-    /// Challenge 之後換網路重寄時，新 Row 才會準確反映實際發出重寄請求的來源；Email／
-    /// OrderLookup 兩個 Scope 的 Hash 則沿用 previous（訂單編號與 Email 不會因為重寄而變）。
-    /// 呼叫端必須在同一交易內對 <paramref name="previous"/> 呼叫 <see cref="Revoke"/> 讓舊
-    /// Row／舊碼立即失效；這個工廠方法只讀取 previous 目前的狀態做驗證與延續，不會修改
-    /// previous 本身。有效與 Decoy 都走這個工廠（Decoy 傳 <paramref name="newCodeHash"/> 為
-    /// null）——三 Scope 限流用的是「新增一筆 Row」，兩種情況都要留下可計數的 Row，不能只有
-    /// 有效請求才新增。
+    /// 重寄時原地更新同一張 Challenge，PublicId 與到期時間不變；有效 Request 以新 CodeHash
+    /// 取代舊碼，Decoy 維持 null，並把本輪錯誤嘗試歸零。持久化限流由同一交易新增的
+    /// <see cref="CreateResendRateLimitEvent"/> 負責，不能靠建立無鏈識別欄位的 successor Row。
     /// </summary>
-    public static GuestOrderAccessRequest CreateResend(
-        Guid publicId,
-        GuestOrderAccessRequest previous,
-        byte[] requesterIpHash,
+    public void RecordResend(
         byte[]? newCodeHash,
         DateTime sentAtUtc)
     {
-        ArgumentNullException.ThrowIfNull(previous);
-        previous.EnsureCanSend(sentAtUtc);
-
-        // previous 常常是這次呼叫（新的 DbContext）從資料庫重新查回來的實例——EF Core 讀
-        // datetime2 欄位預設回填 DateTimeKind.Unspecified，不是原本寫入時的 Utc，直接把
-        // previous.ExpiresAtUtc 轉交給下面的建構子會被 RequireUtc 擋下。這裡的值本來就一定
-        // 是 UTC（整個 Domain 只允許寫入 UTC），只是遺失了 .NET 的 Kind 中繼資料，用
-        // SpecifyKind 補回去即可，不是竄改語意。
-        var previousExpiresAtUtc = DateTime.SpecifyKind(previous.ExpiresAtUtc, DateTimeKind.Utc);
-
-        var successor = previous.OrderId is null
-            ? CreateDecoy(
-                publicId,
-                requesterIpHash,
-                previous.EmailKeyHash,
-                previous.OrderLookupKeyHash,
-                previousExpiresAtUtc,
-                sentAtUtc)
-            : CreateValid(
-                publicId,
-                previous.OrderId.Value,
-                newCodeHash ?? throw new ArgumentNullException(nameof(newCodeHash)),
-                requesterIpHash,
-                previous.EmailKeyHash,
-                previous.OrderLookupKeyHash,
-                previousExpiresAtUtc,
-                sentAtUtc);
-
-        successor.SendCount = previous.SendCount + 1;
-        successor.LastSentAtUtc = sentAtUtc;
-        return successor;
+        EnsureCanSend(sentAtUtc);
+        CodeHash = OrderId is null
+            ? newCodeHash is null
+                ? null
+                : throw new ArgumentException("A decoy challenge cannot store a code hash.", nameof(newCodeHash))
+            : RequireHash(newCodeHash ?? throw new ArgumentNullException(nameof(newCodeHash)), nameof(newCodeHash));
+        AttemptCount = 0;
+        SendCount++;
+        LastSentAtUtc = sentAtUtc;
+        MarkUpdated(sentAtUtc);
     }
 
     private void EnsureCanSend(DateTime sentAtUtc)

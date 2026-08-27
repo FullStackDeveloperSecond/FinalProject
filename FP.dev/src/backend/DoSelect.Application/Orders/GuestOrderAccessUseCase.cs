@@ -149,68 +149,48 @@ public sealed class GuestOrderAccessUseCase(
                 requestPublicId, nowUtc.Add(RequestLifetime), nowUtc.Add(ResendInterval));
         }
 
-        // 每次重寄都建立一筆延續同一組 Scope Hash／到期時間的新 Row，同一交易內撤銷舊 Row，
-        // 讓舊碼／舊 Request 立即失效（DEC-P266 持久化限流：三 Scope 的視窗計數依賴「新增
-        // 一筆可被 (Hash, CreatedAtUtc) 索引數到的 Row」，Decoy 也要走同一條路徑，不能只有
-        // 有效請求才新增，否則 Decoy／有效的 202 對 429 比例會不同，變成訂單存在性 Oracle）。
-        // IP Scope 一律用「這次呼叫收到的目前 IP」，不用 Request 建立當下保存的舊 IP bucket。
+        // A1：同一張 Challenge 原地換碼，PublicId 維持穩定；同一交易新增一筆不可驗證的
+        // rate-limit event，讓這次呼叫的 IP 與原 Challenge 的 Email／OrderLookup 三個 Scope
+        // 都能被既有索引計數。有效與 Decoy 都走相同交易，避免存在性 Oracle。
         var isDecoy = request.OrderId is null || request.CodeHash is null;
         var code = GenerateSixDigitCode();
         var codeHash = hasher.HashCode(code);
         var window = CreateWindow(ipHash, request.EmailKeyHash, request.OrderLookupKeyHash, nowUtc);
 
-        GuestOrderAccessRequest successor;
-        var created = false;
+        var recorded = false;
         for (var attempt = 0; ; attempt++)
         {
+            var rateLimitEvent = GuestOrderAccessRequest.CreateResendRateLimitEvent(
+                Guid.CreateVersion7(),
+                ipHash,
+                request.EmailKeyHash,
+                request.OrderLookupKeyHash,
+                AsUtc(request.ExpiresAtUtc),
+                nowUtc);
+
             try
             {
-                successor = GuestOrderAccessRequest.CreateResend(
-                    Guid.CreateVersion7(), request, ipHash, isDecoy ? null : codeHash, nowUtc);
+                recorded = await gateway.TryRecordResendWithinRateLimitAsync(
+                    window,
+                    request,
+                    rateLimitEvent,
+                    isDecoy ? null : codeHash,
+                    nowUtc,
+                    cancellationToken);
+                break;
             }
             catch (InvalidOperationException)
             {
-                // 平行重寄的輸家：request 在上一輪 ReloadRequestAsync 後發現已經被贏家
-                // Revoke——不能回傳這個已經永久失效的舊 Id（review #2），改找贏家建立的
-                // 延續 Row（Email／OrderLookup Hash／ExpiresAtUtc 不變，實務上唯一識別同一條
-                // 重寄鏈），回傳跟贏家一致、目前仍然有效的 RequestPublicId。
-                if (request.RevokedAtUtc.HasValue)
-                {
-                    var currentSuccessor = await gateway.FindActiveSuccessorAsync(
-                        request.EmailKeyHash,
-                        request.OrderLookupKeyHash,
-                        request.ExpiresAtUtc,
-                        nowUtc,
-                        cancellationToken);
-                    if (currentSuccessor is not null)
-                    {
-                        return new GuestOrderAccessAcceptedResult.Accepted(
-                            currentSuccessor.PublicId,
-                            AsUtc(currentSuccessor.ExpiresAtUtc),
-                            nowUtc.Add(ResendInterval));
-                    }
-                }
-
-                // 已達 3 封上限、未滿 60 秒間隔，或被撤銷後找不到（已經又進一步失效的）延續
-                // Row——維持安全回應，不揭露原因；沒有新 Row 要寫入，這次呼叫不消耗三 Scope
-                // 的視窗預算。
+                // 未滿 60 秒、已達三封上限，或平行重寄輸家 reload 後看到贏家的寄送狀態：
+                // 維持相同 202 形狀與同一個穩定 RequestPublicId，不新增限流事件。
                 return new GuestOrderAccessAcceptedResult.Accepted(
-                    requestPublicId, AsUtc(request.ExpiresAtUtc), nowUtc.Add(ResendInterval));
-            }
-
-            try
-            {
-                created = await gateway.TryCreateRequestWithinRateLimitAsync(
-                    window, successor, requestToRevoke: request, cancellationToken);
-                break;
+                    request.PublicId, AsUtc(request.ExpiresAtUtc), nowUtc.Add(ResendInterval));
             }
             catch (DomainProblemException exception)
                 when (exception.Code == DomainErrorCodes.ConcurrencyConflict)
             {
-                // SQL Server 死結，或撤銷舊 Row 時撞到樂觀鎖——重新載入 request 目前狀態
-                // （RowVersion、SendCount、RevokedAtUtc…）用最新資料重跑一次資格判斷。若同
-                // 一瞬間有另一個重寄贏得競爭，重載後 request 會已經 Revoked，下一輪
-                // CreateResend 會自然拋 InvalidOperationException 安全失敗，不會核發第二筆。
+                // SQL Server 死結或 RowVersion 衝突：重新載入穩定 Request，再重跑寄送資格。
+                // 若另一個重寄已成功，本輪會被 60 秒間隔擋下，不會寫第二筆限流事件。
                 if (attempt >= MaxFailedAttemptConcurrencyRetries)
                 {
                     return new GuestOrderAccessAcceptedResult.RateLimited();
@@ -220,14 +200,14 @@ public sealed class GuestOrderAccessUseCase(
             }
         }
 
-        if (!created)
+        if (!recorded)
         {
             return new GuestOrderAccessAcceptedResult.RateLimited();
         }
 
         if (!isDecoy)
         {
-            var order = await gateway.FindGuestOrderByIdAsync(successor.OrderId!.Value, cancellationToken);
+            var order = await gateway.FindGuestOrderByIdAsync(request.OrderId!.Value, cancellationToken);
             if (order is not null && !string.IsNullOrWhiteSpace(order.GuestEmailNormalized))
             {
                 emailDispatchQueue.Enqueue(GuestOrderAccessEmailComposer.Compose(
@@ -236,7 +216,7 @@ public sealed class GuestOrderAccessUseCase(
         }
 
         return new GuestOrderAccessAcceptedResult.Accepted(
-            successor.PublicId, successor.ExpiresAtUtc, nowUtc.Add(ResendInterval));
+            request.PublicId, AsUtc(request.ExpiresAtUtc), nowUtc.Add(ResendInterval));
     }
 
     public async Task<GuestOrderAccessVerifyResult> VerifyAsync(
@@ -345,7 +325,7 @@ public sealed class GuestOrderAccessUseCase(
     }
 
     /// <summary>
-    /// 首次建立（Decoy／有效皆同）沒有 <c>requestToRevoke</c>，<paramref name="newRequest"/>
+    /// 首次建立（Decoy／有效皆同）的 <paramref name="newRequest"/>
     /// 的欄位不依賴任何會變動的既有資料——遇到 SQL Server 死結／並行衝突，直接用同一個
     /// Entity 重跑整段交易即可，不需要像 <see cref="ResendAsync"/> 那樣重新載入、重算資格。
     /// </summary>
@@ -359,7 +339,7 @@ public sealed class GuestOrderAccessUseCase(
             try
             {
                 return await gateway.TryCreateRequestWithinRateLimitAsync(
-                    window, newRequest, requestToRevoke: null, cancellationToken);
+                    window, newRequest, cancellationToken);
             }
             catch (DomainProblemException exception)
                 when (exception.Code == DomainErrorCodes.ConcurrencyConflict)

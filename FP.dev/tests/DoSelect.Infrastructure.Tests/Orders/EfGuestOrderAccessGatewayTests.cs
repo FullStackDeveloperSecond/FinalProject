@@ -125,75 +125,179 @@ public sealed class EfGuestOrderAccessGatewayTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task TryCreateRequestWithinRateLimitAsync_WhenWithinLimit_CreatesRequestAndRevokesPrevious()
+    public async Task TryCreateRequestWithinRateLimitAsync_WhenWithinLimit_CreatesInitialRequest()
     {
         var orderId = await SeedOrderAsync(Guid.CreateVersion7(), "DS-0009", "GUEST@EXAMPLE.COM");
-        var previousPublicId = Guid.CreateVersion7();
+        var requestPublicId = Guid.CreateVersion7();
 
         await using var context = CreateContext();
         var gateway = new EfGuestOrderAccessGateway(context);
-        var previous = GuestOrderAccessRequest.CreateValid(
-            previousPublicId, orderId, Hash(1), Hash(2), Hash(3), Hash(4),
+        var request = GuestOrderAccessRequest.CreateValid(
+            requestPublicId, orderId, Hash(1), Hash(2), Hash(3), Hash(4),
             CreatedAtUtc.AddMinutes(10), CreatedAtUtc);
-        previous.RecordSend(CreatedAtUtc);
-        context.GuestOrderAccessRequests.Add(previous);
-        await context.SaveChangesAsync();
-
-        var successorPublicId = Guid.CreateVersion7();
-        var successor = GuestOrderAccessRequest.CreateResend(
-            successorPublicId, previous, Hash(2), Hash(5), CreatedAtUtc.AddMinutes(1));
+        request.RecordSend(CreatedAtUtc);
 
         var created = await gateway.TryCreateRequestWithinRateLimitAsync(
             DefaultWindow(Hash(2), Hash(3), Hash(4), CreatedAtUtc.AddMinutes(-14)),
-            successor,
-            requestToRevoke: previous);
+            request);
 
         Assert.True(created);
 
         await using var verifyContext = CreateContext();
-        var revokedPrevious = await verifyContext.GuestOrderAccessRequests
-            .SingleAsync(r => r.PublicId == previousPublicId);
-        Assert.NotNull(revokedPrevious.RevokedAtUtc);
-
-        var persistedSuccessor = await verifyContext.GuestOrderAccessRequests
-            .SingleAsync(r => r.PublicId == successorPublicId);
-        Assert.Equal(2, persistedSuccessor.SendCount);
+        var persisted = await verifyContext.GuestOrderAccessRequests.SingleAsync();
+        Assert.Equal(requestPublicId, persisted.PublicId);
+        Assert.Equal(1, persisted.SendCount);
     }
 
     [Fact]
-    public async Task TryCreateRequestWithinRateLimitAsync_WhenScopeExceedsLimit_DoesNotCreateOrRevoke()
+    public async Task TryCreateRequestWithinRateLimitAsync_WhenScopeExceedsLimit_DoesNotCreateRequest()
     {
         var orderId = await SeedOrderAsync(Guid.CreateVersion7(), "DS-0010", "GUEST@EXAMPLE.COM");
-        var previousPublicId = Guid.CreateVersion7();
 
         await using var context = CreateContext();
         var gateway = new EfGuestOrderAccessGateway(context);
-        var previous = GuestOrderAccessRequest.CreateValid(
-            previousPublicId, orderId, Hash(1), Hash(2), Hash(3), Hash(4),
+        var existing = GuestOrderAccessRequest.CreateValid(
+            Guid.CreateVersion7(), orderId, Hash(1), Hash(2), Hash(3), Hash(4),
             CreatedAtUtc.AddMinutes(10), CreatedAtUtc);
-        context.GuestOrderAccessRequests.Add(previous);
+        context.GuestOrderAccessRequests.Add(existing);
         await context.SaveChangesAsync();
 
-        var successor = GuestOrderAccessRequest.CreateResend(
-            Guid.CreateVersion7(), previous, Hash(2), Hash(5), CreatedAtUtc.AddMinutes(1));
+        var newRequest = GuestOrderAccessRequest.CreateValid(
+            Guid.CreateVersion7(), orderId, Hash(5), Hash(2), Hash(3), Hash(4),
+            CreatedAtUtc.AddMinutes(10), CreatedAtUtc.AddMinutes(1));
 
-        // IP 上限設成 0——existing 的 previous 這筆 Row 本身就已經佔滿（0 個名額），
-        // 任一 Scope 超限就整段 rollback，不建立新 Row，也不撤銷 previous。
+        // IP 上限設成 0；任一 Scope 超限就不建立新 Row。
         var window = DefaultWindow(Hash(2), Hash(3), Hash(4), CreatedAtUtc.AddMinutes(-14)) with
         {
             IpPermitLimit = 0,
         };
 
         var created = await gateway.TryCreateRequestWithinRateLimitAsync(
-            window, successor, requestToRevoke: previous);
+            window, newRequest);
 
         Assert.False(created);
 
         await using var verifyContext = CreateContext();
-        var stillActivePrevious = await verifyContext.GuestOrderAccessRequests
-            .SingleAsync(r => r.PublicId == previousPublicId);
-        Assert.Null(stillActivePrevious.RevokedAtUtc);
         Assert.Equal(1, await verifyContext.GuestOrderAccessRequests.CountAsync());
+    }
+
+    [Fact]
+    public async Task TryRecordResendWithinRateLimitAsync_UpdatesStableRequestAndAddsRateLimitEvent()
+    {
+        var orderId = await SeedOrderAsync(Guid.CreateVersion7(), "DS-0011", "GUEST@EXAMPLE.COM");
+        var requestPublicId = Guid.CreateVersion7();
+        var eventPublicId = Guid.CreateVersion7();
+        var expiresAtUtc = CreatedAtUtc.AddMinutes(10);
+
+        await using var context = CreateContext();
+        var gateway = new EfGuestOrderAccessGateway(context);
+        var request = GuestOrderAccessRequest.CreateValid(
+            requestPublicId, orderId, Hash(1), Hash(2), Hash(3), Hash(4),
+            expiresAtUtc, CreatedAtUtc);
+        request.RecordSend(CreatedAtUtc);
+        context.GuestOrderAccessRequests.Add(request);
+        await context.SaveChangesAsync();
+
+        var sentAtUtc = CreatedAtUtc.AddMinutes(1);
+        var rateLimitEvent = GuestOrderAccessRequest.CreateResendRateLimitEvent(
+            eventPublicId, Hash(9), Hash(3), Hash(4), expiresAtUtc, sentAtUtc);
+        var recorded = await gateway.TryRecordResendWithinRateLimitAsync(
+            DefaultWindow(Hash(9), Hash(3), Hash(4), CreatedAtUtc.AddMinutes(-14)),
+            request,
+            rateLimitEvent,
+            Hash(5),
+            sentAtUtc);
+
+        Assert.True(recorded);
+
+        await using var verifyContext = CreateContext();
+        var persistedRequest = await verifyContext.GuestOrderAccessRequests
+            .SingleAsync(r => r.PublicId == requestPublicId);
+        Assert.Equal(Hash(5), persistedRequest.CodeHash);
+        Assert.Equal(2, persistedRequest.SendCount);
+        Assert.Null(persistedRequest.RevokedAtUtc);
+
+        var persistedEvent = await verifyContext.GuestOrderAccessRequests
+            .SingleAsync(r => r.PublicId == eventPublicId);
+        Assert.Null(persistedEvent.OrderId);
+        Assert.Null(persistedEvent.CodeHash);
+        Assert.NotNull(persistedEvent.RevokedAtUtc);
+        Assert.Equal(Hash(9), persistedEvent.RequesterIpHash);
+        Assert.Equal(Hash(3), persistedEvent.EmailKeyHash);
+        Assert.Equal(Hash(4), persistedEvent.OrderLookupKeyHash);
+    }
+
+    [Fact]
+    public async Task TryRecordResendWithinRateLimitAsync_WhenScopeExceedsLimit_ChangesNothing()
+    {
+        var orderId = await SeedOrderAsync(Guid.CreateVersion7(), "DS-0012", "GUEST@EXAMPLE.COM");
+        var requestPublicId = Guid.CreateVersion7();
+        var expiresAtUtc = CreatedAtUtc.AddMinutes(10);
+
+        await using var context = CreateContext();
+        var gateway = new EfGuestOrderAccessGateway(context);
+        var request = GuestOrderAccessRequest.CreateValid(
+            requestPublicId, orderId, Hash(1), Hash(2), Hash(3), Hash(4),
+            expiresAtUtc, CreatedAtUtc);
+        request.RecordSend(CreatedAtUtc);
+        context.GuestOrderAccessRequests.Add(request);
+        await context.SaveChangesAsync();
+
+        var sentAtUtc = CreatedAtUtc.AddMinutes(1);
+        var eventPublicId = Guid.CreateVersion7();
+        var rateLimitEvent = GuestOrderAccessRequest.CreateResendRateLimitEvent(
+            eventPublicId, Hash(9), Hash(3), Hash(4), expiresAtUtc, sentAtUtc);
+        var window = DefaultWindow(Hash(9), Hash(3), Hash(4), CreatedAtUtc.AddMinutes(-14)) with
+        {
+            EmailPermitLimit = 0,
+        };
+
+        var recorded = await gateway.TryRecordResendWithinRateLimitAsync(
+            window, request, rateLimitEvent, Hash(5), sentAtUtc);
+
+        Assert.False(recorded);
+
+        await using var verifyContext = CreateContext();
+        var persistedRequest = await verifyContext.GuestOrderAccessRequests.SingleAsync();
+        Assert.Equal(requestPublicId, persistedRequest.PublicId);
+        Assert.Equal(Hash(1), persistedRequest.CodeHash);
+        Assert.Equal(1, persistedRequest.SendCount);
+        Assert.False(await verifyContext.GuestOrderAccessRequests.AnyAsync(r => r.PublicId == eventPublicId));
+    }
+
+    [Fact]
+    public async Task TryRecordResendWithinRateLimitAsync_WhenEventInsertFails_RollsBackRequestUpdate()
+    {
+        var orderId = await SeedOrderAsync(Guid.CreateVersion7(), "DS-0013", "GUEST@EXAMPLE.COM");
+        var requestPublicId = Guid.CreateVersion7();
+        var expiresAtUtc = CreatedAtUtc.AddMinutes(10);
+
+        await using var context = CreateContext();
+        var gateway = new EfGuestOrderAccessGateway(context);
+        var request = GuestOrderAccessRequest.CreateValid(
+            requestPublicId, orderId, Hash(1), Hash(2), Hash(3), Hash(4),
+            expiresAtUtc, CreatedAtUtc);
+        request.RecordSend(CreatedAtUtc);
+        context.GuestOrderAccessRequests.Add(request);
+        await context.SaveChangesAsync();
+
+        var sentAtUtc = CreatedAtUtc.AddMinutes(1);
+        var duplicatePublicIdEvent = GuestOrderAccessRequest.CreateResendRateLimitEvent(
+            requestPublicId, Hash(9), Hash(3), Hash(4), expiresAtUtc, sentAtUtc);
+
+        await Assert.ThrowsAsync<DbUpdateException>(() =>
+            gateway.TryRecordResendWithinRateLimitAsync(
+                DefaultWindow(Hash(9), Hash(3), Hash(4), CreatedAtUtc.AddMinutes(-14)),
+                request,
+                duplicatePublicIdEvent,
+                Hash(5),
+                sentAtUtc));
+
+        await using var verifyContext = CreateContext();
+        var persistedRequest = await verifyContext.GuestOrderAccessRequests.SingleAsync();
+        Assert.Equal(requestPublicId, persistedRequest.PublicId);
+        Assert.Equal(Hash(1), persistedRequest.CodeHash);
+        Assert.Equal(1, persistedRequest.SendCount);
     }
 
     [Fact]
@@ -244,50 +348,6 @@ public sealed class EfGuestOrderAccessGatewayTests : IAsyncLifetime
         Assert.Equal(GuestOrderAccessRequest.UnknownScopeHash, persisted.OrderLookupKeyHash);
         Assert.Null(persisted.OrderId);
         Assert.Null(persisted.CodeHash);
-    }
-
-    [Fact]
-    public async Task FindActiveSuccessorAsync_FindsTheLatestActiveRowInTheSameResendChain()
-    {
-        // review #2：平行重寄的輸家要能靠 (EmailKeyHash, OrderLookupKeyHash, ExpiresAtUtc) 這組
-        // 不變的組合鍵找到贏家建立的延續 Row，而不是回傳自己手上那筆已經被 Revoke 的舊 Id。
-        var orderId = await SeedOrderAsync(Guid.CreateVersion7(), "DS-0011", "GUEST@EXAMPLE.COM");
-        var expiresAtUtc = CreatedAtUtc.AddMinutes(10);
-
-        await using var context = CreateContext();
-        var previous = GuestOrderAccessRequest.CreateValid(
-            Guid.CreateVersion7(), orderId, Hash(1), Hash(2), Hash(3), Hash(4),
-            expiresAtUtc, CreatedAtUtc);
-        previous.RecordSend(CreatedAtUtc);
-        context.GuestOrderAccessRequests.Add(previous);
-        await context.SaveChangesAsync();
-
-        var successorPublicId = Guid.CreateVersion7();
-        var successor = GuestOrderAccessRequest.CreateResend(
-            successorPublicId, previous, Hash(9), Hash(5), CreatedAtUtc.AddMinutes(1));
-        previous.Revoke(CreatedAtUtc.AddMinutes(1));
-        context.GuestOrderAccessRequests.Add(successor);
-        await context.SaveChangesAsync();
-
-        await using var verifyContext = CreateContext();
-        var gateway = new EfGuestOrderAccessGateway(verifyContext);
-        var found = await gateway.FindActiveSuccessorAsync(
-            Hash(3), Hash(4), expiresAtUtc, CreatedAtUtc.AddMinutes(2));
-
-        Assert.NotNull(found);
-        Assert.Equal(successorPublicId, found!.PublicId);
-    }
-
-    [Fact]
-    public async Task FindActiveSuccessorAsync_WhenNoActiveRowMatches_ReturnsNull()
-    {
-        await using var context = CreateContext();
-        var gateway = new EfGuestOrderAccessGateway(context);
-
-        var found = await gateway.FindActiveSuccessorAsync(
-            Hash(3), Hash(4), CreatedAtUtc.AddMinutes(10), CreatedAtUtc.AddMinutes(2));
-
-        Assert.Null(found);
     }
 
     private static GuestOrderAccessRateLimitWindow DefaultWindow(

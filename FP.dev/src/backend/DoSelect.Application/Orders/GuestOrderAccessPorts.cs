@@ -54,19 +54,31 @@ public interface IGuestOrderAccessGateway
         long orderId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 建立新 Challenge Row（首次建立，或 Resend 產生的延續 Row）前，在同一個 Serializable
+    /// 建立新 Challenge Row前，在同一個 Serializable
     /// 交易內原子核對三 Scope 15 分鐘視窗既有筆數——沿用 <c>GuestOrderAccessRequests</c>
     /// 既有的三組 (Hash, CreatedAtUtc) 索引（DEC-P266），不新增限流表／Migration。任一
     /// Scope 達到上限就整個 rollback、不寫入，回傳 false；三者都通過才新增
-    /// <paramref name="newRequest"/>（若 <paramref name="requestToRevoke"/> 不為 null，
-    /// 同一交易內一併撤銷——Resend 情境，讓舊 Row／舊碼立即失效）並 commit，回傳 true。
+    /// <paramref name="newRequest"/> 並 commit，回傳 true。
     /// 有效與 Decoy 都走這個方法，維持恆定 202／429 的回應形狀。實作必須在 SQL Server
     /// 死結／並行衝突時自行重試整段交易，不能把例外原樣往外傳。
     /// </summary>
     Task<bool> TryCreateRequestWithinRateLimitAsync(
         GuestOrderAccessRateLimitWindow window,
         GuestOrderAccessRequest newRequest,
-        GuestOrderAccessRequest? requestToRevoke,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// A1 重寄交易：在同一個 Serializable transaction 核對三 Scope，通過後原地更新
+    /// <paramref name="request"/> 的碼與寄送狀態，並新增 <paramref name="rateLimitEvent"/>
+    /// 消耗這次呼叫的 IP／Email／OrderLookup 額度。任一寫入失敗必須整體 rollback；
+    /// Request PublicId 不變，且不得再用 successor lookup 猜測重寄鏈。
+    /// </summary>
+    Task<bool> TryRecordResendWithinRateLimitAsync(
+        GuestOrderAccessRateLimitWindow window,
+        GuestOrderAccessRequest request,
+        GuestOrderAccessRequest rateLimitEvent,
+        byte[]? newCodeHash,
+        DateTime sentAtUtc,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -82,20 +94,6 @@ public interface IGuestOrderAccessGateway
         int ipPermitLimit,
         DateTime windowStartUtc,
         GuestOrderAccessRequest sentinelRequest,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// 找同一張 Challenge 目前仍然有效的延續 Row——Resend 的「延續 Row」保留原始 Row 的
-    /// <see cref="GuestOrderAccessRequest.EmailKeyHash"/>／<see cref="GuestOrderAccessRequest.OrderLookupKeyHash"/>／
-    /// <see cref="GuestOrderAccessRequest.ExpiresAtUtc"/> 不變，這三者的組合實務上唯一識別一條
-    /// 重寄鏈，藉此在平行重寄的輸家發現自己被撤銷時，找到贏家建立的延續 Row 並回傳同一個
-    /// 目前有效的 RequestPublicId，而不是回傳一個已經永久失效的舊 Id（review #2）。
-    /// </summary>
-    Task<GuestOrderAccessRequest?> FindActiveSuccessorAsync(
-        byte[] emailKeyHash,
-        byte[] orderLookupKeyHash,
-        DateTime expiresAtUtc,
-        DateTime nowUtc,
         CancellationToken cancellationToken = default);
 
     /// <summary>

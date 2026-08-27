@@ -16,9 +16,8 @@ public sealed class GuestOrderAccessRequestDto
 
 /// <summary>
 /// 有效／無效輸入回相同 Schema——不表示訂單或 Email 是否存在（API DTO與Schema契約.md:64）。
-/// 從 <c>actions/resend</c> 收到的 <see cref="RequestPublicId"/> 不保證等於呼叫時 URL
-/// 上的那個值——每次成功重寄都會撤銷舊 Row、核發延續同一組限流 Scope 的新 Row 與新
-/// PublicId（DEC-P266 持久化限流），後續 Resend／Verify 都要改用這裡回傳的最新值。
+/// <c>actions/resend</c> 原地更新同一張 Challenge 的碼與寄送狀態，因此
+/// <see cref="RequestPublicId"/> 維持等於 URL 中的值；持久化限流由同交易的獨立事件 Row 計數。
 /// </summary>
 public sealed record GuestOrderAccessRequestAcceptedDto(
     Guid RequestPublicId,

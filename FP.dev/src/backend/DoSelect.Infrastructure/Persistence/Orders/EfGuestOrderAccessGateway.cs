@@ -64,8 +64,8 @@ public sealed class EfGuestOrderAccessGateway : IGuestOrderAccessGateway
     /// <summary>
     /// 在單一 Serializable 交易內原子核對三 Scope 15 分鐘視窗既有筆數（沿用既有的三組
     /// (Hash, CreatedAtUtc) 索引，DEC-P266，不新增限流表）；任一達到上限就整個 rollback、
-    /// 不寫入，回傳 false。三者都通過才撤銷 <paramref name="requestToRevoke"/>（若不為
-    /// null）、新增 <paramref name="newRequest"/> 並 commit。Serializable 隔離讓範圍查詢
+    /// 不寫入，回傳 false。三者都通過才新增 <paramref name="newRequest"/> 並 commit。
+    /// Serializable 隔離讓範圍查詢
     /// 期間不會被其他交易插入同一段索引範圍，同一組 Hash 的並行建立／重寄會彼此等待而不是
     /// 都讀到同一個舊計數——真的發生 SQL Server 死結／並行衝突時，改拋
     /// <see cref="DomainProblemException"/>（Code＝ConcurrencyConflict）交由呼叫端比照
@@ -75,7 +75,6 @@ public sealed class EfGuestOrderAccessGateway : IGuestOrderAccessGateway
     public async Task<bool> TryCreateRequestWithinRateLimitAsync(
         GuestOrderAccessRateLimitWindow window,
         GuestOrderAccessRequest newRequest,
-        GuestOrderAccessRequest? requestToRevoke,
         CancellationToken cancellationToken = default)
     {
         await using var transaction = await dbContext.Database.BeginTransactionAsync(
@@ -101,7 +100,6 @@ public sealed class EfGuestOrderAccessGateway : IGuestOrderAccessGateway
                 return false;
             }
 
-            requestToRevoke?.Revoke(newRequest.CreatedAtUtc);
             await dbContext.GuestOrderAccessRequests.AddAsync(newRequest, cancellationToken);
             await dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
@@ -109,12 +107,62 @@ public sealed class EfGuestOrderAccessGateway : IGuestOrderAccessGateway
         }
         catch (Exception exception) when (IsRetryableConflict(exception))
         {
-            // 交易已經（或即將）rollback——ChangeTracker 裡的異動（含 requestToRevoke 的
-            // Revoke）要一併丟掉，不然呼叫端重試時會疊加在一個「以為已經改過」的追蹤實例上。
+            // 交易已經（或即將）rollback，丟棄 ChangeTracker 狀態後讓呼叫端重試整段操作。
             dbContext.ChangeTracker.Clear();
             throw DomainProblemException.Conflict(
                 DomainErrorCodes.ConcurrencyConflict,
                 "The guest order access rate limit check was interrupted by a concurrent request.")
+                .WithInnerException(exception);
+        }
+    }
+
+    /// <summary>
+    /// A1：原地更新穩定 Challenge，並在同一個 Serializable transaction 新增一筆只供
+    /// 三 Scope 計數的 rate-limit event。任一 SaveChanges 失敗時兩者一起 rollback。
+    /// </summary>
+    public async Task<bool> TryRecordResendWithinRateLimitAsync(
+        GuestOrderAccessRateLimitWindow window,
+        GuestOrderAccessRequest request,
+        GuestOrderAccessRequest rateLimitEvent,
+        byte[]? newCodeHash,
+        DateTime sentAtUtc,
+        CancellationToken cancellationToken = default)
+    {
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(
+            IsolationLevel.Serializable, cancellationToken);
+
+        try
+        {
+            var ipCount = await dbContext.GuestOrderAccessRequests
+                .Where(r => r.RequesterIpHash == window.IpHash && r.CreatedAtUtc > window.WindowStartUtc)
+                .CountAsync(cancellationToken);
+            var emailCount = await dbContext.GuestOrderAccessRequests
+                .Where(r => r.EmailKeyHash == window.EmailHash && r.CreatedAtUtc > window.WindowStartUtc)
+                .CountAsync(cancellationToken);
+            var orderLookupCount = await dbContext.GuestOrderAccessRequests
+                .Where(r =>
+                    r.OrderLookupKeyHash == window.OrderLookupHash && r.CreatedAtUtc > window.WindowStartUtc)
+                .CountAsync(cancellationToken);
+
+            if (ipCount >= window.IpPermitLimit ||
+                emailCount >= window.EmailPermitLimit ||
+                orderLookupCount >= window.OrderLookupPermitLimit)
+            {
+                return false;
+            }
+
+            request.RecordResend(newCodeHash, sentAtUtc);
+            await dbContext.GuestOrderAccessRequests.AddAsync(rateLimitEvent, cancellationToken);
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return true;
+        }
+        catch (Exception exception) when (IsRetryableConflict(exception))
+        {
+            dbContext.ChangeTracker.Clear();
+            throw DomainProblemException.Conflict(
+                DomainErrorCodes.ConcurrencyConflict,
+                "The guest order access resend was interrupted by a concurrent request.")
                 .WithInnerException(exception);
         }
     }
@@ -158,25 +206,6 @@ public sealed class EfGuestOrderAccessGateway : IGuestOrderAccessGateway
                 .WithInnerException(exception);
         }
     }
-
-    public Task<GuestOrderAccessRequest?> FindActiveSuccessorAsync(
-        byte[] emailKeyHash,
-        byte[] orderLookupKeyHash,
-        DateTime expiresAtUtc,
-        DateTime nowUtc,
-        CancellationToken cancellationToken = default) =>
-        dbContext.GuestOrderAccessRequests
-            .Where(r =>
-                r.EmailKeyHash == emailKeyHash &&
-                r.OrderLookupKeyHash == orderLookupKeyHash &&
-                r.ExpiresAtUtc == expiresAtUtc &&
-                r.ExpiresAtUtc > nowUtc &&
-                r.ConsumedAtUtc == null &&
-                r.LockedAtUtc == null &&
-                r.RevokedAtUtc == null &&
-                r.AttemptCount < GuestOrderAccessRequest.MaximumAttempts)
-            .OrderByDescending(r => r.Id)
-            .FirstOrDefaultAsync(cancellationToken);
 
     /// <summary>
     /// 值得讓呼叫端重試整段操作的並行衝突：SQL Server 死結受害者，或樂觀鎖（RowVersion）

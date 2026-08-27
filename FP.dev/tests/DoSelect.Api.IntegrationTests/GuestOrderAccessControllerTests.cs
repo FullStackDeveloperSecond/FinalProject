@@ -250,10 +250,10 @@ public sealed class GuestOrderAccessControllerTests(GuestOrderAccessApiFixture f
     }
 
     [Fact]
-    public async Task Resend_TwoParallelCallsOnTheSameChallenge_OnlyOneSucceedsInCreatingASuccessor()
+    public async Task Resend_TwoParallelCallsOnTheSameChallenge_UpdatesStableChallengeOnce()
     {
-        // 對應這次 review #4 新加的「Resend 建立延續 Row＋撤銷舊 Row」：平行重寄不能核發出
-        // 兩筆同時有效的延續 Row，DB 裡永遠只能有一筆「仍然有效」（RevokedAtUtc is null）。
+        // A1：平行重寄只能有一個呼叫成功更新穩定 Challenge，另一個 reload 後會被 60 秒
+        // 間隔擋下；兩個回應都維持原 RequestPublicId，只新增一筆 rate-limit event。
         //
         // review #3：GuestOrderAccessRequest.EnsureCanSend 規定同一筆 Row 兩次寄送間隔至少
         // 60 秒，建立 Request 當下已經算一次寄送（SendCount=1）——不推進時間，兩個平行呼叫
@@ -294,19 +294,23 @@ public sealed class GuestOrderAccessControllerTests(GuestOrderAccessApiFixture f
 
         await using var scope = factory.Services.CreateAsyncScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
-        var chain = await dbContext.GuestOrderAccessRequests
+        var challenge = await dbContext.GuestOrderAccessRequests
             .Where(r => r.OrderId == orderId)
+            .SingleAsync();
+        Assert.Equal(requestPublicId, challenge.PublicId);
+        Assert.Equal(2, challenge.SendCount);
+        Assert.Null(challenge.RevokedAtUtc);
+
+        var rateLimitEvents = await dbContext.GuestOrderAccessRequests
+            .Where(r =>
+                r.OrderId == null &&
+                r.EmailKeyHash == challenge.EmailKeyHash &&
+                r.OrderLookupKeyHash == challenge.OrderLookupKeyHash)
             .ToListAsync();
+        var rateLimitEvent = Assert.Single(rateLimitEvents);
+        Assert.NotNull(rateLimitEvent.RevokedAtUtc);
 
-        // 原始 Row＋剛好一筆延續 Row（另一個平行呼叫沒有真的核發出第二筆），
-        // 且任何時間點只有一筆是「仍然有效」。
-        Assert.Equal(2, chain.Count);
-        var activeSuccessor = Assert.Single(chain, r => r.RevokedAtUtc is null);
-
-        // review #2：輸家不能拿到一個已經被撤銷、永遠失效的舊 RequestPublicId——兩個回應
-        // body 都必須指向同一個「目前仍然有效」的延續 Row，客戶端後續 verify／resend
-        // 才不會因為套用輸家回應而失敗。
-        Assert.All(responseBodies, body => Assert.Equal(activeSuccessor.PublicId, body.RequestPublicId));
+        Assert.All(responseBodies, body => Assert.Equal(requestPublicId, body.RequestPublicId));
     }
 
     [Fact]
