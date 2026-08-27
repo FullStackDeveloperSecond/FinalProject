@@ -31,4 +31,66 @@ public interface IAdminSupportTicketService
         bool canSupervise,
         Guid ticketPublicId,
         CancellationToken cancellationToken);
+
+    /// <summary>DES-23 SupportTicket.Supervise: assign an unassigned Open ticket to another admin.</summary>
+    Task<AdminSupportTicketDto> AssignAsync(
+        SupportTicketActionContext context,
+        Guid ticketPublicId,
+        AssignSupportTicketRequest request,
+        CancellationToken cancellationToken);
+
+    /// <summary>DES-23 SupportTicket.Supervise: move a ticket from its current assignee to another qualified admin.</summary>
+    Task<AdminSupportTicketDto> TransferAsync(
+        SupportTicketActionContext context,
+        Guid ticketPublicId,
+        TransferSupportTicketRequest request,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// SupportTicket.Handle (general adjustment, actor-scoped) or SupportTicket.Supervise
+    /// (override, any ticket) — the single change-priority Action, dispatched by the caller's own
+    /// entry-gate authorization (checked imperatively against both policies since the endpoint
+    /// must admit CustomerService, CustomerServiceSupervisor, and bare SuperAdmin alike).
+    /// </summary>
+    Task<AdminSupportTicketDetailDto> ChangePriorityAsync(
+        SupportTicketActionContext context,
+        Guid ticketPublicId,
+        ChangeSupportTicketPriorityRequest request,
+        CancellationToken cancellationToken);
+
+    /// <summary>SupportTicket.Handle: general status change via the existing Transition state machine.</summary>
+    Task<AdminSupportTicketDetailDto> ChangeStatusAsync(
+        SupportTicketActionContext context,
+        Guid ticketPublicId,
+        ChangeSupportTicketStatusRequest request,
+        CancellationToken cancellationToken);
+
+    /// <summary>SupportTicket.Handle: admin-initiated cancel (Open/Assigned, before a human reply).</summary>
+    Task<AdminSupportTicketDetailDto> CancelAsync(
+        SupportTicketActionContext context,
+        Guid ticketPublicId,
+        CancelSupportTicketByAdminRequest request,
+        CancellationToken cancellationToken);
+
+    /// <summary>SupportTicket.Handle: reopen a Resolved ticket back to InProgress.</summary>
+    Task<AdminSupportTicketDetailDto> ReopenAsync(
+        SupportTicketActionContext context,
+        Guid ticketPublicId,
+        ReopenSupportTicketRequest request,
+        CancellationToken cancellationToken);
 }
+
+/// <summary>
+/// Everything about the caller that every DES-23 action needs, resolved once by the controller
+/// from the authenticated principal and ambient HTTP context: identity, role snapshot (also used
+/// as the AuditActor role snapshot), supervisor scope, and the observability fields the central
+/// Audit contract requires. Keeping this as one parameter avoids a 6-argument signature repeated
+/// across six action methods.
+/// </summary>
+public sealed record SupportTicketActionContext(
+    string AdminUserId,
+    IReadOnlyCollection<string> Roles,
+    bool CanSupervise,
+    string CorrelationId,
+    string TraceId,
+    System.Net.IPAddress? RemoteIpAddress);

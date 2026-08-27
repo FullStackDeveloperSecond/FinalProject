@@ -101,23 +101,26 @@ public sealed class AdminSupportTicketServiceTests
         Assert.True(result.IsOverdue);
         Assert.Equal(store.Detail.PublicId, store.DetailTicketPublicId);
         Assert.Equal("Visible Agent", result.Assignee?.DisplayName);
-        Assert.Empty(result.AvailableActions);
+        // NewDetail()'s defaults are Status=Open + assigned=true + a Handle-only (non-Supervise)
+        // caller: claim is excluded (already assigned), assign/transfer are excluded
+        // (canSupervise is false), and cancel is included (Open, no human reply yet).
+        Assert.Equal(["change-priority", "change-status", "cancel"], result.AvailableActions);
         Assert.Collection(result.Messages,
             message => Assert.False(message.IsInternal),
             message => Assert.True(message.IsInternal));
     }
 
     [Theory]
-    [InlineData(SupportTicketStatus.Open, false, true)]
-    [InlineData(SupportTicketStatus.Open, true, false)]
-    [InlineData(SupportTicketStatus.Assigned, false, false)]
-    [InlineData(SupportTicketStatus.InProgress, false, false)]
-    [InlineData(SupportTicketStatus.Resolved, false, false)]
-    [InlineData(SupportTicketStatus.Closed, false, false)]
-    public async Task GetDetailAsync_ExposesClaimOnlyWhenOpenAndUnassigned(
+    [InlineData(SupportTicketStatus.Open, false, new[] { "claim", "change-priority", "change-status", "cancel" })]
+    [InlineData(SupportTicketStatus.Open, true, new[] { "change-priority", "change-status", "cancel" })]
+    [InlineData(SupportTicketStatus.Assigned, false, new[] { "change-priority", "change-status", "cancel" })]
+    [InlineData(SupportTicketStatus.InProgress, false, new[] { "change-priority", "change-status" })]
+    [InlineData(SupportTicketStatus.Resolved, false, new[] { "change-priority", "change-status", "reopen" })]
+    [InlineData(SupportTicketStatus.Closed, false, new string[0])]
+    public async Task GetDetailAsync_ByHandleOnlyCaller_ExposesStateGatedActionsWithoutAssignOrTransfer(
         SupportTicketStatus status,
         bool assigned,
-        bool expectClaim)
+        string[] expectedActions)
     {
         var store = new StubAdminSupportTicketStore
         {
@@ -125,10 +128,30 @@ public sealed class AdminSupportTicketServiceTests
         };
 
         var result = await new AdminSupportTicketService(store, new FixedTimeProvider(Now))
-            .GetDetailAsync("admin-a", false, store.Detail.PublicId, CancellationToken.None);
+            .GetDetailAsync("admin-a", canSupervise: false, store.Detail.PublicId, CancellationToken.None);
 
-        Assert.Equal(expectClaim, result.AvailableActions.Contains("claim"));
-        Assert.Equal(expectClaim ? 1 : 0, result.AvailableActions.Count);
+        Assert.Equal(expectedActions, result.AvailableActions);
+    }
+
+    [Theory]
+    [InlineData(SupportTicketStatus.Open, false, new[] { "claim", "assign", "change-priority", "change-status", "cancel" })]
+    [InlineData(SupportTicketStatus.Open, true, new[] { "transfer", "change-priority", "change-status", "cancel" })]
+    [InlineData(SupportTicketStatus.InProgress, true, new[] { "transfer", "change-priority", "change-status" })]
+    [InlineData(SupportTicketStatus.Closed, true, new string[0])]
+    public async Task GetDetailAsync_BySupervisor_AlsoExposesAssignOrTransferWhenEligible(
+        SupportTicketStatus status,
+        bool assigned,
+        string[] expectedActions)
+    {
+        var store = new StubAdminSupportTicketStore
+        {
+            Detail = NewDetail(status, assigned: assigned),
+        };
+
+        var result = await new AdminSupportTicketService(store, new FixedTimeProvider(Now))
+            .GetDetailAsync("supervisor-a", canSupervise: true, store.Detail.PublicId, CancellationToken.None);
+
+        Assert.Equal(expectedActions, result.AvailableActions);
     }
 
     [Theory]
@@ -162,6 +185,204 @@ public sealed class AdminSupportTicketServiceTests
 
         Assert.Equal(404, exception.StatusCode);
         Assert.Equal(DomainErrorCodes.ResourceNotFound, exception.Code);
+    }
+
+    private static SupportTicketActionContext NewContext(bool canSupervise = false) => new(
+        "identity-admin-id",
+        ["CustomerService"],
+        canSupervise,
+        "correlation-1",
+        "0123456789abcdef0123456789abcdef",
+        null);
+
+    [Fact]
+    public async Task AssignAsync_WhenStoreSucceeds_MapsPublicIdsAndForwardsCommandFields()
+    {
+        var ticketId = Guid.NewGuid();
+        var targetPublicId = Guid.NewGuid();
+        var adminPublicId = Guid.NewGuid();
+        var rowVersion = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 };
+        var store = new StubAdminSupportTicketStore
+        {
+            AssignResult = SupportTicketAssignResult.Success(NewClaimedTicket(ticketId, adminPublicId, rowVersion)),
+        };
+        var service = new AdminSupportTicketService(store, new FixedTimeProvider(Now));
+        var context = NewContext(canSupervise: true);
+
+        var result = await service.AssignAsync(
+            context,
+            ticketId,
+            new AssignSupportTicketRequest { TargetAdminPublicId = targetPublicId, Reason = "supervisor assign", RowVersion = rowVersion },
+            CancellationToken.None);
+
+        Assert.Equal(ticketId, result.PublicId);
+        Assert.Equal(adminPublicId, result.Assignee.PublicId);
+        var command = Assert.IsType<SupportTicketAssignCommand>(store.LastCommand);
+        Assert.Equal(targetPublicId, command.TargetAdminPublicId);
+        Assert.Equal("supervisor assign", command.Reason);
+        Assert.Equal(context.AdminUserId, command.ActorUserId);
+        Assert.True(command.CanSupervise);
+        Assert.Equal(context.CorrelationId, command.CorrelationId);
+        Assert.Equal(context.TraceId, command.TraceId);
+        Assert.Equal(Now.UtcDateTime, command.OccurredAtUtc);
+    }
+
+    [Theory]
+    [InlineData(SupportTicketAssignOutcome.NotFound, 404, DomainErrorCodes.ResourceNotFound)]
+    [InlineData(SupportTicketAssignOutcome.TargetNotEligible, 400, DomainErrorCodes.ValidationFailed)]
+    [InlineData(SupportTicketAssignOutcome.AssignmentConflict, 409, DomainErrorCodes.SupportTicketAssignmentConflict)]
+    [InlineData(SupportTicketAssignOutcome.ConcurrencyConflict, 409, DomainErrorCodes.ConcurrencyConflict)]
+    [InlineData(SupportTicketAssignOutcome.AdminNotEligible, 403, DomainErrorCodes.AuthorizationForbidden)]
+    public async Task AssignAsync_MapsStoreOutcomeToStableProblemCode(SupportTicketAssignOutcome outcome, int status, string code)
+    {
+        var store = new StubAdminSupportTicketStore { AssignResult = new SupportTicketAssignResult(outcome, null) };
+        var service = new AdminSupportTicketService(store, new FixedTimeProvider(Now));
+
+        var exception = await Assert.ThrowsAsync<DomainProblemException>(() => service.AssignAsync(
+            NewContext(canSupervise: true),
+            Guid.NewGuid(),
+            new AssignSupportTicketRequest { TargetAdminPublicId = Guid.NewGuid(), Reason = "r", RowVersion = new byte[8] },
+            CancellationToken.None));
+
+        Assert.Equal(status, exception.StatusCode);
+        Assert.Equal(code, exception.Code);
+    }
+
+    [Theory]
+    [InlineData(SupportTicketAssignOutcome.NotFound, 404, DomainErrorCodes.ResourceNotFound)]
+    [InlineData(SupportTicketAssignOutcome.TargetNotEligible, 400, DomainErrorCodes.ValidationFailed)]
+    [InlineData(SupportTicketAssignOutcome.AssignmentConflict, 409, DomainErrorCodes.SupportTicketAssignmentConflict)]
+    [InlineData(SupportTicketAssignOutcome.ConcurrencyConflict, 409, DomainErrorCodes.ConcurrencyConflict)]
+    public async Task TransferAsync_MapsStoreOutcomeToStableProblemCode(SupportTicketAssignOutcome outcome, int status, string code)
+    {
+        var store = new StubAdminSupportTicketStore { TransferResult = new SupportTicketAssignResult(outcome, null) };
+        var service = new AdminSupportTicketService(store, new FixedTimeProvider(Now));
+
+        var exception = await Assert.ThrowsAsync<DomainProblemException>(() => service.TransferAsync(
+            NewContext(canSupervise: true),
+            Guid.NewGuid(),
+            new TransferSupportTicketRequest { TargetAdminPublicId = Guid.NewGuid(), Reason = "r", RowVersion = new byte[8] },
+            CancellationToken.None));
+
+        Assert.Equal(status, exception.StatusCode);
+        Assert.Equal(code, exception.Code);
+    }
+
+    [Fact]
+    public async Task ChangePriorityAsync_WhenStoreSucceeds_ReturnsDetailAndForwardsPriorityAndReason()
+    {
+        var store = new StubAdminSupportTicketStore { ChangePriorityResult = SupportTicketMutationResult.Success(NewDetail()) };
+        var service = new AdminSupportTicketService(store, new FixedTimeProvider(Now));
+
+        var result = await service.ChangePriorityAsync(
+            NewContext(),
+            store.ChangePriorityResult.Ticket!.PublicId,
+            new ChangeSupportTicketPriorityRequest { Priority = CasePriority.Urgent, Reason = "escalate", RowVersion = new byte[8] },
+            CancellationToken.None);
+
+        Assert.NotNull(result);
+        var command = Assert.IsType<SupportTicketChangePriorityCommand>(store.LastCommand);
+        Assert.Equal(CasePriority.Urgent, command.Priority);
+        Assert.Equal("escalate", command.Reason);
+    }
+
+    [Theory]
+    [InlineData(SupportTicketMutationOutcome.NotFound, 404, DomainErrorCodes.ResourceNotFound)]
+    [InlineData(SupportTicketMutationOutcome.StateConflict, 409, DomainErrorCodes.SupportTicketStateConflict)]
+    [InlineData(SupportTicketMutationOutcome.ConcurrencyConflict, 409, DomainErrorCodes.ConcurrencyConflict)]
+    [InlineData(SupportTicketMutationOutcome.AdminNotEligible, 403, DomainErrorCodes.AuthorizationForbidden)]
+    public async Task ChangePriorityAsync_MapsStoreOutcomeToStableProblemCode(SupportTicketMutationOutcome outcome, int status, string code)
+    {
+        var store = new StubAdminSupportTicketStore { ChangePriorityResult = new SupportTicketMutationResult(outcome, null) };
+        var service = new AdminSupportTicketService(store, new FixedTimeProvider(Now));
+
+        var exception = await Assert.ThrowsAsync<DomainProblemException>(() => service.ChangePriorityAsync(
+            NewContext(),
+            Guid.NewGuid(),
+            new ChangeSupportTicketPriorityRequest { Priority = CasePriority.High, Reason = "r", RowVersion = new byte[8] },
+            CancellationToken.None));
+
+        Assert.Equal(status, exception.StatusCode);
+        Assert.Equal(code, exception.Code);
+    }
+
+    [Theory]
+    [InlineData(SupportTicketMutationOutcome.NotFound, 404, DomainErrorCodes.ResourceNotFound)]
+    [InlineData(SupportTicketMutationOutcome.StateConflict, 409, DomainErrorCodes.SupportTicketStateConflict)]
+    [InlineData(SupportTicketMutationOutcome.ConcurrencyConflict, 409, DomainErrorCodes.ConcurrencyConflict)]
+    public async Task ChangeStatusAsync_MapsStoreOutcomeToStableProblemCode(SupportTicketMutationOutcome outcome, int status, string code)
+    {
+        var store = new StubAdminSupportTicketStore { ChangeStatusResult = new SupportTicketMutationResult(outcome, null) };
+        var service = new AdminSupportTicketService(store, new FixedTimeProvider(Now));
+
+        var exception = await Assert.ThrowsAsync<DomainProblemException>(() => service.ChangeStatusAsync(
+            NewContext(),
+            Guid.NewGuid(),
+            new ChangeSupportTicketStatusRequest { Status = SupportTicketStatus.InProgress, RowVersion = new byte[8] },
+            CancellationToken.None));
+
+        Assert.Equal(status, exception.StatusCode);
+        Assert.Equal(code, exception.Code);
+    }
+
+    [Theory]
+    [InlineData(SupportTicketMutationOutcome.NotFound, 404, DomainErrorCodes.ResourceNotFound)]
+    [InlineData(SupportTicketMutationOutcome.StateConflict, 409, DomainErrorCodes.SupportTicketCancelNotAllowed)]
+    [InlineData(SupportTicketMutationOutcome.ConcurrencyConflict, 409, DomainErrorCodes.ConcurrencyConflict)]
+    public async Task CancelAsync_MapsStoreOutcomeToStableProblemCode(SupportTicketMutationOutcome outcome, int status, string code)
+    {
+        var store = new StubAdminSupportTicketStore { CancelResult = new SupportTicketMutationResult(outcome, null) };
+        var service = new AdminSupportTicketService(store, new FixedTimeProvider(Now));
+
+        var exception = await Assert.ThrowsAsync<DomainProblemException>(() => service.CancelAsync(
+            NewContext(),
+            Guid.NewGuid(),
+            new CancelSupportTicketByAdminRequest { Reason = "customer requested", RowVersion = new byte[8] },
+            CancellationToken.None));
+
+        Assert.Equal(status, exception.StatusCode);
+        Assert.Equal(code, exception.Code);
+    }
+
+    [Theory]
+    [InlineData(SupportTicketMutationOutcome.NotFound, 404, DomainErrorCodes.ResourceNotFound)]
+    [InlineData(SupportTicketMutationOutcome.StateConflict, 409, DomainErrorCodes.SupportTicketStateConflict)]
+    [InlineData(SupportTicketMutationOutcome.ConcurrencyConflict, 409, DomainErrorCodes.ConcurrencyConflict)]
+    public async Task ReopenAsync_MapsStoreOutcomeToStableProblemCode(SupportTicketMutationOutcome outcome, int status, string code)
+    {
+        var store = new StubAdminSupportTicketStore { ReopenResult = new SupportTicketMutationResult(outcome, null) };
+        var service = new AdminSupportTicketService(store, new FixedTimeProvider(Now));
+
+        var exception = await Assert.ThrowsAsync<DomainProblemException>(() => service.ReopenAsync(
+            NewContext(),
+            Guid.NewGuid(),
+            new ReopenSupportTicketRequest { Reason = "customer replied again", RowVersion = new byte[8] },
+            CancellationToken.None));
+
+        Assert.Equal(status, exception.StatusCode);
+        Assert.Equal(code, exception.Code);
+    }
+
+    [Fact]
+    public void ActionRequests_MissingRequiredFields_FailDataAnnotationsValidation()
+    {
+        Assert.False(IsValid(new AssignSupportTicketRequest { TargetAdminPublicId = Guid.NewGuid(), Reason = "", RowVersion = new byte[8] }));
+        Assert.False(IsValid(new AssignSupportTicketRequest { TargetAdminPublicId = Guid.NewGuid(), Reason = "ok", RowVersion = new byte[7] }));
+        Assert.True(IsValid(new AssignSupportTicketRequest { TargetAdminPublicId = Guid.NewGuid(), Reason = "ok", RowVersion = new byte[8] }));
+
+        Assert.False(IsValid(new TransferSupportTicketRequest { TargetAdminPublicId = Guid.NewGuid(), Reason = " ", RowVersion = new byte[8] }));
+        Assert.True(IsValid(new TransferSupportTicketRequest { TargetAdminPublicId = Guid.NewGuid(), Reason = "ok", RowVersion = new byte[8] }));
+
+        Assert.False(IsValid(new ChangeSupportTicketPriorityRequest { Priority = CasePriority.High, Reason = "", RowVersion = new byte[8] }));
+        Assert.True(IsValid(new ChangeSupportTicketPriorityRequest { Priority = CasePriority.High, Reason = "ok", RowVersion = new byte[8] }));
+
+        Assert.False(IsValid(new CancelSupportTicketByAdminRequest { Reason = "", RowVersion = new byte[8] }));
+        Assert.True(IsValid(new CancelSupportTicketByAdminRequest { Reason = "ok", RowVersion = new byte[8] }));
+
+        Assert.False(IsValid(new ReopenSupportTicketRequest { Reason = "", RowVersion = new byte[8] }));
+        Assert.True(IsValid(new ReopenSupportTicketRequest { Reason = "ok", RowVersion = new byte[8] }));
+
+        Assert.True(IsValid(new ChangeSupportTicketStatusRequest { Status = SupportTicketStatus.InProgress, Reason = null, RowVersion = new byte[8] }));
     }
 
     [Fact]
@@ -241,6 +462,50 @@ public sealed class AdminSupportTicketServiceTests
         {
             DetailTicketPublicId = ticketPublicId;
             return Task.FromResult(Detail);
+        }
+
+        public SupportTicketAssignResult AssignResult { get; init; } = SupportTicketAssignResult.NotFound;
+        public SupportTicketAssignResult TransferResult { get; init; } = SupportTicketAssignResult.NotFound;
+        public SupportTicketMutationResult ChangePriorityResult { get; init; } = SupportTicketMutationResult.NotFound;
+        public SupportTicketMutationResult ChangeStatusResult { get; init; } = SupportTicketMutationResult.NotFound;
+        public SupportTicketMutationResult CancelResult { get; init; } = SupportTicketMutationResult.NotFound;
+        public SupportTicketMutationResult ReopenResult { get; init; } = SupportTicketMutationResult.NotFound;
+        public SupportTicketActionCommand? LastCommand { get; private set; }
+
+        public Task<SupportTicketAssignResult> AssignAsync(SupportTicketAssignCommand command, CancellationToken cancellationToken)
+        {
+            LastCommand = command;
+            return Task.FromResult(AssignResult);
+        }
+
+        public Task<SupportTicketAssignResult> TransferAsync(SupportTicketAssignCommand command, CancellationToken cancellationToken)
+        {
+            LastCommand = command;
+            return Task.FromResult(TransferResult);
+        }
+
+        public Task<SupportTicketMutationResult> ChangePriorityAsync(SupportTicketChangePriorityCommand command, CancellationToken cancellationToken)
+        {
+            LastCommand = command;
+            return Task.FromResult(ChangePriorityResult);
+        }
+
+        public Task<SupportTicketMutationResult> ChangeStatusAsync(SupportTicketChangeStatusCommand command, CancellationToken cancellationToken)
+        {
+            LastCommand = command;
+            return Task.FromResult(ChangeStatusResult);
+        }
+
+        public Task<SupportTicketMutationResult> CancelAsync(SupportTicketReasonCommand command, CancellationToken cancellationToken)
+        {
+            LastCommand = command;
+            return Task.FromResult(CancelResult);
+        }
+
+        public Task<SupportTicketMutationResult> ReopenAsync(SupportTicketReasonCommand command, CancellationToken cancellationToken)
+        {
+            LastCommand = command;
+            return Task.FromResult(ReopenResult);
         }
     }
 }

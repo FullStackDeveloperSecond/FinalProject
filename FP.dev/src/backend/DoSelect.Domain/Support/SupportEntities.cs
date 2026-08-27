@@ -50,6 +50,52 @@ public sealed class SupportTicket : MutablePublicEntity
         if (AssigneeAdminUserId is not null || Status != SupportTicketStatus.Open) throw new InvalidOperationException("The ticket is already assigned.");
         AssigneeAdminUserId = RequireText(adminUserId, nameof(adminUserId)); Transition(SupportTicketStatus.Assigned, occurredAtUtc);
     }
+
+    /// <summary>
+    /// Supervisor-driven handoff: unlike Assign (self-claim of an unassigned Open ticket only),
+    /// this sets the assignee regardless of whether the ticket is currently unassigned (a
+    /// supervisor "assign") or already held by someone else (a "transfer"). The caller
+    /// (Application/Infrastructure) is responsible for enforcing which of those two shapes is
+    /// legal for the specific action being performed and for target eligibility; this method only
+    /// enforces that a terminal ticket can no longer change hands. Does not expand the status
+    /// state machine: Open still transitions to Assigned via the existing Transition table, and
+    /// every other non-terminal status is left untouched aside from LastActivityAtUtc/RowVersion.
+    /// </summary>
+    public void AssignTo(string adminUserId, DateTime occurredAtUtc)
+    {
+        if (Status is SupportTicketStatus.Closed or SupportTicketStatus.Cancelled)
+        {
+            throw new InvalidOperationException($"A {Status} ticket cannot be assigned or transferred.");
+        }
+
+        AssigneeAdminUserId = RequireText(adminUserId, nameof(adminUserId));
+        if (Status == SupportTicketStatus.Open)
+        {
+            Transition(SupportTicketStatus.Assigned, occurredAtUtc);
+        }
+        else
+        {
+            LastActivityAtUtc = RequireUtc(occurredAtUtc, nameof(occurredAtUtc));
+            MarkUpdated(occurredAtUtc);
+        }
+    }
+
+    /// <summary>
+    /// General adjustment or supervisor override of the case priority. Does not itself change
+    /// Status or SLA due dates (SLA recompute-on-priority-change is a separate, not-yet-built
+    /// concern); a terminal ticket's priority is frozen.
+    /// </summary>
+    public void ChangePriority(CasePriority priority, DateTime occurredAtUtc)
+    {
+        if (Status is SupportTicketStatus.Closed or SupportTicketStatus.Cancelled)
+        {
+            throw new InvalidOperationException($"A {Status} ticket's priority cannot change.");
+        }
+
+        Priority = priority;
+        LastActivityAtUtc = RequireUtc(occurredAtUtc, nameof(occurredAtUtc));
+        MarkUpdated(occurredAtUtc);
+    }
     public void Transition(SupportTicketStatus next, DateTime occurredAtUtc)
     {
         if (!AllowedTransitions[Status].Contains(next)) throw new InvalidOperationException($"Support ticket cannot move from {Status} to {next}.");

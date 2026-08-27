@@ -1,10 +1,20 @@
 <script setup lang="ts">
 import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
-import { computed } from 'vue'
+import { computed, reactive } from 'vue'
 import { useRoute } from 'vue-router'
-import { useClaimSupportTicketMutation, useSupportTicketDetailQuery } from '../../features/support/queries'
+import {
+  useAssignSupportTicketMutation,
+  useCancelSupportTicketByAdminMutation,
+  useChangeSupportTicketPriorityMutation,
+  useChangeSupportTicketStatusMutation,
+  useClaimSupportTicketMutation,
+  useReopenSupportTicketMutation,
+  useSupportTicketDetailQuery,
+  useTransferSupportTicketMutation,
+} from '../../features/support/queries'
 import { categoryLabels, formatDateTime, priorityLabels, senderTypeLabels, statusLabels } from '../../features/support/labels'
+import type { CasePriority, SupportTicketStatus } from '../../features/support/types'
 import { apiBaseUrl } from '../../api/client'
 
 const route = useRoute()
@@ -12,17 +22,156 @@ const ticketId = computed(() => String(route.params.ticketId))
 
 const { data: ticket, isPending, isError, error, refetch } = useSupportTicketDetailQuery(ticketId)
 const claimMutation = useClaimSupportTicketMutation(ticketId)
+const assignMutation = useAssignSupportTicketMutation(ticketId)
+const transferMutation = useTransferSupportTicketMutation(ticketId)
+const changePriorityMutation = useChangeSupportTicketPriorityMutation(ticketId)
+const changeStatusMutation = useChangeSupportTicketStatusMutation(ticketId)
+const cancelMutation = useCancelSupportTicketByAdminMutation(ticketId)
+const reopenMutation = useReopenSupportTicketMutation(ticketId)
 
-// Claim is only offered when the backend's AvailableActions list contains the exact "claim"
-// token (AdminSupportTicketService.ComputeAvailableActions). This is a usability hint only —
-// the server's SupportTicketHandle policy and store-level conditional check remain the
-// authoritative gate regardless of what this list contains. Guarded with Array.isArray so an
-// older, malformed, or partial response that omits/nulls availableActions fails closed instead
-// of throwing.
-const canClaim = computed(() => {
+// Every gate below reads the backend's AvailableActions list (AdminSupportTicketService.
+// ComputeAvailableActions) — a public-safe, usability-only hint computed from the ticket's own
+// state and whether THIS caller can supervise. It is never the authorization source: each
+// action's own Policy and the store's conditional/tracked mutation independently re-check
+// eligibility server-side regardless of what this list contains. Guarded with Array.isArray so
+// an older, malformed, or partial response that omits/nulls availableActions fails closed.
+function hasAction(action: string): boolean {
   const actions = ticket.value?.availableActions
-  return Array.isArray(actions) && actions.includes('claim')
-})
+  return Array.isArray(actions) && actions.includes(action)
+}
+
+const canClaim = computed(() => hasAction('claim'))
+const canAssign = computed(() => hasAction('assign'))
+const canTransfer = computed(() => hasAction('transfer'))
+const canChangePriority = computed(() => hasAction('change-priority'))
+const canChangeStatus = computed(() => hasAction('change-status'))
+const canCancel = computed(() => hasAction('cancel'))
+const canReopen = computed(() => hasAction('reopen'))
+
+const priorityOptions: CasePriority[] = ['low', 'normal', 'high', 'urgent']
+const statusOptions: SupportTicketStatus[] = [
+  'assigned',
+  'inProgress',
+  'waitingForCustomer',
+  'waitingForInternal',
+  'resolved',
+  'closed',
+]
+
+const assignForm = reactive({ targetAdminPublicId: '', reason: '' })
+const transferForm = reactive({ targetAdminPublicId: '', reason: '' })
+const priorityForm = reactive<{ priority: CasePriority, reason: string }>({ priority: 'normal', reason: '' })
+const statusForm = reactive<{ status: SupportTicketStatus, reason: string }>({ status: 'inProgress', reason: '' })
+const cancelForm = reactive({ reason: '' })
+const reopenForm = reactive({ reason: '' })
+
+function isConflict(candidateError: unknown): boolean {
+  return isApiError(candidateError) && candidateError.status === 409
+}
+
+function errorMessage(candidateError: unknown, conflictMessage: string): string {
+  if (isConflict(candidateError)) {
+    return conflictMessage
+  }
+  return isApiError(candidateError) ? candidateError.message : '操作失敗，請稍後再試一次。'
+}
+
+async function handleAssign() {
+  if (!ticket.value || !assignForm.targetAdminPublicId || !assignForm.reason) {
+    return
+  }
+  try {
+    await assignMutation.mutateAsync({
+      targetAdminPublicId: assignForm.targetAdminPublicId,
+      reason: assignForm.reason,
+      rowVersion: ticket.value.rowVersion,
+    })
+    assignForm.targetAdminPublicId = ''
+    assignForm.reason = ''
+  }
+  catch {
+    // Handled via assignMutation.isError/error below; onError already refreshed all
+    // projections so the screen never keeps a stale assignee or RowVersion on a 409.
+  }
+}
+
+async function handleTransfer() {
+  if (!ticket.value || !transferForm.targetAdminPublicId || !transferForm.reason) {
+    return
+  }
+  try {
+    await transferMutation.mutateAsync({
+      targetAdminPublicId: transferForm.targetAdminPublicId,
+      reason: transferForm.reason,
+      rowVersion: ticket.value.rowVersion,
+    })
+    transferForm.targetAdminPublicId = ''
+    transferForm.reason = ''
+  }
+  catch {
+    // See handleAssign.
+  }
+}
+
+async function handleChangePriority() {
+  if (!ticket.value || !priorityForm.reason) {
+    return
+  }
+  try {
+    await changePriorityMutation.mutateAsync({
+      priority: priorityForm.priority,
+      reason: priorityForm.reason,
+      rowVersion: ticket.value.rowVersion,
+    })
+    priorityForm.reason = ''
+  }
+  catch {
+    // See handleAssign.
+  }
+}
+
+async function handleChangeStatus() {
+  if (!ticket.value) {
+    return
+  }
+  try {
+    await changeStatusMutation.mutateAsync({
+      status: statusForm.status,
+      reason: statusForm.reason || undefined,
+      rowVersion: ticket.value.rowVersion,
+    })
+    statusForm.reason = ''
+  }
+  catch {
+    // See handleAssign.
+  }
+}
+
+async function handleCancel() {
+  if (!ticket.value || !cancelForm.reason) {
+    return
+  }
+  try {
+    await cancelMutation.mutateAsync({ reason: cancelForm.reason, rowVersion: ticket.value.rowVersion })
+    cancelForm.reason = ''
+  }
+  catch {
+    // See handleAssign.
+  }
+}
+
+async function handleReopen() {
+  if (!ticket.value || !reopenForm.reason) {
+    return
+  }
+  try {
+    await reopenMutation.mutateAsync({ reason: reopenForm.reason, rowVersion: ticket.value.rowVersion })
+    reopenForm.reason = ''
+  }
+  catch {
+    // See handleAssign.
+  }
+}
 
 const errorTitle = computed(() => {
   if (!isApiError(error.value)) {
@@ -170,6 +319,224 @@ async function handleClaim() {
       </div>
 
       <section
+        v-if="canAssign || canTransfer || canChangePriority || canChangeStatus || canCancel || canReopen"
+        class="support-ticket-detail__actions card"
+        aria-labelledby="support-ticket-actions-title"
+      >
+        <h2 id="support-ticket-actions-title">
+          客服主管與案件操作
+        </h2>
+
+        <div
+          v-if="canAssign"
+          class="support-ticket-detail__action-form"
+        >
+          <h3>指派客服</h3>
+          <label>
+            目標客服 PublicId
+            <input
+              v-model="assignForm.targetAdminPublicId"
+              type="text"
+              placeholder="guid"
+            >
+          </label>
+          <label>
+            理由
+            <input
+              v-model="assignForm.reason"
+              type="text"
+            >
+          </label>
+          <button
+            type="button"
+            :disabled="assignMutation.isPending.value"
+            @click="handleAssign"
+          >
+            {{ assignMutation.isPending.value ? '指派中…' : '指派' }}
+          </button>
+          <p
+            v-if="assignMutation.isError.value"
+            class="form-error"
+            role="alert"
+          >
+            {{ errorMessage(assignMutation.error.value, '這個案件已被其他主管指派，畫面已更新為最新狀態，請重新確認。') }}
+          </p>
+        </div>
+
+        <div
+          v-if="canTransfer"
+          class="support-ticket-detail__action-form"
+        >
+          <h3>轉派案件</h3>
+          <label>
+            目標客服 PublicId
+            <input
+              v-model="transferForm.targetAdminPublicId"
+              type="text"
+              placeholder="guid"
+            >
+          </label>
+          <label>
+            理由
+            <input
+              v-model="transferForm.reason"
+              type="text"
+            >
+          </label>
+          <button
+            type="button"
+            :disabled="transferMutation.isPending.value"
+            @click="handleTransfer"
+          >
+            {{ transferMutation.isPending.value ? '轉派中…' : '轉派' }}
+          </button>
+          <p
+            v-if="transferMutation.isError.value"
+            class="form-error"
+            role="alert"
+          >
+            {{ errorMessage(transferMutation.error.value, '這個案件的承辦人已變更，畫面已更新為最新狀態，請重新確認。') }}
+          </p>
+        </div>
+
+        <div
+          v-if="canChangePriority"
+          class="support-ticket-detail__action-form"
+        >
+          <h3>調整優先度</h3>
+          <label>
+            優先度
+            <select v-model="priorityForm.priority">
+              <option
+                v-for="option in priorityOptions"
+                :key="option"
+                :value="option"
+              >
+                {{ priorityLabels[option] }}
+              </option>
+            </select>
+          </label>
+          <label>
+            理由
+            <input
+              v-model="priorityForm.reason"
+              type="text"
+            >
+          </label>
+          <button
+            type="button"
+            :disabled="changePriorityMutation.isPending.value"
+            @click="handleChangePriority"
+          >
+            {{ changePriorityMutation.isPending.value ? '更新中…' : '更新優先度' }}
+          </button>
+          <p
+            v-if="changePriorityMutation.isError.value"
+            class="form-error"
+            role="alert"
+          >
+            {{ errorMessage(changePriorityMutation.error.value, '案件狀態已變更，畫面已更新為最新狀態，請重新確認。') }}
+          </p>
+        </div>
+
+        <div
+          v-if="canChangeStatus"
+          class="support-ticket-detail__action-form"
+        >
+          <h3>變更狀態</h3>
+          <label>
+            狀態
+            <select v-model="statusForm.status">
+              <option
+                v-for="option in statusOptions"
+                :key="option"
+                :value="option"
+              >
+                {{ statusLabels[option] }}
+              </option>
+            </select>
+          </label>
+          <label>
+            理由（選填）
+            <input
+              v-model="statusForm.reason"
+              type="text"
+            >
+          </label>
+          <button
+            type="button"
+            :disabled="changeStatusMutation.isPending.value"
+            @click="handleChangeStatus"
+          >
+            {{ changeStatusMutation.isPending.value ? '更新中…' : '更新狀態' }}
+          </button>
+          <p
+            v-if="changeStatusMutation.isError.value"
+            class="form-error"
+            role="alert"
+          >
+            {{ errorMessage(changeStatusMutation.error.value, '這個狀態轉換目前不允許，畫面已更新為最新狀態，請重新確認。') }}
+          </p>
+        </div>
+
+        <div
+          v-if="canCancel"
+          class="support-ticket-detail__action-form"
+        >
+          <h3>取消案件</h3>
+          <label>
+            理由
+            <input
+              v-model="cancelForm.reason"
+              type="text"
+            >
+          </label>
+          <button
+            type="button"
+            :disabled="cancelMutation.isPending.value"
+            @click="handleCancel"
+          >
+            {{ cancelMutation.isPending.value ? '取消中…' : '取消案件' }}
+          </button>
+          <p
+            v-if="cancelMutation.isError.value"
+            class="form-error"
+            role="alert"
+          >
+            {{ errorMessage(cancelMutation.error.value, '這個案件目前不能取消，畫面已更新為最新狀態，請重新確認。') }}
+          </p>
+        </div>
+
+        <div
+          v-if="canReopen"
+          class="support-ticket-detail__action-form"
+        >
+          <h3>重新開啟案件</h3>
+          <label>
+            理由
+            <input
+              v-model="reopenForm.reason"
+              type="text"
+            >
+          </label>
+          <button
+            type="button"
+            :disabled="reopenMutation.isPending.value"
+            @click="handleReopen"
+          >
+            {{ reopenMutation.isPending.value ? '重開中…' : '重新開啟' }}
+          </button>
+          <p
+            v-if="reopenMutation.isError.value"
+            class="form-error"
+            role="alert"
+          >
+            {{ errorMessage(reopenMutation.error.value, '這個案件目前不能重開，畫面已更新為最新狀態，請重新確認。') }}
+          </p>
+        </div>
+      </section>
+
+      <section
         class="support-ticket-detail__messages"
         aria-labelledby="support-ticket-messages-title"
       >
@@ -271,6 +638,43 @@ async function handleClaim() {
 
 .support-ticket-detail__claim {
   margin-bottom: 1.5rem;
+}
+
+.support-ticket-detail__actions {
+  margin-block: 1.5rem;
+  padding: 1rem;
+}
+
+.support-ticket-detail__action-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+  padding-block: 0.75rem;
+  border-bottom: 1px solid var(--color-border, #e5e7eb);
+}
+
+.support-ticket-detail__action-form:last-child {
+  border-bottom: none;
+}
+
+.support-ticket-detail__action-form h3 {
+  flex-basis: 100%;
+  margin: 0 0 0.25rem;
+  font-size: 0.9375rem;
+}
+
+.support-ticket-detail__action-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.support-ticket-detail__action-form .form-error {
+  flex-basis: 100%;
+  margin: 0.5rem 0 0;
 }
 
 .support-ticket-detail__claim .form-error {

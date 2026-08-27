@@ -207,6 +207,147 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
             property => property.Name.Contains("assignee", StringComparison.OrdinalIgnoreCase));
     }
 
+    [Theory]
+    [InlineData("CustomerService", HttpStatusCode.Forbidden)]
+    [InlineData("Member", HttpStatusCode.Forbidden)]
+    [InlineData("CustomerServiceSupervisor", HttpStatusCode.OK)]
+    [InlineData("SuperAdmin", HttpStatusCode.OK)]
+    public async Task Assign_EnforcesSuperviseRoleMatrix(string role, HttpStatusCode expected)
+    {
+        var fakes = new SupportHttpFakes();
+        using var factory = CreateFactory(fakes);
+        using var client = CreateClient(factory, role);
+
+        using var response = await client.PostAsJsonWithAntiforgeryAsync(
+            $"/api/v1/admin/support-tickets/{Guid.NewGuid()}/actions/assign",
+            new { targetAdminPublicId = Guid.NewGuid(), reason = "supervisor assign", rowVersion = Convert.ToBase64String(new byte[8]) },
+            DoSelectClaimValues.Admin);
+
+        Assert.Equal(expected, response.StatusCode);
+        Assert.Equal(expected == HttpStatusCode.OK ? 1 : 0, fakes.AssignCalls);
+    }
+
+    [Theory]
+    [InlineData("CustomerService", HttpStatusCode.Forbidden)]
+    [InlineData("CustomerServiceSupervisor", HttpStatusCode.OK)]
+    [InlineData("SuperAdmin", HttpStatusCode.OK)]
+    public async Task Transfer_EnforcesSuperviseRoleMatrix(string role, HttpStatusCode expected)
+    {
+        var fakes = new SupportHttpFakes();
+        using var factory = CreateFactory(fakes);
+        using var client = CreateClient(factory, role);
+
+        using var response = await client.PostAsJsonWithAntiforgeryAsync(
+            $"/api/v1/admin/support-tickets/{Guid.NewGuid()}/actions/transfer",
+            new { targetAdminPublicId = Guid.NewGuid(), reason = "transfer", rowVersion = Convert.ToBase64String(new byte[8]) },
+            DoSelectClaimValues.Admin);
+
+        Assert.Equal(expected, response.StatusCode);
+        Assert.Equal(expected == HttpStatusCode.OK ? 1 : 0, fakes.TransferCalls);
+    }
+
+    [Fact]
+    public async Task Assign_WhenConflict_ReturnsExactCommon409WithoutAssigneeExtensions()
+    {
+        var fakes = new SupportHttpFakes { ThrowAssignConflict = true };
+        using var factory = CreateFactory(fakes);
+        using var client = CreateClient(factory, "CustomerServiceSupervisor");
+
+        using var response = await client.PostAsJsonWithAntiforgeryAsync(
+            $"/api/v1/admin/support-tickets/{Guid.NewGuid()}/actions/assign",
+            new { targetAdminPublicId = Guid.NewGuid(), reason = "supervisor assign", rowVersion = Convert.ToBase64String(new byte[8]) },
+            DoSelectClaimValues.Admin);
+        using var json = await ReadJsonAsync(response);
+        var root = json.RootElement;
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(DomainErrorCodes.SupportTicketAssignmentConflict, root.GetProperty("code").GetString());
+        Assert.False(root.TryGetProperty("currentAssigneePublicId", out _));
+        Assert.False(root.TryGetProperty("currentAssigneeDisplayName", out _));
+        Assert.DoesNotContain(
+            root.EnumerateObject(),
+            property => property.Name.Contains("assignee", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Theory]
+    [InlineData("CustomerService", HttpStatusCode.OK)]
+    [InlineData("CustomerServiceSupervisor", HttpStatusCode.OK)]
+    [InlineData("SuperAdmin", HttpStatusCode.OK)]
+    [InlineData("Member", HttpStatusCode.Forbidden)]
+    public async Task ChangePriority_AdmitsHandleOrSuperviseButNotBareMember(string role, HttpStatusCode expected)
+    {
+        var fakes = new SupportHttpFakes();
+        using var factory = CreateFactory(fakes);
+        using var client = CreateClient(factory, role);
+
+        using var response = await client.PostAsJsonWithAntiforgeryAsync(
+            $"/api/v1/admin/support-tickets/{Guid.NewGuid()}/actions/change-priority",
+            new { priority = "High", reason = "escalate", rowVersion = Convert.ToBase64String(new byte[8]) },
+            DoSelectClaimValues.Admin);
+
+        Assert.Equal(expected, response.StatusCode);
+        Assert.Equal(expected == HttpStatusCode.OK ? 1 : 0, fakes.ChangePriorityCalls);
+        if (expected == HttpStatusCode.OK)
+        {
+            Assert.Equal(role is "SuperAdmin" or "CustomerServiceSupervisor", fakes.LastContext!.CanSupervise);
+        }
+    }
+
+    [Theory]
+    [InlineData("CustomerService", HttpStatusCode.OK)]
+    [InlineData("CustomerServiceSupervisor", HttpStatusCode.OK)]
+    [InlineData("SuperAdmin", HttpStatusCode.Forbidden)]
+    public async Task ChangeStatus_EnforcesHandleRoleMatrix(string role, HttpStatusCode expected)
+    {
+        var fakes = new SupportHttpFakes();
+        using var factory = CreateFactory(fakes);
+        using var client = CreateClient(factory, role);
+
+        using var response = await client.PostAsJsonWithAntiforgeryAsync(
+            $"/api/v1/admin/support-tickets/{Guid.NewGuid()}/actions/change-status",
+            new { status = "InProgress", rowVersion = Convert.ToBase64String(new byte[8]) },
+            DoSelectClaimValues.Admin);
+
+        Assert.Equal(expected, response.StatusCode);
+        Assert.Equal(expected == HttpStatusCode.OK ? 1 : 0, fakes.ChangeStatusCalls);
+    }
+
+    [Theory]
+    [InlineData("CustomerService", HttpStatusCode.OK)]
+    [InlineData("SuperAdmin", HttpStatusCode.Forbidden)]
+    public async Task Cancel_EnforcesHandleRoleMatrix(string role, HttpStatusCode expected)
+    {
+        var fakes = new SupportHttpFakes();
+        using var factory = CreateFactory(fakes);
+        using var client = CreateClient(factory, role);
+
+        using var response = await client.PostAsJsonWithAntiforgeryAsync(
+            $"/api/v1/admin/support-tickets/{Guid.NewGuid()}/actions/cancel",
+            new { reason = "customer requested", rowVersion = Convert.ToBase64String(new byte[8]) },
+            DoSelectClaimValues.Admin);
+
+        Assert.Equal(expected, response.StatusCode);
+        Assert.Equal(expected == HttpStatusCode.OK ? 1 : 0, fakes.CancelCalls);
+    }
+
+    [Theory]
+    [InlineData("CustomerService", HttpStatusCode.OK)]
+    [InlineData("SuperAdmin", HttpStatusCode.Forbidden)]
+    public async Task Reopen_EnforcesHandleRoleMatrix(string role, HttpStatusCode expected)
+    {
+        var fakes = new SupportHttpFakes();
+        using var factory = CreateFactory(fakes);
+        using var client = CreateClient(factory, role);
+
+        using var response = await client.PostAsJsonWithAntiforgeryAsync(
+            $"/api/v1/admin/support-tickets/{Guid.NewGuid()}/actions/reopen",
+            new { reason = "customer replied again", rowVersion = Convert.ToBase64String(new byte[8]) },
+            DoSelectClaimValues.Admin);
+
+        Assert.Equal(expected, response.StatusCode);
+        Assert.Equal(expected == HttpStatusCode.OK ? 1 : 0, fakes.ReopenCalls);
+    }
+
     [Fact]
     public async Task Sla_WhenHandleAuthorized_DelegatesBoundPaginationQuery()
     {
@@ -335,6 +476,81 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
             WorkbenchQuery = query;
             AuthorizedCaseTypes = authorizedCaseTypes.ToArray();
             return Task.FromResult(new CursorPage<CaseWorkbenchItemDto>([], null, false));
+        }
+
+        public bool ThrowAssignConflict { get; init; }
+        public int AssignCalls { get; private set; }
+        public int TransferCalls { get; private set; }
+        public int ChangePriorityCalls { get; private set; }
+        public int ChangeStatusCalls { get; private set; }
+        public int CancelCalls { get; private set; }
+        public int ReopenCalls { get; private set; }
+        public SupportTicketActionContext? LastContext { get; private set; }
+
+        public AdminSupportTicketDto AssignResult { get; } = new(
+            Guid.NewGuid(), "ST-ASSIGN", SupportTicketCategory.Other, "Assigned subject",
+            SupportTicketStatus.Assigned, CasePriority.Normal, null,
+            new AdminAssigneeSummaryDto(Guid.NewGuid(), "Target Agent"),
+            DateTime.UtcNow, DateTime.UtcNow, DateTime.UtcNow.AddHours(1), DateTime.UtcNow.AddHours(8),
+            null, null, null, 0, new byte[8]);
+
+        public Task<AdminSupportTicketDto> AssignAsync(
+            SupportTicketActionContext context, Guid ticketPublicId, AssignSupportTicketRequest request,
+            CancellationToken cancellationToken)
+        {
+            AssignCalls++;
+            LastContext = context;
+            if (ThrowAssignConflict)
+            {
+                throw DomainProblemException.Conflict(
+                    DomainErrorCodes.SupportTicketAssignmentConflict, "The ticket is no longer eligible to assign.");
+            }
+            return Task.FromResult(AssignResult);
+        }
+
+        public Task<AdminSupportTicketDto> TransferAsync(
+            SupportTicketActionContext context, Guid ticketPublicId, TransferSupportTicketRequest request,
+            CancellationToken cancellationToken)
+        {
+            TransferCalls++;
+            LastContext = context;
+            return Task.FromResult(AssignResult);
+        }
+
+        public Task<AdminSupportTicketDetailDto> ChangePriorityAsync(
+            SupportTicketActionContext context, Guid ticketPublicId, ChangeSupportTicketPriorityRequest request,
+            CancellationToken cancellationToken)
+        {
+            ChangePriorityCalls++;
+            LastContext = context;
+            return Task.FromResult(DetailResult);
+        }
+
+        public Task<AdminSupportTicketDetailDto> ChangeStatusAsync(
+            SupportTicketActionContext context, Guid ticketPublicId, ChangeSupportTicketStatusRequest request,
+            CancellationToken cancellationToken)
+        {
+            ChangeStatusCalls++;
+            LastContext = context;
+            return Task.FromResult(DetailResult);
+        }
+
+        public Task<AdminSupportTicketDetailDto> CancelAsync(
+            SupportTicketActionContext context, Guid ticketPublicId, CancelSupportTicketByAdminRequest request,
+            CancellationToken cancellationToken)
+        {
+            CancelCalls++;
+            LastContext = context;
+            return Task.FromResult(DetailResult);
+        }
+
+        public Task<AdminSupportTicketDetailDto> ReopenAsync(
+            SupportTicketActionContext context, Guid ticketPublicId, ReopenSupportTicketRequest request,
+            CancellationToken cancellationToken)
+        {
+            ReopenCalls++;
+            LastContext = context;
+            return Task.FromResult(DetailResult);
         }
     }
 }
