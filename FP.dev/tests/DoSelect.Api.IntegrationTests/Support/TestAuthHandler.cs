@@ -61,6 +61,16 @@ public sealed class TestAuthHandler : AuthenticationHandler<AuthenticationScheme
                 .RequireClaim(DoSelectClaimTypes.AuthenticationMethod, DoSelectClaimValues.MultiFactor)
                 .RequireRole(DoSelectRoles.FinanceManager, DoSelectRoles.SuperAdmin)
                 .Build());
+            // Coupon.Manage 與 Invoice.Manage 只差在多允許 MarketingAnalyst（DEC-P284）。
+            options.AddPolicy(DoSelectPolicies.CouponManage, new AuthorizationPolicyBuilder(SchemeName)
+                .RequireAuthenticatedUser()
+                .RequireClaim(DoSelectClaimTypes.AccountType, DoSelectClaimValues.Admin)
+                .RequireClaim(DoSelectClaimTypes.AuthenticationMethod, DoSelectClaimValues.MultiFactor)
+                .RequireRole(
+                    DoSelectRoles.FinanceManager,
+                    DoSelectRoles.MarketingAnalyst,
+                    DoSelectRoles.SuperAdmin)
+                .Build());
         });
     }
 
