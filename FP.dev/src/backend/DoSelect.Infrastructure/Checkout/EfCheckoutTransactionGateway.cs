@@ -635,7 +635,8 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
                     package.WidthCm,
                     package.HeightCm,
                     package.TotalCm,
-                    package.DeclaredValue)),
+                    package.DeclaredValue),
+                shipping.Method.BaseFee),
             now);
 
     private async Task AddOrderItemsAsync(

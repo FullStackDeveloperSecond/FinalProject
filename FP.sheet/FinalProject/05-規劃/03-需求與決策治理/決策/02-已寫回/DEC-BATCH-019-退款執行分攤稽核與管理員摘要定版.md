@@ -82,3 +82,11 @@ PR #16 實作退款執行時，現有文件仍讓管理端 Request 傳入簡化�
 - 不需寄回／驗收時，在核准進入 `AwaitingRefund` 前成對寫入；需寄回時，核准階段不得先填，改由完成驗收進入 `AwaitingRefund` 前成對寫入。
 - 既有退貨資料不回填猜測值。退款 Reader 遇到未知 `ReasonCode` 或上述任一可信快照缺漏時，固定回 HTTP 409／`refund_snapshot_unavailable`，且不得建立分攤、退款或 Audit。
 - 本次 Schema 變更只增加兩個 nullable 欄位與成對／非負 Check Constraint；不套用資料庫。Down 會刪除新快照資料，正式環境一旦開始寫入後應優先 roll-forward。
+
+## 2026-08-27 訂單配送基本費歷史快照補充裁定
+
+- 沿用 `Orders` 交易快照，新增可空 `ShippingMethodBaseFeeSnapshot decimal(18,2)`；不新增快照表、服務或外部套件。
+- 新訂單由 Checkout 在同一建單交易中，將選定配送方式當下的 `ShippingMethod.BaseFee` 於免運門檻或優惠券規則套用前寫入。即使本次訂單的 `ShippingFee = 0`，仍保留原始基本費。
+- 欄位必須為 Null 或 >= 0；既有訂單維持 Null，migration 不設 default、不執行回填，也不得從可變的現行 `ShippingMethods.BaseFee` 猜測歷史費用。
+- 退款 Reader 必須讀取此 Order 快照，不得回查現行 ShippingMethod。當計算需要歷史基本費但快照為 Null 時，固定拒絕為 HTTP 409／`refund_snapshot_unavailable`，不得用 0 或現行設定取代。
+- 本次 Schema 變更只增加一個 nullable 欄位與非負 Check Constraint，不套用資料庫。Down 會刪除新快照資料，正式環境開始寫入後應優先 roll-forward。
