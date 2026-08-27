@@ -1,4 +1,5 @@
 using DoSelect.Domain.Common;
+using DoSelect.Domain.Refunds;
 using DoSelect.Domain.Support;
 
 namespace DoSelect.Domain.Returns;
@@ -40,9 +41,37 @@ public sealed class ReturnRequest : MutablePublicEntity
     public DateTime? ReceivedAtUtc { get; private set; }
     public DateTime? ClosedAtUtc { get; private set; }
     public DateTime? ReturnShipmentDueAtUtc { get; private set; }
+    /// <summary>
+    /// Immutable approval/inspection snapshot consumed by refund calculation. Null means the
+    /// trusted value was never captured; it must not be interpreted as NotApplicable.
+    /// </summary>
+    public AssemblyFeeDisposition? AssemblyFeeDisposition { get; private set; }
+    /// <summary>
+    /// Actual return-shipping cost known when the return becomes refundable. Null means
+    /// unavailable; decimal zero means the responsible operator explicitly confirmed no cost.
+    /// </summary>
+    public decimal? ReturnShippingCost { get; private set; }
     public void Assign(string adminUserId, DateTime occurredAtUtc) { AssigneeAdminUserId = RequireText(adminUserId, nameof(adminUserId)); MarkUpdated(occurredAtUtc); }
     public void ChangePriority(CasePriority priority, DateTime occurredAtUtc)
     { if (!Enum.IsDefined(priority)) throw new ArgumentOutOfRangeException(nameof(priority)); Priority = priority; MarkUpdated(occurredAtUtc); }
+    public void CaptureRefundTrustedInputs(
+        AssemblyFeeDisposition assemblyFeeDisposition,
+        decimal returnShippingCost,
+        DateTime occurredAtUtc)
+    {
+        if (Status is not (ReturnRequestStatus.UnderReview or ReturnRequestStatus.Received or ReturnRequestStatus.Inspecting))
+            throw new InvalidOperationException("Refund trusted inputs can only be captured while approving or inspecting a return.");
+        if (AssemblyFeeDisposition.HasValue || ReturnShippingCost.HasValue)
+            throw new InvalidOperationException("Refund trusted inputs have already been captured.");
+        if (!Enum.IsDefined(assemblyFeeDisposition))
+            throw new ArgumentOutOfRangeException(nameof(assemblyFeeDisposition));
+        if (returnShippingCost < 0)
+            throw new ArgumentOutOfRangeException(nameof(returnShippingCost));
+
+        AssemblyFeeDisposition = assemblyFeeDisposition;
+        ReturnShippingCost = returnShippingCost;
+        MarkUpdated(occurredAtUtc);
+    }
     public void Approve(string adminUserId, bool requiresShipment, DateTime occurredAtUtc)
     { if (Status != ReturnRequestStatus.UnderReview) throw new InvalidOperationException("The return is not under review."); ReviewedByAdminUserId = RequireText(adminUserId, nameof(adminUserId)); Transition(ReturnRequestStatus.Approved, occurredAtUtc); ApprovedAtUtc = occurredAtUtc; if (requiresShipment) { ReturnShipmentDueAtUtc = occurredAtUtc.AddDays(7); Transition(ReturnRequestStatus.AwaitingShipment, occurredAtUtc); } else Transition(ReturnRequestStatus.AwaitingRefund, occurredAtUtc); }
     /// <summary>Rejects the request from UnderReview (ineligible) or Inspecting (failed inspection) — both are legal Transition targets already.</summary>

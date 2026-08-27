@@ -11,6 +11,7 @@ public static class RefundErrorCodes
     public const string IdempotencyPayloadConflict = "idempotency_payload_conflict";
     public const string ConcurrencyConflict = "concurrency_conflict";
     public const string ResourceNotFound = "resource_not_found";
+    public const string RefundSnapshotUnavailable = "refund_snapshot_unavailable";
 }
 
 /// <summary>

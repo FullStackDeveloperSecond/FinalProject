@@ -1,3 +1,5 @@
+using DoSelect.Domain.Refunds;
+
 namespace DoSelect.Application.Returns;
 
 /// <summary>
@@ -33,6 +35,29 @@ public static class ReturnEligibilityPolicy
 
     public static bool TryParseReasonType(string reasonCode, out ReturnReasonType reasonType) =>
         Enum.TryParse(reasonCode, ignoreCase: false, out reasonType) && Enum.IsDefined(reasonType);
+
+    /// <summary>
+    /// Maps only reasons that the current Returns contract can actually persist. Refund-only
+    /// exceptional reasons remain unsupported until Returns gains an explicit input path.
+    /// </summary>
+    public static bool TryMapRefundReason(string reasonCode, out ReturnReason reason)
+    {
+        reason = reasonCode switch
+        {
+            nameof(ReturnReasonType.CoolingOff) => ReturnReason.CoolingOff,
+            nameof(ReturnReasonType.Defective) => ReturnReason.Defective,
+            nameof(ReturnReasonType.WrongItem) => ReturnReason.WrongItem,
+            nameof(ReturnReasonType.ShippingDamage) => ReturnReason.ShippingDamage,
+            nameof(ReturnReasonType.Warranty) => ReturnReason.Warranty,
+            _ => default,
+        };
+
+        return reasonCode is nameof(ReturnReasonType.CoolingOff)
+            or nameof(ReturnReasonType.Defective)
+            or nameof(ReturnReasonType.WrongItem)
+            or nameof(ReturnReasonType.ShippingDamage)
+            or nameof(ReturnReasonType.Warranty);
+    }
 
     /// <summary>
     /// "到貨翌日起 7 日內提出申請" — the window starts the calendar day AFTER delivery and runs

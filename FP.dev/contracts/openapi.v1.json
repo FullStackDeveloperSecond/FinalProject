@@ -5416,11 +5416,43 @@
               "string"
             ]
           },
+          "assemblyFeeDisposition": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AssemblyFeeDisposition"
+              }
+            ]
+          },
+          "returnShippingCost": {
+            "maximum": 79228162514264337593543950335,
+            "minimum": 0,
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
           "returnRowVersion": {
             "type": "string",
             "format": "byte"
           }
         }
+      },
+      "AssemblyFeeDisposition": {
+        "enum": [
+          "notApplicable",
+          "notStarted",
+          "merchantCancelled",
+          "assemblyFault",
+          "merchantFaultWholeUnit",
+          "completedPartialReturn",
+          null
+        ]
       },
       "AuthSessionDto": {
         "required": [
@@ -6807,6 +6839,27 @@
           "returnRowVersion": {
             "type": "string",
             "format": "byte"
+          },
+          "assemblyFeeDisposition": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AssemblyFeeDisposition"
+              }
+            ]
+          },
+          "returnShippingCost": {
+            "maximum": 79228162514264337593543950335,
+            "minimum": 0,
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
           }
         }
       },

@@ -4,6 +4,8 @@ using DoSelect.Domain.Returns;
 using DoSelect.Domain.Support;
 using DoSelect.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata;
 
 namespace DoSelect.Infrastructure.Tests;
 
@@ -61,6 +63,24 @@ public sealed class KafenPersistenceModelTests
         Assert.False(property.IsNullable);
         Assert.Equal(16, property.GetMaxLength());
         Assert.Equal(CasePriority.Normal, property.GetDefaultValue());
+    }
+
+    [Fact]
+    public void ReturnRequestRefundTrustedInputs_AreNullableAndUseSqlServerSafeTypes()
+    {
+        using var context = Create();
+        var entity = context.GetService<IDesignTimeModel>().Model.FindEntityType(typeof(ReturnRequest))!;
+        var disposition = entity.FindProperty(nameof(ReturnRequest.AssemblyFeeDisposition))!;
+        var shippingCost = entity.FindProperty(nameof(ReturnRequest.ReturnShippingCost))!;
+
+        Assert.True(disposition.IsNullable);
+        Assert.Equal("varchar(32)", disposition.GetColumnType());
+        Assert.True(shippingCost.IsNullable);
+        Assert.Equal("decimal(18,2)", shippingCost.GetColumnType());
+
+        var constraints = entity.GetCheckConstraints().Select(constraint => constraint.Name).ToHashSet();
+        Assert.Contains("CK_ReturnRequests_RefundTrustedInputs", constraints);
+        Assert.Contains("CK_ReturnRequests_ReturnShippingCost", constraints);
     }
 
     [Fact]

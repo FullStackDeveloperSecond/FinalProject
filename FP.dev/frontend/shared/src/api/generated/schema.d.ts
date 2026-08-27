@@ -3471,9 +3471,14 @@ export interface components {
             items: components["schemas"]["ApproveReturnItemLine"][];
             reasonCode: string;
             note?: null | string;
+            assemblyFeeDisposition?: null | components["schemas"]["AssemblyFeeDisposition"];
+            /** Format: double */
+            returnShippingCost?: null | number | string;
             /** Format: byte */
             returnRowVersion: string;
         };
+        /** @enum {unknown} */
+        AssemblyFeeDisposition: "notApplicable" | "notStarted" | "merchantCancelled" | "assemblyFault" | "merchantFaultWholeUnit" | "completedPartialReturn" | null;
         AuthSessionDto: {
             isAuthenticated: boolean;
             user?: null | components["schemas"]["CurrentUserDto"];
@@ -3814,6 +3819,9 @@ export interface components {
             items: components["schemas"]["InspectReturnItemLine"][];
             /** Format: byte */
             returnRowVersion: string;
+            assemblyFeeDisposition?: null | components["schemas"]["AssemblyFeeDisposition"];
+            /** Format: double */
+            returnShippingCost?: null | number | string;
         };
         /** @enum {unknown} */
         InvoiceLineKind: "merchandise" | "shipping" | "assemblyFee";

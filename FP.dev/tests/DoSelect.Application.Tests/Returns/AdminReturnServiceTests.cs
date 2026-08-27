@@ -1,4 +1,5 @@
 using DoSelect.Application.Returns;
+using DoSelect.Domain.Refunds;
 using DoSelect.Domain.Returns;
 
 namespace DoSelect.Application.Tests.Returns;
@@ -48,8 +49,18 @@ public sealed class AdminReturnServiceTests
     // OpenApi generator only reads DataAnnotations from properties — see the doc comment on
     // ApproveReturnRequest. These preserve the old positional-call shape for every test below.
     private static ApproveReturnRequest Approve(
-        bool approved, IReadOnlyList<ApproveReturnItemLine> items, string reasonCode, string? note, byte[] rowVersion) =>
-        new() { Approved = approved, Items = items, ReasonCode = reasonCode, Note = note, ReturnRowVersion = rowVersion };
+        bool approved, IReadOnlyList<ApproveReturnItemLine> items, string reasonCode, string? note, byte[] rowVersion,
+        AssemblyFeeDisposition? assemblyFeeDisposition = null, decimal? returnShippingCost = null) =>
+        new()
+        {
+            Approved = approved,
+            Items = items,
+            ReasonCode = reasonCode,
+            Note = note,
+            ReturnRowVersion = rowVersion,
+            AssemblyFeeDisposition = assemblyFeeDisposition,
+            ReturnShippingCost = returnShippingCost,
+        };
 
     private static ReceiveReturnRequest Receive(string? note, byte[] rowVersion) =>
         new() { Note = note, ReturnRowVersion = rowVersion };
@@ -107,12 +118,30 @@ public sealed class AdminReturnServiceTests
     {
         var (service, store, request) = CreateSutWithRequestedReturn();
         var approval = Approve(
-            true, [new ApproveReturnItemLine(store.Items[0].PublicId, 1, InspectionRequired: false)], "goodwill", null, request.RowVersion);
+            true, [new ApproveReturnItemLine(store.Items[0].PublicId, 1, InspectionRequired: false)], "goodwill", null, request.RowVersion,
+            AssemblyFeeDisposition.NotApplicable, 0m);
 
         var dto = await service.ReviewAsync(request.PublicId, "admin-1", approval, CancellationToken.None);
 
         Assert.Equal(ReturnRequestStatus.AwaitingRefund, dto.Status);
         Assert.Null(dto.ReturnShipmentDueAtUtc);
+        Assert.Equal(AssemblyFeeDisposition.NotApplicable, request.AssemblyFeeDisposition);
+        Assert.Equal(0m, request.ReturnShippingCost);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_Approve_WithoutInspectionRequired_RejectsMissingRefundTrustedInputsBeforeMutation()
+    {
+        var (service, store, request) = CreateSutWithRequestedReturn();
+        var approval = Approve(
+            true, [new ApproveReturnItemLine(store.Items[0].PublicId, 1, InspectionRequired: false)], "eligible", null, request.RowVersion);
+
+        var exception = await Assert.ThrowsAsync<ReturnsWriteException>(() =>
+            service.ReviewAsync(request.PublicId, "admin-1", approval, CancellationToken.None));
+
+        Assert.Equal(ReturnsWriteException.ErrorCodes.ValidationFailed, exception.ErrorCode);
+        Assert.Equal(ReturnRequestStatus.Requested, request.Status);
+        Assert.Empty(store.Histories);
     }
 
     [Fact]
@@ -157,12 +186,15 @@ public sealed class AdminReturnServiceTests
         Assert.Equal(ReturnRequestStatus.Received, request.Status);
 
         var inspect = new InspectReturnRequest(
-            [new InspectReturnItemLine(store.Items[0].PublicId, "Unopened", RestockDisposition.Resellable, null)], request.RowVersion);
+            [new InspectReturnItemLine(store.Items[0].PublicId, "Unopened", RestockDisposition.Resellable, null)], request.RowVersion,
+            AssemblyFeeDisposition.NotApplicable, 80m);
         var dto = await service.InspectAsync(request.PublicId, "admin-1", inspect, CancellationToken.None);
 
         Assert.Equal(ReturnRequestStatus.AwaitingRefund, dto.Status);
         Assert.Equal(RestockDisposition.Resellable, store.Items[0].RestockDisposition);
         Assert.Single(store.Inspections);
+        Assert.Equal(AssemblyFeeDisposition.NotApplicable, request.AssemblyFeeDisposition);
+        Assert.Equal(80m, request.ReturnShippingCost);
         Assert.Collection(
             store.Histories,
             h => AssertHistory(h, ReturnRequestStatus.Requested, ReturnRequestStatus.UnderReview, "admin-1"),
@@ -172,6 +204,29 @@ public sealed class AdminReturnServiceTests
             h => AssertHistory(h, ReturnRequestStatus.InTransit, ReturnRequestStatus.Received, "admin-1"),
             h => AssertHistory(h, ReturnRequestStatus.Received, ReturnRequestStatus.Inspecting, "admin-1"),
             h => AssertHistory(h, ReturnRequestStatus.Inspecting, ReturnRequestStatus.AwaitingRefund, "admin-1"));
+    }
+
+    [Fact]
+    public async Task InspectAsync_MissingRefundTrustedInputs_RejectsBeforeInspectionMutation()
+    {
+        var (service, store, request) = CreateSutWithRequestedReturn();
+        await service.ReviewAsync(
+            request.PublicId, "admin-1",
+            Approve(true, [new ApproveReturnItemLine(store.Items[0].PublicId, 1, true)], "eligible", null, request.RowVersion),
+            CancellationToken.None);
+        await service.ReceiveAsync(request.PublicId, "admin-1", Receive(null, request.RowVersion), CancellationToken.None);
+
+        var inspect = new InspectReturnRequest(
+            [new InspectReturnItemLine(store.Items[0].PublicId, "Unopened", RestockDisposition.Resellable, null)],
+            request.RowVersion);
+
+        var exception = await Assert.ThrowsAsync<ReturnsWriteException>(() =>
+            service.InspectAsync(request.PublicId, "admin-1", inspect, CancellationToken.None));
+
+        Assert.Equal(ReturnsWriteException.ErrorCodes.ValidationFailed, exception.ErrorCode);
+        Assert.Equal(ReturnRequestStatus.Received, request.Status);
+        Assert.Empty(store.Inspections);
+        Assert.Null(store.Items[0].RestockDisposition);
     }
 
     [Fact]
@@ -195,7 +250,9 @@ public sealed class AdminReturnServiceTests
         Assert.NotEqual(callerSuppliedRowVersion, request.RowVersion);
         var inspect = new InspectReturnRequest(
             [new InspectReturnItemLine(store.Items[0].PublicId, "Unopened", RestockDisposition.Resellable, null)],
-            callerSuppliedRowVersion);
+            callerSuppliedRowVersion,
+            AssemblyFeeDisposition.NotApplicable,
+            0m);
 
         await service.InspectAsync(request.PublicId, "admin-1", inspect, CancellationToken.None);
 
@@ -289,7 +346,9 @@ public sealed class AdminReturnServiceTests
                 new InspectReturnItemLine(duplicatedId, "Unopened", RestockDisposition.Resellable, null),
                 new InspectReturnItemLine(duplicatedId, "Unopened", RestockDisposition.Resellable, null),
             ],
-            request.RowVersion);
+            request.RowVersion,
+            AssemblyFeeDisposition.NotApplicable,
+            0m);
 
         var exception = await Assert.ThrowsAsync<ReturnsWriteException>(() =>
             service.InspectAsync(request.PublicId, "admin-1", inspection, CancellationToken.None));

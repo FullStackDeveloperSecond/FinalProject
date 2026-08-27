@@ -96,4 +96,25 @@ public sealed class ReturnDtosOpenApiContractTests : IClassFixture<WebApplicatio
             }
         }
     }
+
+
+    [Fact]
+    public async Task OpenApiDocument_RefundTrustedInputFields_ArePublishedForReviewAndInspection()
+    {
+        using var factory = _factory.WithWebHostBuilder(builder => builder.UseEnvironment("Development"));
+        using var client = factory.CreateClient();
+
+        using var response = await client.GetAsync("/openapi/v1.json");
+        response.EnsureSuccessStatusCode();
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var schemas = document.RootElement.GetProperty("components").GetProperty("schemas");
+
+        foreach (var schemaName in new[] { "ApproveReturnRequest", "InspectReturnRequest" })
+        {
+            var properties = schemas.GetProperty(schemaName).GetProperty("properties");
+            Assert.True(properties.TryGetProperty("assemblyFeeDisposition", out _));
+            Assert.True(properties.TryGetProperty("returnShippingCost", out var shippingCost));
+            Assert.Equal(0m, shippingCost.GetProperty("minimum").GetDecimal());
+        }
+    }
 }

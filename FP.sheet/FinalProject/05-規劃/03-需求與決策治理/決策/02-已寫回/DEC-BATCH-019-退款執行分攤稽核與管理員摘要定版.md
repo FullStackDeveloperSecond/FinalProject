@@ -73,3 +73,12 @@ PR #16 實作退款執行時，現有文件仍讓管理端 Request 傳入簡化�
 - 管理員冪等 Actor Scope 固定為 `admin:{AdminPublicId}`，不得再用 `user:` namespace。既有 Invoice Allowance 呼叫已同步改用 `ForAdmin`；尚無正式資料需要 namespace 遷移。
 - 共用 `IIdempotencyExecutor` 保留 `ReadCommitted` 預設，並允許呼叫端明確要求 `Serializable`；只接受這兩種隔離等級。PR #16 的退款執行必須選 `Serializable`，讓餘額範圍查詢、退款／分攤、Audit 與冪等完成紀錄位於同一筆 Executor-owned 交易。
 - 本次驗證包含 Audit note 持久化、Audit failure rollback、Serializable 交易與管理員 Actor Scope 的 SQL Server Provider-backed 測試；不產生 Migration。
+
+## 2026-08-27 退款可信退貨快照補充裁定
+
+- Returns 現有受控 `ReasonCode` 五值 `CoolingOff/Defective/WrongItem/ShippingDamage/Warranty` 與退款 `ReturnReason` 同名一對一映射；`LateNonDefectiveGoodwill/CustomerProcessDeviation` 尚無 Returns 正式輸入路徑，不得猜測映射。
+- 沿用 `ReturnRequests` 保存不可變核准快照，新增可空 `AssemblyFeeDisposition varchar(32)` 與 `ReturnShippingCost decimal(18,2)`；不新增第二張快照表或外部服務。
+- 兩欄必須同為 Null 或同為非 Null。Null 表示可信資料不可用；`ReturnShippingCost = 0` 表示已明確確認為零，兩者不得混同。寫入後不得覆寫。
+- 不需寄回／驗收時，在核准進入 `AwaitingRefund` 前成對寫入；需寄回時，核准階段不得先填，改由完成驗收進入 `AwaitingRefund` 前成對寫入。
+- 既有退貨資料不回填猜測值。退款 Reader 遇到未知 `ReasonCode` 或上述任一可信快照缺漏時，固定回 HTTP 409／`refund_snapshot_unavailable`，且不得建立分攤、退款或 Audit。
+- 本次 Schema 變更只增加兩個 nullable 欄位與成對／非負 Check Constraint；不套用資料庫。Down 會刪除新快照資料，正式環境一旦開始寫入後應優先 roll-forward。

@@ -1,6 +1,7 @@
 using DoSelect.Application.Returns;
 using DoSelect.Domain.Invoicing;
 using DoSelect.Domain.Orders;
+using DoSelect.Domain.Refunds;
 using DoSelect.Domain.Returns;
 using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Persistence;
@@ -49,7 +50,9 @@ public sealed class AdminReturnServiceRowVersionTests
 
         var inspectRequest = new InspectReturnRequest(
             [new InspectReturnItemLine(returnItemPublicId, "Unopened", RestockDisposition.Resellable, null)],
-            staleRowVersion);
+            staleRowVersion,
+            AssemblyFeeDisposition.NotApplicable,
+            0m);
 
         var exception = await Assert.ThrowsAsync<ReturnsWriteException>(() =>
             service.InspectAsync(returnPublicId, adminUserId, inspectRequest, CancellationToken.None));
@@ -100,7 +103,9 @@ public sealed class AdminReturnServiceRowVersionTests
 
         var inspectRequest = new InspectReturnRequest(
             [new InspectReturnItemLine(returnItemPublicId, "Unopened", RestockDisposition.Resellable, null)],
-            validRowVersion);
+            validRowVersion,
+            AssemblyFeeDisposition.NotApplicable,
+            0m);
 
         var dto = await service.InspectAsync(returnPublicId, adminUserId, inspectRequest, CancellationToken.None);
 
