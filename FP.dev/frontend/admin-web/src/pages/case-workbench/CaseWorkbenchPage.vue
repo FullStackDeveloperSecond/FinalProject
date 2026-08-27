@@ -88,11 +88,27 @@ function togglePriority(value: CasePriority) {
   resetPagination()
 }
 
+// CaseWorkbenchItemDto.caseType is a plain string sourced straight from vw_CaseWorkbench's SQL
+// literals ('Support'/'Return'/'Report' — PascalCase), unlike the CaseWorkbenchCaseType query
+// parameter enum (camelCase-serialized: 'support'/'return'/'report'). The two must not be
+// compared directly — normalize before matching either the type badge label or the detail route.
+function normalizeCaseType(caseType: string): CaseWorkbenchCaseType | null {
+  const normalized = caseType.toLowerCase()
+  return caseTypeOptions.some(option => option.value === normalized)
+    ? (normalized as CaseWorkbenchCaseType)
+    : null
+}
+
+function caseTypeLabel(caseType: string): string {
+  const normalized = normalizeCaseType(caseType)
+  return caseTypeOptions.find(option => option.value === normalized)?.label ?? caseType
+}
+
 // A caseType this app can navigate to a real detail page for — Return/Report have no frontend
 // route yet (only the backend Case Workbench read model already includes them). Never build a
 // route string for those; show a disabled hint instead so a viewer never lands on a fake page.
 function detailRouteFor(caseType: string): string | null {
-  return caseType === 'support' ? 'support-ticket-detail' : null
+  return normalizeCaseType(caseType) === 'support' ? 'support-ticket-detail' : null
 }
 
 const errorTitle = computed(() => {
@@ -255,7 +271,7 @@ const errorTitle = computed(() => {
               :class="{ 'case-workbench__row--overdue': item.isOverdue }"
             >
               <td data-label="類型">
-                <span class="tag">{{ caseTypeOptions.find(option => option.value === item.caseType)?.label ?? item.caseType }}</span>
+                <span class="tag">{{ caseTypeLabel(item.caseType) }}</span>
               </td>
               <td data-label="案件編號">
                 <RouterLink
@@ -267,7 +283,7 @@ const errorTitle = computed(() => {
                 <span
                   v-else
                   class="case-workbench__no-detail"
-                  :title="`${caseTypeOptions.find(option => option.value === item.caseType)?.label ?? item.caseType}明細頁面尚未上線`"
+                  :title="`${caseTypeLabel(item.caseType)}明細頁面尚未上線`"
                 >
                   {{ item.caseNumber }}
                 </span>

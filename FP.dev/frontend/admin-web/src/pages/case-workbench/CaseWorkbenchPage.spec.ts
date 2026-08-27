@@ -36,9 +36,12 @@ vi.mock('../../features/case-workbench/queries', async () => {
   }
 })
 
+// caseType uses vw_CaseWorkbench's actual PascalCase SQL literals ('Support'/'Return'/'Report'),
+// not the lowercase CaseWorkbenchCaseType query-parameter enum — using the wrong casing here
+// would let a regression on that mismatch slip through undetected (it did, once).
 function sampleItem(overrides: Partial<Record<string, unknown>> = {}) {
   return {
-    caseType: 'support',
+    caseType: 'Support',
     casePublicId: '018f2e6a-0000-7000-8000-000000000001',
     caseNumber: 'CS-20260819-0001',
     title: '訂單延遲問題',
@@ -109,13 +112,18 @@ describe('CaseWorkbenchPage', () => {
     expect(wrapper.text()).toContain('CS-20260819-0001')
     expect(wrapper.text()).toContain('訂單延遲問題')
     expect(wrapper.text()).toContain('王小明')
+    // Regression: caseType arrives as 'Support' (PascalCase, from vw_CaseWorkbench's SQL
+    // literals) — this must still resolve to the Chinese label, not fall through to the raw
+    // string, and must still be recognized as a navigable Support case despite the casing.
+    expect(wrapper.text()).toContain('客服案件')
+    expect(wrapper.text()).not.toContain('Support')
     const link = wrapper.get('a')
     expect(link.attributes('href')).toBe('/support/tickets/018f2e6a-0000-7000-8000-000000000001')
   })
 
   it('never links a Return or Report case to a fake route — shows a disabled hint instead', async () => {
     workbenchMocks.data.value = {
-      items: [sampleItem({ caseType: 'return', casePublicId: 'return-1', caseNumber: 'RT-0001' })],
+      items: [sampleItem({ caseType: 'Return', casePublicId: 'return-1', caseNumber: 'RT-0001' })],
       nextCursor: null,
       hasMore: false,
     }
