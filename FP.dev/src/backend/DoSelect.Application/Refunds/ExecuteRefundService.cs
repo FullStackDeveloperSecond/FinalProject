@@ -1,18 +1,50 @@
+using System.Net;
 using DoSelect.Domain.Refunds;
 
 namespace DoSelect.Application.Refunds;
 
 /// <summary>
-/// 一筆退款交易在執行當下的狀態快照。
-/// <paramref name="StoredIdempotencyKey"/> 是建立退款時保存的金鑰，用於比對執行請求。
+/// 後端產生七類分攤所需的完整可信交易快照。
 /// </summary>
+/// <remarks>
+/// 依 DEC-P287，分攤只能由後端依**下單與退貨核准當下**的快照計算，不得回查目前的
+/// 商品或優惠券設定，也不得由管理端傳入。
+/// <para>
+/// <see cref="Reason"/>、<see cref="AssemblyDisposition"/> 與
+/// <see cref="ReturnShippingCost"/> 三項目前在資料庫沒有任何持久化來源：
+/// <c>ReturnRequest.ReasonCode</c> 是自由文字而非 <see cref="ReturnReason"/> 列舉，
+/// 另外兩項則完全不存在（kafen 的 M-12 已合併但未涵蓋）。因此讀取端目前一律
+/// 回 <c>null</c>，退款執行被拒絕 —— 這是 E1 裁定要求的行為，不是尚未實作。
+/// </para>
+/// </remarks>
+public sealed record RefundTrustedInputs(
+    RefundOrderSnapshot Order,
+    IReadOnlyList<RefundLineRequest> Lines,
+    ReturnReason Reason,
+    AssemblyFeeDisposition AssemblyDisposition,
+    decimal ReturnShippingCost);
+
+/// <summary>
+/// 一筆退款交易在執行當下的狀態快照。
+/// </summary>
+/// <remarks>
+/// <paramref name="RowVersion"/> 是讀取當下的退款版本，用來比對呼叫端持有的
+/// <c>refundRowVersion</c>。
+/// <para>
+/// 這裡**不再**保存建立退款時的冪等金鑰。那個值是「建立退款」這個操作的金鑰，
+/// 不是 <c>refund.execute</c> 這一次操作的；拿它去比對執行請求，會讓正常使用新金鑰
+/// 的呼叫端直接被判 <c>idempotency_payload_conflict</c>。重播與 Payload 衝突改由
+/// 共用 <c>IIdempotencyExecutor</c> 負責（Operation <c>refund.execute</c>）。
+/// </para>
+/// </remarks>
 public sealed record RefundExecutionSnapshot(
     long RefundId,
     RefundStatus Status,
     decimal? ApprovedAmount,
     decimal? SucceededAmount,
     decimal RefundableBalance,
-    string StoredIdempotencyKey);
+    byte[] RowVersion,
+    RefundTrustedInputs? TrustedInputs);
 
 /// <summary>
 /// 退款執行所需的讀取埠。實作屬於 Infrastructure，不在此層存取 DbContext。
@@ -51,21 +83,31 @@ public interface IRefundExecutor
 /// </remarks>
 public sealed record ExecuteRefundRequest(
     Guid RefundPublicId,
+    byte[] RefundRowVersion,
     string IdempotencyKey,
     string ExecutedByAdminUserId,
     string ReasonCode,
     string? Note,
     string CorrelationId,
-    string TraceId);
+    string TraceId,
+    IPAddress? RemoteIpAddress);
 
 /// <summary>
 /// 通過檢查後要執行的退款。
 /// </summary>
+/// <remarks>
+/// <paramref name="ExpectedRefundRowVersion"/> 是本次決策依據的退款版本，Writer 必須在
+/// 同一交易內以條件更新再次比對。<paramref name="Allocations"/> 是後端算出的完整七類
+/// 分攤，必須與退款狀態同交易寫入 —— 沒有分攤的退款會讓對帳、發票折讓與稽核的
+/// <c>allocationCount</c> 全部不完整。
+/// </remarks>
 public sealed record RefundExecutionPlan(
     long RefundId,
     decimal Amount,
     string ExecutedByAdminUserId,
-    string IdempotencyKey);
+    string IdempotencyKey,
+    byte[] ExpectedRefundRowVersion,
+    IReadOnlyList<RefundAllocationDraft> Allocations);
 
 public sealed class ExecuteRefundResult
 {
@@ -80,17 +122,21 @@ public sealed class ExecuteRefundResult
 
     public string? ErrorCode { get; }
 
-    /// <summary>已經成功過的退款重送時，回傳既有金額而不再執行一次。</summary>
-    public bool IsReplay => IsSuccess && Plan is null;
-
     public decimal? SettledAmount { get; }
 
-    /// <summary>重播時為 <c>null</c>。</summary>
+    /// <summary>拒絕時為 <c>null</c>。</summary>
     public RefundExecutionPlan? Plan { get; }
 
     public static ExecuteRefundResult Failure(string errorCode) => new(errorCode, null, null);
 
-    public static ExecuteRefundResult Replay(decimal settledAmount) =>
+    /// <summary>
+    /// 共用 <c>IIdempotencyExecutor</c> 判定為重播時，回放先前保存的金額。
+    /// </summary>
+    /// <remarks>
+    /// 這個工廠只給 Executor 的 replayFactory 用。決策層看不到重播 ——
+    /// 走到 <see cref="RefundExecutionDecision.Evaluate"/> 的一定是首次執行。
+    /// </remarks>
+    public static ExecuteRefundResult Replayed(decimal settledAmount) =>
         new(null, settledAmount, null);
 
     public static ExecuteRefundResult Approved(RefundExecutionPlan plan) =>
@@ -118,22 +164,26 @@ public static class RefundExecutionDecision
 
         var presentedKey = request.IdempotencyKey.Trim();
 
-        // 金鑰必須與建立退款時保存的一致。金鑰不符代表這不是同一個命令，
-        // 不得對已完成的退款再產生副作用。
-        if (!string.Equals(presentedKey, snapshot.StoredIdempotencyKey, StringComparison.Ordinal))
+        // 呼叫端持有的版本與資料庫目前版本不符，代表它看到的金額或狀態已經過期。
+        // rowversion 只能擋「伺服器讀取之後」的競爭，擋不掉「送進來時就已過時」——
+        // 那正是管理員拿著舊畫面按下執行的情況。
+        if (!RowVersionMatches(request.RefundRowVersion, snapshot.RowVersion))
         {
-            return ExecuteRefundResult.Failure(RefundErrorCodes.IdempotencyPayloadConflict);
+            return ExecuteRefundResult.Failure(RefundErrorCodes.ConcurrencyConflict);
         }
 
-        // 相同金鑰、相同命令，且退款已成功：回同一結果，不再執行一次。
+        // 重播與 Payload 衝突由外層的共用 IIdempotencyExecutor 在此之前判斷完畢。
+        // 走到這裡的一定是首次執行，因此已成功的退款只可能是「換了一把金鑰再送」，
+        // 那是狀態衝突而不是重播。
         if (snapshot.Status == RefundStatus.Succeeded)
         {
-            return snapshot.SucceededAmount is { } settled
-                ? ExecuteRefundResult.Replay(settled)
-                : ExecuteRefundResult.Failure(RefundErrorCodes.RefundStateConflict);
+            return ExecuteRefundResult.Failure(RefundErrorCodes.RefundStateConflict);
         }
 
-        if (snapshot.Status != RefundStatus.Approved || snapshot.ApprovedAmount is not { } amount)
+        // 失敗的退款可以重試：Refund.AllowedTransitions 本來就允許 Failed → Processing，
+        // ApprovedAmount 也保留著。只認 Approved 會讓一次暫時性失敗變成永久卡死。
+        if (snapshot.Status is not (RefundStatus.Approved or RefundStatus.Failed) ||
+            snapshot.ApprovedAmount is not { } amount)
         {
             return ExecuteRefundResult.Failure(RefundErrorCodes.RefundStateConflict);
         }
@@ -143,12 +193,36 @@ public static class RefundExecutionDecision
             return ExecuteRefundResult.Failure(RefundErrorCodes.RefundAmountExceeded);
         }
 
+        // E1：上游可信快照未齊全時必須拒絕，不得以估算值或管理端傳入的分攤補齊。
+        // 一筆沒有分攤的成功退款，會讓對帳、發票折讓與稽核的 allocationCount 全部失真，
+        // 而且寫進去之後不可變 —— 拒絕比事後修正便宜得多。
+        if (snapshot.TrustedInputs is not { } trustedInputs)
+        {
+            return ExecuteRefundResult.Failure(RefundErrorCodes.RefundStateConflict);
+        }
+
+        var calculation = RefundCalculator.Calculate(new RefundCalculationRequest(
+            trustedInputs.Order,
+            trustedInputs.Lines,
+            trustedInputs.Reason,
+            trustedInputs.AssemblyDisposition,
+            trustedInputs.ReturnShippingCost));
+
+        var allocations = RefundAllocationDrafts.From(calculation);
+
         return ExecuteRefundResult.Approved(new RefundExecutionPlan(
             snapshot.RefundId,
             amount,
             request.ExecutedByAdminUserId.Trim(),
-            presentedKey));
+            presentedKey,
+            snapshot.RowVersion,
+            allocations));
     }
+
+    private static bool RowVersionMatches(byte[]? presented, byte[]? current) =>
+        presented is not null &&
+        current is not null &&
+        presented.AsSpan().SequenceEqual(current);
 
     /// <summary>請求本身的必填檢查。缺漏屬於呼叫端錯誤，由 API 層以驗證錯誤擋下。</summary>
     public static void RequireWellFormed(ExecuteRefundRequest request)
@@ -158,6 +232,14 @@ public static class RefundExecutionDecision
         if (string.IsNullOrWhiteSpace(request.IdempotencyKey))
         {
             throw new ArgumentException("The idempotency key is required.", nameof(request));
+        }
+
+        // SQL Server 的 rowversion 固定 8 bytes。長度不對的值不可能是任何一列的版本，
+        // 在這裡擋下可得到 400，而不是讓它一路走到比對失敗後變成語意不對的 409。
+        if (request.RefundRowVersion is not { Length: 8 })
+        {
+            throw new ArgumentException(
+                "The refund row version must be an 8-byte value.", nameof(request));
         }
 
         if (string.IsNullOrWhiteSpace(request.ExecutedByAdminUserId))

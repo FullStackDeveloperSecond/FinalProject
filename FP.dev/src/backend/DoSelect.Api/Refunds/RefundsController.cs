@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Diagnostics;
 using DoSelect.Api.Common;
 using DoSelect.Api.Security;
 using DoSelect.Application.Refunds;
@@ -16,7 +17,9 @@ namespace DoSelect.Api.Refunds;
 [ApiController]
 [Route("api/v1/admin/refunds")]
 [Authorize(Policy = DoSelectPolicies.RefundExecute)]
-public sealed class RefundsController(IRefundExecutor refundExecutor) : ControllerBase
+public sealed class RefundsController(
+    IRefundExecutor refundExecutor,
+    IRefundReader refundReader) : ControllerBase
 {
     public const string IdempotencyKeyHeaderName = "Idempotency-Key";
 
@@ -25,13 +28,13 @@ public sealed class RefundsController(IRefundExecutor refundExecutor) : Controll
     /// 相同 Idempotency-Key 重送回同一結果；不同金鑰不會對已完成的退款產生第二次副作用。
     /// </summary>
     [HttpPost("{refundPublicId:guid}/actions/execute")]
-    [ProducesResponseType(typeof(RefundExecutionResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(RefundDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
-    public async Task<ActionResult<RefundExecutionResponse>> Execute(
+    public async Task<ActionResult<RefundDto>> Execute(
         Guid refundPublicId,
         [FromHeader(Name = IdempotencyKeyHeaderName)] string? idempotencyKey,
         [FromBody] ExecuteRefundRequestBody body,
@@ -59,15 +62,20 @@ public sealed class RefundsController(IRefundExecutor refundExecutor) : Controll
                 ApiErrorCodes.AuthorizationForbidden));
         }
 
+        // CorrelationId 與 TraceId 不是同一個值。CorrelationIdMiddleware 會把合法的
+        // X-Correlation-ID 寫進 TraceIdentifier，而那不是中央 Audit 要求的 32 位
+        // W3C TraceId —— 兩者混用會讓稽核建構失敗，把一次正常退款變成 500。
         var result = await refundExecutor.ExecuteAsync(
             new ExecuteRefundRequest(
                 refundPublicId,
+                body.RefundRowVersion,
                 idempotencyKey,
                 executedBy,
                 body.ReasonCode,
                 body.Note,
-                HttpContext.TraceIdentifier,
-                HttpContext.TraceIdentifier),
+                CorrelationIdMiddleware.GetCorrelationId(HttpContext),
+                Activity.Current?.TraceId.ToString() ?? ActivityTraceId.CreateRandom().ToString(),
+                HttpContext.Connection.RemoteIpAddress),
             cancellationToken);
 
         if (result.ErrorCode is { } errorCode)
@@ -78,11 +86,18 @@ public sealed class RefundsController(IRefundExecutor refundExecutor) : Controll
                 errorCode));
         }
 
-        // 重播與首次執行都回 200 與同一份結果，呼叫端不需要分辨。
-        return Ok(new RefundExecutionResponse(
-            refundPublicId,
-            result.SettledAmount ?? result.Plan!.Amount,
-            result.IsReplay));
+        // 首次執行與重播都回同一份正式 RefundDto，呼叫端不需要分辨 ——
+        // 重播代表副作用已經發生過一次，狀態與金額都與首次相同。
+        var refund = await refundReader.FindByPublicIdAsync(refundPublicId, cancellationToken);
+        if (refund is null)
+        {
+            return Problem(ApiProblemDetailsFactory.Create(
+                HttpContext,
+                StatusCodes.Status404NotFound,
+                ApiErrorCodes.ResourceNotFound));
+        }
+
+        return Ok(refund);
     }
 
     private static int StatusCodeFor(string errorCode) => errorCode switch
@@ -115,11 +130,3 @@ public sealed record ExecuteRefundRequestBody
     public required byte[] RefundRowVersion { get; init; }
 }
 
-/// <summary>
-/// 退款執行結果。<paramref name="Replayed"/> 為 <c>true</c> 表示這次請求命中既有結果，
-/// 沒有再產生一次金流副作用。
-/// </summary>
-public sealed record RefundExecutionResponse(
-    Guid RefundPublicId,
-    decimal SettledAmount,
-    bool Replayed);

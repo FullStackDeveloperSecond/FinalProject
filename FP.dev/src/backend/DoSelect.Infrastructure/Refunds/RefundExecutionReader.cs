@@ -50,8 +50,30 @@ public sealed class RefundExecutionReader : IRefundExecutionReader
             refund.ApprovedAmount,
             refund.SucceededAmount,
             await CalculateRefundableBalanceAsync(refund.OrderId, refund.Id, cancellationToken),
-            refund.IdempotencyKey);
+            refund.RowVersion,
+            FindTrustedInputs(refund));
     }
+
+    /// <summary>
+    /// 讀出後端產生七類分攤所需的完整可信快照，三項輸入齊全時才回傳。
+    /// </summary>
+    /// <remarks>
+    /// **目前一律回 <c>null</c>。這是 E1 裁定要求的行為，不是尚未實作。**
+    /// <see cref="RefundCalculator"/> 需要三項輸入，而三項在資料庫都沒有來源：
+    /// <list type="bullet">
+    /// <item><c>ReturnReason</c>：<c>ReturnRequest.ReasonCode</c> 是自由文字，
+    /// 與列舉沒有對應關係，也沒有任何登錄過的代碼集合。</item>
+    /// <item><c>AssemblyFeeDisposition</c>：沒有任何實體保存。</item>
+    /// <item><c>ReturnShippingCost</c>：沒有任何實體保存。</item>
+    /// </list>
+    /// 三項都屬退貨核准範圍（kafen）。M-12（PR #42）已合併但未涵蓋。
+    /// <para>
+    /// 這裡刻意不以退款金額比例、固定值或目前的商品／優惠券設定推測。分攤一旦寫入
+    /// 即不可變，估算值會讓對帳與發票折讓永久失真。上游落地後在此組出
+    /// <see cref="RefundTrustedInputs"/> 即可，決策層不需要改動。
+    /// </para>
+    /// </remarks>
+    private static RefundTrustedInputs? FindTrustedInputs(Refund refund) => null;
 
     /// <summary>
     /// 可退款餘額 = 該訂單已成功收款金額 - 其他退款已成功的金額累計。
