@@ -355,8 +355,15 @@ public sealed class ReturnStore : IReturnStore
                 _dbContext.ReturnItems.Where(i => i.ReturnRequestId == returnRequestId),
                 insp => insp.ReturnItemId,
                 i => i.Id,
-                (insp, i) => new ReturnInspectionDto(i.PublicId, insp.Result, insp.ConditionCode, insp.Note, insp.InspectedAtUtc))
-            .OrderBy(dto => dto.InspectedAtUtc)
+                (insp, i) => new { Inspection = insp, ReturnItemPublicId = i.PublicId })
+            .OrderBy(row => row.Inspection.InspectedAtUtc)
+            .ThenBy(row => row.Inspection.Id)
+            .Select(row => new ReturnInspectionDto(
+                row.ReturnItemPublicId,
+                row.Inspection.Result,
+                row.Inspection.ConditionCode,
+                row.Inspection.Note,
+                row.Inspection.InspectedAtUtc))
             .ToListAsync(cancellationToken);
 
     public Task<ReturnShipment?> FindShipmentAsync(long returnRequestId, CancellationToken cancellationToken) =>
