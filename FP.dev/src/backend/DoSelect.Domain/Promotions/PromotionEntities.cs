@@ -35,7 +35,7 @@ public sealed class Coupon : MutablePublicEntity
             throw new ArgumentOutOfRangeException(nameof(creation));
         }
 
-        Code = RequireText(creation.Code, nameof(creation.Code)).Normalize().ToUpperInvariant();
+        Code = CouponCode.Normalize(RequireText(creation.Code, nameof(creation.Code)));
         NameZhTw = RequireText(creation.NameZhTw, nameof(creation.NameZhTw));
         DiscountType = creation.DiscountType;
         DiscountValue = creation.DiscountValue;
@@ -67,6 +67,194 @@ public sealed class Coupon : MutablePublicEntity
     public CouponScopeType ScopeType { get; private set; }
     public CouponStatus Status { get; private set; }
     public int RuleVersion { get; private set; }
+
+    /// <summary>
+    /// 優惠券生命週期的正式轉移表（DEC-BATCH-014 第 2 項）。
+    /// `Expired` 與 `Disabled` 為終態。Entity 是狀態的唯一真實來源；
+    /// <see cref="CouponRule"/> 只承載查詢當下的快照，不得用來改狀態。
+    /// </summary>
+    private static readonly IReadOnlyDictionary<CouponStatus, CouponStatus[]> AllowedTransitions =
+        new Dictionary<CouponStatus, CouponStatus[]>
+        {
+            [CouponStatus.Draft] = [CouponStatus.Scheduled, CouponStatus.Active, CouponStatus.Disabled],
+            [CouponStatus.Scheduled] = [CouponStatus.Active, CouponStatus.Expired, CouponStatus.Disabled],
+            [CouponStatus.Active] = [CouponStatus.Paused, CouponStatus.Exhausted, CouponStatus.Expired, CouponStatus.Disabled],
+            [CouponStatus.Paused] = [CouponStatus.Active, CouponStatus.Expired, CouponStatus.Disabled],
+            [CouponStatus.Exhausted] = [CouponStatus.Active, CouponStatus.Expired, CouponStatus.Disabled],
+            [CouponStatus.Expired] = [],
+            [CouponStatus.Disabled] = [],
+        };
+
+    /// <summary>
+    /// 折扣規則本身是否完整。百分比券必須同時有折扣率與最高折抵；定額券必須有折扣金額。
+    /// 適用範圍是否完整由 <see cref="CouponCalculator"/> 判定並回 `coupon_invalid`，
+    /// 因為範圍資料不在本 Entity 上。
+    /// </summary>
+    public bool HasCompleteDiscountRule => DiscountType switch
+    {
+        CouponDiscountType.FixedAmount => DiscountValue is > 0,
+        CouponDiscountType.Percentage => DiscountValue is > 0 and <= 1 && MaximumDiscount is > 0,
+        CouponDiscountType.FreeShipping or CouponDiscountType.AssemblyFreeShipping => true,
+        _ => false,
+    };
+
+    /// <summary>指定時點是否落在有效期間內。</summary>
+    public bool IsWithinUsagePeriod(DateTime occurredAtUtc) =>
+        occurredAtUtc >= StartsAtUtc && occurredAtUtc < EndsAtUtc;
+
+    /// <summary>總名額是否仍有剩餘。</summary>
+    public bool HasRemainingQuota(CouponUsageState usage)
+    {
+        ArgumentNullException.ThrowIfNull(usage);
+
+        return TotalUsageLimit is not { } limit || usage.TotalRedeemedCount < limit;
+    }
+
+    // ── 管理員操作 ──────────────────────────────────────────────
+
+    /// <summary>
+    /// 排定未來生效。要求開始時間晚於目前時間，且折扣規則完整。
+    /// </summary>
+    public void ScheduleForLaterStart(DateTime occurredAtUtc)
+    {
+        occurredAtUtc = RequireUtc(occurredAtUtc, nameof(occurredAtUtc));
+
+        if (StartsAtUtc <= occurredAtUtc || !HasCompleteDiscountRule)
+        {
+            throw new InvalidOperationException(
+                "A coupon can only be scheduled before its start time and with a complete rule.");
+        }
+
+        Transition(CouponStatus.Scheduled, occurredAtUtc);
+    }
+
+    /// <summary>
+    /// 管理員立即啟用。只接受 `Draft` 或 `Paused`，並要求已進入有效期間、
+    /// 折扣規則完整，且總名額仍有剩餘。
+    /// </summary>
+    public void ActivateNow(CouponUsageState usage, DateTime occurredAtUtc)
+    {
+        ArgumentNullException.ThrowIfNull(usage);
+        occurredAtUtc = RequireUtc(occurredAtUtc, nameof(occurredAtUtc));
+
+        if (Status is not (CouponStatus.Draft or CouponStatus.Paused))
+        {
+            throw new InvalidOperationException("Only a draft or paused coupon can be activated by an administrator.");
+        }
+
+        EnsureCanBecomeActive(usage, occurredAtUtc);
+        Transition(CouponStatus.Active, occurredAtUtc);
+    }
+
+    /// <summary>
+    /// 排程到達開始時間。只接受 `Scheduled`，且當下仍須重新驗證期間、規則與名額。
+    /// </summary>
+    public void ActivateScheduled(CouponUsageState usage, DateTime occurredAtUtc)
+    {
+        ArgumentNullException.ThrowIfNull(usage);
+        occurredAtUtc = RequireUtc(occurredAtUtc, nameof(occurredAtUtc));
+
+        if (Status != CouponStatus.Scheduled)
+        {
+            throw new InvalidOperationException("Only a scheduled coupon can be activated by the scheduler.");
+        }
+
+        EnsureCanBecomeActive(usage, occurredAtUtc);
+        Transition(CouponStatus.Active, occurredAtUtc);
+    }
+
+    /// <summary>
+    /// 名額返還後恢復使用。只接受 `Exhausted`，且使用量必須重新低於既有總量上限。
+    /// </summary>
+    public void ReactivateAfterQuotaRelease(CouponUsageState usage, DateTime occurredAtUtc)
+    {
+        ArgumentNullException.ThrowIfNull(usage);
+        occurredAtUtc = RequireUtc(occurredAtUtc, nameof(occurredAtUtc));
+
+        if (Status != CouponStatus.Exhausted ||
+            TotalUsageLimit is not { } limit ||
+            usage.TotalRedeemedCount >= limit)
+        {
+            throw new InvalidOperationException(
+                "Only an exhausted coupon with returned quota can become active again.");
+        }
+
+        EnsureCanBecomeActive(usage, occurredAtUtc);
+        Transition(CouponStatus.Active, occurredAtUtc);
+    }
+
+    /// <summary>暫時停止使用，不改變有效期間。只有 `Active` 能暫停。</summary>
+    public void Pause(DateTime occurredAtUtc) => Transition(CouponStatus.Paused, occurredAtUtc);
+
+    /// <summary>永久停用。終態，不可重新啟用。</summary>
+    public void Disable(DateTime occurredAtUtc) => Transition(CouponStatus.Disabled, occurredAtUtc);
+
+    // ── 排程與名額事件 ──────────────────────────────────────────
+
+    /// <summary>
+    /// 名額耗盡。要求有設定總名額且使用量已達上限，避免無上限的券被標成耗盡。
+    /// </summary>
+    public void MarkExhausted(CouponUsageState usage, DateTime occurredAtUtc)
+    {
+        ArgumentNullException.ThrowIfNull(usage);
+        occurredAtUtc = RequireUtc(occurredAtUtc, nameof(occurredAtUtc));
+
+        if (TotalUsageLimit is not { } limit || usage.TotalRedeemedCount < limit)
+        {
+            throw new InvalidOperationException(
+                "A coupon is only exhausted once its total usage limit is reached.");
+        }
+
+        Transition(CouponStatus.Exhausted, occurredAtUtc);
+    }
+
+    /// <summary>
+    /// 到期。要求已到達結束時間。終態，返還名額不會恢復可用。背景工作可冪等呼叫。
+    /// </summary>
+    public void MarkExpired(DateTime occurredAtUtc)
+    {
+        occurredAtUtc = RequireUtc(occurredAtUtc, nameof(occurredAtUtc));
+
+        if (occurredAtUtc < EndsAtUtc)
+        {
+            throw new InvalidOperationException(
+                "A coupon can only expire once its end time has passed.");
+        }
+
+        if (Status == CouponStatus.Expired)
+        {
+            return;
+        }
+
+        Transition(CouponStatus.Expired, occurredAtUtc);
+    }
+
+    private void EnsureCanBecomeActive(CouponUsageState usage, DateTime occurredAtUtc)
+    {
+        if (!IsWithinUsagePeriod(occurredAtUtc) ||
+            !HasCompleteDiscountRule ||
+            !HasRemainingQuota(usage))
+        {
+            throw new InvalidOperationException(
+                "A coupon can only be activated inside its period, with a complete rule and remaining quota.");
+        }
+    }
+
+    /// <summary>
+    /// 非法轉移丟 <see cref="InvalidOperationException"/>，由 API 層映射為
+    /// <see cref="CouponCalculationErrorCodes.CouponStateConflict"/>。
+    /// </summary>
+    private void Transition(CouponStatus next, DateTime occurredAtUtc)
+    {
+        if (!AllowedTransitions[Status].Contains(next))
+        {
+            throw new InvalidOperationException($"Coupon cannot move from {Status} to {next}.");
+        }
+
+        occurredAtUtc = RequireUtc(occurredAtUtc, nameof(occurredAtUtc));
+        Status = next;
+        MarkUpdated(occurredAtUtc);
+    }
 }
 
 public sealed class CouponRedemption : MutablePublicEntity
@@ -145,6 +333,7 @@ public sealed class OrderCoupon : PublicEntity
         CouponDiscountType discountType,
         int ruleVersion,
         decimal? discountValue,
+        decimal? minimumSpendAmount,
         decimal appliedAmount,
         decimal eligibleSubtotal,
         bool isFreeShipping,
@@ -152,6 +341,7 @@ public sealed class OrderCoupon : PublicEntity
         : base(publicId, createdAtUtc)
     {
         if (orderId <= 0 || ruleVersion <= 0 || discountValue is < 0 ||
+            minimumSpendAmount is < 0 ||
             appliedAmount < 0 || eligibleSubtotal < 0)
         {
             throw new ArgumentOutOfRangeException(nameof(orderId));
@@ -165,6 +355,7 @@ public sealed class OrderCoupon : PublicEntity
         DiscountType = discountType;
         RuleVersion = ruleVersion;
         DiscountValue = discountValue;
+        MinimumSpendAmount = minimumSpendAmount;
         AppliedAmount = appliedAmount;
         EligibleSubtotal = eligibleSubtotal;
         IsFreeShipping = isFreeShipping;
@@ -178,6 +369,7 @@ public sealed class OrderCoupon : PublicEntity
     public CouponDiscountType DiscountType { get; private set; }
     public int RuleVersion { get; private set; }
     public decimal? DiscountValue { get; private set; }
+    public decimal? MinimumSpendAmount { get; private set; }
     public decimal AppliedAmount { get; private set; }
     public decimal EligibleSubtotal { get; private set; }
     public bool IsFreeShipping { get; private set; }

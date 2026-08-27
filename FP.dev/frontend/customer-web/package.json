@@ -10,7 +10,11 @@
     "lint": "eslint . --max-warnings 0 && cd ../shared && node ../customer-web/node_modules/eslint/bin/eslint.js . --max-warnings 0",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "preview": "vite preview"
+    "test:e2e": "playwright test",
+    "preview": "vite preview",
+    "api:export": "node scripts/export-openapi.mjs",
+    "api:generate": "openapi-typescript ../../contracts/openapi.v1.json -o ../shared/src/api/generated/schema.d.ts",
+    "api:check": "npm run api:export && npm run api:generate && git diff --exit-code -- ../../contracts/openapi.v1.json ../shared/src/api/generated/schema.d.ts"
   },
   "dependencies": {
     "@doselect/web-shared": "file:../shared",
@@ -23,6 +27,7 @@
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "@playwright/test": "1.62.1",
     "@types/node": "24.13.3",
     "@vitejs/plugin-vue": "6.0.8",
     "@vitest/coverage-v8": "4.1.10",
@@ -37,5 +42,9 @@
     "vite": "8.2.0",
     "vitest": "4.1.10",
     "vue-tsc": "3.3.9"
+  },
+  "allowScripts": {
+    "vue-demi@0.14.10": true,
+    "fsevents": false
   }
 }

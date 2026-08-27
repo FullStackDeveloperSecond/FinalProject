@@ -1,5 +1,6 @@
 ---
 文件狀態: 可開發
+最後更新: 2026-08-27
 適用對象: haru
 主要覆核: yinyin
 最終整合: alex
@@ -42,15 +43,32 @@ Set-Location ../..
 
 必要版本與服務：.NET SDK `10.0.303`、Node.js 24、npm 11、SQL Server 2025 Developer、Instance `.\SQL2025`、Database `DoSelectDb`。完整安裝與連線規則見 [[03-架構/01-系統與環境/本機開發環境與版本基線]]。
 
-新電腦先明確套用既有 Migration，不要建立新 Migration：
+新電腦先套用 `dev` 已審查的完整 Migration 歷程，不要建立新 Migration：
 
 ```powershell
-dotnet tool run dotnet-ef -- database update InitialCreate `
+dotnet tool run dotnet-ef -- database update `
   --project src/backend/DoSelect.Infrastructure `
   --startup-project src/backend/DoSelect.Infrastructure `
   --context DoSelectDbContext
 ```
 
+截至 2026-08-27，`origin/dev@8ef986c` 的單一 Migration 歷程仍是下列四支；目前 alex 的整合分支另有六支待 Review／Merge，合併前不得由組員手動複製或套用：
+
+1. `20260819013357_InitialCreate`
+2. `20260822041051_AddIdempotencyAndCartMergeConflicts`
+3. `20260825171312_AddDes21RefundSnapshots`
+4. `20260825174929_AddCentralAuditLogs`
+
+整合分支待合併：
+
+5. `20260826134828_AddTransactionalOutbox`
+6. `20260826173241_AddNotificationDeliveryInfrastructure`
+7. `20260827020034_AlignCheckoutRoundingAndIdempotency`
+8. `20260827034327_AddCheckoutPolicyInvoiceShippingAndPaymentIdempotency`
+9. `20260827054739_AddOrderPackageAndSpecificationSnapshots`
+10. `20260827065535_AddMultiValueSpecificationProvenance`
+
+在整合分支合併前，`dev` 的 `database update` 只會套至 `AddCentralAuditLogs`；合併並拉取新 `dev` 後，才由不指定 Migration 名稱的命令依序套至當時最新版本。不得只停在 `InitialCreate`，也不得在功能分支自行 scaffold／apply 新 Migration；Schema 需求交 alex 走 Migration Gate。
 最小 Seed 帳號為 `member@doselect.local` 與 `admin@doselect.local`。密碼只放 .NET User Secrets 的 `Seed:MemberPassword`、`Seed:AdminPassword`；不得寫入文件、聊天、Commit 或終端歷史。可用 Visual Studio「管理使用者祕密」設定後執行：
 
 ```powershell
@@ -72,7 +90,7 @@ dotnet run --project src/backend/DoSelect.Api --no-launch-profile -- --seed-mini
 
 首次 Clone 若沒有本機設定檔，將 `src/backend/DoSelect.Api/appsettings.Development.example.json` 複製為已忽略版控的 `appsettings.Development.json`，再依本機修改非機密的 `Storage:DataRoot`。不要提交該本機檔案。
 
-目前認證整合尚未完成：`Program.cs` 還沒有正式 Cookie Authentication／`UseAuthentication()`，現有註冊只有 Identity Store。你可以先做 Domain、Application、DTO 與測試，但登入 Cookie、共用 Policy 與完整 401／403 整合必須等 alex 的 `SH-05` 基礎合併；不得用 Controller 內臨時判斷或 Vue Guard 假裝完成授權。
+SH-05 共用安全基線已合併：會員／管理員獨立 Cookie Scheme、`UseAuthentication()`、管理員 MFA Claim Gate、共用 Policy、精確 CORS、Antiforgery 與雙前端 Session Provider 均可直接沿用。各 Endpoint 仍須套用正式 Policy 並具 401／403／本人資源負面測試；不得在 Controller 內臨時判斷或只靠 Vue Guard 假裝完成授權。完整管理員 TOTP／Recovery／Session 撤銷仍以 PR #38 的合併狀態為準。
 
 ## 3. 權威規格閱讀順序
 
@@ -91,7 +109,7 @@ dotnet run --project src/backend/DoSelect.Api --no-launch-profile -- --seed-mini
 |---|---|---|
 | Domain | `FP.dev/src/backend/DoSelect.Domain/Members/`、`Orders/` | 沿用封裝型 Entity；狀態只經具名方法轉移 |
 | Identity | `FP.dev/src/backend/DoSelect.Infrastructure/Persistence/Identity/ApplicationUser.cs` | 不另建會員帳號表或第二套 Identity Store |
-| EF Mapping | `FP.dev/src/backend/DoSelect.Infrastructure/Persistence/Configurations/Members/`、`Orders/` | 已納入初始 Migration；變更先列出 Schema 影響 |
+| EF Mapping | `FP.dev/src/backend/DoSelect.Infrastructure/Persistence/Configurations/Members/`、`Orders/` | 依你目前拉取的 `dev` 完整 Migration 歷程；變更先列出 Schema 影響 |
 | Application | `FP.dev/src/backend/DoSelect.Application/` | 新增公開 Use Case／Query／DTO；不得讓 Controller 直接寫 DbContext |
 | API | `FP.dev/src/backend/DoSelect.Api/` | 商業端點使用 `[ApiController]` Controller，沿用 Problem Details |
 | 前台 | `FP.dev/frontend/customer-web/src/` | `features/auth`、`members`、`orders`；Page 只協調狀態 |
@@ -111,7 +129,7 @@ API 以 [[03-架構/02-API與前端契約/API Endpoint目錄]] 為準，重點�
 
 前台 Page ID：`C-08`～`C-12`、`C-16`～`C-18`、`C-21`～`C-23`。後台 Page ID：`A-01`～`A-03`、`A-14`～`A-15`。Route、Guard、Server State 與共同錯誤狀態見 [[03-架構/02-API與前端契約/M功能桌面UI與Route規格]]。
 
-Typed Client 尚未正式產生。第一批 Controller／DTO 穩定後通知 alex 依 [[03-架構/02-API與前端契約/OpenAPI與前端Client流程]] 產生；不要在 Vue 手寫第二套 DTO 或另建 fetch client。
+共用 OpenAPI 契約、產生的 `frontend/shared/src/api/generated/schema.d.ts` 與 typed client wrapper 已在 `dev`；API 契約變更後執行既有 `api:generate`／`api:check` 流程並提交產物。不要在 Vue 手寫第二套 DTO 或另建 fetch client。
 
 ## 6. 跨模組契約
 

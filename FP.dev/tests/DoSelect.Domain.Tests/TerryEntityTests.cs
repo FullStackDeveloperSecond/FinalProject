@@ -1,5 +1,7 @@
 using System.Reflection;
+using DoSelect.Domain.Catalog;
 using DoSelect.Domain.Shopping;
+using DoSelect.Domain.Shipping;
 
 namespace DoSelect.Domain.Tests;
 
@@ -114,5 +116,73 @@ public sealed class TerryEntityTests
         Assert.Equal(CreatedAtUtc.AddMinutes(1), item.UpdatedAtUtc);
         Assert.Throws<ArgumentOutOfRangeException>(() => item.ChangeQuantity(100, CreatedAtUtc.AddMinutes(2)));
         Assert.Equal(50, item.Quantity);
+    }
+
+    [Fact]
+    public void ShippingMethod_RequiresAndPreservesProviderCode()
+    {
+        var method = new ShippingMethod(
+            Guid.NewGuid(),
+            "CVS_PICKUP",
+            "超商取貨",
+            "ConvenienceStore",
+            60m,
+            1_000m,
+            allowsCod: true,
+            requiresPrepayment: false,
+            providerCode: "CVS_DEMO",
+            CreatedAtUtc);
+
+        Assert.Equal("CVS_DEMO", method.ProviderCode);
+        Assert.Throws<ArgumentException>(() => new ShippingMethod(
+            Guid.NewGuid(),
+            "HOME",
+            "宅配",
+            "HomeDelivery",
+            150m,
+            5_000m,
+            allowsCod: false,
+            requiresPrepayment: true,
+            providerCode: " ",
+            CreatedAtUtc));
+    }
+
+    [Fact]
+    public void SpecificationDefinition_AllowsMultipleOnlyForOptionValues()
+    {
+        var definition = new SpecificationDefinition(
+            Guid.NewGuid(), 1, "CPU_SOCKET", "支援 Socket", SpecificationValueType.Option,
+            null, true, true, 1, CreatedAtUtc, allowsMultiple: true);
+
+        Assert.True(definition.AllowsMultiple);
+        Assert.Throws<ArgumentException>(() => new SpecificationDefinition(
+            Guid.NewGuid(), 1, "POWER_DRAW_WATTS", "功耗", SpecificationValueType.Decimal,
+            1, true, true, 1, CreatedAtUtc, allowsMultiple: true));
+    }
+
+    [Fact]
+    public void SkuSpecificationOptionSelection_RequiresPositiveReferences()
+    {
+        var selection = new SkuSpecificationOptionSelection(1, 2, CreatedAtUtc);
+
+        Assert.Equal(1, selection.SkuId);
+        Assert.Equal(2, selection.SpecificationOptionId);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new SkuSpecificationOptionSelection(0, 2, CreatedAtUtc));
+    }
+
+    [Fact]
+    public void CompatibilityCatalogContract_UsesApprovedCategoryAndMultiValueKeys()
+    {
+        Assert.Equal("CPU", CompatibilityCatalogContract.Categories.Cpu);
+        Assert.Equal("CPU_COOLER", CompatibilityCatalogContract.Categories.CpuCooler);
+        Assert.Equal("CPU_SOCKET", CompatibilityCatalogContract.SemanticKeys.CpuSocket);
+        Assert.Equal(
+            [
+                CompatibilityCatalogContract.SemanticKeys.CpuSocket,
+                CompatibilityCatalogContract.SemanticKeys.CaseSupportedMotherboardFormFactor,
+                CompatibilityCatalogContract.SemanticKeys.CaseSupportedPsuFormFactor,
+            ],
+            CompatibilityCatalogContract.MultiValueSemanticKeys);
     }
 }

@@ -1,0 +1,34 @@
+using DoSelect.Application.Support.Admin.Dtos;
+
+namespace DoSelect.Application.Support.Admin;
+
+/// <summary>
+/// Admin-facing support ticket use cases. Unlike ISupportTicketService (Actor Scope: a
+/// member's own tickets only), these operate across all tickets. The caller is responsible for
+/// authenticating and authorizing the admin (CustomerService/CustomerServiceSupervisor policy)
+/// before invoking this service; adminUserId here is trusted as already-verified.
+/// </summary>
+public interface IAdminSupportTicketService
+{
+    /// <summary>
+    /// Claims an unassigned Open ticket for the calling admin. Throws DomainProblemException
+    /// with ResourceNotFound (404), SupportTicketAssignmentConflict (409) when the ticket is no
+    /// longer open/unassigned, or ConcurrencyConflict (409) when the RowVersion is merely stale.
+    /// </summary>
+    Task<AdminSupportTicketDto> ClaimAsync(
+        string adminUserId,
+        Guid ticketPublicId,
+        ClaimSupportTicketRequest request,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Loads the full admin-facing detail for one ticket, including internal notes. The acting
+    /// admin identity and supervisor scope are required so assignment visibility is applied before
+    /// sensitive data is loaded. Missing and out-of-scope tickets both map to the standard 404.
+    /// </summary>
+    Task<AdminSupportTicketDetailDto> GetDetailAsync(
+        string adminUserId,
+        bool canSupervise,
+        Guid ticketPublicId,
+        CancellationToken cancellationToken);
+}

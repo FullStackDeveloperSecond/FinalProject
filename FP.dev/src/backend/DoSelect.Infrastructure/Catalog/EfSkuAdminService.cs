@@ -49,6 +49,11 @@ public sealed class EfSkuAdminService : ISkuAdminService
             await ClearExistingDefaultAsync(product.Id, excludeSkuId: null, now, cancellationToken);
         }
 
+        if (status == SkuStatus.Published)
+        {
+            await EnsureRequiredSpecificationsProvidedAsync(product.CategoryId, request.Specifications, cancellationToken);
+        }
+
         var sku = new Sku(
             Guid.CreateVersion7(),
             request.SkuCode,
@@ -75,20 +80,74 @@ public sealed class EfSkuAdminService : ISkuAdminService
         // side effect above, already pending in the same change tracker) doesn't leave a
         // half-created SKU or a wrongly-cleared previous default behind: any failure rolls
         // back the whole thing.
-        await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+        var transaction = _dbContext.Database.CurrentTransaction is null
+            ? await _dbContext.Database.BeginTransactionAsync(cancellationToken)
+            : null;
         try
         {
             await _dbContext.SaveChangesAsync(cancellationToken);
 
             await ReplaceSpecificationsAsync(sku.Id, product.CategoryId, request.Specifications, now, cancellationToken);
+            // 組長 PR #24 round 5 review, item 2: a category switch (EfProductAdminService.
+            // UpdateAsync) validates against the product's current SKU specification values
+            // before committing, using the product's own RowVersion for optimistic concurrency.
+            // Without this, a spec write here never advances that RowVersion, so a category
+            // switch racing this call could read a consistent-looking state and commit against
+            // data that's already stale. See Product.Touch's remarks.
+            product.Touch(now);
             await _dbContext.SaveChangesAsync(cancellationToken);
 
-            await transaction.CommitAsync(cancellationToken);
+            if (transaction is not null)
+            {
+                await transaction.CommitAsync(cancellationToken);
+            }
         }
-        catch
+        // 組長 PR #24 round 9 review, P2: the second SaveChangesAsync (product.Touch, above) can
+        // race a concurrent Product/Category update and throw DbUpdateConcurrencyException just
+        // like Update/Delete's own single SaveChangesAsync already handles below — but this catch
+        // used to be a bare rethrow, so it surfaced as an opaque 500 (unexpected_error) instead of
+        // the same 409 concurrency_conflict Update/Delete give for the equivalent race. Rollback
+        // must still happen first regardless of exception type (a concurrency conflict is still a
+        // failure the transaction needs to undo), so the exception-type check comes after, not
+        // instead of, the existing rollback — never skip it just because this one case now
+        // translates the exception afterward.
+        //
+        // 組長 PR #24 round 10 review, P2: the *first* SaveChangesAsync (the SKU insert itself)
+        // has the same race as EfProductAdminService.CreateAsync's ProductCode check — the
+        // AnyAsync check above is a plain SELECT, so two concurrent creates for the same
+        // brand-new SkuCode can both pass it, and the losing INSERT hits UX_Skus_SkuCode. Checked
+        // after DbUpdateConcurrencyException (a subclass of DbUpdateException — order matters) and
+        // only for that specific index, so an unrelated DbUpdateException still propagates as-is.
+        catch (Exception exception)
         {
-            await transaction.RollbackAsync(cancellationToken);
+            if (transaction is not null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+            }
+
+            if (exception is DbUpdateConcurrencyException)
+            {
+                throw new CatalogWriteException(
+                    CatalogWriteException.ErrorCodes.ConcurrencyConflict,
+                    "The product was updated by someone else. Reload and try again.");
+            }
+
+            if (exception is DbUpdateException dbUpdateException &&
+                SqlUniqueIndexViolations.Matches(dbUpdateException, "UX_Skus_SkuCode"))
+            {
+                throw new CatalogWriteException(
+                    CatalogWriteException.ErrorCodes.SkuCodeDuplicate,
+                    $"SKU code '{request.SkuCode}' already exists.");
+            }
+
             throw;
+        }
+        finally
+        {
+            if (transaction is not null)
+            {
+                await transaction.DisposeAsync();
+            }
         }
 
         return await SkuAdminMapping.ToDtoAsync(_dbContext, sku, product, cancellationToken);
@@ -125,15 +184,34 @@ public sealed class EfSkuAdminService : ISkuAdminService
                 $"SKU '{skuPublicId}' was not found.");
         }
 
-        var product = await _dbContext.Products.AsNoTracking()
+        // Tracked (not AsNoTracking) — round 5 review item 2 needs to call product.Touch below
+        // so a spec write actually advances Product.RowVersion.
+        var product = await _dbContext.Products
             .FirstAsync(candidate => candidate.Id == sku.ProductId, cancellationToken);
 
         var status = ParseStatus(request.Status);
         var now = DateTime.UtcNow;
 
+        // 組長 PR #24 round 4 review, item 1: the only valid way to change which SKU is
+        // default is to PATCH a *different* SKU with IsDefault=true (ClearExistingDefaultAsync
+        // above already atomically flips the old one off in the same transaction) — directly
+        // unsetting the current default with no successor would leave the product with zero
+        // default SKUs, which the public search page relies on for what's purchasable.
+        if (sku.IsDefault && !request.IsDefault)
+        {
+            throw new CatalogWriteException(
+                CatalogWriteException.ErrorCodes.SkuDefaultRequired,
+                "Cannot unset the current default SKU directly — mark a different SKU as default instead.");
+        }
+
         if (request.IsDefault && !sku.IsDefault)
         {
             await ClearExistingDefaultAsync(sku.ProductId, sku.Id, now, cancellationToken);
+        }
+
+        if (status == SkuStatus.Published)
+        {
+            await EnsureRequiredSpecificationsProvidedAsync(product.CategoryId, request.Specifications, cancellationToken);
         }
 
         _dbContext.Entry(sku).Property(candidate => candidate.RowVersion).OriginalValue = request.RowVersion;
@@ -149,6 +227,8 @@ public sealed class EfSkuAdminService : ISkuAdminService
         sku.ChangeStatus(status, now);
 
         await ReplaceSpecificationsAsync(sku.Id, product.CategoryId, request.Specifications, now, cancellationToken);
+        // 組長 PR #24 round 5 review, item 2: see the matching comment in CreateAsync.
+        product.Touch(now);
 
         try
         {
@@ -173,6 +253,17 @@ public sealed class EfSkuAdminService : ISkuAdminService
             throw new CatalogWriteException(
                 CatalogWriteException.ErrorCodes.ResourceNotFound,
                 $"SKU '{skuPublicId}' was not found.");
+        }
+
+        // 組長 PR #24 round 4 review, item 1: deleting the current default SKU (even a
+        // never-referenced Draft one) would leave the product with zero default SKUs. Designate
+        // a different SKU as default first (via Update, which atomically clears this one), then
+        // delete it once it's no longer the default.
+        if (sku.IsDefault)
+        {
+            throw new CatalogWriteException(
+                CatalogWriteException.ErrorCodes.SkuDefaultRequired,
+                "Cannot delete the current default SKU — mark a different SKU as default first.");
         }
 
         // Every table below has an OnDelete(DeleteBehavior.Restrict) foreign key to Skus —
@@ -203,7 +294,19 @@ public sealed class EfSkuAdminService : ISkuAdminService
             .Where(value => value.SkuId == sku.Id)
             .ToListAsync(cancellationToken);
         _dbContext.SkuSpecificationValues.RemoveRange(specValues);
+        var optionSelections = await _dbContext.SkuSpecificationOptionSelections
+            .Where(selection => selection.SkuId == sku.Id)
+            .ToListAsync(cancellationToken);
+        _dbContext.SkuSpecificationOptionSelections.RemoveRange(optionSelections);
         _dbContext.Skus.Remove(sku);
+
+        // 組長 PR #24 round 5 review, item 2: removing this SKU's spec values changes the same
+        // state a category switch validates against, same rationale as the Create/Update touch.
+        if (specValues.Count > 0 || optionSelections.Count > 0)
+        {
+            var product = await _dbContext.Products.FirstAsync(candidate => candidate.Id == sku.ProductId, cancellationToken);
+            product.Touch(DateTime.UtcNow);
+        }
 
         try
         {
@@ -239,6 +342,36 @@ public sealed class EfSkuAdminService : ISkuAdminService
             now);
     }
 
+    /// <summary>
+    /// 組長 PR #24 round 4 review, item 2: a Draft SKU can be incomplete, but switching to
+    /// Published must be blocked until every IsRequired specification the category defines has
+    /// a value — ReplaceSpecificationsAsync happily accepts an empty array (or one missing a
+    /// required key) with no check against IsRequired.
+    /// </summary>
+    private async Task EnsureRequiredSpecificationsProvidedAsync(
+        long categoryId,
+        IReadOnlyList<SpecValueInput> specifications,
+        CancellationToken cancellationToken)
+    {
+        var requiredKeys = await _dbContext.SpecificationDefinitions.AsNoTracking()
+            .Where(definition => definition.CategoryId == categoryId && definition.IsRequired && definition.IsActive)
+            .Select(definition => definition.SemanticKey)
+            .ToListAsync(cancellationToken);
+        if (requiredKeys.Count == 0)
+        {
+            return;
+        }
+
+        var providedKeys = specifications.Select(input => NormalizeCode(input.SemanticKey)).ToHashSet();
+        var missing = requiredKeys.Where(key => !providedKeys.Contains(key)).ToList();
+        if (missing.Count > 0)
+        {
+            throw new CatalogWriteException(
+                CatalogWriteException.ErrorCodes.SkuMissingRequiredSpecification,
+                $"A Published SKU must provide a value for every required specification: {string.Join(", ", missing)}.");
+        }
+    }
+
     private async Task ReplaceSpecificationsAsync(
         long skuId,
         long categoryId,
@@ -250,6 +383,10 @@ public sealed class EfSkuAdminService : ISkuAdminService
             .Where(value => value.SkuId == skuId)
             .ToListAsync(cancellationToken);
         _dbContext.SkuSpecificationValues.RemoveRange(existing);
+        var existingSelections = await _dbContext.SkuSpecificationOptionSelections
+            .Where(selection => selection.SkuId == skuId)
+            .ToListAsync(cancellationToken);
+        _dbContext.SkuSpecificationOptionSelections.RemoveRange(existingSelections);
 
         if (specifications.Count == 0)
         {
@@ -263,7 +400,21 @@ public sealed class EfSkuAdminService : ISkuAdminService
                 "A SKU accepts at most 100 specification values.");
         }
 
-        var semanticKeys = specifications.Select(input => NormalizeCode(input.SemanticKey)).Distinct().ToArray();
+        var normalizedKeys = specifications.Select(input => NormalizeCode(input.SemanticKey)).ToArray();
+        var duplicateKeys = normalizedKeys.GroupBy(key => key).Where(group => group.Count() > 1).Select(group => group.Key).ToArray();
+        if (duplicateKeys.Length > 0)
+        {
+            // 組長 PR #24 round 5 review, item 4: the IsRequired check above dedupes via
+            // ToHashSet before validating, but this loop below adds one row per *input*, not
+            // per distinct key — the same SemanticKey twice hits SkuSpecificationValues'
+            // (SkuId, SpecificationDefinitionId) unique index as an unhandled DbUpdateException
+            // (500) instead of a clean 400.
+            throw new CatalogWriteException(
+                CatalogWriteException.ErrorCodes.SpecificationInvalid,
+                $"Duplicate specification key(s): {string.Join(", ", duplicateKeys)}.");
+        }
+
+        var semanticKeys = normalizedKeys.Distinct().ToArray();
         var definitions = await _dbContext.SpecificationDefinitions.AsNoTracking()
             .Where(definition =>
                 definition.CategoryId == categoryId &&
@@ -293,6 +444,45 @@ public sealed class EfSkuAdminService : ISkuAdminService
             decimal? decimalValue = null;
             bool? booleanValue = null;
             long? optionId = null;
+            var specificationSourceId = await ResolveSpecificationSourceIdAsync(
+                input.SpecificationSourcePublicId,
+                CompatibilityCatalogContract.HardRuleSemanticKeys.Contains(key),
+                input.SemanticKey,
+                cancellationToken);
+
+            if (definition.AllowsMultiple)
+            {
+                if (definition.ValueType != SpecificationValueType.Option ||
+                    !string.IsNullOrWhiteSpace(input.OptionCode))
+                {
+                    throw new CatalogWriteException(
+                        CatalogWriteException.ErrorCodes.SpecificationInvalid,
+                        $"Specification '{input.SemanticKey}' requires OptionCodes only.");
+                }
+
+                var optionIds = await ResolveOptionIdsAsync(
+                    definition.Id,
+                    input.OptionCodes,
+                    cancellationToken);
+                foreach (var selectedOptionId in optionIds)
+                {
+                    _dbContext.SkuSpecificationOptionSelections.Add(
+                        new SkuSpecificationOptionSelection(
+                            skuId,
+                            selectedOptionId,
+                            now,
+                            specificationSourceId));
+                }
+
+                continue;
+            }
+
+            if (input.OptionCodes is { Count: > 0 })
+            {
+                throw new CatalogWriteException(
+                    CatalogWriteException.ErrorCodes.SpecificationInvalid,
+                    $"Specification '{input.SemanticKey}' does not allow multiple options.");
+            }
 
             switch (definition.ValueType)
             {
@@ -317,9 +507,41 @@ public sealed class EfSkuAdminService : ISkuAdminService
                 decimalValue,
                 booleanValue,
                 optionId,
-                null,
+                specificationSourceId,
                 now));
         }
+    }
+
+    private async Task<long?> ResolveSpecificationSourceIdAsync(
+        Guid? sourcePublicId,
+        bool isRequired,
+        string semanticKey,
+        CancellationToken cancellationToken)
+    {
+        if (!sourcePublicId.HasValue || sourcePublicId.Value == Guid.Empty)
+        {
+            if (isRequired)
+            {
+                throw new CatalogWriteException(
+                    CatalogWriteException.ErrorCodes.SpecificationInvalid,
+                    $"Compatibility specification '{semanticKey}' requires a reviewed source.");
+            }
+
+            return null;
+        }
+
+        var sourceId = await _dbContext.SpecificationSources.AsNoTracking()
+            .Where(source => source.PublicId == sourcePublicId.Value)
+            .Select(source => (long?)source.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (!sourceId.HasValue)
+        {
+            throw new CatalogWriteException(
+                CatalogWriteException.ErrorCodes.ReferenceNotFound,
+                $"Specification source '{sourcePublicId}' was not found.");
+        }
+
+        return sourceId.Value;
     }
 
     private async Task<long> ResolveOptionIdAsync(
@@ -351,6 +573,45 @@ public sealed class EfSkuAdminService : ISkuAdminService
         }
 
         return optionId.Value;
+    }
+
+    private async Task<IReadOnlyList<long>> ResolveOptionIdsAsync(
+        long definitionId,
+        IReadOnlyList<string>? codes,
+        CancellationToken cancellationToken)
+    {
+        if (codes is null || codes.Count == 0 || codes.Count > 20)
+        {
+            throw new CatalogWriteException(
+                CatalogWriteException.ErrorCodes.SpecificationInvalid,
+                "A multi-option specification requires 1 to 20 option codes.");
+        }
+
+        var normalized = codes.Select(NormalizeCode).ToArray();
+        if (normalized.Distinct(StringComparer.Ordinal).Count() != normalized.Length)
+        {
+            throw new CatalogWriteException(
+                CatalogWriteException.ErrorCodes.SpecificationInvalid,
+                "A multi-option specification cannot contain duplicate option codes.");
+        }
+
+        var options = await _dbContext.SpecificationOptions.AsNoTracking()
+            .Where(option =>
+                option.SpecificationDefinitionId == definitionId &&
+                normalized.Contains(option.Code) &&
+                option.IsActive)
+            .Select(option => new { option.Id, option.Code })
+            .ToListAsync(cancellationToken);
+        if (options.Count != normalized.Length)
+        {
+            throw new CatalogWriteException(
+                CatalogWriteException.ErrorCodes.SpecificationInvalid,
+                "One or more specification option codes are unknown or inactive.");
+        }
+
+        return options.OrderBy(option => option.Code, StringComparer.Ordinal)
+            .Select(option => option.Id)
+            .ToArray();
     }
 
     private static T RequireValue<T>(T? value, string semanticKey)

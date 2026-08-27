@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { EmptyState, ErrorState, HttpStatusPage, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
 import {
@@ -11,6 +11,7 @@ import {
 } from './api'
 
 const route = useRoute()
+const router = useRouter()
 const orderPublicId = computed(() => String(route.params.orderId))
 
 type PageState = 'loading' | 'ready' | 'unauthenticated' | 'not-found' | 'error'
@@ -95,6 +96,25 @@ function describeCancelError(code: string): string {
   }
 }
 
+async function startReturn(): Promise<void> {
+  if (!order.value || !canRequestReturn.value || returnableItems.value.length === 0) {
+    return
+  }
+
+  await router.push({
+    name: 'return-new',
+    params: { orderId: order.value.publicId },
+    query: {
+      orderRowVersion: order.value.rowVersion,
+      items: JSON.stringify(returnableItems.value.map(item => ({
+        orderItemPublicId: item.publicId,
+        skuName: item.skuNameSnapshot,
+        maxQuantity: item.returnableQuantity - item.returnedQuantity,
+      }))),
+    },
+  })
+}
+
 function formatDateTime(value?: string | null): string {
   if (!value) {
     return '—'
@@ -103,11 +123,11 @@ function formatDateTime(value?: string | null): string {
 }
 
 const orderStatusLabel: Record<string, string> = {
-  PendingPayment: '等待付款',
-  Confirmed: '已確認',
-  Processing: '處理中',
-  Completed: '已完成',
-  Cancelled: '已取消',
+  pendingPayment: '等待付款',
+  confirmed: '已確認',
+  processing: '處理中',
+  completed: '已完成',
+  cancelled: '已取消',
 }
 </script>
 
@@ -253,7 +273,12 @@ const orderStatusLabel: Record<string, string> = {
               可退 {{ item.returnableQuantity - item.returnedQuantity }} 件
             </li>
           </ul>
-          <p>退貨受理流程即將開放，敬請期待。</p>
+          <button
+            type="button"
+            @click="startReturn"
+          >
+            申請退貨
+          </button>
         </template>
         <EmptyState
           v-else

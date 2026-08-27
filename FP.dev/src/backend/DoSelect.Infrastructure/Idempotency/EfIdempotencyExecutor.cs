@@ -47,11 +47,18 @@ public sealed class EfIdempotencyExecutor : IIdempotencyExecutor
         IdempotencyCommand command,
         Func<CancellationToken, Task<IdempotencyResponse<T>>> handler,
         Func<StoredIdempotencyResponse, CancellationToken, Task<T>> replayFactory,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IsolationLevel isolationLevel = IsolationLevel.ReadCommitted)
     {
         ArgumentNullException.ThrowIfNull(command);
         ArgumentNullException.ThrowIfNull(handler);
         ArgumentNullException.ThrowIfNull(replayFactory);
+        if (isolationLevel is not (IsolationLevel.ReadCommitted or IsolationLevel.Serializable))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(isolationLevel),
+                "The idempotency executor supports ReadCommitted or Serializable isolation.");
+        }
 
         if (_context.Database.CurrentTransaction is not null)
         {
@@ -63,7 +70,7 @@ public sealed class EfIdempotencyExecutor : IIdempotencyExecutor
         var lockResource = CreateLockResource(actorScopeHash, command.Operation, command.Key);
 
         await using var transaction = await _context.Database.BeginTransactionAsync(
-            IsolationLevel.ReadCommitted,
+            isolationLevel,
             cancellationToken);
         var transactionFinished = false;
 

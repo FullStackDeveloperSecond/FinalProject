@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DoSelect 懂選｜UI 操作展示</title>
+<meta name="description" content="DoSelect 懂選前端 UI 操作展示原型，僅示意畫面與操作流程，不含真實資料與功能。" />
+<link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+<a class="skip-link" href="#main-content">跳到主要內容</a>
+
+<div id="route-announcer" class="visually-hidden" role="status" aria-live="polite"></div>
+
+<header class="site-header">
+  <div class="header-bar">
+    <a class="brand" href="#/home" data-nav="home">
+      <img class="brand-mascot" src="assets/images/donggu-official.png" alt="Donggu 懂懂，DoSelect 懂選吉祥物" width="40" height="40" />
+      <span class="brand-text">DoSelect<span class="brand-sub">懂選</span></span>
+    </a>
+
+    <nav class="primary-nav" aria-label="主要購物導覽">
+      <button type="button" data-nav="home">首頁</button>
+      <button type="button" data-nav="products">商品列表</button>
+      <button type="button" data-nav="support-home">客服中心</button>
+    </nav>
+
+    <div class="header-actions">
+      <button type="button" class="icon-btn" data-nav="member" aria-label="會員中心">
+        <span aria-hidden="true">👤</span><span class="icon-btn-label">會員</span>
+      </button>
+      <button type="button" class="icon-btn" data-nav="cart" aria-label="購物車，目前 0 件商品" id="cart-icon-btn">
+        <span aria-hidden="true">🛒</span><span class="icon-btn-label">購物車</span>
+        <span class="badge" id="cart-badge">0</span>
+      </button>
+      <button type="button" class="icon-btn menu-toggle" id="menu-toggle" aria-expanded="false" aria-controls="proto-menu">
+        <span aria-hidden="true">☰</span><span class="icon-btn-label">全部畫面</span>
+      </button>
+    </div>
+  </div>
+
+  <nav id="proto-menu" class="proto-menu" aria-label="原型畫面導覽" hidden>
+    <div class="proto-menu-inner">
+      <div class="proto-menu-group">
+        <h2>購物流程</h2>
+        <ul>
+          <li><button type="button" data-nav="home">首頁</button></li>
+          <li><button type="button" data-nav="purpose">用途選擇</button></li>
+          <li><button type="button" data-nav="budget">預算設定</button></li>
+          <li><button type="button" data-nav="recommendations">推薦結果</button></li>
+          <li><button type="button" data-nav="products">商品列表</button></li>
+          <li><button type="button" data-nav="product-detail">商品詳情</button></li>
+          <li><button type="button" data-nav="compare">比較商品</button></li>
+          <li><button type="button" data-nav="cart">購物車／結帳步驟</button></li>
+          <li><button type="button" data-nav="member">會員中心</button></li>
+        </ul>
+      </div>
+      <div class="proto-menu-group">
+        <h2>客服流程</h2>
+        <ul>
+          <li><button type="button" data-nav="support-home">客服中心</button></li>
+          <li><button type="button" data-nav="faq">FAQ</button></li>
+          <li><button type="button" data-nav="contact">聯絡客服／建立案件</button></li>
+          <li><button type="button" data-nav="tickets">客服紀錄／案件詳情</button></li>
+          <li><button type="button" data-nav="return">退貨退款申請</button></li>
+          <li><button type="button" data-nav="report">檢舉／申訴入口</button></li>
+        </ul>
+      </div>
+    </div>
+  </nav>
+</header>
+
+<div class="chrome-bar">
+  <div class="chrome-bar-inner">
+    <button type="button" class="chrome-back" id="back-btn" data-action="go-back">
+      <span aria-hidden="true">←</span> 上一步
+    </button>
+    <p class="current-view" id="current-view-label">目前畫面：首頁</p>
+    <button type="button" class="chrome-home" data-nav="home">回首頁</button>
+    <span class="proto-disclosure">UI 操作展示・僅示意，非實際功能</span>
+  </div>
+</div>
+
+<main id="main-content" tabindex="-1">
+  <div id="view-root" class="view-shell"></div>
+</main>
+
+<footer class="site-footer">
+  <p>© 2026 DoSelect 懂選．本頁面為前端 UI 操作展示原型，資料皆為示意內容，不會實際送出或儲存。</p>
+</footer>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<script src="assets/app.js"></script>
+</body>
+</html>

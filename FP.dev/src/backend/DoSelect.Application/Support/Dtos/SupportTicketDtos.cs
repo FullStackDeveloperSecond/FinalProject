@@ -1,0 +1,112 @@
+using System.ComponentModel.DataAnnotations;
+using DoSelect.Application.Common;
+using DoSelect.Domain.Support;
+
+namespace DoSelect.Application.Support.Dtos;
+
+public sealed record CreateSupportTicketRequest
+{
+    [Required]
+    [EnumDataType(typeof(SupportTicketCategory))]
+    public SupportTicketCategory? Category { get; init; }
+
+    [Required]
+    [NotWhiteSpace]
+    [StringLength(200, MinimumLength = 1)]
+    public string Subject { get; init; } = string.Empty;
+
+    [Required]
+    [NotWhiteSpace]
+    [StringLength(4000, MinimumLength = 1)]
+    public string Message { get; init; } = string.Empty;
+
+    public Guid? OrderPublicId { get; init; }
+}
+
+public sealed record CreateSupportMessageRequest
+{
+    [Required]
+    [NotWhiteSpace]
+    [StringLength(4000, MinimumLength = 1)]
+    public string Body { get; init; } = string.Empty;
+
+    [RowVersionRequired]
+    public byte[] RowVersion { get; init; } = [];
+}
+
+public sealed record CancelSupportTicketRequest
+{
+    [Required]
+    [NotWhiteSpace]
+    [StringLength(500, MinimumLength = 1)]
+    public string ReasonCode { get; init; } = string.Empty;
+
+    [RowVersionRequired]
+    public byte[] RowVersion { get; init; } = [];
+}
+
+public sealed record SupportTicketQuery
+{
+    public IReadOnlyList<SupportTicketStatus>? Statuses { get; init; }
+
+    public SupportTicketCategory? Category { get; init; }
+
+    [Range(1, int.MaxValue)]
+    public int PageNumber { get; init; } = 1;
+
+    [Range(1, 100)]
+    public int PageSize { get; init; } = 20;
+}
+
+public sealed record SupportMessageDto(
+    Guid PublicId,
+    SupportSenderType SenderType,
+    bool AiGenerated,
+    string Body,
+    DateTime SentAtUtc);
+
+public sealed record SupportTicketSummaryDto(
+    Guid PublicId,
+    string TicketNumber,
+    SupportTicketCategory Category,
+    string Subject,
+    SupportTicketStatus Status,
+    CasePriority Priority,
+    bool IsWaitingForCustomer,
+    DateTime LastActivityAtUtc,
+    byte[] RowVersion);
+
+/// <summary>
+/// Public-safe attachment metadata returned after a successful upload. Deliberately excludes
+/// StorageKey, physical paths, uploader identity and the SHA-256 hash.
+/// </summary>
+public sealed record SupportAttachmentDto(
+    Guid PublicId,
+    string OriginalFileName,
+    string MimeType,
+    long FileSizeBytes,
+    DateTime CreatedAtUtc);
+
+public sealed record SupportTicketDto(
+    Guid PublicId,
+    string TicketNumber,
+    SupportTicketCategory Category,
+    string Subject,
+    SupportTicketStatus Status,
+    CasePriority Priority,
+    Guid? OrderPublicId,
+    DateTime CreatedAtUtc,
+    DateTime LastActivityAtUtc,
+    DateTime FirstResponseDueAtUtc,
+    DateTime ResolutionDueAtUtc,
+    bool IsOverdue,
+    DateTime? FirstHumanResponseAtUtc,
+    DateTime? ResolvedAtUtc,
+    DateTime? ClosedAtUtc,
+    int ReopenCount,
+    IReadOnlyList<string> AvailableActions,
+    IReadOnlyList<SupportMessageDto> Messages,
+    byte[] RowVersion)
+{
+    public IReadOnlyList<SupportAttachmentDto> Attachments { get; init; } = [];
+}

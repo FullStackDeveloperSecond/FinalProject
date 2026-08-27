@@ -50,6 +50,68 @@ public enum InvoiceLineKind
 }
 
 /// <summary>
+/// 非商品發票明細的識別方式（DEC-BATCH-022／DEC-P299）。
+/// </summary>
+/// <remarks>
+/// 發票明細不另外持久化種類欄位，改以 <c>SkuCodeSnapshot</c> 的保留值識別。
+/// 保留值集中定義在這裡，Writer、Reader 與 DTO 映射一律引用，不得各自散落字串。
+/// 這些是內部識別值，**不是公開契約**；對外一律以 <see cref="InvoiceLineKind"/> 表達。
+/// </remarks>
+public static class InvoiceLineSkuCodes
+{
+    /// <summary>運費列的保留 SkuCodeSnapshot。</summary>
+    public const string Shipping = "__INVOICE_SHIPPING__";
+
+    /// <summary>組裝費列的保留 SkuCodeSnapshot。</summary>
+    public const string AssemblyFee = "__INVOICE_ASSEMBLY_FEE__";
+
+    /// <summary>該值是否為保留給非商品列的識別值。</summary>
+    public static bool IsReserved(string? skuCodeSnapshot) =>
+        skuCodeSnapshot is Shipping or AssemblyFee;
+
+    /// <summary>
+    /// 由 <c>OrderItemId</c> 與 <c>SkuCodeSnapshot</c> 判斷明細種類。
+    /// </summary>
+    /// <remarks>
+    /// 商品列必須有 <c>OrderItemId</c> 且不得使用保留值；
+    /// 非商品列必須沒有 <c>OrderItemId</c> 且只接受保留值。
+    /// 未知的非商品識別值必須拒絕，不得靜默略過，也不得歸類成其他種類。
+    /// </remarks>
+    public static InvoiceLineKind ResolveKind(long? orderItemId, string? skuCodeSnapshot)
+    {
+        if (orderItemId is not null)
+        {
+            if (IsReserved(skuCodeSnapshot))
+            {
+                throw new ArgumentException(
+                    "A merchandise invoice line cannot use a reserved SKU code.",
+                    nameof(skuCodeSnapshot));
+            }
+
+            return InvoiceLineKind.Merchandise;
+        }
+
+        return skuCodeSnapshot switch
+        {
+            Shipping => InvoiceLineKind.Shipping,
+            AssemblyFee => InvoiceLineKind.AssemblyFee,
+            _ => throw new ArgumentException(
+                "A non-merchandise invoice line must use a reserved SKU code.",
+                nameof(skuCodeSnapshot)),
+        };
+    }
+
+    /// <summary>對外的穩定值。保留值本身不得出現在 API 契約上。</summary>
+    public static string ToPublicKind(InvoiceLineKind kind) => kind switch
+    {
+        InvoiceLineKind.Merchandise => "merchandise",
+        InvoiceLineKind.Shipping => "shipping",
+        InvoiceLineKind.AssemblyFee => "assemblyFee",
+        _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+    };
+}
+
+/// <summary>
 /// 訂單在嘗試開立發票當下的付款情形。
 /// </summary>
 public enum InvoiceIssuanceTrigger

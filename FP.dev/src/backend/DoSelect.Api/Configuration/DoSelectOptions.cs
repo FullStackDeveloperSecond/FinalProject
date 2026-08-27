@@ -1,12 +1,5 @@
 namespace DoSelect.Api.Configuration;
 
-public sealed class StorageOptions
-{
-    public const string SectionName = "Storage";
-
-    public string DataRoot { get; set; } = Path.Combine(Path.GetTempPath(), "DoSelectData");
-}
-
 public sealed class FeatureOptions
 {
     public const string SectionName = "Features";

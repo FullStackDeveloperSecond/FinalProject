@@ -1,0 +1,135 @@
+using DoSelect.Application.Support;
+using DoSelect.Domain.Members;
+using DoSelect.Domain.Support;
+using DoSelect.Infrastructure.Persistence;
+using DoSelect.Infrastructure.Persistence.Identity;
+using DoSelect.Infrastructure.Persistence.Support;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace DoSelect.Api.IntegrationTests.Support;
+
+public sealed class SupportAttachmentReadStoreSqlServerTests : IClassFixture<WebApplicationFactory<Program>>
+{
+    private readonly WebApplicationFactory<Program> _factory;
+    public SupportAttachmentReadStoreSqlServerTests(WebApplicationFactory<Program> factory) => _factory = factory;
+
+    [Fact]
+    public async Task SqlPredicate_AllowsOwnerAndHandlerButNotMemberBDeletedOrNonClean()
+    {
+        var run = Guid.NewGuid().ToString("N");
+        var now = DateTime.UtcNow;
+        Guid cleanId, deletedId, pendingId, rejectedId;
+        string ownerId, memberBId, handlerBId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+            var owner = ApplicationUser.CreateMember(Guid.NewGuid(), $"att-owner-{run}@example.test", now);
+            var memberB = ApplicationUser.CreateMember(Guid.NewGuid(), $"att-other-{run}@example.test", now);
+            var handlerB = ApplicationUser.CreateAdmin(Guid.NewGuid(), $"att-handler-{run}@example.test", now);
+            db.Users.AddRange(owner, memberB, handlerB);
+            await db.SaveChangesAsync();
+            ownerId = owner.Id;
+            memberBId = memberB.Id;
+            handlerBId = handlerB.Id;
+            var ticket = new SupportTicket(Guid.NewGuid(), $"AT-{run[..20]}", owner.Id, null,
+                SupportTicketCategory.Other, $"attachment-{run}", CasePriority.Normal,
+                now.AddHours(1), now.AddHours(8), now);
+            db.SupportTickets.Add(ticket);
+            await db.SaveChangesAsync();
+            ticket.Assign(handlerB.Id, now.AddMilliseconds(1));
+            await db.SaveChangesAsync();
+
+            var clean = NewAttachment(ticket.Id, owner.Id, run + "-clean", now);
+            clean.RecordScan(PrivateAttachmentScanStatus.Clean, now.AddSeconds(1));
+            var deleted = NewAttachment(ticket.Id, owner.Id, run + "-deleted", now);
+            deleted.RecordScan(PrivateAttachmentScanStatus.Clean, now.AddSeconds(1));
+            deleted.SoftDelete(now.AddSeconds(2));
+            var pending = NewAttachment(ticket.Id, owner.Id, run + "-pending", now);
+            var rejected = NewAttachment(ticket.Id, owner.Id, run + "-rejected", now);
+            rejected.RecordScan(PrivateAttachmentScanStatus.Rejected, now.AddSeconds(1));
+            db.SupportAttachments.AddRange(clean, deleted, pending, rejected);
+            await db.SaveChangesAsync();
+            (cleanId, deletedId, pendingId, rejectedId) = (clean.PublicId, deleted.PublicId, pending.PublicId, rejected.PublicId);
+        }
+
+        Assert.NotNull(await FindAsync(cleanId, new(SupportAttachmentActorType.Member, ownerId)));
+        Assert.Null(await FindAsync(cleanId, new(SupportAttachmentActorType.Member, memberBId)));
+        Assert.NotNull(await FindAsync(cleanId, new(SupportAttachmentActorType.SupportHandler, handlerBId)));
+        Assert.Null(await FindAsync(cleanId, new(
+            SupportAttachmentActorType.SupportHandler,
+            $"other-handler-{Guid.NewGuid():N}")));
+        Assert.NotNull(await FindAsync(cleanId, new(
+            SupportAttachmentActorType.SupportHandler,
+            $"supervisor-{Guid.NewGuid():N}",
+            CanSupervise: true)));
+        Assert.Null(await FindAsync(deletedId, new(SupportAttachmentActorType.Member, ownerId)));
+        Assert.Null(await FindAsync(pendingId, new(SupportAttachmentActorType.Member, ownerId)));
+        Assert.Null(await FindAsync(rejectedId, new(SupportAttachmentActorType.SupportHandler, handlerBId)));
+        Assert.Null(await FindAsync(Guid.NewGuid(), new(SupportAttachmentActorType.SupportHandler, handlerBId)));
+    }
+
+    [Fact]
+    public async Task DualCookieActors_AdminOutsideAssignmentIsDeniedButOwningMemberIsReadable()
+    {
+        var run = Guid.NewGuid().ToString("N");
+        var now = DateTime.UtcNow;
+        Guid attachmentId;
+        string ownerId;
+        string otherHandlerId;
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+            var owner = ApplicationUser.CreateMember(Guid.NewGuid(), $"dual-owner-{run}@example.test", now);
+            var assignedHandler = ApplicationUser.CreateAdmin(Guid.NewGuid(), $"dual-assigned-{run}@example.test", now);
+            var otherHandler = ApplicationUser.CreateAdmin(Guid.NewGuid(), $"dual-other-{run}@example.test", now);
+            db.Users.AddRange(owner, assignedHandler, otherHandler);
+            await db.SaveChangesAsync();
+            ownerId = owner.Id;
+            otherHandlerId = otherHandler.Id;
+
+            var ticket = new SupportTicket(
+                Guid.NewGuid(),
+                $"DU-{run[..20]}",
+                owner.Id,
+                null,
+                SupportTicketCategory.Other,
+                $"dual-cookie-{run}",
+                CasePriority.Normal,
+                now.AddHours(1),
+                now.AddHours(8),
+                now);
+            db.SupportTickets.Add(ticket);
+            await db.SaveChangesAsync();
+            ticket.Assign(assignedHandler.Id, now.AddMilliseconds(1));
+            await db.SaveChangesAsync();
+
+            var attachment = NewAttachment(ticket.Id, owner.Id, run, now);
+            attachment.RecordScan(PrivateAttachmentScanStatus.Clean, now.AddSeconds(1));
+            db.SupportAttachments.Add(attachment);
+            await db.SaveChangesAsync();
+            attachmentId = attachment.PublicId;
+        }
+
+        var adminResult = await FindAsync(
+            attachmentId,
+            new(SupportAttachmentActorType.SupportHandler, otherHandlerId));
+        var memberResult = await FindAsync(
+            attachmentId,
+            new(SupportAttachmentActorType.Member, ownerId));
+
+        Assert.Null(adminResult);
+        Assert.NotNull(memberResult);
+    }
+    private async Task<SupportAttachmentReadRecord?> FindAsync(Guid id, SupportAttachmentActor actor)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+        return await new SupportAttachmentReadStore(db).FindReadableAsync(id, actor, CancellationToken.None);
+    }
+
+    private static SupportAttachment NewAttachment(long ticketId, string uploader, string unique, DateTime now) =>
+        new(Guid.NewGuid(), ticketId, null, uploader, $"{unique}.txt", $"{unique}/payload.txt", ".txt",
+            "text/plain", 1, new byte[32], now);
+}

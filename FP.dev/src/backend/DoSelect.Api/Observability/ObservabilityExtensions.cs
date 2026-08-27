@@ -3,6 +3,8 @@ using System.Security;
 using System.Text.Json;
 using DoSelect.Api.Common;
 using DoSelect.Api.Configuration;
+using DoSelect.Application.Storage;
+using DoSelect.Infrastructure.Outbox;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
@@ -40,7 +42,7 @@ public static class ObservabilityExtensions
             },
             writeToProviders: false);
 
-        builder.Services
+        var healthChecks = builder.Services
             .AddHealthChecks()
             .AddCheck(
                 "self",
@@ -52,6 +54,13 @@ public static class ObservabilityExtensions
             .AddCheck<DatabaseReadinessHealthCheck>(
                 "database",
                 tags: ["ready"]);
+
+        if (BackgroundJobServiceCollectionExtensions.BackgroundJobsEnabled(builder.Configuration))
+        {
+            healthChecks.AddCheck<HangfireReadinessHealthCheck>(
+                "hangfire",
+                tags: ["ready"]);
+        }
 
         builder.Services.AddSingleton<IDatabaseReadinessProbe, EfCoreDatabaseReadinessProbe>();
 

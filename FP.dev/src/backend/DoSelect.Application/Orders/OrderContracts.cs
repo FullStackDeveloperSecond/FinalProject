@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Net;
 using DoSelect.Domain.Orders;
 
 namespace DoSelect.Application.Orders;
@@ -66,10 +67,7 @@ public sealed record OrderSummaryDto(
 
 public sealed record OrderQuery(int PageNumber = 1, int PageSize = 20);
 
-/// <summary>
-/// 退貨與退款政策.md 只定義訪客／會員取消「只能使用顧客可選理由」，沒有列出正式代碼表；這是本切片
-/// 的範圍界定 — 先提供一組最小、顧客視角的理由碼，日誌中標記待與 alex／yinyin 對齊正式清單。
-/// </summary>
+/// <summary>Alex 於 PR #43 review 裁定（2026-08-27，B1）的顧客自助取消正式原因碼。</summary>
 public static class OrderCancellationReasonCodes
 {
     public const string ChangedMind = "changed_mind";
@@ -93,6 +91,12 @@ public sealed record CancelOrderRequest(
     [StringLength(500)] string? Note,
     byte[] OrderRowVersion);
 
+/// <summary>由受信任的 API 邊界建立，不接受客戶端直接指定。</summary>
+public sealed record OrderCancellationAuditContext(
+    string CorrelationId,
+    string TraceId,
+    IPAddress? RemoteIpAddress);
+
 public interface IOrderService
 {
     Task<Application.Common.PageResult<OrderSummaryDto>> GetOrdersAsync(
@@ -109,5 +113,6 @@ public interface IOrderService
         string memberUserId,
         Guid orderPublicId,
         CancelOrderRequest request,
+        OrderCancellationAuditContext auditContext,
         CancellationToken cancellationToken);
 }

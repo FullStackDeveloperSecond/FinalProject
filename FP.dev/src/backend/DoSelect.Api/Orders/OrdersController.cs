@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Claims;
 using DoSelect.Api.Common;
 using DoSelect.Api.Security;
@@ -64,7 +65,16 @@ public sealed class OrdersController : ControllerBase
 
         try
         {
-            var order = await _orderService.CancelOrderAsync(memberUserId, id, request, cancellationToken);
+            var auditContext = new OrderCancellationAuditContext(
+                CorrelationIdMiddleware.GetCorrelationId(HttpContext),
+                Activity.Current?.TraceId.ToString() ?? ActivityTraceId.CreateRandom().ToString(),
+                HttpContext.Connection.RemoteIpAddress);
+            var order = await _orderService.CancelOrderAsync(
+                memberUserId,
+                id,
+                request,
+                auditContext,
+                cancellationToken);
             return Ok(order);
         }
         catch (OrderWriteException exception)

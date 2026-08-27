@@ -35,9 +35,50 @@ const router = createRouter({
       component: () => import('../pages/ResetPasswordPage.vue'),
     },
     {
+      path: '/support',
+      name: 'support-home',
+      component: () => import('../pages/support/SupportHomePage.vue'),
+    },
+    {
+      path: '/support/tickets',
+      name: 'support-ticket-list',
+      component: () => import('../pages/support/SupportTicketListPage.vue'),
+    },
+    {
+      path: '/support/tickets/new',
+      name: 'support-ticket-new',
+      component: () => import('../pages/support/SupportTicketNewPage.vue'),
+    },
+    {
+      path: '/support/tickets/:ticketId',
+      name: 'support-ticket-detail',
+      component: () => import('../pages/support/SupportTicketDetailPage.vue'),
+    },
+    {
+      path: '/products',
+      name: 'products',
+      component: () => import('../pages/ProductsPage.vue'),
+    },
+    {
+      path: '/products/:productId',
+      name: 'product-detail',
+      component: () => import('../pages/ProductDetailPage.vue'),
+      props: true,
+    },
+    {
       path: '/orders/:orderId',
       name: 'order-detail',
       component: () => import('../features/orders/OrderDetailPage.vue'),
+    },
+    {
+      path: '/orders/:orderId/returns/new',
+      name: 'return-new',
+      component: () => import('../pages/returns/ReturnNewPage.vue'),
+    },
+    {
+      path: '/returns/:returnId',
+      name: 'return-detail',
+      component: () => import('../pages/returns/ReturnDetailPage.vue'),
     },
     {
       path: '/unauthorized',

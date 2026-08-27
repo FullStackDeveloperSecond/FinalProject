@@ -80,6 +80,7 @@ public sealed class SpecificationDefinitionConfiguration
     {
         builder.ConfigureMutablePublicEntity("SpecificationDefinitions");
         builder.Property(entity => entity.SemanticKey).HasMaxLength(64).IsRequired();
+        builder.Property(entity => entity.AllowsMultiple).HasDefaultValue(false).IsRequired();
         builder.Property(entity => entity.DisplayNameZhTw).HasMaxLength(160).IsRequired();
         builder.Property(entity => entity.ValueType)
             .HasConversion<string>()
@@ -198,6 +199,30 @@ public sealed class SkuSpecificationValueConfiguration
             table.HasCheckConstraint(
                 "CK_SkuSpecificationValues_ExactlyOneValue",
                 "(CASE WHEN [StringValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [DecimalValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [BooleanValue] IS NULL THEN 0 ELSE 1 END + CASE WHEN [OptionId] IS NULL THEN 0 ELSE 1 END) = 1"));
+    }
+}
+
+public sealed class SkuSpecificationOptionSelectionConfiguration
+    : IEntityTypeConfiguration<SkuSpecificationOptionSelection>
+{
+    public void Configure(EntityTypeBuilder<SkuSpecificationOptionSelection> builder)
+    {
+        builder.ConfigureMutableEntity("SkuSpecificationOptionSelections");
+        builder.HasIndex(entity => new { entity.SkuId, entity.SpecificationOptionId })
+            .IsUnique()
+            .HasDatabaseName("UX_SkuSpecificationOptionSelections_SkuId_OptionId");
+        builder.HasOne<Sku>()
+            .WithMany()
+            .HasForeignKey(entity => entity.SkuId)
+            .OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<SpecificationOption>()
+            .WithMany()
+            .HasForeignKey(entity => entity.SpecificationOptionId)
+            .OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<SpecificationSource>()
+            .WithMany()
+            .HasForeignKey(entity => entity.SpecificationSourceId)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }
 

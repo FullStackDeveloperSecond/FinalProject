@@ -79,6 +79,7 @@ public sealed class OrderCouponConfiguration : IEntityTypeConfiguration<OrderCou
         builder.Property(x => x.NameSnapshot).HasMaxLength(160).IsRequired();
         builder.Property(x => x.DiscountType).HasConversion<string>().HasMaxLength(16).IsUnicode(false).IsRequired();
         Money(builder.Property(x => x.DiscountValue));
+        Money(builder.Property(x => x.MinimumSpendAmount));
         Money(builder.Property(x => x.AppliedAmount), true);
         Money(builder.Property(x => x.EligibleSubtotal), true);
         builder.Property(x => x.IsFreeShipping).HasDefaultValue(false).IsRequired();
@@ -87,7 +88,7 @@ public sealed class OrderCouponConfiguration : IEntityTypeConfiguration<OrderCou
         builder.HasOne<Order>().WithOne().HasForeignKey<OrderCoupon>(x => x.OrderId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<Coupon>().WithMany().HasForeignKey(x => x.CouponId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<CouponRedemption>().WithOne().HasForeignKey<OrderCoupon>(x => x.RedemptionId).OnDelete(DeleteBehavior.Restrict);
-        builder.ToTable("OrderCoupons", table => table.HasCheckConstraint("CK_OrderCoupons_Amounts", "([DiscountValue] IS NULL OR [DiscountValue] >= 0) AND [AppliedAmount] >= 0 AND [EligibleSubtotal] >= 0 AND [RuleVersion] > 0"));
+        builder.ToTable("OrderCoupons", table => table.HasCheckConstraint("CK_OrderCoupons_Amounts", "([DiscountValue] IS NULL OR [DiscountValue] >= 0) AND ([MinimumSpendAmount] IS NULL OR [MinimumSpendAmount] >= 0) AND [AppliedAmount] >= 0 AND [EligibleSubtotal] >= 0 AND [RuleVersion] > 0"));
     }
     private static void Money(PropertyBuilder<decimal?> property) => property.HasPrecision(18, 2);
     private static void Money(PropertyBuilder<decimal> property, bool required) { property.HasPrecision(18, 2); if (required) property.IsRequired(); }

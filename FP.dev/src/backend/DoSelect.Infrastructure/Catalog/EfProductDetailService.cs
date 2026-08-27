@@ -76,7 +76,20 @@ public sealed class EfProductDetailService : IProductDetailService
         var specValues = await _dbContext.SkuSpecificationValues.AsNoTracking()
             .Where(value => skuIds.Contains(value.SkuId))
             .ToListAsync(cancellationToken);
-        var definitionIds = specValues.Select(value => value.SpecificationDefinitionId).Distinct().ToArray();
+        var optionSelections = await _dbContext.SkuSpecificationOptionSelections.AsNoTracking()
+            .Where(selection => skuIds.Contains(selection.SkuId))
+            .ToListAsync(cancellationToken);
+        var selectedOptionIds = optionSelections
+            .Select(selection => selection.SpecificationOptionId)
+            .Distinct()
+            .ToArray();
+        var selectedOptions = await _dbContext.SpecificationOptions.AsNoTracking()
+            .Where(option => selectedOptionIds.Contains(option.Id))
+            .ToListAsync(cancellationToken);
+        var definitionIds = specValues.Select(value => value.SpecificationDefinitionId)
+            .Concat(selectedOptions.Select(option => option.SpecificationDefinitionId))
+            .Distinct()
+            .ToArray();
         var definitions = await _dbContext.SpecificationDefinitions.AsNoTracking()
             .Where(definition => definitionIds.Contains(definition.Id))
             .ToDictionaryAsync(definition => definition.Id, cancellationToken);
@@ -93,6 +106,7 @@ public sealed class EfProductDetailService : IProductDetailService
         var optionIds = specValues
             .Where(value => value.OptionId.HasValue)
             .Select(value => value.OptionId!.Value)
+            .Concat(selectedOptionIds)
             .Distinct()
             .ToArray();
         var options = await _dbContext.SpecificationOptions.AsNoTracking()
@@ -156,6 +170,43 @@ public sealed class EfProductDetailService : IProductDetailService
                     definition.SemanticKey,
                     label,
                     unit,
+                    formattedValue));
+
+                if (!groupValuesByDefinition.TryGetValue(definition.Id, out var groupValues))
+                {
+                    groupValues = [];
+                    groupValuesByDefinition[definition.Id] = groupValues;
+                }
+
+                groupValues.Add(new SpecificationGroupValue(sku.PublicId, formattedValue));
+            }
+
+            var skuSelectedOptionIds = optionSelections
+                .Where(selection => selection.SkuId == sku.Id)
+                .Select(selection => selection.SpecificationOptionId)
+                .ToHashSet();
+            foreach (var group in selectedOptions
+                         .Where(option => skuSelectedOptionIds.Contains(option.Id))
+                         .GroupBy(option => option.SpecificationDefinitionId))
+            {
+                if (!definitions.TryGetValue(group.Key, out var definition))
+                {
+                    continue;
+                }
+
+                var formattedValue = string.Join(
+                    ", ",
+                    group.OrderBy(option => option.SortOrder)
+                        .Select(option => optionLabels.GetValueOrDefault(
+                            option.Id,
+                            option.DisplayNameZhTw)));
+                var label = definitionLabels.GetValueOrDefault(
+                    definition.Id,
+                    definition.DisplayNameZhTw);
+                skuSpecifications.Add(new SkuSpecificationSummary(
+                    definition.SemanticKey,
+                    label,
+                    null,
                     formattedValue));
 
                 if (!groupValuesByDefinition.TryGetValue(definition.Id, out var groupValues))

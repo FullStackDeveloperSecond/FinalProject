@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-25
+最後更新: 2026-08-26
 追蹤項目:
   - DES-10
   - DES-20
@@ -40,7 +40,7 @@
 | `CreateBuildListRequest` | `name:string(1..160)`、`items:BuildItemInput[1..20]` |
 | `UpdateBuildListRequest` | Create 欄位＋`rowVersion` |
 | `BuildItemInput` | `skuPublicId`、`quantity:int(1..8)` |
-| `BuildListDto` | `publicId`、`name`、`owner:member`、`items:BuildItemDto[]`、`compatibility{overall,ruleSetVersion,settingsVersion,results[]}`、`totals{merchandise,assemblyFee,grandTotal,currency}`、`updatedAtUtc`、`rowVersion` |
+| `BuildListDto` | `publicId`、`name`、`items:BuildItemDto[]`、`compatibility{overall,ruleSetVersion,settingsVersion,results[]}`、`totals{merchandise,assemblyFee,grandTotal,currency}`、`updatedAtUtc`、`rowVersion`；擁有權由後端 Actor Scope／Owner Query 驗證，不回傳固定 Owner 欄位 |
 | `BuildListSummaryDto` | `publicId`、`name`、`itemCount`、`compatibilityOverall`、`grandTotal`、`isShared`、`updatedAtUtc`、`rowVersion` |
 | `BuildShareDto` | `sharePublicId`、`url`、`expiresAtUtc` |
 | `SharedBuildDto` | `sharePublicId`、`name`、去識別化 `items`、目前價格／庫存／相容性結果、`canCopy`、`canAddToCart`；不回 Owner |
@@ -94,9 +94,9 @@
 | `ConvenienceStoreOptionDto` | `publicId`、`providerCode`、`storeCode`、`name`、`city`、`district`、`address`、`isDemoData:true` |
 | `OrderQuery` | `status?:enum[0..10]`、`fromDate/toDate?:YYYY-MM-DD`、`pageNumber/pageSize`；只查目前會員自己的訂單 |
 | `OrderSummaryDto` | `publicId`、`orderNumber`、主要摘要狀態與徽章、`itemCount`、`total`、`currency`、配送／付款摘要、`createdAtUtc`、`availableActions[]` |
-| `CancelOrderRequest` | `reasonCode:string(1..64)`、`note?:string(0..500)`、`orderRowVersion`；會員／訪客只能使用顧客可選理由 |
+| `CancelOrderRequest` | `reasonCode:changed_mind/ordered_by_mistake/found_better_price/shipping_too_slow/other`、`note?:string(0..500)`、`orderRowVersion`；清單外原因拒絕，Note 只作為中央 Audit 的選填補充 |
 
-`POST /orders` 的 `Idempotency-Key` Header 必填；Body 不重複保存 Key。宅配需 Address，超取需 Store PublicId；符合 NT$20,000 上限且未含組裝電腦或限制品時，一般宅配與超取均可使用 COD，組裝電腦宅配必須先付款。
+`POST /orders` 的 `Idempotency-Key` Header 必填；Body 不重複保存 Key。宅配需 Address，超取需 Store PublicId；符合 NT$20,000 上限且未含組裝電腦或限制品時，一般宅配與超取均可使用 COD，組裝電腦宅配必須先付款。所有可信折扣與費用完成並整數化後，`GrandTotal` 必須至少 NT$1；低於時回 `409 order_total_below_minimum`，成功 Response／PaymentAttempt 不會建立。
 
 ## Payment、Return 與 Refund
 
@@ -107,7 +107,8 @@
 | `CompleteSimulatedPaymentRequest` | `outcome:succeeded/failed/expired`、`simulationKey:string(8..128)`；展示端點只在 Demo Profile 開放 |
 | `CreateReturnRequest` | `items:{orderItemPublicId,quantity,reasonCode,description?:string(0..500)}[1..20]`、`requestReason:string(1..1000)`、`orderRowVersion` |
 | `ReturnRequestDto` | `publicId`、`orderPublicId`、`status`、`items[]`、`attachments[]`、`requestedAtUtc`、審核／收貨／結案時間、`availableActions[]`、`rowVersion` |
-| `ApproveReturnRequest` | `decision:approved/rejected`、`items:{returnItemPublicId,approvedQuantity:int(0..requestedQuantity),inspectionRequired:bool}[1..20]`、`reasonCode:string(1..64)`、`note?:string(0..1000)`、`returnRowVersion` |
+| `ApproveReturnRequest` | `decision:approved/rejected`、`items:{returnItemPublicId,approvedQuantity:int(0..requestedQuantity),inspectionRequired:bool}[1..20]`、`reasonCode:string(1..64)`、`note?:string(0..500)`、`assemblyFeeDisposition?:enum`、`returnShippingCost?:decimal(18,2)>=0`、`returnRowVersion`；核准且不需寄回／驗收時兩個退款快照欄位成對必填，需寄回或拒絕時不得提供 |
+| `InspectReturnRequest` | `items:{returnItemPublicId,conditionCode,disposition,note?}[1..20]`、`assemblyFeeDisposition:enum`、`returnShippingCost:decimal(18,2)>=0`、`returnRowVersion`；完成驗收並進入 `AwaitingRefund` 前兩個退款快照欄位成對必填 |
 | `ExecuteRefundRequest` | `reasonCode:string(1..64)`、`note?:string(0..1000)`、`refundRowVersion`；`Idempotency-Key` 使用 Header；不接受 `allocations` |
 | `RefundAllocationDto` | `orderItemPublicId?`、`quantity?`、`type:itemRefund/originalShipping/returnShipping/assemblyFee/discountClawback/shippingClawback/otherAdjustment`、`amount`；Amount 一律為正值，V1 新寫入禁止 `otherAdjustment`；`itemRefund` 必須有 OrderItem 與正整數 Quantity，其他類型兩欄皆為 Null |
 | `MaskedAdminSummaryDto` | `publicId`、`maskedLabel`；只回管理員 PublicId，不回 Internal Identity ID；Label 優先使用遮蔽 DisplayName，缺少時使用遮蔽 Email |
@@ -134,7 +135,7 @@
 | Schema | 精確欄位 |
 |---|---|
 | `IssueSimulatedInvoiceRequest` | `orderRowVersion`；發票買受人、品項及金額只讀取訂單交易快照；`Idempotency-Key` 使用 Header |
-| `SimulatedInvoiceItemDto` | `publicId`、`orderItemPublicId?`、商品／SKU 顯示快照、`quantity`、`unitPrice`、`discountAmount`、`netAmount`、`taxAmount`、`grossAmount` |
+| `SimulatedInvoiceItemDto` | `publicId`、`orderItemPublicId?`、`kind:merchandise\|shipping\|assemblyFee`、商品／SKU 顯示快照、`quantity`、`unitPrice`、`discountAmount`、`netAmount`、`taxAmount`、`grossAmount` |
 | `SimulatedInvoiceAllowanceDto` | `publicId`、`allowanceNumber`、`invoicePublicId`、`refundPublicId`、`netAmount`、`taxAmount`、`grossAmount`、`items[]`、`issuedAtUtc`、`demoMarker` |
 | `SimulatedInvoiceDto` | `publicId`、`invoiceNumber`、`orderPublicId`、`status`、遮蔽買受人摘要、`netAmount`、`taxAmount`、`grossAmount`、`currency:TWD`、`taxRate:0.05`、`items[]`、`allowances[]`、開立／作廢時間、`demoMarker`、`rowVersion` |
 | `AdminInvoiceQuery` | `statuses?`、`from/to?`、`q?`、`pageNumber/pageSize`；一般頁碼分頁 |
@@ -144,6 +145,8 @@
 | `CreateSimulatedInvoiceAllowanceRequest` | `refundPublicId`、`invoiceRowVersion`；金額由後端成功 Refund 及原發票明細推導，不接受客戶端金額；`Idempotency-Key` 使用 Header |
 
 折讓 Reader 依 DEC-P298 將成功 Refund 的七類分攤映射到同一張原發票：`ItemRefund` 建立折讓明細；`OriginalShipping`／`AssemblyFee` 只在原發票有對應收費且本次退還時建立；`ReturnShipping` 不建立；`DiscountClawback`／`ShippingClawback` 只作退款扣回，不建立獨立負值折讓明細；`OtherAdjustment` 第一版拒絕。折讓累計數量與金額不得超過原發票各明細可折讓上限。
+
+依 DEC-P299，`kind` 由 Domain 中央常數與交易快照映射：有 `OrderItemId` 的一般 SKU 為 `merchandise`；無 `OrderItemId` 且 `SkuCodeSnapshot` 分別為 `__INVOICE_SHIPPING__`／`__INVOICE_ASSEMBLY_FEE__` 時映射為 `shipping`／`assemblyFee`。保留值不得作為 API 列舉值公開；未知非商品值與 `OtherAdjustment` 必須拒絕，不得靜默過濾。
 
 模擬發票固定 `taxRate = 0.05`。表頭以明細含稅加總四捨五入至 TWD 整數元，`netAmount = Round(issuedAmount / 1.05, 0, AwayFromZero)`、`taxAmount = issuedAmount - netAmount`；表頭 Gross／Net／Tax 均為整數。發票明細可保留兩位小數，每筆維持 `gross = net + tax` 且不得為負；核對採 `Round(Sum(line.gross), 0) = header.issued`、`Round(Sum(line.net), 0) = header.net`、`Sum(line.tax) = header.tax`，最後一筆合法明細吸收稅額尾差。`issuedAmount` 必須等於付款前已整數化的訂單實付金額，不一致時拒絕；例如 NT$1,000 固定為未稅 952、稅額 48。折讓取位仍依 DEC-P280，未由 DEC-P285 覆寫。
 
@@ -157,7 +160,7 @@
 | `SkuDto` | PublicId、SkuCode、Product 摘要、全部可編輯欄位、Spec DTO、庫存摘要、時間、RowVersion；非 Finance/Catalog 不回 UnitCost |
 | `AdminProductQuery` | `q?`、`brandCodes?`、`categoryCodes?`、`statuses?`、`stockState?`、`sort?`、`pageNumber/pageSize`；排序與篩選使用白名單 |
 | `AdminProductSummaryDto` | Product PublicId／Code／名稱、品牌、分類、狀態、SKU 數、價格區間、加總庫存、主要圖片、更新時間、RowVersion |
-| `CreateProductRequest` | `productCode:string(1..64)`、`nameZhTw:string(1..160)`、`brandPublicId`、`categoryPublicId`、`descriptionZhTw?:string(0..4000)`、`warrantyMonths?:int(0..120)`、`tagPublicIds:uuid[0..20]`、`status:draft/published/unpublished` |
+| `CreateProductRequest` | `productCode:string(1..64)`、`nameZhTw:string(1..160)`、`brandPublicId`、`categoryPublicId`、`descriptionZhTw?:string(0..4000)`、`warrantyMonths?:int(0..120)`、`tagPublicIds:uuid[0..20]`、`status:draft/published/unpublished/discontinued`、必填 `defaultSku:CreateSkuRequest`；服務端固定 `defaultSku.isDefault=true`，Product、Tags 與第一個預設 SKU 必須同交易全部成功或全部回滾 |
 | `UpdateProductRequest` | Create 欄位但 Product Code 不可改；加 `rowVersion` |
 | `AdminProductDetailDto` | Product 全部可編輯欄位、`skus:SkuDto[]`、`images[]`、規格範本摘要、稽核時間及 RowVersion |
 | `BulkProductActionRequest` | `productPublicIds:uuid[1..100]`、`rowVersions:{productPublicId,rowVersion}[]`；`adjust-price` 另帶受控調價模式與值、原因 |

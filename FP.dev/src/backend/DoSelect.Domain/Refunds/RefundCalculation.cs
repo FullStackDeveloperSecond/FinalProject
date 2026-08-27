@@ -11,6 +11,7 @@ public static class RefundErrorCodes
     public const string IdempotencyPayloadConflict = "idempotency_payload_conflict";
     public const string ConcurrencyConflict = "concurrency_conflict";
     public const string ResourceNotFound = "resource_not_found";
+    public const string RefundSnapshotUnavailable = "refund_snapshot_unavailable";
 }
 
 /// <summary>
@@ -131,6 +132,73 @@ public sealed record RefundItemBreakdown(
     decimal GrossAmount,
     decimal DiscountShare,
     decimal NetAmount);
+
+/// <summary>
+/// Server-generated immutable allocation data. Public item identifiers are resolved to internal
+/// keys only by the persistence writer that owns the approval transaction.
+/// </summary>
+public sealed record RefundAllocationDraft(
+    Guid? OrderItemPublicId,
+    RefundAllocationType Type,
+    decimal Amount,
+    decimal OriginalDiscountAllocation,
+    int? Quantity);
+
+public static class RefundAllocationDrafts
+{
+    public static IReadOnlyList<RefundAllocationDraft> From(RefundCalculationResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        if (!result.IsSuccess || result.RequiresManualReview)
+        {
+            throw new InvalidOperationException(
+                "Only a successful calculation that does not require manual review can be persisted.");
+        }
+
+        if (result.Items.Count == 0 ||
+            result.Items.Any(item => item.OrderItemPublicId == Guid.Empty ||
+                item.Quantity <= 0 || item.NetAmount <= 0m || item.DiscountShare < 0m) ||
+            result.Items.Select(item => item.OrderItemPublicId).Distinct().Count() !=
+                result.Items.Count ||
+            result.Components.Any(component => component.Amount <= 0m ||
+                component.Type == RefundAllocationType.OtherAdjustment))
+        {
+            throw new InvalidOperationException("The calculation result contains invalid allocation data.");
+        }
+
+        var itemComponent = result.Components.SingleOrDefault(component =>
+            component.Type == RefundAllocationType.ItemRefund);
+        var signedTotal = result.Components.Sum(component =>
+            RefundPolicy.DirectionOf(component.Type) == RefundAllocationDirection.Credit
+                ? component.Amount
+                : -component.Amount);
+        if (itemComponent is null ||
+            itemComponent.Amount != result.Items.Sum(item => item.NetAmount) ||
+            signedTotal != result.NetRefundAmount)
+        {
+            throw new InvalidOperationException(
+                "The calculation result does not reconcile to its item and net totals.");
+        }
+
+        var drafts = new List<RefundAllocationDraft>(
+            result.Items.Count + result.Components.Count - 1);
+        drafts.AddRange(result.Items.Select(item => new RefundAllocationDraft(
+            item.OrderItemPublicId,
+            RefundAllocationType.ItemRefund,
+            item.NetAmount,
+            item.DiscountShare,
+            item.Quantity)));
+        drafts.AddRange(result.Components
+            .Where(component => component.Type != RefundAllocationType.ItemRefund)
+            .Select(component => new RefundAllocationDraft(
+                null,
+                component.Type,
+                component.Amount,
+                0m,
+                null)));
+        return drafts;
+    }
+}
 
 /// <summary>
 /// 退款試算結果。失敗時只帶錯誤碼，不丟例外。

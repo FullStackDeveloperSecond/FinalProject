@@ -64,3 +64,21 @@ PR #16 實作退款執行時，現有文件仍讓管理端 Request 傳入簡化�
 - 退款執行沿用共用 `IIdempotencyExecutor`，Actor Scope 使用後端驗證的管理員 PublicId，Operation 固定為 `refund.execute`；不得建立第二套冪等表或 Executor。
 - DES-21 追蹤退款計算、七類分攤、DTO、數量不變量與相關 SQL Server Provider-backed 測試；DES-24 追蹤中央 Audit 寫入能力、同交易整合與 rollback 測試。
 - 本決策不授權新增或套用 Migration；若 Audit 實作需要 Schema 變更，仍須通過獨立 Migration Gate。
+
+## 2026-08-27 共用上游落地
+
+- 中央 Audit 已存在；本次在既有 `AuditWriteRequest`／`EfAuditWriter` 上做相容擴充，不建立第二套 Audit，也不新增資料表或欄位。
+- `reasonCode` 繼續寫入只接受穩定 safe-code 的 `AuditLog.Reason`。可選 `note` 經 action allowlist、1000 字上限、HTML／JSON 特殊字元、控制字元、Email 形狀與敏感詞檢查後，寫入 `ChangedFieldsJson` schema v2 的可選 `note`；既有 schema v1 紀錄不回填。
+- `refund.execute` 與 `coupon.activate`／`coupon.pause`／`coupon.disable` 可帶受限 `note`；其他 Audit action 預設拒絕自由文字。Coupon 的 create／update 只記白名單差異，不接受 note。
+- 管理員冪等 Actor Scope 固定為 `admin:{AdminPublicId}`，不得再用 `user:` namespace。既有 Invoice Allowance 呼叫已同步改用 `ForAdmin`；尚無正式資料需要 namespace 遷移。
+- 共用 `IIdempotencyExecutor` 保留 `ReadCommitted` 預設，並允許呼叫端明確要求 `Serializable`；只接受這兩種隔離等級。PR #16 的退款執行必須選 `Serializable`，讓餘額範圍查詢、退款／分攤、Audit 與冪等完成紀錄位於同一筆 Executor-owned 交易。
+- 本次驗證包含 Audit note 持久化、Audit failure rollback、Serializable 交易與管理員 Actor Scope 的 SQL Server Provider-backed 測試；不產生 Migration。
+
+## 2026-08-27 退款可信退貨快照補充裁定
+
+- Returns 現有受控 `ReasonCode` 五值 `CoolingOff/Defective/WrongItem/ShippingDamage/Warranty` 與退款 `ReturnReason` 同名一對一映射；`LateNonDefectiveGoodwill/CustomerProcessDeviation` 尚無 Returns 正式輸入路徑，不得猜測映射。
+- 沿用 `ReturnRequests` 保存不可變核准快照，新增可空 `AssemblyFeeDisposition varchar(32)` 與 `ReturnShippingCost decimal(18,2)`；不新增第二張快照表或外部服務。
+- 兩欄必須同為 Null 或同為非 Null。Null 表示可信資料不可用；`ReturnShippingCost = 0` 表示已明確確認為零，兩者不得混同。寫入後不得覆寫。
+- 不需寄回／驗收時，在核准進入 `AwaitingRefund` 前成對寫入；需寄回時，核准階段不得先填，改由完成驗收進入 `AwaitingRefund` 前成對寫入。
+- 既有退貨資料不回填猜測值。退款 Reader 遇到未知 `ReasonCode` 或上述任一可信快照缺漏時，固定回 HTTP 409／`refund_snapshot_unavailable`，且不得建立分攤、退款或 Audit。
+- 本次 Schema 變更只增加兩個 nullable 欄位與成對／非負 Check Constraint；不套用資料庫。Down 會刪除新快照資料，正式環境一旦開始寫入後應優先 roll-forward。

@@ -31,6 +31,7 @@ public sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
         ConfigureMoney(builder.Property(order => order.GrandTotal));
         ConfigureMoney(builder.Property(order => order.PaidAmount));
         ConfigureMoney(builder.Property(order => order.RefundedAmount));
+        builder.Property(order => order.ShippingFreeThresholdSnapshot).HasPrecision(18, 2);
         builder.Property(order => order.Currency)
             .HasColumnType("char(3)")
             .IsUnicode(false)
@@ -43,10 +44,33 @@ public sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.Property(order => order.RecipientDistrict).HasMaxLength(50);
         builder.Property(order => order.AddressLine1).HasMaxLength(300);
         builder.Property(order => order.AddressLine2).HasMaxLength(300);
+        builder.Property(order => order.CountryCode)
+            .HasColumnType("char(2)")
+            .IsUnicode(false);
+        builder.Property(order => order.DeliveryNote).HasMaxLength(500);
         builder.Property(order => order.ShippingMethodCode).HasMaxLength(64).IsRequired();
         builder.Property(order => order.StoreCode).HasMaxLength(64);
         builder.Property(order => order.StoreName).HasMaxLength(160);
         builder.Property(order => order.StoreAddress).HasMaxLength(500);
+        builder.Property(order => order.PackageWeightKgSnapshot).HasPrecision(10, 3);
+        builder.Property(order => order.PackageLengthCmSnapshot).HasPrecision(10, 2);
+        builder.Property(order => order.PackageWidthCmSnapshot).HasPrecision(10, 2);
+        builder.Property(order => order.PackageHeightCmSnapshot).HasPrecision(10, 2);
+        builder.Property(order => order.PackageTotalCmSnapshot).HasPrecision(10, 2);
+        builder.Property(order => order.PackageDeclaredValueSnapshot).HasPrecision(18, 2);
+        builder.Property(order => order.InvoiceBuyerType)
+            .HasConversion<string>()
+            .HasMaxLength(20)
+            .IsUnicode(false);
+        builder.Property(order => order.InvoiceBuyerEmail).HasMaxLength(320);
+        builder.Property(order => order.InvoiceCarrierType)
+            .HasMaxLength(30)
+            .IsUnicode(false);
+        builder.Property(order => order.InvoiceCarrierValueMasked).HasMaxLength(100);
+        builder.Property(order => order.InvoiceCompanyTaxId)
+            .HasMaxLength(8)
+            .IsUnicode(false);
+        builder.Property(order => order.InvoiceCompanyName).HasMaxLength(160);
         builder.Property(order => order.PaymentDueAtUtc).HasPrecision(3);
         builder.Property(order => order.ConfirmedAtUtc).HasPrecision(3);
         builder.Property(order => order.PaidAtUtc).HasPrecision(3);
@@ -56,8 +80,7 @@ public sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.Property(order => order.CancelledAtUtc).HasPrecision(3);
         builder.Property(order => order.CheckoutIdempotencyKey).HasMaxLength(128).IsRequired();
         builder.HasIndex(order => order.CheckoutIdempotencyKey)
-            .IsUnique()
-            .HasDatabaseName("UX_Orders_CheckoutIdempotencyKey");
+            .HasDatabaseName("IX_Orders_CheckoutIdempotencyKey");
         builder.HasIndex(order => new { order.MemberUserId, order.CreatedAtUtc })
             .HasDatabaseName("IX_Orders_MemberUserId_CreatedAtUtc");
         builder.HasIndex(order => new { order.OrderStatus, order.PaymentDueAtUtc })
@@ -72,6 +95,10 @@ public sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
             .WithMany()
             .HasForeignKey(order => order.ShippingProviderProfileVersionId)
             .OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<PackageLimitVersion>()
+            .WithMany()
+            .HasForeignKey(order => order.PackageLimitVersionId)
+            .OnDelete(DeleteBehavior.Restrict);
         builder.ToTable("Orders", table =>
         {
             table.HasCheckConstraint(
@@ -82,13 +109,28 @@ public sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
                 "[MerchandiseSubtotal] >= 0 AND [ItemDiscountTotal] >= 0 AND [ShippingFee] >= 0 AND [AssemblyFee] >= 0 AND [GrandTotal] >= 0 AND [PaidAmount] >= 0 AND [RefundedAmount] >= 0");
             table.HasCheckConstraint(
                 "CK_Orders_GrandTotal",
-                "[GrandTotal] = [MerchandiseSubtotal] - [ItemDiscountTotal] + [ShippingFee] + [AssemblyFee]");
+                "[GrandTotal] = ROUND([MerchandiseSubtotal] - [ItemDiscountTotal] + [ShippingFee] + [AssemblyFee], 0)");
             table.HasCheckConstraint("CK_Orders_PaidAmount", "[PaidAmount] <= [GrandTotal]");
             table.HasCheckConstraint("CK_Orders_RefundedAmount", "[RefundedAmount] <= [PaidAmount]");
             table.HasCheckConstraint("CK_Orders_Currency", "[Currency] = 'TWD'");
             table.HasCheckConstraint(
+                "CK_Orders_CountryCode",
+                "[CountryCode] IS NULL OR [CountryCode] = 'TW'");
+            table.HasCheckConstraint(
+                "CK_Orders_PackageSnapshot",
+                "([PackageLimitVersionId] IS NULL AND [PackageWeightKgSnapshot] IS NULL AND [PackageLengthCmSnapshot] IS NULL AND [PackageWidthCmSnapshot] IS NULL AND [PackageHeightCmSnapshot] IS NULL AND [PackageTotalCmSnapshot] IS NULL AND [PackageDeclaredValueSnapshot] IS NULL) OR ([PackageLimitVersionId] IS NOT NULL AND [PackageWeightKgSnapshot] > 0 AND [PackageLengthCmSnapshot] > 0 AND [PackageWidthCmSnapshot] > 0 AND [PackageHeightCmSnapshot] > 0 AND [PackageTotalCmSnapshot] = [PackageLengthCmSnapshot] + [PackageWidthCmSnapshot] + [PackageHeightCmSnapshot] AND [PackageDeclaredValueSnapshot] >= 0)");
+            table.HasCheckConstraint(
+                "CK_Orders_ShippingFreeThresholdSnapshot",
+                "[ShippingFreeThresholdSnapshot] IS NULL OR [ShippingFreeThresholdSnapshot] >= 0");
+            table.HasCheckConstraint(
                 "CK_Orders_PolicyVersions",
-                "[ShippingConstraintPolicyVersion] > 0 AND [ReturnPolicyVersion] > 0 AND ([CouponPolicyVersion] IS NULL OR [CouponPolicyVersion] > 0)");
+                "[ShippingConstraintPolicyVersion] > 0 AND [ReturnPolicyVersion] > 0 AND ([TermsPolicyVersion] IS NULL OR [TermsPolicyVersion] > 0) AND ([PrivacyPolicyVersion] IS NULL OR [PrivacyPolicyVersion] > 0) AND ([CouponPolicyVersion] IS NULL OR [CouponPolicyVersion] > 0)");
+            table.HasCheckConstraint(
+                "CK_Orders_InvoiceCarrier",
+                "([InvoiceCarrierType] IS NULL AND [InvoiceCarrierValueMasked] IS NULL) OR ([InvoiceCarrierType] IS NOT NULL AND [InvoiceCarrierValueMasked] IS NOT NULL)");
+            table.HasCheckConstraint(
+                "CK_Orders_InvoiceCompany",
+                "([InvoiceBuyerType] IS NULL AND [InvoiceBuyerEmail] IS NULL AND [InvoiceCarrierType] IS NULL AND [InvoiceCarrierValueMasked] IS NULL AND [InvoiceCompanyTaxId] IS NULL AND [InvoiceCompanyName] IS NULL) OR ([InvoiceBuyerType] = 'Company' AND [InvoiceBuyerEmail] IS NOT NULL AND [InvoiceCompanyTaxId] IS NOT NULL AND [InvoiceCompanyName] IS NOT NULL) OR ([InvoiceBuyerType] = 'Individual' AND [InvoiceBuyerEmail] IS NOT NULL AND [InvoiceCompanyTaxId] IS NULL AND [InvoiceCompanyName] IS NULL)");
         });
     }
 
@@ -108,6 +150,9 @@ public sealed class OrderItemConfiguration : IEntityTypeConfiguration<OrderItem>
         builder.Property(item => item.SkuCodeSnapshot).HasMaxLength(64).IsRequired();
         builder.Property(item => item.ProductNameSnapshot).HasMaxLength(160).IsRequired();
         builder.Property(item => item.SkuNameSnapshot).HasMaxLength(160).IsRequired();
+        builder.Property(item => item.SpecificationSummarySnapshot).HasMaxLength(1000);
+        builder.Property(item => item.SpecificationJsonSnapshot).HasMaxLength(4000);
+        builder.Property(item => item.IsCouponEligible).IsRequired();
         ConfigureMoney(builder.Property(item => item.ListUnitPrice));
         ConfigureMoney(builder.Property(item => item.SaleUnitPrice));
         ConfigureMoney(builder.Property(item => item.FinalUnitPrice));
@@ -136,6 +181,9 @@ public sealed class OrderItemConfiguration : IEntityTypeConfiguration<OrderItem>
             table.HasCheckConstraint(
                 "CK_OrderItems_Amounts_Nonnegative",
                 "[ListUnitPrice] >= 0 AND [SaleUnitPrice] >= 0 AND [FinalUnitPrice] >= 0 AND [UnitCostSnapshot] >= 0 AND [LineSubtotal] >= 0 AND [DiscountAllocation] >= 0 AND [LineTotal] >= 0");
+            table.HasCheckConstraint(
+                "CK_OrderItems_SpecificationSnapshot",
+                "([SpecificationSummarySnapshot] IS NULL AND [SpecificationJsonSnapshot] IS NULL AND [SpecificationSchemaVersion] IS NULL) OR ([SpecificationSummarySnapshot] IS NOT NULL AND [SpecificationJsonSnapshot] IS NOT NULL AND [SpecificationSchemaVersion] > 0)");
         });
     }
 

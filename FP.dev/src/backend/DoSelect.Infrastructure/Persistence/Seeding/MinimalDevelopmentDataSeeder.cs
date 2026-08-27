@@ -1,4 +1,5 @@
 using DoSelect.Domain.Catalog;
+using DoSelect.Domain.Inventory;
 using DoSelect.Domain.Members;
 using DoSelect.Infrastructure.Persistence.Identity;
 using Microsoft.AspNetCore.Identity;
@@ -206,35 +207,48 @@ public sealed class MinimalDevelopmentDataSeeder(
             counters.CatalogRecordsCreated++;
         }
 
-        var skuExists = await dbContext.Skus.AnyAsync(
+        var sku = await dbContext.Skus.SingleOrDefaultAsync(
             entity => entity.SkuCode == "DEV-GPU-001-16G",
             cancellationToken);
-        if (skuExists)
+        if (sku is null)
         {
-            return;
+            sku = new Sku(
+                MinimalDevelopmentSeedDefinitions.SkuPublicId,
+                "DEV-GPU-001-16G",
+                product.Id,
+                "懂選開發用顯示卡 16GB",
+                19900m,
+                15000m,
+                MinimalDevelopmentSeedDefinitions.CreatedAtUtc);
+            sku.UpdateCommercialDetails(
+                "懂選開發用顯示卡 16GB",
+                19900m,
+                15000m,
+                true,
+                true,
+                MinimalDevelopmentSeedDefinitions.CreatedAtUtc);
+            sku.ChangeStatus(
+                SkuStatus.Published,
+                MinimalDevelopmentSeedDefinitions.CreatedAtUtc);
+            dbContext.Skus.Add(sku);
+            await dbContext.SaveChangesAsync(cancellationToken);
+            counters.CatalogRecordsCreated++;
         }
 
-        var sku = new Sku(
-            MinimalDevelopmentSeedDefinitions.SkuPublicId,
-            "DEV-GPU-001-16G",
-            product.Id,
-            "懂選開發用顯示卡 16GB",
-            19900m,
-            15000m,
-            MinimalDevelopmentSeedDefinitions.CreatedAtUtc);
-        sku.UpdateCommercialDetails(
-            "懂選開發用顯示卡 16GB",
-            19900m,
-            15000m,
-            true,
-            true,
-            MinimalDevelopmentSeedDefinitions.CreatedAtUtc);
-        sku.ChangeStatus(
-            SkuStatus.Published,
-            MinimalDevelopmentSeedDefinitions.CreatedAtUtc);
-        dbContext.Skus.Add(sku);
-        await dbContext.SaveChangesAsync(cancellationToken);
-        counters.CatalogRecordsCreated++;
+        var inventoryBalanceExists = await dbContext.InventoryBalances.AnyAsync(
+            entity => entity.SkuId == sku.Id,
+            cancellationToken);
+        if (!inventoryBalanceExists)
+        {
+            dbContext.InventoryBalances.Add(new InventoryBalance(
+                MinimalDevelopmentSeedDefinitions.InventoryBalancePublicId,
+                sku.Id,
+                onHandQuantity: 10,
+                reorderLevel: 2,
+                MinimalDevelopmentSeedDefinitions.CreatedAtUtc));
+            await dbContext.SaveChangesAsync(cancellationToken);
+            counters.CatalogRecordsCreated++;
+        }
     }
 
     private static void EnsureSucceeded(string action, IdentityResult result)

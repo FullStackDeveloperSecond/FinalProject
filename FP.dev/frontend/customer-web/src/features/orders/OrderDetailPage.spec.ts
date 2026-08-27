@@ -4,9 +4,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import OrderDetailPage from './OrderDetailPage.vue'
 import type { OrderDto } from './api'
 
-const { fetchOrder, cancelOrder } = vi.hoisted(() => ({
+const { fetchOrder, cancelOrder, routerPush } = vi.hoisted(() => ({
   fetchOrder: vi.fn(),
   cancelOrder: vi.fn(),
+  routerPush: vi.fn(),
 }))
 
 vi.mock('./api', async (importOriginal) => {
@@ -16,18 +17,22 @@ vi.mock('./api', async (importOriginal) => {
 
 vi.mock('vue-router', async (importOriginal) => {
   const actual = await importOriginal<typeof import('vue-router')>()
-  return { ...actual, useRoute: () => ({ params: { orderId: 'order-public-id' } }) }
+  return {
+    ...actual,
+    useRoute: () => ({ params: { orderId: 'order-public-id' } }),
+    useRouter: () => ({ push: routerPush }),
+  }
 })
 
 function buildOrder(overrides: Partial<OrderDto> = {}): OrderDto {
   return {
     publicId: 'order-public-id',
     orderNumber: 'DS20260825001',
-    orderStatus: 'PendingPayment',
-    paymentStatus: 'Pending',
-    fulfillmentStatus: 'Pending',
-    assemblyStatus: 'NotRequired',
-    orderRefundStatus: 'None',
+    orderStatus: 'pendingPayment',
+    paymentStatus: 'pending',
+    fulfillmentStatus: 'pending',
+    assemblyStatus: 'notRequired',
+    orderRefundStatus: 'none',
     items: [
       {
         publicId: 'item-1',
@@ -62,6 +67,7 @@ describe('OrderDetailPage', () => {
   beforeEach(() => {
     fetchOrder.mockReset()
     cancelOrder.mockReset()
+    routerPush.mockReset()
   })
 
   it('renders order items once loaded', async () => {
@@ -97,7 +103,7 @@ describe('OrderDetailPage', () => {
 
   it('cancels the order after picking a reason', async () => {
     fetchOrder.mockResolvedValueOnce(buildOrder())
-    cancelOrder.mockResolvedValueOnce(buildOrder({ orderStatus: 'Cancelled', availableActions: [] }))
+    cancelOrder.mockResolvedValueOnce(buildOrder({ orderStatus: 'cancelled', availableActions: [] }))
     const wrapper = mount(OrderDetailPage)
     await flushPromises()
 
@@ -133,8 +139,8 @@ describe('OrderDetailPage', () => {
 
   it('offers the return entry once the order has returnable items', async () => {
     fetchOrder.mockResolvedValueOnce(buildOrder({
-      orderStatus: 'Completed',
-      fulfillmentStatus: 'Delivered',
+      orderStatus: 'completed',
+      fulfillmentStatus: 'delivered',
       deliveredAtUtc: '2026-08-01T00:00:00Z',
       returnRequestDeadlineUtc: '2026-08-08T00:00:00Z',
       availableActions: ['requestReturn'],
@@ -156,5 +162,19 @@ describe('OrderDetailPage', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('可退 1 件')
+    await wrapper.get('button').trigger('click')
+
+    expect(routerPush).toHaveBeenCalledWith({
+      name: 'return-new',
+      params: { orderId: 'order-public-id' },
+      query: {
+        orderRowVersion: 'AAAAAAAAB9E=',
+        items: JSON.stringify([{
+          orderItemPublicId: 'item-1',
+          skuName: '青軸',
+          maxQuantity: 1,
+        }]),
+      },
+    })
   })
 })

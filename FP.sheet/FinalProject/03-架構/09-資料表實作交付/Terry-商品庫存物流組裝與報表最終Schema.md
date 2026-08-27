@@ -446,6 +446,7 @@
 | `ValueType` | varchar(16) | 否 | 無 |  |  | `String/Decimal/Boolean/Option`，使用後不可改 |
 | `MeasurementUnitId` | bigint | 是 | 無 | FK→`MeasurementUnits.Id` | | 僅 `Decimal` 型可指定 |
 | `IsRequired` | bit | 否 | 無 |  |  | 是否必填 |
+| `AllowsMultiple` | bit | 否 | `0` |  |  | 僅 `ValueType=Option` 可為 1；被使用後不可改 |
 | `IsProtected` | bit | 否 | 無 |  |  | 是否保護欄位（不可任意刪除） |
 | `IsActive` | bit | 否 | 無 |  |  | 停用代替刪除 |
 | `SortOrder` | int | 否 | 無 |  |  | 顯示排序 |
@@ -457,7 +458,8 @@
 | Categories—SpecificationDefinitions | N:1 | `SpecificationDefinitions.CategoryId` | Restrict | SKU 所屬 Product Category 需與 Definition Category 相同（Application／整合測試保證） |
 | MeasurementUnits—SpecificationDefinitions | N:1（可選） | `SpecificationDefinitions.MeasurementUnitId` | Restrict | 非 Decimal 型不得有 Unit |
 | SpecificationDefinitions—SpecificationOptions | 1:N | `SpecificationOptions.SpecificationDefinitionId` | Restrict | 僅 `Option` 型定義擁有選項 |
-| SpecificationDefinitions—SkuSpecificationValues | 1:N | `SkuSpecificationValues.SpecificationDefinitionId` | Restrict | 被使用後 SemanticKey／ValueType／Category／Unit 不可變更 |
+| SpecificationDefinitions—SkuSpecificationValues | 1:N | `SkuSpecificationValues.SpecificationDefinitionId` | Restrict | 被使用後 SemanticKey／ValueType／Category／Unit／AllowsMultiple 不可變更 |
+| SpecificationDefinitions—SkuSpecificationOptionSelections | 1:N（透過 Option） | `SkuSpecificationOptionSelections.SpecificationOptionId` | Restrict | 只用於 Option 多選；受保護語意契約不可漂移 |
 
 ---
 
@@ -542,6 +544,21 @@
 | SpecificationDefinitions—SkuSpecificationValues | 1:N | `SkuSpecificationValues.SpecificationDefinitionId` | Restrict | SKU 所屬 Category 須與 Definition Category 相同 |
 | SpecificationOptions—SkuSpecificationValues | 1:N（可選） | `SkuSpecificationValues.OptionId` | Restrict | 四個值欄恰有一個非 Null（Check Constraint） |
 | SpecificationSources—SkuSpecificationValues | 1:N（可選） | `SkuSpecificationValues.SpecificationSourceId` | Restrict | 硬性相容規則值缺來源時不得由 AI／預設值補上 |
+
+---
+
+### 18A. SkuSpecificationOptionSelections
+
+**欄位定義**
+
+| 欄位 | SQL Server 型別 | Null | 預設值 | PK／FK | Unique／Index | 限制與說明 |
+|---|---|:---:|---|---|---|---|
+| `SkuId` | bigint | 否 | 無 | PK、FK→`Skus.Id` | `UX_SkuSpecificationOptionSelections_SkuId_OptionId` | Restrict |
+| `SpecificationOptionId` | bigint | 否 | 無 | PK、FK→`SpecificationOptions.Id` | `UX_SkuSpecificationOptionSelections_SkuId_OptionId` | 同 SKU 不可重複選同一 Option |
+| `SpecificationSourceId` | bigint | 是 | 無 | FK→`SpecificationSources.Id` | `IX_SkuSpecificationOptionSelections_SourceId` | 硬性相容規則使用的每個選項必填已覆核來源 |
+| `CreatedAtUtc` | datetime2(3) | 否 | 無 |  |  | 建立時間 |
+
+此 Join Entity 只表達 `ValueType=Option && AllowsMultiple=1`。Option 必須屬於 SKU Category 的 Definition；多選資料不得保存於 `SkuSpecificationValues.OptionId`、逗號字串或 JSON。刪除行為均為 Restrict，移除選項必須走明確管理 Use Case。
 
 ---
 

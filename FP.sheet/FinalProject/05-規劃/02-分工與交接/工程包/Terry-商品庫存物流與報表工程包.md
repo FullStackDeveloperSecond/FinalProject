@@ -1,5 +1,6 @@
 ---
 文件狀態: 可開發
+最後更新: 2026-08-27
 適用對象: terry
 主要覆核: kafen
 最終整合: alex
@@ -37,10 +38,10 @@ npm ci
 Set-Location ../..
 ```
 
-必要版本、SQL Server `.\SQL2025`／`DoSelectDb`、Migration 套用、最小 Seed 與啟動方式完全依 `FP.dev/README.md` 與 [[03-架構/01-系統與環境/本機開發環境與版本基線]]。新電腦只套用既有 `InitialCreate`，不得自行建立新 Migration。
+必要版本、SQL Server `.\SQL2025`／`DoSelectDb`、Migration 套用、最小 Seed 與啟動方式完全依 `FP.dev/README.md` 與 [[03-架構/01-系統與環境/本機開發環境與版本基線]]。新電腦須套用目前 `dev` 的完整已審查 Migration，不得自行建立新 Migration。
 
 ```powershell
-dotnet tool run dotnet-ef -- database update InitialCreate `
+dotnet tool run dotnet-ef -- database update `
   --project src/backend/DoSelect.Infrastructure `
   --startup-project src/backend/DoSelect.Infrastructure `
   --context DoSelectDbContext
@@ -49,9 +50,26 @@ dotnet tool run dotnet-ef -- database update InitialCreate `
 .\scripts\health-check.ps1
 ```
 
+截至 2026-08-27，`origin/dev@8ef986c` 的單一 Migration 歷程仍是下列四支；目前 alex 的整合分支另有六支待 Review／Merge，合併前不得由組員手動複製或套用：
+
+1. `20260819013357_InitialCreate`
+2. `20260822041051_AddIdempotencyAndCartMergeConflicts`
+3. `20260825171312_AddDes21RefundSnapshots`
+4. `20260825174929_AddCentralAuditLogs`
+
+整合分支待合併：
+
+5. `20260826134828_AddTransactionalOutbox`
+6. `20260826173241_AddNotificationDeliveryInfrastructure`
+7. `20260827020034_AlignCheckoutRoundingAndIdempotency`
+8. `20260827034327_AddCheckoutPolicyInvoiceShippingAndPaymentIdempotency`
+9. `20260827054739_AddOrderPackageAndSpecificationSnapshots`
+10. `20260827065535_AddMultiValueSpecificationProvenance`
+
+在整合分支合併前，`dev` 的 `database update` 只會套至 `AddCentralAuditLogs`；合併並拉取新 `dev` 後，才由不指定 Migration 名稱的命令依序套至當時最新版本。不得只停在 `InitialCreate`，也不得在功能分支自行 scaffold／apply 新 Migration；Schema 需求交 alex 走 Migration Gate。
 如需最小帳號／型錄 Seed，先以 Visual Studio 管理 User Secrets 的 `Seed:MemberPassword`、`Seed:AdminPassword`，再使用 PATH 中的 `dotnet` 執行 `DoSelect.Api --seed-minimal`。現有兩支 Seed PowerShell 腳本含組長本機 `.NET` 絕對路徑，其他帳號不要直接依賴，也不要在商品 PR 順便修正。
 
-首次 Clone 若沒有 `appsettings.Development.json`，由同目錄的 `.example.json` 複製後調整非機密 `Storage:DataRoot`，本機檔案不得提交。Cookie／Policy、Outbox／Hangfire 與正式 Typed Client 仍由 alex 的共用工作包推進；你可以先完成領域規則、Application、公開讀取 API 與測試，但不得以臨時授權、同步寄信或自建排程替代共用能力。
+首次 Clone 若沒有 `appsettings.Development.json`，由同目錄的 `.example.json` 複製後調整非機密 `Storage:DataRoot`，本機檔案不得提交。Cookie／Policy、共用 OpenAPI Typed Client 與中央 Audit 基礎已合併；Outbox／Hangfire 仍未完成。新 API 必須沿用既有能力，不得以臨時授權、同步寄信、自建 Audit 或自建排程替代。
 
 ## 3. 權威規格閱讀順序
 
@@ -147,7 +165,7 @@ dotnet list DoSelect.slnx package --vulnerable --include-transitive
 ## 10. PR、日誌與停止條件
 
 - 遵守 [[Git協作規範]] 與 [[日誌/README]]；API、DTO、錯誤碼、狀態、資料庫、跨模組 Query／Event 均需同 PR 日誌。
-- Typed Client 尚待第一批商業 API 形成後由 alex 產生；禁止 Vue 手寫另一套 DTO。
+- 共用 OpenAPI schema、產生的 Typed Client 型別與 wrapper 已在 `dev`；契約變更後須執行 `api:generate`／`api:check`，禁止 Vue 手寫另一套 DTO。
 - Schema 變更只在日誌提出，不自行建立第二個 DbContext 或 Migration；交 alex 走 Gate。
 - 新增 Package、文件衝突、公式未定、跨模組 DTO 缺少、必須改共用 Policy／Outbox／檔案服務時，停止並詢問 alex。
 - 完成證據包含：成功與失敗流程、權限、分頁／排序、併發、金額或數量不變量、前端共同狀態、kafen 覆核與可接手日誌。

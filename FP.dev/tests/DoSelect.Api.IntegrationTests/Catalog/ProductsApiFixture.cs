@@ -16,9 +16,8 @@ namespace DoSelect.Api.IntegrationTests.Catalog;
 /// </summary>
 public sealed class ProductsApiFixture : IAsyncLifetime
 {
-    private const string ConnectionString =
-        "Server=.\\SQL2025;Database=DoSelectProductsApiTests;Trusted_Connection=True;" +
-        "TrustServerCertificate=True;";
+    private static readonly string ConnectionString =
+        global::DoSelect.Api.IntegrationTests.SqlServerTestConnection.Build("DoSelectProductsApiTests");
 
     private static readonly IReadOnlyDictionary<string, string> EnvironmentOverrides = new Dictionary<string, string>
     {
@@ -42,6 +41,10 @@ public sealed class ProductsApiFixture : IAsyncLifetime
     {
         await ResetDatabaseAsync();
 
+        var previousEnvironment = EnvironmentOverrides.Keys
+            .Append("Storage__DataRoot")
+            .ToDictionary(key => key, Environment.GetEnvironmentVariable);
+
         foreach (var (key, value) in EnvironmentOverrides)
         {
             Environment.SetEnvironmentVariable(key, value);
@@ -56,11 +59,10 @@ public sealed class ProductsApiFixture : IAsyncLifetime
         }
         finally
         {
-            foreach (var key in EnvironmentOverrides.Keys)
+            foreach (var (key, value) in previousEnvironment)
             {
-                Environment.SetEnvironmentVariable(key, null);
+                Environment.SetEnvironmentVariable(key, value);
             }
-            Environment.SetEnvironmentVariable("Storage__DataRoot", null);
         }
     }
 

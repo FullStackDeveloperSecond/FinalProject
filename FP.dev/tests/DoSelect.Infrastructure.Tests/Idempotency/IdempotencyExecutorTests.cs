@@ -1,3 +1,4 @@
+using System.Data;
 using DoSelect.Application.Idempotency;
 using DoSelect.Domain.Idempotency;
 using DoSelect.Domain.Shopping;
@@ -5,6 +6,7 @@ using DoSelect.Infrastructure.Idempotency;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Options;
 
 namespace DoSelect.Infrastructure.Tests.Idempotency;
@@ -160,6 +162,30 @@ public sealed class IdempotencyExecutorTests
     }
 
     [SqlServerFact]
+    public async Task ExecuteAsync_WhenSerializableIsRequested_HandlerRunsInsideSerializableTransaction()
+    {
+        var userPublicId = Guid.CreateVersion7();
+        await using var context = IdempotencyExecutorFixture.CreateContext();
+        var observedIsolationLevel = IsolationLevel.Unspecified;
+
+        await CreateExecutor(context).ExecuteAsync(
+            Command(userPublicId, "serializable-key-001", new { value = 1 }),
+            _ =>
+            {
+                observedIsolationLevel = context.Database.CurrentTransaction!
+                    .GetDbTransaction()
+                    .IsolationLevel;
+                return Task.FromResult(
+                    new IdempotencyResponse<string>(200, "ok", "{\"version\":1}"));
+            },
+            (stored, _) => Task.FromResult(stored.ResponseSummary),
+            CancellationToken.None,
+            IsolationLevel.Serializable);
+
+        Assert.Equal(IsolationLevel.Serializable, observedIsolationLevel);
+    }
+
+    [SqlServerFact]
     public async Task CartMergeConflict_PersistsAsBlockingUntilExplicitResolution()
     {
         Guid conflictPublicId;
@@ -245,8 +271,6 @@ public sealed class IdempotencyExecutorFixture : IAsyncLifetime
     public const string Pepper = "integration-test-pepper-at-least-thirty-two-bytes";
     public const string ConnectionStringEnvironmentVariable =
         "DOSELECT_SQLSERVER_TEST_CONNECTION";
-    private const string LocalConnectionString =
-        "Server=.\\SQL2025;Database=DoSelectIdempotencyTests;Trusted_Connection=True;TrustServerCertificate=True;";
 
     public static bool IsEnabled =>
         !string.IsNullOrWhiteSpace(GetConfiguredConnectionString()) ||
@@ -281,7 +305,9 @@ public sealed class IdempotencyExecutorFixture : IAsyncLifetime
 
     public static DoSelectDbContext CreateContext() => new(
         new DbContextOptionsBuilder<DoSelectDbContext>()
-            .UseSqlServer(GetConfiguredConnectionString() ?? LocalConnectionString)
+            .UseSqlServer(
+                global::DoSelect.Infrastructure.Tests.SqlServerTestConnection.Build(
+                    "DoSelectIdempotencyTests"))
             .Options);
 
     private static string? GetConfiguredConnectionString() =>

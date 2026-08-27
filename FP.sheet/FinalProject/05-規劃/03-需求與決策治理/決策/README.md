@@ -1,6 +1,6 @@
 ---
 文件狀態: 持續更新
-最後更新: 2026-08-25
+最後更新: 2026-08-27
 ---
 
 # 決策工作區
@@ -13,7 +13,14 @@
 
 ## 最近完成批次
 
-- [[05-規劃/03-需求與決策治理/決策/02-已寫回/AUTO-DEC-013-Gitleaks-CLI自動Secret掃描定版|AUTO-DEC-013｜Gitleaks CLI 自動 Secret 掃描定版]]：已於 2026-08-25 寫回；固定 CLI 8.30.1 與官方 SHA-256，掃描完整 Git 歷史及雙 Vue `dist`，使用 `--redact` 並納入 `CI Required`；QA-08 其餘授權與 Package 證據仍待完成。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-029-訂單自助取消原子一致性與原因碼定版|DEC-BATCH-029｜訂單自助取消原子一致性與原因碼定版]]：`DEC-P320～DEC-P321`，2 項，已於 2026-08-27 寫回；待付款取消以同一 SQL Server 交易同步訂單、庫存、優惠券、歷程與中央 Audit，原因碼固定為五項 B1 字彙。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-026-相容性規則中央稽核與API契約定版|DEC-BATCH-026｜相容性規則中央稽核與 API 契約定版]]：`DEC-P309～DEC-P312`，4 項，已於 2026-08-27 寫回；沿用中央 Audit 且不新增 Migration，FactsJson 固定 Schema Version 1，啟停改用 PATCH Route，移除 `BuildListDto.owner`。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-022-發票明細識別DES-21與Yinyin分支交付裁定|DEC-BATCH-022｜發票明細識別、DES-21 與 Yinyin 分支交付裁定]]：`DEC-P299～DEC-P302`，4 項，已於 2026-08-25 寫回；發票非商品列識別、集中 Migration PR、PR #9 分支拆離及 PR #6／#16 Draft gate 依裁定追蹤。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-023-npm安裝腳本與PR同步策略定版|DEC-BATCH-023｜npm 安裝腳本與 PR 同步策略定版]]：`DEC-P303～DEC-P306`，4 項，已於 2026-08-25 寫回；精確核准 `vue-demi@0.14.10`、名稱型拒絕 `fsevents`、強制嚴格安裝腳本政策、追蹤既有 `glob` 提示，PR #41 延至 Review 完成後才同步 `dev`。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-024-SQLServer整合測試納入RequiredCI|DEC-BATCH-024｜SQL Server 整合測試納入 Required CI]]：`DEC-P307`，1 項，已於 2026-08-25 寫回；沿用既有 SQL Server 2025 service、Migration 與連線設定，移除 `RequiresSqlServer` 排除條件，不新增 Runner 或基礎設施。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-025-購物車越權拒絕零資料副作用定版|DEC-BATCH-025｜購物車越權拒絕零資料副作用定版]]：`DEC-P308`，1 項，已於 2026-08-25 寫回；修改／刪除只查既有可用 Cart，拒絕時維持 404 且不得建立 Actor B 空購物車，讀取／新增／重新驗證／Merge 行為不變。
+
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/AUTO-DEC-013-Gitleaks-CLI自動Secret掃描定版|AUTO-DEC-013｜Gitleaks CLI 自動 Secret 掃描定版]]：已於 2026-08-25 寫回；固定 CLI 8.30.1 與官方 SHA-256，掃描完整 Git 歷史及雙 Vue `dist`，使用 `--redact` 並納入 `CI Required`；Package 來源證據已由 PR #41／DEC-BATCH-023 落實，QA-08 其餘 Actor A／B 與刪除無副作用仍待完成。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-021-退款分攤與折讓映射裁定|DEC-BATCH-021｜退款分攤與折讓映射裁定]]：`DEC-P298`，1 項，已於 2026-08-25 寫回；七類 RefundAllocation 到原發票折讓的映射與測試由 DES-21 追蹤。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-020-會員驗證管理員登入與會員管理裁定|DEC-BATCH-020｜會員驗證、管理員登入與後台會員管理裁定]]：`DEC-P291～DEC-P297`，7 項，已於 2026-08-24 寫回；會員驗證、PR 拆分、最小權限、Session 撤銷與 Audit Gate 依各工程包追蹤。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-019-退款執行分攤稽核與管理員摘要定版|DEC-BATCH-019｜退款執行分攤、稽核與管理員摘要定版]]：`DEC-P287～DEC-P290`，4 項，已於 2026-08-23 寫回；yinyin 的退款契約與測試由 DES-21 追蹤，alex 的中央 Audit 共用能力由 DES-24 追蹤。

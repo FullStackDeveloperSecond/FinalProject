@@ -1,0 +1,14 @@
+import type { components } from '@doselect/web-shared/api'
+
+export type SupportTicketCategory = components['schemas']['SupportTicketCategory']
+export type SupportTicketStatus = components['schemas']['SupportTicketStatus']
+export type CasePriority = components['schemas']['CasePriority']
+export type SupportSenderType = components['schemas']['SupportSenderType']
+export type AdminAssigneeSummaryDto = components['schemas']['AdminAssigneeSummaryDto']
+export type AdminSupportMessageDto = components['schemas']['AdminSupportMessageDto']
+export type SupportAttachmentDto = components['schemas']['SupportAttachmentDto']
+export type AdminSupportTicketDetailDto = components['schemas']['AdminSupportTicketDetailDto']
+export type AdminSupportTicketDto = components['schemas']['AdminSupportTicketDto']
+export type SupportSlaItemDto = components['schemas']['SupportSlaItemDto']
+export type SupportSlaQueuePage = components['schemas']['CursorPageOfSupportSlaItemDto']
+export type ClaimSupportTicketRequest = components['schemas']['ClaimSupportTicketRequest']

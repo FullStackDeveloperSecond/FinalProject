@@ -1,5 +1,7 @@
 using System.Net.Mail;
 using DoSelect.Application.Common;
+using DoSelect.Application.Storage;
+using DoSelect.Application.Checkout;
 using DoSelect.Infrastructure.Email;
 using Microsoft.Extensions.Options;
 
@@ -45,6 +47,10 @@ public static class ConfigurationValidationExtensions
             .AddOptions<RateLimitOptions>()
             .BindConfiguration(RateLimitOptions.SectionName)
             .ValidateOnStart();
+        services
+            .AddOptions<CheckoutPolicyOptions>()
+            .BindConfiguration(CheckoutPolicyOptions.SectionName)
+            .ValidateOnStart();
 
         services.AddSingleton<IValidateOptions<StorageOptions>, StorageOptionsValidator>();
         services.AddSingleton<IValidateOptions<OpenAiOptions>, OpenAiOptionsValidator>();
@@ -53,8 +59,39 @@ public static class ConfigurationValidationExtensions
         services.AddSingleton<IValidateOptions<CorsOptions>, CorsOptionsValidator>();
         services.AddSingleton<IValidateOptions<FrontendLinkOptions>, FrontendLinkOptionsValidator>();
         services.AddSingleton<IValidateOptions<RateLimitOptions>, RateLimitOptionsValidator>();
+        services.AddSingleton<IValidateOptions<CheckoutPolicyOptions>, CheckoutPolicyOptionsValidator>();
 
         return services;
+    }
+}
+
+internal sealed class CheckoutPolicyOptionsValidator : IValidateOptions<CheckoutPolicyOptions>
+{
+    public ValidateOptionsResult Validate(string? name, CheckoutPolicyOptions options)
+    {
+        var failures = new List<string>();
+        AddPositiveFailure(failures, options.TermsVersion, "CheckoutPolicy:TermsVersion");
+        AddPositiveFailure(failures, options.ReturnVersion, "CheckoutPolicy:ReturnVersion");
+        AddPositiveFailure(failures, options.PrivacyVersion, "CheckoutPolicy:PrivacyVersion");
+        AddPositiveFailure(
+            failures,
+            options.ShippingConstraintVersion,
+            "CheckoutPolicy:ShippingConstraintVersion");
+
+        return failures.Count == 0
+            ? ValidateOptionsResult.Success
+            : ValidateOptionsResult.Fail(failures);
+    }
+
+    private static void AddPositiveFailure(
+        ICollection<string> failures,
+        int value,
+        string configurationKey)
+    {
+        if (value <= 0)
+        {
+            failures.Add($"Configuration key '{configurationKey}' must be greater than zero.");
+        }
     }
 }
 
