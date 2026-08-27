@@ -105,31 +105,36 @@ public sealed class AdminReturnService : IAdminReturnService
         }
 
         var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
-        var fromStatus = returnRequest.Status;
+        var histories = new List<ReturnStatusHistory>();
         if (returnRequest.Status == ReturnRequestStatus.Requested)
         {
-            returnRequest.Transition(ReturnRequestStatus.UnderReview, nowUtc);
+            histories.Add(TransitionAndRecord(
+                returnRequest, ReturnRequestStatus.UnderReview, request.ReasonCode, request.Note, adminUserId, nowUtc));
         }
 
         if (request.Approved)
         {
-            // A return only needs a physical shipment back when at least one approved item
-            // requires inspection — otherwise (e.g. low-value goodwill approvals) it goes
-            // straight to AwaitingRefund. The documented ApproveReturnRequest DTO has no
-            // separate "requiresShipment" field, so this derives it from the one it does have
-            // (inspectionRequired); see the implementation report.
+            // Approve performs two legal Domain transitions. Preserve each edge separately in
+            // the audit trail even though the aggregate method applies both in one call.
             var requiresShipment = request.Items.Any(i => i.InspectionRequired);
             returnRequest.Approve(adminUserId, requiresShipment, nowUtc);
+            histories.Add(new ReturnStatusHistory(
+                returnRequest.Id, ReturnRequestStatus.UnderReview, ReturnRequestStatus.Approved,
+                request.ReasonCode, request.Note, adminUserId, nowUtc));
+            histories.Add(new ReturnStatusHistory(
+                returnRequest.Id, ReturnRequestStatus.Approved,
+                requiresShipment ? ReturnRequestStatus.AwaitingShipment : ReturnRequestStatus.AwaitingRefund,
+                request.ReasonCode, request.Note, adminUserId, nowUtc));
         }
         else
         {
             returnRequest.Reject(adminUserId, nowUtc);
+            histories.Add(new ReturnStatusHistory(
+                returnRequest.Id, ReturnRequestStatus.UnderReview, ReturnRequestStatus.Rejected,
+                request.ReasonCode, request.Note, adminUserId, nowUtc));
         }
 
-        var history = new ReturnStatusHistory(
-            returnRequest.Id, fromStatus, returnRequest.Status, request.ReasonCode, request.Note, adminUserId, nowUtc);
-
-        await _store.SaveTransitionAsync(returnRequest, null, null, history, request.ReturnRowVersion, cancellationToken);
+        await _store.SaveTransitionAsync(returnRequest, null, null, histories, request.ReturnRowVersion, cancellationToken);
 
         return await GetDetailDtoAsync(returnRequest, cancellationToken);
     }
@@ -146,18 +151,17 @@ public sealed class AdminReturnService : IAdminReturnService
         }
 
         var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
-        var fromStatus = returnRequest.Status;
+        var histories = new List<ReturnStatusHistory>();
         if (returnRequest.Status == ReturnRequestStatus.AwaitingShipment)
         {
-            returnRequest.Transition(ReturnRequestStatus.InTransit, nowUtc);
+            histories.Add(TransitionAndRecord(
+                returnRequest, ReturnRequestStatus.InTransit, "manual-receive", request.Note, adminUserId, nowUtc));
         }
 
-        returnRequest.Transition(ReturnRequestStatus.Received, nowUtc);
+        histories.Add(TransitionAndRecord(
+            returnRequest, ReturnRequestStatus.Received, "manual-receive", request.Note, adminUserId, nowUtc));
 
-        var history = new ReturnStatusHistory(
-            returnRequest.Id, fromStatus, returnRequest.Status, "manual-receive", request.Note, adminUserId, nowUtc);
-
-        await _store.SaveTransitionAsync(returnRequest, null, null, history, request.ReturnRowVersion, cancellationToken);
+        await _store.SaveTransitionAsync(returnRequest, null, null, histories, request.ReturnRowVersion, cancellationToken);
 
         return await GetDetailDtoAsync(returnRequest, cancellationToken);
     }
@@ -196,18 +200,18 @@ public sealed class AdminReturnService : IAdminReturnService
                 Guid.CreateVersion7(), item.Id, line.Disposition.ToString(), line.ConditionCode, line.Note, adminUserId, nowUtc));
         }
 
-        var fromStatus = returnRequest.Status;
+        var histories = new List<ReturnStatusHistory>();
         if (returnRequest.Status == ReturnRequestStatus.Received)
         {
-            returnRequest.Transition(ReturnRequestStatus.Inspecting, nowUtc);
+            histories.Add(TransitionAndRecord(
+                returnRequest, ReturnRequestStatus.Inspecting, "inspection-started", null, adminUserId, nowUtc));
         }
 
-        returnRequest.Transition(ReturnRequestStatus.AwaitingRefund, nowUtc);
+        histories.Add(TransitionAndRecord(
+            returnRequest, ReturnRequestStatus.AwaitingRefund, "inspection-complete", null, adminUserId, nowUtc));
 
-        var history = new ReturnStatusHistory(
-            returnRequest.Id, fromStatus, returnRequest.Status, "inspection-complete", null, adminUserId, nowUtc);
-
-        await _store.SaveTransitionAsync(returnRequest, updatedItems, newInspections, history, request.ReturnRowVersion, cancellationToken);
+        await _store.SaveTransitionAsync(
+            returnRequest, updatedItems, newInspections, histories, request.ReturnRowVersion, cancellationToken);
 
         return await GetDetailDtoAsync(returnRequest, cancellationToken);
     }
@@ -236,7 +240,7 @@ public sealed class AdminReturnService : IAdminReturnService
             adminUserId,
             nowUtc);
 
-        await _store.SaveTransitionAsync(returnRequest, null, null, history, request.ReturnRowVersion, cancellationToken);
+        await _store.SaveTransitionAsync(returnRequest, null, null, [history], request.ReturnRowVersion, cancellationToken);
 
         return await GetDetailDtoAsync(returnRequest, cancellationToken);
     }
@@ -296,76 +300,59 @@ public sealed class AdminReturnService : IAdminReturnService
         var shipment = await _store.FindShipmentAsync(returnRequest.Id, cancellationToken)
             ?? throw new ReturnsWriteException(ReturnsWriteException.ErrorCodes.ResourceNotFound, "No shipment exists for this return.");
 
-        if (await _store.ShipmentEventExistsAsync(request.Source, request.ExternalEventId, cancellationToken))
-        {
-            // Idempotent replay: the same (Source, ExternalEventId) was already applied.
-            var existingEvents = await _store.ListShipmentEventsAsync(shipment.Id, cancellationToken);
-            return ReturnDtoMapper.ToShipmentDto(shipment, existingEvents);
-        }
-
         var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
         var newEvent = new ReturnShipmentEvent(
             shipment.Id, request.ExternalEventId, request.Source, request.EventType,
             eventCode: null, request.Description, request.OccurredAtUtc, nowUtc, payloadHash: null, payloadSummaryJson: null);
 
-        // Append-only: every distinct (Source, ExternalEventId) is recorded regardless of
-        // whether it can move state forward — a delayed/out-of-order carrier webhook must never
-        // be rejected or lost, only prevented from moving the shipment/request backward.
-        // shipmentToUpdate stays null (so AppendShipmentEventAsync changes no shipment/request
-        // state at all) unless CanAdvanceTo says this specific event is actually newer than the
-        // last one applied AND moves the main sequence strictly forward.
-        ReturnShipment? shipmentToUpdate = null;
-        ReturnRequest? requestToTransition = null;
-        var requestHistories = new List<ReturnStatusHistory>();
-        if (Enum.TryParse<ReturnShipmentStatus>(request.EventType, ignoreCase: false, out var mappedStatus) &&
-            shipment.CanAdvanceTo(mappedStatus, request.OccurredAtUtc))
+        var appendResult = await _store.AppendShipmentEventAsync(
+            newEvent,
+            (latestShipment, latestRequest) => ApplyShipmentEventToLatestState(
+                latestShipment, latestRequest, request.EventType, request.OccurredAtUtc),
+            cancellationToken);
+
+        var events = await _store.ListShipmentEventsAsync(appendResult.Shipment.Id, cancellationToken);
+        return ReturnDtoMapper.ToShipmentDto(appendResult.Shipment, events);
+    }
+
+
+    private static IReadOnlyList<ReturnStatusHistory> ApplyShipmentEventToLatestState(
+        ReturnShipment shipment,
+        ReturnRequest returnRequest,
+        string eventType,
+        DateTime occurredAtUtc)
+    {
+        var histories = new List<ReturnStatusHistory>();
+        if (!Enum.TryParse<ReturnShipmentStatus>(eventType, ignoreCase: false, out var mappedStatus) ||
+            !shipment.CanAdvanceTo(mappedStatus, occurredAtUtc))
         {
-            // Business/audit timestamps reflect when the carrier event actually occurred, not
-            // when this server happened to receive/process it (nowUtc is only ever used above,
-            // for the event's own ReceivedAtUtc ingestion stamp).
-            shipment.ApplyEventStatus(mappedStatus, request.OccurredAtUtc);
-            shipmentToUpdate = shipment;
+            return histories;
+        }
 
-            if (mappedStatus is ReturnShipmentStatus.PickedUp or ReturnShipmentStatus.InTransit &&
-                returnRequest.Status == ReturnRequestStatus.AwaitingShipment)
+        shipment.ApplyEventStatus(mappedStatus, occurredAtUtc);
+        if (mappedStatus is ReturnShipmentStatus.PickedUp or ReturnShipmentStatus.InTransit &&
+            returnRequest.Status == ReturnRequestStatus.AwaitingShipment)
+        {
+            histories.Add(TransitionAndRecord(
+                returnRequest, ReturnRequestStatus.InTransit, "shipment-event", eventType, actorUserId: null, occurredAtUtc));
+        }
+        else if (mappedStatus == ReturnShipmentStatus.Delivered)
+        {
+            if (returnRequest.Status == ReturnRequestStatus.AwaitingShipment)
             {
-                requestToTransition = returnRequest;
-                requestHistories.Add(TransitionAndRecord(
-                    requestToTransition, ReturnRequestStatus.InTransit, "shipment-event", request.EventType, request.OccurredAtUtc));
+                histories.Add(TransitionAndRecord(
+                    returnRequest, ReturnRequestStatus.InTransit, "shipment-event", eventType, actorUserId: null, occurredAtUtc));
             }
-            else if (mappedStatus == ReturnShipmentStatus.Delivered)
-            {
-                // A carrier can report Delivered without this shipment ever having reported an
-                // intermediate InTransit/PickedUp event first (e.g. a single terminal webhook).
-                // ReturnRequest still has no "AwaitingShipment -> Received" edge in its own
-                // Allowed-transition graph, so this cascades through the Domain's own legal
-                // sequence — one Transition call and one history row per hop — rather than skip
-                // a step the state machine was never taught to skip.
-                requestToTransition = returnRequest;
-                if (requestToTransition.Status == ReturnRequestStatus.AwaitingShipment)
-                {
-                    requestHistories.Add(TransitionAndRecord(
-                        requestToTransition, ReturnRequestStatus.InTransit, "shipment-event", request.EventType, request.OccurredAtUtc));
-                }
 
-                if (requestToTransition.Status == ReturnRequestStatus.InTransit)
-                {
-                    requestHistories.Add(TransitionAndRecord(
-                        requestToTransition, ReturnRequestStatus.Received, "shipment-event", request.EventType, request.OccurredAtUtc));
-                }
-                else
-                {
-                    requestToTransition = null;
-                }
+            if (returnRequest.Status == ReturnRequestStatus.InTransit)
+            {
+                histories.Add(TransitionAndRecord(
+                    returnRequest, ReturnRequestStatus.Received, "shipment-event", eventType, actorUserId: null, occurredAtUtc));
             }
         }
 
-        await _store.AppendShipmentEventAsync(newEvent, shipmentToUpdate, requestToTransition, requestHistories, cancellationToken);
-
-        var events = await _store.ListShipmentEventsAsync(shipment.Id, cancellationToken);
-        return ReturnDtoMapper.ToShipmentDto(shipment, events);
+        return histories;
     }
-
     private async Task<ReturnRequest> LoadAsync(Guid returnPublicId, CancellationToken cancellationToken) =>
         await _store.FindByPublicIdAsync(returnPublicId, cancellationToken)
         ?? throw new ReturnsWriteException(ReturnsWriteException.ErrorCodes.ResourceNotFound, "The return request was not found.");
@@ -375,11 +362,11 @@ public sealed class AdminReturnService : IAdminReturnService
     /// one legal ReturnRequest transition without duplicating the Transition/History pairing at
     /// each call site.</summary>
     private static ReturnStatusHistory TransitionAndRecord(
-        ReturnRequest request, ReturnRequestStatus toStatus, string reasonCode, string? note, DateTime occurredAtUtc)
+        ReturnRequest request, ReturnRequestStatus toStatus, string reasonCode, string? note, string? actorUserId, DateTime occurredAtUtc)
     {
         var fromStatus = request.Status;
         request.Transition(toStatus, occurredAtUtc);
-        return new ReturnStatusHistory(request.Id, fromStatus, toStatus, reasonCode, note, actorUserId: null, occurredAtUtc);
+        return new ReturnStatusHistory(request.Id, fromStatus, toStatus, reasonCode, note, actorUserId, occurredAtUtc);
     }
 
     private async Task<ReturnRequestDto> GetDetailDtoAsync(ReturnRequest request, CancellationToken cancellationToken)

@@ -369,15 +369,12 @@ public sealed class ReturnStore : IReturnStore
             .ThenBy(e => e.Id)
             .ToListAsync(cancellationToken);
 
-    public Task<bool> ShipmentEventExistsAsync(string source, string externalEventId, CancellationToken cancellationToken) =>
-        _dbContext.ReturnShipmentEvents.AnyAsync(
-            e => e.Source == source && e.ExternalEventId == externalEventId, cancellationToken);
 
     public async Task SaveTransitionAsync(
         ReturnRequest request,
         IReadOnlyList<ReturnItem>? itemsToUpdate,
         IReadOnlyList<ReturnInspection>? inspectionsToAdd,
-        ReturnStatusHistory? historyToAdd,
+        IReadOnlyList<ReturnStatusHistory> historiesToAdd,
         byte[] expectedRowVersion,
         CancellationToken cancellationToken)
     {
@@ -410,9 +407,9 @@ public sealed class ReturnStore : IReturnStore
                 await _dbContext.ReturnInspections.AddRangeAsync(inspectionsToAdd, cancellationToken);
             }
 
-            if (historyToAdd is not null)
+            if (historiesToAdd.Count > 0)
             {
-                await _dbContext.ReturnStatusHistories.AddAsync(historyToAdd, cancellationToken);
+                await _dbContext.ReturnStatusHistories.AddRangeAsync(historiesToAdd, cancellationToken);
             }
 
             try
@@ -480,54 +477,66 @@ public sealed class ReturnStore : IReturnStore
         }
     }
 
-    public async Task AppendShipmentEventAsync(
+    public async Task<AppendShipmentEventResult> AppendShipmentEventAsync(
         ReturnShipmentEvent shipmentEvent,
-        ReturnShipment? shipmentToUpdate,
-        ReturnRequest? requestToTransition,
-        IReadOnlyList<ReturnStatusHistory> requestHistories,
+        Func<ReturnShipment, ReturnRequest, IReadOnlyList<ReturnStatusHistory>> applyToLatestState,
         CancellationToken cancellationToken)
     {
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
         try
         {
+            // The service already read these aggregates for routing/authorization. Clear those
+            // tracked snapshots before taking the write lock so the query below materializes the
+            // latest database values instead of returning EF's stale identity-map instance.
+            _dbContext.ChangeTracker.Clear();
+
+            var shipment = await _dbContext.ReturnShipments
+                .FromSqlInterpolated($"SELECT * FROM [ReturnShipments] WITH (UPDLOCK, HOLDLOCK) WHERE [Id] = {shipmentEvent.ReturnShipmentId}")
+                .SingleAsync(cancellationToken);
+
+            // All events for one shipment now serialize behind the parent-row update lock. The
+            // duplicate check is intentionally inside that lock, closing the pre-check race.
+            var duplicate = await _dbContext.ReturnShipmentEvents.AnyAsync(
+                e => e.Source == shipmentEvent.Source && e.ExternalEventId == shipmentEvent.ExternalEventId,
+                cancellationToken);
+            if (duplicate)
+            {
+                await transaction.CommitAsync(cancellationToken);
+                return new AppendShipmentEventResult(shipment, WasDuplicate: true);
+            }
+
+            var request = await _dbContext.ReturnRequests
+                .SingleAsync(r => r.Id == shipment.ReturnRequestId, cancellationToken);
+            var histories = applyToLatestState(shipment, request);
+
             await _dbContext.ReturnShipmentEvents.AddAsync(shipmentEvent, cancellationToken);
-
-            if (shipmentToUpdate is not null)
+            if (histories.Count > 0)
             {
-                if (_dbContext.Entry(shipmentToUpdate).State == EntityState.Detached)
-                {
-                    _dbContext.ReturnShipments.Attach(shipmentToUpdate);
-                }
-
-                _dbContext.Entry(shipmentToUpdate).State = EntityState.Modified;
+                await _dbContext.ReturnStatusHistories.AddRangeAsync(histories, cancellationToken);
             }
 
-            if (requestToTransition is not null)
-            {
-                if (_dbContext.Entry(requestToTransition).State == EntityState.Detached)
-                {
-                    _dbContext.ReturnRequests.Attach(requestToTransition);
-                }
-
-                _dbContext.Entry(requestToTransition).State = EntityState.Modified;
-            }
-
-            if (requestHistories.Count > 0)
-            {
-                await _dbContext.ReturnStatusHistories.AddRangeAsync(requestHistories, cancellationToken);
-            }
-
-            try
-            {
-                await _dbContext.SaveChangesAsync(cancellationToken);
-            }
-            catch (DbUpdateException ex) when (IsIndexViolation(ex, "UX_ReturnShipmentEvents_Source_ExternalEventId"))
-            {
-                // A concurrent request appended the same (Source, ExternalEventId) first —
-                // the dedup pre-check raced. Treat as an idempotent no-op, not a failure.
-            }
-
+            await _dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
+            return new AppendShipmentEventResult(shipment, WasDuplicate: false);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw new ReturnsWriteException(
+                ReturnsWriteException.ErrorCodes.ConcurrencyConflict,
+                "The shipment was modified by another request. Reload and try again.");
+        }
+        catch (DbUpdateException ex) when (IsIndexViolation(ex, "UX_ReturnShipmentEvents_Source_ExternalEventId"))
+        {
+            // Defensive fallback for the global unique key if the same carrier event was ever
+            // routed concurrently against different shipment rows. It remains an idempotent
+            // success and never leaks a provider exception as HTTP 500.
+            await transaction.RollbackAsync(cancellationToken);
+            _dbContext.ChangeTracker.Clear();
+            var shipment = await _dbContext.ReturnShipments
+                .AsNoTracking()
+                .SingleAsync(s => s.Id == shipmentEvent.ReturnShipmentId, cancellationToken);
+            return new AppendShipmentEventResult(shipment, WasDuplicate: true);
         }
         catch
         {

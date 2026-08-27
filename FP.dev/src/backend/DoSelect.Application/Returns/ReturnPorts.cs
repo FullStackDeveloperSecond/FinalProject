@@ -81,6 +81,8 @@ public sealed record ReturnAttachmentAccess(
     string OriginalFileName,
     string ContentType);
 
+public sealed record AppendShipmentEventResult(ReturnShipment Shipment, bool WasDuplicate);
+
 public interface IReturnStore
 {
     Task<bool> ReturnNumberExistsAsync(string returnNumber, CancellationToken cancellationToken);
@@ -174,7 +176,6 @@ public interface IReturnStore
 
     Task<IReadOnlyList<ReturnShipmentEvent>> ListShipmentEventsAsync(long returnShipmentId, CancellationToken cancellationToken);
 
-    Task<bool> ShipmentEventExistsAsync(string source, string externalEventId, CancellationToken cancellationToken);
 
     /// <summary>
     /// Persists a mutation already applied in-memory to <paramref name="request"/> (and any
@@ -187,7 +188,7 @@ public interface IReturnStore
         ReturnRequest request,
         IReadOnlyList<ReturnItem>? itemsToUpdate,
         IReadOnlyList<ReturnInspection>? inspectionsToAdd,
-        ReturnStatusHistory? historyToAdd,
+        IReadOnlyList<ReturnStatusHistory> historiesToAdd,
         byte[] expectedRowVersion,
         CancellationToken cancellationToken);
 
@@ -201,21 +202,14 @@ public interface IReturnStore
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// One transaction: always inserts the (already deduplication-checked) event — append-only,
-    /// even when the event does not advance any state — and only when
-    /// <paramref name="shipmentToUpdate"/> is non-null (the caller already called
-    /// ApplyEventStatus on it) persists the shipment's denormalized status change, optionally
-    /// also transitioning the owning ReturnRequest with one history row per hop (e.g. a first-
-    /// ever Delivered event cascades AwaitingShipment→InTransit→Received in the Domain's own
-    /// legal sequence, producing two history rows, not one that skips a step). A delayed/out-of-
-    /// order/non-advancing event passes null and an empty list, so it changes no state at all —
-    /// only its own event row exists.
+    /// Serializes appends for one shipment in a short database transaction. The store locks and
+    /// reloads the latest Shipment/ReturnRequest before invoking <paramref name="applyToLatestState"/>,
+    /// so concurrent distinct events are both retained and state advancement is recomputed from
+    /// current data. The same (Source, ExternalEventId) is an idempotent no-op.
     /// </summary>
-    Task AppendShipmentEventAsync(
+    Task<AppendShipmentEventResult> AppendShipmentEventAsync(
         ReturnShipmentEvent shipmentEvent,
-        ReturnShipment? shipmentToUpdate,
-        ReturnRequest? requestToTransition,
-        IReadOnlyList<ReturnStatusHistory> requestHistories,
+        Func<ReturnShipment, ReturnRequest, IReadOnlyList<ReturnStatusHistory>> applyToLatestState,
         CancellationToken cancellationToken);
 
     /// <summary>

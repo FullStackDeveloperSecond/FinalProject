@@ -73,6 +73,17 @@ public sealed class AdminReturnServiceTests
             ReturnRowVersion = rowVersion,
         };
 
+    private static void AssertHistory(
+        ReturnStatusHistory history,
+        ReturnRequestStatus from,
+        ReturnRequestStatus to,
+        string actorUserId)
+    {
+        Assert.Equal(from, history.FromStatus);
+        Assert.Equal(to, history.ToStatus);
+        Assert.Equal(actorUserId, history.ActorUserId);
+        Assert.Equal(NowUtc, history.OccurredAtUtc);
+    }
     private static AppendReturnShipmentEventRequest ShipmentEvent(
         string source, string externalEventId, string eventType, DateTime occurredAtUtc, string? description) =>
         new() { Source = source, ExternalEventId = externalEventId, EventType = eventType, OccurredAtUtc = occurredAtUtc, Description = description };
@@ -113,8 +124,11 @@ public sealed class AdminReturnServiceTests
         var dto = await service.ReviewAsync(request.PublicId, "admin-1", rejection, CancellationToken.None);
 
         Assert.Equal(ReturnRequestStatus.Rejected, dto.Status);
-        Assert.Single(store.Histories);
-        Assert.Equal("not-eligible", store.Histories[0].ReasonCode);
+        Assert.Collection(
+            store.Histories,
+            h => AssertHistory(h, ReturnRequestStatus.Requested, ReturnRequestStatus.UnderReview, "admin-1"),
+            h => AssertHistory(h, ReturnRequestStatus.UnderReview, ReturnRequestStatus.Rejected, "admin-1"));
+        Assert.All(store.Histories, h => Assert.Equal("not-eligible", h.ReasonCode));
     }
 
     [Fact]
@@ -149,6 +163,15 @@ public sealed class AdminReturnServiceTests
         Assert.Equal(ReturnRequestStatus.AwaitingRefund, dto.Status);
         Assert.Equal(RestockDisposition.Resellable, store.Items[0].RestockDisposition);
         Assert.Single(store.Inspections);
+        Assert.Collection(
+            store.Histories,
+            h => AssertHistory(h, ReturnRequestStatus.Requested, ReturnRequestStatus.UnderReview, "admin-1"),
+            h => AssertHistory(h, ReturnRequestStatus.UnderReview, ReturnRequestStatus.Approved, "admin-1"),
+            h => AssertHistory(h, ReturnRequestStatus.Approved, ReturnRequestStatus.AwaitingShipment, "admin-1"),
+            h => AssertHistory(h, ReturnRequestStatus.AwaitingShipment, ReturnRequestStatus.InTransit, "admin-1"),
+            h => AssertHistory(h, ReturnRequestStatus.InTransit, ReturnRequestStatus.Received, "admin-1"),
+            h => AssertHistory(h, ReturnRequestStatus.Received, ReturnRequestStatus.Inspecting, "admin-1"),
+            h => AssertHistory(h, ReturnRequestStatus.Inspecting, ReturnRequestStatus.AwaitingRefund, "admin-1"));
     }
 
     [Fact]

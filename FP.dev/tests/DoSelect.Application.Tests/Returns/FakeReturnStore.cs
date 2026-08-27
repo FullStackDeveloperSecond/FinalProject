@@ -182,8 +182,6 @@ internal sealed class FakeReturnStore : IReturnStore
     public Task<IReadOnlyList<ReturnShipmentEvent>> ListShipmentEventsAsync(long returnShipmentId, CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<ReturnShipmentEvent>>([.. ShipmentEvents.Where(e => e.ReturnShipmentId == returnShipmentId)]);
 
-    public Task<bool> ShipmentEventExistsAsync(string source, string externalEventId, CancellationToken cancellationToken) =>
-        Task.FromResult(ShipmentEvents.Any(e => e.Source == source && e.ExternalEventId == externalEventId));
 
     /// <summary>The exact expectedRowVersion byte[] instance/value the most recent
     /// SaveTransitionAsync call received — lets a test assert the caller's own supplied
@@ -192,7 +190,7 @@ internal sealed class FakeReturnStore : IReturnStore
 
     public Task SaveTransitionAsync(
         ReturnRequest request, IReadOnlyList<ReturnItem>? itemsToUpdate, IReadOnlyList<ReturnInspection>? inspectionsToAdd,
-        ReturnStatusHistory? historyToAdd, byte[] expectedRowVersion, CancellationToken cancellationToken)
+        IReadOnlyList<ReturnStatusHistory> historiesToAdd, byte[] expectedRowVersion, CancellationToken cancellationToken)
     {
         LastSaveTransitionExpectedRowVersion = expectedRowVersion;
 
@@ -207,10 +205,7 @@ internal sealed class FakeReturnStore : IReturnStore
             Inspections.AddRange(inspectionsToAdd);
         }
 
-        if (historyToAdd is not null)
-        {
-            Histories.Add(historyToAdd);
-        }
+        Histories.AddRange(historiesToAdd);
 
         return Task.CompletedTask;
     }
@@ -223,14 +218,22 @@ internal sealed class FakeReturnStore : IReturnStore
         return Task.FromResult(shipment);
     }
 
-    public Task AppendShipmentEventAsync(
-        ReturnShipmentEvent shipmentEvent, ReturnShipment? shipmentToUpdate, ReturnRequest? requestToTransition,
-        IReadOnlyList<ReturnStatusHistory> requestHistories, CancellationToken cancellationToken)
+    public Task<AppendShipmentEventResult> AppendShipmentEventAsync(
+        ReturnShipmentEvent shipmentEvent,
+        Func<ReturnShipment, ReturnRequest, IReadOnlyList<ReturnStatusHistory>> applyToLatestState,
+        CancellationToken cancellationToken)
     {
-        ShipmentEvents.Add(shipmentEvent);
-        Histories.AddRange(requestHistories);
+        var shipment = Shipments.Single(s => s.Id == shipmentEvent.ReturnShipmentId);
+        if (ShipmentEvents.Any(e => e.Source == shipmentEvent.Source && e.ExternalEventId == shipmentEvent.ExternalEventId))
+        {
+            return Task.FromResult(new AppendShipmentEventResult(shipment, WasDuplicate: true));
+        }
 
-        return Task.CompletedTask;
+        var request = Requests.Single(r => r.Id == shipment.ReturnRequestId);
+        var histories = applyToLatestState(shipment, request);
+        ShipmentEvents.Add(shipmentEvent);
+        Histories.AddRange(histories);
+        return Task.FromResult(new AppendShipmentEventResult(shipment, WasDuplicate: false));
     }
 
     public Task<IReadOnlyList<Guid>> CancelOverdueAwaitingShipmentAsync(DateTime nowUtc, CancellationToken cancellationToken)

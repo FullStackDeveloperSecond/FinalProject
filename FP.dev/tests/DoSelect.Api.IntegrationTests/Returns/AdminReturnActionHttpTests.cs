@@ -52,10 +52,22 @@ public sealed class AdminReturnActionHttpTests
         var history = await context.ReturnStatusHistories
             .Where(h => h.ReturnRequestId == persisted.Id)
             .ToListAsync();
-        Assert.Single(history);
-        Assert.Equal(ReturnRequestStatus.Rejected, history[0].ToStatus);
-        Assert.Equal("not-eligible", history[0].ReasonCode);
-        Assert.Equal("已超過鑑賞期", history[0].Note);
+        Assert.Collection(
+            history.OrderBy(h => h.Id),
+            h =>
+            {
+                Assert.Equal(ReturnRequestStatus.Requested, h.FromStatus);
+                Assert.Equal(ReturnRequestStatus.UnderReview, h.ToStatus);
+            },
+            h =>
+            {
+                Assert.Equal(ReturnRequestStatus.UnderReview, h.FromStatus);
+                Assert.Equal(ReturnRequestStatus.Rejected, h.ToStatus);
+            });
+        Assert.All(history, h => Assert.Equal("not-eligible", h.ReasonCode));
+        Assert.All(history, h => Assert.Equal("已超過鑑賞期", h.Note));
+        Assert.All(history, h => Assert.Equal(persisted.ReviewedByAdminUserId, h.ActorUserId));
+        Assert.Single(history.Select(h => h.OccurredAtUtc).Distinct());
 
         // The two original items must be untouched — no approval/inspection data was created.
         var items = await context.ReturnItems.AsNoTracking().Where(i => i.ReturnRequestId == persisted.Id).ToListAsync();
