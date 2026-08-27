@@ -97,6 +97,21 @@ public sealed record OrderCancellationAuditContext(
     string TraceId,
     IPAddress? RemoteIpAddress);
 
+/// <summary>
+/// 由 API 的受信任驗證邊界建立。會員身分來自 Member Cookie；訪客身分來自已經過
+/// <see cref="GuestOrderAccessScopeAuthorizer"/> 限單核對的 GuestOrderAccess Cookie。
+/// </summary>
+public abstract record OrderActor
+{
+    private OrderActor()
+    {
+    }
+
+    public sealed record Member(string UserId) : OrderActor;
+
+    public sealed record Guest(Guid TokenPublicId) : OrderActor;
+}
+
 public interface IOrderService
 {
     Task<Application.Common.PageResult<OrderSummaryDto>> GetOrdersAsync(
@@ -105,12 +120,12 @@ public interface IOrderService
         CancellationToken cancellationToken);
 
     Task<OrderDto> GetOrderAsync(
-        string memberUserId,
+        OrderActor actor,
         Guid orderPublicId,
         CancellationToken cancellationToken);
 
     Task<OrderDto> CancelOrderAsync(
-        string memberUserId,
+        OrderActor actor,
         Guid orderPublicId,
         CancelOrderRequest request,
         OrderCancellationAuditContext auditContext,

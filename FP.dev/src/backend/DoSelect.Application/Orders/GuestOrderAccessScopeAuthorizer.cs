@@ -18,7 +18,7 @@ public static class GuestOrderAccessClaimTypes
 
 public abstract record GuestOrderAccessAuthorizationResult
 {
-    public sealed record Success(Guid OrderPublicId) : GuestOrderAccessAuthorizationResult;
+    public sealed record Success(Guid OrderPublicId, Guid TokenPublicId) : GuestOrderAccessAuthorizationResult;
 
     public sealed record Failure(string ErrorCode) : GuestOrderAccessAuthorizationResult;
 }
@@ -92,6 +92,8 @@ public sealed class GuestOrderAccessScopeAuthorizer(
             return new GuestOrderAccessAuthorizationResult.Failure(GuestOrderErrorCodes.ScopeMismatch);
         }
 
-        return new GuestOrderAccessAuthorizationResult.Success(context.OrderPublicId);
+        return new GuestOrderAccessAuthorizationResult.Success(
+            context.OrderPublicId,
+            context.Token.PublicId);
     }
 }

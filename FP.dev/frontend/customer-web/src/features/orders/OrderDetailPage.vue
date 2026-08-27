@@ -181,9 +181,8 @@ const orderStatusLabel: Record<string, string> = {
         <p>應付總額：NT$ {{ order.amounts.grandTotal }}</p>
       </section>
 
-      <!-- 訪客取消／退貨入口：本切片只實作會員自助入口，訪客（GuestOrderAccessToken）驗證串接
-           待 haru/feature/guest-ordertracking 合併後補上；未登入會員的請求會在 loadOrder 收到
-           401，於上方以 HttpStatusPage 呈現，尚不支援訪客用單筆存取權杖開啟本頁。 -->
+      <!-- 同一頁支援會員與已完成查單驗證的訪客；後端會把 GuestOrderAccess Cookie
+           限定在驗證時綁定的那一筆訂單，前端顯示條件不是授權邊界。 -->
       <section aria-labelledby="cancel-title">
         <h2 id="cancel-title">
           取消訂單

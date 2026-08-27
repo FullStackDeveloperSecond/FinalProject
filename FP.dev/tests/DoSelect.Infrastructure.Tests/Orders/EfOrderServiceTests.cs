@@ -43,7 +43,8 @@ public sealed class EfOrderServiceTests
             context, memberUserId, profile.Id, OrderStatus.PendingPayment);
         var service = CreateService(context);
 
-        var dto = await service.GetOrderAsync(memberUserId, order.PublicId, CancellationToken.None);
+        var dto = await service.GetOrderAsync(
+            new OrderActor.Member(memberUserId), order.PublicId, CancellationToken.None);
 
         Assert.Equal(order.PublicId, dto.PublicId);
         Assert.Contains("cancel", dto.AvailableActions);
@@ -61,7 +62,8 @@ public sealed class EfOrderServiceTests
         var service = CreateService(context);
 
         var exception = await Assert.ThrowsAsync<OrderWriteException>(() =>
-            service.GetOrderAsync(otherUserId, order.PublicId, CancellationToken.None));
+            service.GetOrderAsync(
+                new OrderActor.Member(otherUserId), order.PublicId, CancellationToken.None));
         Assert.Equal(OrderWriteException.ErrorCodes.ResourceNotFound, exception.ErrorCode);
     }
 
@@ -82,7 +84,8 @@ public sealed class EfOrderServiceTests
             returnableQuantity: 1);
         var service = CreateService(context);
 
-        var dto = await service.GetOrderAsync(memberUserId, order.PublicId, CancellationToken.None);
+        var dto = await service.GetOrderAsync(
+            new OrderActor.Member(memberUserId), order.PublicId, CancellationToken.None);
 
         Assert.Contains("requestReturn", dto.AvailableActions);
         Assert.Equal(
@@ -108,7 +111,7 @@ public sealed class EfOrderServiceTests
             OrderCancellationReasonCodes.OrderedByMistake, "重複下單", order.RowVersion);
 
         var dto = await service.CancelOrderAsync(
-            memberUserId,
+            new OrderActor.Member(memberUserId),
             order.PublicId,
             request,
             AuditContext,
@@ -164,7 +167,7 @@ public sealed class EfOrderServiceTests
 
         var exception = await Assert.ThrowsAsync<OrderWriteException>(() =>
             service.CancelOrderAsync(
-                memberUserId,
+                new OrderActor.Member(memberUserId),
                 order.PublicId,
                 request,
                 AuditContext,
@@ -185,7 +188,7 @@ public sealed class EfOrderServiceTests
 
         var exception = await Assert.ThrowsAsync<OrderWriteException>(() =>
             service.CancelOrderAsync(
-                memberUserId,
+                new OrderActor.Member(memberUserId),
                 order.PublicId,
                 request,
                 AuditContext,
@@ -224,7 +227,7 @@ public sealed class EfOrderServiceTests
 
         var exception = await Assert.ThrowsAsync<OrderWriteException>(() =>
             service.CancelOrderAsync(
-                memberUserId,
+                new OrderActor.Member(memberUserId),
                 order.PublicId,
                 request,
                 AuditContext,

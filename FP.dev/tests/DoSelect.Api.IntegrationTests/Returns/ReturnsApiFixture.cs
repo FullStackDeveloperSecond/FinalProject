@@ -45,6 +45,7 @@ public sealed class ReturnsApiFixture : IAsyncLifetime
         ["Features__EmailEnabled"] = "false",
         ["Demo__SimulationEndpointsEnabled"] = "false",
         ["Idempotency__ActorScopePepper"] = "returns-api-tests-actor-scope-pepper-0000",
+        ["GuestOrderAccess__Pepper"] = "returns-api-tests-guest-order-pepper-32-bytes",
     };
 
     private readonly string _dataRoot = Path.Combine(
@@ -112,8 +113,11 @@ public sealed class ReturnsApiFixture : IAsyncLifetime
     }
     public async Task DisposeAsync()
     {
-        Client.Dispose();
-        await _factory.DisposeAsync();
+        Client?.Dispose();
+        if (_factory is not null)
+        {
+            await _factory.DisposeAsync();
+        }
         await using var context = CreateContext();
         await context.Database.EnsureDeletedAsync();
         if (Directory.Exists(_dataRoot))

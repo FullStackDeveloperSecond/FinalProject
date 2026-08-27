@@ -13,11 +13,9 @@ using Microsoft.EntityFrameworkCore;
 namespace DoSelect.Infrastructure.Orders;
 
 /// <summary>
-/// Member-owner scoped only for this slice (M-02's "訪客取消與退貨入口" 骨架) — guest access via
-/// GuestOrderAccessToken depends on haru/feature/guest-ordertracking, which is not yet merged
-/// into dev (see PR description). Every lookup here is filtered on the caller's own
-/// MemberUserId; a guest-scoped overload can be added once that Cookie infrastructure lands,
-/// without reshaping this service.
+/// Customer-owner scoped order detail and cancellation. Member access is filtered by
+/// MemberUserId; guest access is accepted only after the API has validated the target order with
+/// GuestOrderAccessScopeAuthorizer and is additionally restricted to guest-owned orders here.
 ///
 /// "退貨入口" remains query-only here: OrderDto supplies the existing Returns application page
 /// with the owned order's RowVersion and eligible item identifiers; ReturnRequest creation stays
@@ -95,13 +93,13 @@ public sealed class EfOrderService : IOrderService
     }
 
     public async Task<OrderDto> GetOrderAsync(
-        string memberUserId,
+        OrderActor actor,
         Guid orderPublicId,
         CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(memberUserId);
+        ArgumentNullException.ThrowIfNull(actor);
 
-        var order = await FindOwnedOrderAsync(memberUserId, orderPublicId, cancellationToken);
+        var order = await FindOwnedOrderAsync(actor, orderPublicId, cancellationToken);
         var items = await _dbContext.OrderItems.AsNoTracking()
             .Where(item => item.OrderId == order.Id)
             .ToListAsync(cancellationToken);
@@ -110,13 +108,13 @@ public sealed class EfOrderService : IOrderService
     }
 
     public async Task<OrderDto> CancelOrderAsync(
-        string memberUserId,
+        OrderActor actor,
         Guid orderPublicId,
         CancelOrderRequest request,
         OrderCancellationAuditContext auditContext,
         CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(memberUserId);
+        ArgumentNullException.ThrowIfNull(actor);
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(auditContext);
 
@@ -127,7 +125,7 @@ public sealed class EfOrderService : IOrderService
                 $"'{request.ReasonCode}' is not a customer-selectable cancellation reason.");
         }
 
-        var order = await FindOwnedOrderAsync(memberUserId, orderPublicId, cancellationToken);
+        var order = await FindOwnedOrderAsync(actor, orderPublicId, cancellationToken);
 
         // 狀態機設計.md：`Confirmed` 允許取消，但已付款者必須改走退款流程；本切片沒有可呼叫的
         // 退款發起 Use Case（ExecuteRefundService 是後台核准後執行，不是顧客自助入口），所以自助
@@ -144,20 +142,11 @@ public sealed class EfOrderService : IOrderService
             request.OrderRowVersion;
 
         var now = _timeProvider.GetUtcNow().UtcDateTime;
-        var memberPublicId = await _dbContext.MemberProfiles
-            .Where(profile => profile.UserId == memberUserId)
-            .Select(profile => (Guid?)profile.PublicId)
-            .SingleOrDefaultAsync(cancellationToken);
-        if (memberPublicId is null)
-        {
-            throw new OrderWriteException(
-                OrderWriteException.ErrorCodes.OrderStateConflict,
-                "The member profile required for cancellation audit was not found.");
-        }
+        var (actorUserId, auditActor) = await ResolveCancellationActorAsync(actor, cancellationToken);
 
         await ReleaseCancellationResourcesAsync(
             order,
-            memberUserId,
+            actorUserId,
             now,
             cancellationToken);
         order.ChangeOrderStatus(OrderStatus.Cancelled, now);
@@ -169,13 +158,13 @@ public sealed class EfOrderService : IOrderService
             fromStatus: OrderStatus.PendingPayment.ToString(),
             toStatus: OrderStatus.Cancelled.ToString(),
             reasonCode: request.ReasonCode,
-            actorUserId: memberUserId,
+            actorUserId,
             occurredAtUtc: now,
             traceId: auditContext.TraceId));
 
         _auditWriter.Add(AuditWriteRequest.Create(
             Guid.CreateVersion7(),
-            AuditActor.Create(AuditActorType.Member, memberPublicId.Value, roles: []),
+            auditActor,
             AuditActions.OrderCancel,
             AuditResourceTypes.Order,
             order.PublicId,
@@ -202,17 +191,21 @@ public sealed class EfOrderService : IOrderService
     }
 
     private async Task<Order> FindOwnedOrderAsync(
-        string memberUserId,
+        OrderActor actor,
         Guid orderPublicId,
         CancellationToken cancellationToken)
     {
         // Not-found and not-owned collapse to the same resource_not_found response (API錯誤碼
         // 目錄.md: "不區分不存在與無權限") so a probing request can't learn whether the PublicId
         // belongs to someone else's order.
-        var order = await _dbContext.Orders
-            .FirstOrDefaultAsync(
-                candidate => candidate.PublicId == orderPublicId && candidate.MemberUserId == memberUserId,
-                cancellationToken);
+        var query = _dbContext.Orders.Where(candidate => candidate.PublicId == orderPublicId);
+        query = actor switch
+        {
+            OrderActor.Member member => query.Where(candidate => candidate.MemberUserId == member.UserId),
+            OrderActor.Guest => query.Where(candidate => candidate.MemberUserId == null),
+            _ => throw new ArgumentOutOfRangeException(nameof(actor)),
+        };
+        var order = await query.FirstOrDefaultAsync(cancellationToken);
         if (order is null)
         {
             throw new OrderWriteException(
@@ -221,6 +214,35 @@ public sealed class EfOrderService : IOrderService
         }
 
         return order;
+    }
+
+    private async Task<(string? ActorUserId, AuditActor AuditActor)> ResolveCancellationActorAsync(
+        OrderActor actor,
+        CancellationToken cancellationToken)
+    {
+        if (actor is OrderActor.Guest guest)
+        {
+            return (
+                ActorUserId: null,
+                AuditActor.Create(AuditActorType.Guest, guest.TokenPublicId, roles: []));
+        }
+
+        var member = (OrderActor.Member)actor;
+        ArgumentException.ThrowIfNullOrWhiteSpace(member.UserId);
+        var memberPublicId = await _dbContext.MemberProfiles
+            .Where(profile => profile.UserId == member.UserId)
+            .Select(profile => (Guid?)profile.PublicId)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (memberPublicId is null)
+        {
+            throw new OrderWriteException(
+                OrderWriteException.ErrorCodes.OrderStateConflict,
+                "The member profile required for cancellation audit was not found.");
+        }
+
+        return (
+            member.UserId,
+            AuditActor.Create(AuditActorType.Member, memberPublicId.Value, roles: []));
     }
 
     private static List<string> BuildSummaryAvailableActions(Order order)
@@ -308,7 +330,7 @@ public sealed class EfOrderService : IOrderService
     /// </summary>
     private async Task ReleaseCancellationResourcesAsync(
         Order order,
-        string memberUserId,
+        string? actorUserId,
         DateTime now,
         CancellationToken cancellationToken)
     {
@@ -354,7 +376,7 @@ public sealed class EfOrderService : IOrderService
                     reasonCode: InventoryReleaseReason,
                     referenceType: "Order",
                     referencePublicId: order.PublicId,
-                    actorUserId: memberUserId,
+                    actorUserId,
                     occurredAtUtc: now));
                 runningReservedQuantity = afterReservedQuantity;
             }
