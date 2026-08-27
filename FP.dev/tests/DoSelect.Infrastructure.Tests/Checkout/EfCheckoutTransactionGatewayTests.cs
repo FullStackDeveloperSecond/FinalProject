@@ -49,6 +49,7 @@ public sealed class EfCheckoutTransactionGatewayTests
         Assert.Equal(1_150m, order.GrandTotal);
         Assert.Equal(1_000m, order.MerchandiseSubtotal);
         Assert.Equal(150m, order.ShippingFee);
+        Assert.Equal(150m, order.ShippingMethodBaseFeeSnapshot);
         Assert.Equal(DoSelect.Domain.Orders.OrderStatus.PendingPayment, order.OrderStatus);
         Assert.Equal(DoSelect.Domain.Orders.PaymentStatus.AwaitingPayment, order.PaymentStatus);
         Assert.Equal(DoSelect.Domain.Inventory.InventoryReservationStatus.Active, reservation.Status);
@@ -103,6 +104,7 @@ public sealed class EfCheckoutTransactionGatewayTests
         var redemption = await verification.CouponRedemptions.SingleAsync(candidate => candidate.OrderId == order.Id);
 
         Assert.Equal(0m, order.ShippingFee);
+        Assert.Equal(150m, order.ShippingMethodBaseFeeSnapshot);
         Assert.Equal(1_000m, order.GrandTotal);
         Assert.True(item.IsCouponEligible);
         Assert.Equal("Checkout 免運券", orderCoupon.NameSnapshot);

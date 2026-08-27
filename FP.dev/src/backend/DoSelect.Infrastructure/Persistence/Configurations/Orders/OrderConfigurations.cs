@@ -32,6 +32,7 @@ public sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
         ConfigureMoney(builder.Property(order => order.PaidAmount));
         ConfigureMoney(builder.Property(order => order.RefundedAmount));
         builder.Property(order => order.ShippingFreeThresholdSnapshot).HasPrecision(18, 2);
+        builder.Property(order => order.ShippingMethodBaseFeeSnapshot).HasPrecision(18, 2);
         builder.Property(order => order.Currency)
             .HasColumnType("char(3)")
             .IsUnicode(false)
@@ -122,6 +123,9 @@ public sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
             table.HasCheckConstraint(
                 "CK_Orders_ShippingFreeThresholdSnapshot",
                 "[ShippingFreeThresholdSnapshot] IS NULL OR [ShippingFreeThresholdSnapshot] >= 0");
+            table.HasCheckConstraint(
+                "CK_Orders_ShippingMethodBaseFeeSnapshot",
+                "[ShippingMethodBaseFeeSnapshot] IS NULL OR [ShippingMethodBaseFeeSnapshot] >= 0");
             table.HasCheckConstraint(
                 "CK_Orders_PolicyVersions",
                 "[ShippingConstraintPolicyVersion] > 0 AND [ReturnPolicyVersion] > 0 AND ([TermsPolicyVersion] IS NULL OR [TermsPolicyVersion] > 0) AND ([PrivacyPolicyVersion] IS NULL OR [PrivacyPolicyVersion] > 0) AND ([CouponPolicyVersion] IS NULL OR [CouponPolicyVersion] > 0)");
