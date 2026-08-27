@@ -1,8 +1,10 @@
 using System.Net.Mail;
+using System.Text;
 using DoSelect.Application.Common;
 using DoSelect.Application.Storage;
 using DoSelect.Application.Checkout;
 using DoSelect.Infrastructure.Email;
+using DoSelect.Infrastructure.Security;
 using Microsoft.Extensions.Options;
 
 namespace DoSelect.Api.Configuration;
@@ -48,6 +50,10 @@ public static class ConfigurationValidationExtensions
             .BindConfiguration(RateLimitOptions.SectionName)
             .ValidateOnStart();
         services
+            .AddOptions<GuestOrderAccessOptions>()
+            .BindConfiguration(GuestOrderAccessOptions.SectionName)
+            .ValidateOnStart();
+        services
             .AddOptions<CheckoutPolicyOptions>()
             .BindConfiguration(CheckoutPolicyOptions.SectionName)
             .ValidateOnStart();
@@ -59,6 +65,7 @@ public static class ConfigurationValidationExtensions
         services.AddSingleton<IValidateOptions<CorsOptions>, CorsOptionsValidator>();
         services.AddSingleton<IValidateOptions<FrontendLinkOptions>, FrontendLinkOptionsValidator>();
         services.AddSingleton<IValidateOptions<RateLimitOptions>, RateLimitOptionsValidator>();
+        services.AddSingleton<IValidateOptions<GuestOrderAccessOptions>, GuestOrderAccessOptionsValidator>();
         services.AddSingleton<IValidateOptions<CheckoutPolicyOptions>, CheckoutPolicyOptionsValidator>();
 
         return services;
@@ -289,6 +296,30 @@ internal sealed class RateLimitOptionsValidator : IValidateOptions<RateLimitOpti
         AddPositiveFailure(failures, options.PerIpWindowHours, "RateLimiting:PerIpWindowHours");
         AddPositiveFailure(failures, options.LoginPerIpPermitLimit, "RateLimiting:LoginPerIpPermitLimit");
         AddPositiveFailure(failures, options.LoginPerIpWindowHours, "RateLimiting:LoginPerIpWindowHours");
+        AddPositiveFailure(
+            failures,
+            options.GuestOrderAccessIpPermitLimit,
+            "RateLimiting:GuestOrderAccessIpPermitLimit");
+        AddPositiveFailure(
+            failures,
+            options.GuestOrderAccessEmailPermitLimit,
+            "RateLimiting:GuestOrderAccessEmailPermitLimit");
+        AddPositiveFailure(
+            failures,
+            options.GuestOrderAccessOrderLookupPermitLimit,
+            "RateLimiting:GuestOrderAccessOrderLookupPermitLimit");
+        AddPositiveFailure(
+            failures,
+            options.GuestOrderAccessWindowMinutes,
+            "RateLimiting:GuestOrderAccessWindowMinutes");
+        AddPositiveFailure(
+            failures,
+            options.AdminChallengePermitLimit,
+            "RateLimiting:AdminChallengePermitLimit");
+        AddPositiveFailure(
+            failures,
+            options.AdminChallengeWindowMinutes,
+            "RateLimiting:AdminChallengeWindowMinutes");
 
         return failures.Count == 0
             ? ValidateOptionsResult.Success
@@ -301,6 +332,20 @@ internal sealed class RateLimitOptionsValidator : IValidateOptions<RateLimitOpti
         {
             failures.Add($"Configuration key '{configurationKey}' must be greater than zero.");
         }
+    }
+}
+
+internal sealed class GuestOrderAccessOptionsValidator : IValidateOptions<GuestOrderAccessOptions>
+{
+    public ValidateOptionsResult Validate(string? name, GuestOrderAccessOptions options)
+    {
+        if (Encoding.UTF8.GetByteCount(options.Pepper) < 32)
+        {
+            return ValidateOptionsResult.Fail(
+                "Configuration key 'GuestOrderAccess:Pepper' must contain at least 32 UTF-8 bytes.");
+        }
+
+        return ValidateOptionsResult.Success;
     }
 }
 

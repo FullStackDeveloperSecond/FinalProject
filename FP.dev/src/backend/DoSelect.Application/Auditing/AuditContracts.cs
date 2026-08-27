@@ -27,6 +27,7 @@ public static class AuditActions
     public const string AdminRecoveryCodeRedeem = "admin.recovery_code.redeem";
     public const string AdminChallengeRateLimited = "admin.challenge.rate_limited";
     public const string AdminSessionsRevoked = "admin.sessions.revoked";
+    public const string GuestOrderScopeViolation = "guest_order.scope_violation";
 
     // ⚠ alex review：30 分鐘 Lockout 必須跟中央 Audit 同一交易——見 AdminAuthController.Login。
     public const string AdminAccountLockout = "admin.account.lockout";
@@ -39,6 +40,7 @@ public static class AuditResourceTypes
     public const string Member = "Member";
     public const string AuditLog = "AuditLog";
     public const string AdminAccount = "AdminAccount";
+    public const string Order = "Order";
     public const string Coupon = "Coupon";
 }
 
@@ -509,6 +511,10 @@ internal static class AuditWritePolicy
                 AuditActions.AdminAccountLockout,
                 AuditResourceTypes.AdminAccount,
                 "lockoutEnd"),
+            [AuditActions.GuestOrderScopeViolation] = Definition(
+                AuditActions.GuestOrderScopeViolation,
+                AuditResourceTypes.Order,
+                "scopeViolationCount"),
         };
 
     public static AuditActionDefinition RequireDefinition(string action)

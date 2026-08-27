@@ -794,6 +794,175 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/guest-orders/access-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["GuestOrderAccessRequestDto"];
+                    "text/json": components["schemas"]["GuestOrderAccessRequestDto"];
+                    "application/*+json": components["schemas"]["GuestOrderAccessRequestDto"];
+                };
+            };
+            responses: {
+                /** @description Accepted */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["GuestOrderAccessRequestAcceptedDto"];
+                        "application/json": components["schemas"]["GuestOrderAccessRequestAcceptedDto"];
+                        "text/json": components["schemas"]["GuestOrderAccessRequestAcceptedDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Too Many Requests */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guest-orders/access-requests/{requestPublicId}/actions/resend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    requestPublicId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Accepted */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["GuestOrderAccessRequestAcceptedDto"];
+                        "application/json": components["schemas"]["GuestOrderAccessRequestAcceptedDto"];
+                        "text/json": components["schemas"]["GuestOrderAccessRequestAcceptedDto"];
+                    };
+                };
+                /** @description Too Many Requests */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/guest-orders/access-verifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["GuestOrderAccessVerificationDto"];
+                    "text/json": components["schemas"]["GuestOrderAccessVerificationDto"];
+                    "application/*+json": components["schemas"]["GuestOrderAccessVerificationDto"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["GuestOrderAccessVerifiedDto"];
+                        "application/json": components["schemas"]["GuestOrderAccessVerifiedDto"];
+                        "text/json": components["schemas"]["GuestOrderAccessVerifiedDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/invoices/{id}/allowances": {
         parameters: {
             query?: never;
@@ -3805,6 +3974,29 @@ export interface components {
             reasonCode: string;
             /** Format: byte */
             returnRowVersion: string;
+        };
+        GuestOrderAccessRequestAcceptedDto: {
+            /** Format: uuid */
+            requestPublicId: string;
+            /** Format: date-time */
+            expiresAtUtc: string;
+            /** Format: date-time */
+            resendAvailableAtUtc: string;
+        };
+        GuestOrderAccessRequestDto: {
+            orderNumber: string;
+            email: string;
+        };
+        GuestOrderAccessVerificationDto: {
+            /** Format: uuid */
+            requestPublicId: string;
+            code: string;
+        };
+        GuestOrderAccessVerifiedDto: {
+            /** Format: uuid */
+            orderPublicId: string;
+            /** Format: date-time */
+            expiresAtUtc: string;
         };
         /** Format: binary */
         IFormFile: string;

@@ -143,6 +143,8 @@ node .\scripts\validate-ai-eval-dataset.mjs
 
 會呼叫共用 Idempotency Executor 的功能必須以 User Secrets 或部署環境設定 `Idempotency:ActorScopePepper`；值至少 32 UTF-8 bytes，且不得寫入範例設定、Repository、Log 或資料庫。尚未呼叫冪等命令的 Fresh Clone 可不設定；第一次測試購物車合併、建立訂單、退款等冪等端點前必須完成設定。
 
+訪客查單（Guest Order Access）流程需要以 User Secrets 或部署環境設定 `GuestOrderAccess:Pepper`；值至少 32 UTF-8 bytes，用來 HMAC 雜湊 IP、Email、訂單查找鍵、驗證碼與存取權杖，同樣不得寫入範例設定、Repository、Log 或資料庫。API 會在啟動時驗證此設定，因此 Fresh Clone 必須先設定才能啟動；CI 只能使用測試專用值，正式環境必須由部署 Secret 提供不同的高熵值。
+
 健康檢查：
 
 - `GET /health/live`：確認 API 程序可處理請求。

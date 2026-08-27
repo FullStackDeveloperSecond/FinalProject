@@ -99,7 +99,92 @@ public sealed class GuestOrderAccessRequest : MutablePublicEntity
             expiresAtUtc,
             createdAtUtc);
 
+    /// <summary>
+    /// 固定哨兵值，代表「沒有可信 Email／OrderLookup Hash」——見
+    /// <see cref="CreateUnknownResendAttempt"/>。HMAC-SHA256 輸出實務上不可能是全零，
+    /// 不會跟任何真實 Email／OrderLookup Hash 碰撞。
+    /// </summary>
+    public static readonly byte[] UnknownScopeHash = new byte[32];
+
+    /// <summary>
+    /// Resend 查無此 PublicId／已完全失效呼叫時，用來「唯一消耗＋持久化」目前呼叫者 IP
+    /// 這一個 Scope 的紀錄——沒有真實 Request 可延續，也沒有可信 Email／OrderLookup Hash
+    /// 可用，因此兩者一律填 <see cref="UnknownScopeHash"/>，只讓這筆 Row 對 IP Scope 的
+    /// (Hash, CreatedAtUtc) 索引可數。<see cref="Entity.PublicId"/> 只是佔位，永遠不會回傳
+    /// 給呼叫端，也不會被 <c>FindActiveRequestAsync</c> 需要再利用。
+    /// </summary>
+    public static GuestOrderAccessRequest CreateUnknownResendAttempt(
+        Guid publicId,
+        byte[] requesterIpHash,
+        DateTime expiresAtUtc,
+        DateTime createdAtUtc) =>
+        new(
+            publicId,
+            null,
+            null,
+            requesterIpHash,
+            UnknownScopeHash,
+            UnknownScopeHash,
+            expiresAtUtc,
+            createdAtUtc);
+
+    /// <summary>
+    /// 已知 Challenge 成功重寄時的持久化限流事件。它沿用 Challenge 的 Email／OrderLookup
+    /// Hash，並保存這次呼叫的 IP Hash，讓三個 Scope 都能透過既有
+    /// (Hash, CreatedAtUtc) 索引計數；不保存訂單、驗證碼，也永遠不回傳給呼叫端。
+    /// 建立後立即標記撤銷，確保即使 PublicId 被取得也不能被當成可驗證的 Decoy Challenge。
+    /// </summary>
+    public static GuestOrderAccessRequest CreateResendRateLimitEvent(
+        Guid publicId,
+        byte[] requesterIpHash,
+        byte[] emailKeyHash,
+        byte[] orderLookupKeyHash,
+        DateTime expiresAtUtc,
+        DateTime createdAtUtc)
+    {
+        var rateLimitEvent = new GuestOrderAccessRequest(
+            publicId,
+            null,
+            null,
+            requesterIpHash,
+            emailKeyHash,
+            orderLookupKeyHash,
+            expiresAtUtc,
+            createdAtUtc);
+        rateLimitEvent.Revoke(createdAtUtc);
+        return rateLimitEvent;
+    }
+
     public void RecordSend(DateTime sentAtUtc)
+    {
+        EnsureCanSend(sentAtUtc);
+        SendCount++;
+        LastSentAtUtc = sentAtUtc;
+        MarkUpdated(sentAtUtc);
+    }
+
+    /// <summary>
+    /// 重寄時原地更新同一張 Challenge，PublicId 與到期時間不變；有效 Request 以新 CodeHash
+    /// 取代舊碼，Decoy 維持 null，並把本輪錯誤嘗試歸零。持久化限流由同一交易新增的
+    /// <see cref="CreateResendRateLimitEvent"/> 負責，不能靠建立無鏈識別欄位的 successor Row。
+    /// </summary>
+    public void RecordResend(
+        byte[]? newCodeHash,
+        DateTime sentAtUtc)
+    {
+        EnsureCanSend(sentAtUtc);
+        CodeHash = OrderId is null
+            ? newCodeHash is null
+                ? null
+                : throw new ArgumentException("A decoy challenge cannot store a code hash.", nameof(newCodeHash))
+            : RequireHash(newCodeHash ?? throw new ArgumentNullException(nameof(newCodeHash)), nameof(newCodeHash));
+        AttemptCount = 0;
+        SendCount++;
+        LastSentAtUtc = sentAtUtc;
+        MarkUpdated(sentAtUtc);
+    }
+
+    private void EnsureCanSend(DateTime sentAtUtc)
     {
         EnsureActive(sentAtUtc);
         if (SendCount >= MaximumSends)
@@ -111,10 +196,6 @@ public sealed class GuestOrderAccessRequest : MutablePublicEntity
         {
             throw new InvalidOperationException("The resend interval has not elapsed.");
         }
-
-        SendCount++;
-        LastSentAtUtc = sentAtUtc;
-        MarkUpdated(sentAtUtc);
     }
 
     public void RecordFailedAttempt(DateTime attemptedAtUtc)
@@ -221,14 +302,6 @@ public sealed class GuestOrderAccessToken : PublicEntity
     public DateTime? RevokedAtUtc { get; private set; }
 
     public int ScopeViolationCount { get; private set; }
-
-    public void RecordScopeViolation()
-    {
-        checked
-        {
-            ScopeViolationCount++;
-        }
-    }
 
     public void Revoke(DateTime revokedAtUtc)
     {

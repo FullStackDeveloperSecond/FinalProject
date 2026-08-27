@@ -182,6 +182,23 @@ public sealed class ObservabilityTests : IClassFixture<WebApplicationFactory<Pro
     }
 
     [Fact]
+    public void Start_WhenGuestOrderAccessRateLimitIsNotPositive_FailsWithConfigurationKey()
+    {
+        using var factory = CreateFactory(new Dictionary<string, string?>
+        {
+            ["GuestOrderAccess:Pepper"] = "integration-test-guest-order-pepper-32-bytes",
+            ["RateLimiting:GuestOrderAccessWindowMinutes"] = "0",
+        });
+
+        var exception = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
+
+        Assert.Contains(
+            "RateLimiting:GuestOrderAccessWindowMinutes",
+            exception.ToString(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Start_WhenEmailIsEnabledWithoutCredentials_FailsWithConfigurationKeysOnly()
     {
         using var factory = CreateFactory(new Dictionary<string, string?>
