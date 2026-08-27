@@ -43,6 +43,7 @@ public static class AuditActions
     public const string SupportTicketChangeStatus = "support_ticket.change_status";
     public const string SupportTicketCancel = "support_ticket.cancel";
     public const string SupportTicketReopen = "support_ticket.reopen";
+    public const string SupportTicketInternalNote = "support_ticket.internal_note";
 }
 
 public static class AuditResourceTypes
@@ -556,6 +557,10 @@ internal static class AuditWritePolicy
                 AuditActions.SupportTicketReopen,
                 AuditResourceTypes.SupportTicket,
                 "status"),
+            [AuditActions.SupportTicketInternalNote] = Definition(
+                AuditActions.SupportTicketInternalNote,
+                AuditResourceTypes.SupportTicket,
+                "note"),
         };
 
     public static AuditActionDefinition RequireDefinition(string action)

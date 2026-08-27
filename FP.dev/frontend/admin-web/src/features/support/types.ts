@@ -18,3 +18,4 @@ export type ChangeSupportTicketPriorityRequest = components['schemas']['ChangeSu
 export type ChangeSupportTicketStatusRequest = components['schemas']['ChangeSupportTicketStatusRequest']
 export type CancelSupportTicketByAdminRequest = components['schemas']['CancelSupportTicketByAdminRequest']
 export type ReopenSupportTicketRequest = components['schemas']['ReopenSupportTicketRequest']
+export type CreateInternalNoteRequest = components['schemas']['CreateInternalNoteRequest']

@@ -4,6 +4,7 @@ import { isApiError } from '@doselect/web-shared/api'
 import { computed, reactive } from 'vue'
 import { useRoute } from 'vue-router'
 import {
+  useAddInternalNoteMutation,
   useAssignSupportTicketMutation,
   useCancelSupportTicketByAdminMutation,
   useChangeSupportTicketPriorityMutation,
@@ -28,6 +29,7 @@ const changePriorityMutation = useChangeSupportTicketPriorityMutation(ticketId)
 const changeStatusMutation = useChangeSupportTicketStatusMutation(ticketId)
 const cancelMutation = useCancelSupportTicketByAdminMutation(ticketId)
 const reopenMutation = useReopenSupportTicketMutation(ticketId)
+const internalNoteMutation = useAddInternalNoteMutation(ticketId)
 
 // Every gate below reads the backend's AvailableActions list (AdminSupportTicketService.
 // ComputeAvailableActions) — a public-safe, usability-only hint computed from the ticket's own
@@ -47,6 +49,7 @@ const canChangePriority = computed(() => hasAction('change-priority'))
 const canChangeStatus = computed(() => hasAction('change-status'))
 const canCancel = computed(() => hasAction('cancel'))
 const canReopen = computed(() => hasAction('reopen'))
+const canAddInternalNote = computed(() => hasAction('internal-note'))
 
 const priorityOptions: CasePriority[] = ['low', 'normal', 'high', 'urgent']
 const statusOptions: SupportTicketStatus[] = [
@@ -64,6 +67,7 @@ const priorityForm = reactive<{ priority: CasePriority, reason: string }>({ prio
 const statusForm = reactive<{ status: SupportTicketStatus, reason: string }>({ status: 'inProgress', reason: '' })
 const cancelForm = reactive({ reason: '' })
 const reopenForm = reactive({ reason: '' })
+const internalNoteForm = reactive({ body: '' })
 
 function isConflict(candidateError: unknown): boolean {
   return isApiError(candidateError) && candidateError.status === 409
@@ -167,6 +171,19 @@ async function handleReopen() {
   try {
     await reopenMutation.mutateAsync({ reason: reopenForm.reason, rowVersion: ticket.value.rowVersion })
     reopenForm.reason = ''
+  }
+  catch {
+    // See handleAssign.
+  }
+}
+
+async function handleAddInternalNote() {
+  if (!ticket.value || !internalNoteForm.body) {
+    return
+  }
+  try {
+    await internalNoteMutation.mutateAsync({ body: internalNoteForm.body, rowVersion: ticket.value.rowVersion })
+    internalNoteForm.body = ''
   }
   catch {
     // See handleAssign.
@@ -319,7 +336,7 @@ async function handleClaim() {
       </div>
 
       <section
-        v-if="canAssign || canTransfer || canChangePriority || canChangeStatus || canCancel || canReopen"
+        v-if="canAssign || canTransfer || canChangePriority || canChangeStatus || canCancel || canReopen || canAddInternalNote"
         class="support-ticket-detail__actions card"
         aria-labelledby="support-ticket-actions-title"
       >
@@ -534,6 +551,38 @@ async function handleClaim() {
             {{ errorMessage(reopenMutation.error.value, '這個案件目前不能重開，畫面已更新為最新狀態，請重新確認。') }}
           </p>
         </div>
+
+        <div
+          v-if="canAddInternalNote"
+          class="support-ticket-detail__action-form"
+        >
+          <h3>新增內部備註</h3>
+          <p class="support-ticket-detail__internal-note-hint">
+            內部備註僅供客服人員查看，會員永遠看不到這則內容。
+          </p>
+          <label class="support-ticket-detail__internal-note-label">
+            備註內容
+            <textarea
+              v-model="internalNoteForm.body"
+              rows="3"
+              maxlength="4000"
+            />
+          </label>
+          <button
+            type="button"
+            :disabled="internalNoteMutation.isPending.value"
+            @click="handleAddInternalNote"
+          >
+            {{ internalNoteMutation.isPending.value ? '新增中…' : '新增備註' }}
+          </button>
+          <p
+            v-if="internalNoteMutation.isError.value"
+            class="form-error"
+            role="alert"
+          >
+            {{ errorMessage(internalNoteMutation.error.value, '案件已被其他操作變更，畫面已更新為最新狀態，請重新確認。') }}
+          </p>
+        </div>
       </section>
 
       <section
@@ -670,6 +719,23 @@ async function handleClaim() {
   gap: 0.25rem;
   font-size: 0.8125rem;
   color: var(--color-text-muted);
+}
+
+.support-ticket-detail__internal-note-hint {
+  flex-basis: 100%;
+  margin: 0 0 0.25rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.support-ticket-detail__internal-note-label {
+  flex-basis: 100%;
+}
+
+.support-ticket-detail__internal-note-label textarea {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
 }
 
 .support-ticket-detail__action-form .form-error {

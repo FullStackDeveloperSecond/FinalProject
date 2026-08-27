@@ -96,6 +96,35 @@ public sealed class SupportTicket : MutablePublicEntity
         LastActivityAtUtc = RequireUtc(occurredAtUtc, nameof(occurredAtUtc));
         MarkUpdated(occurredAtUtc);
     }
+
+    /// <summary>
+    /// Reopens a Resolved ticket back to InProgress, but only within 3 days of ResolvedAtUtc —
+    /// Closed/Cancelled (and any other non-Resolved status) can never reopen, and a Resolved
+    /// ticket past its 3-day window can no longer reopen either. Uses the existing
+    /// Resolved-&gt;InProgress Transition edge (so ReopenCount increments exactly the way it
+    /// already does today) and then additionally recomputes ResolutionDueAtUtc from
+    /// <paramref name="resolutionTarget"/> — the caller (Application/Infrastructure) supplies
+    /// this from the ticket's current Priority via SupportSlaPolicy, since Domain must not
+    /// depend on Application. FirstHumanResponseAtUtc is untouched: a reopen is not a first
+    /// response event.
+    /// </summary>
+    public void Reopen(DateTime occurredAtUtc, TimeSpan resolutionTarget)
+    {
+        if (Status != SupportTicketStatus.Resolved)
+        {
+            throw new InvalidOperationException($"A {Status} ticket cannot be reopened.");
+        }
+
+        occurredAtUtc = RequireUtc(occurredAtUtc, nameof(occurredAtUtc));
+        if (ResolvedAtUtc is null || occurredAtUtc > ResolvedAtUtc.Value.AddDays(3))
+        {
+            throw new InvalidOperationException("The ticket can only be reopened within 3 days of being resolved.");
+        }
+
+        Transition(SupportTicketStatus.InProgress, occurredAtUtc);
+        ResolutionDueAtUtc = occurredAtUtc.Add(resolutionTarget);
+    }
+
     public void Transition(SupportTicketStatus next, DateTime occurredAtUtc)
     {
         if (!AllowedTransitions[Status].Contains(next)) throw new InvalidOperationException($"Support ticket cannot move from {Status} to {next}.");

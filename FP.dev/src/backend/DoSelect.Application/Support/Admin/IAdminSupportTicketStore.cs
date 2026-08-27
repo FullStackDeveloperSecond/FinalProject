@@ -99,6 +99,18 @@ public interface IAdminSupportTicketStore
     Task<SupportTicketMutationResult> ReopenAsync(
         SupportTicketReasonCommand command,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Appends an internal note (SupportMessage with IsInternal=true) — never surfaced to the
+    /// member and never counted as the first human public response. Actor-scoped like every
+    /// read/mutate action: a Handle-only caller may only note an unassigned or personally
+    /// assigned ticket; a supervisor may note any. Uses the tracked-entity + RowVersion
+    /// OriginalValue pattern (same as ChangePriority/ChangeStatus/Cancel/Reopen) since this is a
+    /// single-actor addition, not a multi-actor race.
+    /// </summary>
+    Task<SupportTicketMutationResult> AddInternalNoteAsync(
+        SupportTicketAddInternalNoteCommand command,
+        CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -161,6 +173,20 @@ public sealed record SupportTicketChangeStatusCommand(
     System.Net.IPAddress? RemoteIpAddress,
     SupportTicketStatus TargetStatus,
     string? Reason)
+    : SupportTicketActionCommand(TicketPublicId, ActorUserId, ActorRoles, CanSupervise, ExpectedRowVersion,
+        OccurredAtUtc, CorrelationId, TraceId, RemoteIpAddress);
+
+public sealed record SupportTicketAddInternalNoteCommand(
+    Guid TicketPublicId,
+    string ActorUserId,
+    IReadOnlyCollection<string> ActorRoles,
+    bool CanSupervise,
+    byte[] ExpectedRowVersion,
+    DateTime OccurredAtUtc,
+    string CorrelationId,
+    string TraceId,
+    System.Net.IPAddress? RemoteIpAddress,
+    string Body)
     : SupportTicketActionCommand(TicketPublicId, ActorUserId, ActorRoles, CanSupervise, ExpectedRowVersion,
         OccurredAtUtc, CorrelationId, TraceId, RemoteIpAddress);
 

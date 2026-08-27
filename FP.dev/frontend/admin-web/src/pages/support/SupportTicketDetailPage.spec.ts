@@ -29,6 +29,7 @@ const supportMocks = await vi.hoisted(async () => {
     changeStatus: newMutationMock(),
     cancel: newMutationMock(),
     reopen: newMutationMock(),
+    internalNote: newMutationMock(),
   }
 })
 
@@ -47,6 +48,7 @@ vi.mock('../../features/support/queries', () => ({
   useChangeSupportTicketStatusMutation: () => supportMocks.changeStatus,
   useCancelSupportTicketByAdminMutation: () => supportMocks.cancel,
   useReopenSupportTicketMutation: () => supportMocks.reopen,
+  useAddInternalNoteMutation: () => supportMocks.internalNote,
 }))
 
 const ticketId = '018f2e6a-0000-7000-8000-000000000001'
@@ -134,6 +136,7 @@ describe('SupportTicketDetailPage', () => {
       supportMocks.changeStatus,
       supportMocks.cancel,
       supportMocks.reopen,
+      supportMocks.internalNote,
     ]) {
       mock.isPending.value = false
       mock.isError.value = false
@@ -240,5 +243,31 @@ describe('SupportTicketDetailPage', () => {
     await alert.get('button').trigger('click')
     expect(supportMocks.refetch).toHaveBeenCalledOnce()
     expect(escapedErrorHandler).not.toHaveBeenCalled()
+  })
+
+  it('DES-23: gates the internal note form on the availableActions token and submits the RowVersion', async () => {
+    supportMocks.ticket.value = sampleTicket(['internal-note'])
+    const wrapper = await mountPage()
+
+    expect(wrapper.text()).toContain('新增內部備註')
+    expect(wrapper.text()).toContain('會員永遠看不到這則內容')
+    const textarea = wrapper.get('textarea')
+    await textarea.setValue('內部備註內容')
+    // sampleTicket(['internal-note']) offers no other action, so the internal-note form's own
+    // submit button is the only <button> on the page.
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+
+    expect(supportMocks.internalNote.mutateAsync).toHaveBeenCalledWith({
+      body: '內部備註內容',
+      rowVersion: 'AAAAAAAAAAE=',
+    })
+  })
+
+  it('DES-23: hides the internal note form when availableActions omits it', async () => {
+    const wrapper = await mountPage()
+
+    expect(wrapper.text()).not.toContain('新增內部備註')
+    expect(wrapper.find('textarea').exists()).toBe(false)
   })
 })

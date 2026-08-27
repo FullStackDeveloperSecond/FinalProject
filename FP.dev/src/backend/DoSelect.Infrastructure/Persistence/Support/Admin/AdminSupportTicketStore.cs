@@ -1,4 +1,5 @@
 using DoSelect.Application.Auditing;
+using DoSelect.Application.Support;
 using DoSelect.Application.Support.Admin;
 using DoSelect.Application.Support.Dtos;
 using DoSelect.Domain.Auditing;
@@ -453,7 +454,12 @@ public sealed class AdminSupportTicketStore : IAdminSupportTicketStore
             ticket =>
             {
                 var before = ticket.Status;
-                ticket.Transition(SupportTicketStatus.InProgress, command.OccurredAtUtc);
+                // Domain must not depend on Application, so the Priority -> resolution-target
+                // mapping is resolved here (Infrastructure already references Application) and
+                // handed to the named Reopen operation, which enforces the 3-day window,
+                // ReopenCount, and the recompute atomically — never via the generic Transition.
+                var resolutionTarget = SupportSlaPolicy.GetTargets(ticket.Priority).Resolution;
+                ticket.Reopen(command.OccurredAtUtc, resolutionTarget);
                 var history = new SupportStatusHistory(
                     ticket.Id,
                     before,
@@ -525,6 +531,90 @@ public sealed class AdminSupportTicketStore : IAdminSupportTicketStore
             errorCode: null,
             result.auditChanges,
             result.auditReason,
+            command.CorrelationId,
+            command.TraceId,
+            jobPublicId: null,
+            command.RemoteIpAddress));
+
+        try
+        {
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return SupportTicketMutationResult.ConcurrencyConflict;
+        }
+
+        var detail = await GetDetailAsync(command.TicketPublicId, command.ActorUserId, command.CanSupervise, cancellationToken);
+        return detail is null
+            ? SupportTicketMutationResult.NotFound
+            : SupportTicketMutationResult.Success(detail);
+    }
+
+    /// <summary>
+    /// Appends an internal note. Reuses SupportTicket.RecordActivity (the same named operation
+    /// message replies already use to bump LastActivityAtUtc) rather than touching any
+    /// private-set field directly — it also naturally rejects a Closed/Cancelled ticket, since
+    /// RecordActivity already throws for those. Never touches FirstHumanResponseAtUtc: an
+    /// internal note is not a public reply.
+    /// </summary>
+    public async Task<SupportTicketMutationResult> AddInternalNoteAsync(
+        SupportTicketAddInternalNoteCommand command,
+        CancellationToken cancellationToken)
+    {
+        var actor = await ResolveActiveAdminAsync(command.ActorUserId, cancellationToken);
+        if (actor is null)
+        {
+            return SupportTicketMutationResult.AdminNotEligible;
+        }
+
+        var ticket = await _dbContext.SupportTickets
+            .Where(t => t.PublicId == command.TicketPublicId &&
+                (command.CanSupervise || t.AssigneeAdminUserId == null || t.AssigneeAdminUserId == command.ActorUserId))
+            .SingleOrDefaultAsync(cancellationToken);
+        if (ticket is null)
+        {
+            return SupportTicketMutationResult.NotFound;
+        }
+
+        try
+        {
+            ticket.RecordActivity(command.OccurredAtUtc);
+        }
+        catch (InvalidOperationException)
+        {
+            return SupportTicketMutationResult.StateConflict;
+        }
+
+        _dbContext.Entry(ticket).Property(t => t.RowVersion).OriginalValue = command.ExpectedRowVersion;
+
+        await _dbContext.SupportMessages.AddAsync(
+            new SupportMessage(
+                Guid.CreateVersion7(),
+                ticket.Id,
+                SupportSenderType.Admin,
+                command.ActorUserId,
+                command.Body,
+                isInternal: true,
+                aiGenerated: false,
+                replyToMessageId: null,
+                language: "zh-TW",
+                sentAtUtc: command.OccurredAtUtc),
+            cancellationToken);
+
+        // The note's own text is never given to the audit trail — only "a note field changed"
+        // is recorded. The full text lives solely in SupportMessages, gated by the same
+        // SupportTicket.Handle/Supervise scope as everything else in this file.
+        _auditWriter.Add(AuditWriteRequest.Create(
+            Guid.CreateVersion7(),
+            AuditActor.Create(AuditActorType.Admin, actor.Value.PublicId, command.ActorRoles),
+            AuditActions.SupportTicketInternalNote,
+            AuditResourceTypes.SupportTicket,
+            command.TicketPublicId,
+            AuditResult.Success,
+            errorCode: null,
+            [AuditFieldChange.Changed("note")],
+            "internal_note",
             command.CorrelationId,
             command.TraceId,
             jobPublicId: null,

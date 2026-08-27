@@ -211,6 +211,29 @@ public sealed class AdminSupportTicketService : IAdminSupportTicketService
         return ToDetailDto(result, DomainErrorCodes.SupportTicketStateConflict, context.CanSupervise, nowUtc);
     }
 
+    public async Task<AdminSupportTicketDetailDto> AddInternalNoteAsync(
+        SupportTicketActionContext context,
+        Guid ticketPublicId,
+        CreateInternalNoteRequest request,
+        CancellationToken cancellationToken)
+    {
+        var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        var result = await _store.AddInternalNoteAsync(
+            new SupportTicketAddInternalNoteCommand(
+                ticketPublicId,
+                context.AdminUserId,
+                context.Roles,
+                context.CanSupervise,
+                request.RowVersion,
+                nowUtc,
+                context.CorrelationId,
+                context.TraceId,
+                context.RemoteIpAddress,
+                request.Body),
+            cancellationToken);
+        return ToDetailDto(result, DomainErrorCodes.SupportTicketStateConflict, context.CanSupervise, nowUtc);
+    }
+
     private static AdminSupportTicketDto ToDto(SupportTicketAssignResult result, string actionName) =>
         result.Outcome switch
         {
@@ -283,7 +306,7 @@ public sealed class AdminSupportTicketService : IAdminSupportTicketService
     /// change-status/cancel/reopen need no further per-caller check here — only the ticket's own
     /// state matters for those four once visibility is established.
     /// </summary>
-    private static IReadOnlyList<string> ComputeAvailableActions(AdminSupportTicketDetail detail, bool canSupervise)
+    private static IReadOnlyList<string> ComputeAvailableActions(AdminSupportTicketDetail detail, bool canSupervise, DateTime nowUtc)
     {
         var actions = new List<string>();
         var isTerminal = detail.Status is SupportTicketStatus.Closed or SupportTicketStatus.Cancelled;
@@ -311,6 +334,7 @@ public sealed class AdminSupportTicketService : IAdminSupportTicketService
         {
             actions.Add("change-priority");
             actions.Add("change-status");
+            actions.Add("internal-note");
         }
 
         if (detail.Status is SupportTicketStatus.Open or SupportTicketStatus.Assigned && detail.FirstHumanResponseAtUtc is null)
@@ -318,7 +342,11 @@ public sealed class AdminSupportTicketService : IAdminSupportTicketService
             actions.Add("cancel");
         }
 
-        if (detail.Status == SupportTicketStatus.Resolved)
+        // Mirrors SupportTicket.Reopen's own gate exactly (Resolved + within 3 days of
+        // ResolvedAtUtc) so this hint never offers a reopen the store would just 409 on.
+        if (detail.Status == SupportTicketStatus.Resolved &&
+            detail.ResolvedAtUtc is { } resolvedAtUtc &&
+            nowUtc <= resolvedAtUtc.AddDays(3))
         {
             actions.Add("reopen");
         }
@@ -346,7 +374,7 @@ public sealed class AdminSupportTicketService : IAdminSupportTicketService
         detail.ResolvedAtUtc,
         detail.ClosedAtUtc,
         detail.ReopenCount,
-        ComputeAvailableActions(detail, canSupervise),
+        ComputeAvailableActions(detail, canSupervise, nowUtc),
         detail.RowVersion,
         [.. detail.Messages.Select(m => new AdminSupportMessageDto(
             m.PublicId,

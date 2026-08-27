@@ -11,6 +11,7 @@ import type {
   ChangeSupportTicketPriorityRequest,
   ChangeSupportTicketStatusRequest,
   ClaimSupportTicketRequest,
+  CreateInternalNoteRequest,
   ReopenSupportTicketRequest,
   SupportSlaQueuePage,
   TransferSupportTicketRequest,
@@ -18,11 +19,9 @@ import type {
 
 const slaQueueRootKey = 'admin-support-sla-queue'
 const ticketDetailRootKey = 'admin-support-ticket-detail'
-// DES-23 requirement 七: every action's success/409-conflict path must also refetch the Case
-// Workbench. No admin-web page consumes this query yet (Case Workbench has no frontend route in
-// this baseline — only the backend endpoint exists), but the key is defined here so a future
-// Case Workbench page can adopt it and immediately benefit from this invalidation.
-const caseWorkbenchRootKey = 'admin-case-workbench'
+// A-24 Case Workbench (../case-workbench/queries.ts) reads this same key so every action here
+// that can change what the Workbench shows also invalidates it.
+export const caseWorkbenchRootKey = 'admin-case-workbench'
 
 export const defaultSlaPageSize = 20
 
@@ -232,6 +231,28 @@ export function useReopenSupportTicketMutation(ticketId: MaybeRefOrGetter<string
       await invalidateSupportProjections(queryClient, toValue(ticketId))
     },
     onError: async (error) => {
+      if (isApiError(error) && error.status === 409) {
+        await invalidateSupportProjections(queryClient, toValue(ticketId))
+      }
+    },
+  })
+}
+
+export function useAddInternalNoteMutation(ticketId: MaybeRefOrGetter<string>) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (request: CreateInternalNoteRequest): Promise<AdminSupportTicketDetailDto> => {
+      const { data } = await apiClient.POST('/api/v1/admin/support-tickets/{id}/internal-notes', {
+        params: { path: { id: toValue(ticketId) } },
+        body: request,
+      })
+      return data as AdminSupportTicketDetailDto
+    },
+    onSuccess: async () => {
+      await invalidateSupportProjections(queryClient, toValue(ticketId))
+    },
+    onError: async (error) => {
+      // concurrency_conflict is the only conflict code this action can return.
       if (isApiError(error) && error.status === 409) {
         await invalidateSupportProjections(queryClient, toValue(ticketId))
       }

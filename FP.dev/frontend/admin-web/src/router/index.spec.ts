@@ -7,6 +7,7 @@ describe('admin router foundation', () => {
   it.each([
     ['/support', 'support-sla-queue'],
     ['/support/tickets/018f2e6a-0000-7000-8000-000000000001', 'support-ticket-detail'],
+    ['/cases', 'case-workbench'],
   ])('registers the admin support route %s', (path, name) => {
     const resolved = router.resolve(path)
 

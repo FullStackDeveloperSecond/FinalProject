@@ -313,28 +313,270 @@ public sealed class AdminSupportTicketSuperviseStoreTests : IClassFixture<WebApp
     }
 
     [Fact]
-    public async Task ReopenAsync_FromResolved_TransitionsToInProgressAndIncrementsReopenCount()
+    public async Task ReopenAsync_WithinThreeDays_TransitionsToInProgressAndIncrementsReopenCount()
     {
-        var ticket = await SeedResolvedTicketAsync();
+        var (ticket, resolvedAtUtc, _) = await SeedResolvedTicketAsync();
         var actor = await SeedAdminAsync(active: true, role: AuditRoleNames.CustomerServiceSupervisor);
 
-        var result = await ReopenInNewScopeAsync(ticket.PublicId, actor.UserId, true, ticket.RowVersion);
+        var result = await ReopenInNewScopeAsync(
+            ticket.PublicId, actor.UserId, true, ticket.RowVersion, resolvedAtUtc.AddDays(2));
 
         Assert.Equal(SupportTicketMutationOutcome.Success, result.Outcome);
         Assert.Equal(1, result.Ticket!.ReopenCount);
         await AssertStatusUnchangedAsync(ticket.PublicId, SupportTicketStatus.InProgress);
     }
 
+    [Theory]
+    [InlineData(CasePriority.Low, 5 * 24)]
+    [InlineData(CasePriority.Normal, 3 * 24)]
+    [InlineData(CasePriority.High, 24)]
+    [InlineData(CasePriority.Urgent, 8)]
+    public async Task ReopenAsync_RecomputesResolutionDueDateFromCurrentPriority(CasePriority priority, int resolutionTargetHours)
+    {
+        var (ticket, resolvedAtUtc, _) = await SeedResolvedTicketAsync(priority);
+        var actor = await SeedAdminAsync(active: true, role: AuditRoleNames.CustomerServiceSupervisor);
+        var reopenedAtUtc = resolvedAtUtc.AddDays(1);
+
+        var result = await ReopenInNewScopeAsync(ticket.PublicId, actor.UserId, true, ticket.RowVersion, reopenedAtUtc);
+
+        Assert.Equal(SupportTicketMutationOutcome.Success, result.Outcome);
+        Assert.Equal(reopenedAtUtc.AddHours(resolutionTargetHours), result.Ticket!.ResolutionDueAtUtc);
+    }
+
     [Fact]
-    public async Task ReopenAsync_FromClosed_ReturnsStateConflictWithoutMutating()
+    public async Task ReopenAsync_PreservesFirstHumanResponseAtUtc()
+    {
+        var (ticket, resolvedAtUtc, _) = await SeedResolvedTicketAsync();
+        var actor = await SeedAdminAsync(active: true, role: AuditRoleNames.CustomerServiceSupervisor);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+            var before = await db.SupportTickets.AsNoTracking().SingleAsync(t => t.PublicId == ticket.PublicId);
+            Assert.NotNull(before.FirstHumanResponseAtUtc);
+
+            var result = await ReopenInNewScopeAsync(
+                ticket.PublicId, actor.UserId, true, ticket.RowVersion, resolvedAtUtc.AddDays(1));
+            Assert.Equal(SupportTicketMutationOutcome.Success, result.Outcome);
+            Assert.Equal(before.FirstHumanResponseAtUtc, result.Ticket!.FirstHumanResponseAtUtc);
+        }
+    }
+
+    [Fact]
+    public async Task ReopenAsync_AfterThreeDayWindow_ReturnsStateConflictWithZeroSideEffects()
+    {
+        var (ticket, resolvedAtUtc, _) = await SeedResolvedTicketAsync();
+        var actor = await SeedAdminAsync(active: true, role: AuditRoleNames.CustomerServiceSupervisor);
+
+        var result = await ReopenInNewScopeAsync(
+            ticket.PublicId, actor.UserId, true, ticket.RowVersion, resolvedAtUtc.AddDays(3).AddSeconds(1));
+
+        Assert.Equal(SupportTicketMutationOutcome.StateConflict, result.Outcome);
+        await AssertReopenHadZeroSideEffectsAsync(ticket, SupportTicketStatus.Resolved);
+    }
+
+    [Theory]
+    [InlineData(SupportTicketStatus.Closed)]
+    [InlineData(SupportTicketStatus.Cancelled)]
+    public async Task ReopenAsync_WhenClosedOrCancelled_ReturnsStateConflictWithZeroSideEffects(SupportTicketStatus terminalStatus)
+    {
+        var ticket = terminalStatus == SupportTicketStatus.Closed
+            ? await SeedClosedTicketAsync()
+            : await SeedCancelledResolvedTicketAsync();
+        var actor = await SeedAdminAsync(active: true, role: AuditRoleNames.CustomerServiceSupervisor);
+
+        var result = await ReopenInNewScopeAsync(ticket.PublicId, actor.UserId, true, ticket.RowVersion, DateTime.UtcNow);
+
+        Assert.Equal(SupportTicketMutationOutcome.StateConflict, result.Outcome);
+        await AssertReopenHadZeroSideEffectsAsync(ticket, terminalStatus);
+    }
+
+    [Fact]
+    public async Task ReopenAsync_WithStaleRowVersion_ReturnsConcurrencyConflictWithZeroSideEffects()
+    {
+        var (ticket, resolvedAtUtc, _) = await SeedResolvedTicketAsync();
+        var actor = await SeedAdminAsync(active: true, role: AuditRoleNames.CustomerServiceSupervisor);
+        var stale = ticket.RowVersion.ToArray();
+        stale[0] ^= 0xff;
+
+        var result = await ReopenInNewScopeAsync(ticket.PublicId, actor.UserId, true, stale, resolvedAtUtc.AddDays(1));
+
+        Assert.Equal(SupportTicketMutationOutcome.ConcurrencyConflict, result.Outcome);
+        await AssertReopenHadZeroSideEffectsAsync(ticket, SupportTicketStatus.Resolved);
+    }
+
+    /// <summary>
+    /// Real SQL Server proof that Reopen's Ticket mutation, SupportStatusHistory row, and central
+    /// AuditLog row all land in the same transaction — a fresh read of all three, from a fresh
+    /// scope, must agree.
+    /// </summary>
+    [Fact]
+    public async Task ReopenAsync_OnSuccess_CommitsTicketHistoryAndAuditInOneTransaction()
+    {
+        var (ticket, resolvedAtUtc, _) = await SeedResolvedTicketAsync();
+        var actor = await SeedAdminAsync(active: true, role: AuditRoleNames.CustomerServiceSupervisor);
+
+        var result = await ReopenInNewScopeAsync(
+            ticket.PublicId, actor.UserId, true, ticket.RowVersion, resolvedAtUtc.AddDays(1));
+
+        Assert.Equal(SupportTicketMutationOutcome.Success, result.Outcome);
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+        var row = await db.SupportTickets.AsNoTracking().SingleAsync(t => t.PublicId == ticket.PublicId);
+        Assert.Equal(SupportTicketStatus.InProgress, row.Status);
+        Assert.Equal(1, row.ReopenCount);
+        Assert.NotEqual(ticket.RowVersion, row.RowVersion);
+        var history = await db.SupportStatusHistories.AsNoTracking()
+            .SingleAsync(h => h.SupportTicketId == row.Id && h.ToStatus == SupportTicketStatus.InProgress && h.FromStatus == SupportTicketStatus.Resolved);
+        Assert.Equal("reopened", history.ReasonCode);
+        var audit = await db.AuditLogs.AsNoTracking()
+            .SingleAsync(a => a.Action == AuditActions.SupportTicketReopen && a.ResourcePublicId == ticket.PublicId);
+        Assert.Equal(AuditResult.Success, audit.Result);
+    }
+
+    private async Task AssertReopenHadZeroSideEffectsAsync(TicketFixture ticket, SupportTicketStatus expectedStatus)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+        var row = await db.SupportTickets.AsNoTracking().SingleAsync(t => t.PublicId == ticket.PublicId);
+        Assert.Equal(expectedStatus, row.Status);
+        Assert.Equal(0, row.ReopenCount);
+        Assert.Equal(ticket.RowVersion, row.RowVersion);
+        Assert.False(await db.SupportStatusHistories.AnyAsync(
+            h => h.SupportTicketId == row.Id && h.ToStatus == SupportTicketStatus.InProgress && h.FromStatus == SupportTicketStatus.Resolved));
+        Assert.False(await db.AuditLogs.AnyAsync(a => a.Action == AuditActions.SupportTicketReopen && a.ResourcePublicId == ticket.PublicId));
+    }
+
+    private async Task<TicketFixture> SeedCancelledResolvedTicketAsync()
+    {
+        // Cancelled is a terminal status reachable only from Open/Assigned/InProgress per the
+        // existing state machine (Resolved cannot transition to Cancelled) — so this seeds a
+        // ticket that is simply Cancelled (never Resolved), exactly like the AssignTo/ChangePriority
+        // "terminal" tests already do, to exercise Reopen's "must currently be Resolved" gate.
+        var ticket = await SeedOpenTicketAsync();
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+        var row = await db.SupportTickets.SingleAsync(t => t.PublicId == ticket.PublicId);
+        row.Transition(SupportTicketStatus.Cancelled, DateTime.UtcNow);
+        await db.SaveChangesAsync();
+        return new TicketFixture(row.PublicId, row.RowVersion.ToArray());
+    }
+
+    // ---- internal notes ---------------------------------------------------------
+
+    [Fact]
+    public async Task AddInternalNoteAsync_ByAssignee_InsertsInternalMessageAndCommitsWithAuditInOneTransaction()
+    {
+        var (ticket, assignee) = await SeedAssignedTicketAsync();
+
+        var result = await AddInternalNoteInNewScopeAsync(ticket.PublicId, assignee.UserId, false, "internal note text", ticket.RowVersion);
+
+        Assert.Equal(SupportTicketMutationOutcome.Success, result.Outcome);
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+        var row = await db.SupportTickets.AsNoTracking().SingleAsync(t => t.PublicId == ticket.PublicId);
+        Assert.NotEqual(ticket.RowVersion, row.RowVersion);
+        var message = await db.SupportMessages.AsNoTracking().SingleAsync(m => m.SupportTicketId == row.Id);
+        Assert.Equal(SupportSenderType.Admin, message.SenderType);
+        Assert.True(message.IsInternal);
+        Assert.False(message.AiGenerated);
+        Assert.Equal(assignee.UserId, message.SenderUserId);
+        Assert.Equal("internal note text", message.Body);
+        var audit = await db.AuditLogs.AsNoTracking()
+            .SingleAsync(a => a.Action == AuditActions.SupportTicketInternalNote && a.ResourcePublicId == ticket.PublicId);
+        Assert.Equal(AuditResult.Success, audit.Result);
+        Assert.DoesNotContain("internal note text", audit.ChangedFieldsJson);
+    }
+
+    [Fact]
+    public async Task AddInternalNoteAsync_NeverChangesFirstHumanResponseAtUtc()
+    {
+        var (ticket, assignee) = await SeedAssignedTicketAsync(firstHumanResponse: true);
+        using var beforeScope = _factory.Services.CreateScope();
+        var beforeDb = beforeScope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+        var before = await beforeDb.SupportTickets.AsNoTracking().SingleAsync(t => t.PublicId == ticket.PublicId);
+        Assert.NotNull(before.FirstHumanResponseAtUtc);
+
+        var result = await AddInternalNoteInNewScopeAsync(ticket.PublicId, assignee.UserId, false, "internal note text", ticket.RowVersion);
+
+        Assert.Equal(SupportTicketMutationOutcome.Success, result.Outcome);
+        using var afterScope = _factory.Services.CreateScope();
+        var afterDb = afterScope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+        var after = await afterDb.SupportTickets.AsNoTracking().SingleAsync(t => t.PublicId == ticket.PublicId);
+        Assert.Equal(before.FirstHumanResponseAtUtc, after.FirstHumanResponseAtUtc);
+    }
+
+    [Fact]
+    public async Task AddInternalNoteAsync_ByNonAssigneeWithoutSupervise_IsOutOfActorScopeWithZeroSideEffects()
+    {
+        var (ticket, _) = await SeedAssignedTicketAsync();
+        var otherHandler = await SeedAdminAsync(active: true, role: null);
+
+        var result = await AddInternalNoteInNewScopeAsync(ticket.PublicId, otherHandler.UserId, false, "internal note text", ticket.RowVersion);
+
+        Assert.Equal(SupportTicketMutationOutcome.NotFound, result.Outcome);
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+        var row = await db.SupportTickets.AsNoTracking().SingleAsync(t => t.PublicId == ticket.PublicId);
+        Assert.Equal(ticket.RowVersion, row.RowVersion);
+        Assert.False(await db.SupportMessages.AnyAsync(m => m.SupportTicketId == row.Id));
+        Assert.False(await db.AuditLogs.AnyAsync(a => a.Action == AuditActions.SupportTicketInternalNote && a.ResourcePublicId == ticket.PublicId));
+    }
+
+    [Fact]
+    public async Task AddInternalNoteAsync_BySupervisorOnUnrelatedTicket_Succeeds()
+    {
+        var (ticket, _) = await SeedAssignedTicketAsync();
+        var supervisor = await SeedAdminAsync(active: true, role: AuditRoleNames.CustomerServiceSupervisor);
+
+        var result = await AddInternalNoteInNewScopeAsync(ticket.PublicId, supervisor.UserId, true, "internal note text", ticket.RowVersion);
+
+        Assert.Equal(SupportTicketMutationOutcome.Success, result.Outcome);
+    }
+
+    [Fact]
+    public async Task AddInternalNoteAsync_OnClosedTicket_ReturnsStateConflictWithZeroSideEffects()
     {
         var ticket = await SeedClosedTicketAsync();
         var actor = await SeedAdminAsync(active: true, role: AuditRoleNames.CustomerServiceSupervisor);
 
-        var result = await ReopenInNewScopeAsync(ticket.PublicId, actor.UserId, true, ticket.RowVersion);
+        var result = await AddInternalNoteInNewScopeAsync(ticket.PublicId, actor.UserId, true, "internal note text", ticket.RowVersion);
 
         Assert.Equal(SupportTicketMutationOutcome.StateConflict, result.Outcome);
-        await AssertStatusUnchangedAsync(ticket.PublicId, SupportTicketStatus.Closed);
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+        var row = await db.SupportTickets.AsNoTracking().SingleAsync(t => t.PublicId == ticket.PublicId);
+        Assert.Equal(ticket.RowVersion, row.RowVersion);
+        Assert.False(await db.SupportMessages.AnyAsync(m => m.SupportTicketId == row.Id));
+    }
+
+    [Fact]
+    public async Task AddInternalNoteAsync_WithStaleRowVersion_ReturnsConcurrencyConflictWithZeroSideEffects()
+    {
+        var (ticket, assignee) = await SeedAssignedTicketAsync();
+        var stale = ticket.RowVersion.ToArray();
+        stale[0] ^= 0xff;
+
+        var result = await AddInternalNoteInNewScopeAsync(ticket.PublicId, assignee.UserId, false, "internal note text", stale);
+
+        Assert.Equal(SupportTicketMutationOutcome.ConcurrencyConflict, result.Outcome);
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+        var row = await db.SupportTickets.AsNoTracking().SingleAsync(t => t.PublicId == ticket.PublicId);
+        Assert.Equal(ticket.RowVersion, row.RowVersion);
+        Assert.False(await db.SupportMessages.AnyAsync(m => m.SupportTicketId == row.Id));
+        Assert.False(await db.AuditLogs.AnyAsync(a => a.Action == AuditActions.SupportTicketInternalNote && a.ResourcePublicId == ticket.PublicId));
+    }
+
+    private async Task<SupportTicketMutationResult> AddInternalNoteInNewScopeAsync(
+        Guid ticketId, string actorUserId, bool canSupervise, string body, byte[] rowVersion)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IAdminSupportTicketStore>();
+        return await store.AddInternalNoteAsync(
+            new SupportTicketAddInternalNoteCommand(
+                ticketId, actorUserId, ["CustomerService"], canSupervise, rowVersion, DateTime.UtcNow,
+                "corr", "0123456789abcdef0123456789abcdef", null, body),
+            CancellationToken.None);
     }
 
     // ---- helpers ---------------------------------------------------------
@@ -386,13 +628,17 @@ public sealed class AdminSupportTicketSuperviseStoreTests : IClassFixture<WebApp
             CancellationToken.None);
     }
 
-    private async Task<SupportTicketMutationResult> ReopenInNewScopeAsync(Guid ticketId, string actorUserId, bool canSupervise, byte[] rowVersion)
+    private Task<SupportTicketMutationResult> ReopenInNewScopeAsync(Guid ticketId, string actorUserId, bool canSupervise, byte[] rowVersion) =>
+        ReopenInNewScopeAsync(ticketId, actorUserId, canSupervise, rowVersion, DateTime.UtcNow);
+
+    private async Task<SupportTicketMutationResult> ReopenInNewScopeAsync(
+        Guid ticketId, string actorUserId, bool canSupervise, byte[] rowVersion, DateTime occurredAtUtc)
     {
         using var scope = _factory.Services.CreateScope();
         var store = scope.ServiceProvider.GetRequiredService<IAdminSupportTicketStore>();
         return await store.ReopenAsync(
             new SupportTicketReasonCommand(
-                ticketId, actorUserId, ["CustomerService"], canSupervise, rowVersion, DateTime.UtcNow,
+                ticketId, actorUserId, ["CustomerService"], canSupervise, rowVersion, occurredAtUtc,
                 "corr", "0123456789abcdef0123456789abcdef", null, Reason),
             CancellationToken.None);
     }
@@ -438,7 +684,14 @@ public sealed class AdminSupportTicketSuperviseStoreTests : IClassFixture<WebApp
         return (new TicketFixture(row.PublicId, row.RowVersion.ToArray()), admin);
     }
 
-    private async Task<TicketFixture> SeedResolvedTicketAsync()
+    /// <summary>
+    /// Seeds a Resolved ticket with a recorded first human response (so Reopen tests can prove
+    /// it is preserved) and a caller-controlled ResolvedAtUtc, since the 3-day reopen window is
+    /// measured from that instant and Reopen tests need to place "now" precisely relative to it
+    /// without waiting real days.
+    /// </summary>
+    private async Task<(TicketFixture Ticket, DateTime ResolvedAtUtc, CasePriority Priority)> SeedResolvedTicketAsync(
+        CasePriority priority = CasePriority.Normal)
     {
         var ticket = await SeedOpenTicketAsync();
         var resolver = await SeedAdminAsync(active: true, role: null);
@@ -446,20 +699,27 @@ public sealed class AdminSupportTicketSuperviseStoreTests : IClassFixture<WebApp
         var db = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
         var row = await db.SupportTickets.SingleAsync(t => t.PublicId == ticket.PublicId);
         var now = DateTime.UtcNow;
-        row.AssignTo(resolver.UserId, now);
-        row.Transition(SupportTicketStatus.InProgress, now.AddMinutes(1));
-        row.Transition(SupportTicketStatus.Resolved, now.AddMinutes(2));
+        row.ChangePriority(priority, now);
+        row.AssignTo(resolver.UserId, now.AddSeconds(1));
+        row.Transition(SupportTicketStatus.InProgress, now.AddSeconds(2));
+        row.RecordFirstHumanResponse(now.AddSeconds(3));
+        // Truncated to millisecond precision: the SupportTickets datetime2 column round-trips
+        // at millisecond precision, so comparing an untruncated in-memory DateTime against a
+        // value re-read from the database after Reopen's SaveChangesAsync would spuriously
+        // differ in the sub-millisecond digits.
+        var resolvedAtUtc = TruncateToMilliseconds(now.AddSeconds(4));
+        row.Transition(SupportTicketStatus.Resolved, resolvedAtUtc);
         await db.SaveChangesAsync();
-        return new TicketFixture(row.PublicId, row.RowVersion.ToArray());
+        return (new TicketFixture(row.PublicId, row.RowVersion.ToArray()), resolvedAtUtc, priority);
     }
 
     private async Task<TicketFixture> SeedClosedTicketAsync()
     {
-        var ticket = await SeedResolvedTicketAsync();
+        var (ticket, resolvedAtUtc, _) = await SeedResolvedTicketAsync();
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
         var row = await db.SupportTickets.SingleAsync(t => t.PublicId == ticket.PublicId);
-        row.Transition(SupportTicketStatus.Closed, DateTime.UtcNow.AddMinutes(3));
+        row.Transition(SupportTicketStatus.Closed, resolvedAtUtc.AddMinutes(1));
         await db.SaveChangesAsync();
         return new TicketFixture(row.PublicId, row.RowVersion.ToArray());
     }
@@ -518,6 +778,9 @@ public sealed class AdminSupportTicketSuperviseStoreTests : IClassFixture<WebApp
         var row = await db.SupportTickets.AsNoTracking().SingleAsync(t => t.PublicId == ticketPublicId);
         Assert.Equal(expected, row.Status);
     }
+
+    private static DateTime TruncateToMilliseconds(DateTime value) =>
+        new(value.Ticks - value.Ticks % TimeSpan.TicksPerMillisecond, value.Kind);
 
     private sealed record TicketFixture(Guid PublicId, byte[] RowVersion);
     private sealed record AdminFixture(string UserId, Guid PublicId);

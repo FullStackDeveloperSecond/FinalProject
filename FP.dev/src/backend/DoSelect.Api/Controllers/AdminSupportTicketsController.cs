@@ -136,6 +136,17 @@ public sealed class AdminSupportTicketsController : ControllerBase
     }
 
     [Authorize(Policy = DoSelectPolicies.SupportTicketHandle)]
+    [HttpPost("{id:guid}/internal-notes")]
+    public async Task<ActionResult<AdminSupportTicketDetailDto>> AddInternalNote(
+        Guid id,
+        [FromBody] CreateInternalNoteRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _service.AddInternalNoteAsync(BuildContext(), id, request, cancellationToken);
+        return Ok(result);
+    }
+
+    [Authorize(Policy = DoSelectPolicies.SupportTicketHandle)]
     [HttpGet("sla")]
     public async Task<ActionResult<CursorPage<SupportSlaItemDto>>> GetSlaQueue(
         [FromQuery] SupportSlaQueueQuery query,

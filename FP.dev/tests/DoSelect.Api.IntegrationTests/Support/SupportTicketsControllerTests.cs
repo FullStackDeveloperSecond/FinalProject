@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using DoSelect.Api.Common;
 using DoSelect.Api.Security;
+using DoSelect.Domain.Members;
 using DoSelect.Domain.Support;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
@@ -109,6 +110,57 @@ public sealed class SupportTicketsControllerTests : IClassFixture<WebApplication
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
         Assert.Equal(ApiErrorCodes.ResourceNotFound, document.RootElement.GetProperty("code").GetString());
+    }
+
+    /// <summary>
+    /// DES-23 regression: an internal note added through the admin-only
+    /// IAdminSupportTicketStore.AddInternalNoteAsync vertical slice must never reach the
+    /// member-facing GetDetail response — neither the note's text nor any internal-only
+    /// indicator. ListPublicMessagesAsync's `!m.IsInternal` filter is what enforces this; this
+    /// test proves it end-to-end against the new action, not just the filter in isolation.
+    /// </summary>
+    [Fact]
+    public async Task GetDetail_AsMember_NeverExposesAnInternalNoteAddedByAdmin()
+    {
+        using var client = CreateClient(_memberAId);
+        using var createResponse = await client.PostAsJsonWithAntiforgeryAsync("/api/v1/support-tickets", new
+        {
+            category = "other",
+            subject = $"Internal note regression {Guid.NewGuid():N}",
+            message = "公開訊息內容",
+        }, DoSelectClaimValues.Member);
+        var created = await ReadCreatedJsonAsync(createResponse);
+        var publicId = created.RootElement.GetProperty("publicId").GetGuid();
+        var rowVersion = Convert.FromBase64String(created.RootElement.GetProperty("rowVersion").GetString()!);
+
+        const string secretNoteText = "INTERNAL-ONLY-SECRET-4f2ac9";
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+            var now = DateTime.UtcNow;
+            var admin = ApplicationUser.CreateAdmin(Guid.NewGuid(), $"internal-note-admin-{Guid.NewGuid():N}@example.test", now);
+            admin.ConfirmEmail(now.AddMilliseconds(1));
+            db.Users.Add(admin);
+            db.AdminProfiles.Add(new AdminProfile(admin.Id, Guid.NewGuid(), $"EMP-{Guid.NewGuid():N}", "Note Admin", now));
+            await db.SaveChangesAsync();
+
+            var store = scope.ServiceProvider.GetRequiredService<DoSelect.Application.Support.Admin.IAdminSupportTicketStore>();
+            var result = await store.AddInternalNoteAsync(
+                new DoSelect.Application.Support.Admin.SupportTicketAddInternalNoteCommand(
+                    publicId, admin.Id, ["CustomerService"], CanSupervise: false, rowVersion, now,
+                    "corr", "0123456789abcdef0123456789abcdef", null, secretNoteText),
+                CancellationToken.None);
+            Assert.Equal(DoSelect.Application.Support.Admin.SupportTicketMutationOutcome.Success, result.Outcome);
+        }
+
+        using var response = await client.GetAsync($"/api/v1/support-tickets/{publicId}");
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.DoesNotContain(secretNoteText, body, StringComparison.Ordinal);
+        Assert.DoesNotContain("isInternal", body, StringComparison.OrdinalIgnoreCase);
+        using var document = JsonDocument.Parse(body);
+        Assert.Single(document.RootElement.GetProperty("messages").EnumerateArray());
     }
 
     [Fact]

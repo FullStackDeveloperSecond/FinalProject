@@ -348,6 +348,42 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
         Assert.Equal(expected == HttpStatusCode.OK ? 1 : 0, fakes.ReopenCalls);
     }
 
+    [Theory]
+    [InlineData("CustomerService", HttpStatusCode.OK)]
+    [InlineData("CustomerServiceSupervisor", HttpStatusCode.OK)]
+    [InlineData("SuperAdmin", HttpStatusCode.Forbidden)]
+    [InlineData("Member", HttpStatusCode.Forbidden)]
+    public async Task AddInternalNote_EnforcesHandleRoleMatrix(string role, HttpStatusCode expected)
+    {
+        var fakes = new SupportHttpFakes();
+        using var factory = CreateFactory(fakes);
+        using var client = CreateClient(factory, role);
+
+        using var response = await client.PostAsJsonWithAntiforgeryAsync(
+            $"/api/v1/admin/support-tickets/{Guid.NewGuid()}/internal-notes",
+            new { body = "internal note body", rowVersion = Convert.ToBase64String(new byte[8]) },
+            DoSelectClaimValues.Admin);
+
+        Assert.Equal(expected, response.StatusCode);
+        Assert.Equal(expected == HttpStatusCode.OK ? 1 : 0, fakes.AddInternalNoteCalls);
+    }
+
+    [Fact]
+    public async Task AddInternalNote_WhenAnonymous_Returns401WithoutCallingService()
+    {
+        var fakes = new SupportHttpFakes();
+        using var factory = CreateFactory(fakes);
+        using var client = factory.CreateClient();
+
+        using var response = await client.PostAsJsonWithAntiforgeryAsync(
+            $"/api/v1/admin/support-tickets/{Guid.NewGuid()}/internal-notes",
+            new { body = "internal note body", rowVersion = Convert.ToBase64String(new byte[8]) },
+            DoSelectClaimValues.Admin);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(0, fakes.AddInternalNoteCalls);
+    }
+
     [Fact]
     public async Task Sla_WhenHandleAuthorized_DelegatesBoundPaginationQuery()
     {
@@ -549,6 +585,17 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
             CancellationToken cancellationToken)
         {
             ReopenCalls++;
+            LastContext = context;
+            return Task.FromResult(DetailResult);
+        }
+
+        public int AddInternalNoteCalls { get; private set; }
+
+        public Task<AdminSupportTicketDetailDto> AddInternalNoteAsync(
+            SupportTicketActionContext context, Guid ticketPublicId, CreateInternalNoteRequest request,
+            CancellationToken cancellationToken)
+        {
+            AddInternalNoteCalls++;
             LastContext = context;
             return Task.FromResult(DetailResult);
         }

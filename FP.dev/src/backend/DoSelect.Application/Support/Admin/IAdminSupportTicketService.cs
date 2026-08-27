@@ -78,6 +78,16 @@ public interface IAdminSupportTicketService
         Guid ticketPublicId,
         ReopenSupportTicketRequest request,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// SupportTicket.Handle: append an internal note (POST .../internal-notes) — never surfaced
+    /// to the member, never counted as the first human public response.
+    /// </summary>
+    Task<AdminSupportTicketDetailDto> AddInternalNoteAsync(
+        SupportTicketActionContext context,
+        Guid ticketPublicId,
+        CreateInternalNoteRequest request,
+        CancellationToken cancellationToken);
 }
 
 /// <summary>

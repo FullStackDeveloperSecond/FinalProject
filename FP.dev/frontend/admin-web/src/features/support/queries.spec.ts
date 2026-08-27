@@ -228,4 +228,70 @@ describe('admin support queries', () => {
 
     wrapper.unmount()
   })
+
+  it('DES-23: posts an internal note with RowVersion and refreshes detail, SLA and workbench data on success', async () => {
+    const updatedTicket = { publicId: ticketId, rowVersion: 'AAAAAAAAAAI=' }
+    const fetchStub = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ requestToken: 'admin-csrf-token' }))
+      .mockResolvedValueOnce(Response.json(updatedTicket))
+    vi.stubGlobal('fetch', fetchStub)
+    const { useAddInternalNoteMutation } = await import('./queries')
+    const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+    let addNote!: (request: { body: string, rowVersion: string }) => Promise<unknown>
+    runHarness = () => {
+      const mutation = useAddInternalNoteMutation(ticketId)
+      addNote = request => mutation.mutateAsync(request)
+    }
+    const wrapper = mount(Harness, {
+      global: { plugins: [[VueQueryPlugin, { queryClient }]] },
+    })
+
+    await expect(addNote({ body: 'internal note text', rowVersion: 'AAAAAAAAAAE=' })).resolves.toEqual(updatedTicket)
+
+    const [noteUrl, noteInit] = fetchStub.mock.calls[1] ?? []
+    const noteRequest = noteUrl instanceof Request ? noteUrl : new Request(String(noteUrl), noteInit)
+    expect(noteRequest.url).toBe(`http://localhost:5126/api/v1/admin/support-tickets/${ticketId}/internal-notes`)
+    await expect(noteRequest.clone().json()).resolves.toEqual({ body: 'internal note text', rowVersion: 'AAAAAAAAAAE=' })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['admin-support-ticket-detail', ticketId] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['admin-support-sla-queue'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['admin-case-workbench'] })
+
+    wrapper.unmount()
+  })
+
+  it('DES-23: refreshes detail, SLA and workbench data when an internal note hits a concurrency conflict', async () => {
+    const fetchStub = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ requestToken: 'admin-csrf-token' }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        status: 409,
+        code: 'concurrency_conflict',
+        detail: 'The ticket was modified by another request.',
+      }), {
+        status: 409,
+        headers: { 'Content-Type': 'application/problem+json' },
+      }))
+    vi.stubGlobal('fetch', fetchStub)
+    const { useAddInternalNoteMutation } = await import('./queries')
+    const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+    let addNote!: (request: { body: string, rowVersion: string }) => Promise<unknown>
+    runHarness = () => {
+      const mutation = useAddInternalNoteMutation(ticketId)
+      addNote = request => mutation.mutateAsync(request)
+    }
+    const wrapper = mount(Harness, {
+      global: { plugins: [[VueQueryPlugin, { queryClient }]] },
+    })
+
+    await expect(addNote({ body: 'internal note text', rowVersion: 'AAAAAAAAAAE=' })).rejects.toMatchObject({
+      status: 409,
+      code: 'concurrency_conflict',
+    })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['admin-support-ticket-detail', ticketId] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['admin-support-sla-queue'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['admin-case-workbench'] })
+
+    wrapper.unmount()
+  })
 })

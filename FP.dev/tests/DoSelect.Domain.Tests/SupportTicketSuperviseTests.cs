@@ -80,10 +80,13 @@ public sealed class SupportTicketSuperviseTests
     }
 
     [Fact]
-    public void ChangeStatus_ReopenEdge_StillWorksThroughExistingTransitionUnchanged()
+    public void Transition_ResolvedToInProgressEdge_StillExistsInTheStateMachineUnchanged()
     {
         // DES-23 must not expand the state machine: Resolved -> InProgress ("reopen") is proven
-        // here to already be a legal Transition edge with no new domain method required for it.
+        // here to already be a legal Transition edge — Reopen(...) below builds on this exact
+        // edge rather than adding a new one. The dedicated Reopen(...) method (not this raw
+        // Transition call) is what the store actually uses for the reopen action, since only
+        // Reopen enforces the 3-day window and recomputes ResolutionDueAtUtc.
         var ticket = NewTicket();
         ticket.AssignTo("admin-1", CreatedAtUtc.AddMinutes(1));
         ticket.Transition(SupportTicketStatus.InProgress, CreatedAtUtc.AddMinutes(2));
@@ -93,6 +96,93 @@ public sealed class SupportTicketSuperviseTests
 
         Assert.Equal(SupportTicketStatus.InProgress, ticket.Status);
         Assert.Equal(1, ticket.ReopenCount);
+    }
+
+    [Theory]
+    [InlineData(CasePriority.Low, 5 * 24)]
+    [InlineData(CasePriority.Normal, 3 * 24)]
+    [InlineData(CasePriority.High, 24)]
+    [InlineData(CasePriority.Urgent, 8)]
+    public void Reopen_WithinThreeDaysOfResolution_RecomputesResolutionDueDateFromCurrentPriority(
+        CasePriority priority, int resolutionTargetHours)
+    {
+        var ticket = ResolvedTicket(priority, out var resolvedAtUtc);
+        var reopenedAtUtc = resolvedAtUtc.AddDays(2);
+        var resolutionTarget = TimeSpan.FromHours(resolutionTargetHours);
+
+        ticket.Reopen(reopenedAtUtc, resolutionTarget);
+
+        Assert.Equal(SupportTicketStatus.InProgress, ticket.Status);
+        Assert.Equal(reopenedAtUtc.Add(resolutionTarget), ticket.ResolutionDueAtUtc);
+    }
+
+    [Fact]
+    public void Reopen_PreservesFirstHumanResponseAtUtcAndIncrementsReopenCount()
+    {
+        var ticket = ResolvedTicket(CasePriority.Normal, out var resolvedAtUtc);
+        var firstHumanResponseBefore = ticket.FirstHumanResponseAtUtc;
+        Assert.NotNull(firstHumanResponseBefore);
+
+        ticket.Reopen(resolvedAtUtc.AddHours(1), TimeSpan.FromDays(3));
+
+        Assert.Equal(firstHumanResponseBefore, ticket.FirstHumanResponseAtUtc);
+        Assert.Equal(1, ticket.ReopenCount);
+
+        // A second resolve-then-reopen cycle should increment again, proving this isn't a
+        // one-time flag but the same ReopenCount++ Transition already performs.
+        ticket.Transition(SupportTicketStatus.Resolved, resolvedAtUtc.AddHours(2));
+        ticket.Reopen(resolvedAtUtc.AddHours(3), TimeSpan.FromDays(3));
+        Assert.Equal(2, ticket.ReopenCount);
+    }
+
+    [Fact]
+    public void Reopen_ExactlyAtThreeDayBoundary_Succeeds()
+    {
+        var ticket = ResolvedTicket(CasePriority.Normal, out var resolvedAtUtc);
+
+        ticket.Reopen(resolvedAtUtc.AddDays(3), TimeSpan.FromDays(3));
+
+        Assert.Equal(SupportTicketStatus.InProgress, ticket.Status);
+    }
+
+    [Fact]
+    public void Reopen_AfterThreeDayWindow_ThrowsWithoutChangingStatusOrDueDate()
+    {
+        var ticket = ResolvedTicket(CasePriority.Normal, out var resolvedAtUtc);
+        var dueDateBefore = ticket.ResolutionDueAtUtc;
+
+        Assert.Throws<InvalidOperationException>(
+            () => ticket.Reopen(resolvedAtUtc.AddDays(3).AddSeconds(1), TimeSpan.FromDays(3)));
+
+        Assert.Equal(SupportTicketStatus.Resolved, ticket.Status);
+        Assert.Equal(dueDateBefore, ticket.ResolutionDueAtUtc);
+        Assert.Equal(0, ticket.ReopenCount);
+    }
+
+    [Theory]
+    [InlineData(SupportTicketStatus.Closed)]
+    [InlineData(SupportTicketStatus.Cancelled)]
+    public void Reopen_WhenClosedOrCancelled_ThrowsWithoutChangingStatus(SupportTicketStatus terminalStatus)
+    {
+        var ticket = NewTicket();
+        MoveToTerminal(ticket, terminalStatus);
+
+        Assert.Throws<InvalidOperationException>(() => ticket.Reopen(CreatedAtUtc.AddHours(3), TimeSpan.FromDays(3)));
+
+        Assert.Equal(terminalStatus, ticket.Status);
+    }
+
+    /// <summary>A Resolved ticket with a recorded first human response, for Reopen tests.</summary>
+    private static SupportTicket ResolvedTicket(CasePriority priority, out DateTime resolvedAtUtc)
+    {
+        var ticket = NewTicket();
+        ticket.ChangePriority(priority, CreatedAtUtc.AddMinutes(1));
+        ticket.AssignTo("admin-1", CreatedAtUtc.AddMinutes(2));
+        ticket.Transition(SupportTicketStatus.InProgress, CreatedAtUtc.AddMinutes(3));
+        ticket.RecordFirstHumanResponse(CreatedAtUtc.AddMinutes(4));
+        resolvedAtUtc = CreatedAtUtc.AddHours(1);
+        ticket.Transition(SupportTicketStatus.Resolved, resolvedAtUtc);
+        return ticket;
     }
 
     private static void MoveToTerminal(SupportTicket ticket, SupportTicketStatus terminalStatus)
