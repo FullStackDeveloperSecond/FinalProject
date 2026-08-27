@@ -99,6 +99,35 @@ public sealed class GuestOrderAccessRequest : MutablePublicEntity
             expiresAtUtc,
             createdAtUtc);
 
+    /// <summary>
+    /// 固定哨兵值，代表「沒有可信 Email／OrderLookup Hash」——見
+    /// <see cref="CreateUnknownResendAttempt"/>。HMAC-SHA256 輸出實務上不可能是全零，
+    /// 不會跟任何真實 Email／OrderLookup Hash 碰撞。
+    /// </summary>
+    public static readonly byte[] UnknownScopeHash = new byte[32];
+
+    /// <summary>
+    /// Resend 查無此 PublicId／已完全失效呼叫時，用來「唯一消耗＋持久化」目前呼叫者 IP
+    /// 這一個 Scope 的紀錄——沒有真實 Request 可延續，也沒有可信 Email／OrderLookup Hash
+    /// 可用，因此兩者一律填 <see cref="UnknownScopeHash"/>，只讓這筆 Row 對 IP Scope 的
+    /// (Hash, CreatedAtUtc) 索引可數。<see cref="Entity.PublicId"/> 只是佔位，永遠不會回傳
+    /// 給呼叫端，也不會被 <c>FindActiveRequestAsync</c> 需要再利用。
+    /// </summary>
+    public static GuestOrderAccessRequest CreateUnknownResendAttempt(
+        Guid publicId,
+        byte[] requesterIpHash,
+        DateTime expiresAtUtc,
+        DateTime createdAtUtc) =>
+        new(
+            publicId,
+            null,
+            null,
+            requesterIpHash,
+            UnknownScopeHash,
+            UnknownScopeHash,
+            expiresAtUtc,
+            createdAtUtc);
+
     public void RecordSend(DateTime sentAtUtc)
     {
         EnsureCanSend(sentAtUtc);
@@ -131,13 +160,20 @@ public sealed class GuestOrderAccessRequest : MutablePublicEntity
         ArgumentNullException.ThrowIfNull(previous);
         previous.EnsureCanSend(sentAtUtc);
 
+        // previous 常常是這次呼叫（新的 DbContext）從資料庫重新查回來的實例——EF Core 讀
+        // datetime2 欄位預設回填 DateTimeKind.Unspecified，不是原本寫入時的 Utc，直接把
+        // previous.ExpiresAtUtc 轉交給下面的建構子會被 RequireUtc 擋下。這裡的值本來就一定
+        // 是 UTC（整個 Domain 只允許寫入 UTC），只是遺失了 .NET 的 Kind 中繼資料，用
+        // SpecifyKind 補回去即可，不是竄改語意。
+        var previousExpiresAtUtc = DateTime.SpecifyKind(previous.ExpiresAtUtc, DateTimeKind.Utc);
+
         var successor = previous.OrderId is null
             ? CreateDecoy(
                 publicId,
                 requesterIpHash,
                 previous.EmailKeyHash,
                 previous.OrderLookupKeyHash,
-                previous.ExpiresAtUtc,
+                previousExpiresAtUtc,
                 sentAtUtc)
             : CreateValid(
                 publicId,
@@ -146,7 +182,7 @@ public sealed class GuestOrderAccessRequest : MutablePublicEntity
                 requesterIpHash,
                 previous.EmailKeyHash,
                 previous.OrderLookupKeyHash,
-                previous.ExpiresAtUtc,
+                previousExpiresAtUtc,
                 sentAtUtc);
 
         successor.SendCount = previous.SendCount + 1;

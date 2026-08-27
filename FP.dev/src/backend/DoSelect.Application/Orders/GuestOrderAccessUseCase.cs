@@ -126,17 +126,17 @@ public sealed class GuestOrderAccessUseCase(
         var ipHash = hasher.HashIp(requesterIp);
 
         // Request 根本不存在（不是 Decoy，是查無此 PublicId 或已完全失效）：沒有任何儲存的
-        // Scope Hash 可用，也沒有 Row 可寫入，只能核對目前呼叫者 IP 這一個 Scope。結果一定要
-        // 照實回應——不能只計不擋，否則攻擊者能用隨機 GUID 無限打 DB lookup 而永遠拿到 202，
-        // 等於這條公開分支沒有實際 abuse protection。Email／OrderLookup 兩個 Scope 因為沒有
-        // 可信 Hash 可用，無法計數，可以接受略過。
+        // Scope Hash 可用，也沒有真實 Row 可延續，只能核對目前呼叫者 IP 這一個 Scope。結果
+        // 一定要照實回應且確實持久消耗——不能只唯讀計數既有筆數卻不寫入，否則攻擊者能用
+        // 隨機 GUID 無限打 DB lookup 而永遠拿到 202，等於這條公開分支沒有實際 abuse
+        // protection（review #1）。用哨兵 Row 只讓 IP Scope 的索引可數；Email／OrderLookup
+        // 兩個 Scope 因為沒有可信 Hash 可用，無法計數，可以接受略過。
         if (request is null)
         {
-            var withinIpLimit = await gateway.IsIpWithinRateLimitAsync(
-                ipHash,
-                rateLimitOptions.Value.GuestOrderAccessIpPermitLimit,
-                WindowStartUtc(nowUtc),
-                cancellationToken);
+            var sentinelRequest = GuestOrderAccessRequest.CreateUnknownResendAttempt(
+                Guid.CreateVersion7(), ipHash, nowUtc.Add(RequestLifetime), nowUtc);
+            var withinIpLimit = await TryRecordUnknownResendAttemptWithRetryAsync(
+                ipHash, sentinelRequest, cancellationToken);
             if (!withinIpLimit)
             {
                 return new GuestOrderAccessAcceptedResult.RateLimited();
@@ -167,8 +167,30 @@ public sealed class GuestOrderAccessUseCase(
             }
             catch (InvalidOperationException)
             {
-                // 已達 3 封上限或未滿 60 秒間隔——維持安全回應，不揭露原因；沒有新 Row 要
-                // 寫入，這次呼叫不消耗三 Scope 的視窗預算。
+                // 平行重寄的輸家：request 在上一輪 ReloadRequestAsync 後發現已經被贏家
+                // Revoke——不能回傳這個已經永久失效的舊 Id（review #2），改找贏家建立的
+                // 延續 Row（Email／OrderLookup Hash／ExpiresAtUtc 不變，實務上唯一識別同一條
+                // 重寄鏈），回傳跟贏家一致、目前仍然有效的 RequestPublicId。
+                if (request.RevokedAtUtc.HasValue)
+                {
+                    var currentSuccessor = await gateway.FindActiveSuccessorAsync(
+                        request.EmailKeyHash,
+                        request.OrderLookupKeyHash,
+                        request.ExpiresAtUtc,
+                        nowUtc,
+                        cancellationToken);
+                    if (currentSuccessor is not null)
+                    {
+                        return new GuestOrderAccessAcceptedResult.Accepted(
+                            currentSuccessor.PublicId,
+                            currentSuccessor.ExpiresAtUtc,
+                            nowUtc.Add(ResendInterval));
+                    }
+                }
+
+                // 已達 3 封上限、未滿 60 秒間隔，或被撤銷後找不到（已經又進一步失效的）延續
+                // Row——維持安全回應，不揭露原因；沒有新 Row 要寫入，這次呼叫不消耗三 Scope
+                // 的視窗預算。
                 return new GuestOrderAccessAcceptedResult.Accepted(
                     requestPublicId, request.ExpiresAtUtc, nowUtc.Add(ResendInterval));
             }
@@ -325,6 +347,37 @@ public sealed class GuestOrderAccessUseCase(
             {
                 return await gateway.TryCreateRequestWithinRateLimitAsync(
                     window, newRequest, requestToRevoke: null, cancellationToken);
+            }
+            catch (DomainProblemException exception)
+                when (exception.Code == DomainErrorCodes.ConcurrencyConflict)
+            {
+                if (attempt >= MaxFailedAttemptConcurrencyRetries)
+                {
+                    return false;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// 查無 PublicId／已完全失效的 Resend 呼叫專用：哨兵 Row 的欄位不依賴任何既有資料，
+    /// 遇到 SQL Server 死結／並行衝突直接用同一個 Entity 重跑整段交易即可。
+    /// </summary>
+    private async Task<bool> TryRecordUnknownResendAttemptWithRetryAsync(
+        byte[] ipHash,
+        GuestOrderAccessRequest sentinelRequest,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                return await gateway.TryRecordUnknownResendAttemptAsync(
+                    ipHash,
+                    rateLimitOptions.Value.GuestOrderAccessIpPermitLimit,
+                    WindowStartUtc(sentinelRequest.CreatedAtUtc),
+                    sentinelRequest,
+                    cancellationToken);
             }
             catch (DomainProblemException exception)
                 when (exception.Code == DomainErrorCodes.ConcurrencyConflict)

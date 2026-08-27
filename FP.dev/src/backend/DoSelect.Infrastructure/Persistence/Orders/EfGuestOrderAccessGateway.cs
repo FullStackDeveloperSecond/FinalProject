@@ -102,18 +102,63 @@ public sealed class EfGuestOrderAccessGateway(DoSelectDbContext dbContext) : IGu
     }
 
     /// <summary>
-    /// Resend 對查無此 PublicId／已完全失效的呼叫：沒有 Row 可寫入，也沒有其他 Scope 的
-    /// Hash 可用，只唯讀核對 IP 這一個 Scope，不需要交易。
+    /// Resend 對查無此 PublicId／已完全失效的呼叫：同一個 Serializable 交易內原子核對＋
+    /// 寫入哨兵 Row，只消耗 IP 這一個 Scope（沒有真實 Email／OrderLookup Hash 可用）。
     /// </summary>
-    public async Task<bool> IsIpWithinRateLimitAsync(
-        byte[] ipHash, int permitLimit, DateTime windowStartUtc, CancellationToken cancellationToken = default)
+    public async Task<bool> TryRecordUnknownResendAttemptAsync(
+        byte[] ipHash,
+        int ipPermitLimit,
+        DateTime windowStartUtc,
+        GuestOrderAccessRequest sentinelRequest,
+        CancellationToken cancellationToken = default)
     {
-        var count = await dbContext.GuestOrderAccessRequests
-            .AsNoTracking()
-            .Where(r => r.RequesterIpHash == ipHash && r.CreatedAtUtc > windowStartUtc)
-            .CountAsync(cancellationToken);
-        return count < permitLimit;
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(
+            IsolationLevel.Serializable, cancellationToken);
+
+        try
+        {
+            var ipCount = await dbContext.GuestOrderAccessRequests
+                .Where(r => r.RequesterIpHash == ipHash && r.CreatedAtUtc > windowStartUtc)
+                .CountAsync(cancellationToken);
+
+            if (ipCount >= ipPermitLimit)
+            {
+                return false;
+            }
+
+            await dbContext.GuestOrderAccessRequests.AddAsync(sentinelRequest, cancellationToken);
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return true;
+        }
+        catch (Exception exception) when (IsRetryableConflict(exception))
+        {
+            dbContext.ChangeTracker.Clear();
+            throw DomainProblemException.Conflict(
+                DomainErrorCodes.ConcurrencyConflict,
+                "The guest order access IP rate limit check was interrupted by a concurrent request.")
+                .WithInnerException(exception);
+        }
     }
+
+    public Task<GuestOrderAccessRequest?> FindActiveSuccessorAsync(
+        byte[] emailKeyHash,
+        byte[] orderLookupKeyHash,
+        DateTime expiresAtUtc,
+        DateTime nowUtc,
+        CancellationToken cancellationToken = default) =>
+        dbContext.GuestOrderAccessRequests
+            .Where(r =>
+                r.EmailKeyHash == emailKeyHash &&
+                r.OrderLookupKeyHash == orderLookupKeyHash &&
+                r.ExpiresAtUtc == expiresAtUtc &&
+                r.ExpiresAtUtc > nowUtc &&
+                r.ConsumedAtUtc == null &&
+                r.LockedAtUtc == null &&
+                r.RevokedAtUtc == null &&
+                r.AttemptCount < GuestOrderAccessRequest.MaximumAttempts)
+            .OrderByDescending(r => r.Id)
+            .FirstOrDefaultAsync(cancellationToken);
 
     /// <summary>
     /// 值得讓呼叫端重試整段操作的並行衝突：SQL Server 死結受害者，或樂觀鎖（RowVersion）

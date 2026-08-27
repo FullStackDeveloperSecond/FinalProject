@@ -518,11 +518,55 @@ public sealed class GuestOrderAccessUseCaseTests
             return Task.FromResult(true);
         }
 
-        public Task<bool> IsIpWithinRateLimitAsync(
-            byte[] ipHash, int permitLimit, DateTime windowStartUtc, CancellationToken cancellationToken = default)
+        /// <summary>比照 <see cref="TryCreateRequestConflictCountdown"/>，用於哨兵 Row 的寫入。</summary>
+        public int TryRecordUnknownResendAttemptConflictCountdown { get; set; }
+
+        public Task<bool> TryRecordUnknownResendAttemptAsync(
+            byte[] ipHash,
+            int ipPermitLimit,
+            DateTime windowStartUtc,
+            GuestOrderAccessRequest sentinelRequest,
+            CancellationToken cancellationToken = default)
         {
-            var count = CountWithinWindow(r => r.RequesterIpHash, ipHash, windowStartUtc);
-            return Task.FromResult(count < permitLimit);
+            if (TryRecordUnknownResendAttemptConflictCountdown > 0)
+            {
+                TryRecordUnknownResendAttemptConflictCountdown--;
+                throw DomainProblemException.Conflict(
+                    DomainErrorCodes.ConcurrencyConflict, "Simulated rate limit conflict.");
+            }
+
+            var ipCount = CountWithinWindow(r => r.RequesterIpHash, ipHash, windowStartUtc);
+            if (ipCount >= ipPermitLimit)
+            {
+                return Task.FromResult(false);
+            }
+
+            IdProperty.SetValue(sentinelRequest, _nextRequestId++);
+            Requests[sentinelRequest.PublicId] = sentinelRequest;
+            CommitRequestState(sentinelRequest);
+            return Task.FromResult(true);
+        }
+
+        public Task<GuestOrderAccessRequest?> FindActiveSuccessorAsync(
+            byte[] emailKeyHash,
+            byte[] orderLookupKeyHash,
+            DateTime expiresAtUtc,
+            DateTime nowUtc,
+            CancellationToken cancellationToken = default)
+        {
+            var successor = Requests.Values
+                .Where(r =>
+                    r.EmailKeyHash.AsSpan().SequenceEqual(emailKeyHash) &&
+                    r.OrderLookupKeyHash.AsSpan().SequenceEqual(orderLookupKeyHash) &&
+                    r.ExpiresAtUtc == expiresAtUtc &&
+                    r.ExpiresAtUtc > nowUtc &&
+                    r.ConsumedAtUtc is null &&
+                    r.LockedAtUtc is null &&
+                    r.RevokedAtUtc is null &&
+                    r.AttemptCount < GuestOrderAccessRequest.MaximumAttempts)
+                .OrderByDescending(r => r.Id)
+                .FirstOrDefault();
+            return Task.FromResult(successor);
         }
 
         private int CountWithinWindow(

@@ -194,32 +194,97 @@ public sealed class EfGuestOrderAccessGatewayTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task IsIpWithinRateLimitAsync_ReflectsExistingRowsWithinWindow()
+    public async Task TryRecordUnknownResendAttemptAsync_WhenWithinLimit_PersistsSentinelRowForFutureCalls()
     {
-        await using (var context = CreateContext())
-        {
-            var decoy = GuestOrderAccessRequest.CreateDecoy(
-                Guid.CreateVersion7(), Hash(7), Hash(2), Hash(3),
-                CreatedAtUtc.AddMinutes(10), CreatedAtUtc);
-            context.GuestOrderAccessRequests.Add(decoy);
-            await context.SaveChangesAsync();
-        }
+        // review #1：查無 PublicId／已完全失效的 Resend 呼叫必須「持久消耗」IP Scope，
+        // 不能只唯讀計數——這裡驗證寫入的哨兵 Row 之後真的會被下一次呼叫數到。
+        await using var context = CreateContext();
+        var gateway = new EfGuestOrderAccessGateway(context);
+        var windowStartUtc = CreatedAtUtc.AddMinutes(-14);
+
+        var firstSentinel = GuestOrderAccessRequest.CreateUnknownResendAttempt(
+            Guid.CreateVersion7(), Hash(7), CreatedAtUtc.AddMinutes(10), CreatedAtUtc);
+        var firstAllowed = await gateway.TryRecordUnknownResendAttemptAsync(
+            Hash(7), ipPermitLimit: 1, windowStartUtc, firstSentinel);
+
+        Assert.True(firstAllowed);
+
+        var secondSentinel = GuestOrderAccessRequest.CreateUnknownResendAttempt(
+            Guid.CreateVersion7(), Hash(7), CreatedAtUtc.AddMinutes(10), CreatedAtUtc.AddSeconds(1));
+        var secondAllowed = await gateway.TryRecordUnknownResendAttemptAsync(
+            Hash(7), ipPermitLimit: 1, windowStartUtc, secondSentinel);
+
+        // 上限 1，第一筆已經用掉唯一名額——第二筆同一個 IP Hash 必須被擋下，
+        // 不是像唯讀計數那樣永遠通過。
+        Assert.False(secondAllowed);
+
+        await using var verifyContext = CreateContext();
+        Assert.Equal(1, await verifyContext.GuestOrderAccessRequests.CountAsync());
+    }
+
+    [Fact]
+    public async Task TryRecordUnknownResendAttemptAsync_UsesUnknownScopeHash_NotRealEmailOrOrderLookupHash()
+    {
+        // 哨兵 Row 沒有真實 Email／OrderLookup Hash 可用，必須填固定哨兵值——不能拿目前呼叫者
+        // IP 之外的任何真實資料湊數，否則會污染其他訪客的 Email／OrderLookup 視窗計數。
+        await using var context = CreateContext();
+        var gateway = new EfGuestOrderAccessGateway(context);
+        var sentinel = GuestOrderAccessRequest.CreateUnknownResendAttempt(
+            Guid.CreateVersion7(), Hash(7), CreatedAtUtc.AddMinutes(10), CreatedAtUtc);
+
+        await gateway.TryRecordUnknownResendAttemptAsync(
+            Hash(7), ipPermitLimit: 10, CreatedAtUtc.AddMinutes(-14), sentinel);
+
+        await using var verifyContext = CreateContext();
+        var persisted = await verifyContext.GuestOrderAccessRequests.SingleAsync();
+        Assert.Equal(GuestOrderAccessRequest.UnknownScopeHash, persisted.EmailKeyHash);
+        Assert.Equal(GuestOrderAccessRequest.UnknownScopeHash, persisted.OrderLookupKeyHash);
+        Assert.Null(persisted.OrderId);
+        Assert.Null(persisted.CodeHash);
+    }
+
+    [Fact]
+    public async Task FindActiveSuccessorAsync_FindsTheLatestActiveRowInTheSameResendChain()
+    {
+        // review #2：平行重寄的輸家要能靠 (EmailKeyHash, OrderLookupKeyHash, ExpiresAtUtc) 這組
+        // 不變的組合鍵找到贏家建立的延續 Row，而不是回傳自己手上那筆已經被 Revoke 的舊 Id。
+        var orderId = await SeedOrderAsync(Guid.CreateVersion7(), "DS-0011", "GUEST@EXAMPLE.COM");
+        var expiresAtUtc = CreatedAtUtc.AddMinutes(10);
+
+        await using var context = CreateContext();
+        var previous = GuestOrderAccessRequest.CreateValid(
+            Guid.CreateVersion7(), orderId, Hash(1), Hash(2), Hash(3), Hash(4),
+            expiresAtUtc, CreatedAtUtc);
+        previous.RecordSend(CreatedAtUtc);
+        context.GuestOrderAccessRequests.Add(previous);
+        await context.SaveChangesAsync();
+
+        var successorPublicId = Guid.CreateVersion7();
+        var successor = GuestOrderAccessRequest.CreateResend(
+            successorPublicId, previous, Hash(9), Hash(5), CreatedAtUtc.AddMinutes(1));
+        previous.Revoke(CreatedAtUtc.AddMinutes(1));
+        context.GuestOrderAccessRequests.Add(successor);
+        await context.SaveChangesAsync();
 
         await using var verifyContext = CreateContext();
         var gateway = new EfGuestOrderAccessGateway(verifyContext);
+        var found = await gateway.FindActiveSuccessorAsync(
+            Hash(3), Hash(4), expiresAtUtc, CreatedAtUtc.AddMinutes(2));
 
-        var withinLimit = await gateway.IsIpWithinRateLimitAsync(
-            Hash(7), permitLimit: 1, windowStartUtc: CreatedAtUtc.AddMinutes(-1));
-        var overLimit = await gateway.IsIpWithinRateLimitAsync(
-            Hash(7), permitLimit: 0, windowStartUtc: CreatedAtUtc.AddMinutes(-1));
-        var outsideWindow = await gateway.IsIpWithinRateLimitAsync(
-            Hash(7), permitLimit: 1, windowStartUtc: CreatedAtUtc.AddMinutes(1));
+        Assert.NotNull(found);
+        Assert.Equal(successorPublicId, found!.PublicId);
+    }
 
-        // 已有 1 筆：上限 1 剛好佔滿（false），上限 0 更早就超（false），
-        // 視窗開始時間晚於這筆 Row 的建立時間（不在視窗內）則不計入（true）。
-        Assert.False(withinLimit);
-        Assert.False(overLimit);
-        Assert.True(outsideWindow);
+    [Fact]
+    public async Task FindActiveSuccessorAsync_WhenNoActiveRowMatches_ReturnsNull()
+    {
+        await using var context = CreateContext();
+        var gateway = new EfGuestOrderAccessGateway(context);
+
+        var found = await gateway.FindActiveSuccessorAsync(
+            Hash(3), Hash(4), CreatedAtUtc.AddMinutes(10), CreatedAtUtc.AddMinutes(2));
+
+        Assert.Null(found);
     }
 
     private static GuestOrderAccessRateLimitWindow DefaultWindow(

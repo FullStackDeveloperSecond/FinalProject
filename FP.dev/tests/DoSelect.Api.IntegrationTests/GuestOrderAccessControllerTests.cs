@@ -231,16 +231,26 @@ public sealed class GuestOrderAccessControllerTests : IClassFixture<WebApplicati
     {
         // 對應這次 review #4 新加的「Resend 建立延續 Row＋撤銷舊 Row」：平行重寄不能核發出
         // 兩筆同時有效的延續 Row，DB 裡永遠只能有一筆「仍然有效」（RevokedAtUtc is null）。
+        //
+        // review #3：GuestOrderAccessRequest.EnsureCanSend 規定同一筆 Row 兩次寄送間隔至少
+        // 60 秒，建立 Request 當下已經算一次寄送（SendCount=1）——不推進時間，兩個平行呼叫
+        // 都會因為未滿 60 秒被 EnsureCanSend 擋下，DB 只會停在原始那 1 筆，不會有延續 Row。
+        // 用可控制的 TimeProvider 先推進 61 秒，兩個平行呼叫才會是「這次寄送已經合法」的
+        // 真實競爭，而不是被寄送間隔規則一起擋下的偽陽性。
         var capturingEmailSender = new CapturingEmailSender();
+        var timeProvider = new ControllableTimeProvider(DateTimeOffset.UtcNow);
         using var factory = CreateFactory(services =>
         {
             services.Replace(ServiceDescriptor.Singleton<IEmailSender>(capturingEmailSender));
+            services.Replace(ServiceDescriptor.Singleton<TimeProvider>(timeProvider));
         });
         var (orderId, _, orderNumber, email) = await SeedGuestOrderAsync(factory);
         using var client = factory.CreateClient();
         await PrimeAntiforgeryAsync(client);
         var requestPublicId = await RequestAccessAsync(client, orderNumber, email);
         await capturingEmailSender.WaitForSingleMessageAsync();
+
+        timeProvider.Advance(TimeSpan.FromSeconds(61));
 
         var resendUrl = $"/api/v1/guest-orders/access-requests/{requestPublicId}/actions/resend";
         var tasks = new[]
@@ -249,11 +259,13 @@ public sealed class GuestOrderAccessControllerTests : IClassFixture<WebApplicati
             client.PostAsync(resendUrl, content: null),
         };
         var responses = await Task.WhenAll(tasks);
+        var responseBodies = new List<GuestOrderAccessRequestAcceptedDto>();
         foreach (var response in responses)
         {
             // 兩邊都維持恆定 202——不能因為輸掉競爭就回不同的狀態碼，那本身會洩漏
             // 「誰先誰後」這種跟訂單存在性無關、但一樣不該外洩的時序資訊。
             Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+            responseBodies.Add((await response.Content.ReadFromJsonAsync<GuestOrderAccessRequestAcceptedDto>())!);
             response.Dispose();
         }
 
@@ -266,7 +278,12 @@ public sealed class GuestOrderAccessControllerTests : IClassFixture<WebApplicati
         // 原始 Row＋剛好一筆延續 Row（另一個平行呼叫沒有真的核發出第二筆），
         // 且任何時間點只有一筆是「仍然有效」。
         Assert.Equal(2, chain.Count);
-        Assert.Single(chain, r => r.RevokedAtUtc is null);
+        var activeSuccessor = Assert.Single(chain, r => r.RevokedAtUtc is null);
+
+        // review #2：輸家不能拿到一個已經被撤銷、永遠失效的舊 RequestPublicId——兩個回應
+        // body 都必須指向同一個「目前仍然有效」的延續 Row，客戶端後續 verify／resend
+        // 才不會因為套用輸家回應而失敗。
+        Assert.All(responseBodies, body => Assert.Equal(activeSuccessor.PublicId, body.RequestPublicId));
     }
 
     [Fact]
@@ -458,6 +475,33 @@ public sealed class GuestOrderAccessControllerTests : IClassFixture<WebApplicati
             }
 
             return Assert.Single(SentMessages);
+        }
+    }
+
+    /// <summary>
+    /// 取代 <c>TimeProvider.System</c> 的 Singleton 登錄，讓測試可以在真的平行 HTTP 請求前
+    /// 先推進時間（例如跳過 60 秒寄送間隔限制）。用 lock 保護，因為平行請求會在不同執行緒
+    /// 同時呼叫 <see cref="GetUtcNow"/>。
+    /// </summary>
+    private sealed class ControllableTimeProvider(DateTimeOffset now) : TimeProvider
+    {
+        private readonly object _lock = new();
+        private DateTimeOffset _now = now;
+
+        public override DateTimeOffset GetUtcNow()
+        {
+            lock (_lock)
+            {
+                return _now;
+            }
+        }
+
+        public void Advance(TimeSpan delta)
+        {
+            lock (_lock)
+            {
+                _now += delta;
+            }
         }
     }
 }

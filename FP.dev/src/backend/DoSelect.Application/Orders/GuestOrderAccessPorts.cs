@@ -70,11 +70,32 @@ public interface IGuestOrderAccessGateway
 
     /// <summary>
     /// Resend 對查無此 PublicId／已完全失效的呼叫：沒有任何儲存的 Scope Hash 可用來核對
-    /// Email／OrderLookup，也沒有 Row 可寫入，只能核對目前呼叫者 IP 這一個 Scope。用同一組
-    /// 既有索引唯讀計數，不需要交易——結果一定要照實回應，不能只計不擋（見 review #6）。
+    /// Email／OrderLookup，也沒有真實 Request 可延續，只能核對並「持久消耗」目前呼叫者
+    /// IP 這一個 Scope。跟 <see cref="TryCreateRequestWithinRateLimitAsync"/> 一樣在同一個
+    /// Serializable 交易內原子核對＋寫入 <paramref name="sentinelRequest"/>（見
+    /// <see cref="GuestOrderAccessRequest.CreateUnknownResendAttempt"/>）——不能只唯讀計數
+    /// 既有筆數卻不寫入，否則這個分支永遠不會被限流（review #1）。
     /// </summary>
-    Task<bool> IsIpWithinRateLimitAsync(
-        byte[] ipHash, int permitLimit, DateTime windowStartUtc, CancellationToken cancellationToken = default);
+    Task<bool> TryRecordUnknownResendAttemptAsync(
+        byte[] ipHash,
+        int ipPermitLimit,
+        DateTime windowStartUtc,
+        GuestOrderAccessRequest sentinelRequest,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 找同一張 Challenge 目前仍然有效的延續 Row——Resend 的「延續 Row」保留原始 Row 的
+    /// <see cref="GuestOrderAccessRequest.EmailKeyHash"/>／<see cref="GuestOrderAccessRequest.OrderLookupKeyHash"/>／
+    /// <see cref="GuestOrderAccessRequest.ExpiresAtUtc"/> 不變，這三者的組合實務上唯一識別一條
+    /// 重寄鏈，藉此在平行重寄的輸家發現自己被撤銷時，找到贏家建立的延續 Row 並回傳同一個
+    /// 目前有效的 RequestPublicId，而不是回傳一個已經永久失效的舊 Id（review #2）。
+    /// </summary>
+    Task<GuestOrderAccessRequest?> FindActiveSuccessorAsync(
+        byte[] emailKeyHash,
+        byte[] orderLookupKeyHash,
+        DateTime expiresAtUtc,
+        DateTime nowUtc,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 找一筆「仍然有效」的 Request（未過期、未消耗、未鎖定、未撤銷、AttemptCount &lt; 5）。
