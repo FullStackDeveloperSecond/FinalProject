@@ -215,6 +215,8 @@
 - Request 不論訂單是否存在都維持相同 202 與等效延遲；無效資料不寄信。
 - 15 分鐘視窗：每 IP Hash 最多 10 次、每 Email HMAC 最多 5 次、每訂單 Lookup Hash 最多 5 次；三者同時通過才建立／寄送。
 - 索引：PublicId UX、ExpiresAtUtc，以及三個 `(限流Hash,CreatedAtUtc)`。
+- 有效 Challenge 建立／重寄時，Request（含限流事件）與中央 Outbox 必須在同一 SQL transaction commit；payload 只帶 Request PublicId 與 SendCount 版本，不保存 Email、驗證碼或 Token 明文。
+- 六位碼以伺服器 Guest pepper 對 `RequestPublicId + SendCount` 做 HMAC 後決定性重建，Request 仍只保存 `CodeHash`；consumer 僅寄送仍有效且版本等於目前 SendCount 的事件，舊版本不得寄出已失效驗證碼。
 
 ### 5.2 GuestOrderAccessTokens（Entity）
 
