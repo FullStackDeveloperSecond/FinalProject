@@ -15,4 +15,13 @@ export default tseslint.config(
       },
     },
   },
+  {
+    // TypeScript-eslint's official guidance: no-undef is redundant (and unreliable, e.g. for
+    // ambient DOM lib types) once TypeScript itself checks for undefined symbols —
+    // https://typescript-eslint.io/rules/no-undef/.
+    files: ['**/*.ts', '**/*.vue'],
+    rules: {
+      'no-undef': 'off',
+    },
+  },
 )
