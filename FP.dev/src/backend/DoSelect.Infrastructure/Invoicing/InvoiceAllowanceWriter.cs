@@ -50,7 +50,7 @@ public sealed class InvoiceAllowanceWriter : IInvoiceAllowanceWriter
         RequireWellFormed(command);
         var actor = await ResolveActorAsync(command.AdminUserId, cancellationToken);
         var idempotencyCommand = IdempotencyCommand.Create(
-            IdempotencyActorScope.ForUser(actor.PublicId!.Value),
+            IdempotencyActorScope.ForAdmin(actor.PublicId!.Value),
             InvoiceAllowanceWriteConstants.Operation,
             command.IdempotencyKey,
             new

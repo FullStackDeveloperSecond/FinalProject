@@ -13,6 +13,11 @@ public static class AuditActions
     public const string MemberUpdate = "member.update";
     public const string AuditQuery = "audit.query";
     public const string AuditExport = "audit.export";
+    public const string CouponCreate = "coupon.create";
+    public const string CouponUpdate = "coupon.update";
+    public const string CouponActivate = "coupon.activate";
+    public const string CouponPause = "coupon.pause";
+    public const string CouponDisable = "coupon.disable";
 
     // PR #38（M-01B 管理員登入／TOTP／Recovery Code）用，DEC-P296：高風險安全狀態變更
     // 與稽核紀錄同一交易，Audit 失敗整筆 rollback。
@@ -34,6 +39,7 @@ public static class AuditResourceTypes
     public const string Member = "Member";
     public const string AuditLog = "AuditLog";
     public const string AdminAccount = "AdminAccount";
+    public const string Coupon = "Coupon";
 }
 
 public static class AuditRoleNames
@@ -231,6 +237,7 @@ public sealed class AuditWriteRequest
         string? errorCode,
         IReadOnlyList<AuditFieldChange> changes,
         string reason,
+        string? note,
         string correlationId,
         string traceId,
         Guid? jobPublicId,
@@ -245,6 +252,7 @@ public sealed class AuditWriteRequest
         ErrorCode = errorCode;
         Changes = changes;
         Reason = reason;
+        Note = note;
         CorrelationId = correlationId;
         TraceId = traceId;
         JobPublicId = jobPublicId;
@@ -260,6 +268,7 @@ public sealed class AuditWriteRequest
     public string? ErrorCode { get; }
     public IReadOnlyList<AuditFieldChange> Changes { get; }
     public string Reason { get; }
+    public string? Note { get; }
     public string CorrelationId { get; }
     public string TraceId { get; }
     public Guid? JobPublicId { get; }
@@ -278,7 +287,8 @@ public sealed class AuditWriteRequest
         string correlationId,
         string traceId,
         Guid? jobPublicId,
-        IPAddress? remoteIpAddress)
+        IPAddress? remoteIpAddress,
+        string? note = null)
     {
         if (auditPublicId == Guid.Empty)
         {
@@ -321,6 +331,7 @@ public sealed class AuditWriteRequest
         }
 
         reason = AuditFieldChange.RequireSafeCode(reason, nameof(reason), 64);
+        note = RequireSafeNote(note, definition.AllowsNote);
         correlationId = AuditFieldChange.RequireIdentifier(
             correlationId,
             nameof(correlationId),
@@ -337,10 +348,60 @@ public sealed class AuditWriteRequest
             errorCode,
             Array.AsReadOnly(changeArray),
             reason,
+            note,
             correlationId,
             traceId,
             jobPublicId,
             remoteIpAddress);
+    }
+
+    private static string? RequireSafeNote(string? note, bool allowsNote)
+    {
+        if (string.IsNullOrWhiteSpace(note))
+        {
+            return null;
+        }
+
+        if (!allowsNote)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(note),
+                "The audit action does not allow a free-form note.");
+        }
+
+        note = note.Trim();
+        if (note.Length > 1_000)
+        {
+            throw new ArgumentException("The audit note cannot exceed 1000 characters.", nameof(note));
+        }
+
+        if (note.IndexOfAny(['@', '<', '>', '&', '\\', '"', '\'']) >= 0 ||
+            note.Any(character => char.IsControl(character) &&
+                character is not '\r' and not '\n' and not '\t'))
+        {
+            throw new ArgumentException(
+                "The audit note contains a disallowed character.",
+                nameof(note));
+        }
+
+        var forbidden = new[]
+        {
+            "password",
+            "token",
+            "cookie",
+            "apikey",
+            "api-key",
+            "totp",
+            "recovery code",
+            "card number",
+            "cvv",
+        };
+        if (forbidden.Any(term => note.Contains(term, StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new ArgumentException("The audit note contains a forbidden audit term.", nameof(note));
+        }
+
+        return note;
     }
 
     private static string RequireTraceId(string traceId)
@@ -370,7 +431,7 @@ internal static class AuditWritePolicy
     private static readonly IReadOnlyDictionary<string, AuditActionDefinition> Definitions =
         new Dictionary<string, AuditActionDefinition>(StringComparer.Ordinal)
         {
-            [AuditActions.RefundExecute] = Definition(
+            [AuditActions.RefundExecute] = DefinitionWithNote(
                 AuditActions.RefundExecute,
                 AuditResourceTypes.Refund,
                 "status", "succeededAmount", "allocationCount"),
@@ -402,6 +463,26 @@ internal static class AuditWritePolicy
                 AuditActions.AuditExport,
                 AuditResourceTypes.AuditLog,
                 "exportedFields"),
+            [AuditActions.CouponCreate] = Definition(
+                AuditActions.CouponCreate,
+                AuditResourceTypes.Coupon,
+                "status", "ruleVersion", "changedFields"),
+            [AuditActions.CouponUpdate] = Definition(
+                AuditActions.CouponUpdate,
+                AuditResourceTypes.Coupon,
+                "status", "ruleVersion", "changedFields"),
+            [AuditActions.CouponActivate] = DefinitionWithNote(
+                AuditActions.CouponActivate,
+                AuditResourceTypes.Coupon,
+                "status", "ruleVersion", "changedFields"),
+            [AuditActions.CouponPause] = DefinitionWithNote(
+                AuditActions.CouponPause,
+                AuditResourceTypes.Coupon,
+                "status", "ruleVersion", "changedFields"),
+            [AuditActions.CouponDisable] = DefinitionWithNote(
+                AuditActions.CouponDisable,
+                AuditResourceTypes.Coupon,
+                "status", "ruleVersion", "changedFields"),
             [AuditActions.AdminTotpEnrollmentConfirm] = Definition(
                 AuditActions.AdminTotpEnrollmentConfirm,
                 AuditResourceTypes.AdminAccount,
@@ -445,10 +526,17 @@ internal static class AuditWritePolicy
         string action,
         string resourceType,
         params string[] fields) =>
-        new(action, resourceType, new HashSet<string>(fields, StringComparer.Ordinal));
+        new(action, resourceType, new HashSet<string>(fields, StringComparer.Ordinal), AllowsNote: false);
+
+    private static AuditActionDefinition DefinitionWithNote(
+        string action,
+        string resourceType,
+        params string[] fields) =>
+        new(action, resourceType, new HashSet<string>(fields, StringComparer.Ordinal), AllowsNote: true);
 }
 
 internal sealed record AuditActionDefinition(
     string Action,
     string ResourceType,
-    IReadOnlySet<string> AllowedFields);
+    IReadOnlySet<string> AllowedFields,
+    bool AllowsNote);

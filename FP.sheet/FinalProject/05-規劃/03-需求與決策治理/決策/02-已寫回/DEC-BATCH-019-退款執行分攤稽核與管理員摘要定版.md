@@ -64,3 +64,12 @@ PR #16 實作退款執行時，現有文件仍讓管理端 Request 傳入簡化�
 - 退款執行沿用共用 `IIdempotencyExecutor`，Actor Scope 使用後端驗證的管理員 PublicId，Operation 固定為 `refund.execute`；不得建立第二套冪等表或 Executor。
 - DES-21 追蹤退款計算、七類分攤、DTO、數量不變量與相關 SQL Server Provider-backed 測試；DES-24 追蹤中央 Audit 寫入能力、同交易整合與 rollback 測試。
 - 本決策不授權新增或套用 Migration；若 Audit 實作需要 Schema 變更，仍須通過獨立 Migration Gate。
+
+## 2026-08-27 共用上游落地
+
+- 中央 Audit 已存在；本次在既有 `AuditWriteRequest`／`EfAuditWriter` 上做相容擴充，不建立第二套 Audit，也不新增資料表或欄位。
+- `reasonCode` 繼續寫入只接受穩定 safe-code 的 `AuditLog.Reason`。可選 `note` 經 action allowlist、1000 字上限、HTML／JSON 特殊字元、控制字元、Email 形狀與敏感詞檢查後，寫入 `ChangedFieldsJson` schema v2 的可選 `note`；既有 schema v1 紀錄不回填。
+- `refund.execute` 與 `coupon.activate`／`coupon.pause`／`coupon.disable` 可帶受限 `note`；其他 Audit action 預設拒絕自由文字。Coupon 的 create／update 只記白名單差異，不接受 note。
+- 管理員冪等 Actor Scope 固定為 `admin:{AdminPublicId}`，不得再用 `user:` namespace。既有 Invoice Allowance 呼叫已同步改用 `ForAdmin`；尚無正式資料需要 namespace 遷移。
+- 共用 `IIdempotencyExecutor` 保留 `ReadCommitted` 預設，並允許呼叫端明確要求 `Serializable`；只接受這兩種隔離等級。PR #16 的退款執行必須選 `Serializable`，讓餘額範圍查詢、退款／分攤、Audit 與冪等完成紀錄位於同一筆 Executor-owned 交易。
+- 本次驗證包含 Audit note 持久化、Audit failure rollback、Serializable 交易與管理員 Actor Scope 的 SQL Server Provider-backed 測試；不產生 Migration。
