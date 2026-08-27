@@ -509,6 +509,7 @@ public sealed class AdminCouponsControllerTests
 
         public Task<CouponDto> CreateAsync(
             CreateCouponRequest request,
+            AdminCouponActorContext actor,
             CancellationToken cancellationToken = default)
         {
             Calls++;
@@ -518,6 +519,7 @@ public sealed class AdminCouponsControllerTests
         public Task<CouponDto> UpdateAsync(
             Guid publicId,
             UpdateCouponRequest request,
+            AdminCouponActorContext actor,
             CancellationToken cancellationToken = default)
         {
             Calls++;
@@ -528,6 +530,7 @@ public sealed class AdminCouponsControllerTests
             Guid publicId,
             string action,
             CouponActionRequest request,
+            AdminCouponActorContext actor,
             CancellationToken cancellationToken = default)
         {
             Calls++;

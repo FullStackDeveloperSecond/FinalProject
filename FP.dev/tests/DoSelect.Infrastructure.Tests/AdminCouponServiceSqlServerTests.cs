@@ -1,11 +1,16 @@
+using DoSelect.Application.Auditing;
 using DoSelect.Application.Common;
 using DoSelect.Application.Promotions;
+using DoSelect.Domain.Auditing;
 using DoSelect.Domain.Catalog;
 using DoSelect.Domain.Orders;
 using DoSelect.Domain.Promotions;
 using DoSelect.Domain.Shipping;
+using DoSelect.Infrastructure.Auditing;
 using DoSelect.Infrastructure.Persistence;
+using DoSelect.Infrastructure.Persistence.Identity;
 using DoSelect.Infrastructure.Promotions;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
 namespace DoSelect.Infrastructure.Tests;
@@ -44,7 +49,29 @@ public sealed class AdminCouponSqlFixture : IAsyncLifetime
         await using var context = CreateContext();
         await context.Database.EnsureDeletedAsync();
         await context.Database.EnsureCreatedAsync();
+
+        // 每個寫入路徑都會在同一交易內把 Identity Id 換成管理員 PublicId 與角色快照，
+        // 因此整組測試需要一位真的具備 `Coupon.Manage` 角色的管理員。
+        var admin = ApplicationUser.CreateAdmin(
+            Guid.NewGuid(),
+            $"coupon-admin-{Guid.NewGuid():N}@example.test",
+            new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc));
+        var role = new IdentityRole(AuditRoleNames.MarketingAnalyst);
+        context.AddRange(admin, role);
+        await context.SaveChangesAsync();
+
+        context.UserRoles.Add(new IdentityUserRole<string>
+        {
+            UserId = admin.Id,
+            RoleId = role.Id,
+        });
+        await context.SaveChangesAsync();
+
+        AdminUserId = admin.Id;
     }
+
+    /// <summary>整組測試共用的管理員 Identity Id。</summary>
+    public static string AdminUserId { get; private set; } = string.Empty;
 
     public async Task DisposeAsync()
     {
@@ -686,6 +713,191 @@ public sealed class AdminCouponServiceSqlServerTests
     }
 
     [AdminCouponSqlFact]
+    public async Task CreatingWritesACentralAuditRecord()
+    {
+        await using var context = AdminCouponSqlFixture.CreateContext();
+        var created = await CreateService(context).CreateAsync(CreateRequest(UniqueCode()));
+
+        await using var verify = AdminCouponSqlFixture.CreateContext();
+        var audit = await SingleAuditAsync(verify, created.PublicId);
+
+        Assert.Equal(AuditActions.CouponCreate, audit.Action);
+        Assert.Equal(AuditResourceTypes.Coupon, audit.ResourceType);
+        Assert.Equal(CouponAuditFields.CreateReasonCode, audit.Reason);
+    }
+
+    [AdminCouponSqlFact]
+    public async Task TheAuditCarriesTheAdministratorPublicIdAndRoleSnapshotNotTheIdentityId()
+    {
+        // 稽核不得外洩 Identity 內部 Id；角色快照要記下執行當下的實際角色。
+        await using var context = AdminCouponSqlFixture.CreateContext();
+        var created = await CreateService(context).CreateAsync(CreateRequest(UniqueCode()));
+
+        await using var verify = AdminCouponSqlFixture.CreateContext();
+        var audit = await SingleAuditAsync(verify, created.PublicId);
+        var expectedPublicId = await verify.Users
+            .Where(user => user.Id == AdminCouponSqlFixture.AdminUserId)
+            .Select(user => user.PublicId)
+            .SingleAsync();
+
+        Assert.Equal(expectedPublicId, audit.ActorPublicId);
+        Assert.Contains(AuditRoleNames.MarketingAnalyst, audit.ActorRolesJson);
+        Assert.DoesNotContain(AdminCouponSqlFixture.AdminUserId, audit.ActorRolesJson);
+    }
+
+    [AdminCouponSqlFact]
+    public async Task AnActionAuditRecordsTheReasonCodeAndNote()
+    {
+        await using var context = AdminCouponSqlFixture.CreateContext();
+        var service = CreateService(context);
+        var created = await service.CreateAsync(CreateRequest(UniqueCode()));
+
+        await service.ExecuteActionAsync(
+            created.PublicId,
+            AdminCouponActions.Disable,
+            new CouponActionRequest("policy_violation", "Merchant asked to stop this campaign", created.RowVersion));
+
+        await using var verify = AdminCouponSqlFixture.CreateContext();
+        var audit = await verify.Set<AuditLog>()
+            .Where(log => log.ResourcePublicId == created.PublicId &&
+                          log.Action == AuditActions.CouponDisable)
+            .SingleAsync();
+
+        Assert.Equal("policy_violation", audit.Reason);
+        Assert.Contains("Merchant asked to stop", audit.ChangedFieldsJson);
+        Assert.Contains("Disabled", audit.ChangedFieldsJson);
+    }
+
+    [AdminCouponSqlFact]
+    public async Task AnUnsafeNoteIsRejectedAsValidationFailedNotAServerError()
+    {
+        // 中央 Audit 拒收含 Email 或標記字元的自由文字。呼叫端送了格式不合的理由，
+        // 應該看到 400 而不是「伺服器錯誤」。
+        await using var context = AdminCouponSqlFixture.CreateContext();
+        var service = CreateService(context);
+        var created = await service.CreateAsync(CreateRequest(UniqueCode()));
+
+        var exception = await Assert.ThrowsAsync<DomainProblemException>(
+            () => service.ExecuteActionAsync(
+                created.PublicId,
+                AdminCouponActions.Disable,
+                new CouponActionRequest("policy_violation", "contact me@example.com", created.RowVersion)));
+
+        Assert.Equal(400, exception.StatusCode);
+        Assert.Equal(DomainErrorCodes.ValidationFailed, exception.Code);
+    }
+
+    [AdminCouponSqlFact]
+    public async Task AFailedAuditRollsBackTheCouponChangeEntirely()
+    {
+        // 這是 DEC-P289 的核心保證：稽核與狀態變更同進同出。
+        // 稽核失敗卻讓優惠券停用成功，會留下一筆沒有任何責任歸屬的異動。
+        await using var context = AdminCouponSqlFixture.CreateContext();
+        var service = CreateService(context);
+        var created = await service.CreateAsync(CreateRequest(UniqueCode()));
+
+        await Assert.ThrowsAsync<DomainProblemException>(
+            () => service.ExecuteActionAsync(
+                created.PublicId,
+                AdminCouponActions.Disable,
+                new CouponActionRequest("policy_violation", "reach <b>me</b>", created.RowVersion)));
+
+        await using var verify = AdminCouponSqlFixture.CreateContext();
+        var reloaded = await CreateService(verify).FindByPublicIdAsync(created.PublicId);
+
+        Assert.Equal(CouponStatus.Draft, reloaded!.Status);
+        Assert.Equal(created.RowVersion, reloaded.RowVersion);
+        Assert.False(await verify.Set<AuditLog>()
+            .AnyAsync(log => log.ResourcePublicId == created.PublicId &&
+                             log.Action == AuditActions.CouponDisable));
+    }
+
+    [AdminCouponSqlFact]
+    public async Task AnUpdateAuditListsTheChangedFields()
+    {
+        await using var context = AdminCouponSqlFixture.CreateContext();
+        var created = await CreateService(context).CreateAsync(CreateRequest(UniqueCode()));
+
+        await using var update = AdminCouponSqlFixture.CreateContext();
+        await CreateService(update).UpdateAsync(
+            created.PublicId,
+            UpdateRequest(created) with { MinimumSpend = 4000m, NameZhTw = "改名" });
+
+        await using var verify = AdminCouponSqlFixture.CreateContext();
+        var audit = await verify.Set<AuditLog>()
+            .Where(log => log.ResourcePublicId == created.PublicId &&
+                          log.Action == AuditActions.CouponUpdate)
+            .SingleAsync();
+
+        Assert.Contains("minimumSpend", audit.ChangedFieldsJson);
+        Assert.Contains("nameZhTw", audit.ChangedFieldsJson);
+    }
+
+    [AdminCouponSqlFact]
+    public async Task AnUpdateThatChangesNothingWritesNoAudit()
+    {
+        // 一筆「什麼都沒改」的稽核只會稀釋真正的異動，讓事後追查更難。
+        await using var context = AdminCouponSqlFixture.CreateContext();
+        var created = await CreateService(context).CreateAsync(CreateRequest(UniqueCode()));
+
+        await using var update = AdminCouponSqlFixture.CreateContext();
+        await CreateService(update).UpdateAsync(created.PublicId, UpdateRequest(created));
+
+        await using var verify = AdminCouponSqlFixture.CreateContext();
+        Assert.False(await verify.Set<AuditLog>()
+            .AnyAsync(log => log.ResourcePublicId == created.PublicId &&
+                             log.Action == AuditActions.CouponUpdate));
+    }
+
+    [AdminCouponSqlFact]
+    public async Task AnAdministratorWithoutACouponRoleIsRefused()
+    {
+        // Policy 在請求進入時檢查過一次，這裡是第二次：Token 可能簽發於角色撤銷之前。
+        await using var context = AdminCouponSqlFixture.CreateContext();
+        var stranger = ApplicationUser.CreateAdmin(
+            Guid.NewGuid(),
+            $"stranger-{Guid.NewGuid():N}@example.test",
+            NowUtc.AddDays(-10));
+        context.Add(stranger);
+        await context.SaveChangesAsync();
+
+        var exception = await Assert.ThrowsAsync<DomainProblemException>(
+            () => CreateService(context).Inner.CreateAsync(
+                CreateRequest(UniqueCode()),
+                new AdminCouponActorContext(
+                    stranger.Id, "coupon-test-correlation", new string('a', 32), null)));
+
+        Assert.Equal(403, exception.StatusCode);
+    }
+
+    [AdminCouponSqlFact]
+    public async Task ACustomCorrelationIdIsAccepted()
+    {
+        // CorrelationId 與 TraceId 是兩種格式：把可讀的 correlation id 當成
+        // 32 位 W3C TraceId 送進中央 Audit 會直接丟例外並讓請求變成 500。
+        await using var context = AdminCouponSqlFixture.CreateContext();
+        var created = await CreateService(context).Inner.CreateAsync(
+            CreateRequest(UniqueCode()),
+            new AdminCouponActorContext(
+                AdminCouponSqlFixture.AdminUserId,
+                "coupon-request-1",
+                new string('b', 32),
+                null));
+
+        await using var verify = AdminCouponSqlFixture.CreateContext();
+        var audit = await SingleAuditAsync(verify, created.PublicId);
+
+        Assert.Equal("coupon-request-1", audit.CorrelationId);
+    }
+
+    private static async Task<AuditLog> SingleAuditAsync(
+        DoSelectDbContext context,
+        Guid couponPublicId) =>
+        await context.Set<AuditLog>()
+            .Where(log => log.ResourcePublicId == couponPublicId)
+            .SingleAsync();
+
+    [AdminCouponSqlFact]
     public async Task AnUnknownCouponIsNotFound()
     {
         await using var context = AdminCouponSqlFixture.CreateContext();
@@ -693,8 +905,55 @@ public sealed class AdminCouponServiceSqlServerTests
         Assert.Null(await CreateService(context).FindByPublicIdAsync(Guid.NewGuid()));
     }
 
-    private static IAdminCouponService CreateService(DoSelectDbContext context) =>
-        new EfAdminCouponService(context, new FixedTimeProvider(NowUtc));
+    private static TestCouponService CreateService(DoSelectDbContext context) =>
+        new(new EfAdminCouponService(
+            context,
+            new FixedTimeProvider(NowUtc),
+            new EfAuditWriter(context, new FixedTimeProvider(NowUtc))));
+
+    /// <summary>
+    /// 把整組測試共用的稽核上下文補進每一次呼叫。
+    /// </summary>
+    /// <remarks>
+    /// 稽核上下文是每條寫入路徑都必須提供、但與被測行為無關的參數；讓每個測試
+    /// 各自傳一次只會讓斷言被雜訊淹沒。需要換一位管理員或驗證授權時，
+    /// 用 <see cref="Inner"/> 直接呼叫。
+    /// </remarks>
+    private sealed class TestCouponService
+    {
+        public TestCouponService(IAdminCouponService inner) => Inner = inner;
+
+        public IAdminCouponService Inner { get; }
+
+        public Task<PageResult<CouponDto>> ListAsync(AdminCouponQuery query) =>
+            Inner.ListAsync(query);
+
+        public Task<CouponDto?> FindByPublicIdAsync(Guid publicId) =>
+            Inner.FindByPublicIdAsync(publicId);
+
+        public Task<CouponDto> CreateAsync(CreateCouponRequest request) =>
+            Inner.CreateAsync(request, Actor);
+
+        public Task<CouponDto> UpdateAsync(Guid publicId, UpdateCouponRequest request) =>
+            Inner.UpdateAsync(publicId, request, Actor);
+
+        public Task<CouponDto> ExecuteActionAsync(
+            Guid publicId,
+            string action,
+            CouponActionRequest request) =>
+            Inner.ExecuteActionAsync(publicId, action, request, Actor);
+    }
+
+    /// <summary>
+    /// 稽核用的可信呼叫端。TraceId 必須是 32 位十六進位，否則中央 Audit 直接拒絕 ——
+    /// 這裡用固定值，讓測試不依賴 <c>Activity.Current</c>。
+    /// </summary>
+    private static AdminCouponActorContext Actor =>
+        new(
+            AdminCouponSqlFixture.AdminUserId,
+            "coupon-test-correlation",
+            new string('a', 32),
+            null);
 
     private static string UniqueCode() => $"C{Guid.NewGuid():N}"[..16].ToUpperInvariant();
 

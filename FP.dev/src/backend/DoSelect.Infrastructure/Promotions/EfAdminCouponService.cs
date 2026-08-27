@@ -1,6 +1,10 @@
 using System.Data;
+using System.Globalization;
+using DoSelect.Application.Auditing;
 using DoSelect.Application.Common;
 using DoSelect.Application.Promotions;
+using DoSelect.Domain.Auditing;
+using DoSelect.Domain.Members;
 using DoSelect.Domain.Promotions;
 using DoSelect.Infrastructure.Catalog;
 using DoSelect.Infrastructure.Persistence;
@@ -24,16 +28,30 @@ public sealed class EfAdminCouponService : IAdminCouponService
     private const int DeadlockVictimErrorNumber = 1205;
     private const int MaximumDeadlockRetries = 1;
 
+    /// <summary>`Coupon.Manage` 的合法角色（DEC-P284）。</summary>
+    private static readonly string[] CouponManageRoles =
+    [
+        AuditRoleNames.FinanceManager,
+        AuditRoleNames.MarketingAnalyst,
+        AuditRoleNames.SuperAdmin,
+    ];
+
     private readonly DoSelectDbContext _context;
     private readonly TimeProvider _timeProvider;
+    private readonly IAuditWriter _auditWriter;
 
-    public EfAdminCouponService(DoSelectDbContext context, TimeProvider timeProvider)
+    public EfAdminCouponService(
+        DoSelectDbContext context,
+        TimeProvider timeProvider,
+        IAuditWriter auditWriter)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(timeProvider);
+        ArgumentNullException.ThrowIfNull(auditWriter);
 
         _context = context;
         _timeProvider = timeProvider;
+        _auditWriter = auditWriter;
     }
 
     public async Task<PageResult<CouponDto>> ListAsync(
@@ -104,9 +122,11 @@ public sealed class EfAdminCouponService : IAdminCouponService
 
     public async Task<CouponDto> CreateAsync(
         CreateCouponRequest request,
+        AdminCouponActorContext actor,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(actor);
         AdminCouponQueryValidator.RequireValidRule(
             request.DiscountType,
             request.DiscountValue,
@@ -162,12 +182,29 @@ public sealed class EfAdminCouponService : IAdminCouponService
                     throw DuplicateCode(normalizedCode);
                 }
 
+                var auditActor = await ResolveActorAsync(actor.AdminUserId, token);
+
                 try
                 {
                     _context.Coupons.Add(coupon);
                     await _context.SaveChangesAsync(token);
 
                     AddScope(coupon.Id, categoryIds, productIds, excludedProductIds, now);
+                    WriteAudit(
+                        coupon,
+                        AuditActions.CouponCreate,
+                        auditActor,
+                        actor,
+                        CouponAuditFields.CreateReasonCode,
+                        note: null,
+                        [
+                            AuditFieldChange.Code(
+                                CouponAuditFields.Status, null, coupon.Status.ToString()),
+                            AuditFieldChange.Code(
+                                CouponAuditFields.RuleVersion,
+                                null,
+                                coupon.RuleVersion.ToString(CultureInfo.InvariantCulture)),
+                        ]);
                     await _context.SaveChangesAsync(token);
                 }
                 // 只翻譯 UX_Coupons_Code；其他唯一索引或連線失敗照原樣往上拋，
@@ -188,9 +225,11 @@ public sealed class EfAdminCouponService : IAdminCouponService
     public async Task<CouponDto> UpdateAsync(
         Guid publicId,
         UpdateCouponRequest request,
+        AdminCouponActorContext actor,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(actor);
         AdminCouponQueryValidator.RequireValidRule(
             request.DiscountType,
             request.DiscountValue,
@@ -229,9 +268,12 @@ public sealed class EfAdminCouponService : IAdminCouponService
                 _context.Entry(coupon).Property(entity => entity.RowVersion).OriginalValue =
                     request.RowVersion;
 
+                var auditActor = await ResolveActorAsync(actor.AdminUserId, token);
+
+                CouponRuleChange change;
                 try
                 {
-                    coupon.UpdateRules(
+                    change = coupon.UpdateRules(
                         new CouponRuleRevision(
                             request.Code,
                             request.NameZhTw,
@@ -265,6 +307,29 @@ public sealed class EfAdminCouponService : IAdminCouponService
                         coupon.Id, categoryIds, productIds, excludedProductIds, now, token);
                 }
 
+                // 沒有任何變動時不寫稽核：一筆「什麼都沒改」的紀錄只會稀釋
+                // 真正的異動，讓事後追查更難。
+                if (change.HasChanges)
+                {
+                    WriteAudit(
+                        coupon,
+                        AuditActions.CouponUpdate,
+                        auditActor,
+                        actor,
+                        CouponAuditFields.UpdateReasonCode,
+                        note: null,
+                        [
+                            AuditFieldChange.Code(
+                                CouponAuditFields.RuleVersion,
+                                null,
+                                coupon.RuleVersion.ToString(CultureInfo.InvariantCulture)),
+                            AuditFieldChange.Code(
+                                CouponAuditFields.ChangedFields,
+                                null,
+                                CouponAuditFields.Describe(change.ChangedFields)),
+                        ]);
+                }
+
                 await SaveWithConflictMappingAsync(coupon.Code, token);
                 return coupon.PublicId;
             },
@@ -290,9 +355,11 @@ public sealed class EfAdminCouponService : IAdminCouponService
         Guid publicId,
         string action,
         CouponActionRequest request,
+        AdminCouponActorContext actor,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(actor);
         if (!AdminCouponActions.IsAllowed(action))
         {
             throw DomainProblemException.NotFound($"Action '{action}' is not supported.");
@@ -308,12 +375,16 @@ public sealed class EfAdminCouponService : IAdminCouponService
                 RequireCurrentRowVersion(request.RowVersion, coupon.RowVersion);
 
                 var now = _timeProvider.GetUtcNow().UtcDateTime;
+                var auditActor = await ResolveActorAsync(actor.AdminUserId, token);
+                var statusBefore = coupon.Status;
+
                 _context.Entry(coupon).Property(entity => entity.RowVersion).OriginalValue =
                     request.RowVersion;
 
+                var normalizedAction = action.Trim();
                 try
                 {
-                    switch (action.Trim())
+                    switch (normalizedAction)
                     {
                         case AdminCouponActions.Activate:
                             await ActivateAsync(coupon, now, token);
@@ -332,6 +403,20 @@ public sealed class EfAdminCouponService : IAdminCouponService
                 {
                     throw StateConflict(exception.Message);
                 }
+
+                WriteAudit(
+                    coupon,
+                    ActionAuditName(normalizedAction),
+                    auditActor,
+                    actor,
+                    request.ReasonCode.Trim(),
+                    request.Note,
+                    [
+                        AuditFieldChange.Code(
+                            CouponAuditFields.Status,
+                            statusBefore.ToString(),
+                            coupon.Status.ToString()),
+                    ]);
 
                 await SaveWithConflictMappingAsync(coupon.Code, token);
                 return coupon.PublicId;
@@ -735,6 +820,101 @@ public sealed class EfAdminCouponService : IAdminCouponService
             !currentProductIds.ToHashSet().SetEquals(productIds) ||
             !currentExcludedProductIds.ToHashSet().SetEquals(excludedProductIds);
     }
+
+    /// <summary>
+    /// 在同一交易內把 Identity 的內部 Id 換成管理員 <c>PublicId</c> 與角色快照，
+    /// 並重新確認他**執行當下**仍具備 `Coupon.Manage` 的角色。
+    /// </summary>
+    /// <remarks>
+    /// Policy 在請求進入時已經檢查過一次，這裡是第二次：Token 可能簽發於角色被撤銷之前。
+    /// 沿用 <c>InvoiceAllowanceWriter</c> 的既有做法，沒有另建一套。
+    /// </remarks>
+    private async Task<AuditActor> ResolveActorAsync(
+        string adminUserId,
+        CancellationToken cancellationToken)
+    {
+        var admin = await _context.Users.AsNoTracking()
+            .Where(user => user.Id == adminUserId && user.AccountType == AccountType.Admin)
+            .Select(user => new { user.Id, user.PublicId })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (admin is null)
+        {
+            throw DomainProblemException.Forbidden("The administrator identity is invalid.");
+        }
+
+        var roles = await (
+            from userRole in _context.UserRoles.AsNoTracking()
+            join role in _context.Roles.AsNoTracking() on userRole.RoleId equals role.Id
+            where userRole.UserId == admin.Id && role.Name != null
+            select role.Name!)
+            .Distinct()
+            .ToArrayAsync(cancellationToken);
+
+        if (!roles.Intersect(CouponManageRoles, StringComparer.Ordinal).Any())
+        {
+            throw DomainProblemException.Forbidden(
+                "The administrator no longer has permission to manage coupons.");
+        }
+
+        return AuditActor.Create(AuditActorType.Admin, admin.PublicId, roles);
+    }
+
+    /// <summary>
+    /// 把一筆稽核加入目前的 <see cref="DoSelectDbContext"/>。
+    /// </summary>
+    /// <remarks>
+    /// <see cref="IAuditWriter.Add"/> 只是把實體加入追蹤，實際寫入由呼叫端接下來的
+    /// <c>SaveChangesAsync</c> 完成。因此稽核與優惠券、範圍變更在**同一次**
+    /// SaveChanges、同一個 Serializable 交易內提交；稽核建構失敗（例如
+    /// <c>note</c> 不合規）會在寫入任何資料前就丟出，整筆交易回滾。
+    /// </remarks>
+    private void WriteAudit(
+        Coupon coupon,
+        string action,
+        AuditActor auditActor,
+        AdminCouponActorContext actor,
+        string reasonCode,
+        string? note,
+        IReadOnlyCollection<AuditFieldChange> changes)
+    {
+        AuditWriteRequest request;
+        try
+        {
+            request = AuditWriteRequest.Create(
+                Guid.NewGuid(),
+                auditActor,
+                action,
+                AuditResourceTypes.Coupon,
+                coupon.PublicId,
+                AuditResult.Success,
+                errorCode: null,
+                changes,
+                reasonCode,
+                actor.CorrelationId,
+                actor.TraceId,
+                jobPublicId: null,
+                actor.RemoteIpAddress,
+                note);
+        }
+        // `reasonCode` 與 `note` 直接來自呼叫端，而中央 Audit 對兩者都有格式限制
+        // （safe-code、長度上限、禁用字元與敏感詞）。不接住就會變成 500 ——
+        // 呼叫端送了一個格式不合的理由，卻看到「伺服器錯誤」。
+        // 這裡刻意不複製那些規則：共用契約是唯一判準，另寫一份必然漂移。
+        catch (ArgumentException exception)
+        {
+            throw DomainProblemException.Validation(exception.Message);
+        }
+
+        _auditWriter.Add(request);
+    }
+
+    private static string ActionAuditName(string action) => action switch
+    {
+        AdminCouponActions.Activate => AuditActions.CouponActivate,
+        AdminCouponActions.Pause => AuditActions.CouponPause,
+        AdminCouponActions.Disable => AuditActions.CouponDisable,
+        _ => throw new ArgumentOutOfRangeException(nameof(action)),
+    };
 
     private static DateTime RequireUtc(DateTime value, string field) =>
         value.Kind == DateTimeKind.Utc

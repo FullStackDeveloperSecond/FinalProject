@@ -1,4 +1,6 @@
 using System.ComponentModel.DataAnnotations;
+using System.Net;
+using DoSelect.Application.Auditing;
 using DoSelect.Application.Common;
 using DoSelect.Domain.Promotions;
 
@@ -166,6 +168,58 @@ public sealed record CouponActionRequest(
     [Required] byte[] RowVersion);
 
 /// <summary>
+/// 一次後台寫入的可信呼叫端資訊，供中央 Audit 使用。
+/// </summary>
+/// <remarks>
+/// 全部由 API 層從已驗證的 <c>HttpContext</c> 取得，**不接受 Request Body 帶入** ——
+/// 讓呼叫端自報身分或 Trace，等於讓稽核紀錄可被偽造。
+/// <paramref name="AdminUserId"/> 是 Identity 的內部 Id，只用來在同一交易內換取
+/// <c>ApplicationUser.PublicId</c> 與角色快照，不會出現在任何回應或稽核欄位。
+/// </remarks>
+public sealed record AdminCouponActorContext(
+    string AdminUserId,
+    string CorrelationId,
+    string TraceId,
+    IPAddress? RemoteIpAddress);
+
+/// <summary>
+/// 中央 Audit 的優惠券欄位與理由碼慣例。
+/// </summary>
+/// <remarks>
+/// <c>changedFields</c> 在本專案先前沒有任何使用者，慣例由本工程包定義：
+/// 以 camelCase 欄位名依序用 <c>-</c> 串接。<see cref="AuditFieldChange"/> 的
+/// safe-code 上限是 64 字元，欄位大量變動時串接必然超過；此時改記
+/// <c>count:{n}</c>，明確表示「這裡是筆數不是名稱」，而不是靜默截斷成一份
+/// 看起來完整、實際上少了幾個欄位的清單。
+/// </remarks>
+public static class CouponAuditFields
+{
+    public const string Status = "status";
+    public const string RuleVersion = "ruleVersion";
+    public const string ChangedFields = "changedFields";
+
+    /// <summary>建立與修改沒有呼叫端提供的理由碼，使用固定的安全值。</summary>
+    public const string CreateReasonCode = "coupon_create";
+
+    public const string UpdateReasonCode = "coupon_update";
+
+    private const int SafeCodeMaximumLength = 64;
+
+    public static string Describe(IReadOnlyList<string> changedFields)
+    {
+        ArgumentNullException.ThrowIfNull(changedFields);
+
+        var joined = string.Join(
+            '-',
+            changedFields.Select(field => char.ToLowerInvariant(field[0]) + field[1..]));
+
+        return joined.Length is > 0 and <= SafeCodeMaximumLength
+            ? joined
+            : $"count:{changedFields.Count}";
+    }
+}
+
+/// <summary>
 /// 後台優惠券的查詢與寫入。實作屬 Infrastructure，本層不接觸 DbContext。
 /// </summary>
 public interface IAdminCouponService
@@ -180,17 +234,20 @@ public interface IAdminCouponService
 
     Task<CouponDto> CreateAsync(
         CreateCouponRequest request,
+        AdminCouponActorContext actor,
         CancellationToken cancellationToken = default);
 
     Task<CouponDto> UpdateAsync(
         Guid publicId,
         UpdateCouponRequest request,
+        AdminCouponActorContext actor,
         CancellationToken cancellationToken = default);
 
     Task<CouponDto> ExecuteActionAsync(
         Guid publicId,
         string action,
         CouponActionRequest request,
+        AdminCouponActorContext actor,
         CancellationToken cancellationToken = default);
 }
 
