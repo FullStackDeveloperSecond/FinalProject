@@ -20,6 +20,9 @@ public sealed class ShippingMethodConfiguration : IEntityTypeConfiguration<Shipp
         builder.Property(entity => entity.IsActive).HasDefaultValue(true).IsRequired();
         builder.Property(entity => entity.SortOrder).HasDefaultValue(0).IsRequired();
         builder.Property(entity => entity.Kind).HasMaxLength(24).IsUnicode(false).IsRequired();
+        builder.Property(entity => entity.ProviderCode).HasMaxLength(64);
+        builder.HasIndex(entity => entity.ProviderCode)
+            .HasDatabaseName("IX_ShippingMethods_ProviderCode");
         builder.Property(entity => entity.BaseFee).HasPrecision(18, 2).IsRequired();
         builder.Property(entity => entity.FreeShippingThreshold).HasPrecision(18, 2);
         builder.ToTable("ShippingMethods", table =>

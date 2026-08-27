@@ -94,9 +94,11 @@ try {
 
     $previousEnvironment = $env:ASPNETCORE_ENVIRONMENT
     $previousUrls = $env:ASPNETCORE_URLS
+    $previousBackgroundJobsEnabled = $env:Features__BackgroundJobsEnabled
     try {
         $env:ASPNETCORE_ENVIRONMENT = $Environment
         $env:ASPNETCORE_URLS = $script:ApiUrl
+        $env:Features__BackgroundJobsEnabled = 'true'
         $apiParameters = @{
             Name = 'API'
             FilePath = $dotnet
@@ -109,6 +111,7 @@ try {
     finally {
         $env:ASPNETCORE_ENVIRONMENT = $previousEnvironment
         $env:ASPNETCORE_URLS = $previousUrls
+        $env:Features__BackgroundJobsEnabled = $previousBackgroundJobsEnabled
     }
 
     $customerParameters = @{

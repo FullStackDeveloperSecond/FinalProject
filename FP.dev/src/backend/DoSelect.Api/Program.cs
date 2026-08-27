@@ -9,6 +9,7 @@ using DoSelect.Application.Support;
 using DoSelect.Application.Support.Admin;
 using DoSelect.Infrastructure.Auditing;
 using DoSelect.Infrastructure.Catalog;
+using DoSelect.Infrastructure.Checkout;
 using DoSelect.Infrastructure.Email;
 using DoSelect.Infrastructure.Files;
 using DoSelect.Infrastructure.Idempotency;
@@ -16,6 +17,7 @@ using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using DoSelect.Infrastructure.Invoicing;
 using DoSelect.Infrastructure.Persistence.Returns;
+using DoSelect.Infrastructure.Outbox;
 using DoSelect.Infrastructure.Persistence.Seeding;
 using DoSelect.Infrastructure.Refunds;
 using DoSelect.Infrastructure.Security;
@@ -24,6 +26,7 @@ using Microsoft.AspNetCore.Authentication;
 using DoSelect.Infrastructure.Persistence.Support;
 using DoSelect.Infrastructure.Promotions;
 using Microsoft.Extensions.Options;
+using Hangfire;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -35,12 +38,15 @@ builder.Services.AddOpenApi();
 builder.Services.AddDoSelectPersistence(builder.Configuration);
 builder.Services.AddDoSelectAuditing();
 builder.Services.AddDoSelectIdempotency(builder.Configuration);
+builder.Services.AddDoSelectOutbox();
+builder.Services.AddDoSelectBackgroundJobs(builder.Configuration);
 builder.Services.AddDoSelectFileStorage();
 builder.Services.AddDoSelectSecurity(builder.Environment, builder.Configuration);
 builder.Services.AddDoSelectAdminAuth();
 builder.Services.AddDoSelectRefunds();
 builder.Services.AddDoSelectCatalogServices();
 builder.Services.AddDoSelectShoppingServices();
+builder.Services.AddDoSelectCheckout();
 builder.Services.AddDoSelectApplication();
 builder.Services.AddDoSelectInvoicing();
 builder.Services.AddDoSelectPromotions();
@@ -145,6 +151,15 @@ app.Use(async (context, next) =>
 
 app.UseAuthorization();
 app.UseRateLimiter();
+
+if (BackgroundJobServiceCollectionExtensions.BackgroundJobsEnabled(app.Configuration))
+{
+    app.UseHangfireDashboard("/hangfire", new DashboardOptions
+    {
+        Authorization = [new HangfireDashboardAuthorizationFilter()],
+        IsReadOnlyFunc = _ => true,
+    });
+}
 
 app.MapControllers();
 app.MapObservabilityHealthChecks();

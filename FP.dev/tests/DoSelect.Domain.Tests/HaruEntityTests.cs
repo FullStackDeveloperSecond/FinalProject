@@ -3,6 +3,7 @@ using DoSelect.Domain.Catalog;
 using DoSelect.Domain.Builds;
 using DoSelect.Domain.Imports;
 using DoSelect.Domain.Inventory;
+using DoSelect.Domain.Invoicing;
 using DoSelect.Domain.Common;
 using DoSelect.Domain.Members;
 using DoSelect.Domain.Orders;
@@ -164,6 +165,34 @@ public sealed class HaruEntityTests
         Assert.Equal(CreatedAtUtc, order.CreatedAtUtc);
         Assert.Equal(CreatedAtUtc, order.UpdatedAtUtc);
         Assert.Equal(2_000m, order.ShippingFreeThresholdSnapshot);
+        Assert.Equal(3, order.TermsPolicyVersion);
+        Assert.Equal(4, order.PrivacyPolicyVersion);
+        Assert.Equal(SimulatedInvoiceBuyerType.Individual, order.InvoiceBuyerType);
+        Assert.Equal("guest@example.com", order.InvoiceBuyerEmail);
+        Assert.Equal("MobileBarcode", order.InvoiceCarrierType);
+        Assert.Equal("***/ABC", order.InvoiceCarrierValueMasked);
+        Assert.Equal("TW", order.CountryCode);
+        Assert.Equal("Leave with reception", order.DeliveryNote);
+        Assert.Equal(7, order.PackageLimitVersionId);
+        Assert.Equal(5m, order.PackageWeightKgSnapshot);
+        Assert.Equal(125m, order.PackageTotalCmSnapshot);
+    }
+
+    [Theory]
+    [InlineData(1, "DS202608270001")]
+    [InlineData(9999, "DS202608279999")]
+    public void OrderNumber_Create_UsesApprovedDailyFormat(int sequence, string expected)
+    {
+        Assert.Equal(expected, OrderNumber.Create(new DateOnly(2026, 8, 27), sequence));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(10000)]
+    public void OrderNumber_Create_RejectsSequenceOutsideDailyCapacity(int sequence)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            OrderNumber.Create(new DateOnly(2026, 8, 27), sequence));
     }
 
     [Fact]
@@ -186,6 +215,88 @@ public sealed class HaruEntityTests
 
         Assert.Throws<ArgumentException>(() =>
             Order.Create(Guid.NewGuid(), creation, CreatedAtUtc));
+    }
+
+    [Fact]
+    public void Order_CreateWithFractionalRawPayable_UsesAwayFromZeroGrandTotal()
+    {
+        var creation = ValidOrderCreation() with
+        {
+            ShippingFee = 225.50m,
+            GrandTotal = 1_326m,
+        };
+
+        var order = Order.Create(Guid.NewGuid(), creation, CreatedAtUtc);
+
+        Assert.Equal(1_326m, order.GrandTotal);
+    }
+
+    [Fact]
+    public void Order_CreateCompanyInvoiceWithoutCompanyIdentity_RejectsCreation()
+    {
+        var creation = ValidOrderCreation() with
+        {
+            InvoicePreference = new OrderInvoicePreference(
+                SimulatedInvoiceBuyerType.Company,
+                "buyer@example.com",
+                null,
+                null,
+                null,
+                null),
+        };
+
+        Assert.Throws<ArgumentException>(() =>
+            Order.Create(Guid.NewGuid(), creation, CreatedAtUtc));
+    }
+
+    [Fact]
+    public void Order_CreateCarrierWithOnlyOneCarrierField_RejectsCreation()
+    {
+        var creation = ValidOrderCreation() with
+        {
+            InvoicePreference = new OrderInvoicePreference(
+                SimulatedInvoiceBuyerType.Individual,
+                "buyer@example.com",
+                "MobileBarcode",
+                null,
+                null,
+                null),
+        };
+
+        Assert.Throws<ArgumentException>(() =>
+            Order.Create(Guid.NewGuid(), creation, CreatedAtUtc));
+    }
+
+    [Fact]
+    public void OrderItem_Create_PreservesSpecificationSnapshot()
+    {
+        var item = new OrderItem(
+            Guid.NewGuid(),
+            1,
+            2,
+            "GPU-001",
+            "Graphics card",
+            "16 GB",
+            1,
+            20_000m,
+            19_000m,
+            19_000m,
+            15_000m,
+            19_000m,
+            0m,
+            19_000m,
+            null,
+            1,
+            CreatedAtUtc,
+            true,
+            new OrderItemSpecificationSnapshot(
+                "VRAM: 16 GB",
+                "{\"VRAM_GB\":16}",
+                1));
+
+        Assert.Equal("VRAM: 16 GB", item.SpecificationSummarySnapshot);
+        Assert.Equal("{\"VRAM_GB\":16}", item.SpecificationJsonSnapshot);
+        Assert.Equal(1, item.SpecificationSchemaVersion);
     }
 
     [Fact]
@@ -266,7 +377,18 @@ public sealed class HaruEntityTests
             CreatedAtUtc.AddDays(3),
             "checkout-0001",
             null,
-            2_000m);
+            3,
+            4,
+            new OrderInvoicePreference(
+                SimulatedInvoiceBuyerType.Individual,
+                "guest@example.com",
+                "MobileBarcode",
+                "***/ABC",
+                null,
+                null),
+            2_000m,
+            "Leave with reception",
+            new OrderPackageSnapshot(7, 5m, 55m, 40m, 30m, 125m, 4_000m));
 
     private static byte[] Hash() => Enumerable.Repeat((byte)1, 32).ToArray();
 }

@@ -252,6 +252,11 @@ public sealed class InvoiceAllowanceWriterSqlServerTests
         var role = new IdentityRole(AuditRoleNames.FinanceManager);
         context.AddRange(profile, admin, role);
         await context.SaveChangesAsync();
+        var packageLimit = new PackageLimitVersion(
+            Guid.NewGuid(), profile.Id, 1, 30m, 150m, 100m, 100m, 250m, 50_000m,
+            null, null, createdAtUtc);
+        context.PackageLimitVersions.Add(packageLimit);
+        await context.SaveChangesAsync();
         context.UserRoles.Add(new IdentityUserRole<string>
         {
             UserId = admin.Id,
@@ -289,10 +294,22 @@ public sealed class InvoiceAllowanceWriterSqlServerTests
                 1,
                 1,
                 null,
-                null,
-                $"checkout-{Guid.NewGuid():N}",
-                null,
-                1000m),
+                 null,
+                 $"checkout-{Guid.NewGuid():N}",
+                 null,
+                 1,
+                 1,
+                 new OrderInvoicePreference(
+                     SimulatedInvoiceBuyerType.Individual,
+                     "guest@example.test",
+                     null,
+                     null,
+                      null,
+                      null),
+                  1000m,
+                  null,
+                  new OrderPackageSnapshot(
+                      packageLimit.Id, 1m, 40m, 30m, 20m, 90m, 100m)),
             createdAtUtc);
         context.Orders.Add(order);
         await context.SaveChangesAsync();
@@ -315,7 +332,8 @@ public sealed class InvoiceAllowanceWriterSqlServerTests
             null,
             2,
             createdAtUtc,
-            isCouponEligible: true);
+            isCouponEligible: true,
+            new OrderItemSpecificationSnapshot("Test specification", "{}", 1));
         var payment = new PaymentAttempt(
             Guid.NewGuid(),
             order.Id,
@@ -398,6 +416,9 @@ public sealed class InvoiceAllowanceWriterSqlServerTests
         var profileId = await context.ShippingProviderProfiles
             .Select(profile => profile.Id)
             .SingleAsync();
+        var packageLimitId = await context.PackageLimitVersions
+            .Select(limit => limit.Id)
+            .SingleAsync();
         var order = Order.Create(
             Guid.NewGuid(),
             new OrderCreation(
@@ -429,10 +450,22 @@ public sealed class InvoiceAllowanceWriterSqlServerTests
                 1,
                 1,
                 null,
-                null,
-                $"checkout-{Guid.NewGuid():N}",
-                null,
-                1000m),
+                 null,
+                 $"checkout-{Guid.NewGuid():N}",
+                 null,
+                 1,
+                 1,
+                 new OrderInvoicePreference(
+                     SimulatedInvoiceBuyerType.Individual,
+                     "unrelated@example.test",
+                     null,
+                     null,
+                      null,
+                      null),
+                  1000m,
+                  null,
+                  new OrderPackageSnapshot(
+                      packageLimitId, 1m, 40m, 30m, 20m, 90m, 100m)),
             createdAtUtc);
         context.Orders.Add(order);
         await context.SaveChangesAsync();

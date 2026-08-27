@@ -16,6 +16,7 @@ public sealed class ShippingMethod : MutablePublicEntity
         decimal? freeShippingThreshold,
         bool allowsCod,
         bool requiresPrepayment,
+        string providerCode,
         DateTime createdAtUtc)
         : base(publicId, createdAtUtc)
     {
@@ -31,6 +32,7 @@ public sealed class ShippingMethod : MutablePublicEntity
         FreeShippingThreshold = freeShippingThreshold;
         AllowsCod = allowsCod;
         RequiresPrepayment = requiresPrepayment;
+        ProviderCode = RequireText(providerCode, nameof(providerCode));
         IsActive = true;
     }
 
@@ -43,6 +45,11 @@ public sealed class ShippingMethod : MutablePublicEntity
     public decimal? FreeShippingThreshold { get; private set; }
     public bool AllowsCod { get; private set; }
     public bool RequiresPrepayment { get; private set; }
+    /// <summary>
+    /// Resolves the current published provider profile at Checkout. Null is reserved for rows
+    /// created before provider ownership became mandatory; legacy methods cannot be checked out.
+    /// </summary>
+    public string? ProviderCode { get; private set; }
 
     public void UpdateFeesAndCapabilities(
         decimal baseFee,

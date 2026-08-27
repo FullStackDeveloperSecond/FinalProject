@@ -157,7 +157,12 @@ public sealed class EfProductSearchService : IProductSearchService
                 definition.CategoryId == categoryId &&
                 definition.SemanticKey == semanticKey &&
                 definition.IsActive)
-            .Select(definition => new { definition.Id, definition.ValueType })
+            .Select(definition => new
+            {
+                definition.Id,
+                definition.ValueType,
+                definition.AllowsMultiple,
+            })
             .ToListAsync(cancellationToken);
 
         if (definitions.Count == 0)
@@ -197,10 +202,14 @@ public sealed class EfProductSearchService : IProductSearchService
 
             case SpecFilterOperator.Eq when valueType == SpecificationValueType.Option:
                 var optionId = await ResolveOptionIdAsync(definitions[0].Id, filter.Value, cancellationToken);
-                return source.Where(row => _dbContext.SkuSpecificationValues.Any(value =>
-                    value.SkuId == row.Sku.Id &&
-                    definitionIds.Contains(value.SpecificationDefinitionId) &&
-                    value.OptionId == optionId));
+                return definitions[0].AllowsMultiple
+                    ? source.Where(row => _dbContext.SkuSpecificationOptionSelections.Any(selection =>
+                        selection.SkuId == row.Sku.Id &&
+                        selection.SpecificationOptionId == optionId))
+                    : source.Where(row => _dbContext.SkuSpecificationValues.Any(value =>
+                        value.SkuId == row.Sku.Id &&
+                        definitionIds.Contains(value.SpecificationDefinitionId) &&
+                        value.OptionId == optionId));
 
             case SpecFilterOperator.Gte when valueType == SpecificationValueType.Decimal:
                 var gteDecimal = ParseDecimal(filter.Value, filter.SemanticKey);
@@ -231,11 +240,15 @@ public sealed class EfProductSearchService : IProductSearchService
                     optionIds.Add(await ResolveOptionIdAsync(definitions[0].Id, code, cancellationToken));
                 }
 
-                return source.Where(row => _dbContext.SkuSpecificationValues.Any(value =>
-                    value.SkuId == row.Sku.Id &&
-                    definitionIds.Contains(value.SpecificationDefinitionId) &&
-                    value.OptionId != null &&
-                    optionIds.Contains(value.OptionId.Value)));
+                return definitions[0].AllowsMultiple
+                    ? source.Where(row => _dbContext.SkuSpecificationOptionSelections.Any(selection =>
+                        selection.SkuId == row.Sku.Id &&
+                        optionIds.Contains(selection.SpecificationOptionId)))
+                    : source.Where(row => _dbContext.SkuSpecificationValues.Any(value =>
+                        value.SkuId == row.Sku.Id &&
+                        definitionIds.Contains(value.SpecificationDefinitionId) &&
+                        value.OptionId != null &&
+                        optionIds.Contains(value.OptionId.Value)));
 
             case SpecFilterOperator.In when valueType == SpecificationValueType.String:
                 var stringValues = filter.Values ?? [];

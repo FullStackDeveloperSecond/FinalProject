@@ -36,4 +36,6 @@ public static class EmailDeliveryErrorCodes
     public const string AuthenticationFailed = "email_authentication_failed";
     public const string Rejected = "email_rejected";
     public const string TransportUnavailable = "email_transport_unavailable";
+    public const string ContentUnavailable = "email_content_unavailable";
+    public const string DeliveryAmbiguous = "email_delivery_ambiguous";
 }
