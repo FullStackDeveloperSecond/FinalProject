@@ -224,4 +224,76 @@ public sealed class AdminOrdersApiTests
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
+
+    // Actor A/B coverage per Haru-會員與訂單工程包.md §8: Actor A is an OrderManager, Actor B
+    // (CustomerService, signed in via the Admin scheme but lacking Order.Manage) must be denied
+    // on every endpoint, not just List, with proof that the denial leaked no data and left no
+    // state behind.
+
+    [Fact]
+    public async Task GetById_WithoutOrderManagerRole_Returns403WithNoOrderDataInBody()
+    {
+        await using var context = _fixture.CreateScopedContext();
+        var shippingProfileId = await AdminOrdersApiSeeding.SeedShippingProviderProfileAsync(context);
+        var order = await AdminOrdersApiSeeding.SeedOrderAsync(context, shippingProfileId);
+
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync(DoSelectRoles.CustomerService);
+        using var response = await client.GetAsync($"/api/v1/admin/orders/{order.PublicId}");
+        var (status, code, body) = await AdminOrdersApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal(403, status);
+        Assert.Equal("authorization_forbidden", code);
+        Assert.False(body.TryGetProperty("orderStatus", out _));
+        Assert.False(body.TryGetProperty("items", out _));
+    }
+
+    [Fact]
+    public async Task GetRecipient_WithoutOrderManagerRole_Returns403WithNoRecipientDataInBody()
+    {
+        await using var context = _fixture.CreateScopedContext();
+        var shippingProfileId = await AdminOrdersApiSeeding.SeedShippingProviderProfileAsync(context);
+        var order = await AdminOrdersApiSeeding.SeedOrderAsync(context, shippingProfileId);
+
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync(DoSelectRoles.CustomerService);
+        using var response = await client.GetAsync($"/api/v1/admin/orders/{order.PublicId}/recipient");
+        var (status, code, body) = await AdminOrdersApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal(403, status);
+        Assert.Equal("authorization_forbidden", code);
+        Assert.False(body.TryGetProperty("recipientName", out _));
+        Assert.False(body.TryGetProperty("recipientEmail", out _));
+        Assert.False(body.TryGetProperty("addressLine1", out _));
+    }
+
+    [Fact]
+    public async Task ExecuteAction_WithoutOrderManagerRole_Returns403AndLeavesOrderUntouched()
+    {
+        await using var context = _fixture.CreateScopedContext();
+        var shippingProfileId = await AdminOrdersApiSeeding.SeedShippingProviderProfileAsync(context);
+        var order = await AdminOrdersApiSeeding.SeedOrderAsync(context, shippingProfileId);
+
+        using var unauthorizedClient = await _fixture.CreateAuthenticatedAdminClientAsync(DoSelectRoles.CustomerService);
+        using var forbiddenResponse = await AdminOrdersApiFixture.SendWithAntiforgeryAsync(
+            unauthorizedClient,
+            new HttpRequestMessage(HttpMethod.Post, $"/api/v1/admin/orders/{order.PublicId}/actions/startProcessing")
+            {
+                Content = JsonContent.Create(new { reasonCode = (string?)null, note = (string?)null, rowVersion = order.RowVersion }),
+            });
+        var (status, code, _) = await AdminOrdersApiFixture.ReadProblemAsync(forbiddenResponse);
+        Assert.Equal(403, status);
+        Assert.Equal("authorization_forbidden", code);
+
+        // Zero-side-effect evidence: re-read the order through the same API a legitimate
+        // OrderManager would use and confirm the denied action changed nothing — status,
+        // RowVersion, and status history are all exactly what SeedOrderAsync left behind.
+        using var verifyClient = await _fixture.CreateAuthenticatedAdminClientAsync();
+        using var verifyResponse = await verifyClient.GetAsync($"/api/v1/admin/orders/{order.PublicId}");
+        var body = await verifyResponse.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(nameof(OrderStatus.Confirmed), body.GetProperty("orderStatus").GetString());
+        Assert.Equal(Convert.ToBase64String(order.RowVersion), body.GetProperty("rowVersion").GetString());
+        Assert.DoesNotContain(
+            body.GetProperty("statusHistory").EnumerateArray(),
+            entry => entry.GetProperty("toStatus").GetString() == nameof(OrderStatus.Processing));
+    }
 }
