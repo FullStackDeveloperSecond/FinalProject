@@ -246,18 +246,22 @@ public sealed class MemberProfileGateway(DoSelectDbContext dbContext, TimeProvid
     /// 比對索引名稱字串——本機 SQL Server 用繁中定位環境時，錯誤訊息裡索引名稱前後夾雜的中文字
     /// 在某些邊界情況下會讓單純的子字串比對（見 SqlUniqueIndexViolations.Matches）漏判，在高併發
     /// 測試中偶爾讓真正的唯一索引衝突被誤判成未處理例外（Alex review，2026-08-28 後續觀察）。
-    /// 只要是這張表的重複索引鍵錯誤（2601／2627），就當作預設地址搶到同一個名額處理。
+    /// 也一併涵蓋 Deadlock Victim（1205）——高併發下 ClearExistingDefaultAsync 的
+    /// SELECT／UPDATE 與後續 INSERT 都鎖同一個 MemberUserId 的列，確實觀察到偶發死結；對呼叫端
+    /// 而言兩者都是「重試就好」的情境，不是資料本身有問題，所以一起回可重試的衝突而非 500。
     /// </summary>
     private static bool IsDefaultAddressUniqueIndexViolation(DbUpdateException exception)
     {
         const int DuplicateKeyOnUniqueIndex = 2601;
         const int DuplicateKeyOnPrimaryOrUniqueConstraint = 2627;
+        const int DeadlockVictim = 1205;
 
         for (var current = (Exception)exception; current is not null; current = current.InnerException!)
         {
             if (current is SqlException sqlException &&
                 sqlException.Errors.Cast<SqlError>().Any(error =>
-                    error.Number is DuplicateKeyOnUniqueIndex or DuplicateKeyOnPrimaryOrUniqueConstraint))
+                    error.Number is DuplicateKeyOnUniqueIndex or DuplicateKeyOnPrimaryOrUniqueConstraint
+                        or DeadlockVictim))
             {
                 return true;
             }
