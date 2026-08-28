@@ -2,7 +2,10 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using DoSelect.Api.Security;
+using DoSelect.Application.Auditing;
+using DoSelect.Domain.Auditing;
 using DoSelect.Domain.Orders;
+using Microsoft.EntityFrameworkCore;
 
 namespace DoSelect.Api.IntegrationTests.Orders;
 
@@ -58,8 +61,10 @@ public sealed class AdminOrdersApiTests
     }
 
     [Fact]
-    public async Task GetById_ForConfirmedOrder_ExposesStartProcessingAndCancelActions()
+    public async Task GetById_ForConfirmedOrder_ExposesOnlyStartProcessingAction()
     {
+        // Confirmed／Processing 一律已付款，退款流程尚未串接，在那之前不提供取消（Alex
+        // review，2026-08-28）——Confirmed 只剩 startProcessing。
         await using var context = _fixture.CreateScopedContext();
         var shippingProfileId = await AdminOrdersApiSeeding.SeedShippingProviderProfileAsync(context);
         var order = await AdminOrdersApiSeeding.SeedOrderAsync(context, shippingProfileId);
@@ -73,7 +78,7 @@ public sealed class AdminOrdersApiTests
             .Select(element => element.GetString())
             .ToArray();
         Assert.Contains("startProcessing", actions);
-        Assert.Contains("cancel", actions);
+        Assert.DoesNotContain("cancel", actions);
     }
 
     [Fact]
@@ -82,14 +87,34 @@ public sealed class AdminOrdersApiTests
         await using var context = _fixture.CreateScopedContext();
         var shippingProfileId = await AdminOrdersApiSeeding.SeedShippingProviderProfileAsync(context);
         var order = await AdminOrdersApiSeeding.SeedOrderAsync(context, shippingProfileId);
+        var adminUserId = await AdminOrdersApiSeeding.SeedAdminUserAsync(context);
 
-        using var client = await _fixture.CreateAuthenticatedAdminClientAsync();
+        using var client = await _fixture.CreateAuthenticatedAdminClientForUserAsync(adminUserId);
         using var response = await client.GetAsync($"/api/v1/admin/orders/{order.PublicId}/recipient");
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("測試收件人", body.GetProperty("recipientName").GetString());
         Assert.Equal("buyer@example.com", body.GetProperty("recipientEmail").GetString());
+    }
+
+    [Fact]
+    public async Task GetRecipient_WritesACentralAuditEntry()
+    {
+        await using var context = _fixture.CreateScopedContext();
+        var shippingProfileId = await AdminOrdersApiSeeding.SeedShippingProviderProfileAsync(context);
+        var order = await AdminOrdersApiSeeding.SeedOrderAsync(context, shippingProfileId);
+        var adminUserId = await AdminOrdersApiSeeding.SeedAdminUserAsync(context);
+
+        using var client = await _fixture.CreateAuthenticatedAdminClientForUserAsync(adminUserId);
+        using var response = await client.GetAsync($"/api/v1/admin/orders/{order.PublicId}/recipient");
+        response.EnsureSuccessStatusCode();
+
+        await using var verification = _fixture.CreateScopedContext();
+        var audit = await verification.AuditLogs.SingleAsync(entry =>
+            entry.Action == AuditActions.OrderRecipientView && entry.ResourcePublicId == order.PublicId);
+        Assert.Equal(AuditActorType.Admin, audit.ActorType);
+        Assert.Equal(AuditResult.Success, audit.Result);
     }
 
     [Fact]
@@ -138,9 +163,11 @@ public sealed class AdminOrdersApiTests
     [Fact]
     public async Task ExecuteAction_Cancel_TransitionsOrderAndRecordsReason()
     {
+        // Cancel 只在 PendingPayment（未付款）開放（Alex review，2026-08-28）。
         await using var context = _fixture.CreateScopedContext();
         var shippingProfileId = await AdminOrdersApiSeeding.SeedShippingProviderProfileAsync(context);
-        var order = await AdminOrdersApiSeeding.SeedOrderAsync(context, shippingProfileId);
+        var order = await AdminOrdersApiSeeding.SeedOrderAsync(
+            context, shippingProfileId, orderStatus: OrderStatus.PendingPayment, paymentStatus: PaymentStatus.AwaitingPayment);
         var adminUserId = await AdminOrdersApiSeeding.SeedAdminUserAsync(context);
 
         using var client = await _fixture.CreateAuthenticatedAdminClientForUserAsync(adminUserId);
@@ -155,6 +182,34 @@ public sealed class AdminOrdersApiTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(nameof(OrderStatus.Cancelled), body.GetProperty("orderStatus").GetString());
         Assert.Equal("cancelled", body.GetProperty("summaryStatus").GetString());
+
+        await using var verification = _fixture.CreateScopedContext();
+        var audit = await verification.AuditLogs.SingleAsync(entry =>
+            entry.Action == AuditActions.OrderCancel && entry.ResourcePublicId == order.PublicId);
+        Assert.Equal(AuditActorType.Admin, audit.ActorType);
+        Assert.Equal(AuditResult.Success, audit.Result);
+    }
+
+    [Fact]
+    public async Task ExecuteAction_CancelOnAlreadyConfirmedOrder_Returns409OrderCancellationNotAllowed()
+    {
+        // Confirmed 一律已付款；退款流程尚未串接前，後台不得取消（Alex review，2026-08-28）。
+        await using var context = _fixture.CreateScopedContext();
+        var shippingProfileId = await AdminOrdersApiSeeding.SeedShippingProviderProfileAsync(context);
+        var order = await AdminOrdersApiSeeding.SeedOrderAsync(context, shippingProfileId, orderStatus: OrderStatus.Confirmed);
+        var adminUserId = await AdminOrdersApiSeeding.SeedAdminUserAsync(context);
+
+        using var client = await _fixture.CreateAuthenticatedAdminClientForUserAsync(adminUserId);
+        using var response = await AdminOrdersApiFixture.SendWithAntiforgeryAsync(
+            client,
+            new HttpRequestMessage(HttpMethod.Post, $"/api/v1/admin/orders/{order.PublicId}/actions/cancel")
+            {
+                Content = JsonContent.Create(new { reasonCode = "merchant_unfulfillable", note = (string?)null, rowVersion = order.RowVersion }),
+            });
+        var (status, code, _) = await AdminOrdersApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal(409, status);
+        Assert.Equal("order_cancellation_not_allowed", code);
     }
 
     [Fact]
@@ -180,28 +235,32 @@ public sealed class AdminOrdersApiTests
     [Fact]
     public async Task ExecuteAction_WithStaleRowVersion_Returns409ConcurrencyConflict()
     {
+        // Cancel 現在只在 PendingPayment 開放，所以不能再靠「startProcessing 再 cancel」踩出
+        // 過期 RowVersion（第二次呼叫會先被 order_cancellation_not_allowed 擋下）。改成直接在
+        // DB 端模擬「別的請求已經動過這筆訂單」——呼叫一個不改變 OrderStatus、但確實會
+        // MarkUpdated（bump RowVersion）的既有投影方法。
         await using var context = _fixture.CreateScopedContext();
         var shippingProfileId = await AdminOrdersApiSeeding.SeedShippingProviderProfileAsync(context);
-        var order = await AdminOrdersApiSeeding.SeedOrderAsync(context, shippingProfileId);
+        var order = await AdminOrdersApiSeeding.SeedOrderAsync(
+            context, shippingProfileId, orderStatus: OrderStatus.PendingPayment, paymentStatus: PaymentStatus.AwaitingPayment);
         var staleRowVersion = order.RowVersion;
         var adminUserId = await AdminOrdersApiSeeding.SeedAdminUserAsync(context);
 
-        using var client = await _fixture.CreateAuthenticatedAdminClientForUserAsync(adminUserId);
-        using var first = await AdminOrdersApiFixture.SendWithAntiforgeryAsync(
-            client,
-            new HttpRequestMessage(HttpMethod.Post, $"/api/v1/admin/orders/{order.PublicId}/actions/startProcessing")
-            {
-                Content = JsonContent.Create(new { reasonCode = (string?)null, note = (string?)null, rowVersion = staleRowVersion }),
-            });
-        first.EnsureSuccessStatusCode();
+        await using (var mutationContext = _fixture.CreateScopedContext())
+        {
+            var tracked = await mutationContext.Orders.SingleAsync(candidate => candidate.Id == order.Id);
+            tracked.ApplyFulfillmentProjection(tracked.FulfillmentStatus, DateTime.UtcNow);
+            await mutationContext.SaveChangesAsync();
+        }
 
-        using var second = await AdminOrdersApiFixture.SendWithAntiforgeryAsync(
+        using var client = await _fixture.CreateAuthenticatedAdminClientForUserAsync(adminUserId);
+        using var response = await AdminOrdersApiFixture.SendWithAntiforgeryAsync(
             client,
             new HttpRequestMessage(HttpMethod.Post, $"/api/v1/admin/orders/{order.PublicId}/actions/cancel")
             {
                 Content = JsonContent.Create(new { reasonCode = "merchant_unfulfillable", note = (string?)null, rowVersion = staleRowVersion }),
             });
-        var (status, code, _) = await AdminOrdersApiFixture.ReadProblemAsync(second);
+        var (status, code, _) = await AdminOrdersApiFixture.ReadProblemAsync(response);
 
         Assert.Equal(409, status);
         Assert.Equal("concurrency_conflict", code);

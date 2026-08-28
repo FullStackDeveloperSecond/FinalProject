@@ -1,8 +1,11 @@
+using DoSelect.Api.Security;
 using DoSelect.Domain.Invoicing;
+using DoSelect.Domain.Members;
 using DoSelect.Domain.Orders;
 using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
+using Microsoft.AspNetCore.Identity;
 
 namespace DoSelect.Api.IntegrationTests.Orders;
 
@@ -19,15 +22,37 @@ public static class AdminOrdersApiSeeding
     /// sign-in endpoint (/__tests/security/sign-in/admin) mints a claims-only principal with no
     /// backing Identity row, so any test that exercises an admin action recording an actor
     /// (ExecuteActionAsync) must seed a real ApplicationUser and sign in with its exact Id.
+    /// Also seeds an AdminProfile — EfAdminOrderService resolves the acting admin's PublicId
+    /// from it for the cancel/recipient-view Audit trail (Alex review, 2026-08-28) — plus a real
+    /// OrderManager role assignment: DEC-BATCH-026 (DEC-P309) established that the test-only
+    /// sign-in shortcut only stamps role claims onto the auth cookie, it never writes real
+    /// AspNetUserRoles rows, but EfAdminOrderService's audit actor resolution re-queries the real
+    /// Users/UserRoles/Roles tables (mirrors EfCompatibilityRuleAdminService/InvoiceAllowanceWriter),
+    /// so a claims-only principal isn't enough here.
     /// </summary>
     public static async Task<string> SeedAdminUserAsync(DoSelectDbContext context)
     {
+        var now = DateTime.UtcNow;
         var admin = ApplicationUser.CreateAdmin(
             Guid.CreateVersion7(),
             $"{AdminOrdersApiFixture.UniqueCode("admin").ToLowerInvariant()}@example.com",
-            DateTime.UtcNow);
+            now);
         context.Users.Add(admin);
         await context.SaveChangesAsync();
+
+        context.AdminProfiles.Add(new AdminProfile(
+            admin.Id,
+            Guid.CreateVersion7(),
+            AdminOrdersApiFixture.UniqueCode("EMP"),
+            "測試管理員",
+            now));
+
+        var role = new IdentityRole(DoSelectRoles.OrderManager);
+        context.Roles.Add(role);
+        await context.SaveChangesAsync();
+        context.UserRoles.Add(new IdentityUserRole<string> { UserId = admin.Id, RoleId = role.Id });
+        await context.SaveChangesAsync();
+
         return admin.Id;
     }
 

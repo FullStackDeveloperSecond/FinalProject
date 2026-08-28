@@ -3,6 +3,12 @@ using DoSelect.Application.Common;
 
 namespace DoSelect.Application.Orders;
 
+/// <summary>
+/// 角色與權限.md：「成本欄位只在 Catalog 維護 SKU 成本、Finance／SuperAdmin 財務報表中可見；
+/// 其他角色的商品 DTO 不回傳成本」——AdminOrdersController 只掛 Order.Manage（OrderManager／
+/// SuperAdmin），OrderManager 不在成本可見角色內，這裡刻意不含 UnitCostSnapshot（Alex review，
+/// 2026-08-28）。若後續有 Finance 專用訂單成本檢視需求，另建專用 DTO／Policy，不要加回這裡。
+/// </summary>
 public sealed record AdminOrderItemDto(
     Guid PublicId,
     string SkuCodeSnapshot,
@@ -12,7 +18,6 @@ public sealed record AdminOrderItemDto(
     decimal ListUnitPrice,
     decimal SaleUnitPrice,
     decimal FinalUnitPrice,
-    decimal UnitCostSnapshot,
     decimal LineSubtotal,
     decimal DiscountAllocation,
     decimal LineTotal,
@@ -31,15 +36,16 @@ public sealed record AdminOrderAmountsDto(
 
 /// <summary>
 /// API DTO與Schema契約.md 沒有為 OrderStatusHistory 定義 API Schema（只有 DB 欄位定義）。
-/// 這裡把內部 Entity 欄位原樣對管理端開放（不對訪客/會員開放，本切片只有後台會用到）；
-/// 待 alex 確認是否要調整欄位或遮蔽 ActorUserId。
+/// ActorPublicId 刻意不是內部 Identity ActorUserId——後者是 AspNetUsers 的 Identity 字串 Id，
+/// 不應該固定進公開 API 契約（Alex review，2026-08-28）；改回傳解析後的管理員 PublicId，
+/// 系統事件（ActorUserId 為 Null）則 ActorPublicId 也是 Null。
 /// </summary>
 public sealed record OrderStatusHistoryDto(
     string StateDimension,
     string? FromStatus,
     string ToStatus,
     string? ReasonCode,
-    string? ActorUserId,
+    Guid? ActorPublicId,
     DateTime OccurredAtUtc);
 
 /// <summary>
@@ -182,13 +188,19 @@ public interface IAdminOrderService
 
     Task<AdminOrderDto> GetAsync(Guid orderPublicId, CancellationToken cancellationToken);
 
-    Task<OrderRecipientDto> GetRecipientAsync(Guid orderPublicId, CancellationToken cancellationToken);
+    /// <summary>UC-ADM-ORDER-02：完整收件資料每次讀取都要寫中央 Audit（Alex review，
+    /// 2026-08-28）——actorUserId 用於解析寫入 Audit 的管理員 PublicId。</summary>
+    Task<OrderRecipientDto> GetRecipientAsync(
+        Guid orderPublicId,
+        string actorUserId,
+        OrderCancellationAuditContext auditContext,
+        CancellationToken cancellationToken);
 
     Task<AdminOrderDto> ExecuteActionAsync(
         Guid orderPublicId,
         string action,
         string actorUserId,
-        string traceId,
+        OrderCancellationAuditContext auditContext,
         AdminOrderActionRequest request,
         CancellationToken cancellationToken);
 }

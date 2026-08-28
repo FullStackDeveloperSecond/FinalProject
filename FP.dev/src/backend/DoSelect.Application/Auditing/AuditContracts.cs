@@ -19,6 +19,7 @@ public static class AuditActions
     public const string CouponPause = "coupon.pause";
     public const string CouponDisable = "coupon.disable";
     public const string OrderCancel = "order.cancel";
+    public const string OrderRecipientView = "order.recipient_view";
 
     // PR #38（M-01B 管理員登入／TOTP／Recovery Code）用，DEC-P296：高風險安全狀態變更
     // 與稽核紀錄同一交易，Audit 失敗整筆 rollback。
@@ -514,6 +515,10 @@ internal static class AuditWritePolicy
                 AuditActions.OrderCancel,
                 AuditResourceTypes.Order,
                 "orderStatus", "inventoryReservations", "couponRedemptions"),
+            [AuditActions.OrderRecipientView] = Definition(
+                AuditActions.OrderRecipientView,
+                AuditResourceTypes.Order,
+                "accessPurpose"),
             [AuditActions.AdminTotpEnrollmentConfirm] = Definition(
                 AuditActions.AdminTotpEnrollmentConfirm,
                 AuditResourceTypes.AdminAccount,

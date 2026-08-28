@@ -52,10 +52,16 @@ public sealed class MembersController(IMemberProfileGateway gateway) : Controlle
         [FromBody] CreateMemberAddressRequest request,
         CancellationToken cancellationToken)
     {
-        var address = await gateway.CreateAddressAsync(
+        var result = await gateway.CreateAddressAsync(
             RequireMemberUserId(), request.ToInput(), cancellationToken);
-        return CreatedAtAction(
-            nameof(ListAddresses), null, MemberAddressResponse.From(address));
+
+        return result switch
+        {
+            MemberAddressWriteOutcome.Success success => CreatedAtAction(
+                nameof(ListAddresses), null, MemberAddressResponse.From(success.Dto)),
+            MemberAddressWriteOutcome.ConcurrencyConflict => ConcurrencyConflictProblem(),
+            _ => Problem(),
+        };
     }
 
     [HttpPut("addresses/{id:guid}")]
@@ -77,14 +83,19 @@ public sealed class MembersController(IMemberProfileGateway gateway) : Controlle
     }
 
     [HttpDelete("addresses/{id:guid}")]
-    public async Task<IActionResult> DeleteAddress(Guid id, CancellationToken cancellationToken)
+    public async Task<IActionResult> DeleteAddress(
+        Guid id,
+        [FromBody] DeleteMemberAddressRequest request,
+        CancellationToken cancellationToken)
     {
-        var result = await gateway.DeleteAddressAsync(RequireMemberUserId(), id, cancellationToken);
+        var result = await gateway.DeleteAddressAsync(
+            RequireMemberUserId(), id, request.RowVersion, cancellationToken);
 
         return result switch
         {
             MemberAddressWriteOutcome.Success => NoContent(),
             MemberAddressWriteOutcome.NotFound => ResourceNotFoundProblem(),
+            MemberAddressWriteOutcome.ConcurrencyConflict => ConcurrencyConflictProblem(),
             _ => Problem(),
         };
     }

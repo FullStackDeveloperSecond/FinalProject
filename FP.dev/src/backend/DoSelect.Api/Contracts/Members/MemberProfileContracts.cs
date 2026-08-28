@@ -191,3 +191,12 @@ public sealed class UpdateMemberAddressRequest : CreateMemberAddressRequest
 
     public UpdateMemberAddressCommand ToCommand() => new(ToInput(), RowVersion);
 }
+
+/// <summary>比照 CartController.RemoveItem 的既有慣例——DELETE 帶 RowVersion 於 Body（Alex
+/// review，2026-08-28：刪除地址前也要驗證併發，不能無條件覆蓋）。</summary>
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed class DeleteMemberAddressRequest
+{
+    [Required]
+    public byte[] RowVersion { get; init; } = [];
+}

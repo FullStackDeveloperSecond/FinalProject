@@ -63,7 +63,8 @@ public sealed class AdminOrdersController : ControllerBase
     {
         try
         {
-            var recipient = await _adminOrderService.GetRecipientAsync(id, cancellationToken);
+            var recipient = await _adminOrderService.GetRecipientAsync(
+                id, RequireAdminUserId(), BuildAuditContext(), cancellationToken);
             return Ok(recipient);
         }
         catch (AdminOrderWriteException exception)
@@ -89,7 +90,7 @@ public sealed class AdminOrdersController : ControllerBase
                 id,
                 actionName,
                 RequireAdminUserId(),
-                GetTraceId(),
+                BuildAuditContext(),
                 request,
                 cancellationToken);
             return Ok(order);
@@ -112,6 +113,11 @@ public sealed class AdminOrdersController : ControllerBase
     }
 
     private string GetTraceId() => Activity.Current?.TraceId.ToString() ?? HttpContext.TraceIdentifier;
+
+    private OrderCancellationAuditContext BuildAuditContext() => new(
+        CorrelationIdMiddleware.GetCorrelationId(HttpContext),
+        GetTraceId(),
+        HttpContext.Connection.RemoteIpAddress);
 }
 
 public sealed class AdminOrderListRequest

@@ -83,7 +83,10 @@ public interface IMemberProfileGateway
         string memberUserId,
         CancellationToken cancellationToken = default);
 
-    Task<MemberAddressDto> CreateAddressAsync(
+    /// <summary>回傳 ConcurrencyConflict（而非丟未處理例外）——併發建立兩筆各自不同的
+    /// 「設為預設」地址會撞 UX_MemberAddresses_MemberUserId_Default 這個過濾唯一索引，跟一般
+    /// RowVersion 樂觀併發衝突是同一類使用者可重試的情境（Alex review，2026-08-28）。</summary>
+    Task<MemberAddressWriteOutcome> CreateAddressAsync(
         string memberUserId,
         MemberAddressInput input,
         CancellationToken cancellationToken = default);
@@ -96,9 +99,11 @@ public interface IMemberProfileGateway
 
     /// <summary>軟刪除（MemberAddress.Delete）——歷史訂單快照已經各自保存收件資訊，不依賴這筆
     /// 地址簿列存活（API Endpoint目錄.md：「刪除不改歷史訂單快照」）。冪等：刪除已刪除的地址
-    /// 視同成功，不視為 NotFound。</summary>
+    /// 視同成功，不視為 NotFound。rowVersion 用於偵測刪除跟另一個併發更新互相衝突的情況
+    /// （Alex review，2026-08-28）。</summary>
     Task<MemberAddressWriteOutcome> DeleteAddressAsync(
         string memberUserId,
         Guid addressPublicId,
+        byte[] rowVersion,
         CancellationToken cancellationToken = default);
 }
