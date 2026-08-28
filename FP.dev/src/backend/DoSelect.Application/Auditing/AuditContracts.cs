@@ -379,7 +379,11 @@ public sealed class AuditWriteRequest
             remoteIpAddress);
     }
 
-    private static string? RequireSafeNote(string? note, bool allowsNote)
+    /// <summary>
+    /// internal 而非 private：呼叫端要在進交易前用同一份規則驗證，否則不合規的 note
+    /// 會在稽核建構時丟例外並變成 500。規則本身未變動。
+    /// </summary>
+    internal static string? RequireSafeNote(string? note, bool allowsNote)
     {
         if (string.IsNullOrWhiteSpace(note))
         {

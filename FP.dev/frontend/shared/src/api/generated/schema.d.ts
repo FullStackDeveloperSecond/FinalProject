@@ -794,6 +794,410 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/coupons": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    Q?: string;
+                    Statuses?: components["schemas"]["CouponStatus"][];
+                    Sort?: string;
+                    PageNumber?: number | string;
+                    PageSize?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["PageResultOfCouponDto"];
+                        "application/json": components["schemas"]["PageResultOfCouponDto"];
+                        "text/json": components["schemas"]["PageResultOfCouponDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateCouponRequest"];
+                    "text/json": components["schemas"]["CreateCouponRequest"];
+                    "application/*+json": components["schemas"]["CreateCouponRequest"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["CouponDto"];
+                        "application/json": components["schemas"]["CouponDto"];
+                        "text/json": components["schemas"]["CouponDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/coupons/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["CouponDto"];
+                        "application/json": components["schemas"]["CouponDto"];
+                        "text/json": components["schemas"]["CouponDto"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateCouponRequest"];
+                    "text/json": components["schemas"]["UpdateCouponRequest"];
+                    "application/*+json": components["schemas"]["UpdateCouponRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["CouponDto"];
+                        "application/json": components["schemas"]["CouponDto"];
+                        "text/json": components["schemas"]["CouponDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/coupons/{id}/actions/{couponAction}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    couponAction: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CouponActionRequest"];
+                    "text/json": components["schemas"]["CouponActionRequest"];
+                    "application/*+json": components["schemas"]["CouponActionRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["CouponDto"];
+                        "application/json": components["schemas"]["CouponDto"];
+                        "text/json": components["schemas"]["CouponDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/outbox-messages/{publicId}/actions/retry": {
         parameters: {
             query?: never;
@@ -5033,10 +5437,68 @@ export interface components {
             /** Format: byte */
             rowVersion: null | string;
         };
+        CouponActionRequest: {
+            reasonCode: string;
+            note: null | string;
+            /** Format: byte */
+            rowVersion: string;
+        };
         CouponAppliedDto: {
             code: string;
             /** Format: double */
             discountAmount: number | string;
+        };
+        /** @enum {unknown} */
+        CouponDiscountType: "fixedAmount" | "percentage" | "freeShipping" | "assemblyFreeShipping";
+        CouponDto: {
+            /** Format: uuid */
+            publicId: string;
+            code: string;
+            nameZhTw: string;
+            discountType: components["schemas"]["CouponDiscountType"];
+            status: components["schemas"]["CouponStatus"];
+            /** Format: double */
+            discountValue: null | number | string;
+            /** Format: double */
+            minimumSpend: null | number | string;
+            /** Format: double */
+            maximumDiscount: null | number | string;
+            /** Format: date-time */
+            startsAtUtc: string;
+            /** Format: date-time */
+            endsAtUtc: string;
+            memberOnly: boolean;
+            excludeSaleItems: boolean;
+            scope: components["schemas"]["CouponScopeDto"];
+            usage: components["schemas"]["CouponUsageDto"];
+            /** Format: int32 */
+            ruleVersion: number | string;
+            /** Format: date-time */
+            createdAtUtc: string;
+            /** Format: date-time */
+            updatedAtUtc: string;
+            /** Format: byte */
+            rowVersion: string;
+        };
+        CouponScopeDto: {
+            scopeType: components["schemas"]["CouponScopeType"];
+            categoryPublicIds: string[];
+            productPublicIds: string[];
+            excludedProductPublicIds: string[];
+        };
+        /** @enum {unknown} */
+        CouponScopeType: "all" | "restricted";
+        /** @enum {unknown} */
+        CouponStatus: "draft" | "scheduled" | "active" | "paused" | "expired" | "exhausted" | "disabled";
+        CouponUsageDto: {
+            /** Format: int32 */
+            totalRedeemedCount: number | string;
+            /** Format: int32 */
+            totalUsageLimit: null | number | string;
+            /** Format: int32 */
+            perMemberLimit: null | number | string;
+            /** Format: int32 */
+            remainingCount: null | number | string;
         };
         CreateBrandRequest: {
             code: string;
@@ -5061,6 +5523,31 @@ export interface components {
             /** Format: int32 */
             sortOrder: number | string;
             isActive: boolean;
+        };
+        CreateCouponRequest: {
+            code: string;
+            nameZhTw: string;
+            discountType: components["schemas"]["CouponDiscountType"];
+            /** Format: double */
+            discountValue: null | number | string;
+            /** Format: double */
+            minimumSpend: null | number | string;
+            /** Format: double */
+            maximumDiscount: null | number | string;
+            /** Format: date-time */
+            startsAtUtc: string;
+            /** Format: date-time */
+            endsAtUtc: string;
+            /** Format: int32 */
+            totalUsageLimit: null | number | string;
+            /** Format: int32 */
+            perMemberLimit: null | number | string;
+            memberOnly: boolean;
+            excludeSaleItems: boolean;
+            scopeType: components["schemas"]["CouponScopeType"];
+            categoryPublicIds: null | string[];
+            productPublicIds: null | string[];
+            excludedProductPublicIds: null | string[];
         };
         CreateInternalNoteRequest: {
             body?: string;
@@ -5380,6 +5867,17 @@ export interface components {
         };
         PageResultOfCategoryDto: {
             items: components["schemas"]["CategoryDto"][];
+            /** Format: int32 */
+            pageNumber: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+            /** Format: int32 */
+            totalCount: number | string;
+            /** Format: int32 */
+            totalPages?: number | string;
+        };
+        PageResultOfCouponDto: {
+            items: components["schemas"]["CouponDto"][];
             /** Format: int32 */
             pageNumber: number | string;
             /** Format: int32 */
@@ -6025,6 +6523,33 @@ export interface components {
             /** Format: int32 */
             sortOrder: number | string;
             isActive: boolean;
+            /** Format: byte */
+            rowVersion: string;
+        };
+        UpdateCouponRequest: {
+            code: string;
+            nameZhTw: string;
+            discountType: components["schemas"]["CouponDiscountType"];
+            /** Format: double */
+            discountValue: null | number | string;
+            /** Format: double */
+            minimumSpend: null | number | string;
+            /** Format: double */
+            maximumDiscount: null | number | string;
+            /** Format: date-time */
+            startsAtUtc: string;
+            /** Format: date-time */
+            endsAtUtc: string;
+            /** Format: int32 */
+            totalUsageLimit: null | number | string;
+            /** Format: int32 */
+            perMemberLimit: null | number | string;
+            memberOnly: boolean;
+            excludeSaleItems: boolean;
+            scopeType: components["schemas"]["CouponScopeType"];
+            categoryPublicIds: null | string[];
+            productPublicIds: null | string[];
+            excludedProductPublicIds: null | string[];
             /** Format: byte */
             rowVersion: string;
         };

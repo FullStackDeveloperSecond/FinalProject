@@ -283,6 +283,112 @@ public sealed class AdminCouponsControllerTests
         await AssertProblemAsync(response, HttpStatusCode.NotFound, "resource_not_found");
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(4)]
+    [InlineData(16)]
+    public async Task AnActionRowVersionOfTheWrongLengthIsRejectedBeforeTheService(int length)
+    {
+        // SQL Server 的 rowversion 一律 8 bytes。長度不對是**請求格式**錯誤，
+        // 應回 400；先前只有 [Required]，空陣列會一路走到 RequireCurrentRowVersion
+        // 被當成過期 token 回 409 concurrency_conflict —— 那個錯誤碼會讓管理員
+        // 以為有人同時改了資料，實際上是他自己送錯格式。
+        var fake = new FakeAdminCouponService();
+        using var factory = CreateFactory(fake);
+        using var client = CreateAdminClient(factory, DoSelectRoles.SuperAdmin);
+
+        using var response = await PostJsonAsync(client,
+            $"{BasePath}/{Guid.NewGuid()}/actions/pause",
+            new
+            {
+                reasonCode = "admin_request",
+                note = (string?)null,
+                rowVersion = Convert.ToBase64String(new byte[length]),
+            });
+
+        await AssertProblemAsync(response, HttpStatusCode.BadRequest, "validation_failed");
+        Assert.Equal(0, fake.Calls);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(4)]
+    [InlineData(16)]
+    public async Task AnUpdateRowVersionOfTheWrongLengthIsRejectedBeforeTheService(int length)
+    {
+        var fake = new FakeAdminCouponService();
+        using var factory = CreateFactory(fake);
+        using var client = CreateAdminClient(factory, DoSelectRoles.SuperAdmin);
+
+        var request = UpdateRequest();
+        using var response = await PutJsonAsync(client,
+            $"{BasePath}/{Guid.NewGuid()}",
+            new
+            {
+                code = request.Code,
+                nameZhTw = request.NameZhTw,
+                discountType = "fixedAmount",
+                discountValue = request.DiscountValue,
+                minimumSpend = request.MinimumSpend,
+                maximumDiscount = request.MaximumDiscount,
+                startsAtUtc = request.StartsAtUtc,
+                endsAtUtc = request.EndsAtUtc,
+                totalUsageLimit = request.TotalUsageLimit,
+                perMemberLimit = request.PerMemberLimit,
+                memberOnly = request.MemberOnly,
+                excludeSaleItems = request.ExcludeSaleItems,
+                scopeType = "all",
+                categoryPublicIds = (Guid[]?)null,
+                productPublicIds = (Guid[]?)null,
+                excludedProductPublicIds = (Guid[]?)null,
+                rowVersion = Convert.ToBase64String(new byte[length]),
+            });
+
+        await AssertProblemAsync(response, HttpStatusCode.BadRequest, "validation_failed");
+        Assert.Equal(0, fake.Calls);
+    }
+
+    [Theory]
+    [InlineData("contact me@example.com")]
+    [InlineData("see <b>here</b>")]
+    public async Task AnUnsafeActionNoteIsRejectedBeforeTheService(string note)
+    {
+        // note 一路傳給中央 Audit，那裡會拒絕 Email 與標記字元並丟 ArgumentException。
+        // 該例外沒有專屬 handler，會落到 GlobalExceptionHandler 變成 500 —— 但呼叫端
+        // 只是送了不合規的文字，應該得到 400，而且不得留下任何寫入。
+        var fake = new FakeAdminCouponService();
+        using var factory = CreateFactory(fake);
+        using var client = CreateAdminClient(factory, DoSelectRoles.SuperAdmin);
+
+        using var response = await PostJsonAsync(client,
+            $"{BasePath}/{Guid.NewGuid()}/actions/pause",
+            new { reasonCode = "admin_request", note, rowVersion = Convert.ToBase64String(RowVersion) });
+
+        await AssertProblemAsync(response, HttpStatusCode.BadRequest, "validation_failed");
+        Assert.Equal(0, fake.Calls);
+    }
+
+    [Fact]
+    public async Task AnUnsafeActionReasonCodeIsRejectedBeforeTheService()
+    {
+        // reason 只收 safe-code。長度合法但含空白與中文，寫稽核時才會失敗。
+        var fake = new FakeAdminCouponService();
+        using var factory = CreateFactory(fake);
+        using var client = CreateAdminClient(factory, DoSelectRoles.SuperAdmin);
+
+        using var response = await PostJsonAsync(client,
+            $"{BasePath}/{Guid.NewGuid()}/actions/pause",
+            new
+            {
+                reasonCode = "管理員 要求 暫停",
+                note = (string?)null,
+                rowVersion = Convert.ToBase64String(RowVersion),
+            });
+
+        await AssertProblemAsync(response, HttpStatusCode.BadRequest, "validation_failed");
+        Assert.Equal(0, fake.Calls);
+    }
+
     [Fact]
     public async Task ARequestBodyMissingItsReasonCodeIsRejectedBeforeTheService()
     {

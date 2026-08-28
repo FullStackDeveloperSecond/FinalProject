@@ -342,14 +342,10 @@ public sealed class EfAdminCouponService : IAdminCouponService
     /// 執行 <c>activate</c>／<c>pause</c>／<c>disable</c>。
     /// </summary>
     /// <remarks>
-    /// **已知缺口：<see cref="CouponActionRequest.ReasonCode"/> 與
-    /// <see cref="CouponActionRequest.Note"/> 目前沒有寫進任何地方。**
-    /// 依 DEC-P289 的原則，執行理由只能寫中央 Audit、不得在 <see cref="Coupon"/>
-    /// 新增欄位，但 <c>AuditWritePolicy</c> 的動作白名單目前沒有任何 <c>coupon.*</c>
-    /// 項目，而該白名單屬 alex 的共用 Audit 元件，不由本工程包新增。
-    /// 兩個值仍照契約驗證（必填、長度上限），待白名單補上 <c>coupon.activate</c>／
-    /// <c>coupon.pause</c>／<c>coupon.disable</c> 後於此處接上 <c>IAuditWriter</c>，
-    /// 與狀態變更同一交易提交。
+    /// 依 DEC-P289，執行理由只寫中央 Audit，不在 <see cref="Coupon"/> 新增欄位。
+    /// <c>ReasonCode</c> 與 <c>Note</c> 分別以 <c>reason</c>／<c>note</c> 兩個獨立參數
+    /// 傳給 <c>IAuditWriter</c>，與狀態變更同一交易提交 —— 不得串接成單一字串，
+    /// <c>reason</c> 只收 safe-code。
     /// </remarks>
     public async Task<CouponDto> ExecuteActionAsync(
         Guid publicId,

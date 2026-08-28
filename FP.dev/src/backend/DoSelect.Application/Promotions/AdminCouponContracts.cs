@@ -2,6 +2,7 @@ using System.ComponentModel.DataAnnotations;
 using System.Net;
 using DoSelect.Application.Auditing;
 using DoSelect.Application.Common;
+using DoSelect.Application.Support.Dtos;
 using DoSelect.Domain.Promotions;
 
 namespace DoSelect.Application.Promotions;
@@ -153,7 +154,7 @@ public sealed record UpdateCouponRequest(
     IReadOnlyList<Guid>? CategoryPublicIds,
     IReadOnlyList<Guid>? ProductPublicIds,
     IReadOnlyList<Guid>? ExcludedProductPublicIds,
-    [Required] byte[] RowVersion);
+    [RowVersionRequired] byte[] RowVersion);
 
 /// <summary>
 /// `activate`／`pause`／`disable` 的共用 Request（API DTO與Schema契約第 126 行）。
@@ -161,11 +162,16 @@ public sealed record UpdateCouponRequest(
 /// <remarks>
 /// <paramref name="ReasonCode"/> 與 <paramref name="Note"/> 只寫中央 Audit，
 /// 不在 <see cref="Coupon"/> 新增欄位 —— 與退款執行同一原則（DEC-P289）。
+/// <para>
+/// 兩者都必須套用中央 Audit 自己的規則，長度檢查不夠：<c>reason</c> 只收 safe-code，
+/// <c>note</c> 另有禁用字元與敏感詞。長度合法但內容不合規時，例外會在寫稽核時才拋出，
+/// 沒有專屬 handler，最後變成 500 —— 但呼叫端只是送了格式不合的文字，應得到 400。
+/// </para>
 /// </remarks>
 public sealed record CouponActionRequest(
-    [Required, StringLength(64, MinimumLength = 1)] string ReasonCode,
-    [StringLength(1000)] string? Note,
-    [Required] byte[] RowVersion);
+    [Required, StringLength(64, MinimumLength = 1), AuditSafeReason] string ReasonCode,
+    [StringLength(1000), AuditSafeNote] string? Note,
+    [RowVersionRequired] byte[] RowVersion);
 
 /// <summary>
 /// 一次後台寫入的可信呼叫端資訊，供中央 Audit 使用。
