@@ -2,6 +2,7 @@ using System.ComponentModel.DataAnnotations;
 using System.Diagnostics;
 using DoSelect.Api.Common;
 using DoSelect.Api.Security;
+using DoSelect.Application.Auditing;
 using DoSelect.Application.Refunds;
 using DoSelect.Application.Support.Dtos;
 using DoSelect.Domain.Refunds;
