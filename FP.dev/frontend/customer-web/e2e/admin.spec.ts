@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures.js'
 
 test('an anonymous administrator is routed to the login page', async ({ page }) => {
   await page.goto('./')

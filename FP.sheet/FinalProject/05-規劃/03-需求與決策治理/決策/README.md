@@ -13,6 +13,7 @@
 
 ## 最近完成批次
 
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-030-商品圖片Hash與Outbox人工重送定版|DEC-BATCH-030｜商品圖片 Hash 與 Outbox 人工重送定版]]：`DEC-P322～DEC-P323`，2 項，已於 2026-08-28 寫回；Variant WebP 各自使用 SHA-256 immutable URL，Outbox 人工重送限 MFA SuperAdmin 並與中央 Audit 同次提交；三欄加法 Migration 已在最新 `origin/dev` 基線重建、審查且未套用。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-029-訂單自助取消原子一致性與原因碼定版|DEC-BATCH-029｜訂單自助取消原子一致性與原因碼定版]]：`DEC-P320～DEC-P321`，2 項，已於 2026-08-27 寫回；待付款取消以同一 SQL Server 交易同步訂單、庫存、優惠券、歷程與中央 Audit，原因碼固定為五項 B1 字彙。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-026-相容性規則中央稽核與API契約定版|DEC-BATCH-026｜相容性規則中央稽核與 API 契約定版]]：`DEC-P309～DEC-P312`，4 項，已於 2026-08-27 寫回；沿用中央 Audit 且不新增 Migration，FactsJson 固定 Schema Version 1，啟停改用 PATCH Route，移除 `BuildListDto.owner`。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-022-發票明細識別DES-21與Yinyin分支交付裁定|DEC-BATCH-022｜發票明細識別、DES-21 與 Yinyin 分支交付裁定]]：`DEC-P299～DEC-P302`，4 項，已於 2026-08-25 寫回；發票非商品列識別、集中 Migration PR、PR #9 分支拆離及 PR #6／#16 Draft gate 依裁定追蹤。

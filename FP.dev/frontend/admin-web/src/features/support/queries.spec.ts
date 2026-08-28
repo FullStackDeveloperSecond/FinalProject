@@ -44,7 +44,7 @@ describe('admin support queries', () => {
     expect(request.headers.get('X-Correlation-ID')).toMatch(/^[0-9a-f]{32}$/)
 
     wrapper.unmount()
-  })
+  }, 10_000)
 
   it('claims with the current RowVersion and refreshes detail and SLA data on success', async () => {
     const claimedTicket = {

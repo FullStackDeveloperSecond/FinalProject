@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using DoSelect.Infrastructure.Persistence;
+using DoSelect.Application.Files;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace DoSelect.Api.IntegrationTests.Catalog;
 
@@ -34,6 +36,7 @@ public sealed class ProductsApiFixture : IAsyncLifetime
         Guid.NewGuid().ToString("N"));
 
     private WebApplicationFactory<Program> _factory = null!;
+    private readonly TestImageStorage _imageStorage = new();
 
     public HttpClient Client { get; private set; } = null!;
 
@@ -49,7 +52,11 @@ public sealed class ProductsApiFixture : IAsyncLifetime
         using (new EnvironmentOverrideScope(allOverrides))
         {
             _factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
-                builder.UseEnvironment("Development"));
+            {
+                builder.UseEnvironment("Development");
+                builder.ConfigureServices(services =>
+                    services.AddSingleton<IImageStorage>(_imageStorage));
+            });
             Client = _factory.CreateClient();
         }
     }
@@ -64,6 +71,15 @@ public sealed class ProductsApiFixture : IAsyncLifetime
 
     /// <summary>Opens a fresh <see cref="DoSelectDbContext"/> to seed data this read-only API has no write endpoint for.</summary>
     public DoSelectDbContext CreateScopedContext() => CreateContext();
+
+    public async Task WriteImageVariantAsync(
+        string storageKey,
+        string variantFileName,
+        byte[] content)
+    {
+        await Task.CompletedTask;
+        _imageStorage.Add(storageKey, variantFileName, content);
+    }
 
     public static async Task<(int Status, string? Code, JsonElement Root)> ReadProblemAsync(
         HttpResponseMessage response)
@@ -93,6 +109,44 @@ public sealed class ProductsApiFixture : IAsyncLifetime
         await using var context = CreateContext();
         await context.Database.EnsureDeletedAsync();
         await context.Database.EnsureCreatedAsync();
+    }
+
+    private sealed class TestImageStorage : IImageStorage
+    {
+        private readonly Dictionary<(string StorageKey, ProductImageVariant Variant), byte[]> _files = [];
+
+        public void Add(string storageKey, string variantFileName, byte[] content)
+        {
+            var variant = variantFileName switch
+            {
+                "320.webp" => ProductImageVariant.Small320,
+                "800.webp" => ProductImageVariant.Medium800,
+                "1600.webp" => ProductImageVariant.Large1600,
+                _ => throw new ArgumentOutOfRangeException(nameof(variantFileName)),
+            };
+            _files[(storageKey, variant)] = content.ToArray();
+        }
+
+        public Task<ProductImageStoreResult> StoreAsync(
+            ProductImageUpload upload,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<Stream?> OpenReadAsync(
+            string storageKey,
+            ProductImageVariant variant,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult<Stream?>(_files.TryGetValue((storageKey, variant), out var content)
+                ? new MemoryStream(content, writable: false)
+                : null);
+        }
+
+        public Task<bool> DeleteAsync(
+            string storageKey,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
     }
 }
 

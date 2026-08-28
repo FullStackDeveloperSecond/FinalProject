@@ -41,6 +41,10 @@ public static class BackgroundJobServiceCollectionExtensions
 
         services.AddScoped<IOutboxDispatcher, OutboxDispatcher>();
         services.AddScoped<OutboxDispatchJob>();
+        services.AddScoped<IdempotencyRetentionJob>();
+        services.AddScoped<OutboxRetentionJob>();
+        services.AddScoped<AuditRetentionJob>();
+        services.AddScoped<StorageMaintenanceJob>();
 
         var connectionString = configuration.GetConnectionString(
             PersistenceServiceCollectionExtensions.ConnectionStringName);
@@ -74,5 +78,38 @@ public static class BackgroundJobServiceCollectionExtensions
         services.AddHostedService<OutboxDispatcherBackgroundService>();
 
         return services;
+    }
+
+    public static void ScheduleDoSelectMaintenanceJobs(this IServiceProvider services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        var recurringJobs = services.GetRequiredService<IRecurringJobManager>();
+        var taipeiTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Taipei");
+
+        recurringJobs.AddOrUpdate<IdempotencyRetentionJob>(
+            "maintenance:idempotency-retention",
+            job => job.RunAsync(CancellationToken.None),
+            "40 2 * * *",
+            new RecurringJobOptions { TimeZone = taipeiTimeZone });
+        recurringJobs.AddOrUpdate<StorageMaintenanceJob>(
+            "maintenance:private-attachment-retention",
+            job => job.CleanupPrivateAttachmentsAsync(CancellationToken.None),
+            "20 3 * * *",
+            new RecurringJobOptions { TimeZone = taipeiTimeZone });
+        recurringJobs.AddOrUpdate<StorageMaintenanceJob>(
+            "maintenance:product-image-retention",
+            job => job.CleanupProductImagesAsync(CancellationToken.None),
+            "40 3 * * *",
+            new RecurringJobOptions { TimeZone = taipeiTimeZone });
+        recurringJobs.AddOrUpdate<OutboxRetentionJob>(
+            "maintenance:outbox-retention",
+            job => job.RunAsync(CancellationToken.None),
+            "0 4 * * *",
+            new RecurringJobOptions { TimeZone = taipeiTimeZone });
+        recurringJobs.AddOrUpdate<AuditRetentionJob>(
+            "maintenance:audit-retention",
+            job => job.RunAsync(CancellationToken.None),
+            "20 4 * * *",
+            new RecurringJobOptions { TimeZone = taipeiTimeZone });
     }
 }

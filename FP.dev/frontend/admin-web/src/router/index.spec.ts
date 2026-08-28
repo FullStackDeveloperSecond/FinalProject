@@ -4,6 +4,24 @@ import router from './index'
 import { useAdminAuthStore } from '../features/auth/stores/useAdminAuthStore'
 
 describe('admin router foundation', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    const auth = useAdminAuthStore()
+    auth.session = {
+      isAuthenticated: true,
+      user: {
+        publicId: 'admin-1',
+        displayName: 'Admin',
+        emailMasked: 'a***@example.test',
+        emailVerified: true,
+        locale: 'zh-TW',
+        roles: ['SuperAdmin'],
+      },
+      expiresAtUtc: null,
+      requiresTwoFactor: false,
+    }
+  })
+
   it.each([
     ['/support', 'support-sla-queue'],
     ['/support/tickets/018f2e6a-0000-7000-8000-000000000001', 'support-ticket-detail'],
@@ -59,6 +77,50 @@ describe('admin router foundation', () => {
     await router.push('/tags')
     await router.isReady()
     expect(router.currentRoute.value.name).toBe('not-found')
+  })
+})
+
+describe('admin router role guard', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  it('redirects an anonymous administrator from the case workbench to login', async () => {
+    const auth = useAdminAuthStore()
+    auth.session = {
+      isAuthenticated: false,
+      user: null,
+      expiresAtUtc: null,
+      requiresTwoFactor: null,
+    }
+
+    await router.push('/cases')
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('login')
+    expect(router.currentRoute.value.query.redirect).toBe('/cases')
+  })
+
+  it('redirects an authenticated administrator without the required role to forbidden', async () => {
+    const auth = useAdminAuthStore()
+    auth.session = {
+      isAuthenticated: true,
+      user: {
+        publicId: 'admin-2',
+        displayName: 'Support',
+        emailMasked: 's***@example.test',
+        emailVerified: true,
+        locale: 'zh-TW',
+        roles: ['CustomerService'],
+      },
+      expiresAtUtc: null,
+      requiresTwoFactor: false,
+    }
+
+    await router.push('/products')
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('forbidden')
   })
 })
 

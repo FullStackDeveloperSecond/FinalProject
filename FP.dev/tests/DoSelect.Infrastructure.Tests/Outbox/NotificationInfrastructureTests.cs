@@ -190,6 +190,36 @@ public sealed class NotificationInfrastructureSqlServerTests
         });
     }
 
+    [SqlServerFact]
+    public async Task RetentionJob_DeletesOnlyProcessedMessagesOlderThanThirtyDays()
+    {
+        await RunInMigratedDatabaseAsync(async context =>
+        {
+            var writer = new EfOutboxWriter(context, new MutableTimeProvider(Now));
+            var expired = writer.Add(InAppRequest(Guid.CreateVersion7(), Now.AddDays(-31)));
+            var retained = writer.Add(InAppRequest(Guid.CreateVersion7(), Now.AddDays(-29)));
+            var failed = writer.Add(InAppRequest(Guid.CreateVersion7(), Now.AddDays(-40)));
+            await context.SaveChangesAsync();
+
+            expired.Claim(Now.AddDays(-31), Now.AddDays(-31).AddMinutes(1));
+            expired.Complete(Now.AddDays(-31).AddMinutes(1));
+            retained.Claim(Now.AddDays(-29), Now.AddDays(-29).AddMinutes(1));
+            retained.Complete(Now.AddDays(-29).AddMinutes(1));
+            failed.Claim(Now.AddDays(-40), Now.AddDays(-40).AddMinutes(1));
+            failed.Fail("permanent_failure");
+            await context.SaveChangesAsync();
+
+            var deleted = await new OutboxRetentionJob(
+                context,
+                new MutableTimeProvider(Now)).RunAsync(CancellationToken.None);
+
+            Assert.Equal(1, deleted);
+            Assert.False(await context.OutboxMessages.AnyAsync(item => item.PublicId == expired.PublicId));
+            Assert.True(await context.OutboxMessages.AnyAsync(item => item.PublicId == retained.PublicId));
+            Assert.True(await context.OutboxMessages.AnyAsync(item => item.PublicId == failed.PublicId));
+        });
+    }
+
     private static OutboxWriteRequest InAppRequest(
         Guid aggregatePublicId,
         DateTime occurredAtUtc,

@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-20
+最後更新: 2026-08-28
 追蹤項目:
   - DES-11
   - DES-22
@@ -31,7 +31,9 @@
 | `authentication_required` | 401 | 尚未登入或 Session 已失效 | 導向正確登入入口 |
 | `authorization_forbidden` | 403 | 已登入但角色、Policy 或資源範圍不足 | 不顯示內部權限細節 |
 | `resource_not_found` | 404 | 資源不存在或依安全策略不可揭露 | 不區分不存在與無權限 |
+| `outbox_message_not_found` | 404 | Outbox PublicId 不存在 | 只供具 `Outbox.Retry` Policy 的管理操作；不回 Payload 或內部 Id |
 | `concurrency_conflict` | 409 | `rowversion` 或版本已被其他人更新 | 重新載入後再操作 |
+| `outbox_message_not_retryable` | 409 | Outbox 不是 Failed，禁止人工重送 | 重新整理狀態；不得改寫 Payload、AttemptCount 或強制跳過 Dispatcher |
 | `idempotency_payload_conflict` | 409 | 同一 Idempotency-Key 搭配不同 Payload | 不自動重試或換 Key 重送同操作 |
 | `idempotency_request_in_progress` | 409 | 同 Scope／Operation／Key 的相同請求仍在處理 | 依 `Retry-After: 3` 等待後，以相同 Key 與 Payload 重試 |
 | `rate_limit_exceeded` | 429 | 登入、驗證、AI 或其他用途超過限制 | 顯示可安全揭露的重試時間 |
@@ -53,6 +55,9 @@
 | `admin_two_factor_required` | 403 | 管理員密碼正確但尚未完成 TOTP |
 | `admin_two_factor_invalid` | 400 | TOTP 不正確或不在允許時間窗 |
 | `admin_recovery_code_invalid` | 400 | Recovery Code 無效或已使用 |
+| `admin_challenge_invalid` | 400 | 管理員 TOTP／綁定／重綁 Challenge 缺失、過期、已使用或與 PublicId／目前使用者不符 |
+| `admin_challenge_rate_limited` | 429 | 同一管理員、IP 或 Challenge 的二階段驗證嘗試超限；Challenge 失效且需重新登入或重新開始流程 |
+| `admin_rebind_step_up_required` | 400 | TOTP 重綁前沒有恰好提供現有 TOTP 或單組 Recovery Code 作為 Step-up 憑證 |
 | `guest_order_verification_invalid` | 400 | 訪客訂單驗證碼無效；訊息不得揭露訂單存在性 |
 | `guest_order_access_expired` | 401 | 限單存取權杖已到期 |
 | `guest_order_scope_mismatch` | 404 | 權杖嘗試存取另一張訂單 |
@@ -66,6 +71,8 @@
 | `brand_code_duplicate` | 409 | 品牌 Code 已存在 |
 | `category_code_duplicate` | 409 | 分類 Code 已存在 |
 | `tag_code_duplicate` | 409 | 標籤 Code 已存在 |
+| `category_parent_invalid` | 400 | 父分類為自己、形成循環或不符合分類階層規則 |
+| `reference_not_found` | 400 | 寫入型錄時指定的 Brand、Category、Tag、Product 或其他必要 PublicId 參照不存在 |
 | `sku_unavailable` | 409 | SKU 停用、下架或不能加入購物車 |
 | `sku_code_duplicate` | 409 | 新增 SKU 的 Code 已存在 |
 | `sku_code_immutable` | 409 | 嘗試修改已建立的 SKU Code |
@@ -167,6 +174,7 @@
 | `support_ticket_state_conflict` | 409 | 目前客服狀態不允許操作 |
 | `support_ticket_cancel_not_allowed` | 409 | 顧客已超過取消邊界或操作者無取消條件 |
 | `support_ticket_assignment_conflict` | 409 | 案件已由其他客服領取或轉派；只回標準 Problem Details，不附最新承辦人 PublicId／DisplayName；前端須失效並重新查詢案件明細與所屬佇列 |
+| `support_ticket_number_generation_failed` | 409 | 多次嘗試後仍無法配置唯一客服案件編號；本次建立不留部分資料，前端可稍後重新提交 |
 | `file_count_exceeded` | 400 | 同一資源的檔案數超過該 Endpoint 上限；尚未讀取檔案內容 |
 | `file_size_exceeded` | 413 | 單檔或整體 Multipart 超過 Endpoint 上限 |
 | `file_format_invalid` | 415 | 副檔名、MIME 或檔案簽章不在白名單或彼此不一致 |
@@ -195,6 +203,7 @@
 - 已將同義別名改為本目錄既有 code，新增確實具有不同前端處理方式的 code，並把 `shipment_*` 拆成三個正式物流錯誤。
 - 2026-08-14 因 M 桌面 UI 補齊商品、會員、購物車、訂單、型錄、庫存、售後、優惠券及客服支撐 Endpoint；同步新增 12 個具有獨立前端處理語意的正式 code，再次自動稽核結果為 `Missing = 0`。
 - 2026-08-19 補齊模擬發票開立、作廢與退款折讓的五個穩定業務錯誤碼；重新自動稽核結果為 `Missing = 0`，Endpoint 不得再以型別化文字原因代替正式 Problem Details code。
+- 2026-08-28 比對目前程式常數與實際 Controller／DomainProblem 回應，補登 `category_parent_invalid`、`reference_not_found`、管理員 Challenge／Rebind 與客服編號配置共六個公開錯誤碼。`account_locked` 僅供內部 Audit、`email_*` 僅供通知派送狀態、`safe_rejection` 為 AI 回應 ResultCode，均不是 Problem Details code，刻意不列入本目錄。
 - 驗收條件：[[03-架構/02-API與前端契約/API Endpoint目錄]] 中所有反引號包覆的 snake_case 錯誤碼都必須存在於本目錄；自動檢查結果必須為 `Missing = 0`。
 
 ## 維護與驗收

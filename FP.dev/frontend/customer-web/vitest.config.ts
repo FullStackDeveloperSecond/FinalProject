@@ -11,7 +11,11 @@ export default defineConfig({
     environment: 'jsdom',
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'html'],
+      include: ['src/stores/**/*.ts', 'src/features/**/use*.ts'],
+      reporter: ['text', 'html', 'json-summary'],
+      thresholds: {
+        lines: 60,
+      },
     },
   },
 })

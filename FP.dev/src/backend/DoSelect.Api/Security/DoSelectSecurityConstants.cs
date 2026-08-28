@@ -77,4 +77,5 @@ public static class DoSelectPolicies
     public const string CompatibilityRuleManageWarnings = "CompatibilityRule.ManageWarnings";
     public const string CompatibilityRuleManageActivation = "CompatibilityRule.ManageActivation";
     public const string CompatibilityRuleTest = "CompatibilityRule.Test";
+    public const string OutboxRetry = "Outbox.Retry";
 }

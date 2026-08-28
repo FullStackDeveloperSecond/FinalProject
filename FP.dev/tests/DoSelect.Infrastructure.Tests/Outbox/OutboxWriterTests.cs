@@ -92,6 +92,65 @@ public sealed class OutboxWriterTests
         Assert.Equal(ServiceLifetime.Scoped, descriptor.Lifetime);
     }
 
+    [Fact]
+    public void RetryManually_WhenFailed_RequeuesWithoutChangingPayloadOrAttemptCount()
+    {
+        using var context = CreateContext();
+        var writer = new EfOutboxWriter(context, new FixedTimeProvider(Now));
+        var message = writer.Add(OutboxWriteRequest.Create(
+            Guid.CreateVersion7(),
+            "Order",
+            Guid.CreateVersion7(),
+            new EmailNotificationRequestedV1(
+                Guid.CreateVersion7(),
+                "order.created",
+                "order.customer",
+                "Order",
+                Guid.CreateVersion7(),
+                "zh-TW",
+                1),
+            Now,
+            Now,
+            "correlation-manual-retry"));
+        message.Claim(Now, Now.AddMinutes(1));
+        message.Fail("smtp_permanent_failure");
+        var originalPayload = message.PayloadJson;
+        var originalAttemptCount = message.AttemptCount;
+
+        message.RetryManually(Now.AddMinutes(2));
+
+        Assert.Equal(OutboxMessageStatus.Pending, message.Status);
+        Assert.Equal(Now.AddMinutes(2), message.AvailableAtUtc);
+        Assert.Null(message.ProcessedAtUtc);
+        Assert.Null(message.LastErrorCode);
+        Assert.Equal(originalAttemptCount, message.AttemptCount);
+        Assert.Equal(originalPayload, message.PayloadJson);
+    }
+
+    [Fact]
+    public void RetryManually_WhenNotFailed_IsRejected()
+    {
+        using var context = CreateContext();
+        var writer = new EfOutboxWriter(context, new FixedTimeProvider(Now));
+        var message = writer.Add(OutboxWriteRequest.Create(
+            Guid.CreateVersion7(),
+            "Order",
+            Guid.CreateVersion7(),
+            new EmailNotificationRequestedV1(
+                Guid.CreateVersion7(),
+                "order.created",
+                "order.customer",
+                "Order",
+                Guid.CreateVersion7(),
+                "zh-TW",
+                1),
+            Now,
+            Now,
+            "correlation-not-failed"));
+
+        Assert.Throws<InvalidOperationException>(() => message.RetryManually(Now));
+    }
+
     private static DoSelectDbContext CreateContext() => new(
         new DbContextOptionsBuilder<DoSelectDbContext>()
             .UseSqlServer(SyntheticConnectionString)

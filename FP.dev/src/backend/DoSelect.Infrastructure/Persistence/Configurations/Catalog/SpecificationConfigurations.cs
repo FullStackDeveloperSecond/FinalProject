@@ -18,6 +18,9 @@ public sealed class ProductImageConfiguration : IEntityTypeConfiguration<Product
         builder.Property(entity => entity.OriginalFileName).HasMaxLength(255).IsRequired();
         builder.Property(entity => entity.MediaType).HasMaxLength(100).IsUnicode(false).IsRequired();
         builder.Property(entity => entity.Sha256).HasColumnType("binary(32)").IsRequired();
+        builder.Property(entity => entity.SmallSha256).HasColumnType("binary(32)");
+        builder.Property(entity => entity.MediumSha256).HasColumnType("binary(32)");
+        builder.Property(entity => entity.LargeSha256).HasColumnType("binary(32)");
         builder.Property(entity => entity.AltTextZhTw).HasMaxLength(160).IsRequired();
         builder.Property(entity => entity.SourceUrl).HasMaxLength(2048);
         builder.Property(entity => entity.LicenseUrl).HasMaxLength(2048);

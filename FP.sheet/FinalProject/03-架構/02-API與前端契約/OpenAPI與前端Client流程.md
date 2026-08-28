@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-20
+最後更新: 2026-08-28
 追蹤項目:
   - TECH-03
 ---
@@ -102,3 +102,4 @@ PR 中只要 API Contract、Controller、DTO 或 OpenAPI 設定改動，就執�
 - customer-web 與 admin-web 已由 `VITE_API_BASE_URL` 建立各自的 generic client factory；預設本機 API 為 `http://localhost:5126`。兩者分別以 `X-DoSelect-Client: member`／`admin` 取得只存在記憶體的 Token，並提供 Session 改變後清除 Token 的函式。
 - 正式 `schema.d.ts`、`api:export`、`api:generate`、`api:check` 與 CI Contract Diff 已隨 PR #24（第一批商業 Controller／DTO：Catalog API）加入。CI 的「Verify committed OpenAPI client is current」步驟啟動真實 API、對 `/openapi/v1.json` 輪詢直到就緒，再執行 `npm run api:check --prefix frontend/customer-web`（即本文件「產生流程」的匯出→產生→Diff 三步驟）；這是目前唯一接入 required CI 的 `api:check` 呼叫路徑。`frontend/shared` 也有一份同名 `api:check`（供本機開發者在 `frontend/shared` 目錄下直接執行），內容與 customer-web 版本一致（先 export、generate，再 diff），但不是 CI 實際執行的那一份，只是本機便利指令。
 - SH-05 已建立 Token Endpoint、會員／管理員 Cookie Scheme 選擇、記憶體 Provider 與 unsafe method 全域驗證；各登入／登出 Use Case 合併時必須呼叫對應前端的 `resetAntiforgeryToken()`，不得讓登入前 Token 跨 Session 沿用。
+- DEC-P323 的 `POST /api/v1/admin/outbox-messages/{publicId}/actions/retry` 已重新匯出至固定 OpenAPI 與 `schema.d.ts`；DEC-P322 的公開商品圖片內容定址 Route 使用純圖片／空 404 回應，依契約刻意以 `ApiExplorerSettings(IgnoreApi = true)` 排除，不混入 JSON 商業 API Client。
