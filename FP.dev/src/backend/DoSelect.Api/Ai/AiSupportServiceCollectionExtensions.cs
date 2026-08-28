@@ -13,6 +13,7 @@ public static class AiSupportServiceCollectionExtensions
         services.TryAddScoped<IAiSupportAdmissionGate, FailClosedAiSupportAdmissionGate>();
         services.TryAddScoped<IAiSupportContextReader, FailClosedAiSupportContextReader>();
         services.TryAddScoped<IAiSupportModelClient, DisabledAiSupportModelClient>();
+        services.TryAddScoped<IAiSupportInteractionStore, DisabledAiSupportInteractionStore>();
         return services;
     }
 
@@ -53,10 +54,13 @@ public static class AiSupportServiceCollectionExtensions
     {
         public Task<AiSupportContextReadResult> ReadAsync(
             Guid memberId,
+            Guid? conversationPublicId,
             IReadOnlyList<Guid> referencedOrderPublicIds,
+            IReadOnlyList<Guid> referencedSupportTicketPublicIds,
             CancellationToken cancellationToken)
         {
-            var result = referencedOrderPublicIds.Count == 0
+            var result = referencedOrderPublicIds.Count == 0 &&
+                referencedSupportTicketPublicIds.Count == 0
                 ? new AiSupportContextReadResult(AiSupportContextStatus.Allowed, DataItems: [])
                 : new AiSupportContextReadResult(AiSupportContextStatus.Unavailable, DataItems: []);
 
@@ -73,5 +77,16 @@ public static class AiSupportServiceCollectionExtensions
                 new AiSupportModelAnswer(
                     Answer: null,
                     AiSupportModelAnswerStatus.Unavailable));
+    }
+
+
+    private sealed class DisabledAiSupportInteractionStore : IAiSupportInteractionStore
+    {
+        public Task<AiSupportInteractionWriteResult> SaveAsync(
+            AiSupportInteractionWrite interaction,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new AiSupportInteractionWriteResult(
+                Succeeded: false,
+                interaction.ConversationPublicId ?? Guid.Empty));
     }
 }

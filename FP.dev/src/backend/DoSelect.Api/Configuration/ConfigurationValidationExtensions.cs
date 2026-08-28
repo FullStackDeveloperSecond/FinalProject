@@ -211,6 +211,34 @@ internal sealed class OpenAiOptionsValidator : IValidateOptions<OpenAiResponsesO
                 "Configuration key 'OpenAI:SupportTimeoutMilliseconds' must be between 1000 and 60000.");
         }
 
+
+        if (options.SupportInputCostPerMillionTokens < 0)
+        {
+            failures.Add(
+                "Configuration key 'OpenAI:SupportInputCostPerMillionTokens' must be zero or greater.");
+        }
+
+        if (options.SupportOutputCostPerMillionTokens < 0)
+        {
+            failures.Add(
+                "Configuration key 'OpenAI:SupportOutputCostPerMillionTokens' must be zero or greater.");
+        }
+
+        if (!options.BudgetAlertRecipientAdminPublicId.HasValue ||
+            options.BudgetAlertRecipientAdminPublicId.Value == Guid.Empty)
+        {
+            failures.Add(
+                "Configuration key 'OpenAI:BudgetAlertRecipientAdminPublicId' must contain a non-empty ApplicationUser PublicId.");
+        }
+
+        if (options.DemoMemberPublicIds.Length > 2 ||
+            options.DemoMemberPublicIds.Any(publicId => publicId == Guid.Empty) ||
+            options.DemoMemberPublicIds.Distinct().Count() != options.DemoMemberPublicIds.Length)
+        {
+            failures.Add(
+                "Configuration key 'OpenAI:DemoMemberPublicIds' must contain at most two distinct non-empty member PublicIds.");
+        }
+
         return failures.Count == 0
             ? ValidateOptionsResult.Success
             : ValidateOptionsResult.Fail(failures);

@@ -5907,6 +5907,227 @@
         }
       }
     },
+    "/api/v1/ai/consents/current": {
+      "get": {
+        "tags": [
+          "AiConsents"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiConsentStatusDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiConsentStatusDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiConsentStatusDto"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "AiConsents"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiConsentStatusDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiConsentStatusDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiConsentStatusDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ai/consents": {
+      "post": {
+        "tags": [
+          "AiConsents"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AiConsentRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AiConsentRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/AiConsentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiConsentStatusDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiConsentStatusDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiConsentStatusDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ai/usage/me": {
+      "get": {
+        "tags": [
+          "AiUsage"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiUsageDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiUsageDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiUsageDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/ai/usage": {
+      "get": {
+        "tags": [
+          "AdminAiUsage"
+        ],
+        "parameters": [
+          {
+            "name": "fromUtc",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "toUtc",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminAiUsageReportDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminAiUsageReportDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminAiUsageReportDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/ai/support/messages": {
       "post": {
         "tags": [
@@ -6903,6 +7124,109 @@
           }
         }
       },
+      "AdminAiUsageReportDto": {
+        "required": [
+          "fromUtc",
+          "toUtc",
+          "rows",
+          "cumulativeCostUsd",
+          "budgetWarningActive",
+          "budgetProtectionActive",
+          "dataAsOfUtc"
+        ],
+        "type": "object",
+        "properties": {
+          "fromUtc": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "toUtc": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminAiUsageRowDto"
+            }
+          },
+          "cumulativeCostUsd": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "budgetWarningActive": {
+            "type": "boolean"
+          },
+          "budgetProtectionActive": {
+            "type": "boolean"
+          },
+          "dataAsOfUtc": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AdminAiUsageRowDto": {
+        "required": [
+          "feature",
+          "model",
+          "status",
+          "interactionCount",
+          "inputTokens",
+          "outputTokens",
+          "estimatedCostUsd"
+        ],
+        "type": "object",
+        "properties": {
+          "feature": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "interactionCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "inputTokens": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "outputTokens": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "estimatedCostUsd": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          }
+        }
+      },
       "AdminAssigneeSummaryDto": {
         "required": [
           "publicId",
@@ -7526,6 +7850,68 @@
           }
         }
       },
+      "AiConsentRequest": {
+        "required": [
+          "policyVersion",
+          "locale",
+          "accepted"
+        ],
+        "type": "object",
+        "properties": {
+          "policyVersion": {
+            "maximum": 2147483647,
+            "minimum": 1,
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "locale": {
+            "pattern": "^(zh-TW|ja-JP|ko-KR)$",
+            "type": "string"
+          },
+          "accepted": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AiConsentStatusDto": {
+        "required": [
+          "state",
+          "policyVersion",
+          "locale",
+          "decidedAtUtc"
+        ],
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string"
+          },
+          "policyVersion": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "locale": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "decidedAtUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
       "AiSupportAnswerDto": {
         "required": [
           "conversationPublicId",
@@ -7604,6 +7990,7 @@
         "required": [
           "message",
           "referencedOrderPublicIds",
+          "referencedSupportTicketPublicIds",
           "locale"
         ],
         "type": "object",
@@ -7622,6 +8009,14 @@
             "type": "string"
           },
           "referencedOrderPublicIds": {
+            "maxItems": 3,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "referencedSupportTicketPublicIds": {
             "maxItems": 3,
             "type": "array",
             "items": {
@@ -7649,6 +8044,45 @@
               "string"
             ],
             "format": "int32"
+          },
+          "resetAtUtc": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AiUsageDto": {
+        "required": [
+          "feature",
+          "usedRequests",
+          "requestLimit",
+          "windowStartUtc",
+          "resetAtUtc"
+        ],
+        "type": "object",
+        "properties": {
+          "feature": {
+            "type": "string"
+          },
+          "usedRequests": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "requestLimit": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "windowStartUtc": {
+            "type": "string",
+            "format": "date-time"
           },
           "resetAtUtc": {
             "type": "string",
@@ -14049,6 +14483,15 @@
     },
     {
       "name": "CompatibilityChecks"
+    },
+    {
+      "name": "AiConsents"
+    },
+    {
+      "name": "AiUsage"
+    },
+    {
+      "name": "AdminAiUsage"
     },
     {
       "name": "AiSupport"

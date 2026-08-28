@@ -227,6 +227,44 @@ public sealed class AiSafetyGateTests
     }
 
     [Fact]
+    public void AiOutboundMetadata001_MachineIdentifierThatLooksLikePhone_DoesNotBlockSafeContent()
+    {
+        var preparation = AiPromptEnvelopeFactory.TryCreateSupport(
+            SupportedLocale.ZhTw,
+            "請查看案件進度",
+            [
+                new AiSupportContextItem(
+                    "support_ticket",
+                    "33333333-3333-3333-3333-333333333333",
+                    "SUP-0912-345-678",
+                    "2026-08-28T00:00:00.0000000Z",
+                    "已授權且去識別化的客服案件摘要"),
+            ]);
+
+        Assert.NotNull(preparation.Envelope);
+        Assert.Equal(AiSafetyReason.None, preparation.Reason);
+    }
+
+    [Fact]
+    public void AiOutboundContent001_PersonalDataInApprovedContent_IsStillBlocked()
+    {
+        var preparation = AiPromptEnvelopeFactory.TryCreateSupport(
+            SupportedLocale.ZhTw,
+            "請查看案件進度",
+            [
+                new AiSupportContextItem(
+                    "support_ticket",
+                    "33333333-3333-3333-3333-333333333333",
+                    "SUP-001",
+                    "2026-08-28T00:00:00.0000000Z",
+                    "Email: synthetic.customer@example.test"),
+            ]);
+
+        Assert.Null(preparation.Envelope);
+        Assert.Equal(AiSafetyReason.PersonalDataDetected, preparation.Reason);
+    }
+
+    [Fact]
     public void AiSchema001_DatabaseFieldName_IsRejectedBeforeCatalogQuery()
     {
         var intent = new AiSearchIntentCandidate(
@@ -310,6 +348,30 @@ public sealed class AiSafetyGateTests
         Assert.False(decision.MayCallModel);
         Assert.Equal(AiFallback.HumanSupport, decision.Fallback);
         Assert.Equal(AiSafetyReason.DailyQuotaExceeded, decision.Reason);
+    }
+
+    [Fact]
+    public void AiCost002_BudgetProtection_BlocksNonDemoButPreservesDemoFlow()
+    {
+        var blocked = AiSupportRequestGate.Evaluate(new AiSupportRequestContext(
+            AiActorType.Member,
+            IsAuthenticated: true,
+            AiConsentState.Granted,
+            RemainingDailyMessages: 20,
+            BudgetProtectionActive: true,
+            IsDemoAllowlisted: false));
+        var demo = AiSupportRequestGate.Evaluate(new AiSupportRequestContext(
+            AiActorType.Member,
+            IsAuthenticated: true,
+            AiConsentState.Granted,
+            RemainingDailyMessages: 20,
+            BudgetProtectionActive: true,
+            IsDemoAllowlisted: true));
+
+        Assert.False(blocked.MayCallModel);
+        Assert.Equal(AiSafetyReason.BudgetProtectionActive, blocked.Reason);
+        Assert.Equal(AiFallback.HumanSupport, blocked.Fallback);
+        Assert.True(demo.MayCallModel);
     }
 
     private static AiOrderSummarySource CreateOrderSource()

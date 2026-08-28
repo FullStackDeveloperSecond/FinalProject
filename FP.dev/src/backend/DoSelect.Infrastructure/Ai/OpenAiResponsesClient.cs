@@ -18,6 +18,14 @@ public sealed class OpenAiResponsesOptions
     public string SupportModel { get; set; } = "gpt-5.6-terra";
 
     public int SupportTimeoutMilliseconds { get; set; } = 12_000;
+
+    public decimal SupportInputCostPerMillionTokens { get; set; } = -1m;
+
+    public decimal SupportOutputCostPerMillionTokens { get; set; } = -1m;
+
+    public Guid? BudgetAlertRecipientAdminPublicId { get; set; }
+
+    public Guid[] DemoMemberPublicIds { get; set; } = [];
 }
 
 public sealed class OpenAiResponsesClient : IAiSupportModelClient, IDisposable
@@ -361,7 +369,7 @@ public sealed class OpenAiResponsesClient : IAiSupportModelClient, IDisposable
     }
 
     private static bool IsAllowedSourceType(string sourceType) => sourceType is
-        "order" or "faq" or "return_policy" or "product";
+        "order" or "faq" or "return_policy" or "product" or "support_ticket";
 
     private static bool IsTransient(HttpStatusCode statusCode) =>
         statusCode is HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests ||
@@ -397,7 +405,7 @@ public sealed class OpenAiResponsesClient : IAiSupportModelClient, IDisposable
                     "properties": {
                       "sourceType": {
                         "type": "string",
-                        "enum": ["order", "faq", "return_policy", "product"]
+                        "enum": ["order", "faq", "return_policy", "product", "support_ticket"]
                       },
                       "sourceId": { "type": "string" },
                       "title": { "type": "string" },

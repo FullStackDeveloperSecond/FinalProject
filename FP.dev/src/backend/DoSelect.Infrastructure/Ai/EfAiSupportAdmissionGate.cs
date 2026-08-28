@@ -1,15 +1,19 @@
 using System.Data;
 using System.Data.Common;
 using DoSelect.Application.Ai;
+using DoSelect.Application.Auditing;
 using DoSelect.Domain.Ai;
+using DoSelect.Domain.Members;
 using DoSelect.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace DoSelect.Infrastructure.Ai;
 
 public sealed class EfAiSupportAdmissionGate(
     DoSelectDbContext dbContext,
-    TimeProvider timeProvider) : IAiSupportAdmissionGate
+    TimeProvider timeProvider,
+    IOptions<OpenAiResponsesOptions>? options = null) : IAiSupportAdmissionGate
 {
     public const int DailySupportLimit = 20;
 
@@ -31,7 +35,12 @@ public sealed class EfAiSupportAdmissionGate(
             var used = consentState == AiConsentState.Granted
                 ? await CountUsedAsync(memberUserId, window, cancellationToken)
                 : 0;
-            return CreateState(consentState, used, window.ResetAtUtc);
+            return await CreateStateAsync(
+                memberUserId,
+                consentState,
+                used,
+                window.ResetAtUtc,
+                cancellationToken);
         }
         catch (DbException)
         {
@@ -73,7 +82,10 @@ public sealed class EfAiSupportAdmissionGate(
                 await transaction.CommitAsync(cancellationToken);
                 return new AiSupportReservationResult(
                     IsReserved: false,
-                    CreateState(consentState, used: 0, window.ResetAtUtc));
+                    new AiSupportAccessState(
+                        consentState,
+                        DailySupportLimit,
+                        window.ResetAtUtc));
             }
 
             var existing = await dbContext.AiUsageLedger
@@ -82,6 +94,24 @@ public sealed class EfAiSupportAdmissionGate(
                     entry => entry.RequestPublicId == requestPublicId,
                     cancellationToken);
             var used = await CountUsedAsync(memberUserId, window, cancellationToken);
+            var accessState = await CreateStateAsync(
+                memberUserId,
+                consentState,
+                used,
+                window.ResetAtUtc,
+                cancellationToken);
+            if (accessState.ConsentState != AiConsentState.Granted)
+            {
+                await transaction.CommitAsync(cancellationToken);
+                return new AiSupportReservationResult(IsReserved: false, accessState);
+            }
+
+            if (accessState.BudgetProtectionActive && !accessState.IsDemoAllowlisted)
+            {
+                await transaction.CommitAsync(cancellationToken);
+                return new AiSupportReservationResult(IsReserved: false, accessState);
+            }
+
             if (existing is not null)
             {
                 var isSameReservation =
@@ -91,7 +121,7 @@ public sealed class EfAiSupportAdmissionGate(
                 await transaction.CommitAsync(cancellationToken);
                 return new AiSupportReservationResult(
                     isSameReservation,
-                    CreateState(consentState, used, window.ResetAtUtc));
+                    accessState);
             }
 
             if (used >= DailySupportLimit)
@@ -99,7 +129,7 @@ public sealed class EfAiSupportAdmissionGate(
                 await transaction.CommitAsync(cancellationToken);
                 return new AiSupportReservationResult(
                     IsReserved: false,
-                    CreateState(consentState, used, window.ResetAtUtc));
+                    accessState);
             }
 
             dbContext.AiUsageLedger.Add(AiUsageLedgerEntry.ReserveSupport(
@@ -111,7 +141,10 @@ public sealed class EfAiSupportAdmissionGate(
 
             return new AiSupportReservationResult(
                 IsReserved: true,
-                CreateState(consentState, used + 1, window.ResetAtUtc));
+                accessState with
+                {
+                    RemainingDailyMessages = Math.Max(0, DailySupportLimit - used - 1),
+                });
         }
         catch (DbException)
         {
@@ -182,14 +215,65 @@ public sealed class EfAiSupportAdmissionGate(
                     entry.OccurredAtUtc < window.ResetAtUtc.UtcDateTime,
                 cancellationToken);
 
-    private static AiSupportAccessState CreateState(
+    private async Task<AiSupportAccessState> CreateStateAsync(
+        string memberUserId,
         AiConsentState consentState,
         int used,
-        DateTimeOffset resetAtUtc) =>
-        new(
+        DateTimeOffset resetAtUtc,
+        CancellationToken cancellationToken)
+    {
+        if (options is not null &&
+            !await HasValidBudgetAlertRecipientAsync(
+                options.Value.BudgetAlertRecipientAdminPublicId,
+                cancellationToken))
+        {
+            return Unavailable(resetAtUtc);
+        }
+
+        var cumulativeCost = await dbContext.AiInteractions
+            .AsNoTracking()
+            .SumAsync(
+                interaction => (decimal?)interaction.EstimatedCostUsd,
+                cancellationToken) ?? 0m;
+        var demoIds = options?.Value.DemoMemberPublicIds ?? [];
+        var isDemoAllowlisted = demoIds.Length > 0 && await dbContext.Users
+            .AsNoTracking()
+            .AnyAsync(
+                user => user.Id == memberUserId && demoIds.Contains(user.PublicId),
+                cancellationToken);
+        return new AiSupportAccessState(
             consentState,
             Math.Max(0, DailySupportLimit - used),
-            resetAtUtc);
+            resetAtUtc,
+            cumulativeCost >= 90m,
+            isDemoAllowlisted);
+    }
+
+    private async Task<bool> HasValidBudgetAlertRecipientAsync(
+        Guid? recipientPublicId,
+        CancellationToken cancellationToken)
+    {
+        if (!recipientPublicId.HasValue || recipientPublicId.Value == Guid.Empty)
+        {
+            return false;
+        }
+
+        return await (
+            from user in dbContext.Users.AsNoTracking()
+            join profile in dbContext.AdminProfiles.AsNoTracking()
+                on user.Id equals profile.UserId
+            join userRole in dbContext.UserRoles.AsNoTracking()
+                on user.Id equals userRole.UserId
+            join role in dbContext.Roles.AsNoTracking()
+                on userRole.RoleId equals role.Id
+            where user.PublicId == recipientPublicId.Value &&
+                user.AccountType == AccountType.Admin &&
+                user.AccountStatus == AccountStatus.Active &&
+                profile.IsActive &&
+                role.Name == AuditRoleNames.SuperAdmin
+            select user.Id)
+            .AnyAsync(cancellationToken);
+    }
 
     private static AiSupportAccessState Unavailable(DateTimeOffset resetAtUtc) =>
         new(AiConsentState.Unavailable, RemainingDailyMessages: 0, resetAtUtc);

@@ -195,10 +195,11 @@
 | Schema | 精確欄位 |
 |---|---|
 | `AiConsentRequest` | `policyVersion:int`、`locale:enum`、`accepted:must be true` |
-| `AiSupportMessageRequest` | `conversationPublicId?:uuid`、`message:string(1..2000)`、`referencedOrderPublicIds:uuid[0..3]`、`locale:enum` |
-| `AiSupportAnswerDto` | `conversationPublicId`、`interactionPublicId`、`answer:string(0..4000)`、`citations:{type,label,resourcePublicId?,url?}[0..10]`、`resultCode`、`degradationMode:none/keywordSearch/createSupportTicket`、`disclaimerKey`、`usage{remainingRequests,resetAtUtc}` |
-| `AiUsageDto` | `feature`、`usedRequests`、`requestLimit`、`inputTokens`、`outputTokens`、`estimatedCostUsd`、`windowStartUtc/resetAtUtc`、`budgetProtectionActive` |
-| `AdminAiUsageReportDto` | 日期區間、功能／模型彙總、成功／失敗／降級次數、Token、估算成本、US$70／90 門檻狀態、資料截至時間；成本明細依 Policy 移除或回傳 |
+| `AiConsentStatusDto` | `state:missing/granted/denied`、後端目前 `policyVersion`、`locale?`、`decidedAtUtc?`；Reload 時以前端查詢結果為準 |
+| `AiSupportMessageRequest` | `conversationPublicId?:uuid`、`message:string(1..2000)`、`referencedOrderPublicIds:uuid[0..3]`、`referencedSupportTicketPublicIds:uuid[0..3]`、`locale:enum`；兩組引用不得含 Empty／重複值 |
+| `AiSupportAnswerDto` | `conversationPublicId`、`interactionPublicId`、`answer:string(0..4000)`、`citations:{type,label,resourcePublicId?,url?}[0..8]`、`resultCode`、`degradationMode:none/keywordSearch/createSupportTicket`、`disclaimerKey`、`usage{remainingRequests,resetAtUtc}` |
+| `AiUsageDto` | 會員本人每日配額：`feature`、`usedRequests`、`requestLimit`、`windowStartUtc/resetAtUtc`；不得回傳 Token、成本或全站預算門檻狀態 |
+| `AdminAiUsageReportDto` | `fromUtc/toUtc`、`rows[{feature,model,status,interactionCount,inputTokens,outputTokens,estimatedCostUsd?}]`、`cumulativeCostUsd?`、US$70／90 門檻狀態、`dataAsOfUtc`；成本欄對非 FinanceManager／SuperAdmin 回 Null |
 | `CreateSupportTicketRequest` | `category:enum`、`subject:string(1..200)`、`message:string(1..4000)`、`orderPublicId?:uuid` |
 | `SupportTicketDto` | PublicId、Category、Subject、Status、Priority、Order 摘要?、Assignee 摘要?、SLA Due／Overdue、`messages:SupportMessageDto[]`（明細端）、附件摘要、AvailableActions、時間、RowVersion |
 | `SupportTicketQuery` | `statuses?`、`category?`、`pageNumber/pageSize`；會員端固定限制 Owner |

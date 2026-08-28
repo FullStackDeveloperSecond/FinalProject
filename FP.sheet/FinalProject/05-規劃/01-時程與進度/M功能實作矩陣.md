@@ -39,7 +39,7 @@
 | M-16 自由組裝電腦 | ✅ | ✅ | 🟡 | ✅ | ⬜ | 🔵 | PR #34 已合併組裝清單、分享、整套加入購物車與 SQL Server 證據；前端 PR #35 尚未進 `dev`，完整瀏覽器旅程仍缺。 |
 | M-17 零件相容性 | ✅ | ✅ | 🟡 | ✅ | ⬜ | 🔵 | PR #52 已合併來源型規格資料基礎；PR #34 已合併確定性檢查、SKU 相容性屬性、後台規則管理、Audit 與 Provider-backed 證據。前端 PR #35 與完整 E2E 尚未進 `dev`。 |
 | M-18 AI 商品搜尋推薦 | 🔵 | ⬜ | ⬜ | ➖ | ⬜ | 🔵 | 安全與降級 Application 基礎已在 `dev`；客服共用 Responses 傳輸不能替代搜尋的 SearchIntent Schema／Adapter。搜尋 Endpoint、UI、Provider 契約與 Live 評估未完成。 |
-| M-19 AI 客服 | ✅ | ✅ | ⬜ | ✅ | ⬜ | 🔵 | PR #57 已合併 SQL-backed 同意／額度、Owner Query、Guest Cookie 403 與 Provider-backed 證據。客服 Responses Adapter 已在目前分支形成，但尚未進 `dev`；同意／撤回 Endpoint、客服歷史 Query、前端同意與聊天垂直切片、E2E 及 live 評估仍未完成。 |
+| M-19 AI 客服 | ✅ | ✅ | ⬜ | ✅ | ⬜ | 🔵 | PR #57／#58 已合併 SQL-backed 同意／額度、本人訂單 Query、Guest Cookie 403 與 Responses Adapter。`codex/m19-ai-support` 已形成同意查詢／撤回、本人客服公開訊息與 Conversation Owner Query、互動／引用／Token／成本保存、US$70 指定 SuperAdmin 一次性 Email／站內 Outbox、US$90 Demo 保護、會員聊天、A-28 四角色管理用量與 Playwright 降級旅程；因尚未建立 PR／進 `dev`，前端與 E2E 欄不提前升級。仍缺 Required CI／Review／合併及 AI-09 live baseline。 |
 | M-20 模擬發票與折讓 | ✅ | 🔵 | ⬜ | 🔵 | ⬜ | 🔵 | 折讓 API／Writer／SQL 測試已合併；完整發票查詢、開立、作廢、前端與跨 Checkout 金額一致性未完成。 |
 
 ## 完成判定邊界

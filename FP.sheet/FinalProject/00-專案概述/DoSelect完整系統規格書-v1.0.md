@@ -469,7 +469,7 @@ AvailableQuantity = OnHandQuantity - ReservedQuantity
 | Audit | 1 年 |
 
 - 記錄功能、使用者類型、模型、Token、估算成本、成功／失敗及降級，不保存不必要個資。
-- US$70 通知組長；US$90 停用非 Demo AI 流量。Demo Allowlist 不繞過登入、同意、授權或遮蔽。
+- AI 用量頁限 SuperAdmin、FinanceManager、CustomerServiceSupervisor、MarketingAnalyst；成本金額只限 Finance／SuperAdmin。累計估算成本首次跨越 US$70 時，透過 Outbox 對設定中的唯一 Active SuperAdmin 建立一次 Email 與站內通知；設定或角色失效時 Fail Closed。US$90 停用非 Demo AI 流量，Demo Allowlist 不繞過登入、同意、授權或遮蔽。
 - 商品搜尋與摘要使用 `gpt-5.6-luna`，客服使用 `gpt-5.6-terra`，統一走 Responses API Adapter。
 
 ## 11. 報表與展示資料

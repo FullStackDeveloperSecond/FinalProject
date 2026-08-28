@@ -59,6 +59,7 @@ public static class DoSelectPolicies
 {
     public const string Member = "Member";
     public const string AiSupportMember = "AiSupport.Member";
+    public const string AiUsageView = "AiUsage.View";
     public const string Admin = "Admin";
     public const string CatalogManager = "CatalogManager";
     public const string ReturnApprove = "Return.Approve";

@@ -4209,6 +4209,206 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ai/consents/current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AiConsentStatusDto"];
+                        "application/json": components["schemas"]["AiConsentStatusDto"];
+                        "text/json": components["schemas"]["AiConsentStatusDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AiConsentStatusDto"];
+                        "application/json": components["schemas"]["AiConsentStatusDto"];
+                        "text/json": components["schemas"]["AiConsentStatusDto"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai/consents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AiConsentRequest"];
+                    "text/json": components["schemas"]["AiConsentRequest"];
+                    "application/*+json": components["schemas"]["AiConsentRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AiConsentStatusDto"];
+                        "application/json": components["schemas"]["AiConsentStatusDto"];
+                        "text/json": components["schemas"]["AiConsentStatusDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai/usage/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AiUsageDto"];
+                        "application/json": components["schemas"]["AiUsageDto"];
+                        "text/json": components["schemas"]["AiUsageDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/ai/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    fromUtc?: string;
+                    toUtc?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminAiUsageReportDto"];
+                        "application/json": components["schemas"]["AdminAiUsageReportDto"];
+                        "text/json": components["schemas"]["AdminAiUsageReportDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ai/support/messages": {
         parameters: {
             query?: never;
@@ -4923,6 +5123,32 @@ export interface components {
             /** Format: byte */
             cartRowVersion: null | string;
         };
+        AdminAiUsageReportDto: {
+            /** Format: date-time */
+            fromUtc: string;
+            /** Format: date-time */
+            toUtc: string;
+            rows: components["schemas"]["AdminAiUsageRowDto"][];
+            /** Format: double */
+            cumulativeCostUsd: null | number | string;
+            budgetWarningActive: boolean;
+            budgetProtectionActive: boolean;
+            /** Format: date-time */
+            dataAsOfUtc: string;
+        };
+        AdminAiUsageRowDto: {
+            feature: string;
+            model: string;
+            status: string;
+            /** Format: int32 */
+            interactionCount: number | string;
+            /** Format: int32 */
+            inputTokens: number | string;
+            /** Format: int32 */
+            outputTokens: number | string;
+            /** Format: double */
+            estimatedCostUsd: null | number | string;
+        };
         AdminAssigneeSummaryDto: {
             /** Format: uuid */
             publicId: string;
@@ -5088,6 +5314,20 @@ export interface components {
             /** Format: byte */
             rowVersion: string;
         };
+        AiConsentRequest: {
+            /** Format: int32 */
+            policyVersion: number | string;
+            locale: string;
+            accepted: boolean;
+        };
+        AiConsentStatusDto: {
+            state: string;
+            /** Format: int32 */
+            policyVersion: number | string;
+            locale: null | string;
+            /** Format: date-time */
+            decidedAtUtc: null | string;
+        };
         AiSupportAnswerDto: {
             /** Format: uuid */
             conversationPublicId: string;
@@ -5112,11 +5352,23 @@ export interface components {
             conversationPublicId?: null | string;
             message: string;
             referencedOrderPublicIds: string[];
+            referencedSupportTicketPublicIds: string[];
             locale: string;
         };
         AiSupportUsageDto: {
             /** Format: int32 */
             remainingRequests: number | string;
+            /** Format: date-time */
+            resetAtUtc: string;
+        };
+        AiUsageDto: {
+            feature: string;
+            /** Format: int32 */
+            usedRequests: number | string;
+            /** Format: int32 */
+            requestLimit: number | string;
+            /** Format: date-time */
+            windowStartUtc: string;
             /** Format: date-time */
             resetAtUtc: string;
         };

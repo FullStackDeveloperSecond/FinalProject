@@ -2,6 +2,7 @@ namespace DoSelect.Api.Common;
 
 public static class ApiErrorCodes
 {
+    public const string AiBudgetProtectionActive = "ai_budget_protection_active";
     public const string AiConsentRequired = "ai_consent_required";
     public const string AiOrderAccessDenied = "ai_order_access_denied";
     public const string AiOutputInvalid = "ai_output_invalid";
