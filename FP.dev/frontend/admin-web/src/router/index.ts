@@ -69,6 +69,7 @@ const router = createRouter({
       path: '/cases',
       name: 'case-workbench',
       component: () => import('../pages/case-workbench/CaseWorkbenchPage.vue'),
+      meta: { requiresAuth: true },
     },
     {
       // Confirmed Route contract (M功能桌面UI與Route規格.md A-08): one page manages

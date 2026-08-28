@@ -85,6 +85,22 @@ describe('admin router role guard', () => {
     setActivePinia(createPinia())
   })
 
+  it('redirects an anonymous administrator from the case workbench to login', async () => {
+    const auth = useAdminAuthStore()
+    auth.session = {
+      isAuthenticated: false,
+      user: null,
+      expiresAtUtc: null,
+      requiresTwoFactor: null,
+    }
+
+    await router.push('/cases')
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('login')
+    expect(router.currentRoute.value.query.redirect).toBe('/cases')
+  })
+
   it('redirects an authenticated administrator without the required role to forbidden', async () => {
     const auth = useAdminAuthStore()
     auth.session = {
