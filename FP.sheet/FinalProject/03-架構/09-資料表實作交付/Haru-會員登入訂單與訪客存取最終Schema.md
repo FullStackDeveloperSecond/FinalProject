@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-19
+最後更新: 2026-08-28
 負責人: haru
 覆核人: yinyin
 最終整合驗收: alex
@@ -172,7 +172,7 @@
 `OrderId bigint`、`SkuId bigint NULL`、`SkuCodeSnapshot nvarchar(64)`、`ProductNameSnapshot/SkuNameSnapshot nvarchar(160)`、`Quantity int`、`ListUnitPrice/SaleUnitPrice/FinalUnitPrice/UnitCostSnapshot/LineSubtotal/DiscountAllocation/LineTotal decimal(18,2)`、`IsCouponEligible bit`、`AssemblyGroupKey uniqueidentifier NULL`、`ReturnableQuantity/ReturnedQuantity int`。
 
 - Quantity > 0；`ReturnedQuantity <= ReturnableQuantity <= Quantity`。
-- `IsCouponEligible` 為下單時不可變快照，第一版每張訂單最多一張優惠券；不得以 `DiscountAllocation > 0` 反推。既有 Initial Migration 尚未含此欄，依 DES-21 與 yinyin 的 `OrderCoupons.MinimumSpendAmount` 同批審查。
+- `IsCouponEligible` 為下單時不可變快照，第一版每張訂單最多一張優惠券；不得以 `DiscountAllocation > 0` 反推。欄位已由 `20260825171312_AddDes21RefundSnapshots` 納入現行 Migration 歷程，Checkout 必須保存可信快照，不回查目前商品分類。
 - 索引：OrderId、SkuId、`(OrderId,AssemblyGroupKey)`。
 - 商品改名／改價不得改變快照；退款依 OrderItem 與 Yinyin 的 RefundAllocation 計算。
 

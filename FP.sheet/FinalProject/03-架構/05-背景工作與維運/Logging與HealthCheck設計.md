@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-17
+最後更新: 2026-08-28
 追蹤項目:
   - TECH-07
   - DEV-08
@@ -37,9 +37,9 @@
 ### 分階段實作邊界
 
 - SH-11A 已完成 Serilog JSON、Request Logging、`/health/live`、本機資料根目錄 Readiness、SQL Server 實際讀取與公開安全回應。
-- SQL Server 實際讀取已加入 `/health/ready`；Migration 精確版本另由部署／驗證腳本確認，不讓每次健康檢查執行 Migration。Hangfire 核心狀態只在對應 Infrastructure 完成後加入，不得用假檢查宣稱已就緒。
+- SQL Server 實際讀取與 Hangfire Storage／Server Heartbeat 已加入 `/health/ready`；Migration 精確版本另由部署／驗證腳本確認，不讓每次健康檢查執行 Migration。
 - OpenAI 與 Brevo 屬可降級外部依賴；未啟用時不執行檢查，啟用後的詳細 Degraded 訊息仍只供受保護維運介面或本機腳本。
-- Hangfire、OpenAI 與 Brevo 尚未接入 Infrastructure 前，`health-check.ps1` 不建立假結果；完成後才擴充對應檢查。
+- Hangfire 與 Brevo SMTP Adapter 已接入 Infrastructure；Hangfire 屬本機必要依賴並由 Readiness 驗證，Brevo 屬可降級外部依賴。OpenAI Live Adapter 尚未接入，`health-check.ps1` 不為未完成能力建立假結果。
 
 ## 查詢與保存
 

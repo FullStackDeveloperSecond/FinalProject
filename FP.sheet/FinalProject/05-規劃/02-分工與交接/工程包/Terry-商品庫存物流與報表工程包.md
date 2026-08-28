@@ -1,6 +1,6 @@
 ---
 文件狀態: 可開發
-最後更新: 2026-08-27
+最後更新: 2026-08-28
 適用對象: terry
 主要覆核: kafen
 最終整合: alex
@@ -50,26 +50,10 @@ dotnet tool run dotnet-ef -- database update `
 .\scripts\health-check.ps1
 ```
 
-截至 2026-08-27，`origin/dev@8ef986c` 的單一 Migration 歷程仍是下列四支；目前 alex 的整合分支另有六支待 Review／Merge，合併前不得由組員手動複製或套用：
-
-1. `20260819013357_InitialCreate`
-2. `20260822041051_AddIdempotencyAndCartMergeConflicts`
-3. `20260825171312_AddDes21RefundSnapshots`
-4. `20260825174929_AddCentralAuditLogs`
-
-整合分支待合併：
-
-5. `20260826134828_AddTransactionalOutbox`
-6. `20260826173241_AddNotificationDeliveryInfrastructure`
-7. `20260827020034_AlignCheckoutRoundingAndIdempotency`
-8. `20260827034327_AddCheckoutPolicyInvoiceShippingAndPaymentIdempotency`
-9. `20260827054739_AddOrderPackageAndSpecificationSnapshots`
-10. `20260827065535_AddMultiValueSpecificationProvenance`
-
-在整合分支合併前，`dev` 的 `database update` 只會套至 `AddCentralAuditLogs`；合併並拉取新 `dev` 後，才由不指定 Migration 名稱的命令依序套至當時最新版本。不得只停在 `InitialCreate`，也不得在功能分支自行 scaffold／apply 新 Migration；Schema 需求交 alex 走 Migration Gate。
+Migration 名稱與數量會隨整合變動，不再複製到個人工程包。唯一來源是 `FP.dev/src/backend/DoSelect.Infrastructure/Persistence/Migrations/` 與 `DoSelectDbContextModelSnapshot.cs`；每次先同步最新 `dev`，再由不指定 Migration 名稱的命令套用完整歷程。不得只停在特定 Migration，也不得在功能分支自行 scaffold／apply 新 Migration；Schema 需求交 alex 走 Migration Gate。實作進度統一查看 [[05-規劃/01-時程與進度/M功能實作矩陣]]。
 如需最小帳號／型錄 Seed，先以 Visual Studio 管理 User Secrets 的 `Seed:MemberPassword`、`Seed:AdminPassword`，再使用 PATH 中的 `dotnet` 執行 `DoSelect.Api --seed-minimal`。現有兩支 Seed PowerShell 腳本含組長本機 `.NET` 絕對路徑，其他帳號不要直接依賴，也不要在商品 PR 順便修正。
 
-首次 Clone 若沒有 `appsettings.Development.json`，由同目錄的 `.example.json` 複製後調整非機密 `Storage:DataRoot`，本機檔案不得提交。Cookie／Policy、共用 OpenAPI Typed Client 與中央 Audit 基礎已合併；Outbox／Hangfire 仍未完成。新 API 必須沿用既有能力，不得以臨時授權、同步寄信、自建 Audit 或自建排程替代。
+首次 Clone 若沒有 `appsettings.Development.json`，由同目錄的 `.example.json` 複製後調整非機密 `Storage:DataRoot`，本機檔案不得提交。Cookie／Policy、共用 OpenAPI Typed Client、中央 Audit、Outbox／通知與 Hangfire 維護工作均已合併。新 API 必須沿用既有能力，不得以臨時授權、同步寄信、自建 Audit 或自建排程替代。
 
 ## 3. 權威規格閱讀順序
 
