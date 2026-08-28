@@ -7,6 +7,7 @@ declare module 'vue-router' {
     requiresAuth?: boolean
     guestOnly?: boolean
     requiresChallenge?: boolean
+    requiredRoles?: string[]
   }
 }
 
@@ -47,11 +48,19 @@ const router = createRouter({
       path: '/support',
       name: 'support-sla-queue',
       component: () => import('../pages/support/SupportSlaQueuePage.vue'),
+      meta: {
+        requiresAuth: true,
+        requiredRoles: ['CustomerService', 'CustomerServiceSupervisor', 'SuperAdmin'],
+      },
     },
     {
       path: '/support/tickets/:ticketId',
       name: 'support-ticket-detail',
       component: () => import('../pages/support/SupportTicketDetailPage.vue'),
+      meta: {
+        requiresAuth: true,
+        requiredRoles: ['CustomerService', 'CustomerServiceSupervisor', 'SuperAdmin'],
+      },
     },
     {
       // A-24 案件工作台 (M功能桌面UI與Route規格.md): documented as /admin/cases — this app is
@@ -67,16 +76,19 @@ const router = createRouter({
       path: '/catalog/lookups',
       name: 'catalog-lookups',
       component: () => import('../pages/CatalogLookupsPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['CatalogManager', 'SuperAdmin'] },
     },
     {
       path: '/products',
       name: 'products',
       component: () => import('../pages/ProductsPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['CatalogManager', 'SuperAdmin'] },
     },
     {
       path: '/products/new',
       name: 'product-new',
       component: () => import('../pages/ProductEditPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['CatalogManager', 'SuperAdmin'] },
     },
     {
       // Confirmed Route contract (M功能桌面UI與Route規格.md A-06): /admin/products/:productId,
@@ -85,16 +97,19 @@ const router = createRouter({
       name: 'product-edit',
       component: () => import('../pages/ProductEditPage.vue'),
       props: true,
+      meta: { requiresAuth: true, requiredRoles: ['CatalogManager', 'SuperAdmin'] },
     },
     {
       path: '/returns',
       name: 'admin-return-queue',
       component: () => import('../pages/returns/AdminReturnQueuePage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['OrderManager', 'SuperAdmin'] },
     },
     {
       path: '/returns/:returnId',
       name: 'admin-return-detail',
       component: () => import('../pages/returns/AdminReturnDetailPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['OrderManager', 'SuperAdmin'] },
     },
     {
       path: '/unauthorized',
@@ -137,6 +152,13 @@ router.beforeEach(async (to) => {
 
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
     return { name: 'login', query: { redirect: to.fullPath } }
+  }
+
+  if (to.meta.requiredRoles && auth.isAuthenticated) {
+    const roles = auth.currentUser?.roles ?? []
+    if (!to.meta.requiredRoles.some((role) => roles.includes(role))) {
+      return { name: 'forbidden' }
+    }
   }
 
   if (to.meta.guestOnly && auth.isAuthenticated && to.name !== 'login-enroll') {

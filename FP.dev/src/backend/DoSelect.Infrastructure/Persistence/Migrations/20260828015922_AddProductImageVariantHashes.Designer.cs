@@ -4,6 +4,7 @@ using DoSelect.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace DoSelect.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(DoSelectDbContext))]
-    partial class DoSelectDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260828015922_AddProductImageVariantHashes")]
+    partial class AddProductImageVariantHashes
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -408,9 +411,6 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("BuildListId", "EvaluatedAtUtc")
                         .HasDatabaseName("IX_CompatibilityCheckRuns_BuildListId_EvaluatedAtUtc");
-
-                    b.HasIndex("EvaluatedAtUtc", "Id")
-                        .HasDatabaseName("IX_CompatibilityCheckRuns_EvaluatedAtUtc_Id");
 
                     b.ToTable("CompatibilityCheckRuns", null, t =>
                         {

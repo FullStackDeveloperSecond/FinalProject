@@ -48,6 +48,9 @@ public sealed class ProductImage : MutablePublicEntity
     public int Width { get; private set; }
     public int Height { get; private set; }
     public byte[] Sha256 { get; private set; } = [];
+    public byte[]? SmallSha256 { get; private set; }
+    public byte[]? MediumSha256 { get; private set; }
+    public byte[]? LargeSha256 { get; private set; }
     public string AltTextZhTw { get; private set; } = string.Empty;
     public string? SourceUrl { get; private set; }
     public string? LicenseUrl { get; private set; }
@@ -78,9 +81,33 @@ public sealed class ProductImage : MutablePublicEntity
     public void Publish(DateTime publishedAtUtc)
     {
         publishedAtUtc = RequireUtc(publishedAtUtc, nameof(publishedAtUtc));
+        if (SmallSha256 is null || MediumSha256 is null || LargeSha256 is null)
+        {
+            throw new InvalidOperationException(
+                "All public image variant hashes must be recorded before publishing.");
+        }
+
         Status = ProductImageStatus.Published;
         PublishedAtUtc = publishedAtUtc;
         MarkUpdated(publishedAtUtc);
+    }
+
+    public void RecordVariantHashes(
+        byte[] smallSha256,
+        byte[] mediumSha256,
+        byte[] largeSha256,
+        DateTime updatedAtUtc)
+    {
+        if (Status != ProductImageStatus.Processing)
+        {
+            throw new InvalidOperationException(
+                "Variant hashes can only be recorded while the image is processing.");
+        }
+
+        SmallSha256 = CatalogHash.Copy(smallSha256, nameof(smallSha256));
+        MediumSha256 = CatalogHash.Copy(mediumSha256, nameof(mediumSha256));
+        LargeSha256 = CatalogHash.Copy(largeSha256, nameof(largeSha256));
+        MarkUpdated(updatedAtUtc);
     }
 
     public void MarkDeleted(DateTime deletedAtUtc)

@@ -190,7 +190,14 @@ jobs:
         # The Backend job already provisions SQL Server, applies migrations, and exposes the
         # same connection string to the test host. Keep provider-backed authorization and
         # persistence tests inside the Required gate instead of silently filtering them out.
-        run: dotnet test DoSelect.slnx --no-build --no-restore
+        run: >-
+          dotnet test DoSelect.slnx --no-build --no-restore
+          --collect:"XPlat Code Coverage"
+          --results-directory .coverage/backend
+
+      - name: Enforce Domain and Application coverage
+        shell: pwsh
+        run: ./scripts/verify-backend-coverage.ps1 -CoverageRoot .coverage/backend -MinimumLineRate 70
 
       - name: Report vulnerable NuGet packages
         run: dotnet list DoSelect.slnx package --vulnerable --include-transitive
@@ -231,8 +238,8 @@ jobs:
         run: npm run lint -- --max-warnings 0
         working-directory: FP.dev/frontend/${{ matrix.app }}
 
-      - name: Run frontend tests
-        run: npm test
+      - name: Run frontend tests and enforce core coverage
+        run: npm run test:coverage
         working-directory: FP.dev/frontend/${{ matrix.app }}
 
       - name: Build production assets

@@ -108,6 +108,19 @@ AuditLog 保存結構化白名單差異，不序列化完整 Entity。
 - `SecurityAdmin` 與 `PrivacyAdmin` 依職責查詢；只有 `SuperAdmin` 可匯出。查詢與匯出本身也寫入 AuditLog。
 - 第一版不實作 Legal Hold UI；資料模型預留 `RetentionUntilUtc` 與 `HoldReason`，被保留的紀錄不得由一般清理工作刪除。
 
+### 高風險 Use Case 採用 Gate
+
+中央 Audit 共用能力完成不代表每個高風險流程都已完成。退款執行、退款折讓、優惠券狀態、管理員安全狀態與日後新增的個資操作，合併前必須逐項符合：
+
+1. `AuditActions`、`AuditResourceTypes` 與允許欄位已登錄；不得傳任意 Action、Resource 或完整 Entity。
+2. Actor 使用登入後端取得的 Admin／Member PublicId 與角色快照，不接受 Request Body 傳入 Actor。
+3. Reason 使用正式穩定碼；只有白名單 Action 可附受限 `note`，不得把自由文字塞入 Reason。
+4. 業務狀態、冪等結果、Outbox 與 Audit 必須由同一 `DoSelectDbContext`／同一交易提交；Audit 寫入失敗時整筆回滾。
+5. 測試至少包含成功提交、Writer 失敗回滾、Actor／理由／欄位正確，以及 Email、Token、Cookie、完整姓名與付款資料零洩漏。
+6. 查詢、匯出及人工重送本身也屬受稽核操作；前端隱藏按鈕不能代替後端 Policy。
+
+共用 Writer、白名單、遮蔽與 Provider-backed 交易證據屬 alex 的上游交付；各領域 Use Case 的實際採用與狀態正確性仍由該功能 Owner 負責，不因共用基礎完成而自動標記完成。
+
 ## 背景 Dispatcher 冪等
 
 - Job 參數只保存 Outbox PublicId、事件版本及 Correlation ID。
@@ -152,5 +165,5 @@ SuperAdmin 匯出只包含時間、Actor Type／PublicId、角色快照、Action
 
 - Idempotency EF Core Entity、Configuration、共用交易 Executor、SQL Server 競爭鎖與 provider-backed 併發／rollback 整合測試已完成；Migration 已產生並須依部署 Gate 明確套用。
 - `CartMergeConflict` 持久化基礎已完成；各購物車 Use Case 仍須寫入／Resolve 衝突，Checkout 必須查詢 unresolved conflict。
-- Outbox Entity、Dispatcher 鎖定、通知／Email Consumer 與 SQL Server 整合測試已於 SH-08 基礎完成；各業務流程仍需在交易內寫入對應事件，人工重送與清理作業也尚待後續串接。
+- Outbox Entity、Dispatcher 鎖定、通知／Email Consumer、成功紀錄 30 天清理、台北時區 04:00 排程與 SQL Server 整合測試已於 SH-08 基礎完成；失敗訊息不自動刪除。人工重送 API 已固定為 `POST /api/v1/admin/outbox-messages/{publicId}/actions/retry`，只允許完成 MFA 的 SuperAdmin 經 `Outbox.Retry` 將 Failed 改回 Pending；Payload 與 AttemptCount 不變，必填 reasonCode 並與 `outbox.retry` 中央 Audit 同次提交。各業務流程仍需在交易內寫入對應事件。
 - 中央 Audit Entity／Configuration／Writer、ChangedFieldsJson schema v2 note、同交易 SQL Server Provider-backed commit／rollback 測試已完成；高風險 Use Case 必須接上共用 Port，不得建立局部 Audit 或獨立交易。

@@ -4,6 +4,7 @@ using DoSelect.Application.Auditing;
 using DoSelect.Domain.Auditing;
 using DoSelect.Domain.Idempotency;
 using DoSelect.Infrastructure.Auditing;
+using DoSelect.Infrastructure.Outbox;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Migrations;
 using DoSelect.Infrastructure.Tests.Idempotency;
@@ -134,6 +135,66 @@ public sealed class CentralAuditSqlServerTests
                 record.Operation == "audit-rollback"));
             Assert.Equal(1, await context.AuditLogs.CountAsync(candidate =>
                 candidate.PublicId == duplicatePublicId));
+        });
+    }
+
+    [SqlServerFact]
+    public async Task AuditRetentionJob_DeletesExpiredLogsButPreservesLegalHold()
+    {
+        await RunInMigratedDatabaseAsync(async context =>
+        {
+            var expiredWriter = new EfAuditWriter(
+                context,
+                new FixedTimeProvider(Now.AddDays(-366)));
+            var expired = expiredWriter.Add(Request(Guid.NewGuid()));
+            var held = expiredWriter.Add(Request(Guid.NewGuid()));
+            await context.SaveChangesAsync();
+            await context.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE [AuditLogs] SET [IsLegalHold] = 1, [HoldReason] = 'investigation' WHERE [Id] = {held.Id}");
+            context.ChangeTracker.Clear();
+
+            var deleted = await new AuditRetentionJob(
+                context,
+                new FixedTimeProvider(Now)).RunAsync(CancellationToken.None);
+
+            Assert.Equal(1, deleted);
+            Assert.False(await context.AuditLogs.AnyAsync(item => item.PublicId == expired.PublicId));
+            Assert.True(await context.AuditLogs.AnyAsync(item => item.PublicId == held.PublicId));
+        });
+    }
+
+    [SqlServerFact]
+    public async Task IdempotencyRetentionJob_DeletesOnlyExpiredSucceededRecords()
+    {
+        await RunInMigratedDatabaseAsync(async context =>
+        {
+            var createdAt = Now.UtcDateTime.AddHours(-48);
+            var expiresAt = Now.UtcDateTime.AddHours(-24);
+            var succeeded = new IdempotencyRecord(
+                new byte[32],
+                "expired-succeeded",
+                Guid.NewGuid().ToString("N"),
+                new byte[32],
+                expiresAt,
+                createdAt);
+            succeeded.Complete(200, "{}", "{}", createdAt.AddMinutes(1));
+            var processing = new IdempotencyRecord(
+                new byte[32],
+                "expired-processing",
+                Guid.NewGuid().ToString("N"),
+                new byte[32],
+                expiresAt,
+                createdAt);
+            context.IdempotencyRecords.AddRange(succeeded, processing);
+            await context.SaveChangesAsync();
+
+            var deleted = await new IdempotencyRetentionJob(
+                context,
+                new FixedTimeProvider(Now)).RunAsync(CancellationToken.None);
+
+            Assert.Equal(1, deleted);
+            Assert.False(await context.IdempotencyRecords.AnyAsync(item => item.Id == succeeded.Id));
+            Assert.True(await context.IdempotencyRecords.AnyAsync(item => item.Id == processing.Id));
         });
     }
 

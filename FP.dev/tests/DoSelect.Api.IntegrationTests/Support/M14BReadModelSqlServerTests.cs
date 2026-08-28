@@ -16,11 +16,12 @@ namespace DoSelect.Api.IntegrationTests.Support;
 /// the real provider and vw_CaseWorkbench so EF translation failures cannot be hidden by an
 /// in-memory LINQ provider.
 /// </summary>
-public sealed class M14BReadModelSqlServerTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed class M14BReadModelSqlServerTests : IClassFixture<M14BReadModelSqlServerFixture>
 {
     private readonly WebApplicationFactory<Program> _factory;
 
-    public M14BReadModelSqlServerTests(WebApplicationFactory<Program> factory) => _factory = factory;
+    public M14BReadModelSqlServerTests(M14BReadModelSqlServerFixture fixture) =>
+        _factory = fixture.Factory;
 
     [Fact]
     public async Task SlaQueue_ComputesPreResponseActivePauseCapWaitingInternalAndTerminalRules()

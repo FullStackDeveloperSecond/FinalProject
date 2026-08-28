@@ -17,6 +17,8 @@ public static class ApiErrorCodes
     public const string FileScanUnavailable = "file_scan_unavailable";
     public const string FileSizeExceeded = "file_size_exceeded";
     public const string ImageProcessingFailed = "image_processing_failed";
+    public const string OutboxMessageNotFound = "outbox_message_not_found";
+    public const string OutboxMessageNotRetryable = "outbox_message_not_retryable";
     public const string RateLimitExceeded = "rate_limit_exceeded";
     public const string RequestConflict = "request_conflict";
     public const string RequestContentTypeUnsupported = "request_content_type_unsupported";

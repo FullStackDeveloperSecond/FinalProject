@@ -172,6 +172,7 @@ app.UseAuthorization();
 
 if (BackgroundJobServiceCollectionExtensions.BackgroundJobsEnabled(app.Configuration))
 {
+    app.Services.ScheduleDoSelectMaintenanceJobs();
     app.UseHangfireDashboard("/hangfire", new DashboardOptions
     {
         Authorization = [new HangfireDashboardAuthorizationFilter()],

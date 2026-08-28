@@ -385,6 +385,8 @@ public static class SecurityServiceCollectionExtensions
             DoSelectRoles.SuperAdmin);
         AddAdminPolicy(options, DoSelectPolicies.CompatibilityRuleTest,
             DoSelectRoles.CatalogManager, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.OutboxRetry,
+            DoSelectRoles.SuperAdmin);
     }
 
     private static void AddAdminPolicy(

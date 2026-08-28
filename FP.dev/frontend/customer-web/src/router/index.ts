@@ -1,5 +1,13 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { HttpStatusPage } from '@doselect/web-shared/components'
+import { useSessionStore } from '../stores/session'
+
+declare module 'vue-router' {
+  interface RouteMeta {
+    requiresAuth?: boolean
+    guestOnly?: boolean
+  }
+}
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -13,11 +21,13 @@ const router = createRouter({
       path: '/register',
       name: 'register',
       component: () => import('../pages/RegisterPage.vue'),
+      meta: { guestOnly: true },
     },
     {
       path: '/login',
       name: 'login',
       component: () => import('../pages/LoginPage.vue'),
+      meta: { guestOnly: true },
     },
     {
       path: '/verify-email',
@@ -28,6 +38,7 @@ const router = createRouter({
       path: '/forgot-password',
       name: 'forgot-password',
       component: () => import('../pages/ForgotPasswordPage.vue'),
+      meta: { guestOnly: true },
     },
     {
       path: '/reset-password',
@@ -38,21 +49,25 @@ const router = createRouter({
       path: '/support',
       name: 'support-home',
       component: () => import('../pages/support/SupportHomePage.vue'),
+      meta: { requiresAuth: true },
     },
     {
       path: '/support/tickets',
       name: 'support-ticket-list',
       component: () => import('../pages/support/SupportTicketListPage.vue'),
+      meta: { requiresAuth: true },
     },
     {
       path: '/support/tickets/new',
       name: 'support-ticket-new',
       component: () => import('../pages/support/SupportTicketNewPage.vue'),
+      meta: { requiresAuth: true },
     },
     {
       path: '/support/tickets/:ticketId',
       name: 'support-ticket-detail',
       component: () => import('../pages/support/SupportTicketDetailPage.vue'),
+      meta: { requiresAuth: true },
     },
     {
       path: '/products',
@@ -105,6 +120,27 @@ const router = createRouter({
       props: { status: 404, homeHref: '/' },
     },
   ],
+})
+
+router.beforeEach(async (to) => {
+  if (!to.meta.requiresAuth && !to.meta.guestOnly) {
+    return true
+  }
+
+  const session = useSessionStore()
+  if (session.status === 'loading') {
+    await session.refresh()
+  }
+
+  if (to.meta.requiresAuth && !session.isAuthenticated) {
+    return { name: 'login', query: { redirect: to.fullPath } }
+  }
+
+  if (to.meta.guestOnly && session.isAuthenticated) {
+    return { name: 'home' }
+  }
+
+  return true
 })
 
 export default router

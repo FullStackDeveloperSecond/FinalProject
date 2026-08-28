@@ -77,8 +77,10 @@ Outbox Dispatcher 是常駐 5 秒輪詢，不使用分鐘 Cron。Email 由 Outbo
 - 通知、清理與 AI 失敗需可依 Job ID、資源 ID、Correlation ID 查詢。
 - Demo 前檢查不得存在未說明的 `critical` Failed Job。
 
-## 待實作
+## 實作狀態與待辦
 
-- Outbox Payload Schema 已定；仍需實作 Email Consumer、Dispatcher SQL 鎖定與各 Job Handler。
-- InventoryReconciliationCase Schema、狀態及修正邊界已定於資料字典；仍需 Entity、管理 API、通知與整合測試。
-- 依排程建立 Recurring Job、分散鎖、Metrics、告警及 Demo 前驗證。
+- 已完成 SQL Server Outbox Claim、5 秒／20 筆 Dispatcher、同 Aggregate 保序、Email／站內通知 Consumer、Consumer 冪等與 SQL Provider-backed 測試。
+- 已完成台北時區 03:20 私有附件、03:40 商品圖片／24 小時暫存、04:00 Outbox 成功紀錄清理；清理 Job 固定批次上限、分散鎖並失敗重試 2 次。失敗 Outbox 不自動刪除。
+- Outbox 人工重送已以獨立 `POST .../actions/retry` 與 `Outbox.Retry`（MFA SuperAdmin）完成；只重排 Failed 並寫中央 Audit。Dashboard 維持 SuperAdmin＋TOTP 唯讀，不能拿 Dashboard 直接重送替代。
+- InventoryReconciliationCase Schema、狀態及修正邊界已定於資料字典；管理 API、通知與整合測試仍由庫存功能交付，不在共用排程內假造。
+- Idempotency、Audit、案件與其他領域清理仍須依各自正式條件接上已建立的排程基礎；Metrics、告警及 Demo 前實際驗證仍待完成。

@@ -32,7 +32,6 @@ public static class AuditActions
 
     // ⚠ alex review：30 分鐘 Lockout 必須跟中央 Audit 同一交易——見 AdminAuthController.Login。
     public const string AdminAccountLockout = "admin.account.lockout";
-
     // DES-23: SupportTicket.Supervise/Handle admin actions. Each records only structured,
     // safe-code before/after markers (never free-text reasons or assignee identities) — the
     // admin-supplied free-text reason and the specific from/to admin identities live in the
@@ -49,6 +48,7 @@ public static class AuditActions
     public const string CompatibilityRuleWarningSettingUpdate = "compatibility_rule.warning_setting.update";
     public const string CompatibilityRuleActivationUpdate = "compatibility_rule.activation.update";
     public const string CompatibilityRuleTest = "compatibility_rule.test";
+    public const string OutboxRetry = "outbox.retry";
 }
 
 public static class AuditResourceTypes
@@ -63,6 +63,7 @@ public static class AuditResourceTypes
     public const string SupportTicket = "SupportTicket";
     public const string CompatibilityRuleSetting = "CompatibilityRuleSetting";
     public const string CompatibilityCheckRun = "CompatibilityCheckRun";
+    public const string OutboxMessage = "OutboxMessage";
 }
 
 public static class AuditRoleNames
@@ -583,6 +584,10 @@ internal static class AuditWritePolicy
                 AuditActions.CompatibilityRuleTest,
                 AuditResourceTypes.CompatibilityCheckRun,
                 "inputHash", "overall", "settingsVersion"),
+            [AuditActions.OutboxRetry] = Definition(
+                AuditActions.OutboxRetry,
+                AuditResourceTypes.OutboxMessage,
+                "status"),
         };
 
     public static AuditActionDefinition RequireDefinition(string action)

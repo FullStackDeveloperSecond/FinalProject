@@ -19,6 +19,7 @@
 **/dist/
 **/.vite/
 **/coverage/
+**/.coverage/
 **/playwright-report/
 **/test-results/
 

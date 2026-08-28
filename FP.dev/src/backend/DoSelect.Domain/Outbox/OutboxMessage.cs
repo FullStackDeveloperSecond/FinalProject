@@ -137,6 +137,21 @@ public sealed class OutboxMessage : PublicEntity
         LastErrorCode = RequireBoundedText(errorCode, nameof(errorCode), 64);
     }
 
+    public void RetryManually(DateTime availableAtUtc)
+    {
+        availableAtUtc = RequireUtc(availableAtUtc, nameof(availableAtUtc));
+        if (Status != OutboxMessageStatus.Failed)
+        {
+            throw new InvalidOperationException(
+                "Only a failed outbox message can be retried manually.");
+        }
+
+        Status = OutboxMessageStatus.Pending;
+        AvailableAtUtc = availableAtUtc;
+        ProcessedAtUtc = null;
+        LastErrorCode = null;
+    }
+
     private static string RequireBoundedText(string value, string parameterName, int maximumLength)
     {
         value = RequireText(value, parameterName);

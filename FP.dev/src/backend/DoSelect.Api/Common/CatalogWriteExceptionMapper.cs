@@ -33,9 +33,6 @@ internal static class CatalogWriteExceptionMapper
         CatalogWriteException.ErrorCodes.SkuDeleteReferenced => StatusCodes.Status409Conflict,
         CatalogWriteException.ErrorCodes.SkuDefaultRequired => StatusCodes.Status409Conflict,
         CatalogWriteException.ErrorCodes.ConcurrencyConflict => StatusCodes.Status409Conflict,
-        // CategoryParentInvalid and ReferenceNotFound are not yet registered in
-        // 03-架構/API錯誤碼目錄.md (pre-existing gap, flagged for alex to log).
-        // Treated as 400 because both describe an invalid caller-supplied reference.
         CatalogWriteException.ErrorCodes.CategoryParentInvalid => StatusCodes.Status400BadRequest,
         CatalogWriteException.ErrorCodes.ReferenceNotFound => StatusCodes.Status400BadRequest,
         CatalogWriteException.ErrorCodes.SpecificationInvalid => StatusCodes.Status400BadRequest,

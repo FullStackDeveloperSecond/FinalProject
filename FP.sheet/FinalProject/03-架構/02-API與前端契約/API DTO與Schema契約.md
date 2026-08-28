@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-26
+最後更新: 2026-08-28
 追蹤項目:
   - DES-10
   - DES-20
@@ -175,6 +175,8 @@
 | `OrderRecipientDto` | OrderPublicId、RecipientName、Phone、Email、PostalCode、Address、Store Snapshot、`accessPurpose`；每次讀取稽核 |
 | `BatchShipmentRequest` | `orders:{orderPublicId,rowVersion}[1..100]`、`shippingAction:createLabel/markShipped`、`idempotencyKey` |
 | `BatchShipmentResultDto` | BatchPublicId、Total／Succeeded／Failed、`items:{orderPublicId,status,trackingNumber?,errorCode?}[]`、建立時間 |
+| `RetryOutboxMessageRequest` | `reasonCode:string(1..64)`；ASCII 穩定碼，只允許字母、數字、`.`、`_`、`:`、`-`，並須通過中央 Audit 敏感詞拒絕規則 |
+| `RetryOutboxMessageResponse` | `publicId`、`status:Pending`、`availableAtUtc`；HTTP 202 |
 | `InventoryBalanceQuery` | `q?`、`stockState?`、`categoryCode?`、`pageNumber/pageSize` |
 | `InventoryBalanceDto` | SKU PublicId／Code／名稱、`onHand`、`reserved`、`available`、`lowStockThreshold`、`rowVersion` |
 | `InventoryReservationDto` | PublicId、Order／SKU 摘要、Quantity、Status、ExpiresAtUtc、CreatedAtUtc、合法 `availableActions[]`、RowVersion |

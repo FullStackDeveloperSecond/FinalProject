@@ -170,6 +170,44 @@ API 共通管線已提供：
 - PrimeVue 已納入相依套件，但主題與實際元件由畫面設計工作包導入。
 - OpenAPI TypeScript Client 的流程與共用 generic client factory 已建立；待商業 API 契約加入後再產生 `schema.d.ts` 並建立實際 typed client instance。
 
+## Coverage Gate
+
+CI 會收集所有 .NET 測試專案的 Cobertura 結果，依「同一來源行取最高命中數」合併後要求 `DoSelect.Domain`＋`DoSelect.Application` 行覆蓋率至少 70%。前後台則只計核心 Store／Composable，行覆蓋率至少 60%。本機可執行：
+
+```powershell
+dotnet test DoSelect.slnx --collect:"XPlat Code Coverage" --results-directory .coverage\backend
+.\scripts\verify-backend-coverage.ps1 -CoverageRoot .coverage\backend -MinimumLineRate 70
+npm run test:coverage --prefix frontend\customer-web
+npm run test:coverage --prefix frontend\admin-web
+```
+
+## Backup Set 與還原驗證
+
+備份根目錄必須位於 `Storage:DataRoot` 外，避免壓縮檔包含自身。下列命令會建立同一 Backup Set ID 的 SQL 完整備份、商品圖／私有附件封存與不含 Secret 的 UTF-8 JSON Manifest：
+
+```powershell
+.\scripts\backup-demo.ps1 -Environment Demo -Reason manual
+```
+
+還原只允許建立另一個驗證資料庫與驗證檔案目錄，不覆寫 `DoSelectDb`：
+
+```powershell
+.\scripts\restore-demo.ps1 -BackupSetDirectory E:\FinalProjectBackups\<backup-set-id>
+```
+
+保留清理預設保留每日 7 份、每週 4 份；沒有任何「成功還原驗證且仍被保留」的 Backup Set 時會拒絕刪除。先使用 `-WhatIf` 查看目標：
+
+```powershell
+.\scripts\prune-demo-backups.ps1 -WhatIf
+```
+
+乾淨環境先執行前置檢查；另一位組員在 Fresh Clone 上使用完整模式並把結果寫入日誌，才能關閉 DEV-02：
+
+```powershell
+.\scripts\verify-clean-environment.ps1
+.\scripts\verify-clean-environment.ps1 -RunVerification
+```
+
 ## EF Core 工具
 
 全案固定使用單一 `DoSelectDbContext` 與 `DoSelect.Infrastructure` Migration Assembly。Entity／Configuration 依模組分資料夾；不得建立每模組獨立 DbContext 或 Migration。
