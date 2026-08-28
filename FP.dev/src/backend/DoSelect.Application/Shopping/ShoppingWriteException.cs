@@ -16,9 +16,9 @@ public sealed class ShoppingWriteException : Exception
         public const string CartQuantityExceeded = "cart_quantity_exceeded";
 
         /// <summary>
-        /// Not in API錯誤碼目錄.md — CartDto.items is documented as [0..100] (API DTO與Schema契約.md)
-        /// but no error code exists for exceeding it. Added to close the gap 組長 flagged on PR
-        /// #28 review; flagged for 組長 to confirm the name/status code.
+        /// Enforces CartDto.items' documented [0..100] bound (API DTO與Schema契約.md). Originally
+        /// added on PR #28 review as a gap-closing code that wasn't yet in the catalogue; 組長 has
+        /// since confirmed it and it is now catalogued in API錯誤碼目錄.md.
         /// </summary>
         public const string CartItemLimitExceeded = "cart_item_limit_exceeded";
 
