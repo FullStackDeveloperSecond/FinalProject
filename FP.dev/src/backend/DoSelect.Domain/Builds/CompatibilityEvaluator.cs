@@ -225,6 +225,14 @@ public static class CompatibilityRuleCodes
     public const string PsuCapacity = "PSU_CAPACITY";
     public const string PsuConnectors = "PSU_CONNECTORS";
     public const string PsuFormFactor = "PSU_FORM_FACTOR";
+
+    /// <summary>PR #34 round-7 review (DEC-BATCH-027): every rule code this evaluator can ever report, for the admin rule-management surface's "known rule code" whitelist and its no-write test tool's per-rule filter.</summary>
+    public static readonly IReadOnlyList<string> All =
+    [
+        RequiredComponent, CpuSocket, CpuChipset, BiosUpdate, MemoryType, MemorySlots,
+        MemoryCapacity, MotherboardFormFactor, GpuLength, CoolerSocket, CoolerHeight,
+        StorageInterface, PsuCapacity, PsuConnectors, PsuFormFactor,
+    ];
 }
 
 public sealed record CompatibilityRuleEvaluation(

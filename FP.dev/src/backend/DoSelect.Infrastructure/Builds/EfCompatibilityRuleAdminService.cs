@@ -24,20 +24,22 @@ public sealed class EfCompatibilityRuleAdminService : ICompatibilityRuleAdminSer
     private const string AuditReasonSettingChange = "compatibility_rule_setting_change";
     private const string AuditReasonTest = "compatibility_rule_test";
 
+    private static readonly CompatibilityRuleCatalog RuleCatalog = CompatibilityRuleCatalog.CreateVersion1();
+
     private readonly DoSelectDbContext _dbContext;
     private readonly EfCompatibilityCheckService _compatibilityCheckService;
-    private readonly EfCompatibilityFactsReader _factsReader;
+    private readonly ICompatibilityCatalogReader _catalogReader;
     private readonly IAuditWriter _auditWriter;
 
     public EfCompatibilityRuleAdminService(
         DoSelectDbContext dbContext,
         EfCompatibilityCheckService compatibilityCheckService,
-        EfCompatibilityFactsReader factsReader,
+        ICompatibilityCatalogReader catalogReader,
         IAuditWriter auditWriter)
     {
         _dbContext = dbContext;
         _compatibilityCheckService = compatibilityCheckService;
-        _factsReader = factsReader;
+        _catalogReader = catalogReader;
         _auditWriter = auditWriter;
     }
 
@@ -46,7 +48,7 @@ public sealed class EfCompatibilityRuleAdminService : ICompatibilityRuleAdminSer
         var (settings, settingsVersion, disabledRuleCodes, rowVersionsByKey) =
             await _compatibilityCheckService.LoadCurrentSettingsAsync(cancellationToken);
 
-        var rules = BuildCompatibilityRuleCodes.All
+        var rules = CompatibilityRuleCodes.All
             .Select(ruleCode => BuildRuleDto(ruleCode, settings, disabledRuleCodes, rowVersionsByKey))
             .ToList();
 
@@ -198,7 +200,7 @@ public sealed class EfCompatibilityRuleAdminService : ICompatibilityRuleAdminSer
                     BuildWriteException.ErrorCodes.ValidationFailed, "At most 20 rule codes are allowed.");
             }
 
-            var unknown = request.RuleCodes.Where(code => !BuildCompatibilityRuleCodes.All.Contains(code)).ToList();
+            var unknown = request.RuleCodes.Where(code => !CompatibilityRuleCodes.All.Contains(code)).ToList();
             if (unknown.Count > 0)
             {
                 throw new BuildWriteException(
@@ -209,12 +211,14 @@ public sealed class EfCompatibilityRuleAdminService : ICompatibilityRuleAdminSer
             onlyRuleCodes = request.RuleCodes.ToHashSet();
         }
 
-        var resolution = await _factsReader.ResolveAsync(mergedItems, cancellationToken);
-        if (resolution.UnresolvedSkuPublicIds.Count > 0)
+        var catalogResult = await _catalogReader.ReadAsync(
+            mergedItems.Select(item => new CompatibilityItemReference(item.SkuPublicId, item.Quantity)).ToArray(),
+            cancellationToken);
+        if (catalogResult.MissingSkuPublicIds.Count > 0)
         {
             throw new BuildWriteException(
                 BuildWriteException.ErrorCodes.ValidationFailed,
-                $"Unknown SKU(s): {string.Join(", ", resolution.UnresolvedSkuPublicIds)}.");
+                $"Unknown SKU(s): {string.Join(", ", catalogResult.MissingSkuPublicIds)}.");
         }
 
         var (persistedSettings, settingsVersion, disabledRuleCodes, _) =
@@ -224,13 +228,18 @@ public sealed class EfCompatibilityRuleAdminService : ICompatibilityRuleAdminSer
             ? ApplyDraftOverrides(persistedSettings, request.DraftWarningSettings)
             : persistedSettings;
 
-        var evaluation = CompatibilityRuleEngine.Evaluate(resolution.Components, settings, disabledRuleCodes, onlyRuleCodes);
+        var evaluation = CompatibilityEvaluator.Evaluate(catalogResult.Components, settings, RuleCatalog);
+        var (overall, results) = EfCompatibilityCheckService.ApplyDisabledRules(evaluation, disabledRuleCodes);
+        if (onlyRuleCodes is not null)
+        {
+            // The canonical evaluator has no "only run these rules" mode (it always evaluates
+            // everything), unlike this PR's own now-removed engine — filtering the *output*
+            // findings after the fact is behaviorally equivalent for what this no-write test tool
+            // reports, just without skipping the evaluation work for excluded rules.
+            results = results.Where(finding => onlyRuleCodes.Contains(finding.RuleCode)).ToList();
+        }
 
         var now = DateTime.UtcNow;
-        var results = evaluation.Findings
-            .Select(finding => new CompatibilityFindingDto(
-                finding.RuleCode, finding.Severity, finding.MessageKey, finding.SubjectSkuPublicIds, finding.Facts))
-            .ToList();
 
         // DEC-BATCH-026 (DEC-P309): the Run/Result snapshot and its central Audit Log entry share
         // one transaction — a failed audit write (e.g. a rejected safe-code) rolls the Run back
@@ -239,9 +248,9 @@ public sealed class EfCompatibilityRuleAdminService : ICompatibilityRuleAdminSer
         // and just participate in it instead of committing on its own.
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
         var run = await _compatibilityCheckService.RecordRunAsync(
-            mergedItems, null, settingsVersion, evaluation, now, cancellationToken);
+            mergedItems, null, settingsVersion, overall, results, now, cancellationToken);
 
-        var overallToken = EfCompatibilityCheckService.OverallToken(evaluation.Overall);
+        var overallToken = EfCompatibilityCheckService.OverallToken(overall);
         _auditWriter.Add(AuditWriteRequest.Create(
             Guid.CreateVersion7(),
             actor,
@@ -300,7 +309,7 @@ public sealed class EfCompatibilityRuleAdminService : ICompatibilityRuleAdminSer
 
     private static void RequireKnownRuleCode(string ruleCode)
     {
-        if (!BuildCompatibilityRuleCodes.All.Contains(ruleCode))
+        if (!CompatibilityRuleCodes.All.Contains(ruleCode))
         {
             throw new BuildWriteException(
                 BuildWriteException.ErrorCodes.ResourceNotFound, $"Rule '{ruleCode}' was not found.");
@@ -423,7 +432,7 @@ public sealed class EfCompatibilityRuleAdminService : ICompatibilityRuleAdminSer
 
     private static CompatibilityRuleAdminDto BuildRuleDto(
         string ruleCode,
-        BuildCompatibilityWarningSettings settings,
+        CompatibilityWarningSettings settings,
         IReadOnlySet<string> disabledRuleCodes,
         IReadOnlyDictionary<(string RuleCode, string SettingCode), byte[]> rowVersionsByKey)
     {
@@ -442,7 +451,7 @@ public sealed class EfCompatibilityRuleAdminService : ICompatibilityRuleAdminSer
             ruleCode, !disabledRuleCodes.Contains(ruleCode), activationRowVersion, warningSetting);
     }
 
-    private static decimal ValueFor(string settingCode, BuildCompatibilityWarningSettings settings) => settingCode switch
+    private static decimal ValueFor(string settingCode, CompatibilityWarningSettings settings) => settingCode switch
     {
         CompatibilityWarningSettingCodes.GpuClearanceWarningMm => settings.GpuClearanceWarningMm,
         CompatibilityWarningSettingCodes.CoolerClearanceWarningMm => settings.CoolerClearanceWarningMm,
@@ -452,8 +461,8 @@ public sealed class EfCompatibilityRuleAdminService : ICompatibilityRuleAdminSer
         _ => throw new ArgumentOutOfRangeException(nameof(settingCode)),
     };
 
-    private static BuildCompatibilityWarningSettings ApplyDraftOverrides(
-        BuildCompatibilityWarningSettings baseline,
+    private static CompatibilityWarningSettings ApplyDraftOverrides(
+        CompatibilityWarningSettings baseline,
         IReadOnlyDictionary<string, decimal>? draftWarningSettings)
     {
         if (draftWarningSettings is null || draftWarningSettings.Count == 0)
@@ -486,12 +495,12 @@ public sealed class EfCompatibilityRuleAdminService : ICompatibilityRuleAdminSer
                 case CompatibilityWarningSettingCodes.GpuClearanceWarningMm: gpuClearance = value; break;
                 case CompatibilityWarningSettingCodes.CoolerClearanceWarningMm: coolerClearance = value; break;
                 case CompatibilityWarningSettingCodes.PsuReserveWarningPercent: psuReserve = value; break;
-                case CompatibilityWarningSettingCodes.RemainingRamSlotWarningCount: remainingRamSlots = value; break;
-                case CompatibilityWarningSettingCodes.RemainingStoragePortWarningCount: remainingStoragePorts = value; break;
+                case CompatibilityWarningSettingCodes.RemainingRamSlotWarningCount: remainingRamSlots = decimal.ToInt32(value); break;
+                case CompatibilityWarningSettingCodes.RemainingStoragePortWarningCount: remainingStoragePorts = decimal.ToInt32(value); break;
             }
         }
 
-        return new BuildCompatibilityWarningSettings(
+        return new CompatibilityWarningSettings(
             gpuClearance, coolerClearance, psuReserve, remainingRamSlots, remainingStoragePorts);
     }
 }

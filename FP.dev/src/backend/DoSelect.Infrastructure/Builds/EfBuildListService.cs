@@ -35,24 +35,24 @@ public sealed class EfBuildListService : IBuildListService
     /// purchasable build, not just the 5 that have direct compatibility rules between them.
     /// </summary>
     private static readonly IReadOnlyList<string> RequiredComponentCategoryCodes =
-        BuildComponentCategoryCodes.All;
+        CompatibilityCatalogContract.Categories.All;
 
     private readonly DoSelectDbContext _dbContext;
     private readonly ICompatibilityCheckService _compatibilityCheckService;
-    private readonly EfCompatibilityFactsReader _factsReader;
+    private readonly ICompatibilityCatalogReader _catalogReader;
     private readonly ICartService _cartService;
     private readonly IIdempotencyExecutor _idempotencyExecutor;
 
     public EfBuildListService(
         DoSelectDbContext dbContext,
         ICompatibilityCheckService compatibilityCheckService,
-        EfCompatibilityFactsReader factsReader,
+        ICompatibilityCatalogReader catalogReader,
         ICartService cartService,
         IIdempotencyExecutor idempotencyExecutor)
     {
         _dbContext = dbContext;
         _compatibilityCheckService = compatibilityCheckService;
-        _factsReader = factsReader;
+        _catalogReader = catalogReader;
         _cartService = cartService;
         _idempotencyExecutor = idempotencyExecutor;
     }
@@ -698,8 +698,10 @@ public sealed class EfBuildListService : IBuildListService
             .Select(item => new BuildItemInput(skusById[item.SkuId].PublicId, item.Quantity))
             .ToList();
 
-        var resolution = await _factsReader.ResolveAsync(mergedItems, cancellationToken);
-        var presentCategoryCodes = resolution.ResolvedSkus.Select(sku => sku.CategoryCode).ToHashSet();
+        var catalogResult = await _catalogReader.ReadAsync(
+            mergedItems.Select(item => new CompatibilityItemReference(item.SkuPublicId, item.Quantity)).ToArray(),
+            cancellationToken);
+        var presentCategoryCodes = catalogResult.Components.Select(component => component.CategoryCode).ToHashSet();
         var missingCategoryCodes = RequiredComponentCategoryCodes
             .Where(categoryCode => !presentCategoryCodes.Contains(categoryCode))
             .ToList();
@@ -712,11 +714,11 @@ public sealed class EfBuildListService : IBuildListService
 
         var compatibility = await _compatibilityCheckService.CheckAsync(
             new CompatibilityCheckRequest(mergedItems), buildList.Id, cancellationToken);
-        // 組長 PR #34 review: Overall never reflects a ruleDisabled finding by design (the engine
-        // shows it in Results but keeps the rollup at whatever the remaining findings say — see
-        // CompatibilityRuleEngine.SeverityRank's own comment) — that is fine for the admin test
-        // tool, but the real purchase flow may never let a hard rule an admin turned off silently
-        // read as "compatible". A disabled rule that would have fired blocks the add here too.
+        // 組長 PR #34 review: Overall never reflects a ruleDisabled finding by design
+        // (EfCompatibilityCheckService.ApplyDisabledRules keeps the rollup at whatever the
+        // remaining active findings say) — that is fine for the admin test tool, but the real
+        // purchase flow may never let a hard rule an admin turned off silently read as
+        // "compatible". A disabled rule that would have fired blocks the add here too.
         if (compatibility.Overall is "blocked" or "insufficientData" ||
             compatibility.Results.Any(finding => finding.Severity == CompatibilitySeverityTokens.RuleDisabled))
         {

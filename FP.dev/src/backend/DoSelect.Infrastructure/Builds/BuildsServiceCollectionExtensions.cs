@@ -9,13 +9,11 @@ public static class BuildsServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
 
-        services.AddScoped<EfCompatibilityFactsReader>();
         services.AddScoped<EfCompatibilityCheckService>();
         services.AddScoped<ICompatibilityCheckService>(provider =>
             provider.GetRequiredService<EfCompatibilityCheckService>());
         services.AddScoped<IBuildListService, EfBuildListService>();
         services.AddScoped<ICompatibilityRuleAdminService, EfCompatibilityRuleAdminService>();
-        services.AddScoped<ISkuCompatibilityAttributeAdminService, EfSkuCompatibilityAttributeAdminService>();
 
         return services;
     }

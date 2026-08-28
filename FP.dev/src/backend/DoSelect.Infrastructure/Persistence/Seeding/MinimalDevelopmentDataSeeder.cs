@@ -255,63 +255,82 @@ public sealed class MinimalDevelopmentDataSeeder(
     }
 
     /// <summary>
-    /// 組長 PR #34 review: SkuCompatibilityAttributes／SkuStorageInterfacePorts had no real
-    /// production write path — only test fixtures ever wrote to them, so a fresh deployment's
-    /// compatibility engine can never see anything but InsufficientData for GPU clearance, cooler
-    /// socket, or storage-interface facts, and a real 8-category build can never reach the cart.
-    /// Seeds one representative, mutually-compatible SKU per build-component category (same
-    /// proven-compatible values as
-    /// DoSelect.Infrastructure.Tests.Builds.EfBuildListServiceTests.SeedCompleteBuildComponentsAsync)
-    /// through this real seeder — not a test-only DbContext write — so --seed-minimal leaves a
-    /// genuine, addable-to-cart demo build behind.
+    /// PR #34 round-7 review (DEC-BATCH-027): the canonical compatibility source
+    /// (SpecificationDefinition／SpecificationOption／SkuSpecificationOptionSelection with a
+    /// reviewed SpecificationSource) had no seed data for a full 8-category build, so a fresh
+    /// deployment's compatibility engine could only ever see InsufficientData. Seeds one
+    /// representative, mutually-compatible SKU per <see cref="CompatibilityCatalogContract.Categories"/>
+    /// role through this real seeder — not a test-only DbContext write — so --seed-minimal leaves a
+    /// genuine, addable-to-cart demo build behind. Values are hand-picked to pass every
+    /// <see cref="CompatibilityEvaluator"/> rule with no warnings (AM5 CPU socket, X670E chipset —
+    /// a real RYZEN_7000-compatible pairing per <see cref="CompatibilityRuleCatalog.CreateVersion1"/>,
+    /// ATX form factor throughout, ~345W estimated draw against a 650W PSU).
     /// </summary>
-    private static readonly IReadOnlyDictionary<string, (string SemanticKey, SpecificationValueType ValueType)[]>
-        BuildCompatibilitySpecTemplates = new Dictionary<string, (string, SpecificationValueType)[]>
+    private sealed record CompatibilitySpecDefinitionTemplate(
+        string SemanticKey, SpecificationValueType ValueType, bool AllowsMultiple);
+
+    private static readonly IReadOnlyDictionary<string, CompatibilitySpecDefinitionTemplate[]>
+        BuildCompatibilitySpecTemplates = new Dictionary<string, CompatibilitySpecDefinitionTemplate[]>
         {
-            [BuildComponentCategoryCodes.Cpu] =
+            [CompatibilityCatalogContract.Categories.Cpu] =
             [
-                (CompatibilitySemanticKeys.CpuSocket, SpecificationValueType.String),
-                (CompatibilitySemanticKeys.CpuGeneration, SpecificationValueType.String),
-                (CompatibilitySemanticKeys.CpuPowerWatts, SpecificationValueType.Decimal),
+                new(CompatibilityCatalogContract.SemanticKeys.CpuSocket, SpecificationValueType.Option, false),
+                new(CompatibilityCatalogContract.SemanticKeys.CpuGeneration, SpecificationValueType.Option, false),
+                new(CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts, SpecificationValueType.Decimal, false),
             ],
-            [BuildComponentCategoryCodes.Motherboard] =
+            [CompatibilityCatalogContract.Categories.Motherboard] =
             [
-                (CompatibilitySemanticKeys.BoardSocket, SpecificationValueType.String),
-                (CompatibilitySemanticKeys.BoardChipset, SpecificationValueType.String),
-                (CompatibilitySemanticKeys.BoardMemoryGeneration, SpecificationValueType.String),
-                (CompatibilitySemanticKeys.BoardMemorySlotCount, SpecificationValueType.Decimal),
-                (CompatibilitySemanticKeys.BoardMaxMemoryCapacityGb, SpecificationValueType.Decimal),
-                (CompatibilitySemanticKeys.BoardFormFactor, SpecificationValueType.String),
+                new(CompatibilityCatalogContract.SemanticKeys.CpuSocket, SpecificationValueType.Option, false),
+                new(CompatibilityCatalogContract.SemanticKeys.MotherboardChipset, SpecificationValueType.Option, false),
+                new(CompatibilityCatalogContract.SemanticKeys.MemoryType, SpecificationValueType.Option, false),
+                new(CompatibilityCatalogContract.SemanticKeys.MemorySlotCount, SpecificationValueType.Decimal, false),
+                new(CompatibilityCatalogContract.SemanticKeys.MemoryMaxCapacityGb, SpecificationValueType.Decimal, false),
+                new(CompatibilityCatalogContract.SemanticKeys.MotherboardFormFactor, SpecificationValueType.Option, false),
+                new(CompatibilityCatalogContract.SemanticKeys.M2SlotCount, SpecificationValueType.Decimal, false),
+                new(CompatibilityCatalogContract.SemanticKeys.SataPortCount, SpecificationValueType.Decimal, false),
+                new(CompatibilityCatalogContract.SemanticKeys.MotherboardCpuEps8PinRequiredCount, SpecificationValueType.Decimal, false),
+                new(CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts, SpecificationValueType.Decimal, false),
             ],
-            [BuildComponentCategoryCodes.Memory] =
+            [CompatibilityCatalogContract.Categories.Memory] =
             [
-                (CompatibilitySemanticKeys.MemoryGeneration, SpecificationValueType.String),
-                (CompatibilitySemanticKeys.MemoryCapacityGbPerModule, SpecificationValueType.Decimal),
+                new(CompatibilityCatalogContract.SemanticKeys.MemoryType, SpecificationValueType.Option, false),
+                new(CompatibilityCatalogContract.SemanticKeys.MemoryModuleCount, SpecificationValueType.Decimal, false),
+                new(CompatibilityCatalogContract.SemanticKeys.MemoryKitCapacityGb, SpecificationValueType.Decimal, false),
+                new(CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts, SpecificationValueType.Decimal, false),
             ],
-            [BuildComponentCategoryCodes.GraphicsCard] =
+            [CompatibilityCatalogContract.Categories.Gpu] =
             [
-                (CompatibilitySemanticKeys.GpuLengthMm, SpecificationValueType.Decimal),
-                (CompatibilitySemanticKeys.GpuRecommendedPsuWatts, SpecificationValueType.Decimal),
-                (CompatibilitySemanticKeys.GpuPowerWatts, SpecificationValueType.Decimal),
+                new(CompatibilityCatalogContract.SemanticKeys.GpuLengthMm, SpecificationValueType.Decimal, false),
+                new(CompatibilityCatalogContract.SemanticKeys.GpuRecommendedPsuWatts, SpecificationValueType.Decimal, false),
+                new(CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts, SpecificationValueType.Decimal, false),
+                new(CompatibilityCatalogContract.SemanticKeys.GpuPcie62PinRequiredCount, SpecificationValueType.Decimal, false),
+                new(CompatibilityCatalogContract.SemanticKeys.Gpu12VhpwrRequiredCount, SpecificationValueType.Decimal, false),
             ],
-            [BuildComponentCategoryCodes.StorageDevice] =
+            [CompatibilityCatalogContract.Categories.Storage] =
             [
-                (CompatibilitySemanticKeys.StorageInterface, SpecificationValueType.String),
-                (CompatibilitySemanticKeys.StoragePowerWatts, SpecificationValueType.Decimal),
+                new(CompatibilityCatalogContract.SemanticKeys.StorageInterface, SpecificationValueType.Option, false),
+                new(CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts, SpecificationValueType.Decimal, false),
             ],
-            [BuildComponentCategoryCodes.PowerSupply] =
+            [CompatibilityCatalogContract.Categories.Psu] =
             [
-                (CompatibilitySemanticKeys.PsuWattage, SpecificationValueType.Decimal),
+                new(CompatibilityCatalogContract.SemanticKeys.PsuRatedWatts, SpecificationValueType.Decimal, false),
+                new(CompatibilityCatalogContract.SemanticKeys.PsuFormFactor, SpecificationValueType.Option, false),
+                new(CompatibilityCatalogContract.SemanticKeys.PsuPcie62PinCount, SpecificationValueType.Decimal, false),
+                new(CompatibilityCatalogContract.SemanticKeys.Psu12VhpwrCount, SpecificationValueType.Decimal, false),
+                new(CompatibilityCatalogContract.SemanticKeys.PsuCpuEps8PinCount, SpecificationValueType.Decimal, false),
             ],
-            [BuildComponentCategoryCodes.Case] =
+            [CompatibilityCatalogContract.Categories.Case] =
             [
-                (CompatibilitySemanticKeys.CaseMaxGpuLengthMm, SpecificationValueType.Decimal),
-                (CompatibilitySemanticKeys.CaseMaxCoolerHeightMm, SpecificationValueType.Decimal),
+                new(CompatibilityCatalogContract.SemanticKeys.CaseSupportedMotherboardFormFactor, SpecificationValueType.Option, true),
+                new(CompatibilityCatalogContract.SemanticKeys.CaseGpuMaxLengthMm, SpecificationValueType.Decimal, false),
+                new(CompatibilityCatalogContract.SemanticKeys.CaseCoolerMaxHeightMm, SpecificationValueType.Decimal, false),
+                new(CompatibilityCatalogContract.SemanticKeys.CaseSupportedPsuFormFactor, SpecificationValueType.Option, true),
             ],
-            [BuildComponentCategoryCodes.Cooler] =
+            [CompatibilityCatalogContract.Categories.CpuCooler] =
             [
-                (CompatibilitySemanticKeys.CoolerHeightMm, SpecificationValueType.Decimal),
-                (CompatibilitySemanticKeys.CoolerPowerWatts, SpecificationValueType.Decimal),
+                new(CompatibilityCatalogContract.SemanticKeys.CpuSocket, SpecificationValueType.Option, true),
+                new(CompatibilityCatalogContract.SemanticKeys.CoolerHeightMm, SpecificationValueType.Decimal, false),
+                new(CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts, SpecificationValueType.Decimal, false),
             ],
         };
 
@@ -320,7 +339,7 @@ public sealed class MinimalDevelopmentDataSeeder(
         CancellationToken cancellationToken)
     {
         var categoriesByCode = new Dictionary<string, Category>();
-        foreach (var categoryCode in BuildComponentCategoryCodes.All)
+        foreach (var categoryCode in CompatibilityCatalogContract.Categories.All)
         {
             var category = await dbContext.Categories.SingleOrDefaultAsync(
                 entity => entity.Code == categoryCode, cancellationToken);
@@ -340,10 +359,10 @@ public sealed class MinimalDevelopmentDataSeeder(
 
             categoriesByCode[categoryCode] = category;
 
-            foreach (var (semanticKey, valueType) in BuildCompatibilitySpecTemplates[categoryCode])
+            foreach (var template in BuildCompatibilitySpecTemplates[categoryCode])
             {
                 var definitionExists = await dbContext.SpecificationDefinitions.AnyAsync(
-                    definition => definition.CategoryId == category.Id && definition.SemanticKey == semanticKey,
+                    definition => definition.CategoryId == category.Id && definition.SemanticKey == template.SemanticKey,
                     cancellationToken);
                 if (definitionExists)
                 {
@@ -351,9 +370,10 @@ public sealed class MinimalDevelopmentDataSeeder(
                 }
 
                 dbContext.SpecificationDefinitions.Add(new SpecificationDefinition(
-                    Guid.CreateVersion7(), category.Id, semanticKey, semanticKey, valueType, null,
+                    Guid.CreateVersion7(), category.Id, template.SemanticKey, template.SemanticKey,
+                    template.ValueType, null,
                     isRequired: false, isProtected: true, sortOrder: 0,
-                    MinimalDevelopmentSeedDefinitions.CreatedAtUtc));
+                    MinimalDevelopmentSeedDefinitions.CreatedAtUtc, allowsMultiple: template.AllowsMultiple));
                 counters.CompatibilityRecordsCreated++;
             }
 
@@ -378,96 +398,164 @@ public sealed class MinimalDevelopmentDataSeeder(
             counters.CompatibilityRecordsCreated++;
         }
 
+        // DEC-P315: every hard-rule fact the reader picks up needs a reviewed SpecificationSource
+        // — one shared demo/seed source is enough here, real Catalog admin data gets its own
+        // per-value provenance through the normal admin flow.
+        var reviewer = await dbContext.Users.SingleOrDefaultAsync(
+            candidate => candidate.Email == "dev-compat-reviewer@doselect.test", cancellationToken);
+        if (reviewer is null)
+        {
+            reviewer = ApplicationUser.CreateAdmin(
+                Guid.CreateVersion7(), "dev-compat-reviewer@doselect.test", MinimalDevelopmentSeedDefinitions.CreatedAtUtc);
+            dbContext.Users.Add(reviewer);
+            await dbContext.SaveChangesAsync(cancellationToken);
+            counters.CompatibilityRecordsCreated++;
+        }
+
+        var source = await dbContext.SpecificationSources.SingleOrDefaultAsync(
+            candidate => candidate.ProviderName == "DoSelect Dev Seed", cancellationToken);
+        if (source is null)
+        {
+            source = new SpecificationSource(
+                Guid.CreateVersion7(),
+                SpecificationSourceType.SystemEstimate,
+                "DoSelect Dev Seed",
+                "https://doselect.dev/seed/build-compatibility",
+                "--seed-minimal demo build",
+                MinimalDevelopmentSeedDefinitions.CreatedAtUtc,
+                MinimalDevelopmentSeedDefinitions.CreatedAtUtc,
+                reviewer.Id,
+                "v1",
+                MinimalDevelopmentSeedDefinitions.CreatedAtUtc);
+            dbContext.SpecificationSources.Add(source);
+            await dbContext.SaveChangesAsync(cancellationToken);
+            counters.CompatibilityRecordsCreated++;
+        }
+
         await CreateComponentSkuAsync(
-            "DEV-COMPAT-CPU-001", "懂選開發用 CPU", BuildComponentCategoryCodes.Cpu, brand, categoriesByCode, counters,
-            specValues: new Dictionary<string, object?>
+            "DEV-COMPAT-CPU-001", "懂選開發用 CPU", CompatibilityCatalogContract.Categories.Cpu,
+            brand, categoriesByCode, source, counters,
+            specValues: new Dictionary<string, object>
             {
-                [CompatibilitySemanticKeys.CpuSocket] = "AM5",
-                [CompatibilitySemanticKeys.CpuGeneration] = "Ryzen7000",
-                [CompatibilitySemanticKeys.CpuPowerWatts] = 105m,
+                [CompatibilityCatalogContract.SemanticKeys.CpuSocket] = "AM5",
+                [CompatibilityCatalogContract.SemanticKeys.CpuGeneration] = "RYZEN_7000",
+                [CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 105m,
             }, cancellationToken: cancellationToken);
 
         await CreateComponentSkuAsync(
-            "DEV-COMPAT-MB-001", "懂選開發用主機板", BuildComponentCategoryCodes.Motherboard, brand, categoriesByCode, counters,
-            specValues: new Dictionary<string, object?>
+            "DEV-COMPAT-MB-001", "懂選開發用主機板", CompatibilityCatalogContract.Categories.Motherboard,
+            brand, categoriesByCode, source, counters,
+            specValues: new Dictionary<string, object>
             {
-                [CompatibilitySemanticKeys.BoardSocket] = "AM5",
-                [CompatibilitySemanticKeys.BoardChipset] = "X670E",
-                [CompatibilitySemanticKeys.BoardMemoryGeneration] = "DDR5",
-                [CompatibilitySemanticKeys.BoardMemorySlotCount] = 4m,
-                [CompatibilitySemanticKeys.BoardMaxMemoryCapacityGb] = 128m,
-                [CompatibilitySemanticKeys.BoardFormFactor] = "ATX",
+                [CompatibilityCatalogContract.SemanticKeys.CpuSocket] = "AM5",
+                [CompatibilityCatalogContract.SemanticKeys.MotherboardChipset] = "X670E",
+                [CompatibilityCatalogContract.SemanticKeys.MemoryType] = "DDR5",
+                [CompatibilityCatalogContract.SemanticKeys.MemorySlotCount] = 4m,
+                [CompatibilityCatalogContract.SemanticKeys.MemoryMaxCapacityGb] = 128m,
+                [CompatibilityCatalogContract.SemanticKeys.MotherboardFormFactor] = "ATX",
+                [CompatibilityCatalogContract.SemanticKeys.M2SlotCount] = 4m,
+                [CompatibilityCatalogContract.SemanticKeys.SataPortCount] = 4m,
+                [CompatibilityCatalogContract.SemanticKeys.MotherboardCpuEps8PinRequiredCount] = 1m,
+                [CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 20m,
+            }, cancellationToken: cancellationToken);
+
+        await CreateComponentSkuAsync(
+            "DEV-COMPAT-MEM-001", "懂選開發用記憶體", CompatibilityCatalogContract.Categories.Memory,
+            brand, categoriesByCode, source, counters,
+            specValues: new Dictionary<string, object>
+            {
+                [CompatibilityCatalogContract.SemanticKeys.MemoryType] = "DDR5",
+                [CompatibilityCatalogContract.SemanticKeys.MemoryModuleCount] = 1m,
+                [CompatibilityCatalogContract.SemanticKeys.MemoryKitCapacityGb] = 16m,
+                [CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 5m,
+            }, cancellationToken: cancellationToken);
+
+        await CreateComponentSkuAsync(
+            "DEV-COMPAT-PSU-001", "懂選開發用電源供應器", CompatibilityCatalogContract.Categories.Psu,
+            brand, categoriesByCode, source, counters,
+            specValues: new Dictionary<string, object>
+            {
+                [CompatibilityCatalogContract.SemanticKeys.PsuRatedWatts] = 650m,
+                [CompatibilityCatalogContract.SemanticKeys.PsuFormFactor] = "ATX",
+                [CompatibilityCatalogContract.SemanticKeys.PsuPcie62PinCount] = 2m,
+                [CompatibilityCatalogContract.SemanticKeys.Psu12VhpwrCount] = 1m,
+                [CompatibilityCatalogContract.SemanticKeys.PsuCpuEps8PinCount] = 2m,
+            }, cancellationToken: cancellationToken);
+
+        await CreateComponentSkuAsync(
+            "DEV-COMPAT-CASE-001", "懂選開發用機殼", CompatibilityCatalogContract.Categories.Case,
+            brand, categoriesByCode, source, counters,
+            specValues: new Dictionary<string, object>
+            {
+                [CompatibilityCatalogContract.SemanticKeys.CaseGpuMaxLengthMm] = 320m,
+                [CompatibilityCatalogContract.SemanticKeys.CaseCoolerMaxHeightMm] = 170m,
             },
-            storagePorts: new Dictionary<string, int> { ["NVME"] = 4 },
+            multiValues: new Dictionary<string, string[]>
+            {
+                [CompatibilityCatalogContract.SemanticKeys.CaseSupportedMotherboardFormFactor] = ["ATX"],
+                [CompatibilityCatalogContract.SemanticKeys.CaseSupportedPsuFormFactor] = ["ATX"],
+            },
             cancellationToken: cancellationToken);
 
         await CreateComponentSkuAsync(
-            "DEV-COMPAT-MEM-001", "懂選開發用記憶體", BuildComponentCategoryCodes.Memory, brand, categoriesByCode, counters,
-            specValues: new Dictionary<string, object?>
+            "DEV-COMPAT-GPU-001", "懂選開發用顯示卡（組裝用）", CompatibilityCatalogContract.Categories.Gpu,
+            brand, categoriesByCode, source, counters,
+            specValues: new Dictionary<string, object>
             {
-                [CompatibilitySemanticKeys.MemoryGeneration] = "DDR5",
-                [CompatibilitySemanticKeys.MemoryCapacityGbPerModule] = 16m,
+                [CompatibilityCatalogContract.SemanticKeys.GpuLengthMm] = 280m,
+                [CompatibilityCatalogContract.SemanticKeys.GpuRecommendedPsuWatts] = 450m,
+                [CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 200m,
+                [CompatibilityCatalogContract.SemanticKeys.GpuPcie62PinRequiredCount] = 1m,
+                [CompatibilityCatalogContract.SemanticKeys.Gpu12VhpwrRequiredCount] = 0m,
             }, cancellationToken: cancellationToken);
 
         await CreateComponentSkuAsync(
-            "DEV-COMPAT-PSU-001", "懂選開發用電源供應器", BuildComponentCategoryCodes.PowerSupply, brand, categoriesByCode, counters,
-            specValues: new Dictionary<string, object?> { [CompatibilitySemanticKeys.PsuWattage] = 650m },
-            cancellationToken: cancellationToken);
-
-        await CreateComponentSkuAsync(
-            "DEV-COMPAT-CASE-001", "懂選開發用機殼", BuildComponentCategoryCodes.Case, brand, categoriesByCode, counters,
-            specValues: new Dictionary<string, object?>
+            "DEV-COMPAT-STORAGE-001", "懂選開發用固態硬碟", CompatibilityCatalogContract.Categories.Storage,
+            brand, categoriesByCode, source, counters,
+            specValues: new Dictionary<string, object>
             {
-                [CompatibilitySemanticKeys.CaseMaxGpuLengthMm] = 320m,
-                [CompatibilitySemanticKeys.CaseMaxCoolerHeightMm] = 170m,
-            },
-            attributes: new Dictionary<string, string[]>
-            {
-                [CompatibilityAttributeKeys.CaseSupportedFormFactors] = ["ATX"],
-            },
-            cancellationToken: cancellationToken);
-
-        await CreateComponentSkuAsync(
-            "DEV-COMPAT-GPU-001", "懂選開發用顯示卡（組裝用）", BuildComponentCategoryCodes.GraphicsCard, brand, categoriesByCode, counters,
-            specValues: new Dictionary<string, object?>
-            {
-                [CompatibilitySemanticKeys.GpuLengthMm] = 280m,
-                [CompatibilitySemanticKeys.GpuRecommendedPsuWatts] = 450m,
-                [CompatibilitySemanticKeys.GpuPowerWatts] = 200m,
+                [CompatibilityCatalogContract.SemanticKeys.StorageInterface] = "M2_NVME",
+                [CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 5m,
             }, cancellationToken: cancellationToken);
 
         await CreateComponentSkuAsync(
-            "DEV-COMPAT-STORAGE-001", "懂選開發用固態硬碟", BuildComponentCategoryCodes.StorageDevice, brand, categoriesByCode, counters,
-            specValues: new Dictionary<string, object?>
+            "DEV-COMPAT-COOLER-001", "懂選開發用散熱器", CompatibilityCatalogContract.Categories.CpuCooler,
+            brand, categoriesByCode, source, counters,
+            specValues: new Dictionary<string, object>
             {
-                [CompatibilitySemanticKeys.StorageInterface] = "NVME",
-                [CompatibilitySemanticKeys.StoragePowerWatts] = 5m,
-            }, cancellationToken: cancellationToken);
-
-        await CreateComponentSkuAsync(
-            "DEV-COMPAT-COOLER-001", "懂選開發用散熱器", BuildComponentCategoryCodes.Cooler, brand, categoriesByCode, counters,
-            specValues: new Dictionary<string, object?>
-            {
-                [CompatibilitySemanticKeys.CoolerHeightMm] = 150m,
-                [CompatibilitySemanticKeys.CoolerPowerWatts] = 10m,
+                [CompatibilityCatalogContract.SemanticKeys.CoolerHeightMm] = 150m,
+                [CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 10m,
             },
-            attributes: new Dictionary<string, string[]>
+            multiValues: new Dictionary<string, string[]>
             {
-                [CompatibilityAttributeKeys.CoolerSupportedSockets] = ["AM5"],
+                [CompatibilityCatalogContract.SemanticKeys.CpuSocket] = ["AM5"],
             },
             cancellationToken: cancellationToken);
     }
 
+    /// <summary>
+    /// Seeds one demo SKU under <paramref name="categoryCode"/> and its hard-rule facts through
+    /// the canonical multi-value model: a Decimal value writes straight to
+    /// <see cref="SkuSpecificationValue.DecimalValue"/>; an Option value first gets-or-creates a
+    /// <see cref="SpecificationOption"/> scoped to that category's own definition (options are not
+    /// shared across categories even when the code string matches, e.g. CPU's own "AM5" option is
+    /// a different row from the Motherboard's), then links via
+    /// <see cref="SkuSpecificationValue.OptionId"/> (single-select, <paramref name="specValues"/>)
+    /// or <see cref="SkuSpecificationOptionSelection"/> (multi-select,
+    /// <paramref name="multiValues"/>) — never a bare string, which
+    /// <see cref="DoSelect.Infrastructure.Catalog.EfCompatibilityCatalogReader"/> does not read for
+    /// Option-typed definitions.
+    /// </summary>
     private async Task CreateComponentSkuAsync(
         string skuCode,
         string name,
         string categoryCode,
         Brand brand,
         IReadOnlyDictionary<string, Category> categoriesByCode,
+        SpecificationSource source,
         SeedCounters counters,
-        IReadOnlyDictionary<string, object?>? specValues = null,
-        IReadOnlyDictionary<string, string[]>? attributes = null,
-        IReadOnlyDictionary<string, int>? storagePorts = null,
+        IReadOnlyDictionary<string, object>? specValues = null,
+        IReadOnlyDictionary<string, string[]>? multiValues = null,
         CancellationToken cancellationToken = default)
     {
         var category = categoriesByCode[categoryCode];
@@ -492,45 +580,42 @@ public sealed class MinimalDevelopmentDataSeeder(
         {
             foreach (var (semanticKey, rawValue) in specValues)
             {
-                if (rawValue is null)
-                {
-                    continue;
-                }
-
                 var definition = await dbContext.SpecificationDefinitions.SingleAsync(
                     candidate => candidate.CategoryId == category.Id && candidate.SemanticKey == semanticKey,
                     cancellationToken);
-                var stringValue = rawValue as string;
-                decimal? decimalValue = rawValue is decimal value ? value : null;
 
+                if (rawValue is decimal decimalValue)
+                {
+                    dbContext.SkuSpecificationValues.Add(new SkuSpecificationValue(
+                        sku.Id, definition.Id, null, decimalValue, null, null, source.Id,
+                        MinimalDevelopmentSeedDefinitions.CreatedAtUtc));
+                    continue;
+                }
+
+                var optionCode = (string)rawValue;
+                var option = await GetOrCreateOptionAsync(definition.Id, optionCode, cancellationToken);
                 dbContext.SkuSpecificationValues.Add(new SkuSpecificationValue(
-                    sku.Id, definition.Id, stringValue, decimalValue, null, null, null,
+                    sku.Id, definition.Id, null, null, null, option.Id, source.Id,
                     MinimalDevelopmentSeedDefinitions.CreatedAtUtc));
             }
 
             await dbContext.SaveChangesAsync(cancellationToken);
         }
 
-        if (attributes is not null)
+        if (multiValues is not null)
         {
-            foreach (var (attributeKey, values) in attributes)
+            foreach (var (semanticKey, optionCodes) in multiValues)
             {
-                foreach (var value in values)
+                var definition = await dbContext.SpecificationDefinitions.SingleAsync(
+                    candidate => candidate.CategoryId == category.Id && candidate.SemanticKey == semanticKey,
+                    cancellationToken);
+
+                foreach (var optionCode in optionCodes)
                 {
-                    dbContext.SkuCompatibilityAttributes.Add(new SkuCompatibilityAttribute(
-                        sku.Id, attributeKey, value, MinimalDevelopmentSeedDefinitions.CreatedAtUtc));
+                    var option = await GetOrCreateOptionAsync(definition.Id, optionCode, cancellationToken);
+                    dbContext.SkuSpecificationOptionSelections.Add(new SkuSpecificationOptionSelection(
+                        sku.Id, option.Id, MinimalDevelopmentSeedDefinitions.CreatedAtUtc, source.Id));
                 }
-            }
-
-            await dbContext.SaveChangesAsync(cancellationToken);
-        }
-
-        if (storagePorts is not null)
-        {
-            foreach (var (interfaceCode, portCount) in storagePorts)
-            {
-                dbContext.SkuStorageInterfacePorts.Add(new SkuStorageInterfacePort(
-                    sku.Id, interfaceCode, portCount, MinimalDevelopmentSeedDefinitions.CreatedAtUtc));
             }
 
             await dbContext.SaveChangesAsync(cancellationToken);
@@ -541,6 +626,25 @@ public sealed class MinimalDevelopmentDataSeeder(
             MinimalDevelopmentSeedDefinitions.CreatedAtUtc));
         await dbContext.SaveChangesAsync(cancellationToken);
         counters.CompatibilityRecordsCreated++;
+    }
+
+    private async Task<SpecificationOption> GetOrCreateOptionAsync(
+        long specificationDefinitionId, string code, CancellationToken cancellationToken)
+    {
+        var option = await dbContext.SpecificationOptions.SingleOrDefaultAsync(
+            candidate => candidate.SpecificationDefinitionId == specificationDefinitionId && candidate.Code == code,
+            cancellationToken);
+        if (option is not null)
+        {
+            return option;
+        }
+
+        option = new SpecificationOption(
+            Guid.CreateVersion7(), specificationDefinitionId, code, code, sortOrder: 0,
+            MinimalDevelopmentSeedDefinitions.CreatedAtUtc);
+        dbContext.SpecificationOptions.Add(option);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return option;
     }
 
     private static void EnsureSucceeded(string action, IdentityResult result)

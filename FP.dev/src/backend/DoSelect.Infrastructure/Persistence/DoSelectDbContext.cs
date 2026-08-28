@@ -161,12 +161,6 @@ public sealed class DoSelectDbContext
     public DbSet<CompatibilityCheckResult> CompatibilityCheckResults =>
         Set<CompatibilityCheckResult>();
 
-    public DbSet<SkuCompatibilityAttribute> SkuCompatibilityAttributes =>
-        Set<SkuCompatibilityAttribute>();
-
-    public DbSet<SkuStorageInterfacePort> SkuStorageInterfacePorts =>
-        Set<SkuStorageInterfacePort>();
-
     public DbSet<ProductReview> ProductReviews => Set<ProductReview>();
 
     public DbSet<ReviewImage> ReviewImages => Set<ReviewImage>();

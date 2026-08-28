@@ -49,9 +49,6 @@ public static class AuditActions
     public const string CompatibilityRuleWarningSettingUpdate = "compatibility_rule.warning_setting.update";
     public const string CompatibilityRuleActivationUpdate = "compatibility_rule.activation.update";
     public const string CompatibilityRuleTest = "compatibility_rule.test";
-
-    /// <summary>PR #34 round-6 review, A1 裁定: a SKU's compatibility attributes/storage ports directly gate hard compatibility and purchasability, so the full-replace PUT gets its own central Audit action rather than reusing the rule-settings ones above.</summary>
-    public const string SkuCompatibilityAttributesReplace = "sku.compatibility_attributes.replace";
 }
 
 public static class AuditResourceTypes
@@ -66,7 +63,6 @@ public static class AuditResourceTypes
     public const string SupportTicket = "SupportTicket";
     public const string CompatibilityRuleSetting = "CompatibilityRuleSetting";
     public const string CompatibilityCheckRun = "CompatibilityCheckRun";
-    public const string Sku = "Sku";
 }
 
 public static class AuditRoleNames
@@ -587,10 +583,6 @@ internal static class AuditWritePolicy
                 AuditActions.CompatibilityRuleTest,
                 AuditResourceTypes.CompatibilityCheckRun,
                 "inputHash", "overall", "settingsVersion"),
-            [AuditActions.SkuCompatibilityAttributesReplace] = Definition(
-                AuditActions.SkuCompatibilityAttributesReplace,
-                AuditResourceTypes.Sku,
-                "attributesHash", "attributeKeyCount", "portsHash", "portCount"),
         };
 
     public static AuditActionDefinition RequireDefinition(string action)

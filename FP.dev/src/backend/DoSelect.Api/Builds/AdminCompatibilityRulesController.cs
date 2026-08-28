@@ -15,14 +15,10 @@ namespace DoSelect.Api.Builds;
 public sealed class AdminCompatibilityRulesController : ControllerBase
 {
     private readonly ICompatibilityRuleAdminService _adminService;
-    private readonly ISkuCompatibilityAttributeAdminService _skuAttributeAdminService;
 
-    public AdminCompatibilityRulesController(
-        ICompatibilityRuleAdminService adminService,
-        ISkuCompatibilityAttributeAdminService skuAttributeAdminService)
+    public AdminCompatibilityRulesController(ICompatibilityRuleAdminService adminService)
     {
         _adminService = adminService;
-        _skuAttributeAdminService = skuAttributeAdminService;
     }
 
     [HttpGet]
@@ -96,54 +92,6 @@ public sealed class AdminCompatibilityRulesController : ControllerBase
         try
         {
             var result = await _adminService.TestAsync(request, adminUserId, BuildAuditContext(), cancellationToken);
-            return Ok(result);
-        }
-        catch (BuildWriteException exception)
-        {
-            return exception.ToActionResult(HttpContext);
-        }
-    }
-
-    /// <summary>
-    /// 組長 PR #34 review, item 4: the only real production read/write path for a SKU's
-    /// multi-value compatibility facts — previously only test fixtures and the dev seeder wrote
-    /// to these tables, so a real product entered through normal SKU admin flows could never
-    /// escape `insufficientData`.
-    /// </summary>
-    [HttpGet("skus/{skuPublicId:guid}/attributes")]
-    [Authorize(Policy = DoSelectPolicies.CompatibilityRuleView)]
-    public async Task<ActionResult<SkuCompatibilityAttributesDto>> GetSkuAttributes(
-        Guid skuPublicId,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            var result = await _skuAttributeAdminService.GetAsync(skuPublicId, cancellationToken);
-            return Ok(result);
-        }
-        catch (BuildWriteException exception)
-        {
-            return exception.ToActionResult(HttpContext);
-        }
-    }
-
-    /// <summary>Full-replace semantics (資源本身即是完整快照，不是差異合併) — Request must echo back the Sku's own RowVersion from the last read (round-4 review: reuses the Sku's existing concurrency token).</summary>
-    [HttpPut("skus/{skuPublicId:guid}/attributes")]
-    [Authorize(Policy = DoSelectPolicies.CompatibilityRuleManageWarnings)]
-    public async Task<ActionResult<SkuCompatibilityAttributesDto>> SetSkuAttributes(
-        Guid skuPublicId,
-        [FromBody] SetSkuCompatibilityAttributesRequest request,
-        CancellationToken cancellationToken)
-    {
-        if (!TryGetAdminUserId(out var adminUserId))
-        {
-            return IdentityRequiredProblem();
-        }
-
-        try
-        {
-            var result = await _skuAttributeAdminService.SetAsync(
-                skuPublicId, adminUserId, request, BuildAuditContext(), cancellationToken);
             return Ok(result);
         }
         catch (BuildWriteException exception)

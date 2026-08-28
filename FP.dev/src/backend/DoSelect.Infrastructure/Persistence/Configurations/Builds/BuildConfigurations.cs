@@ -149,47 +149,6 @@ public sealed class CompatibilityCheckRunConfiguration
     }
 }
 
-public sealed class SkuCompatibilityAttributeConfiguration
-    : IEntityTypeConfiguration<SkuCompatibilityAttribute>
-{
-    public void Configure(EntityTypeBuilder<SkuCompatibilityAttribute> builder)
-    {
-        builder.ToTable("SkuCompatibilityAttributes");
-        builder.HasKey(entity => entity.Id);
-        builder.Property(entity => entity.Id).UseIdentityColumn();
-        builder.Property(entity => entity.AttributeKey).HasMaxLength(64).IsUnicode(false).IsRequired();
-        builder.Property(entity => entity.AttributeValue).HasMaxLength(64).IsUnicode(false).IsRequired();
-        builder.HasIndex(entity => new { entity.SkuId, entity.AttributeKey, entity.AttributeValue })
-            .IsUnique()
-            .HasDatabaseName("UX_SkuCompatibilityAttributes_SkuId_AttributeKey_AttributeValue");
-        builder.HasOne<DoSelect.Domain.Catalog.Sku>()
-            .WithMany()
-            .HasForeignKey(entity => entity.SkuId)
-            .OnDelete(DeleteBehavior.Cascade);
-    }
-}
-
-public sealed class SkuStorageInterfacePortConfiguration
-    : IEntityTypeConfiguration<SkuStorageInterfacePort>
-{
-    public void Configure(EntityTypeBuilder<SkuStorageInterfacePort> builder)
-    {
-        builder.ToTable("SkuStorageInterfacePorts", table => table.HasCheckConstraint(
-            "CK_SkuStorageInterfacePorts_PortCount",
-            $"[PortCount] > 0 AND [PortCount] <= {CompatibilityAttributeLimits.MaxStorageInterfacePortCount}"));
-        builder.HasKey(entity => entity.Id);
-        builder.Property(entity => entity.Id).UseIdentityColumn();
-        builder.Property(entity => entity.InterfaceCode).HasMaxLength(64).IsUnicode(false).IsRequired();
-        builder.HasIndex(entity => new { entity.SkuId, entity.InterfaceCode })
-            .IsUnique()
-            .HasDatabaseName("UX_SkuStorageInterfacePorts_SkuId_InterfaceCode");
-        builder.HasOne<DoSelect.Domain.Catalog.Sku>()
-            .WithMany()
-            .HasForeignKey(entity => entity.SkuId)
-            .OnDelete(DeleteBehavior.Cascade);
-    }
-}
-
 public sealed class CompatibilityCheckResultConfiguration
     : IEntityTypeConfiguration<CompatibilityCheckResult>
 {
