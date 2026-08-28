@@ -49,13 +49,17 @@ public sealed class AdminOrdersApiFixture : IAsyncLifetime
     {
         await ResetDatabaseAsync();
 
-        foreach (var (key, value) in EnvironmentOverrides)
+        var allOverrides = new Dictionary<string, string>(EnvironmentOverrides)
         {
-            Environment.SetEnvironmentVariable(key, value);
-        }
-        Environment.SetEnvironmentVariable("Storage__DataRoot", _dataRoot);
+            ["Storage__DataRoot"] = _dataRoot,
+        };
 
-        try
+        // EnvironmentOverrideScope restores each key's actual prior value on Dispose instead of
+        // unconditionally nulling it — this assembly runs with DisableTestParallelization = true,
+        // so nulling here would delete CI's own job-level GuestOrderAccess__Pepper/
+        // ConnectionStrings__DefaultConnection for every fixture that initializes afterwards in
+        // the same process (see EnvironmentOverrideScope's remarks for the exact failure mode).
+        using (new EnvironmentOverrideScope(allOverrides))
         {
             _factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
             {
@@ -69,14 +73,6 @@ public sealed class AdminOrdersApiFixture : IAsyncLifetime
                 });
             });
             Client = _factory.CreateClient();
-        }
-        finally
-        {
-            foreach (var key in EnvironmentOverrides.Keys)
-            {
-                Environment.SetEnvironmentVariable(key, null);
-            }
-            Environment.SetEnvironmentVariable("Storage__DataRoot", null);
         }
     }
 
