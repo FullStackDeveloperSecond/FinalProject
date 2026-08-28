@@ -76,9 +76,13 @@ export function useDeleteBuildList() {
 export function useCreateBuildShare(publicId: MaybeRefOrGetter<string>) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (targetPublicId: string = toValue(publicId)) => createBuildShare(targetPublicId),
+    // 呼叫端不帶參數時 TanStack Query 會把 variables 設成 undefined（而不是「沒有引數」），
+    // 所以 TypeScript 的預設參數只救得了 mutationFn，救不了 onSuccess——後者拿到的 variables
+    // 仍是 undefined，query key 會變成 ['build-lists','detail',undefined]，等於沒 invalidate
+    // 到任何東西。統一在這裡解析一次，兩邊都用同一個 resolved 值。
+    mutationFn: (targetPublicId?: string) => createBuildShare(targetPublicId ?? toValue(publicId)),
     onSuccess: (_data, targetPublicId) => queryClient.invalidateQueries({
-      queryKey: [...buildListsQueryKey, 'detail', targetPublicId],
+      queryKey: [...buildListsQueryKey, 'detail', targetPublicId ?? toValue(publicId)],
     }),
   })
 }
@@ -86,9 +90,9 @@ export function useCreateBuildShare(publicId: MaybeRefOrGetter<string>) {
 export function useRevokeBuildShare(publicId: MaybeRefOrGetter<string>) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (targetPublicId: string = toValue(publicId)) => revokeBuildShare(targetPublicId),
+    mutationFn: (targetPublicId?: string) => revokeBuildShare(targetPublicId ?? toValue(publicId)),
     onSuccess: (_data, targetPublicId) => queryClient.invalidateQueries({
-      queryKey: [...buildListsQueryKey, 'detail', targetPublicId],
+      queryKey: [...buildListsQueryKey, 'detail', targetPublicId ?? toValue(publicId)],
     }),
   })
 }

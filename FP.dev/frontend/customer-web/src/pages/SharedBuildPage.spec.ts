@@ -390,4 +390,65 @@ describe('SharedBuildPage — share-token identity switch (組長 PR #35 round-3
     expect(router.currentRoute.value.fullPath).toBe(pathAfterSwitch)
     expect(router.currentRoute.value.fullPath).not.toContain('copy-of-token-1')
   })
+
+  /**
+   * 組長 PR #35 round-5 review, P3: `addSharedBuildToCart()` 有「建立複本」與「加入購物車」兩個
+   * await 邊界，上一輪只測了 `copyToMyLists()` 的單一邊界。這支鎖定第一個邊界——建立複本 pending
+   * 時切換 token，舊 request 完成後不得把 A 的複本寫入 B 的 `pendingCopyForCart`，也不得繼續
+   * 替 B 執行 add-to-cart。
+   */
+  it('does not write the previous token’s copy into the new page, nor continue to add-to-cart, when the create-list request resolves after shareToken changed', async () => {
+    mockGetSharedBuild.mockResolvedValue(sharedBuild())
+    let resolveCreate: ((value: unknown) => void) | undefined
+    mockCreateBuildList.mockImplementation(() => new Promise((resolve) => { resolveCreate = resolve }))
+
+    const { wrapper, router } = await mountPage(true)
+    await vi.waitFor(() => expect(wrapper.text()).toContain('分享的組裝'))
+
+    await wrapper.findAll('button').find((button) => button.text() === '整套加入購物車')!.trigger('click')
+    await vi.waitFor(() => expect(mockCreateBuildList).toHaveBeenCalledTimes(1))
+
+    await wrapper.setProps({ shareToken: 'token-2' })
+    await flushPromises()
+    const pathAfterSwitch = router.currentRoute.value.fullPath
+
+    resolveCreate?.({ publicId: 'copy-of-token-1', rowVersion: 'AAAA' })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await flushPromises()
+
+    // 第一個 await 邊界就要擋下來：不得替 B 送出 add-to-cart（那會拿 A 的複本去加購物車）。
+    expect(mockAddBuildToCart).not.toHaveBeenCalled()
+    expect(router.currentRoute.value.fullPath).toBe(pathAfterSwitch)
+  })
+
+  /**
+   * 組長 PR #35 round-5 review, P3: 第二個 await 邊界——複本已建立，卡在 add-to-cart 這一段時
+   * 切換 token。舊 request 完成後不得顯示 B 的成功／錯誤狀態，也不得導向 A 的複本。
+   */
+  it('does not surface success state or navigate when the add-to-cart request resolves after shareToken changed', async () => {
+    mockGetSharedBuild.mockResolvedValue(sharedBuild())
+    mockCreateBuildList.mockResolvedValue({ publicId: 'copy-of-token-1', rowVersion: 'AAAA' })
+    let resolveCart: ((value: unknown) => void) | undefined
+    mockAddBuildToCart.mockImplementation(() => new Promise((resolve) => { resolveCart = resolve }))
+
+    const { wrapper, router } = await mountPage(true)
+    await vi.waitFor(() => expect(wrapper.text()).toContain('分享的組裝'))
+
+    await wrapper.findAll('button').find((button) => button.text() === '整套加入購物車')!.trigger('click')
+    // 複本已建立，卡在第二個 await（加入購物車）。
+    await vi.waitFor(() => expect(mockAddBuildToCart).toHaveBeenCalledTimes(1))
+    expect(mockAddBuildToCart.mock.calls[0][0]).toBe('copy-of-token-1')
+
+    await wrapper.setProps({ shareToken: 'token-2' })
+    await flushPromises()
+    const pathAfterSwitch = router.currentRoute.value.fullPath
+
+    resolveCart?.({ publicId: 'cart-1', items: [], amounts: { merchandise: 0, assemblyFee: 0, totalEstimate: 0, currency: 'TWD' }, warnings: [], rowVersion: 'CART' })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await flushPromises()
+
+    // 不得導向 A 的複本，也不得把忙碌／成功狀態留在 B 頁。
+    expect(router.currentRoute.value.fullPath).toBe(pathAfterSwitch)
+    expect(router.currentRoute.value.fullPath).not.toContain('copy-of-token-1')
+  })
 })
