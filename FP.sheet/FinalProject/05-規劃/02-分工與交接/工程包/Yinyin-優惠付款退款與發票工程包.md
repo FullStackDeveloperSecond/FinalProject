@@ -118,6 +118,14 @@ Migration 名稱與數量會隨整合變動，不再複製到個人工程包。�
 
 不得讀取其他模組 Repository／DbContext 或底層表。跨模組同步交易由 Application Use Case 協調同一 Unit of Work；通知與外部副作用使用版本化 Outbox Event。
 
+> **例外（DEC-B1，alex 2026-08-28 裁定）**：退款執行取得**具名、窄範圍**的跨模組例外，
+> 允許 `RefundTrustedInputsReader`、`RefundExecutor` 的分攤寫入與管理員資格重查、`RefundReader`
+> 的 `RefundDto` 投影使用既有 `DoSelectDbContext`。元件、資料表、欄位與用途逐一明列於
+> [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-B1-退款跨模組具名例外|DEC-B1]]。
+> 交易仍由 `IIdempotencyExecutor` 擁有，Reader 不得自行 Begin／Commit；
+> 守門測試以逐元件白名單掃描完整 Refund Infrastructure。
+> **這是個別裁定，不是其他模組可自行類推的通則。**
+
 ## 8. 建議切片順序
 
 1. 優惠券純計算與分攤 Domain／Application 測試。

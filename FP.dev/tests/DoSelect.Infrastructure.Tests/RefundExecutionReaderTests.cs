@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using DoSelect.Application.Refunds;
 using DoSelect.Domain.Payments;
 using DoSelect.Domain.Refunds;
@@ -56,19 +57,129 @@ public sealed class RefundExecutionReaderTests
             index => index.GetDatabaseName() == "IX_PaymentAttempts_OrderId_CreatedAtUtc");
     }
 
+    /// <summary>
+    /// B1 具名例外的守門測試：掃描**整個** Refund Infrastructure，逐元件白名單。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 白名單來自 alex 於 2026-08-28 的 B1 正式裁定，以**目前核准的表**為上限。
+    /// 未來要新增跨模組存取必須重新 review 並更新這份清單與文件，
+    /// 不得把 B1 擴張成任意直接存取。
+    /// </para>
+    /// <para>
+    /// 舊版守門測試只掃 <c>RefundExecutionReader.cs</c> 一個檔案，所以**新增任何
+    /// Reader 都能繞過** —— 我自己就是這樣在同一支 PR 裡加了三個跨模組讀取而沒被擋下。
+    /// 這一版改成掃整個資料夾，而且檔案沒有列進白名單就直接失敗。
+    /// </para>
+    /// </remarks>
     [Fact]
-    public void TheReaderOnlyTouchesTablesThisModuleOwns()
+    public void EveryRefundInfrastructureComponentStaysInsideItsNamedException()
     {
-        // 可退款餘額由本模組的 Refunds 與 PaymentAttempts 推導，
-        // 不查 Orders，符合工程包「不得讀取其他模組底層表」的約束。
-        var source = File.ReadAllText(ReaderSourcePath());
+        // 逐元件白名單。key 是檔名，value 是該元件獲准存取的資料表。
+        var allowed = new Dictionary<string, string[]>(StringComparer.Ordinal)
+        {
+            // 可退款餘額由本模組自己的表推導，不碰其他模組。
+            ["RefundExecutionReader.cs"] = ["Refunds", "PaymentAttempts"],
 
-        Assert.Contains("_context.Refunds", source, StringComparison.Ordinal);
-        Assert.Contains("_context.PaymentAttempts", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("_context.Orders", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("_context.OrderItems", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("_context.Skus", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("_context.ShippingMethods", source, StringComparison.Ordinal);
+            // B1-1：退款計算所需的可信快照。
+            ["RefundTrustedInputsReader.cs"] =
+            [
+                "Refunds", "RefundAllocations",
+                "ReturnRequests", "ReturnItems",
+                "Orders", "OrderItems", "OrderCoupons",
+            ],
+
+            // B1-2：分攤寫入解析 OrderItem 內部主鍵。
+            // B1-4：管理員身分／授權／Audit Actor。
+            ["RefundExecutor.cs"] =
+            [
+                "Refunds", "RefundAllocations", "PaymentAttempts",
+                "OrderItems",
+                "Users", "UserRoles", "Roles", "AdminProfiles",
+            ],
+
+            // B1-3：正式 RefundDto 的唯讀投影。
+            ["RefundReader.cs"] =
+            [
+                "Refunds", "RefundAllocations",
+                "Orders", "ReturnRequests", "OrderItems", "Users",
+            ],
+
+            // 只做 DI 註冊，不碰任何表。
+            ["RefundsServiceCollectionExtensions.cs"] = [],
+        };
+
+        // _context 上不是 DbSet 的成員，不算資料表存取。
+        string[] notTables = ["ChangeTracker", "Entry", "SaveChangesAsync", "Database", "Set"];
+
+        var directory = RefundInfrastructureDirectory();
+        var files = Directory.GetFiles(directory, "*.cs", SearchOption.AllDirectories);
+
+        Assert.NotEmpty(files);
+
+        foreach (var file in files)
+        {
+            var name = Path.GetFileName(file);
+
+            // 沒列進白名單的新元件一律失敗 —— 這正是舊版守門漏掉的情況。
+            Assert.True(
+                allowed.ContainsKey(name),
+                $"{name} 不在 B1 白名單裡。新增 Refund Infrastructure 元件必須先經過 " +
+                "review、更新白名單與文件，不能自動取得跨模組存取。");
+
+            var touched = Regex.Matches(File.ReadAllText(file), @"_context\.([A-Za-z]+)")
+                .Select(match => match.Groups[1].Value)
+                .Where(member => !notTables.Contains(member, StringComparer.Ordinal))
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(table => table, StringComparer.Ordinal)
+                .ToArray();
+
+            var extra = touched.Except(allowed[name], StringComparer.Ordinal).ToArray();
+
+            Assert.True(
+                extra.Length == 0,
+                $"{name} 存取了白名單以外的資料表：{string.Join("、", extra)}。" +
+                "B1 是具名窄範圍例外，不是跨模組通則。");
+        }
+    }
+
+    /// <summary>
+    /// B1 落地要求：Gateway／Reader 不得自行開啟或提交交易。
+    /// </summary>
+    /// <remarks>
+    /// 交易必須由 <c>IIdempotencyExecutor</c> 擁有。自己 <c>BeginTransaction</c> 會讓
+    /// <c>EfIdempotencyExecutor</c> 直接丟例外，但那是執行期才發現；這裡在原始碼層擋下來。
+    /// </remarks>
+    [Fact]
+    public void NoRefundInfrastructureComponentOwnsItsOwnTransaction()
+    {
+        foreach (var file in Directory.GetFiles(
+            RefundInfrastructureDirectory(), "*.cs", SearchOption.AllDirectories))
+        {
+            var source = File.ReadAllText(file);
+            var name = Path.GetFileName(file);
+
+            Assert.DoesNotContain("BeginTransaction", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("CommitAsync", source, StringComparison.Ordinal);
+            Assert.False(
+                source.Contains(".Commit()", StringComparison.Ordinal),
+                $"{name} 自行提交交易；交易必須由 IIdempotencyExecutor 擁有。");
+        }
+    }
+
+    private static string RefundInfrastructureDirectory()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "src")))
+        {
+            directory = directory.Parent;
+        }
+
+        Assert.NotNull(directory);
+        var path = Path.Combine(
+            directory!.FullName, "src", "backend", "DoSelect.Infrastructure", "Refunds");
+        Assert.True(Directory.Exists(path), $"找不到 Refund Infrastructure 目錄：{path}");
+        return path;
     }
 
     [Fact]

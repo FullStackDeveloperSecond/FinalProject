@@ -381,6 +381,18 @@ public sealed class RefundExecutor : IRefundExecutor
     /// 既有登入 Claims，補不掉這個窗口 —— 資料庫角色重查本來就是為了擋舊 Claims。
     /// </para>
     /// <para>
+    /// 重查的四項與管理員登入資格**逐項一致**（見
+    /// <c>SecurityServiceCollectionExtensions</c> 的 Cookie 驗證與
+    /// <c>AdminLoginUseCase</c>）：帳號型別、<c>AccountStatus</c>、
+    /// <c>AdminProfile.IsActive</c>、退款角色。少查任何一項，就會出現
+    /// 「登入時擋得住、執行退款時擋不住」的落差 —— 帳號被停權或 AdminProfile
+    /// 被停用但角色列還在時，退款仍會完成。
+    /// </para>
+    /// <para>
+    /// 沒有 <c>AdminProfile</c> 一律視為不合格，與登入路徑的
+    /// <c>profile?.IsActive ?? false</c> 相同。
+    /// </para>
+    /// <para>
     /// 這裡丟 <c>Forbidden</c> 會讓共用 Executor 的交易整個回滾：退款狀態、分攤、
     /// 稽核與冪等完成紀錄都不會留下。
     /// </para>
@@ -391,11 +403,27 @@ public sealed class RefundExecutor : IRefundExecutor
     {
         var admin = await _context.Users.AsNoTracking()
             .Where(user => user.Id == adminUserId && user.AccountType == AccountType.Admin)
-            .Select(user => new { user.Id, user.PublicId })
+            .Select(user => new { user.Id, user.PublicId, user.AccountStatus })
             .SingleOrDefaultAsync(cancellationToken);
         if (admin is null)
         {
             throw DomainProblemException.Forbidden("The administrator identity is invalid.");
+        }
+
+        if (admin.AccountStatus != AccountStatus.Active)
+        {
+            throw DomainProblemException.Forbidden(
+                "The administrator account is not active.");
+        }
+
+        var hasActiveProfile = await _context.AdminProfiles.AsNoTracking()
+            .AnyAsync(
+                profile => profile.UserId == admin.Id && profile.IsActive,
+                cancellationToken);
+        if (!hasActiveProfile)
+        {
+            throw DomainProblemException.Forbidden(
+                "The administrator profile is not active.");
         }
 
         var roles = await (

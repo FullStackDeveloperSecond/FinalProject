@@ -8,6 +8,7 @@ using DoSelect.Application.Refunds;
 using DoSelect.Domain.Auditing;
 using DoSelect.Domain.Orders;
 using DoSelect.Domain.Invoicing;
+using DoSelect.Domain.Members;
 using DoSelect.Domain.Payments;
 using DoSelect.Domain.Refunds;
 using DoSelect.Domain.Returns;
@@ -69,21 +70,21 @@ public sealed class RefundExecutorSqlFixture : IAsyncLifetime
         await context.Database.EnsureDeletedAsync();
         await context.Database.EnsureCreatedAsync();
 
-        // 執行路徑會在同一交易內把 Identity Id 換成管理員 PublicId 與角色快照，
-        // 並重新確認仍具 Refund.Execute 的角色。
-        var admin = ApplicationUser.CreateAdmin(
-            Guid.NewGuid(),
-            $"refund-admin-{Guid.NewGuid():N}@example.test",
-            new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc));
+        // 執行路徑會在同一交易內重查管理員資格：帳號型別、AccountStatus、
+        // AdminProfile.IsActive 與退款角色，四項與登入資格逐項一致。
+        // 夾具因此必須把管理員種成**真的能登入**的狀態 —— 先前只建了帳號與角色，
+        // 那樣的管理員其實連後台都登不進去。
+        var admin = CreateActiveAdmin();
         var role = new IdentityRole(AuditRoleNames.FinanceManager);
         context.AddRange(admin, role);
         await context.SaveChangesAsync();
+        context.Add(ActiveProfileFor(admin));
+        await context.SaveChangesAsync();
 
-        var secondAdmin = ApplicationUser.CreateAdmin(
-            Guid.NewGuid(),
-            $"refund-admin-{Guid.NewGuid():N}@example.test",
-            new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc));
+        var secondAdmin = CreateActiveAdmin();
         context.Add(secondAdmin);
+        await context.SaveChangesAsync();
+        context.Add(ActiveProfileFor(secondAdmin));
         await context.SaveChangesAsync();
 
         context.UserRoles.AddRange(
@@ -94,6 +95,31 @@ public sealed class RefundExecutorSqlFixture : IAsyncLifetime
         AdminUserId = admin.Id;
         SecondAdminUserId = secondAdmin.Id;
     }
+
+    /// <summary>建立一位帳號已啟用的管理員。</summary>
+    /// <remarks>
+    /// <c>CreateAdmin</c> 出來是 <c>PendingEmailVerification</c>；
+    /// <c>ConfirmEmail</c> 才會轉成 <c>Active</c>，那是退款資格重查要求的狀態。
+    /// </remarks>
+    public static ApplicationUser CreateActiveAdmin()
+    {
+        var createdAtUtc = new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc);
+        var admin = ApplicationUser.CreateAdmin(
+            Guid.NewGuid(),
+            $"refund-admin-{Guid.NewGuid():N}@example.test",
+            createdAtUtc);
+        admin.ConfirmEmail(createdAtUtc);
+        return admin;
+    }
+
+    /// <summary>建立一份啟用中的 <c>AdminProfile</c>。沒有 Profile 一律視為不合格。</summary>
+    public static AdminProfile ActiveProfileFor(ApplicationUser admin) =>
+        new(
+            admin.Id,
+            Guid.NewGuid(),
+            $"EMP-{Guid.NewGuid():N}"[..12],
+            "退款測試管理員",
+            new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc));
 
     public async Task DisposeAsync()
     {
@@ -648,14 +674,123 @@ public sealed class RefundExecutorSqlServerTests
             .AnyAsync(record => record.Key == Request(refund, doomedAdminId).IdempotencyKey));
     }
 
+    /// <summary>
+    /// 帳號在交易開始的窗口被停權，退款必須整個擋下來。
+    /// </summary>
+    /// <remarks>
+    /// 交易內的資格重查要與管理員登入資格逐項一致。只查角色不夠：帳號被停權但
+    /// 角色列還在時，退款照樣會完成，形成「登入時擋得住、執行退款時擋不住」的落差。
+    /// </remarks>
+    [RefundExecutorSqlFact]
+    public async Task AnAccountSuspendedAfterTheIdentityLookupStopsTheRefund()
+    {
+        await AssertRefundIsRefusedWhenAsync(
+            (admin, profile) => admin.Suspend(NowUtc),
+            "帳號已停權，退款仍然完成了。");
+    }
+
+    /// <summary>
+    /// <c>AdminProfile</c> 在交易開始的窗口被停用，退款必須整個擋下來。
+    /// </summary>
+    [RefundExecutorSqlFact]
+    public async Task AnAdminProfileDeactivatedAfterTheIdentityLookupStopsTheRefund()
+    {
+        await AssertRefundIsRefusedWhenAsync(
+            (admin, profile) => profile.SetActive(false, NowUtc),
+            "AdminProfile 已停用，退款仍然完成了。");
+    }
+
+    /// <summary>
+    /// 在交易開始的那一刻改變管理員資格，斷言退款被擋下且零寫入。
+    /// </summary>
+    /// <remarks>
+    /// 攔截點是<b>交易開始</b>：交易外的身分解析已經全部做完，交易還沒開 ——
+    /// 正是要驗的窗口。改用獨立的 <c>DbContext</c> 變更，才不會被拉進待測交易。
+    /// </remarks>
+    private static async Task AssertRefundIsRefusedWhenAsync(
+        Action<ApplicationUser, AdminProfile> makeIneligible,
+        string failureMessage)
+    {
+        await using var context = RefundExecutorSqlFixture.CreateContext();
+        var refund = await SeedRefundAsync(context);
+        var doomedAdminId = await SeedFinanceManagerAsync(context);
+
+        var changer = new ChangeAdminEligibilityAtTransactionStartInterceptor(
+            doomedAdminId, makeIneligible);
+
+        await using var executing = RefundExecutorSqlFixture.CreateContext(changer);
+
+        var exception = await Assert.ThrowsAsync<DomainProblemException>(
+            () => CreateExecutor(executing).ExecuteAsync(Request(refund, doomedAdminId)));
+
+        Assert.Equal(403, exception.StatusCode);
+        Assert.True(changer.Applied, "資格從未被改變，這一輪沒有命中那個窗口。");
+
+        await using var verify = RefundExecutorSqlFixture.CreateContext();
+        var stored = await verify.Refunds.SingleAsync(r => r.PublicId == refund.PublicId);
+
+        Assert.Equal(RefundStatus.Approved, stored.Status);
+        Assert.Null(stored.SucceededAmount);
+        Assert.False(
+            await verify.RefundAllocations.AnyAsync(a => a.RefundId == stored.Id),
+            failureMessage);
+        Assert.False(await verify.Set<AuditLog>()
+            .AnyAsync(log => log.ResourcePublicId == refund.PublicId));
+        Assert.False(await verify.IdempotencyRecords
+            .AnyAsync(record => record.Key == Request(refund, doomedAdminId).IdempotencyKey));
+    }
+
+    /// <summary>
+    /// 在退款交易即將開始的那一刻，用另一條連線改掉管理員的資格。
+    /// </summary>
+    private sealed class ChangeAdminEligibilityAtTransactionStartInterceptor : DbTransactionInterceptor
+    {
+        private readonly string _adminUserId;
+        private readonly Action<ApplicationUser, AdminProfile> _makeIneligible;
+        private int _done;
+
+        public ChangeAdminEligibilityAtTransactionStartInterceptor(
+            string adminUserId,
+            Action<ApplicationUser, AdminProfile> makeIneligible)
+        {
+            _adminUserId = adminUserId;
+            _makeIneligible = makeIneligible;
+        }
+
+        public bool Applied => Volatile.Read(ref _done) == 2;
+
+        public override ValueTask<InterceptionResult<DbTransaction>> TransactionStartingAsync(
+            DbConnection connection,
+            TransactionStartingEventData eventData,
+            InterceptionResult<DbTransaction> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (Interlocked.CompareExchange(ref _done, 1, 0) == 0)
+            {
+                Apply();
+                Volatile.Write(ref _done, 2);
+            }
+
+            return ValueTask.FromResult(result);
+        }
+
+        private void Apply()
+        {
+            using var changing = RefundExecutorSqlFixture.CreateContext();
+            var admin = changing.Users.Single(user => user.Id == _adminUserId);
+            var profile = changing.AdminProfiles.Single(entry => entry.UserId == _adminUserId);
+            _makeIneligible(admin, profile);
+            changing.SaveChanges();
+        }
+    }
+
     /// <summary>建立一位只給單一測試用的財務管理員，回傳 Identity Id。</summary>
     private static async Task<string> SeedFinanceManagerAsync(DoSelectDbContext context)
     {
-        var admin = ApplicationUser.CreateAdmin(
-            Guid.NewGuid(),
-            $"refund-admin-{Guid.NewGuid():N}@example.test",
-            new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc));
+        var admin = RefundExecutorSqlFixture.CreateActiveAdmin();
         context.Add(admin);
+        await context.SaveChangesAsync();
+        context.Add(RefundExecutorSqlFixture.ActiveProfileFor(admin));
         await context.SaveChangesAsync();
 
         var role = await context.Roles.SingleAsync(
