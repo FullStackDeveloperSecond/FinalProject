@@ -1,6 +1,7 @@
 using System.Text;
 using DoSelect.Application.Catalog;
 using DoSelect.Application.Common;
+using DoSelect.Domain.Builds;
 using DoSelect.Domain.Catalog;
 using DoSelect.Domain.Inventory;
 using DoSelect.Infrastructure.Persistence;
@@ -328,6 +329,9 @@ public sealed class EfProductAdminService : IProductAdminService
                     CatalogWriteException.ErrorCodes.ValidationFailed,
                     "Cannot change category while this product's SKUs still carry specification values from the old category.");
             }
+
+            // Hard compatibility facts use the canonical multi-value specification model,
+            // which is already covered by hasExistingSpecValues above.
 
             var hasPublishedSku = await _dbContext.Skus.AsNoTracking()
                 .AnyAsync(sku => sku.ProductId == product.Id && sku.Status == SkuStatus.Published, cancellationToken);

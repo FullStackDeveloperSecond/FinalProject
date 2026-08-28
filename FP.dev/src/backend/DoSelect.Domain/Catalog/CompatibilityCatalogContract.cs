@@ -16,6 +16,12 @@ public static class CompatibilityCatalogContract
         public const string Psu = "PSU";
         public const string Case = "CASE";
         public const string CpuCooler = "CPU_COOLER";
+
+        /// <summary>PR #34 round-7 review (DEC-BATCH-027): the Build List CRUD surface's own "this build has every required component role" completeness check needs the full set, not just individual named constants.</summary>
+        public static readonly IReadOnlyList<string> All =
+        [
+            Cpu, Motherboard, Memory, Gpu, Storage, Psu, Case, CpuCooler,
+        ];
     }
 
     public static class SemanticKeys

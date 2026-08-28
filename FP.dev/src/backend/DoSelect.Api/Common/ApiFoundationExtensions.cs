@@ -1,10 +1,25 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding.Metadata;
+using Microsoft.AspNetCore.RateLimiting;
 using DoSelect.Api.Security;
 
 namespace DoSelect.Api.Common;
+
+/// <summary>Named rate-limiter policies opted into via <c>[EnableRateLimiting(...)]</c> on a controller/action.</summary>
+public static class RateLimiterPolicies
+{
+    /// <summary>
+    /// Anonymous, unauthenticated endpoints that persist a database row per call
+    /// (CompatibilityChecksController, BuildSharesController) — unbounded anonymous traffic is
+    /// otherwise an unmetered write amplification / storage-growth vector (組長 PR #34 round-4
+    /// review, item 3). 30 requests/minute per client IP is this PR's own starting number, not a
+    /// value from any spec doc — flagged for correction if a different limit is expected.
+    /// </summary>
+    public const string PublicBuildsAnonymous = "public-builds-anonymous";
+}
 
 public static class ApiFoundationExtensions
 {
@@ -30,6 +45,24 @@ public static class ApiFoundationExtensions
         });
         services.AddExceptionHandler<DomainProblemExceptionHandler>();
         services.AddExceptionHandler<GlobalExceptionHandler>();
+
+        // Setting only the status code (no custom OnRejected body) lets the existing
+        // UseStatusCodePages handler below produce the same rate_limit_exceeded ProblemDetails
+        // envelope every other 429 already gets — HandledStatusCodes already includes 429, this
+        // just needed something to actually return it.
+        services.AddRateLimiter(options =>
+        {
+            options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+            options.AddPolicy(RateLimiterPolicies.PublicBuildsAnonymous, httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 30,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueLimit = 0,
+                    }));
+        });
 
         services
             .AddControllers(options =>
@@ -74,6 +107,10 @@ public static class ApiFoundationExtensions
     {
         app.UseMiddleware<CorrelationIdMiddleware>();
         app.UseExceptionHandler();
+        // UseStatusCodePages must wrap UseRateLimiter (registered first here = outermost), not the
+        // other way around — it only rewrites a response for status codes produced by middleware
+        // that runs *after* it in the pipeline. Registered after it, the rate limiter's 429
+        // short-circuit would never reach UseStatusCodePages's rewrite logic at all.
         app.UseStatusCodePages(async statusCodeContext =>
         {
             var httpContext = statusCodeContext.HttpContext;
@@ -97,6 +134,7 @@ public static class ApiFoundationExtensions
                 ProblemDetails = problemDetails,
             });
         });
+        app.UseRateLimiter();
 
         return app;
     }

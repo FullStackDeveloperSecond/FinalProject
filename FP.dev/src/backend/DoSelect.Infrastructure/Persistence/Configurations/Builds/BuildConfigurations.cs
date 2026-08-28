@@ -124,6 +124,15 @@ public sealed class CompatibilityCheckRunConfiguration
         builder.Property(entity => entity.EvaluatedAtUtc).HasPrecision(3).IsRequired();
         builder.HasIndex(entity => new { entity.BuildListId, entity.EvaluatedAtUtc })
             .HasDatabaseName("IX_CompatibilityCheckRuns_BuildListId_EvaluatedAtUtc");
+        // 組長 PR #34 round-5 review, item 3: BuildListId leads the index above, so
+        // EfCompatibilityCheckService.PurgeExpiredRunsAsync's BuildListId-less date filter can't
+        // seek on it — it was scanning/sorting the whole table every batch. Public compatibility
+        // checks are anonymous and unrate-limited beyond 30/min/IP, so this table can grow to tens
+        // of thousands of rows/day; a date-leading index keeps a 500-row retention batch to an
+        // index seek. Id (the identity PK) trails EvaluatedAtUtc so ties between rows sharing a
+        // millisecond timestamp still sort deterministically, matching the query's ThenBy(Id).
+        builder.HasIndex(entity => new { entity.EvaluatedAtUtc, entity.Id })
+            .HasDatabaseName("IX_CompatibilityCheckRuns_EvaluatedAtUtc_Id");
         builder.HasOne<BuildList>()
             .WithMany()
             .HasForeignKey(entity => entity.BuildListId)

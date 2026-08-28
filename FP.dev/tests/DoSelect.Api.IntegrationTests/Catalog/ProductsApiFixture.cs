@@ -41,28 +41,16 @@ public sealed class ProductsApiFixture : IAsyncLifetime
     {
         await ResetDatabaseAsync();
 
-        var previousEnvironment = EnvironmentOverrides.Keys
-            .Append("Storage__DataRoot")
-            .ToDictionary(key => key, Environment.GetEnvironmentVariable);
-
-        foreach (var (key, value) in EnvironmentOverrides)
+        var allOverrides = new Dictionary<string, string>(EnvironmentOverrides)
         {
-            Environment.SetEnvironmentVariable(key, value);
-        }
-        Environment.SetEnvironmentVariable("Storage__DataRoot", _dataRoot);
+            ["Storage__DataRoot"] = _dataRoot,
+        };
 
-        try
+        using (new EnvironmentOverrideScope(allOverrides))
         {
             _factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
                 builder.UseEnvironment("Development"));
             Client = _factory.CreateClient();
-        }
-        finally
-        {
-            foreach (var (key, value) in previousEnvironment)
-            {
-                Environment.SetEnvironmentVariable(key, value);
-            }
         }
     }
 

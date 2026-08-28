@@ -247,6 +247,15 @@ public sealed class Sku : MutablePublicEntity
         Status = status;
         MarkUpdated(updatedAtUtc);
     }
+
+    /// <summary>
+    /// Bumps RowVersion/UpdatedAtUtc with no other field change — same shape and reasoning as
+    /// <see cref="Product.Touch"/>. 組長 PR #34 round-4 review: a write to a Sku's compatibility
+    /// facts (a different module's tables, keyed by SkuId) has no Sku column of its own to change,
+    /// but the write still needs the Sku's own RowVersion as its concurrency boundary — reusing
+    /// the Sku's existing token instead of inventing a second one for this sub-resource.
+    /// </summary>
+    public void Touch(DateTime updatedAtUtc) => MarkUpdated(updatedAtUtc);
 }
 
 public sealed class Tag : MutablePublicEntity

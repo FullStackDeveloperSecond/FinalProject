@@ -377,6 +377,14 @@ public static class SecurityServiceCollectionExtensions
             DoSelectRoles.CustomerService, DoSelectRoles.CustomerServiceSupervisor);
         AddAdminPolicy(options, DoSelectPolicies.SupportTicketSupervise,
             DoSelectRoles.CustomerServiceSupervisor, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.CompatibilityRuleView,
+            DoSelectRoles.CatalogManager, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.CompatibilityRuleManageWarnings,
+            DoSelectRoles.CatalogManager, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.CompatibilityRuleManageActivation,
+            DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.CompatibilityRuleTest,
+            DoSelectRoles.CatalogManager, DoSelectRoles.SuperAdmin);
     }
 
     private static void AddAdminPolicy(

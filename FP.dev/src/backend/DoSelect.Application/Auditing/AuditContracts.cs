@@ -44,6 +44,11 @@ public static class AuditActions
     public const string SupportTicketCancel = "support_ticket.cancel";
     public const string SupportTicketReopen = "support_ticket.reopen";
     public const string SupportTicketInternalNote = "support_ticket.internal_note";
+
+    /// <summary>DEC-BATCH-026 (DEC-P309): compatibility rule admin surface writes to the central Audit Log instead of adding its own Actor/IP/TraceId columns.</summary>
+    public const string CompatibilityRuleWarningSettingUpdate = "compatibility_rule.warning_setting.update";
+    public const string CompatibilityRuleActivationUpdate = "compatibility_rule.activation.update";
+    public const string CompatibilityRuleTest = "compatibility_rule.test";
 }
 
 public static class AuditResourceTypes
@@ -56,6 +61,8 @@ public static class AuditResourceTypes
     public const string Order = "Order";
     public const string Coupon = "Coupon";
     public const string SupportTicket = "SupportTicket";
+    public const string CompatibilityRuleSetting = "CompatibilityRuleSetting";
+    public const string CompatibilityCheckRun = "CompatibilityCheckRun";
 }
 
 public static class AuditRoleNames
@@ -442,6 +449,9 @@ public interface IAuditWriter
     AuditLog Add(AuditWriteRequest request);
 }
 
+/// <summary>Per-request context an API layer captures once and passes down to any writer that needs to build an <see cref="AuditWriteRequest"/> — mirrors what <c>CreateInvoiceAllowanceCommand</c> carries inline, factored out for callers with more than one audited action per request.</summary>
+public sealed record AuditRequestContext(string CorrelationId, string TraceId, IPAddress? RemoteIpAddress);
+
 internal static class AuditWritePolicy
 {
     private static readonly IReadOnlyDictionary<string, AuditActionDefinition> Definitions =
@@ -561,6 +571,18 @@ internal static class AuditWritePolicy
                 AuditActions.SupportTicketInternalNote,
                 AuditResourceTypes.SupportTicket,
                 "note"),
+            [AuditActions.CompatibilityRuleWarningSettingUpdate] = Definition(
+                AuditActions.CompatibilityRuleWarningSettingUpdate,
+                AuditResourceTypes.CompatibilityRuleSetting,
+                "ruleCode", "settingCode", "value", "settingsVersion"),
+            [AuditActions.CompatibilityRuleActivationUpdate] = Definition(
+                AuditActions.CompatibilityRuleActivationUpdate,
+                AuditResourceTypes.CompatibilityRuleSetting,
+                "ruleCode", "settingCode", "isActive", "settingsVersion"),
+            [AuditActions.CompatibilityRuleTest] = Definition(
+                AuditActions.CompatibilityRuleTest,
+                AuditResourceTypes.CompatibilityCheckRun,
+                "inputHash", "overall", "settingsVersion"),
         };
 
     public static AuditActionDefinition RequireDefinition(string action)

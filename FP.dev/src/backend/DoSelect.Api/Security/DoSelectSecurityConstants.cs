@@ -73,4 +73,8 @@ public static class DoSelectPolicies
     public const string AuditExport = "Audit.Export";
     public const string SupportTicketHandle = "SupportTicket.Handle";
     public const string SupportTicketSupervise = "SupportTicket.Supervise";
+    public const string CompatibilityRuleView = "CompatibilityRule.View";
+    public const string CompatibilityRuleManageWarnings = "CompatibilityRule.ManageWarnings";
+    public const string CompatibilityRuleManageActivation = "CompatibilityRule.ManageActivation";
+    public const string CompatibilityRuleTest = "CompatibilityRule.Test";
 }

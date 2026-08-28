@@ -8,6 +8,7 @@ using DoSelect.Application.Notifications;
 using DoSelect.Application.Support;
 using DoSelect.Application.Support.Admin;
 using DoSelect.Infrastructure.Auditing;
+using DoSelect.Infrastructure.Builds;
 using DoSelect.Infrastructure.Catalog;
 using DoSelect.Infrastructure.Checkout;
 using DoSelect.Infrastructure.Email;
@@ -56,6 +57,7 @@ builder.Services.AddDoSelectInvoicing();
 builder.Services.AddDoSelectPromotions();
 builder.Services.AddDoSelectReturnsServices();
 builder.Services.AddScoped<ReturnActorResolver>();
+builder.Services.AddDoSelectBuildsServices();
 builder.Services.AddSingleton<IEmailSender>(services =>
 {
     var emailEnabled = builder.Configuration.GetValue<bool>("Features:EmailEnabled");
@@ -67,6 +69,7 @@ builder.Services.AddSingleton<EmailDispatchChannel>();
 builder.Services.AddSingleton<IEmailDispatchQueue>(services => services.GetRequiredService<EmailDispatchChannel>());
 builder.Services.AddHostedService<EmailDispatchBackgroundService>();
 builder.Services.AddHostedService<UnverifiedMemberCleanupBackgroundService>();
+builder.Services.AddHostedService<CompatibilityCheckRunRetentionBackgroundService>();
 
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSupportInfrastructure();
@@ -85,11 +88,12 @@ if (args.Contains("--seed-minimal", StringComparer.OrdinalIgnoreCase))
     var seeder = scope.ServiceProvider.GetRequiredService<MinimalDevelopmentDataSeeder>();
     var result = await seeder.SeedAsync();
     app.Logger.LogInformation(
-        "Minimal development seed completed. RolesCreated={RolesCreated}, UsersCreated={UsersCreated}, ProfilesCreated={ProfilesCreated}, CatalogRecordsCreated={CatalogRecordsCreated}",
+        "Minimal development seed completed. RolesCreated={RolesCreated}, UsersCreated={UsersCreated}, ProfilesCreated={ProfilesCreated}, CatalogRecordsCreated={CatalogRecordsCreated}, CompatibilityRecordsCreated={CompatibilityRecordsCreated}",
         result.RolesCreated,
         result.UsersCreated,
         result.ProfilesCreated,
-        result.CatalogRecordsCreated);
+        result.CatalogRecordsCreated,
+        result.CompatibilityRecordsCreated);
     return;
 }
 
@@ -165,7 +169,6 @@ app.Use(async (context, next) =>
 });
 
 app.UseAuthorization();
-app.UseRateLimiter();
 
 if (BackgroundJobServiceCollectionExtensions.BackgroundJobsEnabled(app.Configuration))
 {
