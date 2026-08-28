@@ -31,6 +31,28 @@ public sealed class RefundTrustedInputsReader
         _context = context;
     }
 
+    /// <summary>
+    /// 是否為完整退貨：每一列的「已退數量 + 本次退貨數量」都等於原始數量。
+    /// </summary>
+    /// <remarks>
+    /// 這是 <see cref="RefundCalculator"/> 內 <c>isFullReturn</c> 的同一份判斷
+    /// （`RefundCalculator.cs:102-104`）。兩處必須一致 —— 這裡只用它決定
+    /// 「要不要求基本費快照」，若判斷比計算器寬鬆就會放行一筆算不出來的退款，
+    /// 比計算器嚴格則會拒絕本來算得出來的退款。
+    /// </remarks>
+    private static bool IsFullReturn(
+        IReadOnlyList<RefundOrderLine> orderLines,
+        IReadOnlyList<RefundLineRequest> requestedLines)
+    {
+        var requestedByLine = requestedLines
+            .GroupBy(line => line.OrderItemPublicId)
+            .ToDictionary(group => group.Key, group => group.Sum(line => line.Quantity));
+
+        return orderLines.All(line =>
+            line.AlreadyReturnedQuantity +
+            requestedByLine.GetValueOrDefault(line.OrderItemPublicId) == line.Quantity);
+    }
+
     public async Task<RefundTrustedInputs?> FindAsync(
         long orderId,
         long? returnRequestId,
@@ -142,11 +164,20 @@ public sealed class RefundTrustedInputsReader
         // 現行 `ShippingMethod.BaseFee` 是目前值，回查它就違反「不得依目前設定回推
         // 歷史交易」（DEC-P287）。
         //
-        // 因此只在計算真的需要基本費時才要求快照：訂單免運（實付 0）且有門檻快照。
-        // 其餘情況 RefundCalculator 根本不會碰這個值（見 ResolveShippingClawback），
-        // 傳實付運費即可，不是猜測。
+        // 只在計算真的會讀到基本費時才要求快照。三個條件缺一不可：
+        //
+        // 1. 訂單當初免運（實付 0）—— 否則 ResolveShippingClawback 直接回 0。
+        // 2. 有免運門檻快照 —— 否則同樣回 0。
+        // 3. **不是完整退貨** —— 完整退貨走 OriginalShipping 退還原運費那條，
+        //    根本不會執行免運追回。先前少了這一條，讓所有舊免運訂單連完整退貨
+        //    都被拒絕，而那些退款其實完全算得出來。
         var wasFreeShipping = order.ShippingFee <= 0m;
-        var needsBaseFee = wasFreeShipping && order.ShippingFreeThresholdSnapshot is not null;
+        var isFullReturn = IsFullReturn(orderLines, requestedLines);
+        var needsBaseFee =
+            wasFreeShipping &&
+            order.ShippingFreeThresholdSnapshot is not null &&
+            !isFullReturn;
+
         if (needsBaseFee && order.ShippingMethodBaseFeeSnapshot is null)
         {
             return null;

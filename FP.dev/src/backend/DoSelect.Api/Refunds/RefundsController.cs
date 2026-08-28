@@ -3,6 +3,7 @@ using System.Diagnostics;
 using DoSelect.Api.Common;
 using DoSelect.Api.Security;
 using DoSelect.Application.Refunds;
+using DoSelect.Application.Support.Dtos;
 using DoSelect.Domain.Refunds;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -48,17 +49,11 @@ public sealed class RefundsController(
             return BadRequest(ApiProblemDetailsFactory.CreateValidation(HttpContext, ModelState));
         }
 
-        // SQL Server 的 rowversion 固定 8 bytes。在 transport 邊界擋下 —— Application 層
-        // 的同一條檢查是丟 ArgumentException，而那個例外沒有專屬 handler，會落到
-        // GlobalExceptionHandler 變成 500 unexpected_error，但呼叫端只是送錯了長度。
-        if (body is null || body.RefundRowVersion is not { Length: 8 })
-        {
-            ModelState.AddModelError(
-                nameof(ExecuteRefundRequestBody.RefundRowVersion),
-                "refundRowVersion must be an 8-byte value.");
-        }
-
-        if (body is null || !ModelState.IsValid)
+        // rowversion 的 8 bytes 檢查由 Body 上的 [RowVersionRequired] 負責，
+        // [ApiController] 會把它變成 400 validation_failed。Application 層的同一條
+        // 檢查是丟 ArgumentException —— 那個例外沒有專屬 handler，會落到
+        // GlobalExceptionHandler 變成 500，因此必須在這之前就擋掉。
+        if (!ModelState.IsValid)
         {
             return BadRequest(ApiProblemDetailsFactory.CreateValidation(HttpContext, ModelState));
         }
@@ -129,14 +124,21 @@ public sealed class RefundsController(
 /// </remarks>
 public sealed record ExecuteRefundRequestBody
 {
+    // safe-code 檢查與中央 Audit 共用同一份規則。只有 [StringLength] 不夠：
+    // 含空白或中文的理由碼長度合法，卻會在寫稽核時丟 ArgumentException 變成 500。
     [Required]
     [StringLength(64, MinimumLength = 1)]
+    [AuditSafeReason]
     public required string ReasonCode { get; init; }
 
+    // 同上：note 有自己的禁用字元與敏感詞規則，違反時一樣是 500 而不是 400。
     [StringLength(1000)]
+    [AuditSafeNote]
     public string? Note { get; init; }
 
-    [Required]
+    // 專案共用的 rowversion 驗證（8 bytes）。[Required] 不夠：record 的 byte[] 預設是
+    // 非 null 的空陣列，完全省略欄位仍會通過，然後在樂觀鎖比對時變成誤導的 409。
+    [RowVersionRequired]
     public required byte[] RefundRowVersion { get; init; }
 }
 

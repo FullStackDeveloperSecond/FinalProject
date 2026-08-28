@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Http.Json;
 using DoSelect.Api.Refunds;
 using DoSelect.Api.Security;
+using DoSelect.Application.Idempotency;
 using DoSelect.Application.Refunds;
 using DoSelect.Domain.Refunds;
 using Microsoft.AspNetCore.DataProtection;
@@ -153,6 +154,61 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
             executor.LastRequest!.Note);
     }
 
+    [Theory]
+    [InlineData("contact me@example.com")]
+    [InlineData("see <b>here</b>")]
+    public async Task AnUnsafeNoteReturns400NotAServerError(string note)
+    {
+        // 中央 Audit 會拒收這些輸入。不在邊界擋，稽核建構時丟的 ArgumentException
+        // 會落到 GlobalExceptionHandler 變成 500，但呼叫端只是送了格式不合的理由。
+        var executor = new FakeRefundExecutor(Settled(500m));
+        using var factory = CreateFactory(executor);
+        using var client = factory.CreateClient();
+        await SignInAsync(client, includeMfa: true, DoSelectRoles.FinanceManager);
+
+        using var response = await PostAsync(client, note: note);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var problem = await response.Content.ReadAsStringAsync();
+        Assert.Contains("validation_failed", problem, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AnUnsafeReasonCodeReturns400NotAServerError()
+    {
+        // reason 只接受 safe-code（ASCII 英數與 ._-:）。
+        var executor = new FakeRefundExecutor(Settled(500m));
+        using var factory = CreateFactory(executor);
+        using var client = factory.CreateClient();
+        await SignInAsync(client, includeMfa: true, DoSelectRoles.FinanceManager);
+
+        using var response = await PostAsync(client, reasonCode: "客戶要求");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task AnInProgressIdempotentRequestReturns409WithRetryAfter()
+    {
+        // 錯誤碼目錄第 36 行要求呼叫端「依 Retry-After: 3 等待後重試」。
+        // Executor 若把 IdempotencyConflictException 攔下來只留 ErrorCode，
+        // RetryAfterSeconds 就到不了 API，呼叫端不知道該等多久。
+        using var factory = CreateFactory(
+            new ThrowingRefundExecutor(new IdempotencyConflictException(
+                IdempotencyErrorCodes.RequestInProgress, retryAfterSeconds: 3)));
+        using var client = factory.CreateClient();
+        await SignInAsync(client, includeMfa: true, DoSelectRoles.FinanceManager);
+
+        using var response = await PostAsync(client);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("3", response.Headers.RetryAfter?.ToString());
+
+        var problem = await response.Content.ReadAsStringAsync();
+        Assert.Contains(
+            IdempotencyErrorCodes.RequestInProgress, problem, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task TheCorrelationIdAndTraceIdComeFromDifferentSources()
     {
@@ -258,7 +314,8 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
         bool signedIn = true,
         string? correlationId = null,
         byte[]? rowVersion = null,
-        string? note = null)
+        string? note = null,
+        string reasonCode = "customer_request")
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, ExecuteRoute);
         if (idempotencyKey is not null)
@@ -279,7 +336,7 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
         // Body 只帶理由與 RowVersion，沒有 allocations 也沒有金額（DEC-P287）。
         request.Content = JsonContent.Create(new
         {
-            reasonCode = "customer_request",
+            reasonCode,
             note,
             refundRowVersion = rowVersion ?? new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 },
         });
@@ -357,6 +414,17 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
                 CreatedAtUtc: new DateTime(2026, 8, 27, 0, 0, 0, DateTimeKind.Utc),
                 SucceededAtUtc: new DateTime(2026, 8, 27, 1, 0, 0, DateTimeKind.Utc),
                 RowVersion: [1, 2, 3, 4, 5, 6, 7, 8]));
+    }
+
+    /// <summary>
+    /// 讓例外原樣傳出的 fake，用來驗證共用 handler 的行為（狀態碼與 Retry-After）。
+    /// </summary>
+    private sealed class ThrowingRefundExecutor(Exception exception) : IRefundExecutor
+    {
+        public Task<ExecuteRefundResult> ExecuteAsync(
+            ExecuteRefundRequest request,
+            CancellationToken cancellationToken = default) =>
+            throw exception;
     }
 
     private sealed class FakeRefundExecutor(ExecuteRefundResult result) : IRefundExecutor

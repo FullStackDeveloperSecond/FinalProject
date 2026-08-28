@@ -1,3 +1,4 @@
+using DoSelect.Application.Common;
 using DoSelect.Application.Refunds;
 using DoSelect.Domain.Refunds;
 
@@ -61,7 +62,7 @@ public sealed class ExecuteRefundServiceTests
         // 應該回 400，而不是走到比對失敗後變成語意不對的 409。
         var service = new ExecuteRefundService(new FakeRefundExecutionReader(Snapshot()));
 
-        await Assert.ThrowsAsync<ArgumentException>(
+        await Assert.ThrowsAsync<DomainProblemException>(
             () => service.PreviewAsync(Request(rowVersion: new byte[length])));
     }
 
@@ -104,7 +105,7 @@ public sealed class ExecuteRefundServiceTests
         // 退款交易、分攤與後續發票折讓永久對不起來，而且分攤寫入後不可變。
         var result = await EvaluateAsync(Request(), Snapshot(approvedAmount: 400m));
 
-        Assert.Equal(RefundErrorCodes.RefundStateConflict, result.ErrorCode);
+        Assert.Equal(RefundErrorCodes.RefundCalculationMismatch, result.ErrorCode);
         Assert.Null(result.Plan);
     }
 
@@ -115,7 +116,7 @@ public sealed class ExecuteRefundServiceTests
         var result = await EvaluateAsync(
             Request(), Snapshot(approvedAmount: 600m, refundableBalance: 5000m));
 
-        Assert.Equal(RefundErrorCodes.RefundStateConflict, result.ErrorCode);
+        Assert.Equal(RefundErrorCodes.RefundCalculationMismatch, result.ErrorCode);
         Assert.Null(result.Plan);
     }
 
@@ -206,11 +207,57 @@ public sealed class ExecuteRefundServiceTests
     }
 
     [Fact]
+    public async Task ACalculatorFailureKeepsItsOwnErrorCode()
+    {
+        // 對帳檢查加上去之後差點吃掉這個：計算失敗時 NetRefundAmount 是 0，
+        // 若不先看 IsSuccess，每一種失敗都會被改寫成同一個對帳不一致的碼，
+        // 呼叫端收到的原因與實際發生的事無關。
+        //
+        // 退貨數量超過可退數量：品項只有 2 件、已退 0 件，卻要求退 3 件。
+        var result = await EvaluateAsync(
+            Request(),
+            Snapshot(approvedAmount: 1500m, refundableBalance: 5000m, requestedQuantity: 3));
+
+        Assert.Equal(RefundErrorCodes.ReturnQuantityExceeded, result.ErrorCode);
+        Assert.NotEqual(RefundErrorCodes.RefundCalculationMismatch, result.ErrorCode);
+        Assert.Null(result.Plan);
+    }
+
+    [Theory]
+    [InlineData("contact me@example.com")]
+    [InlineData("see <b>here</b>")]
+    public async Task AnUnsafeNoteIsAValidationErrorNotAServerError(string note)
+    {
+        // 中央 Audit 會拒收這些輸入並丟 ArgumentException。不在邊界擋，
+        // 那個例外會落到 GlobalExceptionHandler 變成 500，但呼叫端只是
+        // 送了格式不合的理由。
+        var service = new ExecuteRefundService(new FakeRefundExecutionReader(Snapshot()));
+
+        var exception = await Assert.ThrowsAsync<DomainProblemException>(
+            () => service.PreviewAsync(Request(note: note)));
+
+        Assert.Equal(400, exception.StatusCode);
+        Assert.Equal(DomainErrorCodes.ValidationFailed, exception.Code);
+    }
+
+    [Fact]
+    public async Task AnUnsafeReasonCodeIsAlsoAValidationError()
+    {
+        // reason 只接受 safe-code（ASCII 英數與 ._-:）。
+        var service = new ExecuteRefundService(new FakeRefundExecutionReader(Snapshot()));
+
+        var exception = await Assert.ThrowsAsync<DomainProblemException>(
+            () => service.PreviewAsync(Request(reasonCode: "客戶要求")));
+
+        Assert.Equal(400, exception.StatusCode);
+    }
+
+    [Fact]
     public async Task RequireWellFormedRejectsAMissingIdempotencyKey()
     {
         var service = new ExecuteRefundService(new FakeRefundExecutionReader(Snapshot()));
 
-        await Assert.ThrowsAsync<ArgumentException>(
+        await Assert.ThrowsAsync<DomainProblemException>(
             () => service.PreviewAsync(Request(idempotencyKey: "   ")));
     }
 
@@ -219,7 +266,7 @@ public sealed class ExecuteRefundServiceTests
     {
         var service = new ExecuteRefundService(new FakeRefundExecutionReader(Snapshot()));
 
-        await Assert.ThrowsAsync<ArgumentException>(
+        await Assert.ThrowsAsync<DomainProblemException>(
             () => service.PreviewAsync(Request(executedByAdminUserId: "  ")));
     }
 
@@ -289,7 +336,8 @@ public sealed class ExecuteRefundServiceTests
         decimal? approvedAmount = 500m,
         decimal? succeededAmount = null,
         decimal refundableBalance = 1000m,
-        bool withTrustedInputs = true) =>
+        bool withTrustedInputs = true,
+        int requestedQuantity = 1) =>
         new(
             11L,
             status,
@@ -297,7 +345,7 @@ public sealed class ExecuteRefundServiceTests
             succeededAmount,
             refundableBalance,
             CurrentRowVersion,
-            withTrustedInputs ? CompleteTrustedInputs : null);
+            withTrustedInputs ? TrustedInputsFor(requestedQuantity) : null);
 
     /// <summary>
     /// 一份齊全的可信快照，用來驗證「資料到位時決策確實會放行」。
@@ -306,7 +354,7 @@ public sealed class ExecuteRefundServiceTests
     /// 讀取端目前一律回 <c>null</c>（E1），但決策層必須在資料到位後就能運作 ——
     /// 否則等上游落地時才會發現這一層也沒寫對。
     /// </remarks>
-    private static RefundTrustedInputs CompleteTrustedInputs { get; } = new(
+    private static RefundTrustedInputs TrustedInputsFor(int requestedQuantity) => new(
         new RefundOrderSnapshot(
             Lines:
             [
@@ -325,7 +373,7 @@ public sealed class ExecuteRefundServiceTests
             CouponDiscountTotal: 0m,
             CouponEligibleSubtotal: 0m,
             CouponMinimumSpend: null),
-        Lines: [new RefundLineRequest(OrderItemPublicId, Quantity: 1)],
+        Lines: [new RefundLineRequest(OrderItemPublicId, requestedQuantity)],
         Reason: ReturnReason.Defective,
         AssemblyDisposition: AssemblyFeeDisposition.NotApplicable,
         ReturnShippingCost: 0m);

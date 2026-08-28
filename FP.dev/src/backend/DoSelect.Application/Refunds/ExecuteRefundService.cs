@@ -1,4 +1,6 @@
 using System.Net;
+using DoSelect.Application.Auditing;
+using DoSelect.Application.Common;
 using DoSelect.Domain.Refunds;
 
 namespace DoSelect.Application.Refunds;
@@ -212,6 +214,16 @@ public static class RefundExecutionDecision
             trustedInputs.AssemblyDisposition,
             trustedInputs.ReturnShippingCost));
 
+        // 計算器本身失敗時原樣回傳它的錯誤碼。
+        //
+        // 少了這一步，`return_quantity_exceeded`／`resource_not_found` 這些具體原因
+        // 會被下面的對帳吃掉：失敗時 NetRefundAmount 是 0，於是每一種失敗都被改寫成
+        // 同一個 refund_state_conflict，呼叫端收到的錯誤碼與真正的原因無關。
+        if (!calculation.IsSuccess)
+        {
+            return ExecuteRefundResult.Failure(calculation.ErrorCode!);
+        }
+
         // 後端算出的淨退款必須與已核准金額完全相等。
         //
         // 缺了這一步就會寫出一筆自我矛盾的財務紀錄：`Refund.SucceededAmount` 與稽核
@@ -219,12 +231,11 @@ public static class RefundExecutionDecision
         // 不同，退款交易、分攤與後續的發票折讓就永久對不起來，而且分攤寫入後不可變。
         //
         // 不相等代表核准當時依據的數量／金額與現在的可信快照已經不一致
-        // （例如核准後又有其他退貨被受理）。這是退款本身的狀態問題而不是快照缺漏，
-        // 因此用 refund_state_conflict 而不是 refund_snapshot_unavailable。
-        // 兩者都不是為這個情況登錄的碼，已請 alex 確認是否要另立。
+        // （例如核准後又有其他退貨被受理）。這與「退款目前狀態不允許操作」是兩件事，
+        // 因此用專屬碼 refund_calculation_mismatch。
         if (calculation.NetRefundAmount != amount)
         {
-            return ExecuteRefundResult.Failure(RefundErrorCodes.RefundStateConflict);
+            return ExecuteRefundResult.Failure(RefundErrorCodes.RefundCalculationMismatch);
         }
 
         var allocations = RefundAllocationDrafts.From(calculation);
@@ -244,26 +255,50 @@ public static class RefundExecutionDecision
         presented.AsSpan().SequenceEqual(current);
 
     /// <summary>請求本身的必填檢查。缺漏屬於呼叫端錯誤，由 API 層以驗證錯誤擋下。</summary>
+    /// <summary>
+    /// 請求本身的必填與格式檢查。
+    /// </summary>
+    /// <remarks>
+    /// 全部丟 <see cref="DomainProblemException"/> 而不是 <see cref="ArgumentException"/>：
+    /// 前者有專屬 handler 會轉成 400 <c>validation_failed</c>，後者沒有，會落到
+    /// <c>GlobalExceptionHandler</c> 變成 500 <c>unexpected_error</c> —— 呼叫端只是
+    /// 送了格式不合的輸入，不該看到「伺服器錯誤」。
+    /// </remarks>
     public static void RequireWellFormed(ExecuteRefundRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
 
         if (string.IsNullOrWhiteSpace(request.IdempotencyKey))
         {
-            throw new ArgumentException("The idempotency key is required.", nameof(request));
+            throw DomainProblemException.Validation("The idempotency key is required.");
         }
 
         // SQL Server 的 rowversion 固定 8 bytes。長度不對的值不可能是任何一列的版本，
         // 在這裡擋下可得到 400，而不是讓它一路走到比對失敗後變成語意不對的 409。
         if (request.RefundRowVersion is not { Length: 8 })
         {
-            throw new ArgumentException(
-                "The refund row version must be an 8-byte value.", nameof(request));
+            throw DomainProblemException.Validation(
+                "The refund row version must be an 8-byte value.");
         }
 
         if (string.IsNullOrWhiteSpace(request.ExecutedByAdminUserId))
         {
-            throw new ArgumentException("The executing administrator is required.", nameof(request));
+            throw DomainProblemException.Validation("The executing administrator is required.");
+        }
+
+        // reasonCode 與 note 最終要進中央 Audit，而那裡對兩者都有格式限制
+        // （safe-code、長度上限、禁用字元與敏感詞）。不在這裡擋，稽核建構失敗會在
+        // 交易中丟 ArgumentException 並變成 500。
+        //
+        // 刻意直接呼叫中央 Audit 的同一份判斷，不複製規則 —— 另寫一份必然漂移。
+        try
+        {
+            AuditFieldChange.RequireSafeCode(request.ReasonCode, nameof(request.ReasonCode), 64);
+            AuditWriteRequest.RequireSafeNote(request.Note, allowsNote: true);
+        }
+        catch (ArgumentException exception)
+        {
+            throw DomainProblemException.Validation(exception.Message);
         }
     }
 }

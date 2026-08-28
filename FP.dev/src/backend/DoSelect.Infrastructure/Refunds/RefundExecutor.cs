@@ -103,10 +103,10 @@ public sealed class RefundExecutor : IRefundExecutor
                 // 決策拒絕。交易已回滾，沒有留下冪等完成紀錄。
                 return ExecuteRefundResult.Failure(exception.ErrorCode);
             }
-            catch (IdempotencyConflictException exception)
-            {
-                return ExecuteRefundResult.Failure(exception.ErrorCode);
-            }
+            // IdempotencyConflictException 刻意不攔：GlobalExceptionHandler 會把它轉成
+            // 409 並帶上 Retry-After（錯誤碼目錄第 36 行要求呼叫端依該標頭等待後重試）。
+            // 在這裡抓下來只留 ErrorCode，等於把 RetryAfterSeconds 丟掉，呼叫端不知道
+            // 該等多久。
             catch (Exception exception) when (IsRetryableConflict(exception))
             {
                 // 整個交易作廢，連同讀到的餘額一起丟掉。
