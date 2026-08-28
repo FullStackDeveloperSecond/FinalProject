@@ -158,6 +158,51 @@ export interface paths {
         };
         trace?: never;
     };
+    "/api/v1/cart/assembly-groups/{assemblyGroupKey}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    assemblyGroupKey: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RemoveAssemblyGroupRequest"];
+                    "text/json": components["schemas"]["RemoveAssemblyGroupRequest"];
+                    "application/*+json": components["schemas"]["RemoveAssemblyGroupRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["CartDto"];
+                        "application/json": components["schemas"]["CartDto"];
+                        "text/json": components["schemas"]["CartDto"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/cart/actions/revalidate": {
         parameters: {
             query?: never;
@@ -6065,6 +6110,10 @@ export interface components {
             locale?: null | string;
             /** Format: int32 */
             acceptTermsVersion: number | string;
+        };
+        RemoveAssemblyGroupRequest: {
+            /** Format: byte */
+            cartRowVersion: string;
         };
         RemoveCartItemRequest: {
             /** Format: byte */

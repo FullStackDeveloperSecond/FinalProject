@@ -206,6 +206,66 @@
         }
       }
     },
+    "/api/v1/cart/assembly-groups/{assemblyGroupKey}": {
+      "delete": {
+        "tags": [
+          "Cart"
+        ],
+        "parameters": [
+          {
+            "name": "assemblyGroupKey",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveAssemblyGroupRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveAssemblyGroupRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveAssemblyGroupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/CartDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CartDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CartDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/cart/actions/revalidate": {
       "post": {
         "tags": [
@@ -11715,6 +11775,18 @@
           }
         },
         "additionalProperties": false
+      },
+      "RemoveAssemblyGroupRequest": {
+        "required": [
+          "cartRowVersion"
+        ],
+        "type": "object",
+        "properties": {
+          "cartRowVersion": {
+            "type": "string",
+            "format": "byte"
+          }
+        }
       },
       "RemoveCartItemRequest": {
         "required": [

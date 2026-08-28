@@ -108,6 +108,39 @@ public sealed class CartController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// 組長 PR #29 round 7 review, P1（AUTO-DEC-015）: the only legal way to get a stuck assembly
+    /// group out of the cart — every per-item write rejects a grouped item
+    /// (<c>cart_assembly_item_immutable</c>), which used to leave a group whose SKU went
+    /// unavailable permanently blocking checkout with no recovery path. Cart-level RowVersion in
+    /// the DELETE body, same convention as <see cref="RemoveItem"/>'s own
+    /// <see cref="RemoveCartItemRequest"/>; a group spans multiple rows, so there is no single
+    /// item RowVersion that could stand in for it.
+    /// </summary>
+    [HttpDelete("assembly-groups/{assemblyGroupKey:guid}")]
+    public async Task<ActionResult<CartDto>> RemoveAssemblyGroup(
+        Guid assemblyGroupKey,
+        [FromBody] RemoveAssemblyGroupRequest request,
+        CancellationToken cancellationToken)
+    {
+        var identity = await CartIdentityResolver.ResolveAsync(HttpContext);
+        if (identity is null)
+        {
+            return IdentityRequiredProblem();
+        }
+
+        try
+        {
+            var cart = await _cartService.RemoveAssemblyGroupAsync(
+                identity, assemblyGroupKey, request.CartRowVersion, cancellationToken);
+            return Ok(cart);
+        }
+        catch (ShoppingWriteException exception)
+        {
+            return exception.ToActionResult(HttpContext);
+        }
+    }
+
     [HttpPost("actions/revalidate")]
     public async Task<ActionResult<CartValidationDto>> Revalidate(CancellationToken cancellationToken)
     {
@@ -162,3 +195,10 @@ public sealed class CartController : ControllerBase
 /// travels in the DELETE body for consistency with every other write endpoint here.
 /// </summary>
 public sealed record RemoveCartItemRequest(byte[] ItemRowVersion);
+
+/// <summary>
+/// Cart-level RowVersion, not an item's — an assembly group spans multiple <c>CartItem</c> rows
+/// (組長 PR #29 round 7 review, P1／AUTO-DEC-015). Same DELETE-body convention as
+/// <see cref="RemoveCartItemRequest"/> above.
+/// </summary>
+public sealed record RemoveAssemblyGroupRequest(byte[] CartRowVersion);

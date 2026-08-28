@@ -5,8 +5,11 @@ import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useProductDetail } from '../features/catalog/useProductSearch'
 import type { PublicSkuDto } from '../features/catalog/types'
+import { useAddCartItem } from '../features/cart/useCart'
+import { useSessionStore } from '../stores/session'
 
 const route = useRoute()
+const sessionStore = useSessionStore()
 const productPublicId = computed(() => route.params.productId as string)
 
 const { data: product, isPending, isError, error, refetch } = useProductDetail(productPublicId)
@@ -15,6 +18,85 @@ const selectedSkuPublicId = ref<string>()
 const selectedSku = computed<PublicSkuDto | undefined>(() =>
   product.value?.skus.find((sku) => sku.publicId === selectedSkuPublicId.value) ?? product.value?.skus[0],
 )
+
+// 組長 PR #29 review round 3, P1: the "加入購物車" button was permanently disabled with a
+// "coming soon" label — useAddCartItem() existed but nothing on this page ever called it, so the
+// primary product -> cart flow (UC-CART-01) didn't actually work for any shopper.
+const addCartItemMutation = useAddCartItem()
+const addToCartError = ref<string | null>(null)
+const addToCartSucceeded = ref(false)
+
+const ADD_TO_CART_ERROR_MESSAGES: Record<string, string> = {
+  sku_unavailable: '此規格已下架，請選擇其他規格。',
+  cart_quantity_exceeded: '已超過此規格可購買的數量上限。',
+  cart_item_limit_exceeded: '購物車已達 100 件上限，請先清空部分品項。',
+  resource_not_found: '找不到此規格，可能已被下架。',
+}
+
+function describeAddToCartError(caught: unknown): string {
+  if (isApiError(caught)) {
+    return ADD_TO_CART_ERROR_MESSAGES[caught.code] ?? `加入購物車失敗（${caught.code}），請重試。`
+  }
+  return '加入購物車失敗，請重試。'
+}
+
+// 組長 PR #29 round-6 review, P1 (widened in round 7 review, P1): a shopper whose member Cookie
+// the backend already recognizes, but whose frontend session refresh (App.vue's onMounted ->
+// sessionStore.refresh()) hasn't resolved yet, could still click "加入購物車" while status is
+// still 'loading' — useAddCartItem()'s identity snapshot treats "not confirmedly authenticated"
+// the same as guest, so the request gets attributed to the guest cache key while the backend
+// actually mutates the member's real cart. A *failed* refresh (status 'error') is the same risk —
+// see isIdentityConfirmed's remarks in session.ts. useAddCartItem() itself now refuses to even
+// attempt the request in either window (throws from onMutate), but disabling the button here means
+// the shopper sees why immediately, not just a failed click.
+const isCartIdentityUnresolved = computed(() => !sessionStore.isIdentityConfirmed)
+
+const isAddToCartDisabled = computed(() => {
+  if (!selectedSku.value || addCartItemMutation.isPending.value || isCartIdentityUnresolved.value) {
+    return true
+  }
+  return selectedSku.value.availability === 'outOfStock' || Number(selectedSku.value.maxPurchasableQuantity) <= 0
+})
+
+// 組長 PR #29 review round 5, P2: the SKU selector stays interactive while a mutation is in
+// flight, so a shopper can add SKU A then switch to SKU B before A's response arrives. Reading
+// `selectedSkuPublicId.value` from inside onSuccess/onError reads whatever is selected *when the
+// response lands*, not what was actually submitted — A's success would render as if it applied to
+// the now-displayed B. Capturing the SKU identity at request-send time and only applying the
+// result when it still matches the current selection makes a switched-away response a no-op
+// instead of a misattributed success/error, the same snapshot-at-dispatch pattern as
+// useCart.ts's onMutate identity capture.
+function onAddToCart(): void {
+  if (isAddToCartDisabled.value || !selectedSku.value) {
+    return
+  }
+
+  const requestSkuPublicId = selectedSku.value.publicId
+  addToCartError.value = null
+  addToCartSucceeded.value = false
+  addCartItemMutation.mutate(
+    { skuPublicId: requestSkuPublicId, quantity: 1, cartRowVersion: null },
+    {
+      onSuccess: () => {
+        if (selectedSku.value?.publicId === requestSkuPublicId) {
+          addToCartSucceeded.value = true
+        }
+      },
+      onError: (caught) => {
+        if (selectedSku.value?.publicId === requestSkuPublicId) {
+          addToCartError.value = describeAddToCartError(caught)
+        }
+      },
+    },
+  )
+}
+
+// Switching to a different SKU makes a stale success/error message from the previous SKU
+// misleading (it looks like it applies to the newly-selected one).
+watch(selectedSkuPublicId, () => {
+  addToCartError.value = null
+  addToCartSucceeded.value = false
+})
 
 /**
  * PR #24 review round 10 (P3): `selectedSkuPublicId` was never reset when the product data
@@ -161,11 +243,33 @@ const isNotFound = computed(() => isApiError(error.value) && error.value.status 
 
       <button
         type="button"
-        disabled
-        title="購物車功能尚在開發中（M-06）"
+        :disabled="isAddToCartDisabled"
+        @click="onAddToCart"
       >
-        加入購物車（開發中）
+        {{ sessionStore.status === 'error' ? '無法確認登入狀態' : sessionStore.status === 'loading' ? '登入狀態確認中…' : addCartItemMutation.isPending.value ? '加入中…' : '加入購物車' }}
       </button>
+      <button
+        v-if="sessionStore.status === 'error'"
+        type="button"
+        @click="sessionStore.refresh()"
+      >
+        重試
+      </button>
+      <p
+        v-if="addToCartSucceeded"
+        class="product-detail__add-to-cart-success"
+      >
+        已加入購物車。
+        <RouterLink to="/cart">
+          前往購物車
+        </RouterLink>
+      </p>
+      <p
+        v-if="addToCartError"
+        class="product-detail__add-to-cart-error"
+      >
+        {{ addToCartError }}
+      </p>
     </section>
 
     <section
@@ -363,6 +467,18 @@ button[disabled] {
   background: #9ca3af;
   border-color: #9ca3af;
   cursor: not-allowed;
+}
+
+.product-detail__add-to-cart-success {
+  margin: 0;
+  color: #166534;
+  font-size: 0.875rem;
+}
+
+.product-detail__add-to-cart-error {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 0.875rem;
 }
 
 .product-detail__specs {

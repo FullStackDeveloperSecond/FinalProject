@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using DoSelect.Application.Idempotency;
 using DoSelect.Application.Shopping;
+using DoSelect.Domain.Builds;
 using DoSelect.Domain.Catalog;
 using DoSelect.Domain.Shopping;
 using DoSelect.Infrastructure.Persistence;
@@ -134,6 +135,12 @@ public sealed class EfCartService : ICartService
                 ShoppingWriteException.ErrorCodes.ResourceNotFound,
                 $"Cart item '{itemPublicId}' was not found.");
         }
+        if (item.AssemblyGroupKey is not null)
+        {
+            throw new ShoppingWriteException(
+                ShoppingWriteException.ErrorCodes.CartAssemblyItemImmutable,
+                $"Cart item '{itemPublicId}' belongs to assembly group '{item.AssemblyGroupKey}' and cannot be changed individually.");
+        }
 
         _dbContext.Entry(cart).Property(candidate => candidate.RowVersion).OriginalValue = request.CartRowVersion;
         _dbContext.Entry(item).Property(candidate => candidate.RowVersion).OriginalValue = request.ItemRowVersion;
@@ -169,6 +176,12 @@ public sealed class EfCartService : ICartService
             throw new ShoppingWriteException(
                 ShoppingWriteException.ErrorCodes.ResourceNotFound,
                 $"Cart item '{itemPublicId}' was not found.");
+        }
+        if (item.AssemblyGroupKey is not null)
+        {
+            throw new ShoppingWriteException(
+                ShoppingWriteException.ErrorCodes.CartAssemblyItemImmutable,
+                $"Cart item '{itemPublicId}' belongs to assembly group '{item.AssemblyGroupKey}' and cannot be removed individually.");
         }
 
         _dbContext.Entry(item).Property(candidate => candidate.RowVersion).OriginalValue = itemRowVersion;
@@ -229,6 +242,52 @@ public sealed class EfCartService : ICartService
         }
 
         cart.ExtendExpiry(now.Add(CartLifetime), now);
+        await SaveWithConcurrencyCheckAsync(cancellationToken);
+
+        return await MapCartAsync(cart, cancellationToken);
+    }
+
+    /// <summary>
+    /// 組長 PR #29 round 7 review, P1（AUTO-DEC-015）: see ICartService.RemoveAssemblyGroupAsync's
+    /// remarks. The delete of every row sharing <paramref name="assemblyGroupKey"/> and the single
+    /// <see cref="SaveWithConcurrencyCheckAsync"/> call below are the whole atomic unit — nothing
+    /// commits unless everything does.
+    /// </summary>
+    public async Task<CartDto> RemoveAssemblyGroupAsync(
+        CartIdentity identity,
+        Guid assemblyGroupKey,
+        byte[] cartRowVersion,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTime.UtcNow;
+        var cart = await ResolveExistingCartAsync(
+            identity, now, $"Assembly group '{assemblyGroupKey}' was not found.", cancellationToken);
+
+        var groupItems = await _dbContext.CartItems
+            .Where(item => item.CartId == cart.Id && item.AssemblyGroupKey == assemblyGroupKey)
+            .ToListAsync(cancellationToken);
+        if (groupItems.Count == 0)
+        {
+            throw new ShoppingWriteException(
+                ShoppingWriteException.ErrorCodes.ResourceNotFound,
+                $"Assembly group '{assemblyGroupKey}' was not found.");
+        }
+
+        _dbContext.Entry(cart).Property(candidate => candidate.RowVersion).OriginalValue = cartRowVersion;
+        _dbContext.CartItems.RemoveRange(groupItems);
+        cart.ExtendExpiry(now.Add(CartLifetime), now);
+
+        // 組長 PR #29 round 8 review, P2: deliberately does NOT resolve merge conflicts for the
+        // removed group's SKUs. A persisted CartMergeConflict can only ever belong to an ordinary
+        // item: ExecuteMergeAsync creates the CartQuantityExceeded one solely inside its
+        // `guestItem.AssemblyGroupKey is null` branch, matching against a member row itself
+        // filtered to `AssemblyGroupKey == null` (assembly groups always land as brand-new rows and
+        // never combine), and ResolveConflictsForSkuAsync already excludes the only other reason,
+        // CartItemLimitExceeded. So a group that merely happens to contain the same SKU as a
+        // conflicted ordinary item is not the member acting on that item — resolving here would
+        // clear a conflict whose quantity was never touched and could wrongly reopen the Checkout
+        // gate. The ordinary item's own Update／Remove paths (which reject assembly rows outright)
+        // remain the only way to resolve it.
         await SaveWithConcurrencyCheckAsync(cancellationToken);
 
         return await MapCartAsync(cart, cancellationToken);
@@ -599,10 +658,24 @@ public sealed class EfCartService : ICartService
         }
     }
 
-    private async Task<Cart> ResolveExistingCartForItemAsync(
+    private Task<Cart> ResolveExistingCartForItemAsync(
         CartIdentity identity,
         Guid itemPublicId,
         DateTime now,
+        CancellationToken cancellationToken) =>
+        ResolveExistingCartAsync(identity, now, $"Cart item '{itemPublicId}' was not found.", cancellationToken);
+
+    /// <summary>
+    /// 組長 PR #29 round 7 review, P1（AUTO-DEC-015）: extracted from the item-specific lookup
+    /// above (which now just forwards to this with its own not-found message) so
+    /// RemoveAssemblyGroupAsync can reuse the exact same "find this caller's Active, unexpired
+    /// cart" logic without duplicating the member／guest branch — the not-found message is the
+    /// only thing that differs per caller.
+    /// </summary>
+    private async Task<Cart> ResolveExistingCartAsync(
+        CartIdentity identity,
+        DateTime now,
+        string notFoundDetail,
         CancellationToken cancellationToken)
     {
         Cart? cart;
@@ -628,9 +701,7 @@ public sealed class EfCartService : ICartService
 
         if (cart is null || cart.ExpiresAtUtc <= now)
         {
-            throw new ShoppingWriteException(
-                ShoppingWriteException.ErrorCodes.ResourceNotFound,
-                $"Cart item '{itemPublicId}' was not found.");
+            throw new ShoppingWriteException(ShoppingWriteException.ErrorCodes.ResourceNotFound, notFoundDetail);
         }
 
         return cart;
@@ -794,13 +865,22 @@ public sealed class EfCartService : ICartService
 
             if (concern.IssueCode is not null)
             {
+                // 組長 PR #29 round 7 review, P1（AUTO-DEC-015）: an assembly-group item rejects
+                // BOTH `reduce-quantity` and `remove` server-side (CartAssemblyItemImmutable) —
+                // advertising either here was a lie the backend itself would refuse to honor.
+                // `remove-group` is the only action that actually works for a grouped item,
+                // regardless of the concern's severity; the frontend resolves which group via
+                // this item's own AssemblyGroupKey (CartItemDto below), no extra field needed.
+                var availableActions = cartItem.AssemblyGroupKey is not null
+                    ? new[] { "remove-group" }
+                    : concern.IssueCode == ShoppingWriteException.ErrorCodes.SkuUnavailable
+                        ? new[] { "remove" }
+                        : new[] { "reduce-quantity", "remove" };
                 issues.Add(new CartIssueDto(
                     cartItem.PublicId,
                     concern.IssueCode,
                     concern.IssueCode == ShoppingWriteException.ErrorCodes.SkuUnavailable ? "error" : "warning",
-                    concern.IssueCode == ShoppingWriteException.ErrorCodes.SkuUnavailable
-                        ? ["remove"]
-                        : ["reduce-quantity", "remove"]));
+                    availableActions));
             }
 
             items.Add(new CartItemDto(
@@ -959,13 +1039,28 @@ public sealed class EfCartService : ICartService
     {
         var subtotal = items.Sum(item => item.LineTotal);
 
+        // 組長 PR #29 round 7 review (P1): AssemblyFee／TotalEstimate 之前完全沒有計算組裝費——
+        // AssemblyFee 固定寫死 0m，TotalEstimate 只有 merchandise subtotal。每個相異、非 null 的
+        // AssemblyGroupKey 就是購物車裡一台已加入的組裝機（見 AddAssemblyGroupsAsync：每個
+        // unit 一把新的 Guid.CreateVersion7() 當作該台機器的 group key），跟 BuildList 的「一份
+        // 組裝清單＝一台」是同一個計費概念，只是這裡已經展開成多筆 CartItem——用相異 group key
+        // 數量而不是品項數量，跟 EfBuildListService 共用同一個 AssemblyPricingPolicy.FeePerUnit
+        // 定義，避免兩處各自硬編碼後漂移。
+        var assemblyGroupCount = items
+            .Where(item => item.AssemblyGroupKey is not null)
+            .Select(item => item.AssemblyGroupKey!.Value)
+            .Distinct()
+            .Count();
+        var assemblyFee = assemblyGroupCount * AssemblyPricingPolicy.FeePerUnit;
+        var totalEstimate = subtotal + assemblyFee;
+
         var amounts = new CartAmountsDto(
             Subtotal: subtotal,
             ItemDiscount: 0m,
             CouponDiscount: 0m,
             ShippingEstimate: null,
-            AssemblyFee: 0m,
-            TotalEstimate: subtotal,
+            AssemblyFee: assemblyFee,
+            TotalEstimate: totalEstimate,
             Currency: "TWD");
 
         return new CartDto(

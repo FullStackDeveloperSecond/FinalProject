@@ -41,6 +41,12 @@
 - API 將實際值放入 Logging Scope、`HttpContext.TraceIdentifier` 與 Problem Details 的 `correlationId`；技術呼叫鏈另以 W3C Activity `traceId` 表達。
 - Correlation ID 不是 Secret、授權憑證或冪等鍵，不得包含 Email、Token、路由參數以外的個資或其他業務資料。
 
+## 訪客購物車識別 Header
+
+- 未登入的訪客購物車以 `X-DoSelect-Guest-Cart-Key` Header 傳遞訪客購物車鍵；長度 32～256 字元，由前端產生並保存在瀏覽器。
+- 後端只保存該值的 SHA-256 雜湊（`Carts.GuestCartKeyHash`），不保存明文；此值不是授權憑證，已登入的會員一律以 Session 身分為準，Header 若同時出現亦不得用來存取他人購物車。
+- 前端讀取時必須驗證長度，不合法即靜默重新產生（不得沿用損壞值）。
+
 ## 瀏覽器驗證與授權
 
 - 使用 ASP.NET Core Identity 與 `HttpOnly` Cookie，不把登入 Token 放在 `localStorage` 或 `sessionStorage`。
