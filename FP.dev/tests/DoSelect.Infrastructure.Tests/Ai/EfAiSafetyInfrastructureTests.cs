@@ -322,7 +322,7 @@ public sealed class EfAiSafetyInfrastructureTests
             await context.SaveChangesAsync();
             var ticket = new SupportTicket(
                 Guid.NewGuid(),
-                $"SUP-{Guid.NewGuid():N}"[..20],
+                "SUP-0912-345-678",
                 owner.Id,
                 null,
                 SupportTicketCategory.ProductWarranty,

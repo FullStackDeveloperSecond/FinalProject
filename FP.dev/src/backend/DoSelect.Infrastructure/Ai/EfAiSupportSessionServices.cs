@@ -99,7 +99,7 @@ public sealed class EfAiConsentManager(
                 AiConsentPurpose.Support,
                 latest.Locale,
                 "customer-web",
-                latest.GrantedAtUtc,
+                DateTime.SpecifyKind(latest.GrantedAtUtc, DateTimeKind.Utc),
                 now));
             await dbContext.SaveChangesAsync(cancellationToken);
             return new AiConsentSnapshot(

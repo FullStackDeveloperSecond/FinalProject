@@ -111,7 +111,11 @@ public sealed class EfAiSupportContextReader(DoSelectDbContext dbContext)
                         .ToArray(),
                 };
                 var json = JsonSerializer.Serialize(payload, JsonOptions);
-                if (!AiOutboundContentGuard.Inspect(json).IsAllowed)
+                var outboundProductContent = items
+                    .Where(item => item.OrderId == order.Id)
+                    .SelectMany(item => new[] { item.ProductName, item.SkuName })
+                    .ToArray();
+                if (!AiOutboundContentGuard.Inspect(outboundProductContent).IsAllowed)
                 {
                     return new AiSupportContextReadResult(
                         AiSupportContextStatus.Unavailable,
@@ -184,7 +188,11 @@ public sealed class EfAiSupportContextReader(DoSelectDbContext dbContext)
                     messages = ticketMessages,
                 };
                 var json = JsonSerializer.Serialize(payload, JsonOptions);
-                if (!AiOutboundContentGuard.Inspect(json).IsAllowed)
+                var outboundTicketContent = ticketMessages
+                    .Select(message => message.Body)
+                    .Prepend(ticket.Subject)
+                    .ToArray();
+                if (!AiOutboundContentGuard.Inspect(outboundTicketContent).IsAllowed)
                 {
                     return new AiSupportContextReadResult(
                         AiSupportContextStatus.Unavailable,

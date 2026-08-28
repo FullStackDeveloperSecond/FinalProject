@@ -100,6 +100,12 @@ public sealed class EfAiSupportAdmissionGate(
                 used,
                 window.ResetAtUtc,
                 cancellationToken);
+            if (accessState.ConsentState != AiConsentState.Granted)
+            {
+                await transaction.CommitAsync(cancellationToken);
+                return new AiSupportReservationResult(IsReserved: false, accessState);
+            }
+
             if (accessState.BudgetProtectionActive && !accessState.IsDemoAllowlisted)
             {
                 await transaction.CommitAsync(cancellationToken);

@@ -36,12 +36,14 @@ test('a member can consent to AI support and fall back to a human case when AI i
   const consentCheckbox = page.getByRole('checkbox', {
     name: '我已閱讀並同意上述外部 AI 處理方式',
   })
+  const remainingUsage = page.getByText(/今日剩餘：/)
+  await expect(consentCheckbox.or(remainingUsage)).toBeVisible()
   if (await consentCheckbox.isVisible()) {
     await consentCheckbox.check()
     await page.getByRole('button', { name: '同意並開始使用' }).click()
   }
 
-  await expect(page.getByText(/今日剩餘：/)).toBeVisible()
+  await expect(remainingUsage).toBeVisible()
   await page.getByRole('textbox', { name: '你的問題' }).fill('請說明退貨流程')
   await page.getByRole('button', { name: '送出問題' }).click()
 
