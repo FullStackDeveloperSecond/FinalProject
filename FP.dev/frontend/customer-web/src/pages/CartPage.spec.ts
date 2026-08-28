@@ -104,6 +104,33 @@ describe('CartPage', () => {
     expect(wrapper.text()).toContain('購物車載入中')
   })
 
+  /**
+   * 組長 PR #29 round-4 review, P2: the first revalidate used to fire unconditionally from
+   * onMounted, starting at the same time as useCart()'s own initial GET rather than after it. If
+   * revalidate resolved first and wrote the freshest cart into the query cache, the initial GET —
+   * started earlier but arriving later — could still overwrite it with older data, while
+   * issues/isCheckoutReady kept reflecting revalidate's now-orphaned newer result. The fix
+   * sequences them: revalidate must not start until the initial GET has actually resolved, which
+   * structurally removes the "older response arrives after newer one" race, since there is no
+   * longer anything in flight for revalidate to race against.
+   */
+  it('does not start the first revalidate until the initial GET has resolved', async () => {
+    let resolveGet!: (cart: CartDto) => void
+    mockGetCart.mockImplementationOnce(() => new Promise((resolve) => { resolveGet = resolve }))
+
+    const wrapper = await mountCartPage()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('購物車載入中'))
+    expect(mockRevalidateCart).not.toHaveBeenCalled()
+
+    mockRevalidateCart.mockResolvedValueOnce({
+      cart: oneItemCart, isCheckoutReady: true, issues: [], validatedAtUtc: new Date().toISOString(),
+    })
+    resolveGet(oneItemCart)
+
+    await vi.waitFor(() => expect(mockRevalidateCart).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(wrapper.text()).toContain('RTX 4070'))
+  })
+
   it('shows the empty state when the cart has no items', async () => {
     mockGetCart.mockResolvedValue({ ...oneItemCart, items: [] })
     mockRevalidateCart.mockResolvedValue({

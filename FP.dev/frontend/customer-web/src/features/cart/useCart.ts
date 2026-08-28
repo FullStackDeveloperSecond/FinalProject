@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import {
   addCartItem,
   getCart,
@@ -33,7 +33,24 @@ function useCartIdentityKey() {
 
 export function useCart() {
   const sessionStore = useSessionStore()
+  const queryClient = useQueryClient()
   const identityKey = useCartIdentityKey()
+
+  // 組長 PR #29 round-4 review, P1: the identity-snapshot fix on the mutations below stops a
+  // stale in-flight response from being written into the *new* identity's cache, but on its own
+  // it leaves the *old* identity's cache entry (and any request still in flight for it) sitting
+  // around indefinitely after a login/logout/account-switch — a logged-out member's cart data
+  // would otherwise stay reachable in memory with nothing left to overwrite it. The moment the
+  // key itself changes, cancel whatever's still in flight for the previous key and drop its
+  // cached data; called once per CartPage mount (useCart is this module's only caller of
+  // useQuery), so this is a single watcher, not one per composable.
+  watch(identityKey, (_current, previous) => {
+    if (previous) {
+      void queryClient.cancelQueries({ queryKey: previous })
+      queryClient.removeQueries({ queryKey: previous })
+    }
+  })
+
   return useQuery({
     queryKey: identityKey,
     queryFn: () => getCart(getOrCreateGuestCartKey()),
@@ -45,14 +62,25 @@ export function useCart() {
   })
 }
 
+// 組長 PR #29 round-4 review, P1: every mutation below used to write its response back with
+// `queryClient.setQueryData(identityKey.value, ...)` inside `onSuccess` — reading the *reactive*
+// current identity at the moment the response arrives, not whatever identity was active when the
+// request was actually sent. If the shopper logs out (or a different member logs in) while the
+// request is still in flight, the response would land in the *new* identity's cache instead of
+// the one it actually belongs to — a real cross-identity cart exposure. `onMutate` runs
+// synchronously the instant `mutate()`/`mutateAsync()` is called, before `mutationFn` starts, so
+// its return value becomes an immutable snapshot of the identity key at request-start time;
+// TanStack Query passes that snapshot through to `onSuccess` as its third argument regardless of
+// what `identityKey.value` becomes in the meantime.
 export function useAddCartItem() {
   const queryClient = useQueryClient()
   const identityKey = useCartIdentityKey()
   return useMutation({
     mutationFn: (params: { skuPublicId: string, quantity: number, cartRowVersion: string | null }) =>
       addCartItem(params.skuPublicId, params.quantity, params.cartRowVersion, getOrCreateGuestCartKey()),
-    onSuccess: (cart) => {
-      queryClient.setQueryData(identityKey.value, cart)
+    onMutate: () => identityKey.value,
+    onSuccess: (cart, _variables, targetKey) => {
+      queryClient.setQueryData(targetKey, cart)
     },
   })
 }
@@ -69,8 +97,9 @@ export function useUpdateCartItemQuantity() {
         params.cartRowVersion,
         getOrCreateGuestCartKey(),
       ),
-    onSuccess: (cart) => {
-      queryClient.setQueryData(identityKey.value, cart)
+    onMutate: () => identityKey.value,
+    onSuccess: (cart, _variables, targetKey) => {
+      queryClient.setQueryData(targetKey, cart)
     },
   })
 }
@@ -81,8 +110,9 @@ export function useRemoveCartItem() {
   return useMutation({
     mutationFn: (params: { itemPublicId: string, itemRowVersion: string }) =>
       removeCartItem(params.itemPublicId, params.itemRowVersion, getOrCreateGuestCartKey()),
-    onSuccess: (cart) => {
-      queryClient.setQueryData(identityKey.value, cart)
+    onMutate: () => identityKey.value,
+    onSuccess: (cart, _variables, targetKey) => {
+      queryClient.setQueryData(targetKey, cart)
     },
   })
 }
@@ -92,8 +122,9 @@ export function useRevalidateCart() {
   const identityKey = useCartIdentityKey()
   return useMutation({
     mutationFn: () => revalidateCart(getOrCreateGuestCartKey()),
-    onSuccess: (validation) => {
-      queryClient.setQueryData(identityKey.value, validation.cart)
+    onMutate: () => identityKey.value,
+    onSuccess: (validation, _variables, targetKey) => {
+      queryClient.setQueryData(targetKey, validation.cart)
     },
   })
 }
@@ -112,8 +143,13 @@ export function useReloadCart() {
   const queryClient = useQueryClient()
   const identityKey = useCartIdentityKey()
   return async function reloadCart(): Promise<CartDto> {
+    // Not a useMutation, so there's no onMutate hook to snapshot in — capture identityKey.value
+    // synchronously here, before the request's own await, for the same reason as the mutations
+    // above: writing back to whatever's current when the response lands (not when it was sent)
+    // risks a cross-identity write if identity changes mid-flight.
+    const targetKey = identityKey.value
     const cart = await getCart(getOrCreateGuestCartKey())
-    queryClient.setQueryData(identityKey.value, cart)
+    queryClient.setQueryData(targetKey, cart)
     return cart
   }
 }
@@ -128,8 +164,9 @@ export function useMergeCartOnLogin() {
   const identityKey = useCartIdentityKey()
   return useMutation({
     mutationFn: (idempotencyKey: string) => mergeCartOnLogin(getOrCreateGuestCartKey(), idempotencyKey),
-    onSuccess: (result) => {
-      queryClient.setQueryData(identityKey.value, result.cart)
+    onMutate: () => identityKey.value,
+    onSuccess: (result, _variables, targetKey) => {
+      queryClient.setQueryData(targetKey, result.cart)
       clearGuestCartKey()
     },
   })

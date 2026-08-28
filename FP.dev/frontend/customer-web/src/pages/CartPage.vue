@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import CartLineItem from '../features/cart/components/CartLineItem.vue'
 import { useCart, useReloadCart, useRemoveCartItem, useRevalidateCart, useUpdateCartItemQuantity } from '../features/cart/useCart'
 import type { CartItemDto, CartIssueDto } from '../features/cart/types'
@@ -154,9 +154,26 @@ async function runRevalidate(): Promise<void> {
   }
 }
 
-onMounted(() => {
-  void runRevalidate()
-})
+// 組長 PR #29 round-4 review, P2: this used to fire unconditionally from onMounted, starting
+// concurrently with useCart()'s own initial GET (itself gated on session no longer 'loading').
+// If revalidate resolved first and wrote the freshest cart into the query cache, the initial GET
+// — started earlier but arriving later — could still overwrite it with older data, while
+// `issues`/`isCheckoutReady` kept reflecting revalidate's newer (now-orphaned) result: the
+// rendered cart and the checkout gate would disagree. `isPending` (from useCart()) is true until
+// the query has *never yet* resolved (pending vs. later refetches, which set isFetching instead)
+// — waiting for it to become false, with no error, means the initial GET has already landed with
+// nothing older left in flight that could still clobber a revalidate's result. `hasRevalidated`
+// guards this to the first successful resolution only; a retry after an initial load failure
+// (ErrorState's @retry) still triggers exactly one revalidate once the retried GET succeeds.
+watch(
+  isPending,
+  (pending) => {
+    if (!pending && !isError.value && !hasRevalidated.value) {
+      void runRevalidate()
+    }
+  },
+  { immediate: true },
+)
 
 // Mutation controls are disabled (see isBusy/template) whenever a revalidate is in flight, so
 // this only guards the two callers of onChangeQuantity/onRemoveItem that aren't gated by that
