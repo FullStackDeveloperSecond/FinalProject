@@ -48,7 +48,17 @@ public sealed class RefundsController(
             return BadRequest(ApiProblemDetailsFactory.CreateValidation(HttpContext, ModelState));
         }
 
-        if (!ModelState.IsValid)
+        // SQL Server 的 rowversion 固定 8 bytes。在 transport 邊界擋下 —— Application 層
+        // 的同一條檢查是丟 ArgumentException，而那個例外沒有專屬 handler，會落到
+        // GlobalExceptionHandler 變成 500 unexpected_error，但呼叫端只是送錯了長度。
+        if (body is null || body.RefundRowVersion is not { Length: 8 })
+        {
+            ModelState.AddModelError(
+                nameof(ExecuteRefundRequestBody.RefundRowVersion),
+                "refundRowVersion must be an 8-byte value.");
+        }
+
+        if (body is null || !ModelState.IsValid)
         {
             return BadRequest(ApiProblemDetailsFactory.CreateValidation(HttpContext, ModelState));
         }

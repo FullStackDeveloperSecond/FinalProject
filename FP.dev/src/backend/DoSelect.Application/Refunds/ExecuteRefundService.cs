@@ -212,6 +212,21 @@ public static class RefundExecutionDecision
             trustedInputs.AssemblyDisposition,
             trustedInputs.ReturnShippingCost));
 
+        // 後端算出的淨退款必須與已核准金額完全相等。
+        //
+        // 缺了這一步就會寫出一筆自我矛盾的財務紀錄：`Refund.SucceededAmount` 與稽核
+        // 記的是 ApprovedAmount，而 RefundAllocations 的有號合計是計算淨額。兩者一旦
+        // 不同，退款交易、分攤與後續的發票折讓就永久對不起來，而且分攤寫入後不可變。
+        //
+        // 不相等代表核准當時依據的數量／金額與現在的可信快照已經不一致
+        // （例如核准後又有其他退貨被受理）。這是退款本身的狀態問題而不是快照缺漏，
+        // 因此用 refund_state_conflict 而不是 refund_snapshot_unavailable。
+        // 兩者都不是為這個情況登錄的碼，已請 alex 確認是否要另立。
+        if (calculation.NetRefundAmount != amount)
+        {
+            return ExecuteRefundResult.Failure(RefundErrorCodes.RefundStateConflict);
+        }
+
         var allocations = RefundAllocationDrafts.From(calculation);
 
         return ExecuteRefundResult.Approved(new RefundExecutionPlan(

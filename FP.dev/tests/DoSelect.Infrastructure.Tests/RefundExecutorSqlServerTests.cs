@@ -1,4 +1,5 @@
 using System.Data;
+using System.Net;
 using DoSelect.Application.Auditing;
 using DoSelect.Application.Idempotency;
 using DoSelect.Application.Refunds;
@@ -154,7 +155,7 @@ public sealed class RefundExecutorSqlServerTests
         var result = await CreateExecutor(context).ExecuteAsync(Request(refund));
 
         Assert.True(result.IsSuccess);
-        Assert.Equal(400m, result.SettledAmount);
+        Assert.Equal(500m, result.SettledAmount);
 
         await using var verify = RefundExecutorSqlFixture.CreateContext();
         var stored = await verify.Refunds.SingleAsync(r => r.PublicId == refund.PublicId);
@@ -221,6 +222,7 @@ public sealed class RefundExecutorSqlServerTests
         Assert.True(initial.IsSuccess);
         Assert.True(replay.IsSuccess);
         Assert.Equal(initial.SettledAmount, replay.SettledAmount);
+        Assert.Equal(500m, replay.SettledAmount);
 
         // 回放不得產生第二組分攤或第二筆稽核。
         await using var verify = RefundExecutorSqlFixture.CreateContext();
@@ -425,6 +427,174 @@ public sealed class RefundExecutorSqlServerTests
             RefundExecutorSqlFixture.AdminUserId, audit.ActorRolesJson, StringComparison.Ordinal);
     }
 
+    [RefundExecutorSqlFact]
+    public async Task TheSignedAllocationTotalEqualsTheSucceededAmount()
+    {
+        // 財務等式而不是「非空」：分攤的有號合計必須精確等於 SucceededAmount。
+        // 不相等就是一筆自我矛盾的紀錄，而且分攤寫入後不可變。
+        await using var context = RefundExecutorSqlFixture.CreateContext();
+        var refund = await SeedRefundAsync(context);
+
+        await CreateExecutor(context).ExecuteAsync(Request(refund));
+
+        await using var verify = RefundExecutorSqlFixture.CreateContext();
+        var stored = await verify.Refunds.SingleAsync(r => r.PublicId == refund.PublicId);
+        var allocations = await verify.RefundAllocations
+            .Where(a => a.RefundId == stored.Id)
+            .ToArrayAsync();
+
+        var signedTotal = allocations.Sum(allocation =>
+            RefundPolicy.DirectionOf(allocation.AllocationType) == RefundAllocationDirection.Credit
+                ? allocation.Amount
+                : -allocation.Amount);
+
+        Assert.Equal(500m, stored.ApprovedAmount);
+        Assert.Equal(500m, stored.SucceededAmount);
+        Assert.Equal(500m, signedTotal);
+    }
+
+    [RefundExecutorSqlFact]
+    public async Task AnApprovedAmountThatDisagreesWithTheCalculationWritesNothing()
+    {
+        // 可信快照算出 500，但退款只核准 400。先前這正是本檔案的預設資料，
+        // 而斷言只看「allocations 非空」，所以測不出來。
+        await using var context = RefundExecutorSqlFixture.CreateContext();
+        var refund = await SeedRefundAsync(context, approvedAmount: 400m);
+
+        await using var execute = RefundExecutorSqlFixture.CreateContext();
+        var result = await CreateExecutor(execute).ExecuteAsync(Request(refund));
+
+        Assert.Equal(RefundErrorCodes.RefundStateConflict, result.ErrorCode);
+
+        await using var verify = RefundExecutorSqlFixture.CreateContext();
+        var stored = await verify.Refunds.SingleAsync(r => r.PublicId == refund.PublicId);
+        Assert.Equal(RefundStatus.Approved, stored.Status);
+        Assert.Null(stored.SucceededAmount);
+        Assert.False(await verify.RefundAllocations.AnyAsync(a => a.RefundId == stored.Id));
+        Assert.False(await verify.Set<AuditLog>()
+            .AnyAsync(log => log.ResourcePublicId == refund.PublicId));
+    }
+
+    [RefundExecutorSqlFact]
+    public async Task ALegalNoteIsStoredAlongsideTheReasonCodeAndTheRequestIp()
+    {
+        // reason 只收 safe-code，note 走獨立欄位。先前兩者被串成
+        // `reasonCode: note` 塞進 reason，任何含空白的 note 都會變成 500。
+        await using var context = RefundExecutorSqlFixture.CreateContext();
+        var refund = await SeedRefundAsync(context);
+
+        await using var execute = RefundExecutorSqlFixture.CreateContext();
+        var result = await CreateExecutor(execute).ExecuteAsync(
+            Request(refund) with
+            {
+                Note = "Customer confirmed the damaged item by phone",
+                RemoteIpAddress = IPAddress.Parse("203.0.113.7"),
+            });
+
+        Assert.True(result.IsSuccess);
+
+        await using var verify = RefundExecutorSqlFixture.CreateContext();
+        var audit = await verify.Set<AuditLog>()
+            .SingleAsync(log => log.ResourcePublicId == refund.PublicId);
+
+        Assert.Equal("customer_request", audit.Reason);
+        Assert.Contains("Customer confirmed", audit.ChangedFieldsJson, StringComparison.Ordinal);
+        Assert.False(string.IsNullOrWhiteSpace(audit.MaskedIpAddress));
+    }
+
+    [RefundExecutorSqlFact]
+    public async Task AFreeShippingOrderUsesTheHistoricalBaseFeeSnapshot()
+    {
+        // 訂單當初免運且有門檻快照：追回的必須是**下單當時**的基本費快照，
+        // 不是現行 ShippingMethod.BaseFee。
+        await using var context = RefundExecutorSqlFixture.CreateContext();
+        var refund = await SeedRefundAsync(
+            context, approvedAmount: 440m, freeShipping: true, withBaseFeeSnapshot: true);
+
+        await using var execute = RefundExecutorSqlFixture.CreateContext();
+        var result = await CreateExecutor(execute).ExecuteAsync(Request(refund));
+
+        Assert.True(result.IsSuccess);
+
+        await using var verify = RefundExecutorSqlFixture.CreateContext();
+        var stored = await verify.Refunds.SingleAsync(r => r.PublicId == refund.PublicId);
+        var clawback = await verify.RefundAllocations
+            .Where(a => a.RefundId == stored.Id &&
+                        a.AllocationType == RefundAllocationType.ShippingClawback)
+            .SingleAsync();
+
+        Assert.Equal(60m, clawback.Amount);
+    }
+
+    [RefundExecutorSqlFact]
+    public async Task AFreeShippingOrderWithoutTheSnapshotIsRefusedWithZeroWrites()
+    {
+        // 舊訂單沒有基本費快照。不得回查現行 ShippingMethod，也不得用 0 猜測。
+        await using var context = RefundExecutorSqlFixture.CreateContext();
+        var refund = await SeedRefundAsync(
+            context, approvedAmount: 440m, freeShipping: true, withBaseFeeSnapshot: false);
+
+        await using var execute = RefundExecutorSqlFixture.CreateContext();
+        var result = await CreateExecutor(execute).ExecuteAsync(Request(refund));
+
+        Assert.Equal(RefundErrorCodes.RefundSnapshotUnavailable, result.ErrorCode);
+
+        await using var verify = RefundExecutorSqlFixture.CreateContext();
+        var stored = await verify.Refunds.SingleAsync(r => r.PublicId == refund.PublicId);
+        Assert.Equal(RefundStatus.Approved, stored.Status);
+        Assert.False(await verify.RefundAllocations.AnyAsync(a => a.RefundId == stored.Id));
+        Assert.False(await verify.Set<AuditLog>()
+            .AnyAsync(log => log.ResourcePublicId == refund.PublicId));
+    }
+
+    [RefundExecutorSqlFact]
+    public async Task TwoConcurrentRefundsOnTheSameOrderCannotExceedThePaidAmount()
+    {
+        // 這是 Serializable 與死結重試存在的**唯一理由**。先前所有 SQL 測試都是
+        // sequential，這條保證從來沒有被實證過。
+        //
+        // 同一張訂單、兩筆不同 Refund、各自核准 500，但訂單只付了 700 ——
+        // 兩筆都成功就是超額退款。
+        await using var context = RefundExecutorSqlFixture.CreateContext();
+        var (first, second) = await SeedTwoRefundsOnOneOrderAsync(context);
+
+        await using var firstContext = RefundExecutorSqlFixture.CreateContext();
+        await using var secondContext = RefundExecutorSqlFixture.CreateContext();
+
+        var results = await Task.WhenAll(
+            CreateExecutor(firstContext).ExecuteAsync(Request(first)),
+            CreateExecutor(secondContext).ExecuteAsync(Request(second)));
+
+        Assert.Equal(1, results.Count(result => result.IsSuccess));
+
+        var loser = results.Single(result => !result.IsSuccess);
+        Assert.Contains(
+            loser.ErrorCode,
+            new[]
+            {
+                RefundErrorCodes.RefundAmountExceeded,
+                RefundErrorCodes.ConcurrencyConflict,
+            });
+
+        await using var verify = RefundExecutorSqlFixture.CreateContext();
+        var settledTotal = await verify.Refunds
+            .Where(r => (r.PublicId == first.PublicId || r.PublicId == second.PublicId) &&
+                        r.SucceededAmount != null)
+            .SumAsync(r => r.SucceededAmount!.Value);
+
+        Assert.Equal(500m, settledTotal);
+        Assert.True(settledTotal <= 700m, $"Settled {settledTotal} exceeds the paid amount 700.");
+
+        // 失敗的那一筆不得留下分攤、稽核或冪等完成紀錄。
+        var loserPublicId = results[0].IsSuccess ? second.PublicId : first.PublicId;
+        var loserRefund = await verify.Refunds.SingleAsync(r => r.PublicId == loserPublicId);
+
+        Assert.Equal(RefundStatus.Approved, loserRefund.Status);
+        Assert.False(await verify.RefundAllocations.AnyAsync(a => a.RefundId == loserRefund.Id));
+        Assert.False(await verify.Set<AuditLog>()
+            .AnyAsync(log => log.ResourcePublicId == loserPublicId));
+    }
+
     private static IRefundExecutor CreateExecutor(DoSelectDbContext context)
     {
         var timeProvider = new FixedTimeProvider(NowUtc);
@@ -454,12 +624,67 @@ public sealed class RefundExecutorSqlServerTests
             RemoteIpAddress: null);
 
     /// <summary>
+    /// 同一張訂單上的兩筆退款，各自核准 500，但訂單只收款 700。
+    /// </summary>
+    /// <remarks>
+    /// 兩筆都成功就是超額退款，因此只能有一筆通過 —— 這正是可退款餘額的範圍查詢
+    /// 需要 Serializable 保護的情境。兩筆各自有獨立的 ReturnRequest 與 ReturnItem，
+    /// 讓後端算出的淨額都是 500。
+    /// </remarks>
+    private static async Task<(Refund First, Refund Second)> SeedTwoRefundsOnOneOrderAsync(
+        DoSelectDbContext context)
+    {
+        var first = await SeedRefundAsync(context, paidAmount: 700m, returnableQuantity: 2);
+        var order = await context.Orders.SingleAsync(o => o.Id == first.OrderId);
+        var second = await SeedSecondRefundAsync(context, order, first.PaymentAttemptId);
+        return (first, second);
+    }
+
+    private static async Task<Refund> SeedSecondRefundAsync(
+        DoSelectDbContext context,
+        Order order,
+        long paymentAttemptId)
+    {
+        var createdAtUtc = NowUtc.AddDays(-3);
+        var item = await context.OrderItems.FirstAsync(i => i.OrderId == order.Id);
+
+        var returnRequest = new ReturnRequest(
+            Guid.NewGuid(), $"RT-{Guid.NewGuid():N}"[..20], order.Id, null,
+            "Defective", "Second damaged unit", 1, createdAtUtc);
+        returnRequest.Transition(ReturnRequestStatus.UnderReview, createdAtUtc);
+        returnRequest.CaptureRefundTrustedInputs(
+            AssemblyFeeDisposition.NotApplicable, returnShippingCost: 0m, createdAtUtc);
+        context.ReturnRequests.Add(returnRequest);
+        await context.SaveChangesAsync();
+
+        context.ReturnItems.Add(new ReturnItem(
+            Guid.NewGuid(), returnRequest.Id, item.Id, quantity: 1,
+            requestedRefund: 500m, inspectionStatus: "Pending", createdAtUtc));
+
+        var refund = new Refund(
+            Guid.NewGuid(), order.Id, returnRequest.Id, paymentAttemptId,
+            $"RF-{Guid.NewGuid():N}"[..20], requestedAmount: 500m,
+            reasonCode: "customer_request", requestedBy: RefundExecutorSqlFixture.AdminUserId,
+            idempotencyKey: $"create-{Guid.NewGuid():N}", createdAtUtc);
+        refund.Approve(500m, RefundExecutorSqlFixture.AdminUserId, createdAtUtc.AddHours(1));
+        context.Refunds.Add(refund);
+        await context.SaveChangesAsync();
+
+        return refund;
+    }
+
+    /// <summary>
     /// 建立一筆可執行的已核准退款，連同它需要的完整上游資料。
     /// </summary>
     private static async Task<Refund> SeedRefundAsync(
         DoSelectDbContext context,
         bool withTrustedInputs = true,
-        string reasonCode = "Defective")
+        string reasonCode = "Defective",
+        decimal approvedAmount = 500m,
+        bool freeShipping = false,
+        bool withBaseFeeSnapshot = true,
+        decimal paidAmount = 1060m,
+        int returnableQuantity = 2)
     {
         var createdAtUtc = NowUtc.AddDays(-3);
 
@@ -484,7 +709,7 @@ public sealed class RefundExecutorSqlServerTests
                 $"guest-{Guid.NewGuid():N}@example.test",
                 OrderStatus.Completed, PaymentStatus.Paid, FulfillmentStatus.Delivered,
                 AssemblyStatus.NotRequired,
-                1000m, 0m, 60m, 0m, 1060m,
+                1000m, 0m, freeShipping ? 0m : 60m, 0m, freeShipping ? 1000m : 1060m,
                 "Test Recipient", "0900000000", "guest@example.test",
                 "100", "Taipei", "Zhongzheng", "Test address", null,
                 "HOME", profile.Id, null, null, null, 1, 1, null, null,
@@ -492,9 +717,11 @@ public sealed class RefundExecutorSqlServerTests
                 new OrderInvoicePreference(
                     SimulatedInvoiceBuyerType.Individual,
                     "guest@example.test", null, null, null, null),
-                1060m,
+                freeShipping ? 1000m : 1060m,
                 null,
-                new OrderPackageSnapshot(packageLimit.Id, 1m, 40m, 30m, 20m, 90m, 100m)),
+                new OrderPackageSnapshot(packageLimit.Id, 1m, 40m, 30m, 20m, 90m, 100m),
+                // 免運規則套用前的配送方式基本費。舊訂單為 Null 且不回填。
+                withBaseFeeSnapshot ? 60m : null),
             createdAtUtc);
         context.Orders.Add(order);
         await context.SaveChangesAsync();
@@ -503,7 +730,7 @@ public sealed class RefundExecutorSqlServerTests
             Guid.NewGuid(), order.Id, null, "SKU-1", "Product", "Sku",
             quantity: 2, listUnitPrice: 500m, saleUnitPrice: 500m, finalUnitPrice: 500m,
             unitCostSnapshot: 300m, lineSubtotal: 1000m, discountAllocation: 0m,
-            lineTotal: 1000m, assemblyGroupKey: null, returnableQuantity: 2,
+            lineTotal: 1000m, assemblyGroupKey: null, returnableQuantity: returnableQuantity,
             createdAtUtc: createdAtUtc, isCouponEligible: false,
             specificationSnapshot: new OrderItemSpecificationSnapshot("{}", "{}", 1));
         context.OrderItems.Add(item);
@@ -511,7 +738,7 @@ public sealed class RefundExecutorSqlServerTests
         // 可退款餘額 = 已成功收款 - 其他退款已成功累計。付款必須真的走到 Paid，
         // 否則餘額為 0，每一條測試都會先撞上 refund_amount_exceeded。
         var attempt = new PaymentAttempt(
-            Guid.NewGuid(), order.Id, PaymentMethod.CreditCard, 1060m, null,
+            Guid.NewGuid(), order.Id, PaymentMethod.CreditCard, paidAmount, null,
             $"pay-{Guid.NewGuid():N}", null, createdAtUtc);
         attempt.Transition(PaymentAttemptStatus.AwaitingPayment, createdAtUtc);
         attempt.Transition(PaymentAttemptStatus.Processing, createdAtUtc);
@@ -541,7 +768,7 @@ public sealed class RefundExecutorSqlServerTests
             $"RF-{Guid.NewGuid():N}"[..20], requestedAmount: 500m,
             reasonCode: "customer_request", requestedBy: RefundExecutorSqlFixture.AdminUserId,
             idempotencyKey: $"create-{Guid.NewGuid():N}", createdAtUtc);
-        refund.Approve(400m, RefundExecutorSqlFixture.AdminUserId, createdAtUtc.AddHours(1));
+        refund.Approve(approvedAmount, RefundExecutorSqlFixture.AdminUserId, createdAtUtc.AddHours(1));
         context.Refunds.Add(refund);
         await context.SaveChangesAsync();
 

@@ -32,8 +32,6 @@ public sealed class RefundExecutor : IRefundExecutor
     /// </summary>
     private const int MaximumAttempts = 3;
 
-    /// <summary>稽核理由中 note 的長度上限。</summary>
-    private const int MaximumNoteLength = 1000;
 
     private const int StatusCodes200Ok = 200;
 
@@ -321,11 +319,15 @@ public sealed class RefundExecutor : IRefundExecutor
                 AuditFieldChange.Code(
                     "allocationCount", null, Text(allocationCount)),
             ],
-            reason: BuildReason(request),
+            // reason 只接受 safe-code；note 走中央 Audit 的獨立欄位。
+            // 先前把兩者串成 `reasonCode: note` 塞進 reason，任何含空白或中文的
+            // note 都會讓 reason 驗證失敗，把一次正常退款變成 500。
+            reason: request.ReasonCode.Trim(),
             correlationId: request.CorrelationId,
             traceId: request.TraceId,
             jobPublicId: null,
-            remoteIpAddress: null));
+            remoteIpAddress: request.RemoteIpAddress,
+            note: request.Note));
     }
 
     private static string Text<T>(T value) where T : IFormattable =>
@@ -365,26 +367,6 @@ public sealed class RefundExecutor : IRefundExecutor
         }
 
         return AuditActor.Create(AuditActorType.Admin, admin.PublicId, roles);
-    }
-
-    /// <summary>
-    /// 稽核理由。<c>note</c> 經長度限制後接在 <c>reasonCode</c> 之後，兩者只存在稽核紀錄裡。
-    /// </summary>
-    private static string BuildReason(ExecuteRefundRequest request)
-    {
-        var reasonCode = request.ReasonCode.Trim();
-        if (string.IsNullOrWhiteSpace(request.Note))
-        {
-            return reasonCode;
-        }
-
-        var note = request.Note.Trim();
-        if (note.Length > MaximumNoteLength)
-        {
-            note = note[..MaximumNoteLength];
-        }
-
-        return $"{reasonCode}: {note}";
     }
 
     /// <summary>

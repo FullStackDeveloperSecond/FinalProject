@@ -82,6 +82,7 @@ public sealed class RefundTrustedInputsReader
                 candidate.ShippingFee,
                 candidate.AssemblyFee,
                 candidate.ShippingFreeThresholdSnapshot,
+                candidate.ShippingMethodBaseFeeSnapshot,
             })
             .SingleOrDefaultAsync(cancellationToken);
 
@@ -135,15 +136,18 @@ public sealed class RefundTrustedInputsReader
         }
 
         // 免運追回：訂單當初免運、退貨後保留金額低於門檻時，要把原本的基準運費追回。
-        // 那個基準費率**沒有訂單快照** —— `Order` 只保存實付運費與免運門檻快照，
-        // `ShippingMethod.BaseFee` 則是目前值，回查它就違反「不得依目前設定回推歷史交易」
-        // （DEC-P287）。
         //
-        // 因此只在它真的會被讀到時拒絕：訂單免運（實付 0）且有門檻快照。
+        // `Orders.ShippingMethodBaseFeeSnapshot` 保存的是**下單當時**、免運規則套用前的
+        // 配送方式基本費（alex 於 PR #54 落地）。舊訂單為 Null 且沒有回填 ——
+        // 現行 `ShippingMethod.BaseFee` 是目前值，回查它就違反「不得依目前設定回推
+        // 歷史交易」（DEC-P287）。
+        //
+        // 因此只在計算真的需要基本費時才要求快照：訂單免運（實付 0）且有門檻快照。
         // 其餘情況 RefundCalculator 根本不會碰這個值（見 ResolveShippingClawback），
         // 傳實付運費即可，不是猜測。
         var wasFreeShipping = order.ShippingFee <= 0m;
-        if (wasFreeShipping && order.ShippingFreeThresholdSnapshot is not null)
+        var needsBaseFee = wasFreeShipping && order.ShippingFreeThresholdSnapshot is not null;
+        if (needsBaseFee && order.ShippingMethodBaseFeeSnapshot is null)
         {
             return null;
         }
@@ -152,7 +156,7 @@ public sealed class RefundTrustedInputsReader
             new RefundOrderSnapshot(
                 orderLines,
                 order.ShippingFee,
-                order.ShippingFee,
+                order.ShippingMethodBaseFeeSnapshot ?? order.ShippingFee,
                 order.ShippingFreeThresholdSnapshot,
                 order.AssemblyFee,
                 coupon?.AppliedAmount ?? 0m,

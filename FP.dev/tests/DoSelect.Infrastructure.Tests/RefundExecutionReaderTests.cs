@@ -127,7 +127,17 @@ public sealed class RefundExecutionReaderTests
 
         Assert.DoesNotContain("refund.ReasonCode =", source, StringComparison.Ordinal);
         Assert.DoesNotContain("refund.Note", source, StringComparison.Ordinal);
-        Assert.Contains("reason: BuildReason(request)", source, StringComparison.Ordinal);
+
+        // reason 只收 safe-code，note 走中央 Audit 的獨立欄位。先前兩者被串成
+        // `reasonCode: note` 塞進 reason，任何含空白或中文的 note 都會讓 reason
+        // 驗證失敗，把一次正常退款變成 500。
+        Assert.Contains("reason: request.ReasonCode.Trim()", source, StringComparison.Ordinal);
+        Assert.Contains("note: request.Note", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("BuildReason", source, StringComparison.Ordinal);
+
+        // 請求來源不得被丟掉。
+        Assert.Contains(
+            "remoteIpAddress: request.RemoteIpAddress", source, StringComparison.Ordinal);
     }
 
     [Fact]

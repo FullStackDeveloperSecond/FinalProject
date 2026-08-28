@@ -71,26 +71,59 @@ public sealed class ExecuteRefundServiceTests
         var result = await EvaluateAsync(Request());
 
         Assert.True(result.IsSuccess);
-        Assert.Equal(400m, result.Plan!.Amount);
+        Assert.Equal(500m, result.Plan!.Amount);
         Assert.Equal("finance-1", result.Plan.ExecutedByAdminUserId);
         Assert.Equal(CurrentRowVersion, result.Plan.ExpectedRefundRowVersion);
     }
 
     [Fact]
-    public async Task ThePlanCarriesTheServerGeneratedAllocations()
+    public async Task TheSignedAllocationTotalEqualsTheApprovedAmount()
     {
-        // 分攤必須由後端算出並隨計畫帶出，Writer 才能在同一交易內寫進去。
-        var result = await EvaluateAsync(Request());
+        // 這條才是分攤的真正保證。先前只斷言「非空且每筆為正」，那在
+        // 分攤合計與核准金額不同時**照樣通過** —— 而那正是會寫出一筆自我矛盾
+        // 財務紀錄的情況：SucceededAmount 記核准金額，分攤合計卻是另一個數。
+        var result = await EvaluateAsync(Request(), Snapshot(approvedAmount: 500m));
 
-        Assert.NotEmpty(result.Plan!.Allocations);
+        Assert.True(result.IsSuccess);
+
+        var signedTotal = result.Plan!.Allocations.Sum(allocation =>
+            RefundPolicy.DirectionOf(allocation.Type) == RefundAllocationDirection.Credit
+                ? allocation.Amount
+                : -allocation.Amount);
+
+        Assert.Equal(500m, signedTotal);
+        Assert.Equal(result.Plan.Amount, signedTotal);
         Assert.All(result.Plan.Allocations, allocation => Assert.True(allocation.Amount > 0m));
+    }
+
+    [Fact]
+    public async Task AnApprovedAmountThatDisagreesWithTheCalculationIsRefused()
+    {
+        // 可信快照算出 500（1 件 × 500，無運費、無折扣），但退款只核准 400。
+        // 執行下去會讓 SucceededAmount 與稽核寫 400、分攤合計卻是 500，
+        // 退款交易、分攤與後續發票折讓永久對不起來，而且分攤寫入後不可變。
+        var result = await EvaluateAsync(Request(), Snapshot(approvedAmount: 400m));
+
+        Assert.Equal(RefundErrorCodes.RefundStateConflict, result.ErrorCode);
+        Assert.Null(result.Plan);
+    }
+
+    [Fact]
+    public async Task AnApprovedAmountAboveTheCalculationIsAlsoRefused()
+    {
+        // 兩個方向都要擋：核准金額大於可信快照算出的淨額同樣是矛盾。
+        var result = await EvaluateAsync(
+            Request(), Snapshot(approvedAmount: 600m, refundableBalance: 5000m));
+
+        Assert.Equal(RefundErrorCodes.RefundStateConflict, result.ErrorCode);
+        Assert.Null(result.Plan);
     }
 
     [Fact]
     public async Task AnAmountExactlyEqualToTheBalanceIsAllowed()
     {
         var result = await EvaluateAsync(
-            Request(), Snapshot(approvedAmount: 1000m, refundableBalance: 1000m));
+            Request(), Snapshot(approvedAmount: 500m, refundableBalance: 500m));
 
         Assert.True(result.IsSuccess);
     }
@@ -112,7 +145,7 @@ public sealed class ExecuteRefundServiceTests
         var result = await EvaluateAsync(Request(), Snapshot(status: RefundStatus.Failed));
 
         Assert.True(result.IsSuccess);
-        Assert.Equal(400m, result.Plan!.Amount);
+        Assert.Equal(500m, result.Plan!.Amount);
     }
 
     [Fact]
@@ -121,7 +154,7 @@ public sealed class ExecuteRefundServiceTests
         // 重播由外層 Executor 判定並回放，根本不會走到這裡。走到這裡代表換了一把
         // 新金鑰再送一次已完成的退款 —— 那是狀態衝突，不得產生第二次副作用。
         var result = await EvaluateAsync(
-            Request(), Snapshot(status: RefundStatus.Succeeded, succeededAmount: 400m));
+            Request(), Snapshot(status: RefundStatus.Succeeded, succeededAmount: 500m));
 
         Assert.Equal(RefundErrorCodes.RefundStateConflict, result.ErrorCode);
         Assert.Null(result.Plan);
@@ -253,7 +286,7 @@ public sealed class ExecuteRefundServiceTests
 
     private static RefundExecutionSnapshot Snapshot(
         RefundStatus status = RefundStatus.Approved,
-        decimal? approvedAmount = 400m,
+        decimal? approvedAmount = 500m,
         decimal? succeededAmount = null,
         decimal refundableBalance = 1000m,
         bool withTrustedInputs = true) =>

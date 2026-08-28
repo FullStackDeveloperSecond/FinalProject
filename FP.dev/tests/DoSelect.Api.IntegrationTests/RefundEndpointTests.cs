@@ -26,7 +26,7 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
     [Fact]
     public async Task AnonymousCallerIsChallenged()
     {
-        using var factory = CreateFactory(new FakeRefundExecutor(Settled(400m)));
+        using var factory = CreateFactory(new FakeRefundExecutor(Settled(500m)));
         using var client = factory.CreateClient();
 
         using var response = await PostAsync(client, signedIn: false);
@@ -37,7 +37,7 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
     [Fact]
     public async Task AnAdminWithoutTheFinanceRoleIsForbidden()
     {
-        using var factory = CreateFactory(new FakeRefundExecutor(Settled(400m)));
+        using var factory = CreateFactory(new FakeRefundExecutor(Settled(500m)));
         using var client = factory.CreateClient();
         await SignInAsync(client, includeMfa: true, DoSelectRoles.CatalogManager);
 
@@ -50,7 +50,7 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
     public async Task AFinanceManagerWithoutMultiFactorIsForbidden()
     {
         // 工程包要求退款執行需 TOTP 二次確認；該條件由 Policy 的 MFA 宣告保證。
-        using var factory = CreateFactory(new FakeRefundExecutor(Settled(400m)));
+        using var factory = CreateFactory(new FakeRefundExecutor(Settled(500m)));
         using var client = factory.CreateClient();
         await SignInAsync(client, includeMfa: false, DoSelectRoles.FinanceManager);
 
@@ -62,7 +62,7 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
     [Fact]
     public async Task AMissingIdempotencyKeyIsRejectedBeforeAnyExecution()
     {
-        var executor = new FakeRefundExecutor(Settled(400m));
+        var executor = new FakeRefundExecutor(Settled(500m));
         using var factory = CreateFactory(executor);
         using var client = factory.CreateClient();
         await SignInAsync(client, includeMfa: true, DoSelectRoles.FinanceManager);
@@ -76,7 +76,7 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
     [Fact]
     public async Task AnAuthorisedExecutionReturnsTheSettledAmount()
     {
-        var executor = new FakeRefundExecutor(Settled(400m));
+        var executor = new FakeRefundExecutor(Settled(500m));
         using var factory = CreateFactory(executor);
         using var client = factory.CreateClient();
         await SignInAsync(client, includeMfa: true, DoSelectRoles.FinanceManager);
@@ -86,7 +86,7 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<RefundDto>(ResponseJsonOptions);
         Assert.Equal(RefundPublicId, body!.PublicId);
-        Assert.Equal(400m, body.SucceededAmount);
+        Assert.Equal(500m, body.SucceededAmount);
         Assert.Equal(RefundPublicId, executor.LastRequest!.RefundPublicId);
         Assert.Equal("refund-1", executor.LastRequest.IdempotencyKey);
     }
@@ -96,7 +96,7 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
     {
         // 這個欄位曾經在 Body 上宣告卻從未傳進 Application 契約，
         // 於是拿舊畫面版本執行的請求照樣成功。
-        var executor = new FakeRefundExecutor(Settled(400m));
+        var executor = new FakeRefundExecutor(Settled(500m));
         using var factory = CreateFactory(executor);
         using var client = factory.CreateClient();
         await SignInAsync(client, includeMfa: true, DoSelectRoles.FinanceManager);
@@ -109,13 +109,57 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
             executor.LastRequest!.RefundRowVersion);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(4)]
+    [InlineData(16)]
+    public async Task ARowVersionOfTheWrongLengthReturns400NotAServerError(int length)
+    {
+        // Application 層的同一條檢查是丟 ArgumentException，而那個例外沒有專屬
+        // handler，會落到 GlobalExceptionHandler 變成 500 unexpected_error ——
+        // 呼叫端只是送錯了長度，不該看到「伺服器錯誤」。
+        var executor = new FakeRefundExecutor(Settled(500m));
+        using var factory = CreateFactory(executor);
+        using var client = factory.CreateClient();
+        await SignInAsync(client, includeMfa: true, DoSelectRoles.FinanceManager);
+
+        using var response = await PostAsync(client, rowVersion: new byte[length]);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Null(executor.LastRequest);
+
+        var problem = await response.Content.ReadAsStringAsync();
+        Assert.Contains("validation_failed", problem, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ALegalNoteReachesTheExecutorUnmodified()
+    {
+        // note 走中央 Audit 的獨立欄位；端點不得改寫或截斷它。
+        //
+        // 請求 IP 的覆蓋在 RefundExecutorSqlServerTests：TestServer 不提供真實連線 IP，
+        // 在這一層斷言它只會測到主機環境，測不出程式行為。
+        var executor = new FakeRefundExecutor(Settled(500m));
+        using var factory = CreateFactory(executor);
+        using var client = factory.CreateClient();
+        await SignInAsync(client, includeMfa: true, DoSelectRoles.FinanceManager);
+
+        using var response = await PostAsync(
+            client, note: "Customer confirmed the damaged item by phone");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(
+            "Customer confirmed the damaged item by phone",
+            executor.LastRequest!.Note);
+    }
+
     [Fact]
     public async Task TheCorrelationIdAndTraceIdComeFromDifferentSources()
     {
         // 兩者曾經都取自 HttpContext.TraceIdentifier。CorrelationIdMiddleware 會把
         // 合法的 X-Correlation-ID 寫進 TraceIdentifier，而那不是中央 Audit 要求的
         // 32 位 W3C TraceId —— 混用會讓一次正常退款變成 500。
-        var executor = new FakeRefundExecutor(Settled(400m));
+        var executor = new FakeRefundExecutor(Settled(500m));
         using var factory = CreateFactory(executor);
         using var client = factory.CreateClient();
         await SignInAsync(client, includeMfa: true, DoSelectRoles.FinanceManager);
@@ -136,7 +180,7 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
         // 重播由共用 IIdempotencyExecutor 判定並回放；端點回同一份 RefundDto，
         // 呼叫端不需要分辨，也不該從回應看出差別。
         using var factory = CreateFactory(
-            new FakeRefundExecutor(ExecuteRefundResult.Replayed(400m)));
+            new FakeRefundExecutor(ExecuteRefundResult.Replayed(500m)));
         using var client = factory.CreateClient();
         await SignInAsync(client, includeMfa: true, DoSelectRoles.FinanceManager);
 
@@ -144,14 +188,14 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<RefundDto>(ResponseJsonOptions);
-        Assert.Equal(400m, body!.SucceededAmount);
+        Assert.Equal(500m, body!.SucceededAmount);
     }
 
     [Fact]
     public async Task TheResponseNeverExposesAnInternalIdentityId()
     {
         // requestedBy／approvedBy／executedBy 只回 PublicId 與遮蔽標籤（DEC-P290）。
-        using var factory = CreateFactory(new FakeRefundExecutor(Settled(400m)));
+        using var factory = CreateFactory(new FakeRefundExecutor(Settled(500m)));
         using var client = factory.CreateClient();
         await SignInAsync(client, includeMfa: true, DoSelectRoles.FinanceManager);
 
@@ -212,7 +256,9 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
         HttpClient client,
         string? idempotencyKey = "refund-1",
         bool signedIn = true,
-        string? correlationId = null)
+        string? correlationId = null,
+        byte[]? rowVersion = null,
+        string? note = null)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, ExecuteRoute);
         if (idempotencyKey is not null)
@@ -234,8 +280,8 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
         request.Content = JsonContent.Create(new
         {
             reasonCode = "customer_request",
-            note = (string?)null,
-            refundRowVersion = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 },
+            note,
+            refundRowVersion = rowVersion ?? new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 },
         });
 
         return await client.SendAsync(request);
@@ -300,9 +346,9 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
                 new Guid("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
                 ReturnPublicId: null,
                 RefundStatus.Succeeded,
-                RequestedAmount: 400m,
-                ApprovedAmount: 400m,
-                SucceededAmount: 400m,
+                RequestedAmount: 500m,
+                ApprovedAmount: 500m,
+                SucceededAmount: 500m,
                 Allocations: [],
                 RequestedBy: null,
                 ApprovedBy: null,
