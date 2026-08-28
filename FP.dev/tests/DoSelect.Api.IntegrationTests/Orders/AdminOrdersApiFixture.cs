@@ -19,9 +19,8 @@ namespace DoSelect.Api.IntegrationTests.Orders;
 /// </summary>
 public sealed class AdminOrdersApiFixture : IAsyncLifetime
 {
-    private const string ConnectionString =
-        "Server=.\\SQL2025;Database=DoSelectApiAdminOrderTests;Trusted_Connection=True;" +
-        "TrustServerCertificate=True;";
+    private static readonly string ConnectionString =
+        SqlServerTestConnection.Build("DoSelectApiAdminOrderTests");
 
     private static readonly IReadOnlyDictionary<string, string> EnvironmentOverrides = new Dictionary<string, string>
     {
