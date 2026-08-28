@@ -2,13 +2,16 @@
 import { ErrorState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
 import { ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import BuildItemsEditor, { type EditableBuildItem } from '../features/builds/components/BuildItemsEditor.vue'
 import CompatibilityFindingsList from '../features/builds/components/CompatibilityFindingsList.vue'
 import { useCompatibilityCheck, useCreateBuildList } from '../features/builds/useBuilds'
 import { clearGuestBuildDraft, loadGuestBuildDraft, saveGuestBuildDraft } from '../features/builds/guestBuildDraft'
+import { useSessionStore } from '../stores/session'
 
 const router = useRouter()
+const route = useRoute()
+const sessionStore = useSessionStore()
 
 const draft = loadGuestBuildDraft()
 const name = ref(draft.name)
@@ -51,15 +54,32 @@ async function save(): Promise<void> {
     clearGuestBuildDraft()
     await router.push(`/builds/${buildList.publicId}`)
   } catch (error) {
+    // 組長 PR #35 review, item 2: a guest without a session used to be sent to /unauthorized —
+    // a dead end that abandons the draft. Redirect to login instead, preserving this exact page
+    // (draft included, since it only clears from localStorage on a real 200) as the return
+    // target; `autoResumeAfterLogin` below finishes the save once they're back and authenticated.
     if (isApiError(error) && error.status === 401) {
-      // 沒有登入流程可導向到 /login（此 repo 尚未建置任何登入頁），先導向現有的 401 頁面並保留草稿。
-      await router.push('/unauthorized')
+      await router.push({ path: '/login', query: { redirect: route.fullPath } })
       return
     }
 
     saveError.value = error
   }
 }
+
+// 組長 PR #35 review, item 2: "登入成功後再把 localStorage 草稿建立成新的會員清單" — once the
+// shopper is back on this exact page (LoginForm's redirect target) and the session has actually
+// resolved to authenticated, finish the save automatically instead of making them press the
+// button again. Guarded to fire at most once per page load so it can't loop if the create call
+// itself keeps failing for some other reason.
+let hasAttemptedAutoResume = false
+watch(() => sessionStore.status, (status) => {
+  if (status !== 'authenticated' || hasAttemptedAutoResume || !canSave.value) {
+    return
+  }
+  hasAttemptedAutoResume = true
+  void save()
+}, { immediate: true })
 </script>
 
 <template>

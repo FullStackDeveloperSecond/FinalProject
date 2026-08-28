@@ -1,19 +1,24 @@
 <script setup lang="ts">
-import type { CompatibilityFindingDto, CompatibilityOverall } from '../types'
+import type { CompatibilityFindingDto } from '../types'
 
+// `overall`/`severity` are plain `string` on the wire (the backend serializes them via
+// HasConversion<string>() with no OpenAPI enum annotation) — CompatibilityOverall/Severity are
+// this feature's own narrower unions for known values, not a wire guarantee. Falling back to the
+// raw string for anything unrecognized keeps this resilient to a value this component doesn't
+// know about yet, instead of rendering `undefined`.
 defineProps<{
-  overall: CompatibilityOverall
+  overall: string
   results: CompatibilityFindingDto[]
 }>()
 
-const overallLabels: Record<CompatibilityOverall, string> = {
+const overallLabels: Record<string, string> = {
   compatible: '相容',
   warning: '有警告，仍可繼續',
   blocked: '不相容，無法加入購物車',
   insufficientData: '規格資料不足，無法完整判斷',
 }
 
-const severityLabels: Record<CompatibilityFindingDto['severity'], string> = {
+const severityLabels: Record<string, string> = {
   compatible: '相容',
   warning: '警告',
   blocked: '不相容',
@@ -29,7 +34,7 @@ const severityLabels: Record<CompatibilityFindingDto['severity'], string> = {
     aria-live="polite"
   >
     <p class="compat-findings__overall">
-      相容性檢查結果：{{ overallLabels[overall] }}
+      相容性檢查結果：{{ overallLabels[overall] ?? overall }}
     </p>
     <ul
       v-if="results.length > 0"
@@ -41,7 +46,7 @@ const severityLabels: Record<CompatibilityFindingDto['severity'], string> = {
         class="compat-findings__item"
         :class="`compat-findings__item--${finding.severity}`"
       >
-        <span class="compat-findings__severity">{{ severityLabels[finding.severity] }}</span>
+        <span class="compat-findings__severity">{{ severityLabels[finding.severity] ?? finding.severity }}</span>
         <span class="compat-findings__rule">{{ finding.ruleCode }}</span>
         <span class="compat-findings__message">{{ finding.messageKey }}</span>
       </li>

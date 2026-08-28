@@ -12,6 +12,7 @@ using DoSelect.Domain.Members;
 using DoSelect.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.Options;
 
 namespace DoSelect.Infrastructure.Builds;
 
@@ -45,19 +46,22 @@ public sealed class EfBuildListService : IBuildListService
     private readonly ICompatibilityCatalogReader _catalogReader;
     private readonly ICartService _cartService;
     private readonly IIdempotencyExecutor _idempotencyExecutor;
+    private readonly FrontendLinkOptions _frontendLinkOptions;
 
     public EfBuildListService(
         DoSelectDbContext dbContext,
         ICompatibilityCheckService compatibilityCheckService,
         ICompatibilityCatalogReader catalogReader,
         ICartService cartService,
-        IIdempotencyExecutor idempotencyExecutor)
+        IIdempotencyExecutor idempotencyExecutor,
+        IOptions<FrontendLinkOptions> frontendLinkOptions)
     {
         _dbContext = dbContext;
         _compatibilityCheckService = compatibilityCheckService;
         _catalogReader = catalogReader;
         _cartService = cartService;
         _idempotencyExecutor = idempotencyExecutor;
+        _frontendLinkOptions = frontendLinkOptions.Value;
     }
 
     public async Task<PageResult<BuildListSummaryDto>> ListAsync(
@@ -423,6 +427,7 @@ public sealed class EfBuildListService : IBuildListService
     {
         var (itemDtos, compatibilityDto, totals) = await ComposeItemsAsync(
             rows, buildList.Id, cancellationToken, precomputedCompatibility);
+        var activeShare = await LoadActiveShareAsync(buildList.Id, cancellationToken);
 
         return new BuildListDto(
             buildList.PublicId,
@@ -430,8 +435,21 @@ public sealed class EfBuildListService : IBuildListService
             itemDtos,
             compatibilityDto,
             totals,
+            activeShare,
             buildList.UpdatedAtUtc,
             buildList.RowVersion);
+    }
+
+    /// <summary>PR #35 review, item 3: what a reload CAN recover about an existing share — see <see cref="BuildActiveShareDto"/>'s remarks for why the URL itself can't be.</summary>
+    private async Task<BuildActiveShareDto?> LoadActiveShareAsync(long buildListId, CancellationToken cancellationToken)
+    {
+        var now = DateTime.UtcNow;
+        return await _dbContext.BuildShareTokens.AsNoTracking()
+            .Where(token => token.BuildListId == buildListId &&
+                token.RevokedAtUtc == null &&
+                (token.ExpiresAtUtc == null || token.ExpiresAtUtc > now))
+            .Select(token => new BuildActiveShareDto(token.PublicId, token.ExpiresAtUtc))
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     /// <summary>
@@ -455,6 +473,15 @@ public sealed class EfBuildListService : IBuildListService
         var availableQuantityBySkuId = await _dbContext.InventoryBalances.AsNoTracking()
             .Where(balance => skuIds.Contains(balance.SkuId))
             .ToDictionaryAsync(balance => balance.SkuId, balance => balance.AvailableQuantity, cancellationToken);
+        // PR #35 review, item 1: BuildItemDto.CategoryCode lets the frontend regroup an existing
+        // build's items into their compatibility-catalog slot without a second round trip.
+        var categoryCodeBySkuId = await (
+            from sku in _dbContext.Skus.AsNoTracking()
+            join product in _dbContext.Products.AsNoTracking() on sku.ProductId equals product.Id
+            join category in _dbContext.Categories.AsNoTracking() on product.CategoryId equals category.Id
+            where skuIds.Contains(sku.Id)
+            select new { sku.Id, category.Code })
+            .ToDictionaryAsync(row => row.Id, row => row.Code, cancellationToken);
 
         var itemDtos = rows.Select(row =>
         {
@@ -468,6 +495,7 @@ public sealed class EfBuildListService : IBuildListService
                 row.Sku.PublicId,
                 row.Sku.SkuCode,
                 row.Sku.NameZhTw,
+                categoryCodeBySkuId[row.Sku.Id],
                 row.Quantity,
                 row.SortOrder,
                 unitPrice,
@@ -524,7 +552,12 @@ public sealed class EfBuildListService : IBuildListService
 
         await transaction.CommitAsync(cancellationToken);
 
-        return new BuildShareDto(shareToken.PublicId, $"/api/v1/build-shares/{rawToken}", shareToken.ExpiresAtUtc);
+        // PR #35 review, item 3: was the *API* endpoint's own path (`/api/v1/build-shares/{token}`
+        // — JSON, not a page), not something a shopper can open and see anything on. The frontend
+        // page that actually renders a shared build is customer-web's `/builds/shared/{token}`
+        // route (`SharedBuildPage.vue`), which itself calls that API endpoint.
+        var shareUrl = $"{_frontendLinkOptions.BaseUrl.TrimEnd('/')}/builds/shared/{rawToken}";
+        return new BuildShareDto(shareToken.PublicId, shareUrl, shareToken.ExpiresAtUtc);
     }
 
     public async Task RevokeShareAsync(

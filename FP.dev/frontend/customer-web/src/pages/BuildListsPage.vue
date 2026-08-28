@@ -1,11 +1,31 @@
 <script setup lang="ts">
 import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
-import { reactive } from 'vue'
+import { computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useBuildLists } from '../features/builds/useBuilds'
 
-const query = reactive({ pageNumber: 1, pageSize: 20 })
+// 組長 PR #35 review, item 7: the API already returns paging info (pageNumber/totalPages) —
+// the page just never surfaced any way to move past the first 20 lists. Query-string-driven
+// (mirrors ProductsPage.vue's own pattern) so the current page is bookmarkable/shareable and
+// survives back/forward navigation.
+const route = useRoute()
+const router = useRouter()
+const pageNumber = computed(() => {
+  const raw = route.query.page
+  const parsed = typeof raw === 'string' ? Number(raw) : NaN
+  return Number.isFinite(parsed) && parsed >= 1 ? Math.trunc(parsed) : 1
+})
+const pageSize = 20
+
+const query = computed(() => ({ pageNumber: pageNumber.value, pageSize }))
 const { data: result, isPending, isError, error, refetch } = useBuildLists(query)
+
+const totalPages = computed(() => Number(result.value?.totalPages ?? 0))
+
+function goToPage(nextPage: number): void {
+  void router.push({ query: { ...route.query, page: String(nextPage) } })
+}
 
 const overallLabels: Record<string, string> = {
   compatible: '相容',
@@ -63,13 +83,34 @@ function formatTwd(amount: number): string {
           {{ item.name }}
         </RouterLink>
         <span class="build-lists-page__meta">
-          {{ item.itemCount }} 項零件・{{ overallLabels[item.compatibilityOverall] }}・{{ formatTwd(item.grandTotal) }}
+          {{ item.itemCount }} 項零件・{{ overallLabels[item.compatibilityOverall] ?? item.compatibilityOverall }}・{{ formatTwd(Number(item.grandTotal)) }}
           <template v-if="item.isShared">
             ・已分享
           </template>
         </span>
       </li>
     </ul>
+
+    <div
+      v-if="totalPages > 1"
+      class="build-lists-page__pagination"
+    >
+      <button
+        type="button"
+        :disabled="pageNumber <= 1"
+        @click="goToPage(pageNumber - 1)"
+      >
+        上一頁
+      </button>
+      <span>第 {{ pageNumber }} / {{ totalPages }} 頁</span>
+      <button
+        type="button"
+        :disabled="pageNumber >= totalPages"
+        @click="goToPage(pageNumber + 1)"
+      >
+        下一頁
+      </button>
+    </div>
   </section>
 </template>
 
@@ -103,5 +144,12 @@ function formatTwd(amount: number): string {
 .build-lists-page__meta {
   color: #4b5563;
   font-size: 0.875rem;
+}
+
+.build-lists-page__pagination {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-block-start: 1.5rem;
 }
 </style>

@@ -1,19 +1,20 @@
 <script setup lang="ts">
 /**
- * Component-slot picker stand-in: there is no Catalog API on this backend branch yet
- * (catalog-api hasn't merged to `dev`, so `feature/build-compat-api` doesn't carry its
- * controllers either) — a real picker would let the shopper browse/search SKUs per build
- * slot (CPU／主機板／顯卡…). Until that lands, each row is a manually-entered SKU PublicId
- * + quantity, which is enough to exercise the real create/update/compatibility-check API
- * end to end. Flagged for 組長 like the other cross-slice gaps this session found; swap
- * this out for a real `features/catalog` search picker once catalog-frontend merges.
+ * 組長 PR #35 review, item 1: was a manually-typed "SKU PublicId (GUID)" text box, which didn't
+ * match the PR's own "pick a SKU per component slot" description and wasn't usable by an
+ * ordinary shopper. Now renders the 8 build-component category slots
+ * (`BUILD_CATEGORY_SLOTS`) — CPU／主機板／顯卡／PSU／機殼／散熱器 each hold at most one SKU
+ * (selecting a new one replaces it); 記憶體／儲存裝置 accept multiple rows.
  */
-import { reactive } from 'vue'
+import { computed } from 'vue'
+import BuildCategorySlotPicker from './BuildCategorySlotPicker.vue'
+import { BUILD_CATEGORY_SLOTS } from '../types'
 
 export interface EditableBuildItem {
   skuPublicId: string
   quantity: number
   name: string
+  categoryCode: string
 }
 
 const props = defineProps<{
@@ -25,112 +26,101 @@ const emit = defineEmits<{
   'update:items': [items: EditableBuildItem[]]
 }>()
 
-const draftRow = reactive<EditableBuildItem>({ skuPublicId: '', quantity: 1, name: '' })
-
-function addRow(): void {
-  if (!draftRow.skuPublicId.trim() || draftRow.quantity < 1) {
-    return
+const itemsByCategory = computed(() => {
+  const map = new Map<string, EditableBuildItem[]>()
+  for (const item of props.items) {
+    const existing = map.get(item.categoryCode)
+    if (existing) {
+      existing.push(item)
+    } else {
+      map.set(item.categoryCode, [item])
+    }
   }
+  return map
+})
 
-  emit('update:items', [...props.items, { ...draftRow }])
-  draftRow.skuPublicId = ''
-  draftRow.quantity = 1
-  draftRow.name = ''
+function selectForSlot(
+  slot: { code: string, singleton: boolean },
+  picked: { skuPublicId: string, skuCode: string, name: string },
+): void {
+  const newItem: EditableBuildItem = {
+    skuPublicId: picked.skuPublicId, quantity: 1, name: picked.name, categoryCode: slot.code,
+  }
+  const remaining = slot.singleton
+    ? props.items.filter((item) => item.categoryCode !== slot.code)
+    : props.items
+  emit('update:items', [...remaining, newItem])
 }
 
-function removeRow(index: number): void {
-  emit('update:items', props.items.filter((_, i) => i !== index))
+function removeItem(skuPublicId: string, categoryCode: string): void {
+  emit('update:items', props.items.filter(
+    (item) => !(item.skuPublicId === skuPublicId && item.categoryCode === categoryCode),
+  ))
 }
 
-function updateQuantity(index: number, quantity: number): void {
-  emit('update:items', props.items.map((item, i) => (i === index ? { ...item, quantity } : item)))
+function updateQuantity(skuPublicId: string, categoryCode: string, quantity: number): void {
+  emit('update:items', props.items.map((item) =>
+    (item.skuPublicId === skuPublicId && item.categoryCode === categoryCode ? { ...item, quantity } : item)))
 }
 </script>
 
 <template>
   <div class="build-items-editor">
-    <table
-      v-if="items.length > 0"
-      class="build-items-editor__table"
+    <section
+      v-for="slot in BUILD_CATEGORY_SLOTS"
+      :key="slot.code"
+      class="build-items-editor__slot"
     >
-      <thead>
-        <tr>
-          <th>SKU PublicId</th>
-          <th>名稱</th>
-          <th>數量</th>
-          <th>操作</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr
-          v-for="(item, index) in items"
-          :key="`${item.skuPublicId}-${index}`"
+      <h3 class="build-items-editor__slot-label">
+        {{ slot.label }}
+        <span
+          v-if="!(itemsByCategory.get(slot.code)?.length)"
+          class="build-items-editor__slot-missing"
         >
-          <td class="build-items-editor__sku">
-            {{ item.skuPublicId }}
-          </td>
-          <td>{{ item.name || '—' }}</td>
-          <td>
-            <input
-              type="number"
-              min="1"
-              max="99"
-              :value="item.quantity"
-              :disabled="disabled"
-              aria-label="數量"
-              @change="updateQuantity(index, Number(($event.target as HTMLInputElement).value))"
-            >
-          </td>
-          <td>
-            <button
-              type="button"
-              :disabled="disabled"
-              @click="removeRow(index)"
-            >
-              移除
-            </button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-    <p
-      v-else
-      class="build-items-editor__empty"
-    >
-      尚未加入任何零件。
-    </p>
+          （尚未選擇）
+        </span>
+      </h3>
 
-    <div class="build-items-editor__add-row">
-      <input
-        v-model="draftRow.skuPublicId"
-        type="text"
-        placeholder="SKU PublicId（GUID）"
-        aria-label="SKU PublicId"
-        :disabled="disabled"
+      <ul
+        v-if="itemsByCategory.get(slot.code)?.length"
+        class="build-items-editor__slot-items"
       >
-      <input
-        v-model="draftRow.name"
-        type="text"
-        placeholder="顯示名稱（選填）"
-        aria-label="顯示名稱"
-        :disabled="disabled"
+        <li
+          v-for="item in itemsByCategory.get(slot.code)"
+          :key="item.skuPublicId"
+        >
+          <span class="build-items-editor__item-name">{{ item.name }}</span>
+          <input
+            type="number"
+            min="1"
+            max="99"
+            :value="item.quantity"
+            :disabled="disabled"
+            :aria-label="`${item.name} 數量`"
+            @change="updateQuantity(item.skuPublicId, slot.code, Number(($event.target as HTMLInputElement).value))"
+          >
+          <button
+            type="button"
+            :disabled="disabled"
+            @click="removeItem(item.skuPublicId, slot.code)"
+          >
+            移除
+          </button>
+        </li>
+      </ul>
+
+      <p
+        v-if="slot.singleton && itemsByCategory.get(slot.code)?.length"
+        class="build-items-editor__slot-replace-hint"
       >
-      <input
-        v-model.number="draftRow.quantity"
-        type="number"
-        min="1"
-        max="99"
-        aria-label="數量"
+        選擇新商品將取代上面這一項。
+      </p>
+      <BuildCategorySlotPicker
+        :category-code="slot.code"
         :disabled="disabled"
-      >
-      <button
-        type="button"
-        :disabled="disabled"
-        @click="addRow"
-      >
-        加入零件
-      </button>
-    </div>
+        @select="(picked) => selectForSlot(slot, picked)"
+      />
+    </section>
   </div>
 </template>
 
@@ -138,50 +128,56 @@ function updateQuantity(index: number, quantity: number): void {
 .build-items-editor {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 1.25rem;
 }
 
-.build-items-editor__table {
-  width: 100%;
-  border-collapse: collapse;
+.build-items-editor__slot {
+  padding: 0.75rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
 }
 
-.build-items-editor__table th,
-.build-items-editor__table td {
-  padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid #e5e7eb;
-  text-align: left;
+.build-items-editor__slot-label {
+  margin: 0 0 0.5rem;
+  font-size: 0.9375rem;
+  font-weight: 700;
 }
 
-.build-items-editor__sku {
-  font-family: ui-monospace, SFMono-Regular, monospace;
+.build-items-editor__slot-missing {
+  font-weight: 400;
+  color: #b91c1c;
+}
+
+.build-items-editor__slot-replace-hint {
+  margin: 0 0 0.375rem;
   font-size: 0.8125rem;
-  overflow-wrap: anywhere;
+  color: #6b7280;
 }
 
-.build-items-editor__empty {
-  color: #4b5563;
-}
-
-.build-items-editor__add-row {
+.build-items-editor__slot-items {
+  list-style: none;
+  margin: 0 0 0.5rem;
+  padding: 0;
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.build-items-editor__slot-items li {
+  display: flex;
+  align-items: center;
   gap: 0.5rem;
 }
 
-.build-items-editor__add-row input {
-  min-height: 2.75rem;
-  padding: 0.5rem 0.75rem;
+.build-items-editor__item-name {
+  flex: 1;
+}
+
+.build-items-editor__slot-items input {
+  width: 4.5rem;
+  padding: 0.375rem 0.5rem;
   border: 1px solid #d1d5db;
-  border-radius: 0.5rem;
+  border-radius: 0.375rem;
   font: inherit;
-}
-
-.build-items-editor__add-row input[type='text'] {
-  flex: 1 1 12rem;
-}
-
-.build-items-editor__add-row input[type='number'] {
-  width: 6rem;
 }
 </style>

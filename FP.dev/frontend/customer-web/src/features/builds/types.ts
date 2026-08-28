@@ -1,233 +1,53 @@
+import type { components } from '@doselect/web-shared/api'
+
+export type BuildItemDto = components['schemas']['BuildItemDto']
+export type BuildCompatibilitySummaryDto = components['schemas']['BuildCompatibilitySummaryDto']
+export type CompatibilityFindingDto = components['schemas']['CompatibilityFindingDto']
+export type BuildTotalsDto = components['schemas']['BuildTotalsDto']
+export type BuildListDto = components['schemas']['BuildListDto']
+export type BuildListSummaryDto = components['schemas']['BuildListSummaryDto']
+export type BuildShareDto = components['schemas']['BuildShareDto']
+export type SharedBuildDto = components['schemas']['SharedBuildDto']
+export type BuildItemInput = components['schemas']['BuildItemInput']
+export type CreateBuildListRequest = components['schemas']['CreateBuildListRequest']
+export type UpdateBuildListRequest = components['schemas']['UpdateBuildListRequest']
+export type AddBuildToCartRequest = components['schemas']['AddBuildToCartRequest']
+export type CompatibilityCheckRequest = components['schemas']['CompatibilityCheckRequest']
+export type CompatibilityCheckDto = components['schemas']['CompatibilityCheckDto']
+
 /**
- * Hand-typed Build List / Compatibility contract, mirroring `BuildListContracts.cs`,
- * `CompatibilityCheckContracts.cs` and their controllers on `feature/build-compat-api`
- * (not merged to `dev` yet, so there is no live API to export `frontend/shared`'s generated
- * OpenAPI schema from). This is a stand-in for that generated schema, not a parallel
- * hand-written DTO system — the shape matches what codegen would produce and is proven
- * correct by the backend's own HTTP integration tests (BuildListsApiTests). Once
- * build-compat-api merges to `dev` and `frontend/shared`'s `api:generate` is run for real,
- * this file should be deleted and `features/builds/api.ts` switched to import `paths`/
- * `components` from `@doselect/web-shared/api` like `features/catalog` does.
+ * `severity`/`overall` are plain `string` in the generated schema (the backend serializes them
+ * via HasConversion<string>() with no OpenAPI enum annotation) — these narrower unions exist for
+ * exhaustive comparisons in this feature's own code, not because the wire type guarantees them.
  */
-
-export interface BuildItemDto {
-  publicId: string
-  skuPublicId: string
-  skuCode: string
-  name: string
-  quantity: number
-  sortOrder: number
-  unitPrice: number
-  lineTotal: number
-  availability: 'available' | 'unavailable' | 'insufficient_stock'
-}
-
 export type CompatibilitySeverity =
   | 'compatible' | 'warning' | 'blocked' | 'insufficientData' | 'ruleDisabled'
-
-export interface CompatibilityFindingDto {
-  ruleCode: string
-  severity: CompatibilitySeverity
-  messageKey: string
-  subjectSkuPublicIds: string[]
-  facts: Record<string, unknown>
-}
-
 export type CompatibilityOverall = 'compatible' | 'warning' | 'blocked' | 'insufficientData'
 
-export interface BuildCompatibilitySummaryDto {
-  overall: CompatibilityOverall
-  ruleSetVersion: number
-  settingsVersion: number
-  results: CompatibilityFindingDto[]
+export type BuildListPageResultDto = components['schemas']['PageResultOfBuildListSummaryDto']
+
+/**
+ * 組長 PR #35 review, item 1: mirrors the backend's own
+ * `DoSelect.Domain.Catalog.CompatibilityCatalogContract.Categories`/`CompatibilityEvaluator.
+ * SingletonCategories` — the 8 build-component categories a compatibility check actually
+ * evaluates, and which of them accept only one SKU (CPU／主機板／顯卡／PSU／機殼／散熱器) versus
+ * multiple (記憶體／儲存裝置). Catalog's own `Category.Code` for these 8 categories is the same
+ * string as the compatibility-catalog code (confirmed against `MinimalDevelopmentDataSeeder`'s
+ * seed data), so this doubles as the `Category` search-query value.
+ */
+export interface BuildCategorySlot {
+  code: string
+  label: string
+  singleton: boolean
 }
 
-export interface BuildTotalsDto {
-  merchandise: number
-  assemblyFee: number
-  grandTotal: number
-  currency: string
-}
-
-export interface BuildListDto {
-  publicId: string
-  name: string
-  items: BuildItemDto[]
-  compatibility: BuildCompatibilitySummaryDto
-  totals: BuildTotalsDto
-  updatedAtUtc: string
-  rowVersion: string
-}
-
-export interface BuildListSummaryDto {
-  publicId: string
-  name: string
-  itemCount: number
-  compatibilityOverall: CompatibilityOverall
-  grandTotal: number
-  isShared: boolean
-  updatedAtUtc: string
-  rowVersion: string
-}
-
-export interface PageResultDto<T> {
-  items: T[]
-  pageNumber: number
-  pageSize: number
-  totalCount: number
-  totalPages: number
-}
-
-export interface BuildItemInput {
-  skuPublicId: string
-  quantity: number
-}
-
-export interface CreateBuildListRequest {
-  name: string
-  items: BuildItemInput[]
-}
-
-export interface UpdateBuildListRequest {
-  name: string
-  items: BuildItemInput[]
-  rowVersion: string
-}
-
-export interface BuildShareDto {
-  sharePublicId: string
-  url: string
-  expiresAtUtc: string | null
-}
-
-export interface SharedBuildDto {
-  sharePublicId: string
-  name: string
-  items: BuildItemDto[]
-  compatibility: BuildCompatibilitySummaryDto
-  totals: BuildTotalsDto
-  canCopy: boolean
-  canAddToCart: boolean
-}
-
-export interface AddBuildToCartRequest {
-  quantity: number
-  buildRowVersion: string
-}
-
-export interface CompatibilityCheckRequest {
-  items: BuildItemInput[]
-}
-
-export interface CompatibilityCheckDto {
-  overall: CompatibilityOverall
-  ruleSetVersion: number
-  settingsVersion: number
-  results: CompatibilityFindingDto[]
-  evaluatedAtUtc: string
-}
-
-interface JsonResponse<T> {
-  content: {
-    'application/json': T
-  }
-}
-
-interface ProblemResponse {
-  content: {
-    'application/problem+json': { code: string }
-  }
-}
-
-export interface BuildsApiPaths {
-  '/api/v1/build-lists': {
-    get: {
-      parameters: { query: { pageNumber: number, pageSize: number } }
-      responses: {
-        200: JsonResponse<PageResultDto<BuildListSummaryDto>>
-        400: ProblemResponse
-      }
-    }
-    post: {
-      requestBody: { content: { 'application/json': CreateBuildListRequest } }
-      responses: {
-        200: JsonResponse<BuildListDto>
-        400: ProblemResponse
-      }
-    }
-  }
-  '/api/v1/build-lists/{id}': {
-    get: {
-      parameters: { path: { id: string } }
-      responses: {
-        200: JsonResponse<BuildListDto>
-        404: ProblemResponse
-      }
-    }
-    put: {
-      parameters: { path: { id: string } }
-      requestBody: { content: { 'application/json': UpdateBuildListRequest } }
-      responses: {
-        200: JsonResponse<BuildListDto>
-        400: ProblemResponse
-        404: ProblemResponse
-        409: ProblemResponse
-      }
-    }
-    delete: {
-      parameters: { path: { id: string } }
-      requestBody: { content: { 'application/json': { rowVersion: string } } }
-      responses: {
-        200: JsonResponse<null>
-        404: ProblemResponse
-        409: ProblemResponse
-      }
-    }
-  }
-  '/api/v1/build-lists/{id}/share': {
-    post: {
-      parameters: { path: { id: string } }
-      responses: {
-        200: JsonResponse<BuildShareDto>
-        404: ProblemResponse
-      }
-    }
-    delete: {
-      parameters: { path: { id: string } }
-      responses: {
-        200: JsonResponse<null>
-        404: ProblemResponse
-      }
-    }
-  }
-  '/api/v1/build-shares/{token}': {
-    get: {
-      parameters: { path: { token: string } }
-      responses: {
-        200: JsonResponse<SharedBuildDto>
-        404: ProblemResponse
-      }
-    }
-  }
-  '/api/v1/build-lists/{id}/actions/add-to-cart': {
-    post: {
-      parameters: { path: { id: string } }
-      requestBody: { content: { 'application/json': AddBuildToCartRequest } }
-      responses: {
-        200: JsonResponse<unknown>
-        400: ProblemResponse
-        404: ProblemResponse
-        409: ProblemResponse
-      }
-    }
-  }
-  '/api/v1/compatibility-checks': {
-    post: {
-      requestBody: { content: { 'application/json': CompatibilityCheckRequest } }
-      responses: {
-        200: JsonResponse<CompatibilityCheckDto>
-        400: ProblemResponse
-      }
-    }
-  }
-}
+export const BUILD_CATEGORY_SLOTS: readonly BuildCategorySlot[] = [
+  { code: 'CPU', label: 'CPU', singleton: true },
+  { code: 'MOTHERBOARD', label: '主機板', singleton: true },
+  { code: 'MEMORY', label: '記憶體', singleton: false },
+  { code: 'GPU', label: '顯示卡', singleton: true },
+  { code: 'STORAGE', label: '儲存裝置', singleton: false },
+  { code: 'PSU', label: '電源供應器', singleton: true },
+  { code: 'CASE', label: '機殼', singleton: true },
+  { code: 'CPU_COOLER', label: '散熱器', singleton: true },
+]

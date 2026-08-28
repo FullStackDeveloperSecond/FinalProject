@@ -42,7 +42,7 @@ function resetFromServer(): void {
   }
   name.value = buildList.value.name
   items.value = buildList.value.items.map((item) => ({
-    skuPublicId: item.skuPublicId, quantity: item.quantity, name: item.name,
+    skuPublicId: item.skuPublicId, quantity: Number(item.quantity), name: item.name, categoryCode: item.categoryCode,
   }))
   hasConcurrencyConflict.value = false
   saveError.value = null
@@ -94,19 +94,21 @@ async function confirmDelete(): Promise<void> {
 }
 
 /**
- * `BuildListDto` (the single-item GET) does not carry share state — only
- * `BuildListSummaryDto` (the list page) has `isShared`. So an existing share created in a
- * past session is not rediscoverable here on reload; this local ref only reflects a share
- * created/revoked during the current page visit. Flagged for 組長 alongside the other
- * cross-slice contract gaps found this session.
+ * 組長 PR #35 review, item 3: the backend only ever persists the share token's hash (see
+ * `BuildActiveShareDto`'s remarks), so a share URL created in a *past* visit can never be shown
+ * again — `buildList.value.activeShare` (from the real, regenerated GET) only carries whether
+ * one exists and when it expires. `justCreatedShare` is the one place the openable URL is ever
+ * visible at all: the moment `createShare` (or `revoke`) itself returns it.
  */
-const activeShare = ref<BuildShareDto | null>(null)
+const justCreatedShare = ref<BuildShareDto | null>(null)
 const shareError = ref<unknown>(null)
+const recoveredActiveShare = computed(() => buildList.value?.activeShare ?? null)
+const hasAnyActiveShare = computed(() => justCreatedShare.value !== null || recoveredActiveShare.value !== null)
 
 async function share(): Promise<void> {
   shareError.value = null
   try {
-    activeShare.value = await createShare.mutateAsync()
+    justCreatedShare.value = await createShare.mutateAsync()
   } catch (error) {
     shareError.value = error
   }
@@ -116,7 +118,7 @@ async function revoke(): Promise<void> {
   shareError.value = null
   try {
     await revokeShare.mutateAsync()
-    activeShare.value = null
+    justCreatedShare.value = null
   } catch (error) {
     shareError.value = error
   }
@@ -125,7 +127,41 @@ async function revoke(): Promise<void> {
 const cartQuantity = ref(1)
 const cartResultMessage = ref<string | null>(null)
 const cartError = ref<unknown>(null)
-const isBlocked = computed(() => buildList.value?.compatibility.overall === 'blocked')
+// 組長 PR #35 review, item 5 (P2): mirrors EfBuildListService.GetSharedBuildAsync's own
+// `canAddToCart` computation exactly — the button used to disable only for `overall === 'blocked'`
+// and let a shopper submit `insufficientData` (including "missing one of the 8 required
+// categories"), an unavailable/insufficient-stock item, or a disabled-rule finding straight
+// through to a guaranteed backend rejection. Proactively showing why beats a generic error after
+// the fact.
+const cartBlockReason = computed<string | null>(() => {
+  const build = buildList.value
+  if (!build) {
+    return null
+  }
+  if (build.compatibility.overall === 'blocked') {
+    return '此組裝清單目前不相容，請先解決相容性問題才能加入購物車。'
+  }
+  if (build.compatibility.overall === 'insufficientData') {
+    return '尚缺少必要元件（CPU、主機板、記憶體、顯示卡、儲存裝置、電源供應器、機殼、散熱器），請補齊後再加入購物車。'
+  }
+  if (build.items.some((item) => item.availability !== 'available')) {
+    return '有品項已下架或庫存不足，請先調整後再加入購物車。'
+  }
+  if (build.compatibility.results.some((finding) => finding.severity === 'ruleDisabled')) {
+    return '有相容性規則目前已停用，需先確認狀態才能加入購物車。'
+  }
+  return null
+})
+const canAddToCart = computed(() => cartBlockReason.value === null)
+
+// 組長 PR #35 review, item 4: a fresh crypto.randomUUID() on every call meant a retry after a
+// lost response (backend wrote it, shopper never saw the reply) used a different Idempotency-Key
+// than the original attempt — the backend has no way to recognize it as the same logical
+// operation, so a retry could add the whole build a second time. One logical add-to-cart attempt
+// and its safe retries must share one key until it either succeeds or the shopper changes the
+// input (a different quantity is a genuinely different operation, not a retry of the same one).
+let cartIdempotencyKey = crypto.randomUUID()
+watch(cartQuantity, () => { cartIdempotencyKey = crypto.randomUUID() })
 
 async function addBuildToCart(): Promise<void> {
   if (!buildList.value) {
@@ -137,9 +173,10 @@ async function addBuildToCart(): Promise<void> {
     await addToCart.mutateAsync({
       publicId: props.buildId,
       request: { quantity: cartQuantity.value, buildRowVersion: buildList.value.rowVersion },
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey: cartIdempotencyKey,
     })
     cartResultMessage.value = '已加入購物車。'
+    cartIdempotencyKey = crypto.randomUUID()
   } catch (error) {
     cartError.value = error
   }
@@ -277,24 +314,29 @@ async function addBuildToCart(): Promise<void> {
         <h2 id="build-detail-share-title">
           分享
         </h2>
-        <template v-if="activeShare">
-          <p>分享連結：<code>{{ activeShare.url }}</code></p>
+        <template v-if="justCreatedShare">
+          <p>分享連結：<code>{{ justCreatedShare.url }}</code></p>
+        </template>
+        <p v-else-if="recoveredActiveShare">
+          目前有作用中的分享連結（重新載入頁面後無法再顯示原始網址，僅能撤銷或重新產生）。
+        </p>
+        <div class="build-detail-page__share-actions">
           <button
+            type="button"
+            :disabled="createShare.isPending.value"
+            @click="share"
+          >
+            {{ hasAnyActiveShare ? '重新產生連結' : '建立分享連結' }}
+          </button>
+          <button
+            v-if="hasAnyActiveShare"
             type="button"
             :disabled="revokeShare.isPending.value"
             @click="revoke"
           >
             撤銷分享
           </button>
-        </template>
-        <button
-          v-else
-          type="button"
-          :disabled="createShare.isPending.value"
-          @click="share"
-        >
-          建立分享連結
-        </button>
+        </div>
         <ErrorState
           v-if="shareError"
           title="分享操作失敗"
@@ -309,8 +351,8 @@ async function addBuildToCart(): Promise<void> {
         <h2 id="build-detail-cart-title">
           加入購物車
         </h2>
-        <p v-if="isBlocked">
-          此組裝清單目前不相容，請先解決相容性問題才能加入購物車。
+        <p v-if="cartBlockReason">
+          {{ cartBlockReason }}
         </p>
         <div class="build-detail-page__cart-controls">
           <label for="cart-quantity">數量</label>
@@ -323,7 +365,7 @@ async function addBuildToCart(): Promise<void> {
           >
           <button
             type="button"
-            :disabled="isBlocked || addToCart.isPending.value"
+            :disabled="!canAddToCart || addToCart.isPending.value"
             @click="addBuildToCart"
           >
             加入購物車
@@ -345,6 +387,11 @@ async function addBuildToCart(): Promise<void> {
 </template>
 
 <style scoped>
+.build-detail-page__share-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
 .build-detail-page__header {
   display: flex;
   align-items: center;

@@ -122,7 +122,10 @@ const router = createRouter({
       meta: { requiresAuth: true, requiredRoles: ['OrderManager', 'SuperAdmin'] },
     },
     {
-      path: '/compatibility',
+      // 組長 PR #35 review, item 6: official route is /admin/catalog/compatibility, not
+      // /admin/compatibility — base: '/admin/' in vite.config.ts means this entry only needs
+      // the /catalog/compatibility part, matching the existing /catalog/lookups sibling route.
+      path: '/catalog/compatibility',
       name: 'compatibility-rules',
       component: () => import('../pages/CompatibilityRulesPage.vue'),
     },

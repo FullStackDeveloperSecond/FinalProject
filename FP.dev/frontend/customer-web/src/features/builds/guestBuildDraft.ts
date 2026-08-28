@@ -5,6 +5,8 @@ export interface GuestBuildDraftItem {
   quantity: number
   /** Non-authoritative display label only — always re-resolved against the API on open (M功能桌面UI與Route規格.md 狀態責任表). */
   name: string
+  /** Which of the 8 build-component category slots (see `BUILD_CATEGORY_SLOTS`) this item fills. */
+  categoryCode: string
 }
 
 export interface GuestBuildDraft {

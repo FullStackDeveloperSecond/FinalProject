@@ -38,21 +38,22 @@ const ruleLabels: Record<string, string> = {
 
 const warningDrafts = reactive<Record<string, { value: number, reason: string }>>({})
 
-function draftFor(ruleCode: string, currentValue: number) {
+function draftFor(ruleCode: string, currentValue: number | string) {
   if (!warningDrafts[ruleCode]) {
-    warningDrafts[ruleCode] = { value: currentValue, reason: '' }
+    warningDrafts[ruleCode] = { value: Number(currentValue), reason: '' }
   }
   return warningDrafts[ruleCode]
 }
 
 const warningError = ref<Record<string, unknown>>({})
 
+// DEC-BATCH-026 (DEC-P309): concurrency moved from the whole-ruleset `settingsVersion` (still
+// shown below as a reporting/generation label, no longer submitted) to a per-(rule,setting)
+// RowVersion — each write must send the specific row's own RowVersion it read, not a global one.
 async function submitWarningSetting(ruleCode: string): Promise<void> {
-  if (!ruleList.value) {
-    return
-  }
+  const rule = ruleList.value?.rules.find((candidate) => candidate.ruleCode === ruleCode)
   const draft = warningDrafts[ruleCode]
-  if (!draft || draft.reason.trim().length === 0) {
+  if (!rule?.warningSetting || !draft || draft.reason.trim().length === 0) {
     return
   }
 
@@ -60,7 +61,7 @@ async function submitWarningSetting(ruleCode: string): Promise<void> {
   try {
     await updateWarningSetting.mutateAsync({
       ruleCode,
-      request: { value: draft.value, settingsVersion: ruleList.value.settingsVersion, reason: draft.reason.trim() },
+      request: { value: draft.value, rowVersion: rule.warningSetting.rowVersion, reason: draft.reason.trim() },
     })
     draft.reason = ''
   } catch (submitError) {
@@ -68,23 +69,23 @@ async function submitWarningSetting(ruleCode: string): Promise<void> {
   }
 }
 
-const activationDialog = ref<{ ruleCode: string, targetIsActive: boolean } | null>(null)
+const activationDialog = ref<{ ruleCode: string, targetIsActive: boolean, activationRowVersion: string | null } | null>(null)
 const activationError = ref<unknown>(null)
 
-function openActivationDialog(ruleCode: string, targetIsActive: boolean): void {
-  activationDialog.value = { ruleCode, targetIsActive }
+function openActivationDialog(ruleCode: string, targetIsActive: boolean, activationRowVersion: string | null): void {
+  activationDialog.value = { ruleCode, targetIsActive, activationRowVersion }
   activationError.value = null
 }
 
 async function confirmActivation(reason: string): Promise<void> {
-  if (!activationDialog.value || !ruleList.value) {
+  if (!activationDialog.value) {
     return
   }
-  const { ruleCode, targetIsActive } = activationDialog.value
+  const { ruleCode, targetIsActive, activationRowVersion } = activationDialog.value
   try {
     await setActivation.mutateAsync({
       ruleCode,
-      request: { isActive: targetIsActive, settingsVersion: ruleList.value.settingsVersion, reason },
+      request: { isActive: targetIsActive, rowVersion: activationRowVersion, reason },
     })
     activationDialog.value = null
   } catch (submitError) {
@@ -92,8 +93,10 @@ async function confirmActivation(reason: string): Promise<void> {
   }
 }
 
-// 相容性檢查測試工具：目前沒有 Catalog API（catalog-frontend 尚未併入），SKU 只能手動輸入
-// PublicId，等 Catalog 併入後應改為搜尋選擇器（與 customer-web 的 BuildItemsEditor 同樣的限制）。
+// 相容性檢查測試工具：目前沒有 Catalog API 搜尋選擇器（僅 customer-web 的自由組裝流程本輪換成
+// 正式選擇器，見 BuildItemsEditor.vue）——這個管理端測試工具刻意保留手動輸入 SKU PublicId，因為
+// 用途是「已知特定 SKU，驗證規則邏輯」而非「挑選商品」，跟自由組裝的挑選情境不同，暫不視為本輪
+// P1 finding 的一部分（僅該 finding 明確指的是自由組裝流程）。
 const testItems = ref<BuildItemInput[]>([])
 const testDraftSku = reactive({ skuPublicId: '', quantity: 1 })
 const testUseDraftSettings = ref(false)
@@ -111,6 +114,19 @@ function addTestItem(): void {
 
 function removeTestItem(index: number): void {
   testItems.value = testItems.value.filter((_, i) => i !== index)
+}
+
+// 組長 PR #35 review, item 6 (P2): the raw @input handler used to do Number(rawValue) with no
+// guard — clearing the field sends NaN through to the request body. Only accepts a finite number
+// within the rule's own min/max; anything else (including a cleared field) drops the draft
+// override for that setting entirely, falling back to the rule's real current value server-side.
+function setDraftWarningSetting(settingCode: string, rawValue: string): void {
+  const parsed = Number(rawValue)
+  if (rawValue.trim() === '' || !Number.isFinite(parsed)) {
+    delete testDraftWarningSettings[settingCode]
+    return
+  }
+  testDraftWarningSettings[settingCode] = parsed
 }
 
 async function runTest(): Promise<void> {
@@ -217,7 +233,7 @@ const severityLabels: Record<string, string> = {
               <td>
                 <button
                   type="button"
-                  @click="openActivationDialog(rule.ruleCode, !rule.isActive)"
+                  @click="openActivationDialog(rule.ruleCode, !rule.isActive, rule.activationRowVersion)"
                 >
                   {{ rule.isActive ? '停用' : '啟用' }}
                 </button>
@@ -299,7 +315,7 @@ const severityLabels: Record<string, string> = {
             v-model.number="testDraftSku.quantity"
             type="number"
             min="1"
-            max="99"
+            max="8"
             aria-label="數量"
           >
           <button
@@ -318,6 +334,21 @@ const severityLabels: Record<string, string> = {
           使用草稿門檻設定（不影響實際生效設定）
         </label>
 
+        <fieldset class="compatibility-rules-page__rule-select">
+          <legend>限定測試規則（不勾選＝測試全部規則）</legend>
+          <label
+            v-for="rule in ruleList.rules"
+            :key="rule.ruleCode"
+          >
+            <input
+              v-model="testSelectedRuleCodes"
+              type="checkbox"
+              :value="rule.ruleCode"
+            >
+            {{ ruleLabels[rule.ruleCode] ?? rule.ruleCode }}
+          </label>
+        </fieldset>
+
         <div
           v-if="testUseDraftSettings"
           class="compatibility-rules-page__draft-settings"
@@ -329,8 +360,10 @@ const severityLabels: Record<string, string> = {
             {{ ruleLabels[rule.ruleCode] ?? rule.ruleCode }}
             <input
               type="number"
+              :min="rule.warningSetting!.minValue"
+              :max="rule.warningSetting!.maxValue"
               :placeholder="String(rule.warningSetting!.value)"
-              @input="testDraftWarningSettings[rule.warningSetting!.settingCode] = Number(($event.target as HTMLInputElement).value)"
+              @input="setDraftWarningSetting(rule.warningSetting!.settingCode, ($event.target as HTMLInputElement).value)"
             >
           </label>
         </div>
@@ -347,13 +380,13 @@ const severityLabels: Record<string, string> = {
           v-if="testRules.data.value"
           class="compatibility-rules-page__test-result"
         >
-          <p><strong>整體結果：</strong>{{ severityLabels[testRules.data.value.overall] }}</p>
+          <p><strong>整體結果：</strong>{{ severityLabels[testRules.data.value.overall] ?? testRules.data.value.overall }}</p>
           <ul>
             <li
               v-for="(finding, index) in testRules.data.value.results"
               :key="index"
             >
-              [{{ severityLabels[finding.severity] }}] {{ finding.ruleCode }} — {{ finding.messageKey }}
+              [{{ severityLabels[finding.severity] ?? finding.severity }}] {{ finding.ruleCode }} — {{ finding.messageKey }}
             </li>
           </ul>
         </div>
@@ -458,6 +491,22 @@ const severityLabels: Record<string, string> = {
   flex-direction: column;
   gap: 0.5rem;
   margin-block-end: 1rem;
+}
+
+.compatibility-rules-page__rule-select {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  padding: 0.75rem;
+  margin-block-end: 1rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+}
+
+.compatibility-rules-page__rule-select legend {
+  padding-inline: 0.25rem;
+  font-size: 0.8125rem;
+  color: #4b5563;
 }
 
 .compatibility-rules-page__draft-settings input {

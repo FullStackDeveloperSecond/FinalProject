@@ -2,6 +2,7 @@ using System.Security.Claims;
 using DoSelect.Api.Common;
 using DoSelect.Api.Security;
 using DoSelect.Application.Builds;
+using DoSelect.Application.Common;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -20,8 +21,13 @@ public sealed class BuildListsController : ControllerBase
         _buildListService = buildListService;
     }
 
+    // PR #35 review: List() returned the non-generic ActionResult, so ASP.NET's OpenAPI
+    // generator couldn't infer a response schema for its 200 — every other action here declares
+    // ActionResult<T>. Blocked feature/build-compat-frontend's migration off hand-typed API
+    // contracts (PR #29 item 1's pattern), which needs a real schema for this endpoint too.
     [HttpGet]
-    public async Task<ActionResult> List([FromQuery] BuildListListQuery query, CancellationToken cancellationToken)
+    public async Task<ActionResult<PageResult<BuildListSummaryDto>>> List(
+        [FromQuery] BuildListListQuery query, CancellationToken cancellationToken)
     {
         if (!TryGetMemberUserId(out var memberUserId))
         {
