@@ -66,9 +66,11 @@ public abstract record MemberAddressWriteOutcome
 /// M 會員資料／收件地址支撐（API Endpoint目錄.md）。Profile 的 Email／EmailVerified 來自
 /// ApplicationUser（Identity），DisplayName／BirthDate 來自 MemberProfile；Phone／Locale
 /// 也存在 ApplicationUser 上（既有的 PhoneNumber／PreferredLocale 欄位，非 MemberProfile 新增
-/// 欄位）——這裡只讀寫既有欄位，沒有新增 Migration。RowVersion 一律用 MemberProfile 自己的
-/// （UpdateMemberProfileRequest 只有單一 rowVersion 欄位，ApplicationUser 這邊的併發改用
-/// Identity 內建 ConcurrencyStamp，不對外暴露第二個 RowVersion）；這是本次判斷，待 alex 確認。
+/// 欄位）——這裡只讀寫既有欄位，沒有新增 Migration。RowVersion 涵蓋整個可修改聚合：對外的單一
+/// rowVersion 欄位是 MemberProfile.RowVersion 與 ApplicationUser.ConcurrencyStamp 的複合值
+/// （見 MemberProfileGateway 的 ComposeRowVersion／TryDecomposeRowVersion），確保 Phone／
+/// Locale（存在 ApplicationUser）被別的流程改過時，也能被偵測為併發衝突，不會被舊畫面覆寫
+/// （Alex review，2026-08-28）。
 /// </summary>
 public interface IMemberProfileGateway
 {
