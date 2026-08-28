@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using DoSelect.Application.Auditing;
 using DoSelect.Application.Common;
@@ -1118,6 +1119,118 @@ public sealed class AdminCouponServiceSqlServerTests
             .ToArray();
 
         Assert.Equal(["scope"], recorded);
+    }
+
+    /// <summary>
+    /// 只改名稱時，稽核不得出現 <c>ruleVersion</c>。
+    /// </summary>
+    /// <remarks>
+    /// Domain 明確區分：名稱異動要記進 Audit，但**不推進 RuleVersion**。
+    /// 先前只要有任何異動就無條件寫一筆 <c>ruleVersion</c>，等於在稽核裡留下一筆
+    /// 根本沒發生的版本異動 —— 事後追查會以為規則被改過。
+    /// </remarks>
+    [AdminCouponSqlFact]
+    public async Task ANameOnlyUpdateRecordsTheNameWithoutClaimingTheRuleVersionMoved()
+    {
+        await using var context = AdminCouponSqlFixture.CreateContext();
+        var created = await CreateService(context).CreateAsync(CreateRequest(UniqueCode()));
+
+        await using var update = AdminCouponSqlFixture.CreateContext();
+        var updated = await CreateService(update).UpdateAsync(
+            created.PublicId,
+            UpdateRequest(created) with { NameZhTw = "只改名字" });
+
+        // 版本沒有推進，這才是稽核必須如實反映的事實。
+        Assert.Equal(created.RuleVersion, updated.RuleVersion);
+
+        // 精確相等：稽核裡**不得**出現 ruleVersion。
+        Assert.Equal(
+            ["nameZhTw"],
+            await ReadAuditedFieldsAsync(created.PublicId));
+    }
+
+    /// <summary>
+    /// 規則異動時，<c>ruleVersion</c> 必須保存正確的前後版本。
+    /// </summary>
+    [AdminCouponSqlFact]
+    public async Task ARuleUpdateRecordsTheRuleVersionItActuallyMovedFromAndTo()
+    {
+        await using var context = AdminCouponSqlFixture.CreateContext();
+        var created = await CreateService(context).CreateAsync(CreateRequest(UniqueCode()));
+
+        await using var update = AdminCouponSqlFixture.CreateContext();
+        var updated = await CreateService(update).UpdateAsync(
+            created.PublicId,
+            UpdateRequest(created) with { MinimumSpend = 4000m });
+
+        Assert.Equal(created.RuleVersion + 1, updated.RuleVersion);
+
+        await using var verify = AdminCouponSqlFixture.CreateContext();
+        var audit = await verify.Set<AuditLog>()
+            .Where(log => log.ResourcePublicId == created.PublicId &&
+                          log.Action == AuditActions.CouponUpdate)
+            .SingleAsync();
+
+        using var document = JsonDocument.Parse(audit.ChangedFieldsJson);
+        var ruleVersion = document.RootElement
+            .GetProperty("changes")
+            .EnumerateArray()
+            .Single(element =>
+                element.GetProperty("field").GetString() == CouponAuditFields.RuleVersion);
+
+        // 前後值都要在，而且要是真正的版本號 —— 不是 null → 2。
+        Assert.Equal(
+            created.RuleVersion.ToString(CultureInfo.InvariantCulture),
+            ruleVersion.GetProperty("beforeCode").GetString());
+        Assert.Equal(
+            updated.RuleVersion.ToString(CultureInfo.InvariantCulture),
+            ruleVersion.GetProperty("afterCode").GetString());
+    }
+
+    /// <summary>
+    /// 名稱與規則一起改：兩者都要記，而且版本前後值正確。
+    /// </summary>
+    [AdminCouponSqlFact]
+    public async Task AMixedUpdateRecordsBothTheNameAndTheAdvancedRuleVersion()
+    {
+        await using var context = AdminCouponSqlFixture.CreateContext();
+        var created = await CreateService(context).CreateAsync(CreateRequest(UniqueCode()));
+
+        await using var update = AdminCouponSqlFixture.CreateContext();
+        var updated = await CreateService(update).UpdateAsync(
+            created.PublicId,
+            UpdateRequest(created) with { NameZhTw = "改名", MinimumSpend = 4000m });
+
+        Assert.Equal(created.RuleVersion + 1, updated.RuleVersion);
+
+        Assert.Equal(
+            ["minimumSpend", "nameZhTw", "ruleVersion"],
+            (await ReadAuditedFieldsAsync(created.PublicId))
+                .OrderBy(field => field, StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    /// 讀出一筆 <c>coupon.update</c> 稽核記下的**全部**欄位名稱。
+    /// </summary>
+    /// <remarks>
+    /// 刻意不過濾 <c>ruleVersion</c>：這個 helper 第一版把它濾掉，結果
+    /// 「只改名稱卻誤記 ruleVersion」的測試在缺陷還在時照樣是綠的 ——
+    /// 要驗某個欄位**不該出現**，就不能先把它濾掉。
+    /// </remarks>
+    private static async Task<IReadOnlyList<string>> ReadAuditedFieldsAsync(Guid couponPublicId)
+    {
+        await using var verify = AdminCouponSqlFixture.CreateContext();
+        var audit = await verify.Set<AuditLog>()
+            .Where(log => log.ResourcePublicId == couponPublicId &&
+                          log.Action == AuditActions.CouponUpdate)
+            .SingleAsync();
+
+        using var document = JsonDocument.Parse(audit.ChangedFieldsJson);
+        return document.RootElement
+            .GetProperty("changes")
+            .EnumerateArray()
+            .Select(element => element.GetProperty("field").GetString()!)
+            .ToArray();
     }
 
     [AdminCouponSqlFact]

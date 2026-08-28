@@ -270,6 +270,10 @@ public sealed class EfAdminCouponService : IAdminCouponService
 
                 var auditActor = await ResolveActorAsync(actor.AdminUserId, token);
 
+                // 套用修改之前先留下原版本：稽核要記正確的前後值（1 → 2），
+                // 不是 null → 2。
+                var ruleVersionBefore = coupon.RuleVersion;
+
                 CouponRuleChange change;
                 try
                 {
@@ -313,13 +317,19 @@ public sealed class EfAdminCouponService : IAdminCouponService
                 {
                     // 每個實際異動的規則欄位各寫一筆，只記欄位名稱、不記商業值
                     // （DEC A1）。不得串接、不得截斷、不得退化為筆數。
-                    var fieldChanges = new List<AuditFieldChange>(change.ChangedFields.Count + 1)
+                    var fieldChanges = new List<AuditFieldChange>(change.ChangedFields.Count + 1);
+
+                    // **只有真的推進版本時才記 ruleVersion。** 只改名稱會記錄名稱異動
+                    // 但不推進版本（Domain 的 RuleVersionAdvanced 為 false）——
+                    // 無條件寫入會在稽核裡留下一筆根本沒發生的版本異動。
+                    if (change.RuleVersionAdvanced)
                     {
-                        AuditFieldChange.Code(
+                        fieldChanges.Add(AuditFieldChange.Code(
                             CouponAuditFields.RuleVersion,
-                            null,
-                            coupon.RuleVersion.ToString(CultureInfo.InvariantCulture)),
-                    };
+                            ruleVersionBefore.ToString(CultureInfo.InvariantCulture),
+                            coupon.RuleVersion.ToString(CultureInfo.InvariantCulture)));
+                    }
+
                     fieldChanges.AddRange(change.ChangedFields.Select(field =>
                         AuditFieldChange.Changed(CouponAuditFields.ToAuditFieldName(field))));
 

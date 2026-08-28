@@ -105,8 +105,15 @@ public sealed class AdminCouponsController : ControllerBase
     /// </para>
     /// <para>
     /// 尚未進入有效期間的 <c>Draft</c> 執行 <c>activate</c> 會進入 <c>Scheduled</c>
-    /// 而不是 <c>Active</c>（alex 於 PR #50 裁定 B1）。正式 Action 白名單沒有
-    /// <c>schedule</c>，若在此拒絕，<c>Scheduled</c> 會缺少 API 可達路徑。
+    /// 而不是 <c>Active</c>（alex 於 PR #50 裁定 B1）。這就是 <c>Scheduled</c> 的
+    /// 進入路徑，不需要第四個管理員動作。
+    /// </para>
+    /// <para>
+    /// <c>activate</c> **只接受 <c>Draft</c> 或符合條件的 <c>Paused</c>**。
+    /// <c>Scheduled → Active</c>（到達開始時間）與 <c>Exhausted → Active</c>
+    /// （名額返還）是排程與名額返還的**系統事件**，管理員對這兩個狀態執行
+    /// <c>activate</c> 一律回 <c>409 coupon_state_conflict</c> —— 讓管理端點消耗它們，
+    /// 稽核會把兩種來源都記成 <c>coupon.activate</c>，事後分不出責任歸屬。
     /// </para>
     /// <para>
     /// 路由 token 刻意命名為 <c>couponAction</c> 而不是 <c>action</c>：<c>action</c> 是 MVC
