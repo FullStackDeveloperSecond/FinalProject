@@ -42,6 +42,7 @@ public sealed class AdminOrdersApiFixture : IAsyncLifetime
         Guid.NewGuid().ToString("N"));
 
     private WebApplicationFactory<Program> _factory = null!;
+    private EnvironmentOverrideScope _environmentScope = null!;
 
     public HttpClient Client { get; private set; } = null!;
 
@@ -59,7 +60,13 @@ public sealed class AdminOrdersApiFixture : IAsyncLifetime
         // so nulling here would delete CI's own job-level GuestOrderAccess__Pepper/
         // ConnectionStrings__DefaultConnection for every fixture that initializes afterwards in
         // the same process (see EnvironmentOverrideScope's remarks for the exact failure mode).
-        using (new EnvironmentOverrideScope(allOverrides))
+        // Kept alive for the fixture's whole lifetime — not just until CreateClient() returns
+        // (alex PR #47 review round 2, item 1) — because CreateClient() (the public helper below)
+        // is called again by later tests in this same fixture to mint fresh unauthenticated/signed-
+        // in clients, and Program.cs must still see these overrides at that point, not the
+        // restored ambient values.
+        _environmentScope = new EnvironmentOverrideScope(allOverrides);
+        try
         {
             _factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
             {
@@ -74,12 +81,18 @@ public sealed class AdminOrdersApiFixture : IAsyncLifetime
             });
             Client = _factory.CreateClient();
         }
+        catch
+        {
+            _environmentScope.Dispose();
+            throw;
+        }
     }
 
     public async Task DisposeAsync()
     {
         Client.Dispose();
         await _factory.DisposeAsync();
+        _environmentScope.Dispose();
         await using var context = CreateContext();
         await context.Database.EnsureDeletedAsync();
     }

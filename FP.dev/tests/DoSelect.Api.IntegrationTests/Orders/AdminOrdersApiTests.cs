@@ -141,6 +141,67 @@ public sealed class AdminOrdersApiTests
     }
 
     [Fact]
+    public async Task ExecuteAction_StartProcessing_ForGeneralOrder_AdvancesFulfillmentToPreparing()
+    {
+        // alex PR #47 review round 2, item 2: general-merchandise orders (AssemblyStatus.NotRequired)
+        // must start fulfillment immediately — startProcessing previously only flipped OrderStatus.
+        await using var context = _fixture.CreateScopedContext();
+        var shippingProfileId = await AdminOrdersApiSeeding.SeedShippingProviderProfileAsync(context);
+        var order = await AdminOrdersApiSeeding.SeedOrderAsync(context, shippingProfileId);
+        var adminUserId = await AdminOrdersApiSeeding.SeedAdminUserAsync(context);
+
+        using var client = await _fixture.CreateAuthenticatedAdminClientForUserAsync(adminUserId);
+        using var response = await AdminOrdersApiFixture.SendWithAntiforgeryAsync(
+            client,
+            new HttpRequestMessage(HttpMethod.Post, $"/api/v1/admin/orders/{order.PublicId}/actions/startProcessing")
+            {
+                Content = JsonContent.Create(new { reasonCode = (string?)null, note = (string?)null, rowVersion = order.RowVersion }),
+            });
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(nameof(FulfillmentStatus.Preparing), body.GetProperty("fulfillmentStatus").GetString());
+        var history = body.GetProperty("statusHistory").EnumerateArray().ToArray();
+        Assert.Contains(history, entry =>
+            entry.GetProperty("stateDimension").GetString() == nameof(OrderStateDimension.FulfillmentStatus) &&
+            entry.GetProperty("toStatus").GetString() == nameof(FulfillmentStatus.Preparing));
+    }
+
+    [Fact]
+    public async Task ExecuteAction_StartProcessing_ForAssemblyOrder_StartsAssemblyAndPendingJobs()
+    {
+        // alex PR #47 review round 2, item 2: custom-build orders must start assembly instead of
+        // fulfillment, and every Pending AssemblyJob for the order moves to Started alongside it.
+        await using var context = _fixture.CreateScopedContext();
+        var shippingProfileId = await AdminOrdersApiSeeding.SeedShippingProviderProfileAsync(context);
+        var order = await AdminOrdersApiSeeding.SeedOrderAsync(
+            context, shippingProfileId, assemblyStatus: AssemblyStatus.Pending);
+        var job = await AdminOrdersApiSeeding.SeedAssemblyJobAsync(context, order.Id);
+        var adminUserId = await AdminOrdersApiSeeding.SeedAdminUserAsync(context);
+
+        using var client = await _fixture.CreateAuthenticatedAdminClientForUserAsync(adminUserId);
+        using var response = await AdminOrdersApiFixture.SendWithAntiforgeryAsync(
+            client,
+            new HttpRequestMessage(HttpMethod.Post, $"/api/v1/admin/orders/{order.PublicId}/actions/startProcessing")
+            {
+                Content = JsonContent.Create(new { reasonCode = (string?)null, note = (string?)null, rowVersion = order.RowVersion }),
+            });
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(nameof(AssemblyStatus.Started), body.GetProperty("assemblyStatus").GetString());
+        Assert.Equal(nameof(FulfillmentStatus.Pending), body.GetProperty("fulfillmentStatus").GetString());
+        var history = body.GetProperty("statusHistory").EnumerateArray().ToArray();
+        Assert.Contains(history, entry =>
+            entry.GetProperty("stateDimension").GetString() == nameof(OrderStateDimension.AssemblyStatus) &&
+            entry.GetProperty("toStatus").GetString() == nameof(AssemblyStatus.Started));
+
+        await using var verification = _fixture.CreateScopedContext();
+        var updatedJob = await verification.AssemblyJobs.SingleAsync(candidate => candidate.Id == job.Id);
+        Assert.Equal(AssemblyJobStatus.Started, updatedJob.Status);
+    }
+
+    [Fact]
     public async Task ExecuteAction_CancelWithoutReasonCode_Returns400ValidationFailed()
     {
         await using var context = _fixture.CreateScopedContext();
@@ -188,6 +249,44 @@ public sealed class AdminOrdersApiTests
             entry.Action == AuditActions.OrderCancel && entry.ResourcePublicId == order.PublicId);
         Assert.Equal(AuditActorType.Admin, audit.ActorType);
         Assert.Equal(AuditResult.Success, audit.Result);
+    }
+
+    [Fact]
+    public async Task ExecuteAction_Cancel_ForAssemblyOrder_CancelsAssemblyStatusAndPendingJobs()
+    {
+        // alex PR #47 review round 2, item 3: cancelling a PendingPayment assembly order left
+        // AssemblyStatus/AssemblyJob rows stuck at Pending — only inventory/coupons were released.
+        await using var context = _fixture.CreateScopedContext();
+        var shippingProfileId = await AdminOrdersApiSeeding.SeedShippingProviderProfileAsync(context);
+        var order = await AdminOrdersApiSeeding.SeedOrderAsync(
+            context,
+            shippingProfileId,
+            orderStatus: OrderStatus.PendingPayment,
+            paymentStatus: PaymentStatus.AwaitingPayment,
+            assemblyStatus: AssemblyStatus.Pending);
+        var job = await AdminOrdersApiSeeding.SeedAssemblyJobAsync(context, order.Id);
+        var adminUserId = await AdminOrdersApiSeeding.SeedAdminUserAsync(context);
+
+        using var client = await _fixture.CreateAuthenticatedAdminClientForUserAsync(adminUserId);
+        using var response = await AdminOrdersApiFixture.SendWithAntiforgeryAsync(
+            client,
+            new HttpRequestMessage(HttpMethod.Post, $"/api/v1/admin/orders/{order.PublicId}/actions/cancel")
+            {
+                Content = JsonContent.Create(new { reasonCode = "merchant_unfulfillable", note = (string?)null, rowVersion = order.RowVersion }),
+            });
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(nameof(OrderStatus.Cancelled), body.GetProperty("orderStatus").GetString());
+        Assert.Equal(nameof(AssemblyStatus.Cancelled), body.GetProperty("assemblyStatus").GetString());
+        var history = body.GetProperty("statusHistory").EnumerateArray().ToArray();
+        Assert.Contains(history, entry =>
+            entry.GetProperty("stateDimension").GetString() == nameof(OrderStateDimension.AssemblyStatus) &&
+            entry.GetProperty("toStatus").GetString() == nameof(AssemblyStatus.Cancelled));
+
+        await using var verification = _fixture.CreateScopedContext();
+        var updatedJob = await verification.AssemblyJobs.SingleAsync(candidate => candidate.Id == job.Id);
+        Assert.Equal(AssemblyJobStatus.Cancelled, updatedJob.Status);
     }
 
     [Fact]

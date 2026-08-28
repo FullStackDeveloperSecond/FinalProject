@@ -27,6 +27,7 @@ internal static class OrderCancellationResourceReleaser
         Order order,
         string? actorUserId,
         DateTime now,
+        string traceId,
         CancellationToken cancellationToken)
     {
         var reservations = await dbContext.InventoryReservations
@@ -108,6 +109,44 @@ internal static class OrderCancellationResourceReleaser
             {
                 coupon.ReactivateAfterQuotaRelease(usage, now);
             }
+        }
+
+        // alex PR #47 review round 2, item 3: a PendingPayment assembly order being cancelled left
+        // AssemblyStatus/AssemblyJob rows stuck at Pending — no assembly work has started yet at
+        // this point (both callers only reach here for PendingPayment orders), so every AssemblyJob
+        // is still Pending and the whole order-level AssemblyStatus can move straight to Cancelled.
+        if (order.AssemblyStatus is AssemblyStatus.Pending or AssemblyStatus.Started or AssemblyStatus.Testing)
+        {
+            var pendingJobs = await dbContext.AssemblyJobs
+                .Where(candidate => candidate.OrderId == order.Id &&
+                    candidate.Status == AssemblyJobStatus.Pending)
+                .ToListAsync(cancellationToken);
+            foreach (var job in pendingJobs)
+            {
+                job.ChangeStatus(AssemblyJobStatus.Cancelled, now);
+                dbContext.AssemblyJobStatusHistories.Add(new AssemblyJobStatusHistory(
+                    Guid.CreateVersion7(),
+                    job.Id,
+                    AssemblyJobStatus.Pending,
+                    AssemblyJobStatus.Cancelled,
+                    InventoryReleaseReason,
+                    actorUserId,
+                    now,
+                    traceId));
+            }
+
+            var fromAssemblyStatus = order.AssemblyStatus;
+            order.ApplyAssemblyProjection(AssemblyStatus.Cancelled, now);
+            dbContext.OrderStatusHistories.Add(new OrderStatusHistory(
+                Guid.CreateVersion7(),
+                order.Id,
+                OrderStateDimension.AssemblyStatus,
+                fromAssemblyStatus.ToString(),
+                AssemblyStatus.Cancelled.ToString(),
+                InventoryReleaseReason,
+                actorUserId,
+                now,
+                traceId));
         }
     }
 }

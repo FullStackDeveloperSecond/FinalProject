@@ -198,7 +198,7 @@ public sealed class EfAdminOrderService : IAdminOrderService
             try
             {
                 await OrderCancellationResourceReleaser.ReleaseAsync(
-                    _dbContext, order, actorUserId, now, cancellationToken);
+                    _dbContext, order, actorUserId, now, auditContext.TraceId, cancellationToken);
             }
             catch (InvalidOperationException exception)
             {
@@ -229,6 +229,64 @@ public sealed class EfAdminOrderService : IAdminOrderService
             actorUserId,
             now,
             auditContext.TraceId));
+
+        // alex PR #47 review round 2, item 2: Confirmed -> Processing only flipped OrderStatus,
+        // leaving FulfillmentStatus/AssemblyStatus (and any AssemblyJob rows) stuck at Pending —
+        // an order with a custom-build item was never distinguishable from one that had actually
+        // started assembly. General-merchandise orders (AssemblyStatus.NotRequired) can start
+        // fulfillment immediately; custom-build orders start assembly instead, and every Pending
+        // AssemblyJob for the order moves to Started alongside it.
+        if (action == AdminOrderActions.StartProcessing)
+        {
+            if (order.AssemblyStatus == AssemblyStatus.NotRequired)
+            {
+                var fromFulfillmentStatus = order.FulfillmentStatus;
+                order.ApplyFulfillmentProjection(FulfillmentStatus.Preparing, now);
+                _dbContext.OrderStatusHistories.Add(new OrderStatusHistory(
+                    Guid.CreateVersion7(),
+                    order.Id,
+                    OrderStateDimension.FulfillmentStatus,
+                    fromFulfillmentStatus.ToString(),
+                    FulfillmentStatus.Preparing.ToString(),
+                    request.ReasonCode,
+                    actorUserId,
+                    now,
+                    auditContext.TraceId));
+            }
+            else
+            {
+                var fromAssemblyStatus = order.AssemblyStatus;
+                order.ApplyAssemblyProjection(AssemblyStatus.Started, now);
+                _dbContext.OrderStatusHistories.Add(new OrderStatusHistory(
+                    Guid.CreateVersion7(),
+                    order.Id,
+                    OrderStateDimension.AssemblyStatus,
+                    fromAssemblyStatus.ToString(),
+                    AssemblyStatus.Started.ToString(),
+                    request.ReasonCode,
+                    actorUserId,
+                    now,
+                    auditContext.TraceId));
+
+                var pendingJobs = await _dbContext.AssemblyJobs
+                    .Where(candidate => candidate.OrderId == order.Id &&
+                        candidate.Status == AssemblyJobStatus.Pending)
+                    .ToListAsync(cancellationToken);
+                foreach (var job in pendingJobs)
+                {
+                    job.ChangeStatus(AssemblyJobStatus.Started, now);
+                    _dbContext.AssemblyJobStatusHistories.Add(new AssemblyJobStatusHistory(
+                        Guid.CreateVersion7(),
+                        job.Id,
+                        AssemblyJobStatus.Pending,
+                        AssemblyJobStatus.Started,
+                        request.ReasonCode,
+                        actorUserId,
+                        now,
+                        auditContext.TraceId));
+                }
+            }
+        }
 
         if (action == AdminOrderActions.Cancel)
         {

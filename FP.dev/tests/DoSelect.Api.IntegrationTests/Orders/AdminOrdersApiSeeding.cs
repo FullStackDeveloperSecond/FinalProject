@@ -108,6 +108,7 @@ public static class AdminOrdersApiSeeding
         OrderStatus orderStatus = OrderStatus.Confirmed,
         PaymentStatus paymentStatus = PaymentStatus.Paid,
         FulfillmentStatus fulfillmentStatus = FulfillmentStatus.Pending,
+        AssemblyStatus assemblyStatus = AssemblyStatus.NotRequired,
         string? memberUserId = null,
         string? guestEmailNormalized = null)
     {
@@ -128,7 +129,7 @@ public static class AdminOrdersApiSeeding
             orderStatus,
             paymentStatus,
             fulfillmentStatus,
-            AssemblyStatus.NotRequired,
+            assemblyStatus,
             1000m,
             0m,
             100m,
@@ -170,5 +171,16 @@ public static class AdminOrdersApiSeeding
         context.Orders.Add(order);
         await context.SaveChangesAsync();
         return order;
+    }
+
+    /// <summary>Seeds a Pending AssemblyJob for an order already created with
+    /// AssemblyStatus.Pending — mirrors EfCheckoutTransactionGateway.AddAssemblyJobsAsync's shape
+    /// (one job per assembly group) without needing a full Checkout flow.</summary>
+    public static async Task<AssemblyJob> SeedAssemblyJobAsync(DoSelectDbContext context, long orderId)
+    {
+        var job = new AssemblyJob(Guid.CreateVersion7(), orderId, Guid.CreateVersion7(), DateTime.UtcNow);
+        context.AssemblyJobs.Add(job);
+        await context.SaveChangesAsync();
+        return job;
     }
 }

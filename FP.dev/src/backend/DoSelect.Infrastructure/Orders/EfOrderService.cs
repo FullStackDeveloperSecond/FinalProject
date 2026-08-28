@@ -147,6 +147,7 @@ public sealed class EfOrderService : IOrderService
                 order,
                 actorUserId,
                 now,
+                auditContext.TraceId,
                 cancellationToken);
         }
         catch (InvalidOperationException exception)
