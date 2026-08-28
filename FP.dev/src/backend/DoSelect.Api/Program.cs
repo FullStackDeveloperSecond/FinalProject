@@ -18,7 +18,6 @@ using DoSelect.Infrastructure.Orders;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using DoSelect.Infrastructure.Invoicing;
-using DoSelect.Infrastructure.Orders;
 using DoSelect.Infrastructure.Persistence.Orders;
 using DoSelect.Infrastructure.Persistence.Returns;
 using DoSelect.Infrastructure.Outbox;

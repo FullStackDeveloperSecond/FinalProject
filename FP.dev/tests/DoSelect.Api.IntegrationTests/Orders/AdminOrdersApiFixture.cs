@@ -30,6 +30,11 @@ public sealed class AdminOrdersApiFixture : IAsyncLifetime
         ["Features__AiEnabled"] = "false",
         ["Features__EmailEnabled"] = "false",
         ["Demo__SimulationEndpointsEnabled"] = "false",
+        // Required since db7b17f (M-02 guest order access, merged into dev) added
+        // ValidateOnStart() on GuestOrderAccessOptions — this fixture predates that merge and
+        // doesn't itself exercise any guest-order-access endpoint, but the host still fails fast
+        // on startup without a >=32 UTF-8 byte pepper.
+        ["GuestOrderAccess__Pepper"] = "admin-orders-api-tests-pepper-32-bytes-000",
     };
 
     private readonly string _dataRoot = Path.Combine(

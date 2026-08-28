@@ -1,3 +1,4 @@
+using DoSelect.Domain.Invoicing;
 using DoSelect.Domain.Orders;
 using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Persistence;
@@ -49,6 +50,33 @@ public static class AdminOrdersApiSeeding
         return profile.Id;
     }
 
+    /// <summary>
+    /// OrderCreation.PackageSnapshot 需要一筆真實的 PackageLimitVersion（見
+    /// GuestOrderAccessControllerTests.SeedGuestOrderAsync 的作法）；每次呼叫建立獨立一筆，
+    /// 避免與同一 shippingProviderProfileVersionId 下其他測試的版本互相干擾。
+    /// </summary>
+    public static async Task<long> SeedPackageLimitVersionAsync(
+        DoSelectDbContext context,
+        long shippingProviderProfileVersionId)
+    {
+        var packageLimit = new PackageLimitVersion(
+            Guid.CreateVersion7(),
+            shippingProviderProfileVersionId,
+            1,
+            30m,
+            150m,
+            100m,
+            100m,
+            250m,
+            50_000m,
+            null,
+            null,
+            DateTime.UtcNow);
+        context.PackageLimitVersions.Add(packageLimit);
+        await context.SaveChangesAsync();
+        return packageLimit.Id;
+    }
+
     public static async Task<Order> SeedOrderAsync(
         DoSelectDbContext context,
         long shippingProviderProfileVersionId,
@@ -64,6 +92,8 @@ public static class AdminOrdersApiSeeding
         guestEmailNormalized ??= memberUserId is null
             ? $"{AdminOrdersApiFixture.UniqueCode("guest").ToLowerInvariant()}@example.com"
             : null;
+
+        var packageLimitVersionId = await SeedPackageLimitVersionAsync(context, shippingProviderProfileVersionId);
 
         var now = DateTime.UtcNow;
         var creation = new OrderCreation(
@@ -97,7 +127,19 @@ public static class AdminOrdersApiSeeding
             null,
             orderStatus == OrderStatus.PendingPayment ? now.AddHours(1) : null,
             AdminOrdersApiFixture.UniqueCode("IDEMP"),
-            null);
+            null,
+            TermsPolicyVersion: 1,
+            PrivacyPolicyVersion: 1,
+            InvoicePreference: new OrderInvoicePreference(
+                SimulatedInvoiceBuyerType.Individual,
+                "buyer@example.com",
+                null,
+                null,
+                null,
+                null),
+            ShippingFreeThresholdSnapshot: null,
+            DeliveryNote: null,
+            PackageSnapshot: new OrderPackageSnapshot(packageLimitVersionId, 1m, 40m, 30m, 20m, 90m, 1000m));
 
         var order = Order.Create(Guid.CreateVersion7(), creation, now);
         context.Orders.Add(order);
