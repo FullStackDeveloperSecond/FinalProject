@@ -46,7 +46,7 @@ decision_ids:
 - `Up()` 只新增 `AiConsentRecords`、`AiUsageLedger`、三個 Index、五個 Check Constraint 與兩個 Restrict FK；不修改、搬移或刪除既有資料。
 - `Down()` 會刪除兩張新表；未有正式資料時可結構回退，有資料後優先關閉功能並 roll-forward，避免刪除同意／用量證據。
 - 完整 Migration Chain 只套用至唯一命名、完成後已刪除的驗證資料庫；共用 `DoSelectDb` 維持原狀。
-- 本批尚未 Commit、Push、建立 PR 或進 `dev`；合併狀態由 M 功能實作矩陣另行更新。
+- 本批 Commit `6523589` 已推送並建立 PR #57；尚待 Required CI／Review／Squash Merge，進 `dev` 狀態由 M 功能實作矩陣另行更新。
 
 ## 影響文件
 
