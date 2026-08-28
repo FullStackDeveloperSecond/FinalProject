@@ -10,6 +10,12 @@ public static class CouponCalculationErrorCodes
     public const string CouponNotApplicable = "coupon_not_applicable";
     public const string CouponUsageExhausted = "coupon_usage_exhausted";
     public const string CouponStateConflict = "coupon_state_conflict";
+
+    /// <summary>
+    /// 建立或修改的優惠碼與既有優惠券重複（API錯誤碼目錄第 122 行）。
+    /// 只在後台管理路徑產生；前台套券查不到代碼時回 <see cref="CouponInvalid"/>。
+    /// </summary>
+    public const string CouponCodeDuplicate = "coupon_code_duplicate";
 }
 
 /// <summary>

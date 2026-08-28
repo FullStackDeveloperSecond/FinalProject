@@ -1,3 +1,4 @@
+import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
@@ -25,9 +26,13 @@ async function mountAppAt(path: string) {
   await router.push(path)
   await router.isReady()
 
+  // App.vue calls useCartIdentityCacheCleanup() (組長 PR #29 round-6 review, P1) — it needs a
+  // real QueryClient in context, same as any other page that touches TanStack Query.
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
   return {
     router,
-    wrapper: mount(App, { global: { plugins: [pinia, router] } }),
+    wrapper: mount(App, { global: { plugins: [pinia, router, [VueQueryPlugin, { queryClient }]] } }),
   }
 }
 
@@ -53,5 +58,45 @@ describe('App support navigation', () => {
     const supportLink = wrapper.get('a[href="/support"]')
     expect(supportLink.attributes('aria-current')).toBeUndefined()
     expect(supportLink.classes()).not.toContain('router-link-active')
+  })
+})
+
+describe('App header identity state (組長 PR #29 round 7 review, P1)', () => {
+  /**
+   * A failed session refresh (status 'error') must not silently render the same as a confirmed
+   * guest — showing "登入／註冊" there would look like a normal signed-out visitor when the app
+   * actually has no idea whether they're signed in or not (a real member Cookie may still be
+   * valid). 'anonymous' keeps the normal login/register link; 'error' gets its own distinct
+   * retry affordance instead.
+   */
+  it('shows 登入／註冊 for a confirmed anonymous session', async () => {
+    const { wrapper } = await mountAppAt('/')
+    useSessionStore().status = 'anonymous'
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('登入／註冊')
+    expect(wrapper.text()).not.toContain('無法確認登入狀態')
+  })
+
+  it('shows a distinct retry affordance, not 登入／註冊, when the session failed to resolve', async () => {
+    const { wrapper } = await mountAppAt('/')
+    useSessionStore().status = 'error'
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('登入／註冊')
+    expect(wrapper.text()).toContain('無法確認登入狀態')
+  })
+
+  it('retrying calls sessionStore.refresh() again', async () => {
+    const { wrapper } = await mountAppAt('/')
+    const sessionStore = useSessionStore()
+    sessionStore.status = 'error'
+    await flushPromises()
+    const callsBeforeRetry = (sessionStore.refresh as ReturnType<typeof vi.fn>).mock.calls.length
+
+    const retryButton = wrapper.findAll('button').find((button) => button.text().includes('重試'))!
+    await retryButton.trigger('click')
+
+    expect((sessionStore.refresh as ReturnType<typeof vi.fn>).mock.calls.length).toBe(callsBeforeRetry + 1)
   })
 })

@@ -80,9 +80,12 @@
 |---|---|
 | `CartDto` | `publicId`、`items:CartItemDto[0..100]`、`coupon?:CouponAppliedDto`、`amounts{subtotal,itemDiscount,couponDiscount,shippingEstimate?,assemblyFee,totalEstimate,currency}`、`warnings:CartWarningDto[]`、`rowVersion` |
 | `CartItemDto` | `publicId`、`skuPublicId`、`skuCode`、`name`、`quantity`、`unitPrice`、`lineTotal`、`availability`、`priceChanged`、`maxPurchasableQuantity`、`assemblyGroupKey?`、`rowVersion` |
-| `CartValidationDto` | `cart:CartDto`、`isCheckoutReady`、`issues:{itemPublicId?,code,severity,availableActions[]}[]`、`validatedAtUtc` |
+| `CartWarningDto` | `code`、`message`；`message` 為後端撰寫的人類可讀說明，前端直接顯示，不得改以 `code` 自行對照 |
+| `CartValidationDto` | `cart:CartDto`、`isCheckoutReady`、`issues:{itemPublicId?,code,severity,availableActions[]}[]`、`validatedAtUtc`；`availableActions` 值域 `reduce-quantity`／`remove`／`remove-group`，屬於 AssemblyGroupKey 的品項一律只回 `["remove-group"]`（另兩者會被 `cart_assembly_item_immutable` 拒絕，不得回報） |
 | `AddCartItemRequest` | `skuPublicId`、`quantity:int(1..99)`、`cartRowVersion?`；價格、庫存與費用不接受前端輸入 |
 | `UpdateCartItemRequest` | `quantity:int(1..99)`、`itemRowVersion`、`cartRowVersion` |
+| `RemoveCartItemRequest` | `itemRowVersion`；本專案慣例為 DELETE 亦以 Body 帶 RowVersion，與其他寫入端點一致 |
+| `RemoveAssemblyGroupRequest` | `cartRowVersion`；用 Cart 層級（非 Item）RowVersion，因為一個組裝群組橫跨多筆 CartItem，沒有單一 item RowVersion 可代表整組（AUTO-DEC-015） |
 | `CartMergeRequest` | `guestCartKey:string(32..256)`、`strategy:mergeAndReportConflicts`、`idempotencyKey:string(8..128)` |
 | `CartMergeResultDto` | `cart:CartDto`、`conflicts:{guestItemPublicId,skuPublicId,reason,acceptedQuantity}[]` |
 | `ApplyCouponRequest` | `code:string(1..64)`、`cartRowVersion` |

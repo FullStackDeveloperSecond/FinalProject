@@ -64,8 +64,9 @@
 
 | 範圍／使用案例 | Method／Route | 權限 | Request／Response 契約 | 主要錯誤 |
 |---|---|---|---|---|
-| UC-CART-01 購物車明細 | `GET /api/v1/cart`；`POST /api/v1/cart/items`；`PATCH /api/v1/cart/items/{id}`；`DELETE /api/v1/cart/items/{id}` | Public Cart／Member | `CartDto`；Add／Update 帶 SKU、數量及必要 RowVersion | `sku_unavailable`、`cart_quantity_exceeded`、`cart_item_limit_exceeded`、`resource_not_found`、`concurrency_conflict` |
-| UC-CART-01 重驗 | `POST /api/v1/cart/actions/revalidate` | Public Cart／Member | `CartValidationDto` | `cart_item_requires_attention`、`sku_unavailable` |
+| UC-CART-01 購物車明細 | `GET /api/v1/cart`；`POST /api/v1/cart/items`；`PATCH /api/v1/cart/items/{id}`；`DELETE /api/v1/cart/items/{id}` | Public Cart／Member | `CartDto`；Add／Update 帶 SKU、數量及必要 RowVersion | `sku_unavailable`、`cart_quantity_exceeded`、`cart_item_limit_exceeded`、`resource_not_found`、`concurrency_conflict`、`cart_assembly_item_immutable`（PATCH／DELETE 對屬於 AssemblyGroupKey 的品項一律拒絕，只能整組處理） |
+| UC-CART-01 組裝群組整組移除 | `DELETE /api/v1/cart/assembly-groups/{assemblyGroupKey}` | Public Cart／Member | `RemoveAssemblyGroupRequest`（Cart 層級 RowVersion，置於 DELETE Body）→ 更新後 `CartDto`；同一交易內移除該 AssemblyGroupKey 的全部品項，不會部分成功 | `resource_not_found`、`concurrency_conflict`、`validation_failed` |
+| UC-CART-01 重驗 | `POST /api/v1/cart/actions/revalidate` | Public Cart／Member | `CartValidationDto`；屬於 AssemblyGroupKey 的品項其 `availableActions` 一律為 `["remove-group"]`（`reduce-quantity`／`remove` 會被 `cart_assembly_item_immutable` 拒絕，不得回報） | `cart_item_requires_attention`、`sku_unavailable` |
 | UC-CART-02 | `POST /api/v1/cart/actions/merge` | Member | `CartMergeRequest` → `CartMergeResultDto`；需 Idempotency-Key | `cart_merge_conflict`（200，個別品項衝突）、`cart_item_limit_exceeded`（409，整次合併會超過購物車 100 品項上限而整批拒絕，Guest Cart 維持 Active）、`idempotency_payload_conflict` |
 | UC-COUPON-01 | `POST /api/v1/cart/coupon`；`DELETE /api/v1/cart/coupon` | Public Cart／Member | `ApplyCouponRequest` → 更新後 `CartDto` | `coupon_not_applicable`、`coupon_usage_exhausted`、`coupon_not_active` |
 | M 配送選項支撐 | `GET /api/v1/cart/shipping-options`；`GET /api/v1/convenience-stores` | Public Cart／Member | `ShippingOptionsDto`；門市使用 `ConvenienceStoreQuery` → `PageResult<ConvenienceStoreOptionDto>` | `shipping_method_not_allowed`、`shipping_constraint_exceeded` |
