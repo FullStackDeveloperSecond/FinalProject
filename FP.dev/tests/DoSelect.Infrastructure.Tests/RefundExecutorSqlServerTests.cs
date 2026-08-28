@@ -2,6 +2,7 @@ using System.Data;
 using System.Data.Common;
 using System.Net;
 using DoSelect.Application.Auditing;
+using DoSelect.Application.Common;
 using DoSelect.Application.Idempotency;
 using DoSelect.Application.Refunds;
 using DoSelect.Domain.Auditing;
@@ -598,6 +599,128 @@ public sealed class RefundExecutorSqlServerTests
         Assert.False(await verify.RefundAllocations.AnyAsync(a =>
             a.RefundId == stored.Id &&
             a.AllocationType == RefundAllocationType.ShippingClawback));
+    }
+
+    /// <summary>
+    /// 管理員在交易外的身分解析之後、退款交易之內被撤權，這筆退款必須整個擋下來。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 先前整個 Actor（含角色快照）都在交易之外解析，於是「解析通過」到「交易開啟」
+    /// 之間存在一個授權窗口：財務管理員在這段時間被撤銷角色，handler 仍會拿舊快照
+    /// 完成退款並寫稽核。Controller 的 Policy 用的是既有登入 Claims，補不掉這個窗口。
+    /// </para>
+    /// <para>
+    /// 這條測試用 interceptor 精準命中那個窗口：攔到交易外那道 <c>AspNetUsers</c>
+    /// 查詢之後，用另一條連線把角色撤掉，接著交易才開始。
+    /// </para>
+    /// <para>
+    /// 刻意**另外建一位專用管理員**再撤他的權：整組測試共用
+    /// <c>AdminUserId</c>，撤掉它會連累同一個 class 裡其他測試。
+    /// </para>
+    /// </remarks>
+    [RefundExecutorSqlFact]
+    public async Task ARoleRevokedAfterTheIdentityLookupStopsTheRefundInsideTheTransaction()
+    {
+        await using var context = RefundExecutorSqlFixture.CreateContext();
+        var refund = await SeedRefundAsync(context);
+        var doomedAdminId = await SeedFinanceManagerAsync(context);
+
+        var revoker = new RevokeRoleAfterIdentityLookupInterceptor(doomedAdminId);
+        await using var executing = RefundExecutorSqlFixture.CreateContext(revoker);
+
+        var exception = await Assert.ThrowsAsync<DomainProblemException>(
+            () => CreateExecutor(executing).ExecuteAsync(Request(refund, doomedAdminId)));
+
+        Assert.Equal(403, exception.StatusCode);
+        Assert.True(revoker.Revoked, "撤權從未發生，這一輪沒有命中那個窗口。");
+
+        // 交易必須整個回滾：狀態、分攤、稽核與冪等完成紀錄都不得留下。
+        await using var verify = RefundExecutorSqlFixture.CreateContext();
+        var stored = await verify.Refunds.SingleAsync(r => r.PublicId == refund.PublicId);
+
+        Assert.Equal(RefundStatus.Approved, stored.Status);
+        Assert.Null(stored.SucceededAmount);
+        Assert.False(await verify.RefundAllocations.AnyAsync(a => a.RefundId == stored.Id));
+        Assert.False(await verify.Set<AuditLog>()
+            .AnyAsync(log => log.ResourcePublicId == refund.PublicId));
+        Assert.False(await verify.IdempotencyRecords
+            .AnyAsync(record => record.Key == Request(refund, doomedAdminId).IdempotencyKey));
+    }
+
+    /// <summary>建立一位只給單一測試用的財務管理員，回傳 Identity Id。</summary>
+    private static async Task<string> SeedFinanceManagerAsync(DoSelectDbContext context)
+    {
+        var admin = ApplicationUser.CreateAdmin(
+            Guid.NewGuid(),
+            $"refund-admin-{Guid.NewGuid():N}@example.test",
+            new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc));
+        context.Add(admin);
+        await context.SaveChangesAsync();
+
+        var role = await context.Roles.SingleAsync(
+            candidate => candidate.Name == AuditRoleNames.FinanceManager);
+        context.UserRoles.Add(new IdentityUserRole<string>
+        {
+            UserId = admin.Id,
+            RoleId = role.Id,
+        });
+        await context.SaveChangesAsync();
+
+        return admin.Id;
+    }
+
+    /// <summary>
+    /// 在退款交易即將開始的那一刻，用另一條連線撤掉管理員的角色。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 攔截點必須是**交易開始**，才對得準要驗的窗口：交易外的身分解析已經全部做完，
+    /// 交易還沒開。
+    /// </para>
+    /// <para>
+    /// 第一版攔的是 <c>FROM [AspNetUsers]</c> 查詢之後 —— 那個位置**驗不出東西**：
+    /// 舊實作在交易外解析時，角色查詢就排在使用者查詢後面，撤權照樣會被它讀到，
+    /// 所以連沒修的版本都是綠的。
+    /// </para>
+    /// <para>
+    /// 撤權用獨立的 <c>DbContext</c>，才不會被拉進待測的那筆交易裡。
+    /// </para>
+    /// </remarks>
+    private sealed class RevokeRoleAfterIdentityLookupInterceptor : DbTransactionInterceptor
+    {
+        private readonly string _adminUserId;
+        private int _done;
+
+        public RevokeRoleAfterIdentityLookupInterceptor(string adminUserId) =>
+            _adminUserId = adminUserId;
+
+        public bool Revoked => Volatile.Read(ref _done) == 2;
+
+        public override ValueTask<InterceptionResult<DbTransaction>> TransactionStartingAsync(
+            DbConnection connection,
+            TransactionStartingEventData eventData,
+            InterceptionResult<DbTransaction> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (Interlocked.CompareExchange(ref _done, 1, 0) == 0)
+            {
+                Revoke();
+                Volatile.Write(ref _done, 2);
+            }
+
+            return ValueTask.FromResult(result);
+        }
+
+        private void Revoke()
+        {
+            using var revoking = RefundExecutorSqlFixture.CreateContext();
+            var assignments = revoking.UserRoles
+                .Where(assignment => assignment.UserId == _adminUserId)
+                .ToArray();
+            revoking.UserRoles.RemoveRange(assignments);
+            revoking.SaveChanges();
+        }
     }
 
     [RefundExecutorSqlFact]

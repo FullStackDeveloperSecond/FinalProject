@@ -66,15 +66,20 @@ public sealed class RefundExecutor : IRefundExecutor
     {
         RefundExecutionDecision.RequireWellFormed(request);
 
-        // Actor 必須在交易之前解析：Scope 是冪等鍵的一部分，而共用 Executor
-        // 要求由它自己開啟交易。沿用 InvoiceAllowanceWriter 的既有順序。
-        var actor = await ResolveActorAsync(request.ExecutedByAdminUserId, cancellationToken);
+        // Actor Scope 是冪等鍵的一部分，而共用 Executor 要求由它自己開啟交易，
+        // 所以身分解析必須早於交易。這裡只換出**穩定的** PublicId。
+        //
+        // 角色不在這裡查：那是「執行當下的授權」，在交易內重查（AuthorizeActorAsync）。
+        // 兩者一起放在交易外的話，管理員在解析通過到交易開啟之間被撤權，
+        // 這筆退款仍會用舊的角色快照完成。
+        var adminPublicId = await ResolveAdminPublicIdAsync(
+            request.ExecutedByAdminUserId, cancellationToken);
 
         // RequestHash 涵蓋 Refund PublicId、RowVersion、ReasonCode 與 Note
         // （DEC-BATCH-019）。同一把金鑰換上不同的版本或理由，是 Payload 衝突
         // 而不是重播。
         var command = IdempotencyCommand.Create(
-            IdempotencyActorScope.ForAdmin(actor.PublicId!.Value),
+            IdempotencyActorScope.ForAdmin(adminPublicId),
             Operation,
             request.IdempotencyKey,
             new
@@ -91,7 +96,7 @@ public sealed class RefundExecutor : IRefundExecutor
             {
                 var execution = await _idempotencyExecutor.ExecuteAsync(
                     command,
-                    handler: token => ExecuteOnceAsync(request, actor, token),
+                    handler: token => ExecuteOnceAsync(request, token),
                     replayFactory: ReplayAsync,
                     cancellationToken,
                     IsolationLevel.Serializable);
@@ -140,9 +145,11 @@ public sealed class RefundExecutor : IRefundExecutor
 
     private async Task<IdempotencyResponse<ExecuteRefundResult>> ExecuteOnceAsync(
         ExecuteRefundRequest request,
-        AuditActor actor,
         CancellationToken cancellationToken)
     {
+        // 在交易內重查授權：撤權必須在這裡擋下來，不能沿用交易外的角色快照。
+        var actor = await AuthorizeActorAsync(request.ExecutedByAdminUserId, cancellationToken);
+
         // 追蹤查詢：後續要在同一交易內更新這一列。
         var refund = await _context.Refunds
             .SingleOrDefaultAsync(
@@ -337,15 +344,48 @@ public sealed class RefundExecutor : IRefundExecutor
         value.ToString(null, CultureInfo.InvariantCulture);
 
     /// <summary>
-    /// 把執行者的 Identity Id 換成管理員 PublicId 與角色快照，並確認執行當下仍具備
-    /// 退款權限。稽核紀錄因此不會出現內部 Identity Id（DEC-P290）。
+    /// 交易外只換出穩定的管理員 PublicId，供組成 Actor Scope 用。
     /// </summary>
     /// <remarks>
-    /// **在交易之外解析**，不是交易內：Actor Scope 是冪等鍵的一部分，而共用
-    /// <c>IIdempotencyExecutor</c> 要求由它自己開啟交易，所以這一步必須早於它。
-    /// 沿用 <c>InvoiceAllowanceWriter</c> 的既有順序。
+    /// <para>
+    /// Actor Scope 是冪等鍵的一部分，而共用 <c>IIdempotencyExecutor</c> 要求由它自己
+    /// 開啟交易，所以這一步必須早於交易。
+    /// </para>
+    /// <para>
+    /// **這裡刻意不查角色。** 角色是「執行當下的授權」，必須在交易內重查 ——
+    /// 見 <see cref="AuthorizeActorAsync"/>。PublicId 則是帳號的穩定識別，
+    /// 提早解析不會產生授權窗口。
+    /// </para>
     /// </remarks>
-    private async Task<AuditActor> ResolveActorAsync(
+    private async Task<Guid> ResolveAdminPublicIdAsync(
+        string adminUserId,
+        CancellationToken cancellationToken)
+    {
+        var publicId = await _context.Users.AsNoTracking()
+            .Where(user => user.Id == adminUserId && user.AccountType == AccountType.Admin)
+            .Select(user => (Guid?)user.PublicId)
+            .SingleOrDefaultAsync(cancellationToken);
+
+        return publicId ?? throw DomainProblemException.Forbidden(
+            "The administrator identity is invalid.");
+    }
+
+    /// <summary>
+    /// 在退款交易內重查帳號狀態與角色，並組出實際寫進稽核的 <see cref="AuditActor"/>。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// **必須在交易內**。先前整個 Actor（含角色快照）都在交易外解析，於是
+    /// 「解析通過」到「交易開啟」之間存在一個授權窗口：財務管理員在這段時間被撤銷
+    /// 角色，handler 仍會拿交易外的舊快照完成退款並寫稽核。Controller 的 Policy 用的是
+    /// 既有登入 Claims，補不掉這個窗口 —— 資料庫角色重查本來就是為了擋舊 Claims。
+    /// </para>
+    /// <para>
+    /// 這裡丟 <c>Forbidden</c> 會讓共用 Executor 的交易整個回滾：退款狀態、分攤、
+    /// 稽核與冪等完成紀錄都不會留下。
+    /// </para>
+    /// </remarks>
+    private async Task<AuditActor> AuthorizeActorAsync(
         string adminUserId,
         CancellationToken cancellationToken)
     {
