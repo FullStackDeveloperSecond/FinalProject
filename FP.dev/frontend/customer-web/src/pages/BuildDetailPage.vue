@@ -48,8 +48,28 @@ function resetFromServer(): void {
   saveError.value = null
 }
 
+/**
+ * 組長 PR #35 round-4 review, P2: 上一輪的 `watch(() => props.buildId, ...)` 只在參數改變的「當下」
+ * 清空本地狀態，對「已經送出、還沒回應」的請求無效——Vue Router 在同一個 route record 上換
+ * :buildId 不會卸載元件，所以清單 A 的 async function 會繼續跑完，把 A 的結果寫進正在顯示 B 的
+ * 同一個元件實例（A 的分享網址出現在 B 頁、B 頁顯示「已加入購物車」但加的是 A）。
+ *
+ * 每個操作在開始時 snapshot 當下的 buildId，每次 await 之後先用這個函式確認使用者仍在同一份清單，
+ * 才允許寫入 UI 狀態或導航。刻意不取消已送出的請求：那些是後端已經受理的安全操作（分享、加入
+ * 購物車），取消只會讓前後端狀態不一致；要擋的是「遲到的結果污染新頁面」，不是操作本身。
+ */
+function isStillViewing(requestedBuildId: string): boolean {
+  return props.buildId === requestedBuildId
+}
+
 async function reloadAndDiscardEdits(): Promise<void> {
+  // 自我審查補充（組長未點名，但與 P2 同一類）：refetch 完成前若已切到另一份清單，
+  // resetFromServer() 會把 A 的伺服器資料寫進正在顯示 B 的 editor。
+  const requestedBuildId = props.buildId
   await refetch()
+  if (!isStillViewing(requestedBuildId)) {
+    return
+  }
   resetFromServer()
 }
 
@@ -92,10 +112,11 @@ async function save(): Promise<void> {
     return
   }
 
+  const requestedBuildId = props.buildId
   saveError.value = null
   try {
     await updateBuildList.mutateAsync({
-      publicId: props.buildId,
+      publicId: requestedBuildId,
       request: {
         name: name.value,
         items: items.value.map((item) => ({ skuPublicId: item.skuPublicId, quantity: item.quantity })),
@@ -107,8 +128,14 @@ async function save(): Promise<void> {
     // setQueryData，所以這裡的 buildList.value 已經是伺服器合併後的最新資料（例如同一顆 SKU
     // 被 MergeAndValidateItems 合併成一列）——重新套用它，讓本地 items／name 與 isDirty 不會停在
     // 送出當下（可能尚未合併）的那份舊值。
+    if (!isStillViewing(requestedBuildId)) {
+      return
+    }
     resetFromServer()
   } catch (error) {
+    if (!isStillViewing(requestedBuildId)) {
+      return
+    }
     if (isApiError(error) && error.code === 'concurrency_conflict') {
       hasConcurrencyConflict.value = true
       return
@@ -124,11 +151,18 @@ async function confirmDelete(): Promise<void> {
   if (!buildList.value) {
     return
   }
+  const requestedBuildId = props.buildId
   deleteError.value = null
   try {
-    await deleteBuildList.mutateAsync({ publicId: props.buildId, rowVersion: buildList.value.rowVersion })
+    await deleteBuildList.mutateAsync({ publicId: requestedBuildId, rowVersion: buildList.value.rowVersion })
+    if (!isStillViewing(requestedBuildId)) {
+      return
+    }
     await router.push('/account/builds')
   } catch (error) {
+    if (!isStillViewing(requestedBuildId)) {
+      return
+    }
     deleteError.value = error
   }
 }
@@ -149,20 +183,35 @@ async function share(): Promise<void> {
   if (isDirty.value) {
     return
   }
+  const requestedBuildId = props.buildId
   shareError.value = null
   try {
-    justCreatedShare.value = await createShare.mutateAsync()
+    const created = await createShare.mutateAsync(requestedBuildId)
+    if (!isStillViewing(requestedBuildId)) {
+      return
+    }
+    justCreatedShare.value = created
   } catch (error) {
+    if (!isStillViewing(requestedBuildId)) {
+      return
+    }
     shareError.value = error
   }
 }
 
 async function revoke(): Promise<void> {
+  const requestedBuildId = props.buildId
   shareError.value = null
   try {
-    await revokeShare.mutateAsync()
+    await revokeShare.mutateAsync(requestedBuildId)
+    if (!isStillViewing(requestedBuildId)) {
+      return
+    }
     justCreatedShare.value = null
   } catch (error) {
+    if (!isStillViewing(requestedBuildId)) {
+      return
+    }
     shareError.value = error
   }
 }
@@ -238,17 +287,24 @@ async function addBuildToCart(): Promise<void> {
   if (!buildList.value || isDirty.value) {
     return
   }
+  const requestedBuildId = props.buildId
   cartResultMessage.value = null
   cartError.value = null
   try {
     await addToCart.mutateAsync({
-      publicId: props.buildId,
+      publicId: requestedBuildId,
       request: { quantity: cartQuantity.value, buildRowVersion: buildList.value.rowVersion },
       idempotencyKey: cartIdempotencyKey,
     })
+    if (!isStillViewing(requestedBuildId)) {
+      return
+    }
     cartResultMessage.value = '已加入購物車。'
     cartIdempotencyKey = crypto.randomUUID()
   } catch (error) {
+    if (!isStillViewing(requestedBuildId)) {
+      return
+    }
     cartError.value = error
   }
 }

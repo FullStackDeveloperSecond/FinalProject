@@ -45,6 +45,19 @@ const isBusy = ref(false)
 // to a *different* shared build could silently fire against the new one. Made reactive instead.
 const pendingActionStorageKey = computed(() => `doselect.sharedBuild.pendingAction.${props.shareToken}`)
 
+/**
+ * 組長 PR #35 round-4 review, P2: 與 BuildDetailPage 同一個問題——`watch(() => props.shareToken, ...)`
+ * 只處理「切換當下」的本地狀態，對已送出未回應的請求無效。分享連結 A 的 copy／add-to-cart 若在切到 B
+ * 之後才完成，會把 A 的錯誤訊息、忙碌狀態寫進 B 頁，甚至把使用者導向 A 複製出來的清單。
+ *
+ * 每個操作開始時 snapshot 當下 shareToken，await 之後先確認仍在同一個分享頁才動 UI 或導航。
+ * 已送出的建立清單／加入購物車請求不取消（後端已受理，取消會造成狀態不一致）；`pendingCopyForCart`
+ * 這類「屬於該次操作」的狀態也只在 identity 仍相符時才寫回，避免把 A 的複本記到 B 頭上。
+ */
+function isStillViewing(requestedShareToken: string): boolean {
+  return props.shareToken === requestedShareToken
+}
+
 function requireLoginThenRetry(action: 'copy' | 'addToCart'): void {
   window.sessionStorage.setItem(pendingActionStorageKey.value, action)
   void router.push({ path: '/login', query: { redirect: route.fullPath } })
@@ -59,6 +72,7 @@ async function copyToMyLists(): Promise<void> {
     return
   }
 
+  const requestedShareToken = props.shareToken
   actionError.value = null
   isBusy.value = true
   try {
@@ -66,11 +80,19 @@ async function copyToMyLists(): Promise<void> {
       name: `${sharedBuild.value.name}（複製）`,
       items: sharedBuild.value.items.map((item) => ({ skuPublicId: item.skuPublicId, quantity: item.quantity })),
     })
+    if (!isStillViewing(requestedShareToken)) {
+      return
+    }
     await router.push(`/builds/${copy.publicId}`)
   } catch (caught) {
+    if (!isStillViewing(requestedShareToken)) {
+      return
+    }
     actionError.value = caught
   } finally {
-    isBusy.value = false
+    if (isStillViewing(requestedShareToken)) {
+      isBusy.value = false
+    }
   }
 }
 
@@ -97,6 +119,7 @@ async function addSharedBuildToCart(): Promise<void> {
     return
   }
 
+  const requestedShareToken = props.shareToken
   actionError.value = null
   isBusy.value = true
   try {
@@ -107,6 +130,10 @@ async function addSharedBuildToCart(): Promise<void> {
         items: sharedBuild.value.items.map((item) => ({ skuPublicId: item.skuPublicId, quantity: item.quantity })),
       })
       copy = { publicId: created.publicId, rowVersion: created.rowVersion }
+      // 已切走時不得把這份複本記到新分享頁的 pendingCopyForCart 上，否則 B 的加入購物車會拿 A 的複本去送。
+      if (!isStillViewing(requestedShareToken)) {
+        return
+      }
       pendingCopyForCart.value = copy
     }
     await addToCart.mutateAsync({
@@ -114,13 +141,21 @@ async function addSharedBuildToCart(): Promise<void> {
       request: { quantity: 1, buildRowVersion: copy.rowVersion },
       idempotencyKey: cartIdempotencyKey,
     })
+    if (!isStillViewing(requestedShareToken)) {
+      return
+    }
     pendingCopyForCart.value = null
     cartIdempotencyKey = crypto.randomUUID()
     await router.push(`/builds/${copy.publicId}`)
   } catch (caught) {
+    if (!isStillViewing(requestedShareToken)) {
+      return
+    }
     actionError.value = caught
   } finally {
-    isBusy.value = false
+    if (isStillViewing(requestedShareToken)) {
+      isBusy.value = false
+    }
   }
 }
 

@@ -359,4 +359,35 @@ describe('SharedBuildPage — share-token identity switch (組長 PR #35 round-3
 
     expect(wrapper.text()).not.toContain('操作失敗')
   })
+
+  /**
+   * 組長 PR #35 round-4 review, P2: 上面幾支涵蓋的是「操作完成後再切換」或「失敗後再切換」。
+   * 這裡要的是 in-flight completion——請求送出後、回應回來前就切走，舊操作的遲到結果不得污染新頁面。
+   */
+  it('ignores an in-flight copy that resolves after shareToken changed', async () => {
+    mockGetSharedBuild.mockResolvedValue(sharedBuild())
+    let resolveCopy: ((value: unknown) => void) | undefined
+    mockCreateBuildList.mockImplementation(() => new Promise((resolve) => { resolveCopy = resolve }))
+
+    const { wrapper, router } = await mountPage(true)
+    await vi.waitFor(() => expect(wrapper.text()).toContain('分享的組裝'))
+
+    // 1. 在分享連結 A 觸發複製，request 保持 pending。
+    await wrapper.findAll('button').find((button) => button.text() === '複製為我的清單')!.trigger('click')
+    await vi.waitFor(() => expect(mockCreateBuildList).toHaveBeenCalledTimes(1))
+
+    // 2. 回應還沒回來就切到分享連結 B。
+    await wrapper.setProps({ shareToken: 'token-2' })
+    await flushPromises()
+    const pathAfterSwitch = router.currentRoute.value.fullPath
+
+    // 3. A 的複製這時才完成。
+    resolveCopy?.({ publicId: 'copy-of-token-1', rowVersion: 'AAAA' })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await flushPromises()
+
+    // 絕不能把使用者導向 A 複製出來的清單——他現在看的是 B。
+    expect(router.currentRoute.value.fullPath).toBe(pathAfterSwitch)
+    expect(router.currentRoute.value.fullPath).not.toContain('copy-of-token-1')
+  })
 })

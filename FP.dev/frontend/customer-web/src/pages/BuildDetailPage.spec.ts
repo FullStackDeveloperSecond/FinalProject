@@ -426,4 +426,74 @@ describe('BuildDetailPage — route param identity switch (組長 PR #35 round-3
     expect((wrapper.find('#cart-quantity').element as HTMLInputElement).value).toBe('1')
     expect((wrapper.find('#build-detail-name').element as HTMLInputElement).value).toBe('另一份清單')
   })
+
+  /**
+   * 組長 PR #35 round-4 review, P2: 上面那支只涵蓋「操作已完成後再切換」。這裡要的是相反的時序
+   * ——請求送出後、回應回來前就切走。用 deferred Promise 精確控制完成時機。
+   */
+  it('discards an in-flight share response that resolves after buildId already changed', async () => {
+    mockGetBuildList.mockImplementation((publicId: string) => Promise.resolve(
+      publicId === 'build-1'
+        ? baseBuild()
+        : baseBuild({ publicId: 'build-2', name: '另一份清單', rowVersion: 'ZZZZ' }),
+    ))
+    let resolveShare: ((value: unknown) => void) | undefined
+    mockCreateBuildShare.mockImplementation(() => new Promise((resolve) => { resolveShare = resolve }))
+
+    const wrapper = await mountPage()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('我的組裝'))
+
+    // 1. 在清單 A 觸發分享，request 保持 pending。
+    const shareButton = wrapper.findAll('button').find((button) => button.text() === '建立分享連結')!
+    await shareButton.trigger('click')
+    await vi.waitFor(() => expect(mockCreateBuildShare).toHaveBeenCalledWith('build-1'))
+
+    // 2. 回應還沒回來就切到清單 B。
+    await wrapper.setProps({ buildId: 'build-2' })
+    await vi.waitFor(() => expect(wrapper.text()).toContain('另一份清單'))
+
+    // 3. A 的回應這時才完成。
+    resolveShare?.({
+      token: 'token-of-build-1',
+      url: 'https://example.test/builds/shared/token-of-build-1',
+      expiresAtUtc: new Date(Date.now() + 86_400_000).toISOString(),
+    })
+    // 讓 mutation 的 await 鏈與 Vue 的更新佇列都跑完，否則即使守衛失效也還沒渲染出來，
+    // 測試會假通過（這支測試最初就踩到這個坑，靠暫時停用守衛才發現）。
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await wrapper.vm.$nextTick()
+
+    // 送出時用的必須是 A 的 id（不是切走後才讀 route）。
+    expect(mockCreateBuildShare).toHaveBeenCalledExactlyOnceWith('build-1')
+    // A 的分享網址絕不能出現在 B 頁面上——使用者可能把它當成 B 的連結分享出去。
+    expect(wrapper.text()).not.toContain('token-of-build-1')
+  })
+
+  it('discards an in-flight add-to-cart success message that resolves after buildId already changed', async () => {
+    mockGetBuildList.mockImplementation((publicId: string) => Promise.resolve(
+      publicId === 'build-1'
+        ? baseBuild()
+        : baseBuild({ publicId: 'build-2', name: '另一份清單', rowVersion: 'ZZZZ' }),
+    ))
+    let resolveCart: ((value: unknown) => void) | undefined
+    mockAddBuildToCart.mockImplementation(() => new Promise((resolve) => { resolveCart = resolve }))
+
+    const wrapper = await mountPage()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('我的組裝'))
+
+    const cartButton = wrapper.findAll('button').find((button) => button.text() === '加入購物車')!
+    await cartButton.trigger('click')
+    await vi.waitFor(() => expect(mockAddBuildToCart).toHaveBeenCalled())
+    expect(mockAddBuildToCart.mock.calls[0][0]).toBe('build-1')
+
+    await wrapper.setProps({ buildId: 'build-2' })
+    await vi.waitFor(() => expect(wrapper.text()).toContain('另一份清單'))
+
+    resolveCart?.({ publicId: 'cart-1', items: [], amounts: { merchandise: 0, assemblyFee: 0, totalEstimate: 0, currency: 'TWD' }, warnings: [], rowVersion: 'CART' })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await wrapper.vm.$nextTick()
+
+    // 加入購物車的其實是 A，B 頁不得顯示成功訊息，否則使用者會誤以為 B 已進購物車。
+    expect(wrapper.text()).not.toContain('已加入購物車')
+  })
 })

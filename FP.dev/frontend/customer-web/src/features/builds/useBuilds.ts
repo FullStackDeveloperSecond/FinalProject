@@ -66,19 +66,30 @@ export function useDeleteBuildList() {
   })
 }
 
+/**
+ * 組長 PR #35 round-4 review, P2: `mutationFn` 送出時讀到的是「當下」的 publicId，但 `onSuccess`
+ * 若再呼叫一次 `toValue(publicId)`，在使用者已切到另一份清單時讀到的會是「新的」那一個——結果是
+ * 改了 A 卻去 invalidate B，A 的 cache 反而保持舊狀態（B 則被無謂重抓）。改成把送出當下的 id 當成
+ * mutation variables 傳進去，`onSuccess` 只認 `variables`，不重讀 route。呼叫端可以不帶參數
+ * （沿用 composable 綁定的 getter），也可以顯式帶入自己 snapshot 的 id。
+ */
 export function useCreateBuildShare(publicId: MaybeRefOrGetter<string>) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: () => createBuildShare(toValue(publicId)),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: [...buildListsQueryKey, 'detail', toValue(publicId)] }),
+    mutationFn: (targetPublicId: string = toValue(publicId)) => createBuildShare(targetPublicId),
+    onSuccess: (_data, targetPublicId) => queryClient.invalidateQueries({
+      queryKey: [...buildListsQueryKey, 'detail', targetPublicId],
+    }),
   })
 }
 
 export function useRevokeBuildShare(publicId: MaybeRefOrGetter<string>) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: () => revokeBuildShare(toValue(publicId)),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: [...buildListsQueryKey, 'detail', toValue(publicId)] }),
+    mutationFn: (targetPublicId: string = toValue(publicId)) => revokeBuildShare(targetPublicId),
+    onSuccess: (_data, targetPublicId) => queryClient.invalidateQueries({
+      queryKey: [...buildListsQueryKey, 'detail', targetPublicId],
+    }),
   })
 }
 
