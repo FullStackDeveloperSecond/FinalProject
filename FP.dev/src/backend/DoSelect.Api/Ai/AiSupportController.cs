@@ -12,7 +12,7 @@ namespace DoSelect.Api.Ai;
 
 [ApiController]
 [Route("api/v1/ai/support/messages")]
-[Authorize(Policy = DoSelectPolicies.Member)]
+[Authorize(Policy = DoSelectPolicies.AiSupportMember)]
 public sealed class AiSupportController : ControllerBase
 {
     private const string DisclaimerKey = "ai.support.answerDisclaimer";

@@ -7,6 +7,7 @@ using DoSelect.Api.Security;
 using DoSelect.Application.Ai;
 using DoSelect.Domain.Members;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
@@ -14,6 +15,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 
 namespace DoSelect.Api.IntegrationTests;
 
@@ -56,6 +58,36 @@ public sealed class AiSupportEndpointTests : IClassFixture<WebApplicationFactory
         using var response = await PostAsync(client, ValidRequest(), token);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(0, model.CallCount);
+    }
+
+    [Fact]
+    public async Task GuestOrderAccessCookie_Returns403WithoutReadingAccessOrCallingModel()
+    {
+        var model = new RecordingModelClient();
+        var admission = new StubAdmissionGate(GrantedAccess());
+        using var factory = CreateFactory(admission, model);
+        using var client = factory.CreateClient();
+        var cookieOptions = factory.Services
+            .GetRequiredService<IOptionsMonitor<CookieAuthenticationOptions>>()
+            .Get(DoSelectAuthenticationSchemes.GuestOrderAccess);
+        var identity = new ClaimsIdentity(DoSelectAuthenticationSchemes.GuestOrderAccess);
+        identity.AddClaim(new Claim(
+            DoSelect.Application.Orders.GuestOrderAccessClaimTypes.TokenValue,
+            "synthetic-guest-token"));
+        var protectedTicket = cookieOptions.TicketDataFormat.Protect(new AuthenticationTicket(
+            new ClaimsPrincipal(identity),
+            DoSelectAuthenticationSchemes.GuestOrderAccess));
+        client.DefaultRequestHeaders.Add(
+            "Cookie",
+            $"{cookieOptions.Cookie.Name}={protectedTicket}");
+        var token = await GetAntiforgeryTokenAsync(client);
+
+        using var response = await PostAsync(client, ValidRequest(), token);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(0, admission.ReadCount);
+        Assert.Equal(0, admission.ReservationCount);
         Assert.Equal(0, model.CallCount);
     }
 

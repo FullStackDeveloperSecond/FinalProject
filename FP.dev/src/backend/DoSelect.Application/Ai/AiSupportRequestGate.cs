@@ -31,6 +31,13 @@ public static class AiSupportRequestGate
                 AiFallback.HumanSupport);
         }
 
+        if (context.ConsentState == AiConsentState.Unavailable)
+        {
+            return Deny(
+                AiSafetyReason.ServiceUnavailable,
+                AiFallback.HumanSupport);
+        }
+
         if (context.ConsentState != AiConsentState.Granted)
         {
             var reason = context.ConsentState == AiConsentState.Denied

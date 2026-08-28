@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-21
+最後更新: 2026-08-28
 追蹤項目:
   - AI-01
   - AI-02
@@ -237,4 +237,6 @@ sequenceDiagram
 - 若帳號無法使用選定模型或 Snapshot，不得由開發者自行換模；需記錄成本、品質與相容性後重新決策。
 - OpenAI Request 是否保存必須明確設定，且不取代本系統自身的 90／180 天保存規則。
 
-既有零件識別格式與 Clarification Precision／Recall 發布門檻均已定版；120 筆繁中 draft 評估資料、合成 Fixture、Grader Contract 與 deterministic 驗證已建立於 `FP.dev/evals/ai/v1`。Application 已建立 31 項 AI 安全測試，包含可替換 Admission Gate／Context Reader／Model Client、原子額度預留、最後一額與併發競爭契約、語系傳遞、Owner Fail Closed、去識別投影、只讀工具白名單、Prompt 信任分層、Semantic Key／預算驗證與故障降級策略；API 已建立 `POST /api/v1/ai/support/messages` 的 Member Policy、Antiforgery、功能旗標、DTO 驗證、Problem Details 與 9 項 Fake Client Integration。預設 Admission Gate、Context Reader 與 Model Client 採 Fail Closed，尚未接線時不會呼叫外部模型。目前剩餘工作為 Terry／Kafen 標註覆核、完整 SearchIntent Schema、正式 Prompt、正式同意／額度持久化、OpenAI Adapter、Owner Query、真正 GuestOrderAccessToken Integration、瀏覽器 E2E 及 live baseline。
+既有零件識別格式與 Clarification Precision／Recall 發布門檻均已定版；120 筆繁中 draft 評估資料、合成 Fixture、Grader Contract 與 deterministic 驗證已建立於 `FP.dev/evals/ai/v1`。Application 已建立 32 項 AI 安全測試；API 的 `POST /api/v1/ai/support/messages` 具 Member／Guest 雙 Scheme 的 `AiSupport.Member` Policy，真正 GuestOrderAccess Cookie 通過 Authentication 後因缺 Member Claim 回 403。Infrastructure 已接上 `EfAiSupportAdmissionGate` 與 `EfAiSupportContextReader`：前者以最新 append-only 同意、UTC 日界線、Serializable 交易、SQL Server Key-range Lock 與 RequestPublicId UX 原子預留每日 20 則；後者只依可信 Member ID 查本人訂單並輸出去識別最小 JSON。資料庫故障、內容安全或 Owner 不符均 Fail Closed，不呼叫模型。
+
+AI-13 現有證據為 Domain 4、Application 32、Infrastructure 6、API 10；Migration `20260828050333_AddAiSafetyConsentAndUsage` 只新增 `AiConsentRecords` 與 `AiUsageLedger`、索引、Check Constraint 與 Restrict FK，尚未套用共用開發資料庫。剩餘工作為 Terry／Kafen 評估資料覆核、完整 SearchIntent Schema、正式 Prompt、OpenAI Responses API Adapter、M-19 同意／撤回 Endpoint 與客服歷史 Query、前端 E2E 及 live baseline。

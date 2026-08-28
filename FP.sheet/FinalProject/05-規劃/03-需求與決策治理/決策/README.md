@@ -1,6 +1,6 @@
 ---
 文件狀態: 持續更新
-最後更新: 2026-08-27
+最後更新: 2026-08-28
 ---
 
 # 決策工作區
@@ -13,6 +13,7 @@
 
 ## 最近完成批次
 
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-031-AI客服同意額度與OwnerQuery定版|DEC-BATCH-031｜AI 客服同意、額度與 Owner Query 定版]]：`DEC-P324～DEC-P327`，4 項，已於 2026-08-28 寫回；SQL-backed append-only 同意與每日原子／冪等額度、本人訂單最小投影、真正 Guest Cookie 403 已完成，OpenAI Adapter、M-19 UI／E2E 與 live evaluation 維持後續階段。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-030-商品圖片Hash與Outbox人工重送定版|DEC-BATCH-030｜商品圖片 Hash 與 Outbox 人工重送定版]]：`DEC-P322～DEC-P323`，2 項，已於 2026-08-28 寫回；Variant WebP 各自使用 SHA-256 immutable URL，Outbox 人工重送限 MFA SuperAdmin 並與中央 Audit 同次提交；三欄加法 Migration 已在最新 `origin/dev` 基線重建、審查且未套用。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-029-訂單自助取消原子一致性與原因碼定版|DEC-BATCH-029｜訂單自助取消原子一致性與原因碼定版]]：`DEC-P320～DEC-P321`，2 項，已於 2026-08-27 寫回；待付款取消以同一 SQL Server 交易同步訂單、庫存、優惠券、歷程與中央 Audit，原因碼固定為五項 B1 字彙。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-026-相容性規則中央稽核與API契約定版|DEC-BATCH-026｜相容性規則中央稽核與 API 契約定版]]：`DEC-P309～DEC-P312`，4 項，已於 2026-08-27 寫回；沿用中央 Audit 且不新增 Migration，FactsJson 固定 Schema Version 1，啟停改用 PATCH Route，移除 `BuildListDto.owner`。

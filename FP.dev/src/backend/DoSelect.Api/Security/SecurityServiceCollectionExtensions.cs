@@ -348,6 +348,17 @@ public static class SecurityServiceCollectionExtensions
             policy.RequireClaim(DoSelectClaimTypes.AccountType, DoSelectClaimValues.Member);
         });
 
+        // AI support distinguishes a real guest-order credential from an anonymous caller:
+        // GuestOrderAccess authenticates, then fails the Member claim requirement with 403.
+        options.AddPolicy(DoSelectPolicies.AiSupportMember, policy =>
+        {
+            policy.AddAuthenticationSchemes(
+                DoSelectAuthenticationSchemes.Member,
+                DoSelectAuthenticationSchemes.GuestOrderAccess);
+            policy.RequireAuthenticatedUser();
+            policy.RequireClaim(DoSelectClaimTypes.AccountType, DoSelectClaimValues.Member);
+        });
+
         AddAdminPolicy(options, DoSelectPolicies.Admin);
         AddAdminPolicy(options, DoSelectPolicies.CatalogManager,
             DoSelectRoles.CatalogManager, DoSelectRoles.SuperAdmin);
