@@ -8056,13 +8056,8 @@
           "feature",
           "usedRequests",
           "requestLimit",
-          "inputTokens",
-          "outputTokens",
-          "estimatedCostUsd",
           "windowStartUtc",
-          "resetAtUtc",
-          "budgetWarningActive",
-          "budgetProtectionActive"
+          "resetAtUtc"
         ],
         "type": "object",
         "properties": {
@@ -8085,30 +8080,6 @@
             ],
             "format": "int32"
           },
-          "inputTokens": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "outputTokens": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "estimatedCostUsd": {
-            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
-            "type": [
-              "number",
-              "string"
-            ],
-            "format": "double"
-          },
           "windowStartUtc": {
             "type": "string",
             "format": "date-time"
@@ -8116,12 +8087,6 @@
           "resetAtUtc": {
             "type": "string",
             "format": "date-time"
-          },
-          "budgetWarningActive": {
-            "type": "boolean"
-          },
-          "budgetProtectionActive": {
-            "type": "boolean"
           }
         }
       },

@@ -379,13 +379,8 @@ public sealed class AiSupportEndpointTests : IClassFixture<WebApplicationFactory
         var usage = new StubUsageReader(new AiMemberUsageSnapshot(
             3,
             20,
-            1_200,
-            300,
-            0.012345m,
             ResetAtUtc.AddDays(-1),
-            ResetAtUtc,
-            BudgetWarningActive: false,
-            BudgetProtectionActive: false));
+            ResetAtUtc));
         using var factory = CreateFactory(
             GrantedAccess(),
             new RecordingModelClient(),
@@ -399,6 +394,11 @@ public sealed class AiSupportEndpointTests : IClassFixture<WebApplicationFactory
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(3, document.RootElement.GetProperty("usedRequests").GetInt32());
         Assert.Equal(20, document.RootElement.GetProperty("requestLimit").GetInt32());
+        Assert.False(document.RootElement.TryGetProperty("inputTokens", out _));
+        Assert.False(document.RootElement.TryGetProperty("outputTokens", out _));
+        Assert.False(document.RootElement.TryGetProperty("estimatedCostUsd", out _));
+        Assert.False(document.RootElement.TryGetProperty("budgetWarningActive", out _));
+        Assert.False(document.RootElement.TryGetProperty("budgetProtectionActive", out _));
         Assert.False(document.RootElement.TryGetProperty("answer", out _));
     }
 
@@ -486,7 +486,7 @@ public sealed class AiSupportEndpointTests : IClassFixture<WebApplicationFactory
                         DecidedAtUtc: null)));
                 services.AddSingleton<IAiMemberUsageReader>(
                     usage ?? new StubUsageReader(new AiMemberUsageSnapshot(
-                        0, 20, 0, 0, 0m, ResetAtUtc.AddDays(-1), ResetAtUtc, false, false)));
+                        0, 20, ResetAtUtc.AddDays(-1), ResetAtUtc)));
                 services.AddSingleton<IAiAdminUsageReader>(new StubAdminUsageReader());
             });
         });

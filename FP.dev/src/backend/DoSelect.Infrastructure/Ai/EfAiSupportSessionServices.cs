@@ -184,34 +184,12 @@ public sealed class EfAiMemberUsageReader(
                     entry.Succeeded &&
                     entry.OccurredAtUtc >= window.StartsAtUtc.UtcDateTime &&
                     entry.OccurredAtUtc < window.ResetAtUtc.UtcDateTime,
-                    cancellationToken);
-            var memberUsage = await (
-                from interaction in dbContext.AiInteractions.AsNoTracking()
-                join conversation in dbContext.AiConversations.AsNoTracking()
-                    on interaction.AiConversationId equals conversation.Id
-                where conversation.MemberUserId == memberUserId &&
-                    interaction.CreatedAtUtc >= window.StartsAtUtc.UtcDateTime &&
-                    interaction.CreatedAtUtc < window.ResetAtUtc.UtcDateTime
-                select new
-                {
-                    interaction.InputTokens,
-                    interaction.OutputTokens,
-                    interaction.EstimatedCostUsd,
-                })
-                .ToListAsync(cancellationToken);
-            var cumulativeCost = await dbContext.AiInteractions
-                .AsNoTracking()
-                .SumAsync(interaction => (decimal?)interaction.EstimatedCostUsd, cancellationToken) ?? 0m;
+                cancellationToken);
             return new AiMemberUsageSnapshot(
                 used,
                 EfAiSupportAdmissionGate.DailySupportLimit,
-                memberUsage.Sum(item => item.InputTokens),
-                memberUsage.Sum(item => item.OutputTokens),
-                memberUsage.Sum(item => item.EstimatedCostUsd),
                 window.StartsAtUtc,
-                window.ResetAtUtc,
-                cumulativeCost >= 70m,
-                cumulativeCost >= 90m);
+                window.ResetAtUtc);
         }
         catch (DbException)
         {

@@ -154,12 +154,6 @@ function toggleSelection(values: string[], value: string, checked: boolean) {
     <template v-else>
       <div class="ai-support__status card">
         <p><strong>今日剩餘：</strong>{{ remaining }} / {{ Number(usageQuery.data.value?.requestLimit ?? 20) }} 則</p>
-        <p
-          v-if="usageQuery.data.value?.budgetWarningActive"
-          class="form-error"
-        >
-          AI 預算已接近系統上限，服務可能稍後暫停。
-        </p>
         <button
           type="button"
           class="ai-support__withdraw"

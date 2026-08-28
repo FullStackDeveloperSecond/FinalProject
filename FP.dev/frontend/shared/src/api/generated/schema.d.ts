@@ -5367,18 +5367,10 @@ export interface components {
             usedRequests: number | string;
             /** Format: int32 */
             requestLimit: number | string;
-            /** Format: int32 */
-            inputTokens: number | string;
-            /** Format: int32 */
-            outputTokens: number | string;
-            /** Format: double */
-            estimatedCostUsd: number | string;
             /** Format: date-time */
             windowStartUtc: string;
             /** Format: date-time */
             resetAtUtc: string;
-            budgetWarningActive: boolean;
-            budgetProtectionActive: boolean;
         };
         AntiforgeryTokenResponse: {
             requestToken: string;

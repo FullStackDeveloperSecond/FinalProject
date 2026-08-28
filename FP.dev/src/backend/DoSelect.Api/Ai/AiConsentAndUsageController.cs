@@ -143,13 +143,8 @@ public sealed class AiUsageController(IAiMemberUsageReader usageReader) : Contro
             "support",
             usage.UsedRequests,
             usage.RequestLimit,
-            usage.InputTokens,
-            usage.OutputTokens,
-            usage.EstimatedCostUsd,
             usage.WindowStartUtc,
-            usage.ResetAtUtc,
-            usage.BudgetWarningActive,
-            usage.BudgetProtectionActive));
+            usage.ResetAtUtc));
     }
 
     private ObjectResult ProblemResult(int statusCode, string code)

@@ -227,6 +227,44 @@ public sealed class AiSafetyGateTests
     }
 
     [Fact]
+    public void AiOutboundMetadata001_MachineIdentifierThatLooksLikePhone_DoesNotBlockSafeContent()
+    {
+        var preparation = AiPromptEnvelopeFactory.TryCreateSupport(
+            SupportedLocale.ZhTw,
+            "請查看案件進度",
+            [
+                new AiSupportContextItem(
+                    "support_ticket",
+                    "33333333-3333-3333-3333-333333333333",
+                    "SUP-0912-345-678",
+                    "2026-08-28T00:00:00.0000000Z",
+                    "已授權且去識別化的客服案件摘要"),
+            ]);
+
+        Assert.NotNull(preparation.Envelope);
+        Assert.Equal(AiSafetyReason.None, preparation.Reason);
+    }
+
+    [Fact]
+    public void AiOutboundContent001_PersonalDataInApprovedContent_IsStillBlocked()
+    {
+        var preparation = AiPromptEnvelopeFactory.TryCreateSupport(
+            SupportedLocale.ZhTw,
+            "請查看案件進度",
+            [
+                new AiSupportContextItem(
+                    "support_ticket",
+                    "33333333-3333-3333-3333-333333333333",
+                    "SUP-001",
+                    "2026-08-28T00:00:00.0000000Z",
+                    "Email: synthetic.customer@example.test"),
+            ]);
+
+        Assert.Null(preparation.Envelope);
+        Assert.Equal(AiSafetyReason.PersonalDataDetected, preparation.Reason);
+    }
+
+    [Fact]
     public void AiSchema001_DatabaseFieldName_IsRejectedBeforeCatalogQuery()
     {
         var intent = new AiSearchIntentCandidate(

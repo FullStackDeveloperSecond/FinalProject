@@ -33,13 +33,8 @@ public interface IAiConsentManager
 public sealed record AiMemberUsageSnapshot(
     int UsedRequests,
     int RequestLimit,
-    int InputTokens,
-    int OutputTokens,
-    decimal EstimatedCostUsd,
     DateTimeOffset WindowStartUtc,
-    DateTimeOffset ResetAtUtc,
-    bool BudgetWarningActive,
-    bool BudgetProtectionActive);
+    DateTimeOffset ResetAtUtc);
 
 public interface IAiMemberUsageReader
 {

@@ -83,13 +83,8 @@ public sealed record AiUsageDto(
     string Feature,
     int UsedRequests,
     int RequestLimit,
-    int InputTokens,
-    int OutputTokens,
-    decimal EstimatedCostUsd,
     DateTimeOffset WindowStartUtc,
-    DateTimeOffset ResetAtUtc,
-    bool BudgetWarningActive,
-    bool BudgetProtectionActive);
+    DateTimeOffset ResetAtUtc);
 
 public sealed record AdminAiUsageRowDto(
     string Feature,

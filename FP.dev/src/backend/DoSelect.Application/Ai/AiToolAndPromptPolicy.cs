@@ -81,14 +81,7 @@ public static class AiPromptEnvelopeFactory
         }
 
         var outboundValues = dataItems
-            .SelectMany(item => new[]
-            {
-                item.Content,
-                item.SourceType,
-                item.SourceId,
-                item.Title,
-                item.VersionOrUpdatedAt,
-            })
+            .Select(item => item.Content)
             .Prepend(userMessage)
             .ToArray();
         var inspection = AiOutboundContentGuard.Inspect(outboundValues);

@@ -198,7 +198,7 @@
 | `AiConsentStatusDto` | `state:missing/granted/denied`、後端目前 `policyVersion`、`locale?`、`decidedAtUtc?`；Reload 時以前端查詢結果為準 |
 | `AiSupportMessageRequest` | `conversationPublicId?:uuid`、`message:string(1..2000)`、`referencedOrderPublicIds:uuid[0..3]`、`referencedSupportTicketPublicIds:uuid[0..3]`、`locale:enum`；兩組引用不得含 Empty／重複值 |
 | `AiSupportAnswerDto` | `conversationPublicId`、`interactionPublicId`、`answer:string(0..4000)`、`citations:{type,label,resourcePublicId?,url?}[0..8]`、`resultCode`、`degradationMode:none/keywordSearch/createSupportTicket`、`disclaimerKey`、`usage{remainingRequests,resetAtUtc}` |
-| `AiUsageDto` | `feature`、`usedRequests`、`requestLimit`、`inputTokens`、`outputTokens`、`estimatedCostUsd`、`windowStartUtc/resetAtUtc`、`budgetWarningActive`、`budgetProtectionActive` |
+| `AiUsageDto` | 會員本人每日配額：`feature`、`usedRequests`、`requestLimit`、`windowStartUtc/resetAtUtc`；不得回傳 Token、成本或全站預算門檻狀態 |
 | `AdminAiUsageReportDto` | `fromUtc/toUtc`、`rows[{feature,model,status,interactionCount,inputTokens,outputTokens,estimatedCostUsd?}]`、`cumulativeCostUsd?`、US$70／90 門檻狀態、`dataAsOfUtc`；成本欄對非 FinanceManager／SuperAdmin 回 Null |
 | `CreateSupportTicketRequest` | `category:enum`、`subject:string(1..200)`、`message:string(1..4000)`、`orderPublicId?:uuid` |
 | `SupportTicketDto` | PublicId、Category、Subject、Status、Priority、Order 摘要?、Assignee 摘要?、SLA Due／Overdue、`messages:SupportMessageDto[]`（明細端）、附件摘要、AvailableActions、時間、RowVersion |
