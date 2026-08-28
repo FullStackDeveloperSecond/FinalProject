@@ -189,39 +189,36 @@ public sealed record AdminCouponActorContext(
     IPAddress? RemoteIpAddress);
 
 /// <summary>
-/// 中央 Audit 的優惠券欄位與理由碼慣例。
+/// 優惠券稽核用的欄位名稱與固定理由碼。
 /// </summary>
 /// <remarks>
-/// <c>changedFields</c> 在本專案先前沒有任何使用者，慣例由本工程包定義：
-/// 以 camelCase 欄位名依序用 <c>-</c> 串接。<see cref="AuditFieldChange"/> 的
-/// safe-code 上限是 64 字元，欄位大量變動時串接必然超過；此時改記
-/// <c>count:{n}</c>，明確表示「這裡是筆數不是名稱」，而不是靜默截斷成一份
-/// 看起來完整、實際上少了幾個欄位的清單。
+/// 欄位名稱必須與中央 <c>AuditWritePolicy</c> 的 <c>coupon.*</c> 白名單逐字相同 ——
+/// 不在白名單裡的名稱會被中央 Audit 拒絕，那是刻意的守門，不要在這裡自行擴充。
+/// <para>
+/// 規則欄位的異動由 <see cref="ToAuditFieldName"/> 轉成穩定的 camelCase 後，
+/// **每個欄位各寫一筆** <c>AuditFieldChange.Changed(field)</c>，只記名稱不記值
+/// （DEC A1，alex 2026-08-28 裁定）。先前串接成單一 safe-code、超長就退化為
+/// <c>count:{n}</c> 的做法已移除：一次改五個欄位就只剩筆數，事後查不出改了什麼。
+/// </para>
 /// </remarks>
 public static class CouponAuditFields
 {
     public const string Status = "status";
     public const string RuleVersion = "ruleVersion";
-    public const string ChangedFields = "changedFields";
 
     /// <summary>建立與修改沒有呼叫端提供的理由碼，使用固定的安全值。</summary>
     public const string CreateReasonCode = "coupon_create";
 
     public const string UpdateReasonCode = "coupon_update";
 
-    private const int SafeCodeMaximumLength = 64;
-
-    public static string Describe(IReadOnlyList<string> changedFields)
+    /// <summary>
+    /// 把 <c>CouponRuleChange.ChangedFields</c> 的 PascalCase 名稱轉成稽核用的
+    /// camelCase 名稱。
+    /// </summary>
+    public static string ToAuditFieldName(string changedField)
     {
-        ArgumentNullException.ThrowIfNull(changedFields);
-
-        var joined = string.Join(
-            '-',
-            changedFields.Select(field => char.ToLowerInvariant(field[0]) + field[1..]));
-
-        return joined.Length is > 0 and <= SafeCodeMaximumLength
-            ? joined
-            : $"count:{changedFields.Count}";
+        ArgumentException.ThrowIfNullOrWhiteSpace(changedField);
+        return char.ToLowerInvariant(changedField[0]) + changedField[1..];
     }
 }
 

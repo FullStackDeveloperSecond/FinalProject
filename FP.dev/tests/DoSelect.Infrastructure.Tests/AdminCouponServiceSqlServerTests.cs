@@ -1,3 +1,4 @@
+using System.Text.Json;
 using DoSelect.Application.Auditing;
 using DoSelect.Application.Common;
 using DoSelect.Application.Promotions;
@@ -913,6 +914,212 @@ public sealed class AdminCouponServiceSqlServerTests
         Assert.Contains("nameZhTw", audit.ChangedFieldsJson);
     }
 
+    /// <summary>
+    /// 一次改很多規則欄位時，稽核必須留下**完整且精確**的欄位集合（DEC A1）。
+    /// </summary>
+    /// <remarks>
+    /// 這組欄位串接起來必然超過 <c>AuditFieldChange</c> 的 64 字元 safe-code 上限，
+    /// 正是舊做法會退化成 <c>count:{n}</c> 的情形 —— 那時稽核只知道「改了 14 項」，
+    /// 事後查不出是哪 14 項。
+    /// </remarks>
+    /// <summary>
+    /// 修改路徑的稽核寫入失敗時，Coupon、Scope、RuleVersion 與 RowVersion 必須全部回滾。
+    /// </summary>
+    /// <remarks>
+    /// 既有的 <see cref="AFailedAuditRollsBackTheCouponChangeEntirely"/> 走的是狀態動作
+    /// 路徑，靠不合規的 note 觸發失敗。修改路徑的稽核沒有任何呼叫端可控輸入
+    /// （理由碼固定、note 一律 null），所以改用會拋例外的 <c>IAuditWriter</c> 注入失敗 ——
+    /// 這裡要驗的是交易邊界，不是稽核本身的驗證規則。
+    /// </remarks>
+    [AdminCouponSqlFact]
+    public async Task AFailedAuditOnUpdateRollsBackTheRuleTheScopeAndBothVersions()
+    {
+        await using var context = AdminCouponSqlFixture.CreateContext();
+        var (category, product, other) = await SeedCatalogAsync(context);
+        var created = await CreateService(context).CreateAsync(
+            CreateRequest(UniqueCode()) with
+            {
+                ScopeType = CouponScopeType.Restricted,
+                ProductPublicIds = [product],
+            });
+
+        await using var update = AdminCouponSqlFixture.CreateContext();
+        var failing = new TestCouponService(new EfAdminCouponService(
+            update,
+            new FixedTimeProvider(NowUtc),
+            new ThrowingAuditWriter()));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => failing.UpdateAsync(
+                created.PublicId,
+                UpdateRequest(created) with
+                {
+                    NameZhTw = "改名",
+                    MinimumSpend = 4000m,
+                    ScopeType = CouponScopeType.Restricted,
+                    CategoryPublicIds = [category],
+                    ProductPublicIds = [other],
+                }));
+
+        await using var verify = AdminCouponSqlFixture.CreateContext();
+        var reloaded = (await CreateService(verify).FindByPublicIdAsync(created.PublicId))!;
+
+        Assert.Equal(created.NameZhTw, reloaded.NameZhTw);
+        Assert.Equal(created.MinimumSpend, reloaded.MinimumSpend);
+        Assert.Equal(created.RuleVersion, reloaded.RuleVersion);
+        Assert.Equal(created.RowVersion, reloaded.RowVersion);
+
+        // 範圍連結表也必須回到原狀，不能只回滾 Coupons 那一列。
+        Assert.Equal([product], reloaded.Scope.ProductPublicIds);
+        Assert.Empty(reloaded.Scope.CategoryPublicIds);
+
+        Assert.False(await verify.Set<AuditLog>()
+            .AnyAsync(log => log.ResourcePublicId == created.PublicId &&
+                             log.Action == AuditActions.CouponUpdate));
+    }
+
+    [AdminCouponSqlFact]
+    public async Task AnUpdateAuditKeepsEveryChangedFieldEvenWhenTheyDoNotFitOneSafeCode()
+    {
+        await using var context = AdminCouponSqlFixture.CreateContext();
+        var (category, _, _) = await SeedCatalogAsync(context);
+        var created = await CreateService(context).CreateAsync(CreateRequest(UniqueCode()));
+
+        await using var update = AdminCouponSqlFixture.CreateContext();
+        await CreateService(update).UpdateAsync(
+            created.PublicId,
+            UpdateRequest(created) with
+            {
+                Code = UniqueCode(),
+                NameZhTw = "改名",
+                DiscountType = CouponDiscountType.Percentage,
+                // 百分比折扣在 Domain 是 0～1 的比例，不是 10 這種百分點。
+                DiscountValue = 0.1m,
+                MinimumSpend = 4000m,
+                MaximumDiscount = 500m,
+                StartsAtUtc = NowUtc.AddDays(1),
+                // 預設結束時間就是 NowUtc.AddDays(30)，要改成別的值才算「有變動」。
+                EndsAtUtc = NowUtc.AddDays(45),
+                TotalUsageLimit = 50,
+                PerMemberLimit = 2,
+                MemberOnly = true,
+                ExcludeSaleItems = true,
+                ScopeType = CouponScopeType.Restricted,
+                CategoryPublicIds = [category],
+            });
+
+        await using var verify = AdminCouponSqlFixture.CreateContext();
+        var audit = await verify.Set<AuditLog>()
+            .Where(log => log.ResourcePublicId == created.PublicId &&
+                          log.Action == AuditActions.CouponUpdate)
+            .SingleAsync();
+
+        string[] expected =
+        [
+            "code", "nameZhTw", "discountType", "discountValue", "minimumSpend",
+            "maximumDiscount", "startsAtUtc", "endsAtUtc", "totalUsageLimit",
+            "perMemberLimit", "memberOnly", "excludeSaleItems", "scopeType", "scope",
+        ];
+
+        Assert.True(string.Join('-', expected).Length > 64);
+
+        using var document = JsonDocument.Parse(audit.ChangedFieldsJson);
+        var recorded = document.RootElement
+            .GetProperty("changes")
+            .EnumerateArray()
+            .Select(element => element.GetProperty("field").GetString()!)
+            .ToArray();
+
+        // 精確相等，不是「有包含」：少一個欄位或多一個欄位都必須被抓到。
+        Assert.Equal(
+            expected.OrderBy(field => field, StringComparer.Ordinal),
+            recorded.Where(field => field != CouponAuditFields.RuleVersion)
+                .OrderBy(field => field, StringComparer.Ordinal));
+
+        Assert.DoesNotContain("count:", audit.ChangedFieldsJson, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// 稽核只保存「哪些欄位變了」，不得保存優惠碼、金額、門檻或時間等商業值。
+    /// </summary>
+    [AdminCouponSqlFact]
+    public async Task AnUpdateAuditNeverCarriesTheBusinessValues()
+    {
+        await using var context = AdminCouponSqlFixture.CreateContext();
+        var code = UniqueCode();
+        var created = await CreateService(context).CreateAsync(CreateRequest(code));
+        var newCode = UniqueCode();
+
+        await using var update = AdminCouponSqlFixture.CreateContext();
+        await CreateService(update).UpdateAsync(
+            created.PublicId,
+            UpdateRequest(created) with
+            {
+                Code = newCode,
+                MinimumSpend = 4321m,
+                MaximumDiscount = 876m,
+            });
+
+        await using var verify = AdminCouponSqlFixture.CreateContext();
+        var audit = await verify.Set<AuditLog>()
+            .Where(log => log.ResourcePublicId == created.PublicId &&
+                          log.Action == AuditActions.CouponUpdate)
+            .SingleAsync();
+
+        Assert.Contains("minimumSpend", audit.ChangedFieldsJson, StringComparison.Ordinal);
+        Assert.Contains("maximumDiscount", audit.ChangedFieldsJson, StringComparison.Ordinal);
+
+        // 值本身不得出現在稽核裡。
+        Assert.DoesNotContain("4321", audit.ChangedFieldsJson, StringComparison.Ordinal);
+        Assert.DoesNotContain("876", audit.ChangedFieldsJson, StringComparison.Ordinal);
+        Assert.DoesNotContain(newCode, audit.ChangedFieldsJson, StringComparison.Ordinal);
+        Assert.DoesNotContain(code, audit.ChangedFieldsJson, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// 只改適用範圍時，稽核仍要記下 <c>scope</c>，且版本與 RowVersion 都要推進。
+    /// </summary>
+    [AdminCouponSqlFact]
+    public async Task AScopeOnlyUpdateStillRecordsScopeAndAdvancesBothVersions()
+    {
+        await using var context = AdminCouponSqlFixture.CreateContext();
+        var (_, product, other) = await SeedCatalogAsync(context);
+        var created = await CreateService(context).CreateAsync(
+            CreateRequest(UniqueCode()) with
+            {
+                ScopeType = CouponScopeType.Restricted,
+                ProductPublicIds = [product],
+            });
+
+        await using var update = AdminCouponSqlFixture.CreateContext();
+        var updated = await CreateService(update).UpdateAsync(
+            created.PublicId,
+            UpdateRequest(created) with
+            {
+                ScopeType = CouponScopeType.Restricted,
+                ProductPublicIds = [other],
+            });
+
+        Assert.Equal(created.RuleVersion + 1, updated.RuleVersion);
+        Assert.NotEqual(created.RowVersion, updated.RowVersion);
+
+        await using var verify = AdminCouponSqlFixture.CreateContext();
+        var audit = await verify.Set<AuditLog>()
+            .Where(log => log.ResourcePublicId == created.PublicId &&
+                          log.Action == AuditActions.CouponUpdate)
+            .SingleAsync();
+
+        using var document = JsonDocument.Parse(audit.ChangedFieldsJson);
+        var recorded = document.RootElement
+            .GetProperty("changes")
+            .EnumerateArray()
+            .Select(element => element.GetProperty("field").GetString()!)
+            .Where(field => field != CouponAuditFields.RuleVersion)
+            .ToArray();
+
+        Assert.Equal(["scope"], recorded);
+    }
+
     [AdminCouponSqlFact]
     public async Task AnUpdateThatChangesNothingWritesNoAudit()
     {
@@ -1003,6 +1210,13 @@ public sealed class AdminCouponServiceSqlServerTests
     /// 各自傳一次只會讓斷言被雜訊淹沒。需要換一位管理員或驗證授權時，
     /// 用 <see cref="Inner"/> 直接呼叫。
     /// </remarks>
+    /// <summary>寫稽核就拋例外，用來驗證交易邊界。</summary>
+    private sealed class ThrowingAuditWriter : IAuditWriter
+    {
+        public AuditLog Add(AuditWriteRequest request) =>
+            throw new InvalidOperationException("The audit writer failed on purpose.");
+    }
+
     private sealed class TestCouponService
     {
         public TestCouponService(IAdminCouponService inner) => Inner = inner;

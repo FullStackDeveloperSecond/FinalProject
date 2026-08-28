@@ -114,28 +114,93 @@ public sealed class AuditWriterTests
     }
 
     [Theory]
-    [InlineData(AuditActions.CouponCreate, false)]
-    [InlineData(AuditActions.CouponUpdate, false)]
     [InlineData(AuditActions.CouponActivate, true)]
     [InlineData(AuditActions.CouponPause, true)]
     [InlineData(AuditActions.CouponDisable, true)]
-    public void Request_AcceptsCouponAuditDefinitions(string action, bool allowsNote)
+    public void Request_AcceptsCouponStatusActions(string action, bool allowsNote)
     {
+        // 狀態動作只改狀態，allowed-fields 維持最小集合。
         var request = Request(
             action: action,
             resourceType: AuditResourceTypes.Coupon,
-            changes:
-            [
-                AuditFieldChange.Code("status", "Draft", "Active"),
-                AuditFieldChange.Changed("ruleVersion"),
-                AuditFieldChange.Changed("changedFields"),
-            ],
+            changes: [AuditFieldChange.Code("status", "Draft", "Active")],
             reason: "coupon.admin_action",
             note: allowsNote ? "人工覆核完成" : null);
 
         Assert.Equal(action, request.Action);
         Assert.Equal(AuditResourceTypes.Coupon, request.ResourceType);
         Assert.Equal(allowsNote ? "人工覆核完成" : null, request.Note);
+    }
+
+    [Fact]
+    public void Request_AcceptsCouponCreate()
+    {
+        var request = Request(
+            action: AuditActions.CouponCreate,
+            resourceType: AuditResourceTypes.Coupon,
+            changes:
+            [
+                AuditFieldChange.Code("status", null, "Draft"),
+                AuditFieldChange.Code("ruleVersion", null, "1"),
+            ],
+            reason: "coupon_create",
+            note: null);
+
+        Assert.Equal(AuditActions.CouponCreate, request.Action);
+    }
+
+    /// <summary>
+    /// <c>coupon.update</c> 逐一列出可稽核的規則欄位（DEC A1）。
+    /// </summary>
+    /// <remarks>
+    /// 一次改很多欄位時，稽核必須留下**完整且精確**的欄位集合。先前串接成單一
+    /// <c>changedFields</c> safe-code、超過 64 字元就退化為 <c>count:{n}</c>，
+    /// 這條測試的欄位串起來就超過 64 字元，正是那個做法會失去資訊的情形。
+    /// </remarks>
+    [Fact]
+    public void Request_AcceptsEveryWhitelistedCouponUpdateField()
+    {
+        string[] fields =
+        [
+            "code", "nameZhTw", "discountType", "discountValue", "minimumSpend",
+            "maximumDiscount", "startsAtUtc", "endsAtUtc", "totalUsageLimit",
+            "perMemberLimit", "memberOnly", "excludeSaleItems", "scopeType", "scope",
+        ];
+
+        Assert.True(string.Join('-', fields).Length > 64);
+
+        var changes = new List<AuditFieldChange>
+        {
+            AuditFieldChange.Code("ruleVersion", null, "2"),
+        };
+        changes.AddRange(fields.Select(AuditFieldChange.Changed));
+
+        var request = Request(
+            action: AuditActions.CouponUpdate,
+            resourceType: AuditResourceTypes.Coupon,
+            changes: changes,
+            reason: "coupon_update",
+            note: null);
+
+        Assert.Equal(AuditActions.CouponUpdate, request.Action);
+        Assert.Equal(fields.Length + 1, request.Changes.Count);
+    }
+
+    [Theory]
+    [InlineData("changedFields")]
+    [InlineData("status")]
+    [InlineData("unitCostSnapshot")]
+    public void Request_RejectsCouponUpdateFieldsOutsideTheWhitelist(string field)
+    {
+        // 白名單是刻意的守門。changedFields 與 status 都不再屬於 coupon.update ——
+        // 前者是已移除的串接做法，後者屬狀態動作。
+        // 中央 Audit 丟的是 ArgumentOutOfRangeException；xUnit 的 Throws 比對精確型別。
+        Assert.Throws<ArgumentOutOfRangeException>(() => Request(
+            action: AuditActions.CouponUpdate,
+            resourceType: AuditResourceTypes.Coupon,
+            changes: [AuditFieldChange.Changed(field)],
+            reason: "coupon_update",
+            note: null));
     }
 
     [Theory]

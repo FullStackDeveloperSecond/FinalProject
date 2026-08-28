@@ -311,6 +311,18 @@ public sealed class EfAdminCouponService : IAdminCouponService
                 // 真正的異動，讓事後追查更難。
                 if (change.HasChanges)
                 {
+                    // 每個實際異動的規則欄位各寫一筆，只記欄位名稱、不記商業值
+                    // （DEC A1）。不得串接、不得截斷、不得退化為筆數。
+                    var fieldChanges = new List<AuditFieldChange>(change.ChangedFields.Count + 1)
+                    {
+                        AuditFieldChange.Code(
+                            CouponAuditFields.RuleVersion,
+                            null,
+                            coupon.RuleVersion.ToString(CultureInfo.InvariantCulture)),
+                    };
+                    fieldChanges.AddRange(change.ChangedFields.Select(field =>
+                        AuditFieldChange.Changed(CouponAuditFields.ToAuditFieldName(field))));
+
                     WriteAudit(
                         coupon,
                         AuditActions.CouponUpdate,
@@ -318,16 +330,7 @@ public sealed class EfAdminCouponService : IAdminCouponService
                         actor,
                         CouponAuditFields.UpdateReasonCode,
                         note: null,
-                        [
-                            AuditFieldChange.Code(
-                                CouponAuditFields.RuleVersion,
-                                null,
-                                coupon.RuleVersion.ToString(CultureInfo.InvariantCulture)),
-                            AuditFieldChange.Code(
-                                CouponAuditFields.ChangedFields,
-                                null,
-                                CouponAuditFields.Describe(change.ChangedFields)),
-                        ]);
+                        fieldChanges);
                 }
 
                 await SaveWithConflictMappingAsync(coupon.Code, token);
