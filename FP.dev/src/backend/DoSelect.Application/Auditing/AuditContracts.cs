@@ -379,7 +379,11 @@ public sealed class AuditWriteRequest
             remoteIpAddress);
     }
 
-    private static string? RequireSafeNote(string? note, bool allowsNote)
+    /// <summary>
+    /// internal 而非 private：呼叫端要在進交易前用同一份規則驗證，否則不合規的 note
+    /// 會在稽核建構時丟例外並變成 500。規則本身未變動。
+    /// </summary>
+    internal static string? RequireSafeNote(string? note, bool allowsNote)
     {
         if (string.IsNullOrWhiteSpace(note))
         {
@@ -493,23 +497,50 @@ internal static class AuditWritePolicy
             [AuditActions.CouponCreate] = Definition(
                 AuditActions.CouponCreate,
                 AuditResourceTypes.Coupon,
-                "status", "ruleVersion", "changedFields"),
+                "status", "ruleVersion"),
+
+            // coupon.update 逐一列出可稽核的規則欄位（DEC A1，alex 2026-08-28 裁定）。
+            // 稽核必須能回答「實際改了哪些規則欄位」，因此每個實際異動各寫一筆
+            // AuditFieldChange.Changed(field)，**只記欄位名稱、不記商業值**。
+            //
+            // 先前的做法是把欄位名稱串成單一 changedFields safe-code，超過 64 字元
+            // 就退化成 count:{n} —— 一次改五個欄位就只剩「改了 5 項」，事後查不出
+            // 是哪五項。不得截斷、也不得退化為筆數。
+            //
+            // scope 是分類、商品與排除商品三個集合的合併名稱：它們共同構成
+            // 「適用範圍」這一個概念，稽核只需要知道範圍變了。
             [AuditActions.CouponUpdate] = Definition(
                 AuditActions.CouponUpdate,
                 AuditResourceTypes.Coupon,
-                "status", "ruleVersion", "changedFields"),
+                "ruleVersion",
+                "code",
+                "nameZhTw",
+                "discountType",
+                "discountValue",
+                "minimumSpend",
+                "maximumDiscount",
+                "startsAtUtc",
+                "endsAtUtc",
+                "totalUsageLimit",
+                "perMemberLimit",
+                "memberOnly",
+                "excludeSaleItems",
+                "scopeType",
+                "scope"),
+
+            // 狀態動作只改狀態，維持最小 allowed-fields，不沿用 update 的白名單。
             [AuditActions.CouponActivate] = DefinitionWithNote(
                 AuditActions.CouponActivate,
                 AuditResourceTypes.Coupon,
-                "status", "ruleVersion", "changedFields"),
+                "status"),
             [AuditActions.CouponPause] = DefinitionWithNote(
                 AuditActions.CouponPause,
                 AuditResourceTypes.Coupon,
-                "status", "ruleVersion", "changedFields"),
+                "status"),
             [AuditActions.CouponDisable] = DefinitionWithNote(
                 AuditActions.CouponDisable,
                 AuditResourceTypes.Coupon,
-                "status", "ruleVersion", "changedFields"),
+                "status"),
             [AuditActions.OrderCancel] = DefinitionWithNote(
                 AuditActions.OrderCancel,
                 AuditResourceTypes.Order,

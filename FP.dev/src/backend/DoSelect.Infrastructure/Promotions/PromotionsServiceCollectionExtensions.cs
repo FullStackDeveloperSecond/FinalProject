@@ -7,7 +7,7 @@ namespace DoSelect.Infrastructure.Promotions;
 public static class PromotionsServiceCollectionExtensions
 {
     /// <summary>
-    /// 註冊優惠券試算。需先呼叫 <c>AddDoSelectPersistence</c> 取得 <c>DoSelectDbContext</c>。
+    /// 註冊優惠券試算與後台管理。需先呼叫 <c>AddDoSelectPersistence</c> 取得 <c>DoSelectDbContext</c>。
     /// </summary>
     public static IServiceCollection AddDoSelectPromotions(this IServiceCollection services)
     {
@@ -16,6 +16,7 @@ public static class PromotionsServiceCollectionExtensions
         services.TryAddSingleton(TimeProvider.System);
         services.AddScoped<ICouponRuleReader, CouponRuleReader>();
         services.AddScoped<CouponQuoteService>();
+        services.AddScoped<IAdminCouponService, EfAdminCouponService>();
 
         return services;
     }
