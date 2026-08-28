@@ -18,10 +18,13 @@ namespace DoSelect.Infrastructure.Builds;
 /// <summary>UC-BUILD-01: build-list CRUD for a member's own saved PC configurations.</summary>
 public sealed class EfBuildListService : IBuildListService
 {
-    /// <summary>組裝服務費，固定 NT$300／台（見 商品、組裝與相容性.md）。A build list represents one
-    /// physical unit for preview purposes — actions/add-to-cart multiplies this per purchased
-    /// quantity, but that belongs to the add-to-cart slice, not this CRUD surface.</summary>
-    private const decimal AssemblyFeePerUnit = 300m;
+    /// <summary>
+    /// 組裝服務費，固定 NT$300／台（見 商品、組裝與相容性.md，定義見
+    /// <see cref="AssemblyPricingPolicy.FeePerUnit"/>）。A build list represents one physical
+    /// unit for preview purposes — actions/add-to-cart multiplies this per purchased quantity,
+    /// but that belongs to the add-to-cart slice, not this CRUD surface.
+    /// </summary>
+    private const decimal AssemblyFeePerUnit = AssemblyPricingPolicy.FeePerUnit;
 
     private const int MaxActiveBuildListsPerMember = 50;
 

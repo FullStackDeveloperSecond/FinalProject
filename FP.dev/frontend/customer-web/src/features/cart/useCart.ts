@@ -4,6 +4,7 @@ import {
   addCartItem,
   getCart,
   mergeCartOnLogin,
+  removeCartAssemblyGroup,
   removeCartItem,
   revalidateCart,
   updateCartItemQuantity,
@@ -39,6 +40,12 @@ function useCartIdentityKey() {
  * gets snapshotted under the guest cache key while the backend actually acts on the member's real
  * cart — the response then lands in the wrong identity's cache entirely.
  *
+ * 組長 PR #29 round 7 review, P1: widened again — a *failed* session refresh (network/5xx) used to
+ * resolve `status` all the way to a confirmed-looking 'anonymous', which passed this same gate just
+ * as cleanly as a genuine guest. `sessionStore.isIdentityConfirmed` (session.ts) is now the single
+ * source of truth for "safe to snapshot an identity" — true only for 'authenticated'／'anonymous',
+ * false for both 'loading' and 'error'.
+ *
  * Thrown from `onMutate` (not checked separately in a component before calling `.mutate()`)
  * because `onMutate` is the one place TanStack Query guarantees runs synchronously, exactly once,
  * at the instant `mutate()`/`mutateAsync()` is actually invoked — the same moment the snapshot
@@ -49,13 +56,13 @@ function useCartIdentityKey() {
  */
 export class CartIdentityNotResolvedError extends Error {
   constructor() {
-    super('Cart identity is not resolved yet — session status is still \'loading\'.')
+    super('Cart identity is not resolved yet — session status is not confirmed \'authenticated\' or \'anonymous\'.')
     this.name = 'CartIdentityNotResolvedError'
   }
 }
 
 function snapshotCartMutationIdentity(sessionStore: ReturnType<typeof useSessionStore>) {
-  if (sessionStore.status === 'loading') {
+  if (!sessionStore.isIdentityConfirmed) {
     throw new CartIdentityNotResolvedError()
   }
   return sessionStore.isAuthenticated && sessionStore.user
@@ -96,8 +103,10 @@ export function useCart() {
     // Session status starts 'loading' on every fresh app load (App.vue's onMounted kicks off
     // sessionStore.refresh()) — fetching a guest-keyed cart before that resolves would show a
     // guest cart that's immediately thrown away and replaced by the real member cart once
-    // refresh() completes, the same kind of flash this fix is meant to eliminate.
-    enabled: computed(() => sessionStore.status !== 'loading'),
+    // refresh() completes, the same kind of flash this fix is meant to eliminate. A *failed*
+    // refresh (status 'error') gets the same treatment, not just 'loading' — see
+    // isIdentityConfirmed's remarks in session.ts (組長 PR #29 round 7 review, P1).
+    enabled: computed(() => sessionStore.isIdentityConfirmed),
     // 組長 PR #29 review round 5, P2: with the shared QueryClient's 30s staleTime, revisiting
     // /cart after being away longer than that used to show the cached cart immediately (isPending
     // already false) while TanStack's own default mount-refetch quietly re-GET the same query in
@@ -160,6 +169,25 @@ export function useRemoveCartItem() {
   return useMutation({
     mutationFn: (params: { itemPublicId: string, itemRowVersion: string }) =>
       removeCartItem(params.itemPublicId, params.itemRowVersion, getOrCreateGuestCartKey()),
+    onMutate: () => snapshotCartMutationIdentity(sessionStore),
+    onSuccess: (cart, _variables, targetKey) => {
+      queryClient.setQueryData(targetKey, cart)
+    },
+  })
+}
+
+/**
+ * 組長 PR #29 round 7 review, P1（AUTO-DEC-015）: the one action a shopper can actually take on a
+ * stuck assembly group — every per-item mutation above rejects a grouped item server-side, so
+ * before this there was no way to clear a group whose SKU went unavailable and no way to get past
+ * the checkout gate it held open.
+ */
+export function useRemoveCartAssemblyGroup() {
+  const queryClient = useQueryClient()
+  const sessionStore = useSessionStore()
+  return useMutation({
+    mutationFn: (params: { assemblyGroupKey: string, cartRowVersion: string }) =>
+      removeCartAssemblyGroup(params.assemblyGroupKey, params.cartRowVersion, getOrCreateGuestCartKey()),
     onMutate: () => snapshotCartMutationIdentity(sessionStore),
     onSuccess: (cart, _variables, targetKey) => {
       queryClient.setQueryData(targetKey, cart)

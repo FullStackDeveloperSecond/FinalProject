@@ -1189,6 +1189,236 @@ public sealed class CartServiceTests
         Assert.Equal(ShoppingWriteException.ErrorCodes.ValidationFailed, exception.ErrorCode);
     }
 
+    /// <summary>
+    /// 組長 PR #29 round 7 review (P1): BuildCartDto used to hardcode AssemblyFee to 0m and
+    /// TotalEstimate to just the merchandise subtotal — a cart holding one or more assembly
+    /// groups (each an AssemblyGroupKey shared by every SKU of one physical build,
+    /// AddAssemblyGroupsAsync above) always undercounted its own total by the NT$300／台 assembly
+    /// fee UC-BUILD-01/EfBuildListService already charges for the exact same "one build" concept.
+    /// Covers 0／1／3 groups plus a mix with a plain (non-grouped) SKU, matching 組長's explicit
+    /// ask.
+    /// </summary>
+    [Fact]
+    public async Task GetCartAsync_WithNoAssemblyGroups_ChargesNoAssemblyFee()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var service = CreateService(context);
+        var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 1000m);
+        var identity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
+
+        var cart = await service.AddItemAsync(identity, new AddCartItemRequest(sku.PublicId, 2, null), CancellationToken.None);
+
+        Assert.Equal(0m, cart.Amounts.AssemblyFee);
+        Assert.Equal(2000m, cart.Amounts.Subtotal);
+        Assert.Equal(2000m, cart.Amounts.TotalEstimate);
+    }
+
+    [Fact]
+    public async Task GetCartAsync_WithOneAssemblyGroup_ChargesOneAssemblyFee()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var service = CreateService(context);
+        var cpuSku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 5000m);
+        var boardSku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 3000m);
+        var identity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
+
+        var perUnitItems = new[] { new AssemblyGroupItemInput(cpuSku.PublicId, 1), new AssemblyGroupItemInput(boardSku.PublicId, 1) };
+        var cart = await service.AddAssemblyGroupsAsync(identity, perUnitItems, unitCount: 1, CancellationToken.None);
+
+        Assert.Equal(300m, cart.Amounts.AssemblyFee);
+        Assert.Equal(8000m, cart.Amounts.Subtotal);
+        Assert.Equal(8300m, cart.Amounts.TotalEstimate);
+    }
+
+    [Fact]
+    public async Task GetCartAsync_WithThreeAssemblyGroupUnits_ChargesThreeAssemblyFees()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var service = CreateService(context);
+        var cpuSku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 5000m);
+        var boardSku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 3000m);
+        var identity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
+
+        // unitCount: 3 -> AddAssemblyGroupsAsync mints one distinct AssemblyGroupKey per unit
+        // (see its own remarks), i.e. 3 separately-billed physical builds.
+        var perUnitItems = new[] { new AssemblyGroupItemInput(cpuSku.PublicId, 1), new AssemblyGroupItemInput(boardSku.PublicId, 1) };
+        var cart = await service.AddAssemblyGroupsAsync(identity, perUnitItems, unitCount: 3, CancellationToken.None);
+
+        var distinctGroupKeys = cart.Items.Select(item => item.AssemblyGroupKey).Distinct().ToArray();
+        Assert.Equal(3, distinctGroupKeys.Length);
+        Assert.Equal(900m, cart.Amounts.AssemblyFee);
+        Assert.Equal(24000m, cart.Amounts.Subtotal);
+        Assert.Equal(24900m, cart.Amounts.TotalEstimate);
+    }
+
+    [Fact]
+    public async Task GetCartAsync_WithAnAssemblyGroupMixedWithAPlainSku_ChargesOnlyForTheGroup()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var service = CreateService(context);
+        var cpuSku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 5000m);
+        var boardSku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 3000m);
+        var plainSku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 500m);
+        var identity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
+
+        var perUnitItems = new[] { new AssemblyGroupItemInput(cpuSku.PublicId, 1), new AssemblyGroupItemInput(boardSku.PublicId, 1) };
+        await service.AddAssemblyGroupsAsync(identity, perUnitItems, unitCount: 1, CancellationToken.None);
+        var cart = await service.AddItemAsync(identity, new AddCartItemRequest(plainSku.PublicId, 2, null), CancellationToken.None);
+
+        Assert.Equal(300m, cart.Amounts.AssemblyFee);
+        Assert.Equal(9000m, cart.Amounts.Subtotal);
+        Assert.Equal(9300m, cart.Amounts.TotalEstimate);
+    }
+
+    /// <summary>
+    /// 組長 PR #29 round 7 review (P1，AUTO-DEC-015)：「群組 SKU 變成缺貨／下架 → Checkout 被阻止
+    /// → 整組移除 → Cart 恢復可重新驗證」的完整跨層回歸。Before this fix an assembly group whose
+    /// SKU went unavailable had no legal recovery path at all — every per-item write rejected it
+    /// with CartAssemblyItemImmutable, so the blocking issue could never be cleared and checkout
+    /// stayed gated forever.
+    /// </summary>
+    [Fact]
+    public async Task RemoveAssemblyGroupAsync_AfterAGroupSkuBecomesUnavailable_UnblocksCheckoutAtomically()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var service = CreateService(context);
+        var cpuSku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 5000m);
+        var boardSku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 3000m);
+        var plainSku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 500m);
+        var identity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
+
+        var perUnitItems = new[] { new AssemblyGroupItemInput(cpuSku.PublicId, 1), new AssemblyGroupItemInput(boardSku.PublicId, 1) };
+        await service.AddAssemblyGroupsAsync(identity, perUnitItems, unitCount: 1, CancellationToken.None);
+        await service.AddItemAsync(identity, new AddCartItemRequest(plainSku.PublicId, 1, null), CancellationToken.None);
+
+        var healthy = await service.RevalidateAsync(identity, CancellationToken.None);
+        Assert.True(healthy.IsCheckoutReady);
+
+        // One SKU inside the group is delisted after it was already added to the cart.
+        var trackedCpu = await context.Skus.FirstAsync(sku => sku.Id == cpuSku.Id);
+        trackedCpu.ChangeStatus(SkuStatus.Unpublished, DateTime.UtcNow);
+        await context.SaveChangesAsync();
+
+        var blocked = await service.RevalidateAsync(identity, CancellationToken.None);
+        Assert.False(blocked.IsCheckoutReady);
+        var groupIssue = Assert.Single(blocked.Issues, issue => issue.Code == ShoppingWriteException.ErrorCodes.SkuUnavailable);
+        // The advertised action must be one the backend will actually honor — `reduce-quantity`
+        // and `remove` are both rejected for a grouped item.
+        Assert.Equal(["remove-group"], groupIssue.AvailableActions);
+
+        var groupKey = blocked.Cart.Items
+            .Where(item => item.SkuPublicId == cpuSku.PublicId)
+            .Select(item => item.AssemblyGroupKey)
+            .Single();
+        Assert.NotNull(groupKey);
+
+        var afterRemoval = await service.RemoveAssemblyGroupAsync(
+            identity, groupKey.Value, blocked.Cart.RowVersion, CancellationToken.None);
+
+        // Both group rows gone in one shot — never half-removed — and the unrelated plain SKU kept.
+        Assert.DoesNotContain(afterRemoval.Items, item => item.AssemblyGroupKey is not null);
+        Assert.Single(afterRemoval.Items, item => item.SkuPublicId == plainSku.PublicId);
+        Assert.Equal(0m, afterRemoval.Amounts.AssemblyFee);
+
+        var recovered = await service.RevalidateAsync(identity, CancellationToken.None);
+        Assert.True(recovered.IsCheckoutReady);
+        Assert.Empty(recovered.Issues);
+    }
+
+    [Fact]
+    public async Task RemoveAssemblyGroupAsync_WithOneOfSeveralGroups_RemovesOnlyThatGroup()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var service = CreateService(context);
+        var cpuSku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 5000m);
+        var boardSku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 3000m);
+        var identity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
+
+        var perUnitItems = new[] { new AssemblyGroupItemInput(cpuSku.PublicId, 1), new AssemblyGroupItemInput(boardSku.PublicId, 1) };
+        var cart = await service.AddAssemblyGroupsAsync(identity, perUnitItems, unitCount: 2, CancellationToken.None);
+        var groupKeys = cart.Items.Select(item => item.AssemblyGroupKey!.Value).Distinct().ToArray();
+        Assert.Equal(2, groupKeys.Length);
+
+        var afterRemoval = await service.RemoveAssemblyGroupAsync(
+            identity, groupKeys[0], cart.RowVersion, CancellationToken.None);
+
+        var remainingGroupKeys = afterRemoval.Items.Select(item => item.AssemblyGroupKey!.Value).Distinct().ToArray();
+        Assert.Equal([groupKeys[1]], remainingGroupKeys);
+        Assert.Equal(2, afterRemoval.Items.Count);
+        Assert.Equal(300m, afterRemoval.Amounts.AssemblyFee);
+    }
+
+    [Fact]
+    public async Task RemoveAssemblyGroupAsync_WithAStaleCartRowVersion_ThrowsConcurrencyConflictAndRemovesNothing()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var service = CreateService(context);
+        var cpuSku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 5000m);
+        var boardSku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 3000m);
+        var plainSku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 500m);
+        var identity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
+
+        var perUnitItems = new[] { new AssemblyGroupItemInput(cpuSku.PublicId, 1), new AssemblyGroupItemInput(boardSku.PublicId, 1) };
+        var cart = await service.AddAssemblyGroupsAsync(identity, perUnitItems, unitCount: 1, CancellationToken.None);
+        var staleRowVersion = cart.RowVersion;
+        var groupKey = cart.Items.Select(item => item.AssemblyGroupKey!.Value).Distinct().Single();
+
+        // Someone else mutates the cart, bumping its RowVersion out from under the stale copy.
+        await service.AddItemAsync(identity, new AddCartItemRequest(plainSku.PublicId, 1, null), CancellationToken.None);
+
+        var exception = await Assert.ThrowsAsync<ShoppingWriteException>(() => service.RemoveAssemblyGroupAsync(
+            identity, groupKey, staleRowVersion, CancellationToken.None));
+        Assert.Equal(ShoppingWriteException.ErrorCodes.ConcurrencyConflict, exception.ErrorCode);
+
+        await using var verifyContext = CartServiceFixture.CreateContext();
+        var reloaded = await CreateService(verifyContext).GetCartAsync(identity, CancellationToken.None);
+        Assert.Equal(2, reloaded.Items.Count(item => item.AssemblyGroupKey is not null));
+    }
+
+    [Fact]
+    public async Task RemoveAssemblyGroupAsync_ForAnUnknownGroupKey_ThrowsResourceNotFound()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var service = CreateService(context);
+        var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
+        var identity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
+
+        var cart = await service.AddItemAsync(identity, new AddCartItemRequest(sku.PublicId, 1, null), CancellationToken.None);
+
+        var exception = await Assert.ThrowsAsync<ShoppingWriteException>(() => service.RemoveAssemblyGroupAsync(
+            identity, Guid.CreateVersion7(), cart.RowVersion, CancellationToken.None));
+        Assert.Equal(ShoppingWriteException.ErrorCodes.ResourceNotFound, exception.ErrorCode);
+    }
+
+    /// <summary>
+    /// A group belonging to a *different* cart must be invisible here — the group lookup is scoped
+    /// to the caller's own cart, so this is a not-found, never a cross-cart removal.
+    /// </summary>
+    [Fact]
+    public async Task RemoveAssemblyGroupAsync_ForAnotherCartsGroup_ThrowsResourceNotFoundAndLeavesThatGroupIntact()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var service = CreateService(context);
+        var cpuSku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 5000m);
+        var boardSku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 3000m);
+        var victimIdentity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
+        var attackerIdentity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
+
+        var perUnitItems = new[] { new AssemblyGroupItemInput(cpuSku.PublicId, 1), new AssemblyGroupItemInput(boardSku.PublicId, 1) };
+        var victimCart = await service.AddAssemblyGroupsAsync(victimIdentity, perUnitItems, unitCount: 1, CancellationToken.None);
+        var victimGroupKey = victimCart.Items.Select(item => item.AssemblyGroupKey!.Value).Distinct().Single();
+
+        var attackerCart = await service.AddItemAsync(
+            attackerIdentity, new AddCartItemRequest(cpuSku.PublicId, 1, null), CancellationToken.None);
+
+        var exception = await Assert.ThrowsAsync<ShoppingWriteException>(() => service.RemoveAssemblyGroupAsync(
+            attackerIdentity, victimGroupKey, attackerCart.RowVersion, CancellationToken.None));
+        Assert.Equal(ShoppingWriteException.ErrorCodes.ResourceNotFound, exception.ErrorCode);
+
+        var victimReloaded = await service.GetCartAsync(victimIdentity, CancellationToken.None);
+        Assert.Equal(2, victimReloaded.Items.Count(item => item.AssemblyGroupKey == victimGroupKey));
+    }
+
     private static byte[] SHA256HashOfGuestKey(string guestKey) =>
         System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(guestKey));
 }

@@ -111,6 +111,25 @@ public interface ICartService
         byte[] itemRowVersion,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// 組長 PR #29 round 7 review, P1（AUTO-DEC-015）: an assembly group's rows are immutable
+    /// individually (<see cref="RemoveItemAsync"/>／<c>UpdateItemQuantityAsync</c> both reject a
+    /// grouped item with <see cref="ShoppingWriteException.ErrorCodes.CartAssemblyItemImmutable"/>)
+    /// but there was no atomic way to remove the whole group either — a member whose group became
+    /// unavailable/insufficient-stock had no legal recovery path at all. Removes every
+    /// <c>CartItem</c> row (<c>DoSelect.Domain.Shopping.CartItem</c>) sharing
+    /// <paramref name="assemblyGroupKey"/> in
+    /// one <c>SaveChangesAsync</c> call (EF Core's own single-transaction guarantee — no explicit
+    /// <c>BeginTransactionAsync</c> needed), so a mid-way failure can never leave the group
+    /// half-removed. Cart-level (not item-level) RowVersion, since a group spans multiple rows and
+    /// there is no single item RowVersion that could represent it.
+    /// </summary>
+    Task<CartDto> RemoveAssemblyGroupAsync(
+        CartIdentity identity,
+        Guid assemblyGroupKey,
+        byte[] cartRowVersion,
+        CancellationToken cancellationToken);
+
     Task<CartValidationDto> RevalidateAsync(CartIdentity identity, CancellationToken cancellationToken);
 
     /// <summary>

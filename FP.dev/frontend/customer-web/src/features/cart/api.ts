@@ -58,6 +58,26 @@ export async function removeCartItem(
   return data!
 }
 
+/**
+ * 組長 PR #29 round 7 review, P1（AUTO-DEC-015）: one atomic server-side removal of every row
+ * sharing this AssemblyGroupKey. Deliberately NOT a loop of per-item DELETEs on the client — a
+ * failure part-way through that loop would leave the group split apart, which is exactly the state
+ * the "assembly groups can't be edited individually" rule exists to prevent. Cart-level RowVersion
+ * (not an item's), since a group spans multiple rows.
+ */
+export async function removeCartAssemblyGroup(
+  assemblyGroupKey: string,
+  cartRowVersion: string,
+  guestCartKey?: string,
+): Promise<CartDto> {
+  const { data } = await apiClient.DELETE('/api/v1/cart/assembly-groups/{assemblyGroupKey}', {
+    params: { path: { assemblyGroupKey } },
+    body: { cartRowVersion },
+    headers: guestHeaders(guestCartKey),
+  })
+  return data!
+}
+
 export async function revalidateCart(guestCartKey?: string): Promise<CartValidationDto> {
   const { data } = await apiClient.POST('/api/v1/cart/actions/revalidate', {
     headers: guestHeaders(guestCartKey),

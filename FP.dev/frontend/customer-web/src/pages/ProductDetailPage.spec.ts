@@ -396,4 +396,43 @@ describe('ProductDetailPage', () => {
     expect(resolvedButton.attributes('disabled')).toBeUndefined()
     expect(resolvedButton.text()).toBe('加入購物車')
   })
+
+  /**
+   * 組長 PR #29 round 7 review, P1: a *failed* session refresh (network/5xx) used to resolve
+   * `sessionStore.status` all the way to a confirmed-looking 'anonymous' — indistinguishable from
+   * a genuine guest to useAddCartItem()'s identity gate. If the browser still held a valid member
+   * Cookie, a click here would have gone out attributed to the guest cache key while the backend
+   * actually mutated the real member cart. The button must stay disabled for 'error' the same as
+   * 'loading', and must explain that identity confirmation failed (not "still confirming"), with a
+   * retry entry point.
+   */
+  it('disables "加入購物車" and offers a retry when the session failed to resolve ("error")', async () => {
+    mockGetProductDetail.mockResolvedValue(productDetail())
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/products', component: { template: '<div />' } },
+        { path: '/products/:productId', name: 'product-detail', component: ProductDetailPage, props: true },
+      ],
+    })
+    await router.push('/products/p1')
+    await router.isReady()
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const sessionStore = useSessionStore()
+    sessionStore.status = 'error'
+
+    const wrapper = mount(ProductDetailPage, { global: { plugins: [[VueQueryPlugin, { queryClient }], router] } })
+    await flushPromises()
+
+    const addButton = wrapper.findAll('button').find((button) => button.text() !== '重試')!
+    expect(addButton.attributes('disabled')).toBeDefined()
+    expect(addButton.text()).toContain('無法確認登入狀態')
+    expect(wrapper.findAll('button').some((button) => button.text() === '重試')).toBe(true)
+
+    await addButton.trigger('click')
+    await flushPromises()
+    expect(mockAddCartItem).not.toHaveBeenCalled()
+  })
 })

@@ -72,11 +72,19 @@ async function handleLogout(): Promise<void> {
             </button>
           </template>
           <RouterLink
-            v-else-if="sessionStore.status !== 'loading'"
+            v-else-if="sessionStore.status === 'anonymous'"
             to="/register"
           >
             登入／註冊
           </RouterLink>
+          <button
+            v-else-if="sessionStore.status === 'error'"
+            type="button"
+            class="site-header__identity-retry"
+            @click="sessionStore.refresh()"
+          >
+            無法確認登入狀態，點此重試
+          </button>
         </nav>
       </div>
     </header>

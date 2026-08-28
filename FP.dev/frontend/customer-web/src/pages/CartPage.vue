@@ -3,8 +3,18 @@ import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/compo
 import { isApiError } from '@doselect/web-shared/api'
 import { computed, ref, watch } from 'vue'
 import CartLineItem from '../features/cart/components/CartLineItem.vue'
-import { useCart, useReloadCart, useRemoveCartItem, useRevalidateCart, useUpdateCartItemQuantity } from '../features/cart/useCart'
+import {
+  useCart,
+  useReloadCart,
+  useRemoveCartAssemblyGroup,
+  useRemoveCartItem,
+  useRevalidateCart,
+  useUpdateCartItemQuantity,
+} from '../features/cart/useCart'
+import { useSessionStore } from '../stores/session'
 import type { CartItemDto, CartIssueDto } from '../features/cart/types'
+
+const sessionStore = useSessionStore()
 
 // 組長 PR #29 review: bare issue codes ("cart_item_requires_attention") aren't something a
 // shopper can act on — CartWarningDto already carries a backend-authored human message, but
@@ -21,6 +31,9 @@ const ISSUE_MESSAGES: Record<string, string> = {
 const ACTION_LABELS: Record<string, string> = {
   'reduce-quantity': '調整數量',
   remove: '移除',
+  // 組長 PR #29 round 7 review, P1（AUTO-DEC-015）: the backend now reports this instead of the
+  // reduce-quantity/remove it would itself refuse for a grouped item.
+  'remove-group': '整組移除',
 }
 
 function describeIssue(issue: CartIssueDto): string {
@@ -34,6 +47,7 @@ function describeIssueActions(issue: CartIssueDto): string {
 const { data: cart, isPending, isError, error, refetch } = useCart()
 const updateQuantity = useUpdateCartItemQuantity()
 const removeItem = useRemoveCartItem()
+const removeAssemblyGroup = useRemoveCartAssemblyGroup()
 const revalidate = useRevalidateCart()
 const reloadCart = useReloadCart()
 
@@ -259,7 +273,42 @@ function onRemoveItem(itemPublicId: string, itemRowVersion: string): void {
   )
 }
 
-const isMutating = computed(() => updateQuantity.isPending.value || removeItem.isPending.value)
+// 組長 PR #29 round 7 review, P1（AUTO-DEC-015）: the only action that works on an assembly group
+// — every per-item mutation is rejected server-side for a grouped item, so before this a group
+// whose SKU went unavailable held the checkout gate open with no way for the shopper to clear it.
+// One atomic backend call, never a client-side loop of per-item DELETEs (which could fail
+// part-way and split the group apart). Errors surface on the group's first item, reusing the same
+// per-row error slot the individual items already use.
+const groupActionError = ref<{ assemblyGroupKey: string, message: string } | null>(null)
+
+async function onRemoveAssemblyGroup(assemblyGroupKey: string): Promise<void> {
+  if (!cart.value || isBusy.value) {
+    return
+  }
+
+  groupActionError.value = null
+  itemActionError.value = null
+  try {
+    await removeAssemblyGroup.mutateAsync({ assemblyGroupKey, cartRowVersion: cart.value.rowVersion })
+    await runRevalidate()
+  } catch (caught) {
+    groupActionError.value = { assemblyGroupKey, message: describeItemActionError(caught) }
+    if (isApiError(caught) && caught.code === 'concurrency_conflict') {
+      isRecoveringFromConflict.value = true
+      try {
+        await reloadCart()
+        await runRevalidate()
+      } catch {
+        groupActionError.value = { assemblyGroupKey, message: '購物車重新載入失敗，請重試。' }
+      } finally {
+        isRecoveringFromConflict.value = false
+      }
+    }
+  }
+}
+
+const isMutating = computed(() =>
+  updateQuantity.isPending.value || removeItem.isPending.value || removeAssemblyGroup.isPending.value)
 const isBusy = computed(() => isMutating.value || revalidate.isPending.value || isRecoveringFromConflict.value)
 
 function formatTwd(amount: number | string): string {
@@ -278,8 +327,21 @@ defineExpose({ runRevalidate })
       購物車
     </h1>
 
+    <div
+      v-if="sessionStore.status === 'error'"
+      class="cart-page__identity-error"
+      role="alert"
+    >
+      <p>無法確認登入狀態，暫時無法顯示購物車。</p>
+      <button
+        type="button"
+        @click="sessionStore.refresh()"
+      >
+        重試
+      </button>
+    </div>
     <LoadingState
-      v-if="isPending"
+      v-else-if="isPending"
       label="購物車載入中"
     />
     <ErrorState
@@ -341,7 +403,7 @@ defineExpose({ runRevalidate })
               自訂組裝
             </p>
             <p class="cart-page__assembly-group-hint">
-              組裝品項不可單獨調整數量或移除；如需更換零件，請至「我的組裝清單」修改後重新加入購物車。
+              組裝品項不可單獨調整數量或移除；如需更換零件，請至「我的組裝清單」修改後重新加入購物車，或按下方「整組移除」清除這一整台。
             </p>
             <ul
               class="cart-page__assembly-group-items"
@@ -356,6 +418,22 @@ defineExpose({ runRevalidate })
                 :error="itemActionError?.itemPublicId === item.publicId ? itemActionError.message : null"
               />
             </ul>
+            <div class="cart-page__assembly-group-actions">
+              <button
+                type="button"
+                :disabled="isBusy"
+                @click="onRemoveAssemblyGroup(group.assemblyGroupKey)"
+              >
+                整組移除
+              </button>
+            </div>
+            <p
+              v-if="groupActionError?.assemblyGroupKey === group.assemblyGroupKey"
+              class="cart-page__assembly-group-error"
+              role="alert"
+            >
+              {{ groupActionError.message }}
+            </p>
           </li>
           <CartLineItem
             v-else
@@ -458,6 +536,18 @@ defineExpose({ runRevalidate })
   padding: 0;
 }
 
+.cart-page__assembly-group-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-block-start: 0.5rem;
+}
+
+.cart-page__assembly-group-error {
+  margin: 0.5rem 0 0;
+  color: #991b1b;
+  font-size: 0.875rem;
+}
+
 .cart-page__warnings {
   padding: 0.75rem 1rem;
   background: #fef3c7;
@@ -472,7 +562,8 @@ defineExpose({ runRevalidate })
   color: #92400e;
 }
 
-.cart-page__revalidate-error {
+.cart-page__revalidate-error,
+.cart-page__identity-error {
   padding: 0.75rem 1rem;
   background: #fee2e2;
   border-radius: 0.5rem;
@@ -480,6 +571,10 @@ defineExpose({ runRevalidate })
   display: flex;
   align-items: center;
   gap: 0.75rem;
+}
+
+.cart-page__identity-error p {
+  margin: 0;
 }
 
 .cart-page__summary {

@@ -43,7 +43,7 @@ const emptyCart: CartDto = {
 
 function withQueryClient(
   setup: () => unknown,
-  initialStatus: 'loading' | 'anonymous' = 'anonymous',
+  initialStatus: 'loading' | 'anonymous' | 'error' = 'anonymous',
   seed?: (queryClient: QueryClient) => void,
 ) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -199,6 +199,34 @@ describe('useCart', () => {
     await expect(addMutation!.mutateAsync({ skuPublicId: 'sku-1', quantity: 1, cartRowVersion: null }))
       .rejects.toThrow('Cart identity is not resolved yet')
     expect(mockAddCartItem).not.toHaveBeenCalled()
+  })
+
+  /**
+   * 組長 PR #29 round 7 review, P1: a *failed* session refresh (network/5xx) used to resolve
+   * `status` all the way to a confirmed-looking 'anonymous' — indistinguishable from a genuine
+   * guest to this same identity gate. If the browser still held a valid member Cookie, the mutation
+   * would have gone out attributed to the *guest* cache key while the backend actually mutated the
+   * real member cart, landing that member's cart data in the guest-visible cache. `status: 'error'`
+   * (session.ts) must be refused by this same gate, not just 'loading'.
+   */
+  it('rejects immediately, without ever calling the network layer, when session status is \'error\' (a failed refresh)', async () => {
+    const { useAddCartItem } = await import('./useCart')
+    let addMutation: ReturnType<typeof useAddCartItem> | undefined
+    withQueryClient(() => { addMutation = useAddCartItem() }, 'error')
+
+    await expect(addMutation!.mutateAsync({ skuPublicId: 'sku-1', quantity: 1, cartRowVersion: null }))
+      .rejects.toThrow('Cart identity is not resolved yet')
+    expect(mockAddCartItem).not.toHaveBeenCalled()
+  })
+
+  it('does not fetch under the guest key when session status is \'error\' (a failed refresh)', async () => {
+    const { useCart } = await import('./useCart')
+    let query: ReturnType<typeof useCart> | undefined
+    withQueryClient(() => { query = useCart() }, 'error')
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(mockGetCart).not.toHaveBeenCalled()
+    expect(query!.isPending.value).toBe(true)
   })
 
   it('updates the cache with the mutation result on add', async () => {

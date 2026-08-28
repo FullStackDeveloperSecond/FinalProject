@@ -40,18 +40,19 @@ function describeAddToCartError(caught: unknown): string {
   return '加入購物車失敗，請重試。'
 }
 
-// 組長 PR #29 round-6 review, P1: a shopper whose member Cookie the backend already recognizes,
-// but whose frontend session refresh (App.vue's onMounted -> sessionStore.refresh()) hasn't
-// resolved yet, could still click "加入購物車" while status is still 'loading' — useAddCartItem()'s
-// identity snapshot treats "not confirmedly authenticated" the same as guest, so the request gets
-// attributed to the guest cache key while the backend actually mutates the member's real cart.
-// useAddCartItem() itself now refuses to even attempt the request in that window (throws from
-// onMutate), but disabling the button here means the shopper sees why immediately, not just a
-// failed click.
-const isSessionResolving = computed(() => sessionStore.status === 'loading')
+// 組長 PR #29 round-6 review, P1 (widened in round 7 review, P1): a shopper whose member Cookie
+// the backend already recognizes, but whose frontend session refresh (App.vue's onMounted ->
+// sessionStore.refresh()) hasn't resolved yet, could still click "加入購物車" while status is
+// still 'loading' — useAddCartItem()'s identity snapshot treats "not confirmedly authenticated"
+// the same as guest, so the request gets attributed to the guest cache key while the backend
+// actually mutates the member's real cart. A *failed* refresh (status 'error') is the same risk —
+// see isIdentityConfirmed's remarks in session.ts. useAddCartItem() itself now refuses to even
+// attempt the request in either window (throws from onMutate), but disabling the button here means
+// the shopper sees why immediately, not just a failed click.
+const isCartIdentityUnresolved = computed(() => !sessionStore.isIdentityConfirmed)
 
 const isAddToCartDisabled = computed(() => {
-  if (!selectedSku.value || addCartItemMutation.isPending.value || isSessionResolving.value) {
+  if (!selectedSku.value || addCartItemMutation.isPending.value || isCartIdentityUnresolved.value) {
     return true
   }
   return selectedSku.value.availability === 'outOfStock' || Number(selectedSku.value.maxPurchasableQuantity) <= 0
@@ -245,7 +246,14 @@ const isNotFound = computed(() => isApiError(error.value) && error.value.status 
         :disabled="isAddToCartDisabled"
         @click="onAddToCart"
       >
-        {{ isSessionResolving ? '登入狀態確認中…' : addCartItemMutation.isPending.value ? '加入中…' : '加入購物車' }}
+        {{ sessionStore.status === 'error' ? '無法確認登入狀態' : sessionStore.status === 'loading' ? '登入狀態確認中…' : addCartItemMutation.isPending.value ? '加入中…' : '加入購物車' }}
+      </button>
+      <button
+        v-if="sessionStore.status === 'error'"
+        type="button"
+        @click="sessionStore.refresh()"
+      >
+        重試
       </button>
       <p
         v-if="addToCartSucceeded"

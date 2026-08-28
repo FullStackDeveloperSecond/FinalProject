@@ -21,11 +21,14 @@ const mockRevalidateCart = vi.fn<() => Promise<CartValidationDto>>()
 const mockUpdateCartItemQuantity = vi.fn<() => Promise<CartDto>>()
 const mockRemoveCartItem = vi.fn<() => Promise<CartDto>>()
 
+const mockRemoveCartAssemblyGroup = vi.fn<(...args: unknown[]) => Promise<CartDto>>()
+
 vi.mock('../features/cart/api', () => ({
   getCart: () => mockGetCart(),
   addCartItem: vi.fn(),
   updateCartItemQuantity: () => mockUpdateCartItemQuantity(),
   removeCartItem: () => mockRemoveCartItem(),
+  removeCartAssemblyGroup: (...args: unknown[]) => mockRemoveCartAssemblyGroup(...args),
   revalidateCart: () => mockRevalidateCart(),
   mergeCartOnLogin: vi.fn(),
 }))
@@ -65,7 +68,9 @@ const oneItemCart: CartDto = {
   rowVersion: 'AAAA',
 }
 
-async function mountCartPage(options: { authenticated?: boolean, queryClient?: QueryClient } = {}) {
+async function mountCartPage(
+  options: { authenticated?: boolean, queryClient?: QueryClient, identityError?: boolean } = {},
+) {
   const { default: CartPage } = await import('./CartPage.vue')
   const queryClient = options.queryClient ?? new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<div />' } }] })
@@ -73,7 +78,9 @@ async function mountCartPage(options: { authenticated?: boolean, queryClient?: Q
   const pinia = createPinia()
   setActivePinia(pinia)
   const sessionStore = useSessionStore()
-  if (options.authenticated) {
+  if (options.identityError) {
+    sessionStore.status = 'error'
+  } else if (options.authenticated) {
     sessionStore.status = 'authenticated'
     sessionStore.user = testMember
   } else {
@@ -92,6 +99,7 @@ beforeEach(() => {
   mockRevalidateCart.mockReset()
   mockUpdateCartItemQuantity.mockReset()
   mockRemoveCartItem.mockReset()
+  mockRemoveCartAssemblyGroup.mockReset()
 })
 
 describe('CartPage', () => {
@@ -420,6 +428,109 @@ describe('CartPage', () => {
   })
 
   /**
+   * 組長 PR #29 round 7 review, P1（AUTO-DEC-015）: blocking per-item edits was correct but left no
+   * executable recovery path at all — a group whose SKU went unavailable held the checkout gate
+   * open forever. "整組移除" is the one action that works, and it must be a single atomic backend
+   * call, never a client-side loop of per-item DELETEs (a mid-loop failure would split the group).
+   */
+  it('removes a whole assembly group in one atomic backend call, then revalidates', async () => {
+    const groupedCart: CartDto = {
+      ...oneItemCart,
+      items: [
+        { ...oneItemCart.items[0], publicId: 'a1', skuCode: 'CPU-1', assemblyGroupKey: 'build-1' },
+        { ...oneItemCart.items[0], publicId: 'a2', skuCode: 'GPU-1', assemblyGroupKey: 'build-1' },
+        { ...oneItemCart.items[0], publicId: 'p1', skuCode: 'MOUSE-1', assemblyGroupKey: null },
+      ],
+    }
+    const afterRemoval: CartDto = {
+      ...oneItemCart,
+      rowVersion: 'BBBB',
+      items: [{ ...oneItemCart.items[0], publicId: 'p1', skuCode: 'MOUSE-1', assemblyGroupKey: null }],
+    }
+    mockGetCart.mockResolvedValue(groupedCart)
+    mockRevalidateCart.mockResolvedValueOnce({
+      cart: groupedCart,
+      isCheckoutReady: false,
+      issues: [{ itemPublicId: 'a1', code: 'sku_unavailable', severity: 'error', availableActions: ['remove-group'] }],
+      validatedAtUtc: new Date().toISOString(),
+    })
+
+    const wrapper = await mountCartPage()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('CPU-1'))
+    // The backend must advertise the action it will actually honor, and the page must label it.
+    await vi.waitFor(() => expect(wrapper.text()).toContain('整組移除'))
+
+    mockRemoveCartAssemblyGroup.mockResolvedValueOnce(afterRemoval)
+    mockRevalidateCart.mockResolvedValueOnce({
+      cart: afterRemoval, isCheckoutReady: true, issues: [], validatedAtUtc: new Date().toISOString(),
+    })
+
+    const groupButton = wrapper.find('.cart-page__assembly-group-actions button')
+    await groupButton.trigger('click')
+
+    await vi.waitFor(() => expect(mockRemoveCartAssemblyGroup).toHaveBeenCalledTimes(1))
+    expect(mockRemoveCartAssemblyGroup).toHaveBeenCalledWith('build-1', 'AAAA', 'guest-test-key')
+    // Exactly one atomic call — never a per-item DELETE loop.
+    expect(mockRemoveCartItem).not.toHaveBeenCalled()
+
+    await vi.waitFor(() => expect(wrapper.text()).not.toContain('CPU-1'))
+    expect(wrapper.text()).toContain('MOUSE-1')
+  })
+
+  it('shows a retryable error on the group when the atomic removal fails, leaving the group rendered', async () => {
+    const groupedCart: CartDto = {
+      ...oneItemCart,
+      items: [
+        { ...oneItemCart.items[0], publicId: 'a1', skuCode: 'CPU-1', assemblyGroupKey: 'build-1' },
+        { ...oneItemCart.items[0], publicId: 'a2', skuCode: 'GPU-1', assemblyGroupKey: 'build-1' },
+      ],
+    }
+    mockGetCart.mockResolvedValue(groupedCart)
+    mockRevalidateCart.mockResolvedValue({
+      cart: groupedCart, isCheckoutReady: true, issues: [], validatedAtUtc: new Date().toISOString(),
+    })
+
+    const wrapper = await mountCartPage()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('CPU-1'))
+
+    mockRemoveCartAssemblyGroup.mockRejectedValueOnce(new ApiError('boom', { status: 500, code: 'unexpected_error' }))
+
+    await wrapper.find('.cart-page__assembly-group-actions button').trigger('click')
+
+    await vi.waitFor(() => expect(wrapper.find('.cart-page__assembly-group-error').exists()).toBe(true))
+    expect(wrapper.find('.cart-page__assembly-group-error').text()).toContain('操作失敗')
+    // The group is still there — a failed removal must not optimistically drop it from the page.
+    expect(wrapper.text()).toContain('CPU-1')
+    expect(wrapper.text()).toContain('GPU-1')
+  })
+
+  it('reloads the cart before letting the shopper retry after a concurrency conflict on group removal', async () => {
+    const groupedCart: CartDto = {
+      ...oneItemCart,
+      items: [
+        { ...oneItemCart.items[0], publicId: 'a1', skuCode: 'CPU-1', assemblyGroupKey: 'build-1' },
+        { ...oneItemCart.items[0], publicId: 'a2', skuCode: 'GPU-1', assemblyGroupKey: 'build-1' },
+      ],
+    }
+    mockGetCart.mockResolvedValue(groupedCart)
+    mockRevalidateCart.mockResolvedValue({
+      cart: groupedCart, isCheckoutReady: true, issues: [], validatedAtUtc: new Date().toISOString(),
+    })
+
+    const wrapper = await mountCartPage()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('CPU-1'))
+    const getCartCallsBefore = mockGetCart.mock.calls.length
+
+    mockRemoveCartAssemblyGroup.mockRejectedValueOnce(
+      new ApiError('stale', { status: 409, code: 'concurrency_conflict' }))
+
+    await wrapper.find('.cart-page__assembly-group-actions button').trigger('click')
+
+    await vi.waitFor(() => expect(mockGetCart.mock.calls.length).toBe(getCartCallsBefore + 1))
+    expect(wrapper.find('.cart-page__assembly-group-error').text()).toContain('已重新載入')
+  })
+
+  /**
    * 組長 PR #29 review: item mutations only handled onSuccess — a failure left no feedback beyond
    * the button re-enabling, and a concurrency_conflict specifically means the shopper was acting
    * on stale data, so the cart must be refetched before they retry.
@@ -564,5 +675,39 @@ describe('CartPage', () => {
 
     const wrapper = await mountCartPage()
     await vi.waitFor(() => expect(wrapper.text()).toContain('購物車已超過 100 件上限，請先清空部分品項。'))
+  })
+})
+
+describe('CartPage — session identity fail-closed (組長 PR #29 round 7 review, P1)', () => {
+  /**
+   * A failed session refresh (status 'error') must not be silently treated like a confirmed guest
+   * — useCart()'s query gate (isIdentityConfirmed) now stays disabled for 'error' the same as
+   * 'loading', so this page must show why instead of spinning forever on a query that will never
+   * run, and must never fetch a guest-keyed cart that could actually belong to a still-logged-in
+   * member whose Cookie the refresh call itself failed to confirm.
+   */
+  it('shows an identity-error banner with a retry entry point instead of the cart, and never fetches under the guest key', async () => {
+    const wrapper = await mountCartPage({ identityError: true })
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.text()).toContain('無法確認登入狀態')
+    expect(wrapper.findAll('button').some((button) => button.text() === '重試')).toBe(true)
+    expect(mockGetCart).not.toHaveBeenCalled()
+  })
+
+  it('recovers to the normal cart view once a retried refresh resolves to a confirmed identity', async () => {
+    mockGetCart.mockResolvedValue(oneItemCart)
+    mockRevalidateCart.mockResolvedValue({
+      cart: oneItemCart, isCheckoutReady: true, issues: [], validatedAtUtc: new Date().toISOString(),
+    })
+
+    const wrapper = await mountCartPage({ identityError: true })
+    await wrapper.vm.$nextTick()
+    expect(wrapper.text()).toContain('無法確認登入狀態')
+    expect(mockGetCart).not.toHaveBeenCalled()
+
+    useSessionStore().status = 'anonymous'
+    await vi.waitFor(() => expect(wrapper.text()).toContain('RTX 4070'))
+    expect(wrapper.text()).not.toContain('無法確認登入狀態')
   })
 })
