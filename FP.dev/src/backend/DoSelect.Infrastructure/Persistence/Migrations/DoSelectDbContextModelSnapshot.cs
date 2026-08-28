@@ -495,76 +495,6 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                         });
                 });
 
-            modelBuilder.Entity("DoSelect.Domain.Builds.SkuCompatibilityAttribute", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
-
-                    b.Property<string>("AttributeKey")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(64)");
-
-                    b.Property<string>("AttributeValue")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(64)");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<long>("SkuId")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("SkuId", "AttributeKey", "AttributeValue")
-                        .IsUnique()
-                        .HasDatabaseName("UX_SkuCompatibilityAttributes_SkuId_AttributeKey_AttributeValue");
-
-                    b.ToTable("SkuCompatibilityAttributes", (string)null);
-                });
-
-            modelBuilder.Entity("DoSelect.Domain.Builds.SkuStorageInterfacePort", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("InterfaceCode")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(64)");
-
-                    b.Property<int>("PortCount")
-                        .HasColumnType("int");
-
-                    b.Property<long>("SkuId")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("SkuId", "InterfaceCode")
-                        .IsUnique()
-                        .HasDatabaseName("UX_SkuStorageInterfacePorts_SkuId_InterfaceCode");
-
-                    b.ToTable("SkuStorageInterfacePorts", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_SkuStorageInterfacePorts_PortCount", "[PortCount] > 0 AND [PortCount] <= 32");
-                        });
-                });
-
             modelBuilder.Entity("DoSelect.Domain.Catalog.Brand", b =>
                 {
                     b.Property<long>("Id")
@@ -7790,24 +7720,6 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("ChangedByAdminUserId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("DoSelect.Domain.Builds.SkuCompatibilityAttribute", b =>
-                {
-                    b.HasOne("DoSelect.Domain.Catalog.Sku", null)
-                        .WithMany()
-                        .HasForeignKey("SkuId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("DoSelect.Domain.Builds.SkuStorageInterfacePort", b =>
-                {
-                    b.HasOne("DoSelect.Domain.Catalog.Sku", null)
-                        .WithMany()
-                        .HasForeignKey("SkuId")
-                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 

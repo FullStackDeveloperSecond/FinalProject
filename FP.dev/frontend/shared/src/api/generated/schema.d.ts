@@ -3151,6 +3151,515 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/compatibility-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["CompatibilityRuleListDto"];
+                        "application/json": components["schemas"]["CompatibilityRuleListDto"];
+                        "text/json": components["schemas"]["CompatibilityRuleListDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/compatibility-rules/{ruleCode}/warning-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ruleCode: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateWarningSettingRequest"];
+                    "text/json": components["schemas"]["UpdateWarningSettingRequest"];
+                    "application/*+json": components["schemas"]["UpdateWarningSettingRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["CompatibilityRuleAdminDto"];
+                        "application/json": components["schemas"]["CompatibilityRuleAdminDto"];
+                        "text/json": components["schemas"]["CompatibilityRuleAdminDto"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/v1/admin/compatibility-rules/{ruleCode}/activation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    ruleCode: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SetRuleActivationRequest"];
+                    "text/json": components["schemas"]["SetRuleActivationRequest"];
+                    "application/*+json": components["schemas"]["SetRuleActivationRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["CompatibilityRuleAdminDto"];
+                        "application/json": components["schemas"]["CompatibilityRuleAdminDto"];
+                        "text/json": components["schemas"]["CompatibilityRuleAdminDto"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/v1/admin/compatibility-rules/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CompatibilityRuleTestRequest"];
+                    "text/json": components["schemas"]["CompatibilityRuleTestRequest"];
+                    "application/*+json": components["schemas"]["CompatibilityRuleTestRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["CompatibilityRuleTestResultDto"];
+                        "application/json": components["schemas"]["CompatibilityRuleTestResultDto"];
+                        "text/json": components["schemas"]["CompatibilityRuleTestResultDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/build-lists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    PageNumber?: number | string;
+                    PageSize?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateBuildListRequest"];
+                    "text/json": components["schemas"]["CreateBuildListRequest"];
+                    "application/*+json": components["schemas"]["CreateBuildListRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["BuildListDto"];
+                        "application/json": components["schemas"]["BuildListDto"];
+                        "text/json": components["schemas"]["BuildListDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/build-lists/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["BuildListDto"];
+                        "application/json": components["schemas"]["BuildListDto"];
+                        "text/json": components["schemas"]["BuildListDto"];
+                    };
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateBuildListRequest"];
+                    "text/json": components["schemas"]["UpdateBuildListRequest"];
+                    "application/*+json": components["schemas"]["UpdateBuildListRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["BuildListDto"];
+                        "application/json": components["schemas"]["BuildListDto"];
+                        "text/json": components["schemas"]["BuildListDto"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["DeleteBuildListRequest"];
+                    "text/json": components["schemas"]["DeleteBuildListRequest"];
+                    "application/*+json": components["schemas"]["DeleteBuildListRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/build-lists/{id}/share": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["BuildShareDto"];
+                        "application/json": components["schemas"]["BuildShareDto"];
+                        "text/json": components["schemas"]["BuildShareDto"];
+                    };
+                };
+            };
+        };
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/build-lists/{id}/actions/add-to-cart": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: {
+                    "Idempotency-Key"?: string;
+                };
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AddBuildToCartRequest"];
+                    "text/json": components["schemas"]["AddBuildToCartRequest"];
+                    "application/*+json": components["schemas"]["AddBuildToCartRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/build-shares/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    token: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["SharedBuildDto"];
+                        "application/json": components["schemas"]["SharedBuildDto"];
+                        "text/json": components["schemas"]["SharedBuildDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/compatibility-checks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CompatibilityCheckRequest"];
+                    "text/json": components["schemas"]["CompatibilityCheckRequest"];
+                    "application/*+json": components["schemas"]["CompatibilityCheckRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["CompatibilityCheckDto"];
+                        "application/json": components["schemas"]["CompatibilityCheckDto"];
+                        "text/json": components["schemas"]["CompatibilityCheckDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ai/support/messages": {
         parameters: {
             query?: never;
@@ -3851,6 +4360,12 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AddBuildToCartRequest: {
+            /** Format: int32 */
+            quantity: number | string;
+            /** Format: byte */
+            buildRowVersion: string;
+        };
         AddCartItemRequest: {
             /** Format: uuid */
             skuPublicId: string;
@@ -4121,6 +4636,65 @@ export interface components {
             /** Format: uuid */
             publicId: string;
         };
+        BuildCompatibilitySummaryDto: {
+            overall: string;
+            /** Format: int32 */
+            ruleSetVersion: number | string;
+            /** Format: int32 */
+            settingsVersion: number | string;
+            results: components["schemas"]["CompatibilityFindingDto"][];
+        };
+        BuildItemDto: {
+            /** Format: uuid */
+            publicId: string;
+            /** Format: uuid */
+            skuPublicId: string;
+            skuCode: string;
+            name: string;
+            /** Format: int32 */
+            quantity: number | string;
+            /** Format: int32 */
+            sortOrder: number | string;
+            /** Format: double */
+            unitPrice: number | string;
+            /** Format: double */
+            lineTotal: number | string;
+            availability: string;
+        };
+        BuildItemInput: {
+            /** Format: uuid */
+            skuPublicId: string;
+            /** Format: int32 */
+            quantity: number | string;
+        };
+        BuildListDto: {
+            /** Format: uuid */
+            publicId: string;
+            name: string;
+            items: components["schemas"]["BuildItemDto"][];
+            compatibility: components["schemas"]["BuildCompatibilitySummaryDto"];
+            totals: components["schemas"]["BuildTotalsDto"];
+            /** Format: date-time */
+            updatedAtUtc: string;
+            /** Format: byte */
+            rowVersion: string;
+        };
+        BuildShareDto: {
+            /** Format: uuid */
+            sharePublicId: string;
+            url: string;
+            /** Format: date-time */
+            expiresAtUtc: null | string;
+        };
+        BuildTotalsDto: {
+            /** Format: double */
+            merchandise: number | string;
+            /** Format: double */
+            assemblyFee: number | string;
+            /** Format: double */
+            grandTotal: number | string;
+            currency: string;
+        };
         CancelOrderRequest: {
             reasonCode: string;
             note: null | string;
@@ -4298,6 +4872,67 @@ export interface components {
             /** Format: byte */
             rowVersion?: string;
         };
+        CompatibilityCheckDto: {
+            overall: string;
+            /** Format: int32 */
+            ruleSetVersion: number | string;
+            /** Format: int32 */
+            settingsVersion: number | string;
+            results: components["schemas"]["CompatibilityFindingDto"][];
+            /** Format: date-time */
+            evaluatedAtUtc: string;
+        };
+        CompatibilityCheckRequest: {
+            items: components["schemas"]["BuildItemInput"][];
+        };
+        CompatibilityFindingDto: {
+            ruleCode: string;
+            severity: string;
+            messageKey: string;
+            subjectSkuPublicIds: string[];
+            facts: Record<string, never>;
+        };
+        CompatibilityRuleAdminDto: {
+            ruleCode: string;
+            isActive: boolean;
+            /** Format: byte */
+            activationRowVersion: null | string;
+            warningSetting: null | components["schemas"]["CompatibilityRuleWarningSettingDto"];
+        };
+        CompatibilityRuleListDto: {
+            rules: components["schemas"]["CompatibilityRuleAdminDto"][];
+            /** Format: int32 */
+            settingsVersion: number | string;
+        };
+        CompatibilityRuleTestRequest: {
+            items: components["schemas"]["BuildItemInput"][];
+            ruleCodes: null | string[];
+            useDraftSettings: boolean;
+            draftWarningSettings: null | {
+                [key: string]: number | string;
+            };
+        };
+        CompatibilityRuleTestResultDto: {
+            overall: string;
+            results: components["schemas"]["CompatibilityFindingDto"][];
+            /** Format: int32 */
+            settingsVersion: number | string;
+            /** Format: date-time */
+            evaluatedAtUtc: string;
+        };
+        CompatibilityRuleWarningSettingDto: {
+            settingCode: string;
+            /** Format: double */
+            value: number | string;
+            /** Format: double */
+            minValue: number | string;
+            /** Format: double */
+            maxValue: number | string;
+            /** Format: double */
+            defaultValue: number | string;
+            /** Format: byte */
+            rowVersion: null | string;
+        };
         CouponAppliedDto: {
             code: string;
             /** Format: double */
@@ -4311,6 +4946,10 @@ export interface components {
             /** Format: int32 */
             sortOrder: number | string;
             isActive: boolean;
+        };
+        CreateBuildListRequest: {
+            name: string;
+            items: components["schemas"]["BuildItemInput"][];
         };
         CreateCategoryRequest: {
             code: string;
@@ -4430,6 +5069,10 @@ export interface components {
             items: components["schemas"]["SupportSlaItemDto"][];
             nextCursor: null | string;
             hasMore: boolean;
+        };
+        DeleteBuildListRequest: {
+            /** Format: byte */
+            rowVersion: string;
         };
         DeleteSkuRequest: {
             /** Format: byte */
@@ -4935,6 +5578,22 @@ export interface components {
         ReturnShipmentMethod: "homePickup" | "convenienceStore" | "selfShip";
         /** @enum {unknown} */
         ReturnShipmentStatus: "pending" | "scheduled" | "pickedUp" | "inTransit" | "delivered" | "failed" | "cancelled";
+        SetRuleActivationRequest: {
+            isActive: boolean;
+            reason: string;
+            /** Format: byte */
+            rowVersion: null | string;
+        };
+        SharedBuildDto: {
+            /** Format: uuid */
+            sharePublicId: string;
+            name: string;
+            items: components["schemas"]["BuildItemDto"][];
+            compatibility: components["schemas"]["BuildCompatibilitySummaryDto"];
+            totals: components["schemas"]["BuildTotalsDto"];
+            canCopy: boolean;
+            canAddToCart: boolean;
+        };
         ShippingRestrictionDto: {
             method: string;
             allowed: boolean;
@@ -5233,6 +5892,12 @@ export interface components {
             /** Format: byte */
             rowVersion: string;
         };
+        UpdateBuildListRequest: {
+            name: string;
+            items: components["schemas"]["BuildItemInput"][];
+            /** Format: byte */
+            rowVersion: string;
+        };
         UpdateCartItemRequest: {
             /** Format: int32 */
             quantity: number | string;
@@ -5295,6 +5960,13 @@ export interface components {
             isActive: boolean;
             /** Format: byte */
             rowVersion: string;
+        };
+        UpdateWarningSettingRequest: {
+            /** Format: double */
+            value: number | string;
+            /** Format: byte */
+            rowVersion: null | string;
+            reason: string;
         };
     };
     responses: never;
