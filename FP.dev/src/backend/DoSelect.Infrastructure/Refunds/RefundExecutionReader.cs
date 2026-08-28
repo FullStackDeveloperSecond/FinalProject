@@ -65,7 +65,7 @@ public sealed class RefundExecutionReader : IRefundExecutionReader
         Refund refund,
         CancellationToken cancellationToken) =>
         new RefundTrustedInputsReader(_context)
-            .FindAsync(refund.OrderId, refund.ReturnRequestId, cancellationToken);
+            .FindAsync(refund.OrderId, refund.Id, refund.ReturnRequestId, cancellationToken);
 
     /// <summary>
     /// 可退款餘額 = 該訂單已成功收款金額 - 其他退款已成功的金額累計。

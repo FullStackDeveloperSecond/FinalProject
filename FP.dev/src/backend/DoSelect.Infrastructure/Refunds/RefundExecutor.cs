@@ -228,15 +228,18 @@ public sealed class RefundExecutor : IRefundExecutor
     /// 讀出後端產生七類分攤所需的完整可信快照，三項輸入齊全時才回傳。
     /// </summary>
     /// <remarks>
-    /// **目前一律回 <c>null</c>。這是 E1 裁定要求的行為，不是尚未實作。**
-    /// 詳見 <see cref="RefundExecutionReader"/> 上的同名方法 —— 兩條路徑必須用同一個
-    /// 判斷，否則會出現「預覽說可以執行、實際執行卻拒絕」的落差。
+    /// 與 <see cref="RefundExecutionReader"/> 的同名方法**必須用同一個判斷**，否則會出現
+    /// 「預覽說可以執行、實際執行卻拒絕」的落差，而管理員只看得到後者。
+    /// <para>
+    /// 傳入 <c>refund.Id</c> 是為了讓歷史已退數量排除本次退款自身；這個查詢在共用
+    /// Executor 擁有的 Serializable 交易內執行，與後續寫入看到的是同一份快照。
+    /// </para>
     /// </remarks>
     private Task<RefundTrustedInputs?> FindTrustedInputsAsync(
         Refund refund,
         CancellationToken cancellationToken) =>
         new RefundTrustedInputsReader(_context)
-            .FindAsync(refund.OrderId, refund.ReturnRequestId, cancellationToken);
+            .FindAsync(refund.OrderId, refund.Id, refund.ReturnRequestId, cancellationToken);
 
     /// <summary>
     /// 把後端算出的分攤寫進 <c>RefundAllocations</c>，回傳實際寫入筆數。

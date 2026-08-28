@@ -13,10 +13,13 @@ namespace DoSelect.Application.Refunds;
 /// 商品或優惠券設定，也不得由管理端傳入。
 /// <para>
 /// <see cref="Reason"/>、<see cref="AssemblyDisposition"/> 與
-/// <see cref="ReturnShippingCost"/> 三項目前在資料庫沒有任何持久化來源：
-/// <c>ReturnRequest.ReasonCode</c> 是自由文字而非 <see cref="ReturnReason"/> 列舉，
-/// 另外兩項則完全不存在（kafen 的 M-12 已合併但未涵蓋）。因此讀取端目前一律
-/// 回 <c>null</c>，退款執行被拒絕 —— 這是 E1 裁定要求的行為，不是尚未實作。
+/// <see cref="ReturnShippingCost"/> 的持久化來源都已落地：原因由
+/// <c>ReturnEligibilityPolicy.TryMapRefundReason</c> 從 <c>ReturnRequest.ReasonCode</c>
+/// 映射，另外兩項取自 <c>ReturnRequest.CaptureRefundTrustedInputs</c> 保存的欄位。
+/// </para>
+/// <para>
+/// 依 E1 裁定，**任一項缺漏就整筆拒絕**（<c>refund_snapshot_unavailable</c>），
+/// 不得猜測或以預設值補齊 —— 猜錯會直接改變退貨運費由誰負擔。
 /// </para>
 /// </remarks>
 public sealed record RefundTrustedInputs(

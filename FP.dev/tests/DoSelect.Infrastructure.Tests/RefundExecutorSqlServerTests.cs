@@ -1,4 +1,5 @@
 using System.Data;
+using System.Data.Common;
 using System.Net;
 using DoSelect.Application.Auditing;
 using DoSelect.Application.Idempotency;
@@ -17,6 +18,7 @@ using DoSelect.Infrastructure.Persistence.Identity;
 using DoSelect.Infrastructure.Refunds;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Options;
 
 namespace DoSelect.Infrastructure.Tests;
@@ -90,9 +92,10 @@ public sealed class RefundExecutorSqlFixture : IAsyncLifetime
         await context.Database.EnsureDeletedAsync();
     }
 
-    public static DoSelectDbContext CreateContext() => new(
+    public static DoSelectDbContext CreateContext(params IInterceptor[] interceptors) => new(
         new DbContextOptionsBuilder<DoSelectDbContext>()
             .UseSqlServer(BuildConnectionString())
+            .AddInterceptors(interceptors)
             .Options);
 
     private static string BuildConnectionString()
@@ -595,25 +598,59 @@ public sealed class RefundExecutorSqlServerTests
         await using var context = RefundExecutorSqlFixture.CreateContext();
         var (first, second) = await SeedTwoRefundsOnOneOrderAsync(context);
 
-        await using var firstContext = RefundExecutorSqlFixture.CreateContext();
-        await using var secondContext = RefundExecutorSqlFixture.CreateContext();
+        // Task.WhenAll 本身**不保證重疊**。先前的 barrier 放在 ExecuteAsync **之前**，
+        // 放行時兩筆 SQL 交易都還沒建立，排程器仍可能讓第一筆整個跑完才開始第二筆 ——
+        // 第二筆只是循序讀到餘額不足而失敗，測試照樣綠，Serializable 與死結重試
+        // 存在的理由完全沒被驗證。
+        //
+        // 競爭是**自然發生**的，不需要人工製造：共用 Executor 在 Serializable 交易內
+        // 寫冪等紀錄，兩筆同時進來時其中一筆會被對方的鍵範圍鎖擋住，直到對方提交。
+        // 這裡的 Barrier 只在交易之外讓兩個執行緒同時起跑，本身不構成併發證據 ——
+        // 證據是下面對「交易重跑次數」與「交易內被擋住多久」的量測。
+        var firstProbe = new ConcurrencyProbeInterceptor();
+        var secondProbe = new ConcurrencyProbeInterceptor();
 
-        // Task.WhenAll 本身**不保證重疊**：兩邊可能循序完成，第二筆只是看到餘額
-        // 已經不足而失敗，測試照樣通過卻沒有測到競爭。barrier 讓兩個執行緒都抵達
-        // 同一點之後才進入 Executor，兩個交易因此真的同時存在。
-        using var barrier = new Barrier(2);
+        await using var firstContext = RefundExecutorSqlFixture.CreateContext(firstProbe);
+        await using var secondContext = RefundExecutorSqlFixture.CreateContext(secondProbe);
+
+        using var start = new Barrier(2);
 
         async Task<ExecuteRefundResult> RunAsync(
             DoSelectDbContext context, Refund refund)
         {
             await Task.Yield();
-            barrier.SignalAndWait();
+            start.SignalAndWait();
             return await CreateExecutor(context).ExecuteAsync(Request(refund));
         }
 
         var results = await Task.WhenAll(
             RunAsync(firstContext, first),
             RunAsync(secondContext, second));
+
+        // **這兩條才是併發的證據，缺了它們這條測試證明不了任何事。**
+        //
+        // 1. 交易重跑：共用 Executor 每跑一次交易本體就寫一次冪等紀錄。循序完成時
+        //    兩邊各寫一次、合計 2；只有其中一筆真的被資料庫回滾並整段重跑，合計才會到 3。
+        // 2. 交易內等待：被擋住的那一筆會在相鄰兩道命令之間停住，等對方提交才繼續。
+        //    循序完成不會出現這種等待。
+        //
+        // 先前那版只有 Task.WhenAll 加一個交易外的 barrier，兩邊仍可能循序完成、
+        // 第二筆只是讀到餘額不足 —— 測試照樣綠，Serializable 與死結重試的存在理由
+        // 從來沒有被驗證過。
+        var attempts = firstProbe.TransactionAttempts + secondProbe.TransactionAttempts;
+        Assert.True(
+            attempts >= 3,
+            $"兩筆交易本體合計只執行 {attempts} 次" +
+            $"（{firstProbe.TransactionAttempts}／{secondProbe.TransactionAttempts}），" +
+            "沒有任何一筆被資料庫回滾重跑，代表它們其實是循序完成的。");
+
+        var longestWait = firstProbe.LongestWaitBetweenCommands > secondProbe.LongestWaitBetweenCommands
+            ? firstProbe.LongestWaitBetweenCommands
+            : secondProbe.LongestWaitBetweenCommands;
+        Assert.True(
+            longestWait >= TimeSpan.FromMilliseconds(200),
+            $"交易內最長等待只有 {longestWait.TotalMilliseconds:F0}ms，" +
+            "沒有任何一筆被對方的鎖擋住，兩筆交易並未同時存在。");
 
         Assert.Equal(1, results.Count(result => result.IsSuccess));
 
@@ -648,6 +685,182 @@ public sealed class RefundExecutorSqlServerTests
         // 留下來的話，管理員修正原因後用同一把金鑰重送會拿回舊的拒絕。
         var loserKey = Request(results[0].IsSuccess ? second : first).IdempotencyKey;
         Assert.False(await verify.IdempotencyRecords.AnyAsync(record => record.Key == loserKey));
+    }
+
+    /// <summary>
+    /// 同一商品分兩次部分退款：第二次必須看見第一次已退的數量。
+    /// </summary>
+    /// <remarks>
+    /// 歷史已退數量原本取自 <c>OrderItem.ReturnedQuantity</c>，但 Returns 模組明確不維護
+    /// 那個欄位，全專案也沒有任何生產程式碼呼叫 <c>RecordReturnedQuantity</c> —— 它恆為 0。
+    /// <para>
+    /// 這條測試用「折扣尾差 + 完整退貨」把那個缺陷逼出來。訂單一列 3 件、單價 500、
+    /// 訂單級折扣分攤 100（無法被 3 整除，所以尾差是真的）：
+    /// </para>
+    /// <list type="bullet">
+    /// <item>第一次退 2 件：折扣分攤 Round(100×2/3)=66.67，淨額 1000−66.67=933.33，非完整退貨。</item>
+    /// <item>第二次退 1 件：已退 2 件 → 最後一批，折扣分攤取剩餘 100−66.67=33.33，
+    /// 淨額 500−33.33=466.67；且 2+1=3 進入**完整退貨**路徑，退還原運費 60，
+    /// 合計 526.67。</item>
+    /// </list>
+    /// <para>
+    /// 若歷史數量仍為 0，第二次會算成 0+1≠3 的部分退貨：淨額同樣是 466.67，
+    /// 但**沒有** OriginalShipping 60，與已核准的 526.67 不符，
+    /// 因此會被對帳擋成 <c>refund_calculation_mismatch</c>。淨額相同、只有完整退貨路徑
+    /// 不同，所以只斷言金額是抓不到的 —— 必須連分攤組成一起斷言。
+    /// </para>
+    /// </remarks>
+    [RefundExecutorSqlFact]
+    public async Task ASecondPartialRefundSeesTheQuantityTheFirstOneAlreadyRefunded()
+    {
+        await using var context = RefundExecutorSqlFixture.CreateContext();
+        var (first, second, itemId) = await SeedTwoSequentialPartialRefundsAsync(context);
+
+        await using (var firstContext = RefundExecutorSqlFixture.CreateContext())
+        {
+            var firstResult = await CreateExecutor(firstContext).ExecuteAsync(Request(first));
+            Assert.True(firstResult.IsSuccess);
+            Assert.Equal(933.33m, firstResult.SettledAmount);
+        }
+
+        await using (var secondContext = RefundExecutorSqlFixture.CreateContext())
+        {
+            var secondResult = await CreateExecutor(secondContext).ExecuteAsync(Request(second));
+            Assert.True(secondResult.IsSuccess);
+            Assert.Equal(526.67m, secondResult.SettledAmount);
+        }
+
+        await using var verify = RefundExecutorSqlFixture.CreateContext();
+
+        var firstItem = await verify.RefundAllocations.SingleAsync(allocation =>
+            allocation.RefundId == first.Id &&
+            allocation.AllocationType == RefundAllocationType.ItemRefund);
+        var secondItem = await verify.RefundAllocations.SingleAsync(allocation =>
+            allocation.RefundId == second.Id &&
+            allocation.AllocationType == RefundAllocationType.ItemRefund);
+
+        Assert.Equal(itemId, firstItem.OrderItemId);
+        Assert.Equal(itemId, secondItem.OrderItemId);
+        Assert.Equal(2, firstItem.Quantity);
+        Assert.Equal(1, secondItem.Quantity);
+        Assert.Equal(933.33m, firstItem.Amount);
+        Assert.Equal(466.67m, secondItem.Amount);
+
+        // 尾差：兩次的折扣分攤合計必須精確等於原始分攤 100，不能多也不能少。
+        Assert.Equal(66.67m, firstItem.OriginalDiscountAllocation);
+        Assert.Equal(33.33m, secondItem.OriginalDiscountAllocation);
+        Assert.Equal(
+            100m,
+            firstItem.OriginalDiscountAllocation + secondItem.OriginalDiscountAllocation);
+
+        // 完整退貨路徑：只有第二次退還原運費。這是這條測試真正的判別點。
+        Assert.False(await verify.RefundAllocations.AnyAsync(allocation =>
+            allocation.RefundId == first.Id &&
+            allocation.AllocationType == RefundAllocationType.OriginalShipping));
+
+        var shipping = await verify.RefundAllocations.SingleAsync(allocation =>
+            allocation.RefundId == second.Id &&
+            allocation.AllocationType == RefundAllocationType.OriginalShipping);
+        Assert.Equal(60m, shipping.Amount);
+
+        // 每一筆的有號分攤合計都必須精確等於該筆已結清金額。
+        await AssertSignedAllocationTotalAsync(verify, first.Id, 933.33m);
+        await AssertSignedAllocationTotalAsync(verify, second.Id, 526.67m);
+
+        // 兩次合計不得超過訂單實付。
+        var settled = await verify.Refunds
+            .Where(refund => refund.Status == RefundStatus.Succeeded &&
+                (refund.Id == first.Id || refund.Id == second.Id))
+            .SumAsync(refund => refund.SucceededAmount!.Value);
+        Assert.Equal(1460m, settled);
+    }
+
+    private static async Task AssertSignedAllocationTotalAsync(
+        DoSelectDbContext context,
+        long refundId,
+        decimal expected)
+    {
+        var allocations = await context.RefundAllocations
+            .Where(allocation => allocation.RefundId == refundId)
+            .ToArrayAsync();
+
+        var signedTotal = allocations.Sum(allocation =>
+            RefundPolicy.DirectionOf(allocation.AllocationType) == RefundAllocationDirection.Credit
+                ? allocation.Amount
+                : -allocation.Amount);
+
+        Assert.Equal(expected, signedTotal);
+
+        var refund = await context.Refunds.SingleAsync(candidate => candidate.Id == refundId);
+        Assert.Equal(expected, refund.SucceededAmount);
+    }
+
+    /// <summary>
+    /// 觀察一筆退款交易實際被執行了幾次，以及它在交易內被資料庫擋住多久。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>TransactionAttempts</c> 數的是 <c>INSERT INTO [IdempotencyRecords]</c>：共用
+    /// Executor 每執行一次交易本體就寫一次冪等紀錄，整筆交易被回滾重跑時會再寫一次。
+    /// 兩邊合計超過 2，就代表有一筆真的被資料庫回滾並重跑 —— 循序完成永遠做不到。
+    /// </para>
+    /// <para>
+    /// <c>LongestWaitBetweenCommands</c> 是相鄰兩道命令之間最長的間隔。被對方的
+    /// Serializable 範圍鎖擋住時，那段等待會完整落在這個間隔裡，是「兩筆交易同時
+    /// 存在」的直接量測。
+    /// </para>
+    /// </remarks>
+    private sealed class ConcurrencyProbeInterceptor : DbCommandInterceptor
+    {
+        /// <summary>共用 Executor 每執行一次交易本體，就會寫一次冪等紀錄。</summary>
+        private const string TransactionBodyMarker = "INSERT INTO [IdempotencyRecords]";
+
+        private readonly System.Diagnostics.Stopwatch _clock =
+            System.Diagnostics.Stopwatch.StartNew();
+
+        private int _transactionAttempts;
+        private long _previousCommandTicks;
+        private long _longestGapTicks;
+
+        public int TransactionAttempts => Volatile.Read(ref _transactionAttempts);
+
+        public TimeSpan LongestWaitBetweenCommands =>
+            TimeSpan.FromTicks(Volatile.Read(ref _longestGapTicks));
+
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            Observe(command);
+            return ValueTask.FromResult(result);
+        }
+
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            Observe(command);
+            return ValueTask.FromResult(result);
+        }
+
+        private void Observe(DbCommand command)
+        {
+            var now = _clock.Elapsed.Ticks;
+            var previous = Interlocked.Exchange(ref _previousCommandTicks, now);
+            if (previous > 0 && now - previous > Volatile.Read(ref _longestGapTicks))
+            {
+                Volatile.Write(ref _longestGapTicks, now - previous);
+            }
+
+            if (command.CommandText.Contains(TransactionBodyMarker, StringComparison.Ordinal))
+            {
+                Interlocked.Increment(ref _transactionAttempts);
+            }
+        }
     }
 
     private static IRefundExecutor CreateExecutor(DoSelectDbContext context)
@@ -722,6 +935,115 @@ public sealed class RefundExecutorSqlServerTests
             reasonCode: "customer_request", requestedBy: RefundExecutorSqlFixture.AdminUserId,
             idempotencyKey: $"create-{Guid.NewGuid():N}", createdAtUtc);
         refund.Approve(500m, RefundExecutorSqlFixture.AdminUserId, createdAtUtc.AddHours(1));
+        context.Refunds.Add(refund);
+        await context.SaveChangesAsync();
+
+        return refund;
+    }
+
+    /// <summary>
+    /// 一張訂單、一列 3 件商品，兩筆各自核准好的部分退款（先 2 件、再 1 件）。
+    /// </summary>
+    /// <remarks>
+    /// 折扣分攤刻意取 100（除以 3 除不盡），讓最後一批的折扣尾差是真的；
+    /// 實付 1460 剛好等於兩筆核准金額之和，任何一筆算錯都會撞上餘額或對帳。
+    /// </remarks>
+    private static async Task<(Refund First, Refund Second, long OrderItemId)>
+        SeedTwoSequentialPartialRefundsAsync(DoSelectDbContext context)
+    {
+        var createdAtUtc = NowUtc.AddDays(-3);
+
+        var profile = new ShippingProviderProfile(
+            Guid.NewGuid(), $"TEST-{Guid.NewGuid():N}"[..16], 1, "Active",
+            null, null, "{}", 1, createdAtUtc);
+        context.Add(profile);
+        await context.SaveChangesAsync();
+
+        var packageLimit = new PackageLimitVersion(
+            Guid.NewGuid(), profile.Id, 1, 30m, 150m, 100m, 100m, 250m, 50_000m,
+            null, null, createdAtUtc);
+        context.PackageLimitVersions.Add(packageLimit);
+        await context.SaveChangesAsync();
+
+        var order = Order.Create(
+            Guid.NewGuid(),
+            new OrderCreation(
+                $"ORD-{Guid.NewGuid():N}"[..32], null,
+                $"guest-{Guid.NewGuid():N}@example.test",
+                OrderStatus.Completed, PaymentStatus.Paid, FulfillmentStatus.Delivered,
+                AssemblyStatus.NotRequired,
+                1500m, 100m, 60m, 0m, 1460m,
+                "Test Recipient", "0900000000", "guest@example.test",
+                "100", "Taipei", "Zhongzheng", "Test address", null,
+                "HOME", profile.Id, null, null, null, 1, 1, null, null,
+                $"checkout-{Guid.NewGuid():N}", null, 1, 1,
+                new OrderInvoicePreference(
+                    SimulatedInvoiceBuyerType.Individual,
+                    "guest@example.test", null, null, null, null),
+                1460m,
+                null,
+                new OrderPackageSnapshot(packageLimit.Id, 1m, 40m, 30m, 20m, 90m, 100m),
+                60m),
+            createdAtUtc);
+        context.Orders.Add(order);
+        await context.SaveChangesAsync();
+
+        var item = new OrderItem(
+            Guid.NewGuid(), order.Id, null, "SKU-1", "Product", "Sku",
+            quantity: 3, listUnitPrice: 500m, saleUnitPrice: 500m, finalUnitPrice: 500m,
+            unitCostSnapshot: 300m, lineSubtotal: 1500m, discountAllocation: 100m,
+            lineTotal: 1400m, assemblyGroupKey: null, returnableQuantity: 3,
+            createdAtUtc: createdAtUtc, isCouponEligible: false,
+            specificationSnapshot: new OrderItemSpecificationSnapshot("{}", "{}", 1));
+        context.OrderItems.Add(item);
+
+        var attempt = new PaymentAttempt(
+            Guid.NewGuid(), order.Id, PaymentMethod.CreditCard, 1460m, null,
+            $"pay-{Guid.NewGuid():N}", null, createdAtUtc);
+        attempt.Transition(PaymentAttemptStatus.AwaitingPayment, createdAtUtc);
+        attempt.Transition(PaymentAttemptStatus.Processing, createdAtUtc);
+        attempt.Transition(PaymentAttemptStatus.Paid, createdAtUtc);
+        context.Add(attempt);
+        await context.SaveChangesAsync();
+
+        var first = await SeedPartialRefundAsync(
+            context, order, item, attempt.Id, quantity: 2, approvedAmount: 933.33m, createdAtUtc);
+        var second = await SeedPartialRefundAsync(
+            context, order, item, attempt.Id, quantity: 1, approvedAmount: 526.67m, createdAtUtc);
+
+        return (first, second, item.Id);
+    }
+
+    private static async Task<Refund> SeedPartialRefundAsync(
+        DoSelectDbContext context,
+        Order order,
+        OrderItem item,
+        long paymentAttemptId,
+        int quantity,
+        decimal approvedAmount,
+        DateTime createdAtUtc)
+    {
+        var returnRequest = new ReturnRequest(
+            Guid.NewGuid(), $"RT-{Guid.NewGuid():N}"[..20], order.Id, null,
+            "Defective", "Damaged on arrival", quantity, createdAtUtc);
+        returnRequest.Transition(ReturnRequestStatus.UnderReview, createdAtUtc);
+        returnRequest.CaptureRefundTrustedInputs(
+            AssemblyFeeDisposition.NotApplicable, returnShippingCost: 0m, createdAtUtc);
+        context.ReturnRequests.Add(returnRequest);
+        await context.SaveChangesAsync();
+
+        context.ReturnItems.Add(new ReturnItem(
+            Guid.NewGuid(), returnRequest.Id, item.Id, quantity: quantity,
+            requestedRefund: 500m * quantity, inspectionStatus: "Pending", createdAtUtc));
+
+        var refund = new Refund(
+            Guid.NewGuid(), order.Id, returnRequest.Id, paymentAttemptId,
+            // 申請金額不得小於核准金額。完整退貨那一筆的核准金額含退還原運費，
+            // 比商品金額高，因此申請金額直接取核准金額。
+            $"RF-{Guid.NewGuid():N}"[..20], requestedAmount: approvedAmount,
+            reasonCode: "customer_request", requestedBy: RefundExecutorSqlFixture.AdminUserId,
+            idempotencyKey: $"create-{Guid.NewGuid():N}", createdAtUtc);
+        refund.Approve(approvedAmount, RefundExecutorSqlFixture.AdminUserId, createdAtUtc.AddHours(1));
         context.Refunds.Add(refund);
         await context.SaveChangesAsync();
 

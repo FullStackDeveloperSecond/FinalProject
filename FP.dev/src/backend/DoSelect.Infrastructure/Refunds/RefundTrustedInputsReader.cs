@@ -53,8 +53,59 @@ public sealed class RefundTrustedInputsReader
             requestedByLine.GetValueOrDefault(line.OrderItemPublicId) == line.Quantity);
     }
 
+    /// <summary>
+    /// 累計這張訂單先前**已成功**退款所退掉的數量，逐 OrderItem 彙總。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 歷史已退數量不能取 <c>OrderItem.ReturnedQuantity</c>：Returns 模組明確不維護那個欄位
+    /// （<c>ReturnPorts.cs:154-159</c>），全專案沒有任何生產程式碼呼叫
+    /// <c>Order.RecordReturnedQuantity</c>，所以它**恆為 0**。用它會讓同一商品的第二次
+    /// 部分退款看不到第一次，連帶算錯剩餘可退數量、最後一批折扣尾差、完整退貨判斷、
+    /// 原運費退還與優惠券追回 —— 可退款總餘額只能擋總金額，擋不掉品項與分攤算錯。
+    /// </para>
+    /// <para>
+    /// 權威來源是本模組自己寫下的 <c>RefundAllocation(ItemRefund).Quantity</c>：分攤與
+    /// 退款狀態同交易寫入且不可變，因此「已成功退款」與「已退數量」永遠一致。
+    /// </para>
+    /// <para>
+    /// 狀態與排除條件刻意與 <c>RefundExecutor.CalculateRefundableBalanceAsync</c> 一致：
+    /// 只算 <see cref="RefundStatus.Succeeded"/>，並排除本次退款自身 —— 失敗重試時
+    /// 不得把自己先前寫下的數量算成歷史。
+    /// </para>
+    /// </remarks>
+    private async Task<IReadOnlyDictionary<long, int>> SumPreviouslyRefundedQuantitiesAsync(
+        long orderId,
+        long refundId,
+        CancellationToken cancellationToken)
+    {
+        var rows = await _context.RefundAllocations
+            .AsNoTracking()
+            .Join(
+                _context.Refunds.AsNoTracking(),
+                allocation => allocation.RefundId,
+                refund => refund.Id,
+                (allocation, refund) => new { Allocation = allocation, Refund = refund })
+            .Where(row =>
+                row.Refund.OrderId == orderId &&
+                row.Refund.Id != refundId &&
+                row.Refund.Status == RefundStatus.Succeeded &&
+                row.Allocation.AllocationType == RefundAllocationType.ItemRefund &&
+                row.Allocation.OrderItemId != null)
+            .GroupBy(row => row.Allocation.OrderItemId!.Value)
+            .Select(group => new
+            {
+                OrderItemId = group.Key,
+                Quantity = group.Sum(row => row.Allocation.Quantity ?? 0),
+            })
+            .ToArrayAsync(cancellationToken);
+
+        return rows.ToDictionary(row => row.OrderItemId, row => row.Quantity);
+    }
+
     public async Task<RefundTrustedInputs?> FindAsync(
         long orderId,
+        long refundId,
         long? returnRequestId,
         CancellationToken cancellationToken)
     {
@@ -113,22 +164,37 @@ public sealed class RefundTrustedInputsReader
             return null;
         }
 
-        var orderLines = await _context.OrderItems
+        var itemRows = await _context.OrderItems
             .AsNoTracking()
             .Where(item => item.OrderId == orderId)
-            .Select(item => new RefundOrderLine(
+            .Select(item => new
+            {
+                item.Id,
                 item.PublicId,
                 item.Quantity,
-                item.ReturnedQuantity,
                 item.FinalUnitPrice,
                 item.DiscountAllocation,
-                item.IsCouponEligible))
+                item.IsCouponEligible,
+            })
             .ToArrayAsync(cancellationToken);
 
-        if (orderLines.Length == 0)
+        if (itemRows.Length == 0)
         {
             return null;
         }
+
+        var alreadyRefunded =
+            await SumPreviouslyRefundedQuantitiesAsync(orderId, refundId, cancellationToken);
+
+        var orderLines = itemRows
+            .Select(item => new RefundOrderLine(
+                item.PublicId,
+                item.Quantity,
+                alreadyRefunded.GetValueOrDefault(item.Id),
+                item.FinalUnitPrice,
+                item.DiscountAllocation,
+                item.IsCouponEligible))
+            .ToArray();
 
         // 優惠券是選用的：沒有套券的訂單三個欄位都是 0／null，那不是資料缺漏。
         var coupon = await _context.OrderCoupons
