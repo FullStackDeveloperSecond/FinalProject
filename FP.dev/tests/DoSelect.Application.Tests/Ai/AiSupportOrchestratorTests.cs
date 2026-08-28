@@ -14,6 +14,7 @@ public sealed class AiSupportOrchestratorTests
     [Theory]
     [InlineData(AiConsentState.Missing, AiSafetyReason.ConsentRequired)]
     [InlineData(AiConsentState.Denied, AiSafetyReason.ConsentDenied)]
+    [InlineData(AiConsentState.Unavailable, AiSafetyReason.ServiceUnavailable)]
     public async Task ExecuteAsync_WithoutGrantedConsent_DoesNotReserveOrCallModel(
         AiConsentState consentState,
         AiSafetyReason expectedReason)

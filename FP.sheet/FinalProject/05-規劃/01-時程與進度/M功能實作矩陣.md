@@ -39,7 +39,7 @@
 | M-16 自由組裝電腦 | ✅ | ✅ | 🟡 | ✅ | ⬜ | 🔵 | PR #34 已合併組裝清單、分享、整套加入購物車與 SQL Server 證據；前端 PR #35 尚未進 `dev`，完整瀏覽器旅程仍缺。 |
 | M-17 零件相容性 | ✅ | ✅ | 🟡 | ✅ | ⬜ | 🔵 | PR #52 已合併來源型規格資料基礎；PR #34 已合併確定性檢查、SKU 相容性屬性、後台規則管理、Audit 與 Provider-backed 證據。前端 PR #35 與完整 E2E 尚未進 `dev`。 |
 | M-18 AI 商品搜尋推薦 | 🔵 | ⬜ | ⬜ | ➖ | ⬜ | 🔵 | 安全與降級 Application 基礎已在 `dev`；搜尋 Endpoint、OpenAI Live Adapter、UI 與 Live 評估未完成。 |
-| M-19 AI 客服 | ✅ | ✅ | ⬜ | 🔵 | ⬜ | 🔵 | Fake Client API 測試已在 `dev`；Owner Query、持久化同意／額度、OpenAI Live Adapter 與前端 E2E 未完成。 |
+| M-19 AI 客服 | ✅ | ✅ | ⬜ | 🟡 | ⬜ | 🔵 | `dev` 已有安全管線與 Fake Client API；PR #57 另完成 SQL-backed 同意／額度、Owner Query、Guest Cookie 403 與 Provider-backed 證據，尚待 Required CI／Review／合併。OpenAI Adapter、同意 UI、客服垂直切片與 E2E 仍未完成。 |
 | M-20 模擬發票與折讓 | ✅ | 🔵 | ⬜ | 🔵 | ⬜ | 🔵 | 折讓 API／Writer／SQL 測試已合併；完整發票查詢、開立、作廢、前端與跨 Checkout 金額一致性未完成。 |
 
 ## 完成判定邊界

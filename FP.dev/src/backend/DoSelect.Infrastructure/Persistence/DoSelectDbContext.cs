@@ -1,4 +1,5 @@
 using DoSelect.Domain.Auditing;
+using DoSelect.Domain.Ai;
 using DoSelect.Domain.Builds;
 using DoSelect.Domain.Catalog;
 using DoSelect.Domain.Idempotency;
@@ -34,6 +35,10 @@ public sealed class DoSelectDbContext
     }
 
     public DbSet<MemberProfile> MemberProfiles => Set<MemberProfile>();
+
+    public DbSet<AiConsentRecord> AiConsentRecords => Set<AiConsentRecord>();
+
+    public DbSet<AiUsageLedgerEntry> AiUsageLedger => Set<AiUsageLedgerEntry>();
 
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 

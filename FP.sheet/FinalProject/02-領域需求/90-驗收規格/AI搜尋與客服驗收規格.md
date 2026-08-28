@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-21
+最後更新: 2026-08-28
 追蹤項目:
   - REQ-02
   - REQ-03
@@ -111,4 +111,4 @@ Schema 採小型業務條件且不得暴露資料庫欄位；用途 Enum 與補�
 - 完整自然語言搜尋 JSON Schema 欄位型別與 Enum 已定於 [[03-架構/06-AI設計/AI應用詳細設計]]。
 - AI 客服四個工具、引用欄位及精確 Request／Response DTO 已定於 [[03-架構/06-AI設計/AI應用詳細設計]] 與 [[03-架構/02-API與前端契約/API DTO與Schema契約]]。
 - Prompt、Schema、工具版本規則已確認，實作格式詳見 [[03-架構/06-AI設計/AI應用詳細設計]]。
-- 個資遮蔽、跨會員、同意、額度預留、最後一額、併發競爭、語系、唯讀工具、Schema、故障與 Prompt Injection 信任分層已建立 31 項 Application AI 自動化；正式 AI 客服 Endpoint 已建立 9 項 Fake Client API Integration，自動驗證匿名 401、錯誤帳號類型 403、功能關閉 503、同意 409、額度 429、Owner 拒絕 404、敏感內容與空白輸入 400 的 Model Client 零呼叫，以及安全成功路徑單次預留與單次呼叫。正式同意／額度持久化、OpenAI Adapter、Owner Query、真正 GuestOrderAccessToken Integration 與瀏覽器 E2E 仍由 `AI-13` 追蹤，詳見 [[03-架構/06-AI設計/AI測試與評估規格]]。
+- 個資遮蔽、跨會員、同意、額度預留、最後一額、併發競爭、語系、唯讀工具、Schema、故障與 Prompt Injection 信任分層已有 32 項 Application、10 項 API、4 項 Domain 與 6 項 Infrastructure AI 自動化。正式 SQL Server Admission Gate、append-only 同意／額度資料、本人訂單去識別 Owner Query、RequestPublicId 冪等及真正 GuestOrderAccess Cookie 403 已完成；OpenAI Responses API Adapter、模型輸出／引用、同意 UI／E2E 與 live evaluation 仍由後續 Adapter、M-19 與 AI-09 追蹤，詳見 [[03-架構/06-AI設計/AI測試與評估規格]]。
