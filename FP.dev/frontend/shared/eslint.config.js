@@ -15,4 +15,13 @@ export default tseslint.config(
       },
     },
   },
+  {
+    // TypeScript-eslint's official guidance: no-undef is redundant (and unreliable, e.g. for
+    // ambient DOM lib types like MouseEvent) once TypeScript itself checks for undefined
+    // symbols — https://typescript-eslint.io/rules/no-undef/. Mirrors customer-web/admin-web.
+    files: ['**/*.ts', '**/*.vue'],
+    rules: {
+      'no-undef': 'off',
+    },
+  },
 )

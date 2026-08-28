@@ -26,6 +26,7 @@
   --navy-700:   #3a6087;  /* Navy hover／次階 */
   --emerald-800:#155f39;
   --emerald-700:#1b7a48;
+  --emerald-300:#b7ddc5;
   --emerald-200:#e2f1e8;
   --mint-300:   #9fe7d3;
   --mint-100:   #e6f8f2;
@@ -46,6 +47,7 @@
   --red-200:    #e6b8b3;
   --red-100:    #f8e4e1;
   --cyan-700:   #2f6e93;
+  --cyan-200:   #b9d3e5;
   --cyan-100:   #deebf3;
   --white:      #ffffff;
 
@@ -81,6 +83,7 @@
   /* 語意狀態色（與品牌配色分離） */
   --color-success:         var(--emerald-700);
   --color-success-bg:      var(--emerald-200);
+  --color-success-border:  var(--emerald-300);  /* 成功徽章／面板邊框，需與 -bg 明顯區別 */
   --color-warning:         var(--amber-700);
   --color-warning-bg:      var(--amber-100);
   --color-danger:          var(--red-700);
@@ -88,6 +91,7 @@
   --color-danger-border:   var(--red-200);    /* 錯誤面板的柔性邊框 */
   --color-danger-bg:       var(--red-100);
   --color-info:            var(--cyan-700);
+  --color-info-border:     var(--cyan-200);   /* 資訊面板／徽章的柔性邊框 */
   --color-info-bg:         var(--cyan-100);
 
   --color-focus-ring:      var(--emerald-700);
@@ -172,6 +176,7 @@
   --color-butter-line:    #52441f;
   --color-success:        #57c486;
   --color-success-bg:     #1a2e24;
+  --color-success-border: #3d5c48;
   --color-warning:        #d79a52;
   --color-warning-bg:     #352a19;
   --color-danger:         #e08a7f;
@@ -179,6 +184,7 @@
   --color-danger-border:  #5c322d;
   --color-danger-bg:      #3a2523;
   --color-info:           #8fb9cf;
+  --color-info-border:    #2f4b5a;
   --color-info-bg:        #1d2d37;
   --color-focus-ring:     #57c486;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, .32);
