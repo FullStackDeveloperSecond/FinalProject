@@ -17,12 +17,14 @@ public sealed class AiEntityTests
         var record = AiConsentRecord.Withdraw(
             Guid.NewGuid().ToString("D"),
             policyVersion: 1,
+            AiConsentPurpose.Support,
             SupportedLocale.ZhTw,
             source: "MemberWeb",
             GrantedAtUtc,
             withdrawnAtUtc);
 
         Assert.Equal(AiConsentRecordStatus.Withdrawn, record.Status);
+        Assert.Equal(AiConsentPurpose.Support, record.Purpose);
         Assert.Equal(GrantedAtUtc, record.GrantedAtUtc);
         Assert.Equal(withdrawnAtUtc, record.WithdrawnAtUtc);
         Assert.Equal(withdrawnAtUtc, record.CreatedAtUtc);

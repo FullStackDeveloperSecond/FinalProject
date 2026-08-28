@@ -55,6 +55,12 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                     b.Property<int>("PolicyVersion")
                         .HasColumnType("int");
 
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(16)");
+
                     b.Property<string>("Source")
                         .IsRequired()
                         .HasMaxLength(32)
@@ -73,14 +79,16 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("MemberUserId", "CreatedAtUtc")
-                        .HasDatabaseName("IX_AiConsentRecords_MemberUserId_CreatedAtUtc");
+                    b.HasIndex("MemberUserId", "Purpose", "PolicyVersion", "CreatedAtUtc")
+                        .HasDatabaseName("IX_AiConsentRecords_MemberUserId_Purpose_PolicyVersion_CreatedAtUtc");
 
                     b.ToTable("AiConsentRecords", null, t =>
                         {
                             t.HasCheckConstraint("CK_AiConsentRecords_Locale", "[Locale] IN ('zh-TW','ja-JP','ko-KR')");
 
                             t.HasCheckConstraint("CK_AiConsentRecords_PolicyVersion", "[PolicyVersion] > 0");
+
+                            t.HasCheckConstraint("CK_AiConsentRecords_Purpose", "[Purpose] IN ('Support')");
 
                             t.HasCheckConstraint("CK_AiConsentRecords_Status", "([Status] = 'Granted' AND [WithdrawnAtUtc] IS NULL) OR ([Status] = 'Withdrawn' AND [WithdrawnAtUtc] IS NOT NULL AND [WithdrawnAtUtc] >= [GrantedAtUtc])");
                         });

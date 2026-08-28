@@ -13,6 +13,9 @@ public sealed class EfAiSupportAdmissionGate(
 {
     public const int DailySupportLimit = 20;
 
+    private static readonly TimeZoneInfo TaipeiTimeZone =
+        TimeZoneInfo.FindSystemTimeZoneById("Asia/Taipei");
+
     public async Task<AiSupportAccessState> ReadAsync(
         Guid memberId,
         CancellationToken cancellationToken)
@@ -148,7 +151,10 @@ public sealed class EfAiSupportAdmissionGate(
         }
 
         var latest = await query
-            .Where(record => record.MemberUserId == memberUserId)
+            .Where(record =>
+                record.MemberUserId == memberUserId &&
+                record.Purpose == AiConsentPurpose.Support &&
+                record.PolicyVersion == AiConsentPolicy.CurrentVersion)
             .OrderByDescending(record => record.CreatedAtUtc)
             .ThenByDescending(record => record.Id)
             .FirstOrDefaultAsync(cancellationToken);
@@ -198,18 +204,17 @@ public sealed class EfAiSupportAdmissionGate(
 
     private static QuotaWindow ResolveWindow(DateTimeOffset now)
     {
-        var utc = now.ToUniversalTime();
-        var startsAtUtc = new DateTime(
-            utc.Year,
-            utc.Month,
-            utc.Day,
-            0,
-            0,
-            0,
-            DateTimeKind.Utc);
+        var taipeiNow = TimeZoneInfo.ConvertTime(now, TaipeiTimeZone);
+        var startsAtTaipei = DateTime.SpecifyKind(
+            taipeiNow.Date,
+            DateTimeKind.Unspecified);
+        var startsAtUtc = TimeZoneInfo.ConvertTimeToUtc(startsAtTaipei, TaipeiTimeZone);
+        var resetAtUtc = TimeZoneInfo.ConvertTimeToUtc(
+            startsAtTaipei.AddDays(1),
+            TaipeiTimeZone);
         return new QuotaWindow(
             startsAtUtc,
-            new DateTimeOffset(startsAtUtc.AddDays(1), TimeSpan.Zero));
+            new DateTimeOffset(resetAtUtc, TimeSpan.Zero));
     }
 
     private sealed record QuotaWindow(DateTime StartsAtUtc, DateTimeOffset ResetAtUtc);

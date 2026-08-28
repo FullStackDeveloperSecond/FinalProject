@@ -46,7 +46,7 @@
 |---|---|---|
 | `Notifications`／Entity | `RecipientUserId nvarchar(450)`、`Type varchar(64)`、`Title nvarchar(200)`、`Body nvarchar(1000)`、`ResourceType varchar(64) NULL`、`ResourcePublicId uniqueidentifier NULL`、`ReadAtUtc datetime2(3) NULL`、`ExpiresAtUtc datetime2(3) NULL` | `IX_Notifications_RecipientUserId_ReadAtUtc_CreatedAtUtc` |
 | `EmailDeliveries`／MutableEntity | `RecipientUserId nvarchar(450) NULL`、`RecipientEmailNormalized nvarchar(320)`、`TemplateCode nvarchar(64)`、`TemplateVersion int`、`Status varchar(24)`、`ProviderMessageId nvarchar(128) NULL`、`AttemptCount int`、`NextAttemptAtUtc/SentAtUtc/FailedAtUtc datetime2(3) NULL`、`LastErrorCode nvarchar(64) NULL` | Idempotency Scope UX；不保存密碼重設 Token 明文；`IX_EmailDeliveries_Status_NextAttemptAtUtc` |
-| `AiConsentRecords`／Entity | `MemberUserId nvarchar(450)`、`PolicyVersion int`、`Locale varchar(10)`、`Status varchar(16)`、`GrantedAtUtc datetime2(3)`、`WithdrawnAtUtc datetime2(3) NULL`、`Source varchar(32)` | append-only；Member Restrict FK；PolicyVersion／Locale／Grant-Withdraw 狀態 Check；`IX_AiConsentRecords_MemberUserId_CreatedAtUtc`；最新有效同意由 CreatedAtUtc＋Id 判定 |
+| `AiConsentRecords`／Entity | `MemberUserId nvarchar(450)`、`PolicyVersion int`、`Purpose varchar(16)`、`Locale varchar(10)`、`Status varchar(16)`、`GrantedAtUtc datetime2(3)`、`WithdrawnAtUtc datetime2(3) NULL`、`Source varchar(32)` | append-only；Member Restrict FK；PolicyVersion／Purpose／Locale／Grant-Withdraw 狀態 Check；`IX_AiConsentRecords_MemberUserId_Purpose_PolicyVersion_CreatedAtUtc`；只在後端目前版本與 `Purpose=Support` 範圍內依 CreatedAtUtc＋Id 判定最新有效同意 |
 
 ## 評價與收藏
 

@@ -117,6 +117,7 @@ public sealed class EfAiSafetyInfrastructureTests
             context.AiConsentRecords.Add(AiConsentRecord.Withdraw(
                 member.Id,
                 policyVersion: 1,
+                AiConsentPurpose.Support,
                 SupportedLocale.ZhTw,
                 source: "MemberWeb",
                 Now.UtcDateTime,
@@ -135,6 +136,82 @@ public sealed class EfAiSafetyInfrastructureTests
             Assert.Equal(AiConsentState.Denied, state.ConsentState);
             Assert.False(reservation.IsReserved);
             Assert.Empty(await context.AiUsageLedger.ToListAsync());
+        });
+    }
+
+    [SqlServerFact]
+    public async Task AdmissionGate_MismatchedConsentPolicyVersion_DeniesWithoutWritingUsage()
+    {
+        await WithDatabaseAsync(async connectionString =>
+        {
+            await using var context = CreateContext(connectionString);
+            var member = ApplicationUser.CreateMember(
+                Guid.NewGuid(),
+                $"member-{Guid.NewGuid():N}@example.test",
+                Now.UtcDateTime);
+            context.Users.Add(member);
+            await context.SaveChangesAsync();
+            context.AiConsentRecords.Add(AiConsentRecord.Grant(
+                member.Id,
+                policyVersion: 2,
+                AiConsentPurpose.Support,
+                SupportedLocale.ZhTw,
+                source: "MemberWeb",
+                Now.UtcDateTime));
+            await context.SaveChangesAsync();
+            var gate = new EfAiSupportAdmissionGate(context, new FixedTimeProvider(Now));
+
+            var state = await gate.ReadAsync(Guid.Parse(member.Id), CancellationToken.None);
+            var reservation = await gate.TryReserveAsync(
+                Guid.Parse(member.Id),
+                Guid.NewGuid(),
+                CancellationToken.None);
+
+            Assert.Equal(AiConsentState.Missing, state.ConsentState);
+            Assert.False(reservation.IsReserved);
+            Assert.Empty(await context.AiUsageLedger.ToListAsync());
+        });
+    }
+
+    [SqlServerFact]
+    public async Task AdmissionGate_DailyQuota_ResetsAtTaipeiMidnight()
+    {
+        await WithDatabaseAsync(async connectionString =>
+        {
+            await using var context = CreateContext(connectionString);
+            var member = await SeedMemberWithConsentAsync(context);
+            for (var index = 0; index < EfAiSupportAdmissionGate.DailySupportLimit; index++)
+            {
+                context.AiUsageLedger.Add(AiUsageLedgerEntry.ReserveSupport(
+                    member.Id,
+                    Guid.NewGuid(),
+                    Now.UtcDateTime.AddMinutes(index)));
+            }
+
+            await context.SaveChangesAsync();
+
+            var beforeMidnight = new EfAiSupportAdmissionGate(
+                context,
+                new FixedTimeProvider(new DateTimeOffset(2026, 8, 28, 15, 59, 0, TimeSpan.Zero)));
+            var afterMidnight = new EfAiSupportAdmissionGate(
+                context,
+                new FixedTimeProvider(new DateTimeOffset(2026, 8, 28, 16, 0, 0, TimeSpan.Zero)));
+
+            var before = await beforeMidnight.ReadAsync(
+                Guid.Parse(member.Id),
+                CancellationToken.None);
+            var after = await afterMidnight.ReadAsync(
+                Guid.Parse(member.Id),
+                CancellationToken.None);
+
+            Assert.Equal(0, before.RemainingDailyMessages);
+            Assert.Equal(
+                new DateTimeOffset(2026, 8, 28, 16, 0, 0, TimeSpan.Zero),
+                before.ResetAtUtc);
+            Assert.Equal(EfAiSupportAdmissionGate.DailySupportLimit, after.RemainingDailyMessages);
+            Assert.Equal(
+                new DateTimeOffset(2026, 8, 29, 16, 0, 0, TimeSpan.Zero),
+                after.ResetAtUtc);
         });
     }
 
@@ -186,7 +263,8 @@ public sealed class EfAiSafetyInfrastructureTests
         await context.SaveChangesAsync();
         context.AiConsentRecords.Add(AiConsentRecord.Grant(
             member.Id,
-            policyVersion: 1,
+            policyVersion: AiConsentPolicy.CurrentVersion,
+            AiConsentPurpose.Support,
             SupportedLocale.ZhTw,
             source: "MemberWeb",
             Now.UtcDateTime));

@@ -9,6 +9,16 @@ public enum AiConsentRecordStatus
     Withdrawn,
 }
 
+public enum AiConsentPurpose
+{
+    Support,
+}
+
+public static class AiConsentPolicy
+{
+    public const int CurrentVersion = 1;
+}
+
 public enum AiUsageFeature
 {
     ProductSearch,
@@ -28,6 +38,7 @@ public sealed class AiConsentRecord : Entity
     private AiConsentRecord(
         string memberUserId,
         int policyVersion,
+        AiConsentPurpose purpose,
         SupportedLocale locale,
         AiConsentRecordStatus status,
         DateTime grantedAtUtc,
@@ -44,6 +55,11 @@ public sealed class AiConsentRecord : Entity
         if (!Enum.IsDefined(locale))
         {
             throw new ArgumentOutOfRangeException(nameof(locale));
+        }
+
+        if (!Enum.IsDefined(purpose))
+        {
+            throw new ArgumentOutOfRangeException(nameof(purpose));
         }
 
         grantedAtUtc = RequireUtc(grantedAtUtc, nameof(grantedAtUtc));
@@ -69,6 +85,7 @@ public sealed class AiConsentRecord : Entity
 
         MemberUserId = RequireBoundedText(memberUserId, nameof(memberUserId), 450);
         PolicyVersion = policyVersion;
+        Purpose = purpose;
         Locale = locale;
         Status = status;
         GrantedAtUtc = grantedAtUtc;
@@ -79,6 +96,8 @@ public sealed class AiConsentRecord : Entity
     public string MemberUserId { get; private set; } = string.Empty;
 
     public int PolicyVersion { get; private set; }
+
+    public AiConsentPurpose Purpose { get; private set; }
 
     public SupportedLocale Locale { get; private set; }
 
@@ -93,12 +112,14 @@ public sealed class AiConsentRecord : Entity
     public static AiConsentRecord Grant(
         string memberUserId,
         int policyVersion,
+        AiConsentPurpose purpose,
         SupportedLocale locale,
         string source,
         DateTime grantedAtUtc) =>
         new(
             memberUserId,
             policyVersion,
+            purpose,
             locale,
             AiConsentRecordStatus.Granted,
             grantedAtUtc,
@@ -109,6 +130,7 @@ public sealed class AiConsentRecord : Entity
     public static AiConsentRecord Withdraw(
         string memberUserId,
         int policyVersion,
+        AiConsentPurpose purpose,
         SupportedLocale locale,
         string source,
         DateTime grantedAtUtc,
@@ -116,6 +138,7 @@ public sealed class AiConsentRecord : Entity
         new(
             memberUserId,
             policyVersion,
+            purpose,
             locale,
             AiConsentRecordStatus.Withdrawn,
             grantedAtUtc,

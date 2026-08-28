@@ -19,6 +19,7 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                         .Annotation("SqlServer:Identity", "1, 1"),
                     MemberUserId = table.Column<string>(type: "nvarchar(450)", maxLength: 450, nullable: false),
                     PolicyVersion = table.Column<int>(type: "int", nullable: false),
+                    Purpose = table.Column<string>(type: "varchar(16)", unicode: false, maxLength: 16, nullable: false),
                     Locale = table.Column<string>(type: "varchar(10)", unicode: false, maxLength: 10, nullable: false),
                     Status = table.Column<string>(type: "varchar(16)", unicode: false, maxLength: 16, nullable: false),
                     GrantedAtUtc = table.Column<DateTime>(type: "datetime2(3)", precision: 3, nullable: false),
@@ -31,6 +32,7 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                     table.PrimaryKey("PK_AiConsentRecords", x => x.Id);
                     table.CheckConstraint("CK_AiConsentRecords_Locale", "[Locale] IN ('zh-TW','ja-JP','ko-KR')");
                     table.CheckConstraint("CK_AiConsentRecords_PolicyVersion", "[PolicyVersion] > 0");
+                    table.CheckConstraint("CK_AiConsentRecords_Purpose", "[Purpose] IN ('Support')");
                     table.CheckConstraint("CK_AiConsentRecords_Status", "([Status] = 'Granted' AND [WithdrawnAtUtc] IS NULL) OR ([Status] = 'Withdrawn' AND [WithdrawnAtUtc] IS NOT NULL AND [WithdrawnAtUtc] >= [GrantedAtUtc])");
                     table.ForeignKey(
                         name: "FK_AiConsentRecords_AspNetUsers_MemberUserId",
@@ -71,9 +73,9 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                 });
 
             migrationBuilder.CreateIndex(
-                name: "IX_AiConsentRecords_MemberUserId_CreatedAtUtc",
+                name: "IX_AiConsentRecords_MemberUserId_Purpose_PolicyVersion_CreatedAtUtc",
                 table: "AiConsentRecords",
-                columns: new[] { "MemberUserId", "CreatedAtUtc" });
+                columns: new[] { "MemberUserId", "Purpose", "PolicyVersion", "CreatedAtUtc" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_AiUsageLedger_MemberUserId_Feature_OccurredAtUtc",

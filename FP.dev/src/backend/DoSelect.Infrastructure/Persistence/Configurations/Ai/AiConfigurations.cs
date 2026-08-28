@@ -17,6 +17,9 @@ public sealed class AiConsentRecordConfiguration : IEntityTypeConfiguration<AiCo
                 "CK_AiConsentRecords_PolicyVersion",
                 "[PolicyVersion] > 0");
             table.HasCheckConstraint(
+                "CK_AiConsentRecords_Purpose",
+                "[Purpose] IN ('Support')");
+            table.HasCheckConstraint(
                 "CK_AiConsentRecords_Status",
                 "([Status] = 'Granted' AND [WithdrawnAtUtc] IS NULL) OR " +
                 "([Status] = 'Withdrawn' AND [WithdrawnAtUtc] IS NOT NULL AND " +
@@ -30,6 +33,11 @@ public sealed class AiConsentRecordConfiguration : IEntityTypeConfiguration<AiCo
         builder.Property(entity => entity.CreatedAtUtc).HasPrecision(3).IsRequired();
         builder.Property(entity => entity.MemberUserId).HasMaxLength(450).IsRequired();
         builder.Property(entity => entity.PolicyVersion).IsRequired();
+        builder.Property(entity => entity.Purpose)
+            .HasConversion<string>()
+            .HasMaxLength(16)
+            .IsUnicode(false)
+            .IsRequired();
         builder.Property(entity => entity.Locale)
             .HasConversion(new ValueConverter<SupportedLocale, string>(
                 locale => ToLocaleCode(locale),
@@ -48,8 +56,14 @@ public sealed class AiConsentRecordConfiguration : IEntityTypeConfiguration<AiCo
             .HasMaxLength(32)
             .IsUnicode(false)
             .IsRequired();
-        builder.HasIndex(entity => new { entity.MemberUserId, entity.CreatedAtUtc })
-            .HasDatabaseName("IX_AiConsentRecords_MemberUserId_CreatedAtUtc");
+        builder.HasIndex(entity => new
+        {
+            entity.MemberUserId,
+            entity.Purpose,
+            entity.PolicyVersion,
+            entity.CreatedAtUtc,
+        }).HasDatabaseName(
+            "IX_AiConsentRecords_MemberUserId_Purpose_PolicyVersion_CreatedAtUtc");
         builder.HasOne<ApplicationUser>()
             .WithMany()
             .HasForeignKey(entity => entity.MemberUserId)

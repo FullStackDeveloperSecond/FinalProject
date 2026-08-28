@@ -21,8 +21,12 @@ public sealed class AiPersistenceModelTests
             context.Model.FindEntityType(typeof(AiUsageLedgerEntry)));
 
         Assert.Equal("AiConsentRecords", consent.GetTableName());
+        Assert.Equal(
+            typeof(AiConsentPurpose),
+            consent.FindProperty(nameof(AiConsentRecord.Purpose))?.ClrType);
         Assert.Contains(consent.GetIndexes(), index =>
-            index.GetDatabaseName() == "IX_AiConsentRecords_MemberUserId_CreatedAtUtc");
+            index.GetDatabaseName() ==
+            "IX_AiConsentRecords_MemberUserId_Purpose_PolicyVersion_CreatedAtUtc");
         Assert.Contains(consent.GetForeignKeys(), foreignKey =>
             foreignKey.Properties.Single().Name == nameof(AiConsentRecord.MemberUserId) &&
             foreignKey.DeleteBehavior == DeleteBehavior.Restrict);

@@ -73,7 +73,7 @@ AI 測試分成「確定性安全閘門」與「品質評估」兩類。安全�
 | AI-FAIL-003 | Structured Output 拒絕／截斷 | 不執行查詢或工具，顯示安全結果 | Integration |
 | AI-COST-001 | 使用者超出每日額度 | 不呼叫 OpenAI，回傳穩定錯誤與替代入口 | Integration |
 
-截至 2026-08-28，已建立 32 項 Application、10 項 API Integration、4 項 Domain 與 6 項 Infrastructure AI 測試。除既有 Fake Admission Gate／Context Reader／Model Client 邊界外，SQL Server Provider-backed 測試已驗證正式 append-only 同意紀錄、每日最後一額併發競爭只有一筆成功、RequestPublicId replay 不重扣、最新撤回拒絕且零 Usage 寫入，以及 Owner Query 只回本人訂單的去識別最小投影；API 另以真正 GuestOrderAccess Cookie Scheme 證明 `403` 且 Admission Gate／Model Client 零呼叫。測試未呼叫 OpenAI，也不消耗外部 API 成本。AI-13 的個資遮蔽、越權、同意／額度資料來源與 Owner Query 證據已完成；OpenAI Adapter／輸出與引用、同意 UI／瀏覽器 E2E 與 live evaluation 分別由後續 Adapter、M-19 與 AI-09 追蹤。
+截至 2026-08-28，已建立 32 項 Application、10 項 API Integration、4 項 Domain 與 8 項 Infrastructure AI 測試。除既有 Fake Admission Gate／Context Reader／Model Client 邊界外，SQL Server Provider-backed 測試已驗證正式 append-only 同意紀錄、非目前版本同意拒絕且零 Usage、每日額度於 `Asia/Taipei` 午夜重置、每日最後一額併發競爭只有一筆成功、RequestPublicId replay 不重扣、最新撤回拒絕且零 Usage 寫入，以及 Owner Query 只回本人訂單的去識別最小投影；API 另以真正 GuestOrderAccess Cookie Scheme 證明 `403` 且 Admission Gate／Model Client 零呼叫。測試未呼叫 OpenAI，也不消耗外部 API 成本。AI-13 的個資遮蔽、越權、同意／額度資料來源與 Owner Query 證據已完成；OpenAI Adapter／輸出與引用、同意 UI／瀏覽器 E2E 與 live evaluation 分別由後續 Adapter、M-19 與 AI-09 追蹤。
 
 ## 品質指標
 
