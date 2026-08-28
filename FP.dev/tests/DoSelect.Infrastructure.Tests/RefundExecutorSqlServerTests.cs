@@ -674,7 +674,7 @@ public sealed class RefundExecutorSqlServerTests
         // 不主張它證明了 `Refunds(OrderId)` 範圍鎖。失敗訊息會印出實際卡住的那道
         // SQL，方便下次判讀。
         Assert.True(
-            secondProbe.LongestBlockedWait >= TimeSpan.FromSeconds(1),
+            secondProbe.LongestBlockedWait >= TimeSpan.FromMilliseconds(400),
             $"第二筆最長只被擋了 {secondProbe.LongestBlockedWait.TotalMilliseconds:F0}ms" +
             $"（卡在：{Excerpt(secondProbe.BlockedCommand)}；" +
             $"冪等表上 {secondProbe.WaitOnIdempotencyTable.TotalMilliseconds:F0}ms），" +
@@ -861,7 +861,12 @@ public sealed class RefundExecutorSqlServerTests
         /// <summary>可退款餘額的第二段：其他已成功退款的累計。</summary>
         private const string BalanceReadMarker = "SUM([r].[SucceededAmount])";
 
-        private static readonly TimeSpan SignalTimeout = TimeSpan.FromSeconds(30);
+        /// <summary>
+        /// 等對方宣告的上限。刻意壓短：這段等待是**握著 Serializable 鎖**在等，
+        /// 設太長會在對方沒出現時把鎖抱住很久，連累同一台 SQL Server 上其他測試
+        /// （實測 30 秒版本讓完整回合裡好幾條無關測試卡到四分半而失敗）。
+        /// </summary>
+        private static readonly TimeSpan SignalTimeout = TimeSpan.FromSeconds(5);
 
         /// <summary>
         /// 收到對方「我要進交易了」之後再多握住鎖的時間。
@@ -872,7 +877,7 @@ public sealed class RefundExecutorSqlServerTests
         /// 和機器速度賽跑的門檻。
         /// </remarks>
         private static readonly TimeSpan HoldAfterTheOtherSideIsWaiting =
-            TimeSpan.FromSeconds(2);
+            TimeSpan.FromMilliseconds(800);
 
         private readonly System.Diagnostics.Stopwatch _clock =
             System.Diagnostics.Stopwatch.StartNew();
