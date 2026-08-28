@@ -330,10 +330,8 @@ public sealed class EfProductAdminService : IProductAdminService
                     "Cannot change category while this product's SKUs still carry specification values from the old category.");
             }
 
-            // 組長 PR #34 round-7 review (DEC-BATCH-027): this used to also check this PR's own
-            // now-removed SkuCompatibilityAttributes/SkuStorageInterfacePorts tables — moot now
-            // that hard compatibility facts live in the canonical multi-value model above
-            // (SkuSpecificationOptionSelections), which hasExistingSpecValues already covers.
+            // Hard compatibility facts use the canonical multi-value specification model,
+            // which is already covered by hasExistingSpecValues above.
 
             var hasPublishedSku = await _dbContext.Skus.AsNoTracking()
                 .AnyAsync(sku => sku.ProductId == product.Id && sku.Status == SkuStatus.Published, cancellationToken);

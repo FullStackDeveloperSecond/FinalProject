@@ -154,7 +154,7 @@ public sealed class CompatibilityCheckServiceFixture : IAsyncLifetime
 
     public static string UniqueCode(string prefix) => $"{prefix}-{Guid.NewGuid():N}"[..24];
 
-    /// <summary>PR #34 round-6 review, A1 裁定: EfSkuCompatibilityAttributeAdminService's audit actor resolution now requires a real Admin-type account holding one of the roles CompatibilityRule.ManageWarnings allows — mirrors CompatibilityRuleAdminServiceFixture's own admin+role seeding.</summary>
+    /// <summary>Seeds a real admin account with the requested role for audit-actor authorization tests.</summary>
     public static async Task<string> SeedAdminUserIdAsync(DoSelectDbContext context, string roleName)
     {
         var admin = ApplicationUser.CreateAdmin(Guid.CreateVersion7(), $"{Guid.NewGuid():N}@doselect.test", DateTime.UtcNow);
