@@ -41,8 +41,13 @@ const emptyCart: CartDto = {
   rowVersion: 'AAAA',
 }
 
-function withQueryClient(setup: () => unknown, initialStatus: 'loading' | 'anonymous' = 'anonymous') {
+function withQueryClient(
+  setup: () => unknown,
+  initialStatus: 'loading' | 'anonymous' = 'anonymous',
+  seed?: (queryClient: QueryClient) => void,
+) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  seed?.(queryClient)
   const pinia = createPinia()
   setActivePinia(pinia)
   useSessionStore().status = initialStatus
@@ -98,6 +103,32 @@ describe('useCart', () => {
     expect(mockGetCart).toHaveBeenCalledTimes(1)
     expect(queryClient.getQueryData(['cart', 'guest', 'guest-test-key'])).toBeUndefined()
     expect(queryClient.getQueryData(['cart', 'member', 'member-1'])).toEqual({ ...emptyCart, publicId: 'cart-member' })
+  })
+
+  /**
+   * 組長 PR #29 round-5 review, P2: TanStack's default mount-refetch used to fire a second,
+   * implicit GET whenever the query already had cached data on mount (e.g. revisiting /cart after
+   * the shared QueryClient's 30s staleTime expired) — racing CartPage.vue's own explicit
+   * `revalidate` call and able to silently clobber whichever result landed second. Every path that
+   * can make the cart stale already funnels through an explicit revalidate (initial mount, and
+   * every mutation's onSuccess in this file), so the implicit refetch never did useful work; it
+   * only ever raced. `refetchOnMount: false` removes it at the source.
+   */
+  it('does not refetch on mount when the query already has cached data (refetchOnMount: false)', async () => {
+    const { useCart } = await import('./useCart')
+    let query: ReturnType<typeof useCart> | undefined
+    withQueryClient(
+      () => { query = useCart() },
+      'anonymous',
+      (queryClient) => queryClient.setQueryData(['cart', 'guest', 'guest-test-key'], emptyCart),
+    )
+
+    expect(query!.isPending.value).toBe(false)
+    expect(query!.data.value).toEqual(emptyCart)
+
+    // Give any (incorrect) background refetch a chance to have fired.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(mockGetCart).not.toHaveBeenCalled()
   })
 
   /**

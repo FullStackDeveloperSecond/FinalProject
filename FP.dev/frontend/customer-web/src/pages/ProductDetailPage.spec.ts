@@ -266,6 +266,56 @@ describe('ProductDetailPage', () => {
     expect(wrapper.text()).toContain('已加入購物車')
   })
 
+  /**
+   * 組長 PR #29 round-5 review, P2: the SKU `<select>` stays interactive while a mutation is in
+   * flight (only the button itself is disabled), so a shopper can add SKU A, then switch to SKU B
+   * before A's response arrives. Reading the *current* selection from inside onSuccess used to
+   * misattribute A's success to whatever SKU happened to be displayed when the response landed —
+   * B, here — even though the cart actually received A. Capturing the SKU identity at
+   * request-send time and only applying the result if it still matches the current selection
+   * makes A's now-switched-away-from response a no-op instead of a misleading "已加入購物車" under B.
+   */
+  it('does not show "已加入購物車" for a different SKU switched to while the previous SKU\'s add-to-cart request is still pending', async () => {
+    mockGetProductDetail.mockResolvedValue(productDetail({
+      skus: [
+        {
+          publicId: 'sku-1', skuCode: 'SKU-1', name: 'Default',
+          price: { list: 1000, sale: null, currency: 'TWD' }, availability: 'inStock',
+          maxPurchasableQuantity: 10, specifications: [], dimensions: { weightKg: null, lengthCm: null, widthCm: null, heightCm: null },
+          isDefault: true,
+        },
+        {
+          publicId: 'sku-2', skuCode: 'SKU-2', name: 'Variant',
+          price: { list: 1200, sale: null, currency: 'TWD' }, availability: 'inStock',
+          maxPurchasableQuantity: 10, specifications: [], dimensions: { weightKg: null, lengthCm: null, widthCm: null, heightCm: null },
+          isDefault: false,
+        },
+      ],
+    }))
+    let resolveAddForSku1!: (cart: unknown) => void
+    mockAddCartItem.mockReturnValueOnce(new Promise((resolve) => { resolveAddForSku1 = resolve }))
+
+    const wrapper = await mountPage()
+    await flushPromises()
+
+    // SKU-1 (the default) is selected; submit its add-to-cart request and leave it pending.
+    const addButton = wrapper.findAll('button').find((button) => button.text().includes('加入購物車'))!
+    await addButton.trigger('click')
+    await flushPromises()
+    expect(mockAddCartItem).toHaveBeenCalledWith('sku-1', 1, null, 'guest-test-key')
+
+    // The shopper switches to SKU-2 before SKU-1's response arrives — allowed, since only the
+    // button (not the selector) disables while a mutation is pending.
+    await wrapper.find('#sku-select').setValue('sku-2')
+    await flushPromises()
+
+    // SKU-1's request now resolves. It must not be shown as a success for the now-displayed SKU-2.
+    resolveAddForSku1({ publicId: 'cart-1' })
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('已加入購物車')
+  })
+
   it('shows a retryable error when adding to the cart fails', async () => {
     mockGetProductDetail.mockResolvedValue(productDetail())
     mockAddCartItem.mockRejectedValue(new ApiError('unavailable', { status: 409, code: 'sku_unavailable' }))

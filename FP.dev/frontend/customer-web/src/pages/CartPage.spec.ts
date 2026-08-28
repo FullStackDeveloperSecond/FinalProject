@@ -131,6 +131,33 @@ describe('CartPage', () => {
     await vi.waitFor(() => expect(wrapper.text()).toContain('RTX 4070'))
   })
 
+  /**
+   * 組長 PR #29 round-5 review, P2: the round-4 fix above only covered a first-ever, no-cache
+   * mount, where `isPending` starts true and there is nothing yet for revalidate to race against.
+   * It missed a second case with the same shape of bug: the shared QueryClient's 30s staleTime
+   * means revisiting /cart after being away that long shows the *cached* cart immediately
+   * (`isPending` already false on mount) while TanStack's own default mount-refetch used to kick
+   * off a second, implicit GET in the background at that same moment — racing this page's
+   * `revalidate` call exactly like the round-4 finding, and able to silently overwrite whichever
+   * of the two responses landed second. Fixed by having useCart() set `refetchOnMount: false`
+   * (every path that can make the cart stale already funnels through an explicit revalidate), so
+   * there is no second fetch left to race — proven here by seeding an already-cached cart before
+   * mount and asserting the raw GET (`getCart`) is never called at all, only `revalidateCart`.
+   */
+  it('does not issue a redundant background GET racing revalidate when mounting with an already-cached, stale cart', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    queryClient.setQueryData(['cart', 'guest', 'guest-test-key'], oneItemCart)
+    mockRevalidateCart.mockResolvedValue({
+      cart: oneItemCart, isCheckoutReady: true, issues: [], validatedAtUtc: new Date().toISOString(),
+    })
+
+    const wrapper = await mountCartPage({ queryClient })
+    await vi.waitFor(() => expect(mockRevalidateCart).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(wrapper.text()).toContain('RTX 4070'))
+
+    expect(mockGetCart).not.toHaveBeenCalled()
+  })
+
   it('shows the empty state when the cart has no items', async () => {
     mockGetCart.mockResolvedValue({ ...oneItemCart, items: [] })
     mockRevalidateCart.mockResolvedValue({

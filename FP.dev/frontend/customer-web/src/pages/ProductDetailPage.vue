@@ -45,18 +45,35 @@ const isAddToCartDisabled = computed(() => {
   return selectedSku.value.availability === 'outOfStock' || Number(selectedSku.value.maxPurchasableQuantity) <= 0
 })
 
+// 組長 PR #29 review round 5, P2: the SKU selector stays interactive while a mutation is in
+// flight, so a shopper can add SKU A then switch to SKU B before A's response arrives. Reading
+// `selectedSkuPublicId.value` from inside onSuccess/onError reads whatever is selected *when the
+// response lands*, not what was actually submitted — A's success would render as if it applied to
+// the now-displayed B. Capturing the SKU identity at request-send time and only applying the
+// result when it still matches the current selection makes a switched-away response a no-op
+// instead of a misattributed success/error, the same snapshot-at-dispatch pattern as
+// useCart.ts's onMutate identity capture.
 function onAddToCart(): void {
   if (isAddToCartDisabled.value || !selectedSku.value) {
     return
   }
 
+  const requestSkuPublicId = selectedSku.value.publicId
   addToCartError.value = null
   addToCartSucceeded.value = false
   addCartItemMutation.mutate(
-    { skuPublicId: selectedSku.value.publicId, quantity: 1, cartRowVersion: null },
+    { skuPublicId: requestSkuPublicId, quantity: 1, cartRowVersion: null },
     {
-      onSuccess: () => { addToCartSucceeded.value = true },
-      onError: (caught) => { addToCartError.value = describeAddToCartError(caught) },
+      onSuccess: () => {
+        if (selectedSku.value?.publicId === requestSkuPublicId) {
+          addToCartSucceeded.value = true
+        }
+      },
+      onError: (caught) => {
+        if (selectedSku.value?.publicId === requestSkuPublicId) {
+          addToCartError.value = describeAddToCartError(caught)
+        }
+      },
     },
   )
 }

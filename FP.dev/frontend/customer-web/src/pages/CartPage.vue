@@ -160,11 +160,20 @@ async function runRevalidate(): Promise<void> {
 // — started earlier but arriving later — could still overwrite it with older data, while
 // `issues`/`isCheckoutReady` kept reflecting revalidate's newer (now-orphaned) result: the
 // rendered cart and the checkout gate would disagree. `isPending` (from useCart()) is true until
-// the query has *never yet* resolved (pending vs. later refetches, which set isFetching instead)
-// — waiting for it to become false, with no error, means the initial GET has already landed with
-// nothing older left in flight that could still clobber a revalidate's result. `hasRevalidated`
-// guards this to the first successful resolution only; a retry after an initial load failure
-// (ErrorState's @retry) still triggers exactly one revalidate once the retried GET succeeds.
+// the query has *never yet* resolved — waiting for it to become false, with no error, means the
+// initial GET has already landed with nothing older left in flight that could still clobber a
+// revalidate's result. `hasRevalidated` guards this to the first successful resolution only; a
+// retry after an initial load failure (ErrorState's @retry) still triggers exactly one revalidate
+// once the retried GET succeeds.
+//
+// 組長 PR #29 round-5 review, P2: `isPending` alone isn't enough when the query already has cached
+// data on mount (the shopper had the cart open before, came back after the 30s staleTime expired)
+// — `isPending` is false immediately in that case, but TanStack's own default mount-refetch used
+// to kick off a *second*, implicit GET in the background at the same moment, racing this
+// revalidate call exactly like the round-4 finding above. Fixed at the source instead of by
+// widening this guard: useCart.ts now sets `refetchOnMount: false`, since every path that can make
+// the cart stale already funnels through an explicit revalidate (this one, and every mutation's
+// onSuccess below) — there is no longer a second fetch for this watch to race against.
 watch(
   isPending,
   (pending) => {

@@ -59,6 +59,17 @@ export function useCart() {
     // guest cart that's immediately thrown away and replaced by the real member cart once
     // refresh() completes, the same kind of flash this fix is meant to eliminate.
     enabled: computed(() => sessionStore.status !== 'loading'),
+    // 組長 PR #29 review round 5, P2: with the shared QueryClient's 30s staleTime, revisiting
+    // /cart after being away longer than that used to show the cached cart immediately (isPending
+    // already false) while TanStack's own default mount-refetch quietly re-GET the same query in
+    // the background — racing CartPage.vue's explicit `revalidate` call, which is the one place
+    // that keeps `issues`/`isCheckoutReady` in sync with the cart it writes. Whichever of the two
+    // requests landed second could silently overwrite the other's result, leaving the rendered
+    // items and the checkout gate disagreeing. There is no scenario where this second, implicit
+    // fetch is needed: every path that can make the cart stale (initial mount, and every mutation
+    // in this file) already ends in an explicit revalidate call, so refetchOnMount would only ever
+    // be racing that call, never doing useful work TanStack Query.
+    refetchOnMount: false,
   })
 }
 
