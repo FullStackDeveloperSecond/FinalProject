@@ -1,30 +1,11 @@
+/* 色彩／間距／圓角／陰影／字體 Token 皆來自 @doselect/web-shared/styles/design-tokens.css
+   （於 main.ts 先行匯入）。本檔只保留 App 專屬版面尺寸與全站基礎樣式。 */
+
 :root {
-  --color-bg: #ffffff;
-  --color-surface: #f4f8fc;
-  --color-surface-strong: #e8f2fc;
-  --color-primary: #2f7dd3;
-  --color-primary-dark: #1f63ac;
-  --color-primary-soft: #eaf3fc;
-  --color-text: #153452;
-  --color-text-muted: #4c6b85;
-  --color-border: #c9dcec;
-  --color-border-soft: #dcebf7;
-  --color-success: #1f8a5c;
-  --color-success-bg: #e6f5ee;
-  --color-warning: #b8790f;
-  --color-warning-bg: #fbf1e0;
-  --color-danger: #c23a3a;
-  --color-danger-bg: #fbeaea;
-  --shadow-sm: 0 1px 2px rgba(21, 52, 82, 0.07);
-  --shadow-md: 0 4px 14px rgba(21, 52, 82, 0.09);
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 20px;
   --max-width: 1440px;
-  --control-height: 44px;
   --sidebar-width: 15rem;
 
-  font-family: "Segoe UI", "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", system-ui, sans-serif;
+  font-family: var(--font-body);
   color: var(--color-text);
   background: var(--color-bg);
   font-synthesis: none;
@@ -52,7 +33,7 @@ body {
   justify-content: space-between;
   gap: 1rem;
   padding: 1rem 1.5rem;
-  background: #fff;
+  background: var(--color-surface);
   border-bottom: 1px solid var(--color-border-soft);
 }
 
@@ -134,7 +115,7 @@ body {
 /* ---------- Reusable components ---------- */
 
 .card {
-  background: #fff;
+  background: var(--color-surface);
   border: 1px solid var(--color-border-soft);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
@@ -147,7 +128,7 @@ body {
   padding: 2rem;
   border: 1px solid var(--color-border-soft);
   border-radius: var(--radius-lg);
-  background: #fff;
+  background: var(--color-surface);
   box-shadow: var(--shadow-sm);
 }
 
@@ -161,7 +142,7 @@ body {
 }
 
 .shared-state--error {
-  border-color: #f3c6c6;
+  border-color: var(--color-danger-border);
   background: var(--color-danger-bg);
 }
 
@@ -208,7 +189,7 @@ button {
   font-weight: 700;
   font-size: 0.95rem;
   cursor: pointer;
-  background: #fff;
+  background: var(--color-surface);
   color: var(--color-text);
   font: inherit;
 }
@@ -221,7 +202,7 @@ button[type="submit"],
 .support-ticket-detail__claim > button {
   background: var(--color-primary);
   border-color: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
   box-shadow: var(--shadow-sm);
 }
 
@@ -246,7 +227,7 @@ button:disabled {
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-primary);
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
   font: inherit;
   line-height: var(--control-height);
   text-decoration: none;

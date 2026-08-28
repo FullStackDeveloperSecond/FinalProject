@@ -1,30 +1,10 @@
-:root {
-  --color-bg: #ffffff;
-  --color-surface: #f4f8fc;
-  --color-surface-strong: #e8f2fc;
-  --color-primary: #2f7dd3;
-  --color-primary-dark: #1f63ac;
-  --color-primary-soft: #eaf3fc;
-  --color-text: #153452;
-  --color-text-muted: #4c6b85;
-  --color-border: #c9dcec;
-  --color-border-soft: #dcebf7;
-  --color-success: #1f8a5c;
-  --color-success-bg: #e6f5ee;
-  --color-warning: #b8790f;
-  --color-warning-bg: #fbf1e0;
-  --color-danger: #c23a3a;
-  --color-danger-bg: #fbeaea;
-  --shadow-sm: 0 1px 2px rgba(21, 52, 82, 0.07);
-  --shadow-md: 0 4px 14px rgba(21, 52, 82, 0.09);
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 20px;
-  --max-width: 1200px;
-  --control-height: 44px;
-  --header-h: 64px;
+/* 色彩／間距／圓角／陰影／字體 Token 皆來自 @doselect/web-shared/styles/design-tokens.css
+   （於 main.ts 先行匯入）。本檔只保留 App 專屬版面尺寸與全站基礎樣式。 */
 
-  font-family: "Segoe UI", "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", system-ui, sans-serif;
+:root {
+  --max-width: 1200px;
+
+  font-family: var(--font-body);
   color: var(--color-text);
   background: var(--color-bg);
   font-synthesis: none;
@@ -68,7 +48,7 @@ button {
   left: 8px;
   top: -48px;
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
   padding: 10px 16px;
   border-radius: var(--radius-sm);
   z-index: 100;
@@ -99,7 +79,7 @@ button {
   position: sticky;
   top: 0;
   z-index: 40;
-  background: #fff;
+  background: var(--color-surface);
   border-bottom: 1px solid var(--color-border-soft);
 }
 
@@ -195,7 +175,7 @@ button {
 
 .site-footer {
   border-top: 1px solid var(--color-border-soft);
-  background: #fff;
+  background: var(--color-surface);
   padding: 20px 24px;
   text-align: center;
   color: var(--color-text-muted);
@@ -205,7 +185,7 @@ button {
 /* ---------- Reusable components ---------- */
 
 .card {
-  background: #fff;
+  background: var(--color-surface);
   border: 1px solid var(--color-border-soft);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
@@ -225,7 +205,7 @@ button {
   font-weight: 700;
   font-size: 0.95rem;
   cursor: pointer;
-  background: #fff;
+  background: var(--color-surface);
   color: var(--color-text);
   font: inherit;
 }
@@ -238,7 +218,7 @@ button:hover {
 button[type="submit"] {
   background: var(--color-primary);
   border-color: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
   box-shadow: var(--shadow-sm);
 }
 
@@ -258,7 +238,7 @@ button:disabled {
 }
 
 .btn-danger {
-  background: #fff;
+  background: var(--color-surface);
   border-color: var(--color-danger);
   color: var(--color-danger);
 }
@@ -269,12 +249,12 @@ button:disabled {
 
 .btn-danger-solid {
   background: var(--color-danger);
-  border-color: #991b1b;
-  color: #fff;
+  border-color: var(--color-danger-strong);
+  color: var(--color-on-primary);
 }
 
 .btn-danger-solid:hover {
-  background: #a83232;
+  background: var(--color-danger-strong);
 }
 
 a.btn-link {
@@ -285,7 +265,7 @@ a.btn-link {
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-primary);
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
   font-weight: 700;
   text-decoration: none;
 }
@@ -351,7 +331,7 @@ a.btn-link:hover {
   font-size: 0.95rem;
   font-family: inherit;
   font-weight: 400;
-  background: #fff;
+  background: var(--color-surface);
   color: var(--color-text);
 }
 
@@ -380,7 +360,7 @@ a.btn-link:hover {
   padding: 2rem;
   border: 1px solid var(--color-border-soft);
   border-radius: var(--radius-lg);
-  background: #fff;
+  background: var(--color-surface);
   box-shadow: var(--shadow-sm);
 }
 
@@ -394,7 +374,7 @@ a.btn-link:hover {
 }
 
 .shared-state--error {
-  border-color: #f3c6c6;
+  border-color: var(--color-danger-border);
   background: var(--color-danger-bg);
 }
 

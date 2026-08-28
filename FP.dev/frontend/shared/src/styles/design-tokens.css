@@ -1,0 +1,186 @@
+/* =============================================================================
+   DoSelect 懂選 — Design Tokens  (PM-02 / v0.2 定案)
+   主色調對齊 AI 客服小精靈 Donggu：深藍描線 / 薄荷綠螢幕 / 淡藍底 / 奶油黃手腳 / 翡翠綠胸章
+   （Navy 依 v0.2 微調建議調淡：#1E3A5F → #2C4D73）
+
+   由 customer-web / admin-web 各自 main.ts 匯入：
+     import '@doselect/web-shared/styles/design-tokens.css'
+   一份來源、兩個 App 共用。
+
+   規則：
+   - 元件與頁面只讀「語意層」變數（--color-*, --space-*, --fs-* …），不直接用 primitive。
+   - Light-only：本檔「不」透過 @media (prefers-color-scheme: dark) 自動切換主題；
+     M 版永遠顯示 Light，不受作業系統深色模式影響。
+   - :root[data-theme="dark"] 區塊僅為未來結構保留，目前沒有任何程式碼會設定該屬性，
+     也沒有切換按鈕，因此不會被套用。PrimeVue 同步使用 darkModeSelector: false。
+   - --color-mint / --color-butter 是「裝飾角色」，不得指派給按鈕、連結或小字背景。
+   - 唯一主操作色 = --color-primary（翡翠綠）。語意色（success/warning/danger/info）另計。
+   ============================================================================= */
+
+:root {
+  color-scheme: light;
+
+  /* ---- primitive（僅供語意層引用）---- */
+  --navy-900:   #203e60;  /* Navy 深階 */
+  --navy-800:   #2c4d73;  /* Navy 主要文字／殼層 */
+  --navy-700:   #3a6087;  /* Navy hover／次階 */
+  --emerald-800:#155f39;
+  --emerald-700:#1b7a48;
+  --emerald-200:#e2f1e8;
+  --mint-300:   #9fe7d3;
+  --mint-100:   #e6f8f2;
+  --mint-line:  #bfe9dc;
+  --butter-300: #ecc97a;
+  --butter-100: #fbf1dc;
+  --butter-line:#e6cf9c;
+  --blue-050:   #eef4fa;
+  --blue-100:   #e3edf6;
+  --slate-500:  #61748c;
+  --slate-400:  #8b9cb0;
+  --line-200:   #cfdeeb;
+  --line-100:   #e3ecf4;
+  --amber-700:  #b5822e;
+  --amber-100:  #f8eeda;
+  --red-700:    #c0453a;
+  --red-800:    #a5382f;
+  --red-200:    #e6b8b3;
+  --red-100:    #f8e4e1;
+  --cyan-700:   #2f6e93;
+  --cyan-100:   #deebf3;
+  --white:      #ffffff;
+
+  /* ---- 語意層：色彩 ---- */
+  --color-bg:              var(--blue-050);   /* App 背景（Donggu 畫面底色） */
+  --color-surface:         var(--white);      /* 卡片 / 表格 / 對話框 / 輸入框 */
+  --color-surface-strong:  var(--blue-100);   /* 表頭、下沉區塊、次要面板 */
+
+  --color-primary:         var(--emerald-700);/* 唯一主操作色（翡翠綠，已加深以過 AA） */
+  --color-primary-dark:    var(--emerald-800);/* hover / active */
+  --color-primary-soft:    var(--emerald-200);/* 主色淡底、選中列、tint */
+  --color-on-primary:      var(--white);
+
+  --color-navy:            var(--navy-800);   /* 頁首 / 側欄 / 頁尾 等強色塊 */
+  --color-navy-hover:      var(--navy-700);
+  --color-on-navy:         var(--white);
+
+  --color-text:            var(--navy-800);   /* 全站內文字色（深藍，不另尋第二色） */
+  --color-text-muted:      var(--slate-500);
+  --color-text-faint:      var(--slate-400);
+
+  --color-border:          var(--line-200);
+  --color-border-soft:     var(--line-100);
+
+  /* 裝飾角色：只做底色 / 標示 / 引導區，不進互動元件 */
+  --color-mint:            var(--mint-300);
+  --color-mint-soft:       var(--mint-100);
+  --color-mint-line:       var(--mint-line);
+  --color-butter:          var(--butter-300); /* 另用於「待客戶回覆」狀態徽章 */
+  --color-butter-soft:     var(--butter-100);
+  --color-butter-line:     var(--butter-line);
+
+  /* 語意狀態色（與品牌配色分離） */
+  --color-success:         var(--emerald-700);
+  --color-success-bg:      var(--emerald-200);
+  --color-warning:         var(--amber-700);
+  --color-warning-bg:      var(--amber-100);
+  --color-danger:          var(--red-700);
+  --color-danger-strong:   var(--red-800);    /* 實心危險按鈕 hover / 邊框 */
+  --color-danger-border:   var(--red-200);    /* 錯誤面板的柔性邊框 */
+  --color-danger-bg:       var(--red-100);
+  --color-info:            var(--cyan-700);
+  --color-info-bg:         var(--cyan-100);
+
+  --color-focus-ring:      var(--emerald-700);
+
+  /* ---- 語意層：間距（4px 基數）---- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 40px;
+  --space-8: 48px;
+
+  /* ---- 語意層：字級 ---- */
+  --fs-caption: 0.8125rem;
+  --fs-body:    1rem;
+  --fs-h3:      1.125rem;
+  --fs-h2:      1.375rem;
+  --fs-h1:      1.75rem;
+  --fs-display: 2.25rem;
+  --lh-body:    1.7;
+  --lh-heading: 1.3;
+
+  --font-body:    "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", "Segoe UI", system-ui, sans-serif;
+  --font-display: var(--font-body); /* 標題同字族不同重量；如要襯線改為 "Noto Serif TC" */
+  --font-mono:    "IBM Plex Mono", "Sarasa Mono TC", ui-monospace, "SFMono-Regular", monospace;
+
+  /* ---- 語意層：圓角 / 陰影 ---- */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --shadow-sm: 0 1px 2px rgba(44, 77, 115, .08);
+  --shadow-md: 0 8px 28px rgba(44, 77, 115, .12);
+
+  /* ---- 語意層：尺寸 ---- */
+  --control-height: 44px;
+  --header-h:       64px;
+  --content-max:    1200px;
+
+  /* ---- 語意層：動效（GSAP 與 CSS transition 共用同一組值）---- */
+  --dur-micro: 140ms;
+  --dur-panel: 280ms;
+  --ease-out:   cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-inout: cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* ---- 語意層：z-index（集中管理）---- */
+  --z-header: 50;
+  --z-drawer: 100;
+  --z-dialog: 200;
+  --z-toast:  300;
+}
+
+/* =============================================================================
+   Dark 主題 — 僅為未來結構保留。
+   刻意「不」加 @media (prefers-color-scheme: dark)：作業系統深色模式不會觸發這裡。
+   只有當有人手動在 <html> 設 data-theme="dark" 時才會套用；目前沒有任何程式碼這樣做，
+   也沒有切換 UI。等 Dark 正式進入範圍時再接上切換器。
+   ============================================================================= */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-bg:             #0f171e;
+  --color-surface:        #17222c;
+  --color-surface-strong: #1e2b36;
+  --color-primary:        #57c486;
+  --color-primary-dark:   #74d29d;
+  --color-primary-soft:   #1a2e24;
+  --color-on-primary:     #0f171e;
+  --color-navy:           #2c4d73;
+  --color-navy-hover:     #3a6087;
+  --color-text:           #e6eff6;
+  --color-text-muted:     #93a6b5;
+  --color-text-faint:     #6f8290;
+  --color-border:         #2f3d49;
+  --color-border-soft:    #26333d;
+  --color-mint:           #7fd9c0;
+  --color-mint-soft:      #14302a;
+  --color-mint-line:      #2c5348;
+  --color-butter:         #e0bd71;
+  --color-butter-soft:    #332917;
+  --color-butter-line:    #52441f;
+  --color-success:        #57c486;
+  --color-success-bg:     #1a2e24;
+  --color-warning:        #d79a52;
+  --color-warning-bg:     #352a19;
+  --color-danger:         #e08a7f;
+  --color-danger-strong:  #e8a59b;
+  --color-danger-border:  #5c322d;
+  --color-danger-bg:      #3a2523;
+  --color-info:           #8fb9cf;
+  --color-info-bg:        #1d2d37;
+  --color-focus-ring:     #57c486;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .32);
+  --shadow-md: 0 8px 28px rgba(0, 0, 0, .42);
+}
