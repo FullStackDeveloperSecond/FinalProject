@@ -6,7 +6,13 @@ import { useRoute, useRouter } from 'vue-router'
 import BuildItemsEditor, { type EditableBuildItem } from '../features/builds/components/BuildItemsEditor.vue'
 import CompatibilityFindingsList from '../features/builds/components/CompatibilityFindingsList.vue'
 import { useCompatibilityCheck, useCreateBuildList } from '../features/builds/useBuilds'
-import { clearGuestBuildDraft, loadGuestBuildDraft, saveGuestBuildDraft } from '../features/builds/guestBuildDraft'
+import {
+  clearGuestBuildDraft,
+  consumePendingBuildSaveResume,
+  loadGuestBuildDraft,
+  markPendingBuildSaveResume,
+  saveGuestBuildDraft,
+} from '../features/builds/guestBuildDraft'
 import { useSessionStore } from '../stores/session'
 
 const router = useRouter()
@@ -59,6 +65,7 @@ async function save(): Promise<void> {
     // (draft included, since it only clears from localStorage on a real 200) as the return
     // target; `autoResumeAfterLogin` below finishes the save once they're back and authenticated.
     if (isApiError(error) && error.status === 401) {
+      markPendingBuildSaveResume()
       await router.push({ path: '/login', query: { redirect: route.fullPath } })
       return
     }
@@ -72,12 +79,23 @@ async function save(): Promise<void> {
 // resolved to authenticated, finish the save automatically instead of making them press the
 // button again. Guarded to fire at most once per page load so it can't loop if the create call
 // itself keeps failing for some other reason.
+//
+// 組長 PR #35 round-2 review, P1-1: "session authenticated + a draft exists" isn't proof this page
+// load is actually that specific guest-save -> login -> return round trip — an already-logged-in
+// member just visiting /builds/new, or one who switched accounts while an old draft was still in
+// localStorage, both satisfy the same two conditions and would have their own account silently
+// import whatever stale draft happens to be sitting around. `consumePendingBuildSaveResume()`
+// only returns true when `save()`'s own 401 handler set the marker moments before this exact
+// redirect — a one-shot signal for this one round trip, not a standing "always auto-import" rule.
 let hasAttemptedAutoResume = false
 watch(() => sessionStore.status, (status) => {
   if (status !== 'authenticated' || hasAttemptedAutoResume || !canSave.value) {
     return
   }
   hasAttemptedAutoResume = true
+  if (!consumePendingBuildSaveResume()) {
+    return
+  }
   void save()
 }, { immediate: true })
 </script>

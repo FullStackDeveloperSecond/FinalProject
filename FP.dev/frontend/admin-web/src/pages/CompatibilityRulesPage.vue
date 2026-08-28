@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ErrorState, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import ConfirmDialog from '../features/compatibilityRules/components/ConfirmDialog.vue'
 import { describeApiError } from '../features/shared/errorMessages'
 import {
@@ -36,6 +36,19 @@ const ruleLabels: Record<string, string> = {
   PSU_CONNECTORS: '電源供應器接頭',
 }
 
+// 組長 PR #35 round-2 review, P2-8: the `<input min max>` attributes are a UI hint only — nothing
+// stopped a shopper-facing consequence like this admin page from actually *submitting* a value
+// outside them (typing over the max, or a value a browser's number-input UI doesn't police at
+// all), and only the reason field, never the value, gated the "更新門檻" button. One shared
+// validator used at every point a bounded number reaches a submit button, instead of trusting the
+// backend to be the only real gate.
+function isValidBoundedNumber(value: number, min: number, max: number, requireInteger = false): boolean {
+  if (!Number.isFinite(value) || value < min || value > max) {
+    return false
+  }
+  return !requireInteger || Number.isInteger(value)
+}
+
 const warningDrafts = reactive<Record<string, { value: number, reason: string }>>({})
 
 function draftFor(ruleCode: string, currentValue: number | string) {
@@ -43,6 +56,26 @@ function draftFor(ruleCode: string, currentValue: number | string) {
     warningDrafts[ruleCode] = { value: Number(currentValue), reason: '' }
   }
   return warningDrafts[ruleCode]
+}
+
+// 組長 PR #35 round-2 review, P2-8: clearing the formal-threshold input used to write `Number('')`
+// (= 0) straight into the draft, silently substituting a real value the admin never chose. Since
+// 0 happens to be a *valid* value for two of the five tunable settings (RemainingRamSlotWarningCount/
+// RemainingStoragePortWarningCount both allow a 0 minimum), relying on isValidBoundedNumber alone
+// wouldn't have reliably caught an emptied field for those two — writing NaN for a blank field
+// makes it fail Number.isFinite regardless of where 0 happens to sit in that rule's own range.
+function updateWarningDraftValue(ruleCode: string, currentValue: number | string, rawValue: string): void {
+  draftFor(ruleCode, currentValue).value = rawValue.trim() === '' ? Number.NaN : Number(rawValue)
+}
+
+function isWarningDraftValid(rule: {
+  warningSetting: { value: number | string, minValue: number | string, maxValue: number | string } | null
+}, ruleCode: string): boolean {
+  if (!rule.warningSetting) {
+    return false
+  }
+  const draft = draftFor(ruleCode, rule.warningSetting.value)
+  return isValidBoundedNumber(draft.value, Number(rule.warningSetting.minValue), Number(rule.warningSetting.maxValue))
 }
 
 const warningError = ref<Record<string, unknown>>({})
@@ -53,7 +86,7 @@ const warningError = ref<Record<string, unknown>>({})
 async function submitWarningSetting(ruleCode: string): Promise<void> {
   const rule = ruleList.value?.rules.find((candidate) => candidate.ruleCode === ruleCode)
   const draft = warningDrafts[ruleCode]
-  if (!rule?.warningSetting || !draft || draft.reason.trim().length === 0) {
+  if (!rule?.warningSetting || !draft || draft.reason.trim().length === 0 || !isWarningDraftValid(rule, ruleCode)) {
     return
   }
 
@@ -103,8 +136,14 @@ const testUseDraftSettings = ref(false)
 const testDraftWarningSettings = reactive<Record<string, number>>({})
 const testSelectedRuleCodes = ref<string[]>([])
 
+// 組長 PR #35 round-2 review, P2-8: the quantity `<input min="1" max="8">` never actually stopped
+// a value outside that range (or a non-integer) from reaching this handler and being pushed
+// straight into testItems.
+const isTestQuantityValid = computed(() => isValidBoundedNumber(testDraftSku.quantity, 1, 8, true))
+const isAddTestItemValid = computed(() => testDraftSku.skuPublicId.trim().length > 0 && isTestQuantityValid.value)
+
 function addTestItem(): void {
-  if (!testDraftSku.skuPublicId.trim()) {
+  if (!isAddTestItemValid.value) {
     return
   }
   testItems.value = [...testItems.value, { skuPublicId: testDraftSku.skuPublicId.trim(), quantity: testDraftSku.quantity }]
@@ -116,13 +155,15 @@ function removeTestItem(index: number): void {
   testItems.value = testItems.value.filter((_, i) => i !== index)
 }
 
-// 組長 PR #35 review, item 6 (P2): the raw @input handler used to do Number(rawValue) with no
-// guard — clearing the field sends NaN through to the request body. Only accepts a finite number
-// within the rule's own min/max; anything else (including a cleared field) drops the draft
+// 組長 PR #35 review, item 6 (P2), tightened in round-2 review P2-8: the raw @input handler used
+// to do Number(rawValue) with no guard — clearing the field sends NaN through to the request
+// body. Only accepts a finite number within the rule's own min/max (the round-2 fix: this
+// previously only checked Number.isFinite, despite the comment already claiming the min/max check
+// existed); anything else (including a cleared field or an out-of-range value) drops the draft
 // override for that setting entirely, falling back to the rule's real current value server-side.
-function setDraftWarningSetting(settingCode: string, rawValue: string): void {
+function setDraftWarningSetting(settingCode: string, rawValue: string, min: number, max: number): void {
   const parsed = Number(rawValue)
-  if (rawValue.trim() === '' || !Number.isFinite(parsed)) {
+  if (rawValue.trim() === '' || !isValidBoundedNumber(parsed, min, max)) {
     delete testDraftWarningSettings[settingCode]
     return
   }
@@ -197,7 +238,7 @@ const severityLabels: Record<string, string> = {
                       :max="rule.warningSetting.maxValue"
                       :value="draftFor(rule.ruleCode, rule.warningSetting.value).value"
                       aria-label="警告門檻數值"
-                      @input="draftFor(rule.ruleCode, rule.warningSetting.value).value = Number(($event.target as HTMLInputElement).value)"
+                      @input="updateWarningDraftValue(rule.ruleCode, rule.warningSetting.value, ($event.target as HTMLInputElement).value)"
                     >
                     <span class="compatibility-rules-page__range">
                       （允許範圍 {{ rule.warningSetting.minValue }}–{{ rule.warningSetting.maxValue }}，預設 {{ rule.warningSetting.defaultValue }}）
@@ -211,11 +252,19 @@ const severityLabels: Record<string, string> = {
                     >
                     <button
                       type="button"
-                      :disabled="updateWarningSetting.isPending.value || !draftFor(rule.ruleCode, rule.warningSetting.value).reason.trim()"
+                      :disabled="updateWarningSetting.isPending.value
+                        || !draftFor(rule.ruleCode, rule.warningSetting.value).reason.trim()
+                        || !isWarningDraftValid(rule, rule.ruleCode)"
                       @click="submitWarningSetting(rule.ruleCode)"
                     >
                       更新門檻
                     </button>
+                    <p
+                      v-if="!isWarningDraftValid(rule, rule.ruleCode)"
+                      class="compatibility-rules-page__validation-error"
+                    >
+                      請輸入 {{ rule.warningSetting.minValue }}–{{ rule.warningSetting.maxValue }} 範圍內的數值。
+                    </p>
                   </div>
                   <ErrorState
                     v-if="warningError[rule.ruleCode]"
@@ -246,7 +295,7 @@ const severityLabels: Record<string, string> = {
                   :resource-label="`${ruleLabels[rule.ruleCode] ?? rule.ruleCode}（${rule.ruleCode}）`"
                   :impact-label="activationDialog.targetIsActive
                     ? '啟用後，此規則會恢復正常擋下或警告不相容組合。'
-                    : '停用後，此規則的檢查結果會回報「規則已停用」，不會再擋下購買。'"
+                    : '停用後，此規則的檢查結果會回報「規則已停用」；受影響的組裝清單仍會在加入購物車或分享時，因需要人工確認而被擋下，並非不再擋下購買。'"
                   :current-state-label="rule.isActive ? '目前啟用中' : '目前已停用'"
                   irreversible-label="可再次切換，但切換前後已完成的訂單不會回溯檢查"
                   :pending="setActivation.isPending.value"
@@ -320,10 +369,17 @@ const severityLabels: Record<string, string> = {
           >
           <button
             type="button"
+            :disabled="!isAddTestItemValid"
             @click="addTestItem"
           >
             加入項目
           </button>
+          <p
+            v-if="!isTestQuantityValid"
+            class="compatibility-rules-page__validation-error"
+          >
+            數量須為 1–8 之間的整數。
+          </p>
         </div>
 
         <label class="compatibility-rules-page__checkbox">
@@ -363,7 +419,12 @@ const severityLabels: Record<string, string> = {
               :min="rule.warningSetting!.minValue"
               :max="rule.warningSetting!.maxValue"
               :placeholder="String(rule.warningSetting!.value)"
-              @input="setDraftWarningSetting(rule.warningSetting!.settingCode, ($event.target as HTMLInputElement).value)"
+              @input="setDraftWarningSetting(
+                rule.warningSetting!.settingCode,
+                ($event.target as HTMLInputElement).value,
+                Number(rule.warningSetting!.minValue),
+                Number(rule.warningSetting!.maxValue),
+              )"
             >
           </label>
         </div>
@@ -444,6 +505,12 @@ const severityLabels: Record<string, string> = {
 .compatibility-rules-page__range {
   font-size: 0.8125rem;
   color: #4b5563;
+}
+
+.compatibility-rules-page__validation-error {
+  margin: 0.25rem 0 0;
+  font-size: 0.8125rem;
+  color: #b91c1c;
 }
 
 .compatibility-rules-page__no-threshold {

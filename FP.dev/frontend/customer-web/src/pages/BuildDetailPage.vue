@@ -53,6 +53,35 @@ async function reloadAndDiscardEdits(): Promise<void> {
   resetFromServer()
 }
 
+/**
+ * 組長 PR #35 round-2 review, P1-2: the editor only ever mutates local `name`/`items`; nothing
+ * else on this page reads them. Compatibility, price totals, the share link, and add-to-cart all
+ * read straight from `buildList.value` (the last-fetched server state) — so a shopper who swaps a
+ * part but never clicks "儲存變更" could still share or add-to-cart, and the backend would act on
+ * whatever it already has stored, not the edit currently on screen. `isDirty` is the single source
+ * of truth both actions gate on below; order-independent since BuildItemsEditor's emitted array
+ * order isn't guaranteed to match the server's stored order.
+ */
+function itemsSignature(list: { skuPublicId: string, quantity: number }[]): string {
+  return list.map((item) => `${item.skuPublicId}:${item.quantity}`).sort().join('|')
+}
+
+const isDirty = computed(() => {
+  const build = buildList.value
+  if (!build) {
+    return false
+  }
+  if (name.value !== build.name) {
+    return true
+  }
+  const serverSignature = itemsSignature(build.items.map((item) => ({ skuPublicId: item.skuPublicId, quantity: Number(item.quantity) })))
+  return itemsSignature(items.value) !== serverSignature
+})
+
+const unsavedEditsMessage = computed(() => (
+  isDirty.value ? '您有尚未儲存的變更，請先按「儲存變更」或「放棄變更」，才能分享或加入購物車。' : null
+))
+
 async function save(): Promise<void> {
   if (!buildList.value) {
     return
@@ -106,6 +135,9 @@ const recoveredActiveShare = computed(() => buildList.value?.activeShare ?? null
 const hasAnyActiveShare = computed(() => justCreatedShare.value !== null || recoveredActiveShare.value !== null)
 
 async function share(): Promise<void> {
+  if (isDirty.value) {
+    return
+  }
   shareError.value = null
   try {
     justCreatedShare.value = await createShare.mutateAsync()
@@ -138,6 +170,9 @@ const cartBlockReason = computed<string | null>(() => {
   if (!build) {
     return null
   }
+  if (isDirty.value) {
+    return unsavedEditsMessage.value
+  }
   if (build.compatibility.overall === 'blocked') {
     return '此組裝清單目前不相容，請先解決相容性問題才能加入購物車。'
   }
@@ -164,7 +199,7 @@ let cartIdempotencyKey = crypto.randomUUID()
 watch(cartQuantity, () => { cartIdempotencyKey = crypto.randomUUID() })
 
 async function addBuildToCart(): Promise<void> {
-  if (!buildList.value) {
+  if (!buildList.value || isDirty.value) {
     return
   }
   cartResultMessage.value = null
@@ -314,7 +349,10 @@ async function addBuildToCart(): Promise<void> {
         <h2 id="build-detail-share-title">
           分享
         </h2>
-        <template v-if="justCreatedShare">
+        <p v-if="unsavedEditsMessage">
+          {{ unsavedEditsMessage }}
+        </p>
+        <template v-else-if="justCreatedShare">
           <p>分享連結：<code>{{ justCreatedShare.url }}</code></p>
         </template>
         <p v-else-if="recoveredActiveShare">
@@ -323,7 +361,7 @@ async function addBuildToCart(): Promise<void> {
         <div class="build-detail-page__share-actions">
           <button
             type="button"
-            :disabled="createShare.isPending.value"
+            :disabled="createShare.isPending.value || isDirty"
             @click="share"
           >
             {{ hasAnyActiveShare ? '重新產生連結' : '建立分享連結' }}

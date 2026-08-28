@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import CompatibilityFindingsList from '../features/builds/components/CompatibilityFindingsList.vue'
 import { useAddBuildToCart, useCreateBuildList, useSharedBuild } from '../features/builds/useBuilds'
@@ -30,7 +30,16 @@ const actionError = ref<unknown>(null)
 // on the new list's own detail page rather than the cart.
 const isBusy = ref(false)
 
-function requireLoginThenRetry(): void {
+// 組長 PR #35 round-2 review, P2-5: redirecting an anonymous viewer to /login used to be the whole
+// story — nothing remembered whether they'd pressed "複製" or "整套加入購物車", so coming back
+// authenticated never finished either action; they had to press the button again. sessionStorage
+// (scoped per shareToken, not localStorage — this is a one-shot signal for this one round trip
+// within the current tab, the same reasoning as NewBuildPage.vue's guest-draft resume marker) is
+// the one thing that survives the actual navigation away to /login and back.
+const pendingActionStorageKey = `doselect.sharedBuild.pendingAction.${props.shareToken}`
+
+function requireLoginThenRetry(action: 'copy' | 'addToCart'): void {
+  window.sessionStorage.setItem(pendingActionStorageKey, action)
   void router.push({ path: '/login', query: { redirect: route.fullPath } })
 }
 
@@ -39,7 +48,7 @@ async function copyToMyLists(): Promise<void> {
     return
   }
   if (!sessionStore.isAuthenticated) {
-    requireLoginThenRetry()
+    requireLoginThenRetry('copy')
     return
   }
 
@@ -57,28 +66,49 @@ async function copyToMyLists(): Promise<void> {
     isBusy.value = false
   }
 }
+
+// 組長 PR #35 round-2 review, P1-4: every click used to create a *new* copy build list and then
+// add-to-cart it with a fresh Idempotency-Key. A retry after the add-to-cart response was lost
+// (it may have actually succeeded server-side) created yet another copy and added it again — the
+// Idempotency-Key on the add-to-cart call only protects against re-sending *that exact* request,
+// which a brand-new copy's publicId never is. And a retry after a genuine add-to-cart failure
+// left the just-created copy list behind, orphaned and empty. Remembering the copy's identity and
+// reusing the same Idempotency-Key across retries makes "retry" mean "resend the add-to-cart for
+// the copy we already made", not "start the whole operation over" — covering both cases. This
+// does not cover the create-list response itself being lost (the client would never learn the new
+// list's publicId at all); closing that gap needs a backend-provided atomic copy-and-add
+// operation, out of scope for this round per 組長's own note.
+const pendingCopyForCart = ref<{ publicId: string, rowVersion: string } | null>(null)
+let cartIdempotencyKey = crypto.randomUUID()
 
 async function addSharedBuildToCart(): Promise<void> {
   if (!sharedBuild.value) {
     return
   }
   if (!sessionStore.isAuthenticated) {
-    requireLoginThenRetry()
+    requireLoginThenRetry('addToCart')
     return
   }
 
   actionError.value = null
   isBusy.value = true
   try {
-    const copy = await createBuildList.mutateAsync({
-      name: `${sharedBuild.value.name}（複製）`,
-      items: sharedBuild.value.items.map((item) => ({ skuPublicId: item.skuPublicId, quantity: item.quantity })),
-    })
+    let copy = pendingCopyForCart.value
+    if (!copy) {
+      const created = await createBuildList.mutateAsync({
+        name: `${sharedBuild.value.name}（複製）`,
+        items: sharedBuild.value.items.map((item) => ({ skuPublicId: item.skuPublicId, quantity: item.quantity })),
+      })
+      copy = { publicId: created.publicId, rowVersion: created.rowVersion }
+      pendingCopyForCart.value = copy
+    }
     await addToCart.mutateAsync({
       publicId: copy.publicId,
       request: { quantity: 1, buildRowVersion: copy.rowVersion },
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey: cartIdempotencyKey,
     })
+    pendingCopyForCart.value = null
+    cartIdempotencyKey = crypto.randomUUID()
     await router.push(`/builds/${copy.publicId}`)
   } catch (caught) {
     actionError.value = caught
@@ -86,6 +116,30 @@ async function addSharedBuildToCart(): Promise<void> {
     isBusy.value = false
   }
 }
+
+// 組長 PR #35 round-2 review, P2-5: consumes the pending-action marker once both the session has
+// resolved to authenticated *and* the shared build itself has loaded — `copyToMyLists()`/
+// `addSharedBuildToCart()` both no-op on `!sharedBuild.value`, so firing before that load
+// resolves would silently swallow the resume attempt instead of actually finishing it. Guarded to
+// fire at most once per page load, same reasoning as NewBuildPage.vue's equivalent guard.
+let hasAttemptedAutoResume = false
+watch(
+  () => sessionStore.status === 'authenticated' && sharedBuild.value != null,
+  (ready) => {
+    if (!ready || hasAttemptedAutoResume) {
+      return
+    }
+    hasAttemptedAutoResume = true
+    const pendingAction = window.sessionStorage.getItem(pendingActionStorageKey)
+    window.sessionStorage.removeItem(pendingActionStorageKey)
+    if (pendingAction === 'copy') {
+      void copyToMyLists()
+    } else if (pendingAction === 'addToCart') {
+      void addSharedBuildToCart()
+    }
+  },
+  { immediate: true },
+)
 </script>
 
 <template>

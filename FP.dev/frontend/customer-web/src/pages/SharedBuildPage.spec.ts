@@ -71,6 +71,7 @@ beforeEach(() => {
   mockGetSharedBuild.mockReset()
   mockCreateBuildList.mockReset()
   mockAddBuildToCart.mockReset()
+  window.sessionStorage.clear()
 })
 
 describe('SharedBuildPage — copy/add-to-cart actions (組長 PR #35 review, item 3)', () => {
@@ -128,5 +129,120 @@ describe('SharedBuildPage — copy/add-to-cart actions (組長 PR #35 review, it
 
     expect(wrapper.findAll('button').some((button) => button.text() === '複製為我的清單')).toBe(false)
     expect(wrapper.findAll('button').some((button) => button.text() === '整套加入購物車')).toBe(false)
+  })
+})
+
+describe('SharedBuildPage — "整套加入購物車" retry idempotency (組長 PR #35 round-2 review, P1-4)', () => {
+  /**
+   * Every click used to create a brand-new copy list before adding it to cart. If the add-to-cart
+   * response was lost after actually succeeding (or genuinely failed), retrying created *another*
+   * copy and added it again — the point of an Idempotency-Key is defeated if it's attached to a
+   * different copy's publicId every time. A retry must reuse the copy already created and resend
+   * the add-to-cart with the same key, not start over.
+   */
+  it('reuses the already-created copy and the same Idempotency-Key when retrying after a failed add-to-cart', async () => {
+    mockGetSharedBuild.mockResolvedValue(sharedBuild())
+    mockCreateBuildList.mockResolvedValue({ publicId: 'new-build-1', rowVersion: 'AAAA' })
+    mockAddBuildToCart.mockRejectedValueOnce(new Error('network error'))
+    mockAddBuildToCart.mockResolvedValueOnce({})
+
+    const { wrapper, router } = await mountPage(true)
+    await vi.waitFor(() => expect(wrapper.text()).toContain('分享的組裝'))
+
+    function findCartButton() {
+      return wrapper.findAll('button').find((button) => button.text() === '整套加入購物車')!
+    }
+
+    await findCartButton().trigger('click')
+    await vi.waitFor(() => expect(mockAddBuildToCart).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(findCartButton().attributes('disabled')).toBeUndefined())
+
+    await findCartButton().trigger('click')
+    await vi.waitFor(() => expect(mockAddBuildToCart).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(router.currentRoute.value.fullPath).toBe('/builds/new-build-1'))
+
+    // Only one copy was ever created, across both attempts.
+    expect(mockCreateBuildList).toHaveBeenCalledTimes(1)
+    // Both add-to-cart calls targeted the same copy with the same Idempotency-Key.
+    const [firstPublicId, , firstKey] = mockAddBuildToCart.mock.calls[0]!
+    const [secondPublicId, , secondKey] = mockAddBuildToCart.mock.calls[1]!
+    expect(secondPublicId).toBe(firstPublicId)
+    expect(secondKey).toBe(firstKey)
+  })
+
+  it('uses a fresh Idempotency-Key and creates a fresh copy for a new attempt after a successful add-to-cart', async () => {
+    mockGetSharedBuild.mockResolvedValue(sharedBuild())
+    mockCreateBuildList.mockResolvedValue({ publicId: 'new-build-1', rowVersion: 'AAAA' })
+    mockAddBuildToCart.mockResolvedValue({})
+
+    const { wrapper } = await mountPage(true)
+    await vi.waitFor(() => expect(wrapper.text()).toContain('分享的組裝'))
+
+    const cartButton = wrapper.findAll('button').find((button) => button.text() === '整套加入購物車')!
+    await cartButton.trigger('click')
+    await vi.waitFor(() => expect(mockAddBuildToCart).toHaveBeenCalledTimes(1))
+
+    // A genuinely new attempt (e.g. the shopper navigated back and clicked again) after success.
+    await cartButton.trigger('click')
+    await vi.waitFor(() => expect(mockAddBuildToCart).toHaveBeenCalledTimes(2))
+
+    expect(mockCreateBuildList).toHaveBeenCalledTimes(2)
+    const firstKey = mockAddBuildToCart.mock.calls[0]![2]
+    const secondKey = mockAddBuildToCart.mock.calls[1]![2]
+    expect(secondKey).not.toBe(firstKey)
+  })
+})
+
+describe('SharedBuildPage — resuming the original action after login (組長 PR #35 round-2 review, P2-5)', () => {
+  /**
+   * The anonymous-viewer redirect used to only remember to send the shopper to /login — nothing
+   * remembered *which* button they'd pressed, so returning authenticated never finished either
+   * action; they had to press it again. The pending-action marker (sessionStorage, scoped to this
+   * shareToken) must survive the round trip and auto-resume exactly the action that triggered it.
+   */
+  it('automatically finishes "整套加入購物車" once the session becomes authenticated, after that click redirected to /login', async () => {
+    mockGetSharedBuild.mockResolvedValue(sharedBuild())
+    mockCreateBuildList.mockResolvedValue({ publicId: 'new-build-1', rowVersion: 'AAAA' })
+    mockAddBuildToCart.mockResolvedValue({})
+
+    const { wrapper, router } = await mountPage(false)
+    await vi.waitFor(() => expect(wrapper.text()).toContain('分享的組裝'))
+
+    const cartButton = wrapper.findAll('button').find((button) => button.text() === '整套加入購物車')!
+    await cartButton.trigger('click')
+    await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('login'))
+    expect(mockCreateBuildList).not.toHaveBeenCalled()
+
+    useSessionStore().status = 'authenticated'
+    await vi.waitFor(() => expect(mockAddBuildToCart).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(router.currentRoute.value.fullPath).toBe('/builds/new-build-1'))
+  })
+
+  it('automatically finishes "複製為我的清單" (not add-to-cart) once authenticated, matching the button that was actually pressed', async () => {
+    mockGetSharedBuild.mockResolvedValue(sharedBuild())
+    mockCreateBuildList.mockResolvedValue({ publicId: 'new-build-1', rowVersion: 'AAAA' })
+
+    const { wrapper, router } = await mountPage(false)
+    await vi.waitFor(() => expect(wrapper.text()).toContain('分享的組裝'))
+
+    const copyButton = wrapper.findAll('button').find((button) => button.text() === '複製為我的清單')!
+    await copyButton.trigger('click')
+    await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('login'))
+
+    useSessionStore().status = 'authenticated'
+    await vi.waitFor(() => expect(mockCreateBuildList).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(router.currentRoute.value.fullPath).toBe('/builds/new-build-1'))
+    expect(mockAddBuildToCart).not.toHaveBeenCalled()
+  })
+
+  it('does not auto-resume any action for a viewer who was already authenticated (no button was ever pressed)', async () => {
+    mockGetSharedBuild.mockResolvedValue(sharedBuild())
+
+    const { wrapper } = await mountPage(true)
+    await vi.waitFor(() => expect(wrapper.text()).toContain('分享的組裝'))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(mockCreateBuildList).not.toHaveBeenCalled()
+    expect(mockAddBuildToCart).not.toHaveBeenCalled()
   })
 })
