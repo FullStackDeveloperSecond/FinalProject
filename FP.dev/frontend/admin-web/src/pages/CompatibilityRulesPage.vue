@@ -1,20 +1,32 @@
 <script setup lang="ts">
 import { ErrorState, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
+import { describeCompatibilityMessage } from '@doselect/web-shared/compatibility'
 import { computed, reactive, ref } from 'vue'
 import ConfirmDialog from '../features/compatibilityRules/components/ConfirmDialog.vue'
 import { describeApiError } from '../features/shared/errorMessages'
+import { useAdminAuthStore } from '../features/auth/stores/useAdminAuthStore'
 import {
   useCompatibilityRuleList,
   useSetRuleActivation,
   useTestCompatibilityRules,
   useUpdateWarningSetting,
 } from '../features/compatibilityRules/useCompatibilityRules'
-import type { BuildItemInput } from '../features/compatibilityRules/types'
+import type { BuildItemInput, CompatibilityRuleAdminDto } from '../features/compatibilityRules/types'
 
 function describeError(error: unknown, fallback: string): string {
   return isApiError(error) ? describeApiError(error) : fallback
 }
+
+// 組長 PR #35 round-3 review, P2-3: 相容性規則後台設計.md — "規則整體啟停只允許 SuperAdmin" — but the
+// activation column's 啟用／停用 button was shown to every role that could reach this page
+// (CatalogManager included), even though the backend Policy (`CompatibilityRule.ManageActivation`)
+// would ultimately reject anyone else. The backend Policy is still the real gate (never trust
+// front-end role checks alone); this only stops a CatalogManager from seeing a button that would
+// just fail, which is confusing UX at best and an accidental invitation to try circumventing the
+// Policy at worst.
+const adminAuth = useAdminAuthStore()
+const canManageActivation = computed(() => (adminAuth.currentUser?.roles ?? []).includes('SuperAdmin'))
 
 const { data: ruleList, isPending, isError, error, refetch } = useCompatibilityRuleList()
 const updateWarningSetting = useUpdateWarningSetting()
@@ -49,13 +61,63 @@ function isValidBoundedNumber(value: number, min: number, max: number, requireIn
   return !requireInteger || Number.isInteger(value)
 }
 
-const warningDrafts = reactive<Record<string, { value: number, reason: string }>>({})
+interface WarningDraft {
+  value: number
+  reason: string
+  /** The server value/RowVersion this draft was actually initialized or last resynced from. */
+  baseValue: number
+  baseRowVersion: string | null
+}
 
-function draftFor(ruleCode: string, currentValue: number | string) {
-  if (!warningDrafts[ruleCode]) {
-    warningDrafts[ruleCode] = { value: Number(currentValue), reason: '' }
+const warningDrafts = reactive<Record<string, WarningDraft>>({})
+
+/**
+ * 組長 PR #35 round-3 review, P1-1: this used to only ever initialize a rule's draft on first
+ * access — a refetch that brought in *another admin's* just-landed update (new value, new
+ * RowVersion) never touched an already-initialized draft. `submitWarningSetting` then paired the
+ * *stale* local `draft.value` with the *fresh* `rule.warningSetting.rowVersion` it read straight
+ * off the refetched `ruleList` — the backend's optimistic-concurrency check only ever compares
+ * RowVersions, so this looked like a perfectly legitimate update and would silently clobber the
+ * other admin's change (e.g. their 25 back down to this admin's stale local 20).
+ *
+ * A draft now remembers which server value/RowVersion it was actually based on:
+ * - If the draft is still "clean" (untouched: value === baseValue and no reason typed) when the
+ *   server's RowVersion moves on, it resyncs silently to the new server state — nothing to lose.
+ * - If the draft is dirty (the admin has actually started editing) and the server's RowVersion
+ *   moves on underneath it, that's a real conflict — `isWarningDraftConflicted` below flags it,
+ *   the submit button disables, and the admin must explicitly reload (`reloadWarningDraft`)
+ *   before they can submit again. Never silently resynced (would discard their in-progress edit)
+ *   and never submitted with the stale pairing (would silently overwrite the other admin's change).
+ */
+function draftFor(rule: CompatibilityRuleAdminDto): WarningDraft {
+  const setting = rule.warningSetting!
+  const serverValue = Number(setting.value)
+  const existing = warningDrafts[rule.ruleCode]
+  if (!existing) {
+    warningDrafts[rule.ruleCode] = { value: serverValue, reason: '', baseValue: serverValue, baseRowVersion: setting.rowVersion }
+    return warningDrafts[rule.ruleCode]
   }
-  return warningDrafts[ruleCode]
+
+  const isDirty = existing.value !== existing.baseValue || existing.reason.trim().length > 0
+  if (!isDirty && existing.baseRowVersion !== setting.rowVersion) {
+    warningDrafts[rule.ruleCode] = { value: serverValue, reason: '', baseValue: serverValue, baseRowVersion: setting.rowVersion }
+  }
+  return warningDrafts[rule.ruleCode]
+}
+
+function isWarningDraftConflicted(rule: CompatibilityRuleAdminDto): boolean {
+  const draft = warningDrafts[rule.ruleCode]
+  if (!draft || !rule.warningSetting) {
+    return false
+  }
+  const isDirty = draft.value !== draft.baseValue || draft.reason.trim().length > 0
+  return isDirty && draft.baseRowVersion !== rule.warningSetting.rowVersion
+}
+
+/** Discards the local draft and re-initializes it fresh from the current (post-conflict) server state. */
+function reloadWarningDraft(rule: CompatibilityRuleAdminDto): void {
+  delete warningDrafts[rule.ruleCode]
+  draftFor(rule)
 }
 
 // 組長 PR #35 round-2 review, P2-8: clearing the formal-threshold input used to write `Number('')`
@@ -64,17 +126,15 @@ function draftFor(ruleCode: string, currentValue: number | string) {
 // RemainingStoragePortWarningCount both allow a 0 minimum), relying on isValidBoundedNumber alone
 // wouldn't have reliably caught an emptied field for those two — writing NaN for a blank field
 // makes it fail Number.isFinite regardless of where 0 happens to sit in that rule's own range.
-function updateWarningDraftValue(ruleCode: string, currentValue: number | string, rawValue: string): void {
-  draftFor(ruleCode, currentValue).value = rawValue.trim() === '' ? Number.NaN : Number(rawValue)
+function updateWarningDraftValue(rule: CompatibilityRuleAdminDto, rawValue: string): void {
+  draftFor(rule).value = rawValue.trim() === '' ? Number.NaN : Number(rawValue)
 }
 
-function isWarningDraftValid(rule: {
-  warningSetting: { value: number | string, minValue: number | string, maxValue: number | string } | null
-}, ruleCode: string): boolean {
+function isWarningDraftValid(rule: CompatibilityRuleAdminDto): boolean {
   if (!rule.warningSetting) {
     return false
   }
-  const draft = draftFor(ruleCode, rule.warningSetting.value)
+  const draft = draftFor(rule)
   return isValidBoundedNumber(draft.value, Number(rule.warningSetting.minValue), Number(rule.warningSetting.maxValue))
 }
 
@@ -83,22 +143,26 @@ const warningError = ref<Record<string, unknown>>({})
 // DEC-BATCH-026 (DEC-P309): concurrency moved from the whole-ruleset `settingsVersion` (still
 // shown below as a reporting/generation label, no longer submitted) to a per-(rule,setting)
 // RowVersion — each write must send the specific row's own RowVersion it read, not a global one.
-async function submitWarningSetting(ruleCode: string): Promise<void> {
-  const rule = ruleList.value?.rules.find((candidate) => candidate.ruleCode === ruleCode)
-  const draft = warningDrafts[ruleCode]
-  if (!rule?.warningSetting || !draft || draft.reason.trim().length === 0 || !isWarningDraftValid(rule, ruleCode)) {
+async function submitWarningSetting(rule: CompatibilityRuleAdminDto): Promise<void> {
+  const draft = warningDrafts[rule.ruleCode]
+  if (!rule.warningSetting || !draft || draft.reason.trim().length === 0
+    || !isWarningDraftValid(rule) || isWarningDraftConflicted(rule)) {
     return
   }
 
-  warningError.value = { ...warningError.value, [ruleCode]: null }
+  warningError.value = { ...warningError.value, [rule.ruleCode]: null }
   try {
     await updateWarningSetting.mutateAsync({
-      ruleCode,
+      ruleCode: rule.ruleCode,
       request: { value: draft.value, rowVersion: rule.warningSetting.rowVersion, reason: draft.reason.trim() },
     })
-    draft.reason = ''
+    // 組長 PR #35 round-3 review: reset the local baseline immediately on success rather than
+    // just clearing `reason` — the refetch this mutation triggers (see useUpdateWarningSetting's
+    // invalidateQueries) will re-initialize a fresh, clean draft from the confirmed server state,
+    // instead of trusting this optimistic guess to stay in sync.
+    delete warningDrafts[rule.ruleCode]
   } catch (submitError) {
-    warningError.value = { ...warningError.value, [ruleCode]: submitError }
+    warningError.value = { ...warningError.value, [rule.ruleCode]: submitError }
   }
 }
 
@@ -106,6 +170,9 @@ const activationDialog = ref<{ ruleCode: string, targetIsActive: boolean, activa
 const activationError = ref<unknown>(null)
 
 function openActivationDialog(ruleCode: string, targetIsActive: boolean, activationRowVersion: string | null): void {
+  if (!canManageActivation.value) {
+    return
+  }
   activationDialog.value = { ruleCode, targetIsActive, activationRowVersion }
   activationError.value = null
 }
@@ -139,8 +206,18 @@ const testSelectedRuleCodes = ref<string[]>([])
 // 組長 PR #35 round-2 review, P2-8: the quantity `<input min="1" max="8">` never actually stopped
 // a value outside that range (or a non-integer) from reaching this handler and being pushed
 // straight into testItems.
+//
+// Self-review finding (送出前文件核對): the 1–8 quantity bound was enforced here, but the
+// documented 1–20 *item count* ceiling (相容性規則後台設計.md「items 1～20 筆」, and the same bound
+// customer-web already enforces in features/builds/types.ts) was not — an admin could keep adding
+// rows past 20 and only find out when the backend rejected the whole test run.
+const MAX_TEST_ITEMS = 20
 const isTestQuantityValid = computed(() => isValidBoundedNumber(testDraftSku.quantity, 1, 8, true))
-const isAddTestItemValid = computed(() => testDraftSku.skuPublicId.trim().length > 0 && isTestQuantityValid.value)
+const isTestItemCountValid = computed(() => testItems.value.length <= MAX_TEST_ITEMS)
+const isAddTestItemValid = computed(() =>
+  testDraftSku.skuPublicId.trim().length > 0
+  && isTestQuantityValid.value
+  && testItems.value.length < MAX_TEST_ITEMS)
 
 function addTestItem(): void {
   if (!isAddTestItemValid.value) {
@@ -155,23 +232,42 @@ function removeTestItem(index: number): void {
   testItems.value = testItems.value.filter((_, i) => i !== index)
 }
 
-// 組長 PR #35 review, item 6 (P2), tightened in round-2 review P2-8: the raw @input handler used
-// to do Number(rawValue) with no guard — clearing the field sends NaN through to the request
-// body. Only accepts a finite number within the rule's own min/max (the round-2 fix: this
-// previously only checked Number.isFinite, despite the comment already claiming the min/max check
-// existed); anything else (including a cleared field or an out-of-range value) drops the draft
-// override for that setting entirely, falling back to the rule's real current value server-side.
+/**
+ * 組長 PR #35 round-3 review, P2-4: an invalid draft threshold used to be silently dropped from
+ * `testDraftWarningSettings` (falling back to the rule's real value), but the `<input>` itself
+ * was uncontrolled (no `:value` binding) — it kept showing whatever the admin had typed, and
+ * "執行測試" stayed enabled. An admin who typed 999, saw 999 still sitting in the box, and clicked
+ * "執行測試" would get a result that silently tested the *current production* threshold instead —
+ * indistinguishable on screen from an override actually taking effect. `testDraftWarningInputs`
+ * tracks the raw string and whether it's currently valid *per settingCode*, so the input can stay
+ * controlled (reflects exactly what's being tested, not just what was last successfully typed)
+ * and `isTestDraftSettingsValid` below can block "執行測試" outright. An empty field is valid — it
+ * explicitly means "don't override this one", not an error.
+ */
+const testDraftWarningInputs = reactive<Record<string, { raw: string, isValid: boolean }>>({})
+
 function setDraftWarningSetting(settingCode: string, rawValue: string, min: number, max: number): void {
+  const trimmed = rawValue.trim()
   const parsed = Number(rawValue)
-  if (rawValue.trim() === '' || !isValidBoundedNumber(parsed, min, max)) {
+  const isValid = trimmed === '' || isValidBoundedNumber(parsed, min, max)
+  testDraftWarningInputs[settingCode] = { raw: rawValue, isValid }
+
+  if (trimmed === '' || !isValid) {
     delete testDraftWarningSettings[settingCode]
     return
   }
   testDraftWarningSettings[settingCode] = parsed
 }
 
+const isTestDraftSettingsValid = computed(() =>
+  !testUseDraftSettings.value || Object.values(testDraftWarningInputs).every((input) => input.isValid),
+)
+
+const isRunTestValid = computed(() =>
+  testItems.value.length > 0 && isTestItemCountValid.value && isTestDraftSettingsValid.value)
+
 async function runTest(): Promise<void> {
-  if (testItems.value.length === 0) {
+  if (!isRunTestValid.value) {
     return
   }
   await testRules.mutateAsync({
@@ -236,15 +332,15 @@ const severityLabels: Record<string, string> = {
                       type="number"
                       :min="rule.warningSetting.minValue"
                       :max="rule.warningSetting.maxValue"
-                      :value="draftFor(rule.ruleCode, rule.warningSetting.value).value"
+                      :value="draftFor(rule).value"
                       aria-label="警告門檻數值"
-                      @input="updateWarningDraftValue(rule.ruleCode, rule.warningSetting.value, ($event.target as HTMLInputElement).value)"
+                      @input="updateWarningDraftValue(rule, ($event.target as HTMLInputElement).value)"
                     >
                     <span class="compatibility-rules-page__range">
                       （允許範圍 {{ rule.warningSetting.minValue }}–{{ rule.warningSetting.maxValue }}，預設 {{ rule.warningSetting.defaultValue }}）
                     </span>
                     <input
-                      v-model="draftFor(rule.ruleCode, rule.warningSetting.value).reason"
+                      v-model="draftFor(rule).reason"
                       type="text"
                       placeholder="調整理由（必填，寫入稽核紀錄）"
                       maxlength="500"
@@ -253,17 +349,30 @@ const severityLabels: Record<string, string> = {
                     <button
                       type="button"
                       :disabled="updateWarningSetting.isPending.value
-                        || !draftFor(rule.ruleCode, rule.warningSetting.value).reason.trim()
-                        || !isWarningDraftValid(rule, rule.ruleCode)"
-                      @click="submitWarningSetting(rule.ruleCode)"
+                        || !draftFor(rule).reason.trim()
+                        || !isWarningDraftValid(rule)
+                        || isWarningDraftConflicted(rule)"
+                      @click="submitWarningSetting(rule)"
                     >
                       更新門檻
                     </button>
                     <p
-                      v-if="!isWarningDraftValid(rule, rule.ruleCode)"
+                      v-if="!isWarningDraftValid(rule)"
                       class="compatibility-rules-page__validation-error"
                     >
                       請輸入 {{ rule.warningSetting.minValue }}–{{ rule.warningSetting.maxValue }} 範圍內的數值。
+                    </p>
+                    <p
+                      v-else-if="isWarningDraftConflicted(rule)"
+                      class="compatibility-rules-page__validation-error"
+                    >
+                      此門檻已被其他管理員更新（目前伺服器值：{{ rule.warningSetting.value }}），請重新載入後再編輯。
+                      <button
+                        type="button"
+                        @click="reloadWarningDraft(rule)"
+                      >
+                        重新載入最新值
+                      </button>
                     </p>
                   </div>
                   <ErrorState
@@ -281,11 +390,18 @@ const severityLabels: Record<string, string> = {
               </td>
               <td>
                 <button
+                  v-if="canManageActivation"
                   type="button"
                   @click="openActivationDialog(rule.ruleCode, !rule.isActive, rule.activationRowVersion)"
                 >
                   {{ rule.isActive ? '停用' : '啟用' }}
                 </button>
+                <span
+                  v-else
+                  class="compatibility-rules-page__no-threshold"
+                >
+                  僅 SuperAdmin 可啟用／停用
+                </span>
               </td>
             </tr>
             <tr v-if="activationDialog && activationDialog.ruleCode === rule.ruleCode">
@@ -323,7 +439,7 @@ const severityLabels: Record<string, string> = {
 
         <table
           v-if="testItems.length > 0"
-          class="compatibility-rules-page__table"
+          class="compatibility-rules-page__table compatibility-rules-page__test-items"
         >
           <thead>
             <tr>
@@ -380,6 +496,12 @@ const severityLabels: Record<string, string> = {
           >
             數量須為 1–8 之間的整數。
           </p>
+          <p
+            v-else-if="testItems.length >= 20"
+            class="compatibility-rules-page__validation-error"
+          >
+            測試項目最多 20 筆，請先移除部分項目。
+          </p>
         </div>
 
         <label class="compatibility-rules-page__checkbox">
@@ -419,6 +541,7 @@ const severityLabels: Record<string, string> = {
               :min="rule.warningSetting!.minValue"
               :max="rule.warningSetting!.maxValue"
               :placeholder="String(rule.warningSetting!.value)"
+              :value="testDraftWarningInputs[rule.warningSetting!.settingCode]?.raw ?? ''"
               @input="setDraftWarningSetting(
                 rule.warningSetting!.settingCode,
                 ($event.target as HTMLInputElement).value,
@@ -426,12 +549,18 @@ const severityLabels: Record<string, string> = {
                 Number(rule.warningSetting!.maxValue),
               )"
             >
+            <span
+              v-if="testDraftWarningInputs[rule.warningSetting!.settingCode]?.isValid === false"
+              class="compatibility-rules-page__validation-error"
+            >
+              須為 {{ rule.warningSetting!.minValue }}–{{ rule.warningSetting!.maxValue }} 範圍內的數值，或留空以不覆寫。
+            </span>
           </label>
         </div>
 
         <button
           type="button"
-          :disabled="testItems.length === 0 || testRules.isPending.value"
+          :disabled="!isRunTestValid || testRules.isPending.value"
           @click="runTest"
         >
           執行測試
@@ -447,7 +576,7 @@ const severityLabels: Record<string, string> = {
               v-for="(finding, index) in testRules.data.value.results"
               :key="index"
             >
-              [{{ severityLabels[finding.severity] ?? finding.severity }}] {{ finding.ruleCode }} — {{ finding.messageKey }}
+              [{{ severityLabels[finding.severity] ?? finding.severity }}] {{ finding.ruleCode }} — {{ describeCompatibilityMessage(finding.messageKey, finding.facts) }}
             </li>
           </ul>
         </div>

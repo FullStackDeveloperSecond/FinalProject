@@ -39,17 +39,40 @@ const itemsByCategory = computed(() => {
   return map
 })
 
+// 組長 PR #35 round-3 review, P1-2: EfCompatibilityCheckService.MergeAndValidateItems merges by
+// SkuPublicId and rejects a merged row's quantity outside 1–8 — this editor must enforce the same
+// bound itself, not just rely on the backend to reject it after the fact.
+const MAX_ITEM_QUANTITY = 8
+
 function selectForSlot(
   slot: { code: string, singleton: boolean },
   picked: { skuPublicId: string, skuCode: string, name: string },
 ): void {
-  const newItem: EditableBuildItem = {
-    skuPublicId: picked.skuPublicId, quantity: 1, name: picked.name, categoryCode: slot.code,
+  if (slot.singleton) {
+    const remaining = props.items.filter((item) => item.categoryCode !== slot.code)
+    emit('update:items', [...remaining, { skuPublicId: picked.skuPublicId, quantity: 1, name: picked.name, categoryCode: slot.code }])
+    return
   }
-  const remaining = slot.singleton
-    ? props.items.filter((item) => item.categoryCode !== slot.code)
-    : props.items
-  emit('update:items', [...remaining, newItem])
+
+  // 組長 PR #35 round-3 review, P1-2: picking the same SKU twice for a multi-quantity slot
+  // (記憶體／儲存裝置) used to append a brand-new row every time — two rows for one SKU, which the
+  // backend's own MergeAndValidateItems silently collapses into a single merged row on save. That
+  // left this editor's local state permanently out of sync with what the server actually stored:
+  // the page would keep showing two rows (and keep reporting unsaved changes) even immediately
+  // after a successful save. Increment the existing row's quantity instead of ever creating a
+  // duplicate, capped at the same bound the backend enforces post-merge.
+  const existingIndex = props.items.findIndex(
+    (item) => item.categoryCode === slot.code && item.skuPublicId === picked.skuPublicId,
+  )
+  if (existingIndex === -1) {
+    emit('update:items', [...props.items, { skuPublicId: picked.skuPublicId, quantity: 1, name: picked.name, categoryCode: slot.code }])
+    return
+  }
+
+  const next = [...props.items]
+  const existing = next[existingIndex]!
+  next[existingIndex] = { ...existing, quantity: Math.min(existing.quantity + 1, MAX_ITEM_QUANTITY) }
+  emit('update:items', next)
 }
 
 function removeItem(skuPublicId: string, categoryCode: string): void {
@@ -58,9 +81,17 @@ function removeItem(skuPublicId: string, categoryCode: string): void {
   ))
 }
 
+// 組長 PR #35 round-3 review, P1-2: the quantity `<input min max>` was a UI hint only (max="99",
+// not even matching the backend's real 1–8 bound) — nothing stopped a shopper from typing 9–99 and
+// having it sent straight through to a request the backend was always going to reject. Clamps to
+// the real bound instead of just displaying it.
 function updateQuantity(skuPublicId: string, categoryCode: string, quantity: number): void {
+  if (!Number.isFinite(quantity)) {
+    return
+  }
+  const clamped = Math.min(Math.max(Math.trunc(quantity), 1), MAX_ITEM_QUANTITY)
   emit('update:items', props.items.map((item) =>
-    (item.skuPublicId === skuPublicId && item.categoryCode === categoryCode ? { ...item, quantity } : item)))
+    (item.skuPublicId === skuPublicId && item.categoryCode === categoryCode ? { ...item, quantity: clamped } : item)))
 }
 </script>
 
@@ -93,7 +124,7 @@ function updateQuantity(skuPublicId: string, categoryCode: string, quantity: num
           <input
             type="number"
             min="1"
-            max="99"
+            max="8"
             :value="item.quantity"
             :disabled="disabled"
             :aria-label="`${item.name} 數量`"

@@ -51,3 +51,33 @@ export const BUILD_CATEGORY_SLOTS: readonly BuildCategorySlot[] = [
   { code: 'CASE', label: '機殼', singleton: true },
   { code: 'CPU_COOLER', label: '散熱器', singleton: true },
 ]
+
+/**
+ * 組長 PR #35 round-3 review, P1-2: mirrors
+ * `EfCompatibilityCheckService.MergeAndValidateItems`'s own bounds exactly (1–20 raw items,
+ * 1–8 per merged SKU) — the editor already keeps `items` deduplicated per SKU (see
+ * BuildItemsEditor.vue's `selectForSlot`), so what's here *is* the merged form the backend would
+ * compute, and this can validate it directly without re-implementing the grouping itself. Used to
+ * gate every "儲存"／"加入購物車" action on both NewBuildPage.vue and BuildDetailPage.vue so an
+ * invalid request is never even attempted, not just eventually rejected by the backend.
+ */
+export const MAX_BUILD_ITEM_COUNT = 20
+export const MAX_BUILD_ITEM_QUANTITY = 8
+
+export interface BuildItemsValidation {
+  isValid: boolean
+  errors: string[]
+}
+
+export function validateBuildItems(items: { skuPublicId: string, quantity: number }[]): BuildItemsValidation {
+  const errors: string[] = []
+  if (items.length === 0) {
+    errors.push('請至少選擇一項元件。')
+  } else if (items.length > MAX_BUILD_ITEM_COUNT) {
+    errors.push(`組裝項目最多 ${MAX_BUILD_ITEM_COUNT} 項，目前有 ${items.length} 項。`)
+  }
+  if (items.some((item) => !Number.isInteger(item.quantity) || item.quantity < 1 || item.quantity > MAX_BUILD_ITEM_QUANTITY)) {
+    errors.push(`每項數量須為 1–${MAX_BUILD_ITEM_QUANTITY} 之間的整數。`)
+  }
+  return { isValid: errors.length === 0, errors }
+}

@@ -105,4 +105,74 @@ describe('BuildItemsEditor', () => {
     await removeButton!.trigger('click')
     expect(getEmitted()).toHaveLength(0)
   })
+
+  /**
+   * 組長 PR #35 round-3 review, P1-2: EfCompatibilityCheckService.MergeAndValidateItems merges by
+   * SkuPublicId — picking the same SKU twice for a multi-quantity slot used to append a second row
+   * instead of incrementing the existing one, leaving this editor's local state permanently out of
+   * sync with what the server would actually store after a save.
+   */
+  it('merges a repeated pick of the same SKU into the existing row instead of creating a duplicate', async () => {
+    const { wrapper, getEmitted } = mountEditor([])
+
+    await wrapper.find('[data-testid="pick-MEMORY"]').trigger('click')
+    await wrapper.setProps({ items: getEmitted() })
+    await wrapper.find('[data-testid="pick-MEMORY"]').trigger('click')
+
+    const memoryItems = getEmitted().filter((item) => item.categoryCode === 'MEMORY')
+    expect(memoryItems).toHaveLength(1)
+    expect(memoryItems[0].skuPublicId).toBe('MEMORY-sku-new')
+    expect(memoryItems[0].quantity).toBe(2)
+  })
+
+  it('caps the quantity from repeated picks of the same SKU at 8 instead of growing without bound', async () => {
+    const { wrapper, getEmitted } = mountEditor([])
+
+    for (let click = 0; click < 9; click += 1) {
+      await wrapper.find('[data-testid="pick-MEMORY"]').trigger('click')
+      await wrapper.setProps({ items: getEmitted() })
+    }
+
+    const memoryItems = getEmitted().filter((item) => item.categoryCode === 'MEMORY')
+    expect(memoryItems).toHaveLength(1)
+    expect(memoryItems[0].quantity).toBe(8)
+  })
+
+  /**
+   * 組長 PR #35 round-3 review, P1-2: the quantity <input max="99"> used to be a UI hint only,
+   * not matching the backend's real 1–8 bound — typing 9 (or 0) must be clamped locally, not sent
+   * straight through to a request the backend was always going to reject.
+   */
+  it('clamps a typed quantity above 8 down to 8', async () => {
+    const item: EditableBuildItem = { skuPublicId: 'sku-1', quantity: 1, name: '測試記憶體', categoryCode: 'MEMORY' }
+    const { wrapper, getEmitted } = mountEditor([item])
+
+    const quantityInput = wrapper.find('input[type="number"]')
+    await quantityInput.setValue(9)
+    await quantityInput.trigger('change')
+
+    expect(getEmitted()[0].quantity).toBe(8)
+  })
+
+  it('clamps a typed quantity below 1 up to 1', async () => {
+    const item: EditableBuildItem = { skuPublicId: 'sku-1', quantity: 3, name: '測試記憶體', categoryCode: 'MEMORY' }
+    const { wrapper, getEmitted } = mountEditor([item])
+
+    const quantityInput = wrapper.find('input[type="number"]')
+    await quantityInput.setValue(0)
+    await quantityInput.trigger('change')
+
+    expect(getEmitted()[0].quantity).toBe(1)
+  })
+
+  it('accepts a quantity of exactly 8, the upper boundary, unchanged', async () => {
+    const item: EditableBuildItem = { skuPublicId: 'sku-1', quantity: 1, name: '測試記憶體', categoryCode: 'MEMORY' }
+    const { wrapper, getEmitted } = mountEditor([item])
+
+    const quantityInput = wrapper.find('input[type="number"]')
+    await quantityInput.setValue(8)
+    await quantityInput.trigger('change')
+
+    expect(getEmitted()[0].quantity).toBe(8)
+  })
 })

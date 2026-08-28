@@ -6,6 +6,7 @@ import { useRoute, useRouter } from 'vue-router'
 import BuildItemsEditor, { type EditableBuildItem } from '../features/builds/components/BuildItemsEditor.vue'
 import CompatibilityFindingsList from '../features/builds/components/CompatibilityFindingsList.vue'
 import { useCompatibilityCheck, useCreateBuildList } from '../features/builds/useBuilds'
+import { validateBuildItems } from '../features/builds/types'
 import {
   clearGuestBuildDraft,
   consumePendingBuildSaveResume,
@@ -39,10 +40,15 @@ function runCompatibilityCheck(): void {
 }
 
 const canSave = ref(false)
+// 組長 PR #35 round-3 review, P1-2: mirrors EfCompatibilityCheckService.MergeAndValidateItems's
+// own bounds (1–20 items, 1–8 per SKU) — must be checked before "儲存為我的清單" is even
+// clickable, not just left for the backend to reject after the fact.
+const itemsValidation = ref(validateBuildItems([]))
 
 watch([name, items], () => {
   saveGuestBuildDraft({ name: name.value, items: items.value })
-  canSave.value = name.value.trim().length > 0 && items.value.length > 0
+  itemsValidation.value = validateBuildItems(items.value)
+  canSave.value = name.value.trim().length > 0 && itemsValidation.value.isValid
 
   clearTimeout(debounceHandle)
   debounceHandle = setTimeout(runCompatibilityCheck, 500)
@@ -138,6 +144,18 @@ watch(() => sessionStore.status, (status) => {
       @retry="runCompatibilityCheck"
     />
 
+    <ul
+      v-if="items.length > 0 && !itemsValidation.isValid"
+      class="new-build-page__items-errors"
+    >
+      <li
+        v-for="error in itemsValidation.errors"
+        :key="error"
+      >
+        {{ error }}
+      </li>
+    </ul>
+
     <div class="new-build-page__actions">
       <button
         type="button"
@@ -178,6 +196,13 @@ watch(() => sessionStore.status, (status) => {
   border: 1px solid #d1d5db;
   border-radius: 0.5rem;
   font: inherit;
+}
+
+.new-build-page__items-errors {
+  margin: 1rem 0 0;
+  padding-left: 1.25rem;
+  color: #b91c1c;
+  font-size: 0.875rem;
 }
 
 .new-build-page__actions {

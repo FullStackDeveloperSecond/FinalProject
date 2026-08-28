@@ -106,9 +106,16 @@ const router = createRouter({
       component: () => import('../pages/CartPage.vue'),
     },
     {
+      // 組長 PR #35 round-3 review, P2-3: a saved build-list is inherently a member resource (it
+      // lives on the account, not a guest-local draft) — the list and its detail page must require
+      // login the same as /account/orders or /account/addresses do. /builds/new (a guest draft
+      // that's only saved to an account once the shopper logs in — see NewBuildPage.vue's own
+      // pending-resume flow) and /builds/shared/:shareToken (an intentionally public read-only
+      // link) are correctly left open below.
       path: '/account/builds',
       name: 'build-lists',
       component: () => import('../pages/BuildListsPage.vue'),
+      meta: { requiresAuth: true },
     },
     {
       path: '/builds/new',
@@ -126,6 +133,7 @@ const router = createRouter({
       name: 'build-detail',
       component: () => import('../pages/BuildDetailPage.vue'),
       props: true,
+      meta: { requiresAuth: true },
     },
     {
       path: '/unauthorized',

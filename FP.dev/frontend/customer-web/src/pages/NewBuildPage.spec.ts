@@ -173,4 +173,40 @@ describe('NewBuildPage', () => {
 
     expect(mockCreateBuildList).not.toHaveBeenCalled()
   })
+
+  /**
+   * 組長 PR #35 round-3 review, P1-2: mirrors EfCompatibilityCheckService.MergeAndValidateItems's
+   * own bounds (1–20 items, 1–8 per SKU). BuildItemsEditor.vue's own picker/quantity input can no
+   * longer produce an out-of-bounds value directly, but a guest draft loaded from localStorage
+   * (written by an older build of this page, before this fix existed) still can — "儲存為我的清單"
+   * must stay disabled and explain why rather than let a stale draft reach the backend and fail
+   * there instead.
+   */
+  it('disables save and shows a validation error when a loaded draft item has an out-of-bounds quantity', async () => {
+    mockLoadGuestBuildDraft.mockReturnValue({
+      name: '我的組裝',
+      items: [{ skuPublicId: 'sku-1', quantity: 9, name: '記憶體 測試品', categoryCode: 'MEMORY' }],
+    })
+
+    const { wrapper } = await mountPage()
+    await wrapper.vm.$nextTick()
+
+    const button = wrapper.find('.new-build-page__actions button')
+    expect(button.attributes('disabled')).toBeDefined()
+    expect(wrapper.find('.new-build-page__items-errors').text()).toContain('1–8')
+  })
+
+  it('disables save and shows a validation error when a loaded draft has more than 20 items', async () => {
+    const items = Array.from({ length: 21 }, (_, index) => ({
+      skuPublicId: `sku-${index}`, quantity: 1, name: `記憶體 測試品 ${index}`, categoryCode: 'MEMORY',
+    }))
+    mockLoadGuestBuildDraft.mockReturnValue({ name: '我的組裝', items })
+
+    const { wrapper } = await mountPage()
+    await wrapper.vm.$nextTick()
+
+    const button = wrapper.find('.new-build-page__actions button')
+    expect(button.attributes('disabled')).toBeDefined()
+    expect(wrapper.find('.new-build-page__items-errors').text()).toContain('最多 20 項')
+  })
 })

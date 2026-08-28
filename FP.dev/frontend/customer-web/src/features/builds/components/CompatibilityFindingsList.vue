@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { describeCompatibilityMessage } from '@doselect/web-shared/compatibility'
 import type { CompatibilityFindingDto } from '../types'
 
 // `overall`/`severity` are plain `string` on the wire (the backend serializes them via
@@ -47,8 +48,8 @@ const severityLabels: Record<string, string> = {
         :class="`compat-findings__item--${finding.severity}`"
       >
         <span class="compat-findings__severity">{{ severityLabels[finding.severity] ?? finding.severity }}</span>
+        <span class="compat-findings__message">{{ describeCompatibilityMessage(finding.messageKey, finding.facts) }}</span>
         <span class="compat-findings__rule">{{ finding.ruleCode }}</span>
-        <span class="compat-findings__message">{{ finding.messageKey }}</span>
       </li>
     </ul>
   </section>

@@ -80,10 +80,11 @@ public sealed record BuildListListQuery(
     [Range(1, 50)] int PageSize = 20);
 
 /// <summary>
-/// <c>Url</c> is the relative path of this backend's own public read endpoint
-/// (<c>/api/v1/build-shares/{token}</c>) — no frontend share-page route is defined in any
-/// contract doc yet, so this points at the resource this token actually unlocks rather than
-/// guessing a frontend URL shape.
+/// PR #35 round-3 review (non-blocking doc note): <c>Url</c> is the full, openable frontend URL —
+/// <c>{FrontendLinkOptions.BaseUrl}/builds/shared/{token}</c> (customer-web's
+/// <c>SharedBuildPage.vue</c> route), not this backend's own API path. See
+/// <see cref="DoSelect.Infrastructure.Builds.EfBuildListService.CreateShareAsync"/> for the actual
+/// construction.
 /// </summary>
 public sealed record BuildShareDto(Guid SharePublicId, string Url, DateTime? ExpiresAtUtc);
 

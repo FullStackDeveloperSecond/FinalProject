@@ -1,5 +1,5 @@
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -244,5 +244,119 @@ describe('SharedBuildPage — resuming the original action after login (組長 P
 
     expect(mockCreateBuildList).not.toHaveBeenCalled()
     expect(mockAddBuildToCart).not.toHaveBeenCalled()
+  })
+})
+
+describe('SharedBuildPage — totals breakdown (送出前文件核對發現)', () => {
+  /**
+   * 商品、組裝與相容性.md lists 組裝服務費 NT$300／台 as an explicit line of a build group, and
+   * BuildDetailPage.vue shows the three-line breakdown. The share page used to show only
+   * grandTotal, so someone opening a shared link could not tell where the price came from.
+   * Values always come from `totals` — never a hardcoded 300 in the frontend.
+   */
+  it('shows the merchandise / assembly-fee / grand-total breakdown, not just the grand total', async () => {
+    mockGetSharedBuild.mockResolvedValue(sharedBuild())
+    const { wrapper } = await mountPage(true)
+    await vi.waitFor(() => expect(wrapper.text()).toContain('分享的組裝'))
+
+    const totals = wrapper.find('.shared-build-page__totals').text()
+    expect(totals).toContain('商品小計')
+    expect(totals).toContain('5,000')
+    expect(totals).toContain('組裝費')
+    expect(totals).toContain('300')
+    expect(totals).toContain('合計')
+    expect(totals).toContain('5,300')
+  })
+})
+
+describe('SharedBuildPage — share-token identity switch (組長 PR #35 round-3 review, P2-5)', () => {
+  /**
+   * Vue Router reuses this component instance across /builds/shared/:shareToken navigations on the
+   * same route record — it does not unmount/remount just because the token changed (same precedent
+   * as ProductDetailPage.vue's selectedSkuPublicId fix, PR #24 review). The pending-action storage
+   * key, the pending copy-for-cart, the cart Idempotency-Key and the auto-resume latch were all
+   * computed once at setup, so following a second shared link in the same tab carried the FIRST
+   * link's state into it.
+   */
+  it('does not fire the previous token\'s pending action against a different shared build', async () => {
+    mockGetSharedBuild.mockResolvedValue(sharedBuild())
+    mockCreateBuildList.mockResolvedValue({ publicId: 'new-build-1', rowVersion: 'AAAA' })
+
+    // A pending "copy" was left behind for a DIFFERENT shared link in this tab.
+    window.sessionStorage.setItem('doselect.sharedBuild.pendingAction.other-token', 'copy')
+
+    const { wrapper } = await mountPage(true)
+    await vi.waitFor(() => expect(wrapper.text()).toContain('分享的組裝'))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    // abc123 has no pending action of its own — the other token's marker must not fire here.
+    expect(mockCreateBuildList).not.toHaveBeenCalled()
+    expect(window.sessionStorage.getItem('doselect.sharedBuild.pendingAction.other-token')).toBe('copy')
+  })
+
+  it('reads the new token\'s own pending action after navigating to a different shared build', async () => {
+    mockGetSharedBuild.mockResolvedValue(sharedBuild())
+    mockCreateBuildList.mockResolvedValue({ publicId: 'new-build-2', rowVersion: 'BBBB' })
+
+    const { wrapper } = await mountPage(true)
+    await vi.waitFor(() => expect(wrapper.text()).toContain('分享的組裝'))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(mockCreateBuildList).not.toHaveBeenCalled()
+
+    // The shopper follows a second shared link in the same tab, which does have a pending action.
+    window.sessionStorage.setItem('doselect.sharedBuild.pendingAction.token-2', 'copy')
+    await wrapper.setProps({ shareToken: 'token-2' })
+    await flushPromises()
+
+    // The auto-resume latch must have been reset by the token change, otherwise this never fires.
+    await vi.waitFor(() => expect(mockCreateBuildList).toHaveBeenCalledTimes(1))
+    expect(window.sessionStorage.getItem('doselect.sharedBuild.pendingAction.token-2')).toBeNull()
+  })
+
+  it('does not reuse the previous token\'s copy or Idempotency-Key for a different shared build', async () => {
+    mockGetSharedBuild.mockResolvedValue(sharedBuild())
+    mockCreateBuildList.mockResolvedValue({ publicId: 'new-build-1', rowVersion: 'AAAA' })
+    mockAddBuildToCart.mockRejectedValueOnce(new Error('network error'))
+
+    const { wrapper } = await mountPage(true)
+    await vi.waitFor(() => expect(wrapper.text()).toContain('分享的組裝'))
+
+    const cartButton = () => wrapper.findAll('button').find((button) => button.text() === '整套加入購物車')!
+    await cartButton().trigger('click')
+    await vi.waitFor(() => expect(mockAddBuildToCart).toHaveBeenCalledTimes(1))
+    const firstKey = mockAddBuildToCart.mock.calls[0]![2]
+    await vi.waitFor(() => expect(cartButton().attributes('disabled')).toBeUndefined())
+
+    // Navigate to a different shared build, then add THAT one to the cart.
+    mockCreateBuildList.mockResolvedValue({ publicId: 'new-build-2', rowVersion: 'BBBB' })
+    mockAddBuildToCart.mockResolvedValueOnce({})
+    await wrapper.setProps({ shareToken: 'token-2' })
+    await flushPromises()
+
+    await cartButton().trigger('click')
+    await vi.waitFor(() => expect(mockAddBuildToCart).toHaveBeenCalledTimes(2))
+
+    // A fresh copy was made for the new shared build — the first build's pending copy must not be
+    // reused — and the Idempotency-Key is new, because this is a different logical operation, not
+    // a retry of the first one.
+    const [secondPublicId, , secondKey] = mockAddBuildToCart.mock.calls[1]!
+    expect(secondPublicId).toBe('new-build-2')
+    expect(secondKey).not.toBe(firstKey)
+  })
+
+  it('clears a previous token\'s error message when navigating to a different shared build', async () => {
+    mockGetSharedBuild.mockResolvedValue(sharedBuild())
+    mockCreateBuildList.mockRejectedValueOnce(new Error('boom'))
+
+    const { wrapper } = await mountPage(true)
+    await vi.waitFor(() => expect(wrapper.text()).toContain('分享的組裝'))
+
+    await wrapper.findAll('button').find((button) => button.text() === '複製為我的清單')!.trigger('click')
+    await vi.waitFor(() => expect(wrapper.text()).toContain('操作失敗'))
+
+    await wrapper.setProps({ shareToken: 'token-2' })
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('操作失敗')
   })
 })

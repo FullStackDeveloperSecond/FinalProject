@@ -125,9 +125,18 @@ const router = createRouter({
       // 組長 PR #35 review, item 6: official route is /admin/catalog/compatibility, not
       // /admin/compatibility — base: '/admin/' in vite.config.ts means this entry only needs
       // the /catalog/compatibility part, matching the existing /catalog/lookups sibling route.
+      //
+      // 組長 PR #35 round-3 review, P2-3: this route was missing route meta entirely — it never
+      // required login at all, and CompatibilityRulesPage.vue's activation toggle is a
+      // SuperAdmin-only backend operation (相容性規則後台設計.md: "規則整體啟停只允許
+      // SuperAdmin") that any logged-in CatalogManager could still see and click on screen, even
+      // though the backend Policy would ultimately reject it. Guarded the same way
+      // /catalog/lookups already is; the page itself also hides the activation controls from a
+      // non-SuperAdmin below (defense in depth, not a substitute for the backend Policy either).
       path: '/catalog/compatibility',
       name: 'compatibility-rules',
       component: () => import('../pages/CompatibilityRulesPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['CatalogManager', 'SuperAdmin'] },
     },
     {
       path: '/unauthorized',

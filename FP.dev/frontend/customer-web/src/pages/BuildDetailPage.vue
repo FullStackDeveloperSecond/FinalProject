@@ -13,7 +13,7 @@ import {
   useRevokeBuildShare,
   useUpdateBuildList,
 } from '../features/builds/useBuilds'
-import type { BuildShareDto } from '../features/builds/types'
+import { validateBuildItems, type BuildShareDto } from '../features/builds/types'
 
 const props = defineProps<{ buildId: string }>()
 const router = useRouter()
@@ -78,12 +78,17 @@ const isDirty = computed(() => {
   return itemsSignature(items.value) !== serverSignature
 })
 
+// 組長 PR #35 round-3 review, P1-2: mirrors EfCompatibilityCheckService.MergeAndValidateItems's
+// own bounds (1–20 items, 1–8 per SKU) — must gate "儲存變更" the same way NewBuildPage.vue's
+// "儲存為我的清單" is gated, not just left for the backend to reject after the fact.
+const itemsValidation = computed(() => validateBuildItems(items.value))
+
 const unsavedEditsMessage = computed(() => (
   isDirty.value ? '您有尚未儲存的變更，請先按「儲存變更」或「放棄變更」，才能分享或加入購物車。' : null
 ))
 
 async function save(): Promise<void> {
-  if (!buildList.value) {
+  if (!buildList.value || !itemsValidation.value.isValid) {
     return
   }
 
@@ -97,6 +102,12 @@ async function save(): Promise<void> {
         rowVersion: buildList.value.rowVersion,
       },
     })
+    // 組長 PR #35 round-3 review: mutation 成功後要以 server response 重設本地 editor
+    // baseline／dirty state。updateBuildList 的 onSuccess 已經用回傳的 BuildListDto
+    // setQueryData，所以這裡的 buildList.value 已經是伺服器合併後的最新資料（例如同一顆 SKU
+    // 被 MergeAndValidateItems 合併成一列）——重新套用它，讓本地 items／name 與 isDirty 不會停在
+    // 送出當下（可能尚未合併）的那份舊值。
+    resetFromServer()
   } catch (error) {
     if (isApiError(error) && error.code === 'concurrency_conflict') {
       hasConcurrencyConflict.value = true
@@ -197,6 +208,31 @@ const canAddToCart = computed(() => cartBlockReason.value === null)
 // input (a different quantity is a genuinely different operation, not a retry of the same one).
 let cartIdempotencyKey = crypto.randomUUID()
 watch(cartQuantity, () => { cartIdempotencyKey = crypto.randomUUID() })
+
+/**
+ * 組長 PR #35 round-3 review, P2-5: Vue Router 在同一個 route record 上只換 :buildId 參數時
+ * 不會卸載／重新掛載這個元件（先例：ProductDetailPage.vue 的 selectedSkuPublicId，PR #24
+ * review 已修過一次同類問題）——若不主動重置，從 /builds/A 導覽到 /builds/B 時，name／items
+ * 等本地狀態會殘留 A 清單的內容，短暫地跟 B 的 buildList／compatibility／totals 顯示混在一起，
+ * 且下面 `watch(buildList, ...)` 的自動帶入邏輯只在「items 是空的」時才會觸發，殘留的舊資料會讓
+ * 它誤判成「使用者已經在編輯」而不去帶入 B 的資料。換 buildId 時先清空全部本地暫存狀態，讓
+ * 上面的 watch 在新資料到達時能重新走一次正常的初次帶入流程；購物車 idempotency key 也要換新
+ * 的，因為換了清單就是全新的一次邏輯操作，不是同一個操作的重試。
+ */
+watch(() => props.buildId, () => {
+  name.value = ''
+  items.value = []
+  hasConcurrencyConflict.value = false
+  saveError.value = null
+  showDeleteConfirm.value = false
+  deleteError.value = null
+  justCreatedShare.value = null
+  shareError.value = null
+  cartQuantity.value = 1
+  cartResultMessage.value = null
+  cartError.value = null
+  cartIdempotencyKey = crypto.randomUUID()
+})
 
 async function addBuildToCart(): Promise<void> {
   if (!buildList.value || isDirty.value) {
@@ -305,10 +341,22 @@ async function addBuildToCart(): Promise<void> {
         @update:items="(next) => { items = next }"
       />
 
+      <ul
+        v-if="!itemsValidation.isValid"
+        class="build-detail-page__items-errors"
+      >
+        <li
+          v-for="itemError in itemsValidation.errors"
+          :key="itemError"
+        >
+          {{ itemError }}
+        </li>
+      </ul>
+
       <div class="build-detail-page__actions">
         <button
           type="button"
-          :disabled="updateBuildList.isPending.value"
+          :disabled="!itemsValidation.isValid || updateBuildList.isPending.value"
           @click="save"
         >
           儲存變更
@@ -475,6 +523,13 @@ async function addBuildToCart(): Promise<void> {
   border: 1px solid #d1d5db;
   border-radius: 0.5rem;
   font: inherit;
+}
+
+.build-detail-page__items-errors {
+  margin: 1rem 0 0;
+  padding-left: 1.25rem;
+  color: #b91c1c;
+  font-size: 0.875rem;
 }
 
 .build-detail-page__actions {
