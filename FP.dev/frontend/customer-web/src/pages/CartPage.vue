@@ -119,8 +119,29 @@ async function onItemActionError(itemPublicId: string, caught: unknown): Promise
 
 const issues = ref<CartIssueDto[]>([])
 const isCheckoutReady = ref(false)
-const hasRevalidated = ref(false)
 const revalidateError = ref<unknown>(null)
+
+// 組長 PR #29 round-6 review, P2: `isCheckoutReady` used to only ever be *set* on a successful
+// revalidate — starting a new revalidate, a failed one, or a Cart mutation racing ahead of its
+// own follow-up revalidate all left whatever the *previous* successful result happened to be in
+// place, so the checkout button could stay enabled against a Cart that no longer matches what was
+// actually validated. Rather than track "has a revalidate ever succeeded" as a separate boolean
+// that has to be remembered to reset on every one of those cases, `validatedForRowVersion` records
+// *which* Cart RowVersion the last successful revalidate actually matched; `canCheckout` below
+// requires that to equal the *current* `cart.value.rowVersion` — a mutation's own onSuccess writes
+// the new RowVersion into the query cache before this page's follow-up revalidate call even
+// starts (mutation-level onSuccess runs before the call-site onSuccess that triggers it), so the
+// mismatch is real starting from the instant the mutation lands, not just once revalidate notices.
+// Switching identity (a completely different Cart, so a different RowVersion) is covered by the
+// same comparison — no separate identity tracking needed.
+const validatedForRowVersion = ref<string | null>(null)
+
+const canCheckout = computed(() => {
+  if (!cart.value || revalidate.isPending.value || revalidateError.value) {
+    return false
+  }
+  return validatedForRowVersion.value === cart.value.rowVersion && isCheckoutReady.value
+})
 
 // PR #29 review round 2: runRevalidate used to be fired-and-forgotten from onMounted and every
 // mutation's onSuccess with no lifecycle management — overlapping calls could resolve out of
@@ -143,7 +164,7 @@ async function runRevalidate(): Promise<void> {
     const result = await revalidate.mutateAsync()
     issues.value = result.issues
     isCheckoutReady.value = result.isCheckoutReady
-    hasRevalidated.value = true
+    validatedForRowVersion.value = result.cart.rowVersion
   } catch (caught) {
     revalidateError.value = caught
   } finally {
@@ -162,9 +183,11 @@ async function runRevalidate(): Promise<void> {
 // rendered cart and the checkout gate would disagree. `isPending` (from useCart()) is true until
 // the query has *never yet* resolved — waiting for it to become false, with no error, means the
 // initial GET has already landed with nothing older left in flight that could still clobber a
-// revalidate's result. `hasRevalidated` guards this to the first successful resolution only; a
-// retry after an initial load failure (ErrorState's @retry) still triggers exactly one revalidate
-// once the retried GET succeeds.
+// revalidate's result. `hasStartedInitialRevalidate` guards this to firing exactly once per page
+// load (purely a "don't re-trigger the automatic kickoff" latch — not the checkout-gate's own
+// validity tracking, which now lives in `validatedForRowVersion` above); a retry after an initial
+// load failure (ErrorState's @retry) still triggers exactly one revalidate once the retried GET
+// succeeds, since that path doesn't go through this watch at all.
 //
 // 組長 PR #29 round-5 review, P2: `isPending` alone isn't enough when the query already has cached
 // data on mount (the shopper had the cart open before, came back after the 30s staleTime expired)
@@ -174,10 +197,28 @@ async function runRevalidate(): Promise<void> {
 // widening this guard: useCart.ts now sets `refetchOnMount: false`, since every path that can make
 // the cart stale already funnels through an explicit revalidate (this one, and every mutation's
 // onSuccess below) — there is no longer a second fetch for this watch to race against.
+//
+// 組長 PR #29 round-6 review, P2: this used to be a fire-*once-ever* guard
+// (`hasRevalidated`/`hasStartedInitialRevalidate`) — correct for the initial mount, but it also
+// meant a shopper who logged in (or switched member accounts) after that first revalidate had
+// already run would never get an automatic revalidate for the newly-loaded Cart: `isPending`
+// toggles true -> false again once the new identity's Cart finishes its own first fetch (a brand
+// -new query key always fetches once regardless of `refetchOnMount: false`, which only suppresses
+// refetching *already-cached* data), but the old one-shot flag silently swallowed that second
+// resolution. Tracking *which RowVersion* was last auto-triggered (instead of "was this ever
+// triggered") fires again for a genuinely different Cart while still not re-firing redundantly for
+// the same Cart settling multiple times. This doesn't double up with the explicit per-mutation
+// onSuccess calls below: a mutation's own `setQueryData` doesn't toggle `isPending`, so this watch
+// only ever reacts to real query (re)fetches — initial load and identity switches — not mutations.
+let lastAutoRevalidatedForRowVersion: string | null = null
 watch(
   isPending,
   (pending) => {
-    if (!pending && !isError.value && !hasRevalidated.value) {
+    if (pending || isError.value || !cart.value) {
+      return
+    }
+    if (lastAutoRevalidatedForRowVersion !== cart.value.rowVersion) {
+      lastAutoRevalidatedForRowVersion = cart.value.rowVersion
       void runRevalidate()
     }
   },
@@ -299,6 +340,9 @@ defineExpose({ runRevalidate })
             <p class="cart-page__assembly-group-label">
               自訂組裝
             </p>
+            <p class="cart-page__assembly-group-hint">
+              組裝品項不可單獨調整數量或移除；如需更換零件，請至「我的組裝清單」修改後重新加入購物車。
+            </p>
             <ul
               class="cart-page__assembly-group-items"
               :aria-label="`組裝品項：${group.assemblyGroupKey}`"
@@ -308,9 +352,8 @@ defineExpose({ runRevalidate })
                 :key="item.publicId"
                 :item="item"
                 :pending="isBusy"
+                readonly
                 :error="itemActionError?.itemPublicId === item.publicId ? itemActionError.message : null"
-                @change-quantity="(quantity) => onChangeQuantity(item.publicId, item.rowVersion, quantity)"
-                @remove="onRemoveItem(item.publicId, item.rowVersion)"
               />
             </ul>
           </li>
@@ -361,8 +404,8 @@ defineExpose({ runRevalidate })
         <button
           type="button"
           class="cart-page__checkout"
-          :disabled="!hasRevalidated || !isCheckoutReady"
-          :title="!isCheckoutReady ? '請先處理購物車內的問題才能結帳' : undefined"
+          :disabled="!canCheckout"
+          :title="!canCheckout ? '請先完成購物車檢查才能結帳' : undefined"
         >
           前往結帳（開發中）
         </button>
@@ -401,6 +444,12 @@ defineExpose({ runRevalidate })
   margin: 0 0 0.5rem;
   font-weight: 600;
   font-size: 0.875rem;
+}
+
+.cart-page__assembly-group-hint {
+  margin: 0 0 0.5rem;
+  color: #4b5563;
+  font-size: 0.8125rem;
 }
 
 .cart-page__assembly-group-items {

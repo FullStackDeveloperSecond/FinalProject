@@ -31,25 +31,64 @@ function useCartIdentityKey() {
   )
 }
 
-export function useCart() {
-  const sessionStore = useSessionStore()
+/**
+ * 組長 PR #29 round-6 review, P1: `useCart()`'s own GET is gated on `status !== 'loading'`, but
+ * nothing gated the mutations — a shopper whose member Cookie the backend already recognizes, but
+ * whose frontend session refresh hasn't resolved yet, could still add to cart. `identityKey`
+ * treats "not confirmedly authenticated" (which 'loading' is) the same as "guest", so the request
+ * gets snapshotted under the guest cache key while the backend actually acts on the member's real
+ * cart — the response then lands in the wrong identity's cache entirely.
+ *
+ * Thrown from `onMutate` (not checked separately in a component before calling `.mutate()`)
+ * because `onMutate` is the one place TanStack Query guarantees runs synchronously, exactly once,
+ * at the instant `mutate()`/`mutateAsync()` is actually invoked — the same moment the snapshot
+ * below is taken. A throw there aborts before `mutationFn` ever runs (verified against
+ * @tanstack/query-core's Mutation#execute: `onMutate` is awaited before `retryer.start()`, so a
+ * throw here skips the network call entirely), so this is a real gate, not just a UI hint that a
+ * caller could forget to check.
+ */
+export class CartIdentityNotResolvedError extends Error {
+  constructor() {
+    super('Cart identity is not resolved yet — session status is still \'loading\'.')
+    this.name = 'CartIdentityNotResolvedError'
+  }
+}
+
+function snapshotCartMutationIdentity(sessionStore: ReturnType<typeof useSessionStore>) {
+  if (sessionStore.status === 'loading') {
+    throw new CartIdentityNotResolvedError()
+  }
+  return sessionStore.isAuthenticated && sessionStore.user
+    ? (['cart', 'member', sessionStore.user.publicId] as const)
+    : (['cart', 'guest', getOrCreateGuestCartKey()] as const)
+}
+
+/**
+ * 組長 PR #29 round-4 review, P1 (widened in round-6 review, point 3): the identity-snapshot fix
+ * on the mutations below stops a stale in-flight response from being written into the *new*
+ * identity's cache, but on its own it leaves the *old* identity's cache entry (and any request
+ * still in flight for it) sitting around indefinitely after a login/logout/account-switch. This
+ * used to live inside useCart() itself, so it only ran while CartPage happened to be mounted — a
+ * shopper who logged out (or switched member accounts) while browsing anywhere else, e.g.
+ * ProductDetailPage, left the previous identity's cart cache with nothing to evict it. Call this
+ * once, globally, from App.vue (mounted for the SPA's entire lifetime) instead of from a page that
+ * mounts and unmounts with routing, so the cleanup no longer depends on which page happens to be
+ * open at the moment identity changes.
+ */
+export function useCartIdentityCacheCleanup(): void {
   const queryClient = useQueryClient()
   const identityKey = useCartIdentityKey()
-
-  // 組長 PR #29 round-4 review, P1: the identity-snapshot fix on the mutations below stops a
-  // stale in-flight response from being written into the *new* identity's cache, but on its own
-  // it leaves the *old* identity's cache entry (and any request still in flight for it) sitting
-  // around indefinitely after a login/logout/account-switch — a logged-out member's cart data
-  // would otherwise stay reachable in memory with nothing left to overwrite it. The moment the
-  // key itself changes, cancel whatever's still in flight for the previous key and drop its
-  // cached data; called once per CartPage mount (useCart is this module's only caller of
-  // useQuery), so this is a single watcher, not one per composable.
   watch(identityKey, (_current, previous) => {
     if (previous) {
       void queryClient.cancelQueries({ queryKey: previous })
       queryClient.removeQueries({ queryKey: previous })
     }
   })
+}
+
+export function useCart() {
+  const sessionStore = useSessionStore()
+  const identityKey = useCartIdentityKey()
 
   return useQuery({
     queryKey: identityKey,
@@ -85,11 +124,11 @@ export function useCart() {
 // what `identityKey.value` becomes in the meantime.
 export function useAddCartItem() {
   const queryClient = useQueryClient()
-  const identityKey = useCartIdentityKey()
+  const sessionStore = useSessionStore()
   return useMutation({
     mutationFn: (params: { skuPublicId: string, quantity: number, cartRowVersion: string | null }) =>
       addCartItem(params.skuPublicId, params.quantity, params.cartRowVersion, getOrCreateGuestCartKey()),
-    onMutate: () => identityKey.value,
+    onMutate: () => snapshotCartMutationIdentity(sessionStore),
     onSuccess: (cart, _variables, targetKey) => {
       queryClient.setQueryData(targetKey, cart)
     },
@@ -98,7 +137,7 @@ export function useAddCartItem() {
 
 export function useUpdateCartItemQuantity() {
   const queryClient = useQueryClient()
-  const identityKey = useCartIdentityKey()
+  const sessionStore = useSessionStore()
   return useMutation({
     mutationFn: (params: { itemPublicId: string, quantity: number, itemRowVersion: string, cartRowVersion: string }) =>
       updateCartItemQuantity(
@@ -108,7 +147,7 @@ export function useUpdateCartItemQuantity() {
         params.cartRowVersion,
         getOrCreateGuestCartKey(),
       ),
-    onMutate: () => identityKey.value,
+    onMutate: () => snapshotCartMutationIdentity(sessionStore),
     onSuccess: (cart, _variables, targetKey) => {
       queryClient.setQueryData(targetKey, cart)
     },
@@ -117,11 +156,11 @@ export function useUpdateCartItemQuantity() {
 
 export function useRemoveCartItem() {
   const queryClient = useQueryClient()
-  const identityKey = useCartIdentityKey()
+  const sessionStore = useSessionStore()
   return useMutation({
     mutationFn: (params: { itemPublicId: string, itemRowVersion: string }) =>
       removeCartItem(params.itemPublicId, params.itemRowVersion, getOrCreateGuestCartKey()),
-    onMutate: () => identityKey.value,
+    onMutate: () => snapshotCartMutationIdentity(sessionStore),
     onSuccess: (cart, _variables, targetKey) => {
       queryClient.setQueryData(targetKey, cart)
     },
@@ -130,10 +169,10 @@ export function useRemoveCartItem() {
 
 export function useRevalidateCart() {
   const queryClient = useQueryClient()
-  const identityKey = useCartIdentityKey()
+  const sessionStore = useSessionStore()
   return useMutation({
     mutationFn: () => revalidateCart(getOrCreateGuestCartKey()),
-    onMutate: () => identityKey.value,
+    onMutate: () => snapshotCartMutationIdentity(sessionStore),
     onSuccess: (validation, _variables, targetKey) => {
       queryClient.setQueryData(targetKey, validation.cart)
     },
@@ -152,13 +191,14 @@ export function useRevalidateCart() {
  */
 export function useReloadCart() {
   const queryClient = useQueryClient()
-  const identityKey = useCartIdentityKey()
+  const sessionStore = useSessionStore()
   return async function reloadCart(): Promise<CartDto> {
-    // Not a useMutation, so there's no onMutate hook to snapshot in — capture identityKey.value
-    // synchronously here, before the request's own await, for the same reason as the mutations
+    // Not a useMutation, so there's no onMutate hook to snapshot in — capture the identity
+    // synchronously here, before the request's own await, for the same reasons as the mutations
     // above: writing back to whatever's current when the response lands (not when it was sent)
-    // risks a cross-identity write if identity changes mid-flight.
-    const targetKey = identityKey.value
+    // risks a cross-identity write if identity changes mid-flight, and firing while session status
+    // is still 'loading' risks writing a member's cart into the guest cache key.
+    const targetKey = snapshotCartMutationIdentity(sessionStore)
     const cart = await getCart(getOrCreateGuestCartKey())
     queryClient.setQueryData(targetKey, cart)
     return cart
@@ -172,10 +212,10 @@ export function useReloadCart() {
  */
 export function useMergeCartOnLogin() {
   const queryClient = useQueryClient()
-  const identityKey = useCartIdentityKey()
+  const sessionStore = useSessionStore()
   return useMutation({
     mutationFn: (idempotencyKey: string) => mergeCartOnLogin(getOrCreateGuestCartKey(), idempotencyKey),
-    onMutate: () => identityKey.value,
+    onMutate: () => snapshotCartMutationIdentity(sessionStore),
     onSuccess: (result, _variables, targetKey) => {
       queryClient.setQueryData(targetKey, result.cart)
       clearGuestCartKey()

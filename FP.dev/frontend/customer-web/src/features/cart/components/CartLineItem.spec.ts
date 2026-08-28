@@ -74,3 +74,32 @@ describe('CartLineItem quantity selector', () => {
     expect(wrapper.find('select').attributes('disabled')).toBeDefined()
   })
 })
+
+/**
+ * 組長 PR #29 round-6 review, P1: an assembly-group item is one SKU of one physical build —
+ * offering the same per-item quantity/remove controls a plain SKU gets would let a shopper change
+ * one member's quantity or remove it alone, leaving the rest of the group referring to a build
+ * that no longer matches what was actually configured. CartPage.vue passes `readonly` for a
+ * grouped item; this proves the component itself refuses to act even if something upstream still
+ * tried to emit an interaction (e.g. a future regression re-wiring the handlers).
+ */
+describe('CartLineItem readonly mode (assembly-group items)', () => {
+  it('renders the quantity as plain text, not a select, and does not render a remove button', () => {
+    const wrapper = mount(CartLineItem, {
+      props: { item: cartItem({ quantity: 1, assemblyGroupKey: 'group-1' }), pending: false, readonly: true },
+    })
+
+    expect(wrapper.find('select').exists()).toBe(false)
+    expect(wrapper.find('.cart-line-item__quantity-readonly').text()).toBe('1')
+    expect(wrapper.findAll('button').some((button) => button.text() === '移除')).toBe(false)
+  })
+
+  it('a plain (non-grouped) item is not readonly by default and keeps its normal controls', () => {
+    const wrapper = mount(CartLineItem, {
+      props: { item: cartItem({ quantity: 1, assemblyGroupKey: null }), pending: false },
+    })
+
+    expect(wrapper.find('select').exists()).toBe(true)
+    expect(wrapper.findAll('button').some((button) => button.text() === '移除')).toBe(true)
+  })
+})

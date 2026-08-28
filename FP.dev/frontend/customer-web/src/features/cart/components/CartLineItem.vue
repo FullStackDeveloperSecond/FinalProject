@@ -6,6 +6,18 @@ const props = defineProps<{
   item: CartItemDto
   pending: boolean
   error?: string | null
+  /**
+   * 組長 PR #29 round-6 review, P1: an assembly-group item is one SKU of one physical build —
+   * every member shares the same AssemblyGroupKey, one NT$300 assembly fee, and (once checkout
+   * exists) one AssemblyJob. Offering the same per-item quantity/remove controls a plain SKU gets
+   * would let a shopper change one member's quantity or remove it alone, leaving the rest of the
+   * group referring to a build that no longer matches what was actually configured — the backend
+   * now rejects that (cart_assembly_item_immutable), but CartPage.vue passes this true for a
+   * grouped item so the UI never offers the action in the first place, rather than only catching
+   * it after a doomed request. There is no group-level operation to offer instead yet (no atomic
+   * "swap this group's part" or "remove whole group" API) — read-only until one exists.
+   */
+  readonly?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -40,10 +52,20 @@ const quantityExceedsLimit = computed(() =>
 )
 
 function onQuantityInput(event: Event): void {
+  if (props.readonly) {
+    return
+  }
   const value = Number((event.target as HTMLSelectElement).value)
   if (Number.isFinite(value) && value >= 1) {
     emit('changeQuantity', value)
   }
+}
+
+function onRemoveClick(): void {
+  if (props.readonly) {
+    return
+  }
+  emit('remove')
 }
 
 function formatTwd(amount: number | string): string {
@@ -77,7 +99,15 @@ function formatTwd(amount: number | string): string {
     </div>
 
     <div class="cart-line-item__quantity-group">
+      <span
+        v-if="readonly"
+        class="cart-line-item__quantity-readonly"
+        aria-label="數量"
+      >
+        {{ item.quantity }}
+      </span>
       <select
+        v-else
         class="cart-line-item__quantity"
         :value="item.quantity"
         :disabled="pending || isOutOfPurchasableStock"
@@ -112,10 +142,11 @@ function formatTwd(amount: number | string): string {
     </div>
 
     <button
+      v-if="!readonly"
       type="button"
       class="cart-line-item__remove"
       :disabled="pending"
-      @click="emit('remove')"
+      @click="onRemoveClick"
     >
       移除
     </button>
@@ -186,6 +217,14 @@ function formatTwd(amount: number | string): string {
   border: 1px solid #d1d5db;
   border-radius: 0.5rem;
   font: inherit;
+}
+
+.cart-line-item__quantity-readonly {
+  min-height: 2.5rem;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.5rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .cart-line-item__out-of-stock-hint {

@@ -351,4 +351,49 @@ describe('ProductDetailPage', () => {
     await flushPromises()
     expect(mockAddCartItem).not.toHaveBeenCalled()
   })
+
+  /**
+   * 組長 PR #29 round-6 review, P1: a shopper whose member Cookie the backend already recognizes,
+   * but whose frontend session refresh (App.vue's onMounted -> sessionStore.refresh()) hasn't
+   * resolved yet, could previously still click "加入購物車" while `sessionStore.status` was still
+   * 'loading' — useAddCartItem()'s identity snapshot treats "not confirmedly authenticated" the
+   * same as guest, so the request would get attributed to the guest cache key even though the
+   * backend actually mutates the member's real cart. The button must stay disabled (and unclickable)
+   * for the whole time status is 'loading', regardless of how quickly product data itself loaded.
+   */
+  it('disables "加入購物車" while the session is still resolving ("loading"), even though product data has already loaded', async () => {
+    mockGetProductDetail.mockResolvedValue(productDetail())
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/products', component: { template: '<div />' } },
+        { path: '/products/:productId', name: 'product-detail', component: ProductDetailPage, props: true },
+      ],
+    })
+    await router.push('/products/p1')
+    await router.isReady()
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const sessionStore = useSessionStore()
+    sessionStore.status = 'loading'
+
+    const wrapper = mount(ProductDetailPage, { global: { plugins: [[VueQueryPlugin, { queryClient }], router] } })
+    await flushPromises()
+
+    const addButton = wrapper.find('button')
+    expect(addButton.attributes('disabled')).toBeDefined()
+    expect(addButton.text()).toContain('確認中')
+
+    await addButton.trigger('click')
+    await flushPromises()
+    expect(mockAddCartItem).not.toHaveBeenCalled()
+
+    // Once the session actually resolves, the button becomes usable normally.
+    sessionStore.status = 'anonymous'
+    await flushPromises()
+    const resolvedButton = wrapper.find('button')
+    expect(resolvedButton.attributes('disabled')).toBeUndefined()
+    expect(resolvedButton.text()).toBe('加入購物車')
+  })
 })

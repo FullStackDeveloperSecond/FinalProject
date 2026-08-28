@@ -29,6 +29,7 @@ internal static class ShoppingWriteExceptionMapper
         ShoppingWriteException.ErrorCodes.CartItemRequiresAttention => StatusCodes.Status409Conflict,
         ShoppingWriteException.ErrorCodes.CartMergeConflict => StatusCodes.Status409Conflict,
         ShoppingWriteException.ErrorCodes.ConcurrencyConflict => StatusCodes.Status409Conflict,
+        ShoppingWriteException.ErrorCodes.CartAssemblyItemImmutable => StatusCodes.Status409Conflict,
         ShoppingWriteException.ErrorCodes.ValidationFailed => StatusCodes.Status400BadRequest,
         _ => StatusCodes.Status400BadRequest,
     };

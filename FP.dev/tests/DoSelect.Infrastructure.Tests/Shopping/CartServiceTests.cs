@@ -461,6 +461,81 @@ public sealed class CartServiceTests
     }
 
     /// <summary>
+    /// 組長 PR #29 round-6 review, P1: an assembly-group item represents one SKU of one physical
+    /// build — every member shares the same AssemblyGroupKey, one NT$300 assembly fee, and (once
+    /// checkout exists) one AssemblyJob. Letting a single member's quantity change independently
+    /// (e.g. 2 CPUs but still 1 motherboard) would leave the group referring to a build that was
+    /// never actually configured. The frontend already refuses to offer per-item controls for a
+    /// grouped item; this proves the server rejects it too, so no other client can bypass that.
+    /// </summary>
+    [Fact]
+    public async Task UpdateItemQuantityAsync_ForAnAssemblyGroupItem_ThrowsCartAssemblyItemImmutable_AndAppliesNoChange()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var service = CreateService(context);
+        var cpuSku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 5000m);
+        var boardSku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 3000m);
+        var identity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
+
+        var perUnitItems = new[] { new AssemblyGroupItemInput(cpuSku.PublicId, 1), new AssemblyGroupItemInput(boardSku.PublicId, 1) };
+        var cart = await service.AddAssemblyGroupsAsync(identity, perUnitItems, unitCount: 1, CancellationToken.None);
+        var cpuItem = Assert.Single(cart.Items, item => item.SkuPublicId == cpuSku.PublicId);
+        Assert.NotNull(cpuItem.AssemblyGroupKey);
+
+        var exception = await Assert.ThrowsAsync<ShoppingWriteException>(() => service.UpdateItemQuantityAsync(
+            identity,
+            cpuItem.PublicId,
+            new UpdateCartItemRequest(2, cpuItem.RowVersion, cart.RowVersion),
+            CancellationToken.None));
+        Assert.Equal(ShoppingWriteException.ErrorCodes.CartAssemblyItemImmutable, exception.ErrorCode);
+
+        var reloaded = await service.GetCartAsync(identity, CancellationToken.None);
+        var reloadedCpuItem = Assert.Single(reloaded.Items, item => item.SkuPublicId == cpuSku.PublicId);
+        Assert.Equal(1, reloadedCpuItem.Quantity);
+    }
+
+    /// <summary>Same rule as the quantity-change test above, for removal — see that test's remarks.</summary>
+    [Fact]
+    public async Task RemoveItemAsync_ForAnAssemblyGroupItem_ThrowsCartAssemblyItemImmutable_AndLeavesTheGroupIntact()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var service = CreateService(context);
+        var cpuSku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 5000m);
+        var boardSku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 3000m);
+        var identity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
+
+        var perUnitItems = new[] { new AssemblyGroupItemInput(cpuSku.PublicId, 1), new AssemblyGroupItemInput(boardSku.PublicId, 1) };
+        var cart = await service.AddAssemblyGroupsAsync(identity, perUnitItems, unitCount: 1, CancellationToken.None);
+        var cpuItem = Assert.Single(cart.Items, item => item.SkuPublicId == cpuSku.PublicId);
+
+        var exception = await Assert.ThrowsAsync<ShoppingWriteException>(() => service.RemoveItemAsync(
+            identity, cpuItem.PublicId, cpuItem.RowVersion, CancellationToken.None));
+        Assert.Equal(ShoppingWriteException.ErrorCodes.CartAssemblyItemImmutable, exception.ErrorCode);
+
+        var reloaded = await service.GetCartAsync(identity, CancellationToken.None);
+        Assert.Equal(2, reloaded.Items.Count);
+    }
+
+    /// <summary>Sanity check that the new assembly-group guard doesn't over-reach: a plain (non-grouped) item must still be freely editable.</summary>
+    [Fact]
+    public async Task UpdateItemQuantityAsync_ForAPlainNonGroupedItem_StillSucceeds()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var service = CreateService(context);
+        var sku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
+        var identity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
+
+        var cart = await service.AddItemAsync(identity, new AddCartItemRequest(sku.PublicId, 1, null), CancellationToken.None);
+        var item = Assert.Single(cart.Items);
+        Assert.Null(item.AssemblyGroupKey);
+
+        var updated = await service.UpdateItemQuantityAsync(
+            identity, item.PublicId, new UpdateCartItemRequest(3, item.RowVersion, cart.RowVersion), CancellationToken.None);
+
+        Assert.Equal(3, Assert.Single(updated.Items).Quantity);
+    }
+
+    /// <summary>
     /// PR #28 review (組長 2nd-round ruling): a merge that would push the member cart past the
     /// [0..100] limit must reject the *whole* merge — nothing lands, the guest cart stays Active
     /// (not Converted) — rather than the earlier round's per-item skip, which silently converted

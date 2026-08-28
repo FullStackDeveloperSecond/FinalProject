@@ -134,6 +134,12 @@ public sealed class EfCartService : ICartService
                 ShoppingWriteException.ErrorCodes.ResourceNotFound,
                 $"Cart item '{itemPublicId}' was not found.");
         }
+        if (item.AssemblyGroupKey is not null)
+        {
+            throw new ShoppingWriteException(
+                ShoppingWriteException.ErrorCodes.CartAssemblyItemImmutable,
+                $"Cart item '{itemPublicId}' belongs to assembly group '{item.AssemblyGroupKey}' and cannot be changed individually.");
+        }
 
         _dbContext.Entry(cart).Property(candidate => candidate.RowVersion).OriginalValue = request.CartRowVersion;
         _dbContext.Entry(item).Property(candidate => candidate.RowVersion).OriginalValue = request.ItemRowVersion;
@@ -169,6 +175,12 @@ public sealed class EfCartService : ICartService
             throw new ShoppingWriteException(
                 ShoppingWriteException.ErrorCodes.ResourceNotFound,
                 $"Cart item '{itemPublicId}' was not found.");
+        }
+        if (item.AssemblyGroupKey is not null)
+        {
+            throw new ShoppingWriteException(
+                ShoppingWriteException.ErrorCodes.CartAssemblyItemImmutable,
+                $"Cart item '{itemPublicId}' belongs to assembly group '{item.AssemblyGroupKey}' and cannot be removed individually.");
         }
 
         _dbContext.Entry(item).Property(candidate => candidate.RowVersion).OriginalValue = itemRowVersion;

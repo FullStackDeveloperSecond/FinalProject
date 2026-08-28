@@ -1,3 +1,4 @@
+import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
@@ -25,9 +26,13 @@ async function mountAppAt(path: string) {
   await router.push(path)
   await router.isReady()
 
+  // App.vue calls useCartIdentityCacheCleanup() (組長 PR #29 round-6 review, P1) — it needs a
+  // real QueryClient in context, same as any other page that touches TanStack Query.
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
   return {
     router,
-    wrapper: mount(App, { global: { plugins: [pinia, router] } }),
+    wrapper: mount(App, { global: { plugins: [pinia, router, [VueQueryPlugin, { queryClient }]] } }),
   }
 }
 

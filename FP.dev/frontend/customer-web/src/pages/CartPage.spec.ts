@@ -1,5 +1,5 @@
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -217,6 +217,109 @@ describe('CartPage', () => {
   })
 
   /**
+   * 組長 PR #29 round-6 review, P2: `isCheckoutReady` used to only ever be *set*, never reset —
+   * starting a new revalidate, a Cart mutation succeeding, or the follow-up revalidate then
+   * failing all left whatever the *previous* successful validation happened to say in place, so
+   * checkout could stay enabled against a Cart that no longer matches what was actually validated.
+   * Here: revalidate succeeds once (checkout enabled) -> the shopper removes an item, which
+   * succeeds and writes a new Cart (new RowVersion) -> that mutation's own follow-up revalidate
+   * then fails. Checkout must already be disabled the instant the mutation's new RowVersion lands
+   * (before the follow-up revalidate even resolves), and must stay disabled once it fails.
+   */
+  it('disables checkout the instant a Cart mutation succeeds and lands a new RowVersion, and keeps it disabled when the follow-up revalidate then fails', async () => {
+    const twoItemCart: CartDto = { ...oneItemCart, items: [...oneItemCart.items, { ...oneItemCart.items[0], publicId: 'item-2', skuCode: 'SKU-2' }] }
+    mockGetCart.mockResolvedValue(twoItemCart)
+    mockRevalidateCart.mockResolvedValueOnce({
+      cart: twoItemCart, isCheckoutReady: true, issues: [], validatedAtUtc: new Date().toISOString(),
+    })
+
+    const wrapper = await mountCartPage()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('RTX 4070'))
+    await vi.waitFor(() => expect(wrapper.find('.cart-page__checkout').attributes('disabled')).toBeUndefined())
+
+    const updatedCart: CartDto = { ...twoItemCart, items: [twoItemCart.items[1]], rowVersion: 'BBBB' }
+    mockRemoveCartItem.mockResolvedValueOnce(updatedCart)
+    let resolveRevalidate!: (value: CartValidationDto) => void
+    mockRevalidateCart.mockImplementationOnce(() => new Promise((resolve) => { resolveRevalidate = resolve }))
+
+    await wrapper.find('.cart-line-item__remove').trigger('click')
+    // The mutation has now succeeded and written the new RowVersion into the Cart query cache
+    // (mutation-level onSuccess runs before the call-site onSuccess that starts the follow-up
+    // revalidate), which is itself now in flight but hasn't resolved yet — checkout must already
+    // be disabled (validatedForRowVersion still points at the old 'AAAA', not the new 'BBBB').
+    await vi.waitFor(() => expect(mockRevalidateCart).toHaveBeenCalledTimes(2))
+    expect(wrapper.find('.cart-page__checkout').attributes('disabled')).toBeDefined()
+
+    // Once the follow-up revalidate actually succeeds for the new RowVersion, checkout re-enables.
+    resolveRevalidate({ cart: updatedCart, isCheckoutReady: true, issues: [], validatedAtUtc: new Date().toISOString() })
+    await vi.waitFor(() => expect(wrapper.find('.cart-page__checkout').attributes('disabled')).toBeUndefined())
+  })
+
+  /**
+   * Same scenario as above, but the follow-up revalidate after the mutation genuinely fails —
+   * checkout must stay disabled, not fall back to the pre-mutation successful result.
+   */
+  it('keeps checkout disabled (does not fall back to the earlier successful validation) when the follow-up revalidate after a mutation genuinely fails', async () => {
+    const twoItemCart: CartDto = { ...oneItemCart, items: [...oneItemCart.items, { ...oneItemCart.items[0], publicId: 'item-2', skuCode: 'SKU-2' }] }
+    mockGetCart.mockResolvedValue(twoItemCart)
+    mockRevalidateCart.mockResolvedValueOnce({
+      cart: twoItemCart, isCheckoutReady: true, issues: [], validatedAtUtc: new Date().toISOString(),
+    })
+
+    const wrapper = await mountCartPage()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('RTX 4070'))
+    await vi.waitFor(() => expect(wrapper.find('.cart-page__checkout').attributes('disabled')).toBeUndefined())
+
+    const updatedCart: CartDto = { ...twoItemCart, items: [twoItemCart.items[1]], rowVersion: 'BBBB' }
+    mockRemoveCartItem.mockResolvedValueOnce(updatedCart)
+    mockRevalidateCart.mockRejectedValueOnce(new Error('network error'))
+
+    await wrapper.find('.cart-line-item__remove').trigger('click')
+    await vi.waitFor(() => expect(wrapper.text()).toContain('購物車檢查失敗'))
+
+    expect(wrapper.find('.cart-page__checkout').attributes('disabled')).toBeDefined()
+  })
+
+  /**
+   * 組長 PR #29 round-6 review, P2: switching identity (login/logout/account switch) loads a
+   * completely different Cart — the checkout gate must not carry over the *previous* identity's
+   * successful validation. `validatedForRowVersion` binds to a specific Cart RowVersion, so a
+   * freshly-loaded different identity's Cart (a different RowVersion) is correctly treated as
+   * "not yet validated" without any separate identity-tracking logic.
+   */
+  it('resets the checkout gate when the shopper\'s identity switches to a different Cart (member login), not just on the initial load', async () => {
+    const guestCart: CartDto = { ...oneItemCart, publicId: 'cart-guest', rowVersion: 'GUEST-1' }
+    const memberCart: CartDto = { ...oneItemCart, publicId: 'cart-member', rowVersion: 'MEMBER-1' }
+    mockGetCart.mockResolvedValueOnce(guestCart)
+    mockRevalidateCart.mockResolvedValueOnce({
+      cart: guestCart, isCheckoutReady: true, issues: [], validatedAtUtc: new Date().toISOString(),
+    })
+
+    const wrapper = await mountCartPage()
+    await vi.waitFor(() => expect(wrapper.find('.cart-page__checkout').attributes('disabled')).toBeUndefined())
+
+    // The shopper logs in — a different identity key, a different (member) Cart, with no
+    // validation performed for it yet.
+    mockGetCart.mockResolvedValueOnce(memberCart)
+    let resolveMemberRevalidate!: (value: CartValidationDto) => void
+    mockRevalidateCart.mockImplementationOnce(() => new Promise((resolve) => { resolveMemberRevalidate = resolve }))
+
+    useSessionStore().status = 'authenticated'
+    useSessionStore().user = testMember
+
+    // Let the identity switch's reactivity actually settle (new query key, brief loading state
+    // for the uncached member Cart, then resolution) before checking anything — checking too
+    // early can still observe the *previous* (guest) render, since Vue hasn't reacted yet.
+    await flushPromises()
+    await vi.waitFor(() => expect(wrapper.find('.cart-page__checkout').exists()).toBe(true))
+    // Must not still show the guest identity's successful checkout state for the new Cart.
+    expect(wrapper.find('.cart-page__checkout').attributes('disabled')).toBeDefined()
+
+    resolveMemberRevalidate({ cart: memberCart, isCheckoutReady: true, issues: [], validatedAtUtc: new Date().toISOString() })
+    await vi.waitFor(() => expect(wrapper.find('.cart-page__checkout').attributes('disabled')).toBeUndefined())
+  })
+
+  /**
    * PR #29 review round 2: overlapping revalidate calls used to be possible (onMounted's call
    * and a mutation's onSuccess call could both be in flight at once), risking a stale response
    * overwriting a newer one's issues/checkout-gate state. A trigger that arrives while one is
@@ -280,6 +383,40 @@ describe('CartPage', () => {
     expect(groups[1].text()).toContain('CPU-2')
     expect(groups.every((group) => !group.text().includes('MOUSE-1'))).toBe(true)
     expect(wrapper.find('.cart-page__items').text()).toContain('MOUSE-1')
+  })
+
+  /**
+   * 組長 PR #29 round-6 review, P1: an assembly-group item is one SKU of one physical build —
+   * offering the same per-item quantity/remove controls a plain SKU gets would let a shopper
+   * change one member's quantity or remove it alone, leaving the rest of the group referring to a
+   * build that no longer matches what was actually configured (and the backend now rejects it
+   * outright: cart_assembly_item_immutable). Grouped items must render with no quantity `<select>`
+   * and no "移除" button at all; a plain SKU alongside them must be unaffected.
+   */
+  it('renders assembly-group items read-only (no quantity select, no remove button), while a plain SKU keeps full controls', async () => {
+    const cart: CartDto = {
+      ...oneItemCart,
+      items: [
+        { ...oneItemCart.items[0], publicId: 'a1', skuCode: 'CPU-1', assemblyGroupKey: 'build-1' },
+        { ...oneItemCart.items[0], publicId: 'a2', skuCode: 'GPU-1', assemblyGroupKey: 'build-1' },
+        { ...oneItemCart.items[0], publicId: 'p1', skuCode: 'MOUSE-1', assemblyGroupKey: null },
+      ],
+    }
+    mockGetCart.mockResolvedValue(cart)
+    mockRevalidateCart.mockResolvedValue({ cart, isCheckoutReady: true, issues: [], validatedAtUtc: new Date().toISOString() })
+
+    const wrapper = await mountCartPage()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('CPU-1'))
+
+    const group = wrapper.find('.cart-page__assembly-group')
+    expect(group.find('select').exists()).toBe(false)
+    expect(group.findAll('button').some((button) => button.text() === '移除')).toBe(false)
+    expect(group.text()).toContain('不可單獨調整數量或移除')
+
+    // The plain SKU, rendered outside the group, is unaffected.
+    const plainItem = wrapper.find('.cart-page__items > li:not(.cart-page__assembly-group)')
+    expect(plainItem.find('select').exists()).toBe(true)
+    expect(plainItem.findAll('button').some((button) => button.text() === '移除')).toBe(true)
   })
 
   /**

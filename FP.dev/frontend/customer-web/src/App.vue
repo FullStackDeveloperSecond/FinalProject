@@ -2,11 +2,18 @@
 import { computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSessionStore } from './stores/session'
+import { useCartIdentityCacheCleanup } from './features/cart/useCart'
 
 const route = useRoute()
 const router = useRouter()
 const sessionStore = useSessionStore()
 const isSupportSection = computed(() => route.path === '/support' || route.path.startsWith('/support/'))
+
+// 組長 PR #29 round-6 review, P1 (point 3): registered here — mounted for the SPA's entire
+// lifetime — rather than inside CartPage.vue, so an identity change (login/logout/account switch)
+// evicts the previous identity's cart cache regardless of which page happens to be open at the
+// moment it changes.
+useCartIdentityCacheCleanup()
 
 onMounted(() => {
   void sessionStore.refresh()

@@ -135,14 +135,22 @@ describe('useCart', () => {
    * 組長 PR #29 round-4 review, P1: the identity-snapshot fix (see the mutation test below) stops
    * a stale response from being written into the *new* identity's cache, but on its own leaves
    * the *old* identity's cache entry sitting around indefinitely after login/logout — a logged-out
-   * member's cart data would otherwise stay reachable in memory. useCart() must drop the previous
-   * identity's cached data the moment the identity key itself changes.
+   * member's cart data would otherwise stay reachable in memory.
+   *
+   * 組長 PR #29 round-6 review, P1 (point 3): this cleanup used to live inside useCart() itself,
+   * so it only ran while CartPage happened to be mounted. It's now a separate composable
+   * (useCartIdentityCacheCleanup), called once from App.vue instead — this test calls both
+   * together, mirroring how the real app always has App.vue's cleanup active alongside whatever
+   * page happens to call useCart().
    */
   it('removes the previous identity\'s cached cart once the identity key changes', async () => {
     mockGetCart.mockResolvedValueOnce(emptyCart)
-    const { useCart } = await import('./useCart')
+    const { useCart, useCartIdentityCacheCleanup } = await import('./useCart')
     let query: ReturnType<typeof useCart> | undefined
-    const { queryClient } = withQueryClient(() => { query = useCart() })
+    const { queryClient } = withQueryClient(() => {
+      query = useCart()
+      useCartIdentityCacheCleanup()
+    })
     const sessionStore = useSessionStore()
     await vi.waitFor(() => expect(query!.isSuccess.value).toBe(true))
     expect(queryClient.getQueryData(['cart', 'guest', 'guest-test-key'])).toEqual(emptyCart)
@@ -154,6 +162,43 @@ describe('useCart', () => {
       .toEqual({ ...emptyCart, publicId: 'cart-member' }))
 
     expect(queryClient.getQueryData(['cart', 'guest', 'guest-test-key'])).toBeUndefined()
+  })
+
+  /**
+   * 組長 PR #29 round-6 review, P1 (point 3): the identity-switch cache cleanup must not depend on
+   * CartPage (or anything else that calls useCart()) happening to be mounted — a shopper who logs
+   * out while browsing ProductDetailPage, say, never mounts useCart() at all, but the previous
+   * identity's cart cache must still be evicted. Proven here by never calling useCart() in this
+   * test — only useCartIdentityCacheCleanup(), the composable App.vue now calls unconditionally.
+   */
+  it('useCartIdentityCacheCleanup evicts the previous identity\'s cache even when useCart() itself was never called', async () => {
+    const { useCartIdentityCacheCleanup } = await import('./useCart')
+    const { queryClient } = withQueryClient(() => { useCartIdentityCacheCleanup() })
+    queryClient.setQueryData(['cart', 'guest', 'guest-test-key'], emptyCart)
+
+    const sessionStore = useSessionStore()
+    sessionStore.status = 'authenticated'
+    sessionStore.user = { publicId: 'member-1', displayName: '測試會員', emailMasked: 'm***@example.com', emailVerified: true, locale: 'zh-TW' }
+    await vi.waitFor(() => expect(queryClient.getQueryData(['cart', 'guest', 'guest-test-key'])).toBeUndefined())
+  })
+
+  /**
+   * 組長 PR #29 round-6 review, P1: a member Cookie the backend already recognizes, but a
+   * frontend session refresh still in flight, used to still let a mutation dispatch — its
+   * identity snapshot treated "status is 'loading'" the same as guest, so the request went out
+   * attributed to the guest cache key while the backend actually mutated the member's real cart.
+   * `onMutate` now throws before `mutationFn` ever runs (see snapshotCartMutationIdentity's own
+   * remarks on why `onMutate` specifically, not a component-level check, is the real gate) —
+   * proven here by asserting the network call itself (mockAddCartItem) never happens.
+   */
+  it('rejects immediately, without ever calling the network layer, when session status is still \'loading\'', async () => {
+    const { useAddCartItem } = await import('./useCart')
+    let addMutation: ReturnType<typeof useAddCartItem> | undefined
+    withQueryClient(() => { addMutation = useAddCartItem() }, 'loading')
+
+    await expect(addMutation!.mutateAsync({ skuPublicId: 'sku-1', quantity: 1, cartRowVersion: null }))
+      .rejects.toThrow('Cart identity is not resolved yet')
+    expect(mockAddCartItem).not.toHaveBeenCalled()
   })
 
   it('updates the cache with the mutation result on add', async () => {
