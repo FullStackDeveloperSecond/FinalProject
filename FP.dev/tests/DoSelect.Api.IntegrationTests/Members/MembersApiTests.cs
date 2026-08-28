@@ -226,9 +226,10 @@ public sealed class MembersApiTests(MembersApiFixture fixture)
             return await MembersApiFixture.SendWithAntiforgeryAsync(client, request);
         }));
 
-        Assert.All(responses, response => Assert.True(
-            response.StatusCode is HttpStatusCode.Created or HttpStatusCode.Conflict,
-            $"Unexpected status {response.StatusCode}"));
+        var bodies = await Task.WhenAll(responses.Select(response => response.Content.ReadAsStringAsync()));
+        Assert.All(responses.Zip(bodies), pair => Assert.True(
+            pair.First.StatusCode is HttpStatusCode.Created or HttpStatusCode.Conflict,
+            $"Unexpected status {pair.First.StatusCode}: {pair.Second}"));
         Assert.Contains(responses, response => response.StatusCode == HttpStatusCode.Created);
 
         using var listResponse = await client.GetAsync("/api/v1/members/me/addresses");

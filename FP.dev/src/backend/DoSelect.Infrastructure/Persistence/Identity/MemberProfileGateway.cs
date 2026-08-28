@@ -103,23 +103,38 @@ public sealed class MemberProfileGateway(DoSelectDbContext dbContext, TimeProvid
             input.AddressLine2,
             nowUtc);
 
-        if (input.IsDefault)
-        {
-            await ClearExistingDefaultAsync(memberUserId, excludePublicId: null, nowUtc, cancellationToken);
-            address.SetAsDefault(nowUtc);
-        }
-
         dbContext.MemberAddresses.Add(address);
 
         try
         {
+            if (input.IsDefault)
+            {
+                await ClearExistingDefaultAsync(memberUserId, excludePublicId: null, nowUtc, cancellationToken);
+                address.SetAsDefault(nowUtc);
+            }
+
             await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // ClearExistingDefaultAsync 讀到別的並發請求「已提交」的舊預設地址並嘗試
+            // ClearDefault：若又被第三個請求搶先改掉該筆的 RowVersion，這裡的 UPDATE
+            // 會因樂觀鎖比對失敗而 0 rows affected——這不是 SqlException，
+            // IsDefaultAddressUniqueIndexViolation 攔不到，必須另外處理（Alex review，
+            // 2026-08-28 後續觀察：這是先前殘留 500 的真正成因）。
+            return new MemberAddressWriteOutcome.ConcurrencyConflict();
         }
         catch (DbUpdateException exception) when (IsDefaultAddressUniqueIndexViolation(exception))
         {
             // 兩個併發請求各自把不同地址設成預設：都通過了 ClearExistingDefaultAsync（當下都還
             // 沒看到對方尚未提交的變更），但只有一個 INSERT 真的能拿到過濾唯一索引
             // （Alex review，2026-08-28）。輸家回可重試的衝突，不是未處理的 500。
+            return new MemberAddressWriteOutcome.ConcurrencyConflict();
+        }
+        catch (SqlException exception) when (IsRetryableSqlError(exception))
+        {
+            // ClearExistingDefaultAsync 的 SELECT 本身被判定為死結犧牲者的情況，見
+            // IsRetryableSqlError 的說明。
             return new MemberAddressWriteOutcome.ConcurrencyConflict();
         }
 
@@ -159,18 +174,18 @@ public sealed class MemberProfileGateway(DoSelectDbContext dbContext, TimeProvid
             input.AddressLine2,
             nowUtc);
 
-        if (input.IsDefault)
-        {
-            await ClearExistingDefaultAsync(memberUserId, addressPublicId, nowUtc, cancellationToken);
-            address.SetAsDefault(nowUtc);
-        }
-        else
-        {
-            address.ClearDefault(nowUtc);
-        }
-
         try
         {
+            if (input.IsDefault)
+            {
+                await ClearExistingDefaultAsync(memberUserId, addressPublicId, nowUtc, cancellationToken);
+                address.SetAsDefault(nowUtc);
+            }
+            else
+            {
+                address.ClearDefault(nowUtc);
+            }
+
             await dbContext.SaveChangesAsync(cancellationToken);
         }
         catch (DbUpdateConcurrencyException)
@@ -178,6 +193,10 @@ public sealed class MemberProfileGateway(DoSelectDbContext dbContext, TimeProvid
             return new MemberAddressWriteOutcome.ConcurrencyConflict();
         }
         catch (DbUpdateException exception) when (IsDefaultAddressUniqueIndexViolation(exception))
+        {
+            return new MemberAddressWriteOutcome.ConcurrencyConflict();
+        }
+        catch (SqlException exception) when (IsRetryableSqlError(exception))
         {
             return new MemberAddressWriteOutcome.ConcurrencyConflict();
         }
@@ -252,22 +271,32 @@ public sealed class MemberProfileGateway(DoSelectDbContext dbContext, TimeProvid
     /// </summary>
     private static bool IsDefaultAddressUniqueIndexViolation(DbUpdateException exception)
     {
-        const int DuplicateKeyOnUniqueIndex = 2601;
-        const int DuplicateKeyOnPrimaryOrUniqueConstraint = 2627;
-        const int DeadlockVictim = 1205;
-
         for (var current = (Exception)exception; current is not null; current = current.InnerException!)
         {
-            if (current is SqlException sqlException &&
-                sqlException.Errors.Cast<SqlError>().Any(error =>
-                    error.Number is DuplicateKeyOnUniqueIndex or DuplicateKeyOnPrimaryOrUniqueConstraint
-                        or DeadlockVictim))
+            if (current is SqlException sqlException && IsRetryableSqlError(sqlException))
             {
                 return true;
             }
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// ClearExistingDefaultAsync 的 SELECT 是在 SaveChangesAsync 之前單獨執行的查詢——若它自己
+    /// 被判定為死結犧牲者，EF 會直接讓底層 SqlException 往外拋，不會像 SaveChanges 失敗那樣包成
+    /// DbUpdateException，所以呼叫端必須另外攔截裸的 SqlException，否則會變成未處理的 500
+    /// （Alex review，2026-08-28 後續觀察：全套測試併發下仍偶發此路徑）。
+    /// </summary>
+    private static bool IsRetryableSqlError(SqlException exception)
+    {
+        const int DuplicateKeyOnUniqueIndex = 2601;
+        const int DuplicateKeyOnPrimaryOrUniqueConstraint = 2627;
+        const int DeadlockVictim = 1205;
+
+        return exception.Errors.Cast<SqlError>().Any(error =>
+            error.Number is DuplicateKeyOnUniqueIndex or DuplicateKeyOnPrimaryOrUniqueConstraint
+                or DeadlockVictim);
     }
 
     private async Task<(ApplicationUser User, MemberProfile Profile)?> LoadAsync(
