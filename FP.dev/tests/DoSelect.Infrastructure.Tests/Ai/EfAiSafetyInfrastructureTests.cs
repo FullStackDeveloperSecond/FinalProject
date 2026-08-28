@@ -264,12 +264,19 @@ public sealed class EfAiSafetyInfrastructureTests
             Assert.Equal(order.PublicId.ToString("D"), payload.SourceId);
             Assert.Equal(order.OrderNumber, payload.Title);
             Assert.Contains("Creator GPU", payload.Content, StringComparison.Ordinal);
-            Assert.Contains(order.OrderNumber, payload.Content, StringComparison.Ordinal);
+            Assert.DoesNotContain(order.OrderNumber, payload.Content, StringComparison.Ordinal);
             Assert.DoesNotContain("[[SYNTHETIC_NAME]]", payload.Content, StringComparison.Ordinal);
             Assert.DoesNotContain("synthetic-owner@example.test", payload.Content, StringComparison.Ordinal);
             Assert.DoesNotContain("0912345678", payload.Content, StringComparison.Ordinal);
             Assert.Equal(AiSupportContextStatus.ResourceNotFound, otherResult.Status);
             Assert.Empty(otherResult.DataItems);
+
+            var prompt = AiPromptEnvelopeFactory.TryCreateSupport(
+                SupportedLocale.ZhTw,
+                "請查看這張訂單",
+                ownerResult.DataItems);
+            Assert.NotNull(prompt.Envelope);
+            Assert.Equal(AiSafetyReason.None, prompt.Reason);
         });
     }
 
