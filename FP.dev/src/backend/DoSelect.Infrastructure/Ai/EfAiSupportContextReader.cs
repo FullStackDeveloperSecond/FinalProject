@@ -44,7 +44,8 @@ public sealed class EfAiSupportContextReader(DoSelectDbContext dbContext)
                     order.OrderNumber,
                     order.OrderStatus,
                     order.PaymentStatus,
-                    order.FulfillmentStatus))
+                    order.FulfillmentStatus,
+                    order.UpdatedAtUtc))
                 .ToListAsync(cancellationToken);
             if (orders.Count != requestedIds.Length)
             {
@@ -66,7 +67,7 @@ public sealed class EfAiSupportContextReader(DoSelectDbContext dbContext)
                 .ToListAsync(cancellationToken);
 
             var byPublicId = orders.ToDictionary(order => order.PublicId);
-            var dataItems = new List<string>(requestedIds.Length);
+            var dataItems = new List<AiSupportContextItem>(requestedIds.Length);
             foreach (var publicId in requestedIds)
             {
                 var order = byPublicId[publicId];
@@ -95,7 +96,12 @@ public sealed class EfAiSupportContextReader(DoSelectDbContext dbContext)
                         DataItems: []);
                 }
 
-                dataItems.Add(json);
+                dataItems.Add(new AiSupportContextItem(
+                    SourceType: "order",
+                    SourceId: order.PublicId.ToString("D"),
+                    Title: order.OrderNumber,
+                    VersionOrUpdatedAt: order.UpdatedAtUtc.ToString("O"),
+                    Content: json));
             }
 
             return new AiSupportContextReadResult(
@@ -122,7 +128,8 @@ public sealed class EfAiSupportContextReader(DoSelectDbContext dbContext)
         string OrderNumber,
         Domain.Orders.OrderStatus OrderStatus,
         Domain.Orders.PaymentStatus PaymentStatus,
-        Domain.Orders.FulfillmentStatus FulfillmentStatus);
+        Domain.Orders.FulfillmentStatus FulfillmentStatus,
+        DateTime UpdatedAtUtc);
 
     private sealed record OrderItemRow(
         long OrderId,

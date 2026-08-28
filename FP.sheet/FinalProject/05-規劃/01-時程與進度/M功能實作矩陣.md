@@ -1,7 +1,7 @@
 ---
 文件狀態: 持續更新
 最後更新: 2026-08-28
-基準分支: dev@c10f39a
+基準分支: dev@bb917875
 ---
 
 # M 功能實作矩陣
@@ -38,8 +38,8 @@
 | M-15 營運報表 | 🔵 | ⬜ | ⬜ | ⬜ | ⬜ | 🔵 | 需求與資料來源已定，七個報表 Query／API／UI／SQL 證據未完成。 |
 | M-16 自由組裝電腦 | ✅ | ✅ | 🟡 | ✅ | ⬜ | 🔵 | PR #34 已合併組裝清單、分享、整套加入購物車與 SQL Server 證據；前端 PR #35 尚未進 `dev`，完整瀏覽器旅程仍缺。 |
 | M-17 零件相容性 | ✅ | ✅ | 🟡 | ✅ | ⬜ | 🔵 | PR #52 已合併來源型規格資料基礎；PR #34 已合併確定性檢查、SKU 相容性屬性、後台規則管理、Audit 與 Provider-backed 證據。前端 PR #35 與完整 E2E 尚未進 `dev`。 |
-| M-18 AI 商品搜尋推薦 | 🔵 | ⬜ | ⬜ | ➖ | ⬜ | 🔵 | 安全與降級 Application 基礎已在 `dev`；搜尋 Endpoint、OpenAI Live Adapter、UI 與 Live 評估未完成。 |
-| M-19 AI 客服 | ✅ | ✅ | ⬜ | 🟡 | ⬜ | 🔵 | `dev` 已有安全管線與 Fake Client API；PR #57 另完成 SQL-backed 同意／額度、Owner Query、Guest Cookie 403 與 Provider-backed 證據，尚待 Required CI／Review／合併。OpenAI Adapter、同意 UI、客服垂直切片與 E2E 仍未完成。 |
+| M-18 AI 商品搜尋推薦 | 🔵 | ⬜ | ⬜ | ➖ | ⬜ | 🔵 | 安全與降級 Application 基礎已在 `dev`；客服共用 Responses 傳輸不能替代搜尋的 SearchIntent Schema／Adapter。搜尋 Endpoint、UI、Provider 契約與 Live 評估未完成。 |
+| M-19 AI 客服 | ✅ | ✅ | ⬜ | ✅ | ⬜ | 🔵 | PR #57 已合併 SQL-backed 同意／額度、Owner Query、Guest Cookie 403 與 Provider-backed 證據。客服 Responses Adapter 已在目前分支形成，但尚未進 `dev`；同意／撤回 Endpoint、客服歷史 Query、前端同意與聊天垂直切片、E2E 及 live 評估仍未完成。 |
 | M-20 模擬發票與折讓 | ✅ | 🔵 | ⬜ | 🔵 | ⬜ | 🔵 | 折讓 API／Writer／SQL 測試已合併；完整發票查詢、開立、作廢、前端與跨 Checkout 金額一致性未完成。 |
 
 ## 完成判定邊界
@@ -51,7 +51,7 @@
 
 ## 明確未完成
 
-- OpenAI Live Adapter 與 Live Model 評估。
+- 客服 Responses Adapter 尚未合併 `dev`；搜尋專用 Adapter 尚未形成；兩項 Live Model 評估均未執行。
 - DATA-06 完整 10,000 筆展示 Seed 與特殊案例分布。
 - 各 M 功能的完整 SQL Server Provider-backed 覆蓋；Required CI 已啟用 SQL Gate，但現有測試通過不代表每個功能案例皆有 Provider-backed 證據。
 - 核心交易與其他 M 功能的瀏覽器 E2E。

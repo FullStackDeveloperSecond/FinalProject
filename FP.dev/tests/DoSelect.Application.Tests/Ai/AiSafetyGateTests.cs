@@ -210,7 +210,14 @@ public sealed class AiSafetyGateTests
         var preparation = AiPromptEnvelopeFactory.TryCreateSupport(
             SupportedLocale.ZhTw,
             "請介紹商品",
-            [maliciousProductText]);
+            [
+                new AiSupportContextItem(
+                    "product",
+                    "33333333-3333-3333-3333-333333333333",
+                    "Synthetic product",
+                    "2026-08-28T00:00:00.0000000Z",
+                    maliciousProductText),
+            ]);
         var envelope = Assert.IsType<AiPromptEnvelope>(preparation.Envelope);
 
         var dataItem = Assert.Single(envelope.DataItems);

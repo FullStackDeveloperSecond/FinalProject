@@ -14,6 +14,11 @@ public static class AiSafetyInfrastructureServiceCollectionExtensions
         // production implementation, while API integration tests can still RemoveAll + replace it.
         services.AddScoped<IAiSupportAdmissionGate, EfAiSupportAdmissionGate>();
         services.AddScoped<IAiSupportContextReader, EfAiSupportContextReader>();
+        services
+            .AddHttpClient<OpenAiResponsesClient>(client =>
+                client.Timeout = Timeout.InfiniteTimeSpan);
+        services.AddScoped<IAiSupportModelClient>(services =>
+            services.GetRequiredService<OpenAiResponsesClient>());
         return services;
     }
 }

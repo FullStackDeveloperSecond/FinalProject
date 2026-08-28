@@ -30,9 +30,16 @@ public enum AiSupportContextStatus
     Unavailable = 2,
 }
 
+public sealed record AiSupportContextItem(
+    string SourceType,
+    string SourceId,
+    string Title,
+    string VersionOrUpdatedAt,
+    string Content);
+
 public sealed record AiSupportContextReadResult(
     AiSupportContextStatus Status,
-    IReadOnlyList<string> DataItems);
+    IReadOnlyList<AiSupportContextItem> DataItems);
 
 public interface IAiSupportContextReader
 {
@@ -48,9 +55,25 @@ public enum AiSupportModelAnswerStatus
     Unavailable = 1,
 }
 
+public sealed record AiSupportCitation(
+    string SourceType,
+    string SourceId,
+    string Title,
+    string VersionOrUpdatedAt);
+
+public sealed record AiSupportModelUsage(
+    string Model,
+    int InputTokens,
+    int OutputTokens);
+
 public sealed record AiSupportModelAnswer(
     string? Answer,
-    AiSupportModelAnswerStatus Status = AiSupportModelAnswerStatus.Answered);
+    AiSupportModelAnswerStatus Status = AiSupportModelAnswerStatus.Answered,
+    IReadOnlyList<AiSupportCitation>? ModelCitations = null,
+    AiSupportModelUsage? Usage = null)
+{
+    public IReadOnlyList<AiSupportCitation> Citations { get; } = ModelCitations ?? [];
+}
 
 public interface IAiSupportModelClient
 {
@@ -75,10 +98,12 @@ public enum AiSupportExecutionStatus
 public sealed record AiSupportExecutionResult(
     AiSupportExecutionStatus Status,
     string? Answer,
+    IReadOnlyList<AiSupportCitation> Citations,
     AiSafetyReason Reason,
     AiFallback Fallback,
     int RemainingDailyMessages,
-    DateTimeOffset ResetAtUtc);
+    DateTimeOffset ResetAtUtc,
+    AiSupportModelUsage? ModelUsage = null);
 
 public sealed class AiSupportOrchestrator
 {
@@ -168,10 +193,12 @@ public sealed class AiSupportOrchestrator
         return new AiSupportExecutionResult(
             AiSupportExecutionStatus.Answered,
             modelAnswer.Answer,
+            modelAnswer.Citations,
             AiSafetyReason.None,
             AiFallback.None,
             reservation.State.RemainingDailyMessages,
-            reservation.State.ResetAtUtc);
+            reservation.State.ResetAtUtc,
+            modelAnswer.Usage);
     }
 
     private static AiSupportRequestDecision EvaluateAccess(AiSupportAccessState access) =>
@@ -211,6 +238,7 @@ public sealed class AiSupportOrchestrator
         new(
             AiSupportExecutionStatus.Rejected,
             Answer: null,
+            Citations: [],
             reason,
             fallback,
             access.RemainingDailyMessages,
