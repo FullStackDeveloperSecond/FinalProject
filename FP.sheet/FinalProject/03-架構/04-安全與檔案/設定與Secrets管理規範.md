@@ -37,7 +37,8 @@ appsettings.json
 |---|:---:|---|
 | `ConnectionStrings__DefaultConnection` | 條件 | API 啟動必填；目前 Windows Authentication 範例不含 Secret，若改用 SQL Login 則整值為 Secret |
 | `OpenAI__ApiKey` | ✓ | AI 功能啟用時必填 |
-| `OpenAI__Model` |  | 有安全預設，可由設定覆寫 |
+| `OpenAI__SupportModel` |  | AI 客服模型；預設 `gpt-5.6-terra`，凍結後依評估決定 Snapshot |
+| `OpenAI__SupportTimeoutMilliseconds` |  | AI 客服單次嘗試逾時；預設 12000，允許 1000～60000 |
 | `Email__SmtpHost` |  | Email 功能啟用時必填 |
 | `Email__SmtpPort` |  | Email 功能啟用時必填 |
 | `Email__UserName` | ✓ | Brevo SMTP 啟用時必填 |
@@ -86,6 +87,7 @@ Server=.\SQL2025;Database=DoSelectDb;Trusted_Connection=True;TrustServerCertific
 - Demo 前檢查只測試 SQL、OpenAI、Brevo 可用性；不可把 Secret 截圖或錄入備援影片。
 - 預錄完成或專題結束後 Rotation OpenAI／SMTP Key，清除展示使用者環境變數與 User Secrets。
 - AI／Email 未啟用時，即使沒有對應 Secret，API 仍可啟動且核心電商功能保持可用；未啟用的外部服務不使公開 Health 失敗。
+- AI 客服 Request 的 `store=false` 是程式固定隱私邊界，不提供環境設定覆寫；`OpenAI__ApiKey` 只能存在後端 Secret Store，不得進入 Vue 設定或 Bundle。
 
 上述降級只適用於 `Features:AiEnabled=false` 或 `Features:EmailEnabled=false`。若操作人員明確啟用功能卻漏填必要設定，API 必須在啟動時失敗，只列出缺少或不合法的 Configuration Key，不得靜默改回 false。
 

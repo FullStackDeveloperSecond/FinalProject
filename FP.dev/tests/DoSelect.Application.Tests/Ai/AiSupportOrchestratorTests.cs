@@ -92,12 +92,22 @@ public sealed class AiSupportOrchestratorTests
     [Fact]
     public async Task ExecuteAsync_WhenAllSafetyGatesPass_ReservesOnceBeforeCallingModel()
     {
-        var model = new RecordingAiSupportModelClient("這是安全的測試回答。");
+        var modelUsage = new AiSupportModelUsage("gpt-5.6-terra-snapshot", 128, 42);
+        var model = new RecordingAiSupportModelClient(
+            "這是安全的測試回答。",
+            usage: modelUsage);
         var admission = GrantedAdmission();
         var context = new StubAiSupportContextReader(
             new AiSupportContextReadResult(
                 AiSupportContextStatus.Allowed,
-                ["已授權且去識別化的訂單摘要"]));
+                [
+                    new AiSupportContextItem(
+                        "order",
+                        OrderPublicId.ToString("D"),
+                        "ORD-TEST",
+                        "2026-08-28T00:00:00.0000000Z",
+                        "已授權且去識別化的訂單摘要"),
+                ]));
         var subject = new AiSupportOrchestrator(admission, context, model);
         var request = CreateRequest(
             "請說明退貨流程",
@@ -118,6 +128,7 @@ public sealed class AiSupportOrchestratorTests
         Assert.Equal(MemberId, context.LastMemberId);
         Assert.Equal([OrderPublicId], context.LastReferencedOrderPublicIds);
         Assert.Equal(19, result.RemainingDailyMessages);
+        Assert.Equal(modelUsage, result.ModelUsage);
     }
 
     [Fact]
@@ -268,13 +279,16 @@ public sealed class AiSupportOrchestratorTests
     {
         private readonly string? _answer;
         private readonly AiSupportModelAnswerStatus _status;
+        private readonly AiSupportModelUsage? _usage;
 
         public RecordingAiSupportModelClient(
             string? answer = "unused",
-            AiSupportModelAnswerStatus status = AiSupportModelAnswerStatus.Answered)
+            AiSupportModelAnswerStatus status = AiSupportModelAnswerStatus.Answered,
+            AiSupportModelUsage? usage = null)
         {
             _answer = answer;
             _status = status;
+            _usage = usage;
         }
 
         public int CallCount { get; private set; }
@@ -287,7 +301,10 @@ public sealed class AiSupportOrchestratorTests
         {
             CallCount++;
             LastEnvelope = envelope;
-            return Task.FromResult(new AiSupportModelAnswer(_answer, _status));
+            return Task.FromResult(new AiSupportModelAnswer(
+                _answer,
+                _status,
+                Usage: _usage));
         }
     }
 }

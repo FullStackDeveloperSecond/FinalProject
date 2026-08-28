@@ -235,8 +235,12 @@ sequenceDiagram
 - 統一使用 OpenAI Responses API；工具與 Structured Outputs 只能經後端 Adapter 呼叫。官方介面說明見 [Responses API migration guide](https://developers.openai.com/api/docs/guides/migrate-to-responses)。
 - 開發期由設定指定模型 Alias；Day 35 功能凍結後，若模型提供 Snapshot，鎖定已通過 120 筆評估集的 Snapshot。
 - 若帳號無法使用選定模型或 Snapshot，不得由開發者自行換模；需記錄成本、品質與相容性後重新決策。
-- OpenAI Request 是否保存必須明確設定，且不取代本系統自身的 90／180 天保存規則。
+- AI 客服 Adapter 直接以既有 `HttpClient` 呼叫固定的 Responses Endpoint，不新增 OpenAI SDK 或可設定的外送 Host；正式 DI 仍只暴露 `IAiSupportModelClient`。
+- AI 客服 Request 固定 `store=false`，不送 `previous_response_id`，第一版也不在此 Adapter 暴露 Tool；此設定不取代本系統自身的 90／180／365 天保存與清除規則。
+- 設定鍵為 `OpenAI:ApiKey`、`OpenAI:SupportModel` 與 `OpenAI:SupportTimeoutMilliseconds`；預設模型 `gpt-5.6-terra`、單次嘗試 12 秒，功能啟用時缺少或不合法設定即啟動失敗。
+- 429、Request Timeout、5xx、網路失敗、回應截斷或結構不合法最多重試一次；其他 4xx、模型明確轉人工與呼叫端取消不重試。重試只發生在同一次已預留互動，不重扣或退款額度。
+- 輸出使用 strict JSON Schema；答案最多 4,000 字、引用最多 8 筆。引用必須匹配本次後端核准來源，標題與版本由後端可信資料覆寫，不採用模型提供的 URL。成功回應必須帶回 Provider 實際模型名稱及 Input／Output Token；缺少或不合法時 Fail Closed。
 
 既有零件識別格式與 Clarification Precision／Recall 發布門檻均已定版；120 筆繁中 draft 評估資料、合成 Fixture、Grader Contract 與 deterministic 驗證已建立於 `FP.dev/evals/ai/v1`。Application 已建立 32 項 AI 安全測試；API 的 `POST /api/v1/ai/support/messages` 具 Member／Guest 雙 Scheme 的 `AiSupport.Member` Policy，真正 GuestOrderAccess Cookie 通過 Authentication 後因缺 Member Claim 回 403。Infrastructure 已接上 `EfAiSupportAdmissionGate` 與 `EfAiSupportContextReader`：前者只接受 `AiConsentPolicy.CurrentVersion=1`、`Purpose=Support` 範圍內的最新 append-only 同意，以 `Asia/Taipei` 00:00 日界線、Serializable 交易、SQL Server Key-range Lock 與 RequestPublicId UX 原子預留每日 20 則；後者只依可信 Member ID 查本人訂單並輸出去識別最小 JSON。資料庫故障、內容安全或 Owner 不符均 Fail Closed，不呼叫模型。
 
-AI-13 現有證據為 Domain 4、Application 32、Infrastructure 8、API 10；Migration `20260828050333_AddAiSafetyConsentAndUsage` 只新增 `AiConsentRecords` 與 `AiUsageLedger`、索引、Check Constraint 與 Restrict FK，尚未套用共用開發資料庫。Provider-backed 測試另證明版本不符不會預留額度、每日額度在台灣午夜重置。剩餘工作為 Terry／Kafen 評估資料覆核、完整 SearchIntent Schema、正式 Prompt、OpenAI Responses API Adapter、M-19 同意／撤回 Endpoint 與客服歷史 Query、前端 E2E 及 live baseline。
+AI-13 與 Adapter 現有證據為 Domain 4、Application 32、Infrastructure 19、API 10；Migration `20260828050333_AddAiSafetyConsentAndUsage` 只新增 `AiConsentRecords` 與 `AiUsageLedger`、索引、Check Constraint 與 Restrict FK，尚未套用共用開發資料庫。Provider-backed 測試另證明版本不符不會預留額度、每日額度在台灣午夜重置。客服 Responses Adapter 的 11 項零外部呼叫測試涵蓋無狀態 Payload、授權、strict Schema、可信引用、模型／Token、重試、非暫時錯誤、轉人工、取消、非法來源、Null 引用及非法語系；Application 另驗證模型／Token 會傳回 Use Case 結果供 M-19 保存。剩餘工作為 Terry／Kafen 評估資料覆核、搜尋專用 Adapter／Endpoint、M-19 同意／撤回 Endpoint 與客服歷史 Query、前端 E2E，以及真實模型品質、P95 與成本 baseline。

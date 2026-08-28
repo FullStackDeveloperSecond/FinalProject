@@ -111,4 +111,4 @@ Schema 採小型業務條件且不得暴露資料庫欄位；用途 Enum 與補�
 - 完整自然語言搜尋 JSON Schema 欄位型別與 Enum 已定於 [[03-架構/06-AI設計/AI應用詳細設計]]。
 - AI 客服四個工具、引用欄位及精確 Request／Response DTO 已定於 [[03-架構/06-AI設計/AI應用詳細設計]] 與 [[03-架構/02-API與前端契約/API DTO與Schema契約]]。
 - Prompt、Schema、工具版本規則已確認，實作格式詳見 [[03-架構/06-AI設計/AI應用詳細設計]]。
-- 個資遮蔽、跨會員、同意、額度預留、最後一額、併發競爭、語系、唯讀工具、Schema、故障與 Prompt Injection 信任分層已有 32 項 Application、10 項 API、4 項 Domain 與 6 項 Infrastructure AI 自動化。正式 SQL Server Admission Gate、append-only 同意／額度資料、本人訂單去識別 Owner Query、RequestPublicId 冪等及真正 GuestOrderAccess Cookie 403 已完成；OpenAI Responses API Adapter、模型輸出／引用、同意 UI／E2E 與 live evaluation 仍由後續 Adapter、M-19 與 AI-09 追蹤，詳見 [[03-架構/06-AI設計/AI測試與評估規格]]。
+- 個資遮蔽、跨會員、同意、額度預留、最後一額、併發競爭、語系、唯讀工具、Schema、故障與 Prompt Injection 信任分層已有 32 項 Application、10 項 API、4 項 Domain 與 19 項 Infrastructure AI 自動化。正式 SQL Server Admission Gate、append-only 同意／額度資料、本人訂單去識別 Owner Query、RequestPublicId 冪等、真正 GuestOrderAccess Cookie 403，以及客服 Responses Adapter 的 `store=false`、strict Schema、可信引用、模型／Token 與降級均已形成；同意 UI／E2E、搜尋專用 Adapter 與 live evaluation 仍由 M-19、M-18 與 AI-09 追蹤，詳見 [[03-架構/06-AI設計/AI測試與評估規格]]。

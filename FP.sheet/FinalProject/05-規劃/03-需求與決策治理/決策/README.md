@@ -13,6 +13,7 @@
 
 ## 最近完成批次
 
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-033-OpenAI-Responses-API-Adapter定版|DEC-BATCH-033｜OpenAI Responses API Adapter 定版]]：`DEC-P331～DEC-P334`，4 項，已於 2026-08-28 寫回；客服採既有 `HttpClient`、`store=false`、Terra／12 秒、一次暫時錯誤重試、strict Schema、可信引用正規化及模型／Token 證據，功能維持預設關閉且 live baseline 仍由 AI-09 追蹤。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-032-AI客服同意版本用途與額度日界線修正|DEC-BATCH-032｜AI 客服同意版本、用途與額度日界線修正]]：`DEC-P328～DEC-P330`，3 項，已於 2026-08-28 寫回；只接受後端目前版本與 `Purpose=Support` 的有效同意，每日額度於 `Asia/Taipei` 午夜重置；原 AI Migration 原位修正且未混入既有 Product Image 欄位。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-031-AI客服同意額度與OwnerQuery定版|DEC-BATCH-031｜AI 客服同意、額度與 Owner Query 定版]]：`DEC-P324～DEC-P327`，4 項，已於 2026-08-28 寫回；SQL-backed append-only 同意與每日原子／冪等額度、本人訂單最小投影、真正 Guest Cookie 403 已完成，OpenAI Adapter、M-19 UI／E2E 與 live evaluation 維持後續階段。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-030-商品圖片Hash與Outbox人工重送定版|DEC-BATCH-030｜商品圖片 Hash 與 Outbox 人工重送定版]]：`DEC-P322～DEC-P323`，2 項，已於 2026-08-28 寫回；Variant WebP 各自使用 SHA-256 immutable URL，Outbox 人工重送限 MFA SuperAdmin 並與中央 Audit 同次提交；三欄加法 Migration 已在最新 `origin/dev` 基線重建、審查且未套用。

@@ -171,14 +171,32 @@ public sealed class ObservabilityTests : IClassFixture<WebApplicationFactory<Pro
         {
             ["Features:AiEnabled"] = "true",
             ["OpenAI:ApiKey"] = secret,
-            ["OpenAI:Model"] = string.Empty,
+            ["OpenAI:SupportModel"] = string.Empty,
         });
 
         var exception = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
         var message = exception.ToString();
 
-        Assert.Contains("OpenAI:Model", message, StringComparison.Ordinal);
+        Assert.Contains("OpenAI:SupportModel", message, StringComparison.Ordinal);
         Assert.DoesNotContain(secret, message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Start_WhenAiSupportTimeoutIsOutsideAllowedRange_FailsWithConfigurationKey()
+    {
+        using var factory = CreateFactory(new Dictionary<string, string?>
+        {
+            ["Features:AiEnabled"] = "true",
+            ["OpenAI:ApiKey"] = "synthetic-openai-key",
+            ["OpenAI:SupportTimeoutMilliseconds"] = "999",
+        });
+
+        var exception = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
+
+        Assert.Contains(
+            "OpenAI:SupportTimeoutMilliseconds",
+            exception.ToString(),
+            StringComparison.Ordinal);
     }
 
     [Fact]

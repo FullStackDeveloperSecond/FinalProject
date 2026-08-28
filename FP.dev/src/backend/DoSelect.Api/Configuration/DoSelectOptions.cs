@@ -9,15 +9,6 @@ public sealed class FeatureOptions
     public bool EmailEnabled { get; set; }
 }
 
-public sealed class OpenAiOptions
-{
-    public const string SectionName = "OpenAI";
-
-    public string? ApiKey { get; set; }
-
-    public string Model { get; set; } = "gpt-5.6-luna";
-}
-
 public sealed class DemoOptions
 {
     public const string SectionName = "Demo";
