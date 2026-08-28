@@ -67,33 +67,34 @@ export function useDeleteBuildList() {
 }
 
 /**
- * 組長 PR #35 round-4 review, P2: `mutationFn` 送出時讀到的是「當下」的 publicId，但 `onSuccess`
- * 若再呼叫一次 `toValue(publicId)`，在使用者已切到另一份清單時讀到的會是「新的」那一個——結果是
- * 改了 A 卻去 invalidate B，A 的 cache 反而保持舊狀態（B 則被無謂重抓）。改成把送出當下的 id 當成
- * mutation variables 傳進去，`onSuccess` 只認 `variables`，不重讀 route。呼叫端可以不帶參數
- * （沿用 composable 綁定的 getter），也可以顯式帶入自己 snapshot 的 id。
+ * 組長 PR #35 round-5 review (P3), following the precedent already set by 組長 PR #24 round 8 (P2)
+ * in admin-web's `useSkus`: a `MaybeRefOrGetter<string>` that mutationFn and onSuccess each resolve
+ * via `toValue()` pins the write target correctly at call time, but onSuccess re-reads the getter
+ * at *completion* time — if the user navigates to another build list while the request is still in
+ * flight, that later read picks up the new list's id and invalidates its cache entry instead of the
+ * one this mutation actually wrote to. Round 4's fix made the id an optional mutation variable, but
+ * the `?? toValue(publicId)` fallback left exactly that re-read in place for no-argument calls. The
+ * id is now a required part of the mutation's own variables, supplied by the caller at `.mutate()`
+ * time and never re-resolved afterward — mutationFn and onSuccess both receive the same frozen id
+ * via `variables`, regardless of where the page has navigated to by the time the request settles.
  */
-export function useCreateBuildShare(publicId: MaybeRefOrGetter<string>) {
+function invalidateBuildDetail(queryClient: ReturnType<typeof useQueryClient>, publicId: string) {
+  return queryClient.invalidateQueries({ queryKey: [...buildListsQueryKey, 'detail', publicId] })
+}
+
+export function useCreateBuildShare() {
   const queryClient = useQueryClient()
   return useMutation({
-    // 呼叫端不帶參數時 TanStack Query 會把 variables 設成 undefined（而不是「沒有引數」），
-    // 所以 TypeScript 的預設參數只救得了 mutationFn，救不了 onSuccess——後者拿到的 variables
-    // 仍是 undefined，query key 會變成 ['build-lists','detail',undefined]，等於沒 invalidate
-    // 到任何東西。統一在這裡解析一次，兩邊都用同一個 resolved 值。
-    mutationFn: (targetPublicId?: string) => createBuildShare(targetPublicId ?? toValue(publicId)),
-    onSuccess: (_data, targetPublicId) => queryClient.invalidateQueries({
-      queryKey: [...buildListsQueryKey, 'detail', targetPublicId ?? toValue(publicId)],
-    }),
+    mutationFn: (publicId: string) => createBuildShare(publicId),
+    onSuccess: (_data, publicId) => invalidateBuildDetail(queryClient, publicId),
   })
 }
 
-export function useRevokeBuildShare(publicId: MaybeRefOrGetter<string>) {
+export function useRevokeBuildShare() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (targetPublicId?: string) => revokeBuildShare(targetPublicId ?? toValue(publicId)),
-    onSuccess: (_data, targetPublicId) => queryClient.invalidateQueries({
-      queryKey: [...buildListsQueryKey, 'detail', targetPublicId ?? toValue(publicId)],
-    }),
+    mutationFn: (publicId: string) => revokeBuildShare(publicId),
+    onSuccess: (_data, publicId) => invalidateBuildDetail(queryClient, publicId),
   })
 }
 

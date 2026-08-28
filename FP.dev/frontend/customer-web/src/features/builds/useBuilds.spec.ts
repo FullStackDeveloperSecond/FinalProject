@@ -1,7 +1,8 @@
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import { mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { defineComponent, ref, h } from 'vue'
+import { beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest'
+import { defineComponent, h } from 'vue'
+import type { useCreateBuildShare, useRevokeBuildShare } from './useBuilds'
 
 const mockCreateBuildShare = vi.fn()
 const mockRevokeBuildShare = vi.fn()
@@ -24,12 +25,16 @@ beforeEach(() => {
 })
 
 /**
- * 組長 PR #35 round-5 review, P3: 直接以 `invalidateQueries` spy 驗證 query key，而不是從 API
- * 呼叫參數間接推論——後者無法分辨「送出 A 但 invalidate B」這個 bug，因為 API 參數本來就會是 A。
+ * 組長 PR #35 round-5 review, P3: assert the invalidated query key with an `invalidateQueries` spy
+ * rather than inferring it from the API call arguments — the latter cannot tell "submitted A but
+ * invalidated B" apart, because the API argument is A either way.
  *
- * 這裡刻意模擬真實情境：composable 綁定的是一個「會變動的」getter（等同 route 參數），送出 mutation
- * 之後把它換成另一個 id，再讓 mutation 完成。修正前 `onSuccess` 會重新讀 getter 拿到新 id；修正後
- * 只認 mutation variables。
+ * Round 4's composables bound a `MaybeRefOrGetter` and re-read it in `onSuccess`, so the scenario
+ * worth covering was "navigate away mid-flight". The id is now a required mutation variable and
+ * nothing is bound at all, so that scenario is structurally impossible. What remains reachable —
+ * and what these tests cover — is two overlapping mutations completing out of order: each must
+ * invalidate the id it was itself given. That also rules out the shared-mutable-variable shape
+ * 組長 warned about, which would let the later call overwrite the earlier one's target.
  */
 async function mountWithShareComposables() {
   const { useCreateBuildShare, useRevokeBuildShare } = await import('./useBuilds')
@@ -37,13 +42,14 @@ async function mountWithShareComposables() {
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
   const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue(undefined)
-  const currentId = ref('build-A')
+
+  let create!: ReturnType<typeof useCreateBuildShare>
+  let revoke!: ReturnType<typeof useRevokeBuildShare>
 
   const harness = defineComponent({
-    setup(_, { expose }) {
-      const create = useCreateBuildShare(() => currentId.value)
-      const revoke = useRevokeBuildShare(() => currentId.value)
-      expose({ create, revoke })
+    setup() {
+      create = useCreateBuildShare()
+      revoke = useRevokeBuildShare()
       return () => h('div')
     },
   })
@@ -52,58 +58,78 @@ async function mountWithShareComposables() {
     global: { plugins: [[VueQueryPlugin, { queryClient }]] },
   })
 
-  return { wrapper, invalidateSpy, currentId }
+  return { wrapper, invalidateSpy, create, revoke }
+}
+
+/** Hands back one deferred promise per call, keyed by the id the mutation was invoked with. */
+function deferByArgument(mock: ReturnType<typeof vi.fn>) {
+  const resolvers = new Map<string, (value: unknown) => void>()
+  mock.mockImplementation((publicId: string) =>
+    new Promise((resolve) => { resolvers.set(publicId, resolve) }))
+  return {
+    resolve(publicId: string, value: unknown) {
+      const resolver = resolvers.get(publicId)
+      if (!resolver) {
+        throw new Error(`no pending call for ${publicId}`)
+      }
+      resolver(value)
+    },
+  }
 }
 
 describe('useCreateBuildShare / useRevokeBuildShare — invalidation targets the submitted id', () => {
-  it('invalidates the detail query of the build the share was actually created for, not the one now bound', async () => {
-    let resolveCreate: ((value: unknown) => void) | undefined
-    mockCreateBuildShare.mockImplementation(() => new Promise((resolve) => { resolveCreate = resolve }))
+  it('invalidates each build the share was actually created for when two calls settle out of order', async () => {
+    const deferred = deferByArgument(mockCreateBuildShare)
 
-    const { wrapper, invalidateSpy, currentId } = await mountWithShareComposables()
-    const vm = wrapper.vm as unknown as { create: { mutateAsync: (id?: string) => Promise<unknown> } }
+    const { invalidateSpy, create } = await mountWithShareComposables()
 
-    const pending = vm.create.mutateAsync('build-A')
+    const pendingA = create.mutateAsync('build-A')
     await vi.waitFor(() => expect(mockCreateBuildShare).toHaveBeenCalledWith('build-A'))
+    const pendingB = create.mutateAsync('build-B')
+    await vi.waitFor(() => expect(mockCreateBuildShare).toHaveBeenCalledWith('build-B'))
 
-    // 使用者切到另一份清單：composable 綁定的 getter 現在會回傳 build-B。
-    currentId.value = 'build-B'
+    // The later call finishes first; the earlier one must still invalidate its own build.
+    deferred.resolve('build-B', { token: 'tb', url: 'https://example.test/s/tb', expiresAtUtc: new Date().toISOString() })
+    await pendingB
+    deferred.resolve('build-A', { token: 'ta', url: 'https://example.test/s/ta', expiresAtUtc: new Date().toISOString() })
+    await pendingA
 
-    resolveCreate?.({ token: 't', url: 'https://example.test/s/t', expiresAtUtc: new Date().toISOString() })
-    await pending
-
-    expect(invalidateSpy).toHaveBeenCalledTimes(1)
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['build-lists', 'detail', 'build-A'] })
+    expect(invalidateSpy).toHaveBeenCalledTimes(2)
+    expect(invalidateSpy).toHaveBeenNthCalledWith(1, { queryKey: ['build-lists', 'detail', 'build-B'] })
+    expect(invalidateSpy).toHaveBeenNthCalledWith(2, { queryKey: ['build-lists', 'detail', 'build-A'] })
   })
 
-  it('invalidates the detail query of the build the share was actually revoked for, not the one now bound', async () => {
-    let resolveRevoke: ((value: unknown) => void) | undefined
-    mockRevokeBuildShare.mockImplementation(() => new Promise((resolve) => { resolveRevoke = resolve }))
+  it('invalidates each build the share was actually revoked for when two calls settle out of order', async () => {
+    const deferred = deferByArgument(mockRevokeBuildShare)
 
-    const { wrapper, invalidateSpy, currentId } = await mountWithShareComposables()
-    const vm = wrapper.vm as unknown as { revoke: { mutateAsync: (id?: string) => Promise<unknown> } }
+    const { invalidateSpy, revoke } = await mountWithShareComposables()
 
-    const pending = vm.revoke.mutateAsync('build-A')
+    const pendingA = revoke.mutateAsync('build-A')
     await vi.waitFor(() => expect(mockRevokeBuildShare).toHaveBeenCalledWith('build-A'))
+    const pendingB = revoke.mutateAsync('build-B')
+    await vi.waitFor(() => expect(mockRevokeBuildShare).toHaveBeenCalledWith('build-B'))
 
-    currentId.value = 'build-B'
+    deferred.resolve('build-B', undefined)
+    await pendingB
+    deferred.resolve('build-A', undefined)
+    await pendingA
 
-    resolveRevoke?.(undefined)
-    await pending
-
-    expect(invalidateSpy).toHaveBeenCalledTimes(1)
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['build-lists', 'detail', 'build-A'] })
+    expect(invalidateSpy).toHaveBeenCalledTimes(2)
+    expect(invalidateSpy).toHaveBeenNthCalledWith(1, { queryKey: ['build-lists', 'detail', 'build-B'] })
+    expect(invalidateSpy).toHaveBeenNthCalledWith(2, { queryKey: ['build-lists', 'detail', 'build-A'] })
   })
 
-  it('falls back to the bound getter when no explicit id is passed', async () => {
-    mockCreateBuildShare.mockResolvedValue({ token: 't', url: 'u', expiresAtUtc: new Date().toISOString() })
-
-    const { wrapper, invalidateSpy } = await mountWithShareComposables()
-    const vm = wrapper.vm as unknown as { create: { mutateAsync: (id?: string) => Promise<unknown> } }
-
-    await vm.create.mutateAsync()
-
-    expect(mockCreateBuildShare).toHaveBeenCalledWith('build-A')
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['build-lists', 'detail', 'build-A'] })
+  /**
+   * 組長 PR #35 round-5 review, P3: the no-argument fallback is gone, so the guard is that it can no
+   * longer be written. A no-argument call would still *run* (the mutation fn would simply forward
+   * `undefined`), so there is nothing meaningful to assert at runtime — the contract is the type.
+   * `expectTypeOf` fails at compile time, and `src/**\/*.ts` is inside `tsconfig.app.json`'s
+   * `include`, so `npm run typecheck` (`vue-tsc -b`) enforces this alongside `vitest run`.
+   */
+  it('requires an explicit id — the mutation variable is a plain string, not an optional one', () => {
+    expectTypeOf<Parameters<ReturnType<typeof useCreateBuildShare>['mutateAsync']>[0]>()
+      .toEqualTypeOf<string>()
+    expectTypeOf<Parameters<ReturnType<typeof useRevokeBuildShare>['mutateAsync']>[0]>()
+      .toEqualTypeOf<string>()
   })
 })
