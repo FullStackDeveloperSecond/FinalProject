@@ -100,8 +100,6 @@ public sealed class EfAiSupportContextReader(DoSelectDbContext dbContext)
                 var order = byPublicId[publicId];
                 var payload = new
                 {
-                    orderPublicId = order.PublicId,
-                    orderNumber = order.OrderNumber,
                     orderStatus = order.OrderStatus.ToString(),
                     paymentStatus = order.PaymentStatus.ToString(),
                     shippingStatus = order.FulfillmentStatus.ToString(),
@@ -186,8 +184,6 @@ public sealed class EfAiSupportContextReader(DoSelectDbContext dbContext)
                     .ToArray();
                 var payload = new
                 {
-                    ticketPublicId = ticket.PublicId,
-                    ticketNumber = ticket.TicketNumber,
                     ticket.Subject,
                     status = ticket.Status.ToString(),
                     messages = ticketMessages,

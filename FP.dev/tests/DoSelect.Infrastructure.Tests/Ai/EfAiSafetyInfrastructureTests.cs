@@ -352,7 +352,15 @@ public sealed class EfAiSafetyInfrastructureTests
             Assert.Equal("support_ticket", payload.SourceType);
             Assert.Contains("螢幕偶爾閃爍", payload.Content, StringComparison.Ordinal);
             Assert.DoesNotContain("INTERNAL_DIAGNOSTIC_ONLY", payload.Content, StringComparison.Ordinal);
+            Assert.DoesNotContain(ticket.TicketNumber, payload.Content, StringComparison.Ordinal);
             Assert.Equal(AiSupportContextStatus.ResourceNotFound, otherResult.Status);
+
+            var prompt = AiPromptEnvelopeFactory.TryCreateSupport(
+                SupportedLocale.ZhTw,
+                "請查看這張客服案件",
+                ownerResult.DataItems);
+            Assert.NotNull(prompt.Envelope);
+            Assert.Equal(AiSafetyReason.None, prompt.Reason);
         });
     }
 
