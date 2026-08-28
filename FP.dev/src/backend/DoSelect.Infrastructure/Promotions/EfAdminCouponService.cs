@@ -423,16 +423,26 @@ public sealed class EfAdminCouponService : IAdminCouponService
     }
 
     /// <summary>
-    /// 把單一個 `activate` 動作分派到 Entity 上正確的那一條轉移。
+    /// 把管理員的 `activate` 動作分派到 Entity 上正確的那一條轉移。
     /// </summary>
     /// <remarks>
-    /// Entity 依來源狀態提供三條不同的啟用路徑，各自要重新驗證的條件不同；
-    /// Action 白名單卻只有一個 `activate`（API Endpoint目錄第 113 行）。
-    /// 若一律呼叫 <see cref="Coupon.ActivateNow"/>，`Scheduled` 與 `Exhausted`
-    /// 的券永遠無法啟用。
     /// <para>
-    /// 尚未進入有效期間的 `Draft` 走 <see cref="Coupon.ScheduleForLaterStart"/>：
-    /// 白名單沒有 `schedule`，若在此直接拒絕，`Scheduled` 將是一個 API 到不了的狀態。
+    /// 權威狀態機（<c>狀態機設計.md</c>「優惠券狀態」）規定
+    /// **`activate` 只接受 `Draft` 或符合條件的 `Paused`**。
+    /// </para>
+    /// <para>
+    /// <c>Scheduled → Active</c>（到達開始時間）與 <c>Exhausted → Active</c>
+    /// （名額返還）是**系統事件**，不是管理員操作。讓管理員的 `activate` 去消耗它們，
+    /// 會把兩個不同來源的轉移都記成 <c>coupon.activate</c>，稽核就再也分不出
+    /// 「誰讓這張券重新生效」。因此這兩個狀態一律回 <c>coupon_state_conflict</c>，
+    /// 正式的排程與名額返還路徑仍各自呼叫 <see cref="Coupon.ActivateScheduled"/>
+    /// 與 <see cref="Coupon.ReactivateAfterQuotaRelease"/>。
+    /// </para>
+    /// <para>
+    /// 尚未進入有效期間的 `Draft` 走 <see cref="Coupon.ScheduleForLaterStart"/>
+    /// 進入 `Scheduled`（alex 已裁定的 B1）。這也是 `Scheduled` 的唯一進入路徑 ——
+    /// 先前註解寫「白名單沒有 schedule，所以 Scheduled 會是 API 到不了的狀態」，
+    /// 那個理由不成立。
     /// </para>
     /// </remarks>
     private async Task ActivateAsync(Coupon coupon, DateTime now, CancellationToken cancellationToken)
@@ -448,15 +458,10 @@ public sealed class EfAdminCouponService : IAdminCouponService
             case CouponStatus.Paused:
                 coupon.ActivateNow(usage, now);
                 break;
-            case CouponStatus.Scheduled:
-                coupon.ActivateScheduled(usage, now);
-                break;
-            case CouponStatus.Exhausted:
-                coupon.ReactivateAfterQuotaRelease(usage, now);
-                break;
             default:
-                throw new InvalidOperationException(
-                    $"A {coupon.Status} coupon cannot be activated.");
+                throw StateConflict(
+                    $"A {coupon.Status} coupon cannot be activated by an administrator; " +
+                    "activate only accepts Draft or an eligible Paused coupon.");
         }
     }
 

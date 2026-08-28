@@ -577,7 +577,8 @@ public sealed class AdminCouponServiceSqlServerTests
     [AdminCouponSqlFact]
     public async Task ActivatingACouponThatHasNotStartedSchedulesItInstead()
     {
-        // Action 白名單沒有 `schedule`；若在此拒絕，Scheduled 會是 API 到不了的狀態。
+        // 未開始的 Draft 執行 activate → Scheduled（alex 裁定的 B1）。
+        // 這也是 Scheduled 的唯一進入路徑。
         await using var context = AdminCouponSqlFixture.CreateContext();
         var service = CreateService(context);
         var created = await service.CreateAsync(
@@ -587,6 +588,84 @@ public sealed class AdminCouponServiceSqlServerTests
             created.PublicId, AdminCouponActions.Activate, ActionRequest(created));
 
         Assert.Equal(CouponStatus.Scheduled, scheduled.Status);
+    }
+
+    /// <summary>
+    /// 管理員的 `activate` 不得消耗 `Scheduled → Active` 這個系統事件。
+    /// </summary>
+    /// <remarks>
+    /// 權威狀態機把它定義為「到達開始時間」的背景事件。讓管理員 action 走同一條轉移，
+    /// 稽核只會留下 <c>coupon.activate</c>，再也分不出這張券是被排程喚醒還是被人手動
+    /// 提前放行 —— 而那兩件事的責任歸屬完全不同。
+    /// </remarks>
+    [AdminCouponSqlFact]
+    public async Task AnAdministratorCannotActivateAScheduledCoupon()
+    {
+        await using var context = AdminCouponSqlFixture.CreateContext();
+        var service = CreateService(context);
+        var created = await service.CreateAsync(
+            CreateRequest(UniqueCode()) with { StartsAtUtc = NowUtc.AddDays(3) });
+        var scheduled = await service.ExecuteActionAsync(
+            created.PublicId, AdminCouponActions.Activate, ActionRequest(created));
+        Assert.Equal(CouponStatus.Scheduled, scheduled.Status);
+
+        // **時鐘要推到開始時間之後**，否則舊實作會因為「尚未進入有效期間」而失敗，
+        // 這條測試就會為了錯誤的理由變綠 —— 它必須擋下的是「條件其實都滿足、
+        // 只差還沒到排程喚醒」的那一刻。
+        await using var laterContext = AdminCouponSqlFixture.CreateContext();
+        var laterService = CreateServiceAt(laterContext, NowUtc.AddDays(4));
+        var reloaded = (await laterService.FindByPublicIdAsync(scheduled.PublicId))!;
+
+        var exception = await Assert.ThrowsAsync<DomainProblemException>(
+            () => laterService.ExecuteActionAsync(
+                reloaded.PublicId, AdminCouponActions.Activate, ActionRequest(reloaded)));
+
+        Assert.Equal(CouponCalculationErrorCodes.CouponStateConflict, exception.Code);
+
+        // 狀態必須原封不動，而且不得留下第二筆稽核。
+        await using var verify = AdminCouponSqlFixture.CreateContext();
+        var stored = await verify.Coupons.SingleAsync(c => c.PublicId == scheduled.PublicId);
+        Assert.Equal(CouponStatus.Scheduled, stored.Status);
+        Assert.Equal(scheduled.RowVersion, stored.RowVersion);
+    }
+
+    /// <summary>
+    /// 管理員的 `activate` 不得消耗 `Exhausted → Active` 這個名額返還事件。
+    /// </summary>
+    [AdminCouponSqlFact]
+    public async Task AnAdministratorCannotActivateAnExhaustedCoupon()
+    {
+        await using var context = AdminCouponSqlFixture.CreateContext();
+        var service = CreateService(context);
+        var created = await service.CreateAsync(
+            CreateRequest(UniqueCode()) with { TotalUsageLimit = 1 });
+        var active = await service.ExecuteActionAsync(
+            created.PublicId, AdminCouponActions.Activate, ActionRequest(created));
+        Assert.Equal(CouponStatus.Active, active.Status);
+
+        // 名額耗盡是系統事件，直接由 Entity 轉移，不經管理員端點。
+        await using (var exhaust = AdminCouponSqlFixture.CreateContext())
+        {
+            var coupon = await exhaust.Coupons.SingleAsync(c => c.PublicId == active.PublicId);
+            coupon.MarkExhausted(new CouponUsageState(1, 0), NowUtc);
+            await exhaust.SaveChangesAsync();
+        }
+
+        await using var reloadContext = AdminCouponSqlFixture.CreateContext();
+        var reloadService = CreateService(reloadContext);
+        var exhausted = (await reloadService.FindByPublicIdAsync(active.PublicId))!;
+        Assert.Equal(CouponStatus.Exhausted, exhausted.Status);
+
+        var exception = await Assert.ThrowsAsync<DomainProblemException>(
+            () => reloadService.ExecuteActionAsync(
+                exhausted.PublicId, AdminCouponActions.Activate, ActionRequest(exhausted)));
+
+        Assert.Equal(CouponCalculationErrorCodes.CouponStateConflict, exception.Code);
+
+        await using var verify = AdminCouponSqlFixture.CreateContext();
+        var stored = await verify.Coupons.SingleAsync(c => c.PublicId == exhausted.PublicId);
+        Assert.Equal(CouponStatus.Exhausted, stored.Status);
+        Assert.Equal(exhausted.RowVersion, stored.RowVersion);
     }
 
     [AdminCouponSqlFact]
@@ -907,10 +986,14 @@ public sealed class AdminCouponServiceSqlServerTests
     }
 
     private static TestCouponService CreateService(DoSelectDbContext context) =>
+        CreateServiceAt(context, NowUtc);
+
+    /// <summary>指定時鐘的服務，用來測試「時間往前推之後」的行為。</summary>
+    private static TestCouponService CreateServiceAt(DoSelectDbContext context, DateTime nowUtc) =>
         new(new EfAdminCouponService(
             context,
-            new FixedTimeProvider(NowUtc),
-            new EfAuditWriter(context, new FixedTimeProvider(NowUtc))));
+            new FixedTimeProvider(nowUtc),
+            new EfAuditWriter(context, new FixedTimeProvider(nowUtc))));
 
     /// <summary>
     /// 把整組測試共用的稽核上下文補進每一次呼叫。
