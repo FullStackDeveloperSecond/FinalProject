@@ -107,6 +107,15 @@ const router = createRouter({
       meta: { requiresAuth: true, requiredRoles: ['OrderManager', 'SuperAdmin'] },
     },
     {
+      path: '/ai/usage',
+      name: 'ai-usage',
+      component: () => import('../pages/AiUsagePage.vue'),
+      meta: {
+        requiresAuth: true,
+        requiredRoles: ['FinanceManager', 'CustomerServiceSupervisor', 'MarketingAnalyst', 'SuperAdmin'],
+      },
+    },
+    {
       path: '/returns/:returnId',
       name: 'admin-return-detail',
       component: () => import('../pages/returns/AdminReturnDetailPage.vue'),

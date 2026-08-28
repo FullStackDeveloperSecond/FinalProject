@@ -154,6 +154,9 @@ public sealed class ObservabilityTests : IClassFixture<WebApplicationFactory<Pro
         {
             ["Features:AiEnabled"] = "true",
             ["OpenAI:ApiKey"] = string.Empty,
+            ["OpenAI:SupportInputCostPerMillionTokens"] = "0",
+            ["OpenAI:SupportOutputCostPerMillionTokens"] = "0",
+            ["OpenAI:BudgetAlertRecipientAdminPublicId"] = "0f269121-89a5-43a4-97f5-b95278bc0cf6",
         });
 
         var exception = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
@@ -172,6 +175,9 @@ public sealed class ObservabilityTests : IClassFixture<WebApplicationFactory<Pro
             ["Features:AiEnabled"] = "true",
             ["OpenAI:ApiKey"] = secret,
             ["OpenAI:SupportModel"] = string.Empty,
+            ["OpenAI:SupportInputCostPerMillionTokens"] = "0",
+            ["OpenAI:SupportOutputCostPerMillionTokens"] = "0",
+            ["OpenAI:BudgetAlertRecipientAdminPublicId"] = "0f269121-89a5-43a4-97f5-b95278bc0cf6",
         });
 
         var exception = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
@@ -189,12 +195,51 @@ public sealed class ObservabilityTests : IClassFixture<WebApplicationFactory<Pro
             ["Features:AiEnabled"] = "true",
             ["OpenAI:ApiKey"] = "synthetic-openai-key",
             ["OpenAI:SupportTimeoutMilliseconds"] = "999",
+            ["OpenAI:SupportInputCostPerMillionTokens"] = "0",
+            ["OpenAI:SupportOutputCostPerMillionTokens"] = "0",
+            ["OpenAI:BudgetAlertRecipientAdminPublicId"] = "0f269121-89a5-43a4-97f5-b95278bc0cf6",
         });
 
         var exception = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
 
         Assert.Contains(
             "OpenAI:SupportTimeoutMilliseconds",
+            exception.ToString(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Start_WhenAiCostConfigurationIsMissing_FailsWithConfigurationKeys()
+    {
+        using var factory = CreateFactory(new Dictionary<string, string?>
+        {
+            ["Features:AiEnabled"] = "true",
+            ["OpenAI:ApiKey"] = "synthetic-openai-key",
+            ["OpenAI:BudgetAlertRecipientAdminPublicId"] = "0f269121-89a5-43a4-97f5-b95278bc0cf6",
+        });
+
+        var exception = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
+        var message = exception.ToString();
+
+        Assert.Contains("OpenAI:SupportInputCostPerMillionTokens", message, StringComparison.Ordinal);
+        Assert.Contains("OpenAI:SupportOutputCostPerMillionTokens", message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Start_WhenAiBudgetAlertRecipientIsMissing_FailsWithConfigurationKey()
+    {
+        using var factory = CreateFactory(new Dictionary<string, string?>
+        {
+            ["Features:AiEnabled"] = "true",
+            ["OpenAI:ApiKey"] = "synthetic-openai-key",
+            ["OpenAI:SupportInputCostPerMillionTokens"] = "0",
+            ["OpenAI:SupportOutputCostPerMillionTokens"] = "0",
+        });
+
+        var exception = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
+
+        Assert.Contains(
+            "OpenAI:BudgetAlertRecipientAdminPublicId",
             exception.ToString(),
             StringComparison.Ordinal);
     }

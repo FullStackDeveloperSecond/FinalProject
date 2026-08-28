@@ -30,6 +30,7 @@ public enum AiSafetyReason
     InvalidBudgetRange = 10,
     InvalidSearchIntent = 11,
     ServiceUnavailable = 12,
+    BudgetProtectionActive = 13,
 }
 
 public enum AiFallback

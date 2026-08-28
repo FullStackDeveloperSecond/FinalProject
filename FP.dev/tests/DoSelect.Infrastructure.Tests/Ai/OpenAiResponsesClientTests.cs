@@ -56,6 +56,19 @@ public sealed class OpenAiResponsesClientTests
                 .GetProperty("citations")
                 .GetProperty("maxItems")
                 .GetInt32());
+        var sourceTypes = root.GetProperty("text")
+            .GetProperty("format")
+            .GetProperty("schema")
+            .GetProperty("properties")
+            .GetProperty("citations")
+            .GetProperty("items")
+            .GetProperty("properties")
+            .GetProperty("sourceType")
+            .GetProperty("enum")
+            .EnumerateArray()
+            .Select(item => item.GetString())
+            .ToArray();
+        Assert.Contains("support_ticket", sourceTypes);
 
         using var input = JsonDocument.Parse(root.GetProperty("input").GetString()!);
         Assert.Equal("ja-JP", input.RootElement.GetProperty("responseLocale").GetString());

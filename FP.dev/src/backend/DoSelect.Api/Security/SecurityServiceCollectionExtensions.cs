@@ -360,6 +360,9 @@ public static class SecurityServiceCollectionExtensions
         });
 
         AddAdminPolicy(options, DoSelectPolicies.Admin);
+        AddAdminPolicy(options, DoSelectPolicies.AiUsageView,
+            DoSelectRoles.FinanceManager, DoSelectRoles.CustomerServiceSupervisor,
+            DoSelectRoles.MarketingAnalyst, DoSelectRoles.SuperAdmin);
         AddAdminPolicy(options, DoSelectPolicies.CatalogManager,
             DoSelectRoles.CatalogManager, DoSelectRoles.SuperAdmin);
         AddAdminPolicy(options, DoSelectPolicies.ReturnApprove,

@@ -312,6 +312,30 @@ public sealed class AiSafetyGateTests
         Assert.Equal(AiSafetyReason.DailyQuotaExceeded, decision.Reason);
     }
 
+    [Fact]
+    public void AiCost002_BudgetProtection_BlocksNonDemoButPreservesDemoFlow()
+    {
+        var blocked = AiSupportRequestGate.Evaluate(new AiSupportRequestContext(
+            AiActorType.Member,
+            IsAuthenticated: true,
+            AiConsentState.Granted,
+            RemainingDailyMessages: 20,
+            BudgetProtectionActive: true,
+            IsDemoAllowlisted: false));
+        var demo = AiSupportRequestGate.Evaluate(new AiSupportRequestContext(
+            AiActorType.Member,
+            IsAuthenticated: true,
+            AiConsentState.Granted,
+            RemainingDailyMessages: 20,
+            BudgetProtectionActive: true,
+            IsDemoAllowlisted: true));
+
+        Assert.False(blocked.MayCallModel);
+        Assert.Equal(AiSafetyReason.BudgetProtectionActive, blocked.Reason);
+        Assert.Equal(AiFallback.HumanSupport, blocked.Fallback);
+        Assert.True(demo.MayCallModel);
+    }
+
     private static AiOrderSummarySource CreateOrderSource()
     {
         return new AiOrderSummarySource(

@@ -4,7 +4,9 @@ public sealed record AiSupportRequestContext(
     AiActorType ActorType,
     bool IsAuthenticated,
     AiConsentState ConsentState,
-    int RemainingDailyMessages);
+    int RemainingDailyMessages,
+    bool BudgetProtectionActive = false,
+    bool IsDemoAllowlisted = false);
 
 public sealed record AiSupportRequestDecision(
     bool MayCallModel,
@@ -45,6 +47,13 @@ public static class AiSupportRequestGate
                 : AiSafetyReason.ConsentRequired;
 
             return Deny(reason, AiFallback.HumanSupport);
+        }
+
+        if (context.BudgetProtectionActive && !context.IsDemoAllowlisted)
+        {
+            return Deny(
+                AiSafetyReason.BudgetProtectionActive,
+                AiFallback.HumanSupport);
         }
 
         if (context.RemainingDailyMessages <= 0)

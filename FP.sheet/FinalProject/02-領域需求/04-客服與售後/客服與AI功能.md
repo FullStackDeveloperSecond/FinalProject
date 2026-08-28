@@ -242,7 +242,7 @@ Cancelled
 - 會員 AI 商品搜尋：每位會員每日 30 次。
 - 會員 AI 客服：每位會員每日 20 則訊息。
 - 需記錄功能、使用者類型、模型、Token、估算成本、成功／失敗與降級情況，不保存不必要個資。
-- 累計預估成本達 US$70 時通知組長；達 US$90 時停用非 Demo 用 AI 流量。
+- 累計預估成本首次跨越 US$70 時，透過 Outbox 對設定中的唯一 Active SuperAdmin 建立一次 Email 與站內通知；收件者設定或角色失效時，在模型呼叫前 Fail Closed。達 US$90 時停用非 Demo 用 AI 流量。
 - 每日額度於 `Asia/Taipei` 00:00 重設。
 - 訪客以遮蔽 IP 的帶 Salt Hash 加第一方隨機 Browser ID 組合識別；Browser ID 保存 30 天，不使用裝置 Fingerprinting。共用網路仍同時受 IP 維度保護。
 - Demo Allowlist 由組長控管，設定兩個展示會員 PublicId 與一個展示 Browser ID；只允許在 US$90 成本停止門檻後繼續展示，不繞過登入、AI 同意、授權、個資遮蔽或安全測試。

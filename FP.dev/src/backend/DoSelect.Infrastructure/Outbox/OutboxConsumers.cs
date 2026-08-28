@@ -1,8 +1,11 @@
 using System.Text.Json;
+using DoSelect.Application.Ai;
+using DoSelect.Application.Auditing;
 using DoSelect.Application.Notifications;
 using DoSelect.Application.Outbox;
 using DoSelect.Domain.Notifications;
 using DoSelect.Domain.Outbox;
+using DoSelect.Domain.Members;
 using DoSelect.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -70,10 +73,7 @@ public sealed class InAppNotificationOutboxConsumer(
             return OutboxConsumeResult.Failure("notification_content_unavailable");
         }
 
-        var recipientUserId = await context.Users.AsNoTracking()
-            .Where(user => user.PublicId == payload.MemberPublicId)
-            .Select(user => user.Id)
-            .SingleOrDefaultAsync(cancellationToken);
+        var recipientUserId = await ResolveRecipientUserIdAsync(payload, cancellationToken);
         if (recipientUserId is null)
         {
             return OutboxConsumeResult.Failure("notification_recipient_not_found");
@@ -107,6 +107,40 @@ public sealed class InAppNotificationOutboxConsumer(
 
             throw;
         }
+    }
+
+    private async Task<string?> ResolveRecipientUserIdAsync(
+        InAppNotificationRequestedV1 payload,
+        CancellationToken cancellationToken)
+    {
+        if (payload.ResourceType != AiBudgetAlertNotificationContract.ResourceType)
+        {
+            return await context.Users.AsNoTracking()
+                .Where(user => user.PublicId == payload.MemberPublicId)
+                .Select(user => user.Id)
+                .SingleOrDefaultAsync(cancellationToken);
+        }
+
+        if (payload.ResourcePublicId != payload.MemberPublicId)
+        {
+            return null;
+        }
+
+        return await (
+            from user in context.Users.AsNoTracking()
+            join profile in context.AdminProfiles.AsNoTracking()
+                on user.Id equals profile.UserId
+            join userRole in context.UserRoles.AsNoTracking()
+                on user.Id equals userRole.UserId
+            join role in context.Roles.AsNoTracking()
+                on userRole.RoleId equals role.Id
+            where user.PublicId == payload.MemberPublicId &&
+                user.AccountType == AccountType.Admin &&
+                user.AccountStatus == AccountStatus.Active &&
+                profile.IsActive &&
+                role.Name == AuditRoleNames.SuperAdmin
+            select user.Id)
+            .SingleOrDefaultAsync(cancellationToken);
     }
 
     private static T? Deserialize<T>(string json)

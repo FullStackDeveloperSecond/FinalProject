@@ -81,6 +81,9 @@ async function onLogout(): Promise<void> {
           <RouterLink to="/cases">
             案件工作台
           </RouterLink>
+          <RouterLink to="/ai/usage">
+            AI 用量與成本
+          </RouterLink>
         </nav>
       </aside>
       <main class="site-main">

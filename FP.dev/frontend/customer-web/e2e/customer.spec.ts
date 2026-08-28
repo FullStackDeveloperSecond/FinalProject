@@ -24,3 +24,28 @@ test('a shopper can open the seeded catalog and view product details', async ({ 
   await expect(page.getByText('NT$19,900')).toBeVisible()
   await expect(page.getByText('現貨供應')).toBeVisible()
 })
+
+test('a member can consent to AI support and fall back to a human case when AI is disabled', async ({
+  page,
+  loginAsMember,
+}) => {
+  await loginAsMember()
+  await page.goto('/support')
+
+  await expect(page.getByRole('heading', { level: 1, name: 'AI 客服' })).toBeVisible()
+  const consentCheckbox = page.getByRole('checkbox', {
+    name: '我已閱讀並同意上述外部 AI 處理方式',
+  })
+  if (await consentCheckbox.isVisible()) {
+    await consentCheckbox.check()
+    await page.getByRole('button', { name: '同意並開始使用' }).click()
+  }
+
+  await expect(page.getByText(/今日剩餘：/)).toBeVisible()
+  await page.getByRole('textbox', { name: '你的問題' }).fill('請說明退貨流程')
+  await page.getByRole('button', { name: '送出問題' }).click()
+
+  await expect(page.getByRole('link', { name: '建立人工客服案件' })).toBeVisible()
+  await page.getByRole('button', { name: '撤回 AI 同意' }).click()
+  await expect(consentCheckbox).toBeVisible()
+})

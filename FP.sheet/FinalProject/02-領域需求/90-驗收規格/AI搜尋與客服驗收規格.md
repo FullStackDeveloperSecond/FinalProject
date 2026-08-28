@@ -101,7 +101,7 @@ Schema 採小型業務條件且不得暴露資料庫欄位；用途 Enum 與補�
 
 - Given AI 客服完成一次互動，Then 保存允許保存的對話、用途、模型、Token、估算成本、成功／失敗與降級狀態。
 - Given 會員單日 AI 客服達 20 則，Then 後續不再呼叫 AI並提供人工客服入口。
-- Given 估算累計成本達 US$70，Then 通知組長；達 US$90，Then 停用非 Demo Allowlist 的 AI 流量。
+- Given 估算累計成本首次由低於 US$70 跨越門檻，Then 透過 Outbox 對設定中的唯一 Active SuperAdmin 建立一次 Email 與站內通知；Given 收件設定或角色不合法，Then 在呼叫 OpenAI 前 Fail Closed；達 US$90，Then 停用非 Demo Allowlist 的 AI 流量。
 - Given AI 服務停用，Then 既有人工客服案件、訂單與基本電商功能仍正常。
 - Given OpenAI 原始請求／回答超過 90 天，已結案件原始對話超過 180 天，或去識別化統計超過 1 年，Then 依 `AI-14` 的清除工作處理並記錄結果。
 
@@ -111,4 +111,4 @@ Schema 採小型業務條件且不得暴露資料庫欄位；用途 Enum 與補�
 - 完整自然語言搜尋 JSON Schema 欄位型別與 Enum 已定於 [[03-架構/06-AI設計/AI應用詳細設計]]。
 - AI 客服四個工具、引用欄位及精確 Request／Response DTO 已定於 [[03-架構/06-AI設計/AI應用詳細設計]] 與 [[03-架構/02-API與前端契約/API DTO與Schema契約]]。
 - Prompt、Schema、工具版本規則已確認，實作格式詳見 [[03-架構/06-AI設計/AI應用詳細設計]]。
-- 個資遮蔽、跨會員、同意、額度預留、最後一額、併發競爭、語系、唯讀工具、Schema、故障與 Prompt Injection 信任分層已有 32 項 Application、10 項 API、4 項 Domain 與 19 項 Infrastructure AI 自動化。正式 SQL Server Admission Gate、append-only 同意／額度資料、本人訂單去識別 Owner Query、RequestPublicId 冪等、真正 GuestOrderAccess Cookie 403，以及客服 Responses Adapter 的 `store=false`、strict Schema、可信引用、模型／Token 與降級均已形成；同意 UI／E2E、搜尋專用 Adapter 與 live evaluation 仍由 M-19、M-18 與 AI-09 追蹤，詳見 [[03-架構/06-AI設計/AI測試與評估規格]]。
+- 個資遮蔽、跨會員、同意、額度預留、最後一額、併發競爭、語系、唯讀工具、Schema、故障與 Prompt Injection 信任分層已有自動化證據。`dev` 已包含 SQL Server Admission Gate、append-only 同意／額度、本人訂單 Owner Query、RequestPublicId 冪等、Guest Cookie 403 與 Responses Adapter；`codex/m19-ai-support` 另形成目前同意查詢／撤回、本人客服公開訊息與 Conversation Owner Query、互動／引用／Token／成本保存、US$70 指定 SuperAdmin 一次性 Email／站內 Outbox、US$90 Demo 保護、會員聊天、A-28 四角色管理彙總及 AI 停用轉人工 Playwright。其狀態仍須以 Required CI／Review／合併為準；搜尋 Adapter 與 live evaluation 分別由 M-18、AI-09 追蹤，詳見 [[03-架構/06-AI設計/AI測試與評估規格]]。

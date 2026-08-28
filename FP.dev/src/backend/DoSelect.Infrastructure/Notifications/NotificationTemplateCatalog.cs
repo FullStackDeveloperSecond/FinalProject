@@ -1,7 +1,10 @@
 using System.Security.Cryptography;
+using DoSelect.Application.Ai;
+using DoSelect.Application.Auditing;
 using DoSelect.Application.Notifications;
 using DoSelect.Application.Orders;
 using DoSelect.Application.Outbox;
+using DoSelect.Domain.Members;
 using DoSelect.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -25,6 +28,13 @@ internal static class NotificationTemplateCatalog
             ["refund.succeeded"] = Localized("退款完成", "您的退款已完成。", "返金が完了しました", "返金処理が完了しました。", "환불이 완료되었습니다", "환불 처리가 완료되었습니다."),
             ["refund.failed"] = Localized("退款處理未完成", "退款處理未完成，請聯絡客服。", "返金処理を完了できませんでした", "カスタマーサポートへお問い合わせください。", "환불 처리가 완료되지 않았습니다", "고객센터에 문의해 주세요."),
             ["support.replied"] = Localized("客服已回覆", "您的客服案件已有新回覆。", "サポートから返信がありました", "お問い合わせに新しい返信があります。", "고객센터 답변이 등록되었습니다", "문의에 새로운 답변이 등록되었습니다."),
+            [AiBudgetAlertNotificationContract.TemplateKey] = Localized(
+                "AI 成本已達警示門檻",
+                "AI 累計估算成本已達 US$70，請至 AI 用量頁確認成本與展示額度。",
+                "AI コストが警告しきい値に達しました",
+                "AI の累積推定コストが US$70 に達しました。AI 使用量ページをご確認ください。",
+                "AI 비용이 경고 기준에 도달했습니다",
+                "AI 누적 예상 비용이 US$70에 도달했습니다. AI 사용량 페이지를 확인해 주세요."),
         };
 
     public static NotificationTemplate? Find(string key, string locale)
@@ -189,6 +199,24 @@ public sealed class EmailNotificationContentResolver(
                     MemberUserId = (string?)ticket.MemberUserId,
                     GuestEmailNormalized = (string?)null,
                 }),
+            AiBudgetAlertNotificationContract.ResourceType =>
+                from user in context.Users.AsNoTracking()
+                join profile in context.AdminProfiles.AsNoTracking()
+                    on user.Id equals profile.UserId
+                join userRole in context.UserRoles.AsNoTracking()
+                    on user.Id equals userRole.UserId
+                join role in context.Roles.AsNoTracking()
+                    on userRole.RoleId equals role.Id
+                where user.PublicId == resourcePublicId &&
+                    user.AccountType == AccountType.Admin &&
+                    user.AccountStatus == AccountStatus.Active &&
+                    profile.IsActive &&
+                    role.Name == AuditRoleNames.SuperAdmin
+                select new
+                {
+                    MemberUserId = (string?)user.Id,
+                    GuestEmailNormalized = user.Email,
+                },
             _ => null,
         };
 
@@ -228,6 +256,8 @@ public sealed class EmailNotificationContentResolver(
             ("return.customer", "ReturnRequest") => true,
             ("refund.customer", "Refund") => true,
             ("support.customer", "SupportTicket") => true,
+            (AiBudgetAlertNotificationContract.RecipientPurpose,
+                AiBudgetAlertNotificationContract.ResourceType) => true,
             _ => false,
         };
 }
