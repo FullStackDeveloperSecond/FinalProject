@@ -1,5 +1,7 @@
 using System.Data.Common;
+using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Unicode;
 using DoSelect.Application.Ai;
 using DoSelect.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -9,7 +11,10 @@ namespace DoSelect.Infrastructure.Ai;
 public sealed class EfAiSupportContextReader(DoSelectDbContext dbContext)
     : IAiSupportContextReader
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
+    };
 
     public async Task<AiSupportContextReadResult> ReadAsync(
         Guid memberId,
