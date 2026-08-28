@@ -337,10 +337,14 @@ public sealed class RefundExecutor : IRefundExecutor
         value.ToString(null, CultureInfo.InvariantCulture);
 
     /// <summary>
-    /// 在同一交易內把執行者的 Identity Id 換成管理員 PublicId 與角色快照，
-    /// 並確認執行當下仍具備退款權限。沿用 <c>InvoiceAllowanceWriter</c> 的既有做法，
-    /// 稽核紀錄因此不會出現內部 Identity Id（DEC-P290）。
+    /// 把執行者的 Identity Id 換成管理員 PublicId 與角色快照，並確認執行當下仍具備
+    /// 退款權限。稽核紀錄因此不會出現內部 Identity Id（DEC-P290）。
     /// </summary>
+    /// <remarks>
+    /// **在交易之外解析**，不是交易內：Actor Scope 是冪等鍵的一部分，而共用
+    /// <c>IIdempotencyExecutor</c> 要求由它自己開啟交易，所以這一步必須早於它。
+    /// 沿用 <c>InvoiceAllowanceWriter</c> 的既有順序。
+    /// </remarks>
     private async Task<AuditActor> ResolveActorAsync(
         string adminUserId,
         CancellationToken cancellationToken)

@@ -351,8 +351,8 @@ public sealed class ExecuteRefundServiceTests
     /// 一份齊全的可信快照，用來驗證「資料到位時決策確實會放行」。
     /// </summary>
     /// <remarks>
-    /// 讀取端目前一律回 <c>null</c>（E1），但決策層必須在資料到位後就能運作 ——
-    /// 否則等上游落地時才會發現這一層也沒寫對。
+    /// 讀取端的上游欄位已經落地，這裡組出的是齊全的快照。依 E1，任一項缺漏時
+    /// 讀取端回 <c>null</c>、整筆拒絕；那條路徑由本檔的其他測試涵蓋。
     /// </remarks>
     private static RefundTrustedInputs TrustedInputsFor(int requestedQuantity) => new(
         new RefundOrderSnapshot(

@@ -50,6 +50,13 @@ public sealed class RefundExecutorSqlFixture : IAsyncLifetime
     /// <summary>整組測試共用的財務管理員 Identity Id。</summary>
     public static string AdminUserId { get; private set; } = string.Empty;
 
+    /// <summary>
+    /// 第二位財務管理員。並行測試需要**不同的 Actor Scope** ——
+    /// 同一位管理員的兩個請求會先被冪等索引的鍵範圍鎖序列化，
+    /// 根本到不了退款餘額查詢，那樣測到的不是退款層的保護。
+    /// </summary>
+    public static string SecondAdminUserId { get; private set; } = string.Empty;
+
     public async Task InitializeAsync()
     {
         if (!IsEnabled)
@@ -71,14 +78,20 @@ public sealed class RefundExecutorSqlFixture : IAsyncLifetime
         context.AddRange(admin, role);
         await context.SaveChangesAsync();
 
-        context.UserRoles.Add(new IdentityUserRole<string>
-        {
-            UserId = admin.Id,
-            RoleId = role.Id,
-        });
+        var secondAdmin = ApplicationUser.CreateAdmin(
+            Guid.NewGuid(),
+            $"refund-admin-{Guid.NewGuid():N}@example.test",
+            new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc));
+        context.Add(secondAdmin);
+        await context.SaveChangesAsync();
+
+        context.UserRoles.AddRange(
+            new IdentityUserRole<string> { UserId = admin.Id, RoleId = role.Id },
+            new IdentityUserRole<string> { UserId = secondAdmin.Id, RoleId = role.Id });
         await context.SaveChangesAsync();
 
         AdminUserId = admin.Id;
+        SecondAdminUserId = secondAdmin.Id;
     }
 
     public async Task DisposeAsync()
@@ -590,38 +603,34 @@ public sealed class RefundExecutorSqlServerTests
     [RefundExecutorSqlFact]
     public async Task TwoConcurrentRefundsOnTheSameOrderCannotExceedThePaidAmount()
     {
-        // 這是 Serializable 與死結重試存在的**唯一理由**。先前所有 SQL 測試都是
-        // sequential，這條保證從來沒有被實證過。
-        //
-        // 同一張訂單、兩筆不同 Refund、各自核准 500，但訂單只付了 700 ——
+        // 這是 Serializable 範圍鎖存在的**唯一理由**：兩位不同的財務管理員同時對
+        // 同一張訂單執行兩筆不同的退款。各自核准 500，訂單只付了 700 ——
         // 兩筆都成功就是超額退款。
         await using var context = RefundExecutorSqlFixture.CreateContext();
         var (first, second) = await SeedTwoRefundsOnOneOrderAsync(context);
 
-        // Task.WhenAll 本身**不保證重疊**。先前的 barrier 放在 ExecuteAsync **之前**，
-        // 放行時兩筆 SQL 交易都還沒建立，排程器仍可能讓第一筆整個跑完才開始第二筆 ——
-        // 第二筆只是循序讀到餘額不足而失敗，測試照樣綠，Serializable 與死結重試
-        // 存在的理由完全沒被驗證。
+        // **兩邊必須是不同的管理員。** 同一位管理員的兩個請求會先被冪等紀錄的
+        // 鍵範圍鎖序列化（Actor Scope 是冪等鍵的一部分），第二筆根本走不到退款
+        // 餘額查詢 —— 那樣測到的是冪等索引，不是 Refunds(OrderId) 的範圍鎖。
+        var firstRequest = Request(first);
+        var secondRequest = Request(second, RefundExecutorSqlFixture.SecondAdminUserId);
+        Assert.NotEqual(firstRequest.ExecutedByAdminUserId, secondRequest.ExecutedByAdminUserId);
+        Assert.NotEqual(firstRequest.IdempotencyKey, secondRequest.IdempotencyKey);
+
+        // 第一筆讀完可退款餘額、握住 Refunds(OrderId) 的範圍鎖之後 Set 這個事件，
+        // 第二筆在**交易之外**等它，再開始執行。
         //
-        // 競爭是**自然發生**的，不需要人工製造：共用 Executor 在 Serializable 交易內
-        // 寫冪等紀錄，兩筆同時進來時其中一筆會被對方的鍵範圍鎖擋住，直到對方提交。
-        // 這裡的 Barrier 只在交易之外讓兩個執行緒同時起跑，本身不構成併發證據 ——
-        // 證據是下面對「交易重跑次數」與「交易內被擋住多久」的量測。
-        // 第一筆在讀完可退款餘額之後、寫入之前，把交易多握住一段時間。此時它已經
-        // 持有 Refunds(OrderId) 的 Serializable 範圍鎖，第二筆的寫入必定卡在上面；
-        // 放行後兩邊互相需要對方的鎖，由資料庫判定死結並讓其中一筆整段重跑。
-        //
-        // 這個持有是**單向**的：只等時間，不等對方，所以不會在持有鎖時互等。
-        // 沒有它的話，兩筆在滿載的完整測試回合中仍可能錯開而循序完成。
-        // 第一筆進入交易並讀完餘額後會 Set 這個事件，第二筆在**交易之外**等它。
-        // 兩個等待都是單向的（第一筆只等時間、第二筆只等事件，且還沒開交易），
-        // 所以不會互等。純靠時間窗口不夠：CI 上就出現過第二筆根本沒在窗口內抵達，
-        // 兩筆循序完成而測試紅在這條斷言上。
+        // 兩個等待都是單向的：第一筆只等時間、第二筆只等事件而且還沒開交易，
+        // 因此不會在持有鎖時互等。純用時間窗口不夠 —— CI 上出現過第二筆沒在
+        // 窗口內抵達，兩筆循序完成。
         using var firstIsHoldingLocks = new ManualResetEventSlim(false);
+        using var secondIsEnteringTransaction = new ManualResetEventSlim(false);
 
         var firstProbe = new ConcurrencyProbeInterceptor(
-            TimeSpan.FromSeconds(3), firstIsHoldingLocks);
-        var secondProbe = new ConcurrencyProbeInterceptor(TimeSpan.Zero, null);
+            signalWhenHoldingLocks: firstIsHoldingLocks,
+            waitForOtherSide: secondIsEnteringTransaction);
+        var secondProbe = new ConcurrencyProbeInterceptor(
+            signalBeforeTransactionBody: secondIsEnteringTransaction);
 
         await using var firstContext = RefundExecutorSqlFixture.CreateContext(firstProbe);
         await using var secondContext = RefundExecutorSqlFixture.CreateContext(secondProbe);
@@ -629,17 +638,17 @@ public sealed class RefundExecutorSqlServerTests
         async Task<ExecuteRefundResult> RunFirstAsync()
         {
             await Task.Yield();
-            return await CreateExecutor(firstContext).ExecuteAsync(Request(first));
+            return await CreateExecutor(firstContext).ExecuteAsync(firstRequest);
         }
 
         async Task<ExecuteRefundResult> RunSecondAsync()
         {
             await Task.Yield();
 
-            // 在開交易之前等第一筆真的握住鎖。等待點在交易之外，不持有任何鎖。
+            // 等待點在交易之外，不持有任何鎖。
             firstIsHoldingLocks.Wait(TimeSpan.FromSeconds(30));
 
-            return await CreateExecutor(secondContext).ExecuteAsync(Request(second));
+            return await CreateExecutor(secondContext).ExecuteAsync(secondRequest);
         }
 
         var results = await Task.WhenAll(RunFirstAsync(), RunSecondAsync());
@@ -647,20 +656,29 @@ public sealed class RefundExecutorSqlServerTests
         Assert.True(
             firstIsHoldingLocks.IsSet,
             "第一筆從未讀完餘額，第二筆等不到它進入交易，這一輪沒有製造出競爭。");
-
-        // **這條才是併發的證據。**
-        //
-        // 第二筆是在第一筆已經握住交易之後才開始的，所以它整段等待完全發生在
-        // 資料庫裡：兩筆交易同時存在，第二筆被第一筆的鎖擋住，直到第一筆提交。
-        // 循序完成不會出現這種等待。
-        //
-        // 先前那版只有 Task.WhenAll 加一個交易外的 barrier，兩邊仍可能循序完成、
-        // 第二筆只是讀到餘額不足 —— 測試照樣綠，卻什麼都沒證明。
         Assert.True(
-            secondProbe.LongestWaitBetweenCommands >= TimeSpan.FromSeconds(1),
-            $"第二筆在交易內最長只等了 " +
-            $"{secondProbe.LongestWaitBetweenCommands.TotalMilliseconds:F0}ms，" +
-            "沒有被第一筆的鎖擋住，兩筆交易並未同時存在。");
+            secondIsEnteringTransaction.IsSet,
+            "第二筆從未進入交易本體，第一筆等不到它，這一輪沒有製造出競爭。");
+
+        // 併發的證據：第二筆是在第一筆握住交易之後才開始的，而且第一筆一直等到
+        // 第二筆宣告「我要進交易了」才多握兩秒。所以第二筆這段等待完全發生在
+        // 資料庫裡 —— 兩筆交易同時存在，第二筆被擋住直到第一筆放手。
+        // 循序完成不會出現這種等待（對照組實測只有幾十毫秒）。
+        //
+        // **刻意不斷言是哪一道 SQL 被擋。** 實測阻塞點會隨環境改變：單獨跑時第二筆
+        // 停在冪等表的存取；併進完整 Infrastructure 回合時，它很快通過冪等表，
+        // 改為卡在 `INSERT INTO [AuditLogs]` 約 2.3 秒。鎖的範圍取決於當下的資料量
+        // 與索引狀態，不是這條測試該固定的東西。
+        //
+        // 因此這裡只主張「兩筆交易確實重疊，而且資料庫擋住了第二筆」，
+        // 不主張它證明了 `Refunds(OrderId)` 範圍鎖。失敗訊息會印出實際卡住的那道
+        // SQL，方便下次判讀。
+        Assert.True(
+            secondProbe.LongestBlockedWait >= TimeSpan.FromSeconds(1),
+            $"第二筆最長只被擋了 {secondProbe.LongestBlockedWait.TotalMilliseconds:F0}ms" +
+            $"（卡在：{Excerpt(secondProbe.BlockedCommand)}；" +
+            $"冪等表上 {secondProbe.WaitOnIdempotencyTable.TotalMilliseconds:F0}ms），" +
+            "兩筆交易並未同時存在，這一輪沒有測到競爭。");
 
         // 兩邊都真的跑過交易本體。
         Assert.True(firstProbe.TransactionAttempts >= 1, "第一筆沒有執行交易本體。");
@@ -810,17 +828,22 @@ public sealed class RefundExecutorSqlServerTests
     }
 
     /// <summary>
-    /// 觀察一筆退款交易實際被執行了幾次，以及它在交易內被資料庫擋住多久。
+    /// 量測一筆退款在資料庫裡被擋住多久、擋在哪一道 SQL，並協調兩筆的重疊。
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>TransactionAttempts</c> 數的是 <c>INSERT INTO [IdempotencyRecords]</c>：共用
-    /// Executor 每執行一次交易本體就寫一次冪等紀錄。
+    /// 攔截點在命令送出之前，所以某道命令的阻塞會呈現在它與**下一道**命令之間的
+    /// 間隔 —— 因此間隔一律歸給前一道命令，<c>BlockedCommand</c> 記的就是那一道。
     /// </para>
     /// <para>
-    /// <c>LongestWaitBetweenCommands</c> 是相鄰兩道命令之間最長的間隔。被對方的
-    /// Serializable 範圍鎖擋住時，那段等待會完整落在這個間隔裡，是「兩筆交易同時
-    /// 存在」的直接量測。
+    /// 重疊靠兩個單向訊號，不用固定睡眠：第一筆讀完餘額後 Set
+    /// <c>signalWhenHoldingLocks</c>，然後等 <c>waitForOtherSide</c>；第二筆在交易之外
+    /// 等第一個訊號，並在自己第一道進交易的命令送出前 Set 第二個訊號。
+    /// 第二筆 Set 完才開始阻塞，第一筆等到訊號就往前走，兩邊不會互等。
+    /// </para>
+    /// <para>
+    /// 固定睡眠不可靠：滿載的完整測試回合裡，第二筆可能在睡眠結束後才被排到，
+    /// 兩筆就變成循序完成。
     /// </para>
     /// </remarks>
     private sealed class ConcurrencyProbeInterceptor : DbCommandInterceptor
@@ -828,33 +851,84 @@ public sealed class RefundExecutorSqlServerTests
         /// <summary>共用 Executor 每執行一次交易本體，就會寫一次冪等紀錄。</summary>
         private const string TransactionBodyMarker = "INSERT INTO [IdempotencyRecords]";
 
-        /// <summary>可退款餘額的第二段：其他已成功退款的累計，會鎖住 Refunds(OrderId)。</summary>
+        /// <summary>
+        /// 交易內第一道會碰到的表。宣告點必須放在這裡，不能放在 INSERT ——
+        /// 冪等紀錄的**查詢**就已經可能卡在對方的鎖上，那時還沒送出 INSERT，
+        /// 對方會等不到宣告而逾時。
+        /// </summary>
+        private const string IdempotencyTableMarker = "IdempotencyRecords";
+
+        /// <summary>可退款餘額的第二段：其他已成功退款的累計。</summary>
         private const string BalanceReadMarker = "SUM([r].[SucceededAmount])";
+
+        private static readonly TimeSpan SignalTimeout = TimeSpan.FromSeconds(30);
+
+        /// <summary>
+        /// 收到對方「我要進交易了」之後再多握住鎖的時間。
+        /// </summary>
+        /// <remarks>
+        /// 訊號只保證**順序**（對方確實已經在等鎖），這段固定持有才保證**時長**：
+        /// 沒有它的話第一筆收到訊號就立刻放行，對方只被擋幾百毫秒，斷言得靠一個
+        /// 和機器速度賽跑的門檻。
+        /// </remarks>
+        private static readonly TimeSpan HoldAfterTheOtherSideIsWaiting =
+            TimeSpan.FromSeconds(2);
 
         private readonly System.Diagnostics.Stopwatch _clock =
             System.Diagnostics.Stopwatch.StartNew();
 
-        private readonly TimeSpan _holdAfterBalanceRead;
-        private readonly ManualResetEventSlim? _holdingLocks;
+        private readonly object _gate = new();
+
+        private readonly ManualResetEventSlim? _signalWhenHoldingLocks;
+        private readonly ManualResetEventSlim? _waitForOtherSide;
+        private readonly ManualResetEventSlim? _signalBeforeTransactionBody;
 
         private int _transactionAttempts;
         private long _previousCommandTicks;
-        private long _longestGapTicks;
+        private string _previousCommandText = string.Empty;
+        private long _longestBlockedWaitTicks;
+        private string _blockedCommand = string.Empty;
+        private bool _previousTouchedIdempotency;
+        private long _idempotencyWaitTicks;
         private bool _balanceRead;
         private int _held;
+        private int _announced;
 
         public ConcurrencyProbeInterceptor(
-            TimeSpan holdAfterBalanceRead,
-            ManualResetEventSlim? holdingLocks)
+            ManualResetEventSlim? signalWhenHoldingLocks = null,
+            ManualResetEventSlim? waitForOtherSide = null,
+            ManualResetEventSlim? signalBeforeTransactionBody = null)
         {
-            _holdAfterBalanceRead = holdAfterBalanceRead;
-            _holdingLocks = holdingLocks;
+            _signalWhenHoldingLocks = signalWhenHoldingLocks;
+            _waitForOtherSide = waitForOtherSide;
+            _signalBeforeTransactionBody = signalBeforeTransactionBody;
         }
 
         public int TransactionAttempts => Volatile.Read(ref _transactionAttempts);
 
-        public TimeSpan LongestWaitBetweenCommands =>
-            TimeSpan.FromTicks(Volatile.Read(ref _longestGapTicks));
+        /// <summary>這一筆最久被資料庫擋住多久。</summary>
+        public TimeSpan LongestBlockedWait
+        {
+            get { lock (_gate) { return TimeSpan.FromTicks(_longestBlockedWaitTicks); } }
+        }
+
+        /// <summary>被擋最久的是哪一道 SQL，只用在失敗訊息裡。</summary>
+        public string BlockedCommand
+        {
+            get { lock (_gate) { return _blockedCommand; } }
+        }
+
+        /// <summary>
+        /// 存取冪等表的那道 SQL 自己被擋住多久 —— 這才是這條路徑的序列化點。
+        /// </summary>
+        /// <remarks>
+        /// 刻意不用「所有命令裡最長的間隔」：滿載的完整測試回合裡，某道無關的命令
+        /// 也可能因為機器忙碌而間隔更久，斷言就會指向錯誤的地方。
+        /// </remarks>
+        public TimeSpan WaitOnIdempotencyTable
+        {
+            get { lock (_gate) { return TimeSpan.FromTicks(_idempotencyWaitTicks); } }
+        }
 
         public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
             DbCommand command,
@@ -878,25 +952,61 @@ public sealed class RefundExecutorSqlServerTests
 
         private void Observe(DbCommand command)
         {
-            // 餘額讀完後的下一道命令送出前先持有交易。此時範圍鎖已經拿到手，
-            // 先放行另一筆再睡 —— 讓它在這段時間內開交易並撞上這些鎖。
+            var enteringTransactionBody =
+                command.CommandText.Contains(TransactionBodyMarker, StringComparison.Ordinal);
+
+            // 第二筆：碰冪等表之前先宣告，接著這道命令就會卡在第一筆的鎖上。
+            if (command.CommandText.Contains(IdempotencyTableMarker, StringComparison.Ordinal) &&
+                _signalBeforeTransactionBody is not null &&
+                Interlocked.CompareExchange(ref _announced, 1, 0) == 0)
+            {
+                _signalBeforeTransactionBody.Set();
+            }
+
+            // 第一筆：讀完餘額、握住鎖之後放行對方，並等它宣告自己已經要進交易。
+            var heldThisTime = false;
             if (_balanceRead &&
-                _holdAfterBalanceRead > TimeSpan.Zero &&
+                _signalWhenHoldingLocks is not null &&
                 Interlocked.CompareExchange(ref _held, 1, 0) == 0)
             {
-                _holdingLocks?.Set();
-                Thread.Sleep(_holdAfterBalanceRead);
+                _signalWhenHoldingLocks.Set();
+                _waitForOtherSide?.Wait(SignalTimeout);
+                Thread.Sleep(HoldAfterTheOtherSideIsWaiting);
+                heldThisTime = true;
             }
 
-            // 自己刻意的持有不算「被對方擋住」，所以計時點放在持有之後。
             var now = _clock.Elapsed.Ticks;
             var previous = Interlocked.Exchange(ref _previousCommandTicks, now);
-            if (previous > 0 && now - previous > Volatile.Read(ref _longestGapTicks))
+
+            // 間隔歸給前一道命令：阻塞發生在它執行的那段時間裡。
+            //
+            // 自己刻意的等待必須整段丟掉。先前把計時點放在等待之後，以為這樣就
+            // 排除了 —— 其實反而把自己的等待算成「被對方擋住」，連循序執行的
+            // 對照組都會綠。
+            if (!heldThisTime && previous > 0)
             {
-                Volatile.Write(ref _longestGapTicks, now - previous);
+                lock (_gate)
+                {
+                    if (now - previous > _longestBlockedWaitTicks)
+                    {
+                        _longestBlockedWaitTicks = now - previous;
+                        _blockedCommand = _previousCommandText;
+                    }
+
+                    if (_previousTouchedIdempotency && now - previous > _idempotencyWaitTicks)
+                    {
+                        _idempotencyWaitTicks = now - previous;
+                    }
+                }
             }
 
-            if (command.CommandText.Contains(TransactionBodyMarker, StringComparison.Ordinal))
+            // 保留完整文字：截斷會把表名切掉（EF 的欄位清單很長），
+            // 之後想比對「卡在哪張表」就永遠對不上。顯示時才截短。
+            _previousCommandText = string.Join(" ", command.CommandText.Split());
+            _previousTouchedIdempotency =
+                command.CommandText.Contains(IdempotencyTableMarker, StringComparison.Ordinal);
+
+            if (enteringTransactionBody)
             {
                 Interlocked.Increment(ref _transactionAttempts);
             }
@@ -907,6 +1017,10 @@ public sealed class RefundExecutorSqlServerTests
             }
         }
     }
+
+    /// <summary>訊息用的短版 SQL，長度只影響可讀性，不影響比對。</summary>
+    private static string Excerpt(string commandText) =>
+        commandText.Length <= 100 ? commandText : commandText[..100] + "…";
 
     private static IRefundExecutor CreateExecutor(DoSelectDbContext context)
     {
@@ -924,12 +1038,12 @@ public sealed class RefundExecutorSqlServerTests
             timeProvider);
     }
 
-    private static ExecuteRefundRequest Request(Refund refund) =>
+    private static ExecuteRefundRequest Request(Refund refund, string? adminUserId = null) =>
         new(
             refund.PublicId,
             refund.RowVersion,
             $"refund-execute-{refund.PublicId:N}",
-            RefundExecutorSqlFixture.AdminUserId,
+            adminUserId ?? RefundExecutorSqlFixture.AdminUserId,
             "customer_request",
             Note: null,
             CorrelationId: "refund-test-correlation",
