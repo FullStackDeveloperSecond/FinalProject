@@ -963,6 +963,130 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/orders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    pageNumber?: number | string;
+                    pageSize?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["PageResultOfOrderSummaryDto"];
+                        "application/json": components["schemas"]["PageResultOfOrderSummaryDto"];
+                        "text/json": components["schemas"]["PageResultOfOrderSummaryDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/orders/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["OrderDto"];
+                        "application/json": components["schemas"]["OrderDto"];
+                        "text/json": components["schemas"]["OrderDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/orders/{id}/actions/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CancelOrderRequest"];
+                    "text/json": components["schemas"]["CancelOrderRequest"];
+                    "application/*+json": components["schemas"]["CancelOrderRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["OrderDto"];
+                        "application/json": components["schemas"]["OrderDto"];
+                        "text/json": components["schemas"]["OrderDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/invoices/{id}/allowances": {
         parameters: {
             query?: never;
@@ -3648,6 +3772,8 @@ export interface components {
         };
         /** @enum {unknown} */
         AssemblyFeeDisposition: "notApplicable" | "notStarted" | "merchantCancelled" | "assemblyFault" | "merchantFaultWholeUnit" | "completedPartialReturn" | null;
+        /** @enum {unknown} */
+        AssemblyStatus: "notRequired" | "pending" | "started" | "testing" | "readyToShip" | "failed" | "cancelled";
         AuthSessionDto: {
             isAuthenticated: boolean;
             user?: null | components["schemas"]["CurrentUserDto"];
@@ -3672,6 +3798,12 @@ export interface components {
             name: string;
             /** Format: uuid */
             publicId: string;
+        };
+        CancelOrderRequest: {
+            reasonCode: string;
+            note: null | string;
+            /** Format: byte */
+            orderRowVersion: string;
         };
         CancelSupportTicketRequest: {
             reasonCode: string;
@@ -3975,6 +4107,8 @@ export interface components {
             /** Format: byte */
             returnRowVersion: string;
         };
+        /** @enum {unknown} */
+        FulfillmentStatus: "pending" | "preparing" | "shipped" | "inTransit" | "pickupReady" | "pickedUp" | "delivered" | "deliveryFailed" | "returned";
         GuestOrderAccessRequestAcceptedDto: {
             /** Format: uuid */
             requestPublicId: string;
@@ -4021,6 +4155,97 @@ export interface components {
             email: string;
             password: string;
             rememberMe?: boolean;
+        };
+        OrderAmountsDto: {
+            /** Format: double */
+            merchandiseSubtotal: number | string;
+            /** Format: double */
+            itemDiscountTotal: number | string;
+            /** Format: double */
+            shippingFee: number | string;
+            /** Format: double */
+            assemblyFee: number | string;
+            /** Format: double */
+            grandTotal: number | string;
+            /** Format: double */
+            paidAmount: number | string;
+            /** Format: double */
+            refundedAmount: number | string;
+            currency: string;
+        };
+        OrderDto: {
+            /** Format: uuid */
+            publicId: string;
+            orderNumber: string;
+            orderStatus: components["schemas"]["OrderStatus"];
+            paymentStatus: components["schemas"]["PaymentStatus"];
+            fulfillmentStatus: components["schemas"]["FulfillmentStatus"];
+            assemblyStatus: components["schemas"]["AssemblyStatus"];
+            orderRefundStatus: components["schemas"]["OrderRefundStatus"];
+            items: components["schemas"]["OrderItemDto"][];
+            recipient: components["schemas"]["OrderRecipientSummaryDto"];
+            amounts: components["schemas"]["OrderAmountsDto"];
+            /** Format: date-time */
+            paymentDueAtUtc: null | string;
+            /** Format: date-time */
+            confirmedAtUtc: null | string;
+            /** Format: date-time */
+            paidAtUtc: null | string;
+            /** Format: date-time */
+            shippedAtUtc: null | string;
+            /** Format: date-time */
+            deliveredAtUtc: null | string;
+            /** Format: date-time */
+            completedAtUtc: null | string;
+            /** Format: date-time */
+            cancelledAtUtc: null | string;
+            /** Format: date-time */
+            returnRequestDeadlineUtc: null | string;
+            availableActions: string[];
+            /** Format: byte */
+            rowVersion: string;
+        };
+        OrderItemDto: {
+            /** Format: uuid */
+            publicId: string;
+            skuCodeSnapshot: string;
+            productNameSnapshot: string;
+            skuNameSnapshot: string;
+            /** Format: int32 */
+            quantity: number | string;
+            /** Format: double */
+            finalUnitPrice: number | string;
+            /** Format: double */
+            lineTotal: number | string;
+            /** Format: int32 */
+            returnableQuantity: number | string;
+            /** Format: int32 */
+            returnedQuantity: number | string;
+        };
+        OrderRecipientSummaryDto: {
+            recipientName: string;
+            shippingMethodCode: string;
+            storeName: null | string;
+        };
+        /** @enum {unknown} */
+        OrderRefundStatus: "none" | "pending" | "partiallyRefunded" | "refunded";
+        /** @enum {unknown} */
+        OrderStatus: "pendingPayment" | "confirmed" | "processing" | "completed" | "cancelled";
+        OrderSummaryDto: {
+            /** Format: uuid */
+            publicId: string;
+            orderNumber: string;
+            orderStatus: components["schemas"]["OrderStatus"];
+            paymentStatus: components["schemas"]["PaymentStatus"];
+            fulfillmentStatus: components["schemas"]["FulfillmentStatus"];
+            /** Format: int32 */
+            itemCount: number | string;
+            /** Format: double */
+            grandTotal: number | string;
+            currency: string;
+            /** Format: date-time */
+            createdAtUtc: string;
+            availableActions: string[];
         };
         PageResultOfAdminProductSummaryDto: {
             items: components["schemas"]["AdminProductSummaryDto"][];
@@ -4077,6 +4302,17 @@ export interface components {
             /** Format: int32 */
             totalPages?: number | string;
         };
+        PageResultOfOrderSummaryDto: {
+            items: components["schemas"]["OrderSummaryDto"][];
+            /** Format: int32 */
+            pageNumber: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+            /** Format: int32 */
+            totalCount: number | string;
+            /** Format: int32 */
+            totalPages?: number | string;
+        };
         PageResultOfProductCardDto: {
             items: components["schemas"]["ProductCardDto"][];
             /** Format: int32 */
@@ -4108,6 +4344,8 @@ export interface components {
         PasswordResetRequest: {
             email: string;
         };
+        /** @enum {unknown} */
+        PaymentStatus: "pending" | "awaitingPayment" | "processing" | "paid" | "failed" | "cancelled" | "expired";
         PriceRangeDto: {
             /** Format: double */
             min: number | string;

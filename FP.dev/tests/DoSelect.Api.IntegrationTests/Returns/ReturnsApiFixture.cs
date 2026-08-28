@@ -3,6 +3,7 @@ using System.Text.Json;
 using DoSelect.Api.Security;
 using DoSelect.Application.Files;
 using DoSelect.Domain.Invoicing;
+using DoSelect.Domain.Members;
 using DoSelect.Domain.Orders;
 using DoSelect.Domain.Returns;
 using DoSelect.Domain.Shipping;
@@ -44,6 +45,7 @@ public sealed class ReturnsApiFixture : IAsyncLifetime
         ["Features__EmailEnabled"] = "false",
         ["Demo__SimulationEndpointsEnabled"] = "false",
         ["Idempotency__ActorScopePepper"] = "returns-api-tests-actor-scope-pepper-0000",
+        ["GuestOrderAccess__Pepper"] = "returns-api-tests-guest-order-pepper-32-bytes",
     };
 
     private readonly string _dataRoot = Path.Combine(
@@ -111,8 +113,11 @@ public sealed class ReturnsApiFixture : IAsyncLifetime
     }
     public async Task DisposeAsync()
     {
-        Client.Dispose();
-        await _factory.DisposeAsync();
+        Client?.Dispose();
+        if (_factory is not null)
+        {
+            await _factory.DisposeAsync();
+        }
         await using var context = CreateContext();
         await context.Database.EnsureDeletedAsync();
         if (Directory.Exists(_dataRoot))
@@ -146,6 +151,12 @@ public sealed class ReturnsApiFixture : IAsyncLifetime
                 $"{Guid.NewGuid():N}@doselect.test",
                 nowUtc);
             context.Users.Add(member);
+            context.MemberProfiles.Add(new MemberProfile(
+                member.Id,
+                member.PublicId,
+                "退貨測試會員",
+                birthDate: null,
+                createdAtUtc: nowUtc));
             await context.SaveChangesAsync();
             memberUserId = member.Id;
 
@@ -187,6 +198,69 @@ public sealed class ReturnsApiFixture : IAsyncLifetime
             orderRowVersion = order.RowVersion;
         }
 
+        var client = await CreateAuthenticatedMemberClientAsync(memberUserId);
+        return (client, memberUserId, orderPublicId, orderItemPublicId, orderRowVersion);
+    }
+
+    public async Task<(HttpClient Client, string MemberUserId, Guid OrderPublicId, byte[] OrderRowVersion)>
+        CreateAuthenticatedMemberWithPendingOrderAsync()
+    {
+        var nowUtc = DateTime.UtcNow;
+        string memberUserId;
+        Guid orderPublicId;
+        byte[] orderRowVersion;
+        await using (var context = CreateContext())
+        {
+            var member = ApplicationUser.CreateMember(
+                Guid.CreateVersion7(),
+                $"{Guid.NewGuid():N}@doselect.test",
+                nowUtc);
+            context.Users.Add(member);
+            context.MemberProfiles.Add(new MemberProfile(
+                member.Id,
+                member.PublicId,
+                "訂單取消測試會員",
+                birthDate: null,
+                createdAtUtc: nowUtc));
+            await context.SaveChangesAsync();
+            memberUserId = member.Id;
+
+            var shippingProfile = new ShippingProviderProfile(
+                Guid.CreateVersion7(), $"HOME-{Guid.NewGuid():N}"[..20], 1, "Active",
+                null, null, "{}", 1, nowUtc);
+            context.Set<ShippingProviderProfile>().Add(shippingProfile);
+            await context.SaveChangesAsync();
+            var packageLimit = new PackageLimitVersion(
+                Guid.CreateVersion7(), shippingProfile.Id, 1,
+                20m, 100m, 100m, 100m, 200m, 100_000m,
+                null, null, nowUtc);
+            context.Set<PackageLimitVersion>().Add(packageLimit);
+            await context.SaveChangesAsync();
+
+            var order = Order.Create(
+                Guid.CreateVersion7(),
+                ValidOrderCreation(member.Id, shippingProfile.Id, packageLimit.Id) with
+                {
+                    OrderStatus = OrderStatus.PendingPayment,
+                    PaymentStatus = PaymentStatus.Pending,
+                    FulfillmentStatus = FulfillmentStatus.Pending,
+                },
+                nowUtc);
+            context.Orders.Add(order);
+            await context.SaveChangesAsync();
+            orderPublicId = order.PublicId;
+            orderRowVersion = order.RowVersion.ToArray();
+        }
+
+        return (
+            await CreateAuthenticatedMemberClientAsync(memberUserId),
+            memberUserId,
+            orderPublicId,
+            orderRowVersion);
+    }
+
+    private async Task<HttpClient> CreateAuthenticatedMemberClientAsync(string memberUserId)
+    {
         var client = CreateClient();
         var signInToken = await GetMemberAntiforgeryTokenAsync(client);
         using var request = new HttpRequestMessage(HttpMethod.Post, "/__tests/security/sign-in/member")
@@ -196,8 +270,7 @@ public sealed class ReturnsApiFixture : IAsyncLifetime
         request.Headers.Add("X-XSRF-TOKEN", signInToken);
         using var response = await client.SendAsync(request);
         response.EnsureSuccessStatusCode();
-
-        return (client, memberUserId, orderPublicId, orderItemPublicId, orderRowVersion);
+        return client;
     }
 
     /// <summary>

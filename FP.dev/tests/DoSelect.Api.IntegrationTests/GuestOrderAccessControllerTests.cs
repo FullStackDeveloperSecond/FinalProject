@@ -367,7 +367,10 @@ public sealed class GuestOrderAccessControllerTests(GuestOrderAccessApiFixture f
         Assert.Equal(1, token.ScopeViolationCount);
 
         var audit = await dbContext.AuditLogs
-            .SingleAsync(entry => entry.Action == AuditActions.GuestOrderScopeViolation);
+            .SingleAsync(entry =>
+                entry.Action == AuditActions.GuestOrderScopeViolation &&
+                entry.ActorPublicId == token.PublicId &&
+                entry.ResourcePublicId == orderBPublicId);
         Assert.Equal(AuditActorType.Guest, audit.ActorType);
         Assert.Equal(token.PublicId, audit.ActorPublicId);
         Assert.Equal(AuditResourceTypes.Order, audit.ResourceType);
@@ -435,6 +438,94 @@ public sealed class GuestOrderAccessControllerTests(GuestOrderAccessApiFixture f
         Assert.Equal(1, token.ScopeViolationCount);
         Assert.True(await dbContext.AuditLogs.AnyAsync(entry =>
             entry.Action == AuditActions.GuestOrderScopeViolation &&
+            entry.ResourcePublicId == otherOrderPublicId));
+    }
+
+    [Fact]
+    public async Task GuestOrderAccessCookie_CanReadAndCancelItsOwnOrder()
+    {
+        var capturingEmailSender = new CapturingEmailSender();
+        using var factory = CreateFactory(services =>
+        {
+            services.Replace(ServiceDescriptor.Singleton<IEmailSender>(capturingEmailSender));
+        });
+        var (orderId, orderPublicId, orderNumber, email) = await SeedGuestOrderAsync(factory);
+        using var client = factory.CreateClient();
+        await PrimeAntiforgeryAsync(client);
+        var requestPublicId = await RequestAccessAsync(client, orderNumber, email);
+        await ConsumeEmailOutboxAsync(factory, requestPublicId);
+        var code = ExtractCode((await capturingEmailSender.WaitForSingleMessageAsync()).TextBody);
+
+        using var verifyResponse = await client.PostAsJsonAsync(
+            "/api/v1/guest-orders/access-verifications",
+            new { requestPublicId, code });
+        Assert.Equal(HttpStatusCode.OK, verifyResponse.StatusCode);
+
+        using var getResponse = await client.GetAsync($"/api/v1/orders/{orderPublicId:D}");
+        Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
+        using var orderDocument = JsonDocument.Parse(await getResponse.Content.ReadAsStringAsync());
+        var order = orderDocument.RootElement;
+        Assert.Contains(
+            order.GetProperty("availableActions").EnumerateArray(),
+            action => action.GetString() == "cancel");
+        var orderRowVersion = order.GetProperty("rowVersion").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(orderRowVersion));
+
+        using var cancelResponse = await client.PostAsJsonAsync(
+            $"/api/v1/orders/{orderPublicId:D}/actions/cancel",
+            new
+            {
+                reasonCode = OrderCancellationReasonCodes.OrderedByMistake,
+                note = "guest duplicate order",
+                orderRowVersion,
+            });
+        Assert.Equal(HttpStatusCode.OK, cancelResponse.StatusCode);
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+        var persistedOrder = await dbContext.Orders.SingleAsync(candidate => candidate.Id == orderId);
+        Assert.Equal(OrderStatus.Cancelled, persistedOrder.OrderStatus);
+        var history = await dbContext.OrderStatusHistories.SingleAsync(candidate => candidate.OrderId == orderId);
+        Assert.Null(history.ActorUserId);
+        var token = await dbContext.GuestOrderAccessTokens.SingleAsync(candidate => candidate.OrderId == orderId);
+        var audit = await dbContext.AuditLogs.SingleAsync(candidate =>
+            candidate.Action == AuditActions.OrderCancel &&
+            candidate.ResourcePublicId == orderPublicId);
+        Assert.Equal(AuditActorType.Guest, audit.ActorType);
+        Assert.Equal(token.PublicId, audit.ActorPublicId);
+    }
+
+    [Fact]
+    public async Task GuestOrderAccessCookie_WhenReadingAnotherOrder_ReturnsNotFoundAndAuditsViolation()
+    {
+        var capturingEmailSender = new CapturingEmailSender();
+        using var factory = CreateFactory(services =>
+        {
+            services.Replace(ServiceDescriptor.Singleton<IEmailSender>(capturingEmailSender));
+        });
+        var (orderId, _, orderNumber, email) = await SeedGuestOrderAsync(factory);
+        var (_, otherOrderPublicId, _, _) = await SeedGuestOrderAsync(factory);
+        using var client = factory.CreateClient();
+        await PrimeAntiforgeryAsync(client);
+        var requestPublicId = await RequestAccessAsync(client, orderNumber, email);
+        await ConsumeEmailOutboxAsync(factory, requestPublicId);
+        var code = ExtractCode((await capturingEmailSender.WaitForSingleMessageAsync()).TextBody);
+
+        using var verifyResponse = await client.PostAsJsonAsync(
+            "/api/v1/guest-orders/access-verifications",
+            new { requestPublicId, code });
+        Assert.Equal(HttpStatusCode.OK, verifyResponse.StatusCode);
+
+        using var response = await client.GetAsync($"/api/v1/orders/{otherOrderPublicId:D}");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        await using var scope = factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+        var token = await dbContext.GuestOrderAccessTokens.SingleAsync(candidate => candidate.OrderId == orderId);
+        Assert.Equal(1, token.ScopeViolationCount);
+        Assert.True(await dbContext.AuditLogs.AnyAsync(entry =>
+            entry.Action == AuditActions.GuestOrderScopeViolation &&
+            entry.ActorPublicId == token.PublicId &&
             entry.ResourcePublicId == otherOrderPublicId));
     }
 

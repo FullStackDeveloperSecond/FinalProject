@@ -94,7 +94,7 @@
 | `ConvenienceStoreOptionDto` | `publicId`、`providerCode`、`storeCode`、`name`、`city`、`district`、`address`、`isDemoData:true` |
 | `OrderQuery` | `status?:enum[0..10]`、`fromDate/toDate?:YYYY-MM-DD`、`pageNumber/pageSize`；只查目前會員自己的訂單 |
 | `OrderSummaryDto` | `publicId`、`orderNumber`、主要摘要狀態與徽章、`itemCount`、`total`、`currency`、配送／付款摘要、`createdAtUtc`、`availableActions[]` |
-| `CancelOrderRequest` | `reasonCode:string(1..64)`、`note?:string(0..500)`、`orderRowVersion`；會員／訪客只能使用顧客可選理由 |
+| `CancelOrderRequest` | `reasonCode:changed_mind/ordered_by_mistake/found_better_price/shipping_too_slow/other`、`note?:string(0..500)`、`orderRowVersion`；清單外原因拒絕，Note 只作為中央 Audit 的選填補充 |
 
 `POST /orders` 的 `Idempotency-Key` Header 必填；Body 不重複保存 Key。宅配需 Address，超取需 Store PublicId；符合 NT$20,000 上限且未含組裝電腦或限制品時，一般宅配與超取均可使用 COD，組裝電腦宅配必須先付款。所有可信折扣與費用完成並整數化後，`GrandTotal` 必須至少 NT$1；低於時回 `409 order_total_below_minimum`，成功 Response／PaymentAttempt 不會建立。
 

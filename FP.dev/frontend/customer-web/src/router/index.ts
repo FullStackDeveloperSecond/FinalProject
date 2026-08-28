@@ -66,6 +66,11 @@ const router = createRouter({
       props: true,
     },
     {
+      path: '/orders/:orderId',
+      name: 'order-detail',
+      component: () => import('../features/orders/OrderDetailPage.vue'),
+    },
+    {
       path: '/orders/:orderId/returns/new',
       name: 'return-new',
       component: () => import('../pages/returns/ReturnNewPage.vue'),

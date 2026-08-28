@@ -1251,6 +1251,161 @@
         }
       }
     },
+    "/api/v1/orders": {
+      "get": {
+        "tags": [
+          "Orders"
+        ],
+        "parameters": [
+          {
+            "name": "pageNumber",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageResultOfOrderSummaryDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageResultOfOrderSummaryDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageResultOfOrderSummaryDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orders/{id}": {
+      "get": {
+        "tags": [
+          "Orders"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orders/{id}/actions/cancel": {
+      "post": {
+        "tags": [
+          "Orders"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelOrderRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelOrderRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelOrderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/invoices/{id}/allowances": {
       "post": {
         "tags": [
@@ -5672,6 +5827,17 @@
           null
         ]
       },
+      "AssemblyStatus": {
+        "enum": [
+          "notRequired",
+          "pending",
+          "started",
+          "testing",
+          "readyToShip",
+          "failed",
+          "cancelled"
+        ]
+      },
       "AuthSessionDto": {
         "required": [
           "isAuthenticated"
@@ -5769,6 +5935,29 @@
           "publicId": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "CancelOrderRequest": {
+        "required": [
+          "reasonCode",
+          "note",
+          "orderRowVersion"
+        ],
+        "type": "object",
+        "properties": {
+          "reasonCode": {
+            "type": "string"
+          },
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "orderRowVersion": {
+            "type": "string",
+            "format": "byte"
           }
         }
       },
@@ -7010,6 +7199,19 @@
           }
         }
       },
+      "FulfillmentStatus": {
+        "enum": [
+          "pending",
+          "preparing",
+          "shipped",
+          "inTransit",
+          "pickupReady",
+          "pickedUp",
+          "delivered",
+          "deliveryFailed",
+          "returned"
+        ]
+      },
       "GuestOrderAccessRequestAcceptedDto": {
         "required": [
           "requestPublicId",
@@ -7187,6 +7389,377 @@
           }
         },
         "additionalProperties": false
+      },
+      "OrderAmountsDto": {
+        "required": [
+          "merchandiseSubtotal",
+          "itemDiscountTotal",
+          "shippingFee",
+          "assemblyFee",
+          "grandTotal",
+          "paidAmount",
+          "refundedAmount",
+          "currency"
+        ],
+        "type": "object",
+        "properties": {
+          "merchandiseSubtotal": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "itemDiscountTotal": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "shippingFee": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "assemblyFee": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "grandTotal": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "paidAmount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "refundedAmount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "currency": {
+            "type": "string"
+          }
+        }
+      },
+      "OrderDto": {
+        "required": [
+          "publicId",
+          "orderNumber",
+          "orderStatus",
+          "paymentStatus",
+          "fulfillmentStatus",
+          "assemblyStatus",
+          "orderRefundStatus",
+          "items",
+          "recipient",
+          "amounts",
+          "paymentDueAtUtc",
+          "confirmedAtUtc",
+          "paidAtUtc",
+          "shippedAtUtc",
+          "deliveredAtUtc",
+          "completedAtUtc",
+          "cancelledAtUtc",
+          "returnRequestDeadlineUtc",
+          "availableActions",
+          "rowVersion"
+        ],
+        "type": "object",
+        "properties": {
+          "publicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "orderNumber": {
+            "type": "string"
+          },
+          "orderStatus": {
+            "$ref": "#/components/schemas/OrderStatus"
+          },
+          "paymentStatus": {
+            "$ref": "#/components/schemas/PaymentStatus"
+          },
+          "fulfillmentStatus": {
+            "$ref": "#/components/schemas/FulfillmentStatus"
+          },
+          "assemblyStatus": {
+            "$ref": "#/components/schemas/AssemblyStatus"
+          },
+          "orderRefundStatus": {
+            "$ref": "#/components/schemas/OrderRefundStatus"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderItemDto"
+            }
+          },
+          "recipient": {
+            "$ref": "#/components/schemas/OrderRecipientSummaryDto"
+          },
+          "amounts": {
+            "$ref": "#/components/schemas/OrderAmountsDto"
+          },
+          "paymentDueAtUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "confirmedAtUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "paidAtUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "shippedAtUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "deliveredAtUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "completedAtUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "cancelledAtUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "returnRequestDeadlineUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "availableActions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rowVersion": {
+            "type": "string",
+            "format": "byte"
+          }
+        }
+      },
+      "OrderItemDto": {
+        "required": [
+          "publicId",
+          "skuCodeSnapshot",
+          "productNameSnapshot",
+          "skuNameSnapshot",
+          "quantity",
+          "finalUnitPrice",
+          "lineTotal",
+          "returnableQuantity",
+          "returnedQuantity"
+        ],
+        "type": "object",
+        "properties": {
+          "publicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "skuCodeSnapshot": {
+            "type": "string"
+          },
+          "productNameSnapshot": {
+            "type": "string"
+          },
+          "skuNameSnapshot": {
+            "type": "string"
+          },
+          "quantity": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "finalUnitPrice": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "lineTotal": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "returnableQuantity": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "returnedQuantity": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "OrderRecipientSummaryDto": {
+        "required": [
+          "recipientName",
+          "shippingMethodCode",
+          "storeName"
+        ],
+        "type": "object",
+        "properties": {
+          "recipientName": {
+            "type": "string"
+          },
+          "shippingMethodCode": {
+            "type": "string"
+          },
+          "storeName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "OrderRefundStatus": {
+        "enum": [
+          "none",
+          "pending",
+          "partiallyRefunded",
+          "refunded"
+        ]
+      },
+      "OrderStatus": {
+        "enum": [
+          "pendingPayment",
+          "confirmed",
+          "processing",
+          "completed",
+          "cancelled"
+        ]
+      },
+      "OrderSummaryDto": {
+        "required": [
+          "publicId",
+          "orderNumber",
+          "orderStatus",
+          "paymentStatus",
+          "fulfillmentStatus",
+          "itemCount",
+          "grandTotal",
+          "currency",
+          "createdAtUtc",
+          "availableActions"
+        ],
+        "type": "object",
+        "properties": {
+          "publicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "orderNumber": {
+            "type": "string"
+          },
+          "orderStatus": {
+            "$ref": "#/components/schemas/OrderStatus"
+          },
+          "paymentStatus": {
+            "$ref": "#/components/schemas/PaymentStatus"
+          },
+          "fulfillmentStatus": {
+            "$ref": "#/components/schemas/FulfillmentStatus"
+          },
+          "itemCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "grandTotal": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "createdAtUtc": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "availableActions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
       },
       "PageResultOfAdminProductSummaryDto": {
         "required": [
@@ -7433,6 +8006,55 @@
           }
         }
       },
+      "PageResultOfOrderSummaryDto": {
+        "required": [
+          "items",
+          "pageNumber",
+          "pageSize",
+          "totalCount"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderSummaryDto"
+            }
+          },
+          "pageNumber": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "pageSize": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "totalCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "totalPages": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "PageResultOfProductCardDto": {
         "required": [
           "items",
@@ -7569,6 +8191,17 @@
           }
         },
         "additionalProperties": false
+      },
+      "PaymentStatus": {
+        "enum": [
+          "pending",
+          "awaitingPayment",
+          "processing",
+          "paid",
+          "failed",
+          "cancelled",
+          "expired"
+        ]
       },
       "PriceRangeDto": {
         "required": [
@@ -10038,6 +10671,9 @@
     },
     {
       "name": "GuestOrderAccess"
+    },
+    {
+      "name": "Orders"
     },
     {
       "name": "AdminInvoiceAllowances"
