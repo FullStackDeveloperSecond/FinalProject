@@ -43,6 +43,17 @@ public sealed class SecurityFoundationTests : IClassFixture<WebApplicationFactor
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
+    [Fact]
+    public async Task AntiforgeryToken_InHttpE2eEnvironment_CanBeIssued()
+    {
+        using var factory = CreateFactory("E2E");
+        using var client = factory.CreateClient();
+
+        var token = await GetAntiforgeryTokenAsync(client, "member");
+
+        Assert.False(string.IsNullOrWhiteSpace(token));
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("unknown")]
@@ -251,10 +262,10 @@ public sealed class SecurityFoundationTests : IClassFixture<WebApplicationFactor
         Assert.False(rejectedResponse.Headers.Contains("Access-Control-Allow-Origin"));
     }
 
-    private WebApplicationFactory<Program> CreateFactory() =>
+    private WebApplicationFactory<Program> CreateFactory(string environmentName = "Development") =>
         _factory.WithWebHostBuilder(builder =>
         {
-            builder.UseEnvironment("Development");
+            builder.UseEnvironment(environmentName);
             builder.ConfigureServices(services =>
             {
                 services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());

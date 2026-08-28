@@ -68,7 +68,7 @@ public static class SecurityServiceCollectionExtensions
             options.Cookie.HttpOnly = true;
             options.Cookie.IsEssential = true;
             options.Cookie.SameSite = SameSiteMode.Lax;
-            options.Cookie.SecurePolicy = environment.IsDevelopment()
+            options.Cookie.SecurePolicy = AllowsHttpAntiforgeryCookie(environment)
                 ? CookieSecurePolicy.SameAsRequest
                 : CookieSecurePolicy.Always;
         });
@@ -402,6 +402,9 @@ public static class SecurityServiceCollectionExtensions
         AddAdminPolicy(options, DoSelectPolicies.OutboxRetry,
             DoSelectRoles.SuperAdmin);
     }
+
+    private static bool AllowsHttpAntiforgeryCookie(IHostEnvironment environment) =>
+        environment.IsDevelopment() || environment.IsEnvironment("E2E");
 
     private static void AddAdminPolicy(
         AuthorizationOptions options,
