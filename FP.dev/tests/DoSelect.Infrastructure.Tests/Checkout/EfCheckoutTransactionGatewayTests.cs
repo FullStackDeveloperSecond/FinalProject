@@ -9,6 +9,7 @@ using DoSelect.Domain.Payments;
 using DoSelect.Domain.Promotions;
 using DoSelect.Domain.Shopping;
 using DoSelect.Domain.Shipping;
+using DoSelect.Infrastructure.Builds;
 using DoSelect.Infrastructure.Catalog;
 using DoSelect.Infrastructure.Checkout;
 using DoSelect.Infrastructure.Persistence;
@@ -142,6 +143,246 @@ public sealed class EfCheckoutTransactionGatewayTests
         Assert.Equal(CartStatus.Active, cart.Status);
         Assert.Equal(5, balance.AvailableQuantity);
         Assert.Equal(0, balance.ReservedQuantity);
+    }
+
+    /// <summary>
+    /// 組長 PR #34 round-7 review (DEC-BATCH-027): proves Build API (<see cref="EfCompatibilityCheckService"/>)
+    /// and Checkout (<see cref="EfCheckoutTransactionGateway"/>) reach the SAME verdict for the SAME SKU
+    /// pair, since both now read facts through the identical <see cref="EfCompatibilityCatalogReader"/> and
+    /// evaluate them through the identical <see cref="DoSelect.Domain.Builds.CompatibilityEvaluator"/> — the
+    /// two code paths used to disagree because Build API read its own, now-deleted parallel model. Exercises
+    /// both real production entry points against a real SQL Server database (not a mock), for both a
+    /// compatible pair (both must agree "OK") and a socket-mismatched pair (both must agree "blocked").
+    /// </summary>
+    [global::DoSelect.Infrastructure.Tests.Idempotency.SqlServerFact]
+    public async Task ExecuteAsync_AndCompatibilityCheckService_AgreeOnTheSameCpuMotherboardPair()
+    {
+        var (cpuPublicId, matchingBoardPublicId, mismatchedBoardPublicId, sharedComponentPublicIds, matchingCommand, mismatchedCommand) =
+            await SeedAssemblyBuildAsync();
+
+        IReadOnlyList<BuildItemInput> BuildItems(Guid boardPublicId) =>
+            [
+                new BuildItemInput(cpuPublicId, 1),
+                new BuildItemInput(boardPublicId, 1),
+                .. sharedComponentPublicIds.Select(id => new BuildItemInput(id, 1)),
+            ];
+
+        await using var checkContext = EfCheckoutTransactionGatewayFixture.CreateContext();
+        var checkService = new EfCompatibilityCheckService(checkContext, new EfCompatibilityCatalogReader(checkContext));
+        var matchingCheck = await checkService.CheckAsync(
+            new CompatibilityCheckRequest(BuildItems(matchingBoardPublicId)), null, CancellationToken.None);
+        var mismatchedCheck = await checkService.CheckAsync(
+            new CompatibilityCheckRequest(BuildItems(mismatchedBoardPublicId)), null, CancellationToken.None);
+
+        Assert.Equal("compatible", matchingCheck.Overall);
+        Assert.Equal("blocked", mismatchedCheck.Overall);
+
+        await using (var context = EfCheckoutTransactionGatewayFixture.CreateContext())
+        await using (var transaction = await context.Database.BeginTransactionAsync())
+        {
+            var created = await CreateGateway(context).ExecuteAsync(matchingCommand);
+            await transaction.CommitAsync();
+            Assert.NotEqual(Guid.Empty, created.PublicId);
+        }
+
+        await using (var context = EfCheckoutTransactionGatewayFixture.CreateContext())
+        await using (var transaction = await context.Database.BeginTransactionAsync())
+        {
+            var exception = await Assert.ThrowsAsync<DomainProblemException>(
+                () => CreateGateway(context).ExecuteAsync(mismatchedCommand));
+            Assert.Equal("cart_item_requires_attention", exception.Code);
+            await transaction.RollbackAsync();
+        }
+    }
+
+    /// <summary>
+    /// Seeds a full, otherwise-compatible 8-category build (<see cref="DoSelect.Domain.Catalog.CompatibilityCatalogContract.Categories"/>
+    /// — the <see cref="DoSelect.Domain.Builds.CompatibilityEvaluator"/> requires every singleton role present
+    /// before it evaluates any pairwise rule, so a bare CPU+Motherboard pair alone only ever reaches
+    /// <c>insufficientData</c>) plus a SECOND Motherboard SKU whose socket deliberately mismatches the CPU's.
+    /// Returns two ready-to-execute <see cref="CheckoutCommand"/>s, each with all 8 SKUs in one cart sharing
+    /// one <c>AssemblyGroupKey</c> — one using the matching Motherboard (expected compatible), one using the
+    /// mismatched Motherboard (expected blocked on <c>CPU_SOCKET</c>).
+    /// </summary>
+    private static async Task<(
+        Guid CpuPublicId,
+        Guid MatchingBoardPublicId,
+        Guid MismatchedBoardPublicId,
+        IReadOnlyList<Guid> SharedComponentPublicIds,
+        CheckoutCommand MatchingCommand,
+        CheckoutCommand MismatchedCommand)> SeedAssemblyBuildAsync()
+    {
+        await using var context = EfCheckoutTransactionGatewayFixture.CreateContext();
+        await global::DoSelect.Infrastructure.Tests.Builds.CompatibilityCheckServiceFixture
+            .SeedCategoriesAndSpecTemplatesAsync(context);
+
+        async Task<Sku> SeedAsync(string categoryCode, Dictionary<string, object?>? specValues = null, Dictionary<string, string[]>? multiValues = null) =>
+            await global::DoSelect.Infrastructure.Tests.Builds.CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
+                context, categoryCode, specValues, multiValues);
+
+        var cpu = await SeedAsync(
+            DoSelect.Domain.Catalog.CompatibilityCatalogContract.Categories.Cpu,
+            new Dictionary<string, object?>
+            {
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.CpuSocket] = "AM5",
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.CpuGeneration] = "RYZEN_7000",
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 105m,
+            });
+        var matchingBoard = await SeedAsync(
+            DoSelect.Domain.Catalog.CompatibilityCatalogContract.Categories.Motherboard,
+            new Dictionary<string, object?>
+            {
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.CpuSocket] = "AM5",
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.MotherboardChipset] = "X670E",
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.MemoryType] = "DDR5",
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.MemorySlotCount] = 4m,
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.MemoryMaxCapacityGb] = 128m,
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.MotherboardFormFactor] = "ATX",
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.M2SlotCount] = 4m,
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.SataPortCount] = 4m,
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.MotherboardCpuEps8PinRequiredCount] = 1m,
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 20m,
+            });
+        var mismatchedBoard = await SeedAsync(
+            DoSelect.Domain.Catalog.CompatibilityCatalogContract.Categories.Motherboard,
+            new Dictionary<string, object?>
+            {
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.CpuSocket] = "LGA1700",
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.MotherboardChipset] = "X670E",
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.MemoryType] = "DDR5",
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.MemorySlotCount] = 4m,
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.MemoryMaxCapacityGb] = 128m,
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.MotherboardFormFactor] = "ATX",
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.M2SlotCount] = 4m,
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.SataPortCount] = 4m,
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.MotherboardCpuEps8PinRequiredCount] = 1m,
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 20m,
+            });
+        var memory = await SeedAsync(
+            DoSelect.Domain.Catalog.CompatibilityCatalogContract.Categories.Memory,
+            new Dictionary<string, object?>
+            {
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.MemoryType] = "DDR5",
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.MemoryModuleCount] = 1m,
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.MemoryKitCapacityGb] = 16m,
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 5m,
+            });
+        var psu = await SeedAsync(
+            DoSelect.Domain.Catalog.CompatibilityCatalogContract.Categories.Psu,
+            new Dictionary<string, object?>
+            {
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.PsuRatedWatts] = 650m,
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.PsuFormFactor] = "ATX",
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.PsuPcie62PinCount] = 2m,
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.Psu12VhpwrCount] = 1m,
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.PsuCpuEps8PinCount] = 2m,
+            });
+        var pcCase = await SeedAsync(
+            DoSelect.Domain.Catalog.CompatibilityCatalogContract.Categories.Case,
+            new Dictionary<string, object?>
+            {
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.CaseGpuMaxLengthMm] = 320m,
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.CaseCoolerMaxHeightMm] = 170m,
+            },
+            multiValues: new Dictionary<string, string[]>
+            {
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.CaseSupportedMotherboardFormFactor] = ["ATX"],
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.CaseSupportedPsuFormFactor] = ["ATX"],
+            });
+        var gpu = await SeedAsync(
+            DoSelect.Domain.Catalog.CompatibilityCatalogContract.Categories.Gpu,
+            new Dictionary<string, object?>
+            {
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.GpuLengthMm] = 280m,
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.GpuRecommendedPsuWatts] = 450m,
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 200m,
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.GpuPcie62PinRequiredCount] = 1m,
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.Gpu12VhpwrRequiredCount] = 0m,
+            });
+        var storage = await SeedAsync(
+            DoSelect.Domain.Catalog.CompatibilityCatalogContract.Categories.Storage,
+            new Dictionary<string, object?>
+            {
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.StorageInterface] = "M2_NVME",
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 5m,
+            });
+        var cooler = await SeedAsync(
+            DoSelect.Domain.Catalog.CompatibilityCatalogContract.Categories.CpuCooler,
+            new Dictionary<string, object?>
+            {
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.CoolerHeightMm] = 150m,
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 10m,
+            },
+            multiValues: new Dictionary<string, string[]>
+            {
+                [DoSelect.Domain.Catalog.CompatibilityCatalogContract.SemanticKeys.CpuSocket] = ["AM5"],
+            });
+
+        var allSkus = new[] { cpu, matchingBoard, mismatchedBoard, memory, psu, pcCase, gpu, storage, cooler };
+        foreach (var sku in allSkus)
+        {
+            sku.UpdatePackageDimensions(1m, 20m, 15m, 10m, NowUtc);
+            context.InventoryBalances.Add(new DoSelect.Domain.Inventory.InventoryBalance(
+                Guid.CreateVersion7(), sku.Id, onHandQuantity: 10, reorderLevel: 1, NowUtc));
+        }
+
+        await context.SaveChangesAsync();
+
+        var suffix = Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
+        var method = new ShippingMethod(
+            Guid.CreateVersion7(), $"ASM-{suffix}", "組裝宅配", "HomeDeliveryAssembly",
+            150m, 5_000m, allowsCod: true, requiresPrepayment: false, $"PROVIDER-{suffix}", NowUtc);
+        var profile = new ShippingProviderProfile(
+            Guid.CreateVersion7(), $"PROVIDER-{suffix}", 1, "Published", null, null, "{}", 1, NowUtc);
+        context.AddRange(method, profile);
+        await context.SaveChangesAsync();
+        context.PackageLimitVersions.Add(new PackageLimitVersion(
+            Guid.CreateVersion7(), profile.Id, 1, 30m, 150m, 100m, 100m, 250m, 50_000m, null, null, NowUtc));
+        await context.SaveChangesAsync();
+
+        CheckoutCommand BuildCommand(Cart cart, string idempotencyKeySuffix) => new(
+            CheckoutActor.ForGuest($"checkout-test-secret-{idempotencyKeySuffix}"),
+            cart.PublicId,
+            cart.RowVersion.ToArray(),
+            new CheckoutRecipientSnapshot(
+                "Guest", "0912345678", "guest@example.test", "TW",
+                "100", "Taipei", "Zhongzheng", "No. 1", null),
+            null,
+            method.Code,
+            null,
+            PaymentMethod.CreditCard,
+            null,
+            new CheckoutInvoicePreferenceSnapshot(
+                SimulatedInvoiceBuyerType.Individual, "guest@example.test", null, null, null, null),
+            new CheckoutPolicySnapshot(1, 1, 1, 1),
+            $"checkout-parity-test-{idempotencyKeySuffix}");
+
+        async Task<CheckoutCommand> SeedCartAsync(Sku boardSku, string label)
+        {
+            var guestKey = $"{suffix}-{label}";
+            var cart = Cart.CreateForGuest(
+                Guid.CreateVersion7(), SHA256.HashData(Encoding.UTF8.GetBytes($"checkout-test-secret-{guestKey}")),
+                NowUtc.AddDays(30), NowUtc);
+            context.Carts.Add(cart);
+            await context.SaveChangesAsync();
+            var assemblyGroupKey = Guid.CreateVersion7();
+            var components = new[] { cpu, boardSku, memory, psu, pcCase, gpu, storage, cooler };
+            context.CartItems.AddRange(components.Select(
+                sku => new CartItem(Guid.CreateVersion7(), cart.Id, sku.Id, 1, assemblyGroupKey, NowUtc)));
+            cart.Touch(NowUtc);
+            await context.SaveChangesAsync();
+            return BuildCommand(cart, guestKey);
+        }
+
+        var matchingCommand = await SeedCartAsync(matchingBoard, "match");
+        var mismatchedCommand = await SeedCartAsync(mismatchedBoard, "mismatch");
+        var sharedComponentPublicIds = new[] { memory, psu, pcCase, gpu, storage, cooler }
+            .Select(sku => sku.PublicId)
+            .ToArray();
+
+        return (
+            cpu.PublicId, matchingBoard.PublicId, mismatchedBoard.PublicId, sharedComponentPublicIds,
+            matchingCommand, mismatchedCommand);
     }
 
     private static EfCheckoutTransactionGateway CreateGateway(DoSelectDbContext context) =>

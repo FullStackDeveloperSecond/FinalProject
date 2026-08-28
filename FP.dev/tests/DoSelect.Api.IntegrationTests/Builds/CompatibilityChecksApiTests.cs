@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using DoSelect.Domain.Builds;
+using DoSelect.Domain.Catalog;
 
 namespace DoSelect.Api.IntegrationTests.Builds;
 
@@ -19,31 +20,16 @@ public sealed class CompatibilityChecksApiTests
     [Fact]
     public async Task Check_ReturnsOkWithCompatibleOverall_ForAMatchingSocket()
     {
-        var cpu = await _fixture.SeedComponentSkuAsync(
-            BuildComponentCategoryCodes.Cpu,
-            new Dictionary<string, object?>
-            {
-                [CompatibilitySemanticKeys.CpuSocket] = "AM5",
-                [CompatibilitySemanticKeys.CpuGeneration] = "Ryzen7000",
-            });
-        var board = await _fixture.SeedComponentSkuAsync(
-            BuildComponentCategoryCodes.Motherboard,
-            new Dictionary<string, object?>
-            {
-                [CompatibilitySemanticKeys.BoardSocket] = "AM5",
-                [CompatibilitySemanticKeys.BoardChipset] = "X670E",
-            });
+        var components = await _fixture.SeedCompleteBuildComponentsAsync();
 
         using var response = await CompatibilityChecksApiFixture.PostWithAntiforgeryAsync(
             _fixture.Client,
             "/api/v1/compatibility-checks",
             new
             {
-                items = new object[]
-                {
-                    new { skuPublicId = cpu.PublicId, quantity = 1 },
-                    new { skuPublicId = board.PublicId, quantity = 1 },
-                },
+                items = CompatibilityChecksApiFixture.ToBuildItems(components)
+                    .Select(item => new { skuPublicId = item.SkuPublicId, quantity = item.Quantity })
+                    .ToArray(),
             });
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -56,30 +42,34 @@ public sealed class CompatibilityChecksApiTests
     [Fact]
     public async Task Check_ReturnsOkWithBlockedOverallAndFindings_ForAMismatchedSocket()
     {
-        var cpu = await _fixture.SeedComponentSkuAsync(
-            BuildComponentCategoryCodes.Cpu,
-            new Dictionary<string, object?> { [CompatibilitySemanticKeys.CpuSocket] = "AM5" });
-        var board = await _fixture.SeedComponentSkuAsync(
-            BuildComponentCategoryCodes.Motherboard,
-            new Dictionary<string, object?> { [CompatibilitySemanticKeys.BoardSocket] = "LGA1700" });
+        var components = await _fixture.SeedCompleteBuildComponentsAsync();
+        var mismatchedBoard = await _fixture.SeedComponentSkuAsync(
+            CompatibilityCatalogContract.Categories.Motherboard,
+            new Dictionary<string, object?>
+            {
+                [CompatibilityCatalogContract.SemanticKeys.CpuSocket] = "LGA1700",
+                [CompatibilityCatalogContract.SemanticKeys.MotherboardChipset] = "X670E",
+                [CompatibilityCatalogContract.SemanticKeys.MemoryType] = "DDR5",
+                [CompatibilityCatalogContract.SemanticKeys.MemorySlotCount] = 4m,
+                [CompatibilityCatalogContract.SemanticKeys.MemoryMaxCapacityGb] = 128m,
+                [CompatibilityCatalogContract.SemanticKeys.MotherboardFormFactor] = "ATX",
+                [CompatibilityCatalogContract.SemanticKeys.M2SlotCount] = 4m,
+                [CompatibilityCatalogContract.SemanticKeys.SataPortCount] = 4m,
+                [CompatibilityCatalogContract.SemanticKeys.MotherboardCpuEps8PinRequiredCount] = 1m,
+                [CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 20m,
+            });
+        var items = CompatibilityChecksApiFixture.ToBuildItems(components with { Motherboard = mismatchedBoard });
 
         using var response = await CompatibilityChecksApiFixture.PostWithAntiforgeryAsync(
             _fixture.Client,
             "/api/v1/compatibility-checks",
-            new
-            {
-                items = new object[]
-                {
-                    new { skuPublicId = cpu.PublicId, quantity = 1 },
-                    new { skuPublicId = board.PublicId, quantity = 1 },
-                },
-            });
+            new { items = items.Select(item => new { skuPublicId = item.SkuPublicId, quantity = item.Quantity }).ToArray() });
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal("blocked", body.GetProperty("overall").GetString());
         var results = body.GetProperty("results").EnumerateArray().ToList();
-        Assert.Contains(results, result => result.GetProperty("ruleCode").GetString() == BuildCompatibilityRuleCodes.CpuSocket);
+        Assert.Contains(results, result => result.GetProperty("ruleCode").GetString() == CompatibilityRuleCodes.CpuSocket);
     }
 
     [Fact]

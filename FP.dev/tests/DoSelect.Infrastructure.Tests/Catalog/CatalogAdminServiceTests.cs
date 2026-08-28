@@ -524,6 +524,44 @@ public sealed class ProductAdminServiceTests
         Assert.Equal(CatalogWriteException.ErrorCodes.ValidationFailed, exception.ErrorCode);
     }
 
+    /// <summary>組長 PR #34 round-7 review (DEC-BATCH-027): the guard clause also checks
+    /// SkuSpecificationOptionSelections (normalized multi-value join table), not just the scalar
+    /// SkuSpecificationValues table exercised above — this proves that half of the OR actually rejects.</summary>
+    [Fact]
+    public async Task UpdateAsync_WhenChangingCategoryAndSkusHaveOptionSelections_ThrowsValidationFailed()
+    {
+        await using var context = CatalogAdminFixture.CreateContext();
+        var (brand, category, _) = await CatalogAdminFixture.SeedCatalogAsync(context);
+        var otherCategory = new Category(
+            Guid.CreateVersion7(), CatalogAdminFixture.UniqueCode("CAT"), "cat-" + Guid.NewGuid().ToString("N")[..12], "另一個分類", null, DateTime.UtcNow);
+        context.Categories.Add(otherCategory);
+        var optionDefinition = new SpecificationDefinition(
+            Guid.CreateVersion7(), category.Id, CatalogAdminFixture.UniqueCode("SPEC"), "支援 Socket",
+            SpecificationValueType.Option, null, true, true, 1, DateTime.UtcNow,
+            allowsMultiple: true);
+        context.SpecificationDefinitions.Add(optionDefinition);
+        await context.SaveChangesAsync();
+        var option = new SpecificationOption(Guid.CreateVersion7(), optionDefinition.Id, "AM5", "AM5", 1, DateTime.UtcNow);
+        context.SpecificationOptions.Add(option);
+        await context.SaveChangesAsync();
+
+        var productService = new EfProductAdminService(context);
+        var product = await productService.CreateAsync(
+            new CreateProductRequest(
+                CatalogAdminFixture.UniqueCode("PROD"), "測試商品", brand.PublicId, category.PublicId, null, null, [],
+                "Draft",
+                CatalogAdminFixture.CreateDefaultSkuRequest(
+                    specifications: [new SpecValueInput(optionDefinition.SemanticKey, "Option", null, null, null, null, ["am5"], null)])),
+            CancellationToken.None);
+
+        var exception = await Assert.ThrowsAsync<CatalogWriteException>(() => productService.UpdateAsync(
+            product.PublicId,
+            new UpdateProductRequest("測試商品", brand.PublicId, otherCategory.PublicId, null, null, [], "Draft", product.RowVersion),
+            CancellationToken.None));
+
+        Assert.Equal(CatalogWriteException.ErrorCodes.ValidationFailed, exception.ErrorCode);
+    }
+
     [Fact]
     public async Task UpdateAsync_WhenChangingCategoryAndNoSkuHasSpecificationValues_Succeeds()
     {

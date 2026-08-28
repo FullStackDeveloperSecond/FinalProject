@@ -1,6 +1,8 @@
 using DoSelect.Application.Builds;
 using DoSelect.Domain.Builds;
+using DoSelect.Domain.Catalog;
 using DoSelect.Infrastructure.Builds;
+using DoSelect.Infrastructure.Catalog;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 
@@ -17,71 +19,64 @@ public sealed class CompatibilityCheckServiceTests
         _fixture = fixture;
     }
 
+    /// <summary>Mirrors <see cref="EfBuildListServiceTests.SeedCompleteBuildComponentsAsync"/> — the canonical
+    /// <see cref="DoSelect.Domain.Builds.CompatibilityEvaluator"/> requires every singleton role (and at least
+    /// one Memory/Storage) present before it evaluates any pairwise rule, so a partial SKU set only ever
+    /// reaches <c>insufficientData</c>. Tests that need a specific pairwise rule to actually fire seed the full
+    /// 8-category baseline via this helper, then substitute in one custom-seeded SKU for the category under test.</summary>
+    private static Task<(Sku Cpu, Sku Motherboard, Sku Memory, Sku Psu, Sku Case, Sku Gpu, Sku Storage, Sku Cooler)>
+        SeedCompleteBuildAsync(DoSelect.Infrastructure.Persistence.DoSelectDbContext context) =>
+        EfBuildListServiceTests.SeedCompleteBuildComponentsAsync(context);
+
     [Fact]
     public async Task CheckAsync_ReturnsCompatible_ForAMatchingCpuAndMotherboard()
     {
         await using var context = CompatibilityCheckServiceFixture.CreateContext();
-        var cpu = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context,
-            BuildComponentCategoryCodes.Cpu,
-            new Dictionary<string, object?>
-            {
-                [CompatibilitySemanticKeys.CpuSocket] = "AM5",
-                [CompatibilitySemanticKeys.CpuGeneration] = "Ryzen7000",
-                [CompatibilitySemanticKeys.CpuPowerWatts] = 105m,
-            });
-        var board = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context,
-            BuildComponentCategoryCodes.Motherboard,
-            new Dictionary<string, object?>
-            {
-                [CompatibilitySemanticKeys.BoardSocket] = "AM5",
-                [CompatibilitySemanticKeys.BoardChipset] = "X670E",
-            });
+        var components = await SeedCompleteBuildAsync(context);
 
-        var service = new EfCompatibilityCheckService(context, new EfCompatibilityFactsReader(context));
+        var service = new EfCompatibilityCheckService(context, new EfCompatibilityCatalogReader(context));
         var result = await service.CheckAsync(
-            new CompatibilityCheckRequest(
-            [
-                new BuildItemInput(cpu.PublicId, 1),
-                new BuildItemInput(board.PublicId, 1),
-            ]),
+            new CompatibilityCheckRequest(EfBuildListServiceTests.ToBuildItems(components)),
             null,
             CancellationToken.None);
 
         Assert.Equal("compatible", result.Overall);
         Assert.Empty(result.Results);
-        Assert.Equal(CompatibilityRuleEngine.RuleSetVersion, result.RuleSetVersion);
+        Assert.Equal(EfCompatibilityCheckService.RuleSetVersion, result.RuleSetVersion);
     }
 
     [Fact]
     public async Task CheckAsync_ReturnsBlocked_ForAMismatchedSocket()
     {
         await using var context = CompatibilityCheckServiceFixture.CreateContext();
-        var cpu = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
+        var components = await SeedCompleteBuildAsync(context);
+        var mismatchedBoard = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
             context,
-            BuildComponentCategoryCodes.Cpu,
-            new Dictionary<string, object?> { [CompatibilitySemanticKeys.CpuSocket] = "AM5" });
-        var board = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context,
-            BuildComponentCategoryCodes.Motherboard,
-            new Dictionary<string, object?> { [CompatibilitySemanticKeys.BoardSocket] = "LGA1700" });
+            CompatibilityCatalogContract.Categories.Motherboard,
+            new Dictionary<string, object?>
+            {
+                [CompatibilityCatalogContract.SemanticKeys.CpuSocket] = "LGA1700",
+                [CompatibilityCatalogContract.SemanticKeys.MotherboardChipset] = "X670E",
+                [CompatibilityCatalogContract.SemanticKeys.MemoryType] = "DDR5",
+                [CompatibilityCatalogContract.SemanticKeys.MemorySlotCount] = 4m,
+                [CompatibilityCatalogContract.SemanticKeys.MemoryMaxCapacityGb] = 128m,
+                [CompatibilityCatalogContract.SemanticKeys.MotherboardFormFactor] = "ATX",
+                [CompatibilityCatalogContract.SemanticKeys.M2SlotCount] = 4m,
+                [CompatibilityCatalogContract.SemanticKeys.SataPortCount] = 4m,
+                [CompatibilityCatalogContract.SemanticKeys.MotherboardCpuEps8PinRequiredCount] = 1m,
+                [CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 20m,
+            });
+        var items = EfBuildListServiceTests.ToBuildItems(components with { Motherboard = mismatchedBoard });
 
-        var service = new EfCompatibilityCheckService(context, new EfCompatibilityFactsReader(context));
-        var result = await service.CheckAsync(
-            new CompatibilityCheckRequest(
-            [
-                new BuildItemInput(cpu.PublicId, 1),
-                new BuildItemInput(board.PublicId, 1),
-            ]),
-            null,
-            CancellationToken.None);
+        var service = new EfCompatibilityCheckService(context, new EfCompatibilityCatalogReader(context));
+        var result = await service.CheckAsync(new CompatibilityCheckRequest(items), null, CancellationToken.None);
 
-        // Overall rolls up to blocked even though CHIPSET_CPU_GENERATION also fires as
-        // insufficientData (neither Cpu.Generation nor Motherboard.Chipset was seeded here) —
-        // Blocked outranks InsufficientData per CompatibilityRuleEngine's severity precedence.
+        // Overall rolls up to blocked even though CPU_CHIPSET also fires as insufficientData
+        // (Cpu.Generation "RYZEN_7000" has no mapping for the mismatched board's own chipset
+        // pairing check to run against — TryGet fails) — Blocked outranks InsufficientData per
+        // CompatibilityEvaluator's severity precedence.
         Assert.Equal("blocked", result.Overall);
-        var socketFinding = Assert.Single(result.Results, f => f.RuleCode == BuildCompatibilityRuleCodes.CpuSocket);
+        var socketFinding = Assert.Single(result.Results, f => f.RuleCode == CompatibilityRuleCodes.CpuSocket);
         Assert.Equal("blocked", socketFinding.Severity);
     }
 
@@ -89,34 +84,16 @@ public sealed class CompatibilityCheckServiceTests
     public async Task CheckAsync_MergesDuplicateSkuEntriesByQuantity()
     {
         await using var context = CompatibilityCheckServiceFixture.CreateContext();
-        var board = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context,
-            BuildComponentCategoryCodes.Motherboard,
-            new Dictionary<string, object?>
-            {
-                [CompatibilitySemanticKeys.BoardMemoryGeneration] = "DDR5",
-                [CompatibilitySemanticKeys.BoardMemorySlotCount] = 4,
-                [CompatibilitySemanticKeys.BoardMaxMemoryCapacityGb] = 128m,
-            });
-        var memory = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context,
-            BuildComponentCategoryCodes.Memory,
-            new Dictionary<string, object?>
-            {
-                [CompatibilitySemanticKeys.MemoryGeneration] = "DDR5",
-                [CompatibilitySemanticKeys.MemoryCapacityGbPerModule] = 16m,
-            });
+        var components = await SeedCompleteBuildAsync(context);
 
-        var service = new EfCompatibilityCheckService(context, new EfCompatibilityFactsReader(context));
-        var result = await service.CheckAsync(
-            new CompatibilityCheckRequest(
-            [
-                new BuildItemInput(board.PublicId, 1),
-                new BuildItemInput(memory.PublicId, 1),
-                new BuildItemInput(memory.PublicId, 1), // same SKU listed twice -> merges to quantity 2
-            ]),
-            null,
-            CancellationToken.None);
+        var items = EfBuildListServiceTests.ToBuildItems(components)
+            .Where(item => item.SkuPublicId != components.Memory.PublicId)
+            .Append(new BuildItemInput(components.Memory.PublicId, 1))
+            .Append(new BuildItemInput(components.Memory.PublicId, 1)) // same SKU listed twice -> merges to quantity 2
+            .ToList();
+
+        var service = new EfCompatibilityCheckService(context, new EfCompatibilityCatalogReader(context));
+        var result = await service.CheckAsync(new CompatibilityCheckRequest(items), null, CancellationToken.None);
 
         // 2 modules against a 4-slot board with the default 0-slot warning threshold: no finding.
         Assert.Equal("compatible", result.Overall);
@@ -126,7 +103,7 @@ public sealed class CompatibilityCheckServiceTests
     public async Task CheckAsync_Throws_ForAnUnknownSku()
     {
         await using var context = CompatibilityCheckServiceFixture.CreateContext();
-        var service = new EfCompatibilityCheckService(context, new EfCompatibilityFactsReader(context));
+        var service = new EfCompatibilityCheckService(context, new EfCompatibilityCatalogReader(context));
 
         var exception = await Assert.ThrowsAsync<BuildWriteException>(() => service.CheckAsync(
             new CompatibilityCheckRequest([new BuildItemInput(Guid.NewGuid(), 1)]),
@@ -142,7 +119,7 @@ public sealed class CompatibilityCheckServiceTests
     public async Task CheckAsync_RejectsItemCountsOutsideOneToTwenty(int itemCount)
     {
         await using var context = CompatibilityCheckServiceFixture.CreateContext();
-        var service = new EfCompatibilityCheckService(context, new EfCompatibilityFactsReader(context));
+        var service = new EfCompatibilityCheckService(context, new EfCompatibilityCatalogReader(context));
         var items = Enumerable.Range(0, itemCount).Select(_ => new BuildItemInput(Guid.NewGuid(), 1)).ToList();
 
         var exception = await Assert.ThrowsAsync<BuildWriteException>(() => service.CheckAsync(
@@ -158,8 +135,8 @@ public sealed class CompatibilityCheckServiceTests
     {
         await using var context = CompatibilityCheckServiceFixture.CreateContext();
         var memory = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context, BuildComponentCategoryCodes.Memory);
-        var service = new EfCompatibilityCheckService(context, new EfCompatibilityFactsReader(context));
+            context, CompatibilityCatalogContract.Categories.Memory);
+        var service = new EfCompatibilityCheckService(context, new EfCompatibilityCatalogReader(context));
 
         var exception = await Assert.ThrowsAsync<BuildWriteException>(() => service.CheckAsync(
             new CompatibilityCheckRequest(
@@ -176,66 +153,69 @@ public sealed class CompatibilityCheckServiceTests
     /// <summary>
     /// PR #34 round-3 review: FirstOfRole used to silently pick the lowest SkuId and ignore every
     /// other SKU in a single-instance role (CPU／Motherboard／GPU／PSU／Case／Cooler) — a second CPU
-    /// still rode along into the cart without ever participating in evaluation.
+    /// still rode along into the cart without ever participating in evaluation. Canonical
+    /// <see cref="DoSelect.Domain.Builds.CompatibilityEvaluator"/> handles this itself now: a
+    /// singleton category with more than one distinct SKU present fails its own presence check
+    /// (組長 PR #34 round-7 review: a 200 OK with <c>insufficientData</c>, not a thrown validation
+    /// error like the deleted parallel model used to return).
     /// </summary>
     [Fact]
-    public async Task CheckAsync_Throws_WhenTwoDistinctCpuSkusAreRequested()
+    public async Task CheckAsync_ReturnsInsufficientData_WhenTwoDistinctCpuSkusAreRequested()
     {
         await using var context = CompatibilityCheckServiceFixture.CreateContext();
-        var firstCpu = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context, BuildComponentCategoryCodes.Cpu);
+        var components = await SeedCompleteBuildAsync(context);
         var secondCpu = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context, BuildComponentCategoryCodes.Cpu);
-        var service = new EfCompatibilityCheckService(context, new EfCompatibilityFactsReader(context));
+            context, CompatibilityCatalogContract.Categories.Cpu);
+        var items = EfBuildListServiceTests.ToBuildItems(components)
+            .Append(new BuildItemInput(secondCpu.PublicId, 1))
+            .ToList();
+        var service = new EfCompatibilityCheckService(context, new EfCompatibilityCatalogReader(context));
 
-        var exception = await Assert.ThrowsAsync<BuildWriteException>(() => service.CheckAsync(
-            new CompatibilityCheckRequest(
-            [
-                new BuildItemInput(firstCpu.PublicId, 1),
-                new BuildItemInput(secondCpu.PublicId, 1),
-            ]),
-            null,
-            CancellationToken.None));
+        var result = await service.CheckAsync(new CompatibilityCheckRequest(items), null, CancellationToken.None);
 
-        Assert.Equal(BuildWriteException.ErrorCodes.ValidationFailed, exception.ErrorCode);
+        Assert.Equal("insufficientData", result.Overall);
+        Assert.Contains(result.Results, f =>
+            f.RuleCode == CompatibilityRuleCodes.RequiredComponent &&
+            Equals(f.Facts["categoryCode"], CompatibilityCatalogContract.Categories.Cpu));
     }
 
     [Fact]
-    public async Task CheckAsync_Throws_WhenCpuQuantityIsGreaterThanOne()
+    public async Task CheckAsync_ReturnsInsufficientData_WhenCpuQuantityIsGreaterThanOne()
     {
         await using var context = CompatibilityCheckServiceFixture.CreateContext();
-        var cpu = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context, BuildComponentCategoryCodes.Cpu);
-        var service = new EfCompatibilityCheckService(context, new EfCompatibilityFactsReader(context));
+        var components = await SeedCompleteBuildAsync(context);
+        var items = EfBuildListServiceTests.ToBuildItems(components)
+            .Where(item => item.SkuPublicId != components.Cpu.PublicId)
+            .Append(new BuildItemInput(components.Cpu.PublicId, 2))
+            .ToList();
+        var service = new EfCompatibilityCheckService(context, new EfCompatibilityCatalogReader(context));
 
-        var exception = await Assert.ThrowsAsync<BuildWriteException>(() => service.CheckAsync(
-            new CompatibilityCheckRequest([new BuildItemInput(cpu.PublicId, 2)]),
-            null,
-            CancellationToken.None));
+        var result = await service.CheckAsync(new CompatibilityCheckRequest(items), null, CancellationToken.None);
 
-        Assert.Equal(BuildWriteException.ErrorCodes.ValidationFailed, exception.ErrorCode);
+        Assert.Equal("insufficientData", result.Overall);
+        Assert.Contains(result.Results, f =>
+            f.RuleCode == CompatibilityRuleCodes.RequiredComponent &&
+            Equals(f.Facts["categoryCode"], CompatibilityCatalogContract.Categories.Cpu));
     }
 
     [Fact]
-    public async Task CheckAsync_Throws_WhenTwoDistinctMotherboardSkusAreRequested()
+    public async Task CheckAsync_ReturnsInsufficientData_WhenTwoDistinctMotherboardSkusAreRequested()
     {
         await using var context = CompatibilityCheckServiceFixture.CreateContext();
-        var firstBoard = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context, BuildComponentCategoryCodes.Motherboard);
+        var components = await SeedCompleteBuildAsync(context);
         var secondBoard = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context, BuildComponentCategoryCodes.Motherboard);
-        var service = new EfCompatibilityCheckService(context, new EfCompatibilityFactsReader(context));
+            context, CompatibilityCatalogContract.Categories.Motherboard);
+        var items = EfBuildListServiceTests.ToBuildItems(components)
+            .Append(new BuildItemInput(secondBoard.PublicId, 1))
+            .ToList();
+        var service = new EfCompatibilityCheckService(context, new EfCompatibilityCatalogReader(context));
 
-        var exception = await Assert.ThrowsAsync<BuildWriteException>(() => service.CheckAsync(
-            new CompatibilityCheckRequest(
-            [
-                new BuildItemInput(firstBoard.PublicId, 1),
-                new BuildItemInput(secondBoard.PublicId, 1),
-            ]),
-            null,
-            CancellationToken.None));
+        var result = await service.CheckAsync(new CompatibilityCheckRequest(items), null, CancellationToken.None);
 
-        Assert.Equal(BuildWriteException.ErrorCodes.ValidationFailed, exception.ErrorCode);
+        Assert.Equal("insufficientData", result.Overall);
+        Assert.Contains(result.Results, f =>
+            f.RuleCode == CompatibilityRuleCodes.RequiredComponent &&
+            Equals(f.Facts["categoryCode"], CompatibilityCatalogContract.Categories.Motherboard));
     }
 
     /// <summary>Memory is a genuine multi-instance role — this must keep working after the singleton-role guard was added.</summary>
@@ -243,114 +223,141 @@ public sealed class CompatibilityCheckServiceTests
     public async Task CheckAsync_Allows_MultipleMemoryModulesAndQuantityGreaterThanOne()
     {
         await using var context = CompatibilityCheckServiceFixture.CreateContext();
-        var firstModule = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context, BuildComponentCategoryCodes.Memory);
+        var components = await SeedCompleteBuildAsync(context);
+        // The baseline board has 4 memory slots; a second distinct 2-module memory SKU keeps this
+        // test's "two distinct SKUs, quantity > 1 each" intent while still landing well under
+        // capacity (2 + 2 = 4 slots used, matching the 4-slot board exactly — replace with a
+        // higher-capacity board here, seeded fresh, so there is real headroom to prove "compatible"
+        // rather than tripping the low-slot warning).
+        var wideBoard = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
+            context,
+            CompatibilityCatalogContract.Categories.Motherboard,
+            new Dictionary<string, object?>
+            {
+                [CompatibilityCatalogContract.SemanticKeys.CpuSocket] = "AM5",
+                [CompatibilityCatalogContract.SemanticKeys.MotherboardChipset] = "X670E",
+                [CompatibilityCatalogContract.SemanticKeys.MemoryType] = "DDR5",
+                [CompatibilityCatalogContract.SemanticKeys.MemorySlotCount] = 8m,
+                [CompatibilityCatalogContract.SemanticKeys.MemoryMaxCapacityGb] = 256m,
+                [CompatibilityCatalogContract.SemanticKeys.MotherboardFormFactor] = "ATX",
+                [CompatibilityCatalogContract.SemanticKeys.M2SlotCount] = 4m,
+                [CompatibilityCatalogContract.SemanticKeys.SataPortCount] = 4m,
+                [CompatibilityCatalogContract.SemanticKeys.MotherboardCpuEps8PinRequiredCount] = 1m,
+                [CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 20m,
+            });
         var secondModule = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context, BuildComponentCategoryCodes.Memory);
-        var service = new EfCompatibilityCheckService(context, new EfCompatibilityFactsReader(context));
+            context,
+            CompatibilityCatalogContract.Categories.Memory,
+            new Dictionary<string, object?>
+            {
+                [CompatibilityCatalogContract.SemanticKeys.MemoryType] = "DDR5",
+                [CompatibilityCatalogContract.SemanticKeys.MemoryModuleCount] = 1m,
+                [CompatibilityCatalogContract.SemanticKeys.MemoryKitCapacityGb] = 16m,
+                [CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 5m,
+            });
+        var items = EfBuildListServiceTests.ToBuildItems(components with { Motherboard = wideBoard })
+            .Where(item => item.SkuPublicId != components.Memory.PublicId)
+            .Append(new BuildItemInput(components.Memory.PublicId, 2))
+            .Append(new BuildItemInput(secondModule.PublicId, 2))
+            .ToList();
+        var service = new EfCompatibilityCheckService(context, new EfCompatibilityCatalogReader(context));
 
-        var result = await service.CheckAsync(
-            new CompatibilityCheckRequest(
-            [
-                new BuildItemInput(firstModule.PublicId, 2),
-                new BuildItemInput(secondModule.PublicId, 2),
-            ]),
-            null,
-            CancellationToken.None);
+        var result = await service.CheckAsync(new CompatibilityCheckRequest(items), null, CancellationToken.None);
 
         Assert.Equal("compatible", result.Overall);
     }
 
     /// <summary>
-    /// Regression test: proves the motherboard's per-interface port counts are read as
-    /// independent pools rather than conflated — a board with SATA:2 and NVME:2 accepts 1 of each
-    /// at once, leaving headroom on both independently (組長 PR #34 round-4 review, item 1's
+    /// Regression test: proves the motherboard's M2/SATA port counts are read as independent
+    /// pools rather than conflated — a board with 2 SATA and 2 M2 slots accepts 1 of each at
+    /// once, leaving headroom on both independently (組長 PR #34 round-4 review, item 1's
     /// "multi-interface grouping" case).
     /// </summary>
     [Fact]
     public async Task CheckAsync_WhenStorageUsageStaysWithinEachInterfaceIndependently_ReturnsCompatible()
     {
         await using var context = CompatibilityCheckServiceFixture.CreateContext();
+        var components = await SeedCompleteBuildAsync(context);
         var board = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context, BuildComponentCategoryCodes.Motherboard,
-            storagePorts: new Dictionary<string, int> { ["SATA"] = 2, ["NVME"] = 2 });
+            context, CompatibilityCatalogContract.Categories.Motherboard,
+            new Dictionary<string, object?>
+            {
+                [CompatibilityCatalogContract.SemanticKeys.CpuSocket] = "AM5",
+                [CompatibilityCatalogContract.SemanticKeys.MotherboardChipset] = "X670E",
+                [CompatibilityCatalogContract.SemanticKeys.MemoryType] = "DDR5",
+                [CompatibilityCatalogContract.SemanticKeys.MemorySlotCount] = 4m,
+                [CompatibilityCatalogContract.SemanticKeys.MemoryMaxCapacityGb] = 128m,
+                [CompatibilityCatalogContract.SemanticKeys.MotherboardFormFactor] = "ATX",
+                [CompatibilityCatalogContract.SemanticKeys.M2SlotCount] = 2m,
+                [CompatibilityCatalogContract.SemanticKeys.SataPortCount] = 2m,
+                [CompatibilityCatalogContract.SemanticKeys.MotherboardCpuEps8PinRequiredCount] = 1m,
+                [CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 20m,
+            });
         var sataDrive = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context, BuildComponentCategoryCodes.StorageDevice,
-            new Dictionary<string, object?> { [CompatibilitySemanticKeys.StorageInterface] = "SATA" });
-        var nvmeDrive = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context, BuildComponentCategoryCodes.StorageDevice,
-            new Dictionary<string, object?> { [CompatibilitySemanticKeys.StorageInterface] = "NVME" });
-        var service = new EfCompatibilityCheckService(context, new EfCompatibilityFactsReader(context));
+            context, CompatibilityCatalogContract.Categories.Storage,
+            new Dictionary<string, object?>
+            {
+                [CompatibilityCatalogContract.SemanticKeys.StorageInterface] = "SATA",
+                [CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 5m,
+            });
+        var service = new EfCompatibilityCheckService(context, new EfCompatibilityCatalogReader(context));
 
-        var result = await service.CheckAsync(
-            new CompatibilityCheckRequest(
-            [
-                new BuildItemInput(board.PublicId, 1),
-                new BuildItemInput(sataDrive.PublicId, 1),
-                new BuildItemInput(nvmeDrive.PublicId, 1),
-            ]),
-            null,
-            CancellationToken.None);
+        var items = EfBuildListServiceTests.ToBuildItems(components with { Motherboard = board })
+            .Append(new BuildItemInput(sataDrive.PublicId, 1))
+            .ToList();
+        var result = await service.CheckAsync(new CompatibilityCheckRequest(items), null, CancellationToken.None);
 
         Assert.Equal("compatible", result.Overall);
     }
 
     /// <summary>
-    /// Regression test: SATA over capacity must block even though NVME (a different interface on
+    /// Regression test: SATA over capacity must block even though M2 (a different interface on
     /// the same board) still has headroom — proves usage is tallied per interface, not against a
-    /// combined port total.
+    /// combined port total. Unlike the old per-interface model, the canonical
+    /// <see cref="DoSelect.Domain.Builds.CompatibilityEvaluator"/> reports this as one combined
+    /// finding carrying both interfaces' counts, not one finding per offending interface.
     /// </summary>
     [Fact]
-    public async Task CheckAsync_WhenOneInterfaceExceedsItsOwnPortCount_ReturnsBlockedForThatInterfaceOnly()
+    public async Task CheckAsync_WhenOneInterfaceExceedsItsOwnPortCount_ReturnsBlocked()
     {
         await using var context = CompatibilityCheckServiceFixture.CreateContext();
+        var components = await SeedCompleteBuildAsync(context); // Storage is already M2_NVME qty 1
         var board = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context, BuildComponentCategoryCodes.Motherboard,
-            storagePorts: new Dictionary<string, int> { ["SATA"] = 2, ["NVME"] = 2 });
+            context, CompatibilityCatalogContract.Categories.Motherboard,
+            new Dictionary<string, object?>
+            {
+                [CompatibilityCatalogContract.SemanticKeys.CpuSocket] = "AM5",
+                [CompatibilityCatalogContract.SemanticKeys.MotherboardChipset] = "X670E",
+                [CompatibilityCatalogContract.SemanticKeys.MemoryType] = "DDR5",
+                [CompatibilityCatalogContract.SemanticKeys.MemorySlotCount] = 4m,
+                [CompatibilityCatalogContract.SemanticKeys.MemoryMaxCapacityGb] = 128m,
+                [CompatibilityCatalogContract.SemanticKeys.MotherboardFormFactor] = "ATX",
+                [CompatibilityCatalogContract.SemanticKeys.M2SlotCount] = 2m,
+                [CompatibilityCatalogContract.SemanticKeys.SataPortCount] = 2m,
+                [CompatibilityCatalogContract.SemanticKeys.MotherboardCpuEps8PinRequiredCount] = 1m,
+                [CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 20m,
+            });
         var sataDrive = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context, BuildComponentCategoryCodes.StorageDevice,
-            new Dictionary<string, object?> { [CompatibilitySemanticKeys.StorageInterface] = "SATA" });
-        var nvmeDrive = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context, BuildComponentCategoryCodes.StorageDevice,
-            new Dictionary<string, object?> { [CompatibilitySemanticKeys.StorageInterface] = "NVME" });
-        var service = new EfCompatibilityCheckService(context, new EfCompatibilityFactsReader(context));
+            context, CompatibilityCatalogContract.Categories.Storage,
+            new Dictionary<string, object?>
+            {
+                [CompatibilityCatalogContract.SemanticKeys.StorageInterface] = "SATA",
+                [CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 5m,
+            });
+        var service = new EfCompatibilityCheckService(context, new EfCompatibilityCatalogReader(context));
 
-        var result = await service.CheckAsync(
-            new CompatibilityCheckRequest(
-            [
-                new BuildItemInput(board.PublicId, 1),
-                new BuildItemInput(sataDrive.PublicId, 3),
-                new BuildItemInput(nvmeDrive.PublicId, 1),
-            ]),
-            null,
-            CancellationToken.None);
+        var items = EfBuildListServiceTests.ToBuildItems(components with { Motherboard = board })
+            .Append(new BuildItemInput(sataDrive.PublicId, 3))
+            .ToList();
+        var result = await service.CheckAsync(new CompatibilityCheckRequest(items), null, CancellationToken.None);
 
         Assert.Equal("blocked", result.Overall);
-        var finding = Assert.Single(result.Results, r => r.RuleCode == BuildCompatibilityRuleCodes.StorageInterface);
-        Assert.Equal("compatibility.storage_interface_port_exceeded", finding.MessageKey);
-        var factsJson = System.Text.Json.JsonSerializer.Serialize(finding.Facts);
-        Assert.Contains("SATA", factsJson);
-        Assert.DoesNotContain("NVME", factsJson);
-    }
-
-    /// <summary>
-    /// Regression test: the old "{interface}:{portCount}" packed string could hold two rows for
-    /// the same interface with different counts (its unique index was on the whole value
-    /// string). SkuStorageInterfacePort's unique index on (SkuId, InterfaceCode) makes that
-    /// unrepresentable at the schema level (組長 PR #34 round-4 review, item 1).
-    /// </summary>
-    [Fact]
-    public async Task SeedingTwoPortCountsForTheSameSkuAndInterface_ViolatesTheUniqueConstraint()
-    {
-        await using var context = CompatibilityCheckServiceFixture.CreateContext();
-        var board = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context, BuildComponentCategoryCodes.Motherboard,
-            storagePorts: new Dictionary<string, int> { ["SATA"] = 4 });
-
-        context.SkuStorageInterfacePorts.Add(new SkuStorageInterfacePort(board.Id, "SATA", 6, DateTime.UtcNow));
-
-        await Assert.ThrowsAnyAsync<Microsoft.EntityFrameworkCore.DbUpdateException>(
-            () => context.SaveChangesAsync());
+        var finding = Assert.Single(result.Results, r => r.RuleCode == CompatibilityRuleCodes.StorageInterface);
+        Assert.Equal("compatibility.storage_ports_exceeded", finding.MessageKey);
+        Assert.Equal(2, Convert.ToInt32(finding.Facts["sataPorts"]));
+        Assert.Equal(3, Convert.ToInt32(finding.Facts["sataUsed"]));
+        Assert.Equal(2, Convert.ToInt32(finding.Facts["m2Slots"]));
+        Assert.Equal(1, Convert.ToInt32(finding.Facts["m2Used"]));
     }
 
     /// <summary>
@@ -363,8 +370,8 @@ public sealed class CompatibilityCheckServiceTests
     public async Task PurgeExpiredRunsAsync_DeletesOnlyRunsOlderThanTheCutoff_AndIsIdempotent()
     {
         await using var context = CompatibilityCheckServiceFixture.CreateContext();
-        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, BuildComponentCategoryCodes.StorageDevice);
-        var service = new EfCompatibilityCheckService(context, new EfCompatibilityFactsReader(context));
+        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, CompatibilityCatalogContract.Categories.Storage);
+        var service = new EfCompatibilityCheckService(context, new EfCompatibilityCatalogReader(context));
 
         var oldCheck = await service.CheckAsync(
             new CompatibilityCheckRequest([new BuildItemInput(sku.PublicId, 1)]), null, CancellationToken.None);
@@ -439,8 +446,8 @@ public sealed class CompatibilityCheckServiceTests
     public async Task PurgeExpiredRunsAsync_WhenManyRunsShareTheSameEvaluatedAtUtc_DeletesThemAllAcrossBatches()
     {
         await using var context = CompatibilityCheckServiceFixture.CreateContext();
-        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, BuildComponentCategoryCodes.StorageDevice);
-        var service = new EfCompatibilityCheckService(context, new EfCompatibilityFactsReader(context));
+        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, CompatibilityCatalogContract.Categories.Storage);
+        var service = new EfCompatibilityCheckService(context, new EfCompatibilityCatalogReader(context));
 
         var cutoff = DateTime.UtcNow;
         var sameTimestamp = cutoff.AddDays(-91);
@@ -488,12 +495,12 @@ public sealed class CompatibilityCheckServiceTests
         // whether the rollback under test actually works — a matching CPU+Motherboard pair fires
         // CPU_SOCKET (severity "compatible") and genuinely leaves a Result row to roll back.
         var cpu = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            seedContext, BuildComponentCategoryCodes.Cpu,
-            new Dictionary<string, object?> { [CompatibilitySemanticKeys.CpuSocket] = "AM5" });
+            seedContext, CompatibilityCatalogContract.Categories.Cpu,
+            new Dictionary<string, object?> { [CompatibilityCatalogContract.SemanticKeys.CpuSocket] = "AM5" });
         var board = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            seedContext, BuildComponentCategoryCodes.Motherboard,
-            new Dictionary<string, object?> { [CompatibilitySemanticKeys.BoardSocket] = "AM5" });
-        var seedingService = new EfCompatibilityCheckService(seedContext, new EfCompatibilityFactsReader(seedContext));
+            seedContext, CompatibilityCatalogContract.Categories.Motherboard,
+            new Dictionary<string, object?> { [CompatibilityCatalogContract.SemanticKeys.CpuSocket] = "AM5" });
+        var seedingService = new EfCompatibilityCheckService(seedContext, new EfCompatibilityCatalogReader(seedContext));
         var oldCheck = await seedingService.CheckAsync(
             new CompatibilityCheckRequest([new BuildItemInput(cpu.PublicId, 1), new BuildItemInput(board.PublicId, 1)]),
             null, CancellationToken.None);
@@ -516,7 +523,7 @@ public sealed class CompatibilityCheckServiceTests
             .Options;
         await using (var failingContext = new DoSelect.Infrastructure.Persistence.DoSelectDbContext(options))
         {
-            var failingService = new EfCompatibilityCheckService(failingContext, new EfCompatibilityFactsReader(failingContext));
+            var failingService = new EfCompatibilityCheckService(failingContext, new EfCompatibilityCatalogReader(failingContext));
             await Assert.ThrowsAnyAsync<Exception>(() => failingService.PurgeExpiredRunsAsync(
                 cutoff.AddDays(-90), batchSize: 100, CancellationToken.None));
         }
@@ -526,7 +533,7 @@ public sealed class CompatibilityCheckServiceTests
         Assert.True(await verifyContext.CompatibilityCheckRuns.AnyAsync(run => run.Id == oldRunId));
         Assert.True(await verifyContext.CompatibilityCheckResults.AnyAsync(result => result.CompatibilityCheckRunId == oldRunId));
 
-        var retryService = new EfCompatibilityCheckService(verifyContext, new EfCompatibilityFactsReader(verifyContext));
+        var retryService = new EfCompatibilityCheckService(verifyContext, new EfCompatibilityCatalogReader(verifyContext));
         var deletedCount = await retryService.PurgeExpiredRunsAsync(cutoff.AddDays(-90), batchSize: 100, CancellationToken.None);
         Assert.Equal(1, deletedCount);
         Assert.False(await verifyContext.CompatibilityCheckRuns.AnyAsync(run => run.Id == oldRunId));

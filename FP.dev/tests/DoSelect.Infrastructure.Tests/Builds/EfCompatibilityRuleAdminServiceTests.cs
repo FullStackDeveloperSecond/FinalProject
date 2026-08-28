@@ -2,8 +2,10 @@ using DoSelect.Application.Auditing;
 using DoSelect.Application.Builds;
 using DoSelect.Domain.Auditing;
 using DoSelect.Domain.Builds;
+using DoSelect.Domain.Catalog;
 using DoSelect.Infrastructure.Auditing;
 using DoSelect.Infrastructure.Builds;
+using DoSelect.Infrastructure.Catalog;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 
@@ -30,7 +32,7 @@ public sealed class EfCompatibilityRuleAdminServiceTests
 
         var result = await service.ListAsync(CancellationToken.None);
 
-        Assert.Equal(12, result.Rules.Count);
+        Assert.Equal(15, result.Rules.Count);
         Assert.Equal(5, result.Rules.Count(rule => rule.WarningSetting is not null));
         Assert.All(result.Rules, rule => Assert.True(rule.IsActive));
     }
@@ -43,10 +45,10 @@ public sealed class EfCompatibilityRuleAdminServiceTests
         var service = CreateService(context);
         var before = await service.ListAsync(CancellationToken.None);
         var currentVersion = before.SettingsVersion;
-        var rowVersion = GetWarningRowVersion(before, BuildCompatibilityRuleCodes.GpuLength);
+        var rowVersion = GetWarningRowVersion(before, CompatibilityRuleCodes.GpuLength);
 
         var updated = await service.UpdateWarningSettingAsync(
-            BuildCompatibilityRuleCodes.GpuLength,
+            CompatibilityRuleCodes.GpuLength,
             adminUserId,
             new UpdateWarningSettingRequest(30m, rowVersion, "Tighten the warning"),
             AuditContext,
@@ -65,10 +67,10 @@ public sealed class EfCompatibilityRuleAdminServiceTests
         var adminUserId = await CompatibilityRuleAdminServiceFixture.SeedAdminUserIdAsync(context, AuditRoleNames.CatalogManager);
         var service = CreateService(context);
         var before = await service.ListAsync(CancellationToken.None);
-        var rowVersion = GetWarningRowVersion(before, BuildCompatibilityRuleCodes.GpuLength);
+        var rowVersion = GetWarningRowVersion(before, CompatibilityRuleCodes.GpuLength);
 
         var exception = await Assert.ThrowsAsync<BuildWriteException>(() => service.UpdateWarningSettingAsync(
-            BuildCompatibilityRuleCodes.GpuLength,
+            CompatibilityRuleCodes.GpuLength,
             adminUserId,
             new UpdateWarningSettingRequest(999m, rowVersion, "Bad value"),
             AuditContext,
@@ -85,7 +87,7 @@ public sealed class EfCompatibilityRuleAdminServiceTests
         var service = CreateService(context);
 
         var exception = await Assert.ThrowsAsync<BuildWriteException>(() => service.UpdateWarningSettingAsync(
-            BuildCompatibilityRuleCodes.CpuSocket,
+            CompatibilityRuleCodes.CpuSocket,
             adminUserId,
             new UpdateWarningSettingRequest(1m, null, "No such threshold"),
             AuditContext,
@@ -101,16 +103,16 @@ public sealed class EfCompatibilityRuleAdminServiceTests
         var adminUserId = await CompatibilityRuleAdminServiceFixture.SeedAdminUserIdAsync(context, AuditRoleNames.CatalogManager);
         var service = CreateService(context);
         var before = await service.ListAsync(CancellationToken.None);
-        var staleRowVersion = GetWarningRowVersion(before, BuildCompatibilityRuleCodes.CoolerHeight);
+        var staleRowVersion = GetWarningRowVersion(before, CompatibilityRuleCodes.CoolerHeight);
 
         await service.UpdateWarningSettingAsync(
-            BuildCompatibilityRuleCodes.CoolerHeight, adminUserId,
+            CompatibilityRuleCodes.CoolerHeight, adminUserId,
             new UpdateWarningSettingRequest(15m, staleRowVersion, "First edit"), AuditContext, CancellationToken.None);
 
         // Retrying with the same (now stale) RowVersion must conflict — a row now exists for this
         // key where the caller still believes there is none (or an older one).
         var exception = await Assert.ThrowsAsync<BuildWriteException>(() => service.UpdateWarningSettingAsync(
-            BuildCompatibilityRuleCodes.CoolerHeight, adminUserId,
+            CompatibilityRuleCodes.CoolerHeight, adminUserId,
             new UpdateWarningSettingRequest(20m, staleRowVersion, "Stale retry"), AuditContext, CancellationToken.None));
 
         Assert.Equal(BuildWriteException.ErrorCodes.ConcurrencyConflict, exception.ErrorCode);
@@ -129,7 +131,7 @@ public sealed class EfCompatibilityRuleAdminServiceTests
         await using var seedContext = CompatibilityRuleAdminServiceFixture.CreateContext();
         var adminUserId = await CompatibilityRuleAdminServiceFixture.SeedAdminUserIdAsync(seedContext, AuditRoleNames.CatalogManager);
         var before = await CreateService(seedContext).ListAsync(CancellationToken.None);
-        var startingRowVersion = GetWarningRowVersion(before, BuildCompatibilityRuleCodes.PsuCapacity);
+        var startingRowVersion = GetWarningRowVersion(before, CompatibilityRuleCodes.PsuCapacity);
         var startingSettingsVersion = before.SettingsVersion;
 
         await using var contextA = CompatibilityRuleAdminServiceFixture.CreateContext();
@@ -139,10 +141,10 @@ public sealed class EfCompatibilityRuleAdminServiceTests
 
         var results = await Task.WhenAll(
             RunOrCaptureConflictAsync(() => serviceA.UpdateWarningSettingAsync(
-                BuildCompatibilityRuleCodes.PsuCapacity, adminUserId,
+                CompatibilityRuleCodes.PsuCapacity, adminUserId,
                 new UpdateWarningSettingRequest(35m, startingRowVersion, "Admin A"), AuditContext, CancellationToken.None)),
             RunOrCaptureConflictAsync(() => serviceB.UpdateWarningSettingAsync(
-                BuildCompatibilityRuleCodes.PsuCapacity, adminUserId,
+                CompatibilityRuleCodes.PsuCapacity, adminUserId,
                 new UpdateWarningSettingRequest(40m, startingRowVersion, "Admin B"), AuditContext, CancellationToken.None)));
 
         Assert.Single(results, succeeded => succeeded);
@@ -166,8 +168,8 @@ public sealed class EfCompatibilityRuleAdminServiceTests
         await using var seedContext = CompatibilityRuleAdminServiceFixture.CreateContext();
         var adminUserId = await CompatibilityRuleAdminServiceFixture.SeedAdminUserIdAsync(seedContext, AuditRoleNames.CatalogManager);
         var before = await CreateService(seedContext).ListAsync(CancellationToken.None);
-        var gpuRowVersion = GetWarningRowVersion(before, BuildCompatibilityRuleCodes.GpuLength);
-        var coolerRowVersion = GetWarningRowVersion(before, BuildCompatibilityRuleCodes.CoolerHeight);
+        var gpuRowVersion = GetWarningRowVersion(before, CompatibilityRuleCodes.GpuLength);
+        var coolerRowVersion = GetWarningRowVersion(before, CompatibilityRuleCodes.CoolerHeight);
         var startingSettingsVersion = before.SettingsVersion;
 
         await using var contextA = CompatibilityRuleAdminServiceFixture.CreateContext();
@@ -177,10 +179,10 @@ public sealed class EfCompatibilityRuleAdminServiceTests
 
         var results = await Task.WhenAll(
             serviceA.UpdateWarningSettingAsync(
-                BuildCompatibilityRuleCodes.GpuLength, adminUserId,
+                CompatibilityRuleCodes.GpuLength, adminUserId,
                 new UpdateWarningSettingRequest(30m, gpuRowVersion, "Admin A"), AuditContext, CancellationToken.None),
             serviceB.UpdateWarningSettingAsync(
-                BuildCompatibilityRuleCodes.CoolerHeight, adminUserId,
+                CompatibilityRuleCodes.CoolerHeight, adminUserId,
                 new UpdateWarningSettingRequest(15m, coolerRowVersion, "Admin B"), AuditContext, CancellationToken.None));
 
         Assert.Equal(30m, results[0].WarningSetting!.Value);
@@ -215,41 +217,45 @@ public sealed class EfCompatibilityRuleAdminServiceTests
     {
         await using var context = CompatibilityRuleAdminServiceFixture.CreateContext();
         var adminUserId = await CompatibilityRuleAdminServiceFixture.SeedAdminUserIdAsync(context, AuditRoleNames.SuperAdmin);
-        // Socket mismatches (would normally Block via CPU_SOCKET); Generation/Chipset are a
-        // known-compatible pair so CHIPSET_CPU_GENERATION doesn't also fire and muddy the
-        // "disabled rule -> Compatible overall" assertion below.
-        var cpu = await CompatibilityRuleAdminServiceFixture.SeedComponentSkuAsync(
-            context, BuildComponentCategoryCodes.Cpu,
+        // Full 8-category build (CompatibilityEvaluator requires every singleton role present
+        // before any pairwise rule runs) with a socket-mismatched Motherboard (would normally
+        // Block via CPU_SOCKET); Generation/Chipset are a known-compatible pair so CPU_CHIPSET
+        // doesn't also fire and muddy the "disabled rule -> Compatible overall" assertion below.
+        var components = await EfBuildListServiceTests.SeedCompleteBuildComponentsAsync(context);
+        var mismatchedBoard = await CompatibilityRuleAdminServiceFixture.SeedComponentSkuAsync(
+            context, CompatibilityCatalogContract.Categories.Motherboard,
             new Dictionary<string, object?>
             {
-                [CompatibilitySemanticKeys.CpuSocket] = "AM5",
-                [CompatibilitySemanticKeys.CpuGeneration] = "Ryzen7000",
-            });
-        var board = await CompatibilityRuleAdminServiceFixture.SeedComponentSkuAsync(
-            context, BuildComponentCategoryCodes.Motherboard,
-            new Dictionary<string, object?>
-            {
-                [CompatibilitySemanticKeys.BoardSocket] = "LGA1700",
-                [CompatibilitySemanticKeys.BoardChipset] = "X670E",
+                [CompatibilityCatalogContract.SemanticKeys.CpuSocket] = "LGA1700",
+                [CompatibilityCatalogContract.SemanticKeys.MotherboardChipset] = "X670E",
+                [CompatibilityCatalogContract.SemanticKeys.MemoryType] = "DDR5",
+                [CompatibilityCatalogContract.SemanticKeys.MemorySlotCount] = 4m,
+                [CompatibilityCatalogContract.SemanticKeys.MemoryMaxCapacityGb] = 128m,
+                [CompatibilityCatalogContract.SemanticKeys.MotherboardFormFactor] = "ATX",
+                [CompatibilityCatalogContract.SemanticKeys.M2SlotCount] = 4m,
+                [CompatibilityCatalogContract.SemanticKeys.SataPortCount] = 4m,
+                [CompatibilityCatalogContract.SemanticKeys.MotherboardCpuEps8PinRequiredCount] = 1m,
+                [CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 20m,
             });
 
         var service = CreateService(context);
         var before = await service.ListAsync(CancellationToken.None);
-        var rowVersion = GetActivationRowVersion(before, BuildCompatibilityRuleCodes.CpuSocket);
+        var rowVersion = GetActivationRowVersion(before, CompatibilityRuleCodes.CpuSocket);
 
         var updated = await service.SetActivationAsync(
-            BuildCompatibilityRuleCodes.CpuSocket, adminUserId,
+            CompatibilityRuleCodes.CpuSocket, adminUserId,
             new SetRuleActivationRequest(false, "Demo mode", rowVersion), AuditContext, CancellationToken.None);
         Assert.False(updated.IsActive);
         Assert.NotNull(updated.ActivationRowVersion);
 
-        var checkService = new EfCompatibilityCheckService(context, new EfCompatibilityFactsReader(context));
+        var checkService = new EfCompatibilityCheckService(context, new EfCompatibilityCatalogReader(context));
+        var items = EfBuildListServiceTests.ToBuildItems(components with { Motherboard = mismatchedBoard });
         var checkResult = await checkService.CheckAsync(
-            new CompatibilityCheckRequest([new BuildItemInput(cpu.PublicId, 1), new BuildItemInput(board.PublicId, 1)]),
+            new CompatibilityCheckRequest(items),
             null,
             CancellationToken.None);
 
-        var finding = Assert.Single(checkResult.Results, f => f.RuleCode == BuildCompatibilityRuleCodes.CpuSocket);
+        var finding = Assert.Single(checkResult.Results, f => f.RuleCode == CompatibilityRuleCodes.CpuSocket);
         Assert.Equal("ruleDisabled", finding.Severity);
         Assert.Equal("compatible", checkResult.Overall);
     }
@@ -261,14 +267,14 @@ public sealed class EfCompatibilityRuleAdminServiceTests
         var adminUserId = await CompatibilityRuleAdminServiceFixture.SeedAdminUserIdAsync(context, AuditRoleNames.SuperAdmin);
         var service = CreateService(context);
         var before = await service.ListAsync(CancellationToken.None);
-        var staleRowVersion = GetActivationRowVersion(before, BuildCompatibilityRuleCodes.RamCapacity);
+        var staleRowVersion = GetActivationRowVersion(before, CompatibilityRuleCodes.MemoryCapacity);
 
         await service.SetActivationAsync(
-            BuildCompatibilityRuleCodes.RamCapacity, adminUserId,
+            CompatibilityRuleCodes.MemoryCapacity, adminUserId,
             new SetRuleActivationRequest(false, "First edit", staleRowVersion), AuditContext, CancellationToken.None);
 
         var exception = await Assert.ThrowsAsync<BuildWriteException>(() => service.SetActivationAsync(
-            BuildCompatibilityRuleCodes.RamCapacity, adminUserId,
+            CompatibilityRuleCodes.MemoryCapacity, adminUserId,
             new SetRuleActivationRequest(true, "Stale retry", staleRowVersion), AuditContext, CancellationToken.None));
 
         Assert.Equal(BuildWriteException.ErrorCodes.ConcurrencyConflict, exception.ErrorCode);
@@ -283,14 +289,14 @@ public sealed class EfCompatibilityRuleAdminServiceTests
         var service = CreateService(context);
         var before = await service.ListAsync(CancellationToken.None);
         var currentVersion = before.SettingsVersion;
-        var rowVersion = GetWarningRowVersion(before, BuildCompatibilityRuleCodes.RamSlotCount);
+        var rowVersion = GetWarningRowVersion(before, CompatibilityRuleCodes.MemorySlots);
 
         await service.UpdateWarningSettingAsync(
-            BuildCompatibilityRuleCodes.RamSlotCount, adminUserId,
+            CompatibilityRuleCodes.MemorySlots, adminUserId,
             new UpdateWarningSettingRequest(2m, rowVersion, "Tighten the warning"), AuditContext, CancellationToken.None);
 
         var settingRow = await context.CompatibilityRuleSettings.SingleAsync(
-            row => row.RuleCode == BuildCompatibilityRuleCodes.RamSlotCount && row.SettingsVersion == currentVersion + 1);
+            row => row.RuleCode == CompatibilityRuleCodes.MemorySlots && row.SettingsVersion == currentVersion + 1);
         // Filters on ResourcePublicId (unique per row, unlike Action, which every test in this
         // shared-collection database's other UpdateWarningSettingAsync calls also produces) so
         // this stays exact regardless of how many other tests already ran in the same database.
@@ -307,7 +313,7 @@ public sealed class EfCompatibilityRuleAdminServiceTests
     {
         await using var context = CompatibilityRuleAdminServiceFixture.CreateContext();
         var adminUserId = await CompatibilityRuleAdminServiceFixture.SeedAdminUserIdAsync(context, AuditRoleNames.CatalogManager);
-        var sku = await CompatibilityRuleAdminServiceFixture.SeedComponentSkuAsync(context, BuildComponentCategoryCodes.StorageDevice);
+        var sku = await CompatibilityRuleAdminServiceFixture.SeedComponentSkuAsync(context, CompatibilityCatalogContract.Categories.Storage);
         var service = CreateService(context);
 
         var exception = await Assert.ThrowsAsync<BuildWriteException>(() => service.TestAsync(
@@ -325,7 +331,7 @@ public sealed class EfCompatibilityRuleAdminServiceTests
     {
         await using var context = CompatibilityRuleAdminServiceFixture.CreateContext();
         var adminUserId = await CompatibilityRuleAdminServiceFixture.SeedAdminUserIdAsync(context, AuditRoleNames.CatalogManager);
-        var sku = await CompatibilityRuleAdminServiceFixture.SeedComponentSkuAsync(context, BuildComponentCategoryCodes.StorageDevice);
+        var sku = await CompatibilityRuleAdminServiceFixture.SeedComponentSkuAsync(context, CompatibilityCatalogContract.Categories.Storage);
         var service = CreateService(context);
         var before = await service.ListAsync(CancellationToken.None);
 
@@ -339,7 +345,10 @@ public sealed class EfCompatibilityRuleAdminServiceTests
             AuditContext,
             CancellationToken.None);
 
-        Assert.Equal("compatible", result.Overall);
+        // A single Storage SKU can never reach "compatible" under the canonical evaluator (all 6
+        // singleton roles + Memory must be present first) — this test's subject is that the draft
+        // settings override is applied without persisting, not the compatibility verdict itself.
+        Assert.Equal("insufficientData", result.Overall);
         var after = await service.ListAsync(CancellationToken.None);
         Assert.Equal(before.SettingsVersion, after.SettingsVersion);
     }
@@ -349,7 +358,7 @@ public sealed class EfCompatibilityRuleAdminServiceTests
     {
         await using var context = CompatibilityRuleAdminServiceFixture.CreateContext();
         var adminUserId = await CompatibilityRuleAdminServiceFixture.SeedAdminUserIdAsync(context, AuditRoleNames.CatalogManager);
-        var sku = await CompatibilityRuleAdminServiceFixture.SeedComponentSkuAsync(context, BuildComponentCategoryCodes.StorageDevice);
+        var sku = await CompatibilityRuleAdminServiceFixture.SeedComponentSkuAsync(context, CompatibilityCatalogContract.Categories.Storage);
         var service = CreateService(context);
 
         // This is a shared-collection database — other tests' own CheckAsync/TestAsync calls
@@ -381,8 +390,8 @@ public sealed class EfCompatibilityRuleAdminServiceTests
         DoSelect.Infrastructure.Persistence.DoSelectDbContext context) =>
         new(
             context,
-            new EfCompatibilityCheckService(context, new EfCompatibilityFactsReader(context)),
-            new EfCompatibilityFactsReader(context),
+            new EfCompatibilityCheckService(context, new EfCompatibilityCatalogReader(context)),
+            new EfCompatibilityCatalogReader(context),
             new EfAuditWriter(context, TimeProvider.System));
 }
 
@@ -425,13 +434,13 @@ public sealed class EfCompatibilityRuleAdminServiceAuditBeforeValueTests : IAsyn
         await using var context = CreateContext();
         var adminUserId = await CompatibilityRuleAdminServiceFixture.SeedAdminUserIdAsync(context, AuditRoleNames.CatalogManager);
         var service = new EfCompatibilityRuleAdminService(
-            context, new EfCompatibilityCheckService(context, new EfCompatibilityFactsReader(context)),
-            new EfCompatibilityFactsReader(context), new EfAuditWriter(context, TimeProvider.System));
+            context, new EfCompatibilityCheckService(context, new EfCompatibilityCatalogReader(context)),
+            new EfCompatibilityCatalogReader(context), new EfAuditWriter(context, TimeProvider.System));
 
         // A fresh database has no CompatibilityRuleSettings rows at all yet — this really is the
         // first write for GPU_LENGTH's warning threshold.
         await service.UpdateWarningSettingAsync(
-            BuildCompatibilityRuleCodes.GpuLength, adminUserId,
+            CompatibilityRuleCodes.GpuLength, adminUserId,
             new UpdateWarningSettingRequest(30m, null, "First-ever edit"),
             CompatibilityRuleAdminServiceFixture.TestAuditContext, CancellationToken.None);
 
@@ -448,11 +457,11 @@ public sealed class EfCompatibilityRuleAdminServiceAuditBeforeValueTests : IAsyn
         await using var context = CreateContext();
         var adminUserId = await CompatibilityRuleAdminServiceFixture.SeedAdminUserIdAsync(context, AuditRoleNames.SuperAdmin);
         var service = new EfCompatibilityRuleAdminService(
-            context, new EfCompatibilityCheckService(context, new EfCompatibilityFactsReader(context)),
-            new EfCompatibilityFactsReader(context), new EfAuditWriter(context, TimeProvider.System));
+            context, new EfCompatibilityCheckService(context, new EfCompatibilityCatalogReader(context)),
+            new EfCompatibilityCatalogReader(context), new EfAuditWriter(context, TimeProvider.System));
 
         await service.SetActivationAsync(
-            BuildCompatibilityRuleCodes.CpuSocket, adminUserId,
+            CompatibilityRuleCodes.CpuSocket, adminUserId,
             new SetRuleActivationRequest(false, "First-ever disable", null),
             CompatibilityRuleAdminServiceFixture.TestAuditContext, CancellationToken.None);
 
@@ -474,19 +483,19 @@ public sealed class EfCompatibilityRuleAdminServiceAuditBeforeValueTests : IAsyn
         await using var context = CreateContext();
         var adminUserId = await CompatibilityRuleAdminServiceFixture.SeedAdminUserIdAsync(context, AuditRoleNames.CatalogManager);
         var service = new EfCompatibilityRuleAdminService(
-            context, new EfCompatibilityCheckService(context, new EfCompatibilityFactsReader(context)),
-            new EfCompatibilityFactsReader(context), new EfAuditWriter(context, TimeProvider.System));
+            context, new EfCompatibilityCheckService(context, new EfCompatibilityCatalogReader(context)),
+            new EfCompatibilityCatalogReader(context), new EfAuditWriter(context, TimeProvider.System));
 
         var startingVersion = (await service.ListAsync(CancellationToken.None)).SettingsVersion;
         await service.UpdateWarningSettingAsync(
-            BuildCompatibilityRuleCodes.CoolerHeight, adminUserId,
+            CompatibilityRuleCodes.CoolerHeight, adminUserId,
             new UpdateWarningSettingRequest(15m, null, "Bumps the global version first"),
             CompatibilityRuleAdminServiceFixture.TestAuditContext, CancellationToken.None);
 
         // GPU_LENGTH's own key has never been written, but the global version has already moved
         // to startingVersion + 1 because of the CoolerHeight write above.
         await service.UpdateWarningSettingAsync(
-            BuildCompatibilityRuleCodes.GpuLength, adminUserId,
+            CompatibilityRuleCodes.GpuLength, adminUserId,
             new UpdateWarningSettingRequest(30m, null, "Second rule, first key write"),
             CompatibilityRuleAdminServiceFixture.TestAuditContext, CancellationToken.None);
 

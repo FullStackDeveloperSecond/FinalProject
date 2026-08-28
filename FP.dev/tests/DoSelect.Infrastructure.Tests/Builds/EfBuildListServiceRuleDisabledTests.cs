@@ -2,8 +2,10 @@ using DoSelect.Application.Auditing;
 using DoSelect.Application.Builds;
 using DoSelect.Domain.Auditing;
 using DoSelect.Domain.Builds;
+using DoSelect.Domain.Catalog;
 using DoSelect.Infrastructure.Auditing;
 using DoSelect.Infrastructure.Builds;
+using DoSelect.Infrastructure.Catalog;
 using DoSelect.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
@@ -59,28 +61,31 @@ public sealed class EfBuildListServiceRuleDisabledTests : IAsyncLifetime
         // A second motherboard, identical to the complete baseline's except the socket, so only
         // CPU_SOCKET fires — every other rule still sees fully-specified, matching facts.
         var mismatchedMotherboard = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context, BuildComponentCategoryCodes.Motherboard,
+            context, CompatibilityCatalogContract.Categories.Motherboard,
             new Dictionary<string, object?>
             {
-                [CompatibilitySemanticKeys.BoardSocket] = "LGA1700",
-                [CompatibilitySemanticKeys.BoardChipset] = "X670E",
-                [CompatibilitySemanticKeys.BoardMemoryGeneration] = "DDR5",
-                [CompatibilitySemanticKeys.BoardMemorySlotCount] = 4,
-                [CompatibilitySemanticKeys.BoardMaxMemoryCapacityGb] = 128m,
-                [CompatibilitySemanticKeys.BoardFormFactor] = "ATX",
-            },
-            storagePorts: new Dictionary<string, int> { ["NVME"] = 4 });
+                [CompatibilityCatalogContract.SemanticKeys.CpuSocket] = "LGA1700",
+                [CompatibilityCatalogContract.SemanticKeys.MotherboardChipset] = "X670E",
+                [CompatibilityCatalogContract.SemanticKeys.MemoryType] = "DDR5",
+                [CompatibilityCatalogContract.SemanticKeys.MemorySlotCount] = 4m,
+                [CompatibilityCatalogContract.SemanticKeys.MemoryMaxCapacityGb] = 128m,
+                [CompatibilityCatalogContract.SemanticKeys.MotherboardFormFactor] = "ATX",
+                [CompatibilityCatalogContract.SemanticKeys.M2SlotCount] = 4m,
+                [CompatibilityCatalogContract.SemanticKeys.SataPortCount] = 4m,
+                [CompatibilityCatalogContract.SemanticKeys.MotherboardCpuEps8PinRequiredCount] = 1m,
+                [CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 20m,
+            });
         await EfBuildListServiceTests.SeedInventoryAsync(context, mismatchedMotherboard.Id, 100);
 
-        var factsReader = new EfCompatibilityFactsReader(context);
+        var catalogReader = new EfCompatibilityCatalogReader(context);
         var ruleAdminService = new EfCompatibilityRuleAdminService(
-            context, new EfCompatibilityCheckService(context, factsReader), factsReader,
+            context, new EfCompatibilityCheckService(context, catalogReader), catalogReader,
             new EfAuditWriter(context, TimeProvider.System));
         var beforeList = await ruleAdminService.ListAsync(CancellationToken.None);
         var activationRowVersion = beforeList.Rules
-            .Single(rule => rule.RuleCode == BuildCompatibilityRuleCodes.CpuSocket).ActivationRowVersion;
+            .Single(rule => rule.RuleCode == CompatibilityRuleCodes.CpuSocket).ActivationRowVersion;
         await ruleAdminService.SetActivationAsync(
-            BuildCompatibilityRuleCodes.CpuSocket, adminUserId,
+            CompatibilityRuleCodes.CpuSocket, adminUserId,
             new SetRuleActivationRequest(false, "test", activationRowVersion),
             CompatibilityRuleAdminServiceFixture.TestAuditContext, CancellationToken.None);
 

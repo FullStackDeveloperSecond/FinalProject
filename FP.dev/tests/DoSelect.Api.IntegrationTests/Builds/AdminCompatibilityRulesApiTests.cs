@@ -27,7 +27,7 @@ public sealed class AdminCompatibilityRulesApiTests
     }
 
     [Fact]
-    public async Task List_ReturnsAllTwelveRules_WithNoWarningSettingForAPureHardRule()
+    public async Task List_ReturnsAllFifteenRules_WithNoWarningSettingForAPureHardRule()
     {
         var client = await _fixture.CreateAuthenticatedAdminClientAsync(DoSelectRoles.CatalogManager);
 
@@ -36,7 +36,7 @@ public sealed class AdminCompatibilityRulesApiTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         var rules = body.GetProperty("rules").EnumerateArray().ToList();
-        Assert.Equal(12, rules.Count);
+        Assert.Equal(15, rules.Count);
         Assert.True(body.GetProperty("settingsVersion").GetInt32() >= 1);
 
         var gpuLength = rules.Single(r => r.GetProperty("ruleCode").GetString() == "GPU_LENGTH");
@@ -131,10 +131,10 @@ public sealed class AdminCompatibilityRulesApiTests
     public async Task SetActivation_RequiresSuperAdmin_ForbiddenForCatalogManager()
     {
         var client = await _fixture.CreateAuthenticatedAdminClientAsync(DoSelectRoles.CatalogManager);
-        var rowVersion = await GetActivationRowVersionAsync(client, "RAM_GENERATION");
+        var rowVersion = await GetActivationRowVersionAsync(client, "MEMORY_TYPE");
 
         using var request = new HttpRequestMessage(
-            HttpMethod.Patch, "/api/v1/admin/compatibility-rules/RAM_GENERATION/activation")
+            HttpMethod.Patch, "/api/v1/admin/compatibility-rules/MEMORY_TYPE/activation")
         {
             Content = JsonContent.Create(new { isActive = false, reason = "Demo mode", rowVersion }),
         };
@@ -174,10 +174,10 @@ public sealed class AdminCompatibilityRulesApiTests
     {
         var client = await _fixture.CreateAuthenticatedAdminClientAsync(DoSelectRoles.SuperAdmin);
         var settingsVersion = await GetCurrentSettingsVersionAsync(client);
-        var rowVersion = await GetActivationRowVersionAsync(client, "CHIPSET_CPU_GENERATION");
+        var rowVersion = await GetActivationRowVersionAsync(client, "CPU_CHIPSET");
 
         using var request = new HttpRequestMessage(
-            HttpMethod.Patch, "/api/v1/admin/compatibility-rules/CHIPSET_CPU_GENERATION/activation")
+            HttpMethod.Patch, "/api/v1/admin/compatibility-rules/CPU_CHIPSET/activation")
         {
             Content = JsonContent.Create(new { isActive = false, reason = "Audit check", rowVersion }),
         };
@@ -186,7 +186,7 @@ public sealed class AdminCompatibilityRulesApiTests
 
         await using var context = _fixture.CreateScopedContext();
         var settingRow = await context.CompatibilityRuleSettings.SingleAsync(
-            row => row.RuleCode == "CHIPSET_CPU_GENERATION" && row.SettingsVersion == settingsVersion + 1);
+            row => row.RuleCode == "CPU_CHIPSET" && row.SettingsVersion == settingsVersion + 1);
         var auditRow = await context.AuditLogs.SingleAsync(
             row => row.Action == "compatibility_rule.activation.update" &&
                 row.ResourcePublicId == settingRow.PublicId);
@@ -195,111 +195,11 @@ public sealed class AdminCompatibilityRulesApiTests
         Assert.Contains("\"afterCode\":\"False\"", auditRow.ChangedFieldsJson);
     }
 
-    /// <summary>組長 PR #34 review, item 4: the only real production write path for a SKU's compatibility facts — proves it over real HTTP, not just at the service layer, including the RowVersion round-trip (round-4 review: reuses the Sku's own concurrency token).</summary>
-    [Fact]
-    public async Task SetSkuAttributes_PersistsStoragePorts_ForAnOrdinaryAdminCreatedMotherboardSku()
-    {
-        var client = await _fixture.CreateAuthenticatedAdminClientAsync(DoSelectRoles.CatalogManager);
-        var sku = await _fixture.SeedSkuInCategoryAsync(BuildComponentCategoryCodes.Motherboard);
-
-        using var getResponse = await client.GetAsync(
-            $"/api/v1/admin/compatibility-rules/skus/{sku.PublicId}/attributes");
-        Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
-        var before = await getResponse.Content.ReadFromJsonAsync<JsonElement>();
-        var rowVersion = before.GetProperty("rowVersion").GetString();
-
-        using var request = new HttpRequestMessage(
-            HttpMethod.Put, $"/api/v1/admin/compatibility-rules/skus/{sku.PublicId}/attributes")
-        {
-            Content = JsonContent.Create(new
-            {
-                attributes = new Dictionary<string, string[]>(),
-                storagePorts = new Dictionary<string, int> { ["nvme"] = 4 },
-                rowVersion,
-            }),
-        };
-        using var response = await AdminCompatibilityRulesApiFixture.SendWithAntiforgeryAsync(client, request);
-
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal(4, body.GetProperty("storagePorts").GetProperty("NVME").GetInt32());
-        Assert.NotEqual(rowVersion, body.GetProperty("rowVersion").GetString());
-
-        await using var context = _fixture.CreateScopedContext();
-        var port = await context.SkuStorageInterfacePorts.SingleAsync(p => p.SkuId == sku.Id);
-        Assert.Equal("NVME", port.InterfaceCode);
-        Assert.Equal(4, port.PortCount);
-    }
-
-    [Fact]
-    public async Task SetSkuAttributes_ReturnsConcurrencyConflict_ForAStaleRowVersion()
-    {
-        var client = await _fixture.CreateAuthenticatedAdminClientAsync(DoSelectRoles.CatalogManager);
-        var sku = await _fixture.SeedSkuInCategoryAsync(BuildComponentCategoryCodes.Motherboard);
-
-        using var getResponse = await client.GetAsync(
-            $"/api/v1/admin/compatibility-rules/skus/{sku.PublicId}/attributes");
-        var before = await getResponse.Content.ReadFromJsonAsync<JsonElement>();
-        var staleRowVersion = before.GetProperty("rowVersion").GetString();
-
-        using (var first = new HttpRequestMessage(
-            HttpMethod.Put, $"/api/v1/admin/compatibility-rules/skus/{sku.PublicId}/attributes")
-        {
-            Content = JsonContent.Create(new
-            {
-                attributes = new Dictionary<string, string[]>(),
-                storagePorts = new Dictionary<string, int> { ["SATA"] = 2 },
-                rowVersion = staleRowVersion,
-            }),
-        })
-        {
-            using var firstResponse = await AdminCompatibilityRulesApiFixture.SendWithAntiforgeryAsync(client, first);
-            Assert.Equal(HttpStatusCode.OK, firstResponse.StatusCode);
-        }
-
-        using var second = new HttpRequestMessage(
-            HttpMethod.Put, $"/api/v1/admin/compatibility-rules/skus/{sku.PublicId}/attributes")
-        {
-            Content = JsonContent.Create(new
-            {
-                attributes = new Dictionary<string, string[]>(),
-                storagePorts = new Dictionary<string, int> { ["NVME"] = 4 },
-                rowVersion = staleRowVersion,
-            }),
-        };
-        using var secondResponse = await AdminCompatibilityRulesApiFixture.SendWithAntiforgeryAsync(client, second);
-
-        var (status, code, _) = await AdminCompatibilityRulesApiFixture.ReadProblemAsync(secondResponse);
-        Assert.Equal((int)HttpStatusCode.Conflict, status);
-        Assert.Equal("concurrency_conflict", code);
-    }
-
-    [Fact]
-    public async Task SetSkuAttributes_ReturnsValidationProblem_ForAnUnknownAttributeKey()
-    {
-        var client = await _fixture.CreateAuthenticatedAdminClientAsync(DoSelectRoles.CatalogManager);
-        var sku = await _fixture.SeedSkuAsync();
-        using var getResponse = await client.GetAsync(
-            $"/api/v1/admin/compatibility-rules/skus/{sku.PublicId}/attributes");
-        var rowVersion = (await getResponse.Content.ReadFromJsonAsync<JsonElement>())
-            .GetProperty("rowVersion").GetString();
-
-        using var request = new HttpRequestMessage(
-            HttpMethod.Put, $"/api/v1/admin/compatibility-rules/skus/{sku.PublicId}/attributes")
-        {
-            Content = JsonContent.Create(new
-            {
-                attributes = new Dictionary<string, string[]> { ["not_a_real_key"] = ["x"] },
-                storagePorts = new Dictionary<string, int>(),
-                rowVersion,
-            }),
-        };
-        using var response = await AdminCompatibilityRulesApiFixture.SendWithAntiforgeryAsync(client, request);
-
-        var (status, code, _) = await AdminCompatibilityRulesApiFixture.ReadProblemAsync(response);
-        Assert.Equal((int)HttpStatusCode.BadRequest, status);
-        Assert.Equal("validation_failed", code);
-    }
+    // 組長 PR #34 round-7 review (DEC-BATCH-027): the SKU attributes GET/PUT endpoints (and the
+    // three tests that exercised them: SetSkuAttributes_PersistsStoragePorts_..., SetSkuAttributes_
+    // ReturnsConcurrencyConflict_..., SetSkuAttributes_ReturnsValidationProblem_...) were removed —
+    // hard compatibility facts now live in the canonical Catalog spec-value model, written via the
+    // ordinary product/SKU admin endpoints, not a Builds-specific one.
 
     [Fact]
     public async Task Test_ReturnsResults_ForAKnownBuild()
@@ -325,7 +225,10 @@ public sealed class AdminCompatibilityRulesApiTests
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal("compatible", body.GetProperty("overall").GetString());
+        // Two bare Storage SKUs can never reach "compatible" under the canonical evaluator (every
+        // singleton role plus Memory must be present first) — this test's subject is that the
+        // endpoint runs and returns a result for a known SKU pair, not the compatibility verdict.
+        Assert.Equal("insufficientData", body.GetProperty("overall").GetString());
         Assert.Equal(settingsVersion, body.GetProperty("settingsVersion").GetInt32());
     }
 

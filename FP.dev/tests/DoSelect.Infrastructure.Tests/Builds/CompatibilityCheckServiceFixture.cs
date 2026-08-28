@@ -13,10 +13,7 @@ namespace DoSelect.Infrastructure.Tests.Builds;
 /// Seeds the 8 build-component categories and their protected specification-definition
 /// templates once per test class run (reference data, mirrored on real seed data an admin
 /// would eventually manage), then lets individual tests create SKUs under them. Mirrors
-/// <c>Shopping/CartServiceFixture.cs</c>'s SQL Server-backed pattern; the database is created
-/// via <c>EnsureCreatedAsync</c> from the current EF model, so the not-yet-migrated
-/// <see cref="SkuCompatibilityAttribute"/> table is still available here even though no
-/// migration has been generated for it yet.
+/// <c>Shopping/CartServiceFixture.cs</c>'s SQL Server-backed pattern.
 /// </summary>
 public sealed class CompatibilityCheckServiceFixture : IAsyncLifetime
 {
@@ -25,53 +22,71 @@ public sealed class CompatibilityCheckServiceFixture : IAsyncLifetime
     private static readonly string ConnectionString =
         SqlServerTestConnection.Build("DoSelectCompatibilityCheckServiceTests");
 
-    private static readonly IReadOnlyDictionary<string, (string SemanticKey, SpecificationValueType ValueType)[]> SpecTemplates =
-        new Dictionary<string, (string, SpecificationValueType)[]>
+    private sealed record SpecDefinitionTemplate(string SemanticKey, SpecificationValueType ValueType, bool AllowsMultiple);
+
+    /// <summary>Mirrors MinimalDevelopmentDataSeeder's BuildCompatibilitySpecTemplates — all 8 build-component categories with their canonical specification-definition templates.</summary>
+    private static readonly IReadOnlyDictionary<string, SpecDefinitionTemplate[]> SpecTemplates =
+        new Dictionary<string, SpecDefinitionTemplate[]>
         {
-            [BuildComponentCategoryCodes.Cpu] =
+            [CompatibilityCatalogContract.Categories.Cpu] =
             [
-                (CompatibilitySemanticKeys.CpuSocket, SpecificationValueType.String),
-                (CompatibilitySemanticKeys.CpuGeneration, SpecificationValueType.String),
-                (CompatibilitySemanticKeys.CpuPowerWatts, SpecificationValueType.Decimal),
+                new(CompatibilityCatalogContract.SemanticKeys.CpuSocket, SpecificationValueType.Option, false),
+                new(CompatibilityCatalogContract.SemanticKeys.CpuGeneration, SpecificationValueType.Option, false),
+                new(CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts, SpecificationValueType.Decimal, false),
             ],
-            [BuildComponentCategoryCodes.Motherboard] =
+            [CompatibilityCatalogContract.Categories.Motherboard] =
             [
-                (CompatibilitySemanticKeys.BoardSocket, SpecificationValueType.String),
-                (CompatibilitySemanticKeys.BoardChipset, SpecificationValueType.String),
-                (CompatibilitySemanticKeys.BoardMemoryGeneration, SpecificationValueType.String),
-                (CompatibilitySemanticKeys.BoardMemorySlotCount, SpecificationValueType.Decimal),
-                (CompatibilitySemanticKeys.BoardMaxMemoryCapacityGb, SpecificationValueType.Decimal),
-                (CompatibilitySemanticKeys.BoardFormFactor, SpecificationValueType.String),
+                new(CompatibilityCatalogContract.SemanticKeys.CpuSocket, SpecificationValueType.Option, false),
+                new(CompatibilityCatalogContract.SemanticKeys.MotherboardChipset, SpecificationValueType.Option, false),
+                new(CompatibilityCatalogContract.SemanticKeys.MemoryType, SpecificationValueType.Option, false),
+                new(CompatibilityCatalogContract.SemanticKeys.MemorySlotCount, SpecificationValueType.Decimal, false),
+                new(CompatibilityCatalogContract.SemanticKeys.MemoryMaxCapacityGb, SpecificationValueType.Decimal, false),
+                new(CompatibilityCatalogContract.SemanticKeys.MotherboardFormFactor, SpecificationValueType.Option, false),
+                new(CompatibilityCatalogContract.SemanticKeys.M2SlotCount, SpecificationValueType.Decimal, false),
+                new(CompatibilityCatalogContract.SemanticKeys.SataPortCount, SpecificationValueType.Decimal, false),
+                new(CompatibilityCatalogContract.SemanticKeys.MotherboardCpuEps8PinRequiredCount, SpecificationValueType.Decimal, false),
+                new(CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts, SpecificationValueType.Decimal, false),
             ],
-            [BuildComponentCategoryCodes.Memory] =
+            [CompatibilityCatalogContract.Categories.Memory] =
             [
-                (CompatibilitySemanticKeys.MemoryGeneration, SpecificationValueType.String),
-                (CompatibilitySemanticKeys.MemoryCapacityGbPerModule, SpecificationValueType.Decimal),
+                new(CompatibilityCatalogContract.SemanticKeys.MemoryType, SpecificationValueType.Option, false),
+                new(CompatibilityCatalogContract.SemanticKeys.MemoryModuleCount, SpecificationValueType.Decimal, false),
+                new(CompatibilityCatalogContract.SemanticKeys.MemoryKitCapacityGb, SpecificationValueType.Decimal, false),
+                new(CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts, SpecificationValueType.Decimal, false),
             ],
-            [BuildComponentCategoryCodes.GraphicsCard] =
+            [CompatibilityCatalogContract.Categories.Gpu] =
             [
-                (CompatibilitySemanticKeys.GpuLengthMm, SpecificationValueType.Decimal),
-                (CompatibilitySemanticKeys.GpuRecommendedPsuWatts, SpecificationValueType.Decimal),
-                (CompatibilitySemanticKeys.GpuPowerWatts, SpecificationValueType.Decimal),
+                new(CompatibilityCatalogContract.SemanticKeys.GpuLengthMm, SpecificationValueType.Decimal, false),
+                new(CompatibilityCatalogContract.SemanticKeys.GpuRecommendedPsuWatts, SpecificationValueType.Decimal, false),
+                new(CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts, SpecificationValueType.Decimal, false),
+                new(CompatibilityCatalogContract.SemanticKeys.GpuPcie62PinRequiredCount, SpecificationValueType.Decimal, false),
+                new(CompatibilityCatalogContract.SemanticKeys.Gpu12VhpwrRequiredCount, SpecificationValueType.Decimal, false),
             ],
-            [BuildComponentCategoryCodes.StorageDevice] =
+            [CompatibilityCatalogContract.Categories.Storage] =
             [
-                (CompatibilitySemanticKeys.StorageInterface, SpecificationValueType.String),
-                (CompatibilitySemanticKeys.StoragePowerWatts, SpecificationValueType.Decimal),
+                new(CompatibilityCatalogContract.SemanticKeys.StorageInterface, SpecificationValueType.Option, false),
+                new(CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts, SpecificationValueType.Decimal, false),
             ],
-            [BuildComponentCategoryCodes.PowerSupply] =
+            [CompatibilityCatalogContract.Categories.Psu] =
             [
-                (CompatibilitySemanticKeys.PsuWattage, SpecificationValueType.Decimal),
+                new(CompatibilityCatalogContract.SemanticKeys.PsuRatedWatts, SpecificationValueType.Decimal, false),
+                new(CompatibilityCatalogContract.SemanticKeys.PsuFormFactor, SpecificationValueType.Option, false),
+                new(CompatibilityCatalogContract.SemanticKeys.PsuPcie62PinCount, SpecificationValueType.Decimal, false),
+                new(CompatibilityCatalogContract.SemanticKeys.Psu12VhpwrCount, SpecificationValueType.Decimal, false),
+                new(CompatibilityCatalogContract.SemanticKeys.PsuCpuEps8PinCount, SpecificationValueType.Decimal, false),
             ],
-            [BuildComponentCategoryCodes.Case] =
+            [CompatibilityCatalogContract.Categories.Case] =
             [
-                (CompatibilitySemanticKeys.CaseMaxGpuLengthMm, SpecificationValueType.Decimal),
-                (CompatibilitySemanticKeys.CaseMaxCoolerHeightMm, SpecificationValueType.Decimal),
+                new(CompatibilityCatalogContract.SemanticKeys.CaseSupportedMotherboardFormFactor, SpecificationValueType.Option, true),
+                new(CompatibilityCatalogContract.SemanticKeys.CaseGpuMaxLengthMm, SpecificationValueType.Decimal, false),
+                new(CompatibilityCatalogContract.SemanticKeys.CaseCoolerMaxHeightMm, SpecificationValueType.Decimal, false),
+                new(CompatibilityCatalogContract.SemanticKeys.CaseSupportedPsuFormFactor, SpecificationValueType.Option, true),
             ],
-            [BuildComponentCategoryCodes.Cooler] =
+            [CompatibilityCatalogContract.Categories.CpuCooler] =
             [
-                (CompatibilitySemanticKeys.CoolerHeightMm, SpecificationValueType.Decimal),
-                (CompatibilitySemanticKeys.CoolerPowerWatts, SpecificationValueType.Decimal),
+                new(CompatibilityCatalogContract.SemanticKeys.CpuSocket, SpecificationValueType.Option, true),
+                new(CompatibilityCatalogContract.SemanticKeys.CoolerHeightMm, SpecificationValueType.Decimal, false),
+                new(CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts, SpecificationValueType.Decimal, false),
             ],
         };
 
@@ -87,7 +102,7 @@ public sealed class CompatibilityCheckServiceFixture : IAsyncLifetime
     internal static async Task SeedCategoriesAndSpecTemplatesAsync(DoSelectDbContext context)
     {
         var now = DateTime.UtcNow;
-        foreach (var categoryCode in BuildComponentCategoryCodes.All)
+        foreach (var categoryCode in CompatibilityCatalogContract.Categories.All)
         {
             var category = new Category(
                 Guid.CreateVersion7(),
@@ -99,19 +114,20 @@ public sealed class CompatibilityCheckServiceFixture : IAsyncLifetime
             context.Categories.Add(category);
             await context.SaveChangesAsync();
 
-            foreach (var (semanticKey, valueType) in SpecTemplates[categoryCode])
+            foreach (var template in SpecTemplates[categoryCode])
             {
                 context.SpecificationDefinitions.Add(new SpecificationDefinition(
                     Guid.CreateVersion7(),
                     category.Id,
-                    semanticKey,
-                    semanticKey,
-                    valueType,
+                    template.SemanticKey,
+                    template.SemanticKey,
+                    template.ValueType,
                     null,
                     isRequired: false,
                     isProtected: true,
                     sortOrder: 0,
-                    now));
+                    now,
+                    allowsMultiple: template.AllowsMultiple));
             }
 
             await context.SaveChangesAsync();
@@ -164,25 +180,31 @@ public sealed class CompatibilityCheckServiceFixture : IAsyncLifetime
     }
 
     /// <summary>
-    /// Creates one published Sku under the given build-component category, with the given
-    /// semantic-key facts (string or decimal, matching <see cref="SpecTemplates"/>) and any
-    /// multi-value compatibility attributes.
+    /// Creates one published Sku under the given build-component category and hard-rule facts
+    /// through the canonical multi-value model — mirrors
+    /// <c>MinimalDevelopmentDataSeeder.CreateComponentSkuAsync</c>: a decimal value writes
+    /// straight to <see cref="SkuSpecificationValue.DecimalValue"/>; a string value
+    /// get-or-creates a <see cref="SpecificationOption"/> scoped to this category's own
+    /// definition, then links via <see cref="SkuSpecificationValue.OptionId"/> (single-select,
+    /// <paramref name="specValues"/>) or <see cref="SkuSpecificationOptionSelection"/>
+    /// (multi-select, <paramref name="multiValues"/>).
     /// </summary>
     public static async Task<Sku> SeedComponentSkuAsync(
         DoSelectDbContext context,
         string categoryCode,
         IReadOnlyDictionary<string, object?>? specValues = null,
-        IReadOnlyDictionary<string, string[]>? attributes = null,
-        IReadOnlyDictionary<string, int>? storagePorts = null)
+        IReadOnlyDictionary<string, string[]>? multiValues = null)
     {
         var now = DateTime.UtcNow;
         var category = await context.Categories.SingleAsync(c => c.Code == categoryCode);
+        var source = await GetOrCreateSpecificationSourceAsync(context, now);
 
         var brand = new Brand(Guid.CreateVersion7(), UniqueCode("BRAND"), "測試品牌", now);
         context.Brands.Add(brand);
         await context.SaveChangesAsync();
 
         var product = new Product(Guid.CreateVersion7(), UniqueCode("PROD"), brand.Id, category.Id, "測試商品", now);
+        product.ChangeStatus(ProductStatus.Published, now);
         context.Products.Add(product);
         await context.SaveChangesAsync();
 
@@ -202,46 +224,83 @@ public sealed class CompatibilityCheckServiceFixture : IAsyncLifetime
 
                 var definition = await context.SpecificationDefinitions
                     .SingleAsync(d => d.CategoryId == category.Id && d.SemanticKey == semanticKey);
-                var stringValue = rawValue as string;
+
+                if (rawValue is string optionCode)
+                {
+                    var option = await GetOrCreateOptionAsync(context, definition.Id, optionCode, now);
+                    context.SkuSpecificationValues.Add(new SkuSpecificationValue(
+                        sku.Id, definition.Id, null, null, null, option.Id, source.Id, now));
+                    continue;
+                }
+
                 decimal? decimalValue = rawValue switch
                 {
                     decimal value => value,
                     int value => value,
                     _ => null,
                 };
-
                 context.SkuSpecificationValues.Add(new SkuSpecificationValue(
-                    sku.Id, definition.Id, stringValue, decimalValue, null, null, null, now));
+                    sku.Id, definition.Id, null, decimalValue, null, null, source.Id, now));
             }
 
             await context.SaveChangesAsync();
         }
 
-        if (attributes is not null)
+        if (multiValues is not null)
         {
-            foreach (var (attributeKey, values) in attributes)
+            foreach (var (semanticKey, optionCodes) in multiValues)
             {
-                foreach (var value in values)
+                var definition = await context.SpecificationDefinitions
+                    .SingleAsync(d => d.CategoryId == category.Id && d.SemanticKey == semanticKey);
+
+                foreach (var optionCode in optionCodes)
                 {
-                    context.SkuCompatibilityAttributes.Add(
-                        new SkuCompatibilityAttribute(sku.Id, attributeKey, value, now));
+                    var option = await GetOrCreateOptionAsync(context, definition.Id, optionCode, now);
+                    context.SkuSpecificationOptionSelections.Add(
+                        new SkuSpecificationOptionSelection(sku.Id, option.Id, now, source.Id));
                 }
             }
 
             await context.SaveChangesAsync();
         }
 
-        if (storagePorts is not null)
-        {
-            foreach (var (interfaceCode, portCount) in storagePorts)
-            {
-                context.SkuStorageInterfacePorts.Add(
-                    new SkuStorageInterfacePort(sku.Id, interfaceCode, portCount, now));
-            }
+        return sku;
+    }
 
-            await context.SaveChangesAsync();
+    private static async Task<SpecificationSource> GetOrCreateSpecificationSourceAsync(DoSelectDbContext context, DateTime now)
+    {
+        var source = await context.SpecificationSources
+            .SingleOrDefaultAsync(s => s.ProviderName == "DoSelect Test Seed");
+        if (source is not null)
+        {
+            return source;
         }
 
-        return sku;
+        var reviewer = ApplicationUser.CreateAdmin(
+            Guid.CreateVersion7(), $"compat-check-reviewer-{Guid.NewGuid():N}@doselect.test", now);
+        context.Users.Add(reviewer);
+        await context.SaveChangesAsync();
+        source = new SpecificationSource(
+            Guid.CreateVersion7(), SpecificationSourceType.SystemEstimate, "DoSelect Test Seed",
+            "https://doselect.dev/seed/compatibility-check-service-tests", null, now, now, reviewer.Id, "v1", now);
+        context.SpecificationSources.Add(source);
+        await context.SaveChangesAsync();
+        return source;
+    }
+
+    private static async Task<SpecificationOption> GetOrCreateOptionAsync(
+        DoSelectDbContext context, long specificationDefinitionId, string code, DateTime now)
+    {
+        var option = await context.SpecificationOptions.SingleOrDefaultAsync(
+            o => o.SpecificationDefinitionId == specificationDefinitionId && o.Code == code);
+        if (option is not null)
+        {
+            return option;
+        }
+
+        option = new SpecificationOption(Guid.CreateVersion7(), specificationDefinitionId, code, code, 0, now);
+        context.SpecificationOptions.Add(option);
+        await context.SaveChangesAsync();
+        return option;
     }
 }

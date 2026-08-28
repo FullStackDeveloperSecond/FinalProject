@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using DoSelect.Domain.Builds;
+using DoSelect.Domain.Catalog;
 
 namespace DoSelect.Api.IntegrationTests.Builds;
 
@@ -31,7 +32,10 @@ public sealed class BuildListsApiTests
         Assert.Equal(1, body.GetProperty("items").GetArrayLength());
         Assert.Equal(1000m, body.GetProperty("totals").GetProperty("merchandise").GetDecimal());
         Assert.Equal(1300m, body.GetProperty("totals").GetProperty("grandTotal").GetDecimal());
-        Assert.Equal("compatible", body.GetProperty("compatibility").GetProperty("overall").GetString());
+        // A single Storage SKU can never reach "compatible" under the canonical evaluator (every
+        // singleton role plus Memory must be present first) — this test's subject is the
+        // create/totals response shape, not the compatibility verdict.
+        Assert.Equal("insufficientData", body.GetProperty("compatibility").GetProperty("overall").GetString());
     }
 
     [Fact]
@@ -246,11 +250,11 @@ public sealed class BuildListsApiTests
         var client = await _fixture.CreateAuthenticatedMemberClientAsync();
         var components = await _fixture.SeedCompleteBuildComponentsAsync();
         var sku = await _fixture.SeedComponentSkuAsync(
-            BuildComponentCategoryCodes.StorageDevice,
+            CompatibilityCatalogContract.Categories.Storage,
             new Dictionary<string, object?>
             {
-                [CompatibilitySemanticKeys.StorageInterface] = "NVME",
-                [CompatibilitySemanticKeys.StoragePowerWatts] = 5m,
+                [CompatibilityCatalogContract.SemanticKeys.StorageInterface] = "M2_NVME",
+                [CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 5m,
             });
         await _fixture.SeedInventoryAsync(sku.Id, 100);
         using var createResponse = await CreateAsync(
@@ -278,11 +282,11 @@ public sealed class BuildListsApiTests
         var client = await _fixture.CreateAuthenticatedMemberClientAsync();
         var components = await _fixture.SeedCompleteBuildComponentsAsync();
         var sku = await _fixture.SeedComponentSkuAsync(
-            BuildComponentCategoryCodes.StorageDevice,
+            CompatibilityCatalogContract.Categories.Storage,
             new Dictionary<string, object?>
             {
-                [CompatibilitySemanticKeys.StorageInterface] = "NVME",
-                [CompatibilitySemanticKeys.StoragePowerWatts] = 5m,
+                [CompatibilityCatalogContract.SemanticKeys.StorageInterface] = "M2_NVME",
+                [CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 5m,
             });
         await _fixture.SeedInventoryAsync(sku.Id, 1);
         using var createResponse = await CreateAsync(

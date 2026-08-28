@@ -4,6 +4,7 @@ using DoSelect.Application.Idempotency;
 using DoSelect.Domain.Builds;
 using DoSelect.Domain.Catalog;
 using DoSelect.Infrastructure.Builds;
+using DoSelect.Infrastructure.Catalog;
 using DoSelect.Infrastructure.Idempotency;
 using DoSelect.Infrastructure.Shopping;
 using Microsoft.EntityFrameworkCore;
@@ -36,7 +37,7 @@ public sealed class EfBuildListServiceTests
     {
         await using var seedContext = CompatibilityCheckServiceFixture.CreateContext();
         var memberUserId = await CompatibilityCheckServiceFixture.SeedMemberUserIdAsync(seedContext);
-        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(seedContext, BuildComponentCategoryCodes.StorageDevice);
+        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(seedContext, CompatibilityCatalogContract.Categories.Storage);
 
         // Directly insert 49 (not via CreateAsync — avoids 49x redundant compatibility checks).
         var now = DateTime.UtcNow;
@@ -91,7 +92,7 @@ public sealed class EfBuildListServiceTests
     {
         await using var seedContext = CompatibilityCheckServiceFixture.CreateContext();
         var memberUserId = await CompatibilityCheckServiceFixture.SeedMemberUserIdAsync(seedContext);
-        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(seedContext, BuildComponentCategoryCodes.StorageDevice);
+        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(seedContext, CompatibilityCatalogContract.Categories.Storage);
         var seedService = CreateService(seedContext);
         var created = await seedService.CreateAsync(
             memberUserId, new CreateBuildListRequest("Shared", [new BuildItemInput(sku.PublicId, 1)]), CancellationToken.None);
@@ -121,13 +122,14 @@ public sealed class EfBuildListServiceTests
     {
         await using var context = CompatibilityCheckServiceFixture.CreateContext();
         var memberUserId = await CompatibilityCheckServiceFixture.SeedMemberUserIdAsync(context);
-        // Two Storage SKUs with no Motherboard present: EvaluateStorageInterface (like every
-        // other rule) short-circuits to "no finding" when its counterpart slot is empty, so this
-        // is guaranteed "compatible" with zero findings — unlike a Cpu+Motherboard pair, which
-        // also fires CHIPSET_CPU_GENERATION as insufficientData unless Generation/Chipset are
-        // both seeded too (see CompatibilityCheckServiceTests's same caveat).
-        var first = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, BuildComponentCategoryCodes.StorageDevice);
-        var second = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, BuildComponentCategoryCodes.StorageDevice);
+        // Two Storage SKUs alone can never reach "compatible": the canonical
+        // CompatibilityEvaluator requires all 6 singleton-role categories plus Memory present
+        // before it evaluates any pairwise rule, so a partial build like this always reports
+        // insufficientData (see CompatibilityCheckServiceTests.SeedCompleteBuildAsync's own doc
+        // comment) — this test's actual subject is totals/RowVersion computation, not the
+        // compatibility verdict itself, so the partial seed is intentional and cheap.
+        var first = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, CompatibilityCatalogContract.Categories.Storage);
+        var second = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, CompatibilityCatalogContract.Categories.Storage);
 
         var service = CreateService(context);
         var result = await service.CreateAsync(
@@ -137,7 +139,7 @@ public sealed class EfBuildListServiceTests
 
         Assert.Equal("我的組裝", result.Name);
         Assert.Equal(2, result.Items.Count);
-        Assert.Equal("compatible", result.Compatibility.Overall);
+        Assert.Equal("insufficientData", result.Compatibility.Overall);
         Assert.Equal(1000m * 1 + 1000m * 2, result.Totals.Merchandise);
         Assert.Equal(result.Totals.Merchandise + 300m, result.Totals.GrandTotal);
         Assert.Equal("TWD", result.Totals.Currency);
@@ -156,7 +158,7 @@ public sealed class EfBuildListServiceTests
     {
         await using var context = CompatibilityCheckServiceFixture.CreateContext();
         var memberUserId = await CompatibilityCheckServiceFixture.SeedMemberUserIdAsync(context);
-        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, BuildComponentCategoryCodes.StorageDevice);
+        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, CompatibilityCatalogContract.Categories.Storage);
         var service = CreateService(context);
 
         var created = await service.CreateAsync(
@@ -174,7 +176,7 @@ public sealed class EfBuildListServiceTests
         await using var context = CompatibilityCheckServiceFixture.CreateContext();
         var memberUserId = await CompatibilityCheckServiceFixture.SeedMemberUserIdAsync(context);
         var storage = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context, BuildComponentCategoryCodes.StorageDevice);
+            context, CompatibilityCatalogContract.Categories.Storage);
 
         var service = CreateService(context);
         var result = await service.CreateAsync(
@@ -209,7 +211,7 @@ public sealed class EfBuildListServiceTests
         var skus = new List<Guid>();
         for (var i = 0; i < 21; i++)
         {
-            var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, BuildComponentCategoryCodes.StorageDevice);
+            var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, CompatibilityCatalogContract.Categories.Storage);
             skus.Add(sku.PublicId);
         }
 
@@ -227,7 +229,7 @@ public sealed class EfBuildListServiceTests
     {
         await using var context = CompatibilityCheckServiceFixture.CreateContext();
         var memberUserId = await CompatibilityCheckServiceFixture.SeedMemberUserIdAsync(context);
-        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, BuildComponentCategoryCodes.StorageDevice);
+        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, CompatibilityCatalogContract.Categories.Storage);
 
         var service = CreateService(context);
         for (var i = 0; i < 50; i++)
@@ -252,7 +254,7 @@ public sealed class EfBuildListServiceTests
         await using var context = CompatibilityCheckServiceFixture.CreateContext();
         var ownerId = await CompatibilityCheckServiceFixture.SeedMemberUserIdAsync(context);
         var otherMemberId = await CompatibilityCheckServiceFixture.SeedMemberUserIdAsync(context);
-        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, BuildComponentCategoryCodes.StorageDevice);
+        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, CompatibilityCatalogContract.Categories.Storage);
 
         var service = CreateService(context);
         var created = await service.CreateAsync(
@@ -268,8 +270,8 @@ public sealed class EfBuildListServiceTests
     {
         await using var context = CompatibilityCheckServiceFixture.CreateContext();
         var memberUserId = await CompatibilityCheckServiceFixture.SeedMemberUserIdAsync(context);
-        var first = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, BuildComponentCategoryCodes.StorageDevice);
-        var second = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, BuildComponentCategoryCodes.StorageDevice);
+        var first = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, CompatibilityCatalogContract.Categories.Storage);
+        var second = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, CompatibilityCatalogContract.Categories.Storage);
 
         var service = CreateService(context);
         var created = await service.CreateAsync(
@@ -292,7 +294,7 @@ public sealed class EfBuildListServiceTests
     {
         await using var context = CompatibilityCheckServiceFixture.CreateContext();
         var memberUserId = await CompatibilityCheckServiceFixture.SeedMemberUserIdAsync(context);
-        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, BuildComponentCategoryCodes.StorageDevice);
+        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, CompatibilityCatalogContract.Categories.Storage);
 
         var service = CreateService(context);
         var created = await service.CreateAsync(
@@ -316,7 +318,7 @@ public sealed class EfBuildListServiceTests
     {
         await using var context = CompatibilityCheckServiceFixture.CreateContext();
         var memberUserId = await CompatibilityCheckServiceFixture.SeedMemberUserIdAsync(context);
-        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, BuildComponentCategoryCodes.StorageDevice);
+        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, CompatibilityCatalogContract.Categories.Storage);
 
         var service = CreateService(context);
         var created = await service.CreateAsync(
@@ -338,7 +340,7 @@ public sealed class EfBuildListServiceTests
         await using var context = CompatibilityCheckServiceFixture.CreateContext();
         var memberUserId = await CompatibilityCheckServiceFixture.SeedMemberUserIdAsync(context);
         var otherMemberId = await CompatibilityCheckServiceFixture.SeedMemberUserIdAsync(context);
-        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, BuildComponentCategoryCodes.StorageDevice);
+        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, CompatibilityCatalogContract.Categories.Storage);
 
         var service = CreateService(context);
         var first = await service.CreateAsync(
@@ -365,7 +367,7 @@ public sealed class EfBuildListServiceTests
     {
         await using var context = CompatibilityCheckServiceFixture.CreateContext();
         var memberUserId = await CompatibilityCheckServiceFixture.SeedMemberUserIdAsync(context);
-        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, BuildComponentCategoryCodes.StorageDevice);
+        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, CompatibilityCatalogContract.Categories.Storage);
         var service = CreateService(context);
 
         var first = await service.CreateAsync(
@@ -401,7 +403,7 @@ public sealed class EfBuildListServiceTests
     {
         await using var context = CompatibilityCheckServiceFixture.CreateContext();
         var memberUserId = await CompatibilityCheckServiceFixture.SeedMemberUserIdAsync(context);
-        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, BuildComponentCategoryCodes.StorageDevice);
+        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, CompatibilityCatalogContract.Categories.Storage);
 
         var service = CreateService(context);
         var created = await service.CreateAsync(
@@ -415,7 +417,10 @@ public sealed class EfBuildListServiceTests
         Assert.Equal("Shared List", shared.Name);
         Assert.Single(shared.Items);
         Assert.True(shared.CanCopy);
-        Assert.Equal("compatible", shared.Compatibility.Overall);
+        // A single Storage SKU can never reach "compatible" under the canonical evaluator (see
+        // CreateAsync_CreatesABuildList_WithComputedTotalsAndCompatibility's own comment) — this
+        // test's subject is the de-identified share view shape, not the compatibility verdict.
+        Assert.Equal("insufficientData", shared.Compatibility.Overall);
     }
 
     [Fact]
@@ -423,7 +428,7 @@ public sealed class EfBuildListServiceTests
     {
         await using var context = CompatibilityCheckServiceFixture.CreateContext();
         var memberUserId = await CompatibilityCheckServiceFixture.SeedMemberUserIdAsync(context);
-        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, BuildComponentCategoryCodes.StorageDevice);
+        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, CompatibilityCatalogContract.Categories.Storage);
 
         var service = CreateService(context);
         var created = await service.CreateAsync(
@@ -443,7 +448,7 @@ public sealed class EfBuildListServiceTests
     {
         await using var context = CompatibilityCheckServiceFixture.CreateContext();
         var memberUserId = await CompatibilityCheckServiceFixture.SeedMemberUserIdAsync(context);
-        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, BuildComponentCategoryCodes.StorageDevice);
+        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, CompatibilityCatalogContract.Categories.Storage);
 
         var service = CreateService(context);
         var created = await service.CreateAsync(
@@ -463,7 +468,7 @@ public sealed class EfBuildListServiceTests
     {
         await using var context = CompatibilityCheckServiceFixture.CreateContext();
         var memberUserId = await CompatibilityCheckServiceFixture.SeedMemberUserIdAsync(context);
-        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, BuildComponentCategoryCodes.StorageDevice);
+        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, CompatibilityCatalogContract.Categories.Storage);
 
         var service = CreateService(context);
         var created = await service.CreateAsync(
@@ -495,7 +500,7 @@ public sealed class EfBuildListServiceTests
     {
         await using var context = CompatibilityCheckServiceFixture.CreateContext();
         var memberUserId = await CompatibilityCheckServiceFixture.SeedMemberUserIdAsync(context);
-        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, BuildComponentCategoryCodes.StorageDevice);
+        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, CompatibilityCatalogContract.Categories.Storage);
 
         var service = CreateService(context);
         var created = await service.CreateAsync(
@@ -518,7 +523,7 @@ public sealed class EfBuildListServiceTests
     {
         await using var seedContext = CompatibilityCheckServiceFixture.CreateContext();
         var memberUserId = await CompatibilityCheckServiceFixture.SeedMemberUserIdAsync(seedContext);
-        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(seedContext, BuildComponentCategoryCodes.StorageDevice);
+        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(seedContext, CompatibilityCatalogContract.Categories.Storage);
         var seedService = CreateService(seedContext);
         var created = await seedService.CreateAsync(
             memberUserId, new CreateBuildListRequest("List", [new BuildItemInput(sku.PublicId, 1)]), CancellationToken.None);
@@ -544,7 +549,7 @@ public sealed class EfBuildListServiceTests
     {
         await using var context = CompatibilityCheckServiceFixture.CreateContext();
         var memberUserId = await CompatibilityCheckServiceFixture.SeedMemberUserIdAsync(context);
-        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, BuildComponentCategoryCodes.StorageDevice);
+        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, CompatibilityCatalogContract.Categories.Storage);
         await SeedInventoryAsync(context, sku.Id, 100);
 
         var service = CreateService(context);
@@ -586,7 +591,7 @@ public sealed class EfBuildListServiceTests
     }
 
     public static IEnumerable<object[]> AllRequiredCategoryCodes() =>
-        BuildComponentCategoryCodes.All.Select(code => new object[] { code });
+        CompatibilityCatalogContract.Categories.All.Select(code => new object[] { code });
 
     /// <summary>PR #34 review round 2 regression: a build with all 8 categories present must pass the completeness gate and reach the compatibility/inventory checks.</summary>
     [Fact]
@@ -655,11 +660,11 @@ public sealed class EfBuildListServiceTests
         var memberUserId = await CompatibilityCheckServiceFixture.SeedMemberUserIdAsync(context);
         var components = await SeedCompleteBuildComponentsAsync(context);
         var first = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context, BuildComponentCategoryCodes.StorageDevice,
-            new Dictionary<string, object?> { [CompatibilitySemanticKeys.StorageInterface] = "NVME", [CompatibilitySemanticKeys.StoragePowerWatts] = 5m });
+            context, CompatibilityCatalogContract.Categories.Storage,
+            new Dictionary<string, object?> { [CompatibilityCatalogContract.SemanticKeys.StorageInterface] = "M2_NVME", [CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 5m });
         var second = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context, BuildComponentCategoryCodes.StorageDevice,
-            new Dictionary<string, object?> { [CompatibilitySemanticKeys.StorageInterface] = "NVME", [CompatibilitySemanticKeys.StoragePowerWatts] = 5m });
+            context, CompatibilityCatalogContract.Categories.Storage,
+            new Dictionary<string, object?> { [CompatibilityCatalogContract.SemanticKeys.StorageInterface] = "M2_NVME", [CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 5m });
         await SeedInventoryAsync(context, first.Id, 100);
         await SeedInventoryAsync(context, second.Id, 100);
 
@@ -691,8 +696,8 @@ public sealed class EfBuildListServiceTests
         var memberUserId = await CompatibilityCheckServiceFixture.SeedMemberUserIdAsync(context);
         var components = await SeedCompleteBuildComponentsAsync(context);
         var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context, BuildComponentCategoryCodes.StorageDevice,
-            new Dictionary<string, object?> { [CompatibilitySemanticKeys.StorageInterface] = "NVME", [CompatibilitySemanticKeys.StoragePowerWatts] = 5m });
+            context, CompatibilityCatalogContract.Categories.Storage,
+            new Dictionary<string, object?> { [CompatibilityCatalogContract.SemanticKeys.StorageInterface] = "M2_NVME", [CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 5m });
         await SeedInventoryAsync(context, sku.Id, 5);
 
         var service = CreateService(context);
@@ -712,23 +717,23 @@ public sealed class EfBuildListServiceTests
         await using var context = CompatibilityCheckServiceFixture.CreateContext();
         var memberUserId = await CompatibilityCheckServiceFixture.SeedMemberUserIdAsync(context);
         var cpu = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context, BuildComponentCategoryCodes.Cpu,
-            new Dictionary<string, object?> { [CompatibilitySemanticKeys.CpuSocket] = "AM5" });
+            context, CompatibilityCatalogContract.Categories.Cpu,
+            new Dictionary<string, object?> { [CompatibilityCatalogContract.SemanticKeys.CpuSocket] = "AM5" });
         var board = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context, BuildComponentCategoryCodes.Motherboard,
-            new Dictionary<string, object?> { [CompatibilitySemanticKeys.BoardSocket] = "LGA1700" });
+            context, CompatibilityCatalogContract.Categories.Motherboard,
+            new Dictionary<string, object?> { [CompatibilityCatalogContract.SemanticKeys.CpuSocket] = "LGA1700" });
         await SeedInventoryAsync(context, cpu.Id, 100);
         await SeedInventoryAsync(context, board.Id, 100);
         // Blocked (socket mismatch) outranks InsufficientData in severity, so Memory/PSU/Case/
         // Gpu/Storage/Cooler only need to satisfy the completeness gate here (all 8 categories,
         // since the round-2 review requires all of them) — their own compatibility doesn't affect
         // this test's expected Overall.
-        var memory = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, BuildComponentCategoryCodes.Memory);
-        var psu = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, BuildComponentCategoryCodes.PowerSupply);
-        var pcCase = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, BuildComponentCategoryCodes.Case);
-        var gpu = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, BuildComponentCategoryCodes.GraphicsCard);
-        var storage = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, BuildComponentCategoryCodes.StorageDevice);
-        var cooler = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, BuildComponentCategoryCodes.Cooler);
+        var memory = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, CompatibilityCatalogContract.Categories.Memory);
+        var psu = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, CompatibilityCatalogContract.Categories.Psu);
+        var pcCase = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, CompatibilityCatalogContract.Categories.Case);
+        var gpu = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, CompatibilityCatalogContract.Categories.Gpu);
+        var storage = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, CompatibilityCatalogContract.Categories.Storage);
+        var cooler = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(context, CompatibilityCatalogContract.Categories.CpuCooler);
         await SeedInventoryAsync(context, memory.Id, 100);
         await SeedInventoryAsync(context, psu.Id, 100);
         await SeedInventoryAsync(context, pcCase.Id, 100);
@@ -804,7 +809,7 @@ public sealed class EfBuildListServiceTests
 
     /// <summary>
     /// PR #34 review round 2: add-to-cart now requires all 8 build-component categories to be
-    /// present (EfBuildListService.RequiredComponentCategoryCodes = BuildComponentCategoryCodes.All)
+    /// present (EfBuildListService.RequiredComponentCategoryCodes = CompatibilityCatalogContract.Categories.All)
     /// — seeds a full, cleanly "compatible" set of all 8 (100 units of stock each) so tests whose
     /// actual subject is something else (inventory, idempotency, assembly grouping) don't trip the
     /// completeness gate incidentally.
@@ -813,71 +818,86 @@ public sealed class EfBuildListServiceTests
         DoSelect.Infrastructure.Persistence.DoSelectDbContext context)
     {
         var cpu = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context, BuildComponentCategoryCodes.Cpu,
+            context, CompatibilityCatalogContract.Categories.Cpu,
             new Dictionary<string, object?>
             {
-                [CompatibilitySemanticKeys.CpuSocket] = "AM5",
-                [CompatibilitySemanticKeys.CpuGeneration] = "Ryzen7000",
-                [CompatibilitySemanticKeys.CpuPowerWatts] = 105m,
+                [CompatibilityCatalogContract.SemanticKeys.CpuSocket] = "AM5",
+                [CompatibilityCatalogContract.SemanticKeys.CpuGeneration] = "RYZEN_7000",
+                [CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 105m,
             });
         var motherboard = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context, BuildComponentCategoryCodes.Motherboard,
+            context, CompatibilityCatalogContract.Categories.Motherboard,
             new Dictionary<string, object?>
             {
-                [CompatibilitySemanticKeys.BoardSocket] = "AM5",
-                [CompatibilitySemanticKeys.BoardChipset] = "X670E",
-                [CompatibilitySemanticKeys.BoardMemoryGeneration] = "DDR5",
-                [CompatibilitySemanticKeys.BoardMemorySlotCount] = 4,
-                [CompatibilitySemanticKeys.BoardMaxMemoryCapacityGb] = 128m,
-                [CompatibilitySemanticKeys.BoardFormFactor] = "ATX",
-            },
-            storagePorts: new Dictionary<string, int> { ["NVME"] = 4 });
+                [CompatibilityCatalogContract.SemanticKeys.CpuSocket] = "AM5",
+                [CompatibilityCatalogContract.SemanticKeys.MotherboardChipset] = "X670E",
+                [CompatibilityCatalogContract.SemanticKeys.MemoryType] = "DDR5",
+                [CompatibilityCatalogContract.SemanticKeys.MemorySlotCount] = 4m,
+                [CompatibilityCatalogContract.SemanticKeys.MemoryMaxCapacityGb] = 128m,
+                [CompatibilityCatalogContract.SemanticKeys.MotherboardFormFactor] = "ATX",
+                [CompatibilityCatalogContract.SemanticKeys.M2SlotCount] = 4m,
+                [CompatibilityCatalogContract.SemanticKeys.SataPortCount] = 4m,
+                [CompatibilityCatalogContract.SemanticKeys.MotherboardCpuEps8PinRequiredCount] = 1m,
+                [CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 20m,
+            });
         var memory = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context, BuildComponentCategoryCodes.Memory,
+            context, CompatibilityCatalogContract.Categories.Memory,
             new Dictionary<string, object?>
             {
-                [CompatibilitySemanticKeys.MemoryGeneration] = "DDR5",
-                [CompatibilitySemanticKeys.MemoryCapacityGbPerModule] = 16m,
+                [CompatibilityCatalogContract.SemanticKeys.MemoryType] = "DDR5",
+                [CompatibilityCatalogContract.SemanticKeys.MemoryModuleCount] = 1m,
+                [CompatibilityCatalogContract.SemanticKeys.MemoryKitCapacityGb] = 16m,
+                [CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 5m,
             });
         var psu = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context, BuildComponentCategoryCodes.PowerSupply,
-            new Dictionary<string, object?> { [CompatibilitySemanticKeys.PsuWattage] = 650m });
-        var pcCase = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context, BuildComponentCategoryCodes.Case,
+            context, CompatibilityCatalogContract.Categories.Psu,
             new Dictionary<string, object?>
             {
-                [CompatibilitySemanticKeys.CaseMaxGpuLengthMm] = 320m,
-                [CompatibilitySemanticKeys.CaseMaxCoolerHeightMm] = 170m,
-            },
-            attributes: new Dictionary<string, string[]>
+                [CompatibilityCatalogContract.SemanticKeys.PsuRatedWatts] = 650m,
+                [CompatibilityCatalogContract.SemanticKeys.PsuFormFactor] = "ATX",
+                [CompatibilityCatalogContract.SemanticKeys.PsuPcie62PinCount] = 2m,
+                [CompatibilityCatalogContract.SemanticKeys.Psu12VhpwrCount] = 1m,
+                [CompatibilityCatalogContract.SemanticKeys.PsuCpuEps8PinCount] = 2m,
+            });
+        var pcCase = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
+            context, CompatibilityCatalogContract.Categories.Case,
+            new Dictionary<string, object?>
             {
-                [CompatibilityAttributeKeys.CaseSupportedFormFactors] = ["ATX"],
+                [CompatibilityCatalogContract.SemanticKeys.CaseGpuMaxLengthMm] = 320m,
+                [CompatibilityCatalogContract.SemanticKeys.CaseCoolerMaxHeightMm] = 170m,
+            },
+            multiValues: new Dictionary<string, string[]>
+            {
+                [CompatibilityCatalogContract.SemanticKeys.CaseSupportedMotherboardFormFactor] = ["ATX"],
+                [CompatibilityCatalogContract.SemanticKeys.CaseSupportedPsuFormFactor] = ["ATX"],
             });
         var gpu = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context, BuildComponentCategoryCodes.GraphicsCard,
+            context, CompatibilityCatalogContract.Categories.Gpu,
             new Dictionary<string, object?>
             {
-                [CompatibilitySemanticKeys.GpuLengthMm] = 280m,
-                [CompatibilitySemanticKeys.GpuRecommendedPsuWatts] = 450m,
-                [CompatibilitySemanticKeys.GpuPowerWatts] = 200m,
+                [CompatibilityCatalogContract.SemanticKeys.GpuLengthMm] = 280m,
+                [CompatibilityCatalogContract.SemanticKeys.GpuRecommendedPsuWatts] = 450m,
+                [CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 200m,
+                [CompatibilityCatalogContract.SemanticKeys.GpuPcie62PinRequiredCount] = 1m,
+                [CompatibilityCatalogContract.SemanticKeys.Gpu12VhpwrRequiredCount] = 0m,
             });
         var storage = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context, BuildComponentCategoryCodes.StorageDevice,
+            context, CompatibilityCatalogContract.Categories.Storage,
             new Dictionary<string, object?>
             {
-                [CompatibilitySemanticKeys.StorageInterface] = "NVME",
-                [CompatibilitySemanticKeys.StoragePowerWatts] = 5m,
+                [CompatibilityCatalogContract.SemanticKeys.StorageInterface] = "M2_NVME",
+                [CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 5m,
             });
         var cooler = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
-            context, BuildComponentCategoryCodes.Cooler,
+            context, CompatibilityCatalogContract.Categories.CpuCooler,
             new Dictionary<string, object?>
             {
-                [CompatibilitySemanticKeys.CoolerHeightMm] = 150m,
-                [CompatibilitySemanticKeys.CoolerPowerWatts] = 10m,
+                [CompatibilityCatalogContract.SemanticKeys.CoolerHeightMm] = 150m,
+                [CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 10m,
             },
-            attributes: new Dictionary<string, string[]>
+            multiValues: new Dictionary<string, string[]>
             {
-                [CompatibilityAttributeKeys.CoolerSupportedSockets] = ["AM5"],
+                [CompatibilityCatalogContract.SemanticKeys.CpuSocket] = ["AM5"],
             });
 
         foreach (var sku in new[] { cpu, motherboard, memory, psu, pcCase, gpu, storage, cooler })
@@ -905,14 +925,14 @@ public sealed class EfBuildListServiceTests
         (Sku Cpu, Sku Motherboard, Sku Memory, Sku Psu, Sku Case, Sku Gpu, Sku Storage, Sku Cooler) components) =>
         new()
         {
-            [BuildComponentCategoryCodes.Cpu] = components.Cpu,
-            [BuildComponentCategoryCodes.Motherboard] = components.Motherboard,
-            [BuildComponentCategoryCodes.Memory] = components.Memory,
-            [BuildComponentCategoryCodes.PowerSupply] = components.Psu,
-            [BuildComponentCategoryCodes.Case] = components.Case,
-            [BuildComponentCategoryCodes.GraphicsCard] = components.Gpu,
-            [BuildComponentCategoryCodes.StorageDevice] = components.Storage,
-            [BuildComponentCategoryCodes.Cooler] = components.Cooler,
+            [CompatibilityCatalogContract.Categories.Cpu] = components.Cpu,
+            [CompatibilityCatalogContract.Categories.Motherboard] = components.Motherboard,
+            [CompatibilityCatalogContract.Categories.Memory] = components.Memory,
+            [CompatibilityCatalogContract.Categories.Psu] = components.Psu,
+            [CompatibilityCatalogContract.Categories.Case] = components.Case,
+            [CompatibilityCatalogContract.Categories.Gpu] = components.Gpu,
+            [CompatibilityCatalogContract.Categories.Storage] = components.Storage,
+            [CompatibilityCatalogContract.Categories.CpuCooler] = components.Cooler,
         };
 
     private const string TestActorScopePepper = "build-list-service-tests-actor-scope-pepper-0";
@@ -923,7 +943,7 @@ public sealed class EfBuildListServiceTests
             context,
             Options.Create(new IdempotencyOptions { ActorScopePepper = TestActorScopePepper }),
             TimeProvider.System);
-        var factsReader = new EfCompatibilityFactsReader(context);
+        var factsReader = new EfCompatibilityCatalogReader(context);
         return new EfBuildListService(
             context,
             new EfCompatibilityCheckService(context, factsReader),

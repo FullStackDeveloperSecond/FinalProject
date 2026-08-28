@@ -144,7 +144,7 @@ public sealed class AdminCompatibilityRulesApiFixture : IAsyncLifetime
 
     /// <summary>Creates one published Sku under the seeded StorageDevice category.</summary>
     public Task<Sku> SeedSkuAsync(decimal listPrice = 1000m) =>
-        SeedSkuInCategoryAsync(BuildComponentCategoryCodes.StorageDevice, listPrice);
+        SeedSkuInCategoryAsync(CompatibilityCatalogContract.Categories.Storage, listPrice);
 
     /// <summary>Creates one published Sku under the given build-component category (must already be seeded by <see cref="SeedReferenceCategoryAsync"/>).</summary>
     public async Task<Sku> SeedSkuInCategoryAsync(string categoryCode, decimal listPrice = 1000m)
@@ -158,6 +158,7 @@ public sealed class AdminCompatibilityRulesApiFixture : IAsyncLifetime
         await context.SaveChangesAsync();
 
         var product = new Product(Guid.CreateVersion7(), UniqueCode("PROD"), brand.Id, category.Id, "測試商品", now);
+        product.ChangeStatus(ProductStatus.Published, now);
         context.Products.Add(product);
         await context.SaveChangesAsync();
 
@@ -197,7 +198,7 @@ public sealed class AdminCompatibilityRulesApiFixture : IAsyncLifetime
     {
         await using var context = CreateContext();
         var now = DateTime.UtcNow;
-        foreach (var categoryCode in new[] { BuildComponentCategoryCodes.StorageDevice, BuildComponentCategoryCodes.Motherboard })
+        foreach (var categoryCode in new[] { CompatibilityCatalogContract.Categories.Storage, CompatibilityCatalogContract.Categories.Motherboard })
         {
             context.Categories.Add(new Category(
                 Guid.CreateVersion7(), categoryCode, $"slot-{categoryCode.ToLowerInvariant()}", categoryCode, null, now));
