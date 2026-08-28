@@ -14,7 +14,7 @@ namespace DoSelect.Api.Controllers;
 /// additionally restricted to the acting admin's assignment scope before SQL materialization.
 /// </summary>
 [ApiController]
-[Authorize(Policy = DoSelectPolicies.SupportTicketHandle)]
+[Authorize(Policy = DoSelectPolicies.Admin)]
 [Route("api/v1/admin/case-workbench")]
 public sealed class CaseWorkbenchController : ControllerBase
 {
@@ -33,13 +33,24 @@ public sealed class CaseWorkbenchController : ControllerBase
         [FromQuery] CaseWorkbenchQuery query,
         CancellationToken cancellationToken)
     {
+        var canHandle =
+            User.IsInRole(DoSelectRoles.CustomerService) ||
+            User.IsInRole(DoSelectRoles.CustomerServiceSupervisor);
+        var canSupervise =
+            User.IsInRole(DoSelectRoles.CustomerServiceSupervisor) ||
+            User.IsInRole(DoSelectRoles.SuperAdmin);
+        if (!canHandle && !canSupervise)
+        {
+            return Forbid();
+        }
+
         var adminUserId = User.FindFirstValue(ClaimTypes.NameIdentifier)
             ?? throw new InvalidOperationException("The authenticated request is missing a NameIdentifier claim.");
         var result = await _service.GetPageAsync(
             query,
             AuthorizedCaseTypes,
             adminUserId,
-            User.IsInRole(DoSelectRoles.CustomerServiceSupervisor),
+            canSupervise,
             cancellationToken);
         return Ok(result);
     }

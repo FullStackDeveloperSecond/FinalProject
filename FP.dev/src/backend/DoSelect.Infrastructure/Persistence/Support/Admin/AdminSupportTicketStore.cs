@@ -368,6 +368,7 @@ public sealed class AdminSupportTicketStore : IAdminSupportTicketStore
                 ticket.ChangePriority(command.Priority, command.OccurredAtUtc);
                 return (
                     HistoryStatus: (SupportStatusHistory?)null,
+                    SlaEvent: (SupportSlaEvent?)null,
                     AuditAction: AuditActions.SupportTicketChangePriority,
                     AuditReason: "change_priority",
                     AuditChanges: (IReadOnlyCollection<AuditFieldChange>)
@@ -389,13 +390,33 @@ public sealed class AdminSupportTicketStore : IAdminSupportTicketStore
                 // The generic change-status action deliberately excludes both so a caller cannot
                 // sidestep those rules through the general-purpose route.
                 if (command.TargetStatus == SupportTicketStatus.Cancelled ||
+                    command.TargetStatus == SupportTicketStatus.Assigned ||
                     (before == SupportTicketStatus.Resolved && command.TargetStatus == SupportTicketStatus.InProgress))
                 {
                     throw new InvalidOperationException(
                         "Use the dedicated cancel/reopen action for this transition.");
                 }
 
-                ticket.Transition(command.TargetStatus, command.OccurredAtUtc);
+                SupportSlaEvent? slaEvent = null;
+                if (before == SupportTicketStatus.WaitingForCustomer &&
+                    command.TargetStatus == SupportTicketStatus.InProgress)
+                {
+                    var resumedSeconds = ticket.ResumeFromCustomerWait(command.OccurredAtUtc);
+                    slaEvent = new SupportSlaEvent(
+                        ticket.Id,
+                        SupportSlaEventType.Resumed,
+                        SupportSlaTargetType.Resolution,
+                        DateTime.SpecifyKind(
+                            ticket.ResolutionDueAtUtc.AddSeconds(ticket.PausedSeconds),
+                            DateTimeKind.Utc),
+                        resumedSeconds,
+                        command.OccurredAtUtc,
+                        metadataJson: null);
+                }
+                else
+                {
+                    ticket.Transition(command.TargetStatus, command.OccurredAtUtc);
+                }
                 var history = new SupportStatusHistory(
                     ticket.Id,
                     before,
@@ -406,6 +427,7 @@ public sealed class AdminSupportTicketStore : IAdminSupportTicketStore
                     command.OccurredAtUtc);
                 return (
                     HistoryStatus: history,
+                    SlaEvent: slaEvent,
                     AuditAction: AuditActions.SupportTicketChangeStatus,
                     AuditReason: "change_status",
                     AuditChanges: (IReadOnlyCollection<AuditFieldChange>)
@@ -439,6 +461,7 @@ public sealed class AdminSupportTicketStore : IAdminSupportTicketStore
                     command.OccurredAtUtc);
                 return (
                     HistoryStatus: history,
+                    SlaEvent: (SupportSlaEvent?)null,
                     AuditAction: AuditActions.SupportTicketCancel,
                     AuditReason: "cancel",
                     AuditChanges: (IReadOnlyCollection<AuditFieldChange>)
@@ -470,6 +493,7 @@ public sealed class AdminSupportTicketStore : IAdminSupportTicketStore
                     command.OccurredAtUtc);
                 return (
                     HistoryStatus: history,
+                    SlaEvent: (SupportSlaEvent?)null,
                     AuditAction: AuditActions.SupportTicketReopen,
                     AuditReason: "reopen",
                     AuditChanges: (IReadOnlyCollection<AuditFieldChange>)
@@ -487,7 +511,12 @@ public sealed class AdminSupportTicketStore : IAdminSupportTicketStore
     /// </summary>
     private async Task<SupportTicketMutationResult> MutateAsync(
         SupportTicketActionCommand command,
-        Func<SupportTicket, (SupportStatusHistory? HistoryStatus, string AuditAction, string AuditReason, IReadOnlyCollection<AuditFieldChange> AuditChanges)> mutate,
+        Func<SupportTicket, (
+            SupportStatusHistory? HistoryStatus,
+            SupportSlaEvent? SlaEvent,
+            string AuditAction,
+            string AuditReason,
+            IReadOnlyCollection<AuditFieldChange> AuditChanges)> mutate,
         CancellationToken cancellationToken)
     {
         var actor = await ResolveActiveAdminAsync(command.ActorUserId, cancellationToken);
@@ -505,7 +534,12 @@ public sealed class AdminSupportTicketStore : IAdminSupportTicketStore
             return SupportTicketMutationResult.NotFound;
         }
 
-        (SupportStatusHistory? historyStatus, string auditAction, string auditReason, IReadOnlyCollection<AuditFieldChange> auditChanges) result;
+        (
+            SupportStatusHistory? historyStatus,
+            SupportSlaEvent? slaEvent,
+            string auditAction,
+            string auditReason,
+            IReadOnlyCollection<AuditFieldChange> auditChanges) result;
         try
         {
             result = mutate(ticket);
@@ -519,6 +553,10 @@ public sealed class AdminSupportTicketStore : IAdminSupportTicketStore
         if (result.historyStatus is not null)
         {
             await _dbContext.SupportStatusHistories.AddAsync(result.historyStatus, cancellationToken);
+        }
+        if (result.slaEvent is not null)
+        {
+            await _dbContext.SupportSlaEvents.AddAsync(result.slaEvent, cancellationToken);
         }
 
         _auditWriter.Add(AuditWriteRequest.Create(

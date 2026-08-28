@@ -279,6 +279,7 @@ public sealed class AdminSupportTicketSuperviseStoreTests : IClassFixture<WebApp
 
     [Theory]
     [InlineData(SupportTicketStatus.Cancelled)]
+    [InlineData(SupportTicketStatus.Assigned)]
     public async Task ChangeStatusAsync_RejectsDedicatedActionEdges(SupportTicketStatus targetStatus)
     {
         var ticket = await SeedOpenTicketAsync();
@@ -287,6 +288,54 @@ public sealed class AdminSupportTicketSuperviseStoreTests : IClassFixture<WebApp
         var result = await ChangeStatusInNewScopeAsync(ticket.PublicId, actor.UserId, true, targetStatus, ticket.RowVersion);
 
         Assert.Equal(SupportTicketMutationOutcome.StateConflict, result.Outcome);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+        var row = await db.SupportTickets.AsNoTracking().SingleAsync(t => t.PublicId == ticket.PublicId);
+        Assert.Equal(SupportTicketStatus.Open, row.Status);
+        Assert.Null(row.AssigneeAdminUserId);
+        Assert.False(await db.SupportStatusHistories.AnyAsync(h => h.SupportTicketId == row.Id));
+        Assert.False(await db.AuditLogs.AnyAsync(
+            a => a.Action == AuditActions.SupportTicketChangeStatus &&
+                a.ResourcePublicId == ticket.PublicId));
+    }
+
+    [Fact]
+    public async Task ChangeStatusAsync_FromWaitingForCustomer_ResumesSlaAndCommitsAllEffectsAtomically()
+    {
+        var (ticket, assignee, waitingStartedAtUtc) = await SeedWaitingForCustomerTicketAsync();
+        var resumedAtUtc = waitingStartedAtUtc.AddMinutes(90);
+
+        var result = await ChangeStatusInNewScopeAsync(
+            ticket.PublicId,
+            assignee.UserId,
+            canSupervise: false,
+            SupportTicketStatus.InProgress,
+            ticket.RowVersion,
+            resumedAtUtc);
+
+        Assert.Equal(SupportTicketMutationOutcome.Success, result.Outcome);
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+        var row = await db.SupportTickets.AsNoTracking().SingleAsync(t => t.PublicId == ticket.PublicId);
+        Assert.Equal(SupportTicketStatus.InProgress, row.Status);
+        Assert.Null(row.WaitingForCustomerStartedAtUtc);
+        Assert.Equal(90 * 60, row.PausedSeconds);
+
+        var history = await db.SupportStatusHistories.AsNoTracking()
+            .SingleAsync(h => h.SupportTicketId == row.Id);
+        Assert.Equal(SupportTicketStatus.WaitingForCustomer, history.FromStatus);
+        Assert.Equal(SupportTicketStatus.InProgress, history.ToStatus);
+        Assert.Equal(resumedAtUtc, history.OccurredAtUtc);
+
+        var slaEvent = await db.SupportSlaEvents.AsNoTracking()
+            .SingleAsync(e => e.SupportTicketId == row.Id && e.EventType == SupportSlaEventType.Resumed);
+        Assert.Equal(90 * 60, slaEvent.DurationSeconds);
+        Assert.Equal(resumedAtUtc, slaEvent.OccurredAtUtc);
+        Assert.Equal(row.ResolutionDueAtUtc.AddSeconds(row.PausedSeconds), slaEvent.DueAtUtc);
+        Assert.True(await db.AuditLogs.AnyAsync(
+            a => a.Action == AuditActions.SupportTicketChangeStatus &&
+                a.ResourcePublicId == ticket.PublicId));
     }
 
     [Fact]
@@ -606,13 +655,20 @@ public sealed class AdminSupportTicketSuperviseStoreTests : IClassFixture<WebApp
             CancellationToken.None);
     }
 
-    private async Task<SupportTicketMutationResult> ChangeStatusInNewScopeAsync(Guid ticketId, string actorUserId, bool canSupervise, SupportTicketStatus targetStatus, byte[] rowVersion)
+    private async Task<SupportTicketMutationResult> ChangeStatusInNewScopeAsync(
+        Guid ticketId,
+        string actorUserId,
+        bool canSupervise,
+        SupportTicketStatus targetStatus,
+        byte[] rowVersion,
+        DateTime? occurredAtUtc = null)
     {
         using var scope = _factory.Services.CreateScope();
         var store = scope.ServiceProvider.GetRequiredService<IAdminSupportTicketStore>();
         return await store.ChangeStatusAsync(
             new SupportTicketChangeStatusCommand(
-                ticketId, actorUserId, ["CustomerService"], canSupervise, rowVersion, DateTime.UtcNow,
+                ticketId, actorUserId, ["CustomerService"], canSupervise, rowVersion,
+                occurredAtUtc ?? DateTime.UtcNow,
                 "corr", "0123456789abcdef0123456789abcdef", null, targetStatus, Reason),
             CancellationToken.None);
     }
@@ -682,6 +738,23 @@ public sealed class AdminSupportTicketSuperviseStoreTests : IClassFixture<WebApp
         }
         await db.SaveChangesAsync();
         return (new TicketFixture(row.PublicId, row.RowVersion.ToArray()), admin);
+    }
+
+    private async Task<(TicketFixture Ticket, AdminFixture Assignee, DateTime WaitingStartedAtUtc)>
+        SeedWaitingForCustomerTicketAsync()
+    {
+        var (ticket, assignee) = await SeedAssignedTicketAsync();
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+        var row = await db.SupportTickets.SingleAsync(t => t.PublicId == ticket.PublicId);
+        var waitingStartedAtUtc = TruncateToMilliseconds(DateTime.UtcNow.AddHours(-2));
+        row.Transition(SupportTicketStatus.InProgress, waitingStartedAtUtc.AddSeconds(-1));
+        row.Transition(SupportTicketStatus.WaitingForCustomer, waitingStartedAtUtc);
+        await db.SaveChangesAsync();
+        return (
+            new TicketFixture(row.PublicId, row.RowVersion.ToArray()),
+            assignee,
+            waitingStartedAtUtc);
     }
 
     /// <summary>

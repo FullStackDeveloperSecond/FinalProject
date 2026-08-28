@@ -99,12 +99,14 @@ describe('admin support queries', () => {
     wrapper.unmount()
   })
 
-  it('refreshes detail and SLA data when another administrator wins the claim race', async () => {
+  it.each(['support_ticket_assignment_conflict', 'concurrency_conflict'])(
+    'refreshes all projections when claim returns 409 %s',
+    async (conflictCode) => {
     const fetchStub = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(Response.json({ requestToken: 'admin-csrf-token' }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
         status: 409,
-        code: 'support_ticket_assignment_conflict',
+        code: conflictCode,
         detail: 'The ticket has already been assigned.',
       }), {
         status: 409,
@@ -125,7 +127,7 @@ describe('admin support queries', () => {
 
     await expect(claim({ rowVersion: 'AAAAAAAAAAE=' })).rejects.toMatchObject({
       status: 409,
-      code: 'support_ticket_assignment_conflict',
+      code: conflictCode,
     })
     expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: ['admin-support-ticket-detail', ticketId],
@@ -133,9 +135,13 @@ describe('admin support queries', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: ['admin-support-sla-queue'],
     })
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['admin-case-workbench'],
+    })
 
-    wrapper.unmount()
-  })
+      wrapper.unmount()
+    },
+  )
 
   it('DES-23: assigns to a target admin and refreshes detail, SLA and workbench data on success', async () => {
     const assignedTicket = {
@@ -183,12 +189,14 @@ describe('admin support queries', () => {
     wrapper.unmount()
   })
 
-  it('DES-23: invalidates then would refetch before surfacing an assign conflict, without leaking assignee data', async () => {
+  it.each(['support_ticket_assignment_conflict', 'concurrency_conflict'])(
+    'DES-23: refreshes all projections before surfacing assign 409 %s',
+    async (conflictCode) => {
     const fetchStub = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(Response.json({ requestToken: 'admin-csrf-token' }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
         status: 409,
-        code: 'support_ticket_assignment_conflict',
+        code: conflictCode,
         detail: 'The ticket is no longer eligible to assign.',
       }), {
         status: 409,
@@ -217,7 +225,7 @@ describe('admin support queries', () => {
       rowVersion: 'AAAAAAAAAAE=',
     })).rejects.toMatchObject({
       status: 409,
-      code: 'support_ticket_assignment_conflict',
+      code: conflictCode,
     })
     // Invalidate-then-refetch happens entirely inside onError, before mutateAsync's rejection
     // resolves — so by the time a caller reacts to the rejection, the cache is already stale
@@ -226,8 +234,52 @@ describe('admin support queries', () => {
       expect.arrayContaining(['admin-support-ticket-detail', 'admin-support-sla-queue', 'admin-case-workbench']),
     )
 
-    wrapper.unmount()
-  })
+      wrapper.unmount()
+    },
+  )
+
+  it.each(['support_ticket_assignment_conflict', 'concurrency_conflict'])(
+    'DES-23: refreshes all projections before surfacing transfer 409 %s',
+    async (conflictCode) => {
+      const fetchStub = vi.fn<typeof fetch>()
+        .mockResolvedValueOnce(Response.json({ requestToken: 'admin-csrf-token' }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({
+          status: 409,
+          code: conflictCode,
+          detail: 'The ticket changed before transfer.',
+        }), {
+          status: 409,
+          headers: { 'Content-Type': 'application/problem+json' },
+        }))
+      vi.stubGlobal('fetch', fetchStub)
+      const { useTransferSupportTicketMutation } = await import('./queries')
+      const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+      const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+      let transfer!: (
+        request: { targetAdminPublicId: string, reason: string, rowVersion: string }
+      ) => Promise<unknown>
+      runHarness = () => {
+        const mutation = useTransferSupportTicketMutation(ticketId)
+        transfer = request => mutation.mutateAsync(request)
+      }
+      const wrapper = mount(Harness, {
+        global: { plugins: [[VueQueryPlugin, { queryClient }]] },
+      })
+
+      await expect(transfer({
+        targetAdminPublicId: '018f2e6a-0000-7000-8000-000000000099',
+        reason: 'supervisor transfer',
+        rowVersion: 'AAAAAAAAAAE=',
+      })).rejects.toMatchObject({ status: 409, code: conflictCode })
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ['admin-support-ticket-detail', ticketId],
+      })
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['admin-support-sla-queue'] })
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['admin-case-workbench'] })
+
+      wrapper.unmount()
+    },
+  )
 
   it('DES-23: posts an internal note with RowVersion and refreshes detail, SLA and workbench data on success', async () => {
     const updatedTicket = { publicId: ticketId, rowVersion: 'AAAAAAAAAAI=' }

@@ -37,13 +37,19 @@ public sealed class AdminSupportTicketsController : ControllerBase
         _slaQueueService = slaQueueService;
     }
 
-    [Authorize(Policy = DoSelectPolicies.SupportTicketHandle)]
+    [Authorize(Policy = DoSelectPolicies.Admin)]
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<AdminSupportTicketDetailDto>> GetDetail(
         Guid id,
         CancellationToken cancellationToken)
     {
-        var result = await _service.GetDetailAsync(GetAdminUserId(), CanSupervise(), id, cancellationToken);
+        if (!CanHandle() && !CanSupervise())
+        {
+            return Forbid();
+        }
+
+        var result = await _service.GetDetailAsync(
+            GetAdminUserId(), CanHandle(), CanSupervise(), id, cancellationToken);
         return Ok(result);
     }
 
@@ -146,12 +152,17 @@ public sealed class AdminSupportTicketsController : ControllerBase
         return Ok(result);
     }
 
-    [Authorize(Policy = DoSelectPolicies.SupportTicketHandle)]
+    [Authorize(Policy = DoSelectPolicies.Admin)]
     [HttpGet("sla")]
     public async Task<ActionResult<CursorPage<SupportSlaItemDto>>> GetSlaQueue(
         [FromQuery] SupportSlaQueueQuery query,
         CancellationToken cancellationToken)
     {
+        if (!CanHandle() && !CanSupervise())
+        {
+            return Forbid();
+        }
+
         var result = await _slaQueueService.GetPageAsync(
             query,
             GetAdminUserId(),

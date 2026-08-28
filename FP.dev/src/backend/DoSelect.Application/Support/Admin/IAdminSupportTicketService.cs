@@ -28,6 +28,7 @@ public interface IAdminSupportTicketService
     /// </summary>
     Task<AdminSupportTicketDetailDto> GetDetailAsync(
         string adminUserId,
+        bool canHandle,
         bool canSupervise,
         Guid ticketPublicId,
         CancellationToken cancellationToken);

@@ -42,7 +42,7 @@ public sealed record TransferSupportTicketRequest
 public sealed record ChangeSupportTicketPriorityRequest
 {
     [Required]
-    public CasePriority Priority { get; init; }
+    public required CasePriority Priority { get; init; }
 
     [NotWhiteSpace]
     [MaxLength(500)]

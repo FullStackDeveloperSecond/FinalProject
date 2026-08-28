@@ -794,299 +794,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/guest-orders/access-requests": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["GuestOrderAccessRequestDto"];
-                    "text/json": components["schemas"]["GuestOrderAccessRequestDto"];
-                    "application/*+json": components["schemas"]["GuestOrderAccessRequestDto"];
-                };
-            };
-            responses: {
-                /** @description Accepted */
-                202: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "text/plain": components["schemas"]["GuestOrderAccessRequestAcceptedDto"];
-                        "application/json": components["schemas"]["GuestOrderAccessRequestAcceptedDto"];
-                        "text/json": components["schemas"]["GuestOrderAccessRequestAcceptedDto"];
-                    };
-                };
-                /** @description Bad Request */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "text/plain": components["schemas"]["ProblemDetails"];
-                        "application/json": components["schemas"]["ProblemDetails"];
-                        "text/json": components["schemas"]["ProblemDetails"];
-                    };
-                };
-                /** @description Too Many Requests */
-                429: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "text/plain": components["schemas"]["ProblemDetails"];
-                        "application/json": components["schemas"]["ProblemDetails"];
-                        "text/json": components["schemas"]["ProblemDetails"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/guest-orders/access-requests/{requestPublicId}/actions/resend": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    requestPublicId: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Accepted */
-                202: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "text/plain": components["schemas"]["GuestOrderAccessRequestAcceptedDto"];
-                        "application/json": components["schemas"]["GuestOrderAccessRequestAcceptedDto"];
-                        "text/json": components["schemas"]["GuestOrderAccessRequestAcceptedDto"];
-                    };
-                };
-                /** @description Too Many Requests */
-                429: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "text/plain": components["schemas"]["ProblemDetails"];
-                        "application/json": components["schemas"]["ProblemDetails"];
-                        "text/json": components["schemas"]["ProblemDetails"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/guest-orders/access-verifications": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["GuestOrderAccessVerificationDto"];
-                    "text/json": components["schemas"]["GuestOrderAccessVerificationDto"];
-                    "application/*+json": components["schemas"]["GuestOrderAccessVerificationDto"];
-                };
-            };
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "text/plain": components["schemas"]["GuestOrderAccessVerifiedDto"];
-                        "application/json": components["schemas"]["GuestOrderAccessVerifiedDto"];
-                        "text/json": components["schemas"]["GuestOrderAccessVerifiedDto"];
-                    };
-                };
-                /** @description Bad Request */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "text/plain": components["schemas"]["ProblemDetails"];
-                        "application/json": components["schemas"]["ProblemDetails"];
-                        "text/json": components["schemas"]["ProblemDetails"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/orders": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: {
-            parameters: {
-                query?: {
-                    pageNumber?: number | string;
-                    pageSize?: number | string;
-                };
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "text/plain": components["schemas"]["PageResultOfOrderSummaryDto"];
-                        "application/json": components["schemas"]["PageResultOfOrderSummaryDto"];
-                        "text/json": components["schemas"]["PageResultOfOrderSummaryDto"];
-                    };
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/orders/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    id: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "text/plain": components["schemas"]["OrderDto"];
-                        "application/json": components["schemas"]["OrderDto"];
-                        "text/json": components["schemas"]["OrderDto"];
-                    };
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/orders/{id}/actions/cancel": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    id: string;
-                };
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["CancelOrderRequest"];
-                    "text/json": components["schemas"]["CancelOrderRequest"];
-                    "application/*+json": components["schemas"]["CancelOrderRequest"];
-                };
-            };
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "text/plain": components["schemas"]["OrderDto"];
-                        "application/json": components["schemas"]["OrderDto"];
-                        "text/json": components["schemas"]["OrderDto"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/admin/invoices/{id}/allowances": {
         parameters: {
             query?: never;
@@ -1263,6 +970,321 @@ export interface paths {
                         "text/plain": components["schemas"]["AdminSupportTicketDto"];
                         "application/json": components["schemas"]["AdminSupportTicketDto"];
                         "text/json": components["schemas"]["AdminSupportTicketDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/support-tickets/{id}/actions/assign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AssignSupportTicketRequest"];
+                    "text/json": components["schemas"]["AssignSupportTicketRequest"];
+                    "application/*+json": components["schemas"]["AssignSupportTicketRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminSupportTicketDto"];
+                        "application/json": components["schemas"]["AdminSupportTicketDto"];
+                        "text/json": components["schemas"]["AdminSupportTicketDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/support-tickets/{id}/actions/transfer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["TransferSupportTicketRequest"];
+                    "text/json": components["schemas"]["TransferSupportTicketRequest"];
+                    "application/*+json": components["schemas"]["TransferSupportTicketRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminSupportTicketDto"];
+                        "application/json": components["schemas"]["AdminSupportTicketDto"];
+                        "text/json": components["schemas"]["AdminSupportTicketDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/support-tickets/{id}/actions/change-priority": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ChangeSupportTicketPriorityRequest"];
+                    "text/json": components["schemas"]["ChangeSupportTicketPriorityRequest"];
+                    "application/*+json": components["schemas"]["ChangeSupportTicketPriorityRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminSupportTicketDetailDto"];
+                        "application/json": components["schemas"]["AdminSupportTicketDetailDto"];
+                        "text/json": components["schemas"]["AdminSupportTicketDetailDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/support-tickets/{id}/actions/change-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ChangeSupportTicketStatusRequest"];
+                    "text/json": components["schemas"]["ChangeSupportTicketStatusRequest"];
+                    "application/*+json": components["schemas"]["ChangeSupportTicketStatusRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminSupportTicketDetailDto"];
+                        "application/json": components["schemas"]["AdminSupportTicketDetailDto"];
+                        "text/json": components["schemas"]["AdminSupportTicketDetailDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/support-tickets/{id}/actions/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CancelSupportTicketByAdminRequest"];
+                    "text/json": components["schemas"]["CancelSupportTicketByAdminRequest"];
+                    "application/*+json": components["schemas"]["CancelSupportTicketByAdminRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminSupportTicketDetailDto"];
+                        "application/json": components["schemas"]["AdminSupportTicketDetailDto"];
+                        "text/json": components["schemas"]["AdminSupportTicketDetailDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/support-tickets/{id}/actions/reopen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ReopenSupportTicketRequest"];
+                    "text/json": components["schemas"]["ReopenSupportTicketRequest"];
+                    "application/*+json": components["schemas"]["ReopenSupportTicketRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminSupportTicketDetailDto"];
+                        "application/json": components["schemas"]["AdminSupportTicketDetailDto"];
+                        "text/json": components["schemas"]["AdminSupportTicketDetailDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/support-tickets/{id}/internal-notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateInternalNoteRequest"];
+                    "text/json": components["schemas"]["CreateInternalNoteRequest"];
+                    "application/*+json": components["schemas"]["CreateInternalNoteRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminSupportTicketDetailDto"];
+                        "application/json": components["schemas"]["AdminSupportTicketDetailDto"];
+                        "text/json": components["schemas"]["AdminSupportTicketDetailDto"];
                     };
                 };
             };
@@ -3764,16 +3786,16 @@ export interface components {
             items: components["schemas"]["ApproveReturnItemLine"][];
             reasonCode: string;
             note?: null | string;
-            assemblyFeeDisposition?: null | components["schemas"]["AssemblyFeeDisposition"];
-            /** Format: double */
-            returnShippingCost?: null | number | string;
             /** Format: byte */
             returnRowVersion: string;
         };
-        /** @enum {unknown} */
-        AssemblyFeeDisposition: "notApplicable" | "notStarted" | "merchantCancelled" | "assemblyFault" | "merchantFaultWholeUnit" | "completedPartialReturn" | null;
-        /** @enum {unknown} */
-        AssemblyStatus: "notRequired" | "pending" | "started" | "testing" | "readyToShip" | "failed" | "cancelled";
+        AssignSupportTicketRequest: {
+            /** Format: uuid */
+            targetAdminPublicId: string;
+            reason?: string;
+            /** Format: byte */
+            rowVersion?: string;
+        };
         AuthSessionDto: {
             isAuthenticated: boolean;
             user?: null | components["schemas"]["CurrentUserDto"];
@@ -3799,11 +3821,10 @@ export interface components {
             /** Format: uuid */
             publicId: string;
         };
-        CancelOrderRequest: {
-            reasonCode: string;
-            note: null | string;
+        CancelSupportTicketByAdminRequest: {
+            reason?: string;
             /** Format: byte */
-            orderRowVersion: string;
+            rowVersion?: string;
         };
         CancelSupportTicketRequest: {
             reasonCode: string;
@@ -3955,6 +3976,18 @@ export interface components {
             /** Format: uuid */
             publicId: string;
         };
+        ChangeSupportTicketPriorityRequest: {
+            priority: components["schemas"]["CasePriority"];
+            reason?: string;
+            /** Format: byte */
+            rowVersion?: string;
+        };
+        ChangeSupportTicketStatusRequest: {
+            status: components["schemas"]["SupportTicketStatus"];
+            reason?: null | string;
+            /** Format: byte */
+            rowVersion?: string;
+        };
         ClaimSupportTicketRequest: {
             /** Format: byte */
             rowVersion?: string;
@@ -3983,6 +4016,11 @@ export interface components {
             /** Format: int32 */
             sortOrder: number | string;
             isActive: boolean;
+        };
+        CreateInternalNoteRequest: {
+            body?: string;
+            /** Format: byte */
+            rowVersion?: string;
         };
         CreateProductRequest: {
             productCode: string;
@@ -4107,31 +4145,6 @@ export interface components {
             /** Format: byte */
             returnRowVersion: string;
         };
-        /** @enum {unknown} */
-        FulfillmentStatus: "pending" | "preparing" | "shipped" | "inTransit" | "pickupReady" | "pickedUp" | "delivered" | "deliveryFailed" | "returned";
-        GuestOrderAccessRequestAcceptedDto: {
-            /** Format: uuid */
-            requestPublicId: string;
-            /** Format: date-time */
-            expiresAtUtc: string;
-            /** Format: date-time */
-            resendAvailableAtUtc: string;
-        };
-        GuestOrderAccessRequestDto: {
-            orderNumber: string;
-            email: string;
-        };
-        GuestOrderAccessVerificationDto: {
-            /** Format: uuid */
-            requestPublicId: string;
-            code: string;
-        };
-        GuestOrderAccessVerifiedDto: {
-            /** Format: uuid */
-            orderPublicId: string;
-            /** Format: date-time */
-            expiresAtUtc: string;
-        };
         /** Format: binary */
         IFormFile: string;
         InspectReturnItemLine: {
@@ -4145,9 +4158,6 @@ export interface components {
             items: components["schemas"]["InspectReturnItemLine"][];
             /** Format: byte */
             returnRowVersion: string;
-            assemblyFeeDisposition?: null | components["schemas"]["AssemblyFeeDisposition"];
-            /** Format: double */
-            returnShippingCost?: null | number | string;
         };
         /** @enum {unknown} */
         InvoiceLineKind: "merchandise" | "shipping" | "assemblyFee";
@@ -4155,97 +4165,6 @@ export interface components {
             email: string;
             password: string;
             rememberMe?: boolean;
-        };
-        OrderAmountsDto: {
-            /** Format: double */
-            merchandiseSubtotal: number | string;
-            /** Format: double */
-            itemDiscountTotal: number | string;
-            /** Format: double */
-            shippingFee: number | string;
-            /** Format: double */
-            assemblyFee: number | string;
-            /** Format: double */
-            grandTotal: number | string;
-            /** Format: double */
-            paidAmount: number | string;
-            /** Format: double */
-            refundedAmount: number | string;
-            currency: string;
-        };
-        OrderDto: {
-            /** Format: uuid */
-            publicId: string;
-            orderNumber: string;
-            orderStatus: components["schemas"]["OrderStatus"];
-            paymentStatus: components["schemas"]["PaymentStatus"];
-            fulfillmentStatus: components["schemas"]["FulfillmentStatus"];
-            assemblyStatus: components["schemas"]["AssemblyStatus"];
-            orderRefundStatus: components["schemas"]["OrderRefundStatus"];
-            items: components["schemas"]["OrderItemDto"][];
-            recipient: components["schemas"]["OrderRecipientSummaryDto"];
-            amounts: components["schemas"]["OrderAmountsDto"];
-            /** Format: date-time */
-            paymentDueAtUtc: null | string;
-            /** Format: date-time */
-            confirmedAtUtc: null | string;
-            /** Format: date-time */
-            paidAtUtc: null | string;
-            /** Format: date-time */
-            shippedAtUtc: null | string;
-            /** Format: date-time */
-            deliveredAtUtc: null | string;
-            /** Format: date-time */
-            completedAtUtc: null | string;
-            /** Format: date-time */
-            cancelledAtUtc: null | string;
-            /** Format: date-time */
-            returnRequestDeadlineUtc: null | string;
-            availableActions: string[];
-            /** Format: byte */
-            rowVersion: string;
-        };
-        OrderItemDto: {
-            /** Format: uuid */
-            publicId: string;
-            skuCodeSnapshot: string;
-            productNameSnapshot: string;
-            skuNameSnapshot: string;
-            /** Format: int32 */
-            quantity: number | string;
-            /** Format: double */
-            finalUnitPrice: number | string;
-            /** Format: double */
-            lineTotal: number | string;
-            /** Format: int32 */
-            returnableQuantity: number | string;
-            /** Format: int32 */
-            returnedQuantity: number | string;
-        };
-        OrderRecipientSummaryDto: {
-            recipientName: string;
-            shippingMethodCode: string;
-            storeName: null | string;
-        };
-        /** @enum {unknown} */
-        OrderRefundStatus: "none" | "pending" | "partiallyRefunded" | "refunded";
-        /** @enum {unknown} */
-        OrderStatus: "pendingPayment" | "confirmed" | "processing" | "completed" | "cancelled";
-        OrderSummaryDto: {
-            /** Format: uuid */
-            publicId: string;
-            orderNumber: string;
-            orderStatus: components["schemas"]["OrderStatus"];
-            paymentStatus: components["schemas"]["PaymentStatus"];
-            fulfillmentStatus: components["schemas"]["FulfillmentStatus"];
-            /** Format: int32 */
-            itemCount: number | string;
-            /** Format: double */
-            grandTotal: number | string;
-            currency: string;
-            /** Format: date-time */
-            createdAtUtc: string;
-            availableActions: string[];
         };
         PageResultOfAdminProductSummaryDto: {
             items: components["schemas"]["AdminProductSummaryDto"][];
@@ -4302,17 +4221,6 @@ export interface components {
             /** Format: int32 */
             totalPages?: number | string;
         };
-        PageResultOfOrderSummaryDto: {
-            items: components["schemas"]["OrderSummaryDto"][];
-            /** Format: int32 */
-            pageNumber: number | string;
-            /** Format: int32 */
-            pageSize: number | string;
-            /** Format: int32 */
-            totalCount: number | string;
-            /** Format: int32 */
-            totalPages?: number | string;
-        };
         PageResultOfProductCardDto: {
             items: components["schemas"]["ProductCardDto"][];
             /** Format: int32 */
@@ -4344,8 +4252,6 @@ export interface components {
         PasswordResetRequest: {
             email: string;
         };
-        /** @enum {unknown} */
-        PaymentStatus: "pending" | "awaitingPayment" | "processing" | "paid" | "failed" | "cancelled" | "expired";
         PriceRangeDto: {
             /** Format: double */
             min: number | string;
@@ -4484,6 +4390,11 @@ export interface components {
         RemoveCartItemRequest: {
             /** Format: byte */
             itemRowVersion: string;
+        };
+        ReopenSupportTicketRequest: {
+            reason?: string;
+            /** Format: byte */
+            rowVersion?: string;
         };
         /** @enum {unknown} */
         RestockDisposition: "resellable" | "quarantine" | "scrap" | null;
@@ -4688,9 +4599,6 @@ export interface components {
             decimalValue: null | number | string;
             booleanValue: null | boolean;
             optionCode: null | string;
-            optionCodes?: null | string[];
-            /** Format: uuid */
-            specificationSourcePublicId?: null | string;
         };
         SpecFilterRequest: {
             semanticKey: string;
@@ -4729,9 +4637,6 @@ export interface components {
             decimalValue: null | number | string;
             booleanValue: null | boolean;
             optionCode: null | string;
-            optionCodes?: null | string[];
-            /** Format: uuid */
-            specificationSourcePublicId?: null | string;
         };
         SupportAttachmentDto: {
             /** Format: uuid */
@@ -4866,6 +4771,13 @@ export interface components {
             /** Format: uuid */
             challengePublicId: string;
             code: string;
+        };
+        TransferSupportTicketRequest: {
+            /** Format: uuid */
+            targetAdminPublicId: string;
+            reason?: string;
+            /** Format: byte */
+            rowVersion?: string;
         };
         UpdateBrandRequest: {
             nameZhTw: string;

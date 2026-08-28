@@ -83,8 +83,8 @@ async function invalidateSupportProjections(queryClient: QueryClient, ticketId: 
   ])
 }
 
-function isSupportAssignmentConflict(error: unknown): boolean {
-  return isApiError(error) && error.status === 409 && error.code === 'support_ticket_assignment_conflict'
+function isSupportWriteConflict(error: unknown): boolean {
+  return isApiError(error) && error.status === 409
 }
 
 export function useClaimSupportTicketMutation(ticketId: MaybeRefOrGetter<string>) {
@@ -103,7 +103,7 @@ export function useClaimSupportTicketMutation(ticketId: MaybeRefOrGetter<string>
       await invalidateSupportProjections(queryClient, toValue(ticketId))
     },
     onError: async (error) => {
-      if (isSupportAssignmentConflict(error)) {
+      if (isSupportWriteConflict(error)) {
         // Another administrator won the assignment race. Refresh all projections so the
         // assignee, RowVersion and available actions immediately reflect the server state.
         await invalidateSupportProjections(queryClient, toValue(ticketId))
@@ -126,7 +126,7 @@ export function useAssignSupportTicketMutation(ticketId: MaybeRefOrGetter<string
       await invalidateSupportProjections(queryClient, toValue(ticketId))
     },
     onError: async (error) => {
-      if (isSupportAssignmentConflict(error)) {
+      if (isSupportWriteConflict(error)) {
         await invalidateSupportProjections(queryClient, toValue(ticketId))
       }
     },
@@ -147,7 +147,7 @@ export function useTransferSupportTicketMutation(ticketId: MaybeRefOrGetter<stri
       await invalidateSupportProjections(queryClient, toValue(ticketId))
     },
     onError: async (error) => {
-      if (isSupportAssignmentConflict(error)) {
+      if (isSupportWriteConflict(error)) {
         await invalidateSupportProjections(queryClient, toValue(ticketId))
       }
     },

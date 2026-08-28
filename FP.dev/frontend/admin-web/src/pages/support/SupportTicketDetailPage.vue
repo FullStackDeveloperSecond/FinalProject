@@ -53,7 +53,6 @@ const canAddInternalNote = computed(() => hasAction('internal-note'))
 
 const priorityOptions: CasePriority[] = ['low', 'normal', 'high', 'urgent']
 const statusOptions: SupportTicketStatus[] = [
-  'assigned',
   'inProgress',
   'waitingForCustomer',
   'waitingForInternal',

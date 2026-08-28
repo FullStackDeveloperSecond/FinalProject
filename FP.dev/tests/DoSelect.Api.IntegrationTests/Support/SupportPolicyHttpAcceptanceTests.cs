@@ -83,7 +83,11 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
     }
 
     [Theory]
-    [InlineData("SuperAdmin", HttpStatusCode.Forbidden)]
+    // A bare SuperAdmin is admitted to Detail via CanSupervise() (GetDetail's imperative
+    // "Handle OR Supervise" gate), consistent with Assign/Transfer already granting SuperAdmin
+    // through the SupportTicketSupervise policy — SuperAdmin must be able to view a ticket it can
+    // also assign or transfer. Only a bare Member (neither Handle nor Supervise) is rejected.
+    [InlineData("SuperAdmin", HttpStatusCode.OK)]
     [InlineData("Member", HttpStatusCode.Forbidden)]
     [InlineData("CustomerService", HttpStatusCode.OK)]
     [InlineData("CustomerServiceSupervisor", HttpStatusCode.OK)]
@@ -135,10 +139,13 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
         Assert.Equal(DomainErrorCodes.ResourceNotFound, json.RootElement.GetProperty("code").GetString());
     }
 
+    // Claim is a pure Handle-only mutation (strict SupportTicketHandle policy, no imperative
+    // Handle-OR-Supervise fallback) — a bare SuperAdmin (no CustomerService/Supervisor role) and a
+    // bare Member are both rejected.
     [Theory]
     [InlineData("SuperAdmin")]
     [InlineData("Member")]
-    public async Task HandleEndpoints_WhenRoleIsDisallowed_Return403(string role)
+    public async Task Claim_WhenRoleIsDisallowed_Returns403(string role)
     {
         var fakes = new SupportHttpFakes();
         using var factory = CreateFactory(fakes);
@@ -148,13 +155,31 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
             $"/api/v1/admin/support-tickets/{Guid.NewGuid()}/actions/claim",
             new { rowVersion = Convert.ToBase64String(new byte[8]) },
             DoSelectClaimValues.Admin);
+
+        Assert.Equal(HttpStatusCode.Forbidden, claim.StatusCode);
+        Assert.Equal(0, fakes.ClaimCalls);
+    }
+
+    // Detail, SLA and Workbench all admit Handle OR Supervise for the read side. A bare
+    // SuperAdmin therefore receives supervisor scope without gaining any Handle write action.
+    [Theory]
+    [InlineData("SuperAdmin", HttpStatusCode.OK, HttpStatusCode.OK)]
+    [InlineData("Member", HttpStatusCode.Forbidden, HttpStatusCode.Forbidden)]
+    public async Task ViewEndpoints_EnforceHandleOrSuperviseBehavior(
+        string role, HttpStatusCode expectedSla, HttpStatusCode expectedWorkbench)
+    {
+        var fakes = new SupportHttpFakes();
+        using var factory = CreateFactory(fakes);
+        using var client = CreateClient(factory, role);
+
         using var sla = await client.GetAsync("/api/v1/admin/support-tickets/sla?pageSize=17&cursor=opaque");
         using var workbench = await client.GetAsync("/api/v1/admin/case-workbench?pageSize=19");
 
-        Assert.Equal(HttpStatusCode.Forbidden, claim.StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, sla.StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, workbench.StatusCode);
-        Assert.Equal(0, fakes.TotalCalls);
+        Assert.Equal(expectedSla, sla.StatusCode);
+        Assert.Equal(expectedWorkbench, workbench.StatusCode);
+        var expectedCalls =
+            (expectedSla == HttpStatusCode.OK ? 1 : 0) + (expectedWorkbench == HttpStatusCode.OK ? 1 : 0);
+        Assert.Equal(expectedCalls, fakes.TotalCalls);
     }
 
     [Fact]
@@ -293,6 +318,22 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
         }
     }
 
+    [Fact]
+    public async Task ChangePriority_WhenPriorityIsOmitted_Returns400WithoutCallingService()
+    {
+        var fakes = new SupportHttpFakes();
+        using var factory = CreateFactory(fakes);
+        using var client = CreateClient(factory, "CustomerService");
+
+        using var response = await client.PostAsJsonWithAntiforgeryAsync(
+            $"/api/v1/admin/support-tickets/{Guid.NewGuid()}/actions/change-priority",
+            new { reason = "missing priority", rowVersion = Convert.ToBase64String(new byte[8]) },
+            DoSelectClaimValues.Admin);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(0, fakes.ChangePriorityCalls);
+    }
+
     [Theory]
     [InlineData("CustomerService", HttpStatusCode.OK)]
     [InlineData("CustomerServiceSupervisor", HttpStatusCode.OK)]
@@ -399,6 +440,33 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
     }
 
     [Fact]
+    public async Task SuperAdmin_CanReadDetailSlaAndWorkbenchWithSupervisorScope_ButStillCannotHandle()
+    {
+        var fakes = new SupportHttpFakes();
+        using var factory = CreateFactory(fakes);
+        using var client = CreateClient(factory, "SuperAdmin");
+        var ticketId = Guid.NewGuid();
+
+        using var detail = await client.GetAsync($"/api/v1/admin/support-tickets/{ticketId}");
+        using var sla = await client.GetAsync("/api/v1/admin/support-tickets/sla");
+        using var workbench = await client.GetAsync("/api/v1/admin/case-workbench");
+        using var changeStatus = await client.PostAsJsonWithAntiforgeryAsync(
+            $"/api/v1/admin/support-tickets/{ticketId}/actions/change-status",
+            new { status = "InProgress", rowVersion = Convert.ToBase64String(new byte[8]) },
+            DoSelectClaimValues.Admin);
+
+        Assert.Equal(HttpStatusCode.OK, detail.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, sla.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, workbench.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, changeStatus.StatusCode);
+        Assert.False(fakes.LastDetailCanHandle);
+        Assert.True(fakes.LastDetailCanSupervise);
+        Assert.True(fakes.LastSlaCanSupervise);
+        Assert.True(fakes.LastWorkbenchCanSupervise);
+        Assert.Equal(0, fakes.ChangeStatusCalls);
+    }
+
+    [Fact]
     public async Task Workbench_WhenHandleAuthorized_DelegatesQueryWithSupportOnlyScope()
     {
         var fakes = new SupportHttpFakes();
@@ -452,6 +520,10 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
         public SupportSlaQueueQuery? SlaQuery { get; private set; }
         public CaseWorkbenchQuery? WorkbenchQuery { get; private set; }
         public IReadOnlyCollection<CaseWorkbenchCaseType>? AuthorizedCaseTypes { get; private set; }
+        public bool LastDetailCanHandle { get; private set; }
+        public bool LastDetailCanSupervise { get; private set; }
+        public bool LastSlaCanSupervise { get; private set; }
+        public bool LastWorkbenchCanSupervise { get; private set; }
         public bool ThrowAssignmentConflict { get; init; }
         public bool ThrowDetailNotFound { get; init; }
         public AdminSupportTicketDto ClaimResult { get; } = new(
@@ -471,11 +543,14 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
 
         public Task<AdminSupportTicketDetailDto> GetDetailAsync(
             string adminUserId,
+            bool canHandle,
             bool canSupervise,
             Guid ticketPublicId,
             CancellationToken cancellationToken)
         {
             DetailCalls++;
+            LastDetailCanHandle = canHandle;
+            LastDetailCanSupervise = canSupervise;
             if (ThrowDetailNotFound)
             {
                 throw DomainProblemException.NotFound("The support ticket was not found.");
@@ -502,6 +577,7 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
             CancellationToken cancellationToken)
         {
             SlaQuery = query;
+            LastSlaCanSupervise = canSupervise;
             return Task.FromResult(new CursorPage<SupportSlaItemDto>([], null, false));
         }
 
@@ -511,6 +587,7 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
         {
             WorkbenchQuery = query;
             AuthorizedCaseTypes = authorizedCaseTypes.ToArray();
+            LastWorkbenchCanSupervise = canSupervise;
             return Task.FromResult(new CursorPage<CaseWorkbenchItemDto>([], null, false));
         }
 

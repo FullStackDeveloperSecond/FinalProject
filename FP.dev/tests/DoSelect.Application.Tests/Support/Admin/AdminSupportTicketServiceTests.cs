@@ -96,7 +96,7 @@ public sealed class AdminSupportTicketServiceTests
         };
 
         var result = await new AdminSupportTicketService(store, new FixedTimeProvider(Now))
-            .GetDetailAsync("admin-a", false, store.Detail!.PublicId, CancellationToken.None);
+            .GetDetailAsync("admin-a", canHandle: true, canSupervise: false, store.Detail!.PublicId, CancellationToken.None);
 
         Assert.True(result.IsOverdue);
         Assert.Equal(store.Detail.PublicId, store.DetailTicketPublicId);
@@ -128,7 +128,7 @@ public sealed class AdminSupportTicketServiceTests
         };
 
         var result = await new AdminSupportTicketService(store, new FixedTimeProvider(Now))
-            .GetDetailAsync("admin-a", canSupervise: false, store.Detail.PublicId, CancellationToken.None);
+            .GetDetailAsync("admin-a", canHandle: true, canSupervise: false, store.Detail.PublicId, CancellationToken.None);
 
         Assert.Equal(expectedActions, result.AvailableActions);
     }
@@ -149,7 +149,27 @@ public sealed class AdminSupportTicketServiceTests
         };
 
         var result = await new AdminSupportTicketService(store, new FixedTimeProvider(Now))
-            .GetDetailAsync("supervisor-a", canSupervise: true, store.Detail.PublicId, CancellationToken.None);
+            .GetDetailAsync("supervisor-a", canHandle: true, canSupervise: true, store.Detail.PublicId, CancellationToken.None);
+
+        Assert.Equal(expectedActions, result.AvailableActions);
+    }
+
+    [Theory]
+    [InlineData(false, new[] { "assign", "change-priority" })]
+    [InlineData(true, new[] { "transfer", "change-priority" })]
+    public async Task GetDetailAsync_ByBareSuperAdmin_ExposesOnlySuperviseActions(
+        bool assigned,
+        string[] expectedActions)
+    {
+        var store = new StubAdminSupportTicketStore
+        {
+            Detail = NewDetail(SupportTicketStatus.Open, assigned: assigned),
+        };
+
+        var result = await new AdminSupportTicketService(store, new FixedTimeProvider(Now))
+            .GetDetailAsync(
+                "super-admin", canHandle: false, canSupervise: true,
+                store.Detail.PublicId, CancellationToken.None);
 
         Assert.Equal(expectedActions, result.AvailableActions);
     }
@@ -171,7 +191,7 @@ public sealed class AdminSupportTicketServiceTests
         };
 
         var result = await new AdminSupportTicketService(store, new FixedTimeProvider(Now))
-            .GetDetailAsync("admin-a", false, store.Detail.PublicId, CancellationToken.None);
+            .GetDetailAsync("admin-a", canHandle: true, canSupervise: false, store.Detail.PublicId, CancellationToken.None);
 
         Assert.Equal(expected, result.IsOverdue);
     }
@@ -181,7 +201,7 @@ public sealed class AdminSupportTicketServiceTests
     {
         var exception = await Assert.ThrowsAsync<DomainProblemException>(() =>
             new AdminSupportTicketService(new StubAdminSupportTicketStore(), new FixedTimeProvider(Now))
-                .GetDetailAsync("admin-a", false, Guid.NewGuid(), CancellationToken.None));
+                .GetDetailAsync("admin-a", canHandle: true, canSupervise: false, Guid.NewGuid(), CancellationToken.None));
 
         Assert.Equal(404, exception.StatusCode);
         Assert.Equal(DomainErrorCodes.ResourceNotFound, exception.Code);

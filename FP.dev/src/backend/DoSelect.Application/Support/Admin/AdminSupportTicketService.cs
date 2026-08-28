@@ -1,4 +1,5 @@
 using DoSelect.Application.Common;
+using DoSelect.Application.Auditing;
 using DoSelect.Application.Support.Admin.Dtos;
 using DoSelect.Domain.Support;
 
@@ -51,6 +52,7 @@ public sealed class AdminSupportTicketService : IAdminSupportTicketService
 
     public async Task<AdminSupportTicketDetailDto> GetDetailAsync(
         string adminUserId,
+        bool canHandle,
         bool canSupervise,
         Guid ticketPublicId,
         CancellationToken cancellationToken)
@@ -66,7 +68,7 @@ public sealed class AdminSupportTicketService : IAdminSupportTicketService
         }
 
         var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
-        return ToDetailDto(detail, canSupervise, nowUtc);
+        return ToDetailDto(detail, canHandle, canSupervise, nowUtc);
     }
 
     public async Task<AdminSupportTicketDto> AssignAsync(
@@ -138,7 +140,7 @@ public sealed class AdminSupportTicketService : IAdminSupportTicketService
                 request.Priority,
                 request.Reason),
             cancellationToken);
-        return ToDetailDto(result, DomainErrorCodes.SupportTicketStateConflict, context.CanSupervise, nowUtc);
+        return ToDetailDto(result, DomainErrorCodes.SupportTicketStateConflict, CanHandle(context), context.CanSupervise, nowUtc);
     }
 
     public async Task<AdminSupportTicketDetailDto> ChangeStatusAsync(
@@ -162,7 +164,7 @@ public sealed class AdminSupportTicketService : IAdminSupportTicketService
                 request.Status,
                 request.Reason),
             cancellationToken);
-        return ToDetailDto(result, DomainErrorCodes.SupportTicketStateConflict, context.CanSupervise, nowUtc);
+        return ToDetailDto(result, DomainErrorCodes.SupportTicketStateConflict, CanHandle(context), context.CanSupervise, nowUtc);
     }
 
     public async Task<AdminSupportTicketDetailDto> CancelAsync(
@@ -185,7 +187,7 @@ public sealed class AdminSupportTicketService : IAdminSupportTicketService
                 context.RemoteIpAddress,
                 request.Reason),
             cancellationToken);
-        return ToDetailDto(result, DomainErrorCodes.SupportTicketCancelNotAllowed, context.CanSupervise, nowUtc);
+        return ToDetailDto(result, DomainErrorCodes.SupportTicketCancelNotAllowed, CanHandle(context), context.CanSupervise, nowUtc);
     }
 
     public async Task<AdminSupportTicketDetailDto> ReopenAsync(
@@ -208,7 +210,7 @@ public sealed class AdminSupportTicketService : IAdminSupportTicketService
                 context.RemoteIpAddress,
                 request.Reason),
             cancellationToken);
-        return ToDetailDto(result, DomainErrorCodes.SupportTicketStateConflict, context.CanSupervise, nowUtc);
+        return ToDetailDto(result, DomainErrorCodes.SupportTicketStateConflict, CanHandle(context), context.CanSupervise, nowUtc);
     }
 
     public async Task<AdminSupportTicketDetailDto> AddInternalNoteAsync(
@@ -231,7 +233,7 @@ public sealed class AdminSupportTicketService : IAdminSupportTicketService
                 context.RemoteIpAddress,
                 request.Body),
             cancellationToken);
-        return ToDetailDto(result, DomainErrorCodes.SupportTicketStateConflict, context.CanSupervise, nowUtc);
+        return ToDetailDto(result, DomainErrorCodes.SupportTicketStateConflict, CanHandle(context), context.CanSupervise, nowUtc);
     }
 
     private static AdminSupportTicketDto ToDto(SupportTicketAssignResult result, string actionName) =>
@@ -256,11 +258,12 @@ public sealed class AdminSupportTicketService : IAdminSupportTicketService
     private static AdminSupportTicketDetailDto ToDetailDto(
         SupportTicketMutationResult result,
         string stateConflictCode,
+        bool canHandle,
         bool canSupervise,
         DateTime nowUtc) =>
         result.Outcome switch
         {
-            SupportTicketMutationOutcome.Success => ToDetailDto(result.Ticket!, canSupervise, nowUtc),
+            SupportTicketMutationOutcome.Success => ToDetailDto(result.Ticket!, canHandle, canSupervise, nowUtc),
             SupportTicketMutationOutcome.NotFound => throw DomainProblemException.NotFound(
                 "The support ticket was not found."),
             SupportTicketMutationOutcome.StateConflict => throw DomainProblemException.Conflict(
@@ -306,13 +309,17 @@ public sealed class AdminSupportTicketService : IAdminSupportTicketService
     /// change-status/cancel/reopen need no further per-caller check here — only the ticket's own
     /// state matters for those four once visibility is established.
     /// </summary>
-    private static IReadOnlyList<string> ComputeAvailableActions(AdminSupportTicketDetail detail, bool canSupervise, DateTime nowUtc)
+    private static IReadOnlyList<string> ComputeAvailableActions(
+        AdminSupportTicketDetail detail,
+        bool canHandle,
+        bool canSupervise,
+        DateTime nowUtc)
     {
         var actions = new List<string>();
         var isTerminal = detail.Status is SupportTicketStatus.Closed or SupportTicketStatus.Cancelled;
         var isUnassignedOpen = detail.Status == SupportTicketStatus.Open && detail.AssigneeAdminPublicId is null;
 
-        if (isUnassignedOpen)
+        if (canHandle && isUnassignedOpen)
         {
             actions.Add("claim");
         }
@@ -330,21 +337,28 @@ public sealed class AdminSupportTicketService : IAdminSupportTicketService
             }
         }
 
-        if (!isTerminal)
+        if ((canHandle || canSupervise) && !isTerminal)
         {
             actions.Add("change-priority");
+        }
+
+        if (canHandle && !isTerminal)
+        {
             actions.Add("change-status");
             actions.Add("internal-note");
         }
 
-        if (detail.Status is SupportTicketStatus.Open or SupportTicketStatus.Assigned && detail.FirstHumanResponseAtUtc is null)
+        if (canHandle &&
+            detail.Status is SupportTicketStatus.Open or SupportTicketStatus.Assigned &&
+            detail.FirstHumanResponseAtUtc is null)
         {
             actions.Add("cancel");
         }
 
         // Mirrors SupportTicket.Reopen's own gate exactly (Resolved + within 3 days of
         // ResolvedAtUtc) so this hint never offers a reopen the store would just 409 on.
-        if (detail.Status == SupportTicketStatus.Resolved &&
+        if (canHandle &&
+            detail.Status == SupportTicketStatus.Resolved &&
             detail.ResolvedAtUtc is { } resolvedAtUtc &&
             nowUtc <= resolvedAtUtc.AddDays(3))
         {
@@ -354,7 +368,15 @@ public sealed class AdminSupportTicketService : IAdminSupportTicketService
         return actions;
     }
 
-    private static AdminSupportTicketDetailDto ToDetailDto(AdminSupportTicketDetail detail, bool canSupervise, DateTime nowUtc) => new(
+    private static bool CanHandle(SupportTicketActionContext context) =>
+        context.Roles.Contains(AuditRoleNames.CustomerService, StringComparer.Ordinal) ||
+        context.Roles.Contains(AuditRoleNames.CustomerServiceSupervisor, StringComparer.Ordinal);
+
+    private static AdminSupportTicketDetailDto ToDetailDto(
+        AdminSupportTicketDetail detail,
+        bool canHandle,
+        bool canSupervise,
+        DateTime nowUtc) => new(
         detail.PublicId,
         detail.TicketNumber,
         detail.Category,
@@ -374,7 +396,7 @@ public sealed class AdminSupportTicketService : IAdminSupportTicketService
         detail.ResolvedAtUtc,
         detail.ClosedAtUtc,
         detail.ReopenCount,
-        ComputeAvailableActions(detail, canSupervise, nowUtc),
+        ComputeAvailableActions(detail, canHandle, canSupervise, nowUtc),
         detail.RowVersion,
         [.. detail.Messages.Select(m => new AdminSupportMessageDto(
             m.PublicId,
@@ -384,9 +406,9 @@ public sealed class AdminSupportTicketService : IAdminSupportTicketService
             m.Body,
             m.Language,
             m.SentAtUtc))])
-    {
-        Attachments = detail.Attachments,
-    };
+        {
+            Attachments = detail.Attachments,
+        };
 
     private static AdminSupportTicketDto ToDto(ClaimedSupportTicket ticket) => new(
         ticket.PublicId,

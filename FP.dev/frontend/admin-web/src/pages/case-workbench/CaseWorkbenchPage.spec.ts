@@ -164,4 +164,30 @@ describe('CaseWorkbenchPage', () => {
     expect(workbenchMocks.lastFilters.value?.cursor).toBeUndefined()
     expect(workbenchMocks.lastFilters.value?.caseTypes).toEqual(['support'])
   })
+
+  it('shows only the currently authorized Support case-type filter', async () => {
+    workbenchMocks.data.value = { items: [], nextCursor: null, hasMore: false }
+    const wrapper = await mountPage()
+    const caseTypeLabels = wrapper.findAll('fieldset')[0]?.findAll('label') ?? []
+
+    expect(caseTypeLabels).toHaveLength(1)
+    expect(caseTypeLabels[0]?.text()).toContain('客服案件')
+  })
+
+  it.each([
+    [0, 'assigned'],
+    [1, '018f2e6a-0000-7000-8000-000000000099'],
+    [2, 'new keyword'],
+  ])('clears a second-page cursor synchronously when text filter %i changes', async (inputIndex, value) => {
+    workbenchMocks.data.value = { items: [sampleItem()], nextCursor: 'next-cursor', hasMore: true }
+    const wrapper = await mountPage()
+    await wrapper.findAll('.case-workbench__pagination button')[1]?.trigger('click')
+    await flushPromises()
+    expect(workbenchMocks.lastFilters.value?.cursor).toBe('next-cursor')
+
+    await wrapper.findAll('input[type="text"]')[inputIndex]?.setValue(value)
+    await flushPromises()
+
+    expect(workbenchMocks.lastFilters.value?.cursor).toBeUndefined()
+  })
 })

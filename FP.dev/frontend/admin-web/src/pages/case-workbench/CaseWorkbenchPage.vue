@@ -1,18 +1,16 @@
 <script setup lang="ts">
 import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { defaultCaseWorkbenchPageSize, useCaseWorkbenchQuery } from '../../features/case-workbench/queries'
 import type { CasePriority, CaseWorkbenchCaseType } from '../../features/case-workbench/types'
 import { formatDateTime, priorityLabels } from '../../features/support/labels'
 
 // A-24 案件工作台：讀取既有 GET /api/v1/admin/case-workbench，欄位固定 12 欄（不自行擴張 DTO）。
-// Return／Report 目前尚無正式明細頁面，點擊時顯示明確提示而非導向假的 Route；只有 Support 案件
-// 可以點擊導向既有的 /support/tickets/:ticketId。
+// This slice is authorized for Support only. Return/Report filters stay hidden until their
+// actor scope and detail routes are both available.
 const caseTypeOptions: { value: CaseWorkbenchCaseType, label: string }[] = [
   { value: 'support', label: '客服案件' },
-  { value: 'return', label: '退貨案件' },
-  { value: 'report', label: '檢舉案件' },
 ]
 const priorityOptions: CasePriority[] = ['low', 'normal', 'high', 'urgent']
 
@@ -29,11 +27,28 @@ const filters = reactive({
 // simplest way to support "上一頁" without asking the backend for a total count. Mirrors
 // SupportSlaQueuePage.vue's own pagination pattern exactly.
 const cursorStack = ref<(string | undefined)[]>([undefined])
-const currentCursor = computed(() => cursorStack.value[cursorStack.value.length - 1])
+const filterFingerprint = computed(() => JSON.stringify({
+  caseTypes: [...filters.caseTypes].sort(),
+  priorities: [...filters.priorities].sort(),
+  statusesInput: filters.statusesInput,
+  assigneePublicId: filters.assigneePublicId,
+  overdueOnly: filters.overdueOnly,
+  keyword: filters.keyword,
+}))
+const cursorFilterFingerprint = ref(filterFingerprint.value)
+const currentCursor = computed(() =>
+  cursorFilterFingerprint.value === filterFingerprint.value
+    ? cursorStack.value[cursorStack.value.length - 1]
+    : undefined)
 
 function resetPagination() {
   cursorStack.value = [undefined]
+  cursorFilterFingerprint.value = filterFingerprint.value
 }
+
+// flush:sync plus the fingerprint guard above guarantees a changed filter can never be paired
+// with a cursor issued for the previous filter set, even during the same input event.
+watch(filterFingerprint, resetPagination, { flush: 'sync' })
 
 const queryFilters = computed(() => ({
   caseTypes: filters.caseTypes.length > 0 ? filters.caseTypes : undefined,
@@ -56,6 +71,7 @@ const canGoNext = computed(() => Boolean(data.value?.hasMore))
 function goToNextPage() {
   const nextCursor = data.value?.nextCursor
   if (nextCursor) {
+    cursorFilterFingerprint.value = filterFingerprint.value
     cursorStack.value = [...cursorStack.value, nextCursor]
   }
 }
@@ -133,7 +149,7 @@ const errorTitle = computed(() => {
       案件工作台
     </h1>
     <p class="view-lede">
-      跨客服／退貨／檢舉的統一案件清單，依最後活動時間排序。畫面僅顯示後端回傳的案件——後端已依角色與 Actor Scope 過濾，前端不另外假設隱藏即代表授權。
+      客服案件清單依最後活動時間排序。後端已依角色與 Actor Scope 過濾；退貨與檢舉將在各自授權範圍與明細頁完成後開放。
     </p>
 
     <form
