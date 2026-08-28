@@ -83,7 +83,11 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
     }
 
     [Theory]
-    [InlineData("SuperAdmin", HttpStatusCode.Forbidden)]
+    // A bare SuperAdmin is admitted to Detail via CanSupervise() (GetDetail's imperative
+    // "Handle OR Supervise" gate), consistent with Assign/Transfer already granting SuperAdmin
+    // through the SupportTicketSupervise policy — SuperAdmin must be able to view a ticket it can
+    // also assign or transfer. Only a bare Member (neither Handle nor Supervise) is rejected.
+    [InlineData("SuperAdmin", HttpStatusCode.OK)]
     [InlineData("Member", HttpStatusCode.Forbidden)]
     [InlineData("CustomerService", HttpStatusCode.OK)]
     [InlineData("CustomerServiceSupervisor", HttpStatusCode.OK)]
@@ -135,10 +139,13 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
         Assert.Equal(DomainErrorCodes.ResourceNotFound, json.RootElement.GetProperty("code").GetString());
     }
 
+    // Claim is a pure Handle-only mutation (strict SupportTicketHandle policy, no imperative
+    // Handle-OR-Supervise fallback) — a bare SuperAdmin (no CustomerService/Supervisor role) and a
+    // bare Member are both rejected.
     [Theory]
     [InlineData("SuperAdmin")]
     [InlineData("Member")]
-    public async Task HandleEndpoints_WhenRoleIsDisallowed_Return403(string role)
+    public async Task Claim_WhenRoleIsDisallowed_Returns403(string role)
     {
         var fakes = new SupportHttpFakes();
         using var factory = CreateFactory(fakes);
@@ -148,13 +155,31 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
             $"/api/v1/admin/support-tickets/{Guid.NewGuid()}/actions/claim",
             new { rowVersion = Convert.ToBase64String(new byte[8]) },
             DoSelectClaimValues.Admin);
+
+        Assert.Equal(HttpStatusCode.Forbidden, claim.StatusCode);
+        Assert.Equal(0, fakes.ClaimCalls);
+    }
+
+    // Detail, SLA and Workbench all admit Handle OR Supervise for the read side. A bare
+    // SuperAdmin therefore receives supervisor scope without gaining any Handle write action.
+    [Theory]
+    [InlineData("SuperAdmin", HttpStatusCode.OK, HttpStatusCode.OK)]
+    [InlineData("Member", HttpStatusCode.Forbidden, HttpStatusCode.Forbidden)]
+    public async Task ViewEndpoints_EnforceHandleOrSuperviseBehavior(
+        string role, HttpStatusCode expectedSla, HttpStatusCode expectedWorkbench)
+    {
+        var fakes = new SupportHttpFakes();
+        using var factory = CreateFactory(fakes);
+        using var client = CreateClient(factory, role);
+
         using var sla = await client.GetAsync("/api/v1/admin/support-tickets/sla?pageSize=17&cursor=opaque");
         using var workbench = await client.GetAsync("/api/v1/admin/case-workbench?pageSize=19");
 
-        Assert.Equal(HttpStatusCode.Forbidden, claim.StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, sla.StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, workbench.StatusCode);
-        Assert.Equal(0, fakes.TotalCalls);
+        Assert.Equal(expectedSla, sla.StatusCode);
+        Assert.Equal(expectedWorkbench, workbench.StatusCode);
+        var expectedCalls =
+            (expectedSla == HttpStatusCode.OK ? 1 : 0) + (expectedWorkbench == HttpStatusCode.OK ? 1 : 0);
+        Assert.Equal(expectedCalls, fakes.TotalCalls);
     }
 
     [Fact]
@@ -207,6 +232,199 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
             property => property.Name.Contains("assignee", StringComparison.OrdinalIgnoreCase));
     }
 
+    [Theory]
+    [InlineData("CustomerService", HttpStatusCode.Forbidden)]
+    [InlineData("Member", HttpStatusCode.Forbidden)]
+    [InlineData("CustomerServiceSupervisor", HttpStatusCode.OK)]
+    [InlineData("SuperAdmin", HttpStatusCode.OK)]
+    public async Task Assign_EnforcesSuperviseRoleMatrix(string role, HttpStatusCode expected)
+    {
+        var fakes = new SupportHttpFakes();
+        using var factory = CreateFactory(fakes);
+        using var client = CreateClient(factory, role);
+
+        using var response = await client.PostAsJsonWithAntiforgeryAsync(
+            $"/api/v1/admin/support-tickets/{Guid.NewGuid()}/actions/assign",
+            new { targetAdminPublicId = Guid.NewGuid(), reason = "supervisor assign", rowVersion = Convert.ToBase64String(new byte[8]) },
+            DoSelectClaimValues.Admin);
+
+        Assert.Equal(expected, response.StatusCode);
+        Assert.Equal(expected == HttpStatusCode.OK ? 1 : 0, fakes.AssignCalls);
+    }
+
+    [Theory]
+    [InlineData("CustomerService", HttpStatusCode.Forbidden)]
+    [InlineData("CustomerServiceSupervisor", HttpStatusCode.OK)]
+    [InlineData("SuperAdmin", HttpStatusCode.OK)]
+    public async Task Transfer_EnforcesSuperviseRoleMatrix(string role, HttpStatusCode expected)
+    {
+        var fakes = new SupportHttpFakes();
+        using var factory = CreateFactory(fakes);
+        using var client = CreateClient(factory, role);
+
+        using var response = await client.PostAsJsonWithAntiforgeryAsync(
+            $"/api/v1/admin/support-tickets/{Guid.NewGuid()}/actions/transfer",
+            new { targetAdminPublicId = Guid.NewGuid(), reason = "transfer", rowVersion = Convert.ToBase64String(new byte[8]) },
+            DoSelectClaimValues.Admin);
+
+        Assert.Equal(expected, response.StatusCode);
+        Assert.Equal(expected == HttpStatusCode.OK ? 1 : 0, fakes.TransferCalls);
+    }
+
+    [Fact]
+    public async Task Assign_WhenConflict_ReturnsExactCommon409WithoutAssigneeExtensions()
+    {
+        var fakes = new SupportHttpFakes { ThrowAssignConflict = true };
+        using var factory = CreateFactory(fakes);
+        using var client = CreateClient(factory, "CustomerServiceSupervisor");
+
+        using var response = await client.PostAsJsonWithAntiforgeryAsync(
+            $"/api/v1/admin/support-tickets/{Guid.NewGuid()}/actions/assign",
+            new { targetAdminPublicId = Guid.NewGuid(), reason = "supervisor assign", rowVersion = Convert.ToBase64String(new byte[8]) },
+            DoSelectClaimValues.Admin);
+        using var json = await ReadJsonAsync(response);
+        var root = json.RootElement;
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(DomainErrorCodes.SupportTicketAssignmentConflict, root.GetProperty("code").GetString());
+        Assert.False(root.TryGetProperty("currentAssigneePublicId", out _));
+        Assert.False(root.TryGetProperty("currentAssigneeDisplayName", out _));
+        Assert.DoesNotContain(
+            root.EnumerateObject(),
+            property => property.Name.Contains("assignee", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Theory]
+    [InlineData("CustomerService", HttpStatusCode.OK)]
+    [InlineData("CustomerServiceSupervisor", HttpStatusCode.OK)]
+    [InlineData("SuperAdmin", HttpStatusCode.OK)]
+    [InlineData("Member", HttpStatusCode.Forbidden)]
+    public async Task ChangePriority_AdmitsHandleOrSuperviseButNotBareMember(string role, HttpStatusCode expected)
+    {
+        var fakes = new SupportHttpFakes();
+        using var factory = CreateFactory(fakes);
+        using var client = CreateClient(factory, role);
+
+        using var response = await client.PostAsJsonWithAntiforgeryAsync(
+            $"/api/v1/admin/support-tickets/{Guid.NewGuid()}/actions/change-priority",
+            new { priority = "High", reason = "escalate", rowVersion = Convert.ToBase64String(new byte[8]) },
+            DoSelectClaimValues.Admin);
+
+        Assert.Equal(expected, response.StatusCode);
+        Assert.Equal(expected == HttpStatusCode.OK ? 1 : 0, fakes.ChangePriorityCalls);
+        if (expected == HttpStatusCode.OK)
+        {
+            Assert.Equal(role is "SuperAdmin" or "CustomerServiceSupervisor", fakes.LastContext!.CanSupervise);
+        }
+    }
+
+    [Fact]
+    public async Task ChangePriority_WhenPriorityIsOmitted_Returns400WithoutCallingService()
+    {
+        var fakes = new SupportHttpFakes();
+        using var factory = CreateFactory(fakes);
+        using var client = CreateClient(factory, "CustomerService");
+
+        using var response = await client.PostAsJsonWithAntiforgeryAsync(
+            $"/api/v1/admin/support-tickets/{Guid.NewGuid()}/actions/change-priority",
+            new { reason = "missing priority", rowVersion = Convert.ToBase64String(new byte[8]) },
+            DoSelectClaimValues.Admin);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(0, fakes.ChangePriorityCalls);
+    }
+
+    [Theory]
+    [InlineData("CustomerService", HttpStatusCode.OK)]
+    [InlineData("CustomerServiceSupervisor", HttpStatusCode.OK)]
+    [InlineData("SuperAdmin", HttpStatusCode.Forbidden)]
+    public async Task ChangeStatus_EnforcesHandleRoleMatrix(string role, HttpStatusCode expected)
+    {
+        var fakes = new SupportHttpFakes();
+        using var factory = CreateFactory(fakes);
+        using var client = CreateClient(factory, role);
+
+        using var response = await client.PostAsJsonWithAntiforgeryAsync(
+            $"/api/v1/admin/support-tickets/{Guid.NewGuid()}/actions/change-status",
+            new { status = "InProgress", rowVersion = Convert.ToBase64String(new byte[8]) },
+            DoSelectClaimValues.Admin);
+
+        Assert.Equal(expected, response.StatusCode);
+        Assert.Equal(expected == HttpStatusCode.OK ? 1 : 0, fakes.ChangeStatusCalls);
+    }
+
+    [Theory]
+    [InlineData("CustomerService", HttpStatusCode.OK)]
+    [InlineData("SuperAdmin", HttpStatusCode.Forbidden)]
+    public async Task Cancel_EnforcesHandleRoleMatrix(string role, HttpStatusCode expected)
+    {
+        var fakes = new SupportHttpFakes();
+        using var factory = CreateFactory(fakes);
+        using var client = CreateClient(factory, role);
+
+        using var response = await client.PostAsJsonWithAntiforgeryAsync(
+            $"/api/v1/admin/support-tickets/{Guid.NewGuid()}/actions/cancel",
+            new { reason = "customer requested", rowVersion = Convert.ToBase64String(new byte[8]) },
+            DoSelectClaimValues.Admin);
+
+        Assert.Equal(expected, response.StatusCode);
+        Assert.Equal(expected == HttpStatusCode.OK ? 1 : 0, fakes.CancelCalls);
+    }
+
+    [Theory]
+    [InlineData("CustomerService", HttpStatusCode.OK)]
+    [InlineData("SuperAdmin", HttpStatusCode.Forbidden)]
+    public async Task Reopen_EnforcesHandleRoleMatrix(string role, HttpStatusCode expected)
+    {
+        var fakes = new SupportHttpFakes();
+        using var factory = CreateFactory(fakes);
+        using var client = CreateClient(factory, role);
+
+        using var response = await client.PostAsJsonWithAntiforgeryAsync(
+            $"/api/v1/admin/support-tickets/{Guid.NewGuid()}/actions/reopen",
+            new { reason = "customer replied again", rowVersion = Convert.ToBase64String(new byte[8]) },
+            DoSelectClaimValues.Admin);
+
+        Assert.Equal(expected, response.StatusCode);
+        Assert.Equal(expected == HttpStatusCode.OK ? 1 : 0, fakes.ReopenCalls);
+    }
+
+    [Theory]
+    [InlineData("CustomerService", HttpStatusCode.OK)]
+    [InlineData("CustomerServiceSupervisor", HttpStatusCode.OK)]
+    [InlineData("SuperAdmin", HttpStatusCode.Forbidden)]
+    [InlineData("Member", HttpStatusCode.Forbidden)]
+    public async Task AddInternalNote_EnforcesHandleRoleMatrix(string role, HttpStatusCode expected)
+    {
+        var fakes = new SupportHttpFakes();
+        using var factory = CreateFactory(fakes);
+        using var client = CreateClient(factory, role);
+
+        using var response = await client.PostAsJsonWithAntiforgeryAsync(
+            $"/api/v1/admin/support-tickets/{Guid.NewGuid()}/internal-notes",
+            new { body = "internal note body", rowVersion = Convert.ToBase64String(new byte[8]) },
+            DoSelectClaimValues.Admin);
+
+        Assert.Equal(expected, response.StatusCode);
+        Assert.Equal(expected == HttpStatusCode.OK ? 1 : 0, fakes.AddInternalNoteCalls);
+    }
+
+    [Fact]
+    public async Task AddInternalNote_WhenAnonymous_Returns401WithoutCallingService()
+    {
+        var fakes = new SupportHttpFakes();
+        using var factory = CreateFactory(fakes);
+        using var client = factory.CreateClient();
+
+        using var response = await client.PostAsJsonWithAntiforgeryAsync(
+            $"/api/v1/admin/support-tickets/{Guid.NewGuid()}/internal-notes",
+            new { body = "internal note body", rowVersion = Convert.ToBase64String(new byte[8]) },
+            DoSelectClaimValues.Admin);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(0, fakes.AddInternalNoteCalls);
+    }
+
     [Fact]
     public async Task Sla_WhenHandleAuthorized_DelegatesBoundPaginationQuery()
     {
@@ -219,6 +437,33 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(17, fakes.SlaQuery?.PageSize);
         Assert.Equal("opaque-cursor", fakes.SlaQuery?.Cursor);
+    }
+
+    [Fact]
+    public async Task SuperAdmin_CanReadDetailSlaAndWorkbenchWithSupervisorScope_ButStillCannotHandle()
+    {
+        var fakes = new SupportHttpFakes();
+        using var factory = CreateFactory(fakes);
+        using var client = CreateClient(factory, "SuperAdmin");
+        var ticketId = Guid.NewGuid();
+
+        using var detail = await client.GetAsync($"/api/v1/admin/support-tickets/{ticketId}");
+        using var sla = await client.GetAsync("/api/v1/admin/support-tickets/sla");
+        using var workbench = await client.GetAsync("/api/v1/admin/case-workbench");
+        using var changeStatus = await client.PostAsJsonWithAntiforgeryAsync(
+            $"/api/v1/admin/support-tickets/{ticketId}/actions/change-status",
+            new { status = "InProgress", rowVersion = Convert.ToBase64String(new byte[8]) },
+            DoSelectClaimValues.Admin);
+
+        Assert.Equal(HttpStatusCode.OK, detail.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, sla.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, workbench.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, changeStatus.StatusCode);
+        Assert.False(fakes.LastDetailCanHandle);
+        Assert.True(fakes.LastDetailCanSupervise);
+        Assert.True(fakes.LastSlaCanSupervise);
+        Assert.True(fakes.LastWorkbenchCanSupervise);
+        Assert.Equal(0, fakes.ChangeStatusCalls);
     }
 
     [Fact]
@@ -275,6 +520,10 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
         public SupportSlaQueueQuery? SlaQuery { get; private set; }
         public CaseWorkbenchQuery? WorkbenchQuery { get; private set; }
         public IReadOnlyCollection<CaseWorkbenchCaseType>? AuthorizedCaseTypes { get; private set; }
+        public bool LastDetailCanHandle { get; private set; }
+        public bool LastDetailCanSupervise { get; private set; }
+        public bool LastSlaCanSupervise { get; private set; }
+        public bool LastWorkbenchCanSupervise { get; private set; }
         public bool ThrowAssignmentConflict { get; init; }
         public bool ThrowDetailNotFound { get; init; }
         public AdminSupportTicketDto ClaimResult { get; } = new(
@@ -294,11 +543,14 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
 
         public Task<AdminSupportTicketDetailDto> GetDetailAsync(
             string adminUserId,
+            bool canHandle,
             bool canSupervise,
             Guid ticketPublicId,
             CancellationToken cancellationToken)
         {
             DetailCalls++;
+            LastDetailCanHandle = canHandle;
+            LastDetailCanSupervise = canSupervise;
             if (ThrowDetailNotFound)
             {
                 throw DomainProblemException.NotFound("The support ticket was not found.");
@@ -325,6 +577,7 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
             CancellationToken cancellationToken)
         {
             SlaQuery = query;
+            LastSlaCanSupervise = canSupervise;
             return Task.FromResult(new CursorPage<SupportSlaItemDto>([], null, false));
         }
 
@@ -334,7 +587,94 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
         {
             WorkbenchQuery = query;
             AuthorizedCaseTypes = authorizedCaseTypes.ToArray();
+            LastWorkbenchCanSupervise = canSupervise;
             return Task.FromResult(new CursorPage<CaseWorkbenchItemDto>([], null, false));
+        }
+
+        public bool ThrowAssignConflict { get; init; }
+        public int AssignCalls { get; private set; }
+        public int TransferCalls { get; private set; }
+        public int ChangePriorityCalls { get; private set; }
+        public int ChangeStatusCalls { get; private set; }
+        public int CancelCalls { get; private set; }
+        public int ReopenCalls { get; private set; }
+        public SupportTicketActionContext? LastContext { get; private set; }
+
+        public AdminSupportTicketDto AssignResult { get; } = new(
+            Guid.NewGuid(), "ST-ASSIGN", SupportTicketCategory.Other, "Assigned subject",
+            SupportTicketStatus.Assigned, CasePriority.Normal, null,
+            new AdminAssigneeSummaryDto(Guid.NewGuid(), "Target Agent"),
+            DateTime.UtcNow, DateTime.UtcNow, DateTime.UtcNow.AddHours(1), DateTime.UtcNow.AddHours(8),
+            null, null, null, 0, new byte[8]);
+
+        public Task<AdminSupportTicketDto> AssignAsync(
+            SupportTicketActionContext context, Guid ticketPublicId, AssignSupportTicketRequest request,
+            CancellationToken cancellationToken)
+        {
+            AssignCalls++;
+            LastContext = context;
+            if (ThrowAssignConflict)
+            {
+                throw DomainProblemException.Conflict(
+                    DomainErrorCodes.SupportTicketAssignmentConflict, "The ticket is no longer eligible to assign.");
+            }
+            return Task.FromResult(AssignResult);
+        }
+
+        public Task<AdminSupportTicketDto> TransferAsync(
+            SupportTicketActionContext context, Guid ticketPublicId, TransferSupportTicketRequest request,
+            CancellationToken cancellationToken)
+        {
+            TransferCalls++;
+            LastContext = context;
+            return Task.FromResult(AssignResult);
+        }
+
+        public Task<AdminSupportTicketDetailDto> ChangePriorityAsync(
+            SupportTicketActionContext context, Guid ticketPublicId, ChangeSupportTicketPriorityRequest request,
+            CancellationToken cancellationToken)
+        {
+            ChangePriorityCalls++;
+            LastContext = context;
+            return Task.FromResult(DetailResult);
+        }
+
+        public Task<AdminSupportTicketDetailDto> ChangeStatusAsync(
+            SupportTicketActionContext context, Guid ticketPublicId, ChangeSupportTicketStatusRequest request,
+            CancellationToken cancellationToken)
+        {
+            ChangeStatusCalls++;
+            LastContext = context;
+            return Task.FromResult(DetailResult);
+        }
+
+        public Task<AdminSupportTicketDetailDto> CancelAsync(
+            SupportTicketActionContext context, Guid ticketPublicId, CancelSupportTicketByAdminRequest request,
+            CancellationToken cancellationToken)
+        {
+            CancelCalls++;
+            LastContext = context;
+            return Task.FromResult(DetailResult);
+        }
+
+        public Task<AdminSupportTicketDetailDto> ReopenAsync(
+            SupportTicketActionContext context, Guid ticketPublicId, ReopenSupportTicketRequest request,
+            CancellationToken cancellationToken)
+        {
+            ReopenCalls++;
+            LastContext = context;
+            return Task.FromResult(DetailResult);
+        }
+
+        public int AddInternalNoteCalls { get; private set; }
+
+        public Task<AdminSupportTicketDetailDto> AddInternalNoteAsync(
+            SupportTicketActionContext context, Guid ticketPublicId, CreateInternalNoteRequest request,
+            CancellationToken cancellationToken)
+        {
+            AddInternalNoteCalls++;
+            LastContext = context;
+            return Task.FromResult(DetailResult);
         }
     }
 }

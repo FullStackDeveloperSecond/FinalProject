@@ -1,6 +1,7 @@
 using DoSelect.Application.Support.Admin;
 using DoSelect.Domain.Members;
 using DoSelect.Domain.Support;
+using DoSelect.Infrastructure.Auditing;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using DoSelect.Infrastructure.Persistence.Support.Admin;
@@ -129,7 +130,7 @@ public sealed class AdminSupportTicketClaimStoreTests : IClassFixture<WebApplica
             .AddInterceptors(new RejectAssignmentHistorySaveInterceptor())
             .Options;
         await using var db = new DoSelectDbContext(options);
-        var store = new AdminSupportTicketStore(db);
+        var store = new AdminSupportTicketStore(db, new EfAuditWriter(db, TimeProvider.System));
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => store.ClaimAsync(
             fixture.TicketPublicId,

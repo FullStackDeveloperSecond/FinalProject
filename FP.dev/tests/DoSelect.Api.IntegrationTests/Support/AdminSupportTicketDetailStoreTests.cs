@@ -2,6 +2,7 @@ using System.Data.Common;
 using DoSelect.Application.Support.Admin;
 using DoSelect.Domain.Members;
 using DoSelect.Domain.Support;
+using DoSelect.Infrastructure.Auditing;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using DoSelect.Infrastructure.Persistence.Support.Admin;
@@ -25,7 +26,7 @@ public sealed class AdminSupportTicketDetailStoreTests : IClassFixture<WebApplic
         var counter = new ReaderCommandCounter();
         await using var db = CreateCountingContext(counter);
 
-        var detail = await new AdminSupportTicketStore(db)
+        var detail = await new AdminSupportTicketStore(db, new EfAuditWriter(db, TimeProvider.System))
             .GetDetailAsync(fixture.TicketPublicId, "supervisor", true, CancellationToken.None);
 
         Assert.NotNull(detail);
@@ -85,7 +86,7 @@ public sealed class AdminSupportTicketDetailStoreTests : IClassFixture<WebApplic
         var counter = new ReaderCommandCounter();
         await using var db = CreateCountingContext(counter);
 
-        var detail = await new AdminSupportTicketStore(db).GetDetailAsync(Guid.NewGuid(), "supervisor", true, CancellationToken.None);
+        var detail = await new AdminSupportTicketStore(db, new EfAuditWriter(db, TimeProvider.System)).GetDetailAsync(Guid.NewGuid(), "supervisor", true, CancellationToken.None);
 
         Assert.Null(detail);
         Assert.Equal(1, counter.ReaderCommands);

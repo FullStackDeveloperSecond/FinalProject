@@ -32,6 +32,18 @@ public static class AuditActions
 
     // ⚠ alex review：30 分鐘 Lockout 必須跟中央 Audit 同一交易——見 AdminAuthController.Login。
     public const string AdminAccountLockout = "admin.account.lockout";
+
+    // DES-23: SupportTicket.Supervise/Handle admin actions. Each records only structured,
+    // safe-code before/after markers (never free-text reasons or assignee identities) — the
+    // admin-supplied free-text reason and the specific from/to admin identities live in the
+    // existing SupportAssignmentHistory/SupportStatusHistory tables, not in this audit trail.
+    public const string SupportTicketAssign = "support_ticket.assign";
+    public const string SupportTicketTransfer = "support_ticket.transfer";
+    public const string SupportTicketChangePriority = "support_ticket.change_priority";
+    public const string SupportTicketChangeStatus = "support_ticket.change_status";
+    public const string SupportTicketCancel = "support_ticket.cancel";
+    public const string SupportTicketReopen = "support_ticket.reopen";
+    public const string SupportTicketInternalNote = "support_ticket.internal_note";
 }
 
 public static class AuditResourceTypes
@@ -43,6 +55,7 @@ public static class AuditResourceTypes
     public const string AdminAccount = "AdminAccount";
     public const string Order = "Order";
     public const string Coupon = "Coupon";
+    public const string SupportTicket = "SupportTicket";
 }
 
 public static class AuditRoleNames
@@ -520,6 +533,34 @@ internal static class AuditWritePolicy
                 AuditActions.GuestOrderScopeViolation,
                 AuditResourceTypes.Order,
                 "scopeViolationCount"),
+            [AuditActions.SupportTicketAssign] = Definition(
+                AuditActions.SupportTicketAssign,
+                AuditResourceTypes.SupportTicket,
+                "assignee", "status"),
+            [AuditActions.SupportTicketTransfer] = Definition(
+                AuditActions.SupportTicketTransfer,
+                AuditResourceTypes.SupportTicket,
+                "assignee"),
+            [AuditActions.SupportTicketChangePriority] = Definition(
+                AuditActions.SupportTicketChangePriority,
+                AuditResourceTypes.SupportTicket,
+                "priority"),
+            [AuditActions.SupportTicketChangeStatus] = Definition(
+                AuditActions.SupportTicketChangeStatus,
+                AuditResourceTypes.SupportTicket,
+                "status"),
+            [AuditActions.SupportTicketCancel] = Definition(
+                AuditActions.SupportTicketCancel,
+                AuditResourceTypes.SupportTicket,
+                "status"),
+            [AuditActions.SupportTicketReopen] = Definition(
+                AuditActions.SupportTicketReopen,
+                AuditResourceTypes.SupportTicket,
+                "status"),
+            [AuditActions.SupportTicketInternalNote] = Definition(
+                AuditActions.SupportTicketInternalNote,
+                AuditResourceTypes.SupportTicket,
+                "note"),
         };
 
     public static AuditActionDefinition RequireDefinition(string action)

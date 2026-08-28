@@ -35,6 +35,14 @@ public sealed class TestAuthHandler : AuthenticationHandler<AuthenticationScheme
                 .RequireAuthenticatedUser()
                 .RequireClaim(DoSelectClaimTypes.AccountType, DoSelectClaimValues.Member)
                 .Build());
+            // DES-23 change-priority: bare Admin policy (no role requirement) — the entry gate
+            // for the endpoint that itself performs an imperative "Handle OR Supervise" role
+            // check, since ASP.NET Core cannot compose two named policies with OR declaratively.
+            options.AddPolicy(DoSelectPolicies.Admin, new AuthorizationPolicyBuilder(SchemeName)
+                .RequireAuthenticatedUser()
+                .RequireClaim(DoSelectClaimTypes.AccountType, DoSelectClaimValues.Admin)
+                .RequireClaim(DoSelectClaimTypes.AuthenticationMethod, DoSelectClaimValues.MultiFactor)
+                .Build());
             options.AddPolicy(DoSelectPolicies.SupportTicketHandle, new AuthorizationPolicyBuilder(SchemeName)
                 .RequireAuthenticatedUser()
                 .RequireClaim(DoSelectClaimTypes.AccountType, DoSelectClaimValues.Admin)

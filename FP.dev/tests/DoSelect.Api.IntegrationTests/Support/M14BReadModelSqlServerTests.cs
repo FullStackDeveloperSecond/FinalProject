@@ -154,18 +154,16 @@ public sealed class M14BReadModelSqlServerTests : IClassFixture<WebApplicationFa
             await db.SaveChangesAsync();
         }
 
+        var agentSla = await QueryAllScopedSlaAsync(now, agentA.UserId, canSupervise: false);
+        var supervisorSla = await QueryAllScopedSlaAsync(now, agentA.UserId, canSupervise: true);
+
+        Assert.Contains(agentSla, item => item.TicketPublicId == unassigned.PublicId);
+        Assert.Contains(agentSla, item => item.TicketPublicId == assignedA.PublicId);
+        Assert.DoesNotContain(agentSla, item => item.TicketPublicId == assignedB.PublicId);
+        Assert.Contains(supervisorSla, item => item.TicketPublicId == assignedB.PublicId);
+
         using var scope = _factory.Services.CreateScope();
         var scopedDb = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
-        var agentSla = await new SupportSlaQueueStore(scopedDb).QueryPageAsync(
-            100, null, now, agentA.UserId, canSupervise: false, CancellationToken.None);
-        var supervisorSla = await new SupportSlaQueueStore(scopedDb).QueryPageAsync(
-            100, null, now, agentA.UserId, canSupervise: true, CancellationToken.None);
-
-        Assert.Contains(agentSla.Items, item => item.TicketPublicId == unassigned.PublicId);
-        Assert.Contains(agentSla.Items, item => item.TicketPublicId == assignedA.PublicId);
-        Assert.DoesNotContain(agentSla.Items, item => item.TicketPublicId == assignedB.PublicId);
-        Assert.Contains(supervisorSla.Items, item => item.TicketPublicId == assignedB.PublicId);
-
         var agentWorkbench = await new CaseWorkbenchStore(scopedDb).QueryPageAsync(
             [CaseWorkbenchCaseType.Support],
             statuses: null,
@@ -196,7 +194,13 @@ public sealed class M14BReadModelSqlServerTests : IClassFixture<WebApplicationFa
         Assert.DoesNotContain(agentWorkbench.Items, item => item.CasePublicId == assignedB.PublicId);
         Assert.Contains(supervisorWorkbench.Items, item => item.CasePublicId == assignedB.PublicId);
     }
-    private async Task<IReadOnlyList<SupportSlaItemDto>> QueryAllSlaAsync(DateTime now)
+    private Task<IReadOnlyList<SupportSlaItemDto>> QueryAllSlaAsync(DateTime now) =>
+        QueryAllScopedSlaAsync(now, "sql-test-supervisor", canSupervise: true);
+
+    private async Task<IReadOnlyList<SupportSlaItemDto>> QueryAllScopedSlaAsync(
+        DateTime now,
+        string adminUserId,
+        bool canSupervise)
     {
         var items = new List<SupportSlaItemDto>();
         SupportSlaCursorPosition? after = null;
@@ -206,7 +210,7 @@ public sealed class M14BReadModelSqlServerTests : IClassFixture<WebApplicationFa
             using var scope = _factory.Services.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
             var page = await new SupportSlaQueueStore(db).QueryPageAsync(
-                100, after, now, "sql-test-supervisor", canSupervise: true, CancellationToken.None);
+                100, after, now, adminUserId, canSupervise, CancellationToken.None);
             items.AddRange(page.Items);
 
             if (!page.HasMore)

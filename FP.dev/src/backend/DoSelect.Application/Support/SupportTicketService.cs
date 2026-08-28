@@ -204,7 +204,9 @@ public sealed class SupportTicketService : ISupportTicketService
                 ticket.Id,
                 SupportSlaEventType.Resumed,
                 SupportSlaTargetType.Resolution,
-                ticket.ResolutionDueAtUtc.AddSeconds(ticket.PausedSeconds),
+                DateTime.SpecifyKind(
+                    ticket.ResolutionDueAtUtc.AddSeconds(ticket.PausedSeconds),
+                    DateTimeKind.Utc),
                 resumedSeconds,
                 nowUtc,
                 metadataJson: null);

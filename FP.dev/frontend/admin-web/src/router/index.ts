@@ -54,6 +54,14 @@ const router = createRouter({
       component: () => import('../pages/support/SupportTicketDetailPage.vue'),
     },
     {
+      // A-24 案件工作台 (M功能桌面UI與Route規格.md): documented as /admin/cases — this app is
+      // already mounted under the /admin base path (see createWebHistory(BASE_URL) above), so
+      // the route is defined here without that prefix, matching every other route in this file.
+      path: '/cases',
+      name: 'case-workbench',
+      component: () => import('../pages/case-workbench/CaseWorkbenchPage.vue'),
+    },
+    {
       // Confirmed Route contract (M功能桌面UI與Route規格.md A-08): one page manages
       // brand／category／tag together, not three separate routes.
       path: '/catalog/lookups',

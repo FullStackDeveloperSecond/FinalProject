@@ -1273,6 +1273,321 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/support-tickets/{id}/actions/assign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AssignSupportTicketRequest"];
+                    "text/json": components["schemas"]["AssignSupportTicketRequest"];
+                    "application/*+json": components["schemas"]["AssignSupportTicketRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminSupportTicketDto"];
+                        "application/json": components["schemas"]["AdminSupportTicketDto"];
+                        "text/json": components["schemas"]["AdminSupportTicketDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/support-tickets/{id}/actions/transfer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["TransferSupportTicketRequest"];
+                    "text/json": components["schemas"]["TransferSupportTicketRequest"];
+                    "application/*+json": components["schemas"]["TransferSupportTicketRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminSupportTicketDto"];
+                        "application/json": components["schemas"]["AdminSupportTicketDto"];
+                        "text/json": components["schemas"]["AdminSupportTicketDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/support-tickets/{id}/actions/change-priority": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ChangeSupportTicketPriorityRequest"];
+                    "text/json": components["schemas"]["ChangeSupportTicketPriorityRequest"];
+                    "application/*+json": components["schemas"]["ChangeSupportTicketPriorityRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminSupportTicketDetailDto"];
+                        "application/json": components["schemas"]["AdminSupportTicketDetailDto"];
+                        "text/json": components["schemas"]["AdminSupportTicketDetailDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/support-tickets/{id}/actions/change-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ChangeSupportTicketStatusRequest"];
+                    "text/json": components["schemas"]["ChangeSupportTicketStatusRequest"];
+                    "application/*+json": components["schemas"]["ChangeSupportTicketStatusRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminSupportTicketDetailDto"];
+                        "application/json": components["schemas"]["AdminSupportTicketDetailDto"];
+                        "text/json": components["schemas"]["AdminSupportTicketDetailDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/support-tickets/{id}/actions/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CancelSupportTicketByAdminRequest"];
+                    "text/json": components["schemas"]["CancelSupportTicketByAdminRequest"];
+                    "application/*+json": components["schemas"]["CancelSupportTicketByAdminRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminSupportTicketDetailDto"];
+                        "application/json": components["schemas"]["AdminSupportTicketDetailDto"];
+                        "text/json": components["schemas"]["AdminSupportTicketDetailDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/support-tickets/{id}/actions/reopen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ReopenSupportTicketRequest"];
+                    "text/json": components["schemas"]["ReopenSupportTicketRequest"];
+                    "application/*+json": components["schemas"]["ReopenSupportTicketRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminSupportTicketDetailDto"];
+                        "application/json": components["schemas"]["AdminSupportTicketDetailDto"];
+                        "text/json": components["schemas"]["AdminSupportTicketDetailDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/support-tickets/{id}/internal-notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateInternalNoteRequest"];
+                    "text/json": components["schemas"]["CreateInternalNoteRequest"];
+                    "application/*+json": components["schemas"]["CreateInternalNoteRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminSupportTicketDetailDto"];
+                        "application/json": components["schemas"]["AdminSupportTicketDetailDto"];
+                        "text/json": components["schemas"]["AdminSupportTicketDetailDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/support-tickets/sla": {
         parameters: {
             query?: never;
@@ -3774,6 +4089,13 @@ export interface components {
         AssemblyFeeDisposition: "notApplicable" | "notStarted" | "merchantCancelled" | "assemblyFault" | "merchantFaultWholeUnit" | "completedPartialReturn" | null;
         /** @enum {unknown} */
         AssemblyStatus: "notRequired" | "pending" | "started" | "testing" | "readyToShip" | "failed" | "cancelled";
+        AssignSupportTicketRequest: {
+            /** Format: uuid */
+            targetAdminPublicId: string;
+            reason?: string;
+            /** Format: byte */
+            rowVersion?: string;
+        };
         AuthSessionDto: {
             isAuthenticated: boolean;
             user?: null | components["schemas"]["CurrentUserDto"];
@@ -3804,6 +4126,11 @@ export interface components {
             note: null | string;
             /** Format: byte */
             orderRowVersion: string;
+        };
+        CancelSupportTicketByAdminRequest: {
+            reason?: string;
+            /** Format: byte */
+            rowVersion?: string;
         };
         CancelSupportTicketRequest: {
             reasonCode: string;
@@ -3955,6 +4282,18 @@ export interface components {
             /** Format: uuid */
             publicId: string;
         };
+        ChangeSupportTicketPriorityRequest: {
+            priority: components["schemas"]["CasePriority"];
+            reason?: string;
+            /** Format: byte */
+            rowVersion?: string;
+        };
+        ChangeSupportTicketStatusRequest: {
+            status: components["schemas"]["SupportTicketStatus"];
+            reason?: null | string;
+            /** Format: byte */
+            rowVersion?: string;
+        };
         ClaimSupportTicketRequest: {
             /** Format: byte */
             rowVersion?: string;
@@ -3983,6 +4322,11 @@ export interface components {
             /** Format: int32 */
             sortOrder: number | string;
             isActive: boolean;
+        };
+        CreateInternalNoteRequest: {
+            body?: string;
+            /** Format: byte */
+            rowVersion?: string;
         };
         CreateProductRequest: {
             productCode: string;
@@ -4485,6 +4829,11 @@ export interface components {
             /** Format: byte */
             itemRowVersion: string;
         };
+        ReopenSupportTicketRequest: {
+            reason?: string;
+            /** Format: byte */
+            rowVersion?: string;
+        };
         /** @enum {unknown} */
         RestockDisposition: "resellable" | "quarantine" | "scrap" | null;
         ReturnAttachmentDto: {
@@ -4866,6 +5215,13 @@ export interface components {
             /** Format: uuid */
             challengePublicId: string;
             code: string;
+        };
+        TransferSupportTicketRequest: {
+            /** Format: uuid */
+            targetAdminPublicId: string;
+            reason?: string;
+            /** Format: byte */
+            rowVersion?: string;
         };
         UpdateBrandRequest: {
             nameZhTw: string;

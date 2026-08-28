@@ -7,18 +7,29 @@ import SupportTicketDetailPage from './SupportTicketDetailPage.vue'
 const supportMocks = await vi.hoisted(async () => {
   const { ref } = await import('vue')
 
+  function newMutationMock() {
+    return {
+      isPending: ref(false),
+      isError: ref(false),
+      error: ref<unknown>(null),
+      mutateAsync: vi.fn(),
+    }
+  }
+
   return {
     ticket: ref<Record<string, unknown> | null>(null),
     ticketPending: ref(false),
     ticketError: ref(false),
     ticketFailure: ref<unknown>(null),
     refetch: vi.fn(),
-    claim: {
-      isPending: ref(false),
-      isError: ref(false),
-      error: ref<unknown>(null),
-      mutateAsync: vi.fn(),
-    },
+    claim: newMutationMock(),
+    assign: newMutationMock(),
+    transfer: newMutationMock(),
+    changePriority: newMutationMock(),
+    changeStatus: newMutationMock(),
+    cancel: newMutationMock(),
+    reopen: newMutationMock(),
+    internalNote: newMutationMock(),
   }
 })
 
@@ -31,6 +42,13 @@ vi.mock('../../features/support/queries', () => ({
     refetch: supportMocks.refetch,
   }),
   useClaimSupportTicketMutation: () => supportMocks.claim,
+  useAssignSupportTicketMutation: () => supportMocks.assign,
+  useTransferSupportTicketMutation: () => supportMocks.transfer,
+  useChangeSupportTicketPriorityMutation: () => supportMocks.changePriority,
+  useChangeSupportTicketStatusMutation: () => supportMocks.changeStatus,
+  useCancelSupportTicketByAdminMutation: () => supportMocks.cancel,
+  useReopenSupportTicketMutation: () => supportMocks.reopen,
+  useAddInternalNoteMutation: () => supportMocks.internalNote,
 }))
 
 const ticketId = '018f2e6a-0000-7000-8000-000000000001'
@@ -110,10 +128,21 @@ describe('SupportTicketDetailPage', () => {
     supportMocks.ticketError.value = false
     supportMocks.ticketFailure.value = null
     supportMocks.refetch.mockReset()
-    supportMocks.claim.isPending.value = false
-    supportMocks.claim.isError.value = false
-    supportMocks.claim.error.value = null
-    supportMocks.claim.mutateAsync.mockReset().mockResolvedValue(undefined)
+    for (const mock of [
+      supportMocks.claim,
+      supportMocks.assign,
+      supportMocks.transfer,
+      supportMocks.changePriority,
+      supportMocks.changeStatus,
+      supportMocks.cancel,
+      supportMocks.reopen,
+      supportMocks.internalNote,
+    ]) {
+      mock.isPending.value = false
+      mock.isError.value = false
+      mock.error.value = null
+      mock.mutateAsync.mockReset().mockResolvedValue(undefined)
+    }
   })
 
   it('renders the public-safe detail and distinguishes an admin internal note', async () => {
@@ -214,5 +243,31 @@ describe('SupportTicketDetailPage', () => {
     await alert.get('button').trigger('click')
     expect(supportMocks.refetch).toHaveBeenCalledOnce()
     expect(escapedErrorHandler).not.toHaveBeenCalled()
+  })
+
+  it('DES-23: gates the internal note form on the availableActions token and submits the RowVersion', async () => {
+    supportMocks.ticket.value = sampleTicket(['internal-note'])
+    const wrapper = await mountPage()
+
+    expect(wrapper.text()).toContain('新增內部備註')
+    expect(wrapper.text()).toContain('會員永遠看不到這則內容')
+    const textarea = wrapper.get('textarea')
+    await textarea.setValue('內部備註內容')
+    // sampleTicket(['internal-note']) offers no other action, so the internal-note form's own
+    // submit button is the only <button> on the page.
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+
+    expect(supportMocks.internalNote.mutateAsync).toHaveBeenCalledWith({
+      body: '內部備註內容',
+      rowVersion: 'AAAAAAAAAAE=',
+    })
+  })
+
+  it('DES-23: hides the internal note form when availableActions omits it', async () => {
+    const wrapper = await mountPage()
+
+    expect(wrapper.text()).not.toContain('新增內部備註')
+    expect(wrapper.find('textarea').exists()).toBe(false)
   })
 })

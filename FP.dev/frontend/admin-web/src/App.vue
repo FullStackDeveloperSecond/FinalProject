@@ -78,6 +78,9 @@ async function onLogout(): Promise<void> {
           <RouterLink to="/returns">
             退貨案件
           </RouterLink>
+          <RouterLink to="/cases">
+            案件工作台
+          </RouterLink>
         </nav>
       </aside>
       <main class="site-main">
