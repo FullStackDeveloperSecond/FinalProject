@@ -607,8 +607,14 @@ public sealed class RefundExecutorSqlServerTests
         // 寫冪等紀錄，兩筆同時進來時其中一筆會被對方的鍵範圍鎖擋住，直到對方提交。
         // 這裡的 Barrier 只在交易之外讓兩個執行緒同時起跑，本身不構成併發證據 ——
         // 證據是下面對「交易重跑次數」與「交易內被擋住多久」的量測。
-        var firstProbe = new ConcurrencyProbeInterceptor();
-        var secondProbe = new ConcurrencyProbeInterceptor();
+        // 第一筆在讀完可退款餘額之後、寫入之前，把交易多握住一段時間。此時它已經
+        // 持有 Refunds(OrderId) 的 Serializable 範圍鎖，第二筆的寫入必定卡在上面；
+        // 放行後兩邊互相需要對方的鎖，由資料庫判定死結並讓其中一筆整段重跑。
+        //
+        // 這個持有是**單向**的：只等時間，不等對方，所以不會在持有鎖時互等。
+        // 沒有它的話，兩筆在滿載的完整測試回合中仍可能錯開而循序完成。
+        var firstProbe = new ConcurrencyProbeInterceptor(TimeSpan.FromSeconds(2));
+        var secondProbe = new ConcurrencyProbeInterceptor(TimeSpan.Zero);
 
         await using var firstContext = RefundExecutorSqlFixture.CreateContext(firstProbe);
         await using var secondContext = RefundExecutorSqlFixture.CreateContext(secondProbe);
@@ -815,12 +821,22 @@ public sealed class RefundExecutorSqlServerTests
         /// <summary>共用 Executor 每執行一次交易本體，就會寫一次冪等紀錄。</summary>
         private const string TransactionBodyMarker = "INSERT INTO [IdempotencyRecords]";
 
+        /// <summary>可退款餘額的第二段：其他已成功退款的累計，會鎖住 Refunds(OrderId)。</summary>
+        private const string BalanceReadMarker = "SUM([r].[SucceededAmount])";
+
         private readonly System.Diagnostics.Stopwatch _clock =
             System.Diagnostics.Stopwatch.StartNew();
+
+        private readonly TimeSpan _holdAfterBalanceRead;
 
         private int _transactionAttempts;
         private long _previousCommandTicks;
         private long _longestGapTicks;
+        private bool _balanceRead;
+        private int _held;
+
+        public ConcurrencyProbeInterceptor(TimeSpan holdAfterBalanceRead) =>
+            _holdAfterBalanceRead = holdAfterBalanceRead;
 
         public int TransactionAttempts => Volatile.Read(ref _transactionAttempts);
 
@@ -849,6 +865,15 @@ public sealed class RefundExecutorSqlServerTests
 
         private void Observe(DbCommand command)
         {
+            // 餘額讀完後的下一道命令送出前先持有交易。此時範圍鎖已經拿到手。
+            if (_balanceRead &&
+                _holdAfterBalanceRead > TimeSpan.Zero &&
+                Interlocked.CompareExchange(ref _held, 1, 0) == 0)
+            {
+                Thread.Sleep(_holdAfterBalanceRead);
+            }
+
+            // 自己刻意的持有不算「被對方擋住」，所以計時點放在持有之後。
             var now = _clock.Elapsed.Ticks;
             var previous = Interlocked.Exchange(ref _previousCommandTicks, now);
             if (previous > 0 && now - previous > Volatile.Read(ref _longestGapTicks))
@@ -859,6 +884,11 @@ public sealed class RefundExecutorSqlServerTests
             if (command.CommandText.Contains(TransactionBodyMarker, StringComparison.Ordinal))
             {
                 Interlocked.Increment(ref _transactionAttempts);
+            }
+
+            if (command.CommandText.Contains(BalanceReadMarker, StringComparison.Ordinal))
+            {
+                _balanceRead = true;
             }
         }
     }
