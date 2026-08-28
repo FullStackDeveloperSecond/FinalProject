@@ -123,6 +123,11 @@ public interface ICartService
     /// <c>BeginTransactionAsync</c> needed), so a mid-way failure can never leave the group
     /// half-removed. Cart-level (not item-level) RowVersion, since a group spans multiple rows and
     /// there is no single item RowVersion that could represent it.
+    ///
+    /// 組長 PR #29 round 8 review, P2: removing a group does NOT resolve any
+    /// <c>CartMergeConflict</c>. Conflicts only ever belong to ordinary items, so a group that
+    /// merely shares a SKU with a conflicted ordinary item is not the member acting on that item;
+    /// only that item's own Update／Remove clears it. See EfCartService for the full reasoning.
     /// </summary>
     Task<CartDto> RemoveAssemblyGroupAsync(
         CartIdentity identity,

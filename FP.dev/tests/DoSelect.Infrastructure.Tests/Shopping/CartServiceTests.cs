@@ -1325,6 +1325,74 @@ public sealed class CartServiceTests
         Assert.Empty(recovered.Issues);
     }
 
+    /// <summary>
+    /// 組長 PR #29 round 8 review (P2) 回歸：普通品項有未解 merge 衝突，而另一個組裝群組「剛好」
+    /// 也含同一個 SKU 時，移除該群組不得清掉普通品項的衝突。修正前 RemoveAssemblyGroupAsync 會對
+    /// 群組內每個 SKU 呼叫 ResolveConflictsForSkuAsync，而該 helper 只以 MemberCartId + SkuPublicId
+    /// 比對、不分辨衝突屬於哪一列，於是普通品項的數量從未被調整，Checkout Gate 卻被錯誤解除。
+    /// </summary>
+    [Fact]
+    public async Task RemoveAssemblyGroupAsync_WhenAnOrdinaryItemWithTheSameSkuHasAnUnresolvedConflict_KeepsItBlockingCheckout()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var service = CreateService(context);
+        var sharedSku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 100m);
+        var boardSku = await _fixture.SeedPublishedSkuAsync(context, listPrice: 3000m);
+        var memberUserId = await CartServiceFixture.SeedMemberUserIdAsync(context);
+        var guestKey = CartServiceFixture.UniqueGuestKey();
+        var memberIdentity = new CartIdentity(memberUserId, null);
+
+        // 1-2. 普通 SKU 在會員與訪客車都存在，合併後超過 99 → 留下未解衝突。
+        await service.AddItemAsync(new CartIdentity(null, guestKey), new AddCartItemRequest(sharedSku.PublicId, 60, null), CancellationToken.None);
+        await service.AddItemAsync(memberIdentity, new AddCartItemRequest(sharedSku.PublicId, 50, null), CancellationToken.None);
+        await service.MergeAsync(
+            memberUserId,
+            new CartMergeRequest(guestKey, "mergeAndReportConflicts", "idem-group-removal-must-not-resolve"),
+            CancellationToken.None);
+
+        var blockedBefore = await service.RevalidateAsync(memberIdentity, CancellationToken.None);
+        Assert.False(blockedBefore.IsCheckoutReady);
+        Assert.Contains(blockedBefore.Issues, i => i.Code == ShoppingWriteException.ErrorCodes.CartMergeConflict);
+
+        // 3. 同一台購物車另加一個組裝群組，其中一顆零件刻意用同一個 SKU。
+        var perUnitItems = new[]
+        {
+            new AssemblyGroupItemInput(sharedSku.PublicId, 1),
+            new AssemblyGroupItemInput(boardSku.PublicId, 1),
+        };
+        var withGroup = await service.AddAssemblyGroupsAsync(memberIdentity, perUnitItems, unitCount: 1, CancellationToken.None);
+        var groupKey = withGroup.Items
+            .Where(item => item.AssemblyGroupKey is not null)
+            .Select(item => item.AssemblyGroupKey!.Value)
+            .Distinct()
+            .Single();
+
+        // 4. 只移除組裝群組——完全沒有碰普通品項的數量。
+        var afterRemoval = await service.RemoveAssemblyGroupAsync(
+            memberIdentity, groupKey, withGroup.RowVersion, CancellationToken.None);
+
+        Assert.DoesNotContain(afterRemoval.Items, item => item.AssemblyGroupKey is not null);
+        var ordinaryItem = Assert.Single(afterRemoval.Items, item => item.SkuPublicId == sharedSku.PublicId);
+        Assert.Equal(50, ordinaryItem.Quantity);
+
+        // 5. 普通品項的衝突必須仍然存在並繼續擋住 Checkout。
+        var stillBlocked = await service.RevalidateAsync(memberIdentity, CancellationToken.None);
+        Assert.False(stillBlocked.IsCheckoutReady);
+        Assert.Contains(stillBlocked.Issues, i => i.Code == ShoppingWriteException.ErrorCodes.CartMergeConflict);
+        Assert.True(await context.CartMergeConflicts.AnyAsync(conflict =>
+            conflict.SkuPublicId == sharedSku.PublicId && conflict.ResolvedAtUtc == null));
+
+        // 而普通品項自己的 Update 仍是唯一能解除它的途徑（確認沒有把解除路徑一起改壞）。
+        await service.UpdateItemQuantityAsync(
+            memberIdentity,
+            ordinaryItem.PublicId,
+            new UpdateCartItemRequest(70, ordinaryItem.RowVersion, afterRemoval.RowVersion),
+            CancellationToken.None);
+
+        var recovered = await service.RevalidateAsync(memberIdentity, CancellationToken.None);
+        Assert.True(recovered.IsCheckoutReady);
+    }
+
     [Fact]
     public async Task RemoveAssemblyGroupAsync_WithOneOfSeveralGroups_RemovesOnlyThatGroup()
     {

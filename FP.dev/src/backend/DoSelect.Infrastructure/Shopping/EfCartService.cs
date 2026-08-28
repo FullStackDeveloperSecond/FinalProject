@@ -277,14 +277,17 @@ public sealed class EfCartService : ICartService
         _dbContext.CartItems.RemoveRange(groupItems);
         cart.ExtendExpiry(now.Add(CartLifetime), now);
 
-        // Every SKU the group referenced may have had an unresolved merge conflict against it —
-        // none of them are in the cart anymore for that conflict to keep blocking, same reasoning
-        // as RemoveItemAsync's own single-item call below.
-        foreach (var skuId in groupItems.Select(item => item.SkuId).Distinct())
-        {
-            await ResolveConflictsForSkuAsync(cart, skuId, ConflictResolvedByRemoval, now, cancellationToken);
-        }
-
+        // 組長 PR #29 round 8 review, P2: deliberately does NOT resolve merge conflicts for the
+        // removed group's SKUs. A persisted CartMergeConflict can only ever belong to an ordinary
+        // item: ExecuteMergeAsync creates the CartQuantityExceeded one solely inside its
+        // `guestItem.AssemblyGroupKey is null` branch, matching against a member row itself
+        // filtered to `AssemblyGroupKey == null` (assembly groups always land as brand-new rows and
+        // never combine), and ResolveConflictsForSkuAsync already excludes the only other reason,
+        // CartItemLimitExceeded. So a group that merely happens to contain the same SKU as a
+        // conflicted ordinary item is not the member acting on that item — resolving here would
+        // clear a conflict whose quantity was never touched and could wrongly reopen the Checkout
+        // gate. The ordinary item's own Update／Remove paths (which reject assembly rows outright)
+        // remain the only way to resolve it.
         await SaveWithConcurrencyCheckAsync(cancellationToken);
 
         return await MapCartAsync(cart, cancellationToken);
