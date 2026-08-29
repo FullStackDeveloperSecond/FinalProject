@@ -93,9 +93,17 @@ public sealed record CouponProductOption(
     ProductOptionStatus Status,
     bool IsSelectable);
 
+/// <summary>
+/// 一頁商品搜尋結果。
+/// </summary>
+/// <param name="HasMore">還有下一頁；呼叫端把 <c>pageNumber</c> 加一再問一次。</param>
+/// <remarks>
+/// <b>刻意沒有總筆數。</b>先前這裡是 <c>TotalCount</c>，但填的是這一頁的筆數 ——
+/// 有下一頁時它不是總數，是個會誤導呼叫端的數字。真正的總數要多一次 <c>COUNT</c>，
+/// 而 picker 只需要知道「還有沒有更多」，所以不提供比提供一個假的好。
+/// </remarks>
 public sealed record CouponProductSearchResult(
     IReadOnlyList<CouponProductOption> Items,
-    int TotalCount,
     bool HasMore);
 
 /// <summary>
@@ -117,11 +125,19 @@ public interface ICouponCatalogOptionsReader
     /// 關鍵字搜尋可新增的商品。
     /// </summary>
     /// <remarks>
+    /// <para>
     /// 只回 <see cref="CouponCatalogOptionRules.IsSelectable"/> 為 <c>true</c> 的狀態 ——
     /// 搜尋結果是「可以加進來的東西」，停售商品不該出現在這裡。
+    /// </para>
+    /// <para>
+    /// <paramref name="pageNumber"/> 由 1 起算。排序用 <c>ProductCode</c>，那是唯一索引，
+    /// 所以翻頁的順序是完整且穩定的 —— 排序鍵不唯一的話，同一筆可能同時出現在兩頁、
+    /// 也可能兩頁都漏掉。
+    /// </para>
     /// </remarks>
     Task<CouponProductSearchResult> SearchProductsAsync(
         string? keyword,
+        int pageNumber,
         int pageSize,
         CancellationToken cancellationToken = default);
 
@@ -148,6 +164,10 @@ public sealed class CouponProductSearchRequest
 {
     [StringLength(160)]
     public string? Q { get; init; }
+
+    /// <remarks>由 1 起算。</remarks>
+    [Range(1, int.MaxValue)]
+    public int PageNumber { get; init; } = 1;
 
     [Range(1, CouponCatalogOptionRules.MaximumSearchPageSize)]
     public int PageSize { get; init; } = 20;

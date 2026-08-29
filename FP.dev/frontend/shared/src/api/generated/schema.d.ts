@@ -1389,6 +1389,7 @@ export interface paths {
             parameters: {
                 query?: {
                     Q?: string;
+                    PageNumber?: number | string;
                     PageSize?: number | string;
                 };
                 header?: never;
@@ -6940,8 +6941,6 @@ export interface components {
         };
         CouponProductSearchResult: {
             items: components["schemas"]["CouponProductOption"][];
-            /** Format: int32 */
-            totalCount: number | string;
             hasMore: boolean;
         };
         CouponScopeDto: {

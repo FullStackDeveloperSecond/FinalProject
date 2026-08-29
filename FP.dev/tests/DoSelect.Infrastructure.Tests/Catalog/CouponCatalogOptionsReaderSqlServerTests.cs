@@ -116,7 +116,7 @@ public sealed class CouponCatalogOptionsReaderSqlServerTests
         var dead = await SeedProductAsync(context, ProductStatus.Discontinued, live.Keyword);
         var reader = new CouponCatalogOptionsReader(context);
 
-        var found = await reader.SearchProductsAsync(live.Keyword, pageSize: 20);
+        var found = await reader.SearchProductsAsync(live.Keyword, pageNumber: 1, pageSize: 20);
 
         Assert.Contains(found.Items, item => item.PublicId == live.PublicId);
         Assert.DoesNotContain(found.Items, item => item.PublicId == dead.PublicId);
@@ -202,10 +202,78 @@ public sealed class CouponCatalogOptionsReaderSqlServerTests
 
         var reader = new CouponCatalogOptionsReader(context);
 
-        var page = await reader.SearchProductsAsync(keyword, pageSize: 2);
+        var page = await reader.SearchProductsAsync(keyword, pageNumber: 1, pageSize: 2);
 
         Assert.Equal(2, page.Items.Count);
         Assert.True(page.HasMore);
+    }
+
+    [SqlServerFact]
+    public async Task TheSecondPageContinuesWhereTheFirstStoppedWithoutRepeating()
+    {
+        // alex #69 P2：先前只有 pageSize、沒有 pageNumber，所以 hasMore 回 true 時
+        // 呼叫端也拿不到第二頁 —— 我宣告了一個沒有出口的狀態。
+        await using var context = _fixture.CreateContext(out _);
+        var keyword = $"PAGE{Guid.NewGuid():N}"[..12];
+        for (var index = 0; index < 5; index++)
+        {
+            await SeedProductAsync(context, ProductStatus.Published, keyword);
+        }
+
+        var reader = new CouponCatalogOptionsReader(context);
+
+        var first = await reader.SearchProductsAsync(keyword, pageNumber: 1, pageSize: 2);
+        var second = await reader.SearchProductsAsync(keyword, pageNumber: 2, pageSize: 2);
+        var third = await reader.SearchProductsAsync(keyword, pageNumber: 3, pageSize: 2);
+
+        Assert.Equal(2, first.Items.Count);
+        Assert.Equal(2, second.Items.Count);
+        Assert.Single(third.Items);
+        Assert.True(first.HasMore);
+        Assert.True(second.HasMore);
+        Assert.False(third.HasMore);
+
+        // 三頁加起來剛好是全部五筆，而且沒有一筆重複 —— 兩者都要驗：
+        // 只驗「沒重複」的話，漏掉一筆也會通過。
+        var all = first.Items.Concat(second.Items).Concat(third.Items)
+            .Select(item => item.PublicId)
+            .ToArray();
+        Assert.Equal(5, all.Length);
+        Assert.Equal(5, all.Distinct().Count());
+    }
+
+    [SqlServerFact]
+    public async Task APageBeyondTheEndComesBackEmptyRatherThanWrappingAround()
+    {
+        await using var context = _fixture.CreateContext(out _);
+        var keyword = $"END{Guid.NewGuid():N}"[..12];
+        await SeedProductAsync(context, ProductStatus.Published, keyword);
+        var reader = new CouponCatalogOptionsReader(context);
+
+        var beyond = await reader.SearchProductsAsync(keyword, pageNumber: 9, pageSize: 20);
+
+        Assert.Empty(beyond.Items);
+        Assert.False(beyond.HasMore);
+    }
+
+    [SqlServerFact]
+    public async Task ThePageSizeStaysCappedNoMatterWhatTheCallerAsksFor()
+    {
+        // 上限 50 是契約的一部分；Reader 自己也要夾住，不能只靠 request 的 Range 屬性 ——
+        // 這個埠不只被 Controller 呼叫。
+        await using var context = _fixture.CreateContext(out _);
+        var keyword = $"CAPX{Guid.NewGuid():N}"[..12];
+        for (var index = 0; index < 3; index++)
+        {
+            await SeedProductAsync(context, ProductStatus.Published, keyword);
+        }
+
+        var reader = new CouponCatalogOptionsReader(context);
+
+        var page = await reader.SearchProductsAsync(keyword, pageNumber: 1, pageSize: 5_000);
+
+        Assert.Equal(3, page.Items.Count);
+        Assert.False(page.HasMore);
     }
 
     private sealed record SeededCategories(

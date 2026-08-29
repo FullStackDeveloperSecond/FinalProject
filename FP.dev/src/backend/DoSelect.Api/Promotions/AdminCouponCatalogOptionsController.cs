@@ -58,8 +58,14 @@ public sealed class AdminCouponCatalogOptionsController : ControllerBase
     /// 關鍵字搜尋可新增的商品。
     /// </summary>
     /// <remarks>
+    /// <para>
     /// 只回可新增的狀態（<c>Draft</c>／<c>Published</c>／<c>Unpublished</c>）——
     /// 搜尋結果是「可以加進來的東西」，已停售的商品不該出現在這裡。
+    /// </para>
+    /// <para>
+    /// <c>pageNumber</c> 由 1 起算，<c>pageSize</c> 上限 50。回應的 <c>hasMore</c>
+    /// 為 <c>true</c> 時，把 <c>pageNumber</c> 加一再問一次。
+    /// </para>
     /// </remarks>
     [HttpGet("products")]
     [ProducesResponseType<CouponProductSearchResult>(StatusCodes.Status200OK)]
@@ -68,7 +74,11 @@ public sealed class AdminCouponCatalogOptionsController : ControllerBase
         [FromQuery] CouponProductSearchRequest request,
         CancellationToken cancellationToken)
     {
-        return Ok(await _reader.SearchProductsAsync(request.Q, request.PageSize, cancellationToken));
+        return Ok(await _reader.SearchProductsAsync(
+            request.Q,
+            request.PageNumber,
+            request.PageSize,
+            cancellationToken));
     }
 
     /// <summary>

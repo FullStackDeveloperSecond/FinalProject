@@ -82,10 +82,12 @@ public sealed class CouponCatalogOptionsReader : ICouponCatalogOptionsReader
 
     public async Task<CouponProductSearchResult> SearchProductsAsync(
         string? keyword,
+        int pageNumber,
         int pageSize,
         CancellationToken cancellationToken = default)
     {
         var size = Math.Clamp(pageSize, 1, CouponCatalogOptionRules.MaximumSearchPageSize);
+        var page = Math.Max(pageNumber, 1);
         var trimmed = keyword?.Trim();
 
         var query = _context.Products.AsNoTracking()
@@ -100,8 +102,12 @@ public sealed class CouponCatalogOptionsReader : ICouponCatalogOptionsReader
         }
 
         // 多取一筆來判斷還有沒有更多，不另外打一次 COUNT。
+        //
+        // 排序用 ProductCode（唯一索引）：排序鍵不唯一的話，SQL Server 對相同鍵值的
+        // 回傳順序沒有保證，同一筆可能同時出現在兩頁、也可能兩頁都漏掉。
         var rows = await query
             .OrderBy(product => product.ProductCode)
+            .Skip((page - 1) * size)
             .Take(size + 1)
             .Select(product => new
             {
@@ -117,7 +123,7 @@ public sealed class CouponCatalogOptionsReader : ICouponCatalogOptionsReader
             .Select(row => ToOption(row.PublicId, row.ProductCode, row.NameZhTw, row.Status))
             .ToArray();
 
-        return new CouponProductSearchResult(items, items.Length, hasMore);
+        return new CouponProductSearchResult(items, hasMore);
     }
 
     /// <remarks>

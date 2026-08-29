@@ -1789,6 +1789,20 @@
             }
           },
           {
+            "name": "PageNumber",
+            "in": "query",
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
             "name": "PageSize",
             "in": "query",
             "schema": {
@@ -11883,7 +11897,6 @@
       "CouponProductSearchResult": {
         "required": [
           "items",
-          "totalCount",
           "hasMore"
         ],
         "type": "object",
@@ -11893,14 +11906,6 @@
             "items": {
               "$ref": "#/components/schemas/CouponProductOption"
             }
-          },
-          "totalCount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
           },
           "hasMore": {
             "type": "boolean"
