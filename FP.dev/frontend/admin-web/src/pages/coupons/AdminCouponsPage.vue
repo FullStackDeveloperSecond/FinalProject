@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { isApiError } from '@doselect/web-shared/api'
 import { useCouponAction, useCouponList, useCreateCoupon, useUpdateCoupon } from '../../features/coupons/useCoupons'
 import {
@@ -23,6 +24,7 @@ import type {
   CouponStatus,
 } from '../../features/coupons/types'
 import { describeScopeProblem, toScopeRequestFields } from '../../features/coupons/scope'
+import { describeDiscountProblem } from '../../features/coupons/discountRules'
 import { toLocalInputValue, toUtcInstant } from '../../features/coupons/dateTime'
 import CouponScopePicker from '../../components/coupons/CouponScopePicker.vue'
 import { useSearchFilters } from '../../features/shared/useSearchFilters'
@@ -30,8 +32,68 @@ import { describeApiError } from '../../features/shared/errorMessages'
 
 const statusOptions = Object.keys(statusLabels) as CouponStatus[]
 
+const route = useRoute()
+const router = useRouter()
+
 const { filters, listParams, search, goToPage } = useSearchFilters(20)
 const selectedStatuses = ref<CouponStatus[]>([])
+
+/**
+ * 從網址還原列表條件。
+ *
+ * 順序有意義：先填 `q` 再 `search()`（立即套用、略過 debounce，但會把頁碼重設為 1），
+ * 最後才寫回頁碼。反過來的話，還原出來的永遠是第 1 頁。
+ */
+function restoreFromQuery() {
+  const q = typeof route.query.q === 'string' ? route.query.q : ''
+  // route.query 的值可能是字串、字串陣列，或含 null 的陣列（?status= 這種空值）。
+  const raw = route.query.status
+  const statuses = (Array.isArray(raw) ? raw : [raw])
+    .filter((value): value is CouponStatus => statusOptions.includes(value as CouponStatus))
+  const page = Number(route.query.page)
+
+  filters.q = q
+  search()
+  selectedStatuses.value = statuses
+  filters.pageNumber = Number.isInteger(page) && page > 0 ? page : 1
+}
+
+restoreFromQuery()
+
+/**
+ * 把已套用的條件寫回網址。
+ *
+ * 用 `replace` 不用 `push`：每打一個字就堆一筆瀏覽記錄，返回鍵會變成一次退一個字元。
+ * 同步的是**已套用**的關鍵字（debounce 之後）而不是輸入框的即時值 —— 網址代表的是
+ * 目前這份清單的查詢條件。
+ */
+watch(
+  () => ({
+    q: listParams.value.q,
+    status: selectedStatuses.value,
+    page: filters.pageNumber,
+  }),
+  (applied) => {
+    const query: Record<string, string | string[]> = {}
+    if (applied.q !== '') {
+      query.q = applied.q
+    }
+    if (applied.status.length > 0) {
+      query.status = [...applied.status]
+    }
+    if (applied.page > 1) {
+      query.page = String(applied.page)
+    }
+
+    // 內容相同就不要再 replace 一次，否則 watch 會被自己觸發的導覽再喚醒。
+    if (JSON.stringify(query) === JSON.stringify(route.query)) {
+      return
+    }
+
+    void router.replace({ query })
+  },
+  { deep: true },
+)
 
 const queryParams = computed(() => ({
   ...listParams.value,
@@ -216,8 +278,21 @@ function buildRuleFields() {
  */
 const scopeProblem = computed(() => describeScopeProblem(form))
 
+/**
+ * 表單目前違反的第一條規則；沒有問題時為 `null`。
+ *
+ * 範圍與折扣兩組規則合成一個判斷，送出按鈕與錯誤訊息都只看它 ——
+ * 分成兩個各自控制的話，很容易出現「訊息顯示了但按鈕沒鎖」這種漏掉一邊的情況。
+ */
+const formProblem = computed(() =>
+  scopeProblem.value
+  ?? describeDiscountProblem(
+    form.discountType,
+    discountValueForApi(),
+    optionalNumber(form.maximumDiscount)))
+
 function submitCreate() {
-  if (scopeProblem.value !== null) {
+  if (formProblem.value !== null) {
     return
   }
 
@@ -230,7 +305,7 @@ function submitCreate() {
 
 function submitUpdate() {
   const coupon = editing.value
-  if (!coupon || scopeProblem.value !== null) {
+  if (!coupon || formProblem.value !== null) {
     return
   }
 
@@ -244,6 +319,40 @@ function submitUpdate() {
       editing.value = null
     },
   })
+}
+
+/** 等待確認的停用動作；`null` 代表沒有待確認的動作。 */
+const pendingDisable = ref<CouponDto | null>(null)
+
+/**
+ * 按下狀態動作。
+ *
+ * `disable` 走確認對話框：`disabled` 是終態，誤觸之後沒有任何方式可以重新啟用。
+ * `activate` 與 `pause` 都可以再切回來，不需要擋一層。
+ */
+function requestAction(coupon: CouponDto, action: CouponAction) {
+  if (action !== 'disable') {
+    runAction(coupon, action)
+    return
+  }
+
+  actionMutation.reset()
+  pendingDisable.value = coupon
+}
+
+function confirmDisable() {
+  const coupon = pendingDisable.value
+  if (coupon === null) {
+    return
+  }
+
+  pendingDisable.value = null
+  runAction(coupon, 'disable')
+}
+
+/** 取消**不能**呼叫 API —— 這正是對話框存在的理由。 */
+function cancelDisable() {
+  pendingDisable.value = null
 }
 
 function runAction(coupon: CouponDto, action: CouponAction) {
@@ -306,6 +415,45 @@ function describeError(candidate: unknown): string {
         {{ statusLabels[status] }}
       </label>
     </fieldset>
+
+    <div
+      v-if="pendingDisable !== null"
+      class="coupons-confirm"
+      role="alertdialog"
+      aria-label="確認停用優惠券"
+    >
+      <h2>確認停用「{{ pendingDisable.code }}」？</h2>
+      <dl>
+        <dt>名稱</dt>
+        <dd>{{ pendingDisable.nameZhTw }}</dd>
+        <dt>目前狀態</dt>
+        <dd>{{ statusLabels[pendingDisable.status] }}</dd>
+        <dt>已使用</dt>
+        <dd>{{ describeUsage(pendingDisable) }}</dd>
+      </dl>
+      <p>
+        停用後這張券立即無法再被套用，已完成的訂單不受影響。
+      </p>
+      <p class="coupons-confirm-warning">
+        <strong>「已停用」是終態，無法再啟用或修改規則。</strong>
+        需要暫時停售請改用「暫停」。
+      </p>
+      <div class="coupons-confirm-actions">
+        <button
+          type="button"
+          :disabled="actionMutation.isPending.value"
+          @click="confirmDisable"
+        >
+          確認停用
+        </button>
+        <button
+          type="button"
+          @click="cancelDisable"
+        >
+          取消
+        </button>
+      </div>
+    </div>
 
     <p
       v-if="actionMutation.isError.value"
@@ -393,7 +541,7 @@ function describeError(candidate: unknown): string {
                 :key="action"
                 type="button"
                 :disabled="actionMutation.isPending.value"
-                @click="runAction(coupon, action)"
+                @click="requestAction(coupon, action)"
               >
                 {{ actionLabels[action] }}
               </button>
@@ -500,12 +648,14 @@ function describeError(candidate: unknown): string {
           step="any"
         >
       </label>
-      <label v-if="isAmountDiscount(form.discountType)">最高折抵
+      <label v-if="isAmountDiscount(form.discountType)">
+        {{ form.discountType === 'percentage' ? '最高折抵（必填）' : '最高折抵' }}
         <input
           v-model="form.maximumDiscount"
           name="maximumDiscount"
           type="number"
           step="any"
+          :required="form.discountType === 'percentage'"
         >
       </label>
       <label>開始時間
@@ -561,11 +711,11 @@ function describeError(candidate: unknown): string {
       />
 
       <p
-        v-if="scopeProblem !== null"
+        v-if="formProblem !== null"
         class="coupons-error"
         role="alert"
       >
-        {{ scopeProblem }}
+        {{ formProblem }}
       </p>
 
       <p
@@ -579,7 +729,7 @@ function describeError(candidate: unknown): string {
       <div class="coupons-form-actions">
         <button
           type="submit"
-          :disabled="createMutation.isPending.value || updateMutation.isPending.value || scopeProblem !== null"
+          :disabled="createMutation.isPending.value || updateMutation.isPending.value || formProblem !== null"
         >
           儲存
         </button>
@@ -595,6 +745,22 @@ function describeError(candidate: unknown): string {
 </template>
 
 <style scoped>
+.coupons-confirm {
+  border: 2px solid #b00020;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+  padding: 1rem;
+}
+
+.coupons-confirm-warning {
+  color: #b00020;
+}
+
+.coupons-confirm-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
 .coupons-header {
   display: flex;
   align-items: center;

@@ -13,6 +13,15 @@ const canViewOperationalReports = computed(() => {
   return ['MarketingAnalyst', 'FinanceManager', 'SuperAdmin'].some((role) => roles.includes(role))
 })
 
+/**
+ * 側欄的優惠券入口只給看得到那個頁面的角色。
+ *
+ * 與 router 的 requiredRoles 同一份清單（Coupon.Manage）。
+ */
+const couponRoles = ['FinanceManager', 'MarketingAnalyst', 'SuperAdmin']
+const canManageCoupons = computed(() =>
+  couponRoles.some(role => auth.currentUser?.roles?.includes(role) ?? false))
+
 async function onLogout(): Promise<void> {
   await auth.logout()
   await router.push('/login')
@@ -79,7 +88,16 @@ async function onLogout(): Promise<void> {
           <RouterLink to="/catalog/compatibility">
             相容性規則
           </RouterLink>
-          <RouterLink to="/coupons">
+          <!--
+            只對看得到這個頁面的角色顯示。Route guard 仍然會擋越權，所以這不是
+            安全邊界；但讓 CatalogManager 看到一個點下去只會被導到 /forbidden 的
+            入口，等於把選單當成沒有意義的清單。
+            這裡只處理新加入的優惠券入口，不順便重構整個側欄（alex #64 P3）。
+          -->
+          <RouterLink
+            v-if="canManageCoupons"
+            to="/coupons"
+          >
             優惠券管理
           </RouterLink>
           <RouterLink to="/support">

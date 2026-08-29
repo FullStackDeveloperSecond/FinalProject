@@ -1,5 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
+import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import { ApiError } from '@doselect/web-shared/api'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -58,11 +59,24 @@ function page(items: ReturnType<typeof coupon>[]) {
   return { items, pageNumber: 1, pageSize: 20, totalCount: items.length, totalPages: 1 }
 }
 
-function mountPage() {
+function createTestRouter(): Router {
+  return createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/coupons', name: 'admin-coupons', component: AdminCouponsPage }],
+  })
+}
+
+/**
+ * 掛頁面。傳 `router` 進來的測試自己決定起始網址（用來驗還原條件）；
+ * 其餘測試拿一個乾淨的 router。
+ */
+function mountPage(router: Router = createTestRouter()) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
-  return mount(AdminCouponsPage, { global: { plugins: [[VueQueryPlugin, { queryClient }]] } })
+  return mount(AdminCouponsPage, {
+    global: { plugins: [[VueQueryPlugin, { queryClient }], router] },
+  })
 }
 
 /** 開啟新增表單並填好與範圍無關的必填欄位。 */
@@ -174,6 +188,8 @@ describe('AdminCouponsPage', () => {
     await wrapper.find('[name="nameZhTw"]').setValue('九折')
     await wrapper.find('[name="discountType"]').setValue('percentage')
     await wrapper.find('[name="discountValue"]').setValue('10')
+    // 百分比券必須有最高折抵，否則後端 RequireValidRule 回 400。
+    await wrapper.find('[name="maximumDiscount"]').setValue('500')
     await wrapper.find('[name="startsAt"]').setValue('2026-09-01T00:00')
     await wrapper.find('[name="endsAt"]').setValue('2026-09-30T00:00')
     await wrapper.find('.coupons-form').trigger('submit')
@@ -181,7 +197,11 @@ describe('AdminCouponsPage', () => {
 
     // 表單填 10（百分點），送出必須是 0.1（比例）。送 10 會被 Domain 直接拒絕。
     expect(mockCreateCoupon).toHaveBeenCalledWith(
-      expect.objectContaining({ discountType: 'percentage', discountValue: 0.1 }),
+      expect.objectContaining({
+        discountType: 'percentage',
+        discountValue: 0.1,
+        maximumDiscount: 500,
+      }),
     )
   })
 
@@ -558,6 +578,151 @@ describe('AdminCouponsPage', () => {
     await flushPromises()
 
     expect(wrapper.text()).not.toContain('優惠券目前狀態不允許這個操作')
+  })
+
+  it('will not submit a percentage coupon without a maximum discount', async () => {
+    // 後端 RequireValidRule 要求 percentage 的 maximumDiscount > 0，
+    // 前端不擋的話，管理員照介面正常填完會直接吃一句英文 400。
+    mockListCoupons.mockResolvedValue(page([]))
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await openCreateForm(wrapper)
+    await wrapper.find('[name="discountType"]').setValue('percentage')
+    await wrapper.find('[name="discountValue"]').setValue('10')
+
+    expect(wrapper.text()).toContain('百分比折扣必須填寫大於 0 的最高折抵。')
+    expect(wrapper.find('.coupons-form-actions button[type="submit"]').attributes('disabled'))
+      .toBeDefined()
+
+    await wrapper.find('.coupons-form').trigger('submit')
+    await flushPromises()
+
+    expect(mockCreateCoupon).not.toHaveBeenCalled()
+  })
+
+  it('accepts a percentage coupon once the maximum discount is filled in', async () => {
+    mockListCoupons.mockResolvedValue(page([]))
+    mockCreateCoupon.mockResolvedValueOnce(coupon())
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await openCreateForm(wrapper)
+    await wrapper.find('[name="discountType"]').setValue('percentage')
+    await wrapper.find('[name="discountValue"]').setValue('10')
+    await wrapper.find('[name="maximumDiscount"]').setValue('500')
+    await wrapper.find('.coupons-form').trigger('submit')
+    await flushPromises()
+
+    expect(mockCreateCoupon).toHaveBeenCalledWith(expect.objectContaining({
+      discountValue: 0.1,
+      maximumDiscount: 500,
+    }))
+  })
+
+  it('asks for confirmation before disabling, and cancelling calls no API', async () => {
+    // disabled 是終態，誤觸之後沒有任何方式可以重新啟用。
+    mockListCoupons.mockResolvedValue(page([coupon({ status: 'active' })]))
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.findAll('.coupons-actions button').find(button => button.text() === '停用')!
+      .trigger('click')
+
+    expect(wrapper.find('.coupons-confirm').exists()).toBe(true)
+    expect(wrapper.text()).toContain('WELCOME300')
+    expect(wrapper.text()).toContain('啟用中')
+    expect(wrapper.text()).toContain('終態')
+    expect(mockExecuteCouponAction).not.toHaveBeenCalled()
+
+    await wrapper.findAll('.coupons-confirm-actions button').find(b => b.text() === '取消')!
+      .trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.coupons-confirm').exists()).toBe(false)
+    expect(mockExecuteCouponAction).not.toHaveBeenCalled()
+  })
+
+  it('disables only after the confirmation is accepted', async () => {
+    mockListCoupons.mockResolvedValue(page([coupon({ status: 'active' })]))
+    mockExecuteCouponAction.mockResolvedValueOnce(coupon({ status: 'disabled' }))
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.findAll('.coupons-actions button').find(button => button.text() === '停用')!
+      .trigger('click')
+    await wrapper.findAll('.coupons-confirm-actions button').find(b => b.text() === '確認停用')!
+      .trigger('click')
+    await flushPromises()
+
+    expect(mockExecuteCouponAction).toHaveBeenCalledWith(
+      'c1', 'disable', expect.objectContaining({ rowVersion: 'AAA=' }))
+  })
+
+  it('runs a reversible action without asking for confirmation', async () => {
+    // 暫停可以再啟用回來，不需要多擋一層。
+    mockListCoupons.mockResolvedValue(page([coupon({ status: 'active' })]))
+    mockExecuteCouponAction.mockResolvedValueOnce(coupon({ status: 'paused' }))
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.findAll('.coupons-actions button').find(button => button.text() === '暫停')!
+      .trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.coupons-confirm').exists()).toBe(false)
+    expect(mockExecuteCouponAction).toHaveBeenCalledWith('c1', 'pause', expect.anything())
+  })
+
+  it('restores the list conditions from the URL', async () => {
+    // 重新整理、返回或把網址貼給別人，看到的必須是同一份清單。
+    mockListCoupons.mockResolvedValue(page([]))
+    const router = createTestRouter()
+    await router.push('/coupons?q=WEL&status=active&status=paused&page=3')
+    await router.isReady()
+
+    mountPage(router)
+    await flushPromises()
+
+    expect(mockListCoupons).toHaveBeenCalledWith(expect.objectContaining({
+      q: 'WEL',
+      statuses: ['active', 'paused'],
+      pageNumber: 3,
+    }))
+  })
+
+  it('ignores a status in the URL that is not a real coupon status', async () => {
+    mockListCoupons.mockResolvedValue(page([]))
+    const router = createTestRouter()
+    await router.push('/coupons?status=active&status=not-a-status')
+    await router.isReady()
+
+    mountPage(router)
+    await flushPromises()
+
+    expect(mockListCoupons).toHaveBeenCalledWith(expect.objectContaining({
+      statuses: ['active'],
+    }))
+  })
+
+  it('writes the applied conditions back to the URL', async () => {
+    mockListCoupons.mockResolvedValue(page([]))
+    const router = createTestRouter()
+    await router.push('/coupons')
+    await router.isReady()
+
+    const wrapper = mountPage(router)
+    await flushPromises()
+
+    await wrapper.findAll('.coupons-statuses input')[2].trigger('change')
+    await flushPromises()
+
+    expect(router.currentRoute.value.query.status).toEqual(['active'])
   })
 
   it('renders an empty state rather than an empty table', async () => {
