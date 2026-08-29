@@ -75,6 +75,11 @@ const router = createRouter({
       component: () => import('../pages/ProductsPage.vue'),
     },
     {
+      path: '/ai-search',
+      name: 'ai-product-search',
+      component: () => import('../pages/AiProductSearchPage.vue'),
+    },
+    {
       path: '/products/:productId',
       name: 'product-detail',
       component: () => import('../pages/ProductDetailPage.vue'),

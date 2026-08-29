@@ -24,6 +24,87 @@ public sealed class EfAiSafetyInfrastructureTests
         new(2026, 8, 28, 12, 0, 0, TimeSpan.Zero);
 
     [SqlServerFact]
+    public async Task ProductSearchAdmission_AnonymousOwner_ReservesAndReplaysIdempotently()
+    {
+        await WithDatabaseAsync(async connectionString =>
+        {
+            await using var context = CreateContext(connectionString);
+            var admin = await SeedAdminAsync(context, assignSuperAdmin: true);
+            var options = Options.Create(new OpenAiResponsesOptions
+            {
+                BudgetAlertRecipientAdminPublicId = admin.PublicId,
+            });
+            var actor = new AiProductSearchActor(
+                MemberUserId: null,
+                AnonymousSessionKeyHash: Enumerable.Repeat((byte)0x2A, 32).ToArray(),
+                IsDemoAllowlisted: false);
+            var requestPublicId = Guid.NewGuid();
+            var gate = new EfAiProductSearchAdmissionGate(
+                context,
+                new FixedTimeProvider(Now),
+                options);
+
+            var first = await gate.TryReserveAsync(actor, requestPublicId, CancellationToken.None);
+            var replay = await gate.TryReserveAsync(actor, requestPublicId, CancellationToken.None);
+
+            Assert.True(first.IsReserved);
+            Assert.True(replay.IsReserved);
+            Assert.Equal(9, first.State.RemainingDailyRequests);
+            Assert.Equal(9, replay.State.RemainingDailyRequests);
+            Assert.Equal(1, await context.AiUsageLedger.CountAsync());
+        });
+    }
+
+    [SqlServerFact]
+    public async Task ProductSearchAdmission_ConcurrentAnonymousLastQuota_AllowsExactlyOneReservation()
+    {
+        await WithDatabaseAsync(async connectionString =>
+        {
+            var ownerHash = Enumerable.Repeat((byte)0x4B, 32).ToArray();
+            Guid recipientPublicId;
+            await using (var seed = CreateContext(connectionString))
+            {
+                var admin = await SeedAdminAsync(seed, assignSuperAdmin: true);
+                recipientPublicId = admin.PublicId;
+                for (var index = 0; index < EfAiProductSearchAdmissionGate.AnonymousDailyLimit - 1; index++)
+                {
+                    seed.AiUsageLedger.Add(AiUsageLedgerEntry.ReserveProductSearch(
+                        memberUserId: null,
+                        anonymousSessionKeyHash: ownerHash,
+                        requestPublicId: Guid.NewGuid(),
+                        occurredAtUtc: Now.UtcDateTime.AddMinutes(index)));
+                }
+
+                await seed.SaveChangesAsync();
+            }
+
+            async Task<AiProductSearchReservationResult> ReserveAsync()
+            {
+                await using var context = CreateContext(connectionString);
+                var gate = new EfAiProductSearchAdmissionGate(
+                    context,
+                    new FixedTimeProvider(Now),
+                    Options.Create(new OpenAiResponsesOptions
+                    {
+                        BudgetAlertRecipientAdminPublicId = recipientPublicId,
+                    }));
+                return await gate.TryReserveAsync(
+                    new AiProductSearchActor(null, ownerHash, IsDemoAllowlisted: false),
+                    Guid.NewGuid(),
+                    CancellationToken.None);
+            }
+
+            var results = await Task.WhenAll(ReserveAsync(), ReserveAsync());
+
+            Assert.Equal(1, results.Count(result => result.IsReserved));
+            await using var verify = CreateContext(connectionString);
+            Assert.Equal(
+                EfAiProductSearchAdmissionGate.AnonymousDailyLimit,
+                await verify.AiUsageLedger.CountAsync());
+        });
+    }
+
+    [SqlServerFact]
     public async Task AdmissionGate_GrantedConsent_ReservesOnceAndReplaysIdempotently()
     {
         await WithDatabaseAsync(async connectionString =>

@@ -1,7 +1,7 @@
 ---
 文件狀態: 持續更新
-最後更新: 2026-08-28
-基準分支: dev@bb917875
+最後更新: 2026-08-29
+基準分支: dev@1cb0f0d9；M-18 工作分支另註
 ---
 
 # M 功能實作矩陣
@@ -38,8 +38,8 @@
 | M-15 營運報表 | 🔵 | ⬜ | ⬜ | ⬜ | ⬜ | 🔵 | 需求與資料來源已定，七個報表 Query／API／UI／SQL 證據未完成。 |
 | M-16 自由組裝電腦 | ✅ | ✅ | 🟡 | ✅ | ⬜ | 🔵 | PR #34 已合併組裝清單、分享、整套加入購物車與 SQL Server 證據；前端 PR #35 尚未進 `dev`，完整瀏覽器旅程仍缺。 |
 | M-17 零件相容性 | ✅ | ✅ | 🟡 | ✅ | ⬜ | 🔵 | PR #52 已合併來源型規格資料基礎；PR #34 已合併確定性檢查、SKU 相容性屬性、後台規則管理、Audit 與 Provider-backed 證據。前端 PR #35 與完整 E2E 尚未進 `dev`。 |
-| M-18 AI 商品搜尋推薦 | 🔵 | ⬜ | ⬜ | ➖ | ⬜ | 🔵 | 安全與降級 Application 基礎已在 `dev`；客服共用 Responses 傳輸不能替代搜尋的 SearchIntent Schema／Adapter。搜尋 Endpoint、UI、Provider 契約與 Live 評估未完成。 |
-| M-19 AI 客服 | ✅ | ✅ | ⬜ | ✅ | ⬜ | 🔵 | PR #57／#58 已合併 SQL-backed 同意／額度、本人訂單 Query、Guest Cookie 403 與 Responses Adapter。`codex/m19-ai-support` 已形成同意查詢／撤回、本人客服公開訊息與 Conversation Owner Query、互動／引用／Token／成本保存、US$70 指定 SuperAdmin 一次性 Email／站內 Outbox、US$90 Demo 保護、會員聊天、A-28 四角色管理用量與 Playwright 降級旅程；因尚未建立 PR／進 `dev`，前端與 E2E 欄不提前升級。仍缺 Required CI／Review／合併及 AI-09 live baseline。 |
+| M-18 AI 商品搜尋推薦 | 🔵 | 🔵 | 🔵 | 🔵 | ⬜ | 🔵 | `dev` 仍只有安全／降級基礎；`codex/m18-ai-product-search` 已形成 strict Adapter、公開 Endpoint、10／30 額度、SQL 候選、既有零件確認閘門、八類完整 CustomBuild、NT$300 組裝費與既有零件不重複計價、正式相容性、Fail Closed 保存、降級、`/ai-search` RWD UI 及同步 OpenAPI。Application 10／10、API 7／7、Vue 6／6、CustomBuild SQL Provider 1／1、Customer Web 151／151、隔離公開搜尋降級 E2E 1／1、Build／Format／Lint 及 120 筆 deterministic eval 通過；完整 .NET 為 Domain 477／477、Application 410／410、Infrastructure 592／592，API 503／533 通過，另 30 項因共用 `DoSelectDb` 缺 `AuditLogs` 的既有 Migration 狀態失敗，未擅自更新共用庫。E2E 欄仍依圖例保持未進 `dev`；剩餘 Gate 為 Required CI、Review、PR／合併；Live 品質、P95 與成本由 AI-09 追蹤。 |
+| M-19 AI 客服 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | PR #57／#58／#59 已合併 SQL-backed 同意／額度、Responses Adapter、本人 Order／SupportTicket／Conversation Query、互動／引用／Token／成本、US$70／US$90 保護、會員聊天、A-28 管理彙總與 Playwright 降級旅程。AI-09 live baseline 獨立保持未完成。 |
 | M-20 模擬發票與折讓 | ✅ | 🔵 | ⬜ | 🔵 | ⬜ | 🔵 | 折讓 API／Writer／SQL 測試已合併；完整發票查詢、開立、作廢、前端與跨 Checkout 金額一致性未完成。 |
 
 ## 完成判定邊界
@@ -51,7 +51,7 @@
 
 ## 明確未完成
 
-- 客服 Responses Adapter 尚未合併 `dev`；搜尋專用 Adapter 尚未形成；兩項 Live Model 評估均未執行。
+- M-18 搜尋專用 Adapter／Endpoint／UI 尚未通過 PR Gate 與合併；AI 商品搜尋與客服的 Live Model 評估均未執行。
 - DATA-06 完整 10,000 筆展示 Seed 與特殊案例分布。
 - 各 M 功能的完整 SQL Server Provider-backed 覆蓋；Required CI 已啟用 SQL Gate，但現有測試通過不代表每個功能案例皆有 Provider-backed 證據。
 - 核心交易與其他 M 功能的瀏覽器 E2E。

@@ -141,6 +141,8 @@ node .\scripts\validate-ai-eval-dataset.mjs
 
 第一次啟動前可將 `src/backend/DoSelect.Api/appsettings.Development.example.json` 複製為未追蹤的 `appsettings.Development.json`，再依本機環境調整非敏感設定；OpenAI 與 SMTP Secret 使用 .NET User Secrets 或環境變數，不得填入範例檔。AI 與 Email 預設停用，因此 Fresh Clone 不需要 Secret 即可啟動；若明確啟用但缺少必要 Key，API 會在啟動時失敗。
 
+啟用 AI 前還必須設定 `OpenAI:ProductSearchInputCostPerMillionTokens`、`OpenAI:ProductSearchOutputCostPerMillionTokens`、至少 32 UTF-8 bytes 的 `OpenAI:AnonymousIdentityPepper`，以及有效的 `OpenAI:BudgetAlertRecipientAdminPublicId`。商品搜尋成本預設為 `-1`，刻意讓未確認價格的環境 Fail Closed；不得以 `0` 假裝免費。`AnonymousIdentityPepper` 屬 Secret，不得提交；模型與每百萬 Token 單價則依實際使用帳戶的已確認價格設定。
+
 會呼叫共用 Idempotency Executor 的功能必須以 User Secrets 或部署環境設定 `Idempotency:ActorScopePepper`；值至少 32 UTF-8 bytes，且不得寫入範例設定、Repository、Log 或資料庫。尚未呼叫冪等命令的 Fresh Clone 可不設定；第一次測試購物車合併、建立訂單、退款等冪等端點前必須完成設定。
 
 訪客查單（Guest Order Access）流程需要以 User Secrets 或部署環境設定 `GuestOrderAccess:Pepper`；值至少 32 UTF-8 bytes，用來 HMAC 雜湊 IP、Email、訂單查找鍵、驗證碼與存取權杖，同樣不得寫入範例設定、Repository、Log 或資料庫。API 會在啟動時驗證此設定，因此 Fresh Clone 必須先設定才能啟動；CI 只能使用測試專用值，正式環境必須由部署 Secret 提供不同的高熵值。
@@ -168,7 +170,7 @@ API 共通管線已提供：
 - 四位 Owner 的正式業務 Entity／Fluent Configuration、跨模組 FK 與初始 `InitialCreate` Migration 已完成；本機 `DoSelectDb` 已套用並驗證 93 張資料表、315 個索引、`vw_CaseWorkbench` 12 欄契約與 Migration History。
 - 已提供不自動執行的最小開發 Seed、User Secrets 密碼設定、SQL 驗證及 API SQL Readiness smoke script；10,000 筆完整展示資料產生器、認證授權流程與 Application 交易 Use Case 仍待後續實作。
 - PrimeVue 已納入相依套件，但主題與實際元件由畫面設計工作包導入。
-- OpenAPI TypeScript Client 的流程與共用 generic client factory 已建立；待商業 API 契約加入後再產生 `schema.d.ts` 並建立實際 typed client instance。
+- OpenAPI TypeScript Client 流程、共用 generic client factory 與實際 `schema.d.ts` 已建立；任何 API 契約變更都必須重新匯出 OpenAPI、產生型別並通過 Diff Gate。
 
 ## Coverage Gate
 
@@ -248,3 +250,11 @@ sqlcmd -S .\SQL2025 -d DoSelectDb -E -C -b -i database-deploy\initial-create\ver
 sqlcmd -S .\SQL2025 -d DoSelectDb -E -C -b -i database-deploy\initial-create\verify-minimal-seed.sql
 .\scripts\smoke-api-database.ps1
 ```
+
+執行 Customer Web 瀏覽器旅程時，必須透過隔離腳本建立隨機 `DoSelectE2E_*` 資料庫。腳本會套用全部 Migration、建立最小 Seed、執行指定 Playwright 旅程，並在成功或失敗後刪除該資料庫與測試檔案；不會修改共用 `DoSelectDb`：
+
+```powershell
+.\scripts\test-customer-e2e.ps1
+```
+
+直接執行 `npm run test:e2e` 時若未提供名稱為 `DoSelectE2E` 或 `DoSelectE2E_*` 的連線字串，Playwright 會拒絕啟動，避免測試誤用共用資料庫。

@@ -1,4 +1,6 @@
 using DoSelect.Application.Ai;
+using DoSelect.Application.Catalog;
+using DoSelect.Domain.Members;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace DoSelect.Api.Ai;
@@ -10,10 +12,15 @@ public static class AiSupportServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
 
         services.AddScoped<AiSupportOrchestrator>();
+        services.AddScoped<AiProductSearchOrchestrator>();
         services.TryAddScoped<IAiSupportAdmissionGate, FailClosedAiSupportAdmissionGate>();
         services.TryAddScoped<IAiSupportContextReader, FailClosedAiSupportContextReader>();
         services.TryAddScoped<IAiSupportModelClient, DisabledAiSupportModelClient>();
         services.TryAddScoped<IAiSupportInteractionStore, DisabledAiSupportInteractionStore>();
+        services.TryAddScoped<IAiProductSearchAdmissionGate, DisabledAiProductSearchAdmissionGate>();
+        services.TryAddScoped<IAiProductSearchModelClient, DisabledAiProductSearchModelClient>();
+        services.TryAddScoped<IAiProductSearchCatalog, DisabledAiProductSearchCatalog>();
+        services.TryAddScoped<IAiProductSearchInteractionStore, DisabledAiProductSearchInteractionStore>();
         return services;
     }
 
@@ -88,5 +95,74 @@ public static class AiSupportServiceCollectionExtensions
             Task.FromResult(new AiSupportInteractionWriteResult(
                 Succeeded: false,
                 interaction.ConversationPublicId ?? Guid.Empty));
+    }
+
+    private sealed class DisabledAiProductSearchAdmissionGate : IAiProductSearchAdmissionGate
+    {
+        private static AiProductSearchAccessState State =>
+            new(0, DateTimeOffset.UtcNow.AddDays(1), BudgetProtectionActive: true, IsDemoAllowlisted: false);
+
+        public Task<AiProductSearchAccessState> ReadAsync(
+            AiProductSearchActor actor,
+            CancellationToken cancellationToken) => Task.FromResult(State);
+
+        public Task<AiProductSearchReservationResult> TryReserveAsync(
+            AiProductSearchActor actor,
+            Guid requestPublicId,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new AiProductSearchReservationResult(false, State));
+    }
+
+    private sealed class DisabledAiProductSearchModelClient : IAiProductSearchModelClient
+    {
+        public Task<AiProductSearchIntentResult> ParseIntentAsync(
+            string message,
+            SupportedLocale locale,
+            AiProductSearchMetadata metadata,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new AiProductSearchIntentResult(
+                AiProductSearchModelStatus.Unavailable,
+                null,
+                null));
+
+        public Task<AiProductSearchExplanationResult> ExplainAsync(
+            AiProductSearchIntent intent,
+            IReadOnlyList<ProductCardDto> approvedCandidates,
+            SupportedLocale locale,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new AiProductSearchExplanationResult(
+                AiProductSearchModelStatus.Unavailable,
+                [],
+                null));
+    }
+
+    private sealed class DisabledAiProductSearchCatalog : IAiProductSearchCatalog
+    {
+        public Task<AiProductSearchMetadata> ReadMetadataAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(new AiProductSearchMetadata([], [], []));
+
+        public Task<AiProductSearchCandidateResult> FindCandidatesAsync(
+            AiProductSearchIntent intent,
+            IReadOnlyList<AiProductSearchExistingPart> existingParts,
+            SupportedLocale locale,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new AiProductSearchCandidateResult(
+                false,
+                AiSafetyReason.ServiceUnavailable,
+                [],
+                []));
+
+        public Task<IReadOnlyList<ProductCardDto>> KeywordFallbackAsync(
+            string message,
+            SupportedLocale locale,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<ProductCardDto>>([]);
+    }
+
+    private sealed class DisabledAiProductSearchInteractionStore : IAiProductSearchInteractionStore
+    {
+        public Task<bool> SaveAsync(
+            AiProductSearchInteractionWrite interaction,
+            CancellationToken cancellationToken) => Task.FromResult(false);
     }
 }

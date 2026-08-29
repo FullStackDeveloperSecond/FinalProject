@@ -19,6 +19,44 @@ public sealed class CompatibilityEvaluatorTests
     }
 
     [Fact]
+    public void EvaluatePartial_WithCompatibleCpuAndMotherboard_DoesNotRequireCompleteBuild()
+    {
+        var components = CompatibleComponents()
+            .Where(component => component.CategoryCode is
+                CompatibilityCatalogContract.Categories.Cpu or
+                CompatibilityCatalogContract.Categories.Motherboard)
+            .ToArray();
+
+        var result = CompatibilityEvaluator.EvaluatePartial(components, Settings(), Catalog());
+
+        Assert.Equal(CompatibilityOverall.Compatible, result.Overall);
+        Assert.DoesNotContain(
+            result.Results,
+            item => item.RuleCode == CompatibilityRuleCodes.RequiredComponent);
+    }
+
+    [Fact]
+    public void EvaluatePartial_WithMismatchedCpuAndMotherboard_ReturnsBlocked()
+    {
+        var components = CompatibleComponents()
+            .Where(component => component.CategoryCode is
+                CompatibilityCatalogContract.Categories.Cpu or
+                CompatibilityCatalogContract.Categories.Motherboard)
+            .Select(component => component.CategoryCode == CompatibilityCatalogContract.Categories.Cpu
+                ? component with
+                {
+                    Specifications = SetOption(component.Specifications, "CPU_SOCKET", "LGA1700"),
+                }
+                : component)
+            .ToArray();
+
+        var result = CompatibilityEvaluator.EvaluatePartial(components, Settings(), Catalog());
+
+        Assert.Equal(CompatibilityOverall.Blocked, result.Overall);
+        Assert.Contains(result.Results, item => item.RuleCode == CompatibilityRuleCodes.CpuSocket);
+    }
+
+    [Fact]
     public void Evaluate_SocketAndUnsupportedGeneration_ReturnsBothBlockedRules()
     {
         var components = Replace(
@@ -195,6 +233,11 @@ public sealed class CompatibilityEvaluatorTests
             ]));
 
     private static CompatibilityWarningSettings Settings() => new(20m, 10m, 35m, 0, 0);
+
+    private static CompatibilityRuleCatalog Catalog() => new(
+    [
+        new CpuChipsetCompatibility("B650", "RYZEN_7000", RequiresBiosUpdate: false),
+    ]);
 
     private static IReadOnlyList<CompatibilityComponent> CompatibleComponents() =>
     [

@@ -51,3 +51,18 @@ test('a member can consent to AI support and fall back to a human case when AI i
   await page.getByRole('button', { name: '撤回 AI 同意' }).click()
   await expect(consentCheckbox).toBeVisible()
 })
+
+test('a public shopper can use AI search safely when the provider is disabled', async ({ page }) => {
+  await page.goto('/ai-search')
+
+  await expect(page.getByRole('heading', { level: 1, name: '說出需求，不必先學會所有規格' }))
+    .toBeVisible()
+  await page.getByRole('textbox', { name: '你想找什麼？' }).fill('懂選開發用顯示卡')
+  await page.getByRole('button', { name: '開始懂選' }).click()
+
+  await expect(page.getByRole('heading', { name: 'AI 暫時無法使用，已改用一般搜尋' }))
+    .toBeVisible()
+  await expect(page.getByText('不代表 AI 推薦或相容性保證')).toBeVisible()
+  await expect(page.getByRole('heading', { level: 3, name: '懂選開發用顯示卡', exact: true }))
+    .toBeVisible()
+})
