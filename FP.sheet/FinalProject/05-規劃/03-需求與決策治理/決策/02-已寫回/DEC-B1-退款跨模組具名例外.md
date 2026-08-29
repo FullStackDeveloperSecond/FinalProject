@@ -41,16 +41,47 @@ Orders／Returns 模組的表。這件事由 yinyin 於 PR #16 主動回報，al
 
 ### 欄位範圍
 
-| 元件 | 欄位 |
-|---|---|
-| B1-1 `ReturnRequests` | `ReasonCode`、`AssemblyFeeDisposition`、`ReturnShippingCost` |
-| B1-1 `ReturnItems` | `OrderItemId`、`Quantity` |
-| B1-1 `Orders` | `ShippingFee`、`AssemblyFee`、`ShippingFreeThresholdSnapshot`、`ShippingMethodBaseFeeSnapshot` |
-| B1-1 `OrderItems` | `Id`、`PublicId`、`Quantity`、`FinalUnitPrice`、`DiscountAllocation`、`IsCouponEligible` |
-| B1-1 `OrderCoupons` | `AppliedAmount`、`EligibleSubtotal`、`MinimumSpendAmount` |
-| B1-2 `OrderItems` | `Id`、`PublicId`、`OrderId` |
-| B1-3 | 回應契約所需的 `PublicId`、`OrderNumber`、遮蔽標籤欄位 |
-| B1-4 | `Id`、`PublicId`、`AccountType`、`AccountStatus`、`IsActive`、角色名稱 |
+欄位清單即守門測試的白名單，**查詢鍵（Where／Join 用的 Id、外鍵）也算欄位**，
+不得省略；漏列會讓守門測試直接失敗。
+
+#### B1-1 `RefundTrustedInputsReader`
+
+| 資料表 | 欄位 | 用途 |
+|---|---|---|
+| `ReturnRequests` | `Id` | 依退貨單主鍵篩選 |
+| `ReturnRequests` | `ReasonCode`、`AssemblyFeeDisposition`、`ReturnShippingCost` | 可信退貨原因與費用處置 |
+| `ReturnItems` | `ReturnRequestId`、`OrderItemId` | 篩選與 Join 到品項 |
+| `ReturnItems` | `Quantity` | 本次退貨數量 |
+| `Orders` | `Id` | 依訂單主鍵篩選 |
+| `Orders` | `ShippingFee`、`AssemblyFee`、`ShippingFreeThresholdSnapshot`、`ShippingMethodBaseFeeSnapshot` | 運費與組裝費的歷史快照 |
+| `OrderItems` | `Id`、`OrderId`、`PublicId` | 篩選、Join 與對外識別 |
+| `OrderItems` | `Quantity`、`FinalUnitPrice`、`DiscountAllocation`、`IsCouponEligible` | 成交快照，供計算分攤 |
+| `OrderCoupons` | `OrderId` | 依訂單篩選 |
+| `OrderCoupons` | `AppliedAmount`、`EligibleSubtotal`、`MinimumSpendAmount` | 優惠券追回計算 |
+
+#### B1-2 `RefundExecutor.WriteAllocationsAsync`
+
+| 資料表 | 欄位 | 用途 |
+|---|---|---|
+| `OrderItems` | `Id`、`OrderId`、`PublicId` | 把草稿的 `OrderItemPublicId` 解析成內部主鍵 |
+
+#### B1-3 `RefundReader`（正式 `RefundDto` 唯讀投影）
+
+| 資料表 | 欄位 | 用途 |
+|---|---|---|
+| `Orders` | `Id`、`PublicId` | 依主鍵查出對外識別 |
+| `ReturnRequests` | `Id`、`PublicId` | 同上 |
+| `OrderItems` | `Id`、`PublicId` | 分攤列的品項對外識別 |
+| `Users` | `Id`、`PublicId`、`Email` | 管理員對外識別與**遮蔽**標籤；完整 Email 絕不外流 |
+
+#### B1-4 `RefundExecutor` 的管理員身分／授權／Audit Actor
+
+| 資料表 | 欄位 | 用途 |
+|---|---|---|
+| `Users` | `Id`、`PublicId`、`AccountType`、`AccountStatus` | Actor Scope 與交易內資格重查 |
+| `AdminProfiles` | `UserId`、`IsActive` | 交易內資格重查 |
+| `UserRoles` | `UserId`、`RoleId` | 角色 Join |
+| `Roles` | `Id`、`Name` | 退款角色判定與 Audit 角色快照 |
 
 ## 落地要求
 
@@ -61,6 +92,9 @@ Orders／Returns 模組的表。這件事由 yinyin 於 PR #16 主動回報，al
    新增元件若未列進白名單必須直接失敗。
 4. **白名單以目前核准欄位為上限。** 未來新增跨模組欄位仍需重新 review，
    不得把 B1 擴張成任意直接存取。
+5. **不得使用繞過白名單的替代存取形式。** `_context.Set<T>()`、`_context.Database`
+   與 Raw SQL（`FromSql`／`ExecuteSql`）都可以取得任意實體或直接下 SQL，
+   使白名單失效，因此一律禁止；守門測試直接拒絕，不得靜默略過。
 
 ## 實作對應
 
@@ -69,7 +103,8 @@ Orders／Returns 模組的表。這件事由 yinyin 於 PR #16 主動回報，al
 | 1 | 本文件 |
 | 2 | `NoRefundInfrastructureComponentOwnsItsOwnTransaction` |
 | 3 | `EveryRefundInfrastructureComponentStaysInsideItsNamedException` |
-| 4 | 同上；白名單即該測試內的 `allowed` 字典 |
+| 4 | 同上；白名單即該測試內的 `Allowed` 字典，逐元件／資料表／欄位 |
+| 5 | `NoRefundInfrastructureComponentBypassesTheWhitelist` |
 
 守門測試已實測會擋下兩種繞過：新增未列名的元件、以及既有元件存取白名單外的表。
 

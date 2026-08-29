@@ -58,63 +58,27 @@ public sealed class RefundExecutionReaderTests
     }
 
     /// <summary>
-    /// B1 具名例外的守門測試：掃描**整個** Refund Infrastructure，逐元件白名單。
+    /// B1 具名例外的守門測試：掃描整個 Refund Infrastructure，逐元件／資料表／**欄位**白名單。
     /// </summary>
     /// <remarks>
     /// <para>
-    /// 白名單來自 alex 於 2026-08-28 的 B1 正式裁定，以**目前核准的表**為上限。
-    /// 未來要新增跨模組存取必須重新 review 並更新這份清單與文件，
-    /// 不得把 B1 擴張成任意直接存取。
+    /// 白名單來自 alex 於 2026-08-28 的 B1 正式裁定，以 <c>DEC-B1</c> 明列的欄位為上限。
+    /// 未來要新增跨模組欄位必須重新 review 並同步更新這份清單與文件。
     /// </para>
     /// <para>
-    /// 舊版守門測試只掃 <c>RefundExecutionReader.cs</c> 一個檔案，所以**新增任何
-    /// Reader 都能繞過** —— 我自己就是這樣在同一支 PR 裡加了三個跨模組讀取而沒被擋下。
-    /// 這一版改成掃整個資料夾，而且檔案沒有列進白名單就直接失敗。
+    /// 第一版只比對**資料表**，擋得住新表卻擋不住既有白名單表上的新欄位 ——
+    /// 而 DEC-B1 寫的是「欄位為上限」。這一版把每個 lambda 參數綁到它查詢的資料表，
+    /// 再檢查該參數存取的每一個成員。
+    /// </para>
+    /// <para>
+    /// <b>查詢鍵也算欄位</b>：<c>Where</c>／<c>Join</c> 用到的 Id 與外鍵一樣要列進白名單。
     /// </para>
     /// </remarks>
     [Fact]
     public void EveryRefundInfrastructureComponentStaysInsideItsNamedException()
     {
-        // 逐元件白名單。key 是檔名，value 是該元件獲准存取的資料表。
-        var allowed = new Dictionary<string, string[]>(StringComparer.Ordinal)
-        {
-            // 可退款餘額由本模組自己的表推導，不碰其他模組。
-            ["RefundExecutionReader.cs"] = ["Refunds", "PaymentAttempts"],
-
-            // B1-1：退款計算所需的可信快照。
-            ["RefundTrustedInputsReader.cs"] =
-            [
-                "Refunds", "RefundAllocations",
-                "ReturnRequests", "ReturnItems",
-                "Orders", "OrderItems", "OrderCoupons",
-            ],
-
-            // B1-2：分攤寫入解析 OrderItem 內部主鍵。
-            // B1-4：管理員身分／授權／Audit Actor。
-            ["RefundExecutor.cs"] =
-            [
-                "Refunds", "RefundAllocations", "PaymentAttempts",
-                "OrderItems",
-                "Users", "UserRoles", "Roles", "AdminProfiles",
-            ],
-
-            // B1-3：正式 RefundDto 的唯讀投影。
-            ["RefundReader.cs"] =
-            [
-                "Refunds", "RefundAllocations",
-                "Orders", "ReturnRequests", "OrderItems", "Users",
-            ],
-
-            // 只做 DI 註冊，不碰任何表。
-            ["RefundsServiceCollectionExtensions.cs"] = [],
-        };
-
-        // _context 上不是 DbSet 的成員，不算資料表存取。
-        string[] notTables = ["ChangeTracker", "Entry", "SaveChangesAsync", "Database", "Set"];
-
         var directory = RefundInfrastructureDirectory();
         var files = Directory.GetFiles(directory, "*.cs", SearchOption.AllDirectories);
-
         Assert.NotEmpty(files);
 
         foreach (var file in files)
@@ -123,33 +87,62 @@ public sealed class RefundExecutionReaderTests
 
             // 沒列進白名單的新元件一律失敗 —— 這正是舊版守門漏掉的情況。
             Assert.True(
-                allowed.ContainsKey(name),
+                Allowed.ContainsKey(name),
                 $"{name} 不在 B1 白名單裡。新增 Refund Infrastructure 元件必須先經過 " +
                 "review、更新白名單與文件，不能自動取得跨模組存取。");
 
-            var touched = Regex.Matches(File.ReadAllText(file), @"_context\.([A-Za-z]+)")
-                .Select(match => match.Groups[1].Value)
-                .Where(member => !notTables.Contains(member, StringComparer.Ordinal))
-                .Distinct(StringComparer.Ordinal)
-                .OrderBy(table => table, StringComparer.Ordinal)
-                .ToArray();
+            var source = File.ReadAllText(file);
+            var tables = Allowed[name];
 
-            var extra = touched.Except(allowed[name], StringComparer.Ordinal).ToArray();
+            foreach (var (table, member, alias) in ReadTableMemberAccesses(source))
+            {
+                Assert.True(
+                    tables.ContainsKey(table),
+                    $"{name} 存取了白名單以外的資料表：{table}。" +
+                    "B1 是具名窄範圍例外，不是跨模組通則。");
 
-            Assert.True(
-                extra.Length == 0,
-                $"{name} 存取了白名單以外的資料表：{string.Join("、", extra)}。" +
-                "B1 是具名窄範圍例外，不是跨模組通則。");
+                // "*" 代表本模組自有的表，欄位不設限。
+                Assert.True(
+                    tables[table].Contains("*", StringComparer.Ordinal) ||
+                    tables[table].Contains(member, StringComparer.Ordinal),
+                    $"{name} 在 {table} 上存取了未核准的欄位：{member}" +
+                    $"（來自 {alias}）。DEC-B1 以目前核准欄位為上限，" +
+                    "新增欄位必須先重新 review 並更新 DEC-B1 與這份白名單。");
+            }
         }
     }
 
     /// <summary>
-    /// B1 落地要求：Gateway／Reader 不得自行開啟或提交交易。
+    /// B1 落地要求 5：不得使用可繞過白名單的替代存取形式。
     /// </summary>
     /// <remarks>
-    /// 交易必須由 <c>IIdempotencyExecutor</c> 擁有。自己 <c>BeginTransaction</c> 會讓
-    /// <c>EfIdempotencyExecutor</c> 直接丟例外，但那是執行期才發現；這裡在原始碼層擋下來。
+    /// <c>_context.Set&lt;T&gt;()</c> 能取得任意實體、<c>_context.Database</c> 與 Raw SQL
+    /// 能直接下 SQL，三者都讓逐欄位白名單失效。第一版守門把 <c>Set</c> 與
+    /// <c>Database</c> 放進「不是資料表」的排除清單，等於自己開了一個繞過口。
     /// </remarks>
+    [Fact]
+    public void NoRefundInfrastructureComponentBypassesTheWhitelist()
+    {
+        string[] bypasses = ["_context.Set<", "_context.Database", "FromSql", "ExecuteSql"];
+
+        foreach (var file in Directory.GetFiles(
+            RefundInfrastructureDirectory(), "*.cs", SearchOption.AllDirectories))
+        {
+            var source = File.ReadAllText(file);
+            var name = Path.GetFileName(file);
+
+            foreach (var bypass in bypasses)
+            {
+                Assert.False(
+                    source.Contains(bypass, StringComparison.Ordinal),
+                    $"{name} 使用了 {bypass}，那會繞過 B1 的逐欄位白名單。");
+            }
+        }
+    }
+
+    /// <summary>
+    /// B1 落地要求 2：Gateway／Reader 不得自行開啟或提交交易。
+    /// </summary>
     [Fact]
     public void NoRefundInfrastructureComponentOwnsItsOwnTransaction()
     {
@@ -166,6 +159,160 @@ public sealed class RefundExecutionReaderTests
                 $"{name} 自行提交交易；交易必須由 IIdempotencyExecutor 擁有。");
         }
     }
+
+    /// <summary>
+    /// 逐元件／資料表／欄位白名單，對應 <c>DEC-B1</c> 的欄位表。
+    /// </summary>
+    /// <remarks>
+    /// 本模組自有的表（<c>Refunds</c>、<c>RefundAllocations</c>、<c>PaymentAttempts</c>）
+    /// 不在跨模組例外範圍內，欄位以 <c>*</c> 表示不設限。
+    /// </remarks>
+    private static readonly IReadOnlyDictionary<string, IReadOnlyDictionary<string, string[]>>
+        Allowed = new Dictionary<string, IReadOnlyDictionary<string, string[]>>(StringComparer.Ordinal)
+        {
+            ["RefundExecutionReader.cs"] = new Dictionary<string, string[]>(StringComparer.Ordinal)
+            {
+                ["Refunds"] = ["*"],
+                ["PaymentAttempts"] = ["*"],
+            },
+
+            // B1-1：退款計算所需的可信快照。
+            ["RefundTrustedInputsReader.cs"] = new Dictionary<string, string[]>(StringComparer.Ordinal)
+            {
+                ["Refunds"] = ["*"],
+                ["RefundAllocations"] = ["*"],
+                ["ReturnRequests"] =
+                    ["Id", "ReasonCode", "AssemblyFeeDisposition", "ReturnShippingCost"],
+                ["ReturnItems"] = ["ReturnRequestId", "OrderItemId", "Quantity"],
+                ["Orders"] =
+                [
+                    "Id", "ShippingFee", "AssemblyFee",
+                    "ShippingFreeThresholdSnapshot", "ShippingMethodBaseFeeSnapshot",
+                ],
+                ["OrderItems"] =
+                [
+                    "Id", "OrderId", "PublicId",
+                    "Quantity", "FinalUnitPrice", "DiscountAllocation", "IsCouponEligible",
+                ],
+                ["OrderCoupons"] =
+                    ["OrderId", "AppliedAmount", "EligibleSubtotal", "MinimumSpendAmount"],
+            },
+
+            // B1-2：分攤寫入解析 OrderItem 內部主鍵。
+            // B1-4：管理員身分／授權／Audit Actor。
+            ["RefundExecutor.cs"] = new Dictionary<string, string[]>(StringComparer.Ordinal)
+            {
+                ["Refunds"] = ["*"],
+                ["RefundAllocations"] = ["*"],
+                ["PaymentAttempts"] = ["*"],
+                ["OrderItems"] = ["Id", "OrderId", "PublicId"],
+                ["Users"] = ["Id", "PublicId", "AccountType", "AccountStatus"],
+                ["AdminProfiles"] = ["UserId", "IsActive"],
+                ["UserRoles"] = ["UserId", "RoleId"],
+                ["Roles"] = ["Id", "Name"],
+            },
+
+            // B1-3：正式 RefundDto 的唯讀投影。
+            ["RefundReader.cs"] = new Dictionary<string, string[]>(StringComparer.Ordinal)
+            {
+                ["Refunds"] = ["*"],
+                ["RefundAllocations"] = ["*"],
+                ["Orders"] = ["Id", "PublicId"],
+                ["ReturnRequests"] = ["Id", "PublicId"],
+                ["OrderItems"] = ["Id", "PublicId"],
+                ["Users"] = ["Id", "PublicId", "Email"],
+            },
+
+            // 只做 DI 註冊，不碰任何表。
+            ["RefundsServiceCollectionExtensions.cs"] =
+                new Dictionary<string, string[]>(StringComparer.Ordinal),
+        };
+
+    /// <summary>
+    /// 從原始碼找出「這個 lambda 參數屬於哪張表」，再列出它被存取的每個成員。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 以**陳述式**為單位處理（EF 查詢鏈是一個陳述式）。每個 lambda 參數綁到它
+    /// **第一次被宣告**時所在的 <c>_context.{表}</c>。這樣才處理得了 Join ——
+    /// <c>ReturnItems.Join(_context.OrderItems, item =&gt; item.OrderItemId, ...)</c>
+    /// 裡的 <c>item</c> 在 <c>OrderItems</c> 出現之前就宣告過，屬於 <c>ReturnItems</c>；
+    /// 只看位置會把它誤算到 <c>OrderItems</c> 頭上。
+    /// </para>
+    /// <para>
+    /// 這是刻意保守的靜態比對：解析不了的寫法不會被誤放行，因為
+    /// <see cref="NoRefundInfrastructureComponentBypassesTheWhitelist"/> 已經把
+    /// <c>Set&lt;T&gt;</c>、<c>Database</c> 與 Raw SQL 這些形式整個擋掉。
+    /// </para>
+    /// </remarks>
+    private static IEnumerable<(string Table, string Member, string Alias)>
+        ReadTableMemberAccesses(string source)
+    {
+        foreach (var statement in source.Split(';'))
+        {
+            var markers = Regex.Matches(statement, @"_context\.([A-Za-z]+)")
+                .Where(match => !NotTables.Contains(match.Groups[1].Value, StringComparer.Ordinal))
+                .ToArray();
+
+            if (markers.Length == 0)
+            {
+                continue;
+            }
+
+            // 每個參數綁到它第一次宣告時、位置在它之前的最後一個 _context.{表}。
+            var boundTable = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (Match declaration in Regex.Matches(
+                statement, @"([A-Za-z_][A-Za-z0-9_]*)\s*=>"))
+            {
+                var alias = declaration.Groups[1].Value;
+                if (boundTable.ContainsKey(alias))
+                {
+                    continue;
+                }
+
+                var owner = markers
+                    .Where(marker => marker.Index < declaration.Index)
+                    .OrderBy(marker => marker.Index)
+                    .LastOrDefault();
+
+                if (owner is not null)
+                {
+                    boundTable[alias] = owner.Groups[1].Value;
+                }
+            }
+
+            foreach (var (alias, table) in boundTable)
+            {
+                foreach (Match access in Regex.Matches(
+                    statement, $@"\b{Regex.Escape(alias)}\.([A-Za-z_][A-Za-z0-9_]*)"))
+                {
+                    var member = access.Groups[1].Value;
+                    if (!LinqMembers.Contains(member, StringComparer.Ordinal))
+                    {
+                        yield return (table, member, alias);
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// <c>_context</c> 上不是 DbSet 的成員。
+    /// </summary>
+    /// <remarks>
+    /// <c>Set</c> 與 <c>Database</c> **刻意不列在這裡** —— 把它們當成「不是資料表」
+    /// 而略過，正是第一版守門留下的繞過口。它們由
+    /// <see cref="NoRefundInfrastructureComponentBypassesTheWhitelist"/> 直接拒絕。
+    /// </remarks>
+    private static readonly string[] NotTables =
+        ["ChangeTracker", "Entry", "SaveChangesAsync", "SaveChanges"];
+
+    /// <summary>lambda 上呼叫的 LINQ／框架成員，不是資料表欄位。</summary>
+    private static readonly string[] LinqMembers =
+    [
+        "Contains", "Sum", "Count", "Any", "All", "Select", "Where", "Key",
+        "GetValueOrDefault", "ToString", "Value", "HasValue", "Equals", "Length",
+    ];
 
     private static string RefundInfrastructureDirectory()
     {

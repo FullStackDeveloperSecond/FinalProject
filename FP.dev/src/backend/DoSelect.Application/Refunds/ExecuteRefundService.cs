@@ -84,7 +84,13 @@ public interface IRefundExecutor
 /// 刻意沒有金額或分攤欄位（DEC-P287）：分攤一律由後端 <c>RefundCalculator</c> 依可信
 /// 交易快照產生。<paramref name="ReasonCode"/> 與 <paramref name="Note"/> 只寫進中央
 /// <c>AuditLog</c>，不在 <c>Refund</c> 重複保存（DEC-P289）。
-/// <paramref name="ExecutedByAdminPublicId"/> 是管理員的 PublicId，不是內部 Identity Id。
+/// <para>
+/// <paramref name="ExecutedByAdminUserId"/> 是**內部 Identity Id**（Controller 取自
+/// 已驗證的 <c>NameIdentifier</c> claim），不是 PublicId。轉換成管理員 PublicId 發生在
+/// Infrastructure：<c>ResolveAdminPublicIdAsync</c> 換出 Actor Scope 用的 PublicId，
+/// <c>AuthorizeActorAsync</c> 在交易內重查資格並組出稽核用的 Actor。
+/// **內部 Identity Id 不會出現在稽核或任何對外回應中**（DEC-P290）。
+/// </para>
 /// </remarks>
 public sealed record ExecuteRefundRequest(
     Guid RefundPublicId,
