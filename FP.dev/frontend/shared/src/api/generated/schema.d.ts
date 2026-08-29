@@ -3894,7 +3894,11 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "text/plain": components["schemas"]["PageResultOfBuildListSummaryDto"];
+                        "application/json": components["schemas"]["PageResultOfBuildListSummaryDto"];
+                        "text/json": components["schemas"]["PageResultOfBuildListSummaryDto"];
+                    };
                 };
             };
         };
@@ -5612,6 +5616,12 @@ export interface components {
             /** Format: uuid */
             publicId: string;
         };
+        BuildActiveShareDto: {
+            /** Format: uuid */
+            sharePublicId: string;
+            /** Format: date-time */
+            expiresAtUtc: null | string;
+        };
         BuildCompatibilitySummaryDto: {
             overall: string;
             /** Format: int32 */
@@ -5627,6 +5637,7 @@ export interface components {
             skuPublicId: string;
             skuCode: string;
             name: string;
+            categoryCode: string;
             /** Format: int32 */
             quantity: number | string;
             /** Format: int32 */
@@ -5650,6 +5661,22 @@ export interface components {
             items: components["schemas"]["BuildItemDto"][];
             compatibility: components["schemas"]["BuildCompatibilitySummaryDto"];
             totals: components["schemas"]["BuildTotalsDto"];
+            activeShare: null | components["schemas"]["BuildActiveShareDto"];
+            /** Format: date-time */
+            updatedAtUtc: string;
+            /** Format: byte */
+            rowVersion: string;
+        };
+        BuildListSummaryDto: {
+            /** Format: uuid */
+            publicId: string;
+            name: string;
+            /** Format: int32 */
+            itemCount: number | string;
+            compatibilityOverall: string;
+            /** Format: double */
+            grandTotal: number | string;
+            isShared: boolean;
             /** Format: date-time */
             updatedAtUtc: string;
             /** Format: byte */
@@ -6319,6 +6346,17 @@ export interface components {
         };
         PageResultOfBrandDto: {
             items: components["schemas"]["BrandDto"][];
+            /** Format: int32 */
+            pageNumber: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+            /** Format: int32 */
+            totalCount: number | string;
+            /** Format: int32 */
+            totalPages?: number | string;
+        };
+        PageResultOfBuildListSummaryDto: {
+            items: components["schemas"]["BuildListSummaryDto"][];
             /** Format: int32 */
             pageNumber: number | string;
             /** Format: int32 */

@@ -42,9 +42,11 @@
 | `CreateBuildListRequest` | `name:string(1..160)`、`items:BuildItemInput[1..20]` |
 | `UpdateBuildListRequest` | Create 欄位＋`rowVersion` |
 | `BuildItemInput` | `skuPublicId`、`quantity:int(1..8)` |
-| `BuildListDto` | `publicId`、`name`、`items:BuildItemDto[]`、`compatibility{overall,ruleSetVersion,settingsVersion,results[]}`、`totals{merchandise,assemblyFee,grandTotal,currency}`、`updatedAtUtc`、`rowVersion`；擁有權由後端 Actor Scope／Owner Query 驗證，不回傳固定 Owner 欄位 |
+| `BuildItemDto` | `publicId`、`skuPublicId`、`skuCode`、`name`、`categoryCode`、`quantity`、`sortOrder`、`unitPrice`、`lineTotal`、`availability` |
+| `BuildListDto` | `publicId`、`name`、`items:BuildItemDto[]`、`compatibility{overall,ruleSetVersion,settingsVersion,results[]}`、`totals{merchandise,assemblyFee,grandTotal,currency}`、`activeShare?:BuildActiveShareDto`、`updatedAtUtc`、`rowVersion`；擁有權由後端 Actor Scope／Owner Query 驗證，不回傳固定 Owner 欄位 |
+| `BuildActiveShareDto` | `sharePublicId`、`expiresAtUtc?`；只在目前有作用中分享時出現。分享 Token 只存雜湊（不可逆），因此這裡永遠不含可開啟的網址——既有分享的網址只在 `BuildShareDto`（建立／重新產生當下）出現過一次，重新整理後無法再取得，只能撤銷或重新產生 |
 | `BuildListSummaryDto` | `publicId`、`name`、`itemCount`、`compatibilityOverall`、`grandTotal`、`isShared`、`updatedAtUtc`、`rowVersion` |
-| `BuildShareDto` | `sharePublicId`、`url`、`expiresAtUtc` |
+| `BuildShareDto` | `sharePublicId`、`url`、`expiresAtUtc`；`url` 是完整前台網址（`FrontendLinkOptions.BaseUrl` + `/builds/shared/{token}`），不是內部 API 路徑 |
 | `SharedBuildDto` | `sharePublicId`、`name`、去識別化 `items`、目前價格／庫存／相容性結果、`canCopy`、`canAddToCart`；不回 Owner |
 | `AddBuildToCartRequest` | `quantity:int(1..8)`、`buildRowVersion`；分享清單加入前由後端建立會員複本或購物車群組，不修改原清單 |
 

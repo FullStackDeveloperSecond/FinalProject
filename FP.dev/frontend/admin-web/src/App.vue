@@ -72,6 +72,9 @@ async function onLogout(): Promise<void> {
           <RouterLink to="/products">
             商品管理
           </RouterLink>
+          <RouterLink to="/catalog/compatibility">
+            相容性規則
+          </RouterLink>
           <RouterLink to="/support">
             客服 SLA 佇列
           </RouterLink>

@@ -4,11 +4,17 @@ using DoSelect.Application.Shopping;
 
 namespace DoSelect.Application.Builds;
 
+/// <summary>
+/// PR #35 review, item 1: <c>CategoryCode</c> added so the frontend can group an existing build's
+/// items back into their compatibility-catalog category slot (CPU／主機板／…) without a second
+/// lookup — matches <see cref="DoSelect.Domain.Catalog.CompatibilityCatalogContract.Categories"/>.
+/// </summary>
 public sealed record BuildItemDto(
     Guid PublicId,
     Guid SkuPublicId,
     string SkuCode,
     string Name,
+    string CategoryCode,
     int Quantity,
     int SortOrder,
     decimal UnitPrice,
@@ -28,12 +34,24 @@ public sealed record BuildTotalsDto(
     decimal GrandTotal,
     string Currency);
 
+/// <summary>
+/// PR #35 review, item 3: only the share token's SHA-256 hash is ever persisted
+/// (<see cref="DoSelect.Domain.Builds.BuildShareToken.TokenHash"/>), so an existing share's raw
+/// token — and therefore its openable URL — cannot be reconstructed after the moment it was
+/// created, by design (same one-time-reveal shape as an API key). This carries only what CAN be
+/// recovered: that a share is currently active, and when (if ever) it expires — enough for the
+/// detail page to offer "revoke" or "regenerate" after a reload without pretending it can show
+/// the original link text again.
+/// </summary>
+public sealed record BuildActiveShareDto(Guid SharePublicId, DateTime? ExpiresAtUtc);
+
 public sealed record BuildListDto(
     Guid PublicId,
     string Name,
     IReadOnlyList<BuildItemDto> Items,
     BuildCompatibilitySummaryDto Compatibility,
     BuildTotalsDto Totals,
+    BuildActiveShareDto? ActiveShare,
     DateTime UpdatedAtUtc,
     byte[] RowVersion);
 
@@ -62,10 +80,11 @@ public sealed record BuildListListQuery(
     [Range(1, 50)] int PageSize = 20);
 
 /// <summary>
-/// <c>Url</c> is the relative path of this backend's own public read endpoint
-/// (<c>/api/v1/build-shares/{token}</c>) — no frontend share-page route is defined in any
-/// contract doc yet, so this points at the resource this token actually unlocks rather than
-/// guessing a frontend URL shape.
+/// PR #35 round-3 review (non-blocking doc note): <c>Url</c> is the full, openable frontend URL —
+/// <c>{FrontendLinkOptions.BaseUrl}/builds/shared/{token}</c> (customer-web's
+/// <c>SharedBuildPage.vue</c> route), not this backend's own API path. See
+/// <see cref="DoSelect.Infrastructure.Builds.EfBuildListService.CreateShareAsync"/> for the actual
+/// construction.
 /// </summary>
 public sealed record BuildShareDto(Guid SharePublicId, string Url, DateTime? ExpiresAtUtc);
 

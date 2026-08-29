@@ -11,6 +11,7 @@
   "exports": {
     "./api": "./src/api/index.ts",
     "./components": "./src/components/index.ts",
+    "./compatibility": "./src/compatibility/index.ts",
     "./query": "./src/query/index.ts"
   },
   "peerDependencies": {

@@ -122,6 +122,66 @@ describe('admin router role guard', () => {
 
     expect(router.currentRoute.value.name).toBe('forbidden')
   })
+
+  // 組長 PR #35 round-3 review, P2-3: /catalog/compatibility 原本完全沒有 route meta，任何登入
+  // 使用者（甚至未登入）都能進入。四種身分各測一次，確認 guard 真的照 requiredRoles 把關。
+  it('redirects an anonymous administrator away from the compatibility rules page to login', async () => {
+    const auth = useAdminAuthStore()
+    auth.session = { isAuthenticated: false, user: null, expiresAtUtc: null, requiresTwoFactor: null }
+
+    await router.push('/catalog/compatibility')
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('login')
+    expect(router.currentRoute.value.query.redirect).toBe('/catalog/compatibility')
+  })
+
+  it('redirects an authenticated administrator with an unrelated role away from the compatibility rules page', async () => {
+    const auth = useAdminAuthStore()
+    auth.session = {
+      isAuthenticated: true,
+      user: {
+        publicId: 'admin-3',
+        displayName: 'Support',
+        emailMasked: 's***@example.test',
+        emailVerified: true,
+        locale: 'zh-TW',
+        roles: ['OrderManager'],
+      },
+      expiresAtUtc: null,
+      requiresTwoFactor: false,
+    }
+
+    await router.push('/catalog/compatibility')
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('forbidden')
+  })
+
+  it.each([['CatalogManager'], ['SuperAdmin']])(
+    'allows a %s administrator into the compatibility rules page',
+    async (role) => {
+      const auth = useAdminAuthStore()
+      auth.session = {
+        isAuthenticated: true,
+        user: {
+          publicId: 'admin-4',
+          displayName: 'Catalog',
+          emailMasked: 'c***@example.test',
+          emailVerified: true,
+          locale: 'zh-TW',
+          roles: [role],
+        },
+        expiresAtUtc: null,
+        requiresTwoFactor: false,
+      }
+
+      await router.push('/catalog/compatibility')
+      await router.isReady()
+
+      expect(router.currentRoute.value.name).toBe('compatibility-rules')
+    },
+  )
 })
 
 describe('admin router challenge guard', () => {
