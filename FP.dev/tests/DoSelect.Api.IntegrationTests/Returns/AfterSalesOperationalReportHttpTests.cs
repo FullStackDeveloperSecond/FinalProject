@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using DoSelect.Api.Refunds;
 using DoSelect.Api.Security;
 using DoSelect.Application.Auditing;
 using DoSelect.Domain.Catalog;
@@ -29,7 +28,7 @@ namespace DoSelect.Api.IntegrationTests.Returns;
 public sealed class AfterSalesOperationalReportHttpTests(ReturnsApiFixture fixture)
 {
     [Fact]
-    public async Task FinanceAdminCanInspectRefundAllowAndReadTheReconciledReport()
+    public async Task FinanceAdminCanInspectAllowAndReadTheReconciledReport()
     {
         var seeded = await SeedAsync(fixture.CreateScopedContext());
         using var client = fixture.CreateClient();
@@ -64,28 +63,26 @@ public sealed class AfterSalesOperationalReportHttpTests(ReturnsApiFixture fixtu
             Assert.Equal("awaitingRefund", body.GetProperty("status").GetString());
         }
 
-        using (var refundRequest = new HttpRequestMessage(
-                   HttpMethod.Post,
-                   $"/api/v1/admin/refunds/{seeded.RefundPublicId}/actions/execute")
+        // M-13 is owned by PR #16. This HTTP journey consumes its persisted
+        // succeeded-refund contract and validates only the downstream INT-04 routes.
+        await using (var settle = fixture.CreateScopedContext())
         {
-            Content = JsonContent.Create(new
-            {
-                reasonCode = "customer_request",
-                note = (string?)null,
-                refundRowVersion = seeded.RefundRowVersion,
-            }),
-        })
-        {
-            refundRequest.Headers.Add(
-                RefundsController.IdempotencyKeyHeaderName,
-                $"int04-http-refund-{seeded.RefundPublicId:N}");
-            using var refundResponse = await ReturnsApiFixture.SendWithAdminAntiforgeryAsync(
-                client, refundRequest);
-            Assert.Equal(HttpStatusCode.OK, refundResponse.StatusCode);
-            var body = await refundResponse.Content.ReadFromJsonAsync<JsonElement>();
-            Assert.Equal("succeeded", body.GetProperty("status").GetString());
-            Assert.Equal(500m, body.GetProperty("succeededAmount").GetDecimal());
-            Assert.Equal(1, body.GetProperty("allocations")[0].GetProperty("quantity").GetInt32());
+            var refund = await settle.Refunds
+                .SingleAsync(candidate => candidate.PublicId == seeded.RefundPublicId);
+            var processingAtUtc = new DateTime(2026, 8, 29, 3, 58, 0, DateTimeKind.Utc);
+            var succeededAtUtc = processingAtUtc.AddMinutes(1);
+            refund.BeginProcessing(seeded.AdminUserId, processingAtUtc);
+            refund.Complete(500m, succeededAtUtc);
+            settle.RefundAllocations.Add(new RefundAllocation(
+                Guid.CreateVersion7(),
+                refund.Id,
+                seeded.OrderItemId,
+                RefundAllocationType.ItemRefund,
+                500m,
+                originalDiscountAllocation: 0m,
+                createdAtUtc: succeededAtUtc,
+                quantity: 1));
+            await settle.SaveChangesAsync();
         }
 
         byte[] invoiceRowVersion;
@@ -296,12 +293,12 @@ public sealed class AfterSalesOperationalReportHttpTests(ReturnsApiFixture fixtu
                 admin.Id,
                 brand.Code,
                 sku.Id,
+                orderItem.Id,
                 returnRequest.PublicId,
                 returnItem.PublicId,
                 returnRequest.RowVersion.ToArray(),
                 refund.PublicId,
                 refund.Id,
-                refund.RowVersion.ToArray(),
                 invoice.PublicId);
         }
     }
@@ -310,11 +307,11 @@ public sealed class AfterSalesOperationalReportHttpTests(ReturnsApiFixture fixtu
         string AdminUserId,
         string BrandCode,
         long SkuId,
+        long OrderItemId,
         Guid ReturnPublicId,
         Guid ReturnItemPublicId,
         byte[] ReturnRowVersion,
         Guid RefundPublicId,
         long RefundId,
-        byte[] RefundRowVersion,
         Guid InvoicePublicId);
 }

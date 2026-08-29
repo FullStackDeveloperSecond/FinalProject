@@ -50,22 +50,8 @@ public sealed class RefundExecutionReader : IRefundExecutionReader
             refund.ApprovedAmount,
             refund.SucceededAmount,
             await CalculateRefundableBalanceAsync(refund.OrderId, refund.Id, cancellationToken),
-            refund.RowVersion,
-            await FindTrustedInputsAsync(refund, cancellationToken));
+            refund.IdempotencyKey);
     }
-
-    /// <summary>
-    /// 讀出後端產生七類分攤所需的完整可信快照，齊全時才回傳。
-    /// </summary>
-    /// <remarks>
-    /// 判斷邏輯與實際執行共用 <see cref="RefundTrustedInputsReader"/>，
-    /// 避免出現「預覽說可以執行、實際執行卻拒絕」的落差。
-    /// </remarks>
-    private Task<RefundTrustedInputs?> FindTrustedInputsAsync(
-        Refund refund,
-        CancellationToken cancellationToken) =>
-        new RefundTrustedInputsReader(_context)
-            .FindAsync(refund.OrderId, refund.ReturnRequestId, cancellationToken);
 
     /// <summary>
     /// 可退款餘額 = 該訂單已成功收款金額 - 其他退款已成功的金額累計。

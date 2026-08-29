@@ -12,11 +12,6 @@ public static class RefundErrorCodes
     public const string ConcurrencyConflict = "concurrency_conflict";
     public const string ResourceNotFound = "resource_not_found";
     public const string RefundSnapshotUnavailable = "refund_snapshot_unavailable";
-
-    /// <summary>
-    /// 後端依可信快照算出的淨退款與已核准金額不一致（409）。
-    /// </summary>
-    public const string RefundCalculationMismatch = "refund_calculation_mismatch";
 }
 
 /// <summary>

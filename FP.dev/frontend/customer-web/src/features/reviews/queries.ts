@@ -1,12 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
-import { toValue, type MaybeRefOrGetter } from 'vue'
+import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 import { apiClient } from '../../api/client'
 import type { CreateReviewRequest, UpdateReviewRequest } from './types'
 
 const reviewKeys = {
   eligible: () => ['reviews', 'eligible'] as const,
   mine: () => ['reviews', 'mine'] as const,
-  public: (productId: MaybeRefOrGetter<string>) => ['reviews', 'public', toValue(productId)] as const,
+  public: (productId: string) => ['reviews', 'public', productId] as const,
 }
 
 function invalidateMemberLists(queryClient: ReturnType<typeof useQueryClient>) {
@@ -38,7 +38,7 @@ export function useMyReviewsQuery() {
 
 export function usePublicProductReviewsQuery(productId: MaybeRefOrGetter<string>) {
   return useQuery({
-    queryKey: reviewKeys.public(productId),
+    queryKey: computed(() => reviewKeys.public(toValue(productId))),
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/api/v1/products/{productId}/reviews', {
         params: { path: { productId: toValue(productId) } },

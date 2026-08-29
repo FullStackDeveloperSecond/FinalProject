@@ -1,6 +1,6 @@
 ---
-文件狀態: 實作完成（M-15、M-13、INT-04、S-02、CSV／XLSX 已完成）
-最後更新: 2026-08-29
+文件狀態: 實作完成（M-15、INT-04、S-02、CSV／XLSX 已完成；M-13 由 PR #16 獨立負責）
+最後更新: 2026-08-30
 實作人: alex
 原負責人: terry
 基準分支: dev@1cb0f0d9
@@ -11,12 +11,12 @@
 
 ## 1. 決定與目標
 
-**DONE**：依 `M-15 營運報表 → M-13 退款執行 → INT-04 售後與報表核心 E2E → 既有 API Gate 修復 → S-02 評價與審核 → XLSX` 順序交付；XLSX 新 Package Gate 已由 alex 明確核准。
+**DONE**：依 `M-15 營運報表 → INT-04 售後與報表核心 E2E → 既有 API Gate 修復 → S-02 評價與審核 → XLSX` 順序交付；XLSX 新 Package Gate 已由 alex 明確核准。M-13 退款執行不在本分支，由 PR #16 獨立負責。
 
 目標是完成：
 
 1. 七個白名單營運報表的 Query、API、權限、匯出、後台 UI 與 SQL Server 證據。
-2. 從退貨、退款、發票折讓、庫存到報表的金額與數量一致性 E2E。
+2. 從退貨、既有成功退款結果、發票折讓、庫存到報表的金額與數量一致性 E2E。
 3. 核心項目完成後，延伸既有 Reviews Entity／EF 模型完成 S-02。
 
 本計畫不包含 AI 報表解讀、自然語言查詢、新報表資料倉儲、每日彙總表、延伸 Report Key、部署或生產資料庫作業。
@@ -42,7 +42,7 @@
 | 建置成本 | 多個全堆疊工作包；不虛構工時或金額 |
 | 經常性成本 | 主要是即時 SQL 查詢成本與後續公式維護；不新增外部服務或授權費 |
 | 預期風險成本 | 誤認列、跨月退款、成本快照誤用及權限外洩；以公式、SQL Server 與 Policy 測試降低 |
-| 信心 | 中；規格已定，但 M-13／M-20 與完整付款垂直切片仍在整合 |
+| 信心 | 中；規格已定，但 PR #16 的 M-13 契約、M-20 與完整付款垂直切片仍在整合 |
 | 成功指標 | 見 Definition of Done |
 | 停止／回滾條件 | Migration 出現破壞性操作、庫存寫入無法可靠取得成本快照、查詢優化後 P95 仍超過 3 秒，或上游退款／折讓契約仍會破壞已完成工作包 |
 
@@ -63,7 +63,7 @@
 - M-15 沒有 `ReportQuery`、`ReportResultDto`、Controller、Infrastructure Query 或 A-27 頁面。
 - `DoSelect.Domain/Reports` 現有內容是「內容檢舉案件」，不是 M-15 營運報表。M-15 新程式必須用 `OperationalReports` 或同等清楚命名避免混淆。
 - S-02 的 `ProductReview`、`ReviewImage`、`ProductReviewRevision` 與 EF Configuration 已存在，但 Application／API／UI 未實作。
-- M-12 已有完整退貨垂直切片；本工程包已補齊 INT-04 所需的 M-13 退款執行端點，並復用既有 M-20 折讓 Writer／API 契約完成跨模組核對。
+- M-12 已有完整退貨垂直切片；M-13 退款執行由 PR #16 獨立負責。本工程包的 INT-04 只消費既有成功退款與分攤結果，並復用既有 M-20 折讓 Writer／API 契約完成跨模組核對。
 
 ### 非阻擋假設
 
@@ -84,7 +84,7 @@
 | REQ-007 | Must | 提供 `GET /api/v1/admin/reports/{reportKey}` 與 `/export` | API 契約與授權整合測試 |
 | REQ-008 | Must | A-27 共用頁面支援載入、空白、錯誤、篩選、摘要、明細與匯出 | Vitest／typecheck／build；Playwright 核心旅程 |
 | REQ-009 | Must | CSV／XLSX 匯出含 DEMO DATA／Metadata，外部文字不執行公式且不含個資 | 兩種匯出內容與權限測試 |
-| REQ-010 | Must | INT-04 證明退貨／退款／折讓／庫存／報表一致 | 可重跑 SQL Server＋HTTP／UI E2E |
+| REQ-010 | Must | INT-04 以 M-13 已成功退款／分攤結果證明退貨／折讓／庫存／報表一致 | 可重跑 SQL Server＋HTTP／UI E2E；不重複驗證退款執行 |
 | REQ-011 | Should/Gated | 完成已購評價、圖片安全、審核、公開與 Revision | M／Demo Gate 通過後的全堆疊測試 |
 | NFR-001 | Must | 報表查詢先即時彙總，優化後 P95 目標 3 秒 | 固定 Demo Seed 量測；超標時停止並重開資料設計決定 |
 | NFR-002 | Must | 不暴露內部 Id、收件人、Email、電話、地址或 AI 對話全文 | DTO／OpenAPI／匯出負面斷言 |
@@ -120,7 +120,7 @@
 | WP-003 | 庫存週轉、關聯組合、預測／異常 SQL 垂直切片 | REQ-006 | WP-001；Inventory／Orders 投影 | 純計算＋SQL Server Provider-backed | L／Medium |
 | WP-004 | 查詢 API、匯出、OpenAPI／Typed Client | REQ-001～007、09 | WP-002／003 | API Pipeline／Policy／契約／匯出測試 | M／Medium |
 | WP-005 | A-27 共用後台頁面 | REQ-008 | WP-004 | Vitest／typecheck／lint／build | M／Low |
-| WP-006 | INT-04 SQL Server＋HTTP／UI E2E | REQ-010 | WP-002～005；M-12／13／20 完成 | 可重跑跨模組旅程與金額／數量斷言 | L／High |
+| WP-006 | INT-04 SQL Server＋HTTP／UI E2E | REQ-010 | WP-002～005；M-12／M-20 完成；PR #16 提供 M-13 成功退款結果契約 | 可重跑跨模組旅程與金額／數量斷言，不呼叫退款執行端點 | L／High |
 | WP-007 | S-02 已購評價與審核垂直切片 | REQ-011 | 所有 M／Demo Gate；OrderItem Owner Query | 單元／API／SQL／Vue／E2E | L／Medium |
 
 ### 執行波次
@@ -129,7 +129,7 @@
 Wave 1: WP-001
 Wave 2: WP-002 || WP-003
 Wave 3: WP-004 -> WP-005
-Wave 4: WP-006（同時需 M-13／M-20 Gate）
+Wave 4: WP-006（消費 PR #16 的 M-13 成功退款結果，同時需 M-20 Gate）
 Wave 5: WP-007（只在 M／Demo Gate 通過後）
 ```
 
@@ -169,7 +169,7 @@ npm run build
 | RISK-002 | 付款／退款狀態尚未完整整合，報表誤認列 | 使用定版事件時間與成功狀態；上游契約改動時重跑 | SQL 跨月回歸不通過時停止合併 |
 | RISK-003 | 毛利或退款分攤誤用現值 | 只使用 OrderItem／Refund 快照與 yinyin 覆核 | 快照負面測試；金額不同時 No-Go |
 | RISK-004 | 即時彙總超過 P95 3 秒 | 有界投影、穩定分頁、量測後才補現有索引 | 固定 Demo Seed 優化後仍超標則停止，不自行加彙總表 |
-| RISK-005 | M-13／M-20 未完成阻擋 INT-04 | 已以最小 M-13 執行端點與既有 M-20 寫入路徑解除 | SQL／HTTP／UI 跨模組旅程已通過；上游契約若再變更需重跑 |
+| RISK-005 | PR #16 的 M-13 契約或 M-20 未完成阻擋 INT-04 | 本分支不重複實作 M-13；以已成功退款／分攤前置資料驗證下游，並復用既有 M-20 寫入路徑 | PR #16 契約變更時重跑 SQL／HTTP／UI 跨模組旅程 |
 | RISK-006 | S-02 擠壓 M 核心範圍 | 固定為 Wave 5 | M 實作矩陣未過 Gate 則不開工 |
 
 ### Definition of Ready
@@ -182,7 +182,7 @@ npm run build
 
 - 7／7 Report Key 的 Query、API、獨立 Row Schema、Policy、匯出、UI 及所規劃驗證完成。
 - 前端與 OpenAPI 契約同步；無新增個資外洩、無任意 SQL／元件名稱。
-- INT-04 在 SQL Server／HTTP／UI 邊界可重跑，退款、折讓、庫存與報表核對全數通過。
+- INT-04 在 SQL Server／HTTP／UI 邊界可重跑，以既有成功退款結果核對折讓、庫存與報表；M-13 執行行為由 PR #16 驗證。
 - 只有在 M／Demo Gate 後，S-02 才可列入完成範圍。
 - 沒有套用 production migration、生產 SQL、部署、push 或 merge。
 
@@ -203,8 +203,8 @@ npm run build
 | 2026-08-29 | WP-003 | 完成（Migration Gate） | `inventory-turnover`、`product-associations`、`forecast-anomalies` 已實作；成本與數量事件分流重建歷史估值、舊資料缺快照標示不足、方向性 Confidence、30 日迴歸／7 日預測、殘差母體 Z-Score 與門檻均有測試。SQL Server 報表 9／9、成本變更寫入 1／1、統計 3／3、Infrastructure 593／593、Domain 475／475、Application 431／431 通過；Migration 僅新增 nullable `decimal(18,2)`，pending-model check 為否且未套用資料庫 |
 | 2026-08-29 | WP-004 | 完成 | 新增查詢、CSV 與 XLSX Endpoint、一般／財務雙層 Policy；兩種匯出共用相同篩選、Cursor 展開與 100,000 列上限。CSV 保留 UTF-8 BOM／公式注入防護；XLSX 提供 README／Summary／Rows 三張表、固定欄位、typed 數值／日期／布林、外部文字非公式。OpenAPI 與 shared Typed Client 已重產。 |
 | 2026-08-29 | WP-005 | 完成 | A-27 共用 Vue 頁面已接七個白名單 Route，包含角色導覽、日期／分類／品牌／狀態／粒度篩選、載入／空白／錯誤／重試、摘要、無外部套件趨勢圖、明細、Cursor 載入與 CSV 下載；過期請求不覆蓋目前報表，預設日期固定依 Asia/Taipei 切日。focused 9／9、admin-web 全套 165／165、typecheck、lint、production build 通過。 |
-| 2026-08-29 | M-13 Gate | 完成 | 新增 `POST /api/v1/admin/refunds/{id}/actions/execute`；強制管理員角色＋MFA、使用伺服器可信 Allocation、RowVersion 與 Idempotency，退款／分攤／稽核同一交易。Application 30／30、Infrastructure Reader 12／12、API 22／22、SQL 20／20 通過。 |
-| 2026-08-29 | WP-006 | 完成 | 新增退貨可再販品的庫存 Port／Writer，檢驗完成時在同一 `SaveChanges` 寫入 ReturnToStock movement 與 balance；真實 SQL 跨模組 1／1、SQL-backed HTTP 1／1、A-27 Playwright 1／1 通過，核對付款 NT$1,060、退款 NT$500、淨營收 NT$560。 |
+| 2026-08-30 | M-13 範圍收斂 | 完成 | 依最新裁定移除本分支的退款執行 Endpoint、Application／Infrastructure 擴充與專屬測試；M-13 由 PR #16 獨立負責，避免重複實作與合併衝突。 |
+| 2026-08-29 | WP-006 | 完成 | 新增退貨可再販品的庫存 Port／Writer，檢驗完成時在同一 `SaveChanges` 寫入 ReturnToStock movement 與 balance；INT-04 以既有成功退款／分攤前置資料驗證下游，不執行 M-13；真實 SQL 跨模組、SQL-backed HTTP 與 A-27 Playwright 核對付款 NT$1,060、退款 NT$500、淨營收 NT$560。 |
 | 2026-08-29 | 既有 API Gate 修復 | 完成 | 30 個 Support 測試的根因是共用 ambient dev DB 缺 `AuditLogs`；改為專屬、隔離、完整 Migration 的 ephemeral SQL fixture，並補齊 Returns fixture 的實際 SKU／庫存資料。完整 API Integration 565／565 通過。 |
 | 2026-08-29 | WP-007 | 完成 | 復用既有 `ProductReview`／`ReviewImage`／`ProductReviewRevision`、檔案掃描、Audit、Identity 與 Vue，不新增 Schema／服務／Package。完成已完成訂單與所有權限制、一品項一評價、草稿／送審／核准／退回／隱藏／恢復、公開後編輯立即下架並保存 Revision、最多 3 張 JPG／PNG 5 MB、只公開 Approved 且不含 PII。SQL-backed HTTP 2／2、Domain 3／3、Vue focused 4／4、Playwright 2／2 通過。 |
 | 2026-08-29 | 廣範回歸 Gate | 完成 | API 565／565、Domain 479／479、Infrastructure 617／617、customer-web 147／147、S-02 Playwright 2／2 已通過；加入 XLSX 後 Application 更新為 460／460、admin-web 更新為 169／169，Solution `-warnaserror` build 0 warning／0 error、兩站 typecheck／lint／production build、format 與 NuGet transitive vulnerability scan 全數通過。 |

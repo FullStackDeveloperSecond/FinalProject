@@ -3,7 +3,6 @@ using DoSelect.Application.Auditing;
 using DoSelect.Application.Idempotency;
 using DoSelect.Application.Invoicing;
 using DoSelect.Application.OperationalReports;
-using DoSelect.Application.Refunds;
 using DoSelect.Application.Returns;
 using DoSelect.Domain.Catalog;
 using DoSelect.Domain.Inventory;
@@ -19,7 +18,8 @@ using DoSelect.Infrastructure.Invoicing;
 using DoSelect.Infrastructure.OperationalReports;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Returns;
-using DoSelect.Infrastructure.Refunds;
+using DoSelect.Infrastructure.Tests.OperationalReports;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -27,10 +27,10 @@ namespace DoSelect.Infrastructure.Tests;
 
 /// <summary>
 /// INT-04: one deterministic after-sales journey through the real SQL Server provider.
-/// The test exercises return inspection, inventory restock, refund execution, invoice
-/// allowance and operational-report projections without directly rewriting module results.
+/// The test exercises return inspection, inventory restock, invoice allowance and
+/// operational-report projections while consuming the settled-refund output owned by M-13.
 /// </summary>
-[Collection(nameof(RefundExecutorSqlCollection))]
+[Collection(nameof(OperationalReportSqlCollection))]
 [Trait("Category", "RequiresSqlServer")]
 public sealed class AfterSalesOperationalReportSqlServerTests
 {
@@ -38,10 +38,10 @@ public sealed class AfterSalesOperationalReportSqlServerTests
     private static readonly DateTimeOffset Now =
         new(2026, 8, 29, 4, 0, 0, TimeSpan.Zero);
 
-    [RefundExecutorSqlFact]
+    [OperationalReportSqlFact]
     public async Task ResellablePartialReturnRemainsConsistentAcrossRefundAllowanceInventoryAndReports()
     {
-        await using var context = RefundExecutorSqlFixture.CreateContext();
+        await using var context = OperationalReportSqlFixture.CreateContext();
         var seeded = await SeedAsync(context);
         var timeProvider = new FixedTimeProvider(Now);
 
@@ -53,7 +53,7 @@ public sealed class AfterSalesOperationalReportSqlServerTests
 
         var inspected = await returnService.InspectAsync(
             seeded.ReturnPublicId,
-            RefundExecutorSqlFixture.AdminUserId,
+            seeded.AdminUserId,
             new InspectReturnRequest(
                 [new InspectReturnItemLine(
                     seeded.ReturnItemPublicId,
@@ -67,28 +67,23 @@ public sealed class AfterSalesOperationalReportSqlServerTests
 
         Assert.Equal(ReturnRequestStatus.AwaitingRefund, inspected.Status);
 
-        var refundExecutor = new RefundExecutor(
-            context,
-            new EfAuditWriter(context, timeProvider),
-            new EfIdempotencyExecutor(
-                context,
-                Options.Create(new IdempotencyOptions { ActorScopePepper = IdempotencyPepper }),
-                timeProvider),
-            timeProvider);
-
-        var refundResult = await refundExecutor.ExecuteAsync(new ExecuteRefundRequest(
-            seeded.RefundPublicId,
-            seeded.RefundRowVersion,
-            $"int04-refund-{seeded.RefundPublicId:N}",
-            RefundExecutorSqlFixture.AdminUserId,
-            "customer_request",
-            Note: null,
-            CorrelationId: "int04-refund",
-            TraceId: new string('a', 32),
-            RemoteIpAddress: IPAddress.Parse("203.0.113.42")));
-
-        Assert.True(refundResult.IsSuccess);
-        Assert.Equal(500m, refundResult.SettledAmount);
+        // M-13 is owned by PR #16. INT-04 starts from the durable state that
+        // upstream refund execution publishes instead of testing that executor here.
+        context.ChangeTracker.Clear();
+        var settledRefund = await context.Refunds
+            .SingleAsync(candidate => candidate.PublicId == seeded.RefundPublicId);
+        settledRefund.BeginProcessing(seeded.AdminUserId, Now.UtcDateTime.AddMinutes(-2));
+        settledRefund.Complete(500m, Now.UtcDateTime.AddMinutes(-1));
+        context.RefundAllocations.Add(new RefundAllocation(
+            Guid.CreateVersion7(),
+            settledRefund.Id,
+            seeded.OrderItemId,
+            RefundAllocationType.ItemRefund,
+            500m,
+            originalDiscountAllocation: 0m,
+            createdAtUtc: Now.UtcDateTime.AddMinutes(-1),
+            quantity: 1));
+        await context.SaveChangesAsync();
 
         context.ChangeTracker.Clear();
         var invoice = await context.SimulatedInvoices
@@ -108,7 +103,7 @@ public sealed class AfterSalesOperationalReportSqlServerTests
                 seeded.RefundPublicId,
                 invoice.RowVersion.ToArray(),
                 $"int04-allowance-{seeded.RefundPublicId:N}",
-                RefundExecutorSqlFixture.AdminUserId,
+                seeded.AdminUserId,
                 "int04-allowance",
                 new string('b', 32),
                 IPAddress.Parse("203.0.113.42")));
@@ -181,6 +176,17 @@ public sealed class AfterSalesOperationalReportSqlServerTests
     private static async Task<SeededJourney> SeedAsync(DoSelectDbContext context)
     {
         var createdAtUtc = Now.UtcDateTime.AddDays(-2);
+        var adminUserId = await context.Users.AsNoTracking()
+            .Select(user => user.Id)
+            .FirstAsync();
+        var financeRole = new IdentityRole(AuditRoleNames.FinanceManager);
+        context.Roles.Add(financeRole);
+        await context.SaveChangesAsync();
+        context.UserRoles.Add(new IdentityUserRole<string>
+        {
+            UserId = adminUserId,
+            RoleId = financeRole.Id,
+        });
         var suffix = Guid.NewGuid().ToString("N")[..10];
         var brand = new Brand(Guid.CreateVersion7(), $"I4B{suffix}", "INT-04 品牌", createdAtUtc);
         var category = new Category(
@@ -301,7 +307,7 @@ public sealed class AfterSalesOperationalReportSqlServerTests
             Guid.CreateVersion7(), $"I4R{Guid.NewGuid():N}"[..20], order.Id, null,
             "Defective", "INT-04 partial return", 1, createdAtUtc);
         returnRequest.Transition(ReturnRequestStatus.UnderReview, createdAtUtc.AddHours(2));
-        returnRequest.Approve(RefundExecutorSqlFixture.AdminUserId, requiresShipment: true, createdAtUtc.AddHours(3));
+        returnRequest.Approve(adminUserId, requiresShipment: true, createdAtUtc.AddHours(3));
         returnRequest.Transition(ReturnRequestStatus.InTransit, createdAtUtc.AddHours(4));
         returnRequest.Transition(ReturnRequestStatus.Received, createdAtUtc.AddHours(5));
         context.ReturnRequests.Add(returnRequest);
@@ -312,30 +318,32 @@ public sealed class AfterSalesOperationalReportSqlServerTests
         var refund = new Refund(
             Guid.CreateVersion7(), order.Id, returnRequest.Id, payment.Id,
             $"I4RF{Guid.NewGuid():N}"[..20], 500m, "customer_request",
-            RefundExecutorSqlFixture.AdminUserId, $"int04-create-{suffix}", createdAtUtc);
-        refund.Approve(500m, RefundExecutorSqlFixture.AdminUserId, createdAtUtc.AddHours(6));
+            adminUserId, $"int04-create-{suffix}", createdAtUtc);
+        refund.Approve(500m, adminUserId, createdAtUtc.AddHours(6));
         context.AddRange(returnItem, refund);
         await context.SaveChangesAsync();
 
         return new SeededJourney(
+            adminUserId,
             brand.Code,
             sku.Id,
+            orderItem.Id,
             returnRequest.PublicId,
             returnItem.PublicId,
             returnRequest.RowVersion.ToArray(),
             refund.PublicId,
-            refund.RowVersion.ToArray(),
             invoice.PublicId);
     }
 
     private sealed record SeededJourney(
+        string AdminUserId,
         string BrandCode,
         long SkuId,
+        long OrderItemId,
         Guid ReturnPublicId,
         Guid ReturnItemPublicId,
         byte[] ReturnRowVersion,
         Guid RefundPublicId,
-        byte[] RefundRowVersion,
         Guid InvoicePublicId);
 
     private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider

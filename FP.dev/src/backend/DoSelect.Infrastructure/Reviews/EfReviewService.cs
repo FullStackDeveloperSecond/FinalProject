@@ -49,19 +49,47 @@ public sealed class EfReviewService(
         CancellationToken cancellationToken)
     {
         memberUserId = RequireActor(memberUserId);
-        var reviews = await dbContext.ProductReviews
-            .AsNoTracking()
-            .Where(review => review.MemberUserId == memberUserId)
-            .OrderByDescending(review => review.CreatedAtUtc)
+        var rows = await (
+            from review in dbContext.ProductReviews.AsNoTracking()
+            join item in dbContext.OrderItems.AsNoTracking() on review.OrderItemId equals item.Id
+            join product in dbContext.Products.AsNoTracking() on review.ProductId equals product.Id
+            where review.MemberUserId == memberUserId
+            orderby review.CreatedAtUtc descending
+            select new MemberReviewListRow(
+                review.Id,
+                review.PublicId,
+                item.PublicId,
+                product.PublicId,
+                item.ProductNameSnapshot,
+                item.SkuNameSnapshot,
+                review.Rating,
+                review.Title,
+                review.Content,
+                review.Status,
+                review.RejectionReason,
+                review.CreatedAtUtc,
+                review.UpdatedAtUtc,
+                review.RowVersion))
             .Take(100)
             .ToListAsync(cancellationToken);
-        var result = new List<MemberReviewDto>(reviews.Count);
-        foreach (var review in reviews)
-        {
-            result.Add(await MapMemberAsync(review, cancellationToken));
-        }
-
-        return result;
+        var images = await LoadImagesByReviewAsync(
+            rows.ToDictionary(row => row.ReviewId, row => row.PublicId),
+            cancellationToken);
+        return rows.Select(row => new MemberReviewDto(
+            row.PublicId,
+            row.OrderItemPublicId,
+            row.ProductPublicId,
+            row.ProductName,
+            row.SkuName,
+            row.Rating,
+            row.Title,
+            row.Content,
+            ToApiStatus(row.Status),
+            row.RejectionReason,
+            AsUtc(row.CreatedAtUtc),
+            AsUtc(row.UpdatedAtUtc),
+            Convert.ToBase64String(row.RowVersion),
+            ImagesFor(images, row.ReviewId))).ToArray();
     }
 
     public async Task<MemberReviewDto> CreateAsync(
@@ -226,10 +254,7 @@ public sealed class EfReviewService(
         {
             var now = UtcNow();
             PreservePublishedRevision(review, ReviewSupersededReason.MemberEdited, now);
-            if (review.Status != ProductReviewStatus.Draft)
-            {
-                review.Edit(review.Rating, review.Title, review.Content, now);
-            }
+            TouchReviewForImageMutation(review, now);
 
             var nextSortOrder = activeImages.Count == 0
                 ? 0
@@ -276,10 +301,7 @@ public sealed class EfReviewService(
 
         var now = UtcNow();
         PreservePublishedRevision(review, ReviewSupersededReason.MemberEdited, now);
-        if (review.Status != ProductReviewStatus.Draft)
-        {
-            review.Edit(review.Rating, review.Title, review.Content, now);
-        }
+        TouchReviewForImageMutation(review, now);
 
         image.MarkDeleted(now);
         await SaveAsync(cancellationToken);
@@ -307,17 +329,44 @@ public sealed class EfReviewService(
         query = parsedStatus.HasValue
             ? query.Where(review => review.Status == parsedStatus.Value)
             : query.Where(review => review.Status == ProductReviewStatus.PendingReview);
-        var reviews = await query
-            .OrderBy(review => review.UpdatedAtUtc)
+        var reviews = await (
+            from review in query
+            join item in dbContext.OrderItems.AsNoTracking() on review.OrderItemId equals item.Id
+            join product in dbContext.Products.AsNoTracking() on review.ProductId equals product.Id
+            orderby review.UpdatedAtUtc
+            select new AdminReviewListRow(
+                review.Id,
+                review.PublicId,
+                product.PublicId,
+                item.ProductNameSnapshot,
+                item.SkuNameSnapshot,
+                review.Rating,
+                review.Title,
+                review.Content,
+                review.Status,
+                review.RejectionReason,
+                review.CreatedAtUtc,
+                review.ReviewedAtUtc,
+                review.RowVersion))
             .Take(100)
             .ToListAsync(cancellationToken);
-        var result = new List<AdminReviewDto>(reviews.Count);
-        foreach (var review in reviews)
-        {
-            result.Add(await MapAdminAsync(review, cancellationToken));
-        }
-
-        return result;
+        var images = await LoadImagesByReviewAsync(
+            reviews.ToDictionary(row => row.ReviewId, row => row.PublicId),
+            cancellationToken);
+        return reviews.Select(row => new AdminReviewDto(
+            row.PublicId,
+            row.ProductPublicId,
+            row.ProductName,
+            row.SkuName,
+            row.Rating,
+            row.Title,
+            row.Content,
+            ToApiStatus(row.Status),
+            row.RejectionReason,
+            AsUtc(row.CreatedAtUtc),
+            row.ReviewedAtUtc is null ? null : AsUtc(row.ReviewedAtUtc.Value),
+            Convert.ToBase64String(row.RowVersion),
+            ImagesFor(images, row.ReviewId))).ToArray();
     }
 
     public async Task<AdminReviewDto?> GetForModerationAsync(
@@ -422,23 +471,27 @@ public sealed class EfReviewService(
                 product.Status == ProductStatus.Published &&
                 review.Status == ProductReviewStatus.Approved
             orderby review.ReviewedAtUtc descending
-            select review)
-            .Take(100)
-            .ToListAsync(cancellationToken);
-        var result = new List<PublicProductReviewDto>(reviews.Count);
-        foreach (var review in reviews)
-        {
-            result.Add(new PublicProductReviewDto(
+            select new PublicReviewListRow(
+                review.Id,
                 review.PublicId,
                 review.Rating,
                 review.Title,
                 review.Content,
-                IsVerifiedPurchase: true,
-                AsUtc(review.ReviewedAtUtc ?? review.UpdatedAtUtc),
-                await LoadImagesAsync(review, cancellationToken)));
-        }
-
-        return result;
+                review.ReviewedAtUtc,
+                review.UpdatedAtUtc))
+            .Take(100)
+            .ToListAsync(cancellationToken);
+        var images = await LoadImagesByReviewAsync(
+            reviews.ToDictionary(row => row.ReviewId, row => row.PublicId),
+            cancellationToken);
+        return reviews.Select(row => new PublicProductReviewDto(
+            row.PublicId,
+            row.Rating,
+            row.Title,
+            row.Content,
+            IsVerifiedPurchase: true,
+            AsUtc(row.ReviewedAtUtc ?? row.UpdatedAtUtc),
+            ImagesFor(images, row.ReviewId))).ToArray();
     }
 
     private async Task<ProductReview> LoadOwnedAsync(
@@ -521,6 +574,46 @@ public sealed class EfReviewService(
                 $"/media/reviews/{review.PublicId}/{image.SortOrder}/800"))
             .ToListAsync(cancellationToken);
 
+    private async Task<Dictionary<long, IReadOnlyList<ReviewImageDto>>> LoadImagesByReviewAsync(
+        IReadOnlyDictionary<long, Guid> reviewPublicIds,
+        CancellationToken cancellationToken)
+    {
+        if (reviewPublicIds.Count == 0)
+        {
+            return [];
+        }
+
+        var reviewIds = reviewPublicIds.Keys.ToArray();
+        var rows = await dbContext.ReviewImages.AsNoTracking()
+            .Where(image => reviewIds.Contains(image.ProductReviewId) &&
+                image.DeletedAtUtc == null && image.ScanStatus == ReviewImageScanStatus.Clean)
+            .OrderBy(image => image.ProductReviewId)
+            .ThenBy(image => image.SortOrder)
+            .Select(image => new ReviewImageListRow(
+                image.ProductReviewId,
+                image.SortOrder,
+                image.OriginalFileName,
+                image.MediaType,
+                image.FileSizeBytes))
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .GroupBy(row => row.ProductReviewId)
+            .ToDictionary(
+                group => group.Key,
+                group => (IReadOnlyList<ReviewImageDto>)group.Select(row => new ReviewImageDto(
+                    row.SortOrder,
+                    row.OriginalFileName,
+                    row.MediaType,
+                    row.FileSizeBytes,
+                    $"/media/reviews/{reviewPublicIds[group.Key]}/{row.SortOrder}/800"))
+                    .ToArray());
+    }
+
+    private static IReadOnlyList<ReviewImageDto> ImagesFor(
+        IReadOnlyDictionary<long, IReadOnlyList<ReviewImageDto>> images,
+        long reviewId) => images.TryGetValue(reviewId, out var rows) ? rows : [];
+
     private void PreservePublishedRevision(
         ProductReview review,
         ReviewSupersededReason reason,
@@ -540,6 +633,14 @@ public sealed class EfReviewService(
             now,
             reason,
             now));
+    }
+
+    private void TouchReviewForImageMutation(ProductReview review, DateTime now)
+    {
+        review.Edit(review.Rating, review.Title, review.Content, now);
+        dbContext.Entry(review)
+            .Property(candidate => candidate.UpdatedAtUtc)
+            .IsModified = true;
     }
 
     private static DateTime AsUtc(DateTime value) =>
@@ -638,6 +739,53 @@ public sealed class EfReviewService(
     };
 
     private DateTime UtcNow() => timeProvider.GetUtcNow().UtcDateTime;
+
+    private sealed record MemberReviewListRow(
+        long ReviewId,
+        Guid PublicId,
+        Guid OrderItemPublicId,
+        Guid ProductPublicId,
+        string ProductName,
+        string SkuName,
+        byte Rating,
+        string? Title,
+        string Content,
+        ProductReviewStatus Status,
+        string? RejectionReason,
+        DateTime CreatedAtUtc,
+        DateTime UpdatedAtUtc,
+        byte[] RowVersion);
+
+    private sealed record AdminReviewListRow(
+        long ReviewId,
+        Guid PublicId,
+        Guid ProductPublicId,
+        string ProductName,
+        string SkuName,
+        byte Rating,
+        string? Title,
+        string Content,
+        ProductReviewStatus Status,
+        string? RejectionReason,
+        DateTime CreatedAtUtc,
+        DateTime? ReviewedAtUtc,
+        byte[] RowVersion);
+
+    private sealed record PublicReviewListRow(
+        long ReviewId,
+        Guid PublicId,
+        byte Rating,
+        string? Title,
+        string Content,
+        DateTime? ReviewedAtUtc,
+        DateTime UpdatedAtUtc);
+
+    private sealed record ReviewImageListRow(
+        long ProductReviewId,
+        int SortOrder,
+        string OriginalFileName,
+        string MediaType,
+        long FileSizeBytes);
 
     private static string ToApiStatus(ProductReviewStatus status)
     {

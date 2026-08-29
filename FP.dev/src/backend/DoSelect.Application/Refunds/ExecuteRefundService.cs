@@ -1,52 +1,18 @@
-using System.Net;
-using DoSelect.Application.Auditing;
-using DoSelect.Application.Common;
 using DoSelect.Domain.Refunds;
 
 namespace DoSelect.Application.Refunds;
 
 /// <summary>
-/// 後端產生七類分攤所需的完整可信交易快照。
-/// </summary>
-/// <remarks>
-/// 依 DEC-P287，分攤只能由後端依**下單與退貨核准當下**的快照計算，不得回查目前的
-/// 商品或優惠券設定，也不得由管理端傳入。
-/// <para>
-/// <see cref="Reason"/>、<see cref="AssemblyDisposition"/> 與
-/// <see cref="ReturnShippingCost"/> 三項目前在資料庫沒有任何持久化來源：
-/// <c>ReturnRequest.ReasonCode</c> 是自由文字而非 <see cref="ReturnReason"/> 列舉，
-/// 另外兩項則完全不存在（kafen 的 M-12 已合併但未涵蓋）。因此讀取端目前一律
-/// 回 <c>null</c>，退款執行被拒絕 —— 這是 E1 裁定要求的行為，不是尚未實作。
-/// </para>
-/// </remarks>
-public sealed record RefundTrustedInputs(
-    RefundOrderSnapshot Order,
-    IReadOnlyList<RefundLineRequest> Lines,
-    ReturnReason Reason,
-    AssemblyFeeDisposition AssemblyDisposition,
-    decimal ReturnShippingCost);
-
-/// <summary>
 /// 一筆退款交易在執行當下的狀態快照。
+/// <paramref name="StoredIdempotencyKey"/> 是建立退款時保存的金鑰，用於比對執行請求。
 /// </summary>
-/// <remarks>
-/// <paramref name="RowVersion"/> 是讀取當下的退款版本，用來比對呼叫端持有的
-/// <c>refundRowVersion</c>。
-/// <para>
-/// 這裡**不再**保存建立退款時的冪等金鑰。那個值是「建立退款」這個操作的金鑰，
-/// 不是 <c>refund.execute</c> 這一次操作的；拿它去比對執行請求，會讓正常使用新金鑰
-/// 的呼叫端直接被判 <c>idempotency_payload_conflict</c>。重播與 Payload 衝突改由
-/// 共用 <c>IIdempotencyExecutor</c> 負責（Operation <c>refund.execute</c>）。
-/// </para>
-/// </remarks>
 public sealed record RefundExecutionSnapshot(
     long RefundId,
     RefundStatus Status,
     decimal? ApprovedAmount,
     decimal? SucceededAmount,
     decimal RefundableBalance,
-    byte[] RowVersion,
-    RefundTrustedInputs? TrustedInputs);
+    string StoredIdempotencyKey);
 
 /// <summary>
 /// 退款執行所需的讀取埠。實作屬於 Infrastructure，不在此層存取 DbContext。
@@ -74,42 +40,19 @@ public interface IRefundExecutor
         CancellationToken cancellationToken = default);
 }
 
-/// <summary>
-/// 執行退款的請求。
-/// </summary>
-/// <remarks>
-/// 刻意沒有金額或分攤欄位（DEC-P287）：分攤一律由後端 <c>RefundCalculator</c> 依可信
-/// 交易快照產生。<paramref name="ReasonCode"/> 與 <paramref name="Note"/> 只寫進中央
-/// <c>AuditLog</c>，不在 <c>Refund</c> 重複保存（DEC-P289）。
-/// <paramref name="ExecutedByAdminPublicId"/> 是管理員的 PublicId，不是內部 Identity Id。
-/// </remarks>
 public sealed record ExecuteRefundRequest(
     Guid RefundPublicId,
-    byte[] RefundRowVersion,
     string IdempotencyKey,
-    string ExecutedByAdminUserId,
-    string ReasonCode,
-    string? Note,
-    string CorrelationId,
-    string TraceId,
-    IPAddress? RemoteIpAddress);
+    string ExecutedByAdminUserId);
 
 /// <summary>
 /// 通過檢查後要執行的退款。
 /// </summary>
-/// <remarks>
-/// <paramref name="ExpectedRefundRowVersion"/> 是本次決策依據的退款版本，Writer 必須在
-/// 同一交易內以條件更新再次比對。<paramref name="Allocations"/> 是後端算出的完整七類
-/// 分攤，必須與退款狀態同交易寫入 —— 沒有分攤的退款會讓對帳、發票折讓與稽核的
-/// <c>allocationCount</c> 全部不完整。
-/// </remarks>
 public sealed record RefundExecutionPlan(
     long RefundId,
     decimal Amount,
     string ExecutedByAdminUserId,
-    string IdempotencyKey,
-    byte[] ExpectedRefundRowVersion,
-    IReadOnlyList<RefundAllocationDraft> Allocations);
+    string IdempotencyKey);
 
 public sealed class ExecuteRefundResult
 {
@@ -124,21 +67,17 @@ public sealed class ExecuteRefundResult
 
     public string? ErrorCode { get; }
 
+    /// <summary>已經成功過的退款重送時，回傳既有金額而不再執行一次。</summary>
+    public bool IsReplay => IsSuccess && Plan is null;
+
     public decimal? SettledAmount { get; }
 
-    /// <summary>拒絕時為 <c>null</c>。</summary>
+    /// <summary>重播時為 <c>null</c>。</summary>
     public RefundExecutionPlan? Plan { get; }
 
     public static ExecuteRefundResult Failure(string errorCode) => new(errorCode, null, null);
 
-    /// <summary>
-    /// 共用 <c>IIdempotencyExecutor</c> 判定為重播時，回放先前保存的金額。
-    /// </summary>
-    /// <remarks>
-    /// 這個工廠只給 Executor 的 replayFactory 用。決策層看不到重播 ——
-    /// 走到 <see cref="RefundExecutionDecision.Evaluate"/> 的一定是首次執行。
-    /// </remarks>
-    public static ExecuteRefundResult Replayed(decimal settledAmount) =>
+    public static ExecuteRefundResult Replay(decimal settledAmount) =>
         new(null, settledAmount, null);
 
     public static ExecuteRefundResult Approved(RefundExecutionPlan plan) =>
@@ -166,26 +105,22 @@ public static class RefundExecutionDecision
 
         var presentedKey = request.IdempotencyKey.Trim();
 
-        // 呼叫端持有的版本與資料庫目前版本不符，代表它看到的金額或狀態已經過期。
-        // rowversion 只能擋「伺服器讀取之後」的競爭，擋不掉「送進來時就已過時」——
-        // 那正是管理員拿著舊畫面按下執行的情況。
-        if (!RowVersionMatches(request.RefundRowVersion, snapshot.RowVersion))
+        // 金鑰必須與建立退款時保存的一致。金鑰不符代表這不是同一個命令，
+        // 不得對已完成的退款再產生副作用。
+        if (!string.Equals(presentedKey, snapshot.StoredIdempotencyKey, StringComparison.Ordinal))
         {
-            return ExecuteRefundResult.Failure(RefundErrorCodes.ConcurrencyConflict);
+            return ExecuteRefundResult.Failure(RefundErrorCodes.IdempotencyPayloadConflict);
         }
 
-        // 重播與 Payload 衝突由外層的共用 IIdempotencyExecutor 在此之前判斷完畢。
-        // 走到這裡的一定是首次執行，因此已成功的退款只可能是「換了一把金鑰再送」，
-        // 那是狀態衝突而不是重播。
+        // 相同金鑰、相同命令，且退款已成功：回同一結果，不再執行一次。
         if (snapshot.Status == RefundStatus.Succeeded)
         {
-            return ExecuteRefundResult.Failure(RefundErrorCodes.RefundStateConflict);
+            return snapshot.SucceededAmount is { } settled
+                ? ExecuteRefundResult.Replay(settled)
+                : ExecuteRefundResult.Failure(RefundErrorCodes.RefundStateConflict);
         }
 
-        // 失敗的退款可以重試：Refund.AllowedTransitions 本來就允許 Failed → Processing，
-        // ApprovedAmount 也保留著。只認 Approved 會讓一次暫時性失敗變成永久卡死。
-        if (snapshot.Status is not (RefundStatus.Approved or RefundStatus.Failed) ||
-            snapshot.ApprovedAmount is not { } amount)
+        if (snapshot.Status != RefundStatus.Approved || snapshot.ApprovedAmount is not { } amount)
         {
             return ExecuteRefundResult.Failure(RefundErrorCodes.RefundStateConflict);
         }
@@ -195,110 +130,26 @@ public static class RefundExecutionDecision
             return ExecuteRefundResult.Failure(RefundErrorCodes.RefundAmountExceeded);
         }
 
-        // E1：上游可信快照未齊全時必須拒絕，不得以估算值或管理端傳入的分攤補齊。
-        // 一筆沒有分攤的成功退款，會讓對帳、發票折讓與稽核的 allocationCount 全部失真，
-        // 而且寫進去之後不可變 —— 拒絕比事後修正便宜得多。
-        //
-        // 這裡刻意**不用** refund_state_conflict：那個碼的意思是「退款目前狀態不允許
-        // 操作」，管理員收到會去查退款狀態，但實際原因與退款狀態無關，而是退貨核准端
-        // 的可信資料還沒齊。alex 於 PR #16 裁定專屬碼 refund_snapshot_unavailable。
-        if (snapshot.TrustedInputs is not { } trustedInputs)
-        {
-            return ExecuteRefundResult.Failure(RefundErrorCodes.RefundSnapshotUnavailable);
-        }
-
-        var calculation = RefundCalculator.Calculate(new RefundCalculationRequest(
-            trustedInputs.Order,
-            trustedInputs.Lines,
-            trustedInputs.Reason,
-            trustedInputs.AssemblyDisposition,
-            trustedInputs.ReturnShippingCost));
-
-        // 計算器本身失敗時原樣回傳它的錯誤碼。
-        //
-        // 少了這一步，`return_quantity_exceeded`／`resource_not_found` 這些具體原因
-        // 會被下面的對帳吃掉：失敗時 NetRefundAmount 是 0，於是每一種失敗都被改寫成
-        // 同一個 refund_state_conflict，呼叫端收到的錯誤碼與真正的原因無關。
-        if (!calculation.IsSuccess)
-        {
-            return ExecuteRefundResult.Failure(calculation.ErrorCode!);
-        }
-
-        // 後端算出的淨退款必須與已核准金額完全相等。
-        //
-        // 缺了這一步就會寫出一筆自我矛盾的財務紀錄：`Refund.SucceededAmount` 與稽核
-        // 記的是 ApprovedAmount，而 RefundAllocations 的有號合計是計算淨額。兩者一旦
-        // 不同，退款交易、分攤與後續的發票折讓就永久對不起來，而且分攤寫入後不可變。
-        //
-        // 不相等代表核准當時依據的數量／金額與現在的可信快照已經不一致
-        // （例如核准後又有其他退貨被受理）。這與「退款目前狀態不允許操作」是兩件事，
-        // 因此用專屬碼 refund_calculation_mismatch。
-        if (calculation.NetRefundAmount != amount)
-        {
-            return ExecuteRefundResult.Failure(RefundErrorCodes.RefundCalculationMismatch);
-        }
-
-        var allocations = RefundAllocationDrafts.From(calculation);
-
         return ExecuteRefundResult.Approved(new RefundExecutionPlan(
             snapshot.RefundId,
             amount,
             request.ExecutedByAdminUserId.Trim(),
-            presentedKey,
-            snapshot.RowVersion,
-            allocations));
+            presentedKey));
     }
 
-    private static bool RowVersionMatches(byte[]? presented, byte[]? current) =>
-        presented is not null &&
-        current is not null &&
-        presented.AsSpan().SequenceEqual(current);
-
     /// <summary>請求本身的必填檢查。缺漏屬於呼叫端錯誤，由 API 層以驗證錯誤擋下。</summary>
-    /// <summary>
-    /// 請求本身的必填與格式檢查。
-    /// </summary>
-    /// <remarks>
-    /// 全部丟 <see cref="DomainProblemException"/> 而不是 <see cref="ArgumentException"/>：
-    /// 前者有專屬 handler 會轉成 400 <c>validation_failed</c>，後者沒有，會落到
-    /// <c>GlobalExceptionHandler</c> 變成 500 <c>unexpected_error</c> —— 呼叫端只是
-    /// 送了格式不合的輸入，不該看到「伺服器錯誤」。
-    /// </remarks>
     public static void RequireWellFormed(ExecuteRefundRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
 
         if (string.IsNullOrWhiteSpace(request.IdempotencyKey))
         {
-            throw DomainProblemException.Validation("The idempotency key is required.");
-        }
-
-        // SQL Server 的 rowversion 固定 8 bytes。長度不對的值不可能是任何一列的版本，
-        // 在這裡擋下可得到 400，而不是讓它一路走到比對失敗後變成語意不對的 409。
-        if (request.RefundRowVersion is not { Length: 8 })
-        {
-            throw DomainProblemException.Validation(
-                "The refund row version must be an 8-byte value.");
+            throw new ArgumentException("The idempotency key is required.", nameof(request));
         }
 
         if (string.IsNullOrWhiteSpace(request.ExecutedByAdminUserId))
         {
-            throw DomainProblemException.Validation("The executing administrator is required.");
-        }
-
-        // reasonCode 與 note 最終要進中央 Audit，而那裡對兩者都有格式限制
-        // （safe-code、長度上限、禁用字元與敏感詞）。不在這裡擋，稽核建構失敗會在
-        // 交易中丟 ArgumentException 並變成 500。
-        //
-        // 刻意直接呼叫中央 Audit 的同一份判斷，不複製規則 —— 另寫一份必然漂移。
-        try
-        {
-            AuditFieldChange.RequireSafeCode(request.ReasonCode, nameof(request.ReasonCode), 64);
-            AuditWriteRequest.RequireSafeNote(request.Note, allowsNote: true);
-        }
-        catch (ArgumentException exception)
-        {
-            throw DomainProblemException.Validation(exception.Message);
+            throw new ArgumentException("The executing administrator is required.", nameof(request));
         }
     }
 }

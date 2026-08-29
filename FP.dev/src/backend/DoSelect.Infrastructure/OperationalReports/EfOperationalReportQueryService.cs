@@ -68,48 +68,40 @@ public sealed partial class EfOperationalReportQueryService : IOperationalReport
         var fromUtc = ToUtcBoundary(query.FromDate);
         var toUtc = ToUtcBoundary(query.ToDate);
         var orders = ApplyOrderFilters(_context.Orders.AsNoTracking(), query);
+        var payments = FilteredPayments(query);
+        var refunds = FilteredRefunds(query);
 
         var paymentRows = await (
-            from attempt in _context.PaymentAttempts.AsNoTracking()
-            join order in orders on attempt.OrderId equals order.Id
-            where attempt.Status == PaymentAttemptStatus.Paid &&
-                  attempt.PaidAtUtc >= fromUtc &&
-                  attempt.PaidAtUtc < toUtc
-            group attempt by EF.Functions.DateDiffDay(
+            from payment in payments
+            where payment.PaidAtUtc >= fromUtc && payment.PaidAtUtc < toUtc
+            group payment by EF.Functions.DateDiffDay(
                 DayNumberAnchor,
-                attempt.PaidAtUtc!.Value.AddHours(TaipeiUtcOffsetHours))
+                payment.PaidAtUtc.AddHours(TaipeiUtcOffsetHours))
             into paymentDay
             select new DailyPaymentRow(
                 paymentDay.Key,
-                paymentDay.Sum(attempt => attempt.Amount),
-                paymentDay.Select(attempt => attempt.OrderId).Distinct().Count()))
+                paymentDay.Sum(payment => payment.Amount),
+                paymentDay.Select(payment => payment.OrderId).Distinct().Count()))
             .ToListAsync(cancellationToken);
 
         var paymentMethodRows = await (
-            from attempt in _context.PaymentAttempts.AsNoTracking()
-            join order in orders on attempt.OrderId equals order.Id
-            where attempt.Status == PaymentAttemptStatus.Paid &&
-                  attempt.PaidAtUtc >= fromUtc &&
-                  attempt.PaidAtUtc < toUtc
-            group attempt by attempt.Method
+            from payment in payments
+            where payment.PaidAtUtc >= fromUtc && payment.PaidAtUtc < toUtc
+            group payment by payment.Method
             into methods
-            select new PaymentMethodRow(methods.Key, methods.Sum(attempt => attempt.Amount)))
+            select new PaymentMethodRow(methods.Key, methods.Sum(payment => payment.Amount)))
             .ToListAsync(cancellationToken);
 
         var refundRows = await (
-            from refund in _context.Refunds.AsNoTracking()
-            join order in orders on refund.OrderId equals order.Id
-            where refund.Status == RefundStatus.Succeeded &&
-                  refund.SucceededAtUtc >= fromUtc &&
-                  refund.SucceededAtUtc < toUtc &&
-                  refund.SucceededAmount != null
+            from refund in refunds
+            where refund.SucceededAtUtc >= fromUtc && refund.SucceededAtUtc < toUtc
             group refund by EF.Functions.DateDiffDay(
                 DayNumberAnchor,
-                refund.SucceededAtUtc!.Value.AddHours(TaipeiUtcOffsetHours))
+                refund.SucceededAtUtc.AddHours(TaipeiUtcOffsetHours))
             into refundDay
             select new DailyRefundRow(
                 refundDay.Key,
-                refundDay.Sum(refund => refund.SucceededAmount!.Value)))
+                refundDay.Sum(refund => refund.Amount)))
             .ToListAsync(cancellationToken);
 
         var orderCohortRows = await orders
@@ -236,6 +228,109 @@ public sealed partial class EfOperationalReportQueryService : IOperationalReport
         return orders.Where(order => matchingOrderIds.Contains(order.Id));
     }
 
+    private IQueryable<FilteredPaymentRow> FilteredPayments(ValidatedReportQuery query)
+    {
+        var orders = ApplyOrderStatusFilters(_context.Orders.AsNoTracking(), query);
+        if (query.CategoryCode is null && query.BrandCode is null)
+        {
+            return
+                from attempt in _context.PaymentAttempts.AsNoTracking()
+                join order in orders on attempt.OrderId equals order.Id
+                where attempt.Status == PaymentAttemptStatus.Paid && attempt.PaidAtUtc != null
+                select new FilteredPaymentRow
+                {
+                    OrderId = attempt.OrderId,
+                    Method = attempt.Method,
+                    PaidAtUtc = attempt.PaidAtUtc!.Value,
+                    Amount = attempt.Amount,
+                };
+        }
+
+        var matchingTotals =
+            from item in _context.OrderItems.AsNoTracking()
+            join sku in _context.Skus.AsNoTracking() on item.SkuId equals (long?)sku.Id
+            join product in _context.Products.AsNoTracking() on sku.ProductId equals product.Id
+            join category in _context.Categories.AsNoTracking() on product.CategoryId equals category.Id
+            join brand in _context.Brands.AsNoTracking() on product.BrandId equals brand.Id
+            where (query.CategoryCode == null || category.Code == query.CategoryCode) &&
+                  (query.BrandCode == null || brand.Code == query.BrandCode)
+            group item by item.OrderId
+            into orderItems
+            select new { OrderId = orderItems.Key, Amount = orderItems.Sum(item => item.LineTotal) };
+        var orderItemTotals =
+            from item in _context.OrderItems.AsNoTracking()
+            group item by item.OrderId
+            into orderItems
+            select new { OrderId = orderItems.Key, Amount = orderItems.Sum(item => item.LineTotal) };
+
+        return
+            from attempt in _context.PaymentAttempts.AsNoTracking()
+            join order in orders on attempt.OrderId equals order.Id
+            join matching in matchingTotals on order.Id equals matching.OrderId
+            join total in orderItemTotals on order.Id equals total.OrderId
+            where attempt.Status == PaymentAttemptStatus.Paid && attempt.PaidAtUtc != null
+            select new FilteredPaymentRow
+            {
+                OrderId = attempt.OrderId,
+                Method = attempt.Method,
+                PaidAtUtc = attempt.PaidAtUtc!.Value,
+                Amount = total.Amount == 0m
+                    ? 0m
+                    : attempt.Amount * matching.Amount / total.Amount,
+            };
+    }
+
+    private IQueryable<FilteredRefundRow> FilteredRefunds(ValidatedReportQuery query)
+    {
+        var orders = ApplyOrderStatusFilters(_context.Orders.AsNoTracking(), query);
+        if (query.CategoryCode is null && query.BrandCode is null)
+        {
+            return
+                from refund in _context.Refunds.AsNoTracking()
+                join order in orders on refund.OrderId equals order.Id
+                where refund.Status == RefundStatus.Succeeded &&
+                      refund.SucceededAtUtc != null && refund.SucceededAmount != null
+                select new FilteredRefundRow
+                {
+                    SucceededAtUtc = refund.SucceededAtUtc!.Value,
+                    Amount = refund.SucceededAmount!.Value,
+                };
+        }
+
+        return
+            from refund in _context.Refunds.AsNoTracking()
+            join order in orders on refund.OrderId equals order.Id
+            join allocation in _context.RefundAllocations.AsNoTracking() on refund.Id equals allocation.RefundId
+            join item in _context.OrderItems.AsNoTracking() on allocation.OrderItemId equals (long?)item.Id
+            join sku in _context.Skus.AsNoTracking() on item.SkuId equals (long?)sku.Id
+            join product in _context.Products.AsNoTracking() on sku.ProductId equals product.Id
+            join category in _context.Categories.AsNoTracking() on product.CategoryId equals category.Id
+            join brand in _context.Brands.AsNoTracking() on product.BrandId equals brand.Id
+            where refund.Status == RefundStatus.Succeeded && refund.SucceededAtUtc != null &&
+                  (query.CategoryCode == null || category.Code == query.CategoryCode) &&
+                  (query.BrandCode == null || brand.Code == query.BrandCode)
+            select new FilteredRefundRow
+            {
+                SucceededAtUtc = refund.SucceededAtUtc!.Value,
+                Amount = allocation.Amount,
+            };
+    }
+
+    private static IQueryable<Order> ApplyOrderStatusFilters(
+        IQueryable<Order> orders,
+        ValidatedReportQuery query)
+    {
+        if (query.OrderStatuses.Count == 0)
+        {
+            return orders;
+        }
+
+        var statuses = query.OrderStatuses
+            .Select(status => Enum.Parse<OrderStatus>(status, ignoreCase: false))
+            .ToArray();
+        return orders.Where(order => statuses.Contains(order.OrderStatus));
+    }
+
     private static CursorPage<ReportRowDto> CreatePage(
         OperationalReportDefinition definition,
         ValidatedReportQuery query,
@@ -360,6 +455,19 @@ public sealed partial class EfOperationalReportQueryService : IOperationalReport
         int DayNumber,
         int CreatedOrderCount,
         int CancelledOrderCount);
+    private sealed class FilteredPaymentRow
+    {
+        public long OrderId { get; init; }
+        public PaymentMethod Method { get; init; }
+        public DateTime PaidAtUtc { get; init; }
+        public decimal Amount { get; init; }
+    }
+
+    private sealed class FilteredRefundRow
+    {
+        public DateTime SucceededAtUtc { get; init; }
+        public decimal Amount { get; init; }
+    }
     private sealed record ReportBucketCursor(string Bucket);
 
     private sealed class MutableSalesAggregate

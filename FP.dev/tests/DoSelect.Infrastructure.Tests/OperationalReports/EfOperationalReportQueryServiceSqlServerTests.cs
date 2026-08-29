@@ -270,6 +270,22 @@ public sealed class OperationalReportSqlFixture : IAsyncLifetime
                 unitCostSnapshot: 1m));
         await context.SaveChangesAsync();
 
+        var mixedOrder = CreateCompletedOrder(
+            "DS-REPORT-MIXED",
+            1_000m,
+            new DateTime(2026, 11, 1, 1, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 11, 1, 2, 0, 0, DateTimeKind.Utc),
+            shippingProfileId,
+            packageLimitId);
+        context.Orders.Add(mixedOrder);
+        await context.SaveChangesAsync();
+        var mixedMatchingItem = ReportOrderItem(
+            mixedOrder.Id, skuA, quantity: 1, lineTotal: 100m, unitCostSnapshot: 30m);
+        var mixedExcludedItem = ReportOrderItem(
+            mixedOrder.Id, excludedSku, quantity: 1, lineTotal: 900m, unitCostSnapshot: 10m);
+        context.OrderItems.AddRange(mixedMatchingItem, mixedExcludedItem);
+        await context.SaveChangesAsync();
+
         var previousPayment = PaidPayment(
             previousOrder.Id,
             500m,
@@ -286,6 +302,12 @@ public sealed class OperationalReportSqlFixture : IAsyncLifetime
             "report-excluded-payment",
             new DateTime(2026, 9, 3, 2, 0, 0, DateTimeKind.Utc));
         context.PaymentAttempts.AddRange(previousPayment, currentPayment, excludedPayment);
+        var mixedPayment = PaidPayment(
+            mixedOrder.Id,
+            1_000m,
+            "report-mixed-payment",
+            new DateTime(2026, 11, 2, 2, 0, 0, DateTimeKind.Utc));
+        context.PaymentAttempts.Add(mixedPayment);
         await context.SaveChangesAsync();
 
         var refund = new Refund(
@@ -319,6 +341,34 @@ public sealed class OperationalReportSqlFixture : IAsyncLifetime
             originalDiscountAllocation: 0m,
             new DateTime(2026, 9, 4, 1, 3, 0, DateTimeKind.Utc),
             quantity: 1));
+
+        var mixedRefund = new Refund(
+            Guid.CreateVersion7(),
+            mixedOrder.Id,
+            returnRequestId: null,
+            mixedPayment.Id,
+            "RF-REPORT-MIXED",
+            100m,
+            "AcceptedReturn",
+            adminUserId,
+            "report-mixed-refund",
+            new DateTime(2026, 11, 3, 1, 0, 0, DateTimeKind.Utc));
+        mixedRefund.Approve(
+            100m, adminUserId, new DateTime(2026, 11, 3, 1, 1, 0, DateTimeKind.Utc));
+        mixedRefund.BeginProcessing(
+            adminUserId, new DateTime(2026, 11, 3, 1, 2, 0, DateTimeKind.Utc));
+        mixedRefund.Complete(100m, new DateTime(2026, 11, 3, 1, 3, 0, DateTimeKind.Utc));
+        context.Refunds.Add(mixedRefund);
+        await context.SaveChangesAsync();
+        context.RefundAllocations.AddRange(
+            new RefundAllocation(
+                Guid.CreateVersion7(), mixedRefund.Id, mixedMatchingItem.Id,
+                RefundAllocationType.ItemRefund, 40m, 0m,
+                new DateTime(2026, 11, 3, 1, 3, 0, DateTimeKind.Utc), quantity: 1),
+            new RefundAllocation(
+                Guid.CreateVersion7(), mixedRefund.Id, mixedExcludedItem.Id,
+                RefundAllocationType.ItemRefund, 60m, 0m,
+                new DateTime(2026, 11, 3, 1, 3, 0, DateTimeKind.Utc), quantity: 1));
         await context.SaveChangesAsync();
 
         await SeedWp003InventoryAsync(context, skuA, skuB);
@@ -606,6 +656,40 @@ public sealed class OperationalReportSqlCollection : ICollectionFixture<Operatio
 [Trait("Category", "RequiresSqlServer")]
 public sealed class EfOperationalReportQueryServiceSqlServerTests
 {
+    [OperationalReportSqlFact]
+    public async Task CategoryFilteredRevenueAllocatesMixedOrdersAtItemLevel()
+    {
+        await using var context = OperationalReportSqlFixture.CreateContext();
+        var service = CreateService(context);
+        var query = OperationalReportQueryValidator.Normalize(new ReportQuery(
+            new DateOnly(2026, 11, 1),
+            new DateOnly(2026, 11, 5),
+            OperationalReportQueryValidator.SupportedTimeZone,
+            CategoryCode: "REPORT-CAT",
+            BrandCode: null,
+            OrderStatuses: [],
+            ReportGranularities.Day,
+            Cursor: null,
+            PageSize: 20));
+
+        var sales = await service.QueryAsync(
+            OperationalReportCatalog.Require(OperationalReportKeys.SalesOverview),
+            query,
+            CancellationToken.None);
+        var comparison = await service.QueryAsync(
+            OperationalReportCatalog.Require(OperationalReportKeys.PeriodComparison),
+            query,
+            CancellationToken.None);
+
+        Assert.Equal(100m, Metric(sales, "paid_amount"));
+        Assert.Equal(40m, Metric(sales, "refund_amount"));
+        Assert.Equal(60m, Metric(sales, "net_revenue"));
+        Assert.Equal(1m, Metric(sales, "order_count"));
+        Assert.Equal(100m, Metric(comparison, "paid_amount"));
+        Assert.Equal(40m, Metric(comparison, "refund_amount"));
+        Assert.Equal(60m, Metric(comparison, "net_revenue"));
+    }
+
     [OperationalReportSqlFact]
     public async Task SalesOverviewUsesTaipeiPaidAndRefundDatesAndCreatedOrderCohort()
     {

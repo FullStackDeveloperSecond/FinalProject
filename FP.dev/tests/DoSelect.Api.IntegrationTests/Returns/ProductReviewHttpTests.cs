@@ -4,7 +4,11 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using DoSelect.Api.Security;
 using DoSelect.Application.Auditing;
+using DoSelect.Application.Files;
+using DoSelect.Application.Reviews;
+using DoSelect.Domain.Auditing;
 using DoSelect.Domain.Reviews;
+using DoSelect.Infrastructure.Reviews;
 using DoSelect.Infrastructure.Persistence.Identity;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -241,6 +245,99 @@ public sealed class ProductReviewHttpTests(ReturnsApiFixture fixture)
                 audit.ResourceType == AuditResourceTypes.ProductReview));
     }
 
+    [Fact]
+    public async Task ConcurrentDraftImageUploads_AllowOnlyOneWriterAtTheThreeImageLimit()
+    {
+        var (client, memberUserId, _, orderItemPublicId, _) =
+            await fixture.CreateAuthenticatedMemberWithDeliveredOrderAsync();
+        using var create = await SendMemberJsonAsync(
+            client,
+            HttpMethod.Post,
+            "/api/v1/reviews",
+            new
+            {
+                orderItemPublicId,
+                rating = 5,
+                title = "並行圖片測試",
+                content = "草稿圖片上限必須由 rowversion 保護。",
+                submit = false,
+            });
+        create.EnsureSuccessStatusCode();
+        var created = await ReadJsonAsync(create);
+        var reviewPublicId = created.GetProperty("publicId").GetGuid();
+        var rowVersion = created.GetProperty("rowVersion").GetString()!;
+
+        await using (var seed = fixture.CreateScopedContext())
+        {
+            var reviewId = await seed.ProductReviews
+                .Where(review => review.PublicId == reviewPublicId)
+                .Select(review => review.Id)
+                .SingleAsync();
+            var now = DateTime.UtcNow;
+            var first = new ReviewImage(
+                reviewId, $"reviews/{reviewPublicId}/seed-0", "seed-0.png", "image/png",
+                1, new byte[32], 0, now);
+            var second = new ReviewImage(
+                reviewId, $"reviews/{reviewPublicId}/seed-1", "seed-1.png", "image/png",
+                1, Enumerable.Repeat((byte)1, 32).ToArray(), 1, now);
+            first.RecordScan(ReviewImageScanStatus.Clean, now);
+            second.RecordScan(ReviewImageScanStatus.Clean, now);
+            seed.ReviewImages.AddRange(first, second);
+            await seed.SaveChangesAsync();
+        }
+
+        var storage = new BarrierImageStorage();
+        await using var firstContext = fixture.CreateScopedContext();
+        await using var secondContext = fixture.CreateScopedContext();
+        var firstService = new EfReviewService(
+            firstContext, storage, new RejectingAuditWriter(), TimeProvider.System);
+        var secondService = new EfReviewService(
+            secondContext, storage, new RejectingAuditWriter(), TimeProvider.System);
+
+        var results = await Task.WhenAll(
+            CaptureUploadAsync(firstService, memberUserId, reviewPublicId, rowVersion, "first.png"),
+            CaptureUploadAsync(secondService, memberUserId, reviewPublicId, rowVersion, "second.png"));
+
+        Assert.Single(results, result => result.Dto is not null);
+        Assert.Single(results, result =>
+            result.Error?.Code == ReviewWriteException.ErrorCodes.ConcurrencyConflict);
+        await using var verify = fixture.CreateScopedContext();
+        var reviewDatabaseId = await verify.ProductReviews
+            .Where(review => review.PublicId == reviewPublicId)
+            .Select(review => review.Id)
+            .SingleAsync();
+        var sortOrders = await verify.ReviewImages
+            .Where(image => image.ProductReviewId == reviewDatabaseId && image.DeletedAtUtc == null)
+            .Select(image => image.SortOrder)
+            .ToArrayAsync();
+        Assert.Equal(3, sortOrders.Length);
+        Assert.Equal(3, sortOrders.Distinct().Count());
+    }
+
+    private static async Task<(MemberReviewDto? Dto, ReviewWriteException? Error)> CaptureUploadAsync(
+        EfReviewService service,
+        string memberUserId,
+        Guid reviewPublicId,
+        string rowVersion,
+        string fileName)
+    {
+        try
+        {
+            var dto = await service.UploadImageAsync(
+                memberUserId,
+                reviewPublicId,
+                new ProductImageUpload(new MemoryStream([1]), fileName, "image/png"),
+                declaredLength: 1,
+                rowVersion,
+                CancellationToken.None);
+            return (dto, null);
+        }
+        catch (ReviewWriteException exception)
+        {
+            return (null, exception);
+        }
+    }
+
     private async Task<string> SeedMemberAsync()
     {
         await using var context = fixture.CreateScopedContext();
@@ -346,5 +443,53 @@ public sealed class ProductReviewHttpTests(ReturnsApiFixture fixture)
     {
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         return document.RootElement.Clone();
+    }
+
+    private sealed class BarrierImageStorage : IImageStorage
+    {
+        private readonly TaskCompletionSource _bothWritersReady =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _writerCount;
+
+        public async Task<ProductImageStoreResult> StoreAsync(
+            ProductImageUpload upload,
+            CancellationToken cancellationToken = default)
+        {
+            var writer = Interlocked.Increment(ref _writerCount);
+            if (writer == 2)
+            {
+                _bothWritersReady.TrySetResult();
+            }
+
+            await _bothWritersReady.Task.WaitAsync(cancellationToken);
+            var hash = Enumerable.Repeat((byte)writer, 32).ToArray();
+            return new ProductImageStoreResult(
+                ProductImageStoreStatus.Stored,
+                new StoredProductImage(
+                    $"reviews/concurrency/{writer}",
+                    upload.OriginalFileName,
+                    ".png",
+                    upload.ContentType,
+                    1,
+                    1,
+                    1,
+                    hash,
+                    []));
+        }
+
+        public Task<Stream?> OpenReadAsync(
+            string storageKey,
+            ProductImageVariant variant,
+            CancellationToken cancellationToken = default) => Task.FromResult<Stream?>(null);
+
+        public Task<bool> DeleteAsync(
+            string storageKey,
+            CancellationToken cancellationToken = default) => Task.FromResult(true);
+    }
+
+    private sealed class RejectingAuditWriter : IAuditWriter
+    {
+        public AuditLog Add(AuditWriteRequest request) =>
+            throw new InvalidOperationException("Image upload must not write an admin audit event.");
     }
 }

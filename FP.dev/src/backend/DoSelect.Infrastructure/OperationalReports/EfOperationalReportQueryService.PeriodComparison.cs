@@ -1,6 +1,4 @@
 using DoSelect.Application.OperationalReports;
-using DoSelect.Domain.Payments;
-using DoSelect.Domain.Refunds;
 using Microsoft.EntityFrameworkCore;
 
 namespace DoSelect.Infrastructure.OperationalReports;
@@ -76,29 +74,23 @@ public sealed partial class EfOperationalReportQueryService
     {
         var fromUtc = ToUtcBoundary(fromDate);
         var toUtc = ToUtcBoundary(toDate);
-        var orders = ApplyOrderFilters(_context.Orders.AsNoTracking(), query);
+        var paymentsQuery = FilteredPayments(query);
+        var refundsQuery = FilteredRefunds(query);
         var payments = await (
-            from attempt in _context.PaymentAttempts.AsNoTracking()
-            join order in orders on attempt.OrderId equals order.Id
-            where attempt.Status == PaymentAttemptStatus.Paid &&
-                  attempt.PaidAtUtc >= fromUtc &&
-                  attempt.PaidAtUtc < toUtc
-            group attempt by 1
+            from payment in paymentsQuery
+            where payment.PaidAtUtc >= fromUtc && payment.PaidAtUtc < toUtc
+            group payment by 1
             into period
             select new PeriodPaymentRow(
-                period.Sum(attempt => attempt.Amount),
-                period.Select(attempt => attempt.OrderId).Distinct().Count()))
+                period.Sum(payment => payment.Amount),
+                period.Select(payment => payment.OrderId).Distinct().Count()))
             .SingleOrDefaultAsync(cancellationToken);
         var refundAmount = await (
-            from refund in _context.Refunds.AsNoTracking()
-            join order in orders on refund.OrderId equals order.Id
-            where refund.Status == RefundStatus.Succeeded &&
-                  refund.SucceededAtUtc >= fromUtc &&
-                  refund.SucceededAtUtc < toUtc &&
-                  refund.SucceededAmount != null
+            from refund in refundsQuery
+            where refund.SucceededAtUtc >= fromUtc && refund.SucceededAtUtc < toUtc
             group refund by 1
             into period
-            select period.Sum(refund => refund.SucceededAmount!.Value))
+            select period.Sum(refund => refund.Amount))
             .SingleOrDefaultAsync(cancellationToken);
         var paidAmount = payments?.PaidAmount ?? 0m;
         return new RevenuePeriodAggregate(

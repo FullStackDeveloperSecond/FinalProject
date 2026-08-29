@@ -1,14 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
-import { toValue, type MaybeRefOrGetter } from 'vue'
+import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 import { apiClient } from '../../api/client'
 import type { ReviewModerationRequest } from './types'
 
 const reviewKeys = {
-  list: (status: MaybeRefOrGetter<string>) => ['admin-reviews', 'list', toValue(status)] as const,
+  list: (status: string) => ['admin-reviews', 'list', status] as const,
 }
 export function useAdminReviewsQuery(status: MaybeRefOrGetter<string>) {
   return useQuery({
-    queryKey: reviewKeys.list(status),
+    queryKey: computed(() => reviewKeys.list(toValue(status))),
     queryFn: async () => {
       const { data, error } = await apiClient.GET('/api/v1/admin/reviews', {
         params: { query: { status: toValue(status) || undefined } },
@@ -30,6 +30,6 @@ export function useModerateReviewMutation(status: MaybeRefOrGetter<string>) {
       if (error) throw error
       return data
     },
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: reviewKeys.list(status) }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: reviewKeys.list(toValue(status)) }),
   })
 }
