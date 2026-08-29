@@ -90,7 +90,8 @@
 | `RemoveAssemblyGroupRequest` | `cartRowVersion`；用 Cart 層級（非 Item）RowVersion，因為一個組裝群組橫跨多筆 CartItem，沒有單一 item RowVersion 可代表整組（AUTO-DEC-015） |
 | `CartMergeRequest` | `guestCartKey:string(32..256)`、`strategy:mergeAndReportConflicts`、`idempotencyKey:string(8..128)` |
 | `CartMergeResultDto` | `cart:CartDto`、`conflicts:{guestItemPublicId,skuPublicId,reason,acceptedQuantity}[]` |
-| `ApplyCouponRequest` | `code:string(1..64)`、`cartRowVersion` |
+| `ApplyCouponRequest` | `code:string(1..64)`、`cartRowVersion`（8-byte SQL Server RowVersion） |
+| `CouponAppliedDto` | `code`、`discountAmount`、`isFreeShipping`、`isAssemblyFreeShipping`；免運券的 `discountAmount` 固定為 0，資格由兩個旗標表達，不得把成功結果靜默呈現為 0 元折扣（DEC B1） |
 | `CreateOrderRequest` | `cartPublicId`、`cartRowVersion`、`buyer:{email,name,phone}`、`shipping:{methodCode,address?:AddressInput,storePublicId?:uuid}`、`paymentMethod:enum`、`invoice:{type:simulated,carrier?:string(64)}`、`acceptPolicyVersions:{terms,return,privacy}` |
 | `AddressInput` | `recipientName:string(1..100)`、`phone:string(6..32)`、`postalCode?:string(1..16)`、`city?:string(1..50)`、`district?:string(1..50)`、`addressLine1?:string(1..300)`、`addressLine2?:string(0..300)`；宅配時地址欄全部必填，超取不得用地址取代 storePublicId；不接受地址簿 Label |
 | `OrderDto` | `publicId`、`orderNumber`、五個狀態、`items:OrderItemDto[]`、收件遮蔽摘要、物流摘要、付款摘要、`amounts`、`paymentDueAtUtc?`、合法 `availableActions:string[]`、各事件時間、`rowVersion` |
