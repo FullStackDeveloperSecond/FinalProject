@@ -1,4 +1,4 @@
-import type { CouponAction, CouponDto, CouponStatus } from './types'
+import type { CouponAction, CouponDiscountType, CouponDto, CouponStatus } from './types'
 
 export const statusLabels: Record<CouponStatus, string> = {
   draft: '草稿',
@@ -8,6 +8,24 @@ export const statusLabels: Record<CouponStatus, string> = {
   expired: '已到期',
   exhausted: '名額用盡',
   disabled: '已停用',
+}
+
+export const discountTypeLabels: Record<CouponDiscountType, string> = {
+  fixedAmount: '固定金額',
+  percentage: '百分比',
+  freeShipping: '一般免運',
+  assemblyFreeShipping: '組裝免運',
+}
+
+/**
+ * 這個折扣類型會不會用到 `discountValue` 與 `maximumDiscount`。
+ *
+ * 免運券的折抵金額由運費決定，不是設定出來的：Domain 的
+ * `HasCompleteDiscountRule` 對兩種免運一律為 `true`，不看 `DiscountValue`。
+ * 所以表單不該問，送出也不該帶。
+ */
+export function isAmountDiscount(discountType: CouponDiscountType): boolean {
+  return discountType === 'fixedAmount' || discountType === 'percentage'
 }
 
 export const actionLabels: Record<CouponAction, string> = {
@@ -48,12 +66,32 @@ export function availableActions(status: CouponStatus): CouponAction[] {
 }
 
 /**
+ * 這個狀態還能不能修改規則。
+ *
+ * Domain 的規則修訂在 `Expired` 與 `Disabled` 兩個終態直接丟
+ * `InvalidOperationException`（映射成 409 `coupon_state_conflict`），
+ * 管理員會填完整張表單才知道。與 `availableActions` 同一原則：
+ * 不提供必然失敗的按鈕。
+ *
+ * 前端隱藏**不是安全邊界** —— 後端仍會擋。
+ */
+export function canEditRules(status: CouponStatus): boolean {
+  return status !== 'expired' && status !== 'disabled'
+}
+
+/**
  * 折扣的顯示字串。
  *
  * 百分比折扣在 Domain 是 **0～1 的比例**（`RequireWellFormedRule` 限制），
  * 不是百分點，所以顯示時要乘 100。
  */
 export function describeDiscount(coupon: CouponDto): string {
+  // 免運券的 discountValue 是 null。走到下面的 formatMoney 會顯示成「—」或 NT$0，
+  // 看起來像一張沒有效果的券。
+  if (!isAmountDiscount(coupon.discountType)) {
+    return discountTypeLabels[coupon.discountType]
+  }
+
   const value = Number(coupon.discountValue ?? 0)
   if (coupon.discountType === 'percentage') {
     const percent = Math.round(value * 1000) / 10

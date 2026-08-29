@@ -5,15 +5,25 @@ import { useCouponAction, useCouponList, useCreateCoupon, useUpdateCoupon } from
 import {
   actionLabels,
   availableActions,
+  canEditRules,
   describeDiscount,
+  discountTypeLabels,
+  isAmountDiscount,
   describeScope,
   describeUsage,
   formatDate,
   formatMoney,
   statusLabels,
 } from '../../features/coupons/labels'
-import type { CouponAction, CouponDto, CouponScopeType, CouponStatus } from '../../features/coupons/types'
+import type {
+  CouponAction,
+  CouponDiscountType,
+  CouponDto,
+  CouponScopeType,
+  CouponStatus,
+} from '../../features/coupons/types'
 import { describeScopeProblem, toScopeRequestFields } from '../../features/coupons/scope'
+import { toLocalInputValue, toUtcInstant } from '../../features/coupons/dateTime'
 import CouponScopePicker from '../../components/coupons/CouponScopePicker.vue'
 import { useSearchFilters } from '../../features/shared/useSearchFilters'
 import { describeApiError } from '../../features/shared/errorMessages'
@@ -52,7 +62,7 @@ const showCreate = ref(false)
 interface CouponFormState {
   code: string
   nameZhTw: string
-  discountType: 'fixedAmount' | 'percentage'
+  discountType: CouponDiscountType
   discountValue: string | number
   minimumSpend: string | number
   maximumDiscount: string | number
@@ -103,11 +113,22 @@ function toggleStatus(status: CouponStatus) {
   filters.pageNumber = 1
 }
 
+/**
+ * 清掉兩個寫入 mutation 的錯誤。
+ *
+ * 錯誤區同時讀 `createMutation` 與 `updateMutation`，只清目前這一個的話，
+ * 修改失敗後取消、再開新增表單，還會掛著上一次的修改錯誤（反向亦然）。
+ */
+function resetFormErrors() {
+  createMutation.reset()
+  updateMutation.reset()
+}
+
 function startCreate() {
   Object.assign(form, emptyForm())
   editing.value = null
   showCreate.value = true
-  createMutation.reset()
+  resetFormErrors()
 }
 
 function startEdit(coupon: CouponDto) {
@@ -123,8 +144,8 @@ function startEdit(coupon: CouponDto) {
         : Number(coupon.discountValue)),
     minimumSpend: coupon.minimumSpend === null ? '' : String(Number(coupon.minimumSpend)),
     maximumDiscount: coupon.maximumDiscount === null ? '' : String(Number(coupon.maximumDiscount)),
-    startsAt: coupon.startsAtUtc.slice(0, 16),
-    endsAt: coupon.endsAtUtc.slice(0, 16),
+    startsAt: toLocalInputValue(coupon.startsAtUtc),
+    endsAt: toLocalInputValue(coupon.endsAtUtc),
     totalUsageLimit: coupon.usage.totalUsageLimit === null ? '' : String(Number(coupon.usage.totalUsageLimit)),
     perMemberLimit: coupon.usage.perMemberLimit === null ? '' : String(Number(coupon.usage.perMemberLimit)),
     memberOnly: coupon.memberOnly,
@@ -138,7 +159,7 @@ function startEdit(coupon: CouponDto) {
   })
   editing.value = coupon
   showCreate.value = false
-  updateMutation.reset()
+  resetFormErrors()
 }
 
 function cancelForm() {
@@ -169,11 +190,16 @@ function buildRuleFields() {
     code: form.code.trim(),
     nameZhTw: form.nameZhTw.trim(),
     discountType: form.discountType,
-    discountValue: discountValueForApi(),
+    // 免運券不帶折扣金額。切換類型時只把欄位藏起來是不夠的 —— 先填了金額
+    // 再改成免運，那個數字還在表單狀態裡，照樣會被送出去。
+    discountValue: isAmountDiscount(form.discountType) ? discountValueForApi() : null,
     minimumSpend: optionalNumber(form.minimumSpend),
-    maximumDiscount: optionalNumber(form.maximumDiscount),
-    startsAtUtc: new Date(form.startsAt).toISOString(),
-    endsAtUtc: new Date(form.endsAt).toISOString(),
+    maximumDiscount: isAmountDiscount(form.discountType)
+      ? optionalNumber(form.maximumDiscount)
+      : null,
+    // 帶上原值：欄位沒被動過就原樣送回，不讓時段因為經過表單而被改寫。
+    startsAtUtc: toUtcInstant(form.startsAt, editing.value?.startsAtUtc),
+    endsAtUtc: toUtcInstant(form.endsAt, editing.value?.endsAtUtc),
     totalUsageLimit: optionalNumber(form.totalUsageLimit),
     perMemberLimit: optionalNumber(form.perMemberLimit),
     memberOnly: form.memberOnly,
@@ -356,6 +382,7 @@ function describeError(candidate: unknown): string {
                 {{ expandedId === coupon.publicId ? '收合規則' : '規則預覽' }}
               </button>
               <button
+                v-if="canEditRules(coupon.status)"
                 type="button"
                 @click="startEdit(coupon)"
               >
@@ -447,15 +474,16 @@ function describeError(candidate: unknown): string {
           v-model="form.discountType"
           name="discountType"
         >
-          <option value="fixedAmount">
-            固定金額
-          </option>
-          <option value="percentage">
-            百分比
+          <option
+            v-for="(label, value) in discountTypeLabels"
+            :key="value"
+            :value="value"
+          >
+            {{ label }}
           </option>
         </select>
       </label>
-      <label>{{ form.discountType === 'percentage' ? '折扣百分比' : '折扣金額' }}
+      <label v-if="isAmountDiscount(form.discountType)">{{ form.discountType === 'percentage' ? '折扣百分比' : '折扣金額' }}
         <input
           v-model="form.discountValue"
           name="discountValue"
@@ -472,7 +500,7 @@ function describeError(candidate: unknown): string {
           step="any"
         >
       </label>
-      <label>最高折抵
+      <label v-if="isAmountDiscount(form.discountType)">最高折抵
         <input
           v-model="form.maximumDiscount"
           name="maximumDiscount"
