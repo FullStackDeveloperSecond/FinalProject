@@ -106,6 +106,11 @@ public sealed class OpenAiProductSearchClient(
                     // A single schema-repair attempt is allowed below.
                 }
             }
+
+            if (!response.CanRetry)
+            {
+                break;
+            }
         }
 
         return new AiProductSearchIntentResult(
@@ -181,6 +186,11 @@ public sealed class OpenAiProductSearchClient(
             lastResponse = response;
             if (response.Status != AiProductSearchModelStatus.Completed || response.OutputText is null)
             {
+                if (!response.CanRetry)
+                {
+                    break;
+                }
+
                 continue;
             }
 
@@ -241,7 +251,9 @@ public sealed class OpenAiProductSearchClient(
                         continue;
                     }
 
-                    return ModelResponse.Unavailable;
+                    return IsTransient(response.StatusCode)
+                        ? ModelResponse.Unavailable
+                        : ModelResponse.NonRetryableUnavailable;
                 }
 
                 await using var stream = await response.Content.ReadAsStreamAsync(timeout.Token);
@@ -596,9 +608,21 @@ public sealed class OpenAiProductSearchClient(
     private sealed record ModelResponse(
         AiProductSearchModelStatus Status,
         string? OutputText,
-        AiSupportModelUsage? Usage)
+        AiSupportModelUsage? Usage,
+        bool CanRetry = true)
     {
-        public static ModelResponse Unavailable { get; } = new(AiProductSearchModelStatus.Unavailable, null, null);
-        public static ModelResponse Invalid { get; } = new(AiProductSearchModelStatus.InvalidOutput, null, null);
+        public static ModelResponse Unavailable { get; } = new(
+            AiProductSearchModelStatus.Unavailable,
+            null,
+            null);
+        public static ModelResponse NonRetryableUnavailable { get; } = new(
+            AiProductSearchModelStatus.Unavailable,
+            null,
+            null,
+            CanRetry: false);
+        public static ModelResponse Invalid { get; } = new(
+            AiProductSearchModelStatus.InvalidOutput,
+            null,
+            null);
     }
 }

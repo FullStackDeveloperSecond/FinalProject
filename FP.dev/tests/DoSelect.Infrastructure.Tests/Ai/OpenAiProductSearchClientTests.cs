@@ -59,6 +59,43 @@ public sealed class OpenAiProductSearchClientTests
     }
 
     [Fact]
+    public async Task ParseIntentAsync_NonTransientHttpFailure_DoesNotRetry()
+    {
+        var handler = new RecordingHandler(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized));
+        var subject = CreateSubject(handler);
+
+        var result = await subject.ParseIntentAsync(
+            "五萬元剪輯電腦",
+            SupportedLocale.ZhTw,
+            Metadata(),
+            default);
+
+        Assert.Equal(AiProductSearchModelStatus.Unavailable, result.Status);
+        Assert.Null(result.Intent);
+        Assert.Equal(1, handler.CallCount);
+    }
+
+    [Fact]
+    public async Task ParseIntentAsync_TransientHttpFailure_RetriesOnceThenCompletes()
+    {
+        var handler = new RecordingHandler(attempt =>
+            attempt == 1
+                ? new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+                : JsonResponse(IntentResponse()));
+        var subject = CreateSubject(handler);
+
+        var result = await subject.ParseIntentAsync(
+            "五萬元剪輯電腦",
+            SupportedLocale.ZhTw,
+            Metadata(),
+            default);
+
+        Assert.Equal(AiProductSearchModelStatus.Completed, result.Status);
+        Assert.NotNull(result.Intent);
+        Assert.Equal(2, handler.CallCount);
+    }
+
+    [Fact]
     public async Task ParseIntentAsync_NaturalLanguageExistingPart_ReturnsUnconfirmedProposalOnly()
     {
         var output = JsonSerializer.Serialize(new
@@ -125,6 +162,23 @@ public sealed class OpenAiProductSearchClientTests
 
         Assert.Equal(AiProductSearchModelStatus.InvalidOutput, result.Status);
         Assert.Empty(result.Reasons);
+    }
+
+    [Fact]
+    public async Task ExplainAsync_NonTransientHttpFailure_DoesNotRetry()
+    {
+        var handler = new RecordingHandler(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized));
+        var subject = CreateSubject(handler);
+
+        var result = await subject.ExplainAsync(
+            Intent(),
+            [Product()],
+            SupportedLocale.ZhTw,
+            default);
+
+        Assert.Equal(AiProductSearchModelStatus.Unavailable, result.Status);
+        Assert.Empty(result.Reasons);
+        Assert.Equal(1, handler.CallCount);
     }
 
     private static OpenAiProductSearchClient CreateSubject(HttpMessageHandler handler) =>
