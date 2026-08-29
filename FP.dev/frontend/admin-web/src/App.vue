@@ -8,6 +8,10 @@ const router = useRouter()
 const auth = useAdminAuthStore()
 
 const isAuthPage = computed(() => route.path.startsWith('/login'))
+const canViewOperationalReports = computed(() => {
+  const roles = auth.currentUser?.roles ?? []
+  return ['MarketingAnalyst', 'FinanceManager', 'SuperAdmin'].some((role) => roles.includes(role))
+})
 
 async function onLogout(): Promise<void> {
   await auth.logout()
@@ -75,6 +79,9 @@ async function onLogout(): Promise<void> {
           <RouterLink to="/support">
             客服 SLA 佇列
           </RouterLink>
+          <RouterLink to="/reviews">
+            商品評價審核
+          </RouterLink>
           <RouterLink to="/returns">
             退貨案件
           </RouterLink>
@@ -83,6 +90,12 @@ async function onLogout(): Promise<void> {
           </RouterLink>
           <RouterLink to="/ai/usage">
             AI 用量與成本
+          </RouterLink>
+          <RouterLink
+            v-if="canViewOperationalReports"
+            to="/reports/sales-overview"
+          >
+            營運報表
           </RouterLink>
         </nav>
       </aside>

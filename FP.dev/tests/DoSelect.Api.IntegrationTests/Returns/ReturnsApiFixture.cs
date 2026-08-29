@@ -2,6 +2,8 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using DoSelect.Api.Security;
 using DoSelect.Application.Files;
+using DoSelect.Domain.Catalog;
+using DoSelect.Domain.Inventory;
 using DoSelect.Domain.Invoicing;
 using DoSelect.Domain.Members;
 using DoSelect.Domain.Orders;
@@ -181,10 +183,32 @@ public sealed class ReturnsApiFixture : IAsyncLifetime
             await context.SaveChangesAsync();
 
             order.ApplyFulfillmentProjection(FulfillmentStatus.Delivered, nowUtc.AddDays(-1));
+            order.ChangeOrderStatus(OrderStatus.Completed, nowUtc);
+            await context.SaveChangesAsync();
+
+            var catalogSuffix = Guid.NewGuid().ToString("N")[..10];
+            var brand = new Brand(
+                Guid.CreateVersion7(), $"RMB{catalogSuffix}", "Returns member 品牌", nowUtc);
+            var category = new Category(
+                Guid.CreateVersion7(), $"RMC{catalogSuffix}", $"returns-member-{catalogSuffix}",
+                "Returns member 分類", null, nowUtc);
+            context.AddRange(brand, category);
+            await context.SaveChangesAsync();
+            var product = new Product(
+                Guid.CreateVersion7(), $"RMP{catalogSuffix}", brand.Id, category.Id,
+                "27型螢幕", nowUtc);
+            product.ChangeStatus(ProductStatus.Published, nowUtc);
+            context.Products.Add(product);
+            await context.SaveChangesAsync();
+            var sku = new Sku(
+                Guid.CreateVersion7(), $"RMS{catalogSuffix}", product.Id,
+                "27型螢幕 White", 100m, 60m, nowUtc);
+            sku.ChangeStatus(SkuStatus.Published, nowUtc);
+            context.Skus.Add(sku);
             await context.SaveChangesAsync();
 
             var item = new OrderItem(
-                Guid.CreateVersion7(), order.Id, skuId: null, "SKU-1", "27型螢幕", "27型螢幕 White",
+                Guid.CreateVersion7(), order.Id, sku.Id, sku.SkuCode, "27型螢幕", "27型螢幕 White",
                 quantity: returnableQuantity, listUnitPrice: 100m, saleUnitPrice: 100m, finalUnitPrice: 100m,
                 unitCostSnapshot: 60m, lineSubtotal: 100m * returnableQuantity, discountAllocation: 0m,
                 lineTotal: 100m * returnableQuantity, assemblyGroupKey: null, returnableQuantity: returnableQuantity,
@@ -259,6 +283,46 @@ public sealed class ReturnsApiFixture : IAsyncLifetime
             orderRowVersion);
     }
 
+    public async Task<(HttpClient Client, Guid OrderItemPublicId)>
+        CreateAuthenticatedMemberWithPendingReviewItemAsync()
+    {
+        var seeded = await CreateAuthenticatedMemberWithPendingOrderAsync();
+        var nowUtc = DateTime.UtcNow;
+        await using var context = CreateContext();
+        var order = await context.Orders.SingleAsync(candidate => candidate.PublicId == seeded.OrderPublicId);
+        var catalogSuffix = Guid.NewGuid().ToString("N")[..10];
+        var brand = new Brand(
+            Guid.CreateVersion7(), $"PRB{catalogSuffix}", "Pending review 品牌", nowUtc);
+        var category = new Category(
+            Guid.CreateVersion7(), $"PRC{catalogSuffix}", $"pending-review-{catalogSuffix}",
+            "Pending review 分類", null, nowUtc);
+        context.AddRange(brand, category);
+        await context.SaveChangesAsync();
+        var product = new Product(
+            Guid.CreateVersion7(), $"PRP{catalogSuffix}", brand.Id, category.Id,
+            "尚未完成訂單的商品", nowUtc);
+        product.ChangeStatus(ProductStatus.Published, nowUtc);
+        context.Products.Add(product);
+        await context.SaveChangesAsync();
+        var sku = new Sku(
+            Guid.CreateVersion7(), $"PRS{catalogSuffix}", product.Id,
+            "尚未完成 SKU", 100m, 60m, nowUtc);
+        sku.ChangeStatus(SkuStatus.Published, nowUtc);
+        context.Skus.Add(sku);
+        await context.SaveChangesAsync();
+        var item = new OrderItem(
+            Guid.CreateVersion7(), order.Id, sku.Id, sku.SkuCode,
+            "尚未完成訂單的商品", "尚未完成 SKU", quantity: 1,
+            listUnitPrice: 100m, saleUnitPrice: 100m, finalUnitPrice: 100m,
+            unitCostSnapshot: 60m, lineSubtotal: 100m, discountAllocation: 0m,
+            lineTotal: 100m, assemblyGroupKey: null, returnableQuantity: 1,
+            nowUtc, isCouponEligible: true,
+            new OrderItemSpecificationSnapshot("Test specification", "{}", 1));
+        context.OrderItems.Add(item);
+        await context.SaveChangesAsync();
+        return (seeded.Client, item.PublicId);
+    }
+
     private async Task<HttpClient> CreateAuthenticatedMemberClientAsync(string memberUserId)
     {
         var client = CreateClient();
@@ -308,6 +372,28 @@ public sealed class ReturnsApiFixture : IAsyncLifetime
         order.ApplyFulfillmentProjection(FulfillmentStatus.Delivered, nowUtc.AddDays(-10));
         await context.SaveChangesAsync();
 
+        var catalogSuffix = Guid.NewGuid().ToString("N")[..10];
+        var brand = new Brand(
+            Guid.CreateVersion7(), $"RTB{catalogSuffix}", "Returns API 品牌", nowUtc);
+        var category = new Category(
+            Guid.CreateVersion7(), $"RTC{catalogSuffix}", $"returns-api-{catalogSuffix}",
+            "Returns API 分類", null, nowUtc);
+        context.AddRange(brand, category);
+        await context.SaveChangesAsync();
+        var product = new Product(
+            Guid.CreateVersion7(), $"RTP{catalogSuffix}", brand.Id, category.Id,
+            "Returns API 商品", nowUtc);
+        context.Products.Add(product);
+        await context.SaveChangesAsync();
+        var sku = new Sku(
+            Guid.CreateVersion7(), $"RTS{catalogSuffix}", product.Id,
+            "Returns API SKU", 100m, 60m, nowUtc);
+        context.Skus.Add(sku);
+        await context.SaveChangesAsync();
+        context.InventoryBalances.Add(new InventoryBalance(
+            Guid.CreateVersion7(), sku.Id, 0, 0, nowUtc));
+        await context.SaveChangesAsync();
+
         var returnRequest = new ReturnRequest(
             Guid.CreateVersion7(), $"RT-{Guid.NewGuid():N}"[..12], order.Id, requesterUserId: null,
             "Defective", "面板有亮點", policyVersion: 1, nowUtc);
@@ -318,7 +404,7 @@ public sealed class ReturnsApiFixture : IAsyncLifetime
         for (var i = 0; i < itemCount; i++)
         {
             var orderItem = new OrderItem(
-                Guid.CreateVersion7(), order.Id, skuId: null, $"SKU-{i}", $"品項{i}", $"品項{i} White",
+                Guid.CreateVersion7(), order.Id, sku.Id, sku.SkuCode, $"品項{i}", $"品項{i} White",
                 quantity: 1, listUnitPrice: 100m, saleUnitPrice: 100m, finalUnitPrice: 100m,
                 unitCostSnapshot: 60m, lineSubtotal: 100m, discountAllocation: 0m, lineTotal: 100m,
                 assemblyGroupKey: null, returnableQuantity: 1, nowUtc,

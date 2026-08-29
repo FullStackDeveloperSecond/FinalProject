@@ -62,6 +62,9 @@ async function handleLogout(): Promise<void> {
             客服中心
           </RouterLink>
           <template v-if="sessionStore.isAuthenticated">
+            <RouterLink to="/account/reviews">
+              我的評價
+            </RouterLink>
             <span class="site-header__member">{{ sessionStore.user?.displayName }}</span>
             <button
               type="button"

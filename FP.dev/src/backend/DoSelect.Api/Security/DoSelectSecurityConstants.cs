@@ -60,6 +60,8 @@ public static class DoSelectPolicies
     public const string Member = "Member";
     public const string AiSupportMember = "AiSupport.Member";
     public const string AiUsageView = "AiUsage.View";
+    public const string OperationalReportView = "OperationalReport.View";
+    public const string OperationalReportFinanceView = "OperationalReport.FinanceView";
     public const string Admin = "Admin";
     public const string CatalogManager = "CatalogManager";
     public const string ReturnApprove = "Return.Approve";
@@ -67,6 +69,7 @@ public static class DoSelectPolicies
     public const string InvoiceManage = "Invoice.Manage";
     public const string CouponManage = "Coupon.Manage";
     public const string ReportHighRiskReview = "Report.HighRiskReview";
+    public const string ProductReviewModerate = "ProductReview.Moderate";
     public const string RoleAssignmentManage = "RoleAssignment.Manage";
     public const string PersonalDataViewFull = "PersonalData.ViewFull";
     public const string PersonalDataExport = "PersonalData.Export";

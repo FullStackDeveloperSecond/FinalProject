@@ -76,13 +76,79 @@ public sealed class RefundExecutionReaderTests
     {
         // P0：核對狀態與餘額、更新退款狀態必須在同一交易內，
         // 並靠 Serializable 範圍鎖加 rowversion 樂觀鎖擋住並行超額退款。
+        //
+        // 交易本身改由共用 IIdempotencyExecutor 擁有（DEC-BATCH-019 A1），因此這裡
+        // 斷言的是「有把 Serializable 指定給它」，而不是自己 BeginTransaction ——
+        // 自己開交易反而會讓 EfIdempotencyExecutor 直接丟
+        // 「must own the business transaction」。
         var source = File.ReadAllText(ExecutorSourcePath());
 
-        Assert.Contains("BeginTransactionAsync", source, StringComparison.Ordinal);
+        Assert.Contains("_idempotencyExecutor.ExecuteAsync", source, StringComparison.Ordinal);
         Assert.Contains("IsolationLevel.Serializable", source, StringComparison.Ordinal);
-        Assert.Contains("CommitAsync", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("BeginTransactionAsync", source, StringComparison.Ordinal);
+        Assert.Contains("ExpectedRefundRowVersion", source, StringComparison.Ordinal);
         Assert.Contains("DbUpdateConcurrencyException", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("AsNoTracking", source, StringComparison.Ordinal);
+
+        // 退款列必須被追蹤才能在同一交易內條件更新。
+        // 其他唯讀查詢（例如把 Identity Id 換成管理員 PublicId）可以用 AsNoTracking。
+        var refundQuery = source[source.IndexOf("_context.Refunds", StringComparison.Ordinal)..];
+        var refundQueryEnd = refundQuery.IndexOf("cancellationToken);", StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "AsNoTracking",
+            refundQuery[..refundQueryEnd],
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheAuditIsWrittenInsideTheRefundTransaction()
+    {
+        // DEC-P289：稽核與退款狀態必須同批提交，任一失敗即整體回滾。
+        // Audit 若在 SaveChanges 之後或另一個交易寫入，退款就可能沒有稽核紀錄。
+        var source = File.ReadAllText(ExecutorSourcePath());
+
+        // 比對的是呼叫點的順序，不是方法定義的位置。
+        // 提交由共用 Executor 負責，因此這裡只能比到 SaveChanges 為止；
+        // 「同一交易」由上面那條測試（Serializable 指定給 Executor）保證。
+        var auditCall = source.IndexOf("WriteAudit(refund", StringComparison.Ordinal);
+        var saveIndex = source.IndexOf(
+            "await _context.SaveChangesAsync(cancellationToken);",
+            StringComparison.Ordinal);
+
+        Assert.True(auditCall > 0, "The executor must write a central audit entry.");
+        Assert.Contains("_auditWriter.Add", source, StringComparison.Ordinal);
+        Assert.InRange(auditCall, 0, saveIndex);
+    }
+
+    [Fact]
+    public void TheExecutionReasonNeverReachesTheRefundRow()
+    {
+        // reasonCode 與 note 只寫中央 AuditLog，不寫回 Refund（DEC-P289）。
+        var source = File.ReadAllText(ExecutorSourcePath());
+
+        Assert.DoesNotContain("refund.ReasonCode =", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("refund.Note", source, StringComparison.Ordinal);
+
+        // reason 只收 safe-code，note 走中央 Audit 的獨立欄位。先前兩者被串成
+        // `reasonCode: note` 塞進 reason，任何含空白或中文的 note 都會讓 reason
+        // 驗證失敗，把一次正常退款變成 500。
+        Assert.Contains("reason: request.ReasonCode.Trim()", source, StringComparison.Ordinal);
+        Assert.Contains("note: request.Note", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("BuildReason", source, StringComparison.Ordinal);
+
+        // 請求來源不得被丟掉。
+        Assert.Contains(
+            "remoteIpAddress: request.RemoteIpAddress", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheAuditActorUsesThePublicIdNotTheIdentityId()
+    {
+        // DEC-P290：稽核與管理員摘要都不得出現內部 Identity Id。
+        var source = File.ReadAllText(ExecutorSourcePath());
+
+        Assert.Contains("admin.PublicId", source, StringComparison.Ordinal);
+        Assert.Contains("AuditActorType.Admin", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("AuditActor.Create(AuditActorType.Admin, adminUserId", source, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -100,8 +166,10 @@ public sealed class RefundExecutionReaderTests
         Assert.Contains("ChangeTracker.Clear()", source, StringComparison.Ordinal);
         Assert.Contains("RefundErrorCodes.ConcurrencyConflict", source, StringComparison.Ordinal);
 
-        // 重試必須包住整個 ExecuteOnceAsync，而不是只包 SaveChangesAsync。
-        var retryIndex = source.IndexOf("ExecuteOnceAsync(request, cancellationToken)", StringComparison.Ordinal);
+        // 重試必須包住整個交易，而不是只包 SaveChangesAsync。交易改由共用 Executor
+        // 擁有之後，重試迴圈要包住的就是那一次 ExecuteAsync 呼叫。
+        var retryIndex = source.IndexOf(
+            "_idempotencyExecutor.ExecuteAsync", StringComparison.Ordinal);
         var catchIndex = source.IndexOf("IsRetryableConflict", StringComparison.Ordinal);
         Assert.True(retryIndex > 0 && catchIndex > retryIndex);
     }

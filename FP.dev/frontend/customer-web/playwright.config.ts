@@ -50,6 +50,8 @@ export default defineConfig({
         ASPNETCORE_URLS: 'http://127.0.0.1:5126',
         Features__BackgroundJobsEnabled: 'false',
         Features__EmailEnabled: 'false',
+        GuestOrderAccess__Pepper: 'e2e-guest-order-access-pepper-32-bytes',
+        Idempotency__ActorScopePepper: 'e2e-idempotency-actor-scope-pepper-32-bytes',
       },
     },
     {

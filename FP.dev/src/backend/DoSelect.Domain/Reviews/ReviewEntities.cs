@@ -107,11 +107,41 @@ public sealed class ProductReview : MutablePublicEntity
         Rating = rating;
         Title = string.IsNullOrWhiteSpace(title) ? null : title.Trim();
         Content = RequireText(content, nameof(content));
-        Status = ProductReviewStatus.PendingReview;
+        Status = Status == ProductReviewStatus.Draft
+            ? ProductReviewStatus.Draft
+            : ProductReviewStatus.PendingReview;
         ReviewedByAdminUserId = null;
         ReviewedAtUtc = null;
         RejectionReason = null;
         MarkUpdated(updatedAtUtc);
+    }
+
+    public void Hide(string adminUserId, DateTime hiddenAtUtc)
+    {
+        if (Status != ProductReviewStatus.Approved)
+        {
+            throw new InvalidOperationException("Only an approved review can be hidden.");
+        }
+
+        ReviewedByAdminUserId = RequireText(adminUserId, nameof(adminUserId));
+        ReviewedAtUtc = RequireUtc(hiddenAtUtc, nameof(hiddenAtUtc));
+        Status = ProductReviewStatus.Hidden;
+        RejectionReason = null;
+        MarkUpdated(hiddenAtUtc);
+    }
+
+    public void Restore(string adminUserId, DateTime restoredAtUtc)
+    {
+        if (Status != ProductReviewStatus.Hidden)
+        {
+            throw new InvalidOperationException("Only a hidden review can be restored.");
+        }
+
+        ReviewedByAdminUserId = RequireText(adminUserId, nameof(adminUserId));
+        ReviewedAtUtc = RequireUtc(restoredAtUtc, nameof(restoredAtUtc));
+        Status = ProductReviewStatus.Approved;
+        RejectionReason = null;
+        MarkUpdated(restoredAtUtc);
     }
 }
 

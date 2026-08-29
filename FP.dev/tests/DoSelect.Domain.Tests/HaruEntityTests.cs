@@ -128,6 +128,29 @@ public sealed class HaruEntityTests
             11,
             0,
             0,
+            100m,
+            "StocktakeDifference",
+            "ImportBatch",
+            Guid.NewGuid(),
+            null,
+            CreatedAtUtc));
+    }
+
+    [Fact]
+    public void InventoryMovement_RequiresANonNegativeUnitCostSnapshotForNewEvents()
+    {
+        Assert.Throws<ArgumentException>(() => new InventoryMovement(
+            Guid.NewGuid(),
+            1,
+            null,
+            "Adjustment",
+            0,
+            0,
+            10,
+            10,
+            0,
+            0,
+            -0.01m,
             "StocktakeDifference",
             "ImportBatch",
             Guid.NewGuid(),

@@ -15,6 +15,7 @@ public static class ReturnsInfrastructureServiceCollectionExtensions
         services.TryAddSingleton(TimeProvider.System);
         services.AddScoped<IReturnStore, ReturnStore>();
         services.AddScoped<IReturnOrderEligibilityPort, ReturnOrderEligibilityLookup>();
+        services.AddScoped<IReturnInventoryPort, ReturnInventoryRestockWriter>();
         services.AddScoped<IGuestOrderAccessValidator, GuestOrderAccessValidator>();
         services.AddScoped<IReturnService, ReturnService>();
         services.AddScoped<IAdminReturnService, AdminReturnService>();

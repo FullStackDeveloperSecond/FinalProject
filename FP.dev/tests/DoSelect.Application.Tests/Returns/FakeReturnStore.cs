@@ -9,7 +9,7 @@ namespace DoSelect.Application.Tests.Returns;
 /// (identity assignment via the compiler-generated backing field, optimistic concurrency via a
 /// simulate-next-conflict flag). No DB, no mocking framework.
 /// </summary>
-internal sealed class FakeReturnStore : IReturnStore
+internal sealed class FakeReturnStore : IReturnStore, IReturnInventoryPort
 {
     private static readonly FieldInfo ReturnRequestIdField =
         typeof(ReturnRequest).BaseType!.BaseType!.BaseType!
@@ -30,6 +30,9 @@ internal sealed class FakeReturnStore : IReturnStore
     public List<ReturnInspection> Inspections { get; } = [];
     public List<ReturnShipment> Shipments { get; } = [];
     public List<ReturnShipmentEvent> ShipmentEvents { get; } = [];
+    public List<ReturnToStockInstruction> ReturnToStockInstructions { get; } = [];
+    public Guid? ReturnToStockReturnPublicId { get; private set; }
+    public string? ReturnToStockAdminUserId { get; private set; }
 
     public int SimulateCollisionsRemaining { get; set; }
     public bool SimulateConcurrencyConflictOnNextSave { get; set; }
@@ -207,6 +210,19 @@ internal sealed class FakeReturnStore : IReturnStore
 
         Histories.AddRange(historiesToAdd);
 
+        return Task.CompletedTask;
+    }
+
+    public Task StageReturnToStockAsync(
+        Guid returnPublicId,
+        string adminUserId,
+        IReadOnlyList<ReturnToStockInstruction> instructions,
+        DateTime occurredAtUtc,
+        CancellationToken cancellationToken)
+    {
+        ReturnToStockReturnPublicId = returnPublicId;
+        ReturnToStockAdminUserId = adminUserId;
+        ReturnToStockInstructions.AddRange(instructions);
         return Task.CompletedTask;
     }
 

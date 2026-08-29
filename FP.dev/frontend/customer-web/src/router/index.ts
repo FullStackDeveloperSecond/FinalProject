@@ -96,6 +96,12 @@ const router = createRouter({
       component: () => import('../pages/returns/ReturnDetailPage.vue'),
     },
     {
+      path: '/account/reviews',
+      name: 'my-reviews',
+      component: () => import('../pages/reviews/MyReviewsPage.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/cart',
       name: 'cart',
       component: () => import('../pages/CartPage.vue'),
