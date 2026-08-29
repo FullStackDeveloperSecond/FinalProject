@@ -1319,6 +1319,214 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/coupons/catalog-options/categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["CouponCategoryOption"][];
+                        "application/json": components["schemas"]["CouponCategoryOption"][];
+                        "text/json": components["schemas"]["CouponCategoryOption"][];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/coupons/catalog-options/products": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    Q?: string;
+                    PageSize?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["CouponProductSearchResult"];
+                        "application/json": components["schemas"]["CouponProductSearchResult"];
+                        "text/json": components["schemas"]["CouponProductSearchResult"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/coupons/catalog-options/products/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CouponProductResolveRequest"];
+                    "text/json": components["schemas"]["CouponProductResolveRequest"];
+                    "application/*+json": components["schemas"]["CouponProductResolveRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["CouponProductOption"][];
+                        "application/json": components["schemas"]["CouponProductOption"][];
+                        "text/json": components["schemas"]["CouponProductOption"][];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/coupons": {
         parameters: {
             query?: never;
@@ -6679,6 +6887,14 @@ export interface components {
             isFreeShipping: boolean;
             isAssemblyFreeShipping: boolean;
         };
+        CouponCategoryOption: {
+            /** Format: uuid */
+            publicId: string;
+            code: string;
+            name: string;
+            path: string;
+            isActive: boolean;
+        };
         /** @enum {unknown} */
         CouponDiscountType: "fixedAmount" | "percentage" | "freeShipping" | "assemblyFreeShipping";
         CouponDto: {
@@ -6710,6 +6926,23 @@ export interface components {
             updatedAtUtc: string;
             /** Format: byte */
             rowVersion: string;
+        };
+        CouponProductOption: {
+            /** Format: uuid */
+            publicId: string;
+            code: string;
+            name: string;
+            status: components["schemas"]["ProductOptionStatus"];
+            isSelectable: boolean;
+        };
+        CouponProductResolveRequest: {
+            publicIds: string[];
+        };
+        CouponProductSearchResult: {
+            items: components["schemas"]["CouponProductOption"][];
+            /** Format: int32 */
+            totalCount: number | string;
+            hasMore: boolean;
         };
         CouponScopeDto: {
             scopeType: components["schemas"]["CouponScopeType"];
@@ -7301,6 +7534,8 @@ export interface components {
             /** Format: int32 */
             height: number | string;
         };
+        /** @enum {unknown} */
+        ProductOptionStatus: "draft" | "published" | "unpublished" | "discontinued";
         ProductPrice: {
             /** Format: double */
             list: number | string;

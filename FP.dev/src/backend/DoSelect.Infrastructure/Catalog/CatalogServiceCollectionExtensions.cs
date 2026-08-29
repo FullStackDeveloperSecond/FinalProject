@@ -19,6 +19,9 @@ public static class CatalogServiceCollectionExtensions
         services.AddScoped<IProductAdminService, EfProductAdminService>();
         services.AddScoped<ISkuAdminService, EfSkuAdminService>();
         services.AddScoped<ICompatibilityCatalogReader, EfCompatibilityCatalogReader>();
+        // 優惠券挑選器的唯讀目錄參考（PR #64 P2#3）。契約與實作屬 Catalog，
+        // 端點掛在 /api/v1/admin/coupons 底下並以 Coupon.Manage 保護。
+        services.AddScoped<ICouponCatalogOptionsReader, CouponCatalogOptionsReader>();
 
         return services;
     }
