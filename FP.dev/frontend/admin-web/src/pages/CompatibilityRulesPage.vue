@@ -216,7 +216,19 @@ const MAX_TEST_ITEM_QUANTITY = 8
 const isTestQuantityValid = computed(() => isValidBoundedNumber(testDraftSku.quantity, 1, MAX_TEST_ITEM_QUANTITY, true))
 const isTestItemCountValid = computed(() => testItems.value.length <= MAX_TEST_ITEMS)
 
-const existingTestItemIndex = computed(() => testItems.value.findIndex((item) => item.skuPublicId === testDraftSku.skuPublicId.trim()))
+// 組長 PR #35 round-7 review: GUID 不分大小寫，但這裡原本用原始字串 === 比對——同一顆 SKU 用小寫
+// 貼一次、大寫貼一次，畫面上會被當成兩個不同項目，各自都符合 1–8 卻在送出後被後端的
+// EfCompatibilityCheckService.MergeAndValidateItems 合併成同一列，可能超過每項上限而整批被拒。
+// normalizeSkuPublicId 把新增時要儲存的值正規化成小寫（對齊 .NET Guid 預設的 ToString() 格式），
+// 讓畫面顯示與送出後端的 items 使用同一個 canonical 字串；比對時仍額外對兩邊都轉小寫，不假設
+// testItems 裡的既有資料一定已經是正規化過的（防禦寫法，不依賴這支函式是唯一入口這個隱性前提）。
+function normalizeSkuPublicId(value: string): string {
+  return value.trim().toLowerCase()
+}
+
+const existingTestItemIndex = computed(() => testItems.value.findIndex(
+  (item) => item.skuPublicId.toLowerCase() === normalizeSkuPublicId(testDraftSku.skuPublicId),
+))
 
 // 組長 PR #35 round-6 review, P2-3: adding the same SKU twice (e.g. 5 + 5, each individually
 // within 1–8) used to create two separate rows — but the backend merges test items by SkuPublicId
@@ -244,7 +256,7 @@ function addTestItem(): void {
   if (!isAddTestItemValid.value) {
     return
   }
-  const skuPublicId = testDraftSku.skuPublicId.trim()
+  const skuPublicId = normalizeSkuPublicId(testDraftSku.skuPublicId)
   const existingIndex = existingTestItemIndex.value
   if (existingIndex === -1) {
     testItems.value = [...testItems.value, { skuPublicId, quantity: testDraftSku.quantity }]

@@ -452,6 +452,80 @@ describe('CompatibilityRulesPage — test-tool merges same-SKU quantities before
   })
 })
 
+/**
+ * 組長 PR #35 round-7 review: round-6 的合併比對用原始字串 ===，同一顆 SKU 用小寫貼一次、大寫貼
+ * 一次會被當成兩個不同項目，各自都在 1–8 範圍內、因此不會被擋下，但送到後端後
+ * EfCompatibilityCheckService.MergeAndValidateItems 會把它們合併成同一列——合併後的量若超過 8，
+ * 整批測試請求才會被拒絕，跟畫面上兩個各自合法的項目不一致。
+ */
+describe('CompatibilityRulesPage — test-tool merges same SKU regardless of GUID casing (組長 PR #35 round-7 review)', () => {
+  it('小寫 5＋大寫 4：merged total exceeds 8, 前端要擋下且不呼叫 API', async () => {
+    const wrapper = mountPage()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('CPU_SOCKET'))
+
+    const skuInput = wrapper.find('input[aria-label="SKU PublicId"]')
+    const quantityInput = wrapper.find('.compatibility-rules-page__add-row input[type="number"]')
+    const addItemButton = wrapper.findAll('button').find((button) => button.text() === '加入項目')!
+
+    await skuInput.setValue('aaaaaaaa-3333-3333-3333-333333333333')
+    await quantityInput.setValue('5')
+    await addItemButton.trigger('click')
+    expect(wrapper.findAll('.compatibility-rules-page__test-items tbody tr')).toHaveLength(1)
+
+    await skuInput.setValue('aaaaaaaa-3333-3333-3333-333333333333'.toUpperCase())
+    await quantityInput.setValue('4')
+    expect(addItemButton.attributes('disabled')).toBeDefined()
+    expect(wrapper.find('.compatibility-rules-page__add-row').text()).toContain('合併後數量為 9')
+    await addItemButton.trigger('click')
+
+    const rows = wrapper.findAll('.compatibility-rules-page__test-items tbody tr')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.text()).toContain('5')
+
+    const runButton = wrapper.findAll('button').find((button) => button.text() === '執行測試')!
+    mockTestCompatibilityRules.mockResolvedValue({
+      overall: 'compatible', results: [], settingsVersion: 7, evaluatedAtUtc: new Date().toISOString(),
+    })
+    await runButton.trigger('click')
+    await vi.waitFor(() => expect(mockTestCompatibilityRules).toHaveBeenCalledWith(
+      expect.objectContaining({ items: [{ skuPublicId: 'aaaaaaaa-3333-3333-3333-333333333333', quantity: 5 }] }),
+    ))
+  })
+
+  it('小寫 4＋大寫 4：merges into one row, 畫面與送出後端的 skuPublicId 都是同一個小寫 canonical 值', async () => {
+    const wrapper = mountPage()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('CPU_SOCKET'))
+
+    const skuInput = wrapper.find('input[aria-label="SKU PublicId"]')
+    const quantityInput = wrapper.find('.compatibility-rules-page__add-row input[type="number"]')
+    const addItemButton = wrapper.findAll('button').find((button) => button.text() === '加入項目')!
+
+    await skuInput.setValue('aaaaaaaa-5555-5555-5555-555555555555')
+    await quantityInput.setValue('4')
+    await addItemButton.trigger('click')
+
+    await skuInput.setValue('aaaaaaaa-5555-5555-5555-555555555555'.toUpperCase())
+    await quantityInput.setValue('4')
+    expect(addItemButton.attributes('disabled')).toBeUndefined()
+    await addItemButton.trigger('click')
+
+    const rows = wrapper.findAll('.compatibility-rules-page__test-items tbody tr')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.text()).toContain('aaaaaaaa-5555-5555-5555-555555555555')
+    expect(rows[0]!.text()).not.toContain('aaaaaaaa-5555-5555-5555-555555555555'.toUpperCase())
+    expect(rows[0]!.text()).toContain('8')
+
+    const runButton = wrapper.findAll('button').find((button) => button.text() === '執行測試')!
+    mockTestCompatibilityRules.mockResolvedValue({
+      overall: 'compatible', results: [], settingsVersion: 7, evaluatedAtUtc: new Date().toISOString(),
+    })
+    await runButton.trigger('click')
+    await vi.waitFor(() => expect(mockTestCompatibilityRules).toHaveBeenCalledWith(
+      expect.objectContaining({ items: [{ skuPublicId: 'aaaaaaaa-5555-5555-5555-555555555555', quantity: 8 }] }),
+    ))
+  })
+})
+
 describe('CompatibilityRulesPage — warning-draft RowVersion staleness (組長 PR #35 round-3 review, P1-1)', () => {
   /**
    * The draft used to hold only the edited value, while `rowVersion` was read fresh off the
