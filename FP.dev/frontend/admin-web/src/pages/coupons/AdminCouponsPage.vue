@@ -6,12 +6,15 @@ import {
   actionLabels,
   availableActions,
   describeDiscount,
+  describeScope,
   describeUsage,
   formatDate,
   formatMoney,
   statusLabels,
 } from '../../features/coupons/labels'
-import type { CouponAction, CouponDto, CouponStatus } from '../../features/coupons/types'
+import type { CouponAction, CouponDto, CouponScopeType, CouponStatus } from '../../features/coupons/types'
+import { describeScopeProblem, toScopeRequestFields } from '../../features/coupons/scope'
+import CouponScopePicker from '../../components/coupons/CouponScopePicker.vue'
 import { useSearchFilters } from '../../features/shared/useSearchFilters'
 import { describeApiError } from '../../features/shared/errorMessages'
 
@@ -59,6 +62,10 @@ interface CouponFormState {
   perMemberLimit: string | number
   memberOnly: boolean
   excludeSaleItems: boolean
+  scopeType: CouponScopeType
+  categoryPublicIds: string[]
+  productPublicIds: string[]
+  excludedProductPublicIds: string[]
 }
 
 const form = reactive<CouponFormState>(emptyForm())
@@ -77,6 +84,10 @@ function emptyForm(): CouponFormState {
     perMemberLimit: '',
     memberOnly: false,
     excludeSaleItems: false,
+    scopeType: 'all',
+    categoryPublicIds: [],
+    productPublicIds: [],
+    excludedProductPublicIds: [],
   }
 }
 
@@ -118,6 +129,12 @@ function startEdit(coupon: CouponDto) {
     perMemberLimit: coupon.usage.perMemberLimit === null ? '' : String(Number(coupon.usage.perMemberLimit)),
     memberOnly: coupon.memberOnly,
     excludeSaleItems: coupon.excludeSaleItems,
+    scopeType: coupon.scope.scopeType,
+    // 挑選器一律 emit 新陣列、不會就地改，這裡仍然各複製一份，
+    // 免得表單狀態與 vue-query 快取裡的 DTO 共用同一個陣列實例。
+    categoryPublicIds: [...coupon.scope.categoryPublicIds],
+    productPublicIds: [...coupon.scope.productPublicIds],
+    excludedProductPublicIds: [...coupon.scope.excludedProductPublicIds],
   })
   editing.value = coupon
   showCreate.value = false
@@ -161,15 +178,23 @@ function buildRuleFields() {
     perMemberLimit: optionalNumber(form.perMemberLimit),
     memberOnly: form.memberOnly,
     excludeSaleItems: form.excludeSaleItems,
-    // 第一版只支援全站範圍；分類／商品挑選待 A-23 後續切片。
-    scopeType: 'all' as const,
-    categoryPublicIds: null,
-    productPublicIds: null,
-    excludedProductPublicIds: null,
+    ...toScopeRequestFields(form),
   }
 }
 
+/**
+ * 範圍設定違反後端規則時的訊息；沒問題時為 `null`。
+ *
+ * 拿來擋送出按鈕，而不是等後端回一句英文 `validation_failed`。
+ * 這**不是安全邊界** —— 後端仍會擋。
+ */
+const scopeProblem = computed(() => describeScopeProblem(form))
+
 function submitCreate() {
+  if (scopeProblem.value !== null) {
+    return
+  }
+
   createMutation.mutate(buildRuleFields(), {
     onSuccess: () => {
       showCreate.value = false
@@ -179,7 +204,7 @@ function submitCreate() {
 
 function submitUpdate() {
   const coupon = editing.value
-  if (!coupon) {
+  if (!coupon || scopeProblem.value !== null) {
     return
   }
 
@@ -361,7 +386,7 @@ function describeError(candidate: unknown): string {
                 <dt>排除特價品</dt>
                 <dd>{{ coupon.excludeSaleItems ? '是' : '否' }}</dd>
                 <dt>適用範圍</dt>
-                <dd>{{ coupon.scope.scopeType === 'all' ? '全站' : '指定範圍' }}</dd>
+                <dd>{{ describeScope(coupon) }}</dd>
                 <dt>規則版本</dt>
                 <dd>{{ coupon.ruleVersion }}</dd>
               </dl>
@@ -500,6 +525,21 @@ function describeError(candidate: unknown): string {
         排除特價品
       </label>
 
+      <CouponScopePicker
+        v-model:scope-type="form.scopeType"
+        v-model:category-public-ids="form.categoryPublicIds"
+        v-model:product-public-ids="form.productPublicIds"
+        v-model:excluded-product-public-ids="form.excludedProductPublicIds"
+      />
+
+      <p
+        v-if="scopeProblem !== null"
+        class="coupons-error"
+        role="alert"
+      >
+        {{ scopeProblem }}
+      </p>
+
       <p
         v-if="createMutation.isError.value || updateMutation.isError.value"
         class="coupons-error"
@@ -511,7 +551,7 @@ function describeError(candidate: unknown): string {
       <div class="coupons-form-actions">
         <button
           type="submit"
-          :disabled="createMutation.isPending.value || updateMutation.isPending.value"
+          :disabled="createMutation.isPending.value || updateMutation.isPending.value || scopeProblem !== null"
         >
           儲存
         </button>

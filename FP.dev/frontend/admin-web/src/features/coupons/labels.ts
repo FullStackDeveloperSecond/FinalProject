@@ -87,3 +87,25 @@ export function formatMoney(value: number | string | null): string {
 export function formatDate(value: string): string {
   return new Date(value).toLocaleDateString('zh-TW')
 }
+
+/**
+ * 規則預覽的範圍摘要。
+ *
+ * 只給數量，不逐筆列名稱：`CouponScopeDto` 只有 `publicId`，要顯示名稱得回頭
+ * 查目錄，而列表可以同時展開多張券 —— 預覽不值得那些請求。
+ * 排除清單即使在全站範圍下也要顯示，後端允許這個組合。
+ */
+export function describeScope(coupon: CouponDto): string {
+  const scope = coupon.scope
+  const parts = [
+    scope.scopeType === 'all'
+      ? '全站'
+      : `指定 ${scope.categoryPublicIds.length} 個分類、${scope.productPublicIds.length} 件商品`,
+  ]
+
+  if (scope.excludedProductPublicIds.length > 0) {
+    parts.push(`排除 ${scope.excludedProductPublicIds.length} 件商品`)
+  }
+
+  return parts.join('，')
+}
