@@ -18,6 +18,10 @@ const codeMessages: Record<string, string> = {
   validation_failed: '資料驗證失敗',
   compatibility_threshold_out_of_range: '門檻數值超出允許範圍',
   resource_not_found: '找不到此規則',
+  coupon_code_duplicate: '優惠碼已存在',
+  // 管理員的 activate 只接受 Draft 或符合條件的 Paused：Scheduled 由排程喚醒、
+  // Exhausted 由名額返還，兩者都是系統事件（狀態機設計「優惠券狀態」）。
+  coupon_state_conflict: '優惠券目前狀態不允許這個操作',
 }
 
 export function describeApiError(error: ApiError): string {
