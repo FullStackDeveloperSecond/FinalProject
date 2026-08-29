@@ -95,6 +95,8 @@ Orders／Returns 模組的表。這件事由 yinyin 於 PR #16 主動回報，al
 5. **不得使用繞過白名單的替代存取形式。** `_context.Set<T>()`、`_context.Database`
    與 Raw SQL（`FromSql`／`ExecuteSql`）都可以取得任意實體或直接下 SQL，
    使白名單失效，因此一律禁止；守門測試直接拒絕，不得靜默略過。
+6. **DbContext 只能有一個入口，且不得指派給別的變數。** 區域別名會讓整段查詢掃不到
+   資料表；守門依型別辨識欄位，因此改名也躲不掉。
 
 ## 實作對應
 
@@ -105,19 +107,33 @@ Orders／Returns 模組的表。這件事由 yinyin 於 PR #16 主動回報，al
 | 3 | `EveryRefundInfrastructureComponentStaysInsideItsNamedException` |
 | 4 | 同上；白名單即該測試內的 `Allowed` 字典，逐元件／資料表／欄位 |
 | 5 | `NoRefundInfrastructureComponentBypassesTheWhitelist` |
+| 6 | 同 3；`DbContextFieldNames` 依型別辨識，並拒絕區域別名 |
 
-守門測試支援 method syntax（`alias =>`）與 query syntax（`from`／`join alias in`）
-兩種寫法，並且是 **fail-closed**：碰到有欄位上限的表卻解析不出任何參數時直接失敗，
-不靠列舉語法是否齊全。
+守門測試支援三種寫法：method syntax 單參數（`alias =>`）、多參數
+（`(outer, inner) =>`）與 query syntax（`from`／`join alias in`）。
 
-已實測會擋下四種情況：
+**fail-closed 是逐個參數**，不是逐段：受限查詢裡只要有任何一個 lambda 參數綁不到
+資料表就直接失敗。先前只要求整段「至少解析到一個欄位」，於是同一段裡有一個參數
+成功、其他沒認出來的就被靜默忽略。
+
+DbContext 入口**依型別辨識**（掃 `DoSelectDbContext` 欄位），不寫死 `_context`
+這個名字，並禁止把它指派給別的區域變數 —— 兩者都是只要改個名字就能讓整段查詢
+或整個檔案離開守門範圍的洞。
+
+已實測會擋下七種情況：
 
 | 情況 | 結果 |
 |---|---|
 | 新增未列名的元件 | 紅 |
 | 既有元件存取白名單外的**表** | 紅 |
-| 既有元件在核准表上存取未核准**欄位**（method 與 query 兩種語法皆試過） | 紅 |
-| 用解析器認不得的寫法碰受限的表 | 紅（fail-closed） |
+| 核准表上的未核准**欄位**（method 單參數） | 紅 |
+| 核准表上的未核准**欄位**（query syntax） | 紅 |
+| 核准表上的未核准**欄位**（多參數 result selector） | 紅 |
+| `var db = _context; db.Orders...` 區域別名 | 紅 |
+| 解析不得的寫法碰受限的表 | 紅（fail-closed） |
+
+另外實測：把欄位改名成 `_dbContext` **仍然受守門管轄**（改名後加入未核准欄位一樣變紅），
+因為偵測跟著型別走，不跟著名字走。
 
 ## 與 GATE-TX-01 的關係
 

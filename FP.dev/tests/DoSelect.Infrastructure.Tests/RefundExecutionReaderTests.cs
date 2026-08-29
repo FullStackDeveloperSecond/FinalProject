@@ -92,8 +92,26 @@ public sealed class RefundExecutionReaderTests
                 "review、更新白名單與文件，不能自動取得跨模組存取。");
 
             var tables = Allowed[name];
+            var source = File.ReadAllText(file);
 
-            foreach (var statement in ReadQueryStatements(File.ReadAllText(file)))
+            // DbContext 只能有一個入口，而且不得再指派給別的區域變數。
+            // `var db = _context; db.Orders...` 會讓整段查詢連一個 table marker 都掃不到，
+            // 白名單形同不存在。
+            var contextFields = DbContextFieldNames(source);
+            Assert.True(
+                contextFields.Length <= 1,
+                $"{name} 有多個 DoSelectDbContext 欄位（{string.Join("、", contextFields)}），" +
+                "守門只能追一個入口，請收斂成一個。");
+
+            foreach (var field in contextFields)
+            {
+                Assert.False(
+                    Regex.IsMatch(source, $@"=\s*{Regex.Escape(field)}\s*[;)]"),
+                    $"{name} 把 DbContext 指派給別的變數。守門靠 {field}. 前綴辨識資料表存取，" +
+                    "換個名字之後整段查詢就掃不到了。");
+            }
+
+            foreach (var statement in ReadQueryStatements(source))
             {
                 // 資料表比對與參數解析分開：即使一個參數都認不出來，
                 // 用到白名單以外的表仍然要當場失敗。
@@ -105,21 +123,33 @@ public sealed class RefundExecutionReaderTests
                         "B1 是具名窄範圍例外，不是跨模組通則。");
                 }
 
-                // **fail-closed**：只要這段碰到「有欄位上限」的表，就必須解析得出參數。
-                // 解析不出來代表用了守門認不得的語法，那時**不能靜默放行** ——
-                // 靠列舉語法永遠會漏，這條讓「沒看懂」直接變成紅燈。
-                //
-                // 全部是本模組自有的表（欄位不設限）時不要求：像
-                // `_context.RefundAllocations.Add(...)` 這種寫入本來就沒有參數可解析，
-                // 也沒有任何欄位需要比對。
                 var restricted = statement.Tables
                     .Where(table => !tables[table].Contains("*", StringComparer.Ordinal))
                     .ToArray();
 
+                if (restricted.Length == 0)
+                {
+                    // 全部是本模組自有的表（欄位不設限）。像
+                    // `_context.RefundAllocations.Add(...)` 這種寫入本來就沒有參數可解析。
+                    continue;
+                }
+
+                // **fail-closed，逐個參數。**
+                //
+                // 先前只要求整段「至少解析到一個欄位」，於是同一段裡只要有任何一個參數
+                // 綁定成功，其他沒認出來的參數就被靜默忽略 —— 例如 Join 的
+                // `(outer, inner) =>` result selector 裡的存取。
                 Assert.True(
-                    restricted.Length == 0 || statement.Accesses.Length > 0,
+                    statement.UnboundAliases.Length == 0,
+                    $"{name} 這段查詢有綁不到資料表的參數（" +
+                    $"{string.Join("、", statement.UnboundAliases)}），" +
+                    "因此無法確認它們存取的欄位是否在白名單內。" +
+                    Environment.NewLine + statement.Text);
+
+                Assert.True(
+                    statement.Accesses.Length > 0,
                     $"{name} 這段查詢用到受限的資料表（{string.Join("、", restricted)}），" +
-                    "但守門測試解析不出任何可檢查的參數，因此無法確認欄位是否在白名單內。" +
+                    "但守門測試解析不出任何可檢查的參數。" +
                     Environment.NewLine + statement.Text);
 
                 foreach (var (table, member, alias) in statement.Accesses)
@@ -253,36 +283,64 @@ public sealed class RefundExecutionReaderTests
         };
 
     /// <summary>
-    /// 一個陳述式裡用到的資料表、解析出來的欄位存取，以及原文。
+    /// 一個陳述式裡用到的資料表、解析出來的欄位存取、**沒能綁定的參數**，以及原文。
     /// </summary>
     private sealed record QueryStatement(
         string[] Tables,
         (string Table, string Member, string Alias)[] Accesses,
+        string[] UnboundAliases,
         string Text);
 
     /// <summary>
-    /// 以陳述式為單位，找出用到哪些資料表、以及每個 lambda／query 參數存取的成員。
+    /// 找出這個檔案裡 <c>DoSelectDbContext</c> 欄位的名稱。
+    /// </summary>
+    /// <remarks>
+    /// 刻意**不寫死 <c>_context</c>**：把欄位改名成 <c>_dbContext</c> 就能讓整個檔案
+    /// 離開守門範圍，那是一個只要改個名字就能繞過的洞。改成依型別找欄位，
+    /// 名稱怎麼取都躲不掉。
+    /// </remarks>
+    private static string[] DbContextFieldNames(string source) =>
+        Regex.Matches(source, @"DoSelectDbContext\s+(_[A-Za-z0-9_]+)\s*[;=)]")
+            .Select(match => match.Groups[1].Value)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+    /// <summary>
+    /// 以陳述式為單位，找出用到哪些資料表、每個參數存取的成員，以及綁不出表的參數。
     /// </summary>
     /// <remarks>
     /// <para>
-    /// 支援兩種 EF 寫法，兩種都必須認得，否則沒認出來的那種就等於不受白名單管：
+    /// 支援三種寫法，任何一種沒認出來就等於不受白名單管：
     /// </para>
     /// <list type="bullet">
-    /// <item>method syntax：<c>_context.Orders.Where(candidate =&gt; candidate.Id == id)</c></item>
-    /// <item>query syntax：<c>from userRole in _context.UserRoles</c>、
-    /// <c>join role in _context.Roles on ...</c></item>
+    /// <item>method syntax 單參數：<c>.Where(candidate =&gt; candidate.Id == id)</c></item>
+    /// <item>method syntax 多參數：<c>.Join(..., (item, orderItem) =&gt; ...)</c></item>
+    /// <item>query syntax：<c>from alias in ctx.Table</c>、<c>join alias in ctx.Table</c></item>
     /// </list>
     /// <para>
-    /// 參數綁到它**第一次被宣告**時所在的表。query syntax 的 <c>from</c>／<c>join</c>
-    /// 是把參數寫在表**前面**（<c>from alias in _context.Table</c>），所以那兩種要單獨
-    /// 認，不能沿用「取前一個 marker」的規則。
+    /// 參數綁到它**第一次被宣告**時、位置在它之前的最後一張表。query syntax 的
+    /// <c>from</c>／<c>join</c> 把參數寫在表**前面**，所以單獨認。
+    /// </para>
+    /// <para>
+    /// 多參數 lambda（例如 Join 的 result selector）用同一條規則綁定，因此可能把
+    /// outer 的參數也綁到 inner 那張表。那個方向是**保守**的：會多擋、不會少擋，
+    /// 而且把參數命名成前面已宣告過的名字就會回到正確的綁定。
     /// </para>
     /// </remarks>
     private static IEnumerable<QueryStatement> ReadQueryStatements(string source)
     {
+        var contextFields = DbContextFieldNames(source);
+        if (contextFields.Length == 0)
+        {
+            yield break;
+        }
+
+        var contextPattern =
+            "(?:" + string.Join("|", contextFields.Select(Regex.Escape)) + @")\.([A-Za-z]+)";
+
         foreach (var statement in source.Split(';'))
         {
-            var markers = Regex.Matches(statement, @"_context\.([A-Za-z]+)")
+            var markers = Regex.Matches(statement, contextPattern)
                 .Where(match => !NotTables.Contains(match.Groups[1].Value, StringComparer.Ordinal))
                 .ToArray();
 
@@ -293,27 +351,41 @@ public sealed class RefundExecutionReaderTests
 
             var boundTable = new Dictionary<string, string>(StringComparer.Ordinal);
 
-            // query syntax：`from alias in _context.Table`、`join alias in _context.Table`。
-            // 參數寫在表前面，直接一次綁定。
+            // query syntax：`from alias in ctx.Table`、`join alias in ctx.Table`。
             foreach (Match clause in Regex.Matches(
                 statement,
-                @"\b(?:from|join)\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\s+_context\.([A-Za-z]+)"))
+                @"\b(?:from|join)\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\s+" + contextPattern))
             {
                 boundTable.TryAdd(clause.Groups[1].Value, clause.Groups[2].Value);
             }
 
-            // method syntax：參數宣告在表之後，綁到它前面最近的那張表。
-            foreach (Match declaration in Regex.Matches(
-                statement, @"([A-Za-z_][A-Za-z0-9_]*)\s*=>"))
+            // method syntax：單參數 `x =>` 與多參數 `(x, y) =>` 都要認。
+            // 少認多參數這一種，result selector 裡的存取就完全不會被檢查。
+            var declarations = new List<(string Alias, int Index)>();
+            foreach (Match single in Regex.Matches(
+                statement, @"(?<![\w.])([A-Za-z_][A-Za-z0-9_]*)\s*=>"))
             {
-                var alias = declaration.Groups[1].Value;
+                declarations.Add((single.Groups[1].Value, single.Index));
+            }
+
+            foreach (Match tuple in Regex.Matches(
+                statement, @"\(\s*([A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)+)\s*\)\s*=>"))
+            {
+                foreach (var alias in tuple.Groups[1].Value.Split(','))
+                {
+                    declarations.Add((alias.Trim(), tuple.Index));
+                }
+            }
+
+            foreach (var (alias, index) in declarations.OrderBy(entry => entry.Index))
+            {
                 if (boundTable.ContainsKey(alias))
                 {
                     continue;
                 }
 
                 var owner = markers
-                    .Where(marker => marker.Index < declaration.Index)
+                    .Where(marker => marker.Index < index)
                     .OrderBy(marker => marker.Index)
                     .LastOrDefault();
 
@@ -337,9 +409,18 @@ public sealed class RefundExecutionReaderTests
                 }
             }
 
+            // 綁不出表的參數要單獨回報。先前只看「整段有沒有解析到任何欄位」，
+            // 於是同一段裡有一個參數解析成功，其他沒認出來的參數就被忽略了。
+            var unbound = declarations
+                .Select(entry => entry.Alias)
+                .Where(alias => !boundTable.ContainsKey(alias))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+
             yield return new QueryStatement(
                 markers.Select(marker => marker.Groups[1].Value).Distinct(StringComparer.Ordinal).ToArray(),
                 accesses.ToArray(),
+                unbound,
                 statement.Trim());
         }
     }
