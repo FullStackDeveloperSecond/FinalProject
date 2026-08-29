@@ -149,6 +149,39 @@ public sealed class EfCompatibilityCheckService : ICompatibilityCheckService
         return (overall, results);
     }
 
+    /// <summary>
+    /// 組長 PR #35 round-2 review, P2-6: the admin test tool's "limit to these rule codes" filter
+    /// used to only trim <c>results</c> after Overall had already been computed from *every*
+    /// rule's findings — a rule the admin left unselected could still fail and drive Overall to
+    /// e.g. Blocked, with no finding in the (filtered) response to explain why. Recomputes Overall
+    /// from only the findings actually returned, reusing <see cref="ApplyDisabledRules"/>'s exact
+    /// Blocked > InsufficientData > Warning > Compatible priority — just starting from the DTOs'
+    /// own Severity tokens (already computed) instead of re-deriving from the raw evaluator output.
+    /// A RuleDisabled finding still doesn't participate, same as it's excluded from
+    /// <c>activeSeverities</c> above.
+    /// </summary>
+    internal static CompatibilityOverall RecomputeOverallFromFindings(IReadOnlyList<CompatibilityFindingDto> findings)
+    {
+        var activeSeverities = findings
+            .Select(finding => finding.Severity)
+            .Where(severity => severity != CompatibilitySeverityTokens.RuleDisabled)
+            .ToHashSet(StringComparer.Ordinal);
+
+        if (activeSeverities.Contains(CompatibilitySeverityTokens.Blocked))
+        {
+            return CompatibilityOverall.Blocked;
+        }
+        if (activeSeverities.Contains(CompatibilitySeverityTokens.InsufficientData))
+        {
+            return CompatibilityOverall.InsufficientData;
+        }
+        if (activeSeverities.Contains(CompatibilitySeverityTokens.Warning))
+        {
+            return CompatibilityOverall.Warning;
+        }
+        return CompatibilityOverall.Compatible;
+    }
+
     /// <summary>Version of the canonical rule set as consumed here — bumped only if this PR's own wrapping (disabled-rule handling) changes, not by CompatibilityEvaluator's own internal rule logic.</summary>
     public const int RuleSetVersion = 1;
 

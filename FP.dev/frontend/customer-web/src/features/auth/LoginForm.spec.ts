@@ -4,12 +4,13 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import LoginForm from './LoginForm.vue'
 
-const { loginMember, fetchSession, logoutMember, requestEmailVerification, push } = vi.hoisted(() => ({
+const { loginMember, fetchSession, logoutMember, requestEmailVerification, push, routeQuery } = vi.hoisted(() => ({
   loginMember: vi.fn(),
   fetchSession: vi.fn(),
   logoutMember: vi.fn(),
   requestEmailVerification: vi.fn(),
   push: vi.fn(),
+  routeQuery: {} as Record<string, unknown>,
 }))
 
 vi.mock('./api', async (importOriginal) => {
@@ -17,9 +18,12 @@ vi.mock('./api', async (importOriginal) => {
   return { ...actual, loginMember, fetchSession, logoutMember, requestEmailVerification }
 })
 
+// 組長 PR #35 review, item 2: LoginForm now also calls useRoute() (to read a `redirect` query
+// value) — the real vue-router plugin isn't installed in this test, so both hooks are faked the
+// same way, not just useRouter.
 vi.mock('vue-router', async (importOriginal) => {
   const actual = await importOriginal<typeof import('vue-router')>()
-  return { ...actual, useRouter: () => ({ push }) }
+  return { ...actual, useRouter: () => ({ push }), useRoute: () => ({ query: routeQuery }) }
 })
 
 const globalStubs = { RouterLink: { template: '<a><slot /></a>' } }
@@ -29,6 +33,9 @@ describe('LoginForm', () => {
     setActivePinia(createPinia())
     loginMember.mockClear()
     push.mockClear()
+    for (const key of Object.keys(routeQuery)) {
+      delete routeQuery[key]
+    }
   })
 
   it('logs in and navigates home on success', async () => {
@@ -54,6 +61,54 @@ describe('LoginForm', () => {
       password: 'correct-horse-battery-staple',
       rememberMe: false,
     })
+    expect(push).toHaveBeenCalledWith('/')
+  })
+
+  /**
+   * 組長 PR #35 review, item 2: a shopper sent here from NewBuildPage (guest draft → login) must
+   * land back on that exact page, not always the home page.
+   */
+  it('navigates to a safe redirect target from the query string on success', async () => {
+    routeQuery.redirect = '/builds/new'
+    loginMember.mockResolvedValueOnce({
+      isAuthenticated: true,
+      user: {
+        publicId: '018f1f0a-70d1-7c53-9a3f-000000000000',
+        displayName: '王小明',
+        emailMasked: 'm***@example.com',
+        emailVerified: true,
+        locale: 'zh-TW',
+      },
+    })
+    const wrapper = mount(LoginForm, { global: { stubs: globalStubs } })
+
+    await wrapper.get('#login-email').setValue('member@example.com')
+    await wrapper.get('#login-password').setValue('correct-horse-battery-staple')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(push).toHaveBeenCalledWith('/builds/new')
+  })
+
+  it('falls back to / for an unsafe redirect target (e.g. an absolute external URL)', async () => {
+    routeQuery.redirect = 'https://evil.example/phish'
+    loginMember.mockResolvedValueOnce({
+      isAuthenticated: true,
+      user: {
+        publicId: '018f1f0a-70d1-7c53-9a3f-000000000000',
+        displayName: '王小明',
+        emailMasked: 'm***@example.com',
+        emailVerified: true,
+        locale: 'zh-TW',
+      },
+    })
+    const wrapper = mount(LoginForm, { global: { stubs: globalStubs } })
+
+    await wrapper.get('#login-email').setValue('member@example.com')
+    await wrapper.get('#login-password').setValue('correct-horse-battery-staple')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
     expect(push).toHaveBeenCalledWith('/')
   })
 

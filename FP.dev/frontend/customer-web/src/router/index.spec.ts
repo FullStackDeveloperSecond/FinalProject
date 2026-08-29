@@ -59,4 +59,57 @@ describe('customer router authentication guard', () => {
     expect(router.currentRoute.value.name).toBe('login')
     expect(router.currentRoute.value.query.redirect).toBe('/support/tickets')
   })
+
+  // 組長 PR #35 round-3 review, P2-3: 已儲存的組裝清單（清單本身與明細頁）是會員個人資源，之前完
+  // 全沒有 requiresAuth，未登入也能直接打開。
+  it('redirects an anonymous visitor from the build list to login and preserves the destination', async () => {
+    const session = useSessionStore()
+    session.status = 'anonymous'
+
+    await router.push('/account/builds')
+
+    expect(router.currentRoute.value.name).toBe('login')
+    expect(router.currentRoute.value.query.redirect).toBe('/account/builds')
+  })
+
+  it('allows an authenticated member to open the build list', async () => {
+    const session = useSessionStore()
+    session.status = 'authenticated'
+
+    await router.push('/account/builds')
+
+    expect(router.currentRoute.value.name).toBe('build-lists')
+  })
+
+  it('redirects an anonymous visitor from a build detail page to login and preserves the destination', async () => {
+    const session = useSessionStore()
+    session.status = 'anonymous'
+
+    await router.push('/builds/018f2e6a-0000-7000-8000-000000000001')
+
+    expect(router.currentRoute.value.name).toBe('login')
+    expect(router.currentRoute.value.query.redirect).toBe('/builds/018f2e6a-0000-7000-8000-000000000001')
+  })
+
+  it('allows an authenticated member to open a build detail page', async () => {
+    const session = useSessionStore()
+    session.status = 'authenticated'
+
+    await router.push('/builds/018f2e6a-0000-7000-8000-000000000001')
+
+    expect(router.currentRoute.value.name).toBe('build-detail')
+  })
+
+  // /builds/new (guest 草稿) 與 /builds/shared/:shareToken (刻意公開的唯讀連結) 必須維持不需要登入。
+  it.each([
+    ['/builds/new', 'build-new'],
+    ['/builds/shared/some-token', 'build-shared'],
+  ])('leaves %s open to an anonymous visitor', async (path, expectedName) => {
+    const session = useSessionStore()
+    session.status = 'anonymous'
+
+    await router.push(path)
+
+    expect(router.currentRoute.value.name).toBe(expectedName)
+  })
 })

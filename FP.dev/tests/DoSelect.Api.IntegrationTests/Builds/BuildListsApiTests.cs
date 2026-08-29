@@ -199,9 +199,13 @@ public sealed class BuildListsApiTests
         using var shareResponse = await BuildListsApiFixture.SendWithAntiforgeryAsync(client, shareRequest);
         Assert.Equal(HttpStatusCode.OK, shareResponse.StatusCode);
         var share = await shareResponse.Content.ReadFromJsonAsync<JsonElement>();
-        var shareUrl = share.GetProperty("url").GetString()!;
+        // 組長 PR #35 review, item 3: `url` is now the *frontend's* openable page
+        // (customer-web's /builds/shared/{token}), not the API's own path — a real client
+        // extracts the token and calls this backend's own /api/v1/build-shares/{token} directly,
+        // same as SharedBuildPage.vue's getSharedBuild() does.
+        var token = share.GetProperty("url").GetString()!.Split('/').Last();
 
-        using var publicResponse = await _fixture.CreateClient().GetAsync(shareUrl);
+        using var publicResponse = await _fixture.CreateClient().GetAsync($"/api/v1/build-shares/{token}");
 
         Assert.Equal(HttpStatusCode.OK, publicResponse.StatusCode);
         var body = await publicResponse.Content.ReadFromJsonAsync<JsonElement>();
@@ -222,13 +226,16 @@ public sealed class BuildListsApiTests
         using var shareRequest = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/build-lists/{publicId}/share");
         using var shareResponse = await BuildListsApiFixture.SendWithAntiforgeryAsync(client, shareRequest);
         var share = await shareResponse.Content.ReadFromJsonAsync<JsonElement>();
-        var shareUrl = share.GetProperty("url").GetString()!;
+        // 組長 PR #35 review, item 3: see CreateShare_ThenPublicGet_ReturnsTheDeidentifiedSharedBuild's
+        // matching comment — `url` is the frontend page now, extract the token and call this
+        // backend's own endpoint.
+        var token = share.GetProperty("url").GetString()!.Split('/').Last();
 
         using var revokeRequest = new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/build-lists/{publicId}/share");
         using var revokeResponse = await BuildListsApiFixture.SendWithAntiforgeryAsync(client, revokeRequest);
         Assert.Equal(HttpStatusCode.NoContent, revokeResponse.StatusCode);
 
-        using var publicResponse = await _fixture.CreateClient().GetAsync(shareUrl);
+        using var publicResponse = await _fixture.CreateClient().GetAsync($"/api/v1/build-shares/{token}");
         var (status, code, _) = await BuildListsApiFixture.ReadProblemAsync(publicResponse);
         Assert.Equal((int)HttpStatusCode.NotFound, status);
         Assert.Equal("resource_not_found", code);

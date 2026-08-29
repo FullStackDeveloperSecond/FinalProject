@@ -5517,7 +5517,24 @@
         ],
         "responses": {
           "200": {
-            "description": "OK"
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageResultOfBuildListSummaryDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageResultOfBuildListSummaryDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageResultOfBuildListSummaryDto"
+                }
+              }
+            }
           }
         }
       },
@@ -8965,6 +8982,26 @@
           }
         }
       },
+      "BuildActiveShareDto": {
+        "required": [
+          "sharePublicId",
+          "expiresAtUtc"
+        ],
+        "type": "object",
+        "properties": {
+          "sharePublicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expiresAtUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
       "BuildCompatibilitySummaryDto": {
         "required": [
           "overall",
@@ -9007,6 +9044,7 @@
           "skuPublicId",
           "skuCode",
           "name",
+          "categoryCode",
           "quantity",
           "sortOrder",
           "unitPrice",
@@ -9027,6 +9065,9 @@
             "type": "string"
           },
           "name": {
+            "type": "string"
+          },
+          "categoryCode": {
             "type": "string"
           },
           "quantity": {
@@ -9094,6 +9135,7 @@
           "items",
           "compatibility",
           "totals",
+          "activeShare",
           "updatedAtUtc",
           "rowVersion"
         ],
@@ -9117,6 +9159,68 @@
           },
           "totals": {
             "$ref": "#/components/schemas/BuildTotalsDto"
+          },
+          "activeShare": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BuildActiveShareDto"
+              }
+            ]
+          },
+          "updatedAtUtc": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "rowVersion": {
+            "type": "string",
+            "format": "byte"
+          }
+        }
+      },
+      "BuildListSummaryDto": {
+        "required": [
+          "publicId",
+          "name",
+          "itemCount",
+          "compatibilityOverall",
+          "grandTotal",
+          "isShared",
+          "updatedAtUtc",
+          "rowVersion"
+        ],
+        "type": "object",
+        "properties": {
+          "publicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "itemCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "compatibilityOverall": {
+            "type": "string"
+          },
+          "grandTotal": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "isShared": {
+            "type": "boolean"
           },
           "updatedAtUtc": {
             "type": "string",
@@ -11863,6 +11967,55 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/BrandDto"
+            }
+          },
+          "pageNumber": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "pageSize": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "totalCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "totalPages": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "PageResultOfBuildListSummaryDto": {
+        "required": [
+          "items",
+          "pageNumber",
+          "pageSize",
+          "totalCount"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BuildListSummaryDto"
             }
           },
           "pageNumber": {
