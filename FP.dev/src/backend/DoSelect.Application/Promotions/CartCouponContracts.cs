@@ -1,4 +1,6 @@
+using System.ComponentModel.DataAnnotations;
 using DoSelect.Application.Shopping;
+using DoSelect.Application.Support.Dtos;
 using DoSelect.Domain.Promotions;
 
 namespace DoSelect.Application.Promotions;
@@ -60,4 +62,9 @@ public interface ICartCouponLineReader
 /// 比回一個對不上的金額安全。
 /// </para>
 /// </remarks>
-public sealed record ApplyCartCouponRequest(string Code, byte[] CartRowVersion);
+public sealed record ApplyCartCouponRequest(
+    [property: Required]
+    [property: StringLength(64, MinimumLength = 1)]
+    string Code,
+    [property: RowVersionRequired]
+    byte[] CartRowVersion);

@@ -10167,7 +10167,9 @@
       "CouponAppliedDto": {
         "required": [
           "code",
-          "discountAmount"
+          "discountAmount",
+          "isFreeShipping",
+          "isAssemblyFreeShipping"
         ],
         "type": "object",
         "properties": {
@@ -10181,6 +10183,12 @@
               "string"
             ],
             "format": "double"
+          },
+          "isFreeShipping": {
+            "type": "boolean"
+          },
+          "isAssemblyFreeShipping": {
+            "type": "boolean"
           }
         }
       },

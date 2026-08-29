@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using DoSelect.Application.Common;
 using DoSelect.Application.Promotions;
 using DoSelect.Application.Shopping;
@@ -102,18 +100,20 @@ public sealed class ApplyCartCouponServiceTests
     }
 
     [Fact]
-    public async Task ApplyAsync_CountsAGuestByTheSameHashCheckoutUses()
+    public async Task ApplyAsync_DoesNotIdentifyAGuestForThePerPersonLimit()
     {
-        // 預覽與結帳的雜湊方式必須一致，否則同一位訪客會被算成兩個人，
-        // 剩餘名額在兩個畫面上對不起來。
+        // DEC-P262：訪客每人限制以伺服器 Secret 對正規化**訂單 Email** 算 HMAC-SHA-256。
+        // 購物車預覽沒有訂單 Email，所以不送任何訪客身分 —— 預覽只檢查總名額，
+        // 每人次數留給 Checkout 依正式規則權威重驗。
+        //
+        // 先前這裡送 SHA256(guestCartKey) 並用測試釘住，理由是「與 Checkout 一致」；
+        // 但 Checkout 用的就是錯的做法，那是另案要修的上游偏差。
         var reader = new FakeCouponRuleReader(ActiveCoupon());
         var service = CreateService(ruleReader: reader);
 
         await service.ApplyAsync(GuestIdentity, Request("WELCOME300"));
 
-        Assert.Equal(
-            SHA256.HashData(Encoding.UTF8.GetBytes("guest-key-1")),
-            reader.RequestedGuestUsageKeyHash);
+        Assert.Null(reader.RequestedGuestUsageKeyHash);
         Assert.Null(reader.RequestedMemberUserId);
     }
 
@@ -127,6 +127,74 @@ public sealed class ApplyCartCouponServiceTests
 
         Assert.Equal("member-1", reader.RequestedMemberUserId);
         Assert.Null(reader.RequestedGuestUsageKeyHash);
+    }
+
+    [Theory]
+    [InlineData(CouponDiscountType.FreeShipping, true, false)]
+    [InlineData(CouponDiscountType.AssemblyFreeShipping, false, true)]
+    public async Task ApplyAsync_SurfacesAFreeShippingCouponAsAnEntitlementNotAZeroDiscount(
+        CouponDiscountType discountType,
+        bool expectFreeShipping,
+        bool expectAssemblyFreeShipping)
+    {
+        // 免運券的 DiscountAmount 固定是 0，結果在旗標上。只保留金額的話，
+        // 四種券裡有兩種會顯示成「套用成功但什麼都沒發生」。
+        var service = CreateService(
+            snapshot: ActiveCoupon(discountType: discountType),
+            assemblyDelivery: discountType == CouponDiscountType.AssemblyFreeShipping);
+
+        var cart = await service.ApplyAsync(GuestIdentity, Request("WELCOME300"));
+
+        Assert.Equal(0m, cart.Coupon!.DiscountAmount);
+        Assert.Equal(expectFreeShipping, cart.Coupon.IsFreeShipping);
+        Assert.Equal(expectAssemblyFreeShipping, cart.Coupon.IsAssemblyFreeShipping);
+    }
+
+    [Theory]
+    [InlineData(CouponDiscountType.FixedAmount)]
+    [InlineData(CouponDiscountType.Percentage)]
+    public async Task ApplyAsync_LeavesTheFreeShippingFlagsOffForAnAmountCoupon(
+        CouponDiscountType discountType)
+    {
+        var service = CreateService(snapshot: ActiveCoupon(discountType: discountType));
+
+        var cart = await service.ApplyAsync(GuestIdentity, Request("WELCOME300"));
+
+        Assert.True(cart.Coupon!.DiscountAmount > 0m);
+        Assert.False(cart.Coupon.IsFreeShipping);
+        Assert.False(cart.Coupon.IsAssemblyFreeShipping);
+    }
+
+    [Fact]
+    public async Task ApplyAsync_RejectsACartThatChangedBetweenTheTwoReads()
+    {
+        // 這個 Use Case 讀兩次：先取計算列，最後再取回應用的 CartDto。
+        // 兩次之間購物車被換掉時，不能把舊計算列的折扣疊到新購物車金額上。
+        var cartService = new FakeCartService { RowVersionOverride = [8, 8, 8, 8, 8, 8, 8, 8] };
+        var service = CreateService(cartService: cartService);
+
+        var exception = await Assert.ThrowsAsync<DomainProblemException>(
+            () => service.ApplyAsync(GuestIdentity, Request("WELCOME300")));
+
+        Assert.Equal(409, exception.StatusCode);
+        Assert.Equal("concurrency_conflict", exception.Code);
+    }
+
+    [Fact]
+    public async Task ApplyAsync_RejectsADifferentCartEvenWhenTheRowVersionMatches()
+    {
+        // 合併或逾期重建會換掉整個購物車。只比 RowVersion 不夠 —— 那時它來自另一列。
+        var cartService = new FakeCartService
+        {
+            PublicIdOverride = new Guid("33333333-3333-3333-3333-333333333333"),
+        };
+        var service = CreateService(cartService: cartService);
+
+        var exception = await Assert.ThrowsAsync<DomainProblemException>(
+            () => service.ApplyAsync(GuestIdentity, Request("WELCOME300")));
+
+        Assert.Equal(409, exception.StatusCode);
+        Assert.Equal("concurrency_conflict", exception.Code);
     }
 
     [Fact]
@@ -164,29 +232,36 @@ public sealed class ApplyCartCouponServiceTests
         CouponRuleSnapshot? snapshot = null,
         ICouponRuleReader? ruleReader = null,
         FakeCartService? cartService = null,
-        bool withoutCart = false) =>
+        bool withoutCart = false,
+        bool assemblyDelivery = false) =>
         new(
             cartService ?? new FakeCartService(),
-            new FakeCartCouponLineReader(withoutCart ? null : DefaultLines),
+            new FakeCartCouponLineReader(withoutCart ? null : LinesFor(assemblyDelivery)),
             new CouponQuoteService(
                 ruleReader ?? new FakeCouponRuleReader(snapshot ?? ActiveCoupon()),
                 new FakeTimeProvider(new DateTimeOffset(NowUtc, TimeSpan.Zero))));
 
-    private static CartCouponLines DefaultLines => new(
+    private static CartCouponLines DefaultLines => LinesFor(assemblyDelivery: false);
+
+    private static CartCouponLines LinesFor(bool assemblyDelivery) => new(
         CartPublicId,
         CartRowVersion,
         [new CouponCalculationLine(LineA, 1L, [], 1, 5000m, IsOnSale: false)],
-        IsAssemblyDelivery: false);
+        assemblyDelivery);
 
-    private static CouponRuleSnapshot ActiveCoupon(bool memberOnly = false) =>
+    private static CouponRuleSnapshot ActiveCoupon(
+        bool memberOnly = false,
+        CouponDiscountType discountType = CouponDiscountType.FixedAmount) =>
         new(
             CouponId: 1L,
             new CouponRule(
                 "WELCOME300",
-                CouponDiscountType.FixedAmount,
-                DiscountValue: 300m,
+                discountType,
+                DiscountValue: discountType == CouponDiscountType.Percentage ? 0.1m : 300m,
                 MinimumSpend: 3000m,
-                MaximumDiscount: null,
+                // 百分比折扣必須設最高折抵，否則 ResolvePercentageAmount 回 null
+                // 而整張券被判為 coupon_invalid。
+                MaximumDiscount: discountType == CouponDiscountType.Percentage ? 500m : null,
                 StartsAtUtc: new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc),
                 EndsAtUtc: new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
                 TotalUsageLimit: null,
@@ -215,14 +290,20 @@ public sealed class ApplyCartCouponServiceTests
     {
         public int Writes { get; private set; }
 
+        /// <summary>模擬兩次讀取之間購物車被改過。</summary>
+        public byte[]? RowVersionOverride { get; init; }
+
+        /// <summary>模擬兩次讀取之間購物車被合併或逾期重建。</summary>
+        public Guid? PublicIdOverride { get; init; }
+
         public Task<CartDto> GetCartAsync(CartIdentity identity, CancellationToken cancellationToken) =>
             Task.FromResult(new CartDto(
-                CartPublicId,
+                PublicIdOverride ?? CartPublicId,
                 [],
                 Coupon: null,
                 new CartAmountsDto(5000m, 0m, 0m, 60m, 0m, 5000m, "TWD"),
                 [],
-                CartRowVersion));
+                RowVersionOverride ?? CartRowVersion));
 
         public Task<CartDto> AddItemAsync(
             CartIdentity identity, AddCartItemRequest request, CancellationToken cancellationToken)

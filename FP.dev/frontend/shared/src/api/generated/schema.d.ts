@@ -5919,6 +5919,8 @@ export interface components {
             code: string;
             /** Format: double */
             discountAmount: number | string;
+            isFreeShipping: boolean;
+            isAssemblyFreeShipping: boolean;
         };
         /** @enum {unknown} */
         CouponDiscountType: "fixedAmount" | "percentage" | "freeShipping" | "assemblyFreeShipping";

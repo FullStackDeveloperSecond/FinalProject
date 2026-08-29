@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using DoSelect.Application.Common;
 using DoSelect.Application.Shopping;
 using DoSelect.Domain.Promotions;
@@ -60,7 +58,8 @@ public sealed class ApplyCartCouponService
                 request.Code,
                 input.Lines,
                 identity.MemberUserId,
-                HashGuestKey(identity.GuestCartKey),
+                // 訪客預覽不帶每人身分（DEC-P262）。詳見 GuestUsageKeyHash 的說明。
+                GuestUsageKeyHash: null,
                 input.IsAssemblyDelivery),
             cancellationToken);
 
@@ -76,7 +75,8 @@ public sealed class ApplyCartCouponService
         }
 
         var cart = await _cartService.GetCartAsync(identity, cancellationToken);
-        return WithCoupon(cart, request.Code, quote.DiscountAmount);
+        RequireSameCart(input, cart);
+        return WithCoupon(cart, request.Code, quote);
     }
 
     /// <summary>
@@ -115,17 +115,48 @@ public sealed class ApplyCartCouponService
     }
 
     /// <summary>
-    /// 訪客以購物車金鑰的雜湊計算使用量；會員以 MemberUserId 計。
+    /// 確認第二次讀到的購物車，與試算所依據的是同一個。
     /// </summary>
     /// <remarks>
-    /// 雜湊方式必須與 Checkout 一致（<c>EfCheckoutTransactionGateway.HashGuestKey</c>），
-    /// 否則同一位訪客在預覽與結帳會被算成兩個人，剩餘名額對不起來。
+    /// 這個 Use Case 讀了兩次：先用讀取埠取計算列，最後再用 <c>ICartService</c> 取回應用的
+    /// <c>CartDto</c>。兩次之間購物車若被另一個分頁修改、合併或逾期重建，就會把**舊計算列
+    /// 算出的折扣疊到新購物車的金額上** —— 一份看起來完整、其實兩邊對不起來的快照。
+    /// <para>
+    /// <c>PublicId</c> 與 <c>RowVersion</c> 兩個都要比：合併或逾期重建會換掉整個購物車，
+    /// 那時 RowVersion 來自另一列，比它沒有意義。
+    /// </para>
     /// </remarks>
-    private static byte[]? HashGuestKey(string? guestCartKey) =>
-        string.IsNullOrWhiteSpace(guestCartKey)
-            ? null
-            : SHA256.HashData(Encoding.UTF8.GetBytes(guestCartKey));
+    private static void RequireSameCart(CartCouponLines input, CartDto cart)
+    {
+        if (cart.PublicId != input.CartPublicId ||
+            !cart.RowVersion.AsSpan().SequenceEqual(input.CartRowVersion))
+        {
+            throw DomainProblemException.Conflict(
+                "concurrency_conflict",
+                "The cart changed while the coupon was being quoted.");
+        }
+    }
 
+    /// <summary>
+    /// 訪客預覽**不帶**每人身分。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 依 <c>DEC-P262</c> 與優惠券規則，訪客的每人限制是以伺服器 Secret 對**正規化訂單
+    /// Email** 計算 HMAC-SHA-256，不是購物車金鑰的雜湊。購物車預覽階段還沒有訂單 Email，
+    /// 因此 <c>GuestUsageKeyHash</c> 傳 <c>null</c>：預覽只檢查總名額，
+    /// 每人次數由 Checkout 取得 Email 後依正式規則權威重驗。
+    /// </para>
+    /// <para>
+    /// <c>CouponRuleReader</c> 在兩種身分都是 null 時會讓 owner count 維持 0，
+    /// 正好是這個預覽語意。
+    /// </para>
+    /// <para>
+    /// 先前這裡用 <c>SHA256(guestCartKey)</c>，理由是「與 Checkout 一致」——
+    /// 但 Checkout 目前用的就是錯的做法，那是既有上游偏差、另案修正。
+    /// **對齊既有程式碼不等於對齊規格**；照著錯的抄只會多出第二份錯誤。
+    /// </para>
+    /// </remarks>
     /// <summary>
     /// 把試算出來的折扣疊到購物車回應上。
     /// </summary>
@@ -133,14 +164,18 @@ public sealed class ApplyCartCouponService
     /// 只覆寫 <c>couponDiscount</c> 與 <c>totalEstimate</c>；其餘金額仍由 Cart 模組負責，
     /// 這一層不重算小計或運費。
     /// </remarks>
-    private static CartDto WithCoupon(CartDto cart, string code, decimal discountAmount) =>
+    private static CartDto WithCoupon(CartDto cart, string code, CouponCalculationResult quote) =>
         cart with
         {
-            Coupon = new CouponAppliedDto(CouponCode.Normalize(code), discountAmount),
+            Coupon = new CouponAppliedDto(
+                CouponCode.Normalize(code),
+                quote.DiscountAmount,
+                quote.IsFreeShipping,
+                quote.IsAssemblyFreeShipping),
             Amounts = cart.Amounts with
             {
-                CouponDiscount = discountAmount,
-                TotalEstimate = cart.Amounts.TotalEstimate - discountAmount,
+                CouponDiscount = quote.DiscountAmount,
+                TotalEstimate = cart.Amounts.TotalEstimate - quote.DiscountAmount,
             },
         };
 }
