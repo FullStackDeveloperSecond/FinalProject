@@ -106,7 +106,18 @@ Orders／Returns 模組的表。這件事由 yinyin 於 PR #16 主動回報，al
 | 4 | 同上；白名單即該測試內的 `Allowed` 字典，逐元件／資料表／欄位 |
 | 5 | `NoRefundInfrastructureComponentBypassesTheWhitelist` |
 
-守門測試已實測會擋下兩種繞過：新增未列名的元件、以及既有元件存取白名單外的表。
+守門測試支援 method syntax（`alias =>`）與 query syntax（`from`／`join alias in`）
+兩種寫法，並且是 **fail-closed**：碰到有欄位上限的表卻解析不出任何參數時直接失敗，
+不靠列舉語法是否齊全。
+
+已實測會擋下四種情況：
+
+| 情況 | 結果 |
+|---|---|
+| 新增未列名的元件 | 紅 |
+| 既有元件存取白名單外的**表** | 紅 |
+| 既有元件在核准表上存取未核准**欄位**（method 與 query 兩種語法皆試過） | 紅 |
+| 用解析器認不得的寫法碰受限的表 | 紅（fail-closed） |
 
 ## 與 GATE-TX-01 的關係
 

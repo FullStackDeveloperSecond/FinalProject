@@ -91,23 +91,47 @@ public sealed class RefundExecutionReaderTests
                 $"{name} 不在 B1 白名單裡。新增 Refund Infrastructure 元件必須先經過 " +
                 "review、更新白名單與文件，不能自動取得跨模組存取。");
 
-            var source = File.ReadAllText(file);
             var tables = Allowed[name];
 
-            foreach (var (table, member, alias) in ReadTableMemberAccesses(source))
+            foreach (var statement in ReadQueryStatements(File.ReadAllText(file)))
             {
-                Assert.True(
-                    tables.ContainsKey(table),
-                    $"{name} 存取了白名單以外的資料表：{table}。" +
-                    "B1 是具名窄範圍例外，不是跨模組通則。");
+                // 資料表比對與參數解析分開：即使一個參數都認不出來，
+                // 用到白名單以外的表仍然要當場失敗。
+                foreach (var table in statement.Tables)
+                {
+                    Assert.True(
+                        tables.ContainsKey(table),
+                        $"{name} 存取了白名單以外的資料表：{table}。" +
+                        "B1 是具名窄範圍例外，不是跨模組通則。");
+                }
 
-                // "*" 代表本模組自有的表，欄位不設限。
+                // **fail-closed**：只要這段碰到「有欄位上限」的表，就必須解析得出參數。
+                // 解析不出來代表用了守門認不得的語法，那時**不能靜默放行** ——
+                // 靠列舉語法永遠會漏，這條讓「沒看懂」直接變成紅燈。
+                //
+                // 全部是本模組自有的表（欄位不設限）時不要求：像
+                // `_context.RefundAllocations.Add(...)` 這種寫入本來就沒有參數可解析，
+                // 也沒有任何欄位需要比對。
+                var restricted = statement.Tables
+                    .Where(table => !tables[table].Contains("*", StringComparer.Ordinal))
+                    .ToArray();
+
                 Assert.True(
-                    tables[table].Contains("*", StringComparer.Ordinal) ||
-                    tables[table].Contains(member, StringComparer.Ordinal),
-                    $"{name} 在 {table} 上存取了未核准的欄位：{member}" +
-                    $"（來自 {alias}）。DEC-B1 以目前核准欄位為上限，" +
-                    "新增欄位必須先重新 review 並更新 DEC-B1 與這份白名單。");
+                    restricted.Length == 0 || statement.Accesses.Length > 0,
+                    $"{name} 這段查詢用到受限的資料表（{string.Join("、", restricted)}），" +
+                    "但守門測試解析不出任何可檢查的參數，因此無法確認欄位是否在白名單內。" +
+                    Environment.NewLine + statement.Text);
+
+                foreach (var (table, member, alias) in statement.Accesses)
+                {
+                    // "*" 代表本模組自有的表，欄位不設限。
+                    Assert.True(
+                        tables[table].Contains("*", StringComparer.Ordinal) ||
+                        tables[table].Contains(member, StringComparer.Ordinal),
+                        $"{name} 在 {table} 上存取了未核准的欄位：{member}" +
+                        $"（來自 {alias}）。DEC-B1 以目前核准欄位為上限，" +
+                        "新增欄位必須先重新 review 並更新 DEC-B1 與這份白名單。");
+                }
             }
         }
     }
@@ -229,24 +253,32 @@ public sealed class RefundExecutionReaderTests
         };
 
     /// <summary>
-    /// 從原始碼找出「這個 lambda 參數屬於哪張表」，再列出它被存取的每個成員。
+    /// 一個陳述式裡用到的資料表、解析出來的欄位存取，以及原文。
+    /// </summary>
+    private sealed record QueryStatement(
+        string[] Tables,
+        (string Table, string Member, string Alias)[] Accesses,
+        string Text);
+
+    /// <summary>
+    /// 以陳述式為單位，找出用到哪些資料表、以及每個 lambda／query 參數存取的成員。
     /// </summary>
     /// <remarks>
     /// <para>
-    /// 以**陳述式**為單位處理（EF 查詢鏈是一個陳述式）。每個 lambda 參數綁到它
-    /// **第一次被宣告**時所在的 <c>_context.{表}</c>。這樣才處理得了 Join ——
-    /// <c>ReturnItems.Join(_context.OrderItems, item =&gt; item.OrderItemId, ...)</c>
-    /// 裡的 <c>item</c> 在 <c>OrderItems</c> 出現之前就宣告過，屬於 <c>ReturnItems</c>；
-    /// 只看位置會把它誤算到 <c>OrderItems</c> 頭上。
+    /// 支援兩種 EF 寫法，兩種都必須認得，否則沒認出來的那種就等於不受白名單管：
     /// </para>
+    /// <list type="bullet">
+    /// <item>method syntax：<c>_context.Orders.Where(candidate =&gt; candidate.Id == id)</c></item>
+    /// <item>query syntax：<c>from userRole in _context.UserRoles</c>、
+    /// <c>join role in _context.Roles on ...</c></item>
+    /// </list>
     /// <para>
-    /// 這是刻意保守的靜態比對：解析不了的寫法不會被誤放行，因為
-    /// <see cref="NoRefundInfrastructureComponentBypassesTheWhitelist"/> 已經把
-    /// <c>Set&lt;T&gt;</c>、<c>Database</c> 與 Raw SQL 這些形式整個擋掉。
+    /// 參數綁到它**第一次被宣告**時所在的表。query syntax 的 <c>from</c>／<c>join</c>
+    /// 是把參數寫在表**前面**（<c>from alias in _context.Table</c>），所以那兩種要單獨
+    /// 認，不能沿用「取前一個 marker」的規則。
     /// </para>
     /// </remarks>
-    private static IEnumerable<(string Table, string Member, string Alias)>
-        ReadTableMemberAccesses(string source)
+    private static IEnumerable<QueryStatement> ReadQueryStatements(string source)
     {
         foreach (var statement in source.Split(';'))
         {
@@ -259,8 +291,18 @@ public sealed class RefundExecutionReaderTests
                 continue;
             }
 
-            // 每個參數綁到它第一次宣告時、位置在它之前的最後一個 _context.{表}。
             var boundTable = new Dictionary<string, string>(StringComparer.Ordinal);
+
+            // query syntax：`from alias in _context.Table`、`join alias in _context.Table`。
+            // 參數寫在表前面，直接一次綁定。
+            foreach (Match clause in Regex.Matches(
+                statement,
+                @"\b(?:from|join)\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\s+_context\.([A-Za-z]+)"))
+            {
+                boundTable.TryAdd(clause.Groups[1].Value, clause.Groups[2].Value);
+            }
+
+            // method syntax：參數宣告在表之後，綁到它前面最近的那張表。
             foreach (Match declaration in Regex.Matches(
                 statement, @"([A-Za-z_][A-Za-z0-9_]*)\s*=>"))
             {
@@ -281,6 +323,7 @@ public sealed class RefundExecutionReaderTests
                 }
             }
 
+            var accesses = new List<(string Table, string Member, string Alias)>();
             foreach (var (alias, table) in boundTable)
             {
                 foreach (Match access in Regex.Matches(
@@ -289,10 +332,15 @@ public sealed class RefundExecutionReaderTests
                     var member = access.Groups[1].Value;
                     if (!LinqMembers.Contains(member, StringComparer.Ordinal))
                     {
-                        yield return (table, member, alias);
+                        accesses.Add((table, member, alias));
                     }
                 }
             }
+
+            yield return new QueryStatement(
+                markers.Select(marker => marker.Groups[1].Value).Distinct(StringComparer.Ordinal).ToArray(),
+                accesses.ToArray(),
+                statement.Trim());
         }
     }
 
