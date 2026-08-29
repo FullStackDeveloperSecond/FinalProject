@@ -17,10 +17,10 @@ namespace DoSelect.Infrastructure.Tests;
 /// 與 <c>EF.Property</c> 都認不出來。這些不是 regex 補一條就會結束的問題。
 /// </para>
 /// <para>
-/// 語法樹版本改成：<b>入口靠型別找、禁止規則由找到的入口名稱產生、認不出來的
-/// 一律當成違規</b>。只用語法不用語意模型（不需要編譯整個專案），因為要判斷的
-/// 是「這個識別字宣告成 DoSelectDbContext 嗎」「這個 lambda 參數叫什麼」，
-/// 都是語法層就有的資訊。
+/// 改成：<b>接收者靠型別判斷、禁止規則由實際找到的入口產生、認不出來的一律當成違規</b>。
+/// 這段原本寫著「只用語法不用語意模型」—— 那是加入 <see cref="SemanticModel"/> 之前的
+/// 說法，已與實作及下方的策略說明矛盾（alex 2026-08-29 PR #16 P3）。
+/// 目前是<b>語意優先、語法正規化備援、兩者都認不出來就 fail closed</b>。
 /// </para>
 /// <para>
 /// <b>接收者靠語意判斷，不靠形狀。</b>2026-08-29 alex 又找到一種繞法：
@@ -106,7 +106,7 @@ internal static class RefundInfrastructureGuard
 
         violations.AddRange(BypassViolations(fileName, root, context));
         violations.AddRange(RawSqlViolations(fileName, root));
-        violations.AddRange(UnclassifiedContextUseViolations(
+        violations.AddRange(ContextEscapeViolations(
             fileName, root, context, approvedComponents ?? []));
 
         foreach (var query in QueryExpressions(root, context))
@@ -194,61 +194,139 @@ internal static class RefundInfrastructureGuard
     };
 
     /// <summary>
-    /// 接收者裡出現已知的 DbContext 識別字，卻沒有被分類成 DbContext 存取。
+    /// 檢查每一個指向 DbContext 的 reference <b>最終被怎麼使用</b>。
     /// </summary>
     /// <remarks>
-    /// 這是最後一道網子：語意與語法都認不出來的寫法，一律當成違規而不是跳過。
-    /// 沒有它，只要想出一種兩邊都認不得的接收者形狀，整段查詢就會靜默離開白名單。
+    /// <para>
+    /// 上一版只巡覽 <c>MemberAccessExpressionSyntax</c> 並檢查它的接收者，所以抓得到
+    /// <c>Pick(_context).Orders</c>，卻抓不到 DbContext 只出現在引數或指派右手邊的情況：
+    /// <c>ExternalHelper.Read(_context)</c> 的 member access 是 <c>ExternalHelper.Read</c>，
+    /// <c>holder.Context = _context</c> 的接收者是 <c>holder</c> —— 兩者的 <c>_context</c>
+    /// 都不在任何接收者裡（alex 2026-08-29 PR #16 P2）。
+    /// </para>
+    /// <para>
+    /// 所以改成反過來問：<b>列出所有指向 DbContext 的 reference，逐一看它的用途</b>。
+    /// 只允許四種能證明仍受白名單覆蓋的用法，其餘一律 fail closed ——
+    /// 包括交給任意 method／delegate、指派到未知物件的屬性、直接回傳。
+    /// </para>
     /// </remarks>
-    private static IEnumerable<string> UnclassifiedContextUseViolations(
+    private static IEnumerable<string> ContextEscapeViolations(
         string fileName,
         CompilationUnitSyntax root,
         GuardContext context,
         IReadOnlyCollection<string> approvedComponents)
     {
-        // 先找出所有「接收者確實是 DbContext」的存取。掛在它們後面的鏈
-        // （.AsNoTracking().Where(...)）接收者是 IQueryable 不是 DbContext，
-        // 那是正常寫法，不是看不懂。
-        var classified = root.DescendantNodes().OfType<MemberAccessExpressionSyntax>()
-            .Where(candidate => IsContextReference(candidate.Expression, context))
-            .ToHashSet();
-
-        foreach (var access in root.DescendantNodes().OfType<MemberAccessExpressionSyntax>())
+        foreach (var reference in ContextReferences(root, context))
         {
-            if (classified.Contains(access) ||
-                access.Expression.DescendantNodesAndSelf()
-                    .OfType<MemberAccessExpressionSyntax>()
-                    .Any(classified.Contains))
+            if (IsApprovedContextUse(reference, context, approvedComponents))
             {
                 continue;
             }
 
-            // 把 DbContext 交給另一個**同樣列在白名單裡**的 Refund 元件是允許的：
-            // 那個元件有自己的資料表與欄位清單，會在它自己的檔案裡被檢查。
-            // 交給白名單外的型別就不行 —— 那條路徑沒有任何人在看。
-            if (access.Expression.DescendantNodesAndSelf()
-                .OfType<ObjectCreationExpressionSyntax>()
-                .Any(creation => approvedComponents.Contains(
-                    creation.Type.ToString().Split('.')[^1], StringComparer.Ordinal)))
-            {
-                continue;
-            }
-
-            // 到這裡代表 DbContext 是被「傳來傳去」而不是被點出來的 ——
-            // 例如 Pick(_context).Orders。這種形狀分析器讀不出它查了什麼。
-            var mentionsEntry = access.Expression.DescendantNodesAndSelf()
-                .OfType<IdentifierNameSyntax>()
-                .Any(identifier => context.EntryNames.Contains(identifier.Identifier.ValueText));
-
-            if (mentionsEntry)
-            {
-                yield return
-                    $"{fileName} 有一個守門分析器看不懂的 DbContext 用法：{access}。" +
-                    "無法確認它存取了哪張表或哪個欄位，因此一律視為違規。";
-            }
+            yield return
+                $"{fileName} 讓 DbContext 逃出守門範圍：{reference.Parent}。" +
+                "白名單只涵蓋這個檔案裡看得到的查詢；context 一旦交給白名單外的" +
+                "method 或物件，它讀了什麼就沒有人在看了。";
         }
     }
 
+    /// <summary>
+    /// 檔案裡所有指向 DbContext 的<b>最外層</b>運算式。
+    /// </summary>
+    /// <remarks>
+    /// 取最外層是為了不重複計算：<c>this._context</c> 裡的 <c>_context</c> 本身也是
+    /// 一個 context reference，但它的父節點同樣是，所以只留父節點那一個。
+    /// </remarks>
+    private static IEnumerable<ExpressionSyntax> ContextReferences(
+        SyntaxNode root, GuardContext context) =>
+        root.DescendantNodes().OfType<ExpressionSyntax>()
+            .Where(node => DenotesContextValue(node, context))
+            .Where(node =>
+                node.Parent is not ExpressionSyntax parent ||
+                !DenotesContextValue(parent, context));
+
+    /// <summary>
+    /// 這個運算式是不是一個<b>值</b>（欄位／區域變數／參數／屬性）而且型別是 DbContext。
+    /// </summary>
+    /// <remarks>
+    /// 逃逸分析不能用 <see cref="IsContextReference"/>：那個對宣告裡的**型別名稱**
+    /// （<c>private readonly DoSelectDbContext _context;</c> 的 <c>DoSelectDbContext</c>）
+    /// 也會回 true，於是每個欄位宣告都變成一次「逃逸」。這裡改看符號種類。
+    /// </remarks>
+    private static bool DenotesContextValue(ExpressionSyntax expression, GuardContext context)
+    {
+        if (context.Model?.GetSymbolInfo(expression).Symbol is { } symbol)
+        {
+            var type = symbol switch
+            {
+                IFieldSymbol field => field.Type,
+                ILocalSymbol local => local.Type,
+                IParameterSymbol parameter => parameter.Type,
+                IPropertySymbol property => property.Type,
+                _ => null,
+            };
+
+            return type?.Name == ContextTypeName;
+        }
+
+        // 語意解析不出來時退回名字：EntryNames 只收變數名，不含型別名。
+        return NormaliseToIdentifier(expression) is { } name && context.EntryNames.Contains(name);
+    }
+
+    /// <summary>
+    /// 這個 DbContext reference 的用途是不是仍在白名單的涵蓋範圍內。
+    /// </summary>
+    private static bool IsApprovedContextUse(
+        ExpressionSyntax reference,
+        GuardContext context,
+        IReadOnlyCollection<string> approvedComponents) => reference.Parent switch
+        {
+            // 1｜ctx.Table／ctx.Set／ctx.Database —— 由逐欄位白名單與 bypass 規則各自檢查。
+            MemberAccessExpressionSyntax member when member.Expression == reference => true,
+
+            // 2｜欄位或區域變數的初始化。被指派的名字本身也要在追蹤範圍內，
+            //    否則那個新名字後面做了什麼一樣沒人看得到。
+            EqualsValueClauseSyntax { Parent: VariableDeclaratorSyntax declarator } =>
+                context.EntryNames.Contains(declarator.Identifier.ValueText),
+
+            // 3｜指派給另一個已追蹤的名字。建構子裡的 `_context = context;` 就是這一種；
+            //    `holder.Context = _context` 則不是 —— 左邊不是我們追得到的名字。
+            AssignmentExpressionSyntax assignment => assignment.Right == reference
+                // 右手邊：指派給另一個已追蹤的名字。建構子裡的 `_context = context;`。
+                ? NormaliseToIdentifier(assignment.Left) is { } target &&
+                    context.EntryNames.Contains(target)
+                // 左手邊：寫進自己的已追蹤欄位。`holder.Context = ...` 正規化不出名字，
+                // 所以那種寫法在這裡就被擋下。
+                : NormaliseToIdentifier(reference) is { } self &&
+                    context.EntryNames.Contains(self),
+
+            // 4｜當作引數。只有兩種放行：
+            //    交給白名單內 Refund 元件的建構子（那個元件有自己的資料表與欄位清單），
+            //    或只是做 null 檢查（那不可能讀到任何資料）。
+            ArgumentSyntax { Parent.Parent: { } owner } => owner switch
+            {
+                ObjectCreationExpressionSyntax creation => approvedComponents.Contains(
+                    creation.Type.ToString().Split('.')[^1], StringComparer.Ordinal),
+                InvocationExpressionSyntax invocation => IsNullGuard(invocation),
+                _ => false,
+            },
+
+            // 其餘一律 fail closed：交給任意 method／delegate、指派到未知物件的屬性、
+            // 直接 return 出去 —— 都無法證明它讀了什麼仍受白名單管。
+            _ => false,
+        };
+
+    /// <remarks>
+    /// 刻意只放行 <c>ArgumentNullException.ThrowIfNull</c> 一個名字。
+    /// 換成別的 helper 就會 fail closed —— 那是對的：分析器無法證明別的 helper
+    /// 不會拿 context 去查資料。
+    /// </remarks>
+    private static bool IsNullGuard(InvocationExpressionSyntax invocation) =>
+        invocation.Expression is MemberAccessExpressionSyntax
+        {
+            Expression: IdentifierNameSyntax { Identifier.ValueText: "ArgumentNullException" },
+            Name.Identifier.ValueText: "ThrowIfNull",
+        };
     private static bool MentionsContextType(CompilationUnitSyntax root) =>
         root.DescendantNodes().OfType<SimpleNameSyntax>()
             .Any(name => name.Identifier.ValueText == ContextTypeName);

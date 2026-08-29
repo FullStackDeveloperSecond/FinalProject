@@ -25,7 +25,10 @@ public sealed class RefundInfrastructureGuardTests
             ["OrderItems"] = ["Id", "OrderId"],
         };
 
-    private static IReadOnlyList<string> Analyze(string body, bool useSemanticModel = true) =>
+    private static IReadOnlyList<string> Analyze(
+        string body,
+        bool useSemanticModel = true,
+        IReadOnlyCollection<string>? approvedComponents = null) =>
         RefundInfrastructureGuard.Violations(
             "Synthetic.cs",
             $$"""
@@ -40,7 +43,7 @@ public sealed class RefundInfrastructureGuardTests
               }
               """,
             Allowed,
-            approvedComponents: null,
+            approvedComponents,
             useSemanticModel);
 
     [Fact]
@@ -255,7 +258,7 @@ public sealed class RefundInfrastructureGuardTests
 
         Assert.Contains(
             violations,
-            violation => violation.Contains("看不懂的 DbContext 用法", StringComparison.Ordinal));
+            violation => violation.Contains("逃出守門範圍", StringComparison.Ordinal));
     }
 
     [Theory]
@@ -294,6 +297,96 @@ public sealed class RefundInfrastructureGuardTests
             useSemanticModel);
 
         Assert.Contains(violations, violation => violation.Contains("GrandTotal", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CatchesTheContextBeingHandedToAnUnknownHelper()
+    {
+        // alex 2026-08-29 第四輪：上一版的網子只巡 MemberAccess 並看 receiver，
+        // 但這裡的 member access 是 ExternalHelper.Read，_context 在引數裡。
+        var violations = Analyze(
+            """
+                private readonly DoSelectDbContext _context = null!;
+
+                public void Run() => ExternalHelper.Read(_context);
+            """);
+
+        Assert.Contains(violations, violation => violation.Contains("逃出守門範圍", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CatchesTheContextBeingStoredOnAnUnknownObject()
+    {
+        // 這裡的 member access receiver 是 holder，_context 在指派右手邊。
+        var violations = Analyze(
+            """
+                private readonly DoSelectDbContext _context = null!;
+
+                public void Run(Holder holder) => holder.Context = _context;
+
+                public sealed class Holder
+                {
+                    public DoSelectDbContext? Context { get; set; }
+                }
+            """);
+
+        Assert.Contains(violations, violation => violation.Contains("逃出守門範圍", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CatchesTheContextBeingReturnedOutOfTheComponent()
+    {
+        var violations = Analyze(
+            """
+                private readonly DoSelectDbContext _context = null!;
+
+                public DoSelectDbContext Run() => _context;
+            """);
+
+        Assert.Contains(violations, violation => violation.Contains("逃出守門範圍", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AllowsTheContextToBeHandedToAWhitelistedRefundComponent()
+    {
+        // 交給白名單內的元件是允許的：那個元件有自己的資料表與欄位清單，
+        // 會在它自己的檔案裡被檢查。這一條確認上面三條不是把所有傳遞都擋掉。
+        var violations = Analyze(
+            """
+                private readonly DoSelectDbContext _context = null!;
+
+                public object Run() => new RefundReader(_context);
+
+                public sealed class RefundReader
+                {
+                    public RefundReader(DoSelectDbContext context) => Context = context;
+
+                    public DoSelectDbContext Context { get; }
+                }
+            """,
+            approvedComponents: ["RefundReader"]);
+
+        Assert.DoesNotContain(
+            violations,
+            violation => violation.Contains("逃出守門範圍", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AllowsTheConstructorNullGuardAndFieldAssignment()
+    {
+        // 每個 Reader 的建構子都長這樣；擋掉它等於守門對所有真實檔案變紅。
+        var violations = Analyze(
+            """
+                private readonly DoSelectDbContext _context;
+
+                public Probe(DoSelectDbContext context)
+                {
+                    ArgumentNullException.ThrowIfNull(context);
+                    _context = context;
+                }
+            """);
+
+        Assert.Empty(violations);
     }
 
     [Fact]
