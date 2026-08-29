@@ -33,8 +33,10 @@
 | `PublicSkuDto` | `publicId`、`skuCode`、`name`、`price`、`availability`、`maxPurchasableQuantity`、`specifications[]`、尺寸／重量公開摘要、`isDefault` |
 | `CatalogFilterOptionsQuery` | `category?:code64`、`locale?:enum`；只接受公開且啟用分類 |
 | `CatalogFilterOptionsDto` | `categories[]`、`brands[]`、`priceRange{min,max}`、`specificationFilters:{semanticKey,label,valueType,unit?,operators,options?}[]`、`sortOptions[]` |
-| `AiProductSearchRequest` | `message:string(1..1000)`、`conversationPublicId?:uuid`、`existingParts:ExistingPartInput[0..10]`、`locale:enum`；不得接受 SQL、欄名或會員 Id |
-| `AiProductSearchResultDto` | `conversationPublicId`、`resultType:clarification/recommendations/noResults/degraded`、`clarifyingQuestions[]`、驗證後 `recommendations[]`、`degradationMode`、`usage`；推薦理由只引用後端候選與相容性結果 |
+| `AiProductSearchRequest` | `message:string(1..2000)`、`existingParts:ExistingPartInput[0..12]`、`locale:enum`；`existingParts` 每筆須為已確認的 `catalogSku` 或 `structuredManual`，不得接受 SQL、欄名或會員 Id。搜尋不建立客服 Conversation，單次執行由伺服器產生 `searchPublicId` |
+| `AiProductSearchResultDto` | `searchPublicId`、`resultType:clarification/recommendations/noResults/degraded`、`clarifications[]`、`intent.proposedExistingParts[]`、驗證後 `recommendations[]`、`customBuild?`、`degradationMode`、`usage`；自然語言解析的既有零件只能作為未確認候選，推薦理由只引用後端候選與相容性結果 |
+| `AiCustomBuildRecommendationDto` | `components:AiCustomBuildComponentDto[]`、`purchaseSubtotal`、`assemblyFee=300`、`purchaseTotal`、`currency=TWD`、`compatibilityStatus:compatible/warning`、`compatibilityMessageKeys[]`；成功時涵蓋八類完整清單，`purchaseTotal = purchaseSubtotal + assemblyFee` |
+| `AiCustomBuildComponentDto` | `product?:ProductCardDto`、`skuPublicId?`、`sourceType:catalogSku/structuredManual`、`categoryCode`、`displayName`、`quantity`、`isExistingPart`、`reason?`；既有零件 `isExistingPart=true`、不計入新購小計且 `reason=null`，但仍參與相容性 |
 | `CompatibilityCheckRequest` | `items:BuildItemInput[1..20]`；公開版不接受 Draft Settings |
 | `CompatibilityCheckDto` | `overall:compatible/warning/blocked/insufficientData`、`ruleSetVersion`、`settingsVersion`、`results[]`、`evaluatedAtUtc` |
 | `CreateBuildListRequest` | `name:string(1..160)`、`items:BuildItemInput[1..20]` |

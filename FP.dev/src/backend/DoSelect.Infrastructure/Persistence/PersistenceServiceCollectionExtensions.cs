@@ -1,6 +1,7 @@
 using DoSelect.Application.Members;
 using DoSelect.Infrastructure.Persistence.Identity;
 using DoSelect.Infrastructure.Persistence.Seeding;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -39,7 +40,13 @@ public static class PersistenceServiceCollectionExtensions
                 sqlServerOptions => sqlServerOptions.MigrationsAssembly(
                     typeof(DoSelectDbContext).Assembly.FullName)));
 
-        services.AddDataProtection();
+        var dataProtection = services.AddDataProtection();
+        var keyRingPath = configuration["DataProtection:KeyRingPath"];
+        if (!string.IsNullOrWhiteSpace(keyRingPath))
+        {
+            var keyRingDirectory = Directory.CreateDirectory(keyRingPath);
+            dataProtection.PersistKeysToFileSystem(keyRingDirectory);
+        }
 
         services
             .AddIdentityCore<ApplicationUser>(options =>

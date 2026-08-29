@@ -67,6 +67,40 @@ public sealed class EfCompatibilityCheckService : ICompatibilityCheckService
             now);
     }
 
+    internal async Task<CompatibilityCheckDto> CheckPartialAsync(
+        IReadOnlyCollection<CompatibilityComponent> components,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(components);
+        var (settings, settingsVersion, disabledRuleCodes, _) =
+            await LoadCurrentSettingsAsync(cancellationToken);
+        var evaluation = CompatibilityEvaluator.EvaluatePartial(components, settings, RuleCatalog);
+        var (overall, results) = ApplyDisabledRules(evaluation, disabledRuleCodes);
+        return new CompatibilityCheckDto(
+            OverallToken(overall),
+            RuleSetVersion,
+            settingsVersion,
+            results,
+            DateTime.UtcNow);
+    }
+
+    internal async Task<CompatibilityCheckDto> CheckCompleteTransientAsync(
+        IReadOnlyCollection<CompatibilityComponent> components,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(components);
+        var (settings, settingsVersion, disabledRuleCodes, _) =
+            await LoadCurrentSettingsAsync(cancellationToken);
+        var evaluation = CompatibilityEvaluator.Evaluate(components, settings, RuleCatalog);
+        var (overall, results) = ApplyDisabledRules(evaluation, disabledRuleCodes);
+        return new CompatibilityCheckDto(
+            OverallToken(overall),
+            RuleSetVersion,
+            settingsVersion,
+            results,
+            DateTime.UtcNow);
+    }
+
     /// <summary>
     /// The canonical <see cref="CompatibilityEvaluator"/> has no notion of an admin disabling one
     /// rule (相容性規則後台設計.md's own feature, not part of DEC-BATCH-027's checkout-facing

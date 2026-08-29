@@ -454,6 +454,11 @@ public sealed class AiSupportEndpointTests : IClassFixture<WebApplicationFactory
                     ["OpenAI:SupportModel"] = "integration-test-model",
                     ["OpenAI:SupportInputCostPerMillionTokens"] = "0",
                     ["OpenAI:SupportOutputCostPerMillionTokens"] = "0",
+                    ["OpenAI:ProductSearchModel"] = "integration-test-search-model",
+                    ["OpenAI:ProductSearchTimeoutMilliseconds"] = "8000",
+                    ["OpenAI:ProductSearchInputCostPerMillionTokens"] = "0",
+                    ["OpenAI:ProductSearchOutputCostPerMillionTokens"] = "0",
+                    ["OpenAI:AnonymousIdentityPepper"] = "integration-test-ai-anonymous-pepper-32-bytes",
                     ["OpenAI:BudgetAlertRecipientAdminPublicId"] = "0f269121-89a5-43a4-97f5-b95278bc0cf6",
                 });
             });

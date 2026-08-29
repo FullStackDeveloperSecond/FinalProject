@@ -323,6 +323,125 @@ public static class CompatibilityEvaluator
         return Complete(findings, requiredPsuWatts);
     }
 
+    /// <summary>
+    /// Evaluates only relationships that can be proven from the supplied components. This is used
+    /// by recommendation flows where a customer may own one or more parts but is not submitting a
+    /// complete build. It shares the same rule methods and settings as the complete-build path and
+    /// never treats a missing, unrelated component as evidence of incompatibility.
+    /// </summary>
+    public static CompatibilityEvaluation EvaluatePartial(
+        IReadOnlyCollection<CompatibilityComponent> components,
+        CompatibilityWarningSettings settings,
+        CompatibilityRuleCatalog catalog)
+    {
+        ArgumentNullException.ThrowIfNull(components);
+        ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(catalog);
+        if (components.Count is < 1 or > 20)
+        {
+            throw new ArgumentOutOfRangeException(nameof(components));
+        }
+
+        var findings = new List<CompatibilityRuleEvaluation>();
+        var groups = components.GroupBy(component => component.CategoryCode)
+            .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
+        foreach (var category in SingletonCategories)
+        {
+            if (groups.TryGetValue(category, out var matches) &&
+                (matches.Length != 1 || matches[0].Quantity != 1))
+            {
+                Add(findings, CompatibilityRuleCodes.RequiredComponent,
+                    CompatibilityOverall.InsufficientData,
+                    "compatibility.required_component_invalid", [],
+                    ("categoryCode", category));
+            }
+        }
+
+        if (findings.Count > 0)
+        {
+            return Complete(findings, null);
+        }
+
+        CompatibilityComponent? One(string category) =>
+            groups.TryGetValue(category, out var matches) ? matches[0] : null;
+
+        var cpu = One(CompatibilityCatalogContract.Categories.Cpu);
+        var board = One(CompatibilityCatalogContract.Categories.Motherboard);
+        var gpu = One(CompatibilityCatalogContract.Categories.Gpu);
+        var psu = One(CompatibilityCatalogContract.Categories.Psu);
+        var chassis = One(CompatibilityCatalogContract.Categories.Case);
+        var cooler = One(CompatibilityCatalogContract.Categories.CpuCooler);
+
+        if (cpu is not null && board is not null)
+        {
+            EvaluateCpuSocket(cpu, board, findings);
+            EvaluateChipset(cpu, board, catalog, findings);
+        }
+
+        if (board is not null && groups.TryGetValue(CompatibilityCatalogContract.Categories.Memory, out var memories))
+        {
+            EvaluateMemory(board, memories, settings, findings);
+        }
+
+        if (board is not null && chassis is not null)
+        {
+            CompareSupportedOption(board, CompatibilityCatalogContract.SemanticKeys.MotherboardFormFactor,
+                chassis, CompatibilityCatalogContract.SemanticKeys.CaseSupportedMotherboardFormFactor,
+                CompatibilityRuleCodes.MotherboardFormFactor,
+                "compatibility.motherboard_form_factor_unsupported", findings);
+        }
+
+        if (gpu is not null && chassis is not null)
+        {
+            CompareMaximum(gpu, CompatibilityCatalogContract.SemanticKeys.GpuLengthMm,
+                chassis, CompatibilityCatalogContract.SemanticKeys.CaseGpuMaxLengthMm,
+                settings.GpuClearanceWarningMm, CompatibilityRuleCodes.GpuLength,
+                "compatibility.gpu_too_long", "compatibility.gpu_clearance_low", findings);
+        }
+
+        if (cpu is not null && cooler is not null)
+        {
+            CompareSupportedOption(cpu, CompatibilityCatalogContract.SemanticKeys.CpuSocket,
+                cooler, CompatibilityCatalogContract.SemanticKeys.CpuSocket,
+                CompatibilityRuleCodes.CoolerSocket,
+                "compatibility.cooler_socket_unsupported", findings);
+        }
+
+        if (cooler is not null && chassis is not null)
+        {
+            CompareMaximum(cooler, CompatibilityCatalogContract.SemanticKeys.CoolerHeightMm,
+                chassis, CompatibilityCatalogContract.SemanticKeys.CaseCoolerMaxHeightMm,
+                settings.CoolerClearanceWarningMm, CompatibilityRuleCodes.CoolerHeight,
+                "compatibility.cooler_too_tall", "compatibility.cooler_clearance_low", findings);
+        }
+
+        if (psu is not null && chassis is not null)
+        {
+            CompareSupportedOption(psu, CompatibilityCatalogContract.SemanticKeys.PsuFormFactor,
+                chassis, CompatibilityCatalogContract.SemanticKeys.CaseSupportedPsuFormFactor,
+                CompatibilityRuleCodes.PsuFormFactor,
+                "compatibility.psu_form_factor_unsupported", findings);
+        }
+
+        if (board is not null && groups.TryGetValue(CompatibilityCatalogContract.Categories.Storage, out var storages))
+        {
+            EvaluateStorage(board, storages, settings, findings);
+        }
+
+        decimal? requiredPsuWatts = null;
+        if (gpu is not null && psu is not null)
+        {
+            requiredPsuWatts = EvaluatePsuCapacity(components, gpu, psu, settings, findings);
+        }
+
+        if (board is not null && gpu is not null && psu is not null)
+        {
+            EvaluateConnectors(board, gpu, psu, findings);
+        }
+
+        return Complete(findings, requiredPsuWatts);
+    }
+
     private static void EvaluateCpuSocket(
         CompatibilityComponent cpu,
         CompatibilityComponent board,
@@ -535,6 +654,18 @@ public static class CompatibilityEvaluator
         CompatibilityWarningSettings settings,
         List<CompatibilityRuleEvaluation> findings)
     {
+        var required = EvaluatePsuCapacity(components, gpu, psu, settings, findings);
+        EvaluateConnectors(board, gpu, psu, findings);
+        return required;
+    }
+
+    private static decimal? EvaluatePsuCapacity(
+        IReadOnlyCollection<CompatibilityComponent> components,
+        CompatibilityComponent gpu,
+        CompatibilityComponent psu,
+        CompatibilityWarningSettings settings,
+        List<CompatibilityRuleEvaluation> findings)
+    {
         var poweredComponents = components.Where(component => component.CategoryCode is not
             CompatibilityCatalogContract.Categories.Psu and not
             CompatibilityCatalogContract.Categories.Case).ToArray();
@@ -546,7 +677,6 @@ public static class CompatibilityEvaluator
             !TryPositiveDecimal(gpu, CompatibilityCatalogContract.SemanticKeys.GpuRecommendedPsuWatts, out var recommended))
         {
             Missing(findings, CompatibilityRuleCodes.PsuCapacity, [psu, gpu, .. poweredComponents]);
-            EvaluateConnectors(board, gpu, psu, findings);
             return null;
         }
 
@@ -570,8 +700,6 @@ public static class CompatibilityEvaluator
                 "compatibility.psu_reserve_low", SubjectIds(psu, poweredComponents),
                 ("estimatedDrawWatts", draw), ("ratedWatts", rated));
         }
-
-        EvaluateConnectors(board, gpu, psu, findings);
         return required;
     }
 

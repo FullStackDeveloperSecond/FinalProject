@@ -17,15 +17,27 @@ public sealed class OpenAiResponsesOptions
 
     public string SupportModel { get; set; } = "gpt-5.6-terra";
 
+    public string ProductSearchModel { get; set; } = "gpt-5.6-luna";
+
     public int SupportTimeoutMilliseconds { get; set; } = 12_000;
+
+    public int ProductSearchTimeoutMilliseconds { get; set; } = 8_000;
 
     public decimal SupportInputCostPerMillionTokens { get; set; } = -1m;
 
     public decimal SupportOutputCostPerMillionTokens { get; set; } = -1m;
 
+    public decimal ProductSearchInputCostPerMillionTokens { get; set; } = -1m;
+
+    public decimal ProductSearchOutputCostPerMillionTokens { get; set; } = -1m;
+
+    public string AnonymousIdentityPepper { get; set; } = string.Empty;
+
     public Guid? BudgetAlertRecipientAdminPublicId { get; set; }
 
     public Guid[] DemoMemberPublicIds { get; set; } = [];
+
+    public Guid[] DemoBrowserIds { get; set; } = [];
 }
 
 public sealed class OpenAiResponsesClient : IAiSupportModelClient, IDisposable

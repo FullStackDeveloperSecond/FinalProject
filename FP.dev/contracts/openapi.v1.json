@@ -6128,6 +6128,115 @@
         }
       }
     },
+    "/api/v1/ai/product-search/recommendations": {
+      "post": {
+        "tags": [
+          "AiProductSearch"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AiProductSearchRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AiProductSearchRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/AiProductSearchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiProductSearchResultDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiProductSearchResultDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiProductSearchResultDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/ai/support/messages": {
       "post": {
         "tags": [
@@ -7909,6 +8018,498 @@
               "string"
             ],
             "format": "date-time"
+          }
+        }
+      },
+      "AiCustomBuildComponentDto": {
+        "required": [
+          "product",
+          "skuPublicId",
+          "sourceType",
+          "categoryCode",
+          "displayName",
+          "quantity",
+          "isExistingPart",
+          "reason"
+        ],
+        "type": "object",
+        "properties": {
+          "product": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProductCardDto"
+              }
+            ]
+          },
+          "skuPublicId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "sourceType": {
+            "type": "string"
+          },
+          "categoryCode": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "quantity": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "isExistingPart": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "AiCustomBuildRecommendationDto": {
+        "required": [
+          "components",
+          "purchaseSubtotal",
+          "assemblyFee",
+          "purchaseTotal",
+          "currency",
+          "compatibilityStatus",
+          "compatibilityMessageKeys"
+        ],
+        "type": "object",
+        "properties": {
+          "components": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AiCustomBuildComponentDto"
+            }
+          },
+          "purchaseSubtotal": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "assemblyFee": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "purchaseTotal": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "compatibilityStatus": {
+            "type": "string"
+          },
+          "compatibilityMessageKeys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "AiExistingPartRequest": {
+        "required": [
+          "sourceType",
+          "specifications"
+        ],
+        "type": "object",
+        "properties": {
+          "sourceType": {
+            "pattern": "^(catalogSku|structuredManual)$",
+            "type": "string"
+          },
+          "skuPublicId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "categoryCode": {
+            "maxLength": 64,
+            "minLength": 0,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "displayName": {
+            "maxLength": 160,
+            "minLength": 0,
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "specifications": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AiSearchSpecRequest"
+            }
+          },
+          "quantity": {
+            "maximum": 8,
+            "minimum": 1,
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "confirmedByUser": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AiProductRecommendationDto": {
+        "required": [
+          "product",
+          "reason",
+          "compatibilityStatus",
+          "compatibilityMessageKeys"
+        ],
+        "type": "object",
+        "properties": {
+          "product": {
+            "$ref": "#/components/schemas/ProductCardDto"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "compatibilityStatus": {
+            "type": "string"
+          },
+          "compatibilityMessageKeys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "AiProductSearchIntentDto": {
+        "required": [
+          "intent",
+          "purposes",
+          "minimumBudget",
+          "maximumBudget",
+          "keyword",
+          "categoryCode",
+          "preferredBrandCodes",
+          "excludedBrandCodes",
+          "requiredSpecs",
+          "preferences",
+          "proposedExistingParts"
+        ],
+        "type": "object",
+        "properties": {
+          "intent": {
+            "type": "string"
+          },
+          "purposes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "minimumBudget": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "maximumBudget": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "keyword": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "categoryCode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "preferredBrandCodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "excludedBrandCodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "requiredSpecs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AiSearchSpecDto"
+            }
+          },
+          "preferences": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "proposedExistingParts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AiProposedExistingPartDto"
+            }
+          }
+        }
+      },
+      "AiProductSearchRequest": {
+        "required": [
+          "message",
+          "locale",
+          "existingParts"
+        ],
+        "type": "object",
+        "properties": {
+          "message": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "pattern": "(?s)^(?=.*\\S).+$",
+            "type": "string"
+          },
+          "locale": {
+            "pattern": "^(zh-TW|ja-JP|ko-KR)$",
+            "type": "string"
+          },
+          "existingParts": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AiExistingPartRequest"
+            }
+          }
+        }
+      },
+      "AiProductSearchResultDto": {
+        "required": [
+          "searchPublicId",
+          "resultType",
+          "degradationMode",
+          "intent",
+          "clarifications",
+          "recommendations",
+          "fallbackProducts",
+          "disclaimerKey",
+          "usage"
+        ],
+        "type": "object",
+        "properties": {
+          "searchPublicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "resultType": {
+            "type": "string"
+          },
+          "degradationMode": {
+            "type": "string"
+          },
+          "intent": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AiProductSearchIntentDto"
+              }
+            ]
+          },
+          "clarifications": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "recommendations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AiProductRecommendationDto"
+            }
+          },
+          "fallbackProducts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProductCardDto"
+            }
+          },
+          "disclaimerKey": {
+            "type": "string"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/AiProductSearchUsageDto"
+          },
+          "customBuild": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AiCustomBuildRecommendationDto"
+              }
+            ]
+          }
+        }
+      },
+      "AiProductSearchUsageDto": {
+        "required": [
+          "remainingRequests",
+          "resetAtUtc"
+        ],
+        "type": "object",
+        "properties": {
+          "remainingRequests": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "resetAtUtc": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AiProposedExistingPartDto": {
+        "required": [
+          "categoryCode",
+          "displayName",
+          "quantity",
+          "specifications"
+        ],
+        "type": "object",
+        "properties": {
+          "categoryCode": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "quantity": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "specifications": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AiSearchSpecDto"
+            }
+          }
+        }
+      },
+      "AiSearchSpecDto": {
+        "required": [
+          "semanticKey",
+          "operator",
+          "value",
+          "unit"
+        ],
+        "type": "object",
+        "properties": {
+          "semanticKey": {
+            "type": "string"
+          },
+          "operator": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "unit": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "AiSearchSpecRequest": {
+        "required": [
+          "semanticKey",
+          "operator",
+          "value"
+        ],
+        "type": "object",
+        "properties": {
+          "semanticKey": {
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+            "type": "string"
+          },
+          "operator": {
+            "pattern": "^(eq|gte|lte|in)$",
+            "type": "string"
+          },
+          "value": {
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          },
+          "unit": {
+            "maxLength": 16,
+            "minLength": 0,
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -14492,6 +15093,9 @@
     },
     {
       "name": "AdminAiUsage"
+    },
+    {
+      "name": "AiProductSearch"
     },
     {
       "name": "AiSupport"

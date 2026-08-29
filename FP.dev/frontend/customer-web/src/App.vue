@@ -51,6 +51,9 @@ async function handleLogout(): Promise<void> {
           <RouterLink to="/products">
             商品
           </RouterLink>
+          <RouterLink to="/ai-search">
+            AI 懂選
+          </RouterLink>
           <RouterLink to="/cart">
             購物車
           </RouterLink>

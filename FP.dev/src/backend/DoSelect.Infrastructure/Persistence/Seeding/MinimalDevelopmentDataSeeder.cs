@@ -383,6 +383,7 @@ public sealed class MinimalDevelopmentDataSeeder(
         if (await dbContext.Skus.AnyAsync(
                 entity => entity.SkuCode == "DEV-COMPAT-CPU-001", cancellationToken))
         {
+            await EnsureBuildComponentSkusAreDefaultAsync(cancellationToken);
             return;
         }
 
@@ -572,6 +573,13 @@ public sealed class MinimalDevelopmentDataSeeder(
             Guid.CreateVersion7(), skuCode, product.Id, name, 5000m, 3000m,
             MinimalDevelopmentSeedDefinitions.CreatedAtUtc);
         sku.ChangeStatus(SkuStatus.Published, MinimalDevelopmentSeedDefinitions.CreatedAtUtc);
+        sku.UpdateCommercialDetails(
+            sku.NameZhTw,
+            sku.ListPrice,
+            sku.UnitCost,
+            isDefault: true,
+            requiresPrepayment: false,
+            MinimalDevelopmentSeedDefinitions.CreatedAtUtc);
         dbContext.Skus.Add(sku);
         await dbContext.SaveChangesAsync(cancellationToken);
         counters.CompatibilityRecordsCreated++;
@@ -626,6 +634,36 @@ public sealed class MinimalDevelopmentDataSeeder(
             MinimalDevelopmentSeedDefinitions.CreatedAtUtc));
         await dbContext.SaveChangesAsync(cancellationToken);
         counters.CompatibilityRecordsCreated++;
+    }
+
+    private async Task EnsureBuildComponentSkusAreDefaultAsync(CancellationToken cancellationToken)
+    {
+        var skuCodes = new[]
+        {
+            "DEV-COMPAT-CPU-001",
+            "DEV-COMPAT-MB-001",
+            "DEV-COMPAT-MEM-001",
+            "DEV-COMPAT-GPU-001",
+            "DEV-COMPAT-STORAGE-001",
+            "DEV-COMPAT-PSU-001",
+            "DEV-COMPAT-CASE-001",
+            "DEV-COMPAT-COOLER-001",
+        };
+        var skus = await dbContext.Skus
+            .Where(sku => skuCodes.Contains(sku.SkuCode))
+            .ToListAsync(cancellationToken);
+        foreach (var sku in skus.Where(sku => !sku.IsDefault))
+        {
+            sku.UpdateCommercialDetails(
+                sku.NameZhTw,
+                sku.ListPrice,
+                sku.UnitCost,
+                isDefault: true,
+                sku.RequiresPrepayment,
+                MinimalDevelopmentSeedDefinitions.CreatedAtUtc);
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
     }
 
     private async Task<SpecificationOption> GetOrCreateOptionAsync(
