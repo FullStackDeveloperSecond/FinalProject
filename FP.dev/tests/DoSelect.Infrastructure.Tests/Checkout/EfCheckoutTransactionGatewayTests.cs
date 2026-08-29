@@ -156,6 +156,9 @@ public sealed class EfCheckoutTransactionGatewayTests
     [global::DoSelect.Infrastructure.Tests.Idempotency.SqlServerFact]
     public async Task ExecuteAsync_WhenInventoryIsInsufficient_OuterTransactionRollsBackEverything()
     {
+        // 先讓資料庫裡確實存在一筆別人的已完成結帳。沒有這一步，
+        // 下面的範圍限定就算寫錯成「整張表」也一樣會過。
+        await CommitAnUnrelatedCheckoutAsync();
         var seed = await SeedAsync(onHandQuantity: 0);
         await using (var context = EfCheckoutTransactionGatewayFixture.CreateContext())
         await using (var transaction = await context.Database.BeginTransactionAsync())
@@ -168,6 +171,10 @@ public sealed class EfCheckoutTransactionGatewayTests
         }
 
         await using var verification = EfCheckoutTransactionGatewayFixture.CreateContext();
+
+        // 這條讓範圍限定變成可驗證的：資料庫裡確實有別的訂單，所以若把下面任何一條
+        // 寫回「整張表」，測試會立刻紅。
+        Assert.NotEmpty(await verification.Orders.ToListAsync());
 
         // 斷言範圍限定在「這一次結帳」，不是整張表。整個 collection 共用一個資料庫，
         // 而別的測試會 commit 訂單 —— 用整張表當條件，等於要求這條測試永遠排在
@@ -229,6 +236,7 @@ public sealed class EfCheckoutTransactionGatewayTests
     [global::DoSelect.Infrastructure.Tests.Idempotency.SqlServerFact]
     public async Task ExecuteAsync_WhenCouponReducesGrandTotalBelowOne_RejectsWithoutSideEffects()
     {
+        await CommitAnUnrelatedCheckoutAsync();
         var seed = await SeedAsync(onHandQuantity: 5, zeroTotalCoupon: true);
         await using (var context = EfCheckoutTransactionGatewayFixture.CreateContext())
         await using (var transaction = await context.Database.BeginTransactionAsync())
@@ -242,17 +250,55 @@ public sealed class EfCheckoutTransactionGatewayTests
         }
 
         await using var verification = EfCheckoutTransactionGatewayFixture.CreateContext();
-        Assert.Empty(await verification.Orders.ToListAsync());
-        Assert.Empty(await verification.OrderItems.ToListAsync());
-        Assert.Empty(await verification.InventoryReservations.ToListAsync());
-        Assert.Empty(await verification.InventoryMovements.ToListAsync());
-        Assert.Empty(await verification.CouponRedemptions.ToListAsync());
-        Assert.Empty(await verification.OrderCoupons.ToListAsync());
-        Assert.Empty(await verification.PaymentAttempts.ToListAsync());
+
+        // 同上：先證明資料庫裡有別的訂單，範圍限定才有意義。
+        Assert.NotEmpty(await verification.Orders.ToListAsync());
+
+        // 與 WhenInventoryIsInsufficient 同一個問題（alex #68 P2）：這裡原本斷言整張
+        // Orders／OrderItems／InventoryReservations／InventoryMovements／
+        // CouponRedemptions／OrderCoupons／PaymentAttempts 都是空的，而整個 collection
+        // 共用一個資料庫、別的測試會 commit 訂單 —— 那不是斷言，是「這條測試永遠排在
+        // 那些測試之前」的排程假設。xUnit 沒有固定這個 collection 的順序，所以綠燈只
+        // 代表這次剛好排到可通過的順序。
+        //
+        // 上一輪我只修了實際變紅的那一條，沒有在同一個檔案裡找同型的寫法。
+        var sku = await verification.Skus
+            .SingleAsync(candidate => candidate.PublicId == seed.SkuPublicId);
+        var orderIds = verification.Orders
+            .Where(candidate => candidate.SourceCartPublicId == seed.Command.CartPublicId)
+            .Select(candidate => candidate.Id);
+
+        Assert.Empty(await verification.Orders
+            .Where(candidate => candidate.SourceCartPublicId == seed.Command.CartPublicId)
+            .ToListAsync());
+        Assert.Empty(await verification.OrderItems
+            .Where(candidate => orderIds.Contains(candidate.OrderId))
+            .ToListAsync());
+        Assert.Empty(await verification.InventoryReservations
+            .Where(candidate => orderIds.Contains(candidate.OrderId))
+            .ToListAsync());
+        Assert.Empty(await verification.CouponRedemptions
+            .Where(candidate => orderIds.Contains(candidate.OrderId))
+            .ToListAsync());
+        Assert.Empty(await verification.OrderCoupons
+            .Where(candidate => orderIds.Contains(candidate.OrderId))
+            .ToListAsync());
+        Assert.Empty(await verification.PaymentAttempts
+            .Where(candidate => orderIds.Contains(candidate.OrderId))
+            .ToListAsync());
+
+        // 庫存的兩條證據不經過訂單，所以上面那些在「沒有訂單」時天然通過的斷言
+        // 之外，這裡才真的證明這次結帳沒有動到庫存。
+        Assert.Empty(await verification.InventoryMovements
+            .Where(candidate => candidate.SkuId == sku.Id)
+            .ToListAsync());
 
         var cart = await verification.Carts.SingleAsync(
             candidate => candidate.PublicId == seed.Command.CartPublicId);
-        var balance = await verification.InventoryBalances.SingleAsync();
+        // 原本是無條件的 SingleAsync()，等於假設整個資料庫只有一列庫存 ——
+        // 每次 SeedAsync 都會新增一列，所以那同樣是排程假設。
+        var balance = await verification.InventoryBalances
+            .SingleAsync(candidate => candidate.SkuId == sku.Id);
         Assert.Equal(CartStatus.Active, cart.Status);
         Assert.Equal(5, balance.AvailableQuantity);
         Assert.Equal(0, balance.ReservedQuantity);
@@ -505,6 +551,19 @@ public sealed class EfCheckoutTransactionGatewayTests
             new CouponRuleReader(context),
             new SqlOrderNumberGenerator(context),
             new FixedTimeProvider(NowUtc));
+
+    /// <summary>
+    /// 送一筆會成功的結帳並 commit，讓「這次結帳沒有留下東西」的斷言有東西可以區分。
+    /// </summary>
+    private static async Task CommitAnUnrelatedCheckoutAsync()
+    {
+        var other = await SeedAsync(onHandQuantity: 5);
+        await using var context = EfCheckoutTransactionGatewayFixture.CreateContext();
+        await using var transaction = await context.Database.BeginTransactionAsync();
+
+        await CreateGateway(context).ExecuteAsync(other.Command);
+        await transaction.CommitAsync();
+    }
 
     private static async Task<CheckoutSeed> SeedAsync(
         int onHandQuantity,
