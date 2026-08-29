@@ -15,6 +15,7 @@ test('a shopper can open the seeded catalog and view product details', async ({ 
   const seededProduct = page.getByRole('heading', {
     level: 3,
     name: '懂選開發用顯示卡',
+    exact: true,
   })
   await expect(seededProduct).toBeVisible()
   await seededProduct.click()
