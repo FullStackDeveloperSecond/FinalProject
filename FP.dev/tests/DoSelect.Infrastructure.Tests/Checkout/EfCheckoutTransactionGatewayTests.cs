@@ -29,6 +29,96 @@ public sealed class EfCheckoutTransactionGatewayTests
     private static readonly DateTime NowUtc =
         new(2026, 8, 27, 6, 0, 0, DateTimeKind.Utc);
 
+    /// <summary>
+    /// <c>DEC-BATCH-017</c>／<c>DEC-P285</c>：最終應付金額在建立付款嘗試前，
+    /// 必須以 <c>AwayFromZero</c> 四捨五入到整數新臺幣。
+    /// </summary>
+    /// <remarks>
+    /// 訂單明細、優惠券分攤、運費與組裝費都是 <c>decimal(18,2)</c>，可以合法產生角分。
+    /// 沒有這一步，含角分的訂單會把小數帶進 <c>PaymentAttempt.Amount</c>，
+    /// 而發票表頭是整數元 —— 開票時 <c>IssuedAmount != OrderPaidAmount</c>，
+    /// <c>InvoiceCalculator</c> 會判定為交易快照不一致並拒絕開立。
+    /// 錯誤會出現在離原因很遠的地方。
+    /// </remarks>
+    [global::DoSelect.Infrastructure.Tests.Idempotency.SqlServerFact]
+    public async Task ExecuteAsync_RoundsAFractionalTotalToWholeNewTaiwanDollars()
+    {
+        // 1000.55 + 150 運費 = 1150.55 → 1151。
+        var seed = await SeedAsync(onHandQuantity: 5, listPrice: 1_000.55m);
+        await using var context = EfCheckoutTransactionGatewayFixture.CreateContext();
+        await using var transaction = await context.Database.BeginTransactionAsync();
+        var gateway = CreateGateway(context);
+
+        var created = await gateway.ExecuteAsync(seed.Command);
+        await transaction.CommitAsync();
+
+        await using var verification = EfCheckoutTransactionGatewayFixture.CreateContext();
+        var order = await verification.Orders
+            .SingleAsync(candidate => candidate.PublicId == created.PublicId);
+
+        // 明細保留交易快照的角分；只有最終應付被整數化。
+        Assert.Equal(1_000.55m, order.MerchandiseSubtotal);
+        Assert.Equal(1_151m, order.GrandTotal);
+        Assert.Equal(0m, order.GrandTotal % 1m);
+    }
+
+    /// <summary>
+    /// <c>PaymentPolicies</c> 記載的金額鏈第一段：
+    /// <c>Order.GrandTotal = PaymentAttempt.Amount</c>。
+    /// </summary>
+    /// <remarks>
+    /// 用含角分的訂單驗，才證明得了「整數化之後的值」有流到付款嘗試上 ——
+    /// 整數輸入的情況下，漏掉整數化與否送出的金額一模一樣。
+    /// </remarks>
+    [global::DoSelect.Infrastructure.Tests.Idempotency.SqlServerFact]
+    public async Task ExecuteAsync_ChargesThePaymentAttemptExactlyTheOrderTotal()
+    {
+        var seed = await SeedAsync(onHandQuantity: 5, listPrice: 1_000.55m);
+        await using var context = EfCheckoutTransactionGatewayFixture.CreateContext();
+        await using var transaction = await context.Database.BeginTransactionAsync();
+        var gateway = CreateGateway(context);
+
+        var created = await gateway.ExecuteAsync(seed.Command);
+        await transaction.CommitAsync();
+
+        await using var verification = EfCheckoutTransactionGatewayFixture.CreateContext();
+        var order = await verification.Orders
+            .SingleAsync(candidate => candidate.PublicId == created.PublicId);
+        var attempt = await verification.PaymentAttempts
+            .SingleAsync(candidate => candidate.OrderId == order.Id);
+
+        Assert.Equal(order.GrandTotal, attempt.Amount);
+        Assert.Equal(1_151m, attempt.Amount);
+    }
+
+    /// <summary>
+    /// 整數化只作用在最終應付，不改寫任何一筆明細。
+    /// </summary>
+    /// <remarks>
+    /// <c>DEC-BATCH-017</c> 明確禁止在下游改寫金額：明細要保留交易快照，
+    /// 而發票端若發現加總對不上，是拒絕開立而不是自己調整。
+    /// </remarks>
+    [global::DoSelect.Infrastructure.Tests.Idempotency.SqlServerFact]
+    public async Task ExecuteAsync_KeepsTheCentsOnTheOrderLineItself()
+    {
+        var seed = await SeedAsync(onHandQuantity: 5, listPrice: 1_000.55m);
+        await using var context = EfCheckoutTransactionGatewayFixture.CreateContext();
+        await using var transaction = await context.Database.BeginTransactionAsync();
+        var gateway = CreateGateway(context);
+
+        var created = await gateway.ExecuteAsync(seed.Command);
+        await transaction.CommitAsync();
+
+        await using var verification = EfCheckoutTransactionGatewayFixture.CreateContext();
+        var order = await verification.Orders
+            .SingleAsync(candidate => candidate.PublicId == created.PublicId);
+        var item = await verification.OrderItems
+            .SingleAsync(candidate => candidate.OrderId == order.Id);
+
+        Assert.Equal(1_000.55m, item.FinalUnitPrice);
+        Assert.Equal(1_000.55m, item.LineTotal);
+    }
+
     [global::DoSelect.Infrastructure.Tests.Idempotency.SqlServerFact]
     public async Task ExecuteAsync_CreatesTheAtomicCheckoutAggregate()
     {
@@ -78,9 +168,32 @@ public sealed class EfCheckoutTransactionGatewayTests
         }
 
         await using var verification = EfCheckoutTransactionGatewayFixture.CreateContext();
-        Assert.Empty(await verification.Orders.ToListAsync());
-        Assert.Empty(await verification.InventoryReservations.ToListAsync());
-        Assert.Empty(await verification.PaymentAttempts.ToListAsync());
+
+        // 斷言範圍限定在「這一次結帳」，不是整張表。整個 collection 共用一個資料庫，
+        // 而別的測試會 commit 訂單 —— 用整張表當條件，等於要求這條測試永遠排在
+        // 那些測試之前，宣告順序一改就紅。
+        var orderIds = verification.Orders
+            .Where(candidate => candidate.SourceCartPublicId == seed.Command.CartPublicId)
+            .Select(candidate => candidate.Id);
+
+        Assert.Empty(await verification.Orders
+            .Where(candidate => candidate.SourceCartPublicId == seed.Command.CartPublicId)
+            .ToListAsync());
+        Assert.Empty(await verification.InventoryReservations
+            .Where(candidate => orderIds.Contains(candidate.OrderId))
+            .ToListAsync());
+        Assert.Empty(await verification.PaymentAttempts
+            .Where(candidate => orderIds.Contains(candidate.OrderId))
+            .ToListAsync());
+
+        // 庫存的證據不經過訂單，所以就算上面三條因為沒有訂單而變成空集合，
+        // 這一條仍然證明保留數量沒有被寫進去。
+        var sku = await verification.Skus
+            .SingleAsync(candidate => candidate.PublicId == seed.SkuPublicId);
+        var balance = await verification.InventoryBalances
+            .SingleAsync(candidate => candidate.SkuId == sku.Id);
+        Assert.Equal(0, balance.ReservedQuantity);
+
         Assert.Equal(
             CartStatus.Active,
             (await verification.Carts.SingleAsync(candidate => candidate.PublicId == seed.Command.CartPublicId)).Status);
@@ -396,7 +509,8 @@ public sealed class EfCheckoutTransactionGatewayTests
     private static async Task<CheckoutSeed> SeedAsync(
         int onHandQuantity,
         bool withCoupon = false,
-        bool zeroTotalCoupon = false)
+        bool zeroTotalCoupon = false,
+        decimal listPrice = 1_000m)
     {
         await using var context = EfCheckoutTransactionGatewayFixture.CreateContext();
         var suffix = Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
@@ -412,7 +526,7 @@ public sealed class EfCheckoutTransactionGatewayTests
         context.Products.Add(product);
         await context.SaveChangesAsync();
         var sku = new Sku(
-            Guid.CreateVersion7(), $"SKU-{suffix}", product.Id, "測試 SKU", 1_000m, 600m, NowUtc);
+            Guid.CreateVersion7(), $"SKU-{suffix}", product.Id, "測試 SKU", listPrice, 600m, NowUtc);
         sku.UpdatePackageDimensions(1m, 40m, 30m, 20m, NowUtc);
         sku.ChangeStatus(SkuStatus.Published, NowUtc);
         context.Skus.Add(sku);
@@ -508,10 +622,10 @@ public sealed class EfCheckoutTransactionGatewayTests
                 null),
             new CheckoutPolicySnapshot(1, 1, 1, 1),
             "checkout-gateway-test-" + Guid.NewGuid().ToString("N"));
-        return new CheckoutSeed(command);
+        return new CheckoutSeed(command, sku.PublicId);
     }
 
-    private sealed record CheckoutSeed(CheckoutCommand Command);
+    private sealed record CheckoutSeed(CheckoutCommand Command, Guid SkuPublicId);
 
     private sealed class FixedTimeProvider(DateTime utcNow) : TimeProvider
     {
