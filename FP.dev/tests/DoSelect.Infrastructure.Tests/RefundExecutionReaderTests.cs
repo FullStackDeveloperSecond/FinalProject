@@ -92,7 +92,11 @@ public sealed class RefundExecutionReaderTests
                 "review、更新白名單與文件，不能自動取得跨模組存取。");
 
             var violations = RefundInfrastructureGuard.Violations(
-                name, File.ReadAllText(file), Allowed[name]);
+                name,
+                File.ReadAllText(file),
+                Allowed[name],
+                // 把 DbContext 交給另一個列名元件是允許的 —— 它有自己的白名單。
+                [.. Allowed.Keys.Select(key => Path.GetFileNameWithoutExtension(key)!)]);
 
             Assert.True(
                 violations.Count == 0,

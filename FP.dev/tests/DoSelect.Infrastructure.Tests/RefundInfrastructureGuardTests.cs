@@ -25,7 +25,7 @@ public sealed class RefundInfrastructureGuardTests
             ["OrderItems"] = ["Id", "OrderId"],
         };
 
-    private static IReadOnlyList<string> Analyze(string body) =>
+    private static IReadOnlyList<string> Analyze(string body, bool useSemanticModel = true) =>
         RefundInfrastructureGuard.Violations(
             "Synthetic.cs",
             $$"""
@@ -39,7 +39,9 @@ public sealed class RefundInfrastructureGuardTests
               {{body}}
               }
               """,
-            Allowed);
+            Allowed,
+            approvedComponents: null,
+            useSemanticModel);
 
     [Fact]
     public void AllowsAnApprovedFieldOnAnApprovedTable()
@@ -167,6 +169,129 @@ public sealed class RefundInfrastructureGuardTests
                     return db.Orders.Select(order => order.GrandTotal);
                 }
             """);
+
+        Assert.Contains(violations, violation => violation.Contains("GrandTotal", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CatchesAnUnapprovedFieldReachedThroughThis()
+    {
+        // alex 2026-08-29 第三輪：上一版要求接收者是裸識別字，所以 this._context
+        // 完全不會進入資料表檢查；而欄位宣告仍在，「找不到入口」的 fail-closed
+        // 也不會觸發 —— 結果是回報零違規。
+        var violations = Analyze(
+            """
+                private readonly DoSelectDbContext _context = null!;
+
+                public object Run() => this._context.Orders.Select(order => order.GrandTotal);
+            """);
+
+        Assert.Contains(violations, violation => violation.Contains("GrandTotal", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CatchesSetReachedThroughThis()
+    {
+        var violations = Analyze(
+            """
+                private readonly DoSelectDbContext _context = null!;
+
+                public object Run() => this._context.Set<object>();
+            """);
+
+        // 斷言的是**bypass 規則**抓到它，不只是「訊息裡有 Set 這三個字」——
+        // 後者連 fail-closed 那道網子的訊息（含原文 this._context.Set）都會通過，
+        // 等於分不出是哪一條規則生效。
+        Assert.Contains(
+            violations,
+            violation => violation.Contains("繞過 B1 的逐欄位白名單", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CatchesAnUnapprovedFieldThroughALocalAliasOfThisContext()
+    {
+        var violations = Analyze(
+            """
+                private readonly DoSelectDbContext _context = null!;
+
+                public object Run()
+                {
+                    var db = this._context;
+                    return db.Orders.Select(order => order.GrandTotal);
+                }
+            """);
+
+        Assert.Contains(violations, violation => violation.Contains("GrandTotal", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CatchesAnUnapprovedFieldThroughAParenthesisedOrCastReceiver()
+    {
+        // 型別對就算，寫法不重要 —— 這正是換成語意判斷要買到的東西。
+        var violations = Analyze(
+            """
+                private readonly DoSelectDbContext _context = null!;
+
+                public object Run() => ((DoSelectDbContext)_context).Orders
+                    .Select(order => order.GrandTotal);
+            """);
+
+        Assert.Contains(violations, violation => violation.Contains("GrandTotal", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void FailsClosedOnAContextReceiverItCannotClassify()
+    {
+        // 語意與語法都認不出來的接收者形狀，一律當成違規 —— 沒有這道網子，
+        // 只要想出一種兩邊都不認得的寫法，整段查詢就會靜默離開白名單。
+        var violations = Analyze(
+            """
+                private readonly DoSelectDbContext _context = null!;
+
+                private static object Pick(object candidate) => candidate;
+
+                public object Run() => Pick(_context).ToString();
+            """);
+
+        Assert.Contains(
+            violations,
+            violation => violation.Contains("看不懂的 DbContext 用法", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void CatchesAThisReceiverWithOrWithoutTheSemanticModel(bool useSemanticModel)
+    {
+        // 語意解析失敗時會退回語法正規化。那條路徑平常摸不到，所以這裡強制關掉
+        // 語意模型再跑一次 —— 否則備援等於沒被測過，真的需要它的時候才會發現壞了。
+        var violations = Analyze(
+            """
+                private readonly DoSelectDbContext _context = null!;
+
+                public object Run() => this._context.Orders.Select(order => order.GrandTotal);
+            """,
+            useSemanticModel);
+
+        Assert.Contains(violations, violation => violation.Contains("GrandTotal", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void CatchesALocalAliasWithOrWithoutTheSemanticModel(bool useSemanticModel)
+    {
+        var violations = Analyze(
+            """
+                private readonly DoSelectDbContext _context = null!;
+
+                public object Run()
+                {
+                    var db = this._context;
+                    return db.Orders.Select(order => order.GrandTotal);
+                }
+            """,
+            useSemanticModel);
 
         Assert.Contains(violations, violation => violation.Contains("GrandTotal", StringComparison.Ordinal));
     }

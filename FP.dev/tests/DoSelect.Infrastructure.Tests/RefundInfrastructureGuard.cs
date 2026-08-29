@@ -23,9 +23,24 @@ namespace DoSelect.Infrastructure.Tests;
 /// 都是語法層就有的資訊。
 /// </para>
 /// <para>
+/// <b>接收者靠語意判斷，不靠形狀。</b>2026-08-29 alex 又找到一種繞法：
+/// <c>this._context.Orders</c>。上一版要求接收者是裸識別字，所以這種寫法
+/// 完全不會進入資料表與 bypass 檢查，卻又因為欄位宣告仍在、不會觸發
+/// 「找不到入口」的 fail-closed —— 結果是回報零違規。
+/// </para>
+/// <para>
+/// 這已經是第三次補一種形狀，所以改成用 <see cref="SemanticModel"/> 問
+/// 「這個運算式的型別是不是 <c>DoSelectDbContext</c>」。<c>this.</c>、<c>base.</c>、
+/// 括號、cast、區域別名全部一視同仁，因為判斷的是型別不是寫法。
+/// </para>
+/// <para>
+/// 語意解析失敗時退回語法正規化（遞迴拆掉 <c>this</c>／<c>base</c>／括號／cast），
+/// 兩者都認不出來、但接收者裡出現已知的 DbContext 識別字 —— 直接回報違規。
+/// </para>
+/// <para>
 /// <b>fail-closed 是這份分析器的預設立場。</b>任何綁不出來源表的查詢參數、
-/// 任何解析不了的 <c>EF.Property</c> 引數，都直接回報違規，而不是跳過。
-/// 守門漏掉一種寫法的代價是白名單形同不存在。
+/// 任何解析不了的 <c>EF.Property</c> 引數、任何看不懂的 DbContext 用法，
+/// 都直接回報違規，而不是跳過。守門漏掉一種寫法的代價是白名單形同不存在。
 /// </para>
 /// </remarks>
 internal static class RefundInfrastructureGuard
@@ -62,11 +77,18 @@ internal static class RefundInfrastructureGuard
     public static IReadOnlyList<string> Violations(
         string fileName,
         string source,
-        IReadOnlyDictionary<string, string[]> allowedTables)
+        IReadOnlyDictionary<string, string[]> allowedTables,
+        IReadOnlyCollection<string>? approvedComponents = null,
+        bool useSemanticModel = true)
     {
         var violations = new List<string>();
-        var root = CSharpSyntaxTree.ParseText(source).GetCompilationUnitRoot();
+        var tree = CSharpSyntaxTree.ParseText(source);
+        var root = tree.GetCompilationUnitRoot();
+        // useSemanticModel: false 只給測試用 —— 語意解析失敗時會退回語法正規化，
+        // 那條路徑沒有辦法從外面觸發，不強制關掉就等於沒被測過。
+        var model = useSemanticModel ? CreateSemanticModel(tree) : null;
         var contextNames = ContextEntryNames(root);
+        var context = new GuardContext(model, contextNames);
 
         // fail closed：檔案明明用了 DoSelectDbContext，卻一個入口都辨識不到，
         // 代表這份分析器看不懂它 —— 不能當成「沒有存取資料庫」。
@@ -82,15 +104,149 @@ internal static class RefundInfrastructureGuard
             return violations;
         }
 
-        violations.AddRange(BypassViolations(fileName, root, contextNames));
+        violations.AddRange(BypassViolations(fileName, root, context));
         violations.AddRange(RawSqlViolations(fileName, root));
+        violations.AddRange(UnclassifiedContextUseViolations(
+            fileName, root, context, approvedComponents ?? []));
 
-        foreach (var query in QueryExpressions(root, contextNames))
+        foreach (var query in QueryExpressions(root, context))
         {
-            violations.AddRange(QueryViolations(fileName, query, contextNames, allowedTables));
+            violations.AddRange(QueryViolations(fileName, query, context, allowedTables));
         }
 
         return violations;
+    }
+
+    /// <summary>
+    /// 這份分析器判斷「這是不是 DbContext」時用得到的兩樣東西。
+    /// </summary>
+    /// <param name="Model">語意模型；解析不出來時退回語法正規化。</param>
+    /// <param name="EntryNames">
+    /// 語法上宣告成 <c>DoSelectDbContext</c> 的識別字。除了當語意失敗時的備援，
+    /// 也是 fail-closed 的網子：接收者裡出現這些名字卻沒被分類，就是看不懂。
+    /// </param>
+    private sealed record GuardContext(SemanticModel? Model, HashSet<string> EntryNames);
+
+    /// <summary>
+    /// 測試專案已經載入了 Domain／Application／Infrastructure 與 EF Core，
+    /// 直接拿它們當 metadata reference，就能讓語意模型解析出 <c>DoSelectDbContext</c>。
+    /// </summary>
+    private static readonly Lazy<MetadataReference[]> References = new(() =>
+        [.. AppDomain.CurrentDomain.GetAssemblies()
+            .Where(assembly => !assembly.IsDynamic && !string.IsNullOrEmpty(assembly.Location))
+            .Select(assembly => assembly.Location)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(location => (MetadataReference)MetadataReference.CreateFromFile(location))]);
+
+    /// <remarks>
+    /// 只編這一個檔案。缺少同專案其他型別會產生編譯錯誤，但不影響這裡要問的事：
+    /// <c>_context</c> 的型別來自 metadata reference，照樣解析得出來。
+    /// 真的解析不出來時回 <c>null</c>，由語法備援與 fail-closed 接手。
+    /// </remarks>
+    private static SemanticModel? CreateSemanticModel(SyntaxTree tree)
+    {
+        try
+        {
+            var compilation = CSharpCompilation.Create(
+                "RefundInfrastructureGuard",
+                [tree],
+                References.Value,
+                new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+            return compilation.GetSemanticModel(tree);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>這個運算式指的是不是一個 <c>DoSelectDbContext</c>。</summary>
+    /// <remarks>
+    /// 先問語意模型（型別對就算，寫成 <c>this._context</c>、<c>(ctx)</c>、
+    /// <c>((DoSelectDbContext)x)</c> 都一樣）；解析不出來才退回語法正規化。
+    /// </remarks>
+    private static bool IsContextReference(ExpressionSyntax expression, GuardContext context)
+    {
+        var type = context.Model?.GetTypeInfo(expression).Type;
+        if (type is not null)
+        {
+            return type.Name == ContextTypeName;
+        }
+
+        var normalised = NormaliseToIdentifier(expression);
+        return normalised is not null && context.EntryNames.Contains(normalised);
+    }
+
+    /// <summary>
+    /// 遞迴拆掉 <c>this</c>／<c>base</c>／括號／cast／<c>!</c>，取出最裡面的識別字。
+    /// </summary>
+    private static string? NormaliseToIdentifier(ExpressionSyntax expression) => expression switch
+    {
+        IdentifierNameSyntax identifier => identifier.Identifier.ValueText,
+        ParenthesizedExpressionSyntax parenthesized =>
+            NormaliseToIdentifier(parenthesized.Expression),
+        CastExpressionSyntax cast => NormaliseToIdentifier(cast.Expression),
+        PostfixUnaryExpressionSyntax postfix => NormaliseToIdentifier(postfix.Operand),
+        MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax or BaseExpressionSyntax } member =>
+            member.Name.Identifier.ValueText,
+        _ => null,
+    };
+
+    /// <summary>
+    /// 接收者裡出現已知的 DbContext 識別字，卻沒有被分類成 DbContext 存取。
+    /// </summary>
+    /// <remarks>
+    /// 這是最後一道網子：語意與語法都認不出來的寫法，一律當成違規而不是跳過。
+    /// 沒有它，只要想出一種兩邊都認不得的接收者形狀，整段查詢就會靜默離開白名單。
+    /// </remarks>
+    private static IEnumerable<string> UnclassifiedContextUseViolations(
+        string fileName,
+        CompilationUnitSyntax root,
+        GuardContext context,
+        IReadOnlyCollection<string> approvedComponents)
+    {
+        // 先找出所有「接收者確實是 DbContext」的存取。掛在它們後面的鏈
+        // （.AsNoTracking().Where(...)）接收者是 IQueryable 不是 DbContext，
+        // 那是正常寫法，不是看不懂。
+        var classified = root.DescendantNodes().OfType<MemberAccessExpressionSyntax>()
+            .Where(candidate => IsContextReference(candidate.Expression, context))
+            .ToHashSet();
+
+        foreach (var access in root.DescendantNodes().OfType<MemberAccessExpressionSyntax>())
+        {
+            if (classified.Contains(access) ||
+                access.Expression.DescendantNodesAndSelf()
+                    .OfType<MemberAccessExpressionSyntax>()
+                    .Any(classified.Contains))
+            {
+                continue;
+            }
+
+            // 把 DbContext 交給另一個**同樣列在白名單裡**的 Refund 元件是允許的：
+            // 那個元件有自己的資料表與欄位清單，會在它自己的檔案裡被檢查。
+            // 交給白名單外的型別就不行 —— 那條路徑沒有任何人在看。
+            if (access.Expression.DescendantNodesAndSelf()
+                .OfType<ObjectCreationExpressionSyntax>()
+                .Any(creation => approvedComponents.Contains(
+                    creation.Type.ToString().Split('.')[^1], StringComparer.Ordinal)))
+            {
+                continue;
+            }
+
+            // 到這裡代表 DbContext 是被「傳來傳去」而不是被點出來的 ——
+            // 例如 Pick(_context).Orders。這種形狀分析器讀不出它查了什麼。
+            var mentionsEntry = access.Expression.DescendantNodesAndSelf()
+                .OfType<IdentifierNameSyntax>()
+                .Any(identifier => context.EntryNames.Contains(identifier.Identifier.ValueText));
+
+            if (mentionsEntry)
+            {
+                yield return
+                    $"{fileName} 有一個守門分析器看不懂的 DbContext 用法：{access}。" +
+                    "無法確認它存取了哪張表或哪個欄位，因此一律視為違規。";
+            }
+        }
     }
 
     private static bool MentionsContextType(CompilationUnitSyntax root) =>
@@ -146,8 +302,10 @@ internal static class RefundInfrastructureGuard
 
             foreach (var variable in root.DescendantNodes().OfType<VariableDeclaratorSyntax>())
             {
-                if (variable.Initializer?.Value is IdentifierNameSyntax initializer &&
-                    names.Contains(initializer.Identifier.ValueText) &&
+                // 正規化過再比：`var db = this._context;` 也要追得到。
+                if (variable.Initializer?.Value is { } initializer &&
+                    NormaliseToIdentifier(initializer) is { } source &&
+                    names.Contains(source) &&
                     names.Add(variable.Identifier.ValueText))
                 {
                     added = true;
@@ -156,10 +314,10 @@ internal static class RefundInfrastructureGuard
 
             foreach (var assignment in root.DescendantNodes().OfType<AssignmentExpressionSyntax>())
             {
-                if (assignment.Right is IdentifierNameSyntax right &&
-                    names.Contains(right.Identifier.ValueText) &&
-                    assignment.Left is IdentifierNameSyntax left &&
-                    names.Add(left.Identifier.ValueText))
+                if (NormaliseToIdentifier(assignment.Right) is { } right &&
+                    names.Contains(right) &&
+                    NormaliseToIdentifier(assignment.Left) is { } left &&
+                    names.Add(left))
                 {
                     added = true;
                 }
@@ -183,12 +341,11 @@ internal static class RefundInfrastructureGuard
     /// 舊版寫死之後，把欄位改名成 <c>_dbContext</c> 就完全繞過這一層。
     /// </remarks>
     private static IEnumerable<string> BypassViolations(
-        string fileName, CompilationUnitSyntax root, HashSet<string> contextNames)
+        string fileName, CompilationUnitSyntax root, GuardContext context)
     {
         foreach (var access in root.DescendantNodes().OfType<MemberAccessExpressionSyntax>())
         {
-            if (access.Expression is not IdentifierNameSyntax owner ||
-                !contextNames.Contains(owner.Identifier.ValueText))
+            if (!IsContextReference(access.Expression, context))
             {
                 continue;
             }
@@ -197,7 +354,7 @@ internal static class RefundInfrastructureGuard
             if (member is "Set" or "Database")
             {
                 yield return
-                    $"{fileName} 使用了 {owner.Identifier.ValueText}.{member}，" +
+                    $"{fileName} 使用了 {access.Expression}.{member}，" +
                     "那會繞過 B1 的逐欄位白名單。";
             }
         }
@@ -224,11 +381,11 @@ internal static class RefundInfrastructureGuard
     /// 前面的 <c>_context.OrderItems</c> 才知道在查哪張表，切太細就綁不出來源。
     /// </remarks>
     private static List<SyntaxNode> QueryExpressions(
-        CompilationUnitSyntax root, HashSet<string> contextNames)
+        CompilationUnitSyntax root, GuardContext context)
     {
         var roots = new List<SyntaxNode>();
 
-        foreach (var access in TableAccesses(root, contextNames))
+        foreach (var access in TableAccesses(root, context))
         {
             SyntaxNode outermost = access;
 
@@ -259,11 +416,10 @@ internal static class RefundInfrastructureGuard
             or AccessorDeclarationSyntax;
 
     private static IEnumerable<MemberAccessExpressionSyntax> TableAccesses(
-        SyntaxNode scope, HashSet<string> contextNames) =>
+        SyntaxNode scope, GuardContext context) =>
         scope.DescendantNodesAndSelf().OfType<MemberAccessExpressionSyntax>()
             .Where(access =>
-                access.Expression is IdentifierNameSyntax owner &&
-                contextNames.Contains(owner.Identifier.ValueText) &&
+                IsContextReference(access.Expression, context) &&
                 !NotTables.Contains(access.Name.Identifier.ValueText, StringComparer.Ordinal) &&
                 access.Name.Identifier.ValueText is not ("Set" or "Database"));
 
@@ -273,10 +429,10 @@ internal static class RefundInfrastructureGuard
     private static IEnumerable<string> QueryViolations(
         string fileName,
         SyntaxNode query,
-        HashSet<string> contextNames,
+        GuardContext context,
         IReadOnlyDictionary<string, string[]> allowedTables)
     {
-        var tables = TableAccesses(query, contextNames)
+        var tables = TableAccesses(query, context)
             .Select(TableName)
             .Distinct(StringComparer.Ordinal)
             .ToArray();
@@ -305,7 +461,7 @@ internal static class RefundInfrastructureGuard
             yield break;
         }
 
-        var binder = new AliasBinder(contextNames);
+        var binder = new AliasBinder(context);
         binder.Bind(query);
 
         foreach (var alias in binder.UnboundAliases)
@@ -435,7 +591,7 @@ internal static class RefundInfrastructureGuard
     /// <c>(IdentityUserRole&lt;string&gt; outer, IdentityRole inner) =&gt;</c>。
     /// </para>
     /// </remarks>
-    private sealed class AliasBinder(HashSet<string> contextNames)
+    private sealed class AliasBinder(GuardContext context)
     {
         private readonly Dictionary<string, HashSet<string>> _bound = new(StringComparer.Ordinal);
         private readonly HashSet<string> _unbound = new(StringComparer.Ordinal);
@@ -537,7 +693,7 @@ internal static class RefundInfrastructureGuard
 
         /// <summary>接收者運算式裡查到的資料表。</summary>
         private HashSet<string> SourceTables(ExpressionSyntax expression) =>
-            [.. TableAccesses(expression, contextNames).Select(TableName)];
+            [.. TableAccesses(expression, context).Select(TableName)];
 
         private void DeclareAll(IReadOnlyList<ParameterSyntax> parameters, HashSet<string> tables)
         {
