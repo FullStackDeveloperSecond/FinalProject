@@ -103,12 +103,20 @@ const isDirty = computed(() => {
 // "儲存為我的清單" is gated, not just left for the backend to reject after the fact.
 const itemsValidation = computed(() => validateBuildItems(items.value))
 
+// 組長 PR #35 round-6 review, P2-2: `save()` only ever gated on `itemsValidation` — the name field
+// could be cleared to blank/whitespace-only and "儲存變更" would still submit it, even though the
+// backend's `UpdateBuildListRequest.Name` is `[Required, StringLength(160, MinimumLength = 1)]`
+// (BuildListContracts.cs) and would reject it. NewBuildPage.vue's own `canSave` already requires
+// `name.value.trim().length > 0` for the same field on create — this mirrors that exact check for
+// update, rather than leaving this page as the one place a blank name can reach the backend.
+const isNameValid = computed(() => name.value.trim().length > 0)
+
 const unsavedEditsMessage = computed(() => (
   isDirty.value ? '您有尚未儲存的變更，請先按「儲存變更」或「放棄變更」，才能分享或加入購物車。' : null
 ))
 
 async function save(): Promise<void> {
-  if (!buildList.value || !itemsValidation.value.isValid) {
+  if (!buildList.value || !itemsValidation.value.isValid || !isNameValid.value) {
     return
   }
 
@@ -247,7 +255,14 @@ const cartBlockReason = computed<string | null>(() => {
   }
   return null
 })
-const canAddToCart = computed(() => cartBlockReason.value === null)
+// 組長 PR #35 round-6 review, P2-2: the quantity `<input type="number" min="1" max="8">` is a UI
+// hint only — nothing stopped a manually-typed 0, 9, a decimal, or an emptied field from reaching
+// `addBuildToCart()`. The backend's `AddBuildToCartRequest` is `[Range(1, 8)] int Quantity`
+// (BuildListContracts.cs); `cartQuantity` itself can end up as a non-numeric string here (Vue's
+// `.number` modifier falls back to the raw string when `parseFloat` can't parse it, e.g. an
+// emptied field), so this checks `Number.isInteger` rather than trusting the ref's declared type.
+const isCartQuantityValid = computed(() => Number.isInteger(cartQuantity.value) && cartQuantity.value >= 1 && cartQuantity.value <= 8)
+const canAddToCart = computed(() => cartBlockReason.value === null && isCartQuantityValid.value)
 
 // 組長 PR #35 review, item 4: a fresh crypto.randomUUID() on every call meant a retry after a
 // lost response (backend wrote it, shopper never saw the reply) used a different Idempotency-Key
@@ -284,7 +299,7 @@ watch(() => props.buildId, () => {
 })
 
 async function addBuildToCart(): Promise<void> {
-  if (!buildList.value || isDirty.value) {
+  if (!buildList.value || isDirty.value || !isCartQuantityValid.value) {
     return
   }
   const requestedBuildId = props.buildId
@@ -389,6 +404,12 @@ async function addBuildToCart(): Promise<void> {
           type="text"
           maxlength="160"
         >
+        <p
+          v-if="!isNameValid"
+          class="build-detail-page__validation-error"
+        >
+          清單名稱不可為空白。
+        </p>
       </div>
 
       <BuildItemsEditor
@@ -412,7 +433,7 @@ async function addBuildToCart(): Promise<void> {
       <div class="build-detail-page__actions">
         <button
           type="button"
-          :disabled="!itemsValidation.isValid || updateBuildList.isPending.value"
+          :disabled="!itemsValidation.isValid || !isNameValid || updateBuildList.isPending.value"
           @click="save"
         >
           儲存變更
@@ -513,6 +534,12 @@ async function addBuildToCart(): Promise<void> {
             加入購物車
           </button>
         </div>
+        <p
+          v-if="!isCartQuantityValid"
+          class="build-detail-page__validation-error"
+        >
+          數量須為 1–8 之間的整數。
+        </p>
         <p v-if="cartResultMessage">
           {{ cartResultMessage }}
         </p>
@@ -586,6 +613,12 @@ async function addBuildToCart(): Promise<void> {
   padding-left: 1.25rem;
   color: #b91c1c;
   font-size: 0.875rem;
+}
+
+.build-detail-page__validation-error {
+  margin: 0.25rem 0 0;
+  font-size: 0.8125rem;
+  color: #b91c1c;
 }
 
 .build-detail-page__actions {

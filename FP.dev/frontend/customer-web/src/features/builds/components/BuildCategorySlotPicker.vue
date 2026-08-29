@@ -47,13 +47,32 @@ let searchToken = 0
 // re-open results for a query the input no longer shows. Bumping the token on every query change,
 // synchronously, invalidates any request already in flight the instant the input changes, not
 // just future ones.
+//
+// 組長 PR #35 round-6 review, P2-1: bumping the token alone left `isSearching`/`isLoadingSkus`
+// stuck true whenever the invalidated request was the *only* thing that would have cleared them.
+// `runSearch`'s/`pickProduct`'s own `finally` only resets loading `if (token === searchToken)` —
+// once the token has moved on, that guard permanently skips the reset for that stale call. That
+// self-heals as long as a *new* request eventually settles and clears the (now-current) loading
+// flag itself — but clearing the query takes the early-return branch below, which never fires a
+// new request at all, so nothing was left to ever flip loading back to false. Resetting both flags
+// synchronously here, the moment the query changes, means the picker is never left mid-load for a
+// request that no longer has anywhere to report back to.
+//
+// Self-review finding (same root cause as P2-1): `searchError` had the identical gap —
+// `runSearch` only clears it at the *start* of a new attempt, so clearing the query took the same
+// early-return branch and could leave "搜尋失敗，請重試。" showing over an empty, untouched input
+// indefinitely. `skuLoadError` was already reset here; `searchError` belongs in the same reset for
+// the same reason.
 watch(query, (value) => {
   if (debounceHandle) {
     clearTimeout(debounceHandle)
   }
   searchToken += 1
   activeProduct.value = null
+  searchError.value = null
   skuLoadError.value = null
+  isSearching.value = false
+  isLoadingSkus.value = false
   if (!value.trim()) {
     results.value = []
     isOpen.value = false

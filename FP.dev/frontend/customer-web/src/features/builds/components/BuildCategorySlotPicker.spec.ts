@@ -177,3 +177,76 @@ describe('BuildCategorySlotPicker', () => {
     expect(wrapper.text()).not.toContain('A 的結果')
   })
 })
+
+describe('BuildCategorySlotPicker — stale loading/error state after invalidation (組長 PR #35 round-6 review, P2-1)', () => {
+  it('does not stay stuck showing "搜尋中…" after the query is cleared while that search is still in flight', async () => {
+    let resolveSearchA!: (page: unknown) => void
+    mockSearchProducts.mockImplementationOnce(() => new Promise((resolve) => { resolveSearchA = resolve }))
+
+    const wrapper = mount(BuildCategorySlotPicker, { props: { categoryCode: 'CPU' } })
+    await wrapper.find('input').setValue('A')
+    await new Promise((resolve) => setTimeout(resolve, 320))
+    expect(wrapper.text()).toContain('搜尋中')
+
+    // Cleared before A's (slow) search resolves — the cleared-query branch never fires a new
+    // request, so nothing else would ever flip `isSearching` back to false on its own.
+    await wrapper.find('input').setValue('')
+    expect(wrapper.text()).not.toContain('搜尋中')
+
+    resolveSearchA({ items: [productCard()], pageNumber: 1, pageSize: 10, totalCount: 1, totalPages: 1 })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(wrapper.text()).not.toContain('搜尋中')
+  })
+
+  it('does not stay stuck showing "載入規格中…" (with results disabled) after the query changes while a SKU-detail fetch is still in flight', async () => {
+    mockSearchProducts.mockResolvedValue({ items: [productCard()], pageNumber: 1, pageSize: 10, totalCount: 1, totalPages: 1 })
+    let resolveDetail!: (detail: unknown) => void
+    mockGetProductDetail.mockImplementationOnce(() => new Promise((resolve) => { resolveDetail = resolve }))
+
+    const wrapper = mount(BuildCategorySlotPicker, { props: { categoryCode: 'CPU' } })
+    await typeQuery(wrapper, '測試')
+    await vi.waitFor(() => expect(wrapper.text()).toContain('測試商品'))
+
+    await wrapper.findAll('button').find((button) => button.text().includes('測試商品'))!.trigger('click')
+    expect(wrapper.text()).toContain('載入規格中')
+
+    // The shopper starts a new search before the multi-SKU product's detail fetch resolves.
+    mockSearchProducts.mockResolvedValueOnce({ items: [], pageNumber: 1, pageSize: 10, totalCount: 0, totalPages: 0 })
+    await wrapper.find('input').setValue('別的商品')
+    expect(wrapper.text()).not.toContain('載入規格中')
+
+    resolveDetail(productDetail({
+      skus: [
+        {
+          publicId: 'sku-default', skuCode: 'SKU-DEFAULT', name: 'Default', price: { list: 1000, sale: null, currency: 'TWD' },
+          availability: 'inStock', maxPurchasableQuantity: 10, specifications: [],
+          dimensions: { weightKg: null, lengthCm: null, widthCm: null, heightCm: null }, isDefault: true,
+        },
+        {
+          publicId: 'sku-variant', skuCode: 'SKU-VARIANT', name: 'Variant', price: { list: 1500, sale: null, currency: 'TWD' },
+          availability: 'inStock', maxPurchasableQuantity: 10, specifications: [],
+          dimensions: { weightKg: null, lengthCm: null, widthCm: null, heightCm: null }, isDefault: false,
+        },
+      ],
+    }))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    // Late detail response must not reopen the abandoned product's SKU list either.
+    expect(wrapper.text()).not.toContain('載入規格中')
+    expect(wrapper.text()).not.toContain('Variant')
+  })
+
+  it('does not leave a stale "搜尋失敗，請重試。" showing after the query is cleared following a failed search', async () => {
+    let rejectSearchA!: (error: unknown) => void
+    mockSearchProducts.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectSearchA = reject }))
+
+    const wrapper = mount(BuildCategorySlotPicker, { props: { categoryCode: 'CPU' } })
+    await wrapper.find('input').setValue('A')
+    await new Promise((resolve) => setTimeout(resolve, 320))
+    rejectSearchA(new Error('boom'))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(wrapper.text()).toContain('搜尋失敗')
+
+    await wrapper.find('input').setValue('')
+    expect(wrapper.text()).not.toContain('搜尋失敗')
+  })
+})

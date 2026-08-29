@@ -340,6 +340,63 @@ describe('BuildDetailPage — item validation (組長 PR #35 round-3 review, P1-
   })
 })
 
+describe('BuildDetailPage — name validation before submit (組長 PR #35 round-6 review, P2-2)', () => {
+  /**
+   * `save()` used to gate only on `itemsValidation`; the name field could be cleared to blank or
+   * whitespace-only and "儲存變更" would still submit it, even though the backend's
+   * `UpdateBuildListRequest.Name` is `[Required, StringLength(160, MinimumLength = 1)]`
+   * (BuildListContracts.cs) and would reject it. NewBuildPage.vue's own `canSave` already requires
+   * `name.value.trim().length > 0` for the same field on create.
+   */
+  it('disables 儲存變更 and does not submit when the name is cleared to whitespace-only', async () => {
+    mockGetBuildList.mockResolvedValue(baseBuild())
+    const wrapper = await mountPage()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('我的組裝'))
+
+    const nameInput = wrapper.find('#build-detail-name')
+    const saveButton = wrapper.findAll('button').find((button) => button.text() === '儲存變更')!
+
+    await nameInput.setValue('   ')
+    expect(saveButton.attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain('清單名稱不可為空白')
+    await saveButton.trigger('click')
+    expect(mockUpdateBuildList).not.toHaveBeenCalled()
+
+    await nameInput.setValue('新的名字')
+    expect(saveButton.attributes('disabled')).toBeUndefined()
+    expect(wrapper.text()).not.toContain('清單名稱不可為空白')
+  })
+})
+
+describe('BuildDetailPage — cart quantity validation before submit (組長 PR #35 round-6 review, P2-2)', () => {
+  /**
+   * The `<input type="number" min="1" max="8">` on 數量 is a UI hint only — nothing stopped a
+   * manually-typed 0, 9, a decimal, or an emptied field from reaching `addBuildToCart()`, even
+   * though the backend's `AddBuildToCartRequest` is `[Range(1, 8)] int Quantity`
+   * (BuildListContracts.cs).
+   */
+  it('disables 加入購物車 and does not submit for an out-of-1–8-range, non-integer, or emptied quantity', async () => {
+    mockGetBuildList.mockResolvedValue(baseBuild())
+    const wrapper = await mountPage()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('我的組裝'))
+
+    const quantityInput = wrapper.find('#cart-quantity')
+    const cartButton = wrapper.findAll('button').find((button) => button.text() === '加入購物車')!
+
+    for (const invalid of ['9', '0', '1.5', '']) {
+      await quantityInput.setValue(invalid)
+      expect(cartButton.attributes('disabled')).toBeDefined()
+      expect(wrapper.text()).toContain('數量須為 1–8 之間的整數')
+    }
+    await cartButton.trigger('click')
+    expect(mockAddBuildToCart).not.toHaveBeenCalled()
+
+    await quantityInput.setValue('3')
+    expect(cartButton.attributes('disabled')).toBeUndefined()
+    expect(wrapper.text()).not.toContain('數量須為 1–8 之間的整數')
+  })
+})
+
 describe('BuildDetailPage — post-save baseline resync (組長 PR #35 round-3 review)', () => {
   /**
    * updateBuildList's own onSuccess already writes the mutation's response into the query cache

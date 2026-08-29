@@ -350,6 +350,108 @@ describe('CompatibilityRulesPage — front-end bounds validation before submit (
   })
 })
 
+describe('CompatibilityRulesPage — test-tool merges same-SKU quantities before the 1–8 bound (組長 PR #35 round-6 review, P2-3)', () => {
+  /**
+   * Each row individually satisfied the 1–8 quantity bound, but the backend merges test items by
+   * SkuPublicId *before* validating (EfCompatibilityCheckService.MergeAndValidateItems, the same
+   * merge customer-web's BuildItemsEditor.vue already mirrors) — so two rows of the same SKU that
+   * individually pass 1–8 (5 + 4 = 9) still reject the whole test run once merged. The tool now
+   * merges a repeated SKU into its existing row instead of appending a duplicate, and validates
+   * the 1–8 bound against the merged total.
+   */
+  it('4+4 可執行：merges a repeated SKU into one row instead of two separate in-bounds rows', async () => {
+    const wrapper = mountPage()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('CPU_SOCKET'))
+
+    const skuInput = wrapper.find('input[aria-label="SKU PublicId"]')
+    const quantityInput = wrapper.find('.compatibility-rules-page__add-row input[type="number"]')
+    const addItemButton = wrapper.findAll('button').find((button) => button.text() === '加入項目')!
+
+    await skuInput.setValue('11111111-1111-1111-1111-111111111111')
+    await quantityInput.setValue('4')
+    await addItemButton.trigger('click')
+    expect(wrapper.findAll('.compatibility-rules-page__test-items tbody tr')).toHaveLength(1)
+
+    await skuInput.setValue('11111111-1111-1111-1111-111111111111')
+    await quantityInput.setValue('4')
+    await addItemButton.trigger('click')
+    const rows = wrapper.findAll('.compatibility-rules-page__test-items tbody tr')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.text()).toContain('8')
+
+    const runButton = wrapper.findAll('button').find((button) => button.text() === '執行測試')!
+    mockTestCompatibilityRules.mockResolvedValue({
+      overall: 'compatible', results: [], settingsVersion: 7, evaluatedAtUtc: new Date().toISOString(),
+    })
+    await runButton.trigger('click')
+    await vi.waitFor(() => expect(mockTestCompatibilityRules).toHaveBeenCalledWith(
+      expect.objectContaining({ items: [{ skuPublicId: '11111111-1111-1111-1111-111111111111', quantity: 8 }] }),
+    ))
+  })
+
+  it('5+4 必須阻擋且不呼叫 API：blocks adding more of the same SKU once the merged total would exceed 8', async () => {
+    const wrapper = mountPage()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('CPU_SOCKET'))
+
+    const skuInput = wrapper.find('input[aria-label="SKU PublicId"]')
+    const quantityInput = wrapper.find('.compatibility-rules-page__add-row input[type="number"]')
+    const addItemButton = wrapper.findAll('button').find((button) => button.text() === '加入項目')!
+
+    await skuInput.setValue('22222222-2222-2222-2222-222222222222')
+    await quantityInput.setValue('5')
+    await addItemButton.trigger('click')
+    expect(wrapper.findAll('.compatibility-rules-page__test-items tbody tr')).toHaveLength(1)
+
+    await skuInput.setValue('22222222-2222-2222-2222-222222222222')
+    await quantityInput.setValue('4')
+    expect(addItemButton.attributes('disabled')).toBeDefined()
+    expect(wrapper.find('.compatibility-rules-page__add-row').text()).toContain('合併後數量為 9')
+    await addItemButton.trigger('click')
+
+    const rows = wrapper.findAll('.compatibility-rules-page__test-items tbody tr')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.text()).toContain('5')
+
+    // The blocked add never reached testItems, so running the test with what's actually there
+    // sends the original, still-valid 5 — never a merged 9 the backend would reject.
+    const runButton = wrapper.findAll('button').find((button) => button.text() === '執行測試')!
+    mockTestCompatibilityRules.mockResolvedValue({
+      overall: 'compatible', results: [], settingsVersion: 7, evaluatedAtUtc: new Date().toISOString(),
+    })
+    await runButton.trigger('click')
+    await vi.waitFor(() => expect(mockTestCompatibilityRules).toHaveBeenCalledWith(
+      expect.objectContaining({ items: [{ skuPublicId: '22222222-2222-2222-2222-222222222222', quantity: 5 }] }),
+    ))
+  })
+
+  it('does not count a merge into an existing row toward the 20-row ceiling', async () => {
+    const wrapper = mountPage()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('CPU_SOCKET'))
+
+    const skuInput = wrapper.find('input[aria-label="SKU PublicId"]')
+    const quantityInput = wrapper.find('.compatibility-rules-page__add-row input[type="number"]')
+    const addItemButton = wrapper.findAll('button').find((button) => button.text() === '加入項目')!
+
+    for (let index = 0; index < 20; index += 1) {
+      await skuInput.setValue(`4444444${index.toString().padStart(4, '0')}-1111-1111-1111-111111111111`)
+      await quantityInput.setValue('1')
+      await addItemButton.trigger('click')
+    }
+    expect(wrapper.findAll('.compatibility-rules-page__test-items tbody tr')).toHaveLength(20)
+
+    // Adding more of the *first* row's SKU merges into it — the row count never grows past 20, so
+    // this must stay allowed even though a genuinely new SKU would be rejected at this point.
+    await skuInput.setValue('44444440000-1111-1111-1111-111111111111')
+    await quantityInput.setValue('2')
+    expect(addItemButton.attributes('disabled')).toBeUndefined()
+    await addItemButton.trigger('click')
+
+    const rows = wrapper.findAll('.compatibility-rules-page__test-items tbody tr')
+    expect(rows).toHaveLength(20)
+    expect(rows[0]!.text()).toContain('3')
+  })
+})
+
 describe('CompatibilityRulesPage — warning-draft RowVersion staleness (組長 PR #35 round-3 review, P1-1)', () => {
   /**
    * The draft used to hold only the edited value, while `rowVersion` was read fresh off the

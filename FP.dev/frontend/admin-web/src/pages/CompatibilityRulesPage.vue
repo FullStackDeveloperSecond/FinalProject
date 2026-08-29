@@ -212,18 +212,47 @@ const testSelectedRuleCodes = ref<string[]>([])
 // customer-web already enforces in features/builds/types.ts) was not — an admin could keep adding
 // rows past 20 and only find out when the backend rejected the whole test run.
 const MAX_TEST_ITEMS = 20
-const isTestQuantityValid = computed(() => isValidBoundedNumber(testDraftSku.quantity, 1, 8, true))
+const MAX_TEST_ITEM_QUANTITY = 8
+const isTestQuantityValid = computed(() => isValidBoundedNumber(testDraftSku.quantity, 1, MAX_TEST_ITEM_QUANTITY, true))
 const isTestItemCountValid = computed(() => testItems.value.length <= MAX_TEST_ITEMS)
+
+const existingTestItemIndex = computed(() => testItems.value.findIndex((item) => item.skuPublicId === testDraftSku.skuPublicId.trim()))
+
+// 組長 PR #35 round-6 review, P2-3: adding the same SKU twice (e.g. 5 + 5, each individually
+// within 1–8) used to create two separate rows — but the backend merges test items by SkuPublicId
+// *before* validating (the same EfCompatibilityCheckService.MergeAndValidateItems that
+// customer-web's BuildItemsEditor.vue already mirrors for the shopper-facing editor), so a merged
+// 10 rejects the whole test run. Merging here instead of appending a duplicate row keeps the
+// displayed list showing exactly what the backend will evaluate, and lets the 1–8 bound be checked
+// against the post-merge total rather than each entry in isolation.
+const mergedTestQuantity = computed(() => {
+  const existingIndex = existingTestItemIndex.value
+  const existingQuantity = existingIndex === -1 ? 0 : Number(testItems.value[existingIndex]!.quantity)
+  return existingQuantity + testDraftSku.quantity
+})
+const isMergedTestQuantityValid = computed(() => mergedTestQuantity.value <= MAX_TEST_ITEM_QUANTITY)
+
 const isAddTestItemValid = computed(() =>
   testDraftSku.skuPublicId.trim().length > 0
   && isTestQuantityValid.value
-  && testItems.value.length < MAX_TEST_ITEMS)
+  && isMergedTestQuantityValid.value
+  // Merging into an existing row never grows the list, so the 20-row ceiling only applies to a
+  // genuinely new SKU.
+  && (existingTestItemIndex.value !== -1 || testItems.value.length < MAX_TEST_ITEMS))
 
 function addTestItem(): void {
   if (!isAddTestItemValid.value) {
     return
   }
-  testItems.value = [...testItems.value, { skuPublicId: testDraftSku.skuPublicId.trim(), quantity: testDraftSku.quantity }]
+  const skuPublicId = testDraftSku.skuPublicId.trim()
+  const existingIndex = existingTestItemIndex.value
+  if (existingIndex === -1) {
+    testItems.value = [...testItems.value, { skuPublicId, quantity: testDraftSku.quantity }]
+  } else {
+    const next = [...testItems.value]
+    next[existingIndex] = { ...next[existingIndex]!, quantity: Number(next[existingIndex]!.quantity) + testDraftSku.quantity }
+    testItems.value = next
+  }
   testDraftSku.skuPublicId = ''
   testDraftSku.quantity = 1
 }
@@ -497,7 +526,13 @@ const severityLabels: Record<string, string> = {
             數量須為 1–8 之間的整數。
           </p>
           <p
-            v-else-if="testItems.length >= 20"
+            v-else-if="!isMergedTestQuantityValid"
+            class="compatibility-rules-page__validation-error"
+          >
+            此 SKU 已在清單中，合併後數量為 {{ mergedTestQuantity }}，超過每項上限 8，請減少數量或先移除既有項目。
+          </p>
+          <p
+            v-else-if="testItems.length >= 20 && existingTestItemIndex === -1"
             class="compatibility-rules-page__validation-error"
           >
             測試項目最多 20 筆，請先移除部分項目。
