@@ -10,6 +10,9 @@
     <PackageVersion Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.10" />
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.10" />
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.10" />
+    <!-- ⚠ 新增：僅供測試專案的 B1 守門分析器解析 C# 語法樹用，不進產品程式。
+         alex 於 PR #16 2026-08-29 review 第 5 點指定的方向（取代逐輪補 regex 例外）。 -->
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.10" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.10" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0" />

@@ -106,34 +106,55 @@ Orders／Returns 模組的表。這件事由 yinyin 於 PR #16 主動回報，al
 | 2 | `NoRefundInfrastructureComponentOwnsItsOwnTransaction` |
 | 3 | `EveryRefundInfrastructureComponentStaysInsideItsNamedException` |
 | 4 | 同上；白名單即該測試內的 `Allowed` 字典，逐元件／資料表／欄位 |
-| 5 | `NoRefundInfrastructureComponentBypassesTheWhitelist` |
-| 6 | 同 3；`DbContextFieldNames` 依型別辨識，並拒絕區域別名 |
+| 5 | 同 3；`Set<T>`／`Database`／Raw SQL 由分析器直接拒絕 |
+| 6 | 同 3；DbContext 入口依型別辨識 |
 
-守門測試支援三種寫法：method syntax 單參數（`alias =>`）、多參數
-（`(outer, inner) =>`）與 query syntax（`from`／`join alias in`）。
+### 守門的實作：C# 語法樹，不是 regex
 
-**fail-closed 是逐個參數**，不是逐段：受限查詢裡只要有任何一個 lambda 參數綁不到
-資料表就直接失敗。先前只要求整段「至少解析到一個欄位」，於是同一段裡有一個參數
-成功、其他沒認出來的就被靜默忽略。
+分析器是 `RefundInfrastructureGuard`，用 Roslyn 解析語法樹
+（`Microsoft.CodeAnalysis.CSharp`，只加在測試專案，不進產品程式）。
 
-DbContext 入口**依型別辨識**（掃 `DoSelectDbContext` 欄位），不寫死 `_context`
-這個名字，並禁止把它指派給別的區域變數 —— 兩者都是只要改個名字就能讓整段查詢
-或整個檔案離開守門範圍的洞。
+**換掉 regex 的理由**：2026-08-29 alex 在 PR #16 指出，regex 版本每輪只補一種例外，
+而合法的 C# 寫法還有很多種 —— 欄位不加底線就辨識不到任何入口、整個檔案靜默略過；
+禁止清單寫死 `_context.Set<` 所以改個欄位名就繞過；有型別的多參數 lambda 與
+`EF.Property` 都認不出來。這不是補一條 regex 就會結束的問題。
 
-已實測會擋下七種情況：
+三條原則：
+
+1. **入口靠型別找。** 欄位、屬性、參數（含 primary constructor）、區域變數，
+   凡是宣告成 `DoSelectDbContext` 的識別字都算，名字取什麼都躲不掉；
+   `var db = _context;` 這種別名一併追蹤到不動點。
+2. **禁止規則由實際找到的入口名稱產生**，不寫死 `_context`。
+3. **認不出來就是違規。** 綁不到來源表的查詢參數、解析不了的 `EF.Property`、
+   檔案用了 `DoSelectDbContext` 卻找不到任何入口 —— 一律回報，不靜默略過。
+
+參數綁定認得：query syntax（`from`／`join alias in`）、單參數 lambda（綁到接收者的表）、
+`Join`／`GroupJoin` 的 key selector 與 result selector（分別綁 outer 與 inner）。
+lambda 參數**有沒有寫型別都一樣認得** —— 語法樹給的是參數識別字，與型別註記無關。
+來源表無法唯一決定時（Join 之後再投影），要求成員在**每一張**候選表的白名單內，取交集。
+
+### 反向測試
+
+守門對真實檔案是綠的，只代表「目前沒踩線」，不代表「踩線會被抓到」。
+`RefundInfrastructureGuardTests` 用合成程式碼反向驗證，涵蓋：
 
 | 情況 | 結果 |
 |---|---|
-| 新增未列名的元件 | 紅 |
-| 既有元件存取白名單外的**表** | 紅 |
-| 核准表上的未核准**欄位**（method 單參數） | 紅 |
-| 核准表上的未核准**欄位**（query syntax） | 紅 |
-| 核准表上的未核准**欄位**（多參數 result selector） | 紅 |
-| `var db = _context; db.Orders...` 區域別名 | 紅 |
-| 解析不得的寫法碰受限的表 | 紅（fail-closed） |
+| 核准表上的核准欄位 | 綠（確認合成程式碼本身乾淨） |
+| 不以底線開頭的 DbContext 欄位 + 未核准欄位 | 紅 |
+| `_dbContext.Set<T>()` | 紅 |
+| `_dbContext.Database` | 紅 |
+| 有型別的多參數 lambda 裡的未核准欄位 | 紅 |
+| `EF.Property(alias, "未核准欄位")` | 紅 |
+| `EF.Property` 欄位名不是字面值 | 紅（fail-closed） |
+| `var db = _context;` 區域別名 | 紅 |
+| 完全不在白名單上的表 | 紅 |
+| 綁不出來源表的多參數 lambda | 紅（fail-closed） |
+| 找不到任何 DbContext 入口 | 紅（fail-closed） |
+| Raw SQL（任何接收者） | 紅 |
 
-另外實測：把欄位改名成 `_dbContext` **仍然受守門管轄**（改名後加入未核准欄位一樣變紅），
-因為偵測跟著型別走，不跟著名字走。
+另外在真實檔案上實測：在 `RefundReader` 的 `Where` 加一個未核准欄位
+（`order.OrderNumber`），守門立刻指名該檔案、該表、該欄位而變紅。
 
 ## 與 GATE-TX-01 的關係
 
