@@ -1,40 +1,7 @@
+using DoSelect.Application.Orders;
 using DoSelect.Domain.Invoicing;
 
 namespace DoSelect.Application.Invoicing;
-
-/// <summary>
-/// 一張訂單開立發票所需的交易快照。<paramref name="OrderId"/> 為內部識別，不得對外回傳。
-/// </summary>
-public sealed record InvoiceOrderSnapshot(
-    long OrderId,
-    InvoiceIssuanceTrigger Trigger,
-    bool OrderAlreadyHasInvoice,
-    decimal OrderPaidAmount,
-    SimulatedInvoiceBuyerType BuyerType,
-    string? BuyerEmail,
-    string? CarrierType,
-    string? CarrierValueMasked,
-    string? CompanyTaxId,
-    string? CompanyName,
-    IReadOnlyList<InvoiceOrderLine> Lines);
-
-/// <summary>
-/// 開立模擬發票所需的讀取埠。實作屬於 Infrastructure，不在此層存取 DbContext。
-/// </summary>
-public interface IInvoiceIssuanceReader
-{
-    Task<InvoiceOrderSnapshot?> FindOrderSnapshotAsync(
-        Guid orderPublicId,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// 取得下一個模擬發票流水號。必須在同一交易內原子取號，
-    /// 以配合 <c>SimulatedInvoices.InvoiceNumber</c> 的唯一索引。
-    /// </summary>
-    Task<int> NextInvoiceSequenceAsync(
-        DateTime issuedAtUtc,
-        CancellationToken cancellationToken = default);
-}
 
 public sealed record IssueInvoiceRequest(Guid OrderPublicId);
 
@@ -81,16 +48,48 @@ public sealed class IssueInvoiceResult
 /// </summary>
 public sealed class IssueInvoiceService
 {
-    private readonly IInvoiceIssuanceReader _issuanceReader;
+    private readonly IOrderInvoiceIssuanceReader _orderReader;
+    private readonly IInvoiceExistenceReader _existenceReader;
+    private readonly IInvoiceNumberSequence _numberSequence;
     private readonly TimeProvider _timeProvider;
 
-    public IssueInvoiceService(IInvoiceIssuanceReader issuanceReader, TimeProvider timeProvider)
+    public IssueInvoiceService(
+        IOrderInvoiceIssuanceReader orderReader,
+        IInvoiceExistenceReader existenceReader,
+        IInvoiceNumberSequence numberSequence,
+        TimeProvider timeProvider)
     {
-        ArgumentNullException.ThrowIfNull(issuanceReader);
+        ArgumentNullException.ThrowIfNull(orderReader);
+        ArgumentNullException.ThrowIfNull(existenceReader);
+        ArgumentNullException.ThrowIfNull(numberSequence);
         ArgumentNullException.ThrowIfNull(timeProvider);
 
-        _issuanceReader = issuanceReader;
+        _orderReader = orderReader;
+        _existenceReader = existenceReader;
+        _numberSequence = numberSequence;
         _timeProvider = timeProvider;
+    }
+
+    /// <summary>
+    /// 把 Orders 回報的訂單狀態映射成開票 trigger。
+    /// </summary>
+    /// <remarks>
+    /// 已付款一律映射為 <see cref="InvoiceIssuanceTrigger.OnlinePaymentSucceeded"/>：
+    /// 要分辨貨到付款得看 <c>PaymentAttempt.Method</c>，那是 Payments 模組的資料，
+    /// 不在 Issue #65 A1 裁定的 Orders 範圍內。目前這個映射不影響任何結果 ——
+    /// <c>InvoiceCalculator</c> 對兩個已付款 trigger 的處理完全相同。
+    /// 需要區分時要補 Payments 側的埠，不是讓 Orders 去讀 PaymentAttempts。
+    /// </remarks>
+    private static InvoiceIssuanceTrigger TriggerFor(InvoiceOrderSnapshot snapshot)
+    {
+        if (snapshot.OrderIsCancelled)
+        {
+            return InvoiceIssuanceTrigger.OrderCancelled;
+        }
+
+        return snapshot.OrderIsPaid
+            ? InvoiceIssuanceTrigger.OnlinePaymentSucceeded
+            : InvoiceIssuanceTrigger.NotPaid;
     }
 
     public async Task<IssueInvoiceResult> IssueAsync(
@@ -99,7 +98,7 @@ public sealed class IssueInvoiceService
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var snapshot = await _issuanceReader.FindOrderSnapshotAsync(
+        var snapshot = await _orderReader.FindIssuanceSnapshotAsync(
             request.OrderPublicId,
             cancellationToken);
 
@@ -116,11 +115,16 @@ public sealed class IssueInvoiceService
             throw new InvalidOperationException(
                 "A company invoice requires both the company tax id and the company name.");
         }
+        // 「已經開過票了嗎」問 Invoicing 自己的表，不放進 Orders 的快照。
+        var alreadyIssued = await _existenceReader.HasInvoiceAsync(
+            snapshot.OrderId,
+            cancellationToken);
+
         var calculation = InvoiceCalculator.Calculate(new InvoiceIssuanceRequest(
-            snapshot.Trigger,
-            snapshot.OrderAlreadyHasInvoice,
+            TriggerFor(snapshot),
+            alreadyIssued,
             snapshot.OrderPaidAmount,
-            snapshot.Lines));
+            [.. snapshot.Lines.Select(source => source.Line)]));
 
         if (!calculation.IsSuccess)
         {
@@ -128,7 +132,7 @@ public sealed class IssueInvoiceService
         }
 
         var issuedAtUtc = _timeProvider.GetUtcNow().UtcDateTime;
-        var sequence = await _issuanceReader.NextInvoiceSequenceAsync(issuedAtUtc, cancellationToken);
+        var sequence = await _numberSequence.NextAsync(issuedAtUtc, cancellationToken);
 
         return IssueInvoiceResult.Approved(new InvoiceIssuancePlan(
             snapshot.OrderId,

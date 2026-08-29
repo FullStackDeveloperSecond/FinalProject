@@ -1,4 +1,5 @@
 using DoSelect.Application.Invoicing;
+using DoSelect.Application.Orders;
 using DoSelect.Domain.Invoicing;
 
 namespace DoSelect.Application.Tests;
@@ -12,7 +13,7 @@ public sealed class IssueInvoiceServiceTests
     [Fact]
     public async Task IssueAsync_PlansAnInvoiceForAPaidOrder()
     {
-        var service = CreateService(new FakeInvoiceIssuanceReader(Snapshot()));
+        var service = CreateService(new FakeOrderInvoiceIssuanceReader(Snapshot()));
 
         var result = await service.IssueAsync(new IssueInvoiceRequest(OrderPublicId));
 
@@ -28,7 +29,9 @@ public sealed class IssueInvoiceServiceTests
     [Fact]
     public async Task IssueAsync_NumbersTheInvoiceWithTheDemoMarker()
     {
-        var service = CreateService(new FakeInvoiceIssuanceReader(Snapshot(), sequence: 42));
+        var service = CreateService(
+            new FakeOrderInvoiceIssuanceReader(Snapshot()),
+            new FakeInvoiceNumberSequence(42));
 
         var result = await service.IssueAsync(new IssueInvoiceRequest(OrderPublicId));
 
@@ -38,18 +41,18 @@ public sealed class IssueInvoiceServiceTests
     [Fact]
     public async Task IssueAsync_TakesTheSequenceAgainstTheIssuingClock()
     {
-        var reader = new FakeInvoiceIssuanceReader(Snapshot());
-        var service = CreateService(reader);
+        var sequence = new FakeInvoiceNumberSequence();
+        var service = CreateService(new FakeOrderInvoiceIssuanceReader(Snapshot()), sequence);
 
         await service.IssueAsync(new IssueInvoiceRequest(OrderPublicId));
 
-        Assert.Equal(NowUtc, reader.RequestedIssuedAtUtc);
+        Assert.Equal(NowUtc, sequence.RequestedIssuedAtUtc);
     }
 
     [Fact]
     public async Task IssueAsync_CarriesTheBuyerDetailsThrough()
     {
-        var service = CreateService(new FakeInvoiceIssuanceReader(Snapshot(
+        var service = CreateService(new FakeOrderInvoiceIssuanceReader(Snapshot(
             buyerType: SimulatedInvoiceBuyerType.Company,
             companyTaxId: "12345678",
             companyName: "測試股份有限公司")));
@@ -64,7 +67,7 @@ public sealed class IssueInvoiceServiceTests
     [Fact]
     public async Task IssueAsync_ReportsAnUnknownOrder()
     {
-        var service = CreateService(new FakeInvoiceIssuanceReader(snapshot: null));
+        var service = CreateService(new FakeOrderInvoiceIssuanceReader(snapshot: null));
 
         var result = await service.IssueAsync(new IssueInvoiceRequest(OrderPublicId));
 
@@ -73,13 +76,17 @@ public sealed class IssueInvoiceServiceTests
     }
 
     [Theory]
-    [InlineData(InvoiceIssuanceTrigger.NotPaid, InvoiceErrorCodes.InvoiceOrderUnpaid)]
-    [InlineData(InvoiceIssuanceTrigger.OrderCancelled, InvoiceErrorCodes.InvoiceOrderCancelled)]
+    // Orders 的埠回的是狀態事實（已取消、已付款），trigger 由本服務映射。
+    [InlineData(false, false, InvoiceErrorCodes.InvoiceOrderUnpaid)]
+    [InlineData(true, false, InvoiceErrorCodes.InvoiceOrderCancelled)]
+    [InlineData(true, true, InvoiceErrorCodes.InvoiceOrderCancelled)]
     public async Task IssueAsync_SurfacesTheIssuanceErrorCode(
-        InvoiceIssuanceTrigger trigger,
+        bool cancelled,
+        bool paid,
         string expectedErrorCode)
     {
-        var service = CreateService(new FakeInvoiceIssuanceReader(Snapshot(trigger: trigger)));
+        var service = CreateService(new FakeOrderInvoiceIssuanceReader(
+            Snapshot(cancelled: cancelled, paid: paid)));
 
         var result = await service.IssueAsync(new IssueInvoiceRequest(OrderPublicId));
 
@@ -87,10 +94,22 @@ public sealed class IssueInvoiceServiceTests
     }
 
     [Fact]
+    public async Task IssueAsync_TreatsACancelledOrderAsCancelledEvenWhenItWasPaid()
+    {
+        // 已付款後取消的訂單不能開票。映射的順序決定這件事：先看取消，再看付款。
+        var service = CreateService(new FakeOrderInvoiceIssuanceReader(
+            Snapshot(cancelled: true, paid: true)));
+
+        var result = await service.IssueAsync(new IssueInvoiceRequest(OrderPublicId));
+
+        Assert.Equal(InvoiceErrorCodes.InvoiceOrderCancelled, result.ErrorCode);
+    }
+
+    [Fact]
     public async Task IssueAsync_ReportsAnOrderThatAlreadyHasAnInvoice()
     {
-        var service = CreateService(new FakeInvoiceIssuanceReader(
-            Snapshot(orderAlreadyHasInvoice: true)));
+        var service = CreateService(
+            new FakeOrderInvoiceIssuanceReader(Snapshot()), alreadyIssued: true);
 
         var result = await service.IssueAsync(new IssueInvoiceRequest(OrderPublicId));
 
@@ -100,13 +119,13 @@ public sealed class IssueInvoiceServiceTests
     [Fact]
     public async Task IssueAsync_DoesNotTakeASequenceWhenTheOrderIsNotInvoiceable()
     {
-        var reader = new FakeInvoiceIssuanceReader(
-            Snapshot(trigger: InvoiceIssuanceTrigger.OrderCancelled));
-        var service = CreateService(reader);
+        var sequence = new FakeInvoiceNumberSequence();
+        var service = CreateService(
+            new FakeOrderInvoiceIssuanceReader(Snapshot(cancelled: true)), sequence);
 
         await service.IssueAsync(new IssueInvoiceRequest(OrderPublicId));
 
-        Assert.Null(reader.RequestedIssuedAtUtc);
+        Assert.Null(sequence.RequestedIssuedAtUtc);
     }
 
     [Theory]
@@ -121,22 +140,24 @@ public sealed class IssueInvoiceServiceTests
     {
         // SimulatedInvoice 建構子會拒絕缺統編或抬頭的公司發票。
         // 若等到那時才失敗，就已經回傳了無法持久化的成功計畫並耗掉一個流水號。
-        var reader = new FakeInvoiceIssuanceReader(Snapshot(
-            buyerType: SimulatedInvoiceBuyerType.Company,
-            companyTaxId: companyTaxId,
-            companyName: companyName));
-        var service = CreateService(reader);
+        var sequence = new FakeInvoiceNumberSequence();
+        var service = CreateService(
+            new FakeOrderInvoiceIssuanceReader(Snapshot(
+                buyerType: SimulatedInvoiceBuyerType.Company,
+                companyTaxId: companyTaxId,
+                companyName: companyName)),
+            sequence);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.IssueAsync(new IssueInvoiceRequest(OrderPublicId)));
 
-        Assert.Null(reader.RequestedIssuedAtUtc);
+        Assert.Null(sequence.RequestedIssuedAtUtc);
     }
 
     [Fact]
     public async Task AnIndividualInvoiceDoesNotNeedCompanyDetails()
     {
-        var service = CreateService(new FakeInvoiceIssuanceReader(Snapshot(
+        var service = CreateService(new FakeOrderInvoiceIssuanceReader(Snapshot(
             buyerType: SimulatedInvoiceBuyerType.Individual,
             companyTaxId: null,
             companyName: null)));
@@ -147,7 +168,7 @@ public sealed class IssueInvoiceServiceTests
     [Fact]
     public async Task ACompleteCompanyInvoiceProducesAPersistablePlan()
     {
-        var service = CreateService(new FakeInvoiceIssuanceReader(Snapshot(
+        var service = CreateService(new FakeOrderInvoiceIssuanceReader(Snapshot(
             buyerType: SimulatedInvoiceBuyerType.Company,
             companyTaxId: "12345678",
             companyName: "測試股份有限公司")));
@@ -164,19 +185,26 @@ public sealed class IssueInvoiceServiceTests
         Assert.Equal("12345678", invoice.CompanyTaxId);
     }
 
-    private static IssueInvoiceService CreateService(IInvoiceIssuanceReader reader) =>
-        new(reader, new FixedTimeProvider(new DateTimeOffset(NowUtc, TimeSpan.Zero)));
+    private static IssueInvoiceService CreateService(
+        IOrderInvoiceIssuanceReader reader,
+        IInvoiceNumberSequence? sequence = null,
+        bool alreadyIssued = false) =>
+        new(
+            reader,
+            new FakeInvoiceExistenceReader(alreadyIssued),
+            sequence ?? new FakeInvoiceNumberSequence(),
+            new FixedTimeProvider(new DateTimeOffset(NowUtc, TimeSpan.Zero)));
 
     private static InvoiceOrderSnapshot Snapshot(
-        InvoiceIssuanceTrigger trigger = InvoiceIssuanceTrigger.OnlinePaymentSucceeded,
+        bool cancelled = false,
+        bool paid = true,
         SimulatedInvoiceBuyerType buyerType = SimulatedInvoiceBuyerType.Individual,
         string? companyTaxId = null,
-        string? companyName = null,
-        bool orderAlreadyHasInvoice = false) =>
+        string? companyName = null) =>
         new(
             OrderId: 7L,
-            trigger,
-            orderAlreadyHasInvoice,
+            cancelled,
+            paid,
             OrderPaidAmount: 1000m,
             buyerType,
             BuyerEmail: "buyer@example.com",
@@ -185,31 +213,43 @@ public sealed class IssueInvoiceServiceTests
             CompanyTaxId: companyTaxId,
             CompanyName: companyName,
             [
-                new InvoiceOrderLine(
-                    ItemA, InvoiceLineKind.Merchandise, "測試商品", "SKU-1", 1, 1000m, 0m, 1000m),
+                new InvoiceOrderLineSource(
+                    OrderItemId: 11L,
+                    new InvoiceOrderLine(
+                        ItemA, InvoiceLineKind.Merchandise, "測試商品", "SKU-1", 1, 1000m, 0m, 1000m)),
             ]);
 
-    private sealed class FakeInvoiceIssuanceReader : IInvoiceIssuanceReader
+    private sealed class FakeOrderInvoiceIssuanceReader : IOrderInvoiceIssuanceReader
     {
         private readonly InvoiceOrderSnapshot? _snapshot;
-        private readonly int _sequence;
 
-        public FakeInvoiceIssuanceReader(InvoiceOrderSnapshot? snapshot, int sequence = 1)
-        {
-            _snapshot = snapshot;
-            _sequence = sequence;
-        }
+        public FakeOrderInvoiceIssuanceReader(InvoiceOrderSnapshot? snapshot) => _snapshot = snapshot;
 
-        public DateTime? RequestedIssuedAtUtc { get; private set; }
-
-        public Task<InvoiceOrderSnapshot?> FindOrderSnapshotAsync(
+        public Task<InvoiceOrderSnapshot?> FindIssuanceSnapshotAsync(
             Guid orderPublicId,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(_snapshot);
+    }
 
-        public Task<int> NextInvoiceSequenceAsync(
-            DateTime issuedAtUtc,
-            CancellationToken cancellationToken = default)
+    private sealed class FakeInvoiceExistenceReader : IInvoiceExistenceReader
+    {
+        private readonly bool _hasInvoice;
+
+        public FakeInvoiceExistenceReader(bool hasInvoice) => _hasInvoice = hasInvoice;
+
+        public Task<bool> HasInvoiceAsync(long orderId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(_hasInvoice);
+    }
+
+    private sealed class FakeInvoiceNumberSequence : IInvoiceNumberSequence
+    {
+        private readonly int _sequence;
+
+        public FakeInvoiceNumberSequence(int sequence = 1) => _sequence = sequence;
+
+        public DateTime? RequestedIssuedAtUtc { get; private set; }
+
+        public Task<int> NextAsync(DateTime issuedAtUtc, CancellationToken cancellationToken = default)
         {
             RequestedIssuedAtUtc = issuedAtUtc;
             return Task.FromResult(_sequence);
