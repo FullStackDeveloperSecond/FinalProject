@@ -298,6 +298,51 @@ public sealed class OrderInvoicePortsSqlServerTests
         });
     }
 
+    /// <summary>
+    /// 尾碼必須恰好六個 ASCII 數字、值 1～999999。
+    /// </summary>
+    /// <remarks>
+    /// 先前用 <c>int.TryParse</c>，這四種都會被當成合法而放行，然後拿它當
+    /// 「用過的最大值」繼續發號。原本只有 <c>XXXXXX</c> 一條反向測試，
+    /// 所以「不符合格式就直接拒絕」只做到一部分（alex #67 P3）。
+    /// </remarks>
+    [SqlServerTheory]
+    [InlineData("DEMO-202605-00001")]
+    [InlineData("DEMO-202605-+00001")]
+    [InlineData("DEMO-202605-000000")]
+    [InlineData("DEMO-202605-1000000")]
+    [InlineData("DEMO-202605- 00001")]
+    public async Task TheSequenceRejectsANumberThatIsNotSixDigits(string invoiceNumber)
+    {
+        await RunAsync(async context =>
+        {
+            var seeded = await SeedOrderAsync(context, 0m, 0m);
+            context.SimulatedInvoices.Add(Invoice(seeded.OrderId, invoiceNumber));
+            await context.SaveChangesAsync();
+            var sequence = new InvoiceNumberSequence(context);
+
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => sequence.NextAsync(new DateTime(2026, 5, 1, 0, 0, 0, DateTimeKind.Utc)));
+        });
+    }
+
+    [SqlServerFact]
+    public async Task TheSequenceAcceptsTheLastValidNumberOfTheMonth()
+    {
+        // 999999 是 DemoInvoiceNumber.Format 自己的上界，必須算合法。
+        await RunAsync(async context =>
+        {
+            var seeded = await SeedOrderAsync(context, 0m, 0m);
+            context.SimulatedInvoices.Add(Invoice(seeded.OrderId, "DEMO-202611-999999"));
+            await context.SaveChangesAsync();
+            var sequence = new InvoiceNumberSequence(context);
+
+            Assert.Equal(
+                1_000_000,
+                await sequence.NextAsync(new DateTime(2026, 11, 1, 0, 0, 0, DateTimeKind.Utc)));
+        });
+    }
+
     [SqlServerFact]
     public async Task TheSequenceRejectsANonUtcTimestamp()
     {

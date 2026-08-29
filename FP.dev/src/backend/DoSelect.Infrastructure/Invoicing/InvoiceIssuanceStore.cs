@@ -77,7 +77,7 @@ public sealed class InvoiceNumberSequence : IInvoiceNumberSequence
         foreach (var number in numbers)
         {
             // 解析不出來的號碼不能當成 0 靜默略過 —— 那會讓下一次發出已經用掉的號碼。
-            if (!int.TryParse(number[prefix.Length..], out var sequence))
+            if (!TryReadSequence(number[prefix.Length..], out var sequence))
             {
                 throw new InvalidOperationException(
                     $"The invoice number '{number}' does not follow the DEMO-yyyyMM-NNNNNN format.");
@@ -87,5 +87,40 @@ public sealed class InvoiceNumberSequence : IInvoiceNumberSequence
         }
 
         return used + 1;
+    }
+
+    /// <summary>
+    /// 尾碼必須<b>恰好六個 ASCII 數字</b>，數值 1～999999。
+    /// </summary>
+    /// <remarks>
+    /// 先前用 <c>int.TryParse</c>，它接受 <c>00001</c>（五位）、<c>+00001</c>、
+    /// <c>000000</c> 與 <c>1000000</c> —— 這些都不是 <c>DEMO-yyyyMM-NNNNNN</c>，
+    /// 而註解卻寫著「不符合格式就直接拒絕」。放行等於承認一個這個系統根本發不出來的
+    /// 號碼，再拿它當作用過的最大值繼續發下去。
+    /// <para>
+    /// 六位數的來源是 <c>DemoInvoiceNumber.Format</c> 的 <c>D6</c> 格式，
+    /// 值域則來自它自己的 <c>sequence is &lt; 1 or &gt; 999999</c> 檢查。
+    /// </para>
+    /// </remarks>
+    private static bool TryReadSequence(string suffix, out int sequence)
+    {
+        sequence = 0;
+
+        if (suffix.Length != 6)
+        {
+            return false;
+        }
+
+        foreach (var character in suffix)
+        {
+            // char.IsDigit 對全形與其他 Unicode 數字也回 true；號碼只能是 ASCII。
+            if (character is < '0' or > '9')
+            {
+                return false;
+            }
+        }
+
+        // 走到這裡一定是六個 ASCII 數字，所以只剩「不得為 000000」要擋。
+        return int.TryParse(suffix, out sequence) && sequence >= 1;
     }
 }
