@@ -327,9 +327,13 @@ public sealed class OrderInvoicePortsSqlServerTests
     }
 
     [SqlServerFact]
-    public async Task TheSequenceAcceptsTheLastValidNumberOfTheMonth()
+    public async Task TheSequenceRefusesToIssueOnceTheMonthIsExhausted()
     {
-        // 999999 是 DemoInvoiceNumber.Format 自己的上界，必須算合法。
+        // 999999 是合法的已使用號碼，但它存在時這個月已經沒有下一號。
+        //
+        // 這條原本斷言 NextAsync 回 1_000_000 —— 那是把一個 DemoInvoiceNumber.Format
+        // 拒絕的值釘成正式行為：取號會成功，然後在 IssueInvoiceService 格式化時
+        // 丟 ArgumentOutOfRangeException（alex #67 P3）。
         await RunAsync(async context =>
         {
             var seeded = await SeedOrderAsync(context, 0m, 0m);
@@ -337,9 +341,27 @@ public sealed class OrderInvoicePortsSqlServerTests
             await context.SaveChangesAsync();
             var sequence = new InvoiceNumberSequence(context);
 
-            Assert.Equal(
-                1_000_000,
-                await sequence.NextAsync(new DateTime(2026, 11, 1, 0, 0, 0, DateTimeKind.Utc)));
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => sequence.NextAsync(new DateTime(2026, 11, 1, 0, 0, 0, DateTimeKind.Utc)));
+        });
+    }
+
+    [SqlServerFact]
+    public async Task TheSequenceStillIssuesTheLastNumberOfTheMonth()
+    {
+        // 正向邊界：999998 已用時，999999 仍然發得出來，而且 Format 收得下。
+        await RunAsync(async context =>
+        {
+            var seeded = await SeedOrderAsync(context, 0m, 0m);
+            context.SimulatedInvoices.Add(Invoice(seeded.OrderId, "DEMO-202612-999998"));
+            await context.SaveChangesAsync();
+            var sequence = new InvoiceNumberSequence(context);
+            var issuedAtUtc = new DateTime(2026, 12, 1, 0, 0, 0, DateTimeKind.Utc);
+
+            var next = await sequence.NextAsync(issuedAtUtc);
+
+            Assert.Equal(999_999, next);
+            Assert.Equal("DEMO-202612-999999", DemoInvoiceNumber.Format(issuedAtUtc, next));
         });
     }
 

@@ -86,6 +86,17 @@ public sealed class InvoiceNumberSequence : IInvoiceNumberSequence
             used = Math.Max(used, sequence);
         }
 
+        // 999999 是合法的「已使用號碼」，但它一旦存在，這個月就沒有下一號了。
+        // 回傳 1000000 會在 IssueInvoiceService 交給 DemoInvoiceNumber.Format 時
+        // 丟 ArgumentOutOfRangeException —— 取號成功、格式化失敗，而錯誤會出現在
+        // 離原因很遠的地方。這裡就明講號碼用完了。
+        if (used >= MaximumSequence)
+        {
+            throw new InvalidOperationException(
+                $"The invoice numbers for {issuedAtUtc:yyyy-MM} are exhausted " +
+                $"({MaximumSequence} issued).");
+        }
+
         return used + 1;
     }
 
@@ -102,6 +113,13 @@ public sealed class InvoiceNumberSequence : IInvoiceNumberSequence
     /// 值域則來自它自己的 <c>sequence is &lt; 1 or &gt; 999999</c> 檢查。
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// 一個月最多能發幾號。與 <c>DemoInvoiceNumber.Format</c> 的
+    /// <c>sequence is &lt; 1 or &gt; 999999</c> 值域一致 —— 兩邊不一致的話，
+    /// 取號會發出一個 formatter 拒絕的號碼。
+    /// </summary>
+    private const int MaximumSequence = 999_999;
+
     private static bool TryReadSequence(string suffix, out int sequence)
     {
         sequence = 0;
