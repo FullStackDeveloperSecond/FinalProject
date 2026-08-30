@@ -46,7 +46,7 @@ public sealed class AdminReturnServiceRowVersionTests
         await using var context = ReturnStoreConcurrencyFixture.CreateContext();
         var store = new ReturnStore(context);
         var orderPort = new ReturnOrderEligibilityLookup(context);
-        var service = new AdminReturnService(store, orderPort, TimeProvider.System);
+        var service = new AdminReturnService(store, orderPort, new NoOpReturnInventoryPort(), TimeProvider.System);
 
         var inspectRequest = new InspectReturnRequest(
             [new InspectReturnItemLine(returnItemPublicId, "Unopened", RestockDisposition.Resellable, null)],
@@ -99,7 +99,7 @@ public sealed class AdminReturnServiceRowVersionTests
         await using var context = ReturnStoreConcurrencyFixture.CreateContext();
         var store = new ReturnStore(context);
         var orderPort = new ReturnOrderEligibilityLookup(context);
-        var service = new AdminReturnService(store, orderPort, TimeProvider.System);
+        var service = new AdminReturnService(store, orderPort, new NoOpReturnInventoryPort(), TimeProvider.System);
 
         var inspectRequest = new InspectReturnRequest(
             [new InspectReturnItemLine(returnItemPublicId, "Unopened", RestockDisposition.Resellable, null)],
@@ -225,4 +225,14 @@ public sealed class AdminReturnServiceRowVersionTests
             null,
             new OrderPackageSnapshot(
                 packageLimitVersionId, 1m, 40m, 30m, 20m, 90m, 1_325m));
+
+    private sealed class NoOpReturnInventoryPort : IReturnInventoryPort
+    {
+        public Task StageReturnToStockAsync(
+            Guid returnPublicId,
+            string adminUserId,
+            IReadOnlyList<ReturnToStockInstruction> instructions,
+            DateTime occurredAtUtc,
+            CancellationToken cancellationToken) => Task.CompletedTask;
+    }
 }

@@ -1,6 +1,7 @@
 using System.Text;
 using DoSelect.Application.Catalog;
 using DoSelect.Domain.Catalog;
+using DoSelect.Domain.Inventory;
 using DoSelect.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -216,6 +217,13 @@ public sealed class EfSkuAdminService : ISkuAdminService
 
         _dbContext.Entry(sku).Property(candidate => candidate.RowVersion).OriginalValue = request.RowVersion;
 
+        var previousUnitCost = sku.UnitCost;
+        var valuationBalance = previousUnitCost == request.UnitCost
+            ? null
+            : await _dbContext.InventoryBalances
+                .AsNoTracking()
+                .SingleOrDefaultAsync(candidate => candidate.SkuId == sku.Id, cancellationToken);
+
         sku.UpdatePackageDimensions(request.WeightKg, request.LengthCm, request.WidthCm, request.HeightCm, now);
         sku.UpdateCommercialDetails(
             request.NameZhTw,
@@ -225,6 +233,27 @@ public sealed class EfSkuAdminService : ISkuAdminService
             request.RequiresPrepayment,
             now);
         sku.ChangeStatus(status, now);
+
+        if (valuationBalance is not null)
+        {
+            _dbContext.InventoryMovements.Add(new InventoryMovement(
+                Guid.CreateVersion7(),
+                sku.Id,
+                reservationId: null,
+                movementType: "CostChange",
+                onHandDelta: 0,
+                reservedDelta: 0,
+                beforeOnHand: valuationBalance.OnHandQuantity,
+                afterOnHand: valuationBalance.OnHandQuantity,
+                beforeReserved: valuationBalance.ReservedQuantity,
+                afterReserved: valuationBalance.ReservedQuantity,
+                unitCostSnapshot: request.UnitCost,
+                reasonCode: "sku_unit_cost_changed",
+                referenceType: "Sku",
+                referencePublicId: sku.PublicId,
+                actorUserId: null,
+                occurredAtUtc: now));
+        }
 
         await ReplaceSpecificationsAsync(sku.Id, product.CategoryId, request.Specifications, now, cancellationToken);
         // 組長 PR #24 round 5 review, item 2: see the matching comment in CreateAsync.

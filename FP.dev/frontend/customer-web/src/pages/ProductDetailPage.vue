@@ -7,12 +7,15 @@ import { useProductDetail } from '../features/catalog/useProductSearch'
 import type { PublicSkuDto } from '../features/catalog/types'
 import { useAddCartItem } from '../features/cart/useCart'
 import { useSessionStore } from '../stores/session'
+import { usePublicProductReviewsQuery } from '../features/reviews/queries'
+import { formatReviewDate } from '../features/reviews/labels'
 
 const route = useRoute()
 const sessionStore = useSessionStore()
 const productPublicId = computed(() => route.params.productId as string)
 
 const { data: product, isPending, isError, error, refetch } = useProductDetail(productPublicId)
+const publicReviewsQuery = usePublicProductReviewsQuery(productPublicId)
 
 const selectedSkuPublicId = ref<string>()
 const selectedSku = computed<PublicSkuDto | undefined>(() =>
@@ -282,6 +285,58 @@ const isNotFound = computed(() => isApiError(error.value) && error.value.status 
       <p>{{ product.description }}</p>
     </section>
 
+    <section aria-labelledby="product-reviews-title">
+      <h2 id="product-reviews-title">
+        購買者評價
+      </h2>
+      <p v-if="publicReviewsQuery.isPending.value">
+        評價載入中…
+      </p>
+      <p
+        v-else-if="publicReviewsQuery.isError.value"
+        class="product-detail__reviews-error"
+      >
+        暫時無法載入評價。
+      </p>
+      <p v-else-if="publicReviewsQuery.data.value?.length === 0">
+        目前尚無公開評價。
+      </p>
+      <template v-else>
+        <article
+          v-for="review in publicReviewsQuery.data.value"
+          :key="review.publicId"
+          class="product-detail__review"
+        >
+          <div class="product-detail__review-heading">
+            <strong>{{ Number(review.rating) }}／5 星</strong>
+            <span v-if="review.isVerifiedPurchase">已驗證購買</span>
+            <time :datetime="review.publishedAtUtc">{{ formatReviewDate(review.publishedAtUtc) }}</time>
+          </div>
+          <h3 v-if="review.title">
+            {{ review.title }}
+          </h3>
+          <p>{{ review.content }}</p>
+          <ul
+            v-if="review.images.length"
+            class="product-detail__review-images"
+          >
+            <li
+              v-for="image in review.images"
+              :key="Number(image.sortOrder)"
+            >
+              <img
+                :src="image.url"
+                :alt="image.originalFileName"
+                width="120"
+                height="120"
+                loading="lazy"
+              >
+            </li>
+          </ul>
+        </article>
+      </template>
+    </section>
+
     <section
       v-if="selectedSku && selectedSku.specifications.length > 0"
       aria-labelledby="product-specs-title"
@@ -508,5 +563,40 @@ button[disabled] {
   border-radius: 999px;
   background: #f3f4f6;
   font-size: 0.75rem;
+}
+
+.product-detail__review {
+  margin-top: .75rem;
+  padding: 1rem;
+  border: 1px solid #e5e7eb;
+  border-radius: .75rem;
+}
+
+.product-detail__review-heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .75rem;
+  color: #4b5563;
+  font-size: .875rem;
+}
+
+.product-detail__review-heading span {
+  color: #166534;
+}
+
+.product-detail__review-images {
+  display: flex;
+  gap: .5rem;
+  padding: 0;
+  list-style: none;
+}
+
+.product-detail__review-images img {
+  object-fit: cover;
+  border-radius: .375rem;
+}
+
+.product-detail__reviews-error {
+  color: #b91c1c;
 }
 </style>

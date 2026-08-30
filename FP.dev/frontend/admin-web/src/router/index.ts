@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { HttpStatusPage } from '@doselect/web-shared/components'
 import { useAdminAuthStore } from '../features/auth/stores/useAdminAuthStore'
+import { isOperationalReportKey } from '../features/operationalReports/types'
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -113,6 +114,27 @@ const router = createRouter({
       meta: {
         requiresAuth: true,
         requiredRoles: ['FinanceManager', 'CustomerServiceSupervisor', 'MarketingAnalyst', 'SuperAdmin'],
+      },
+    },
+    {
+      path: '/reviews',
+      name: 'admin-review-queue',
+      component: () => import('../pages/reviews/AdminReviewQueuePage.vue'),
+      meta: {
+        requiresAuth: true,
+        requiredRoles: ['CustomerService', 'CustomerServiceSupervisor', 'SuperAdmin'],
+      },
+    },
+    {
+      path: '/reports/:reportKey',
+      name: 'operational-report',
+      component: () => import('../pages/OperationalReportPage.vue'),
+      beforeEnter: (to) => isOperationalReportKey(to.params.reportKey)
+        ? true
+        : { name: 'not-found' },
+      meta: {
+        requiresAuth: true,
+        requiredRoles: ['FinanceManager', 'MarketingAnalyst', 'SuperAdmin'],
       },
     },
     {

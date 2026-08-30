@@ -2689,6 +2689,10 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                     b.Property<long>("SkuId")
                         .HasColumnType("bigint");
 
+                    b.Property<decimal?>("UnitCostSnapshot")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ActorUserId");

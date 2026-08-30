@@ -333,6 +333,486 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    status?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminReviewDto"][];
+                        "application/json": components["schemas"]["AdminReviewDto"][];
+                        "text/json": components["schemas"]["AdminReviewDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/reviews/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminReviewDto"];
+                        "application/json": components["schemas"]["AdminReviewDto"];
+                        "text/json": components["schemas"]["AdminReviewDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/reviews/{id}/actions/{moderationAction}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    moderationAction: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ReviewModerationRequest"];
+                    "text/json": components["schemas"]["ReviewModerationRequest"];
+                    "application/*+json": components["schemas"]["ReviewModerationRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminReviewDto"];
+                        "application/json": components["schemas"]["AdminReviewDto"];
+                        "text/json": components["schemas"]["AdminReviewDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/products/{productId}/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    productId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["PublicProductReviewDto"][];
+                        "application/json": components["schemas"]["PublicProductReviewDto"][];
+                        "text/json": components["schemas"]["PublicProductReviewDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reviews/eligible-order-items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["EligibleReviewOrderItemDto"][];
+                        "application/json": components["schemas"]["EligibleReviewOrderItemDto"][];
+                        "text/json": components["schemas"]["EligibleReviewOrderItemDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reviews/mine": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["MemberReviewDto"][];
+                        "application/json": components["schemas"]["MemberReviewDto"][];
+                        "text/json": components["schemas"]["MemberReviewDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateReviewRequest"];
+                    "text/json": components["schemas"]["CreateReviewRequest"];
+                    "application/*+json": components["schemas"]["CreateReviewRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["MemberReviewDto"];
+                        "application/json": components["schemas"]["MemberReviewDto"];
+                        "text/json": components["schemas"]["MemberReviewDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reviews/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateReviewRequest"];
+                    "text/json": components["schemas"]["UpdateReviewRequest"];
+                    "application/*+json": components["schemas"]["UpdateReviewRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["MemberReviewDto"];
+                        "application/json": components["schemas"]["MemberReviewDto"];
+                        "text/json": components["schemas"]["MemberReviewDto"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete: {
+            parameters: {
+                query?: {
+                    rowVersion?: string;
+                };
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reviews/{id}/actions/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ReviewRowVersionRequest"];
+                    "text/json": components["schemas"]["ReviewRowVersionRequest"];
+                    "application/*+json": components["schemas"]["ReviewRowVersionRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["MemberReviewDto"];
+                        "application/json": components["schemas"]["MemberReviewDto"];
+                        "text/json": components["schemas"]["MemberReviewDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reviews/{id}/images": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "multipart/form-data": {
+                        file?: components["schemas"]["IFormFile"];
+                    } & {
+                        rowVersion?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["MemberReviewDto"];
+                        "application/json": components["schemas"]["MemberReviewDto"];
+                        "text/json": components["schemas"]["MemberReviewDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reviews/{id}/images/{sortOrder}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: {
+                    rowVersion?: string;
+                };
+                header?: never;
+                path: {
+                    id: string;
+                    sortOrder: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["MemberReviewDto"];
+                        "application/json": components["schemas"]["MemberReviewDto"];
+                        "text/json": components["schemas"]["MemberReviewDto"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/returns": {
         parameters: {
             query?: never;
@@ -1630,6 +2110,236 @@ export interface paths {
                 };
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/reports/{reportKey}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    FromDate?: string;
+                    ToDate?: string;
+                    TimeZone?: string;
+                    CategoryCode?: string;
+                    BrandCode?: string;
+                    OrderStatuses?: string[];
+                    Granularity?: string;
+                    Cursor?: string;
+                    PageSize?: number | string;
+                };
+                header?: never;
+                path: {
+                    reportKey: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ReportResultDto"];
+                        "application/json": components["schemas"]["ReportResultDto"];
+                        "text/json": components["schemas"]["ReportResultDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/reports/{reportKey}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    FromDate?: string;
+                    ToDate?: string;
+                    TimeZone?: string;
+                    CategoryCode?: string;
+                    BrandCode?: string;
+                    OrderStatuses?: string[];
+                    Granularity?: string;
+                    Cursor?: string;
+                    PageSize?: number | string;
+                };
+                header?: never;
+                path: {
+                    reportKey: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/csv": unknown;
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                        "text/csv": unknown;
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                        "text/csv": unknown;
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                        "text/csv": unknown;
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/reports/{reportKey}/export/xlsx": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    FromDate?: string;
+                    ToDate?: string;
+                    TimeZone?: string;
+                    CategoryCode?: string;
+                    BrandCode?: string;
+                    OrderStatuses?: string[];
+                    Granularity?: string;
+                    Cursor?: string;
+                    PageSize?: number | string;
+                };
+                header?: never;
+                path: {
+                    reportKey: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": unknown;
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": unknown;
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": unknown;
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": unknown;
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -5319,6 +6029,26 @@ export interface components {
             /** Format: byte */
             rowVersion: string;
         };
+        AdminReviewDto: {
+            /** Format: uuid */
+            publicId: string;
+            /** Format: uuid */
+            productPublicId: string;
+            productName: string;
+            skuName: string;
+            /** Format: uint8 */
+            rating: number | string;
+            title: null | string;
+            content: string;
+            status: string;
+            rejectionReason: null | string;
+            /** Format: date-time */
+            createdAtUtc: string;
+            /** Format: date-time */
+            reviewedAtUtc: null | string;
+            rowVersion: string;
+            images: components["schemas"]["ReviewImageDto"][];
+        };
         AdminSupportMessageDto: {
             /** Format: uuid */
             publicId: string;
@@ -6095,6 +6825,16 @@ export interface components {
             /** Format: byte */
             returnRowVersion: string;
         };
+        CreateReviewRequest: {
+            /** Format: uuid */
+            orderItemPublicId: string;
+            /** Format: uint8 */
+            rating: number | string;
+            title: null | string;
+            content: string;
+            /** @default true */
+            submit: boolean;
+        };
         CreateSimulatedInvoiceAllowanceRequest: {
             /** Format: uuid */
             refundPublicId: string;
@@ -6153,6 +6893,11 @@ export interface components {
             nextCursor: null | string;
             hasMore: boolean;
         };
+        CursorPageOfReportRowDto: {
+            items: components["schemas"]["ReportRowDto"][];
+            nextCursor: null | string;
+            hasMore: boolean;
+        };
         CursorPageOfSupportSlaItemDto: {
             items: components["schemas"]["SupportSlaItemDto"][];
             nextCursor: null | string;
@@ -6165,6 +6910,20 @@ export interface components {
         DeleteSkuRequest: {
             /** Format: byte */
             rowVersion: string;
+        };
+        EligibleReviewOrderItemDto: {
+            /** Format: uuid */
+            orderItemPublicId: string;
+            /** Format: uuid */
+            productPublicId: string;
+            skuCode: string;
+            productName: string;
+            skuName: string;
+            /** Format: date-time */
+            completedAtUtc: string;
+            /** Format: uuid */
+            reviewPublicId: null | string;
+            reviewStatus: null | string;
         };
         EmailVerificationConfirmedResponse: {
             accountStatus: string;
@@ -6230,6 +6989,28 @@ export interface components {
             email: string;
             password: string;
             rememberMe?: boolean;
+        };
+        MemberReviewDto: {
+            /** Format: uuid */
+            publicId: string;
+            /** Format: uuid */
+            orderItemPublicId: string;
+            /** Format: uuid */
+            productPublicId: string;
+            productName: string;
+            skuName: string;
+            /** Format: uint8 */
+            rating: number | string;
+            title: null | string;
+            content: string;
+            status: string;
+            rejectionReason: null | string;
+            /** Format: date-time */
+            createdAtUtc: string;
+            /** Format: date-time */
+            updatedAtUtc: null | string;
+            rowVersion: string;
+            images: components["schemas"]["ReviewImageDto"][];
         };
         OrderAmountsDto: {
             /** Format: double */
@@ -6533,6 +7314,18 @@ export interface components {
             productCode: string;
             nameZhTw: string;
         };
+        PublicProductReviewDto: {
+            /** Format: uuid */
+            publicId: string;
+            /** Format: uint8 */
+            rating: number | string;
+            title: null | string;
+            content: string;
+            isVerifiedPurchase: boolean;
+            /** Format: date-time */
+            publishedAtUtc: string;
+            images: components["schemas"]["ReviewImageDto"][];
+        };
         PublicSkuDto: {
             /** Format: uuid */
             publicId: string;
@@ -6590,6 +7383,166 @@ export interface components {
             reason?: string;
             /** Format: byte */
             rowVersion?: string;
+        };
+        ReportMetricDto: {
+            metricKey: string;
+            /** Format: double */
+            value: null | number | string;
+            unit: string;
+        };
+        ReportResultDto: {
+            reportKey: string;
+            title: string;
+            timeBasis: string;
+            timeZone: string;
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+            /** Format: date-time */
+            generatedAtUtc: string;
+            /** Format: date-time */
+            asOfUtc: string;
+            summary: components["schemas"]["ReportMetricDto"][];
+            series: components["schemas"]["ReportSeriesPointDto"][];
+            rows: components["schemas"]["CursorPageOfReportRowDto"];
+        };
+        ReportRowDto: components["schemas"]["ReportRowDtoSalesOverviewReportRowDto"] | components["schemas"]["ReportRowDtoProductAbcReportRowDto"] | components["schemas"]["ReportRowDtoPeriodComparisonReportRowDto"] | components["schemas"]["ReportRowDtoInventoryTurnoverReportRowDto"] | components["schemas"]["ReportRowDtoGrossMarginReportRowDto"] | components["schemas"]["ReportRowDtoProductAssociationReportRowDto"] | components["schemas"]["ReportRowDtoForecastAnomalyReportRowDto"];
+        ReportRowDtoForecastAnomalyReportRowDto: {
+            /** @enum {string} */
+            rowType?: "forecast-anomalies";
+            /** Format: date */
+            date: string;
+            /** Format: double */
+            actualValue: null | number | string;
+            /** Format: double */
+            forecastValue: null | number | string;
+            /** Format: double */
+            zScore: null | number | string;
+            isAnomaly: boolean;
+            isInsufficientData: boolean;
+        };
+        ReportRowDtoGrossMarginReportRowDto: {
+            /** @enum {string} */
+            rowType?: "gross-margin";
+            /** Format: uuid */
+            skuPublicId: string;
+            skuCode: string;
+            skuName: string;
+            /** Format: double */
+            netRevenue: number | string;
+            /** Format: double */
+            costOfGoodsSold: number | string;
+            /** Format: double */
+            grossProfit: number | string;
+            /** Format: double */
+            grossMarginRate: null | number | string;
+            /** Format: int32 */
+            quantitySold: number | string;
+            /** Format: int32 */
+            refundedQuantity: number | string;
+        };
+        ReportRowDtoInventoryTurnoverReportRowDto: {
+            /** @enum {string} */
+            rowType?: "inventory-turnover";
+            /** Format: uuid */
+            skuPublicId: string;
+            skuCode: string;
+            skuName: string;
+            /** Format: double */
+            costOfGoodsSold: number | string;
+            /** Format: double */
+            beginningInventoryCost: null | number | string;
+            /** Format: double */
+            endingInventoryCost: null | number | string;
+            /** Format: double */
+            averageInventoryCost: null | number | string;
+            /** Format: double */
+            turnoverRate: null | number | string;
+            /** Format: double */
+            turnoverDays: null | number | string;
+            /** Format: int32 */
+            availableQuantity: number | string;
+            /** Format: int32 */
+            reorderLevel: number | string;
+            isLowStock: boolean;
+            isOutOfStock: boolean;
+            isLongTermUnsold: boolean;
+            isInsufficientData: boolean;
+        };
+        ReportRowDtoPeriodComparisonReportRowDto: {
+            /** @enum {string} */
+            rowType?: "period-comparison";
+            metricKey: string;
+            /** Format: double */
+            currentValue: null | number | string;
+            /** Format: double */
+            previousValue: null | number | string;
+            /** Format: double */
+            changeRate: null | number | string;
+            isNew: boolean;
+        };
+        ReportRowDtoProductAbcReportRowDto: {
+            /** @enum {string} */
+            rowType?: "product-abc";
+            /** Format: uuid */
+            skuPublicId: string;
+            skuCode: string;
+            skuName: string;
+            /** Format: int32 */
+            quantity: number | string;
+            /** Format: double */
+            netRevenue: number | string;
+            /** Format: double */
+            revenueShare: number | string;
+            /** Format: double */
+            cumulativeRevenueShare: number | string;
+            abcClass: string;
+            /** Format: int32 */
+            rank: number | string;
+        };
+        ReportRowDtoProductAssociationReportRowDto: {
+            /** @enum {string} */
+            rowType?: "product-associations";
+            /** Format: uuid */
+            leftSkuPublicId: string;
+            leftSkuCode: string;
+            leftSkuName: string;
+            /** Format: uuid */
+            rightSkuPublicId: string;
+            rightSkuCode: string;
+            rightSkuName: string;
+            /** Format: int32 */
+            coOccurrenceOrderCount: number | string;
+            /** Format: double */
+            support: number | string;
+            /** Format: double */
+            confidence: number | string;
+            /** Format: double */
+            lift: number | string;
+        };
+        ReportRowDtoSalesOverviewReportRowDto: {
+            /** @enum {string} */
+            rowType?: "sales-overview";
+            bucket: string;
+            /** Format: double */
+            netRevenue: number | string;
+            /** Format: int32 */
+            orderCount: number | string;
+            /** Format: double */
+            averageOrderValue: null | number | string;
+            /** Format: double */
+            refundAmount: number | string;
+            /** Format: double */
+            refundAmountRate: null | number | string;
+            /** Format: int32 */
+            cancelledOrderCount: number | string;
+            /** Format: double */
+            cancellationRate: null | number | string;
+        };
+        ReportSeriesPointDto: {
+            bucket: string;
+            metrics: components["schemas"]["ReportMetricDto"][];
         };
         /** @enum {unknown} */
         RestockDisposition: "resellable" | "quarantine" | "scrap" | null;
@@ -6702,6 +7655,23 @@ export interface components {
         ReturnShipmentMethod: "homePickup" | "convenienceStore" | "selfShip";
         /** @enum {unknown} */
         ReturnShipmentStatus: "pending" | "scheduled" | "pickedUp" | "inTransit" | "delivered" | "failed" | "cancelled";
+        ReviewImageDto: {
+            /** Format: int32 */
+            sortOrder: number | string;
+            originalFileName: string;
+            mediaType: string;
+            /** Format: int64 */
+            fileSizeBytes: number | string;
+            url: string;
+        };
+        ReviewModerationRequest: {
+            reasonCode: string;
+            note: null | string;
+            rowVersion: string;
+        };
+        ReviewRowVersionRequest: {
+            rowVersion: string;
+        };
         SetRuleActivationRequest: {
             isActive: boolean;
             reason: string;
@@ -7081,6 +8051,13 @@ export interface components {
             tagPublicIds: string[];
             status: string;
             /** Format: byte */
+            rowVersion: string;
+        };
+        UpdateReviewRequest: {
+            /** Format: uint8 */
+            rating: number | string;
+            title: null | string;
+            content: string;
             rowVersion: string;
         };
         UpdateSkuRequest: {

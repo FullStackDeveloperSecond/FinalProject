@@ -838,6 +838,7 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
                 balance.OnHandQuantity,
                 beforeReserved,
                 balance.ReservedQuantity,
+                line.UnitCost,
                 "checkout_created",
                 "Order",
                 order.PublicId,
