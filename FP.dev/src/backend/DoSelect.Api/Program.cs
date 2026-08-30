@@ -162,7 +162,8 @@ app.Use(async (context, next) =>
     }
     else if (context.Request.Path.StartsWithSegments("/api/v1/cart") ||
         context.Request.Path.StartsWithSegments("/api/v1/orders") ||
-        context.Request.Path.StartsWithSegments("/api/v1/returns"))
+        context.Request.Path.StartsWithSegments("/api/v1/returns") ||
+        context.Request.Path.StartsWithSegments("/api/v1/ai/product-search"))
     {
         var result = await context.AuthenticateAsync(DoSelectAuthenticationSchemes.Member);
         if (result.Succeeded && result.Principal is not null)

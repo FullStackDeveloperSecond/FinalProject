@@ -237,6 +237,11 @@ public sealed class EfCompatibilityRuleAdminService : ICompatibilityRuleAdminSer
             // findings after the fact is behaviorally equivalent for what this no-write test tool
             // reports, just without skipping the evaluation work for excluded rules.
             results = results.Where(finding => onlyRuleCodes.Contains(finding.RuleCode)).ToList();
+            // 組長 PR #35 round-2 review, P2-6: Overall must be recomputed from *this* filtered set,
+            // not left as whatever it was for the full, unfiltered rule set — otherwise an
+            // unselected rule's failure could still drive Overall to e.g. Blocked with no
+            // corresponding finding in the (filtered) response to explain why.
+            overall = EfCompatibilityCheckService.RecomputeOverallFromFindings(results);
         }
 
         var now = DateTime.UtcNow;

@@ -15,6 +15,7 @@ test('a shopper can open the seeded catalog and view product details', async ({ 
   const seededProduct = page.getByRole('heading', {
     level: 3,
     name: '懂選開發用顯示卡',
+    exact: true,
   })
   await expect(seededProduct).toBeVisible()
   await seededProduct.click()
@@ -124,4 +125,19 @@ test('a member can submit a review for a completed-order item', async ({ page })
   await page.getByLabel('內容').fill('實際使用一週，腰靠支撐很穩。')
   await page.getByRole('button', { name: '送出審核' }).click()
   await expect(page.getByText('評價已送出審核。')).toBeVisible()
+})
+
+test('a public shopper can use AI search safely when the provider is disabled', async ({ page }) => {
+  await page.goto('/ai-search')
+
+  await expect(page.getByRole('heading', { level: 1, name: '說出需求，不必先學會所有規格' }))
+    .toBeVisible()
+  await page.getByRole('textbox', { name: '你想找什麼？' }).fill('懂選開發用顯示卡')
+  await page.getByRole('button', { name: '開始懂選' }).click()
+
+  await expect(page.getByRole('heading', { name: 'AI 暫時無法使用，已改用一般搜尋' }))
+    .toBeVisible()
+  await expect(page.getByText('不代表 AI 推薦或相容性保證')).toBeVisible()
+  await expect(page.getByRole('heading', { level: 3, name: '懂選開發用顯示卡', exact: true }))
+    .toBeVisible()
 })

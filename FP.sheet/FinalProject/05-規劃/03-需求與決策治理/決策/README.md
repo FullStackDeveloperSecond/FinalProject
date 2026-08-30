@@ -13,6 +13,7 @@
 
 ## 最近完成批次
 
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-035-M18完整組裝推薦與預算邊界定版|DEC-BATCH-035｜M-18 完整組裝推薦與預算邊界定版]]：`DEC-P340～DEC-P341`，2 項，已於 2026-08-29 寫回；CustomBuild 固定回傳八類完整清單，既有零件納入相容性但不計入新購預算，最高預算涵蓋新購小計與 NT$300 組裝費。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-034-M19-AI客服垂直切片定版|DEC-BATCH-034｜M-19 AI 客服垂直切片定版]]：`DEC-P335～DEC-P339`，5 項，已於 2026-08-28 寫回；新增可重載同意查詢、本人客服公開訊息脈絡、版本化 Token 成本設定、A-28 四角色最小權限，以及指定組長的 US$70 Email／站內一次性通知。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-033-OpenAI-Responses-API-Adapter定版|DEC-BATCH-033｜OpenAI Responses API Adapter 定版]]：`DEC-P331～DEC-P334`，4 項，已於 2026-08-28 寫回；客服採既有 `HttpClient`、`store=false`、Terra／12 秒、一次暫時錯誤重試、strict Schema、可信引用正規化及模型／Token 證據，功能維持預設關閉且 live baseline 仍由 AI-09 追蹤。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-032-AI客服同意版本用途與額度日界線修正|DEC-BATCH-032｜AI 客服同意版本、用途與額度日界線修正]]：`DEC-P328～DEC-P330`，3 項，已於 2026-08-28 寫回；只接受後端目前版本與 `Purpose=Support` 的有效同意，每日額度於 `Asia/Taipei` 午夜重置；原 AI Migration 原位修正且未混入既有 Product Image 欄位。

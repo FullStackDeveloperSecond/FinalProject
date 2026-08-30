@@ -135,6 +135,15 @@ General
 - 只有品牌或其他軟性偏好缺少時可直接搜尋，不強迫補問。
 - 使用者拒絕補充時，提供一般關鍵字搜尋與篩選，不自行猜測預算或硬性規格。
 
+### CustomBuild 完整清單與預算
+
+- 成功結果只回傳一份完整組裝，不把八類零件拆成互不相關的推薦卡。必要類別固定為 `CPU`、`MOTHERBOARD`、`MEMORY`、`GPU`、`STORAGE`、`PSU`、`CASE`、`CPU_COOLER`。
+- 站內既有 SKU 與使用者確認的結構化手填零件先併入完整清單；缺少的類別才從公開、上架、預設 SKU 且有可售庫存的商品中選取。
+- 最高預算是 `purchaseSubtotal + assemblyFee`；`assemblyFee` 固定 NT$300。既有零件價格不計入 `purchaseSubtotal`，但仍顯示於清單並參與全部確定性規則。
+- 每個完整候選都必須交由正式相容性設定與規則引擎檢查；`Blocked`、`InsufficientData` 或缺少必要類別時不回傳推薦。`Warning` 可回傳但必須保留警示鍵。
+- OpenAI 只接收後端核准的新購商品卡並產生逐 SKU 理由；不得替既有零件捏造理由，也不得修改價格、庫存、類別、相容性或總額。
+- 第一版以有界候選組合找出一份符合條件的完整清單，不承諾全域最低價或效能最佳解；找不到合法完整組合時回 `noResults`，不補入虛構零件。
+
 ### 搜尋失敗與降級
 
 | 情境 | 處理 |
@@ -244,4 +253,6 @@ sequenceDiagram
 
 既有零件識別格式與 Clarification Precision／Recall 發布門檻均已定版；120 筆繁中 draft 評估資料、合成 Fixture、Grader Contract 與 deterministic 驗證已建立於 `FP.dev/evals/ai/v1`。API 的 `POST /api/v1/ai/support/messages` 具 Member／Guest 雙 Scheme 的 `AiSupport.Member` Policy，真正 GuestOrderAccess Cookie 通過 Authentication 後因缺 Member Claim 回 403。Infrastructure 已接上 `EfAiSupportAdmissionGate`、`EfAiSupportContextReader`、append-only 同意 Manager 與 Interaction Store：Admission 只接受 `AiConsentPolicy.CurrentVersion=1`、`Purpose=Support` 範圍內的最新同意，以 `Asia/Taipei` 00:00 日界線、Serializable 交易、SQL Server Key-range Lock 與 RequestPublicId UX 原子預留每日 20 則；Context 只依可信 Member ID 查本人訂單、本人客服案件公開訊息及本人既有 AI Conversation，排除 Internal Note、附件與個資。Interaction 保存回答／降級、可信引用、模型、Prompt／Schema 版本、實際 Token、設定化估算成本與延遲；資料庫故障、內容安全或 Owner 不符均 Fail Closed，不呼叫模型。
 
-AI-13、Responses Adapter 與 M-19 目前分支已形成同意查詢／Grant／Withdraw、本人 Order／SupportTicket／Conversation Query、互動／引用／Token／成本保存、會員用量、A-28 管理彙總、會員聊天 UI、管理成本 UI 與 Playwright 降級旅程。Migration `20260828110755_AddAiSupportConversationsAndInteractions` 只新增 `AiConversations`、`AiInteractions`、`AiCitations`、索引、Check Constraint 與 Restrict FK，已確認無 pending model change，尚未套用共用開發資料庫。剩餘發布 Gate 為 Required CI 的 SQL Migration／Provider-backed／Playwright、Review／合併，以及 AI-09 的 Terry／Kafen 覆核與真實模型品質、P95、Token、成本 baseline；M-18 搜尋專用 Adapter／Endpoint 仍為下一功能。
+AI-13、Responses Adapter 與 M-19 已透過 PR #59 合併 `dev`，包含同意查詢／Grant／Withdraw、本人 Order／SupportTicket／Conversation Query、互動／引用／Token／成本保存、會員用量、A-28 管理彙總、會員聊天 UI、管理成本 UI 與 Playwright 降級旅程。Migration `20260828110755_AddAiSupportConversationsAndInteractions` 新增的 `AiInteractions.SearchPublicId` 與 `IntentJson` 已可直接承接搜尋互動，M-18 不需新增資料表或 Migration。
+
+`codex/m18-ai-product-search` 已形成搜尋專用 SearchIntent 與推薦理由 strict Responses Adapter、訪客／會員 10／30 額度、IP＋30 日 Browser ID 匿名鍵、SQL 公開候選、站內 SKU／使用者確認手填零件、自然語言 `ProposedExistingPart` 確認閘門、八類完整 CustomBuild、NT$300 組裝費與既有零件不重複計價、正式確定性相容性檢查、核准候選理由驗證、Fail Closed 互動保存、關鍵字降級、公開 Endpoint、OpenAPI 與 `/ai-search` UI。工作分支證據不等於已發布；完整驗證數字以本次開發日誌為準。M-18 Playwright 已透過隨機 `DoSelectE2E_*` 資料庫重播全部 19 支 Migration、最小 Seed 與公開搜尋降級旅程，1／1 通過後成功清除；唯讀核對確認零測試庫殘留，且共用 `DoSelectDb` 仍只有 `InitialCreate`、未被修改。其餘發布 Gate 為完整 Review、Required CI、PR／合併，以及 AI-09 的 Terry／Kafen 覆核與真實模型品質、P95、Token、成本 baseline。

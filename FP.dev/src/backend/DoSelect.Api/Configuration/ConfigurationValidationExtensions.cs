@@ -205,10 +205,22 @@ internal sealed class OpenAiOptionsValidator : IValidateOptions<OpenAiResponsesO
                 "Configuration key 'OpenAI:SupportModel' is required when 'Features:AiEnabled' is true.");
         }
 
+        if (string.IsNullOrWhiteSpace(options.ProductSearchModel))
+        {
+            failures.Add(
+                "Configuration key 'OpenAI:ProductSearchModel' is required when 'Features:AiEnabled' is true.");
+        }
+
         if (options.SupportTimeoutMilliseconds is < 1_000 or > 60_000)
         {
             failures.Add(
                 "Configuration key 'OpenAI:SupportTimeoutMilliseconds' must be between 1000 and 60000.");
+        }
+
+        if (options.ProductSearchTimeoutMilliseconds is < 1_000 or > 60_000)
+        {
+            failures.Add(
+                "Configuration key 'OpenAI:ProductSearchTimeoutMilliseconds' must be between 1000 and 60000.");
         }
 
 
@@ -224,6 +236,24 @@ internal sealed class OpenAiOptionsValidator : IValidateOptions<OpenAiResponsesO
                 "Configuration key 'OpenAI:SupportOutputCostPerMillionTokens' must be zero or greater.");
         }
 
+        if (options.ProductSearchInputCostPerMillionTokens < 0)
+        {
+            failures.Add(
+                "Configuration key 'OpenAI:ProductSearchInputCostPerMillionTokens' must be zero or greater.");
+        }
+
+        if (options.ProductSearchOutputCostPerMillionTokens < 0)
+        {
+            failures.Add(
+                "Configuration key 'OpenAI:ProductSearchOutputCostPerMillionTokens' must be zero or greater.");
+        }
+
+        if (System.Text.Encoding.UTF8.GetByteCount(options.AnonymousIdentityPepper ?? string.Empty) < 32)
+        {
+            failures.Add(
+                "Configuration key 'OpenAI:AnonymousIdentityPepper' must contain at least 32 UTF-8 bytes.");
+        }
+
         if (!options.BudgetAlertRecipientAdminPublicId.HasValue ||
             options.BudgetAlertRecipientAdminPublicId.Value == Guid.Empty)
         {
@@ -237,6 +267,13 @@ internal sealed class OpenAiOptionsValidator : IValidateOptions<OpenAiResponsesO
         {
             failures.Add(
                 "Configuration key 'OpenAI:DemoMemberPublicIds' must contain at most two distinct non-empty member PublicIds.");
+        }
+
+        if (options.DemoBrowserIds.Length > 1 ||
+            options.DemoBrowserIds.Any(publicId => publicId == Guid.Empty))
+        {
+            failures.Add(
+                "Configuration key 'OpenAI:DemoBrowserIds' must contain at most one non-empty browser ID.");
         }
 
         return failures.Count == 0

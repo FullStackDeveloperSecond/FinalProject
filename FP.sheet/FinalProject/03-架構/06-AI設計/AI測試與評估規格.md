@@ -118,8 +118,8 @@ OpenAI 官方建議以代表實際使用分布、包含正常與邊界案例的�
 | 客服前置閘門 | 匿名、錯誤帳號類型、真正 GuestOrderAccess Cookie、功能關閉、同意拒絕／撤回、每日額度與併發最後一額、敏感內容及 Owner 拒絕；拒絕路徑模型零呼叫，安全路徑只預留與呼叫一次 | 正式 Responses Adapter、輸出 Schema 與引用驗證已形成；尚未完成同意 UI／瀏覽器 E2E 與 live 品質證據 |
 | 訂單／客服歷史投影 | 正式訂單 Query 從可信登入會員 ID 驗證 Owner，只回訂單 PublicId／編號／狀態與商品快照；不含姓名、Email、電話、地址或 Owner ID，跨會員回安全不存在 | 客服歷史 Query 尚未接入；由 M-19 垂直切片追蹤 |
 | 外送內容與 Prompt Envelope | Token／常見 Secret／個資樣式會阻止 Envelope 建立；System Instructions、User Input、商品資料維持分離信任層級 | 不等同模型 Prompt Injection 品質或拒絕率評估 |
-| 工具與搜尋 | 四個只讀工具白名單、模型 Member ID 不作授權依據、無 SQL／寫入能力、Semantic Key 白名單與預算順序驗證 | 尚未接 OpenAI Tool Adapter 或商品 Query |
-| 故障降級 | 客服 Adapter 已驗證 429／5xx／網路／格式錯誤最多重試一次、其他 4xx 與模型轉人工不重試；搜尋仍維持契約測試 | 尚未量測真實逾時、P95 或 Token 成本；搜尋專用 Adapter 尚未形成 |
+| 工具與搜尋 | 四個客服只讀工具白名單、模型 Member ID 不作授權依據、無 SQL／寫入能力；M-18 工作分支另驗證 Semantic Key 白名單、預算順序、公開商品 Query、自然語言既有零件確認前零商品查詢，以及 DEC-BATCH-035 的八類完整 CustomBuild、新購小計＋NT$300 組裝費、既有零件不重複計價與正式相容性；系統環境 SQL 冪等／最後一額競爭 2／2 及 CustomBuild Provider 1／1 通過 | 隔離 `DoSelectE2E_*` 已完成 19 支 Migration、最小 Seed與公開搜尋降級 Playwright 1／1，清理後零測試庫殘留且共用 `DoSelectDb` 未修改；完整 CustomBuild 的真實模型瀏覽器旅程仍待 AI-09 live baseline／發布 Gate |
+| 故障降級 | 客服 Adapter 已驗證 429／5xx／網路／格式錯誤最多重試一次、其他 4xx 與模型轉人工不重試；M-18 工作分支另以 focused tests 驗證搜尋 strict Schema、一次格式修復、核准候選 ID 對齊、敏感輸入零模型呼叫、互動保存失敗 Fail Closed 及 `keywordSearch` 明確降級 | 尚未量測真實逾時、P95 或 Token 成本；搜尋證據尚待 PR Gate／合併 |
 
 這些測試是 Application 決策、SQL Server 正式資料來源、資料最小化、Responses 遠端邊界與目前 API Pipeline 的契約證據，不取代瀏覽器 E2E 或 live evaluation。Adapter 仍由相同安全閘門驅動，不得繞過額度預留、Owner Query 與模型零呼叫條件。
 
@@ -128,4 +128,4 @@ OpenAI 官方建議以代表實際使用分布、包含正常與邊界案例的�
 - 120 筆繁中實際案例、Fixture、Schema、Grader 與本機／CI deterministic 驗證已建立；仍須由 Terry 覆核商品／相容性、Kafen 覆核客服／安全，Alex 第二審後把案例從 `draft` 提升為已核准版本。
 - Prompt、SearchIntent Schema、Tool Adapter 與 AI 功能形成後，建立不洩漏 Secret、需成本確認且可保存 sanitized 結果的手動 live runner，並保存首次品質、P95、Token 與成本基準。
 - 啟動 S 後建立日文 30 筆、韓文 30 筆，並指定具語言能力的覆核者。
-- 正式同意／額度資料來源、訂單 Owner Query、真正 GuestOrderAccess Cookie `403`、資料庫併發、RequestPublicId 冪等及客服 Responses Adapter 已完成；下一步由 M-19 補同意／撤回 Endpoint、客服歷史 Query、前端同意畫面與瀏覽器 E2E。搜尋專用 Adapter／Endpoint 由 M-18 追蹤；現有 deterministic／Provider-backed 證據仍不能取代 live evaluation。
+- 正式同意／額度資料來源、訂單 Owner Query、真正 GuestOrderAccess Cookie `403`、資料庫併發、RequestPublicId 冪等、客服 Responses Adapter 與 M-19 垂直切片已合併。M-18 工作分支已形成搜尋專用 Adapter／Endpoint／UI、`ProposedExistingPart` 確認閘門與 focused tests；SQL Provider 2／2 與隔離資料庫公開搜尋降級 Playwright 1／1 已通過，仍待 Review、Required CI、PR／合併。現有 deterministic／Provider-backed／降級 E2E 證據仍不能取代 live evaluation。

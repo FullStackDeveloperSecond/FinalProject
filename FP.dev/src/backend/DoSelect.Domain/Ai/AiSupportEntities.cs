@@ -106,7 +106,8 @@ public sealed class AiInteraction : PublicEntity
 
     private AiInteraction(
         Guid publicId,
-        long aiConversationId,
+        long? aiConversationId,
+        Guid? searchPublicId,
         int sequence,
         string userContentProtected,
         string? assistantContent,
@@ -122,7 +123,9 @@ public sealed class AiInteraction : PublicEntity
         DateTime createdAtUtc)
         : base(publicId, createdAtUtc)
     {
-        if (aiConversationId <= 0 || sequence <= 0)
+        var hasConversation = aiConversationId is > 0;
+        var hasSearch = searchPublicId is not null && searchPublicId != Guid.Empty;
+        if (hasConversation == hasSearch || sequence <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(aiConversationId));
         }
@@ -133,6 +136,7 @@ public sealed class AiInteraction : PublicEntity
         }
 
         AiConversationId = aiConversationId;
+        SearchPublicId = searchPublicId;
         Sequence = sequence;
         UserContentProtected = RequireBoundedText(userContentProtected, nameof(userContentProtected), 4_000);
         AssistantContent = OptionalBoundedText(assistantContent, nameof(assistantContent), 4_000);
@@ -196,6 +200,7 @@ public sealed class AiInteraction : PublicEntity
         new(
             publicId,
             aiConversationId,
+            searchPublicId: null,
             sequence,
             userContentProtected,
             assistantContent,
@@ -209,6 +214,45 @@ public sealed class AiInteraction : PublicEntity
             fallbackReason,
             latencyMs,
             createdAtUtc);
+
+    public static AiInteraction RecordProductSearch(
+        Guid publicId,
+        Guid searchPublicId,
+        string userContentProtected,
+        string? assistantContent,
+        string? intentJson,
+        string model,
+        string promptVersion,
+        string schemaVersion,
+        int inputTokens,
+        int outputTokens,
+        decimal estimatedCostUsd,
+        AiInteractionStatus status,
+        string? fallbackReason,
+        int latencyMs,
+        DateTime createdAtUtc)
+    {
+        return new AiInteraction(
+            publicId,
+            aiConversationId: null,
+            searchPublicId,
+            sequence: 1,
+            userContentProtected,
+            assistantContent,
+            model,
+            promptVersion,
+            schemaVersion,
+            inputTokens,
+            outputTokens,
+            estimatedCostUsd,
+            status,
+            fallbackReason,
+            latencyMs,
+            createdAtUtc)
+        {
+            IntentJson = OptionalBoundedText(intentJson, nameof(intentJson), 8_000),
+        };
+    }
 
     private static string RequireBoundedText(string value, string parameterName, int maximumLength)
     {

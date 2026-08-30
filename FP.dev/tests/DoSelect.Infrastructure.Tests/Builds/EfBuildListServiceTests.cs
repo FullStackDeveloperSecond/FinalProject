@@ -949,6 +949,7 @@ public sealed class EfBuildListServiceTests
             new EfCompatibilityCheckService(context, factsReader),
             factsReader,
             new EfCartService(context, idempotencyExecutor),
-            idempotencyExecutor);
+            idempotencyExecutor,
+            Options.Create(new FrontendLinkOptions()));
     }
 }

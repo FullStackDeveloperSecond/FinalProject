@@ -4604,7 +4604,11 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "text/plain": components["schemas"]["PageResultOfBuildListSummaryDto"];
+                        "application/json": components["schemas"]["PageResultOfBuildListSummaryDto"];
+                        "text/json": components["schemas"]["PageResultOfBuildListSummaryDto"];
+                    };
                 };
             };
         };
@@ -5113,6 +5117,82 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai/product-search/recommendations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AiProductSearchRequest"];
+                    "text/json": components["schemas"]["AiProductSearchRequest"];
+                    "application/*+json": components["schemas"]["AiProductSearchRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AiProductSearchResultDto"];
+                        "application/json": components["schemas"]["AiProductSearchResultDto"];
+                        "text/json": components["schemas"]["AiProductSearchResultDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Too Many Requests */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -6058,6 +6138,105 @@ export interface components {
             /** Format: date-time */
             decidedAtUtc: null | string;
         };
+        AiCustomBuildComponentDto: {
+            product: null | components["schemas"]["ProductCardDto"];
+            /** Format: uuid */
+            skuPublicId: null | string;
+            sourceType: string;
+            categoryCode: string;
+            displayName: string;
+            /** Format: int32 */
+            quantity: number | string;
+            isExistingPart: boolean;
+            reason: null | string;
+        };
+        AiCustomBuildRecommendationDto: {
+            components: components["schemas"]["AiCustomBuildComponentDto"][];
+            /** Format: double */
+            purchaseSubtotal: number | string;
+            /** Format: double */
+            assemblyFee: number | string;
+            /** Format: double */
+            purchaseTotal: number | string;
+            currency: string;
+            compatibilityStatus: string;
+            compatibilityMessageKeys: string[];
+        };
+        AiExistingPartRequest: {
+            sourceType: string;
+            /** Format: uuid */
+            skuPublicId?: null | string;
+            categoryCode?: null | string;
+            displayName?: null | string;
+            specifications: components["schemas"]["AiSearchSpecRequest"][];
+            /** Format: int32 */
+            quantity?: number | string;
+            confirmedByUser?: boolean;
+        };
+        AiProductRecommendationDto: {
+            product: components["schemas"]["ProductCardDto"];
+            reason: string;
+            compatibilityStatus: string;
+            compatibilityMessageKeys: string[];
+        };
+        AiProductSearchIntentDto: {
+            intent: string;
+            purposes: string[];
+            /** Format: double */
+            minimumBudget: null | number | string;
+            /** Format: double */
+            maximumBudget: null | number | string;
+            keyword: null | string;
+            categoryCode: null | string;
+            preferredBrandCodes: string[];
+            excludedBrandCodes: string[];
+            requiredSpecs: components["schemas"]["AiSearchSpecDto"][];
+            preferences: string[];
+            proposedExistingParts: components["schemas"]["AiProposedExistingPartDto"][];
+        };
+        AiProductSearchRequest: {
+            message: string;
+            locale: string;
+            existingParts: components["schemas"]["AiExistingPartRequest"][];
+        };
+        AiProductSearchResultDto: {
+            /** Format: uuid */
+            searchPublicId: string;
+            resultType: string;
+            degradationMode: string;
+            intent: null | components["schemas"]["AiProductSearchIntentDto"];
+            clarifications: string[];
+            recommendations: components["schemas"]["AiProductRecommendationDto"][];
+            fallbackProducts: components["schemas"]["ProductCardDto"][];
+            disclaimerKey: string;
+            usage: components["schemas"]["AiProductSearchUsageDto"];
+            customBuild?: null | components["schemas"]["AiCustomBuildRecommendationDto"];
+        };
+        AiProductSearchUsageDto: {
+            /** Format: int32 */
+            remainingRequests: number | string;
+            /** Format: date-time */
+            resetAtUtc: string;
+        };
+        AiProposedExistingPartDto: {
+            categoryCode: string;
+            displayName: string;
+            /** Format: int32 */
+            quantity: number | string;
+            specifications: components["schemas"]["AiSearchSpecDto"][];
+        };
+        AiSearchSpecDto: {
+            semanticKey: string;
+            operator: string;
+            value: string;
+            unit: null | string;
+        };
+        AiSearchSpecRequest: {
+            semanticKey: string;
+            operator: string;
+            value: string;
+            unit?: null | string;
+        };
         AiSupportAnswerDto: {
             /** Format: uuid */
             conversationPublicId: string;
@@ -6167,6 +6346,12 @@ export interface components {
             /** Format: uuid */
             publicId: string;
         };
+        BuildActiveShareDto: {
+            /** Format: uuid */
+            sharePublicId: string;
+            /** Format: date-time */
+            expiresAtUtc: null | string;
+        };
         BuildCompatibilitySummaryDto: {
             overall: string;
             /** Format: int32 */
@@ -6182,6 +6367,7 @@ export interface components {
             skuPublicId: string;
             skuCode: string;
             name: string;
+            categoryCode: string;
             /** Format: int32 */
             quantity: number | string;
             /** Format: int32 */
@@ -6205,6 +6391,22 @@ export interface components {
             items: components["schemas"]["BuildItemDto"][];
             compatibility: components["schemas"]["BuildCompatibilitySummaryDto"];
             totals: components["schemas"]["BuildTotalsDto"];
+            activeShare: null | components["schemas"]["BuildActiveShareDto"];
+            /** Format: date-time */
+            updatedAtUtc: string;
+            /** Format: byte */
+            rowVersion: string;
+        };
+        BuildListSummaryDto: {
+            /** Format: uuid */
+            publicId: string;
+            name: string;
+            /** Format: int32 */
+            itemCount: number | string;
+            compatibilityOverall: string;
+            /** Format: double */
+            grandTotal: number | string;
+            isShared: boolean;
             /** Format: date-time */
             updatedAtUtc: string;
             /** Format: byte */
@@ -6474,6 +6676,8 @@ export interface components {
             code: string;
             /** Format: double */
             discountAmount: number | string;
+            isFreeShipping: boolean;
+            isAssemblyFreeShipping: boolean;
         };
         /** @enum {unknown} */
         CouponDiscountType: "fixedAmount" | "percentage" | "freeShipping" | "assemblyFreeShipping";
@@ -6923,6 +7127,17 @@ export interface components {
         };
         PageResultOfBrandDto: {
             items: components["schemas"]["BrandDto"][];
+            /** Format: int32 */
+            pageNumber: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+            /** Format: int32 */
+            totalCount: number | string;
+            /** Format: int32 */
+            totalPages?: number | string;
+        };
+        PageResultOfBuildListSummaryDto: {
+            items: components["schemas"]["BuildListSummaryDto"][];
             /** Format: int32 */
             pageNumber: number | string;
             /** Format: int32 */

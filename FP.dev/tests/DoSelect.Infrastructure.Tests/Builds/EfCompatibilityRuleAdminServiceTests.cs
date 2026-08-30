@@ -353,6 +353,60 @@ public sealed class EfCompatibilityRuleAdminServiceTests
         Assert.Equal(before.SettingsVersion, after.SettingsVersion);
     }
 
+    /// <summary>
+    /// 組長 PR #35 round-2 review, P2-6: the RuleCodes filter only trimmed the *output* findings,
+    /// leaving Overall computed from every rule's result — an unselected rule's real failure could
+    /// still drive Overall to e.g. Blocked with no corresponding finding in the (filtered)
+    /// response to explain why. This build's Motherboard genuinely doesn't fit the Case's
+    /// supported form factor (would Block via MOTHERBOARD_FORM_FACTOR unfiltered, asserted below
+    /// as a sanity check — a different rule than CPU_SOCKET/MEMORY_CAPACITY deliberately, since
+    /// other tests in this shared-collection fixture disable those two and never re-enable them),
+    /// but the test is scoped to only PSU_CAPACITY — a rule this otherwise-valid build passes
+    /// cleanly (so it contributes no finding at all, passing rules never do). Overall must reflect
+    /// that empty, PSU-only result set — Compatible — not the unfiltered form-factor failure the
+    /// admin never asked about.
+    /// </summary>
+    [Fact]
+    public async Task TestAsync_WhenScopedToRuleCodes_RecomputesOverallFromOnlyTheFilteredFindings()
+    {
+        await using var context = CompatibilityRuleAdminServiceFixture.CreateContext();
+        var adminUserId = await CompatibilityRuleAdminServiceFixture.SeedAdminUserIdAsync(context, AuditRoleNames.CatalogManager);
+        var components = await EfBuildListServiceTests.SeedCompleteBuildComponentsAsync(context);
+        var mismatchedBoard = await CompatibilityRuleAdminServiceFixture.SeedComponentSkuAsync(
+            context, CompatibilityCatalogContract.Categories.Motherboard,
+            new Dictionary<string, object?>
+            {
+                [CompatibilityCatalogContract.SemanticKeys.CpuSocket] = "AM5",
+                [CompatibilityCatalogContract.SemanticKeys.MotherboardChipset] = "X670E",
+                [CompatibilityCatalogContract.SemanticKeys.MemoryType] = "DDR5",
+                [CompatibilityCatalogContract.SemanticKeys.MemorySlotCount] = 4m,
+                [CompatibilityCatalogContract.SemanticKeys.MemoryMaxCapacityGb] = 128m,
+                // The Case fixture's CaseSupportedMotherboardFormFactor only lists "ATX" — this
+                // board doesn't fit it, unlike CPU socket which still matches the CPU (AM5), so
+                // this is the *only* rule that fires.
+                [CompatibilityCatalogContract.SemanticKeys.MotherboardFormFactor] = "E_ATX",
+                [CompatibilityCatalogContract.SemanticKeys.M2SlotCount] = 4m,
+                [CompatibilityCatalogContract.SemanticKeys.SataPortCount] = 4m,
+                [CompatibilityCatalogContract.SemanticKeys.MotherboardCpuEps8PinRequiredCount] = 1m,
+                [CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 20m,
+            });
+        var service = CreateService(context);
+        var items = EfBuildListServiceTests.ToBuildItems(components with { Motherboard = mismatchedBoard });
+
+        var unfiltered = await service.TestAsync(
+            new CompatibilityRuleTestRequest(items, null, false, null),
+            adminUserId, AuditContext, CancellationToken.None);
+        Assert.Equal("blocked", unfiltered.Overall);
+        Assert.Contains(unfiltered.Results, finding => finding.RuleCode == CompatibilityRuleCodes.MotherboardFormFactor);
+
+        var scoped = await service.TestAsync(
+            new CompatibilityRuleTestRequest(items, [CompatibilityRuleCodes.PsuCapacity], false, null),
+            adminUserId, AuditContext, CancellationToken.None);
+
+        Assert.Empty(scoped.Results);
+        Assert.Equal("compatible", scoped.Overall);
+    }
+
     [Fact]
     public async Task TestAsync_PersistsAnAuditRun_AndExactlyOneAuditLogRowReferencingIt()
     {
