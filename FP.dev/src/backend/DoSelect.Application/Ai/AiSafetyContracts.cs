@@ -12,6 +12,7 @@ public enum AiConsentState
     Missing = 0,
     Granted = 1,
     Denied = 2,
+    Unavailable = 3,
 }
 
 public enum AiSafetyReason

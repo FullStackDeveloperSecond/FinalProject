@@ -12,7 +12,7 @@ namespace DoSelect.Api.Ai;
 
 [ApiController]
 [Route("api/v1/ai/support/messages")]
-[Authorize(Policy = DoSelectPolicies.Member)]
+[Authorize(Policy = DoSelectPolicies.AiSupportMember)]
 public sealed class AiSupportController : ControllerBase
 {
     private const string DisclaimerKey = "ai.support.answerDisclaimer";
@@ -81,7 +81,7 @@ public sealed class AiSupportController : ControllerBase
             request.ConversationPublicId ?? Guid.NewGuid(),
             interactionPublicId,
             result.Answer,
-            Citations: [],
+            result.Citations.Select(MapCitation).ToArray(),
             AiSupportResultCodes.Answered,
             AiDegradationModes.None,
             DisclaimerKey,
@@ -89,6 +89,13 @@ public sealed class AiSupportController : ControllerBase
                 result.RemainingDailyMessages,
                 result.ResetAtUtc)));
     }
+
+    private static AiSupportCitationDto MapCitation(AiSupportCitation citation) =>
+        new(
+            citation.SourceType,
+            citation.Title,
+            Guid.TryParse(citation.SourceId, out var publicId) ? publicId : null,
+            Url: null);
 
     private IActionResult MapRejection(AiSafetyReason reason) => reason switch
     {

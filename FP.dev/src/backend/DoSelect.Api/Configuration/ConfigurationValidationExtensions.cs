@@ -4,6 +4,7 @@ using DoSelect.Application.Common;
 using DoSelect.Application.Storage;
 using DoSelect.Application.Checkout;
 using DoSelect.Infrastructure.Email;
+using DoSelect.Infrastructure.Ai;
 using DoSelect.Infrastructure.Security;
 using Microsoft.Extensions.Options;
 
@@ -22,8 +23,8 @@ public static class ConfigurationValidationExtensions
             .BindConfiguration(FeatureOptions.SectionName)
             .ValidateOnStart();
         services
-            .AddOptions<OpenAiOptions>()
-            .BindConfiguration(OpenAiOptions.SectionName)
+            .AddOptions<OpenAiResponsesOptions>()
+            .BindConfiguration(OpenAiResponsesOptions.SectionName)
             .ValidateOnStart();
         services
             .AddOptions<SmtpEmailOptions>()
@@ -59,7 +60,7 @@ public static class ConfigurationValidationExtensions
             .ValidateOnStart();
 
         services.AddSingleton<IValidateOptions<StorageOptions>, StorageOptionsValidator>();
-        services.AddSingleton<IValidateOptions<OpenAiOptions>, OpenAiOptionsValidator>();
+        services.AddSingleton<IValidateOptions<OpenAiResponsesOptions>, OpenAiOptionsValidator>();
         services.AddSingleton<IValidateOptions<SmtpEmailOptions>, EmailOptionsValidator>();
         services.AddSingleton<IValidateOptions<DemoOptions>, DemoOptionsValidator>();
         services.AddSingleton<IValidateOptions<CorsOptions>, CorsOptionsValidator>();
@@ -175,7 +176,7 @@ internal sealed class StorageOptionsValidator : IValidateOptions<StorageOptions>
     }
 }
 
-internal sealed class OpenAiOptionsValidator : IValidateOptions<OpenAiOptions>
+internal sealed class OpenAiOptionsValidator : IValidateOptions<OpenAiResponsesOptions>
 {
     private readonly IOptions<FeatureOptions> _features;
 
@@ -184,7 +185,7 @@ internal sealed class OpenAiOptionsValidator : IValidateOptions<OpenAiOptions>
         _features = features;
     }
 
-    public ValidateOptionsResult Validate(string? name, OpenAiOptions options)
+    public ValidateOptionsResult Validate(string? name, OpenAiResponsesOptions options)
     {
         if (!_features.Value.AiEnabled)
         {
@@ -198,10 +199,16 @@ internal sealed class OpenAiOptionsValidator : IValidateOptions<OpenAiOptions>
                 "Configuration key 'OpenAI:ApiKey' is required when 'Features:AiEnabled' is true.");
         }
 
-        if (string.IsNullOrWhiteSpace(options.Model))
+        if (string.IsNullOrWhiteSpace(options.SupportModel))
         {
             failures.Add(
-                "Configuration key 'OpenAI:Model' is required when 'Features:AiEnabled' is true.");
+                "Configuration key 'OpenAI:SupportModel' is required when 'Features:AiEnabled' is true.");
+        }
+
+        if (options.SupportTimeoutMilliseconds is < 1_000 or > 60_000)
+        {
+            failures.Add(
+                "Configuration key 'OpenAI:SupportTimeoutMilliseconds' must be between 1000 and 60000.");
         }
 
         return failures.Count == 0

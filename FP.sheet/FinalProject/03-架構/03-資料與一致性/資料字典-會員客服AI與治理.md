@@ -1,11 +1,12 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-18
+最後更新: 2026-08-28
 追蹤項目:
   - DES-07
   - DES-08
   - DES-15
   - DES-20
+  - AI-13
 ---
 
 # 資料字典｜會員、客服、AI 與治理
@@ -45,7 +46,7 @@
 |---|---|---|
 | `Notifications`／Entity | `RecipientUserId nvarchar(450)`、`Type varchar(64)`、`Title nvarchar(200)`、`Body nvarchar(1000)`、`ResourceType varchar(64) NULL`、`ResourcePublicId uniqueidentifier NULL`、`ReadAtUtc datetime2(3) NULL`、`ExpiresAtUtc datetime2(3) NULL` | `IX_Notifications_RecipientUserId_ReadAtUtc_CreatedAtUtc` |
 | `EmailDeliveries`／MutableEntity | `RecipientUserId nvarchar(450) NULL`、`RecipientEmailNormalized nvarchar(320)`、`TemplateCode nvarchar(64)`、`TemplateVersion int`、`Status varchar(24)`、`ProviderMessageId nvarchar(128) NULL`、`AttemptCount int`、`NextAttemptAtUtc/SentAtUtc/FailedAtUtc datetime2(3) NULL`、`LastErrorCode nvarchar(64) NULL` | Idempotency Scope UX；不保存密碼重設 Token 明文；`IX_EmailDeliveries_Status_NextAttemptAtUtc` |
-| `AiConsentRecords`／Entity | `MemberUserId nvarchar(450)`、`PolicyVersion int`、`Locale varchar(10)`、`Status varchar(16)`、`GrantedAtUtc datetime2(3)`、`WithdrawnAtUtc datetime2(3) NULL`、`Source varchar(32)` | append-only；`IX_AiConsentRecords_MemberUserId_CreatedAtUtc`；最新有效同意由查詢判定 |
+| `AiConsentRecords`／Entity | `MemberUserId nvarchar(450)`、`PolicyVersion int`、`Purpose varchar(16)`、`Locale varchar(10)`、`Status varchar(16)`、`GrantedAtUtc datetime2(3)`、`WithdrawnAtUtc datetime2(3) NULL`、`Source varchar(32)` | append-only；Member Restrict FK；PolicyVersion／Purpose／Locale／Grant-Withdraw 狀態 Check；`IX_AiConsentRecords_MemberUserId_Purpose_PolicyVersion_CreatedAtUtc`；只在後端目前版本與 `Purpose=Support` 範圍內依 CreatedAtUtc＋Id 判定最新有效同意 |
 
 ## 評價與收藏
 
@@ -95,7 +96,7 @@
 | `AiInteractions`／Entity | `AiConversationId bigint NULL`、`SearchPublicId uniqueidentifier NULL`、`Sequence int`、`UserContentProtected nvarchar(4000)`、`AssistantContent nvarchar(4000) NULL`、`IntentJson nvarchar(8000) NULL`、`Model nvarchar(100)`、`PromptVersion/SchemaVersion nvarchar(64)`、`InputTokens/OutputTokens int`、`EstimatedCostUsd decimal(12,6)`、`Status varchar(24)`、`FallbackReason varchar(64) NULL`、`LatencyMs int` | Conversation＋Sequence UX；Purpose 決定 Search／Conversation 恰一；內容按保存政策清理 |
 | `AiToolInvocations`／Entity | `AiInteractionId bigint`、`ToolName nvarchar(64)`、`ToolContractVersion nvarchar(64)`、`ArgumentsHash binary(32)`、`ResultCode varchar(32)`、`CitationCount int`、`LatencyMs int`、`Attempt int` | 不保存未遮蔽完整參數；`IX_AiToolInvocations_InteractionId` |
 | `AiCitations`／Entity | `AiInteractionId bigint`、`SourceType varchar(32)`、`SourcePublicId uniqueidentifier NULL`、`SourceVersion nvarchar(64) NULL`、`Label nvarchar(200)`、`Url nvarchar(2048) NULL`、`SortOrder int` | `IX_AiCitations_InteractionId_SortOrder` |
-| `AiUsageLedger`／Entity | `MemberUserId nvarchar(450) NULL`、`AnonymousSessionKeyHash binary(32) NULL`、`Feature varchar(32)`、`RequestPublicId uniqueidentifier`、`InputTokens/OutputTokens int`、`EstimatedCostUsd decimal(12,6)`、`Succeeded bit`、`OccurredAtUtc datetime2(3)` | RequestPublicId UX；Member／Session 恰一；append-only；限流以 Ledger 或短期計數查詢 |
+| `AiUsageLedger`／Entity | `MemberUserId nvarchar(450) NULL`、`AnonymousSessionKeyHash binary(32) NULL`、`Feature varchar(32)`、`RequestPublicId uniqueidentifier`、`InputTokens/OutputTokens int`、`EstimatedCostUsd decimal(12,6)`、`Succeeded bit`、`OccurredAtUtc datetime2(3)` | RequestPublicId UX；Member／Session 恰一 Check；Member Restrict FK；append-only；AI-13 的 `Succeeded=true` 表示額度預留成功，模型失敗不退款；實際模型 Token／成本由後續 Interaction／Adapter 階段保存 |
 | `AiSearchFunnelEvents`／Entity | `EventName varchar(64)`、`SearchPublicId uniqueidentifier`、`SessionKeyHash binary(32)`、`MemberUserId nvarchar(450) NULL`、`SkuPublicId uniqueidentifier NULL`、`OrderPublicId uniqueidentifier NULL`、`Position int NULL`、`AttributedAmount decimal(18,2) NULL`、`Locale varchar(10)`、`OccurredAtUtc datetime2(3)`、`EventIdempotencyKey nvarchar(128)` | Idempotency UX；不保存原始搜尋全文；`IX_AiSearchFunnel_SearchPublicId_OccurredAtUtc` |
 
 客服對話保存 180 天後刪除內容或匿名化識別，Audit／用量摘要依各自政策保留；其他顧客的對話不可作為 RAG 知識來源。

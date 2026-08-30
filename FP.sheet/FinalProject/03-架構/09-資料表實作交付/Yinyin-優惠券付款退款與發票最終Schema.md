@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-21
+最後更新: 2026-08-28
 負責人: yinyin
 追蹤項目:
   - DES-19
@@ -162,7 +162,7 @@
 
 `UX_OrderCoupons_OrderId` 必須實體建立。若 `RedemptionId` 有值，其 `OrderId`／`CouponId` 必須與本快照相符，由同一交易驗證與整合測試保證。
 
-最低消費只比對商品特價後、優惠券折扣前的適用商品小計。部分退貨使用 `MinimumSpendAmount` 與 Haru `OrderItems.IsCouponEligible` 快照，不回查目前 Coupon 或商品分類；既有 Initial Migration 尚未包含兩欄，依 DES-21 建立後續 Migration。
+最低消費只比對商品特價後、優惠券折扣前的適用商品小計。部分退貨使用 `MinimumSpendAmount` 與 Haru `OrderItems.IsCouponEligible` 快照，不回查目前 Coupon 或商品分類；兩欄已由 `20260825171312_AddDes21RefundSnapshots` 納入現行 Migration 歷程。
 
 依 DEC-P300，`OrderCoupons.MinimumSpendAmount` 不由優惠券計算／生命週期 PR 單獨修改 ModelSnapshot，而是與 `OrderItems.IsCouponEligible`、`RefundAllocations.Quantity`、`ShippingClawback` 集中於一支基於最新 `dev` 的 DES-21 Migration PR。該 PR 由 Yinyin 單一維護 ModelSnapshot、Haru 複核訂單欄位，只 scaffold／review／執行 SQL Server provider-backed 測試，不套用資料庫。
 

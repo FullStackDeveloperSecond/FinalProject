@@ -6,7 +6,9 @@ using DoSelect.Api.Common;
 using DoSelect.Api.Security;
 using DoSelect.Application.Ai;
 using DoSelect.Domain.Members;
+using DoSelect.Infrastructure.Ai;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
@@ -14,6 +16,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 
 namespace DoSelect.Api.IntegrationTests;
 
@@ -56,6 +59,46 @@ public sealed class AiSupportEndpointTests : IClassFixture<WebApplicationFactory
         using var response = await PostAsync(client, ValidRequest(), token);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(0, model.CallCount);
+    }
+
+    [Fact]
+    public void ProductionRegistration_UsesOpenAiResponsesClient()
+    {
+        using var scope = _factory.Services.CreateScope();
+
+        var client = scope.ServiceProvider.GetRequiredService<IAiSupportModelClient>();
+
+        Assert.IsType<OpenAiResponsesClient>(client);
+    }
+
+    [Fact]
+    public async Task GuestOrderAccessCookie_Returns403WithoutReadingAccessOrCallingModel()
+    {
+        var model = new RecordingModelClient();
+        var admission = new StubAdmissionGate(GrantedAccess());
+        using var factory = CreateFactory(admission, model);
+        using var client = factory.CreateClient();
+        var cookieOptions = factory.Services
+            .GetRequiredService<IOptionsMonitor<CookieAuthenticationOptions>>()
+            .Get(DoSelectAuthenticationSchemes.GuestOrderAccess);
+        var identity = new ClaimsIdentity(DoSelectAuthenticationSchemes.GuestOrderAccess);
+        identity.AddClaim(new Claim(
+            DoSelect.Application.Orders.GuestOrderAccessClaimTypes.TokenValue,
+            "synthetic-guest-token"));
+        var protectedTicket = cookieOptions.TicketDataFormat.Protect(new AuthenticationTicket(
+            new ClaimsPrincipal(identity),
+            DoSelectAuthenticationSchemes.GuestOrderAccess));
+        client.DefaultRequestHeaders.Add(
+            "Cookie",
+            $"{cookieOptions.Cookie.Name}={protectedTicket}");
+        var token = await GetAntiforgeryTokenAsync(client);
+
+        using var response = await PostAsync(client, ValidRequest(), token);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(0, admission.ReadCount);
+        Assert.Equal(0, admission.ReservationCount);
         Assert.Equal(0, model.CallCount);
     }
 
@@ -183,12 +226,28 @@ public sealed class AiSupportEndpointTests : IClassFixture<WebApplicationFactory
     [Fact]
     public async Task AuthorizedSafeRequest_PropagatesLocaleAndOrderContextAndReservesOnce()
     {
-        var model = new RecordingModelClient("返品申請は注文ページから行えます。");
+        var model = new RecordingModelClient(
+            "返品申請は注文ページから行えます。",
+            citations:
+            [
+                new AiSupportCitation(
+                    "order",
+                    OrderPublicId.ToString("D"),
+                    "ORD-TEST",
+                    "2026-08-28T00:00:00.0000000Z"),
+            ]);
         var admission = new StubAdmissionGate(GrantedAccess());
         var context = new StubContextReader(
             new AiSupportContextReadResult(
                 AiSupportContextStatus.Allowed,
-                ["owner-verified de-identified order context"]));
+                [
+                    new AiSupportContextItem(
+                        "order",
+                        OrderPublicId.ToString("D"),
+                        "ORD-TEST",
+                        "2026-08-28T00:00:00.0000000Z",
+                        "owner-verified de-identified order context"),
+                ]));
         using var factory = CreateFactory(admission, model, context);
         using var client = factory.CreateClient();
         await SignInAsync(client, "member");
@@ -209,6 +268,11 @@ public sealed class AiSupportEndpointTests : IClassFixture<WebApplicationFactory
             "owner-verified de-identified order context",
             Assert.Single(model.LastEnvelope!.DataItems).Content);
         Assert.Equal("answered", document.RootElement.GetProperty("resultCode").GetString());
+        var citation = Assert.Single(document.RootElement.GetProperty("citations").EnumerateArray());
+        Assert.Equal("order", citation.GetProperty("type").GetString());
+        Assert.Equal("ORD-TEST", citation.GetProperty("label").GetString());
+        Assert.Equal(OrderPublicId, citation.GetProperty("resourcePublicId").GetGuid());
+        Assert.Equal(JsonValueKind.Null, citation.GetProperty("url").ValueKind);
         Assert.Equal(19, document.RootElement.GetProperty("usage").GetProperty("remainingRequests").GetInt32());
     }
 
@@ -233,7 +297,7 @@ public sealed class AiSupportEndpointTests : IClassFixture<WebApplicationFactory
                 {
                     ["Features:AiEnabled"] = aiEnabled.ToString(),
                     ["OpenAI:ApiKey"] = aiEnabled ? "integration-test-placeholder" : null,
-                    ["OpenAI:Model"] = "integration-test-model",
+                    ["OpenAI:SupportModel"] = "integration-test-model",
                 });
             });
             builder.ConfigureServices(services =>
@@ -368,13 +432,16 @@ public sealed class AiSupportEndpointTests : IClassFixture<WebApplicationFactory
     {
         private readonly string? _answer;
         private readonly AiSupportModelAnswerStatus _status;
+        private readonly IReadOnlyList<AiSupportCitation> _citations;
 
         public RecordingModelClient(
             string? answer = "unused",
-            AiSupportModelAnswerStatus status = AiSupportModelAnswerStatus.Answered)
+            AiSupportModelAnswerStatus status = AiSupportModelAnswerStatus.Answered,
+            IReadOnlyList<AiSupportCitation>? citations = null)
         {
             _answer = answer;
             _status = status;
+            _citations = citations ?? [];
         }
 
         public int CallCount { get; private set; }
@@ -387,7 +454,7 @@ public sealed class AiSupportEndpointTests : IClassFixture<WebApplicationFactory
         {
             CallCount++;
             LastEnvelope = envelope;
-            return Task.FromResult(new AiSupportModelAnswer(_answer, _status));
+            return Task.FromResult(new AiSupportModelAnswer(_answer, _status, _citations));
         }
     }
 }

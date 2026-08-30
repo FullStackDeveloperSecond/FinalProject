@@ -96,6 +96,11 @@ const router = createRouter({
       component: () => import('../pages/returns/ReturnDetailPage.vue'),
     },
     {
+      path: '/cart',
+      name: 'cart',
+      component: () => import('../pages/CartPage.vue'),
+    },
+    {
       path: '/unauthorized',
       name: 'unauthorized',
       component: HttpStatusPage,
@@ -128,7 +133,12 @@ router.beforeEach(async (to) => {
   }
 
   const session = useSessionStore()
-  if (session.status === 'loading') {
+  // 組長 PR #29 round 7 review, P1: 'error' (a failed refresh — see session.ts's isIdentityConfirmed
+  // remarks) is now a distinct state from a confirmed 'anonymous'. Retry the refresh here as well
+  // as for 'loading', so one transient Session API failure doesn't bounce a member who is actually
+  // still signed in straight to /login on their next navigation. Still fails closed: if the retry
+  // also fails, isAuthenticated stays false and the redirect below happens anyway.
+  if (!session.isIdentityConfirmed) {
     await session.refresh()
   }
 

@@ -22,6 +22,137 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("DoSelect.Domain.Ai.AiConsentRecord", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<DateTime>("GrantedAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<string>("Locale")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(10)");
+
+                    b.Property<string>("MemberUserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<int>("PolicyVersion")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(16)");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(16)");
+
+                    b.Property<DateTime?>("WithdrawnAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MemberUserId", "Purpose", "PolicyVersion", "CreatedAtUtc")
+                        .HasDatabaseName("IX_AiConsentRecords_MemberUserId_Purpose_PolicyVersion_CreatedAtUtc");
+
+                    b.ToTable("AiConsentRecords", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_AiConsentRecords_Locale", "[Locale] IN ('zh-TW','ja-JP','ko-KR')");
+
+                            t.HasCheckConstraint("CK_AiConsentRecords_PolicyVersion", "[PolicyVersion] > 0");
+
+                            t.HasCheckConstraint("CK_AiConsentRecords_Purpose", "[Purpose] IN ('Support')");
+
+                            t.HasCheckConstraint("CK_AiConsentRecords_Status", "([Status] = 'Granted' AND [WithdrawnAtUtc] IS NULL) OR ([Status] = 'Withdrawn' AND [WithdrawnAtUtc] IS NOT NULL AND [WithdrawnAtUtc] >= [GrantedAtUtc])");
+                        });
+                });
+
+            modelBuilder.Entity("DoSelect.Domain.Ai.AiUsageLedgerEntry", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<byte[]>("AnonymousSessionKeyHash")
+                        .HasColumnType("binary(32)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<decimal>("EstimatedCostUsd")
+                        .HasPrecision(12, 6)
+                        .HasColumnType("decimal(12,6)");
+
+                    b.Property<string>("Feature")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<int>("InputTokens")
+                        .HasColumnType("int");
+
+                    b.Property<string>("MemberUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<DateTime>("OccurredAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<int>("OutputTokens")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("RequestPublicId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("Succeeded")
+                        .HasColumnType("bit");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RequestPublicId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_AiUsageLedger_RequestPublicId");
+
+                    b.HasIndex("MemberUserId", "Feature", "OccurredAtUtc")
+                        .HasDatabaseName("IX_AiUsageLedger_MemberUserId_Feature_OccurredAtUtc");
+
+                    b.ToTable("AiUsageLedger", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_AiUsageLedger_Owner", "([MemberUserId] IS NOT NULL AND [AnonymousSessionKeyHash] IS NULL) OR ([MemberUserId] IS NULL AND [AnonymousSessionKeyHash] IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_AiUsageLedger_Usage", "[InputTokens] >= 0 AND [OutputTokens] >= 0 AND [EstimatedCostUsd] >= 0");
+                        });
+                });
+
             modelBuilder.Entity("DoSelect.Domain.Auditing.AuditLog", b =>
                 {
                     b.Property<long>("Id")
@@ -7671,6 +7802,23 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                     b.HasKey("UserId", "LoginProvider", "Name");
 
                     b.ToTable("AspNetUserTokens", (string)null);
+                });
+
+            modelBuilder.Entity("DoSelect.Domain.Ai.AiConsentRecord", b =>
+                {
+                    b.HasOne("DoSelect.Infrastructure.Persistence.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("MemberUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("DoSelect.Domain.Ai.AiUsageLedgerEntry", b =>
+                {
+                    b.HasOne("DoSelect.Infrastructure.Persistence.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("MemberUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("DoSelect.Domain.Builds.BuildList", b =>

@@ -1,6 +1,6 @@
 ---
 文件狀態: 可開發
-最後更新: 2026-08-27
+最後更新: 2026-08-28
 適用對象: yinyin
 主要覆核: haru
 最終整合: alex
@@ -47,26 +47,10 @@ dotnet tool run dotnet-ef -- database update `
   --context DoSelectDbContext
 ```
 
-截至 2026-08-27，`origin/dev@8ef986c` 的單一 Migration 歷程仍是下列四支；目前 alex 的整合分支另有六支待 Review／Merge，合併前不得由組員手動複製或套用：
-
-1. `20260819013357_InitialCreate`
-2. `20260822041051_AddIdempotencyAndCartMergeConflicts`
-3. `20260825171312_AddDes21RefundSnapshots`
-4. `20260825174929_AddCentralAuditLogs`
-
-整合分支待合併：
-
-5. `20260826134828_AddTransactionalOutbox`
-6. `20260826173241_AddNotificationDeliveryInfrastructure`
-7. `20260827020034_AlignCheckoutRoundingAndIdempotency`
-8. `20260827034327_AddCheckoutPolicyInvoiceShippingAndPaymentIdempotency`
-9. `20260827054739_AddOrderPackageAndSpecificationSnapshots`
-10. `20260827065535_AddMultiValueSpecificationProvenance`
-
-在整合分支合併前，`dev` 的 `database update` 只會套至 `AddCentralAuditLogs`；合併並拉取新 `dev` 後，才由不指定 Migration 名稱的命令依序套至當時最新版本。不得只停在 `InitialCreate`，也不得在功能分支自行 scaffold／apply 新 Migration；Schema 需求交 alex 走 Migration Gate。
+Migration 名稱與數量會隨整合變動，不再複製到個人工程包。唯一來源是 `FP.dev/src/backend/DoSelect.Infrastructure/Persistence/Migrations/` 與 `DoSelectDbContextModelSnapshot.cs`；每次先同步最新 `dev`，再由不指定 Migration 名稱的命令套用完整歷程。不得只停在特定 Migration，也不得在功能分支自行 scaffold／apply 新 Migration；Schema 需求交 alex 走 Migration Gate。實作進度統一查看 [[05-規劃/01-時程與進度/M功能實作矩陣]]。
 需要最小帳號時，以 Visual Studio 管理 `Seed:MemberPassword`、`Seed:AdminPassword` User Secrets，再用 PATH 中的 `dotnet` 執行 API `--seed-minimal`。兩支 Seed 腳本目前含組長本機 `.NET` 絕對路徑，其他帳號不要直接依賴，也不要混入金流 PR 修改。
 
-首次 Clone 若沒有 `appsettings.Development.json`，由同目錄的 `.example.json` 複製後調整非機密 `Storage:DataRoot`，本機檔案不得提交。退款執行須沿用已合併的 `IIdempotencyExecutor`、中央 `IAuditWriter` 與 `Refund.Execute`／`Coupon.Manage`／`Invoice.Manage` Policy；完整管理員 TOTP 流程以 PR #38 為準，Outbox／Hangfire 仍未完成。不要自建第二套冪等表、排程器、Audit 或授權方式。
+首次 Clone 若沒有 `appsettings.Development.json`，由同目錄的 `.example.json` 複製後調整非機密 `Storage:DataRoot`，本機檔案不得提交。退款執行須沿用已合併的 `IIdempotencyExecutor`、中央 `IAuditWriter`、Outbox／Hangfire 與 `Refund.Execute`／`Coupon.Manage`／`Invoice.Manage` Policy；管理員 TOTP 流程亦已進 `dev`。不要自建第二套冪等表、排程器、Audit 或授權方式。
 
 ## 3. 權威規格閱讀順序
 
@@ -146,7 +130,7 @@ dotnet tool run dotnet-ef -- database update `
 
 每個切片獨立 PR，不要等四個 M 工作包一次完成才交付。
 
-分支交付現況：PR #7 已合併純計算與 Coupon lifecycle；PR #45 已合併單一 DES-21 Migration、可信退款快照與 ModelSnapshot。PR #9 仍須直接基於最新 `dev` 且只保留付款範圍；PR #8 應在 PR #7 已合併基線上完成 `CouponRuleReader` 與 SQL Server Provider-backed 證據。
+優惠券、付款與退款的即時完成狀態只維護於 [[05-規劃/01-時程與進度/M功能實作矩陣]] 與 [[05-規劃/01-時程與進度/未完成項目追蹤表]]；本工程包只保留穩定責任與契約，避免複製 PR 狀態後再次過期。
 
 實際 rebase、重建 branch 或修改 PR base 必須另經 alex 授權。
 

@@ -1,6 +1,6 @@
 ---
 文件狀態: 可開發
-最後更新: 2026-08-27
+最後更新: 2026-08-28
 適用對象: haru
 主要覆核: yinyin
 最終整合: alex
@@ -52,23 +52,7 @@ dotnet tool run dotnet-ef -- database update `
   --context DoSelectDbContext
 ```
 
-截至 2026-08-27，`origin/dev@8ef986c` 的單一 Migration 歷程仍是下列四支；目前 alex 的整合分支另有六支待 Review／Merge，合併前不得由組員手動複製或套用：
-
-1. `20260819013357_InitialCreate`
-2. `20260822041051_AddIdempotencyAndCartMergeConflicts`
-3. `20260825171312_AddDes21RefundSnapshots`
-4. `20260825174929_AddCentralAuditLogs`
-
-整合分支待合併：
-
-5. `20260826134828_AddTransactionalOutbox`
-6. `20260826173241_AddNotificationDeliveryInfrastructure`
-7. `20260827020034_AlignCheckoutRoundingAndIdempotency`
-8. `20260827034327_AddCheckoutPolicyInvoiceShippingAndPaymentIdempotency`
-9. `20260827054739_AddOrderPackageAndSpecificationSnapshots`
-10. `20260827065535_AddMultiValueSpecificationProvenance`
-
-在整合分支合併前，`dev` 的 `database update` 只會套至 `AddCentralAuditLogs`；合併並拉取新 `dev` 後，才由不指定 Migration 名稱的命令依序套至當時最新版本。不得只停在 `InitialCreate`，也不得在功能分支自行 scaffold／apply 新 Migration；Schema 需求交 alex 走 Migration Gate。
+Migration 名稱與數量會隨整合變動，不再複製到個人工程包。唯一來源是 `FP.dev/src/backend/DoSelect.Infrastructure/Persistence/Migrations/` 與 `DoSelectDbContextModelSnapshot.cs`；每次先同步最新 `dev`，再由不指定 Migration 名稱的命令套用完整歷程。不得只停在特定 Migration，也不得在功能分支自行 scaffold／apply 新 Migration；Schema 需求交 alex 走 Migration Gate。實作進度統一查看 [[05-規劃/01-時程與進度/M功能實作矩陣]]。
 最小 Seed 帳號為 `member@doselect.local` 與 `admin@doselect.local`。密碼只放 .NET User Secrets 的 `Seed:MemberPassword`、`Seed:AdminPassword`；不得寫入文件、聊天、Commit 或終端歷史。可用 Visual Studio「管理使用者祕密」設定後執行：
 
 ```powershell
@@ -76,7 +60,7 @@ $env:ASPNETCORE_ENVIRONMENT = 'Development'
 dotnet run --project src/backend/DoSelect.Api --no-launch-profile -- --seed-minimal
 ```
 
-目前 `configure-seed-secrets.ps1` 與 `seed-minimal-development-data.ps1` 含組長本機 `.NET` 絕對路徑，其他帳號不要直接依賴這兩支腳本；這是已知的共用腳本可攜性缺口，不要在你的功能 PR 順便修改。
+`configure-seed-secrets.ps1` 與 `seed-minimal-development-data.ps1` 目前仍含組長本機 `.NET` 絕對路徑；其他帳號以 PATH 中的 `dotnet` 與上方命令為準，不在功能 PR 順便修改共用腳本。
 
 啟動與健康檢查：
 
@@ -90,7 +74,7 @@ dotnet run --project src/backend/DoSelect.Api --no-launch-profile -- --seed-mini
 
 首次 Clone 若沒有本機設定檔，將 `src/backend/DoSelect.Api/appsettings.Development.example.json` 複製為已忽略版控的 `appsettings.Development.json`，再依本機修改非機密的 `Storage:DataRoot`。不要提交該本機檔案。
 
-SH-05 共用安全基線已合併：會員／管理員獨立 Cookie Scheme、`UseAuthentication()`、管理員 MFA Claim Gate、共用 Policy、精確 CORS、Antiforgery 與雙前端 Session Provider 均可直接沿用。各 Endpoint 仍須套用正式 Policy 並具 401／403／本人資源負面測試；不得在 Controller 內臨時判斷或只靠 Vue Guard 假裝完成授權。完整管理員 TOTP／Recovery／Session 撤銷仍以 PR #38 的合併狀態為準。
+SH-05 與 PR #38 的安全基線均已合併：會員／管理員獨立 Cookie Scheme、`UseAuthentication()`、管理員 MFA Claim Gate、TOTP／Recovery／Session 撤銷、共用 Policy、精確 CORS、Antiforgery 與雙前端 Session Provider 均可直接沿用。各 Endpoint 仍須套用正式 Policy 並具 401／403／本人資源負面測試；不得在 Controller 內臨時判斷或只靠 Vue Guard 假裝完成授權。
 
 ## 3. 權威規格閱讀順序
 
