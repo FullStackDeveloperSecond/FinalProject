@@ -284,6 +284,16 @@ public sealed class EfInventoryReconciliationService : IInventoryReconciliationS
 
                 balance.ApplyQuantities(actualOnHand, actualReserved, now);
 
+                // dev@e41ef51 (#66) made InventoryMovement.UnitCostSnapshot required. This movement
+                // is a zero-delta marker, so the cost carries no valuation weight here — but the
+                // column is non-nullable at construction, and Sku.UnitCost is the same authoritative
+                // source the other writers use, so record the SKU's current cost rather than a
+                // fabricated zero that would skew the M-15 turnover report's cost basis.
+                var unitCostSnapshot = await _dbContext.Skus
+                    .Where(sku => sku.Id == reconciliationCase.SkuId)
+                    .Select(sku => sku.UnitCost)
+                    .SingleAsync(cancellationToken);
+
                 // Movement／Reservation is the ledger source of truth (庫存規則.md) — actualOnHand／
                 // actualReserved were just recomputed FROM that same ledger above, so this correction
                 // must record a zero-delta marker (before == after == Actual*) rather than a delta
@@ -305,6 +315,7 @@ public sealed class EfInventoryReconciliationService : IInventoryReconciliationS
                     afterOnHand: actualOnHand,
                     beforeReserved: actualReserved,
                     afterReserved: actualReserved,
+                    unitCostSnapshot: unitCostSnapshot,
                     reasonCode: "reconciliation_correction",
                     referenceType: "InventoryReconciliationCase",
                     casePublicId,

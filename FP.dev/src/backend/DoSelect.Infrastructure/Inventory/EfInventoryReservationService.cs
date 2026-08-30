@@ -76,6 +76,11 @@ public sealed class EfInventoryReservationService : IInventoryReservationService
             .SingleAsync(cancellationToken);
 
         var skuIds = lines.Select(line => skusByPublicId[line.SkuPublicId].Id).Distinct().ToArray();
+        // dev@e41ef51 (#66) made InventoryMovement.UnitCostSnapshot required so the M-15 inventory
+        // turnover report can cost movements. Sku.UnitCost is the authoritative source the other
+        // writers already use (EfOrderService, EfSkuAdminService); the Skus are already materialised
+        // here, so read the cost off them rather than issuing a second query.
+        var unitCostsBySkuId = skusByPublicId.Values.ToDictionary(sku => sku.Id, sku => sku.UnitCost);
 
         for (var attempt = 1; attempt <= MaxConcurrencyRetries; attempt++)
         {
@@ -133,6 +138,7 @@ public sealed class EfInventoryReservationService : IInventoryReservationService
                 input.AfterOnHand,
                 input.BeforeReserved,
                 input.AfterReserved,
+                unitCostSnapshot: unitCostsBySkuId[input.Reservation.SkuId],
                 reasonCode: "order_checkout",
                 referenceType: OrderReferenceType,
                 orderPublicId,
@@ -162,6 +168,7 @@ public sealed class EfInventoryReservationService : IInventoryReservationService
         var balancesBySkuId = await _dbContext.InventoryBalances
             .Where(balance => skuIds.Contains(balance.SkuId))
             .ToDictionaryAsync(balance => balance.SkuId, cancellationToken);
+        var unitCostsBySkuId = await ReadUnitCostsAsync(skuIds, cancellationToken);
 
         var movements = new List<InventoryMovement>(reservations.Count);
         foreach (var reservation in reservations)
@@ -177,6 +184,7 @@ public sealed class EfInventoryReservationService : IInventoryReservationService
                 Guid.CreateVersion7(), reservation.SkuId, reservation.Id, InventoryMovementTypes.Ship,
                 onHandDelta: -reservation.Quantity, reservedDelta: -reservation.Quantity,
                 beforeOnHand, afterOnHand, beforeReserved, afterReserved,
+                unitCostSnapshot: unitCostsBySkuId[reservation.SkuId],
                 reasonCode: "order_shipped", referenceType: OrderReferenceType, orderPublicId,
                 actorUserId: null, now));
         }
@@ -388,6 +396,7 @@ public sealed class EfInventoryReservationService : IInventoryReservationService
         var balancesBySkuId = await _dbContext.InventoryBalances
             .Where(balance => skuIds.Contains(balance.SkuId))
             .ToDictionaryAsync(balance => balance.SkuId, cancellationToken);
+        var unitCostsBySkuId = await ReadUnitCostsAsync(skuIds, cancellationToken);
 
         var movements = new List<InventoryMovement>(reservations.Count);
         foreach (var reservation in reservations)
@@ -408,12 +417,23 @@ public sealed class EfInventoryReservationService : IInventoryReservationService
                 Guid.CreateVersion7(), reservation.SkuId, reservation.Id, InventoryMovementTypes.Release,
                 onHandDelta: 0, reservedDelta: -reservation.Quantity,
                 beforeOnHand, beforeOnHand, beforeReserved, afterReserved,
+                unitCostsBySkuId[reservation.SkuId],
                 reasonCode, referenceType, referencePublicId, actorUserId, now));
         }
 
         _dbContext.InventoryMovements.AddRange(movements);
         await _dbContext.SaveChangesAsync(cancellationToken);
     }
+
+    /// <summary>
+    /// Reads the authoritative per-SKU unit cost for <see cref="InventoryMovement.UnitCostSnapshot"/>,
+    /// mirroring how EfOrderService sources it for its own release movements.
+    /// </summary>
+    private Task<Dictionary<long, decimal>> ReadUnitCostsAsync(
+        IReadOnlyCollection<long> skuIds, CancellationToken cancellationToken) =>
+        _dbContext.Skus
+            .Where(sku => skuIds.Contains(sku.Id))
+            .ToDictionaryAsync(sku => sku.Id, sku => sku.UnitCost, cancellationToken);
 
     private async Task SaveWithConcurrencyCheckAsync(CancellationToken cancellationToken)
     {
