@@ -269,7 +269,7 @@ describe('AdminCouponsPage', () => {
     mockListCoupons.mockResolvedValue(page([]))
     mockCreateCoupon.mockResolvedValueOnce(coupon())
     mockLoadCategoryOptions.mockResolvedValue([
-      { publicId: 'cat-1', code: 'gpu', name: '顯示卡', path: '電腦 / 顯示卡' },
+      { publicId: 'cat-1', code: 'gpu', name: '顯示卡', path: '電腦 / 顯示卡', isActive: true },
     ])
 
     const wrapper = mountPage()
@@ -296,7 +296,7 @@ describe('AdminCouponsPage', () => {
     mockListCoupons.mockResolvedValue(page([]))
     mockCreateCoupon.mockResolvedValueOnce(coupon())
     mockLoadCategoryOptions.mockResolvedValue([
-      { publicId: 'cat-1', code: 'gpu', name: '顯示卡', path: '電腦 / 顯示卡' },
+      { publicId: 'cat-1', code: 'gpu', name: '顯示卡', path: '電腦 / 顯示卡', isActive: true },
     ])
 
     const wrapper = mountPage()
@@ -363,7 +363,7 @@ describe('AdminCouponsPage', () => {
     })]))
     mockUpdateCoupon.mockResolvedValueOnce(coupon())
     mockLoadCategoryOptions.mockResolvedValue([
-      { publicId: 'cat-1', code: 'gpu', name: '顯示卡', path: '電腦 / 顯示卡' },
+      { publicId: 'cat-1', code: 'gpu', name: '顯示卡', path: '電腦 / 顯示卡', isActive: true },
     ])
     mockResolveProductOptions.mockResolvedValue({
       p9: productOption(),
@@ -414,6 +414,49 @@ describe('AdminCouponsPage', () => {
     expect(wrapper.text()).toContain('已停用或找不到的分類')
   })
 
+  it('marks a category the endpoint reports as inactive, and keeps it selectable', async () => {
+    // #69 的端點會同時回啟用與停用分類，用 isActive 區分（C1 裁定：兩種都可選，
+    // 但清單要標示狀態）。先前的測試把停用分類模擬成「清單裡查不到」，
+    // 那是端點換掉之前的形狀 —— 真實回應是這一筆會回來，只是 isActive 為 false。
+    mockListCoupons.mockResolvedValue(page([coupon({
+      scope: {
+        scopeType: 'restricted',
+        categoryPublicIds: ['cat-old'],
+        productPublicIds: [],
+        excludedProductPublicIds: [],
+      },
+    })]))
+    mockLoadCategoryOptions.mockResolvedValue([
+      { publicId: 'cat-1', code: 'gpu', name: '顯示卡', path: '電腦 / 顯示卡', isActive: true },
+      { publicId: 'cat-old', code: 'crt', name: '映像管', path: '電腦 / 映像管', isActive: false },
+    ])
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.findAll('.coupons-actions button').find(button => button.text() === '修改')!
+      .trigger('click')
+    await flushPromises()
+
+    const inactiveRow = wrapper.findAll('.scope-results li')
+      .find(row => row.text().includes('映像管'))!
+
+    // 標示得出來 —— 沒有這一段，停用分類跟啟用分類長得一模一樣。
+    expect(inactiveRow.text()).toContain('已停用')
+
+    // 既有選取不會消失，而且仍然勾著。
+    expect(inactiveRow.find('input[type="checkbox"]').element.checked).toBe(true)
+
+    // 啟用的那一列不該被標示。
+    const activeRow = wrapper.findAll('.scope-results li')
+      .find(row => row.text().includes('顯示卡'))!
+    expect(activeRow.text()).not.toContain('已停用')
+
+    // 管理員仍可移除它。
+    await inactiveRow.find('input[type="checkbox"]').trigger('change')
+    expect(inactiveRow.find('input[type="checkbox"]').element.checked).toBe(false)
+  })
+
   it('summarises the scope in the rule preview', async () => {
     mockListCoupons.mockResolvedValue(page([coupon({
       scope: {
@@ -449,7 +492,7 @@ describe('AdminCouponsPage', () => {
       })]))
       mockUpdateCoupon.mockResolvedValueOnce(coupon())
       mockLoadCategoryOptions.mockResolvedValue([
-        { publicId: 'cat-1', code: 'gpu', name: '顯示卡', path: '電腦 / 顯示卡' },
+        { publicId: 'cat-1', code: 'gpu', name: '顯示卡', path: '電腦 / 顯示卡', isActive: true },
       ])
       mockResolveProductOptions.mockResolvedValue({
         p9: productOption(),

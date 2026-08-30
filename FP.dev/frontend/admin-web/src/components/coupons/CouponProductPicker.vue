@@ -137,7 +137,7 @@ function describeSelected(publicId: string): string {
     </p>
 
     <p v-else-if="submittedTerm !== '' && results && results.items.length === 0">
-      沒有符合「{{ submittedTerm }}」的已上架商品。
+      沒有符合「{{ submittedTerm }}」的商品。
     </p>
 
     <ul

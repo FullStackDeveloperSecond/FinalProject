@@ -112,7 +112,7 @@ function toggleCategory(publicId: string) {
       <div class="scope-categories">
         <h4>適用分類</h4>
         <p class="scope-hint">
-          只列出啟用中的分類。
+          啟用與停用分類皆可選，停用的會標示出來。
         </p>
 
         <input
@@ -152,6 +152,10 @@ function toggleCategory(publicId: string) {
                 @change="toggleCategory(option.publicId)"
               >
               {{ option.path }}（{{ option.code }}）
+              <span
+                v-if="!option.isActive"
+                class="scope-status"
+              >已停用</span>
             </label>
           </li>
         </ul>
@@ -178,7 +182,7 @@ function toggleCategory(publicId: string) {
 
       <CouponProductPicker
         label="適用商品"
-        hint="只搜尋得到已上架的商品。"
+        hint="可搜尋草稿、已上架與已下架的商品；已停售的無法新增。"
         :model-value="props.productPublicIds"
         @update:model-value="emit('update:productPublicIds', $event)"
       />
@@ -222,6 +226,11 @@ function toggleCategory(publicId: string) {
   max-height: 12rem;
   overflow-y: auto;
   padding: 0;
+}
+
+.scope-status {
+  color: #555;
+  font-size: 0.8125rem;
 }
 
 .scope-selected li {
