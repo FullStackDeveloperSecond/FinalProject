@@ -165,6 +165,14 @@ public sealed class AdminOrdersApiTests
         Assert.Contains(history, entry =>
             entry.GetProperty("stateDimension").GetString() == nameof(OrderStateDimension.FulfillmentStatus) &&
             entry.GetProperty("toStatus").GetString() == nameof(FulfillmentStatus.Preparing));
+
+        // alex PR #47 review round 2: startProcessing previously had no central AuditLog entry at all.
+        await using var verification = _fixture.CreateScopedContext();
+        var audit = await verification.AuditLogs.SingleAsync(entry =>
+            entry.Action == AuditActions.OrderStartProcessing && entry.ResourcePublicId == order.PublicId);
+        Assert.Equal(AuditActorType.Admin, audit.ActorType);
+        Assert.Equal(AuditResult.Success, audit.Result);
+        Assert.Contains("fulfillmentStatus", audit.ChangedFieldsJson);
     }
 
     [Fact]
@@ -199,6 +207,10 @@ public sealed class AdminOrdersApiTests
         await using var verification = _fixture.CreateScopedContext();
         var updatedJob = await verification.AssemblyJobs.SingleAsync(candidate => candidate.Id == job.Id);
         Assert.Equal(AssemblyJobStatus.Started, updatedJob.Status);
+
+        var audit = await verification.AuditLogs.SingleAsync(entry =>
+            entry.Action == AuditActions.OrderStartProcessing && entry.ResourcePublicId == order.PublicId);
+        Assert.Contains("assemblyStatus", audit.ChangedFieldsJson);
     }
 
     [Fact]
@@ -287,6 +299,13 @@ public sealed class AdminOrdersApiTests
         await using var verification = _fixture.CreateScopedContext();
         var updatedJob = await verification.AssemblyJobs.SingleAsync(candidate => candidate.Id == job.Id);
         Assert.Equal(AssemblyJobStatus.Cancelled, updatedJob.Status);
+
+        // alex PR #47 review round 2: order.cancel's Audit definition/field changes previously
+        // only listed orderStatus/inventoryReservations/couponRedemptions, silently missing the
+        // assembly changes this cancel path now also makes.
+        var audit = await verification.AuditLogs.SingleAsync(entry =>
+            entry.Action == AuditActions.OrderCancel && entry.ResourcePublicId == order.PublicId);
+        Assert.Contains("assemblyStatus", audit.ChangedFieldsJson);
     }
 
     [Fact]
@@ -363,6 +382,15 @@ public sealed class AdminOrdersApiTests
 
         Assert.Equal(409, status);
         Assert.Equal("concurrency_conflict", code);
+
+        // alex PR #47 review round 2: Audit writes must live in the same SaveChangesAsync as the
+        // status/history writes, so a failure anywhere in that call — here, the RowVersion check —
+        // rolls back everything, including the queued central AuditLog entry, not just the order.
+        await using var verification = _fixture.CreateScopedContext();
+        Assert.False(await verification.AuditLogs.AnyAsync(entry =>
+            entry.Action == AuditActions.OrderCancel && entry.ResourcePublicId == order.PublicId));
+        Assert.False(await verification.OrderStatusHistories.AnyAsync(entry =>
+            entry.OrderId == order.Id && entry.StateDimension == OrderStateDimension.OrderStatus));
     }
 
     [Fact]

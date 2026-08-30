@@ -20,6 +20,9 @@ public static class AuditActions
     public const string CouponDisable = "coupon.disable";
     public const string OrderCancel = "order.cancel";
     public const string OrderRecipientView = "order.recipient_view";
+    // alex PR #47 review round 2: startProcessing is a significant order-status action but
+    // previously only wrote per-dimension OrderStatusHistory rows, with no central AuditLog entry.
+    public const string OrderStartProcessing = "order.start_processing";
 
     // PR #38（M-01B 管理員登入／TOTP／Recovery Code）用，DEC-P296：高風險安全狀態變更
     // 與稽核紀錄同一交易，Audit 失敗整筆 rollback。
@@ -542,14 +545,21 @@ internal static class AuditWritePolicy
                 AuditActions.CouponDisable,
                 AuditResourceTypes.Coupon,
                 "status"),
+            // alex PR #47 review round 2: cancelling an assembly order now also cancels
+            // AssemblyStatus/AssemblyJob rows (OrderCancellationResourceReleaser) — "assemblyStatus"
+            // must be an allowed field so the audit trail can say so when it actually happens.
             [AuditActions.OrderCancel] = DefinitionWithNote(
                 AuditActions.OrderCancel,
                 AuditResourceTypes.Order,
-                "orderStatus", "inventoryReservations", "couponRedemptions"),
+                "orderStatus", "inventoryReservations", "couponRedemptions", "assemblyStatus"),
             [AuditActions.OrderRecipientView] = Definition(
                 AuditActions.OrderRecipientView,
                 AuditResourceTypes.Order,
                 "accessPurpose"),
+            [AuditActions.OrderStartProcessing] = DefinitionWithNote(
+                AuditActions.OrderStartProcessing,
+                AuditResourceTypes.Order,
+                "orderStatus", "fulfillmentStatus", "assemblyStatus"),
             [AuditActions.AdminTotpEnrollmentConfirm] = Definition(
                 AuditActions.AdminTotpEnrollmentConfirm,
                 AuditResourceTypes.AdminAccount,

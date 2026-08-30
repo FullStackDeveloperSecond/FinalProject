@@ -140,9 +140,10 @@ public sealed class EfOrderService : IOrderService
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         var (actorUserId, auditActor) = await ResolveCancellationActorAsync(actor, cancellationToken);
 
+        bool assemblyChanged;
         try
         {
-            await OrderCancellationResourceReleaser.ReleaseAsync(
+            assemblyChanged = await OrderCancellationResourceReleaser.ReleaseAsync(
                 _dbContext,
                 order,
                 actorUserId,
@@ -168,6 +169,17 @@ public sealed class EfOrderService : IOrderService
             occurredAtUtc: now,
             traceId: auditContext.TraceId));
 
+        List<AuditFieldChange> cancelFieldChanges =
+        [
+            AuditFieldChange.Changed("orderStatus"),
+            AuditFieldChange.Changed("inventoryReservations"),
+            AuditFieldChange.Changed("couponRedemptions"),
+        ];
+        if (assemblyChanged)
+        {
+            cancelFieldChanges.Add(AuditFieldChange.Changed("assemblyStatus"));
+        }
+
         _auditWriter.Add(AuditWriteRequest.Create(
             Guid.CreateVersion7(),
             auditActor,
@@ -176,11 +188,7 @@ public sealed class EfOrderService : IOrderService
             order.PublicId,
             AuditResult.Success,
             errorCode: null,
-            [
-                AuditFieldChange.Changed("orderStatus"),
-                AuditFieldChange.Changed("inventoryReservations"),
-                AuditFieldChange.Changed("couponRedemptions"),
-            ],
+            cancelFieldChanges,
             request.ReasonCode,
             auditContext.CorrelationId,
             auditContext.TraceId,

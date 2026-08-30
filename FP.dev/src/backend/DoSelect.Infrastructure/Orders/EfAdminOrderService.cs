@@ -193,11 +193,12 @@ public sealed class EfAdminOrderService : IAdminOrderService
             ? OrderStatus.Processing
             : OrderStatus.Cancelled;
 
+        var cancelAssemblyChanged = false;
         if (action == AdminOrderActions.Cancel)
         {
             try
             {
-                await OrderCancellationResourceReleaser.ReleaseAsync(
+                cancelAssemblyChanged = await OrderCancellationResourceReleaser.ReleaseAsync(
                     _dbContext, order, actorUserId, now, auditContext.TraceId, cancellationToken);
             }
             catch (InvalidOperationException exception)
@@ -236,6 +237,7 @@ public sealed class EfAdminOrderService : IAdminOrderService
         // started assembly. General-merchandise orders (AssemblyStatus.NotRequired) can start
         // fulfillment immediately; custom-build orders start assembly instead, and every Pending
         // AssemblyJob for the order moves to Started alongside it.
+        var startProcessingStartedAssembly = false;
         if (action == AdminOrderActions.StartProcessing)
         {
             if (order.AssemblyStatus == AssemblyStatus.NotRequired)
@@ -255,6 +257,7 @@ public sealed class EfAdminOrderService : IAdminOrderService
             }
             else
             {
+                startProcessingStartedAssembly = true;
                 var fromAssemblyStatus = order.AssemblyStatus;
                 order.ApplyAssemblyProjection(AssemblyStatus.Started, now);
                 _dbContext.OrderStatusHistories.Add(new OrderStatusHistory(
@@ -291,6 +294,19 @@ public sealed class EfAdminOrderService : IAdminOrderService
         if (action == AdminOrderActions.Cancel)
         {
             var adminActor = await ResolveAdminAuditActorAsync(actorUserId, cancellationToken);
+            List<AuditFieldChange> cancelFieldChanges =
+            [
+                AuditFieldChange.Changed("orderStatus"),
+                AuditFieldChange.Changed("inventoryReservations"),
+                AuditFieldChange.Changed("couponRedemptions"),
+            ];
+            // alex PR #47 review round 2: only claim "assemblyStatus" changed when the releaser
+            // actually cancelled an assembly order — most cancellations are plain merchandise.
+            if (cancelAssemblyChanged)
+            {
+                cancelFieldChanges.Add(AuditFieldChange.Changed("assemblyStatus"));
+            }
+
             _auditWriter.Add(AuditWriteRequest.Create(
                 Guid.CreateVersion7(),
                 adminActor,
@@ -299,12 +315,36 @@ public sealed class EfAdminOrderService : IAdminOrderService
                 order.PublicId,
                 AuditResult.Success,
                 errorCode: null,
-                [
-                    AuditFieldChange.Changed("orderStatus"),
-                    AuditFieldChange.Changed("inventoryReservations"),
-                    AuditFieldChange.Changed("couponRedemptions"),
-                ],
+                cancelFieldChanges,
                 reason: request.ReasonCode!,
+                auditContext.CorrelationId,
+                auditContext.TraceId,
+                jobPublicId: null,
+                remoteIpAddress: auditContext.RemoteIpAddress,
+                note: request.Note));
+        }
+
+        // alex PR #47 review round 2, item "P2 Audit 缺口": startProcessing is a significant order-
+        // status action but previously only wrote per-dimension OrderStatusHistory rows, with no
+        // central AuditLog entry — recorded here in the same _dbContext.SaveChangesAsync below as
+        // the status/history writes, so an Audit write failure rolls back the whole action.
+        if (action == AdminOrderActions.StartProcessing)
+        {
+            var adminActor = await ResolveAdminAuditActorAsync(actorUserId, cancellationToken);
+            List<AuditFieldChange> startProcessingFieldChanges = [AuditFieldChange.Changed("orderStatus")];
+            startProcessingFieldChanges.Add(AuditFieldChange.Changed(
+                startProcessingStartedAssembly ? "assemblyStatus" : "fulfillmentStatus"));
+
+            _auditWriter.Add(AuditWriteRequest.Create(
+                Guid.CreateVersion7(),
+                adminActor,
+                AuditActions.OrderStartProcessing,
+                AuditResourceTypes.Order,
+                order.PublicId,
+                AuditResult.Success,
+                errorCode: null,
+                startProcessingFieldChanges,
+                reason: request.ReasonCode ?? "admin_start_processing",
                 auditContext.CorrelationId,
                 auditContext.TraceId,
                 jobPublicId: null,

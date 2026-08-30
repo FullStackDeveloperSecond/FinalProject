@@ -21,8 +21,12 @@ internal static class OrderCancellationResourceReleaser
     public const string InventoryReleaseReason = "order_cancelled";
 
     /// <summary>Throws <see cref="InvalidOperationException"/> on inconsistent inventory state —
-    /// callers map it to their own module's write-exception type (OrderStateConflict).</summary>
-    public static async Task ReleaseAsync(
+    /// callers map it to their own module's write-exception type (OrderStateConflict). Returns
+    /// whether AssemblyStatus/AssemblyJob rows were also cancelled, so callers can include
+    /// "assemblyStatus" in their central Audit field-change list only when it actually changed
+    /// (alex PR #47 review round 2: order.cancel's Audit definition only listed orderStatus/
+    /// inventoryReservations/couponRedemptions, silently missing assembly changes).</summary>
+    public static async Task<bool> ReleaseAsync(
         DoSelectDbContext dbContext,
         Order order,
         string? actorUserId,
@@ -147,6 +151,10 @@ internal static class OrderCancellationResourceReleaser
                 actorUserId,
                 now,
                 traceId));
+
+            return true;
         }
+
+        return false;
     }
 }
