@@ -1,14 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockGet = vi.fn()
+const mockPost = vi.fn()
 
 vi.mock('../../api/client', () => ({
-  apiClient: { GET: mockGet },
+  apiClient: { GET: mockGet, POST: mockPost },
 }))
 
 const {
-  CategoryTreeTruncatedError,
   loadCategoryOptions,
+  maximumBatchSize,
   resolveProductOptions,
   searchProductOptions,
 } = await import('./api')
@@ -16,104 +17,100 @@ const {
 // 每個測試都自己設 implementation，也各自數自己的請求數。
 beforeEach(() => {
   mockGet.mockReset()
+  mockPost.mockReset()
 })
 
-function category(code: string, name = code) {
-  return { code, name, publicId: `pub-${code}` }
-}
-
-/** `/api/v1/catalog/filter-options` 一次只回一層：無 `Category` 是頂層。 */
-function filterOptions(children: Record<string, ReturnType<typeof category>[]>) {
-  return (_path: string, options: { params: { query: { Category?: string } } }) =>
-    Promise.resolve({
-      data: { categories: children[options.params.query.Category ?? ''] ?? [] },
-    })
+function product(publicId: string, overrides: Record<string, unknown> = {}) {
+  return {
+    publicId,
+    code: `SKU-${publicId}`,
+    name: `商品 ${publicId}`,
+    status: 'published',
+    isSelectable: true,
+    ...overrides,
+  }
 }
 
 describe('loadCategoryOptions', () => {
-  it('walks every level and builds a root-to-leaf path for each node', async () => {
-    mockGet.mockImplementation(filterOptions({
-      '': [category('pc', '電腦')],
-      pc: [category('gpu', '顯示卡')],
-    }))
+  it('takes the whole tree in one request', async () => {
+    // 先前是對分類樹的每個節點各打一次公開端點（上限 100 次）。
+    mockGet.mockResolvedValueOnce({ data: [{ publicId: 'c1', code: 'gpu', name: '顯示卡', path: '電腦 / 顯示卡', isActive: true }] })
 
     const options = await loadCategoryOptions()
 
-    expect(options).toEqual([
-      { publicId: 'pub-pc', code: 'pc', name: '電腦', path: '電腦' },
-      { publicId: 'pub-gpu', code: 'gpu', name: '顯示卡', path: '電腦 / 顯示卡' },
-    ])
-  })
-
-  it('stops instead of looping forever when a category is its own ancestor', async () => {
-    // 資料出錯時 parent 可能成環。沒有去重就會一直展開到撞上請求上限。
-    mockGet.mockImplementation(filterOptions({
-      '': [category('pc')],
-      pc: [category('pc')],
-    }))
-
-    const options = await loadCategoryOptions()
-
-    expect(options.map(option => option.code)).toEqual(['pc'])
-  })
-
-  it('fails loudly rather than returning a partial tree', async () => {
-    // 跟 fetchAllPages 同一個理由：不完整的清單會讓少掉的分類看起來像不存在。
-    mockGet.mockImplementation((_path: string, options: { params: { query: { Category?: string } } }) => {
-      const parent = options.params.query.Category ?? ''
-      return Promise.resolve({ data: { categories: [category(`${parent}x`)] } })
-    })
-
-    await expect(loadCategoryOptions()).rejects.toBeInstanceOf(CategoryTreeTruncatedError)
+    expect(mockGet).toHaveBeenCalledTimes(1)
+    expect(mockGet).toHaveBeenCalledWith('/api/v1/admin/coupons/catalog-options/categories')
+    expect(options[0].path).toBe('電腦 / 顯示卡')
   })
 })
 
 describe('searchProductOptions', () => {
   it('omits an empty keyword instead of sending Q=', async () => {
-    mockGet.mockResolvedValueOnce({ data: { items: [], totalPages: 0 } })
+    mockGet.mockResolvedValueOnce({ data: { items: [], hasMore: false } })
 
     await searchProductOptions({ q: '', pageNumber: 1, pageSize: 10 })
 
-    expect(mockGet).toHaveBeenCalledWith('/api/v1/products', {
+    expect(mockGet).toHaveBeenCalledWith('/api/v1/admin/coupons/catalog-options/products', {
       params: { query: { Q: undefined, PageNumber: 1, PageSize: 10 } },
     })
   })
 
-  it('maps a product card down to the fields the picker shows', async () => {
-    mockGet.mockResolvedValueOnce({
-      data: {
-        items: [{ productPublicId: 'p1', productCode: 'GPU-01', name: '顯示卡', price: {} }],
-        totalPages: 3,
-      },
+  it('passes the page number through so the caller can reach the second page', async () => {
+    // hasMore 沒有翻頁的方法就只是一個沒有出口的狀態。
+    mockGet.mockResolvedValueOnce({ data: { items: [product('p2')], hasMore: false } })
+
+    const result = await searchProductOptions({ q: '顯示卡', pageNumber: 2, pageSize: 10 })
+
+    expect(mockGet).toHaveBeenCalledWith('/api/v1/admin/coupons/catalog-options/products', {
+      params: { query: { Q: '顯示卡', PageNumber: 2, PageSize: 10 } },
     })
-
-    const result = await searchProductOptions({ q: '顯示卡' })
-
-    expect(result.items).toEqual([{ publicId: 'p1', code: 'GPU-01', name: '顯示卡' }])
-    expect(result.totalPages).toBe(3)
+    expect(result.hasMore).toBe(false)
+    expect(result.items).toHaveLength(1)
   })
 })
 
 describe('resolveProductOptions', () => {
-  it('keeps the products it could resolve when one of them is gone', async () => {
-    // 商品下架後端點回 404。整批失敗會讓一張舊券打不開。
-    mockGet.mockImplementation((_path: string, options: { params: { path: { id: string } } }) =>
-      options.params.path.id === 'missing'
-        ? Promise.reject(new Error('not found'))
-        : Promise.resolve({ data: { productCode: 'GPU-01', name: '顯示卡' } }))
+  it('resolves any number of ids in a single request', async () => {
+    // 先前是逐筆查商品明細，兩個 picker 各最多 50 次。
+    mockPost.mockResolvedValueOnce({ data: [product('p1'), product('p2')] })
 
-    const resolved = await resolveProductOptions(['p1', 'missing'])
+    const resolved = await resolveProductOptions(['p1', 'p2'])
 
-    expect(resolved.p1).toEqual({ publicId: 'p1', code: 'GPU-01', name: '顯示卡' })
-    expect(resolved.missing).toBeUndefined()
+    expect(mockPost).toHaveBeenCalledTimes(1)
+    expect(mockPost).toHaveBeenCalledWith(
+      '/api/v1/admin/coupons/catalog-options/products/resolve',
+      { body: { publicIds: ['p1', 'p2'] } },
+    )
+    expect(Object.keys(resolved)).toEqual(['p1', 'p2'])
   })
 
-  it('does not fan out one request per entry beyond the cap', async () => {
-    mockGet.mockResolvedValue({ data: { productCode: 'GPU-01', name: '顯示卡' } })
-    const publicIds = Array.from({ length: 200 }, (_, index) => `p${index}`)
+  it('keeps a discontinued product so an existing rule does not vanish', async () => {
+    // 已經寫在券上的參考不能因為挑選器查不到就消失。
+    mockPost.mockResolvedValueOnce({
+      data: [product('gone', { status: 'discontinued', isSelectable: false })],
+    })
 
-    await resolveProductOptions(publicIds)
+    const resolved = await resolveProductOptions(['gone'])
 
-    expect(mockGet.mock.calls.length).toBeLessThanOrEqual(50)
+    expect(resolved.gone.isSelectable).toBe(false)
+    expect(resolved.gone.status).toBe('discontinued')
+  })
+
+  it('does not call the API for an empty selection', async () => {
+    const resolved = await resolveProductOptions([])
+
+    expect(resolved).toEqual({})
+    expect(mockPost).not.toHaveBeenCalled()
+  })
+
+  it('de-duplicates and stays within the server batch limit', async () => {
+    mockPost.mockResolvedValueOnce({ data: [] })
+    const publicIds = Array.from({ length: maximumBatchSize + 10 }, (_, index) => `p${index}`)
+
+    await resolveProductOptions([...publicIds, publicIds[0]])
+
+    const sent = mockPost.mock.calls[0][1].body.publicIds
+    expect(sent).toHaveLength(maximumBatchSize)
+    expect(new Set(sent).size).toBe(maximumBatchSize)
   })
 })

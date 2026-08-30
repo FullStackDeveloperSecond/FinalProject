@@ -8,10 +8,9 @@ import {
 } from './api'
 
 /**
- * 整棵分類樹。
+ * 整棵分類樹，一次取回。
  *
- * 攤平一次要對每個分類各發一個請求（見 `loadCategoryOptions`），所以放長
- * `staleTime`：分類是參考資料，不會在管理員填一張表單的期間改變。
+ * `staleTime` 放長：分類是參考資料，不會在管理員填一張表單的期間改變。
  */
 export function useCategoryOptions(enabled: MaybeRefOrGetter<boolean> = true) {
   return useQuery({

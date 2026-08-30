@@ -55,6 +55,18 @@ function coupon(overrides: Record<string, unknown> = {}) {
   }
 }
 
+/** 挑選器選項的預設形狀；status 與 isSelectable 少了就會被當成不可選。 */
+function productOption(overrides: Record<string, unknown> = {}) {
+  return {
+    publicId: 'p9',
+    code: 'GPU-09',
+    name: '旗艦顯示卡',
+    status: 'published',
+    isSelectable: true,
+    ...overrides,
+  }
+}
+
 function page(items: ReturnType<typeof coupon>[]) {
   return { items, pageNumber: 1, pageSize: 20, totalCount: items.length, totalPages: 1 }
 }
@@ -95,7 +107,7 @@ describe('AdminCouponsPage', () => {
   beforeEach(() => {
     vi.resetAllMocks()
     mockLoadCategoryOptions.mockResolvedValue([])
-    mockSearchProductOptions.mockResolvedValue({ items: [], totalPages: 0 })
+    mockSearchProductOptions.mockResolvedValue({ items: [], hasMore: false })
     mockResolveProductOptions.mockResolvedValue({})
   })
 
@@ -316,8 +328,8 @@ describe('AdminCouponsPage', () => {
     mockListCoupons.mockResolvedValue(page([]))
     mockCreateCoupon.mockResolvedValueOnce(coupon())
     mockSearchProductOptions.mockResolvedValue({
-      items: [{ publicId: 'p9', code: 'GPU-09', name: '旗艦顯示卡' }],
-      totalPages: 1,
+      items: [productOption()],
+      hasMore: false,
     })
     mockResolveProductOptions.mockResolvedValue({})
 
@@ -354,7 +366,7 @@ describe('AdminCouponsPage', () => {
       { publicId: 'cat-1', code: 'gpu', name: '顯示卡', path: '電腦 / 顯示卡' },
     ])
     mockResolveProductOptions.mockResolvedValue({
-      p9: { publicId: 'p9', code: 'GPU-09', name: '旗艦顯示卡' },
+      p9: productOption(),
     })
 
     const wrapper = mountPage()
@@ -440,7 +452,7 @@ describe('AdminCouponsPage', () => {
         { publicId: 'cat-1', code: 'gpu', name: '顯示卡', path: '電腦 / 顯示卡' },
       ])
       mockResolveProductOptions.mockResolvedValue({
-        p9: { publicId: 'p9', code: 'GPU-09', name: '旗艦顯示卡' },
+        p9: productOption(),
       })
 
       const wrapper = mountPage()

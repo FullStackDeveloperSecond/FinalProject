@@ -11,6 +11,7 @@ import {
   useProductOptionSearch,
 } from '../../features/catalog-reference/useCatalogReference'
 import { describeApiError } from '../../features/shared/errorMessages'
+import { productStatusLabels } from '../../features/catalog-reference/types'
 
 const props = defineProps<{
   label: string
@@ -26,10 +27,11 @@ const searchPageSize = 10
 
 const term = ref('')
 const submittedTerm = ref('')
+const pageNumber = ref(1)
 
 const searchParams = computed(() => ({
   q: submittedTerm.value,
-  pageNumber: 1,
+  pageNumber: pageNumber.value,
   pageSize: searchPageSize,
 }))
 
@@ -44,6 +46,28 @@ const { data: labels } = useProductOptionLabels(computed(() => props.modelValue)
 
 function runSearch() {
   submittedTerm.value = term.value.trim()
+  // 換關鍵字要回到第一頁，否則會拿新關鍵字去查舊頁碼。
+  pageNumber.value = 1
+}
+
+/**
+ * 看下一頁。
+ *
+ * `hasMore` 沒有翻頁的方法就只是一個沒有出口的狀態 —— 介面顯示「還有更多」
+ * 卻讓管理員無從取得，等於那些商品選不到（alex #69 P2 的同一個問題，
+ * 端點修好之後這裡也要跟上）。
+ */
+function nextPage() {
+  pageNumber.value += 1
+}
+
+function previousPage() {
+  pageNumber.value = Math.max(pageNumber.value - 1, 1)
+}
+
+/** 這個商品能不能新增。停售品只會出現在既有已選清單，不會出現在搜尋結果。 */
+function describeOption(option: { name: string, code: string, status: string }): string {
+  return `${option.name}（${option.code}）`
 }
 
 function isSelected(publicId: string): boolean {
@@ -67,7 +91,13 @@ function toggle(publicId: string) {
  */
 function describeSelected(publicId: string): string {
   const option = labels.value?.[publicId]
-  return option ? `${option.name}（${option.code}）` : publicId
+  if (option === undefined) {
+    return publicId
+  }
+
+  // 停售品要標出來：它仍然生效，但管理員多半會想改掉。
+  const status = option.isSelectable ? '' : `（${productStatusLabels[option.status]}）`
+  return `${option.name}（${option.code}）${status}`
 }
 </script>
 
@@ -122,19 +152,36 @@ function describeSelected(publicId: string): string {
           <input
             type="checkbox"
             :checked="isSelected(option.publicId)"
+            :disabled="!option.isSelectable"
             @change="toggle(option.publicId)"
           >
-          {{ option.name }}（{{ option.code }}）
+          {{ describeOption(option) }}
+          <span class="scope-status">{{ productStatusLabels[option.status] }}</span>
         </label>
       </li>
     </ul>
 
-    <p
-      v-if="results && Number(results.totalPages) > 1"
-      class="scope-hint"
+    <nav
+      v-if="results && (results.hasMore || pageNumber > 1)"
+      class="scope-pages"
+      :aria-label="`${props.label}分頁`"
     >
-      只顯示前 {{ searchPageSize }} 筆，請輸入更精確的關鍵字。
-    </p>
+      <button
+        type="button"
+        :disabled="pageNumber <= 1"
+        @click="previousPage"
+      >
+        上一頁
+      </button>
+      <span>第 {{ pageNumber }} 頁</span>
+      <button
+        type="button"
+        :disabled="!results.hasMore"
+        @click="nextPage"
+      >
+        下一頁
+      </button>
+    </nav>
 
     <h5>已選 {{ props.modelValue.length }} 項</h5>
     <p v-if="props.modelValue.length === 0">
@@ -189,6 +236,17 @@ function describeSelected(publicId: string): string {
   max-height: 12rem;
   overflow-y: auto;
   padding: 0;
+}
+
+.scope-pages {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.scope-status {
+  color: #555;
+  font-size: 0.8125rem;
 }
 
 .scope-selected li {
