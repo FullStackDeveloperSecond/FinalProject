@@ -2711,6 +2711,146 @@
         }
       }
     },
+    "/api/v1/simulated-payments/{attemptId}/actions/complete": {
+      "post": {
+        "tags": [
+          "SimulatedPayments"
+        ],
+        "parameters": [
+          {
+            "name": "attemptId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteSimulatedPaymentRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteSimulatedPaymentRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteSimulatedPaymentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentAttemptDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentAttemptDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentAttemptDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/outbox-messages/{publicId}/actions/retry": {
       "post": {
         "tags": [
@@ -11655,6 +11795,21 @@
           }
         }
       },
+      "CompleteSimulatedPaymentRequest": {
+        "required": [
+          "outcome",
+          "simulationKey"
+        ],
+        "type": "object",
+        "properties": {
+          "outcome": {
+            "$ref": "#/components/schemas/SimulatedPaymentOutcome"
+          },
+          "simulationKey": {
+            "type": "string"
+          }
+        }
+      },
       "CouponActionRequest": {
         "required": [
           "reasonCode",
@@ -14080,6 +14235,123 @@
         },
         "additionalProperties": false
       },
+      "PaymentAttemptDto": {
+        "required": [
+          "publicId",
+          "method",
+          "status",
+          "amount",
+          "currency",
+          "instruction",
+          "createdAtUtc",
+          "paidAtUtc",
+          "rowVersion"
+        ],
+        "type": "object",
+        "properties": {
+          "publicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "method": {
+            "$ref": "#/components/schemas/PaymentMethod"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PaymentAttemptStatus"
+          },
+          "amount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "instruction": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PaymentInstructionDto"
+              }
+            ]
+          },
+          "createdAtUtc": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "paidAtUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "rowVersion": {
+            "type": "string",
+            "format": "byte"
+          }
+        }
+      },
+      "PaymentAttemptStatus": {
+        "enum": [
+          "pending",
+          "processing",
+          "awaitingPayment",
+          "paid",
+          "failed",
+          "expired",
+          "cancelled"
+        ]
+      },
+      "PaymentInstructionDto": {
+        "required": [
+          "type",
+          "maskedAccount",
+          "code",
+          "expiresAtUtc"
+        ],
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "maskedAccount": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "code": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "expiresAtUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "PaymentMethod": {
+        "enum": [
+          "creditCard",
+          "atm",
+          "convenienceCode",
+          "cashOnDelivery",
+          "linePay",
+          "applePay",
+          "googlePay"
+        ]
+      },
       "PaymentStatus": {
         "enum": [
           "pending",
@@ -16186,6 +16458,13 @@
           }
         }
       },
+      "SimulatedPaymentOutcome": {
+        "enum": [
+          "succeeded",
+          "failed",
+          "expired"
+        ]
+      },
       "SkuDimensionsSummary": {
         "required": [
           "weightKg",
@@ -17727,6 +18006,9 @@
     },
     {
       "name": "AdminCoupons"
+    },
+    {
+      "name": "SimulatedPayments"
     },
     {
       "name": "AdminOutboxMessages"

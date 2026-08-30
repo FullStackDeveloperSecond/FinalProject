@@ -1932,6 +1932,95 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/simulated-payments/{attemptId}/actions/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    attemptId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CompleteSimulatedPaymentRequest"];
+                    "text/json": components["schemas"]["CompleteSimulatedPaymentRequest"];
+                    "application/*+json": components["schemas"]["CompleteSimulatedPaymentRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["PaymentAttemptDto"];
+                        "application/json": components["schemas"]["PaymentAttemptDto"];
+                        "text/json": components["schemas"]["PaymentAttemptDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/outbox-messages/{publicId}/actions/retry": {
         parameters: {
             query?: never;
@@ -6875,6 +6964,10 @@ export interface components {
             /** Format: byte */
             rowVersion: null | string;
         };
+        CompleteSimulatedPaymentRequest: {
+            outcome: components["schemas"]["SimulatedPaymentOutcome"];
+            simulationKey: string;
+        };
         CouponActionRequest: {
             reasonCode: string;
             note: null | string;
@@ -7454,6 +7547,33 @@ export interface components {
         PasswordResetRequest: {
             email: string;
         };
+        PaymentAttemptDto: {
+            /** Format: uuid */
+            publicId: string;
+            method: components["schemas"]["PaymentMethod"];
+            status: components["schemas"]["PaymentAttemptStatus"];
+            /** Format: double */
+            amount: number | string;
+            currency: string;
+            instruction: null | components["schemas"]["PaymentInstructionDto"];
+            /** Format: date-time */
+            createdAtUtc: string;
+            /** Format: date-time */
+            paidAtUtc: null | string;
+            /** Format: byte */
+            rowVersion: string;
+        };
+        /** @enum {unknown} */
+        PaymentAttemptStatus: "pending" | "processing" | "awaitingPayment" | "paid" | "failed" | "expired" | "cancelled";
+        PaymentInstructionDto: {
+            type: string;
+            maskedAccount: null | string;
+            code: null | string;
+            /** Format: date-time */
+            expiresAtUtc: null | string;
+        };
+        /** @enum {unknown} */
+        PaymentMethod: "creditCard" | "atm" | "convenienceCode" | "cashOnDelivery" | "linePay" | "applePay" | "googlePay";
         /** @enum {unknown} */
         PaymentStatus: "pending" | "awaitingPayment" | "processing" | "paid" | "failed" | "cancelled" | "expired";
         PriceRangeDto: {
@@ -7961,6 +8081,8 @@ export interface components {
             /** Format: double */
             grossAmount: number | string;
         };
+        /** @enum {unknown} */
+        SimulatedPaymentOutcome: "succeeded" | "failed" | "expired";
         SkuDimensionsSummary: {
             /** Format: double */
             weightKg: null | number | string;
