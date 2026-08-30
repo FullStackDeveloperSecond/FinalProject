@@ -96,7 +96,10 @@ public sealed class RefundExecutionReaderTests
                 File.ReadAllText(file),
                 Allowed[name],
                 // 把 DbContext 交給另一個列名元件是允許的 —— 它有自己的白名單。
-                [.. Allowed.Keys.Select(key => Path.GetFileNameWithoutExtension(key)!)]);
+                // 傳**完整**型別名稱：只比對簡單名稱的話，一個 using alias 就能
+                // 讓白名單外的型別冒充核准元件。
+                [.. Allowed.Keys.Select(key =>
+                    $"{RefundInfrastructureNamespace}.{Path.GetFileNameWithoutExtension(key)}")]);
 
             Assert.True(
                 violations.Count == 0,
@@ -191,6 +194,9 @@ public sealed class RefundExecutionReaderTests
             ["RefundsServiceCollectionExtensions.cs"] =
                 new Dictionary<string, string[]>(StringComparer.Ordinal),
         };
+
+    /// <summary>白名單元件所在的命名空間，用來組出完整型別名稱。</summary>
+    private const string RefundInfrastructureNamespace = "DoSelect.Infrastructure.Refunds";
 
     internal static string RefundInfrastructureDirectory()
     {

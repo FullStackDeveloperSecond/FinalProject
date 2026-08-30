@@ -47,6 +47,16 @@ internal static class RefundInfrastructureGuard
 {
     private const string ContextTypeName = "DoSelectDbContext";
 
+    /// <summary>對應專案的 <c>ImplicitUsings</c>；臨時編一個檔案時要自己補上。</summary>
+    private const string ImplicitUsings = """
+        using System;
+        using System.Collections.Generic;
+        using System.Linq;
+        using System.Threading;
+        using System.Threading.Tasks;
+
+        """;
+
     /// <summary><c>DbContext</c> 上不是 DbSet 的成員。</summary>
     /// <remarks>
     /// <c>Set</c> 與 <c>Database</c> 刻意不列在這裡 —— 把它們當成「不是資料表」
@@ -78,11 +88,14 @@ internal static class RefundInfrastructureGuard
         string fileName,
         string source,
         IReadOnlyDictionary<string, string[]> allowedTables,
-        IReadOnlyCollection<string>? approvedComponents = null,
+        IReadOnlyCollection<string>? approvedComponentTypeNames = null,
         bool useSemanticModel = true)
     {
         var violations = new List<string>();
-        var tree = CSharpSyntaxTree.ParseText(source);
+        // 專案開了 ImplicitUsings，但這裡是臨時編一個檔案，沒有那些隱含 using ——
+        // 少了它們，ArgumentNullException 之類的型別解析不出來，null guard 就會被
+        // 誤判成「無法證明安全」而擋掉真實程式碼的建構子。
+        var tree = CSharpSyntaxTree.ParseText(ImplicitUsings + source);
         var root = tree.GetCompilationUnitRoot();
         // useSemanticModel: false 只給測試用 —— 語意解析失敗時會退回語法正規化，
         // 那條路徑沒有辦法從外面觸發，不強制關掉就等於沒被測過。
@@ -107,7 +120,7 @@ internal static class RefundInfrastructureGuard
         violations.AddRange(BypassViolations(fileName, root, context));
         violations.AddRange(RawSqlViolations(fileName, root));
         violations.AddRange(ContextEscapeViolations(
-            fileName, root, context, approvedComponents ?? []));
+            fileName, root, context, approvedComponentTypeNames ?? []));
 
         foreach (var query in QueryExpressions(root, context))
         {
@@ -214,11 +227,11 @@ internal static class RefundInfrastructureGuard
         string fileName,
         CompilationUnitSyntax root,
         GuardContext context,
-        IReadOnlyCollection<string> approvedComponents)
+        IReadOnlyCollection<string> approvedComponentTypeNames)
     {
         foreach (var reference in ContextReferences(root, context))
         {
-            if (IsApprovedContextUse(reference, context, approvedComponents))
+            if (IsApprovedContextUse(reference, context, approvedComponentTypeNames))
             {
                 continue;
             }
@@ -276,10 +289,20 @@ internal static class RefundInfrastructureGuard
     /// <summary>
     /// 這個 DbContext reference 的用途是不是仍在白名單的涵蓋範圍內。
     /// </summary>
+    /// <remarks>
+    /// 第 4 點的兩個放行都<b>比對解析後的符號</b>，不比對原始碼上的名字。
+    /// 用名字比對的話，一個 alias 就能偽裝成核准項目（alex 2026-08-29 PR #16 P2）：
+    /// <code>
+    /// using RefundReader = ExternalNamespace.SneakyReader;
+    /// using ArgumentNullException = ExternalHelper;
+    /// </code>
+    /// 兩者拼字都對，指的卻是別的型別。符號解析不出來時<b>不放行</b> ——
+    /// 這裡的預設立場是拒絕。
+    /// </remarks>
     private static bool IsApprovedContextUse(
         ExpressionSyntax reference,
         GuardContext context,
-        IReadOnlyCollection<string> approvedComponents) => reference.Parent switch
+        IReadOnlyCollection<string> approvedComponentTypeNames) => reference.Parent switch
         {
             // 1｜ctx.Table／ctx.Set／ctx.Database —— 由逐欄位白名單與 bypass 規則各自檢查。
             MemberAccessExpressionSyntax member when member.Expression == reference => true,
@@ -305,9 +328,9 @@ internal static class RefundInfrastructureGuard
             //    或只是做 null 檢查（那不可能讀到任何資料）。
             ArgumentSyntax { Parent.Parent: { } owner } => owner switch
             {
-                ObjectCreationExpressionSyntax creation => approvedComponents.Contains(
-                    creation.Type.ToString().Split('.')[^1], StringComparer.Ordinal),
-                InvocationExpressionSyntax invocation => IsNullGuard(invocation),
+                ObjectCreationExpressionSyntax creation =>
+                    IsApprovedComponent(creation, context, approvedComponentTypeNames),
+                InvocationExpressionSyntax invocation => IsNullGuard(invocation, context),
                 _ => false,
             },
 
@@ -316,17 +339,36 @@ internal static class RefundInfrastructureGuard
             _ => false,
         };
 
+    /// <summary>
+    /// 這個 <c>new</c> 建立的是不是白名單裡的 Refund 元件。
+    /// </summary>
     /// <remarks>
-    /// 刻意只放行 <c>ArgumentNullException.ThrowIfNull</c> 一個名字。
-    /// 換成別的 helper 就會 fail closed —— 那是對的：分析器無法證明別的 helper
-    /// 不會拿 context 去查資料。
+    /// 比對<b>完整型別名稱</b>（含命名空間），不比對寫在原始碼上的簡單名稱 ——
+    /// <c>using RefundReader = ExternalNamespace.SneakyReader;</c> 的拼字一模一樣，
+    /// 指的卻是白名單外的型別。
     /// </remarks>
-    private static bool IsNullGuard(InvocationExpressionSyntax invocation) =>
-        invocation.Expression is MemberAccessExpressionSyntax
-        {
-            Expression: IdentifierNameSyntax { Identifier.ValueText: "ArgumentNullException" },
-            Name.Identifier.ValueText: "ThrowIfNull",
-        };
+    private static bool IsApprovedComponent(
+        ObjectCreationExpressionSyntax creation,
+        GuardContext context,
+        IReadOnlyCollection<string> approvedComponentTypeNames) =>
+        context.Model?.GetSymbolInfo(creation.Type).Symbol is INamedTypeSymbol type &&
+        approvedComponentTypeNames.Contains(type.ToDisplayString(), StringComparer.Ordinal);
+
+    /// <summary>
+    /// 這個呼叫是不是 <c>System.ArgumentNullException.ThrowIfNull</c>。
+    /// </summary>
+    /// <remarks>
+    /// 刻意只放行這一個方法，而且比對的是<b>解析後的方法符號</b>：
+    /// <c>using ArgumentNullException = ExternalHelper;</c> 之後，
+    /// <c>ArgumentNullException.ThrowIfNull(_context)</c> 的拼字仍然完全正確，
+    /// 但那是另一個型別的方法，可以拿 context 去做任何事。
+    /// <para>符號解析不出來就不放行 —— 分析器不能假設它是安全的。</para>
+    /// </remarks>
+    private static bool IsNullGuard(
+        InvocationExpressionSyntax invocation, GuardContext context) =>
+        context.Model?.GetSymbolInfo(invocation).Symbol is IMethodSymbol method &&
+        method.Name == "ThrowIfNull" &&
+        method.ContainingType?.ToDisplayString() == "System.ArgumentNullException";
     private static bool MentionsContextType(CompilationUnitSyntax root) =>
         root.DescendantNodes().OfType<SimpleNameSyntax>()
             .Any(name => name.Identifier.ValueText == ContextTypeName);

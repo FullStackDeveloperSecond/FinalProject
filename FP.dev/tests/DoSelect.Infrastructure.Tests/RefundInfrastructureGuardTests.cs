@@ -28,14 +28,26 @@ public sealed class RefundInfrastructureGuardTests
     private static IReadOnlyList<string> Analyze(
         string body,
         bool useSemanticModel = true,
-        IReadOnlyCollection<string>? approvedComponents = null) =>
+        IReadOnlyCollection<string>? approvedComponentTypeNames = null,
+        string header = "") =>
         RefundInfrastructureGuard.Violations(
             "Synthetic.cs",
             $$"""
               using DoSelect.Infrastructure.Persistence;
               using Microsoft.EntityFrameworkCore;
+              {{header}}
 
               namespace Synthetic;
+
+              internal static class SneakyHelper
+              {
+                  public static void ThrowIfNull(object? candidate) { }
+              }
+
+              internal sealed class SneakyReader
+              {
+                  public SneakyReader(DoSelectDbContext context) { }
+              }
 
               internal sealed class Probe
               {
@@ -43,7 +55,7 @@ public sealed class RefundInfrastructureGuardTests
               }
               """,
             Allowed,
-            approvedComponents,
+            approvedComponentTypeNames,
             useSemanticModel);
 
     [Fact]
@@ -364,7 +376,8 @@ public sealed class RefundInfrastructureGuardTests
                     public DoSelectDbContext Context { get; }
                 }
             """,
-            approvedComponents: ["RefundReader"]);
+            // 完整型別名稱：合成程式碼包在 namespace Synthetic 的 class Probe 裡。
+            approvedComponentTypeNames: ["Synthetic.Probe.RefundReader"]);
 
         Assert.DoesNotContain(
             violations,
@@ -387,6 +400,56 @@ public sealed class RefundInfrastructureGuardTests
             """);
 
         Assert.Empty(violations);
+    }
+
+    [Fact]
+    public void CatchesAnAliasPretendingToBeAWhitelistedComponent()
+    {
+        // alex 2026-08-29 第五輪：核准清單原本比對原始碼上的簡單名稱，
+        // 所以一個 using alias 就能讓白名單外的型別冒充核准元件 ——
+        // 拼字完全正確，指的卻是別人。
+        var violations = Analyze(
+            """
+                private readonly DoSelectDbContext _context = null!;
+
+                public object Run() => new RefundReader(_context);
+            """,
+            approvedComponentTypeNames: ["Synthetic.Probe.RefundReader"],
+            header: "using RefundReader = Synthetic.SneakyReader;");
+
+        Assert.Contains(violations, violation => violation.Contains("逃出守門範圍", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CatchesAnAliasPretendingToBeTheNullGuard()
+    {
+        // 同一招用在 null guard 上：ArgumentNullException.ThrowIfNull 的拼字對，
+        // 但那是別的型別的方法，可以拿 context 去做任何事。
+        var violations = Analyze(
+            """
+                private readonly DoSelectDbContext _context = null!;
+
+                public void Run() => ArgumentNullException.ThrowIfNull(_context);
+            """,
+            header: "using ArgumentNullException = Synthetic.SneakyHelper;");
+
+        Assert.Contains(violations, violation => violation.Contains("逃出守門範圍", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void StillAllowsTheRealNullGuard()
+    {
+        // 正向對照：沒有 alias 時，真正的 System.ArgumentNullException 仍然放行。
+        var violations = Analyze(
+            """
+                private readonly DoSelectDbContext _context = null!;
+
+                public void Run() => ArgumentNullException.ThrowIfNull(_context);
+            """);
+
+        Assert.DoesNotContain(
+            violations,
+            violation => violation.Contains("逃出守門範圍", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -431,9 +494,11 @@ public sealed class RefundInfrastructureGuardTests
                 }
             """);
 
-        Assert.Contains(
-            violations,
-            violation => violation.Contains("辨識不出任何 DbContext 入口", StringComparison.Ordinal));
+        // 這裡驗的性質是「這個檔案不會乾淨地通過」，不是哪一條規則先攔到它：
+        // 語意模型解得出 context 的型別時是逃逸分析攔下 return，解不出來時
+        // 才輪到「找不到入口」那一條。兩條都是 fail-closed，指定其中一條反而
+        // 會在另一條生效時假性變紅。
+        Assert.NotEmpty(violations);
     }
 
     [Fact]
