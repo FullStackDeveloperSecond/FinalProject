@@ -17,7 +17,14 @@ const { data: order, isPending, isError, error, refetch } = useAdminOrderDetailQ
 const apiError = computed(() => (isApiError(error.value) ? error.value : undefined))
 
 const showRecipient = ref(false)
-const { data: recipient, isPending: isRecipientPending } = useAdminOrderRecipientQuery(publicId, showRecipient)
+const {
+  data: recipient,
+  isPending: isRecipientPending,
+  isError: isRecipientError,
+  error: recipientError,
+  refetch: refetchRecipient,
+} = useAdminOrderRecipientQuery(publicId, showRecipient)
+const recipientApiError = computed(() => (isApiError(recipientError.value) ? recipientError.value : undefined))
 
 const actionMutation = useAdminOrderActionMutation()
 const selectedAction = ref('')
@@ -224,6 +231,19 @@ function formatDateTime(value?: string | null): string {
           v-else-if="isRecipientPending"
           label="收件資料載入中"
         />
+        <template v-else-if="isRecipientError">
+          <ErrorState
+            :correlation-id="recipientApiError?.correlationId"
+            :trace-id="recipientApiError?.traceId"
+            @retry="() => refetchRecipient()"
+          />
+          <button
+            type="button"
+            @click="showRecipient = false"
+          >
+            返回
+          </button>
+        </template>
         <dl v-else-if="recipient">
           <dt>收件人</dt>
           <dd>{{ recipient.recipientName }}</dd>

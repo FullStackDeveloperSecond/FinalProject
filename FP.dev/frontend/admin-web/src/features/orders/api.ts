@@ -1,3 +1,4 @@
+import type { components } from '@doselect/web-shared/api'
 import { createApiClient } from '../../api/client'
 
 export type OrderStatus = 'PendingPayment' | 'Confirmed' | 'Processing' | 'Completed' | 'Cancelled'
@@ -116,13 +117,34 @@ export interface AdminOrderItemDto {
   listUnitPrice: number
   saleUnitPrice: number
   finalUnitPrice: number
-  unitCostSnapshot: number
   lineSubtotal: number
   discountAllocation: number
   lineTotal: number
   returnableQuantity: number
   returnedQuantity: number
 }
+
+/**
+ * alex PR #47 review round 2, P3 item: this file hand-writes response DTOs instead of importing
+ * `components['schemas'][...]` from the generated OpenAPI schema directly, which is how
+ * `unitCostSnapshot` (removed from the backend DTO) and `actorUserId` (renamed to
+ * `actorPublicId`) went stale here without anyone noticing. Keeping the hand-written types for
+ * now (they're friendlier to read than the generated `number | string` unions), but this check
+ * fails to compile if a hand-written key stops existing in the generated schema — the same class
+ * of drift that caused this review comment.
+ */
+type RequireKeysSubsetOfSchema<T, SchemaKeys extends string> = keyof T extends SchemaKeys
+  ? true
+  : { staleFieldsNotInGeneratedSchema: Exclude<keyof T, SchemaKeys> }
+type ExpectTrue<T extends true> = T
+/** Compiles only while every AdminOrderItemDto field still exists in the generated schema. */
+export type AdminOrderItemDtoStaysInSyncWithSchema = ExpectTrue<
+  RequireKeysSubsetOfSchema<AdminOrderItemDto, keyof components['schemas']['AdminOrderItemDto']>
+>
+/** Compiles only while every OrderStatusHistoryDto field still exists in the generated schema. */
+export type OrderStatusHistoryDtoStaysInSyncWithSchema = ExpectTrue<
+  RequireKeysSubsetOfSchema<OrderStatusHistoryDto, keyof components['schemas']['OrderStatusHistoryDto']>
+>
 
 export interface AdminOrderAmountsDto {
   merchandiseSubtotal: number
@@ -140,7 +162,7 @@ export interface OrderStatusHistoryDto {
   fromStatus?: string | null
   toStatus: string
   reasonCode?: string | null
-  actorUserId?: string | null
+  actorPublicId?: string | null
   occurredAtUtc: string
 }
 
