@@ -39,6 +39,53 @@ public sealed class AdminOrdersApiTests
     }
 
     [Fact]
+    public async Task List_CursorReusedUnderDifferentFilters_Returns400ValidationFailed()
+    {
+        // alex PR #47 review round 2, P3 item: a cursor minted under one summaryStatus/badge
+        // combination must not be silently accepted when the caller switches filters — that would
+        // resume at an arbitrary position in a completely different result set.
+        await using var context = _fixture.CreateScopedContext();
+        var shippingProfileId = await AdminOrdersApiSeeding.SeedShippingProviderProfileAsync(context);
+        await AdminOrdersApiSeeding.SeedOrderAsync(context, shippingProfileId);
+        await AdminOrdersApiSeeding.SeedOrderAsync(context, shippingProfileId);
+
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync();
+        using var firstPage = await client.GetAsync("/api/v1/admin/orders?pageSize=1");
+        var firstBody = await firstPage.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(HttpStatusCode.OK, firstPage.StatusCode);
+        Assert.True(firstBody.GetProperty("hasMore").GetBoolean());
+        var cursor = firstBody.GetProperty("nextCursor").GetString();
+
+        using var secondPage = await client.GetAsync(
+            $"/api/v1/admin/orders?pageSize=1&summaryStatus=cancelled&cursor={Uri.EscapeDataString(cursor!)}");
+        var (status, code, _) = await AdminOrdersApiFixture.ReadProblemAsync(secondPage);
+
+        Assert.Equal(400, status);
+        Assert.Equal("validation_failed", code);
+    }
+
+    [Fact]
+    public async Task List_CursorReusedUnderSameFilters_ContinuesToNextPage()
+    {
+        await using var context = _fixture.CreateScopedContext();
+        var shippingProfileId = await AdminOrdersApiSeeding.SeedShippingProviderProfileAsync(context);
+        await AdminOrdersApiSeeding.SeedOrderAsync(context, shippingProfileId);
+        await AdminOrdersApiSeeding.SeedOrderAsync(context, shippingProfileId);
+
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync();
+        using var firstPage = await client.GetAsync("/api/v1/admin/orders?pageSize=1");
+        var firstBody = await firstPage.Content.ReadFromJsonAsync<JsonElement>();
+        var cursor = firstBody.GetProperty("nextCursor").GetString();
+
+        using var secondPage = await client.GetAsync(
+            $"/api/v1/admin/orders?pageSize=1&cursor={Uri.EscapeDataString(cursor!)}");
+        var secondBody = await secondPage.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(HttpStatusCode.OK, secondPage.StatusCode);
+        Assert.True(secondBody.GetProperty("items").GetArrayLength() >= 1);
+    }
+
+    [Fact]
     public async Task List_WithUnknownSummaryStatus_Returns400ValidationFailed()
     {
         using var client = await _fixture.CreateAuthenticatedAdminClientAsync();

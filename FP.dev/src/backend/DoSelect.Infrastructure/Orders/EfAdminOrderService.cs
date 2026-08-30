@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 using DoSelect.Application.Auditing;
 using DoSelect.Application.Common;
@@ -48,9 +49,20 @@ public sealed class EfAdminOrderService : IAdminOrderService
         ordersQuery = ApplySummaryStatusFilter(ordersQuery, summarySet);
         ordersQuery = ApplyBadgeFilter(ordersQuery, badgeSet);
 
+        var scopeFingerprint = ComputeScopeFingerprint(summarySet, badgeSet);
         if (!string.IsNullOrWhiteSpace(query.Cursor))
         {
-            var (afterCreatedAtUtc, afterPublicId) = DecodeCursor(query.Cursor);
+            var (afterCreatedAtUtc, afterPublicId, cursorFingerprint) = DecodeCursor(query.Cursor);
+            // alex PR #47 review round 2, P3 item: a cursor minted under one summaryStatus/badge
+            // filter combination silently continuing under a different one would resume from the
+            // wrong position in a completely different result set — reject instead of guessing.
+            if (!string.Equals(cursorFingerprint, scopeFingerprint, StringComparison.Ordinal))
+            {
+                throw new AdminOrderWriteException(
+                    AdminOrderWriteException.ErrorCodes.ValidationFailed,
+                    "The cursor was issued for different filters; request the first page again.");
+            }
+
             ordersQuery = ordersQuery.Where(order =>
                 order.CreatedAtUtc < afterCreatedAtUtc ||
                 (order.CreatedAtUtc == afterCreatedAtUtc && order.PublicId.CompareTo(afterPublicId) < 0));
@@ -67,7 +79,9 @@ public sealed class EfAdminOrderService : IAdminOrderService
 
         var hasMore = orders.Count > pageSize;
         var page = hasMore ? orders.Take(pageSize).ToList() : orders;
-        var nextCursor = hasMore ? EncodeCursor(page[^1].CreatedAtUtc, page[^1].PublicId) : null;
+        var nextCursor = hasMore
+            ? EncodeCursor(page[^1].CreatedAtUtc, page[^1].PublicId, scopeFingerprint)
+            : null;
 
         var items = page.Select(ToSummaryDto).ToList();
         return new CursorPage<AdminOrderSummaryDto>(items, nextCursor, hasMore);
@@ -664,26 +678,28 @@ public sealed class EfAdminOrderService : IAdminOrderService
     /// <summary>
     /// Cursor 編碼 (CreatedAtUtc, OrderPublicId) 這組穩定同值鍵（API共通規範.md：後台訂單列表
     /// 固定 `CreatedAtUtc DESC, OrderPublicId DESC`）。用 PublicId 而非 bigint Id，符合「不得在
-    /// API 暴露 bigint Id」規則。
+    /// API 暴露 bigint Id」規則。第三段 fingerprint 綁定發出這個 cursor 當下的
+    /// summaryStatus／badge 篩選組合（alex PR #47 review round 2, P3）——換了篩選條件卻沿用
+    /// 舊 cursor 會從完全不同結果集的錯誤位置繼續，必須偵測並拒絕，不能靜默接受。
     /// </summary>
-    private static string EncodeCursor(DateTime createdAtUtc, Guid publicId) =>
+    private static string EncodeCursor(DateTime createdAtUtc, Guid publicId, string scopeFingerprint) =>
         Convert.ToBase64String(Encoding.UTF8.GetBytes(
-            $"{createdAtUtc.ToString("O", CultureInfo.InvariantCulture)}|{publicId:D}"));
+            $"{createdAtUtc.ToString("O", CultureInfo.InvariantCulture)}|{publicId:D}|{scopeFingerprint}"));
 
-    private static (DateTime CreatedAtUtc, Guid PublicId) DecodeCursor(string cursor)
+    private static (DateTime CreatedAtUtc, Guid PublicId, string ScopeFingerprint) DecodeCursor(string cursor)
     {
         try
         {
             var text = Encoding.UTF8.GetString(Convert.FromBase64String(cursor));
-            var parts = text.Split('|', 2);
-            if (parts.Length != 2)
+            var parts = text.Split('|', 3);
+            if (parts.Length != 3)
             {
-                throw new FormatException("The cursor value is missing the tie-break segment.");
+                throw new FormatException("The cursor value is missing the tie-break or scope segment.");
             }
 
             var createdAtUtc = DateTime.Parse(parts[0], CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
             var publicId = Guid.ParseExact(parts[1], "D");
-            return (createdAtUtc, publicId);
+            return (createdAtUtc, publicId, parts[2]);
         }
         catch (Exception exception) when (exception is FormatException or ArgumentException)
         {
@@ -691,5 +707,19 @@ public sealed class EfAdminOrderService : IAdminOrderService
                 AdminOrderWriteException.ErrorCodes.ValidationFailed,
                 "The cursor value is invalid.");
         }
+    }
+
+    /// <summary>Short, order-independent fingerprint of the summaryStatus／badge filter sets a
+    /// cursor was minted under. Not a security boundary (the cursor is an opaque token, not a
+    /// signed one) — just enough to detect "this cursor doesn't belong to this query" and fail
+    /// loudly instead of silently resuming at the wrong position in a different result set.</summary>
+    private static string ComputeScopeFingerprint(
+        IReadOnlyCollection<string> summarySet, IReadOnlyCollection<string> badgeSet)
+    {
+        var canonical =
+            string.Join(",", summarySet.OrderBy(value => value, StringComparer.Ordinal)) + ";" +
+            string.Join(",", badgeSet.OrderBy(value => value, StringComparer.Ordinal));
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(canonical));
+        return Convert.ToHexString(hash)[..16];
     }
 }
