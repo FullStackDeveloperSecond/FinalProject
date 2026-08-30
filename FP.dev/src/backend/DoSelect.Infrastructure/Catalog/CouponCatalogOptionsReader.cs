@@ -88,6 +88,16 @@ public sealed class CouponCatalogOptionsReader : ICouponCatalogOptionsReader
     {
         var size = Math.Clamp(pageSize, 1, CouponCatalogOptionRules.MaximumSearchPageSize);
         var page = Math.Max(pageNumber, 1);
+
+        // 契約允許 pageNumber 到 int.MaxValue，但 (page - 1) * size 用 int 會溢位成
+        // 負的 offset —— 本該回空頁的請求會變成 SQL 查詢失敗。先用 long 算，
+        // 超過 int.MaxValue 就直接回空頁、不送 SQL。
+        // 專案既有的 EfProductSearchService 也是這樣處理同一個問題。
+        var skip = ((long)page - 1) * size;
+        if (skip > int.MaxValue)
+        {
+            return new CouponProductSearchResult([], HasMore: false);
+        }
         var trimmed = keyword?.Trim();
 
         var query = _context.Products.AsNoTracking()
@@ -107,7 +117,7 @@ public sealed class CouponCatalogOptionsReader : ICouponCatalogOptionsReader
         // 回傳順序沒有保證，同一筆可能同時出現在兩頁、也可能兩頁都漏掉。
         var rows = await query
             .OrderBy(product => product.ProductCode)
-            .Skip((page - 1) * size)
+            .Skip((int)skip)
             .Take(size + 1)
             .Select(product => new
             {

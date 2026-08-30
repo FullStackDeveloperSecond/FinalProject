@@ -257,6 +257,27 @@ public sealed class CouponCatalogOptionsReaderSqlServerTests
     }
 
     [SqlServerFact]
+    public async Task TheLargestLegalPageNumberComesBackEmptyInsteadOfOverflowing()
+    {
+        // 契約允許 pageNumber 到 int.MaxValue。用 int 算 (page - 1) * size 會溢位成
+        // 負的 offset，本該回空頁的請求會變成 SQL 查詢失敗（alex #69 P2）。
+        await using var context = _fixture.CreateContext(out var counter);
+        var keyword = $"OVF{Guid.NewGuid():N}"[..12];
+        await SeedProductAsync(context, ProductStatus.Published, keyword);
+        var reader = new CouponCatalogOptionsReader(context);
+
+        counter.Reset();
+        var page = await reader.SearchProductsAsync(
+            keyword, pageNumber: int.MaxValue, pageSize: 50);
+
+        Assert.Empty(page.Items);
+        Assert.False(page.HasMore);
+
+        // 超出範圍就不該送 SQL —— 這也順便證明不是靠資料庫回空集合矇過去。
+        Assert.Equal(0, counter.Count);
+    }
+
+    [SqlServerFact]
     public async Task ThePageSizeStaysCappedNoMatterWhatTheCallerAsksFor()
     {
         // 上限 50 是契約的一部分；Reader 自己也要夾住，不能只靠 request 的 Range 屬性 ——
