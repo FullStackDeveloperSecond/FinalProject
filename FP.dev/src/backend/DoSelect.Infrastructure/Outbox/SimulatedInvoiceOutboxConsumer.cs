@@ -6,6 +6,7 @@ using DoSelect.Domain.Invoicing;
 using DoSelect.Domain.Outbox;
 using DoSelect.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace DoSelect.Infrastructure.Outbox;
 
@@ -111,12 +112,7 @@ public sealed class SimulatedInvoiceOutboxConsumer(
         }
         catch (DbUpdateException exception) when (SqlDuplicateKey.IsViolation(exception))
         {
-            await transaction.RollbackAsync(CancellationToken.None);
-            context.ChangeTracker.Clear();
-            // OutboxDispatchJob 仍要在 Consumer 回傳後把同一訊息標成 Processed。
-            // Clear 是為了移除 rollback 後的 Invoice／Items；把訊息重新掛回追蹤，
-            // 否則 job 對 detached message 的 Complete 不會落地。
-            context.Attach(message);
+            await RollbackAndResetTrackingAsync(transaction, message);
 
             var invoiceExists = await (
                 from invoice in context.SimulatedInvoices.AsNoTracking()
@@ -131,6 +127,29 @@ public sealed class SimulatedInvoiceOutboxConsumer(
             }
 
             throw;
+        }
+        catch
+        {
+            // 交易回滾不會自動清除 EF 追蹤狀態。若保留已新增的 Invoice／Items，
+            // OutboxDispatchJob 標記訊息失敗時的 SaveChanges 會再次嘗試寫入它們。
+            await RollbackAndResetTrackingAsync(transaction, message);
+            throw;
+        }
+    }
+
+    private async Task RollbackAndResetTrackingAsync(
+        IDbContextTransaction transaction,
+        OutboxMessage message)
+    {
+        try
+        {
+            await transaction.RollbackAsync(CancellationToken.None);
+        }
+        finally
+        {
+            context.ChangeTracker.Clear();
+            // OutboxDispatchJob 仍要在 Consumer 回傳後完成或標記同一訊息失敗。
+            context.Attach(message);
         }
     }
 }

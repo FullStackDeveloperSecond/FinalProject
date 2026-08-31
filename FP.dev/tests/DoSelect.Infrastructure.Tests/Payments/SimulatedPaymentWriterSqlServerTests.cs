@@ -21,6 +21,7 @@ using DoSelect.Infrastructure.Persistence.Identity;
 using DoSelect.Infrastructure.Tests.Idempotency;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
 namespace DoSelect.Infrastructure.Tests.Payments;
@@ -274,6 +275,62 @@ public sealed class SimulatedPaymentWriterSqlServerTests
             Assert.Equal(SimulatedInvoiceStatus.Issued, invoice.Status);
             Assert.Equal(1000m, invoice.IssuedAmount);
             Assert.Single(await context.SimulatedInvoiceItems.AsNoTracking().ToArrayAsync());
+        });
+    }
+
+    [SqlServerFact]
+    public async Task InvoiceConsumerFailureDoesNotLeakRolledBackEntitiesIntoTheDispatcherSave()
+    {
+        await RunInMigratedDatabaseAsync(async context =>
+        {
+            var seeded = await SeedAsync(context);
+            await CreateWriter(context).CompleteAsync(Command(seeded, "sim-pay-invoice-failure"));
+
+            context.ChangeTracker.Clear();
+            var message = await context.OutboxMessages.SingleAsync(
+                candidate => candidate.Type == OutboxEventTypes.SimulatedInvoiceRequestedV1);
+            message.Claim(NowUtc, NowUtc.AddMinutes(1));
+            await context.SaveChangesAsync();
+            await context.Database.ExecuteSqlRawAsync(
+                """
+                CREATE TRIGGER [TR_SimulatedInvoiceItems_ForceFailure]
+                ON [SimulatedInvoiceItems]
+                AFTER INSERT
+                AS
+                BEGIN
+                    SET NOCOUNT ON;
+                    THROW 51000, 'forced invoice item failure', 1;
+                END;
+                """);
+
+            var clock = new FixedTimeProvider(Now);
+            var consumer = new SimulatedInvoiceOutboxConsumer(
+                context,
+                new IssueInvoiceService(
+                    new OrderInvoiceIssuanceReader(context),
+                    new InvoiceExistenceReader(context),
+                    new InvoiceNumberSequence(context),
+                    clock),
+                clock);
+            var job = new OutboxDispatchJob(
+                context,
+                [consumer],
+                clock,
+                NullLogger<OutboxDispatchJob>.Instance);
+
+            await job.ProcessAsync(
+                message.PublicId,
+                message.PayloadVersion,
+                message.CorrelationId,
+                CancellationToken.None);
+
+            context.ChangeTracker.Clear();
+            Assert.Empty(await context.SimulatedInvoices.AsNoTracking().ToArrayAsync());
+            Assert.Empty(await context.SimulatedInvoiceItems.AsNoTracking().ToArrayAsync());
+            var failedMessage = await context.OutboxMessages.AsNoTracking()
+                .SingleAsync(candidate => candidate.PublicId == message.PublicId);
+            Assert.Equal(OutboxMessageStatus.Failed, failedMessage.Status);
+            Assert.Equal("outbox_consumer_unhandled", failedMessage.LastErrorCode);
         });
     }
 

@@ -9,6 +9,7 @@ public sealed class IssueInvoiceServiceTests
     private static readonly DateTime NowUtc = new(2026, 8, 19, 2, 0, 0, DateTimeKind.Utc);
     private static readonly Guid OrderPublicId = new("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
     private static readonly Guid ItemA = new("11111111-1111-1111-1111-111111111111");
+    private static readonly Guid ItemB = new("22222222-2222-2222-2222-222222222222");
 
     [Fact]
     public async Task IssueAsync_PlansAnInvoiceForAPaidOrder()
@@ -74,6 +75,32 @@ public sealed class IssueInvoiceServiceTests
         var line = Assert.Single(result.Plan!.Lines);
         Assert.Equal(11L, line.OrderItemId);
         Assert.Equal(ItemA, line.Breakdown.OrderItemPublicId);
+    }
+
+    [Fact]
+    public async Task IssueAsync_PreservesTheOrderItemKeyAfterFilteringAFreeLine()
+    {
+        var snapshot = Snapshot() with
+        {
+            Lines =
+            [
+                new InvoiceOrderLineSource(
+                    OrderItemId: 11L,
+                    new InvoiceOrderLine(
+                        ItemA, InvoiceLineKind.Merchandise, "零元贈品", "SKU-FREE", 1, 1000m, 1000m, 0m)),
+                new InvoiceOrderLineSource(
+                    OrderItemId: 12L,
+                    new InvoiceOrderLine(
+                        ItemB, InvoiceLineKind.Merchandise, "應開票商品", "SKU-PAID", 1, 1000m, 0m, 1000m)),
+            ],
+        };
+        var service = CreateService(new FakeOrderInvoiceIssuanceReader(snapshot));
+
+        var result = await service.IssueAsync(new IssueInvoiceRequest(OrderPublicId));
+
+        var line = Assert.Single(result.Plan!.Lines);
+        Assert.Equal(12L, line.OrderItemId);
+        Assert.Equal(ItemB, line.Breakdown.OrderItemPublicId);
     }
 
     [Fact]

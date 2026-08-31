@@ -124,11 +124,14 @@ public sealed class IssueInvoiceService
             snapshot.OrderId,
             cancellationToken);
 
+        var invoiceableSources = snapshot.Lines
+            .Where(source => source.Line.GrossAmount > 0m)
+            .ToArray();
         var calculation = InvoiceCalculator.Calculate(new InvoiceIssuanceRequest(
             TriggerFor(snapshot),
             alreadyIssued,
             snapshot.OrderPaidAmount,
-            [.. snapshot.Lines.Select(source => source.Line)]));
+            [.. invoiceableSources.Select(source => source.Line)]));
 
         if (!calculation.IsSuccess)
         {
@@ -153,7 +156,7 @@ public sealed class IssueInvoiceService
             calculation.RoundingAdjustment,
             calculation.Lines
                 .Select((line, index) => new InvoiceIssuanceLinePlan(
-                    snapshot.Lines[index].OrderItemId,
+                    invoiceableSources[index].OrderItemId,
                     line))
                 .ToArray()));
     }
