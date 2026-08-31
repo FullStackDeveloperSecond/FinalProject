@@ -15,6 +15,17 @@
         前往客服 SLA 佇列
       </RouterLink>
     </article>
+
+    <article class="home-card card">
+      <h2>訂單管理</h2>
+      <p>檢視訂單列表與詳情，並執行狀態轉移。</p>
+      <RouterLink
+        class="home-card__link"
+        to="/orders"
+      >
+        前往訂單管理
+      </RouterLink>
+    </article>
   </section>
 </template>
 

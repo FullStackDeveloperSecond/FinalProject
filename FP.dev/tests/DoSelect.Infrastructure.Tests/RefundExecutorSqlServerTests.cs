@@ -280,6 +280,42 @@ public sealed class RefundExecutorSqlServerTests
     }
 
     [RefundExecutorSqlFact]
+    public async Task AReplayAfterTheFinanceRoleIsRevokedIsForbidden()
+    {
+        await using var context = RefundExecutorSqlFixture.CreateContext();
+        var refund = await SeedRefundAsync(context);
+        var adminUserId = await SeedFinanceManagerAsync(context);
+        var request = Request(refund, adminUserId);
+
+        await using (var first = RefundExecutorSqlFixture.CreateContext())
+        {
+            var initial = await CreateExecutor(first).ExecuteAsync(request);
+            Assert.True(initial.IsSuccess);
+        }
+
+        await using (var revoking = RefundExecutorSqlFixture.CreateContext())
+        {
+            var assignments = await revoking.UserRoles
+                .Where(assignment => assignment.UserId == adminUserId)
+                .ToArrayAsync();
+            revoking.UserRoles.RemoveRange(assignments);
+            await revoking.SaveChangesAsync();
+        }
+
+        await using var replaying = RefundExecutorSqlFixture.CreateContext();
+        var exception = await Assert.ThrowsAsync<DomainProblemException>(
+            () => CreateExecutor(replaying).ExecuteAsync(request));
+
+        Assert.Equal(403, exception.StatusCode);
+
+        await using var verify = RefundExecutorSqlFixture.CreateContext();
+        var stored = await verify.Refunds.SingleAsync(candidate => candidate.PublicId == refund.PublicId);
+        Assert.Equal(RefundStatus.Succeeded, stored.Status);
+        Assert.Equal(1, await verify.Set<AuditLog>()
+            .CountAsync(log => log.ResourcePublicId == refund.PublicId));
+    }
+
+    [RefundExecutorSqlFact]
     public async Task TheSameKeyWithADifferentReasonIsAPayloadConflict()
     {
         // RequestHash 涵蓋 ReasonCode；換了理由就不是同一個命令。

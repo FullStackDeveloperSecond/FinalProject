@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { HttpStatusPage } from '@doselect/web-shared/components'
 import { useAdminAuthStore } from '../features/auth/stores/useAdminAuthStore'
+import { isOperationalReportKey } from '../features/operationalReports/types'
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -116,10 +117,44 @@ const router = createRouter({
       },
     },
     {
+      path: '/reviews',
+      name: 'admin-review-queue',
+      component: () => import('../pages/reviews/AdminReviewQueuePage.vue'),
+      meta: {
+        requiresAuth: true,
+        requiredRoles: ['CustomerService', 'CustomerServiceSupervisor', 'SuperAdmin'],
+      },
+    },
+    {
+      path: '/reports/:reportKey',
+      name: 'operational-report',
+      component: () => import('../pages/OperationalReportPage.vue'),
+      beforeEnter: (to) => isOperationalReportKey(to.params.reportKey)
+        ? true
+        : { name: 'not-found' },
+      meta: {
+        requiresAuth: true,
+        requiredRoles: ['FinanceManager', 'MarketingAnalyst', 'SuperAdmin'],
+      },
+    },
+    {
       path: '/returns/:returnId',
       name: 'admin-return-detail',
       component: () => import('../pages/returns/AdminReturnDetailPage.vue'),
       meta: { requiresAuth: true, requiredRoles: ['OrderManager', 'SuperAdmin'] },
+    },
+    {
+      // 前台目前沒有登入流程（屬於 haru/feature/admin-membermanage 分支範圍，尚未合併），
+      // 所以這裡先不掛 meta.requiresAuth／router guard；401/403 由頁面自己處理（比照
+      // customer-web OrderDetailPage.vue 現有模式）。待該分支合併後可補上 Guard。
+      path: '/orders',
+      name: 'admin-order-list',
+      component: () => import('../features/orders/pages/OrderListPage.vue'),
+    },
+    {
+      path: '/orders/:publicId',
+      name: 'admin-order-detail',
+      component: () => import('../features/orders/pages/OrderDetailPage.vue'),
     },
     {
       // 組長 PR #35 review, item 6: official route is /admin/catalog/compatibility, not

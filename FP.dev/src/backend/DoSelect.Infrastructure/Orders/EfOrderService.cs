@@ -3,11 +3,8 @@ using DoSelect.Application.Common;
 using DoSelect.Application.Orders;
 using DoSelect.Application.Returns;
 using DoSelect.Domain.Auditing;
-using DoSelect.Domain.Inventory;
 using DoSelect.Domain.Orders;
-using DoSelect.Domain.Promotions;
 using DoSelect.Infrastructure.Persistence;
-using DoSelect.Infrastructure.Promotions;
 using Microsoft.EntityFrameworkCore;
 
 namespace DoSelect.Infrastructure.Orders;
@@ -25,7 +22,6 @@ public sealed class EfOrderService : IOrderService
 {
     private const string CancelAction = "cancel";
     private const string RequestReturnAction = "requestReturn";
-    private const string InventoryReleaseReason = "order_cancelled";
 
     private readonly DoSelectDbContext _dbContext;
     private readonly IAuditWriter _auditWriter;
@@ -144,11 +140,22 @@ public sealed class EfOrderService : IOrderService
         var now = _timeProvider.GetUtcNow().UtcDateTime;
         var (actorUserId, auditActor) = await ResolveCancellationActorAsync(actor, cancellationToken);
 
-        await ReleaseCancellationResourcesAsync(
-            order,
-            actorUserId,
-            now,
-            cancellationToken);
+        bool assemblyChanged;
+        try
+        {
+            assemblyChanged = await OrderCancellationResourceReleaser.ReleaseAsync(
+                _dbContext,
+                order,
+                actorUserId,
+                now,
+                auditContext.TraceId,
+                cancellationToken);
+        }
+        catch (InvalidOperationException exception)
+        {
+            throw new OrderWriteException(OrderWriteException.ErrorCodes.OrderStateConflict, exception.Message);
+        }
+
         order.ChangeOrderStatus(OrderStatus.Cancelled, now);
 
         _dbContext.OrderStatusHistories.Add(new OrderStatusHistory(
@@ -162,6 +169,17 @@ public sealed class EfOrderService : IOrderService
             occurredAtUtc: now,
             traceId: auditContext.TraceId));
 
+        List<AuditFieldChange> cancelFieldChanges =
+        [
+            AuditFieldChange.Changed("orderStatus"),
+            AuditFieldChange.Changed("inventoryReservations"),
+            AuditFieldChange.Changed("couponRedemptions"),
+        ];
+        if (assemblyChanged)
+        {
+            cancelFieldChanges.Add(AuditFieldChange.Changed("assemblyStatus"));
+        }
+
         _auditWriter.Add(AuditWriteRequest.Create(
             Guid.CreateVersion7(),
             auditActor,
@@ -170,11 +188,7 @@ public sealed class EfOrderService : IOrderService
             order.PublicId,
             AuditResult.Success,
             errorCode: null,
-            [
-                AuditFieldChange.Changed("orderStatus"),
-                AuditFieldChange.Changed("inventoryReservations"),
-                AuditFieldChange.Changed("couponRedemptions"),
-            ],
+            cancelFieldChanges,
             request.ReasonCode,
             auditContext.CorrelationId,
             auditContext.TraceId,
@@ -322,100 +336,6 @@ public sealed class EfOrderService : IOrderService
                 : null,
             actions,
             order.RowVersion);
-    }
-
-    /// <summary>
-    /// Alex PR #43 review A1: cancellation may not commit unless all active reservations and
-    /// coupon seats are returned in the same SaveChanges transaction as the order transition.
-    /// </summary>
-    private async Task ReleaseCancellationResourcesAsync(
-        Order order,
-        string? actorUserId,
-        DateTime now,
-        CancellationToken cancellationToken)
-    {
-        var reservations = await _dbContext.InventoryReservations
-            .Where(candidate => candidate.OrderId == order.Id &&
-                candidate.Status == InventoryReservationStatus.Active)
-            .OrderBy(candidate => candidate.SkuId)
-            .ThenBy(candidate => candidate.Id)
-            .ToListAsync(cancellationToken);
-        var reservationGroups = reservations.GroupBy(candidate => candidate.SkuId).ToArray();
-        var skuIds = reservationGroups.Select(group => group.Key).ToArray();
-        var balances = await _dbContext.InventoryBalances
-            .Where(candidate => skuIds.Contains(candidate.SkuId))
-            .ToDictionaryAsync(candidate => candidate.SkuId, cancellationToken);
-
-        foreach (var group in reservationGroups)
-        {
-            var quantityToRelease = group.Sum(candidate => candidate.Quantity);
-            if (!balances.TryGetValue(group.Key, out var balance) ||
-                balance.ReservedQuantity < quantityToRelease)
-            {
-                throw new OrderWriteException(
-                    OrderWriteException.ErrorCodes.OrderStateConflict,
-                    $"Inventory reservation state is inconsistent for order '{order.PublicId}'.");
-            }
-
-            var runningReservedQuantity = balance.ReservedQuantity;
-            foreach (var reservation in group)
-            {
-                var afterReservedQuantity = runningReservedQuantity - reservation.Quantity;
-                reservation.Release(InventoryReleaseReason, expired: false, releasedAtUtc: now);
-                _dbContext.InventoryMovements.Add(new InventoryMovement(
-                    Guid.CreateVersion7(),
-                    reservation.SkuId,
-                    reservation.Id,
-                    "Release",
-                    onHandDelta: 0,
-                    reservedDelta: -reservation.Quantity,
-                    beforeOnHand: balance.OnHandQuantity,
-                    afterOnHand: balance.OnHandQuantity,
-                    beforeReserved: runningReservedQuantity,
-                    afterReserved: afterReservedQuantity,
-                    reasonCode: InventoryReleaseReason,
-                    referenceType: "Order",
-                    referencePublicId: order.PublicId,
-                    actorUserId,
-                    occurredAtUtc: now));
-                runningReservedQuantity = afterReservedQuantity;
-            }
-
-            balance.ApplyQuantities(balance.OnHandQuantity, runningReservedQuantity, now);
-        }
-
-        var redemptions = await _dbContext.CouponRedemptions
-            .Where(candidate => candidate.OrderId == order.Id &&
-                candidate.Status == CouponRedemptionStatus.Reserved)
-            .ToListAsync(cancellationToken);
-        foreach (var redemption in redemptions)
-        {
-            redemption.Release(now);
-        }
-
-        var releasedRedemptionIds = redemptions.Select(candidate => candidate.Id).ToArray();
-        var couponIds = redemptions.Select(candidate => candidate.CouponId).Distinct().ToArray();
-        var exhaustedCoupons = await _dbContext.Coupons
-            .Where(candidate => couponIds.Contains(candidate.Id) &&
-                candidate.Status == CouponStatus.Exhausted)
-            .ToListAsync(cancellationToken);
-        foreach (var coupon in exhaustedCoupons)
-        {
-            var occupiedCount = await _dbContext.CouponRedemptions
-                .AsNoTracking()
-                .Where(candidate => candidate.CouponId == coupon.Id &&
-                    !releasedRedemptionIds.Contains(candidate.Id))
-                .Where(CouponRuleReader.OccupiesUsageSeatAt(now))
-                .CountAsync(cancellationToken);
-            var usage = new CouponUsageState(occupiedCount, MemberRedeemedCount: 0);
-            if (coupon.IsWithinUsagePeriod(now) &&
-                coupon.HasCompleteDiscountRule &&
-                coupon.HasRemainingQuota(usage))
-            {
-                coupon.ReactivateAfterQuotaRelease(usage, now);
-            }
-        }
-
     }
 
     private async Task SaveWithConcurrencyCheckAsync(CancellationToken cancellationToken)

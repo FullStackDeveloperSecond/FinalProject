@@ -1,6 +1,6 @@
 ---
 文件狀態: 可開發
-最後更新: 2026-08-28
+最後更新: 2026-08-31
 適用對象: yinyin
 主要覆核: haru
 最終整合: alex
@@ -162,7 +162,7 @@ dotnet list DoSelect.slnx package --vulnerable --include-transitive
 ## 10. PR、日誌與停止條件
 
 - 遵守 [[Git協作規範]]；PR 合併至 `dev`，由 alex 核准，Squash Merge。
-- PR #6 已合併退款折讓 API／Writer／Reader 與 SQL 測試。PR #16 仍維持 Draft；已解除中央 Audit 與 DES-21 快照基礎阻擋，剩餘 Gate 是串接 `IAuditWriter` 的同交易回滾、可設定隔離策略、管理員 actor scope、遮罩後摘要、最終契約／OpenAPI 及完整 Provider-backed 測試。全部阻擋與 CI 解除後才轉 Ready 並重新完整 review。
+- PR #6 已合併退款折讓 API／Writer／Reader 與 SQL 測試。PR #16 已轉 Ready，中央 Audit、DES-21 快照、可設定隔離策略、管理員 actor scope、遮罩摘要、最終契約／OpenAPI 與防止跨模組 DbContext 逃逸的守門均已完成靜態 review；目前與最新 `dev` 衝突。接手者須先以普通 merge 整合最新 `dev`、重新核對完整 diff，再針對 exact head 完成退款／Audit 同交易回滾、冪等、七類分攤與完整 SQL Server Provider-backed 測試，通過後才可 Approve／Merge。
 - 依 [[日誌/README]] 記錄 DTO、金額公式、Idempotency-Key、狀態、Outbox、資料庫與跨模組契約；必須讓 haru 能重跑付款／退款案例。
 - 共用 OpenAPI schema、產生的 Typed Client 型別與 wrapper 已在 `dev`；API 變更後依 [[03-架構/02-API與前端契約/OpenAPI與前端Client流程]] 執行 `api:generate`／`api:check`，不手寫平行 DTO。
 - 不自行 scaffold／apply Migration；Schema 需求交 alex 走 Gate。

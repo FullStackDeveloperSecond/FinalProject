@@ -43,12 +43,18 @@ public sealed class AdminReturnService : IAdminReturnService
 
     private readonly IReturnStore _store;
     private readonly IReturnOrderEligibilityPort _orderPort;
+    private readonly IReturnInventoryPort _inventoryPort;
     private readonly TimeProvider _timeProvider;
 
-    public AdminReturnService(IReturnStore store, IReturnOrderEligibilityPort orderPort, TimeProvider timeProvider)
+    public AdminReturnService(
+        IReturnStore store,
+        IReturnOrderEligibilityPort orderPort,
+        IReturnInventoryPort inventoryPort,
+        TimeProvider timeProvider)
     {
         _store = store;
         _orderPort = orderPort;
+        _inventoryPort = inventoryPort;
         _timeProvider = timeProvider;
     }
 
@@ -227,6 +233,21 @@ public sealed class AdminReturnService : IAdminReturnService
 
         histories.Add(TransitionAndRecord(
             returnRequest, ReturnRequestStatus.AwaitingRefund, "inspection-complete", null, adminUserId, nowUtc));
+
+        var returnToStock = updatedItems
+            .Where(item => item.RestockDisposition == RestockDisposition.Resellable)
+            .Select(item => new ReturnToStockInstruction(
+                item.OrderItemId,
+                item.PublicId,
+                item.Quantity))
+            .ToArray();
+
+        await _inventoryPort.StageReturnToStockAsync(
+            returnRequest.PublicId,
+            adminUserId,
+            returnToStock,
+            nowUtc,
+            cancellationToken);
 
         await _store.SaveTransitionAsync(
             returnRequest, updatedItems, newInspections, histories, request.ReturnRowVersion, cancellationToken);

@@ -97,7 +97,10 @@ public sealed class RefundExecutor : IRefundExecutor
                 var execution = await _idempotencyExecutor.ExecuteAsync(
                     command,
                     handler: token => ExecuteOnceAsync(request, token),
-                    replayFactory: ReplayAsync,
+                    replayFactory: (stored, token) => ReplayAsync(
+                        stored,
+                        request.ExecutedByAdminUserId,
+                        token),
                     cancellationToken,
                     IsolationLevel.Serializable);
 
@@ -131,17 +134,24 @@ public sealed class RefundExecutor : IRefundExecutor
     /// <summary>
     /// 回放既有結果。重播不再執行任何金流副作用，只把先前保存的金額原樣回傳。
     /// </summary>
-    private static Task<ExecuteRefundResult> ReplayAsync(
+    private async Task<ExecuteRefundResult> ReplayAsync(
         StoredIdempotencyResponse stored,
-        CancellationToken cancellationToken) =>
-        Task.FromResult(
-            decimal.TryParse(
-                stored.ResponseSummary,
-                NumberStyles.Number,
-                CultureInfo.InvariantCulture,
-                out var settledAmount)
-                ? ExecuteRefundResult.Replayed(settledAmount)
-                : ExecuteRefundResult.Failure(RefundErrorCodes.RefundStateConflict));
+        string adminUserId,
+        CancellationToken cancellationToken)
+    {
+        // A replay still returns finance-only refund data. The controller's cookie claims may be
+        // stale after a role or account change, so enforce the same current eligibility used by
+        // the first execution before releasing the stored result.
+        await AuthorizeActorAsync(adminUserId, cancellationToken);
+
+        return decimal.TryParse(
+            stored.ResponseSummary,
+            NumberStyles.Number,
+            CultureInfo.InvariantCulture,
+            out var settledAmount)
+            ? ExecuteRefundResult.Replayed(settledAmount)
+            : ExecuteRefundResult.Failure(RefundErrorCodes.RefundStateConflict);
+    }
 
     private async Task<IdempotencyResponse<ExecuteRefundResult>> ExecuteOnceAsync(
         ExecuteRefundRequest request,

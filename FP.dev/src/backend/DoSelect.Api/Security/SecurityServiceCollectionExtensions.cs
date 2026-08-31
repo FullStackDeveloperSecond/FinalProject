@@ -363,8 +363,14 @@ public static class SecurityServiceCollectionExtensions
         AddAdminPolicy(options, DoSelectPolicies.AiUsageView,
             DoSelectRoles.FinanceManager, DoSelectRoles.CustomerServiceSupervisor,
             DoSelectRoles.MarketingAnalyst, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.OperationalReportView,
+            DoSelectRoles.FinanceManager, DoSelectRoles.MarketingAnalyst, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.OperationalReportFinanceView,
+            DoSelectRoles.FinanceManager, DoSelectRoles.SuperAdmin);
         AddAdminPolicy(options, DoSelectPolicies.CatalogManager,
             DoSelectRoles.CatalogManager, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.OrderManage,
+            DoSelectRoles.OrderManager, DoSelectRoles.SuperAdmin);
         AddAdminPolicy(options, DoSelectPolicies.ReturnApprove,
             DoSelectRoles.OrderManager, DoSelectRoles.SuperAdmin);
         AddAdminPolicy(options, DoSelectPolicies.RefundExecute,
@@ -375,6 +381,9 @@ public static class SecurityServiceCollectionExtensions
             DoSelectRoles.FinanceManager, DoSelectRoles.MarketingAnalyst, DoSelectRoles.SuperAdmin);
         AddAdminPolicy(options, DoSelectPolicies.ReportHighRiskReview,
             DoSelectRoles.CustomerServiceSupervisor, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.ProductReviewModerate,
+            DoSelectRoles.CustomerService, DoSelectRoles.CustomerServiceSupervisor,
+            DoSelectRoles.SuperAdmin);
         AddAdminPolicy(options, DoSelectPolicies.RoleAssignmentManage,
             DoSelectRoles.SuperAdmin);
         AddAdminPolicy(options, DoSelectPolicies.PersonalDataViewFull,
