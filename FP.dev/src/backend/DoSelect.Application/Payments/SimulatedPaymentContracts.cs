@@ -13,6 +13,7 @@ public enum SimulatedPaymentOutcome
     Succeeded,
     Failed,
     Expired,
+    Cancelled,
 }
 
 /// <summary>

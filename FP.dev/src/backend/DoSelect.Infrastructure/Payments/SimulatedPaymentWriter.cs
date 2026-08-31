@@ -172,7 +172,13 @@ public sealed class SimulatedPaymentWriter : ISimulatedPaymentWriter
             actor.HistoryActorUserId,
             command.TraceId,
             nowUtc);
-        AddNotifications(attempt, actor.MemberPublicId, command.CorrelationId, nowUtc);
+        AddOutboxMessages(
+            attempt,
+            order,
+            command.Outcome,
+            actor.MemberPublicId,
+            command.CorrelationId,
+            nowUtc);
         AddAudit(attempt, actor.AuditActor, plan, command);
 
         await _context.SaveChangesAsync(cancellationToken);
@@ -327,8 +333,10 @@ public sealed class SimulatedPaymentWriter : ISimulatedPaymentWriter
         }
     }
 
-    private void AddNotifications(
+    private void AddOutboxMessages(
         PaymentAttempt attempt,
+        Order order,
+        SimulatedPaymentOutcome outcome,
         Guid? memberPublicId,
         string correlationId,
         DateTime nowUtc)
@@ -339,6 +347,7 @@ public sealed class SimulatedPaymentWriter : ISimulatedPaymentWriter
             PaymentAttemptStatus.Paid => "payment.succeeded",
             PaymentAttemptStatus.Failed => "payment.failed",
             PaymentAttemptStatus.Expired => "payment.expired",
+            PaymentAttemptStatus.Cancelled => "payment.cancelled",
             _ => throw new InvalidOperationException("The simulated payment is not terminal."),
         };
         _outboxWriter.Add(OutboxWriteRequest.Create(
@@ -371,6 +380,18 @@ public sealed class SimulatedPaymentWriter : ISimulatedPaymentWriter
                     attempt.PublicId,
                     "zh-TW",
                     1),
+                nowUtc,
+                nowUtc,
+                correlationId));
+        }
+
+        if (outcome == SimulatedPaymentOutcome.Succeeded)
+        {
+            _outboxWriter.Add(OutboxWriteRequest.Create(
+                Guid.CreateVersion7(),
+                AuditResourceTypes.Order,
+                order.PublicId,
+                new SimulatedInvoiceRequestedV1(order.PublicId),
                 nowUtc,
                 nowUtc,
                 correlationId));
@@ -416,6 +437,7 @@ public sealed class SimulatedPaymentWriter : ISimulatedPaymentWriter
         SimulatedPaymentOutcome.Succeeded => "payment.succeeded",
         SimulatedPaymentOutcome.Failed => "payment.failed",
         SimulatedPaymentOutcome.Expired => "payment.expired",
+        SimulatedPaymentOutcome.Cancelled => "payment.cancelled",
         _ => throw new ArgumentOutOfRangeException(nameof(outcome)),
     };
 
@@ -424,6 +446,7 @@ public sealed class SimulatedPaymentWriter : ISimulatedPaymentWriter
         PaymentStatus.Paid => "payment_simulation_succeeded",
         PaymentStatus.Failed => "payment_simulation_failed",
         PaymentStatus.Expired => "payment_simulation_expired",
+        PaymentStatus.Cancelled => "payment_simulation_cancelled",
         _ => throw new ArgumentOutOfRangeException(nameof(status)),
     };
 

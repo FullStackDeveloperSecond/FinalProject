@@ -3,6 +3,7 @@ using DoSelect.Application.Outbox;
 using DoSelect.Domain.Notifications;
 using DoSelect.Domain.Outbox;
 using DoSelect.Infrastructure.Outbox;
+using DoSelect.Infrastructure.Notifications;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using DoSelect.Infrastructure.Persistence.Migrations;
@@ -21,6 +22,31 @@ using DeliveryState = DoSelect.Domain.Notifications.EmailDeliveryStatus;
 using SenderState = DoSelect.Application.Notifications.EmailDeliveryStatus;
 
 namespace DoSelect.Infrastructure.Tests.Outbox;
+
+public sealed class NotificationTemplateTests
+{
+    [Theory]
+    [InlineData("zh-TW")]
+    [InlineData("ja-JP")]
+    [InlineData("ko-KR")]
+    public void PaymentCancelled_HasLocalizedInAppContent(string locale)
+    {
+        var content = new InAppNotificationContentRenderer().Render(
+            new InAppNotificationRequestedV1(
+                Guid.CreateVersion7(),
+                Guid.CreateVersion7(),
+                "payment.cancelled",
+                "PaymentAttempt",
+                Guid.CreateVersion7(),
+                locale,
+                1));
+
+        Assert.NotNull(content);
+        Assert.Equal("payment.cancelled", content.Type);
+        Assert.False(string.IsNullOrWhiteSpace(content.Title));
+        Assert.False(string.IsNullOrWhiteSpace(content.Body));
+    }
+}
 
 public sealed class NotificationInfrastructureModelTests
 {

@@ -19403,7 +19403,8 @@
         "enum": [
           "succeeded",
           "failed",
-          "expired"
+          "expired",
+          "cancelled"
         ]
       },
       "SkuDimensionsSummary": {

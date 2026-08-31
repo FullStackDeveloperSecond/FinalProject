@@ -9293,7 +9293,7 @@ export interface components {
         /** @enum {unknown} */
         SimulatedInvoiceStatus: "pending" | "issued" | "voided" | "partiallyAllowed" | "fullyAllowed";
         /** @enum {unknown} */
-        SimulatedPaymentOutcome: "succeeded" | "failed" | "expired";
+        SimulatedPaymentOutcome: "succeeded" | "failed" | "expired" | "cancelled";
         SkuDimensionsSummary: {
             /** Format: double */
             weightKg: null | number | string;
