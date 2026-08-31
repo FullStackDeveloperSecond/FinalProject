@@ -50,65 +50,77 @@ public sealed class InvoicesController : ControllerBase
         Guid orderId,
         CancellationToken cancellationToken)
     {
-        var resolution = await ResolveViewerAsync(orderId, cancellationToken);
-        if (resolution.Viewer is null)
-        {
-            // 完全沒有身分 → 401；有身分但這張訂單不是他的 → 404。
-            return resolution.HadAuthenticatedCookie ? NotFoundProblem() : Unauthorized();
-        }
-
-        var invoice = await _invoices.FindForOrderAsync(
-            resolution.Viewer, orderId, cancellationToken);
-
-        return invoice is null ? NotFoundProblem() : Ok(invoice);
-    }
-
-    private async Task<ViewerResolution> ResolveViewerAsync(
-        Guid orderPublicId, CancellationToken cancellationToken)
-    {
         var member = await HttpContext.AuthenticateAsync(DoSelectAuthenticationSchemes.Member);
-        if (member.Succeeded &&
+        var hadMember = member.Succeeded &&
             member.Principal?.HasClaim(
-                DoSelectClaimTypes.AccountType, DoSelectClaimValues.Member) == true)
+                DoSelectClaimTypes.AccountType, DoSelectClaimValues.Member) == true;
+
+        if (hadMember)
         {
-            var memberUserId = member.Principal.FindFirstValue(ClaimTypes.NameIdentifier);
+            var memberUserId = member.Principal!.FindFirstValue(ClaimTypes.NameIdentifier);
             if (string.IsNullOrWhiteSpace(memberUserId))
             {
                 throw new InvalidOperationException(
                     "Authenticated member request is missing its identifier claim.");
             }
 
-            // 擁有者比對在 Application 層做，這裡只解析身分。
-            return new ViewerResolution(new InvoiceViewer.Member(memberUserId), true);
+            var memberResult = await _invoices.FindForOrderAsync(
+                new InvoiceViewer.Member(memberUserId), orderId, cancellationToken);
+            switch (memberResult)
+            {
+                case InvoiceForOrderResult.Found found:
+                    return Ok(found.Invoice);
+                case InvoiceForOrderResult.NotFound:
+                    return NotFoundProblem();
+                case InvoiceForOrderResult.MemberAccessDenied:
+                    // 同一個瀏覽器可以同時有 Member 與 Guest cookie。會員不是擁有者時，
+                    // 仍要讓有效的 Guest token 證明它對這張訪客訂單有權限。
+                    break;
+            }
         }
 
         var guest = await HttpContext.AuthenticateAsync(
             DoSelectAuthenticationSchemes.GuestOrderAccess);
         if (!guest.Succeeded || guest.Principal is null)
         {
-            return new ViewerResolution(Viewer: null, HadAuthenticatedCookie: false);
+            return hadMember ? NotFoundProblem() : UnauthorizedProblem();
         }
 
         var authorization = await _guestAuthorizer.AuthorizeAsync(
             guest.Principal,
-            orderPublicId,
+            orderId,
             new GuestOrderAccessAuthorizationAuditContext(
                 CorrelationIdMiddleware.GetCorrelationId(HttpContext),
                 Activity.Current?.TraceId.ToString() ?? ActivityTraceId.CreateRandom().ToString(),
                 HttpContext.Connection.RemoteIpAddress),
             cancellationToken);
 
-        return authorization is GuestOrderAccessAuthorizationResult.Success
-            ? new ViewerResolution(new InvoiceViewer.Guest(), true)
-            : new ViewerResolution(Viewer: null, HadAuthenticatedCookie: true);
+        if (authorization is GuestOrderAccessAuthorizationResult.Failure failure)
+        {
+            return failure.ErrorCode == GuestOrderErrorCodes.AccessExpired
+                ? UnauthorizedProblem(GuestOrderErrorCodes.AccessExpired)
+                : NotFoundProblem(GuestOrderErrorCodes.ScopeMismatch);
+        }
+
+        var guestResult = await _invoices.FindForOrderAsync(
+            new InvoiceViewer.Guest(), orderId, cancellationToken);
+        return guestResult is InvoiceForOrderResult.Found guestFound
+            ? Ok(guestFound.Invoice)
+            : NotFoundProblem();
     }
 
-    private ActionResult NotFoundProblem() =>
+    private ActionResult NotFoundProblem(
+        string code = InvoiceErrorCodes.ResourceNotFound) =>
         NotFound(ApiProblemDetailsFactory.Create(
             HttpContext,
             StatusCodes.Status404NotFound,
-            InvoiceErrorCodes.ResourceNotFound,
+            code,
             detail: "The referenced invoice was not found."));
 
-    private sealed record ViewerResolution(InvoiceViewer? Viewer, bool HadAuthenticatedCookie);
+    private ActionResult UnauthorizedProblem(
+        string code = ApiErrorCodes.AuthenticationRequired) =>
+        Unauthorized(ApiProblemDetailsFactory.Create(
+            HttpContext,
+            StatusCodes.Status401Unauthorized,
+            code));
 }

@@ -1,6 +1,7 @@
 using DoSelect.Application.Common;
 using DoSelect.Application.Invoicing;
 using DoSelect.Application.Orders;
+using DoSelect.Application.Refunds;
 using DoSelect.Domain.Invoicing;
 
 namespace DoSelect.Application.Tests;
@@ -22,10 +23,11 @@ public sealed class InvoiceQueryServiceTests
     {
         var service = CreateService();
 
-        var invoice = await service.FindForOrderAsync(
+        var result = await service.FindForOrderAsync(
             new InvoiceViewer.Member("member-1"), OrderPublicId);
+        var invoice = Assert.IsType<InvoiceForOrderResult.Found>(result).Invoice;
 
-        Assert.Equal(InvoicePublicId, invoice!.PublicId);
+        Assert.Equal(InvoicePublicId, invoice.PublicId);
         Assert.Equal(OrderPublicId, invoice.OrderPublicId);
     }
 
@@ -36,10 +38,10 @@ public sealed class InvoiceQueryServiceTests
         // 等於告訴外人這個 id 存在。
         var service = CreateService();
 
-        var invoice = await service.FindForOrderAsync(
+        var result = await service.FindForOrderAsync(
             new InvoiceViewer.Member("someone-else"), OrderPublicId);
 
-        Assert.Null(invoice);
+        Assert.IsType<InvoiceForOrderResult.MemberAccessDenied>(result);
     }
 
     [Fact]
@@ -49,9 +51,9 @@ public sealed class InvoiceQueryServiceTests
         // 這裡不再比一次 —— 那會變成第二份平行的驗證邏輯。
         var service = CreateService(memberUserId: null, guestEmail: "guest@example.test");
 
-        var invoice = await service.FindForOrderAsync(new InvoiceViewer.Guest(), OrderPublicId);
+        var result = await service.FindForOrderAsync(new InvoiceViewer.Guest(), OrderPublicId);
 
-        Assert.NotNull(invoice);
+        Assert.IsType<InvoiceForOrderResult.Found>(result);
     }
 
     [Fact]
@@ -59,7 +61,7 @@ public sealed class InvoiceQueryServiceTests
     {
         var service = CreateService(withoutInvoice: true);
 
-        Assert.Null(await service.FindForOrderAsync(
+        Assert.IsType<InvoiceForOrderResult.NotFound>(await service.FindForOrderAsync(
             new InvoiceViewer.Member("member-1"), OrderPublicId));
     }
 
@@ -70,10 +72,11 @@ public sealed class InvoiceQueryServiceTests
         var service = CreateService(
             invoice: Row(buyerEmail: "buyer@example.test", companyTaxId: "12345678"));
 
-        var invoice = await service.FindForOrderAsync(
+        var result = await service.FindForOrderAsync(
             new InvoiceViewer.Member("member-1"), OrderPublicId);
+        var invoice = Assert.IsType<InvoiceForOrderResult.Found>(result).Invoice;
 
-        Assert.Equal("b****@example.test", invoice!.BuyerEmailMasked);
+        Assert.Equal("b****@example.test", invoice.BuyerEmailMasked);
         Assert.Equal("*****678", invoice.CompanyTaxIdMasked);
     }
 
@@ -84,10 +87,52 @@ public sealed class InvoiceQueryServiceTests
         // 「看起來不像 Email 所以應該不是個資」不是一個安全的推論。
         var service = CreateService(invoice: Row(buyerEmail: "not-an-email"));
 
-        var invoice = await service.FindForOrderAsync(
+        var result = await service.FindForOrderAsync(
             new InvoiceViewer.Member("member-1"), OrderPublicId);
+        var invoice = Assert.IsType<InvoiceForOrderResult.Found>(result).Invoice;
 
-        Assert.Equal("************", invoice!.BuyerEmailMasked);
+        Assert.Equal("************", invoice.BuyerEmailMasked);
+    }
+
+    [Fact]
+    public async Task FindForOrderAsync_MapsMerchandiseAndAllowanceReferencesToPublicIds()
+    {
+        var orderItemPublicId = Guid.NewGuid();
+        var refundPublicId = Guid.NewGuid();
+        var invoiceItemPublicId = Guid.NewGuid();
+        var service = new InvoiceQueryService(
+            new FakeInvoiceQueryReader(
+                Row(
+                    items:
+                    [
+                        new InvoiceItemRow(
+                            31L, 41L, invoiceItemPublicId, InvoiceLineKind.Merchandise,
+                            "商品", "SKU-1", 1, 1000m, 0m, 952m, 48m, 1000m),
+                    ],
+                    allowances:
+                    [
+                        new InvoiceAllowanceRow(
+                            51L, Guid.NewGuid(), "DEMO-ALLOW-1", 95m, 5m, 100m,
+                            [new InvoiceAllowanceItemRow(Guid.NewGuid(), 31L, 1, 95m, 5m, 100m)],
+                            new DateTime(2026, 8, 30, 1, 0, 0, DateTimeKind.Utc)),
+                    ]),
+                []),
+            new FakeOrderReferenceReader(
+                [Reference(7L, "SO-0001")],
+                new Dictionary<long, Guid> { [41L] = orderItemPublicId }),
+            new FakeRefundReferenceReader(
+                new Dictionary<long, Guid> { [51L] = refundPublicId }));
+
+        var result = await service.FindForOrderAsync(
+            new InvoiceViewer.Member("member-1"), OrderPublicId);
+        var invoice = Assert.IsType<InvoiceForOrderResult.Found>(result).Invoice;
+
+        Assert.Equal(orderItemPublicId, Assert.Single(invoice.Items).OrderItemPublicId);
+        var allowance = Assert.Single(invoice.Allowances);
+        Assert.Equal(refundPublicId, allowance.RefundPublicId);
+        Assert.Equal(InvoicePublicId, allowance.InvoicePublicId);
+        Assert.Equal(InvoiceAllowanceWriteConstants.DemoMarker, allowance.DemoMarker);
+        Assert.Equal(InvoiceLineKind.Merchandise, Assert.Single(allowance.Items).Kind);
     }
 
     [Fact]
@@ -114,15 +159,17 @@ public sealed class InvoiceQueryServiceTests
     }
 
     [Fact]
-    public async Task FindAsync_TreatsAnInvoiceWithNoOrderAsNotFound()
+    public async Task FindAsync_ThrowsWhenAnInvoiceHasNoOrderProjection()
     {
         // OrderId 是外鍵，訂單不見代表資料不一致。回一張沒有訂單的發票，
         // 呼叫端會拿到一份殘缺的內容而不自知。
         var service = new InvoiceQueryService(
             new FakeInvoiceQueryReader(Row(), []),
-            new FakeOrderReferenceReader(orders: []));
+            new FakeOrderReferenceReader(orders: []),
+            new FakeRefundReferenceReader());
 
-        Assert.Null(await service.FindAsync(InvoicePublicId));
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.FindAsync(InvoicePublicId));
     }
 
     [Fact]
@@ -141,7 +188,8 @@ public sealed class InvoiceQueryServiceTests
             Reference(2L, "SO-0002"),
             Reference(3L, "SO-0003"),
         ]);
-        var service = new InvoiceQueryService(new FakeInvoiceQueryReader(null, rows), orders);
+        var service = new InvoiceQueryService(
+            new FakeInvoiceQueryReader(null, rows), orders, new FakeRefundReferenceReader());
 
         var page = await service.ListAsync(new AdminInvoiceQuery(null, null, null, null, 1, 20));
 
@@ -154,18 +202,16 @@ public sealed class InvoiceQueryServiceTests
     }
 
     [Fact]
-    public async Task ListAsync_DoesNotInventAnOrderForARowItCannotResolve()
+    public async Task ListAsync_ThrowsWhenAnOrderProjectionIsMissing()
     {
         var rows = new[] { Row(orderId: 9L) };
         var service = new InvoiceQueryService(
             new FakeInvoiceQueryReader(null, rows),
-            new FakeOrderReferenceReader(orders: []));
+            new FakeOrderReferenceReader(orders: []),
+            new FakeRefundReferenceReader());
 
-        var page = await service.ListAsync(new AdminInvoiceQuery(null, null, null, null, 1, 20));
-
-        var item = Assert.Single(page.Items);
-        Assert.Equal(Guid.Empty, item.OrderPublicId);
-        Assert.Equal(string.Empty, item.OrderNumber);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ListAsync(
+            new AdminInvoiceQuery(null, null, null, null, 1, 20)));
     }
 
     /// <remarks>
@@ -180,7 +226,8 @@ public sealed class InvoiceQueryServiceTests
         bool withoutInvoice = false) =>
         new(
             new FakeInvoiceQueryReader(withoutInvoice ? null : invoice ?? Row(), []),
-            new FakeOrderReferenceReader([Reference(7L, "SO-0001", memberUserId, guestEmail)]));
+            new FakeOrderReferenceReader([Reference(7L, "SO-0001", memberUserId, guestEmail)]),
+            new FakeRefundReferenceReader());
 
     private static OrderInvoiceReference Reference(
         long orderId,
@@ -197,7 +244,9 @@ public sealed class InvoiceQueryServiceTests
         Guid? publicId = null,
         SimulatedInvoiceStatus status = SimulatedInvoiceStatus.Issued,
         string? buyerEmail = "buyer@example.test",
-        string? companyTaxId = null) =>
+        string? companyTaxId = null,
+        IReadOnlyList<InvoiceItemRow>? items = null,
+        IReadOnlyList<InvoiceAllowanceRow>? allowances = null) =>
         new(
             orderId,
             publicId ?? InvoicePublicId,
@@ -216,8 +265,8 @@ public sealed class InvoiceQueryServiceTests
             null,
             SimulatedInvoice.RequiredDemoMarker,
             [1, 2, 3],
-            [],
-            []);
+            items ?? [],
+            allowances ?? []);
 
     private sealed class FakeInvoiceQueryReader : IInvoiceQueryReader
     {
@@ -244,8 +293,15 @@ public sealed class InvoiceQueryServiceTests
     private sealed class FakeOrderReferenceReader : IOrderInvoiceReferenceReader
     {
         private readonly IReadOnlyList<OrderInvoiceReference> _orders;
+        private readonly IReadOnlyDictionary<long, Guid> _itemPublicIds;
 
-        public FakeOrderReferenceReader(IReadOnlyList<OrderInvoiceReference> orders) => _orders = orders;
+        public FakeOrderReferenceReader(
+            IReadOnlyList<OrderInvoiceReference> orders,
+            IReadOnlyDictionary<long, Guid>? itemPublicIds = null)
+        {
+            _orders = orders;
+            _itemPublicIds = itemPublicIds ?? new Dictionary<long, Guid>();
+        }
 
         public int FindManyCalls { get; private set; }
 
@@ -265,5 +321,28 @@ public sealed class InvoiceQueryServiceTests
                 _orders.Where(order => orderIds.Contains(order.OrderId))
                     .ToDictionary(order => order.OrderId));
         }
+
+        public Task<IReadOnlyDictionary<long, Guid>> FindItemPublicIdsAsync(
+            IReadOnlyCollection<long> orderItemIds,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyDictionary<long, Guid>>(
+                _itemPublicIds.Where(pair => orderItemIds.Contains(pair.Key))
+                    .ToDictionary());
+    }
+
+    private sealed class FakeRefundReferenceReader : IRefundInvoiceReferenceReader
+    {
+        private readonly IReadOnlyDictionary<long, Guid> _refundPublicIds;
+
+        public FakeRefundReferenceReader(
+            IReadOnlyDictionary<long, Guid>? refundPublicIds = null) =>
+            _refundPublicIds = refundPublicIds ?? new Dictionary<long, Guid>();
+
+        public Task<IReadOnlyDictionary<long, Guid>> FindManyAsync(
+            IReadOnlyCollection<long> refundIds,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyDictionary<long, Guid>>(
+                _refundPublicIds.Where(pair => refundIds.Contains(pair.Key))
+                    .ToDictionary());
     }
 }

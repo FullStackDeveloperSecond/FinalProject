@@ -217,18 +217,15 @@ public sealed class InvoiceQueryReader : IInvoiceQueryReader
                 })
                 .ToArrayAsync(cancellationToken);
 
-        // 折讓明細指向的是發票明細的內部 Id，對外要換成 PublicId。
-        var itemPublicIds = items.ToDictionary(item => item.Id, item => item.PublicId);
-
         var itemsByInvoice = items
             .GroupBy(item => item.SimulatedInvoiceId)
             .ToDictionary(
                 group => group.Key,
-                group => (IReadOnlyList<SimulatedInvoiceItemDto>)[.. group.Select(item =>
-                    new SimulatedInvoiceItemDto(
+                group => (IReadOnlyList<InvoiceItemRow>)[.. group.Select(item =>
+                    new InvoiceItemRow(
+                        item.Id,
+                        item.OrderItemId,
                         item.PublicId,
-                        // 非商品列（運費、組裝費）沒有對應的訂單品項。
-                        null,
                         InvoiceLineSkuCodes.IsReserved(item.SkuCodeSnapshot)
                             ? item.SkuCodeSnapshot == InvoiceLineSkuCodes.Shipping
                                 ? InvoiceLineKind.Shipping
@@ -251,17 +248,18 @@ public sealed class InvoiceQueryReader : IInvoiceQueryReader
             .GroupBy(allowance => allowance.SimulatedInvoiceId)
             .ToDictionary(
                 group => group.Key,
-                group => (IReadOnlyList<InvoiceAllowanceSummaryDto>)[.. group.Select(allowance =>
-                    new InvoiceAllowanceSummaryDto(
+                group => (IReadOnlyList<InvoiceAllowanceRow>)[.. group.Select(allowance =>
+                    new InvoiceAllowanceRow(
+                        allowance.RefundId,
                         allowance.PublicId,
                         allowance.AllowanceNumber,
                         allowance.NetAmount,
                         allowance.TaxAmount,
                         allowance.Amount,
                         [.. (allowanceItemsByAllowance.GetValueOrDefault(allowance.Id) ?? [])
-                            .Select(item => new InvoiceAllowanceItemSummaryDto(
+                            .Select(item => new InvoiceAllowanceItemRow(
                                 item.PublicId,
-                                itemPublicIds.GetValueOrDefault(item.SimulatedInvoiceItemId),
+                                item.SimulatedInvoiceItemId,
                                 item.Quantity,
                                 item.NetAmount,
                                 item.TaxAmount,

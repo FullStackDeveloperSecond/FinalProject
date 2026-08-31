@@ -7950,34 +7950,6 @@ export interface components {
             /** Format: double */
             returnShippingCost?: null | number | string;
         };
-        InvoiceAllowanceItemSummaryDto: {
-            /** Format: uuid */
-            publicId: string;
-            /** Format: uuid */
-            invoiceItemPublicId: string;
-            /** Format: int32 */
-            quantity: number | string;
-            /** Format: double */
-            netAmount: number | string;
-            /** Format: double */
-            taxAmount: number | string;
-            /** Format: double */
-            grossAmount: number | string;
-        };
-        InvoiceAllowanceSummaryDto: {
-            /** Format: uuid */
-            publicId: string;
-            allowanceNumber: string;
-            /** Format: double */
-            netAmount: number | string;
-            /** Format: double */
-            taxAmount: number | string;
-            /** Format: double */
-            grossAmount: number | string;
-            items: components["schemas"]["InvoiceAllowanceItemSummaryDto"][];
-            /** Format: date-time */
-            issuedAtUtc: string;
-        };
         /** @enum {unknown} */
         InvoiceLineKind: "merchandise" | "shipping" | "assemblyFee";
         LoginRequest: {
@@ -8818,7 +8790,7 @@ export interface components {
             /** Format: double */
             taxRate: number | string;
             items: components["schemas"]["SimulatedInvoiceItemDto"][];
-            allowances: components["schemas"]["InvoiceAllowanceSummaryDto"][];
+            allowances: components["schemas"]["SimulatedInvoiceAllowanceDto"][];
             /** Format: date-time */
             issuedAtUtc: null | string;
             /** Format: date-time */

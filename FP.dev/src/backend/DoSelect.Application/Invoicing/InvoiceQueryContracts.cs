@@ -31,32 +31,6 @@ public sealed record SimulatedInvoiceItemDto(
     decimal GrossAmount);
 
 /// <summary>
-/// 發票上一筆折讓的讀取摘要。
-/// </summary>
-/// <remarks>
-/// <b>刻意不含 <c>RefundPublicId</c>。</b>建立折讓時的回應（
-/// <c>SimulatedInvoiceAllowanceDto</c>）有那個欄位，因為寫入端手上就有退款；
-/// 但查詢端要補它就得讀 <c>Refunds</c> —— 那是另一個模組，而發票查詢的契約
-/// 並沒有要求這個欄位。為了一個沒人要的欄位開一條跨模組相依不划算。
-/// </remarks>
-public sealed record InvoiceAllowanceSummaryDto(
-    Guid PublicId,
-    string AllowanceNumber,
-    decimal NetAmount,
-    decimal TaxAmount,
-    decimal GrossAmount,
-    IReadOnlyList<InvoiceAllowanceItemSummaryDto> Items,
-    DateTime IssuedAtUtc);
-
-public sealed record InvoiceAllowanceItemSummaryDto(
-    Guid PublicId,
-    Guid InvoiceItemPublicId,
-    int Quantity,
-    decimal NetAmount,
-    decimal TaxAmount,
-    decimal GrossAmount);
-
-/// <summary>
 /// 前台看得到的模擬發票。
 /// </summary>
 /// <remarks>
@@ -79,7 +53,7 @@ public sealed record SimulatedInvoiceDto(
     string Currency,
     decimal TaxRate,
     IReadOnlyList<SimulatedInvoiceItemDto> Items,
-    IReadOnlyList<InvoiceAllowanceSummaryDto> Allowances,
+    IReadOnlyList<SimulatedInvoiceAllowanceDto> Allowances,
     DateTime? IssuedAtUtc,
     DateTime? VoidedAtUtc,
     string DemoMarker,
@@ -147,8 +121,41 @@ public sealed record InvoiceRow(
     DateTime? VoidedAtUtc,
     string DemoMarker,
     byte[] RowVersion,
-    IReadOnlyList<SimulatedInvoiceItemDto> Items,
-    IReadOnlyList<InvoiceAllowanceSummaryDto> Allowances);
+    IReadOnlyList<InvoiceItemRow> Items,
+    IReadOnlyList<InvoiceAllowanceRow> Allowances);
+
+/// <summary>Invoicing 內部發票明細列；內部識別不會出現在 API DTO。</summary>
+public sealed record InvoiceItemRow(
+    long Id,
+    long? OrderItemId,
+    Guid PublicId,
+    InvoiceLineKind Kind,
+    string ProductName,
+    string SkuCode,
+    int Quantity,
+    decimal UnitPrice,
+    decimal DiscountAmount,
+    decimal NetAmount,
+    decimal TaxAmount,
+    decimal GrossAmount);
+
+public sealed record InvoiceAllowanceItemRow(
+    Guid PublicId,
+    long SimulatedInvoiceItemId,
+    int Quantity,
+    decimal NetAmount,
+    decimal TaxAmount,
+    decimal GrossAmount);
+
+public sealed record InvoiceAllowanceRow(
+    long RefundId,
+    Guid PublicId,
+    string AllowanceNumber,
+    decimal NetAmount,
+    decimal TaxAmount,
+    decimal GrossAmount,
+    IReadOnlyList<InvoiceAllowanceItemRow> Items,
+    DateTime IssuedAtUtc);
 
 /// <summary>
 /// 發票讀取埠。實作只讀 Invoicing 自己的表。
@@ -186,6 +193,15 @@ public abstract record InvoiceViewer
     public sealed record Member(string MemberUserId) : InvoiceViewer;
 
     public sealed record Guest : InvoiceViewer;
+}
+
+public abstract record InvoiceForOrderResult
+{
+    public sealed record Found(SimulatedInvoiceDto Invoice) : InvoiceForOrderResult;
+
+    public sealed record NotFound : InvoiceForOrderResult;
+
+    public sealed record MemberAccessDenied : InvoiceForOrderResult;
 }
 
 /// <summary>發票可執行的動作名稱。</summary>

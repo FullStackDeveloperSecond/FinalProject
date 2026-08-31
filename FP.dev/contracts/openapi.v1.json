@@ -14553,114 +14553,6 @@
           }
         }
       },
-      "InvoiceAllowanceItemSummaryDto": {
-        "required": [
-          "publicId",
-          "invoiceItemPublicId",
-          "quantity",
-          "netAmount",
-          "taxAmount",
-          "grossAmount"
-        ],
-        "type": "object",
-        "properties": {
-          "publicId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "invoiceItemPublicId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "quantity": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "netAmount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
-            "type": [
-              "number",
-              "string"
-            ],
-            "format": "double"
-          },
-          "taxAmount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
-            "type": [
-              "number",
-              "string"
-            ],
-            "format": "double"
-          },
-          "grossAmount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
-            "type": [
-              "number",
-              "string"
-            ],
-            "format": "double"
-          }
-        }
-      },
-      "InvoiceAllowanceSummaryDto": {
-        "required": [
-          "publicId",
-          "allowanceNumber",
-          "netAmount",
-          "taxAmount",
-          "grossAmount",
-          "items",
-          "issuedAtUtc"
-        ],
-        "type": "object",
-        "properties": {
-          "publicId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "allowanceNumber": {
-            "type": "string"
-          },
-          "netAmount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
-            "type": [
-              "number",
-              "string"
-            ],
-            "format": "double"
-          },
-          "taxAmount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
-            "type": [
-              "number",
-              "string"
-            ],
-            "format": "double"
-          },
-          "grossAmount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
-            "type": [
-              "number",
-              "string"
-            ],
-            "format": "double"
-          },
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/InvoiceAllowanceItemSummaryDto"
-            }
-          },
-          "issuedAtUtc": {
-            "type": "string",
-            "format": "date-time"
-          }
-        }
-      },
       "InvoiceLineKind": {
         "enum": [
           "merchandise",
@@ -18188,7 +18080,7 @@
           "allowances": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/InvoiceAllowanceSummaryDto"
+              "$ref": "#/components/schemas/SimulatedInvoiceAllowanceDto"
             }
           },
           "issuedAtUtc": {

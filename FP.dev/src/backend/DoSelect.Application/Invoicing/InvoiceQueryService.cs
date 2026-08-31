@@ -1,5 +1,6 @@
 using DoSelect.Application.Common;
 using DoSelect.Application.Orders;
+using DoSelect.Application.Refunds;
 using DoSelect.Domain.Invoicing;
 
 namespace DoSelect.Application.Invoicing;
@@ -20,14 +21,20 @@ public sealed class InvoiceQueryService
 {
     private readonly IInvoiceQueryReader _invoices;
     private readonly IOrderInvoiceReferenceReader _orders;
+    private readonly IRefundInvoiceReferenceReader _refunds;
 
-    public InvoiceQueryService(IInvoiceQueryReader invoices, IOrderInvoiceReferenceReader orders)
+    public InvoiceQueryService(
+        IInvoiceQueryReader invoices,
+        IOrderInvoiceReferenceReader orders,
+        IRefundInvoiceReferenceReader refunds)
     {
         ArgumentNullException.ThrowIfNull(invoices);
         ArgumentNullException.ThrowIfNull(orders);
+        ArgumentNullException.ThrowIfNull(refunds);
 
         _invoices = invoices;
         _orders = orders;
+        _refunds = refunds;
     }
 
     /// <summary>
@@ -37,7 +44,7 @@ public sealed class InvoiceQueryService
     /// 會員的擁有者比對在<b>這裡</b>做，所以不必啟動 HTTP 就測得到；
     /// 訪客的 Scope 由呼叫端先用 <c>GuestOrderAccessScopeAuthorizer</c> 驗過才進來。
     /// </remarks>
-    public async Task<SimulatedInvoiceDto?> FindForOrderAsync(
+    public async Task<InvoiceForOrderResult> FindForOrderAsync(
         InvoiceViewer viewer,
         Guid orderPublicId,
         CancellationToken cancellationToken = default)
@@ -47,19 +54,22 @@ public sealed class InvoiceQueryService
         var order = await _orders.FindAsync(orderPublicId, cancellationToken);
         if (order is null)
         {
-            return null;
+            return new InvoiceForOrderResult.NotFound();
         }
 
-        // 會員必須是這張訂單的擁有者。回 null（呼叫端折成 404）而不是 403 ——
-        // 區分「不存在」與「不是你的」等於告訴外人這個 id 存在。
+        // 會員必須是這張訂單的擁有者。結果只讓呼叫端決定是否繼續檢查同一瀏覽器
+        // 的 Guest cookie；若 Guest 也不能證明權限，對外仍折成 404 而不是 403。
         if (viewer is InvoiceViewer.Member member &&
             !string.Equals(order.MemberUserId, member.MemberUserId, StringComparison.Ordinal))
         {
-            return null;
+            return new InvoiceForOrderResult.MemberAccessDenied();
         }
 
         var invoice = await _invoices.FindByOrderAsync(order.OrderId, cancellationToken);
-        return invoice is null ? null : ToDto(invoice, order.OrderPublicId);
+        return invoice is null
+            ? new InvoiceForOrderResult.NotFound()
+            : new InvoiceForOrderResult.Found(
+                await ToDtoAsync(invoice, order.OrderPublicId, cancellationToken));
     }
 
     /// <summary>後台：一張發票的完整內容。</summary>
@@ -76,13 +86,12 @@ public sealed class InvoiceQueryService
         var orders = await _orders.FindManyAsync([invoice.OrderId], cancellationToken);
         if (!orders.TryGetValue(invoice.OrderId, out var order))
         {
-            // 發票的 OrderId 是外鍵，訂單不見代表資料不一致 —— 與其回一張沒有訂單的發票，
-            // 不如當成找不到，讓呼叫端回 404 而不是一份殘缺的內容。
-            return null;
+            throw new InvalidOperationException(
+                $"Invoice '{invoice.PublicId}' references missing order '{invoice.OrderId}'.");
         }
 
         return new AdminInvoiceDto(
-            ToDto(invoice, order.OrderPublicId),
+            await ToDtoAsync(invoice, order.OrderPublicId, cancellationToken),
             order.OrderNumber,
             InvoiceActions.For(invoice.Status));
     }
@@ -101,17 +110,25 @@ public sealed class InvoiceQueryService
             [.. page.Items.Select(row => row.OrderId).Distinct()],
             cancellationToken);
 
+        var missingOrderIds = page.Items.Select(row => row.OrderId)
+            .Distinct()
+            .Where(orderId => !orders.ContainsKey(orderId))
+            .ToArray();
+        if (missingOrderIds.Length > 0)
+        {
+            throw new InvalidOperationException(
+                $"Invoice rows reference missing orders: {string.Join(", ", missingOrderIds)}.");
+        }
+
         var items = page.Items
             .Select(row =>
             {
-                // 訂單查不到時不編一個假的 PublicId：留空並讓介面看得出來，
-                // 比顯示一個不存在的訂單好。
-                var order = orders.GetValueOrDefault(row.OrderId);
+                var order = orders[row.OrderId];
                 return new AdminInvoiceSummaryDto(
                     row.PublicId,
                     row.InvoiceNumber,
-                    order?.OrderPublicId ?? Guid.Empty,
-                    order?.OrderNumber ?? string.Empty,
+                    order.OrderPublicId,
+                    order.OrderNumber,
                     row.Status,
                     row.NetAmount,
                     row.TaxAmount,
@@ -126,8 +143,99 @@ public sealed class InvoiceQueryService
             items, page.PageNumber, page.PageSize, page.TotalCount);
     }
 
-    private static SimulatedInvoiceDto ToDto(InvoiceRow row, Guid orderPublicId) =>
-        new(
+    private async Task<SimulatedInvoiceDto> ToDtoAsync(
+        InvoiceRow row,
+        Guid orderPublicId,
+        CancellationToken cancellationToken)
+    {
+        var orderItemIds = row.Items
+            .Where(item => item.OrderItemId.HasValue)
+            .Select(item => item.OrderItemId!.Value)
+            .Distinct()
+            .ToArray();
+        var refundIds = row.Allowances.Select(allowance => allowance.RefundId)
+            .Distinct()
+            .ToArray();
+
+        var orderItemPublicIds = await _orders.FindItemPublicIdsAsync(
+            orderItemIds, cancellationToken);
+        var refundPublicIds = await _refunds.FindManyAsync(refundIds, cancellationToken);
+
+        var itemsById = row.Items.ToDictionary(item => item.Id);
+        var items = row.Items.Select(item =>
+        {
+            Guid? orderItemPublicId = null;
+            if (item.Kind == InvoiceLineKind.Merchandise)
+            {
+                if (item.OrderItemId is not { } orderItemId ||
+                    !orderItemPublicIds.TryGetValue(orderItemId, out var publicId))
+                {
+                    throw new InvalidOperationException(
+                        $"Merchandise invoice item '{item.PublicId}' has no order item projection.");
+                }
+
+                orderItemPublicId = publicId;
+            }
+            else if (item.OrderItemId.HasValue)
+            {
+                throw new InvalidOperationException(
+                    $"Non-merchandise invoice item '{item.PublicId}' references an order item.");
+            }
+
+            return new SimulatedInvoiceItemDto(
+                item.PublicId,
+                orderItemPublicId,
+                item.Kind,
+                item.ProductName,
+                item.SkuCode,
+                item.Quantity,
+                item.UnitPrice,
+                item.DiscountAmount,
+                item.NetAmount,
+                item.TaxAmount,
+                item.GrossAmount);
+        }).ToArray();
+
+        var allowances = row.Allowances.Select(allowance =>
+        {
+            if (!refundPublicIds.TryGetValue(allowance.RefundId, out var refundPublicId))
+            {
+                throw new InvalidOperationException(
+                    $"Invoice allowance '{allowance.PublicId}' references a missing refund.");
+            }
+
+            var allowanceItems = allowance.Items.Select(item =>
+            {
+                if (!itemsById.TryGetValue(item.SimulatedInvoiceItemId, out var invoiceItem))
+                {
+                    throw new InvalidOperationException(
+                        $"Invoice allowance item '{item.PublicId}' references a missing invoice item.");
+                }
+
+                return new SimulatedInvoiceAllowanceItemDto(
+                    item.PublicId,
+                    invoiceItem.PublicId,
+                    invoiceItem.Kind,
+                    item.Quantity,
+                    item.NetAmount,
+                    item.TaxAmount,
+                    item.GrossAmount);
+            }).ToArray();
+
+            return new SimulatedInvoiceAllowanceDto(
+                allowance.PublicId,
+                allowance.AllowanceNumber,
+                row.PublicId,
+                refundPublicId,
+                allowance.NetAmount,
+                allowance.TaxAmount,
+                allowance.GrossAmount,
+                allowanceItems,
+                allowance.IssuedAtUtc,
+                InvoiceAllowanceWriteConstants.DemoMarker);
+        }).ToArray();
+
+        return new SimulatedInvoiceDto(
             row.PublicId,
             row.InvoiceNumber,
             orderPublicId,
@@ -142,12 +250,13 @@ public sealed class InvoiceQueryService
             row.GrossAmount,
             row.Currency,
             InvoiceCalculator.BusinessTaxRate,
-            row.Items,
-            row.Allowances,
+            items,
+            allowances,
             row.IssuedAtUtc,
             row.VoidedAtUtc,
             row.DemoMarker,
             row.RowVersion);
+    }
 
     /// <summary>
     /// 買受人 Email 遮蔽。
