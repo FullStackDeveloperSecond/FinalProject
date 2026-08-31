@@ -283,6 +283,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/cart/shipping-options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ShippingOptionsDto"];
+                        "application/json": components["schemas"]["ShippingOptionsDto"];
+                        "text/json": components["schemas"]["ShippingOptionsDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/security/antiforgery-token": {
         parameters: {
             query?: never;
@@ -8706,6 +8743,20 @@ export interface components {
             totals: components["schemas"]["BuildTotalsDto"];
             canCopy: boolean;
             canAddToCart: boolean;
+        };
+        ShippingMethodOptionDto: {
+            code: string;
+            nameZhTw: string;
+            kind: string;
+            /** Format: double */
+            baseFee: number | string;
+            /** Format: double */
+            freeShippingThreshold: null | number | string;
+            allowsCod: boolean;
+            requiresPrepayment: boolean;
+        };
+        ShippingOptionsDto: {
+            methods: components["schemas"]["ShippingMethodOptionDto"][];
         };
         ShippingRestrictionDto: {
             method: string;

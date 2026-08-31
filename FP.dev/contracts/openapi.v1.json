@@ -344,6 +344,35 @@
         }
       }
     },
+    "/api/v1/cart/shipping-options": {
+      "get": {
+        "tags": [
+          "ShippingOptions"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShippingOptionsDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShippingOptionsDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShippingOptionsDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/security/antiforgery-token": {
       "get": {
         "tags": [
@@ -17867,6 +17896,66 @@
           }
         }
       },
+      "ShippingMethodOptionDto": {
+        "required": [
+          "code",
+          "nameZhTw",
+          "kind",
+          "baseFee",
+          "freeShippingThreshold",
+          "allowsCod",
+          "requiresPrepayment"
+        ],
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "nameZhTw": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "baseFee": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "freeShippingThreshold": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "allowsCod": {
+            "type": "boolean"
+          },
+          "requiresPrepayment": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ShippingOptionsDto": {
+        "required": [
+          "methods"
+        ],
+        "type": "object",
+        "properties": {
+          "methods": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ShippingMethodOptionDto"
+            }
+          }
+        }
+      },
       "ShippingRestrictionDto": {
         "required": [
           "method",
@@ -19626,6 +19715,9 @@
   "tags": [
     {
       "name": "Cart"
+    },
+    {
+      "name": "ShippingOptions"
     },
     {
       "name": "Security"
