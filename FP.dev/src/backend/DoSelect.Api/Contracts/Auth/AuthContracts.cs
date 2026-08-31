@@ -179,4 +179,23 @@ public static class LocaleTokens
         SupportedLocale.KoKr => "ko-KR",
         _ => throw new ArgumentOutOfRangeException(nameof(locale)),
     };
+
+    public static bool TryFromToken(string? token, out SupportedLocale locale)
+    {
+        switch (token)
+        {
+            case "zh-TW":
+                locale = SupportedLocale.ZhTw;
+                return true;
+            case "ja-JP":
+                locale = SupportedLocale.JaJp;
+                return true;
+            case "ko-KR":
+                locale = SupportedLocale.KoKr;
+                return true;
+            default:
+                locale = default;
+                return false;
+        }
+    }
 }

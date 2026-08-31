@@ -135,6 +135,32 @@ public sealed class LoginControllerTests : IClassFixture<WebApplicationFactory<P
     }
 
     [Fact]
+    public async Task Login_AfterAnotherAccountIsLockedOut_StillSucceedsForThisAccount()
+    {
+        // Actor A/B isolation: Identity's AccessFailedCount/LockoutEnd are per-user columns, but
+        // that guarantee is worth proving at the HTTP layer — attacking account B (five wrong
+        // passwords, tripping its lockout) must leave account A's ability to log in with its own
+        // correct password completely untouched.
+        var (clientA, emailA) = await CreateClientWithActivatedMemberAsync();
+        var (clientB, emailB) = await CreateClientWithActivatedMemberAsync();
+
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            using var wrongPasswordResponse =
+                await LoginAsync(clientB, emailB, "totally-wrong-password", rememberMe: false);
+        }
+
+        using var lockedResponse = await LoginAsync(clientB, emailB, Password, rememberMe: false);
+        Assert.Equal(HttpStatusCode.Unauthorized, lockedResponse.StatusCode);
+
+        using var responseA = await LoginAsync(clientA, emailA, Password, rememberMe: false);
+        var bodyA = await responseA.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(HttpStatusCode.OK, responseA.StatusCode);
+        Assert.True(bodyA.GetProperty("isAuthenticated").GetBoolean());
+    }
+
+    [Fact]
     public async Task Login_WhenTheSameIpExceedsThePerIpBudgetWithinTheHour_ReturnsRateLimitExceededCode()
     {
         using var client = CreateIsolatedFactory().CreateClient();

@@ -19,6 +19,10 @@ public static class AuditActions
     public const string CouponPause = "coupon.pause";
     public const string CouponDisable = "coupon.disable";
     public const string OrderCancel = "order.cancel";
+    public const string OrderRecipientView = "order.recipient_view";
+    // alex PR #47 review round 2: startProcessing is a significant order-status action but
+    // previously only wrote per-dimension OrderStatusHistory rows, with no central AuditLog entry.
+    public const string OrderStartProcessing = "order.start_processing";
     public const string ProductReviewApprove = "product_review.approve";
     public const string ProductReviewReject = "product_review.reject";
     public const string ProductReviewHide = "product_review.hide";
@@ -546,10 +550,21 @@ internal static class AuditWritePolicy
                 AuditActions.CouponDisable,
                 AuditResourceTypes.Coupon,
                 "status"),
+            // alex PR #47 review round 2: cancelling an assembly order now also cancels
+            // AssemblyStatus/AssemblyJob rows (OrderCancellationResourceReleaser) — "assemblyStatus"
+            // must be an allowed field so the audit trail can say so when it actually happens.
             [AuditActions.OrderCancel] = DefinitionWithNote(
                 AuditActions.OrderCancel,
                 AuditResourceTypes.Order,
-                "orderStatus", "inventoryReservations", "couponRedemptions"),
+                "orderStatus", "inventoryReservations", "couponRedemptions", "assemblyStatus"),
+            [AuditActions.OrderRecipientView] = Definition(
+                AuditActions.OrderRecipientView,
+                AuditResourceTypes.Order,
+                "accessPurpose"),
+            [AuditActions.OrderStartProcessing] = DefinitionWithNote(
+                AuditActions.OrderStartProcessing,
+                AuditResourceTypes.Order,
+                "orderStatus", "fulfillmentStatus", "assemblyStatus"),
             [AuditActions.ProductReviewApprove] = DefinitionWithNote(
                 AuditActions.ProductReviewApprove,
                 AuditResourceTypes.ProductReview,
