@@ -84,6 +84,7 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<IMemberLoginGateway, MemberLoginGateway>();
         services.AddScoped<IMemberPasswordResetGateway, MemberPasswordResetGateway>();
         services.AddScoped<IMemberCleanupGateway, MemberCleanupGateway>();
+        services.AddScoped<IMemberProfileGateway, MemberProfileGateway>();
         services.AddScoped<MinimalDevelopmentDataSeeder>();
 
         return services;
