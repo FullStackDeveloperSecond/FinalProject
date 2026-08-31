@@ -3320,6 +3320,216 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/inventory/balances": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    Q?: string;
+                    StockState?: string;
+                    CategoryCode?: string;
+                    PageNumber?: number | string;
+                    PageSize?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["PageResultOfInventoryBalanceDto"];
+                        "application/json": components["schemas"]["PageResultOfInventoryBalanceDto"];
+                        "text/json": components["schemas"]["PageResultOfInventoryBalanceDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/inventory/movements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    SkuPublicId?: string;
+                    MovementTypes?: string[];
+                    From?: string;
+                    To?: string;
+                    PageNumber?: number | string;
+                    PageSize?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["PageResultOfInventoryMovementDto"];
+                        "application/json": components["schemas"]["PageResultOfInventoryMovementDto"];
+                        "text/json": components["schemas"]["PageResultOfInventoryMovementDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/inventory/reservations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    Cursor?: string;
+                    Status?: string;
+                    PageSize?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["CursorPageOfInventoryReservationDto"];
+                        "application/json": components["schemas"]["CursorPageOfInventoryReservationDto"];
+                        "text/json": components["schemas"]["CursorPageOfInventoryReservationDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/inventory/reconciliation-cases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    Status?: string;
+                    PageNumber?: number | string;
+                    PageSize?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["PageResultOfInventoryReconciliationCaseDto"];
+                        "application/json": components["schemas"]["PageResultOfInventoryReconciliationCaseDto"];
+                        "text/json": components["schemas"]["PageResultOfInventoryReconciliationCaseDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/inventory/reconciliation-cases/{id}/actions/acknowledge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AcknowledgeReconciliationCaseRequest"];
+                    "text/json": components["schemas"]["AcknowledgeReconciliationCaseRequest"];
+                    "application/*+json": components["schemas"]["AcknowledgeReconciliationCaseRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/support-tickets/{id}": {
         parameters: {
             query?: never;
@@ -6771,6 +6981,10 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AcknowledgeReconciliationCaseRequest: {
+            /** Format: byte */
+            rowVersion: string;
+        };
         AddBuildToCartRequest: {
             /** Format: int32 */
             quantity: number | string;
@@ -7949,6 +8163,11 @@ export interface components {
             nextCursor: null | string;
             hasMore: boolean;
         };
+        CursorPageOfInventoryReservationDto: {
+            items: components["schemas"]["InventoryReservationDto"][];
+            nextCursor: null | string;
+            hasMore: boolean;
+        };
         CursorPageOfReportRowDto: {
             items: components["schemas"]["ReportRowDto"][];
             nextCursor: null | string;
@@ -8042,6 +8261,104 @@ export interface components {
             assemblyFeeDisposition?: null | components["schemas"]["AssemblyFeeDisposition"];
             /** Format: double */
             returnShippingCost?: null | number | string;
+        };
+        InventoryActorSummaryDto: {
+            /** Format: uuid */
+            publicId: null | string;
+            email: null | string;
+        };
+        InventoryBalanceDto: {
+            /** Format: uuid */
+            skuPublicId: string;
+            skuCode: string;
+            skuNameZhTw: string;
+            /** Format: int32 */
+            onHand: number | string;
+            /** Format: int32 */
+            reserved: number | string;
+            /** Format: int32 */
+            available: number | string;
+            /** Format: int32 */
+            lowStockThreshold: number | string;
+            /** Format: byte */
+            rowVersion: string;
+        };
+        InventoryMovementDto: {
+            /** Format: uuid */
+            publicId: string;
+            sku: components["schemas"]["InventorySkuSummaryDto"];
+            movementType: string;
+            /** Format: int32 */
+            onHandDelta: number | string;
+            /** Format: int32 */
+            reservedDelta: number | string;
+            /** Format: int32 */
+            beforeOnHand: number | string;
+            /** Format: int32 */
+            afterOnHand: number | string;
+            /** Format: int32 */
+            beforeReserved: number | string;
+            /** Format: int32 */
+            afterReserved: number | string;
+            reasonCode: string;
+            actor: null | components["schemas"]["InventoryActorSummaryDto"];
+            referenceType: string;
+            /** Format: uuid */
+            referencePublicId: null | string;
+            /** Format: date-time */
+            occurredAtUtc: string;
+        };
+        InventoryOrderSummaryDto: {
+            /** Format: uuid */
+            publicId: string;
+            orderNumber: string;
+        };
+        InventoryReconciliationCaseDto: {
+            /** Format: uuid */
+            publicId: string;
+            sku: components["schemas"]["InventorySkuSummaryDto"];
+            status: string;
+            /** Format: int32 */
+            expectedOnHand: number | string;
+            /** Format: int32 */
+            actualOnHand: number | string;
+            /** Format: int32 */
+            expectedReserved: number | string;
+            /** Format: int32 */
+            actualReserved: number | string;
+            /** Format: date-time */
+            detectedAtUtc: string;
+            acknowledgedBy: null | components["schemas"]["InventoryActorSummaryDto"];
+            resolvedBy: null | components["schemas"]["InventoryActorSummaryDto"];
+            /** Format: uuid */
+            resolutionMovementPublicId: null | string;
+            resolutionReason: null | string;
+            /** Format: date-time */
+            resolvedAtUtc: null | string;
+            /** Format: byte */
+            rowVersion: string;
+        };
+        InventoryReservationDto: {
+            /** Format: uuid */
+            publicId: string;
+            order: components["schemas"]["InventoryOrderSummaryDto"];
+            sku: components["schemas"]["InventorySkuSummaryDto"];
+            /** Format: int32 */
+            quantity: number | string;
+            status: string;
+            /** Format: date-time */
+            expiresAtUtc: null | string;
+            /** Format: date-time */
+            createdAtUtc: string;
+            availableActions: string[];
+            /** Format: byte */
+            rowVersion: string;
+        };
+        InventorySkuSummaryDto: {
+            /** Format: uuid */
+            publicId: string;
+            skuCode: string;
+            nameZhTw: string;
         };
         /** @enum {unknown} */
         InvoiceLineKind: "merchandise" | "shipping" | "assemblyFee";
@@ -8301,6 +8618,39 @@ export interface components {
         };
         PageResultOfCouponDto: {
             items: components["schemas"]["CouponDto"][];
+            /** Format: int32 */
+            pageNumber: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+            /** Format: int32 */
+            totalCount: number | string;
+            /** Format: int32 */
+            totalPages?: number | string;
+        };
+        PageResultOfInventoryBalanceDto: {
+            items: components["schemas"]["InventoryBalanceDto"][];
+            /** Format: int32 */
+            pageNumber: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+            /** Format: int32 */
+            totalCount: number | string;
+            /** Format: int32 */
+            totalPages?: number | string;
+        };
+        PageResultOfInventoryMovementDto: {
+            items: components["schemas"]["InventoryMovementDto"][];
+            /** Format: int32 */
+            pageNumber: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+            /** Format: int32 */
+            totalCount: number | string;
+            /** Format: int32 */
+            totalPages?: number | string;
+        };
+        PageResultOfInventoryReconciliationCaseDto: {
+            items: components["schemas"]["InventoryReconciliationCaseDto"][];
             /** Format: int32 */
             pageNumber: number | string;
             /** Format: int32 */
