@@ -136,6 +136,73 @@ describe('admin router role guard', () => {
     expect(router.currentRoute.value.query.redirect).toBe('/catalog/compatibility')
   })
 
+  // 同一個缺口在本 PR 的兩條庫存路由上重演：它們原本也完全沒有 meta，而 guard 的第一行是「三個
+  // meta 旗標都沒有就直接放行」。後端 AdminInventoryController 是 [Authorize(Policy =
+  // InventoryManager)]（對應 InventoryManager／SuperAdmin），前端對齊到同一組角色。
+  it.each([
+    ['/inventory'],
+    ['/inventory/reservations'],
+  ])('redirects an anonymous administrator away from %s to login', async (path) => {
+    const auth = useAdminAuthStore()
+    auth.session = { isAuthenticated: false, user: null, expiresAtUtc: null, requiresTwoFactor: null }
+
+    await router.push(path)
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('login')
+    expect(router.currentRoute.value.query.redirect).toBe(path)
+  })
+
+  it.each([
+    ['/inventory'],
+    ['/inventory/reservations'],
+  ])('redirects an administrator with an unrelated role away from %s to forbidden', async (path) => {
+    const auth = useAdminAuthStore()
+    auth.session = {
+      isAuthenticated: true,
+      user: {
+        publicId: 'admin-4',
+        displayName: 'Catalog',
+        emailMasked: 'c***@example.test',
+        emailVerified: true,
+        locale: 'zh-TW',
+        roles: ['CatalogManager'],
+      },
+      expiresAtUtc: null,
+      requiresTwoFactor: false,
+    }
+
+    await router.push(path)
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('forbidden')
+  })
+
+  it.each([
+    ['/inventory', 'inventory'],
+    ['/inventory/reservations', 'inventory-reservations'],
+  ])('lets an InventoryManager open %s', async (path, name) => {
+    const auth = useAdminAuthStore()
+    auth.session = {
+      isAuthenticated: true,
+      user: {
+        publicId: 'admin-5',
+        displayName: 'Inventory',
+        emailMasked: 'i***@example.test',
+        emailVerified: true,
+        locale: 'zh-TW',
+        roles: ['InventoryManager'],
+      },
+      expiresAtUtc: null,
+      requiresTwoFactor: false,
+    }
+
+    await router.push(path)
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe(name)
+  })
+
   it('redirects an authenticated administrator with an unrelated role away from the compatibility rules page', async () => {
     const auth = useAdminAuthStore()
     auth.session = {
