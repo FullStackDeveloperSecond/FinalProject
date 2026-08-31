@@ -200,6 +200,24 @@ public sealed class OrderInvoiceReferenceReader : IOrderInvoiceReferenceReader
         return rows.ToDictionary(row => row.OrderId);
     }
 
+    public async Task<IReadOnlyDictionary<long, Guid>> FindItemPublicIdsAsync(
+        IReadOnlyCollection<long> orderItemIds,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(orderItemIds);
+
+        var wanted = orderItemIds.Where(id => id > 0).Distinct().ToArray();
+        if (wanted.Length == 0)
+        {
+            return new Dictionary<long, Guid>();
+        }
+
+        return await _context.OrderItems.AsNoTracking()
+            .Where(item => wanted.Contains(item.Id))
+            .Select(item => new { item.Id, item.PublicId })
+            .ToDictionaryAsync(item => item.Id, item => item.PublicId, cancellationToken);
+    }
+
     private static IQueryable<OrderInvoiceReference> Project(IQueryable<Order> orders) =>
         orders.Select(order => new OrderInvoiceReference(
             order.Id,

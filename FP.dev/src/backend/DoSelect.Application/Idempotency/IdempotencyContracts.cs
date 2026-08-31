@@ -31,6 +31,16 @@ public readonly record struct IdempotencyActorScope
         return new IdempotencyActorScope($"guest-cart:{cartPublicId:D}");
     }
 
+    public static IdempotencyActorScope ForGuestOrderAccess(Guid tokenPublicId)
+    {
+        if (tokenPublicId == Guid.Empty)
+        {
+            throw new ArgumentException("Guest order access token PublicId is required.", nameof(tokenPublicId));
+        }
+
+        return new IdempotencyActorScope($"guest-order-access:{tokenPublicId:D}");
+    }
+
     public static IdempotencyActorScope ForAdmin(Guid adminPublicId)
     {
         if (adminPublicId == Guid.Empty)
