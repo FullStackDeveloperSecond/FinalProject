@@ -324,3 +324,17 @@ public sealed class SqlServerFactAttribute : FactAttribute
         }
     }
 }
+
+/// <summary>
+/// <see cref="SqlServerFactAttribute"/> 的 Theory 版本，跳過條件相同。
+/// </summary>
+public sealed class SqlServerTheoryAttribute : TheoryAttribute
+{
+    public SqlServerTheoryAttribute()
+    {
+        if (!IdempotencyExecutorFixture.IsEnabled)
+        {
+            Skip = $"Set {IdempotencyExecutorFixture.ConnectionStringEnvironmentVariable} to run SQL Server integration tests.";
+        }
+    }
+}

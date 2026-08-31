@@ -13,12 +13,25 @@ public sealed record CartIdentity(string? MemberUserId, string? GuestCartKey);
 public sealed record CartWarningDto(string Code, string Message);
 
 /// <summary>
-/// Placeholder shape pending yinyin's coupon integration — coupon application isn't wired
-/// into Cart in this slice, so <see cref="CartDto.Coupon"/> is always null. Kept here (rather
-/// than omitted) purely so the field exists in the wire shape the official contract
-/// (API DTO與Schema契約.md) already promises downstream consumers.
+/// 購物車試算套用成功的優惠券。
 /// </summary>
-public sealed record CouponAppliedDto(string Code, decimal DiscountAmount);
+/// <remarks>
+/// <para>
+/// <paramref name="IsFreeShipping"/> 與 <paramref name="IsAssemblyFreeShipping"/> 不能省略：
+/// <c>CouponCalculator</c> 對免運券回傳的 <c>DiscountAmount</c> **固定是 0**，
+/// 真正的結果放在這兩個旗標上。只保留金額的話，四種券裡的一般免運與組裝免運會顯示成
+/// 「套用成功但折扣 0 元、總額不變」，前端也沒有任何欄位可以判斷免運是否成立。
+/// </para>
+/// <para>
+/// 購物車階段不一定有確切運費，因此免運券可以不改變 <c>totalEstimate</c>；
+/// 但回應必須表達免運資格，不得把成功結果靜默變成 0 元折扣（DEC B1）。
+/// </para>
+/// </remarks>
+public sealed record CouponAppliedDto(
+    string Code,
+    decimal DiscountAmount,
+    bool IsFreeShipping,
+    bool IsAssemblyFreeShipping);
 
 public sealed record CartItemDto(
     Guid PublicId,

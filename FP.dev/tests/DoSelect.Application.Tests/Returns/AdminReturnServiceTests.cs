@@ -31,7 +31,7 @@ public sealed class AdminReturnServiceTests
         ItemIdField.SetValue(item, 100L);
         store.Items.Add(item);
 
-        var service = new AdminReturnService(store, orderPort, new FixedTimeProvider(NowOffset));
+        var service = new AdminReturnService(store, orderPort, store, new FixedTimeProvider(NowOffset));
         return (service, store, request);
     }
 
@@ -193,6 +193,12 @@ public sealed class AdminReturnServiceTests
         Assert.Equal(ReturnRequestStatus.AwaitingRefund, dto.Status);
         Assert.Equal(RestockDisposition.Resellable, store.Items[0].RestockDisposition);
         Assert.Single(store.Inspections);
+        var restock = Assert.Single(store.ReturnToStockInstructions);
+        Assert.Equal(store.Items[0].OrderItemId, restock.OrderItemId);
+        Assert.Equal(store.Items[0].PublicId, restock.ReturnItemPublicId);
+        Assert.Equal(store.Items[0].Quantity, restock.Quantity);
+        Assert.Equal(request.PublicId, store.ReturnToStockReturnPublicId);
+        Assert.Equal("admin-1", store.ReturnToStockAdminUserId);
         Assert.Equal(AssemblyFeeDisposition.NotApplicable, request.AssemblyFeeDisposition);
         Assert.Equal(80m, request.ReturnShippingCost);
         Assert.Collection(

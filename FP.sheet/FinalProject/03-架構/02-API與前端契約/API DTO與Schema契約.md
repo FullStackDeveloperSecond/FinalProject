@@ -33,16 +33,20 @@
 | `PublicSkuDto` | `publicId`、`skuCode`、`name`、`price`、`availability`、`maxPurchasableQuantity`、`specifications[]`、尺寸／重量公開摘要、`isDefault` |
 | `CatalogFilterOptionsQuery` | `category?:code64`、`locale?:enum`；只接受公開且啟用分類 |
 | `CatalogFilterOptionsDto` | `categories[]`、`brands[]`、`priceRange{min,max}`、`specificationFilters:{semanticKey,label,valueType,unit?,operators,options?}[]`、`sortOptions[]` |
-| `AiProductSearchRequest` | `message:string(1..1000)`、`conversationPublicId?:uuid`、`existingParts:ExistingPartInput[0..10]`、`locale:enum`；不得接受 SQL、欄名或會員 Id |
-| `AiProductSearchResultDto` | `conversationPublicId`、`resultType:clarification/recommendations/noResults/degraded`、`clarifyingQuestions[]`、驗證後 `recommendations[]`、`degradationMode`、`usage`；推薦理由只引用後端候選與相容性結果 |
+| `AiProductSearchRequest` | `message:string(1..2000)`、`existingParts:ExistingPartInput[0..12]`、`locale:enum`；`existingParts` 每筆須為已確認的 `catalogSku` 或 `structuredManual`，不得接受 SQL、欄名或會員 Id。搜尋不建立客服 Conversation，單次執行由伺服器產生 `searchPublicId` |
+| `AiProductSearchResultDto` | `searchPublicId`、`resultType:clarification/recommendations/noResults/degraded`、`clarifications[]`、`intent.proposedExistingParts[]`、驗證後 `recommendations[]`、`customBuild?`、`degradationMode`、`usage`；自然語言解析的既有零件只能作為未確認候選，推薦理由只引用後端候選與相容性結果 |
+| `AiCustomBuildRecommendationDto` | `components:AiCustomBuildComponentDto[]`、`purchaseSubtotal`、`assemblyFee=300`、`purchaseTotal`、`currency=TWD`、`compatibilityStatus:compatible/warning`、`compatibilityMessageKeys[]`；成功時涵蓋八類完整清單，`purchaseTotal = purchaseSubtotal + assemblyFee` |
+| `AiCustomBuildComponentDto` | `product?:ProductCardDto`、`skuPublicId?`、`sourceType:catalogSku/structuredManual`、`categoryCode`、`displayName`、`quantity`、`isExistingPart`、`reason?`；既有零件 `isExistingPart=true`、不計入新購小計且 `reason=null`，但仍參與相容性 |
 | `CompatibilityCheckRequest` | `items:BuildItemInput[1..20]`；公開版不接受 Draft Settings |
 | `CompatibilityCheckDto` | `overall:compatible/warning/blocked/insufficientData`、`ruleSetVersion`、`settingsVersion`、`results[]`、`evaluatedAtUtc` |
 | `CreateBuildListRequest` | `name:string(1..160)`、`items:BuildItemInput[1..20]` |
 | `UpdateBuildListRequest` | Create 欄位＋`rowVersion` |
 | `BuildItemInput` | `skuPublicId`、`quantity:int(1..8)` |
-| `BuildListDto` | `publicId`、`name`、`items:BuildItemDto[]`、`compatibility{overall,ruleSetVersion,settingsVersion,results[]}`、`totals{merchandise,assemblyFee,grandTotal,currency}`、`updatedAtUtc`、`rowVersion`；擁有權由後端 Actor Scope／Owner Query 驗證，不回傳固定 Owner 欄位 |
+| `BuildItemDto` | `publicId`、`skuPublicId`、`skuCode`、`name`、`categoryCode`、`quantity`、`sortOrder`、`unitPrice`、`lineTotal`、`availability` |
+| `BuildListDto` | `publicId`、`name`、`items:BuildItemDto[]`、`compatibility{overall,ruleSetVersion,settingsVersion,results[]}`、`totals{merchandise,assemblyFee,grandTotal,currency}`、`activeShare?:BuildActiveShareDto`、`updatedAtUtc`、`rowVersion`；擁有權由後端 Actor Scope／Owner Query 驗證，不回傳固定 Owner 欄位 |
+| `BuildActiveShareDto` | `sharePublicId`、`expiresAtUtc?`；只在目前有作用中分享時出現。分享 Token 只存雜湊（不可逆），因此這裡永遠不含可開啟的網址——既有分享的網址只在 `BuildShareDto`（建立／重新產生當下）出現過一次，重新整理後無法再取得，只能撤銷或重新產生 |
 | `BuildListSummaryDto` | `publicId`、`name`、`itemCount`、`compatibilityOverall`、`grandTotal`、`isShared`、`updatedAtUtc`、`rowVersion` |
-| `BuildShareDto` | `sharePublicId`、`url`、`expiresAtUtc` |
+| `BuildShareDto` | `sharePublicId`、`url`、`expiresAtUtc`；`url` 是完整前台網址（`FrontendLinkOptions.BaseUrl` + `/builds/shared/{token}`），不是內部 API 路徑 |
 | `SharedBuildDto` | `sharePublicId`、`name`、去識別化 `items`、目前價格／庫存／相容性結果、`canCopy`、`canAddToCart`；不回 Owner |
 | `AddBuildToCartRequest` | `quantity:int(1..8)`、`buildRowVersion`；分享清單加入前由後端建立會員複本或購物車群組，不修改原清單 |
 
@@ -88,7 +92,8 @@
 | `RemoveAssemblyGroupRequest` | `cartRowVersion`；用 Cart 層級（非 Item）RowVersion，因為一個組裝群組橫跨多筆 CartItem，沒有單一 item RowVersion 可代表整組（AUTO-DEC-015） |
 | `CartMergeRequest` | `guestCartKey:string(32..256)`、`strategy:mergeAndReportConflicts`、`idempotencyKey:string(8..128)` |
 | `CartMergeResultDto` | `cart:CartDto`、`conflicts:{guestItemPublicId,skuPublicId,reason,acceptedQuantity}[]` |
-| `ApplyCouponRequest` | `code:string(1..64)`、`cartRowVersion` |
+| `ApplyCouponRequest` | `code:string(1..64)`、`cartRowVersion`（8-byte SQL Server RowVersion） |
+| `CouponAppliedDto` | `code`、`discountAmount`、`isFreeShipping`、`isAssemblyFreeShipping`；免運券的 `discountAmount` 固定為 0，資格由兩個旗標表達，不得把成功結果靜默呈現為 0 元折扣（DEC B1） |
 | `CreateOrderRequest` | `cartPublicId`、`cartRowVersion`、`buyer:{email,name,phone}`、`shipping:{methodCode,address?:AddressInput,storePublicId?:uuid}`、`paymentMethod:enum`、`invoice:{type:simulated,carrier?:string(64)}`、`acceptPolicyVersions:{terms,return,privacy}` |
 | `AddressInput` | `recipientName:string(1..100)`、`phone:string(6..32)`、`postalCode?:string(1..16)`、`city?:string(1..50)`、`district?:string(1..50)`、`addressLine1?:string(1..300)`、`addressLine2?:string(0..300)`；宅配時地址欄全部必填，超取不得用地址取代 storePublicId；不接受地址簿 Label |
 | `OrderDto` | `publicId`、`orderNumber`、五個狀態、`items:OrderItemDto[]`、收件遮蔽摘要、物流摘要、付款摘要、`amounts`、`paymentDueAtUtc?`、合法 `availableActions:string[]`、各事件時間、`rowVersion` |
@@ -195,10 +200,11 @@
 | Schema | 精確欄位 |
 |---|---|
 | `AiConsentRequest` | `policyVersion:int`、`locale:enum`、`accepted:must be true` |
-| `AiSupportMessageRequest` | `conversationPublicId?:uuid`、`message:string(1..2000)`、`referencedOrderPublicIds:uuid[0..3]`、`locale:enum` |
-| `AiSupportAnswerDto` | `conversationPublicId`、`interactionPublicId`、`answer:string(0..4000)`、`citations:{type,label,resourcePublicId?,url?}[0..10]`、`resultCode`、`degradationMode:none/keywordSearch/createSupportTicket`、`disclaimerKey`、`usage{remainingRequests,resetAtUtc}` |
-| `AiUsageDto` | `feature`、`usedRequests`、`requestLimit`、`inputTokens`、`outputTokens`、`estimatedCostUsd`、`windowStartUtc/resetAtUtc`、`budgetProtectionActive` |
-| `AdminAiUsageReportDto` | 日期區間、功能／模型彙總、成功／失敗／降級次數、Token、估算成本、US$70／90 門檻狀態、資料截至時間；成本明細依 Policy 移除或回傳 |
+| `AiConsentStatusDto` | `state:missing/granted/denied`、後端目前 `policyVersion`、`locale?`、`decidedAtUtc?`；Reload 時以前端查詢結果為準 |
+| `AiSupportMessageRequest` | `conversationPublicId?:uuid`、`message:string(1..2000)`、`referencedOrderPublicIds:uuid[0..3]`、`referencedSupportTicketPublicIds:uuid[0..3]`、`locale:enum`；兩組引用不得含 Empty／重複值 |
+| `AiSupportAnswerDto` | `conversationPublicId`、`interactionPublicId`、`answer:string(0..4000)`、`citations:{type,label,resourcePublicId?,url?}[0..8]`、`resultCode`、`degradationMode:none/keywordSearch/createSupportTicket`、`disclaimerKey`、`usage{remainingRequests,resetAtUtc}` |
+| `AiUsageDto` | 會員本人每日配額：`feature`、`usedRequests`、`requestLimit`、`windowStartUtc/resetAtUtc`；不得回傳 Token、成本或全站預算門檻狀態 |
+| `AdminAiUsageReportDto` | `fromUtc/toUtc`、`rows[{feature,model,status,interactionCount,inputTokens,outputTokens,estimatedCostUsd?}]`、`cumulativeCostUsd?`、US$70／90 門檻狀態、`dataAsOfUtc`；成本欄對非 FinanceManager／SuperAdmin 回 Null |
 | `CreateSupportTicketRequest` | `category:enum`、`subject:string(1..200)`、`message:string(1..4000)`、`orderPublicId?:uuid` |
 | `SupportTicketDto` | PublicId、Category、Subject、Status、Priority、Order 摘要?、Assignee 摘要?、SLA Due／Overdue、`messages:SupportMessageDto[]`（明細端）、附件摘要、AvailableActions、時間、RowVersion |
 | `SupportTicketQuery` | `statuses?`、`category?`、`pageNumber/pageSize`；會員端固定限制 Owner |

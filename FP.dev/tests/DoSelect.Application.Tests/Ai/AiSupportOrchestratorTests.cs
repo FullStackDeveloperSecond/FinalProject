@@ -49,6 +49,27 @@ public sealed class AiSupportOrchestratorTests
         Assert.Equal(0, model.CallCount);
     }
 
+    [Fact]
+    public async Task ExecuteAsync_WhenBudgetProtectionIsActiveForNonDemo_DoesNotCallModel()
+    {
+        var model = new RecordingAiSupportModelClient();
+        var admission = new StubAiSupportAdmissionGate(
+            new AiSupportAccessState(
+                AiConsentState.Granted,
+                20,
+                ResetAtUtc,
+                BudgetProtectionActive: true,
+                IsDemoAllowlisted: false));
+        var subject = CreateSubject(admission, model);
+
+        var result = await subject.ExecuteAsync(CreateRequest());
+
+        Assert.Equal(AiSupportExecutionStatus.Rejected, result.Status);
+        Assert.Equal(AiSafetyReason.BudgetProtectionActive, result.Reason);
+        Assert.Equal(0, admission.ReservationCount);
+        Assert.Equal(0, model.CallCount);
+    }
+
     [Theory]
     [InlineData("請使用 access_token: [[SYNTHETIC_ACCESS_TOKEN]] 查訂單", AiSafetyReason.SecretDetected)]
     [InlineData("我的 Email: synthetic.customer@example.test", AiSafetyReason.PersonalDataDetected)]
@@ -78,7 +99,7 @@ public sealed class AiSupportOrchestratorTests
             new AiSupportContextReadResult(
                 AiSupportContextStatus.ResourceNotFound,
                 DataItems: []));
-        var subject = new AiSupportOrchestrator(admission, context, model);
+        var subject = new AiSupportOrchestrator(admission, context, model, new StubInteractionStore());
 
         var result = await subject.ExecuteAsync(
             CreateRequest(referencedOrderPublicIds: [OrderPublicId]));
@@ -108,7 +129,7 @@ public sealed class AiSupportOrchestratorTests
                         "2026-08-28T00:00:00.0000000Z",
                         "已授權且去識別化的訂單摘要"),
                 ]));
-        var subject = new AiSupportOrchestrator(admission, context, model);
+        var subject = new AiSupportOrchestrator(admission, context, model, new StubInteractionStore());
         var request = CreateRequest(
             "請說明退貨流程",
             SupportedLocale.JaJp,
@@ -192,7 +213,8 @@ public sealed class AiSupportOrchestratorTests
             admission,
             new StubAiSupportContextReader(
                 new AiSupportContextReadResult(AiSupportContextStatus.Allowed, DataItems: [])),
-            model);
+            model,
+            new StubInteractionStore());
 
     private static StubAiSupportAdmissionGate GrantedAdmission() =>
         new(new AiSupportAccessState(AiConsentState.Granted, 20, ResetAtUtc));
@@ -204,9 +226,11 @@ public sealed class AiSupportOrchestratorTests
         new(
             MemberId,
             RequestPublicId,
+            ConversationPublicId: null,
             message,
             locale,
-            referencedOrderPublicIds ?? []);
+            referencedOrderPublicIds ?? [],
+            ReferencedSupportTicketPublicIds: []);
 
     private sealed class StubAiSupportAdmissionGate : IAiSupportAdmissionGate
     {
@@ -266,13 +290,26 @@ public sealed class AiSupportOrchestratorTests
 
         public Task<AiSupportContextReadResult> ReadAsync(
             Guid memberId,
+            Guid? conversationPublicId,
             IReadOnlyList<Guid> referencedOrderPublicIds,
+            IReadOnlyList<Guid> referencedSupportTicketPublicIds,
             CancellationToken cancellationToken)
         {
             LastMemberId = memberId;
             LastReferencedOrderPublicIds = referencedOrderPublicIds;
             return Task.FromResult(_result);
         }
+    }
+
+
+    private sealed class StubInteractionStore : IAiSupportInteractionStore
+    {
+        public Task<AiSupportInteractionWriteResult> SaveAsync(
+            AiSupportInteractionWrite interaction,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(new AiSupportInteractionWriteResult(
+                true,
+                interaction.ConversationPublicId ?? Guid.Parse("44444444-4444-4444-4444-444444444444")));
     }
 
     private sealed class RecordingAiSupportModelClient : IAiSupportModelClient

@@ -68,7 +68,7 @@ public static class SecurityServiceCollectionExtensions
             options.Cookie.HttpOnly = true;
             options.Cookie.IsEssential = true;
             options.Cookie.SameSite = SameSiteMode.Lax;
-            options.Cookie.SecurePolicy = environment.IsDevelopment()
+            options.Cookie.SecurePolicy = AllowsHttpAntiforgeryCookie(environment)
                 ? CookieSecurePolicy.SameAsRequest
                 : CookieSecurePolicy.Always;
         });
@@ -360,6 +360,13 @@ public static class SecurityServiceCollectionExtensions
         });
 
         AddAdminPolicy(options, DoSelectPolicies.Admin);
+        AddAdminPolicy(options, DoSelectPolicies.AiUsageView,
+            DoSelectRoles.FinanceManager, DoSelectRoles.CustomerServiceSupervisor,
+            DoSelectRoles.MarketingAnalyst, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.OperationalReportView,
+            DoSelectRoles.FinanceManager, DoSelectRoles.MarketingAnalyst, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.OperationalReportFinanceView,
+            DoSelectRoles.FinanceManager, DoSelectRoles.SuperAdmin);
         AddAdminPolicy(options, DoSelectPolicies.CatalogManager,
             DoSelectRoles.CatalogManager, DoSelectRoles.SuperAdmin);
         AddAdminPolicy(options, DoSelectPolicies.OrderManage,
@@ -374,6 +381,9 @@ public static class SecurityServiceCollectionExtensions
             DoSelectRoles.FinanceManager, DoSelectRoles.MarketingAnalyst, DoSelectRoles.SuperAdmin);
         AddAdminPolicy(options, DoSelectPolicies.ReportHighRiskReview,
             DoSelectRoles.CustomerServiceSupervisor, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.ProductReviewModerate,
+            DoSelectRoles.CustomerService, DoSelectRoles.CustomerServiceSupervisor,
+            DoSelectRoles.SuperAdmin);
         AddAdminPolicy(options, DoSelectPolicies.RoleAssignmentManage,
             DoSelectRoles.SuperAdmin);
         AddAdminPolicy(options, DoSelectPolicies.PersonalDataViewFull,
@@ -401,6 +411,9 @@ public static class SecurityServiceCollectionExtensions
         AddAdminPolicy(options, DoSelectPolicies.OutboxRetry,
             DoSelectRoles.SuperAdmin);
     }
+
+    private static bool AllowsHttpAntiforgeryCookie(IHostEnvironment environment) =>
+        environment.IsDevelopment() || environment.IsEnvironment("E2E");
 
     private static void AddAdminPolicy(
         AuthorizationOptions options,

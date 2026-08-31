@@ -51,8 +51,17 @@ async function handleLogout(): Promise<void> {
           <RouterLink to="/products">
             商品
           </RouterLink>
+          <RouterLink to="/ai-search">
+            AI 懂選
+          </RouterLink>
           <RouterLink to="/cart">
             購物車
+          </RouterLink>
+          <RouterLink to="/account/builds">
+            我的組裝清單
+          </RouterLink>
+          <RouterLink to="/builds/new">
+            新增組裝清單
           </RouterLink>
           <RouterLink
             to="/support"
@@ -62,6 +71,9 @@ async function handleLogout(): Promise<void> {
             客服中心
           </RouterLink>
           <template v-if="sessionStore.isAuthenticated">
+            <RouterLink to="/account/reviews">
+              我的評價
+            </RouterLink>
             <span class="site-header__member">{{ sessionStore.user?.displayName }}</span>
             <button
               type="button"

@@ -22,6 +22,55 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("DoSelect.Domain.Ai.AiCitation", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("AiInteractionId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int");
+
+                    b.Property<Guid?>("SourcePublicId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("SourceType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<string>("SourceVersion")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("Url")
+                        .HasMaxLength(2048)
+                        .HasColumnType("nvarchar(2048)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AiInteractionId", "SortOrder")
+                        .IsUnique()
+                        .HasDatabaseName("UX_AiCitations_AiInteractionId_SortOrder");
+
+                    b.ToTable("AiCitations", (string)null);
+                });
+
             modelBuilder.Entity("DoSelect.Domain.Ai.AiConsentRecord", b =>
                 {
                     b.Property<long>("Id")
@@ -88,6 +137,184 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("CK_AiConsentRecords_Purpose", "[Purpose] IN ('Support')");
 
                             t.HasCheckConstraint("CK_AiConsentRecords_Status", "([Status] = 'Granted' AND [WithdrawnAtUtc] IS NULL) OR ([Status] = 'Withdrawn' AND [WithdrawnAtUtc] IS NOT NULL AND [WithdrawnAtUtc] >= [GrantedAtUtc])");
+                        });
+                });
+
+            modelBuilder.Entity("DoSelect.Domain.Ai.AiConversation", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("ConsentPolicyVersion")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<DateTime>("ExpiresAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<DateTime>("LastActivityAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<string>("Locale")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(10)");
+
+                    b.Property<string>("MemberUserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<Guid>("PublicId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(24)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(16)");
+
+                    b.Property<long?>("SupportTicketId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PublicId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_AiConversations_PublicId");
+
+                    b.HasIndex("SupportTicketId");
+
+                    b.HasIndex("MemberUserId", "LastActivityAtUtc")
+                        .HasDatabaseName("IX_AiConversations_MemberUserId_LastActivityAtUtc");
+
+                    b.ToTable("AiConversations", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_AiConversations_ConsentPolicyVersion", "[ConsentPolicyVersion] > 0");
+
+                            t.HasCheckConstraint("CK_AiConversations_Purpose", "[Purpose] IN ('Support')");
+
+                            t.HasCheckConstraint("CK_AiConversations_Status", "[Status] IN ('Active','Closed')");
+                        });
+                });
+
+            modelBuilder.Entity("DoSelect.Domain.Ai.AiInteraction", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<long?>("AiConversationId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("AssistantContent")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<decimal>("EstimatedCostUsd")
+                        .HasPrecision(12, 6)
+                        .HasColumnType("decimal(12,6)");
+
+                    b.Property<string>("FallbackReason")
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<int>("InputTokens")
+                        .HasColumnType("int");
+
+                    b.Property<string>("IntentJson")
+                        .HasMaxLength(8000)
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("LatencyMs")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Model")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int>("OutputTokens")
+                        .HasColumnType("int");
+
+                    b.Property<string>("PromptVersion")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<Guid>("PublicId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("SchemaVersion")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<Guid?>("SearchPublicId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Sequence")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(24)");
+
+                    b.Property<string>("UserContentProtected")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PublicId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_AiInteractions_PublicId");
+
+                    b.HasIndex("AiConversationId", "Sequence")
+                        .IsUnique()
+                        .HasDatabaseName("UX_AiInteractions_AiConversationId_Sequence")
+                        .HasFilter("[AiConversationId] IS NOT NULL");
+
+                    b.ToTable("AiInteractions", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_AiInteractions_Owner", "([AiConversationId] IS NOT NULL AND [SearchPublicId] IS NULL) OR ([AiConversationId] IS NULL AND [SearchPublicId] IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_AiInteractions_Usage", "[Sequence] > 0 AND [InputTokens] >= 0 AND [OutputTokens] >= 0 AND [EstimatedCostUsd] >= 0 AND [LatencyMs] >= 0");
                         });
                 });
 
@@ -2461,6 +2688,10 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
 
                     b.Property<long>("SkuId")
                         .HasColumnType("bigint");
+
+                    b.Property<decimal?>("UnitCostSnapshot")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
 
                     b.HasKey("Id");
 
@@ -7804,6 +8035,15 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
+            modelBuilder.Entity("DoSelect.Domain.Ai.AiCitation", b =>
+                {
+                    b.HasOne("DoSelect.Domain.Ai.AiInteraction", null)
+                        .WithMany()
+                        .HasForeignKey("AiInteractionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("DoSelect.Domain.Ai.AiConsentRecord", b =>
                 {
                     b.HasOne("DoSelect.Infrastructure.Persistence.Identity.ApplicationUser", null)
@@ -7811,6 +8051,28 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                         .HasForeignKey("MemberUserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("DoSelect.Domain.Ai.AiConversation", b =>
+                {
+                    b.HasOne("DoSelect.Infrastructure.Persistence.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("MemberUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("DoSelect.Domain.Support.SupportTicket", null)
+                        .WithMany()
+                        .HasForeignKey("SupportTicketId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("DoSelect.Domain.Ai.AiInteraction", b =>
+                {
+                    b.HasOne("DoSelect.Domain.Ai.AiConversation", null)
+                        .WithMany()
+                        .HasForeignKey("AiConversationId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("DoSelect.Domain.Ai.AiUsageLedgerEntry", b =>

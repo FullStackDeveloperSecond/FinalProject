@@ -142,6 +142,7 @@ public sealed class InventoryMovement : PublicEntity
         int afterOnHand,
         int beforeReserved,
         int afterReserved,
+        decimal unitCostSnapshot,
         string reasonCode,
         string referenceType,
         Guid? referencePublicId,
@@ -154,7 +155,8 @@ public sealed class InventoryMovement : PublicEntity
             beforeReserved + reservedDelta != afterReserved ||
             beforeOnHand < 0 || afterOnHand < 0 ||
             beforeReserved < 0 || afterReserved < 0 ||
-            beforeReserved > beforeOnHand || afterReserved > afterOnHand)
+            beforeReserved > beforeOnHand || afterReserved > afterOnHand ||
+            unitCostSnapshot < 0m)
         {
             throw new ArgumentException("The inventory movement balances are invalid.");
         }
@@ -168,6 +170,7 @@ public sealed class InventoryMovement : PublicEntity
         AfterOnHand = afterOnHand;
         BeforeReserved = beforeReserved;
         AfterReserved = afterReserved;
+        UnitCostSnapshot = unitCostSnapshot;
         ReasonCode = RequireText(reasonCode, nameof(reasonCode));
         ReferenceType = RequireText(referenceType, nameof(referenceType));
         ReferencePublicId = referencePublicId;
@@ -184,6 +187,7 @@ public sealed class InventoryMovement : PublicEntity
     public int AfterOnHand { get; private set; }
     public int BeforeReserved { get; private set; }
     public int AfterReserved { get; private set; }
+    public decimal? UnitCostSnapshot { get; private set; }
     public string ReasonCode { get; private set; } = string.Empty;
     public string ReferenceType { get; private set; } = string.Empty;
     public Guid? ReferencePublicId { get; private set; }

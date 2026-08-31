@@ -801,6 +801,44 @@ public sealed class ProductAdminServiceTests
 public sealed class SkuAdminServiceTests
 {
     [Fact]
+    public async Task UpdateAsync_WhenUnitCostChanges_AppendsInventoryValuationMovement()
+    {
+        await using var context = CatalogAdminFixture.CreateContext();
+        var (brand, category, _) = await CatalogAdminFixture.SeedCatalogAsync(context);
+        var product = await CatalogAdminFixture.CreateProductAsync(context, brand, category);
+        var service = new EfSkuAdminService(context);
+        var sku = await service.CreateAsync(
+            product.PublicId,
+            new CreateSkuRequest(
+                CatalogAdminFixture.UniqueCode("SKU"), "成本快照 SKU", 1_000m, 600m,
+                null, null, null, null, "Draft", false, false, []),
+            CancellationToken.None);
+        var skuId = await context.Skus
+            .Where(candidate => candidate.PublicId == sku.PublicId)
+            .Select(candidate => candidate.Id)
+            .SingleAsync();
+        context.InventoryBalances.Add(new InventoryBalance(
+            Guid.CreateVersion7(), skuId, onHandQuantity: 10, reorderLevel: 2, DateTime.UtcNow));
+        await context.SaveChangesAsync();
+
+        await service.UpdateAsync(
+            sku.PublicId,
+            new UpdateSkuRequest(
+                sku.NameZhTw, sku.ListPrice, 650m, null, null, null, null,
+                "Draft", false, false, [], sku.RowVersion),
+            CancellationToken.None);
+
+        var movement = await context.InventoryMovements.AsNoTracking()
+            .SingleAsync(candidate => candidate.SkuId == skuId);
+        Assert.Equal("CostChange", movement.MovementType);
+        Assert.Equal(0, movement.OnHandDelta);
+        Assert.Equal(10, movement.BeforeOnHand);
+        Assert.Equal(10, movement.AfterOnHand);
+        Assert.Equal(650m, movement.UnitCostSnapshot);
+        Assert.Equal("sku_unit_cost_changed", movement.ReasonCode);
+    }
+
+    [Fact]
     public async Task CreateAsync_WithValidSpecificationValues_Succeeds()
     {
         await using var context = CatalogAdminFixture.CreateContext();

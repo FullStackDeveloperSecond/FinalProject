@@ -39,6 +39,10 @@ appsettings.json
 | `OpenAI__ApiKey` | ✓ | AI 功能啟用時必填 |
 | `OpenAI__SupportModel` |  | AI 客服模型；預設 `gpt-5.6-terra`，凍結後依評估決定 Snapshot |
 | `OpenAI__SupportTimeoutMilliseconds` |  | AI 客服單次嘗試逾時；預設 12000，允許 1000～60000 |
+| `OpenAI__SupportInputCostPerMillionTokens` |  | AI 啟用時必填；目前模型 Input 每百萬 Token 單價，非負數 |
+| `OpenAI__SupportOutputCostPerMillionTokens` |  | AI 啟用時必填；目前模型 Output 每百萬 Token 單價，非負數 |
+| `OpenAI__BudgetAlertRecipientAdminPublicId` |  | AI 啟用時必填；指定唯一組長的 `AspNetUsers.PublicId`。執行時必須對應 Active Admin、有效 AdminProfile 與 `SuperAdmin` 角色；不是 Secret |
+| `OpenAI__DemoMemberPublicIds__0/1` |  | 選填、最多兩個不重複 Member PublicId；只繞過 US$90 成本停止門檻 |
 | `Email__SmtpHost` |  | Email 功能啟用時必填 |
 | `Email__SmtpPort` |  | Email 功能啟用時必填 |
 | `Email__UserName` | ✓ | Brevo SMTP 啟用時必填 |

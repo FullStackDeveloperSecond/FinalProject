@@ -40,6 +40,12 @@ public sealed class DoSelectDbContext
 
     public DbSet<AiUsageLedgerEntry> AiUsageLedger => Set<AiUsageLedgerEntry>();
 
+    public DbSet<AiConversation> AiConversations => Set<AiConversation>();
+
+    public DbSet<AiInteraction> AiInteractions => Set<AiInteraction>();
+
+    public DbSet<AiCitation> AiCitations => Set<AiCitation>();
+
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
     public DbSet<AdminProfile> AdminProfiles => Set<AdminProfile>();

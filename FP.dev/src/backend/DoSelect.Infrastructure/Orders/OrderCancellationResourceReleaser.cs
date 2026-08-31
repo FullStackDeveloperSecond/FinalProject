@@ -45,6 +45,9 @@ internal static class OrderCancellationResourceReleaser
         var balances = await dbContext.InventoryBalances
             .Where(candidate => skuIds.Contains(candidate.SkuId))
             .ToDictionaryAsync(candidate => candidate.SkuId, cancellationToken);
+        var unitCosts = await dbContext.Skus
+            .Where(candidate => skuIds.Contains(candidate.Id))
+            .ToDictionaryAsync(candidate => candidate.Id, candidate => candidate.UnitCost, cancellationToken);
 
         foreach (var group in reservationGroups)
         {
@@ -72,6 +75,7 @@ internal static class OrderCancellationResourceReleaser
                     afterOnHand: balance.OnHandQuantity,
                     beforeReserved: runningReservedQuantity,
                     afterReserved: afterReservedQuantity,
+                    unitCostSnapshot: unitCosts[reservation.SkuId],
                     reasonCode: InventoryReleaseReason,
                     referenceType: "Order",
                     referencePublicId: order.PublicId,

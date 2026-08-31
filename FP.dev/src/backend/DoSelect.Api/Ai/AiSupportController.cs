@@ -47,6 +47,17 @@ public sealed class AiSupportController : ControllerBase
                 ApiErrorCodes.AiServiceUnavailable);
         }
 
+        if (request.ConversationPublicId == Guid.Empty ||
+            request.ReferencedOrderPublicIds.Any(publicId => publicId == Guid.Empty) ||
+            request.ReferencedSupportTicketPublicIds.Any(publicId => publicId == Guid.Empty) ||
+            request.ReferencedOrderPublicIds.Distinct().Count() != request.ReferencedOrderPublicIds.Length ||
+            request.ReferencedSupportTicketPublicIds.Distinct().Count() != request.ReferencedSupportTicketPublicIds.Length)
+        {
+            return Problem(
+                StatusCodes.Status400BadRequest,
+                ApiErrorCodes.ValidationFailed);
+        }
+
         var rawMemberId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (!Guid.TryParse(rawMemberId, out var memberId))
         {
@@ -60,9 +71,11 @@ public sealed class AiSupportController : ControllerBase
             new AiSupportExecutionRequest(
                 memberId,
                 interactionPublicId,
+                request.ConversationPublicId,
                 request.Message,
                 ParseLocale(request.Locale),
-                request.ReferencedOrderPublicIds),
+                request.ReferencedOrderPublicIds,
+                request.ReferencedSupportTicketPublicIds),
             cancellationToken);
 
         if (result.Status == AiSupportExecutionStatus.Rejected)
@@ -70,7 +83,10 @@ public sealed class AiSupportController : ControllerBase
             return MapRejection(result.Reason);
         }
 
-        if (result.Answer is null || result.Answer.Length > 4000)
+        if (result.Answer is null ||
+            result.Answer.Length > 4000 ||
+            result.ConversationPublicId is null ||
+            result.InteractionPublicId is null)
         {
             return Problem(
                 StatusCodes.Status502BadGateway,
@@ -78,8 +94,8 @@ public sealed class AiSupportController : ControllerBase
         }
 
         return Ok(new AiSupportAnswerDto(
-            request.ConversationPublicId ?? Guid.NewGuid(),
-            interactionPublicId,
+            result.ConversationPublicId.Value,
+            result.InteractionPublicId.Value,
             result.Answer,
             result.Citations.Select(MapCitation).ToArray(),
             AiSupportResultCodes.Answered,
@@ -107,6 +123,10 @@ public sealed class AiSupportController : ControllerBase
             Problem(
                 StatusCodes.Status429TooManyRequests,
                 ApiErrorCodes.AiUsageLimitExceeded),
+        AiSafetyReason.BudgetProtectionActive =>
+            Problem(
+                StatusCodes.Status503ServiceUnavailable,
+                ApiErrorCodes.AiBudgetProtectionActive),
         AiSafetyReason.SecretDetected or AiSafetyReason.PersonalDataDetected =>
             Problem(
                 StatusCodes.Status400BadRequest,

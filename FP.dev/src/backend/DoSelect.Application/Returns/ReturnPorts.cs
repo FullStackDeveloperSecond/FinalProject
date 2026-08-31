@@ -36,6 +36,31 @@ public interface IReturnOrderEligibilityPort
 }
 
 /// <summary>
+/// A resellable inspected return line that must be restored through the inventory owner's
+/// append-only movement path. The return module provides only the approved disposition;
+/// Infrastructure resolves SKU and cost snapshots from the original order item.
+/// </summary>
+public sealed record ReturnToStockInstruction(
+    long OrderItemId,
+    Guid ReturnItemPublicId,
+    int Quantity);
+
+/// <summary>
+/// Stages resellable return inventory changes on the current scoped unit of work. Implementations
+/// must not call SaveChanges: <see cref="IReturnStore.SaveTransitionAsync"/> commits the return,
+/// inspection, inventory balance and movements atomically.
+/// </summary>
+public interface IReturnInventoryPort
+{
+    Task StageReturnToStockAsync(
+        Guid returnPublicId,
+        string adminUserId,
+        IReadOnlyList<ReturnToStockInstruction> instructions,
+        DateTime occurredAtUtc,
+        CancellationToken cancellationToken);
+}
+
+/// <summary>
 /// Validates the raw token claim extracted from the protected GuestOrderAccess authentication
 /// ticket. Known target-order operations should use GuestOrderAccessScopeAuthorizer so rejected
 /// cross-order attempts also increment the violation counter and write the central audit event;

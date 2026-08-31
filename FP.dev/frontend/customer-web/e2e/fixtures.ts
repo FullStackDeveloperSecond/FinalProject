@@ -42,7 +42,7 @@ export const test = base.extend<DoSelectFixtures>({
 
       await page.goto('/login')
       await page.getByRole('textbox', { name: '電子郵件' }).fill(seed.memberEmail)
-      await page.getByLabel('密碼').fill(seed.memberPassword)
+      await page.getByRole('textbox', { name: '密碼', exact: true }).fill(seed.memberPassword)
       await page.getByRole('button', { name: '登入' }).click()
       await expect(page).toHaveURL(/\/$/)
     })

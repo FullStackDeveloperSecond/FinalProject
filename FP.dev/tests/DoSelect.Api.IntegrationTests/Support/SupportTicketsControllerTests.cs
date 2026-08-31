@@ -23,7 +23,8 @@ namespace DoSelect.Api.IntegrationTests.Support;
 /// (recognizable by email, upserted idempotently) stand in for real accounts since
 /// MemberUserId carries a real FK to AspNetUsers.
 /// </summary>
-public sealed class SupportTicketsControllerTests : IClassFixture<WebApplicationFactory<Program>>, IAsyncLifetime
+[Collection(nameof(SupportAuditSqlServerCollection))]
+public sealed class SupportTicketsControllerTests : IAsyncLifetime
 {
     private const string MemberAEmail = "kafen-test-member-a@doselect.local";
     private const string MemberBEmail = "kafen-test-member-b@doselect.local";
@@ -32,9 +33,9 @@ public sealed class SupportTicketsControllerTests : IClassFixture<WebApplication
     private string _memberAId = string.Empty;
     private string _memberBId = string.Empty;
 
-    public SupportTicketsControllerTests(WebApplicationFactory<Program> factory)
+    public SupportTicketsControllerTests(SupportAuditSqlServerFixture fixture)
     {
-        _factory = factory.WithWebHostBuilder(builder =>
+        _factory = fixture.Factory.WithWebHostBuilder(builder =>
         {
             builder.ConfigureTestServices(services =>
             {

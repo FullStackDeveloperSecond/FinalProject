@@ -23,6 +23,10 @@ public static class AuditActions
     // alex PR #47 review round 2: startProcessing is a significant order-status action but
     // previously only wrote per-dimension OrderStatusHistory rows, with no central AuditLog entry.
     public const string OrderStartProcessing = "order.start_processing";
+    public const string ProductReviewApprove = "product_review.approve";
+    public const string ProductReviewReject = "product_review.reject";
+    public const string ProductReviewHide = "product_review.hide";
+    public const string ProductReviewRestore = "product_review.restore";
 
     // PR #38（M-01B 管理員登入／TOTP／Recovery Code）用，DEC-P296：高風險安全狀態變更
     // 與稽核紀錄同一交易，Audit 失敗整筆 rollback。
@@ -63,6 +67,7 @@ public static class AuditResourceTypes
     public const string AuditLog = "AuditLog";
     public const string AdminAccount = "AdminAccount";
     public const string Order = "Order";
+    public const string ProductReview = "ProductReview";
     public const string Coupon = "Coupon";
     public const string SupportTicket = "SupportTicket";
     public const string CompatibilityRuleSetting = "CompatibilityRuleSetting";
@@ -560,6 +565,22 @@ internal static class AuditWritePolicy
                 AuditActions.OrderStartProcessing,
                 AuditResourceTypes.Order,
                 "orderStatus", "fulfillmentStatus", "assemblyStatus"),
+            [AuditActions.ProductReviewApprove] = DefinitionWithNote(
+                AuditActions.ProductReviewApprove,
+                AuditResourceTypes.ProductReview,
+                "status"),
+            [AuditActions.ProductReviewReject] = DefinitionWithNote(
+                AuditActions.ProductReviewReject,
+                AuditResourceTypes.ProductReview,
+                "status"),
+            [AuditActions.ProductReviewHide] = DefinitionWithNote(
+                AuditActions.ProductReviewHide,
+                AuditResourceTypes.ProductReview,
+                "status"),
+            [AuditActions.ProductReviewRestore] = DefinitionWithNote(
+                AuditActions.ProductReviewRestore,
+                AuditResourceTypes.ProductReview,
+                "status"),
             [AuditActions.AdminTotpEnrollmentConfirm] = Definition(
                 AuditActions.AdminTotpEnrollmentConfirm,
                 AuditResourceTypes.AdminAccount,

@@ -30,6 +30,10 @@ public sealed class AiSupportMessageRequest
     public Guid[] ReferencedOrderPublicIds { get; init; } = [];
 
     [Required]
+    [MaxLength(3)]
+    public Guid[] ReferencedSupportTicketPublicIds { get; init; } = [];
+
+    [Required]
     [RegularExpression("^(zh-TW|ja-JP|ko-KR)$")]
     public string Locale { get; init; } = string.Empty;
 }
@@ -53,3 +57,49 @@ public sealed record AiSupportAnswerDto(
     string DegradationMode,
     string DisclaimerKey,
     AiSupportUsageDto Usage);
+
+public sealed class AiConsentRequest
+{
+    [Required]
+    [Range(1, int.MaxValue)]
+    public int PolicyVersion { get; init; }
+
+    [Required]
+    [RegularExpression("^(zh-TW|ja-JP|ko-KR)$")]
+    public string Locale { get; init; } = string.Empty;
+
+    [Required]
+    [Range(typeof(bool), "true", "true")]
+    public bool Accepted { get; init; }
+}
+
+public sealed record AiConsentStatusDto(
+    string State,
+    int PolicyVersion,
+    string? Locale,
+    DateTimeOffset? DecidedAtUtc);
+
+public sealed record AiUsageDto(
+    string Feature,
+    int UsedRequests,
+    int RequestLimit,
+    DateTimeOffset WindowStartUtc,
+    DateTimeOffset ResetAtUtc);
+
+public sealed record AdminAiUsageRowDto(
+    string Feature,
+    string Model,
+    string Status,
+    int InteractionCount,
+    int InputTokens,
+    int OutputTokens,
+    decimal? EstimatedCostUsd);
+
+public sealed record AdminAiUsageReportDto(
+    DateTimeOffset FromUtc,
+    DateTimeOffset ToUtc,
+    IReadOnlyList<AdminAiUsageRowDto> Rows,
+    decimal? CumulativeCostUsd,
+    bool BudgetWarningActive,
+    bool BudgetProtectionActive,
+    DateTimeOffset DataAsOfUtc);

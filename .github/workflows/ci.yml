@@ -186,12 +186,23 @@ jobs:
           curl --fail --silent http://127.0.0.1:5126/openapi/v1.json > /dev/null
           npm run api:check --prefix frontend/customer-web
 
-      - name: Run .NET tests
+      - name: Run non-timing .NET tests
         # The Backend job already provisions SQL Server, applies migrations, and exposes the
         # same connection string to the test host. Keep provider-backed authorization and
         # persistence tests inside the Required gate instead of silently filtering them out.
+        # TimingSideChannelTests run in the next step so solution-level test-project concurrency
+        # cannot distort their finalized 20ms latency threshold.
         run: >-
           dotnet test DoSelect.slnx --no-build --no-restore
+          --filter "FullyQualifiedName!~DoSelect.Api.IntegrationTests.TimingSideChannelTests"
+          --collect:"XPlat Code Coverage"
+          --results-directory .coverage/backend
+
+      - name: Run timing side-channel tests without competing test projects
+        run: >-
+          dotnet test tests/DoSelect.Api.IntegrationTests/DoSelect.Api.IntegrationTests.csproj
+          --no-build --no-restore
+          --filter "FullyQualifiedName~DoSelect.Api.IntegrationTests.TimingSideChannelTests"
           --collect:"XPlat Code Coverage"
           --results-directory .coverage/backend
 

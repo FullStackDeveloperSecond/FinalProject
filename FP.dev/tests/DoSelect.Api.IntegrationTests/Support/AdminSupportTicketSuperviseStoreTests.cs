@@ -18,12 +18,13 @@ namespace DoSelect.Api.IntegrationTests.Support;
 /// a transaction, RowVersion, or zero-side-effect defect. Races use the same
 /// ManualResetEventSlim + Task.WhenAll pattern as AdminSupportTicketClaimStoreTests.
 /// </summary>
-public sealed class AdminSupportTicketSuperviseStoreTests : IClassFixture<WebApplicationFactory<Program>>
+[Collection(nameof(SupportAuditSqlServerCollection))]
+public sealed class AdminSupportTicketSuperviseStoreTests
 {
     private const string Reason = "sql acceptance reason";
     private readonly WebApplicationFactory<Program> _factory;
 
-    public AdminSupportTicketSuperviseStoreTests(WebApplicationFactory<Program> factory) => _factory = factory;
+    public AdminSupportTicketSuperviseStoreTests(SupportAuditSqlServerFixture fixture) => _factory = fixture.Factory;
 
     // ---- assign ---------------------------------------------------------
 

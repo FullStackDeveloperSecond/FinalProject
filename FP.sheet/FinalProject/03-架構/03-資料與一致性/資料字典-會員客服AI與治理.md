@@ -101,6 +101,8 @@
 
 客服對話保存 180 天後刪除內容或匿名化識別，Audit／用量摘要依各自政策保留；其他顧客的對話不可作為 RAG 知識來源。
 
+M-19 的 `20260828110755_AddAiSupportConversationsAndInteractions` Migration 依本字典新增前三張表；`AiInteractions.AiConversationId` 保持 Nullable，並以 Owner Check 約束 Conversation／Search 恰一。Conversation＋Sequence 唯一索引只套用 `AiConversationId IS NOT NULL`，避免下一階段 Search 記錄因 SQL Server Null 唯一語意互相衝突。Migration 尚未套用共用開發資料庫。
+
 ## Import、Outbox、冪等與稽核
 
 | Table／Profile | 額外欄位 | Constraint／Index |

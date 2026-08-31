@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { isApiError } from '@doselect/web-shared/api'
 import { useSessionStore } from '../../stores/session'
 import PasswordVisibilityToggle from '../../components/PasswordVisibilityToggle.vue'
+import { resolveSafeRedirect } from '../../router/safeRedirect'
 import { requestEmailVerification } from './api'
 
 const email = ref('')
@@ -17,6 +18,7 @@ const resendState = ref<'idle' | 'sending' | 'sent' | 'error'>('idle')
 const resendError = ref<string | null>(null)
 
 const router = useRouter()
+const route = useRoute()
 const sessionStore = useSessionStore()
 
 async function handleSubmit(): Promise<void> {
@@ -32,7 +34,10 @@ async function handleSubmit(): Promise<void> {
       password: password.value,
       rememberMe: rememberMe.value,
     })
-    await router.push('/')
+    // 組長 PR #35 review, item 2: a shopper sent here from NewBuildPage (guest draft → login)
+    // must land back where they came from, not always the home page — see safeRedirect.ts for
+    // why this one consumption point is where the value gets validated.
+    await router.push(resolveSafeRedirect(route.query.redirect))
   } catch (error) {
     topLevelError.value = resolveErrorMessage(error)
     emailUnverified.value = isApiError(error) && error.code === 'account_email_unverified'

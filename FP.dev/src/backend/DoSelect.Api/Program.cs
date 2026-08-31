@@ -19,11 +19,13 @@ using DoSelect.Infrastructure.Orders;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using DoSelect.Infrastructure.Invoicing;
+using DoSelect.Infrastructure.OperationalReports;
 using DoSelect.Infrastructure.Persistence.Orders;
 using DoSelect.Infrastructure.Persistence.Returns;
 using DoSelect.Infrastructure.Outbox;
 using DoSelect.Infrastructure.Persistence.Seeding;
 using DoSelect.Infrastructure.Refunds;
+using DoSelect.Infrastructure.Reviews;
 using DoSelect.Infrastructure.Security;
 using DoSelect.Infrastructure.Shopping;
 using Microsoft.AspNetCore.Authentication;
@@ -49,6 +51,7 @@ builder.Services.AddDoSelectFileStorage();
 builder.Services.AddDoSelectSecurity(builder.Environment, builder.Configuration);
 builder.Services.AddDoSelectAdminAuth();
 builder.Services.AddDoSelectRefunds();
+builder.Services.AddDoSelectReviews();
 builder.Services.AddDoSelectCatalogServices();
 builder.Services.AddDoSelectShoppingServices();
 builder.Services.AddDoSelectGuestOrderAccess(builder.Configuration);
@@ -56,6 +59,7 @@ builder.Services.AddDoSelectCheckout();
 builder.Services.AddDoSelectAdminOrderServices();
 builder.Services.AddDoSelectApplication();
 builder.Services.AddDoSelectOrderServices();
+builder.Services.AddDoSelectOperationalReports();
 builder.Services.AddDoSelectInvoicing();
 builder.Services.AddDoSelectPromotions();
 builder.Services.AddDoSelectReturnsServices();
@@ -159,7 +163,8 @@ app.Use(async (context, next) =>
     }
     else if (context.Request.Path.StartsWithSegments("/api/v1/cart") ||
         context.Request.Path.StartsWithSegments("/api/v1/orders") ||
-        context.Request.Path.StartsWithSegments("/api/v1/returns"))
+        context.Request.Path.StartsWithSegments("/api/v1/returns") ||
+        context.Request.Path.StartsWithSegments("/api/v1/ai/product-search"))
     {
         var result = await context.AuthenticateAsync(DoSelectAuthenticationSchemes.Member);
         if (result.Succeeded && result.Principal is not null)

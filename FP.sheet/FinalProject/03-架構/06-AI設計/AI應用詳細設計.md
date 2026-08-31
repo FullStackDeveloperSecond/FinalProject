@@ -135,6 +135,15 @@ General
 - 只有品牌或其他軟性偏好缺少時可直接搜尋，不強迫補問。
 - 使用者拒絕補充時，提供一般關鍵字搜尋與篩選，不自行猜測預算或硬性規格。
 
+### CustomBuild 完整清單與預算
+
+- 成功結果只回傳一份完整組裝，不把八類零件拆成互不相關的推薦卡。必要類別固定為 `CPU`、`MOTHERBOARD`、`MEMORY`、`GPU`、`STORAGE`、`PSU`、`CASE`、`CPU_COOLER`。
+- 站內既有 SKU 與使用者確認的結構化手填零件先併入完整清單；缺少的類別才從公開、上架、預設 SKU 且有可售庫存的商品中選取。
+- 最高預算是 `purchaseSubtotal + assemblyFee`；`assemblyFee` 固定 NT$300。既有零件價格不計入 `purchaseSubtotal`，但仍顯示於清單並參與全部確定性規則。
+- 每個完整候選都必須交由正式相容性設定與規則引擎檢查；`Blocked`、`InsufficientData` 或缺少必要類別時不回傳推薦。`Warning` 可回傳但必須保留警示鍵。
+- OpenAI 只接收後端核准的新購商品卡並產生逐 SKU 理由；不得替既有零件捏造理由，也不得修改價格、庫存、類別、相容性或總額。
+- 第一版以有界候選組合找出一份符合條件的完整清單，不承諾全域最低價或效能最佳解；找不到合法完整組合時回 `noResults`，不補入虛構零件。
+
 ### 搜尋失敗與降級
 
 | 情境 | 處理 |
@@ -237,10 +246,13 @@ sequenceDiagram
 - 若帳號無法使用選定模型或 Snapshot，不得由開發者自行換模；需記錄成本、品質與相容性後重新決策。
 - AI 客服 Adapter 直接以既有 `HttpClient` 呼叫固定的 Responses Endpoint，不新增 OpenAI SDK 或可設定的外送 Host；正式 DI 仍只暴露 `IAiSupportModelClient`。
 - AI 客服 Request 固定 `store=false`，不送 `previous_response_id`，第一版也不在此 Adapter 暴露 Tool；此設定不取代本系統自身的 90／180／365 天保存與清除規則。
-- 設定鍵為 `OpenAI:ApiKey`、`OpenAI:SupportModel` 與 `OpenAI:SupportTimeoutMilliseconds`；預設模型 `gpt-5.6-terra`、單次嘗試 12 秒，功能啟用時缺少或不合法設定即啟動失敗。
+- 設定鍵為 `OpenAI:ApiKey`、`OpenAI:SupportModel`、`OpenAI:SupportTimeoutMilliseconds`、`OpenAI:SupportInputCostPerMillionTokens`、`OpenAI:SupportOutputCostPerMillionTokens`、`OpenAI:BudgetAlertRecipientAdminPublicId` 與選填的 `OpenAI:DemoMemberPublicIds`；預設模型 `gpt-5.6-terra`、單次嘗試 12 秒。AI 啟用時 API Key、兩種 Token 單價或組長通知帳號缺少／不合法即安全失敗；價格只由設定版本更新，不硬編在程式。
+- US$70 警示收件者固定為設定中的單一 Active SuperAdmin。成本首次跨越門檻時，Interaction 與 Email／站內通知 Outbox 在同一 Serializable 交易保存；已在門檻以上的後續互動不重複建立通知。帳號失效或失去 SuperAdmin 時，Admission Gate 在 OpenAI 呼叫前 Fail Closed。US$90 仍停用非 Demo Allowlist 流量。
 - 429、Request Timeout、5xx、網路失敗、回應截斷或結構不合法最多重試一次；其他 4xx、模型明確轉人工與呼叫端取消不重試。重試只發生在同一次已預留互動，不重扣或退款額度。
 - 輸出使用 strict JSON Schema；答案最多 4,000 字、引用最多 8 筆。引用必須匹配本次後端核准來源，標題與版本由後端可信資料覆寫，不採用模型提供的 URL。成功回應必須帶回 Provider 實際模型名稱及 Input／Output Token；缺少或不合法時 Fail Closed。
 
-既有零件識別格式與 Clarification Precision／Recall 發布門檻均已定版；120 筆繁中 draft 評估資料、合成 Fixture、Grader Contract 與 deterministic 驗證已建立於 `FP.dev/evals/ai/v1`。Application 已建立 32 項 AI 安全測試；API 的 `POST /api/v1/ai/support/messages` 具 Member／Guest 雙 Scheme 的 `AiSupport.Member` Policy，真正 GuestOrderAccess Cookie 通過 Authentication 後因缺 Member Claim 回 403。Infrastructure 已接上 `EfAiSupportAdmissionGate` 與 `EfAiSupportContextReader`：前者只接受 `AiConsentPolicy.CurrentVersion=1`、`Purpose=Support` 範圍內的最新 append-only 同意，以 `Asia/Taipei` 00:00 日界線、Serializable 交易、SQL Server Key-range Lock 與 RequestPublicId UX 原子預留每日 20 則；後者只依可信 Member ID 查本人訂單並輸出去識別最小 JSON。資料庫故障、內容安全或 Owner 不符均 Fail Closed，不呼叫模型。
+既有零件識別格式與 Clarification Precision／Recall 發布門檻均已定版；120 筆繁中 draft 評估資料、合成 Fixture、Grader Contract 與 deterministic 驗證已建立於 `FP.dev/evals/ai/v1`。API 的 `POST /api/v1/ai/support/messages` 具 Member／Guest 雙 Scheme 的 `AiSupport.Member` Policy，真正 GuestOrderAccess Cookie 通過 Authentication 後因缺 Member Claim 回 403。Infrastructure 已接上 `EfAiSupportAdmissionGate`、`EfAiSupportContextReader`、append-only 同意 Manager 與 Interaction Store：Admission 只接受 `AiConsentPolicy.CurrentVersion=1`、`Purpose=Support` 範圍內的最新同意，以 `Asia/Taipei` 00:00 日界線、Serializable 交易、SQL Server Key-range Lock 與 RequestPublicId UX 原子預留每日 20 則；Context 只依可信 Member ID 查本人訂單、本人客服案件公開訊息及本人既有 AI Conversation，排除 Internal Note、附件與個資。Interaction 保存回答／降級、可信引用、模型、Prompt／Schema 版本、實際 Token、設定化估算成本與延遲；資料庫故障、內容安全或 Owner 不符均 Fail Closed，不呼叫模型。
 
-AI-13 與 Adapter 現有證據為 Domain 4、Application 32、Infrastructure 19、API 10；Migration `20260828050333_AddAiSafetyConsentAndUsage` 只新增 `AiConsentRecords` 與 `AiUsageLedger`、索引、Check Constraint 與 Restrict FK，尚未套用共用開發資料庫。Provider-backed 測試另證明版本不符不會預留額度、每日額度在台灣午夜重置。客服 Responses Adapter 的 11 項零外部呼叫測試涵蓋無狀態 Payload、授權、strict Schema、可信引用、模型／Token、重試、非暫時錯誤、轉人工、取消、非法來源、Null 引用及非法語系；Application 另驗證模型／Token 會傳回 Use Case 結果供 M-19 保存。剩餘工作為 Terry／Kafen 評估資料覆核、搜尋專用 Adapter／Endpoint、M-19 同意／撤回 Endpoint 與客服歷史 Query、前端 E2E，以及真實模型品質、P95 與成本 baseline。
+AI-13、Responses Adapter 與 M-19 已透過 PR #59 合併 `dev`，包含同意查詢／Grant／Withdraw、本人 Order／SupportTicket／Conversation Query、互動／引用／Token／成本保存、會員用量、A-28 管理彙總、會員聊天 UI、管理成本 UI 與 Playwright 降級旅程。Migration `20260828110755_AddAiSupportConversationsAndInteractions` 新增的 `AiInteractions.SearchPublicId` 與 `IntentJson` 已可直接承接搜尋互動，M-18 不需新增資料表或 Migration。
+
+`codex/m18-ai-product-search` 已形成搜尋專用 SearchIntent 與推薦理由 strict Responses Adapter、訪客／會員 10／30 額度、IP＋30 日 Browser ID 匿名鍵、SQL 公開候選、站內 SKU／使用者確認手填零件、自然語言 `ProposedExistingPart` 確認閘門、八類完整 CustomBuild、NT$300 組裝費與既有零件不重複計價、正式確定性相容性檢查、核准候選理由驗證、Fail Closed 互動保存、關鍵字降級、公開 Endpoint、OpenAPI 與 `/ai-search` UI。工作分支證據不等於已發布；完整驗證數字以本次開發日誌為準。M-18 Playwright 已透過隨機 `DoSelectE2E_*` 資料庫重播全部 19 支 Migration、最小 Seed 與公開搜尋降級旅程，1／1 通過後成功清除；唯讀核對確認零測試庫殘留，且共用 `DoSelectDb` 仍只有 `InitialCreate`、未被修改。其餘發布 Gate 為完整 Review、Required CI、PR／合併，以及 AI-09 的 Terry／Kafen 覆核與真實模型品質、P95、Token、成本 baseline。

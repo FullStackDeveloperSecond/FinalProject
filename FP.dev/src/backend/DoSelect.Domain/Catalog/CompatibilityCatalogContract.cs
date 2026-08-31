@@ -97,4 +97,56 @@ public static class CompatibilityCatalogContract
             SemanticKeys.CaseSupportedPsuFormFactor,
             SemanticKeys.CoolerHeightMm,
         };
+
+    public static IReadOnlyDictionary<string, IReadOnlySet<string>> RequiredSemanticKeysByCategory { get; } =
+        new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal)
+        {
+            [Categories.Cpu] = Keys(
+                SemanticKeys.CpuSocket,
+                SemanticKeys.CpuGeneration,
+                SemanticKeys.PowerDrawWatts),
+            [Categories.Motherboard] = Keys(
+                SemanticKeys.CpuSocket,
+                SemanticKeys.MotherboardChipset,
+                SemanticKeys.MemoryType,
+                SemanticKeys.MemorySlotCount,
+                SemanticKeys.MemoryMaxCapacityGb,
+                SemanticKeys.MotherboardFormFactor,
+                SemanticKeys.M2SlotCount,
+                SemanticKeys.SataPortCount,
+                SemanticKeys.MotherboardCpuEps8PinRequiredCount,
+                SemanticKeys.PowerDrawWatts),
+            [Categories.Memory] = Keys(
+                SemanticKeys.MemoryType,
+                SemanticKeys.MemoryModuleCount,
+                SemanticKeys.MemoryKitCapacityGb,
+                SemanticKeys.PowerDrawWatts),
+            [Categories.Gpu] = Keys(
+                SemanticKeys.GpuLengthMm,
+                SemanticKeys.GpuRecommendedPsuWatts,
+                SemanticKeys.GpuPcie62PinRequiredCount,
+                SemanticKeys.Gpu12VhpwrRequiredCount,
+                SemanticKeys.PowerDrawWatts),
+            [Categories.Storage] = Keys(
+                SemanticKeys.StorageInterface,
+                SemanticKeys.PowerDrawWatts),
+            [Categories.Psu] = Keys(
+                SemanticKeys.PsuRatedWatts,
+                SemanticKeys.PsuPcie62PinCount,
+                SemanticKeys.Psu12VhpwrCount,
+                SemanticKeys.PsuCpuEps8PinCount,
+                SemanticKeys.PsuFormFactor),
+            [Categories.Case] = Keys(
+                SemanticKeys.CaseSupportedMotherboardFormFactor,
+                SemanticKeys.CaseGpuMaxLengthMm,
+                SemanticKeys.CaseCoolerMaxHeightMm,
+                SemanticKeys.CaseSupportedPsuFormFactor),
+            [Categories.CpuCooler] = Keys(
+                SemanticKeys.CpuSocket,
+                SemanticKeys.CoolerHeightMm,
+                SemanticKeys.PowerDrawWatts),
+        };
+
+    private static IReadOnlySet<string> Keys(params string[] values) =>
+        new HashSet<string>(values, StringComparer.Ordinal);
 }

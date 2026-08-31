@@ -253,6 +253,22 @@ public sealed class AiUsageLedgerEntry : Entity
             succeeded: true,
             occurredAtUtc);
 
+    public static AiUsageLedgerEntry ReserveProductSearch(
+        string? memberUserId,
+        byte[]? anonymousSessionKeyHash,
+        Guid requestPublicId,
+        DateTime occurredAtUtc) =>
+        new(
+            memberUserId,
+            anonymousSessionKeyHash,
+            AiUsageFeature.ProductSearch,
+            requestPublicId,
+            inputTokens: 0,
+            outputTokens: 0,
+            estimatedCostUsd: 0m,
+            succeeded: true,
+            occurredAtUtc);
+
     private static string RequireBoundedText(
         string value,
         string parameterName,

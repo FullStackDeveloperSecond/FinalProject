@@ -16,6 +16,8 @@ const codeMessages: Record<string, string> = {
   reference_not_found: '關聯的資料不存在',
   specification_invalid: '規格值不正確',
   validation_failed: '資料驗證失敗',
+  compatibility_threshold_out_of_range: '門檻數值超出允許範圍',
+  resource_not_found: '找不到此規則',
 }
 
 export function describeApiError(error: ApiError): string {

@@ -25,6 +25,7 @@
 
 - Given 使用者描述用途、預算、規格或品牌偏好，When AI 回傳符合 Schema 的資料，Then 後端仍需驗證型別、允許值與商業限制。
 - Given 必要資訊不足，Then 系統回傳澄清問題，不自行猜測後直接查詢。
+- Given 自然語言提到既有零件，Then 系統只回傳 `ProposedExistingPart` 與確認提示；使用者確認並補齊必要規格前，不得查詢候選或宣稱相容。
 - Given AI 拒絕、輸出截斷、Schema 不合法或業務驗證失敗，Then 不使用該輸出查詢商品。
 - Given 任一 AI 條件包含資料庫欄名、任意 SQL 或未允許運算式，Then 後端拒絕。
 - Given 同一功能日額已用盡，Then 不呼叫 OpenAI，改用一般搜尋並記錄用量限制結果。
@@ -39,6 +40,9 @@ Schema 採小型業務條件且不得暴露資料庫欄位；用途 Enum 與補�
 
 - Given AI 解析出條件，Then 商品候選只能由 SQL Server 的公開、上架、價格與庫存資料取得。
 - Given 候選為組裝清單，Then 後端相容性規則必須通過；AI 不能覆寫 `CompatibilityCheckResult`。
+- Given Intent 為 `CustomBuild`，Then 成功結果包含 CPU、主機板、記憶體、顯示卡、儲存裝置、電源供應器、機殼及 CPU 散熱器八類完整清單，不得只回傳獨立商品候選。
+- Given 使用者帶入既有零件，Then 該零件顯示於完整清單並參與相容性驗證，但不計入本次新購小計；最高預算等於新購零件小計加固定 NT$300 組裝費。
+- Given 完整組合為 `Blocked`、`InsufficientData`、缺少必要類別或超出最高預算，Then 不得回傳推薦；`Warning` 可回傳但必須顯示提醒。
 - Given 商品缺貨、下架、價格超出正式預算或組裝不相容，Then 不得因 AI 推薦文字而放行。
 - Given 有合法結果，Then 每個推薦需說明和用途、預算或偏好的關聯，且理由只能引用後端提供的資料。
 - Given 沒有合法結果，Then 提供可解釋的無結果原因、放寬條件建議或一般篩選入口，不虛構商品。
@@ -101,7 +105,7 @@ Schema 採小型業務條件且不得暴露資料庫欄位；用途 Enum 與補�
 
 - Given AI 客服完成一次互動，Then 保存允許保存的對話、用途、模型、Token、估算成本、成功／失敗與降級狀態。
 - Given 會員單日 AI 客服達 20 則，Then 後續不再呼叫 AI並提供人工客服入口。
-- Given 估算累計成本達 US$70，Then 通知組長；達 US$90，Then 停用非 Demo Allowlist 的 AI 流量。
+- Given 估算累計成本首次由低於 US$70 跨越門檻，Then 透過 Outbox 對設定中的唯一 Active SuperAdmin 建立一次 Email 與站內通知；Given 收件設定或角色不合法，Then 在呼叫 OpenAI 前 Fail Closed；達 US$90，Then 停用非 Demo Allowlist 的 AI 流量。
 - Given AI 服務停用，Then 既有人工客服案件、訂單與基本電商功能仍正常。
 - Given OpenAI 原始請求／回答超過 90 天，已結案件原始對話超過 180 天，或去識別化統計超過 1 年，Then 依 `AI-14` 的清除工作處理並記錄結果。
 
@@ -111,4 +115,4 @@ Schema 採小型業務條件且不得暴露資料庫欄位；用途 Enum 與補�
 - 完整自然語言搜尋 JSON Schema 欄位型別與 Enum 已定於 [[03-架構/06-AI設計/AI應用詳細設計]]。
 - AI 客服四個工具、引用欄位及精確 Request／Response DTO 已定於 [[03-架構/06-AI設計/AI應用詳細設計]] 與 [[03-架構/02-API與前端契約/API DTO與Schema契約]]。
 - Prompt、Schema、工具版本規則已確認，實作格式詳見 [[03-架構/06-AI設計/AI應用詳細設計]]。
-- 個資遮蔽、跨會員、同意、額度預留、最後一額、併發競爭、語系、唯讀工具、Schema、故障與 Prompt Injection 信任分層已有 32 項 Application、10 項 API、4 項 Domain 與 19 項 Infrastructure AI 自動化。正式 SQL Server Admission Gate、append-only 同意／額度資料、本人訂單去識別 Owner Query、RequestPublicId 冪等、真正 GuestOrderAccess Cookie 403，以及客服 Responses Adapter 的 `store=false`、strict Schema、可信引用、模型／Token 與降級均已形成；同意 UI／E2E、搜尋專用 Adapter 與 live evaluation 仍由 M-19、M-18 與 AI-09 追蹤，詳見 [[03-架構/06-AI設計/AI測試與評估規格]]。
+- 個資遮蔽、跨會員、同意、額度預留、最後一額、併發競爭、語系、唯讀工具、Schema、故障與 Prompt Injection 信任分層已有自動化證據。`dev` 已包含 SQL Server Admission Gate、append-only 同意／額度、本人訂單 Owner Query、RequestPublicId 冪等、Guest Cookie 403、Responses Adapter 與 M-19 完整垂直切片。`codex/m18-ai-product-search` 另形成 SearchIntent、自然語言既有零件確認閘門、公開 Endpoint、10／30 額度、八類完整 CustomBuild、新購小計＋NT$300 組裝費、既有零件不重複計價、正式相容性、理由與降級 UI；其狀態仍須以 Required CI／Review／合併為準。Live evaluation 由 AI-09 獨立追蹤，詳見 [[03-架構/06-AI設計/AI測試與評估規格]]。
