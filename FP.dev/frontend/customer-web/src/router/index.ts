@@ -86,6 +86,16 @@ const router = createRouter({
       props: true,
     },
     {
+      path: '/guest-orders/access',
+      name: 'guest-order-access',
+      component: () => import('../pages/guest-orders/GuestOrderAccessPage.vue'),
+    },
+    {
+      path: '/guest-orders/verify',
+      name: 'guest-order-verify',
+      component: () => import('../pages/guest-orders/GuestOrderVerifyPage.vue'),
+    },
+    {
       path: '/orders/:orderId',
       name: 'order-detail',
       component: () => import('../features/orders/OrderDetailPage.vue'),
