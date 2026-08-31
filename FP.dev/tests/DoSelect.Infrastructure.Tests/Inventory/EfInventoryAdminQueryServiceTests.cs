@@ -14,6 +14,7 @@ namespace DoSelect.Infrastructure.Tests.Inventory;
 /// rather than be rejected as unknown.
 /// </summary>
 [Collection(nameof(InventoryReservationServiceCollection))]
+[Trait("Category", "RequiresSqlServer")]
 public sealed class EfInventoryAdminQueryServiceTests
 {
     private readonly InventoryReservationServiceFixture _fixture;
