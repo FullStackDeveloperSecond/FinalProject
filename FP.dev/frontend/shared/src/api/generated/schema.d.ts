@@ -1319,6 +1319,108 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/refunds/{refundPublicId}/actions/execute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": string;
+                };
+                path: {
+                    refundPublicId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ExecuteRefundRequestBody"];
+                    "text/json": components["schemas"]["ExecuteRefundRequestBody"];
+                    "application/*+json": components["schemas"]["ExecuteRefundRequestBody"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["RefundDto"];
+                        "application/json": components["schemas"]["RefundDto"];
+                        "text/json": components["schemas"]["RefundDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/coupons/catalog-options/categories": {
         parameters: {
             query?: never;
@@ -8215,6 +8317,12 @@ export interface components {
         EmailVerificationRequest: {
             email: string;
         };
+        ExecuteRefundRequestBody: {
+            reasonCode: string;
+            note?: null | string;
+            /** Format: byte */
+            refundRowVersion: string;
+        };
         ExtendShipmentDeadlineRequest: {
             reasonCode: string;
             /** Format: byte */
@@ -8366,6 +8474,11 @@ export interface components {
             email: string;
             password: string;
             rememberMe?: boolean;
+        };
+        MaskedAdminSummaryDto: {
+            /** Format: uuid */
+            publicId: string;
+            maskedLabel: string;
         };
         MemberAddressResponse: {
             /** Format: uuid */
@@ -8866,6 +8979,45 @@ export interface components {
             quantity: number | string;
             restockDisposition: null | components["schemas"]["RestockDisposition"];
         };
+        RefundAllocationDto: {
+            /** Format: uuid */
+            orderItemPublicId: null | string;
+            /** Format: int32 */
+            quantity: null | number | string;
+            type: components["schemas"]["RefundAllocationType"];
+            /** Format: double */
+            amount: number | string;
+        };
+        /** @enum {unknown} */
+        RefundAllocationType: "itemRefund" | "discountClawback" | "originalShipping" | "shippingClawback" | "returnShipping" | "assemblyFee" | "otherAdjustment";
+        RefundDto: {
+            /** Format: uuid */
+            publicId: string;
+            refundNumber: string;
+            /** Format: uuid */
+            orderPublicId: string;
+            /** Format: uuid */
+            returnPublicId: null | string;
+            status: components["schemas"]["RefundStatus"];
+            /** Format: double */
+            requestedAmount: number | string;
+            /** Format: double */
+            approvedAmount: null | number | string;
+            /** Format: double */
+            succeededAmount: null | number | string;
+            allocations: components["schemas"]["RefundAllocationDto"][];
+            requestedBy: null | components["schemas"]["MaskedAdminSummaryDto"];
+            approvedBy: null | components["schemas"]["MaskedAdminSummaryDto"];
+            executedBy: null | components["schemas"]["MaskedAdminSummaryDto"];
+            /** Format: date-time */
+            createdAtUtc: string;
+            /** Format: date-time */
+            succeededAtUtc: null | string;
+            /** Format: byte */
+            rowVersion: string;
+        };
+        /** @enum {unknown} */
+        RefundStatus: "pendingReview" | "approved" | "rejected" | "processing" | "succeeded" | "failed" | "cancelled";
         RegisterAcceptedResponse: {
             /** Format: uuid */
             publicId: string;
