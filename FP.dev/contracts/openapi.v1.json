@@ -1713,7 +1713,10 @@
           {
             "name": "Idempotency-Key",
             "in": "header",
+            "required": true,
             "schema": {
+              "maxLength": 128,
+              "minLength": 1,
               "type": "string"
             }
           }

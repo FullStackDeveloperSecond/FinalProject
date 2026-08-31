@@ -75,6 +75,23 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
     }
 
     [Fact]
+    public async Task AnOversizedIdempotencyKeyReturns400BeforeAnyExecution()
+    {
+        var executor = new FakeRefundExecutor(Settled(500m));
+        using var factory = CreateFactory(executor);
+        using var client = factory.CreateClient();
+        await SignInAsync(client, includeMfa: true, DoSelectRoles.FinanceManager);
+
+        using var response = await PostAsync(client, idempotencyKey: new string('k', 129));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Null(executor.LastRequest);
+
+        var problem = await response.Content.ReadAsStringAsync();
+        Assert.Contains("validation_failed", problem, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task AnAuthorisedExecutionReturnsTheSettledAmount()
     {
         var executor = new FakeRefundExecutor(Settled(500m));

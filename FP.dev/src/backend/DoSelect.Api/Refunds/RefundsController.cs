@@ -8,6 +8,7 @@ using DoSelect.Application.Support.Dtos;
 using DoSelect.Domain.Refunds;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 
 namespace DoSelect.Api.Refunds;
 
@@ -38,7 +39,9 @@ public sealed class RefundsController(
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<RefundDto>> Execute(
         Guid refundPublicId,
-        [FromHeader(Name = IdempotencyKeyHeaderName)] string? idempotencyKey,
+        [FromHeader(Name = IdempotencyKeyHeaderName), BindRequired]
+        [StringLength(128, MinimumLength = 1)]
+        string idempotencyKey,
         [FromBody] ExecuteRefundRequestBody body,
         CancellationToken cancellationToken)
     {

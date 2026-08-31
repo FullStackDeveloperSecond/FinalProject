@@ -262,6 +262,18 @@ public sealed class ExecuteRefundServiceTests
     }
 
     [Fact]
+    public async Task RequireWellFormedRejectsAnOversizedIdempotencyKey()
+    {
+        var service = new ExecuteRefundService(new FakeRefundExecutionReader(Snapshot()));
+
+        var exception = await Assert.ThrowsAsync<DomainProblemException>(
+            () => service.PreviewAsync(Request(idempotencyKey: new string('k', 129))));
+
+        Assert.Equal(400, exception.StatusCode);
+        Assert.Equal(DomainErrorCodes.ValidationFailed, exception.Code);
+    }
+
+    [Fact]
     public async Task RequireWellFormedRejectsAMissingAdministrator()
     {
         var service = new ExecuteRefundService(new FakeRefundExecutionReader(Snapshot()));

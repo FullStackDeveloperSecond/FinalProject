@@ -1,6 +1,6 @@
 ---
 文件狀態: 已寫回
-最後更新: 2026-08-29
+最後更新: 2026-08-31
 decision_type: reviewed
 status: applied
 applied_at: 2026-08-29
@@ -38,6 +38,10 @@ Orders／Returns 模組的表。這件事由 yinyin 於 PR #16 主動回報，al
 
 本模組自有的表（`Refunds`、`RefundAllocations`、`PaymentAttempts`）不在例外範圍內，
 本來就可以存取。
+
+2026-08-31 整合最新 `dev` 時，既有 `RefundInvoiceReferenceReader` 一併進入完整目錄守門；
+它只讀本模組自有的 `Refunds` 表，因此白名單記為 `Refunds: *`，不新增或擴張任何
+跨模組例外。
 
 ### 欄位範圍
 

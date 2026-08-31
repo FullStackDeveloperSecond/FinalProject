@@ -282,6 +282,12 @@ public static class RefundExecutionDecision
             throw DomainProblemException.Validation("The idempotency key is required.");
         }
 
+        if (request.IdempotencyKey.Trim().Length > 128)
+        {
+            throw DomainProblemException.Validation(
+                "The idempotency key cannot exceed 128 characters.");
+        }
+
         // SQL Server 的 rowversion 固定 8 bytes。長度不對的值不可能是任何一列的版本，
         // 在這裡擋下可得到 400，而不是讓它一路走到比對失敗後變成語意不對的 409。
         if (request.RefundRowVersion is not { Length: 8 })

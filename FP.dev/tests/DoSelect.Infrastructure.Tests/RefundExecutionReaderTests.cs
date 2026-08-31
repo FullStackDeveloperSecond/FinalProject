@@ -143,6 +143,14 @@ public sealed class RefundExecutionReaderTests
                 ["PaymentAttempts"] = ["*"],
             },
 
+            // 最新 dev 的發票交接讀取埠；只讀本模組自有 Refunds 表，
+            // 不新增或擴張任何 DEC-B1 跨模組例外。
+            ["RefundInvoiceReferenceReader.cs"] =
+                new Dictionary<string, string[]>(StringComparer.Ordinal)
+                {
+                    ["Refunds"] = ["*"],
+                },
+
             // B1-1：退款計算所需的可信快照。
             ["RefundTrustedInputsReader.cs"] = new Dictionary<string, string[]>(StringComparer.Ordinal)
             {
