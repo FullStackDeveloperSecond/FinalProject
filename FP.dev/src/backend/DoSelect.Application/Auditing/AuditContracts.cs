@@ -57,6 +57,7 @@ public static class AuditActions
     public const string CompatibilityRuleActivationUpdate = "compatibility_rule.activation.update";
     public const string CompatibilityRuleTest = "compatibility_rule.test";
     public const string OutboxRetry = "outbox.retry";
+    public const string PaymentSimulateComplete = "payment.simulate.complete";
 }
 
 public static class AuditResourceTypes
@@ -73,6 +74,7 @@ public static class AuditResourceTypes
     public const string CompatibilityRuleSetting = "CompatibilityRuleSetting";
     public const string CompatibilityCheckRun = "CompatibilityCheckRun";
     public const string OutboxMessage = "OutboxMessage";
+    public const string PaymentAttempt = "PaymentAttempt";
 }
 
 public static class AuditRoleNames
@@ -655,6 +657,10 @@ internal static class AuditWritePolicy
                 AuditActions.OutboxRetry,
                 AuditResourceTypes.OutboxMessage,
                 "status"),
+            [AuditActions.PaymentSimulateComplete] = Definition(
+                AuditActions.PaymentSimulateComplete,
+                AuditResourceTypes.PaymentAttempt,
+                "attemptStatus", "paymentStatus", "orderStatus", "paymentEvent", "notification"),
         };
 
     public static AuditActionDefinition RequireDefinition(string action)
