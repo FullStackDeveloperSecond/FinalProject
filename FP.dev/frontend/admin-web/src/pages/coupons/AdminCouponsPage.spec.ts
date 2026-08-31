@@ -445,7 +445,8 @@ describe('AdminCouponsPage', () => {
     expect(inactiveRow.text()).toContain('已停用')
 
     // 既有選取不會消失，而且仍然勾著。
-    expect(inactiveRow.find('input[type="checkbox"]').element.checked).toBe(true)
+    expect((inactiveRow.find('input[type="checkbox"]').element as HTMLInputElement).checked)
+      .toBe(true)
 
     // 啟用的那一列不該被標示。
     const activeRow = wrapper.findAll('.scope-results li')
@@ -454,7 +455,8 @@ describe('AdminCouponsPage', () => {
 
     // 管理員仍可移除它。
     await inactiveRow.find('input[type="checkbox"]').trigger('change')
-    expect(inactiveRow.find('input[type="checkbox"]').element.checked).toBe(false)
+    expect((inactiveRow.find('input[type="checkbox"]').element as HTMLInputElement).checked)
+      .toBe(false)
   })
 
   it('summarises the scope in the rule preview', async () => {
