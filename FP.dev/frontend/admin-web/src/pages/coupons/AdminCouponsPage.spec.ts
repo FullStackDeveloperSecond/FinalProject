@@ -753,6 +753,27 @@ describe('AdminCouponsPage', () => {
     }))
   })
 
+  it('restores the list conditions when navigation changes the URL after mount', async () => {
+    mockListCoupons.mockResolvedValue(page([]))
+    const router = createTestRouter()
+    await router.push('/coupons?q=FIRST&status=active&page=2')
+    await router.isReady()
+
+    mountPage(router)
+    await flushPromises()
+    mockListCoupons.mockClear()
+
+    // Browser back/forward changes route.query without remounting this page.
+    await router.push('/coupons?q=SECOND&status=paused&page=3')
+    await flushPromises()
+
+    expect(mockListCoupons).toHaveBeenCalledWith(expect.objectContaining({
+      q: 'SECOND',
+      statuses: ['paused'],
+      pageNumber: 3,
+    }))
+  })
+
   it('ignores a status in the URL that is not a real coupon status', async () => {
     mockListCoupons.mockResolvedValue(page([]))
     const router = createTestRouter()

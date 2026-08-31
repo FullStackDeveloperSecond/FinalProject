@@ -30,7 +30,7 @@ const restricted = computed(() => props.scopeType === 'restricted')
 
 const categoryTerm = ref('')
 
-// 攤平整棵分類樹要對每個節點各發一個請求，所以只在真的展開「指定範圍」時才載入。
+// 分類由優惠券用途限定端點一次批次取得；只在展開「指定範圍」時才需要載入。
 const {
   data: categories,
   isPending: categoriesPending,
@@ -52,9 +52,8 @@ const visibleCategories = computed(() => {
 /**
  * 已選但不在清單裡的分類。
  *
- * 分類清單來自店面的篩選端點，只含啟用中的分類。舊券引用的分類若之後被停用，
- * 它仍然生效，卻不會出現在可勾選的清單裡 —— 不另外列出來的話，管理員會以為
- * 這張券沒有設定分類範圍。
+ * 新端點會回啟用與停用分類；這裡保留的備援是處理已被刪除或後端無法解析、但仍
+ * 存在於舊券規則裡的 PublicId。不能把它藏起來，否則管理員會誤以為範圍不存在。
  */
 const unlistedCategoryPublicIds = computed(() => {
   const known = new Set((categories.value ?? []).map(option => option.publicId))

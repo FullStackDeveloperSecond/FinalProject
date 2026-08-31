@@ -35,14 +35,14 @@ const statusOptions = Object.keys(statusLabels) as CouponStatus[]
 const route = useRoute()
 const router = useRouter()
 
-const { filters, listParams, search, goToPage } = useSearchFilters(20)
+const { filters, listParams, search, goToPage, restore: restoreSearchFilters } = useSearchFilters(20)
 const selectedStatuses = ref<CouponStatus[]>([])
 
 /**
  * 從網址還原列表條件。
  *
- * 順序有意義：先填 `q` 再 `search()`（立即套用、略過 debounce，但會把頁碼重設為 1），
- * 最後才寫回頁碼。反過來的話，還原出來的永遠是第 1 頁。
+ * `restoreSearchFilters` 會把已套用關鍵字與頁碼當成同一個狀態還原，避免一般輸入
+ * watcher 把網址中的頁碼重設為 1。
  */
 function restoreFromQuery() {
   const q = typeof route.query.q === 'string' ? route.query.q : ''
@@ -52,13 +52,13 @@ function restoreFromQuery() {
     .filter((value): value is CouponStatus => statusOptions.includes(value as CouponStatus))
   const page = Number(route.query.page)
 
-  filters.q = q
-  search()
+  restoreSearchFilters(q, Number.isInteger(page) && page > 0 ? page : 1)
   selectedStatuses.value = statuses
-  filters.pageNumber = Number.isInteger(page) && page > 0 ? page : 1
 }
 
-restoreFromQuery()
+// 不能只在 setup 時還原：瀏覽器返回／前進會重用同一個頁面元件，只改變 route。
+// 監看 fullPath 也涵蓋同一路徑下的 Query 導覽，並避免不必要的 deep watcher。
+watch(() => route.fullPath, restoreFromQuery, { immediate: true })
 
 /**
  * 把已套用的條件寫回網址。

@@ -84,4 +84,14 @@ describe('useSearchFilters', () => {
       vi.useRealTimers()
     }
   })
+
+  it('restores a keyword and later page without resetting that page on the next tick', async () => {
+    const { filters, listParams, restore } = useSearchFilters(20, 300)
+
+    restore('saved keyword', 3)
+    await nextTick()
+
+    expect(filters.q).toBe('saved keyword')
+    expect(listParams.value).toEqual({ q: 'saved keyword', pageNumber: 3, pageSize: 20 })
+  })
 })
