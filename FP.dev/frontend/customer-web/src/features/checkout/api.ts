@@ -28,11 +28,9 @@ export async function createOrder(
   isMember: boolean,
 ): Promise<OrderDto> {
   const { data } = await apiClient.POST('/api/v1/orders', {
+    params: { header: { 'Idempotency-Key': idempotencyKey } },
     body,
-    headers: {
-      'Idempotency-Key': idempotencyKey,
-      ...(isMember ? undefined : guestHeaders(getOrCreateGuestCartKey())),
-    },
+    headers: isMember ? undefined : guestHeaders(getOrCreateGuestCartKey()),
   })
   return data!
 }
