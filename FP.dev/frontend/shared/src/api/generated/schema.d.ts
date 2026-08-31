@@ -2657,6 +2657,105 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/members/me/favorites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["FavoriteResponse"][];
+                        "application/json": components["schemas"]["FavoriteResponse"][];
+                        "text/json": components["schemas"]["FavoriteResponse"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AddFavoriteRequest"];
+                    "text/json": components["schemas"]["AddFavoriteRequest"];
+                    "application/*+json": components["schemas"]["AddFavoriteRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["FavoriteResponse"];
+                        "application/json": components["schemas"]["FavoriteResponse"];
+                        "text/json": components["schemas"]["FavoriteResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/members/me/favorites/{productPublicId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    productPublicId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/support-tickets/{id}": {
         parameters: {
             query?: never;
@@ -6122,6 +6221,10 @@ export interface components {
             /** Format: byte */
             cartRowVersion: null | string;
         };
+        AddFavoriteRequest: {
+            /** Format: uuid */
+            productPublicId: string;
+        };
         AdminAiUsageReportDto: {
             /** Format: date-time */
             fromUtc: string;
@@ -7172,6 +7275,23 @@ export interface components {
             reasonCode: string;
             /** Format: byte */
             returnRowVersion: string;
+        };
+        FavoriteProductResponse: {
+            /** Format: uuid */
+            productPublicId: string;
+            productCode: string;
+            name: string;
+            /** Format: double */
+            listPrice: number | string;
+            /** Format: double */
+            salePrice: null | number | string;
+            currency: string;
+            availability: string;
+        };
+        FavoriteResponse: {
+            product: components["schemas"]["FavoriteProductResponse"];
+            /** Format: date-time */
+            createdAtUtc: string;
         };
         /** @enum {unknown} */
         FulfillmentStatus: "pending" | "preparing" | "shipped" | "inTransit" | "pickupReady" | "pickedUp" | "delivered" | "deliveryFailed" | "returned";

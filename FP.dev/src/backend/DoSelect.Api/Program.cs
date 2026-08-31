@@ -13,6 +13,7 @@ using DoSelect.Infrastructure.Builds;
 using DoSelect.Infrastructure.Catalog;
 using DoSelect.Infrastructure.Checkout;
 using DoSelect.Infrastructure.Email;
+using DoSelect.Infrastructure.Favorites;
 using DoSelect.Infrastructure.Files;
 using DoSelect.Infrastructure.Idempotency;
 using DoSelect.Infrastructure.Persistence;
@@ -52,6 +53,7 @@ builder.Services.AddDoSelectSecurity(builder.Environment, builder.Configuration)
 builder.Services.AddDoSelectAdminAuth();
 builder.Services.AddDoSelectRefunds();
 builder.Services.AddDoSelectReviews();
+builder.Services.AddDoSelectFavorites();
 builder.Services.AddDoSelectCatalogServices();
 builder.Services.AddDoSelectShoppingServices();
 builder.Services.AddDoSelectGuestOrderAccess(builder.Configuration);

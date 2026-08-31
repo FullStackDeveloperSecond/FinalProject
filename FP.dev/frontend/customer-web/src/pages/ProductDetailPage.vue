@@ -9,6 +9,7 @@ import { useAddCartItem } from '../features/cart/useCart'
 import { useSessionStore } from '../stores/session'
 import { usePublicProductReviewsQuery } from '../features/reviews/queries'
 import { formatReviewDate } from '../features/reviews/labels'
+import FavoriteToggleButton from '../features/favorites/components/FavoriteToggleButton.vue'
 
 const route = useRoute()
 const sessionStore = useSessionStore()
@@ -273,6 +274,8 @@ const isNotFound = computed(() => isApiError(error.value) && error.value.status 
       >
         {{ addToCartError }}
       </p>
+
+      <FavoriteToggleButton :product-public-id="product.productPublicId" />
     </section>
 
     <section
