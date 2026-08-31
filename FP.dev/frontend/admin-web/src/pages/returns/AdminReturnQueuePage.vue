@@ -106,27 +106,27 @@ const { data, isPending, isError, error, refetch } = useAdminReturnListQuery()
 .admin-returns__table th,
 .admin-returns__table td {
   padding: 0.625rem 0.75rem;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--color-border);
   text-align: left;
 }
 
 .admin-returns__row--attention {
-  background: #fff7ed;
+  background: var(--color-warning-bg);
 }
 
 .admin-returns__attention-badge {
   margin-left: 0.5rem;
   padding: 0.125rem 0.5rem;
   border-radius: 999px;
-  background: #fed7aa;
-  color: #9a3412;
+  background: var(--color-warning);
+  color: var(--color-on-primary);
   font-size: 0.75rem;
   font-weight: 700;
 }
 
 .admin-returns__count {
   margin-top: 0.75rem;
-  color: #4b5563;
+  color: var(--color-text-muted);
   font-size: 0.875rem;
 }
 </style>

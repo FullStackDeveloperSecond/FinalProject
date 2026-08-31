@@ -279,7 +279,7 @@ function formatProductStatus(status: string): string {
     />
 
     <form
-      class="products-filters"
+      class="products-filters card"
       aria-label="商品篩選"
       @submit.prevent="applyFilters"
     >
@@ -563,13 +563,13 @@ function formatProductStatus(status: string): string {
 .products-filters select {
   min-height: 2.75rem;
   padding: 0.5rem 0.75rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--color-border);
   border-radius: 0.5rem;
   font: inherit;
 }
 
 .products-summary {
-  color: #6b7280;
+  color: var(--color-text-muted);
   font-size: 0.875rem;
 }
 
@@ -581,7 +581,7 @@ function formatProductStatus(status: string): string {
 .products-table th,
 .products-table td {
   padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--color-border);
   text-align: left;
 }
 

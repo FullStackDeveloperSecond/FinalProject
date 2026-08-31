@@ -71,7 +71,14 @@ async function onLogout(): Promise<void> {
         class="brand-link"
         to="/"
       >
-        DoSelect 懂選｜管理後台
+        <span
+          class="brand-link__mark"
+          aria-hidden="true"
+        >懂</span>
+        <span class="brand-link__text">
+          <span class="brand-link__name">DoSelect 懂選</span>
+          <span class="brand-link__scope">管理後台</span>
+        </span>
       </RouterLink>
       <div class="site-header__end">
         <span class="demo-badge">DEMO DATA</span>
@@ -102,9 +109,16 @@ async function onLogout(): Promise<void> {
         aria-label="管理功能導覽"
       >
         <nav class="admin-sidebar__nav">
+          <p class="admin-sidebar__group-title">
+            總覽
+          </p>
           <RouterLink to="/">
             首頁
           </RouterLink>
+
+          <p class="admin-sidebar__group-title">
+            商品
+          </p>
           <RouterLink to="/catalog/lookups">
             品牌／分類／標籤管理
           </RouterLink>
@@ -183,18 +197,25 @@ async function onLogout(): Promise<void> {
           >
             模擬發票管理
           </RouterLink>
+          <p class="admin-sidebar__group-title">
+            客服與售後
+          </p>
           <RouterLink to="/support">
             客服 SLA 佇列
-          </RouterLink>
-          <RouterLink to="/reviews">
-            商品評價審核
-          </RouterLink>
-          <RouterLink to="/returns">
-            退貨案件
           </RouterLink>
           <RouterLink to="/cases">
             案件工作台
           </RouterLink>
+          <RouterLink to="/returns">
+            退貨案件
+          </RouterLink>
+          <RouterLink to="/reviews">
+            商品評價審核
+          </RouterLink>
+
+          <p class="admin-sidebar__group-title">
+            營運
+          </p>
           <RouterLink to="/ai/usage">
             AI 用量與成本
           </RouterLink>

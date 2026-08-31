@@ -329,7 +329,7 @@ watch(reportKey, async () => {
 .report-heading h1 { margin-top: .5rem; }
 .report-tabs { display: flex; flex-wrap: wrap; gap: .5rem; margin: 0 0 1rem; }
 .report-tabs a { padding: .45rem .75rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); color: var(--color-text); text-decoration: none; }
-.report-tabs a.router-link-active { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+.report-tabs a.router-link-active { background: var(--color-primary); border-color: var(--color-primary); color: var(--color-on-primary); }
 .report-filters { display: grid; grid-template-columns: repeat(3, minmax(10rem, 1fr)); gap: .75rem; margin-bottom: 1.25rem; }
 .report-filters label { display: grid; gap: .25rem; font-size: .85rem; font-weight: 700; }
 .report-filters button { align-self: end; }
