@@ -18236,13 +18236,6 @@
           }
         }
       },
-      "SimulatedPaymentOutcome": {
-        "enum": [
-          "succeeded",
-          "failed",
-          "expired"
-        ]
-      },
       "SimulatedInvoiceBuyerType": {
         "enum": [
           "individual",
@@ -18478,6 +18471,13 @@
           "voided",
           "partiallyAllowed",
           "fullyAllowed"
+        ]
+      },
+      "SimulatedPaymentOutcome": {
+        "enum": [
+          "succeeded",
+          "failed",
+          "expired"
         ]
       },
       "SkuDimensionsSummary": {

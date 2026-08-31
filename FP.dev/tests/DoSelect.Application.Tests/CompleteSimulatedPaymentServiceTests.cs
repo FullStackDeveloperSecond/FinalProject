@@ -28,6 +28,81 @@ public sealed class CompleteSimulatedPaymentServiceTests
         Assert.Equal(1000m, plan.OrderPaidAmount);
     }
 
+    [Theory]
+    [InlineData(PaymentMethod.CreditCard)]
+    [InlineData(PaymentMethod.ATM)]
+    [InlineData(PaymentMethod.ConvenienceCode)]
+    [InlineData(PaymentMethod.LinePay)]
+    [InlineData(PaymentMethod.ApplePay)]
+    [InlineData(PaymentMethod.GooglePay)]
+    public void Succeeded_OnlineMethodConfirmsAPendingPaymentOrder(PaymentMethod method)
+    {
+        var result = Decide(
+            SimulatedPaymentOutcome.Succeeded,
+            Snapshot(method: method, orderStatus: OrderStatus.PendingPayment));
+
+        Assert.Equal(OrderStatus.Confirmed, result.Plan!.OrderStatusTransition);
+    }
+
+    [Fact]
+    public void Succeeded_CashOnDeliveryKeepsAnAlreadyConfirmedOrder()
+    {
+        var result = Decide(
+            SimulatedPaymentOutcome.Succeeded,
+            Snapshot(
+                method: PaymentMethod.CashOnDelivery,
+                orderStatus: OrderStatus.Confirmed));
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(result.Plan!.OrderStatusTransition);
+    }
+
+    [Fact]
+    public void CashOnDeliveryCannotExpireBecauseItHasNoPaymentInstructionWindow()
+    {
+        var result = Decide(
+            SimulatedPaymentOutcome.Expired,
+            Snapshot(
+                method: PaymentMethod.CashOnDelivery,
+                orderStatus: OrderStatus.Confirmed));
+
+        Assert.Equal(PaymentErrorCodes.PaymentStateConflict, result.ErrorCode);
+    }
+
+    [Theory]
+    [InlineData(PaymentMethod.CreditCard, OrderStatus.Confirmed)]
+    [InlineData(PaymentMethod.CashOnDelivery, OrderStatus.PendingPayment)]
+    public void MethodAndOrderStatusMismatchIsRefused(
+        PaymentMethod method,
+        OrderStatus orderStatus)
+    {
+        var result = Decide(
+            SimulatedPaymentOutcome.Succeeded,
+            Snapshot(method: method, orderStatus: orderStatus));
+
+        Assert.Equal(PaymentErrorCodes.PaymentStateConflict, result.ErrorCode);
+    }
+
+    [Fact]
+    public void ACompletedOrderPaymentProjectionCannotBeOverwritten()
+    {
+        var result = Decide(
+            SimulatedPaymentOutcome.Failed,
+            Snapshot(orderPaymentStatus: PaymentStatus.Paid, orderPaidAmount: 1000m));
+
+        Assert.Equal(PaymentErrorCodes.PaymentStateConflict, result.ErrorCode);
+    }
+
+    [Fact]
+    public void APreexistingPaidAmountCannotBeOverwritten()
+    {
+        var result = Decide(
+            SimulatedPaymentOutcome.Succeeded,
+            Snapshot(orderPaidAmount: 1m));
+
+        Assert.Equal(PaymentErrorCodes.PaymentStateConflict, result.ErrorCode);
+    }
+
     [Fact]
     public void Succeeded_GoesThroughProcessingBecauseTheStateMachineForbidsTheShortcut()
     {
@@ -222,21 +297,25 @@ public sealed class CompleteSimulatedPaymentServiceTests
         new CompleteSimulatedPaymentService().Decide(snapshot ?? Snapshot(), outcome, NowUtc);
 
     private static SimulatedPaymentSnapshot Snapshot(
+        PaymentMethod method = PaymentMethod.CreditCard,
         PaymentAttemptStatus attemptStatus = PaymentAttemptStatus.AwaitingPayment,
         decimal attemptAmount = 1000m,
         DateTime? instructionExpiresAtUtc = null,
-        OrderStatus orderStatus = OrderStatus.Confirmed,
+        OrderStatus orderStatus = OrderStatus.PendingPayment,
         PaymentStatus orderPaymentStatus = PaymentStatus.AwaitingPayment,
+        decimal orderPaidAmount = 0m,
         decimal orderGrandTotal = 1000m,
         DateTime? orderPaymentDueAtUtc = null) =>
         new(
             42L,
+            method,
             attemptStatus,
             attemptAmount,
             instructionExpiresAtUtc,
             7L,
             orderStatus,
             orderPaymentStatus,
+            orderPaidAmount,
             orderGrandTotal,
             orderPaymentDueAtUtc);
 }

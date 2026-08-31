@@ -1,6 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Claims;
 using System.Text.Json;
+using DoSelect.Api.Security;
+using DoSelect.Application.Orders;
 using DoSelect.Domain.Invoicing;
 using DoSelect.Domain.Orders;
 using DoSelect.Domain.Payments;
@@ -8,6 +11,8 @@ using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Hosting;
@@ -43,7 +48,7 @@ public sealed class SimulatedPaymentDemoGateTests
         await using var harness = await Harness.StartAsync(
             ConnectionString, simulationEnabled: true, environment: "Demo");
         var seeded = await harness.SeedPaymentAsync();
-        var client = await harness.CreateMemberClientAsync(seeded.MemberUserId);
+        var client = await harness.CreateMemberClientAsync(seeded.MemberUserId!);
 
         using var response = await harness.CompleteAsync(client, seeded.AttemptPublicId);
 
@@ -58,6 +63,59 @@ public sealed class SimulatedPaymentDemoGateTests
     }
 
     [Fact]
+    public async Task AGuestOrderAccessCookieCanCompleteItsOwnPayment()
+    {
+        await using var harness = await Harness.StartAsync(
+            ConnectionString, simulationEnabled: true, environment: "Demo");
+        var seeded = await harness.SeedPaymentAsync(guest: true);
+        var client = await harness.CreateGuestClientAsync(seeded.RawGuestToken!);
+
+        using var response = await harness.CompleteAsync(client, seeded.AttemptPublicId);
+
+        await AssertStatusAsync(response, HttpStatusCode.OK, harness);
+        Assert.Equal(PaymentStatus.Paid, (await harness.ReloadOrderAsync(
+            seeded.AttemptPublicId)).PaymentStatus);
+    }
+
+    [Fact]
+    public async Task AGuestCookieForAnotherOrderReturnsNotFound()
+    {
+        await using var harness = await Harness.StartAsync(
+            ConnectionString, simulationEnabled: true, environment: "Demo");
+        var own = await harness.SeedPaymentAsync(guest: true);
+        var other = await harness.SeedPaymentAsync(guest: true);
+        var client = await harness.CreateGuestClientAsync(own.RawGuestToken!);
+
+        using var response = await harness.CompleteAsync(client, other.AttemptPublicId);
+
+        await AssertStatusAsync(response, HttpStatusCode.NotFound, harness);
+        Assert.Equal(GuestOrderErrorCodes.ScopeMismatch, await ReadProblemCodeAsync(response));
+        Assert.Equal(PaymentStatus.AwaitingPayment, (await harness.ReloadOrderAsync(
+            other.AttemptPublicId)).PaymentStatus);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AnExpiredOrRevokedGuestCookieReturnsUnauthorized(bool revoked)
+    {
+        await using var harness = await Harness.StartAsync(
+            ConnectionString, simulationEnabled: true, environment: "Demo");
+        var seeded = await harness.SeedPaymentAsync(
+            guest: true,
+            expiredGuestToken: !revoked,
+            revokedGuestToken: revoked);
+        var client = await harness.CreateGuestClientAsync(seeded.RawGuestToken!);
+
+        using var response = await harness.CompleteAsync(client, seeded.AttemptPublicId);
+
+        await AssertStatusAsync(response, HttpStatusCode.Unauthorized, harness);
+        Assert.Equal(GuestOrderErrorCodes.AccessExpired, await ReadProblemCodeAsync(response));
+        Assert.Equal(PaymentStatus.AwaitingPayment, (await harness.ReloadOrderAsync(
+            seeded.AttemptPublicId)).PaymentStatus);
+    }
+
+    [Fact]
     public async Task TheSameRequestIsNotAvailableOutsideTheDemoProfile()
     {
         // 與上一條完全相同的請求，只差 Demo 旗標。這是關卡真正被證明的地方 ——
@@ -65,7 +123,7 @@ public sealed class SimulatedPaymentDemoGateTests
         await using var harness = await Harness.StartAsync(
             ConnectionString, simulationEnabled: false, environment: "Development");
         var seeded = await harness.SeedPaymentAsync();
-        var client = await harness.CreateMemberClientAsync(seeded.MemberUserId);
+        var client = await harness.CreateMemberClientAsync(seeded.MemberUserId!);
 
         using var response = await harness.CompleteAsync(client, seeded.AttemptPublicId);
 
@@ -106,6 +164,12 @@ public sealed class SimulatedPaymentDemoGateTests
             $"Expected {expected} but got {response.StatusCode}. Body: {body} Server: {serverErrors}");
     }
 
+    private static async Task<string?> ReadProblemCodeAsync(HttpResponseMessage response)
+    {
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        return body.TryGetProperty("code", out var code) ? code.GetString() : null;
+    }
+
     /// <summary>把例外抄下來，然後讓真正的處理器接手。</summary>
     private sealed class RecordingExceptionHandler(List<string> sink) : IExceptionHandler
     {
@@ -117,7 +181,10 @@ public sealed class SimulatedPaymentDemoGateTests
         }
     }
 
-    private sealed record SeededPayment(Guid AttemptPublicId, string MemberUserId);
+    private sealed record SeededPayment(
+        Guid AttemptPublicId,
+        string? MemberUserId,
+        string? RawGuestToken);
 
     /// <summary>一個設定好的主機加上它自己的資料庫。</summary>
     private sealed class Harness : IAsyncDisposable
@@ -237,6 +304,24 @@ public sealed class SimulatedPaymentDemoGateTests
             return client;
         }
 
+        public async Task<HttpClient> CreateGuestClientAsync(string rawToken)
+        {
+            var client = CreateHttpsClient();
+            var cookieOptions = _factory.Services
+                .GetRequiredService<IOptionsMonitor<CookieAuthenticationOptions>>()
+                .Get(DoSelectAuthenticationSchemes.GuestOrderAccess);
+            var identity = new ClaimsIdentity(DoSelectAuthenticationSchemes.GuestOrderAccess);
+            identity.AddClaim(new Claim(GuestOrderAccessClaimTypes.TokenValue, rawToken));
+            var protectedTicket = cookieOptions.TicketDataFormat.Protect(new AuthenticationTicket(
+                new ClaimsPrincipal(identity),
+                DoSelectAuthenticationSchemes.GuestOrderAccess));
+            client.DefaultRequestHeaders.Add(
+                "Cookie",
+                $"{cookieOptions.Cookie.Name}={protectedTicket}");
+            await GetAntiforgeryTokenAsync(client);
+            return client;
+        }
+
         /// <remarks>
         /// 非 Development 環境會套用 <c>UseHttpsRedirection</c>，http 的請求會被轉址，
         /// 測試主機沒有 https 監聽端可以接。TestServer 不做真的 TLS，只看 scheme，
@@ -265,16 +350,23 @@ public sealed class SimulatedPaymentDemoGateTests
                 .SingleAsync(candidate => candidate.Id == attempt.OrderId);
         }
 
-        public async Task<SeededPayment> SeedPaymentAsync()
+        public async Task<SeededPayment> SeedPaymentAsync(
+            bool guest = false,
+            bool expiredGuestToken = false,
+            bool revokedGuestToken = false)
         {
             await using var context = CreateContext(_connectionString);
 
-            var member = ApplicationUser.CreateMember(
-                Guid.CreateVersion7(),
-                $"{Guid.NewGuid():N}@doselect.test",
-                DateTime.UtcNow);
-            context.Users.Add(member);
-            await context.SaveChangesAsync();
+            ApplicationUser? member = null;
+            if (!guest)
+            {
+                member = ApplicationUser.CreateMember(
+                    Guid.CreateVersion7(),
+                    $"{Guid.NewGuid():N}@doselect.test",
+                    DateTime.UtcNow);
+                context.Users.Add(member);
+                await context.SaveChangesAsync();
+            }
 
             var nowUtc = new DateTime(2026, 8, 30, 4, 0, 0, DateTimeKind.Utc);
             var profile = new ShippingProviderProfile(
@@ -293,9 +385,9 @@ public sealed class SimulatedPaymentDemoGateTests
                 Guid.NewGuid(),
                 new OrderCreation(
                     $"INV-{Guid.NewGuid():N}"[..32],
-                    member.Id,
-                    null,
-                    OrderStatus.Confirmed,
+                    member?.Id,
+                    guest ? $"guest-{Guid.NewGuid():N}@doselect.test" : null,
+                    OrderStatus.PendingPayment,
                     PaymentStatus.AwaitingPayment,
                     FulfillmentStatus.Preparing,
                     AssemblyStatus.NotRequired,
@@ -327,7 +419,48 @@ public sealed class SimulatedPaymentDemoGateTests
             context.PaymentAttempts.Add(attempt);
             await context.SaveChangesAsync();
 
-            return new SeededPayment(attempt.PublicId, member.Id);
+            string? rawGuestToken = null;
+            if (guest)
+            {
+                rawGuestToken = $"guest-{Guid.NewGuid():N}";
+                var tokenCreatedAt = expiredGuestToken
+                    ? DateTime.UtcNow.AddHours(-2)
+                    : DateTime.UtcNow;
+                var tokenExpiresAt = expiredGuestToken
+                    ? DateTime.UtcNow.AddHours(-1)
+                    : DateTime.UtcNow.AddHours(1);
+                var hash = new byte[32];
+                Random.Shared.NextBytes(hash);
+                var requestRow = GuestOrderAccessRequest.CreateValid(
+                    Guid.CreateVersion7(),
+                    order.Id,
+                    hash,
+                    hash,
+                    hash,
+                    hash,
+                    tokenExpiresAt,
+                    tokenCreatedAt);
+                context.GuestOrderAccessRequests.Add(requestRow);
+                await context.SaveChangesAsync();
+
+                var hasher = _factory.Services.GetRequiredService<IGuestOrderAccessHasher>();
+                var token = new GuestOrderAccessToken(
+                    Guid.CreateVersion7(),
+                    order.Id,
+                    requestRow.Id,
+                    hasher.HashToken(rawGuestToken),
+                    tokenExpiresAt,
+                    tokenCreatedAt);
+                if (revokedGuestToken)
+                {
+                    token.Revoke(DateTime.UtcNow);
+                }
+
+                context.GuestOrderAccessTokens.Add(token);
+                await context.SaveChangesAsync();
+            }
+
+            return new SeededPayment(attempt.PublicId, member?.Id, rawGuestToken);
         }
 
         private static async Task<string> GetAntiforgeryTokenAsync(HttpClient client)

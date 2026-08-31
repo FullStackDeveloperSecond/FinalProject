@@ -8887,7 +8887,6 @@ export interface components {
             grossAmount: number | string;
         };
         /** @enum {unknown} */
-        SimulatedPaymentOutcome: "succeeded" | "failed" | "expired";
         SimulatedInvoiceBuyerType: "individual" | "company";
         SimulatedInvoiceDto: {
             /** Format: uuid */
@@ -8943,6 +8942,8 @@ export interface components {
         };
         /** @enum {unknown} */
         SimulatedInvoiceStatus: "pending" | "issued" | "voided" | "partiallyAllowed" | "fullyAllowed";
+        /** @enum {unknown} */
+        SimulatedPaymentOutcome: "succeeded" | "failed" | "expired";
         SkuDimensionsSummary: {
             /** Format: double */
             weightKg: null | number | string;

@@ -58,12 +58,14 @@ public sealed record PaymentAttemptDto(
 /// </summary>
 public sealed record SimulatedPaymentSnapshot(
     long PaymentAttemptId,
+    PaymentMethod Method,
     PaymentAttemptStatus AttemptStatus,
     decimal AttemptAmount,
     DateTime? InstructionExpiresAtUtc,
     long OrderId,
     OrderStatus OrderStatus,
     PaymentStatus OrderPaymentStatus,
+    decimal OrderPaidAmount,
     decimal OrderGrandTotal,
     DateTime? OrderPaymentDueAtUtc);
 
@@ -81,7 +83,8 @@ public sealed record SimulatedPaymentPlan(
     IReadOnlyList<PaymentAttemptStatus> AttemptTransitions,
     string? FailureCode,
     PaymentStatus OrderPaymentStatus,
-    decimal OrderPaidAmount);
+    decimal OrderPaidAmount,
+    OrderStatus? OrderStatusTransition);
 
 /// <summary>決策結果：拒絕，或通過並帶出執行計畫。</summary>
 public sealed class CompleteSimulatedPaymentResult
@@ -108,11 +111,18 @@ public sealed class CompleteSimulatedPaymentResult
 /// <summary>
 /// 完成一筆模擬付款的命令。冪等與交易由 Writer 的實作負責。
 /// </summary>
+public abstract record SimulatedPaymentActor
+{
+    public sealed record Member(string UserId) : SimulatedPaymentActor;
+
+    public sealed record Guest(Guid TokenPublicId, Guid AuthorizedOrderPublicId) : SimulatedPaymentActor;
+}
+
 public sealed record CompleteSimulatedPaymentCommand(
     Guid PaymentAttemptPublicId,
     SimulatedPaymentOutcome Outcome,
     string SimulationKey,
-    string MemberUserId,
+    SimulatedPaymentActor Actor,
     string CorrelationId,
     string TraceId,
     System.Net.IPAddress? ClientIpAddress);
@@ -124,6 +134,15 @@ public interface ISimulatedPaymentWriter
 {
     Task<IdempotencyExecutionResult<PaymentAttemptDto>> CompleteAsync(
         CompleteSimulatedPaymentCommand command,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed record SimulatedPaymentOrderReference(Guid OrderPublicId, string? MemberUserId);
+
+public interface ISimulatedPaymentAuthorizationReader
+{
+    Task<SimulatedPaymentOrderReference?> FindOrderAsync(
+        Guid paymentAttemptPublicId,
         CancellationToken cancellationToken = default);
 }
 

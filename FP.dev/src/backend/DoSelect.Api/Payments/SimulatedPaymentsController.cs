@@ -5,8 +5,9 @@ using DoSelect.Api.Configuration;
 using DoSelect.Api.Security;
 using DoSelect.Application.Common;
 using DoSelect.Application.Payments;
+using DoSelect.Application.Orders;
 using DoSelect.Domain.Payments;
-using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
@@ -22,8 +23,8 @@ namespace DoSelect.Api.Payments;
 /// 只有 Demo 環境能開成 true，所以正式環境一定關著。
 /// </para>
 /// <para>
-/// 這道關卡<b>不宣稱藏起端點的存在</b>：<c>[Authorize]</c> 比 Action 早執行，未登入的
-/// 呼叫者會先拿到 401 而不是 404，而且這條路由本來就寫在公開的 OpenAPI 文件裡。
+/// 這道關卡<b>不宣稱藏起端點的存在</b>：Action 會先嘗試 Member 與 Guest 兩種票證，未登入的
+/// 呼叫者會拿到 401；已有有效票證但 Profile 未開啟時才回 404。路由本來就寫在公開的 OpenAPI 文件裡。
 /// 它要保證的是「在 Demo 以外沒有作用」，不是「沒有人知道它在」——
 /// 與 <c>AiSupportController</c> 對 <c>Features:AiEnabled</c> 的做法同一層。
 /// </para>
@@ -33,21 +34,28 @@ namespace DoSelect.Api.Payments;
 /// </para>
 /// </remarks>
 [ApiController]
-[Authorize(AuthenticationSchemes = DoSelectAuthenticationSchemes.Member)]
 [Route("api/v1/simulated-payments")]
 public sealed class SimulatedPaymentsController : ControllerBase
 {
     private readonly ISimulatedPaymentWriter _writer;
+    private readonly ISimulatedPaymentAuthorizationReader _authorizationReader;
+    private readonly GuestOrderAccessScopeAuthorizer _guestAuthorizer;
     private readonly DemoOptions _demoOptions;
 
     public SimulatedPaymentsController(
         ISimulatedPaymentWriter writer,
+        ISimulatedPaymentAuthorizationReader authorizationReader,
+        GuestOrderAccessScopeAuthorizer guestAuthorizer,
         IOptions<DemoOptions> demoOptions)
     {
         ArgumentNullException.ThrowIfNull(writer);
+        ArgumentNullException.ThrowIfNull(authorizationReader);
+        ArgumentNullException.ThrowIfNull(guestAuthorizer);
         ArgumentNullException.ThrowIfNull(demoOptions);
 
         _writer = writer;
+        _authorizationReader = authorizationReader;
+        _guestAuthorizer = guestAuthorizer;
         _demoOptions = demoOptions.Value;
     }
 
@@ -62,6 +70,14 @@ public sealed class SimulatedPaymentsController : ControllerBase
         [FromBody] CompleteSimulatedPaymentRequest request,
         CancellationToken cancellationToken)
     {
+        var member = await HttpContext.AuthenticateAsync(DoSelectAuthenticationSchemes.Member);
+        var guest = await HttpContext.AuthenticateAsync(
+            DoSelectAuthenticationSchemes.GuestOrderAccess);
+        if (!member.Succeeded && !guest.Succeeded)
+        {
+            return UnauthorizedProblem();
+        }
+
         if (!_demoOptions.SimulationEndpointsEnabled)
         {
             return NotFound(ApiProblemDetailsFactory.Create(
@@ -71,25 +87,96 @@ public sealed class SimulatedPaymentsController : ControllerBase
                 detail: "The requested resource was not found."));
         }
 
-        var memberUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (string.IsNullOrWhiteSpace(memberUserId))
-        {
-            throw DomainProblemException.Validation("The member identity is required.");
-        }
-
         var traceId = Activity.Current?.TraceId.ToString()
             ?? ActivityTraceId.CreateRandom().ToString();
+        var correlationId = CorrelationIdMiddleware.GetCorrelationId(HttpContext);
+        var reference = await _authorizationReader.FindOrderAsync(attemptId, cancellationToken);
+        if (reference is null)
+        {
+            return NotFoundProblem();
+        }
+
+        var actor = await ResolveActorAsync(
+            reference,
+            member,
+            guest,
+            correlationId,
+            traceId,
+            cancellationToken);
+        if (actor.Result is { } failure)
+        {
+            return failure;
+        }
+
         var result = await _writer.CompleteAsync(
             new CompleteSimulatedPaymentCommand(
                 attemptId,
                 request.Outcome,
                 request.SimulationKey,
-                memberUserId,
-                CorrelationIdMiddleware.GetCorrelationId(HttpContext),
+                actor.Value!,
+                correlationId,
                 traceId,
                 HttpContext.Connection.RemoteIpAddress),
             cancellationToken);
 
         return StatusCode(result.StatusCode, result.Body);
     }
+
+    private async Task<(SimulatedPaymentActor? Value, ActionResult? Result)> ResolveActorAsync(
+        SimulatedPaymentOrderReference reference,
+        AuthenticateResult member,
+        AuthenticateResult guest,
+        string correlationId,
+        string traceId,
+        CancellationToken cancellationToken)
+    {
+        var memberUserId = member.Succeeded
+            ? member.Principal?.FindFirstValue(ClaimTypes.NameIdentifier)
+            : null;
+        if (!string.IsNullOrWhiteSpace(memberUserId) &&
+            string.Equals(reference.MemberUserId, memberUserId, StringComparison.Ordinal))
+        {
+            return (new SimulatedPaymentActor.Member(memberUserId), null);
+        }
+
+        if (!guest.Succeeded || guest.Principal is null)
+        {
+            return (null, member.Succeeded ? NotFoundProblem() : UnauthorizedProblem());
+        }
+
+        var authorization = await _guestAuthorizer.AuthorizeAsync(
+            guest.Principal,
+            reference.OrderPublicId,
+            new GuestOrderAccessAuthorizationAuditContext(
+                correlationId,
+                traceId,
+                HttpContext.Connection.RemoteIpAddress),
+            cancellationToken);
+        return authorization switch
+        {
+            GuestOrderAccessAuthorizationResult.Success success =>
+                (new SimulatedPaymentActor.Guest(
+                    success.TokenPublicId,
+                    success.OrderPublicId), null),
+            GuestOrderAccessAuthorizationResult.Failure failure
+                when failure.ErrorCode == GuestOrderErrorCodes.AccessExpired =>
+                (null, UnauthorizedProblem(GuestOrderErrorCodes.AccessExpired)),
+            GuestOrderAccessAuthorizationResult.Failure =>
+                (null, NotFoundProblem(GuestOrderErrorCodes.ScopeMismatch)),
+            _ => throw new InvalidOperationException("Unknown guest authorization result."),
+        };
+    }
+
+    private ActionResult NotFoundProblem(string code = PaymentErrorCodes.ResourceNotFound) =>
+        NotFound(ApiProblemDetailsFactory.Create(
+            HttpContext,
+            StatusCodes.Status404NotFound,
+            code,
+            detail: "The payment attempt was not found."));
+
+    private ActionResult UnauthorizedProblem(string code = ApiErrorCodes.AuthenticationRequired) =>
+        Unauthorized(ApiProblemDetailsFactory.Create(
+            HttpContext,
+            StatusCodes.Status401Unauthorized,
+            code));
 }

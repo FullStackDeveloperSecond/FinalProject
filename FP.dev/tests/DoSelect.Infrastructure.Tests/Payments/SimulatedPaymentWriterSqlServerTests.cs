@@ -1,10 +1,14 @@
 using DoSelect.Application.Common;
+using DoSelect.Application.Auditing;
 using DoSelect.Application.Idempotency;
 using DoSelect.Application.Payments;
 using DoSelect.Domain.Orders;
 using DoSelect.Domain.Payments;
+using DoSelect.Domain.Auditing;
 using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Idempotency;
+using DoSelect.Infrastructure.Auditing;
+using DoSelect.Infrastructure.Outbox;
 using DoSelect.Infrastructure.Payments;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
@@ -52,8 +56,41 @@ public sealed class SimulatedPaymentWriterSqlServerTests
             var (attempt, order) = await ReloadAsync(context, seeded);
             Assert.Equal(PaymentAttemptStatus.Paid, attempt.Status);
             Assert.Equal(PaymentStatus.Paid, order.PaymentStatus);
+            Assert.Equal(OrderStatus.Confirmed, order.OrderStatus);
             Assert.Equal(NowUtc, attempt.PaidAtUtc);
             Assert.Equal(NowUtc, order.PaidAtUtc);
+
+            var paymentEvent = await context.PaymentEvents.AsNoTracking().SingleAsync();
+            Assert.Equal(PaymentEventProcessingStatus.Processed, paymentEvent.ProcessingStatus);
+            Assert.Equal("payment.succeeded", paymentEvent.EventType);
+            Assert.DoesNotContain("sim-pay-success", paymentEvent.PayloadSummaryJson);
+            Assert.Equal(2, await context.OrderStatusHistories.CountAsync());
+            Assert.Single(await context.AuditLogs.AsNoTracking().ToArrayAsync());
+            Assert.Equal(2, await context.OutboxMessages.CountAsync());
+        });
+    }
+
+    [SqlServerTheory]
+    [InlineData(PaymentMethod.CreditCard)]
+    [InlineData(PaymentMethod.ATM)]
+    [InlineData(PaymentMethod.ConvenienceCode)]
+    [InlineData(PaymentMethod.CashOnDelivery)]
+    [InlineData(PaymentMethod.LinePay)]
+    [InlineData(PaymentMethod.ApplePay)]
+    [InlineData(PaymentMethod.GooglePay)]
+    public async Task EveryCheckoutPaymentMethodCanCompleteFromItsRealisticOrderStatus(
+        PaymentMethod method)
+    {
+        await RunInMigratedDatabaseAsync(async context =>
+        {
+            var seeded = await SeedAsync(context, method: method);
+
+            await CreateWriter(context).CompleteAsync(Command(seeded, $"method-{method}"));
+
+            var (attempt, order) = await ReloadAsync(context, seeded);
+            Assert.Equal(PaymentAttemptStatus.Paid, attempt.Status);
+            Assert.Equal(PaymentStatus.Paid, order.PaymentStatus);
+            Assert.Equal(OrderStatus.Confirmed, order.OrderStatus);
         });
     }
 
@@ -95,6 +132,9 @@ public sealed class SimulatedPaymentWriterSqlServerTests
             // 第二次沒有再走一次狀態機，也沒有把金額加上去。
             var (_, order) = await ReloadAsync(context, seeded);
             Assert.Equal(order.GrandTotal, order.PaidAmount);
+            Assert.Single(await context.PaymentEvents.AsNoTracking().ToArrayAsync());
+            Assert.Single(await context.AuditLogs.AsNoTracking().ToArrayAsync());
+            Assert.Equal(2, await context.OutboxMessages.CountAsync());
         });
     }
 
@@ -178,6 +218,32 @@ public sealed class SimulatedPaymentWriterSqlServerTests
             Assert.Equal(PaymentAttemptStatus.AwaitingPayment, attempt.Status);
             Assert.Equal(PaymentStatus.AwaitingPayment, order.PaymentStatus);
             Assert.Equal(0m, order.PaidAmount);
+            Assert.Empty(await context.PaymentEvents.AsNoTracking().ToArrayAsync());
+            Assert.Empty(await context.OrderStatusHistories.AsNoTracking().ToArrayAsync());
+            Assert.Empty(await context.AuditLogs.AsNoTracking().ToArrayAsync());
+            Assert.Empty(await context.OutboxMessages.AsNoTracking().ToArrayAsync());
+        });
+    }
+
+    [SqlServerFact]
+    public async Task GuestCompletionUsesTheGuestScopeAndCreatesOnlyEmailNotification()
+    {
+        await RunInMigratedDatabaseAsync(async context =>
+        {
+            var seeded = await SeedAsync(context, guest: true);
+            var tokenPublicId = Guid.CreateVersion7();
+            var command = Command(seeded, "guest-sim-pay") with
+            {
+                Actor = new SimulatedPaymentActor.Guest(tokenPublicId, seeded.OrderPublicId),
+            };
+
+            var result = await CreateWriter(context).CompleteAsync(command);
+
+            Assert.Equal(PaymentAttemptStatus.Paid, result.Body.Status);
+            Assert.Single(await context.OutboxMessages.AsNoTracking().ToArrayAsync());
+            var audit = await context.AuditLogs.AsNoTracking().SingleAsync();
+            Assert.Equal(DoSelect.Domain.Auditing.AuditActorType.Guest, audit.ActorType);
+            Assert.Equal(tokenPublicId, audit.ActorPublicId);
         });
     }
 
@@ -210,7 +276,10 @@ public sealed class SimulatedPaymentWriterSqlServerTests
 
             var problem = await Assert.ThrowsAsync<DomainProblemException>(
                 () => writer.CompleteAsync(
-                    Command(seeded, "sim-pay-intruder") with { MemberUserId = intruder }));
+                    Command(seeded, "sim-pay-intruder") with
+                    {
+                        Actor = new SimulatedPaymentActor.Member(intruder),
+                    }));
 
             // 404 而不是 403：分開回答等於告訴外人這個 id 存在。
             Assert.Equal(404, problem.StatusCode);
@@ -282,6 +351,29 @@ public sealed class SimulatedPaymentWriterSqlServerTests
         });
     }
 
+    [SqlServerFact]
+    public async Task AnAuditFailureRollsBackEveryPaymentSideEffect()
+    {
+        await RunInMigratedDatabaseAsync(async context =>
+        {
+            var seeded = await SeedAsync(context);
+            var writer = CreateWriter(context, new ThrowingAuditWriter());
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                writer.CompleteAsync(Command(seeded, "sim-pay-audit-failure")));
+
+            var (attempt, order) = await ReloadAsync(context, seeded);
+            Assert.Equal(PaymentAttemptStatus.AwaitingPayment, attempt.Status);
+            Assert.Equal(PaymentStatus.AwaitingPayment, order.PaymentStatus);
+            Assert.Equal(OrderStatus.PendingPayment, order.OrderStatus);
+            Assert.Empty(await context.PaymentEvents.AsNoTracking().ToArrayAsync());
+            Assert.Empty(await context.OrderStatusHistories.AsNoTracking().ToArrayAsync());
+            Assert.Empty(await context.AuditLogs.AsNoTracking().ToArrayAsync());
+            Assert.Empty(await context.OutboxMessages.AsNoTracking().ToArrayAsync());
+            Assert.Empty(await context.IdempotencyRecords.AsNoTracking().ToArrayAsync());
+        });
+    }
+
     private static async Task<(PaymentAttempt Attempt, Order Order)> ReloadAsync(
         DoSelectDbContext context,
         SeededPayment seeded)
@@ -302,12 +394,14 @@ public sealed class SimulatedPaymentWriterSqlServerTests
             seeded.AttemptPublicId,
             outcome,
             simulationKey,
-            seeded.MemberUserId,
+            new SimulatedPaymentActor.Member(seeded.MemberUserId!),
             "correlation-1",
-            "trace-1",
+            "0123456789abcdef0123456789abcdef",
             System.Net.IPAddress.Loopback);
 
-    private static SimulatedPaymentWriter CreateWriter(DoSelectDbContext context)
+    private static SimulatedPaymentWriter CreateWriter(
+        DoSelectDbContext context,
+        IAuditWriter? auditWriter = null)
     {
         var timeProvider = new FixedTimeProvider(Now);
         return new SimulatedPaymentWriter(
@@ -317,10 +411,21 @@ public sealed class SimulatedPaymentWriterSqlServerTests
                 context,
                 Options.Create(new IdempotencyOptions { ActorScopePepper = TestPepper }),
                 timeProvider),
+            auditWriter ?? new EfAuditWriter(context, timeProvider),
+            new EfOutboxWriter(context, timeProvider),
             timeProvider);
     }
 
-    private sealed record SeededPayment(Guid AttemptPublicId, string MemberUserId);
+    private sealed class ThrowingAuditWriter : IAuditWriter
+    {
+        public AuditLog Add(AuditWriteRequest request) =>
+            throw new InvalidOperationException("Synthetic audit failure.");
+    }
+
+    private sealed record SeededPayment(
+        Guid AttemptPublicId,
+        string? MemberUserId,
+        Guid OrderPublicId);
 
     private static async Task<string> AddMemberAsync(DoSelectDbContext context)
     {
@@ -336,9 +441,11 @@ public sealed class SimulatedPaymentWriterSqlServerTests
     private static async Task<SeededPayment> SeedAsync(
         DoSelectDbContext context,
         DateTime? instructionExpiresAtUtc = null,
-        bool cancelled = false)
+        bool cancelled = false,
+        bool guest = false,
+        PaymentMethod method = PaymentMethod.CreditCard)
     {
-        var memberUserId = await AddMemberAsync(context);
+        var memberUserId = guest ? null : await AddMemberAsync(context);
 
         var profile = new ShippingProviderProfile(
             Guid.NewGuid(),
@@ -363,8 +470,10 @@ public sealed class SimulatedPaymentWriterSqlServerTests
             new OrderCreation(
                 $"INV-{Guid.NewGuid():N}"[..32],
                 memberUserId,
-                null,
-                OrderStatus.Confirmed,
+                guest ? $"guest-{Guid.NewGuid():N}@example.test" : null,
+                PaymentMethodPolicy.KindOf(method) == PaymentSettlementKind.CashOnDelivery
+                    ? OrderStatus.Confirmed
+                    : OrderStatus.PendingPayment,
                 // 結帳留下的訂單是「等待付款」，這支端點就是要把它推到已付款。
                 PaymentStatus.AwaitingPayment,
                 FulfillmentStatus.Preparing,
@@ -418,11 +527,13 @@ public sealed class SimulatedPaymentWriterSqlServerTests
         var attempt = new PaymentAttempt(
             Guid.CreateVersion7(),
             order.Id,
-            PaymentMethod.CreditCard,
+            method,
             order.GrandTotal,
             "SIM",
             $"checkout-{Guid.NewGuid():N}:initial-payment",
-            instructionExpiresAtUtc ?? NowUtc.AddHours(1),
+            PaymentMethodPolicy.KindOf(method) == PaymentSettlementKind.CashOnDelivery
+                ? null
+                : instructionExpiresAtUtc ?? NowUtc.AddHours(1),
             NowUtc);
         // 結帳建立付款嘗試之後立刻發出付款指示，狀態因此是 AwaitingPayment。
         attempt.SetPaymentInstruction("SIM-" + attempt.PublicId.ToString("N"), NowUtc);
@@ -430,7 +541,7 @@ public sealed class SimulatedPaymentWriterSqlServerTests
         await context.SaveChangesAsync();
         context.ChangeTracker.Clear();
 
-        return new SeededPayment(attempt.PublicId, memberUserId);
+        return new SeededPayment(attempt.PublicId, memberUserId, order.PublicId);
     }
 
     private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider

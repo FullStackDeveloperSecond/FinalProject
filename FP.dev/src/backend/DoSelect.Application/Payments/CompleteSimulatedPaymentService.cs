@@ -45,6 +45,29 @@ public sealed class CompleteSimulatedPaymentService
             return CompleteSimulatedPaymentResult.Failure(
                 PaymentErrorCodes.PaymentStateConflict);
         }
+        var kind = PaymentMethodPolicy.KindOf(snapshot.Method);
+        if (kind == PaymentSettlementKind.CashOnDelivery &&
+            outcome == SimulatedPaymentOutcome.Expired)
+        {
+            return CompleteSimulatedPaymentResult.Failure(
+                PaymentErrorCodes.PaymentStateConflict);
+        }
+
+        var expectedOrderStatus = kind == PaymentSettlementKind.CashOnDelivery
+            ? OrderStatus.Confirmed
+            : OrderStatus.PendingPayment;
+        if (snapshot.OrderStatus != expectedOrderStatus)
+        {
+            return CompleteSimulatedPaymentResult.Failure(
+                PaymentErrorCodes.PaymentStateConflict);
+        }
+
+        if (snapshot.OrderPaymentStatus != PaymentStatus.AwaitingPayment ||
+            snapshot.OrderPaidAmount != 0m)
+        {
+            return CompleteSimulatedPaymentResult.Failure(
+                PaymentErrorCodes.PaymentStateConflict);
+        }
 
         // 訂單已取消就不該再有任何付款結果寫回去 —— 那會讓一張取消的訂單變成已付款。
         if (snapshot.OrderStatus == OrderStatus.Cancelled)
@@ -95,7 +118,10 @@ public sealed class CompleteSimulatedPaymentService
             PathTo(snapshot.AttemptStatus, PaymentAttemptStatus.Paid),
             FailureCode: null,
             PaymentStatus.Paid,
-            snapshot.AttemptAmount));
+            snapshot.AttemptAmount,
+            PaymentMethodPolicy.KindOf(snapshot.Method) == PaymentSettlementKind.CashOnDelivery
+                ? null
+                : OrderStatus.Confirmed));
     }
 
     private static CompleteSimulatedPaymentResult DecideFailed(SimulatedPaymentSnapshot snapshot) =>
@@ -106,7 +132,8 @@ public sealed class CompleteSimulatedPaymentService
             SimulatedPaymentWriteConstants.SimulatedFailureCode,
             PaymentStatus.Failed,
             // 失敗不改變已收金額。這一筆從來沒有收到過錢，寫 0 是還原而不是扣款。
-            OrderPaidAmount: 0m));
+            OrderPaidAmount: 0m,
+            OrderStatusTransition: null));
 
     private static CompleteSimulatedPaymentResult DecideExpired(SimulatedPaymentSnapshot snapshot)
     {
@@ -125,7 +152,8 @@ public sealed class CompleteSimulatedPaymentService
             [PaymentAttemptStatus.Expired],
             FailureCode: null,
             PaymentStatus.Expired,
-            OrderPaidAmount: 0m));
+            OrderPaidAmount: 0m,
+            OrderStatusTransition: null));
     }
 
     /// <summary>
