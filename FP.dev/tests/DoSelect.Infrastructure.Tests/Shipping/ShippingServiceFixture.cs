@@ -8,9 +8,12 @@ namespace DoSelect.Infrastructure.Tests.Shipping;
 
 public sealed class ShippingServiceFixture : IAsyncLifetime
 {
-    private const string ConnectionString =
-        "Server=.\\SQL2025;Database=DoSelectShippingServiceTests;Trusted_Connection=True;" +
-        "TrustServerCertificate=True;";
+    // Same defect 組長 caught on PR #47 and PR #36 already fixed for the Inventory
+    // fixtures: a hardcoded local instance passes locally, but CI's SQL Server runs in a
+    // container reachable only via DOSELECT_SQLSERVER_TEST_CONNECTION, so every test here
+    // failed with a connection error in CI. Route through the shared helper instead.
+    private static readonly string ConnectionString =
+        SqlServerTestConnection.Build("DoSelectShippingServiceTests");
 
     public Task InitializeAsync() => ResetDatabaseAsync();
 
