@@ -86,14 +86,42 @@ public sealed class ShippingApiFixture : IAsyncLifetime
     /// <summary>A brand-new, unauthenticated client — use for 401/anonymous scenarios.</summary>
     public HttpClient CreateClient() => _factory.CreateClient();
 
-    /// <summary>Same shape as Catalog.CatalogAdminApiFixture.CreateAuthenticatedAdminClientAsync.</summary>
+    /// <summary>
+    /// Same shape as Builds.AdminCompatibilityRulesApiFixture: the sign-in shortcut only stamps
+    /// role claims, but the shipping-admin services' audit actor resolution (組長 PR #73 review
+    /// item 2) re-queries the real Users/UserRoles tables — so the fixture seeds a real admin and
+    /// real role rows, then signs in as that user.
+    /// </summary>
     public async Task<HttpClient> CreateAuthenticatedAdminClientAsync(params string[] roles)
     {
+        string adminUserId;
+        await using (var context = CreateContext())
+        {
+            var admin = DoSelect.Infrastructure.Persistence.Identity.ApplicationUser.CreateAdmin(
+                Guid.CreateVersion7(), $"{Guid.NewGuid():N}@doselect.test", DateTime.UtcNow);
+            context.Users.Add(admin);
+            await context.SaveChangesAsync();
+            adminUserId = admin.Id;
+            foreach (var roleName in roles)
+            {
+                var role = new Microsoft.AspNetCore.Identity.IdentityRole(roleName);
+                context.Roles.Add(role);
+                await context.SaveChangesAsync();
+                context.UserRoles.Add(new Microsoft.AspNetCore.Identity.IdentityUserRole<string>
+                {
+                    UserId = admin.Id,
+                    RoleId = role.Id,
+                });
+            }
+
+            await context.SaveChangesAsync();
+        }
+
         var client = CreateClient();
         var signInToken = await GetAdminAntiforgeryTokenAsync(client);
         using var request = new HttpRequestMessage(HttpMethod.Post, "/__tests/security/sign-in/admin")
         {
-            Content = System.Net.Http.Json.JsonContent.Create(new { includeMfa = true, roles }),
+            Content = System.Net.Http.Json.JsonContent.Create(new { includeMfa = true, roles, userId = adminUserId }),
         };
         request.Headers.Add("X-XSRF-TOKEN", signInToken);
         using var response = await client.SendAsync(request);

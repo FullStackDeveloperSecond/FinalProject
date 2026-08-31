@@ -1,4 +1,5 @@
 using DoSelect.Application.Idempotency;
+using DoSelect.Application.Shipping;
 using DoSelect.Application.Shopping;
 using DoSelect.Infrastructure.Idempotency;
 using DoSelect.Infrastructure.Persistence;
@@ -112,6 +113,78 @@ public sealed class ShippingOptionsServiceTests
         var options = await CreateService(context).GetOptionsForCartAsync(identity, CancellationToken.None);
 
         Assert.DoesNotContain("cashOnDelivery", options.Options.Single().AllowedPaymentMethods);
+    }
+
+    /// <summary>
+    /// 組長 PR #73 review item 3: an over-limit cart must be reported ineligible on the options
+    /// screen with the catalogued shipping_constraint_exceeded code, not discovered at checkout.
+    /// Store pickup gets a tight CVS-sized limit; home delivery keeps the fixture's generous one,
+    /// so the same cart shows one blocked and one available option.
+    /// </summary>
+    [Fact]
+    public async Task GetOptionsForCartAsync_WhenTheCartExceedsAMethodsPackageLimit_ReportsThatMethodIneligible()
+    {
+        await using var context = ShippingServiceFixture.CreateContext();
+        await ShippingServiceFixture.ClearShippingMethodsAsync(context);
+        var storePickup = await ShippingServiceFixture.SeedShippingMethodAsync(
+            context, ShippingMethodKinds.StorePickup, 60m, 2000m, true, false);
+        var homeDelivery = await ShippingServiceFixture.SeedShippingMethodAsync(
+            context, ShippingMethodKinds.HomeDelivery, 150m, 5000m, true, false);
+        await ShippingServiceFixture.ReplaceProviderLimitAsync(
+            context, ShippingProviderCodes.StorePickup, maxWeightKg: 5m, maxSideCm: 45m, maxTotalCm: 105m);
+        // 10 kg parcel: over the CVS 5 kg ceiling, within home delivery's 20 kg.
+        var sku = await ShippingServiceFixture.SeedPublishedSkuAsync(context, listPrice: 1000m, weightKg: 10m);
+        var identity = new CartIdentity(null, ShippingServiceFixture.UniqueGuestKey());
+        await AddItemAsync(context, identity, sku, quantity: 1);
+
+        var options = await CreateService(context).GetOptionsForCartAsync(identity, CancellationToken.None);
+
+        var blocked = options.Options.Single(option => option.MethodCode == storePickup.Code);
+        Assert.False(blocked.IsEligible);
+        Assert.Equal("shipping_constraint_exceeded", blocked.IneligibleReasonCode);
+        var open = options.Options.Single(option => option.MethodCode == homeDelivery.Code);
+        Assert.True(open.IsEligible);
+    }
+
+    [Fact]
+    public async Task GetOptionsForCartAsync_WhenTheCartSitsExactlyOnTheLimit_StaysEligible()
+    {
+        await using var context = ShippingServiceFixture.CreateContext();
+        await ShippingServiceFixture.ClearShippingMethodsAsync(context);
+        var storePickup = await ShippingServiceFixture.SeedShippingMethodAsync(
+            context, ShippingMethodKinds.StorePickup, 60m, 2000m, true, false);
+        await ShippingServiceFixture.ReplaceProviderLimitAsync(
+            context, ShippingProviderCodes.StorePickup, maxWeightKg: 5m, maxSideCm: 45m, maxTotalCm: 105m);
+        // Exactly 5 kg and 35+35+35=105 total: boundaries are inclusive, mirroring checkout.
+        var sku = await ShippingServiceFixture.SeedPublishedSkuAsync(
+            context, listPrice: 1000m, weightKg: 5m, sideCm: 35m);
+        var identity = new CartIdentity(null, ShippingServiceFixture.UniqueGuestKey());
+        await AddItemAsync(context, identity, sku, quantity: 1);
+
+        var options = await CreateService(context).GetOptionsForCartAsync(identity, CancellationToken.None);
+
+        var option = options.Options.Single(candidate => candidate.MethodCode == storePickup.Code);
+        Assert.True(option.IsEligible);
+    }
+
+    /// <summary>A SKU without dimensions makes the package incomplete; checkout rejects that for
+    /// every limited method, so the options screen must say so up front instead of showing 可用.</summary>
+    [Fact]
+    public async Task GetOptionsForCartAsync_WhenASkuHasNoDimensions_ReportsMethodsIneligible()
+    {
+        await using var context = ShippingServiceFixture.CreateContext();
+        await ShippingServiceFixture.ClearShippingMethodsAsync(context);
+        var storePickup = await ShippingServiceFixture.SeedShippingMethodAsync(
+            context, ShippingMethodKinds.StorePickup, 60m, 2000m, true, false);
+        var sku = await ShippingServiceFixture.SeedPublishedSkuWithoutDimensionsAsync(context, listPrice: 1000m);
+        var identity = new CartIdentity(null, ShippingServiceFixture.UniqueGuestKey());
+        await AddItemAsync(context, identity, sku, quantity: 1);
+
+        var options = await CreateService(context).GetOptionsForCartAsync(identity, CancellationToken.None);
+
+        var option = options.Options.Single(candidate => candidate.MethodCode == storePickup.Code);
+        Assert.False(option.IsEligible);
+        Assert.Equal(ShippingErrorCodes.ShippingMethodNotAllowed, option.IneligibleReasonCode);
     }
 
     private static EfShippingOptionsService CreateService(DoSelectDbContext context) =>

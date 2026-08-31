@@ -53,11 +53,16 @@ public interface IPackageLimitService
     Task<IReadOnlyList<PackageLimitVersionDto>> ListAsync(string providerCode, CancellationToken cancellationToken);
 
     Task<PackageLimitVersionDto> CreateDraftAsync(
+        DoSelect.Application.Auditing.AuditRequestContext auditContext,
         CreatePackageLimitVersionRequest request,
         string actorUserId,
         CancellationToken cancellationToken);
 
+    /// <summary>組長 PR #73 review item 4: <paramref name="providerCode"/> is the route's {id};
+    /// the version must belong to it or the call fails with resource_not_found.</summary>
     Task<PackageLimitVersionDto> PublishAsync(
+        string providerCode,
+        DoSelect.Application.Auditing.AuditRequestContext auditContext,
         Guid versionPublicId,
         PublishPackageLimitVersionRequest request,
         string actorUserId,
@@ -107,11 +112,13 @@ public interface IConvenienceStoreAdminService
     Task<PageResult<ConvenienceStoreDto>> ListAsync(AdminConvenienceStoreQuery query, CancellationToken cancellationToken);
 
     Task<ConvenienceStoreDto> CreateAsync(
+        DoSelect.Application.Auditing.AuditRequestContext auditContext,
         CreateConvenienceStoreRequest request,
         string actorUserId,
         CancellationToken cancellationToken);
 
     Task<ConvenienceStoreDto> UpdateAsync(
+        DoSelect.Application.Auditing.AuditRequestContext auditContext,
         Guid publicId,
         UpdateConvenienceStoreRequest request,
         string actorUserId,

@@ -1,8 +1,10 @@
 using System.ComponentModel.DataAnnotations;
+using System.Diagnostics;
 using System.Security.Claims;
 using DoSelect.Api.Common;
 using DoSelect.Api.Security;
 using DoSelect.Application.Common;
+using DoSelect.Application.Auditing;
 using DoSelect.Application.Shipping;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -41,7 +43,7 @@ public sealed class AdminConvenienceStoresController : ControllerBase
         try
         {
             var actorUserId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
-            var created = await _convenienceStoreAdminService.CreateAsync(request, actorUserId, cancellationToken);
+            var created = await _convenienceStoreAdminService.CreateAsync(BuildAuditContext(), request, actorUserId, cancellationToken);
             return CreatedAtAction(nameof(List), new { }, created);
         }
         catch (ShippingAdminWriteException exception)
@@ -60,13 +62,22 @@ public sealed class AdminConvenienceStoresController : ControllerBase
         try
         {
             var actorUserId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
-            var updated = await _convenienceStoreAdminService.UpdateAsync(id, request, actorUserId, cancellationToken);
+            var updated = await _convenienceStoreAdminService.UpdateAsync(BuildAuditContext(), id, request, actorUserId, cancellationToken);
             return Ok(updated);
         }
         catch (ShippingAdminWriteException exception)
         {
             return exception.ToActionResult(HttpContext);
         }
+    }
+
+    private AuditRequestContext BuildAuditContext()
+    {
+        var traceId = Activity.Current?.TraceId.ToString() ?? ActivityTraceId.CreateRandom().ToString();
+        return new AuditRequestContext(
+            CorrelationIdMiddleware.GetCorrelationId(HttpContext),
+            traceId,
+            HttpContext.Connection.RemoteIpAddress);
     }
 }
 

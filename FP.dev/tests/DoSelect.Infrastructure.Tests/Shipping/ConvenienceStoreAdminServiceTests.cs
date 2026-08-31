@@ -1,5 +1,7 @@
 using DoSelect.Application.Shipping;
+using DoSelect.Infrastructure.Auditing;
 using DoSelect.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 using DoSelect.Infrastructure.Shipping;
 
 namespace DoSelect.Infrastructure.Tests.Shipping;
@@ -13,11 +15,13 @@ public sealed class ConvenienceStoreAdminServiceTests
     {
         await using var context = ShippingServiceFixture.CreateContext();
         await ShippingServiceFixture.ClearConvenienceStoresAsync(context);
+        var actorId = await ShippingServiceFixture.SeedShippingAdminAsync(context);
         var code = ShippingServiceFixture.UniqueCode("STORE");
 
         var created = await CreateService(context).CreateAsync(
+            ShippingServiceFixture.TestAuditContext,
             new CreateConvenienceStoreRequest("7-11", code, "測試門市", "測試路 1 號", "台北市", "大安區"),
-            "actor-1", CancellationToken.None);
+            actorId, CancellationToken.None);
 
         Assert.True(created.IsDemoData);
         Assert.True(created.IsActive);
@@ -28,15 +32,18 @@ public sealed class ConvenienceStoreAdminServiceTests
     {
         await using var context = ShippingServiceFixture.CreateContext();
         await ShippingServiceFixture.ClearConvenienceStoresAsync(context);
+        var actorId = await ShippingServiceFixture.SeedShippingAdminAsync(context);
         var code = ShippingServiceFixture.UniqueCode("STORE");
         var service = CreateService(context);
         await service.CreateAsync(
+            ShippingServiceFixture.TestAuditContext,
             new CreateConvenienceStoreRequest("7-11", code, "測試門市", "測試路 1 號", "台北市", "大安區"),
-            "actor-1", CancellationToken.None);
+            actorId, CancellationToken.None);
 
         var exception = await Assert.ThrowsAsync<ShippingAdminWriteException>(() => service.CreateAsync(
+            ShippingServiceFixture.TestAuditContext,
             new CreateConvenienceStoreRequest("7-11", code, "另一個名稱", "另一條路 2 號", "台北市", "大安區"),
-            "actor-1", CancellationToken.None));
+            actorId, CancellationToken.None));
         Assert.Equal(ShippingAdminErrorCodes.StoreCodeDuplicate, exception.ErrorCode);
     }
 
@@ -45,15 +52,18 @@ public sealed class ConvenienceStoreAdminServiceTests
     {
         await using var context = ShippingServiceFixture.CreateContext();
         await ShippingServiceFixture.ClearConvenienceStoresAsync(context);
+        var actorId = await ShippingServiceFixture.SeedShippingAdminAsync(context);
         var code = ShippingServiceFixture.UniqueCode("STORE");
         var service = CreateService(context);
         await service.CreateAsync(
+            ShippingServiceFixture.TestAuditContext,
             new CreateConvenienceStoreRequest("7-11", code, "測試門市", "測試路 1 號", "台北市", "大安區"),
-            "actor-1", CancellationToken.None);
+            actorId, CancellationToken.None);
 
         var created = await service.CreateAsync(
+            ShippingServiceFixture.TestAuditContext,
             new CreateConvenienceStoreRequest("FamilyMart", code, "測試門市", "測試路 1 號", "台北市", "大安區"),
-            "actor-1", CancellationToken.None);
+            actorId, CancellationToken.None);
 
         Assert.Equal(code, created.StoreCode);
     }
@@ -64,15 +74,18 @@ public sealed class ConvenienceStoreAdminServiceTests
     {
         await using var context = ShippingServiceFixture.CreateContext();
         await ShippingServiceFixture.ClearConvenienceStoresAsync(context);
+        var actorId = await ShippingServiceFixture.SeedShippingAdminAsync(context);
         var service = CreateService(context);
         var created = await service.CreateAsync(
+            ShippingServiceFixture.TestAuditContext,
             new CreateConvenienceStoreRequest("7-11", ShippingServiceFixture.UniqueCode("STORE"), "測試門市", "測試路 1 號", "台北市", "大安區"),
-            "actor-1", CancellationToken.None);
+            actorId, CancellationToken.None);
 
         var updated = await service.UpdateAsync(
+            ShippingServiceFixture.TestAuditContext,
             created.PublicId,
             new UpdateConvenienceStoreRequest("測試門市", "測試路 1 號", "台北市", "大安區", IsActive: false, created.RowVersion),
-            "actor-1", CancellationToken.None);
+            actorId, CancellationToken.None);
 
         Assert.False(updated.IsActive);
     }
@@ -82,17 +95,20 @@ public sealed class ConvenienceStoreAdminServiceTests
     {
         await using var context = ShippingServiceFixture.CreateContext();
         await ShippingServiceFixture.ClearConvenienceStoresAsync(context);
+        var actorId = await ShippingServiceFixture.SeedShippingAdminAsync(context);
         var service = CreateService(context);
         var created = await service.CreateAsync(
+            ShippingServiceFixture.TestAuditContext,
             new CreateConvenienceStoreRequest("7-11", ShippingServiceFixture.UniqueCode("STORE"), "測試門市", "測試路 1 號", "台北市", "大安區"),
-            "actor-1", CancellationToken.None);
+            actorId, CancellationToken.None);
         var staleRowVersion = (byte[])created.RowVersion.Clone();
         staleRowVersion[0] = unchecked((byte)(staleRowVersion[0] + 1));
 
         var exception = await Assert.ThrowsAsync<ShippingAdminWriteException>(() => service.UpdateAsync(
+            ShippingServiceFixture.TestAuditContext,
             created.PublicId,
             new UpdateConvenienceStoreRequest("測試門市", "測試路 1 號", "台北市", "大安區", true, staleRowVersion),
-            "actor-1", CancellationToken.None));
+            actorId, CancellationToken.None));
         Assert.Equal(ShippingAdminErrorCodes.ConcurrencyConflict, exception.ErrorCode);
     }
 
@@ -101,17 +117,21 @@ public sealed class ConvenienceStoreAdminServiceTests
     {
         await using var context = ShippingServiceFixture.CreateContext();
         await ShippingServiceFixture.ClearConvenienceStoresAsync(context);
+        var actorId = await ShippingServiceFixture.SeedShippingAdminAsync(context);
         var service = CreateService(context);
         var active = await service.CreateAsync(
+            ShippingServiceFixture.TestAuditContext,
             new CreateConvenienceStoreRequest("7-11", ShippingServiceFixture.UniqueCode("STORE"), "門市A", "路1號", "台北市", "大安區"),
-            "actor-1", CancellationToken.None);
+            actorId, CancellationToken.None);
         var toDeactivate = await service.CreateAsync(
+            ShippingServiceFixture.TestAuditContext,
             new CreateConvenienceStoreRequest("7-11", ShippingServiceFixture.UniqueCode("STORE"), "門市B", "路2號", "台北市", "大安區"),
-            "actor-1", CancellationToken.None);
+            actorId, CancellationToken.None);
         await service.UpdateAsync(
+            ShippingServiceFixture.TestAuditContext,
             toDeactivate.PublicId,
             new UpdateConvenienceStoreRequest("門市B", "路2號", "台北市", "大安區", false, toDeactivate.RowVersion),
-            "actor-1", CancellationToken.None);
+            actorId, CancellationToken.None);
 
         var result = await service.ListAsync(
             new AdminConvenienceStoreQuery(null, null, null, IsActive: true, 1, 20), CancellationToken.None);
@@ -120,5 +140,40 @@ public sealed class ConvenienceStoreAdminServiceTests
         Assert.DoesNotContain(result.Items, store => store.PublicId == toDeactivate.PublicId);
     }
 
-    private static EfConvenienceStoreAdminService CreateService(DoSelectDbContext context) => new(context);
+    /// <summary>組長 PR #73 review item 2: every store write must land its audit row in the same
+    /// transaction as the write itself.</summary>
+    [Fact]
+    public async Task CreateAndUpdate_WriteCentralAuditEntriesWithChangedFieldNamesOnly()
+    {
+        await using var context = ShippingServiceFixture.CreateContext();
+        await ShippingServiceFixture.ClearConvenienceStoresAsync(context);
+        var actorId = await ShippingServiceFixture.SeedShippingAdminAsync(context);
+        var service = CreateService(context);
+        var created = await service.CreateAsync(
+            ShippingServiceFixture.TestAuditContext,
+            new CreateConvenienceStoreRequest("7-11", ShippingServiceFixture.UniqueCode("STORE"), "測試門市", "測試路 1 號", "台北市", "大安區"),
+            actorId, CancellationToken.None);
+
+        await service.UpdateAsync(
+            ShippingServiceFixture.TestAuditContext,
+            created.PublicId,
+            new UpdateConvenienceStoreRequest("改名門市", "測試路 1 號", "台北市", "大安區", IsActive: false, created.RowVersion),
+            actorId, CancellationToken.None);
+
+        var audits = await context.AuditLogs.AsNoTracking()
+            .Where(log => log.ResourcePublicId == created.PublicId)
+            .OrderBy(log => log.Id)
+            .ToListAsync();
+        Assert.Equal(2, audits.Count);
+        Assert.Equal("shipping.store.create", audits[0].Action);
+        Assert.Equal("shipping.store.update", audits[1].Action);
+        // Free-text values must never enter the safe-code audit fields — the update records the
+        // changed field *name* (storeName) and the isActive transition only.
+        Assert.DoesNotContain("改名門市", audits[1].ChangedFieldsJson + audits[1].Reason);
+        Assert.Contains("storeName", audits[1].ChangedFieldsJson);
+        Assert.Contains("isActive", audits[1].ChangedFieldsJson);
+    }
+
+    private static EfConvenienceStoreAdminService CreateService(DoSelectDbContext context) =>
+        new(context, new EfAuditWriter(context, TimeProvider.System));
 }

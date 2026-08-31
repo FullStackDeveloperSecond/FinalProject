@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using System.Security.Claims;
 using DoSelect.Api.Common;
+using DoSelect.Application.Auditing;
 using DoSelect.Api.Security;
 using DoSelect.Application.Shipping;
 using Microsoft.AspNetCore.Authorization;
@@ -60,7 +62,7 @@ public sealed class AdminPackageLimitsController : ControllerBase
         try
         {
             var actorUserId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
-            var created = await _packageLimitService.CreateDraftAsync(request, actorUserId, cancellationToken);
+            var created = await _packageLimitService.CreateDraftAsync(BuildAuditContext(), request, actorUserId, cancellationToken);
             return CreatedAtAction(nameof(List), new { id }, created);
         }
         catch (ShippingAdminWriteException exception)
@@ -80,12 +82,21 @@ public sealed class AdminPackageLimitsController : ControllerBase
         try
         {
             var actorUserId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
-            var published = await _packageLimitService.PublishAsync(versionId, request, actorUserId, cancellationToken);
+            var published = await _packageLimitService.PublishAsync(id, BuildAuditContext(), versionId, request, actorUserId, cancellationToken);
             return Ok(published);
         }
         catch (ShippingAdminWriteException exception)
         {
             return exception.ToActionResult(HttpContext);
         }
+    }
+
+    private AuditRequestContext BuildAuditContext()
+    {
+        var traceId = Activity.Current?.TraceId.ToString() ?? ActivityTraceId.CreateRandom().ToString();
+        return new AuditRequestContext(
+            CorrelationIdMiddleware.GetCorrelationId(HttpContext),
+            traceId,
+            HttpContext.Connection.RemoteIpAddress);
     }
 }

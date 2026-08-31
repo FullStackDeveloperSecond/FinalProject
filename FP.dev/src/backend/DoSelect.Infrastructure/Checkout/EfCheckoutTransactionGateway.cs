@@ -400,10 +400,15 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
                 throw Conflict("shipping_method_not_allowed", "A convenience store is required.");
             }
 
+            // 組長 PR #73 review A1: the store's ProviderCode is the CVS *brand* (7-11／FamilyMart,
+            // the store model in 購物車、訂單、付款與物流.md) while the method's ProviderCode is the
+            // logistics *profile class* (StorePickup) — the old equality compared those two
+            // different vocabularies, so every store-pickup checkout failed with "store not
+            // found". The store resolves by PublicId + IsActive alone; method.ProviderCode is only
+            // used to resolve the ShippingProviderProfile below.
             store = await _context.ConvenienceStores.AsNoTracking()
-                .SingleOrDefaultAsync(candidate =>
-                        candidate.PublicId == command.StorePublicId.Value &&
-                        candidate.ProviderCode == method.ProviderCode,
+                .SingleOrDefaultAsync(
+                    candidate => candidate.PublicId == command.StorePublicId.Value,
                     cancellationToken)
                 ?? throw DomainProblemException.NotFound("The convenience store was not found.");
             if (!store.IsActive)

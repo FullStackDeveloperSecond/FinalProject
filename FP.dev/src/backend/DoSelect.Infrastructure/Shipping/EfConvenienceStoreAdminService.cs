@@ -1,5 +1,7 @@
+using DoSelect.Application.Auditing;
 using DoSelect.Application.Common;
 using DoSelect.Application.Shipping;
+using DoSelect.Domain.Auditing;
 using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -14,10 +16,12 @@ namespace DoSelect.Infrastructure.Shipping;
 public sealed class EfConvenienceStoreAdminService : IConvenienceStoreAdminService
 {
     private readonly DoSelectDbContext _dbContext;
+    private readonly IAuditWriter _auditWriter;
 
-    public EfConvenienceStoreAdminService(DoSelectDbContext dbContext)
+    public EfConvenienceStoreAdminService(DoSelectDbContext dbContext, IAuditWriter auditWriter)
     {
         _dbContext = dbContext;
+        _auditWriter = auditWriter;
     }
 
     public async Task<PageResult<ConvenienceStoreDto>> ListAsync(
@@ -59,10 +63,12 @@ public sealed class EfConvenienceStoreAdminService : IConvenienceStoreAdminServi
     }
 
     public async Task<ConvenienceStoreDto> CreateAsync(
+        AuditRequestContext auditContext,
         CreateConvenienceStoreRequest request,
         string actorUserId,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(auditContext);
         var duplicate = await _dbContext.ConvenienceStores.AnyAsync(
             store => store.ProviderCode == request.ProviderCode && store.StoreCode == request.StoreCode,
             cancellationToken);
@@ -88,6 +94,27 @@ public sealed class EfConvenienceStoreAdminService : IConvenienceStoreAdminServi
         try
         {
             _dbContext.ConvenienceStores.Add(store);
+            // 組長 PR #73 review item 2: the audit row is part of the same SaveChanges — EF wraps a
+            // single SaveChangesAsync in one transaction, so an audit failure rolls the create back.
+            var actor = await ResolveActorAsync(actorUserId, cancellationToken);
+            _auditWriter.Add(AuditWriteRequest.Create(
+                Guid.CreateVersion7(),
+                actor,
+                AuditActions.ShippingStoreCreate,
+                AuditResourceTypes.ConvenienceStore,
+                store.PublicId,
+                AuditResult.Success,
+                errorCode: null,
+                [
+                    AuditFieldChange.Code("providerCode", null, request.ProviderCode),
+                    AuditFieldChange.Code("storeCode", null, request.StoreCode),
+                    AuditFieldChange.Code("isActive", null, "true"),
+                ],
+                reason: "store_created",
+                auditContext.CorrelationId,
+                auditContext.TraceId,
+                jobPublicId: null,
+                auditContext.RemoteIpAddress));
             await _dbContext.SaveChangesAsync(cancellationToken);
         }
         catch (DbUpdateException)
@@ -107,17 +134,72 @@ public sealed class EfConvenienceStoreAdminService : IConvenienceStoreAdminServi
     }
 
     public async Task<ConvenienceStoreDto> UpdateAsync(
+        AuditRequestContext auditContext,
         Guid publicId,
         UpdateConvenienceStoreRequest request,
         string actorUserId,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(auditContext);
         var store = await _dbContext.ConvenienceStores.SingleOrDefaultAsync(
             candidate => candidate.PublicId == publicId, cancellationToken)
             ?? throw new ShippingAdminWriteException(ShippingAdminErrorCodes.ResourceNotFound);
 
+        // 門市異動保存操作者、前後值、時間及 Audit Log (購物車、訂單、付款與物流.md 超商門市維護)。
+        // Free-text values (name/address) stay out of the safe-code audit fields — the audit
+        // records *which* fields changed (the coupon.update precedent); the values themselves live
+        // on the row and its rowversion history.
+        var changes = new List<AuditFieldChange>
+        {
+            AuditFieldChange.Code("providerCode", null, store.ProviderCode),
+            AuditFieldChange.Code("storeCode", null, store.StoreCode),
+        };
+        if (!string.Equals(store.StoreName, request.StoreName, StringComparison.Ordinal))
+        {
+            changes.Add(AuditFieldChange.Changed("storeName"));
+        }
+
+        if (!string.Equals(store.Address, request.Address, StringComparison.Ordinal))
+        {
+            changes.Add(AuditFieldChange.Changed("address"));
+        }
+
+        if (!string.Equals(store.City, request.City, StringComparison.Ordinal))
+        {
+            changes.Add(AuditFieldChange.Changed("city"));
+        }
+
+        if (!string.Equals(store.District, request.District, StringComparison.Ordinal))
+        {
+            changes.Add(AuditFieldChange.Changed("district"));
+        }
+
+        if (store.IsActive != request.IsActive)
+        {
+            changes.Add(AuditFieldChange.Code(
+                "isActive",
+                store.IsActive ? "true" : "false",
+                request.IsActive ? "true" : "false"));
+        }
+
         _dbContext.Entry(store).Property(candidate => candidate.RowVersion).OriginalValue = request.RowVersion;
         store.UpdateDetails(request.StoreName, request.Address, request.City, request.District, request.IsActive, DateTime.UtcNow);
+
+        var actor = await ResolveActorAsync(actorUserId, cancellationToken);
+        _auditWriter.Add(AuditWriteRequest.Create(
+            Guid.CreateVersion7(),
+            actor,
+            AuditActions.ShippingStoreUpdate,
+            AuditResourceTypes.ConvenienceStore,
+            store.PublicId,
+            AuditResult.Success,
+            errorCode: null,
+            changes,
+            reason: "store_updated",
+            auditContext.CorrelationId,
+            auditContext.TraceId,
+            jobPublicId: null,
+            auditContext.RemoteIpAddress));
 
         try
         {
@@ -129,6 +211,34 @@ public sealed class EfConvenienceStoreAdminService : IConvenienceStoreAdminServi
         }
 
         return ToDto(store);
+    }
+
+    /// <summary>Same shape as EfPackageLimitService.ResolveActorAsync.</summary>
+    private async Task<AuditActor> ResolveActorAsync(string actorUserId, CancellationToken cancellationToken)
+    {
+        var admin = await _dbContext.Users.AsNoTracking()
+            .Where(user => user.Id == actorUserId && user.AccountType == DoSelect.Domain.Members.AccountType.Admin)
+            .Select(user => new { user.Id, user.PublicId })
+            .SingleOrDefaultAsync(cancellationToken)
+            ?? throw new ShippingAdminWriteException(
+                ShippingAdminErrorCodes.ValidationFailed, "The administrator identity is invalid.");
+
+        var roles = await (
+            from userRole in _dbContext.UserRoles.AsNoTracking()
+            join role in _dbContext.Roles.AsNoTracking() on userRole.RoleId equals role.Id
+            where userRole.UserId == admin.Id && role.Name != null
+            select role.Name!)
+            .Distinct()
+            .ToArrayAsync(cancellationToken);
+        if (!roles.Contains(AuditRoleNames.OrderManager, StringComparer.Ordinal) &&
+            !roles.Contains(AuditRoleNames.SuperAdmin, StringComparer.Ordinal))
+        {
+            throw new ShippingAdminWriteException(
+                ShippingAdminErrorCodes.ValidationFailed,
+                "The administrator no longer has permission to manage shipping settings.");
+        }
+
+        return AuditActor.Create(AuditActorType.Admin, admin.PublicId, roles);
     }
 
     private static ConvenienceStoreDto ToDto(ConvenienceStore store) => new(

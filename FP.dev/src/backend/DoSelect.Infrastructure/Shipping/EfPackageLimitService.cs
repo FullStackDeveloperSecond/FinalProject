@@ -1,4 +1,7 @@
+using System.Globalization;
+using DoSelect.Application.Auditing;
 using DoSelect.Application.Shipping;
+using DoSelect.Domain.Auditing;
 using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -15,10 +18,12 @@ namespace DoSelect.Infrastructure.Shipping;
 public sealed class EfPackageLimitService : IPackageLimitService
 {
     private readonly DoSelectDbContext _dbContext;
+    private readonly IAuditWriter _auditWriter;
 
-    public EfPackageLimitService(DoSelectDbContext dbContext)
+    public EfPackageLimitService(DoSelectDbContext dbContext, IAuditWriter auditWriter)
     {
         _dbContext = dbContext;
+        _auditWriter = auditWriter;
     }
 
     public async Task<IReadOnlyList<PackageLimitVersionDto>> ListAsync(
@@ -42,10 +47,12 @@ public sealed class EfPackageLimitService : IPackageLimitService
     }
 
     public async Task<PackageLimitVersionDto> CreateDraftAsync(
+        AuditRequestContext auditContext,
         CreatePackageLimitVersionRequest request,
         string actorUserId,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(auditContext);
         PackageLimitSafeRange safeRange;
         try
         {
@@ -109,6 +116,28 @@ public sealed class EfPackageLimitService : IPackageLimitService
                 request.EffectiveToUtc,
                 now);
             _dbContext.PackageLimitVersions.Add(limitVersion);
+
+            // 組長 PR #73 review item 2: the audit row commits in the same transaction as the new
+            // draft — an audit failure rolls the whole create back.
+            var actor = await ResolveActorAsync(actorUserId, cancellationToken);
+            _auditWriter.Add(AuditWriteRequest.Create(
+                Guid.CreateVersion7(),
+                actor,
+                AuditActions.ShippingPackageLimitCreate,
+                AuditResourceTypes.PackageLimitVersion,
+                limitVersion.PublicId,
+                AuditResult.Success,
+                errorCode: null,
+                [
+                    AuditFieldChange.Code("providerCode", null, request.ProviderCode),
+                    AuditFieldChange.Code("version", null, nextVersion.ToString(CultureInfo.InvariantCulture)),
+                    AuditFieldChange.Code("status", null, ShippingProviderProfileStatuses.Draft),
+                ],
+                reason: "package_limit_draft_created",
+                auditContext.CorrelationId,
+                auditContext.TraceId,
+                jobPublicId: null,
+                auditContext.RemoteIpAddress));
             await _dbContext.SaveChangesAsync(cancellationToken);
 
             await transaction.CommitAsync(cancellationToken);
@@ -122,16 +151,28 @@ public sealed class EfPackageLimitService : IPackageLimitService
     }
 
     public async Task<PackageLimitVersionDto> PublishAsync(
+        string providerCode,
+        AuditRequestContext auditContext,
         Guid versionPublicId,
         PublishPackageLimitVersionRequest request,
         string actorUserId,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(auditContext);
         var limitVersion = await _dbContext.PackageLimitVersions
             .SingleOrDefaultAsync(candidate => candidate.PublicId == versionPublicId, cancellationToken)
             ?? throw new ShippingAdminWriteException(ShippingAdminErrorCodes.ResourceNotFound);
         var profile = await _dbContext.ShippingProviderProfiles
             .SingleAsync(candidate => candidate.Id == limitVersion.ProviderProfileId, cancellationToken);
+
+        // 組長 PR #73 review item 4: the route's provider id must own this version — otherwise a
+        // request against the wrong provider path could publish another provider's version.
+        if (!string.Equals(profile.ProviderCode, providerCode, StringComparison.Ordinal))
+        {
+            throw new ShippingAdminWriteException(
+                ShippingAdminErrorCodes.ResourceNotFound,
+                $"Version '{versionPublicId}' does not belong to provider '{providerCode}'.");
+        }
 
         _dbContext.Entry(profile).Property(candidate => candidate.RowVersion).OriginalValue = request.RowVersion;
 
@@ -151,15 +192,50 @@ public sealed class EfPackageLimitService : IPackageLimitService
                         candidate.Status == ShippingProviderProfileStatuses.Published &&
                         candidate.Id != profile.Id,
                     cancellationToken);
-            // Known narrow gap: if an admin publishes versions out of chronological order (the new
-            // one's window starts *before* the currently-published one's own EffectiveFromUtc),
-            // this still throws — as an unhandled SqlException (CK_ShippingProviderProfiles_Period),
-            // not a clean ShippingAdminWriteException — since the overlap check at draft-creation
-            // only rejects overlapping windows, not out-of-order non-overlapping ones. Publishing in
-            // chronological order (the expected admin workflow) is unaffected.
-            currentlyPublished?.Supersede(profile.EffectiveFromUtc ?? now, now);
+            // 組長 PR #73 review item 5: publishing out of chronological order (the new version's
+            // window starting at or before the currently-published one's own EffectiveFromUtc)
+            // used to surface as an unhandled CK_ShippingProviderProfiles_Period SqlException (500)
+            // from the Supersede below. Validate the cutoff first and return a stable validation
+            // error instead — nothing has been written yet, so no partial state is possible.
+            var cutoff = profile.EffectiveFromUtc ?? now;
+            if (currentlyPublished is not null &&
+                currentlyPublished.EffectiveFromUtc is { } publishedFrom &&
+                cutoff <= publishedFrom)
+            {
+                throw new ShippingAdminWriteException(
+                    ShippingAdminErrorCodes.ValidationFailed,
+                    $"Version {profile.Version} takes effect at {cutoff:O}, which is not after the currently published version's own start ({publishedFrom:O}). Publish versions in chronological order.");
+            }
+
+            currentlyPublished?.Supersede(cutoff, now);
 
             profile.Publish(now);
+
+            // 組長 PR #73 review item 2: same-transaction audit; failure rolls back the publish.
+            var actor = await ResolveActorAsync(actorUserId, cancellationToken);
+            _auditWriter.Add(AuditWriteRequest.Create(
+                Guid.CreateVersion7(),
+                actor,
+                AuditActions.ShippingPackageLimitPublish,
+                AuditResourceTypes.PackageLimitVersion,
+                limitVersion.PublicId,
+                AuditResult.Success,
+                errorCode: null,
+                [
+                    AuditFieldChange.Code("providerCode", null, profile.ProviderCode),
+                    AuditFieldChange.Code("version", null, profile.Version.ToString(CultureInfo.InvariantCulture)),
+                    AuditFieldChange.Code("status", ShippingProviderProfileStatuses.Draft, ShippingProviderProfileStatuses.Published),
+                    AuditFieldChange.Code(
+                        "supersededVersion",
+                        null,
+                        currentlyPublished?.Version.ToString(CultureInfo.InvariantCulture) ?? "none"),
+                ],
+                reason: "package_limit_published",
+                auditContext.CorrelationId,
+                auditContext.TraceId,
+                jobPublicId: null,
+                auditContext.RemoteIpAddress));
+
             await _dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         }
@@ -175,6 +251,35 @@ public sealed class EfPackageLimitService : IPackageLimitService
         }
 
         return ToDto(limitVersion, profile);
+    }
+
+    /// <summary>Same shape as EfCompatibilityRuleAdminService.ResolveActorAsync — the audit actor
+    /// must be a real Admin account still holding one of the roles Shipping.Manage allows.</summary>
+    private async Task<AuditActor> ResolveActorAsync(string actorUserId, CancellationToken cancellationToken)
+    {
+        var admin = await _dbContext.Users.AsNoTracking()
+            .Where(user => user.Id == actorUserId && user.AccountType == DoSelect.Domain.Members.AccountType.Admin)
+            .Select(user => new { user.Id, user.PublicId })
+            .SingleOrDefaultAsync(cancellationToken)
+            ?? throw new ShippingAdminWriteException(
+                ShippingAdminErrorCodes.ValidationFailed, "The administrator identity is invalid.");
+
+        var roles = await (
+            from userRole in _dbContext.UserRoles.AsNoTracking()
+            join role in _dbContext.Roles.AsNoTracking() on userRole.RoleId equals role.Id
+            where userRole.UserId == admin.Id && role.Name != null
+            select role.Name!)
+            .Distinct()
+            .ToArrayAsync(cancellationToken);
+        if (!roles.Contains(AuditRoleNames.OrderManager, StringComparer.Ordinal) &&
+            !roles.Contains(AuditRoleNames.SuperAdmin, StringComparer.Ordinal))
+        {
+            throw new ShippingAdminWriteException(
+                ShippingAdminErrorCodes.ValidationFailed,
+                "The administrator no longer has permission to manage shipping settings.");
+        }
+
+        return AuditActor.Create(AuditActorType.Admin, admin.PublicId, roles);
     }
 
     private static void ValidateAgainstSafeRange(CreatePackageLimitVersionRequest request, PackageLimitSafeRange range)

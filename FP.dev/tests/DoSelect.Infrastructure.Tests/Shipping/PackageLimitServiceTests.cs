@@ -1,6 +1,8 @@
 using DoSelect.Application.Shipping;
+using DoSelect.Infrastructure.Auditing;
 using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 using DoSelect.Infrastructure.Shipping;
 
 namespace DoSelect.Infrastructure.Tests.Shipping;
@@ -26,8 +28,9 @@ public sealed class PackageLimitServiceTests
     {
         await using var context = ShippingServiceFixture.CreateContext();
         await ShippingServiceFixture.ClearPackageLimitDataAsync(context);
+        var actorId = await ShippingServiceFixture.SeedShippingAdminAsync(context);
 
-        var result = await CreateService(context).CreateDraftAsync(ValidStorePickupRequest(), "actor-1", CancellationToken.None);
+        var result = await CreateService(context).CreateDraftAsync(ShippingServiceFixture.TestAuditContext, ValidStorePickupRequest(), actorId, CancellationToken.None);
 
         Assert.Equal(ShippingProviderProfileStatuses.Draft, result.Status);
         Assert.Equal(1, result.Version);
@@ -39,10 +42,11 @@ public sealed class PackageLimitServiceTests
     {
         await using var context = ShippingServiceFixture.CreateContext();
         await ShippingServiceFixture.ClearPackageLimitDataAsync(context);
+        var actorId = await ShippingServiceFixture.SeedShippingAdminAsync(context);
         var request = ValidStorePickupRequest() with { MaxLengthCm = 46m };
 
         var exception = await Assert.ThrowsAsync<ShippingAdminWriteException>(
-            () => CreateService(context).CreateDraftAsync(request, "actor-1", CancellationToken.None));
+            () => CreateService(context).CreateDraftAsync(ShippingServiceFixture.TestAuditContext, request, actorId, CancellationToken.None));
         Assert.Equal(ShippingAdminErrorCodes.ValidationFailed, exception.ErrorCode);
     }
 
@@ -52,10 +56,11 @@ public sealed class PackageLimitServiceTests
     {
         await using var context = ShippingServiceFixture.CreateContext();
         await ShippingServiceFixture.ClearPackageLimitDataAsync(context);
+        var actorId = await ShippingServiceFixture.SeedShippingAdminAsync(context);
         var request = ValidStorePickupRequest() with { MaxLengthCm = 45m, MaxTotalCm = 40m };
 
         var exception = await Assert.ThrowsAsync<ShippingAdminWriteException>(
-            () => CreateService(context).CreateDraftAsync(request, "actor-1", CancellationToken.None));
+            () => CreateService(context).CreateDraftAsync(ShippingServiceFixture.TestAuditContext, request, actorId, CancellationToken.None));
         Assert.Equal(ShippingAdminErrorCodes.ValidationFailed, exception.ErrorCode);
     }
 
@@ -64,10 +69,11 @@ public sealed class PackageLimitServiceTests
     {
         await using var context = ShippingServiceFixture.CreateContext();
         await ShippingServiceFixture.ClearPackageLimitDataAsync(context);
+        var actorId = await ShippingServiceFixture.SeedShippingAdminAsync(context);
         var request = ValidStorePickupRequest() with { ProviderCode = "DoesNotExist" };
 
         var exception = await Assert.ThrowsAsync<ShippingAdminWriteException>(
-            () => CreateService(context).CreateDraftAsync(request, "actor-1", CancellationToken.None));
+            () => CreateService(context).CreateDraftAsync(ShippingServiceFixture.TestAuditContext, request, actorId, CancellationToken.None));
         Assert.Equal(ShippingAdminErrorCodes.ValidationFailed, exception.ErrorCode);
     }
 
@@ -77,14 +83,15 @@ public sealed class PackageLimitServiceTests
     {
         await using var context = ShippingServiceFixture.CreateContext();
         await ShippingServiceFixture.ClearPackageLimitDataAsync(context);
+        var actorId = await ShippingServiceFixture.SeedShippingAdminAsync(context);
         var service = CreateService(context);
         var baseline = new DateTime(2027, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        await service.CreateDraftAsync(
-            ValidStorePickupRequest(baseline, baseline.AddMonths(6)), "actor-1", CancellationToken.None);
+        await service.CreateDraftAsync(ShippingServiceFixture.TestAuditContext,
+            ValidStorePickupRequest(baseline, baseline.AddMonths(6)), actorId, CancellationToken.None);
 
         var overlapping = ValidStorePickupRequest(baseline.AddMonths(3), baseline.AddMonths(9));
         var exception = await Assert.ThrowsAsync<ShippingAdminWriteException>(
-            () => service.CreateDraftAsync(overlapping, "actor-1", CancellationToken.None));
+            () => service.CreateDraftAsync(ShippingServiceFixture.TestAuditContext, overlapping, actorId, CancellationToken.None));
         Assert.Equal(ShippingAdminErrorCodes.PackageLimitPeriodOverlap, exception.ErrorCode);
     }
 
@@ -93,13 +100,14 @@ public sealed class PackageLimitServiceTests
     {
         await using var context = ShippingServiceFixture.CreateContext();
         await ShippingServiceFixture.ClearPackageLimitDataAsync(context);
+        var actorId = await ShippingServiceFixture.SeedShippingAdminAsync(context);
         var service = CreateService(context);
         var baseline = new DateTime(2027, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        await service.CreateDraftAsync(
-            ValidStorePickupRequest(baseline, baseline.AddMonths(6)), "actor-1", CancellationToken.None);
+        await service.CreateDraftAsync(ShippingServiceFixture.TestAuditContext,
+            ValidStorePickupRequest(baseline, baseline.AddMonths(6)), actorId, CancellationToken.None);
 
-        var second = await service.CreateDraftAsync(
-            ValidStorePickupRequest(baseline.AddMonths(6), baseline.AddMonths(12)), "actor-1", CancellationToken.None);
+        var second = await service.CreateDraftAsync(ShippingServiceFixture.TestAuditContext,
+            ValidStorePickupRequest(baseline.AddMonths(6), baseline.AddMonths(12)), actorId, CancellationToken.None);
 
         Assert.Equal(2, second.Version);
     }
@@ -109,11 +117,12 @@ public sealed class PackageLimitServiceTests
     {
         await using var context = ShippingServiceFixture.CreateContext();
         await ShippingServiceFixture.ClearPackageLimitDataAsync(context);
+        var actorId = await ShippingServiceFixture.SeedShippingAdminAsync(context);
         var service = CreateService(context);
-        var draft = await service.CreateDraftAsync(ValidStorePickupRequest(), "actor-1", CancellationToken.None);
+        var draft = await service.CreateDraftAsync(ShippingServiceFixture.TestAuditContext, ValidStorePickupRequest(), actorId, CancellationToken.None);
 
-        var published = await service.PublishAsync(
-            draft.PublicId, new PublishPackageLimitVersionRequest(draft.RowVersion), "actor-1", CancellationToken.None);
+        var published = await service.PublishAsync(ShippingProviderCodes.StorePickup, ShippingServiceFixture.TestAuditContext,
+            draft.PublicId, new PublishPackageLimitVersionRequest(draft.RowVersion), actorId, CancellationToken.None);
 
         Assert.Equal(ShippingProviderProfileStatuses.Published, published.Status);
     }
@@ -124,15 +133,16 @@ public sealed class PackageLimitServiceTests
     {
         await using var context = ShippingServiceFixture.CreateContext();
         await ShippingServiceFixture.ClearPackageLimitDataAsync(context);
+        var actorId = await ShippingServiceFixture.SeedShippingAdminAsync(context);
         var service = CreateService(context);
         var baseline = new DateTime(2027, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        var first = await service.CreateDraftAsync(
-            ValidStorePickupRequest(baseline, baseline.AddMonths(6)), "actor-1", CancellationToken.None);
-        await service.PublishAsync(first.PublicId, new PublishPackageLimitVersionRequest(first.RowVersion), "actor-1", CancellationToken.None);
-        var second = await service.CreateDraftAsync(
-            ValidStorePickupRequest(baseline.AddMonths(6), baseline.AddMonths(12)), "actor-1", CancellationToken.None);
+        var first = await service.CreateDraftAsync(ShippingServiceFixture.TestAuditContext,
+            ValidStorePickupRequest(baseline, baseline.AddMonths(6)), actorId, CancellationToken.None);
+        await service.PublishAsync(ShippingProviderCodes.StorePickup, ShippingServiceFixture.TestAuditContext, first.PublicId, new PublishPackageLimitVersionRequest(first.RowVersion), actorId, CancellationToken.None);
+        var second = await service.CreateDraftAsync(ShippingServiceFixture.TestAuditContext,
+            ValidStorePickupRequest(baseline.AddMonths(6), baseline.AddMonths(12)), actorId, CancellationToken.None);
 
-        await service.PublishAsync(second.PublicId, new PublishPackageLimitVersionRequest(second.RowVersion), "actor-1", CancellationToken.None);
+        await service.PublishAsync(ShippingProviderCodes.StorePickup, ShippingServiceFixture.TestAuditContext, second.PublicId, new PublishPackageLimitVersionRequest(second.RowVersion), actorId, CancellationToken.None);
 
         var all = await service.ListAsync(ShippingProviderCodes.StorePickup, CancellationToken.None);
         var firstAfter = all.Single(version => version.Version == 1);
@@ -146,15 +156,105 @@ public sealed class PackageLimitServiceTests
     {
         await using var context = ShippingServiceFixture.CreateContext();
         await ShippingServiceFixture.ClearPackageLimitDataAsync(context);
+        var actorId = await ShippingServiceFixture.SeedShippingAdminAsync(context);
         var service = CreateService(context);
-        var draft = await service.CreateDraftAsync(ValidStorePickupRequest(), "actor-1", CancellationToken.None);
+        var draft = await service.CreateDraftAsync(ShippingServiceFixture.TestAuditContext, ValidStorePickupRequest(), actorId, CancellationToken.None);
         var staleRowVersion = (byte[])draft.RowVersion.Clone();
         staleRowVersion[0] = unchecked((byte)(staleRowVersion[0] + 1));
 
-        var exception = await Assert.ThrowsAsync<ShippingAdminWriteException>(() => service.PublishAsync(
-            draft.PublicId, new PublishPackageLimitVersionRequest(staleRowVersion), "actor-1", CancellationToken.None));
+        var exception = await Assert.ThrowsAsync<ShippingAdminWriteException>(() => service.PublishAsync(ShippingProviderCodes.StorePickup, ShippingServiceFixture.TestAuditContext,
+            draft.PublicId, new PublishPackageLimitVersionRequest(staleRowVersion), actorId, CancellationToken.None));
         Assert.Equal(ShippingAdminErrorCodes.ConcurrencyConflict, exception.ErrorCode);
     }
 
-    private static EfPackageLimitService CreateService(DoSelectDbContext context) => new(context);
+    /// <summary>組長 PR #73 review item 4: the route provider must own the version.</summary>
+    [Fact]
+    public async Task PublishAsync_WhenTheVersionBelongsToAnotherProvider_ThrowsResourceNotFound()
+    {
+        await using var context = ShippingServiceFixture.CreateContext();
+        await ShippingServiceFixture.ClearPackageLimitDataAsync(context);
+        var actorId = await ShippingServiceFixture.SeedShippingAdminAsync(context);
+        var service = CreateService(context);
+        var draft = await service.CreateDraftAsync(ShippingServiceFixture.TestAuditContext, ValidStorePickupRequest(), actorId, CancellationToken.None);
+
+        var exception = await Assert.ThrowsAsync<ShippingAdminWriteException>(() => service.PublishAsync(
+            ShippingProviderCodes.HomeDelivery, ShippingServiceFixture.TestAuditContext,
+            draft.PublicId, new PublishPackageLimitVersionRequest(draft.RowVersion), actorId, CancellationToken.None));
+        Assert.Equal(ShippingAdminErrorCodes.ResourceNotFound, exception.ErrorCode);
+
+        var all = await service.ListAsync(ShippingProviderCodes.StorePickup, CancellationToken.None);
+        Assert.Equal(ShippingProviderProfileStatuses.Draft, all.Single().Status);
+    }
+
+    /// <summary>組長 PR #73 review item 5: out-of-chronological-order publish used to surface as an
+    /// unhandled CK_ShippingProviderProfiles_Period SqlException (500).</summary>
+    [Fact]
+    public async Task PublishAsync_WhenTheNewWindowStartsBeforeThePublishedOnes_ThrowsAStableValidationError()
+    {
+        await using var context = ShippingServiceFixture.CreateContext();
+        await ShippingServiceFixture.ClearPackageLimitDataAsync(context);
+        var actorId = await ShippingServiceFixture.SeedShippingAdminAsync(context);
+        var service = CreateService(context);
+        var baseline = new DateTime(2027, 6, 1, 0, 0, 0, DateTimeKind.Utc);
+        // Later window published first; the earlier window then published out of order.
+        var later = await service.CreateDraftAsync(ShippingServiceFixture.TestAuditContext,
+            ValidStorePickupRequest(baseline.AddMonths(6), baseline.AddMonths(12)), actorId, CancellationToken.None);
+        await service.PublishAsync(ShippingProviderCodes.StorePickup, ShippingServiceFixture.TestAuditContext,
+            later.PublicId, new PublishPackageLimitVersionRequest(later.RowVersion), actorId, CancellationToken.None);
+        var earlier = await service.CreateDraftAsync(ShippingServiceFixture.TestAuditContext,
+            ValidStorePickupRequest(baseline, baseline.AddMonths(6)), actorId, CancellationToken.None);
+
+        var exception = await Assert.ThrowsAsync<ShippingAdminWriteException>(() => service.PublishAsync(
+            ShippingProviderCodes.StorePickup, ShippingServiceFixture.TestAuditContext,
+            earlier.PublicId, new PublishPackageLimitVersionRequest(earlier.RowVersion), actorId, CancellationToken.None));
+        Assert.Equal(ShippingAdminErrorCodes.ValidationFailed, exception.ErrorCode);
+
+        // No partial state: the previously published window is untouched, the draft stays Draft.
+        var all = await service.ListAsync(ShippingProviderCodes.StorePickup, CancellationToken.None);
+        Assert.Equal(ShippingProviderProfileStatuses.Published, all.Single(version => version.Version == 1).Status);
+        Assert.Equal(ShippingProviderProfileStatuses.Draft, all.Single(version => version.Version == 2).Status);
+    }
+
+    /// <summary>組長 PR #73 review item 2: create and publish land audit rows in the same
+    /// transaction; a publish that loses its concurrency check rolls the audit back too.</summary>
+    [Fact]
+    public async Task CreateAndPublish_WriteCentralAuditEntries_AndAFailedPublishLeavesNoAuditRow()
+    {
+        await using var context = ShippingServiceFixture.CreateContext();
+        await ShippingServiceFixture.ClearPackageLimitDataAsync(context);
+        var actorId = await ShippingServiceFixture.SeedShippingAdminAsync(context);
+        var service = CreateService(context);
+        var draft = await service.CreateDraftAsync(ShippingServiceFixture.TestAuditContext, ValidStorePickupRequest(), actorId, CancellationToken.None);
+
+        var stale = (byte[])draft.RowVersion.Clone();
+        stale[0] = unchecked((byte)(stale[0] + 1));
+        await Assert.ThrowsAsync<ShippingAdminWriteException>(() => service.PublishAsync(
+            ShippingProviderCodes.StorePickup, ShippingServiceFixture.TestAuditContext,
+            draft.PublicId, new PublishPackageLimitVersionRequest(stale), actorId, CancellationToken.None));
+
+        var auditsAfterFailedPublish = await context.AuditLogs.AsNoTracking()
+            .Where(log => log.ResourcePublicId == draft.PublicId)
+            .Select(log => log.Action)
+            .ToListAsync();
+        Assert.Equal(["shipping.package_limit.create"], auditsAfterFailedPublish);
+
+        // The rolled-back publish leaves the *tracked* profile mutated in this context's change
+        // tracker; production never sees that (each request gets a fresh scoped DbContext), so the
+        // retry below uses a fresh context the same way a second HTTP request would.
+        await using var retryContext = ShippingServiceFixture.CreateContext();
+        var current = await retryContext.ShippingProviderProfiles.AsNoTracking()
+            .SingleAsync(candidate => candidate.ProviderCode == ShippingProviderCodes.StorePickup);
+        await CreateService(retryContext).PublishAsync(ShippingProviderCodes.StorePickup, ShippingServiceFixture.TestAuditContext,
+            draft.PublicId, new PublishPackageLimitVersionRequest(current.RowVersion), actorId, CancellationToken.None);
+
+        var auditsAfterPublish = await retryContext.AuditLogs.AsNoTracking()
+            .Where(log => log.ResourcePublicId == draft.PublicId)
+            .OrderBy(log => log.Id)
+            .Select(log => log.Action)
+            .ToListAsync();
+        Assert.Equal(["shipping.package_limit.create", "shipping.package_limit.publish"], auditsAfterPublish);
+    }
+
+    private static EfPackageLimitService CreateService(DoSelectDbContext context) =>
+        new(context, new EfAuditWriter(context, TimeProvider.System));
 }
