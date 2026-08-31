@@ -29,8 +29,18 @@ public static class InventoryMovementTypes
     public const string Damage = "Damage";
     public const string Adjustment = "Adjustment";
 
+    /// <summary>
+    /// Written by the SKU cost-change flow (EfSkuAdminService) with zero quantity deltas — it records
+    /// the new unit cost against the balance of the moment so the M-15 turnover report has a cost
+    /// basis, which is why that report excludes it from quantity movements. 組長 PR #36 ruling A1:
+    /// it is a first-class movement type, not an internal one. The admin movement list already shows
+    /// these rows unfiltered, so rejecting them as an unknown `movementTypes` filter value would make
+    /// the API contract disagree with the data it just returned.
+    /// </summary>
+    public const string CostChange = "CostChange";
+
     public static readonly IReadOnlyCollection<string> All =
-        [StockIn, Reserve, Release, Ship, ReturnToStock, ManualIncrease, ManualDecrease, Damage, Adjustment];
+        [StockIn, Reserve, Release, Ship, ReturnToStock, ManualIncrease, ManualDecrease, Damage, Adjustment, CostChange];
 }
 
 /// <summary>

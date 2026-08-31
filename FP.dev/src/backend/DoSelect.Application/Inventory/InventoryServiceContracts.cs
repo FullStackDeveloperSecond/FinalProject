@@ -68,9 +68,10 @@ public interface IInventoryReservationService
     /// if a concurrent request processed it first. <paramref name="reasonCode"/> must be one of
     /// <see cref="DoSelect.Domain.Inventory.InventoryReleaseReasonCodes.All"/>.
     /// Not wired to any HTTP endpoint yet (PR #36 round-3 ruling) — UC-ADM-INV-01's acceptance
-    /// criteria require a successful release to persist an Audit Log entry, which no shared Audit
-    /// Log subsystem exists to satisfy. Re-adding <c>AdminInventoryController</c>'s route is the
-    /// only remaining step once that dependency lands.
+    /// criteria require a successful release to persist an Audit Log entry. The central
+    /// <c>IAuditWriter</c> now exists on dev, but connecting this release to it is deferred to a
+    /// follow-up PR, so the endpoint stays withdrawn for now. Re-adding
+    /// <c>AdminInventoryController</c>'s route is the only remaining step once that wiring lands.
     /// </summary>
     Task ReleaseAsync(
         Guid reservationPublicId,
@@ -121,8 +122,9 @@ public interface IInventoryReconciliationService
     /// InventoryMovement (zero OnHand／Reserved delta — a correction record, not a ledger change) and
     /// resolves the case referencing it. Not wired to any HTTP endpoint yet (PR #36 round-4 ruling,
     /// same class of gap as <see cref="IInventoryReservationService.ReleaseAsync"/>): a real
-    /// non-dismissed resolution is a high-risk manual stock correction and the shared Audit Log
-    /// subsystem that would record who／why does not exist yet.
+    /// non-dismissed resolution is a high-risk manual stock correction, and although the central
+    /// <c>IAuditWriter</c> that records who／why now exists on dev, this PR does not wire the
+    /// resolution up to it — that is deferred to a follow-up PR.
     /// </summary>
     Task ResolveAsync(
         Guid casePublicId,

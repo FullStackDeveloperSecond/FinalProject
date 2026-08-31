@@ -75,12 +75,13 @@ public sealed class AdminInventoryController : ControllerBase
 
     // UC-ADM-INV-01's manual-release action is intentionally not exposed here yet. Its acceptance
     // criteria (商品訂單物流後台驗收規格.md) require a successful release to persist an Audit Log
-    // entry (operator, from-state, order, SKU, quantity, time, TraceId), which no shared Audit Log
-    // subsystem exists to satisfy — 組長's PR #36 round-3 ruling was to withdraw the HTTP endpoint
-    // until that dependency lands, not to ship a release action that can't meet its own acceptance
-    // criteria. IInventoryReservationService.ReleaseAsync itself (and its ReasonCode whitelist) is
-    // already built and tested at the service layer — re-adding this action is the only remaining
-    // step once Audit Log exists.
+    // entry (operator, from-state, order, SKU, quantity, time, TraceId). The central IAuditWriter
+    // this originally waited on has since merged into dev, so the dependency exists — but wiring
+    // the release up to it (same-transaction write, Action/Resource whitelist entries) is deferred
+    // to a follow-up PR, so 組長's PR #36 round-3 ruling to withdraw the HTTP endpoint still stands
+    // for this PR. IInventoryReservationService.ReleaseAsync itself (and its ReasonCode whitelist)
+    // is already built and tested at the service layer — re-adding this action is the only
+    // remaining step once that Audit wiring lands.
 
     [HttpGet("reconciliation-cases")]
     public async Task<ActionResult<PageResult<InventoryReconciliationCaseDto>>> ListReconciliationCases(
@@ -117,12 +118,13 @@ public sealed class AdminInventoryController : ControllerBase
     // via ResolveReconciliationCaseRequest.Dismissed) is intentionally not exposed here yet — same
     // class of gap as the manual-release action above. The real-correction path is a high-risk
     // manual stock adjustment; UC-ADM-INV-01's acceptance criteria require it to persist an Audit
-    // Log entry (operator, before/after values, SKU, case, time, TraceId), which no shared Audit Log
-    // subsystem exists to satisfy yet — 組長's PR #36 round-4 ruling was to withdraw the whole action
-    // (not just the correction half) until that dependency lands, rather than let a Dismiss-only
-    // route imply Resolve is otherwise done. IInventoryReconciliationService.ResolveAsync itself is
-    // already built, transaction-safe, and tested at the service layer (see round-1/round-4 fixes) —
-    // re-adding this route is the only remaining step once Audit Log exists. List and Acknowledge
+    // Log entry (operator, before/after values, SKU, case, time, TraceId). The central IAuditWriter
+    // now exists on dev, but this PR does not wire the resolution up to it, so 組長's PR #36 round-4
+    // ruling to withdraw the whole action (not just the correction half) still stands rather than
+    // let a Dismiss-only route imply Resolve is otherwise done.
+    // IInventoryReconciliationService.ResolveAsync itself is already built, transaction-safe, and
+    // tested at the service layer (see round-1/round-4 fixes) — re-adding this route is the only
+    // remaining step once that Audit wiring lands in a follow-up PR. List and Acknowledge
     // stay available since neither touches Balance or claims to record an audited correction.
 
     private string RequireAdminUserId()
@@ -158,7 +160,12 @@ public sealed class InventoryMovementListRequest
 {
     public Guid? SkuPublicId { get; init; }
 
-    [MaxLength(9)]
+    // Caps the filter at "every type at once" rather than an arbitrary number, so it tracks
+    // InventoryMovementTypes.All.Count — it cannot reference that constant directly (attribute
+    // arguments must be compile-time constants), so MovementTypeFilterCapMatchesTheVocabulary
+    // guards the two against drifting apart. Raised 9 -> 10 when 組長's PR #36 ruling A1 made
+    // CostChange a first-class movement type.
+    [MaxLength(10)]
     public IReadOnlyList<string>? MovementTypes { get; init; }
 
     public DateTime? From { get; init; }

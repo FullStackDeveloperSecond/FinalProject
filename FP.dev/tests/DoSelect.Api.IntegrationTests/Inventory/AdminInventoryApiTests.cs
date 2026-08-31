@@ -1,6 +1,9 @@
+using System.ComponentModel.DataAnnotations;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using DoSelect.Api.Inventory;
+using DoSelect.Domain.Inventory;
 using Xunit;
 
 namespace DoSelect.Api.IntegrationTests.Inventory;
@@ -53,10 +56,11 @@ public sealed class AdminInventoryApiTests
     [Fact]
     public async Task ReleaseReservation_EndpointIsWithdrawn_ReturnsNotFound()
     {
-        // UC-ADM-INV-01's manual release cannot meet its own acceptance criteria (must persist an
-        // Audit Log entry) until the shared Audit Log subsystem exists — 組長's PR #36 round-3
-        // ruling withdrew the HTTP action rather than ship it half-done. This test exists so
-        // re-adding the route without also wiring Audit Log gets caught immediately.
+        // UC-ADM-INV-01's manual release must persist an Audit Log entry to meet its acceptance
+        // criteria. The central IAuditWriter now exists on dev, but this PR does not wire the
+        // release up to it, so 組長's PR #36 round-3 ruling to withdraw the HTTP action still
+        // stands — the wiring is deferred to a follow-up PR. This test exists so re-adding the
+        // route without also wiring Audit Log gets caught immediately.
         var sku = await _fixture.SeedSkuWithBalanceAsync(onHandQuantity: 10);
         var (reservationPublicId, rowVersion) = await _fixture.SeedActiveReservationAsync(sku.Id, quantity: 3);
         var client = await _fixture.CreateAuthenticatedInventoryManagerClientAsync();
@@ -148,9 +152,10 @@ public sealed class AdminInventoryApiTests
     [Fact]
     public async Task ResolveReconciliationCase_EndpointIsWithdrawn_ReturnsNotFound()
     {
-        // Same class of gap as the manual-release action: UC-ADM-INV-01's real stock correction
-        // can't meet its own Audit Log acceptance criteria yet — 組長's PR #36 round-4 ruling
-        // withdrew the whole Resolve action (both Dismiss and the real-correction path share it).
+        // Same class of gap as the manual-release action: the central IAuditWriter exists on dev,
+        // but UC-ADM-INV-01's real stock correction is not wired to it in this PR — 組長's PR #36
+        // round-4 ruling withdrew the whole Resolve action (both Dismiss and the real-correction
+        // path share it) until that follow-up PR lands.
         var client = await _fixture.CreateAuthenticatedInventoryManagerClientAsync();
 
         using var request = new HttpRequestMessage(
@@ -161,6 +166,47 @@ public sealed class AdminInventoryApiTests
         using var response = await AdminInventoryApiFixture.SendWithAntiforgeryAsync(client, request);
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public void MovementTypeFilterCapMatchesTheVocabulary()
+    {
+        // InventoryMovementListRequest.MovementTypes is capped at "every type at once", but the
+        // attribute has to spell the number out. Adding a type to InventoryMovementTypes without
+        // raising the cap would reject a filter that names them all, before it ever reaches the
+        // whitelist check — this is what stopped that from being noticed when CostChange was added.
+        var cap = typeof(InventoryMovementListRequest)
+            .GetProperty(nameof(InventoryMovementListRequest.MovementTypes))!
+            .GetCustomAttributes(typeof(MaxLengthAttribute), inherit: false)
+            .Cast<MaxLengthAttribute>()
+            .Single();
+
+        Assert.Equal(InventoryMovementTypes.All.Count, cap.Length);
+    }
+
+    [Fact]
+    public async Task ListMovements_WhenFilteringByCostChange_ReturnsOnlyTheCostChangeRows()
+    {
+        // 組長 PR #36 ruling A1: CostChange is written by the SKU cost-change flow and consumed by the
+        // M-15 turnover report, and the unfiltered movement list already returns it — so it has to be
+        // an accepted `movementTypes` value too, otherwise the filter contradicts the data the same
+        // endpoint just returned. Seeds one CostChange plus one Adjustment on the same SKU so a filter
+        // that simply ignored the parameter would still fail this test.
+        var sku = await _fixture.SeedSkuWithBalanceAsync(onHandQuantity: 8);
+        var costChangePublicId = await _fixture.SeedMovementAsync(
+            sku.Id, InventoryMovementTypes.CostChange, "sku_unit_cost_changed");
+        await _fixture.SeedMovementAsync(sku.Id, InventoryMovementTypes.Adjustment, "reconciliation_correction");
+        var client = await _fixture.CreateAuthenticatedInventoryManagerClientAsync();
+
+        using var response = await client.GetAsync(
+            $"/api/v1/admin/inventory/movements?skuPublicId={sku.PublicId}&movementTypes=CostChange");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var page = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var items = page.GetProperty("items").EnumerateArray().ToArray();
+        var item = Assert.Single(items);
+        Assert.Equal(costChangePublicId, item.GetProperty("publicId").GetGuid());
+        Assert.Equal(InventoryMovementTypes.CostChange, item.GetProperty("movementType").GetString());
     }
 
     [Fact]

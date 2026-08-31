@@ -194,6 +194,42 @@ public sealed class AdminInventoryApiFixture : IAsyncLifetime
         return sku;
     }
 
+    /// <summary>
+    /// Seeds one InventoryMovement of the given type against an existing balance. CostChange is the
+    /// reason this exists (組長 PR #36 ruling A1): it is written by the SKU cost-change flow with
+    /// zero quantity deltas, so it cannot be produced through any of the reservation service paths
+    /// the other fixtures use.
+    /// </summary>
+    public async Task<Guid> SeedMovementAsync(long skuId, string movementType, string reasonCode)
+    {
+        await using var context = CreateContext();
+        var now = DateTime.UtcNow;
+        var balance = await context.InventoryBalances.SingleAsync(candidate => candidate.SkuId == skuId);
+        var sku = await context.Skus.SingleAsync(candidate => candidate.Id == skuId);
+        var publicId = Guid.CreateVersion7();
+
+        context.InventoryMovements.Add(new InventoryMovement(
+            publicId,
+            skuId,
+            reservationId: null,
+            movementType,
+            onHandDelta: 0,
+            reservedDelta: 0,
+            beforeOnHand: balance.OnHandQuantity,
+            afterOnHand: balance.OnHandQuantity,
+            beforeReserved: balance.ReservedQuantity,
+            afterReserved: balance.ReservedQuantity,
+            unitCostSnapshot: sku.UnitCost,
+            reasonCode,
+            referenceType: "Sku",
+            referencePublicId: sku.PublicId,
+            actorUserId: null,
+            occurredAtUtc: now));
+        await context.SaveChangesAsync();
+
+        return publicId;
+    }
+
     public async Task<(Guid ReservationPublicId, byte[] RowVersion)> SeedActiveReservationAsync(long skuId, int quantity)
     {
         await using var context = CreateContext();

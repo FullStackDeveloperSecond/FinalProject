@@ -252,8 +252,9 @@ public sealed class EfInventoryAdminQueryService : IInventoryAdminQueryService
                 row.reservation.ExpiresAtUtc,
                 row.reservation.CreatedAtUtc,
                 // "release" is deliberately never advertised here — the manual-release HTTP action
-                // is withdrawn pending the shared Audit Log dependency (PR #36 round-3 ruling); see
-                // AdminInventoryController's comment where the endpoint used to be.
+                // stays withdrawn until a follow-up PR wires it to the central Audit Log in the same
+                // transaction (PR #36 round-3 ruling); see AdminInventoryController's comment where
+                // the endpoint used to be.
                 Array.Empty<string>(),
                 row.reservation.RowVersion);
         }).ToList();
