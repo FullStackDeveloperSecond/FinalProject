@@ -43,13 +43,18 @@ public sealed class ShippingApiFixture : IAsyncLifetime
     {
         await ResetDatabaseAsync();
 
-        foreach (var (key, value) in EnvironmentOverrides)
+        // 組長 PR #34 round-5 review, item 1 (see EnvironmentOverrideScope's remarks): clearing
+        // these keys to null on the way out deletes CI's own job-level
+        // ConnectionStrings__DefaultConnection from the whole test process — this assembly runs
+        // sequentially, so every later fixture without its own override (LoginControllerTests et
+        // al.) then falls back to the Windows-only ".\SQL2025" default and fails on the Linux
+        // runner. The scope restores each key's actual prior value instead.
+        var allOverrides = new Dictionary<string, string>(EnvironmentOverrides)
         {
-            Environment.SetEnvironmentVariable(key, value);
-        }
-        Environment.SetEnvironmentVariable("Storage__DataRoot", _dataRoot);
+            ["Storage__DataRoot"] = _dataRoot,
+        };
 
-        try
+        using (new EnvironmentOverrideScope(allOverrides))
         {
             _factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
             {
@@ -63,14 +68,6 @@ public sealed class ShippingApiFixture : IAsyncLifetime
                 });
             });
             Client = _factory.CreateClient();
-        }
-        finally
-        {
-            foreach (var key in EnvironmentOverrides.Keys)
-            {
-                Environment.SetEnvironmentVariable(key, null);
-            }
-            Environment.SetEnvironmentVariable("Storage__DataRoot", null);
         }
     }
 
