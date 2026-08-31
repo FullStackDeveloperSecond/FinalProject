@@ -40,7 +40,7 @@ node .\scripts\validate-ai-eval-dataset.mjs
 
 - 商品、創作者與相容性由 Terry 主標；客服、政策與安全由 Kafen 主標；Alex 第二審與發布核准。
 - 目前全部案例狀態是 `draft`，不代表 Terry／Kafen 已完成內容覆核。
-- AI 客服 Responses Adapter 與 M-19 前端垂直切片已合併 `dev`；`codex/m18-ai-product-search` 已形成搜尋專用 SearchIntent／推薦理由 strict Adapter、後端白名單候選流程、既有零件確認閘門與 `/ai-search` UI，但仍須通過 PR Gate。Live runner 尚未完成，因此兩項功能仍沒有正式 live 品質、延遲或成本 baseline。
+- AI 客服 Responses Adapter、M-19 與 M-18 搜尋垂直切片均已合併 `dev`；M-18 包含搜尋專用 SearchIntent／推薦理由 strict Adapter、後端白名單候選流程、既有零件確認閘門、降級路徑與 `/ai-search` UI。Live runner 尚未完成，因此兩項功能仍沒有正式 live 品質、延遲或成本 baseline。
 - PR／CI 只執行資料產物與 deterministic contract 檢查，不呼叫 OpenAI。
-- `DoSelect.Application.Tests`、API Integration 與 SQL Provider-backed tests 固定 AI-13 的隱私、授權、同意、額度預留、最後一額、併發競爭、Owner、語系、唯讀工具、Schema 與降級契約；另有 9 個零外部呼叫的 Responses Adapter tests 固定 `store=false`、引用、模型／Token、重試與 Fail Closed。這些證據都不取代瀏覽器 E2E 或 live model 評估。
+- `DoSelect.Application.Tests`、API Integration 與 SQL Provider-backed tests 固定 AI-13 的隱私、授權、同意、額度預留、最後一額、併發競爭、Owner、語系、唯讀工具、Schema 與降級契約；Responses Adapter tests 另固定 `store=false`、引用、模型／Token、重試與 Fail Closed。這些證據都不取代完整 live model 評估；目前瀏覽器證據只涵蓋既定降級旅程。
 - 未來 live runner 必須在呼叫前顯示預估成本，保存模型／Prompt／Schema／Tool／資料集／Grader／Commit 版本，且不得輸出 API Key。

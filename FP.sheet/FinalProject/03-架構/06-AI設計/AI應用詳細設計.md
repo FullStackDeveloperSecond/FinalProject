@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-28
+最後更新: 2026-08-30
 追蹤項目:
   - AI-01
   - AI-02
@@ -255,4 +255,4 @@ sequenceDiagram
 
 AI-13、Responses Adapter 與 M-19 已透過 PR #59 合併 `dev`，包含同意查詢／Grant／Withdraw、本人 Order／SupportTicket／Conversation Query、互動／引用／Token／成本保存、會員用量、A-28 管理彙總、會員聊天 UI、管理成本 UI 與 Playwright 降級旅程。Migration `20260828110755_AddAiSupportConversationsAndInteractions` 新增的 `AiInteractions.SearchPublicId` 與 `IntentJson` 已可直接承接搜尋互動，M-18 不需新增資料表或 Migration。
 
-`codex/m18-ai-product-search` 已形成搜尋專用 SearchIntent 與推薦理由 strict Responses Adapter、訪客／會員 10／30 額度、IP＋30 日 Browser ID 匿名鍵、SQL 公開候選、站內 SKU／使用者確認手填零件、自然語言 `ProposedExistingPart` 確認閘門、八類完整 CustomBuild、NT$300 組裝費與既有零件不重複計價、正式確定性相容性檢查、核准候選理由驗證、Fail Closed 互動保存、關鍵字降級、公開 Endpoint、OpenAPI 與 `/ai-search` UI。工作分支證據不等於已發布；完整驗證數字以本次開發日誌為準。M-18 Playwright 已透過隨機 `DoSelectE2E_*` 資料庫重播全部 19 支 Migration、最小 Seed 與公開搜尋降級旅程，1／1 通過後成功清除；唯讀核對確認零測試庫殘留，且共用 `DoSelectDb` 仍只有 `InitialCreate`、未被修改。其餘發布 Gate 為完整 Review、Required CI、PR／合併，以及 AI-09 的 Terry／Kafen 覆核與真實模型品質、P95、Token、成本 baseline。
+M-18 已透過 PR #62 合併 `dev`，包含搜尋專用 SearchIntent 與推薦理由 strict Responses Adapter、訪客／會員 10／30 額度、IP＋30 日 Browser ID 匿名鍵、SQL 公開候選、站內 SKU／使用者確認手填零件、自然語言 `ProposedExistingPart` 確認閘門、八類完整 CustomBuild、NT$300 組裝費與既有零件不重複計價、正式確定性相容性檢查、核准候選理由驗證、Fail Closed 互動保存、關鍵字降級、公開 Endpoint、OpenAPI 與 `/ai-search` UI。Playwright 已以隔離 `DoSelectE2E_*` 資料庫驗證公開搜尋降級旅程並完成清理；這只證明確定性降級路徑。AI-09 的 Terry／Kafen 資料覆核、真實模型品質、P95、Token 與成本 baseline 仍未完成。

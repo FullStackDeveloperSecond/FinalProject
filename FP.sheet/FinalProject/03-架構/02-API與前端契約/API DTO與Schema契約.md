@@ -1,11 +1,12 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-28
+最後更新: 2026-08-31
 追蹤項目:
   - DES-10
   - DES-20
   - DES-22
   - DES-23
+  - DES-25
   - REQ-03
 ---
 
@@ -112,7 +113,7 @@
 |---|---|
 | `CreatePaymentAttemptRequest` | `method:enum`、`orderRowVersion`；金額由後端訂單決定 |
 | `PaymentAttemptDto` | `publicId`、`method`、`status`、`amount`、`currency`、`instruction?:{type,maskedAccount?,code?,expiresAtUtc?}`、`createdAtUtc`、`paidAtUtc?`、`rowVersion` |
-| `CompleteSimulatedPaymentRequest` | `outcome:succeeded/failed/expired`、`simulationKey:string(8..128)`；展示端點只在 Demo Profile 開放 |
+| `CompleteSimulatedPaymentRequest` | `outcome:succeeded/failed/cancelled/expired`、`simulationKey:string(8..128)`；展示端點只在 Demo Profile 且 `Demo:SimulationEndpointsEnabled=true` 開放；`simulationKey` 同時作為此命令的唯一重播鍵與不可重複模擬 Provider Event ID，不另使用 `Idempotency-Key` Header；COD 不接受此 Request，必須由 Delivered／PickedUp 收款事件完成 |
 | `CreateReturnRequest` | `items:{orderItemPublicId,quantity,reasonCode,description?:string(0..500)}[1..20]`、`requestReason:string(1..1000)`、`orderRowVersion` |
 | `ReturnRequestDto` | `publicId`、`orderPublicId`、`status`、`items[]`、`attachments[]`、`requestedAtUtc`、審核／收貨／結案時間、`availableActions[]`、`rowVersion` |
 | `ApproveReturnRequest` | `decision:approved/rejected`、`items:{returnItemPublicId,approvedQuantity:int(0..requestedQuantity),inspectionRequired:bool}[1..20]`、`reasonCode:string(1..64)`、`note?:string(0..500)`、`assemblyFeeDisposition?:enum`、`returnShippingCost?:decimal(18,2)>=0`、`returnRowVersion`；核准且不需寄回／驗收時兩個退款快照欄位成對必填，需寄回或拒絕時不得提供 |

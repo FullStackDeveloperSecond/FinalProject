@@ -1,12 +1,13 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-28
+最後更新: 2026-08-31
 追蹤項目:
   - DES-10
   - DES-16
   - DES-20
   - DES-22
   - DES-23
+  - DES-25
   - REQ-02
   - REQ-03
 ---
@@ -75,7 +76,7 @@
 | UC-CHECKOUT-01 | `POST /api/v1/orders` | Public／Member | `CreateOrderRequest` → `201 OrderDto`；需 Idempotency-Key | `inventory_insufficient`、`order_total_changed`、`order_total_below_minimum`、`cart_item_requires_attention` |
 | UC-CHECKOUT-COD-01 | 同 `POST /api/v1/orders` | Public／Member | `paymentMethod = cashOnDelivery` | `payment_method_not_allowed`、`payment_cod_amount_exceeded`、`payment_cod_restricted_item`、`shipping_method_not_allowed` |
 | M 訂單取消支撐 | `POST /api/v1/orders/{id}/actions/cancel` | Owner Member／有效 GuestOrderAccessToken | `CancelOrderRequest`＋RowVersion → `OrderDto` | `order_cancellation_not_allowed`、`order_state_conflict`、`concurrency_conflict` |
-| UC-PAY-01 | `POST /api/v1/orders/{orderId}/payment-attempts`；`POST /api/v1/simulated-payments/{attemptId}/actions/complete` | 訂單擁有者／展示模擬權限 | `CreatePaymentAttemptRequest`、`CompleteSimulatedPaymentRequest` → `PaymentAttemptDto` | `payment_state_conflict`、`payment_attempt_expired`、`order_payment_deadline_expired` |
+| UC-PAY-01 | `POST /api/v1/orders/{orderId}/payment-attempts`；`POST /api/v1/simulated-payments/{attemptId}/actions/complete` | Owner Member／有效 GuestOrderAccessToken；完成端點另限 Demo Profile＋`Demo:SimulationEndpointsEnabled=true`，Cookie 寫入由全域 Antiforgery 保護；COD 不得使用此完成端點 | `CreatePaymentAttemptRequest`、`CompleteSimulatedPaymentRequest` → `PaymentAttemptDto`；`simulationKey` 同時作為唯一重播鍵與模擬 Provider Event 鍵；即時付款支援 `succeeded`／`failed`／`cancelled`，遞延付款另支援 `expired` | `payment_state_conflict`、`payment_attempt_expired`、`order_payment_deadline_expired`、`payment_event_duplicate`、`idempotency_payload_conflict` |
 | UC-RETURN-01 | `POST /api/v1/orders/{orderId}/returns`；`GET /api/v1/returns/{id}`；`POST /api/v1/returns/{id}/attachments` | 訂單擁有者／GuestOrderAccessToken | `CreateReturnRequest` → `ReturnRequestDto`；附件遵守私有檔案契約 | `return_deadline_expired`、`return_quantity_exceeded`、`file_count_exceeded`、`file_size_exceeded`、`file_format_invalid`、`file_malware_detected`、`file_scan_unavailable` |
 
 ## 管理後台型錄、圖片、匯入與相容性
