@@ -600,3 +600,362 @@ button:focus-visible {
     scroll-behavior: auto !important;
   }
 }
+
+/* =============================================================================
+   前台視覺第一批（PM-02）：殼層、品牌區與導覽
+   一律使用 design-tokens.css 的語意 token，不新增色票。
+   置於檔尾，以來源順序覆蓋前面同名的舊殼層規則（不使用 !important）。
+   ============================================================================= */
+
+.app-shell {
+  background: var(--color-bg);
+}
+
+.site-header {
+  background: var(--color-navy);
+  border-bottom: none;
+  box-shadow: var(--shadow-sm);
+}
+
+.header-bar {
+  max-width: var(--content-max);
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-5);
+}
+
+.brand-link {
+  gap: var(--space-2);
+  color: var(--color-on-navy);
+  font-size: var(--fs-h3);
+}
+
+.brand-link__text {
+  font-weight: 700;
+}
+
+.brand-link__sub {
+  margin-inline-start: var(--space-1);
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+.brand-mark {
+  display: inline-flex;
+}
+
+.brand-mark__img {
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  background: var(--color-surface);
+  object-fit: contain;
+}
+
+.brand-mark__slot {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 2px dashed var(--color-mint-line);
+  border-radius: 999px;
+  background: var(--color-mint-soft);
+  color: var(--color-navy);
+  font-size: var(--fs-caption);
+  font-weight: 700;
+}
+
+.nav-toggle {
+  display: none;
+  min-height: 36px;
+  margin-inline-start: auto;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-on-navy);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-on-navy);
+  font: inherit;
+  font-size: var(--fs-caption);
+  font-weight: 600;
+}
+
+.primary-nav {
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.primary-nav a,
+.primary-nav .site-header__member {
+  color: var(--color-on-navy);
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  padding: var(--space-2) var(--space-3);
+  min-height: 40px;
+}
+
+.primary-nav a:hover {
+  background: var(--color-navy-hover);
+}
+
+.primary-nav a.router-link-active,
+.primary-nav a[aria-current="page"] {
+  background: var(--color-surface);
+  color: var(--color-navy);
+}
+
+.site-header__logout,
+.site-header__identity-retry {
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-on-navy);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-on-navy);
+  font-size: var(--fs-caption);
+  font-weight: 600;
+}
+
+.site-header__logout:hover,
+.site-header__identity-retry:hover {
+  background: var(--color-navy-hover);
+  border-color: var(--color-on-navy);
+}
+
+.site-main {
+  background: var(--color-bg);
+}
+
+.view-shell {
+  max-width: var(--content-max);
+  padding: var(--space-6) var(--space-5) var(--space-8);
+}
+
+.site-footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+}
+
+.site-footer__brand {
+  color: var(--color-text);
+  font-weight: 700;
+}
+
+.site-footer__links {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-4);
+  margin-top: var(--space-1);
+}
+
+.site-footer__links a {
+  color: var(--color-primary-dark);
+}
+
+/* ---------- 首頁 ---------- */
+
+.home {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-7);
+}
+
+.home-hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-6);
+  padding: var(--space-6);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.home-hero__text {
+  display: flex;
+  flex: 1 1 320px;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.home-hero__text h1 {
+  margin: 0;
+  font-size: var(--fs-display);
+  line-height: var(--lh-heading);
+  color: var(--color-text);
+  text-wrap: balance;
+}
+
+.home-hero__text p {
+  max-width: 46ch;
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.home-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.home-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.home-section h2 {
+  margin: 0;
+  font-size: var(--fs-h2);
+  color: var(--color-text);
+}
+
+.home-section__lede {
+  margin: 0 0 var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--fs-caption);
+}
+
+.home-steps,
+.home-categories {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.home-step,
+.home-category {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  height: 100%;
+  padding: var(--space-5);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  color: inherit;
+  text-decoration: none;
+}
+
+.home-category:hover {
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-md);
+}
+
+.home-step__no {
+  align-self: flex-start;
+  padding: 1px var(--space-2);
+  border-radius: 999px;
+  background: var(--color-primary-soft);
+  color: var(--color-primary-dark);
+  font-size: var(--fs-caption);
+  font-weight: 700;
+}
+
+.home-step h3,
+.home-category h3 {
+  margin: 0;
+  font-size: var(--fs-h3);
+  color: var(--color-text);
+}
+
+.home-step p,
+.home-category p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--fs-caption);
+}
+
+.home-hint {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-5);
+  border: 1px solid var(--color-mint-line);
+  border-radius: var(--radius-lg);
+  background: var(--color-mint-soft);
+}
+
+.home-hint h2 {
+  margin: 0;
+  font-size: var(--fs-h3);
+  color: var(--color-navy);
+}
+
+.home-hint p {
+  max-width: 60ch;
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--fs-caption);
+}
+
+.home-hint a {
+  align-self: flex-start;
+  color: var(--color-primary-dark);
+  font-size: var(--fs-caption);
+  font-weight: 600;
+}
+
+/* ---------- 商品列表 / 商品詳細：視覺層 ---------- */
+
+.catalog-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-bottom: var(--space-4);
+  margin-bottom: var(--space-5);
+  border-bottom: 2px solid var(--color-border);
+}
+
+.catalog-head h1 {
+  margin: 0;
+  font-size: var(--fs-h1);
+  color: var(--color-text);
+}
+
+.catalog-head p {
+  max-width: 62ch;
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+/* ---------- 窄畫面：導覽收合，避免頁面級橫向捲動 ---------- */
+
+@media (max-width: 900px) {
+  .nav-toggle {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .site-header .primary-nav {
+    display: none;
+    order: 3;
+    width: 100%;
+  }
+
+  .site-header .primary-nav--open {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    padding-bottom: var(--space-2);
+  }
+
+  .view-shell {
+    padding: var(--space-5) var(--space-4) var(--space-7);
+  }
+
+  .home-hero {
+    padding: var(--space-5);
+  }
+
+  .home-hero__text h1 {
+    font-size: var(--fs-h1);
+  }
+}

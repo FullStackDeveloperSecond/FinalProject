@@ -242,9 +242,12 @@ watch(
 
 <template>
   <section aria-labelledby="products-page-title">
-    <h1 id="products-page-title">
-      商品搜尋
-    </h1>
+    <header class="catalog-head">
+      <h1 id="products-page-title">
+        商品搜尋
+      </h1>
+      <p>先選用途和預算，再看細節。看不懂的規格我們都翻成「適合做什麼」。</p>
+    </header>
 
     <p
       v-if="isFilterOptionsError"
@@ -479,7 +482,7 @@ watch(
 .products-filters select {
   min-height: 2.75rem;
   padding: 0.5rem 0.75rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--color-border);
   border-radius: 0.5rem;
   font: inherit;
 }
@@ -501,7 +504,7 @@ watch(
   width: 6rem;
   min-height: 2.75rem;
   padding: 0.5rem 0.75rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--color-border);
   border-radius: 0.5rem;
   font: inherit;
 }
@@ -511,7 +514,7 @@ watch(
   flex-wrap: wrap;
   align-items: center;
   gap: 0.75rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--color-border-soft);
   border-radius: 0.5rem;
   padding: 0.5rem 0.75rem;
   width: 100%;
@@ -525,12 +528,12 @@ watch(
 }
 
 .products-summary {
-  color: #6b7280;
+  color: var(--color-text-muted);
   font-size: 0.875rem;
 }
 
 .products-filter-options-error {
-  color: #b91c1c;
+  color: var(--color-danger);
 }
 
 .products-grid {

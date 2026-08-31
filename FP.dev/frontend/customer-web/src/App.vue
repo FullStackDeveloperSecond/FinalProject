@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSessionStore } from './stores/session'
 import { useCartIdentityCacheCleanup } from './features/cart/useCart'
+import BrandMark from './components/BrandMark.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -14,6 +15,9 @@ const isSupportSection = computed(() => route.path === '/support' || route.path.
 // evicts the previous identity's cart cache regardless of which page happens to be open at the
 // moment it changes.
 useCartIdentityCacheCleanup()
+
+// 窄畫面把主導覽收起來，避免導覽列擠壓內容或造成頁面級橫向捲動。
+const navOpen = ref(false)
 
 onMounted(() => {
   void sessionStore.refresh()
@@ -39,10 +43,24 @@ async function handleLogout(): Promise<void> {
           class="brand-link"
           to="/"
         >
-          DoSelect 懂選
+          <BrandMark />
+          <span class="brand-link__text">DoSelect<span class="brand-link__sub">懂選</span></span>
         </RouterLink>
+
+        <button
+          type="button"
+          class="nav-toggle"
+          :aria-expanded="navOpen"
+          aria-controls="primary-nav"
+          @click="navOpen = !navOpen"
+        >
+          選單
+        </button>
+
         <nav
+          id="primary-nav"
           class="primary-nav"
+          :class="{ 'primary-nav--open': navOpen }"
           aria-label="主要導覽"
         >
           <RouterLink to="/">
@@ -116,7 +134,18 @@ async function handleLogout(): Promise<void> {
       </div>
     </main>
     <footer class="site-footer">
-      畢業專題展示系統｜商品、付款與物流資料皆為示範用途
+      <p class="site-footer__brand">
+        DoSelect 懂選
+      </p>
+      <p>畢業專題展示系統｜商品、付款與物流資料皆為示範用途</p>
+      <p class="site-footer__links">
+        <RouterLink to="/support">
+          客服中心
+        </RouterLink>
+        <RouterLink to="/products">
+          全部商品
+        </RouterLink>
+      </p>
     </footer>
   </div>
 </template>

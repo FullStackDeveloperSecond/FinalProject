@@ -65,20 +65,22 @@ function formatTwd(amount: number | string): string {
 </template>
 
 <style scoped>
+/* 顏色、間距、圓角一律取自 design-tokens.css 的語意 token，不寫死色碼。 */
 .product-card {
   display: flex;
   flex-direction: column;
-  gap: 0.375rem;
-  padding: 1rem;
-  border: 1px solid #e5e7eb;
-  border-radius: 0.75rem;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-lg);
   color: inherit;
   text-decoration: none;
-  background: #fff;
+  background: var(--color-surface);
 }
 
 .product-card:hover {
-  border-color: #93c5fd;
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-md);
 }
 
 .product-card__image {
@@ -86,8 +88,8 @@ function formatTwd(amount: number | string): string {
   align-items: center;
   justify-content: center;
   aspect-ratio: 4 / 3;
-  border-radius: 0.5rem;
-  background: #f3f4f6;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-strong);
   overflow: hidden;
 }
 
@@ -98,58 +100,67 @@ function formatTwd(amount: number | string): string {
 }
 
 .product-card__image-placeholder {
-  color: #9ca3af;
-  font-size: 0.875rem;
+  color: var(--color-text-faint);
+  font-size: var(--fs-caption);
 }
 
 .product-card__brand {
   margin: 0;
-  color: #6b7280;
-  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  font-size: var(--fs-caption);
 }
 
 .product-card__name {
   margin: 0;
-  font-size: 1rem;
+  font-size: var(--fs-body);
+  color: var(--color-text);
 }
 
 .product-card__price {
   margin: 0;
   display: flex;
   align-items: baseline;
-  gap: 0.5rem;
+  gap: var(--space-2);
 }
 
 .product-card__price-current {
   font-weight: 700;
-  font-size: 1.125rem;
+  font-size: var(--fs-h3);
+  color: var(--color-primary-dark);
+  font-variant-numeric: tabular-nums;
 }
 
 .product-card__price-original {
-  color: #9ca3af;
+  color: var(--color-text-faint);
   text-decoration: line-through;
-  font-size: 0.875rem;
+  font-size: var(--fs-caption);
+  font-variant-numeric: tabular-nums;
 }
 
 .product-card__availability {
   align-self: flex-start;
-  padding: 0.125rem 0.5rem;
+  padding: 1px var(--space-3);
+  border: 1px solid transparent;
   border-radius: 999px;
-  font-size: 0.75rem;
+  font-size: var(--fs-caption);
+  font-weight: 600;
 }
 
 .product-card__availability--inStock {
-  background: #dcfce7;
-  color: #166534;
+  background: var(--color-success-bg);
+  border-color: var(--color-success-border);
+  color: var(--color-primary-dark);
 }
 
 .product-card__availability--lowStock {
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--color-butter-soft);
+  border-color: var(--color-butter-line);
+  color: var(--color-navy);
 }
 
 .product-card__availability--outOfStock {
-  background: #fee2e2;
-  color: #991b1b;
+  background: var(--color-danger-bg);
+  border-color: var(--color-danger-border);
+  color: var(--color-danger);
 }
 </style>
