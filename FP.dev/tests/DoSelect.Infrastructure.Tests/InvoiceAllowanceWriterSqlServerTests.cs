@@ -3,6 +3,7 @@ using DoSelect.Application.Auditing;
 using DoSelect.Application.Common;
 using DoSelect.Application.Idempotency;
 using DoSelect.Application.Invoicing;
+using DoSelect.Application.Refunds;
 using DoSelect.Domain.Auditing;
 using DoSelect.Domain.Idempotency;
 using DoSelect.Domain.Invoicing;
@@ -16,6 +17,7 @@ using DoSelect.Infrastructure.Idempotency;
 using DoSelect.Infrastructure.Invoicing;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
+using DoSelect.Infrastructure.Refunds;
 using DoSelect.Infrastructure.Tests.Idempotency;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Data.SqlClient;
@@ -80,6 +82,22 @@ public sealed class InvoiceAllowanceWriterSqlServerTests
             Assert.Equal(
                 IdempotencyActorScope.ForAdmin(adminPublicId).ComputeHash(TestPepper),
                 (await context.IdempotencyRecords.SingleAsync()).ActorScopeHash);
+        });
+    }
+
+    [SqlServerFact]
+    public async Task RefundInvoiceReferenceReaderReturnsTheFormalPublicId()
+    {
+        await RunInMigratedDatabaseAsync(async context =>
+        {
+            var seeded = await SeedAsync(context);
+            IRefundInvoiceReferenceReader reader = new RefundInvoiceReferenceReader(context);
+
+            var references = await reader.FindManyAsync(
+                [seeded.RefundId, seeded.RefundId, 999_999L]);
+
+            Assert.Equal(seeded.RefundPublicId, references[seeded.RefundId]);
+            Assert.Single(references);
         });
     }
 

@@ -10,6 +10,7 @@ tags:
   - UI
   - PrimeVue
 created_at: 2026-08-09
+updated_at: 2026-08-31
 related:
   - "[[03-架構/01-系統與環境/系統架構]]"
   - "[[04-展示/01-Demo與彩排/Demo流程]]"
@@ -31,9 +32,16 @@ Pinia：登入狀態、UI 偏好與跨頁客戶端流程
 
 本電商專案的後台需要大量表格、排序、篩選、分頁、表單及對話框；前台則需要 RWD 與一致的互動元件。PrimeVue 能減少從零實作複雜控制項的成本。
 
+## 版本與授權基線
+
+- Customer Web 與 Admin Web 統一精確使用 `PrimeVue 4.5.5`；該版本以 MIT 發布。
+- PrimeVue 5 改採 PrimeUI 授權，不是本專案預設版本。不得隱藏授權提示、修改套件或提交授權金鑰來規避授權機制。
+- 只有 `4.5.5` 缺少不可替代的必要元件、與現行 Vue／Vite 不相容，或出現不可接受的安全維護風險時，才能提出具體證據並另案評估 PrimeVue 5 與 Community／Commercial License。
+- 版本裁定見 [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-036-PrimeVue版本與授權基線定版]]。
+
 ## 安裝概念
 
-實際版本應在建立前端專案後鎖定，以下為目前主要設定形態：
+專案精確鎖定 `PrimeVue 4.5.5`。以下為 PrimeVue 4 Styled Mode 與 Aura 的主要設定形態；實作時還必須把相容的 `@primeuix/themes` 直接相依鎖入兩個前端的 Manifest／lockfile：
 
 ```ts
 import { createApp } from 'vue'
@@ -96,11 +104,13 @@ PrimeVue 的 Styled Mode 使用 design token，分為 primitive、semantic 及 c
 - 認為元件庫宣告可及性就不需要頁面層測試；實際標籤、焦點順序與錯誤訊息仍由專案負責。
 
 > [!note] 專案決策邊界
-> 專案已確認前台與後台使用 PrimeVue、Styled Mode、Aura 作第一版基礎 Preset，並建立 `ui/` 包裝層。精確套件版本在實際建立前端專案時依 lock file 鎖定，屬安裝實作而非產品決策。
+> 專案已確認前台與後台使用 `PrimeVue 4.5.5`、Styled Mode、Aura 作第一版基礎 Preset，並建立 `ui/` 包裝層。兩個前端必須保持相同精確版本；現行 `5.0.1` Manifest／lockfile 是尚待修正的實作漂移，不得先依 PrimeVue 5 API 建立元件。版本變更涉及授權與共用 UI 相容性，必須另案裁定及完成雙前端 Gate。
 
 ## 參考資料
 
-- [PrimeVue 官方文件](https://primevue.org/)
-- [PrimeVue Styled Mode](https://primevue.org/theming/styled)
-- [PrimeVue Accessibility](https://primevue.org/guides/accessibility/)
+- [PrimeVue 4.5.5 官方文件](https://v4.primevue.org/)
+- [PrimeVue 4 Styled Mode](https://v4.primevue.org/theming/styled/)
+- [PrimeVue 4 Accessibility](https://v4.primevue.org/guides/accessibility/)
+- [PrimeUI 授權變更公告](https://primeui.dev/nextchapter)
+- [PrimeUI 授權入口](https://primeui.dev/licenses)
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-002-第二批核心決策]]

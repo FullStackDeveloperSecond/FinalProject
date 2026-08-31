@@ -102,6 +102,17 @@ const router = createRouter({
       meta: { requiresAuth: true, requiredRoles: ['CatalogManager', 'SuperAdmin'] },
     },
     {
+      // A-23：Coupon.Manage（FinanceManager／MarketingAnalyst／SuperAdmin）。
+      // 與 Invoice.Manage 只差多允許 MarketingAnalyst（DEC-P284）。
+      path: '/coupons',
+      name: 'admin-coupons',
+      component: () => import('../pages/coupons/AdminCouponsPage.vue'),
+      meta: {
+        requiresAuth: true,
+        requiredRoles: ['FinanceManager', 'MarketingAnalyst', 'SuperAdmin'],
+      },
+    },
+    {
       path: '/returns',
       name: 'admin-return-queue',
       component: () => import('../pages/returns/AdminReturnQueuePage.vue'),

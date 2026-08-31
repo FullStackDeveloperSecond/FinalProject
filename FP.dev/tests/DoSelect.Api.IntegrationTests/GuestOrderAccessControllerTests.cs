@@ -541,6 +541,88 @@ public sealed class GuestOrderAccessControllerTests(GuestOrderAccessApiFixture f
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Invoice_WithExpiredOrRevokedGuestToken_ReturnsCodedUnauthorized(bool revoke)
+    {
+        var sender = new CapturingEmailSender();
+        using var factory = CreateFactory(services =>
+            services.Replace(ServiceDescriptor.Singleton<IEmailSender>(sender)));
+        var (orderId, orderPublicId, orderNumber, email) = await SeedGuestOrderAsync(factory);
+        using var client = factory.CreateClient();
+        await PrimeAntiforgeryAsync(client);
+        await IssueGuestCookieAsync(factory, client, sender, orderNumber, email);
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+            if (revoke)
+            {
+                var token = await dbContext.GuestOrderAccessTokens
+                    .SingleAsync(candidate => candidate.OrderId == orderId);
+                token.Revoke(DateTime.UtcNow);
+                await dbContext.SaveChangesAsync();
+            }
+            else
+            {
+                await dbContext.Database.ExecuteSqlInterpolatedAsync(
+                    $"UPDATE [GuestOrderAccessTokens] SET [ExpiresAtUtc] = {DateTime.UtcNow.AddMinutes(-1)} WHERE [OrderId] = {orderId}");
+            }
+        }
+
+        using var response = await client.GetAsync($"/api/v1/orders/{orderPublicId:D}/invoice");
+        using var problem = await ReadJsonAsync(response);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(
+            GuestOrderErrorCodes.AccessExpired,
+            problem.RootElement.GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task Invoice_WithGuestTokenForAnotherOrder_ReturnsCodedNotFound()
+    {
+        var sender = new CapturingEmailSender();
+        using var factory = CreateFactory(services =>
+            services.Replace(ServiceDescriptor.Singleton<IEmailSender>(sender)));
+        var (_, _, orderNumber, email) = await SeedGuestOrderAsync(factory);
+        var (_, otherOrderPublicId, _, _) = await SeedGuestOrderAsync(factory);
+        using var client = factory.CreateClient();
+        await PrimeAntiforgeryAsync(client);
+        await IssueGuestCookieAsync(factory, client, sender, orderNumber, email);
+
+        using var response = await client.GetAsync(
+            $"/api/v1/orders/{otherOrderPublicId:D}/invoice");
+        using var problem = await ReadJsonAsync(response);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(
+            GuestOrderErrorCodes.ScopeMismatch,
+            problem.RootElement.GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task Invoice_NonOwnerMemberCookieDoesNotSuppressAValidGuestCookie()
+    {
+        var sender = new CapturingEmailSender();
+        using var factory = CreateFactory(services =>
+            services.Replace(ServiceDescriptor.Singleton<IEmailSender>(sender)));
+        var (orderId, orderPublicId, orderNumber, email) = await SeedGuestOrderAsync(factory);
+        await SeedInvoiceAsync(factory, orderId);
+        using var client = factory.CreateClient();
+        await PrimeAntiforgeryAsync(client);
+        await IssueGuestCookieAsync(factory, client, sender, orderNumber, email);
+        using var signIn = await client.PostAsJsonAsync(
+            "/__tests/security/sign-in/member",
+            new SecurityFoundationSignInRequest(false, [], "not-the-owner"));
+        Assert.Equal(HttpStatusCode.NoContent, signIn.StatusCode);
+
+        using var response = await client.GetAsync($"/api/v1/orders/{orderPublicId:D}/invoice");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
     private static long GetOrderId(Guid orderPublicId, DoSelectDbContext dbContext) =>
         dbContext.Orders.Single(o => o.PublicId == orderPublicId).Id;
 
@@ -553,6 +635,48 @@ public sealed class GuestOrderAccessControllerTests(GuestOrderAccessApiFixture f
         });
         var body = await response.Content.ReadFromJsonAsync<GuestOrderAccessRequestAcceptedDto>();
         return body!.RequestPublicId;
+    }
+
+    private static async Task IssueGuestCookieAsync(
+        WebApplicationFactory<Program> factory,
+        HttpClient client,
+        CapturingEmailSender sender,
+        string orderNumber,
+        string email)
+    {
+        var requestPublicId = await RequestAccessAsync(client, orderNumber, email);
+        await ConsumeEmailOutboxAsync(factory, requestPublicId);
+        var code = ExtractCode((await sender.WaitForSingleMessageAsync()).TextBody);
+        using var response = await client.PostAsJsonAsync(
+            "/api/v1/guest-orders/access-verifications",
+            new { requestPublicId, code });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    private static async Task SeedInvoiceAsync(
+        WebApplicationFactory<Program> factory,
+        long orderId)
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+        var invoice = new SimulatedInvoice(
+            Guid.CreateVersion7(),
+            new SimulatedInvoiceCreation(
+                orderId,
+                $"DEMO-209912-{Guid.NewGuid():N}"[..24],
+                SimulatedInvoiceBuyerType.Individual,
+                "buyer@example.test",
+                null,
+                null,
+                null,
+                null,
+                952m,
+                48m,
+                1000m),
+            DateTime.UtcNow);
+        invoice.Issue(DateTime.UtcNow);
+        dbContext.SimulatedInvoices.Add(invoice);
+        await dbContext.SaveChangesAsync();
     }
 
     private static async Task ConsumeEmailOutboxAsync(

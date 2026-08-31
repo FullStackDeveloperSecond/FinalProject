@@ -222,6 +222,29 @@ public sealed class OrderInvoicePortsSqlServerTests
     }
 
     [SqlServerFact]
+    public async Task TheItemLookupReturnsPublicIdsInOneBatch()
+    {
+        var counter = new CommandCounter();
+
+        await RunAsync(
+            async context =>
+            {
+                var first = await SeedOrderAsync(context, 0m, 0m);
+                var second = await SeedOrderAsync(context, 0m, 0m);
+                var reader = new OrderInvoiceReferenceReader(context);
+
+                counter.Reset();
+                var publicIds = await reader.FindItemPublicIdsAsync(
+                    [first.OrderItemId, second.OrderItemId, first.OrderItemId, 999_999L]);
+
+                Assert.Equal(first.OrderItemPublicId, publicIds[first.OrderItemId]);
+                Assert.Equal(second.OrderItemPublicId, publicIds[second.OrderItemId]);
+                Assert.Equal(1, counter.Count);
+            },
+            counter);
+    }
+
+    [SqlServerFact]
     public async Task InvoiceExistenceFlipsOnceAnInvoiceIsStored()
     {
         await RunAsync(async context =>

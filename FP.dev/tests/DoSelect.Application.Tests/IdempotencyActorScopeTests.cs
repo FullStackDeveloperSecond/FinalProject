@@ -24,4 +24,22 @@ public sealed class IdempotencyActorScopeTests
     {
         Assert.Throws<ArgumentException>(() => IdempotencyActorScope.ForAdmin(Guid.Empty));
     }
+
+    [Fact]
+    public void ForGuestOrderAccess_IsStableAndDistinctFromOtherGuestScopes()
+    {
+        var publicId = Guid.NewGuid();
+
+        var first = IdempotencyActorScope.ForGuestOrderAccess(publicId).ComputeHash(Pepper);
+        var second = IdempotencyActorScope.ForGuestOrderAccess(publicId).ComputeHash(Pepper);
+        var cart = IdempotencyActorScope.ForGuestCart(publicId).ComputeHash(Pepper);
+
+        Assert.Equal(first, second);
+        Assert.NotEqual(first, cart);
+    }
+
+    [Fact]
+    public void ForGuestOrderAccess_RejectsAnEmptyPublicId() =>
+        Assert.Throws<ArgumentException>(() =>
+            IdempotencyActorScope.ForGuestOrderAccess(Guid.Empty));
 }

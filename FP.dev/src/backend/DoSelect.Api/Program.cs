@@ -15,6 +15,8 @@ using DoSelect.Infrastructure.Checkout;
 using DoSelect.Infrastructure.Email;
 using DoSelect.Infrastructure.Files;
 using DoSelect.Infrastructure.Idempotency;
+using DoSelect.Infrastructure.Inventory;
+using DoSelect.Infrastructure.Payments;
 using DoSelect.Infrastructure.Orders;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
@@ -51,6 +53,7 @@ builder.Services.AddDoSelectFileStorage();
 builder.Services.AddDoSelectSecurity(builder.Environment, builder.Configuration);
 builder.Services.AddDoSelectAdminAuth();
 builder.Services.AddDoSelectRefunds();
+builder.Services.AddDoSelectPayments();
 builder.Services.AddDoSelectReviews();
 builder.Services.AddDoSelectCatalogServices();
 builder.Services.AddDoSelectShoppingServices();
@@ -65,6 +68,7 @@ builder.Services.AddDoSelectPromotions();
 builder.Services.AddDoSelectReturnsServices();
 builder.Services.AddScoped<ReturnActorResolver>();
 builder.Services.AddDoSelectBuildsServices();
+builder.Services.AddDoSelectInventory();
 builder.Services.AddSingleton<IEmailSender>(services =>
 {
     var emailEnabled = builder.Configuration.GetValue<bool>("Features:EmailEnabled");
