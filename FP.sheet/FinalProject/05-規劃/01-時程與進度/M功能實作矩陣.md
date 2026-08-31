@@ -1,7 +1,7 @@
 ---
 文件狀態: 持續更新
 最後更新: 2026-08-31
-基準分支: dev@4fffcbf3
+基準分支: dev@fe29952c
 ---
 
 # M 功能實作矩陣
@@ -29,7 +29,7 @@
 | M-06 購物車 | ✅ | ✅ | 🟡 | ✅ | ⬜ | 🔵 | PR #28 後端與 SQL 測試已合併；前端 PR #29 尚未進 `dev`。 |
 | M-07 優惠券 | ✅ | ✅ | 🟡 | ✅ | ⬜ | 🔵 | PR #7／#8 的計算、生命週期、Reader 與 SQL 證據、PR #50 後台管理 API、PR #63 正式購物車套券 Endpoint、PR #69 優惠券用途限定 Catalog picker API 均已合併；後台 A-23 頁面 PR #64 尚未進 `dev`，顧客購物車套券 UI 與完整 E2E 仍缺。 |
 | M-08 訂單 | ✅ | 🔵 | 🟡 | ✅ | ⬜ | 🔵 | PR #52 已合併原子建單、缺貨回滾、零元拒絕零副作用、訂單／項目／費用／規格快照與 SQL 證據；PR #47 後台訂單管理已合併。正式 Checkout API、前端與完整 replay 仍未完成。 |
-| M-09 模擬付款 | ✅ | ✅ | ⬜ | ✅ | ⬜ | 🔵 | PR #71 已合併 Demo 完成 Endpoint、Owner／Guest Scope、全域 Antiforgery、`simulationKey` 冪等、PaymentEvent、Order／PaymentAttempt 同交易、History／Audit、通知 Outbox 與 SQL Provider-backed replay。依 DEC-P344～P346 尚須補 `cancelled`、禁止 COD 提前模擬收款並接上 Delivered／PickedUp 收款事件，以及付款成功後可冪等的模擬發票 Outbox；付款重試／新增 Attempt Endpoint與完整 E2E 仍未交付。 |
+| M-09 模擬付款 | ✅ | ✅ | ⬜ | ✅ | ⬜ | 🔵 | PR #71 已合併 Demo 完成 Endpoint、Owner／Guest Scope、全域 Antiforgery、`simulationKey` 冪等、PaymentEvent、Order／PaymentAttempt 同交易、History／Audit、通知 Outbox 與 SQL Provider-backed replay。`codex/payment-completion-alignment` 已補 `cancelled`、COD Demo 入口拒絕、Delivered／PickedUp 決策服務、付款成功發票 Outbox／Consumer 與 OpenAPI／Typed Client，付款 SQL Provider 類別 23／23 已通過，尚待 Review／合併。付款重試／新增 Attempt Endpoint、前端／E2E，以及 COD 正式物流命令接線仍未完成。 |
 | M-10 庫存保留與逾時取消 | ✅ | 🟡 | 🟡 | ✅ | ⬜ | 🔵 | PR #52 已合併 Checkout 成功保留與缺貨整體回滾 SQL 證據；API PR #36 與堆疊前端 PR #37 尚未合併，最後一件商品並行競爭與逾時釋放仍缺。 |
 | M-11 物流與批次出貨 | ✅ | ⬜ | ⬜ | ✅ | ⬜ | 🔵 | PR #52 已將宅配／超取、Provider、包裹限制、運費／免運與訂單物流快照 SQL 證據合併至 `dev`；獨立 Application／API／UI／出貨流程仍未完成。 |
 | M-12 單項退貨 | ✅ | ✅ | ✅ | ✅ | ⬜ | ✅ | PR #42 已交付退貨申請、審核、寄回、收件、檢查、退款交接與前後台；PR #53 修復可信退款輸入及 CI Gate。仍缺完整瀏覽器 E2E。 |

@@ -59,3 +59,7 @@ decision_ids:
 - 本決策定版觸發、交易、冪等、環境防線與責任；PR #71 是已合併基線，但不代表剩餘差異或 M-09 E2E 已完成。
 - 實作不得加入外部金流、真實 Webhook、額外資料庫或新套件。
 - PR 必須同步 OpenAPI／Typed Client、API／Application／SQL Server Provider-backed tests、QA-08 授權矩陣與核心交易 E2E。
+
+## 後續交付邊界
+
+- DEC-P345 的物流接線方式已由 [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-038-COD物流接線交付邊界定版|DEC-P347]] 收斂：本次不新增平行履約 API；先交付 COD 決策服務，正式物流命令接線前維持未完成。
