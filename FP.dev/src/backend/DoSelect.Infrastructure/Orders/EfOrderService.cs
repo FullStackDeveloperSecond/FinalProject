@@ -103,6 +103,26 @@ public sealed class EfOrderService : IOrderService
         return MapOrder(order, items);
     }
 
+    public async Task<OrderDto> GetOrderForCheckoutConfirmationAsync(
+        Guid orderPublicId,
+        CancellationToken cancellationToken)
+    {
+        var order = await _dbContext.Orders.AsNoTracking()
+            .FirstOrDefaultAsync(candidate => candidate.PublicId == orderPublicId, cancellationToken);
+        if (order is null)
+        {
+            throw new OrderWriteException(
+                OrderWriteException.ErrorCodes.ResourceNotFound,
+                $"Order '{orderPublicId}' was not found.");
+        }
+
+        var items = await _dbContext.OrderItems.AsNoTracking()
+            .Where(item => item.OrderId == order.Id)
+            .ToListAsync(cancellationToken);
+
+        return MapOrder(order, items);
+    }
+
     public async Task<OrderDto> CancelOrderAsync(
         OrderActor actor,
         Guid orderPublicId,

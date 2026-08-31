@@ -124,6 +124,16 @@ public interface IOrderService
         Guid orderPublicId,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Unscoped by design — safe only when <paramref name="orderPublicId"/> is the server-generated
+    /// id a Checkout call just returned in the same request, never a client-supplied value. Exists so
+    /// the Checkout response can show the freshly created order (including a guest's, who has no
+    /// GuestOrderAccess token yet at this point) without a second owner-authorization round-trip.
+    /// </summary>
+    Task<OrderDto> GetOrderForCheckoutConfirmationAsync(
+        Guid orderPublicId,
+        CancellationToken cancellationToken);
+
     Task<OrderDto> CancelOrderAsync(
         OrderActor actor,
         Guid orderPublicId,

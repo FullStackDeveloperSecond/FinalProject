@@ -3312,6 +3312,103 @@
       }
     },
     "/api/v1/orders": {
+      "post": {
+        "tags": [
+          "Orders"
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOrderRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOrderRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOrderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
       "get": {
         "tags": [
           "Orders"
@@ -9122,6 +9219,40 @@
   },
   "components": {
     "schemas": {
+      "AcceptedPolicyVersions": {
+        "required": [
+          "terms",
+          "return",
+          "privacy"
+        ],
+        "type": "object",
+        "properties": {
+          "terms": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "return": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "privacy": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "AddBuildToCartRequest": {
         "required": [
           "quantity",
@@ -12454,6 +12585,165 @@
           }
         }
       },
+      "CheckoutAddressInput": {
+        "required": [
+          "recipientName",
+          "phone",
+          "postalCode",
+          "city",
+          "district",
+          "addressLine1",
+          "addressLine2"
+        ],
+        "type": "object",
+        "properties": {
+          "recipientName": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "postalCode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "city": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "district": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "addressLine1": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "addressLine2": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "CheckoutBuyerInput": {
+        "required": [
+          "email",
+          "name",
+          "phone"
+        ],
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          }
+        }
+      },
+      "CheckoutInvoiceBuyerType": {
+        "enum": [
+          "personal",
+          "company"
+        ]
+      },
+      "CheckoutInvoiceInput": {
+        "required": [
+          "type",
+          "buyerType",
+          "carrierType",
+          "carrierValue",
+          "companyTaxId",
+          "companyName"
+        ],
+        "type": "object",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/CheckoutInvoiceType"
+          },
+          "buyerType": {
+            "$ref": "#/components/schemas/CheckoutInvoiceBuyerType"
+          },
+          "carrierType": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "carrierValue": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "companyTaxId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "companyName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "CheckoutInvoiceType": {
+        "enum": [
+          "simulated"
+        ]
+      },
+      "CheckoutShippingInput": {
+        "required": [
+          "methodCode",
+          "address",
+          "storePublicId"
+        ],
+        "type": "object",
+        "properties": {
+          "methodCode": {
+            "type": "string"
+          },
+          "address": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CheckoutAddressInput"
+              }
+            ]
+          },
+          "storePublicId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "deliveryNote": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "ClaimSupportTicketRequest": {
         "type": "object",
         "properties": {
@@ -13395,6 +13685,50 @@
           }
         },
         "additionalProperties": false
+      },
+      "CreateOrderRequest": {
+        "required": [
+          "cartPublicId",
+          "cartRowVersion",
+          "buyer",
+          "shipping",
+          "paymentMethod",
+          "couponCode",
+          "invoice",
+          "acceptPolicyVersions"
+        ],
+        "type": "object",
+        "properties": {
+          "cartPublicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "cartRowVersion": {
+            "type": "string",
+            "format": "byte"
+          },
+          "buyer": {
+            "$ref": "#/components/schemas/CheckoutBuyerInput"
+          },
+          "shipping": {
+            "$ref": "#/components/schemas/CheckoutShippingInput"
+          },
+          "paymentMethod": {
+            "$ref": "#/components/schemas/PaymentMethod"
+          },
+          "couponCode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "invoice": {
+            "$ref": "#/components/schemas/CheckoutInvoiceInput"
+          },
+          "acceptPolicyVersions": {
+            "$ref": "#/components/schemas/AcceptedPolicyVersions"
+          }
+        }
       },
       "CreateProductRequest": {
         "required": [
@@ -15563,6 +15897,17 @@
           }
         },
         "additionalProperties": false
+      },
+      "PaymentMethod": {
+        "enum": [
+          "creditCard",
+          "atm",
+          "convenienceCode",
+          "cashOnDelivery",
+          "linePay",
+          "applePay",
+          "googlePay"
+        ]
       },
       "PaymentStatus": {
         "enum": [
