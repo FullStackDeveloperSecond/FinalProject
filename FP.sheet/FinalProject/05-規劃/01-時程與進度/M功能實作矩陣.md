@@ -1,7 +1,7 @@
 ---
 文件狀態: 持續更新
 最後更新: 2026-08-31
-基準分支: dev@fe29952c
+基準分支: dev@798f56c1
 ---
 
 # M 功能實作矩陣
@@ -27,10 +27,10 @@
 | M-04 商品批次與 Excel | 🔵 | ⬜ | ⬜ | ⬜ | ⬜ | 🔵 | Schema／規格已存在，匯入 Staging、API、UI 與原子提交證據未完成。 |
 | M-05 商品搜尋與篩選 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | 公開查詢與前台型錄已合併；PR #52 的 Playwright Smoke 已驗證固定 Seed 商品可由搜尋列表進入詳情，但尚未覆蓋完整篩選與排序組合。 |
 | M-06 購物車 | ✅ | ✅ | 🟡 | ✅ | ⬜ | 🔵 | PR #28 後端與 SQL 測試已合併；前端 PR #29 尚未進 `dev`。 |
-| M-07 優惠券 | ✅ | ✅ | 🟡 | ✅ | ⬜ | 🔵 | PR #7／#8 的計算、生命週期、Reader 與 SQL 證據、PR #50 後台管理 API、PR #63 正式購物車套券 Endpoint、PR #69 優惠券用途限定 Catalog picker API 均已合併；後台 A-23 頁面 PR #64 尚未進 `dev`，顧客購物車套券 UI 與完整 E2E 仍缺。 |
+| M-07 優惠券 | ✅ | ✅ | 🟡 | ✅ | ⬜ | 🔵 | PR #7／#8 的計算、生命週期、Reader 與 SQL 證據、PR #50 後台管理 API、PR #63 正式購物車套券 Endpoint、PR #64 後台 A-23 頁面、PR #69 優惠券用途限定 Catalog picker API 均已合併；顧客購物車套券 UI 與完整 E2E 仍缺。 |
 | M-08 訂單 | ✅ | 🔵 | 🟡 | ✅ | ⬜ | 🔵 | PR #52 已合併原子建單、缺貨回滾、零元拒絕零副作用、訂單／項目／費用／規格快照與 SQL 證據；PR #47 後台訂單管理已合併。正式 Checkout API、前端與完整 replay 仍未完成。 |
-| M-09 模擬付款 | ✅ | ✅ | ⬜ | ✅ | ⬜ | 🔵 | PR #71 已合併 Demo 完成 Endpoint、Owner／Guest Scope、全域 Antiforgery、`simulationKey` 冪等、PaymentEvent、Order／PaymentAttempt 同交易、History／Audit、通知 Outbox 與 SQL Provider-backed replay。`codex/payment-completion-alignment` 已補 `cancelled`、COD Demo 入口拒絕、Delivered／PickedUp 決策服務、付款成功發票 Outbox／Consumer 與 OpenAPI／Typed Client，付款 SQL Provider 類別 23／23 已通過，尚待 Review／合併。付款重試／新增 Attempt Endpoint、前端／E2E，以及 COD 正式物流命令接線仍未完成。 |
-| M-10 庫存保留與逾時取消 | ✅ | 🟡 | 🟡 | ✅ | ⬜ | 🔵 | PR #52 已合併 Checkout 成功保留與缺貨整體回滾 SQL 證據；API PR #36 與堆疊前端 PR #37 尚未合併，最後一件商品並行競爭與逾時釋放仍缺。 |
+| M-09 模擬付款 | ✅ | ✅ | ⬜ | ✅ | ⬜ | 🔵 | PR #71 已合併 Demo 完成 Endpoint、Owner／Guest Scope、全域 Antiforgery、`simulationKey` 冪等、PaymentEvent、Order／PaymentAttempt 同交易、History／Audit、通知 Outbox 與 SQL Provider-backed replay。PR #76 已合併 `cancelled`、COD Demo 入口拒絕、Delivered／PickedUp 決策服務、付款成功發票 Outbox／Consumer、rollback 追蹤清理與 OpenAPI／Typed Client，付款 SQL Provider 類別 24／24 已通過。付款重試／新增 Attempt Endpoint、前端／E2E，以及 COD 正式物流命令接線仍未完成。 |
+| M-10 庫存保留與逾時取消 | ✅ | 🟡 | 🟡 | ✅ | ⬜ | 🔵 | PR #52 已合併 Checkout 成功保留與缺貨整體回滾 SQL 證據；PR #36 已合併庫存保留／異動／盤點後台 API，堆疊前端 PR #37 尚未合併，最後一件商品並行競爭與逾時釋放仍缺。 |
 | M-11 物流與批次出貨 | ✅ | ⬜ | ⬜ | ✅ | ⬜ | 🔵 | PR #52 已將宅配／超取、Provider、包裹限制、運費／免運與訂單物流快照 SQL 證據合併至 `dev`；獨立 Application／API／UI／出貨流程仍未完成。 |
 | M-12 單項退貨 | ✅ | ✅ | ✅ | ✅ | ⬜ | ✅ | PR #42 已交付退貨申請、審核、寄回、收件、檢查、退款交接與前後台；PR #53 修復可信退款輸入及 CI Gate。仍缺完整瀏覽器 E2E。 |
 | M-13 部分退款 | ✅ | 🟡 | ⬜ | 🟡 | ⬜ | 🔵 | DES-21 可信快照、退款折讓與中央 Audit 基礎已合併；退款執行 PR #16 已轉 Ready 且靜態 review 通過，但目前與最新 `dev` 衝突，尚待整合後針對 exact head 完成 SQL Server Provider-backed 驗證。A-21／A-22 後台退款頁面與完整 E2E 仍缺。 |
