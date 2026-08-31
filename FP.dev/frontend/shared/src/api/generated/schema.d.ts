@@ -3021,6 +3021,216 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/invoices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    Statuses?: components["schemas"]["SimulatedInvoiceStatus"][];
+                    FromUtc?: string;
+                    ToUtc?: string;
+                    Q?: string;
+                    PageNumber?: number | string;
+                    PageSize?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["PageResultOfAdminInvoiceSummaryDto"];
+                        "application/json": components["schemas"]["PageResultOfAdminInvoiceSummaryDto"];
+                        "text/json": components["schemas"]["PageResultOfAdminInvoiceSummaryDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/invoices/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminInvoiceDto"];
+                        "application/json": components["schemas"]["AdminInvoiceDto"];
+                        "text/json": components["schemas"]["AdminInvoiceDto"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/orders/{orderId}/invoice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orderId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["SimulatedInvoiceDto"];
+                        "application/json": components["schemas"]["SimulatedInvoiceDto"];
+                        "text/json": components["schemas"]["SimulatedInvoiceDto"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/support-tickets/{id}": {
         parameters: {
             query?: never;
@@ -6522,6 +6732,31 @@ export interface components {
             /** Format: date-time */
             expiresAtUtc: string;
         };
+        AdminInvoiceDto: {
+            invoice: components["schemas"]["SimulatedInvoiceDto"];
+            orderNumber: string;
+            availableActions: string[];
+        };
+        AdminInvoiceSummaryDto: {
+            /** Format: uuid */
+            publicId: string;
+            invoiceNumber: string;
+            /** Format: uuid */
+            orderPublicId: string;
+            orderNumber: string;
+            status: components["schemas"]["SimulatedInvoiceStatus"];
+            /** Format: double */
+            netAmount: number | string;
+            /** Format: double */
+            taxAmount: number | string;
+            /** Format: double */
+            grossAmount: number | string;
+            /** Format: date-time */
+            issuedAtUtc: null | string;
+            demoMarker: string;
+            /** Format: byte */
+            rowVersion: string;
+        };
         AdminLoginRequest: {
             email: string;
             password: string;
@@ -7894,6 +8129,17 @@ export interface components {
             createdAtUtc: string;
             availableActions: string[];
         };
+        PageResultOfAdminInvoiceSummaryDto: {
+            items: components["schemas"]["AdminInvoiceSummaryDto"][];
+            /** Format: int32 */
+            pageNumber: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+            /** Format: int32 */
+            totalCount: number | string;
+            /** Format: int32 */
+            totalPages?: number | string;
+        };
         PageResultOfAdminProductSummaryDto: {
             items: components["schemas"]["AdminProductSummaryDto"][];
             /** Format: int32 */
@@ -8520,6 +8766,62 @@ export interface components {
             /** Format: double */
             grossAmount: number | string;
         };
+        /** @enum {unknown} */
+        SimulatedInvoiceBuyerType: "individual" | "company";
+        SimulatedInvoiceDto: {
+            /** Format: uuid */
+            publicId: string;
+            invoiceNumber: string;
+            /** Format: uuid */
+            orderPublicId: string;
+            status: components["schemas"]["SimulatedInvoiceStatus"];
+            buyerType: components["schemas"]["SimulatedInvoiceBuyerType"];
+            buyerEmailMasked: null | string;
+            carrierType: null | string;
+            carrierValueMasked: null | string;
+            companyTaxIdMasked: null | string;
+            /** Format: double */
+            netAmount: number | string;
+            /** Format: double */
+            taxAmount: number | string;
+            /** Format: double */
+            grossAmount: number | string;
+            currency: string;
+            /** Format: double */
+            taxRate: number | string;
+            items: components["schemas"]["SimulatedInvoiceItemDto"][];
+            allowances: components["schemas"]["SimulatedInvoiceAllowanceDto"][];
+            /** Format: date-time */
+            issuedAtUtc: null | string;
+            /** Format: date-time */
+            voidedAtUtc: null | string;
+            demoMarker: string;
+            /** Format: byte */
+            rowVersion: string;
+        };
+        SimulatedInvoiceItemDto: {
+            /** Format: uuid */
+            publicId: string;
+            /** Format: uuid */
+            orderItemPublicId: null | string;
+            kind: components["schemas"]["InvoiceLineKind"];
+            productName: string;
+            skuCode: string;
+            /** Format: int32 */
+            quantity: number | string;
+            /** Format: double */
+            unitPrice: number | string;
+            /** Format: double */
+            discountAmount: number | string;
+            /** Format: double */
+            netAmount: number | string;
+            /** Format: double */
+            taxAmount: number | string;
+            /** Format: double */
+            grossAmount: number | string;
+        };
+        /** @enum {unknown} */
+        SimulatedInvoiceStatus: "pending" | "issued" | "voided" | "partiallyAllowed" | "fullyAllowed";
         SkuDimensionsSummary: {
             /** Format: double */
             weightKg: null | number | string;

@@ -15,6 +15,7 @@ public static class RefundsServiceCollectionExtensions
 
         services.TryAddSingleton(TimeProvider.System);
         services.AddScoped<IRefundExecutionReader, RefundExecutionReader>();
+        services.AddScoped<IRefundInvoiceReferenceReader, RefundInvoiceReferenceReader>();
         services.AddScoped<IRefundExecutor, RefundExecutor>();
         services.AddScoped<ExecuteRefundService>();
 
