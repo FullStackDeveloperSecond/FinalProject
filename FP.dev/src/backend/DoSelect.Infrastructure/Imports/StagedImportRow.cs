@@ -17,5 +17,14 @@ internal sealed class StagedImportRow<TPayload>
     public List<string> Errors { get; } = [];
     public ImportRowAction Action { get; set; } = ImportRowAction.Error;
 
+    /// <summary>
+    /// The referenced existing entity's RowVersion as of Preview, for Update／NoChange rows
+    /// (組長 PR #74 review item 2). Confirm feeds this to EF as the concurrency original value on
+    /// every Update write, so any third-party modification between Preview and Confirm — even one
+    /// racing the confirm transaction itself — fails the write at the database rather than being
+    /// silently overwritten. Null for Insert rows and rows that resolved no existing entity.
+    /// </summary>
+    public byte[]? PreimageRowVersion { get; set; }
+
     public void AddError(string code) => Errors.Add(code);
 }

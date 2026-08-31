@@ -21,12 +21,16 @@ public sealed class ImportServiceFixture : IAsyncLifetime
         await context.Database.EnsureDeletedAsync();
     }
 
-    public static DoSelectDbContext CreateContext()
+    public static DoSelectDbContext CreateContext(params Microsoft.EntityFrameworkCore.Diagnostics.IInterceptor[] interceptors)
     {
-        var options = new DbContextOptionsBuilder<DoSelectDbContext>()
-            .UseSqlServer(ConnectionString)
-            .Options;
-        return new DoSelectDbContext(options);
+        var builder = new DbContextOptionsBuilder<DoSelectDbContext>()
+            .UseSqlServer(ConnectionString);
+        if (interceptors.Length > 0)
+        {
+            builder.AddInterceptors(interceptors);
+        }
+
+        return new DoSelectDbContext(builder.Options);
     }
 
     public static string UniqueCode(string prefix) => $"{prefix}-{Guid.NewGuid():N}"[..24];

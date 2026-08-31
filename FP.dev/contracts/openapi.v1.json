@@ -344,503 +344,6 @@
         }
       }
     },
-    "/api/v1/admin/convenience-stores": {
-      "get": {
-        "tags": [
-          "AdminConvenienceStores"
-        ],
-        "parameters": [
-          {
-            "name": "ProviderCode",
-            "in": "query",
-            "schema": {
-              "maxLength": 64,
-              "minLength": 0,
-              "type": "string"
-            }
-          },
-          {
-            "name": "City",
-            "in": "query",
-            "schema": {
-              "maxLength": 60,
-              "minLength": 0,
-              "type": "string"
-            }
-          },
-          {
-            "name": "District",
-            "in": "query",
-            "schema": {
-              "maxLength": 60,
-              "minLength": 0,
-              "type": "string"
-            }
-          },
-          {
-            "name": "IsActive",
-            "in": "query",
-            "schema": {
-              "type": "boolean"
-            }
-          },
-          {
-            "name": "PageNumber",
-            "in": "query",
-            "schema": {
-              "maximum": 2147483647,
-              "minimum": 1,
-              "pattern": "^-?(?:0|[1-9]\\d*)$",
-              "type": [
-                "integer",
-                "string"
-              ],
-              "format": "int32"
-            }
-          },
-          {
-            "name": "PageSize",
-            "in": "query",
-            "schema": {
-              "maximum": 100,
-              "minimum": 1,
-              "pattern": "^-?(?:0|[1-9]\\d*)$",
-              "type": [
-                "integer",
-                "string"
-              ],
-              "format": "int32"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/PageResultOfConvenienceStoreDto"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PageResultOfConvenienceStoreDto"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PageResultOfConvenienceStoreDto"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "AdminConvenienceStores"
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateConvenienceStoreRequest"
-              }
-            },
-            "text/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateConvenienceStoreRequest"
-              }
-            },
-            "application/*+json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateConvenienceStoreRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConvenienceStoreDto"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConvenienceStoreDto"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConvenienceStoreDto"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/admin/convenience-stores/{id}": {
-      "put": {
-        "tags": [
-          "AdminConvenienceStores"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateConvenienceStoreRequest"
-              }
-            },
-            "text/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateConvenienceStoreRequest"
-              }
-            },
-            "application/*+json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateConvenienceStoreRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConvenienceStoreDto"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConvenienceStoreDto"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConvenienceStoreDto"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/admin/shipping-providers/{id}/package-limit-versions": {
-      "get": {
-        "tags": [
-          "AdminPackageLimits"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/PackageLimitVersionDto"
-                  }
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/PackageLimitVersionDto"
-                  }
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/PackageLimitVersionDto"
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "AdminPackageLimits"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreatePackageLimitVersionRequest"
-              }
-            },
-            "text/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreatePackageLimitVersionRequest"
-              }
-            },
-            "application/*+json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreatePackageLimitVersionRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/PackageLimitVersionDto"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PackageLimitVersionDto"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PackageLimitVersionDto"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/admin/shipping-providers/{id}/package-limit-versions/{versionId}/actions/publish": {
-      "post": {
-        "tags": [
-          "AdminPackageLimits"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "versionId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PublishPackageLimitVersionRequest"
-              }
-            },
-            "text/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PublishPackageLimitVersionRequest"
-              }
-            },
-            "application/*+json": {
-              "schema": {
-                "$ref": "#/components/schemas/PublishPackageLimitVersionRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/PackageLimitVersionDto"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PackageLimitVersionDto"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PackageLimitVersionDto"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/cart/shipping-options": {
-      "get": {
-        "tags": [
-          "Shipping"
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/ShippingOptionsDto"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ShippingOptionsDto"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ShippingOptionsDto"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/convenience-stores": {
-      "get": {
-        "tags": [
-          "Shipping"
-        ],
-        "parameters": [
-          {
-            "name": "ProviderCode",
-            "in": "query",
-            "schema": {
-              "maxLength": 32,
-              "minLength": 0,
-              "type": "string"
-            }
-          },
-          {
-            "name": "City",
-            "in": "query",
-            "schema": {
-              "maxLength": 64,
-              "minLength": 0,
-              "type": "string"
-            }
-          },
-          {
-            "name": "District",
-            "in": "query",
-            "schema": {
-              "maxLength": 64,
-              "minLength": 0,
-              "type": "string"
-            }
-          },
-          {
-            "name": "Q",
-            "in": "query",
-            "schema": {
-              "maxLength": 160,
-              "minLength": 0,
-              "type": "string"
-            }
-          },
-          {
-            "name": "PageNumber",
-            "in": "query",
-            "schema": {
-              "maximum": 2147483647,
-              "minimum": 1,
-              "pattern": "^-?(?:0|[1-9]\\d*)$",
-              "type": [
-                "integer",
-                "string"
-              ],
-              "format": "int32"
-            }
-          },
-          {
-            "name": "PageSize",
-            "in": "query",
-            "schema": {
-              "maximum": 100,
-              "minimum": 1,
-              "pattern": "^-?(?:0|[1-9]\\d*)$",
-              "type": [
-                "integer",
-                "string"
-              ],
-              "format": "int32"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/PageResultOfConvenienceStoreOptionDto"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PageResultOfConvenienceStoreOptionDto"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PageResultOfConvenienceStoreOptionDto"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/security/antiforgery-token": {
       "get": {
         "tags": [
@@ -6710,6 +6213,266 @@
         "responses": {
           "200": {
             "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/product-imports/preview": {
+      "post": {
+        "tags": [
+          "AdminProductImports"
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "allOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "productsFile": {
+                        "$ref": "#/components/schemas/IFormFile"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "skusFile": {
+                        "$ref": "#/components/schemas/IFormFile"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "specificationsFile": {
+                        "$ref": "#/components/schemas/IFormFile"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "templateVersion": {
+                        "pattern": "^-?(?:0|[1-9]\\d*)$",
+                        "type": [
+                          "integer",
+                          "string"
+                        ],
+                        "format": "int32"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductImportBatchDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductImportBatchDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductImportBatchDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/product-imports/{id}": {
+      "get": {
+        "tags": [
+          "AdminProductImports"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductImportBatchDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductImportBatchDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductImportBatchDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/product-imports/{id}/rows": {
+      "get": {
+        "tags": [
+          "AdminProductImports"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "dataset",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "errorsOnly",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/admin/product-imports/{id}/errors": {
+      "get": {
+        "tags": [
+          "AdminProductImports"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/csv": { }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/product-imports/{id}/actions/confirm": {
+      "post": {
+        "tags": [
+          "AdminProductImports"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmProductImportRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmProductImportRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmProductImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductImportBatchDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductImportBatchDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductImportBatchDto"
+                }
+              }
+            }
           }
         }
       }
@@ -15373,92 +15136,15 @@
           }
         }
       },
-      "ConvenienceStoreDto": {
+      "ConfirmProductImportRequest": {
         "required": [
-          "publicId",
-          "providerCode",
-          "storeCode",
-          "storeName",
-          "address",
-          "city",
-          "district",
-          "isDemoData",
-          "isActive",
           "rowVersion"
         ],
         "type": "object",
         "properties": {
-          "publicId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "providerCode": {
-            "type": "string"
-          },
-          "storeCode": {
-            "type": "string"
-          },
-          "storeName": {
-            "type": "string"
-          },
-          "address": {
-            "type": "string"
-          },
-          "city": {
-            "type": "string"
-          },
-          "district": {
-            "type": "string"
-          },
-          "isDemoData": {
-            "type": "boolean"
-          },
-          "isActive": {
-            "type": "boolean"
-          },
           "rowVersion": {
             "type": "string",
             "format": "byte"
-          }
-        }
-      },
-      "ConvenienceStoreOptionDto": {
-        "required": [
-          "publicId",
-          "providerCode",
-          "storeCode",
-          "name",
-          "city",
-          "district",
-          "address",
-          "isDemoData"
-        ],
-        "type": "object",
-        "properties": {
-          "publicId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "providerCode": {
-            "type": "string"
-          },
-          "storeCode": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "city": {
-            "type": "string"
-          },
-          "district": {
-            "type": "string"
-          },
-          "address": {
-            "type": "string"
-          },
-          "isDemoData": {
-            "type": "boolean"
           }
         }
       },
@@ -15924,37 +15610,6 @@
           }
         }
       },
-      "CreateConvenienceStoreRequest": {
-        "required": [
-          "providerCode",
-          "storeCode",
-          "storeName",
-          "address",
-          "city",
-          "district"
-        ],
-        "type": "object",
-        "properties": {
-          "providerCode": {
-            "type": "string"
-          },
-          "storeCode": {
-            "type": "string"
-          },
-          "storeName": {
-            "type": "string"
-          },
-          "address": {
-            "type": "string"
-          },
-          "city": {
-            "type": "string"
-          },
-          "district": {
-            "type": "string"
-          }
-        }
-      },
       "CreateCouponRequest": {
         "required": [
           "code",
@@ -16194,87 +15849,6 @@
           },
           "acceptPolicyVersions": {
             "$ref": "#/components/schemas/AcceptedPolicyVersions"
-          }
-        }
-      },
-      "CreatePackageLimitVersionRequest": {
-        "required": [
-          "providerCode",
-          "maxWeightKg",
-          "maxLengthCm",
-          "maxWidthCm",
-          "maxHeightCm",
-          "maxTotalCm",
-          "maxDeclaredValue",
-          "effectiveFromUtc",
-          "effectiveToUtc"
-        ],
-        "type": "object",
-        "properties": {
-          "providerCode": {
-            "type": "string"
-          },
-          "maxWeightKg": {
-            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
-            "type": [
-              "number",
-              "string"
-            ],
-            "format": "double"
-          },
-          "maxLengthCm": {
-            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
-            "type": [
-              "number",
-              "string"
-            ],
-            "format": "double"
-          },
-          "maxWidthCm": {
-            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
-            "type": [
-              "number",
-              "string"
-            ],
-            "format": "double"
-          },
-          "maxHeightCm": {
-            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
-            "type": [
-              "number",
-              "string"
-            ],
-            "format": "double"
-          },
-          "maxTotalCm": {
-            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
-            "type": [
-              "number",
-              "string"
-            ],
-            "format": "double"
-          },
-          "maxDeclaredValue": {
-            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
-            "type": [
-              "number",
-              "string"
-            ],
-            "format": "double"
-          },
-          "effectiveFromUtc": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "date-time"
-          },
-          "effectiveToUtc": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "date-time"
           }
         }
       },
@@ -18376,110 +17950,6 @@
           }
         }
       },
-      "PackageLimitVersionDto": {
-        "required": [
-          "publicId",
-          "providerCode",
-          "version",
-          "status",
-          "maxWeightKg",
-          "maxLengthCm",
-          "maxWidthCm",
-          "maxHeightCm",
-          "maxTotalCm",
-          "maxDeclaredValue",
-          "effectiveFromUtc",
-          "effectiveToUtc",
-          "rowVersion"
-        ],
-        "type": "object",
-        "properties": {
-          "publicId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "providerCode": {
-            "type": "string"
-          },
-          "version": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "status": {
-            "type": "string"
-          },
-          "maxWeightKg": {
-            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
-            "type": [
-              "number",
-              "string"
-            ],
-            "format": "double"
-          },
-          "maxLengthCm": {
-            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
-            "type": [
-              "number",
-              "string"
-            ],
-            "format": "double"
-          },
-          "maxWidthCm": {
-            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
-            "type": [
-              "number",
-              "string"
-            ],
-            "format": "double"
-          },
-          "maxHeightCm": {
-            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
-            "type": [
-              "number",
-              "string"
-            ],
-            "format": "double"
-          },
-          "maxTotalCm": {
-            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
-            "type": [
-              "number",
-              "string"
-            ],
-            "format": "double"
-          },
-          "maxDeclaredValue": {
-            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
-            "type": [
-              "number",
-              "string"
-            ],
-            "format": "double"
-          },
-          "effectiveFromUtc": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "date-time"
-          },
-          "effectiveToUtc": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "date-time"
-          },
-          "rowVersion": {
-            "type": "string",
-            "format": "byte"
-          }
-        }
-      },
       "PageResultOfAdminInvoiceSummaryDto": {
         "required": [
           "items",
@@ -18787,104 +18257,6 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/CategoryDto"
-            }
-          },
-          "pageNumber": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "pageSize": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "totalCount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "totalPages": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          }
-        }
-      },
-      "PageResultOfConvenienceStoreDto": {
-        "required": [
-          "items",
-          "pageNumber",
-          "pageSize",
-          "totalCount"
-        ],
-        "type": "object",
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ConvenienceStoreDto"
-            }
-          },
-          "pageNumber": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "pageSize": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "totalCount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "totalPages": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          }
-        }
-      },
-      "PageResultOfConvenienceStoreOptionDto": {
-        "required": [
-          "items",
-          "pageNumber",
-          "pageSize",
-          "totalCount"
-        ],
-        "type": "object",
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ConvenienceStoreOptionDto"
             }
           },
           "pageNumber": {
@@ -19821,6 +19193,107 @@
           }
         }
       },
+      "ProductImportBatchDto": {
+        "required": [
+          "publicId",
+          "importType",
+          "templateVersion",
+          "status",
+          "createdByAdminUserId",
+          "createdAtUtc",
+          "expiresAtUtc",
+          "rowCount",
+          "newCount",
+          "updatedCount",
+          "unchangedCount",
+          "errorCount",
+          "confirmedAtUtc",
+          "rowVersion"
+        ],
+        "type": "object",
+        "properties": {
+          "publicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "importType": {
+            "type": "string"
+          },
+          "templateVersion": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "status": {
+            "type": "string"
+          },
+          "createdByAdminUserId": {
+            "type": "string"
+          },
+          "createdAtUtc": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAtUtc": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "rowCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "newCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "updatedCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "unchangedCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "errorCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "confirmedAtUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "rowVersion": {
+            "type": "string",
+            "format": "byte"
+          }
+        }
+      },
       "ProductOptionStatus": {
         "enum": [
           "draft",
@@ -19976,18 +19449,6 @@
           },
           "isDefault": {
             "type": "boolean"
-          }
-        }
-      },
-      "PublishPackageLimitVersionRequest": {
-        "required": [
-          "rowVersion"
-        ],
-        "type": "object",
-        "properties": {
-          "rowVersion": {
-            "type": "string",
-            "format": "byte"
           }
         }
       },
@@ -21619,95 +21080,6 @@
           }
         }
       },
-      "ShippingOptionDto": {
-        "required": [
-          "methodCode",
-          "name",
-          "fee",
-          "isEligible",
-          "ineligibleReasonCode",
-          "freeShippingThreshold",
-          "requiresAddress",
-          "requiresStore",
-          "allowedPaymentMethods"
-        ],
-        "type": "object",
-        "properties": {
-          "methodCode": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "fee": {
-            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
-            "type": [
-              "number",
-              "string"
-            ],
-            "format": "double"
-          },
-          "isEligible": {
-            "type": "boolean"
-          },
-          "ineligibleReasonCode": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "freeShippingThreshold": {
-            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
-            "type": [
-              "null",
-              "number",
-              "string"
-            ],
-            "format": "double"
-          },
-          "requiresAddress": {
-            "type": "boolean"
-          },
-          "requiresStore": {
-            "type": "boolean"
-          },
-          "allowedPaymentMethods": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        }
-      },
-      "ShippingOptionsDto": {
-        "required": [
-          "cartPublicId",
-          "options",
-          "evaluatedAtUtc",
-          "cartRowVersion"
-        ],
-        "type": "object",
-        "properties": {
-          "cartPublicId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "options": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ShippingOptionDto"
-            }
-          },
-          "evaluatedAtUtc": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "cartRowVersion": {
-            "type": "string",
-            "format": "byte"
-          }
-        }
-      },
       "ShippingRestrictionDto": {
         "required": [
           "method",
@@ -23245,38 +22617,6 @@
           }
         }
       },
-      "UpdateConvenienceStoreRequest": {
-        "required": [
-          "storeName",
-          "address",
-          "city",
-          "district",
-          "isActive",
-          "rowVersion"
-        ],
-        "type": "object",
-        "properties": {
-          "storeName": {
-            "type": "string"
-          },
-          "address": {
-            "type": "string"
-          },
-          "city": {
-            "type": "string"
-          },
-          "district": {
-            "type": "string"
-          },
-          "isActive": {
-            "type": "boolean"
-          },
-          "rowVersion": {
-            "type": "string",
-            "format": "byte"
-          }
-        }
-      },
       "UpdateCouponRequest": {
         "required": [
           "code",
@@ -23769,15 +23109,6 @@
       "name": "Cart"
     },
     {
-      "name": "AdminConvenienceStores"
-    },
-    {
-      "name": "AdminPackageLimits"
-    },
-    {
-      "name": "Shipping"
-    },
-    {
       "name": "Security"
     },
     {
@@ -23842,6 +23173,9 @@
     },
     {
       "name": "AdminInventory"
+    },
+    {
+      "name": "AdminProductImports"
     },
     {
       "name": "AdminSupportTickets"

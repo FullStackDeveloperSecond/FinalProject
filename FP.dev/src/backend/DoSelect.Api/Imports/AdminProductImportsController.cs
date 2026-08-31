@@ -9,10 +9,10 @@ using Microsoft.AspNetCore.Mvc;
 namespace DoSelect.Api.Imports;
 
 /// <summary>
-/// UC-IMPORT-01 商品匯入 (product import). The Confirm/commit action
-/// (POST .../{id}/actions/confirm in 匯入暫存與庫存調整設計.md's API 契約) is deliberately not
-/// wired here — see IProductImportService's doc comment for why (AuditLog/Outbox gap, same
-/// reasoning as AdminInventoryController's withdrawn manual-release endpoint).
+/// UC-IMPORT-01 商品匯入: Preview stages three CSV datasets into a 24-hour batch, the read
+/// endpoints expose its status/rows/errors, and Confirm applies the whole batch in one SQL
+/// transaction with a same-transaction central Audit entry (匯入暫存與庫存調整設計.md 商品匯入確認).
+/// Only the batch's creator may confirm it.
 /// </summary>
 [ApiController]
 [Route("api/v1/admin/product-imports")]

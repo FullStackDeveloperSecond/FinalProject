@@ -23,6 +23,15 @@ public sealed class EfProductImportService : IProductImportService
     private const int MaxFileSizeBytes = 10 * 1024 * 1024;
     private const int MaxTotalRows = 5_000;
 
+    /// <summary>
+    /// 組長 PR #74 review item 3: only the current template version (and, per spec, the previous
+    /// one once a newer version ships) is accepted; anything else — including the 0 that model
+    /// binding produces when the multipart field is missing — is rejected whole-batch with the
+    /// current template information. v1 is the first template, so there is no previous version to
+    /// convert yet; when v2 ships, v1 handling belongs here as an explicit conversion step.
+    /// </summary>
+    private const int CurrentTemplateVersion = 1;
+
     private readonly DoSelectDbContext _dbContext;
     private readonly IAuditWriter _auditWriter;
 
@@ -41,6 +50,37 @@ public sealed class EfProductImportService : IProductImportService
         if (string.IsNullOrWhiteSpace(createdByAdminUserId))
         {
             throw new ArgumentException("The value is required.", nameof(createdByAdminUserId));
+        }
+
+        if (request.TemplateVersion != CurrentTemplateVersion)
+        {
+            throw DomainProblemException.BadRequest(
+                DomainErrorCodes.ImportFormatUnsupported,
+                $"Template version '{request.TemplateVersion}' is not supported. The current product-import template is version {CurrentTemplateVersion} (datasets: Products, Skus, Specifications).");
+        }
+
+        // 組長 PR #74 review item 4: the one-in-progress unique index counts Ready batches, but an
+        // expired Ready batch only used to flip to Expired when someone called *its* Confirm — so
+        // re-uploading kept failing with import_batch_in_progress. Close out any of this admin's
+        // batches whose 24-hour window has passed before staging the new one.
+        var now = DateTime.UtcNow;
+        var staleBatches = await _dbContext.ImportBatches
+            .Where(candidate => candidate.CreatedByAdminUserId == createdByAdminUserId &&
+                candidate.ImportType == ImportType.Product &&
+                candidate.ExpiresAtUtc <= now &&
+                (candidate.Status == ImportBatchStatus.Uploaded ||
+                 candidate.Status == ImportBatchStatus.Validating ||
+                 candidate.Status == ImportBatchStatus.Ready ||
+                 candidate.Status == ImportBatchStatus.Committing))
+            .ToListAsync(cancellationToken);
+        if (staleBatches.Count > 0)
+        {
+            foreach (var stale in staleBatches)
+            {
+                stale.ChangeStatus(ImportBatchStatus.Expired, now);
+            }
+
+            await _dbContext.SaveChangesAsync(cancellationToken);
         }
 
         var productsBytes = await ReadFileAsync(request.ProductsFile, "Products", cancellationToken);
@@ -69,7 +109,6 @@ public sealed class EfProductImportService : IProductImportService
         var skuContexts = await ResolveSkuRowsAsync(skuRows, productRows, productContexts, cancellationToken);
         await ResolveSpecificationRowsAsync(specificationRows, skuRows, skuContexts, cancellationToken);
 
-        var now = DateTime.UtcNow;
         var batch = new ImportBatch(
             Guid.CreateVersion7(),
             ImportType.Product,
@@ -144,23 +183,45 @@ public sealed class EfProductImportService : IProductImportService
             throw DomainProblemException.NotFound($"Product import batch '{batchPublicId}' was not found.");
         }
 
-        var pageSize = query.PageSize is > 0 and <= 200 ? query.PageSize : 50;
+        // 組長 PR #74 review item 5: invalid inputs used to be silently widened — an unknown
+        // dataset queried everything, a bad cursor restarted at page one, an out-of-range pageSize
+        // became 50 — so a caller could believe a filter was applied when it was not. Each is now
+        // a stable validation error instead.
+        if (query.PageSize is not (> 0 and <= 200))
+        {
+            throw DomainProblemException.Validation(
+                $"pageSize must be between 1 and 200; got {query.PageSize}.");
+        }
+
+        var pageSize = query.PageSize;
         var fingerprint = OpaqueCursorCodec.ComputeFingerprint(
             batchPublicId.ToString(), query.Dataset, query.ErrorsOnly.ToString());
 
         var rowsQuery = _dbContext.ImportRows.AsNoTracking()
             .Where(row => row.ImportBatchId == batch.Id);
 
-        if (!string.IsNullOrWhiteSpace(query.Dataset) &&
-            Enum.TryParse<ImportDataset>(query.Dataset, ignoreCase: true, out var dataset) &&
-            Enum.IsDefined(dataset))
+        if (!string.IsNullOrWhiteSpace(query.Dataset))
         {
+            if (!Enum.TryParse<ImportDataset>(query.Dataset, ignoreCase: true, out var dataset) ||
+                !Enum.IsDefined(dataset))
+            {
+                throw DomainProblemException.Validation(
+                    $"Unknown dataset '{query.Dataset}'. Valid values: Products, Skus, Specifications.");
+            }
+
             rowsQuery = rowsQuery.Where(row => row.Dataset == dataset);
         }
 
         if (query.ErrorsOnly)
         {
             rowsQuery = rowsQuery.Where(row => row.ErrorCodes != null);
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Cursor) &&
+            (!OpaqueCursorCodec.TryDecode<RowCursorPayload>(query.Cursor, fingerprint, out _)))
+        {
+            throw DomainProblemException.Validation(
+                "The cursor is invalid or was issued under different filters. Restart from the first page.");
         }
 
         if (OpaqueCursorCodec.TryDecode<RowCursorPayload>(query.Cursor, fingerprint, out var after) && after is not null)
@@ -185,7 +246,7 @@ public sealed class EfProductImportService : IProductImportService
                 row.ImportKey,
                 row.Action.ToString(),
                 string.IsNullOrEmpty(row.ErrorCodes) ? [] : row.ErrorCodes.Split(',', StringSplitOptions.RemoveEmptyEntries),
-                row.NormalizedPayloadJson))
+                UnwrapPayloadJson(row.NormalizedPayloadJson)))
             .ToList();
 
         string? nextCursor = null;
@@ -273,6 +334,24 @@ public sealed class EfProductImportService : IProductImportService
                 $"Only a Ready batch can be confirmed; this batch is {batch.Status}. Fix the source files and create a new batch.");
         }
 
+        // 組長 PR #74 review item 1: 規格要求「建立者且具 CatalogImport.Execute」— the role half is
+        // the controller policy, the creator half is here. Another CatalogManager must not be able
+        // to commit a preview they never created or reviewed.
+        if (!string.Equals(batch.CreatedByAdminUserId, adminUserId, StringComparison.Ordinal))
+        {
+            throw DomainProblemException.Forbidden(
+                "Only the administrator who created this preview batch can confirm it.");
+        }
+
+        // 組長 PR #74 review item 3: re-checked at confirm too — a batch staged under a template
+        // this build no longer supports must not be applied with the current parsers.
+        if (batch.TemplateVersion != CurrentTemplateVersion)
+        {
+            throw DomainProblemException.BadRequest(
+                DomainErrorCodes.ImportFormatUnsupported,
+                $"This batch was staged with template version '{batch.TemplateVersion}'; the current product-import template is version {CurrentTemplateVersion}. Re-upload with the current template.");
+        }
+
         var actor = await ResolveActorAsync(adminUserId, cancellationToken);
 
         var storedRows = await _dbContext.ImportRows.AsNoTracking()
@@ -284,27 +363,31 @@ public sealed class EfProductImportService : IProductImportService
         var (skuRows, skuStoredActions) = Rehydrate<SkuPayload>(storedRows, ImportDataset.Skus);
         var (specificationRows, specificationStoredActions) = Rehydrate<SpecificationPayload>(storedRows, ImportDataset.Specifications);
 
-        // 商品匯入確認 step 3: re-validate against the *current* catalog with the exact resolvers
-        // Preview used, then require every row's outcome to match what the admin previewed — any
-        // drift (a product code someone created meanwhile, a category deactivated, a SKU edited)
-        // means the preview the admin approved no longer describes what would happen, so the whole
-        // confirm is refused and a fresh Preview is required. This is the product-import analogue
-        // of the inventory confirm's Balance-RowVersion recheck.
-        var productContexts = await ResolveProductRowsAsync(productRows, cancellationToken);
-        var skuContexts = await ResolveSkuRowsAsync(skuRows, productRows, productContexts, cancellationToken);
-        await ResolveSpecificationRowsAsync(specificationRows, skuRows, skuContexts, cancellationToken);
-
-        EnsureUnchangedSincePreview(productRows, productStoredActions, ImportDataset.Products);
-        EnsureUnchangedSincePreview(skuRows, skuStoredActions, ImportDataset.Skus);
-        EnsureUnchangedSincePreview(specificationRows, specificationStoredActions, ImportDataset.Specifications);
-
         _dbContext.Entry(batch).Property(candidate => candidate.RowVersion).OriginalValue = rowVersion;
 
+        var committingSaved = false;
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
         try
         {
             batch.ChangeStatus(ImportBatchStatus.Committing, now);
             await _dbContext.SaveChangesAsync(cancellationToken);
+            committingSaved = true;
+
+            // 商品匯入確認 step 3, hardened per 組長 PR #74 review item 2: the re-validation runs
+            // *inside* the confirm transaction, and every row's outcome must still match what the
+            // admin previewed (a product code created meanwhile, a category deactivated, an
+            // Insert↔Update flip). Action equality alone cannot see an Update whose underlying
+            // entity was edited since Preview — that is closed below in ApplyAsync, where every
+            // Update write carries the Preview-time RowVersion as its EF concurrency original
+            // value, so even a modification racing this very transaction fails the write instead
+            // of being overwritten.
+            var productContexts = await ResolveProductRowsAsync(productRows, cancellationToken);
+            var skuContexts = await ResolveSkuRowsAsync(skuRows, productRows, productContexts, cancellationToken);
+            await ResolveSpecificationRowsAsync(specificationRows, skuRows, skuContexts, cancellationToken);
+
+            EnsureUnchangedSincePreview(productRows, productStoredActions, ImportDataset.Products);
+            EnsureUnchangedSincePreview(skuRows, skuStoredActions, ImportDataset.Skus);
+            EnsureUnchangedSincePreview(specificationRows, specificationStoredActions, ImportDataset.Specifications);
 
             var summary = await ApplyAsync(productRows, productContexts, skuRows, skuContexts, specificationRows, now, cancellationToken);
 
@@ -336,9 +419,21 @@ public sealed class EfProductImportService : IProductImportService
         catch (DbUpdateConcurrencyException)
         {
             await transaction.RollbackAsync(cancellationToken);
+            if (!committingSaved)
+            {
+                throw DomainProblemException.Conflict(
+                    "concurrency_conflict",
+                    "The batch was modified by someone else. Reload and try again.");
+            }
+
+            // An apply-phase concurrency failure means a referenced entity's RowVersion no longer
+            // matches its Preview-time preimage — someone changed the catalog after the preview
+            // the admin approved (組長 PR #74 review item 2). Mark the batch Failed and demand a
+            // fresh Preview; nothing was applied.
+            await MarkFailedBestEffortAsync(batch.Id, cancellationToken);
             throw DomainProblemException.Conflict(
-                "concurrency_conflict",
-                "The batch was modified by someone else. Reload and try again.");
+                DomainErrorCodes.ImportValidationFailed,
+                "The catalog changed after this preview was taken. Re-run Preview and confirm the new batch.");
         }
         catch (Exception)
         {
@@ -360,16 +455,21 @@ public sealed class EfProductImportService : IProductImportService
         var actions = new Dictionary<string, ImportRowAction>(StringComparer.Ordinal);
         foreach (var stored in storedRows.Where(row => row.Dataset == dataset))
         {
-            var payload = JsonSerializer.Deserialize<TPayload>(stored.NormalizedPayloadJson)
-                ?? throw DomainProblemException.Conflict(
+            var envelope = JsonSerializer.Deserialize<RowEnvelope<TPayload>>(stored.NormalizedPayloadJson);
+            if (envelope is null || envelope.Payload is null)
+            {
+                throw DomainProblemException.Conflict(
                     DomainErrorCodes.ImportValidationFailed,
                     $"Stored row '{stored.ImportKey}' has an unreadable payload; re-run Preview.");
+            }
+
             rows.Add(new StagedImportRow<TPayload>
             {
                 SourceRowNumber = stored.SourceRowNumber,
                 ImportKey = stored.ImportKey,
-                Payload = payload,
+                Payload = envelope.Payload,
                 RawFields = [],
+                PreimageRowVersion = envelope.PreimageRowVersion,
             });
             actions[stored.ImportKey] = stored.Action;
         }
@@ -447,6 +547,13 @@ public sealed class EfProductImportService : IProductImportService
                 case ImportRowAction.Update:
                     {
                         var product = trackedProducts[productContexts[row.ImportKey].ExistingProductId!.Value];
+                        // 組長 PR #74 review item 2: the write itself enforces "unchanged since
+                        // Preview" — EF sends the Preview-time RowVersion as the concurrency check.
+                        if (row.PreimageRowVersion is not null)
+                        {
+                            _dbContext.Entry(product).Property(candidate => candidate.RowVersion).OriginalValue = row.PreimageRowVersion;
+                        }
+
                         var brandId = brandIds[payload.BrandCode!];
                         var categoryId = productContexts[row.ImportKey].CategoryId!.Value;
                         product.UpdateDetails(brandId, categoryId, payload.NameZhTw!, payload.DescriptionZhTw, payload.WarrantyMonths, product.IsFeatured, now);
@@ -505,6 +612,11 @@ public sealed class EfProductImportService : IProductImportService
                 case ImportRowAction.Update:
                     {
                         var sku = trackedSkus[skuContexts[row.ImportKey].ExistingSkuId!.Value];
+                        if (row.PreimageRowVersion is not null)
+                        {
+                            _dbContext.Entry(sku).Property(candidate => candidate.RowVersion).OriginalValue = row.PreimageRowVersion;
+                        }
+
                         var previousUnitCost = sku.UnitCost;
                         sku.UpdatePackageDimensions(payload.WeightKg, payload.LengthCm, payload.WidthCm, payload.HeightCm, now);
                         sku.UpdateCommercialDetails(payload.NameZhTw!, payload.ListPrice!.Value, payload.UnitCost!.Value, sku.IsDefault, payload.RequiresPrepayment ?? false, now);
@@ -601,6 +713,11 @@ public sealed class EfProductImportService : IProductImportService
                 // shape ReplaceSpecificationsAsync uses. Import rows are per-(sku, key) upserts;
                 // values the file does not mention are deliberately left untouched.
                 var existing = trackedValues.Single(value => value.SkuId == skuId && value.SpecificationDefinitionId == definition.Id);
+                if (row.PreimageRowVersion is not null)
+                {
+                    _dbContext.Entry(existing).Property(candidate => candidate.RowVersion).OriginalValue = row.PreimageRowVersion;
+                }
+
                 _dbContext.SkuSpecificationValues.Remove(existing);
                 specificationsUpdated++;
             }
@@ -692,16 +809,21 @@ public sealed class EfProductImportService : IProductImportService
 
     private sealed record RowCursorPayload(ImportDataset Dataset, int SourceRowNumber);
 
+    /// <summary>What ImportRow.NormalizedPayloadJson actually stores: the normalized payload plus,
+    /// for Update／NoChange rows, the referenced entity's Preview-time RowVersion (組長 PR #74
+    /// review item 2). GetRowsAsync unwraps the envelope so API consumers still see the payload.</summary>
+    private sealed record RowEnvelope<TPayload>(TPayload Payload, byte[]? PreimageRowVersion);
+
     private sealed record ExistingProductSnapshot(
         long Id, long BrandId, long CategoryId, string NameZhTw,
-        string? DescriptionZhTw, int? WarrantyMonths, ProductStatus Status);
+        string? DescriptionZhTw, int? WarrantyMonths, ProductStatus Status, byte[] RowVersion);
 
     private sealed record ProductRowContext(long? ExistingProductId, long? CategoryId);
 
     private sealed record ExistingSkuSnapshot(
         long Id, long ProductId, string NameZhTw, decimal ListPrice, decimal UnitCost,
         decimal? WeightKg, decimal? LengthCm, decimal? WidthCm, decimal? HeightCm,
-        bool RequiresPrepayment, SkuStatus Status);
+        bool RequiresPrepayment, SkuStatus Status, byte[] RowVersion);
 
     private sealed record SkuRowContext(long? ExistingSkuId, long? ProductId, long? CategoryId);
 
@@ -722,7 +844,7 @@ public sealed class EfProductImportService : IProductImportService
         var existingProducts = await _dbContext.Products.AsNoTracking()
             .Where(p => productCodes.Contains(p.ProductCode))
             .Select(p => new ExistingProductSnapshot(
-                p.Id, p.BrandId, p.CategoryId, p.NameZhTw, p.DescriptionZhTw, p.WarrantyMonths, p.Status))
+                p.Id, p.BrandId, p.CategoryId, p.NameZhTw, p.DescriptionZhTw, p.WarrantyMonths, p.Status, p.RowVersion))
             .ToDictionaryAsync(p => p.Id, cancellationToken);
         var existingProductsByCode = await _dbContext.Products.AsNoTracking()
             .Where(p => productCodes.Contains(p.ProductCode))
@@ -757,6 +879,11 @@ public sealed class EfProductImportService : IProductImportService
                     existingProducts.TryGetValue(foundId, out var existing))
                 {
                     existingProductId = existing.Id;
+                    // ??= — at Preview this is the first assignment; at Confirm the same resolver
+                    // re-runs inside the transaction and must NOT stomp the Preview-time preimage
+                    // with the current value, or the write-time concurrency check would trivially
+                    // pass and overwrite interim edits (組長 PR #74 review item 2).
+                    row.PreimageRowVersion ??= existing.RowVersion;
                     var brandId = row.Payload.BrandCode is not null && brands.TryGetValue(row.Payload.BrandCode, out var b) ? b : (long?)null;
                     var isUnchanged = brandId == existing.BrandId &&
                         categoryId == existing.CategoryId &&
@@ -800,7 +927,7 @@ public sealed class EfProductImportService : IProductImportService
             .Where(s => skuCodes.Contains(s.SkuCode))
             .Select(s => new ExistingSkuSnapshot(
                 s.Id, s.ProductId, s.NameZhTw, s.ListPrice, s.UnitCost,
-                s.WeightKg, s.LengthCm, s.WidthCm, s.HeightCm, s.RequiresPrepayment, s.Status))
+                s.WeightKg, s.LengthCm, s.WidthCm, s.HeightCm, s.RequiresPrepayment, s.Status, s.RowVersion))
             .ToDictionaryAsync(s => s.Id, cancellationToken);
         var existingSkusByCode = await _dbContext.Skus.AsNoTracking()
             .Where(s => skuCodes.Contains(s.SkuCode))
@@ -858,6 +985,7 @@ public sealed class EfProductImportService : IProductImportService
                     }
 
                     existingSkuId = existingSku.Id;
+                    row.PreimageRowVersion ??= existingSku.RowVersion;
                     var isUnchanged = row.Payload.NameZhTw == existingSku.NameZhTw &&
                         row.Payload.ListPrice == existingSku.ListPrice &&
                         row.Payload.UnitCost == existingSku.UnitCost &&
@@ -985,6 +1113,7 @@ public sealed class EfProductImportService : IProductImportService
                 }
                 else
                 {
+                    row.PreimageRowVersion ??= existingValue.RowVersion;
                     var isUnchanged = valueType switch
                     {
                         SpecificationValueType.String => existingValue.StringValue == row.Payload.StringValue,
@@ -1037,7 +1166,8 @@ public sealed class EfProductImportService : IProductImportService
                 default: errorCount++; break;
             }
 
-            var normalizedPayloadJson = JsonSerializer.Serialize(row.Payload);
+            var normalizedPayloadJson = JsonSerializer.Serialize(
+                new RowEnvelope<TPayload>(row.Payload, row.PreimageRowVersion));
             var rawJson = JsonSerializer.Serialize(row.RawFields);
             var errorCodes = row.Errors.Count > 0 ? string.Join(",", row.Errors.Distinct()) : null;
             var rowHash = SHA256.HashData(Encoding.UTF8.GetBytes(normalizedPayloadJson));
@@ -1116,6 +1246,14 @@ public sealed class EfProductImportService : IProductImportService
         }
 
         return buffer.ToArray();
+    }
+
+    private static string UnwrapPayloadJson(string normalizedPayloadJson)
+    {
+        using var document = JsonDocument.Parse(normalizedPayloadJson);
+        return document.RootElement.TryGetProperty("Payload", out var payload)
+            ? payload.GetRawText()
+            : normalizedPayloadJson;
     }
 
     private static bool IsOneInProgressBatchConflict(DbUpdateException exception) =>

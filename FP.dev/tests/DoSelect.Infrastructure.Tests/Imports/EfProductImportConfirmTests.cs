@@ -211,7 +211,10 @@ public sealed class EfProductImportConfirmTests
         await using var verify = ImportServiceFixture.CreateContext();
         Assert.Equal(1, await verify.Products.CountAsync(candidate => candidate.ProductCode == productCode));
         var batch = await verify.ImportBatches.SingleAsync(candidate => candidate.PublicId == preview.PublicId);
-        Assert.Equal(ImportBatchStatus.Ready, batch.Status);
+        // The in-transaction revalidation marks a drifted batch Failed (spec: Failed 必須以修正後
+        // 檔案建立新 Batch) — the stale preview is unusable either way, and this matches the
+        // write-time preimage rejection path.
+        Assert.Equal(ImportBatchStatus.Failed, batch.Status);
     }
 
     [Fact]
@@ -232,6 +235,203 @@ public sealed class EfProductImportConfirmTests
             service.ConfirmAsync(preview.PublicId, adminId, preview.RowVersion, TestAuditContext, CancellationToken.None));
 
         Assert.Equal(DomainErrorCodes.ImportValidationFailed, exception.Code);
+    }
+
+    /// <summary>組長 PR #74 review item 1: 規格要求「建立者且具 CatalogImport.Execute」— another
+    /// CatalogManager must not be able to commit a preview they never created or reviewed.</summary>
+    [Fact]
+    public async Task ConfirmAsync_WhenADifferentAdminConfirms_RejectsAndChangesNothing()
+    {
+        await using var context = ImportServiceFixture.CreateContext();
+        var (brand, category) = await ImportServiceFixture.SeedBrandAndCategoryAsync(context);
+        var creator = await SeedCatalogManagerAsync(context);
+        var otherAdmin = await SeedCatalogManagerAsync(context);
+        var service = CreateService(context);
+        var productCode = ImportServiceFixture.UniqueCode("PROD");
+        var preview = await service.PreviewAsync(MakeRequest(
+            ProductsHeader + $"PK1,{productCode},商品,{brand.Code},{category.Code},\\N,\\N,Draft\r\n",
+            SkusHeader,
+            SpecificationsHeader), creator, CancellationToken.None);
+
+        var exception = await Assert.ThrowsAsync<DomainProblemException>(() =>
+            service.ConfirmAsync(preview.PublicId, otherAdmin, preview.RowVersion, TestAuditContext, CancellationToken.None));
+
+        Assert.Equal(403, exception.StatusCode);
+        await using var verify = ImportServiceFixture.CreateContext();
+        Assert.Equal(0, await verify.Products.CountAsync(candidate => candidate.ProductCode == productCode));
+        var batch = await verify.ImportBatches.SingleAsync(candidate => candidate.PublicId == preview.PublicId);
+        Assert.Equal(ImportBatchStatus.Ready, batch.Status);
+        Assert.Equal(0, await verify.AuditLogs.CountAsync(log => log.ResourcePublicId == preview.PublicId));
+    }
+
+    /// <summary>組長 PR #74 review item 2: an Update row whose underlying entity was edited after
+    /// Preview stays an Update on re-resolve, so action equality alone would silently overwrite the
+    /// interim change. Every Update write now carries the Preview-time RowVersion as its EF
+    /// concurrency original value, so the write itself fails — closing the TOCTOU window too, since
+    /// the enforcement happens at write time inside the confirm transaction.</summary>
+    [Fact]
+    public async Task ConfirmAsync_WhenAnUpdatedEntityChangedAfterPreview_RejectsInsteadOfOverwriting()
+    {
+        await using var context = ImportServiceFixture.CreateContext();
+        var (brand, category) = await ImportServiceFixture.SeedBrandAndCategoryAsync(context);
+        var adminId = await SeedCatalogManagerAsync(context);
+        var now = DateTime.UtcNow;
+        var product = new Product(Guid.CreateVersion7(), ImportServiceFixture.UniqueCode("PROD"), brand.Id, category.Id, "原始名稱", now);
+        context.Products.Add(product);
+        await context.SaveChangesAsync();
+        var service = CreateService(context);
+        // Preview stages an Update: 原始名稱 → 匯入名稱.
+        var preview = await service.PreviewAsync(MakeRequest(
+            ProductsHeader + $"PK1,{product.ProductCode},匯入名稱,{brand.Code},{category.Code},\\N,\\N,Draft\r\n",
+            SkusHeader,
+            SpecificationsHeader), adminId, CancellationToken.None);
+        Assert.Equal(ImportBatchStatus.Ready.ToString(), preview.Status);
+
+        // A colleague edits the same product between Preview and Confirm — still an Update on
+        // re-resolve, which is exactly the gap action-equality could not see.
+        await using (var interim = ImportServiceFixture.CreateContext())
+        {
+            var same = await interim.Products.SingleAsync(candidate => candidate.Id == product.Id);
+            same.UpdateDetails(brand.Id, category.Id, "同事改的名稱", null, null, same.IsFeatured, DateTime.UtcNow);
+            await interim.SaveChangesAsync();
+        }
+
+        await using var confirmContext = ImportServiceFixture.CreateContext();
+        var exception = await Assert.ThrowsAsync<DomainProblemException>(() =>
+            CreateService(confirmContext).ConfirmAsync(preview.PublicId, adminId, preview.RowVersion, TestAuditContext, CancellationToken.None));
+
+        Assert.Equal(DomainErrorCodes.ImportValidationFailed, exception.Code);
+        await using var verify = ImportServiceFixture.CreateContext();
+        var after = await verify.Products.SingleAsync(candidate => candidate.Id == product.Id);
+        // The colleague's change survives; the import applied nothing.
+        Assert.Equal("同事改的名稱", after.NameZhTw);
+        var batch = await verify.ImportBatches.SingleAsync(candidate => candidate.PublicId == preview.PublicId);
+        Assert.Equal(ImportBatchStatus.Failed, batch.Status);
+    }
+
+    /// <summary>組長 PR #74 review item 3: only the current template version is accepted; the 0 a
+    /// missing multipart field produces, and any unknown version, reject whole-batch with the
+    /// current template information.</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(2)]
+    public async Task PreviewAsync_WithAMissingOrUnsupportedTemplateVersion_RejectsTheWholeBatch(int templateVersion)
+    {
+        await using var context = ImportServiceFixture.CreateContext();
+        var (brand, category) = await ImportServiceFixture.SeedBrandAndCategoryAsync(context);
+        var adminId = await SeedCatalogManagerAsync(context);
+        var service = CreateService(context);
+
+        var request = new PreviewProductImportRequest(
+            ToFile(ProductsHeader + $"PK1,{ImportServiceFixture.UniqueCode("PROD")},商品,{brand.Code},{category.Code},\\N,\\N,Draft\r\n"),
+            ToFile(SkusHeader),
+            ToFile(SpecificationsHeader),
+            templateVersion);
+
+        var exception = await Assert.ThrowsAsync<DomainProblemException>(() =>
+            service.PreviewAsync(request, adminId, CancellationToken.None));
+
+        Assert.Equal(DomainErrorCodes.ImportFormatUnsupported, exception.Code);
+        Assert.Contains("version 1", exception.Message);
+        await using var verify = ImportServiceFixture.CreateContext();
+        Assert.Equal(0, await verify.ImportBatches.CountAsync(candidate => candidate.CreatedByAdminUserId == adminId));
+    }
+
+    /// <summary>組長 PR #74 review item 4: an expired Ready batch used to keep tripping the
+    /// one-in-progress unique index until someone happened to call its Confirm.</summary>
+    [Fact]
+    public async Task PreviewAsync_WhenThePreviousReadyBatchExpired_ExpiresItAndStagesTheNewOne()
+    {
+        await using var context = ImportServiceFixture.CreateContext();
+        var (brand, category) = await ImportServiceFixture.SeedBrandAndCategoryAsync(context);
+        var adminId = await SeedCatalogManagerAsync(context);
+        var service = CreateService(context);
+        var first = await service.PreviewAsync(MakeRequest(
+            ProductsHeader + $"PK1,{ImportServiceFixture.UniqueCode("PROD")},商品,{brand.Code},{category.Code},\\N,\\N,Draft\r\n",
+            SkusHeader,
+            SpecificationsHeader), adminId, CancellationToken.None);
+        await context.Database.ExecuteSqlAsync(
+            $"UPDATE ImportBatches SET ExpiresAtUtc = DATEADD(HOUR, -1, SYSUTCDATETIME()) WHERE PublicId = {first.PublicId}");
+        context.ChangeTracker.Clear();
+
+        var second = await CreateService(context).PreviewAsync(MakeRequest(
+            ProductsHeader + $"PK1,{ImportServiceFixture.UniqueCode("PROD")},商品,{brand.Code},{category.Code},\\N,\\N,Draft\r\n",
+            SkusHeader,
+            SpecificationsHeader), adminId, CancellationToken.None);
+
+        Assert.Equal(ImportBatchStatus.Ready.ToString(), second.Status);
+        await using var verify = ImportServiceFixture.CreateContext();
+        var firstAfter = await verify.ImportBatches.SingleAsync(candidate => candidate.PublicId == first.PublicId);
+        Assert.Equal(ImportBatchStatus.Expired, firstAfter.Status);
+    }
+
+    /// <summary>組長 PR #74 review item 5: invalid rows-query inputs must reject, not silently
+    /// widen the result.</summary>
+    [Fact]
+    public async Task GetRowsAsync_WithInvalidInputs_RejectsInsteadOfSilentlyWidening()
+    {
+        await using var context = ImportServiceFixture.CreateContext();
+        var (brand, category) = await ImportServiceFixture.SeedBrandAndCategoryAsync(context);
+        var adminId = await SeedCatalogManagerAsync(context);
+        var service = CreateService(context);
+        var preview = await service.PreviewAsync(MakeRequest(
+            ProductsHeader + $"PK1,{ImportServiceFixture.UniqueCode("PROD")},商品,{brand.Code},{category.Code},\\N,\\N,Draft\r\n",
+            SkusHeader,
+            SpecificationsHeader), adminId, CancellationToken.None);
+
+        await Assert.ThrowsAsync<DomainProblemException>(() => service.GetRowsAsync(
+            preview.PublicId, new ImportRowsQuery("NotADataset", false, null, 50), CancellationToken.None));
+        await Assert.ThrowsAsync<DomainProblemException>(() => service.GetRowsAsync(
+            preview.PublicId, new ImportRowsQuery(null, false, "not-a-cursor", 50), CancellationToken.None));
+        await Assert.ThrowsAsync<DomainProblemException>(() => service.GetRowsAsync(
+            preview.PublicId, new ImportRowsQuery(null, false, null, 0), CancellationToken.None));
+        await Assert.ThrowsAsync<DomainProblemException>(() => service.GetRowsAsync(
+            preview.PublicId, new ImportRowsQuery(null, false, null, 201), CancellationToken.None));
+    }
+
+    /// <summary>An audit write failure rolls the entire confirm back — no catalog change, no
+    /// Committed batch, no partial state (組長 PR #74 review, closing note).</summary>
+    [Fact]
+    public async Task ConfirmAsync_WhenTheAuditWriteFails_RollsEverythingBack()
+    {
+        await using var seedContext = ImportServiceFixture.CreateContext();
+        var (brand, category) = await ImportServiceFixture.SeedBrandAndCategoryAsync(seedContext);
+        var adminId = await SeedCatalogManagerAsync(seedContext);
+        var productCode = ImportServiceFixture.UniqueCode("PROD");
+        var preview = await CreateService(seedContext).PreviewAsync(MakeRequest(
+            ProductsHeader + $"PK1,{productCode},商品,{brand.Code},{category.Code},\\N,\\N,Draft\r\n",
+            SkusHeader,
+            SpecificationsHeader), adminId, CancellationToken.None);
+
+        await using var failingContext = ImportServiceFixture.CreateContext(new FailAuditLogWrites());
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            CreateService(failingContext).ConfirmAsync(preview.PublicId, adminId, preview.RowVersion, TestAuditContext, CancellationToken.None));
+
+        await using var verify = ImportServiceFixture.CreateContext();
+        Assert.Equal(0, await verify.Products.CountAsync(candidate => candidate.ProductCode == productCode));
+        var batch = await verify.ImportBatches.SingleAsync(candidate => candidate.PublicId == preview.PublicId);
+        Assert.NotEqual(ImportBatchStatus.Committed, batch.Status);
+        Assert.Equal(0, await verify.AuditLogs.CountAsync(log => log.ResourcePublicId == preview.PublicId));
+    }
+
+    /// <summary>Fails any SaveChanges that tries to insert an AuditLog row, simulating an audit
+    /// subsystem failure at the exact point the confirm writes its entry.</summary>
+    private sealed class FailAuditLogWrites : Microsoft.EntityFrameworkCore.Diagnostics.SaveChangesInterceptor
+    {
+        public override ValueTask<Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int>> SavingChangesAsync(
+            Microsoft.EntityFrameworkCore.Diagnostics.DbContextEventData eventData,
+            Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (eventData.Context is not null &&
+                eventData.Context.ChangeTracker.Entries<DoSelect.Domain.Auditing.AuditLog>()
+                    .Any(entry => entry.State == EntityState.Added))
+            {
+                throw new InvalidOperationException("Simulated audit write failure.");
+            }
+
+            return base.SavingChangesAsync(eventData, result, cancellationToken);
+        }
     }
 
     private static EfProductImportService CreateService(DoSelectDbContext context) =>
