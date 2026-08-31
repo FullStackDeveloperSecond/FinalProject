@@ -688,3 +688,35 @@ select {
 .site-main td {
   padding: var(--space-2) var(--space-3);
 }
+
+/* 後台以桌面（>=1024）為設計目標；窄畫面時側欄改為橫向堆疊列，
+   分組標題要自成一行，當前項指示改放在底部。 */
+@media (max-width: 768px) {
+  .admin-sidebar {
+    position: static;
+    min-height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .admin-sidebar__group-title {
+    flex-basis: 100%;
+    margin: var(--space-3) 0 var(--space-1);
+    padding-inline: 0;
+  }
+
+  .admin-sidebar__nav > .admin-sidebar__group-title:first-child {
+    margin-top: 0;
+  }
+
+  .admin-sidebar a {
+    border-left: none;
+    border-bottom: 3px solid transparent;
+    border-radius: var(--radius-sm);
+  }
+
+  .admin-sidebar a[aria-current="page"] {
+    border-left-color: transparent;
+    border-bottom-color: var(--color-primary);
+  }
+}
