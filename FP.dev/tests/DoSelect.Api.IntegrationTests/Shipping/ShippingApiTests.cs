@@ -30,8 +30,8 @@ public sealed class ShippingApiTests
     {
         await using (var context = _fixture.CreateScopedContext())
         {
-            await SeedShippingMethodAsync(context, "StorePickup", "StorePickup", 60m, 2000m, true, false);
-            await SeedShippingMethodAsync(context, "HomeDelivery", "HomeDelivery", 150m, 5000m, true, false);
+            await SeedShippingMethodAsync(context, "StorePickup", ShippingMethodKinds.StorePickup, 60m, 2000m, true, false);
+            await SeedShippingMethodAsync(context, "HomeDelivery", ShippingMethodKinds.HomeDelivery, 150m, 5000m, true, false);
         }
 
         using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/cart/shipping-options");
@@ -79,7 +79,9 @@ public sealed class ShippingApiTests
         bool requiresPrepayment)
     {
         context.ShippingMethods.Add(new ShippingMethod(
-            Guid.CreateVersion7(), code, code, kind, baseFee, freeShippingThreshold, allowsCod, requiresPrepayment, DateTime.UtcNow));
+            Guid.CreateVersion7(), code, code, kind, baseFee, freeShippingThreshold, allowsCod, requiresPrepayment,
+            kind == ShippingMethodKinds.StorePickup ? ShippingProviderCodes.StorePickup : ShippingProviderCodes.HomeDelivery,
+            DateTime.UtcNow));
         await context.SaveChangesAsync();
     }
 

@@ -7,6 +7,20 @@ public static class ShippingProviderCodes
 }
 
 /// <summary>
+/// ShippingMethod.Kind values. StorePickup's value is "ConvenienceStorePickup", not "StorePickup" —
+/// dev's EfCheckoutTransactionGateway (merged in #52) hard-codes that string to decide whether a
+/// method needs a store instead of an address, so a row seeded with any other spelling would be
+/// treated as home delivery at Checkout. This class is the single vocabulary source going forward;
+/// the gateway's private const could reference it later (its owner's call, not changed here).
+/// </summary>
+public static class ShippingMethodKinds
+{
+    public const string StorePickup = "ConvenienceStorePickup";
+    public const string HomeDelivery = "HomeDelivery";
+    public const string HomeDeliveryAssembly = "HomeDeliveryAssembly";
+}
+
+/// <summary>
 /// Program-fixed safe bounds an admin's package-limit draft must fall within — not itself
 /// admin-configurable. Per 購物車、訂單、付款與物流.md's 包裹限制 section: "超商與宅配使用不同 Provider
 /// Profile 及不可由一般管理員突破的安全範圍". MaxTotalCm is the three-sides-sum ("三邊和"), not a

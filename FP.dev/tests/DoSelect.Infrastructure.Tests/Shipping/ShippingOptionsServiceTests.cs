@@ -5,6 +5,7 @@ using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Shipping;
 using DoSelect.Infrastructure.Shopping;
 using Microsoft.Extensions.Options;
+using DoSelect.Domain.Shipping;
 
 namespace DoSelect.Infrastructure.Tests.Shipping;
 

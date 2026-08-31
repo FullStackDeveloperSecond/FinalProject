@@ -50,7 +50,6 @@ public sealed record ConvenienceStoreOptionDto(
 /// NT$20,000 上限、組裝與 SKU 預付旗標判斷". haru's checkout and yinyin's amount math call this
 /// instead of re-deriving the rule themselves.
 /// </summary>
-public sealed record CodEligibilityResult(bool IsEligible, string? IneligibleReasonCode);
 
 public static class ShippingErrorCodes
 {
@@ -72,10 +71,4 @@ public interface IConvenienceStoreQueryService
         CancellationToken cancellationToken);
 }
 
-public interface ICodEligibilityService
-{
-    Task<CodEligibilityResult> EvaluateAsync(
-        CartIdentity identity,
-        string shippingMethodCode,
-        CancellationToken cancellationToken);
-}
+

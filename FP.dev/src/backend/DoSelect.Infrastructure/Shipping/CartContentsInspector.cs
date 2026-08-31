@@ -7,7 +7,7 @@ namespace DoSelect.Infrastructure.Shipping;
 internal readonly record struct CartShippingRelevantContents(bool HasAssemblyItem, bool HasPrepaymentRequiredSku);
 
 /// <summary>
-/// Shared by <see cref="EfShippingOptionsService"/> and <see cref="EfCodEligibilityService"/> so
+/// Used by <see cref="EfShippingOptionsService"/> so
 /// the two don't independently re-derive what makes a cart assembly/prepay-restricted.
 /// </summary>
 internal static class CartContentsInspector

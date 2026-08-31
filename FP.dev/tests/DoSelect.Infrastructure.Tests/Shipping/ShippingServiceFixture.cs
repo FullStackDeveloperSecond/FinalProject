@@ -133,8 +133,11 @@ public sealed class ShippingServiceFixture : IAsyncLifetime
     {
         var now = DateTime.UtcNow;
         var code = UniqueMethodCode(kind);
+        var providerCode = kind == ShippingMethodKinds.StorePickup
+            ? ShippingProviderCodes.StorePickup
+            : ShippingProviderCodes.HomeDelivery;
         var method = new ShippingMethod(
-            Guid.CreateVersion7(), code, code, kind, baseFee, freeShippingThreshold, allowsCod, requiresPrepayment, now);
+            Guid.CreateVersion7(), code, code, kind, baseFee, freeShippingThreshold, allowsCod, requiresPrepayment, providerCode, now);
         context.ShippingMethods.Add(method);
         await context.SaveChangesAsync();
         return method;

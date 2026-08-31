@@ -30,6 +30,7 @@ public sealed class MinimalDevelopmentDataSeeder(
         await EnsureCatalogAsync(counters, cancellationToken);
         await EnsureBuildCompatibilityAsync(counters, cancellationToken);
         await EnsureShippingMethodsAsync(counters, cancellationToken);
+        await EnsureShippingProvidersAsync(counters, cancellationToken);
         await EnsureConvenienceStoresAsync(counters, cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
@@ -711,29 +712,32 @@ public sealed class MinimalDevelopmentDataSeeder(
                 PublicId: MinimalDevelopmentSeedDefinitions.StorePickupMethodPublicId,
                 Code: "StorePickup",
                 NameZhTw: "超商取貨",
-                Kind: "StorePickup",
+                Kind: ShippingMethodKinds.StorePickup,
                 BaseFee: 60m,
                 FreeShippingThreshold: (decimal?)2000m,
                 AllowsCod: true,
-                RequiresPrepayment: false),
+                RequiresPrepayment: false,
+                ProviderCode: ShippingProviderCodes.StorePickup),
             (
                 PublicId: MinimalDevelopmentSeedDefinitions.HomeDeliveryMethodPublicId,
                 Code: "HomeDelivery",
                 NameZhTw: "一般宅配",
-                Kind: "HomeDelivery",
+                Kind: ShippingMethodKinds.HomeDelivery,
                 BaseFee: 150m,
                 FreeShippingThreshold: (decimal?)5000m,
                 AllowsCod: true,
-                RequiresPrepayment: false),
+                RequiresPrepayment: false,
+                ProviderCode: ShippingProviderCodes.HomeDelivery),
             (
                 PublicId: MinimalDevelopmentSeedDefinitions.HomeDeliveryAssemblyMethodPublicId,
                 Code: "HomeDeliveryAssembly",
                 NameZhTw: "組裝電腦宅配",
-                Kind: "HomeDeliveryAssembly",
+                Kind: ShippingMethodKinds.HomeDeliveryAssembly,
                 BaseFee: 300m,
                 FreeShippingThreshold: (decimal?)30000m,
                 AllowsCod: false,
-                RequiresPrepayment: true),
+                RequiresPrepayment: true,
+                ProviderCode: ShippingProviderCodes.HomeDelivery),
         };
 
         foreach (var definition in definitions)
@@ -752,6 +756,7 @@ public sealed class MinimalDevelopmentDataSeeder(
                 definition.FreeShippingThreshold,
                 definition.AllowsCod,
                 definition.RequiresPrepayment,
+                definition.ProviderCode,
                 MinimalDevelopmentSeedDefinitions.CreatedAtUtc));
             counters.ShippingRecordsCreated++;
         }
@@ -759,6 +764,85 @@ public sealed class MinimalDevelopmentDataSeeder(
         if (counters.ShippingRecordsCreated > 0)
         {
             await dbContext.SaveChangesAsync(cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// dev's Checkout (#52) resolves ShippingMethod.ProviderCode to exactly one Published
+    /// ShippingProviderProfile and exactly one effective PackageLimitVersion, refusing checkout
+    /// otherwise - so methods seeded without these rows would exist but never be usable. Providers
+    /// follow the spec's transport classes (購物車、訂單、付款與物流.md: "超商與宅配使用不同 Provider
+    /// Profile"), not the store chains: both home-delivery methods share the HomeDelivery profile.
+    /// Defaults come from PackageLimitSafeRanges: the store-pickup ceiling doubles as its default,
+    /// and home delivery seeds its safe-range ceiling as the explicit seed default the doc requires.
+    /// </summary>
+    private async Task EnsureShippingProvidersAsync(SeedCounters counters, CancellationToken cancellationToken)
+    {
+        var definitions = new[]
+        {
+            (
+                ProfilePublicId: MinimalDevelopmentSeedDefinitions.StorePickupProviderProfilePublicId,
+                LimitPublicId: MinimalDevelopmentSeedDefinitions.StorePickupPackageLimitPublicId,
+                ProviderCode: ShippingProviderCodes.StorePickup,
+                MaxWeightKg: PackageLimitSafeRanges.StorePickupDefault.MaxWeightKg,
+                MaxLengthCm: PackageLimitSafeRanges.StorePickupDefault.MaxLengthCm,
+                MaxWidthCm: PackageLimitSafeRanges.StorePickupDefault.MaxWidthCm,
+                MaxHeightCm: PackageLimitSafeRanges.StorePickupDefault.MaxHeightCm,
+                MaxTotalCm: PackageLimitSafeRanges.StorePickupDefault.MaxTotalCm,
+                MaxDeclaredValue: 20_000m),
+            (
+                ProfilePublicId: MinimalDevelopmentSeedDefinitions.HomeDeliveryProviderProfilePublicId,
+                LimitPublicId: MinimalDevelopmentSeedDefinitions.HomeDeliveryPackageLimitPublicId,
+                ProviderCode: ShippingProviderCodes.HomeDelivery,
+                MaxWeightKg: PackageLimitSafeRanges.HomeDelivery.MaxWeightKg,
+                MaxLengthCm: PackageLimitSafeRanges.HomeDelivery.MaxSideCm,
+                MaxWidthCm: PackageLimitSafeRanges.HomeDelivery.MaxSideCm,
+                MaxHeightCm: PackageLimitSafeRanges.HomeDelivery.MaxSideCm,
+                MaxTotalCm: PackageLimitSafeRanges.HomeDelivery.MaxTotalCm,
+                MaxDeclaredValue: 50_000m),
+        };
+
+        foreach (var definition in definitions)
+        {
+            var profile = await dbContext.ShippingProviderProfiles
+                .SingleOrDefaultAsync(candidate => candidate.ProviderCode == definition.ProviderCode, cancellationToken);
+            if (profile is null)
+            {
+                profile = new ShippingProviderProfile(
+                    definition.ProfilePublicId,
+                    definition.ProviderCode,
+                    version: 1,
+                    status: "Published",
+                    effectiveFromUtc: null,
+                    effectiveToUtc: null,
+                    configurationJson: "{}",
+                    schemaVersion: 1,
+                    MinimalDevelopmentSeedDefinitions.CreatedAtUtc);
+                dbContext.ShippingProviderProfiles.Add(profile);
+                await dbContext.SaveChangesAsync(cancellationToken);
+                counters.ShippingRecordsCreated++;
+            }
+
+            var hasLimit = await dbContext.PackageLimitVersions
+                .AnyAsync(candidate => candidate.ProviderProfileId == profile.Id, cancellationToken);
+            if (!hasLimit)
+            {
+                dbContext.PackageLimitVersions.Add(new PackageLimitVersion(
+                    definition.LimitPublicId,
+                    profile.Id,
+                    version: 1,
+                    definition.MaxWeightKg,
+                    definition.MaxLengthCm,
+                    definition.MaxWidthCm,
+                    definition.MaxHeightCm,
+                    definition.MaxTotalCm,
+                    definition.MaxDeclaredValue,
+                    effectiveFromUtc: null,
+                    effectiveToUtc: null,
+                    MinimalDevelopmentSeedDefinitions.CreatedAtUtc));
+                await dbContext.SaveChangesAsync(cancellationToken);
+                counters.ShippingRecordsCreated++;
+            }
         }
     }
 

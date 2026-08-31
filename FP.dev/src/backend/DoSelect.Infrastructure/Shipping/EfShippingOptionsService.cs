@@ -1,5 +1,6 @@
 using DoSelect.Application.Shipping;
 using DoSelect.Application.Shopping;
+using DoSelect.Domain.Payments;
 using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -65,12 +66,17 @@ public sealed class EfShippingOptionsService : IShippingOptionsService
         var ineligibleReasonCode = isStorePickupBlockedByAssembly ? ShippingErrorCodes.ShippingMethodNotAllowed : null;
 
         var finalPayableAmount = cart.Amounts.TotalEstimate + fee;
-        var codEligibility = CodEligibilityRules.Evaluate(
-            method,
-            finalPayableAmount,
-            contents.HasAssemblyItem,
-            contents.HasPrepaymentRequiredSku);
-        var allowedPaymentMethods = codEligibility.IsEligible
+        // The COD go/no-go shown here must be the same decision Checkout enforces at order
+        // creation, so this delegates to the canonical PaymentAttemptPolicy (yinyin's #9, the
+        // one EfCheckoutTransactionGateway already calls) instead of keeping a parallel rule
+        // set - the same class of duplication 組長 had removed in PR #34 for compatibility.
+        var codRejection = PaymentAttemptPolicy.FindCashOnDeliveryRejection(
+            new CashOnDeliveryEligibility(
+                method.AllowsCod,
+                contents.HasAssemblyItem,
+                contents.HasPrepaymentRequiredSku),
+            finalPayableAmount);
+        var allowedPaymentMethods = codRejection is null
             ? new[] { "prepaid", "cashOnDelivery" }
             : new[] { "prepaid" };
 
@@ -88,9 +94,3 @@ public sealed class EfShippingOptionsService : IShippingOptionsService
 
 }
 
-internal static class ShippingMethodKinds
-{
-    internal const string StorePickup = "StorePickup";
-    internal const string HomeDelivery = "HomeDelivery";
-    internal const string HomeDeliveryAssembly = "HomeDeliveryAssembly";
-}
