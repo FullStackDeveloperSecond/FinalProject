@@ -198,3 +198,117 @@ describe('the wrapped PrimeVue components still work on 4.5.5', () => {
     expect(wrapper.emitted('update:page')).toBeUndefined()
   })
 })
+
+describe('dev-mode module duplication guard (vite config)', () => {
+  const REQUIRED_EXCLUDES = [
+    '@doselect/web-shared',
+    'primevue',
+    '@primevue/core',
+    '@primevue/icons',
+    '@primeuix/themes',
+    '@primeuix/styled',
+    '@primeuix/styles',
+  ]
+
+  const readConfig = (relative: string) => readFileSync(resolve(pkgRoot, relative), 'utf8')
+  const parseExcludes = (source: string) => {
+    const block = source.match(/exclude:\s*\[([\s\S]*?)\]/)
+    return block
+      ? block[1].split(',').map((entry) => entry.trim().replace(/^'|'$/g, '')).filter(Boolean)
+      : []
+  }
+
+  const configs: Array<[string, string]> = [
+    ['customer-web', readConfig('vite.config.ts')],
+    ['admin-web', readConfig('../admin-web/vite.config.ts')],
+  ]
+
+  it.each(configs)('%s keeps resolve.preserveSymlinks', (_name, source) => {
+    expect(source).toMatch(/preserveSymlinks:\s*true/)
+  })
+
+  it.each(configs)('%s excludes every package of the PrimeVue runtime from pre-bundling', (_name, source) => {
+    const excludes = parseExcludes(source)
+    for (const required of REQUIRED_EXCLUDES) {
+      expect(excludes).toContain(required)
+    }
+  })
+
+  it('uses an identical exclude list in both apps', () => {
+    expect(parseExcludes(configs[0][1])).toEqual(parseExcludes(configs[1][1]))
+  })
+
+  it.each(configs)('%s adds no resolve.dedupe', (_name, source) => {
+    expect(source).not.toMatch(/dedupe/)
+  })
+
+  it.each(configs)('%s adds no component-level optimizeDeps.include', (_name, source) => {
+    expect(source).not.toMatch(/optimizeDeps[\s\S]*include/)
+    expect(source).not.toMatch(/primevue\/(button|paginator|dialog|toast|datatable)/)
+  })
+})
+
+describe('PrimeVue component tokens generate under the real preset (Button / Paginator harness)', () => {
+  /**
+   * 掛載時帶入正式 DoSelectPreset，重現 dev server 的主題註冊路徑，
+   * 藉此確認元件層 design token 會被產生 —— 這正是 prebundled/raw 雙實例時失效的地方。
+   * 僅在測試內掛載，不新增任何正式路由或頁面。
+   */
+  const themedPlugins = async () => {
+    const { DoSelectPreset } = await import('@doselect/web-shared/theme')
+    return [[PrimeVue, {
+      theme: { preset: DoSelectPreset, options: { darkModeSelector: false } },
+    }]] as never
+  }
+
+  const styleIds = () =>
+    [...document.querySelectorAll('style')]
+      .map((el) => el.getAttribute('data-primevue-style-id'))
+      .filter((id): id is string => Boolean(id))
+
+  const blockFor = (id: string) =>
+    [...document.querySelectorAll('style')]
+      .filter((el) => el.getAttribute('data-primevue-style-id') === id)
+      .map((el) => el.textContent ?? '')
+      .join('')
+
+  const mountPager = async (page: number, totalRecords: number, pageSize: number) =>
+    mount(PagePager, {
+      props: { page, totalRecords, pageSize, ariaLabel: 'Pages' },
+      global: { plugins: await themedPlugins() },
+    })
+
+  it('generates the button variables block, not just the semantic one', async () => {
+    const wrapper = mount(AppButton, { global: { plugins: await themedPlugins() } })
+    expect(wrapper.find('button').exists()).toBe(true)
+    expect(styleIds()).toContain('button-variables')
+  })
+
+  it('generates the paginator variables block when PagePager mounts', async () => {
+    const wrapper = await mountPager(2, 100, 10)
+    expect(wrapper.find('nav').exists()).toBe(true)
+    expect(styleIds()).toContain('paginator-variables')
+  })
+
+  it('resolves the primary token chain down to the shared --color-primary variable', async () => {
+    mount(AppButton, { global: { plugins: await themedPlugins() } })
+    // 元件層 -> 語意層 -> 專案 token，三段都要接得上。
+    expect(blockFor('button-variables'))
+      .toMatch(/--p-button-primary-background:\s*var\(--p-primary-color\)/)
+    expect(blockFor('semantic-variables'))
+      .toMatch(/--p-primary-color:\s*var\(--color-primary\)/)
+  })
+
+  it('keeps the 1-based conversion, clamping and safe fallback under the real preset', async () => {
+    const converted = await mountPager(3, 100, 10)
+    expect(converted.findComponent({ name: 'Paginator' }).props('first')).toBe(20)
+
+    const clamped = await mountPager(9, 30, 10)
+    await clamped.vm.$nextTick()
+    expect(clamped.emitted('update:page')).toEqual([[3]])
+
+    const invalid = await mountPager(1, 100, 0)
+    await invalid.vm.$nextTick()
+    expect(invalid.emitted('update:page')).toBeUndefined()
+  })
+})

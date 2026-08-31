@@ -65,3 +65,63 @@ describe('admin-web is pinned to PrimeVue 4.5.5', () => {
     expect(wrapper.emitted('click')).toHaveLength(1)
   })
 })
+
+describe('dev-mode module duplication guard (vite config)', () => {
+  const REQUIRED_EXCLUDES = [
+    '@doselect/web-shared',
+    'primevue',
+    '@primevue/core',
+    '@primevue/icons',
+    '@primeuix/themes',
+    '@primeuix/styled',
+    '@primeuix/styles',
+  ]
+
+  const config = readFileSync(resolve(pkgRoot, 'vite.config.ts'), 'utf8')
+  const customerConfig = readFileSync(resolve(pkgRoot, '../customer-web/vite.config.ts'), 'utf8')
+  const parseExcludes = (source: string) => {
+    const block = source.match(/exclude:\s*\[([\s\S]*?)\]/)
+    return block
+      ? block[1].split(',').map((entry) => entry.trim().replace(/^'|'$/g, '')).filter(Boolean)
+      : []
+  }
+
+  it('keeps resolve.preserveSymlinks', () => {
+    expect(config).toMatch(/preserveSymlinks:\s*true/)
+  })
+
+  it('excludes every package of the PrimeVue runtime from pre-bundling', () => {
+    const excludes = parseExcludes(config)
+    for (const required of REQUIRED_EXCLUDES) {
+      expect(excludes).toContain(required)
+    }
+  })
+
+  it('matches the customer-web exclude list exactly', () => {
+    expect(parseExcludes(config)).toEqual(parseExcludes(customerConfig))
+  })
+
+  it('adds no resolve.dedupe and no component-level optimizeDeps.include', () => {
+    expect(config).not.toMatch(/dedupe/)
+    expect(config).not.toMatch(/optimizeDeps[\s\S]*include/)
+    expect(config).not.toMatch(/primevue\/(button|paginator|dialog|toast|datatable)/)
+  })
+})
+
+describe('PrimeVue component tokens generate under the real preset (admin harness)', () => {
+  it('generates the button variables block when AppButton mounts with DoSelectPreset', async () => {
+    const { DoSelectPreset } = await import('@doselect/web-shared/theme')
+    const wrapper = mount(AppButton, {
+      global: {
+        plugins: [[PrimeVue, {
+          theme: { preset: DoSelectPreset, options: { darkModeSelector: false } },
+        }] as never],
+      },
+    })
+    expect(wrapper.find('button').exists()).toBe(true)
+    const ids = [...document.querySelectorAll('style')]
+      .map((el) => el.getAttribute('data-primevue-style-id'))
+      .filter((id): id is string => Boolean(id))
+    expect(ids).toContain('button-variables')
+  })
+})
