@@ -65,6 +65,18 @@ public sealed class IssueInvoiceServiceTests
     }
 
     [Fact]
+    public async Task IssueAsync_CarriesTheNarrowOrderItemKeyForPersistenceOnly()
+    {
+        var service = CreateService(new FakeOrderInvoiceIssuanceReader(Snapshot()));
+
+        var result = await service.IssueAsync(new IssueInvoiceRequest(OrderPublicId));
+
+        var line = Assert.Single(result.Plan!.Lines);
+        Assert.Equal(11L, line.OrderItemId);
+        Assert.Equal(ItemA, line.Breakdown.OrderItemPublicId);
+    }
+
+    [Fact]
     public async Task IssueAsync_ReportsAnUnknownOrder()
     {
         var service = CreateService(new FakeOrderInvoiceIssuanceReader(snapshot: null));

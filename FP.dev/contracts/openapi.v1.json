@@ -6,7 +6,7 @@
   },
   "servers": [
     {
-      "url": "http://localhost:5126/"
+      "url": "http://127.0.0.1:5199/"
     }
   ],
   "paths": {
@@ -19403,7 +19403,8 @@
         "enum": [
           "succeeded",
           "failed",
-          "expired"
+          "expired",
+          "cancelled"
         ]
       },
       "SkuDimensionsSummary": {

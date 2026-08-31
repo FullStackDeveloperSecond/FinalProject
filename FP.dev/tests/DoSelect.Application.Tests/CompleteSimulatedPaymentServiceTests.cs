@@ -45,28 +45,18 @@ public sealed class CompleteSimulatedPaymentServiceTests
     }
 
     [Fact]
-    public void Succeeded_CashOnDeliveryKeepsAnAlreadyConfirmedOrder()
+    public void CashOnDeliveryCannotUseTheDemoCompletionPath()
     {
-        var result = Decide(
-            SimulatedPaymentOutcome.Succeeded,
-            Snapshot(
-                method: PaymentMethod.CashOnDelivery,
-                orderStatus: OrderStatus.Confirmed));
+        foreach (var outcome in Enum.GetValues<SimulatedPaymentOutcome>())
+        {
+            var result = Decide(
+                outcome,
+                Snapshot(
+                    method: PaymentMethod.CashOnDelivery,
+                    orderStatus: OrderStatus.Confirmed));
 
-        Assert.True(result.IsSuccess);
-        Assert.Null(result.Plan!.OrderStatusTransition);
-    }
-
-    [Fact]
-    public void CashOnDeliveryCannotExpireBecauseItHasNoPaymentInstructionWindow()
-    {
-        var result = Decide(
-            SimulatedPaymentOutcome.Expired,
-            Snapshot(
-                method: PaymentMethod.CashOnDelivery,
-                orderStatus: OrderStatus.Confirmed));
-
-        Assert.Equal(PaymentErrorCodes.PaymentStateConflict, result.ErrorCode);
+            Assert.Equal(PaymentErrorCodes.PaymentStateConflict, result.ErrorCode);
+        }
     }
 
     [Theory]
@@ -215,6 +205,7 @@ public sealed class CompleteSimulatedPaymentServiceTests
     [InlineData(SimulatedPaymentOutcome.Succeeded)]
     [InlineData(SimulatedPaymentOutcome.Failed)]
     [InlineData(SimulatedPaymentOutcome.Expired)]
+    [InlineData(SimulatedPaymentOutcome.Cancelled)]
     public void ACancelledOrderRefusesEveryOutcome(SimulatedPaymentOutcome outcome)
     {
         // 取消的訂單不該再有任何付款結果寫回去。
@@ -277,6 +268,28 @@ public sealed class CompleteSimulatedPaymentServiceTests
         // 所以在決策層就回 409。
         var result = Decide(
             SimulatedPaymentOutcome.Expired,
+            Snapshot(attemptStatus: PaymentAttemptStatus.Processing));
+
+        Assert.Equal(PaymentErrorCodes.PaymentStateConflict, result.ErrorCode);
+    }
+
+    [Fact]
+    public void Cancelled_CancelsAnAwaitingAttemptAndTheOrderPaymentProjection()
+    {
+        var result = Decide(SimulatedPaymentOutcome.Cancelled);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal([PaymentAttemptStatus.Cancelled], result.Plan!.AttemptTransitions);
+        Assert.Equal(PaymentStatus.Cancelled, result.Plan.OrderPaymentStatus);
+        Assert.Equal(0m, result.Plan.OrderPaidAmount);
+        Assert.Null(result.Plan.OrderStatusTransition);
+    }
+
+    [Fact]
+    public void Cancelled_IsRefusedForAnAttemptAlreadyProcessing()
+    {
+        var result = Decide(
+            SimulatedPaymentOutcome.Cancelled,
             Snapshot(attemptStatus: PaymentAttemptStatus.Processing));
 
         Assert.Equal(PaymentErrorCodes.PaymentStateConflict, result.ErrorCode);

@@ -21,7 +21,11 @@ public sealed record InvoiceIssuancePlan(
     decimal TaxAmount,
     decimal IssuedAmount,
     decimal RoundingAdjustment,
-    IReadOnlyList<InvoiceLineBreakdown> Lines);
+    IReadOnlyList<InvoiceIssuanceLinePlan> Lines);
+
+public sealed record InvoiceIssuanceLinePlan(
+    long? OrderItemId,
+    InvoiceLineBreakdown Breakdown);
 
 public sealed class IssueInvoiceResult
 {
@@ -147,6 +151,10 @@ public sealed class IssueInvoiceService
             calculation.TaxAmount,
             calculation.IssuedAmount,
             calculation.RoundingAdjustment,
-            calculation.Lines));
+            calculation.Lines
+                .Select((line, index) => new InvoiceIssuanceLinePlan(
+                    snapshot.Lines[index].OrderItemId,
+                    line))
+                .ToArray()));
     }
 }

@@ -16,6 +16,10 @@ public static class InvoicingServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
 
         services.TryAddSingleton(TimeProvider.System);
+        services.AddScoped<IOrderInvoiceIssuanceReader, OrderInvoiceIssuanceReader>();
+        services.AddScoped<IInvoiceExistenceReader, InvoiceExistenceReader>();
+        services.AddScoped<IInvoiceNumberSequence, InvoiceNumberSequence>();
+        services.AddScoped<IssueInvoiceService>();
         services.AddScoped<IInvoiceAllowanceReader, InvoiceAllowanceReader>();
         services.AddScoped<IInvoiceAllowanceWriter, InvoiceAllowanceWriter>();
         services.AddScoped<IssueInvoiceAllowanceService>();

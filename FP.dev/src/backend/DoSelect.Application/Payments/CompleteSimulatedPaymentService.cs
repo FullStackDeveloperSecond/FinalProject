@@ -46,16 +46,15 @@ public sealed class CompleteSimulatedPaymentService
                 PaymentErrorCodes.PaymentStateConflict);
         }
         var kind = PaymentMethodPolicy.KindOf(snapshot.Method);
-        if (kind == PaymentSettlementKind.CashOnDelivery &&
-            outcome == SimulatedPaymentOutcome.Expired)
+        // 貨到付款不是「使用者模擬付款」：只能由物流流程在 Delivered／PickedUp
+        // 時呼叫 CashOnDeliveryCompletionService。這裡一律拒絕，避免提早收款。
+        if (kind == PaymentSettlementKind.CashOnDelivery)
         {
             return CompleteSimulatedPaymentResult.Failure(
                 PaymentErrorCodes.PaymentStateConflict);
         }
 
-        var expectedOrderStatus = kind == PaymentSettlementKind.CashOnDelivery
-            ? OrderStatus.Confirmed
-            : OrderStatus.PendingPayment;
+        const OrderStatus expectedOrderStatus = OrderStatus.PendingPayment;
         if (snapshot.OrderStatus != expectedOrderStatus)
         {
             return CompleteSimulatedPaymentResult.Failure(
@@ -81,6 +80,7 @@ public sealed class CompleteSimulatedPaymentService
             SimulatedPaymentOutcome.Succeeded => DecideSucceeded(snapshot, nowUtc),
             SimulatedPaymentOutcome.Failed => DecideFailed(snapshot),
             SimulatedPaymentOutcome.Expired => DecideExpired(snapshot),
+            SimulatedPaymentOutcome.Cancelled => DecideCancelled(snapshot),
             _ => CompleteSimulatedPaymentResult.Failure(PaymentErrorCodes.PaymentStateConflict),
         };
     }
@@ -152,6 +152,24 @@ public sealed class CompleteSimulatedPaymentService
             [PaymentAttemptStatus.Expired],
             FailureCode: null,
             PaymentStatus.Expired,
+            OrderPaidAmount: 0m,
+            OrderStatusTransition: null));
+    }
+
+    private static CompleteSimulatedPaymentResult DecideCancelled(SimulatedPaymentSnapshot snapshot)
+    {
+        if (snapshot.AttemptStatus != PaymentAttemptStatus.AwaitingPayment)
+        {
+            return CompleteSimulatedPaymentResult.Failure(
+                PaymentErrorCodes.PaymentStateConflict);
+        }
+
+        return CompleteSimulatedPaymentResult.Approved(new SimulatedPaymentPlan(
+            snapshot.PaymentAttemptId,
+            snapshot.OrderId,
+            [PaymentAttemptStatus.Cancelled],
+            FailureCode: null,
+            PaymentStatus.Cancelled,
             OrderPaidAmount: 0m,
             OrderStatusTransition: null));
     }

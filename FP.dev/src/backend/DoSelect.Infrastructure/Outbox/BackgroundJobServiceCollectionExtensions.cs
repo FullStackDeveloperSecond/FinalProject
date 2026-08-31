@@ -33,6 +33,7 @@ public static class BackgroundJobServiceCollectionExtensions
         services.AddSingleton<IInAppNotificationContentRenderer, InAppNotificationContentRenderer>();
         services.AddScoped<IOutboxConsumer, EmailNotificationOutboxConsumer>();
         services.AddScoped<IOutboxConsumer, InAppNotificationOutboxConsumer>();
+        services.AddScoped<IOutboxConsumer, SimulatedInvoiceOutboxConsumer>();
 
         if (!BackgroundJobsEnabled(configuration))
         {

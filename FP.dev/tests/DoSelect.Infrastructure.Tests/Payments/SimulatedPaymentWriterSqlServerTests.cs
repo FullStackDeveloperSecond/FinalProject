@@ -1,12 +1,18 @@
 using DoSelect.Application.Common;
 using DoSelect.Application.Auditing;
 using DoSelect.Application.Idempotency;
+using DoSelect.Application.Invoicing;
+using DoSelect.Application.Outbox;
 using DoSelect.Application.Payments;
+using DoSelect.Domain.Invoicing;
 using DoSelect.Domain.Orders;
+using DoSelect.Domain.Outbox;
 using DoSelect.Domain.Payments;
 using DoSelect.Domain.Auditing;
 using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Idempotency;
+using DoSelect.Infrastructure.Invoicing;
+using DoSelect.Infrastructure.Orders;
 using DoSelect.Infrastructure.Auditing;
 using DoSelect.Infrastructure.Outbox;
 using DoSelect.Infrastructure.Payments;
@@ -66,7 +72,10 @@ public sealed class SimulatedPaymentWriterSqlServerTests
             Assert.DoesNotContain("sim-pay-success", paymentEvent.PayloadSummaryJson);
             Assert.Equal(2, await context.OrderStatusHistories.CountAsync());
             Assert.Single(await context.AuditLogs.AsNoTracking().ToArrayAsync());
-            Assert.Equal(2, await context.OutboxMessages.CountAsync());
+            Assert.Equal(3, await context.OutboxMessages.CountAsync());
+            Assert.Single(await context.OutboxMessages.AsNoTracking()
+                .Where(message => message.Type == OutboxEventTypes.SimulatedInvoiceRequestedV1)
+                .ToArrayAsync());
         });
     }
 
@@ -74,7 +83,6 @@ public sealed class SimulatedPaymentWriterSqlServerTests
     [InlineData(PaymentMethod.CreditCard)]
     [InlineData(PaymentMethod.ATM)]
     [InlineData(PaymentMethod.ConvenienceCode)]
-    [InlineData(PaymentMethod.CashOnDelivery)]
     [InlineData(PaymentMethod.LinePay)]
     [InlineData(PaymentMethod.ApplePay)]
     [InlineData(PaymentMethod.GooglePay)]
@@ -134,7 +142,7 @@ public sealed class SimulatedPaymentWriterSqlServerTests
             Assert.Equal(order.GrandTotal, order.PaidAmount);
             Assert.Single(await context.PaymentEvents.AsNoTracking().ToArrayAsync());
             Assert.Single(await context.AuditLogs.AsNoTracking().ToArrayAsync());
-            Assert.Equal(2, await context.OutboxMessages.CountAsync());
+            Assert.Equal(3, await context.OutboxMessages.CountAsync());
         });
     }
 
@@ -200,6 +208,76 @@ public sealed class SimulatedPaymentWriterSqlServerTests
     }
 
     [SqlServerFact]
+    public async Task CancellingMarksBothTheAttemptAndTheOrderPaymentCancelled()
+    {
+        await RunInMigratedDatabaseAsync(async context =>
+        {
+            var seeded = await SeedAsync(context);
+
+            var result = await CreateWriter(context).CompleteAsync(
+                Command(seeded, "sim-pay-cancelled-outcome", SimulatedPaymentOutcome.Cancelled));
+
+            Assert.Equal(PaymentAttemptStatus.Cancelled, result.Body.Status);
+            var (attempt, order) = await ReloadAsync(context, seeded);
+            Assert.Equal(PaymentAttemptStatus.Cancelled, attempt.Status);
+            Assert.Equal(PaymentStatus.Cancelled, order.PaymentStatus);
+            Assert.Equal(0m, order.PaidAmount);
+            Assert.DoesNotContain(
+                await context.OutboxMessages.AsNoTracking().ToArrayAsync(),
+                message => message.Type == OutboxEventTypes.SimulatedInvoiceRequestedV1);
+        });
+    }
+
+    [SqlServerFact]
+    public async Task CashOnDeliveryCannotUseTheDemoCompletionWriter()
+    {
+        await RunInMigratedDatabaseAsync(async context =>
+        {
+            var seeded = await SeedAsync(context, method: PaymentMethod.CashOnDelivery);
+
+            var problem = await Assert.ThrowsAsync<DomainProblemException>(() =>
+                CreateWriter(context).CompleteAsync(Command(seeded, "sim-pay-cod-rejected")));
+
+            Assert.Equal(PaymentErrorCodes.PaymentStateConflict, problem.Code);
+            var (attempt, order) = await ReloadAsync(context, seeded);
+            Assert.Equal(PaymentAttemptStatus.AwaitingPayment, attempt.Status);
+            Assert.Equal(PaymentStatus.AwaitingPayment, order.PaymentStatus);
+            Assert.Empty(await context.OutboxMessages.AsNoTracking().ToArrayAsync());
+        });
+    }
+
+    [SqlServerFact]
+    public async Task SuccessfulPaymentInvoiceOutboxCreatesOneInvoiceWhenReplayed()
+    {
+        await RunInMigratedDatabaseAsync(async context =>
+        {
+            var seeded = await SeedAsync(context);
+            await CreateWriter(context).CompleteAsync(Command(seeded, "sim-pay-invoice"));
+
+            context.ChangeTracker.Clear();
+            var message = await context.OutboxMessages.SingleAsync(
+                candidate => candidate.Type == OutboxEventTypes.SimulatedInvoiceRequestedV1);
+            var clock = new FixedTimeProvider(Now);
+            var consumer = new SimulatedInvoiceOutboxConsumer(
+                context,
+                new IssueInvoiceService(
+                    new OrderInvoiceIssuanceReader(context),
+                    new InvoiceExistenceReader(context),
+                    new InvoiceNumberSequence(context),
+                    clock),
+                clock);
+
+            Assert.True((await consumer.ConsumeAsync(message)).Succeeded);
+            Assert.True((await consumer.ConsumeAsync(message)).Succeeded);
+
+            var invoice = await context.SimulatedInvoices.AsNoTracking().SingleAsync();
+            Assert.Equal(SimulatedInvoiceStatus.Issued, invoice.Status);
+            Assert.Equal(1000m, invoice.IssuedAmount);
+            Assert.Single(await context.SimulatedInvoiceItems.AsNoTracking().ToArrayAsync());
+        });
+    }
+
+    [SqlServerFact]
     public async Task AnExpiredInstructionCannotBePaidAndChangesNothing()
     {
         await RunInMigratedDatabaseAsync(async context =>
@@ -240,7 +318,7 @@ public sealed class SimulatedPaymentWriterSqlServerTests
             var result = await CreateWriter(context).CompleteAsync(command);
 
             Assert.Equal(PaymentAttemptStatus.Paid, result.Body.Status);
-            Assert.Single(await context.OutboxMessages.AsNoTracking().ToArrayAsync());
+            Assert.Equal(2, await context.OutboxMessages.CountAsync());
             var audit = await context.AuditLogs.AsNoTracking().SingleAsync();
             Assert.Equal(DoSelect.Domain.Auditing.AuditActorType.Guest, audit.ActorType);
             Assert.Equal(tokenPublicId, audit.ActorPublicId);
@@ -516,6 +594,28 @@ public sealed class SimulatedPaymentWriterSqlServerTests
                 new OrderPackageSnapshot(packageLimit.Id, 1m, 40m, 30m, 20m, 90m, 100m)),
             NowUtc);
         context.Orders.Add(order);
+        await context.SaveChangesAsync();
+
+        context.OrderItems.Add(new OrderItem(
+            Guid.CreateVersion7(),
+            order.Id,
+            skuId: null,
+            "SKU-SIM-1",
+            "模擬付款測試商品",
+            "標準規格",
+            quantity: 1,
+            listUnitPrice: 1000m,
+            saleUnitPrice: 1000m,
+            finalUnitPrice: 1000m,
+            unitCostSnapshot: 800m,
+            lineSubtotal: 1000m,
+            discountAllocation: 0m,
+            lineTotal: 1000m,
+            assemblyGroupKey: null,
+            returnableQuantity: 1,
+            NowUtc,
+            isCouponEligible: true,
+            new OrderItemSpecificationSnapshot("標準規格", "{}", 1)));
         await context.SaveChangesAsync();
 
         if (cancelled)

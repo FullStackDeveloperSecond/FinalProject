@@ -112,6 +112,7 @@ public sealed class OutboxDispatcher(
         OutboxEventTypes.EmailNotificationRequestedV1 => "notifications",
         OutboxEventTypes.InAppNotificationRequestedV1 => "notifications",
         OutboxEventTypes.InventoryReconciliationMismatchDetectedV1 => "critical",
+        OutboxEventTypes.SimulatedInvoiceRequestedV1 => "maintenance",
         _ => "maintenance",
     };
 }

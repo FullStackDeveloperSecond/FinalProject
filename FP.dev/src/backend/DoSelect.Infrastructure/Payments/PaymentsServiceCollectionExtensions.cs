@@ -16,6 +16,7 @@ public static class PaymentsServiceCollectionExtensions
 
         services.TryAddSingleton(TimeProvider.System);
         services.AddScoped<CompleteSimulatedPaymentService>();
+        services.AddScoped<CashOnDeliveryCompletionService>();
         services.AddScoped<ISimulatedPaymentAuthorizationReader, SimulatedPaymentAuthorizationReader>();
         services.AddScoped<ISimulatedPaymentWriter, SimulatedPaymentWriter>();
 
