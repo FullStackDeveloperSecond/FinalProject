@@ -1,9 +1,11 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using DoSelect.Application.Auditing;
 using DoSelect.Application.Common;
 using DoSelect.Application.Common.Cursors;
 using DoSelect.Application.Imports;
+using DoSelect.Domain.Auditing;
 using DoSelect.Domain.Catalog;
 using DoSelect.Domain.Imports;
 using DoSelect.Infrastructure.Persistence;
@@ -12,9 +14,9 @@ using Microsoft.EntityFrameworkCore;
 namespace DoSelect.Infrastructure.Imports;
 
 /// <summary>
-/// 商品匯入 Preview／Status／Rows／Errors. See ImportContracts.cs's IProductImportService doc
-/// comment for why Confirm is not implemented (AuditLog/Outbox gap) and why per-resource
-/// ownership scoping is currently a no-op under the present role mapping.
+/// 商品匯入 Preview／Status／Rows／Errors／Confirm. See ImportContracts.cs's IProductImportService
+/// doc comment for the Confirm contract and why per-resource ownership scoping is currently a
+/// no-op under the present role mapping.
 /// </summary>
 public sealed class EfProductImportService : IProductImportService
 {
@@ -22,10 +24,12 @@ public sealed class EfProductImportService : IProductImportService
     private const int MaxTotalRows = 5_000;
 
     private readonly DoSelectDbContext _dbContext;
+    private readonly IAuditWriter _auditWriter;
 
-    public EfProductImportService(DoSelectDbContext dbContext)
+    public EfProductImportService(DoSelectDbContext dbContext, IAuditWriter auditWriter)
     {
         _dbContext = dbContext;
+        _auditWriter = auditWriter;
     }
 
     public async Task<ProductImportBatchDto> PreviewAsync(
@@ -218,6 +222,472 @@ public sealed class EfProductImportService : IProductImportService
         });
 
         return DelimitedTextWriter.Write(header, rows);
+    }
+
+
+    public async Task<ProductImportBatchDto> ConfirmAsync(
+        Guid batchPublicId,
+        string adminUserId,
+        byte[] rowVersion,
+        AuditRequestContext auditContext,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(rowVersion);
+        ArgumentNullException.ThrowIfNull(auditContext);
+        if (string.IsNullOrWhiteSpace(adminUserId))
+        {
+            throw new ArgumentException("The value is required.", nameof(adminUserId));
+        }
+
+        var batch = await _dbContext.ImportBatches
+            .FirstOrDefaultAsync(
+                candidate => candidate.PublicId == batchPublicId && candidate.ImportType == ImportType.Product,
+                cancellationToken)
+            ?? throw DomainProblemException.NotFound($"Product import batch '{batchPublicId}' was not found.");
+
+        var now = DateTime.UtcNow;
+        if (batch.Status == ImportBatchStatus.Committed)
+        {
+            throw DomainProblemException.Conflict(
+                DomainErrorCodes.ImportAlreadyCommitted,
+                "This batch has already been committed. Committed batches cannot be re-sent.");
+        }
+
+        if (batch.Status == ImportBatchStatus.Expired || now >= batch.ExpiresAtUtc)
+        {
+            if (batch.Status != ImportBatchStatus.Expired)
+            {
+                batch.ChangeStatus(ImportBatchStatus.Expired, now);
+                await _dbContext.SaveChangesAsync(cancellationToken);
+            }
+
+            throw DomainProblemException.Gone(
+                DomainErrorCodes.ImportBatchExpired,
+                "The preview has expired (24 hours). Upload the files again to create a new batch.");
+        }
+
+        if (batch.Status != ImportBatchStatus.Ready)
+        {
+            throw DomainProblemException.Conflict(
+                DomainErrorCodes.ImportValidationFailed,
+                $"Only a Ready batch can be confirmed; this batch is {batch.Status}. Fix the source files and create a new batch.");
+        }
+
+        var actor = await ResolveActorAsync(adminUserId, cancellationToken);
+
+        var storedRows = await _dbContext.ImportRows.AsNoTracking()
+            .Where(row => row.ImportBatchId == batch.Id)
+            .OrderBy(row => row.Dataset).ThenBy(row => row.SourceRowNumber)
+            .ToListAsync(cancellationToken);
+
+        var (productRows, productStoredActions) = Rehydrate<ProductPayload>(storedRows, ImportDataset.Products);
+        var (skuRows, skuStoredActions) = Rehydrate<SkuPayload>(storedRows, ImportDataset.Skus);
+        var (specificationRows, specificationStoredActions) = Rehydrate<SpecificationPayload>(storedRows, ImportDataset.Specifications);
+
+        // 商品匯入確認 step 3: re-validate against the *current* catalog with the exact resolvers
+        // Preview used, then require every row's outcome to match what the admin previewed — any
+        // drift (a product code someone created meanwhile, a category deactivated, a SKU edited)
+        // means the preview the admin approved no longer describes what would happen, so the whole
+        // confirm is refused and a fresh Preview is required. This is the product-import analogue
+        // of the inventory confirm's Balance-RowVersion recheck.
+        var productContexts = await ResolveProductRowsAsync(productRows, cancellationToken);
+        var skuContexts = await ResolveSkuRowsAsync(skuRows, productRows, productContexts, cancellationToken);
+        await ResolveSpecificationRowsAsync(specificationRows, skuRows, skuContexts, cancellationToken);
+
+        EnsureUnchangedSincePreview(productRows, productStoredActions, ImportDataset.Products);
+        EnsureUnchangedSincePreview(skuRows, skuStoredActions, ImportDataset.Skus);
+        EnsureUnchangedSincePreview(specificationRows, specificationStoredActions, ImportDataset.Specifications);
+
+        _dbContext.Entry(batch).Property(candidate => candidate.RowVersion).OriginalValue = rowVersion;
+
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            batch.ChangeStatus(ImportBatchStatus.Committing, now);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+
+            var summary = await ApplyAsync(productRows, productContexts, skuRows, skuContexts, specificationRows, now, cancellationToken);
+
+            batch.Complete(JsonSerializer.Serialize(summary), now);
+            _auditWriter.Add(AuditWriteRequest.Create(
+                Guid.CreateVersion7(),
+                actor,
+                AuditActions.CatalogImportConfirm,
+                AuditResourceTypes.ImportBatch,
+                batch.PublicId,
+                AuditResult.Success,
+                errorCode: null,
+                [
+                    AuditFieldChange.Code("status", ImportBatchStatus.Ready.ToString(), ImportBatchStatus.Committed.ToString()),
+                    AuditFieldChange.Code("templateVersion", null, batch.TemplateVersion.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                    AuditFieldChange.Code("rowCount", null, batch.RowCount.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                    AuditFieldChange.Code("newCount", null, batch.NewCount.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                    AuditFieldChange.Code("updatedCount", null, batch.UpdatedCount.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                    AuditFieldChange.Code("unchangedCount", null, batch.UnchangedCount.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                ],
+                reason: "catalog_import_confirm",
+                auditContext.CorrelationId,
+                auditContext.TraceId,
+                jobPublicId: null,
+                auditContext.RemoteIpAddress));
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw DomainProblemException.Conflict(
+                "concurrency_conflict",
+                "The batch was modified by someone else. Reload and try again.");
+        }
+        catch (Exception)
+        {
+            // 商品匯入確認 step 5: any row failure rolls the entire catalog write back — no partial
+            // success. The batch itself is then marked Failed in a fresh save outside the rolled-back
+            // transaction (spec: "Batch 記錄安全錯誤"; a Failed batch requires a corrected re-upload).
+            await transaction.RollbackAsync(cancellationToken);
+            await MarkFailedBestEffortAsync(batch.Id, cancellationToken);
+            throw;
+        }
+
+        return ToDto(batch);
+    }
+
+    private static (IReadOnlyList<StagedImportRow<TPayload>> Rows, Dictionary<string, ImportRowAction> StoredActions)
+        Rehydrate<TPayload>(IReadOnlyList<ImportRow> storedRows, ImportDataset dataset)
+    {
+        var rows = new List<StagedImportRow<TPayload>>();
+        var actions = new Dictionary<string, ImportRowAction>(StringComparer.Ordinal);
+        foreach (var stored in storedRows.Where(row => row.Dataset == dataset))
+        {
+            var payload = JsonSerializer.Deserialize<TPayload>(stored.NormalizedPayloadJson)
+                ?? throw DomainProblemException.Conflict(
+                    DomainErrorCodes.ImportValidationFailed,
+                    $"Stored row '{stored.ImportKey}' has an unreadable payload; re-run Preview.");
+            rows.Add(new StagedImportRow<TPayload>
+            {
+                SourceRowNumber = stored.SourceRowNumber,
+                ImportKey = stored.ImportKey,
+                Payload = payload,
+                RawFields = [],
+            });
+            actions[stored.ImportKey] = stored.Action;
+        }
+
+        return (rows, actions);
+    }
+
+    private static void EnsureUnchangedSincePreview<TPayload>(
+        IReadOnlyList<StagedImportRow<TPayload>> rows,
+        IReadOnlyDictionary<string, ImportRowAction> storedActions,
+        ImportDataset dataset)
+    {
+        foreach (var row in rows)
+        {
+            var fresh = row.Errors.Count > 0 ? ImportRowAction.Error : row.Action;
+            var stored = storedActions.TryGetValue(row.ImportKey, out var action) ? action : ImportRowAction.Error;
+            if (fresh != stored)
+            {
+                throw DomainProblemException.Conflict(
+                    DomainErrorCodes.ImportValidationFailed,
+                    $"The catalog changed since this preview: {dataset} row '{row.ImportKey}' would now be {fresh} but was previewed as {stored}. Re-run Preview and confirm the new batch.");
+            }
+        }
+    }
+
+    private sealed record ConfirmSummary(
+        int ProductsInserted, int ProductsUpdated,
+        int SkusInserted, int SkusUpdated,
+        int SpecificationsInserted, int SpecificationsUpdated);
+
+    private async Task<ConfirmSummary> ApplyAsync(
+        IReadOnlyList<StagedImportRow<ProductPayload>> productRows,
+        Dictionary<string, ProductRowContext> productContexts,
+        IReadOnlyList<StagedImportRow<SkuPayload>> skuRows,
+        Dictionary<string, SkuRowContext> skuContexts,
+        IReadOnlyList<StagedImportRow<SpecificationPayload>> specificationRows,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var brandCodes = productRows.Select(row => row.Payload.BrandCode).Where(code => code is not null).Distinct().ToArray();
+        var brandIds = await _dbContext.Brands.AsNoTracking()
+            .Where(brand => brand.IsActive && brandCodes.Contains(brand.Code))
+            .ToDictionaryAsync(brand => brand.Code, brand => brand.Id, cancellationToken);
+
+        // ---- Products ----
+        var productsInserted = 0;
+        var productsUpdated = 0;
+        var createdProductsByKey = new Dictionary<string, Product>(StringComparer.Ordinal);
+        var updateProductIds = productRows
+            .Where(row => row.Action == ImportRowAction.Update)
+            .Select(row => productContexts[row.ImportKey].ExistingProductId!.Value)
+            .ToArray();
+        var trackedProducts = await _dbContext.Products
+            .Where(product => updateProductIds.Contains(product.Id))
+            .ToDictionaryAsync(product => product.Id, cancellationToken);
+
+        foreach (var row in productRows)
+        {
+            var payload = row.Payload;
+            switch (row.Action)
+            {
+                case ImportRowAction.Insert:
+                    {
+                        var brandId = brandIds[payload.BrandCode!];
+                        var categoryId = productContexts[row.ImportKey].CategoryId!.Value;
+                        var product = new Product(Guid.CreateVersion7(), payload.ProductCode!, brandId, categoryId, payload.NameZhTw!, now);
+                        product.UpdateDetails(brandId, categoryId, payload.NameZhTw!, payload.DescriptionZhTw, payload.WarrantyMonths, isFeatured: false, now);
+                        product.ChangeStatus(Enum.Parse<ProductStatus>(payload.Status!, ignoreCase: true), now);
+                        _dbContext.Products.Add(product);
+                        createdProductsByKey[row.ImportKey] = product;
+                        productsInserted++;
+                        break;
+                    }
+
+                case ImportRowAction.Update:
+                    {
+                        var product = trackedProducts[productContexts[row.ImportKey].ExistingProductId!.Value];
+                        var brandId = brandIds[payload.BrandCode!];
+                        var categoryId = productContexts[row.ImportKey].CategoryId!.Value;
+                        product.UpdateDetails(brandId, categoryId, payload.NameZhTw!, payload.DescriptionZhTw, payload.WarrantyMonths, product.IsFeatured, now);
+                        product.ChangeStatus(Enum.Parse<ProductStatus>(payload.Status!, ignoreCase: true), now);
+                        productsUpdated++;
+                        break;
+                    }
+            }
+        }
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        // ---- SKUs ----
+        var skusInserted = 0;
+        var skusUpdated = 0;
+        var createdSkusByKey = new Dictionary<string, Sku>(StringComparer.Ordinal);
+        var skuProductIds = new Dictionary<string, long>(StringComparer.Ordinal);
+        var defaultAssignedProductIds = new HashSet<long>();
+        var updateSkuIds = skuRows
+            .Where(row => row.Action == ImportRowAction.Update)
+            .Select(row => skuContexts[row.ImportKey].ExistingSkuId!.Value)
+            .ToArray();
+        var trackedSkus = await _dbContext.Skus
+            .Where(sku => updateSkuIds.Contains(sku.Id))
+            .ToDictionaryAsync(sku => sku.Id, cancellationToken);
+
+        foreach (var row in skuRows)
+        {
+            var payload = row.Payload;
+            var productId = skuContexts[row.ImportKey].ProductId
+                ?? createdProductsByKey[payload.ProductKey].Id;
+            skuProductIds[row.ImportKey] = productId;
+
+            switch (row.Action)
+            {
+                case ImportRowAction.Insert:
+                    {
+                        // 匯入模板: 空白 sku_code 表示新增並由系統產碼 — a GUID-derived code keeps the
+                        // system-assigned namespace collision-free without a counter roundtrip;
+                        // UX_Skus_SkuCode still backstops it.
+                        var code = payload.SkuCode ?? $"SKU-{Guid.CreateVersion7():N}";
+                        var sku = new Sku(Guid.CreateVersion7(), code, productId, payload.NameZhTw!, payload.ListPrice!.Value, payload.UnitCost!.Value, now);
+                        sku.UpdatePackageDimensions(payload.WeightKg, payload.LengthCm, payload.WidthCm, payload.HeightCm, now);
+                        // The first imported SKU of a *newly imported* product becomes its default —
+                        // the catalog rules require every product to keep exactly one default SKU, and
+                        // a brand-new product has no other candidate. Existing products keep theirs.
+                        var isDefault = createdProductsByKey.ContainsKey(payload.ProductKey) && defaultAssignedProductIds.Add(productId);
+                        sku.UpdateCommercialDetails(payload.NameZhTw!, payload.ListPrice!.Value, payload.UnitCost!.Value, isDefault, payload.RequiresPrepayment ?? false, now);
+                        sku.ChangeStatus(Enum.Parse<SkuStatus>(payload.Status!, ignoreCase: true), now);
+                        _dbContext.Skus.Add(sku);
+                        createdSkusByKey[row.ImportKey] = sku;
+                        skusInserted++;
+                        break;
+                    }
+
+                case ImportRowAction.Update:
+                    {
+                        var sku = trackedSkus[skuContexts[row.ImportKey].ExistingSkuId!.Value];
+                        var previousUnitCost = sku.UnitCost;
+                        sku.UpdatePackageDimensions(payload.WeightKg, payload.LengthCm, payload.WidthCm, payload.HeightCm, now);
+                        sku.UpdateCommercialDetails(payload.NameZhTw!, payload.ListPrice!.Value, payload.UnitCost!.Value, sku.IsDefault, payload.RequiresPrepayment ?? false, now);
+                        sku.ChangeStatus(Enum.Parse<SkuStatus>(payload.Status!, ignoreCase: true), now);
+
+                        // Same semantics as EfSkuAdminService.UpdateAsync: a unit-cost change on a SKU
+                        // that has an inventory balance must leave a zero-delta CostChange movement so
+                        // the M-15 turnover report keeps a correct cost basis.
+                        if (previousUnitCost != payload.UnitCost!.Value)
+                        {
+                            var valuationBalance = await _dbContext.InventoryBalances.AsNoTracking()
+                                .SingleOrDefaultAsync(candidate => candidate.SkuId == sku.Id, cancellationToken);
+                            if (valuationBalance is not null)
+                            {
+                                _dbContext.InventoryMovements.Add(new DoSelect.Domain.Inventory.InventoryMovement(
+                                    Guid.CreateVersion7(),
+                                    sku.Id,
+                                    reservationId: null,
+                                    movementType: "CostChange",
+                                    onHandDelta: 0,
+                                    reservedDelta: 0,
+                                    beforeOnHand: valuationBalance.OnHandQuantity,
+                                    afterOnHand: valuationBalance.OnHandQuantity,
+                                    beforeReserved: valuationBalance.ReservedQuantity,
+                                    afterReserved: valuationBalance.ReservedQuantity,
+                                    unitCostSnapshot: payload.UnitCost!.Value,
+                                    reasonCode: "sku_unit_cost_changed",
+                                    referenceType: "Sku",
+                                    referencePublicId: sku.PublicId,
+                                    actorUserId: null,
+                                    occurredAtUtc: now));
+                            }
+                        }
+
+                        skusUpdated++;
+                        break;
+                    }
+            }
+        }
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        // ---- Specifications ----
+        var specificationsInserted = 0;
+        var specificationsUpdated = 0;
+        var skuRowsByKey = skuRows.ToDictionary(row => row.ImportKey, StringComparer.Ordinal);
+
+        var categoryIds = specificationRows
+            .Select(row => ResolveSkuCategoryId(row, skuRowsByKey, skuContexts))
+            .Where(id => id is not null).Select(id => id!.Value).Distinct().ToArray();
+        var semanticKeys = specificationRows.Select(row => row.Payload.SemanticKey).Where(key => key is not null).Distinct().ToArray();
+        var definitions = await _dbContext.SpecificationDefinitions.AsNoTracking()
+            .Where(definition => definition.IsActive && categoryIds.Contains(definition.CategoryId) && semanticKeys.Contains(definition.SemanticKey))
+            .ToListAsync(cancellationToken);
+        var definitionsByKey = definitions.ToDictionary(definition => (definition.CategoryId, definition.SemanticKey));
+        var optionCodes = specificationRows.Select(row => row.Payload.OptionCode).Where(code => code is not null).Distinct().ToArray();
+        var definitionIds = definitions.Select(definition => definition.Id).ToArray();
+        var optionIds = await _dbContext.SpecificationOptions.AsNoTracking()
+            .Where(option => option.IsActive && definitionIds.Contains(option.SpecificationDefinitionId) && optionCodes.Contains(option.Code))
+            .ToDictionaryAsync(option => (option.SpecificationDefinitionId, option.Code), option => option.Id, cancellationToken);
+
+        var existingSkuIdsForSpecs = skuContexts.Values
+            .Where(context => context.ExistingSkuId.HasValue)
+            .Select(context => context.ExistingSkuId!.Value).Distinct().ToArray();
+        var trackedValues = await _dbContext.SkuSpecificationValues
+            .Where(value => existingSkuIdsForSpecs.Contains(value.SkuId))
+            .ToListAsync(cancellationToken);
+
+        var productIdsToTouch = new HashSet<long>();
+
+        foreach (var row in specificationRows)
+        {
+            if (row.Action is not (ImportRowAction.Insert or ImportRowAction.Update))
+            {
+                continue;
+            }
+
+            var payload = row.Payload;
+            var skuRow = skuRowsByKey[payload.SkuKey];
+            var skuContext = skuContexts[skuRow.ImportKey];
+            var skuId = skuContext.ExistingSkuId ?? createdSkusByKey[skuRow.ImportKey].Id;
+            var categoryId = ResolveSkuCategoryId(row, skuRowsByKey, skuContexts)!.Value;
+            var definition = definitionsByKey[(categoryId, payload.SemanticKey!)];
+
+            long? optionId = null;
+            if (definition.ValueType == SpecificationValueType.Option)
+            {
+                optionId = optionIds[(definition.Id, payload.OptionCode!)];
+            }
+
+            if (row.Action == ImportRowAction.Update)
+            {
+                // SkuSpecificationValue is immutable (no update method) — replace the row, the same
+                // shape ReplaceSpecificationsAsync uses. Import rows are per-(sku, key) upserts;
+                // values the file does not mention are deliberately left untouched.
+                var existing = trackedValues.Single(value => value.SkuId == skuId && value.SpecificationDefinitionId == definition.Id);
+                _dbContext.SkuSpecificationValues.Remove(existing);
+                specificationsUpdated++;
+            }
+            else
+            {
+                specificationsInserted++;
+            }
+
+            _dbContext.SkuSpecificationValues.Add(new SkuSpecificationValue(
+                skuId,
+                definition.Id,
+                payload.StringValue,
+                payload.DecimalValue,
+                payload.BooleanValue,
+                optionId,
+                specificationSourceId: null,
+                now));
+
+            productIdsToTouch.Add(skuProductIds.TryGetValue(skuRow.ImportKey, out var mappedProductId)
+                ? mappedProductId
+                : skuContext.ProductId!.Value);
+        }
+
+        if (productIdsToTouch.Count > 0)
+        {
+            // Same rationale as EfSkuAdminService: a spec write must advance the owning product's
+            // RowVersion so a racing category switch can't validate against stale spec values
+            // (組長 PR #24 round 5, item 2).
+            var createdIds = createdProductsByKey.Values.Select(product => product.Id).ToHashSet();
+            var idsNeedingLoad = productIdsToTouch.Where(id => !createdIds.Contains(id) && !trackedProducts.ContainsKey(id)).ToArray();
+            var loaded = await _dbContext.Products.Where(product => idsNeedingLoad.Contains(product.Id)).ToListAsync(cancellationToken);
+            foreach (var product in loaded)
+            {
+                product.Touch(now);
+            }
+        }
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        return new ConfirmSummary(productsInserted, productsUpdated, skusInserted, skusUpdated, specificationsInserted, specificationsUpdated);
+    }
+
+    private async Task<AuditActor> ResolveActorAsync(string adminUserId, CancellationToken cancellationToken)
+    {
+        var admin = await _dbContext.Users.AsNoTracking()
+            .Where(user => user.Id == adminUserId && user.AccountType == DoSelect.Domain.Members.AccountType.Admin)
+            .Select(user => new { user.Id, user.PublicId })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (admin is null)
+        {
+            throw DomainProblemException.Forbidden("The administrator identity is invalid.");
+        }
+
+        var roles = await (
+            from userRole in _dbContext.UserRoles.AsNoTracking()
+            join role in _dbContext.Roles.AsNoTracking() on userRole.RoleId equals role.Id
+            where userRole.UserId == admin.Id && role.Name != null
+            select role.Name!)
+            .Distinct()
+            .ToArrayAsync(cancellationToken);
+        if (!roles.Contains(AuditRoleNames.CatalogManager, StringComparer.Ordinal) &&
+            !roles.Contains(AuditRoleNames.SuperAdmin, StringComparer.Ordinal))
+        {
+            throw DomainProblemException.Forbidden("The administrator no longer has permission to run catalog imports.");
+        }
+
+        return AuditActor.Create(AuditActorType.Admin, admin.PublicId, roles);
+    }
+
+    private async Task MarkFailedBestEffortAsync(long batchId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            _dbContext.ChangeTracker.Clear();
+            var batch = await _dbContext.ImportBatches
+                .FirstOrDefaultAsync(candidate => candidate.Id == batchId, cancellationToken);
+            if (batch is not null && batch.Status != ImportBatchStatus.Committed)
+            {
+                batch.ChangeStatus(ImportBatchStatus.Failed, DateTime.UtcNow);
+                await _dbContext.SaveChangesAsync(cancellationToken);
+            }
+        }
+        catch (DbUpdateException)
+        {
+            // Best effort only: the original apply failure is the error worth surfacing, and a
+            // batch left Ready (rather than Failed) can still be retried or re-previewed safely.
+        }
     }
 
     private sealed record RowCursorPayload(ImportDataset Dataset, int SourceRowNumber);
@@ -475,6 +945,19 @@ public sealed class EfProductImportService : IProductImportService
 
             if (!Enum.TryParse<SpecificationValueType>(row.Payload.ValueType, ignoreCase: true, out var valueType) ||
                 valueType != definition.ValueType)
+            {
+                row.AddError(DomainErrorCodes.ImportValidationFailed);
+                continue;
+            }
+
+            // Two definition shapes the single-value template cannot express — reject at Preview so
+            // the admin learns it from the errors CSV, and again on the shared re-validation at
+            // Confirm. AllowsMultiple definitions store SkuSpecificationOptionSelections, not a
+            // single value row (EfSkuAdminService.ReplaceSpecificationsAsync); hard-rule
+            // compatibility keys require a reviewed SpecificationSource the template has no column
+            // for (same rule EfSkuAdminService.ResolveSpecificationSourceIdAsync enforces).
+            if (definition.AllowsMultiple ||
+                CompatibilityCatalogContract.HardRuleSemanticKeys.Contains(definition.SemanticKey))
             {
                 row.AddError(DomainErrorCodes.ImportValidationFailed);
                 continue;

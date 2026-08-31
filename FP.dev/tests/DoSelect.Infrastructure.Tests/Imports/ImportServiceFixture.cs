@@ -7,9 +7,11 @@ namespace DoSelect.Infrastructure.Tests.Imports;
 
 public sealed class ImportServiceFixture : IAsyncLifetime
 {
-    private const string ConnectionString =
-        "Server=.\\SQL2025;Database=DoSelectImportServiceTests;Trusted_Connection=True;" +
-        "TrustServerCertificate=True;";
+    // Same defect 組長 caught on PR #47 and PR #36 already fixed for the Inventory fixtures: a
+    // hardcoded local instance passes locally, but CI's SQL Server runs in a container reachable
+    // only via DOSELECT_SQLSERVER_TEST_CONNECTION. Route through the shared helper instead.
+    private static readonly string ConnectionString =
+        SqlServerTestConnection.Build("DoSelectImportServiceTests");
 
     public Task InitializeAsync() => ResetDatabaseAsync();
 

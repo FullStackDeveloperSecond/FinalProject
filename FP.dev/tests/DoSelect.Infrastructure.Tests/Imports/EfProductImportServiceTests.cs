@@ -1,6 +1,7 @@
 using System.Text;
 using DoSelect.Application.Imports;
 using DoSelect.Domain.Catalog;
+using DoSelect.Infrastructure.Auditing;
 using DoSelect.Infrastructure.Imports;
 using Xunit;
 
@@ -20,7 +21,7 @@ public sealed class EfProductImportServiceTests
         await using var context = ImportServiceFixture.CreateContext();
         var (brand, category) = await ImportServiceFixture.SeedBrandAndCategoryAsync(context);
         var adminId = await ImportServiceFixture.SeedAdminUserIdAsync(context);
-        var service = new EfProductImportService(context);
+        var service = new EfProductImportService(context, new EfAuditWriter(context, TimeProvider.System));
 
         var productKey = "PK1";
         var skuKey = "SK1";
@@ -50,7 +51,7 @@ public sealed class EfProductImportServiceTests
         await using var context = ImportServiceFixture.CreateContext();
         var (_, category) = await ImportServiceFixture.SeedBrandAndCategoryAsync(context);
         var adminId = await ImportServiceFixture.SeedAdminUserIdAsync(context);
-        var service = new EfProductImportService(context);
+        var service = new EfProductImportService(context, new EfAuditWriter(context, TimeProvider.System));
 
         var productsCsv = ProductsHeader +
             $"PK1,{ImportServiceFixture.UniqueCode("PROD")},Test Product,NO-SUCH-BRAND,{category.Code},\\N,\\N,Draft\r\n";
@@ -77,7 +78,7 @@ public sealed class EfProductImportServiceTests
         await context.SaveChangesAsync();
         var adminId = await ImportServiceFixture.SeedAdminUserIdAsync(context);
 
-        var service = new EfProductImportService(context);
+        var service = new EfProductImportService(context, new EfAuditWriter(context, TimeProvider.System));
         var productsCsv = ProductsHeader +
             $"PK1,{productCode},Existing Product,{brand.Code},{category.Code},\\N,\\N,Draft\r\n";
         var request = new PreviewProductImportRequest(
@@ -102,7 +103,7 @@ public sealed class EfProductImportServiceTests
         await context.SaveChangesAsync();
         var adminId = await ImportServiceFixture.SeedAdminUserIdAsync(context);
 
-        var service = new EfProductImportService(context);
+        var service = new EfProductImportService(context, new EfAuditWriter(context, TimeProvider.System));
         var productsCsv = ProductsHeader +
             $"PK1,{productCode},New Name,{brand.Code},{category.Code},\\N,\\N,Draft\r\n";
         var request = new PreviewProductImportRequest(
@@ -117,7 +118,7 @@ public sealed class EfProductImportServiceTests
     public async Task PreviewAsync_WhenBothProductsAndSkusAndSpecificationsAreEmpty_ThrowsDatasetMissing()
     {
         await using var context = ImportServiceFixture.CreateContext();
-        var service = new EfProductImportService(context);
+        var service = new EfProductImportService(context, new EfAuditWriter(context, TimeProvider.System));
 
         var request = new PreviewProductImportRequest(
             ToFile(ProductsHeader), ToFile(SkusHeader), ToFile(SpecificationsHeader), 1);
@@ -135,7 +136,7 @@ public sealed class EfProductImportServiceTests
         await using var context = ImportServiceFixture.CreateContext();
         var (brand, category) = await ImportServiceFixture.SeedBrandAndCategoryAsync(context);
         var adminId = await ImportServiceFixture.SeedAdminUserIdAsync(context);
-        var service = new EfProductImportService(context);
+        var service = new EfProductImportService(context, new EfAuditWriter(context, TimeProvider.System));
 
         var productsCsv = ProductsHeader +
             $"PK1,{ImportServiceFixture.UniqueCode("PROD")},Test Product,{brand.Code},{category.Code},\\N,\\N,Draft\r\n";
@@ -158,7 +159,7 @@ public sealed class EfProductImportServiceTests
         await using var context = ImportServiceFixture.CreateContext();
         var (brand, category) = await ImportServiceFixture.SeedBrandAndCategoryAsync(context);
         var adminId = await ImportServiceFixture.SeedAdminUserIdAsync(context);
-        var service = new EfProductImportService(context);
+        var service = new EfProductImportService(context, new EfAuditWriter(context, TimeProvider.System));
 
         var productsCsv = ProductsHeader +
             $"PK1,{ImportServiceFixture.UniqueCode("PROD")},Product 1,{brand.Code},{category.Code},\\N,\\N,Draft\r\n" +
@@ -188,7 +189,7 @@ public sealed class EfProductImportServiceTests
         await using var context = ImportServiceFixture.CreateContext();
         var (brand, category) = await ImportServiceFixture.SeedBrandAndCategoryAsync(context);
         var adminId = await ImportServiceFixture.SeedAdminUserIdAsync(context);
-        var service = new EfProductImportService(context);
+        var service = new EfProductImportService(context, new EfAuditWriter(context, TimeProvider.System));
 
         var productsCsv = ProductsHeader +
             $"PK1,{ImportServiceFixture.UniqueCode("PROD")},Product 1,{brand.Code},{category.Code},\\N,\\N,Draft\r\n" +

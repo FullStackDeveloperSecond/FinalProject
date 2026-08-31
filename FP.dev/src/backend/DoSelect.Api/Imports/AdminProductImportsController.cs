@@ -1,5 +1,7 @@
 using System.Security.Claims;
 using DoSelect.Api.Security;
+using DoSelect.Api.Common;
+using DoSelect.Application.Auditing;
 using DoSelect.Application.Imports;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -93,6 +95,32 @@ public sealed class AdminProductImportsController : ControllerBase
         file?.Length,
         file is not null,
         () => file?.OpenReadStream() ?? Stream.Null);
+
+    /// <summary>UC-IMPORT-01 商品匯入確認 — 200 with the commit summary on success; 409
+    /// import_already_committed on a re-send; 410 import_batch_expired past the 24-hour window;
+    /// 409 import_validation_failed when the catalog drifted since Preview.</summary>
+    [HttpPost("{id:guid}/actions/confirm")]
+    [Authorize(Policy = DoSelectPolicies.CatalogImportExecute)]
+    [ProducesResponseType<ProductImportBatchDto>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<ProductImportBatchDto>> Confirm(
+        Guid id,
+        [FromBody] ConfirmProductImportRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _service.ConfirmAsync(
+            id, GetAdminUserId(), request.RowVersion, BuildAuditContext(), cancellationToken);
+        return Ok(result);
+    }
+
+    private AuditRequestContext BuildAuditContext()
+    {
+        var traceId = System.Diagnostics.Activity.Current?.TraceId.ToString()
+            ?? System.Diagnostics.ActivityTraceId.CreateRandom().ToString();
+        return new AuditRequestContext(
+            CorrelationIdMiddleware.GetCorrelationId(HttpContext),
+            traceId,
+            HttpContext.Connection.RemoteIpAddress);
+    }
 
     private string GetAdminUserId() =>
         User.FindFirstValue(ClaimTypes.NameIdentifier)

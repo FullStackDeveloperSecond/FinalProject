@@ -71,6 +71,11 @@ public static class AuditActions
     public const string ShippingPackageLimitPublish = "shipping.package_limit.publish";
     public const string ShippingStoreCreate = "shipping.store.create";
     public const string ShippingStoreUpdate = "shipping.store.update";
+    /// UC-IMPORT-01 商品匯入確認 (匯入暫存與庫存調整設計.md step 6): a successful confirm writes the
+    /// central AuditLog in the same transaction as the catalog writes. Only safe-code counters and
+    /// the status transition are recorded; file names/hashes stay on the ImportBatch row itself.
+    /// </summary>
+    public const string CatalogImportConfirm = "catalog_import.confirm";
 }
 
 public static class AuditResourceTypes
@@ -91,6 +96,7 @@ public static class AuditResourceTypes
     public const string PaymentAttempt = "PaymentAttempt";
     public const string PackageLimitVersion = "PackageLimitVersion";
     public const string ConvenienceStore = "ConvenienceStore";
+    public const string ImportBatch = "ImportBatch";
 }
 
 public static class AuditRoleNames
@@ -682,6 +688,10 @@ internal static class AuditWritePolicy
                 AuditActions.SupportTicketInternalNote,
                 AuditResourceTypes.SupportTicket,
                 "note"),
+            [AuditActions.CatalogImportConfirm] = Definition(
+                AuditActions.CatalogImportConfirm,
+                AuditResourceTypes.ImportBatch,
+                "status", "templateVersion", "rowCount", "newCount", "updatedCount", "unchangedCount"),
             [AuditActions.CompatibilityRuleWarningSettingUpdate] = Definition(
                 AuditActions.CompatibilityRuleWarningSettingUpdate,
                 AuditResourceTypes.CompatibilityRuleSetting,

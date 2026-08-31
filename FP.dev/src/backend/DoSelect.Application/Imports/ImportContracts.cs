@@ -57,12 +57,12 @@ public sealed record ImportRowsQuery(
     int PageSize);
 
 /// <summary>
-/// 商品匯入 Preview／Status／Rows／Errors per UC-IMPORT-01 (匯入暫存與庫存調整設計.md).
-/// The Confirm/commit endpoint (POST .../actions/confirm) is deliberately not implemented —
-/// the acceptance spec requires it to write AuditLog and Outbox entries on success, and neither
-/// subsystem exists in this codebase yet (same gap that made PR #36 round-3 withdraw
-/// AdminInventoryController's manual-release endpoint). Wire it once alex's shared AuditLog/
-/// Outbox infrastructure lands; do not fake it with a partial write.
+/// 商品匯入 Preview／Status／Rows／Errors／Confirm per UC-IMPORT-01 (匯入暫存與庫存調整設計.md).
+/// Confirm was originally withheld because no central AuditLog existed; dev now has IAuditWriter,
+/// and ConfirmAsync writes the audit entry in the same transaction as the catalog writes. No
+/// Outbox entry is written: the integration-event catalog defines no event for a committed
+/// catalog import, and inventing one here would be a contract change (the spec's "必要 Outbox"
+/// resolves to none today).
 ///
 /// GetAsync/GetRowsAsync/GetErrorsCsvAsync currently authorize purely at the controller's policy
 /// attribute (CatalogImport.ReadAll — see AdminProductImportsController) rather than also
@@ -89,4 +89,24 @@ public interface IProductImportService
 
     /// <summary>Returns null if the batch does not exist; the CSV bytes otherwise (empty-row CSV if ErrorCount is 0).</summary>
     Task<byte[]?> GetErrorsCsvAsync(Guid batchPublicId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// 商品匯入確認 (匯入暫存與庫存調整設計.md 商品匯入確認 steps 1–6): re-validates the staged rows
+    /// against the current catalog with the same resolvers Preview used, then applies every
+    /// Product／SKU／Specification change in a single SQL Server transaction — any failure rolls
+    /// the whole batch back, marks it Failed, and never leaves a partial success. Rejects with
+    /// import_already_committed (409) for a Committed batch, import_batch_expired (410) past the
+    /// 24-hour window, import_validation_failed (409) when the batch is not Ready or the catalog
+    /// drifted since Preview, and concurrency_conflict (409) on a stale RowVersion.
+    /// </summary>
+    Task<ProductImportBatchDto> ConfirmAsync(
+        Guid batchPublicId,
+        string adminUserId,
+        byte[] rowVersion,
+        DoSelect.Application.Auditing.AuditRequestContext auditContext,
+        CancellationToken cancellationToken);
 }
+
+/// <summary>Body of POST /api/v1/admin/product-imports/{id}/actions/confirm — the RowVersion the
+/// admin's preview screen last saw, so a concurrent confirm/expiry loses cleanly with a 409.</summary>
+public sealed record ConfirmProductImportRequest(byte[] RowVersion);
