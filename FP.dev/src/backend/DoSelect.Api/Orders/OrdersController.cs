@@ -2,99 +2,32 @@ using System.Diagnostics;
 using System.Security.Claims;
 using DoSelect.Api.Common;
 using DoSelect.Api.Security;
-using DoSelect.Api.Shopping;
-using DoSelect.Application.Checkout;
 using DoSelect.Application.Common;
 using DoSelect.Application.Orders;
-using DoSelect.Infrastructure.Persistence.Identity;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.ModelBinding;
 
 namespace DoSelect.Api.Orders;
 
 /// <summary>
 /// Order list remains member-only. Detail and cancellation accept either an authenticated member
 /// or a GuestOrderAccess Cookie that has been validated against the exact target order. Creation
-/// (UC-CHECKOUT-01) accepts the same member-or-guest-cart-key identity as CartController — a
-/// Checkout guest has no GuestOrderAccess token yet, so it cannot reuse GuestOrderAccessScopeAuthorizer.
+/// (UC-CHECKOUT-01) lives in the separate CheckoutController — see its class remarks for why.
 /// </summary>
 [ApiController]
 [Route("api/v1/orders")]
 public sealed class OrdersController : ControllerBase
 {
-    private const string IdempotencyKeyHeaderName = "Idempotency-Key";
-
     private readonly IOrderService _orderService;
     private readonly GuestOrderAccessScopeAuthorizer _guestAuthorizer;
-    private readonly CheckoutService _checkoutService;
-    private readonly UserManager<ApplicationUser> _userManager;
 
     public OrdersController(
         IOrderService orderService,
-        GuestOrderAccessScopeAuthorizer guestAuthorizer,
-        CheckoutService checkoutService,
-        UserManager<ApplicationUser> userManager)
+        GuestOrderAccessScopeAuthorizer guestAuthorizer)
     {
         _orderService = orderService;
         _guestAuthorizer = guestAuthorizer;
-        _checkoutService = checkoutService;
-        _userManager = userManager;
-    }
-
-    [HttpPost]
-    [ProducesResponseType<OrderDto>(StatusCodes.Status201Created)]
-    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
-    public async Task<ActionResult<OrderDto>> CreateOrder(
-        [FromBody] CreateOrderRequest request,
-        [FromHeader(Name = IdempotencyKeyHeaderName), BindRequired] string idempotencyKey,
-        CancellationToken cancellationToken)
-    {
-        var actor = await ResolveCheckoutActorAsync();
-        if (actor is null)
-        {
-            throw DomainProblemException.Validation(
-                $"A member session or the '{CartIdentityResolver.GuestCartKeyHeaderName}' header is required.");
-        }
-
-        var execution = await _checkoutService.CreateOrderAsync(
-            actor, request, idempotencyKey, cancellationToken);
-
-        try
-        {
-            var order = await _orderService.GetOrderForCheckoutConfirmationAsync(
-                execution.Body.PublicId, cancellationToken);
-            return StatusCode(execution.StatusCode, order);
-        }
-        catch (OrderWriteException exception)
-        {
-            return exception.ToActionResult(HttpContext);
-        }
-    }
-
-    private async Task<CheckoutActor?> ResolveCheckoutActorAsync()
-    {
-        var identity = await CartIdentityResolver.ResolveAsync(HttpContext);
-        if (identity is null)
-        {
-            return null;
-        }
-
-        if (identity.MemberUserId is not { } memberUserId)
-        {
-            return CheckoutActor.ForGuest(identity.GuestCartKey!);
-        }
-
-        var applicationUser = await _userManager.FindByIdAsync(memberUserId);
-        if (applicationUser is null)
-        {
-            return null;
-        }
-
-        return CheckoutActor.ForMember(memberUserId, applicationUser.PublicId);
     }
 
     [HttpGet]
