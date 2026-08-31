@@ -20,20 +20,25 @@ const RELEASE_REASON_CODE_OPTIONS = [
   { value: 'other', label: '其他' },
 ]
 
-const filters = reactive({ status: '' })
+// 組長 PR #37 round-2 review, item 3: the <select> binds to a draft; only 搜尋 copies it into the
+// applied status *and* clears the cursor in the same tick. Binding the query key straight to the
+// form meant changing status on page two fired "new status + old cursor", which the backend
+// rejects by contract (cursor is bound to its filters).
+const draftFilters = reactive({ status: '' })
+const appliedStatus = ref('')
 const cursor = ref<string | undefined>(undefined)
 const loadedItems = ref<InventoryReservationDto[]>([])
 
-const listParams = computed(() => ({ status: filters.status || undefined, cursor: cursor.value, pageSize: 20 }))
+const listParams = computed(() => ({ status: appliedStatus.value || undefined, cursor: cursor.value, pageSize: 20 }))
 const { data: page, isPending, isError, error, refetch } = useInventoryReservationList(listParams)
 
-// Cursor pagination accumulates: each successful fetch's items get appended, not replaced, so
-// 載入更多 grows the visible list instead of swapping pages. A bare "cursor.value truthy" check
-// can't tell a genuine next-page fetch apart from TanStack Query re-running the *same* query key
-// (window refocus, network reconnect, a manual retry) — that would re-append the same page's
-// items on top of themselves. Dedup by publicId instead (組長 PR #37 review, item 3): a refetch
-// of an already-loaded page contributes nothing new, and a real next page's items pass through
-// untouched.
+// Cursor pagination accumulates: each successful fetch's items get merged in, so 載入更多 grows
+// the visible list instead of swapping pages, and a refetch of an already-loaded page (window
+// refocus, network reconnect, manual retry) doesn't duplicate rows. 組長 PR #37 round-2 review,
+// item 2: the merge must be an upsert, not a drop — a refetched row with the same publicId may
+// carry a newer Status, RowVersion, or expiry, and discarding it would leave the admin acting on
+// a stale RowVersion. Map preserves insertion order, so updating an existing key refreshes the
+// object without reordering the list; genuinely new items append at the end.
 watch(page, (value) => {
   if (!value) {
     return
@@ -42,12 +47,15 @@ watch(page, (value) => {
     loadedItems.value = value.items
     return
   }
-  const alreadyLoaded = new Set(loadedItems.value.map((item) => item.publicId))
-  const newItems = value.items.filter((item) => !alreadyLoaded.has(item.publicId))
-  loadedItems.value = [...loadedItems.value, ...newItems]
+  const byId = new Map(loadedItems.value.map((item) => [item.publicId, item]))
+  for (const item of value.items) {
+    byId.set(item.publicId, item)
+  }
+  loadedItems.value = [...byId.values()]
 })
 
 function search() {
+  appliedStatus.value = draftFilters.status
   cursor.value = undefined
   loadedItems.value = []
 }
@@ -105,7 +113,7 @@ function formatDateTime(value: string | null): string {
       @submit.prevent="search"
     >
       <select
-        v-model="filters.status"
+        v-model="draftFilters.status"
         aria-label="狀態"
       >
         <option value="">

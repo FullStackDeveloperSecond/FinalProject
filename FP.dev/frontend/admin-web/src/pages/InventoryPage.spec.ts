@@ -72,6 +72,24 @@ describe('InventoryPage', () => {
     expect(mockListBalances).toHaveBeenLastCalledWith(expect.objectContaining({ stockState: 'low_stock', pageNumber: 1 }))
   })
 
+  /** 組長 PR #37 round-2 review, item 1: CostChange joined the official vocabulary (PR #36 A1)
+   * and the API accepts it as a filter value, so the admin must be able to select it. */
+  it('offers CostChange as a movement type and sends it when searching', async () => {
+    mockListBalances.mockResolvedValue({ items: [], pageNumber: 1, pageSize: 20, totalCount: 0 })
+    mockListMovements.mockResolvedValue(emptyMovements)
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const checkbox = wrapper.find('input[type="checkbox"][value="CostChange"]')
+    expect(checkbox.exists()).toBe(true)
+    await checkbox.setValue(true)
+    await wrapper.find('form[aria-label="異動明細篩選"]').trigger('submit')
+    await flushPromises()
+
+    expect(mockListMovements).toHaveBeenLastCalledWith(expect.objectContaining({ movementTypes: ['CostChange'] }))
+  })
+
   it('sends selected movement types when searching movements', async () => {
     mockListBalances.mockResolvedValue({ items: [], pageNumber: 1, pageSize: 20, totalCount: 0 })
     mockListMovements.mockResolvedValue(emptyMovements)
@@ -85,6 +103,31 @@ describe('InventoryPage', () => {
     await flushPromises()
 
     expect(mockListMovements).toHaveBeenLastCalledWith(expect.objectContaining({ movementTypes: ['StockIn'] }))
+  })
+
+  /** 組長 PR #37 round-2 review, item 3: A-11's inputs bind to a draft — changing them must not
+   * fire a query until 搜尋 submits the whole condition set atomically. */
+  it('does not query with half-updated movement filters before the form is submitted', async () => {
+    mockListBalances.mockResolvedValue({ items: [], pageNumber: 1, pageSize: 20, totalCount: 0 })
+    mockListMovements.mockResolvedValue(emptyMovements)
+
+    const wrapper = mountPage()
+    await flushPromises()
+    const callsBefore = mockListMovements.mock.calls.length
+
+    await wrapper.find('input[type="checkbox"][value="StockIn"]').setValue(true)
+    await wrapper.find('input[aria-label="起始日期"]').setValue('2026-08-25')
+    await flushPromises()
+
+    // Nothing fired: the draft is not part of the query key.
+    expect(mockListMovements.mock.calls.length).toBe(callsBefore)
+
+    await wrapper.find('form[aria-label="異動明細篩選"]').trigger('submit')
+    await flushPromises()
+    expect(mockListMovements).toHaveBeenLastCalledWith(expect.objectContaining({
+      movementTypes: ['StockIn'],
+      pageNumber: 1,
+    }))
   })
 
   /**

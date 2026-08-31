@@ -176,4 +176,87 @@ describe('InventoryReservationsPage', () => {
 
     expect(wrapper.findAll('tbody > tr').length).toBe(2)
   })
+
+  /** 組長 PR #37 round-2 review, item 2: a refetched row with the same publicId may carry a newer
+   * Status/RowVersion/expiry — the merge must upsert it, not drop it, or the admin keeps acting on
+   * a stale RowVersion. */
+  it('updates an already-loaded row in place when a refetch returns it with newer content', async () => {
+    mockListReservations.mockResolvedValueOnce({
+      items: [reservation({ publicId: 'r1' })],
+      nextCursor: 'cursor-2',
+      hasMore: true,
+    })
+    const { wrapper, queryClient } = mountPage()
+    await flushPromises()
+
+    mockListReservations.mockResolvedValueOnce({
+      items: [reservation({ publicId: 'r2', order: { publicId: 'o2', orderNumber: 'ORD-2' } })],
+      nextCursor: null,
+      hasMore: false,
+    })
+    await wrapper.findAll('button').find((button) => button.text() === '載入更多')!.trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('tbody > tr').length).toBe(2)
+
+    // The same r2 comes back from a background refetch, but its status has moved on.
+    mockListReservations.mockResolvedValueOnce({
+      items: [reservation({
+        publicId: 'r2',
+        order: { publicId: 'o2', orderNumber: 'ORD-2' },
+        status: 'Consumed',
+        rowVersion: 'BBB=',
+        availableActions: [],
+      })],
+      nextCursor: null,
+      hasMore: false,
+    })
+    await queryClient.invalidateQueries()
+    await flushPromises()
+
+    expect(wrapper.findAll('tbody > tr').length).toBe(2)
+    // The refreshed status is rendered in the ROW — asserting on wrapper.text() would false-pass
+    // because the status <select> also contains the literal 'Consumed' as an option.
+    const r2Row = wrapper.findAll('tbody > tr').find((row) => row.text().includes('ORD-2'))!
+    expect(r2Row.text()).toContain('Consumed')
+    // And its stale release button is gone: availableActions came back empty.
+    expect(r2Row.findAll('button').filter((button) => button.text() === '釋放')).toHaveLength(0)
+  })
+
+  /** 組長 PR #37 round-2 review, item 3: changing the status filter while on page two must not
+   * fire "new status + old cursor" (the backend rejects a cursor issued under other filters) —
+   * the draft only reaches the query together with the cursor reset when 搜尋 submits. */
+  it('does not send the old cursor when the status filter changes on a later page', async () => {
+    mockListReservations.mockResolvedValueOnce({
+      items: [reservation({ publicId: 'r1' })],
+      nextCursor: 'cursor-2',
+      hasMore: true,
+    })
+    const { wrapper } = mountPage()
+    await flushPromises()
+
+    mockListReservations.mockResolvedValueOnce({
+      items: [reservation({ publicId: 'r2', order: { publicId: 'o2', orderNumber: 'ORD-2' } })],
+      nextCursor: null,
+      hasMore: false,
+    })
+    await wrapper.findAll('button').find((button) => button.text() === '載入更多')!.trigger('click')
+    await flushPromises()
+    const callsBefore = mockListReservations.mock.calls.length
+
+    // Changing the select alone fires nothing — the draft is not part of the query key.
+    await wrapper.find('select[aria-label="狀態"]').setValue('Active')
+    await flushPromises()
+    expect(mockListReservations.mock.calls.length).toBe(callsBefore)
+
+    mockListReservations.mockResolvedValueOnce({ items: [], nextCursor: null, hasMore: false })
+    await wrapper.find('form[aria-label="保留篩選"]').trigger('submit')
+    await flushPromises()
+
+    // The submit's query carries the new status and NO cursor — never "Active + cursor-2".
+    const lastCall = mockListReservations.mock.calls.at(-1)![0]
+    expect(lastCall).toMatchObject({ status: 'Active' })
+    expect(lastCall.cursor).toBeUndefined()
+    expect(mockListReservations.mock.calls.every(
+      (call) => !(call[0].status === 'Active' && call[0].cursor === 'cursor-2'))).toBe(true)
+  })
 })

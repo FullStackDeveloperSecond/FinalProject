@@ -6,11 +6,19 @@ import { computed, reactive } from 'vue'
 import { useInventoryBalanceList, useInventoryMovementList } from '../features/inventory/useInventory'
 import { endOfLocalDayExclusiveBoundary, startOfLocalDay } from '../features/inventory/dateRange'
 
+// Mirrors InventoryMovementTypes.All on the backend. CostChange joined the official vocabulary
+// per 組長's PR #36 A1 ruling — the API returns and accepts it, so the filter must offer it too
+// (組長 PR #37 round-2 review, item 1).
 const MOVEMENT_TYPE_OPTIONS = [
   'StockIn', 'Reserve', 'Release', 'Ship', 'ReturnToStock',
-  'ManualIncrease', 'ManualDecrease', 'Damage', 'Adjustment',
+  'ManualIncrease', 'ManualDecrease', 'Damage', 'Adjustment', 'CostChange',
 ]
 
+// 組長 PR #37 round-2 review, item 3: the form binds to a *draft* the query never sees; only 搜尋
+// copies it into the applied filters and resets the page in the same tick, so typing or toggling
+// a filter can never fire a query with half-updated conditions (or, on the reservations page, a
+// stale cursor).
+const balanceDraft = reactive({ q: '', stockState: '' })
 const balanceFilters = reactive({ q: '', stockState: '', pageNumber: 1 })
 const balancePageSize = 20
 const balanceParams = computed(() => ({
@@ -24,6 +32,8 @@ const { data: balanceResult, isPending: isBalancePending, isError: isBalanceErro
 const balanceTotalPages = computed(() => Number(balanceResult.value?.totalPages ?? 0))
 
 function searchBalances() {
+  balanceFilters.q = balanceDraft.q
+  balanceFilters.stockState = balanceDraft.stockState
   balanceFilters.pageNumber = 1
 }
 
@@ -41,6 +51,7 @@ function stockRowClass(available: number, lowStockThreshold: number): string {
   return ''
 }
 
+const movementDraft = reactive({ movementTypes: [] as string[], from: '', to: '' })
 const movementFilters = reactive({ movementTypes: [] as string[], from: '', to: '', pageNumber: 1 })
 const movementPageSize = 20
 const movementParams = computed(() => ({
@@ -56,6 +67,9 @@ const { data: movementResult, isPending: isMovementPending, isError: isMovementE
 const movementTotalPages = computed(() => Number(movementResult.value?.totalPages ?? 0))
 
 function searchMovements() {
+  movementFilters.movementTypes = [...movementDraft.movementTypes]
+  movementFilters.from = movementDraft.from
+  movementFilters.to = movementDraft.to
   movementFilters.pageNumber = 1
 }
 
@@ -85,13 +99,13 @@ function formatDateTime(value: string): string {
         @submit.prevent="searchBalances"
       >
         <input
-          v-model="balanceFilters.q"
+          v-model="balanceDraft.q"
           type="search"
           placeholder="搜尋 SKU 代碼或名稱"
           aria-label="關鍵字"
         >
         <select
-          v-model="balanceFilters.stockState"
+          v-model="balanceDraft.stockState"
           aria-label="庫存狀態"
         >
           <option value="">
@@ -193,7 +207,7 @@ function formatDateTime(value: string): string {
             :key="type"
           >
             <input
-              v-model="movementFilters.movementTypes"
+              v-model="movementDraft.movementTypes"
               type="checkbox"
               :value="type"
             >
@@ -203,7 +217,7 @@ function formatDateTime(value: string): string {
         <label>
           起始
           <input
-            v-model="movementFilters.from"
+            v-model="movementDraft.from"
             type="date"
             aria-label="起始日期"
           >
@@ -211,7 +225,7 @@ function formatDateTime(value: string): string {
         <label>
           結束
           <input
-            v-model="movementFilters.to"
+            v-model="movementDraft.to"
             type="date"
             aria-label="結束日期"
           >
