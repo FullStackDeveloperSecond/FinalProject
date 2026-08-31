@@ -1,15 +1,16 @@
-import { createApiClient } from '../../api/client'
+import { apiClient, createApiClient } from '../../api/client'
 import type {
-  CursorPageOf,
-  InventoryApiPaths,
-  InventoryBalanceDto,
-  InventoryMovementDto,
-  InventoryReservationDto,
-  PageResultOf,
+  CursorPageOfInventoryReservationDto,
+  InventoryReleaseApiPaths,
+  PageResultOfInventoryBalanceDto,
+  PageResultOfInventoryMovementDto,
   ReleaseReservationRequest,
 } from './types'
 
-const inventoryApiClient = createApiClient<InventoryApiPaths>()
+// Only the withdrawn manual-release route still needs a narrow local client — see the
+// InventoryReleaseApiPaths remarks in types.ts. Everything else goes through the official
+// typed client (組長 PR #37 review item 5).
+const releaseApiClient = createApiClient<InventoryReleaseApiPaths>()
 
 export interface InventoryBalanceListParams {
   q?: string
@@ -39,8 +40,8 @@ export interface InventoryReservationListParams {
  * `frontend/shared/src/api/client.ts`), so `data` is always populated on the success path
  * handled here — callers do not need to additionally check openapi-fetch's own `error` field.
  */
-export async function listBalances(params: InventoryBalanceListParams): Promise<PageResultOf<InventoryBalanceDto>> {
-  const { data } = await inventoryApiClient.GET('/api/v1/admin/inventory/balances', {
+export async function listBalances(params: InventoryBalanceListParams): Promise<PageResultOfInventoryBalanceDto> {
+  const { data } = await apiClient.GET('/api/v1/admin/inventory/balances', {
     params: {
       query: {
         Q: params.q || undefined,
@@ -54,8 +55,8 @@ export async function listBalances(params: InventoryBalanceListParams): Promise<
   return data!
 }
 
-export async function listMovements(params: InventoryMovementListParams): Promise<PageResultOf<InventoryMovementDto>> {
-  const { data } = await inventoryApiClient.GET('/api/v1/admin/inventory/movements', {
+export async function listMovements(params: InventoryMovementListParams): Promise<PageResultOfInventoryMovementDto> {
+  const { data } = await apiClient.GET('/api/v1/admin/inventory/movements', {
     params: {
       query: {
         SkuPublicId: params.skuPublicId || undefined,
@@ -72,8 +73,8 @@ export async function listMovements(params: InventoryMovementListParams): Promis
 
 export async function listReservations(
   params: InventoryReservationListParams,
-): Promise<CursorPageOf<InventoryReservationDto>> {
-  const { data } = await inventoryApiClient.GET('/api/v1/admin/inventory/reservations', {
+): Promise<CursorPageOfInventoryReservationDto> {
+  const { data } = await apiClient.GET('/api/v1/admin/inventory/reservations', {
     params: {
       query: {
         Cursor: params.cursor || undefined,
@@ -86,7 +87,7 @@ export async function listReservations(
 }
 
 export async function releaseReservation(publicId: string, request: ReleaseReservationRequest): Promise<void> {
-  await inventoryApiClient.POST('/api/v1/admin/inventory/reservations/{id}/actions/release', {
+  await releaseApiClient.POST('/api/v1/admin/inventory/reservations/{id}/actions/release', {
     params: { path: { id: publicId } },
     body: request,
   })

@@ -141,7 +141,7 @@ function formatDateTime(value: string): string {
             <tr
               v-for="balance in balanceResult.items"
               :key="balance.skuPublicId"
-              :class="stockRowClass(balance.available, balance.lowStockThreshold)"
+              :class="stockRowClass(Number(balance.available), Number(balance.lowStockThreshold))"
             >
               <td>{{ balance.skuCode }}</td>
               <td>{{ balance.skuNameZhTw }}</td>
@@ -255,8 +255,8 @@ function formatDateTime(value: string): string {
               <td>{{ formatDateTime(movement.occurredAtUtc) }}</td>
               <td>{{ movement.sku.skuCode }}</td>
               <td>{{ movement.movementType }}</td>
-              <td>{{ movement.onHandDelta >= 0 ? '+' : '' }}{{ movement.onHandDelta }}</td>
-              <td>{{ movement.reservedDelta >= 0 ? '+' : '' }}{{ movement.reservedDelta }}</td>
+              <td>{{ Number(movement.onHandDelta) >= 0 ? '+' : '' }}{{ movement.onHandDelta }}</td>
+              <td>{{ Number(movement.reservedDelta) >= 0 ? '+' : '' }}{{ movement.reservedDelta }}</td>
               <td>{{ movement.reasonCode }}</td>
               <td>{{ movement.actor?.email ?? '系統' }}</td>
             </tr>

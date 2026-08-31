@@ -1,159 +1,41 @@
+import type { components } from '@doselect/web-shared/api'
+
 /**
- * Hand-typed Inventory Admin contract, mirroring `InventoryContracts.cs` and
- * `AdminInventoryController.cs` on `feature/inventory-reservation-api` (not merged to `dev`
- * yet, so there is no live API to export `frontend/shared`'s generated OpenAPI schema from).
- * This is a stand-in for that generated schema — see `features/categories/types.ts` on
- * `feature/catalog-frontend` for what this should become once inventory-reservation-api merges
- * to `dev` and `api:generate` is run for real (mirrors the same pattern already used by
- * `features/compatibilityRules/types.ts` on `feature/build-compat-frontend`).
+ * 組長 PR #37 review item 5: the hand-written OpenAPI stand-in this file used to carry is gone —
+ * #36 merged into dev, the official contract now includes the five admin inventory endpoints, and
+ * every DTO below re-exports the generated schema so the page can never drift from the API again.
  */
+export type InventorySkuSummaryDto = components['schemas']['InventorySkuSummaryDto']
+export type InventoryActorSummaryDto = components['schemas']['InventoryActorSummaryDto']
+export type InventoryOrderSummaryDto = components['schemas']['InventoryOrderSummaryDto']
+export type InventoryBalanceDto = components['schemas']['InventoryBalanceDto']
+export type InventoryMovementDto = components['schemas']['InventoryMovementDto']
+export type InventoryReservationDto = components['schemas']['InventoryReservationDto']
+export type PageResultOfInventoryBalanceDto = components['schemas']['PageResultOfInventoryBalanceDto']
+export type PageResultOfInventoryMovementDto = components['schemas']['PageResultOfInventoryMovementDto']
+export type CursorPageOfInventoryReservationDto = components['schemas']['CursorPageOfInventoryReservationDto']
 
-export interface InventorySkuSummaryDto {
-  publicId: string
-  skuCode: string
-  nameZhTw: string
-}
-
-export interface InventoryActorSummaryDto {
-  publicId: string | null
-  email: string | null
-}
-
-export interface InventoryOrderSummaryDto {
-  publicId: string
-  orderNumber: string
-}
-
-export interface InventoryBalanceDto {
-  skuPublicId: string
-  skuCode: string
-  skuNameZhTw: string
-  onHand: number
-  reserved: number
-  available: number
-  lowStockThreshold: number
-  rowVersion: string
-}
-
-export interface InventoryMovementDto {
-  publicId: string
-  sku: InventorySkuSummaryDto
-  movementType: string
-  onHandDelta: number
-  reservedDelta: number
-  beforeOnHand: number
-  afterOnHand: number
-  beforeReserved: number
-  afterReserved: number
-  reasonCode: string
-  actor: InventoryActorSummaryDto | null
-  referenceType: string
-  referencePublicId: string | null
-  occurredAtUtc: string
-}
-
-export interface InventoryReservationDto {
-  publicId: string
-  order: InventoryOrderSummaryDto
-  sku: InventorySkuSummaryDto
-  quantity: number
-  status: string
-  expiresAtUtc: string | null
-  createdAtUtc: string
-  availableActions: string[]
-  rowVersion: string
-}
-
+/**
+ * The one deliberate exception to "everything comes from the generated schema": the manual-release
+ * HTTP endpoint is withdrawn on the backend until a follow-up PR wires it to the central Audit Log
+ * in the same transaction (組長 PR #36 round-3 ruling), so the official contract has no
+ * release path or request schema to import yet. The release UI stays dormant behind
+ * `reservation.availableActions.includes('release')`, which the backend keeps empty for the same
+ * reason — these two local types exist only so that dormant path still compiles, and they must be
+ * replaced by the generated ones in the PR that re-adds the endpoint.
+ */
 export interface ReleaseReservationRequest {
   reasonCode: string
   note: string
   rowVersion: string
 }
 
-export interface PageResultOf<T> {
-  items: T[]
-  pageNumber: number
-  pageSize: number
-  totalCount: number
-  totalPages?: number
-}
-
-export interface CursorPageOf<T> {
-  items: T[]
-  nextCursor: string | null
-  hasMore: boolean
-}
-
-interface JsonResponse<T> {
-  content: {
-    'application/json': T
-  }
-}
-
-interface ProblemResponse {
-  content: {
-    'application/problem+json': { code: string }
-  }
-}
-
-export interface InventoryApiPaths {
-  '/api/v1/admin/inventory/balances': {
-    get: {
-      parameters: {
-        query: {
-          Q?: string
-          StockState?: string
-          CategoryCode?: string
-          PageNumber?: number
-          PageSize?: number
-        }
-      }
-      responses: {
-        200: JsonResponse<PageResultOf<InventoryBalanceDto>>
-      }
-    }
-  }
-  '/api/v1/admin/inventory/movements': {
-    get: {
-      parameters: {
-        query: {
-          SkuPublicId?: string
-          MovementTypes?: string[]
-          From?: string
-          To?: string
-          PageNumber?: number
-          PageSize?: number
-        }
-      }
-      responses: {
-        200: JsonResponse<PageResultOf<InventoryMovementDto>>
-      }
-    }
-  }
-  '/api/v1/admin/inventory/reservations': {
-    get: {
-      parameters: {
-        query: {
-          Cursor?: string
-          Status?: string
-          PageSize?: number
-        }
-      }
-      responses: {
-        200: JsonResponse<CursorPageOf<InventoryReservationDto>>
-      }
-    }
-  }
+export interface InventoryReleaseApiPaths {
   '/api/v1/admin/inventory/reservations/{id}/actions/release': {
     post: {
       parameters: { path: { id: string } }
       requestBody: { content: { 'application/json': ReleaseReservationRequest } }
-      responses: {
-        204: { content?: never }
-        400: ProblemResponse
-        404: ProblemResponse
-        409: ProblemResponse
-      }
+      responses: { 204: { content?: never } }
     }
   }
 }
