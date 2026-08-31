@@ -142,4 +142,3 @@ public sealed record ExecuteRefundRequestBody
     [RowVersionRequired]
     public required byte[] RefundRowVersion { get; init; }
 }
-
