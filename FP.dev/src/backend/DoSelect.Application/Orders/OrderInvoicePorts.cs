@@ -23,9 +23,9 @@ public static class OrderInvoicePortNotes
     /// </summary>
     /// <remarks>
     /// <para>
-    /// 本檔案的埠允許回傳內部 <c>OrderId</c>／<c>OrderItemId</c>，<b>但只限於同一交易內
-    /// 寫入既有外鍵</b>（<c>SimulatedInvoices.OrderId</c>、
-    /// <c>SimulatedInvoiceItems.OrderItemId</c>，後者為 DEC-P299 的要求）。
+    /// 本檔案的埠允許回傳內部 <c>OrderId</c>／<c>OrderItemId</c>，但只限於寫入既有外鍵
+    /// （<c>SimulatedInvoices.OrderId</c>、<c>SimulatedInvoiceItems.OrderItemId</c>）及將這些
+    /// 已保存的外鍵批次換回 Orders-owned <c>PublicId</c>（DEC-P299）。
     /// </para>
     /// <para>
     /// 不得出現在 API、URL、log、Audit、event 或通用 DTO；也不代表授權 Invoicing
@@ -33,7 +33,7 @@ public static class OrderInvoicePortNotes
     /// </para>
     /// </remarks>
     public const string InternalKeyException =
-        "僅供既有 FK 寫入的具名窄例外；不得對外輸出。";
+        "僅供既有 FK 寫入與其 PublicId 投影的具名窄例外；不得對外輸出。";
 }
 
 /// <summary>
@@ -138,5 +138,12 @@ public interface IOrderInvoiceReferenceReader
     /// </remarks>
     Task<IReadOnlyDictionary<long, OrderInvoiceReference>> FindManyAsync(
         IReadOnlyCollection<long> orderIds,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 將發票商品列保存的內部 <c>OrderItemId</c> 批次換回對外 <c>PublicId</c>。
+    /// </summary>
+    Task<IReadOnlyDictionary<long, Guid>> FindItemPublicIdsAsync(
+        IReadOnlyCollection<long> orderItemIds,
         CancellationToken cancellationToken = default);
 }

@@ -2121,6 +2121,172 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/orders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    SummaryStatus?: string[];
+                    Badge?: string[];
+                    Cursor?: string;
+                    PageSize?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["CursorPageOfAdminOrderSummaryDto"];
+                        "application/json": components["schemas"]["CursorPageOfAdminOrderSummaryDto"];
+                        "text/json": components["schemas"]["CursorPageOfAdminOrderSummaryDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/orders/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminOrderDto"];
+                        "application/json": components["schemas"]["AdminOrderDto"];
+                        "text/json": components["schemas"]["AdminOrderDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/orders/{id}/recipient": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["OrderRecipientDto"];
+                        "application/json": components["schemas"]["OrderRecipientDto"];
+                        "text/json": components["schemas"]["OrderRecipientDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/orders/{id}/actions/{actionName}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    actionName: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AdminOrderActionRequest"];
+                    "text/json": components["schemas"]["AdminOrderActionRequest"];
+                    "application/*+json": components["schemas"]["AdminOrderActionRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminOrderDto"];
+                        "application/json": components["schemas"]["AdminOrderDto"];
+                        "text/json": components["schemas"]["AdminOrderDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/guest-orders/access-requests": {
         parameters: {
             query?: never;
@@ -2644,6 +2810,204 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/members/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["MemberProfileResponse"];
+                        "application/json": components["schemas"]["MemberProfileResponse"];
+                        "text/json": components["schemas"]["MemberProfileResponse"];
+                    };
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateMemberProfileRequest"];
+                    "text/json": components["schemas"]["UpdateMemberProfileRequest"];
+                    "application/*+json": components["schemas"]["UpdateMemberProfileRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["MemberProfileResponse"];
+                        "application/json": components["schemas"]["MemberProfileResponse"];
+                        "text/json": components["schemas"]["MemberProfileResponse"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/members/me/addresses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["MemberAddressResponse"][];
+                        "application/json": components["schemas"]["MemberAddressResponse"][];
+                        "text/json": components["schemas"]["MemberAddressResponse"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateMemberAddressRequest"];
+                    "text/json": components["schemas"]["CreateMemberAddressRequest"];
+                    "application/*+json": components["schemas"]["CreateMemberAddressRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["MemberAddressResponse"];
+                        "application/json": components["schemas"]["MemberAddressResponse"];
+                        "text/json": components["schemas"]["MemberAddressResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/members/me/addresses/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateMemberAddressRequest"];
+                    "text/json": components["schemas"]["UpdateMemberAddressRequest"];
+                    "application/*+json": components["schemas"]["UpdateMemberAddressRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["MemberAddressResponse"];
+                        "application/json": components["schemas"]["MemberAddressResponse"];
+                        "text/json": components["schemas"]["MemberAddressResponse"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["DeleteMemberAddressRequest"];
+                    "text/json": components["schemas"]["DeleteMemberAddressRequest"];
+                    "application/*+json": components["schemas"]["DeleteMemberAddressRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/invoices/{id}/allowances": {
         parameters: {
             query?: never;
@@ -2740,6 +3104,216 @@ export interface paths {
                 };
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/invoices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    Statuses?: components["schemas"]["SimulatedInvoiceStatus"][];
+                    FromUtc?: string;
+                    ToUtc?: string;
+                    Q?: string;
+                    PageNumber?: number | string;
+                    PageSize?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["PageResultOfAdminInvoiceSummaryDto"];
+                        "application/json": components["schemas"]["PageResultOfAdminInvoiceSummaryDto"];
+                        "text/json": components["schemas"]["PageResultOfAdminInvoiceSummaryDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/invoices/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminInvoiceDto"];
+                        "application/json": components["schemas"]["AdminInvoiceDto"];
+                        "text/json": components["schemas"]["AdminInvoiceDto"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/orders/{orderId}/invoice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orderId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["SimulatedInvoiceDto"];
+                        "application/json": components["schemas"]["SimulatedInvoiceDto"];
+                        "text/json": components["schemas"]["SimulatedInvoiceDto"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -6247,6 +6821,31 @@ export interface components {
             /** Format: date-time */
             expiresAtUtc: string;
         };
+        AdminInvoiceDto: {
+            invoice: components["schemas"]["SimulatedInvoiceDto"];
+            orderNumber: string;
+            availableActions: string[];
+        };
+        AdminInvoiceSummaryDto: {
+            /** Format: uuid */
+            publicId: string;
+            invoiceNumber: string;
+            /** Format: uuid */
+            orderPublicId: string;
+            orderNumber: string;
+            status: components["schemas"]["SimulatedInvoiceStatus"];
+            /** Format: double */
+            netAmount: number | string;
+            /** Format: double */
+            taxAmount: number | string;
+            /** Format: double */
+            grossAmount: number | string;
+            /** Format: date-time */
+            issuedAtUtc: null | string;
+            demoMarker: string;
+            /** Format: byte */
+            rowVersion: string;
+        };
         AdminLoginRequest: {
             email: string;
             password: string;
@@ -6256,6 +6855,122 @@ export interface components {
             requiresEnrollment: boolean;
             /** Format: uuid */
             twoFactorChallengePublicId: string;
+        };
+        AdminOrderActionRequest: {
+            reasonCode: null | string;
+            note: null | string;
+            /** Format: byte */
+            rowVersion: string;
+        };
+        AdminOrderAmountsDto: {
+            /** Format: double */
+            merchandiseSubtotal: number | string;
+            /** Format: double */
+            itemDiscountTotal: number | string;
+            /** Format: double */
+            shippingFee: number | string;
+            /** Format: double */
+            assemblyFee: number | string;
+            /** Format: double */
+            grandTotal: number | string;
+            /** Format: double */
+            paidAmount: number | string;
+            /** Format: double */
+            refundedAmount: number | string;
+            currency: string;
+        };
+        AdminOrderDto: {
+            /** Format: uuid */
+            publicId: string;
+            orderNumber: string;
+            buyerType: string;
+            maskedBuyerEmail: string;
+            orderStatus: string;
+            paymentStatus: string;
+            fulfillmentStatus: string;
+            assemblyStatus: string;
+            orderRefundStatus: string;
+            summaryStatus: string;
+            badges: string[];
+            items: components["schemas"]["AdminOrderItemDto"][];
+            amounts: components["schemas"]["AdminOrderAmountsDto"];
+            shippingMethodCode: string;
+            storeName: null | string;
+            statusHistory: components["schemas"]["OrderStatusHistoryDto"][];
+            availableActions: string[];
+            /** Format: date-time */
+            paymentDueAtUtc: null | string;
+            /** Format: date-time */
+            confirmedAtUtc: null | string;
+            /** Format: date-time */
+            paidAtUtc: null | string;
+            /** Format: date-time */
+            shippedAtUtc: null | string;
+            /** Format: date-time */
+            deliveredAtUtc: null | string;
+            /** Format: date-time */
+            completedAtUtc: null | string;
+            /** Format: date-time */
+            cancelledAtUtc: null | string;
+            /** Format: date-time */
+            createdAtUtc: string;
+            /** Format: byte */
+            rowVersion: string;
+        };
+        AdminOrderItemDto: {
+            /** Format: uuid */
+            publicId: string;
+            skuCodeSnapshot: string;
+            productNameSnapshot: string;
+            skuNameSnapshot: string;
+            /** Format: int32 */
+            quantity: number | string;
+            /** Format: double */
+            listUnitPrice: number | string;
+            /** Format: double */
+            saleUnitPrice: number | string;
+            /** Format: double */
+            finalUnitPrice: number | string;
+            /** Format: double */
+            lineSubtotal: number | string;
+            /** Format: double */
+            discountAllocation: number | string;
+            /** Format: double */
+            lineTotal: number | string;
+            /** Format: int32 */
+            returnableQuantity: number | string;
+            /** Format: int32 */
+            returnedQuantity: number | string;
+        };
+        AdminOrderSummaryDto: {
+            /** Format: uuid */
+            publicId: string;
+            orderNumber: string;
+            buyerType: string;
+            maskedBuyerEmail: string;
+            orderStatus: string;
+            paymentStatus: string;
+            fulfillmentStatus: string;
+            assemblyStatus: string;
+            orderRefundStatus: string;
+            summaryStatus: string;
+            badges: string[];
+            /** Format: double */
+            grandTotal: number | string;
+            currency: string;
+            shippingMethodCode: string;
+            /** Format: date-time */
+            createdAtUtc: string;
+            /** Format: date-time */
+            paidAtUtc: null | string;
+            /** Format: date-time */
+            shippedAtUtc: null | string;
+            /** Format: date-time */
+            deliveredAtUtc: null | string;
+            /** Format: date-time */
+            completedAtUtc: null | string;
+            /** Format: byte */
+            rowVersion: string;
         };
         AdminProductDetailDto: {
             /** Format: uuid */
@@ -7110,6 +7825,17 @@ export interface components {
             /** Format: byte */
             rowVersion?: string;
         };
+        CreateMemberAddressRequest: {
+            label: string;
+            recipientName: string;
+            phone: string;
+            postalCode: string;
+            city: string;
+            district: string;
+            addressLine1: string;
+            addressLine2?: null | string;
+            isDefault?: boolean;
+        };
         CreateProductRequest: {
             productCode: string;
             nameZhTw: string;
@@ -7213,6 +7939,11 @@ export interface components {
             emailVerified: boolean;
             locale: string;
         };
+        CursorPageOfAdminOrderSummaryDto: {
+            items: components["schemas"]["AdminOrderSummaryDto"][];
+            nextCursor: null | string;
+            hasMore: boolean;
+        };
         CursorPageOfCaseWorkbenchItemDto: {
             items: components["schemas"]["CaseWorkbenchItemDto"][];
             nextCursor: null | string;
@@ -7229,6 +7960,10 @@ export interface components {
             hasMore: boolean;
         };
         DeleteBuildListRequest: {
+            /** Format: byte */
+            rowVersion: string;
+        };
+        DeleteMemberAddressRequest: {
             /** Format: byte */
             rowVersion: string;
         };
@@ -7314,6 +8049,38 @@ export interface components {
             email: string;
             password: string;
             rememberMe?: boolean;
+        };
+        MemberAddressResponse: {
+            /** Format: uuid */
+            publicId: string;
+            label: string;
+            recipientName: string;
+            phone: string;
+            postalCode: string;
+            city: string;
+            district: string;
+            addressLine1: string;
+            addressLine2: null | string;
+            isDefault: boolean;
+            /** Format: date-time */
+            createdAtUtc: string;
+            /** Format: date-time */
+            updatedAtUtc: string;
+            /** Format: byte */
+            rowVersion: string;
+        };
+        MemberProfileResponse: {
+            /** Format: uuid */
+            publicId: string;
+            displayName: string;
+            emailMasked: string;
+            emailVerified: boolean;
+            phone: null | string;
+            locale: string;
+            /** Format: date-time */
+            createdAtUtc: string;
+            /** Format: byte */
+            rowVersion: string;
         };
         MemberReviewDto: {
             /** Format: uuid */
@@ -7403,6 +8170,23 @@ export interface components {
             /** Format: int32 */
             returnedQuantity: number | string;
         };
+        OrderRecipientDto: {
+            /** Format: uuid */
+            orderPublicId: string;
+            recipientName: string;
+            recipientPhone: string;
+            recipientEmail: string;
+            postalCode: null | string;
+            recipientCity: null | string;
+            recipientDistrict: null | string;
+            addressLine1: null | string;
+            addressLine2: null | string;
+            shippingMethodCode: string;
+            storeCode: null | string;
+            storeName: null | string;
+            storeAddress: null | string;
+            accessPurpose: string;
+        };
         OrderRecipientSummaryDto: {
             recipientName: string;
             shippingMethodCode: string;
@@ -7412,6 +8196,16 @@ export interface components {
         OrderRefundStatus: "none" | "pending" | "partiallyRefunded" | "refunded";
         /** @enum {unknown} */
         OrderStatus: "pendingPayment" | "confirmed" | "processing" | "completed" | "cancelled";
+        OrderStatusHistoryDto: {
+            stateDimension: string;
+            fromStatus: null | string;
+            toStatus: string;
+            reasonCode: null | string;
+            /** Format: uuid */
+            actorPublicId: null | string;
+            /** Format: date-time */
+            occurredAtUtc: string;
+        };
         OrderSummaryDto: {
             /** Format: uuid */
             publicId: string;
@@ -7427,6 +8221,17 @@ export interface components {
             /** Format: date-time */
             createdAtUtc: string;
             availableActions: string[];
+        };
+        PageResultOfAdminInvoiceSummaryDto: {
+            items: components["schemas"]["AdminInvoiceSummaryDto"][];
+            /** Format: int32 */
+            pageNumber: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+            /** Format: int32 */
+            totalCount: number | string;
+            /** Format: int32 */
+            totalPages?: number | string;
         };
         PageResultOfAdminProductSummaryDto: {
             items: components["schemas"]["AdminProductSummaryDto"][];
@@ -8083,6 +8888,61 @@ export interface components {
         };
         /** @enum {unknown} */
         SimulatedPaymentOutcome: "succeeded" | "failed" | "expired";
+        SimulatedInvoiceBuyerType: "individual" | "company";
+        SimulatedInvoiceDto: {
+            /** Format: uuid */
+            publicId: string;
+            invoiceNumber: string;
+            /** Format: uuid */
+            orderPublicId: string;
+            status: components["schemas"]["SimulatedInvoiceStatus"];
+            buyerType: components["schemas"]["SimulatedInvoiceBuyerType"];
+            buyerEmailMasked: null | string;
+            carrierType: null | string;
+            carrierValueMasked: null | string;
+            companyTaxIdMasked: null | string;
+            /** Format: double */
+            netAmount: number | string;
+            /** Format: double */
+            taxAmount: number | string;
+            /** Format: double */
+            grossAmount: number | string;
+            currency: string;
+            /** Format: double */
+            taxRate: number | string;
+            items: components["schemas"]["SimulatedInvoiceItemDto"][];
+            allowances: components["schemas"]["SimulatedInvoiceAllowanceDto"][];
+            /** Format: date-time */
+            issuedAtUtc: null | string;
+            /** Format: date-time */
+            voidedAtUtc: null | string;
+            demoMarker: string;
+            /** Format: byte */
+            rowVersion: string;
+        };
+        SimulatedInvoiceItemDto: {
+            /** Format: uuid */
+            publicId: string;
+            /** Format: uuid */
+            orderItemPublicId: null | string;
+            kind: components["schemas"]["InvoiceLineKind"];
+            productName: string;
+            skuCode: string;
+            /** Format: int32 */
+            quantity: number | string;
+            /** Format: double */
+            unitPrice: number | string;
+            /** Format: double */
+            discountAmount: number | string;
+            /** Format: double */
+            netAmount: number | string;
+            /** Format: double */
+            taxAmount: number | string;
+            /** Format: double */
+            grossAmount: number | string;
+        };
+        /** @enum {unknown} */
+        SimulatedInvoiceStatus: "pending" | "issued" | "voided" | "partiallyAllowed" | "fullyAllowed";
         SkuDimensionsSummary: {
             /** Format: double */
             weightKg: null | number | string;
@@ -8392,6 +9252,26 @@ export interface components {
             categoryPublicIds: null | string[];
             productPublicIds: null | string[];
             excludedProductPublicIds: null | string[];
+            /** Format: byte */
+            rowVersion: string;
+        };
+        UpdateMemberAddressRequest: {
+            /** Format: byte */
+            rowVersion: string;
+            label: string;
+            recipientName: string;
+            phone: string;
+            postalCode: string;
+            city: string;
+            district: string;
+            addressLine1: string;
+            addressLine2?: null | string;
+            isDefault?: boolean;
+        };
+        UpdateMemberProfileRequest: {
+            displayName: string;
+            phone?: null | string;
+            locale: string;
             /** Format: byte */
             rowVersion: string;
         };

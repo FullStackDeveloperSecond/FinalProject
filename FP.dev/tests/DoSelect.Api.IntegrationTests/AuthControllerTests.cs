@@ -535,6 +535,65 @@ public sealed class AuthControllerTests : IClassFixture<WebApplicationFactory<Pr
     }
 
     [Fact]
+    public async Task ConfirmPasswordReset_WhenTokenBelongsToADifferentAccount_ReturnsPasswordResetTokenInvalidCodeAndLeavesBothPasswordsUnchanged()
+    {
+        // Actor A/B rejection for UC-AUTH-03: Identity's reset token is bound to the target
+        // user's security stamp (DataProtectorTokenProvider), so Actor A's own valid token
+        // replayed against Actor B's userPublicId must fail — proving one account's token can
+        // never be used to take over another. Zero-side-effect evidence: neither account's
+        // password changes as a result of the attempt.
+        const string newPassword = "new-correct-horse-battery";
+        var capturingEmailSender = new CapturingEmailSender();
+        using var factory = CreateIsolatedFactory(services =>
+        {
+            services.Replace(ServiceDescriptor.Singleton<IEmailSender>(capturingEmailSender));
+        });
+        using var client = factory.CreateClient();
+        await PrimeAntiforgeryAsync(client);
+
+        var (_, emailA) = await RegisterAndVerifyMemberAsync(client, capturingEmailSender);
+        var (publicIdB, emailB) = await RegisterAndVerifyMemberAsync(client, capturingEmailSender);
+
+        using var requestResetResponse = await client.PostAsJsonAsync("/api/v1/auth/password-resets", new { email = emailA });
+        Assert.Equal(HttpStatusCode.Accepted, requestResetResponse.StatusCode);
+        var (_, tokenA) = ExtractVerificationLink((await capturingEmailSender.WaitForSingleMessageAsync()).TextBody);
+        capturingEmailSender.SentMessages.Clear();
+
+        using var crossAccountResponse = await client.PostAsJsonAsync(
+            "/api/v1/auth/password-resets/confirm",
+            new { userPublicId = publicIdB, token = tokenA, newPassword });
+        using var document = await ReadProblemDetailsAsync(crossAccountResponse);
+
+        Assert.Equal(HttpStatusCode.BadRequest, crossAccountResponse.StatusCode);
+        Assert.Equal(
+            AuthErrorCodes.PasswordResetTokenInvalid,
+            document.RootElement.GetProperty("code").GetString());
+
+        // Separate, freshly-primed clients for each verification login — matching
+        // ResetPassword_WhenTokenFromResetEmailIsUsed_... below — since the login endpoint
+        // expects an anonymous antiforgery token, not one tied to a prior request's session.
+        using var loginAClient = factory.CreateClient();
+        await PrimeAntiforgeryAsync(loginAClient);
+        using var loginAResponse = await loginAClient.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            email = emailA,
+            password = "correct-horse-battery-staple",
+            rememberMe = false,
+        });
+        Assert.Equal(HttpStatusCode.OK, loginAResponse.StatusCode);
+
+        using var loginBClient = factory.CreateClient();
+        await PrimeAntiforgeryAsync(loginBClient);
+        using var loginBResponse = await loginBClient.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            email = emailB,
+            password = "correct-horse-battery-staple",
+            rememberMe = false,
+        });
+        Assert.Equal(HttpStatusCode.OK, loginBResponse.StatusCode);
+    }
+
+    [Fact]
     public async Task ConfirmPasswordReset_WhenTokenHasExceededItsConfiguredLifespan_ReturnsPasswordResetTokenInvalidCode()
     {
         var shortLifespan = TimeSpan.FromMilliseconds(200);
@@ -802,6 +861,32 @@ public sealed class AuthControllerTests : IClassFixture<WebApplicationFactory<Pr
                 configureServices?.Invoke(services);
             });
         });
+
+    private static async Task<(Guid PublicId, string Email)> RegisterAndVerifyMemberAsync(
+        HttpClient client, CapturingEmailSender capturingEmailSender)
+    {
+        var email = UniqueEmail();
+        using var registerResponse = await client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            email,
+            password = "correct-horse-battery-staple",
+            displayName = "整合測試會員",
+            acceptTermsVersion = 1,
+        });
+        var registerBody = await registerResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var publicId = registerBody.GetProperty("publicId").GetGuid();
+        var (linkPublicId, token) = ExtractVerificationLink((await capturingEmailSender.WaitForSingleMessageAsync()).TextBody);
+        capturingEmailSender.SentMessages.Clear();
+
+        using var confirmResponse = await client.PostAsJsonAsync("/api/v1/auth/email-verifications/confirm", new
+        {
+            userPublicId = linkPublicId,
+            token,
+        });
+        Assert.Equal(HttpStatusCode.OK, confirmResponse.StatusCode);
+
+        return (publicId, email);
+    }
 
     // No admin-suspend endpoint is exposed on this branch yet, so tests that need a suspended
     // account reach past the HTTP surface and drive the domain method directly — the same one a

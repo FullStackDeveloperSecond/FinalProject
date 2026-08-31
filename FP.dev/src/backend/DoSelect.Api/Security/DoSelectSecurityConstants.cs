@@ -64,6 +64,7 @@ public static class DoSelectPolicies
     public const string OperationalReportFinanceView = "OperationalReport.FinanceView";
     public const string Admin = "Admin";
     public const string CatalogManager = "CatalogManager";
+    public const string OrderManage = "Order.Manage";
     public const string ReturnApprove = "Return.Approve";
     public const string RefundExecute = "Refund.Execute";
     public const string InvoiceManage = "Invoice.Manage";
