@@ -146,8 +146,8 @@ button {
   min-height: auto;
   padding: 0.375rem 0.75rem;
   background: transparent;
-  color: #1f2937;
-  border-color: #d1d5db;
+  color: var(--color-text);
+  border-color: var(--color-border);
   font-size: 0.875rem;
 }
 
@@ -441,17 +441,17 @@ button:focus-visible {
 .form-field input {
   min-height: 2.75rem;
   padding: 0.5rem 0.75rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--color-border);
   border-radius: 0.5rem;
   font: inherit;
 }
 
 .form-field input[aria-invalid="true"] {
-  border-color: #dc2626;
+  border-color: var(--color-danger);
 }
 
 .form-field input:focus-visible {
-  outline: 3px solid #f59e0b;
+  outline: 3px solid var(--color-warning);
   outline-offset: 1px;
 }
 
@@ -478,22 +478,22 @@ button:focus-visible {
   padding: 0;
   background: transparent;
   border: none;
-  color: #4b5563;
+  color: var(--color-text-muted);
 }
 
 .password-field__toggle:hover {
-  color: #1f2937;
+  color: var(--color-text);
 }
 
 .form-field__hint {
   margin: 0;
-  color: #4b5563;
+  color: var(--color-text-muted);
   font-size: 0.8125rem;
 }
 
 .form-field__error {
   margin: 0;
-  color: #dc2626;
+  color: var(--color-danger);
   font-size: 0.8125rem;
 }
 
@@ -516,9 +516,9 @@ button:focus-visible {
 }
 
 .form-banner--error {
-  border: 1px solid #fca5a5;
-  background: #fef2f2;
-  color: #991b1b;
+  border: 1px solid var(--color-danger-border);
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
 }
 
 .form-banner__message {
@@ -536,8 +536,8 @@ button:focus-visible {
   min-height: auto;
   padding: 0.375rem 0.75rem;
   background: transparent;
-  border: 1px solid #991b1b;
-  color: #991b1b;
+  border: 1px solid var(--color-danger);
+  color: var(--color-danger);
   font-size: 0.8125rem;
   text-decoration: none;
 }
@@ -549,7 +549,7 @@ button:focus-visible {
 
 .form-field__forgot-link {
   align-self: flex-end;
-  color: #2563eb;
+  color: var(--color-primary-dark);
   font-size: 0.8125rem;
   text-decoration: none;
 }
@@ -958,4 +958,149 @@ button:focus-visible {
   .home-hero__text h1 {
     font-size: var(--fs-h1);
   }
+}
+
+/* =============================================================================
+   前台交易與會員（UI 第二批 A）
+   只補視覺層：金額對齊、主/危險操作分離、表單與狀態可辨識。
+   不改動任何購物車、結帳、優惠券或訂單邏輯。
+   ============================================================================= */
+
+/* ---------- 金額：等寬數字、右對齊 ---------- */
+
+.cart-page__total,
+.cart-line-item__line-total,
+.cart-line-item__price,
+.amount {
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+}
+
+.cart-page__total {
+  color: var(--color-text);
+  font-size: var(--fs-h2);
+  font-weight: 700;
+}
+
+.cart-page__summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-5);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.cart-page__items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.cart-line-item {
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+
+/* ---------- 主操作 vs 危險操作：視覺分離 ---------- */
+
+.cart-page__checkout {
+  min-height: var(--control-height);
+  background: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  color: var(--color-on-primary);
+  font-weight: 700;
+}
+
+.cart-page__checkout:not(:disabled):hover {
+  background: var(--color-primary-dark);
+  border-color: var(--color-primary-dark);
+}
+
+.cart-line-item__remove,
+.danger-action {
+  background: var(--color-surface);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-sm);
+  color: var(--color-danger);
+  font-weight: 600;
+}
+
+.cart-line-item__remove:not(:disabled):hover,
+.danger-action:not(:disabled):hover {
+  background: var(--color-danger-bg);
+}
+
+/* ---------- 表單與流程狀態 ---------- */
+
+.is-loading,
+[aria-busy="true"] {
+  cursor: progress;
+}
+
+button:disabled,
+.btn:disabled,
+[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.state-success {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-success-border);
+  border-radius: var(--radius-md);
+  background: var(--color-success-bg);
+  color: var(--color-primary-dark);
+  font-size: var(--fs-caption);
+}
+
+.state-warning,
+.cart-page__warnings,
+.cart-page__issues {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-butter-line);
+  border-radius: var(--radius-md);
+  background: var(--color-warning-bg);
+  color: var(--color-text);
+  font-size: var(--fs-caption);
+}
+
+.state-error,
+.cart-page__identity-error,
+.cart-page__revalidate-error,
+.cart-line-item__error {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-danger-border);
+  border-radius: var(--radius-md);
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+  font-size: var(--fs-caption);
+}
+
+/* ---------- 會員／訂單／評價／組裝清單：共通卡片節奏 ---------- */
+
+.account-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-4);
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.panel__title {
+  margin: 0;
+  font-size: var(--fs-h3);
+  color: var(--color-text);
 }

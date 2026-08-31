@@ -137,12 +137,12 @@ function formatTwd(amount: number): string {
   flex-direction: column;
   gap: 0.25rem;
   padding: 1rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--color-border-soft);
   border-radius: 0.5rem;
 }
 
 .build-lists-page__meta {
-  color: #4b5563;
+  color: var(--color-text-muted);
   font-size: 0.875rem;
 }
 

@@ -577,13 +577,13 @@ async function addBuildToCart(): Promise<void> {
 }
 
 .build-detail-page__confirm {
-  border: 1px solid #fca5a5;
-  background: #fef2f2;
+  border: 1px solid var(--color-danger-border);
+  background: var(--color-danger-bg);
 }
 
 .build-detail-page__conflict {
-  border: 1px solid #fcd34d;
-  background: #fffbeb;
+  border: 1px solid var(--color-butter);
+  background: var(--color-warning-bg);
 }
 
 .build-detail-page__confirm-actions {
@@ -603,7 +603,7 @@ async function addBuildToCart(): Promise<void> {
 .build-detail-page__field input {
   min-height: 2.75rem;
   padding: 0.5rem 0.75rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--color-border);
   border-radius: 0.5rem;
   font: inherit;
 }
@@ -611,14 +611,14 @@ async function addBuildToCart(): Promise<void> {
 .build-detail-page__items-errors {
   margin: 1rem 0 0;
   padding-left: 1.25rem;
-  color: #b91c1c;
+  color: var(--color-danger);
   font-size: 0.875rem;
 }
 
 .build-detail-page__validation-error {
   margin: 0.25rem 0 0;
   font-size: 0.8125rem;
-  color: #b91c1c;
+  color: var(--color-danger);
 }
 
 .build-detail-page__actions {
@@ -635,7 +635,7 @@ async function addBuildToCart(): Promise<void> {
 }
 
 .build-detail-page__totals dt {
-  color: #4b5563;
+  color: var(--color-text-muted);
 }
 
 .build-detail-page__totals dd {
@@ -646,7 +646,7 @@ async function addBuildToCart(): Promise<void> {
 .build-detail-page__section {
   margin-block-start: 2rem;
   padding-block-start: 1.5rem;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--color-border-soft);
 }
 
 .build-detail-page__cart-controls {
@@ -659,7 +659,7 @@ async function addBuildToCart(): Promise<void> {
   width: 5rem;
   min-height: 2.75rem;
   padding: 0.5rem 0.75rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--color-border);
   border-radius: 0.5rem;
   font: inherit;
 }

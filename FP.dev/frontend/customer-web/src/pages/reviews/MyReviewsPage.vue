@@ -355,19 +355,19 @@ function deleteImage(review: MemberReview, sortOrder: number | string): void {
 
 <style scoped>
 .reviews-page { display: grid; gap: 1.5rem; max-width: 52rem; }
-.reviews-page__feedback { padding: .75rem; border-radius: .5rem; background: #ecfdf5; color: #166534; }
-.review-form, .review-card { display: grid; gap: .75rem; padding: 1rem; border: 1px solid #d1d5db; border-radius: .75rem; }
+.reviews-page__feedback { padding: .75rem; border-radius: .5rem; background: var(--color-success-bg); color: var(--color-primary-dark); }
+.review-form, .review-card { display: grid; gap: .75rem; padding: 1rem; border: 1px solid var(--color-border); border-radius: .75rem; }
 .review-form label { display: grid; gap: .25rem; font-weight: 600; }
-.review-form input, .review-form select, .review-form textarea { padding: .625rem; border: 1px solid #9ca3af; border-radius: .375rem; font: inherit; }
+.review-form input, .review-form select, .review-form textarea { padding: .625rem; border: 1px solid var(--color-text-faint); border-radius: .375rem; font: inherit; }
 .review-form__actions, .review-card__actions { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
 .review-card { margin-bottom: 1rem; }
 .review-card__heading { display: flex; justify-content: space-between; gap: 1rem; }
 .review-card__heading h3, .review-card__heading p { margin: 0; }
-.review-card__rejection { color: #b91c1c; }
-.review-status { align-self: start; padding: .2rem .6rem; border-radius: 999px; background: #e5e7eb; font-size: .8rem; }
-.review-status--approved { background: #dcfce7; color: #166534; }
-.review-status--rejected { background: #fee2e2; color: #991b1b; }
-.review-status--pendingReview { background: #fef3c7; color: #92400e; }
+.review-card__rejection { color: var(--color-danger); }
+.review-status { align-self: start; padding: .2rem .6rem; border-radius: 999px; background: var(--color-border-soft); font-size: .8rem; }
+.review-status--approved { background: var(--color-success-bg); color: var(--color-primary-dark); }
+.review-status--rejected { background: var(--color-danger-bg); color: var(--color-danger); }
+.review-status--pendingReview { background: var(--color-warning-bg); color: var(--color-warning); }
 .review-card__images { display: flex; gap: .75rem; padding: 0; list-style: none; }
 .review-card__images li { display: grid; gap: .25rem; }
 .review-card__images img { object-fit: cover; border-radius: .375rem; }

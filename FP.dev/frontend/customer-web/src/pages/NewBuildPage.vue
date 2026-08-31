@@ -178,7 +178,7 @@ watch(() => sessionStore.status, (status) => {
 
 <style scoped>
 .new-build-page__hint {
-  color: #4b5563;
+  color: var(--color-text-muted);
   margin-block-end: 1.5rem;
 }
 
@@ -193,7 +193,7 @@ watch(() => sessionStore.status, (status) => {
 .new-build-page__field input {
   min-height: 2.75rem;
   padding: 0.5rem 0.75rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--color-border);
   border-radius: 0.5rem;
   font: inherit;
 }
@@ -201,7 +201,7 @@ watch(() => sessionStore.status, (status) => {
 .new-build-page__items-errors {
   margin: 1rem 0 0;
   padding-left: 1.25rem;
-  color: #b91c1c;
+  color: var(--color-danger);
   font-size: 0.875rem;
 }
 

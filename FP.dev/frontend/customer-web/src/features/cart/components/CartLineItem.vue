@@ -167,7 +167,7 @@ function formatTwd(amount: number | string): string {
   align-items: center;
   gap: 1rem;
   padding: 1rem 0;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--color-border-soft);
 }
 
 .cart-line-item__info {
@@ -191,13 +191,13 @@ function formatTwd(amount: number | string): string {
 
 .cart-line-item__badge--unavailable,
 .cart-line-item__badge--insufficient_stock {
-  background: #fee2e2;
-  color: #991b1b;
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
 }
 
 .cart-line-item__badge--price-changed {
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
 }
 
 .cart-line-item__price,
@@ -214,7 +214,7 @@ function formatTwd(amount: number | string): string {
 .cart-line-item__quantity {
   min-height: 2.5rem;
   padding: 0.25rem 0.5rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--color-border);
   border-radius: 0.5rem;
   font: inherit;
 }
@@ -229,13 +229,13 @@ function formatTwd(amount: number | string): string {
 
 .cart-line-item__out-of-stock-hint {
   margin: 0;
-  color: #b91c1c;
+  color: var(--color-danger);
   font-size: 0.75rem;
 }
 
 .cart-line-item__remove {
   background: none;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--color-border);
   border-radius: 0.5rem;
   padding: 0.5rem 0.75rem;
   cursor: pointer;
@@ -249,7 +249,7 @@ function formatTwd(amount: number | string): string {
 .cart-line-item__error {
   grid-column: 1 / -1;
   margin: 0;
-  color: #b91c1c;
+  color: var(--color-danger);
   font-size: 0.875rem;
 }
 </style>
