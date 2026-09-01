@@ -116,6 +116,18 @@ const router = createRouter({
       component: () => import('../pages/returns/ReturnDetailPage.vue'),
     },
     {
+      path: '/account',
+      name: 'account-profile',
+      component: () => import('../pages/account/ProfilePage.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/account/addresses',
+      name: 'account-addresses',
+      component: () => import('../pages/account/AddressesPage.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/account/reviews',
       name: 'my-reviews',
       component: () => import('../pages/reviews/MyReviewsPage.vue'),
