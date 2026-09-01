@@ -1,3 +1,4 @@
+using System.Data;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -9,6 +10,7 @@ using DoSelect.Domain.Auditing;
 using DoSelect.Domain.Catalog;
 using DoSelect.Domain.Imports;
 using DoSelect.Infrastructure.Persistence;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
 namespace DoSelect.Infrastructure.Imports;
@@ -366,7 +368,21 @@ public sealed class EfProductImportService : IProductImportService
         _dbContext.Entry(batch).Property(candidate => candidate.RowVersion).OriginalValue = rowVersion;
 
         var committingSaved = false;
-        await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+        // 組長 PR #74 round-2 review (P1): the Update rows' RowVersion preimages protect the
+        // entities this batch *writes*, but the reference rows that decide validity — Brand /
+        // Category / SpecificationDefinition / SpecificationOption IsActive, and "this key does
+        // not exist yet" for Inserts — were only read under ReadCommitted, which releases the
+        // shared lock as soon as each query completes. Serializable keeps shared/key-range locks
+        // on every row and range the resolvers read until commit, so nothing another transaction
+        // does between the resolver and SaveChanges can invalidate what was validated: a
+        // deactivation of a referenced brand blocks until this transaction commits, and an insert
+        // into a key range the resolvers probed for an Insert row blocks the same way (then dies
+        // on the unique index itself, not us). The residual failure modes are a deadlock victim
+        // (→ 409 concurrency_conflict, batch stays Ready, retryable) and a unique-index loss when
+        // the other writer committed first (→ batch Failed + import_validation_failed, re-Preview)
+        // — both mapped below instead of surfacing as generic 500s.
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
         try
         {
             batch.ChangeStatus(ImportBatchStatus.Committing, now);
@@ -434,6 +450,29 @@ public sealed class EfProductImportService : IProductImportService
             throw DomainProblemException.Conflict(
                 DomainErrorCodes.ImportValidationFailed,
                 "The catalog changed after this preview was taken. Re-run Preview and confirm the new batch.");
+        }
+        catch (DbUpdateException exception) when (IsUniqueKeyViolation(exception))
+        {
+            // 組長 PR #74 round-2 review (P1): an Insert key that another request committed first.
+            // Under Serializable this only happens when the competing writer got in BEFORE our
+            // resolver read (after it, the range lock makes them wait behind us) — the catalog no
+            // longer matches the preview, so the batch fails like any other post-preview drift.
+            await transaction.RollbackAsync(cancellationToken);
+            await MarkFailedBestEffortAsync(batch.Id, cancellationToken);
+            throw DomainProblemException.Conflict(
+                DomainErrorCodes.ImportValidationFailed,
+                "Another request created one of this batch's new keys first. Re-run Preview and confirm the new batch.");
+        }
+        catch (Exception exception) when (IsDeadlockVictim(exception))
+        {
+            // Serializable's price: two imports (or an import and a catalog write) can deadlock
+            // and SQL Server kills one. Nothing was applied and the batch reverts to Ready with
+            // the rollback — a straight retry is the correct client move, so this is the stable
+            // 409, not a Failed batch and not a 500.
+            await transaction.RollbackAsync(cancellationToken);
+            throw DomainProblemException.Conflict(
+                "concurrency_conflict",
+                "Concurrent catalog activity interrupted the confirm. Retry the confirm.");
         }
         catch (Exception)
         {
@@ -1254,6 +1293,25 @@ public sealed class EfProductImportService : IProductImportService
         return document.RootElement.TryGetProperty("Payload", out var payload)
             ? payload.GetRawText()
             : normalizedPayloadJson;
+    }
+
+    /// <summary>2601/2627: unique index / unique constraint violation.</summary>
+    private static bool IsUniqueKeyViolation(DbUpdateException exception) =>
+        exception.GetBaseException() is SqlException { Number: 2601 or 2627 };
+
+    /// <summary>1205 anywhere in the chain: this transaction was chosen as a deadlock victim —
+    /// it can surface from a resolver query directly or wrapped by SaveChanges.</summary>
+    private static bool IsDeadlockVictim(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is SqlException { Number: 1205 })
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool IsOneInProgressBatchConflict(DbUpdateException exception) =>

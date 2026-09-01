@@ -61,6 +61,12 @@ public sealed class AdminProductImportsController : ControllerBase
         return result is null ? NotFound() : Ok(result);
     }
 
+    // 組長 PR #74 round-2 review (P2): pageSize is optional in the contract, but a non-nullable
+    // int made an omitted value bind to 0 and then fail the service's 1–200 range check — a plain
+    // GET without pageSize was rejected. Nullable binding tells "omitted" (→ default 50) apart
+    // from an explicit 0 (→ still a validation error, as it should be).
+    private const int DefaultRowsPageSize = 50;
+
     [HttpGet("{id:guid}/rows")]
     [Authorize(Policy = DoSelectPolicies.CatalogImportReadAll)]
     public async Task<ActionResult> GetRows(
@@ -68,12 +74,12 @@ public sealed class AdminProductImportsController : ControllerBase
         [FromQuery] string? dataset,
         [FromQuery] bool errorsOnly,
         [FromQuery] string? cursor,
-        [FromQuery] int pageSize,
+        [FromQuery] int? pageSize,
         CancellationToken cancellationToken)
     {
         var result = await _service.GetRowsAsync(
             id,
-            new ImportRowsQuery(dataset, errorsOnly, cursor, pageSize),
+            new ImportRowsQuery(dataset, errorsOnly, cursor, pageSize ?? DefaultRowsPageSize),
             cancellationToken);
         return Ok(result);
     }

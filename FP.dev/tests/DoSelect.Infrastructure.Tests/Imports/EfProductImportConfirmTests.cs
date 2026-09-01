@@ -414,6 +414,127 @@ public sealed class EfProductImportConfirmTests
         Assert.Equal(0, await verify.AuditLogs.CountAsync(log => log.ResourcePublicId == preview.PublicId));
     }
 
+    /// <summary>組長 PR #74 round-2 review (P1): the reference rows that decide validity (brand /
+    /// category IsActive) used to be read under ReadCommitted, whose shared locks are gone the
+    /// moment each resolver query returns — a deactivation could slip in between the in-transaction
+    /// revalidation and SaveChanges, and the applied import would reference a deactivated brand.
+    /// Serializable keeps those rows locked until commit: the racing deactivation must WAIT, and
+    /// applies only after the confirm — serial order, no window. The interceptor injects the
+    /// concurrent write at the worst possible moment: after every resolver ran, right before the
+    /// apply-phase SaveChanges.</summary>
+    [Fact]
+    public async Task ConfirmAsync_WhenABrandDeactivationRacesBetweenResolveAndSave_TheDeactivationWaitsForCommit()
+    {
+        await using var seedContext = ImportServiceFixture.CreateContext();
+        var (brand, category) = await ImportServiceFixture.SeedBrandAndCategoryAsync(seedContext);
+        var adminId = await SeedCatalogManagerAsync(seedContext);
+        var productCode = ImportServiceFixture.UniqueCode("PROD");
+        var preview = await CreateService(seedContext).PreviewAsync(MakeRequest(
+            ProductsHeader + $"PK1,{productCode},商品,{brand.Code},{category.Code},\\N,\\N,Draft\r\n",
+            SkusHeader,
+            SpecificationsHeader), adminId, CancellationToken.None);
+        Assert.Equal(ImportBatchStatus.Ready.ToString(), preview.Status);
+
+        var interceptor = new ConcurrentWriteBetweenResolveAndSave(async () =>
+        {
+            await using var other = ImportServiceFixture.CreateContext();
+            var target = await other.Brands.SingleAsync(candidate => candidate.Id == brand.Id);
+            target.SetActive(false, DateTime.UtcNow);
+            await other.SaveChangesAsync();
+        });
+        await using var confirmContext = ImportServiceFixture.CreateContext(interceptor);
+
+        var result = await CreateService(confirmContext).ConfirmAsync(
+            preview.PublicId, adminId, preview.RowVersion, TestAuditContext, CancellationToken.None);
+
+        Assert.Equal(ImportBatchStatus.Committed.ToString(), result.Status);
+        Assert.True(interceptor.Fired);
+        // The deactivation was still lock-blocked when the 3-second window closed — it could not
+        // interleave between the resolvers and the save.
+        Assert.False(interceptor.CompletedInsideWindow);
+        // Once the commit released the locks the deactivation went through, strictly after us.
+        await interceptor.ConcurrentWrite!;
+        await using var verify = ImportServiceFixture.CreateContext();
+        Assert.False((await verify.Brands.SingleAsync(candidate => candidate.Id == brand.Id)).IsActive);
+        Assert.Equal(1, await verify.Products.CountAsync(candidate => candidate.ProductCode == productCode));
+    }
+
+    /// <summary>組長 PR #74 round-2 review (P1), Insert-key half: a competing request creating the
+    /// same product code between the resolver's "does not exist yet" probe and SaveChanges used to
+    /// win the key and turn our insert into a generic-catch 500. Serializable key-range locks
+    /// cover the probed range, so the competitor waits behind the confirm and then dies on
+    /// UX_Products_ProductCode itself — the confirmed batch is untouched.</summary>
+    [Fact]
+    public async Task ConfirmAsync_WhenACompetingInsertOfTheSameProductCodeRaces_TheCompetitorWaitsAndLoses()
+    {
+        await using var seedContext = ImportServiceFixture.CreateContext();
+        var (brand, category) = await ImportServiceFixture.SeedBrandAndCategoryAsync(seedContext);
+        var adminId = await SeedCatalogManagerAsync(seedContext);
+        var productCode = ImportServiceFixture.UniqueCode("PROD");
+        var preview = await CreateService(seedContext).PreviewAsync(MakeRequest(
+            ProductsHeader + $"PK1,{productCode},商品,{brand.Code},{category.Code},\\N,\\N,Draft\r\n",
+            SkusHeader,
+            SpecificationsHeader), adminId, CancellationToken.None);
+        Assert.Equal(ImportBatchStatus.Ready.ToString(), preview.Status);
+
+        var interceptor = new ConcurrentWriteBetweenResolveAndSave(async () =>
+        {
+            await using var other = ImportServiceFixture.CreateContext();
+            other.Products.Add(new Product(
+                Guid.CreateVersion7(), productCode, brand.Id, category.Id, "搶先建立", DateTime.UtcNow));
+            await other.SaveChangesAsync();
+        });
+        await using var confirmContext = ImportServiceFixture.CreateContext(interceptor);
+
+        var result = await CreateService(confirmContext).ConfirmAsync(
+            preview.PublicId, adminId, preview.RowVersion, TestAuditContext, CancellationToken.None);
+
+        Assert.Equal(ImportBatchStatus.Committed.ToString(), result.Status);
+        Assert.True(interceptor.Fired);
+        Assert.False(interceptor.CompletedInsideWindow);
+        // The competitor finally ran after our commit — and lost on the unique index, which is
+        // exactly the serial outcome: our validated insert stands, theirs is the conflict.
+        await Assert.ThrowsAsync<DbUpdateException>(() => interceptor.ConcurrentWrite!);
+        await using var verify = ImportServiceFixture.CreateContext();
+        var product = await verify.Products.SingleAsync(candidate => candidate.ProductCode == productCode);
+        Assert.Equal("商品", product.NameZhTw);
+    }
+
+    /// <summary>Launches one concurrent write on a separate connection right before the confirm
+    /// transaction's apply-phase SaveChanges (the first save whose tracker carries a Product), and
+    /// records whether that write managed to finish inside a generous 3-second window. Under
+    /// Serializable it must still be pending (lock-blocked); under weaker isolation it slips
+    /// straight through — which is the regression these tests pin down.</summary>
+    private sealed class ConcurrentWriteBetweenResolveAndSave : Microsoft.EntityFrameworkCore.Diagnostics.SaveChangesInterceptor
+    {
+        private readonly Func<Task> _write;
+
+        public ConcurrentWriteBetweenResolveAndSave(Func<Task> write) => _write = write;
+
+        public bool Fired { get; private set; }
+
+        public bool CompletedInsideWindow { get; private set; }
+
+        public Task? ConcurrentWrite { get; private set; }
+
+        public override async ValueTask<Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int>> SavingChangesAsync(
+            Microsoft.EntityFrameworkCore.Diagnostics.DbContextEventData eventData,
+            Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (!Fired && eventData.Context is not null &&
+                eventData.Context.ChangeTracker.Entries<Product>().Any())
+            {
+                Fired = true;
+                ConcurrentWrite = Task.Run(_write);
+                var finishedFirst = await Task.WhenAny(ConcurrentWrite, Task.Delay(3000, cancellationToken));
+                CompletedInsideWindow = finishedFirst == ConcurrentWrite && ConcurrentWrite.IsCompletedSuccessfully;
+            }
+
+            return await base.SavingChangesAsync(eventData, result, cancellationToken);
+        }
+    }
+
     /// <summary>Fails any SaveChanges that tries to insert an AuditLog row, simulating an audit
     /// subsystem failure at the exact point the confirm writes its entry.</summary>
     private sealed class FailAuditLogWrites : Microsoft.EntityFrameworkCore.Diagnostics.SaveChangesInterceptor
