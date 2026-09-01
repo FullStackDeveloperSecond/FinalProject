@@ -1,11 +1,11 @@
 ---
 文件狀態: 進行中
 最後更新: 2026-09-01
-基準分支: dev@6968cbea
-實作分支: 待建立 WP-A02 分支
+基準分支: dev@eb5ca4a1
+實作分支: codex/wp-a02-guest-order-e2e-20260901
 實作人: alex
 規劃範圍: alex 正式主責與已明確接手項目
-下一工作包: WP-A02
+下一工作包: WP-A02（實作完成，待 Git Gate）
 ---
 
 # Alex 個人剩餘交付實作計畫
@@ -69,6 +69,7 @@
 ## 4. 已驗證基準
 
 - `dev@bc26de94` 已包含 PR #72 的 C-21／C-22，WP-H01 完成。
+- `dev@e7a20f58` 已包含 WP-A01 的 PR #80 與收束文件 PR #81；WP-A02 從此 base 開始，Git Gate 前已 rebase 至 `dev@eb5ca4a1`。
 - `OrdersController.CreateOrder` 已提供 `POST /api/v1/orders`；不得另建第二套 Checkout API。
 - 現有 Playwright 只有商品瀏覽、AI 降級、評價、報表等代表旅程，沒有 M-01／M-01B 真實認證、Guest 訂單或完整 Checkout 旅程。
 - 既有 Checkout SQL 測試涵蓋成功、缺貨回滾、金額、優惠與超商資料，但最後一件商品競爭、完整 replay 與逾時釋放仍缺證據。
@@ -157,7 +158,8 @@
 |---|---|---|---|
 | 2026-09-01 | 計畫建立 | 完成 | 依 `dev@bc26de94`、正式分工、未完成追蹤表、M 功能矩陣及程式／測試證據建立；下一包 WP-A01 |
 | 2026-09-01 | WP-A01／WP-H02 | 完成 | PR #80 已由 exact head `7a606f52` 通過 Required CI 與 Review，squash merge 為 `dev@6968cbea`；新增會員 Session 與管理員首次 TOTP 綁定／錯碼拒絕／二次登入 Browser E2E，customer 5/5、admin 4/4 均以獨立 `DoSelectE2E_<GUID>` SQL DB 通過並完成清理。完整 customer 回歸另觀察到既有 M-19 降級路徑的 Vue `Unhandled rejection` 警告，留待 WP-A07，不混入本包。 |
+| 2026-09-01 | WP-A02／WP-H03 | 實作完成／待 Git Gate | 以兩張真實 Guest Checkout 訂單完成錯碼拒絕、正確查單、跨單 GET／取消 404、目標訂單取消及另一張訂單狀態／RowVersion 零副作用斷言；聚焦 E2E 1/1、customer E2E 6/6、Vitest 301/301、lint、typecheck、production build 與 .NET solution build 均通過。同步補齊 `--seed-minimal` 主 SKU 的確定性包材尺寸，使正式 Checkout 不再因 `shipping_method_not_allowed` 被測試 Seed 阻擋。 |
 
 ## 11. 下一步
 
-執行 `WP-A02／WP-H03`：以最新 `dev@6968cbea` 盤點既有 Guest Access、訂單明細與取消 UI／API／Fixture，建立正確訂單可存取／取消、錯誤或其他訂單不可存取且零副作用的 Browser E2E。本包不得自行改變 Guest Access、取消條件或訂單產品規則。
+完成 `WP-A02／WP-H03` 的 working-tree Review；無 P0～P3 finding 後進入 Git Gate。取得授權後才 Commit／push／建立 PR，並以 exact remote head 的 Required CI 與 Review 作為 squash merge 條件；合併前不得開始 WP-A03。

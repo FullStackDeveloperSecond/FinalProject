@@ -1,4 +1,130 @@
+import { createHmac, randomUUID } from 'node:crypto'
+import type { APIRequestContext } from '@playwright/test'
 import { expect, test } from './fixtures.js'
+
+const guestAccessPepper = 'e2e-guest-order-access-pepper-32-bytes'
+
+interface CartSnapshot {
+  publicId: string
+  rowVersion: string
+}
+
+interface OrderSnapshot {
+  publicId: string
+  orderNumber: string
+  orderStatus: string
+  rowVersion: string
+}
+
+async function getAntiforgeryToken(api: APIRequestContext): Promise<string> {
+  const response = await api.get('/api/v1/security/antiforgery-token', {
+    headers: { 'X-DoSelect-Client': 'member' },
+  })
+  expect(response.ok(), 'The E2E setup must obtain a real antiforgery token').toBe(true)
+  const body = await response.json() as { requestToken: string }
+  return body.requestToken
+}
+
+function unsafeHeaders(requestToken: string, extra: Record<string, string> = {}): Record<string, string> {
+  return {
+    'X-DoSelect-Client': 'member',
+    'X-XSRF-TOKEN': requestToken,
+    ...extra,
+  }
+}
+
+async function createGuestOrder(
+  api: APIRequestContext,
+  skuPublicId: string,
+  email: string,
+  requestToken: string,
+): Promise<OrderSnapshot> {
+  const guestCartKey = `e2e-guest-cart-${randomUUID()}`
+  const cartHeaders = unsafeHeaders(requestToken, {
+    'X-DoSelect-Guest-Cart-Key': guestCartKey,
+  })
+  const initialCartResponse = await api.get('/api/v1/cart', { headers: cartHeaders })
+  expect(initialCartResponse.ok(), 'The E2E setup must create a real guest cart').toBe(true)
+  const initialCart = await initialCartResponse.json() as CartSnapshot
+
+  const addItemResponse = await api.post('/api/v1/cart/items', {
+    headers: cartHeaders,
+    data: {
+      skuPublicId,
+      quantity: 1,
+      cartRowVersion: initialCart.rowVersion,
+    },
+  })
+  expect(addItemResponse.ok(), 'The seeded SKU must be addable to a real guest cart').toBe(true)
+  const cart = await addItemResponse.json() as CartSnapshot
+
+  const policyResponse = await api.get('/api/v1/checkout/policy-versions')
+  expect(policyResponse.ok(), 'The Checkout policy versions must be available').toBe(true)
+  const policies = await policyResponse.json() as {
+    terms: number
+    return: number
+    privacy: number
+  }
+
+  const createResponse = await api.post('/api/v1/orders', {
+    headers: unsafeHeaders(requestToken, {
+      'X-DoSelect-Guest-Cart-Key': guestCartKey,
+      'Idempotency-Key': `e2e-checkout-${randomUUID()}`,
+    }),
+    data: {
+      cartPublicId: cart.publicId,
+      cartRowVersion: cart.rowVersion,
+      buyer: {
+        email,
+        name: '訪客測試買家',
+        phone: '0912345678',
+      },
+      shipping: {
+        methodCode: 'HomeDelivery',
+        address: {
+          recipientName: '訪客測試買家',
+          phone: '0912345678',
+          postalCode: '100',
+          city: '台北市',
+          district: '中正區',
+          addressLine1: '測試路 1 號',
+          addressLine2: null,
+        },
+        storePublicId: null,
+        deliveryNote: null,
+      },
+      paymentMethod: 'creditCard',
+      couponCode: null,
+      invoice: {
+        type: 'simulated',
+        buyerType: 'personal',
+        carrierType: null,
+        carrierValue: null,
+        companyTaxId: null,
+        companyName: null,
+      },
+      acceptPolicyVersions: {
+        terms: policies.terms,
+        return: policies.return,
+        privacy: policies.privacy,
+      },
+    },
+  })
+  const createResponseBody = await createResponse.text()
+  expect(
+    createResponse.status(),
+    `The E2E setup must complete a real guest Checkout. Response: ${createResponseBody}`,
+  ).toBe(201)
+  return JSON.parse(createResponseBody) as OrderSnapshot
+}
+
+function deriveGuestVerificationCode(requestPublicId: string, sendNumber = 1): string {
+  const normalizedId = requestPublicId.replaceAll('-', '').toLowerCase()
+  const digest = createHmac('sha256', guestAccessPepper)
+    .update(`verification-code:${normalizedId}:${sendNumber}`)
+    .digest()
+  return String(digest.readUInt32BE(0) % 1_000_000).padStart(6, '0')
+}
 
 test('a seeded member can sign in, open a protected profile, and sign out', async ({
   page,
@@ -18,6 +144,103 @@ test('a seeded member can sign in, open a protected profile, and sign out', asyn
   await page.goto('/account')
   await expect(page).toHaveURL((url) =>
     url.pathname === '/login' && url.searchParams.get('redirect') === '/account')
+})
+
+test('a guest can verify, view and cancel only the matching order without cross-order effects', async ({
+  page,
+  api,
+  seed,
+}) => {
+  const requestToken = await getAntiforgeryToken(api)
+  const targetEmail = `target-${randomUUID()}@example.test`
+  const otherEmail = `other-${randomUUID()}@example.test`
+  const targetOrder = await createGuestOrder(api, seed.skuPublicId, targetEmail, requestToken)
+  const otherOrder = await createGuestOrder(api, seed.skuPublicId, otherEmail, requestToken)
+
+  await page.goto('/guest-orders/access')
+  await page.getByLabel('訂單編號').fill(targetOrder.orderNumber)
+  await page.getByLabel('訂單 Email').fill(targetEmail)
+  await page.getByRole('button', { name: '寄送驗證碼' }).click()
+  await expect(page).toHaveURL(/\/guest-orders\/verify\?requestPublicId=/)
+
+  const requestPublicId = new URL(page.url()).searchParams.get('requestPublicId')
+  expect(requestPublicId, 'Guest access must redirect with its opaque request id').toBeTruthy()
+  const correctCode = deriveGuestVerificationCode(requestPublicId!)
+  const wrongCode = correctCode === '000000' ? '000001' : '000000'
+
+  await page.getByLabel('六位數驗證碼').fill(wrongCode)
+  await page.getByRole('button', { name: '驗證並查看訂單' }).click()
+  await expect(page.getByRole('alert')).toContainText('驗證碼無效或已過期')
+  expect(
+    (await page.context().cookies()).some(cookie => cookie.name === '.DoSelect.GuestOrderAccess'),
+    'A wrong code must not issue the order-scoped Cookie',
+  ).toBe(false)
+
+  await page.getByLabel('六位數驗證碼').fill(correctCode)
+  await page.getByRole('button', { name: '驗證並查看訂單' }).click()
+  await expect(page).toHaveURL(new RegExp(`/orders/${targetOrder.publicId}$`))
+  await expect(page.getByRole('heading', { level: 1, name: `訂單 ${targetOrder.orderNumber}` }))
+    .toBeVisible()
+  await expect(page.getByText('狀態：等待付款', { exact: true })).toBeVisible()
+
+  const crossOrderCancelStatus = await page.evaluate(async ({ orderPublicId, rowVersion }) => {
+    const tokenResponse = await fetch('/api/v1/security/antiforgery-token', {
+      credentials: 'include',
+      headers: { 'X-DoSelect-Client': 'member' },
+    })
+    const token = await tokenResponse.json() as { requestToken: string }
+    const response = await fetch(`/api/v1/orders/${orderPublicId}/actions/cancel`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-DoSelect-Client': 'member',
+        'X-XSRF-TOKEN': token.requestToken,
+      },
+      body: JSON.stringify({
+        reasonCode: 'changed_mind',
+        note: 'must be rejected',
+        orderRowVersion: rowVersion,
+      }),
+    })
+    return response.status
+  }, { orderPublicId: otherOrder.publicId, rowVersion: otherOrder.rowVersion })
+  expect(crossOrderCancelStatus, 'An order-scoped Cookie must not cancel another order')
+    .toBe(404)
+
+  await page.goto(`/orders/${otherOrder.publicId}`)
+  await expect(page.getByRole('heading', { level: 1, name: '找不到頁面' })).toBeVisible()
+
+  await page.goto(`/orders/${targetOrder.publicId}`)
+  await expect(page.getByRole('heading', { level: 1, name: `訂單 ${targetOrder.orderNumber}` }))
+    .toBeVisible()
+  await page.getByRole('button', { name: '申請取消訂單' }).click()
+  await page.getByLabel('取消原因').selectOption('changed_mind')
+  await page.getByLabel('補充說明（選填）').fill('WP-A02 瀏覽器驗證')
+  await page.getByRole('button', { name: '確認取消訂單' }).click()
+  await expect(page.getByText('狀態：已取消', { exact: true })).toBeVisible()
+
+  await page.goto('/guest-orders/access')
+  await page.getByLabel('訂單編號').fill(otherOrder.orderNumber)
+  await page.getByLabel('訂單 Email').fill(otherEmail)
+  await page.getByRole('button', { name: '寄送驗證碼' }).click()
+  await expect(page).toHaveURL(/\/guest-orders\/verify\?requestPublicId=/)
+  const otherRequestPublicId = new URL(page.url()).searchParams.get('requestPublicId')
+  expect(otherRequestPublicId).toBeTruthy()
+  await page.getByLabel('六位數驗證碼')
+    .fill(deriveGuestVerificationCode(otherRequestPublicId!))
+  await page.getByRole('button', { name: '驗證並查看訂單' }).click()
+  await expect(page).toHaveURL(new RegExp(`/orders/${otherOrder.publicId}$`))
+
+  const unchangedOrder = await page.evaluate(async (orderPublicId) => {
+    const response = await fetch(`/api/v1/orders/${orderPublicId}`, { credentials: 'include' })
+    if (!response.ok) {
+      throw new Error(`Expected the independently verified order to load, got ${response.status}.`)
+    }
+    return await response.json() as OrderSnapshot
+  }, otherOrder.publicId)
+  expect(unchangedOrder.orderStatus).toBe(otherOrder.orderStatus)
+  expect(unchangedOrder.rowVersion).toBe(otherOrder.rowVersion)
 })
 
 test('a shopper can open the seeded catalog and view product details', async ({ page, api, seed }) => {
