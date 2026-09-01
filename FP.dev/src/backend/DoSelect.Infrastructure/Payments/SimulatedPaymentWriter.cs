@@ -183,7 +183,7 @@ public sealed class SimulatedPaymentWriter : ISimulatedPaymentWriter
 
         await _context.SaveChangesAsync(cancellationToken);
 
-        var dto = ToDto(attempt);
+        var dto = PaymentAttemptDtoMapper.Map(attempt);
         return new IdempotencyResponse<PaymentAttemptDto>(
             OkStatusCode,
             dto,
@@ -204,20 +204,8 @@ public sealed class SimulatedPaymentWriter : ISimulatedPaymentWriter
 
         // 重播回的是付款嘗試「現在」的樣子，不是當初的快照 —— 讀回同一個資源，
         // 而不是把一份可能已經過期的內容當成事實。
-        return ToDto(attempt);
+        return PaymentAttemptDtoMapper.Map(attempt);
     }
-
-    private static PaymentAttemptDto ToDto(PaymentAttempt attempt) =>
-        new(
-            attempt.PublicId,
-            attempt.Method,
-            attempt.Status,
-            attempt.Amount,
-            OrderCurrency,
-            ToInstruction(attempt),
-            attempt.CreatedAtUtc,
-            attempt.PaidAtUtc,
-            attempt.RowVersion);
 
     private async Task<ResolvedActor> ResolveActorAsync(
         SimulatedPaymentActor actor,
@@ -450,25 +438,6 @@ public sealed class SimulatedPaymentWriter : ISimulatedPaymentWriter
         _ => throw new ArgumentOutOfRangeException(nameof(status)),
     };
 
-    /// <remarks>
-    /// 即時付款沒有要顯示給使用者照著做的指示，所以回 <c>null</c> 而不是一個空殼。
-    /// ATM 與超商代碼才有代碼要呈現。
-    /// </remarks>
-    private static PaymentInstructionDto? ToInstruction(PaymentAttempt attempt)
-    {
-        var kind = PaymentMethodPolicy.KindOf(attempt.Method);
-        if (kind != PaymentSettlementKind.Deferred)
-        {
-            return null;
-        }
-
-        return new PaymentInstructionDto(
-            attempt.Method.ToString(),
-            MaskedAccount: null,
-            attempt.ExternalReference,
-            attempt.InstructionExpiresAtUtc);
-    }
-
     private static string DescribeRejection(string errorCode) => errorCode switch
     {
         PaymentErrorCodes.PaymentAttemptExpired =>
@@ -477,8 +446,6 @@ public sealed class SimulatedPaymentWriter : ISimulatedPaymentWriter
             "The order payment deadline passed.",
         _ => "The payment is not in a state that can be completed.",
     };
-
-    private const string OrderCurrency = "TWD";
 
     private sealed record SimulatedPaymentReceipt(Guid PaymentAttemptPublicId);
 

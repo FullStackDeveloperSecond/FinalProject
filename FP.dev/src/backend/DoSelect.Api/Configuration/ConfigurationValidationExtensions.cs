@@ -5,6 +5,7 @@ using DoSelect.Application.Storage;
 using DoSelect.Application.Checkout;
 using DoSelect.Infrastructure.Email;
 using DoSelect.Infrastructure.Ai;
+using DoSelect.Infrastructure.Promotions;
 using DoSelect.Infrastructure.Security;
 using Microsoft.Extensions.Options;
 
@@ -58,6 +59,12 @@ public static class ConfigurationValidationExtensions
             .AddOptions<CheckoutPolicyOptions>()
             .BindConfiguration(CheckoutPolicyOptions.SectionName)
             .ValidateOnStart();
+        // 這把 Secret 只在訪客實際使用優惠券時才是必需；不得讓會員或未使用優惠券的
+        // 訪客 Checkout 因選用設定缺少而無法啟動。長度由 CouponGuestUsageHasher
+        // 在使用點 fail closed。
+        services
+            .AddOptions<CouponGuestUsageOptions>()
+            .BindConfiguration(CouponGuestUsageOptions.SectionName);
 
         services.AddSingleton<IValidateOptions<StorageOptions>, StorageOptionsValidator>();
         services.AddSingleton<IValidateOptions<OpenAiResponsesOptions>, OpenAiOptionsValidator>();

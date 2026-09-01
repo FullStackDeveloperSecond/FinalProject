@@ -15,6 +15,9 @@ public static class PaymentsServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
 
         services.TryAddSingleton(TimeProvider.System);
+        services.AddScoped<IPaymentAttemptReader, PaymentAttemptReader>();
+        services.AddScoped<StartPaymentAttemptService>();
+        services.AddScoped<IPaymentAttemptWriter, PaymentAttemptWriter>();
         services.AddScoped<CompleteSimulatedPaymentService>();
         services.AddScoped<CashOnDeliveryCompletionService>();
         services.AddScoped<ISimulatedPaymentAuthorizationReader, SimulatedPaymentAuthorizationReader>();

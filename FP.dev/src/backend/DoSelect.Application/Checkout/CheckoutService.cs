@@ -1,5 +1,6 @@
 using System.Text.Json;
 using DoSelect.Application.Idempotency;
+using DoSelect.Application.Orders;
 
 namespace DoSelect.Application.Checkout;
 
@@ -30,7 +31,7 @@ public sealed class CheckoutService
         _policyProvider = policyProvider;
     }
 
-    public Task<IdempotencyExecutionResult<CheckoutCreatedOrder>> CreateOrderAsync(
+    public Task<IdempotencyExecutionResult<OrderDto>> CreateOrderAsync(
         CheckoutActor actor,
         CreateOrderRequest request,
         string idempotencyKey,
@@ -57,16 +58,16 @@ public sealed class CheckoutService
             cancellationToken);
     }
 
-    private async Task<IdempotencyResponse<CheckoutCreatedOrder>> ExecuteAsync(
+    private async Task<IdempotencyResponse<OrderDto>> ExecuteAsync(
         CheckoutCommand command,
         CancellationToken cancellationToken)
     {
         var created = await _transactionGateway.ExecuteAsync(command, cancellationToken);
         var receipt = JsonSerializer.Serialize(new CheckoutReplayReceipt(created.PublicId));
-        return new IdempotencyResponse<CheckoutCreatedOrder>(201, created, receipt);
+        return new IdempotencyResponse<OrderDto>(201, created, receipt);
     }
 
-    private async Task<CheckoutCreatedOrder> ReplayAsync(
+    private async Task<OrderDto> ReplayAsync(
         StoredIdempotencyResponse stored,
         CancellationToken cancellationToken)
     {

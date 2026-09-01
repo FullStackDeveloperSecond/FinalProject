@@ -21,7 +21,6 @@ namespace DoSelect.Infrastructure.Orders;
 public sealed class EfOrderService : IOrderService
 {
     private const string CancelAction = "cancel";
-    private const string RequestReturnAction = "requestReturn";
 
     private readonly DoSelectDbContext _dbContext;
     private readonly IAuditWriter _auditWriter;
@@ -100,7 +99,7 @@ public sealed class EfOrderService : IOrderService
             .Where(item => item.OrderId == order.Id)
             .ToListAsync(cancellationToken);
 
-        return MapOrder(order, items);
+        return OrderDtoMapper.Map(order, items);
     }
 
     public async Task<OrderDto> CancelOrderAsync(
@@ -201,7 +200,7 @@ public sealed class EfOrderService : IOrderService
         var items = await _dbContext.OrderItems.AsNoTracking()
             .Where(item => item.OrderId == order.Id)
             .ToListAsync(cancellationToken);
-        return MapOrder(order, items);
+        return OrderDtoMapper.Map(order, items);
     }
 
     private async Task<Order> FindOwnedOrderAsync(
@@ -268,74 +267,6 @@ public sealed class EfOrderService : IOrderService
         }
 
         return actions;
-    }
-
-    private static OrderDto MapOrder(Order order, IReadOnlyList<OrderItem> items)
-    {
-        var itemDtos = items
-            .Select(item => new OrderItemDto(
-                item.PublicId,
-                item.SkuCodeSnapshot,
-                item.ProductNameSnapshot,
-                item.SkuNameSnapshot,
-                item.Quantity,
-                item.FinalUnitPrice,
-                item.LineTotal,
-                item.ReturnableQuantity,
-                item.ReturnedQuantity))
-            .ToList();
-
-        var actions = new List<string>();
-        if (order.OrderStatus == OrderStatus.PendingPayment)
-        {
-            actions.Add(CancelAction);
-        }
-
-        var hasReturnableQuantity = itemDtos.Any(item => item.ReturnableQuantity > item.ReturnedQuantity);
-        var isDelivered = order.FulfillmentStatus is FulfillmentStatus.Delivered or FulfillmentStatus.PickedUp;
-        if (isDelivered && hasReturnableQuantity)
-        {
-            actions.Add(RequestReturnAction);
-        }
-
-        var recipient = new OrderRecipientSummaryDto(
-            order.RecipientName,
-            order.ShippingMethodCode,
-            order.StoreName);
-
-        var amounts = new OrderAmountsDto(
-            order.MerchandiseSubtotal,
-            order.ItemDiscountTotal,
-            order.ShippingFee,
-            order.AssemblyFee,
-            order.GrandTotal,
-            order.PaidAmount,
-            order.RefundedAmount,
-            order.Currency);
-
-        return new OrderDto(
-            order.PublicId,
-            order.OrderNumber,
-            order.OrderStatus,
-            order.PaymentStatus,
-            order.FulfillmentStatus,
-            order.AssemblyStatus,
-            order.OrderRefundStatus,
-            itemDtos,
-            recipient,
-            amounts,
-            order.PaymentDueAtUtc,
-            order.ConfirmedAtUtc,
-            order.PaidAtUtc,
-            order.ShippedAtUtc,
-            order.DeliveredAtUtc,
-            order.CompletedAtUtc,
-            order.CancelledAtUtc,
-            order.DeliveredAtUtc is { } deliveredAtUtc
-                ? ReturnEligibilityPolicy.ComputeCoolingOffDeadlineUtc(deliveredAtUtc)
-                : null,
-            actions,
-            order.RowVersion);
     }
 
     private async Task SaveWithConcurrencyCheckAsync(CancellationToken cancellationToken)

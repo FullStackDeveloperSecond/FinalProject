@@ -2591,7 +2591,149 @@ export interface paths {
             };
         };
         put?: never;
-        post?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": string;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateOrderRequest"];
+                    "text/json": components["schemas"]["CreateOrderRequest"];
+                    "application/*+json": components["schemas"]["CreateOrderRequest"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["OrderDto"];
+                        "application/json": components["schemas"]["OrderDto"];
+                        "text/json": components["schemas"]["OrderDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/orders/{id}/payment-attempts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": string;
+                };
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreatePaymentAttemptRequest"];
+                    "text/json": components["schemas"]["CreatePaymentAttemptRequest"];
+                    "application/*+json": components["schemas"]["CreatePaymentAttemptRequest"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["PaymentAttemptDto"];
+                        "application/json": components["schemas"]["PaymentAttemptDto"];
+                        "text/json": components["schemas"]["PaymentAttemptDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -7083,6 +7225,14 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AcceptedPolicyVersions: {
+            /** Format: int32 */
+            terms: number | string;
+            /** Format: int32 */
+            return: number | string;
+            /** Format: int32 */
+            privacy: number | string;
+        };
         AcknowledgeReconciliationCaseRequest: {
             /** Format: byte */
             rowVersion: string;
@@ -7930,6 +8080,39 @@ export interface components {
             /** Format: byte */
             rowVersion?: string;
         };
+        CheckoutAddressInput: {
+            recipientName: string;
+            phone: string;
+            postalCode: null | string;
+            city: null | string;
+            district: null | string;
+            addressLine1: null | string;
+            addressLine2: null | string;
+        };
+        CheckoutBuyerInput: {
+            email: string;
+            name: string;
+            phone: string;
+        };
+        /** @enum {unknown} */
+        CheckoutInvoiceBuyerType: "personal" | "company";
+        CheckoutInvoiceInput: {
+            type: components["schemas"]["CheckoutInvoiceType"];
+            buyerType: components["schemas"]["CheckoutInvoiceBuyerType"];
+            carrierType: null | string;
+            carrierValue: null | string;
+            companyTaxId: null | string;
+            companyName: null | string;
+        };
+        /** @enum {unknown} */
+        CheckoutInvoiceType: "simulated";
+        CheckoutShippingInput: {
+            methodCode: string;
+            address: null | components["schemas"]["CheckoutAddressInput"];
+            /** Format: uuid */
+            storePublicId: null | string;
+            deliveryNote?: null | string;
+        };
         ClaimSupportTicketRequest: {
             /** Format: byte */
             rowVersion?: string;
@@ -8151,6 +8334,23 @@ export interface components {
             addressLine1: string;
             addressLine2?: null | string;
             isDefault?: boolean;
+        };
+        CreateOrderRequest: {
+            /** Format: uuid */
+            cartPublicId: string;
+            /** Format: byte */
+            cartRowVersion: string;
+            buyer: components["schemas"]["CheckoutBuyerInput"];
+            shipping: components["schemas"]["CheckoutShippingInput"];
+            paymentMethod: components["schemas"]["PaymentMethod"];
+            couponCode: null | string;
+            invoice: components["schemas"]["CheckoutInvoiceInput"];
+            acceptPolicyVersions: components["schemas"]["AcceptedPolicyVersions"];
+        };
+        CreatePaymentAttemptRequest: {
+            method: components["schemas"]["PaymentMethod"];
+            /** Format: byte */
+            orderRowVersion: string;
         };
         CreateProductRequest: {
             productCode: string;

@@ -7,6 +7,7 @@ using System.Text.Json;
 using DoSelect.Application.Builds;
 using DoSelect.Application.Checkout;
 using DoSelect.Application.Common;
+using DoSelect.Application.Orders;
 using DoSelect.Application.Promotions;
 using DoSelect.Domain.Builds;
 using DoSelect.Domain.Catalog;
@@ -17,6 +18,7 @@ using DoSelect.Domain.Promotions;
 using DoSelect.Domain.Shopping;
 using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Persistence;
+using DoSelect.Infrastructure.Promotions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 
@@ -45,6 +47,7 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
     private readonly ICompatibilityCatalogReader _compatibilityCatalogReader;
     private readonly ICouponRuleReader _couponRuleReader;
     private readonly IOrderNumberGenerator _orderNumberGenerator;
+    private readonly CouponGuestUsageHasher _couponGuestUsageHasher;
     private readonly TimeProvider _timeProvider;
 
     public EfCheckoutTransactionGateway(
@@ -52,22 +55,25 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
         ICompatibilityCatalogReader compatibilityCatalogReader,
         ICouponRuleReader couponRuleReader,
         IOrderNumberGenerator orderNumberGenerator,
+        CouponGuestUsageHasher couponGuestUsageHasher,
         TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(compatibilityCatalogReader);
         ArgumentNullException.ThrowIfNull(couponRuleReader);
         ArgumentNullException.ThrowIfNull(orderNumberGenerator);
+        ArgumentNullException.ThrowIfNull(couponGuestUsageHasher);
         ArgumentNullException.ThrowIfNull(timeProvider);
 
         _context = context;
         _compatibilityCatalogReader = compatibilityCatalogReader;
         _couponRuleReader = couponRuleReader;
         _orderNumberGenerator = orderNumberGenerator;
+        _couponGuestUsageHasher = couponGuestUsageHasher;
         _timeProvider = timeProvider;
     }
 
-    public async Task<CheckoutCreatedOrder> ExecuteAsync(
+    public async Task<OrderDto> ExecuteAsync(
         CheckoutCommand command,
         CancellationToken cancellationToken = default)
     {
@@ -94,7 +100,9 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
             now,
             cancellationToken);
         var package = CalculateAndValidatePackage(lines, shipping.PackageLimit);
-        var guestHash = command.Actor.IsMember ? null : HashGuestKey(command.Actor.GuestCartKey!);
+        var guestHash = command.Actor.IsMember || command.CouponCode is null
+            ? null
+            : _couponGuestUsageHasher.HashEmail(command.Recipient.Email);
         var coupon = await CalculateCouponAsync(
             command,
             lines,
@@ -170,7 +178,7 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
             now,
             cancellationToken);
 
-        var paymentAttempt = AddPaymentAttempt(
+        AddPaymentAttempt(
             order,
             command.PaymentMethod,
             paymentDueAtUtc,
@@ -179,34 +187,26 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
         cart.ChangeStatus(CartStatus.Converted, now);
         await _context.SaveChangesAsync(cancellationToken);
 
-        return new CheckoutCreatedOrder(
-            order.PublicId,
-            order.OrderNumber,
-            order.GrandTotal,
-            order.Currency,
-            paymentAttempt.PublicId,
-            order.PaymentDueAtUtc);
+        return await FindCreatedOrderAsync(order.PublicId, cancellationToken)
+            ?? throw new InvalidOperationException("The newly created Checkout order could not be projected.");
     }
 
-    public async Task<CheckoutCreatedOrder?> FindCreatedOrderAsync(
+    public async Task<OrderDto?> FindCreatedOrderAsync(
         Guid orderPublicId,
         CancellationToken cancellationToken = default)
     {
-        var result = await (
-                from order in _context.Orders.AsNoTracking()
-                where order.PublicId == orderPublicId
-                join attempt in _context.PaymentAttempts.AsNoTracking()
-                    on order.Id equals attempt.OrderId
-                orderby attempt.CreatedAtUtc
-                select new CheckoutCreatedOrder(
-                    order.PublicId,
-                    order.OrderNumber,
-                    order.GrandTotal,
-                    order.Currency,
-                    attempt.PublicId,
-                    order.PaymentDueAtUtc))
-            .FirstOrDefaultAsync(cancellationToken);
-        return result;
+        var order = await _context.Orders.AsNoTracking()
+            .SingleOrDefaultAsync(candidate => candidate.PublicId == orderPublicId, cancellationToken);
+        if (order is null)
+        {
+            return null;
+        }
+
+        var items = await _context.OrderItems.AsNoTracking()
+            .Where(item => item.OrderId == order.Id)
+            .OrderBy(item => item.Id)
+            .ToListAsync(cancellationToken);
+        return OrderDtoMapper.Map(order, items);
     }
 
     private void EnsureExistingTransaction()
@@ -238,7 +238,7 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
             : cart.GuestCartKeyHash is not null &&
               CryptographicOperations.FixedTimeEquals(
                   cart.GuestCartKeyHash,
-                  HashGuestKey(command.Actor.GuestCartKey!));
+                  HashGuestCartKey(command.Actor.GuestCartKey!));
         if (!ownsCart)
         {
             throw DomainProblemException.Forbidden("The cart does not belong to the current actor.");
@@ -945,7 +945,7 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
         }
     }
 
-    private static byte[] HashGuestKey(string guestCartKey) =>
+    private static byte[] HashGuestCartKey(string guestCartKey) =>
         SHA256.HashData(Encoding.UTF8.GetBytes(guestCartKey));
 
     private static decimal RoundMoney(decimal value) =>
