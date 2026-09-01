@@ -11,7 +11,9 @@ vi.mock('../api', () => ({
 
 const { default: ConvenienceStorePicker } = await import('./ConvenienceStorePicker.vue')
 
-function store(overrides: Record<string, unknown> = {}) {
+type ConvenienceStoreOptionDto = import('../types').ConvenienceStoreOptionDto
+
+function store(overrides: Partial<ConvenienceStoreOptionDto> = {}): ConvenienceStoreOptionDto {
   return {
     publicId: 'st-1',
     providerCode: '7-11',
@@ -31,7 +33,7 @@ function page(items: unknown[]) {
 
 function mountPicker(
   modelValue: string | null = null,
-  selectedSummary: Record<string, unknown> | null = null,
+  selectedSummary: ConvenienceStoreOptionDto | null = null,
 ) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return mount(ConvenienceStorePicker, {
