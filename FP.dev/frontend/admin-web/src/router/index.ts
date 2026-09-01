@@ -236,6 +236,22 @@ const router = createRouter({
     },
     {
       // M功能桌面UI與Route規格.md A-12
+      // M功能桌面UI與Route規格.md A-17／A-18。後端的 ShippingRead 允許 OrderManager／
+      // CatalogManager／SuperAdmin 檢視，ShippingManage 的寫入只給 OrderManager／SuperAdmin
+      // （UC-ADM-STORE-01：「CatalogManager 只有檢視權限」），所以門市頁的 route 放檢視角色、
+      // 頁面內再隱藏寫入控制項；包裹限制整頁都是 Order Manage，route 就只放寫入角色。
+      path: '/shipping/stores',
+      name: 'shipping-stores',
+      component: () => import('../pages/ShippingStoresPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['OrderManager', 'CatalogManager', 'SuperAdmin'] },
+    },
+    {
+      path: '/shipping/package-limits',
+      name: 'shipping-package-limits',
+      component: () => import('../pages/ShippingPackageLimitsPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['OrderManager', 'SuperAdmin'] },
+    },
+    {
       path: '/inventory/reservations',
       name: 'inventory-reservations',
       component: () => import('../pages/InventoryReservationsPage.vue'),

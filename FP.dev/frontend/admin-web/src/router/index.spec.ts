@@ -264,6 +264,75 @@ describe('admin router role guard', () => {
     },
   )
 
+  // A-17／A-18：門市頁是 ShippingRead（OrderManager／CatalogManager／SuperAdmin 都可檢視），
+  // 包裹限制頁整頁都是 ShippingManage（只有 OrderManager／SuperAdmin）。兩條新路由都補齊 guard
+  // 覆蓋，不要重蹈 #35 那次「新頁面沒有 meta」的缺口。
+  it.each([
+    ['/shipping/stores'],
+    ['/shipping/package-limits'],
+  ])('redirects an anonymous administrator away from %s to login', async (path) => {
+    const auth = useAdminAuthStore()
+    auth.session = { isAuthenticated: false, user: null, expiresAtUtc: null, requiresTwoFactor: null }
+
+    await router.push(path)
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('login')
+    expect(router.currentRoute.value.query.redirect).toBe(path)
+  })
+
+  /** CatalogManager 可以看門市（UC-ADM-STORE-01「只有檢視權限」），但不得進入包裹限制頁。 */
+  it('lets a CatalogManager view the stores page but not the package-limits page', async () => {
+    const auth = useAdminAuthStore()
+    auth.session = {
+      isAuthenticated: true,
+      user: {
+        publicId: 'admin-ship-1',
+        displayName: 'Catalog',
+        emailMasked: 'c***@example.test',
+        emailVerified: true,
+        locale: 'zh-TW',
+        roles: ['CatalogManager'],
+      },
+      expiresAtUtc: null,
+      requiresTwoFactor: false,
+    }
+
+    await router.push('/shipping/stores')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('shipping-stores')
+
+    await router.push('/shipping/package-limits')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('forbidden')
+  })
+
+  it.each([['/shipping/stores'], ['/shipping/package-limits']])(
+    'lets an OrderManager into %s',
+    async (path) => {
+      const auth = useAdminAuthStore()
+      auth.session = {
+        isAuthenticated: true,
+        user: {
+          publicId: 'admin-ship-2',
+          displayName: 'Ops',
+          emailMasked: 'o***@example.test',
+          emailVerified: true,
+          locale: 'zh-TW',
+          roles: ['OrderManager'],
+        },
+        expiresAtUtc: null,
+        requiresTwoFactor: false,
+      }
+
+      await router.push(path)
+      await router.isReady()
+
+      expect(router.currentRoute.value.name).not.toBe('forbidden')
+      expect(router.currentRoute.value.name).not.toBe('login')
+    },
+  )
+
   it('redirects an authenticated administrator with an unrelated role away from the compatibility rules page', async () => {
     const auth = useAdminAuthStore()
     auth.session = {
