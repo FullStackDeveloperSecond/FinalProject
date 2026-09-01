@@ -203,6 +203,67 @@ describe('admin router role guard', () => {
     expect(router.currentRoute.value.name).toBe(name)
   })
 
+  // A-09 `/catalog/specifications` 與同層的 lookups／compatibility 走同一組角色
+  // （後端 AdminSpecificationDefinitionsController 是 [Authorize(Policy = CatalogManager)]）。
+  // 新路由一併補齊三種身分的 guard 覆蓋，不要重蹈 #35 那次「新頁面沒有 meta」的缺口。
+  it('redirects an anonymous administrator away from the specification definitions page to login', async () => {
+    const auth = useAdminAuthStore()
+    auth.session = { isAuthenticated: false, user: null, expiresAtUtc: null, requiresTwoFactor: null }
+
+    await router.push('/catalog/specifications')
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('login')
+    expect(router.currentRoute.value.query.redirect).toBe('/catalog/specifications')
+  })
+
+  it('redirects an authenticated administrator with an unrelated role away from the specification definitions page', async () => {
+    const auth = useAdminAuthStore()
+    auth.session = {
+      isAuthenticated: true,
+      user: {
+        publicId: 'admin-spec-1',
+        displayName: 'Support',
+        emailMasked: 's***@example.test',
+        emailVerified: true,
+        locale: 'zh-TW',
+        roles: ['OrderManager'],
+      },
+      expiresAtUtc: null,
+      requiresTwoFactor: false,
+    }
+
+    await router.push('/catalog/specifications')
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('forbidden')
+  })
+
+  it.each([['CatalogManager'], ['SuperAdmin']])(
+    'allows a %s administrator into the specification definitions page',
+    async (role) => {
+      const auth = useAdminAuthStore()
+      auth.session = {
+        isAuthenticated: true,
+        user: {
+          publicId: 'admin-spec-2',
+          displayName: 'Catalog',
+          emailMasked: 'c***@example.test',
+          emailVerified: true,
+          locale: 'zh-TW',
+          roles: [role],
+        },
+        expiresAtUtc: null,
+        requiresTwoFactor: false,
+      }
+
+      await router.push('/catalog/specifications')
+      await router.isReady()
+
+      expect(router.currentRoute.value.name).toBe('specification-definitions')
+    },
+  )
+
   it('redirects an authenticated administrator with an unrelated role away from the compatibility rules page', async () => {
     const auth = useAdminAuthStore()
     auth.session = {

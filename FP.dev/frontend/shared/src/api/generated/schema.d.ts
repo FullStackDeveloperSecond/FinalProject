@@ -6246,6 +6246,166 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/specification-definitions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    CategoryPublicId?: string;
+                    Q?: string;
+                    IsActive?: boolean;
+                    PageNumber?: number | string;
+                    PageSize?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["PageResultOfSpecificationDefinitionDto"];
+                        "application/json": components["schemas"]["PageResultOfSpecificationDefinitionDto"];
+                        "text/json": components["schemas"]["PageResultOfSpecificationDefinitionDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateSpecificationDefinitionRequest"];
+                    "text/json": components["schemas"]["CreateSpecificationDefinitionRequest"];
+                    "application/*+json": components["schemas"]["CreateSpecificationDefinitionRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["SpecificationDefinitionDto"];
+                        "application/json": components["schemas"]["SpecificationDefinitionDto"];
+                        "text/json": components["schemas"]["SpecificationDefinitionDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/specification-definitions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateSpecificationDefinitionRequest"];
+                    "text/json": components["schemas"]["UpdateSpecificationDefinitionRequest"];
+                    "application/*+json": components["schemas"]["UpdateSpecificationDefinitionRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["SpecificationDefinitionDto"];
+                        "application/json": components["schemas"]["SpecificationDefinitionDto"];
+                        "text/json": components["schemas"]["SpecificationDefinitionDto"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/specification-definitions/{id}/actions/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["DisableSpecificationDefinitionRequest"];
+                    "text/json": components["schemas"]["DisableSpecificationDefinitionRequest"];
+                    "application/*+json": components["schemas"]["DisableSpecificationDefinitionRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["SpecificationDefinitionDto"];
+                        "application/json": components["schemas"]["SpecificationDefinitionDto"];
+                        "text/json": components["schemas"]["SpecificationDefinitionDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/brands": {
         parameters: {
             query?: never;
@@ -9466,6 +9626,19 @@ export interface components {
             requiresPrepayment: boolean;
             specifications: components["schemas"]["SpecValueInput"][];
         };
+        CreateSpecificationDefinitionRequest: {
+            /** Format: uuid */
+            categoryPublicId: string;
+            semanticKey: string;
+            displayNameZhTw: string;
+            valueType: string;
+            unitCode: null | string;
+            isRequired: boolean;
+            allowsMultiple: boolean;
+            /** Format: int32 */
+            sortOrder: number | string;
+            options: components["schemas"]["SpecificationOptionInput"][];
+        };
         CreateSupportMessageRequest: {
             body: string;
             /** Format: byte */
@@ -9527,6 +9700,10 @@ export interface components {
             rowVersion: string;
         };
         DeleteSkuRequest: {
+            /** Format: byte */
+            rowVersion: string;
+        };
+        DisableSpecificationDefinitionRequest: {
             /** Format: byte */
             rowVersion: string;
         };
@@ -10097,6 +10274,17 @@ export interface components {
         };
         PageResultOfRefundDto: {
             items: components["schemas"]["RefundDto"][];
+            /** Format: int32 */
+            pageNumber: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+            /** Format: int32 */
+            totalCount: number | string;
+            /** Format: int32 */
+            totalPages?: number | string;
+        };
+        PageResultOfSpecificationDefinitionDto: {
+            items: components["schemas"]["SpecificationDefinitionDto"][];
             /** Format: int32 */
             pageNumber: number | string;
             /** Format: int32 */
@@ -10883,6 +11071,26 @@ export interface components {
             value?: null | string;
             values?: null | string[];
         };
+        SpecificationDefinitionDto: {
+            /** Format: uuid */
+            publicId: string;
+            /** Format: uuid */
+            categoryPublicId: string;
+            categoryCode: string;
+            semanticKey: string;
+            displayNameZhTw: string;
+            valueType: string;
+            unitCode: null | string;
+            isRequired: boolean;
+            allowsMultiple: boolean;
+            isProtected: boolean;
+            isActive: boolean;
+            /** Format: int32 */
+            sortOrder: number | string;
+            options: components["schemas"]["SpecificationOptionDto"][];
+            /** Format: byte */
+            rowVersion: string;
+        };
         SpecificationFilterOptionDto: {
             semanticKey: string;
             label: string;
@@ -10901,6 +11109,22 @@ export interface components {
             /** Format: uuid */
             skuPublicId: string;
             value: string;
+        };
+        SpecificationOptionDto: {
+            /** Format: uuid */
+            publicId: string;
+            code: string;
+            displayNameZhTw: string;
+            isActive: boolean;
+            /** Format: int32 */
+            sortOrder: number | string;
+        };
+        SpecificationOptionInput: {
+            code: string;
+            displayNameZhTw: string;
+            /** Format: int32 */
+            sortOrder: number | string;
+            isActive: boolean;
         };
         SpecificationOptionRef: {
             code: string;
@@ -11190,6 +11414,15 @@ export interface components {
             isDefault: boolean;
             requiresPrepayment: boolean;
             specifications: components["schemas"]["SpecValueInput"][];
+            /** Format: byte */
+            rowVersion: string;
+        };
+        UpdateSpecificationDefinitionRequest: {
+            displayNameZhTw: string;
+            isRequired: boolean;
+            /** Format: int32 */
+            sortOrder: number | string;
+            options: components["schemas"]["SpecificationOptionInput"][];
             /** Format: byte */
             rowVersion: string;
         };
