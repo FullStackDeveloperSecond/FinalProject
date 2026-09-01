@@ -2,7 +2,7 @@
 /** A-09 (M功能桌面UI與Route規格.md): 分類規格範本、Option、排序與受保護 Semantic Key。 */
 import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useFullCategoryList } from '../features/categories/useCategories'
 import {
   useCreateSpecificationDefinition,
@@ -37,6 +37,21 @@ const listParams = computed(() => ({
 const { data: result, isPending, isError, error, refetch } = useSpecificationDefinitionList(listParams)
 const totalPages = computed(() => Number(result.value?.totalPages ?? 0))
 
+/**
+ * 組長 PR #77 review item 4：在「只顯示啟用中」的最後一頁停用最後一筆，該頁就不存在了——畫面
+ * 停在空白頁，而 EmptyState 又把分頁控制一起藏掉，使用者沒有任何回到有效頁面的入口。停在超出
+ * 範圍的頁碼時自動退回最後一個有效頁（沒有資料就回第 1 頁）。
+ */
+watch([totalPages, result], () => {
+  if (!result.value) {
+    return
+  }
+  const lastPage = Math.max(1, totalPages.value)
+  if (pageNumber.value > lastPage) {
+    pageNumber.value = lastPage
+  }
+})
+
 const { data: categoriesResult } = useFullCategoryList()
 const categories = computed(() => categoriesResult.value?.items ?? [])
 
@@ -55,7 +70,18 @@ const createMutation = useCreateSpecificationDefinition()
 const updateMutation = useUpdateSpecificationDefinition()
 const disableMutation = useDisableSpecificationDefinition()
 
-interface OptionRow { code: string, displayNameZhTw: string, sortOrder: number, isActive: boolean }
+/**
+ * 組長 PR #77 review item 3：舊版用「目前 code 是否等於某個既有 code」判斷唯讀，於是新列一打出
+ * 重複代碼就立刻被鎖住、再也改不掉。改用明確的既有列標記——`isExisting` 由資料來源決定，不隨
+ * 使用者輸入變動。
+ */
+interface OptionRow {
+  code: string
+  displayNameZhTw: string
+  sortOrder: number
+  isActive: boolean
+  isExisting: boolean
+}
 
 const createForm = reactive({
   categoryPublicId: '',
@@ -103,6 +129,7 @@ function startEdit(definition: SpecificationDefinitionDto) {
     displayNameZhTw: option.displayNameZhTw,
     sortOrder: Number(option.sortOrder),
     isActive: option.isActive,
+    isExisting: true,
   }))
 }
 
@@ -112,7 +139,7 @@ function cancel() {
 }
 
 function addOption(target: OptionRow[]) {
-  target.push({ code: '', displayNameZhTw: '', sortOrder: target.length, isActive: true })
+  target.push({ code: '', displayNameZhTw: '', sortOrder: target.length, isActive: true, isExisting: false })
 }
 
 function toOptionInputs(rows: OptionRow[]): SpecificationOptionInput[] {
@@ -152,7 +179,9 @@ function submitEdit(definition: SpecificationDefinitionDto) {
 }
 
 function confirmDisable(definition: SpecificationDefinitionDto) {
-  if (!globalThis.confirm(`確定要停用規格「${definition.displayNameZhTw}」（${definition.semanticKey}）嗎？停用後其選項一併停用，且不可刪除只能重新啟用。`)) {
+  // 組長 PR #77 review item 5：目前沒有重新啟用端點（Endpoint 目錄只列了 disable），確認文字
+  // 不可以暗示之後可以自己開回來。
+  if (!globalThis.confirm(`確定要停用規格「${definition.displayNameZhTw}」（${definition.semanticKey}）嗎？停用後其選項一併停用，且目前沒有提供重新啟用的功能，需要時請新增一個規格。`)) {
     return
   }
   disableMutation.mutate({ publicId: definition.publicId, rowVersion: definition.rowVersion })
@@ -493,7 +522,7 @@ const mutationError = computed(() => {
                         v-model="option.code"
                         :aria-label="`編輯選項代碼 ${index + 1}`"
                         maxlength="64"
-                        :readonly="definition.options.some((existing) => existing.code === option.code)"
+                        :readonly="option.isExisting"
                         required
                       >
                       <input

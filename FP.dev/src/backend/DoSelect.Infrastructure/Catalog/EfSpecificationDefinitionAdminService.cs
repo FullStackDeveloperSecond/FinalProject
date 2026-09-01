@@ -147,13 +147,22 @@ public sealed class EfSpecificationDefinitionAdminService : ISpecificationDefini
 
             foreach (var option in request.Options)
             {
-                _dbContext.SpecificationOptions.Add(new SpecificationOption(
+                var created = new SpecificationOption(
                     Guid.CreateVersion7(),
                     definition.Id,
                     option.Code,
                     option.DisplayNameZhTw,
                     option.SortOrder,
-                    now));
+                    now);
+
+                // 組長 PR #77 review item 2：SpecificationOption 建構後固定是啟用，輸入的
+                // IsActive 先前被整個忽略——管理員送 isActive: false 也會得到一個啟用的選項。
+                if (!option.IsActive)
+                {
+                    created.SetActive(false, now);
+                }
+
+                _dbContext.SpecificationOptions.Add(created);
             }
 
             if (request.Options.Count > 0)
@@ -315,8 +324,15 @@ public sealed class EfSpecificationDefinitionAdminService : ISpecificationDefini
                 continue;
             }
 
-            _dbContext.SpecificationOptions.Add(new SpecificationOption(
-                Guid.CreateVersion7(), definition.Id, code, input.DisplayNameZhTw, input.SortOrder, now));
+            var added = new SpecificationOption(
+                Guid.CreateVersion7(), definition.Id, code, input.DisplayNameZhTw, input.SortOrder, now);
+            // 同 item 2：更新時新增的選項也要套用輸入的 IsActive。
+            if (!input.IsActive)
+            {
+                added.SetActive(false, now);
+            }
+
+            _dbContext.SpecificationOptions.Add(added);
         }
 
         foreach (var option in existing.Where(option => option.IsActive && !requestedCodes.Contains(option.Code)))

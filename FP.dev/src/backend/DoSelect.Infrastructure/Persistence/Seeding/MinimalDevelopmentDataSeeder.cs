@@ -382,18 +382,31 @@ public sealed class MinimalDevelopmentDataSeeder(
 
             foreach (var template in BuildCompatibilitySpecTemplates[categoryCode])
             {
-                var definitionExists = await dbContext.SpecificationDefinitions.AnyAsync(
+                var existing = await dbContext.SpecificationDefinitions.SingleOrDefaultAsync(
                     definition => definition.CategoryId == category.Id && definition.SemanticKey == template.SemanticKey,
                     cancellationToken);
-                if (definitionExists)
+                if (existing is not null)
                 {
+                    // 組長 PR #77 裁定 A1：IsProtected 的正式語意是「必須保持啟用且必填」。早期的
+                    // seed 用 isRequired: false 建過這些列，管理端因此連編輯都存不回去（受保護的
+                    // 定義不准取消必填，而它們的現值就是未必填）。這裡順手把既有列修回一致狀態，
+                    // 不然「只修新建資料」對已經 seed 過的資料庫等於沒修。
+                    if (existing.IsProtected && (!existing.IsRequired || !existing.IsActive))
+                    {
+                        existing.UpdateDetails(
+                            existing.DisplayNameZhTw, isRequired: true, existing.SortOrder,
+                            MinimalDevelopmentSeedDefinitions.CreatedAtUtc);
+                        existing.SetActive(true, MinimalDevelopmentSeedDefinitions.CreatedAtUtc);
+                        counters.CompatibilityRecordsCreated++;
+                    }
+
                     continue;
                 }
 
                 dbContext.SpecificationDefinitions.Add(new SpecificationDefinition(
                     Guid.CreateVersion7(), category.Id, template.SemanticKey, template.SemanticKey,
                     template.ValueType, null,
-                    isRequired: false, isProtected: true, sortOrder: 0,
+                    isRequired: true, isProtected: true, sortOrder: 0,
                     MinimalDevelopmentSeedDefinitions.CreatedAtUtc, allowsMultiple: template.AllowsMultiple));
                 counters.CompatibilityRecordsCreated++;
             }

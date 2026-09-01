@@ -443,6 +443,63 @@ public sealed class SpecificationDefinitionAdminServiceTests
             .CountAsync(definition => definition.SemanticKey == semanticKey));
     }
 
+    /// <summary>組長 PR #77 review item 2：`SpecificationOption` 建構後固定是啟用，輸入的
+    /// IsActive 先前被整個忽略——管理員送 isActive: false 也會拿到一個啟用的選項。</summary>
+    [Fact]
+    public async Task CreateAsync_WhenAnOptionIsSubmittedInactive_StoresItInactive()
+    {
+        await using var context = CatalogAdminFixture.CreateContext();
+        var category = await SeedCategoryAsync(context);
+        var service = new EfSpecificationDefinitionAdminService(context);
+
+        var created = await service.CreateAsync(
+            Request(category.PublicId, CatalogAdminFixture.UniqueCode("SPEC")) with
+            {
+                ValueType = "Option",
+                Options =
+                [
+                    new SpecificationOptionInput("LIVE", "啟用中", 0, true),
+                    new SpecificationOptionInput("HIDDEN", "先不開放", 1, false),
+                ],
+            },
+            CancellationToken.None);
+
+        Assert.True(created.Options.Single(option => option.Code == "LIVE").IsActive);
+        Assert.False(created.Options.Single(option => option.Code == "HIDDEN").IsActive);
+    }
+
+    /// <summary>同 item 2：更新時「新增」的選項也要套用輸入的 IsActive。</summary>
+    [Fact]
+    public async Task UpdateAsync_WhenANewOptionIsAddedInactive_StoresItInactive()
+    {
+        await using var context = CatalogAdminFixture.CreateContext();
+        var category = await SeedCategoryAsync(context);
+        var service = new EfSpecificationDefinitionAdminService(context);
+        var created = await service.CreateAsync(
+            Request(category.PublicId, CatalogAdminFixture.UniqueCode("SPEC")) with
+            {
+                ValueType = "Option",
+                Options = [new SpecificationOptionInput("LIVE", "啟用中", 0, true)],
+            },
+            CancellationToken.None);
+
+        var updated = await service.UpdateAsync(
+            created.PublicId,
+            new UpdateSpecificationDefinitionRequest(
+                "測試規格",
+                IsRequired: true,
+                SortOrder: 0,
+                Options:
+                [
+                    new SpecificationOptionInput("LIVE", "啟用中", 0, true),
+                    new SpecificationOptionInput("LATER", "之後再開", 1, false),
+                ],
+                created.RowVersion),
+            CancellationToken.None);
+
+        Assert.False(updated.Options.Single(option => option.Code == "LATER").IsActive);
+    }
+
     private static CreateSpecificationDefinitionRequest Request(Guid categoryPublicId, string semanticKey) =>
         new(categoryPublicId, semanticKey, "測試規格", "Decimal", null,
             IsRequired: true, AllowsMultiple: false, SortOrder: 0, Options: []);

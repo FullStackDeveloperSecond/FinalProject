@@ -236,4 +236,84 @@ describe('SpecificationDefinitionsPage', () => {
 
     expect(wrapper.find('[role="alert"]').text()).toContain('相容性規則')
   })
+
+  /**
+   * 組長 PR #77 review item 4：在「只顯示啟用中」的最後一頁停用最後一筆，該頁就不存在了——畫面
+   * 停在空白頁，而 EmptyState 又把分頁控制藏掉，使用者沒有回到有效頁面的入口。
+   *
+   * 這支測試真的走完「翻到第 2 頁 → 該頁最後一筆被停用 → 總頁數掉回 1」的流程；第一版只斷言
+   * 「最後一次查詢的頁碼是 1」，但畫面根本沒離開過第 1 頁，拿掉 clamp 也照樣綠（假通過）。
+   */
+  it('falls back to the last valid page when a mutation empties the current one', async () => {
+    mockListCategories.mockResolvedValue(page([]))
+
+    // 一開始有 2 頁；停用之後只剩 1 頁。
+    let totalPages = 2
+    mockList.mockImplementation(async ({ pageNumber }: { pageNumber: number }) => ({
+      items: pageNumber <= totalPages ? [definition({ publicId: `d${pageNumber}` })] : [],
+      pageNumber,
+      pageSize: 20,
+      totalCount: totalPages,
+      totalPages,
+    }))
+    mockDisable.mockImplementation(async () => {
+      totalPages = 1
+      return definition({ isActive: false })
+    })
+    vi.spyOn(globalThis, 'confirm').mockReturnValue(true)
+
+    const { wrapper } = mountPage()
+    await flushPromises()
+
+    await wrapper.findAll('button').find((button) => button.text() === '下一頁')!.trigger('click')
+    await flushPromises()
+    expect((mockList.mock.calls.at(-1)![0] as { pageNumber: number }).pageNumber).toBe(2)
+
+    // 停用第 2 頁的最後一筆——該頁從此不存在。
+    await wrapper.findAll('button').find((button) => button.text() === '停用')!.trigger('click')
+    await flushPromises()
+
+    await vi.waitFor(() => {
+      expect((mockList.mock.calls.at(-1)![0] as { pageNumber: number }).pageNumber).toBe(1)
+    })
+    expect(wrapper.text()).not.toContain('沒有符合條件的規格範本')
+  })
+
+  /**
+   * 組長 PR #77 review item 3：舊版用「目前 code 是否等於某個既有 code」判斷唯讀，新列一打出重複
+   * 代碼就被鎖住再也改不掉。新列必須始終可編輯。
+   */
+  it('keeps a newly added option code editable even when it duplicates an existing one', async () => {
+    mockList.mockResolvedValue(page([definition()]))
+    mockListCategories.mockResolvedValue(page([]))
+
+    const { wrapper } = mountPage()
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text() === '編輯')!.trigger('click')
+    await wrapper.findAll('button').find((button) => button.text() === '新增選項')!.trigger('click')
+
+    // 既有選項的代碼唯讀。
+    const existing = wrapper.find('input[aria-label="編輯選項代碼 1"]')
+    expect(existing.attributes('readonly')).toBeDefined()
+
+    // 新列打上與既有選項相同的代碼後，仍然必須可以繼續編輯。
+    const added = wrapper.find('input[aria-label="編輯選項代碼 2"]')
+    await added.setValue('AM5')
+    expect(wrapper.find('input[aria-label="編輯選項代碼 2"]').attributes('readonly')).toBeUndefined()
+  })
+
+  /** 組長 PR #77 review item 5：目前沒有重新啟用端點，確認文字不可以暗示可以自己開回來。 */
+  it('does not promise a re-enable that the API does not offer', async () => {
+    mockList.mockResolvedValue(page([definition({ isProtected: false })]))
+    mockListCategories.mockResolvedValue(page([]))
+    const confirmSpy = vi.spyOn(globalThis, 'confirm').mockReturnValue(false)
+
+    const { wrapper } = mountPage()
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text() === '停用')!.trigger('click')
+
+    const message = confirmSpy.mock.calls.at(-1)![0] as string
+    expect(message).not.toContain('只能重新啟用')
+    expect(message).toContain('目前沒有提供重新啟用的功能')
+  })
 })
