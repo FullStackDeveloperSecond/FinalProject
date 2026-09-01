@@ -56,6 +56,32 @@ public sealed class OrderInvoicePortsSqlServerTests
     }
 
     [SqlServerFact]
+    public async Task AdminIssuanceSummaryProjectsOnlyTheRequiredOrderFactsInOneQuery()
+    {
+        var counter = new CommandCounter();
+
+        await RunAsync(
+            async context =>
+            {
+                var seeded = await SeedOrderAsync(context, shippingFee: 0m, assemblyFee: 0m);
+                var reader = new OrderInvoiceIssuanceReader(context);
+
+                counter.Reset();
+                var summary = await reader.FindAdminSummaryAsync(seeded.OrderPublicId);
+
+                Assert.NotNull(summary);
+                Assert.Equal(seeded.OrderId, summary.OrderId);
+                Assert.Equal(seeded.OrderPublicId, summary.OrderPublicId);
+                Assert.StartsWith("INV-", summary.OrderNumber);
+                Assert.True(summary.OrderIsPaid);
+                Assert.False(summary.OrderIsCancelled);
+                Assert.NotEmpty(summary.RowVersion);
+                Assert.Equal(1, counter.Count);
+            },
+            counter);
+    }
+
+    [SqlServerFact]
     public async Task ShippingAndAssemblyBecomeNonMerchandiseLinesWithTheReservedSkuCodes()
     {
         await RunAsync(async context =>

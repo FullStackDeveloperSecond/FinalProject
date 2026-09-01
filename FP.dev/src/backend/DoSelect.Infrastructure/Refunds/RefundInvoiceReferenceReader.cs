@@ -1,4 +1,5 @@
 using DoSelect.Application.Refunds;
+using DoSelect.Domain.Refunds;
 using DoSelect.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -31,4 +32,22 @@ public sealed class RefundInvoiceReferenceReader : IRefundInvoiceReferenceReader
             .Select(refund => new { refund.Id, refund.PublicId })
             .ToDictionaryAsync(refund => refund.Id, refund => refund.PublicId, cancellationToken);
     }
+}
+
+public sealed class RefundInvoiceVoidReader : IRefundInvoiceVoidReader
+{
+    private readonly DoSelectDbContext _context;
+
+    public RefundInvoiceVoidReader(DoSelectDbContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        _context = context;
+    }
+
+    public Task<bool> HasSucceededRefundAsync(
+        long orderId,
+        CancellationToken cancellationToken = default) =>
+        _context.Refunds.AsNoTracking().AnyAsync(
+            refund => refund.OrderId == orderId && refund.Status == RefundStatus.Succeeded,
+            cancellationToken);
 }

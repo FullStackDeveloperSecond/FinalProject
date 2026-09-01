@@ -30,6 +30,11 @@ const codeMessages: Record<string, string> = {
   idempotency_payload_conflict: '同一重試識別已用於不同內容，請重新整理後再試',
   inventory_reservation_not_active: '此保留已非 Active 狀態，無法釋放',
   inventory_reservation_already_processed: '此保留已被消耗、釋放或逾時',
+  invoice_order_unpaid: '訂單尚未付款，不能開立發票',
+  invoice_order_cancelled: '訂單已取消，不能開立發票',
+  invoice_already_exists: '這張訂單已經有模擬發票',
+  invoice_state_conflict: '發票目前狀態不允許這個操作',
+  invoice_allowance_required: '訂單已有成功退款，必須建立折讓而不能作廢',
 }
 
 export function describeApiError(error: ApiError): string {

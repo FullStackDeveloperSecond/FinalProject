@@ -1,5 +1,6 @@
 using DoSelect.Application.Invoicing;
 using DoSelect.Application.Orders;
+using DoSelect.Application.Common;
 using DoSelect.Domain.Invoicing;
 
 namespace DoSelect.Application.Tests;
@@ -156,6 +157,20 @@ public sealed class IssueInvoiceServiceTests
     }
 
     [Fact]
+    public async Task IssueAsync_RejectsAStaleOrderRowVersionBeforeTakingASequence()
+    {
+        var sequence = new FakeInvoiceNumberSequence();
+        var service = CreateService(new FakeOrderInvoiceIssuanceReader(Snapshot()), sequence);
+
+        var result = await service.IssueAsync(new IssueInvoiceRequest(
+            OrderPublicId,
+            new byte[] { 9, 9, 9, 9, 9, 9, 9, 9 }));
+
+        Assert.Equal(DomainErrorCodes.ConcurrencyConflict, result.ErrorCode);
+        Assert.Null(sequence.RequestedIssuedAtUtc);
+    }
+
+    [Fact]
     public async Task IssueAsync_DoesNotTakeASequenceWhenTheOrderIsNotInvoiceable()
     {
         var sequence = new FakeInvoiceNumberSequence();
@@ -251,6 +266,7 @@ public sealed class IssueInvoiceServiceTests
             CarrierValueMasked: null,
             CompanyTaxId: companyTaxId,
             CompanyName: companyName,
+            RowVersion: new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 },
             [
                 new InvoiceOrderLineSource(
                     OrderItemId: 11L,
@@ -268,6 +284,11 @@ public sealed class IssueInvoiceServiceTests
             Guid orderPublicId,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(_snapshot);
+
+        public Task<InvoiceIssuanceOrderSummary?> FindAdminSummaryAsync(
+            Guid orderPublicId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<InvoiceIssuanceOrderSummary?>(null);
     }
 
     private sealed class FakeInvoiceExistenceReader : IInvoiceExistenceReader

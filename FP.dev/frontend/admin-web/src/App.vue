@@ -21,6 +21,9 @@ const canViewOperationalReports = computed(() => {
 const couponRoles = ['FinanceManager', 'MarketingAnalyst', 'SuperAdmin']
 const canManageCoupons = computed(() =>
   couponRoles.some(role => auth.currentUser?.roles?.includes(role) ?? false))
+const invoiceRoles = ['FinanceManager', 'SuperAdmin']
+const canManageInvoices = computed(() =>
+  invoiceRoles.some(role => auth.currentUser?.roles?.includes(role) ?? false))
 
 async function onLogout(): Promise<void> {
   await auth.logout()
@@ -105,6 +108,12 @@ async function onLogout(): Promise<void> {
           </RouterLink>
           <RouterLink to="/inventory/reservations">
             庫存保留佇列
+          </RouterLink>
+          <RouterLink
+            v-if="canManageInvoices"
+            to="/invoices"
+          >
+            模擬發票管理
           </RouterLink>
           <RouterLink to="/support">
             客服 SLA 佇列

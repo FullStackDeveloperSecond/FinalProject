@@ -134,6 +134,18 @@ const router = createRouter({
       meta: { requiresAuth: true, requiredRoles: ['FinanceManager', 'SuperAdmin'] },
     },
     {
+      path: '/invoices',
+      name: 'admin-invoice-list',
+      component: () => import('../pages/invoices/AdminInvoicesPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['FinanceManager', 'SuperAdmin'] },
+    },
+    {
+      path: '/invoices/:invoiceId',
+      name: 'admin-invoice-detail',
+      component: () => import('../pages/invoices/AdminInvoiceDetailPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['FinanceManager', 'SuperAdmin'] },
+    },
+    {
       path: '/ai/usage',
       name: 'ai-usage',
       component: () => import('../pages/AiUsagePage.vue'),

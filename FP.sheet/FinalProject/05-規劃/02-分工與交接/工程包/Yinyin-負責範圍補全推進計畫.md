@@ -1,7 +1,7 @@
 ---
 文件狀態: 執行中
 最後更新: 2026-09-01
-基準分支: dev@e77edfbb
+基準分支: dev@f4216609（另含本批 WP-06 commit）
 負責人: alex（暫時接手 yinyin 範圍）
 來源工程包: Yinyin-優惠付款退款與發票工程包
 ---
@@ -34,8 +34,8 @@
 |---|---|---|
 | M-07 優惠券 | 計算、生命週期、SQL Reader、後台 CRUD/API/A-23、購物車套券 Application 契約 | 訪客 HMAC 正確性、Shopping Reader 實作／DI、正式 Cart Controller、顧客 UI、E2E |
 | M-09 模擬付款 | 七類政策、Checkout 初始 Attempt、付款重試 Writer/API、Demo complete、Owner/Guest 授權、SQL Writer、Audit/Outbox | 付款／重試 UI、COD 正式物流命令接線、E2E |
-| M-13 部分退款 | PR #16 execute、可信七類分攤、冪等、中央 Audit、SQL Server 測試；WP-05 已在接手 worktree 完成後台退款清單／明細 API 與 A-21/A-22 | WP-05 待 commit／push；完整 E2E 仍缺 |
-| M-20 模擬發票 | 前台／後台查詢、折讓、付款成功發票 Outbox Consumer | 管理端手動開立、作廢、前後台 UI、完整 E2E |
+| M-13 部分退款 | PR #16 execute、可信七類分攤、冪等、中央 Audit、SQL Server 測試；WP-05 後台退款清單／明細 API 與 A-21/A-22 已隨 `8cf41558` 推送 | 完整 E2E 仍缺 |
+| M-20 模擬發票 | 前台／後台查詢、折讓、付款成功發票 Outbox Consumer；WP-06 已完成手動開立／作廢 API、管理 UI 及 DEC-P348 窄查詢，隨本批 commit／push 交付 | 顧客發票 UI、COD 正式物流接線與完整 E2E 仍缺 |
 | INT-02 | Checkout Application/Gateway、同交易建單／庫存／優惠／Attempt、`POST /api/v1/orders`、SQL Server 測試 | 結帳頁、付款頁、最後名額／完整交易 E2E |
 
 已確認兩項追蹤文件飄移，後續需校正：
@@ -144,7 +144,8 @@ No-Go：任何金額／身份規則不明、需要新 Migration、跨模組資�
 | 2026-09-01 | WP-03 | 完成（已推送） | 新增正式 `POST /api/v1/orders`；Member/Guest actor、Idempotency-Key 與完整 `OrderDto` 已接線；首次／replay 共用單一 mapper；API 2/2、Application 2/2、Checkout/HMAC SQL 12/12、既有 Orders SQL 7/7、build/format/typecheck 全綠；隨 `e77edfbb` 推送至 `origin/dev` |
 | 2026-09-01 | WP-04 | 完成（已推送） | 新增 `POST /api/v1/orders/{id}/payment-attempts`、Owner actor、中央冪等、Serializable Writer、可信訂單金額與 RowVersion；SQL 3/3（含跨會員負向）、API 2/2、Application 14/14，既有模擬付款 Writer 回歸亦全綠；SQL `datetime2` UTC 邊界已由 Reader 正規化；隨 `e77edfbb` 推送至 `origin/dev` |
 | 2026-09-01 | WP-02 | 外部依賴待處理 | `ICartCouponLineReader` 明定由 Terry-owned Shopping Infrastructure 實作；本接手不跨 owner 直接查 Shopping／Catalog 表，待該窄介面落地後接 Controller／DI／OpenAPI |
-| 2026-09-01 | WP-05 | 完成（未提交） | 新增退款分頁／篩選清單與明細 API、A-21/A-22、角色路由、可信分攤正負顯示、TOTP 提示、確認門檻與穩定 Idempotency-Key；Application 5/5、API 26/26、SQL Server 1/1、Refund 白名單 2/2、Vue 聚焦 5/5、router 組合 24/24、typecheck/lint/build 全綠；OpenAPI／Typed Client 已同步，待 commit／push |
+| 2026-09-01 | WP-05 | 完成（已推送） | 新增退款分頁／篩選清單與明細 API、A-21/A-22、角色路由、可信分攤正負顯示、TOTP 提示、確認門檻與穩定 Idempotency-Key；Application 5/5、API 26/26、SQL Server 1/1、Refund 白名單 2/2、Vue 聚焦 5/5、router 組合 24/24、typecheck/lint/build 全綠；OpenAPI／Typed Client 已同步，隨 `8cf41558` 推送至 `origin/dev` |
+| 2026-09-01 | WP-06 | 完成（本批交付） | 手動開立／作廢命令、中央 Audit、Serializable 冪等、RowVersion、退款折讓阻擋、發票清單／明細／手動開立 UI 已完成；DEC-P348 新增 `Invoice.Manage` 窄版訂單快照，只回六個核准欄位。Application 發票範圍 36/36、API Invoicing 15/15、SQL Server 發票埠／查詢／寫入 49/49、Vue 發票頁 4/4、typecheck／lint／production build、Solution build 0 warning 與 format verify 全綠；OpenAPI／Typed Client 已同步，隨本批 commit／push 交付 |
 
 ## 10. 待裁定
 
@@ -158,3 +159,7 @@ No-Go：任何金額／身份規則不明、需要新 Migration、跨模組資�
 | A2 | 保留既有 `CheckoutCreatedOrder` 作 201 Response，並更新 Endpoint／DTO 文件 | 最低程式成本，但會改變已定版 public contract；顧客端需另設計如何取得完整訂單，訪客尤其受影響 |
 
 裁定已由 WP-03 落地：`POST /api/v1/orders`、transaction result、冪等 replay、OpenAPI／Typed Client 與 API／SQL 測試均完成，並隨 `e77edfbb` 推送至 `origin/dev`。
+
+### DEC-EXEC-02｜FinanceManager 手動開票如何取得 Order RowVersion
+
+**裁定：A1（2026-09-01，DEC-P348）。** 新增 `Invoice.Manage` 專用窄查詢，只回 Order PublicId、單號、付款／取消事實、RowVersion 與是否已有發票；不擴大 `Order.Manage`，不回收件人、品項或內部 ID。管理 UI 必須先取得快照，再以該 RowVersion 開立；衝突時重查並再次確認。正式紀錄見 [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-039-發票手動開立窄查詢契約定版]]。

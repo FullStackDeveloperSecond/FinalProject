@@ -9,3 +9,13 @@ public interface IRefundInvoiceReferenceReader
         IReadOnlyCollection<long> refundIds,
         CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// 發票作廢前由 Refunds 回答同一訂單是否已有成功退款；Invoicing 不直接讀 Refunds 資料表。
+/// </summary>
+public interface IRefundInvoiceVoidReader
+{
+    Task<bool> HasSucceededRefundAsync(
+        long orderId,
+        CancellationToken cancellationToken = default);
+}

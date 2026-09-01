@@ -1,4 +1,6 @@
 using System.ComponentModel.DataAnnotations;
+using System.Diagnostics;
+using System.Security.Claims;
 using DoSelect.Api.Common;
 using DoSelect.Api.Security;
 using DoSelect.Application.Common;
@@ -25,11 +27,14 @@ namespace DoSelect.Api.Invoicing;
 public sealed class AdminInvoicesController : ControllerBase
 {
     private readonly InvoiceQueryService _invoices;
+    private readonly IAdminInvoiceWriter _writer;
 
-    public AdminInvoicesController(InvoiceQueryService invoices)
+    public AdminInvoicesController(InvoiceQueryService invoices, IAdminInvoiceWriter writer)
     {
         ArgumentNullException.ThrowIfNull(invoices);
+        ArgumentNullException.ThrowIfNull(writer);
         _invoices = invoices;
+        _writer = writer;
     }
 
     [HttpGet]
@@ -71,7 +76,44 @@ public sealed class AdminInvoicesController : ControllerBase
 
         return Ok(invoice);
     }
+
+    [HttpPost("{id:guid}/actions/void")]
+    [ProducesResponseType<AdminInvoiceDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<AdminInvoiceDto>> Void(
+        Guid id,
+        [FromBody] VoidSimulatedInvoiceRequest request,
+        CancellationToken cancellationToken)
+    {
+        var invoice = await _writer.VoidAsync(
+            new VoidSimulatedInvoiceCommand(
+                id,
+                request.ReasonCode,
+                request.Note,
+                request.RowVersion,
+                RequireAdminUserId(),
+                CorrelationIdMiddleware.GetCorrelationId(HttpContext),
+                GetTraceId(),
+                HttpContext.Connection.RemoteIpAddress),
+            cancellationToken);
+        return Ok(invoice);
+    }
+
+    private string RequireAdminUserId() =>
+        User.FindFirstValue(ClaimTypes.NameIdentifier)
+        ?? throw new InvalidOperationException(
+            "Authenticated admin request is missing its identifier claim.");
+
+    private string GetTraceId() =>
+        Activity.Current?.TraceId.ToString() ?? ActivityTraceId.CreateRandom().ToString();
 }
+
+public sealed record VoidSimulatedInvoiceRequest(
+    [Required, StringLength(64, MinimumLength = 1)] string ReasonCode,
+    [StringLength(1000)] string? Note,
+    byte[] RowVersion);
 
 /// <summary>
 /// 後台發票清單的查詢字串（`API DTO與Schema契約` 第 149 行）。

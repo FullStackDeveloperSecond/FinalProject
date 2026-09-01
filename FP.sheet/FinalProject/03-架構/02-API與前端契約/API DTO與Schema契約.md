@@ -144,6 +144,7 @@
 | Schema | 精確欄位 |
 |---|---|
 | `IssueSimulatedInvoiceRequest` | `orderRowVersion`；發票買受人、品項及金額只讀取訂單交易快照；`Idempotency-Key` 使用 Header |
+| `InvoiceIssuanceOrderDto` | `orderPublicId`、`orderNumber`、`orderIsPaid`、`orderIsCancelled`、`rowVersion`、`hasInvoice`；只供 `Invoice.Manage` 手動開立前確認，不得加入收件人、品項、Member／Guest 身分或內部 `OrderId` |
 | `SimulatedInvoiceItemDto` | `publicId`、`orderItemPublicId?`、`kind:merchandise\|shipping\|assemblyFee`、商品／SKU 顯示快照、`quantity`、`unitPrice`、`discountAmount`、`netAmount`、`taxAmount`、`grossAmount` |
 | `SimulatedInvoiceAllowanceDto` | `publicId`、`allowanceNumber`、`invoicePublicId`、`refundPublicId`、`netAmount`、`taxAmount`、`grossAmount`、`items[]`、`issuedAtUtc`、`demoMarker` |
 | `SimulatedInvoiceDto` | `publicId`、`invoiceNumber`、`orderPublicId`、`status`、遮蔽買受人摘要、`netAmount`、`taxAmount`、`grossAmount`、`currency:TWD`、`taxRate:0.05`、`items[]`、`allowances[]`、開立／作廢時間、`demoMarker`、`rowVersion` |

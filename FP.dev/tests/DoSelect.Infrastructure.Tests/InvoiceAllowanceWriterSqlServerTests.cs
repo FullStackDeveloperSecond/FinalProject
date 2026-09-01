@@ -15,6 +15,7 @@ using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Auditing;
 using DoSelect.Infrastructure.Idempotency;
 using DoSelect.Infrastructure.Invoicing;
+using DoSelect.Infrastructure.Orders;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using DoSelect.Infrastructure.Refunds;
@@ -223,6 +224,138 @@ public sealed class InvoiceAllowanceWriterSqlServerTests
         });
     }
 
+    [SqlServerFact]
+    public async Task VoidPersistsInvoiceTransitionAndAuditInOneTransaction()
+    {
+        await RunInMigratedDatabaseAsync(async context =>
+        {
+            var seeded = await SeedAsync(context);
+            var invoice = await context.SimulatedInvoices.SingleAsync(
+                candidate => candidate.PublicId == seeded.InvoicePublicId);
+            var refundIds = await context.Refunds
+                .Where(refund => refund.OrderId == invoice.OrderId)
+                .Select(refund => refund.Id)
+                .ToArrayAsync();
+            context.RefundAllocations.RemoveRange(
+                context.RefundAllocations.Where(allocation => refundIds.Contains(allocation.RefundId)));
+            context.Refunds.RemoveRange(
+                context.Refunds.Where(refund => refundIds.Contains(refund.Id)));
+            await context.SaveChangesAsync();
+            var cancelledStatus = OrderStatus.Cancelled.ToString();
+            await context.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE [Orders] SET [OrderStatus] = {cancelledStatus} WHERE [Id] = {invoice.OrderId}");
+            context.ChangeTracker.Clear();
+
+            var result = await CreateAdminWriter(context).VoidAsync(new VoidSimulatedInvoiceCommand(
+                seeded.InvoicePublicId,
+                "order_cancelled",
+                "已核對整筆取消",
+                seeded.InvoiceRowVersion,
+                seeded.AdminUserId,
+                "invoice-void-test",
+                "0123456789abcdef0123456789abcdef",
+                IPAddress.Parse("203.0.113.42")));
+
+            Assert.Equal(SimulatedInvoiceStatus.Voided, result.Invoice.Status);
+            context.ChangeTracker.Clear();
+            Assert.Equal(
+                SimulatedInvoiceStatus.Voided,
+                (await context.SimulatedInvoices.SingleAsync()).Status);
+            var audit = await context.AuditLogs.SingleAsync();
+            Assert.Equal(AuditActions.InvoiceVoid, audit.Action);
+            Assert.Equal("order_cancelled", audit.Reason);
+            Assert.Contains("已核對整筆取消", audit.ChangedFieldsJson, StringComparison.Ordinal);
+        });
+    }
+
+    [SqlServerFact]
+    public async Task VoidRequiresAllowanceAfterASucceededRefundWithoutSideEffects()
+    {
+        await RunInMigratedDatabaseAsync(async context =>
+        {
+            var seeded = await SeedAsync(context);
+            var invoice = await context.SimulatedInvoices.SingleAsync(
+                candidate => candidate.PublicId == seeded.InvoicePublicId);
+            var cancelledStatus = OrderStatus.Cancelled.ToString();
+            await context.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE [Orders] SET [OrderStatus] = {cancelledStatus} WHERE [Id] = {invoice.OrderId}");
+            context.ChangeTracker.Clear();
+
+            var exception = await Assert.ThrowsAsync<DomainProblemException>(() =>
+                CreateAdminWriter(context).VoidAsync(new VoidSimulatedInvoiceCommand(
+                    seeded.InvoicePublicId,
+                    "order_cancelled",
+                    null,
+                    seeded.InvoiceRowVersion,
+                    seeded.AdminUserId,
+                    "invoice-void-refund-test",
+                    "0123456789abcdef0123456789abcdef",
+                    null)));
+
+            Assert.Equal(InvoiceErrorCodes.InvoiceAllowanceRequired, exception.Code);
+            context.ChangeTracker.Clear();
+            Assert.Equal(
+                SimulatedInvoiceStatus.Issued,
+                (await context.SimulatedInvoices.SingleAsync()).Status);
+            Assert.Empty(await context.AuditLogs.ToArrayAsync());
+        });
+    }
+
+    [SqlServerFact]
+    public async Task ManualIssueAndReplayPersistOneInvoiceWithAuditAndIdempotency()
+    {
+        await RunInMigratedDatabaseAsync(async context =>
+        {
+            var seeded = await SeedAsync(context);
+            var oldInvoice = await context.SimulatedInvoices.SingleAsync(
+                candidate => candidate.PublicId == seeded.InvoicePublicId);
+            var order = await context.Orders.SingleAsync(candidate => candidate.Id == oldInvoice.OrderId);
+            var orderId = order.Id;
+            var refundIds = await context.Refunds
+                .Where(refund => refund.OrderId == order.Id)
+                .Select(refund => refund.Id)
+                .ToArrayAsync();
+            context.RefundAllocations.RemoveRange(
+                context.RefundAllocations.Where(allocation => refundIds.Contains(allocation.RefundId)));
+            context.Refunds.RemoveRange(
+                context.Refunds.Where(refund => refundIds.Contains(refund.Id)));
+            context.SimulatedInvoiceItems.RemoveRange(
+                context.SimulatedInvoiceItems.Where(item => item.SimulatedInvoiceId == oldInvoice.Id));
+            context.SimulatedInvoices.Remove(oldInvoice);
+            await context.SaveChangesAsync();
+            await context.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE [Orders] SET [PaidAmount] = {115m} WHERE [Id] = {orderId}");
+            context.ChangeTracker.Clear();
+            order = await context.Orders.SingleAsync(candidate => candidate.Id == orderId);
+            var orderRowVersion = order.RowVersion.ToArray();
+
+            var command = new IssueSimulatedInvoiceCommand(
+                order.PublicId,
+                orderRowVersion,
+                "manual-issue-key",
+                seeded.AdminUserId,
+                "invoice-issue-test",
+                "0123456789abcdef0123456789abcdef",
+                IPAddress.Parse("203.0.113.42"));
+            var writer = CreateAdminWriter(context);
+            var created = await writer.IssueAsync(command);
+            var replayed = await writer.IssueAsync(command);
+
+            Assert.False(created.IsReplay);
+            Assert.True(replayed.IsReplay);
+            Assert.Equal(201, created.StatusCode);
+            Assert.Equal(created.Body.Invoice.PublicId, replayed.Body.Invoice.PublicId);
+            Assert.Equal(SimulatedInvoice.RequiredDemoMarker, created.Body.Invoice.DemoMarker);
+            context.ChangeTracker.Clear();
+            Assert.Equal(1, await context.SimulatedInvoices.CountAsync());
+            Assert.Equal(3, await context.SimulatedInvoiceItems.CountAsync());
+            Assert.Equal(AuditActions.InvoiceIssue, (await context.AuditLogs.SingleAsync()).Action);
+            Assert.Equal(
+                IdempotencyStatus.Succeeded,
+                (await context.IdempotencyRecords.SingleAsync()).Status);
+        });
+    }
+
     private static InvoiceAllowanceWriter CreateWriter(
         DoSelectDbContext context,
         IAuditWriter? auditWriter = null)
@@ -237,6 +370,31 @@ public sealed class InvoiceAllowanceWriterSqlServerTests
                 Options.Create(new IdempotencyOptions { ActorScopePepper = TestPepper }),
                 timeProvider),
             auditWriter ?? new EfAuditWriter(context, timeProvider));
+    }
+
+    private static AdminInvoiceWriter CreateAdminWriter(DoSelectDbContext context)
+    {
+        var timeProvider = new FixedTimeProvider(Now);
+        var queryService = new InvoiceQueryService(
+            new InvoiceQueryReader(context),
+            new OrderInvoiceReferenceReader(context),
+            new RefundInvoiceReferenceReader(context));
+        return new AdminInvoiceWriter(
+            context,
+            new IssueInvoiceService(
+                new OrderInvoiceIssuanceReader(context),
+                new InvoiceExistenceReader(context),
+                new InvoiceNumberSequence(context),
+                timeProvider),
+            queryService,
+            new OrderInvoiceVoidReader(context),
+            new RefundInvoiceVoidReader(context),
+            new EfIdempotencyExecutor(
+                context,
+                Options.Create(new IdempotencyOptions { ActorScopePepper = TestPepper }),
+                timeProvider),
+            new EfAuditWriter(context, timeProvider),
+            timeProvider);
     }
 
     private static CreateInvoiceAllowanceCommand Command(SeededAllowance seeded, string key) =>

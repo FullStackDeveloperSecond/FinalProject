@@ -1,9 +1,10 @@
 using DoSelect.Application.Orders;
+using DoSelect.Application.Common;
 using DoSelect.Domain.Invoicing;
 
 namespace DoSelect.Application.Invoicing;
 
-public sealed record IssueInvoiceRequest(Guid OrderPublicId);
+public sealed record IssueInvoiceRequest(Guid OrderPublicId, byte[]? OrderRowVersion = null);
 
 /// <summary>
 /// 通過檢查後要建立的模擬發票。實際寫入與狀態歷程由發票端點或付款成功流程負責。
@@ -109,6 +110,12 @@ public sealed class IssueInvoiceService
         if (snapshot is null)
         {
             return IssueInvoiceResult.Failure(InvoiceErrorCodes.ResourceNotFound);
+        }
+
+        if (request.OrderRowVersion is { } expectedRowVersion &&
+            !expectedRowVersion.AsSpan().SequenceEqual(snapshot.RowVersion))
+        {
+            return IssueInvoiceResult.Failure(DomainErrorCodes.ConcurrencyConflict);
         }
 
         // 公司發票缺統編或抬頭時，SimulatedInvoice 建構子會拒絕。

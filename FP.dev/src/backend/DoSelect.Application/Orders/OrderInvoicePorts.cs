@@ -84,7 +84,25 @@ public sealed record InvoiceOrderSnapshot(
     string? CarrierValueMasked,
     string? CompanyTaxId,
     string? CompanyName,
+    byte[] RowVersion,
     IReadOnlyList<InvoiceOrderLineSource> Lines);
+
+/// <summary>
+/// 後台手動開票查詢所需的最小 Orders-owned 投影。
+/// </summary>
+/// <remarks>
+/// <paramref name="OrderId"/> 僅供 Invoicing 查詢既有發票，適用
+/// <see cref="OrderInvoicePortNotes.InternalKeyException"/>，不得對外輸出。
+/// 其餘欄位是 <c>Invoice.Manage</c> 操作者確認開票資格所需的最小集合；
+/// 不含收件人、品項或其他訂單內容。
+/// </remarks>
+public sealed record InvoiceIssuanceOrderSummary(
+    long OrderId,
+    Guid OrderPublicId,
+    string OrderNumber,
+    bool OrderIsCancelled,
+    bool OrderIsPaid,
+    byte[] RowVersion);
 
 /// <summary>
 /// 開立模擬發票所需的訂單快照。實作屬於 Orders 的 Infrastructure。
@@ -96,6 +114,25 @@ public interface IOrderInvoiceIssuanceReader
     /// </summary>
     Task<InvoiceOrderSnapshot?> FindIssuanceSnapshotAsync(
         Guid orderPublicId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 取得後台手動開票確認畫面所需的最小投影；訂單不存在時回 <c>null</c>。
+    /// </summary>
+    Task<InvoiceIssuanceOrderSummary?> FindAdminSummaryAsync(
+        Guid orderPublicId,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed record InvoiceVoidOrderSnapshot(bool OrderFullyCancelled);
+
+/// <summary>
+/// 作廢判斷所需的 Orders-owned 狀態；只接受已保存於發票 FK 的窄內部 OrderId。
+/// </summary>
+public interface IOrderInvoiceVoidReader
+{
+    Task<InvoiceVoidOrderSnapshot?> FindVoidSnapshotAsync(
+        long orderId,
         CancellationToken cancellationToken = default);
 }
 
