@@ -102,10 +102,48 @@ const router = createRouter({
       meta: { requiresAuth: true, requiredRoles: ['CatalogManager', 'SuperAdmin'] },
     },
     {
+      // A-23：Coupon.Manage（FinanceManager／MarketingAnalyst／SuperAdmin）。
+      // 與 Invoice.Manage 只差多允許 MarketingAnalyst（DEC-P284）。
+      path: '/coupons',
+      name: 'admin-coupons',
+      component: () => import('../pages/coupons/AdminCouponsPage.vue'),
+      meta: {
+        requiresAuth: true,
+        requiredRoles: ['FinanceManager', 'MarketingAnalyst', 'SuperAdmin'],
+      },
+    },
+    {
       path: '/returns',
       name: 'admin-return-queue',
       component: () => import('../pages/returns/AdminReturnQueuePage.vue'),
       meta: { requiresAuth: true, requiredRoles: ['OrderManager', 'SuperAdmin'] },
+    },
+    {
+      // A-21：退款清單。後端 Refund.Execute policy 同時要求角色與 MFA；
+      // 前端角色 guard 只做導覽體驗，不取代後端授權。
+      path: '/refunds',
+      name: 'admin-refund-list',
+      component: () => import('../pages/refunds/AdminRefundsPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['FinanceManager', 'SuperAdmin'] },
+    },
+    {
+      // A-22：可信分攤、核准上限與具冪等鍵的退款執行。
+      path: '/refunds/:refundId',
+      name: 'admin-refund-detail',
+      component: () => import('../pages/refunds/AdminRefundDetailPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['FinanceManager', 'SuperAdmin'] },
+    },
+    {
+      path: '/invoices',
+      name: 'admin-invoice-list',
+      component: () => import('../pages/invoices/AdminInvoicesPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['FinanceManager', 'SuperAdmin'] },
+    },
+    {
+      path: '/invoices/:invoiceId',
+      name: 'admin-invoice-detail',
+      component: () => import('../pages/invoices/AdminInvoiceDetailPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['FinanceManager', 'SuperAdmin'] },
     },
     {
       path: '/ai/usage',
@@ -172,6 +210,27 @@ const router = createRouter({
       name: 'compatibility-rules',
       component: () => import('../pages/CompatibilityRulesPage.vue'),
       meta: { requiresAuth: true, requiredRoles: ['CatalogManager', 'SuperAdmin'] },
+    },
+    {
+      // M功能桌面UI與Route規格.md A-11
+      //
+      // 組長 PR #35 round-3 review, P2-3 的同一個缺口：這兩條路由原本完全沒有 meta，而 guard 的
+      // 第一行是「三個 meta 旗標都沒有就直接放行」，等於未登入也能打開後台庫存頁——它們是這份
+      // router 裡唯一沒有 meta 的功能性路由。後端 AdminInventoryController 掛的是
+      // [Authorize(Policy = InventoryManager)]，對應 InventoryManager 與 SuperAdmin
+      // （SecurityServiceCollectionExtensions 的 AddAdminPolicy），前端比照對齊，避免使用者
+      // 看得到頁面、按下去才被後端擋掉。前端 Guard 是體驗與最小揭露，不是後端 Policy 的替代品。
+      path: '/inventory',
+      name: 'inventory',
+      component: () => import('../pages/InventoryPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['InventoryManager', 'SuperAdmin'] },
+    },
+    {
+      // M功能桌面UI與Route規格.md A-12
+      path: '/inventory/reservations',
+      name: 'inventory-reservations',
+      component: () => import('../pages/InventoryReservationsPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['InventoryManager', 'SuperAdmin'] },
     },
     {
       path: '/unauthorized',

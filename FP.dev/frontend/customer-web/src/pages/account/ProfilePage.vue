@@ -104,7 +104,6 @@ const localeLabel = computed(() => {
     <form
       v-else-if="isEditing"
       class="profile-page__form"
-      novalidate
       @submit.prevent="save"
     >
       <div class="form-field">
@@ -114,6 +113,7 @@ const localeLabel = computed(() => {
           v-model="form.displayName"
           type="text"
           required
+          maxlength="100"
         >
       </div>
       <div class="form-field">
@@ -122,6 +122,8 @@ const localeLabel = computed(() => {
           id="profile-phone"
           v-model="form.phone"
           type="tel"
+          minlength="6"
+          maxlength="32"
         >
       </div>
       <div class="form-field">

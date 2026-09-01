@@ -54,7 +54,6 @@ function submit(): void {
 <template>
   <form
     class="address-form"
-    novalidate
     @submit.prevent="submit"
   >
     <div class="form-field">
@@ -65,6 +64,7 @@ function submit(): void {
         type="text"
         placeholder="例如：住家、公司"
         required
+        maxlength="50"
       >
     </div>
     <div class="form-field">
@@ -74,6 +74,7 @@ function submit(): void {
         v-model="form.recipientName"
         type="text"
         required
+        maxlength="100"
       >
     </div>
     <div class="form-field">
@@ -83,6 +84,8 @@ function submit(): void {
         v-model="form.phone"
         type="tel"
         required
+        minlength="6"
+        maxlength="32"
       >
     </div>
     <div class="form-field">
@@ -92,6 +95,7 @@ function submit(): void {
         v-model="form.postalCode"
         type="text"
         required
+        maxlength="16"
       >
     </div>
     <div class="form-field">
@@ -101,6 +105,7 @@ function submit(): void {
         v-model="form.city"
         type="text"
         required
+        maxlength="50"
       >
     </div>
     <div class="form-field">
@@ -110,6 +115,7 @@ function submit(): void {
         v-model="form.district"
         type="text"
         required
+        maxlength="50"
       >
     </div>
     <div class="form-field">
@@ -119,6 +125,7 @@ function submit(): void {
         v-model="form.addressLine1"
         type="text"
         required
+        maxlength="300"
       >
     </div>
     <div class="form-field">
@@ -127,6 +134,7 @@ function submit(): void {
         id="address-line2"
         v-model="form.addressLine2"
         type="text"
+        maxlength="300"
       >
     </div>
     <label class="address-form__default-checkbox">

@@ -74,10 +74,7 @@ async function handleLogout(): Promise<void> {
             <RouterLink to="/account/reviews">
               我的評價
             </RouterLink>
-            <RouterLink to="/account/favorites">
-              我的收藏
-            </RouterLink>
-            <RouterLink to="/account/profile">
+            <RouterLink to="/account">
               會員資料
             </RouterLink>
             <RouterLink to="/account/addresses">

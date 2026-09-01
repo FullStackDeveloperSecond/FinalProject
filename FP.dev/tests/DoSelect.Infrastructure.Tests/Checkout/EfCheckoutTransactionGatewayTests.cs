@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using DoSelect.Application.Builds;
 using DoSelect.Application.Checkout;
 using DoSelect.Application.Common;
@@ -26,6 +27,8 @@ public sealed class EfCheckoutTransactionGatewayCollection
 [Trait("Category", "RequiresSqlServer")]
 public sealed class EfCheckoutTransactionGatewayTests
 {
+    private const string CouponGuestUsageKey =
+        "checkout-coupon-guest-usage-v1-test-key-32-bytes-minimum";
     private static readonly DateTime NowUtc =
         new(2026, 8, 27, 6, 0, 0, DateTimeKind.Utc);
 
@@ -151,6 +154,14 @@ public sealed class EfCheckoutTransactionGatewayTests
         Assert.Equal(CartStatus.Converted, cart.Status);
         Assert.Equal(5, await verification.OrderStatusHistories.CountAsync(candidate => candidate.OrderId == order.Id));
         Assert.Single(await verification.OrderItems.Where(candidate => candidate.OrderId == order.Id).ToListAsync());
+        Assert.Single(created.Items);
+        Assert.Equal(1_150m, created.Amounts.GrandTotal);
+        Assert.Equal("Guest", created.Recipient.RecipientName);
+        Assert.Contains("cancel", created.AvailableActions);
+
+        var replay = await CreateGateway(verification).FindCreatedOrderAsync(created.PublicId);
+        Assert.NotNull(replay);
+        Assert.Equal(JsonSerializer.Serialize(created), JsonSerializer.Serialize(replay));
     }
 
     [global::DoSelect.Infrastructure.Tests.Idempotency.SqlServerFact]
@@ -231,6 +242,11 @@ public sealed class EfCheckoutTransactionGatewayTests
         Assert.Equal("Checkout 免運券", orderCoupon.NameSnapshot);
         Assert.True(orderCoupon.IsFreeShipping);
         Assert.Equal(CouponRedemptionStatus.Reserved, redemption.Status);
+        Assert.Equal(
+            HMACSHA256.HashData(
+                Encoding.UTF8.GetBytes(CouponGuestUsageKey),
+                Encoding.UTF8.GetBytes("guest@example.test")),
+            redemption.GuestUsageKeyHash);
     }
 
     [global::DoSelect.Infrastructure.Tests.Idempotency.SqlServerFact]
@@ -550,6 +566,11 @@ public sealed class EfCheckoutTransactionGatewayTests
             new EfCompatibilityCatalogReader(context),
             new CouponRuleReader(context),
             new SqlOrderNumberGenerator(context),
+            new CouponGuestUsageHasher(
+                Microsoft.Extensions.Options.Options.Create(new CouponGuestUsageOptions
+                {
+                    CouponGuestUsageHmacKeyV1 = CouponGuestUsageKey,
+                })),
             new FixedTimeProvider(NowUtc));
 
     /// <summary>

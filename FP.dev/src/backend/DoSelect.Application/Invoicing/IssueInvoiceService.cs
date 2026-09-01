@@ -1,9 +1,10 @@
 using DoSelect.Application.Orders;
+using DoSelect.Application.Common;
 using DoSelect.Domain.Invoicing;
 
 namespace DoSelect.Application.Invoicing;
 
-public sealed record IssueInvoiceRequest(Guid OrderPublicId);
+public sealed record IssueInvoiceRequest(Guid OrderPublicId, byte[]? OrderRowVersion = null);
 
 /// <summary>
 /// 通過檢查後要建立的模擬發票。實際寫入與狀態歷程由發票端點或付款成功流程負責。
@@ -21,7 +22,11 @@ public sealed record InvoiceIssuancePlan(
     decimal TaxAmount,
     decimal IssuedAmount,
     decimal RoundingAdjustment,
-    IReadOnlyList<InvoiceLineBreakdown> Lines);
+    IReadOnlyList<InvoiceIssuanceLinePlan> Lines);
+
+public sealed record InvoiceIssuanceLinePlan(
+    long? OrderItemId,
+    InvoiceLineBreakdown Breakdown);
 
 public sealed class IssueInvoiceResult
 {
@@ -107,6 +112,12 @@ public sealed class IssueInvoiceService
             return IssueInvoiceResult.Failure(InvoiceErrorCodes.ResourceNotFound);
         }
 
+        if (request.OrderRowVersion is { } expectedRowVersion &&
+            !expectedRowVersion.AsSpan().SequenceEqual(snapshot.RowVersion))
+        {
+            return IssueInvoiceResult.Failure(DomainErrorCodes.ConcurrencyConflict);
+        }
+
         // 公司發票缺統編或抬頭時，SimulatedInvoice 建構子會拒絕。
         // 先在這裡擋下，否則會回傳一份無法持久化的成功計畫，並白白耗掉一個流水號。
         if (!InvoicePolicy.HasCompleteBuyerDetails(
@@ -120,11 +131,14 @@ public sealed class IssueInvoiceService
             snapshot.OrderId,
             cancellationToken);
 
+        var invoiceableSources = snapshot.Lines
+            .Where(source => source.Line.GrossAmount > 0m)
+            .ToArray();
         var calculation = InvoiceCalculator.Calculate(new InvoiceIssuanceRequest(
             TriggerFor(snapshot),
             alreadyIssued,
             snapshot.OrderPaidAmount,
-            [.. snapshot.Lines.Select(source => source.Line)]));
+            [.. invoiceableSources.Select(source => source.Line)]));
 
         if (!calculation.IsSuccess)
         {
@@ -147,6 +161,10 @@ public sealed class IssueInvoiceService
             calculation.TaxAmount,
             calculation.IssuedAmount,
             calculation.RoundingAdjustment,
-            calculation.Lines));
+            calculation.Lines
+                .Select((line, index) => new InvoiceIssuanceLinePlan(
+                    invoiceableSources[index].OrderItemId,
+                    line))
+                .ToArray()));
     }
 }

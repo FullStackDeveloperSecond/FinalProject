@@ -37,7 +37,7 @@ public sealed class InvoiceExistenceReader : IInvoiceExistenceReader
 /// </para>
 /// <para>
 /// 這個查詢本身沒有鎖。號碼的唯一性靠<b>兩件事</b>：呼叫端把取號與寫入放在同一個
-/// Serializable 交易內（開票的 idempotency executor 負責），以及唯一索引作為
+/// Serializable 交易內（付款成功 Outbox Consumer 或手動開票 Writer 負責），以及唯一索引作為
 /// 最後一道防線。這裡刻意不自己開交易 —— 自己開會讓取號落在別的交易，
 /// 反而失去它要保護的那個不變量。
 /// </para>

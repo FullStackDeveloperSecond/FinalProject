@@ -13,6 +13,18 @@ public sealed class StartPaymentAttemptServiceTests
     private static readonly byte[] StaleRowVersion = [1, 2, 3, 4, 5, 6, 7, 9];
 
     [Fact]
+    public void PublicCreateRequestContainsOnlyMethodAndOrderRowVersion()
+    {
+        var properties = typeof(CreatePaymentAttemptRequest)
+            .GetProperties()
+            .Select(property => property.Name)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(["Method", "OrderRowVersion"], properties);
+    }
+
+    [Fact]
     public async Task StartAsync_ApprovesAFirstRealtimeAttempt()
     {
         var service = CreateService(new FakePaymentAttemptReader(Snapshot()));

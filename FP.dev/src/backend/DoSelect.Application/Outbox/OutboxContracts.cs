@@ -8,6 +8,7 @@ public static class OutboxEventTypes
     public const string InAppNotificationRequestedV1 = "notification.in_app.requested.v1";
     public const string InventoryReconciliationMismatchDetectedV1 =
         "inventory.reconciliation_mismatch.detected.v1";
+    public const string SimulatedInvoiceRequestedV1 = "invoice.simulated.requested.v1";
 }
 
 public sealed record EmailNotificationRequestedV1(
@@ -34,6 +35,8 @@ public sealed record InventoryReconciliationMismatchDetectedV1(
     int ExpectedOnHand,
     int ActualOnHand,
     DateTime DetectedAtUtc);
+
+public sealed record SimulatedInvoiceRequestedV1(Guid OrderPublicId);
 
 public sealed class OutboxWriteRequest
 {
@@ -102,6 +105,24 @@ public sealed class OutboxWriteRequest
         CreateKnown(
             publicId,
             OutboxEventTypes.EmailNotificationRequestedV1,
+            aggregateType,
+            aggregatePublicId,
+            payload,
+            occurredAtUtc,
+            availableAtUtc,
+            correlationId);
+
+    public static OutboxWriteRequest Create(
+        Guid publicId,
+        string aggregateType,
+        Guid aggregatePublicId,
+        SimulatedInvoiceRequestedV1 payload,
+        DateTime occurredAtUtc,
+        DateTime availableAtUtc,
+        string correlationId) =>
+        CreateKnown(
+            publicId,
+            OutboxEventTypes.SimulatedInvoiceRequestedV1,
             aggregateType,
             aggregatePublicId,
             payload,
@@ -218,6 +239,9 @@ public sealed class OutboxWriteRequest
                     throw new ArgumentException("DetectedAtUtc must use UTC.", nameof(payload));
                 }
 
+                break;
+            case SimulatedInvoiceRequestedV1 invoice:
+                RequirePublicId(invoice.OrderPublicId, nameof(invoice.OrderPublicId));
                 break;
             default:
                 throw new ArgumentOutOfRangeException(

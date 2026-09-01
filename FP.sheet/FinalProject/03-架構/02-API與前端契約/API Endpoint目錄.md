@@ -1,12 +1,13 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-28
+最後更新: 2026-08-31
 追蹤項目:
   - DES-10
   - DES-16
   - DES-20
   - DES-22
   - DES-23
+  - DES-25
   - REQ-02
   - REQ-03
 ---
@@ -30,6 +31,7 @@
 
 | 範圍／使用案例 | Method／Route | 權限 | Request／Response 契約 | 主要錯誤 |
 |---|---|---|---|---|
+| M Checkout 政策版本支撐 | `GET /api/v1/checkout/policy-versions` | Public | 無 Request → `200 AcceptedPolicyVersions`；只回目前 Terms／Return／Privacy 三個版本，不回伺服器 ShippingConstraint | — |
 | UC-SEARCH-01 | `GET /api/v1/products` | Public | `ProductSearchQuery` → `PageResult<ProductCardDto>` | `validation_failed`、`search_sort_unsupported`、`search_filter_unsupported` |
 | M 商品明細支撐 | `GET /api/v1/products/{id}` | Public | `ProductDetailDto`；只回已發布且可公開內容 | `resource_not_found` |
 | SH-06 公開商品圖片 | `GET /media/products/{publicId}/{variant}/{contentHash}.webp` | Public | `variant` 只接受 `320`、`800`、`1600`；`contentHash` 為該 WebP 衍生檔 SHA-256 小寫 Hex；成功回 `image/webp` 與一年 immutable Cache | Hash／狀態／檔案不符均回無內容 `404` |
@@ -75,7 +77,7 @@
 | UC-CHECKOUT-01 | `POST /api/v1/orders` | Public／Member | `CreateOrderRequest` → `201 OrderDto`；需 Idempotency-Key | `inventory_insufficient`、`order_total_changed`、`order_total_below_minimum`、`cart_item_requires_attention` |
 | UC-CHECKOUT-COD-01 | 同 `POST /api/v1/orders` | Public／Member | `paymentMethod = cashOnDelivery` | `payment_method_not_allowed`、`payment_cod_amount_exceeded`、`payment_cod_restricted_item`、`shipping_method_not_allowed` |
 | M 訂單取消支撐 | `POST /api/v1/orders/{id}/actions/cancel` | Owner Member／有效 GuestOrderAccessToken | `CancelOrderRequest`＋RowVersion → `OrderDto` | `order_cancellation_not_allowed`、`order_state_conflict`、`concurrency_conflict` |
-| UC-PAY-01 | `POST /api/v1/orders/{orderId}/payment-attempts`；`POST /api/v1/simulated-payments/{attemptId}/actions/complete` | 訂單擁有者／展示模擬權限 | `CreatePaymentAttemptRequest`、`CompleteSimulatedPaymentRequest` → `PaymentAttemptDto` | `payment_state_conflict`、`payment_attempt_expired`、`order_payment_deadline_expired` |
+| UC-PAY-01 | `POST /api/v1/orders/{orderId}/payment-attempts`；`POST /api/v1/simulated-payments/{attemptId}/actions/complete` | Owner Member／有效 GuestOrderAccessToken；完成端點另限 Demo Profile＋`Demo:SimulationEndpointsEnabled=true`，Cookie 寫入由全域 Antiforgery 保護；COD 不得使用此完成端點 | `CreatePaymentAttemptRequest`、`CompleteSimulatedPaymentRequest` → `PaymentAttemptDto`；`simulationKey` 同時作為唯一重播鍵與模擬 Provider Event 鍵；即時付款支援 `succeeded`／`failed`／`cancelled`，遞延付款另支援 `expired` | `payment_state_conflict`、`payment_attempt_expired`、`order_payment_deadline_expired`、`payment_event_duplicate`、`idempotency_payload_conflict` |
 | UC-RETURN-01 | `POST /api/v1/orders/{orderId}/returns`；`GET /api/v1/returns/{id}`；`POST /api/v1/returns/{id}/attachments` | 訂單擁有者／GuestOrderAccessToken | `CreateReturnRequest` → `ReturnRequestDto`；附件遵守私有檔案契約 | `return_deadline_expired`、`return_quantity_exceeded`、`file_count_exceeded`、`file_size_exceeded`、`file_format_invalid`、`file_malware_detected`、`file_scan_unavailable` |
 
 ## 管理後台型錄、圖片、匯入與相容性
@@ -116,6 +118,7 @@
 | UC-REFUND-01 退款 | `GET /api/v1/admin/refunds`；`GET /api/v1/admin/refunds/{id}`；`POST /api/v1/admin/refunds/{id}/actions/execute` | FinanceManager／SuperAdmin；查詢依角色矩陣 | `AdminRefundQuery`、`PageResult<RefundDto>`、`ExecuteRefundRequest` | `refund_amount_exceeded`、`refund_state_conflict`、`refund_snapshot_unavailable`、`concurrency_conflict` |
 | M 優惠券管理支撐 | `GET/POST /api/v1/admin/coupons`；`GET/PUT /api/v1/admin/coupons/{id}`；`POST /api/v1/admin/coupons/{id}/actions/{action}` | `Coupon.Manage`：FinanceManager／MarketingAnalyst／SuperAdmin | Action 白名單：`activate`、`pause`、`disable`；`CouponDto` 與管理 Request | `coupon_code_duplicate`、`coupon_state_conflict`、`validation_failed`、`concurrency_conflict` |
 | M 模擬發票查詢支撐 | `GET /api/v1/admin/invoices`；`GET /api/v1/admin/invoices/{id}` | `Invoice.Manage`：FinanceManager／SuperAdmin | `AdminInvoiceQuery` → `PageResult<AdminInvoiceSummaryDto>`；`AdminInvoiceDto` | `resource_not_found`、`authorization_forbidden` |
+| M 手動開立訂單快照 | `GET /api/v1/admin/orders/{orderId}/invoice-issuance` | `Invoice.Manage`：FinanceManager／SuperAdmin；需 MFA | `InvoiceIssuanceOrderDto`；只回開票必要事實，不回收件人、品項、內部 ID | `resource_not_found`、`authorization_forbidden` |
 | M 模擬發票開立 | `POST /api/v1/admin/orders/{orderId}/invoices` | `Invoice.Manage`：FinanceManager／SuperAdmin | `IssueSimulatedInvoiceRequest` → `201 AdminInvoiceDto`；需 Idempotency-Key | `invoice_order_unpaid`、`invoice_order_cancelled`、`invoice_already_exists`、`idempotency_payload_conflict`、`concurrency_conflict` |
 | M 模擬發票作廢 | `POST /api/v1/admin/invoices/{id}/actions/void` | `Invoice.Manage`：FinanceManager／SuperAdmin | `VoidSimulatedInvoiceRequest` → `AdminInvoiceDto` | `invoice_state_conflict`、`invoice_allowance_required`、`concurrency_conflict` |
 | M 模擬折讓建立 | `POST /api/v1/admin/invoices/{id}/allowances` | `Invoice.Manage`：FinanceManager／SuperAdmin | `CreateSimulatedInvoiceAllowanceRequest` → `201 SimulatedInvoiceAllowanceDto`；需 Idempotency-Key；金額由成功 Refund 推導 | `invoice_state_conflict`、`refund_state_conflict`、`idempotency_payload_conflict`、`concurrency_conflict` |

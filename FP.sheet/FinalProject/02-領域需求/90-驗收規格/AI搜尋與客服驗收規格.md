@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-28
+最後更新: 2026-08-30
 追蹤項目:
   - REQ-02
   - REQ-03
@@ -115,4 +115,4 @@ Schema 採小型業務條件且不得暴露資料庫欄位；用途 Enum 與補�
 - 完整自然語言搜尋 JSON Schema 欄位型別與 Enum 已定於 [[03-架構/06-AI設計/AI應用詳細設計]]。
 - AI 客服四個工具、引用欄位及精確 Request／Response DTO 已定於 [[03-架構/06-AI設計/AI應用詳細設計]] 與 [[03-架構/02-API與前端契約/API DTO與Schema契約]]。
 - Prompt、Schema、工具版本規則已確認，實作格式詳見 [[03-架構/06-AI設計/AI應用詳細設計]]。
-- 個資遮蔽、跨會員、同意、額度預留、最後一額、併發競爭、語系、唯讀工具、Schema、故障與 Prompt Injection 信任分層已有自動化證據。`dev` 已包含 SQL Server Admission Gate、append-only 同意／額度、本人訂單 Owner Query、RequestPublicId 冪等、Guest Cookie 403、Responses Adapter 與 M-19 完整垂直切片。`codex/m18-ai-product-search` 另形成 SearchIntent、自然語言既有零件確認閘門、公開 Endpoint、10／30 額度、八類完整 CustomBuild、新購小計＋NT$300 組裝費、既有零件不重複計價、正式相容性、理由與降級 UI；其狀態仍須以 Required CI／Review／合併為準。Live evaluation 由 AI-09 獨立追蹤，詳見 [[03-架構/06-AI設計/AI測試與評估規格]]。
+- 個資遮蔽、跨會員、同意、額度預留、最後一額、併發競爭、語系、唯讀工具、Schema、故障與 Prompt Injection 信任分層已有自動化證據。`dev` 已包含 SQL Server Admission Gate、append-only 同意／額度、本人訂單／客服 Owner Query、RequestPublicId 冪等、Guest Cookie 403、Responses Adapter、M-19 完整客服切片，以及 PR #62 合併的 M-18 SearchIntent、既有零件確認閘門、公開 Endpoint、10／30 額度、八類完整 CustomBuild、新購小計＋NT$300 組裝費、正式相容性、推薦理由與降級 UI。公開搜尋 Playwright 目前證明的是故障降級旅程；Live evaluation 仍由 AI-09 獨立追蹤，詳見 [[03-架構/06-AI設計/AI測試與評估規格]]。

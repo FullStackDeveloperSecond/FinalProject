@@ -39,7 +39,7 @@ export function useAddressesQuery() {
 }
 
 function invalidateAddresses(queryClient: ReturnType<typeof useQueryClient>) {
-  void queryClient.invalidateQueries({ queryKey: memberKeys.addresses() })
+  return queryClient.invalidateQueries({ queryKey: memberKeys.addresses() })
 }
 
 export function useCreateAddressMutation() {

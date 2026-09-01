@@ -12,6 +12,16 @@ public static class RefundErrorCodes
     public const string ConcurrencyConflict = "concurrency_conflict";
     public const string ResourceNotFound = "resource_not_found";
     public const string RefundSnapshotUnavailable = "refund_snapshot_unavailable";
+
+    /// <summary>
+    /// 後端依可信快照算出的淨退款與已核准金額不一致（409）。
+    /// </summary>
+    /// <remarks>
+    /// 刻意與 <see cref="RefundStateConflict"/> 分開：後者的語意是「退款目前狀態不允許
+    /// 操作」，管理員收到會去查退款狀態，但實際原因是核准當時依據的數量或金額與現在的
+    /// 可信快照已經不同（例如核准後又有其他退貨被受理）。
+    /// </remarks>
+    public const string RefundCalculationMismatch = "refund_calculation_mismatch";
 }
 
 /// <summary>

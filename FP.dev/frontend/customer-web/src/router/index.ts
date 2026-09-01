@@ -86,19 +86,24 @@ const router = createRouter({
       props: true,
     },
     {
+      path: '/orders/:orderId',
+      name: 'order-detail',
+      component: () => import('../features/orders/OrderDetailPage.vue'),
+    },
+    {
+      path: '/orders/:orderId/payment',
+      name: 'order-payment',
+      component: () => import('../features/payments/PaymentPage.vue'),
+    },
+    {
       path: '/guest-orders/access',
       name: 'guest-order-access',
-      component: () => import('../pages/guest-orders/GuestOrderAccessPage.vue'),
+      component: () => import('../features/orders/GuestOrderAccessPage.vue'),
     },
     {
       path: '/guest-orders/verify',
       name: 'guest-order-verify',
-      component: () => import('../pages/guest-orders/GuestOrderVerifyPage.vue'),
-    },
-    {
-      path: '/orders/:orderId',
-      name: 'order-detail',
-      component: () => import('../features/orders/OrderDetailPage.vue'),
+      component: () => import('../features/orders/GuestOrderVerifyPage.vue'),
     },
     {
       path: '/orders/:orderId/returns/new',
@@ -111,7 +116,7 @@ const router = createRouter({
       component: () => import('../pages/returns/ReturnDetailPage.vue'),
     },
     {
-      path: '/account/profile',
+      path: '/account',
       name: 'account-profile',
       component: () => import('../pages/account/ProfilePage.vue'),
       meta: { requiresAuth: true },
@@ -129,20 +134,9 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
-      path: '/account/favorites',
-      name: 'my-favorites',
-      component: () => import('../pages/favorites/MyFavoritesPage.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
       path: '/cart',
       name: 'cart',
       component: () => import('../pages/CartPage.vue'),
-    },
-    {
-      path: '/checkout',
-      name: 'checkout',
-      component: () => import('../pages/CheckoutPage.vue'),
     },
     {
       // 組長 PR #35 round-3 review, P2-3: a saved build-list is inherently a member resource (it

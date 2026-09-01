@@ -37,6 +37,7 @@ public sealed class GuestOrderAccessApiFixture : IAsyncLifetime
             ["Features__EmailEnabled"] = "false",
             ["Demo__SimulationEndpointsEnabled"] = "false",
             ["GuestOrderAccess__Pepper"] = "guest-order-access-api-tests-pepper-32-bytes",
+            ["Idempotency__ActorScopePepper"] = "guest-order-access-api-tests-idempotency-pepper",
             // TestServer reports one stable RemoteIpAddress. Keep provider-backed tests isolated
             // from each other's persistent IP budget while production defaults remain unchanged.
             ["RateLimiting__GuestOrderAccessIpPermitLimit"] = "1000",

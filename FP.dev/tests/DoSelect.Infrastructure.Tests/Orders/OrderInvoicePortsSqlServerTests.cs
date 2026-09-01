@@ -56,6 +56,32 @@ public sealed class OrderInvoicePortsSqlServerTests
     }
 
     [SqlServerFact]
+    public async Task AdminIssuanceSummaryProjectsOnlyTheRequiredOrderFactsInOneQuery()
+    {
+        var counter = new CommandCounter();
+
+        await RunAsync(
+            async context =>
+            {
+                var seeded = await SeedOrderAsync(context, shippingFee: 0m, assemblyFee: 0m);
+                var reader = new OrderInvoiceIssuanceReader(context);
+
+                counter.Reset();
+                var summary = await reader.FindAdminSummaryAsync(seeded.OrderPublicId);
+
+                Assert.NotNull(summary);
+                Assert.Equal(seeded.OrderId, summary.OrderId);
+                Assert.Equal(seeded.OrderPublicId, summary.OrderPublicId);
+                Assert.StartsWith("INV-", summary.OrderNumber);
+                Assert.True(summary.OrderIsPaid);
+                Assert.False(summary.OrderIsCancelled);
+                Assert.NotEmpty(summary.RowVersion);
+                Assert.Equal(1, counter.Count);
+            },
+            counter);
+    }
+
+    [SqlServerFact]
     public async Task ShippingAndAssemblyBecomeNonMerchandiseLinesWithTheReservedSkuCodes()
     {
         await RunAsync(async context =>
@@ -217,6 +243,29 @@ public sealed class OrderInvoicePortsSqlServerTests
 
                 Assert.Empty(references);
                 Assert.Equal(0, counter.Count);
+            },
+            counter);
+    }
+
+    [SqlServerFact]
+    public async Task TheItemLookupReturnsPublicIdsInOneBatch()
+    {
+        var counter = new CommandCounter();
+
+        await RunAsync(
+            async context =>
+            {
+                var first = await SeedOrderAsync(context, 0m, 0m);
+                var second = await SeedOrderAsync(context, 0m, 0m);
+                var reader = new OrderInvoiceReferenceReader(context);
+
+                counter.Reset();
+                var publicIds = await reader.FindItemPublicIdsAsync(
+                    [first.OrderItemId, second.OrderItemId, first.OrderItemId, 999_999L]);
+
+                Assert.Equal(first.OrderItemPublicId, publicIds[first.OrderItemId]);
+                Assert.Equal(second.OrderItemPublicId, publicIds[second.OrderItemId]);
+                Assert.Equal(1, counter.Count);
             },
             counter);
     }

@@ -157,6 +157,7 @@
 | `refund_amount_exceeded` | 409 | 金額超過可退款餘額 |
 | `refund_state_conflict` | 409 | 退款交易目前狀態不允許操作 |
 | `refund_snapshot_unavailable` | 409 | 退款所需的受控退貨原因、組裝費處置或退貨運費可信快照缺漏；不得以預設值或目前設定回推 |
+| `refund_calculation_mismatch` | 409 | 後端依可信快照算出的淨退款與已核准金額不一致；不得寫入分攤或改變退款狀態 |
 
 ## 模擬發票與折讓
 

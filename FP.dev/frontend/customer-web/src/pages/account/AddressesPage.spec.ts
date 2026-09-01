@@ -140,10 +140,28 @@ describe('AddressesPage', () => {
 
     const buttons = wrapper.findAll('.address-card__actions button')
     await buttons[1]!.trigger('click')
+    expect(wrapper.text()).toContain('確定要刪除這筆收件地址嗎')
+
+    await wrapper.get('[role="alertdialog"] button').trigger('click')
     await flushPromises()
 
     expect(mockDeleteAddress).toHaveBeenCalledWith('address-1', 'AAAA')
     expect(wrapper.text()).toContain('已被更新')
     expect(wrapper.text()).toContain('住家')
+  })
+
+  it('does not delete an address when deletion is cancelled', async () => {
+    mockFetchAddresses.mockResolvedValue([address()])
+    const wrapper = await mountAddressesPage()
+    await flushPromises()
+
+    const buttons = wrapper.findAll('.address-card__actions button')
+    await buttons[1]!.trigger('click')
+
+    const confirmationButtons = wrapper.findAll('[role="alertdialog"] button')
+    await confirmationButtons[1]!.trigger('click')
+
+    expect(mockDeleteAddress).not.toHaveBeenCalled()
+    expect(wrapper.find('[role="alertdialog"]').exists()).toBe(false)
   })
 })

@@ -1,33 +1,139 @@
 using System.Diagnostics;
 using System.Security.Claims;
+using System.ComponentModel.DataAnnotations;
 using DoSelect.Api.Common;
 using DoSelect.Api.Security;
+using DoSelect.Api.Shopping;
+using DoSelect.Application.Checkout;
 using DoSelect.Application.Common;
+using DoSelect.Application.Members;
 using DoSelect.Application.Orders;
+using DoSelect.Application.Payments;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 
 namespace DoSelect.Api.Orders;
 
 /// <summary>
 /// Order list remains member-only. Detail and cancellation accept either an authenticated member
-/// or a GuestOrderAccess Cookie that has been validated against the exact target order. Creation
-/// (UC-CHECKOUT-01) lives in the separate CheckoutController — see its class remarks for why.
+/// or a GuestOrderAccess Cookie that has been validated against the exact target order.
 /// </summary>
 [ApiController]
 [Route("api/v1/orders")]
 public sealed class OrdersController : ControllerBase
 {
+    public const string IdempotencyKeyHeaderName = "Idempotency-Key";
+
     private readonly IOrderService _orderService;
     private readonly GuestOrderAccessScopeAuthorizer _guestAuthorizer;
+    private readonly CheckoutService _checkoutService;
+    private readonly IMemberProfileGateway _memberProfileGateway;
+    private readonly IPaymentAttemptWriter _paymentAttemptWriter;
 
     public OrdersController(
         IOrderService orderService,
-        GuestOrderAccessScopeAuthorizer guestAuthorizer)
+        GuestOrderAccessScopeAuthorizer guestAuthorizer,
+        CheckoutService checkoutService,
+        IMemberProfileGateway memberProfileGateway,
+        IPaymentAttemptWriter paymentAttemptWriter)
     {
         _orderService = orderService;
         _guestAuthorizer = guestAuthorizer;
+        _checkoutService = checkoutService;
+        _memberProfileGateway = memberProfileGateway;
+        _paymentAttemptWriter = paymentAttemptWriter;
+    }
+
+    [HttpPost]
+    [ProducesResponseType<OrderDto>(StatusCodes.Status201Created)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<OrderDto>> CreateOrder(
+        [FromBody] CreateOrderRequest request,
+        [FromHeader(Name = IdempotencyKeyHeaderName), BindRequired]
+        [StringLength(128, MinimumLength = 1)]
+        string idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            ModelState.AddModelError(
+                "idempotencyKey",
+                $"{IdempotencyKeyHeaderName} is required.");
+            return BadRequest(ApiProblemDetailsFactory.CreateValidation(HttpContext, ModelState));
+        }
+
+        var identity = await CartIdentityResolver.ResolveAsync(HttpContext);
+        if (identity is null)
+        {
+            var problem = ApiProblemDetailsFactory.Create(
+                HttpContext,
+                StatusCodes.Status400BadRequest,
+                ApiErrorCodes.ValidationFailed,
+                detail: $"A member session or the '{CartIdentityResolver.GuestCartKeyHeaderName}' header is required.");
+            return BadRequest(problem);
+        }
+
+        CheckoutActor actor;
+        if (identity.MemberUserId is { } memberUserId)
+        {
+            var profile = await _memberProfileGateway.GetProfileAsync(memberUserId, cancellationToken)
+                ?? throw new InvalidOperationException(
+                    "The authenticated member does not have the profile required for Checkout.");
+            actor = CheckoutActor.ForMember(memberUserId, profile.PublicId);
+        }
+        else
+        {
+            actor = CheckoutActor.ForGuest(identity.GuestCartKey!);
+        }
+
+        var result = await _checkoutService.CreateOrderAsync(
+            actor,
+            request,
+            idempotencyKey,
+            cancellationToken);
+        return StatusCode(result.StatusCode, result.Body);
+    }
+
+    [HttpPost("{id:guid}/payment-attempts")]
+    [ProducesResponseType<PaymentAttemptDto>(StatusCodes.Status201Created)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<PaymentAttemptDto>> CreatePaymentAttempt(
+        Guid id,
+        [FromBody] CreatePaymentAttemptRequest request,
+        [FromHeader(Name = IdempotencyKeyHeaderName), BindRequired]
+        [StringLength(128, MinimumLength = 1)]
+        string idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            ModelState.AddModelError(
+                "idempotencyKey",
+                $"{IdempotencyKeyHeaderName} is required.");
+            return BadRequest(ApiProblemDetailsFactory.CreateValidation(HttpContext, ModelState));
+        }
+
+        var resolution = await ResolveActorAsync(id, cancellationToken);
+        if (resolution.Actor is null)
+        {
+            return resolution.HadAuthenticatedCookie ? OrderNotFound() : Unauthorized();
+        }
+
+        var result = await _paymentAttemptWriter.CreateAsync(
+            new CreatePaymentAttemptCommand(
+                id,
+                request.Method,
+                request.OrderRowVersion,
+                idempotencyKey,
+                resolution.Actor),
+            cancellationToken);
+        return StatusCode(result.StatusCode, result.Body);
     }
 
     [HttpGet]

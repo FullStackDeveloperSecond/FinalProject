@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
 import AddressForm from '../../features/members/components/AddressForm.vue'
@@ -20,7 +20,14 @@ const showCreateForm = ref(false)
 const editingAddressPublicId = ref<string | null>(null)
 const formError = ref<string | null>(null)
 const deletingAddressPublicId = ref<string | null>(null)
+const confirmingDeleteAddressPublicId = ref<string | null>(null)
 const deleteError = ref<{ addressPublicId: string, message: string } | null>(null)
+
+const isBusy = computed(() =>
+  createMutation.isPending.value
+  || updateMutation.isPending.value
+  || deleteMutation.isPending.value,
+)
 
 function describeError(error: unknown): string {
   if (isApiError(error) && error.code === 'concurrency_conflict') {
@@ -30,13 +37,21 @@ function describeError(error: unknown): string {
 }
 
 function startCreate(): void {
+  if (isBusy.value) {
+    return
+  }
   editingAddressPublicId.value = null
+  confirmingDeleteAddressPublicId.value = null
   formError.value = null
   showCreateForm.value = true
 }
 
 function startEdit(addressPublicId: string): void {
+  if (isBusy.value) {
+    return
+  }
   showCreateForm.value = false
+  confirmingDeleteAddressPublicId.value = null
   formError.value = null
   editingAddressPublicId.value = addressPublicId
 }
@@ -45,6 +60,20 @@ function cancelForm(): void {
   showCreateForm.value = false
   editingAddressPublicId.value = null
   formError.value = null
+}
+
+function requestDelete(addressPublicId: string): void {
+  if (isBusy.value) {
+    return
+  }
+  showCreateForm.value = false
+  editingAddressPublicId.value = null
+  deleteError.value = null
+  confirmingDeleteAddressPublicId.value = addressPublicId
+}
+
+function cancelDelete(): void {
+  confirmingDeleteAddressPublicId.value = null
 }
 
 async function submitCreate(payload: CreateMemberAddressRequest): Promise<void> {
@@ -71,7 +100,11 @@ async function submitEdit(address: MemberAddress, payload: CreateMemberAddressRe
 }
 
 async function remove(address: MemberAddress): Promise<void> {
+  if (isBusy.value) {
+    return
+  }
   deleteError.value = null
+  confirmingDeleteAddressPublicId.value = null
   deletingAddressPublicId.value = address.publicId
   try {
     await deleteMutation.mutateAsync({ addressPublicId: address.publicId, rowVersion: address.rowVersion })
@@ -81,8 +114,6 @@ async function remove(address: MemberAddress): Promise<void> {
     deletingAddressPublicId.value = null
   }
 }
-
-const isBusy = createMutation.isPending
 </script>
 
 <template>
@@ -97,6 +128,7 @@ const isBusy = createMutation.isPending
       <button
         v-if="!showCreateForm"
         type="button"
+        :disabled="isBusy"
         @click="startCreate"
       >
         新增地址
@@ -128,13 +160,13 @@ const isBusy = createMutation.isPending
       </p>
 
       <EmptyState
-        v-if="addressesQuery.data.value?.length === 0"
+        v-if="!showCreateForm && addressesQuery.data.value?.length === 0"
         title="尚未新增收件地址"
         description="新增地址後，結帳時可以直接選用。"
       />
 
       <ul
-        v-else
+        v-if="(addressesQuery.data.value?.length ?? 0) > 0"
         class="addresses-page__list"
       >
         <li
@@ -169,7 +201,34 @@ const isBusy = createMutation.isPending
               <p>{{ address.recipientName }} ／ {{ address.phone }}</p>
               <p>{{ address.postalCode }} {{ address.city }}{{ address.district }}{{ address.addressLine1 }}{{ address.addressLine2 }}</p>
             </div>
-            <div class="address-card__actions">
+            <div
+              v-if="confirmingDeleteAddressPublicId === address.publicId"
+              class="address-card__delete-confirm"
+              role="alertdialog"
+              :aria-label="`確認刪除地址「${address.label}」`"
+            >
+              <p>確定要刪除這筆收件地址嗎？歷史訂單的地址快照不會受到影響。</p>
+              <div class="address-card__actions">
+                <button
+                  type="button"
+                  :disabled="isBusy"
+                  @click="remove(address)"
+                >
+                  確定刪除
+                </button>
+                <button
+                  type="button"
+                  :disabled="isBusy"
+                  @click="cancelDelete"
+                >
+                  取消
+                </button>
+              </div>
+            </div>
+            <div
+              v-else
+              class="address-card__actions"
+            >
               <button
                 type="button"
                 :disabled="isBusy"
@@ -180,7 +239,7 @@ const isBusy = createMutation.isPending
               <button
                 type="button"
                 :disabled="isBusy || deletingAddressPublicId === address.publicId"
-                @click="remove(address)"
+                @click="requestDelete(address.publicId)"
               >
                 {{ deletingAddressPublicId === address.publicId ? '刪除中…' : '刪除' }}
               </button>
@@ -252,6 +311,16 @@ const isBusy = createMutation.isPending
   display: flex;
   gap: 0.5rem;
   flex-shrink: 0;
+}
+
+.address-card__delete-confirm {
+  display: grid;
+  gap: 0.5rem;
+  max-width: 18rem;
+}
+
+.address-card__delete-confirm p {
+  margin: 0;
 }
 
 .addresses-page__error {

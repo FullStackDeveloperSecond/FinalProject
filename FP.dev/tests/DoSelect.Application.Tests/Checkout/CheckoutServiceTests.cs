@@ -2,6 +2,8 @@ using System.Data;
 using System.Text.Json;
 using DoSelect.Application.Checkout;
 using DoSelect.Application.Idempotency;
+using DoSelect.Application.Orders;
+using DoSelect.Domain.Orders;
 using DoSelect.Domain.Payments;
 
 namespace DoSelect.Application.Tests.Checkout;
@@ -11,13 +13,27 @@ public sealed class CheckoutServiceTests
     [Fact]
     public async Task CreateOrderAsync_UsesCentralIdempotencyAndAtomicGateway()
     {
-        var created = new CheckoutCreatedOrder(
+        var created = new OrderDto(
             Guid.NewGuid(),
             "DS202608270001",
-            1_000m,
-            "TWD",
-            Guid.NewGuid(),
-            DateTime.UtcNow.AddDays(3));
+            OrderStatus.PendingPayment,
+            PaymentStatus.AwaitingPayment,
+            FulfillmentStatus.Pending,
+            AssemblyStatus.NotRequired,
+            OrderRefundStatus.None,
+            [],
+            new OrderRecipientSummaryDto("Buyer", "CVS_PICKUP", "Store"),
+            new OrderAmountsDto(1_000m, 0m, 0m, 0m, 1_000m, 0m, 0m, "TWD"),
+            DateTime.UtcNow.AddDays(3),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            ["cancel"],
+            [1]);
         var gateway = new FakeGateway(created);
         var executor = new CapturingIdempotencyExecutor();
         var service = new CheckoutService(
@@ -40,6 +56,49 @@ public sealed class CheckoutServiceTests
         Assert.Equal(IsolationLevel.ReadCommitted, executor.CapturedIsolationLevel);
         Assert.Equal(1, gateway.ExecuteCount);
     }
+
+    [Fact]
+    public async Task CreateOrderAsync_WhenReplayed_ReturnsTheSameFullOrderProjectionWithoutExecutingAgain()
+    {
+        var created = CreateOrderDto();
+        var gateway = new FakeGateway(created);
+        var service = new CheckoutService(
+            new ReplayOnlyIdempotencyExecutor(created.PublicId),
+            gateway,
+            new StaticPolicyProvider(new CheckoutPolicySnapshot(1, 1, 1, 1)));
+
+        var result = await service.CreateOrderAsync(
+            CheckoutActor.ForGuest("guest-cart-secret"),
+            Request(Guid.NewGuid()),
+            "checkout-key",
+            CancellationToken.None);
+
+        Assert.True(result.IsReplay);
+        Assert.Equal(created, result.Body);
+        Assert.Equal(0, gateway.ExecuteCount);
+    }
+
+    private static OrderDto CreateOrderDto() => new(
+        Guid.NewGuid(),
+        "DS202608270001",
+        OrderStatus.PendingPayment,
+        PaymentStatus.AwaitingPayment,
+        FulfillmentStatus.Pending,
+        AssemblyStatus.NotRequired,
+        OrderRefundStatus.None,
+        [],
+        new OrderRecipientSummaryDto("Buyer", "CVS_PICKUP", "Store"),
+        new OrderAmountsDto(1_000m, 0m, 0m, 0m, 1_000m, 0m, 0m, "TWD"),
+        DateTime.UtcNow.AddDays(3),
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        ["cancel"],
+        [1]);
 
     private static CreateOrderRequest Request(Guid cartPublicId) =>
         new(
@@ -81,11 +140,30 @@ public sealed class CheckoutServiceTests
         }
     }
 
-    private sealed class FakeGateway(CheckoutCreatedOrder created) : ICheckoutTransactionGateway
+    private sealed class ReplayOnlyIdempotencyExecutor(Guid orderPublicId) : IIdempotencyExecutor
+    {
+        public async Task<IdempotencyExecutionResult<T>> ExecuteAsync<T>(
+            IdempotencyCommand command,
+            Func<CancellationToken, Task<IdempotencyResponse<T>>> handler,
+            Func<StoredIdempotencyResponse, CancellationToken, Task<T>> replayFactory,
+            CancellationToken cancellationToken,
+            IsolationLevel isolationLevel = IsolationLevel.ReadCommitted)
+        {
+            var body = await replayFactory(
+                new StoredIdempotencyResponse(
+                    201,
+                    "{}",
+                    JsonSerializer.Serialize(new { OrderPublicId = orderPublicId })),
+                cancellationToken);
+            return new IdempotencyExecutionResult<T>(201, body, "{}", IsReplay: true);
+        }
+    }
+
+    private sealed class FakeGateway(OrderDto created) : ICheckoutTransactionGateway
     {
         public int ExecuteCount { get; private set; }
 
-        public Task<CheckoutCreatedOrder> ExecuteAsync(
+        public Task<OrderDto> ExecuteAsync(
             CheckoutCommand command,
             CancellationToken cancellationToken = default)
         {
@@ -93,10 +171,10 @@ public sealed class CheckoutServiceTests
             return Task.FromResult(created);
         }
 
-        public Task<CheckoutCreatedOrder?> FindCreatedOrderAsync(
+        public Task<OrderDto?> FindCreatedOrderAsync(
             Guid orderPublicId,
             CancellationToken cancellationToken = default) =>
-            Task.FromResult<CheckoutCreatedOrder?>(
+            Task.FromResult<OrderDto?>(
                 orderPublicId == created.PublicId ? created : null);
     }
 

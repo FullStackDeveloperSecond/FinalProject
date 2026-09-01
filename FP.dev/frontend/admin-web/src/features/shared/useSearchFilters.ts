@@ -21,8 +21,16 @@ export function useSearchFilters(pageSize: number, debounceMs = 300) {
   const filters = reactive<SearchFilters>({ q: '', pageNumber: 1 })
   const queriedQ = ref('')
   let timer: ReturnType<typeof setTimeout> | undefined
+  let restoredQ: string | undefined
 
   watch(() => filters.q, (value) => {
+    // Programmatic URL restoration sets q and pageNumber as one state transition. Do not let
+    // the ordinary typing watcher reset that restored page back to 1 on the next tick.
+    if (restoredQ === value) {
+      restoredQ = undefined
+      return
+    }
+    restoredQ = undefined
     filters.pageNumber = 1
     if (timer !== undefined) {
       clearTimeout(timer)
@@ -51,5 +59,17 @@ export function useSearchFilters(pageSize: number, debounceMs = 300) {
     filters.pageNumber = nextPage
   }
 
-  return { filters, listParams, search, goToPage }
+  function restore(q: string, pageNumber: number) {
+    if (timer !== undefined) {
+      clearTimeout(timer)
+      timer = undefined
+    }
+
+    restoredQ = filters.q === q ? undefined : q
+    filters.q = q
+    queriedQ.value = q
+    filters.pageNumber = pageNumber
+  }
+
+  return { filters, listParams, search, goToPage, restore }
 }
