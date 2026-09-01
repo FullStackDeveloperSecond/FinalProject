@@ -1,4 +1,5 @@
 import { expect, test } from './fixtures.js'
+import { deriveGuestOrderVerificationCode } from './guestOrderAccessCode.js'
 
 // UC-AUTH-02: real login/logout against the seeded member account. Email verification and
 // forgot/reset password (UC-AUTH-01, UC-AUTH-03) are not covered here — as of this branch, an
@@ -192,4 +193,79 @@ test('a public shopper can use AI search safely when the provider is disabled', 
   await expect(page.getByText('不代表 AI 推薦或相容性保證')).toBeVisible()
   await expect(page.getByRole('heading', { level: 3, name: '懂選開發用顯示卡', exact: true }))
     .toBeVisible()
+})
+
+// WP-H03 / UC-GUEST-ORDER-01: real Guest Access → Order detail → cancel journey. createGuestOrder
+// drives the real Cart → Checkout HTTP APIs (no Checkout UI exists yet, that's a separate work
+// package) to produce a real pendingPayment order; the six-digit access code is derived the same
+// way the backend derives it (GuestOrderAccessHasher.DeriveVerificationCode) rather than read from
+// an email, using the fixed pepper the E2E environment is configured with.
+test('a guest can access, view, and cancel their order via the real order-access journey', async ({
+  page,
+  createGuestOrder,
+  seed,
+}) => {
+  const order = await createGuestOrder()
+
+  await page.goto('/guest-orders/access')
+  await page.getByLabel('訂單編號').fill(order.orderNumber)
+  await page.getByLabel('訂單 Email').fill(order.email)
+  await page.getByRole('button', { name: '寄送驗證碼' }).click()
+
+  await expect(page).toHaveURL(/\/guest-orders\/verify\?requestPublicId=/)
+  const requestPublicId = new URL(page.url()).searchParams.get('requestPublicId')
+  expect(requestPublicId, 'the verify page must carry the requestPublicId from the access request').toBeTruthy()
+  const code = deriveGuestOrderVerificationCode(requestPublicId!, 1, seed.guestOrderAccessPepper)
+
+  await page.getByLabel('六位數驗證碼').fill(code)
+  await page.getByRole('button', { name: '驗證並查看訂單' }).click()
+
+  await expect(page).toHaveURL(new RegExp(`/orders/${order.orderPublicId}$`))
+  await expect(page.getByRole('heading', { name: `訂單 ${order.orderNumber}` })).toBeVisible()
+  await expect(page.getByText('狀態：等待付款', { exact: true })).toBeVisible()
+
+  await page.getByRole('button', { name: '申請取消訂單' }).click()
+  await page.getByLabel('取消原因').selectOption('changed_mind')
+  await page.getByRole('button', { name: '確認取消訂單' }).click()
+
+  await expect(page.getByText('狀態：已取消')).toBeVisible()
+})
+
+// UC-GUEST-ORDER-01: "Given Token 指向訂單 A，When 嘗試查看或操作訂單 B，Then API 拒絕存取" — the
+// verified guest-access cookie is scoped to the one order it was issued for. The API denies this
+// as a 404 (OrderDetailPage's 'not-found' state), not a 401/403 — a deliberate choice that avoids
+// confirming order B even exists to someone who isn't scoped to it.
+test('a guest order access token for order A cannot view order B (Owner/Guest Scope)', async ({
+  page,
+  createGuestOrder,
+  seed,
+}) => {
+  const orderA = await createGuestOrder()
+  const orderB = await createGuestOrder()
+
+  await page.goto('/guest-orders/access')
+  await page.getByLabel('訂單編號').fill(orderA.orderNumber)
+  await page.getByLabel('訂單 Email').fill(orderA.email)
+  await page.getByRole('button', { name: '寄送驗證碼' }).click()
+
+  await expect(page).toHaveURL(/\/guest-orders\/verify\?requestPublicId=/)
+  const requestPublicId = new URL(page.url()).searchParams.get('requestPublicId')
+  const code = deriveGuestOrderVerificationCode(requestPublicId!, 1, seed.guestOrderAccessPepper)
+  await page.getByLabel('六位數驗證碼').fill(code)
+  await page.getByRole('button', { name: '驗證並查看訂單' }).click()
+  await expect(page).toHaveURL(new RegExp(`/orders/${orderA.orderPublicId}$`))
+
+  await page.goto(`/orders/${orderB.orderPublicId}`)
+  await expect(page.getByRole('heading', { name: '找不到頁面' })).toBeVisible()
+})
+
+// UC-GUEST-ORDER-01: "回應不得洩漏訂單是否存在" — a bogus order number/email pair must still reach
+// the verify step (the backend creates an equivalent decoy request), not a distinguishable error.
+test('a guest order access request never reveals whether the order/email combination exists', async ({ page }) => {
+  await page.goto('/guest-orders/access')
+  await page.getByLabel('訂單編號').fill('NOTAREALORDER123')
+  await page.getByLabel('訂單 Email').fill('nobody@example.test')
+  await page.getByRole('button', { name: '寄送驗證碼' }).click()
+
+  await expect(page).toHaveURL(/\/guest-orders\/verify\?requestPublicId=/)
 })
