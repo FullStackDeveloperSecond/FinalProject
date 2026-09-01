@@ -106,14 +106,21 @@ describe('gsap dependency and licence pinning', () => {
     }
   })
 
-  it('installs byte-identical gsap runtimes in both apps', () => {
-    const customer = readJson(join(customerRoot, 'node_modules', 'gsap', 'package.json'))
-    const admin = readJson(join(adminRoot, 'node_modules', 'gsap', 'package.json'))
-    expect(customer.version).toBe(PINNED_GSAP)
-    expect(admin.version).toBe(PINNED_GSAP)
+  it('locks byte-identical gsap packages in both apps', () => {
+    const lockedPackages = [customerRoot, adminRoot].map((root) => {
+      const lock = readJson(join(root, 'package-lock.json'))
+      const packages = lock.packages as Record<string, Record<string, unknown>>
+      return packages['node_modules/gsap']
+    })
+
+    expect(lockedPackages[0]?.version).toBe(PINNED_GSAP)
+    expect(lockedPackages[1]).toEqual(lockedPackages[0])
+
+    const installed = readJson(join(customerRoot, 'node_modules', 'gsap', 'package.json'))
+    expect(installed.version).toBe(PINNED_GSAP)
     // GSAP 是 Standard "no charge" License，不是 MIT。這裡把事實釘死，避免日後被誤寫。
-    expect(String(customer.license)).toContain('Standard')
-    expect(String(customer.license)).not.toContain('MIT')
+    expect(String(installed.license)).toContain('Standard')
+    expect(String(installed.license)).not.toContain('MIT')
   })
 
   it('keeps both vite optimizeDeps.exclude lists identical and containing gsap', () => {
