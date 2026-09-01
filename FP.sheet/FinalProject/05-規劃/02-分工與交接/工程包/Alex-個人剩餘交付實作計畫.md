@@ -1,11 +1,11 @@
 ---
 文件狀態: 進行中
 最後更新: 2026-09-01
-基準分支: dev@bc26de94
-實作分支: codex/alex-owned-delivery-20260901
+基準分支: dev@6968cbea
+實作分支: 待建立 WP-A02 分支
 實作人: alex
 規劃範圍: alex 正式主責與已明確接手項目
-下一工作包: WP-A01 Git Gate
+下一工作包: WP-A02
 ---
 
 # Alex 個人剩餘交付實作計畫
@@ -156,8 +156,8 @@
 | 日期 | 工作包 | 狀態 | 證據／結果 |
 |---|---|---|---|
 | 2026-09-01 | 計畫建立 | 完成 | 依 `dev@bc26de94`、正式分工、未完成追蹤表、M 功能矩陣及程式／測試證據建立；下一包 WP-A01 |
-| 2026-09-01 | WP-A01／WP-H02 | 本機完成／待 Git Gate | 新增會員 Session 與管理員首次 TOTP 綁定／錯碼拒絕／二次登入 Browser E2E；customer 5/5、admin 4/4 均以獨立 `DoSelectE2E_<GUID>` SQL DB 通過並完成清理；customer/admin lint、typecheck、production build 與 .NET solution build 通過。完整 customer 回歸另觀察到既有 M-19 降級路徑的 Vue `Unhandled rejection` 警告，留待 WP-A07，不混入本包。 |
+| 2026-09-01 | WP-A01／WP-H02 | 完成 | PR #80 已由 exact head `7a606f52` 通過 Required CI 與 Review，squash merge 為 `dev@6968cbea`；新增會員 Session 與管理員首次 TOTP 綁定／錯碼拒絕／二次登入 Browser E2E，customer 5/5、admin 4/4 均以獨立 `DoSelectE2E_<GUID>` SQL DB 通過並完成清理。完整 customer 回歸另觀察到既有 M-19 降級路徑的 Vue `Unhandled rejection` 警告，留待 WP-A07，不混入本包。 |
 
 ## 11. 下一步
 
-完成 `WP-A01／WP-H02` 的 commit、push、PR、exact-head Required CI、Review 與 squash merge；進入 `dev` 後才開始 `WP-A02／WP-H03`。本包未改變認證產品規則、公共 API、Migration 或其他成員模組。
+執行 `WP-A02／WP-H03`：以最新 `dev@6968cbea` 盤點既有 Guest Access、訂單明細與取消 UI／API／Fixture，建立正確訂單可存取／取消、錯誤或其他訂單不可存取且零副作用的 Browser E2E。本包不得自行改變 Guest Access、取消條件或訂單產品規則。
