@@ -33,6 +33,14 @@ vi.mock('../features/cart/api', () => ({
   mergeCartOnLogin: vi.fn(),
 }))
 
+// C-13：購物車頁現在也預覽配送方式，測試必須自己餵這支 API，否則每個案例都會多打一支真的請求。
+const mockGetShippingOptions = vi.fn()
+
+vi.mock('../features/shipping/api', () => ({
+  getShippingOptions: () => mockGetShippingOptions(),
+  searchConvenienceStores: vi.fn(),
+}))
+
 vi.mock('../features/cart/guestCartKey', () => ({
   getOrCreateGuestCartKey: () => 'guest-test-key',
   clearGuestCartKey: vi.fn(),
@@ -94,12 +102,42 @@ async function mountCartPage(
   })
 }
 
+function readyValidation(cart: CartDto = oneItemCart) {
+  return { cart, isCheckoutReady: true, issues: [], validatedAtUtc: new Date().toISOString() }
+}
+
+function shippingOptions(options: unknown[]) {
+  return {
+    cartPublicId: 'cart-1',
+    options,
+    evaluatedAtUtc: '2026-09-01T00:00:00Z',
+    cartRowVersion: 'AAAA',
+  }
+}
+
+function shippingOption(overrides: Record<string, unknown> = {}) {
+  return {
+    methodCode: 'HOME_DELIVERY',
+    name: '宅配',
+    fee: 120,
+    isEligible: true,
+    ineligibleReasonCode: null,
+    freeShippingThreshold: null,
+    requiresAddress: true,
+    requiresStore: false,
+    allowedPaymentMethods: ['CreditCard'],
+    ...overrides,
+  }
+}
+
 beforeEach(() => {
   mockGetCart.mockReset()
   mockRevalidateCart.mockReset()
   mockUpdateCartItemQuantity.mockReset()
   mockRemoveCartItem.mockReset()
   mockRemoveCartAssemblyGroup.mockReset()
+  mockGetShippingOptions.mockReset()
+  mockGetShippingOptions.mockResolvedValue(shippingOptions([shippingOption()]))
 })
 
 describe('CartPage', () => {
@@ -676,6 +714,109 @@ describe('CartPage', () => {
     const wrapper = await mountCartPage()
     await vi.waitFor(() => expect(wrapper.text()).toContain('購物車已超過 100 件上限，請先清空部分品項。'))
   })
+  /**
+   * C-13 的「Shipping Options」：購物車頁預覽可用的配送方式與運費，讓顧客在進結帳前就知道超取能
+   * 不能用。可選與否一律以後端的 isEligible 為準，前台不自行推算尺寸／重量。
+   */
+  it('shows the available shipping methods with their fees', async () => {
+    mockGetCart.mockResolvedValue(oneItemCart)
+    mockRevalidateCart.mockResolvedValue(readyValidation())
+    mockGetShippingOptions.mockResolvedValue(shippingOptions([
+      shippingOption({ methodCode: 'HOME_DELIVERY', name: '宅配', fee: 120 }),
+      shippingOption({ methodCode: 'STORE_PICKUP', name: '超商取貨', fee: 60, requiresStore: true, requiresAddress: false }),
+    ]))
+
+    const wrapper = await mountCartPage()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('配送方式'))
+
+    expect(wrapper.text()).toContain('宅配')
+    expect(wrapper.text()).toContain('超商取貨')
+    expect(wrapper.text()).toContain('NT$ 120')
+    expect(wrapper.text()).toContain('NT$ 60')
+  })
+
+  /**
+   * 購物車、訂單、付款與物流.md：「只能選擇宅配並顯示原因」——不可用的配送方式要留在畫面上並說明
+   * 原因，不是把它藏起來讓顧客猜。
+   */
+  it('keeps an ineligible shipping method visible and explains why', async () => {
+    mockGetCart.mockResolvedValue(oneItemCart)
+    mockRevalidateCart.mockResolvedValue(readyValidation())
+    mockGetShippingOptions.mockResolvedValue(shippingOptions([
+      shippingOption({ methodCode: 'HOME_DELIVERY', name: '宅配' }),
+      shippingOption({
+        methodCode: 'STORE_PICKUP',
+        name: '超商取貨',
+        isEligible: false,
+        ineligibleReasonCode: 'shipping_constraint_exceeded',
+        requiresStore: true,
+      }),
+    ]))
+
+    const wrapper = await mountCartPage()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('超商取貨'))
+
+    expect(wrapper.text()).toContain('超過這個配送方式的包裹尺寸或重量限制')
+  })
+
+  it('warns when no shipping method is available at all', async () => {
+    mockGetCart.mockResolvedValue(oneItemCart)
+    mockRevalidateCart.mockResolvedValue(readyValidation())
+    mockGetShippingOptions.mockResolvedValue(shippingOptions([
+      shippingOption({ isEligible: false, ineligibleReasonCode: 'shipping_method_not_allowed' }),
+    ]))
+
+    const wrapper = await mountCartPage()
+
+    await vi.waitFor(() => expect(wrapper.text()).toContain('目前購物車沒有可用的配送方式'))
+  })
+
+  /** 空車問後端要配送選項沒有意義——後端會回一組全部不可用的選項，顯示出來只會讓顧客困惑。 */
+  it('does not request shipping options for an empty cart', async () => {
+    const empty = { ...oneItemCart, items: [] }
+    mockGetCart.mockResolvedValue(empty)
+    mockRevalidateCart.mockResolvedValue(readyValidation(empty))
+
+    const wrapper = await mountCartPage()
+    await vi.waitFor(() => expect(mockRevalidateCart).toHaveBeenCalled())
+
+    expect(mockGetShippingOptions).not.toHaveBeenCalled()
+    expect(wrapper.text()).not.toContain('配送方式')
+  })
+
+  /**
+   * 自我審查發現：購物車的 mutation 只用 setQueryData 寫回 cart 的快取鍵，沒有任何東西會讓配送
+   * 選項失效——改完數量之後畫面上的超取資格與運費還是舊的。配送選項的 query key 現在含購物車的
+   * RowVersion，購物車一變就是另一個鍵，舊結果結構上不可能被當成新的用。
+   */
+  it('recomputes the shipping options after the cart changes', async () => {
+    mockGetCart.mockResolvedValue(oneItemCart)
+    mockRevalidateCart.mockResolvedValue(readyValidation())
+    mockGetShippingOptions.mockResolvedValue(shippingOptions([shippingOption()]))
+
+    const wrapper = await mountCartPage()
+    await vi.waitFor(() => expect(mockGetShippingOptions).toHaveBeenCalledTimes(1))
+
+    // 改數量後購物車換了 RowVersion——配送選項必須重算，不能沿用上一版的結果。
+    const changedCart = { ...oneItemCart, rowVersion: 'BBBB' }
+    mockUpdateCartItemQuantity.mockResolvedValue(changedCart)
+    mockRevalidateCart.mockResolvedValue(readyValidation(changedCart))
+    await wrapper.find('select[aria-label="數量"]').setValue('3')
+
+    await vi.waitFor(() => expect(mockGetShippingOptions).toHaveBeenCalledTimes(2))
+  })
+
+  /** 配送選項只是預覽：載入失敗不該擋住購物車本身。 */
+  it('keeps the cart usable when the shipping options fail to load', async () => {
+    mockGetCart.mockResolvedValue(oneItemCart)
+    mockRevalidateCart.mockResolvedValue(readyValidation())
+    mockGetShippingOptions.mockRejectedValue(new ApiError('boom', { status: 500, code: 'unexpected_error' }))
+
+    const wrapper = await mountCartPage()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('RTX 4070'))
+
+    await vi.waitFor(() => expect(wrapper.text()).toContain('配送方式暫時無法載入'))
+  })
 })
 
 describe('CartPage — session identity fail-closed (組長 PR #29 round 7 review, P1)', () => {
@@ -710,4 +851,5 @@ describe('CartPage — session identity fail-closed (組長 PR #29 round 7 revie
     await vi.waitFor(() => expect(wrapper.text()).toContain('RTX 4070'))
     expect(wrapper.text()).not.toContain('無法確認登入狀態')
   })
+
 })
