@@ -66,9 +66,9 @@ public sealed class EfPackageLimitService : IPackageLimitService
         }
 
         ValidateAgainstSafeRange(request, safeRange);
-        ValidateEffectiveWindow(request.EffectiveFromUtc, request.EffectiveToUtc);
 
         var now = DateTime.UtcNow;
+        ValidateEffectiveWindow(request.EffectiveFromUtc, request.EffectiveToUtc, now);
 
         // 組長 PR #73 round-2 review (P2): the existing-version query, period-overlap check and
         // nextVersion allocation all used to run BEFORE the transaction — two concurrent creates
@@ -220,6 +220,18 @@ public sealed class EfPackageLimitService : IPackageLimitService
             // UX_ProviderProfiles_ProviderCode_Published 並以未映射的 DbUpdateException 變成 500。
             // 同一把 provider-scoped lock 讓同 Provider 的 Create 與 Publish 一起序列化。
             await AcquireProviderLockAsync(profile.ProviderCode, cancellationToken);
+
+            // 組長 PR #73 round-4 review (P1)：建立時還沒過期的 Draft，可能被擱置到窗口結束後才按
+            // 發布。舊碼會照樣把目前版本收窗、再把這個已過期的版本改成 Published——依時間窗解析時
+            // 兩個都不在窗內，該 Provider 直接零有效版本，配送方式全面不可用。改為在鎖之後、任何
+            // 狀態變更之前，以「發布當下的 now」重新確認窗口仍可能生效；已過期就回穩定的 400，
+            // 交易內還沒有任何寫入，舊版本原封不動。
+            if (profile.EffectiveToUtc is { } scheduledEnd && scheduledEnd <= now)
+            {
+                throw new ShippingAdminWriteException(
+                    ShippingAdminErrorCodes.ValidationFailed,
+                    $"Version {profile.Version}'s effective window ended at {scheduledEnd:O}; publishing it would leave the provider with no effective version. Create a new version instead.");
+            }
 
             // 購物車、訂單、付款與物流.md: "同一物流服務在任一時間只有一個有效版本" — publishing a new
             // version ends whichever one is currently Published for this ProviderCode. The cutoff
@@ -428,7 +440,7 @@ public sealed class EfPackageLimitService : IPackageLimitService
     /// ArgumentOutOfRangeException 也就是 500。時間欄位在服務入口就驗，回穩定的 validation_failed。
     /// 順帶把「結束不晚於開始」也擋在這裡（同樣是 Domain 會丟例外的輸入）。
     /// </summary>
-    private static void ValidateEffectiveWindow(DateTime? effectiveFromUtc, DateTime? effectiveToUtc)
+    private static void ValidateEffectiveWindow(DateTime? effectiveFromUtc, DateTime? effectiveToUtc, DateTime now)
     {
         var errors = new List<string>();
         if (effectiveFromUtc.HasValue && effectiveFromUtc.Value.Kind != DateTimeKind.Utc)
@@ -448,11 +460,17 @@ public sealed class EfPackageLimitService : IPackageLimitService
                 $"Effective times must be UTC instants ending in 'Z': {string.Join(", ", errors)}.");
         }
 
-        if (effectiveFromUtc.HasValue && effectiveToUtc.HasValue && effectiveToUtc <= effectiveFromUtc)
+        // 組長 PR #73 round-4 review (P1)：舊版只在兩個時間都有值時比大小，於是
+        // 「From = null（立即生效）＋ To 已經過去」這種一出生就結束的窗口能一路走到 Publish。
+        // 以「實際起點 = From ?? now」為基準比較，這種輸入在建立階段就被擋下。
+        var actualStart = effectiveFromUtc ?? now;
+        if (effectiveToUtc.HasValue && effectiveToUtc.Value <= actualStart)
         {
             throw new ShippingAdminWriteException(
                 ShippingAdminErrorCodes.ValidationFailed,
-                "EffectiveToUtc must be after EffectiveFromUtc.");
+                effectiveFromUtc.HasValue
+                    ? "EffectiveToUtc must be after EffectiveFromUtc."
+                    : "EffectiveToUtc must be in the future for a version that takes effect immediately.");
         }
     }
 

@@ -565,6 +565,91 @@ public sealed class PackageLimitServiceTests
         Assert.Equal(ShippingAdminErrorCodes.ValidationFailed, exception.ErrorCode);
     }
 
+    /// <summary>組長 PR #73 round-4 review (P1)：`From = null`（立即生效）而 `To` 已經過去的窗口
+    /// 是一出生就結束的版本，建立階段就要擋下——否則它能一路走到 Publish，把目前版本收窗之後讓
+    /// 該 Provider 零有效版本。</summary>
+    [Fact]
+    public async Task CreateDraftAsync_WhenTheWindowEndsBeforeAnImmediateStart_ThrowsValidationFailed()
+    {
+        await using var context = ShippingServiceFixture.CreateContext();
+        await ShippingServiceFixture.ClearPackageLimitDataAsync(context);
+        var actorId = await ShippingServiceFixture.SeedShippingAdminAsync(context);
+
+        var exception = await Assert.ThrowsAsync<ShippingAdminWriteException>(() => CreateService(context).CreateDraftAsync(
+            ShippingServiceFixture.TestAuditContext,
+            ValidStorePickupRequest(from: null, to: DateTime.UtcNow.AddHours(-1)),
+            actorId,
+            CancellationToken.None));
+
+        Assert.Equal(ShippingAdminErrorCodes.ValidationFailed, exception.ErrorCode);
+    }
+
+    /// <summary>同一條規則的另一半：Draft 建立時窗口還有效，被擱置到 `EffectiveToUtc` 過後才按
+    /// 發布。發布必須在收窗任何東西之前就拒絕，且交易不得留下任何部分變更。</summary>
+    [Fact]
+    public async Task PublishAsync_WhenTheDraftWindowAlreadyEnded_RejectsWithoutTouchingTheCurrentVersion()
+    {
+        await using var context = ShippingServiceFixture.CreateContext();
+        await ShippingServiceFixture.ClearPackageLimitDataAsync(context);
+        var actorId = await ShippingServiceFixture.SeedShippingAdminAsync(context);
+        await ShippingServiceFixture.EnsureProviderWithLimitAsync(context, ShippingProviderCodes.StorePickup);
+        var service = CreateService(context);
+        var expired = await service.CreateDraftAsync(
+            ShippingServiceFixture.TestAuditContext,
+            ValidStorePickupRequest(from: DateTime.UtcNow.AddDays(1), to: DateTime.UtcNow.AddDays(2)),
+            actorId,
+            CancellationToken.None);
+
+        // Time passes: the window closes while the draft sits unpublished.
+        await using (var timeTravel = ShippingServiceFixture.CreateContext())
+        {
+            var draftProfile = await timeTravel.ShippingProviderProfiles
+                .SingleAsync(profile => profile.ProviderCode == ShippingProviderCodes.StorePickup && profile.Version == 2);
+            var draftLimit = await timeTravel.PackageLimitVersions
+                .SingleAsync(limit => limit.ProviderProfileId == draftProfile.Id);
+            var past = DateTime.UtcNow.AddMinutes(-1);
+            await timeTravel.Database.ExecuteSqlAsync(
+                $"UPDATE ShippingProviderProfiles SET EffectiveFromUtc = {past.AddDays(-1)}, EffectiveToUtc = {past} WHERE Id = {draftProfile.Id}");
+            await timeTravel.Database.ExecuteSqlAsync(
+                $"UPDATE PackageLimitVersions SET EffectiveFromUtc = {past.AddDays(-1)}, EffectiveToUtc = {past} WHERE Id = {draftLimit.Id}");
+        }
+
+        await using var publishContext = ShippingServiceFixture.CreateContext();
+        var reloaded = await publishContext.ShippingProviderProfiles.AsNoTracking()
+            .SingleAsync(profile => profile.ProviderCode == ShippingProviderCodes.StorePickup && profile.Version == 2);
+
+        var exception = await Assert.ThrowsAsync<ShippingAdminWriteException>(
+            () => CreateService(publishContext).PublishAsync(
+                ShippingProviderCodes.StorePickup,
+                ShippingServiceFixture.TestAuditContext,
+                expired.PublicId,
+                new PublishPackageLimitVersionRequest(reloaded.RowVersion),
+                actorId,
+                CancellationToken.None));
+
+        Assert.Equal(ShippingAdminErrorCodes.ValidationFailed, exception.ErrorCode);
+
+        // No partial change: v1 is still Published with its original open-ended window, v2 is
+        // still a Draft, and resolving right now still finds exactly one effective version.
+        await using var verify = ShippingServiceFixture.CreateContext();
+        var current = await verify.ShippingProviderProfiles.AsNoTracking()
+            .SingleAsync(profile => profile.ProviderCode == ShippingProviderCodes.StorePickup && profile.Version == 1);
+        Assert.Equal(ShippingProviderProfileStatuses.Published, current.Status);
+        Assert.Null(current.EffectiveToUtc);
+        var draft = await verify.ShippingProviderProfiles.AsNoTracking()
+            .SingleAsync(profile => profile.ProviderCode == ShippingProviderCodes.StorePickup && profile.Version == 2);
+        Assert.Equal(ShippingProviderProfileStatuses.Draft, draft.Status);
+
+        var now = DateTime.UtcNow;
+        var effective = await verify.ShippingProviderProfiles.AsNoTracking()
+            .Where(profile => profile.ProviderCode == ShippingProviderCodes.StorePickup &&
+                profile.Status != ShippingProviderProfileStatuses.Draft &&
+                (profile.EffectiveFromUtc == null || profile.EffectiveFromUtc <= now) &&
+                (profile.EffectiveToUtc == null || now < profile.EffectiveToUtc))
+            .ToListAsync();
+        Assert.Equal(1, Assert.Single(effective).Version);
+    }
+
     /// <summary>Seeds one Published profile+limit pair with an explicit window.</summary>
     private static async Task SeedPublishedVersionAsync(
         DoSelectDbContext context, DateTime? effectiveFromUtc, DateTime? effectiveToUtc)
