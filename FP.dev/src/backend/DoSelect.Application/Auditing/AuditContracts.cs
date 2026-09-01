@@ -76,6 +76,12 @@ public static class AuditActions
     /// the status transition are recorded; file names/hashes stay on the ImportBatch row itself.
     /// </summary>
     public const string CatalogImportConfirm = "catalog_import.confirm";
+
+    /// <summary>UC-ADM-PROD-02 批次上架／下架／調價。每個受影響的商品各留一列，稽核才查得到
+    /// 「這個商品是被哪一次批次動作改的」，而不是只知道有人做過一次批次。</summary>
+    public const string ProductBulkPublish = "product.bulk_publish";
+    public const string ProductBulkUnpublish = "product.bulk_unpublish";
+    public const string ProductBulkAdjustPrice = "product.bulk_adjust_price";
 }
 
 public static class AuditResourceTypes
@@ -97,6 +103,7 @@ public static class AuditResourceTypes
     public const string PackageLimitVersion = "PackageLimitVersion";
     public const string ConvenienceStore = "ConvenienceStore";
     public const string ImportBatch = "ImportBatch";
+    public const string Product = "Product";
 }
 
 public static class AuditRoleNames
@@ -614,6 +621,19 @@ internal static class AuditWritePolicy
                 AuditActions.OrderStartProcessing,
                 AuditResourceTypes.Order,
                 "orderStatus", "fulfillmentStatus", "assemblyStatus"),
+            [AuditActions.ProductBulkPublish] = DefinitionWithNote(
+                AuditActions.ProductBulkPublish,
+                AuditResourceTypes.Product,
+                "status"),
+            [AuditActions.ProductBulkUnpublish] = DefinitionWithNote(
+                AuditActions.ProductBulkUnpublish,
+                AuditResourceTypes.Product,
+                "status"),
+            // 調價允許 note：規格要求「原因」，那是管理員自己輸入的自由文字，只有 note 欄位收得下。
+            [AuditActions.ProductBulkAdjustPrice] = DefinitionWithNote(
+                AuditActions.ProductBulkAdjustPrice,
+                AuditResourceTypes.Product,
+                "listPrice", "adjustmentMode", "adjustmentValue"),
             [AuditActions.ProductReviewApprove] = DefinitionWithNote(
                 AuditActions.ProductReviewApprove,
                 AuditResourceTypes.ProductReview,

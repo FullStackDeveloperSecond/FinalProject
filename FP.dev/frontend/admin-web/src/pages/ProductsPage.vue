@@ -1,9 +1,18 @@
 <script setup lang="ts">
 import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
-import { computed, reactive, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useAdminProductList } from '../features/products/useProducts'
+import {
+  useAdminProductList,
+  useBulkProductAction,
+  useExportProducts,
+} from '../features/products/useProducts'
+import type {
+  AdminProductExportFormat,
+  BulkPriceAdjustmentMode,
+  BulkProductAction,
+} from '../features/products/types'
 import { useFullBrandList } from '../features/brands/useBrands'
 import { useFullCategoryList } from '../features/categories/useCategories'
 
@@ -100,6 +109,143 @@ function formatPriceRange(minPrice: number | string, maxPrice: number | string):
     return `NT$${min.toLocaleString('zh-Hant-TW')}`
   }
   return `NT$${min.toLocaleString('zh-Hant-TW')} - NT$${max.toLocaleString('zh-Hant-TW')}`
+}
+
+// ---------------------------------------------------------------------------
+// UC-ADM-PROD-02 批次上架／下架／調價
+// ---------------------------------------------------------------------------
+
+/**
+ * 只記住 PublicId 是不夠的：批次動作要一併送出每個商品的 RowVersion，而 RowVersion 只有在
+ * 目前這份列表結果裡才拿得到。所以選取要連 RowVersion 一起記。
+ */
+const selected = ref(new Map<string, string>())
+
+const selectedCount = computed(() => selected.value.size)
+
+const visibleProducts = computed(() => result.value?.items ?? [])
+
+const areAllVisibleSelected = computed(() =>
+  visibleProducts.value.length > 0
+  && visibleProducts.value.every((product) => selected.value.has(product.publicId)))
+
+function isSelected(publicId: string): boolean {
+  return selected.value.has(publicId)
+}
+
+function toggleSelection(publicId: string, rowVersion: string) {
+  const next = new Map(selected.value)
+  if (next.has(publicId)) {
+    next.delete(publicId)
+  }
+  else {
+    next.set(publicId, rowVersion)
+  }
+  selected.value = next
+}
+
+function toggleAllVisible() {
+  if (areAllVisibleSelected.value) {
+    selected.value = new Map()
+    return
+  }
+  selected.value = new Map(
+    visibleProducts.value.map((product) => [product.publicId, product.rowVersion]),
+  )
+}
+
+/**
+ * 換頁或換篩選就清空選取。留著會有兩個問題：畫面上看不到的商品被偷偷一起操作，以及那些
+ * RowVersion 早就過期、整批直接 409。清單資料一換就重置，是唯一說得通的行為。
+ */
+watch(
+  () => [listParams.value, result.value] as const,
+  () => { selected.value = new Map() },
+)
+
+const bulkAction = useBulkProductAction()
+const exportProducts = useExportProducts()
+
+const priceMode = ref<BulkPriceAdjustmentMode>('percentage')
+// v-model.number 在欄位被清空時給的是空字串而不是 null，所以判斷不能只看 null——否則清空之後
+// 按鈕會重新啟用，送出一次 value: 0 的無效調價。
+const priceValue = ref<number | string | null>(null)
+
+const hasPriceValue = computed(() =>
+  priceValue.value !== null && priceValue.value !== '' && Number.isFinite(Number(priceValue.value)))
+const priceReason = ref('')
+const bulkMessage = ref<string | null>(null)
+const bulkErrorMessage = ref<string | null>(null)
+const isPriceFormOpen = ref(false)
+
+function selectionPayload() {
+  const entries = [...selected.value.entries()]
+  return {
+    productPublicIds: entries.map(([publicId]) => publicId),
+    rowVersions: entries.map(([productPublicId, rowVersion]) => ({ productPublicId, rowVersion })),
+  }
+}
+
+async function runBulkAction(action: BulkProductAction) {
+  if (selectedCount.value === 0 || bulkAction.isPending.value) return
+  bulkMessage.value = null
+  bulkErrorMessage.value = null
+
+  // 契約上 priceAdjustment 是可為 null 的欄位而不是可省略的欄位，所以非調價時送 null。
+  const priceAdjustment = action === 'adjust-price'
+    ? {
+        mode: priceMode.value,
+        value: Number(priceValue.value ?? 0),
+        reason: priceReason.value.trim(),
+      }
+    : null
+
+  try {
+    const outcome = await bulkAction.mutateAsync({
+      action,
+      request: { ...selectionPayload(), priceAdjustment },
+    })
+    bulkMessage.value = action === 'adjust-price'
+      ? `已調整 ${outcome.affectedProductCount} 項商品、共 ${outcome.affectedSkuCount} 個 SKU 的售價。`
+      : `已${action === 'publish' ? '上架' : '下架'} ${outcome.affectedProductCount} 項商品。`
+    selected.value = new Map()
+    isPriceFormOpen.value = false
+    priceValue.value = null
+    priceReason.value = ''
+  }
+  catch (caught) {
+    bulkErrorMessage.value = bulkActionErrorMessage(caught)
+  }
+}
+
+/**
+ * 批次動作的失敗一定是整批失敗（後端單一交易），所以訊息要講清楚「什麼都沒有改」——不然管理員
+ * 會不知道該不該重做。
+ */
+function bulkActionErrorMessage(caught: unknown): string {
+  const code = isApiError(caught) ? caught.code : undefined
+  if (code === 'product_unavailable') {
+    return '選取的商品中有已停產的項目，整批未執行。請取消勾選後再試。'
+  }
+  if (code === 'concurrency_conflict') {
+    return '選取的商品已被其他人修改，整批未執行。請重新整理列表後再試。'
+  }
+  if (code === 'validation_failed') {
+    return '批次條件不正確，整批未執行。請確認調價模式、數值與原因後再試。'
+  }
+  return '批次操作失敗，整批未執行。請稍後再試。'
+}
+
+async function runExport(format: AdminProductExportFormat) {
+  if (exportProducts.isPending.value) return
+  bulkErrorMessage.value = null
+  try {
+    // 帶的是 listParams（目前套用中的篩選），不是草稿表單——匯出的必須是管理員眼前那一組。
+    await exportProducts.mutateAsync({ params: listParams.value, format })
+  }
+  catch {
+    bulkErrorMessage.value = '匯出失敗，請稍後再試。'
+  }
 }
 
 function formatProductStatus(status: string): string {
@@ -216,9 +362,117 @@ function formatProductStatus(status: string): string {
       <p class="products-summary">
         共 {{ result.totalCount }} 項商品
       </p>
+
+      <div
+        class="products-bulk"
+        role="group"
+        aria-label="批次操作"
+      >
+        <p class="products-bulk__count">
+          已選取 {{ selectedCount }} 項
+        </p>
+        <button
+          type="button"
+          :disabled="selectedCount === 0 || bulkAction.isPending.value"
+          @click="runBulkAction('publish')"
+        >
+          批次上架
+        </button>
+        <button
+          type="button"
+          :disabled="selectedCount === 0 || bulkAction.isPending.value"
+          @click="runBulkAction('unpublish')"
+        >
+          批次下架
+        </button>
+        <button
+          type="button"
+          :disabled="selectedCount === 0 || bulkAction.isPending.value"
+          @click="isPriceFormOpen = !isPriceFormOpen"
+        >
+          批次調價
+        </button>
+        <span class="products-bulk__spacer" />
+        <button
+          type="button"
+          :disabled="exportProducts.isPending.value"
+          @click="runExport('csv')"
+        >
+          匯出 CSV
+        </button>
+        <button
+          type="button"
+          :disabled="exportProducts.isPending.value"
+          @click="runExport('xlsx')"
+        >
+          匯出 XLSX
+        </button>
+      </div>
+
+      <form
+        v-if="isPriceFormOpen"
+        class="products-bulk-price"
+        aria-label="批次調價"
+        @submit.prevent="runBulkAction('adjust-price')"
+      >
+        <select
+          v-model="priceMode"
+          aria-label="調價模式"
+        >
+          <option value="percentage">
+            依百分比
+          </option>
+          <option value="amount">
+            依金額
+          </option>
+        </select>
+        <input
+          v-model.number="priceValue"
+          type="number"
+          step="0.01"
+          :aria-label="priceMode === 'percentage' ? '調價百分比' : '調價金額'"
+          :placeholder="priceMode === 'percentage' ? '例如 -10 表示打九折' : '例如 -100 表示每個 SKU 減 100'"
+        >
+        <input
+          v-model="priceReason"
+          type="text"
+          maxlength="500"
+          aria-label="調價原因"
+          placeholder="調價原因（會寫入稽核紀錄）"
+        >
+        <button
+          type="submit"
+          :disabled="selectedCount === 0 || !hasPriceValue || priceReason.trim().length === 0 || bulkAction.isPending.value"
+        >
+          套用調價
+        </button>
+      </form>
+
+      <p
+        v-if="bulkMessage"
+        class="products-bulk__message"
+        role="status"
+      >
+        {{ bulkMessage }}
+      </p>
+      <p
+        v-if="bulkErrorMessage"
+        class="products-bulk__error"
+        role="alert"
+      >
+        {{ bulkErrorMessage }}
+      </p>
       <table class="products-table">
         <thead>
           <tr>
+            <th class="products-table__select">
+              <input
+                type="checkbox"
+                aria-label="全選本頁商品"
+                :checked="areAllVisibleSelected"
+                @change="toggleAllVisible"
+              >
+            </th>
             <th>代碼</th>
             <th>名稱</th>
             <th>品牌</th>
@@ -235,6 +489,14 @@ function formatProductStatus(status: string): string {
             v-for="product in result.items"
             :key="product.publicId"
           >
+            <td class="products-table__select">
+              <input
+                type="checkbox"
+                :aria-label="`選取 ${product.nameZhTw}`"
+                :checked="isSelected(product.publicId)"
+                @change="toggleSelection(product.publicId, product.rowVersion)"
+              >
+            </td>
             <td>{{ product.productCode }}</td>
             <td>{{ product.nameZhTw }}</td>
             <td>{{ product.brand.name }}</td>
@@ -316,6 +578,56 @@ function formatProductStatus(status: string): string {
   padding: 0.5rem 0.75rem;
   border-bottom: 1px solid #e5e7eb;
   text-align: left;
+}
+
+.products-table__select {
+  width: 2.5rem;
+}
+
+.products-bulk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-block: 0.75rem;
+}
+
+.products-bulk__count {
+  margin: 0;
+  color: #374151;
+  font-size: 0.875rem;
+}
+
+.products-bulk__spacer {
+  flex: 1 1 auto;
+}
+
+.products-bulk-price {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  margin-block-end: 0.75rem;
+}
+
+.products-bulk-price input,
+.products-bulk-price select {
+  min-height: 2.5rem;
+  padding: 0.375rem 0.625rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  font: inherit;
+}
+
+.products-bulk__message {
+  color: #047857;
+}
+
+.products-bulk__error {
+  color: #b91c1c;
 }
 
 .products-pagination {

@@ -1,3 +1,4 @@
+using DoSelect.Application.Auditing;
 using DoSelect.Application.Catalog;
 using DoSelect.Domain.Catalog;
 using DoSelect.Domain.Inventory;
@@ -5,6 +6,7 @@ using DoSelect.Domain.Invoicing;
 using DoSelect.Domain.Members;
 using DoSelect.Domain.Orders;
 using DoSelect.Domain.Shipping;
+using DoSelect.Infrastructure.Auditing;
 using DoSelect.Infrastructure.Catalog;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
@@ -140,7 +142,7 @@ public sealed class ProductAdminServiceTests
     {
         await using var context = CatalogAdminFixture.CreateContext();
         var (brand, category, _) = await CatalogAdminFixture.SeedCatalogAsync(context);
-        var service = new EfProductAdminService(context);
+        var service = CatalogAdminFixture.CreateProductService(context);
         var code = CatalogAdminFixture.UniqueCode("PROD");
 
         var product = await service.CreateAsync(
@@ -167,7 +169,7 @@ public sealed class ProductAdminServiceTests
     {
         await using var context = CatalogAdminFixture.CreateContext();
         var (brand, category, _) = await CatalogAdminFixture.SeedCatalogAsync(context);
-        var service = new EfProductAdminService(context);
+        var service = CatalogAdminFixture.CreateProductService(context);
         var code = CatalogAdminFixture.UniqueCode("PROD");
         await service.CreateAsync(
             new CreateProductRequest(
@@ -203,7 +205,7 @@ public sealed class ProductAdminServiceTests
     {
         await using var context = CatalogAdminFixture.CreateContext();
         var (_, category, _) = await CatalogAdminFixture.SeedCatalogAsync(context);
-        var service = new EfProductAdminService(context);
+        var service = CatalogAdminFixture.CreateProductService(context);
 
         var exception = await Assert.ThrowsAsync<CatalogWriteException>(() => service.CreateAsync(
             new CreateProductRequest(
@@ -227,7 +229,7 @@ public sealed class ProductAdminServiceTests
         await using var context = CatalogAdminFixture.CreateContext();
         var (brand, category, _) = await CatalogAdminFixture.SeedCatalogAsync(context);
         var (otherBrand, _, _) = await CatalogAdminFixture.SeedCatalogAsync(context);
-        var service = new EfProductAdminService(context);
+        var service = CatalogAdminFixture.CreateProductService(context);
         var matchingCode = CatalogAdminFixture.UniqueCode("PROD");
         await service.CreateAsync(
             new CreateProductRequest(
@@ -271,7 +273,7 @@ public sealed class ProductAdminServiceTests
     {
         await using var context = CatalogAdminFixture.CreateContext();
         var (brand, category, _) = await CatalogAdminFixture.SeedCatalogAsync(context);
-        var service = new EfProductAdminService(context);
+        var service = CatalogAdminFixture.CreateProductService(context);
         var code = CatalogAdminFixture.UniqueCode("PROD");
 
         await Assert.ThrowsAsync<CatalogWriteException>(() => service.CreateAsync(
@@ -297,7 +299,7 @@ public sealed class ProductAdminServiceTests
     {
         await using var context = CatalogAdminFixture.CreateContext();
         var (brand, category, _) = await CatalogAdminFixture.SeedCatalogAsync(context);
-        var service = new EfProductAdminService(context);
+        var service = CatalogAdminFixture.CreateProductService(context);
         var productCode = CatalogAdminFixture.UniqueCode("PROD");
         var skuCode = CatalogAdminFixture.UniqueCode("SKU");
 
@@ -330,7 +332,7 @@ public sealed class ProductAdminServiceTests
     {
         await using var context = CatalogAdminFixture.CreateContext();
         var (brand, category, _) = await CatalogAdminFixture.SeedCatalogAsync(context);
-        var service = new EfProductAdminService(context);
+        var service = CatalogAdminFixture.CreateProductService(context);
         var codeA = CatalogAdminFixture.UniqueCode("PROD");
         var codeB = CatalogAdminFixture.UniqueCode("PROD");
         await service.CreateAsync(
@@ -377,7 +379,7 @@ public sealed class ProductAdminServiceTests
     {
         await using var context = CatalogAdminFixture.CreateContext();
         var (brand, category, _) = await CatalogAdminFixture.SeedCatalogAsync(context);
-        var service = new EfProductAdminService(context);
+        var service = CatalogAdminFixture.CreateProductService(context);
         var older = await service.CreateAsync(
             new CreateProductRequest(
                 CatalogAdminFixture.UniqueCode("PROD"),
@@ -432,7 +434,7 @@ public sealed class ProductAdminServiceTests
         await using var context = CatalogAdminFixture.CreateContext();
         var (brand, category, _) = await CatalogAdminFixture.SeedCatalogAsync(context);
         var skuService = new EfSkuAdminService(context);
-        var service = new EfProductAdminService(context);
+        var service = CatalogAdminFixture.CreateProductService(context);
 
         var outOfStockA = await CatalogAdminFixture.CreateProductAsync(context, brand, category);
         var outOfStockB = await CatalogAdminFixture.CreateProductAsync(context, brand, category);
@@ -460,7 +462,7 @@ public sealed class ProductAdminServiceTests
     public async Task ListAsync_WhenSortIsInvalid_ThrowsValidationFailed()
     {
         await using var context = CatalogAdminFixture.CreateContext();
-        var service = new EfProductAdminService(context);
+        var service = CatalogAdminFixture.CreateProductService(context);
 
         var exception = await Assert.ThrowsAsync<CatalogWriteException>(() => service.ListAsync(
             new AdminProductQuery(null, null, null, null, null, "not-a-real-sort", 1, 20),
@@ -473,7 +475,7 @@ public sealed class ProductAdminServiceTests
     public async Task ListAsync_WhenStockStateIsInvalid_ThrowsValidationFailed()
     {
         await using var context = CatalogAdminFixture.CreateContext();
-        var service = new EfProductAdminService(context);
+        var service = CatalogAdminFixture.CreateProductService(context);
 
         var exception = await Assert.ThrowsAsync<CatalogWriteException>(() => service.ListAsync(
             new AdminProductQuery(null, null, null, null, "not-a-real-state", null, 1, 20),
@@ -486,7 +488,7 @@ public sealed class ProductAdminServiceTests
     public async Task ListAsync_WhenStatusesContainsInvalidValue_ThrowsValidationFailed()
     {
         await using var context = CatalogAdminFixture.CreateContext();
-        var service = new EfProductAdminService(context);
+        var service = CatalogAdminFixture.CreateProductService(context);
 
         var exception = await Assert.ThrowsAsync<CatalogWriteException>(() => service.ListAsync(
             new AdminProductQuery(null, null, null, ["Draft", "not-a-real-status"], null, null, 1, 20),
@@ -507,7 +509,7 @@ public sealed class ProductAdminServiceTests
             Guid.CreateVersion7(), CatalogAdminFixture.UniqueCode("CAT"), "cat-" + Guid.NewGuid().ToString("N")[..12], "另一個分類", null, DateTime.UtcNow);
         context.Categories.Add(otherCategory);
         await context.SaveChangesAsync();
-        var productService = new EfProductAdminService(context);
+        var productService = CatalogAdminFixture.CreateProductService(context);
         var product = await productService.CreateAsync(
             new CreateProductRequest(
                 CatalogAdminFixture.UniqueCode("PROD"), "測試商品", brand.PublicId, category.PublicId, null, null, [],
@@ -545,7 +547,7 @@ public sealed class ProductAdminServiceTests
         context.SpecificationOptions.Add(option);
         await context.SaveChangesAsync();
 
-        var productService = new EfProductAdminService(context);
+        var productService = CatalogAdminFixture.CreateProductService(context);
         var product = await productService.CreateAsync(
             new CreateProductRequest(
                 CatalogAdminFixture.UniqueCode("PROD"), "測試商品", brand.PublicId, category.PublicId, null, null, [],
@@ -571,7 +573,7 @@ public sealed class ProductAdminServiceTests
             Guid.CreateVersion7(), CatalogAdminFixture.UniqueCode("CAT"), "cat-" + Guid.NewGuid().ToString("N")[..12], "另一個分類", null, DateTime.UtcNow);
         context.Categories.Add(otherCategory);
         await context.SaveChangesAsync();
-        var productService = new EfProductAdminService(context);
+        var productService = CatalogAdminFixture.CreateProductService(context);
         var product = await productService.CreateAsync(
             new CreateProductRequest(
                 CatalogAdminFixture.UniqueCode("PROD"), "測試商品", brand.PublicId, category.PublicId, null, null, [],
@@ -592,7 +594,7 @@ public sealed class ProductAdminServiceTests
     {
         await using var context = CatalogAdminFixture.CreateContext();
         var (brand, category, _) = await CatalogAdminFixture.SeedCatalogAsync(context);
-        var service = new EfProductAdminService(context);
+        var service = CatalogAdminFixture.CreateProductService(context);
         var tagPublicIds = Enumerable.Range(0, 21).Select(_ => Guid.NewGuid()).ToArray();
 
         var exception = await Assert.ThrowsAsync<CatalogWriteException>(() => service.CreateAsync(
@@ -621,7 +623,7 @@ public sealed class ProductAdminServiceTests
             Guid.CreateVersion7(), otherCategory.Id, CatalogAdminFixture.UniqueCode("SPEC"), "必要規格",
             SpecificationValueType.Decimal, null, isRequired: true, isProtected: false, sortOrder: 0, DateTime.UtcNow));
         await context.SaveChangesAsync();
-        var productService = new EfProductAdminService(context);
+        var productService = CatalogAdminFixture.CreateProductService(context);
         var product = await productService.CreateAsync(
             new CreateProductRequest(
                 CatalogAdminFixture.UniqueCode("PROD"), "測試商品", brand.PublicId, category.PublicId, null, null, [],
@@ -651,7 +653,7 @@ public sealed class ProductAdminServiceTests
             Guid.CreateVersion7(), otherCategory.Id, CatalogAdminFixture.UniqueCode("SPEC"), "必要規格",
             SpecificationValueType.Decimal, null, isRequired: true, isProtected: false, sortOrder: 0, DateTime.UtcNow));
         await context.SaveChangesAsync();
-        var productService = new EfProductAdminService(context);
+        var productService = CatalogAdminFixture.CreateProductService(context);
         var product = await productService.CreateAsync(
             new CreateProductRequest(
                 CatalogAdminFixture.UniqueCode("PROD"), "測試商品", brand.PublicId, category.PublicId, null, null, [],
@@ -678,7 +680,7 @@ public sealed class ProductAdminServiceTests
     {
         await using var context = CatalogAdminFixture.CreateContext();
         var (brand, category, definition) = await CatalogAdminFixture.SeedCatalogAsync(context);
-        var productService = new EfProductAdminService(context);
+        var productService = CatalogAdminFixture.CreateProductService(context);
         var skuService = new EfSkuAdminService(context);
         var product = await productService.CreateAsync(
             new CreateProductRequest(
@@ -727,7 +729,7 @@ public sealed class ProductAdminServiceTests
         async Task<object> CreateInNewContextAsync(string skuCodeSuffix)
         {
             await using var context = CatalogAdminFixture.CreateContext(existsCheckBarrier);
-            var service = new EfProductAdminService(context);
+            var service = CatalogAdminFixture.CreateProductService(context);
             var request = new CreateProductRequest(
                 productCode, "測試商品", brand.PublicId, category.PublicId, null, null, [],
                 "Draft", CatalogAdminFixture.CreateDefaultSkuRequest(CatalogAdminFixture.UniqueCode("SKU-" + skuCodeSuffix)));
@@ -993,7 +995,7 @@ public sealed class SkuAdminServiceTests
         var skuService = new EfSkuAdminService(context);
 
         await using var otherContext = CatalogAdminFixture.CreateContext();
-        var otherProductService = new EfProductAdminService(otherContext);
+        var otherProductService = CatalogAdminFixture.CreateProductService(otherContext);
         var currentProduct = (await otherProductService.GetByPublicIdAsync(product.PublicId, CancellationToken.None))!;
         await otherProductService.UpdateAsync(
             product.PublicId,
@@ -1748,6 +1750,74 @@ public sealed class CatalogAdminFixture : IAsyncLifetime
     // because CreateVersion7's leading hex characters encode a millisecond timestamp and
     // can collide when this helper is called more than once within the same millisecond,
     // e.g. when a test seeds two brands back-to-back.
+    public static readonly AuditRequestContext TestAuditContext =
+        new("test-correlation", "0123456789abcdef0123456789abcdef", null);
+
+    /// <summary>
+    /// 批次動作的稽核 Actor 必須是持有 CatalogManager 或 SuperAdmin 的真實 Admin，形狀比照
+    /// ShippingServiceFixture.SeedShippingAdminAsync。
+    /// </summary>
+    public static async Task<string> SeedCatalogAdminAsync(DoSelectDbContext context)
+    {
+        var admin = ApplicationUser.CreateAdmin(
+            Guid.CreateVersion7(), $"{Guid.NewGuid():N}@doselect.test", DateTime.UtcNow);
+        var role = new Microsoft.AspNetCore.Identity.IdentityRole(AuditRoleNames.CatalogManager);
+        context.AddRange(admin, role);
+        await context.SaveChangesAsync();
+        context.UserRoles.Add(new Microsoft.AspNetCore.Identity.IdentityUserRole<string>
+        {
+            UserId = admin.Id,
+            RoleId = role.Id,
+        });
+        await context.SaveChangesAsync();
+        return admin.Id;
+    }
+
+    /// <summary>批次上限測試要 101 個真的存在的商品，一次 SaveChanges 建完。</summary>
+    public static async Task<IReadOnlyList<Product>> CreateProductsAsync(
+        DoSelectDbContext context,
+        Brand brand,
+        Category category,
+        int count)
+    {
+        var now = DateTime.UtcNow;
+        var products = Enumerable.Range(0, count)
+            .Select(_ => new Product(
+                Guid.CreateVersion7(), UniqueCode("PROD"), brand.Id, category.Id, "測試商品", now))
+            .ToList();
+        context.Products.AddRange(products);
+        await context.SaveChangesAsync();
+        return products;
+    }
+
+    /// <summary>批次調價要有 SKU 才看得出效果；價格與成本都可指定，匯出測試才驗得到成本沒外洩。</summary>
+    public static async Task<Sku> AddSkuAsync(
+        DoSelectDbContext context,
+        Product product,
+        decimal listPrice,
+        decimal unitCost = 1m)
+    {
+        var now = DateTime.UtcNow;
+        var sku = new Sku(
+            Guid.CreateVersion7(),
+            UniqueCode("SKU"),
+            product.Id,
+            "測試 SKU",
+            listPrice,
+            unitCost,
+            now);
+        context.Skus.Add(sku);
+        await context.SaveChangesAsync();
+        return sku;
+    }
+
+    /// <summary>
+    /// 批次動作要寫中央 Audit，所以服務多了一個 IAuditWriter 相依。集中在這裡建立，測試才不用
+    /// 每一支都自己接線——與 ConvenienceStoreAdminServiceTests 的做法一致。
+    /// </summary>
+    public static EfProductAdminService CreateProductService(DoSelectDbContext context) =>
+        new(context, new EfAuditWriter(context, TimeProvider.System));
+
     public static string UniqueCode(string prefix) => $"{prefix}-{Guid.NewGuid():N}"[..24];
 
     public static CreateSkuRequest CreateDefaultSkuRequest(

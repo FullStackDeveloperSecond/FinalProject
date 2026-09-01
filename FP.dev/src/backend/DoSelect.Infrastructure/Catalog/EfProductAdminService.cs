@@ -1,4 +1,5 @@
 using System.Text;
+using DoSelect.Application.Auditing;
 using DoSelect.Application.Catalog;
 using DoSelect.Application.Common;
 using DoSelect.Domain.Builds;
@@ -9,13 +10,15 @@ using Microsoft.EntityFrameworkCore;
 
 namespace DoSelect.Infrastructure.Catalog;
 
-public sealed class EfProductAdminService : IProductAdminService
+public sealed partial class EfProductAdminService : IProductAdminService
 {
     private readonly DoSelectDbContext _dbContext;
+    private readonly IAuditWriter _auditWriter;
 
-    public EfProductAdminService(DoSelectDbContext dbContext)
+    public EfProductAdminService(DoSelectDbContext dbContext, IAuditWriter auditWriter)
     {
         _dbContext = dbContext;
+        _auditWriter = auditWriter;
     }
 
     public async Task<PageResult<AdminProductSummaryDto>> ListAsync(
@@ -24,65 +27,9 @@ public sealed class EfProductAdminService : IProductAdminService
     {
         ArgumentNullException.ThrowIfNull(query);
 
-        var products =
-            from product in _dbContext.Products.AsNoTracking()
-            join brand in _dbContext.Brands.AsNoTracking() on product.BrandId equals brand.Id
-            join category in _dbContext.Categories.AsNoTracking() on product.CategoryId equals category.Id
-            select new { product, brand, category };
-
-        if (!string.IsNullOrWhiteSpace(query.Q))
-        {
-            var keyword = query.Q.Trim();
-            products = products.Where(row =>
-                row.product.ProductCode.Contains(keyword) || row.product.NameZhTw.Contains(keyword));
-        }
-
-        if (query.BrandCodes is { Count: > 0 })
-        {
-            var brandCodes = query.BrandCodes.Select(NormalizeCode).ToArray();
-            products = products.Where(row => brandCodes.Contains(row.brand.Code));
-        }
-
-        if (query.CategoryCodes is { Count: > 0 })
-        {
-            var categoryCodes = query.CategoryCodes.Select(NormalizeCode).ToArray();
-            products = products.Where(row => categoryCodes.Contains(row.category.Code));
-        }
-
-        var statuses = AdminCatalogQueryValidator.NormalizeStatuses<ProductStatus>(query.Statuses);
-        if (statuses.Count > 0)
-        {
-            products = products.Where(row => statuses.Contains(row.product.Status));
-        }
-
-        var stockState = AdminCatalogQueryValidator.NormalizeStockState(query.StockState);
-        if (stockState is AdminStockStates.InStock or AdminStockStates.OutOfStock)
-        {
-            // Correlated per-product on-hand sum, filtered before Count/Skip/Take — doing
-            // this after paging (as the previous version did, in memory on an already-sliced
-            // page) made totalCount wrong and could short a page or skip matching products
-            // entirely. EF Core translates an empty Sum() to COALESCE(SUM(...),0), matching
-            // the "no SKUs at all" == 0 on-hand semantics the old in-memory version had.
-            // Local functions can't appear in an expression tree, so the correlated
-            // subquery is inlined in both branches rather than shared via a helper.
-            products = stockState == AdminStockStates.InStock
-                ? products.Where(row => _dbContext.Skus.AsNoTracking()
-                    .Where(sku => sku.ProductId == row.product.Id)
-                    .Join(
-                        _dbContext.InventoryBalances.AsNoTracking(),
-                        sku => sku.Id,
-                        balance => balance.SkuId,
-                        (sku, balance) => balance.OnHandQuantity)
-                    .Sum() > 0)
-                : products.Where(row => _dbContext.Skus.AsNoTracking()
-                    .Where(sku => sku.ProductId == row.product.Id)
-                    .Join(
-                        _dbContext.InventoryBalances.AsNoTracking(),
-                        sku => sku.Id,
-                        balance => balance.SkuId,
-                        (sku, balance) => balance.OnHandQuantity)
-                    .Sum() <= 0);
-        }
+        // 匯出與列表共用同一個 Filter（Endpoint 目錄：「匯出沿用目前 Filter」）。共用的是同一段
+        // 程式而不是兩份長得像的程式——否則哪天列表加了條件，匯出就會安靜地匯出另一組資料。
+        var products = BuildFilteredRows(query);
 
         var totalCount = await products.CountAsync(cancellationToken);
 
@@ -93,15 +40,15 @@ public sealed class EfProductAdminService : IProductAdminService
         products = sort switch
         {
             AdminProductSortOptions.UpdatedAsc => products
-                .OrderBy(row => row.product.UpdatedAtUtc)
-                .ThenBy(row => row.product.ProductCode),
+                .OrderBy(row => row.Product.UpdatedAtUtc)
+                .ThenBy(row => row.Product.ProductCode),
             AdminProductSortOptions.CodeAsc => products
-                .OrderBy(row => row.product.ProductCode),
+                .OrderBy(row => row.Product.ProductCode),
             AdminProductSortOptions.CodeDesc => products
-                .OrderByDescending(row => row.product.ProductCode),
+                .OrderByDescending(row => row.Product.ProductCode),
             _ => products
-                .OrderByDescending(row => row.product.UpdatedAtUtc)
-                .ThenBy(row => row.product.ProductCode),
+                .OrderByDescending(row => row.Product.UpdatedAtUtc)
+                .ThenBy(row => row.Product.ProductCode),
         };
 
         // (pageNumber - 1) * pageSize can overflow int for a large pageNumber (e.g.
@@ -117,7 +64,7 @@ public sealed class EfProductAdminService : IProductAdminService
                 .Take(pageSize)
                 .ToListAsync(cancellationToken);
 
-        var productIds = page.Select(row => row.product.Id).ToArray();
+        var productIds = page.Select(row => row.Product.Id).ToArray();
         var skusByProduct = await _dbContext.Skus.AsNoTracking()
             .Where(sku => productIds.Contains(sku.ProductId))
             .ToListAsync(cancellationToken);
@@ -128,24 +75,24 @@ public sealed class EfProductAdminService : IProductAdminService
 
         var items = page.Select(row =>
         {
-            var skus = skusByProduct.Where(sku => sku.ProductId == row.product.Id).ToList();
+            var skus = skusByProduct.Where(sku => sku.ProductId == row.Product.Id).ToList();
             var onHand = skus.Sum(sku => balancesBySku.GetValueOrDefault(sku.Id)?.OnHandQuantity ?? 0);
 
             return new AdminProductSummaryDto(
-                row.product.PublicId,
-                row.product.ProductCode,
-                row.product.NameZhTw,
-                new ProductBrandRef(row.brand.Code, row.brand.NameZhTw),
-                new ProductCategoryRef(row.category.Code, row.category.NameZhTw),
-                row.product.Status.ToString(),
+                row.Product.PublicId,
+                row.Product.ProductCode,
+                row.Product.NameZhTw,
+                new ProductBrandRef(row.Brand.Code, row.Brand.NameZhTw),
+                new ProductCategoryRef(row.Category.Code, row.Category.NameZhTw),
+                row.Product.Status.ToString(),
                 skus.Count,
                 skus.Count == 0 ? 0 : skus.Min(sku => sku.ListPrice),
                 skus.Count == 0 ? 0 : skus.Max(sku => sku.ListPrice),
                 onHand,
                 // Deferred with the shared file service (SH-06); see EfProductSearchService.
                 null,
-                row.product.UpdatedAtUtc,
-                row.product.RowVersion);
+                row.Product.UpdatedAtUtc,
+                row.Product.RowVersion);
         }).ToList();
 
         return new PageResult<AdminProductSummaryDto>(items, pageNumber, pageSize, totalCount);
@@ -382,6 +329,84 @@ public sealed class EfProductAdminService : IProductAdminService
         }
 
         return (await BuildDetailAsync(product, cancellationToken))!;
+    }
+
+    /// <summary>
+    /// 列表與匯出共用的 Filter。回傳具名型別而不是匿名型別，方法之間才傳得過去。
+    /// </summary>
+    private IQueryable<AdminProductRow> BuildFilteredRows(AdminProductQuery query)
+    {
+        var products =
+            from product in _dbContext.Products.AsNoTracking()
+            join brand in _dbContext.Brands.AsNoTracking() on product.BrandId equals brand.Id
+            join category in _dbContext.Categories.AsNoTracking() on product.CategoryId equals category.Id
+            select new AdminProductRow { Product = product, Brand = brand, Category = category };
+
+        if (!string.IsNullOrWhiteSpace(query.Q))
+        {
+            var keyword = query.Q.Trim();
+            products = products.Where(row =>
+                row.Product.ProductCode.Contains(keyword) || row.Product.NameZhTw.Contains(keyword));
+        }
+
+        if (query.BrandCodes is { Count: > 0 })
+        {
+            var brandCodes = query.BrandCodes.Select(NormalizeCode).ToArray();
+            products = products.Where(row => brandCodes.Contains(row.Brand.Code));
+        }
+
+        if (query.CategoryCodes is { Count: > 0 })
+        {
+            var categoryCodes = query.CategoryCodes.Select(NormalizeCode).ToArray();
+            products = products.Where(row => categoryCodes.Contains(row.Category.Code));
+        }
+
+        var statuses = AdminCatalogQueryValidator.NormalizeStatuses<ProductStatus>(query.Statuses);
+        if (statuses.Count > 0)
+        {
+            products = products.Where(row => statuses.Contains(row.Product.Status));
+        }
+
+        var stockState = AdminCatalogQueryValidator.NormalizeStockState(query.StockState);
+        if (stockState is AdminStockStates.InStock or AdminStockStates.OutOfStock)
+        {
+            // Correlated per-product on-hand sum, filtered before Count/Skip/Take — doing
+            // this after paging (as the previous version did, in memory on an already-sliced
+            // page) made totalCount wrong and could short a page or skip matching products
+            // entirely. EF Core translates an empty Sum() to COALESCE(SUM(...),0), matching
+            // the "no SKUs at all" == 0 on-hand semantics the old in-memory version had.
+            // Local functions can't appear in an expression tree, so the correlated
+            // subquery is inlined in both branches rather than shared via a helper.
+            products = stockState == AdminStockStates.InStock
+                ? products.Where(row => _dbContext.Skus.AsNoTracking()
+                    .Where(sku => sku.ProductId == row.Product.Id)
+                    .Join(
+                        _dbContext.InventoryBalances.AsNoTracking(),
+                        sku => sku.Id,
+                        balance => balance.SkuId,
+                        (sku, balance) => balance.OnHandQuantity)
+                    .Sum() > 0)
+                : products.Where(row => _dbContext.Skus.AsNoTracking()
+                    .Where(sku => sku.ProductId == row.Product.Id)
+                    .Join(
+                        _dbContext.InventoryBalances.AsNoTracking(),
+                        sku => sku.Id,
+                        balance => balance.SkuId,
+                        (sku, balance) => balance.OnHandQuantity)
+                    .Sum() <= 0);
+        }
+
+        return products;
+    }
+
+    /// <summary>列表／匯出 Filter 的投影型別。</summary>
+    private sealed class AdminProductRow
+    {
+        public required Product Product { get; init; }
+
+        public required Brand Brand { get; init; }
+
+        public required Category Category { get; init; }
     }
 
     private async Task ReplaceTagsAsync(
