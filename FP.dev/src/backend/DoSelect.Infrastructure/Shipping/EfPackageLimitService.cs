@@ -4,6 +4,7 @@ using DoSelect.Application.Shipping;
 using DoSelect.Domain.Auditing;
 using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Persistence;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
 namespace DoSelect.Infrastructure.Shipping;
@@ -66,29 +67,41 @@ public sealed class EfPackageLimitService : IPackageLimitService
 
         ValidateAgainstSafeRange(request, safeRange);
 
-        var existingWindows = await _dbContext.PackageLimitVersions
-            .AsNoTracking()
-            .Join(
-                _dbContext.ShippingProviderProfiles.AsNoTracking(),
-                limit => limit.ProviderProfileId,
-                profile => profile.Id,
-                (limit, profile) => new { limit.EffectiveFromUtc, limit.EffectiveToUtc, profile.ProviderCode, profile.Version })
-            .Where(pair => pair.ProviderCode == request.ProviderCode)
-            .ToListAsync(cancellationToken);
-
-        if (existingWindows.Any(existing => Overlaps(
-                existing.EffectiveFromUtc, existing.EffectiveToUtc,
-                request.EffectiveFromUtc, request.EffectiveToUtc)))
-        {
-            throw new ShippingAdminWriteException(ShippingAdminErrorCodes.PackageLimitPeriodOverlap);
-        }
-
-        var nextVersion = existingWindows.Count == 0 ? 1 : existingWindows.Max(existing => existing.Version) + 1;
         var now = DateTime.UtcNow;
 
+        // 組長 PR #73 round-2 review (P2): the existing-version query, period-overlap check and
+        // nextVersion allocation all used to run BEFORE the transaction — two concurrent creates
+        // for the same provider could both observe the same max version, and the loser surfaced
+        // as an unhandled DbUpdateException (500) off UX_ProviderProfiles_ProviderCode_Version.
+        // The whole read-check-allocate-insert sequence now runs inside one transaction
+        // serialized by a provider-scoped application lock: the second caller waits at the lock,
+        // then reads the first caller's committed row and allocates the next number — no
+        // duplicate version, no surprise 500. A lock timeout or a residual unique-index race maps
+        // to the stable 409 concurrency_conflict in the catches below.
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
         try
         {
+            await AcquireProviderDraftLockAsync(request.ProviderCode, cancellationToken);
+
+            var existingWindows = await _dbContext.PackageLimitVersions
+                .AsNoTracking()
+                .Join(
+                    _dbContext.ShippingProviderProfiles.AsNoTracking(),
+                    limit => limit.ProviderProfileId,
+                    profile => profile.Id,
+                    (limit, profile) => new { limit.EffectiveFromUtc, limit.EffectiveToUtc, profile.ProviderCode, profile.Version })
+                .Where(pair => pair.ProviderCode == request.ProviderCode)
+                .ToListAsync(cancellationToken);
+
+            if (existingWindows.Any(existing => Overlaps(
+                    existing.EffectiveFromUtc, existing.EffectiveToUtc,
+                    request.EffectiveFromUtc, request.EffectiveToUtc)))
+            {
+                throw new ShippingAdminWriteException(ShippingAdminErrorCodes.PackageLimitPeriodOverlap);
+            }
+
+            var nextVersion = existingWindows.Count == 0 ? 1 : existingWindows.Max(existing => existing.Version) + 1;
+
             var profile = new ShippingProviderProfile(
                 Guid.CreateVersion7(),
                 request.ProviderCode,
@@ -142,6 +155,21 @@ public sealed class EfPackageLimitService : IPackageLimitService
 
             await transaction.CommitAsync(cancellationToken);
             return ToDto(limitVersion, profile);
+        }
+        catch (SqlException exception) when (exception.Number == ProviderLockTimeoutErrorNumber)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw new ShippingAdminWriteException(ShippingAdminErrorCodes.ConcurrencyConflict);
+        }
+        catch (DbUpdateException exception) when (
+            exception.GetBaseException() is SqlException sqlException &&
+            sqlException.Number is 2601 or 2627)
+        {
+            // Defense in depth: the provider lock should make a duplicate (ProviderCode, Version)
+            // impossible, but if the unique index still fires it is a concurrency race the caller
+            // can retry — never an unexplained 500.
+            await transaction.RollbackAsync(cancellationToken);
+            throw new ShippingAdminWriteException(ShippingAdminErrorCodes.ConcurrencyConflict);
         }
         catch
         {
@@ -251,6 +279,32 @@ public sealed class EfPackageLimitService : IPackageLimitService
         }
 
         return ToDto(limitVersion, profile);
+    }
+
+    /// <summary>Raised by AcquireProviderDraftLockAsync when sp_getapplock times out.</summary>
+    private const int ProviderLockTimeoutErrorNumber = 51000;
+
+    /// <summary>
+    /// Serializes draft creation per provider inside the ambient transaction: sp_getapplock with
+    /// @LockOwner = 'Transaction' holds an exclusive provider-scoped lock until commit/rollback,
+    /// so concurrent creates line up instead of racing the version allocation (組長 PR #73
+    /// round-2 review, P2). 15s is far beyond any legitimate hold time — hitting the timeout
+    /// means pathological contention and maps to 409 concurrency_conflict, not a 500.
+    /// </summary>
+    private async Task AcquireProviderDraftLockAsync(string providerCode, CancellationToken cancellationToken)
+    {
+        await _dbContext.Database.ExecuteSqlAsync(
+            $"""
+            DECLARE @result int;
+            EXEC @result = sp_getapplock
+                @Resource = {"doselect:shipping:package-limit:" + providerCode},
+                @LockMode = 'Exclusive',
+                @LockOwner = 'Transaction',
+                @LockTimeout = 15000;
+            IF @result < 0
+                THROW 51000, 'Could not acquire the package-limit lock for the provider.', 1;
+            """,
+            cancellationToken);
     }
 
     /// <summary>Same shape as EfCompatibilityRuleAdminService.ResolveActorAsync — the audit actor

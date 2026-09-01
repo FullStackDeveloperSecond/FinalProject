@@ -255,6 +255,48 @@ public sealed class PackageLimitServiceTests
         Assert.Equal(["shipping.package_limit.create", "shipping.package_limit.publish"], auditsAfterPublish);
     }
 
+    /// <summary>組長 PR #73 round-2 review (P2): 兩個管理員同時為同一 Provider 建立 Draft，版本配置
+    /// 必須在交易內序列化——兩個請求都要成功拿到不同版本號，不得 500、不得產生重複版本。拿掉
+    /// provider-scoped lock 後，兩邊會同時讀到「尚無版本」而都配到 1，輸家死在
+    /// UX_ProviderProfiles_ProviderCode_Version 上。</summary>
+    [Fact]
+    public async Task CreateDraftAsync_TwoConcurrentDraftsForTheSameProvider_AllocateDistinctVersions()
+    {
+        await using var setupContext = ShippingServiceFixture.CreateContext();
+        await ShippingServiceFixture.ClearPackageLimitDataAsync(setupContext);
+        var actorId = await ShippingServiceFixture.SeedShippingAdminAsync(setupContext);
+
+        var january = ValidStorePickupRequest(
+            from: new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            to: new DateTime(2026, 2, 1, 0, 0, 0, DateTimeKind.Utc));
+        var march = ValidStorePickupRequest(
+            from: new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc),
+            to: new DateTime(2026, 4, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        // Two service instances over two independent connections, released by the same signal so
+        // both are in flight together — the provider lock must line them up, not let them race.
+        var startSignal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        async Task<PackageLimitVersionDto> CreateAsync(CreatePackageLimitVersionRequest request)
+        {
+            await using var context = ShippingServiceFixture.CreateContext();
+            await startSignal.Task;
+            return await CreateService(context).CreateDraftAsync(
+                ShippingServiceFixture.TestAuditContext, request, actorId, CancellationToken.None);
+        }
+
+        var first = CreateAsync(january);
+        var second = CreateAsync(march);
+        startSignal.SetResult();
+        var results = await Task.WhenAll(first, second);
+
+        Assert.Equal([1, 2], results.Select(result => result.Version).OrderBy(version => version).ToArray());
+        var storedVersions = await setupContext.ShippingProviderProfiles.AsNoTracking()
+            .Where(profile => profile.ProviderCode == ShippingProviderCodes.StorePickup)
+            .Select(profile => profile.Version)
+            .ToListAsync();
+        Assert.Equal([1, 2], storedVersions.OrderBy(version => version).ToArray());
+    }
+
     private static EfPackageLimitService CreateService(DoSelectDbContext context) =>
         new(context, new EfAuditWriter(context, TimeProvider.System));
 }
