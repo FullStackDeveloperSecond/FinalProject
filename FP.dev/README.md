@@ -258,3 +258,15 @@ sqlcmd -S .\SQL2025 -d DoSelectDb -E -C -b -i database-deploy\initial-create\ver
 ```
 
 直接執行 `npm run test:e2e` 時若未提供名稱為 `DoSelectE2E` 或 `DoSelectE2E_*` 的連線字串，Playwright 會拒絕啟動，避免測試誤用共用資料庫。
+
+## 第三方套件授權
+
+| 套件 | 版本 | 授權 | 用途 |
+| --- | --- | --- | --- |
+| GSAP (GreenSock Animation Platform) | 3.15.0 | GreenSock Standard「no charge」License —— <https://gsap.com/standard-license/> | 前台與後台的前端動效（進場、列表 stagger、客服案件面板進出、一次性操作回饋） |
+
+GSAP **不是 MIT 授權**，請勿在任何文件、相依性清單或報告中記為 MIT。
+Copyright (c) 2008-2026, GreenSock. All rights reserved.
+
+本輪只安裝官方 npm 套件並固定 exact version，未使用 CDN、私人 registry 或授權 token；
+未使用任何需付費的 Club GSAP plugin，產物只含 gsap-core 與 CSSPlugin。

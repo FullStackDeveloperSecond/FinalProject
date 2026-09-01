@@ -1,102 +1,310 @@
 /* =============================================================================
-   DoSelect 懂選 — Design Tokens  (PM-02 / v0.2 定案)
-   主色調對齊 AI 客服小精靈 Donggu：深藍描線 / 薄荷綠螢幕 / 淡藍底 / 奶油黃手腳 / 翡翠綠胸章
-   （Navy 依 v0.2 微調建議調淡：#1E3A5F → #2C4D73）
+   DoSelect 懂選 — Design Tokens（v4.0 reference-aligned）
+   Customer 與 Admin 共用的唯一來源。
 
-   由 customer-web / admin-web 各自 main.ts 匯入：
-     import '@doselect/web-shared/styles/design-tokens.css'
-   一份來源、兩個 App 共用。
+   ── 唯一視覺基準 ───────────────────────────────────────────────────────────
+   D:\期末小組電商網站\DoSelect_全組第一版UI預覽_2026-08-27\ 六張預覽圖。
+   本檔所有色值皆自那六張圖與正式 Logo 取樣，不沿用 v3 自行推導的
+   「淡藍殼層 + 粉色漸層尾端」方向。
 
-   規則：
-   - 元件與頁面只讀「語意層」變數（--color-*, --space-*, --fs-* …），不直接用 primitive。
-   - Light-only：本檔「不」透過 @media (prefers-color-scheme: dark) 自動切換主題；
-     M 版永遠顯示 Light，不受作業系統深色模式影響。
-   - :root[data-theme="dark"] 區塊僅為未來結構保留，目前沒有任何程式碼會設定該屬性，
-     也沒有切換按鈕，因此不會被套用。PrimeVue 同步使用 darkModeSelector: false。
-   - --color-mint / --color-butter 是「裝飾角色」，不得指派給按鈕、連結或小字背景。
-   - 唯一主操作色 = --color-primary（翡翠綠）。語意色（success/warning/danger/info）另計。
+   取樣值（GDI+ 逐像素／9×9 眾數，見 review/reference-ui-alignment/palette.md）：
+     #FEFEFE 01 header 底            → --color-surface / header 一律白色
+     #F5F9FE 01 hero 卡片底          → --brand-blue-100
+     #F3F7FC 01 底部信任列            → --brand-blue-100
+     #F2F7FC 04 表頭列                → --brand-blue-100
+     #E9F0FC 01 三選一卡片藍格        → --brand-blue-200
+     #ECF4FE 04 側欄當前項底          → --brand-blue-200
+     #EEF4FE 05 客服訊息泡泡          → --brand-blue-200
+     #0665F4 03 前往結帳實心鈕        ┐
+     #0271E7 04 新增商品實心鈕        ├→ --brand-blue-600（★ 高飽和亮藍）
+     #0168FA 06 長條圖填色            ┘
+     #1373F7 01 當前導覽底線          → --brand-blue-500
+     #001C46 01 hero 主標             → --brand-ink-900（深海軍藍）
+     #0067FB #74C1FD #52C998 #FEAC37  06 甜甜圈四段 → --chart-1..4
+     #E8EDF5 04 進度條軌               → --brand-blue-300 家族
+     #DDF6EE 04 上架中徽章底          → --color-success-bg
+     #E4F2F4 01 青綠格 / #E6F8F2 03 相容徽章 → --color-info-bg
+     #ECEEFD 01 第三格紫              → --brand-violet-100
+
+   ── 面積分配（六張預覽的共同語言）───────────────────────────────────────────
+     白／近白      最大面積   內容畫布、卡片、header、sidebar、表格列
+     淡藍／淡青    分區       區塊底、提示區、表頭、選取狀態、訊息泡泡
+     高飽和亮藍    操作焦點   主按鈕、連結、進度、圖表、重點數字、當前項
+     深海軍藍      文字為主   內文、標題；只在 hero／少數強調區當背景
+     #E6C8D4 粉    輔助       局部背景、柔和選取、裝飾光暈、少量漸層
+     Logo 青綠     點綴       推薦／AI／相容性亮點
+
+   深海軍藍**不鋪滿** header／footer／login —— 那三處在預覽中是白或近白。
+
+   ── 對比度（實測，WCAG 2.1；完整表在 review/reference-ui-alignment/）────────
+     #001C46 on #FFFFFF = 16.74:1   內文
+     #001C46 on #ECF4FE = 15.10:1   淡藍區塊上的內文
+     #001C46 on #E6C8D4 = 10.82:1   粉色區塊上的內文
+     #0B66E8 on #FFFFFF =  5.15:1   連結／重點數字
+     #0B66E8 on #ECF4FE =  4.64:1   淡藍區塊上的連結
+     #FFFFFF on #0B66E8 =  5.15:1   主按鈕白字
+     #FFFFFF on #E6C8D4 =  1.55:1   ← 禁止：粉底不得使用白字
+     #FFFFFF on #ECF4FE =  1.11:1   ← 禁止：淡藍區塊不得使用白字
+     #7D90B4 on #FFFFFF =  3.22:1   表單控制項邊框（非文字 >= 3:1）
+
+   ── 規則 ──────────────────────────────────────────────────────────────────
+   - 元件與頁面只讀語意層（--color-*, --gradient-*, --chart-*, --space-* …），
+     不直接使用 primitive。
+   - Light-only：本檔不使用 @media (prefers-color-scheme: dark)。
+   - :root[data-theme="dark"] 僅為未來結構保留，目前沒有任何程式碼設定該屬性。
+   - success / warning / danger / info 保留原本語意，不粉紅化。
+   - 漸層只用於 hero、局部 banner 與裝飾，不作為每個殼層的共同背景。
    ============================================================================= */
 
 :root {
   color-scheme: light;
 
-  /* ---- primitive（僅供語意層引用）---- */
-  --navy-900:   #203e60;  /* Navy 深階 */
-  --navy-800:   #2c4d73;  /* Navy 主要文字／殼層 */
-  --navy-700:   #3a6087;  /* Navy hover／次階 */
-  --emerald-800:#155f39;
-  --emerald-700:#1b7a48;
-  --emerald-300:#b7ddc5;
-  --emerald-200:#e2f1e8;
-  --mint-300:   #9fe7d3;
-  --mint-100:   #e6f8f2;
-  --mint-line:  #bfe9dc;
-  --butter-300: #ecc97a;
-  --butter-100: #fbf1dc;
-  --butter-line:#e6cf9c;
-  --blue-050:   #eef4fa;
-  --blue-100:   #e3edf6;
-  --slate-500:  #61748c;
-  --slate-400:  #8b9cb0;
-  --line-200:   #cfdeeb;
-  --line-100:   #e3ecf4;
-  --amber-700:  #b5822e;
-  --amber-100:  #f8eeda;
-  --red-700:    #c0453a;
-  --red-800:    #a5382f;
-  --red-200:    #e6b8b3;
-  --red-100:    #f8e4e1;
-  --cyan-700:   #2f6e93;
-  --cyan-200:   #b9d3e5;
-  --cyan-100:   #deebf3;
-  --white:      #ffffff;
+  /* =========================================================================
+     primitive：品牌藍（單調遞增，數字越大越深）
+     ========================================================================= */
+  --brand-blue-050: #f7fafe;  /* 頁面畫布：近白冷色 */
+  --brand-blue-100: #f1f6fd;  /* 分區底、表頭、提示區、信任列 */
+  --brand-blue-200: #ecf4fe;  /* 淡藍色塊、當前項底、訊息泡泡、選取列 */
+  --brand-blue-300: #cfe1fb;  /* 進度軌、柔性藍邊、圖表淺格線 */
+  --brand-blue-400: #7cc4f8;  /* 圖表淺藍（預覽 #74C1FD） */
+  --brand-blue-500: #1373f7;  /* Logo 字標藍、當前導覽底線 */
+  --brand-blue-600: #0b66e8;  /* ★ 高飽和亮藍：主按鈕／連結／進度／重點數字 */
+  --brand-blue-700: #0a55c4;  /* hover／pressed */
+  --brand-blue-800: #063d8f;  /* 強調、深一階邊框 */
+  --brand-blue-900: #062a63;  /* 少數深強調區塊 */
 
-  /* ---- 語意層：色彩 ---- */
-  --color-bg:              var(--blue-050);   /* App 背景（Donggu 畫面底色） */
-  --color-surface:         var(--white);      /* 卡片 / 表格 / 對話框 / 輸入框 */
-  --color-surface-strong:  var(--blue-100);   /* 表頭、下沉區塊、次要面板 */
+  /* 內文專用深海軍藍：預覽 01 hero 主標取樣值 */
+  --brand-ink-900: #001c46;
 
-  --color-primary:         var(--emerald-700);/* 唯一主操作色（翡翠綠，已加深以過 AA） */
-  --color-primary-dark:    var(--emerald-800);/* hover / active */
-  --color-primary-soft:    var(--emerald-200);/* 主色淡底、選中列、tint */
-  --color-on-primary:      var(--white);
+  /* =========================================================================
+     primitive：#E6C8D4 品牌粉（輔助色）
+     ========================================================================= */
+  --brand-pink-500: #e6c8d4;  /* ← 品牌粉本色：裝飾光暈、局部背景、漸層尾端 */
+  --brand-pink-300: #faf1f5;  /* 極淡粉表面：售後／評價等柔性區塊 */
+  --brand-pink-600: #d3a8bb;  /* 粉色細邊，非全域預設邊框 */
+  --brand-pink-700: #a34e75;  /* 可承載文字的深粉（白底 5.38:1） */
 
-  --color-navy:            var(--navy-800);   /* 頁首 / 側欄 / 頁尾 等強色塊 */
-  --color-navy-hover:      var(--navy-700);
-  --color-on-navy:         var(--white);
+  /* =========================================================================
+     primitive：Logo 青綠 accent
+     ========================================================================= */
+  --brand-teal-500: #01b6b3;  /* Logo 原色，裝飾用 */
+  --brand-teal-700: #04716f;  /* 可承載文字（白底 5.84:1） */
+  --brand-teal-100: #e4f2f4;  /* 預覽 01 青綠格 */
+  --brand-mint-300: #a6fdeb;
+  --brand-mint-100: #e4fbf6;
 
-  --color-text:            var(--navy-800);   /* 全站內文字色（深藍，不另尋第二色） */
-  --color-text-muted:      var(--slate-500);
-  --color-text-faint:      var(--slate-400);
+  /* =========================================================================
+     primitive：紫（預覽 01 第三格／02 配送中徽章的裝飾色）
+     ========================================================================= */
+  --brand-violet-100: #eceefd;
+  --brand-violet-500: #7b5cf0;
+  --brand-violet-700: #4b45c4;
 
-  --color-border:          var(--line-200);
-  --color-border-soft:     var(--line-100);
+  /* =========================================================================
+     primitive：中性藍灰
+     ========================================================================= */
+  --slate-700: #43536f;  /* 次要文字（白底 7.76:1） */
+  --slate-600: #5a6b88;  /* 第三階文字（白底 5.39:1） */
+  --slate-500: #6c7e9d;
+  --slate-400: #7d90b4;  /* 表單控制項邊框（白底 3.22:1） */
+  --slate-300: #c3d2e6;  /* header／sidebar 分隔線 */
+  --slate-200: #e2e9f3;  /* 表格分隔、卡片細邊 */
+  --white: #ffffff;
 
-  /* 裝飾角色：只做底色 / 標示 / 引導區，不進互動元件 */
-  --color-mint:            var(--mint-300);
-  --color-mint-soft:       var(--mint-100);
-  --color-mint-line:       var(--mint-line);
-  --color-butter:          var(--butter-300); /* 另用於「待客戶回覆」狀態徽章 */
-  --color-butter-soft:     var(--butter-100);
-  --color-butter-line:     var(--butter-line);
+  /* =========================================================================
+     primitive：語意狀態（保留語意，不粉紅化）
+     ========================================================================= */
+  --green-700: #0d7050;
+  --green-300: #52c998;  /* 預覽 06 甜甜圈綠 */
+  --green-200: #a9e3cd;
+  --green-100: #ddf6ee;  /* 預覽 04 上架中徽章底 */
+  --amber-700: #8a5a12;
+  --amber-400: #f5a524;  /* 預覽 06 甜甜圈橘／低庫存警示 */
+  --amber-200: #f2c98a;
+  --amber-100: #fdefd9;
+  --red-800: #9d1c2a;
+  --red-700: #c02434;
+  --red-200: #f0b3ba;
+  --red-100: #fde8ea;
 
-  /* 語意狀態色（與品牌配色分離） */
-  --color-success:         var(--emerald-700);
-  --color-success-bg:      var(--emerald-200);
-  --color-success-border:  var(--emerald-300);  /* 成功徽章／面板邊框，需與 -bg 明顯區別 */
-  --color-warning:         var(--amber-700);
-  --color-warning-bg:      var(--amber-100);
-  --color-danger:          var(--red-700);
-  --color-danger-strong:   var(--red-800);    /* 實心危險按鈕 hover / 邊框 */
-  --color-danger-border:   var(--red-200);    /* 錯誤面板的柔性邊框 */
-  --color-danger-bg:       var(--red-100);
-  --color-info:            var(--cyan-700);
-  --color-info-border:     var(--cyan-200);   /* 資訊面板／徽章的柔性邊框 */
-  --color-info-bg:         var(--cyan-100);
+  /* =========================================================================
+     語意層：畫布與表面
+     白／近白是最大面積；淡藍／淡青負責分區。
+     ========================================================================= */
+  --color-page: var(--brand-blue-050);        /* App 背景：近白冷色畫布 */
+  --color-surface: var(--white);              /* 卡片／表格／對話框／輸入框／header */
+  --color-section: var(--brand-blue-100);     /* 分區底、表頭、提示區、信任列 */
+  --color-surface-strong: var(--brand-blue-200); /* 淡藍色塊、選取列、訊息泡泡 */
+  --color-surface-raised: #fbfdff;            /* 表格 hover */
+  --color-surface-pink: var(--brand-pink-300); /* 粉色柔性表面（售後／評價） */
 
-  --color-focus-ring:      var(--emerald-700);
+  /* 相容別名：既有元件仍讀 --color-bg / --color-surface-muted */
+  --color-bg: var(--color-page);
+  --color-surface-muted: var(--brand-blue-200);
 
-  /* ---- 語意層：間距（4px 基數）---- */
+  /* =========================================================================
+     語意層：文字
+     ========================================================================= */
+  --color-ink: var(--brand-ink-900);          /* 深海軍藍：標題與內文 */
+  --color-text: var(--brand-ink-900);
+  --color-text-muted: var(--slate-700);
+  --color-text-faint: var(--slate-600);
+  --color-text-on-dark: var(--white);
+
+  /* =========================================================================
+     語意層：主操作 —— 高飽和亮藍
+     ========================================================================= */
+  --color-primary: var(--brand-blue-600);
+  --color-primary-hover: var(--brand-blue-700);
+  --color-primary-soft: var(--brand-blue-200); /* 淡藍 tint：當前項底、選取列 */
+  --color-primary-tint: var(--brand-blue-200);
+  --color-on-primary: var(--white);
+
+  /* 相容別名：既有元件仍讀 --color-primary-dark */
+  --color-primary-dark: var(--color-primary-hover);
+
+  /* =========================================================================
+     語意層：品牌角色
+     ========================================================================= */
+  --color-brand: var(--brand-blue-600);        /* 品牌識別＝高飽和亮藍 */
+  --color-brand-hover: var(--brand-blue-700);
+  --color-brand-deep: var(--brand-ink-900);    /* 深海軍藍：hero／少數強調區 */
+  --color-brand-pink: var(--brand-pink-500);   /* #E6C8D4 輔助色 */
+  --color-accent-teal: var(--brand-teal-500);  /* Logo 青綠 */
+  --color-brand-teal: var(--brand-teal-500);
+  --color-brand-mint: var(--brand-mint-300);
+
+  /* 深色強調區塊（hero 深藍面、Donggu CTA）上的文字 */
+  --color-on-deep: var(--white);
+  --color-on-pink: var(--brand-ink-900);       /* 粉底一律深海軍藍（10.82:1） */
+  --color-on-section: var(--brand-ink-900);    /* 淡藍分區上的文字（15.10:1） */
+
+  /* 相容別名 */
+  --color-navy: var(--brand-ink-900);
+  --color-navy-hover: var(--brand-blue-800);
+  --color-on-navy: var(--white);
+  --color-on-brand: var(--white);              /* 亮藍實心塊上的文字（5.15:1） */
+  --color-on-brand-muted: #e3edfb;
+
+  /* =========================================================================
+     語意層：邊框
+     表單控制項需 >= 3:1；表格與卡片分隔是裝飾，刻意低對比中性藍灰。
+     ========================================================================= */
+  --color-border: var(--slate-400);            /* 表單控制項：3.22:1 */
+  --color-border-soft: var(--slate-200);       /* 表格／卡片細邊 */
+  --color-border-line: var(--slate-300);       /* header／sidebar 分隔線 */
+  --color-border-strong: var(--brand-blue-600);
+  --color-border-pink: var(--brand-pink-600);
+
+  /* 相容別名 */
+  --color-shell-line: var(--slate-300);
+
+  /* =========================================================================
+     語意層：青綠 accent（推薦／AI／相容性亮點）
+     ========================================================================= */
+  --color-accent: var(--brand-teal-700);       /* 可承載文字 */
+  --color-accent-bright: var(--brand-teal-500);
+  --color-accent-soft: var(--brand-teal-100);
+  --color-accent-line: var(--brand-mint-300);
+
+  /* 相容別名：舊有 --color-mint-* / --color-butter-* / --color-brand-soft */
+  --color-mint: var(--brand-mint-300);
+  --color-mint-soft: var(--brand-mint-100);
+  --color-mint-line: var(--brand-mint-300);
+  --color-butter: var(--amber-200);
+  --color-butter-soft: var(--amber-100);
+  --color-butter-line: var(--amber-200);
+  --color-brand-soft: var(--brand-pink-300);
+  --color-brand-strong: var(--brand-pink-700);
+  --color-brand-line: var(--brand-pink-600);
+
+  /* =========================================================================
+     語意層：狀態色（保留原語意）
+     ========================================================================= */
+  --color-success: var(--green-700);
+  --color-success-bg: var(--green-100);
+  --color-success-border: var(--green-200);
+  --color-warning: var(--amber-700);
+  --color-warning-bg: var(--amber-100);
+  --color-warning-border: var(--amber-200);
+  --color-danger: var(--red-700);
+  --color-danger-strong: var(--red-800);
+  --color-danger-bg: var(--red-100);
+  --color-danger-border: var(--red-200);
+  --color-info: var(--brand-teal-700);
+  --color-info-bg: var(--brand-teal-100);
+  --color-info-border: var(--brand-mint-300);
+
+  /* =========================================================================
+     語意層：圖表系列
+     預覽 06 的四段（藍／淺藍／綠／橘）是 1–4；5–6 為延伸。
+     圖例一律同時提供文字標籤與數值，顏色永遠不是唯一辨識通道。
+     ========================================================================= */
+  --chart-1: var(--brand-blue-600);   /* 藍 */
+  --chart-2: var(--brand-blue-400);   /* 淺藍 */
+  --chart-3: #0f9b7a;                 /* 青綠 */
+  --chart-4: var(--amber-400);        /* 黃橘 */
+  --chart-5: #d3789f;                 /* 粉（#E6C8D4 的可讀化版本） */
+  --chart-6: var(--brand-violet-500); /* 紫 */
+  --chart-grid: var(--slate-200);
+  --chart-axis: var(--slate-600);
+  --chart-track: #e8edf5;             /* 預覽 04 進度條軌 */
+
+  /* =========================================================================
+     語意層：focus
+     ========================================================================= */
+  --color-focus-ring: var(--brand-blue-600);   /* 白／淡藍／粉底皆 >= 3.3:1 */
+  --color-focus-ring-on-dark: var(--brand-mint-300); /* 深海軍藍底 13.5:1 */
+
+  /* =========================================================================
+     語意層：漸層
+     只用於 hero、局部 banner 與裝飾，不作為 header／footer／sidebar 的共同背景。
+     ========================================================================= */
+
+  /* Hero：近白 → 淡藍 → 極淡粉尾端；文字用深海軍藍（>= 14.5:1） */
+  --gradient-hero:
+    linear-gradient(118deg, #ffffff 0%, #f1f6fd 42%, #e9f0fc 72%, #faf1f5 100%);
+
+  /* Hero 右上角的 #E6C8D4 裝飾光暈（純裝飾，不承載文字） */
+  --gradient-hero-glow:
+    radial-gradient(96% 130% at 96% -26%, rgb(230 200 212 / 52%) 0%, rgb(230 200 212 / 0%) 58%);
+
+  /* 頁面畫布：近白，只有極輕的冷色過渡 */
+  --gradient-page:
+    linear-gradient(180deg, #ffffff 0%, #f7fafe 100%);
+
+  /* 底部信任列／footer：淡藍分區，尾端帶少量品牌粉 */
+  --gradient-footer:
+    linear-gradient(100deg, #f3f7fc 0%, #eef4fd 58%, #faf1f5 100%);
+
+  /* 登入／2FA：白心徑向，外圈淡藍轉極淡粉 */
+  --gradient-auth:
+    radial-gradient(circle at 50% 22%, #ffffff 0%, #f1f6fd 56%, #f7eef3 100%);
+
+  /* 深強調區塊（Donggu CTA、hero 深藍面）：深海軍藍 → 亮藍，白字 >= 5.15:1 */
+  --gradient-deep:
+    linear-gradient(135deg, #001c46 0%, #063d8f 58%, #0b66e8 100%);
+
+  /* 青綠 accent 裝飾 */
+  --gradient-accent:
+    linear-gradient(135deg, #e4fbf6 0%, #a6fdeb 100%);
+
+  /* 相容別名：舊有 --gradient-shell / -brand / -shell-glow */
+  --gradient-shell: var(--gradient-page);
+  --gradient-brand: var(--gradient-deep);
+  --gradient-shell-glow: var(--gradient-hero-glow);
+
+  /* =========================================================================
+     語意層：陰影（藍調，預覽的卡片是白底＋細邊＋輕陰影）
+     ========================================================================= */
+  --shadow-sm: 0 1px 2px rgba(0, 28, 70, .06);
+  --shadow-md: 0 6px 20px rgba(0, 28, 70, .10);
+  --shadow-lg: 0 16px 40px rgba(0, 28, 70, .14);
+  --shadow-inset-soft: inset 0 -1px 0 rgba(0, 28, 70, .08);
+
+  /* =========================================================================
+     語意層：間距（4px 基數）
+     ========================================================================= */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -106,87 +314,167 @@
   --space-7: 40px;
   --space-8: 48px;
 
-  /* ---- 語意層：字級 ---- */
+  /* =========================================================================
+     語意層：字級
+     ========================================================================= */
   --fs-caption: 0.8125rem;
-  --fs-body:    1rem;
-  --fs-h3:      1.125rem;
-  --fs-h2:      1.375rem;
-  --fs-h1:      1.75rem;
+  --fs-body: 1rem;
+  --fs-h3: 1.125rem;
+  --fs-h2: 1.375rem;
+  --fs-h1: 1.75rem;
   --fs-display: 2.25rem;
-  --lh-body:    1.7;
+  --lh-body: 1.7;
   --lh-heading: 1.3;
 
-  --font-body:    "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", "Segoe UI", system-ui, sans-serif;
-  --font-display: var(--font-body); /* 標題同字族不同重量；如要襯線改為 "Noto Serif TC" */
-  --font-mono:    "IBM Plex Mono", "Sarasa Mono TC", ui-monospace, "SFMono-Regular", monospace;
+  --font-body: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", "Segoe UI", system-ui, sans-serif;
+  --font-display: var(--font-body);
+  --font-mono: "IBM Plex Mono", "Sarasa Mono TC", ui-monospace, "SFMono-Regular", monospace;
 
-  /* ---- 語意層：圓角 / 陰影 ---- */
+  /* =========================================================================
+     語意層：圓角 / 尺寸
+     ========================================================================= */
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 16px;
-  --shadow-sm: 0 1px 2px rgba(44, 77, 115, .08);
-  --shadow-md: 0 8px 28px rgba(44, 77, 115, .12);
+  --radius-pill: 999px;
 
-  /* ---- 語意層：尺寸 ---- */
   --control-height: 44px;
-  --header-h:       64px;
-  --content-max:    1200px;
+  --header-h: 64px;
+  --content-max: 1200px;
 
-  /* ---- 語意層：動效（GSAP 與 CSS transition 共用同一組值）---- */
+  /* 正式 Logo 的顯示尺寸上限（Customer 與 Admin 共用同一組規則） */
+  --logo-wordmark-h: 40px;
+  --logo-mark-size: 36px;
+  --logo-gap: var(--space-3);
+
+  /* =========================================================================
+     語意層：動效（GSAP 與 CSS transition 共用）
+     ========================================================================= */
   --dur-micro: 140ms;
   --dur-panel: 280ms;
-  --ease-out:   cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-inout: cubic-bezier(0.65, 0, 0.35, 1);
 
-  /* ---- 語意層：z-index（集中管理）---- */
+  /* =========================================================================
+     語意層：z-index
+     ========================================================================= */
   --z-header: 50;
   --z-drawer: 100;
   --z-dialog: 200;
-  --z-toast:  300;
+  --z-toast: 300;
 }
 
 /* =============================================================================
    Dark 主題 — 僅為未來結構保留。
-   刻意「不」加 @media (prefers-color-scheme: dark)：作業系統深色模式不會觸發這裡。
-   只有當有人手動在 <html> 設 data-theme="dark" 時才會套用；目前沒有任何程式碼這樣做，
-   也沒有切換 UI。等 Dark 正式進入範圍時再接上切換器。
+   刻意不加 @media (prefers-color-scheme: dark)：作業系統深色模式不會觸發這裡。
+   只有當有人手動在 <html> 設 data-theme="dark" 時才會套用；目前沒有任何程式碼
+   這樣做，也沒有切換 UI。PrimeVue 同步使用 darkModeSelector: false。
    ============================================================================= */
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --color-bg:             #0f171e;
-  --color-surface:        #17222c;
-  --color-surface-strong: #1e2b36;
-  --color-primary:        #57c486;
-  --color-primary-dark:   #74d29d;
-  --color-primary-soft:   #1a2e24;
-  --color-on-primary:     #0f171e;
-  --color-navy:           #2c4d73;
-  --color-navy-hover:     #3a6087;
-  --color-text:           #e6eff6;
-  --color-text-muted:     #93a6b5;
-  --color-text-faint:     #6f8290;
-  --color-border:         #2f3d49;
-  --color-border-soft:    #26333d;
-  --color-mint:           #7fd9c0;
-  --color-mint-soft:      #14302a;
-  --color-mint-line:      #2c5348;
-  --color-butter:         #e0bd71;
-  --color-butter-soft:    #332917;
-  --color-butter-line:    #52441f;
-  --color-success:        #57c486;
-  --color-success-bg:     #1a2e24;
-  --color-success-border: #3d5c48;
-  --color-warning:        #d79a52;
-  --color-warning-bg:     #352a19;
-  --color-danger:         #e08a7f;
-  --color-danger-strong:  #e8a59b;
-  --color-danger-border:  #5c322d;
-  --color-danger-bg:      #3a2523;
-  --color-info:           #8fb9cf;
-  --color-info-border:    #2f4b5a;
-  --color-info-bg:        #1d2d37;
-  --color-focus-ring:     #57c486;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .32);
-  --shadow-md: 0 8px 28px rgba(0, 0, 0, .42);
+  --color-page: #0a1020;
+  --color-bg: #0a1020;
+  --color-surface: #121a2f;
+  --color-section: #16203a;
+  --color-surface-strong: #1a2440;
+  --color-surface-muted: #223054;
+  --color-surface-raised: #16203a;
+  --color-surface-pink: #33253244;
+
+  --color-ink: #e8eefb;
+  --color-text: #e8eefb;
+  --color-text-muted: #a8b8d4;
+  --color-text-faint: #8496b4;
+  --color-text-on-dark: #e8eefb;
+
+  --color-primary: #5c9bf5;
+  --color-primary-hover: #85b6f8;
+  --color-primary-dark: #85b6f8;
+  --color-primary-soft: #1a2440;
+  --color-primary-tint: #1a2440;
+  --color-on-primary: #060b1c;
+
+  --color-brand: #5c9bf5;
+  --color-brand-hover: #85b6f8;
+  --color-brand-deep: #060b1c;
+  --color-brand-pink: #c79fb1;
+  --color-accent-teal: #3fd8d4;
+  --color-brand-teal: #3fd8d4;
+  --color-brand-mint: #7ff0dd;
+
+  --color-on-deep: #e8eefb;
+  --color-on-pink: #060b1c;
+  --color-on-section: #e8eefb;
+  --color-navy: #060b1c;
+  --color-navy-hover: #1a2440;
+  --color-on-navy: #e8eefb;
+  --color-on-brand: #060b1c;
+  --color-on-brand-muted: #1a2440;
+
+  --color-border: #3a4868;
+  --color-border-soft: #223054;
+  --color-border-line: #2b3a5c;
+  --color-border-strong: #5c9bf5;
+  --color-border-pink: #5c3f4c;
+  --color-shell-line: #2b3a5c;
+
+  --color-accent: #3fd8d4;
+  --color-accent-bright: #3fd8d4;
+  --color-accent-soft: #0e3436;
+  --color-accent-line: #1d5a5c;
+
+  --color-mint: #7ff0dd;
+  --color-mint-soft: #0e3436;
+  --color-mint-line: #1d5a5c;
+  --color-butter: #d9a95f;
+  --color-butter-soft: #3a2c17;
+  --color-butter-line: #5a4526;
+
+  --color-brand-soft: #332532;
+  --color-brand-strong: #d59bb5;
+  --color-brand-line: #5c3f4c;
+
+  --color-success: #5fc48d;
+  --color-success-bg: #16301f;
+  --color-success-border: #2f5c40;
+  --color-warning: #dda65c;
+  --color-warning-bg: #352614;
+  --color-warning-border: #5c4526;
+  --color-danger: #e58e93;
+  --color-danger-strong: #f0a9ad;
+  --color-danger-bg: #3a1e21;
+  --color-danger-border: #5e2f34;
+  --color-info: #3fd8d4;
+  --color-info-bg: #0e3436;
+  --color-info-border: #1d5a5c;
+
+  --chart-1: #5c9bf5;
+  --chart-2: #7cc4f8;
+  --chart-3: #46c9a6;
+  --chart-4: #f0b45a;
+  --chart-5: #d59bb5;
+  --chart-6: #9d86f5;
+  --chart-grid: #223054;
+  --chart-axis: #a8b8d4;
+  --chart-track: #1a2440;
+
+  --color-focus-ring: #7ff0dd;
+  --color-focus-ring-on-dark: #7ff0dd;
+
+  --gradient-hero: linear-gradient(118deg, #121a2f 0%, #16203a 42%, #1a2440 72%, #332532 100%);
+  --gradient-hero-glow: radial-gradient(120% 150% at 92% -20%, rgb(199 159 177 / 22%) 0%, rgb(199 159 177 / 0%) 62%);
+  --gradient-page: linear-gradient(180deg, #0a1020 0%, #0d1425 100%);
+  --gradient-footer: linear-gradient(100deg, #101830 0%, #16203a 58%, #2a2130 100%);
+  --gradient-auth: radial-gradient(circle at 50% 22%, #121a2f 0%, #0d1425 56%, #241d29 100%);
+  --gradient-deep: linear-gradient(135deg, #060b1c 0%, #12224a 58%, #1e3a68 100%);
+  --gradient-accent: linear-gradient(135deg, #0e3436 0%, #1d5a5c 100%);
+  --gradient-shell: var(--gradient-page);
+  --gradient-brand: var(--gradient-deep);
+  --gradient-shell-glow: var(--gradient-hero-glow);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .38);
+  --shadow-md: 0 6px 20px rgba(0, 0, 0, .48);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, .55);
+  --shadow-inset-soft: inset 0 -1px 0 rgba(255, 255, 255, .08);
 }

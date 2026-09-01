@@ -338,16 +338,27 @@ watch(reportKey, async () => {
 .report-metadata { display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; margin-bottom: 1rem; color: var(--color-text-muted); font-size: .85rem; }
 .report-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: .75rem; margin-bottom: 1rem; }
 .report-metric { display: grid; gap: .25rem; }
-.report-metric strong { font-size: 1.35rem; }
+/* 參考圖 06：重點數字用亮藍，讓趨勢與金額成為視覺焦點 */
+.report-metric strong { font-size: 1.35rem; color: var(--color-primary); }
 .report-metric small { color: var(--color-text-muted); }
 .report-chart { margin-bottom: 1rem; }
 .report-chart h2 { margin-top: 0; }
 .report-chart__row { display: grid; grid-template-columns: 7rem minmax(8rem, 1fr) 8rem; gap: .75rem; align-items: center; margin: .5rem 0; }
-.report-chart__track { height: .75rem; background: var(--color-surface-strong); border-radius: 999px; overflow: hidden; }
-.report-chart__track span { display: block; height: 100%; background: var(--color-primary); border-radius: inherit; }
+/* 單一指標的時間序列＝單一系列，依參考圖 06「熱銷商品 TOP 5」用同一個藍。
+   多系列圖表請改用 --chart-1 … --chart-6，並在圖例同時提供文字標籤與數值。 */
+.report-chart__track { height: .75rem; background: var(--chart-track); border-radius: 999px; overflow: hidden; }
+.report-chart__track span { display: block; height: 100%; background: var(--chart-1); border-radius: inherit; }
 .report-table { margin-bottom: 1rem; overflow-x: auto; }
 .report-table table { width: 100%; border-collapse: collapse; white-space: nowrap; }
 .report-table th, .report-table td { padding: .65rem .75rem; border-bottom: 1px solid var(--color-border-soft); text-align: left; }
-.report-table th { background: var(--color-surface); }
+/* 參考圖 04／06：表頭是淡藍分區，不是白色 */
+.report-table th { background: var(--color-section); }
 @media (max-width: 900px) { .report-filters { grid-template-columns: repeat(2, minmax(10rem, 1fr)); } }
+/* 375px：兩欄（2 × 10rem + gap）仍會撐破畫面，改為單欄；
+   圖表列的 7rem + 8rem + 8rem 固定軌道同樣超寬，改成標籤在上、數值在下的兩行式。 */
+@media (max-width: 560px) {
+  .report-filters { grid-template-columns: minmax(0, 1fr); }
+  .report-chart__row { grid-template-columns: minmax(0, 1fr) auto; }
+  .report-chart__track { grid-column: 1 / -1; }
+}
 </style>

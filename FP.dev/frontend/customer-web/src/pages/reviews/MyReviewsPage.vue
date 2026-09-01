@@ -354,11 +354,14 @@ function deleteImage(review: MemberReview, sortOrder: number | string): void {
 </template>
 
 <style scoped>
-.reviews-page { display: grid; gap: 1.5rem; max-width: 52rem; }
+/* grid 軌道預設 min-width: auto，長的 select 選項或評價內文會把整頁推寬；
+   夾成 minmax(0, 1fr) 之後 375px 不再產生水平溢位。 */
+.reviews-page { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.5rem; max-width: 52rem; }
 .reviews-page__feedback { padding: .75rem; border-radius: .5rem; background: var(--color-success-bg); color: var(--color-primary-dark); }
-.review-form, .review-card { display: grid; gap: .75rem; padding: 1rem; border: 1px solid var(--color-border); border-radius: .75rem; }
-.review-form label { display: grid; gap: .25rem; font-weight: 600; }
-.review-form input, .review-form select, .review-form textarea { padding: .625rem; border: 1px solid var(--color-text-faint); border-radius: .375rem; font: inherit; }
+.review-form, .review-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: .75rem; padding: 1rem; border: 1px solid var(--color-border); border-radius: .75rem; }
+.review-form label { display: grid; grid-template-columns: minmax(0, 1fr); gap: .25rem; font-weight: 600; }
+/* select 的 min-content 寬度來自最長的選項字串；不夾住就會把整頁推寬 */
+.review-form input, .review-form select, .review-form textarea { min-width: 0; max-width: 100%; padding: .625rem; border: 1px solid var(--color-text-faint); border-radius: .375rem; font: inherit; }
 .review-form__actions, .review-card__actions { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
 .review-card { margin-bottom: 1rem; }
 .review-card__heading { display: flex; justify-content: space-between; gap: 1rem; }

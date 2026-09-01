@@ -1,0 +1,176 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap">
+  <style>
+    body {
+      margin: 0;
+      font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", "Segoe UI", system-ui, sans-serif;
+      color: #101A4A;
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: #1453A0; text-decoration: none; }
+    a:hover { color: #2064B4; }
+    h1, h2, h3 { margin: 0; line-height: 1.3; }
+    p { margin: 0; }
+  </style>
+</helmet>
+
+<div style="width: 1280px; background: radial-gradient(circle at 85% 10%, rgb(230 200 212 / 55%) 0%, rgb(230 200 212 / 0%) 34%), linear-gradient(145deg, #F8FAFD 0%, #EAF0FA 55%, #D8E3F4 100%);">
+
+  <!-- Header：深藍主導，右上角粉色光暈 -->
+  <header style="display: flex; align-items: center; gap: 16px; height: 64px; padding: 0 24px; background: radial-gradient(120% 200% at 98% -40%, rgb(230 200 212 / 62%) 0%, rgb(230 200 212 / 0%) 58%), linear-gradient(115deg, #1B2F63 0%, #1453A0 46%, #2064B4 72%, #2E6BAE 88%, #E6C8D4 100%); border-bottom: 1px solid #1B2F63;">
+    <div style="display: inline-flex; align-items: center; padding: 4px 12px; background: #FFFFFF; border-radius: 10px;">
+      <img src="logo.png" alt="DoSelect 懂選" style="display: block; height: 40px; width: auto;">
+    </div>
+    <span style="font-size: 18px; font-weight: 700; color: #FFFFFF; white-space: nowrap;">DoSelect 懂選</span>
+    <nav style="display: flex; align-items: center; gap: 4px; margin-left: 8px;">
+      <span style="padding: 8px 12px; border-radius: 6px; font-size: 13px; font-weight: 700; color: #1453A0; background: #FFFFFF; box-shadow: inset 0 0 0 1px #E6C8D4;">首頁</span>
+      <span style="padding: 8px 12px; font-size: 13px; font-weight: 500; color: #FFFFFF;">商品</span>
+      <span style="padding: 8px 12px; font-size: 13px; font-weight: 500; color: #FFFFFF;">AI 懂選</span>
+      <span style="padding: 8px 12px; font-size: 13px; font-weight: 500; color: #FFFFFF;">購物車</span>
+      <span style="padding: 8px 12px; font-size: 13px; font-weight: 500; color: #FFFFFF;">我的組裝清單</span>
+      <span style="padding: 8px 12px; font-size: 13px; font-weight: 500; color: #FFFFFF;">客服中心</span>
+    </nav>
+    <span style="margin-left: auto; padding: 8px 14px; border-radius: 6px; font-size: 13px; font-weight: 700; color: #1453A0; background: #FFFFFF;">登入／註冊</span>
+  </header>
+
+  <main style="max-width: 1200px; margin: 0 auto; padding: 32px 24px 40px;">
+
+    <!-- Hero：淡藍紫底 + 粉色尾端，深墨藍文字，右下角吉祥物裝飾 -->
+    <section style="position: relative; overflow: hidden; padding: 40px; border: 1px solid #DCE5F2; border-radius: 16px; background: linear-gradient(135deg, #F7F9FD 0%, #E7EEFA 32%, #C8D8F0 58%, #E6C8D4 100%); box-shadow: 0 8px 28px rgba(16, 26, 74, .16);">
+      <div style="position: absolute; right: 24px; bottom: 0; width: 200px; opacity: 0.92; pointer-events: none;">
+        <img src="donggu.png" alt="" style="display: block; width: 100%; height: auto;">
+      </div>
+      <div style="position: relative; max-width: 640px;">
+        <h1 style="font-size: 36px; font-weight: 700; color: #101A4A; margin-bottom: 12px;">說出需求，組出適合你的電腦</h1>
+        <p style="font-size: 16px; color: #4A5A78; margin-bottom: 24px; text-wrap: pretty;">不用先懂規格。回答「要拿來做什麼」和「預算多少」，我們幫你篩掉不合適的，只留下買得起、搭得起來的組合。</p>
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <span style="display: inline-flex; align-items: center; height: 44px; padding: 0 20px; border-radius: 6px; background: #1453A0; color: #FFFFFF; font-size: 16px; font-weight: 700;">依用途挑選</span>
+          <span style="display: inline-flex; align-items: center; height: 44px; padding: 0 20px; border-radius: 6px; background: #FFFFFF; color: #1453A0; border: 1px solid #1453A0; font-size: 16px; font-weight: 700;">依預算挑選</span>
+          <span style="font-size: 16px; color: #1453A0; text-decoration: underline;">看全部商品</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 三步驟：圖示容器為淡藍→粉的柔和漸層 -->
+    <section style="margin-top: 32px;">
+      <h2 style="font-size: 22px; font-weight: 700; color: #101A4A;">三步驟就好</h2>
+      <p style="font-size: 13px; color: #4A5A78; margin-top: 4px; margin-bottom: 16px;">每一步只做一個決定，不需要背規格名稱。</p>
+      <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px;">
+
+        <div style="padding: 20px; background: #FFFFFF; border: 1px solid #DCE5F2; border-radius: 16px; box-shadow: 0 1px 2px rgba(16, 26, 74, .10);">
+          <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+            <span style="display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: 10px; color: #1453A0; background: linear-gradient(135deg, #E7EEFA 0%, #F0E6EE 100%); border: 1px solid #DCE5F2;">
+              <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5a8.5 8.5 0 1 0 8.5 8.5"></path><path d="M12 7.5a4.5 4.5 0 1 0 4.5 4.5"></path><path d="M12 12 20.5 3.5"></path><path d="M17.5 3.5h3v3"></path></svg>
+            </span>
+            <span style="padding: 4px 10px; border-radius: 999px; font-size: 13px; font-weight: 700; color: #101A4A; background: #E4FBF6; border: 1px solid #A6FDEB;">第 1 步</span>
+          </div>
+          <h3 style="font-size: 18px; font-weight: 700; color: #101A4A; margin-bottom: 6px;">說用途</h3>
+          <p style="font-size: 13px; color: #4A5A78; text-wrap: pretty;">打電動、剪片、還是文書上網？我們把用途換算成需要的規格。</p>
+        </div>
+
+        <div style="padding: 20px; background: #FFFFFF; border: 1px solid #DCE5F2; border-radius: 16px; box-shadow: 0 1px 2px rgba(16, 26, 74, .10);">
+          <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+            <span style="display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: 10px; color: #1453A0; background: linear-gradient(135deg, #E7EEFA 0%, #F0E6EE 100%); border: 1px solid #DCE5F2;">
+              <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H17a1 1 0 0 1 1 1v1.5"></path><path d="M4 7.5v9A2.5 2.5 0 0 0 6.5 19H18a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2H6.5"></path><path d="M16.5 13.5h.01"></path></svg>
+            </span>
+            <span style="padding: 4px 10px; border-radius: 999px; font-size: 13px; font-weight: 700; color: #101A4A; background: #E4FBF6; border: 1px solid #A6FDEB;">第 2 步</span>
+          </div>
+          <h3 style="font-size: 18px; font-weight: 700; color: #101A4A; margin-bottom: 6px;">給預算</h3>
+          <p style="font-size: 13px; color: #4A5A78; text-wrap: pretty;">設定金額上限，只看買得起的組合，不會挑到超出預算的。</p>
+        </div>
+
+        <div style="padding: 20px; background: #FFFFFF; border: 1px solid #DCE5F2; border-radius: 16px; box-shadow: 0 1px 2px rgba(16, 26, 74, .10);">
+          <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+            <span style="display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: 10px; color: #1453A0; background: linear-gradient(135deg, #E7EEFA 0%, #F0E6EE 100%); border: 1px solid #DCE5F2;">
+              <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 5.5h9"></path><path d="M5 10h9"></path><path d="M5 14.5h5.5"></path><path d="M13.5 17.5l2 2 4.5-4.5"></path><path d="M18.5 4.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"></path></svg>
+            </span>
+            <span style="padding: 4px 10px; border-radius: 999px; font-size: 13px; font-weight: 700; color: #101A4A; background: #E4FBF6; border: 1px solid #A6FDEB;">第 3 步</span>
+          </div>
+          <h3 style="font-size: 18px; font-weight: 700; color: #101A4A; margin-bottom: 6px;">看推薦</h3>
+          <p style="font-size: 13px; color: #4A5A78; text-wrap: pretty;">每個推薦都附「為什麼適合你」，以及相容性檢查結果。</p>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- 六個分類入口 -->
+    <section style="margin-top: 32px;">
+      <h2 style="font-size: 22px; font-weight: 700; color: #101A4A;">看看你需要哪一類</h2>
+      <p style="font-size: 13px; color: #4A5A78; margin-top: 4px; margin-bottom: 16px;">用分類快速找到方向，不確定也沒關係。</p>
+      <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px;">
+
+        <div style="padding: 16px; background: #FFFFFF; border: 1px solid #DCE5F2; border-radius: 16px; box-shadow: 0 1px 2px rgba(16, 26, 74, .10);">
+          <span style="display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; margin-bottom: 8px; border-radius: 10px; color: #1453A0; background: linear-gradient(135deg, #E7EEFA 0%, #F0E6EE 100%); border: 1px solid #DCE5F2;">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3.5h10a1.5 1.5 0 0 1 1.5 1.5v14a1.5 1.5 0 0 1-1.5 1.5H7A1.5 1.5 0 0 1 5.5 19V5A1.5 1.5 0 0 1 7 3.5z"></path><path d="M9 7h6"></path><path d="M9 10.5h6"></path><path d="M9.5 17h1.5"></path></svg>
+          </span>
+          <h3 style="font-size: 18px; font-weight: 700; color: #101A4A; margin-bottom: 4px;">桌上型電腦</h3>
+          <p style="font-size: 13px; color: #4A5A78;">整台組好，插電就能用</p>
+        </div>
+
+        <div style="padding: 16px; background: #FFFFFF; border: 1px solid #DCE5F2; border-radius: 16px; box-shadow: 0 1px 2px rgba(16, 26, 74, .10);">
+          <span style="display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; margin-bottom: 8px; border-radius: 10px; color: #1453A0; background: linear-gradient(135deg, #E7EEFA 0%, #F0E6EE 100%); border: 1px solid #DCE5F2;">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6.5A1.5 1.5 0 0 1 7.5 5h9A1.5 1.5 0 0 1 18 6.5v8H6z"></path><path d="M3.5 14.5h17l-1 3a1.5 1.5 0 0 1-1.4 1H5.9a1.5 1.5 0 0 1-1.4-1z"></path></svg>
+          </span>
+          <h3 style="font-size: 18px; font-weight: 700; color: #101A4A; margin-bottom: 4px;">筆記型電腦</h3>
+          <p style="font-size: 13px; color: #4A5A78;">帶著走，上課上班都行</p>
+        </div>
+
+        <div style="padding: 16px; background: #FFFFFF; border: 1px solid #DCE5F2; border-radius: 16px; box-shadow: 0 1px 2px rgba(16, 26, 74, .10);">
+          <span style="display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; margin-bottom: 8px; border-radius: 10px; color: #1453A0; background: linear-gradient(135deg, #E7EEFA 0%, #F0E6EE 100%); border: 1px solid #DCE5F2;">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5h16a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1z"></path><path d="M9 19h6"></path><path d="M12 15.5V19"></path></svg>
+          </span>
+          <h3 style="font-size: 18px; font-weight: 700; color: #101A4A; margin-bottom: 4px;">螢幕</h3>
+          <p style="font-size: 13px; color: #4A5A78;">看得清楚、眼睛不累</p>
+        </div>
+
+        <div style="padding: 16px; background: #FFFFFF; border: 1px solid #DCE5F2; border-radius: 16px; box-shadow: 0 1px 2px rgba(16, 26, 74, .10);">
+          <span style="display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; margin-bottom: 8px; border-radius: 10px; color: #1453A0; background: linear-gradient(135deg, #E7EEFA 0%, #F0E6EE 100%); border: 1px solid #DCE5F2;">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 8h8v8H8z"></path><path d="M6 6.5A.5.5 0 0 1 6.5 6h11a.5.5 0 0 1 .5.5v11a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5z"></path><path d="M9.5 3.5V6M14.5 3.5V6M9.5 18v2.5M14.5 18v2.5"></path><path d="M3.5 9.5H6M3.5 14.5H6M18 9.5h2.5M18 14.5h2.5"></path></svg>
+          </span>
+          <h3 style="font-size: 18px; font-weight: 700; color: #101A4A; margin-bottom: 4px;">零組件</h3>
+          <p style="font-size: 13px; color: #4A5A78;">升級容量與速度</p>
+        </div>
+
+        <div style="padding: 16px; background: #FFFFFF; border: 1px solid #DCE5F2; border-radius: 16px; box-shadow: 0 1px 2px rgba(16, 26, 74, .10);">
+          <span style="display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; margin-bottom: 8px; border-radius: 10px; color: #1453A0; background: linear-gradient(135deg, #E7EEFA 0%, #F0E6EE 100%); border: 1px solid #DCE5F2;">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 14v-2a7.5 7.5 0 0 1 15 0v2"></path><path d="M4.5 13.5h2a1 1 0 0 1 1 1v3.5a1 1 0 0 1-1 1h-1a1 1 0 0 1-1-1z"></path><path d="M19.5 13.5h-2a1 1 0 0 0-1 1v3.5a1 1 0 0 0 1 1h1a1 1 0 0 0 1-1z"></path></svg>
+          </span>
+          <h3 style="font-size: 18px; font-weight: 700; color: #101A4A; margin-bottom: 4px;">周邊配件</h3>
+          <p style="font-size: 13px; color: #4A5A78;">鍵盤滑鼠耳機</p>
+        </div>
+
+        <div style="padding: 16px; background: #FFFFFF; border: 1px solid #DCE5F2; border-radius: 16px; box-shadow: 0 1px 2px rgba(16, 26, 74, .10);">
+          <span style="display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; margin-bottom: 8px; border-radius: 10px; color: #1453A0; background: linear-gradient(135deg, #E7EEFA 0%, #F0E6EE 100%); border: 1px solid #DCE5F2;">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 6.5a3.5 3.5 0 0 0 4.6 4.6l-8 8a2.2 2.2 0 0 1-3.1-3.1z"></path><path d="M6.5 4.5l3 3-2 2-3-3z"></path><path d="M5.5 6.5 3.5 8.5"></path></svg>
+          </span>
+          <h3 style="font-size: 18px; font-weight: 700; color: #101A4A; margin-bottom: 4px;">自由組裝</h3>
+          <p style="font-size: 13px; color: #4A5A78;">自己配零件，我們幫你檢查相容性</p>
+        </div>
+
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer：深藍主導，一側帶粉色漸層 -->
+  <footer style="padding: 24px; text-align: center; background: linear-gradient(115deg, #1B2F63 0%, #24407E 52%, #2E6BAE 84%, #E6C8D4 100%); border-top: 1px solid #1B2F63;">
+    <p style="font-size: 16px; font-weight: 700; color: #FFFFFF; margin-bottom: 4px;">DoSelect 懂選</p>
+    <p style="font-size: 13px; color: #C8D8F0;">畢業專題展示系統｜商品、付款與物流資料皆為示範用途</p>
+    <div style="display: flex; justify-content: center; gap: 16px; margin-top: 8px;">
+      <span style="font-size: 13px; color: #FFFFFF; text-decoration: underline;">客服中心</span>
+      <span style="font-size: 13px; color: #FFFFFF; text-decoration: underline;">全部商品</span>
+    </div>
+  </footer>
+
+</div>
+</x-dc>
+</body>
+</html>

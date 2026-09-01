@@ -493,16 +493,17 @@ select {
   gap: var(--space-4);
   padding: 0 var(--space-5);
   min-height: var(--header-h);
-  background: var(--color-navy);
-  border-bottom: 1px solid var(--color-navy);
-  color: var(--color-on-navy);
+  /* v4：頂欄依參考圖改為白色實心，不再套殼層漸層 */
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border-line);
+  color: var(--color-ink);
 }
 
 .site-header .brand-link {
   display: inline-flex;
   align-items: center;
   gap: var(--space-3);
-  color: var(--color-on-navy);
+  color: var(--color-on-brand);
 }
 
 .brand-link__mark {
@@ -544,7 +545,7 @@ select {
 }
 
 .site-header .current-user {
-  color: var(--color-on-navy);
+  color: var(--color-on-brand);
   font-weight: 600;
 }
 
@@ -559,9 +560,9 @@ select {
 
 .site-header .logout-button {
   padding: var(--space-1) var(--space-3);
-  color: var(--color-on-navy);
+  color: var(--color-on-brand);
   background: transparent;
-  border: 1px solid var(--color-navy-hover);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   font: inherit;
   font-size: var(--fs-caption);
@@ -569,7 +570,7 @@ select {
 }
 
 .site-header .logout-button:hover {
-  background: var(--color-navy-hover);
+  background: var(--color-primary);
 }
 
 .site-header .logout-button:focus-visible,
@@ -674,7 +675,7 @@ select {
 
 .demo-badge {
   background: var(--color-butter);
-  color: var(--color-navy);
+  color: var(--color-warning);
   letter-spacing: 0.04em;
 }
 
@@ -718,5 +719,286 @@ select {
   .admin-sidebar a[aria-current="page"] {
     border-left-color: transparent;
     border-bottom-color: var(--color-primary);
+  }
+}
+
+/* =============================================================================
+   DoSelect v4.0 — Admin 後台（reference-aligned）
+   基準：DoSelect_全組第一版UI預覽_2026-08-27／04 商品與庫存、05 客服工作台、
+         06 營運報表。置於檔尾，以來源順序覆蓋前面的舊殼層規則（不用 !important）。
+
+   預覽 04/05/06 的後台語言：
+   - Sidebar 白底、細右框；當前項＝淡藍膠囊 + 亮藍左側指示條 + 亮藍字。
+     不使用整片粉色，也不使用大片漸層。
+   - 頂欄白底、細底線，頁面標題深海軍藍。
+   - 工作區近白；表頭／篩選區淡藍；表格分隔低對比中性藍灰。
+   - 主要操作亮藍實心，次要操作白底亮藍描邊。
+   - 圖表系列用藍／淺藍／青綠／黃橘／粉／紫，圖例一律附文字與數值。
+   ========================================================================== */
+
+/* ---- 頂欄：白底細底線 ---- */
+.site-header {
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border-line);
+  color: var(--color-ink);
+  box-shadow: var(--shadow-sm);
+}
+
+.site-header .brand-link {
+  color: var(--color-ink);
+}
+
+/* 白色頂欄上不再需要 Logo 底板 */
+.site-header .brand-mark__wordmark-shell,
+.site-header .brand-mark__badge-shell {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.brand-link__scope {
+  padding: 2px var(--space-2);
+  background: var(--color-primary-soft);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-caption);
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.site-header .current-user {
+  color: var(--color-ink);
+}
+
+.site-header .totp-rebind-link {
+  color: var(--color-primary);
+  text-decoration: underline;
+}
+
+.site-header .totp-rebind-link:hover {
+  color: var(--color-primary-hover);
+}
+
+.site-header .logout-button {
+  background: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.site-header .logout-button:hover {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+  color: var(--color-on-primary);
+}
+
+.site-header .logout-button:focus-visible,
+.site-header .brand-link:focus-visible,
+.site-header .totp-rebind-link:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+.demo-badge {
+  background: var(--color-warning-bg);
+  border: 1px solid var(--color-warning-border);
+  color: var(--color-warning);
+}
+
+/* =============================================================================
+   Sidebar —— 預覽 04/05/06：白底、細右框、當前項淡藍膠囊 + 亮藍左指示條
+   ========================================================================== */
+.admin-sidebar {
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-border-line);
+}
+
+.admin-sidebar__group-title {
+  color: var(--color-text-faint);
+}
+
+.admin-sidebar a {
+  color: var(--color-text-muted);
+}
+
+.admin-sidebar a:hover {
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
+.admin-sidebar a[aria-current="page"] {
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+  border-left-color: var(--color-primary);
+  font-weight: 700;
+}
+
+.admin-sidebar a:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: -2px;
+}
+
+/* =============================================================================
+   工作區與表格 —— 白色工作區、淡藍表頭、低對比中性藍灰分隔
+   ========================================================================== */
+.site-main {
+  background: var(--gradient-page);
+  background-attachment: fixed;
+}
+
+.site-main table {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-soft);
+}
+
+.site-main thead th {
+  background: var(--color-section);
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border-soft);
+}
+
+.site-main th,
+.site-main td {
+  border-color: var(--color-border-soft);
+}
+
+.site-main tbody tr:hover {
+  background: var(--color-surface-raised);
+}
+
+.site-main tbody tr[aria-selected="true"] {
+  background: var(--color-primary-soft);
+}
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ---- 表單 ---- */
+input,
+select,
+textarea {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+
+input:hover,
+select:hover,
+textarea:hover {
+  border-color: var(--color-border-strong);
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+a:focus-visible,
+button:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+input:disabled,
+select:disabled,
+textarea:disabled,
+button:disabled {
+  background: var(--color-section);
+  color: var(--color-text-faint);
+  border-color: var(--color-border-soft);
+  cursor: not-allowed;
+}
+
+/* ---- 次要按鈕：白底亮藍描邊（預覽 04「批次匯入」「匯出報表」） ---- */
+.ds-app-button--secondary {
+  background: var(--color-surface);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.ds-app-button--secondary:not(:disabled):hover {
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary-hover);
+  color: var(--color-primary-hover);
+}
+
+/* =============================================================================
+   登入 / 2FA —— 預覽語言：白心徑向，外圈淡藍轉極淡粉，不是整片深藍
+   ========================================================================== */
+.app-shell--bare {
+  background: var(--gradient-auth);
+  /* `place-items: center` 讓 grid item 不撐滿，auto 軌道會被 .auth-card 的 24rem
+     撐寬，在 375px 產生約 12px 水平溢位（改版前既有）。固定成單一 minmax(0, 1fr)
+     軌道後即可夾住，桌面置中行為不變。 */
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.auth-page {
+  width: 100%;
+  max-width: 100%;
+  padding: var(--space-5) var(--space-4);
+}
+
+.auth-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-soft);
+  box-shadow: var(--shadow-lg);
+}
+
+/* ---- 徽章 ---- */
+.status-pill {
+  background: var(--color-section);
+  color: var(--color-ink);
+  border: 1px solid var(--color-border-soft);
+}
+
+.tag {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  border: 1px solid var(--color-accent-line);
+}
+
+/* ---- 窄畫面側欄 ---- */
+@media (max-width: 768px) {
+  .admin-sidebar {
+    border-right: none;
+    border-bottom: 1px solid var(--color-border-line);
+  }
+}
+
+/* =============================================================================
+   v4 RWD 收尾 —— 375px 水平溢位
+   參考圖 04／05／06 都是高密度表格；窄畫面必須讓表格在自己的容器內橫向捲動，
+   而不是把整個頁面推寬。以下三條都是既有的版面問題，與配色無關。
+   ========================================================================== */
+
+/* 1. grid 軌道預設 min-width: auto，內容一旦超過就把整個殼層撐寬。
+      夾成 minmax(0, 1fr) 後，溢位由各自的捲動容器處理。 */
+.app-shell {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* 2. .table-scroll 是本專案既有的表格捲動慣例（AiUsagePage、OperationalReportPage
+      早就在用），但一直沒有對應的規則。補上之後高密度表格才真的會自己捲。 */
+.table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* .table-scroll 一旦成為捲動容器，`.site-main thead th` 的
+   `position: sticky; top: var(--header-h)` 就會改以這個容器為基準，
+   表頭會浮在資料列中間。橫向捲動容器裡的垂直 sticky 沒有意義，直接關掉；
+   參考圖 04／06 的表頭本來就是跟著卡片一起捲的。 */
+.table-scroll thead th {
+  position: static;
+  top: auto;
+}
+
+/* 3. 報表篩選列在 375px 仍是兩欄（2 × 10rem + gap > 375px），改為單欄。 */
+@media (max-width: 560px) {
+  .report-filters {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

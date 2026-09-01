@@ -1,0 +1,860 @@
+[
+  {
+    "app": "customer",
+    "name": "01-home",
+    "url": "http://localhost:4173/",
+    "auth": false,
+    "ref": "01",
+    "viewport": "1280",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": null,
+    "bodyBg": "linear-gradient(rgb(255, 255, 255) 0%, rgb(247, 250, 254) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 405
+  },
+  {
+    "app": "customer",
+    "name": "01-home",
+    "url": "http://localhost:4173/",
+    "auth": false,
+    "ref": "01",
+    "viewport": "768",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": null,
+    "bodyBg": "linear-gradient(rgb(255, 255, 255) 0%, rgb(247, 250, 254) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 405
+  },
+  {
+    "app": "customer",
+    "name": "01-home",
+    "url": "http://localhost:4173/",
+    "auth": false,
+    "ref": "01",
+    "viewport": "375",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": null,
+    "bodyBg": "linear-gradient(rgb(255, 255, 255) 0%, rgb(247, 250, 254) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 405
+  },
+  {
+    "app": "customer",
+    "name": "07-login",
+    "url": "http://localhost:4173/login",
+    "auth": false,
+    "ref": "02",
+    "viewport": "1280",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": null,
+    "bodyBg": "linear-gradient(rgb(255, 255, 255) 0%, rgb(247, 250, 254) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 35
+  },
+  {
+    "app": "customer",
+    "name": "07-login",
+    "url": "http://localhost:4173/login",
+    "auth": false,
+    "ref": "02",
+    "viewport": "768",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": null,
+    "bodyBg": "linear-gradient(rgb(255, 255, 255) 0%, rgb(247, 250, 254) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 35
+  },
+  {
+    "app": "customer",
+    "name": "07-login",
+    "url": "http://localhost:4173/login",
+    "auth": false,
+    "ref": "02",
+    "viewport": "375",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": null,
+    "bodyBg": "linear-gradient(rgb(255, 255, 255) 0%, rgb(247, 250, 254) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 35
+  },
+  {
+    "app": "customer",
+    "name": "04-products-list",
+    "url": "http://localhost:4173/products",
+    "auth": true,
+    "ref": "01",
+    "viewport": "1280",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": null,
+    "bodyBg": "linear-gradient(rgb(255, 255, 255) 0%, rgb(247, 250, 254) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 403
+  },
+  {
+    "app": "customer",
+    "name": "04-products-list",
+    "url": "http://localhost:4173/products",
+    "auth": true,
+    "ref": "01",
+    "viewport": "768",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": null,
+    "bodyBg": "linear-gradient(rgb(255, 255, 255) 0%, rgb(247, 250, 254) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 403
+  },
+  {
+    "app": "customer",
+    "name": "04-products-list",
+    "url": "http://localhost:4173/products",
+    "auth": true,
+    "ref": "01",
+    "viewport": "375",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": null,
+    "bodyBg": "linear-gradient(rgb(255, 255, 255) 0%, rgb(247, 250, 254) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 403
+  },
+  {
+    "app": "customer",
+    "name": "04-product-detail",
+    "url": "http://localhost:4173/products/55555555-1111-4111-8111-000000000000",
+    "auth": true,
+    "ref": "01",
+    "viewport": "1280",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": null,
+    "bodyBg": "linear-gradient(rgb(255, 255, 255) 0%, rgb(247, 250, 254) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 255
+  },
+  {
+    "app": "customer",
+    "name": "04-product-detail",
+    "url": "http://localhost:4173/products/55555555-1111-4111-8111-000000000000",
+    "auth": true,
+    "ref": "01",
+    "viewport": "768",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": null,
+    "bodyBg": "linear-gradient(rgb(255, 255, 255) 0%, rgb(247, 250, 254) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 255
+  },
+  {
+    "app": "customer",
+    "name": "04-product-detail",
+    "url": "http://localhost:4173/products/55555555-1111-4111-8111-000000000000",
+    "auth": true,
+    "ref": "01",
+    "viewport": "375",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": null,
+    "bodyBg": "linear-gradient(rgb(255, 255, 255) 0%, rgb(247, 250, 254) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 255
+  },
+  {
+    "app": "customer",
+    "name": "03-cart",
+    "url": "http://localhost:4173/cart",
+    "auth": true,
+    "ref": "03",
+    "viewport": "1280",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": null,
+    "bodyBg": "linear-gradient(rgb(255, 255, 255) 0%, rgb(247, 250, 254) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 202
+  },
+  {
+    "app": "customer",
+    "name": "03-cart",
+    "url": "http://localhost:4173/cart",
+    "auth": true,
+    "ref": "03",
+    "viewport": "768",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": null,
+    "bodyBg": "linear-gradient(rgb(255, 255, 255) 0%, rgb(247, 250, 254) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 202
+  },
+  {
+    "app": "customer",
+    "name": "03-cart",
+    "url": "http://localhost:4173/cart",
+    "auth": true,
+    "ref": "03",
+    "viewport": "375",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": null,
+    "bodyBg": "linear-gradient(rgb(255, 255, 255) 0%, rgb(247, 250, 254) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 202
+  },
+  {
+    "app": "customer",
+    "name": "02-account-reviews",
+    "url": "http://localhost:4173/account/reviews",
+    "auth": true,
+    "ref": "02",
+    "viewport": "1280",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": null,
+    "bodyBg": "linear-gradient(rgb(255, 255, 255) 0%, rgb(247, 250, 254) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 464
+  },
+  {
+    "app": "customer",
+    "name": "02-account-reviews",
+    "url": "http://localhost:4173/account/reviews",
+    "auth": true,
+    "ref": "02",
+    "viewport": "768",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": null,
+    "bodyBg": "linear-gradient(rgb(255, 255, 255) 0%, rgb(247, 250, 254) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 464
+  },
+  {
+    "app": "customer",
+    "name": "02-account-reviews",
+    "url": "http://localhost:4173/account/reviews",
+    "auth": true,
+    "ref": "02",
+    "viewport": "375",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": null,
+    "bodyBg": "linear-gradient(rgb(255, 255, 255) 0%, rgb(247, 250, 254) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 464
+  },
+  {
+    "app": "customer",
+    "name": "05-support-ticket-list",
+    "url": "http://localhost:4173/support/tickets",
+    "auth": true,
+    "ref": "05",
+    "viewport": "1280",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": null,
+    "bodyBg": "linear-gradient(rgb(255, 255, 255) 0%, rgb(247, 250, 254) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 296
+  },
+  {
+    "app": "customer",
+    "name": "05-support-ticket-list",
+    "url": "http://localhost:4173/support/tickets",
+    "auth": true,
+    "ref": "05",
+    "viewport": "768",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": null,
+    "bodyBg": "linear-gradient(rgb(255, 255, 255) 0%, rgb(247, 250, 254) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 296
+  },
+  {
+    "app": "customer",
+    "name": "05-support-ticket-list",
+    "url": "http://localhost:4173/support/tickets",
+    "auth": true,
+    "ref": "05",
+    "viewport": "375",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": null,
+    "bodyBg": "linear-gradient(rgb(255, 255, 255) 0%, rgb(247, 250, 254) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 296
+  },
+  {
+    "app": "customer",
+    "name": "05-support-ticket-detail",
+    "url": "http://localhost:4173/support/tickets",
+    "auth": true,
+    "openPanel": true,
+    "ref": "05",
+    "viewport": "1280",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": null,
+    "bodyBg": "linear-gradient(rgb(255, 255, 255) 0%, rgb(247, 250, 254) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 1149
+  },
+  {
+    "app": "customer",
+    "name": "05-support-ticket-detail",
+    "url": "http://localhost:4173/support/tickets",
+    "auth": true,
+    "openPanel": true,
+    "ref": "05",
+    "viewport": "768",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": null,
+    "bodyBg": "linear-gradient(rgb(255, 255, 255) 0%, rgb(247, 250, 254) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 1149
+  },
+  {
+    "app": "customer",
+    "name": "05-support-ticket-detail",
+    "url": "http://localhost:4173/support/tickets",
+    "auth": true,
+    "openPanel": true,
+    "ref": "05",
+    "viewport": "375",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": null,
+    "bodyBg": "linear-gradient(rgb(255, 255, 255) 0%, rgb(247, 250, 254) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 1149
+  },
+  {
+    "app": "customer",
+    "name": "02-support-home",
+    "url": "http://localhost:4173/support",
+    "auth": true,
+    "ref": "02",
+    "viewport": "1280",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": null,
+    "bodyBg": "linear-gradient(rgb(255, 255, 255) 0%, rgb(247, 250, 254) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 211
+  },
+  {
+    "app": "customer",
+    "name": "02-support-home",
+    "url": "http://localhost:4173/support",
+    "auth": true,
+    "ref": "02",
+    "viewport": "768",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": null,
+    "bodyBg": "linear-gradient(rgb(255, 255, 255) 0%, rgb(247, 250, 254) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 211
+  },
+  {
+    "app": "customer",
+    "name": "02-support-home",
+    "url": "http://localhost:4173/support",
+    "auth": true,
+    "ref": "02",
+    "viewport": "375",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": null,
+    "bodyBg": "linear-gradient(rgb(255, 255, 255) 0%, rgb(247, 250, 254) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 211
+  },
+  {
+    "app": "admin",
+    "name": "06-login",
+    "url": "http://localhost:4174/admin/login",
+    "auth": false,
+    "ref": "04",
+    "viewport": "1280",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": null,
+    "sidebarBg": null,
+    "bodyBg": "radial-gradient(circle at 50% 22%, rgb(255, 255, 255) 0%, rgb(241, 246",
+    "logoNaturalWidths": [],
+    "contentChars": 33
+  },
+  {
+    "app": "admin",
+    "name": "06-login",
+    "url": "http://localhost:4174/admin/login",
+    "auth": false,
+    "ref": "04",
+    "viewport": "768",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": null,
+    "sidebarBg": null,
+    "bodyBg": "radial-gradient(circle at 50% 22%, rgb(255, 255, 255) 0%, rgb(241, 246",
+    "logoNaturalWidths": [],
+    "contentChars": 33
+  },
+  {
+    "app": "admin",
+    "name": "06-login",
+    "url": "http://localhost:4174/admin/login",
+    "auth": false,
+    "ref": "04",
+    "viewport": "375",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": null,
+    "sidebarBg": null,
+    "bodyBg": "radial-gradient(circle at 50% 22%, rgb(255, 255, 255) 0%, rgb(241, 246",
+    "logoNaturalWidths": [],
+    "contentChars": 33
+  },
+  {
+    "app": "admin",
+    "name": "04-products-inventory",
+    "url": "http://localhost:4174/admin/products",
+    "auth": true,
+    "ref": "04",
+    "viewport": "1280",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": "rgb(255, 255, 255)",
+    "bodyBg": "rgba(0, 0, 0, 0)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 585
+  },
+  {
+    "app": "admin",
+    "name": "04-products-inventory",
+    "url": "http://localhost:4174/admin/products",
+    "auth": true,
+    "ref": "04",
+    "viewport": "768",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": "rgb(255, 255, 255)",
+    "bodyBg": "rgba(0, 0, 0, 0)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 585
+  },
+  {
+    "app": "admin",
+    "name": "04-products-inventory",
+    "url": "http://localhost:4174/admin/products",
+    "auth": true,
+    "ref": "04",
+    "viewport": "375",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": "rgb(255, 255, 255)",
+    "bodyBg": "rgba(0, 0, 0, 0)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 585
+  },
+  {
+    "app": "admin",
+    "name": "05-case-workbench",
+    "url": "http://localhost:4174/admin/cases",
+    "auth": true,
+    "ref": "05",
+    "viewport": "1280",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": "rgb(255, 255, 255)",
+    "bodyBg": "rgba(0, 0, 0, 0)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 697
+  },
+  {
+    "app": "admin",
+    "name": "05-case-workbench",
+    "url": "http://localhost:4174/admin/cases",
+    "auth": true,
+    "ref": "05",
+    "viewport": "768",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": "rgb(255, 255, 255)",
+    "bodyBg": "rgba(0, 0, 0, 0)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 697
+  },
+  {
+    "app": "admin",
+    "name": "05-case-workbench",
+    "url": "http://localhost:4174/admin/cases",
+    "auth": true,
+    "ref": "05",
+    "viewport": "375",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": "rgb(255, 255, 255)",
+    "bodyBg": "rgba(0, 0, 0, 0)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 697
+  },
+  {
+    "app": "admin",
+    "name": "05-returns-queue",
+    "url": "http://localhost:4174/admin/returns",
+    "auth": true,
+    "ref": "05",
+    "viewport": "1280",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": "rgb(255, 255, 255)",
+    "bodyBg": "rgba(0, 0, 0, 0)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 485
+  },
+  {
+    "app": "admin",
+    "name": "05-returns-queue",
+    "url": "http://localhost:4174/admin/returns",
+    "auth": true,
+    "ref": "05",
+    "viewport": "768",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": "rgb(255, 255, 255)",
+    "bodyBg": "rgba(0, 0, 0, 0)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 485
+  },
+  {
+    "app": "admin",
+    "name": "05-returns-queue",
+    "url": "http://localhost:4174/admin/returns",
+    "auth": true,
+    "ref": "05",
+    "viewport": "375",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": "rgb(255, 255, 255)",
+    "bodyBg": "rgba(0, 0, 0, 0)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 485
+  },
+  {
+    "app": "admin",
+    "name": "06-operational-report",
+    "url": "http://localhost:4174/admin/reports/sales-overview",
+    "auth": true,
+    "ref": "06",
+    "viewport": "1280",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": "rgb(255, 255, 255)",
+    "bodyBg": "rgba(0, 0, 0, 0)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 919
+  },
+  {
+    "app": "admin",
+    "name": "06-operational-report",
+    "url": "http://localhost:4174/admin/reports/sales-overview",
+    "auth": true,
+    "ref": "06",
+    "viewport": "768",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": "rgb(255, 255, 255)",
+    "bodyBg": "rgba(0, 0, 0, 0)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 919
+  },
+  {
+    "app": "admin",
+    "name": "06-operational-report",
+    "url": "http://localhost:4174/admin/reports/sales-overview",
+    "auth": true,
+    "ref": "06",
+    "viewport": "375",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": "rgb(255, 255, 255)",
+    "bodyBg": "rgba(0, 0, 0, 0)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 919
+  },
+  {
+    "app": "admin",
+    "name": "06-ai-usage",
+    "url": "http://localhost:4174/admin/ai/usage",
+    "auth": true,
+    "ref": "06",
+    "viewport": "1280",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": "rgb(255, 255, 255)",
+    "bodyBg": "rgba(0, 0, 0, 0)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 379
+  },
+  {
+    "app": "admin",
+    "name": "06-ai-usage",
+    "url": "http://localhost:4174/admin/ai/usage",
+    "auth": true,
+    "ref": "06",
+    "viewport": "768",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": "rgb(255, 255, 255)",
+    "bodyBg": "rgba(0, 0, 0, 0)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 379
+  },
+  {
+    "app": "admin",
+    "name": "06-ai-usage",
+    "url": "http://localhost:4174/admin/ai/usage",
+    "auth": true,
+    "ref": "06",
+    "viewport": "375",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": "rgb(255, 255, 255)",
+    "bodyBg": "rgba(0, 0, 0, 0)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 379
+  },
+  {
+    "app": "admin",
+    "name": "04-shell-home",
+    "url": "http://localhost:4174/admin/",
+    "auth": true,
+    "ref": "04",
+    "viewport": "1280",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": "rgb(255, 255, 255)",
+    "bodyBg": "rgba(0, 0, 0, 0)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 339
+  },
+  {
+    "app": "admin",
+    "name": "04-shell-home",
+    "url": "http://localhost:4174/admin/",
+    "auth": true,
+    "ref": "04",
+    "viewport": "768",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": "rgb(255, 255, 255)",
+    "bodyBg": "rgba(0, 0, 0, 0)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 339
+  },
+  {
+    "app": "admin",
+    "name": "04-shell-home",
+    "url": "http://localhost:4174/admin/",
+    "auth": true,
+    "ref": "04",
+    "viewport": "375",
+    "consoleErrors": [],
+    "overflow": 0,
+    "headerBg": "rgb(255, 255, 255)",
+    "sidebarBg": "rgb(255, 255, 255)",
+    "bodyBg": "rgba(0, 0, 0, 0)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "contentChars": 339
+  }
+]

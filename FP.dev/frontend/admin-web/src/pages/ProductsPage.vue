@@ -467,57 +467,59 @@ function formatProductStatus(status: string): string {
       >
         {{ bulkErrorMessage }}
       </p>
-      <table class="products-table">
-        <thead>
-          <tr>
-            <th class="products-table__select">
-              <input
-                type="checkbox"
-                aria-label="全選本頁商品"
-                :checked="areAllVisibleSelected"
-                @change="toggleAllVisible"
-              >
-            </th>
-            <th>代碼</th>
-            <th>名稱</th>
-            <th>品牌</th>
-            <th>分類</th>
-            <th>狀態</th>
-            <th>SKU 數</th>
-            <th>價格區間</th>
-            <th>庫存</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="product in result.items"
-            :key="product.publicId"
-          >
-            <td class="products-table__select">
-              <input
-                type="checkbox"
-                :aria-label="`選取 ${product.nameZhTw}`"
-                :checked="isSelected(product.publicId)"
-                @change="toggleSelection(product.publicId, product.rowVersion)"
-              >
-            </td>
-            <td>{{ product.productCode }}</td>
-            <td>{{ product.nameZhTw }}</td>
-            <td>{{ product.brand.name }}</td>
-            <td>{{ product.category.name }}</td>
-            <td>{{ formatProductStatus(product.status) }}</td>
-            <td>{{ product.skuCount }}</td>
-            <td>{{ formatPriceRange(product.minPrice, product.maxPrice) }}</td>
-            <td>{{ product.totalOnHandQuantity }}</td>
-            <td>
-              <RouterLink :to="`/products/${product.publicId}`">
-                編輯
-              </RouterLink>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <div class="table-scroll">
+        <table class="products-table">
+          <thead>
+            <tr>
+              <th class="products-table__select">
+                <input
+                  type="checkbox"
+                  aria-label="全選本頁商品"
+                  :checked="areAllVisibleSelected"
+                  @change="toggleAllVisible"
+                >
+              </th>
+              <th>代碼</th>
+              <th>名稱</th>
+              <th>品牌</th>
+              <th>分類</th>
+              <th>狀態</th>
+              <th>SKU 數</th>
+              <th>價格區間</th>
+              <th>庫存</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="product in result.items"
+              :key="product.publicId"
+            >
+              <td class="products-table__select">
+                <input
+                  type="checkbox"
+                  :aria-label="`選取 ${product.nameZhTw}`"
+                  :checked="isSelected(product.publicId)"
+                  @change="toggleSelection(product.publicId, product.rowVersion)"
+                >
+              </td>
+              <td>{{ product.productCode }}</td>
+              <td>{{ product.nameZhTw }}</td>
+              <td>{{ product.brand.name }}</td>
+              <td>{{ product.category.name }}</td>
+              <td>{{ formatProductStatus(product.status) }}</td>
+              <td>{{ product.skuCount }}</td>
+              <td>{{ formatPriceRange(product.minPrice, product.maxPrice) }}</td>
+              <td>{{ product.totalOnHandQuantity }}</td>
+              <td>
+                <RouterLink :to="`/products/${product.publicId}`">
+                  編輯
+                </RouterLink>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
       <nav
         v-if="totalPages > 1"
         class="products-pagination"

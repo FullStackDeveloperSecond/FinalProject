@@ -271,7 +271,16 @@ const totalPages = computed(() => Math.max(1, Math.ceil(Number(data.value?.total
   margin-top: 1rem;
 }
 
-@media (max-width: 640px) {
+/*
+ * 堆疊式卡片版型。改用 container query：判斷依據是「列表欄自己的寬度」，
+ * 不是視窗寬度。因此
+ *   - 375px 視窗（欄寬約 343px）→ 堆疊
+ *   - 1280px 視窗但詳細面板開啟（欄寬約 450px）→ 一樣堆疊，
+ *     不會再出現一個字一行的擠壓表格
+ *   - 1280px 視窗、面板關閉（欄寬約 1152px）→ 維持完整表格
+ * 容器由 CaseSplitLayout.vue 的 .case-split__list 宣告（container-name: case-list）。
+ */
+@container case-list (max-width: 640px) {
   .support-tickets__table thead {
     position: absolute;
     width: 1px;

@@ -25,6 +25,10 @@ export default defineConfig({
       '@primeuix/themes',
       '@primeuix/styled',
       '@primeuix/styles',
+      // gsap is consumed both directly by this app and by @doselect/web-shared/motion.
+      // Keeping it on raw ESM alongside the shared package guarantees a single GSAP
+      // module instance in dev, so one gsap.context()/matchMedia registry owns every tween.
+      'gsap',
     ],
   },
   server: {

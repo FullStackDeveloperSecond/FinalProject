@@ -270,10 +270,10 @@ function cancelSkuSelection(): void {
   margin: 0.25rem 0 0;
   padding: 0.25rem;
   list-style: none;
-  background: white;
+  background: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: 0.5rem;
-  box-shadow: 0 4px 12px rgb(0 0 0 / 10%);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
   max-height: 16rem;
   overflow-y: auto;
 }

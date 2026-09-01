@@ -1,9 +1,22 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, defineAsyncComponent, onMounted, provide, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSessionStore } from './stores/session'
 import { useCartIdentityCacheCleanup } from './features/cart/useCart'
-import BrandMark from './components/BrandMark.vue'
+import { BrandMark } from '@doselect/web-shared/components'
+import {
+  customerDefaultMotionPresetId,
+  motionPresetKey,
+  useMotionPreference,
+  useMotionPresetSelection,
+} from '@doselect/web-shared/motion'
+
+// 切換器只在 dev 進入模組圖。`import.meta.env.DEV` 在 production build 被折成 false，
+// 因此 Rollup 會把整個動態 import 分支連同元件與其字串一起移除 ——
+// 正式產物裡不存在任何實驗模式選單。
+const MotionDevSwitcher = import.meta.env.DEV
+  ? defineAsyncComponent(() => import('@doselect/web-shared/motion/MotionDevSwitcher.vue'))
+  : null
 
 const route = useRoute()
 const router = useRouter()
@@ -18,6 +31,12 @@ useCartIdentityCacheCleanup()
 
 // 窄畫面把主導覽收起來，避免導覽列擠壓內容或造成頁面級橫向捲動。
 const navOpen = ref(false)
+
+// GSAP 動態視覺探索：A／B／C 方案由 App 統一選定後 provide 給頁面。
+// `canSwitch` 在 production build 是常數 false，切換介面會被整段 tree-shake 掉。
+const { presetId, preset, canSwitch, select } = useMotionPresetSelection(customerDefaultMotionPresetId)
+const prefersReducedMotion = useMotionPreference()
+provide(motionPresetKey, preset)
 
 onMounted(() => {
   void sessionStore.refresh()
@@ -147,5 +166,12 @@ async function handleLogout(): Promise<void> {
         </RouterLink>
       </p>
     </footer>
+    <component
+      :is="MotionDevSwitcher"
+      v-if="canSwitch && MotionDevSwitcher"
+      :preset-id="presetId"
+      :reduced-motion="prefersReducedMotion"
+      @select="select"
+    />
   </div>
 </template>

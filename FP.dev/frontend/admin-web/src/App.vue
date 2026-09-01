@@ -1,11 +1,30 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, defineAsyncComponent, provide } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAdminAuthStore } from './features/auth/stores/useAdminAuthStore'
+import { BrandMark } from '@doselect/web-shared/components'
+import {
+  adminDefaultMotionPresetId,
+  motionPresetKey,
+  useMotionPreference,
+  useMotionPresetSelection,
+} from '@doselect/web-shared/motion'
+
+// 切換器只在 dev 進入模組圖。`import.meta.env.DEV` 在 production build 被折成 false，
+// 因此 Rollup 會把整個動態 import 分支連同元件與其字串一起移除 ——
+// 正式產物裡不存在任何實驗模式選單。
+const MotionDevSwitcher = import.meta.env.DEV
+  ? defineAsyncComponent(() => import('@doselect/web-shared/motion/MotionDevSwitcher.vue'))
+  : null
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAdminAuthStore()
+
+// GSAP 動態視覺探索：與 Customer 共用同一組 preset 與同一個 dev-only 切換機制。
+const { presetId, preset, canSwitch, select } = useMotionPresetSelection(adminDefaultMotionPresetId)
+const prefersReducedMotion = useMotionPreference()
+provide(motionPresetKey, preset)
 
 const isAuthPage = computed(() => route.path.startsWith('/login'))
 const canViewOperationalReports = computed(() => {
@@ -71,14 +90,8 @@ async function onLogout(): Promise<void> {
         class="brand-link"
         to="/"
       >
-        <span
-          class="brand-link__mark"
-          aria-hidden="true"
-        >懂</span>
-        <span class="brand-link__text">
-          <span class="brand-link__name">DoSelect 懂選</span>
-          <span class="brand-link__scope">管理後台</span>
-        </span>
+        <BrandMark />
+        <span class="brand-link__scope">管理後台</span>
       </RouterLink>
       <div class="site-header__end">
         <span class="demo-badge">DEMO DATA</span>
@@ -231,5 +244,12 @@ async function onLogout(): Promise<void> {
         <RouterView />
       </main>
     </div>
+    <component
+      :is="MotionDevSwitcher"
+      v-if="canSwitch && MotionDevSwitcher"
+      :preset-id="presetId"
+      :reduced-motion="prefersReducedMotion"
+      @select="select"
+    />
   </div>
 </template>

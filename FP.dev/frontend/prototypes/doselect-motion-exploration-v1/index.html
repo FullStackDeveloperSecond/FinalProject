@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DoSelect 懂選｜GSAP 動態方案 A／B／C 比較</title>
+<meta name="description" content="DoSelect 懂選 GSAP 動態視覺探索：三套 motion preset 在十五個代表情境上的並排比較。僅為原型，不連線 API、不含真實資料。" />
+<link rel="stylesheet" href="assets/motion-lab.css" />
+</head>
+<body>
+
+<div class="lab-banner" role="note">
+  <strong>動態探索原型</strong>
+  <span>本頁只比較動態方案：所有文字皆為示意假資料，不連線 API、不含帳號或 token，重新整理即回復初始狀態。GSAP 由 npm 安裝的 3.15.0 本機載入，不走 CDN。</span>
+</div>
+
+<header class="lab-header">
+  <div class="lab-header__row">
+    <div>
+      <h1>GSAP 動態方案比較 — A／B／C</h1>
+      <p>目前方案：<strong id="current-preset">A — Gentle Guidance</strong>　·　reduced motion：<span id="reduced-state">否</span></p>
+    </div>
+    <div class="lab-controls">
+      <div class="preset-switch" role="group" aria-label="選擇動態方案">
+        <button type="button" data-preset="gentle" aria-pressed="true">A 柔和</button>
+        <button type="button" data-preset="donggu" aria-pressed="false">B 親切</button>
+        <button type="button" data-preset="crisp" aria-pressed="false">C 俐落</button>
+      </div>
+      <button type="button" class="lab-toggle" id="toggle-reduced" aria-pressed="false">
+        <span>強制 reduced motion：關</span>
+      </button>
+      <button type="button" class="lab-toggle" id="toggle-slow" aria-pressed="false"><span>慢速檢視：關</span></button>
+        <button type="button" class="lab-toggle" id="replay-all">全部重播</button>
+    </div>
+  </div>
+</header>
+
+<main class="lab-main">
+
+  <section class="lab-section" aria-labelledby="presets-title">
+    <h2 id="presets-title">三套方案</h2>
+    <p class="lab-section__lede">
+      三套 preset 共用同一組 helper 與同一套安全規則：只動 transform 與 opacity、沒有無限動畫、
+      沒有 ScrollSmoother、reduced motion 時完全不建立 tween（不是把動畫放慢），
+      且進場一律使用 <code>gsap.from()</code>，所以 JavaScript 或 GSAP 載入失敗時內容仍然可見。
+    </p>
+    <div class="preset-summary" id="preset-summary"></div>
+
+    <div class="spec-table-wrap">
+      <table class="spec-table">
+        <caption class="visually-hidden">三套動態方案的時間、ease 與 stagger 對照</caption>
+        <thead>
+          <tr>
+            <th scope="col">參數</th>
+            <th scope="col">A — Gentle Guidance</th>
+            <th scope="col">B — Donggu Friendly</th>
+            <th scope="col">C — Crisp Tech</th>
+          </tr>
+        </thead>
+        <tbody id="spec-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="lab-section" aria-labelledby="store-title">
+    <h2 id="store-title">前台代表情境（8）</h2>
+    <p class="lab-section__lede">
+      前台圖形優先、文字精簡。切換上方的方案後，全部情境會以同一組操作重播，方便並排比較。
+    </p>
+    <div class="scenario-grid" id="scenarios-store"></div>
+  </section>
+
+  <section class="lab-section" aria-labelledby="admin-title">
+    <h2 id="admin-title">後台代表情境（7）</h2>
+    <p class="lab-section__lede">
+      後台資訊密度較高，動態必須短、方向明確，且不能讓表格反覆重排。
+    </p>
+    <div class="scenario-grid" id="scenarios-admin"></div>
+  </section>
+
+  <section class="lab-section" aria-labelledby="rules-title">
+    <h2 id="rules-title">三套方案共同遵守的限制</h2>
+    <ul class="lab-section__lede">
+      <li>只動 <code>transform</code>（x／y／scale）與 <code>opacity</code>；不動 width、height、top、left、margin、box-shadow、filter。</li>
+      <li>沒有任何 <code>repeat: -1</code>；Donggu 不做無限漂浮。</li>
+      <li>不使用 ScrollSmoother；本輪也沒有引入任何 GSAP plugin。</li>
+      <li>表單錯誤只做一次水平提示，並把焦點移到錯誤欄位；錯誤文字與 ARIA 才是主要提示。</li>
+      <li>disabled 或送出中的控制項不會有任何回饋動畫（情境 ④ ⑬ ⑮ 直接示範）。</li>
+      <li>案件面板維持同層 2/5 : 3/5，只改 opacity 與 x，不改欄寬，因此列表全程不會被遮住；窄畫面上下堆疊，不轉成 modal／drawer。</li>
+      <li>長列表只有前 N 筆進場，其餘直接顯示（情境 ⑥ 直接示範）。</li>
+    </ul>
+  </section>
+
+</main>
+
+<footer class="lab-footer">
+  <p>
+    此頁為 <code>feature/gsap-motion-exploration-v1</code> 的探索素材，等待 Codex 一次核對後再決定採用哪一套。
+    三套方案在核對前都不刪除。
+  </p>
+  <p>
+    GSAP 為 GreenSock Standard「no charge」License（非 MIT）：<code>https://gsap.com/standard-license</code>。
+    Copyright (c) 2008-2026, GreenSock. All rights reserved.
+  </p>
+</footer>
+
+<script type="module" src="assets/motion-lab.js"></script>
+</body>
+</html>

@@ -26,67 +26,69 @@ const { data, isPending, isError, error, refetch } = useAdminReturnListQuery()
       title="目前沒有退貨案件"
       description="有新的退貨申請時會顯示在這裡。"
     />
-    <table
+    <div
       v-else-if="data"
-      class="admin-returns__table"
+      class="table-scroll"
     >
-      <thead>
-        <tr>
-          <th scope="col">
-            退貨編號
-          </th>
-          <th scope="col">
-            訂單編號
-          </th>
-          <th scope="col">
-            狀態
-          </th>
-          <th scope="col">
-            優先度
-          </th>
-          <th scope="col">
-            品項數
-          </th>
-          <th scope="col">
-            申請時間
-          </th>
-          <th scope="col">
-            寄回期限
-          </th>
-          <th scope="col" />
-        </tr>
-      </thead>
-      <tbody>
-        <tr
-          v-for="item in data.items"
-          :key="item.publicId"
-          :class="{ 'admin-returns__row--attention': item.needsAttention }"
-        >
-          <td>
-            <RouterLink :to="`/returns/${item.publicId}`">
-              {{ item.returnNumber }}
-            </RouterLink>
-          </td>
-          <td>{{ item.orderNumber }}</td>
-          <td>{{ statusLabels[item.status] }}</td>
-          <td>{{ priorityLabels[item.priority] }}</td>
-          <td>{{ item.itemCount }}</td>
-          <td>{{ formatDateTime(item.requestedAtUtc) }}</td>
-          <td>
-            {{ formatDateTime(item.returnShipmentDueAtUtc) }}
-            <span
-              v-if="item.needsAttention"
-              class="admin-returns__attention-badge"
-            >即將逾期</span>
-          </td>
-          <td>
-            <RouterLink :to="`/returns/${item.publicId}`">
-              查看
-            </RouterLink>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+      <table class="admin-returns__table">
+        <thead>
+          <tr>
+            <th scope="col">
+              退貨編號
+            </th>
+            <th scope="col">
+              訂單編號
+            </th>
+            <th scope="col">
+              狀態
+            </th>
+            <th scope="col">
+              優先度
+            </th>
+            <th scope="col">
+              品項數
+            </th>
+            <th scope="col">
+              申請時間
+            </th>
+            <th scope="col">
+              寄回期限
+            </th>
+            <th scope="col" />
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="item in data.items"
+            :key="item.publicId"
+            :class="{ 'admin-returns__row--attention': item.needsAttention }"
+          >
+            <td>
+              <RouterLink :to="`/returns/${item.publicId}`">
+                {{ item.returnNumber }}
+              </RouterLink>
+            </td>
+            <td>{{ item.orderNumber }}</td>
+            <td>{{ statusLabels[item.status] }}</td>
+            <td>{{ priorityLabels[item.priority] }}</td>
+            <td>{{ item.itemCount }}</td>
+            <td>{{ formatDateTime(item.requestedAtUtc) }}</td>
+            <td>
+              {{ formatDateTime(item.returnShipmentDueAtUtc) }}
+              <span
+                v-if="item.needsAttention"
+                class="admin-returns__attention-badge"
+              >即將逾期</span>
+            </td>
+            <td>
+              <RouterLink :to="`/returns/${item.publicId}`">
+                查看
+              </RouterLink>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
     <p
       v-if="data"
       class="admin-returns__count"

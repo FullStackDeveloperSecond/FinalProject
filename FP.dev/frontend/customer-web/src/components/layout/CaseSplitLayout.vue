@@ -10,7 +10,15 @@
  * 以免與尚未通過規格驗收的共用元件同名或卡住日後替換。
  * 本元件不含任何 user-facing 文案，標題與關閉按鈕名稱皆由呼叫端傳入。
  */
-withDefaults(defineProps<{
+import { ref } from 'vue'
+import {
+  createPanelEnter,
+  createPanelLeave,
+  detectReducedMotion,
+  useSensitiveMotionPreset,
+} from '@doselect/web-shared/motion'
+
+const props = withDefaults(defineProps<{
   /** 是否展開詳細欄。 */
   detailOpen?: boolean
   /** 詳細區標題，由呼叫端以自己的語系文字提供。 */
@@ -26,43 +34,77 @@ withDefaults(defineProps<{
 const emit = defineEmits<{
   close: []
 }>()
+
+// 客服案件屬售後流程：固定使用 Gentle Guidance，不隨前台 Donggu 的 overshoot。
+const preset = useSensitiveMotionPreset()
+
+// 展開／收起期間都維持 data-detail-open="true"，讓 grid 欄寬在動畫全程保持 2fr : 3fr。
+// 列表因此不會在收起的瞬間被推寬，也不會被詳細欄蓋住。
+const detailPresent = ref(props.detailOpen)
+
+// 只動 opacity / x / scale：不動 width、不動 grid-template-columns。
+function onDetailEnter(element: Element, done: () => void): void {
+  detailPresent.value = true
+  const reducedMotion = detectReducedMotion()
+  const tween = createPanelEnter(element, preset.value, { reducedMotion, onComplete: done })
+  if (!tween) {
+    done()
+  }
+}
+
+function onDetailLeave(element: Element, done: () => void): void {
+  const reducedMotion = detectReducedMotion()
+  createPanelLeave(element, preset.value, {
+    reducedMotion,
+    onComplete: () => {
+      detailPresent.value = false
+      done()
+    },
+  })
+}
 </script>
 
 <template>
   <div
     class="case-split"
-    :data-detail-open="detailOpen"
+    :data-detail-open="detailOpen || detailPresent"
   >
     <div class="case-split__list">
       <slot name="list" />
     </div>
 
-    <section
-      v-if="detailOpen"
-      class="case-split__detail"
-      :aria-label="detailTitle"
+    <Transition
+      :css="false"
+      @enter="onDetailEnter"
+      @leave="onDetailLeave"
     >
-      <header class="case-split__detail-head">
-        <div class="case-split__detail-heading">
-          <slot name="detail-heading">
-            <h2 class="case-split__detail-title">
-              {{ detailTitle }}
-            </h2>
-          </slot>
+      <section
+        v-if="detailOpen"
+        class="case-split__detail"
+        :aria-label="detailTitle"
+      >
+        <header class="case-split__detail-head">
+          <div class="case-split__detail-heading">
+            <slot name="detail-heading">
+              <h2 class="case-split__detail-title">
+                {{ detailTitle }}
+              </h2>
+            </slot>
+          </div>
+          <button
+            type="button"
+            class="case-split__close"
+            :aria-label="closeLabel"
+            @click="emit('close')"
+          >
+            <span aria-hidden="true">×</span>
+          </button>
+        </header>
+        <div class="case-split__detail-body">
+          <slot name="detail" />
         </div>
-        <button
-          type="button"
-          class="case-split__close"
-          :aria-label="closeLabel"
-          @click="emit('close')"
-        >
-          <span aria-hidden="true">×</span>
-        </button>
-      </header>
-      <div class="case-split__detail-body">
-        <slot name="detail" />
-      </div>
-    </section>
+      </section>
+    </Transition>
   </div>
 </template>
 
@@ -81,8 +123,16 @@ const emit = defineEmits<{
   }
 }
 
+/*
+ * 列表欄宣告成 container：詳細面板一開，這一欄就只剩約 2/5 寬，
+ * 裡面的高密度表格必須依「自己的寬度」而不是視窗寬度切換版型
+ * （參考圖 05 的案件列表就是窄欄裡的卡片式清單）。
+ * 對應的 @container 規則寫在 SupportTicketListPage.vue。
+ */
 .case-split__list {
   min-width: 0;
+  container-type: inline-size;
+  container-name: case-list;
 }
 
 .case-split__detail {

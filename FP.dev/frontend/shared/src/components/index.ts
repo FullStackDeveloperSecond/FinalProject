@@ -1,4 +1,6 @@
 export { default as AppButton } from './AppButton.vue'
+export { default as BrandIcon, type BrandIconName } from './BrandIcon.vue'
+export { default as BrandMark } from './BrandMark.vue'
 export { default as CursorPager } from './CursorPager.vue'
 export { default as EmptyState } from './EmptyState.vue'
 export { default as ErrorState } from './ErrorState.vue'

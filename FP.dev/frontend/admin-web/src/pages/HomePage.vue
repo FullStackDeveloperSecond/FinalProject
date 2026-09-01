@@ -1,8 +1,21 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import {
+  createListStagger,
+  createPageReveal,
+  useInjectedMotionPreset,
+  useMotionScope,
+} from '@doselect/web-shared/motion'
 import { useAdminAuthStore } from '../features/auth/stores/useAdminAuthStore'
 
 const auth = useAdminAuthStore()
+
+// 入口卡進場：只透過 template ref 操作本頁節點，不使用全域 selector。
+const dashboardRoot = ref<HTMLElement | null>(null)
+const headingRef = ref<HTMLElement | null>(null)
+const cardItems = ref<HTMLElement[]>([])
+const preset = useInjectedMotionPreset()
+const motion = useMotionScope(dashboardRoot)
 
 // 與 App.vue 側欄相同的角色判斷；營運報表沒有權限時不列在入口卡上。
 const canViewOperationalReports = computed(() => {
@@ -53,11 +66,38 @@ const visibleSections = computed(() => sections
         }
       : section
   ))
-  .filter(section => section.cards.length > 0))</script>
+  .filter(section => section.cards.length > 0))
+
+function playIntro(): void {
+  motion.run(({ reducedMotion }) => {
+    createPageReveal(headingRef.value, preset.value, { reducedMotion })
+    createListStagger(cardItems.value, preset.value, { reducedMotion, delay: 0.04 })
+  })
+}
+
+onMounted(playIntro)
+
+// 取得登入身分後，營運報表入口才會出現；只有卡片數量真的改變時才重播一次，
+// 不對每一次 reactive update 重播整頁進場。
+watch(
+  () => visibleSections.value.reduce((total, section) => total + section.cards.length, 0),
+  (next, previous) => {
+    if (next !== previous) {
+      playIntro()
+    }
+  },
+)
+</script>
 
 <template>
-  <section aria-labelledby="page-title">
-    <h1 id="page-title">
+  <section
+    ref="dashboardRoot"
+    aria-labelledby="page-title"
+  >
+    <h1
+      id="page-title"
+      ref="headingRef"
+    >
       管理後台基礎環境已就緒
     </h1>
     <p class="view-lede">
@@ -77,6 +117,7 @@ const visibleSections = computed(() => sections
         <article
           v-for="card in section.cards"
           :key="card.to"
+          ref="cardItems"
           class="home-card card"
         >
           <h3>{{ card.title }}</h3>

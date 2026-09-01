@@ -1,0 +1,476 @@
+[
+  {
+    "app": "customer",
+    "name": "home",
+    "url": "http://localhost:5173/",
+    "auth": false,
+    "viewport": "1280",
+    "overflow": 0,
+    "headerBg": "radial-gradient(120% 200% at 98% -40%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 58%), linear-gradient(115deg, rgb(220, 231, 247) 0%, rgb(200, 216, 240) 62%, rgb(230, 200, 212) 100%)",
+    "sidebarBg": null,
+    "bodyBg": "radial-gradient(circle at 85% 10%, rgba(230, 200, 212, 0.55) 0%, rgba(230, 200, 212, 0) 34%), linear-gradient(145deg, rgb(248, 250, 253) 0%, rgb(234, 240, 250) 55%, rgb(216, 227, 244) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "hasContent": true
+  },
+  {
+    "app": "customer",
+    "name": "home",
+    "url": "http://localhost:5173/",
+    "auth": false,
+    "viewport": "768",
+    "overflow": 0,
+    "headerBg": "radial-gradient(120% 200% at 98% -40%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 58%), linear-gradient(115deg, rgb(220, 231, 247) 0%, rgb(200, 216, 240) 62%, rgb(230, 200, 212) 100%)",
+    "sidebarBg": null,
+    "bodyBg": "radial-gradient(circle at 85% 10%, rgba(230, 200, 212, 0.55) 0%, rgba(230, 200, 212, 0) 34%), linear-gradient(145deg, rgb(248, 250, 253) 0%, rgb(234, 240, 250) 55%, rgb(216, 227, 244) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "hasContent": true
+  },
+  {
+    "app": "customer",
+    "name": "home",
+    "url": "http://localhost:5173/",
+    "auth": false,
+    "viewport": "375",
+    "overflow": 0,
+    "headerBg": "radial-gradient(120% 200% at 98% -40%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 58%), linear-gradient(115deg, rgb(220, 231, 247) 0%, rgb(200, 216, 240) 62%, rgb(230, 200, 212) 100%)",
+    "sidebarBg": null,
+    "bodyBg": "radial-gradient(circle at 85% 10%, rgba(230, 200, 212, 0.55) 0%, rgba(230, 200, 212, 0) 34%), linear-gradient(145deg, rgb(248, 250, 253) 0%, rgb(234, 240, 250) 55%, rgb(216, 227, 244) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "hasContent": true
+  },
+  {
+    "app": "customer",
+    "name": "login",
+    "url": "http://localhost:5173/login",
+    "auth": false,
+    "viewport": "1280",
+    "overflow": 0,
+    "headerBg": "radial-gradient(120% 200% at 98% -40%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 58%), linear-gradient(115deg, rgb(220, 231, 247) 0%, rgb(200, 216, 240) 62%, rgb(230, 200, 212) 100%)",
+    "sidebarBg": null,
+    "bodyBg": "radial-gradient(circle at 85% 10%, rgba(230, 200, 212, 0.55) 0%, rgba(230, 200, 212, 0) 34%), linear-gradient(145deg, rgb(248, 250, 253) 0%, rgb(234, 240, 250) 55%, rgb(216, 227, 244) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "hasContent": true
+  },
+  {
+    "app": "customer",
+    "name": "login",
+    "url": "http://localhost:5173/login",
+    "auth": false,
+    "viewport": "768",
+    "overflow": 0,
+    "headerBg": "radial-gradient(120% 200% at 98% -40%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 58%), linear-gradient(115deg, rgb(220, 231, 247) 0%, rgb(200, 216, 240) 62%, rgb(230, 200, 212) 100%)",
+    "sidebarBg": null,
+    "bodyBg": "radial-gradient(circle at 85% 10%, rgba(230, 200, 212, 0.55) 0%, rgba(230, 200, 212, 0) 34%), linear-gradient(145deg, rgb(248, 250, 253) 0%, rgb(234, 240, 250) 55%, rgb(216, 227, 244) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "hasContent": true
+  },
+  {
+    "app": "customer",
+    "name": "login",
+    "url": "http://localhost:5173/login",
+    "auth": false,
+    "viewport": "375",
+    "overflow": 0,
+    "headerBg": "radial-gradient(120% 200% at 98% -40%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 58%), linear-gradient(115deg, rgb(220, 231, 247) 0%, rgb(200, 216, 240) 62%, rgb(230, 200, 212) 100%)",
+    "sidebarBg": null,
+    "bodyBg": "radial-gradient(circle at 85% 10%, rgba(230, 200, 212, 0.55) 0%, rgba(230, 200, 212, 0) 34%), linear-gradient(145deg, rgb(248, 250, 253) 0%, rgb(234, 240, 250) 55%, rgb(216, 227, 244) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "hasContent": true
+  },
+  {
+    "app": "customer",
+    "name": "products",
+    "url": "http://localhost:5173/products",
+    "auth": false,
+    "viewport": "1280",
+    "overflow": 0,
+    "headerBg": "radial-gradient(120% 200% at 98% -40%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 58%), linear-gradient(115deg, rgb(220, 231, 247) 0%, rgb(200, 216, 240) 62%, rgb(230, 200, 212) 100%)",
+    "sidebarBg": null,
+    "bodyBg": "radial-gradient(circle at 85% 10%, rgba(230, 200, 212, 0.55) 0%, rgba(230, 200, 212, 0) 34%), linear-gradient(145deg, rgb(248, 250, 253) 0%, rgb(234, 240, 250) 55%, rgb(216, 227, 244) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "hasContent": true
+  },
+  {
+    "app": "customer",
+    "name": "products",
+    "url": "http://localhost:5173/products",
+    "auth": false,
+    "viewport": "768",
+    "overflow": 0,
+    "headerBg": "radial-gradient(120% 200% at 98% -40%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 58%), linear-gradient(115deg, rgb(220, 231, 247) 0%, rgb(200, 216, 240) 62%, rgb(230, 200, 212) 100%)",
+    "sidebarBg": null,
+    "bodyBg": "radial-gradient(circle at 85% 10%, rgba(230, 200, 212, 0.55) 0%, rgba(230, 200, 212, 0) 34%), linear-gradient(145deg, rgb(248, 250, 253) 0%, rgb(234, 240, 250) 55%, rgb(216, 227, 244) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "hasContent": true
+  },
+  {
+    "app": "customer",
+    "name": "products",
+    "url": "http://localhost:5173/products",
+    "auth": false,
+    "viewport": "375",
+    "overflow": 0,
+    "headerBg": "radial-gradient(120% 200% at 98% -40%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 58%), linear-gradient(115deg, rgb(220, 231, 247) 0%, rgb(200, 216, 240) 62%, rgb(230, 200, 212) 100%)",
+    "sidebarBg": null,
+    "bodyBg": "radial-gradient(circle at 85% 10%, rgba(230, 200, 212, 0.55) 0%, rgba(230, 200, 212, 0) 34%), linear-gradient(145deg, rgb(248, 250, 253) 0%, rgb(234, 240, 250) 55%, rgb(216, 227, 244) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "hasContent": true
+  },
+  {
+    "app": "admin",
+    "name": "login",
+    "url": "http://localhost:5174/admin/login",
+    "auth": false,
+    "viewport": "1280",
+    "overflow": 0,
+    "headerBg": null,
+    "sidebarBg": null,
+    "bodyBg": "radial-gradient(circle at 50% 28%, rgb(220, 231, 247) 0%, rgb(200, 216, 240) 62%, rgb(230, 200, 212) 100%)",
+    "logoNaturalWidths": [],
+    "hasContent": true
+  },
+  {
+    "app": "admin",
+    "name": "login",
+    "url": "http://localhost:5174/admin/login",
+    "auth": false,
+    "viewport": "768",
+    "overflow": 0,
+    "headerBg": null,
+    "sidebarBg": null,
+    "bodyBg": "radial-gradient(circle at 50% 28%, rgb(220, 231, 247) 0%, rgb(200, 216, 240) 62%, rgb(230, 200, 212) 100%)",
+    "logoNaturalWidths": [],
+    "hasContent": true
+  },
+  {
+    "app": "admin",
+    "name": "login",
+    "url": "http://localhost:5174/admin/login",
+    "auth": false,
+    "viewport": "375",
+    "overflow": 0,
+    "headerBg": null,
+    "sidebarBg": null,
+    "bodyBg": "radial-gradient(circle at 50% 28%, rgb(220, 231, 247) 0%, rgb(200, 216, 240) 62%, rgb(230, 200, 212) 100%)",
+    "logoNaturalWidths": [],
+    "hasContent": true
+  },
+  {
+    "app": "admin",
+    "name": "shell-forbidden",
+    "url": "http://localhost:5174/admin/forbidden",
+    "auth": false,
+    "viewport": "1280",
+    "overflow": 0,
+    "headerBg": "radial-gradient(120% 200% at 98% -40%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 58%), linear-gradient(115deg, rgb(220, 231, 247) 0%, rgb(200, 216, 240) 62%, rgb(230, 200, 212) 100%)",
+    "sidebarBg": "rgb(231, 238, 250)",
+    "bodyBg": "rgba(0, 0, 0, 0)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "hasContent": true
+  },
+  {
+    "app": "admin",
+    "name": "shell-forbidden",
+    "url": "http://localhost:5174/admin/forbidden",
+    "auth": false,
+    "viewport": "768",
+    "overflow": 0,
+    "headerBg": "radial-gradient(120% 200% at 98% -40%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 58%), linear-gradient(115deg, rgb(220, 231, 247) 0%, rgb(200, 216, 240) 62%, rgb(230, 200, 212) 100%)",
+    "sidebarBg": "rgb(231, 238, 250)",
+    "bodyBg": "rgba(0, 0, 0, 0)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "hasContent": true
+  },
+  {
+    "app": "admin",
+    "name": "shell-forbidden",
+    "url": "http://localhost:5174/admin/forbidden",
+    "auth": false,
+    "viewport": "375",
+    "overflow": 0,
+    "headerBg": "radial-gradient(120% 200% at 98% -40%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 58%), linear-gradient(115deg, rgb(220, 231, 247) 0%, rgb(200, 216, 240) 62%, rgb(230, 200, 212) 100%)",
+    "sidebarBg": "rgb(231, 238, 250)",
+    "bodyBg": "rgba(0, 0, 0, 0)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "hasContent": true
+  },
+  {
+    "app": "customer",
+    "name": "support-ticket-list",
+    "url": "http://localhost:5173/support/tickets",
+    "auth": true,
+    "viewport": "1280",
+    "overflow": 0,
+    "headerBg": "radial-gradient(120% 200% at 98% -40%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 58%), linear-gradient(115deg, rgb(220, 231, 247) 0%, rgb(200, 216, 240) 62%, rgb(230, 200, 212) 100%)",
+    "sidebarBg": null,
+    "bodyBg": "radial-gradient(circle at 85% 10%, rgba(230, 200, 212, 0.55) 0%, rgba(230, 200, 212, 0) 34%), linear-gradient(145deg, rgb(248, 250, 253) 0%, rgb(234, 240, 250) 55%, rgb(216, 227, 244) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "hasContent": true
+  },
+  {
+    "app": "customer",
+    "name": "support-ticket-list",
+    "url": "http://localhost:5173/support/tickets",
+    "auth": true,
+    "viewport": "768",
+    "overflow": 0,
+    "headerBg": "radial-gradient(120% 200% at 98% -40%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 58%), linear-gradient(115deg, rgb(220, 231, 247) 0%, rgb(200, 216, 240) 62%, rgb(230, 200, 212) 100%)",
+    "sidebarBg": null,
+    "bodyBg": "radial-gradient(circle at 85% 10%, rgba(230, 200, 212, 0.55) 0%, rgba(230, 200, 212, 0) 34%), linear-gradient(145deg, rgb(248, 250, 253) 0%, rgb(234, 240, 250) 55%, rgb(216, 227, 244) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "hasContent": true
+  },
+  {
+    "app": "customer",
+    "name": "support-ticket-list",
+    "url": "http://localhost:5173/support/tickets",
+    "auth": true,
+    "viewport": "375",
+    "overflow": 0,
+    "headerBg": "radial-gradient(120% 200% at 98% -40%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 58%), linear-gradient(115deg, rgb(220, 231, 247) 0%, rgb(200, 216, 240) 62%, rgb(230, 200, 212) 100%)",
+    "sidebarBg": null,
+    "bodyBg": "radial-gradient(circle at 85% 10%, rgba(230, 200, 212, 0.55) 0%, rgba(230, 200, 212, 0) 34%), linear-gradient(145deg, rgb(248, 250, 253) 0%, rgb(234, 240, 250) 55%, rgb(216, 227, 244) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "hasContent": true
+  },
+  {
+    "app": "customer",
+    "name": "support-ticket-detail",
+    "url": "http://localhost:5173/support/tickets",
+    "auth": true,
+    "openPanel": true,
+    "viewport": "1280",
+    "overflow": 0,
+    "headerBg": "radial-gradient(120% 200% at 98% -40%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 58%), linear-gradient(115deg, rgb(220, 231, 247) 0%, rgb(200, 216, 240) 62%, rgb(230, 200, 212) 100%)",
+    "sidebarBg": null,
+    "bodyBg": "radial-gradient(circle at 85% 10%, rgba(230, 200, 212, 0.55) 0%, rgba(230, 200, 212, 0) 34%), linear-gradient(145deg, rgb(248, 250, 253) 0%, rgb(234, 240, 250) 55%, rgb(216, 227, 244) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "hasContent": true
+  },
+  {
+    "app": "customer",
+    "name": "support-ticket-detail",
+    "url": "http://localhost:5173/support/tickets",
+    "auth": true,
+    "openPanel": true,
+    "viewport": "768",
+    "overflow": 0,
+    "headerBg": "radial-gradient(120% 200% at 98% -40%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 58%), linear-gradient(115deg, rgb(220, 231, 247) 0%, rgb(200, 216, 240) 62%, rgb(230, 200, 212) 100%)",
+    "sidebarBg": null,
+    "bodyBg": "radial-gradient(circle at 85% 10%, rgba(230, 200, 212, 0.55) 0%, rgba(230, 200, 212, 0) 34%), linear-gradient(145deg, rgb(248, 250, 253) 0%, rgb(234, 240, 250) 55%, rgb(216, 227, 244) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "hasContent": true
+  },
+  {
+    "app": "customer",
+    "name": "support-ticket-detail",
+    "url": "http://localhost:5173/support/tickets",
+    "auth": true,
+    "openPanel": true,
+    "viewport": "375",
+    "overflow": 0,
+    "headerBg": "radial-gradient(120% 200% at 98% -40%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 58%), linear-gradient(115deg, rgb(220, 231, 247) 0%, rgb(200, 216, 240) 62%, rgb(230, 200, 212) 100%)",
+    "sidebarBg": null,
+    "bodyBg": "radial-gradient(circle at 85% 10%, rgba(230, 200, 212, 0.55) 0%, rgba(230, 200, 212, 0) 34%), linear-gradient(145deg, rgb(248, 250, 253) 0%, rgb(234, 240, 250) 55%, rgb(216, 227, 244) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "hasContent": true
+  },
+  {
+    "app": "customer",
+    "name": "account-reviews",
+    "url": "http://localhost:5173/account/reviews",
+    "auth": true,
+    "viewport": "1280",
+    "overflow": 0,
+    "headerBg": "radial-gradient(120% 200% at 98% -40%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 58%), linear-gradient(115deg, rgb(220, 231, 247) 0%, rgb(200, 216, 240) 62%, rgb(230, 200, 212) 100%)",
+    "sidebarBg": null,
+    "bodyBg": "radial-gradient(circle at 85% 10%, rgba(230, 200, 212, 0.55) 0%, rgba(230, 200, 212, 0) 34%), linear-gradient(145deg, rgb(248, 250, 253) 0%, rgb(234, 240, 250) 55%, rgb(216, 227, 244) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "hasContent": true
+  },
+  {
+    "app": "customer",
+    "name": "account-reviews",
+    "url": "http://localhost:5173/account/reviews",
+    "auth": true,
+    "viewport": "768",
+    "overflow": 0,
+    "headerBg": "radial-gradient(120% 200% at 98% -40%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 58%), linear-gradient(115deg, rgb(220, 231, 247) 0%, rgb(200, 216, 240) 62%, rgb(230, 200, 212) 100%)",
+    "sidebarBg": null,
+    "bodyBg": "radial-gradient(circle at 85% 10%, rgba(230, 200, 212, 0.55) 0%, rgba(230, 200, 212, 0) 34%), linear-gradient(145deg, rgb(248, 250, 253) 0%, rgb(234, 240, 250) 55%, rgb(216, 227, 244) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "hasContent": true
+  },
+  {
+    "app": "customer",
+    "name": "account-reviews",
+    "url": "http://localhost:5173/account/reviews",
+    "auth": true,
+    "viewport": "375",
+    "overflow": 0,
+    "headerBg": "radial-gradient(120% 200% at 98% -40%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 58%), linear-gradient(115deg, rgb(220, 231, 247) 0%, rgb(200, 216, 240) 62%, rgb(230, 200, 212) 100%)",
+    "sidebarBg": null,
+    "bodyBg": "radial-gradient(circle at 85% 10%, rgba(230, 200, 212, 0.55) 0%, rgba(230, 200, 212, 0) 34%), linear-gradient(145deg, rgb(248, 250, 253) 0%, rgb(234, 240, 250) 55%, rgb(216, 227, 244) 100%)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "hasContent": true
+  },
+  {
+    "app": "admin",
+    "name": "products-table",
+    "url": "http://localhost:5174/admin/products",
+    "auth": true,
+    "viewport": "1280",
+    "overflow": 0,
+    "headerBg": "radial-gradient(120% 200% at 98% -40%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 58%), linear-gradient(115deg, rgb(220, 231, 247) 0%, rgb(200, 216, 240) 62%, rgb(230, 200, 212) 100%)",
+    "sidebarBg": "rgb(231, 238, 250)",
+    "bodyBg": "rgba(0, 0, 0, 0)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "hasContent": true
+  },
+  {
+    "app": "admin",
+    "name": "products-table",
+    "url": "http://localhost:5174/admin/products",
+    "auth": true,
+    "viewport": "768",
+    "overflow": 0,
+    "headerBg": "radial-gradient(120% 200% at 98% -40%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 58%), linear-gradient(115deg, rgb(220, 231, 247) 0%, rgb(200, 216, 240) 62%, rgb(230, 200, 212) 100%)",
+    "sidebarBg": "rgb(231, 238, 250)",
+    "bodyBg": "rgba(0, 0, 0, 0)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "hasContent": true
+  },
+  {
+    "app": "admin",
+    "name": "products-table",
+    "url": "http://localhost:5174/admin/products",
+    "auth": true,
+    "viewport": "375",
+    "overflow": 0,
+    "headerBg": "radial-gradient(120% 200% at 98% -40%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 58%), linear-gradient(115deg, rgb(220, 231, 247) 0%, rgb(200, 216, 240) 62%, rgb(230, 200, 212) 100%)",
+    "sidebarBg": "rgb(231, 238, 250)",
+    "bodyBg": "rgba(0, 0, 0, 0)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "hasContent": true
+  },
+  {
+    "app": "admin",
+    "name": "case-workbench",
+    "url": "http://localhost:5174/admin/cases",
+    "auth": true,
+    "viewport": "1280",
+    "overflow": 0,
+    "headerBg": "radial-gradient(120% 200% at 98% -40%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 58%), linear-gradient(115deg, rgb(220, 231, 247) 0%, rgb(200, 216, 240) 62%, rgb(230, 200, 212) 100%)",
+    "sidebarBg": "rgb(231, 238, 250)",
+    "bodyBg": "rgba(0, 0, 0, 0)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "hasContent": true
+  },
+  {
+    "app": "admin",
+    "name": "case-workbench",
+    "url": "http://localhost:5174/admin/cases",
+    "auth": true,
+    "viewport": "768",
+    "overflow": 0,
+    "headerBg": "radial-gradient(120% 200% at 98% -40%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 58%), linear-gradient(115deg, rgb(220, 231, 247) 0%, rgb(200, 216, 240) 62%, rgb(230, 200, 212) 100%)",
+    "sidebarBg": "rgb(231, 238, 250)",
+    "bodyBg": "rgba(0, 0, 0, 0)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "hasContent": true
+  },
+  {
+    "app": "admin",
+    "name": "case-workbench",
+    "url": "http://localhost:5174/admin/cases",
+    "auth": true,
+    "viewport": "375",
+    "overflow": 0,
+    "headerBg": "radial-gradient(120% 200% at 98% -40%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 58%), linear-gradient(115deg, rgb(220, 231, 247) 0%, rgb(200, 216, 240) 62%, rgb(230, 200, 212) 100%)",
+    "sidebarBg": "rgb(231, 238, 250)",
+    "bodyBg": "rgba(0, 0, 0, 0)",
+    "logoNaturalWidths": [
+      1254,
+      2048
+    ],
+    "hasContent": true
+  }
+]

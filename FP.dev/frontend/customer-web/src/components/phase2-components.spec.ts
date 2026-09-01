@@ -294,7 +294,9 @@ describe('StatusBadge borders map one semantic token per state', () => {
 
 describe('design tokens', () => {
   it('defines --color-info-border in the Light palette', () => {
-    expect(ruleBody(tokensCss, ':root')).toMatch(/--color-info-border:\s*var\(--cyan-200\)/)
+    // 只驗語意層存在並指向某個 primitive；primitive 名稱會隨品牌改版變動
+    // （v1.0 由 --cyan-200 改為 --teal-200），測試不該把它釘死。
+    expect(ruleBody(tokensCss, ':root')).toMatch(/--color-info-border:\s*var\(--[a-z0-9-]+\)/)
   })
 
   it('defines --color-info-border in the opt-in Dark block too', () => {
