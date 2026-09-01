@@ -145,32 +145,25 @@ describe('InventoryReservationsPage', () => {
    * on top of themselves, since the watcher only checked "is cursor.value set", not "have I
    * already loaded this page's items".
    */
-  it('does not duplicate rows when the current page refetches with the same items', async () => {
-    mockListReservations.mockResolvedValueOnce({
-      items: [reservation({ publicId: 'r1' })],
-      nextCursor: 'cursor-2',
-      hasMore: true,
-    })
-    const { wrapper, queryClient } = mountPage()
-    await flushPromises()
-
-    mockListReservations.mockResolvedValueOnce({
+  it('does not duplicate rows when a refetch replays the loaded pages with the same items', async () => {
+    // The infinite query refetches EVERY loaded page on invalidate, so the mock must answer by
+    // cursor instead of by call order.
+    const page1 = { items: [reservation({ publicId: 'r1' })], nextCursor: 'cursor-2', hasMore: true }
+    const page2 = {
       items: [reservation({ publicId: 'r2', order: { publicId: 'o2', orderNumber: 'ORD-2' } })],
       nextCursor: null,
       hasMore: false,
-    })
-    const loadMoreButton = wrapper.findAll('button').find((button) => button.text() === '載入更多')
-    await loadMoreButton!.trigger('click')
+    }
+    mockListReservations.mockImplementation(async ({ cursor }) => (cursor === 'cursor-2' ? page2 : page1))
+
+    const { wrapper, queryClient } = mountPage()
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text() === '載入更多')!.trigger('click')
     await flushPromises()
     expect(wrapper.findAll('tbody > tr').length).toBe(2)
 
-    // Simulate a background refetch of the *current* page (cursor unchanged) returning the same
-    // items again — not a new page, just TanStack Query re-running the same query.
-    mockListReservations.mockResolvedValueOnce({
-      items: [reservation({ publicId: 'r2', order: { publicId: 'o2', orderNumber: 'ORD-2' } })],
-      nextCursor: null,
-      hasMore: false,
-    })
+    // A background refetch (refocus/invalidate) replays both pages with unchanged content — the
+    // list must not grow.
     await queryClient.invalidateQueries()
     await flushPromises()
 
@@ -181,25 +174,22 @@ describe('InventoryReservationsPage', () => {
    * Status/RowVersion/expiry — the merge must upsert it, not drop it, or the admin keeps acting on
    * a stale RowVersion. */
   it('updates an already-loaded row in place when a refetch returns it with newer content', async () => {
-    mockListReservations.mockResolvedValueOnce({
-      items: [reservation({ publicId: 'r1' })],
-      nextCursor: 'cursor-2',
-      hasMore: true,
-    })
+    const page1 = { items: [reservation({ publicId: 'r1' })], nextCursor: 'cursor-2', hasMore: true }
+    let page2 = {
+      items: [reservation({ publicId: 'r2', order: { publicId: 'o2', orderNumber: 'ORD-2' } })],
+      nextCursor: null as string | null,
+      hasMore: false,
+    }
+    mockListReservations.mockImplementation(async ({ cursor }) => (cursor === 'cursor-2' ? page2 : page1))
+
     const { wrapper, queryClient } = mountPage()
     await flushPromises()
-
-    mockListReservations.mockResolvedValueOnce({
-      items: [reservation({ publicId: 'r2', order: { publicId: 'o2', orderNumber: 'ORD-2' } })],
-      nextCursor: null,
-      hasMore: false,
-    })
     await wrapper.findAll('button').find((button) => button.text() === '載入更多')!.trigger('click')
     await flushPromises()
     expect(wrapper.findAll('tbody > tr').length).toBe(2)
 
     // The same r2 comes back from a background refetch, but its status has moved on.
-    mockListReservations.mockResolvedValueOnce({
+    page2 = {
       items: [reservation({
         publicId: 'r2',
         order: { publicId: 'o2', orderNumber: 'ORD-2' },
@@ -209,7 +199,7 @@ describe('InventoryReservationsPage', () => {
       })],
       nextCursor: null,
       hasMore: false,
-    })
+    }
     await queryClient.invalidateQueries()
     await flushPromises()
 
@@ -220,6 +210,41 @@ describe('InventoryReservationsPage', () => {
     expect(r2Row.text()).toContain('Consumed')
     // And its stale release button is gone: availableActions came back empty.
     expect(r2Row.findAll('button').filter((button) => button.text() === '釋放')).toHaveLength(0)
+  })
+
+  /** 組長 PR #37 round-3 review (P2): a refresh must re-validate EVERY loaded page, not only the
+   * current cursor's. The old self-accumulated list only re-ran the latest page's query, so a
+   * page-1 row whose Status/RowVersion/expiry changed server-side stayed stale forever. */
+  it('refreshes previously loaded pages so an updated page-1 row does not stay stale', async () => {
+    let page1 = { items: [reservation({ publicId: 'r1' })], nextCursor: 'cursor-2' as string | null, hasMore: true }
+    const page2 = {
+      items: [reservation({ publicId: 'r2', order: { publicId: 'o2', orderNumber: 'ORD-2' } })],
+      nextCursor: null,
+      hasMore: false,
+    }
+    mockListReservations.mockImplementation(async ({ cursor }) => (cursor === 'cursor-2' ? page2 : page1))
+
+    const { wrapper, queryClient } = mountPage()
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text() === '載入更多')!.trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('tbody > tr').length).toBe(2)
+
+    // r1 is consumed on the server AFTER its page was loaded and the admin moved on to page 2 —
+    // a refresh of the current view must not keep offering to release it.
+    page1 = {
+      items: [reservation({ publicId: 'r1', status: 'Consumed', rowVersion: 'BBB=', availableActions: [] })],
+      nextCursor: 'cursor-2',
+      hasMore: true,
+    }
+    await queryClient.invalidateQueries()
+    await flushPromises()
+
+    const r1Row = wrapper.findAll('tbody > tr').find((row) => row.text().includes('ORD-1'))!
+    expect(r1Row.text()).toContain('Consumed')
+    expect(r1Row.findAll('button').filter((button) => button.text() === '釋放')).toHaveLength(0)
+    // And page 2 is still rendered — the refresh replayed the whole page list, not just page 1.
+    expect(wrapper.findAll('tbody > tr').length).toBe(2)
   })
 
   /** 組長 PR #37 round-2 review, item 3: changing the status filter while on page two must not

@@ -2,7 +2,7 @@
 /** A-12 (M功能桌面UI與Route規格.md): Cursor 保留佇列、二次確認、理由及人工釋放。 */
 import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { useInventoryReservationList, useReleaseReservation } from '../features/inventory/useInventory'
 import type { InventoryReservationDto } from '../features/inventory/types'
 import { describeApiError } from '../features/shared/errorMessages'
@@ -21,49 +21,50 @@ const RELEASE_REASON_CODE_OPTIONS = [
 ]
 
 // 組長 PR #37 round-2 review, item 3: the <select> binds to a draft; only 搜尋 copies it into the
-// applied status *and* clears the cursor in the same tick. Binding the query key straight to the
-// form meant changing status on page two fired "new status + old cursor", which the backend
-// rejects by contract (cursor is bound to its filters).
+// applied status. Binding the query key straight to the form meant changing status on page two
+// fired "new status + old cursor", which the backend rejects by contract (a cursor is bound to
+// the filters that issued it). The applied status is part of the query key, so submitting swaps
+// the key and the infinite query restarts from an empty first page — the old "clear the cursor
+// on search" is now implicit and can't be forgotten.
 const draftFilters = reactive({ status: '' })
 const appliedStatus = ref('')
-const cursor = ref<string | undefined>(undefined)
-const loadedItems = ref<InventoryReservationDto[]>([])
 
-const listParams = computed(() => ({ status: appliedStatus.value || undefined, cursor: cursor.value, pageSize: 20 }))
-const { data: page, isPending, isError, error, refetch } = useInventoryReservationList(listParams)
+// 組長 PR #37 round-3 review (P2): the page no longer accumulates cursor pages in its own ref —
+// that made TanStack Query observe only the *current* cursor, so refocus/invalidate refreshed the
+// latest page and left earlier pages stale. useInfiniteQuery keeps every loaded page under one
+// query key and refetches them ALL on invalidate (see useInventory.ts).
+const listParams = computed(() => ({ status: appliedStatus.value || undefined, pageSize: 20 }))
+const {
+  data,
+  isPending,
+  isError,
+  error,
+  refetch,
+  fetchNextPage,
+  hasNextPage,
+  isFetchingNextPage,
+} = useInventoryReservationList(listParams)
 
-// Cursor pagination accumulates: each successful fetch's items get merged in, so 載入更多 grows
-// the visible list instead of swapping pages, and a refetch of an already-loaded page (window
-// refocus, network reconnect, manual retry) doesn't duplicate rows. 組長 PR #37 round-2 review,
-// item 2: the merge must be an upsert, not a drop — a refetched row with the same publicId may
-// carry a newer Status, RowVersion, or expiry, and discarding it would leave the admin acting on
-// a stale RowVersion. Map preserves insertion order, so updating an existing key refreshes the
-// object without reordering the list; genuinely new items append at the end.
-watch(page, (value) => {
-  if (!value) {
-    return
+// Flatten the pages for rendering, still upserting by publicId (round-2 review, item 2): a full
+// refetch keeps pages internally consistent, but between a fetchNextPage and the pages fetched
+// before it a row can move across page boundaries — later pages are the fresher fetch, so the
+// last occurrence wins, and Map's insertion-order preservation keeps the list from reordering.
+const loadedItems = computed<InventoryReservationDto[]>(() => {
+  const byId = new Map<string, InventoryReservationDto>()
+  for (const pageData of data.value?.pages ?? []) {
+    for (const item of pageData.items) {
+      byId.set(item.publicId, item)
+    }
   }
-  if (!cursor.value) {
-    loadedItems.value = value.items
-    return
-  }
-  const byId = new Map(loadedItems.value.map((item) => [item.publicId, item]))
-  for (const item of value.items) {
-    byId.set(item.publicId, item)
-  }
-  loadedItems.value = [...byId.values()]
+  return [...byId.values()]
 })
 
 function search() {
   appliedStatus.value = draftFilters.status
-  cursor.value = undefined
-  loadedItems.value = []
 }
 
 function loadMore() {
-  if (page.value?.nextCursor) {
-    cursor.value = page.value.nextCursor
-  }
+  fetchNextPage()
 }
 
 const releaseMutation = useReleaseReservation()
@@ -89,9 +90,10 @@ function confirmRelease(reservation: InventoryReservationDto) {
     request: { reasonCode: releaseForm.reasonCode, note: releaseForm.note, rowVersion: reservation.rowVersion },
   }, {
     onSuccess: () => {
+      // useReleaseReservation invalidates the reservations query and the infinite query refetches
+      // every loaded page — the released row's fresh Status/RowVersion arrives without resetting
+      // the admin's place in the queue.
       releasingId.value = null
-      search()
-      refetch()
     },
   })
 }
@@ -248,12 +250,12 @@ function formatDateTime(value: string | null): string {
         </tbody>
       </table>
       <div
-        v-if="page?.hasMore"
+        v-if="hasNextPage"
         class="reservations-load-more"
       >
         <button
           type="button"
-          :disabled="isPending"
+          :disabled="isFetchingNextPage"
           @click="loadMore"
         >
           載入更多
