@@ -2,7 +2,7 @@
 /** A-17 (M功能桌面UI與Route規格.md): 100 筆虛構門市、搜尋、新增、修改與停用（UC-ADM-STORE-01）。 */
 import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import {
   useConvenienceStoreList,
   useCreateConvenienceStore,
@@ -46,6 +46,20 @@ const listParams = computed(() => ({
 }))
 const { data: result, isPending, isError, error, refetch } = useConvenienceStoreList(listParams)
 const totalPages = computed(() => Number(result.value?.totalPages ?? 0))
+
+/**
+ * 組長 PR #78 round-2 review item 3：在「只顯示啟用中」的最後一頁停用最後一筆，該頁就不存在了
+ * ——畫面停在空白頁，而 EmptyState 又把分頁控制一起藏掉，使用者沒有回到有效頁面的入口。
+ */
+watch([totalPages, result], () => {
+  if (!result.value) {
+    return
+  }
+  const lastPage = Math.max(1, totalPages.value)
+  if (pageNumber.value > lastPage) {
+    pageNumber.value = lastPage
+  }
+})
 
 function search() {
   appliedFilters.providerCode = draftFilters.providerCode

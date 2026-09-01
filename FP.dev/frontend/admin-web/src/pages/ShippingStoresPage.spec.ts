@@ -209,4 +209,38 @@ describe('ShippingStoresPage', () => {
 
     expect(wrapper.find('[role="alert"]').text()).toContain('已被其他人修改')
   })
+
+  /**
+   * 組長 PR #78 round-2 review item 3：在「只顯示啟用中」的最後一頁停用最後一筆，該頁就不存在了
+   * ——畫面停在空白頁，而 EmptyState 又把分頁控制藏掉，使用者沒有回到有效頁面的入口。
+   */
+  it('falls back to the last valid page when a deactivation empties the current one', async () => {
+    let totalPages = 2
+    mockList.mockImplementation(async ({ pageNumber }: { pageNumber: number }) => ({
+      items: pageNumber <= totalPages ? [store({ publicId: `s${pageNumber}` })] : [],
+      pageNumber,
+      pageSize: 20,
+      totalCount: totalPages,
+      totalPages,
+    }))
+    mockUpdate.mockImplementation(async () => {
+      totalPages = 1
+      return store({ isActive: false })
+    })
+    vi.spyOn(globalThis, 'confirm').mockReturnValue(true)
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.findAll('button').find((button) => button.text() === '下一頁')!.trigger('click')
+    await flushPromises()
+    expect((mockList.mock.calls.at(-1)![0] as { pageNumber: number }).pageNumber).toBe(2)
+
+    await wrapper.findAll('button').find((button) => button.text() === '停用')!.trigger('click')
+    await flushPromises()
+
+    await vi.waitFor(() => {
+      expect((mockList.mock.calls.at(-1)![0] as { pageNumber: number }).pageNumber).toBe(1)
+    })
+  })
 })

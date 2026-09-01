@@ -19,6 +19,14 @@ const canViewOperationalReports = computed(() => {
  * 與 router 的 requiredRoles 同一份清單（Coupon.Manage）。
  */
 const couponRoles = ['FinanceManager', 'MarketingAnalyst', 'SuperAdmin']
+// 與 router 的 requiredRoles 同一份清單（Shipping.Read／Shipping.Manage）。
+const shippingReadRoles = ['OrderManager', 'CatalogManager', 'SuperAdmin']
+const canViewShipping = computed(() =>
+  shippingReadRoles.some(role => auth.currentUser?.roles?.includes(role) ?? false))
+const shippingManageRoles = ['OrderManager', 'SuperAdmin']
+const canManageShipping = computed(() =>
+  shippingManageRoles.some(role => auth.currentUser?.roles?.includes(role) ?? false))
+
 const canManageCoupons = computed(() =>
   couponRoles.some(role => auth.currentUser?.roles?.includes(role) ?? false))
 const invoiceRoles = ['FinanceManager', 'SuperAdmin']
@@ -109,10 +117,22 @@ async function onLogout(): Promise<void> {
           <RouterLink to="/inventory">
             庫存管理
           </RouterLink>
-          <RouterLink to="/shipping/stores">
+          <!--
+            組長 PR #78 round-2 review item 2：兩個入口的角色不同——門市是 ShippingRead
+            （OrderManager／CatalogManager／SuperAdmin 都能看），包裹限制是 ShippingManage
+            （只有 OrderManager／SuperAdmin）。無條件顯示等於給 CatalogManager 一個點下去只會被
+            導到 /forbidden 的連結。Route guard 仍是真正的邊界，這裡只是不給無意義的入口。
+          -->
+          <RouterLink
+            v-if="canViewShipping"
+            to="/shipping/stores"
+          >
             示範超商門市
           </RouterLink>
-          <RouterLink to="/shipping/package-limits">
+          <RouterLink
+            v-if="canManageShipping"
+            to="/shipping/package-limits"
+          >
             包裹限制版本
           </RouterLink>
           <RouterLink to="/inventory/reservations">

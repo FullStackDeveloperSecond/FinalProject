@@ -242,4 +242,80 @@ describe('ShippingPackageLimitsPage', () => {
 
     expect(wrapper.find('[role="alert"]').text()).toContain('生效期間重疊')
   })
+
+  /**
+   * 組長 PR #78 round-2 review item 1：切換物流商時不可以沿用上一個物流商的清單。若沿用，那段期間
+   * 按下發布送出的會是「舊 provider 的版本 PublicId／RowVersion ＋ 新的 providerCode」。
+   */
+  it('does not show the previous provider list while the new one is loading', async () => {
+    const storePickupVersion = version({ publicId: 'sp-1', version: 7, providerCode: 'StorePickup' })
+    let releaseHomeDelivery!: (value: unknown) => void
+    mockList.mockImplementation(async (providerCode: string) => {
+      if (providerCode === 'StorePickup') {
+        return [storePickupVersion]
+      }
+      return new Promise((resolve) => { releaseHomeDelivery = resolve })
+    })
+
+    const wrapper = mountPage()
+    await flushPromises()
+    expect(wrapper.text()).toContain('7')
+
+    await wrapper.find('select[aria-label="物流服務"]').setValue('HomeDelivery')
+    await flushPromises()
+
+    // 新 provider 的請求還沒回來：不可以還顯示著上一個 provider 的版本列。
+    expect(wrapper.findAll('tbody > tr')).toHaveLength(0)
+    expect(wrapper.text()).toContain('版本載入中')
+
+    releaseHomeDelivery([version({ publicId: 'hd-1', version: 1, providerCode: 'HomeDelivery' })])
+    await flushPromises()
+    expect(wrapper.findAll('tbody > tr')).toHaveLength(1)
+  })
+
+  /** 防禦性核對：發布一律使用該版本自己的 providerCode，不用下拉選單的目前值。 */
+  it('publishes with the version own providerCode', async () => {
+    mockList.mockResolvedValue([
+      version({ publicId: 'sp-2', version: 2, status: 'Draft', providerCode: 'StorePickup', rowVersion: 'BBB=' }),
+    ])
+    mockPublish.mockResolvedValue(version({ status: 'Published' }))
+    vi.spyOn(globalThis, 'confirm').mockReturnValue(true)
+
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text() === '發布')!.trigger('click')
+    await flushPromises()
+
+    expect(mockPublish).toHaveBeenCalledWith('StorePickup', 'sp-2', { rowVersion: 'BBB=' })
+  })
+
+  /**
+   * 組長 PR #78 round-2 review item 4：舊版直接讀 `Date.now()`，頁面一直開著跨過生效或截止時間
+   * 時不會重新 render，「目前生效」徽章會停在過時的答案。
+   */
+  it('refreshes the effective badge when the window boundary passes', async () => {
+    vi.useFakeTimers()
+    try {
+      const now = Date.now()
+      const startsIn = new Date(now + 90_000).toISOString()
+      mockList.mockResolvedValue([
+        version({ publicId: 'v1', version: 1, status: 'Published', effectiveFromUtc: startsIn, effectiveToUtc: null }),
+      ])
+
+      const wrapper = mountPage()
+      await flushPromises()
+
+      // 還沒到生效時間。
+      expect(wrapper.text()).not.toContain('目前生效')
+
+      // 時間走過生效時刻後，徽章必須自己出現，不需要重新整理頁面。
+      await vi.advanceTimersByTimeAsync(120_000)
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('目前生效')
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
 })

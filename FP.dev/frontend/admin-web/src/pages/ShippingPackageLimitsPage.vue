@@ -2,7 +2,7 @@
 /** A-18 (M功能桌面UI與Route規格.md): 超商／宅配限制版本、草稿、排程發布及歷史（UC-ADM-SHIP-01）。 */
 import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import {
   useCreatePackageLimitVersion,
   usePackageLimitVersionList,
@@ -130,6 +130,12 @@ function submitCreate() {
  * 但接班關係是既成事實），且立刻影響所有購物車的超取資格計算，所以要二次確認。
  */
 function confirmPublish(version: PackageLimitVersionDto) {
+  // 防禦性核對（組長 PR #78 round-2 review item 1）：即使畫面因為任何原因顯示了別的 provider 的
+  // 版本，也絕不會用「這個版本的 PublicId ＋ 目前下拉選單的 providerCode」送出。
+  if (version.providerCode !== providerCode.value) {
+    return
+  }
+
   const takesEffect = version.effectiveFromUtc
     ? new Date(version.effectiveFromUtc).toLocaleString('zh-Hant-TW')
     : '立即'
@@ -137,7 +143,7 @@ function confirmPublish(version: PackageLimitVersionDto) {
     return
   }
   publishMutation.mutate({
-    providerCode: providerCode.value,
+    providerCode: version.providerCode,
     versionPublicId: version.publicId,
     rowVersion: version.rowVersion,
   })
@@ -156,13 +162,33 @@ function formatDateTime(value: string | null | undefined): string {
   return value ? new Date(value).toLocaleString('zh-Hant-TW') : '—'
 }
 
+/**
+ * 組長 PR #78 round-2 review item 4：舊版直接讀 `Date.now()`，那是個非響應式的值——頁面一直開著
+ * 跨過生效或截止時間時不會重新 render，「目前生效」徽章會停在過時的答案。改成由一個每分鐘前進的
+ * ref 驅動；包裹限制的時間邊界以分鐘計就足夠，不需要每秒重繪整張表。
+ */
+const nowMs = ref(Date.now())
+let nowTimer: ReturnType<typeof setInterval> | undefined
+
+onMounted(() => {
+  nowTimer = setInterval(() => {
+    nowMs.value = Date.now()
+  }, 60_000)
+})
+
+onUnmounted(() => {
+  if (nowTimer !== undefined) {
+    clearInterval(nowTimer)
+  }
+})
+
 /** 目前這一刻真正生效的版本：不是 Draft，且落在自己的 [From, To) 窗內（組長 PR #73 裁定 B1——
  * 可用性看時間窗，不看 Published 這個狀態字，Superseded 在 cutoff 前仍然有效）。 */
 function isEffectiveNow(version: PackageLimitVersionDto): boolean {
   if (version.status === 'Draft') {
     return false
   }
-  const now = Date.now()
+  const now = nowMs.value
   const from = version.effectiveFromUtc ? new Date(version.effectiveFromUtc).getTime() : Number.NEGATIVE_INFINITY
   const to = version.effectiveToUtc ? new Date(version.effectiveToUtc).getTime() : Number.POSITIVE_INFINITY
   return from <= now && now < to

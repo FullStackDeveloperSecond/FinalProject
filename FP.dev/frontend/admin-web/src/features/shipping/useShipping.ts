@@ -40,11 +40,18 @@ export function useUpdateConvenienceStore() {
   })
 }
 
+/**
+ * 組長 PR #78 round-2 review item 1：query key 含 provider 沒錯，但 `placeholderData` 會在切換
+ * 物流商時把「上一個物流商的版本清單」暫時顯示出來——那段期間按下發布，送出的會是「舊 provider
+ * 的版本 PublicId／RowVersion ＋ 新的 providerCode」，是一個根本不存在的組合。
+ *
+ * 跨 provider 不沿用 placeholder：切換時就顯示載入中。這裡刻意不寫 `placeholderData`，讓
+ * `isPending` 在換 key 時為 true。
+ */
 export function usePackageLimitVersionList(providerCode: MaybeRefOrGetter<string>) {
   return useQuery({
     queryKey: computed(() => ['shipping', 'package-limits', toValue(providerCode)] as const),
     queryFn: () => listPackageLimitVersions(toValue(providerCode)),
-    placeholderData: (previous) => previous,
   })
 }
 
