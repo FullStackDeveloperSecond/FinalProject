@@ -1,10 +1,22 @@
 [CmdletBinding()]
 param(
-    [string] $JourneyTitle = 'a public shopper can use AI search safely when the provider is disabled'
+    [ValidateSet('customer-chromium', 'admin-chromium')]
+    [string] $Project = 'customer-chromium',
+
+    [string] $JourneyTitle
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+if ([string]::IsNullOrWhiteSpace($JourneyTitle)) {
+    $JourneyTitle = if ($Project -eq 'admin-chromium') {
+        'a seeded administrator can enroll TOTP, reject a wrong code, and sign in again'
+    }
+    else {
+        'a public shopper can use AI search safely when the provider is disabled'
+    }
+}
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $apiProject = Join-Path $projectRoot 'src\backend\DoSelect.Api'
@@ -126,9 +138,9 @@ try {
 
     Push-Location $customerWeb
     try {
-        & npm run test:e2e -- --project customer-chromium --grep $JourneyTitle
+        & npm run test:e2e -- --project $Project --grep $JourneyTitle
         if ($LASTEXITCODE -ne 0) {
-            throw "Customer E2E journey '$JourneyTitle' failed."
+            throw "E2E journey '$JourneyTitle' in project '$Project' failed."
         }
     }
     finally {

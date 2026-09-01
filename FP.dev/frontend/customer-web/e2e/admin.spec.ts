@@ -1,4 +1,94 @@
+import { createHmac } from 'node:crypto'
 import { expect, test } from './fixtures.js'
+
+const base32Alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+
+function decodeBase32(value: string): Buffer {
+  const normalized = value.toUpperCase().replace(/[=\s-]/g, '')
+  let bits = 0
+  let buffer = 0
+  const bytes: number[] = []
+
+  for (const character of normalized) {
+    const index = base32Alphabet.indexOf(character)
+    if (index < 0) {
+      throw new Error('The TOTP enrollment secret contains an invalid Base32 character.')
+    }
+
+    buffer = (buffer << 5) | index
+    bits += 5
+    if (bits >= 8) {
+      bits -= 8
+      bytes.push((buffer >>> bits) & 0xff)
+    }
+  }
+
+  return Buffer.from(bytes)
+}
+
+function currentTotp(secret: string): string {
+  const counter = Buffer.alloc(8)
+  counter.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30_000)))
+  const digest = createHmac('sha1', decodeBase32(secret)).update(counter).digest()
+  const offset = digest[digest.length - 1]! & 0x0f
+  const binary = digest.readUInt32BE(offset) & 0x7fffffff
+  return (binary % 1_000_000).toString().padStart(6, '0')
+}
+
+function differentTotp(validCode: string): string {
+  return ((Number(validCode) + 1) % 1_000_000).toString().padStart(6, '0')
+}
+
+test('a seeded administrator can enroll TOTP, reject a wrong code, and sign in again', async ({
+  page,
+  seed,
+}) => {
+  if (!seed.adminPassword) {
+    throw new Error('Seed__AdminPassword is required for an administrator E2E journey.')
+  }
+
+  await page.goto('./')
+  await page.getByRole('textbox', { name: '電子郵件' }).fill(seed.adminEmail)
+  await page.getByLabel('密碼').fill(seed.adminPassword)
+  await page.getByRole('button', { name: '登入' }).click()
+
+  await expect(page).toHaveURL((url) => url.pathname === '/admin/login/enroll')
+  await expect(page.getByRole('heading', { level: 1, name: '綁定兩步驟驗證' })).toBeVisible()
+  const secret = (await page.locator('.totp-secret code').textContent())?.trim()
+  expect(secret, 'The enrollment page must expose a manual TOTP secret for the operator').toBeTruthy()
+
+  await page.getByLabel('請輸入 App 顯示的 6 位數驗證碼以確認綁定')
+    .fill(currentTotp(secret!))
+  await page.getByRole('button', { name: '確認綁定' }).click()
+
+  await expect(page.getByRole('heading', { level: 1, name: '請保存您的備援碼' })).toBeVisible()
+  await page.getByRole('checkbox', { name: '我已抄下並妥善保存這些備援碼' }).check()
+  await page.getByRole('button', { name: '完成，進入後台' }).click()
+
+  await expect(page).toHaveURL(/\/admin\/$/)
+  await expect(page.getByRole('heading', { level: 1, name: '管理後台基礎環境已就緒' })).toBeVisible()
+  await expect(page.getByText('DoSelect 開發管理員', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '登出' }).click()
+
+  await expect(page).toHaveURL(/\/admin\/login$/)
+  await page.getByRole('textbox', { name: '電子郵件' }).fill(seed.adminEmail)
+  await page.getByLabel('密碼').fill(seed.adminPassword)
+  await page.getByRole('button', { name: '登入' }).click()
+
+  await expect(page).toHaveURL(/\/admin\/login\/verify$/)
+  const validCode = currentTotp(secret!)
+  await page.getByLabel('驗證碼').fill(differentTotp(validCode))
+  await page.getByRole('button', { name: '驗證', exact: true }).click()
+  await expect(page.getByRole('alert')).toHaveText('驗證碼不正確，請重新輸入。')
+
+  await page.getByLabel('驗證碼').fill(currentTotp(secret!))
+  await page.getByRole('button', { name: '驗證', exact: true }).click()
+  await expect(page).toHaveURL(/\/admin\/$/)
+  await expect(page.getByText('DoSelect 開發管理員', { exact: true })).toBeVisible()
+
+  await page.getByRole('button', { name: '登出' }).click()
+  await expect(page).toHaveURL(/\/admin\/login$/)
+})
 
 test('an anonymous administrator is routed to the login page', async ({ page }) => {
   await page.goto('./')
