@@ -1,5 +1,25 @@
 import { expect, test } from './fixtures.js'
 
+test('a seeded member can sign in, open a protected profile, and sign out', async ({
+  page,
+  loginAsMember,
+}) => {
+  await loginAsMember()
+
+  await expect(page.getByText('DoSelect 測試會員', { exact: true })).toBeVisible()
+  await page.goto('/account')
+  await expect(page.getByRole('heading', { level: 1, name: '會員資料' })).toBeVisible()
+  await expect(page.getByRole('definition').filter({ hasText: 'DoSelect 測試會員' })).toBeVisible()
+
+  await page.getByRole('button', { name: '登出' }).click()
+  await expect(page).toHaveURL(/\/$/)
+  await expect(page.getByRole('link', { name: '登入／註冊' })).toBeVisible()
+
+  await page.goto('/account')
+  await expect(page).toHaveURL((url) =>
+    url.pathname === '/login' && url.searchParams.get('redirect') === '/account')
+})
+
 test('a shopper can open the seeded catalog and view product details', async ({ page, api, seed }) => {
   const productResponse = await api.get(`/api/v1/products/${seed.productPublicId}`)
   expect(productResponse.ok(), 'The deterministic catalog seed must exist').toBe(true)
