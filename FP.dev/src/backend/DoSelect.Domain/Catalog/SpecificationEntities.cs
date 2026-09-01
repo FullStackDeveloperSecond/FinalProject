@@ -203,6 +203,37 @@ public sealed class SpecificationDefinition : MutablePublicEntity
     public bool AllowsMultiple { get; private set; }
     public bool IsActive { get; private set; }
     public int SortOrder { get; private set; }
+
+    /// <summary>
+    /// 資料字典-商品庫存與組裝：「Definition 被使用後 SemanticKey、ValueType、Category、Unit 與
+    /// AllowsMultiple 不可改」。API Endpoint 目錄把這條寫成「Semantic Key／型別受保護」——結構欄位
+    /// 完全不開放編輯，因此這裡只更新展示與排序類欄位；要換型別就是新增一個定義並停用舊的。
+    /// </summary>
+    public void UpdateDetails(string displayNameZhTw, bool isRequired, int sortOrder, DateTime updatedAtUtc)
+    {
+        DisplayNameZhTw = RequireText(displayNameZhTw, nameof(displayNameZhTw));
+        IsRequired = isRequired;
+        SortOrder = sortOrder;
+        MarkUpdated(updatedAtUtc);
+    }
+
+    /// <summary>以停用代替刪除（資料字典同條）。受保護的定義由呼叫端擋下，本方法不查其他資料。</summary>
+    public void SetActive(bool isActive, DateTime updatedAtUtc)
+    {
+        IsActive = isActive;
+        MarkUpdated(updatedAtUtc);
+    }
+
+    /// <summary>
+    /// 標記這個定義是固定相容性引擎依賴的受保護組合（<see cref="CompatibilityCatalogContract"/>
+    /// 的 Category／SemanticKey 目錄）。受保護與否由程式碼目錄決定，不是管理員可填的欄位，所以只
+    /// 在建立當下由服務層依目錄設定。
+    /// </summary>
+    public void MarkProtected(DateTime updatedAtUtc)
+    {
+        IsProtected = true;
+        MarkUpdated(updatedAtUtc);
+    }
 }
 
 public sealed class SpecificationOption : MutablePublicEntity
@@ -232,6 +263,21 @@ public sealed class SpecificationOption : MutablePublicEntity
     public string DisplayNameZhTw { get; private set; } = string.Empty;
     public bool IsActive { get; private set; }
     public int SortOrder { get; private set; }
+
+    /// <summary>資料字典：「被使用後不可刪除或改 Code」——Code 完全不開放編輯，只改展示與排序。</summary>
+    public void UpdateDetails(string displayNameZhTw, int sortOrder, DateTime updatedAtUtc)
+    {
+        DisplayNameZhTw = RequireText(displayNameZhTw, nameof(displayNameZhTw));
+        SortOrder = sortOrder;
+        MarkUpdated(updatedAtUtc);
+    }
+
+    /// <summary>選項同樣以停用代替刪除。</summary>
+    public void SetActive(bool isActive, DateTime updatedAtUtc)
+    {
+        IsActive = isActive;
+        MarkUpdated(updatedAtUtc);
+    }
 }
 
 public sealed class SpecificationSource : MutablePublicEntity

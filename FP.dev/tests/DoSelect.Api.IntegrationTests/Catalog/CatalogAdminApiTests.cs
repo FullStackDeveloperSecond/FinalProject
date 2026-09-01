@@ -1232,12 +1232,16 @@ public sealed class CatalogAdminAuthorizationTests
             { "PUT", "/api/v1/admin/products/00000000-0000-0000-0000-000000000001" },
             { "POST", "/api/v1/admin/products/00000000-0000-0000-0000-000000000001/skus" },
             { "PUT", "/api/v1/admin/skus/00000000-0000-0000-0000-000000000001" },
+            { "POST", "/api/v1/admin/specification-definitions" },
+            { "PUT", "/api/v1/admin/specification-definitions/00000000-0000-0000-0000-000000000001" },
+            { "POST", "/api/v1/admin/specification-definitions/00000000-0000-0000-0000-000000000001/actions/disable" },
         };
     [Theory]
     [InlineData("/api/v1/admin/brands")]
     [InlineData("/api/v1/admin/categories")]
     [InlineData("/api/v1/admin/tags")]
     [InlineData("/api/v1/admin/products")]
+    [InlineData("/api/v1/admin/specification-definitions")]
     public async Task Anonymous_List_Returns401(string path)
     {
         using var client = _fixture.CreateClient();
