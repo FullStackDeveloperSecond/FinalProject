@@ -1,5 +1,57 @@
 import { expect, test } from './fixtures.js'
 
+// UC-AUTH-02: real login/logout against the seeded member account. Email verification and
+// forgot/reset password (UC-AUTH-01, UC-AUTH-03) are not covered here — as of this branch, an
+// externally-driven Browser E2E process has no way to recover the verification/reset token (the
+// non-prod EmailSender discards the message body entirely, and the token itself is never stored
+// server-side); see WP-H02 log for the open question raised with alex about adding an E2E-only
+// capture endpoint.
+test('a member can log in with the seeded account and log out', async ({ page, loginAsMember }) => {
+  await loginAsMember()
+
+  const logoutButton = page.getByRole('button', { name: '登出' })
+  await expect(logoutButton).toBeVisible()
+
+  await logoutButton.click()
+  await expect(page.getByRole('link', { name: '登入／註冊' })).toBeVisible()
+})
+
+// UC-AUTH-02: five wrong passwords must lock the account for 15 minutes, and the lockout must
+// block even the *correct* password on the next attempt (Identity checks lockout before verifying
+// the password — see MemberLoginGateway.ValidateCredentialsAsync). Using a throwaway
+// self-registered account (rather than the shared seeded member) keeps this from locking an
+// account other tests rely on; lockout applies before the email-verification check runs, so the
+// account never needs to be verified for this scenario.
+test('five wrong passwords lock a member account, blocking even the correct password', async ({ page }) => {
+  const email = `e2e-lockout-${Date.now()}@example.test`
+  const correctPassword = 'CorrectHorseBattery9!'
+  const wrongPassword = 'DefinitelyWrongPassword9!'
+  const invalidCredentialsMessage = page.getByText('Email 或密碼錯誤，請再試一次。')
+
+  await page.goto('/register')
+  await page.getByLabel('電子郵件').fill(email)
+  await page.getByLabel('密碼', { exact: true }).fill(correctPassword)
+  await page.getByLabel('確認密碼').fill(correctPassword)
+  await page.getByLabel('姓名').fill('E2E Lockout Member')
+  await page.getByLabel('我同意服務條款與隱私權政策').check()
+  await page.getByRole('button', { name: '立即註冊' }).click()
+  await expect(page.getByRole('heading', { name: '請完成 Email 驗證' })).toBeVisible()
+
+  await page.goto('/login')
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await page.getByRole('textbox', { name: '電子郵件' }).fill(email)
+    await page.getByRole('textbox', { name: '密碼', exact: true }).fill(wrongPassword)
+    await page.getByRole('button', { name: '登入' }).click()
+    await expect(invalidCredentialsMessage).toBeVisible()
+  }
+
+  await page.getByRole('textbox', { name: '電子郵件' }).fill(email)
+  await page.getByRole('textbox', { name: '密碼', exact: true }).fill(correctPassword)
+  await page.getByRole('button', { name: '登入' }).click()
+  await expect(invalidCredentialsMessage).toBeVisible()
+  await expect(page).toHaveURL(/\/login$/)
+})
+
 test('a shopper can open the seeded catalog and view product details', async ({ page, api, seed }) => {
   const productResponse = await api.get(`/api/v1/products/${seed.productPublicId}`)
   expect(productResponse.ok(), 'The deterministic catalog seed must exist').toBe(true)

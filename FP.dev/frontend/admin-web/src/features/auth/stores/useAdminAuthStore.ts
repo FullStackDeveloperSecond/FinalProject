@@ -268,7 +268,16 @@ export const useAdminAuthStore = defineStore('adminAuth', {
         })
         if (data) {
           this.session = { isAuthenticated: true, user: data.user, expiresAtUtc: data.expiresAtUtc, requiresTwoFactor: null }
-          this.rebindChallengePublicId = null
+          // ⚠ 修正 race condition（真實 Browser E2E 發現）：這裡原本也會把
+          // rebindChallengePublicId 設回 null，跟 TotpRebindPage.vue 那個「challenge 過期／
+          // 限流而失效」用的 watch(() => auth.rebindChallengePublicId, ...) 共用同一個訊號——
+          // 該 watcher 的排程時機可能搶在下面 onConfirm 把 recoveryCodes.value 設好之前先跑，
+          // 誤判成「失效」並呼叫 resetToStepUp()，把 started 設回 false。v-if="!started" 在樣板
+          // 裡排在 v-else-if="recoveryCodes" 之前，一旦 started 變回 false，即使 recoveryCodes
+          // 稍後才被設定也永遠顯示不出來——後端其實已經 200 成功、發出新備援碼、撤銷了其他裝置的
+          // Session，畫面卻誤退回起始表單，使用者以為失敗了。不在這裡清空即可讓 watcher 不被
+          // 誤觸發：這組 challengePublicId 已經在後端被消耗，就算沒清也不能重放；使用者離開這頁
+          // 或重整都會讓元件重新掛載、所有 ref 回到初始值，不會留下懸置狀態。
           // 完成後這個請求所在的 Session 會用新的 SecurityStamp 重新簽發，
           // 其他既有裝置的 Session 全部失效。保守起見一併重抓 antiforgery token。
           resetAntiforgeryToken()

@@ -137,6 +137,27 @@ describe('useAdminAuthStore', () => {
       expect(auth.rebindChallengePublicId).toBe('rebind-challenge-1')
       expect(auth.errorMessage).toBe('無法連線到伺服器。')
     })
+
+    // 真實 Browser E2E 發現的 race condition：這裡原本會在成功時也把 rebindChallengePublicId
+    // 設回 null，跟 TotpRebindPage.vue 的 watch(() => auth.rebindChallengePublicId, ...) 共用同一個
+    // 訊號——該 watcher是為了「challenge 過期／限流而失效」設計的，成功時被誤觸發，可能搶在
+    // recoveryCodes.value 被設定前就把畫面重設回起始的 step-up 表單，即使後端其實已經 200 成功
+    // 也顯示不出新備援碼。修法是成功分支不再清空 rebindChallengePublicId（challenge 已在後端被
+    // 消耗，留著不會被重放），這裡鎖住這個行為避免回歸。
+    it('completes the rebind and keeps rebindChallengePublicId set on success (avoids the reset-to-step-up race)', async () => {
+      const auth = useAdminAuthStore()
+      auth.rebindChallengePublicId = 'rebind-challenge-1'
+      const user = { publicId: 'u1', displayName: 'Admin', emailMasked: 'a***@example.com', emailVerified: true, locale: 'zh-TW', roles: ['SuperAdmin'] }
+      const recoveryCodes = ['AAAAA-11111', 'BBBBB-22222']
+      mockPost.mockResolvedValueOnce({ data: { recoveryCodes, user, expiresAtUtc: '2026-01-01T00:00:00Z' } })
+
+      const result = await auth.confirmRebind('123456')
+
+      expect(result).toEqual(recoveryCodes)
+      expect(auth.rebindChallengePublicId).toBe('rebind-challenge-1')
+      expect(auth.session?.isAuthenticated).toBe(true)
+      expect(mockResetAntiforgeryToken).toHaveBeenCalled()
+    })
   })
 
   describe('beginRebind', () => {
