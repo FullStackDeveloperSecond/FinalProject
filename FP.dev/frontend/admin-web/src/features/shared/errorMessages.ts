@@ -22,6 +22,10 @@ const codeMessages: Record<string, string> = {
   // 管理員的 activate 只接受 Draft 或符合條件的 Paused：Scheduled 由排程喚醒、
   // Exhausted 由名額返還，兩者都是系統事件（狀態機設計「優惠券狀態」）。
   coupon_state_conflict: '優惠券目前狀態不允許這個操作',
+  refund_state_conflict: '退款目前狀態已變更，請重新整理後再試',
+  refund_amount_exceeded: '退款金額超過目前可退款餘額',
+  refund_snapshot_unavailable: '缺少可信交易快照，不能執行退款',
+  idempotency_payload_conflict: '同一重試識別已用於不同內容，請重新整理後再試',
 }
 
 export function describeApiError(error: ApiError): string {

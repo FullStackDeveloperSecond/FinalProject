@@ -1,7 +1,7 @@
 ---
 文件狀態: 持續更新
-最後更新: 2026-08-31
-基準分支: dev@798f56c1
+最後更新: 2026-09-01
+基準分支: dev@e77edfbb（另含 dev-decisions 未提交 WP-05 證據）
 ---
 
 # M 功能實作矩陣
@@ -33,7 +33,7 @@
 | M-10 庫存保留與逾時取消 | ✅ | 🟡 | 🟡 | ✅ | ⬜ | 🔵 | PR #52 已合併 Checkout 成功保留與缺貨整體回滾 SQL 證據；PR #36 已合併庫存保留／異動／盤點後台 API，堆疊前端 PR #37 尚未合併，最後一件商品並行競爭與逾時釋放仍缺。 |
 | M-11 物流與批次出貨 | ✅ | ⬜ | ⬜ | ✅ | ⬜ | 🔵 | PR #52 已將宅配／超取、Provider、包裹限制、運費／免運與訂單物流快照 SQL 證據合併至 `dev`；獨立 Application／API／UI／出貨流程仍未完成。 |
 | M-12 單項退貨 | ✅ | ✅ | ✅ | ✅ | ⬜ | ✅ | PR #42 已交付退貨申請、審核、寄回、收件、檢查、退款交接與前後台；PR #53 修復可信退款輸入及 CI Gate。仍缺完整瀏覽器 E2E。 |
-| M-13 部分退款 | ✅ | 🟡 | ⬜ | 🟡 | ⬜ | 🔵 | DES-21 可信快照、退款折讓與中央 Audit 基礎已合併；退款執行 PR #16 已轉 Ready 且靜態 review 通過，但目前與最新 `dev` 衝突，尚待整合後針對 exact head 完成 SQL Server Provider-backed 驗證。A-21／A-22 後台退款頁面與完整 E2E 仍缺。 |
+| M-13 部分退款 | ✅ | 🔵 | ⬜ | ✅ | ⬜ | 🔵 | 退款 execute、可信七類分攤、中央冪等／Audit 與 SQL Server 證據已進 `dev`。`dev-decisions` 的 WP-05 已完成清單／明細 API、A-21/A-22、OpenAPI／Typed Client、API 26/26、SQL 1/1 與 Vue／router/build 證據，但尚未 commit／push，因此本列尚不把 API／前端標成完整已進 `dev`；完整 E2E 仍缺。 |
 | M-14 客服案件與 SLA | ✅ | ✅ | ✅ | ✅ | ⬜ | ✅ | PR #10 已交付客服前後台、SLA 與 SQL 證據；PR #51 已完成主管 Action、Internal Note、Reopen SLA、案件工作台、Actor Scope、衝突刷新與中央 Audit。仍缺完整顧客→客服瀏覽器 E2E。 |
 | M-15 營運報表 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | PR #66 已合併七個報表 Query、一般／財務 Policy、CSV／XLSX、A-27 UI、SQL Provider-backed 與 INT-04 對帳證據；已有代表性後台 Playwright 旅程，但未逐一涵蓋七個 Report Key。固定 10,000 筆資料下的 P95 仍待 DATA-06～08／效能 Gate。 |
 | M-16 自由組裝電腦 | ✅ | ✅ | ✅ | ✅ | ⬜ | ✅ | PR #34 已交付組裝清單、分享、整套加入購物車與 SQL Server 證據；PR #35 已交付前端並合併 `dev`。完整瀏覽器旅程仍缺。 |

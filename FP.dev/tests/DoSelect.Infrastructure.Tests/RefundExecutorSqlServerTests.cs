@@ -190,6 +190,34 @@ public sealed class RefundExecutorSqlServerTests
     private static readonly DateTime NowUtc = new(2026, 8, 27, 12, 0, 0, DateTimeKind.Utc);
 
     [RefundExecutorSqlFact]
+    public async Task RefundListFiltersAndReturnsTheCompleteDetailWithoutInternalIds()
+    {
+        await using var context = RefundExecutorSqlFixture.CreateContext();
+        var refund = await SeedRefundAsync(context);
+        await CreateExecutor(context).ExecuteAsync(Request(refund));
+
+        await using var queryContext = RefundExecutorSqlFixture.CreateContext();
+        var result = await new RefundReader(queryContext).ListAsync(new AdminRefundQuery(
+            [RefundStatus.Succeeded],
+            NowUtc.AddDays(-7),
+            NowUtc.AddDays(1),
+            refund.RefundNumber,
+            PageNumber: 1,
+            PageSize: 20));
+
+        var item = Assert.Single(result.Items);
+        Assert.Equal(refund.PublicId, item.PublicId);
+        Assert.Equal(RefundStatus.Succeeded, item.Status);
+        Assert.NotEmpty(item.Allocations);
+        Assert.NotNull(item.RequestedBy);
+        Assert.NotNull(item.ApprovedBy);
+        Assert.NotNull(item.ExecutedBy);
+        Assert.DoesNotContain(RefundExecutorSqlFixture.AdminUserId, item.ExecutedBy!.MaskedLabel);
+        Assert.Equal(DateTimeKind.Utc, item.CreatedAtUtc.Kind);
+        Assert.Equal(DateTimeKind.Utc, item.SucceededAtUtc!.Value.Kind);
+    }
+
+    [RefundExecutorSqlFact]
     public async Task AnApprovedRefundWithACompleteSnapshotSettlesAndWritesAllocations()
     {
         await using var context = RefundExecutorSqlFixture.CreateContext();

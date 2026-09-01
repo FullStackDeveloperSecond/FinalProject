@@ -1,0 +1,120 @@
+import { flushPromises, mount } from '@vue/test-utils'
+import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
+import { createMemoryHistory, createRouter } from 'vue-router'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const mockListRefunds = vi.fn()
+const mockGetRefund = vi.fn()
+const mockExecuteRefund = vi.fn()
+
+vi.mock('../../features/refunds/api', () => ({
+  listRefunds: mockListRefunds,
+  getRefund: mockGetRefund,
+  executeRefund: mockExecuteRefund,
+}))
+
+const { default: AdminRefundDetailPage } = await import('./AdminRefundDetailPage.vue')
+
+const refundId = '018f2e6a-0000-7000-8000-000000000050'
+
+function refund(overrides: Record<string, unknown> = {}) {
+  return {
+    publicId: refundId,
+    refundNumber: 'RF-202609-000001',
+    orderPublicId: '018f2e6a-0000-7000-8000-000000000030',
+    returnPublicId: '018f2e6a-0000-7000-8000-000000000040',
+    status: 'approved',
+    requestedAmount: 500,
+    approvedAmount: 480,
+    succeededAmount: null,
+    allocations: [
+      { orderItemPublicId: 'item-1', quantity: 1, type: 'itemRefund', amount: 500 },
+      { orderItemPublicId: null, quantity: null, type: 'discountClawback', amount: 20 },
+    ],
+    requestedBy: { publicId: 'admin-1', maskedLabel: 'f***@example.test' },
+    approvedBy: { publicId: 'admin-1', maskedLabel: 'f***@example.test' },
+    executedBy: null,
+    createdAtUtc: '2026-09-01T00:00:00Z',
+    succeededAtUtc: null,
+    rowVersion: 'AAAAAAAAAAE=',
+    ...overrides,
+  }
+}
+
+async function mountPage() {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/refunds', component: { template: '<div />' } },
+      { path: '/refunds/:refundId', component: AdminRefundDetailPage },
+      { path: '/orders/:orderId', component: { template: '<div />' } },
+      { path: '/returns/:returnId', component: { template: '<div />' } },
+    ],
+  })
+  await router.push(`/refunds/${refundId}`)
+  await router.isReady()
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  })
+  return mount(AdminRefundDetailPage, {
+    global: { plugins: [[VueQueryPlugin, { queryClient }], router] },
+  })
+}
+
+describe('AdminRefundDetailPage', () => {
+  beforeEach(() => vi.resetAllMocks())
+
+  it('explains the signed allocation breakdown and approved limit', async () => {
+    mockGetRefund.mockResolvedValue(refund())
+
+    const wrapper = await mountPage()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('退款上限')
+    expect(wrapper.text()).toContain('商品退款')
+    expect(wrapper.text()).toContain('優惠追回')
+    expect(wrapper.text()).toContain('+NT$500')
+    expect(wrapper.text()).toContain('-NT$20')
+  })
+
+  it('requires an explicit confirmation before executing the approved refund', async () => {
+    mockGetRefund.mockResolvedValue(refund())
+    mockExecuteRefund.mockResolvedValue(refund({ status: 'succeeded', succeededAmount: 480 }))
+
+    const wrapper = await mountPage()
+    await flushPromises()
+    await wrapper.find('[name="reasonCode"]').setValue('customer_request')
+
+    expect(wrapper.find('button[type="submit"]').attributes('disabled')).toBeDefined()
+    await wrapper.find('[name="confirmed"]').setValue(true)
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(mockExecuteRefund).toHaveBeenCalledWith(
+      refundId,
+      expect.objectContaining({
+        reasonCode: 'customer_request',
+        refundRowVersion: 'AAAAAAAAAAE=',
+      }),
+      expect.any(String),
+    )
+  })
+
+  it('can execute an approved refund before allocations are persisted', async () => {
+    // 分攤在 RefundExecutor 成功執行時才由可信快照計算並寫入；待執行退款的空陣列
+    // 不是「缺少快照」的證據，不能拿來鎖住執行按鈕。
+    mockGetRefund.mockResolvedValue(refund({ allocations: [] }))
+    mockExecuteRefund.mockResolvedValue(refund({ status: 'succeeded', succeededAmount: 480 }))
+
+    const wrapper = await mountPage()
+    await flushPromises()
+    await wrapper.find('[name="reasonCode"]').setValue('customer_request')
+    await wrapper.find('[name="confirmed"]').setValue(true)
+
+    expect(wrapper.find('button[type="submit"]').attributes('disabled')).toBeUndefined()
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(mockExecuteRefund).toHaveBeenCalledOnce()
+  })
+})

@@ -1,3 +1,5 @@
+using DoSelect.Application.Common;
+using DoSelect.Application.Support.Dtos;
 using DoSelect.Domain.Refunds;
 
 namespace DoSelect.Application.Refunds;
@@ -48,11 +50,59 @@ public sealed record RefundDto(
     DateTime? SucceededAtUtc,
     byte[] RowVersion);
 
+/// <summary>後台退款清單查詢（A-21）。</summary>
+/// <remarks>
+/// <paramref name="FromUtc"/>（含）與 <paramref name="ToUtc"/>（不含）以退款建立時間為準；
+/// <paramref name="Q"/> 只比對退款編號，避免為清單搜尋擴張 Refund 模組的跨界讀取例外。
+/// </remarks>
+public sealed record AdminRefundQuery(
+    IReadOnlyList<RefundStatus>? Statuses,
+    DateTime? FromUtc,
+    DateTime? ToUtc,
+    string? Q,
+    int PageNumber,
+    int PageSize);
+
+public static class AdminRefundQueryValidator
+{
+    public const int MaximumPageSize = 100;
+
+    public static void RequireValid(AdminRefundQuery query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        if (query.PageNumber < 1)
+        {
+            throw DomainProblemException.Validation("pageNumber must be 1 or greater.");
+        }
+
+        if (query.PageSize < 1 || query.PageSize > MaximumPageSize)
+        {
+            throw DomainProblemException.Validation(
+                $"pageSize must be between 1 and {MaximumPageSize}.");
+        }
+
+        if (query.FromUtc is { } fromUtc && query.ToUtc is { } toUtc && fromUtc >= toUtc)
+        {
+            throw DomainProblemException.Validation("fromUtc must be earlier than toUtc.");
+        }
+
+        if (query.Statuses is not null && query.Statuses.Any(status => !Enum.IsDefined(status)))
+        {
+            throw DomainProblemException.Validation("statuses contains an unknown refund status.");
+        }
+    }
+}
+
 /// <summary>
 /// 讀出一筆退款的正式表示。實作屬 Infrastructure，本層不接觸 DbContext。
 /// </summary>
 public interface IRefundReader
 {
+    Task<PageResult<RefundDto>> ListAsync(
+        AdminRefundQuery query,
+        CancellationToken cancellationToken = default);
+
     /// <summary>
     /// 依 PublicId 讀出退款。找不到時回 <c>null</c>。
     /// </summary>

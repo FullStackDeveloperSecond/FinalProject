@@ -3,6 +3,7 @@ using System.Diagnostics;
 using DoSelect.Api.Common;
 using DoSelect.Api.Security;
 using DoSelect.Application.Auditing;
+using DoSelect.Application.Common;
 using DoSelect.Application.Refunds;
 using DoSelect.Application.Support.Dtos;
 using DoSelect.Domain.Refunds;
@@ -25,6 +26,52 @@ public sealed class RefundsController(
     IRefundReader refundReader) : ControllerBase
 {
     public const string IdempotencyKeyHeaderName = "Idempotency-Key";
+
+    /// <summary>查詢後台退款清單（A-21）。</summary>
+    [HttpGet]
+    [ProducesResponseType(typeof(PageResult<RefundDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<ActionResult<PageResult<RefundDto>>> List(
+        [FromQuery] AdminRefundListRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await refundReader.ListAsync(
+            new AdminRefundQuery(
+                request.Statuses,
+                request.FromUtc,
+                request.ToUtc,
+                request.Q,
+                request.PageNumber,
+                request.PageSize),
+            cancellationToken);
+
+        return Ok(result);
+    }
+
+    /// <summary>讀取退款與可信分攤明細（A-22）。</summary>
+    [HttpGet("{refundPublicId:guid}")]
+    [ProducesResponseType(typeof(RefundDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<RefundDto>> GetById(
+        Guid refundPublicId,
+        CancellationToken cancellationToken)
+    {
+        var refund = await refundReader.FindByPublicIdAsync(
+            refundPublicId, cancellationToken);
+        if (refund is null)
+        {
+            return Problem(ApiProblemDetailsFactory.Create(
+                HttpContext,
+                StatusCodes.Status404NotFound,
+                ApiErrorCodes.ResourceNotFound));
+        }
+
+        return Ok(refund);
+    }
 
     /// <summary>
     /// 執行一筆已核准的退款。核准與執行是不同的 Use Case，本端點不做核准。
@@ -117,6 +164,21 @@ public sealed class RefundsController(
 
     private ObjectResult Problem(Microsoft.AspNetCore.Mvc.ProblemDetails problemDetails) =>
         StatusCode(problemDetails.Status ?? StatusCodes.Status409Conflict, problemDetails);
+}
+
+public sealed record AdminRefundListRequest
+{
+    public IReadOnlyList<RefundStatus>? Statuses { get; init; }
+
+    public DateTime? FromUtc { get; init; }
+
+    public DateTime? ToUtc { get; init; }
+
+    public string? Q { get; init; }
+
+    public int PageNumber { get; init; } = 1;
+
+    public int PageSize { get; init; } = 20;
 }
 
 /// <summary>

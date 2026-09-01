@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Http.Json;
 using DoSelect.Api.Refunds;
 using DoSelect.Api.Security;
+using DoSelect.Application.Common;
 using DoSelect.Application.Idempotency;
 using DoSelect.Application.Refunds;
 using DoSelect.Domain.Refunds;
@@ -23,6 +24,51 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
     private readonly WebApplicationFactory<Program> _factory;
 
     public RefundEndpointTests(WebApplicationFactory<Program> factory) => _factory = factory;
+
+    [Fact]
+    public async Task AFinanceManagerCanQueryTheRefundList()
+    {
+        var reader = new FakeRefundReader();
+        using var factory = CreateFactory(new FakeRefundExecutor(Settled(500m)), reader);
+        using var client = factory.CreateClient();
+        await SignInAsync(client, includeMfa: true, DoSelectRoles.FinanceManager);
+
+        using var response = await client.GetAsync(
+            "/api/v1/admin/refunds?statuses=approved&q=RF-202608&pageNumber=2&pageSize=10");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.NotNull(reader.LastQuery);
+        Assert.Equal(2, reader.LastQuery.PageNumber);
+        Assert.Equal(10, reader.LastQuery.PageSize);
+        Assert.Equal("RF-202608", reader.LastQuery.Q);
+        Assert.Equal([RefundStatus.Approved], reader.LastQuery.Statuses);
+    }
+
+    [Fact]
+    public async Task AFinanceManagerCanReadTheRefundDetail()
+    {
+        using var factory = CreateFactory(new FakeRefundExecutor(Settled(500m)));
+        using var client = factory.CreateClient();
+        await SignInAsync(client, includeMfa: true, DoSelectRoles.FinanceManager);
+
+        using var response = await client.GetAsync(
+            $"/api/v1/admin/refunds/{RefundPublicId}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<RefundDto>(ResponseJsonOptions);
+        Assert.Equal(RefundPublicId, body!.PublicId);
+    }
+
+    [Fact]
+    public async Task AnonymousRefundQueriesAreChallenged()
+    {
+        using var factory = CreateFactory(new FakeRefundExecutor(Settled(500m)));
+        using var client = factory.CreateClient();
+
+        using var response = await client.GetAsync("/api/v1/admin/refunds");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
 
     [Fact]
     public async Task AnonymousCallerIsChallenged()
@@ -361,7 +407,9 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
         return await client.SendAsync(request);
     }
 
-    private WebApplicationFactory<Program> CreateFactory(IRefundExecutor executor) =>
+    private WebApplicationFactory<Program> CreateFactory(
+        IRefundExecutor executor,
+        IRefundReader? reader = null) =>
         _factory.WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("Development");
@@ -369,7 +417,7 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
             {
                 services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
                 services.AddSingleton(executor);
-                services.AddSingleton<IRefundReader>(new FakeRefundReader());
+                services.AddSingleton<IRefundReader>(reader ?? new FakeRefundReader());
                 services
                     .AddControllers()
                     .AddApplicationPart(typeof(SecurityFoundationTestController).Assembly);
@@ -411,10 +459,26 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
     /// </remarks>
     private sealed class FakeRefundReader : IRefundReader
     {
+        public AdminRefundQuery? LastQuery { get; private set; }
+
+        public Task<PageResult<RefundDto>> ListAsync(
+            AdminRefundQuery query,
+            CancellationToken cancellationToken = default)
+        {
+            LastQuery = query;
+            return Task.FromResult(new PageResult<RefundDto>(
+                [CreateRefundDto(RefundPublicId)],
+                query.PageNumber,
+                query.PageSize,
+                1));
+        }
+
         public Task<RefundDto?> FindByPublicIdAsync(
             Guid refundPublicId,
             CancellationToken cancellationToken = default) =>
-            Task.FromResult<RefundDto?>(new RefundDto(
+            Task.FromResult<RefundDto?>(CreateRefundDto(refundPublicId));
+
+        private static RefundDto CreateRefundDto(Guid refundPublicId) => new(
                 refundPublicId,
                 "RF-202608-000001",
                 new Guid("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
@@ -430,7 +494,7 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
                     new Guid("ffffffff-ffff-ffff-ffff-ffffffffffff"), "f*******"),
                 CreatedAtUtc: new DateTime(2026, 8, 27, 0, 0, 0, DateTimeKind.Utc),
                 SucceededAtUtc: new DateTime(2026, 8, 27, 1, 0, 0, DateTimeKind.Utc),
-                RowVersion: [1, 2, 3, 4, 5, 6, 7, 8]));
+                RowVersion: [1, 2, 3, 4, 5, 6, 7, 8]);
     }
 
     /// <summary>

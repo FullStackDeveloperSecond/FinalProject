@@ -119,6 +119,21 @@ const router = createRouter({
       meta: { requiresAuth: true, requiredRoles: ['OrderManager', 'SuperAdmin'] },
     },
     {
+      // A-21：退款清單。後端 Refund.Execute policy 同時要求角色與 MFA；
+      // 前端角色 guard 只做導覽體驗，不取代後端授權。
+      path: '/refunds',
+      name: 'admin-refund-list',
+      component: () => import('../pages/refunds/AdminRefundsPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['FinanceManager', 'SuperAdmin'] },
+    },
+    {
+      // A-22：可信分攤、核准上限與具冪等鍵的退款執行。
+      path: '/refunds/:refundId',
+      name: 'admin-refund-detail',
+      component: () => import('../pages/refunds/AdminRefundDetailPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['FinanceManager', 'SuperAdmin'] },
+    },
+    {
       path: '/ai/usage',
       name: 'ai-usage',
       component: () => import('../pages/AiUsagePage.vue'),

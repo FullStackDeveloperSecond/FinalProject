@@ -1,7 +1,7 @@
 ---
 文件狀態: 執行中
 最後更新: 2026-09-01
-基準分支: dev@87055f2b
+基準分支: dev@e77edfbb
 負責人: alex（暫時接手 yinyin 範圍）
 來源工程包: Yinyin-優惠付款退款與發票工程包
 ---
@@ -28,13 +28,13 @@
 
 ## 2. 目前證據與文件飄移
 
-基準為 `dev@87055f2b`、.NET SDK `10.0.303`、EF Core SQL Server、Vue `3.5.41`、TypeScript `5.9.3`、Playwright `1.62.1`。
+基準為 `dev@e77edfbb`、.NET SDK `10.0.303`、EF Core SQL Server、Vue `3.5.41`、TypeScript `5.9.3`、Playwright `1.62.1`。
 
 | 工作包 | 已存在 | 仍缺 |
 |---|---|---|
 | M-07 優惠券 | 計算、生命週期、SQL Reader、後台 CRUD/API/A-23、購物車套券 Application 契約 | 訪客 HMAC 正確性、Shopping Reader 實作／DI、正式 Cart Controller、顧客 UI、E2E |
 | M-09 模擬付款 | 七類政策、Checkout 初始 Attempt、付款重試 Writer/API、Demo complete、Owner/Guest 授權、SQL Writer、Audit/Outbox | 付款／重試 UI、COD 正式物流命令接線、E2E |
-| M-13 部分退款 | PR #16 execute、可信七類分攤、冪等、中央 Audit、SQL Server 測試 | 後台退款清單／明細 API、A-21/A-22、完整 E2E |
+| M-13 部分退款 | PR #16 execute、可信七類分攤、冪等、中央 Audit、SQL Server 測試；WP-05 已在接手 worktree 完成後台退款清單／明細 API 與 A-21/A-22 | WP-05 待 commit／push；完整 E2E 仍缺 |
 | M-20 模擬發票 | 前台／後台查詢、折讓、付款成功發票 Outbox Consumer | 管理端手動開立、作廢、前後台 UI、完整 E2E |
 | INT-02 | Checkout Application/Gateway、同交易建單／庫存／優惠／Attempt、`POST /api/v1/orders`、SQL Server 測試 | 結帳頁、付款頁、最後名額／完整交易 E2E |
 
@@ -139,11 +139,12 @@ No-Go：任何金額／身份規則不明、需要新 Migration、跨模組資�
 | 日期 | 工作包 | 狀態 | 證據／下一步 |
 |---|---|---|---|
 | 2026-09-01 | WP-01 | 進行中 | 已確認 Checkout 使用 `SHA256(GuestCartKey)` 與 DEC-P262 不符；開始改為 V1 Secret + 正規化訂單 Email HMAC |
-| 2026-09-01 | WP-01 | 完成（未提交） | HMAC 單元測試 4/4、Checkout/HMAC 聚焦測試 12/12（含 SQL Server）、Solution Build 0 warning；未 commit／push |
+| 2026-09-01 | WP-01 | 完成（已推送） | HMAC 單元測試 4/4、Checkout/HMAC 聚焦測試 12/12（含 SQL Server）、Solution Build 0 warning；隨 `e77edfbb` 推送至 `origin/dev` |
 | 2026-09-01 | WP-03 | 進行中（A1） | 已裁定遵守 Endpoint 目錄的 `201 OrderDto`；擴充 Checkout transaction/replay projection，讓首次建立與冪等重播回傳相同且遮蔽安全的完整 DTO |
-| 2026-09-01 | WP-03 | 完成（未提交） | 新增正式 `POST /api/v1/orders`；Member/Guest actor、Idempotency-Key 與完整 `OrderDto` 已接線；首次／replay 共用單一 mapper；API 2/2、Application 2/2、Checkout/HMAC SQL 12/12、既有 Orders SQL 7/7、build/format/typecheck 全綠；OpenAPI 與 TypeScript 已更新 |
-| 2026-09-01 | WP-04 | 完成（未提交） | 新增 `POST /api/v1/orders/{id}/payment-attempts`、Owner actor、中央冪等、Serializable Writer、可信訂單金額與 RowVersion；SQL 3/3（含跨會員負向）、API 2/2、Application 14/14，既有模擬付款 Writer 回歸亦全綠；SQL `datetime2` UTC 邊界已由 Reader 正規化；OpenAPI／Typed Client、build/format/typecheck 全綠 |
+| 2026-09-01 | WP-03 | 完成（已推送） | 新增正式 `POST /api/v1/orders`；Member/Guest actor、Idempotency-Key 與完整 `OrderDto` 已接線；首次／replay 共用單一 mapper；API 2/2、Application 2/2、Checkout/HMAC SQL 12/12、既有 Orders SQL 7/7、build/format/typecheck 全綠；隨 `e77edfbb` 推送至 `origin/dev` |
+| 2026-09-01 | WP-04 | 完成（已推送） | 新增 `POST /api/v1/orders/{id}/payment-attempts`、Owner actor、中央冪等、Serializable Writer、可信訂單金額與 RowVersion；SQL 3/3（含跨會員負向）、API 2/2、Application 14/14，既有模擬付款 Writer 回歸亦全綠；SQL `datetime2` UTC 邊界已由 Reader 正規化；隨 `e77edfbb` 推送至 `origin/dev` |
 | 2026-09-01 | WP-02 | 外部依賴待處理 | `ICartCouponLineReader` 明定由 Terry-owned Shopping Infrastructure 實作；本接手不跨 owner 直接查 Shopping／Catalog 表，待該窄介面落地後接 Controller／DI／OpenAPI |
+| 2026-09-01 | WP-05 | 完成（未提交） | 新增退款分頁／篩選清單與明細 API、A-21/A-22、角色路由、可信分攤正負顯示、TOTP 提示、確認門檻與穩定 Idempotency-Key；Application 5/5、API 26/26、SQL Server 1/1、Refund 白名單 2/2、Vue 聚焦 5/5、router 組合 24/24、typecheck/lint/build 全綠；OpenAPI／Typed Client 已同步，待 commit／push |
 
 ## 10. 待裁定
 
@@ -156,4 +157,4 @@ No-Go：任何金額／身份規則不明、需要新 Migration、跨模組資�
 | A1（建議） | 遵守現行 Endpoint 目錄，擴充 Checkout transaction/replay 的結果為完整且遮蔽安全的 `OrderDto` | 契約一致、前端一次取得完整訂單；需要擴充既有 Gateway replay projection 與測試，工作量較高 |
 | A2 | 保留既有 `CheckoutCreatedOrder` 作 201 Response，並更新 Endpoint／DTO 文件 | 最低程式成本，但會改變已定版 public contract；顧客端需另設計如何取得完整訂單，訪客尤其受影響 |
 
-裁定已由 WP-03 落地：`POST /api/v1/orders`、transaction result、冪等 replay、OpenAPI／Typed Client 與 API／SQL 測試均完成，尚未 commit／push。
+裁定已由 WP-03 落地：`POST /api/v1/orders`、transaction result、冪等 replay、OpenAPI／Typed Client 與 API／SQL 測試均完成，並隨 `e77edfbb` 推送至 `origin/dev`。
