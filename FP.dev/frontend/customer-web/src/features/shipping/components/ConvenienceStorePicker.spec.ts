@@ -29,10 +29,13 @@ function page(items: unknown[]) {
   return { items, pageNumber: 1, pageSize: 20, totalCount: items.length, totalPages: 1 }
 }
 
-function mountPicker(modelValue: string | null = null) {
+function mountPicker(
+  modelValue: string | null = null,
+  selectedSummary: Record<string, unknown> | null = null,
+) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return mount(ConvenienceStorePicker, {
-    props: { modelValue },
+    props: { modelValue, selectedSummary },
     global: { plugins: [[VueQueryPlugin, { queryClient }]] },
   })
 }
@@ -76,14 +79,27 @@ describe('ConvenienceStorePicker', () => {
     await flushPromises()
     await wrapper.findAll('button').find((button) => button.text() === '選擇')!.trigger('click')
 
-    expect(wrapper.emitted('update:modelValue')).toEqual([['st-1']])
+    // 一併回傳摘要，父層才有東西可以保存並在下次掛載時傳回來。
+    expect(wrapper.emitted('update:modelValue')![0][0]).toBe('st-1')
+    expect((wrapper.emitted('update:modelValue')![0][1] as { publicId: string }).publicId).toBe('st-1')
   })
 
   /**
-   * 自我審查發現：只記住「這次點選的門市」的話，父層帶進來的 modelValue（回上一步、草稿還原）
-   * 永遠不會顯示已選門市。
+   * 組長 PR #79 round-2 review item 2：靠「目前搜尋結果裡找得到」還原，等於要求父層先搜尋而且該
+   * 門市正好在這一頁。改成明確 contract——父層連同摘要一起傳進來，掛載後不搜尋也要顯示得出來。
    */
-  it('shows the selected store when the value came from the parent', async () => {
+  it('shows the selected store on mount without searching first', async () => {
+    mockSearch.mockResolvedValue(page([]))
+
+    const wrapper = mountPicker('st-1', store())
+    await flushPromises()
+
+    expect(mockSearch).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('已選門市：大安門市')
+  })
+
+  /** 沒有摘要時仍可從目前結果頁對回來（既有行為不退步）。 */
+  it('still resolves the selection from the current result page', async () => {
     mockSearch.mockResolvedValue(page([store()]))
 
     const wrapper = mountPicker('st-1')
@@ -93,15 +109,40 @@ describe('ConvenienceStorePicker', () => {
     expect(wrapper.text()).toContain('已選門市：大安門市')
   })
 
+  /**
+   * 組長 PR #79 round-2 review item 3：切換搜尋條件時不可以還顯示、還能點選上一組條件的門市。
+   */
+  it('does not offer the previous results while a new search is pending', async () => {
+    mockSearch.mockResolvedValueOnce(page([store({ publicId: 'st-1', name: '大安門市' })]))
+
+    const wrapper = mountPicker()
+    await wrapper.find('form[aria-label="門市搜尋"]').trigger('submit')
+    await flushPromises()
+    expect(wrapper.text()).toContain('大安門市')
+
+    let releaseSecond!: (value: unknown) => void
+    mockSearch.mockImplementationOnce(() => new Promise((resolve) => { releaseSecond = resolve }))
+
+    await wrapper.find('input[aria-label="門市縣市"]').setValue('高雄市')
+    await wrapper.find('form[aria-label="門市搜尋"]').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('大安門市')
+    expect(wrapper.findAll('button').map((button) => button.text())).not.toContain('選擇')
+
+    releaseSecond(page([store({ publicId: 'st-2', name: '苓雅門市', city: '高雄市' })]))
+    await flushPromises()
+    expect(wrapper.text()).toContain('苓雅門市')
+  })
+
   it('clears the selection back to null', async () => {
     mockSearch.mockResolvedValue(page([store()]))
 
-    const wrapper = mountPicker('st-1')
-    await wrapper.find('form[aria-label="門市搜尋"]').trigger('submit')
+    const wrapper = mountPicker('st-1', store())
     await flushPromises()
     await wrapper.findAll('button').find((button) => button.text() === '重新選擇')!.trigger('click')
 
-    expect(wrapper.emitted('update:modelValue')!.at(-1)).toEqual([null])
+    expect(wrapper.emitted('update:modelValue')!.at(-1)).toEqual([null, null])
   })
 
   it('shows an empty state when nothing matches', async () => {

@@ -39,8 +39,10 @@ export function useShippingOptions(
     queryKey: computed(() => ['shipping-options', ...identity.value, toValue(cartRowVersion) ?? ''] as const),
     queryFn: () => getShippingOptions(getOrCreateGuestCartKey()),
     enabled: computed(() => sessionStore.isIdentityConfirmed && toValue(enabled)),
-    // 換購物車版本時保留上一版結果，避免每次改數量畫面都閃一次載入中。
-    placeholderData: (previous) => previous,
+    // 組長 PR #79 round-2 review item 1：這裡原本用 `placeholderData` 保留上一版結果避免閃爍，
+    // 但那正好抵銷了把 RowVersion 放進 key 的意義——購物車改完之後，新請求回來之前畫面上仍是
+    // 舊運費與舊資格，selectable 模式下甚至可能被選走。寧可閃一下載入中，也不給一組屬於別台
+    // 購物車的選項。
   })
 }
 
@@ -51,7 +53,8 @@ export function useConvenienceStoreSearch(
   return useQuery({
     queryKey: computed(() => ['convenience-stores', toValue(params)] as const),
     queryFn: () => searchConvenienceStores(toValue(params)),
+    // 組長 PR #79 round-2 review item 3：同理，門市搜尋也不跨篩選條件沿用上一組結果——新結果
+    // 回來之前顯示並允許選取不符合目前條件的舊門市，是會讓顧客選錯門市的。
     enabled: computed(() => toValue(enabled)),
-    placeholderData: (previous) => previous,
   })
 }

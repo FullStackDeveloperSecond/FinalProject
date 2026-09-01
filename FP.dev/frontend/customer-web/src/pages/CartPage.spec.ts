@@ -806,6 +806,44 @@ describe('CartPage', () => {
     await vi.waitFor(() => expect(mockGetShippingOptions).toHaveBeenCalledTimes(2))
   })
 
+  /**
+   * 組長 PR #79 round-2 review item 1：把 RowVersion 放進 query key 只擋住「舊結果被當成新的
+   * 快取項」，`placeholderData` 卻又會把上一版結果畫在新 RowVersion 底下——購物車改完之後、新
+   * 請求回來之前，畫面上仍是舊運費與舊資格。這支測試在第二次請求 pending 時斷言舊選項已經不在
+   * 畫面上，而不只是「API 被呼叫兩次」。
+   */
+  it('hides the previous options while the post-change request is still pending', async () => {
+    mockGetCart.mockResolvedValue(oneItemCart)
+    mockRevalidateCart.mockResolvedValue(readyValidation())
+    mockGetShippingOptions.mockResolvedValueOnce(shippingOptions([
+      shippingOption({ methodCode: 'STORE_PICKUP', name: '超商取貨', fee: 60 }),
+    ]))
+
+    const wrapper = await mountCartPage()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('超商取貨'))
+
+    // 第二次請求卡住不回應，模擬「購物車已改、配送選項還在算」。
+    let releaseSecond!: (value: unknown) => void
+    mockGetShippingOptions.mockImplementationOnce(
+      () => new Promise((resolve) => { releaseSecond = resolve }))
+
+    const changedCart = { ...oneItemCart, rowVersion: 'BBBB' }
+    mockUpdateCartItemQuantity.mockResolvedValue(changedCart)
+    mockRevalidateCart.mockResolvedValue(readyValidation(changedCart))
+    await wrapper.find('select[aria-label="數量"]').setValue('3')
+
+    await vi.waitFor(() => expect(mockGetShippingOptions).toHaveBeenCalledTimes(2))
+    await flushPromises()
+
+    // 舊的那組選項屬於上一台購物車，不可以還留在畫面上。
+    expect(wrapper.text()).not.toContain('超商取貨')
+    expect(wrapper.text()).toContain('配送方式載入中')
+
+    releaseSecond(shippingOptions([shippingOption({ methodCode: 'HOME_DELIVERY', name: '宅配', fee: 120 })]))
+    await flushPromises()
+    expect(wrapper.text()).toContain('宅配')
+  })
+
   /** 配送選項只是預覽：載入失敗不該擋住購物車本身。 */
   it('keeps the cart usable when the shipping options fail to load', async () => {
     mockGetCart.mockResolvedValue(oneItemCart)

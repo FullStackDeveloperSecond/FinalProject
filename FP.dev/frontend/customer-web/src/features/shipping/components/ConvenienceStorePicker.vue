@@ -11,8 +11,17 @@ import { isApiError } from '@doselect/web-shared/api'
 import { useConvenienceStoreSearch } from '../useShipping'
 import type { ConvenienceStoreOptionDto } from '../types'
 
-const props = defineProps<{ modelValue: string | null }>()
-const emit = defineEmits<{ 'update:modelValue': [string | null] }>()
+/**
+ * 組長 PR #79 round-2 review item 2：只靠「目前搜尋結果裡找得到」還原選取，等於要求父層先搜尋、
+ * 而且該門市正好落在目前這一頁——回到上一步或剛掛載時根本顯示不出既有選擇。改成明確的 contract：
+ * 父層若已經有選取，就連同顯示用摘要一起傳進來（結帳頁本來就會保存這份摘要以便送出前回顧），
+ * 元件不必自己去猜。
+ */
+const props = defineProps<{
+  modelValue: string | null
+  selectedSummary?: ConvenienceStoreOptionDto | null
+}>()
+const emit = defineEmits<{ 'update:modelValue': [string | null, ConvenienceStoreOptionDto | null] }>()
 
 // 搜尋條件只綁草稿，按下搜尋才套用並把頁碼歸 1（與後台頁一致的理由：避免「新條件配舊頁碼」）。
 const draft = reactive({ city: '', district: '', q: '' })
@@ -61,17 +70,22 @@ const selectedStore = computed<ConvenienceStoreOptionDto | null>(() => {
   if (pickedStore.value?.publicId === props.modelValue) {
     return pickedStore.value
   }
+  // 父層帶進來的摘要優先——不需要先搜尋就能顯示；找不到才退回目前結果頁。
+  if (props.selectedSummary?.publicId === props.modelValue) {
+    return props.selectedSummary
+  }
   return result.value?.items.find((store) => store.publicId === props.modelValue) ?? null
 })
 
 function select(store: ConvenienceStoreOptionDto) {
   pickedStore.value = store
-  emit('update:modelValue', store.publicId)
+  // 一併回傳摘要，父層才有東西可以保存並在下次掛載時傳回來。
+  emit('update:modelValue', store.publicId, store)
 }
 
 function clearSelection() {
   pickedStore.value = null
-  emit('update:modelValue', null)
+  emit('update:modelValue', null, null)
 }
 </script>
 
