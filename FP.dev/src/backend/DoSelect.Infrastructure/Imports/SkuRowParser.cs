@@ -11,6 +11,15 @@ namespace DoSelect.Infrastructure.Imports;
 /// </summary>
 internal static class SkuRowParser
 {
+    // 模板欄位契約的 decimal precision/scale，與 CatalogConfigurations 的資料庫欄位定義一致
+    // (組長 PR #74 round-3, item 3)：list_price/unit_cost 18,2、weight_kg 10,3、長寬高 10,2。
+    private const int MoneyPrecision = 18;
+    private const int MoneyScale = 2;
+    private const int WeightPrecision = 10;
+    private const int WeightScale = 3;
+    private const int DimensionPrecision = 10;
+    private const int DimensionScale = 2;
+
     public static readonly IReadOnlyList<string> Header =
     [
         "sku_key", "sku_code", "product_key", "name_zh_tw", "list_price", "unit_cost",
@@ -135,20 +144,24 @@ internal static class SkuRowParser
                 row.AddError(DomainErrorCodes.ImportValidationFailed);
             }
 
-            if (!hasListPrice || listPrice < 0)
+            // 組長 PR #74 round-3, item 3：金額與尺寸都要照模板欄位契約驗 precision/scale，否則
+            // 超出 scale 的值會在 SQL Server 被靜默捨入、超出 precision 的值會寫入失敗。
+            if (!hasListPrice || listPrice < 0 ||
+                !ImportFieldNormalization.FitsDecimalContract(listPrice, MoneyPrecision, MoneyScale))
             {
                 row.AddError(DomainErrorCodes.ImportValidationFailed);
             }
 
-            if (!hasUnitCost || unitCost < 0)
+            if (!hasUnitCost || unitCost < 0 ||
+                !ImportFieldNormalization.FitsDecimalContract(unitCost, MoneyPrecision, MoneyScale))
             {
                 row.AddError(DomainErrorCodes.ImportValidationFailed);
             }
 
-            ValidateOptionalPositive(fields[6], hasWeight, weightKg, row);
-            ValidateOptionalPositive(fields[7], hasLength, lengthCm, row);
-            ValidateOptionalPositive(fields[8], hasWidth, widthCm, row);
-            ValidateOptionalPositive(fields[9], hasHeight, heightCm, row);
+            ValidateOptionalPositive(fields[6], hasWeight, weightKg, row, WeightPrecision, WeightScale);
+            ValidateOptionalPositive(fields[7], hasLength, lengthCm, row, DimensionPrecision, DimensionScale);
+            ValidateOptionalPositive(fields[8], hasWidth, widthCm, row, DimensionPrecision, DimensionScale);
+            ValidateOptionalPositive(fields[9], hasHeight, heightCm, row, DimensionPrecision, DimensionScale);
 
             if (!hasPrepayment)
             {
@@ -167,7 +180,13 @@ internal static class SkuRowParser
         return staged;
     }
 
-    private static void ValidateOptionalPositive(string raw, bool hasValue, decimal value, StagedImportRow<SkuPayload> row)
+    private static void ValidateOptionalPositive(
+        string raw,
+        bool hasValue,
+        decimal value,
+        StagedImportRow<SkuPayload> row,
+        int precision,
+        int scale)
     {
         var isNull = ImportFieldNormalization.RawOrNull(raw) is null;
         if (isNull)
@@ -175,7 +194,7 @@ internal static class SkuRowParser
             return;
         }
 
-        if (!hasValue || value <= 0)
+        if (!hasValue || value <= 0 || !ImportFieldNormalization.FitsDecimalContract(value, precision, scale))
         {
             row.AddError(DomainErrorCodes.ImportValidationFailed);
         }

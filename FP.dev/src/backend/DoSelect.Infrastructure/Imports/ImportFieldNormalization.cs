@@ -87,6 +87,29 @@ internal static class ImportFieldNormalization
     }
 
     /// <summary>
+    /// 組長 PR #74 round-3, item 3：模板欄位契約規定每個 decimal 欄位的 precision/scale
+    /// (list_price/unit_cost 18,2、weight_kg 10,3、長寬高 10,2、規格 decimal 18,4)，先前只做了
+    /// parse 與正負檢查。超出 scale 的值會在 SQL Server 被靜默捨入（管理員以為匯入了 1.005，實際存
+    /// 進 1.01），超出 precision 則直接寫入失敗。兩者都必須在 Preview 就成為列級錯誤。
+    /// </summary>
+    public static bool FitsDecimalContract(decimal value, int precision, int scale)
+    {
+        if (decimal.Round(value, scale, MidpointRounding.ToEven) != value)
+        {
+            return false;
+        }
+
+        var integerDigits = precision - scale;
+        var limit = 1m;
+        for (var i = 0; i < integerDigits; i++)
+        {
+            limit *= 10m;
+        }
+
+        return Math.Abs(value) < limit;
+    }
+
+    /// <summary>
     /// The spec's Boolean columns use the fixed English tokens "true"/"false" only — not "1"/"0"
     /// or any other alias, and not case-insensitively (avoids a stray "True"/"TRUE" silently
     /// working while every other enum-like column in this format is documented as fixed-case).

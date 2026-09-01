@@ -11,7 +11,6 @@ namespace DoSelect.Infrastructure.Imports;
 internal sealed class StagedImportRow<TPayload>
 {
     public required int SourceRowNumber { get; init; }
-    public required string ImportKey { get; init; }
 
     /// <summary>
     /// The key this row is STORED under (unique within batch+dataset). Normally the row's own

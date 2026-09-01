@@ -13,6 +13,10 @@ namespace DoSelect.Infrastructure.Imports;
 /// </summary>
 internal static class SpecificationRowParser
 {
+    // 與 SpecificationConfigurations 的 SkuSpecificationValue.DecimalValue 欄位一致 (18,4)。
+    private const int SpecificationDecimalPrecision = 18;
+    private const int SpecificationDecimalScale = 4;
+
     public static readonly IReadOnlyList<string> Header =
     [
         "sku_key", "semantic_key", "value_type", "string_value",
@@ -101,7 +105,7 @@ internal static class SpecificationRowParser
                 continue;
             }
 
-            ValidateValueColumns(parsedValueType, fields, stringValue, hasDecimal, hasBoolean, optionCode, row);
+            ValidateValueColumns(parsedValueType, fields, stringValue, hasDecimal, decimalValue, hasBoolean, optionCode, row);
 
             staged.Add(row);
         }
@@ -114,6 +118,7 @@ internal static class SpecificationRowParser
         string[] fields,
         string? stringValue,
         bool hasDecimal,
+        decimal decimalValue,
         bool hasBoolean,
         string? optionCode,
         StagedImportRow<SpecificationPayload> row)
@@ -136,7 +141,11 @@ internal static class SpecificationRowParser
 
                 break;
             case SpecificationValueType.Decimal:
+                // 組長 PR #74 round-3, item 3：規格 decimal 欄位契約是 18,4——超出 scale 會在
+                // SQL Server 被靜默捨入，超出 precision 會寫入失敗，兩者都要在 Preview 擋下。
                 if (!hasDecimal || decimalRaw != fields[4] ||
+                    !ImportFieldNormalization.FitsDecimalContract(
+                        decimalValue, SpecificationDecimalPrecision, SpecificationDecimalScale) ||
                     stringRaw is not null || booleanRaw is not null || optionRaw is not null)
                 {
                     row.AddError(DomainErrorCodes.ImportValidationFailed);

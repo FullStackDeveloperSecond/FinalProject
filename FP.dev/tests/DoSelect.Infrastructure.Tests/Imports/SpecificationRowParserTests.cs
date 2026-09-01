@@ -97,4 +97,48 @@ public sealed class SpecificationRowParserTests
 
         Assert.Contains(DomainErrorCodes.ImportValidationFailed, result[0].Errors);
     }
+
+    /// <summary>組長 PR #74 round-3, item 1：重複的 (sku_key, semantic_key) 會算出相同的 composite
+    /// ImportKey，寫入時撞唯一索引成 500。</summary>
+    [Fact]
+    public void Parse_WhenAPairRepeats_StoresTheDuplicateUnderANonCollidingKey()
+    {
+        string[][] rows =
+        [
+            ValidHeader,
+            ["SK1", "capacity_gb", "Decimal", "\\N", "512", "\\N", "\\N"],
+            ["SK1", "capacity_gb", "Decimal", "\\N", "1024", "\\N", "\\N"],
+        ];
+
+        var result = SpecificationRowParser.Parse(rows);
+
+        Assert.NotEqual(result[0].ImportKey, result[1].ImportKey);
+        Assert.Contains(DomainErrorCodes.ImportValidationFailed, result[1].Errors);
+        Assert.Equal("SK1", result[1].Payload.SkuKey);
+        // semantic_key is normalized to upper case like every other batch-scoped key.
+        Assert.Equal("CAPACITY_GB", result[1].Payload.SemanticKey);
+    }
+
+    /// <summary>組長 PR #74 round-3, item 3：規格 decimal 契約是 18,4。</summary>
+    [Theory]
+    [InlineData("512.00001")]
+    [InlineData("100000000000000.0000")]
+    public void Parse_WhenADecimalValueBreaksItsContract_MarksTheRowInvalid(string value)
+    {
+        string[][] rows = [ValidHeader, ["SK1", "capacity_gb", "Decimal", "\\N", value, "\\N", "\\N"]];
+
+        var result = SpecificationRowParser.Parse(rows);
+
+        Assert.Contains(DomainErrorCodes.ImportValidationFailed, result[0].Errors);
+    }
+
+    [Fact]
+    public void Parse_WhenADecimalValueSitsOnTheContractBoundary_StaysValid()
+    {
+        string[][] rows = [ValidHeader, ["SK1", "capacity_gb", "Decimal", "\\N", "99999999999999.9999", "\\N", "\\N"]];
+
+        var result = SpecificationRowParser.Parse(rows);
+
+        Assert.Empty(result[0].Errors);
+    }
 }

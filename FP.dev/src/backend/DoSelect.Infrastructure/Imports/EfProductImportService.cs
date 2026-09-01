@@ -280,7 +280,9 @@ public sealed class EfProductImportService : IProductImportService
         {
             row.Dataset.ToString(),
             row.SourceRowNumber.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            row.ImportKey,
+            // 組長 PR #74 round-3, item 1：被判為重複的列是用不衝突的合成鍵儲存的，錯誤檔要給的是
+            // 管理員在自己檔案裡看得懂的「原始 offending key／pair」，所以優先從 payload 取值。
+            OriginalKeyOf(row),
             row.ErrorCodes ?? string.Empty,
         });
 
@@ -1235,6 +1237,7 @@ public sealed class EfProductImportService : IProductImportService
         foreach (var row in rows)
         {
             var action = row.Errors.Count > 0 ? ImportRowAction.Error : row.Action;
+
             switch (action)
             {
                 case ImportRowAction.Insert: newCount++; break;

@@ -208,7 +208,6 @@ public sealed class EfProductImportServiceTests
         Assert.Contains("PK2", lines[1], StringComparison.Ordinal);
     }
 
-    private static IncomingImportFile ToFile(string csv)
     /// <summary>組長 PR #74 round-3, item 1：SQL Server 重現——重複的 product_key 先前在 staging 階段
     /// 就以 ArgumentException／唯一索引違反炸成 500，管理員連錯誤檔都下載不到。現在必須安全落成一個
     /// Invalid batch，而且錯誤 CSV 要顯示「原始」的 offending key（儲存鍵是合成的）。</summary>
@@ -568,6 +567,11 @@ public sealed class EfProductImportServiceTests
     private static IncomingImportFile ToFile(string csv, bool withBom = false)
     {
         var bytes = ImportServiceFixture.Utf8(csv);
+        if (withBom)
+        {
+            bytes = [.. new byte[] { 0xEF, 0xBB, 0xBF }, .. bytes];
+        }
+
         return new IncomingImportFile("upload.csv", "text/csv", bytes.Length, true, () => new MemoryStream(bytes));
     }
 }
