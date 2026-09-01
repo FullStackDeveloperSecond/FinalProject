@@ -114,6 +114,20 @@ public sealed class EfSpecificationDefinitionAdminService : ISpecificationDefini
                 $"Semantic key '{semanticKey}' already exists in category '{category.Code}'.");
         }
 
+        // 組長 PR #77 round-3 review [P1]：A1 裁定「受保護定義必須保持啟用且必填」。Update 路徑早就
+        // 擋住取消必填，但 Create 原本只是照收 request.IsRequired 再補上 MarkProtected——受保護但
+        // 非必填的定義可以直接被建出來，相容性硬規則從第一天起就缺輸入。
+        //
+        // 這裡選擇「明確拒絕」而不是「靜默強制為 true」：管理員送了 IsRequired=false 卻拿回一筆
+        // 必填的定義，是在他不知情的狀況下改掉他的輸入；回一個穩定錯誤碼才說得清楚為什麼。
+        // 錯誤碼與 Update 路徑、Disable 路徑一致，同一條不變量不該有三個不同的碼。
+        if (IsProtectedCombination(category.Code, semanticKey) && !request.IsRequired)
+        {
+            throw new CatalogWriteException(
+                CatalogWriteException.ErrorCodes.SpecificationDefinitionReferenced,
+                $"'{category.Code}／{semanticKey}' is a protected compatibility input and must stay required.");
+        }
+
         var now = DateTime.UtcNow;
         var definition = new SpecificationDefinition(
             Guid.CreateVersion7(),

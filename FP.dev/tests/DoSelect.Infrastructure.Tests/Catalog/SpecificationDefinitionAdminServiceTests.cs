@@ -164,6 +164,39 @@ public sealed class SpecificationDefinitionAdminServiceTests
         Assert.Equal("AM5", Assert.Single(created.Options).Code);
     }
 
+    /// <summary>
+    /// 組長 PR #77 round-3 review [P1]：A1 裁定「受保護定義必須保持啟用且必填」。Update 路徑早就
+    /// 擋住了取消必填，但 Create 只是照收 request.IsRequired 再補上 MarkProtected——受保護但非必填
+    /// 的定義可以直接被建出來，相容性硬規則從第一天起就缺輸入。
+    /// </summary>
+    [Fact]
+    public async Task CreateAsync_WhenAProtectedCombinationIsNotRequired_ThrowsDefinitionReferenced()
+    {
+        await using var context = CatalogAdminFixture.CreateContext();
+        // 分類代碼有唯一索引，而受保護組合的代碼是固定值——用另一組受保護組合，才不會跟
+        // CreateAsync_WhenTheCombinationIsInTheCompatibilityCatalogue_MarksItProtected 搶同一個
+        // CPU 分類列。
+        var category = await SeedCategoryAsync(context, CompatibilityCatalogContract.Categories.Motherboard);
+        var service = new EfSpecificationDefinitionAdminService(context);
+
+        var exception = await Assert.ThrowsAsync<CatalogWriteException>(() => service.CreateAsync(
+            new CreateSpecificationDefinitionRequest(
+                category.PublicId, CompatibilityCatalogContract.SemanticKeys.MotherboardChipset, "主機板晶片組",
+                "Option", null, IsRequired: false, AllowsMultiple: false, SortOrder: 0,
+                Options: [new SpecificationOptionInput("B650", "B650", 0, true)]),
+            CancellationToken.None));
+
+        Assert.Equal(
+            CatalogWriteException.ErrorCodes.SpecificationDefinitionReferenced,
+            exception.ErrorCode);
+
+        // 拒絕就是什麼都不留——不能留下一筆已提交的受保護但非必填定義。
+        await using var verify = CatalogAdminFixture.CreateContext();
+        Assert.False(await verify.SpecificationDefinitions.AsNoTracking()
+            .AnyAsync(candidate => candidate.SemanticKey == CompatibilityCatalogContract.SemanticKeys.MotherboardChipset
+                && candidate.CategoryId == category.Id));
+    }
+
     /// <summary>受保護的定義是固定相容性引擎的輸入，停用它等於讓該分類的硬性規則永遠缺料。</summary>
     [Fact]
     public async Task DisableAsync_WhenTheDefinitionIsProtected_ThrowsDefinitionReferenced()
