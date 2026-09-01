@@ -3,6 +3,8 @@ import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/compo
 import { isApiError } from '@doselect/web-shared/api'
 import { computed, ref, watch } from 'vue'
 import CartLineItem from '../features/cart/components/CartLineItem.vue'
+import ShippingOptionList from '../features/shipping/components/ShippingOptionList.vue'
+import { useShippingOptions } from '../features/shipping/useShipping'
 import {
   useCart,
   useReloadCart,
@@ -319,6 +321,22 @@ function formatTwd(amount: number | string): string {
 // can't be clicked to simulate a trigger arriving mid-revalidate — the DOM itself suppresses
 // click on disabled controls, which is also exactly the real UI guard this relies on).
 defineExpose({ runRevalidate })
+
+/**
+ * C-13 的「Shipping Options」：購物車頁預覽可用的配送方式與運費，讓顧客在進結帳前就知道超取能不能
+ * 用、為什麼不能用（購物車、訂單、付款與物流.md：「只能選擇宅配並顯示原因」）。這裡只是預覽，
+ * 選擇配送方式是結帳頁的事，所以不傳 selectable。
+ *
+ * 只在購物車有商品時查：空車問後端要配送選項沒有意義，而且後端會對空車回一組全部不可用的選項，
+ * 顯示出來只會讓顧客困惑。
+ */
+const hasCartItems = computed(() => (cart.value?.items.length ?? 0) > 0)
+const {
+  data: shippingOptions,
+  isPending: isShippingPending,
+  isError: isShippingError,
+  refetch: refetchShipping,
+} = useShippingOptions(hasCartItems, computed(() => cart.value?.rowVersion))
 </script>
 
 <template>
@@ -475,6 +493,38 @@ defineExpose({ runRevalidate })
         </li>
       </ul>
 
+      <section
+        v-if="hasCartItems"
+        class="cart-page__shipping"
+        aria-labelledby="cart-shipping-title"
+      >
+        <h2 id="cart-shipping-title">
+          配送方式
+        </h2>
+        <LoadingState
+          v-if="isShippingPending"
+          label="配送方式載入中"
+        />
+        <p
+          v-else-if="isShippingError"
+          class="cart-page__shipping-error"
+        >
+          配送方式暫時無法載入。
+          <button
+            type="button"
+            @click="refetchShipping()"
+          >
+            重試
+          </button>
+        </p>
+        <template v-else-if="shippingOptions">
+          <ShippingOptionList :options="shippingOptions.options" />
+          <p class="cart-page__shipping-note">
+            運費以結帳時的最終計算為準；配送方式在結帳頁選擇。
+          </p>
+        </template>
+      </section>
+
       <div class="cart-page__summary">
         <p class="cart-page__total">
           合計：{{ formatTwd(cart.amounts.totalEstimate) }}
@@ -574,6 +624,28 @@ defineExpose({ runRevalidate })
 }
 
 .cart-page__identity-error p {
+  margin: 0;
+}
+
+.cart-page__shipping {
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  padding: 1rem;
+}
+
+.cart-page__shipping h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+}
+
+.cart-page__shipping-note {
+  margin: 0.75rem 0 0;
+  color: #6b7280;
+  font-size: 0.8125rem;
+}
+
+.cart-page__shipping-error {
+  color: #b91c1c;
   margin: 0;
 }
 
