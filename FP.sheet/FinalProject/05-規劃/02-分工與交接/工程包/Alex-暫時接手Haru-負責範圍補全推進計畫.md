@@ -1,8 +1,8 @@
 ---
-文件狀態: WP-H01 完成，等待 PR review gate
+文件狀態: WP-H01 已合併，下一步 WP-H02
 最後更新: 2026-09-01
-基準分支: dev@a2786a2d
-執行分支: haru/feature/member-favorites
+基準分支: dev@e93f2d2a
+執行分支: dev（PR #72 已 squash merge）
 原負責人: haru
 暫時接手: alex
 第一線覆核: yinyin
@@ -17,15 +17,15 @@ Haru 範圍不是全部重做。最新 `dev` 已包含會員／管理員認證�
 
 PR #72 原本混合 `M-01`、`M-02`、`M-08`、`S-01`，且 base 落後、最新 head 沒有 Required CI。2026-09-01 採用 DEC-HARU-01 A2：沿用原分支，以一般 merge 整合最新 `dev`，拆除已被取代或尚未授權內容，再按本文件逐包推進。禁止 rebase、force push；Approve、merge、關閉 PR 與發布留言仍需另行授權。
 
-`S-01` 沒有可追溯的本輪例外授權，維持 B1：先不推進。PR #73 擁有 Shipping／Store 公開查詢；其 Provider 語意未完成驗證前，不開始完整 C-14 Checkout。
+`S-01` 沒有可追溯的本輪例外授權，維持 B1：先不推進。PR #73 的 Shipping／Store 公開查詢已於 `dev@0f6be3ba` 合併，並完成 Provider／Store brand 語意校準；C-14 的 Shipping 前置 Gate 已解除，但仍依工作包順序先完成 WP-H02／WP-H03。
 
 ## 2. 權威基準與範圍
 
 | 類型 | 基準 |
 |---|---|
-| 實作 | `dev@a2786a2d` |
+| 實作 | `dev@e93f2d2a` |
 | 接手 PR | `#72 haru/feature/member-favorites@84e99ab` |
-| 配送依賴 | PR #73；Shipping／Store 為 Terry-owned 公開邊界 |
+| 配送依賴 | PR #73 已合併為 `dev@0f6be3ba`；Shipping／Store 仍為 Terry-owned 公開邊界 |
 | 會員 API | 最新 dev 的 `GET/PUT /api/v1/members/me` 與 Address CRUD |
 | UI 規格 | C-21 `/account`、C-22 `/account/addresses`，皆為 Member Guard |
 | 測試資料 | 專屬、可清理 SQL Server DB；不得寫入共用 `DoSelectDb` |
@@ -55,7 +55,7 @@ PR #72 原本混合 `M-01`、`M-02`、`M-08`、`S-01`，且 base 落後、最新
 | M-01B | 已合併 | 無必要差異 | 補 Browser E2E |
 | M-02 Guest | API／頁面已進 dev | #72 是重複路徑 | 移除重複；補完整旅程 |
 | M-08 Orders／Payment | 正式 API 已進 dev | #72 CheckoutController 已過期 | 移除重複；消費正式契約 |
-| Shipping／Store | PR #73 尚未合併 | #72 只有不完整宅配 reader | 不保留；等待 #73 |
+| Shipping／Store | PR #73 已合併 | #72 的不完整宅配 reader 已移除 | 後續只消費正式公開契約 |
 | C-14 Checkout UI | 尚缺 | #72 寫死政策、只支援宅配、Guest 成功後導向 401 | 不直接保留，待依賴後重建 |
 | S-01 Favorites | dev 尚缺 | #72 有完整切片雛形 | B1 延後，待例外授權 |
 
@@ -64,7 +64,7 @@ PR #72 原本混合 `M-01`、`M-02`、`M-08`、`S-01`，且 base 落後、最新
 1. `WP-H01`：C-21／C-22 Profile 與地址完整前端切片。
 2. `WP-H02`：M-01／M-01B 真實 Browser E2E。
 3. `WP-H03`：M-02 Guest Access → Order detail／cancel 旅程。
-4. Review／merge PR #73，先證明 Store brand code 與 Shipping profile code 語意可正確對接。
+4. ~~Review／merge PR #73，先證明 Store brand code 與 Shipping profile code 語意可正確對接。~~ 已於 `dev@0f6be3ba` 完成。
 5. `WP-H04`：C-14 Checkout 完整前端。
 6. `WP-H05`：Cart → Checkout → Payment → Order／Invoice 隔離 SQL Server E2E。
 7. `WP-H06`：Haru 對 DES-21／DES-22 的 Order 邊界交叉覆核。
@@ -113,6 +113,9 @@ PR #72 原本混合 `M-01`、`M-02`、`M-08`、`S-01`，且 base 落後、最新
 | 2026-09-01 | WP-H01 前端驗證 | 通過 | 聚焦 3 files／24 tests；customer-web 全部 43 files／301 tests；typecheck、lint、production build 通過 |
 | 2026-09-01 | WP-H01 最終差異 | 通過 | `origin/dev...894d3036` 僅 10 個 customer-web 程式／測試檔與本文件，共 11 檔；無後端、OpenAPI、generated schema、Migration 或套件變更 |
 | 2026-09-01 | PR #72 exact-head CI | 通過 | GitHub run `33473509137`：Backend、Browser E2E、customer/admin Frontend、OpenAPI contract、Secret Scan、AI contract、Package Source Evidence 與 `CI Required` 全部成功 |
+| 2026-09-01 | 合入 PR #73 後覆核 | 通過 | 一般 merge `dev@0f6be3ba` 至 PR #72，最終 diff 仍為相同 11 檔；customer-web 43 files／301 tests、typecheck、lint、production build 全數通過；無 OpenAPI／generated schema drift |
+| 2026-09-01 | PR #72 最終 exact-head CI | 通過 | 遠端 head `a9596de9`；GitHub run `33475238852` 的 Backend、Browser E2E、兩套 Frontend、OpenAPI、Secret Scan、AI contract、Package Source Evidence 與 `CI Required` 全部成功 |
+| 2026-09-01 | PR #72 合併 | 完成 | 標題校正為「完成會員個人資料與收件地址前台（M-01／C-21／C-22）」；Approve 後於 `2026-09-01 06:02:46 UTC` squash merge，dev commit `e93f2d2a` |
 | 2026-09-01 | 共用 DB 啟動副作用 | 已停止並裁定保留 | OpenAPI check 啟動 API 時誤連 `DoSelectDb`，觸發 7 天未驗證會員清理；155 筆於 `2026-09-01 05:09:46.221 UTC` 匿名化。API 已立即停止；msdb 無 DoSelectDb backup；使用者採用選項 1，接受既有保留規則結果，不復原 |
 
 ### 8.1 共用 DB 事故後續約束
@@ -124,4 +127,4 @@ PR #72 原本混合 `M-01`、`M-02`、`M-08`、`S-01`，且 base 落後、最新
 
 ## 9. 下一步
 
-WP-H01 已完成實作、獨立 review、完整本機驗證、一般 commit／push 與 exact-head Required CI。PR #72 目前可合併，但仍受 `REVIEW_REQUIRED` gate 阻擋；PR 標題仍是舊的混合範圍描述。修改 PR 標題、Approve、squash merge、關閉 PR 或發布 GitHub 留言均需另行授權。WP-H02 應在 WP-H01 整合後依本文件順序開始。
+WP-H01 已透過 PR #72 合併至 `dev@e93f2d2a`。下一步依序執行 WP-H02：補齊 M-01／M-01B 的真實 Browser E2E；測試必須使用專屬資料庫並確認啟動型 BackgroundService 不會操作共用 `DoSelectDb`。完成 WP-H02 後再推進 WP-H03；已合併的 PR #73 可供後續 WP-H04 消費，但不提前跳過工作包順序。
