@@ -243,6 +243,22 @@ public sealed class MinimalDevelopmentDataSeeder(
             counters.CatalogRecordsCreated++;
         }
 
+        // The primary --seed-minimal SKU is used by the real guest Checkout E2E journey. Checkout
+        // deliberately rejects items whose package facts are incomplete, so a catalog-only seed
+        // could be added to a cart but could never become an order. Keep these deterministic,
+        // fictional dimensions within both seeded provider profiles' limits; also repair databases
+        // that were seeded before this requirement was represented here.
+        if (sku.WeightKg is null || sku.LengthCm is null || sku.WidthCm is null || sku.HeightCm is null)
+        {
+            sku.UpdatePackageDimensions(
+                weightKg: 1.2m,
+                lengthCm: 35m,
+                widthCm: 20m,
+                heightCm: 8m,
+                MinimalDevelopmentSeedDefinitions.CreatedAtUtc);
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+
         var inventoryBalanceExists = await dbContext.InventoryBalances.AnyAsync(
             entity => entity.SkuId == sku.Id,
             cancellationToken);
