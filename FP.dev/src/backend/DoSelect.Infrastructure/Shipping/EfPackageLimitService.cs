@@ -66,6 +66,7 @@ public sealed class EfPackageLimitService : IPackageLimitService
         }
 
         ValidateAgainstSafeRange(request, safeRange);
+        ValidateEffectiveWindow(request.EffectiveFromUtc, request.EffectiveToUtc);
 
         var now = DateTime.UtcNow;
 
@@ -81,7 +82,7 @@ public sealed class EfPackageLimitService : IPackageLimitService
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
         try
         {
-            await AcquireProviderDraftLockAsync(request.ProviderCode, cancellationToken);
+            await AcquireProviderLockAsync(request.ProviderCode, cancellationToken);
 
             var existingWindows = await _dbContext.PackageLimitVersions
                 .AsNoTracking()
@@ -89,13 +90,19 @@ public sealed class EfPackageLimitService : IPackageLimitService
                     _dbContext.ShippingProviderProfiles.AsNoTracking(),
                     limit => limit.ProviderProfileId,
                     profile => profile.Id,
-                    (limit, profile) => new { limit.EffectiveFromUtc, limit.EffectiveToUtc, profile.ProviderCode, profile.Version })
+                    (limit, profile) => new { limit.EffectiveFromUtc, limit.EffectiveToUtc, profile.ProviderCode, profile.Version, profile.Status })
                 .Where(pair => pair.ProviderCode == request.ProviderCode)
                 .ToListAsync(cancellationToken);
 
-            if (existingWindows.Any(existing => Overlaps(
-                    existing.EffectiveFromUtc, existing.EffectiveToUtc,
-                    request.EffectiveFromUtc, request.EffectiveToUtc)))
+            // 組長 PR #73 round-3, item 1：舊的檢查對「所有」版本做重疊比對，而正式／Seed 的目前版本是
+            // 開放式窗口（EffectiveToUtc = null），於是任何後續版本都必然重疊、永遠建不出來。裁定 B1
+            // 下這是錯的判斷：目前有效的版本會在新版本發布時被收窗到 cutoff，它不是衝突，是被接班的
+            // 前一棒。真正的衝突只有兩種——未來版本／其他 Draft 的窗口相撞，或新窗口沒有排在既有版本
+            // 之後（起點不晚於它，代表不是接續而是插隊）。
+            var newStart = request.EffectiveFromUtc ?? now;
+            if (existingWindows.Any(existing => ConflictsWithNewWindow(
+                    existing.Status, existing.EffectiveFromUtc, existing.EffectiveToUtc,
+                    newStart, request.EffectiveToUtc)))
             {
                 throw new ShippingAdminWriteException(ShippingAdminErrorCodes.PackageLimitPeriodOverlap);
             }
@@ -208,6 +215,12 @@ public sealed class EfPackageLimitService : IPackageLimitService
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
         try
         {
+            // 組長 PR #73 round-3, item 3：Create 有 provider lock 而 Publish 沒有——兩個不同 Draft
+            // 各自通過自己的 RowVersion 檢查後同時發布，輸家會撞
+            // UX_ProviderProfiles_ProviderCode_Published 並以未映射的 DbUpdateException 變成 500。
+            // 同一把 provider-scoped lock 讓同 Provider 的 Create 與 Publish 一起序列化。
+            await AcquireProviderLockAsync(profile.ProviderCode, cancellationToken);
+
             // 購物車、訂單、付款與物流.md: "同一物流服務在任一時間只有一個有效版本" — publishing a new
             // version ends whichever one is currently Published for this ProviderCode. The cutoff
             // is the new version's own scheduled start (falling back to "now" if it takes effect
@@ -235,7 +248,18 @@ public sealed class EfPackageLimitService : IPackageLimitService
                     $"Version {profile.Version} takes effect at {cutoff:O}, which is not after the currently published version's own start ({publishedFrom:O}). Publish versions in chronological order.");
             }
 
-            currentlyPublished?.Supersede(cutoff, now);
+            if (currentlyPublished is not null)
+            {
+                currentlyPublished.Supersede(cutoff, now);
+
+                // 組長 PR #73 round-3, item 2：profile 與 limit 的窗口必須一起收在 cutoff，否則舊限制
+                // 會留下比 profile 更長的窗口。收窗後舊版本在 cutoff 之前仍然可解析（B1），cutoff 起
+                // 才交棒給新版本，中間沒有空窗。
+                var supersededLimit = await _dbContext.PackageLimitVersions
+                    .SingleOrDefaultAsync(
+                        candidate => candidate.ProviderProfileId == currentlyPublished.Id, cancellationToken);
+                supersededLimit?.TruncateEffectiveWindow(cutoff, now);
+            }
 
             profile.Publish(now);
 
@@ -272,6 +296,20 @@ public sealed class EfPackageLimitService : IPackageLimitService
             await transaction.RollbackAsync(cancellationToken);
             throw new ShippingAdminWriteException(ShippingAdminErrorCodes.ConcurrencyConflict);
         }
+        catch (SqlException exception) when (exception.Number == ProviderLockTimeoutErrorNumber)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw new ShippingAdminWriteException(ShippingAdminErrorCodes.ConcurrencyConflict);
+        }
+        catch (DbUpdateException exception) when (
+            exception.GetBaseException() is SqlException sqlException &&
+            sqlException.Number is 2601 or 2627)
+        {
+            // Residual UX_ProviderProfiles_ProviderCode_Published race — the lock should prevent it,
+            // but it is a concurrency outcome the caller can retry, never an unexplained 500.
+            await transaction.RollbackAsync(cancellationToken);
+            throw new ShippingAdminWriteException(ShippingAdminErrorCodes.ConcurrencyConflict);
+        }
         catch
         {
             await transaction.RollbackAsync(cancellationToken);
@@ -281,17 +319,19 @@ public sealed class EfPackageLimitService : IPackageLimitService
         return ToDto(limitVersion, profile);
     }
 
-    /// <summary>Raised by AcquireProviderDraftLockAsync when sp_getapplock times out.</summary>
+    /// <summary>Raised by AcquireProviderLockAsync when sp_getapplock times out.</summary>
     private const int ProviderLockTimeoutErrorNumber = 51000;
 
     /// <summary>
-    /// Serializes draft creation per provider inside the ambient transaction: sp_getapplock with
-    /// @LockOwner = 'Transaction' holds an exclusive provider-scoped lock until commit/rollback,
-    /// so concurrent creates line up instead of racing the version allocation (組長 PR #73
-    /// round-2 review, P2). 15s is far beyond any legitimate hold time — hitting the timeout
-    /// means pathological contention and maps to 409 concurrency_conflict, not a 500.
+    /// Serializes a provider's version-lifecycle writes inside the ambient transaction:
+    /// sp_getapplock with @LockOwner = 'Transaction' holds an exclusive provider-scoped lock until
+    /// commit/rollback, so concurrent creates line up instead of racing the version allocation
+    /// (組長 PR #73 round-2 review, P2) and concurrent publishes line up instead of racing the
+    /// single-Published invariant (round-3, item 3). 15s is far beyond any legitimate hold time —
+    /// hitting the timeout means pathological contention and maps to 409 concurrency_conflict,
+    /// not a 500.
     /// </summary>
-    private async Task AcquireProviderDraftLockAsync(string providerCode, CancellationToken cancellationToken)
+    private async Task AcquireProviderLockAsync(string providerCode, CancellationToken cancellationToken)
     {
         await _dbContext.Database.ExecuteSqlAsync(
             $"""
@@ -380,6 +420,67 @@ public sealed class EfPackageLimitService : IPackageLimitService
                 ShippingAdminErrorCodes.ValidationFailed,
                 $"Fields outside the allowed safe range for provider '{request.ProviderCode}': {string.Join(", ", errors)}.");
         }
+    }
+
+    /// <summary>
+    /// 組長 PR #73 round-3, item 5：Domain 的建構子要求 DateTimeKind.Utc，但 JSON 綁定會把沒有 Z 的
+    /// 值給成 Unspecified、帶 offset 的值給成 Local，於是一個純粹的輸入錯誤變成
+    /// ArgumentOutOfRangeException 也就是 500。時間欄位在服務入口就驗，回穩定的 validation_failed。
+    /// 順帶把「結束不晚於開始」也擋在這裡（同樣是 Domain 會丟例外的輸入）。
+    /// </summary>
+    private static void ValidateEffectiveWindow(DateTime? effectiveFromUtc, DateTime? effectiveToUtc)
+    {
+        var errors = new List<string>();
+        if (effectiveFromUtc.HasValue && effectiveFromUtc.Value.Kind != DateTimeKind.Utc)
+        {
+            errors.Add(nameof(CreatePackageLimitVersionRequest.EffectiveFromUtc));
+        }
+
+        if (effectiveToUtc.HasValue && effectiveToUtc.Value.Kind != DateTimeKind.Utc)
+        {
+            errors.Add(nameof(CreatePackageLimitVersionRequest.EffectiveToUtc));
+        }
+
+        if (errors.Count > 0)
+        {
+            throw new ShippingAdminWriteException(
+                ShippingAdminErrorCodes.ValidationFailed,
+                $"Effective times must be UTC instants ending in 'Z': {string.Join(", ", errors)}.");
+        }
+
+        if (effectiveFromUtc.HasValue && effectiveToUtc.HasValue && effectiveToUtc <= effectiveFromUtc)
+        {
+            throw new ShippingAdminWriteException(
+                ShippingAdminErrorCodes.ValidationFailed,
+                "EffectiveToUtc must be after EffectiveFromUtc.");
+        }
+    }
+
+    /// <summary>
+    /// 組長 PR #73 round-3, item 1 (裁定 B1)：新窗口只與「真正衝突」的版本相斥。
+    /// 目前生效中的版本（起點嚴格早於新版本起點的已發布／已接班版本）會在新版本發布時被收窗到
+    /// cutoff，它是前一棒而不是衝突——含正式／Seed 的開放式版本在內。反過來說，任何 Draft、以及
+    /// 起點不早於新窗口的版本（未來版本、同起點版本）都是真衝突：發布流程不會替它們收窗，硬寫下去
+    /// 會出現同一瞬間兩個有效版本。
+    /// </summary>
+    private static bool ConflictsWithNewWindow(
+        string existingStatus,
+        DateTime? existingFrom,
+        DateTime? existingTo,
+        DateTime newStart,
+        DateTime? newTo)
+    {
+        if (!Overlaps(existingFrom, existingTo, newStart, newTo))
+        {
+            return false;
+        }
+
+        if (ShippingProviderProfileStatuses.IsNeverEffective(existingStatus))
+        {
+            return true;
+        }
+
+        return (existingFrom ?? DateTime.MinValue) >= newStart;
     }
 
     private static bool Overlaps(DateTime? aFrom, DateTime? aTo, DateTime? bFrom, DateTime? bTo)

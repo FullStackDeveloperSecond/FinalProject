@@ -82,8 +82,11 @@ public sealed class EfShippingOptionsService : IShippingOptionsService
             from profile in _dbContext.ShippingProviderProfiles.AsNoTracking()
             join limit in _dbContext.PackageLimitVersions.AsNoTracking()
                 on profile.Id equals limit.ProviderProfileId
+            // 組長 PR #73 round-3, item 2 (裁定 B1)：可用性看時間窗，不看 Published 這個狀態字。排定
+            // 未來生效的版本一發布，舊版本立刻變 Superseded 但窗口還沒到 cutoff——只篩 Published 會
+            // 讓 cutoff 之前完全找不到有效 profile，物流整段空窗。Draft 以外＋窗內，同一瞬間至多一個。
             where providerCodes.Contains(profile.ProviderCode) &&
-                profile.Status == ShippingProviderProfileStatuses.Published &&
+                profile.Status != ShippingProviderProfileStatuses.Draft &&
                 (profile.EffectiveFromUtc == null || profile.EffectiveFromUtc <= now) &&
                 (profile.EffectiveToUtc == null || now < profile.EffectiveToUtc) &&
                 (limit.EffectiveFromUtc == null || limit.EffectiveFromUtc <= now) &&

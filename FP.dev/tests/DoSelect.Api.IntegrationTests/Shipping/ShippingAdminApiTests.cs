@@ -137,4 +137,83 @@ public sealed class ShippingAdminApiTests
 
         response.EnsureSuccessStatusCode();
     }
+
+    /// <summary>組長 PR #73 round-3, item 5：時間欄位的契約測試走完整 HTTP 綁定——沒有 Z 的字串綁成
+    /// Unspecified、帶 offset 的綁成 Local，兩者在 Domain 都會丟例外變成 500，必須先擋成穩定的
+    /// 400 validation_failed；帶 Z 的正常值則照常建立。</summary>
+    [Theory]
+    [InlineData("2027-01-01T00:00:00")]
+    [InlineData("2027-01-01T08:00:00+08:00")]
+    public async Task CreatePackageLimitVersion_WithANonUtcEffectiveTime_ReturnsValidationFailed(string effectiveFrom)
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync(DoSelectRoles.OrderManager);
+        var body = new
+        {
+            providerCode = "StorePickup",
+            maxWeightKg = 5m,
+            maxLengthCm = 45m,
+            maxWidthCm = 45m,
+            maxHeightCm = 45m,
+            maxTotalCm = 105m,
+            maxDeclaredValue = 20000m,
+            effectiveFromUtc = effectiveFrom,
+        };
+
+        using var response = await ShippingApiFixture.SendWithAntiforgeryAsync(
+            client, new HttpRequestMessage(HttpMethod.Post, "/api/v1/admin/shipping-providers/StorePickup/package-limit-versions")
+            {
+                Content = JsonContent.Create(body),
+            });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var problem = await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+        Assert.Equal("validation_failed", problem.GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task CreatePackageLimitVersion_WithAUtcEffectiveTime_IsAccepted()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync(DoSelectRoles.OrderManager);
+        var body = new
+        {
+            providerCode = "StorePickup",
+            maxWeightKg = 5m,
+            maxLengthCm = 45m,
+            maxWidthCm = 45m,
+            maxHeightCm = 45m,
+            maxTotalCm = 105m,
+            maxDeclaredValue = 20000m,
+            effectiveFromUtc = DateTime.UtcNow.AddYears(5).ToString("O"),
+        };
+
+        using var response = await ShippingApiFixture.SendWithAntiforgeryAsync(
+            client, new HttpRequestMessage(HttpMethod.Post, "/api/v1/admin/shipping-providers/StorePickup/package-limit-versions")
+            {
+                Content = JsonContent.Create(body),
+            });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+    }
+
+    /// <summary>組長 PR #73 round-3, item 4：大頁碼在後台與前台列表都不得溢位成 500。</summary>
+    [Fact]
+    public async Task ListConvenienceStores_WithAnExtremePageNumber_ReturnsAnEmptyPage()
+    {
+        using var adminClient = await _fixture.CreateAuthenticatedAdminClientAsync(DoSelectRoles.OrderManager);
+
+        using var adminResponse = await adminClient.GetAsync(
+            $"/api/v1/admin/convenience-stores?pageNumber={int.MaxValue}&pageSize=20");
+
+        Assert.Equal(HttpStatusCode.OK, adminResponse.StatusCode);
+        var adminPage = await adminResponse.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+        Assert.Empty(adminPage.GetProperty("items").EnumerateArray());
+
+        using var publicClient = _fixture.CreateClient();
+        using var publicResponse = await publicClient.GetAsync(
+            $"/api/v1/convenience-stores?pageNumber={int.MaxValue}&pageSize=20");
+
+        Assert.Equal(HttpStatusCode.OK, publicResponse.StatusCode);
+        var publicPage = await publicResponse.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+        Assert.Empty(publicPage.GetProperty("items").EnumerateArray());
+    }
 }

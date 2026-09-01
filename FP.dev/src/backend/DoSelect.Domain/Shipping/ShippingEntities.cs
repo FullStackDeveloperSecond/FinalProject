@@ -127,7 +127,11 @@ public sealed class ShippingProviderProfile : MutablePublicEntity
         MarkUpdated(updatedAtUtc);
     }
 
-    /// <summary>Ends a previously Published version's effective window when a newer one is published.</summary>
+    /// <summary>
+    /// Ends a previously Published version's effective window when a newer one is published.
+    /// 組長 PR #73 round-3 裁定 B1：Superseded 只代表「已被接班」，不代表「已失效」——版本是否可用
+    /// 由時間窗決定，因此本方法只把窗口收在 cutoff，cutoff 之前這個版本仍是唯一有效版本。
+    /// </summary>
     public void Supersede(DateTime effectiveToUtc, DateTime updatedAtUtc)
     {
         if (Status != ShippingProviderProfileStatuses.Published)
@@ -146,6 +150,15 @@ public static class ShippingProviderProfileStatuses
     public const string Draft = "Draft";
     public const string Published = "Published";
     public const string Superseded = "Superseded";
+
+    /// <summary>
+    /// 組長 PR #73 round-3 裁定 B1：「版本是否可用以有效時間窗為準」。Draft 從未生效；Published 與
+    /// Superseded 都是曾經發布過的版本，其可用性只取決於當下是否落在自己的 [From, To) 窗內——
+    /// Superseded 的窗口在 Publish 時已被收到 cutoff，所以「Draft 以外 ＋ 窗內」在任一瞬間至多命中
+    /// 一個版本。所有解析點（Checkout、Shipping Options）都必須使用同一條件，不可再篩 Published。
+    /// </summary>
+    public static bool IsNeverEffective(string status) =>
+        string.Equals(status, Draft, StringComparison.Ordinal);
 }
 
 public sealed class PackageLimitVersion : MutablePublicEntity
@@ -194,6 +207,24 @@ public sealed class PackageLimitVersion : MutablePublicEntity
         MaxDeclaredValue = maxDeclaredValue;
         EffectiveFromUtc = effectiveFromUtc;
         EffectiveToUtc = effectiveToUtc;
+    }
+
+    /// <summary>
+    /// 組長 PR #73 round-3, item 2：profile 與 limit 的窗口必須一致。Profile 被 Supersede 收窗時，
+    /// 它的限制列也要收在同一個 cutoff，否則舊限制會留下一條比 profile 更長（甚至開放式）的窗口，
+    /// 讓「窗內恰好一個有效限制」的不變量在解析時失準。
+    /// </summary>
+    public void TruncateEffectiveWindow(DateTime effectiveToUtc, DateTime updatedAtUtc)
+    {
+        if (EffectiveFromUtc.HasValue && effectiveToUtc <= EffectiveFromUtc.Value)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(effectiveToUtc),
+                "The cutoff must be after this version's own EffectiveFromUtc.");
+        }
+
+        EffectiveToUtc = effectiveToUtc;
+        MarkUpdated(updatedAtUtc);
     }
 
     public long ProviderProfileId { get; private set; }

@@ -176,4 +176,20 @@ public sealed class ConvenienceStoreAdminServiceTests
 
     private static EfConvenienceStoreAdminService CreateService(DoSelectDbContext context) =>
         new(context, new EfAuditWriter(context, TimeProvider.System));
+
+    /// <summary>組長 PR #73 round-3, item 4：後台列表同樣不得因大頁碼溢位成 500。</summary>
+    [Fact]
+    public async Task ListAsync_WithAnExtremePageNumber_ReturnsAnEmptyPageInsteadOfOverflowing()
+    {
+        await using var context = ShippingServiceFixture.CreateContext();
+        await ShippingServiceFixture.ClearConvenienceStoresAsync(context);
+        await ShippingServiceFixture.SeedStoreAsync(
+            context, "7-11", ShippingServiceFixture.UniqueCode("S"), "台北市", "大安區");
+
+        var page = await CreateService(context).ListAsync(
+            new AdminConvenienceStoreQuery(null, null, null, null, int.MaxValue, 20), CancellationToken.None);
+
+        Assert.Empty(page.Items);
+        Assert.Equal(1, page.TotalCount);
+    }
 }

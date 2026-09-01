@@ -51,13 +51,22 @@ public sealed class EfConvenienceStoreAdminService : IConvenienceStoreAdminServi
         }
 
         var totalCount = await stores.CountAsync(cancellationToken);
-        var items = await stores
-            .OrderByDescending(store => store.UpdatedAtUtc)
-            .ThenByDescending(store => store.Id)
-            .Skip((query.PageNumber - 1) * query.PageSize)
-            .Take(query.PageSize)
-            .Select(store => ToDto(store))
-            .ToListAsync(cancellationToken);
+
+        // Same int-overflow guard as EfBrandAdminService/EfProductAdminService (組長 PR #73
+        // round-3, item 4): (pageNumber - 1) * pageSize overflows int for a large pageNumber —
+        // int.MaxValue passes the [Range] attribute and the multiplication wraps negative, which
+        // SQL Server rejects as a 500. Compute in long and answer an out-of-range page with an
+        // empty page instead.
+        var skip = (long)(query.PageNumber - 1) * query.PageSize;
+        var items = skip > int.MaxValue
+            ? []
+            : await stores
+                .OrderByDescending(store => store.UpdatedAtUtc)
+                .ThenByDescending(store => store.Id)
+                .Skip((int)skip)
+                .Take(query.PageSize)
+                .Select(store => ToDto(store))
+                .ToListAsync(cancellationToken);
 
         return new PageResult<ConvenienceStoreDto>(items, query.PageNumber, query.PageSize, totalCount);
     }

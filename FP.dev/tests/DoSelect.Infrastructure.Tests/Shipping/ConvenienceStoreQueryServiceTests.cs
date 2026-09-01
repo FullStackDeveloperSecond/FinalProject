@@ -70,4 +70,22 @@ public sealed class ConvenienceStoreQueryServiceTests
         var store = Assert.Single(result.Items);
         Assert.Equal(matching.PublicId, store.PublicId);
     }
+
+    /// <summary>組長 PR #73 round-3, item 4：pageNumber = int.MaxValue 通過 [Range]，而
+    /// (pageNumber - 1) * pageSize 會溢位成負值，SQL Server 直接拒絕 → 500。offset 改用 long 計算，
+    /// 超出資料範圍就回空頁。</summary>
+    [Fact]
+    public async Task ListAsync_WithAnExtremePageNumber_ReturnsAnEmptyPageInsteadOfOverflowing()
+    {
+        await using var context = ShippingServiceFixture.CreateContext();
+        await ShippingServiceFixture.ClearConvenienceStoresAsync(context);
+        await ShippingServiceFixture.SeedStoreAsync(
+            context, "7-11", ShippingServiceFixture.UniqueCode("S"), "台北市", "大安區");
+
+        var page = await new EfConvenienceStoreQueryService(context).ListAsync(
+            new ConvenienceStoreQuery(null, null, null, null, int.MaxValue, 20), CancellationToken.None);
+
+        Assert.Empty(page.Items);
+        Assert.Equal(1, page.TotalCount);
+    }
 }

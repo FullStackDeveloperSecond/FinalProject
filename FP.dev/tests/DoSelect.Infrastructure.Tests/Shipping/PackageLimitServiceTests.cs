@@ -297,6 +297,290 @@ public sealed class PackageLimitServiceTests
         Assert.Equal([1, 2], storedVersions.OrderBy(version => version).ToArray());
     }
 
+    /// <summary>組長 PR #73 round-3, item 1 (裁定 B1)：正式／Seed 的目前版本是開放式窗口
+    /// (EffectiveToUtc = null)，舊的「對所有版本做重疊比對」讓任何後續版本都必然被判重疊，於是這個
+    /// Provider 的限制永遠更新不了。目前版本會在新版本發布時被收窗，它是前一棒不是衝突。</summary>
+    [Fact]
+    public async Task CreateDraftAsync_WhenTheCurrentVersionIsOpenEnded_AllowsAScheduledReplacement()
+    {
+        await using var context = ShippingServiceFixture.CreateContext();
+        await ShippingServiceFixture.ClearPackageLimitDataAsync(context);
+        var actorId = await ShippingServiceFixture.SeedShippingAdminAsync(context);
+        // The seeded shape production ships with: Published, EffectiveFromUtc/ToUtc both null.
+        await ShippingServiceFixture.EnsureProviderWithLimitAsync(context, ShippingProviderCodes.StorePickup);
+
+        var scheduled = await CreateService(context).CreateDraftAsync(
+            ShippingServiceFixture.TestAuditContext,
+            ValidStorePickupRequest(from: DateTime.UtcNow.AddDays(7)),
+            actorId,
+            CancellationToken.None);
+
+        Assert.Equal(ShippingProviderProfileStatuses.Draft, scheduled.Status);
+        Assert.Equal(2, scheduled.Version);
+    }
+
+    /// <summary>「立即生效」的替代版本同樣不能被開放式的目前版本封鎖（From = null）。</summary>
+    [Fact]
+    public async Task CreateDraftAsync_WhenTheReplacementTakesEffectImmediately_IsStillAllowed()
+    {
+        await using var context = ShippingServiceFixture.CreateContext();
+        await ShippingServiceFixture.ClearPackageLimitDataAsync(context);
+        var actorId = await ShippingServiceFixture.SeedShippingAdminAsync(context);
+        await ShippingServiceFixture.EnsureProviderWithLimitAsync(context, ShippingProviderCodes.StorePickup);
+
+        var immediate = await CreateService(context).CreateDraftAsync(
+            ShippingServiceFixture.TestAuditContext, ValidStorePickupRequest(), actorId, CancellationToken.None);
+
+        Assert.Equal(2, immediate.Version);
+    }
+
+    /// <summary>放寬只針對「會被收窗的前一棒」。兩個排在未來、窗口互撞的 Draft 仍必須被拒——發布流程
+    /// 不會替 Draft 收窗，硬寫下去同一瞬間會有兩個有效版本。</summary>
+    [Fact]
+    public async Task CreateDraftAsync_WhenAnotherDraftAlreadyCoversTheWindow_StillRejectsTheOverlap()
+    {
+        await using var context = ShippingServiceFixture.CreateContext();
+        await ShippingServiceFixture.ClearPackageLimitDataAsync(context);
+        var actorId = await ShippingServiceFixture.SeedShippingAdminAsync(context);
+        await ShippingServiceFixture.EnsureProviderWithLimitAsync(context, ShippingProviderCodes.StorePickup);
+        var service = CreateService(context);
+        var from = DateTime.UtcNow.AddDays(7);
+        await service.CreateDraftAsync(
+            ShippingServiceFixture.TestAuditContext,
+            ValidStorePickupRequest(from: from, to: from.AddDays(30)),
+            actorId,
+            CancellationToken.None);
+
+        var exception = await Assert.ThrowsAsync<ShippingAdminWriteException>(() => service.CreateDraftAsync(
+            ShippingServiceFixture.TestAuditContext,
+            ValidStorePickupRequest(from: from.AddDays(10), to: from.AddDays(40)),
+            actorId,
+            CancellationToken.None));
+
+        Assert.Equal(ShippingAdminErrorCodes.PackageLimitPeriodOverlap, exception.ErrorCode);
+    }
+
+    /// <summary>新窗口必須排在目前版本「之後」。起點不晚於目前版本起點的是插隊，不是接班。</summary>
+    [Fact]
+    public async Task CreateDraftAsync_WhenTheNewWindowStartsBeforeTheCurrentVersion_RejectsTheOverlap()
+    {
+        await using var context = ShippingServiceFixture.CreateContext();
+        await ShippingServiceFixture.ClearPackageLimitDataAsync(context);
+        var actorId = await ShippingServiceFixture.SeedShippingAdminAsync(context);
+        var currentFrom = DateTime.UtcNow.AddDays(-1);
+        await SeedPublishedVersionAsync(context, currentFrom, effectiveToUtc: null);
+
+        var exception = await Assert.ThrowsAsync<ShippingAdminWriteException>(() => CreateService(context).CreateDraftAsync(
+            ShippingServiceFixture.TestAuditContext,
+            ValidStorePickupRequest(from: currentFrom.AddHours(-1)),
+            actorId,
+            CancellationToken.None));
+
+        Assert.Equal(ShippingAdminErrorCodes.PackageLimitPeriodOverlap, exception.ErrorCode);
+    }
+
+    /// <summary>組長 PR #73 round-3, item 2 (裁定 B1)：提前發布未來版本後，cutoff 之前舊版本仍須是唯一
+    /// 有效版本。舊碼把舊 profile 立刻改成 Superseded，而解析點只認 Status=Published，因此 cutoff 前
+    /// 完全找不到有效 profile／limit——物流整段空窗。</summary>
+    [Fact]
+    public async Task PublishAsync_WhenTheNewVersionIsScheduled_TheOutgoingVersionStaysResolvableUntilCutoff()
+    {
+        await using var context = ShippingServiceFixture.CreateContext();
+        await ShippingServiceFixture.ClearPackageLimitDataAsync(context);
+        var actorId = await ShippingServiceFixture.SeedShippingAdminAsync(context);
+        await ShippingServiceFixture.EnsureProviderWithLimitAsync(context, ShippingProviderCodes.StorePickup);
+        var service = CreateService(context);
+        var cutoff = DateTime.UtcNow.AddDays(7);
+        var scheduled = await service.CreateDraftAsync(
+            ShippingServiceFixture.TestAuditContext, ValidStorePickupRequest(from: cutoff), actorId, CancellationToken.None);
+
+        await service.PublishAsync(
+            ShippingProviderCodes.StorePickup, ShippingServiceFixture.TestAuditContext,
+            scheduled.PublicId, new PublishPackageLimitVersionRequest(scheduled.RowVersion), actorId, CancellationToken.None);
+
+        // Resolve exactly the way Checkout and Shipping Options do: not-Draft plus window contains now.
+        await using var verify = ShippingServiceFixture.CreateContext();
+        var now = DateTime.UtcNow;
+        var effective = await (
+            from profile in verify.ShippingProviderProfiles.AsNoTracking()
+            join limit in verify.PackageLimitVersions.AsNoTracking() on profile.Id equals limit.ProviderProfileId
+            where profile.ProviderCode == ShippingProviderCodes.StorePickup &&
+                profile.Status != ShippingProviderProfileStatuses.Draft &&
+                (profile.EffectiveFromUtc == null || profile.EffectiveFromUtc <= now) &&
+                (profile.EffectiveToUtc == null || now < profile.EffectiveToUtc) &&
+                (limit.EffectiveFromUtc == null || limit.EffectiveFromUtc <= now) &&
+                (limit.EffectiveToUtc == null || now < limit.EffectiveToUtc)
+            select new { profile.Version, profile.Status }).ToListAsync();
+
+        // Exactly one — the outgoing v1, still serving until the scheduled switch-over.
+        var single = Assert.Single(effective);
+        Assert.Equal(1, single.Version);
+        Assert.Equal(ShippingProviderProfileStatuses.Superseded, single.Status);
+
+        // And its limit row was truncated to the same cutoff as its profile (windows stay consistent).
+        var outgoing = await verify.ShippingProviderProfiles.AsNoTracking()
+            .SingleAsync(candidate => candidate.ProviderCode == ShippingProviderCodes.StorePickup && candidate.Version == 1);
+        var outgoingLimit = await verify.PackageLimitVersions.AsNoTracking()
+            .SingleAsync(candidate => candidate.ProviderProfileId == outgoing.Id);
+        Assert.Equal(outgoing.EffectiveToUtc, outgoingLimit.EffectiveToUtc);
+        Assert.NotNull(outgoing.EffectiveToUtc);
+    }
+
+    /// <summary>切換時刻起，新版本接手且仍然「恰好一個」。</summary>
+    [Fact]
+    public async Task PublishAsync_AfterTheCutoffPasses_TheIncomingVersionIsTheOnlyEffectiveOne()
+    {
+        await using var context = ShippingServiceFixture.CreateContext();
+        await ShippingServiceFixture.ClearPackageLimitDataAsync(context);
+        var actorId = await ShippingServiceFixture.SeedShippingAdminAsync(context);
+        await ShippingServiceFixture.EnsureProviderWithLimitAsync(context, ShippingProviderCodes.StorePickup);
+        var service = CreateService(context);
+        // Publish a version whose window already started five minutes ago: "now" is past the cutoff.
+        var cutoff = DateTime.UtcNow.AddMinutes(-5);
+        var incoming = await service.CreateDraftAsync(
+            ShippingServiceFixture.TestAuditContext, ValidStorePickupRequest(from: cutoff), actorId, CancellationToken.None);
+
+        await service.PublishAsync(
+            ShippingProviderCodes.StorePickup, ShippingServiceFixture.TestAuditContext,
+            incoming.PublicId, new PublishPackageLimitVersionRequest(incoming.RowVersion), actorId, CancellationToken.None);
+
+        await using var verify = ShippingServiceFixture.CreateContext();
+        var now = DateTime.UtcNow;
+        var effective = await verify.ShippingProviderProfiles.AsNoTracking()
+            .Where(profile => profile.ProviderCode == ShippingProviderCodes.StorePickup &&
+                profile.Status != ShippingProviderProfileStatuses.Draft &&
+                (profile.EffectiveFromUtc == null || profile.EffectiveFromUtc <= now) &&
+                (profile.EffectiveToUtc == null || now < profile.EffectiveToUtc))
+            .ToListAsync();
+
+        var single = Assert.Single(effective);
+        Assert.Equal(2, single.Version);
+        Assert.Equal(ShippingProviderProfileStatuses.Published, single.Status);
+    }
+
+    /// <summary>組長 PR #73 round-3, item 3：Publish 也要走同一把 provider-scoped lock。沒有既有
+    /// Published 列時，兩個不同 Draft 各自通過自己的 RowVersion，輸家會撞
+    /// UX_ProviderProfiles_ProviderCode_Published 變成未映射的 500。</summary>
+    [Fact]
+    public async Task PublishAsync_TwoConcurrentPublishesForTheSameProvider_NeverReturnAnUnmappedFailure()
+    {
+        await using var setupContext = ShippingServiceFixture.CreateContext();
+        await ShippingServiceFixture.ClearPackageLimitDataAsync(setupContext);
+        var actorId = await ShippingServiceFixture.SeedShippingAdminAsync(setupContext);
+        var setupService = CreateService(setupContext);
+        // No Published row yet: both drafts are independently publishable, which is the race.
+        var first = await setupService.CreateDraftAsync(
+            ShippingServiceFixture.TestAuditContext,
+            ValidStorePickupRequest(from: DateTime.UtcNow.AddDays(1), to: DateTime.UtcNow.AddDays(2)),
+            actorId, CancellationToken.None);
+        var second = await setupService.CreateDraftAsync(
+            ShippingServiceFixture.TestAuditContext,
+            ValidStorePickupRequest(from: DateTime.UtcNow.AddDays(3), to: DateTime.UtcNow.AddDays(4)),
+            actorId, CancellationToken.None);
+
+        var startSignal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        async Task<Exception?> PublishAsync(PackageLimitVersionDto version)
+        {
+            await using var context = ShippingServiceFixture.CreateContext();
+            await startSignal.Task;
+            try
+            {
+                await CreateService(context).PublishAsync(
+                    ShippingProviderCodes.StorePickup, ShippingServiceFixture.TestAuditContext,
+                    version.PublicId, new PublishPackageLimitVersionRequest(version.RowVersion),
+                    actorId, CancellationToken.None);
+                return null;
+            }
+            catch (Exception exception)
+            {
+                return exception;
+            }
+        }
+
+        var firstTask = PublishAsync(first);
+        var secondTask = PublishAsync(second);
+        startSignal.SetResult();
+        var outcomes = await Task.WhenAll(firstTask, secondTask);
+
+        // At least one succeeds, and every failure is a mapped ShippingAdminWriteException — never
+        // a raw DbUpdateException/SqlException that the API would surface as a 500 (that is exactly
+        // what the missing publish lock produced).
+        //
+        // Which of the two stable codes the loser gets depends on who wins the lock, and both are
+        // correct production outcomes: if the earlier-window draft publishes first, the second is a
+        // normal chronological publish (or loses on the single-Published race → concurrency_conflict);
+        // if the later-window draft publishes first, the earlier one is then genuinely out of
+        // chronological order and must be refused with validation_failed (round-2, item 5). Pinning
+        // one specific code here would be pinning a coin flip, so the assertion is the property that
+        // actually matters: mapped, stable, and never a 500.
+        Assert.Contains(outcomes, outcome => outcome is null);
+        foreach (var failure in outcomes.Where(outcome => outcome is not null))
+        {
+            var writeFailure = Assert.IsType<ShippingAdminWriteException>(failure);
+            Assert.Contains(
+                writeFailure.ErrorCode,
+                new[] { ShippingAdminErrorCodes.ConcurrencyConflict, ShippingAdminErrorCodes.ValidationFailed });
+        }
+
+        // And the single-Published invariant held.
+        await using var verify = ShippingServiceFixture.CreateContext();
+        Assert.Equal(1, await verify.ShippingProviderProfiles.AsNoTracking().CountAsync(
+            profile => profile.ProviderCode == ShippingProviderCodes.StorePickup &&
+                profile.Status == ShippingProviderProfileStatuses.Published));
+    }
+
+    /// <summary>組長 PR #73 round-3, item 5：Domain 建構子要求 DateTimeKind.Utc，但沒有 Z 的 JSON 值
+    /// 綁成 Unspecified、帶 offset 的綁成 Local——輸入錯誤不可以變成 500。</summary>
+    [Theory]
+    [InlineData(DateTimeKind.Unspecified)]
+    [InlineData(DateTimeKind.Local)]
+    public async Task CreateDraftAsync_WhenTheEffectiveTimeIsNotUtc_ThrowsValidationFailed(DateTimeKind kind)
+    {
+        await using var context = ShippingServiceFixture.CreateContext();
+        await ShippingServiceFixture.ClearPackageLimitDataAsync(context);
+        var actorId = await ShippingServiceFixture.SeedShippingAdminAsync(context);
+        var from = DateTime.SpecifyKind(DateTime.UtcNow.AddDays(7), kind);
+
+        var exception = await Assert.ThrowsAsync<ShippingAdminWriteException>(() => CreateService(context).CreateDraftAsync(
+            ShippingServiceFixture.TestAuditContext, ValidStorePickupRequest(from: from), actorId, CancellationToken.None));
+
+        Assert.Equal(ShippingAdminErrorCodes.ValidationFailed, exception.ErrorCode);
+    }
+
+    /// <summary>同一類輸入錯誤：結束時間不晚於開始時間，Domain 也會丟例外，必須先擋成 400。</summary>
+    [Fact]
+    public async Task CreateDraftAsync_WhenTheWindowEndsBeforeItStarts_ThrowsValidationFailed()
+    {
+        await using var context = ShippingServiceFixture.CreateContext();
+        await ShippingServiceFixture.ClearPackageLimitDataAsync(context);
+        var actorId = await ShippingServiceFixture.SeedShippingAdminAsync(context);
+        var from = DateTime.UtcNow.AddDays(7);
+
+        var exception = await Assert.ThrowsAsync<ShippingAdminWriteException>(() => CreateService(context).CreateDraftAsync(
+            ShippingServiceFixture.TestAuditContext,
+            ValidStorePickupRequest(from: from, to: from.AddHours(-1)),
+            actorId,
+            CancellationToken.None));
+
+        Assert.Equal(ShippingAdminErrorCodes.ValidationFailed, exception.ErrorCode);
+    }
+
+    /// <summary>Seeds one Published profile+limit pair with an explicit window.</summary>
+    private static async Task SeedPublishedVersionAsync(
+        DoSelectDbContext context, DateTime? effectiveFromUtc, DateTime? effectiveToUtc)
+    {
+        var now = DateTime.UtcNow;
+        var profile = new ShippingProviderProfile(
+            Guid.CreateVersion7(), ShippingProviderCodes.StorePickup, 1,
+            ShippingProviderProfileStatuses.Published, effectiveFromUtc, effectiveToUtc, "{}", 1, now);
+        context.ShippingProviderProfiles.Add(profile);
+        await context.SaveChangesAsync();
+        context.PackageLimitVersions.Add(new PackageLimitVersion(
+            Guid.CreateVersion7(), profile.Id, 1, 5m, 45m, 45m, 45m, 105m, 20000m,
+            effectiveFromUtc, effectiveToUtc, now));
+        await context.SaveChangesAsync();
+    }
+
     private static EfPackageLimitService CreateService(DoSelectDbContext context) =>
         new(context, new EfAuditWriter(context, TimeProvider.System));
 }

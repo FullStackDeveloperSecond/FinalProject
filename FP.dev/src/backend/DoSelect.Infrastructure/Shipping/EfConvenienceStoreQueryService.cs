@@ -53,11 +53,16 @@ public sealed class EfConvenienceStoreQueryService : IConvenienceStoreQueryServi
         }
 
         var totalCount = await stores.CountAsync(cancellationToken);
-        var items = await stores
+
+        // Same int-overflow guard as the admin list (組長 PR #73 round-3, item 4).
+        var skip = (long)(pageNumber - 1) * pageSize;
+        var items = skip > int.MaxValue
+            ? []
+            : await stores
             .OrderBy(store => store.City)
             .ThenBy(store => store.District)
             .ThenBy(store => store.StoreCode)
-            .Skip((pageNumber - 1) * pageSize)
+            .Skip((int)skip)
             .Take(pageSize)
             .Select(store => new ConvenienceStoreOptionDto(
                 store.PublicId,
