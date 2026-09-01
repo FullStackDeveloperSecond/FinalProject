@@ -2,6 +2,7 @@ using DoSelect.Application.Catalog;
 using DoSelect.Application.Common;
 using DoSelect.Domain.Catalog;
 using DoSelect.Infrastructure.Persistence;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
 namespace DoSelect.Infrastructure.Catalog;
@@ -98,6 +99,7 @@ public sealed class EfSpecificationDefinitionAdminService : ISpecificationDefini
                 "semanticKey must be 1-64 characters.");
         }
 
+        ValidateDisplayName(request.DisplayNameZhTw);
         var measurementUnitId = await ResolveMeasurementUnitAsync(valueType, request.UnitCode, cancellationToken);
         ValidateOptionInputs(valueType, request.AllowsMultiple, request.Options);
 
@@ -133,23 +135,49 @@ public sealed class EfSpecificationDefinitionAdminService : ISpecificationDefini
             definition.MarkProtected(now);
         }
 
-        _dbContext.SpecificationDefinitions.Add(definition);
-        await _dbContext.SaveChangesAsync(cancellationToken);
-
-        foreach (var option in request.Options)
+        // The options need the definition's identity, so this takes two SaveChanges — which means
+        // it needs a transaction. Without one, a failure on the second save (an option that the
+        // database rejects, a concurrent writer) left a committed definition with no options
+        // behind, and the caller saw a 500 with half the write applied.
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+        try
         {
-            _dbContext.SpecificationOptions.Add(new SpecificationOption(
-                Guid.CreateVersion7(),
-                definition.Id,
-                option.Code,
-                option.DisplayNameZhTw,
-                option.SortOrder,
-                now));
-        }
-
-        if (request.Options.Count > 0)
-        {
+            _dbContext.SpecificationDefinitions.Add(definition);
             await _dbContext.SaveChangesAsync(cancellationToken);
+
+            foreach (var option in request.Options)
+            {
+                _dbContext.SpecificationOptions.Add(new SpecificationOption(
+                    Guid.CreateVersion7(),
+                    definition.Id,
+                    option.Code,
+                    option.DisplayNameZhTw,
+                    option.SortOrder,
+                    now));
+            }
+
+            if (request.Options.Count > 0)
+            {
+                await _dbContext.SaveChangesAsync(cancellationToken);
+            }
+
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception) when (IsUniqueViolation(exception))
+        {
+            // The duplicate check above is a separate query, so two concurrent creates can both
+            // pass it and race to the insert. UX_SpecificationDefinitions_CategoryId_SemanticKey
+            // catches the loser — report the same stable 409 the pre-check would have, not an
+            // unmapped 500.
+            await transaction.RollbackAsync(cancellationToken);
+            throw new CatalogWriteException(
+                CatalogWriteException.ErrorCodes.SpecificationSemanticKeyDuplicate,
+                $"Semantic key '{semanticKey}' already exists in category '{category.Code}'.");
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
         }
 
         return (await ToDtosAsync([definition], cancellationToken))[0];
@@ -177,6 +205,7 @@ public sealed class EfSpecificationDefinitionAdminService : ISpecificationDefini
                 $"Semantic key '{definition.SemanticKey}' is required by the fixed compatibility rules and must stay required.");
         }
 
+        ValidateDisplayName(request.DisplayNameZhTw);
         ValidateOptionInputs(definition.ValueType, definition.AllowsMultiple, request.Options);
 
         _dbContext.Entry(definition).Property(candidate => candidate.RowVersion).OriginalValue = request.RowVersion;
@@ -194,6 +223,15 @@ public sealed class EfSpecificationDefinitionAdminService : ISpecificationDefini
             throw new CatalogWriteException(
                 CatalogWriteException.ErrorCodes.ConcurrencyConflict,
                 "The specification definition was updated by someone else. Reload and try again.");
+        }
+        catch (DbUpdateException exception) when (IsUniqueViolation(exception))
+        {
+            // Two admins adding the same option code at the same time both pass the in-request
+            // duplicate check and race UX_SpecificationOptions_DefinitionId_Code. That is a
+            // concurrent modification, so it gets the same stable 409 as a stale RowVersion.
+            throw new CatalogWriteException(
+                CatalogWriteException.ErrorCodes.ConcurrencyConflict,
+                "The specification definition's options were changed by someone else. Reload and try again.");
         }
 
         return (await ToDtosAsync([definition], cancellationToken))[0];
@@ -316,6 +354,27 @@ public sealed class EfSpecificationDefinitionAdminService : ISpecificationDefini
             $"Measurement unit '{unitCode}' was not found.");
     }
 
+    /// <summary>
+    /// DisplayNameZhTw is nvarchar(160) in SpecificationConfigurations for both the definition and
+    /// its options. Without this check an over-long name reached SQL Server and came back as an
+    /// unmapped DbUpdateException — a plain input mistake surfacing as a 500.
+    /// </summary>
+    private static void ValidateDisplayName(string displayNameZhTw)
+    {
+        if (string.IsNullOrWhiteSpace(displayNameZhTw) || displayNameZhTw.Length > MaxDisplayNameLength)
+        {
+            throw new CatalogWriteException(
+                CatalogWriteException.ErrorCodes.ValidationFailed,
+                $"displayNameZhTw must be 1-{MaxDisplayNameLength} characters.");
+        }
+    }
+
+    /// <summary>2601/2627: unique index / unique constraint violation.</summary>
+    private static bool IsUniqueViolation(DbUpdateException exception) =>
+        exception.GetBaseException() is SqlException { Number: 2601 or 2627 };
+
+    private const int MaxDisplayNameLength = 160;
+
     private static void ValidateOptionInputs(
         SpecificationValueType valueType,
         bool allowsMultiple,
@@ -352,6 +411,14 @@ public sealed class EfSpecificationDefinitionAdminService : ISpecificationDefini
                 throw new CatalogWriteException(
                     CatalogWriteException.ErrorCodes.SpecificationInvalid,
                     "Every option code must be 1-64 characters.");
+            }
+
+            if (string.IsNullOrWhiteSpace(option.DisplayNameZhTw) ||
+                option.DisplayNameZhTw.Length > MaxDisplayNameLength)
+            {
+                throw new CatalogWriteException(
+                    CatalogWriteException.ErrorCodes.SpecificationInvalid,
+                    $"Every option's displayNameZhTw must be 1-{MaxDisplayNameLength} characters.");
             }
 
             // UX_SpecificationOptions_DefinitionId_Code：同一批送出重複的 Code 會撞唯一索引，

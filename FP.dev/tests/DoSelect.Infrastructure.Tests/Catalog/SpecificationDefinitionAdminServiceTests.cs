@@ -345,6 +345,104 @@ public sealed class SpecificationDefinitionAdminServiceTests
         Assert.Equal(CatalogWriteException.ErrorCodes.ReferenceNotFound, exception.ErrorCode);
     }
 
+    /// <summary>自我審查發現：DisplayNameZhTw 是 nvarchar(160)，超長的值先前一路送到 SQL Server
+    /// 才以未映射的 DbUpdateException 變成 500——一個單純的輸入錯誤不該是 500。</summary>
+    [Fact]
+    public async Task CreateAsync_WhenTheDisplayNameExceedsTheColumnLength_ThrowsValidationFailed()
+    {
+        await using var context = CatalogAdminFixture.CreateContext();
+        var category = await SeedCategoryAsync(context);
+        var service = new EfSpecificationDefinitionAdminService(context);
+
+        var exception = await Assert.ThrowsAsync<CatalogWriteException>(() => service.CreateAsync(
+            Request(category.PublicId, CatalogAdminFixture.UniqueCode("SPEC")) with
+            {
+                DisplayNameZhTw = new string('X', 161),
+            },
+            CancellationToken.None));
+
+        Assert.Equal(CatalogWriteException.ErrorCodes.ValidationFailed, exception.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WhenTheDisplayNameExceedsTheColumnLength_ThrowsValidationFailed()
+    {
+        await using var context = CatalogAdminFixture.CreateContext();
+        var category = await SeedCategoryAsync(context);
+        var service = new EfSpecificationDefinitionAdminService(context);
+        var created = await service.CreateAsync(
+            Request(category.PublicId, CatalogAdminFixture.UniqueCode("SPEC")), CancellationToken.None);
+
+        var exception = await Assert.ThrowsAsync<CatalogWriteException>(() => service.UpdateAsync(
+            created.PublicId,
+            new UpdateSpecificationDefinitionRequest(new string('X', 161), true, 0, [], created.RowVersion),
+            CancellationToken.None));
+
+        Assert.Equal(CatalogWriteException.ErrorCodes.ValidationFailed, exception.ErrorCode);
+    }
+
+    /// <summary>自我審查發現：選項名稱同樣是 nvarchar(160)，而且它是在「第二次 SaveChanges」才寫入的
+    /// ——舊版沒有交易，於是超長選項名稱同時造成 500 和「定義已提交、選項沒寫入」的半套狀態。</summary>
+    [Fact]
+    public async Task CreateAsync_WhenAnOptionDisplayNameIsTooLong_RejectsItAndLeavesNothingBehind()
+    {
+        await using var context = CatalogAdminFixture.CreateContext();
+        var category = await SeedCategoryAsync(context);
+        var service = new EfSpecificationDefinitionAdminService(context);
+        var semanticKey = CatalogAdminFixture.UniqueCode("SPEC");
+
+        var exception = await Assert.ThrowsAsync<CatalogWriteException>(() => service.CreateAsync(
+            Request(category.PublicId, semanticKey) with
+            {
+                ValueType = "Option",
+                Options = [new SpecificationOptionInput("A", new string('X', 161), 0, true)],
+            },
+            CancellationToken.None));
+
+        Assert.Equal(CatalogWriteException.ErrorCodes.SpecificationInvalid, exception.ErrorCode);
+
+        // No half-written definition left over.
+        await using var verify = CatalogAdminFixture.CreateContext();
+        Assert.Equal(0, await verify.SpecificationDefinitions.AsNoTracking()
+            .CountAsync(definition => definition.SemanticKey == semanticKey));
+    }
+
+    /// <summary>建立是「先查重、後寫入」兩個步驟，兩個併發請求可能都通過查重再一起寫。唯一索引會擋下
+    /// 輸家，但那必須回穩定的 409，不能是未映射的 DbUpdateException（500）。</summary>
+    [Fact]
+    public async Task CreateAsync_WhenTwoConcurrentCreatesRaceTheSameSemanticKey_NeverReturnsAnUnmappedFailure()
+    {
+        await using var setup = CatalogAdminFixture.CreateContext();
+        var category = await SeedCategoryAsync(setup);
+        var semanticKey = CatalogAdminFixture.UniqueCode("SPEC");
+
+        var signal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        async Task<Exception?> CreateAsync()
+        {
+            await using var context = CatalogAdminFixture.CreateContext();
+            var service = new EfSpecificationDefinitionAdminService(context);
+            await signal.Task;
+            return await Record.ExceptionAsync(
+                () => service.CreateAsync(Request(category.PublicId, semanticKey), CancellationToken.None));
+        }
+
+        var first = CreateAsync();
+        var second = CreateAsync();
+        signal.SetResult();
+        var results = await Task.WhenAll(first, second);
+
+        Assert.Contains(results, result => result is null);
+        foreach (var failure in results.Where(result => result is not null))
+        {
+            var writeFailure = Assert.IsType<CatalogWriteException>(failure);
+            Assert.Equal(CatalogWriteException.ErrorCodes.SpecificationSemanticKeyDuplicate, writeFailure.ErrorCode);
+        }
+
+        await using var verify = CatalogAdminFixture.CreateContext();
+        Assert.Equal(1, await verify.SpecificationDefinitions.AsNoTracking()
+            .CountAsync(definition => definition.SemanticKey == semanticKey));
+    }
+
     private static CreateSpecificationDefinitionRequest Request(Guid categoryPublicId, string semanticKey) =>
         new(categoryPublicId, semanticKey, "測試規格", "Decimal", null,
             IsRequired: true, AllowsMultiple: false, SortOrder: 0, Options: []);
