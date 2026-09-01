@@ -418,6 +418,12 @@ public static class SecurityServiceCollectionExtensions
             DoSelectRoles.OrderManager, DoSelectRoles.SuperAdmin);
         AddAdminPolicy(options, DoSelectPolicies.ShippingRead,
             DoSelectRoles.OrderManager, DoSelectRoles.CatalogManager, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.CatalogImportExecute,
+            DoSelectRoles.CatalogManager, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.CatalogImportRead,
+            DoSelectRoles.CatalogManager, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.CatalogImportReadAll,
+            DoSelectRoles.CatalogManager, DoSelectRoles.SuperAdmin);
     }
 
     private static bool AllowsHttpAntiforgeryCookie(IHostEnvironment environment) =>

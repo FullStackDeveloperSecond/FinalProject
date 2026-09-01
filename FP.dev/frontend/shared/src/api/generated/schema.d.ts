@@ -4508,6 +4508,217 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/product-imports/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "multipart/form-data": {
+                        productsFile?: components["schemas"]["IFormFile"];
+                    } & {
+                        skusFile?: components["schemas"]["IFormFile"];
+                    } & {
+                        specificationsFile?: components["schemas"]["IFormFile"];
+                    } & {
+                        /** Format: int32 */
+                        templateVersion?: number | string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Accepted */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProductImportBatchDto"];
+                        "application/json": components["schemas"]["ProductImportBatchDto"];
+                        "text/json": components["schemas"]["ProductImportBatchDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/product-imports/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProductImportBatchDto"];
+                        "application/json": components["schemas"]["ProductImportBatchDto"];
+                        "text/json": components["schemas"]["ProductImportBatchDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/product-imports/{id}/rows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    dataset?: string;
+                    errorsOnly?: boolean;
+                    cursor?: string;
+                    pageSize?: number | string;
+                };
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/product-imports/{id}/errors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/csv": unknown;
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/product-imports/{id}/actions/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ConfirmProductImportRequest"];
+                    "text/json": components["schemas"]["ConfirmProductImportRequest"];
+                    "application/*+json": components["schemas"]["ConfirmProductImportRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProductImportBatchDto"];
+                        "application/json": components["schemas"]["ProductImportBatchDto"];
+                        "text/json": components["schemas"]["ProductImportBatchDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/support-tickets/{id}": {
         parameters: {
             query?: never;
@@ -8953,6 +9164,10 @@ export interface components {
             outcome: components["schemas"]["SimulatedPaymentOutcome"];
             simulationKey: string;
         };
+        ConfirmProductImportRequest: {
+            /** Format: byte */
+            rowVersion: string;
+        };
         ConvenienceStoreDto: {
             /** Format: uuid */
             publicId: string;
@@ -10016,6 +10231,33 @@ export interface components {
             width: number | string;
             /** Format: int32 */
             height: number | string;
+        };
+        ProductImportBatchDto: {
+            /** Format: uuid */
+            publicId: string;
+            importType: string;
+            /** Format: int32 */
+            templateVersion: number | string;
+            status: string;
+            createdByAdminUserId: string;
+            /** Format: date-time */
+            createdAtUtc: string;
+            /** Format: date-time */
+            expiresAtUtc: string;
+            /** Format: int32 */
+            rowCount: number | string;
+            /** Format: int32 */
+            newCount: number | string;
+            /** Format: int32 */
+            updatedCount: number | string;
+            /** Format: int32 */
+            unchangedCount: number | string;
+            /** Format: int32 */
+            errorCount: number | string;
+            /** Format: date-time */
+            confirmedAtUtc: null | string;
+            /** Format: byte */
+            rowVersion: string;
         };
         /** @enum {unknown} */
         ProductOptionStatus: "draft" | "published" | "unpublished" | "discontinued";
