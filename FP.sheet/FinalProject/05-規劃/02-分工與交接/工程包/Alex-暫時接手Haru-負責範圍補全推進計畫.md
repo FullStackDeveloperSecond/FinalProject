@@ -1,5 +1,5 @@
 ---
-文件狀態: 執行中
+文件狀態: WP-H01 完成，等待 PR review gate
 最後更新: 2026-09-01
 基準分支: dev@a2786a2d
 執行分支: haru/feature/member-favorites
@@ -107,19 +107,21 @@ PR #72 原本混合 `M-01`、`M-02`、`M-08`、`S-01`，且 base 落後、最新
 | 2026-09-01 | 範圍稽核 | 完成 | 比對 dev、PR #72／#73、分工、UI／API 契約與現有測試 |
 | 2026-09-01 | DEC-HARU-01 | 採用 A2 | 使用原分支；以獨立實作 worktree 避免主工作區與測試 worktree |
 | 2026-09-01 | DEC-HARU-02 | 維持 B1 | S-01 暫不推進，待明確例外授權 |
-| 2026-09-01 | merge 最新 dev | 本機完成 | 一般 merge `origin/dev@a2786a2d`；不 rebase、不 force；待 commit／push |
+| 2026-09-01 | merge 最新 dev | 完成 | 一般 merge `origin/dev@a2786a2d`；不 rebase、不 force；merge commit `894d3036` 已推送原分支 |
 | 2026-09-01 | PR #72 範圍收斂 | 完成 | 移除舊 Guest／Checkout、PR #73-owned Shipping、未授權 Favorites；最終程式 diff 只留 WP-H01 |
-| 2026-09-01 | WP-H01 review 修正 | 本機完成 | C-21 校正為 `/account`；統一地址 mutation pending；等待 canonical refetch；加入刪除確認與契約長度驗證；final review 無 P0～P3 finding |
+| 2026-09-01 | WP-H01 review 修正 | 完成 | C-21 校正為 `/account`；統一地址 mutation pending；等待 canonical refetch；加入刪除確認與契約長度驗證；final review 無 P0～P3 finding |
 | 2026-09-01 | WP-H01 前端驗證 | 通過 | 聚焦 3 files／24 tests；customer-web 全部 43 files／301 tests；typecheck、lint、production build 通過 |
+| 2026-09-01 | WP-H01 最終差異 | 通過 | `origin/dev...894d3036` 僅 10 個 customer-web 程式／測試檔與本文件，共 11 檔；無後端、OpenAPI、generated schema、Migration 或套件變更 |
+| 2026-09-01 | PR #72 exact-head CI | 通過 | GitHub run `33473509137`：Backend、Browser E2E、customer/admin Frontend、OpenAPI contract、Secret Scan、AI contract、Package Source Evidence 與 `CI Required` 全部成功 |
 | 2026-09-01 | 共用 DB 啟動副作用 | 已停止並裁定保留 | OpenAPI check 啟動 API 時誤連 `DoSelectDb`，觸發 7 天未驗證會員清理；155 筆於 `2026-09-01 05:09:46.221 UTC` 匿名化。API 已立即停止；msdb 無 DoSelectDb backup；使用者採用選項 1，接受既有保留規則結果，不復原 |
 
 ### 8.1 共用 DB 事故後續約束
 
-- 本次 OpenAPI check 未完成，不將「Host 可啟動」列為 WP-H01 證據；本輪沒有 API／OpenAPI 變更，並已用 `git diff --exit-code origin/dev` 證明兩個 generated contract 檔無差異。
+- 本機 OpenAPI check 因共用 DB 風險中止，不將本機「Host 可啟動」列為 WP-H01 證據；本輪沒有 API／OpenAPI 變更，並已用 `git diff --exit-code origin/dev` 證明兩個 generated contract 檔無差異。後續 GitHub CI 已在隔離容器資料庫完成 migration、Host 啟動與 OpenAPI contract 驗證。
 - 後續不得為 contract、前端或 E2E 驗證啟動指向共用 `DoSelectDb` 的 API Host。
 - 需要 Host 的測試必須先建立專屬資料庫、明確覆寫 Connection String，並確認啟動型 BackgroundService 不會操作共用資料。
 - 不自行重建已匿名化個資；使用者已裁定接受此次符合 7 天規則的清理結果。
 
 ## 9. 下一步
 
-一般 commit／push 原分支並確認 exact head CI。若 Required CI 失敗，依錯誤回到修正、review、test 流程。此步驟不包含 Approve、squash merge、關閉 PR 或發布 GitHub 留言。
+WP-H01 已完成實作、獨立 review、完整本機驗證、一般 commit／push 與 exact-head Required CI。PR #72 目前可合併，但仍受 `REVIEW_REQUIRED` gate 阻擋；PR 標題仍是舊的混合範圍描述。修改 PR 標題、Approve、squash merge、關閉 PR 或發布 GitHub 留言均需另行授權。WP-H02 應在 WP-H01 整合後依本文件順序開始。
