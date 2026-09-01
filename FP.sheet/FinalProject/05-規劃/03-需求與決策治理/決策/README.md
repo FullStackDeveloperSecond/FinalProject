@@ -13,6 +13,8 @@
 
 ## 最近完成批次
 
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-041-Checkout配送查詢責任邊界定版|DEC-BATCH-041｜Checkout 配送查詢責任邊界定版]]：`DEC-P350`，1 項，已於 2026-09-01 寫回；維持只接手 yinyin，不跨入 Terry-owned Shipping／Shopping，C-14／WP-08 等待兩支正式配送查詢與 Provider-backed 證據，禁止前端硬寫或跨 owner 查表。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-040-Checkout政策版本查詢契約定版|DEC-BATCH-040｜Checkout 政策版本查詢契約定版]]：`DEC-P349`，1 項，已於 2026-09-01 寫回；C-14 只從既有 `ICheckoutPolicyProvider` 取得 Terms／Return／Privacy 三個目前版本，不寫死 `1/1/1`，不暴露伺服器 ShippingConstraint。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-039-發票手動開立窄查詢契約定版|DEC-BATCH-039｜發票手動開立窄查詢契約定版]]：`DEC-P348`，1 項，已於 2026-09-01 寫回；`Invoice.Manage` 只取得六個開票必要訂單欄位，不擴大 `Order.Manage`，並以快照 RowVersion 完成手動開立與衝突重查。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-038-COD物流接線交付邊界定版|DEC-BATCH-038｜COD 物流接線交付邊界定版]]：`DEC-P347`，1 項，已於 2026-08-31 寫回；不新增平行履約 Endpoint，Demo 完成端點拒絕 COD，本次先交付可供物流 writer 使用的 Delivered／PickedUp 決策服務，正式物流接線前維持未完成。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-037-S02例外授權與模擬付款完成邊界定版|DEC-BATCH-037｜S-02 例外授權與模擬付款完成邊界定版]]：`DEC-P343～DEC-P346`，4 項，已於 2026-08-31 寫回；S-02 為一次性例外，付款沿用 PR #71 的 Demo 開關與單一 `simulationKey`，並補 `cancelled`、COD 履約收款及付款後冪等模擬發票 Outbox。

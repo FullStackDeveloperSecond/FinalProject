@@ -67,7 +67,31 @@ public sealed class CheckoutApiTests : IClassFixture<WebApplicationFactory<Progr
         Assert.Equal(0, gateway.Calls);
     }
 
-    private WebApplicationFactory<Program> CreateFactory(FakeGateway gateway) =>
+    [Fact]
+    public async Task GetPolicyVersions_AsAnonymous_ReturnsOnlyTheCurrentAcceptedVersions()
+    {
+        var gateway = new FakeGateway(CreateOrderDto());
+        using var factory = CreateFactory(
+            gateway,
+            new CheckoutPolicySnapshot(7, 8, 9, 99));
+        using var client = factory.CreateClient();
+
+        using var response = await client.GetAsync("/api/v1/checkout/policy-versions");
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(3, body.RootElement.EnumerateObject().Count());
+        Assert.Equal(7, body.RootElement.GetProperty("terms").GetInt32());
+        Assert.Equal(8, body.RootElement.GetProperty("return").GetInt32());
+        Assert.Equal(9, body.RootElement.GetProperty("privacy").GetInt32());
+        Assert.DoesNotContain(
+            body.RootElement.EnumerateObject(),
+            property => property.NameEquals("shippingConstraint"));
+    }
+
+    private WebApplicationFactory<Program> CreateFactory(
+        FakeGateway gateway,
+        CheckoutPolicySnapshot? policy = null) =>
         _baseFactory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
         {
             services.AddDataProtection().UseEphemeralDataProtectionProvider();
@@ -77,7 +101,7 @@ public sealed class CheckoutApiTests : IClassFixture<WebApplicationFactory<Progr
             services.AddSingleton<ICheckoutTransactionGateway>(gateway);
             services.AddSingleton<IIdempotencyExecutor, PassthroughIdempotencyExecutor>();
             services.AddSingleton<ICheckoutPolicyProvider>(
-                new StaticPolicyProvider(new CheckoutPolicySnapshot(1, 1, 1, 1)));
+                new StaticPolicyProvider(policy ?? new CheckoutPolicySnapshot(1, 1, 1, 1)));
         }));
 
     private static async Task<HttpResponseMessage> PostAsync(

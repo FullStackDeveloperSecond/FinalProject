@@ -7774,6 +7774,35 @@
         }
       }
     },
+    "/api/v1/checkout/policy-versions": {
+      "get": {
+        "tags": [
+          "CheckoutPolicy"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcceptedPolicyVersions"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcceptedPolicyVersions"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcceptedPolicyVersions"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/products": {
       "get": {
         "tags": [
@@ -22786,6 +22815,9 @@
     },
     {
       "name": "SupportTickets"
+    },
+    {
+      "name": "CheckoutPolicy"
     },
     {
       "name": "AdminProducts"

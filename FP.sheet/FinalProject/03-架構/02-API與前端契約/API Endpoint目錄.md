@@ -31,6 +31,7 @@
 
 | 範圍／使用案例 | Method／Route | 權限 | Request／Response 契約 | 主要錯誤 |
 |---|---|---|---|---|
+| M Checkout 政策版本支撐 | `GET /api/v1/checkout/policy-versions` | Public | 無 Request → `200 AcceptedPolicyVersions`；只回目前 Terms／Return／Privacy 三個版本，不回伺服器 ShippingConstraint | — |
 | UC-SEARCH-01 | `GET /api/v1/products` | Public | `ProductSearchQuery` → `PageResult<ProductCardDto>` | `validation_failed`、`search_sort_unsupported`、`search_filter_unsupported` |
 | M 商品明細支撐 | `GET /api/v1/products/{id}` | Public | `ProductDetailDto`；只回已發布且可公開內容 | `resource_not_found` |
 | SH-06 公開商品圖片 | `GET /media/products/{publicId}/{variant}/{contentHash}.webp` | Public | `variant` 只接受 `320`、`800`、`1600`；`contentHash` 為該 WebP 衍生檔 SHA-256 小寫 Hex；成功回 `image/webp` 與一年 immutable Cache | Hash／狀態／檔案不符均回無內容 `404` |

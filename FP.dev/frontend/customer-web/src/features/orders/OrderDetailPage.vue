@@ -9,6 +9,7 @@ import {
   fetchOrder,
   type OrderDto,
 } from './api'
+import { fetchOrderInvoice, type SimulatedInvoiceDto } from '../payments/api'
 
 const route = useRoute()
 const router = useRouter()
@@ -27,12 +28,18 @@ const cancelForm = reactive({
 const isCancelling = ref(false)
 const cancelErrorMessage = ref<string | undefined>(undefined)
 const showCancelForm = ref(false)
+type InvoiceState = 'idle' | 'loading' | 'ready' | 'missing' | 'error'
+const invoiceState = ref<InvoiceState>('idle')
+const invoice = ref<SimulatedInvoiceDto>()
 
 async function loadOrder(): Promise<void> {
   pageState.value = 'loading'
   try {
     order.value = await fetchOrder(orderPublicId.value)
     pageState.value = 'ready'
+    if (order.value.paymentStatus === 'paid' || order.value.amounts.refundedAmount > 0) {
+      await loadInvoice()
+    }
   }
   catch (error) {
     if (isApiError(error)) {
@@ -50,12 +57,26 @@ async function loadOrder(): Promise<void> {
   }
 }
 
+async function loadInvoice(): Promise<void> {
+  invoiceState.value = 'loading'
+  try {
+    invoice.value = await fetchOrderInvoice(orderPublicId.value)
+    invoiceState.value = 'ready'
+  }
+  catch (error) {
+    invoiceState.value = isApiError(error) && error.status === 404 ? 'missing' : 'error'
+  }
+}
+
 onMounted(loadOrder)
 
 const canCancel = computed(() => order.value?.availableActions.includes('cancel') ?? false)
 const canRequestReturn = computed(() => order.value?.availableActions.includes('requestReturn') ?? false)
 const returnableItems = computed(
   () => order.value?.items.filter(item => item.returnableQuantity > item.returnedQuantity) ?? [],
+)
+const canPay = computed(() =>
+  order.value?.orderStatus === 'pendingPayment' && order.value.paymentStatus !== 'paid',
 )
 
 async function submitCancel(): Promise<void> {
@@ -129,6 +150,31 @@ const orderStatusLabel: Record<string, string> = {
   completed: '已完成',
   cancelled: '已取消',
 }
+
+const paymentStatusLabel: Record<string, string> = {
+  pending: '等待建立付款',
+  awaitingPayment: '等待付款',
+  processing: '付款處理中',
+  paid: '已付款',
+  failed: '付款失敗',
+  cancelled: '付款已取消',
+  expired: '付款已逾期',
+}
+
+const refundStatusLabel: Record<string, string> = {
+  none: '尚無退款',
+  pending: '退款處理中',
+  partiallyRefunded: '部分退款',
+  refunded: '已全額退款',
+}
+
+const invoiceStatusLabel: Record<string, string> = {
+  pending: '待開立',
+  issued: '已開立',
+  voided: '已作廢',
+  partiallyAllowed: '部分折讓',
+  fullyAllowed: '全額折讓',
+}
 </script>
 
 <template>
@@ -179,6 +225,57 @@ const orderStatusLabel: Record<string, string> = {
           </li>
         </ul>
         <p>應付總額：NT$ {{ order.amounts.grandTotal }}</p>
+      </section>
+
+      <section aria-labelledby="payment-summary-title">
+        <h2 id="payment-summary-title">
+          付款與退款
+        </h2>
+        <p>付款狀態：{{ paymentStatusLabel[order.paymentStatus] ?? order.paymentStatus }}</p>
+        <p>已付款：NT$ {{ order.amounts.paidAmount }}</p>
+        <p>退款狀態：{{ refundStatusLabel[order.orderRefundStatus] ?? order.orderRefundStatus }}</p>
+        <p>已退款：NT$ {{ order.amounts.refundedAmount }}</p>
+        <a
+          v-if="canPay"
+          :href="`/orders/${order.publicId}/payment`"
+        >
+          {{ order.paymentStatus === 'failed' || order.paymentStatus === 'expired' ? '重新付款' : '前往付款' }}
+        </a>
+      </section>
+
+      <section
+        v-if="order.paymentStatus === 'paid' || order.amounts.refundedAmount > 0"
+        aria-labelledby="invoice-title"
+      >
+        <h2 id="invoice-title">
+          模擬發票
+        </h2>
+        <LoadingState
+          v-if="invoiceState === 'loading'"
+          label="發票資料載入中"
+        />
+        <template v-else-if="invoiceState === 'ready' && invoice">
+          <p>{{ invoice.demoMarker }}｜{{ invoice.invoiceNumber }}</p>
+          <p>狀態：{{ invoiceStatusLabel[invoice.status] ?? invoice.status }}</p>
+          <p>含稅總額：NT$ {{ invoice.grossAmount }} {{ invoice.currency }}</p>
+          <p v-if="invoice.buyerEmailMasked">
+            買受人 Email：{{ invoice.buyerEmailMasked }}
+          </p>
+          <p v-if="invoice.allowances.length > 0">
+            折讓筆數：{{ invoice.allowances.length }}
+          </p>
+        </template>
+        <EmptyState
+          v-else-if="invoiceState === 'missing'"
+          title="發票尚未建立"
+          description="付款完成後發票會由背景流程建立，請稍後重新整理。"
+        />
+        <ErrorState
+          v-else-if="invoiceState === 'error'"
+          title="無法載入發票"
+          description="訂單資料仍可正常查看，請稍後重試發票查詢。"
+          @retry="loadInvoice"
+        />
       </section>
 
       <!-- 同一頁支援會員與已完成查單驗證的訪客；後端會把 GuestOrderAccess Cookie

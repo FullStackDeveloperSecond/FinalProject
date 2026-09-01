@@ -1,7 +1,7 @@
 ---
 文件狀態: 執行中
 最後更新: 2026-09-01
-基準分支: dev@f4216609（另含本批 WP-06 commit）
+基準分支: dev（本批含 WP-07 部分成果）
 負責人: alex（暫時接手 yinyin 範圍）
 來源工程包: Yinyin-優惠付款退款與發票工程包
 ---
@@ -33,10 +33,10 @@
 | 工作包 | 已存在 | 仍缺 |
 |---|---|---|
 | M-07 優惠券 | 計算、生命週期、SQL Reader、後台 CRUD/API/A-23、購物車套券 Application 契約 | 訪客 HMAC 正確性、Shopping Reader 實作／DI、正式 Cart Controller、顧客 UI、E2E |
-| M-09 模擬付款 | 七類政策、Checkout 初始 Attempt、付款重試 Writer/API、Demo complete、Owner/Guest 授權、SQL Writer、Audit/Outbox | 付款／重試 UI、COD 正式物流命令接線、E2E |
+| M-09 模擬付款 | 七類政策、Checkout 初始 Attempt、付款重試 Writer/API、Demo complete、Owner/Guest 授權、SQL Writer、Audit/Outbox；WP-07 已完成並於本批納入 C-15 付款／重試 UI | COD 正式物流命令接線、Checkout 串接與 E2E |
 | M-13 部分退款 | PR #16 execute、可信七類分攤、冪等、中央 Audit、SQL Server 測試；WP-05 後台退款清單／明細 API 與 A-21/A-22 已隨 `8cf41558` 推送 | 完整 E2E 仍缺 |
-| M-20 模擬發票 | 前台／後台查詢、折讓、付款成功發票 Outbox Consumer；WP-06 已完成手動開立／作廢 API、管理 UI 及 DEC-P348 窄查詢，隨本批 commit／push 交付 | 顧客發票 UI、COD 正式物流接線與完整 E2E 仍缺 |
-| INT-02 | Checkout Application/Gateway、同交易建單／庫存／優惠／Attempt、`POST /api/v1/orders`、SQL Server 測試 | 結帳頁、付款頁、最後名額／完整交易 E2E |
+| M-20 模擬發票 | 前台／後台查詢、折讓、付款成功發票 Outbox Consumer；WP-06 已完成手動開立／作廢 API、管理 UI 及 DEC-P348 窄查詢；WP-07 顧客發票 UI 已於本批納入 | COD 正式物流接線與完整 E2E |
+| INT-02 | Checkout Application/Gateway、同交易建單／庫存／優惠／Attempt、`POST /api/v1/orders`、SQL Server 測試；WP-07 本機已完成付款頁、訪客限單驗證頁與政策版本查詢 | 結帳頁、最後名額／完整交易 E2E；結帳頁受 Terry-owned 配送選項／門市查詢尚未落地阻擋 |
 
 已確認兩項追蹤文件飄移，後續需校正：
 
@@ -145,7 +145,9 @@ No-Go：任何金額／身份規則不明、需要新 Migration、跨模組資�
 | 2026-09-01 | WP-04 | 完成（已推送） | 新增 `POST /api/v1/orders/{id}/payment-attempts`、Owner actor、中央冪等、Serializable Writer、可信訂單金額與 RowVersion；SQL 3/3（含跨會員負向）、API 2/2、Application 14/14，既有模擬付款 Writer 回歸亦全綠；SQL `datetime2` UTC 邊界已由 Reader 正規化；隨 `e77edfbb` 推送至 `origin/dev` |
 | 2026-09-01 | WP-02 | 外部依賴待處理 | `ICartCouponLineReader` 明定由 Terry-owned Shopping Infrastructure 實作；本接手不跨 owner 直接查 Shopping／Catalog 表，待該窄介面落地後接 Controller／DI／OpenAPI |
 | 2026-09-01 | WP-05 | 完成（已推送） | 新增退款分頁／篩選清單與明細 API、A-21/A-22、角色路由、可信分攤正負顯示、TOTP 提示、確認門檻與穩定 Idempotency-Key；Application 5/5、API 26/26、SQL Server 1/1、Refund 白名單 2/2、Vue 聚焦 5/5、router 組合 24/24、typecheck/lint/build 全綠；OpenAPI／Typed Client 已同步，隨 `8cf41558` 推送至 `origin/dev` |
-| 2026-09-01 | WP-06 | 完成（本批交付） | 手動開立／作廢命令、中央 Audit、Serializable 冪等、RowVersion、退款折讓阻擋、發票清單／明細／手動開立 UI 已完成；DEC-P348 新增 `Invoice.Manage` 窄版訂單快照，只回六個核准欄位。Application 發票範圍 36/36、API Invoicing 15/15、SQL Server 發票埠／查詢／寫入 49/49、Vue 發票頁 4/4、typecheck／lint／production build、Solution build 0 warning 與 format verify 全綠；OpenAPI／Typed Client 已同步，隨本批 commit／push 交付 |
+| 2026-09-01 | WP-06 | 完成（已推送） | 手動開立／作廢命令、中央 Audit、Serializable 冪等、RowVersion、退款折讓阻擋、發票清單／明細／手動開立 UI 已完成；DEC-P348 新增 `Invoice.Manage` 窄版訂單快照，只回六個核准欄位。Application 發票範圍 36/36、API Invoicing 15/15、SQL Server 發票埠／查詢／寫入 49/49、Vue 發票頁 4/4、typecheck／lint／production build、Solution build 0 warning 與 format verify 全綠；OpenAPI／Typed Client 已同步，隨 `13276513` 推送至 `origin/dev` |
+| 2026-09-01 | WP-07 | 部分完成／等待上游（本批提交） | 完成 C-15 付款頁、訂單付款／退款摘要、顧客模擬發票顯示，以及必要上游 C-16/C-17 訪客兩階段限單驗證；重用正式 Owner／Guest、Antiforgery、冪等鍵與 Typed Client。customer-web 41 files／287 tests、typecheck、lint、production build 全綠。DEC-P349 已新增 public `GET /api/v1/checkout/policy-versions`，API 以目前 provider 投影三個核准欄位，OpenAPI／Typed Client 已同步。依 DEC-P350，C-14 等待 Terry-owned `GET /api/v1/cart/shipping-options`／`GET /api/v1/convenience-stores` 與 Provider-backed 證據，不得硬寫配送資料或跨 owner 查表，也不得把 WP-07 標為完整完成 |
+| 2026-09-01 | WP-08 | 等待上游（B1／DEC-P350） | 維持只接手 yinyin；兩支 Terry-owned 配送查詢、Provider-backed 測試及 OpenAPI／Typed Client 落地後，才恢復 C-14 與 Cart→Checkout→Payment→Order/Invoice 核心 E2E。正式紀錄見 [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-041-Checkout配送查詢責任邊界定版]] |
 
 ## 10. 待裁定
 
@@ -163,3 +165,21 @@ No-Go：任何金額／身份規則不明、需要新 Migration、跨模組資�
 ### DEC-EXEC-02｜FinanceManager 手動開票如何取得 Order RowVersion
 
 **裁定：A1（2026-09-01，DEC-P348）。** 新增 `Invoice.Manage` 專用窄查詢，只回 Order PublicId、單號、付款／取消事實、RowVersion 與是否已有發票；不擴大 `Order.Manage`，不回收件人、品項或內部 ID。管理 UI 必須先取得快照，再以該 RowVersion 開立；衝突時重查並再次確認。正式紀錄見 [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-039-發票手動開立窄查詢契約定版]]。
+
+### DEC-EXEC-03｜Checkout 如何取得當前政策版本
+
+**裁定：A1（2026-09-01，DEC-P349）。** `CreateOrderRequest` 要求前端提交 Terms／Return／Privacy 版本，`CheckoutService` 會與後端 `CheckoutPolicyOptions` 嚴格比對；新增 public、唯讀 `GET /api/v1/checkout/policy-versions`，只投影三個當前核准版本。前端不得寫死 `1/1/1`，也不得取得或提交伺服器內部 ShippingConstraint 版本。正式紀錄見 [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-040-Checkout政策版本查詢契約定版]]。
+
+| 選項 | 內容 | 成本／影響 |
+|---|---|---|
+| A1（建議） | 新增 public、唯讀、無敏感資料的 Checkout policy metadata Endpoint，只回當前 Terms／Return／Privacy 版本；C-14 載入後顯示勾選並原值送回 | 最小可維護契約；版本更新不必同步重發前端。需新增 additive API／OpenAPI／Typed Client 與整合測試 |
+| A2 | C-14 第一版固定送 `1/1/1` | 程式最少，但與後端設定形成隱性雙寫；任何政策升版會直接中斷結帳，且 UI 無法證明顧客接受的是當前版本 |
+
+### DEC-EXEC-04｜是否擴大接手 Terry-owned Checkout 配送查詢
+
+**裁定：B1（2026-09-01，DEC-P350）。** 維持目前只接手 yinyin 範圍，不擴大接手 Terry-owned Shipping／Shopping。正式 Endpoint 目錄與 DTO 契約已定義 `GET /api/v1/cart/shipping-options`、`GET /api/v1/convenience-stores`，由 Terry 交付兩支窄查詢、Provider-backed 證據、OpenAPI／Typed Client；C-14 與 WP-08 在上游落地前維持等待。C-14 不得硬寫配送代碼／門市 PublicId，也不得由 yinyin 前端直接推測費用、資格或付款方式。正式紀錄見 [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-041-Checkout配送查詢責任邊界定版]]。
+
+| 選項 | 內容 | 成本／影響 |
+|---|---|---|
+| B1（建議，維持現有責任） | 由 Terry 依既有規格交付兩支窄查詢與 Provider-backed 證據；本接手先保留 WP-07 已完成部分，待上游落地後續作 C-14／WP-08 | 不跨 owner、重工風險最低；代價是 Checkout 與核心 E2E 繼續等待 |
+| B2（需明確擴大授權） | alex 暫時接手 Terry 的「公開配送選項／示範門市唯讀邊界」：只補必要 port、SQL query、Controller、OpenAPI 與測試，不接手後台門市 CRUD、Shipment 或物流狀態命令 | 能直接續作 C-14；但擴大目前只接手 yinyin 的範圍，會觸及 Terry-owned EF 查詢與 SQL Provider 測試，需要完整 review／交接 |

@@ -91,6 +91,21 @@ const router = createRouter({
       component: () => import('../features/orders/OrderDetailPage.vue'),
     },
     {
+      path: '/orders/:orderId/payment',
+      name: 'order-payment',
+      component: () => import('../features/payments/PaymentPage.vue'),
+    },
+    {
+      path: '/guest-orders/access',
+      name: 'guest-order-access',
+      component: () => import('../features/orders/GuestOrderAccessPage.vue'),
+    },
+    {
+      path: '/guest-orders/verify',
+      name: 'guest-order-verify',
+      component: () => import('../features/orders/GuestOrderVerifyPage.vue'),
+    },
+    {
       path: '/orders/:orderId/returns/new',
       name: 'return-new',
       component: () => import('../pages/returns/ReturnNewPage.vue'),
