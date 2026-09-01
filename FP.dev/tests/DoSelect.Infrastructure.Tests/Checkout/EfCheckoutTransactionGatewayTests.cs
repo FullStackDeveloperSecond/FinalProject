@@ -586,6 +586,141 @@ public sealed class EfCheckoutTransactionGatewayTests
         await transaction.CommitAsync();
     }
 
+    /// <summary>
+    /// 組長 PR #73 review A1／item 1: the store's ProviderCode is the CVS brand (7-11／FamilyMart)
+    /// while the method's ProviderCode is the logistics profile class, so the old
+    /// store.ProviderCode == method.ProviderCode comparison made every store-pickup checkout fail
+    /// with "store not found". These are the first store-pickup checkouts covered at all — the
+    /// conflated comparison shipped precisely because no test exercised this path.
+    /// </summary>
+    [Theory]
+    [InlineData("7-11")]
+    [InlineData("FamilyMart")]
+    public async Task ExecuteAsync_StorePickup_CreatesTheOrderForEitherStoreBrand(string storeBrand)
+    {
+        var seed = await SeedStorePickupAsync(storeBrand, storeIsActive: true);
+        await using var context = EfCheckoutTransactionGatewayFixture.CreateContext();
+        await using var transaction = await context.Database.BeginTransactionAsync();
+
+        var created = await CreateGateway(context).ExecuteAsync(seed.Command);
+        await transaction.CommitAsync();
+
+        await using var verification = EfCheckoutTransactionGatewayFixture.CreateContext();
+        var order = await verification.Orders.SingleAsync(candidate => candidate.PublicId == created.PublicId);
+        Assert.Equal(DoSelect.Domain.Orders.OrderStatus.PendingPayment, order.OrderStatus);
+        // The order keeps the store *display* snapshot, immune to later store edits.
+        Assert.Equal(seed.StoreName, order.StoreName);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_StorePickup_WhenTheStoreIsInactive_RejectsWithShippingStoreInactive()
+    {
+        var seed = await SeedStorePickupAsync("7-11", storeIsActive: false);
+        await using var context = EfCheckoutTransactionGatewayFixture.CreateContext();
+        await using var transaction = await context.Database.BeginTransactionAsync();
+
+        var exception = await Assert.ThrowsAsync<DomainProblemException>(
+            () => CreateGateway(context).ExecuteAsync(seed.Command));
+
+        Assert.Equal("shipping_store_inactive", exception.Code);
+    }
+
+    private sealed record StorePickupSeed(CheckoutCommand Command, string StoreName);
+
+    private static async Task<StorePickupSeed> SeedStorePickupAsync(string storeBrand, bool storeIsActive)
+    {
+        await using var context = EfCheckoutTransactionGatewayFixture.CreateContext();
+        var suffix = Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
+        var brand = new Brand(Guid.CreateVersion7(), $"BR-{suffix}", "Checkout 品牌", NowUtc);
+        var category = new Category(
+            Guid.CreateVersion7(), $"CAT-{suffix}", $"category-{suffix.ToLowerInvariant()}", "周邊", null, NowUtc);
+        context.AddRange(brand, category);
+        await context.SaveChangesAsync();
+
+        var product = new Product(
+            Guid.CreateVersion7(), $"PROD-{suffix}", brand.Id, category.Id, "測試商品", NowUtc);
+        product.ChangeStatus(ProductStatus.Published, NowUtc);
+        context.Products.Add(product);
+        await context.SaveChangesAsync();
+        var sku = new Sku(
+            Guid.CreateVersion7(), $"SKU-{suffix}", product.Id, "測試 SKU", 1_000m, 600m, NowUtc);
+        sku.UpdatePackageDimensions(1m, 30m, 20m, 10m, NowUtc);
+        sku.ChangeStatus(SkuStatus.Published, NowUtc);
+        context.Skus.Add(sku);
+        await context.SaveChangesAsync();
+        context.InventoryBalances.Add(new DoSelect.Domain.Inventory.InventoryBalance(
+            Guid.CreateVersion7(), sku.Id, 5, 1, NowUtc));
+
+        // Method Kind must be checkout's own "ConvenienceStorePickup" constant; the method's
+        // ProviderCode is the logistics profile class — deliberately different from storeBrand.
+        var method = new ShippingMethod(
+            Guid.CreateVersion7(),
+            $"CVS-{suffix}",
+            "超商取貨",
+            "ConvenienceStorePickup",
+            60m,
+            2_000m,
+            allowsCod: true,
+            requiresPrepayment: false,
+            $"PROVIDER-{suffix}",
+            NowUtc);
+        var profile = new ShippingProviderProfile(
+            Guid.CreateVersion7(), $"PROVIDER-{suffix}", 1, "Published", null, null, "{}", 1, NowUtc);
+        context.AddRange(method, profile);
+        await context.SaveChangesAsync();
+        context.PackageLimitVersions.Add(new PackageLimitVersion(
+            Guid.CreateVersion7(), profile.Id, 1, 5m, 45m, 45m, 45m, 105m, 20_000m,
+            null, null, NowUtc));
+
+        var storeName = $"{storeBrand} 測試門市 {suffix}";
+        var store = new ConvenienceStore(
+            Guid.CreateVersion7(), storeBrand, $"ST{suffix}", storeName,
+            "測試路 1 號", "台北市", "大安區", isDemoData: true, NowUtc);
+        if (!storeIsActive)
+        {
+            store.UpdateDetails(storeName, "測試路 1 號", "台北市", "大安區", isActive: false, NowUtc);
+        }
+
+        context.ConvenienceStores.Add(store);
+        await context.SaveChangesAsync();
+
+        var guestKey = "checkout-cvs-secret-" + suffix;
+        var cart = Cart.CreateForGuest(
+            Guid.CreateVersion7(),
+            SHA256.HashData(Encoding.UTF8.GetBytes(guestKey)),
+            NowUtc.AddDays(30),
+            NowUtc);
+        context.Carts.Add(cart);
+        await context.SaveChangesAsync();
+        context.CartItems.Add(new CartItem(
+            Guid.CreateVersion7(), cart.Id, sku.Id, 1, null, NowUtc));
+        cart.Touch(NowUtc);
+        await context.SaveChangesAsync();
+
+        var command = new CheckoutCommand(
+            CheckoutActor.ForGuest(guestKey),
+            cart.PublicId,
+            cart.RowVersion.ToArray(),
+            new CheckoutRecipientSnapshot(
+                "Guest", "0912345678", "guest@example.test", "TW",
+                "100", "Taipei", "Zhongzheng", "No. 1", null),
+            null,
+            method.Code,
+            store.PublicId,
+            PaymentMethod.CreditCard,
+            null,
+            new CheckoutInvoicePreferenceSnapshot(
+                SimulatedInvoiceBuyerType.Individual,
+                "guest@example.test",
+                null,
+                null,
+                null,
+                null),
+            new CheckoutPolicySnapshot(1, 1, 1, 1),
+            "checkout-cvs-test-" + Guid.NewGuid().ToString("N"));
+        return new StorePickupSeed(command, storeName);
+    }
+
     private static async Task<CheckoutSeed> SeedAsync(
         int onHandQuantity,
         bool withCoupon = false,

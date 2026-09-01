@@ -26,6 +26,7 @@ using DoSelect.Infrastructure.Persistence.Orders;
 using DoSelect.Infrastructure.Persistence.Returns;
 using DoSelect.Infrastructure.Outbox;
 using DoSelect.Infrastructure.Persistence.Seeding;
+using DoSelect.Infrastructure.Shipping;
 using DoSelect.Infrastructure.Refunds;
 using DoSelect.Infrastructure.Reviews;
 using DoSelect.Infrastructure.Security;
@@ -69,6 +70,7 @@ builder.Services.AddDoSelectReturnsServices();
 builder.Services.AddScoped<ReturnActorResolver>();
 builder.Services.AddDoSelectBuildsServices();
 builder.Services.AddDoSelectInventory();
+builder.Services.AddDoSelectShippingServices();
 builder.Services.AddSingleton<IEmailSender>(services =>
 {
     var emailEnabled = builder.Configuration.GetValue<bool>("Features:EmailEnabled");
@@ -99,12 +101,13 @@ if (args.Contains("--seed-minimal", StringComparer.OrdinalIgnoreCase))
     var seeder = scope.ServiceProvider.GetRequiredService<MinimalDevelopmentDataSeeder>();
     var result = await seeder.SeedAsync();
     app.Logger.LogInformation(
-        "Minimal development seed completed. RolesCreated={RolesCreated}, UsersCreated={UsersCreated}, ProfilesCreated={ProfilesCreated}, CatalogRecordsCreated={CatalogRecordsCreated}, CompatibilityRecordsCreated={CompatibilityRecordsCreated}",
+        "Minimal development seed completed. RolesCreated={RolesCreated}, UsersCreated={UsersCreated}, ProfilesCreated={ProfilesCreated}, CatalogRecordsCreated={CatalogRecordsCreated}, CompatibilityRecordsCreated={CompatibilityRecordsCreated}, ShippingRecordsCreated={ShippingRecordsCreated}",
         result.RolesCreated,
         result.UsersCreated,
         result.ProfilesCreated,
         result.CatalogRecordsCreated,
-        result.CompatibilityRecordsCreated);
+        result.CompatibilityRecordsCreated,
+        result.ShippingRecordsCreated);
     return;
 }
 

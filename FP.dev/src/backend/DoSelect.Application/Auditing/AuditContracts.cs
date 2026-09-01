@@ -60,6 +60,17 @@ public static class AuditActions
     public const string CompatibilityRuleTest = "compatibility_rule.test";
     public const string OutboxRetry = "outbox.retry";
     public const string PaymentSimulateComplete = "payment.simulate.complete";
+
+    /// <summary>
+    /// UC-ADM-SHIP-01／UC-ADM-STORE-01 (組長 PR #73 review item 2): package-limit and demo-store
+    /// admin writes must land a central AuditLog entry in the same SQL transaction as the write
+    /// itself. Free-text store names/addresses never enter the safe-code fields — updates record
+    /// which fields changed (AuditFieldChange.Changed), the coupon.update precedent.
+    /// </summary>
+    public const string ShippingPackageLimitCreate = "shipping.package_limit.create";
+    public const string ShippingPackageLimitPublish = "shipping.package_limit.publish";
+    public const string ShippingStoreCreate = "shipping.store.create";
+    public const string ShippingStoreUpdate = "shipping.store.update";
 }
 
 public static class AuditResourceTypes
@@ -78,6 +89,8 @@ public static class AuditResourceTypes
     public const string CompatibilityCheckRun = "CompatibilityCheckRun";
     public const string OutboxMessage = "OutboxMessage";
     public const string PaymentAttempt = "PaymentAttempt";
+    public const string PackageLimitVersion = "PackageLimitVersion";
+    public const string ConvenienceStore = "ConvenienceStore";
 }
 
 public static class AuditRoleNames
@@ -476,6 +489,23 @@ internal static class AuditWritePolicy
     private static readonly IReadOnlyDictionary<string, AuditActionDefinition> Definitions =
         new Dictionary<string, AuditActionDefinition>(StringComparer.Ordinal)
         {
+            [AuditActions.ShippingPackageLimitCreate] = Definition(
+                AuditActions.ShippingPackageLimitCreate,
+                AuditResourceTypes.PackageLimitVersion,
+                "providerCode", "version", "status"),
+            [AuditActions.ShippingPackageLimitPublish] = Definition(
+                AuditActions.ShippingPackageLimitPublish,
+                AuditResourceTypes.PackageLimitVersion,
+                "providerCode", "version", "status", "supersededVersion"),
+            [AuditActions.ShippingStoreCreate] = Definition(
+                AuditActions.ShippingStoreCreate,
+                AuditResourceTypes.ConvenienceStore,
+                "providerCode", "storeCode", "isActive"),
+            [AuditActions.ShippingStoreUpdate] = Definition(
+                AuditActions.ShippingStoreUpdate,
+                AuditResourceTypes.ConvenienceStore,
+                "providerCode", "storeCode", "isActive",
+                "storeName", "address", "city", "district"),
             [AuditActions.RefundExecute] = DefinitionWithNote(
                 AuditActions.RefundExecute,
                 AuditResourceTypes.Refund,

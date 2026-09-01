@@ -33,7 +33,7 @@ namespace DoSelect.Infrastructure.Checkout;
 public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
 {
     private const decimal AssemblyFeePerGroup = 300m;
-    private const string PublishedProviderStatus = "Published";
+    private const string DraftProviderStatus = "Draft";
     private const string AssemblyShippingKind = "HomeDeliveryAssembly";
     private const string StorePickupShippingKind = "ConvenienceStorePickup";
     private const string PaymentProviderCode = "SIMULATED";
@@ -400,10 +400,15 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
                 throw Conflict("shipping_method_not_allowed", "A convenience store is required.");
             }
 
+            // 組長 PR #73 review A1: the store's ProviderCode is the CVS *brand* (7-11／FamilyMart,
+            // the store model in 購物車、訂單、付款與物流.md) while the method's ProviderCode is the
+            // logistics *profile class* (StorePickup) — the old equality compared those two
+            // different vocabularies, so every store-pickup checkout failed with "store not
+            // found". The store resolves by PublicId + IsActive alone; method.ProviderCode is only
+            // used to resolve the ShippingProviderProfile below.
             store = await _context.ConvenienceStores.AsNoTracking()
-                .SingleOrDefaultAsync(candidate =>
-                        candidate.PublicId == command.StorePublicId.Value &&
-                        candidate.ProviderCode == method.ProviderCode,
+                .SingleOrDefaultAsync(
+                    candidate => candidate.PublicId == command.StorePublicId.Value,
                     cancellationToken)
                 ?? throw DomainProblemException.NotFound("The convenience store was not found.");
             if (!store.IsActive)
@@ -416,9 +421,12 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
             throw Conflict("shipping_method_not_allowed", "A home-delivery address is required.");
         }
 
+        // 組長 PR #73 round-3, item 2 (裁定 B1)：版本可用性以有效時間窗為準。被新版本接班的舊版本在
+        // cutoff 之前仍是唯一有效版本（Publish 只把它的窗口收在 cutoff），所以這裡排除的是「從未生效
+        // 的 Draft」，不是「已被接班」。Shipping Options 用完全相同的條件。
         var profiles = await _context.ShippingProviderProfiles.AsNoTracking()
             .Where(profile => profile.ProviderCode == method.ProviderCode &&
-                              profile.Status == PublishedProviderStatus &&
+                              profile.Status != DraftProviderStatus &&
                               (profile.EffectiveFromUtc == null || profile.EffectiveFromUtc <= now) &&
                               (profile.EffectiveToUtc == null || now < profile.EffectiveToUtc))
             .ToListAsync(cancellationToken);

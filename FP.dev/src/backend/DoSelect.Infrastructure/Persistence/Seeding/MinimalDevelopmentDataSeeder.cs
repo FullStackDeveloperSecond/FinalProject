@@ -2,6 +2,7 @@ using DoSelect.Domain.Builds;
 using DoSelect.Domain.Catalog;
 using DoSelect.Domain.Inventory;
 using DoSelect.Domain.Members;
+using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Persistence.Identity;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -28,6 +29,9 @@ public sealed class MinimalDevelopmentDataSeeder(
         await EnsureUsersAndProfilesAsync(passwords, counters, cancellationToken);
         await EnsureCatalogAsync(counters, cancellationToken);
         await EnsureBuildCompatibilityAsync(counters, cancellationToken);
+        await EnsureShippingMethodsAsync(counters, cancellationToken);
+        await EnsureShippingProvidersAsync(counters, cancellationToken);
+        await EnsureConvenienceStoresAsync(counters, cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
         return new MinimalDevelopmentSeedResult(
@@ -35,7 +39,8 @@ public sealed class MinimalDevelopmentDataSeeder(
             counters.UsersCreated,
             counters.ProfilesCreated,
             counters.CatalogRecordsCreated,
-            counters.CompatibilityRecordsCreated);
+            counters.CompatibilityRecordsCreated,
+            counters.ShippingRecordsCreated);
     }
 
     private async Task EnsureRolesAsync(SeedCounters counters)
@@ -685,6 +690,208 @@ public sealed class MinimalDevelopmentDataSeeder(
         return option;
     }
 
+    /// <summary>
+    /// Unlike the rest of this seeder's catalog data (a single fake dev-only product), the
+    /// three <see cref="ShippingMethod"/> rows below are real, fixed business reference data —
+    /// 購物車、訂單、付款與物流.md's 配送方式與費用 table names exactly these three, with these fees
+    /// and thresholds, as the whole v1 shipping surface (no admin-creatable methods exist).
+    /// They live here for now because this seeder is the only idempotent "ensure this row
+    /// exists" mechanism in the codebase; worth confirming with the team whether reference data
+    /// that must exist in every environment (not just local dev) deserves its own seeding path
+    /// instead of riding along on a seeder gated behind `--seed-minimal`.
+    /// </summary>
+    private async Task EnsureShippingMethodsAsync(SeedCounters counters, CancellationToken cancellationToken)
+    {
+        var existingCodes = await dbContext.ShippingMethods
+            .Select(method => method.Code)
+            .ToListAsync(cancellationToken);
+
+        var definitions = new[]
+        {
+            (
+                PublicId: MinimalDevelopmentSeedDefinitions.StorePickupMethodPublicId,
+                Code: "StorePickup",
+                NameZhTw: "超商取貨",
+                Kind: ShippingMethodKinds.StorePickup,
+                BaseFee: 60m,
+                FreeShippingThreshold: (decimal?)2000m,
+                AllowsCod: true,
+                RequiresPrepayment: false,
+                ProviderCode: ShippingProviderCodes.StorePickup),
+            (
+                PublicId: MinimalDevelopmentSeedDefinitions.HomeDeliveryMethodPublicId,
+                Code: "HomeDelivery",
+                NameZhTw: "一般宅配",
+                Kind: ShippingMethodKinds.HomeDelivery,
+                BaseFee: 150m,
+                FreeShippingThreshold: (decimal?)5000m,
+                AllowsCod: true,
+                RequiresPrepayment: false,
+                ProviderCode: ShippingProviderCodes.HomeDelivery),
+            (
+                PublicId: MinimalDevelopmentSeedDefinitions.HomeDeliveryAssemblyMethodPublicId,
+                Code: "HomeDeliveryAssembly",
+                NameZhTw: "組裝電腦宅配",
+                Kind: ShippingMethodKinds.HomeDeliveryAssembly,
+                BaseFee: 300m,
+                FreeShippingThreshold: (decimal?)30000m,
+                AllowsCod: false,
+                RequiresPrepayment: true,
+                ProviderCode: ShippingProviderCodes.HomeDelivery),
+        };
+
+        foreach (var definition in definitions)
+        {
+            if (existingCodes.Contains(definition.Code))
+            {
+                continue;
+            }
+
+            dbContext.ShippingMethods.Add(new ShippingMethod(
+                definition.PublicId,
+                definition.Code,
+                definition.NameZhTw,
+                definition.Kind,
+                definition.BaseFee,
+                definition.FreeShippingThreshold,
+                definition.AllowsCod,
+                definition.RequiresPrepayment,
+                definition.ProviderCode,
+                MinimalDevelopmentSeedDefinitions.CreatedAtUtc));
+            counters.ShippingRecordsCreated++;
+        }
+
+        if (counters.ShippingRecordsCreated > 0)
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// dev's Checkout (#52) resolves ShippingMethod.ProviderCode to exactly one Published
+    /// ShippingProviderProfile and exactly one effective PackageLimitVersion, refusing checkout
+    /// otherwise - so methods seeded without these rows would exist but never be usable. Providers
+    /// follow the spec's transport classes (購物車、訂單、付款與物流.md: "超商與宅配使用不同 Provider
+    /// Profile"), not the store chains: both home-delivery methods share the HomeDelivery profile.
+    /// Defaults come from PackageLimitSafeRanges: the store-pickup ceiling doubles as its default,
+    /// and home delivery seeds its safe-range ceiling as the explicit seed default the doc requires.
+    /// </summary>
+    private async Task EnsureShippingProvidersAsync(SeedCounters counters, CancellationToken cancellationToken)
+    {
+        var definitions = new[]
+        {
+            (
+                ProfilePublicId: MinimalDevelopmentSeedDefinitions.StorePickupProviderProfilePublicId,
+                LimitPublicId: MinimalDevelopmentSeedDefinitions.StorePickupPackageLimitPublicId,
+                ProviderCode: ShippingProviderCodes.StorePickup,
+                MaxWeightKg: PackageLimitSafeRanges.StorePickupDefault.MaxWeightKg,
+                MaxLengthCm: PackageLimitSafeRanges.StorePickupDefault.MaxLengthCm,
+                MaxWidthCm: PackageLimitSafeRanges.StorePickupDefault.MaxWidthCm,
+                MaxHeightCm: PackageLimitSafeRanges.StorePickupDefault.MaxHeightCm,
+                MaxTotalCm: PackageLimitSafeRanges.StorePickupDefault.MaxTotalCm,
+                MaxDeclaredValue: 20_000m),
+            (
+                ProfilePublicId: MinimalDevelopmentSeedDefinitions.HomeDeliveryProviderProfilePublicId,
+                LimitPublicId: MinimalDevelopmentSeedDefinitions.HomeDeliveryPackageLimitPublicId,
+                ProviderCode: ShippingProviderCodes.HomeDelivery,
+                MaxWeightKg: PackageLimitSafeRanges.HomeDelivery.MaxWeightKg,
+                MaxLengthCm: PackageLimitSafeRanges.HomeDelivery.MaxSideCm,
+                MaxWidthCm: PackageLimitSafeRanges.HomeDelivery.MaxSideCm,
+                MaxHeightCm: PackageLimitSafeRanges.HomeDelivery.MaxSideCm,
+                MaxTotalCm: PackageLimitSafeRanges.HomeDelivery.MaxTotalCm,
+                MaxDeclaredValue: 50_000m),
+        };
+
+        foreach (var definition in definitions)
+        {
+            var profile = await dbContext.ShippingProviderProfiles
+                .SingleOrDefaultAsync(candidate => candidate.ProviderCode == definition.ProviderCode, cancellationToken);
+            if (profile is null)
+            {
+                profile = new ShippingProviderProfile(
+                    definition.ProfilePublicId,
+                    definition.ProviderCode,
+                    version: 1,
+                    status: "Published",
+                    effectiveFromUtc: null,
+                    effectiveToUtc: null,
+                    configurationJson: "{}",
+                    schemaVersion: 1,
+                    MinimalDevelopmentSeedDefinitions.CreatedAtUtc);
+                dbContext.ShippingProviderProfiles.Add(profile);
+                await dbContext.SaveChangesAsync(cancellationToken);
+                counters.ShippingRecordsCreated++;
+            }
+
+            var hasLimit = await dbContext.PackageLimitVersions
+                .AnyAsync(candidate => candidate.ProviderProfileId == profile.Id, cancellationToken);
+            if (!hasLimit)
+            {
+                dbContext.PackageLimitVersions.Add(new PackageLimitVersion(
+                    definition.LimitPublicId,
+                    profile.Id,
+                    version: 1,
+                    definition.MaxWeightKg,
+                    definition.MaxLengthCm,
+                    definition.MaxWidthCm,
+                    definition.MaxHeightCm,
+                    definition.MaxTotalCm,
+                    definition.MaxDeclaredValue,
+                    effectiveFromUtc: null,
+                    effectiveToUtc: null,
+                    MinimalDevelopmentSeedDefinitions.CreatedAtUtc));
+                await dbContext.SaveChangesAsync(cancellationToken);
+                counters.ShippingRecordsCreated++;
+            }
+        }
+    }
+
+    /// <summary>
+    /// UC-ADM-STORE-01's "重建示範超商門市" acceptance criteria (50 7-ELEVEN + 50 FamilyMart fake
+    /// stores) has no dedicated HTTP endpoint in API Endpoint目錄.md — only plain admin CRUD
+    /// (GET/POST/PUT) is contracted there. Idempotent bulk seeding fits this seeder's existing
+    /// "ensure this reference data exists" role better than inventing an unlisted endpoint; only
+    /// adds missing rows, never deletes, so it can't violate the "referenced store can't be hard
+    /// deleted" rule even if this runs again after real orders exist.
+    /// </summary>
+    private async Task EnsureConvenienceStoresAsync(SeedCounters counters, CancellationToken cancellationToken)
+    {
+        var existingCount = await dbContext.ConvenienceStores.CountAsync(cancellationToken);
+        if (existingCount > 0)
+        {
+            return;
+        }
+
+        var cityDistricts = new (string City, string District)[]
+        {
+            ("台北市", "大安區"), ("台北市", "信義區"), ("台北市", "中山區"), ("台北市", "士林區"), ("台北市", "內湖區"),
+            ("新北市", "板橋區"), ("新北市", "三重區"), ("新北市", "中和區"), ("新北市", "新莊區"), ("新北市", "永和區"),
+            ("桃園市", "桃園區"), ("桃園市", "中壢區"), ("台中市", "西區"), ("台中市", "北屯區"), ("台中市", "南屯區"),
+            ("台南市", "東區"), ("台南市", "中西區"), ("高雄市", "苓雅區"), ("高雄市", "三民區"), ("新竹市", "東區"),
+        };
+
+        foreach (var (providerCode, prefix) in new[] { ("7-11", "SEVEN"), ("FamilyMart", "FAMILY") })
+        {
+            for (var i = 1; i <= 50; i++)
+            {
+                var (city, district) = cityDistricts[(i - 1) % cityDistricts.Length];
+                dbContext.ConvenienceStores.Add(new ConvenienceStore(
+                    Guid.CreateVersion7(),
+                    providerCode,
+                    $"{prefix}-{i:000}",
+                    $"{providerCode} {city}{district}{i:000}門市",
+                    $"{city}{district}示範路{i}號",
+                    city,
+                    district,
+                    isDemoData: true,
+                    MinimalDevelopmentSeedDefinitions.CreatedAtUtc));
+                counters.ShippingRecordsCreated++;
+            }
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
     private static void EnsureSucceeded(string action, IdentityResult result)
     {
         if (result.Succeeded)
@@ -708,6 +915,7 @@ public sealed class MinimalDevelopmentDataSeeder(
         public int CatalogRecordsCreated { get; set; }
 
         public int CompatibilityRecordsCreated { get; set; }
+        public int ShippingRecordsCreated { get; set; }
     }
 }
 
@@ -716,4 +924,5 @@ public sealed record MinimalDevelopmentSeedResult(
     int UsersCreated,
     int ProfilesCreated,
     int CatalogRecordsCreated,
-    int CompatibilityRecordsCreated);
+    int CompatibilityRecordsCreated,
+    int ShippingRecordsCreated);
