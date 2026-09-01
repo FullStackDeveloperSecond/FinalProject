@@ -30,6 +30,22 @@ public sealed class InventoryReservationExpiryBackgroundService(
     {
         while (!stoppingToken.IsCancellationRequested)
         {
+            // 先等一個間隔再掃第一次。冷啟動時本來就在建 EF 模型、暖連線池、承接第一波流量，
+            // 這種維護工作不該再插一腳；保留期限是 15 分鐘／3 天，晚一分鐘釋放無關緊要。
+            //
+            // 另一個現實理由：這支服務會跟著整合測試的 WebApplicationFactory 一起啟動，而
+            // Required CI 有一道量測 20ms 登入延遲差的側通道測試（TimingSideChannelTests）。
+            // 啟動即掃描等於在那個量測窗口裡跟 Identity 的 AccessFailedCount 寫入搶資料庫。
+            // 先等一個間隔，測試 host 的生命週期內就不會掃到。
+            try
+            {
+                await Task.Delay(Interval, stoppingToken);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+
             try
             {
                 await using var scope = scopeFactory.CreateAsyncScope();
@@ -56,15 +72,6 @@ public sealed class InventoryReservationExpiryBackgroundService(
             {
                 // 一次掃描失敗不該讓排程整個停掉——下一分鐘再試一次即可。
                 logger.LogError(ex, "Unhandled exception while releasing overdue inventory reservations.");
-            }
-
-            try
-            {
-                await Task.Delay(Interval, stoppingToken);
-            }
-            catch (OperationCanceledException)
-            {
-                break;
             }
         }
     }
