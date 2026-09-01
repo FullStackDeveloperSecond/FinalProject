@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { defineComponent, ref, type PropType } from 'vue'
 
 const mockSearch = vi.fn()
 
@@ -81,9 +82,11 @@ describe('ConvenienceStorePicker', () => {
     await flushPromises()
     await wrapper.findAll('button').find((button) => button.text() === '選擇')!.trigger('click')
 
-    // 一併回傳摘要，父層才有東西可以保存並在下次掛載時傳回來。
-    expect(wrapper.emitted('update:modelValue')![0][0]).toBe('st-1')
-    expect((wrapper.emitted('update:modelValue')![0][1] as { publicId: string }).publicId).toBe('st-1')
+    // 主 model 只帶 PublicId——那是結帳唯一會送出去的欄位。
+    expect(wrapper.emitted('update:modelValue')).toEqual([['st-1']])
+    // 摘要走自己的具名 model，父層才綁得住（round-3 [P2]）。
+    expect((wrapper.emitted('update:selectedSummary')![0][0] as { publicId: string }).publicId)
+      .toBe('st-1')
   })
 
   /**
@@ -144,7 +147,8 @@ describe('ConvenienceStorePicker', () => {
     await flushPromises()
     await wrapper.findAll('button').find((button) => button.text() === '重新選擇')!.trigger('click')
 
-    expect(wrapper.emitted('update:modelValue')!.at(-1)).toEqual([null, null])
+    expect(wrapper.emitted('update:modelValue')!.at(-1)).toEqual([null])
+    expect(wrapper.emitted('update:selectedSummary')!.at(-1)).toEqual([null])
   })
 
   it('shows an empty state when nothing matches', async () => {
@@ -156,4 +160,92 @@ describe('ConvenienceStorePicker', () => {
 
     expect(wrapper.text()).toContain('沒有符合條件的門市')
   })
+
+  /**
+   * 組長 PR #79 round-3 review [P2]：上一版把摘要放在 `update:modelValue` 的第二個參數，而
+   * `v-model` 編譯後只會把第一個 `$event` 寫回 model——第二個參數會被丟掉，父層永遠存不到摘要。
+   * 舊測試只直接檢查 emitted arguments，所以完全看不出這件事。
+   *
+   * 下面兩支改成掛載一個真的用 `v-model` 與 `v-model:selected-summary` 的父元件，走結帳頁真正會
+   * 走的路徑。父元件只定義一次（`vue/one-component-per-file`），初始狀態由 props 帶入。
+   */
+  it('round-trips the selection through a parent using v-model across a remount', async () => {
+    mockSearch.mockResolvedValue(page([store()]))
+
+    const parent = mountParent()
+    await parent.find('form[aria-label="門市搜尋"]').trigger('submit')
+    await flushPromises()
+    await parent.findAll('button').find((button) => button.text() === '選擇')!.trigger('click')
+    await flushPromises()
+
+    // 父層兩個 model 都真的收到了。
+    expect(parent.vm.storePublicId).toBe('st-1')
+    expect(parent.vm.storeSummary?.publicId).toBe('st-1')
+    expect(parent.text()).toContain('父層保存：st-1')
+
+    // 卸載子元件（等同於離開這一步），再掛回來——父層狀態不變。
+    parent.vm.showPicker = false
+    await flushPromises()
+    expect(parent.find('form[aria-label="門市搜尋"]').exists()).toBe(false)
+
+    mockSearch.mockClear()
+    parent.vm.showPicker = true
+    await flushPromises()
+
+    // 重新掛載後不必再搜尋一次就顯示得出已選門市。
+    expect(mockSearch).not.toHaveBeenCalled()
+    expect(parent.text()).toContain('已選門市：大安門市')
+  })
+
+  /** 「重新選擇」也要把父層的兩個 model 一起清掉，不能只清 PublicId 留下孤兒摘要。 */
+  it('clears both models through a parent using v-model', async () => {
+    mockSearch.mockResolvedValue(page([store()]))
+
+    const parent = mountParent('st-1', store())
+    await flushPromises()
+
+    await parent.findAll('button').find((button) => button.text() === '重新選擇')!.trigger('click')
+    await flushPromises()
+
+    expect(parent.vm.storePublicId).toBeNull()
+    expect(parent.vm.storeSummary).toBeNull()
+  })
 })
+
+/**
+ * 一個真的用 `v-model` 綁兩個 model 的父元件——這才是結帳頁的用法，也是唯一能證明摘要真的被
+ * 父層保存下來的方式。
+ */
+const ParentHarness = defineComponent({
+  components: { ConvenienceStorePicker },
+  props: {
+    initialPublicId: { type: String as PropType<string | null>, default: null },
+    initialSummary: { type: Object as PropType<ConvenienceStoreOptionDto | null>, default: null },
+  },
+  setup(props) {
+    const storePublicId = ref<string | null>(props.initialPublicId)
+    const storeSummary = ref<ConvenienceStoreOptionDto | null>(props.initialSummary)
+    const showPicker = ref(true)
+    return { storePublicId, storeSummary, showPicker }
+  },
+  template: `
+    <div>
+      <ConvenienceStorePicker
+        v-if="showPicker"
+        v-model="storePublicId"
+        v-model:selected-summary="storeSummary"
+      />
+      <p>父層保存：{{ storePublicId ?? '無' }}</p>
+    </div>`,
+})
+
+function mountParent(
+  initialPublicId: string | null = null,
+  initialSummary: ConvenienceStoreOptionDto | null = null,
+) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return mount(ParentHarness, {
+    props: { initialPublicId, initialSummary },
+    global: { plugins: [[VueQueryPlugin, { queryClient }]] },
+  })
+}

@@ -13,15 +13,26 @@ import type { ConvenienceStoreOptionDto } from '../types'
 
 /**
  * 組長 PR #79 round-2 review item 2：只靠「目前搜尋結果裡找得到」還原選取，等於要求父層先搜尋、
- * 而且該門市正好落在目前這一頁——回到上一步或剛掛載時根本顯示不出既有選擇。改成明確的 contract：
- * 父層若已經有選取，就連同顯示用摘要一起傳進來（結帳頁本來就會保存這份摘要以便送出前回顧），
- * 元件不必自己去猜。
+ * 而且該門市正好落在目前這一頁——回到上一步或剛掛載時根本顯示不出既有選擇。所以父層若已經有
+ * 選取，就連同顯示用摘要一起傳進來。
+ *
+ * round-3 review [P2]：上一版把摘要放在 `update:modelValue` 的第二個參數，那是拿不到的——`v-model`
+ * 編譯後只會把第一個 `$event` 寫回 model，第二個參數直接被丟掉，父層永遠存不到摘要。改成兩個各自
+ * 獨立的具名 model：
+ *
+ *     v-model="storePublicId" v-model:selected-summary="storeSummary"
+ *
+ * 主 model 仍是 PublicId——那是結帳送出去的唯一欄位（名稱／地址由後端建單時自己快照）；摘要是
+ * 純顯示用的第二個 model，父層保存它才能在重新掛載時原樣傳回。
  */
 const props = defineProps<{
   modelValue: string | null
   selectedSummary?: ConvenienceStoreOptionDto | null
 }>()
-const emit = defineEmits<{ 'update:modelValue': [string | null, ConvenienceStoreOptionDto | null] }>()
+const emit = defineEmits<{
+  'update:modelValue': [string | null]
+  'update:selectedSummary': [ConvenienceStoreOptionDto | null]
+}>()
 
 // 搜尋條件只綁草稿，按下搜尋才套用並把頁碼歸 1（與後台頁一致的理由：避免「新條件配舊頁碼」）。
 const draft = reactive({ city: '', district: '', q: '' })
@@ -79,13 +90,15 @@ const selectedStore = computed<ConvenienceStoreOptionDto | null>(() => {
 
 function select(store: ConvenienceStoreOptionDto) {
   pickedStore.value = store
-  // 一併回傳摘要，父層才有東西可以保存並在下次掛載時傳回來。
-  emit('update:modelValue', store.publicId, store)
+  emit('update:modelValue', store.publicId)
+  // 兩個 model 一起更新：父層保存了摘要，重新掛載時才傳得回來。
+  emit('update:selectedSummary', store)
 }
 
 function clearSelection() {
   pickedStore.value = null
-  emit('update:modelValue', null, null)
+  emit('update:modelValue', null)
+  emit('update:selectedSummary', null)
 }
 </script>
 
