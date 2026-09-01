@@ -171,4 +171,26 @@ public sealed class SkuRowParserTests
         Assert.Contains(DomainErrorCodes.ImportSkuCodeDuplicate, result[0].Errors);
         Assert.Contains(DomainErrorCodes.ImportSkuCodeDuplicate, result[1].Errors);
     }
+
+    /// <summary>組長 PR #74 round-6 review (裁定 A1)：sku_key 的 width-equivalent 碰撞。</summary>
+    [Fact]
+    public void Parse_WhenTwoSkuKeysAreWidthEquivalent_MarksBothAndKeepsStorageKeysDistinct()
+    {
+        string[][] rows =
+        [
+            ValidHeader,
+            ["SK1", "SKU-1", "PK1", "SKU一", "1000", "600", "\\N", "\\N", "\\N", "\\N", "false", "Draft"],
+            ["ＳＫ１", "SKU-2", "PK1", "SKU二", "1000", "600", "\\N", "\\N", "\\N", "\\N", "false", "Draft"],
+        ];
+
+        var result = SkuRowParser.Parse(rows);
+
+        Assert.Contains(DomainErrorCodes.ImportValidationFailed, result[0].Errors);
+        Assert.Contains(DomainErrorCodes.ImportValidationFailed, result[1].Errors);
+        Assert.Equal("SK1", result[0].ImportKey);
+        Assert.NotEqual(
+            ImportStorageKeyAllocator.Canonicalize(result[0].ImportKey),
+            ImportStorageKeyAllocator.Canonicalize(result[1].ImportKey));
+        Assert.Equal("ＳＫ１", result[1].OriginalKey);
+    }
 }

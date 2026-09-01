@@ -21,7 +21,11 @@ internal static class SkuRowParser
     {
         var dataRows = ImportHeaderValidator.ValidateAndGetDataRows(rows, Header, "Skus");
         var staged = new List<StagedImportRow<SkuPayload>>(dataRows.Count);
-        var seenKeys = new HashSet<string>(StringComparer.Ordinal);
+
+        // 組長 PR #74 round-6 review (裁定 A1)：同 ProductRowParser——`SK1` 與全形 `ＳＫ１` 在資料庫
+        // 的 collation 下是同一個 key。
+        var keyConflictCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+        var canonicalKeysInUse = new HashSet<string>(StringComparer.Ordinal);
 
         // 組長 PR #74 round-4 review (P2／P3)：同 ProductRowParser——合成儲存鍵要以資料庫的比較
         // 規則避開使用者實際用到的 key，重複的 sku_code 也要每一列都標錯。
@@ -29,7 +33,14 @@ internal static class SkuRowParser
         var skuCodeCounts = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var candidate in dataRows.Where(row => row.Length == Header.Count))
         {
-            keys.Reserve(ImportFieldNormalization.NormalizeKey(candidate[0]));
+            var candidateKey = ImportFieldNormalization.NormalizeKey(candidate[0]);
+            keys.Reserve(candidateKey);
+            if (ImportStorageKeyAllocator.CanStore(candidateKey))
+            {
+                var canonical = ImportStorageKeyAllocator.Canonicalize(candidateKey!);
+                keyConflictCounts[canonical] = keyConflictCounts.GetValueOrDefault(canonical) + 1;
+            }
+
             var candidateCode = ImportFieldNormalization.NormalizeCode(candidate[1]);
             if (candidateCode is not null)
             {
@@ -86,15 +97,19 @@ internal static class SkuRowParser
                 RawFields = fields,
             };
 
-            if (skuKey is null || skuKey.Length > 64)
+            if (!ImportStorageKeyAllocator.CanStore(skuKey))
             {
                 row.AddError(DomainErrorCodes.ImportValidationFailed);
             }
-            else if (!seenKeys.Add(skuKey))
+            else if (keyConflictCounts.GetValueOrDefault(ImportStorageKeyAllocator.Canonicalize(skuKey!)) > 1)
             {
-                // 組長 PR #74 round-3, item 1：同 ProductRowParser——重複列改用不衝突的儲存鍵，
-                // 原始 sku_key 保留在 payload 供錯誤下載。
-                row.ImportKey = keys.Allocate("dup", sourceRowNumber);
+                // 組長 PR #74 round-3 item 1／round-6 裁定 A1：同 ProductRowParser——衝突集合每一列
+                // 都標錯，第一列保留原鍵、其餘改用合成鍵，原始 sku_key 留在 payload 供錯誤下載。
+                if (!canonicalKeysInUse.Add(ImportStorageKeyAllocator.Canonicalize(skuKey!)))
+                {
+                    row.ImportKey = keys.Allocate("dup", sourceRowNumber);
+                }
+
                 row.AddError(DomainErrorCodes.ImportValidationFailed);
             }
 

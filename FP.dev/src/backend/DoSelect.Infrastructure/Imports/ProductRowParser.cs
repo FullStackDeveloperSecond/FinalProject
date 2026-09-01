@@ -21,7 +21,15 @@ internal static class ProductRowParser
     {
         var dataRows = ImportHeaderValidator.ValidateAndGetDataRows(rows, Header, "Products");
         var staged = new List<StagedImportRow<ProductPayload>>(dataRows.Count);
-        var seenKeys = new HashSet<string>(StringComparer.Ordinal);
+
+        // 組長 PR #74 round-6 review (裁定 A1)：兩個 business key 之間的碰撞也要用資料庫的比較規則
+        // 判斷。`PK1` 與全形 `ＰＫ１` 在 Ordinal 下是兩個 key，SQL Server 的 width-insensitive
+        // collation 卻視為同一個，兩列都用原值當 ImportKey 就會撞
+        // UX_ImportRows_ImportBatchId_Dataset_ImportKey，Preview 變成 500。canonical key 的計數同時
+        // 解決兩件事：衝突集合裡的「每一列」都要標錯（錯誤 CSV 才給得出完整集合），而第二列起改用
+        // 合成儲存鍵。
+        var keyConflictCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+        var canonicalKeysInUse = new HashSet<string>(StringComparer.Ordinal);
 
         // 組長 PR #74 round-4 review (P2／P3)：先掃一遍再判。
         //  - 儲存鍵配置器要先知道整個資料集實際用到哪些 key，合成鍵才不會用資料庫的比較規則撞上
@@ -32,7 +40,14 @@ internal static class ProductRowParser
         var productCodeCounts = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var candidate in dataRows.Where(row => row.Length == Header.Count))
         {
-            keys.Reserve(ImportFieldNormalization.NormalizeKey(candidate[0]));
+            var candidateKey = ImportFieldNormalization.NormalizeKey(candidate[0]);
+            keys.Reserve(candidateKey);
+            if (ImportStorageKeyAllocator.CanStore(candidateKey))
+            {
+                var canonical = ImportStorageKeyAllocator.Canonicalize(candidateKey!);
+                keyConflictCounts[canonical] = keyConflictCounts.GetValueOrDefault(canonical) + 1;
+            }
+
             var candidateCode = ImportFieldNormalization.NormalizeCode(candidate[1]);
             if (candidateCode is not null)
             {
@@ -82,18 +97,22 @@ internal static class ProductRowParser
                 RawFields = fields,
             };
 
-            if (productKey is null || productKey.Length > 64)
+            if (!ImportStorageKeyAllocator.CanStore(productKey))
             {
                 row.AddError(DomainErrorCodes.ImportValidationFailed);
             }
-            else if (!seenKeys.Add(productKey))
+            else if (keyConflictCounts.GetValueOrDefault(ImportStorageKeyAllocator.Canonicalize(productKey!)) > 1)
             {
-                // 組長 PR #74 round-3, item 1：重複列雖然標了錯誤，儲存鍵仍是那個重複的 key，於是
-                // 之後以 ImportKey 建 Dictionary 會丟 ArgumentException、寫 ImportRows 會撞
-                // (BatchId, Dataset, ImportKey) 唯一索引——整包直接 500，管理員連錯誤檔都下載不到。
-                // 改用「不會衝突的儲存鍵」保存這一列；原始 offending key 仍留在 payload 裡，錯誤
-                // CSV 由 payload 取值輸出（見 EfProductImportService.GetErrorsCsvAsync）。
-                row.ImportKey = keys.Allocate("dup", sourceRowNumber);
+                // 組長 PR #74 round-3 item 1／round-6 裁定 A1：衝突集合中的每一列都是列級錯誤，
+                // 第一列可以保留原本的儲存鍵，第二列起改用不會衝突的合成鍵——否則之後以 ImportKey
+                // 建 Dictionary 會丟 ArgumentException、寫 ImportRows 會撞唯一索引，整包直接 500，
+                // 管理員連錯誤檔都下載不到。原始 offending key 仍留在 payload 與 OriginalKey 裡，
+                // 錯誤 CSV 由那裡取值輸出（見 EfProductImportService.GetErrorsCsvAsync）。
+                if (!canonicalKeysInUse.Add(ImportStorageKeyAllocator.Canonicalize(productKey!)))
+                {
+                    row.ImportKey = keys.Allocate("dup", sourceRowNumber);
+                }
+
                 row.AddError(DomainErrorCodes.ImportValidationFailed);
             }
 

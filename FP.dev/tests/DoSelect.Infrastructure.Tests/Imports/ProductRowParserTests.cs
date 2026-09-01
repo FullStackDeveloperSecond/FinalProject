@@ -206,4 +206,35 @@ public sealed class ProductRowParserTests
 
         Assert.NotEqual(result[0].ImportKey, result[1].ImportKey, StringComparer.OrdinalIgnoreCase);
     }
+
+    /// <summary>組長 PR #74 round-6 review (裁定 A1)：兩個 width-equivalent 的 business key 之間也
+    /// 會撞唯一索引。`PK1` 與全形 `ＰＫ１` 在應用層的 Ordinal 比較下是兩個 key，SQL Server 的
+    /// width-insensitive collation 卻視為同一個。衝突集合的每一列都要標錯，第二列起改用合成鍵。</summary>
+    [Fact]
+    public void Parse_WhenTwoKeysAreWidthEquivalent_MarksBothAndKeepsStorageKeysDistinct()
+    {
+        string[][] rows =
+        [
+            ValidHeader,
+            ["PK1", "CODE-1", "商品一", "BRAND", "CAT", "\\N", "\\N", "Draft"],
+            ["ＰＫ１", "CODE-2", "商品二", "BRAND", "CAT", "\\N", "\\N", "Draft"],
+        ];
+
+        var result = ProductRowParser.Parse(rows);
+
+        // Both rows are in the conflict set, so both carry an error.
+        Assert.Contains(DomainErrorCodes.ImportValidationFailed, result[0].Errors);
+        Assert.Contains(DomainErrorCodes.ImportValidationFailed, result[1].Errors);
+
+        // The first row keeps its own key; the second takes a synthetic one so the two storage
+        // keys differ under the database's own comparison rules.
+        Assert.Equal("PK1", result[0].ImportKey);
+        Assert.NotEqual(
+            ImportStorageKeyAllocator.Canonicalize(result[0].ImportKey),
+            ImportStorageKeyAllocator.Canonicalize(result[1].ImportKey));
+
+        // The admin's own keys survive for the error download.
+        Assert.Equal("PK1", result[0].OriginalKey);
+        Assert.Equal("ＰＫ１", result[1].OriginalKey);
+    }
 }

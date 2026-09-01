@@ -46,9 +46,11 @@ internal sealed class ImportStorageKeyAllocator
     /// <summary>
     /// The form used only for collision checks: NFKC folds full-width/compatibility characters the
     /// way SQL Server's width-insensitive collation does, and upper-casing covers its
-    /// case-insensitivity.
+    /// case-insensitivity. 組長 PR #74 round-6 review (裁定 A1)：兩個 business key 之間的碰撞也用
+    /// 同一個形式判斷，所以 parser 也需要它——絕不能出現「配置器用一套、重複偵測用另一套」的落差。
+    /// 這只是比較用的投影，實際存進 ImportKey 的字串永遠是原值。
     /// </summary>
-    private static string Canonicalize(string key) =>
+    public static string Canonicalize(string key) =>
         key.Normalize(System.Text.NormalizationForm.FormKC).ToUpperInvariant();
 
     /// <summary>

@@ -520,6 +520,51 @@ public sealed class EfProductImportServiceTests
         Assert.NotNull(await service.GetErrorsCsvAsync(batch.PublicId, CancellationToken.None));
     }
 
+    /// <summary>組長 PR #74 round-6 review (裁定 A1)：真正跑進 SQL Server 的證明——同一資料集裡
+    /// `PK1` 與全形 `ＰＫ１`、`SK1` 與全形 `ＳＫ１` 在 width-insensitive collation 下是同一個
+    /// ImportKey。整批必須安全落成 Invalid batch，錯誤檔可下載，不得 500。</summary>
+    [Fact]
+    public async Task PreviewAsync_WhenTwoBusinessKeysAreWidthEquivalent_StagesWithoutHittingTheUniqueIndex()
+    {
+        await using var context = ImportServiceFixture.CreateContext();
+        var (brand, category) = await ImportServiceFixture.SeedBrandAndCategoryAsync(context);
+        var adminId = await ImportServiceFixture.SeedAdminUserIdAsync(context);
+        var service = new EfProductImportService(context, new EfAuditWriter(context, TimeProvider.System));
+
+        var productsCsv = ProductsHeader +
+            $"PK1,{ImportServiceFixture.UniqueCode("PROD")},商品一,{brand.Code},{category.Code},\\N,\\N,Draft\r\n" +
+            $"ＰＫ１,{ImportServiceFixture.UniqueCode("PROD")},商品二,{brand.Code},{category.Code},\\N,\\N,Draft\r\n";
+        var skusCsv = SkusHeader +
+            $"SK1,{ImportServiceFixture.UniqueCode("SKU")},PK1,SKU一,1000,600,\\N,\\N,\\N,\\N,false,Draft\r\n" +
+            $"ＳＫ１,{ImportServiceFixture.UniqueCode("SKU")},PK1,SKU二,1000,600,\\N,\\N,\\N,\\N,false,Draft\r\n";
+        var request = new PreviewProductImportRequest(
+            ToFile(productsCsv), ToFile(skusCsv), ToFile(SpecificationsHeader), 1);
+
+        var batch = await service.PreviewAsync(request, adminId, CancellationToken.None);
+
+        Assert.NotEqual("Ready", batch.Status);
+
+        // All four rows landed — SQL Server accepted the storage keys under its own collation.
+        await using var verify = ImportServiceFixture.CreateContext();
+        var batchId = await verify.ImportBatches.AsNoTracking()
+            .Where(candidate => candidate.PublicId == batch.PublicId)
+            .Select(candidate => candidate.Id)
+            .SingleAsync();
+        var stored = await verify.ImportRows.AsNoTracking()
+            .Where(row => row.ImportBatchId == batchId)
+            .ToListAsync();
+        Assert.Equal(4, stored.Count);
+
+        // And the error download names every conflicting row's own key, both half-width and full.
+        var csvBytes = await service.GetErrorsCsvAsync(batch.PublicId, CancellationToken.None);
+        Assert.NotNull(csvBytes);
+        var text = Encoding.UTF8.GetString(csvBytes!.Skip(3).ToArray());
+        foreach (var key in new[] { "PK1", "ＰＫ１", "SK1", "ＳＫ１" })
+        {
+            Assert.Contains(key, text, StringComparison.Ordinal);
+        }
+    }
+
     private static IncomingImportFile ToFile(string csv, bool withBom = false)
     {
         var bytes = ImportServiceFixture.Utf8(csv);
