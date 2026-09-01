@@ -3,6 +3,7 @@ using DoSelect.Application.Imports;
 using DoSelect.Domain.Catalog;
 using DoSelect.Infrastructure.Auditing;
 using DoSelect.Infrastructure.Imports;
+using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 namespace DoSelect.Infrastructure.Tests.Imports;
@@ -208,6 +209,228 @@ public sealed class EfProductImportServiceTests
     }
 
     private static IncomingImportFile ToFile(string csv)
+    /// <summary>組長 PR #74 round-3, item 1：SQL Server 重現——重複的 product_key 先前在 staging 階段
+    /// 就以 ArgumentException／唯一索引違反炸成 500，管理員連錯誤檔都下載不到。現在必須安全落成一個
+    /// Invalid batch，而且錯誤 CSV 要顯示「原始」的 offending key（儲存鍵是合成的）。</summary>
+    [Fact]
+    public async Task PreviewAsync_WhenAProductKeyIsDuplicated_StoresAnInvalidBatchWithADownloadableErrorFile()
+    {
+        await using var context = ImportServiceFixture.CreateContext();
+        var (brand, category) = await ImportServiceFixture.SeedBrandAndCategoryAsync(context);
+        var adminId = await ImportServiceFixture.SeedAdminUserIdAsync(context);
+        var service = new EfProductImportService(context, new EfAuditWriter(context, TimeProvider.System));
+
+        var productsCsv = ProductsHeader +
+            $"PK1,{ImportServiceFixture.UniqueCode("PROD")},Product 1,{brand.Code},{category.Code},\\N,\\N,Draft\r\n" +
+            $"PK1,{ImportServiceFixture.UniqueCode("PROD")},Product 2,{brand.Code},{category.Code},\\N,\\N,Draft\r\n";
+        var request = new PreviewProductImportRequest(
+            ToFile(productsCsv), ToFile(SkusHeader), ToFile(SpecificationsHeader), 1);
+
+        var batch = await service.PreviewAsync(request, adminId, CancellationToken.None);
+
+        Assert.NotEqual("Ready", batch.Status);
+        Assert.True(batch.ErrorCount >= 1);
+
+        var csvBytes = await service.GetErrorsCsvAsync(batch.PublicId, CancellationToken.None);
+        Assert.NotNull(csvBytes);
+        var text = Encoding.UTF8.GetString(csvBytes!.Skip(3).ToArray());
+        // The download names the key the admin actually wrote, not the synthetic storage key.
+        Assert.Contains("PK1", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("__dup", text, StringComparison.Ordinal);
+    }
+
+    /// <summary>組長 PR #74 round-3, item 1（Skus／Specifications 兩組）。</summary>
+    [Fact]
+    public async Task PreviewAsync_WhenSkuAndSpecificationKeysAreDuplicated_StillStoresAnInvalidBatch()
+    {
+        await using var context = ImportServiceFixture.CreateContext();
+        var (brand, category) = await ImportServiceFixture.SeedBrandAndCategoryAsync(context);
+        var adminId = await ImportServiceFixture.SeedAdminUserIdAsync(context);
+        var service = new EfProductImportService(context, new EfAuditWriter(context, TimeProvider.System));
+
+        var productsCsv = ProductsHeader +
+            $"PK1,{ImportServiceFixture.UniqueCode("PROD")},Product 1,{brand.Code},{category.Code},\\N,\\N,Draft\r\n";
+        var skusCsv = SkusHeader +
+            $"SK1,{ImportServiceFixture.UniqueCode("SKU")},PK1,SKU 1,1000,600,\\N,\\N,\\N,\\N,false,Draft\r\n" +
+            $"SK1,{ImportServiceFixture.UniqueCode("SKU")},PK1,SKU 2,1000,600,\\N,\\N,\\N,\\N,false,Draft\r\n";
+        var specificationsCsv = SpecificationsHeader +
+            "SK1,capacity_gb,Decimal,\\N,512,\\N,\\N\r\n" +
+            "SK1,capacity_gb,Decimal,\\N,1024,\\N,\\N\r\n";
+        var request = new PreviewProductImportRequest(
+            ToFile(productsCsv), ToFile(skusCsv), ToFile(specificationsCsv), 1);
+
+        var batch = await service.PreviewAsync(request, adminId, CancellationToken.None);
+
+        Assert.NotEqual("Ready", batch.Status);
+        var csvBytes = await service.GetErrorsCsvAsync(batch.PublicId, CancellationToken.None);
+        Assert.NotNull(csvBytes);
+        var text = Encoding.UTF8.GetString(csvBytes!.Skip(3).ToArray());
+        Assert.Contains("SK1", text, StringComparison.Ordinal);
+    }
+
+    /// <summary>組長 PR #74 round-3, item 4：單列序列化後超過 32 KB 時，ImportRow 建構子會丟
+    /// ArgumentOutOfRangeException——整批 500。超限的列必須改存最小資訊但仍形成 Invalid batch。</summary>
+    [Fact]
+    public async Task PreviewAsync_WhenASingleRowExceedsTheJsonLimit_StillProducesAnInvalidBatch()
+    {
+        await using var context = ImportServiceFixture.CreateContext();
+        var (brand, category) = await ImportServiceFixture.SeedBrandAndCategoryAsync(context);
+        var adminId = await ImportServiceFixture.SeedAdminUserIdAsync(context);
+        var service = new EfProductImportService(context, new EfAuditWriter(context, TimeProvider.System));
+
+        // ~40 KB in one field: far under the 10 MB per-file cap, far over the 32 KB per-row cap.
+        var huge = new string('X', 40 * 1024);
+        var productsCsv = ProductsHeader +
+            $"PK1,{ImportServiceFixture.UniqueCode("PROD")},{huge},{brand.Code},{category.Code},\\N,\\N,Draft\r\n";
+        var request = new PreviewProductImportRequest(
+            ToFile(productsCsv), ToFile(SkusHeader), ToFile(SpecificationsHeader), 1);
+
+        var batch = await service.PreviewAsync(request, adminId, CancellationToken.None);
+
+        Assert.NotEqual("Ready", batch.Status);
+        Assert.True(batch.ErrorCount >= 1);
+        var csvBytes = await service.GetErrorsCsvAsync(batch.PublicId, CancellationToken.None);
+        Assert.NotNull(csvBytes);
+    }
+
+    /// <summary>組長 PR #74 round-3 裁定 A1：系統產生的錯誤 CSV 固定輸出 UTF-8 BOM。</summary>
+    [Fact]
+    public async Task GetErrorsCsvAsync_AlwaysEmitsAUtf8Bom()
+    {
+        await using var context = ImportServiceFixture.CreateContext();
+        var (brand, category) = await ImportServiceFixture.SeedBrandAndCategoryAsync(context);
+        var adminId = await ImportServiceFixture.SeedAdminUserIdAsync(context);
+        var service = new EfProductImportService(context, new EfAuditWriter(context, TimeProvider.System));
+
+        var productsCsv = ProductsHeader +
+            $"PK1,{ImportServiceFixture.UniqueCode("PROD")},Product 1,NO-SUCH-BRAND,{category.Code},\\N,\\N,Draft\r\n";
+        var request = new PreviewProductImportRequest(
+            ToFile(productsCsv), ToFile(SkusHeader), ToFile(SpecificationsHeader), 1);
+        var batch = await service.PreviewAsync(request, adminId, CancellationToken.None);
+
+        var csvBytes = await service.GetErrorsCsvAsync(batch.PublicId, CancellationToken.None);
+
+        Assert.NotNull(csvBytes);
+        Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, csvBytes!.Take(3).ToArray());
+    }
+
+    /// <summary>組長 PR #74 round-3 裁定 A1：上傳的 UTF-8 有沒有 BOM 都要照常受理。</summary>
+    [Fact]
+    public async Task PreviewAsync_AcceptsUploadsWithAndWithoutAUtf8Bom()
+    {
+        await using var context = ImportServiceFixture.CreateContext();
+        var (brand, category) = await ImportServiceFixture.SeedBrandAndCategoryAsync(context);
+        var adminId = await ImportServiceFixture.SeedAdminUserIdAsync(context);
+        var service = new EfProductImportService(context, new EfAuditWriter(context, TimeProvider.System));
+
+        // One in-progress batch per admin is a real rule, so the two uploads use different admins.
+        async Task<string> RunPreviewAsync(bool withBom, string uploaderId)
+        {
+            var productsCsv = ProductsHeader +
+                $"PK1,{ImportServiceFixture.UniqueCode("PROD")},含中文的商品,{brand.Code},{category.Code},\\N,\\N,Draft\r\n";
+            var request = new PreviewProductImportRequest(
+                ToFile(productsCsv, withBom), ToFile(SkusHeader, withBom), ToFile(SpecificationsHeader, withBom), 1);
+            var batch = await service.PreviewAsync(request, uploaderId, CancellationToken.None);
+            return batch.Status;
+        }
+
+        var secondAdminId = await ImportServiceFixture.SeedAdminUserIdAsync(context);
+        Assert.Equal("Ready", await RunPreviewAsync(withBom: false, adminId));
+        Assert.Equal("Ready", await RunPreviewAsync(withBom: true, secondAdminId));
+    }
+
+    /// <summary>組長 PR #74 round-3, item 5：非法 UTF-8 必須穩定拒絕，不可靜默換成 U+FFFD。</summary>
+    [Fact]
+    public async Task PreviewAsync_WhenTheUploadIsNotValidUtf8_RejectsWithFormatUnsupported()
+    {
+        await using var context = ImportServiceFixture.CreateContext();
+        var (brand, category) = await ImportServiceFixture.SeedBrandAndCategoryAsync(context);
+        var adminId = await ImportServiceFixture.SeedAdminUserIdAsync(context);
+        var service = new EfProductImportService(context, new EfAuditWriter(context, TimeProvider.System));
+
+        var invalidBytes = ImportServiceFixture.Utf8(ProductsHeader)
+            .Concat(new byte[] { 0xFF, 0xFE })
+            .Concat(ImportServiceFixture.Utf8($",CODE,Name,{brand.Code},{category.Code},\\N,\\N,Draft\r\n"))
+            .ToArray();
+        var request = new PreviewProductImportRequest(
+            new IncomingImportFile("upload.csv", "text/csv", invalidBytes.Length, true, () => new MemoryStream(invalidBytes)),
+            ToFile(SkusHeader),
+            ToFile(SpecificationsHeader),
+            1);
+
+        var exception = await Assert.ThrowsAsync<DoSelect.Application.Common.DomainProblemException>(
+            () => service.PreviewAsync(request, adminId, CancellationToken.None));
+        Assert.Equal(DoSelect.Application.Common.DomainErrorCodes.ImportFormatUnsupported, exception.Code);
+    }
+
+    /// <summary>組長 PR #74 round-4 review (P2)：真正跑進 SQL Server 的證明，而不是記憶體裡的
+    /// 大小寫敏感比較。CI 的 container 沒有設定 MSSQL_COLLATION，預設 SQL_Latin1_General_CP1_CI_AS
+    /// 不分大小寫——使用者自己的 `__DUP3` 與合成鍵 `__dup3` 在資料庫眼中是同一個 ImportKey，會撞
+    /// UX_ImportRows_ImportBatchId_Dataset_ImportKey。整批必須安全落成 Invalid batch。</summary>
+    [Fact]
+    public async Task PreviewAsync_WhenAUserKeyLooksLikeASyntheticKey_StagesWithoutHittingTheUniqueIndex()
+    {
+        await using var context = ImportServiceFixture.CreateContext();
+        var (brand, category) = await ImportServiceFixture.SeedBrandAndCategoryAsync(context);
+        var adminId = await ImportServiceFixture.SeedAdminUserIdAsync(context);
+        var service = new EfProductImportService(context, new EfAuditWriter(context, TimeProvider.System));
+
+        // Rows 2 and 3 share PK1, so row 3 needs a synthetic key; row 4 is a legitimate upload key
+        // that occupies exactly the name that synthetic key would otherwise take.
+        var productsCsv = ProductsHeader +
+            $"PK1,{ImportServiceFixture.UniqueCode("PROD")},商品一,{brand.Code},{category.Code},\\N,\\N,Draft\r\n" +
+            $"PK1,{ImportServiceFixture.UniqueCode("PROD")},商品二,{brand.Code},{category.Code},\\N,\\N,Draft\r\n" +
+            $"__DUP3,{ImportServiceFixture.UniqueCode("PROD")},商品三,{brand.Code},{category.Code},\\N,\\N,Draft\r\n";
+        var request = new PreviewProductImportRequest(
+            ToFile(productsCsv), ToFile(SkusHeader), ToFile(SpecificationsHeader), 1);
+
+        var batch = await service.PreviewAsync(request, adminId, CancellationToken.None);
+
+        Assert.NotEqual("Ready", batch.Status);
+
+        // Every row landed: SQL Server accepted three distinct ImportKeys under its own collation.
+        await using var verify = ImportServiceFixture.CreateContext();
+        var stored = await verify.ImportRows.AsNoTracking()
+            .Where(row => row.ImportBatchId ==
+                verify.ImportBatches.Where(b => b.PublicId == batch.PublicId).Select(b => b.Id).First())
+            .ToListAsync();
+        Assert.Equal(3, stored.Count);
+        Assert.Equal(
+            3,
+            stored.Select(row => row.ImportKey).Distinct(StringComparer.OrdinalIgnoreCase).Count());
+
+        var csvBytes = await service.GetErrorsCsvAsync(batch.PublicId, CancellationToken.None);
+        Assert.NotNull(csvBytes);
+    }
+
+    /// <summary>組長 PR #74 round-4 review (P3)：duplicate ＋ oversized 的組合。超長列的 payload 會被
+    /// 丟棄，但錯誤 CSV 仍必須顯示管理員自己的 key，不能只剩合成鍵。</summary>
+    [Fact]
+    public async Task PreviewAsync_WhenARowIsBothDuplicateAndOversized_TheErrorFileStillNamesTheOriginalKey()
+    {
+        await using var context = ImportServiceFixture.CreateContext();
+        var (brand, category) = await ImportServiceFixture.SeedBrandAndCategoryAsync(context);
+        var adminId = await ImportServiceFixture.SeedAdminUserIdAsync(context);
+        var service = new EfProductImportService(context, new EfAuditWriter(context, TimeProvider.System));
+
+        var huge = new string('X', 40 * 1024);
+        var productsCsv = ProductsHeader +
+            $"PK1,{ImportServiceFixture.UniqueCode("PROD")},商品一,{brand.Code},{category.Code},\\N,\\N,Draft\r\n" +
+            $"PK1,{huge},商品二,{brand.Code},{category.Code},\\N,\\N,Draft\r\n";
+        var request = new PreviewProductImportRequest(
+            ToFile(productsCsv), ToFile(SkusHeader), ToFile(SpecificationsHeader), 1);
+
+        var batch = await service.PreviewAsync(request, adminId, CancellationToken.None);
+
+        Assert.NotEqual("Ready", batch.Status);
+        var csvBytes = await service.GetErrorsCsvAsync(batch.PublicId, CancellationToken.None);
+        Assert.NotNull(csvBytes);
+        var text = Encoding.UTF8.GetString(csvBytes!.Skip(3).ToArray());
+        Assert.Contains("PK1", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("__dup", text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static IncomingImportFile ToFile(string csv, bool withBom = false)
     {
         var bytes = ImportServiceFixture.Utf8(csv);
         return new IncomingImportFile("upload.csv", "text/csv", bytes.Length, true, () => new MemoryStream(bytes));

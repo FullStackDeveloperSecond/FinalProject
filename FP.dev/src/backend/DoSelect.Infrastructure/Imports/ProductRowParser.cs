@@ -23,13 +23,30 @@ internal static class ProductRowParser
         var staged = new List<StagedImportRow<ProductPayload>>(dataRows.Count);
         var seenKeys = new HashSet<string>(StringComparer.Ordinal);
 
+        // 組長 PR #74 round-4 review (P2／P3)：先掃一遍再判。
+        //  - 儲存鍵配置器要先知道整個資料集實際用到哪些 key，合成鍵才不會用資料庫的比較規則撞上
+        //    使用者自己的 key（例如 __DUP4）。
+        //  - 重複的 product_code 必須「每一列」都標錯，不能只標第二筆以後：錯誤 CSV 要能指出完整
+        //    的衝突集合，管理員才知道兩列都要改。
+        var keys = new ImportStorageKeyAllocator();
+        var productCodeCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var candidate in dataRows.Where(row => row.Length == Header.Count))
+        {
+            keys.Reserve(ImportFieldNormalization.NormalizeKey(candidate[0]));
+            var candidateCode = ImportFieldNormalization.NormalizeCode(candidate[1]);
+            if (candidateCode is not null)
+            {
+                productCodeCounts[candidateCode] = productCodeCounts.GetValueOrDefault(candidateCode) + 1;
+            }
+        }
+
         for (var i = 0; i < dataRows.Count; i++)
         {
             var sourceRowNumber = i + 2; // +1 for header, +1 for 1-based row numbering
             var fields = dataRows[i];
             if (fields.Length != Header.Count)
             {
-                staged.Add(BuildMalformedRow(sourceRowNumber, fields));
+                staged.Add(BuildMalformedRow(sourceRowNumber, fields, keys));
                 continue;
             }
 
@@ -55,7 +72,8 @@ internal static class ProductRowParser
             var row = new StagedImportRow<ProductPayload>
             {
                 SourceRowNumber = sourceRowNumber,
-                ImportKey = productKey ?? $"__row{sourceRowNumber}",
+                ImportKey = productKey ?? keys.Allocate("row", sourceRowNumber),
+                OriginalKey = productKey,
                 Payload = payload,
                 RawFields = fields,
             };
@@ -66,11 +84,24 @@ internal static class ProductRowParser
             }
             else if (!seenKeys.Add(productKey))
             {
+                // 組長 PR #74 round-3, item 1：重複列雖然標了錯誤，儲存鍵仍是那個重複的 key，於是
+                // 之後以 ImportKey 建 Dictionary 會丟 ArgumentException、寫 ImportRows 會撞
+                // (BatchId, Dataset, ImportKey) 唯一索引——整包直接 500，管理員連錯誤檔都下載不到。
+                // 改用「不會衝突的儲存鍵」保存這一列；原始 offending key 仍留在 payload 裡，錯誤
+                // CSV 由 payload 取值輸出（見 EfProductImportService.GetErrorsCsvAsync）。
+                row.ImportKey = keys.Allocate("dup", sourceRowNumber);
                 row.AddError(DomainErrorCodes.ImportValidationFailed);
             }
 
             if (productCode is null || productCode.Length > 64)
             {
+                row.AddError(DomainErrorCodes.ImportValidationFailed);
+            }
+            else if (productCodeCounts.GetValueOrDefault(productCode) > 1)
+            {
+                // 組長 PR #74 round-3, item 2：不同 product_key 指向同一個 product_code——新商品要等
+                // Confirm 才撞 UX_Products_ProductCode，既有商品則會被兩列連續更新成 last-row-wins，
+                // 而 Preview 還顯示 Ready。同一批內重複的 product_code 一律是列級錯誤。
                 row.AddError(DomainErrorCodes.ImportValidationFailed);
             }
 
@@ -115,13 +146,16 @@ internal static class ProductRowParser
         return staged;
     }
 
-    private static StagedImportRow<ProductPayload> BuildMalformedRow(int sourceRowNumber, string[] fields)
+    private static StagedImportRow<ProductPayload> BuildMalformedRow(
+        int sourceRowNumber, string[] fields, ImportStorageKeyAllocator keys)
     {
+        var storageKey = keys.Allocate("row", sourceRowNumber);
         var row = new StagedImportRow<ProductPayload>
         {
             SourceRowNumber = sourceRowNumber,
-            ImportKey = $"__row{sourceRowNumber}",
-            Payload = new ProductPayload($"__row{sourceRowNumber}", null, null, null, null, null, null, null),
+            ImportKey = storageKey,
+            OriginalKey = null,
+            Payload = new ProductPayload(storageKey, null, null, null, null, null, null, null),
             RawFields = fields,
         };
         row.AddError(DomainErrorCodes.ImportValidationFailed);

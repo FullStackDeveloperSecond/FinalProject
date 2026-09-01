@@ -22,7 +22,20 @@ internal static class SkuRowParser
         var dataRows = ImportHeaderValidator.ValidateAndGetDataRows(rows, Header, "Skus");
         var staged = new List<StagedImportRow<SkuPayload>>(dataRows.Count);
         var seenKeys = new HashSet<string>(StringComparer.Ordinal);
-        var seenCodes = new HashSet<string>(StringComparer.Ordinal);
+
+        // 組長 PR #74 round-4 review (P2／P3)：同 ProductRowParser——合成儲存鍵要以資料庫的比較
+        // 規則避開使用者實際用到的 key，重複的 sku_code 也要每一列都標錯。
+        var keys = new ImportStorageKeyAllocator();
+        var skuCodeCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var candidate in dataRows.Where(row => row.Length == Header.Count))
+        {
+            keys.Reserve(ImportFieldNormalization.NormalizeKey(candidate[0]));
+            var candidateCode = ImportFieldNormalization.NormalizeCode(candidate[1]);
+            if (candidateCode is not null)
+            {
+                skuCodeCounts[candidateCode] = skuCodeCounts.GetValueOrDefault(candidateCode) + 1;
+            }
+        }
 
         for (var i = 0; i < dataRows.Count; i++)
         {
@@ -30,7 +43,7 @@ internal static class SkuRowParser
             var fields = dataRows[i];
             if (fields.Length != Header.Count)
             {
-                staged.Add(BuildMalformedRow(sourceRowNumber, fields));
+                staged.Add(BuildMalformedRow(sourceRowNumber, fields, keys));
                 continue;
             }
 
@@ -64,7 +77,8 @@ internal static class SkuRowParser
             var row = new StagedImportRow<SkuPayload>
             {
                 SourceRowNumber = sourceRowNumber,
-                ImportKey = skuKey ?? $"__row{sourceRowNumber}",
+                ImportKey = skuKey ?? keys.Allocate("row", sourceRowNumber),
+                OriginalKey = skuKey,
                 Payload = payload,
                 RawFields = fields,
             };
@@ -75,6 +89,9 @@ internal static class SkuRowParser
             }
             else if (!seenKeys.Add(skuKey))
             {
+                // 組長 PR #74 round-3, item 1：同 ProductRowParser——重複列改用不衝突的儲存鍵，
+                // 原始 sku_key 保留在 payload 供錯誤下載。
+                row.ImportKey = keys.Allocate("dup", sourceRowNumber);
                 row.AddError(DomainErrorCodes.ImportValidationFailed);
             }
 
@@ -85,7 +102,7 @@ internal static class SkuRowParser
             {
                 row.AddError(DomainErrorCodes.ImportValidationFailed);
             }
-            else if (skuCode is not null && !seenCodes.Add(skuCode))
+            else if (skuCode is not null && skuCodeCounts.GetValueOrDefault(skuCode) > 1)
             {
                 row.AddError(DomainErrorCodes.ImportSkuCodeDuplicate);
             }
@@ -146,12 +163,14 @@ internal static class SkuRowParser
         }
     }
 
-    private static StagedImportRow<SkuPayload> BuildMalformedRow(int sourceRowNumber, string[] fields)
+    private static StagedImportRow<SkuPayload> BuildMalformedRow(
+        int sourceRowNumber, string[] fields, ImportStorageKeyAllocator keys)
     {
         var row = new StagedImportRow<SkuPayload>
         {
             SourceRowNumber = sourceRowNumber,
-            ImportKey = $"__row{sourceRowNumber}",
+            ImportKey = keys.Allocate("row", sourceRowNumber),
+            OriginalKey = null,
             Payload = new SkuPayload(
                 $"__row{sourceRowNumber}", null, string.Empty, null, null, null, null, null, null, null, null, null),
             RawFields = fields,

@@ -12,6 +12,22 @@ internal sealed class StagedImportRow<TPayload>
 {
     public required int SourceRowNumber { get; init; }
     public required string ImportKey { get; init; }
+
+    /// <summary>
+    /// The key this row is STORED under (unique within batch+dataset). Normally the row's own
+    /// business key; for a row rejected as a duplicate it is swapped for a row-scoped synthetic
+    /// key so the invalid batch can still be persisted and downloaded (組長 PR #74 round-3,
+    /// item 1). The original offending key always remains in <see cref="Payload"/>.
+    /// </summary>
+    public required string ImportKey { get; set; }
+
+    /// <summary>
+    /// The business key exactly as the admin wrote it (already normalized), independent of the
+    /// storage key. 組長 PR #74 round-4 review (P3)：超過 32 KB 的列會丟掉整個 payload，若那列同時
+    /// 是 duplicate，錯誤 CSV 就只剩合成鍵可顯示——與「顯示管理員原始鍵」的契約不符。這個欄位讓
+    /// 最小化的信封仍能保留（本身有長度上限的）原始鍵。Null 代表該列根本沒有可用的鍵。
+    /// </summary>
+    public required string? OriginalKey { get; init; }
     public required TPayload Payload { get; init; }
     public required string[] RawFields { get; init; }
     public List<string> Errors { get; } = [];

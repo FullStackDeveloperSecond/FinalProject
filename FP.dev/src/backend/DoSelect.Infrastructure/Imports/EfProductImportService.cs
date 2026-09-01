@@ -506,6 +506,9 @@ public sealed class EfProductImportService : IProductImportService
             {
                 SourceRowNumber = stored.SourceRowNumber,
                 ImportKey = stored.ImportKey,
+                // Confirm only ever rehydrates a Ready batch, which by definition has no error
+                // rows and therefore no synthetic storage keys — the stored key IS the business key.
+                OriginalKey = stored.ImportKey,
                 Payload = envelope.Payload,
                 RawFields = [],
                 PreimageRowVersion = envelope.PreimageRowVersion,
@@ -847,6 +850,22 @@ public sealed class EfProductImportService : IProductImportService
     }
 
     private sealed record RowCursorPayload(ImportDataset Dataset, int SourceRowNumber);
+
+    /// <summary>ImportRow.NormalizedPayloadJson / RawJson 的長度上限（與 Domain 建構子一致）。</summary>
+    private const int MaxRowJsonLength = 32 * 1024;
+
+    /// <summary>
+    /// A row whose payload does not fit: stored without any of the offending content, but still a
+    /// real row carrying its error code (組長 PR #74 round-3, item 4). round-4 (P3)：信封仍保留
+    /// 原始 business key（本身有 64 字元上限），否則同時是 duplicate 的超長列在錯誤 CSV 只剩合成
+    /// 鍵可顯示，與「顯示管理員原始鍵」的契約不符。
+    /// </summary>
+    private static string BuildOversizedPayloadJson(string? originalKey) =>
+        JsonSerializer.Serialize(new OversizedRowEnvelope(null, null, originalKey));
+
+    /// <summary>The minimal envelope stored for an oversized row — same shape as
+    /// <see cref="RowEnvelope{TPayload}"/> plus the preserved key.</summary>
+    private sealed record OversizedRowEnvelope(object? Payload, byte[]? PreimageRowVersion, string? OriginalKey);
 
     /// <summary>What ImportRow.NormalizedPayloadJson actually stores: the normalized payload plus,
     /// for Update／NoChange rows, the referenced entity's Preview-time RowVersion (組長 PR #74
@@ -1209,6 +1228,36 @@ public sealed class EfProductImportService : IProductImportService
                 new RowEnvelope<TPayload>(row.Payload, row.PreimageRowVersion));
             var rawJson = JsonSerializer.Serialize(row.RawFields);
             var errorCodes = row.Errors.Count > 0 ? string.Join(",", row.Errors.Distinct()) : null;
+
+            // 組長 PR #74 round-3, item 4：ImportRow 的兩個 JSON 欄位各有 32 KB 上限，超過就從
+            // 建構子丟 ArgumentOutOfRangeException——一個 40 KB 的無效欄位讓整批直接 500，管理員
+            // 連錯誤檔都拿不到。改為建立實體「之前」量測序列化後的大小：超限的列不保存巨量內容
+            // （RawJson 直接省略，payload 換成不含資料的最小信封），但仍然是一列帶錯誤碼的資料，
+            // 批次照常成為 Invalid 讓管理員修檔重傳。
+            if (normalizedPayloadJson.Length > MaxRowJsonLength)
+            {
+                normalizedPayloadJson = BuildOversizedPayloadJson(row.OriginalKey);
+                if (errorCodes is null)
+                {
+                    errorCodes = DomainErrorCodes.ImportValidationFailed;
+                    errorCount++;
+                    switch (action)
+                    {
+                        case ImportRowAction.Insert: newCount--; break;
+                        case ImportRowAction.Update: updatedCount--; break;
+                        case ImportRowAction.NoChange: unchangedCount--; break;
+                        default: errorCount--; break;
+                    }
+
+                    action = ImportRowAction.Error;
+                }
+            }
+
+            if (rawJson.Length > MaxRowJsonLength)
+            {
+                rawJson = null;
+            }
+
             var rowHash = SHA256.HashData(Encoding.UTF8.GetBytes(normalizedPayloadJson));
 
             _dbContext.ImportRows.Add(new ImportRow(
@@ -1296,6 +1345,52 @@ public sealed class EfProductImportService : IProductImportService
     }
 
     /// <summary>2601/2627: unique index / unique constraint violation.</summary>
+    /// <summary>
+    /// The business key the admin wrote in their own file. Normally identical to ImportRow.ImportKey;
+    /// it differs only for rows stored under a synthetic duplicate key, and for those the original
+    /// still lives in the stored payload (組長 PR #74 round-3, item 1). Falls back to the storage
+    /// key when the payload was dropped for being oversized (item 4).
+    /// </summary>
+    private static string OriginalKeyOf(ImportRow row)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(row.NormalizedPayloadJson);
+
+            // An oversized row kept only its key (round-4, P3).
+            if (ReadString(document.RootElement, "OriginalKey") is { } preservedKey)
+            {
+                return preservedKey;
+            }
+
+            if (!document.RootElement.TryGetProperty("Payload", out var payload) ||
+                payload.ValueKind != JsonValueKind.Object)
+            {
+                return row.ImportKey;
+            }
+
+            return row.Dataset switch
+            {
+                ImportDataset.Products => ReadString(payload, "ProductKey") ?? row.ImportKey,
+                ImportDataset.Skus => ReadString(payload, "SkuKey") ?? row.ImportKey,
+                ImportDataset.Specifications =>
+                    ReadString(payload, "SkuKey") is { } skuKey
+                        ? $"{skuKey}/{ReadString(payload, "SemanticKey") ?? string.Empty}"
+                        : row.ImportKey,
+                _ => row.ImportKey,
+            };
+        }
+        catch (JsonException)
+        {
+            return row.ImportKey;
+        }
+    }
+
+    private static string? ReadString(JsonElement payload, string propertyName) =>
+        payload.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
+
     private static bool IsUniqueKeyViolation(DbUpdateException exception) =>
         exception.GetBaseException() is SqlException { Number: 2601 or 2627 };
 

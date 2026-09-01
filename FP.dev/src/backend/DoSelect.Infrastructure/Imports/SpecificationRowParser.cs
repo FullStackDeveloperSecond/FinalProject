@@ -25,13 +25,23 @@ internal static class SpecificationRowParser
         var staged = new List<StagedImportRow<SpecificationPayload>>(dataRows.Count);
         var seenPairs = new HashSet<string>(StringComparer.Ordinal);
 
+        // 組長 PR #74 round-4 review (P2)：composite key 是 SHA-256 hex，使用者的 key 幾乎不可能撞上，
+        // 但合成鍵仍要與整個資料集實際用到的儲存鍵一起配置，規則與另外兩個資料集完全一致。
+        var keys = new ImportStorageKeyAllocator();
+        foreach (var candidate in dataRows.Where(row => row.Length == Header.Count))
+        {
+            keys.Reserve(ComputeCompositeKey(
+                ImportFieldNormalization.NormalizeKey(candidate[0]) ?? string.Empty,
+                ImportFieldNormalization.NormalizeCode(candidate[1]) ?? string.Empty));
+        }
+
         for (var i = 0; i < dataRows.Count; i++)
         {
             var sourceRowNumber = i + 2;
             var fields = dataRows[i];
             if (fields.Length != Header.Count)
             {
-                staged.Add(BuildMalformedRow(sourceRowNumber, fields));
+                staged.Add(BuildMalformedRow(sourceRowNumber, fields, keys));
                 continue;
             }
 
@@ -52,11 +62,14 @@ internal static class SpecificationRowParser
                 hasBoolean ? booleanValue : null,
                 optionCode);
 
-            var importKey = ComputeCompositeKey(skuKey ?? $"row{sourceRowNumber}", semanticKey ?? string.Empty);
+            var importKey = skuKey is null
+                ? keys.Allocate("row", sourceRowNumber)
+                : ComputeCompositeKey(skuKey, semanticKey ?? string.Empty);
             var row = new StagedImportRow<SpecificationPayload>
             {
                 SourceRowNumber = sourceRowNumber,
                 ImportKey = importKey,
+                OriginalKey = skuKey is null ? null : $"{skuKey}/{semanticKey ?? string.Empty}",
                 Payload = payload,
                 RawFields = fields,
             };
@@ -72,6 +85,10 @@ internal static class SpecificationRowParser
             }
             else if (skuKey is not null && !seenPairs.Add($"{skuKey}␟{semanticKey}"))
             {
+                // 組長 PR #74 round-3, item 1：重複的 (sku_key, semantic_key) 會產生相同的
+                // composite ImportKey，寫入時撞唯一索引成 500。改用不衝突的儲存鍵；原始 pair 仍在
+                // payload 裡供錯誤下載。
+                row.ImportKey = keys.Allocate("dup", sourceRowNumber);
                 row.AddError(DomainErrorCodes.ImportValidationFailed);
             }
 
@@ -158,12 +175,14 @@ internal static class SpecificationRowParser
         return Convert.ToHexString(SHA256.HashData(bytes))[..48];
     }
 
-    private static StagedImportRow<SpecificationPayload> BuildMalformedRow(int sourceRowNumber, string[] fields)
+    private static StagedImportRow<SpecificationPayload> BuildMalformedRow(
+        int sourceRowNumber, string[] fields, ImportStorageKeyAllocator keys)
     {
         var row = new StagedImportRow<SpecificationPayload>
         {
             SourceRowNumber = sourceRowNumber,
-            ImportKey = ComputeCompositeKey($"row{sourceRowNumber}", string.Empty),
+            ImportKey = keys.Allocate("row", sourceRowNumber),
+            OriginalKey = null,
             Payload = new SpecificationPayload(string.Empty, null, null, null, null, null, null),
             RawFields = fields,
         };
