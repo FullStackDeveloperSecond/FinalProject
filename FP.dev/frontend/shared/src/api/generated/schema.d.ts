@@ -283,6 +283,317 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/convenience-stores": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    ProviderCode?: string;
+                    City?: string;
+                    District?: string;
+                    IsActive?: boolean;
+                    PageNumber?: number | string;
+                    PageSize?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["PageResultOfConvenienceStoreDto"];
+                        "application/json": components["schemas"]["PageResultOfConvenienceStoreDto"];
+                        "text/json": components["schemas"]["PageResultOfConvenienceStoreDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateConvenienceStoreRequest"];
+                    "text/json": components["schemas"]["CreateConvenienceStoreRequest"];
+                    "application/*+json": components["schemas"]["CreateConvenienceStoreRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ConvenienceStoreDto"];
+                        "application/json": components["schemas"]["ConvenienceStoreDto"];
+                        "text/json": components["schemas"]["ConvenienceStoreDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/convenience-stores/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateConvenienceStoreRequest"];
+                    "text/json": components["schemas"]["UpdateConvenienceStoreRequest"];
+                    "application/*+json": components["schemas"]["UpdateConvenienceStoreRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ConvenienceStoreDto"];
+                        "application/json": components["schemas"]["ConvenienceStoreDto"];
+                        "text/json": components["schemas"]["ConvenienceStoreDto"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/shipping-providers/{id}/package-limit-versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["PackageLimitVersionDto"][];
+                        "application/json": components["schemas"]["PackageLimitVersionDto"][];
+                        "text/json": components["schemas"]["PackageLimitVersionDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreatePackageLimitVersionRequest"];
+                    "text/json": components["schemas"]["CreatePackageLimitVersionRequest"];
+                    "application/*+json": components["schemas"]["CreatePackageLimitVersionRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["PackageLimitVersionDto"];
+                        "application/json": components["schemas"]["PackageLimitVersionDto"];
+                        "text/json": components["schemas"]["PackageLimitVersionDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/shipping-providers/{id}/package-limit-versions/{versionId}/actions/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    versionId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PublishPackageLimitVersionRequest"];
+                    "text/json": components["schemas"]["PublishPackageLimitVersionRequest"];
+                    "application/*+json": components["schemas"]["PublishPackageLimitVersionRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["PackageLimitVersionDto"];
+                        "application/json": components["schemas"]["PackageLimitVersionDto"];
+                        "text/json": components["schemas"]["PackageLimitVersionDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cart/shipping-options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ShippingOptionsDto"];
+                        "application/json": components["schemas"]["ShippingOptionsDto"];
+                        "text/json": components["schemas"]["ShippingOptionsDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/convenience-stores": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    ProviderCode?: string;
+                    City?: string;
+                    District?: string;
+                    Q?: string;
+                    PageNumber?: number | string;
+                    PageSize?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["PageResultOfConvenienceStoreOptionDto"];
+                        "application/json": components["schemas"]["PageResultOfConvenienceStoreOptionDto"];
+                        "text/json": components["schemas"]["PageResultOfConvenienceStoreOptionDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/security/antiforgery-token": {
         parameters: {
             query?: never;
@@ -8857,6 +9168,31 @@ export interface components {
             /** Format: byte */
             rowVersion: string;
         };
+        ConvenienceStoreDto: {
+            /** Format: uuid */
+            publicId: string;
+            providerCode: string;
+            storeCode: string;
+            storeName: string;
+            address: string;
+            city: string;
+            district: string;
+            isDemoData: boolean;
+            isActive: boolean;
+            /** Format: byte */
+            rowVersion: string;
+        };
+        ConvenienceStoreOptionDto: {
+            /** Format: uuid */
+            publicId: string;
+            providerCode: string;
+            storeCode: string;
+            name: string;
+            city: string;
+            district: string;
+            address: string;
+            isDemoData: boolean;
+        };
         CouponActionRequest: {
             reasonCode: string;
             note: null | string;
@@ -8969,6 +9305,14 @@ export interface components {
             sortOrder: number | string;
             isActive: boolean;
         };
+        CreateConvenienceStoreRequest: {
+            providerCode: string;
+            storeCode: string;
+            storeName: string;
+            address: string;
+            city: string;
+            district: string;
+        };
         CreateCouponRequest: {
             code: string;
             nameZhTw: string;
@@ -9021,6 +9365,25 @@ export interface components {
             couponCode: null | string;
             invoice: components["schemas"]["CheckoutInvoiceInput"];
             acceptPolicyVersions: components["schemas"]["AcceptedPolicyVersions"];
+        };
+        CreatePackageLimitVersionRequest: {
+            providerCode: string;
+            /** Format: double */
+            maxWeightKg: number | string;
+            /** Format: double */
+            maxLengthCm: number | string;
+            /** Format: double */
+            maxWidthCm: number | string;
+            /** Format: double */
+            maxHeightCm: number | string;
+            /** Format: double */
+            maxTotalCm: number | string;
+            /** Format: double */
+            maxDeclaredValue: number | string;
+            /** Format: date-time */
+            effectiveFromUtc: null | string;
+            /** Format: date-time */
+            effectiveToUtc: null | string;
         };
         CreatePaymentAttemptRequest: {
             method: components["schemas"]["PaymentMethod"];
@@ -9541,6 +9904,32 @@ export interface components {
             createdAtUtc: string;
             availableActions: string[];
         };
+        PackageLimitVersionDto: {
+            /** Format: uuid */
+            publicId: string;
+            providerCode: string;
+            /** Format: int32 */
+            version: number | string;
+            status: string;
+            /** Format: double */
+            maxWeightKg: number | string;
+            /** Format: double */
+            maxLengthCm: number | string;
+            /** Format: double */
+            maxWidthCm: number | string;
+            /** Format: double */
+            maxHeightCm: number | string;
+            /** Format: double */
+            maxTotalCm: number | string;
+            /** Format: double */
+            maxDeclaredValue: number | string;
+            /** Format: date-time */
+            effectiveFromUtc: null | string;
+            /** Format: date-time */
+            effectiveToUtc: null | string;
+            /** Format: byte */
+            rowVersion: string;
+        };
         PageResultOfAdminInvoiceSummaryDto: {
             items: components["schemas"]["AdminInvoiceSummaryDto"][];
             /** Format: int32 */
@@ -9609,6 +9998,28 @@ export interface components {
         };
         PageResultOfCategoryDto: {
             items: components["schemas"]["CategoryDto"][];
+            /** Format: int32 */
+            pageNumber: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+            /** Format: int32 */
+            totalCount: number | string;
+            /** Format: int32 */
+            totalPages?: number | string;
+        };
+        PageResultOfConvenienceStoreDto: {
+            items: components["schemas"]["ConvenienceStoreDto"][];
+            /** Format: int32 */
+            pageNumber: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+            /** Format: int32 */
+            totalCount: number | string;
+            /** Format: int32 */
+            totalPages?: number | string;
+        };
+        PageResultOfConvenienceStoreOptionDto: {
+            items: components["schemas"]["ConvenienceStoreOptionDto"][];
             /** Format: int32 */
             pageNumber: number | string;
             /** Format: int32 */
@@ -9887,6 +10298,10 @@ export interface components {
             specifications: components["schemas"]["SkuSpecificationSummary"][];
             dimensions: components["schemas"]["SkuDimensionsSummary"];
             isDefault: boolean;
+        };
+        PublishPackageLimitVersionRequest: {
+            /** Format: byte */
+            rowVersion: string;
         };
         ReceiveReturnRequest: {
             note?: null | string;
@@ -10276,6 +10691,28 @@ export interface components {
             canCopy: boolean;
             canAddToCart: boolean;
         };
+        ShippingOptionDto: {
+            methodCode: string;
+            name: string;
+            /** Format: double */
+            fee: number | string;
+            isEligible: boolean;
+            ineligibleReasonCode: null | string;
+            /** Format: double */
+            freeShippingThreshold: null | number | string;
+            requiresAddress: boolean;
+            requiresStore: boolean;
+            allowedPaymentMethods: string[];
+        };
+        ShippingOptionsDto: {
+            /** Format: uuid */
+            cartPublicId: string;
+            options: components["schemas"]["ShippingOptionDto"][];
+            /** Format: date-time */
+            evaluatedAtUtc: string;
+            /** Format: byte */
+            cartRowVersion: string;
+        };
         ShippingRestrictionDto: {
             method: string;
             allowed: boolean;
@@ -10654,6 +11091,15 @@ export interface components {
             parentCategoryPublicId: null | string;
             /** Format: int32 */
             sortOrder: number | string;
+            isActive: boolean;
+            /** Format: byte */
+            rowVersion: string;
+        };
+        UpdateConvenienceStoreRequest: {
+            storeName: string;
+            address: string;
+            city: string;
+            district: string;
             isActive: boolean;
             /** Format: byte */
             rowVersion: string;
