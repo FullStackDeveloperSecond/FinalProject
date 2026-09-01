@@ -860,8 +860,27 @@ public sealed class EfProductImportService : IProductImportService
     /// 原始 business key（本身有 64 字元上限），否則同時是 duplicate 的超長列在錯誤 CSV 只剩合成
     /// 鍵可顯示，與「顯示管理員原始鍵」的契約不符。
     /// </summary>
-    private static string BuildOversizedPayloadJson(string? originalKey) =>
-        JsonSerializer.Serialize(new OversizedRowEnvelope(null, null, originalKey));
+    private static string BuildOversizedPayloadJson(string? originalKey)
+    {
+        // 組長 PR #74 round-5 review (P2)：原始 key 本身也可能是那個巨大的欄位（例如 40 KB 的
+        // product_key），把它整個放回最小信封只是換個地方超過 32 KB，建構子照樣拋錯。截斷成有界
+        // 長度並明確標記，讓錯誤檔仍指得出「是哪一列的哪個 key」而不假裝那是完整值。
+        var boundedKey = originalKey is { Length: > MaxPreservedKeyLength }
+            ? originalKey[..MaxPreservedKeyLength] + TruncatedKeyMarker
+            : originalKey;
+        var json = JsonSerializer.Serialize(new OversizedRowEnvelope(null, null, boundedKey));
+
+        // Belt and braces: if even that does not fit (a pathological escape expansion), drop the
+        // key too rather than throwing out of the ImportRow constructor.
+        return json.Length <= MaxRowJsonLength
+            ? json
+            : JsonSerializer.Serialize(new OversizedRowEnvelope(null, null, null));
+    }
+
+    /// <summary>ImportKey 的欄位上限就是原始 key 合理的保存長度；超過即截斷並加註記。</summary>
+    private const int MaxPreservedKeyLength = 64;
+
+    private const string TruncatedKeyMarker = "...(truncated)";
 
     /// <summary>The minimal envelope stored for an oversized row — same shape as
     /// <see cref="RowEnvelope{TPayload}"/> plus the preserved key.</summary>

@@ -430,6 +430,96 @@ public sealed class EfProductImportServiceTests
         Assert.DoesNotContain("__dup", text, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>組長 PR #74 round-5 review (P2)：65 字元的 product_key 先前只加了列級錯誤卻仍被當成
+    /// ImportKey，於是死在該欄位的 64 字元限制上，整批 Preview 變成 500。必須改用有界的合成鍵，
+    /// 正常形成 Invalid batch。</summary>
+    [Fact]
+    public async Task PreviewAsync_WhenAProductKeyExceedsTheColumnLength_StillProducesAnInvalidBatch()
+    {
+        await using var context = ImportServiceFixture.CreateContext();
+        var (brand, category) = await ImportServiceFixture.SeedBrandAndCategoryAsync(context);
+        var adminId = await ImportServiceFixture.SeedAdminUserIdAsync(context);
+        var service = new EfProductImportService(context, new EfAuditWriter(context, TimeProvider.System));
+
+        var tooLongKey = new string('K', 65);
+        var productsCsv = ProductsHeader +
+            $"{tooLongKey},{ImportServiceFixture.UniqueCode("PROD")},商品一,{brand.Code},{category.Code},\\N,\\N,Draft\r\n";
+        var request = new PreviewProductImportRequest(
+            ToFile(productsCsv), ToFile(SkusHeader), ToFile(SpecificationsHeader), 1);
+
+        var batch = await service.PreviewAsync(request, adminId, CancellationToken.None);
+
+        Assert.NotEqual("Ready", batch.Status);
+        await using var verify = ImportServiceFixture.CreateContext();
+        var stored = await verify.ImportRows.AsNoTracking()
+            .Where(row => row.ImportBatchId ==
+                verify.ImportBatches.Where(b => b.PublicId == batch.PublicId).Select(b => b.Id).First())
+            .ToListAsync();
+        Assert.All(stored, row => Assert.True(row.ImportKey.Length <= 64));
+        Assert.NotNull(await service.GetErrorsCsvAsync(batch.PublicId, CancellationToken.None));
+    }
+
+    /// <summary>同一條規則的極端版：key 欄位本身約 40 KB。除了儲存鍵，最小信封也不能把整個 key 放
+    /// 回去——那只是換個地方超過 32 KB。</summary>
+    [Fact]
+    public async Task PreviewAsync_WhenTheKeyFieldItselfIsHuge_StillProducesAnInvalidBatch()
+    {
+        await using var context = ImportServiceFixture.CreateContext();
+        var (brand, category) = await ImportServiceFixture.SeedBrandAndCategoryAsync(context);
+        var adminId = await ImportServiceFixture.SeedAdminUserIdAsync(context);
+        var service = new EfProductImportService(context, new EfAuditWriter(context, TimeProvider.System));
+
+        var hugeKey = new string('K', 40 * 1024);
+        var productsCsv = ProductsHeader +
+            $"{hugeKey},{ImportServiceFixture.UniqueCode("PROD")},商品一,{brand.Code},{category.Code},\\N,\\N,Draft\r\n";
+        var request = new PreviewProductImportRequest(
+            ToFile(productsCsv), ToFile(SkusHeader), ToFile(SpecificationsHeader), 1);
+
+        var batch = await service.PreviewAsync(request, adminId, CancellationToken.None);
+
+        Assert.NotEqual("Ready", batch.Status);
+        await using var verify = ImportServiceFixture.CreateContext();
+        var stored = await verify.ImportRows.AsNoTracking()
+            .Where(row => row.ImportBatchId ==
+                verify.ImportBatches.Where(b => b.PublicId == batch.PublicId).Select(b => b.Id).First())
+            .ToListAsync();
+        Assert.All(stored, row => Assert.True(row.ImportKey.Length <= 64));
+        Assert.All(stored, row => Assert.True(row.NormalizedPayloadJson.Length <= 32 * 1024));
+        Assert.NotNull(await service.GetErrorsCsvAsync(batch.PublicId, CancellationToken.None));
+    }
+
+    /// <summary>組長 PR #74 round-5 review (P2)：SQL_Latin1_General_CP1_CI_AS 是 width-insensitive，
+    /// 全形的 ＿＿ＤＵＰ３ 與合成鍵 __dup3 在資料庫眼中可能是同一個 ImportKey。配置器改用 NFKC ＋
+    /// 大寫的 canonical 形式比較後，整批仍必須安全落成 Invalid batch。</summary>
+    [Fact]
+    public async Task PreviewAsync_WhenAFullWidthKeyShadowsASyntheticKey_StagesWithoutHittingTheUniqueIndex()
+    {
+        await using var context = ImportServiceFixture.CreateContext();
+        var (brand, category) = await ImportServiceFixture.SeedBrandAndCategoryAsync(context);
+        var adminId = await ImportServiceFixture.SeedAdminUserIdAsync(context);
+        var service = new EfProductImportService(context, new EfAuditWriter(context, TimeProvider.System));
+
+        // Rows 2 and 3 share PK1 (row 3 needs the synthetic __dup3); row 4's key is the full-width
+        // spelling of that same synthetic name.
+        var productsCsv = ProductsHeader +
+            $"PK1,{ImportServiceFixture.UniqueCode("PROD")},商品一,{brand.Code},{category.Code},\\N,\\N,Draft\r\n" +
+            $"PK1,{ImportServiceFixture.UniqueCode("PROD")},商品二,{brand.Code},{category.Code},\\N,\\N,Draft\r\n" +
+            $"＿＿ＤＵＰ３,{ImportServiceFixture.UniqueCode("PROD")},商品三,{brand.Code},{category.Code},\\N,\\N,Draft\r\n";
+        var request = new PreviewProductImportRequest(
+            ToFile(productsCsv), ToFile(SkusHeader), ToFile(SpecificationsHeader), 1);
+
+        var batch = await service.PreviewAsync(request, adminId, CancellationToken.None);
+
+        Assert.NotEqual("Ready", batch.Status);
+        await using var verify = ImportServiceFixture.CreateContext();
+        var stored = await verify.ImportRows.AsNoTracking()
+            .Where(row => row.ImportBatchId ==
+                verify.ImportBatches.Where(b => b.PublicId == batch.PublicId).Select(b => b.Id).First())
+            .ToListAsync();
+        Assert.Equal(3, stored.Count);
+        Assert.NotNull(await service.GetErrorsCsvAsync(batch.PublicId, CancellationToken.None));
+    }
+
     private static IncomingImportFile ToFile(string csv, bool withBom = false)
     {
         var bytes = ImportServiceFixture.Utf8(csv);

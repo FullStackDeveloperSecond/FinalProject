@@ -77,7 +77,10 @@ internal static class SkuRowParser
             var row = new StagedImportRow<SkuPayload>
             {
                 SourceRowNumber = sourceRowNumber,
-                ImportKey = skuKey ?? keys.Allocate("row", sourceRowNumber),
+                // 組長 PR #74 round-5 review (P2)：同 ProductRowParser——超長 key 也要走合成鍵。
+                ImportKey = ImportStorageKeyAllocator.CanStore(skuKey)
+                    ? skuKey!
+                    : keys.Allocate("row", sourceRowNumber),
                 OriginalKey = skuKey,
                 Payload = payload,
                 RawFields = fields,

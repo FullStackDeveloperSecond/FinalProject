@@ -72,7 +72,11 @@ internal static class ProductRowParser
             var row = new StagedImportRow<ProductPayload>
             {
                 SourceRowNumber = sourceRowNumber,
-                ImportKey = productKey ?? keys.Allocate("row", sourceRowNumber),
+                // 組長 PR #74 round-5 review (P2)：缺 key 與超長 key 都不能直接當儲存鍵——
+                // 後者會死在 ImportKey 的 64 字元欄位限制上，讓整批 Preview 變成 500。
+                ImportKey = ImportStorageKeyAllocator.CanStore(productKey)
+                    ? productKey!
+                    : keys.Allocate("row", sourceRowNumber),
                 OriginalKey = productKey,
                 Payload = payload,
                 RawFields = fields,
