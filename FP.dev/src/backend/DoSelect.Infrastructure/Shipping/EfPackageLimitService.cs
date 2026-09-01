@@ -211,7 +211,6 @@ public sealed class EfPackageLimitService : IPackageLimitService
 
         _dbContext.Entry(profile).Property(candidate => candidate.RowVersion).OriginalValue = request.RowVersion;
 
-        var now = DateTime.UtcNow;
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
         try
         {
@@ -220,6 +219,13 @@ public sealed class EfPackageLimitService : IPackageLimitService
             // UX_ProviderProfiles_ProviderCode_Published 並以未映射的 DbUpdateException 變成 500。
             // 同一把 provider-scoped lock 讓同 Provider 的 Create 與 Publish 一起序列化。
             await AcquireProviderLockAsync(profile.ProviderCode, cancellationToken);
+
+            // 組長 PR #73 round-5 review (P2)：發布時間必須在「取得 lock 之後」才產生。
+            // sp_getapplock 最長會等 15 秒；若在等鎖期間跨過了 Draft 的 EffectiveToUtc，用等鎖之前
+            // 的時戳做到期檢查會誤判成還沒過期，接著舊版本被收窗、實際上已過期的版本被標成
+            // Published，該 Provider 一樣變成零有效版本。到期檢查、cutoff、Supersede、limit 收窗、
+            // Publish 與 audit 全部共用這個鎖後時間，整個發布動作對時間的看法才是一致的。
+            var now = DateTime.UtcNow;
 
             // 組長 PR #73 round-4 review (P1)：建立時還沒過期的 Draft，可能被擱置到窗口結束後才按
             // 發布。舊碼會照樣把目前版本收窗、再把這個已過期的版本改成 Published——依時間窗解析時

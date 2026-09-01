@@ -650,6 +650,88 @@ public sealed class PackageLimitServiceTests
         Assert.Equal(1, Assert.Single(effective).Version);
     }
 
+    /// <summary>組長 PR #73 round-5 review (P2)：等鎖期間才跨過 EffectiveToUtc 的競態。發布時間
+    /// 若在等 provider lock 之前就取好，鎖後的到期檢查會用一個已經過時的時戳而誤放行——舊版本被
+    /// 收窗、實際上已過期的版本被標成 Published，該 Provider 零有效版本。這支測試把該情境做成決定
+    /// 性的：另一條連線先持有同一把 provider app lock，Publish 卡在鎖上，等 Draft 真的過期之後才
+    /// 釋放。</summary>
+    [Fact]
+    public async Task PublishAsync_WhenTheDraftExpiresWhileWaitingForTheProviderLock_RejectsWithoutChangingAnything()
+    {
+        await using var context = ShippingServiceFixture.CreateContext();
+        await ShippingServiceFixture.ClearPackageLimitDataAsync(context);
+        var actorId = await ShippingServiceFixture.SeedShippingAdminAsync(context);
+        await ShippingServiceFixture.EnsureProviderWithLimitAsync(context, ShippingProviderCodes.StorePickup);
+
+        // A window that is still open right now but closes about two seconds from now.
+        var closesAt = DateTime.UtcNow.AddSeconds(2);
+        var draft = await CreateService(context).CreateDraftAsync(
+            ShippingServiceFixture.TestAuditContext,
+            ValidStorePickupRequest(from: DateTime.UtcNow.AddSeconds(-60), to: closesAt),
+            actorId,
+            CancellationToken.None);
+
+        // Another connection holds the very same provider lock, so the publish below blocks inside
+        // AcquireProviderLockAsync instead of proceeding.
+        await using var blockerContext = ShippingServiceFixture.CreateContext();
+        await using var blockerTransaction = await blockerContext.Database.BeginTransactionAsync();
+        await blockerContext.Database.ExecuteSqlAsync(
+            $"""
+            DECLARE @result int;
+            EXEC @result = sp_getapplock
+                @Resource = {"doselect:shipping:package-limit:" + ShippingProviderCodes.StorePickup},
+                @LockMode = 'Exclusive',
+                @LockOwner = 'Transaction',
+                @LockTimeout = 5000;
+            IF @result < 0 THROW 51000, 'Test could not take the provider lock.', 1;
+            """);
+
+        var publishTask = Task.Run(async () =>
+        {
+            await using var publishContext = ShippingServiceFixture.CreateContext();
+            return await Assert.ThrowsAsync<ShippingAdminWriteException>(
+                () => CreateService(publishContext).PublishAsync(
+                    ShippingProviderCodes.StorePickup,
+                    ShippingServiceFixture.TestAuditContext,
+                    draft.PublicId,
+                    new PublishPackageLimitVersionRequest(draft.RowVersion),
+                    actorId,
+                    CancellationToken.None));
+        });
+
+        // Hold the lock until the draft's window has genuinely closed, then let the publish run.
+        while (DateTime.UtcNow <= closesAt)
+        {
+            await Task.Delay(100);
+        }
+
+        await blockerTransaction.RollbackAsync();
+
+        var exception = await publishTask;
+        Assert.Equal(ShippingAdminErrorCodes.ValidationFailed, exception.ErrorCode);
+
+        // Nothing moved: v1 still Published and open-ended, v2 still a Draft, and exactly one
+        // version resolves right now under the production predicate.
+        await using var verify = ShippingServiceFixture.CreateContext();
+        var current = await verify.ShippingProviderProfiles.AsNoTracking()
+            .SingleAsync(profile => profile.ProviderCode == ShippingProviderCodes.StorePickup && profile.Version == 1);
+        Assert.Equal(ShippingProviderProfileStatuses.Published, current.Status);
+        Assert.Null(current.EffectiveToUtc);
+        var stillDraft = await verify.ShippingProviderProfiles.AsNoTracking()
+            .SingleAsync(profile => profile.ProviderCode == ShippingProviderCodes.StorePickup && profile.Version == 2);
+        Assert.Equal(ShippingProviderProfileStatuses.Draft, stillDraft.Status);
+        Assert.Equal(closesAt, stillDraft.EffectiveToUtc!.Value, TimeSpan.FromMilliseconds(5));
+
+        var now = DateTime.UtcNow;
+        var effective = await verify.ShippingProviderProfiles.AsNoTracking()
+            .Where(profile => profile.ProviderCode == ShippingProviderCodes.StorePickup &&
+                profile.Status != ShippingProviderProfileStatuses.Draft &&
+                (profile.EffectiveFromUtc == null || profile.EffectiveFromUtc <= now) &&
+                (profile.EffectiveToUtc == null || now < profile.EffectiveToUtc))
+            .ToListAsync();
+        Assert.Equal(1, Assert.Single(effective).Version);
+    }
+
     /// <summary>Seeds one Published profile+limit pair with an explicit window.</summary>
     private static async Task SeedPublishedVersionAsync(
         DoSelectDbContext context, DateTime? effectiveFromUtc, DateTime? effectiveToUtc)
