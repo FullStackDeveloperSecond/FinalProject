@@ -1,4 +1,4 @@
-using DoSelect.Domain.Catalog;
+﻿using DoSelect.Domain.Catalog;
 using DoSelect.Domain.Inventory;
 using DoSelect.Domain.Invoicing;
 using DoSelect.Domain.Members;
@@ -94,6 +94,31 @@ public sealed class OrderServiceFixture : IAsyncLifetime
     /// with returnable quantity pass <paramref name="deliveredAtUtc"/> and
     /// <paramref name="returnableQuantity"/>.
     /// </summary>
+    /// <summary>
+    /// SeedOrderAsync 用的是固定的 `home-delivery` 代碼，但沒有建立對應的 ShippingMethod 列——
+    /// 出貨流程要靠代碼查回那一列，所以測試得自己種。已存在就沿用（同一個資料庫在整個 collection
+    /// 內共用）。
+    /// </summary>
+    public static async Task<ShippingMethod> SeedShippingMethodAsync(
+        DoSelectDbContext context,
+        string code = "home-delivery")
+    {
+        var existing = await context.ShippingMethods
+            .FirstOrDefaultAsync(candidate => candidate.Code == code);
+        if (existing is not null)
+        {
+            return existing;
+        }
+
+        var method = new ShippingMethod(
+            Guid.CreateVersion7(), code, "宅配", "HomeDelivery",
+            baseFee: 0m, freeShippingThreshold: null, allowsCod: true, requiresPrepayment: false,
+            providerCode: "TCAT", createdAtUtc: DateTime.UtcNow);
+        context.ShippingMethods.Add(method);
+        await context.SaveChangesAsync();
+        return method;
+    }
+
     public static async Task<Order> SeedOrderAsync(
         DoSelectDbContext context,
         string? memberUserId,
@@ -102,7 +127,8 @@ public sealed class OrderServiceFixture : IAsyncLifetime
         FulfillmentStatus fulfillmentStatus = FulfillmentStatus.Pending,
         DateTime? deliveredAtUtc = null,
         int returnableQuantity = 0,
-        int returnedQuantity = 0)
+        int returnedQuantity = 0,
+        string? storeCode = null)
     {
         var now = DateTime.UtcNow;
         var packageLimitVersionId = await context.PackageLimitVersions
@@ -132,9 +158,9 @@ public sealed class OrderServiceFixture : IAsyncLifetime
             AddressLine2: null,
             ShippingMethodCode: "home-delivery",
             ShippingProviderProfileVersionId: shippingProviderProfileId,
-            StoreCode: null,
-            StoreName: null,
-            StoreAddress: null,
+            StoreCode: storeCode,
+            StoreName: storeCode is null ? null : "測試門市",
+            StoreAddress: storeCode is null ? null : "台北市中正區測試路 1 號",
             ShippingConstraintPolicyVersion: 1,
             ReturnPolicyVersion: 1,
             CouponPolicyVersion: null,

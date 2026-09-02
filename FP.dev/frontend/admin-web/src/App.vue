@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAdminAuthStore } from './features/auth/stores/useAdminAuthStore'
@@ -156,6 +156,12 @@ async function onLogout(): Promise<void> {
             to="/shipping/package-limits"
           >
             包裹限制版本
+          </RouterLink>
+          <RouterLink
+            v-if="canManageShipping"
+            to="/shipping/batches"
+          >
+            批次出貨
           </RouterLink>
           <RouterLink to="/inventory/reservations">
             庫存保留佇列

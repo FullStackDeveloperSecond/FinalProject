@@ -1,7 +1,8 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
+﻿import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 import {
   createConvenienceStore,
+  shipBatch,
   createPackageLimitVersion,
   listConvenienceStores,
   listPackageLimitVersions,
@@ -10,6 +11,7 @@ import {
   type ConvenienceStoreListParams,
 } from './api'
 import type {
+  BatchShipmentRequest,
   CreateConvenienceStoreRequest,
   CreatePackageLimitVersionRequest,
   UpdateConvenienceStoreRequest,
@@ -81,5 +83,17 @@ export function usePublishPackageLimitVersion() {
       rowVersion: string
     }) => publishPackageLimitVersion(providerCode, versionPublicId, { rowVersion }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['shipping', 'package-limits'] }),
+  })
+}
+
+/**
+ * UC-ADM-SHIP-02 批次出貨。成功後讓訂單列表重新取數：出貨會改動訂單的 FulfillmentStatus 與
+ * RowVersion，畫面上那份清單當場就過期了，繼續拿它勾下一批只會整批撞併發衝突。
+ */
+export function useShipBatch() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (request: BatchShipmentRequest) => shipBatch(request),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin-orders'] }),
   })
 }

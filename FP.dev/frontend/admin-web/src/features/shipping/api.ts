@@ -1,5 +1,7 @@
-import { apiClient } from '../../api/client'
+﻿import { apiClient } from '../../api/client'
 import type {
+  BatchShipmentRequest,
+  BatchShipmentResultDto,
   ConvenienceStoreDto,
   CreateConvenienceStoreRequest,
   CreatePackageLimitVersionRequest,
@@ -81,5 +83,14 @@ export async function publishPackageLimitVersion(
       body: request,
     },
   )
+  return data!
+}
+
+/**
+ * UC-ADM-SHIP-02 批次出貨。逐筆失敗不是 HTTP 錯誤——回應永遠帶著逐筆結果，呼叫端要自己看
+ * `items[].errorCode`；只有整批被拒（超過 100 筆、動作不合法）才會是 problem+json。
+ */
+export async function shipBatch(request: BatchShipmentRequest): Promise<BatchShipmentResultDto> {
+  const { data } = await apiClient.POST('/api/v1/admin/shipments/batches', { body: request })
   return data!
 }

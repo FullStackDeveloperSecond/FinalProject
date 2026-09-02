@@ -13,6 +13,8 @@ public static class ShippingServiceCollectionExtensions
         services.AddScoped<IConvenienceStoreQueryService, EfConvenienceStoreQueryService>();
         services.AddScoped<IPackageLimitService, EfPackageLimitService>();
         services.AddScoped<IConvenienceStoreAdminService, EfConvenienceStoreAdminService>();
+        services.AddScoped<IBatchShipmentService, EfBatchShipmentService>();
+
 
         return services;
     }

@@ -513,6 +513,76 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/shipments/batches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AdminBatchShipmentRequest"];
+                    "text/json": components["schemas"]["AdminBatchShipmentRequest"];
+                    "application/*+json": components["schemas"]["AdminBatchShipmentRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["BatchShipmentResultDto"];
+                        "application/json": components["schemas"]["BatchShipmentResultDto"];
+                        "text/json": components["schemas"]["BatchShipmentResultDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/cart/shipping-options": {
         parameters: {
             query?: never;
@@ -8944,6 +9014,17 @@ export interface components {
             /** Format: date-time */
             expiresAtUtc: string;
         };
+        AdminBatchShipmentOrder: {
+            /** Format: uuid */
+            orderPublicId?: string;
+            /** Format: byte */
+            rowVersion: string;
+        };
+        AdminBatchShipmentRequest: {
+            orders: null | components["schemas"]["AdminBatchShipmentOrder"][];
+            shippingAction: null | string;
+            idempotencyKey: null | string;
+        };
         AdminInvoiceDto: {
             invoice: components["schemas"]["SimulatedInvoiceDto"];
             orderNumber: string;
@@ -9462,6 +9543,30 @@ export interface components {
             user?: null | components["schemas"]["CurrentUserDto"];
             /** Format: date-time */
             expiresAtUtc?: null | string;
+        };
+        BatchShipmentItemResultDto: {
+            /** Format: int32 */
+            sourceRowNumber: number | string;
+            /** Format: uuid */
+            orderPublicId: string;
+            orderNumber: null | string;
+            status: string;
+            trackingNumber: null | string;
+            errorCode: null | string;
+            message: null | string;
+        };
+        BatchShipmentResultDto: {
+            /** Format: uuid */
+            batchPublicId: string;
+            /** Format: int32 */
+            total: number | string;
+            /** Format: int32 */
+            succeeded: number | string;
+            /** Format: int32 */
+            failed: number | string;
+            items: components["schemas"]["BatchShipmentItemResultDto"][];
+            /** Format: date-time */
+            createdAtUtc: string;
         };
         BrandDto: {
             /** Format: uuid */

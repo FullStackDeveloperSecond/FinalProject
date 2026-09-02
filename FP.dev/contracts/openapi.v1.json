@@ -717,6 +717,85 @@
         }
       }
     },
+    "/api/v1/admin/shipments/batches": {
+      "post": {
+        "tags": [
+          "AdminShipments"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminBatchShipmentRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminBatchShipmentRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminBatchShipmentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchShipmentResultDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchShipmentResultDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchShipmentResultDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/cart/shipping-options": {
       "get": {
         "tags": [
@@ -12848,6 +12927,57 @@
           }
         }
       },
+      "AdminBatchShipmentOrder": {
+        "required": [
+          "rowVersion"
+        ],
+        "type": "object",
+        "properties": {
+          "orderPublicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "rowVersion": {
+            "type": "string",
+            "format": "byte"
+          }
+        }
+      },
+      "AdminBatchShipmentRequest": {
+        "required": [
+          "orders",
+          "shippingAction",
+          "idempotencyKey"
+        ],
+        "type": "object",
+        "properties": {
+          "orders": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/AdminBatchShipmentOrder"
+            }
+          },
+          "shippingAction": {
+            "maxLength": 32,
+            "minLength": 0,
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "idempotencyKey": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "AdminInvoiceDto": {
         "required": [
           "invoice",
@@ -15020,6 +15150,110 @@
               "null",
               "string"
             ],
+            "format": "date-time"
+          }
+        }
+      },
+      "BatchShipmentItemResultDto": {
+        "required": [
+          "sourceRowNumber",
+          "orderPublicId",
+          "orderNumber",
+          "status",
+          "trackingNumber",
+          "errorCode",
+          "message"
+        ],
+        "type": "object",
+        "properties": {
+          "sourceRowNumber": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "orderPublicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "orderNumber": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "trackingNumber": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "errorCode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "message": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "BatchShipmentResultDto": {
+        "required": [
+          "batchPublicId",
+          "total",
+          "succeeded",
+          "failed",
+          "items",
+          "createdAtUtc"
+        ],
+        "type": "object",
+        "properties": {
+          "batchPublicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "total": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "succeeded": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "failed": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BatchShipmentItemResultDto"
+            }
+          },
+          "createdAtUtc": {
+            "type": "string",
             "format": "date-time"
           }
         }
@@ -25726,6 +25960,9 @@
     },
     {
       "name": "AdminPackageLimits"
+    },
+    {
+      "name": "AdminShipments"
     },
     {
       "name": "Shipping"
