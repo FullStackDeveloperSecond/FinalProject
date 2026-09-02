@@ -1,4 +1,5 @@
 using System.Data.Common;
+using System.Text.Json;
 using DoSelect.Application.Auditing;
 using DoSelect.Application.Common;
 using DoSelect.Application.Idempotency;
@@ -445,6 +446,112 @@ public sealed class EfBatchShipmentServiceTests
         // 失敗那筆沒有稽核紀錄：什麼都沒發生，就不該留下「做過了」的痕跡。
         Assert.False(await verify.AuditLogs.AnyAsync(candidate => candidate.ResourcePublicId == broken.PublicId));
     }
+
+    /// <summary>
+    /// 組長 PR #93 round 2：createLabel → markShipped 兩筆稽核的前後值要對。第一筆建立物流單，
+    /// 單號從 null 變成現值；第二筆只是把同一張單推到 Shipped，單號沒動，就不該再出現在
+    /// ChangesJson 裡說它是這一步才建立的。直接驗 action 與 ChangedFieldsJson 的內容，不只驗有幾筆。
+    /// </summary>
+    [Fact]
+    public async Task CreateLabelThenMarkShippedRecordsTheRealBeforeAndAfterInEachAuditEntry()
+    {
+        await using var context = OrderServiceFixture.CreateContext();
+        var seed = await SeedBaseAsync(context);
+        var order = await SeedShippableOrderAsync(context, seed, withReservation: true);
+
+        await using var labelContext = OrderServiceFixture.CreateContext();
+        var label = await CreateService(labelContext).ShipBatchAsync(
+            Request(BatchShipmentActions.CreateLabel, order),
+            seed.AdminUserId, TestAuditContext, DateTime.UtcNow, CancellationToken.None);
+        var trackingNumber = label.Items.Single().TrackingNumber!;
+
+        byte[] preparedRowVersion;
+        string shipmentNumber;
+        await using (var mid = OrderServiceFixture.CreateContext())
+        {
+            preparedRowVersion = (await mid.Orders.AsNoTracking().SingleAsync(candidate => candidate.Id == order.Id))
+                .RowVersion.ToArray();
+            shipmentNumber = (await mid.Shipments.AsNoTracking().SingleAsync(candidate => candidate.OrderId == order.Id))
+                .ShipmentNumber;
+        }
+
+        await using var shipContext = OrderServiceFixture.CreateContext();
+        await CreateService(shipContext).ShipBatchAsync(
+            new BatchShipmentRequest(
+                [new BatchShipmentOrderInput(order.PublicId, preparedRowVersion)],
+                BatchShipmentActions.MarkShipped,
+                $"key-{Guid.NewGuid():N}"),
+            seed.AdminUserId, TestAuditContext, DateTime.UtcNow, CancellationToken.None);
+
+        await using var verify = OrderServiceFixture.CreateContext();
+        var audits = await verify.AuditLogs.AsNoTracking()
+            .Where(candidate => candidate.ResourcePublicId == order.PublicId)
+            .OrderBy(candidate => candidate.Id)
+            .ToListAsync();
+        Assert.Equal(2, audits.Count);
+
+        var created = audits[0];
+        Assert.Equal(AuditActions.ShipmentCreateLabel, created.Action);
+        var createdChanges = Changes(created.ChangedFieldsJson);
+        Assert.Equal(("Pending", "Preparing"), createdChanges["fulfillmentStatus"]);
+        Assert.Equal((null, shipmentNumber), createdChanges["shipmentNumber"]);
+        Assert.Equal((null, trackingNumber), createdChanges["trackingNumber"]);
+
+        var shipped = audits[1];
+        Assert.Equal(AuditActions.ShipmentMarkShipped, shipped.Action);
+        var shippedChanges = Changes(shipped.ChangedFieldsJson);
+        Assert.Equal(("Preparing", "Shipped"), shippedChanges["fulfillmentStatus"]);
+        // 單號在第二步沒有變，就不該被記成「這一步才建立」。
+        Assert.DoesNotContain("shipmentNumber", shippedChanges.Keys);
+        Assert.DoesNotContain("trackingNumber", shippedChanges.Keys);
+    }
+
+    /// <summary>一次走完 Pending→Shipped 的 markShipped 只有一筆稽核，單號在那一筆裡從 null 建立。</summary>
+    [Fact]
+    public async Task MarkShippedOnAFreshOrderRecordsTheShipmentNumbersAsCreated()
+    {
+        await using var context = OrderServiceFixture.CreateContext();
+        var seed = await SeedBaseAsync(context);
+        var order = await SeedShippableOrderAsync(context, seed, withReservation: true);
+
+        await using var actContext = OrderServiceFixture.CreateContext();
+        var result = await CreateService(actContext).ShipBatchAsync(
+            Request(BatchShipmentActions.MarkShipped, order),
+            seed.AdminUserId, TestAuditContext, DateTime.UtcNow, CancellationToken.None);
+
+        await using var verify = OrderServiceFixture.CreateContext();
+        var audit = await verify.AuditLogs.AsNoTracking()
+            .SingleAsync(candidate => candidate.ResourcePublicId == order.PublicId);
+        var changes = Changes(audit.ChangedFieldsJson);
+        Assert.Equal(("Pending", "Shipped"), changes["fulfillmentStatus"]);
+        Assert.Equal((null, result.Items.Single().TrackingNumber), changes["trackingNumber"]);
+        Assert.Null(changes["shipmentNumber"].Before);
+        Assert.NotNull(changes["shipmentNumber"].After);
+    }
+
+    /// <summary>ChangedFieldsJson 的信封是 EfAuditWriter 私有的；用不分大小寫的方式讀，不與序列化選項綁死。</summary>
+    private static Dictionary<string, (string? Before, string? After)> Changes(string changedFieldsJson)
+    {
+        using var document = JsonDocument.Parse(changedFieldsJson);
+        var changes = Property(document.RootElement, "Changes");
+        var result = new Dictionary<string, (string?, string?)>(StringComparer.Ordinal);
+        foreach (var change in changes.EnumerateArray())
+        {
+            var field = Property(change, "Field").GetString()!;
+            var before = Property(change, "BeforeCode");
+            var after = Property(change, "AfterCode");
+            result[field] = (
+                before.ValueKind == JsonValueKind.Null ? null : before.GetString(),
+                after.ValueKind == JsonValueKind.Null ? null : after.GetString());
+        }
+
+        return result;
+    }
+
+    private static JsonElement Property(JsonElement element, string name) =>
+        element.EnumerateObject()
+            .First(candidate => string.Equals(candidate.Name, name, StringComparison.OrdinalIgnoreCase))
+            .Value;
 
     [Fact]
     public async Task CreateLabelWritesTheCreateLabelAuditAction()

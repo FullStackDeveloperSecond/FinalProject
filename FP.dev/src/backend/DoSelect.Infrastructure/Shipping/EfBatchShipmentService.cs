@@ -311,6 +311,20 @@ public sealed class EfBatchShipmentService : IBatchShipmentService
 
             // 組長 PR #93 裁定 B1：每一筆成功的出貨都在自己那筆交易內寫中央 Audit。跟著同一次
             // SaveChanges 落地，「出了貨卻沒有稽核紀錄」這個狀態就不存在。
+            //
+            // Round 2：單號只在這一步真的建立物流單時才記成 null → 現值。createLabel 之後再
+            // markShipped，單號早在第一步就存在，第二步沒有動它——未變動的欄位省略，稽核才不會
+            // 說謊說它們是在第二步才出現的。
+            var auditChanges = new List<AuditFieldChange>
+            {
+                AuditFieldChange.Code("fulfillmentStatus", previousStatus.ToString(), targetStatus.ToString()),
+            };
+            if (isNewShipment)
+            {
+                auditChanges.Add(AuditFieldChange.Code("shipmentNumber", null, shipment.ShipmentNumber));
+                auditChanges.Add(AuditFieldChange.Code("trackingNumber", null, shipment.TrackingNumber));
+            }
+
             _auditWriter.Add(AuditWriteRequest.Create(
                 Guid.CreateVersion7(),
                 actor,
@@ -321,11 +335,7 @@ public sealed class EfBatchShipmentService : IBatchShipmentService
                 order.PublicId,
                 AuditResult.Success,
                 errorCode: null,
-                [
-                    AuditFieldChange.Code("fulfillmentStatus", previousStatus.ToString(), targetStatus.ToString()),
-                    AuditFieldChange.Code("shipmentNumber", null, shipment.ShipmentNumber),
-                    AuditFieldChange.Code("trackingNumber", null, shipment.TrackingNumber),
-                ],
+                auditChanges,
                 reason: "batch_shipment",
                 auditContext.CorrelationId,
                 auditContext.TraceId,
