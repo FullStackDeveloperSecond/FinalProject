@@ -608,10 +608,8 @@ public sealed class MinimalDevelopmentDataSeeder(
         await dbContext.SaveChangesAsync(cancellationToken);
         counters.CompatibilityRecordsCreated++;
 
-        var listPrice = categoryCode == CompatibilityCatalogContract.Categories.Gpu ? 10_000m : 5_000m;
-        var unitCost = categoryCode == CompatibilityCatalogContract.Categories.Gpu ? 7_000m : 3_000m;
         var sku = new Sku(
-            Guid.CreateVersion7(), skuCode, product.Id, name, listPrice, unitCost,
+            Guid.CreateVersion7(), skuCode, product.Id, name, 5000m, 3000m,
             MinimalDevelopmentSeedDefinitions.CreatedAtUtc);
         sku.ChangeStatus(SkuStatus.Published, MinimalDevelopmentSeedDefinitions.CreatedAtUtc);
         sku.UpdateCommercialDetails(
@@ -699,25 +697,22 @@ public sealed class MinimalDevelopmentDataSeeder(
         var skus = await dbContext.Skus
             .Where(sku => skuCodes.Contains(sku.SkuCode))
             .ToListAsync(cancellationToken);
+        foreach (var sku in skus.Where(sku => !sku.IsDefault))
+        {
+            sku.UpdateCommercialDetails(
+                sku.NameZhTw,
+                sku.ListPrice,
+                sku.UnitCost,
+                isDefault: true,
+                sku.RequiresPrepayment,
+                MinimalDevelopmentSeedDefinitions.CreatedAtUtc);
+        }
+
         foreach (var sku in skus)
         {
-            var isCoreTransactionGpu = sku.SkuCode == "DEV-COMPAT-GPU-001";
-            var expectedListPrice = isCoreTransactionGpu ? 10_000m : sku.ListPrice;
-            var expectedUnitCost = isCoreTransactionGpu ? 7_000m : sku.UnitCost;
-            if (!sku.IsDefault || sku.ListPrice != expectedListPrice || sku.UnitCost != expectedUnitCost)
-            {
-                sku.UpdateCommercialDetails(
-                    sku.NameZhTw,
-                    expectedListPrice,
-                    expectedUnitCost,
-                    isDefault: true,
-                    sku.RequiresPrepayment,
-                    MinimalDevelopmentSeedDefinitions.CreatedAtUtc);
-            }
-
             // Checkout requires complete package facts. These fictional per-item packages combine
-            // to 8 kg and 90 cm across the eight-part build, safely inside the seeded home-delivery
-            // profile while still exercising the real package calculator.
+            // safely inside the seeded home-delivery profile while still exercising the real
+            // package calculator.
             if (sku.WeightKg is null || sku.LengthCm is null || sku.WidthCm is null || sku.HeightCm is null)
             {
                 sku.UpdatePackageDimensions(
@@ -996,9 +991,6 @@ public sealed class MinimalDevelopmentDataSeeder(
             CompatibilityCatalogContract.Categories.Cpu,
             CompatibilityCatalogContract.Categories.Gpu,
             CompatibilityCatalogContract.Categories.Memory,
-            // The standalone development GPU predates the compatibility category catalogue but
-            // represents the same customer-facing GPU category.
-            "DEV-GRAPHICS-CARDS",
         };
         var eligibleCategoryIds = await dbContext.Categories
             .Where(category => eligibleCategoryCodes.Contains(category.Code))
@@ -1007,7 +999,7 @@ public sealed class MinimalDevelopmentDataSeeder(
         if (eligibleCategoryIds.Count != eligibleCategoryCodes.Length)
         {
             throw new InvalidOperationException(
-                "The core transaction seed requires the CPU, GPU, memory, and development GPU categories.");
+                "The core transaction seed requires the CPU, GPU, and memory categories.");
         }
 
         var existingCategoryIds = await dbContext.CouponCategories
@@ -1059,6 +1051,8 @@ public sealed class MinimalDevelopmentDataSeeder(
                 "The core transaction seed requires all eight compatible component SKUs.");
         }
 
+        var standaloneGpu = assemblySkus.Single(sku => sku.SkuCode == "DEV-COMPAT-GPU-001");
+
         dbContext.CartItems.AddRange(assemblySkus.Select(sku => new CartItem(
             Guid.CreateVersion7(),
             cart.Id,
@@ -1066,6 +1060,16 @@ public sealed class MinimalDevelopmentDataSeeder(
             1,
             MinimalDevelopmentSeedDefinitions.CoreTransactionAssemblyGroupKey,
             now)));
+        // The extra standalone GPU keeps the compatibility catalogue's established NT$5,000
+        // per-component price contract intact while bringing CPU／GPU／Memory coupon-eligible
+        // subtotal to CREATOR10's NT$20,000 threshold.
+        dbContext.CartItems.Add(new CartItem(
+            Guid.CreateVersion7(),
+            cart.Id,
+            standaloneGpu.Id,
+            1,
+            assemblyGroupKey: null,
+            now));
 
         cart.Touch(now);
         await dbContext.SaveChangesAsync(cancellationToken);

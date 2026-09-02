@@ -570,7 +570,7 @@ test('a guest completes the prepared cart through checkout payment and invoice',
     }
     return await response.json() as OrderSnapshot
   }, order.publicId)
-  expect(persistedOrder.items).toHaveLength(8)
+  expect(persistedOrder.items).toHaveLength(9)
   expect(persistedOrder.amounts).toEqual(expect.objectContaining({
     merchandiseSubtotal: 45000,
     itemDiscountTotal: 2000,
