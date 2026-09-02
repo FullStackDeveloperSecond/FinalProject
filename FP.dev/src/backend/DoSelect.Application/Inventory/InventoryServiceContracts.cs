@@ -54,11 +54,20 @@ public interface IInventoryReservationService
         long orderId, string reasonCode, DateTime now, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Idempotent sweep for the background timeout job (庫存規則.md 逾時取消): releases every Active
-    /// reservation whose ExpiresAtUtc has passed. Safe to call repeatedly / concurrently — an
+    /// Idempotent sweep for the background timeout job (庫存規則.md 逾時取消): releases Active
+    /// reservations whose ExpiresAtUtc has passed. Safe to call repeatedly / concurrently — an
     /// already-released reservation is simply skipped, never double-released.
+    ///
+    /// 組長 PR #85 round-1 review [P2]: bounded by <paramref name="batchSize"/> and ordered by
+    /// (ExpiresAtUtc, Id). The previous version loaded every overdue reservation in one
+    /// ToListAsync, so a backlog after downtime — or a large simultaneous expiry — meant unbounded
+    /// memory and one ReloadAsync round trip per row. Callers drain a backlog by calling again
+    /// until this returns less than <paramref name="batchSize"/>.
     /// </summary>
-    Task<int> ExpireOverdueReservationsAsync(DateTime now, CancellationToken cancellationToken);
+    Task<int> ExpireOverdueReservationsAsync(
+        DateTime now,
+        int batchSize,
+        CancellationToken cancellationToken);
 
     /// <summary>
     /// Manual admin release of one Active reservation (UC-ADM-INV-01). Uses the same domain

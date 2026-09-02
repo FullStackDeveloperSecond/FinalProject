@@ -173,7 +173,7 @@
 | `CreateProductRequest` | `productCode:string(1..64)`、`nameZhTw:string(1..160)`、`brandPublicId`、`categoryPublicId`、`descriptionZhTw?:string(0..4000)`、`warrantyMonths?:int(0..120)`、`tagPublicIds:uuid[0..20]`、`status:draft/published/unpublished/discontinued`、必填 `defaultSku:CreateSkuRequest`；服務端固定 `defaultSku.isDefault=true`，Product、Tags 與第一個預設 SKU 必須同交易全部成功或全部回滾 |
 | `UpdateProductRequest` | Create 欄位但 Product Code 不可改；加 `rowVersion` |
 | `AdminProductDetailDto` | Product 全部可編輯欄位、`skus:SkuDto[]`、`images[]`、規格範本摘要、稽核時間及 RowVersion |
-| `BulkProductActionRequest` | `productPublicIds:uuid[1..100]`、`rowVersions:{productPublicId,rowVersion}[]`；`adjust-price` 另帶受控調價模式與值、原因 |
+| `BulkProductActionRequest` | `productPublicIds:uuid[1..100]`、`rowVersions:{productPublicId,rowVersion}[]`；`adjust-price` 另帶 `priceAdjustment:{mode,value,reason}`。`mode` 白名單 `percentage`／`amount`；`percentage` 的 `value` 限 -90～+100；`reason` 必填 1..500 且須通過中央 Audit 的安全字元與敏感詞檢查。調整後價格必須 >= 0 且符合 `decimal(18,2)`，任一 SKU 超出即整批拒絕（組長裁定 A1，2026-09-02） |
 | `CatalogLookupDto` | `publicId`、`code`、`nameZhTw`、`isActive`、`sortOrder`、`rowVersion`；Brand／Category／Tag 使用各自具名 Schema |
 | `SpecificationDefinitionDto` | `publicId`、`categoryPublicId`、`categoryCode`、`semanticKey`、`displayNameZhTw`、`valueType`、`unitCode?`、`isRequired`、`allowsMultiple`、`isProtected`、`isActive`、`sortOrder`、Options、RowVersion |
 | `ReleaseReservationRequest` | `reasonCode:enum`、`note:string(1..500)`、`rowVersion` |

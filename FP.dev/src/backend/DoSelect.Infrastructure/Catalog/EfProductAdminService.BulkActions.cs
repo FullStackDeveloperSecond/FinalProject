@@ -472,9 +472,14 @@ public sealed partial class EfProductAdminService
             .Where(balance => skuIds.Contains(balance.SkuId))
             .ToDictionaryAsync(balance => balance.SkuId, balance => balance.OnHandQuantity, cancellationToken);
 
+        // 組長 PR #85 round-1 review [P2]：原本每個商品都用 skus.Where 掃一次完整 SKU 清單，
+        // 複雜度是 O(商品數 × SKU 數)——在合法上限（10 萬筆商品）下光是這一步就足以吃掉 CPU。
+        // 先依 ProductId 建 lookup，整段就變成線性。
+        var skusByProduct = skus.ToLookup(sku => sku.ProductId);
+
         var records = rows.Select(row =>
         {
-            var productSkus = skus.Where(sku => sku.ProductId == row.Id).ToArray();
+            var productSkus = skusByProduct[row.Id].ToArray();
             return new ExportRecord(
                 row.ProductCode,
                 row.NameZhTw,

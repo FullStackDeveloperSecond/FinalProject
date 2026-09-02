@@ -447,6 +447,44 @@ public sealed class ProductBulkActionServiceTests
         Assert.Equal(product.ProductCode, sheet.Cell(2, 1).GetString());
     }
 
+    /// <summary>
+    /// 組長 PR #85 round-1 review [P2]：records 組裝改用依 ProductId 建的 lookup。多商品多 SKU 時
+    /// 每個商品的 SKU 數、最低價與最高價都必須各自正確——用 lookup 取錯 key 的話這些數字會互相
+    /// 串到別的商品身上。
+    /// </summary>
+    [Fact]
+    public async Task ExportAsync_WithManyProductsAndSkus_KeepsEachProductsOwnAggregates()
+    {
+        await using var context = CatalogAdminFixture.CreateContext();
+        var (brand, category, _) = await CatalogAdminFixture.SeedCatalogAsync(context);
+
+        var cheap = await CatalogAdminFixture.CreateProductAsync(context, brand, category);
+        await CatalogAdminFixture.AddSkuAsync(context, cheap, listPrice: 100m);
+        await CatalogAdminFixture.AddSkuAsync(context, cheap, listPrice: 150m);
+
+        var expensive = await CatalogAdminFixture.CreateProductAsync(context, brand, category);
+        await CatalogAdminFixture.AddSkuAsync(context, expensive, listPrice: 8000m);
+        await CatalogAdminFixture.AddSkuAsync(context, expensive, listPrice: 9000m);
+        await CatalogAdminFixture.AddSkuAsync(context, expensive, listPrice: 9500m);
+
+        var noSkus = await CatalogAdminFixture.CreateProductAsync(context, brand, category);
+
+        var export = await CatalogAdminFixture.CreateProductService(context).ExportAsync(
+            new AdminProductQuery(null, [brand.Code], null, null, null, null, PageNumber: 1, PageSize: 20),
+            AdminProductExportFormats.Csv,
+            CancellationToken.None);
+        var lines = new UTF8Encoding(true).GetString(export.Content)
+            .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+
+        Assert.Contains(lines, line => line.StartsWith(cheap.ProductCode, StringComparison.Ordinal)
+            && line.Contains(",2,100.00,150.00,", StringComparison.Ordinal));
+        Assert.Contains(lines, line => line.StartsWith(expensive.ProductCode, StringComparison.Ordinal)
+            && line.Contains(",3,8000.00,9500.00,", StringComparison.Ordinal));
+        // 沒有 SKU 的商品是 0 筆、0 元，而不是借用別人的數字。
+        Assert.Contains(lines, line => line.StartsWith(noSkus.ProductCode, StringComparison.Ordinal)
+            && line.Contains(",0,0.00,0.00,", StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task ExportAsync_WhenTheFormatIsUnsupported_FailsValidation()
     {

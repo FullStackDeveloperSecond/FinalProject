@@ -212,13 +212,27 @@ public sealed class EfInventoryReservationService : IInventoryReservationService
         return reservations.Count;
     }
 
-    public async Task<int> ExpireOverdueReservationsAsync(DateTime now, CancellationToken cancellationToken)
+    public async Task<int> ExpireOverdueReservationsAsync(
+        DateTime now,
+        int batchSize,
+        CancellationToken cancellationToken)
     {
+        if (batchSize < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(batchSize), batchSize, "The batch size must be positive.");
+        }
+
+        // 組長 PR #85 round-1 review [P2]：依到期時間再依 Id 排序後只取一批。排序鍵必須穩定，否則
+        // 連續兩輪可能反覆拿到同一組而讓 backlog 永遠清不完；ExpiresAtUtc 本身會撞在一起（同一次
+        // 結帳的多個 SKU 共用同一個到期時刻），所以要再加 Id 這個唯一鍵。
         var overdue = await _dbContext.InventoryReservations
             .Where(reservation =>
                 reservation.Status == InventoryReservationStatus.Active &&
                 reservation.ExpiresAtUtc != null &&
                 reservation.ExpiresAtUtc <= now)
+            .OrderBy(reservation => reservation.ExpiresAtUtc)
+            .ThenBy(reservation => reservation.Id)
+            .Take(batchSize)
             .ToListAsync(cancellationToken);
         if (overdue.Count == 0)
         {

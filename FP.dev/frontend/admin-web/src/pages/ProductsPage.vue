@@ -431,7 +431,9 @@ function formatProductStatus(status: string): string {
           type="number"
           step="0.01"
           :aria-label="priceMode === 'percentage' ? '調價百分比' : '調價金額'"
-          :placeholder="priceMode === 'percentage' ? '例如 -10 表示打九折' : '例如 -100 表示每個 SKU 減 100'"
+          :min="priceMode === 'percentage' ? -90 : undefined"
+          :max="priceMode === 'percentage' ? 100 : undefined"
+          :placeholder="priceMode === 'percentage' ? '-90 ～ +100，例如 -10 表示打九折' : '例如 -100 表示每個 SKU 減 100'"
         >
         <input
           v-model="priceReason"
@@ -446,6 +448,9 @@ function formatProductStatus(status: string): string {
         >
           套用調價
         </button>
+        <p class="products-bulk-price__hint">
+          百分比限 -90 ～ +100；任一 SKU 調整後為負數即整批不執行。
+        </p>
       </form>
 
       <p
@@ -620,6 +625,13 @@ function formatProductStatus(status: string): string {
   border: 1px solid #d1d5db;
   border-radius: 0.5rem;
   font: inherit;
+}
+
+.products-bulk-price__hint {
+  flex-basis: 100%;
+  margin: 0;
+  color: #6b7280;
+  font-size: 0.8125rem;
 }
 
 .products-bulk__message {

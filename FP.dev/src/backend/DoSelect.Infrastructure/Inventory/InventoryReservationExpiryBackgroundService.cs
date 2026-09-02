@@ -1,4 +1,4 @@
-using DoSelect.Application.Inventory;
+using DoSelect.Application.Orders;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -6,19 +6,21 @@ using Microsoft.Extensions.Logging;
 namespace DoSelect.Infrastructure.Inventory;
 
 /// <summary>
-/// M-10 逾時取消（庫存規則.md「背景排程自動取消逾時訂單並釋放保留庫存」）。
-/// <see cref="IInventoryReservationService.ExpireOverdueReservationsAsync"/> 早就寫好了，連併發與
-/// 冪等測試都有，但整個儲存庫裡唯一的呼叫者是測試——它的契約註解自己寫著「job logic exists,
-/// caller decides when to invoke it」。少了這支排程，過期的保留會一直佔著 ReservedQuantity，最後
-/// 一件商品明明沒人買成也永遠顯示缺貨。形狀完全比照
+/// M-10 逾時取消（庫存規則.md「背景排程自動取消逾時訂單並釋放保留庫存」）。形狀比照
 /// <see cref="Builds.CompatibilityCheckRunRetentionBackgroundService"/>。
+///
+/// 組長 PR #85 round-1 review [P1]：第一版只呼叫 <c>ExpireOverdueReservationsAsync</c> 釋放庫存，
+/// 訂單留在 PendingPayment、優惠券座位與待處理組裝資源也沒回收，而且付款成功與這輪掃描在期限邊界
+/// 可以同時成立。現在改為以「訂單」為單位，透過
+/// <see cref="IOrderTimeoutCancellationService"/> 在同一交易內原子取消並回收全部資源；訂單列的
+/// RowVersion 是併發仲裁者，付款與排程不可能都成功。
 ///
 /// 間隔取 1 分鐘：正式保留期限是信用卡／行動支付 15 分鐘、ATM／超商代碼 3 天，但同一份文件允許
 /// Demo 環境縮到 2～3 分鐘以展示逾時釋放——掃描間隔若比那還長，展示時就永遠看不到釋放發生。
-/// 每次掃描是一句帶索引條件的 UPDATE 級查詢，一分鐘一次的成本可以忽略。
 ///
-/// 範圍界線：這裡只釋放庫存保留。規格同一段提到的「自動取消逾時訂單」屬於 M-08 訂單狀態機，是
-/// haru 的模組（工程包 §7：我提供 Reservation，取得 Order 唯讀摘要），不在本 PR 內。
+/// 先等一個間隔再掃第一次。冷啟動時本來就在建 EF 模型、暖連線池、承接第一波流量，維護工作不該
+/// 再插一腳；晚一分鐘取消對 15 分鐘／3 天的期限無關緊要。這也讓整合測試的 WebApplicationFactory
+/// 生命週期內不會掃到，不會干擾 Required CI 那道量測 20ms 登入延遲差的側通道測試。
 /// </summary>
 public sealed class InventoryReservationExpiryBackgroundService(
     IServiceScopeFactory scopeFactory,
@@ -26,17 +28,18 @@ public sealed class InventoryReservationExpiryBackgroundService(
 {
     private static readonly TimeSpan Interval = TimeSpan.FromMinutes(1);
 
+    /// <summary>
+    /// 組長 PR #85 round-1 review [P2]：一輪不載入全部逾期資料。每批 200 筆，一輪最多 25 批
+    /// （5,000 筆）——服務停機後累積的 backlog 會分好幾輪清完，而不是一次把記憶體與資料庫吃滿。
+    /// 一輪拿到的批次小於 BatchSize 就代表清完了，提早收工。
+    /// </summary>
+    private const int BatchSize = 200;
+    private const int MaximumBatchesPerCycle = 25;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
         {
-            // 先等一個間隔再掃第一次。冷啟動時本來就在建 EF 模型、暖連線池、承接第一波流量，
-            // 這種維護工作不該再插一腳；保留期限是 15 分鐘／3 天，晚一分鐘釋放無關緊要。
-            //
-            // 另一個現實理由：這支服務會跟著整合測試的 WebApplicationFactory 一起啟動，而
-            // Required CI 有一道量測 20ms 登入延遲差的側通道測試（TimingSideChannelTests）。
-            // 啟動即掃描等於在那個量測窗口裡跟 Identity 的 AccessFailedCount 寫入搶資料庫。
-            // 先等一個間隔，測試 host 的生命週期內就不會掃到。
             try
             {
                 await Task.Delay(Interval, stoppingToken);
@@ -48,20 +51,36 @@ public sealed class InventoryReservationExpiryBackgroundService(
 
             try
             {
-                await using var scope = scopeFactory.CreateAsyncScope();
-                var reservationService = scope.ServiceProvider.GetRequiredService<IInventoryReservationService>();
+                var cancelledTotal = 0;
+                for (var batch = 0; batch < MaximumBatchesPerCycle && !stoppingToken.IsCancellationRequested; batch++)
+                {
+                    // 每一批都用自己的 scope／DbContext：一輪要跑好幾批，共用一個 DbContext 會讓
+                    // ChangeTracker 隨著 backlog 一起長大，等於換個地方重蹈無界記憶體的覆轍。
+                    await using var scope = scopeFactory.CreateAsyncScope();
+                    var cancellationService = scope.ServiceProvider
+                        .GetRequiredService<IOrderTimeoutCancellationService>();
 
-                // 掃描本身是冪等的：已經被釋放的保留會被跳過，不會重複釋放（庫存規則.md「兩種
-                // 方式都必須確保冪等」），所以就算這一輪跟管理員的手動釋放撞在一起也沒關係。
-                var released = await reservationService.ExpireOverdueReservationsAsync(
-                    DateTime.UtcNow,
-                    stoppingToken);
+                    var cancelled = await cancellationService.CancelOverduePendingPaymentOrdersAsync(
+                        DateTime.UtcNow,
+                        BatchSize,
+                        stoppingToken);
+                    cancelledTotal += cancelled;
 
-                if (released > 0)
+                    // 這一批沒有取滿，代表符合條件的訂單已經清完——不必再問下一批。
+                    //
+                    // 注意這裡看的是「實際取消筆數」，而輸給付款的訂單不計入，所以整批都輸掉時也會
+                    // 提早收工。那是對的：那些訂單已經不是 PendingPayment，下一輪查詢本來就查不到。
+                    if (cancelled < BatchSize)
+                    {
+                        break;
+                    }
+                }
+
+                if (cancelledTotal > 0)
                 {
                     logger.LogInformation(
-                        "Released {ReleasedCount} overdue inventory reservation(s).",
-                        released);
+                        "Cancelled {CancelledCount} order(s) past their payment deadline and released their reserved resources.",
+                        cancelledTotal);
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -70,8 +89,8 @@ public sealed class InventoryReservationExpiryBackgroundService(
             }
             catch (Exception ex)
             {
-                // 一次掃描失敗不該讓排程整個停掉——下一分鐘再試一次即可。
-                logger.LogError(ex, "Unhandled exception while releasing overdue inventory reservations.");
+                // 一輪失敗不該讓排程整個停掉——下一分鐘再試一次即可。
+                logger.LogError(ex, "Unhandled exception while cancelling orders past their payment deadline.");
             }
         }
     }

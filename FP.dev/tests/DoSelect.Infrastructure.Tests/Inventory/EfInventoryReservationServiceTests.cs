@@ -304,8 +304,8 @@ public sealed class EfInventoryReservationServiceTests
         var sweepB = new EfInventoryReservationService(contextB);
 
         var results = await Task.WhenAll(
-            sweepA.ExpireOverdueReservationsAsync(now, CancellationToken.None),
-            sweepB.ExpireOverdueReservationsAsync(now, CancellationToken.None));
+            sweepA.ExpireOverdueReservationsAsync(now, batchSize: 100, CancellationToken.None),
+            sweepB.ExpireOverdueReservationsAsync(now, batchSize: 100, CancellationToken.None));
 
         Assert.Equal(2, results.Sum());
         await using var verifyContext = InventoryReservationServiceFixture.CreateContext();
@@ -403,7 +403,7 @@ public sealed class EfInventoryReservationServiceTests
         await ReserveWithinTransactionAsync(
             service, context, freshOrderId, [new ReservationLine(freshSku.PublicId, 2)], now.AddMinutes(15), now);
 
-        var firstSweepCount = await service.ExpireOverdueReservationsAsync(now, CancellationToken.None);
+        var firstSweepCount = await service.ExpireOverdueReservationsAsync(now, batchSize: 100, CancellationToken.None);
         Assert.Equal(1, firstSweepCount);
 
         var overdueReservation = await context.InventoryReservations.AsNoTracking().SingleAsync(r => r.OrderId == overdueOrderId);
@@ -411,11 +411,58 @@ public sealed class EfInventoryReservationServiceTests
         var freshReservation = await context.InventoryReservations.AsNoTracking().SingleAsync(r => r.OrderId == freshOrderId);
         Assert.Equal(InventoryReservationStatus.Active, freshReservation.Status);
 
-        var secondSweepCount = await service.ExpireOverdueReservationsAsync(now, CancellationToken.None);
+        var secondSweepCount = await service.ExpireOverdueReservationsAsync(now, batchSize: 100, CancellationToken.None);
         Assert.Equal(0, secondSweepCount);
 
         var overdueBalance = await context.InventoryBalances.AsNoTracking().SingleAsync(b => b.SkuId == overdueSku.Id);
         Assert.Equal(0, overdueBalance.ReservedQuantity);
+    }
+
+    /// <summary>
+    /// 組長 PR #85 round-1 review [P2]：舊版一次 ToListAsync 載入全部逾期保留，停機後的 backlog
+    /// 或大量同時逾期就是無界記憶體與大量 round trip。現在依 (ExpiresAtUtc, Id) 排序後只取一批，
+    /// 呼叫端重複呼叫把 backlog 逐批清完。
+    ///
+    /// 五筆逾期、批次大小 2：每一輪最多釋放 2 筆，而且必須真的分好幾輪才清得完——排序鍵若不穩定，
+    /// 連續兩輪可能反覆拿到同一批而永遠清不完，所以也斷言最後全部都變成 Expired。
+    /// </summary>
+    [Fact]
+    public async Task ExpireOverdueReservationsAsync_DrainsABacklogAcrossBatches()
+    {
+        await using var context = InventoryReservationServiceFixture.CreateContext();
+        var service = new EfInventoryReservationService(context);
+        var now = DateTime.UtcNow;
+        var orderIds = new List<long>();
+        for (var index = 0; index < 5; index++)
+        {
+            var sku = await _fixture.SeedSkuWithBalanceAsync(context, onHandQuantity: 5);
+            var orderId = await _fixture.SeedOrderAsync(context);
+            orderIds.Add(orderId);
+            await ReserveWithinTransactionAsync(
+                service, context, orderId, [new ReservationLine(sku.PublicId, 2)],
+                now.AddMinutes(-1), now.AddMinutes(-16));
+        }
+
+        var rounds = new List<int>();
+        int releasedThisRound;
+        do
+        {
+            releasedThisRound = await service.ExpireOverdueReservationsAsync(
+                now, batchSize: 2, CancellationToken.None);
+            rounds.Add(releasedThisRound);
+        }
+        while (releasedThisRound > 0 && rounds.Count < 10);
+
+        Assert.All(rounds, count => Assert.True(count <= 2, $"a batch of 2 released {count}"));
+        Assert.True(rounds.Count >= 3, $"five reservations at two per batch needs at least three rounds, took {rounds.Count}");
+
+        await using var verify = InventoryReservationServiceFixture.CreateContext();
+        foreach (var orderId in orderIds)
+        {
+            var reservation = await verify.InventoryReservations.AsNoTracking()
+                .SingleAsync(candidate => candidate.OrderId == orderId);
+            Assert.Equal(InventoryReservationStatus.Expired, reservation.Status);
+        }
     }
 
     [Fact]
