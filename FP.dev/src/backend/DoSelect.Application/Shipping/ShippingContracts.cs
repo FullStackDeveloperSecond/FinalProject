@@ -1,4 +1,4 @@
-﻿using DoSelect.Application.Common;
+using DoSelect.Application.Common;
 using DoSelect.Application.Shopping;
 using DoSelect.Domain.Payments;
 

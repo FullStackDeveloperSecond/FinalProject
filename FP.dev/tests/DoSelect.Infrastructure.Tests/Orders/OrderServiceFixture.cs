@@ -1,4 +1,4 @@
-﻿using DoSelect.Domain.Catalog;
+using DoSelect.Domain.Catalog;
 using DoSelect.Domain.Inventory;
 using DoSelect.Domain.Invoicing;
 using DoSelect.Domain.Members;

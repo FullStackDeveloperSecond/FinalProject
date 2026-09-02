@@ -1,4 +1,4 @@
-﻿using DoSelect.Application.Common;
+using DoSelect.Application.Common;
 using DoSelect.Application.Shipping;
 using DoSelect.Domain.Inventory;
 using DoSelect.Domain.Orders;

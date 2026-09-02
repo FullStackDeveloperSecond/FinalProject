@@ -1,4 +1,4 @@
-﻿using DoSelect.Application.Auditing;
+using DoSelect.Application.Auditing;
 using DoSelect.Application.Common;
 using DoSelect.Application.Inventory;
 using DoSelect.Application.Outbox;
