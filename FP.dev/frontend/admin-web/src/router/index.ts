@@ -265,6 +265,8 @@ const router = createRouter({
       name: 'inventory-imports',
       component: () => import('../pages/InventoryImportPage.vue'),
       meta: { requiresAuth: true, requiredRoles: ['InventoryManager', 'SuperAdmin'] },
+    },
+    {
       // M功能桌面UI與Route規格.md A-16 `/admin/shipping/batches`（Order Manage）。整頁都是寫入
       // 動作，所以與包裹限制一樣只放 ShippingManage 的角色。
       path: '/shipping/batches',
