@@ -15,6 +15,9 @@ const codeMessages: Record<string, string> = {
   category_parent_invalid: '上層分類不正確',
   reference_not_found: '關聯的資料不存在',
   specification_invalid: '規格值不正確',
+  // A-09 分類規格範本（API錯誤碼目錄）。
+  specification_semantic_key_duplicate: '此分類下已有相同的規格語意鍵',
+  specification_definition_referenced: '此規格為相容性規則所需，必須維持必填，也不可停用',
   validation_failed: '資料驗證失敗',
   compatibility_threshold_out_of_range: '門檻數值超出允許範圍',
   // 這張表是全站共用的（相容性規則、商品、SKU、庫存都經由 describeApiError 取字），所以

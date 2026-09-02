@@ -175,7 +175,7 @@
 | `AdminProductDetailDto` | Product 全部可編輯欄位、`skus:SkuDto[]`、`images[]`、規格範本摘要、稽核時間及 RowVersion |
 | `BulkProductActionRequest` | `productPublicIds:uuid[1..100]`、`rowVersions:{productPublicId,rowVersion}[]`；`adjust-price` 另帶受控調價模式與值、原因 |
 | `CatalogLookupDto` | `publicId`、`code`、`nameZhTw`、`isActive`、`sortOrder`、`rowVersion`；Brand／Category／Tag 使用各自具名 Schema |
-| `SpecificationDefinitionDto` | `publicId`、`categoryPublicId`、`semanticKey`、`displayNameZhTw`、`valueType`、`unitCode?`、`isRequired`、`isFilterable`、`isProtected`、`isActive`、`sortOrder`、Options、RowVersion |
+| `SpecificationDefinitionDto` | `publicId`、`categoryPublicId`、`categoryCode`、`semanticKey`、`displayNameZhTw`、`valueType`、`unitCode?`、`isRequired`、`allowsMultiple`、`isProtected`、`isActive`、`sortOrder`、Options、RowVersion |
 | `ReleaseReservationRequest` | `reasonCode:enum`、`note:string(1..500)`、`rowVersion` |
 | `PackageLimitVersionRequest` | Weight／三邊／總長／申報價正數、`effectiveFromUtc`、`effectiveToUtc?`、`rowVersion?` |
 | `ConvenienceStoreRequest` | `providerCode:string(1..64)`、`storeCode:string(1..64)`、`name:string(1..160)`、`address:string(1..500)`、`isActive`、`rowVersion?` |

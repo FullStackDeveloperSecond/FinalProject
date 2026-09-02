@@ -212,6 +212,15 @@ const router = createRouter({
       meta: { requiresAuth: true, requiredRoles: ['CatalogManager', 'SuperAdmin'] },
     },
     {
+      // M功能桌面UI與Route規格.md A-09 `/admin/catalog/specifications`；base: '/admin/' 已在
+      // vite.config.ts 設定，所以這裡只寫 /catalog/specifications，與同層的 lookups、
+      // compatibility 一致。Policy 與後端 specification-definitions 端點相同。
+      path: '/catalog/specifications',
+      name: 'specification-definitions',
+      component: () => import('../pages/SpecificationDefinitionsPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['CatalogManager', 'SuperAdmin'] },
+    },
+    {
       // M功能桌面UI與Route規格.md A-11
       //
       // 組長 PR #35 round-3 review, P2-3 的同一個缺口：這兩條路由原本完全沒有 meta，而 guard 的

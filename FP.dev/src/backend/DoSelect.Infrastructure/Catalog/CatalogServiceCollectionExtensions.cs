@@ -15,6 +15,7 @@ public static class CatalogServiceCollectionExtensions
         services.AddScoped<ICatalogFilterOptionsService, EfCatalogFilterOptionsService>();
         services.AddScoped<IBrandAdminService, EfBrandAdminService>();
         services.AddScoped<ICategoryAdminService, EfCategoryAdminService>();
+        services.AddScoped<ISpecificationDefinitionAdminService, EfSpecificationDefinitionAdminService>();
         services.AddScoped<ITagAdminService, EfTagAdminService>();
         services.AddScoped<IProductAdminService, EfProductAdminService>();
         services.AddScoped<ISkuAdminService, EfSkuAdminService>();
