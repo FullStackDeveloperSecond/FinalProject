@@ -362,6 +362,89 @@ test('exactly one of two concurrent checkouts wins the last unit of stock, and i
   }
 })
 
+// WP-H05: UC-CHECKOUT-01 — "相同身分、操作、Idempotency-Key 及 Payload 重送，Then 回傳原結果且不重複
+// 保留" and "同 Key 搭配不同 Payload，Then 回傳 409 且不修改資料". The shared IIdempotencyExecutor
+// replays the cached original response without re-running Checkout's business logic at all (so this
+// holds even though the cart itself is no longer in a fresh, checkout-ready state by the second call).
+test('replaying the exact same checkout request returns the original order, and the same key with a different payload is rejected', async ({
+  api,
+  seed,
+}) => {
+  const requestToken = await getAntiforgeryToken(api)
+  const guestCartKey = `e2e-guest-cart-${randomUUID()}`
+  const cartHeaders = unsafeHeaders(requestToken, { 'X-DoSelect-Guest-Cart-Key': guestCartKey })
+  const initialCart = await (await api.get('/api/v1/cart', { headers: cartHeaders })).json() as CartSnapshot
+  const addItemResponse = await api.post('/api/v1/cart/items', {
+    headers: cartHeaders,
+    data: { skuPublicId: seed.skuPublicId, quantity: 1, cartRowVersion: initialCart.rowVersion },
+  })
+  const cart = await addItemResponse.json() as CartSnapshot
+  const policies = await (await api.get('/api/v1/checkout/policy-versions')).json() as {
+    terms: number
+    return: number
+    privacy: number
+  }
+
+  const email = `replay-${randomUUID()}@example.test`
+  const idempotencyKey = `e2e-replay-${randomUUID()}`
+  const buildBody = (buyerName: string) => ({
+    cartPublicId: cart.publicId,
+    cartRowVersion: cart.rowVersion,
+    buyer: { email, name: buyerName, phone: '0912345678' },
+    shipping: {
+      methodCode: 'HomeDelivery',
+      address: {
+        recipientName: buyerName,
+        phone: '0912345678',
+        postalCode: '100',
+        city: '台北市',
+        district: '中正區',
+        addressLine1: '測試路 1 號',
+        addressLine2: null,
+      },
+      storePublicId: null,
+      deliveryNote: null,
+    },
+    paymentMethod: 'creditCard',
+    couponCode: null,
+    invoice: {
+      type: 'simulated',
+      buyerType: 'personal',
+      carrierType: null,
+      carrierValue: null,
+      companyTaxId: null,
+      companyName: null,
+    },
+    acceptPolicyVersions: { terms: policies.terms, return: policies.return, privacy: policies.privacy },
+  })
+
+  const checkoutHeaders = unsafeHeaders(requestToken, {
+    'X-DoSelect-Guest-Cart-Key': guestCartKey,
+    'Idempotency-Key': idempotencyKey,
+  })
+
+  const first = await api.post('/api/v1/orders', { headers: checkoutHeaders, data: buildBody('訪客重放買家') })
+  expect(first.status()).toBe(201)
+  const firstOrder = await first.json() as OrderSnapshot
+
+  const replay = await api.post('/api/v1/orders', { headers: checkoutHeaders, data: buildBody('訪客重放買家') })
+  const replayOrder = await replay.json() as OrderSnapshot
+  expect(replay.status(), 'A byte-identical replay must return the original cached response').toBe(201)
+  expect(replayOrder.publicId).toBe(firstOrder.publicId)
+  expect(replayOrder.orderNumber).toBe(firstOrder.orderNumber)
+
+  const conflict = await api.post('/api/v1/orders', {
+    headers: checkoutHeaders,
+    data: buildBody('換了一個不同的名字'),
+  })
+  expect(conflict.status(), 'The same Idempotency-Key with a different payload must be rejected, not executed')
+    .toBe(409)
+
+  const orderCount = sqlScalar(`SELECT COUNT(*) FROM Orders WHERE PublicId = '${firstOrder.publicId}';`)
+  expect(orderCount).toBe('1')
+})
+
+
 test('a shopper can open the seeded catalog and view product details', async ({ page, api, seed }) => {
   const productResponse = await api.get(`/api/v1/products/${seed.productPublicId}`)
   expect(productResponse.ok(), 'The deterministic catalog seed must exist').toBe(true)
