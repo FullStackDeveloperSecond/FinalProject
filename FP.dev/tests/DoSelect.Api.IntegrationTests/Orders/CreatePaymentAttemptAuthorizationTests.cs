@@ -304,7 +304,7 @@ public sealed class CreatePaymentAttemptAuthorizationTests
                 null,
                 [1, 2, 3]);
             return Task.FromResult(new IdempotencyExecutionResult<PaymentAttemptDto>(
-                201, dto, ResponseHeadersJson: null, IsReplay: false));
+                201, dto, ResponseHeadersJson: "{}", IsReplay: false));
         }
     }
 
