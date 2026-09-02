@@ -71,4 +71,37 @@ describe('admin shell navigation', () => {
 
     expect(wrapper.text()).not.toContain('優惠券管理')
   })
+
+  /**
+   * 組長 PR #78 round-2 review item 2：兩個物流入口的角色不同——門市是 ShippingRead
+   * （OrderManager／CatalogManager／SuperAdmin），包裹限制是 ShippingManage（只有前者兩個）。
+   * 無條件顯示等於給 CatalogManager 一個點下去只會被導到 /forbidden 的連結。
+   */
+  it.each([
+    ['OrderManager'],
+    ['SuperAdmin'],
+  ])('shows both shipping entries to %s', async (role) => {
+    signIn([role])
+
+    const wrapper = await mountShell()
+
+    expect(wrapper.text()).toContain('示範超商門市')
+    expect(wrapper.text()).toContain('包裹限制版本')
+  })
+
+  it('shows only the stores entry to a CatalogManager', async () => {
+    signIn(['CatalogManager'])
+
+    const wrapper = await mountShell()
+
+    expect(wrapper.text()).toContain('示範超商門市')
+    expect(wrapper.text()).not.toContain('包裹限制版本')
+  })
+
+  it('hides both shipping entries when nobody is signed in', async () => {
+    const wrapper = await mountShell()
+
+    expect(wrapper.text()).not.toContain('示範超商門市')
+    expect(wrapper.text()).not.toContain('包裹限制版本')
+  })
 })

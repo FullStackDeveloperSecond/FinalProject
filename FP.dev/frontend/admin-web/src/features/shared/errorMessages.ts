@@ -19,6 +19,10 @@ const codeMessages: Record<string, string> = {
   specification_semantic_key_duplicate: '此分類下已有相同的規格語意鍵',
   specification_definition_referenced: '此規格為相容性規則所需，必須維持必填，也不可停用',
   validation_failed: '資料驗證失敗',
+  // A-17／A-18 物流後台（API錯誤碼目錄）。store_code_duplicate 是新增門市最常撞到的一個，
+  // 沒有對應字串就只會顯示泛用訊息，管理員看不出是代碼重複。
+  package_limit_period_overlap: '同一物流服務已有生效期間重疊的版本',
+  store_code_duplicate: '同一品牌下已有相同的門市代碼',
   compatibility_threshold_out_of_range: '門檻數值超出允許範圍',
   // 這張表是全站共用的（相容性規則、商品、SKU、庫存都經由 describeApiError 取字），所以
   // resource_not_found 不能寫成任一功能專屬的字——ProductEditPage 與庫存頁同樣會拿到它。
