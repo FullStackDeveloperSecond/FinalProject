@@ -316,4 +316,64 @@ describe('SpecificationDefinitionsPage', () => {
     expect(message).not.toContain('只能重新啟用')
     expect(message).toContain('目前沒有提供重新啟用的功能')
   })
+
+  /**
+   * 組長 PR #77 round-3 review [P2]：`placeholderData` 會跨分類、關鍵字、只顯示啟用中與頁碼保留上
+   * 一組規格，而頁面只看 `isPending`——新請求還在飛的時候畫面上是舊規格，「編輯」「停用」按鈕也
+   * 照樣按得下去。管理員因此可能在新條件的畫面下編輯或停用另一組查詢的規格。
+   *
+   * 這支把第二次查詢卡住，斷言 pending 期間舊列與它的寫入入口都不在畫面上。只斷言「API 被呼叫
+   * 兩次」是看不出這件事的。
+   */
+  it('drops the previous definitions and their write controls while a new filter loads', async () => {
+    mockListCategories.mockResolvedValue({ items: [], pageNumber: 1, pageSize: 100, totalCount: 0 })
+    mockList.mockResolvedValueOnce(page([definition({ displayNameZhTw: '舊條件規格' })]))
+
+    const { wrapper } = mountPage()
+    await flushPromises()
+    expect(wrapper.text()).toContain('舊條件規格')
+    expect(wrapper.findAll('button').some((button) => button.text() === '停用')).toBe(true)
+
+    let releaseSecond!: (value: unknown) => void
+    mockList.mockImplementationOnce(() => new Promise((resolve) => { releaseSecond = resolve }))
+
+    await wrapper.find('input[aria-label="關鍵字"]').setValue('新條件')
+    await wrapper.find('form[aria-label="規格範本篩選"]').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('舊條件規格')
+    // 舊列不在畫面上，寫入入口自然也不在。
+    expect(wrapper.findAll('button').some((button) => button.text() === '停用')).toBe(false)
+    expect(wrapper.findAll('button').some((button) => button.text() === '編輯')).toBe(false)
+
+    releaseSecond(page([definition({ publicId: 'd9', displayNameZhTw: '新條件規格' })]))
+    await flushPromises()
+    expect(wrapper.text()).toContain('新條件規格')
+  })
+
+  /** 換頁同理：頁碼也是 query key 的一部分。 */
+  it('drops the previous page rows while the next page is loading', async () => {
+    mockListCategories.mockResolvedValue({ items: [], pageNumber: 1, pageSize: 100, totalCount: 0 })
+    mockList.mockResolvedValueOnce(
+      page([definition({ displayNameZhTw: '第一頁規格' })], { totalCount: 40, totalPages: 2 }))
+
+    const { wrapper } = mountPage()
+    await flushPromises()
+    expect(wrapper.text()).toContain('第一頁規格')
+
+    let releaseSecond!: (value: unknown) => void
+    mockList.mockImplementationOnce(() => new Promise((resolve) => { releaseSecond = resolve }))
+
+    await wrapper.findAll('button').find((button) => button.text() === '下一頁')!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('第一頁規格')
+    expect(wrapper.findAll('button').some((button) => button.text() === '停用')).toBe(false)
+
+    releaseSecond(page(
+      [definition({ publicId: 'd9', displayNameZhTw: '第二頁規格' })],
+      { pageNumber: 2, totalCount: 40, totalPages: 2 }))
+    await flushPromises()
+    expect(wrapper.text()).toContain('第二頁規格')
+  })
 })

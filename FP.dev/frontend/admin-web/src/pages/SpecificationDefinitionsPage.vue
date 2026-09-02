@@ -399,7 +399,7 @@ const mutationError = computed(() => {
     </form>
 
     <LoadingState
-      v-if="isPending && !result"
+      v-if="isPending"
       label="規格範本載入中"
     />
     <ErrorState
