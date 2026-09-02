@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Json;
+using DoSelect.Api.Common;
 using DoSelect.Api.Security;
 using DoSelect.Application.Auditing;
 using DoSelect.Application.Idempotency;
@@ -84,6 +85,7 @@ public sealed class LatestPaymentAttemptApiTests
         using var response = await GetAsync(client, memberUserId: OwnerUserId);
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(PaymentErrorCodes.ResourceNotFound, await ReadCodeAsync(response));
     }
 
     [Fact]
@@ -118,6 +120,8 @@ public sealed class LatestPaymentAttemptApiTests
         using var response = await GetAsync(client);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        // 401 配 resource_not_found 對不上 detail，也跟 InvoicesController 不一致。
+        Assert.Equal(ApiErrorCodes.AuthenticationRequired, await ReadCodeAsync(response));
     }
 
     [Fact]

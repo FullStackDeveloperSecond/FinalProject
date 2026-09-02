@@ -38,6 +38,9 @@ async function createGuestOrder(
   skuPublicId: string,
   email: string,
   requestToken: string,
+  // Checkout 會在同一交易建立初始 PaymentAttempt，所以這裡選的付款方式就是
+  // 顧客之後在付款頁看到的那一筆（alex #87 review 1）。
+  paymentMethod: string = 'creditCard',
 ): Promise<OrderSnapshot> {
   const guestCartKey = `e2e-guest-cart-${randomUUID()}`
   const cartHeaders = unsafeHeaders(requestToken, {
@@ -93,7 +96,7 @@ async function createGuestOrder(
         storePublicId: null,
         deliveryNote: null,
       },
-      paymentMethod: 'creditCard',
+      paymentMethod,
       couponCode: null,
       invoice: {
         type: 'simulated',
@@ -385,19 +388,20 @@ test('a public shopper can use AI search safely when the provider is disabled', 
     .toBeVisible()
 })
 
-test('a guest keeps the same payment attempt after reloading the payment page', async ({
+test('a guest keeps the checkout payment attempt after reloading the payment page', async ({
   page,
   api,
   seed,
 }) => {
-  // 交接單 §5.4 / alex Issue #86 D1：建立付款嘗試後重新整理，金額、付款方式、狀態與
-  // 付款指示都要還在，而且不能因此多建一筆 Attempt。
+  // 交接單 §5.4 / alex Issue #86 D1：重新整理後金額、付款方式、狀態與付款指示都要還在，
+  // 而且不能多建一筆 Attempt。
   //
-  // 這裡刻意用 ATM：那串繳費代碼是使用者要拿去繳費的東西，在恢復功能之前
-  // 一重新整理就消失，是這個缺口最具體的後果。
+  // Checkout 會在同一交易建立初始 PaymentAttempt，所以這裡直接用 ATM 結帳 ——
+  // 那串繳費代碼是使用者要拿去繳費的東西，在恢復功能之前一重新整理就消失，是這個
+  // 缺口最具體的後果。付款頁不會再出現建立表單，因為那筆嘗試還在進行中。
   const requestToken = await getAntiforgeryToken(api)
   const email = `payment-restore-${randomUUID()}@example.test`
-  const order = await createGuestOrder(api, seed.skuPublicId, email, requestToken)
+  const order = await createGuestOrder(api, seed.skuPublicId, email, requestToken, 'atm')
 
   await page.goto('/guest-orders/access')
   await page.getByLabel('訂單編號').fill(order.orderNumber)
@@ -411,23 +415,22 @@ test('a guest keeps the same payment attempt after reloading the payment page', 
   await expect(page).toHaveURL(new RegExp(`/orders/${order.publicId}$`))
 
   await page.goto(`/orders/${order.publicId}/payment`)
-  await page.getByLabel('付款方式').selectOption('atm')
-  await page.getByRole('button', { name: '建立付款方式' }).click()
 
   const attemptPanel = page.getByRole('region', { name: '付款嘗試' })
   await expect(attemptPanel).toBeVisible()
+  // 進行中的嘗試已經在了，所以不該出現建立表單。
+  await expect(page.locator('#payment-method')).toHaveCount(0)
   const beforeReload = (await attemptPanel.textContent())?.trim()
-  expect(beforeReload, 'The created attempt must render before the reload').toBeTruthy()
+  expect(beforeReload, 'The checkout attempt must render before the reload').toBeTruthy()
 
   await page.reload()
 
-  // 重新整理後同一個面板要回來，內容逐字相同。
   await expect(attemptPanel).toBeVisible()
   expect((await attemptPanel.textContent())?.trim()).toBe(beforeReload)
   await expect(attemptPanel).toContainText('等待付款')
   await expect(attemptPanel).toContainText('繳費代碼')
 
-  // 而且沒有多建一筆：訂單上仍然只有這一筆付款嘗試。
+  // 而且沒有多建一筆：最新一筆仍是結帳當下那一筆 ATM 嘗試。
   const latest = await page.evaluate(async (orderPublicId) => {
     const response = await fetch(
       `/api/v1/orders/${orderPublicId}/payment-attempts/latest`,

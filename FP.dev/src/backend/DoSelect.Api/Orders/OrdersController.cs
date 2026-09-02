@@ -230,8 +230,13 @@ public sealed class OrdersController : ControllerBase
             code,
             detail: "The referenced payment attempt was not found."));
 
+    /// <remarks>
+    /// 預設碼是 <c>authentication_required</c>，不是 <c>resource_not_found</c> ——
+    /// 401 配「找不到資源」對不上 detail，也跟 <c>InvoicesController</c> 與前端的
+    /// 錯誤分類不一致。Guest scope 過期時由呼叫端明確傳入 <c>guest_order_access_expired</c>。
+    /// </remarks>
     private ActionResult UnauthorizedPaymentAttempt(
-        string code = PaymentErrorCodes.ResourceNotFound) =>
+        string code = ApiErrorCodes.AuthenticationRequired) =>
         Unauthorized(ApiProblemDetailsFactory.Create(
             HttpContext,
             StatusCodes.Status401Unauthorized,
