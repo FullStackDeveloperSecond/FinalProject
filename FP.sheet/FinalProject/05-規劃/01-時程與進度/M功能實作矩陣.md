@@ -1,7 +1,7 @@
 ---
 文件狀態: 持續更新
 最後更新: 2026-09-02
-基準分支: dev@e3e5abdb；WP-A03 本機分支尚未進 dev
+基準分支: dev@72db6fcc
 ---
 
 # M 功能實作矩陣
@@ -22,16 +22,16 @@
 |---|---:|---:|---:|---:|---:|---:|---|
 | M-01 會員註冊與登入 | ✅ | ✅ | ✅ | ✅ | ⬜ | ✅ | 註冊、驗證、登入、重設密碼已合併；尚無瀏覽器 E2E。 |
 | M-01B 管理員 TOTP／Session | ✅ | ✅ | ✅ | ✅ | ⬜ | ✅ | PR #38 已合併至 `dev`：TOTP、Recovery Code、Session 撤銷、後台登入與 Provider-backed 證據存在；尚無瀏覽器 E2E。 |
-| M-02 訪客結帳與訂單驗證 | ✅ | ✅ | 🔵 | ✅ | 🔵 | 🔵 | `dev` 已有 Checkout API、Guest Email 驗證／限單 Cookie、本人查單／取消與 WP-A02 跨訂單 Browser 隔離證據。WP-A03 本機已完成 C-14 與訪客成功交接，但尚未進 `dev`；Cart→Checkout→Guest 驗證→Payment 完整跨交易 E2E 仍由 WP-A04 追蹤。 |
+| M-02 訪客結帳與訂單驗證 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | PR #91 已將 C-14、會員／訪客建單後交接與正式 Typed Client 合併至 `dev`；既有 Guest Email 驗證／限單 Cookie、本人查單／取消及 WP-A02 跨訂單 Browser 隔離證據保留。Cart→Checkout→Guest 驗證→Payment 完整跨交易 E2E 仍由 WP-A04 追蹤。 |
 | M-03 商品、SKU 與目錄 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | PR #24 已交付前後台型錄垂直切片；PR #52 新增可重跑的商品列表→詳情 Playwright Smoke，但尚未覆蓋後台型錄管理旅程。 |
-| M-04 商品批次與 Excel | 🔵 | ⬜ | ⬜ | ⬜ | ⬜ | 🔵 | Schema／規格已存在，匯入 Staging、API、UI 與原子提交證據未完成。 |
+| M-04 商品批次與 Excel | 🔵 | 🔵 | 🔵 | ✅ | ⬜ | 🔵 | PR #85 已合併商品批次上下架／調價、共用篩選的 CSV／XLSX 匯出、A-04 UI、單一交易與 SQL Provider-backed 證據。Excel／CSV 匯入 Staging、驗證預覽與原子提交仍未完成。 |
 | M-05 商品搜尋與篩選 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | 公開查詢與前台型錄已合併；PR #52 的 Playwright Smoke 已驗證固定 Seed 商品可由搜尋列表進入詳情，但尚未覆蓋完整篩選與排序組合。 |
 | M-06 購物車 | ✅ | ✅ | ✅ | ✅ | ⬜ | ✅ | 購物車後端、前端、身份隔離、組裝整組移除、結帳前重驗及 C-13 配送預覽均已進 `dev`；完整 Cart→Checkout Browser E2E 仍缺。 |
-| M-07 優惠券 | ✅ | ✅ | 🟡 | ✅ | ⬜ | 🔵 | `dev` 已有優惠券計算／生命週期、管理 API、A-23 與用途 Catalog picker；WP-A03 本機新增 Checkout 套用優惠券與 Coupon Quote 後 Shipping／COD 重算，但尚未進 `dev`。購物車頁套券 UI、持久化 Cart Coupon Endpoint 與完整 E2E 仍缺。 |
-| M-08 訂單 | ✅ | ✅ | 🔵 | ✅ | 🔵 | 🔵 | 原子建單、缺貨回滾、訂單快照、正式 Checkout API、前後台訂單查詢與 WP-A02 Guest 查單／取消 E2E 已進 `dev`。WP-A03 C-14 尚待 Git Gate；完整 Checkout replay 與跨交易 E2E 仍缺。 |
-| M-09 模擬付款 | ✅ | ✅ | ✅ | ✅ | ⬜ | 🔵 | 付款重試／新增 Attempt、Demo complete、Owner／Guest Scope、Antiforgery、`simulationKey` 冪等、SQL Writer、Audit／Outbox、付款成功發票 Consumer 與 Owner-scoped Latest Attempt GET 均已進 `dev`。WP-A03 已改接上游 latest 契約，C-15 可續接非終態、呈現可重試終態並保留已付款結果；尚待 Git Gate。COD 正式物流命令接線與完整 E2E 仍缺。 |
-| M-10 庫存保留與逾時取消 | ✅ | 🟡 | 🟡 | ✅ | ⬜ | 🔵 | PR #52 已合併 Checkout 成功保留與缺貨整體回滾 SQL 證據；PR #36 已合併庫存保留／異動／盤點後台 API，堆疊前端 PR #37 尚未合併，最後一件商品並行競爭與逾時釋放仍缺。 |
-| M-11 物流與批次出貨 | ✅ | ✅ | 🔵 | ✅ | ⬜ | 🔵 | 宅配／超取、Provider、包裹限制、運費／免運、配送選項與示範門市 API、C-13 預覽及 C-14 共用選擇元件已進 `dev`；WP-A03 本機新增可選 Coupon Code，後端以 Coupon Quote 重算免運、運費與 COD，並消費正式 Typed Client。批次出貨、物流狀態命令、COD 收款接線與完整 E2E 仍缺。 |
+| M-07 優惠券 | ✅ | ✅ | 🔵 | ✅ | ⬜ | 🔵 | `dev` 已有優惠券計算／生命週期、管理 API、A-23、用途 Catalog picker，以及 PR #91 的 Checkout 套用與 Coupon Quote 後 Shipping／COD 重算。購物車頁套券 UI、持久化 Cart Coupon Endpoint 與完整 E2E 仍缺。 |
+| M-08 訂單 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | 原子建單、缺貨回滾、訂單快照、正式 Checkout API、C-14、前後台訂單查詢與 WP-A02 Guest 查單／取消 E2E 已進 `dev`。完整 Checkout replay 與跨交易 E2E 仍缺。 |
+| M-09 模擬付款 | ✅ | ✅ | ✅ | ✅ | ⬜ | ✅ | 付款重試／新增 Attempt、Demo complete、Owner／Guest Scope、Antiforgery、`simulationKey` 冪等、SQL Writer、Audit／Outbox、付款成功發票 Consumer、Owner-scoped Latest Attempt GET 與 PR #91 的 C-15 續接均已進 `dev`。COD 正式物流命令接線與完整 E2E 仍缺。 |
+| M-10 庫存保留與逾時取消 | ✅ | ✅ | ✅ | ✅ | ⬜ | 🔵 | PR #36／#37 已合併庫存保留、異動、盤點後台 API／UI；PR #52 已有 Checkout 成功保留與缺貨整體回滾，PR #85 已將逾時處理收束為訂單層取消、資源釋放、RowVersion 競爭與有界背景排程。最後一件商品雙請求競爭與完整跨交易 E2E 仍缺。 |
+| M-11 物流與批次出貨 | ✅ | ✅ | 🔵 | ✅ | ⬜ | 🔵 | 宅配／超取、Provider、包裹限制、運費／免運、配送選項、示範門市 API、C-13 預覽，以及 PR #91 的 C-14、Coupon Quote 後運費／COD 重算與正式 Typed Client 均已進 `dev`。批次出貨、物流狀態命令、COD 收款接線與完整 E2E 仍缺。 |
 | M-12 單項退貨 | ✅ | ✅ | ✅ | ✅ | ⬜ | ✅ | PR #42 已交付退貨申請、審核、寄回、收件、檢查、退款交接與前後台；PR #53 修復可信退款輸入及 CI Gate。仍缺完整瀏覽器 E2E。 |
 | M-13 部分退款 | ✅ | ✅ | ✅ | ✅ | ⬜ | ✅ | 退款 execute、可信七類分攤、中央冪等／Audit、SQL Server 證據，以及 WP-05 的清單／明細 API、A-21/A-22、OpenAPI／Typed Client、角色路由、確認門檻與穩定 Idempotency-Key 均已隨 `8cf41558` 進 `dev`；完整 E2E 仍缺。 |
 | M-14 客服案件與 SLA | ✅ | ✅ | ✅ | ✅ | ⬜ | ✅ | PR #10 已交付客服前後台、SLA 與 SQL 證據；PR #51 已完成主管 Action、Internal Note、Reopen SLA、案件工作台、Actor Scope、衝突刷新與中央 Audit。仍缺完整顧客→客服瀏覽器 E2E。 |

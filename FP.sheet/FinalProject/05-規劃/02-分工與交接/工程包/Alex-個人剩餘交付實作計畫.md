@@ -1,11 +1,11 @@
 ---
 文件狀態: 進行中
 最後更新: 2026-09-02
-基準分支: dev@e3e5abdb
-實作分支: codex/wp-a03-checkout-frontend-20260902
+基準分支: dev@72db6fcc
+實作分支: codex/wp-a03-status-sync-20260902
 實作人: alex
 規劃範圍: alex 正式主責與已明確接手項目
-下一工作包: WP-A03／WP-H04 Git Gate；合併後進入 WP-A04／WP-H05
+下一工作包: WP-A04／WP-H05 核心交易 Browser E2E
 ---
 
 # Alex 個人剩餘交付實作計畫
@@ -73,7 +73,7 @@
 - `dev@9a034a16` 已包含 WP-A02 的 PR #83；exact head `3dba8f4c` 的 Required CI 與最終 Review 全部通過，Guest Access 跨單隔離證據已進入 `dev`。
 - `OrdersController.CreateOrder` 已提供 `POST /api/v1/orders`；不得另建第二套 Checkout API。
 - 現有 Playwright 已涵蓋 M-01／M-01B 真實認證與 Guest 訂單存取／取消；C-14 完整 Checkout 前端與跨交易 Browser E2E 仍待 WP-A03～A04 補齊。
-- 既有 Checkout SQL 測試涵蓋成功、缺貨回滾、金額、優惠與超商資料，但最後一件商品競爭、完整 replay 與逾時釋放仍缺證據。
+- 既有 Checkout SQL 測試涵蓋成功、缺貨回滾、金額、優惠與超商資料；PR #85 已補訂單逾時取消、資源釋放與付款競爭證據。最後一件商品雙請求競爭與完整 Checkout replay 仍缺證據。
 - 現有 `seed-minimal-development-data.ps1` 只是最小開發 Seed；尚無 10,000 筆完整展示產生器與 `reset-demo-data.ps1`。
 - 所有需要啟動 API Host 的測試必須使用專屬 `DoSelectE2E_*`／測試資料庫，不得指向共用 `DoSelectDb`。
 
@@ -160,8 +160,8 @@
 | 2026-09-01 | 計畫建立 | 完成 | 依 `dev@bc26de94`、正式分工、未完成追蹤表、M 功能矩陣及程式／測試證據建立；下一包 WP-A01 |
 | 2026-09-01 | WP-A01／WP-H02 | 完成 | PR #80 已由 exact head `7a606f52` 通過 Required CI 與 Review，squash merge 為 `dev@6968cbea`；新增會員 Session 與管理員首次 TOTP 綁定／錯碼拒絕／二次登入 Browser E2E，customer 5/5、admin 4/4 均以獨立 `DoSelectE2E_<GUID>` SQL DB 通過並完成清理。完整 customer 回歸另觀察到既有 M-19 降級路徑的 Vue `Unhandled rejection` 警告，留待 WP-A07，不混入本包。 |
 | 2026-09-01 | WP-A02／WP-H03 | 完成 | PR #83 已由 exact head `3dba8f4c` 通過 Backend、兩個 Frontend、Browser E2E、Secret Scan、Package Source Evidence、AI Evaluation Contract 與 `CI Required`，最終 Review 無 P0～P3 finding，squash merge 為 `dev@9a034a16`，遠端分支已刪除。以兩張真實 Guest Checkout 訂單完成錯碼拒絕、正確查單、跨單 GET／取消 404、目標訂單取消及另一張訂單狀態／RowVersion 零副作用斷言；並補齊 `--seed-minimal` 主 SKU 的確定性包材尺寸。 |
-| 2026-09-02 | WP-A03／WP-H04 | 實作完成／PR #91 待最新 head CI | 由 `dev@e3e5abdb` 起完成 C-14：正式 `/checkout`、Cart 導頁、收件／宅配／示範門市、政策版本、七種模擬付款、模擬發票、Coupon 套用、冪等重試及錯誤處理。依 DEC-P351 回傳具體 `PaymentMethod[]`；DEC-P352 已由 DEC-P355 覆寫，C-15 改接上游 Owner-scoped Latest Attempt，續接非終態並正確呈現終態；依 DEC-P353 以 Coupon Quote 重算 Shipping／COD；依 DEC-P354 將 Coupons／OrderCoupons DiscountType 擴為 `varchar(24)`，讓組裝免運可保存。會員成功後進付款／訂單頁，訪客顯示訂單編號並走既有 Email 限單驗證。PR #91 的舊 head `6e6c055a` Required CI 全綠後，因 `dev` 前進而再 rebase `dev@70015781`；最新本機 Build、EF pending-model、Shipping SQL 16、customer-web 334、lint／production build 均通過，待 force-with-lease 與新 head Required CI。Review 已修正組裝購物車只允許組裝宅配；WP-A04 核心交易 Browser E2E 仍未完成。 |
+| 2026-09-02 | WP-A03／WP-H04 | 完成／已進 `dev` | 由 `dev@e3e5abdb` 起完成 C-14：正式 `/checkout`、Cart 導頁、收件／宅配／示範門市、政策版本、七種模擬付款、模擬發票、Coupon 套用、冪等重試及錯誤處理。依 DEC-P351 回傳具體 `PaymentMethod[]`；DEC-P352 已由 DEC-P355 覆寫，C-15 改接上游 Owner-scoped Latest Attempt；依 DEC-P353 以 Coupon Quote 重算 Shipping／COD；依 DEC-P354 將 DiscountType 擴為 `varchar(24)`。Review 修正組裝購物車只允許組裝宅配。rebase `dev@70015781` 後 exact head `192e0499` 的 Backend、Browser E2E、雙前端、OpenAPI、Secret Scan、AI contract、Package Source Evidence 與 `CI Required` 全部成功；PR #91 squash merge 為 `dev@72db6fcc`，遠端來源分支已刪除。WP-A04 核心交易 Browser E2E 仍未完成。 |
 
 ## 11. 下一步
 
-完成 `WP-A03／WP-H04` 的 working-tree Review 與 Git Gate；只有 exact remote head 的 Required CI、最終 Review 與 squash merge 完成後才把本包標為已進 `dev`，再開始 `WP-A04／WP-H05` 核心交易 Browser E2E。
+開始 `WP-A04／WP-H05` 核心交易 Browser E2E；使用已進 `dev` 的正式 Cart、C-14 Checkout、Guest Email 限單驗證、Latest Payment Attempt 與 Order／Invoice 契約，建立隔離 SQL／Browser 跨交易證據。
