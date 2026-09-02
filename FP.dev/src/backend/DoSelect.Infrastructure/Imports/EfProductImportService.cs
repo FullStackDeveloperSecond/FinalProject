@@ -174,70 +174,13 @@ public sealed class EfProductImportService : IProductImportService
                 $"pageSize must be between 1 and 200; got {query.PageSize}.");
         }
 
-        var pageSize = query.PageSize;
-        var fingerprint = OpaqueCursorCodec.ComputeFingerprint(
-            batchPublicId.ToString(), query.Dataset, query.ErrorsOnly.ToString());
-
-        var rowsQuery = _dbContext.ImportRows.AsNoTracking()
-            .Where(row => row.ImportBatchId == batch.Id);
-
-        if (!string.IsNullOrWhiteSpace(query.Dataset))
-        {
-            if (!Enum.TryParse<ImportDataset>(query.Dataset, ignoreCase: true, out var dataset) ||
-                !Enum.IsDefined(dataset))
-            {
-                throw DomainProblemException.Validation(
-                    $"Unknown dataset '{query.Dataset}'. Valid values: Products, Skus, Specifications.");
-            }
-
-            rowsQuery = rowsQuery.Where(row => row.Dataset == dataset);
-        }
-
-        if (query.ErrorsOnly)
-        {
-            rowsQuery = rowsQuery.Where(row => row.ErrorCodes != null);
-        }
-
-        if (!string.IsNullOrWhiteSpace(query.Cursor) &&
-            (!OpaqueCursorCodec.TryDecode<RowCursorPayload>(query.Cursor, fingerprint, out _)))
-        {
-            throw DomainProblemException.Validation(
-                "The cursor is invalid or was issued under different filters. Restart from the first page.");
-        }
-
-        if (OpaqueCursorCodec.TryDecode<RowCursorPayload>(query.Cursor, fingerprint, out var after) && after is not null)
-        {
-            var afterDataset = after.Dataset;
-            var afterSourceRowNumber = after.SourceRowNumber;
-            rowsQuery = rowsQuery.Where(row =>
-                row.Dataset > afterDataset ||
-                (row.Dataset == afterDataset && row.SourceRowNumber > afterSourceRowNumber));
-        }
-
-        var page = await rowsQuery
-            .OrderBy(row => row.Dataset).ThenBy(row => row.SourceRowNumber)
-            .Take(pageSize + 1)
-            .ToListAsync(cancellationToken);
-
-        var hasMore = page.Count > pageSize;
-        var items = page.Take(pageSize)
-            .Select(row => new ImportRowDto(
-                row.Dataset.ToString(),
-                row.SourceRowNumber,
-                row.ImportKey,
-                row.Action.ToString(),
-                string.IsNullOrEmpty(row.ErrorCodes) ? [] : row.ErrorCodes.Split(',', StringSplitOptions.RemoveEmptyEntries),
-                UnwrapPayloadJson(row.NormalizedPayloadJson)))
-            .ToList();
-
-        string? nextCursor = null;
-        if (hasMore)
-        {
-            var last = page[pageSize - 1];
-            nextCursor = OpaqueCursorCodec.Encode(new RowCursorPayload(last.Dataset, last.SourceRowNumber), fingerprint);
-        }
-
-        return new CursorPage<ImportRowDto>(items, nextCursor, hasMore);
+        return await ImportBatchStaging.GetRowsAsync(
+            _dbContext,
+            batch.Id,
+            batchPublicId,
+            query,
+            [ImportDataset.Products, ImportDataset.Skus, ImportDataset.Specifications],
+            cancellationToken);
     }
 
     public async Task<byte[]?> GetErrorsCsvAsync(Guid batchPublicId, CancellationToken cancellationToken)
@@ -819,7 +762,6 @@ public sealed class EfProductImportService : IProductImportService
         }
     }
 
-    private sealed record RowCursorPayload(ImportDataset Dataset, int SourceRowNumber);
 
     /// <summary>ImportRow.NormalizedPayloadJson / RawJson 的長度上限（與 Domain 建構子一致）。</summary>
     private const int MaxRowJsonLength = 32 * 1024;
@@ -1175,21 +1117,6 @@ public sealed class EfProductImportService : IProductImportService
         return skuContexts.TryGetValue(skuRow.ImportKey, out var context) ? context.CategoryId : null;
     }
 
-    private static string UnwrapPayloadJson(string normalizedPayloadJson)
-    {
-        using var document = JsonDocument.Parse(normalizedPayloadJson);
-        return document.RootElement.TryGetProperty("Payload", out var payload)
-            ? payload.GetRawText()
-            : normalizedPayloadJson;
-    }
-
-    /// <summary>2601/2627: unique index / unique constraint violation.</summary>
-    /// <summary>
-    /// The business key the admin wrote in their own file. Normally identical to ImportRow.ImportKey;
-    /// it differs only for rows stored under a synthetic duplicate key, and for those the original
-    /// still lives in the stored payload (組長 PR #74 round-3, item 1). Falls back to the storage
-    /// key when the payload was dropped for being oversized (item 4).
-    /// </summary>
     private static bool IsUniqueKeyViolation(DbUpdateException exception) =>
         exception.GetBaseException() is SqlException { Number: 2601 or 2627 };
 

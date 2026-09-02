@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using DoSelect.Application.Common;
+using DoSelect.Application.Common.Cursors;
 using DoSelect.Application.Imports;
 using DoSelect.Domain.Imports;
 using DoSelect.Infrastructure.Persistence;
@@ -201,6 +202,97 @@ internal static class ImportBatchStaging
         return json.Length <= MaxRowJsonLength
             ? json
             : JsonSerializer.Serialize(new OversizedRowEnvelope(null, null, null));
+    }
+
+    private sealed record RowCursorPayload(ImportDataset Dataset, int SourceRowNumber);
+
+    /// <summary>
+    /// 預覽列的 Cursor 分頁。兩種匯入的差別只有「哪些 dataset 名稱算合法」，其餘（游標指紋、
+    /// 只看錯誤列、排序鍵、多取一筆判斷還有沒有下一頁）完全相同。
+    ///
+    /// 游標帶指紋：換了篩選條件卻沿用舊游標，會拿到一份對不上自己條件的資料——直接拒絕，要求
+    /// 從第一頁重新開始。
+    /// </summary>
+    public static async Task<CursorPage<ImportRowDto>> GetRowsAsync(
+        DoSelectDbContext dbContext,
+        long batchId,
+        Guid batchPublicId,
+        ImportRowsQuery query,
+        IReadOnlyList<ImportDataset> allowedDatasets,
+        CancellationToken cancellationToken)
+    {
+        var pageSize = query.PageSize;
+        var fingerprint = OpaqueCursorCodec.ComputeFingerprint(
+            batchPublicId.ToString(), query.Dataset, query.ErrorsOnly.ToString());
+
+        var rowsQuery = dbContext.ImportRows.AsNoTracking()
+            .Where(row => row.ImportBatchId == batchId);
+
+        if (!string.IsNullOrWhiteSpace(query.Dataset))
+        {
+            if (!Enum.TryParse<ImportDataset>(query.Dataset, ignoreCase: true, out var dataset) ||
+                !allowedDatasets.Contains(dataset))
+            {
+                throw DomainProblemException.Validation(
+                    $"Unknown dataset '{query.Dataset}'. Valid values: {string.Join(", ", allowedDatasets)}.");
+            }
+
+            rowsQuery = rowsQuery.Where(row => row.Dataset == dataset);
+        }
+
+        if (query.ErrorsOnly)
+        {
+            rowsQuery = rowsQuery.Where(row => row.ErrorCodes != null);
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Cursor) &&
+            !OpaqueCursorCodec.TryDecode<RowCursorPayload>(query.Cursor, fingerprint, out _))
+        {
+            throw DomainProblemException.Validation(
+                "The cursor is invalid or was issued under different filters. Restart from the first page.");
+        }
+
+        if (OpaqueCursorCodec.TryDecode<RowCursorPayload>(query.Cursor, fingerprint, out var after) && after is not null)
+        {
+            var afterDataset = after.Dataset;
+            var afterSourceRowNumber = after.SourceRowNumber;
+            rowsQuery = rowsQuery.Where(row =>
+                row.Dataset > afterDataset ||
+                (row.Dataset == afterDataset && row.SourceRowNumber > afterSourceRowNumber));
+        }
+
+        var page = await rowsQuery
+            .OrderBy(row => row.Dataset).ThenBy(row => row.SourceRowNumber)
+            .Take(pageSize + 1)
+            .ToListAsync(cancellationToken);
+
+        var hasMore = page.Count > pageSize;
+        var items = page.Take(pageSize)
+            .Select(row => new ImportRowDto(
+                row.Dataset.ToString(),
+                row.SourceRowNumber,
+                row.ImportKey,
+                row.Action.ToString(),
+                string.IsNullOrEmpty(row.ErrorCodes) ? [] : row.ErrorCodes.Split(',', StringSplitOptions.RemoveEmptyEntries),
+                UnwrapPayloadJson(row.NormalizedPayloadJson)))
+            .ToList();
+
+        string? nextCursor = null;
+        if (hasMore)
+        {
+            var last = page[pageSize - 1];
+            nextCursor = OpaqueCursorCodec.Encode(new RowCursorPayload(last.Dataset, last.SourceRowNumber), fingerprint);
+        }
+
+        return new CursorPage<ImportRowDto>(items, nextCursor, hasMore);
+    }
+
+    public static string UnwrapPayloadJson(string normalizedPayloadJson)
+    {
+        using var document = JsonDocument.Parse(normalizedPayloadJson);
+        return document.RootElement.TryGetProperty("Payload", out var payload)
+            ? payload.GetRawText()
+            : normalizedPayloadJson;
     }
 
     /// <summary>
