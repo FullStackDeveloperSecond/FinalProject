@@ -645,10 +645,7 @@ button:focus-visible {
 }
 
 .brand-mark__img {
-  width: 36px;
-  height: 36px;
   border-radius: 999px;
-  background: var(--color-surface);
   object-fit: contain;
 }
 
@@ -1140,15 +1137,6 @@ button:disabled,
   color: var(--color-ink);
 }
 
-/* 白色 header 上不再需要 Logo 底板：橫式 Logo 的「Select」本身是深藍
-   #043A91，直接放在白底是 10.40:1，加底板反而多一層框。 */
-.site-header .brand-mark__wordmark-shell,
-.site-header .brand-mark__badge-shell {
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-}
-
 .site-header .nav-toggle {
   border-color: var(--color-border);
   color: var(--color-ink);
@@ -1361,19 +1349,6 @@ button:disabled {
   color: var(--color-primary-hover);
 }
 
-/* ---- 次要按鈕：預覽 03/04 是白底＋亮藍邊＋亮藍字，不是深藍描邊 ---- */
-.ds-app-button--secondary {
-  background: var(--color-surface);
-  border-color: var(--color-primary);
-  color: var(--color-primary);
-}
-
-.ds-app-button--secondary:not(:disabled):hover {
-  background: var(--color-primary-soft);
-  border-color: var(--color-primary-hover);
-  color: var(--color-primary-hover);
-}
-
 /* ---- 徽章 ---- */
 .status-pill {
   background: var(--color-section);
@@ -1580,13 +1555,14 @@ button:disabled {
 }
 
 /* =============================================================================
-   v4 —— Header 品牌鎖定塊去重複
-   BrandMark 在 >= 641px 顯示橫式正式 Logo（圖檔本身已含吉祥物與 "DoSelect"），
-   旁邊再放一次文字字標會出現兩個品牌名。參考圖 01 的 header 只有一組。
-   窄畫面只顯示方形徽章，這時才需要文字補上品牌名，與參考圖一致。
+   v4.1 —— Header 品牌鎖定塊
+   正式商標 2 是方形徽章，在 40px 顯示尺寸下裡面的 "DoSelect" 字樣讀不出來，
+   因此**所有 viewport** 都保留旁邊的文字字標（與參考圖 01 的 header 一致）。
+   舊版之所以在 >= 641px 隱藏字標，是因為當時桌面用的是自帶字標的橫式 Logo；
+   那支 Logo 已移除，這條規則跟著移除。
    ========================================================================== */
-@media (min-width: 641px) {
-  .site-header .brand-link__text {
-    display: none;
-  }
+.site-header .brand-mark__img {
+  /* 正式商標 2 自帶白底，白色 header 上不需要再加底板或陰影 */
+  background: transparent;
+  box-shadow: none;
 }

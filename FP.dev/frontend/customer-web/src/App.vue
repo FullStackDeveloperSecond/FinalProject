@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, provide, ref } from 'vue'
+import { computed, defineAsyncComponent, onMounted, provide, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSessionStore } from './stores/session'
 import { useCartIdentityCacheCleanup } from './features/cart/useCart'
@@ -31,6 +31,18 @@ useCartIdentityCacheCleanup()
 
 // 窄畫面把主導覽收起來，避免導覽列擠壓內容或造成頁面級橫向捲動。
 const navOpen = ref(false)
+
+/**
+ * 路由一變就把展開的行動版選單關掉。
+ *
+ * 監聽 `route.fullPath` 而不是 `route.path`：只換 query 或 hash 也算導覽
+ * （首頁分類卡去的就是 `/products?category=CPU`，路徑相同、query 不同），
+ * 這種情況一樣要收起選單。也因為監聽的是路由狀態而不是點擊事件，
+ * RouterLink 與程式導航（`router.push`）兩條路徑都會被涵蓋。
+ */
+watch(() => route.fullPath, () => {
+  navOpen.value = false
+})
 
 // GSAP 動態視覺探索：A／B／C 方案由 App 統一選定後 provide 給頁面。
 // `canSwitch` 在 production build 是常數 false，切換介面會被整段 tree-shake 掉。

@@ -92,7 +92,15 @@ function onClick(event: MouseEvent) {
 
 <style scoped>
 /*
-  Secondary = the Navy counterpart to the emerald primary.
+  Secondary = white surface, bright-blue border and label.
+
+  THIS IS THE ONLY DEFINITION OF THE SECONDARY APPEARANCE. Both apps used to
+  carry their own bright-blue override in style.css while this file still said
+  Navy; the app-level scoped selectors won on specificity, so the shipped button
+  never matched the shared component and the two source-string tests happily
+  asserted opposite colours. Those duplicate blocks are deleted — change the
+  appearance here and nowhere else.
+
   Styled through this component's own public class and semantic tokens only —
   no `.p-*` PrimeVue internals in any selector, no literal colours, no !important.
   The scope attribute lands on PrimeVue's root <button>, which is enough
@@ -100,14 +108,14 @@ function onClick(event: MouseEvent) {
 */
 .ds-app-button--secondary {
   background: var(--color-surface);
-  border: 1px solid var(--color-navy);
-  color: var(--color-navy);
+  border: 1px solid var(--color-primary);
+  color: var(--color-primary);
 }
 
 .ds-app-button--secondary:not(:disabled):hover {
-  background: var(--color-navy-hover);
-  border-color: var(--color-navy-hover);
-  color: var(--color-on-navy);
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary-hover);
+  color: var(--color-primary-hover);
 }
 
 .ds-app-button__content {

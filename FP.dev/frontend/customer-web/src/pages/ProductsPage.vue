@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
-import { computed, reactive, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ProductCard from '../features/catalog/components/ProductCard.vue'
+import { categoryLabel } from '../features/catalog/categoryLabels'
 import { useCatalogFilterOptions, useProductSearch } from '../features/catalog/useProductSearch'
 import type { SpecFilterRequest } from '../features/catalog/types'
 
@@ -99,6 +100,45 @@ const {
 function retryCatalogFilterOptions() {
   refetchFilterOptions()
 }
+
+/*
+ * `/api/v1/catalog/filter-options` 的 `categories` 是「還可以再往下鑽的分類」：
+ * 沒帶 Category 時回頂層清單，帶了 Category 時回**該分類的子分類**
+ * （EfCatalogFilterOptionsService.GetCategoriesAsync）。
+ *
+ * 所以深連結進 `/products?category=CPU`（首頁分類卡就是這樣進來的）時，回應裡
+ * 根本不會有 CPU 自己 —— seeded 的 CPU／GPU 都是沒有子分類的頂層分類，回的是空陣列。
+ * 原生 <select> 找不到對應的 <option> 就只能落回空值，使用者看到「全部分類」
+ * 卻拿到 CPU 的搜尋結果。同樣的情形也發生在「還沒套用就先在下拉選了分類」的當下。
+ *
+ * 這裡只補**顯示用**的選項：不寫回 filters.category、不 push route、不觸發搜尋，
+ * 因此尚未套用的編輯不會被蓋掉，route query 也仍然是 applied filters 的唯一來源。
+ */
+const knownCategoryNames = ref<Record<string, string>>({})
+
+watch(filterOptions, (value) => {
+  for (const category of value?.categories ?? []) {
+    knownCategoryNames.value[category.code] = category.name
+  }
+}, { immediate: true })
+
+const categoryOptions = computed(() => {
+  const fromApi = filterOptions.value?.categories ?? []
+  const selected = filters.category
+  if (!selected || fromApi.some((category) => category.code === selected)) {
+    return fromApi
+  }
+  return [
+    {
+      // 合成的顯示項目：publicId 只當 v-for key，不會送到後端
+      publicId: `applied:${selected}`,
+      code: selected,
+      // 先用 API 給過的權威名稱；沒看過就退回本地對照表，最後才是代碼本身
+      name: knownCategoryNames.value[selected] ?? categoryLabel(selected),
+    },
+    ...fromApi,
+  ]
+})
 
 const optionSpecFilters = computed(() =>
   (filterOptions.value?.specificationFilters ?? []).filter((spec) => spec.options && spec.options.length > 0))
@@ -288,7 +328,7 @@ watch(
           全部分類
         </option>
         <option
-          v-for="category in filterOptions?.categories ?? []"
+          v-for="category in categoryOptions"
           :key="category.publicId"
           :value="category.code"
         >

@@ -343,8 +343,9 @@
   --content-max: 1200px;
 
   /* 正式 Logo 的顯示尺寸上限（Customer 與 Admin 共用同一組規則） */
-  --logo-wordmark-h: 40px;
-  --logo-mark-size: 36px;
+  /* 正式商標 2 的顯示尺寸；衍生檔就是照這個尺寸的 1x/2x/3x 產生的
+     （public/brand/doselect-mark-40|80|120），不要單獨改其中一邊。 */
+  --logo-mark-size: 40px;
   --logo-gap: var(--space-3);
 
   /* =========================================================================

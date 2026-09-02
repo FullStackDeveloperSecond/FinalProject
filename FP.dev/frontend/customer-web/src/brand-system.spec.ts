@@ -197,12 +197,17 @@ describe('4. 高飽和亮藍負責操作與資訊焦點', () => {
     expect(rule).toContain('color: var(--color-primary)')
   })
 
-  it('次要按鈕是白底亮藍描邊，不是深海軍藍描邊', () => {
+  it('次要按鈕的唯一定義在 shared AppButton，App 層不得覆寫', () => {
+    // 兩支 App 曾各自複製一份亮藍覆寫，scoped 特異性又蓋過共用元件，
+    // 造成「元件寫深藍、實際畫出來卻是亮藍」，而兩邊的字串測試都各自綠燈。
     for (const css of [customerCss, adminCss]) {
-      const rule = lastRuleBody(css, '\\.ds-app-button--secondary')
-      expect(rule).toContain('border-color: var(--color-primary)')
-      expect(rule).toContain('color: var(--color-primary)')
+      expect(css).not.toContain('.ds-app-button--secondary')
     }
+    const button = read(join(sharedRoot, 'src', 'components', 'AppButton.vue'))
+    const rule = /\.ds-app-button--secondary\s*\{([^}]*)\}/.exec(button)?.[1] ?? ''
+    expect(rule).toContain('border: 1px solid var(--color-primary)')
+    expect(rule).toContain('color: var(--color-primary)')
+    expect(rule).not.toContain('--color-navy')
   })
 })
 
@@ -331,15 +336,24 @@ describe('8. 首頁保留九個語意圖示，並補上流程導覽感', () => {
   })
 
   it('六個分類都有圖示', () => {
-    const cats = [...homeSource.matchAll(/\{ title: '[^']+', body: '[^']+', icon: '([a-z-]+)'/g)]
+    const cats = [...homeSource.matchAll(/\{ title: '[^']+', body: '[^']+', icon: '([a-z-]+)', categoryCode/g)]
     expect(cats).toHaveLength(6)
-    expect(cats.map(m => m[1])).toEqual(['desktop', 'laptop', 'monitor', 'component', 'peripheral', 'custom-build'])
+    expect(cats.map(m => m[1])).toEqual(['cpu', 'motherboard', 'memory', 'gpu', 'storage', 'case'])
     expect(homeSource).toContain('interface HomeCategoryItem')
+  })
+
+  it('分類圖示名稱與正式 catalog code 一一對應', () => {
+    // 圖示名稱刻意等於 catalog code 的小寫，避免圖示與查詢條件各說各話
+    const cats = [...homeSource.matchAll(/icon: '([a-z-]+)', categoryCode: '([A-Z_]+)'/g)]
+    expect(cats).toHaveLength(6)
+    for (const [, icon, code] of cats) {
+      expect(icon, `${code} 的圖示名稱應是代碼小寫`).toBe(code.toLowerCase())
+    }
   })
 
   it('每個圖示名稱都對到真的 path，執行期仍有 fallback', () => {
     const names = [...iconSource.matchAll(/^\s*\|\s*'([a-z-]+)'$/gm)].map(m => m[1])
-    expect(names).toHaveLength(9)
+    expect(names).toHaveLength(10)
     for (const name of names) {
       const key = /^[a-z]+$/.test(name) ? name : `'${name}'`
       expect(iconSource, `${name} needs paths`).toContain(`  ${key}: [`)
@@ -347,7 +361,7 @@ describe('8. 首頁保留九個語意圖示，並補上流程導覽感', () => {
     expect(iconSource).toContain('ICON_PATHS[props.name] ?? ICON_PATHS.purpose')
   })
 
-  it('九個圖示同一套 stroke／fill／線寬規則', () => {
+  it('十個圖示同一套 stroke／fill／線寬規則', () => {
     expect(iconSource).toContain('viewBox="0 0 24 24"')
     expect(iconSource).toContain('stroke-width="1.75"')
     expect(iconSource).toContain('stroke="currentColor"')
@@ -383,7 +397,7 @@ describe('8. 首頁保留九個語意圖示，並補上流程導覽感', () => {
   })
 
   it('整張分類卡片可點擊', () => {
-    expect(homeSource).toMatch(/<RouterLink[\s\S]{0,200}:to="item\.to \?\? \{ path: '\/products', query: item\.query \}"/)
+    expect(homeSource).toMatch(/<RouterLink[\s\S]{0,260}:to="item\.to \?\? \{ path: '\/products', query: \{ category: item\.categoryCode \} \}"/)
   })
 
   it('圖示描繪只做一次，沒有無限動畫，CSS 不預先藏線條', () => {
@@ -503,35 +517,98 @@ describe('11. 既有保證全部保留', () => {
     expect(tokensCss).toContain(':root[data-theme="dark"]')
   })
 
-  it('兩支 App 都帶正式 Logo，且有可用的替代文字', () => {
+  it('兩支 App 都帶最佳化後的正式標記衍生檔，檔名固定、體積受限', () => {
+    // 唯一來源是「DoSelect 懂選 正式商標2」；1x/2x/3x 各一個 WebP 與 PNG 後備。
+    const ALLOWED = [
+      'doselect-mark-40.webp', 'doselect-mark-80.webp', 'doselect-mark-120.webp',
+      'doselect-mark-40.png', 'doselect-mark-80.png', 'doselect-mark-120.png',
+    ]
+    // header 只顯示 40px，任何一個衍生檔都不該超過 40 KB（舊的 1.2 MB Logo 是被換掉的原因）
+    const CEILING = 40 * 1024
+
     for (const root of [customerRoot, adminRoot]) {
-      for (const file of ['doselect-logo-horizontal.png', 'doselect-logo-badge.png']) {
-        const p = join(root, 'public', 'brand', file)
+      const dir = join(root, 'public', 'brand')
+      for (const file of ALLOWED) {
+        const p = join(dir, file)
         expect(existsSync(p), `${p} must exist`).toBe(true)
-        expect(statSync(p).size).toBeGreaterThan(1024)
+        const size = statSync(p).size
+        expect(size, `${file} 太小，可能不是有效圖檔`).toBeGreaterThan(256)
+        expect(size, `${file} = ${(size / 1024).toFixed(1)} KB，超過 ${CEILING / 1024} KB 上限`)
+          .toBeLessThanOrEqual(CEILING)
+      }
+      // 不得殘留任何舊的大型 Logo
+      for (const stale of ['doselect-logo-horizontal.png', 'doselect-logo-badge.png']) {
+        expect(existsSync(join(dir, stale)), `${stale} 應已刪除`).toBe(false)
       }
       expect(read(join(root, 'src', 'App.vue'))).toContain('BrandMark')
     }
-
-    const mark = read(join(sharedRoot, 'src', 'components', 'BrandMark.vue'))
-    expect(mark).toContain('import.meta.env.BASE_URL')
-    expect(mark).toContain('brand/doselect-logo-horizontal.png')
-    expect(mark).toContain('brand/doselect-logo-badge.png')
-    expect(mark).toContain('aspect-ratio: 2048 / 768')
-    expect(mark).toContain('object-fit: contain')
-    const alts = [...mark.matchAll(/alt="([^"]*)"/g)].map(m => m[1])
-    expect(alts.length).toBeGreaterThanOrEqual(2)
-    for (const alt of alts) { expect(alt.trim().length).toBeGreaterThan(0) }
   })
 
-  it('Logo 一律坐在淺色底上，白色 header 上直接去掉底板', () => {
-    // 橫式 Logo 的「Select」字色就是品牌藍 #043A91：白底 10.40:1，深藍底只有 1.59:1。
+  it('BrandMark 每個 viewport 只建立一個 <img>，不用 CSS 隱藏第二張', () => {
     const mark = read(join(sharedRoot, 'src', 'components', 'BrandMark.vue'))
-    expect(mark).not.toMatch(/background:\s*var\(--color-navy\)/)
-    expect(contrast('#043a91', '#ffffff')).toBeGreaterThanOrEqual(4.5)
-    expect(contrast('#043a91', DEEP_INK)).toBeLessThan(3)
-    for (const css of [customerCss, adminCss]) {
-      expect(css).toMatch(/brand-mark__wordmark-shell[\s\S]{0,120}background:\s*transparent/)
+    const template = /<template>([\s\S]*?)<\/template>/.exec(mark)?.[1] ?? ''
+
+    // 關鍵不變式：整個 template 只有一個 <img>
+    expect([...template.matchAll(/<img\b/g)]).toHaveLength(1)
+    // 由 <picture> + srcset 讓瀏覽器只挑一個資源，而不是放兩張再 display:none
+    expect(template).toContain('<picture')
+    expect(template).toContain('type="image/webp"')
+    expect(template).toMatch(/:srcset="pngSrcset"/)
+    expect(mark).toContain('import.meta.env.BASE_URL')
+    // 舊 Logo 完全不再被引用
+    expect(mark).not.toContain('doselect-logo-horizontal')
+    expect(mark).not.toContain('doselect-logo-badge')
+    // 比例、替代文字與錯誤後備
+    expect(mark).toContain('aspect-ratio: 1 / 1')
+    expect(mark).toContain('object-fit: contain')
+    expect(mark).toContain('alt="DoSelect 懂選"')
+    expect(mark).toContain('@error="markAvailable = false"')
+    expect(mark).toMatch(/v-else[\s\S]{0,160}aria-label="DoSelect 懂選（正式 Logo 尚未匯入）"/)
+  })
+
+  it('全前端沒有任何舊 Logo 檔名的殘留引用', () => {
+    const collect = (dir: string): string[] => {
+      const out: string[] = []
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (entry.name === 'node_modules' || entry.name === 'dist') { continue }
+        const full = join(dir, entry.name)
+        if (entry.isDirectory()) { out.push(...collect(full)) }
+        // 排除 .spec.ts：護欄本身就必須寫出那些被禁止的檔名
+        else if (/\.(?:vue|ts|css|md|html)$/.test(entry.name) && !entry.name.endsWith('.spec.ts')) { out.push(full) }
+      }
+      return out
+    }
+    const roots = [
+      join(customerRoot, 'src'), join(customerRoot, 'public'), join(customerRoot, 'e2e'),
+      join(adminRoot, 'src'), join(adminRoot, 'public'),
+      join(sharedRoot, 'src'),
+    ]
+    for (const root of roots) {
+      if (!existsSync(root)) { continue }
+      for (const file of collect(root)) {
+        const source = read(file)
+        // 找的是「真的會去載入」的路徑形式（brand/xxx），
+        // README 用散文說明「舊檔已刪除」不算引用。
+        expect(source, `${file} 仍引用舊的橫式 Logo`).not.toContain('brand/doselect-logo-horizontal')
+        expect(source, `${file} 仍引用舊的方形 Logo`).not.toContain('brand/doselect-logo-badge')
+      }
+    }
+  })
+
+  it('品牌 README 與 BrandMark 實作一致', () => {
+    const mark = read(join(sharedRoot, 'src', 'components', 'BrandMark.vue'))
+    for (const root of [customerRoot, adminRoot]) {
+      const readme = read(join(root, 'public', 'brand', 'README.md'))
+      // 唯一來源要寫清楚
+      expect(readme).toContain('DoSelect 懂選 正式商標2')
+      // README 列出的檔名必須真的被 BrandMark 引用
+      for (const file of ['doselect-mark-40.webp', 'doselect-mark-80.webp', 'doselect-mark-120.webp']) {
+        expect(readme, `README 應列出 ${file}`).toContain(file)
+      }
+      expect(mark).toContain('doselect-mark-40.webp')
+      // 舊的「放進去就自動生效」說明必須移除
+      expect(readme).not.toContain('donggu-mark.png')
+      expect(readme).not.toContain('不需要改任何程式碼')
     }
   })
 

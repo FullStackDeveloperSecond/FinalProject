@@ -748,15 +748,21 @@ select {
   color: var(--color-ink);
 }
 
-/* 白色頂欄上不再需要 Logo 底板 */
-.site-header .brand-mark__wordmark-shell,
-.site-header .brand-mark__badge-shell {
+/* 正式商標 2 自帶白底，白色頂欄上不需要再加底板或陰影 */
+.site-header .brand-mark__img {
   background: transparent;
-  border: 0;
   box-shadow: none;
 }
 
+.site-header .brand-link__name {
+  color: var(--color-ink);
+  font-size: var(--fs-body);
+  font-weight: 700;
+}
+
 .brand-link__scope {
+  /* 在 .brand-link__text 這個 column flex 裡，膠囊必須靠左自撐，不然會被拉滿寬 */
+  align-self: flex-start;
   padding: 2px var(--space-2);
   background: var(--color-primary-soft);
   border: 1px solid var(--color-border-soft);
@@ -909,19 +915,6 @@ button:disabled {
   color: var(--color-text-faint);
   border-color: var(--color-border-soft);
   cursor: not-allowed;
-}
-
-/* ---- 次要按鈕：白底亮藍描邊（預覽 04「批次匯入」「匯出報表」） ---- */
-.ds-app-button--secondary {
-  background: var(--color-surface);
-  border-color: var(--color-primary);
-  color: var(--color-primary);
-}
-
-.ds-app-button--secondary:not(:disabled):hover {
-  background: var(--color-primary-soft);
-  border-color: var(--color-primary-hover);
-  color: var(--color-primary-hover);
 }
 
 /* =============================================================================

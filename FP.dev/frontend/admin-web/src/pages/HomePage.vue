@@ -131,7 +131,6 @@ watch(
         </article>
       </div>
     </section>
-
   </section>
 </template>
 

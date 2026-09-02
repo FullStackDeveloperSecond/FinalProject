@@ -132,7 +132,7 @@ describe('AppButton', () => {
   })
 })
 
-describe('AppButton secondary is Navy, defined on its own class with tokens', () => {
+describe('AppButton secondary is bright blue, defined once in the shared component', () => {
   const css = styleBlock(appButtonSource)
 
   it('defines .ds-app-button--secondary in the component stylesheet', () => {
@@ -141,18 +141,60 @@ describe('AppButton secondary is Navy, defined on its own class with tokens', ()
 
   it.each([
     ['background', '--color-surface'],
-    ['border', '--color-navy'],
-    ['color', '--color-navy'],
+    ['border', '--color-primary'],
+    ['color', '--color-primary'],
   ])('paints secondary %s from var(%s)', (property, token) => {
     const body = ruleBody(css, '.ds-app-button--secondary')
     expect(body).toMatch(new RegExp(`${property}:\\s*[^;]*var\\(${token}\\)`))
   })
 
-  it('uses the Navy hover pair on hover', () => {
+  it('uses the bright-blue hover pair on hover', () => {
     const body = ruleBody(css, '.ds-app-button--secondary:not(:disabled):hover')
-    expect(body).toMatch(/background:\s*var\(--color-navy-hover\)/)
-    expect(body).toMatch(/border-color:\s*var\(--color-navy-hover\)/)
-    expect(body).toMatch(/color:\s*var\(--color-on-navy\)/)
+    expect(body).toMatch(/background:\s*var\(--color-primary-soft\)/)
+    expect(body).toMatch(/border-color:\s*var\(--color-primary-hover\)/)
+    expect(body).toMatch(/color:\s*var\(--color-primary-hover\)/)
+  })
+
+  /*
+   * The bug this replaces: the shared component said Navy while both apps carried
+   * their own bright-blue override, and each half had a passing source-string test.
+   * Reading one file can never catch that, so assert the property that actually
+   * decides the shipped colour — that NOTHING outside this component styles the class.
+   */
+  it('is the only place that styles the secondary class', () => {
+    const appStylesheets: Array<[string, string]> = [
+      ['customer-web/src/style.css', readFileSync(resolve(pkgRoot, 'src/style.css'), 'utf8')],
+      ['admin-web/src/style.css', readFileSync(resolve(pkgRoot, '../admin-web/src/style.css'), 'utf8')],
+    ]
+    for (const [name, source] of appStylesheets) {
+      expect(source, `${name} must not re-style .ds-app-button--secondary`)
+        .not.toContain('.ds-app-button--secondary')
+    }
+  })
+
+  it('resolves its tokens to the bright blue, not the navy', () => {
+    // 把 var() 鏈一路展開到實際色值，證明「寫的 token」與「畫出來的顏色」是同一個。
+    const resolve_ = (token: string, depth = 0): string => {
+      const declared = new RegExp(`${token}:\\s*([^;]+);`).exec(tokensCss)?.[1].trim() ?? ''
+      const alias = /^var\((--[a-z0-9-]+)\)$/.exec(declared)
+      return alias && depth < 8 ? resolve_(alias[1], depth + 1) : declared.toLowerCase()
+    }
+    expect(resolve_('--color-primary')).toBe('#0b66e8')
+    expect(resolve_('--color-primary-hover')).toBe('#0a55c4')
+    expect(resolve_('--color-surface')).toBe('#ffffff')
+    // navy 仍存在（footer／深色強調區用），但 secondary 已經不讀它
+    expect(ruleBody(css, '.ds-app-button--secondary')).not.toContain('--color-navy')
+  })
+
+  it('applies the secondary class to the rendered button element', () => {
+    const wrapper = mount(AppButton, {
+      ...withPrimeVue,
+      props: { variant: 'secondary' },
+      slots: { default: () => 'x' },
+    })
+    const button = wrapper.get('button')
+    expect(button.classes()).toContain('ds-app-button--secondary')
+    wrapper.unmount()
   })
 
   it('overrides no PrimeVue internal .p-* class and hardcodes nothing', () => {

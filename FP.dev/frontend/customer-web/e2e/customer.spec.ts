@@ -462,6 +462,7 @@ test('a guest keeps the checkout payment attempt after reloading the payment pag
   expect(latest.status).toBe('awaitingPayment')
 })
 
+<<<<<<< HEAD
 test('a guest completes the prepared cart through checkout payment and invoice', async ({
   page,
   seed,
@@ -605,4 +606,36 @@ test('a guest completes the prepared cart through checkout payment and invoice',
   await expect(page.getByText('付款狀態：已付款', { exact: true })).toBeVisible()
   await expect(page.getByText(/DEMO-NOT-A-TAX-INVOICE/)).toBeVisible()
   await expect(page.getByText('狀態：已開立', { exact: true })).toBeVisible()
+=======
+test('a shopper can jump from a home category card into that seeded catalog category', async ({ page }) => {
+  // 首頁分類卡曾經送出 desktop／laptop／monitor 這類後端不認得的代碼，點進去只會拿到空結果。
+  // 這裡驗證卡片送出的是 catalog 契約真的有的代碼，而且落地頁真的看得到該分類的 seeded 商品。
+  await page.goto('/')
+
+  const cpuCard = page.getByRole('link', { name: /處理器/ })
+  await expect(cpuCard).toBeVisible()
+  await expect(cpuCard).toHaveAttribute('data-category-code', 'CPU')
+
+  await cpuCard.click()
+
+  await expect(page).toHaveURL(/\/products\?category=CPU$/)
+  await expect(page.getByRole('heading', { level: 1, name: '商品搜尋' })).toBeVisible()
+
+  // seeded 相容性示範 SKU：分類 CPU 的「懂選開發用 CPU」
+  await expect(page.getByRole('heading', { level: 3, name: '懂選開發用 CPU', exact: true }))
+    .toBeVisible()
+
+  // 分類下拉也要停在同一個代碼，代表 query 真的被 ProductsPage 接住
+  await expect(page.getByLabel('分類')).toHaveValue('CPU')
+})
+
+test('the home free-build card still routes to the build wizard, not the catalog', async ({ page }) => {
+  await page.goto('/')
+
+  const freeBuild = page.getByRole('link', { name: /自由組裝/ })
+  await expect(freeBuild).toBeVisible()
+  await expect(freeBuild).not.toHaveAttribute('data-category-code', /./)
+
+  await freeBuild.click()
+  await expect(page).toHaveURL(/\/builds\/new$/)
 })

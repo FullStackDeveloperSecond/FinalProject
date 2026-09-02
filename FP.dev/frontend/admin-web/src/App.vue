@@ -91,7 +91,11 @@ async function onLogout(): Promise<void> {
         to="/"
       >
         <BrandMark />
-        <span class="brand-link__scope">管理後台</span>
+        <!-- 正式商標 2 是方形徽章，40px 下裡面的字樣讀不出來，品牌名以文字承載 -->
+        <span class="brand-link__text">
+          <span class="brand-link__name">DoSelect 懂選</span>
+          <span class="brand-link__scope">管理後台</span>
+        </span>
       </RouterLink>
       <div class="site-header__end">
         <span class="demo-badge">DEMO DATA</span>
