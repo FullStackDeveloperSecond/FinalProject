@@ -44,6 +44,17 @@ interface CheckoutForm {
   acceptPrivacy: boolean
 }
 
+type MemberOrderRouteName = 'order-detail' | 'order-payment'
+
+type CreatedOrderHandoff =
+  | { kind: 'guest', order: OrderDto }
+  | {
+      kind: 'member'
+      order: OrderDto
+      routeName: MemberOrderRouteName
+      navigationFailed: boolean
+    }
+
 const PAYMENT_LABELS: Record<PaymentMethod, string> = {
   creditCard: '信用卡',
   atm: 'ATM 虛擬帳號',
@@ -70,7 +81,7 @@ const validation = ref<CartValidationDto | null>(null)
 const policyVersions = ref<AcceptedPolicyVersions | null>(null)
 const isInitialLoading = ref(false)
 const initialError = ref<unknown>(null)
-const createdGuestOrder = ref<OrderDto | null>(null)
+const createdOrderHandoff = ref<CreatedOrderHandoff | null>(null)
 let loadGeneration = 0
 
 const selectedShippingMethod = ref<string | null>(null)
@@ -344,26 +355,44 @@ async function submitOrder(): Promise<void> {
   submitError.value = null
   submitCorrelationId.value = null
 
+  let order: OrderDto
   try {
-    const order = await createOrder(request, idempotencyKey, getOrCreateGuestCartKey())
-    queryClient.removeQueries({ queryKey: ['cart'] })
-    queryClient.removeQueries({ queryKey: ['shipping-options'] })
-
-    if (!sessionStore.isAuthenticated) {
-      createdGuestOrder.value = order
-      clearGuestCartKey()
-      return
-    }
-
-    await router.push({
-      name: selectedPaymentMethod.value === 'cashOnDelivery' ? 'order-detail' : 'order-payment',
-      params: { orderId: order.publicId },
-    })
+    order = await createOrder(request, idempotencyKey, getOrCreateGuestCartKey())
   } catch (caught) {
     submitError.value = describeSubmitError(caught)
     submitCorrelationId.value = isApiError(caught) ? caught.correlationId ?? null : null
+    return
   } finally {
     isSubmitting.value = false
+  }
+
+  queryClient.removeQueries({ queryKey: ['cart'] })
+  queryClient.removeQueries({ queryKey: ['shipping-options'] })
+
+  if (!sessionStore.isAuthenticated) {
+    createdOrderHandoff.value = { kind: 'guest', order }
+    clearGuestCartKey()
+    return
+  }
+
+  const routeName: MemberOrderRouteName =
+    selectedPaymentMethod.value === 'cashOnDelivery' ? 'order-detail' : 'order-payment'
+  createdOrderHandoff.value = {
+    kind: 'member',
+    order,
+    routeName,
+    navigationFailed: false,
+  }
+
+  try {
+    await router.push({ name: routeName, params: { orderId: order.publicId } })
+  } catch {
+    createdOrderHandoff.value = {
+      kind: 'member',
+      order,
+      routeName,
+      navigationFailed: true,
+    }
   }
 }
 </script>
@@ -378,18 +407,35 @@ async function submitOrder(): Promise<void> {
     </h1>
 
     <section
-      v-if="createdGuestOrder"
+      v-if="createdOrderHandoff"
       class="checkout-page__guest-success"
-      aria-labelledby="guest-order-created-title"
+      aria-labelledby="order-created-title"
     >
-      <h2 id="guest-order-created-title">
+      <h2 id="order-created-title">
         訂單已建立
       </h2>
-      <p>訂單編號：<strong>{{ createdGuestOrder.orderNumber }}</strong></p>
-      <p>為保護訂單資料，訪客需以訂單編號與結帳 Email 完成一次性驗證，才能繼續付款或查看訂單。</p>
-      <RouterLink to="/guest-orders/access">
-        驗證訂單後繼續付款
-      </RouterLink>
+      <p>訂單編號：<strong>{{ createdOrderHandoff.order.orderNumber }}</strong></p>
+
+      <template v-if="createdOrderHandoff.kind === 'guest'">
+        <p>為保護訂單資料，訪客需以訂單編號與結帳 Email 完成一次性驗證，才能繼續付款或查看訂單。</p>
+        <RouterLink to="/guest-orders/access">
+          驗證訂單後繼續付款
+        </RouterLink>
+      </template>
+
+      <template v-else>
+        <p v-if="createdOrderHandoff.navigationFailed">
+          訂單已經建立成功，只是沒能自動開啟下一頁。
+        </p>
+        <RouterLink
+          :to="{
+            name: createdOrderHandoff.routeName,
+            params: { orderId: createdOrderHandoff.order.publicId },
+          }"
+        >
+          {{ createdOrderHandoff.routeName === 'order-payment' ? '前往付款' : '查看訂單' }}
+        </RouterLink>
+      </template>
     </section>
 
     <div
