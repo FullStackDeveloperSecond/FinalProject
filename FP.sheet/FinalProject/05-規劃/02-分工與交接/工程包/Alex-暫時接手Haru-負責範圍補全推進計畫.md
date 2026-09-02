@@ -1,7 +1,7 @@
 ---
 文件狀態: WP-H01～WP-H05 已完成
 最後更新: 2026-09-02
-基準分支: dev@a565627c
+基準分支: dev@16091fcf
 執行分支: codex/wp-a04-core-transaction-e2e-20260902
 原負責人: haru
 暫時接手: alex
@@ -119,7 +119,7 @@ PR #72 原本混合 `M-01`、`M-02`、`M-08`、`S-01`，且 base 落後、最新
 | 2026-09-01 | 共用 DB 啟動副作用 | 已停止並裁定保留 | OpenAPI check 啟動 API 時誤連 `DoSelectDb`，觸發 7 天未驗證會員清理；155 筆於 `2026-09-01 05:09:46.221 UTC` 匿名化。API 已立即停止；msdb 無 DoSelectDb backup；使用者採用選項 1，接受既有保留規則結果，不復原 |
 | 2026-09-02 | WP-H02／WP-H03 | 完成／已進 `dev` | WP-H02 會員 Session／管理員 TOTP Browser E2E 由 PR #80 合併；WP-H03 Guest 查單、跨單隔離、取消與 SQL 零副作用由 PR #83 合併。兩包皆使用專屬 `DoSelectE2E_<GUID>`。 |
 | 2026-09-02 | WP-H04 | 完成／已進 `dev` | C-14 Checkout 與 C-15 付款續接由 PR #91 合併；只消費正式 Orders／Shipping／Payment／Policy／Guest 契約。 |
-| 2026-09-02 | WP-H05 | 完成／以 PR #94 進 `dev` | 固定 Guest Cart 完成組裝商品、優惠、宅配、信用卡、訂單 replay、Guest 驗證、模擬付款與發票 Browser 旅程；另有 SQL Server replay／最後庫存競爭證據。依 DEC-P356 只允許隔離 E2E 顯式啟用模擬端點，未操作共用 `DoSelectDb`。code-bearing head `5696903b` 的 GitHub run `33605007211` 全綠，依 final review 與 squash merge 收尾。 |
+| 2026-09-02 | WP-H05 | 完成／以 PR #94 進 `dev` | 固定 Guest Cart 完成組裝商品、優惠、宅配、信用卡、訂單 replay、Guest 驗證、模擬付款與發票 Browser 旅程；另有 SQL Server replay／最後庫存競爭證據。依 DEC-P356 只允許隔離 E2E 顯式啟用模擬端點，未操作共用 `DoSelectDb`。PR #94 已 rebase `dev@16091fcf` 並整合 PR #88 的 Checkout 導頁失敗復原，依 exact-head CI、final review 與 squash merge 收尾。 |
 
 ### 8.1 共用 DB 事故後續約束
 
