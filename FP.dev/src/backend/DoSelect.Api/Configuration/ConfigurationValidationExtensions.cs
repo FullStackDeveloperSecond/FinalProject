@@ -439,11 +439,15 @@ internal sealed class DemoOptionsValidator : IValidateOptions<DemoOptions>
 
     public ValidateOptionsResult Validate(string? name, DemoOptions options)
     {
+        // alex 裁定：E2E 環境需要真的打到模擬付款端點才能證明 Outbox 會寫入 Invoice 請求，
+        // 所以旗標的允許名單從單純的 Demo 放寬到 Demo 或 E2E，其餘環境（含 Development、
+        // Staging、Production）維持原本「打開就拒絕啟動」的行為不變。
         if (options.SimulationEndpointsEnabled &&
-            !_environment.IsEnvironment("Demo"))
+            !_environment.IsEnvironment("Demo") &&
+            !_environment.IsEnvironment("E2E"))
         {
             return ValidateOptionsResult.Fail(
-                "Configuration key 'Demo:SimulationEndpointsEnabled' may only be true in the Demo environment.");
+                "Configuration key 'Demo:SimulationEndpointsEnabled' may only be true in the Demo or E2E environment.");
         }
 
         return ValidateOptionsResult.Success;

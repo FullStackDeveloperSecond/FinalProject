@@ -147,6 +147,58 @@ public sealed class SimulatedPaymentDemoGateTests
         });
     }
 
+    [Fact]
+    public async Task TurningTheFlagOnInProductionFailsFastAtStartup()
+    {
+        // Development 只是其中一個「不是 Demo 也不是 E2E」的環境；Production 這條線最不能出錯，
+        // 所以獨立驗證一次，不只靠 Development 那條間接涵蓋。
+        await Assert.ThrowsAnyAsync<OptionsValidationException>(async () =>
+        {
+            await using var harness = await Harness.StartAsync(
+                ConnectionString, simulationEnabled: true, environment: "Production");
+        });
+    }
+
+    [Fact]
+    public async Task TheE2EProfileCompletesThePaymentAndPaysTheOrder()
+    {
+        // alex 裁定：DemoOptionsValidator 放寬到同時允許 Demo 或 E2E 環境打開這個旗標 ——
+        // WP-H05 的付款→Invoice Outbox 瀏覽器 E2E 需要真的打到這支端點，而所有 Playwright
+        // E2E 基礎設施都跑在 ASPNETCORE_ENVIRONMENT=E2E 下，不是 Demo。
+        await using var harness = await Harness.StartAsync(
+            ConnectionString, simulationEnabled: true, environment: "E2E");
+        var seeded = await harness.SeedPaymentAsync();
+        var client = await harness.CreateMemberClientAsync(seeded.MemberUserId!);
+
+        using var response = await harness.CompleteAsync(client, seeded.AttemptPublicId);
+
+        await AssertStatusAsync(response, HttpStatusCode.OK, harness);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("paid", body.GetProperty("status").GetString());
+
+        var order = await harness.ReloadOrderAsync(seeded.AttemptPublicId);
+        Assert.Equal(PaymentStatus.Paid, order.PaymentStatus);
+        Assert.Equal(order.GrandTotal, order.PaidAmount);
+    }
+
+    [Fact]
+    public async Task TheSameRequestIsNotAvailableInTheE2EProfileWhenTheFlagIsOff()
+    {
+        // 放寬允許名單不能連帶放寬旗標本身的語意 —— E2E 環境沒開旗標時，這支端點還是要 404。
+        await using var harness = await Harness.StartAsync(
+            ConnectionString, simulationEnabled: false, environment: "E2E");
+        var seeded = await harness.SeedPaymentAsync();
+        var client = await harness.CreateMemberClientAsync(seeded.MemberUserId!);
+
+        using var response = await harness.CompleteAsync(client, seeded.AttemptPublicId);
+
+        await AssertStatusAsync(response, HttpStatusCode.NotFound, harness);
+
+        var order = await harness.ReloadOrderAsync(seeded.AttemptPublicId);
+        Assert.Equal(PaymentStatus.AwaitingPayment, order.PaymentStatus);
+        Assert.Equal(0m, order.PaidAmount);
+    }
+
     /// <summary>比對狀態碼，失敗時把回應內容一起帶出來。</summary>
     /// <remarks>
     /// 光看「Expected OK, Actual InternalServerError」查不出原因，
