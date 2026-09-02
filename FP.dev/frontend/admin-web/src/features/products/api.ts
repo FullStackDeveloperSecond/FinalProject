@@ -1,5 +1,13 @@
 import { apiClient } from '../../api/client'
-import type { AdminProductDetailDto, CreateProductRequest, UpdateProductRequest } from './types'
+import type {
+  AdminProductDetailDto,
+  AdminProductExportFormat,
+  BulkProductAction,
+  BulkProductActionRequest,
+  BulkProductActionResultDto,
+  CreateProductRequest,
+  UpdateProductRequest,
+} from './types'
 
 export interface AdminProductListParams {
   q?: string
@@ -53,4 +61,49 @@ export async function updateProduct(
     body: request,
   })
   return data!
+}
+
+/**
+ * UC-ADM-PROD-02 批次上架／下架／調價。後端是整批單一交易——不會有「一半成功」的回應要處理，
+ * 所以這裡沒有逐筆結果，只有受影響的數量。
+ */
+export async function applyBulkProductAction(
+  action: BulkProductAction,
+  request: BulkProductActionRequest,
+): Promise<BulkProductActionResultDto> {
+  const { data, error } = await apiClient.POST('/api/v1/admin/products/actions/{bulkAction}', {
+    params: { path: { bulkAction: action } },
+    body: request,
+  })
+  if (error) throw error
+  return data!
+}
+
+/**
+ * A-04 匯出。Query 與列表完全相同（「匯出沿用目前 Filter」），刻意不帶分頁——匯出的是整組符合
+ * 條件的商品，不是目前這一頁。
+ */
+export async function exportAdminProducts(
+  params: AdminProductListParams,
+  format: AdminProductExportFormat = 'csv',
+): Promise<Blob> {
+  const { data, error } = await apiClient.GET('/api/v1/admin/products/export', {
+    params: {
+      query: {
+        Q: params.q || undefined,
+        BrandCodes: params.brandCodes,
+        CategoryCodes: params.categoryCodes,
+        Statuses: params.statuses,
+        StockState: params.stockState || undefined,
+        Sort: params.sort || undefined,
+        Format: format,
+      },
+    },
+    parseAs: 'blob',
+  })
+  if (error) throw error
+  if (!(data instanceof Blob)) {
+    throw new Error('The product export response was not a file.')
+  }
+  return data
 }

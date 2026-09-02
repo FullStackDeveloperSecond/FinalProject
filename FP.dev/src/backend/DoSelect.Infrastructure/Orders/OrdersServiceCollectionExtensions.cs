@@ -10,6 +10,7 @@ public static class OrdersServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
 
         services.AddScoped<IOrderService, EfOrderService>();
+        services.AddScoped<IOrderTimeoutCancellationService, EfOrderTimeoutCancellationService>();
 
         return services;
     }

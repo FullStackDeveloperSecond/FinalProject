@@ -277,53 +277,6 @@ public sealed class EfInventoryReservationServiceTests
         Assert.Equal(0, balance.ReservedQuantity);
     }
 
-    /// <summary>
-    /// Regression test: two concurrent sweeps racing over the same overdue reservations used to
-    /// have one of them fail its whole batch SaveChanges on a RowVersion conflict and abort
-    /// entirely, instead of skipping whatever the other sweep already claimed and continuing
-    /// (組長 PR #36 round-4 review, item 5 — "已處理者略過、可安全並行").
-    /// </summary>
-    [Fact]
-    public async Task ExpireOverdueReservationsAsync_WhenTwoSweepsRunTrulyConcurrently_EachReservationIsReleasedExactlyOnce()
-    {
-        await using var seedContext = InventoryReservationServiceFixture.CreateContext();
-        var skuA = await _fixture.SeedSkuWithBalanceAsync(seedContext, onHandQuantity: 5);
-        var skuB = await _fixture.SeedSkuWithBalanceAsync(seedContext, onHandQuantity: 5);
-        var orderAId = await _fixture.SeedOrderAsync(seedContext);
-        var orderBId = await _fixture.SeedOrderAsync(seedContext);
-        var seedService = new EfInventoryReservationService(seedContext);
-        var now = DateTime.UtcNow;
-        await ReserveWithinTransactionAsync(
-            seedService, seedContext, orderAId, [new ReservationLine(skuA.PublicId, 2)], now.AddMinutes(-1), now.AddMinutes(-16));
-        await ReserveWithinTransactionAsync(
-            seedService, seedContext, orderBId, [new ReservationLine(skuB.PublicId, 2)], now.AddMinutes(-1), now.AddMinutes(-16));
-
-        await using var contextA = InventoryReservationServiceFixture.CreateContext();
-        await using var contextB = InventoryReservationServiceFixture.CreateContext();
-        var sweepA = new EfInventoryReservationService(contextA);
-        var sweepB = new EfInventoryReservationService(contextB);
-
-        var results = await Task.WhenAll(
-            sweepA.ExpireOverdueReservationsAsync(now, CancellationToken.None),
-            sweepB.ExpireOverdueReservationsAsync(now, CancellationToken.None));
-
-        Assert.Equal(2, results.Sum());
-        await using var verifyContext = InventoryReservationServiceFixture.CreateContext();
-        var reservationA = await verifyContext.InventoryReservations.AsNoTracking().SingleAsync(r => r.OrderId == orderAId);
-        var reservationB = await verifyContext.InventoryReservations.AsNoTracking().SingleAsync(r => r.OrderId == orderBId);
-        Assert.Equal(InventoryReservationStatus.Expired, reservationA.Status);
-        Assert.Equal(InventoryReservationStatus.Expired, reservationB.Status);
-        var balanceA = await verifyContext.InventoryBalances.AsNoTracking().SingleAsync(b => b.SkuId == skuA.Id);
-        var balanceB = await verifyContext.InventoryBalances.AsNoTracking().SingleAsync(b => b.SkuId == skuB.Id);
-        Assert.Equal(0, balanceA.ReservedQuantity);
-        Assert.Equal(0, balanceB.ReservedQuantity);
-        // Exactly one Release movement per SKU — neither sweep double-released the other's reservation.
-        Assert.Equal(1, await verifyContext.InventoryMovements.AsNoTracking()
-            .CountAsync(m => m.SkuId == skuA.Id && m.MovementType == InventoryMovementTypes.Release));
-        Assert.Equal(1, await verifyContext.InventoryMovements.AsNoTracking()
-            .CountAsync(m => m.SkuId == skuB.Id && m.MovementType == InventoryMovementTypes.Release));
-    }
-
     [Fact]
     public async Task ReleaseAsync_WhenActive_RestoresAvailableAndMarksReleased()
     {
@@ -386,36 +339,6 @@ public sealed class EfInventoryReservationServiceTests
         Assert.Equal(InventoryWriteException.ErrorCodes.ValidationFailed, exception.ErrorCode);
         var unchanged = await context.InventoryReservations.AsNoTracking().SingleAsync(r => r.PublicId == reservation.PublicId);
         Assert.Equal(InventoryReservationStatus.Active, unchanged.Status);
-    }
-
-    [Fact]
-    public async Task ExpireOverdueReservationsAsync_ReleasesOnlyOverdueOnes_AndIsIdempotentOnASecondCall()
-    {
-        await using var context = InventoryReservationServiceFixture.CreateContext();
-        var overdueSku = await _fixture.SeedSkuWithBalanceAsync(context, onHandQuantity: 5);
-        var freshSku = await _fixture.SeedSkuWithBalanceAsync(context, onHandQuantity: 5);
-        var overdueOrderId = await _fixture.SeedOrderAsync(context);
-        var freshOrderId = await _fixture.SeedOrderAsync(context);
-        var service = new EfInventoryReservationService(context);
-        var now = DateTime.UtcNow;
-        await ReserveWithinTransactionAsync(
-            service, context, overdueOrderId, [new ReservationLine(overdueSku.PublicId, 2)], now.AddMinutes(-1), now.AddMinutes(-16));
-        await ReserveWithinTransactionAsync(
-            service, context, freshOrderId, [new ReservationLine(freshSku.PublicId, 2)], now.AddMinutes(15), now);
-
-        var firstSweepCount = await service.ExpireOverdueReservationsAsync(now, CancellationToken.None);
-        Assert.Equal(1, firstSweepCount);
-
-        var overdueReservation = await context.InventoryReservations.AsNoTracking().SingleAsync(r => r.OrderId == overdueOrderId);
-        Assert.Equal(InventoryReservationStatus.Expired, overdueReservation.Status);
-        var freshReservation = await context.InventoryReservations.AsNoTracking().SingleAsync(r => r.OrderId == freshOrderId);
-        Assert.Equal(InventoryReservationStatus.Active, freshReservation.Status);
-
-        var secondSweepCount = await service.ExpireOverdueReservationsAsync(now, CancellationToken.None);
-        Assert.Equal(0, secondSweepCount);
-
-        var overdueBalance = await context.InventoryBalances.AsNoTracking().SingleAsync(b => b.SkuId == overdueSku.Id);
-        Assert.Equal(0, overdueBalance.ReservedQuantity);
     }
 
     [Fact]

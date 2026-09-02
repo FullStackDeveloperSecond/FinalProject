@@ -54,13 +54,6 @@ public interface IInventoryReservationService
         long orderId, string reasonCode, DateTime now, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Idempotent sweep for the background timeout job (庫存規則.md 逾時取消): releases every Active
-    /// reservation whose ExpiresAtUtc has passed. Safe to call repeatedly / concurrently — an
-    /// already-released reservation is simply skipped, never double-released.
-    /// </summary>
-    Task<int> ExpireOverdueReservationsAsync(DateTime now, CancellationToken cancellationToken);
-
-    /// <summary>
     /// Manual admin release of one Active reservation (UC-ADM-INV-01). Uses the same domain
     /// operation as the timeout sweep. Throws <see cref="InventoryWriteException"/> with
     /// <see cref="InventoryWriteException.ErrorCodes.ReservationNotActive"/> if it is not

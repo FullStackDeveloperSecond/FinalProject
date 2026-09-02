@@ -1235,6 +1235,10 @@ public sealed class CatalogAdminAuthorizationTests
             { "POST", "/api/v1/admin/specification-definitions" },
             { "PUT", "/api/v1/admin/specification-definitions/00000000-0000-0000-0000-000000000001" },
             { "POST", "/api/v1/admin/specification-definitions/00000000-0000-0000-0000-000000000001/actions/disable" },
+            // UC-ADM-PROD-02 批次動作：沿用同一份矩陣，新端點才不會漏掉匿名／錯角色的覆蓋。
+            { "POST", "/api/v1/admin/products/actions/publish" },
+            { "POST", "/api/v1/admin/products/actions/unpublish" },
+            { "POST", "/api/v1/admin/products/actions/adjust-price" },
         };
     [Theory]
     [InlineData("/api/v1/admin/brands")]
@@ -1242,6 +1246,7 @@ public sealed class CatalogAdminAuthorizationTests
     [InlineData("/api/v1/admin/tags")]
     [InlineData("/api/v1/admin/products")]
     [InlineData("/api/v1/admin/specification-definitions")]
+    [InlineData("/api/v1/admin/products/export")]
     public async Task Anonymous_List_Returns401(string path)
     {
         using var client = _fixture.CreateClient();
@@ -1307,6 +1312,7 @@ public sealed class CatalogAdminAuthorizationTests
     [InlineData("/api/v1/admin/categories")]
     [InlineData("/api/v1/admin/tags")]
     [InlineData("/api/v1/admin/products")]
+    [InlineData("/api/v1/admin/products/export")]
     public async Task SignedInWithoutCatalogManagerRole_List_Returns403(string path)
     {
         using var client = await _fixture.CreateAuthenticatedAdminClientAsync(DoSelectRoles.OrderManager);
@@ -1455,5 +1461,173 @@ public sealed class CatalogAdminAuthorizationTests
         };
 
         return JsonSerializer.Serialize(snapshot);
+    }
+}
+
+
+/// <summary>
+/// UC-ADM-PROD-02 批次動作與 A-04 匯出的 HTTP 接線：路由、模型繫結、byte[] RowVersion 的 base64
+/// 往返，以及 ProblemDetails 狀態碼對應。商業規則本身由
+/// DoSelect.Infrastructure.Tests 的 ProductBulkActionServiceTests 覆蓋（含反向驗證），這一層只證明
+/// 上面那層接得起來。授權矩陣沿用 <see cref="CatalogAdminAuthorizationTests"/> 的同一份清單。
+/// </summary>
+[Collection(nameof(CatalogAdminApiCollection))]
+[Trait("Category", "RequiresSqlServer")]
+public sealed class ProductBulkActionApiTests
+{
+    private readonly CatalogAdminApiFixture _fixture;
+
+    public ProductBulkActionApiTests(CatalogAdminApiFixture fixture) => _fixture = fixture;
+
+    [Fact]
+    public async Task Publish_ReturnsOkAndReportsTheAffectedCount()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientWithIdentityAsync();
+        var (publicId, rowVersion) = await CreateDraftProductAsync(client);
+
+        using var response = await PostBulkAsync(client, "publish", BulkBody(publicId, rowVersion));
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("publish", body.GetProperty("action").GetString());
+        Assert.Equal(1, body.GetProperty("affectedProductCount").GetInt32());
+    }
+
+    [Fact]
+    public async Task Publish_WhenTheActionIsNotWhitelisted_Returns400()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientWithIdentityAsync();
+        var (publicId, rowVersion) = await CreateDraftProductAsync(client);
+
+        using var response = await PostBulkAsync(client, "archive", BulkBody(publicId, rowVersion));
+        var (status, code, _) = await CatalogAdminApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal((int)HttpStatusCode.BadRequest, status);
+        Assert.Equal("validation_failed", code);
+    }
+
+    [Fact]
+    public async Task Publish_WhenTheRowVersionIsStale_Returns409()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientWithIdentityAsync();
+        var (publicId, rowVersion) = await CreateDraftProductAsync(client);
+
+        using var first = await PostBulkAsync(client, "unpublish", BulkBody(publicId, rowVersion));
+        first.EnsureSuccessStatusCode();
+
+        // 同一份 RowVersion 再送一次：第一次已經推進過，第二次必須是 409 而不是安靜成功。
+        using var response = await PostBulkAsync(client, "publish", BulkBody(publicId, rowVersion));
+        var (status, code, _) = await CatalogAdminApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal((int)HttpStatusCode.Conflict, status);
+        Assert.Equal("concurrency_conflict", code);
+    }
+
+    [Fact]
+    public async Task AdjustPrice_WithoutAnAdjustment_Returns400()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientWithIdentityAsync();
+        var (publicId, rowVersion) = await CreateDraftProductAsync(client);
+
+        using var response = await PostBulkAsync(client, "adjust-price", BulkBody(publicId, rowVersion));
+        var (status, code, _) = await CatalogAdminApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal((int)HttpStatusCode.BadRequest, status);
+        Assert.Equal("validation_failed", code);
+    }
+
+    [Fact]
+    public async Task AdjustPrice_AppliesToTheProductSkus()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientWithIdentityAsync();
+        var (publicId, rowVersion) = await CreateDraftProductAsync(client);
+
+        using var response = await PostBulkAsync(client, "adjust-price", new
+        {
+            productPublicIds = new[] { publicId },
+            rowVersions = new[] { new { productPublicId = publicId, rowVersion } },
+            priceAdjustment = new { mode = "percentage", value = -10m, reason = "季末促銷" },
+        });
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(body.GetProperty("affectedSkuCount").GetInt32() >= 1);
+    }
+
+    [Fact]
+    public async Task Export_ReturnsCsvWithAFileName()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientWithIdentityAsync();
+        await CreateDraftProductAsync(client);
+
+        using var response = await client.GetAsync("/api/v1/admin/products/export?format=csv");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("text/csv", response.Content.Headers.ContentType?.MediaType);
+        Assert.Contains(".csv", response.Content.Headers.ContentDisposition?.FileNameStar
+            ?? response.Content.Headers.ContentDisposition?.FileName
+            ?? string.Empty, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Export_WhenTheFormatIsUnsupported_Returns400()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientWithIdentityAsync();
+
+        using var response = await client.GetAsync("/api/v1/admin/products/export?format=pdf");
+        var (status, code, _) = await CatalogAdminApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal((int)HttpStatusCode.BadRequest, status);
+        Assert.Equal("validation_failed", code);
+    }
+
+    /// <summary>
+    /// 匯出走的是列表那份 Filter。這裡用只會命中一筆的關鍵字，證明 Query 真的有被套用——不然
+    /// 「匯出沿用目前 Filter」就只是註解而已。
+    /// </summary>
+    [Fact]
+    public async Task Export_AppliesTheSameQueryAsTheList()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientWithIdentityAsync();
+        var (publicId, _) = await CreateDraftProductAsync(client);
+        using var detail = await client.GetAsync($"/api/v1/admin/products/{publicId}");
+        var productCode = (await detail.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("productCode").GetString()!;
+        var (otherId, _) = await CreateDraftProductAsync(client);
+        using var otherDetail = await client.GetAsync($"/api/v1/admin/products/{otherId}");
+        var otherCode = (await otherDetail.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("productCode").GetString()!;
+
+        using var response = await client.GetAsync($"/api/v1/admin/products/export?format=csv&q={productCode}");
+        var csv = await response.Content.ReadAsStringAsync();
+
+        Assert.Contains(productCode, csv, StringComparison.Ordinal);
+        Assert.DoesNotContain(otherCode, csv, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// 全域防偽 filter 對每個 unsafe request 生效，POST 一律要帶 X-XSRF-TOKEN——沿用
+    /// CatalogAdminApiSeeding 既有的做法，不另建一套。
+    /// </summary>
+    private static Task<HttpResponseMessage> PostBulkAsync(HttpClient client, string action, object body) =>
+        CatalogAdminApiFixture.SendWithAntiforgeryAsync(
+            client,
+            new HttpRequestMessage(HttpMethod.Post, $"/api/v1/admin/products/actions/{action}")
+            {
+                Content = JsonContent.Create(body),
+            });
+
+    private static object BulkBody(Guid publicId, string rowVersion) => new
+    {
+        productPublicIds = new[] { publicId },
+        rowVersions = new[] { new { productPublicId = publicId, rowVersion } },
+    };
+
+    private static async Task<(Guid PublicId, string RowVersion)> CreateDraftProductAsync(HttpClient client)
+    {
+        var productId = await CatalogAdminApiSeeding.CreateProductWithCatalogAsync(client);
+        using var detail = await client.GetAsync($"/api/v1/admin/products/{productId}");
+        var body = await detail.Content.ReadFromJsonAsync<JsonElement>();
+        return (productId, body.GetProperty("rowVersion").GetString()!);
     }
 }

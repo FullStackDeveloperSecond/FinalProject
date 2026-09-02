@@ -85,6 +85,7 @@ builder.Services.AddSingleton<IEmailDispatchQueue>(services => services.GetRequi
 builder.Services.AddHostedService<EmailDispatchBackgroundService>();
 builder.Services.AddHostedService<UnverifiedMemberCleanupBackgroundService>();
 builder.Services.AddHostedService<CompatibilityCheckRunRetentionBackgroundService>();
+builder.Services.AddHostedService<InventoryReservationExpiryBackgroundService>();
 
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSupportInfrastructure();

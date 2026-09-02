@@ -6169,6 +6169,154 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/products/actions/{bulkAction}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    bulkAction: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["BulkProductActionRequest"];
+                    "text/json": components["schemas"]["BulkProductActionRequest"];
+                    "application/*+json": components["schemas"]["BulkProductActionRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["BulkProductActionResultDto"];
+                        "application/json": components["schemas"]["BulkProductActionResultDto"];
+                        "text/json": components["schemas"]["BulkProductActionResultDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/products/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    Q?: string;
+                    BrandCodes?: string[];
+                    CategoryCodes?: string[];
+                    Statuses?: string[];
+                    StockState?: string;
+                    Format?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/products/{productId}/skus": {
         parameters: {
             query?: never;
@@ -9109,6 +9257,30 @@ export interface components {
             /** Format: double */
             grandTotal: number | string;
             currency: string;
+        };
+        BulkPriceAdjustment: {
+            mode: string;
+            /** Format: double */
+            value: number | string;
+            reason: string;
+        };
+        BulkProductActionItem: {
+            /** Format: uuid */
+            productPublicId: string;
+            /** Format: byte */
+            rowVersion: string;
+        };
+        BulkProductActionRequest: {
+            productPublicIds: string[];
+            rowVersions: components["schemas"]["BulkProductActionItem"][];
+            priceAdjustment: null | components["schemas"]["BulkPriceAdjustment"];
+        };
+        BulkProductActionResultDto: {
+            action: string;
+            /** Format: int32 */
+            affectedProductCount: number | string;
+            /** Format: int32 */
+            affectedSkuCount: number | string;
         };
         CancelOrderRequest: {
             reasonCode: string;
