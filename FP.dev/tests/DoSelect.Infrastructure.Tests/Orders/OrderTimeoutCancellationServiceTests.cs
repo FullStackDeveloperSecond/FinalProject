@@ -1,3 +1,8 @@
+using DoSelect.Application.Orders;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using System.Data.Common;
 using DoSelect.Application.Auditing;
 using DoSelect.Domain.Auditing;
 using DoSelect.Domain.Inventory;
@@ -43,10 +48,10 @@ public sealed class OrderTimeoutCancellationServiceTests
             context, order, memberUserId, markExhausted: true);
 
         await using var actContext = OrderServiceFixture.CreateContext();
-        var cancelled = await CreateService(actContext).CancelOverduePendingPaymentOrdersAsync(
-            PastTheDeadline(), batchSize: 100, CancellationToken.None);
+        var sweep = await CreateService(actContext).CancelOverduePendingPaymentOrdersAsync(
+            PastTheDeadline(), batchSize: 100, after: null, CancellationToken.None);
 
-        Assert.Equal(1, cancelled);
+        Assert.Equal(1, sweep.Cancelled);
 
         await using var verify = OrderServiceFixture.CreateContext();
         Assert.Equal(OrderStatus.Cancelled, await StatusOf(verify, order.PublicId));
@@ -87,10 +92,10 @@ public sealed class OrderTimeoutCancellationServiceTests
             context, memberUserId, provider.Id, OrderStatus.PendingPayment);
 
         await using var actContext = OrderServiceFixture.CreateContext();
-        var cancelled = await CreateService(actContext).CancelOverduePendingPaymentOrdersAsync(
-            DateTime.UtcNow, batchSize: 100, CancellationToken.None);
+        var sweep = await CreateService(actContext).CancelOverduePendingPaymentOrdersAsync(
+            DateTime.UtcNow, batchSize: 100, after: null, CancellationToken.None);
 
-        Assert.Equal(0, cancelled);
+        Assert.Equal(0, sweep.Cancelled);
         await using var verify = OrderServiceFixture.CreateContext();
         Assert.Equal(OrderStatus.PendingPayment, await StatusOf(verify, order.PublicId));
     }
@@ -114,10 +119,10 @@ public sealed class OrderTimeoutCancellationServiceTests
         var (_, reservation) = await OrderServiceFixture.SeedInventoryReservationAsync(context, order);
 
         await using var actContext = OrderServiceFixture.CreateContext();
-        var cancelled = await CreateService(actContext).CancelOverduePendingPaymentOrdersAsync(
-            PastTheDeadline(), batchSize: 100, CancellationToken.None);
+        var sweep = await CreateService(actContext).CancelOverduePendingPaymentOrdersAsync(
+            PastTheDeadline(), batchSize: 100, after: null, CancellationToken.None);
 
-        Assert.Equal(0, cancelled);
+        Assert.Equal(0, sweep.Cancelled);
 
         await using var verify = OrderServiceFixture.CreateContext();
         Assert.Equal(OrderStatus.Confirmed, await StatusOf(verify, order.PublicId));
@@ -143,10 +148,10 @@ public sealed class OrderTimeoutCancellationServiceTests
             $"UPDATE [Orders] SET [PaymentDueAtUtc] = NULL WHERE [Id] = {order.Id}");
 
         await using var actContext = OrderServiceFixture.CreateContext();
-        var cancelled = await CreateService(actContext).CancelOverduePendingPaymentOrdersAsync(
-            PastTheDeadline(), batchSize: 100, CancellationToken.None);
+        var sweep = await CreateService(actContext).CancelOverduePendingPaymentOrdersAsync(
+            PastTheDeadline(), batchSize: 100, after: null, CancellationToken.None);
 
-        Assert.Equal(0, cancelled);
+        Assert.Equal(0, sweep.Cancelled);
         await using var verify = OrderServiceFixture.CreateContext();
         Assert.Equal(OrderStatus.PendingPayment, await StatusOf(verify, order.PublicId));
     }
@@ -183,7 +188,7 @@ public sealed class OrderTimeoutCancellationServiceTests
         Assert.Equal(OrderStatus.PendingPayment, paymentOrder.OrderStatus);
 
         var sweep = CreateService(sweepContext).CancelOverduePendingPaymentOrdersAsync(
-            PastTheDeadline(), batchSize: 100, CancellationToken.None);
+            PastTheDeadline(), batchSize: 100, after: null, CancellationToken.None);
         var payment = ConfirmLikeThePaymentWriterAsync(paymentContext, paymentOrder);
 
         await Task.WhenAll(sweep, payment);
@@ -229,13 +234,16 @@ public sealed class OrderTimeoutCancellationServiceTests
 
         var now = PastTheDeadline();
         var rounds = new List<int>();
+        OrderTimeoutCursor? cursor = null;
         int cancelledThisRound;
         do
         {
             await using var roundContext = OrderServiceFixture.CreateContext();
-            cancelledThisRound = await CreateService(roundContext).CancelOverduePendingPaymentOrdersAsync(
-                now, batchSize: 2, CancellationToken.None);
-            rounds.Add(cancelledThisRound);
+            var round = await CreateService(roundContext).CancelOverduePendingPaymentOrdersAsync(
+                now, batchSize: 2, cursor, CancellationToken.None);
+            cursor = round.NextCursor;
+            cancelledThisRound = round.Cancelled;
+            rounds.Add(round.Examined);
         }
         while (cancelledThisRound == 2 && rounds.Count < 10);
 
@@ -285,10 +293,10 @@ public sealed class OrderTimeoutCancellationServiceTests
             await OrderServiceFixture.SeedInventoryReservationAsync(context, healthy);
 
         await using var actContext = OrderServiceFixture.CreateContext();
-        var cancelled = await CreateService(actContext).CancelOverduePendingPaymentOrdersAsync(
-            PastTheDeadline(), batchSize: 100, CancellationToken.None);
+        var sweep = await CreateService(actContext).CancelOverduePendingPaymentOrdersAsync(
+            PastTheDeadline(), batchSize: 100, after: null, CancellationToken.None);
 
-        Assert.Equal(1, cancelled);
+        Assert.Equal(1, sweep.Cancelled);
 
         await using var verify = OrderServiceFixture.CreateContext();
 
@@ -306,11 +314,15 @@ public sealed class OrderTimeoutCancellationServiceTests
     }
 
     /// <summary>
-    /// 查詢與處理之間狀態變了（付款成功、人工取消）就跳過這一筆。因為現在是每筆重新載入 tracked
-    /// Order，這個檢查用的是「重新讀到的狀態」而不是批次查詢當下的快照。
+    /// 組長 PR #85 round-3 review：上一版這支測試在呼叫服務「之前」就把訂單改成 Confirmed，於是
+    /// 第一段 ID 查詢根本查不到它——拿掉逐筆重新載入的新鮮度檢查照樣是綠的，等於什麼都沒保護到。
+    ///
+    /// 改用 interceptor 當接縫：ID 查詢跑完的那一刻，由另一個 DbContext 把訂單推進 Confirmed。
+    /// 這樣服務手上拿到的是一個「查詢時還是 PendingPayment、重新載入時已經不是」的 ID，正是這個
+    /// 檢查存在的理由。
     /// </summary>
     [Fact]
-    public async Task SkipsAnOrderThatLeftPendingPaymentBetweenTheQueryAndTheReload()
+    public async Task WhenAnOrderLeavesPendingPaymentBetweenTheQueryAndTheReload_ItIsSkipped()
     {
         await using var context = OrderServiceFixture.CreateContext();
         await NeutraliseExistingDeadlinesAsync(context);
@@ -320,26 +332,109 @@ public sealed class OrderTimeoutCancellationServiceTests
             context, memberUserId, provider.Id, OrderStatus.PendingPayment);
         var (_, reservation) = await OrderServiceFixture.SeedInventoryReservationAsync(context, order);
 
-        await using var actContext = OrderServiceFixture.CreateContext();
-        var service = CreateService(actContext);
-
-        // 在掃描開始前把它推進 Confirmed——批次查詢會查不到它，重新載入時也不再是 PendingPayment。
-        await using (var other = OrderServiceFixture.CreateContext())
+        // ID 查詢是這個服務對 Orders 下的第一道 SELECT；攔到它之後才動手改狀態。
+        var interceptor = new RunAfterFirstOrderQueryInterceptor(async () =>
         {
+            await using var other = OrderServiceFixture.CreateContext();
             var concurrent = await other.Orders.SingleAsync(candidate => candidate.Id == order.Id);
             concurrent.ChangeOrderStatus(OrderStatus.Confirmed, DateTime.UtcNow);
             await other.SaveChangesAsync();
-        }
+        });
 
-        var cancelled = await service.CancelOverduePendingPaymentOrdersAsync(
-            PastTheDeadline(), batchSize: 100, CancellationToken.None);
+        await using var actContext = OrderServiceFixture.CreateContext(interceptor);
+        var sweep = await CreateService(actContext).CancelOverduePendingPaymentOrdersAsync(
+            PastTheDeadline(), batchSize: 100, after: null, CancellationToken.None);
 
-        Assert.Equal(0, cancelled);
+        Assert.True(interceptor.Fired, "the seam never fired; the test proves nothing");
+        Assert.Equal(1, sweep.Examined);
+        Assert.Equal(0, sweep.Cancelled);
+
         await using var verify = OrderServiceFixture.CreateContext();
         Assert.Equal(OrderStatus.Confirmed, await StatusOf(verify, order.PublicId));
         var reloaded = await verify.InventoryReservations.AsNoTracking()
             .SingleAsync(candidate => candidate.Id == reservation.Id);
         Assert.Equal(InventoryReservationStatus.Active, reloaded.Status);
+    }
+
+    /// <summary>
+    /// 組長 PR #85 round-3 review [P2]：最舊的一整批都是庫存不一致的資料時，排在它們後面的健康
+    /// 逾時訂單必須在**同一個排程 cycle** 內被處理掉。先前的實作用「取消數 &lt; BatchSize」判斷
+    /// backlog 已清空，於是一批全壞就整輪提早收工；而那些壞資料每分鐘都會再被撈到最前面，後面的
+    /// 訂單永遠餓死。
+    ///
+    /// 這支測試直接模擬排程 cycle 的迴圈（每批 2 筆、帶游標往後推），並斷言失敗那幾筆有留下帶
+    /// 訂單識別的 Warning——「留給人工處理」要成立，人工得先找得到是哪一筆。
+    /// </summary>
+    [Fact]
+    public async Task AFullBatchOfInconsistentOrdersDoesNotStarveTheHealthyOnesBehindThem()
+    {
+        await using var context = OrderServiceFixture.CreateContext();
+        await NeutraliseExistingDeadlinesAsync(context);
+        var memberUserId = await OrderServiceFixture.SeedMemberUserIdAsync(context);
+        var provider = await OrderServiceFixture.SeedShippingProviderProfileAsync(context);
+
+        // 先種的 Id 較小，在 (PaymentDueAtUtc, Id) 排序下一定排在前面。
+        var broken = new List<Order>();
+        for (var index = 0; index < 2; index++)
+        {
+            var order = await OrderServiceFixture.SeedOrderAsync(
+                context, memberUserId, provider.Id, OrderStatus.PendingPayment);
+            var (balance, _) = await OrderServiceFixture.SeedInventoryReservationAsync(context, order);
+            await context.Database.ExecuteSqlAsync(
+                $"UPDATE [InventoryBalances] SET [ReservedQuantity] = 0 WHERE [Id] = {balance.Id}");
+            broken.Add(order);
+        }
+
+        var healthy = await OrderServiceFixture.SeedOrderAsync(
+            context, memberUserId, provider.Id, OrderStatus.PendingPayment);
+        var (_, healthyReservation) =
+            await OrderServiceFixture.SeedInventoryReservationAsync(context, healthy);
+
+        var logger = new CapturingLogger();
+        var now = PastTheDeadline();
+
+        // 排程 cycle：每批 2 筆，帶著游標往後推，取滿就繼續。
+        OrderTimeoutCursor? cursor = null;
+        var cancelledTotal = 0;
+        var failedTotal = 0;
+        for (var batch = 0; batch < 10; batch++)
+        {
+            await using var roundContext = OrderServiceFixture.CreateContext();
+            var round = await CreateService(roundContext, logger).CancelOverduePendingPaymentOrdersAsync(
+                now, batchSize: 2, cursor, CancellationToken.None);
+            cancelledTotal += round.Cancelled;
+            failedTotal += round.Failed;
+            cursor = round.NextCursor;
+            if (round.Examined < 2)
+            {
+                break;
+            }
+        }
+
+        Assert.Equal(2, failedTotal);
+        Assert.Equal(1, cancelledTotal);
+
+        await using var verify = OrderServiceFixture.CreateContext();
+
+        // 壞掉的兩筆完全沒動。
+        foreach (var order in broken)
+        {
+            Assert.Equal(OrderStatus.PendingPayment, await StatusOf(verify, order.PublicId));
+        }
+
+        // 排在它們後面的健康訂單在同一個 cycle 內被完整處理。
+        Assert.Equal(OrderStatus.Cancelled, await StatusOf(verify, healthy.PublicId));
+        var reloaded = await verify.InventoryReservations.AsNoTracking()
+            .SingleAsync(candidate => candidate.Id == healthyReservation.Id);
+        Assert.Equal(InventoryReservationStatus.Released, reloaded.Status);
+
+        // 失敗的資料留下了找得到它的訊號。
+        var warnings = logger.Entries.Where(entry => entry.Level == LogLevel.Warning).ToArray();
+        Assert.Equal(2, warnings.Length);
+        foreach (var order in broken)
+        {
+            Assert.Contains(warnings, entry => entry.Message.Contains(order.PublicId.ToString(), StringComparison.Ordinal));
+        }
     }
 
     [Fact]
@@ -348,7 +443,7 @@ public sealed class OrderTimeoutCancellationServiceTests
         await using var context = OrderServiceFixture.CreateContext();
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
             CreateService(context).CancelOverduePendingPaymentOrdersAsync(
-                DateTime.UtcNow, batchSize: 0, CancellationToken.None));
+                DateTime.UtcNow, batchSize: 0, after: null, CancellationToken.None));
     }
 
     /// <summary>
@@ -382,12 +477,60 @@ public sealed class OrderTimeoutCancellationServiceTests
         await context.Database.ExecuteSqlRawAsync(
             "UPDATE [Orders] SET [PaymentDueAtUtc] = DATEADD(year, 1, GETUTCDATE())");
 
-    private static EfOrderTimeoutCancellationService CreateService(DoSelectDbContext context) =>
-        new(context, new EfAuditWriter(context, TimeProvider.System));
+    private static EfOrderTimeoutCancellationService CreateService(
+        DoSelectDbContext context,
+        ILogger<EfOrderTimeoutCancellationService>? logger = null) =>
+        new(context, new EfAuditWriter(context, TimeProvider.System),
+            logger ?? NullLogger<EfOrderTimeoutCancellationService>.Instance);
 
     private static async Task<OrderStatus> StatusOf(DoSelectDbContext context, Guid publicId) =>
         await context.Orders.AsNoTracking()
             .Where(order => order.PublicId == publicId)
             .Select(order => order.OrderStatus)
             .SingleAsync();
+
+    /// <summary>
+    /// 在 Orders 的第一道 SELECT 讀取完成之後執行一次外部動作——服務的 ID 查詢與逐筆重新載入之間
+    /// 的接縫。<see cref="Fired"/> 讓測試能確認接縫真的觸發過，而不是無聲地沒發生。
+    /// </summary>
+    private sealed class RunAfterFirstOrderQueryInterceptor(Func<Task> action) : DbCommandInterceptor
+    {
+        private int _fired;
+
+        public bool Fired => _fired > 0;
+
+        public override async ValueTask<DbDataReader> ReaderExecutedAsync(
+            DbCommand command,
+            CommandExecutedEventData eventData,
+            DbDataReader result,
+            CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.Contains("[Orders]", StringComparison.Ordinal) &&
+                Interlocked.Exchange(ref _fired, 1) == 0)
+            {
+                await action();
+            }
+
+            return result;
+        }
+    }
+
+    private sealed record LogEntry(LogLevel Level, string Message);
+
+    private sealed class CapturingLogger : ILogger<EfOrderTimeoutCancellationService>
+    {
+        public List<LogEntry> Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter) =>
+            Entries.Add(new LogEntry(logLevel, formatter(state, exception)));
+    }
 }

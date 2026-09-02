@@ -8,6 +8,7 @@ using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace DoSelect.Infrastructure.Tests.Orders;
 
@@ -21,13 +22,22 @@ public sealed class OrderServiceFixture : IAsyncLifetime
         await context.Database.EnsureDeletedAsync();
     }
 
-    public static DoSelectDbContext CreateContext()
+    /// <summary>
+    /// interceptor 參數讓測試在「查詢已經跑完、但服務還沒做下一步」的接縫上插手——組長 PR #85
+    /// round-3 review 指出，只在呼叫服務之前改狀態證明不了逐筆重新載入的新鮮度檢查。形狀比照
+    /// CompatibilityCheckServiceFixture.CreateContext。
+    /// </summary>
+    public static DoSelectDbContext CreateContext(params IInterceptor[] interceptors)
     {
-        var options = new DbContextOptionsBuilder<DoSelectDbContext>()
+        var builder = new DbContextOptionsBuilder<DoSelectDbContext>()
             .UseSqlServer(global::DoSelect.Infrastructure.Tests.SqlServerTestConnection.Build(
-                "DoSelectOrderServiceTests"))
-            .Options;
-        return new DoSelectDbContext(options);
+                "DoSelectOrderServiceTests"));
+        if (interceptors.Length > 0)
+        {
+            builder.AddInterceptors(interceptors);
+        }
+
+        return new DoSelectDbContext(builder.Options);
     }
 
     public static async Task<string> SeedMemberUserIdAsync(DoSelectDbContext context)

@@ -52,6 +52,9 @@ public sealed class InventoryReservationExpiryBackgroundService(
             try
             {
                 var cancelledTotal = 0;
+                var failedTotal = 0;
+                OrderTimeoutCursor? cursor = null;
+
                 for (var batch = 0; batch < MaximumBatchesPerCycle && !stoppingToken.IsCancellationRequested; batch++)
                 {
                     // 每一批都用自己的 scope／DbContext：一輪要跑好幾批，共用一個 DbContext 會讓
@@ -60,17 +63,20 @@ public sealed class InventoryReservationExpiryBackgroundService(
                     var cancellationService = scope.ServiceProvider
                         .GetRequiredService<IOrderTimeoutCancellationService>();
 
-                    var cancelled = await cancellationService.CancelOverduePendingPaymentOrdersAsync(
+                    var result = await cancellationService.CancelOverduePendingPaymentOrdersAsync(
                         DateTime.UtcNow,
                         BatchSize,
+                        cursor,
                         stoppingToken);
-                    cancelledTotal += cancelled;
+                    cancelledTotal += result.Cancelled;
+                    failedTotal += result.Failed;
+                    cursor = result.NextCursor;
 
-                    // 這一批沒有取滿，代表符合條件的訂單已經清完——不必再問下一批。
-                    //
-                    // 注意這裡看的是「實際取消筆數」，而輸給付款的訂單不計入，所以整批都輸掉時也會
-                    // 提早收工。那是對的：那些訂單已經不是 PendingPayment，下一輪查詢本來就查不到。
-                    if (cancelled < BatchSize)
+                    // 組長 PR #85 round-3 review [P2]：判斷依據是「這一批檢視了幾筆」，不是「取消了
+                    // 幾筆」。庫存不一致的訂單這一輪修不好，但它們確實佔了一個名額——用取消數判斷
+                    // 會讓一批全是壞資料時整輪提早收工，而那些壞資料每分鐘都會再被撈到最前面，
+                    // 排在後面的健康逾時訂單永遠輪不到。游標則保證下一批一定往後走。
+                    if (result.Examined < BatchSize)
                     {
                         break;
                     }
@@ -81,6 +87,15 @@ public sealed class InventoryReservationExpiryBackgroundService(
                     logger.LogInformation(
                         "Cancelled {CancelledCount} order(s) past their payment deadline and released their reserved resources.",
                         cancelledTotal);
+                }
+
+                if (failedTotal > 0)
+                {
+                    // 每一筆的細節（訂單 PublicId、correlation id）由服務層記在 Warning 裡；
+                    // 這裡只給一輪的總數，讓值班的人一眼看出有沒有累積。
+                    logger.LogWarning(
+                        "{FailedCount} overdue order(s) could not be cancelled because their inventory state is inconsistent; they need manual repair.",
+                        failedTotal);
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
