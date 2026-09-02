@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { EmptyState, ErrorState, HttpStatusPage } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
+import { describeApiError } from '../features/shared/errorMessages'
 import {
   BATCH_SHIPMENT_ACTIONS,
   MAX_BATCH_SHIPMENT_ORDERS,
@@ -27,6 +28,7 @@ const idempotencyKey = ref(crypto.randomUUID())
 
 const { mutateAsync, isPending, isError, error, reset } = useShipBatch()
 const apiError = computed(() => (isApiError(error.value) ? error.value : undefined))
+const submitError = ref<string | null>(null)
 
 const selection = computed(() => batchShipmentSelection.value)
 const canSubmit = computed(() =>
@@ -35,11 +37,21 @@ const canSubmit = computed(() =>
 const actionLabel = computed(() =>
   BATCH_SHIPMENT_ACTIONS.find(option => option.value === shippingAction.value)?.label ?? shippingAction.value)
 
+/**
+ * 已經印過物流單的訂單（履約狀態 Preparing）只能用 markShipped 接續完成，再 createLabel 一次
+ * 一定失敗。與其讓管理員送出去才收到一整批錯誤碼，不如在按鈕旁邊先講。
+ */
+const alreadyPreparedCount = computed(() =>
+  selection.value.filter(candidate => candidate.fulfillmentStatus !== 'Pending').length)
+const warnsAboutPreparedOrders = computed(() =>
+  shippingAction.value === 'createLabel' && alreadyPreparedCount.value > 0)
+
 async function submit(): Promise<void> {
   if (!canSubmit.value) {
     return
   }
 
+  submitError.value = null
   let response: BatchShipmentResultDto
   try {
     response = await mutateAsync({
@@ -51,9 +63,10 @@ async function submit(): Promise<void> {
       idempotencyKey: idempotencyKey.value,
     })
   }
-  catch {
-    // 失敗由 useMutation 的 isError 呈現（下方 ErrorState 提供重試）。這裡必須接住，否則
-    // mutateAsync 的 rejection 會變成未處理的 Promise 錯誤。冪等鍵刻意不換：重試要是同一批。
+  catch (caught) {
+    // 這裡必須接住，否則 mutateAsync 的 rejection 會變成未處理的 Promise 錯誤。
+    // 冪等鍵刻意不換：重試要是同一批，伺服器才認得出這是同一次送出。
+    submitError.value = submitErrorMessage(caught)
     return
   }
 
@@ -63,6 +76,21 @@ async function submit(): Promise<void> {
   // 送出後清掉選取：每一筆訂單的 RowVersion 都已經被這次出貨推進，留著只會讓管理員拿過期的
   // 版本再送一次，然後整批得到 concurrency_conflict。要再出一批就回列表重新勾。
   clearBatchShipmentSelection()
+}
+
+/**
+ * 冪等衝突要講清楚「貨有沒有出」，否則管理員只會一直重按。
+ */
+function submitErrorMessage(caught: unknown): string {
+  const code = isApiError(caught) ? caught.code : undefined
+  switch (code) {
+    case 'idempotency_payload_conflict':
+      return '這批的識別碼已經用在另一份訂單清單上了。請回訂單管理重新勾選，系統會給新的識別碼。'
+    case 'idempotency_request_in_progress':
+      return '同一批出貨還在處理中，或上一次送出沒有完整結束。請稍候再查看訂單狀態；若要補送剩下的訂單，請回列表重新勾選以取得新的識別碼。'
+    default:
+      return isApiError(caught) ? describeApiError(caught) : '送出失敗，請稍後再試。'
+  }
 }
 
 function rowStatusLabel(item: BatchShipmentItemResultDto): string {
@@ -106,6 +134,7 @@ function downloadCsv(): void {
 
 function startOver(): void {
   result.value = null
+  submitError.value = null
   reset()
 }
 </script>
@@ -131,6 +160,13 @@ function startOver(): void {
     <template v-else>
       <template v-if="result">
         <h2>批次結果</h2>
+        <p
+          v-if="result.isReplay"
+          class="batches__replay"
+          role="status"
+        >
+          這是先前那一次送出的結果，沒有任何訂單被重複出貨。
+        </p>
         <p>
           共 {{ result.total }} 筆，成功 {{ result.succeeded }} 筆、失敗 {{ result.failed }} 筆。
         </p>
@@ -238,8 +274,24 @@ function startOver(): void {
             </tbody>
           </table>
 
+          <p
+            v-if="warnsAboutPreparedOrders"
+            class="batches__warning"
+            role="alert"
+          >
+            選取的訂單中有 {{ alreadyPreparedCount }} 筆已經建立過物流單，再建立一次會失敗。
+            請改選「標記已出貨」接續完成。
+          </p>
+
+          <p
+            v-if="submitError"
+            class="batches__warning"
+            role="alert"
+          >
+            {{ submitError }}
+          </p>
           <ErrorState
-            v-if="isError"
+            v-else-if="isError"
             :correlation-id="apiError?.correlationId"
             :trace-id="apiError?.traceId"
             @retry="submit"
@@ -263,3 +315,13 @@ function startOver(): void {
     </template>
   </section>
 </template>
+
+<style scoped>
+.batches__replay {
+  color: #047857;
+}
+
+.batches__warning {
+  color: #b91c1c;
+}
+</style>

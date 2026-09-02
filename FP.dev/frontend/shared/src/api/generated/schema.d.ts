@@ -575,6 +575,15 @@ export interface paths {
                         "application/problem+json": components["schemas"]["ProblemDetails"];
                     };
                 };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
             };
         };
         delete?: never;
@@ -9567,6 +9576,7 @@ export interface components {
             items: components["schemas"]["BatchShipmentItemResultDto"][];
             /** Format: date-time */
             createdAtUtc: string;
+            isReplay: boolean;
         };
         BrandDto: {
             /** Format: uuid */

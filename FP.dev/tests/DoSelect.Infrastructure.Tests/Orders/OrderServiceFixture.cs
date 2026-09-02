@@ -128,7 +128,8 @@ public sealed class OrderServiceFixture : IAsyncLifetime
         DateTime? deliveredAtUtc = null,
         int returnableQuantity = 0,
         int returnedQuantity = 0,
-        string? storeCode = null)
+        string? storeCode = null,
+        IReadOnlyList<(long SkuId, int Quantity)>? items = null)
     {
         var now = DateTime.UtcNow;
         var packageLimitVersionId = await context.PackageLimitVersions
@@ -204,35 +205,94 @@ public sealed class OrderServiceFixture : IAsyncLifetime
             order.ApplyFulfillmentProjection(fulfillmentStatus, deliveredAtUtc ?? now);
         }
 
-        var item = new OrderItem(
-            Guid.CreateVersion7(),
-            order.Id,
-            skuId: null,
-            skuCodeSnapshot: "SKU-TEST",
-            productNameSnapshot: "測試商品",
-            skuNameSnapshot: "測試規格",
-            quantity: 1,
-            listUnitPrice: 1000m,
-            saleUnitPrice: 1000m,
-            finalUnitPrice: 1000m,
-            unitCostSnapshot: 600m,
-            lineSubtotal: 1000m,
-            discountAllocation: 0m,
-            lineTotal: 1000m,
-            assemblyGroupKey: null,
-            returnableQuantity: returnableQuantity,
-            createdAtUtc: now,
-            isCouponEligible: false,
-            specificationSnapshot: new OrderItemSpecificationSnapshot("測試規格", "{}", 1));
-        if (returnedQuantity > 0)
+        var lines = items ?? [(0L, 1)];
+        var first = true;
+        foreach (var (skuId, quantity) in lines)
         {
-            item.RecordReturnedQuantity(returnedQuantity);
+            var item = new OrderItem(
+                Guid.CreateVersion7(),
+                order.Id,
+                skuId: skuId == 0 ? null : skuId,
+                skuCodeSnapshot: "SKU-TEST",
+                productNameSnapshot: "測試商品",
+                skuNameSnapshot: "測試規格",
+                quantity: quantity,
+                listUnitPrice: 1000m,
+                saleUnitPrice: 1000m,
+                finalUnitPrice: 1000m,
+                unitCostSnapshot: 600m,
+                lineSubtotal: 1000m * quantity,
+                discountAllocation: 0m,
+                lineTotal: 1000m * quantity,
+                assemblyGroupKey: null,
+                returnableQuantity: first ? returnableQuantity : 0,
+                createdAtUtc: now,
+                isCouponEligible: false,
+                specificationSnapshot: new OrderItemSpecificationSnapshot("測試規格", "{}", 1));
+            if (first && returnedQuantity > 0)
+            {
+                item.RecordReturnedQuantity(returnedQuantity);
+            }
+
+            context.OrderItems.Add(item);
+            first = false;
         }
 
-        context.OrderItems.Add(item);
         await context.SaveChangesAsync();
 
         return order;
+    }
+
+    /// <summary>
+    /// 一個可保留的 SKU 與它的庫存餘額。批次出貨要驗「Active 保留逐 SKU 覆蓋訂單品項的數量」，
+    /// 所以測試得先有 SkuId 才能建訂單品項，順序與 SeedInventoryReservationAsync 相反。
+    /// </summary>
+    public static async Task<Sku> SeedSkuWithBalanceAsync(
+        DoSelectDbContext context,
+        int onHandQuantity = 5,
+        int reservedQuantity = 0)
+    {
+        var now = DateTime.UtcNow;
+        var suffix = Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
+        var brand = new Brand(Guid.CreateVersion7(), $"BR-{suffix}", "訂單測試品牌", now);
+        var category = new Category(
+            Guid.CreateVersion7(), $"CAT-{suffix}", $"order-test-{suffix.ToLowerInvariant()}",
+            "訂單測試分類", parentCategoryId: null, createdAtUtc: now);
+        context.AddRange(brand, category);
+        await context.SaveChangesAsync();
+
+        var product = new Product(
+            Guid.CreateVersion7(), $"PROD-{suffix}", brand.Id, category.Id, "訂單測試商品", now);
+        context.Products.Add(product);
+        await context.SaveChangesAsync();
+
+        var sku = new Sku(
+            Guid.CreateVersion7(), $"SKU-{suffix}", product.Id, "訂單測試 SKU",
+            listPrice: 1_000m, unitCost: 600m, createdAtUtc: now);
+        context.Skus.Add(sku);
+        await context.SaveChangesAsync();
+
+        var balance = new InventoryBalance(
+            Guid.CreateVersion7(), sku.Id, onHandQuantity: onHandQuantity, reorderLevel: 1, createdAtUtc: now);
+        balance.ApplyQuantities(onHandQuantity, reservedQuantity, now);
+        context.InventoryBalances.Add(balance);
+        await context.SaveChangesAsync();
+        return sku;
+    }
+
+    /// <summary>指定 SKU 的 Active 保留；數量必須與訂單品項對得上，出貨才會通過覆蓋檢查。</summary>
+    public static async Task<InventoryReservation> SeedReservationForSkuAsync(
+        DoSelectDbContext context,
+        Order order,
+        long skuId,
+        int quantity)
+    {
+        var now = DateTime.UtcNow;
+        var reservation = new InventoryReservation(
+            Guid.CreateVersion7(), skuId, order.Id, quantity, now.AddMinutes(15), now);
+        context.InventoryReservations.Add(reservation);
+        await context.SaveChangesAsync();
+        return reservation;
     }
 
     public static async Task<(InventoryBalance Balance, InventoryReservation Reservation)>

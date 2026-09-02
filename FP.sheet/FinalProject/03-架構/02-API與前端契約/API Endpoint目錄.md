@@ -105,7 +105,7 @@
 | UC-ADM-ORDER-01 | `GET /api/v1/admin/orders`；`GET /api/v1/admin/orders/{id}`；`POST /api/v1/admin/orders/{id}/actions/{action}` | OrderManager／相關敏感 Policy | `CursorPage<AdminOrderSummaryDto>`、`AdminOrderDto`、合法命令 | `order_state_conflict`、`order_cancellation_not_allowed`、`concurrency_conflict` |
 | UC-ADM-ORDER-02 | `GET /api/v1/admin/orders/{id}/recipient` | OrderManager／PrivacyAdmin／SuperAdmin，依用途 | `OrderRecipientDto` | `resource_not_found`、`authorization_forbidden` |
 | SH-08 Outbox 人工重送 | `POST /api/v1/admin/outbox-messages/{publicId}/actions/retry` | `Outbox.Retry`（完成 MFA 的 SuperAdmin） | `RetryOutboxMessageRequest{reasonCode}` → `202 RetryOutboxMessageResponse`；只將 Failed 改回 Pending，不重設 AttemptCount、不改 Payload；狀態與中央 Audit 同次提交 | `validation_failed`、`outbox_message_not_found`、`outbox_message_not_retryable`、`concurrency_conflict` |
-| UC-ADM-SHIP-02 | `POST /api/v1/admin/shipments/batches`；`GET /api/v1/admin/shipments/batches/{id}/result.csv` | OrderManager／SuperAdmin | 最多 100 筆 → `BatchShipmentResultDto` | `shipping_batch_limit_exceeded`；逐筆 `shipping_order_not_ready`、`shipping_tracking_duplicate`、`shipping_method_not_allowed` |
+| UC-ADM-SHIP-02 | `POST /api/v1/admin/shipments/batches` | OrderManager／SuperAdmin | 最多 100 筆 → `BatchShipmentResultDto`；逐筆結果與 CSV 由這份同步回應在前端就地產生（PR #93 裁定 A1：不新增 ShipmentBatch 表，故無結果重新下載端點）。`idempotencyKey` 沿用 `IdempotencyRecords`，同鍵同 payload 重播原結果 | `shipping_batch_limit_exceeded`；逐筆 `shipping_order_not_ready`、`shipping_tracking_duplicate`、`shipping_method_not_allowed`、`concurrency_conflict`；整批 `idempotency_payload_conflict`、`idempotency_request_in_progress` |
 
 ## 管理後台退貨、退款、優惠券與模擬發票
 

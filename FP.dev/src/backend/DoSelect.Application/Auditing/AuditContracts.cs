@@ -69,6 +69,12 @@ public static class AuditActions
     /// </summary>
     public const string ShippingPackageLimitCreate = "shipping.package_limit.create";
     public const string ShippingPackageLimitPublish = "shipping.package_limit.publish";
+    /// <summary>
+    /// UC-ADM-SHIP-02 批次出貨（組長 PR #93 裁定 B1）。兩個動作分開記：印單與實際出貨對庫存的
+    /// 影響完全不同，混成一個代碼就查不出「貨到底離開倉庫了沒有」。
+    /// </summary>
+    public const string ShipmentCreateLabel = "shipment.create_label";
+    public const string ShipmentMarkShipped = "shipment.mark_shipped";
     public const string ShippingStoreCreate = "shipping.store.create";
     public const string ShippingStoreUpdate = "shipping.store.update";
     /// UC-IMPORT-01 商品匯入確認 (匯入暫存與庫存調整設計.md step 6): a successful confirm writes the
@@ -513,6 +519,14 @@ internal static class AuditWritePolicy
                 AuditActions.ShippingPackageLimitPublish,
                 AuditResourceTypes.PackageLimitVersion,
                 "providerCode", "version", "status", "supersededVersion"),
+            [AuditActions.ShipmentCreateLabel] = Definition(
+                AuditActions.ShipmentCreateLabel,
+                AuditResourceTypes.Order,
+                "fulfillmentStatus", "shipmentNumber", "trackingNumber"),
+            [AuditActions.ShipmentMarkShipped] = Definition(
+                AuditActions.ShipmentMarkShipped,
+                AuditResourceTypes.Order,
+                "fulfillmentStatus", "shipmentNumber", "trackingNumber"),
             [AuditActions.ShippingStoreCreate] = Definition(
                 AuditActions.ShippingStoreCreate,
                 AuditResourceTypes.ConvenienceStore,

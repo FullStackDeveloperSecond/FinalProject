@@ -2,6 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ApiError } from '@doselect/web-shared/api'
 
 const mockShipBatch = vi.fn()
 
@@ -35,6 +36,7 @@ function result(overrides: Record<string, unknown> = {}) {
     total: 2,
     succeeded: 1,
     failed: 1,
+    isReplay: false,
     createdAtUtc: '2026-09-02T00:00:00Z',
     items: [
       {
@@ -148,6 +150,55 @@ describe('ShipmentBatchesPage', () => {
     await flushPromises()
 
     expect(batchShipmentSelection.value).toHaveLength(0)
+  })
+
+  /**
+   * 伺服器認出這是重送並重播上一次的結果時，畫面必須說出來——否則管理員看到「成功 1 筆」會
+   * 以為剛才那一按又出了一次貨。
+   */
+  it('says the result came from the earlier submission when the server replays it', async () => {
+    setBatchShipmentSelection([candidate(1), candidate(2)])
+    mockShipBatch.mockResolvedValue(result({ isReplay: true }))
+    const wrapper = await mountPage()
+    await flushPromises()
+
+    await wrapper.find('button[type="button"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('沒有任何訂單被重複出貨')
+  })
+
+  /**
+   * 冪等衝突要講清楚下一步。只丟一個泛用錯誤，管理員會一直重按同一個按鈕。
+   */
+  it('explains an idempotency payload conflict instead of showing a generic error', async () => {
+    setBatchShipmentSelection([candidate(1)])
+    mockShipBatch.mockRejectedValue(
+      new ApiError('conflict', { status: 409, code: 'idempotency_payload_conflict' }))
+    const wrapper = await mountPage()
+    await flushPromises()
+
+    await wrapper.find('button[type="button"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('重新勾選')
+  })
+
+  /**
+   * 已經印過物流單的訂單只能用 markShipped 接續。送出去才收到一整批錯誤碼太晚了，按鈕旁邊就要講。
+   */
+  it('warns before submitting createLabel for orders that already have a label', async () => {
+    setBatchShipmentSelection([
+      candidate(1),
+      { ...candidate(2), fulfillmentStatus: 'Preparing' },
+    ])
+    const wrapper = await mountPage()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('已經建立過物流單')
+
+    await wrapper.find('input[type="radio"][value="markShipped"]').setValue()
+    expect(wrapper.text()).not.toContain('已經建立過物流單')
   })
 
   /**

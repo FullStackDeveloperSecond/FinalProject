@@ -792,6 +792,16 @@
                 }
               }
             }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
           }
         }
       }
@@ -15214,7 +15224,8 @@
           "succeeded",
           "failed",
           "items",
-          "createdAtUtc"
+          "createdAtUtc",
+          "isReplay"
         ],
         "type": "object",
         "properties": {
@@ -15255,6 +15266,9 @@
           "createdAtUtc": {
             "type": "string",
             "format": "date-time"
+          },
+          "isReplay": {
+            "type": "boolean"
           }
         }
       },

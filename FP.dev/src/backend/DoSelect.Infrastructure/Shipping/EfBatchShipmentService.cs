@@ -1,8 +1,11 @@
 using DoSelect.Application.Auditing;
 using DoSelect.Application.Common;
+using DoSelect.Application.Idempotency;
 using DoSelect.Application.Inventory;
 using DoSelect.Application.Outbox;
 using DoSelect.Application.Shipping;
+using DoSelect.Domain.Auditing;
+using DoSelect.Domain.Inventory;
 using DoSelect.Domain.Orders;
 using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Catalog;
@@ -18,6 +21,9 @@ namespace DoSelect.Infrastructure.Shipping;
 /// 這個服務刻意**不是**整批一個交易——與匯入、批次調價那些流程正好相反。購物車、訂單、付款與物流.md
 /// 寫得很直接：「每筆訂單獨立驗證、獨立交易及獨立回傳結果」「一筆失敗不回滾其他已成功出貨的訂單」。
 /// 理由是出貨是不可逆的實體動作：已經送出倉庫的貨，不會因為同一份清單裡另一張訂單有問題就回來。
+///
+/// 冪等由 <see cref="BatchShipmentIdempotency"/> 負責，它沿用既有的 IdempotencyRecords 但把交易切成
+/// 三段，好讓逐筆出貨維持各自獨立的交易（組長 PR #93 review item 1 與裁定 A1）。
 /// </summary>
 public sealed class EfBatchShipmentService : IBatchShipmentService
 {
@@ -26,28 +32,35 @@ public sealed class EfBatchShipmentService : IBatchShipmentService
     private readonly DoSelectDbContext _dbContext;
     private readonly IInventoryReservationService _reservationService;
     private readonly IOutboxWriter _outboxWriter;
+    private readonly IAuditWriter _auditWriter;
+    private readonly BatchShipmentIdempotency _idempotency;
     private readonly ILogger<EfBatchShipmentService> _logger;
 
     public EfBatchShipmentService(
         DoSelectDbContext dbContext,
         IInventoryReservationService reservationService,
         IOutboxWriter outboxWriter,
+        IAuditWriter auditWriter,
+        BatchShipmentIdempotency idempotency,
         ILogger<EfBatchShipmentService> logger)
     {
         _dbContext = dbContext;
         _reservationService = reservationService;
         _outboxWriter = outboxWriter;
+        _auditWriter = auditWriter;
+        _idempotency = idempotency;
         _logger = logger;
     }
 
     public async Task<BatchShipmentResultDto> ShipBatchAsync(
         BatchShipmentRequest request,
         string adminUserId,
-        string correlationId,
+        AuditRequestContext auditContext,
         DateTime now,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(auditContext);
 
         var orders = request.Orders ?? [];
 
@@ -83,6 +96,30 @@ public sealed class EfBatchShipmentService : IBatchShipmentService
             throw DomainProblemException.Validation("The batch contains the same order more than once.");
         }
 
+        var actor = await ResolveActorAsync(adminUserId, cancellationToken);
+
+        // 冪等鍵的識別包含操作者、操作與 payload：換一位管理員、換一個動作或換一份清單都是另一次
+        // 作業，只有「同一個人把同一份請求再送一次」才算重送。
+        var idempotencyCommand = IdempotencyCommand.Create(
+            IdempotencyActorScope.ForAdmin(actor.PublicId!.Value),
+            BatchShipmentIdempotency.Operation,
+            request.IdempotencyKey.Trim(),
+            new
+            {
+                ShippingAction = action,
+                Orders = orders.Select(order => new
+                {
+                    order.OrderPublicId,
+                    RowVersion = Convert.ToBase64String(order.RowVersion ?? []),
+                }).ToArray(),
+            });
+
+        var replay = await _idempotency.ClaimAsync(idempotencyCommand, now, cancellationToken);
+        if (replay is not null)
+        {
+            return replay;
+        }
+
         var items = new List<BatchShipmentItemResultDto>(orders.Count);
         for (var index = 0; index < orders.Count; index++)
         {
@@ -91,19 +128,24 @@ public sealed class EfBatchShipmentService : IBatchShipmentService
                 orders[index],
                 action,
                 adminUserId,
-                correlationId,
+                actor,
+                auditContext,
                 now,
                 cancellationToken));
         }
 
         var succeeded = items.Count(item => item.ErrorCode is null);
-        return new BatchShipmentResultDto(
+        var result = new BatchShipmentResultDto(
             Guid.CreateVersion7(),
             items.Count,
             succeeded,
             items.Count - succeeded,
             items,
-            now);
+            now,
+            IsReplay: false);
+
+        await _idempotency.CompleteAsync(idempotencyCommand, result, now, cancellationToken);
+        return result;
     }
 
     /// <summary>
@@ -115,7 +157,8 @@ public sealed class EfBatchShipmentService : IBatchShipmentService
         BatchShipmentOrderInput input,
         string action,
         string adminUserId,
-        string correlationId,
+        AuditActor actor,
+        AuditRequestContext auditContext,
         DateTime now,
         CancellationToken cancellationToken)
     {
@@ -131,7 +174,7 @@ public sealed class EfBatchShipmentService : IBatchShipmentService
                 DomainErrorCodes.ResourceNotFound, "The order was not found.");
         }
 
-        var readiness = await CheckReadinessAsync(order, cancellationToken);
+        var readiness = await CheckReadinessAsync(order, action, cancellationToken);
         if (readiness is not null)
         {
             return Failure(sourceRowNumber, input.OrderPublicId, order.OrderNumber,
@@ -141,40 +184,61 @@ public sealed class EfBatchShipmentService : IBatchShipmentService
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
         try
         {
+            // 組長 PR #93 review item 2：保留必須在**交易內**完整驗過。交易外的 AnyAsync 只知道
+            // 「至少有一筆」，多品項訂單只保留到一半、或 readiness 之後保留被逾時排程收走，都會通過。
+            var reservations = await LoadActiveReservationsAsync(order.Id, cancellationToken);
+            var coverage = await CheckReservationCoverageAsync(order.Id, reservations, cancellationToken);
+            if (coverage is not null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return Failure(sourceRowNumber, input.OrderPublicId, order.OrderNumber,
+                    ShippingErrorCodes.ShippingOrderNotReady, coverage);
+            }
+
             var method = await _dbContext.ShippingMethods
                 .SingleAsync(candidate => candidate.Code == order.ShippingMethodCode, cancellationToken);
             var storeId = await ResolveStoreIdAsync(order, cancellationToken);
 
-            var trackingNumber = GenerateTrackingNumber(order, now);
-            if (await _dbContext.Shipments.AnyAsync(
-                    candidate => candidate.TrackingNumber == trackingNumber, cancellationToken))
+            // createLabel 之後再 markShipped，要接的是同一張物流單（組長 PR #93 review item 3）。
+            // 一張訂單只有一張主要物流單，不能為了推進狀態而再開一張。
+            var shipment = await _dbContext.Shipments
+                .FirstOrDefaultAsync(candidate => candidate.OrderId == order.Id, cancellationToken);
+            var isNewShipment = shipment is null;
+
+            if (shipment is null)
             {
-                await transaction.RollbackAsync(cancellationToken);
-                return Failure(sourceRowNumber, input.OrderPublicId, order.OrderNumber,
-                    ShippingErrorCodes.ShippingTrackingDuplicate,
-                    "The generated tracking number is already in use.");
+                var trackingNumber = GenerateTrackingNumber(order, now);
+                if (await _dbContext.Shipments.AnyAsync(
+                        candidate => candidate.TrackingNumber == trackingNumber, cancellationToken))
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return Failure(sourceRowNumber, input.OrderPublicId, order.OrderNumber,
+                        ShippingErrorCodes.ShippingTrackingDuplicate,
+                        "The generated tracking number is already in use.");
+                }
+
+                shipment = new Shipment(
+                    Guid.CreateVersion7(),
+                    order.Id,
+                    method.Id,
+                    order.ShippingProviderProfileVersionId,
+                    storeId,
+                    GenerateShipmentNumber(order, now),
+                    order.ShippingFee,
+                    now);
+                shipment.SetTrackingNumber(trackingNumber, now);
             }
 
-            var shipment = new Shipment(
-                Guid.CreateVersion7(),
-                order.Id,
-                method.Id,
-                order.ShippingProviderProfileVersionId,
-                storeId,
-                GenerateShipmentNumber(order, now),
-                order.ShippingFee,
-                now);
-            shipment.SetTrackingNumber(trackingNumber, now);
-
             // Shipment 的狀態機（ShippingEntities.cs）只認單步邊 Pending→Preparing→Shipped，所以
-            // markShipped 要真的走完兩步。直接跳到 Shipped 會被實體擋下來，而且那個例外會被下面的
-            // catch 收成一筆 shipping_order_not_ready，看起來像業務拒絕、其實是程式錯誤。
-            FulfillmentStatus[] path = action == BatchShipmentActions.MarkShipped
-                ? [FulfillmentStatus.Preparing, FulfillmentStatus.Shipped]
-                : [FulfillmentStatus.Preparing];
-            var targetStatus = path[^1];
+            // markShipped 要真的走完剩下的每一步。直接跳到 Shipped 會被實體擋下來，而且那個例外會被
+            // 下面的 catch 收成一筆 shipping_order_not_ready，看起來像業務拒絕、其實是程式錯誤。
+            var targetStatus = action == BatchShipmentActions.MarkShipped
+                ? FulfillmentStatus.Shipped
+                : FulfillmentStatus.Preparing;
+            var path = BuildStatusPath(shipment.Status, targetStatus);
 
             var previousStatus = order.FulfillmentStatus;
+            var previousShipmentStatus = shipment.Status;
             foreach (var step in path)
             {
                 shipment.ChangeStatus(step, now);
@@ -188,11 +252,15 @@ public sealed class EfBatchShipmentService : IBatchShipmentService
             // 一旦讓它先把訂單沖出去，之後再設原始值就完全沒有作用了。
             _dbContext.Entry(order).Property(candidate => candidate.RowVersion).OriginalValue = input.RowVersion;
 
-            _dbContext.Shipments.Add(shipment);
+            if (isNewShipment)
+            {
+                _dbContext.Shipments.Add(shipment);
+            }
+
             await _dbContext.SaveChangesAsync(cancellationToken);
 
             // 每一步各留一列，出貨歷程才不會出現實體狀態機根本不允許的 Pending→Shipped。
-            var fromStatus = FulfillmentStatus.Pending;
+            var fromStatus = previousShipmentStatus;
             foreach (var step in path)
             {
                 _dbContext.ShipmentStatusHistories.Add(new ShipmentStatusHistory(
@@ -215,15 +283,54 @@ public sealed class EfBatchShipmentService : IBatchShipmentService
                 reasonCode: "batch_shipment",
                 adminUserId,
                 now,
-                correlationId));
+                auditContext.CorrelationId));
 
             if (action == BatchShipmentActions.MarkShipped)
             {
                 // 「出貨才把 Active Reservation 轉 Consumed，並同時調整 OnHand／Reserved」——
                 // createLabel 只是印單，貨還在倉庫裡，這一步不能提前做。
                 await _reservationService.ConsumeAllForOrderAsync(order.Id, now, cancellationToken);
-                await AddShippedNotificationsAsync(order, correlationId, now, cancellationToken);
+
+                // 消耗完再驗一次：這一批的每一筆保留都要真的變成 Consumed。ConsumeAllForOrderAsync
+                // 查不到 Active 保留時是靜靜返回的，所以少消耗不會自己冒出例外——不驗就等於出了一張
+                // 沒有扣庫存的貨。
+                var unconsumed = reservations
+                    .Count(candidate => candidate.Status != InventoryReservationStatus.Consumed);
+                if (unconsumed > 0)
+                {
+                    // 別人在這筆交易進行中把保留收走了（逾時排程、人工釋放、另一個出貨請求）。這是
+                    // 競態不是缺陷，所以回併發衝突讓管理員重載重送，而不是記一筆 Error 說系統壞了。
+                    await transaction.RollbackAsync(cancellationToken);
+                    return Failure(sourceRowNumber, input.OrderPublicId, order.OrderNumber,
+                        DomainErrorCodes.ConcurrencyConflict,
+                        "The order's inventory reservation changed while shipping. Reload and try again.");
+                }
+
+                await AddShippedNotificationsAsync(order, auditContext.CorrelationId, now, cancellationToken);
             }
+
+            // 組長 PR #93 裁定 B1：每一筆成功的出貨都在自己那筆交易內寫中央 Audit。跟著同一次
+            // SaveChanges 落地，「出了貨卻沒有稽核紀錄」這個狀態就不存在。
+            _auditWriter.Add(AuditWriteRequest.Create(
+                Guid.CreateVersion7(),
+                actor,
+                action == BatchShipmentActions.MarkShipped
+                    ? AuditActions.ShipmentMarkShipped
+                    : AuditActions.ShipmentCreateLabel,
+                AuditResourceTypes.Order,
+                order.PublicId,
+                AuditResult.Success,
+                errorCode: null,
+                [
+                    AuditFieldChange.Code("fulfillmentStatus", previousStatus.ToString(), targetStatus.ToString()),
+                    AuditFieldChange.Code("shipmentNumber", null, shipment.ShipmentNumber),
+                    AuditFieldChange.Code("trackingNumber", null, shipment.TrackingNumber),
+                ],
+                reason: "batch_shipment",
+                auditContext.CorrelationId,
+                auditContext.TraceId,
+                jobPublicId: null,
+                auditContext.RemoteIpAddress));
 
             await _dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
@@ -233,7 +340,7 @@ public sealed class EfBatchShipmentService : IBatchShipmentService
                 order.PublicId,
                 order.OrderNumber,
                 targetStatus.ToString(),
-                trackingNumber,
+                shipment.TrackingNumber,
                 ErrorCode: null,
                 Message: null);
         }
@@ -243,6 +350,16 @@ public sealed class EfBatchShipmentService : IBatchShipmentService
             return Failure(sourceRowNumber, input.OrderPublicId, order.OrderNumber,
                 DomainErrorCodes.ConcurrencyConflict,
                 "The order changed after this list was loaded. Reload and try again.");
+        }
+        catch (InventoryWriteException exception)
+            when (exception.ErrorCode == InventoryWriteException.ErrorCodes.ConcurrencyConflict)
+        {
+            // 保留或庫存餘額在這筆出貨的交易期間被別人動過（逾時釋放排程、人工釋放、另一個出貨
+            // 請求）。這一筆整體回滾，其他訂單不受影響。
+            await transaction.RollbackAsync(cancellationToken);
+            return Failure(sourceRowNumber, input.OrderPublicId, order.OrderNumber,
+                DomainErrorCodes.ConcurrencyConflict,
+                "The order's inventory reservation changed while shipping. Reload and try again.");
         }
         catch (DbUpdateException exception) when (IsShipmentNumberDuplicate(exception))
         {
@@ -262,7 +379,7 @@ public sealed class EfBatchShipmentService : IBatchShipmentService
                 exception,
                 "Batch shipment failed for order {OrderPublicId}. CorrelationId={CorrelationId}",
                 order.PublicId,
-                correlationId);
+                auditContext.CorrelationId);
             return Failure(sourceRowNumber, input.OrderPublicId, order.OrderNumber,
                 ShippingErrorCodes.ShippingOrderNotReady,
                 "The order could not be shipped. Check its payment, assembly and inventory state.");
@@ -270,23 +387,19 @@ public sealed class EfBatchShipmentService : IBatchShipmentService
     }
 
     /// <summary>
-    /// 出貨前的逐筆檢查：「訂單可履約、付款條件已滿足或為合法 COD、組裝工作已可出貨、保留庫存
-    /// 仍為 Active、配送方式有效」。回 null 代表通過。
+    /// 出貨前的逐筆檢查：「訂單可履約、付款條件已滿足或為合法 COD、組裝工作已可出貨、配送方式
+    /// 有效」。保留庫存的完整覆蓋另外在交易內驗（見 <see cref="CheckReservationCoverageAsync"/>），
+    /// 因為那件事在交易外驗完就已經可能不成立了。
     /// </summary>
     private async Task<(string Code, string Message)?> CheckReadinessAsync(
         Order order,
+        string action,
         CancellationToken cancellationToken)
     {
         if (order.OrderStatus is not (OrderStatus.Confirmed or OrderStatus.Processing))
         {
             return (ShippingErrorCodes.ShippingOrderNotReady,
                 $"The order is {order.OrderStatus}; only a confirmed or processing order can ship.");
-        }
-
-        if (order.FulfillmentStatus != FulfillmentStatus.Pending)
-        {
-            return (ShippingErrorCodes.ShippingOrderNotReady,
-                $"The order is already {order.FulfillmentStatus}.");
         }
 
         // 貨到付款在出貨時仍是 Pending，那是合法的；其餘方式必須已付款。
@@ -305,13 +418,40 @@ public sealed class EfBatchShipmentService : IBatchShipmentService
                 $"The order's assembly is {order.AssemblyStatus}.");
         }
 
-        var hasActiveReservation = await _dbContext.InventoryReservations
-            .AnyAsync(candidate => candidate.OrderId == order.Id &&
-                candidate.Status == DoSelect.Domain.Inventory.InventoryReservationStatus.Active, cancellationToken);
-        if (!hasActiveReservation)
+        var existingShipmentStatus = await _dbContext.Shipments.AsNoTracking()
+            .Where(candidate => candidate.OrderId == order.Id)
+            .Select(candidate => (FulfillmentStatus?)candidate.Status)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        // createLabel 是「開單」：訂單必須還沒有物流單，履約狀態還在 Pending。
+        if (action == BatchShipmentActions.CreateLabel)
         {
-            return (ShippingErrorCodes.ShippingOrderNotReady,
-                "The order has no active inventory reservation left to consume.");
+            if (existingShipmentStatus is not null)
+            {
+                return (ShippingErrorCodes.ShippingOrderNotReady,
+                    "The order already has a shipment; use markShipped to complete it.");
+            }
+
+            if (order.FulfillmentStatus != FulfillmentStatus.Pending)
+            {
+                return (ShippingErrorCodes.ShippingOrderNotReady, $"The order is already {order.FulfillmentStatus}.");
+            }
+        }
+        else
+        {
+            // markShipped 有兩個合法入口：還沒開單（一次走完 Pending→Preparing→Shipped），或是
+            // createLabel 已經開好單、停在 Preparing（接著走 Preparing→Shipped）。
+            var isFreshOrder = existingShipmentStatus is null &&
+                order.FulfillmentStatus == FulfillmentStatus.Pending;
+            var isPreparedOrder = existingShipmentStatus == FulfillmentStatus.Preparing &&
+                order.FulfillmentStatus == FulfillmentStatus.Preparing;
+            if (!isFreshOrder && !isPreparedOrder)
+            {
+                return (ShippingErrorCodes.ShippingOrderNotReady,
+                    existingShipmentStatus is null
+                        ? $"The order is already {order.FulfillmentStatus}."
+                        : $"The order's shipment is already {existingShipmentStatus}.");
+            }
         }
 
         var method = await _dbContext.ShippingMethods.AsNoTracking()
@@ -320,11 +460,6 @@ public sealed class EfBatchShipmentService : IBatchShipmentService
         {
             return (ShippingErrorCodes.ShippingMethodNotAllowed,
                 "The order's shipping method is no longer available.");
-        }
-
-        if (await _dbContext.Shipments.AnyAsync(candidate => candidate.OrderId == order.Id, cancellationToken))
-        {
-            return (ShippingErrorCodes.ShippingOrderNotReady, "The order already has a shipment.");
         }
 
         // 超商取貨的門市不見了或已停用，是「這一筆還不能出貨」，不是伺服器出錯。留在
@@ -345,9 +480,72 @@ public sealed class EfBatchShipmentService : IBatchShipmentService
     }
 
     /// <summary>
-    /// 超商取貨要對回門市列。訂單只快照了 StoreCode／StoreName／StoreAddress，沒有品牌代碼，所以
-    /// 以 StoreCode 查；查不到或門市已停用都是這一筆失敗，而不是靜靜出一張沒有門市的貨。
+    /// 交易內以追蹤查詢讀出這張訂單的 Active 保留。追蹤是刻意的：後面 ConsumeAllForOrderAsync 會
+    /// 解析到同一批實體，於是 UPDATE 帶的原始 RowVersion 就是此刻讀到的版本；期間被逾時排程改過的
+    /// 話，寫入會撞併發而讓這一筆整體回滾。
     /// </summary>
+    private async Task<IReadOnlyList<InventoryReservation>> LoadActiveReservationsAsync(
+        long orderId,
+        CancellationToken cancellationToken) =>
+        await _dbContext.InventoryReservations
+            .Where(candidate => candidate.OrderId == orderId &&
+                candidate.Status == InventoryReservationStatus.Active)
+            .ToListAsync(cancellationToken);
+
+    /// <summary>
+    /// 「保留庫存仍為 Active」在多品項訂單上的正確意思是**逐 SKU 覆蓋足量**，不是「至少有一筆」。
+    /// 只保留到一半就出貨，等於出了一批帳面上沒有扣掉的貨。回傳 null 代表覆蓋完整。
+    /// </summary>
+    private async Task<string?> CheckReservationCoverageAsync(
+        long orderId,
+        IReadOnlyList<InventoryReservation> reservations,
+        CancellationToken cancellationToken)
+    {
+        // SkuId 為 null 的品項沒有對應的庫存列（歷史快照），本來就沒有保留可談。
+        var required = await _dbContext.OrderItems.AsNoTracking()
+            .Where(item => item.OrderId == orderId && item.SkuId != null)
+            .GroupBy(item => item.SkuId!.Value)
+            .Select(group => new { SkuId = group.Key, Quantity = group.Sum(item => item.Quantity) })
+            .ToDictionaryAsync(entry => entry.SkuId, entry => entry.Quantity, cancellationToken);
+
+        if (required.Count == 0)
+        {
+            return reservations.Count > 0
+                ? null
+                : "The order has no active inventory reservation left to consume.";
+        }
+
+        var reserved = reservations
+            .GroupBy(reservation => reservation.SkuId)
+            .ToDictionary(group => group.Key, group => group.Sum(reservation => reservation.Quantity));
+
+        foreach (var (skuId, quantity) in required)
+        {
+            if (!reserved.TryGetValue(skuId, out var activeQuantity) || activeQuantity < quantity)
+            {
+                return "The order's active inventory reservations no longer cover every item. Re-check the order's stock and try again.";
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 從物流單目前的狀態走到目標狀態要經過的每一步。Shipment 的狀態機只允許單步邊，所以這裡
+    /// 把邊列出來而不是直接跳。
+    /// </summary>
+    private static FulfillmentStatus[] BuildStatusPath(FulfillmentStatus current, FulfillmentStatus target)
+    {
+        if (current == FulfillmentStatus.Preparing && target == FulfillmentStatus.Shipped)
+        {
+            return [FulfillmentStatus.Shipped];
+        }
+
+        return target == FulfillmentStatus.Shipped
+            ? [FulfillmentStatus.Preparing, FulfillmentStatus.Shipped]
+            : [FulfillmentStatus.Preparing];
+    }
+
     /// <summary>
     /// 訂單只快照了 StoreCode／StoreName／StoreAddress，沒有門市的資料庫 Id，所以出貨時要以
     /// StoreCode 對回門市列。查不到或已停用在 CheckReadinessAsync 就擋掉了，這裡只負責取 Id。
@@ -423,6 +621,40 @@ public sealed class EfBatchShipmentService : IBatchShipmentService
                 now,
                 correlationId));
         }
+    }
+
+    /// <summary>
+    /// 稽核與冪等都要靠這個身分：稽核要 Actor，冪等的 Actor Scope 也是用它算出來的。找不到或角色
+    /// 不足時整批拒絕——這不是逐筆的業務問題，而是這個請求根本不該開始。
+    /// </summary>
+    private async Task<AuditActor> ResolveActorAsync(string adminUserId, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(adminUserId))
+        {
+            throw DomainProblemException.Forbidden("The administrator identity is invalid.");
+        }
+
+        var admin = await _dbContext.Users.AsNoTracking()
+            .Where(user => user.Id == adminUserId &&
+                user.AccountType == DoSelect.Domain.Members.AccountType.Admin)
+            .Select(user => new { user.Id, user.PublicId })
+            .SingleOrDefaultAsync(cancellationToken)
+            ?? throw DomainProblemException.Forbidden("The administrator identity is invalid.");
+
+        var roles = await (
+            from userRole in _dbContext.UserRoles.AsNoTracking()
+            join role in _dbContext.Roles.AsNoTracking() on userRole.RoleId equals role.Id
+            where userRole.UserId == admin.Id && role.Name != null
+            select role.Name!)
+            .Distinct()
+            .ToArrayAsync(cancellationToken);
+        if (!roles.Contains(AuditRoleNames.OrderManager, StringComparer.Ordinal) &&
+            !roles.Contains(AuditRoleNames.SuperAdmin, StringComparer.Ordinal))
+        {
+            throw DomainProblemException.Forbidden("The administrator is not allowed to ship orders.");
+        }
+
+        return AuditActor.Create(AuditActorType.Admin, admin.PublicId, roles);
     }
 
     private static BatchShipmentItemResultDto Failure(

@@ -1,6 +1,8 @@
 using System.ComponentModel.DataAnnotations;
+using System.Diagnostics;
 using System.Security.Claims;
 using DoSelect.Api.Common;
+using DoSelect.Application.Auditing;
 using DoSelect.Api.Security;
 using DoSelect.Application.Shipping;
 using Microsoft.AspNetCore.Authorization;
@@ -26,8 +28,10 @@ public sealed class AdminShipmentsController : ControllerBase
     }
 
     /// <summary>
-    /// 逐筆獨立交易，回傳每一筆的成功或穩定錯誤碼。整個 Request 只有兩種會整批失敗的情況：
-    /// 超過 100 筆（`shipping_batch_limit_exceeded`）與請求本身不合法。
+    /// 逐筆獨立交易，回傳每一筆的成功或穩定錯誤碼。整個 Request 只有幾種會整批失敗的情況：
+    /// 超過 100 筆（`shipping_batch_limit_exceeded`）、請求本身不合法，以及冪等鍵的衝突
+    /// （`idempotency_payload_conflict`、`idempotency_request_in_progress`，由 GlobalExceptionHandler
+    /// 轉成 409）。同一把鍵重送同一份請求會重播上一次的逐筆結果，不會再出一次貨。
     /// </summary>
     [HttpPost("batches")]
     [Authorize(Policy = DoSelectPolicies.ShippingManage)]
@@ -35,6 +39,7 @@ public sealed class AdminShipmentsController : ControllerBase
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest, "application/problem+json")]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized, "application/problem+json")]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden, "application/problem+json")]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict, "application/problem+json")]
     public async Task<ActionResult<BatchShipmentResultDto>> ShipBatch(
         [FromBody] AdminBatchShipmentRequest request,
         CancellationToken cancellationToken)
@@ -47,10 +52,19 @@ public sealed class AdminShipmentsController : ControllerBase
                 request.ShippingAction ?? string.Empty,
                 request.IdempotencyKey ?? string.Empty),
             adminUserId,
-            CorrelationIdMiddleware.GetCorrelationId(HttpContext),
+            BuildAuditContext(),
             _timeProvider.GetUtcNow().UtcDateTime,
             cancellationToken);
         return Ok(result);
+    }
+
+    private AuditRequestContext BuildAuditContext()
+    {
+        var traceId = Activity.Current?.TraceId.ToString() ?? ActivityTraceId.CreateRandom().ToString();
+        return new AuditRequestContext(
+            CorrelationIdMiddleware.GetCorrelationId(HttpContext),
+            traceId,
+            HttpContext.Connection.RemoteIpAddress);
     }
 }
 

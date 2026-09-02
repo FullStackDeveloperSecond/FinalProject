@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using DoSelect.Api.Security;
 using DoSelect.Application.Common;
+using DoSelect.Application.Idempotency;
 using DoSelect.Application.Shipping;
 using Microsoft.AspNetCore.Http;
 
@@ -75,6 +76,63 @@ public sealed class ShippingAdminApiTests
     }
 
     /// <summary>
+    /// 組長 PR #93 review item 1：冪等鍵要在 HTTP 這一層真的生效。同一位管理員用同一把鍵重送
+    /// 同一份請求，拿回的必須是第一次那一份結果（同一個 batchPublicId），而且標記為重播。
+    /// </summary>
+    [Fact]
+    public async Task ShipBatch_ResentWithTheSameKeyAndPayload_ReplaysTheOriginalResult()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync(DoSelectRoles.OrderManager);
+        var body = BatchBody(Guid.CreateVersion7(), idempotencyKey: Guid.NewGuid().ToString("N"));
+
+        using var firstResponse = await ShippingApiFixture.SendWithAntiforgeryAsync(
+            client, new HttpRequestMessage(HttpMethod.Post, "/api/v1/admin/shipments/batches")
+            {
+                Content = JsonContent.Create(body),
+            });
+        firstResponse.EnsureSuccessStatusCode();
+        var first = await firstResponse.Content.ReadFromJsonAsync<BatchShipmentResultDto>();
+        Assert.False(first!.IsReplay);
+
+        using var secondResponse = await ShippingApiFixture.SendWithAntiforgeryAsync(
+            client, new HttpRequestMessage(HttpMethod.Post, "/api/v1/admin/shipments/batches")
+            {
+                Content = JsonContent.Create(body),
+            });
+
+        Assert.Equal(HttpStatusCode.OK, secondResponse.StatusCode);
+        var replay = await secondResponse.Content.ReadFromJsonAsync<BatchShipmentResultDto>();
+        Assert.True(replay!.IsReplay);
+        Assert.Equal(first.BatchPublicId, replay.BatchPublicId);
+        Assert.Equal(first.Items.Single().ErrorCode, replay.Items.Single().ErrorCode);
+    }
+
+    /// <summary>同一把鍵配不同清單是呼叫端搞錯，必須是 409 而不是靜靜出另一批貨。</summary>
+    [Fact]
+    public async Task ShipBatch_ResentWithTheSameKeyButADifferentPayload_ReturnsConflict()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync(DoSelectRoles.OrderManager);
+        var key = Guid.NewGuid().ToString("N");
+
+        using var firstResponse = await ShippingApiFixture.SendWithAntiforgeryAsync(
+            client, new HttpRequestMessage(HttpMethod.Post, "/api/v1/admin/shipments/batches")
+            {
+                Content = JsonContent.Create(BatchBody(Guid.CreateVersion7(), idempotencyKey: key)),
+            });
+        firstResponse.EnsureSuccessStatusCode();
+
+        using var response = await ShippingApiFixture.SendWithAntiforgeryAsync(
+            client, new HttpRequestMessage(HttpMethod.Post, "/api/v1/admin/shipments/batches")
+            {
+                Content = JsonContent.Create(BatchBody(Guid.CreateVersion7(), idempotencyKey: key)),
+            });
+
+        var (status, code, _) = await ShippingApiFixture.ReadProblemAsync(response);
+        Assert.Equal(StatusCodes.Status409Conflict, status);
+        Assert.Equal(IdempotencyErrorCodes.PayloadConflict, code);
+    }
+
+    /// <summary>
     /// 「每筆訂單獨立驗證及獨立回傳結果」在 HTTP 這一層的意思是：整批都失敗也還是 200 加一份
     /// 逐筆結果，管理員才看得到是哪幾列出問題。整個回應變成 4xx 就等於把逐筆結果丟掉了。
     /// </summary>
@@ -102,14 +160,14 @@ public sealed class ShippingAdminApiTests
         Assert.Equal(DomainErrorCodes.ResourceNotFound, row.ErrorCode);
     }
 
-    private static object BatchBody(Guid orderPublicId) => new
+    private static object BatchBody(Guid orderPublicId, string? idempotencyKey = null) => new
     {
         orders = new[]
         {
             new { orderPublicId, rowVersion = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 } },
         },
         shippingAction = BatchShipmentActions.MarkShipped,
-        idempotencyKey = Guid.NewGuid().ToString("N"),
+        idempotencyKey = idempotencyKey ?? Guid.NewGuid().ToString("N"),
     };
 
     [Fact]
