@@ -81,7 +81,13 @@ async function mountCartPage(
 ) {
   const { default: CartPage } = await import('./CartPage.vue')
   const queryClient = options.queryClient ?? new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<div />' } }] })
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/', component: { template: '<div />' } },
+      { path: '/checkout', name: 'checkout', component: { template: '<div>checkout</div>' } },
+    ],
+  })
 
   const pinia = createPinia()
   setActivePinia(pinia)
@@ -125,7 +131,7 @@ function shippingOption(overrides: Record<string, unknown> = {}) {
     freeShippingThreshold: null,
     requiresAddress: true,
     requiresStore: false,
-    allowedPaymentMethods: ['CreditCard'],
+    allowedPaymentMethods: ['creditCard'],
     ...overrides,
   }
 }
@@ -241,6 +247,18 @@ describe('CartPage', () => {
     // a test fixture that happened to agree with the (wrong) component code never caught this;
     // asserting the actual rendered total is what proves the real nested shape renders correctly.
     expect(wrapper.text()).toContain('NT$36,000')
+  })
+
+  it('navigates to the checkout route after the current cart version passes revalidation', async () => {
+    mockGetCart.mockResolvedValue(oneItemCart)
+    mockRevalidateCart.mockResolvedValue(readyValidation())
+
+    const wrapper = await mountCartPage()
+    await vi.waitFor(() => expect(wrapper.find('.cart-page__checkout').attributes('disabled')).toBeUndefined())
+
+    await wrapper.find('.cart-page__checkout').trigger('click')
+
+    await vi.waitFor(() => expect(wrapper.vm.$route.name).toBe('checkout'))
   })
 
   /** PR #29 review round 2: a failed revalidate used to be silently swallowed — no error shown, no way to retry. */

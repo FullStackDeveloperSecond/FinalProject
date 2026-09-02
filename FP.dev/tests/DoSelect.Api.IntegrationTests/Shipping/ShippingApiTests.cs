@@ -41,6 +41,26 @@ public sealed class ShippingApiTests
         response.EnsureSuccessStatusCode();
         var body = await response.Content.ReadFromJsonAsync<ShippingOptionsResponse>();
         Assert.Equal(2, body!.Options.Count);
+        Assert.All(body.Options, option =>
+        {
+            Assert.Equal(
+                ["creditCard", "atm", "convenienceCode", "linePay", "applePay", "googlePay"],
+                option.AllowedPaymentMethods.Take(6));
+            Assert.DoesNotContain("prepaid", option.AllowedPaymentMethods);
+        });
+    }
+
+    [Fact]
+    public async Task GetShippingOptions_WhenCouponCodeExceedsContractMaximum_ReturnsValidationFailed()
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"/api/v1/cart/shipping-options?couponCode={new string('A', 65)}");
+        request.Headers.Add("X-DoSelect-Guest-Cart-Key", ShippingApiFixture.UniqueGuestKey());
+
+        using var response = await _fixture.Client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]
@@ -85,7 +105,9 @@ public sealed class ShippingApiTests
         await context.SaveChangesAsync();
     }
 
-    private sealed record ShippingOptionsResponse(List<object> Options);
+    private sealed record ShippingOptionsResponse(List<ShippingOptionResponse> Options);
+
+    private sealed record ShippingOptionResponse(List<string> AllowedPaymentMethods);
 
     private sealed record ConvenienceStorePageResponse(List<ConvenienceStoreItem> Items);
 

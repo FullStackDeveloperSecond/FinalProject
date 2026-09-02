@@ -28,7 +28,9 @@ public sealed class ShippingController : ControllerBase
     }
 
     [HttpGet("api/v1/cart/shipping-options")]
-    public async Task<ActionResult<ShippingOptionsDto>> GetShippingOptions(CancellationToken cancellationToken)
+    public async Task<ActionResult<ShippingOptionsDto>> GetShippingOptions(
+        [FromQuery, StringLength(64)] string? couponCode,
+        CancellationToken cancellationToken)
     {
         var identity = await CartIdentityResolver.ResolveAsync(HttpContext);
         if (identity is null)
@@ -41,7 +43,10 @@ public sealed class ShippingController : ControllerBase
             return BadRequest(problem);
         }
 
-        var options = await _shippingOptionsService.GetOptionsForCartAsync(identity, cancellationToken);
+        var options = await _shippingOptionsService.GetOptionsForCartAsync(
+            identity,
+            cancellationToken,
+            couponCode);
         return Ok(options);
     }
 

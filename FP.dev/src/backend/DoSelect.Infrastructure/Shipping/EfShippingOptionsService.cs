@@ -1,6 +1,8 @@
 using DoSelect.Application.Shipping;
 using DoSelect.Application.Shopping;
+using DoSelect.Application.Promotions;
 using DoSelect.Domain.Payments;
+using DoSelect.Domain.Promotions;
 using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -11,38 +13,62 @@ public sealed class EfShippingOptionsService : IShippingOptionsService
 {
     private readonly DoSelectDbContext _dbContext;
     private readonly ICartService _cartService;
+    private readonly ApplyCartCouponService _couponService;
 
-    public EfShippingOptionsService(DoSelectDbContext dbContext, ICartService cartService)
+    public EfShippingOptionsService(
+        DoSelectDbContext dbContext,
+        ICartService cartService,
+        ApplyCartCouponService couponService)
     {
         _dbContext = dbContext;
         _cartService = cartService;
+        _couponService = couponService;
     }
 
     public async Task<ShippingOptionsDto> GetOptionsForCartAsync(
         CartIdentity identity,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? couponCode = null)
     {
         var cart = await _cartService.GetCartAsync(identity, cancellationToken);
-        var contents = await CartContentsInspector.InspectAsync(_dbContext, cart, cancellationToken);
-
         var methods = await _dbContext.ShippingMethods
             .AsNoTracking()
             .Where(method => method.IsActive)
             .OrderBy(method => method.SortOrder)
             .ThenBy(method => method.Code)
             .ToListAsync(cancellationToken);
+        var contents = await CartContentsInspector.InspectAsync(_dbContext, cart, cancellationToken);
+
+        CartCouponQuote? couponQuote = null;
+        if (!string.IsNullOrWhiteSpace(couponCode))
+        {
+            var couponRequest = new ApplyCartCouponRequest(couponCode, cart.RowVersion);
+            couponQuote = await _couponService.QuoteAsync(
+                identity,
+                couponRequest,
+                cancellationToken,
+                isAssemblyDeliveryOverride: contents.HasAssemblyItem);
+            cart = couponQuote.Cart;
+        }
 
         var now = DateTime.UtcNow;
         var packageEvaluations = await EvaluatePackageAgainstLimitsAsync(methods, contents, now, cancellationToken);
 
         // Eligible-items subtotal per 購物車、訂單、付款與物流.md's 免運門檻 rule ("使用優惠券折扣後的
-        // 符合資格商品小計判斷,不包含運費及組裝費") — ItemDiscount/CouponDiscount are always 0 today
-        // (coupon integration is yinyin's slice, not wired into Cart yet), so this is currently
-        // just Subtotal, but stays correct once those stop being hardcoded zero.
-        var eligibleSubtotal = cart.Amounts.Subtotal - cart.Amounts.ItemDiscount - cart.Amounts.CouponDiscount;
+        // 免運門檻只使用優惠券計算後的符合資格商品小計，不包含運費與組裝費。
+        // 未提供優惠券時，沿用購物車既有的折扣欄位。
+        var eligibleSubtotal = couponQuote is null
+            ? cart.Amounts.Subtotal - cart.Amounts.ItemDiscount - cart.Amounts.CouponDiscount
+            : couponQuote.Calculation.EligibleSubtotal - couponQuote.Calculation.DiscountAmount;
 
         var options = methods
-            .Select(method => BuildOption(method, cart, eligibleSubtotal, contents, packageEvaluations))
+            .Select(method => BuildOption(
+                method,
+                cart,
+                eligibleSubtotal,
+                couponQuote?.Calculation,
+                contents,
+                packageEvaluations))
             .ToList();
 
         return new ShippingOptionsDto(cart.PublicId, options, now, cart.RowVersion);
@@ -143,24 +169,33 @@ public sealed class EfShippingOptionsService : IShippingOptionsService
         ShippingMethod method,
         CartDto cart,
         decimal eligibleSubtotal,
+        CouponCalculationResult? coupon,
         CartShippingRelevantContents contents,
         IReadOnlyDictionary<string, PackageEvaluation> packageEvaluations)
     {
-        var fee = method.FreeShippingThreshold.HasValue && eligibleSubtotal >= method.FreeShippingThreshold.Value
+        var isAssemblyDelivery = method.Kind == ShippingMethodKinds.HomeDeliveryAssembly;
+        var couponGrantsFreeShipping = coupon?.IsFreeShipping == true && !isAssemblyDelivery ||
+            coupon?.IsAssemblyFreeShipping == true && isAssemblyDelivery;
+        var fee = couponGrantsFreeShipping ||
+            method.FreeShippingThreshold.HasValue && eligibleSubtotal >= method.FreeShippingThreshold.Value
             ? 0m
             : method.BaseFee;
 
-        // 組裝擋超取 (購物車、訂單、付款與物流.md: "組裝電腦、螢幕及任何超過尺寸或重量限制的商品只能
-        // 選擇宅配") takes precedence in the reported reason; otherwise the package-limit
-        // evaluation computed against the effective PackageLimitVersion decides.
-        var isStorePickupBlockedByAssembly = method.Kind == ShippingMethodKinds.StorePickup && contents.HasAssemblyItem;
+        // Checkout requires an exact match between the cart's assembly state and the selected
+        // shipping kind. Apply that same rule here so the options screen never offers a method
+        // that EfCheckoutTransactionGateway will reject at submit time.
+        var isAssemblyMismatch = contents.HasAssemblyItem != isAssemblyDelivery;
         packageEvaluations.TryGetValue(method.Code, out var packageEvaluation);
         var isPackageBlocked = packageEvaluation is { IsAllowed: false };
 
-        var isEligible = method.IsActive && !isStorePickupBlockedByAssembly && !isPackageBlocked;
-        var ineligibleReasonCode = isStorePickupBlockedByAssembly
+        var isEligible = method.IsActive &&
+            !isAssemblyMismatch &&
+            !isPackageBlocked;
+        var ineligibleReasonCode = isAssemblyMismatch
             ? ShippingErrorCodes.ShippingMethodNotAllowed
-            : isPackageBlocked ? packageEvaluation!.ReasonCode : null;
+            : isPackageBlocked
+                ? packageEvaluation!.ReasonCode
+                : null;
 
         var finalPayableAmount = cart.Amounts.TotalEstimate + fee;
         // The COD go/no-go shown here must be the same decision Checkout enforces at order
@@ -174,8 +209,8 @@ public sealed class EfShippingOptionsService : IShippingOptionsService
                 contents.HasPrepaymentRequiredSku),
             finalPayableAmount);
         var allowedPaymentMethods = codRejection is null
-            ? new[] { "prepaid", "cashOnDelivery" }
-            : new[] { "prepaid" };
+            ? PaymentMethodPolicy.PrepaidMethods.Append(PaymentMethod.CashOnDelivery).ToArray()
+            : PaymentMethodPolicy.PrepaidMethods;
 
         return new ShippingOptionDto(
             method.Code,

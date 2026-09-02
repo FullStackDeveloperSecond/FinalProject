@@ -16,7 +16,7 @@ public sealed class CouponConfiguration : IEntityTypeConfiguration<Coupon>
         builder.HasIndex(x => x.Code).IsUnique().HasDatabaseName("UX_Coupons_Code");
         builder.Property(x => x.NameZhTw).HasMaxLength(160).IsRequired();
         builder.HasIndex(x => x.NameZhTw).HasDatabaseName("IX_Coupons_NameZhTw");
-        ConfigureEnum(builder.Property(x => x.DiscountType), 16);
+        ConfigureEnum(builder.Property(x => x.DiscountType), 24);
         Money(builder.Property(x => x.DiscountValue), false);
         Money(builder.Property(x => x.MinimumSpend), false);
         Money(builder.Property(x => x.MaximumDiscount), false);
@@ -77,7 +77,7 @@ public sealed class OrderCouponConfiguration : IEntityTypeConfiguration<OrderCou
         builder.ConfigurePublicEntity("OrderCoupons");
         builder.Property(x => x.CouponCodeSnapshot).HasMaxLength(64).IsRequired();
         builder.Property(x => x.NameSnapshot).HasMaxLength(160).IsRequired();
-        builder.Property(x => x.DiscountType).HasConversion<string>().HasMaxLength(16).IsUnicode(false).IsRequired();
+        builder.Property(x => x.DiscountType).HasConversion<string>().HasMaxLength(24).IsUnicode(false).IsRequired();
         Money(builder.Property(x => x.DiscountValue));
         Money(builder.Property(x => x.MinimumSpendAmount));
         Money(builder.Property(x => x.AppliedAmount), true);

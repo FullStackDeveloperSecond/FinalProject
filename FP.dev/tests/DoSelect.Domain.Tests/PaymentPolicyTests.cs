@@ -30,6 +30,23 @@ public sealed class PaymentPolicyTests
     }
 
     [Fact]
+    public void PrepaidMethods_ListsEveryConcreteNonCashOnDeliveryMethod()
+    {
+        var expected = new[]
+        {
+            PaymentMethod.CreditCard,
+            PaymentMethod.ATM,
+            PaymentMethod.ConvenienceCode,
+            PaymentMethod.LinePay,
+            PaymentMethod.ApplePay,
+            PaymentMethod.GooglePay,
+        };
+
+        Assert.Equal(expected, PaymentMethodPolicy.PrepaidMethods);
+        Assert.DoesNotContain(PaymentMethod.CashOnDelivery, PaymentMethodPolicy.PrepaidMethods);
+    }
+
+    [Fact]
     public void RealtimeMethods_ExpireInFifteenMinutes()
     {
         var expiry = PaymentMethodPolicy.ResolveInstructionExpiry(

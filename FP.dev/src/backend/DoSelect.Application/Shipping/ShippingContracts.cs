@@ -1,5 +1,6 @@
 using DoSelect.Application.Common;
 using DoSelect.Application.Shopping;
+using DoSelect.Domain.Payments;
 
 namespace DoSelect.Application.Shipping;
 
@@ -17,7 +18,7 @@ public sealed record ShippingOptionDto(
     decimal? FreeShippingThreshold,
     bool RequiresAddress,
     bool RequiresStore,
-    IReadOnlyList<string> AllowedPaymentMethods);
+    IReadOnlyList<PaymentMethod> AllowedPaymentMethods);
 
 public sealed record ShippingOptionsDto(
     Guid CartPublicId,
@@ -61,7 +62,8 @@ public interface IShippingOptionsService
 {
     Task<ShippingOptionsDto> GetOptionsForCartAsync(
         CartIdentity identity,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        string? couponCode = null);
 }
 
 public interface IConvenienceStoreQueryService

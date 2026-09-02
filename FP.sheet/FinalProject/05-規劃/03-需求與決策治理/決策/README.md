@@ -1,6 +1,6 @@
 ---
 文件狀態: 持續更新
-最後更新: 2026-09-01
+最後更新: 2026-09-02
 ---
 
 # 決策工作區
@@ -13,6 +13,10 @@
 
 ## 最近完成批次
 
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-045-付款續接Endpoint上游收束定版|DEC-BATCH-045｜付款續接 Endpoint 上游收束定版]]：`DEC-P355`，1 項，已於 2026-09-02 寫回並覆寫 `DEC-P352`；只保留上游 `/payment-attempts/latest`，涵蓋終態恢復、Owner／Guest 授權與 `404` 無 Attempt 語意，移除重複 `/current` 公開契約與實作。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-044-優惠券折扣類型欄位長度修正定版|DEC-BATCH-044｜優惠券折扣類型欄位長度修正定版]]：`DEC-P354`，1 項，已於 2026-09-02 寫回；Coupons／OrderCoupons 的 DiscountType 擴為 `varchar(24)`，以完整保存 `AssemblyFreeShipping`，Migration 只產生與審查、未套用資料庫。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-043-Checkout付款續接與優惠券配送試算定版|DEC-BATCH-043｜Checkout 付款續接與優惠券配送試算定版]]：`DEC-P352～DEC-P353`，2 項，已於 2026-09-02 寫回；其中 DEC-P352 已由 DEC-P355 覆寫，DEC-P353 的 Shipping Options Coupon Quote 與 Checkout 最終重驗維持有效。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-042-Checkout具體付款方式契約定版|DEC-BATCH-042｜Checkout 具體付款方式契約定版]]：`DEC-P351`，1 項，已於 2026-09-02 寫回；Shipping Options 只回傳可直接提交的具體 `PaymentMethod[]`，六種預付固定存在，COD 只由既有後端 Policy 決定是否追加，禁止 `prepaid` 群組別名與前端展開。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-041-Checkout配送查詢責任邊界定版|DEC-BATCH-041｜Checkout 配送查詢責任邊界定版]]：`DEC-P350`，1 項，已於 2026-09-01 寫回；維持只接手 yinyin，不跨入 Terry-owned Shipping／Shopping，C-14／WP-08 等待兩支正式配送查詢與 Provider-backed 證據，禁止前端硬寫或跨 owner 查表。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-040-Checkout政策版本查詢契約定版|DEC-BATCH-040｜Checkout 政策版本查詢契約定版]]：`DEC-P349`，1 項，已於 2026-09-01 寫回；C-14 只從既有 `ICheckoutPolicyProvider` 取得 Terms／Return／Privacy 三個目前版本，不寫死 `1/1/1`，不暴露伺服器 ShippingConstraint。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-039-發票手動開立窄查詢契約定版|DEC-BATCH-039｜發票手動開立窄查詢契約定版]]：`DEC-P348`，1 項，已於 2026-09-01 寫回；`Invoice.Manage` 只取得六個開票必要訂單欄位，不擴大 `Order.Manage`，並以快照 RowVersion 完成手動開立與衝突重查。

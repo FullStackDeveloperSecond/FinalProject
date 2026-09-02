@@ -98,7 +98,7 @@
 | `CreateOrderRequest` | `cartPublicId`、`cartRowVersion`、`buyer:{email,name,phone}`、`shipping:{methodCode,address?:AddressInput,storePublicId?:uuid}`、`paymentMethod:enum`、`invoice:{type:simulated,carrier?:string(64)}`、`acceptPolicyVersions:{terms,return,privacy}` |
 | `AddressInput` | `recipientName:string(1..100)`、`phone:string(6..32)`、`postalCode?:string(1..16)`、`city?:string(1..50)`、`district?:string(1..50)`、`addressLine1?:string(1..300)`、`addressLine2?:string(0..300)`；宅配時地址欄全部必填，超取不得用地址取代 storePublicId；不接受地址簿 Label |
 | `OrderDto` | `publicId`、`orderNumber`、五個狀態、`items:OrderItemDto[]`、收件遮蔽摘要、物流摘要、付款摘要、`amounts`、`paymentDueAtUtc?`、合法 `availableActions:string[]`、各事件時間、`rowVersion` |
-| `ShippingOptionsDto` | `cartPublicId`、`options:{methodCode,name,fee,isEligible,ineligibleReasonCode?,freeShippingThreshold?,requiresAddress,requiresStore,allowedPaymentMethods[]}[]`、`evaluatedAtUtc`、`cartRowVersion` |
+| `ShippingOptionsDto` | `cartPublicId`、`options:{methodCode,name,fee,isEligible,ineligibleReasonCode?,freeShippingThreshold?,requiresAddress,requiresStore,allowedPaymentMethods:PaymentMethod[]}[]`、`evaluatedAtUtc`、`cartRowVersion`；付款陣列固定使用可直接提交的具體 enum：六種預付方式，COD 只在後端資格通過時追加；不得回傳 `prepaid` 群組別名。查詢可帶 `couponCode?:string(1..64)`，提供時回應必須以 Coupon Quote 後符合資格小計與最終應付金額重算免運、運費與 COD |
 | `ConvenienceStoreQuery` | `providerCode?:string(64)`、`city?:string(50)`、`district?:string(50)`、`q?:string(100)`、`pageNumber/pageSize` |
 | `ConvenienceStoreOptionDto` | `publicId`、`providerCode`、`storeCode`、`name`、`city`、`district`、`address`、`isDemoData:true` |
 | `OrderQuery` | `status?:enum[0..10]`、`fromDate/toDate?:YYYY-MM-DD`、`pageNumber/pageSize`；只查目前會員自己的訂單 |
@@ -113,6 +113,8 @@
 |---|---|
 | `CreatePaymentAttemptRequest` | `method:enum`、`orderRowVersion`；金額由後端訂單決定 |
 | `PaymentAttemptDto` | `publicId`、`method`、`status`、`amount`、`currency`、`instruction?:{type,maskedAccount?,code?,expiresAtUtc?}`、`createdAtUtc`、`paidAtUtc?`、`rowVersion` |
+
+`GET /api/v1/orders/{id}/payment-attempts/latest` 與建立／完成付款共用 `PaymentAttemptDto`；回目前 Owner Scope 內最新一筆 Attempt，包含 `paid`／`failed`／`expired`／`cancelled` 等終態。訂單不存在或尚無 Attempt 均為 `404 resource_not_found`，未登入為 `401 authentication_required`；不得以 Null Body 的 `200`、`204` 或跨 Owner 查詢代替。
 | `CompleteSimulatedPaymentRequest` | `outcome:succeeded/failed/cancelled/expired`、`simulationKey:string(8..128)`；展示端點只在 Demo Profile 且 `Demo:SimulationEndpointsEnabled=true` 開放；`simulationKey` 同時作為此命令的唯一重播鍵與不可重複模擬 Provider Event ID，不另使用 `Idempotency-Key` Header；COD 不接受此 Request，必須由 Delivered／PickedUp 收款事件完成 |
 | `CreateReturnRequest` | `items:{orderItemPublicId,quantity,reasonCode,description?:string(0..500)}[1..20]`、`requestReason:string(1..1000)`、`orderRowVersion` |
 | `ReturnRequestDto` | `publicId`、`orderPublicId`、`status`、`items[]`、`attachments[]`、`requestedAtUtc`、審核／收貨／結案時間、`availableActions[]`、`rowVersion` |
