@@ -144,7 +144,10 @@ function createdOrder(status: 'pendingPayment' | 'confirmed' = 'pendingPayment')
   }
 }
 
-async function mountCheckoutPage(options: { authenticated?: boolean } = {}) {
+async function mountCheckoutPage(options: {
+  authenticated?: boolean
+  failNavigationTo?: 'order-detail' | 'order-payment'
+} = {}) {
   const { default: CheckoutPage } = await import('./CheckoutPage.vue')
   const router = createRouter({
     history: createMemoryHistory(),
@@ -157,6 +160,9 @@ async function mountCheckoutPage(options: { authenticated?: boolean } = {}) {
   })
   await router.push('/checkout')
   await router.isReady()
+  if (options.failNavigationTo) {
+    vi.spyOn(router, 'push').mockRejectedValue(new Error('simulated route failure'))
+  }
 
   const pinia = createPinia()
   setActivePinia(pinia)
@@ -306,6 +312,51 @@ describe('CheckoutPage', () => {
     await wrapper.get('.checkout-page__submit').trigger('submit')
 
     await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('order-detail'))
+  })
+
+  it.each([
+    {
+      label: 'prepaid',
+      orderStatus: 'pendingPayment' as const,
+      paymentMethod: 'creditCard',
+      targetRoute: 'order-payment' as const,
+      recoveryHref: '/orders/22222222-2222-4222-8222-222222222222/payment',
+      recoveryLabel: '前往付款',
+    },
+    {
+      label: 'cash on delivery',
+      orderStatus: 'confirmed' as const,
+      paymentMethod: 'cashOnDelivery',
+      targetRoute: 'order-detail' as const,
+      recoveryHref: '/orders/22222222-2222-4222-8222-222222222222',
+      recoveryLabel: '查看訂單',
+    },
+  ])('keeps the created $label order recoverable when navigation fails', async ({
+    orderStatus,
+    paymentMethod,
+    targetRoute,
+    recoveryHref,
+    recoveryLabel,
+  }) => {
+    mockCreateOrder.mockResolvedValue(createdOrder(orderStatus))
+    const { wrapper, router } = await mountCheckoutPage({
+      authenticated: true,
+      failNavigationTo: targetRoute,
+    })
+    await vi.waitFor(() => expect(wrapper.text()).toContain('宅配'))
+    await fillValidHomeDeliveryForm(wrapper)
+    if (paymentMethod === 'cashOnDelivery') {
+      await wrapper.get('input[name="payment-method"][value="cashOnDelivery"]').trigger('change')
+    }
+
+    await wrapper.get('.checkout-page__submit').trigger('submit')
+
+    await vi.waitFor(() => expect(wrapper.text()).toContain('ORD-20260902-0001'))
+    expect(wrapper.text()).toContain('訂單已經建立成功')
+    expect(wrapper.text()).not.toContain('訂單建立失敗')
+    expect(wrapper.get(`a[href="${recoveryHref}"]`).text()).toContain(recoveryLabel)
+    expect(mockCreateOrder).toHaveBeenCalledTimes(1)
+    expect(router.currentRoute.value.name).toBe('checkout')
   })
 
   it('keeps a guest on a success handoff with the order number and verification entry point', async () => {
