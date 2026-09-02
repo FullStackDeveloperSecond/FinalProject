@@ -345,6 +345,27 @@ jobs:
           dotnet run --project src/backend/DoSelect.Api --no-build --no-launch-profile -- --seed-minimal
         working-directory: FP.dev
 
+      - name: Ensure sqlcmd is on PATH
+        # customer.spec.ts's e2e/sqlAssert.ts shells out to `sqlcmd` for direct SQL assertions
+        # against the isolated E2E database — that's the runner host talking to the sqlserver
+        # service container over localhost:1433, not a command run inside the container, so the
+        # container image's own /opt/mssql-tools18/bin/sqlcmd (used by the health-check above)
+        # doesn't help here. Prefer whatever the runner image already ships, and only fall back to
+        # installing mssql-tools18 via apt if neither known path is present.
+        run: |
+          if [ -x /opt/mssql-tools18/bin/sqlcmd ]; then
+            echo "/opt/mssql-tools18/bin" >> "$GITHUB_PATH"
+          elif [ -x /opt/mssql-tools/bin/sqlcmd ]; then
+            echo "/opt/mssql-tools/bin" >> "$GITHUB_PATH"
+          else
+            curl -sSL https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc > /dev/null
+            UBUNTU_VERSION="$(lsb_release -rs)"
+            curl -sSL "https://packages.microsoft.com/config/ubuntu/${UBUNTU_VERSION}/prod.list" | sudo tee /etc/apt/sources.list.d/mssql-release.list
+            sudo apt-get update
+            sudo ACCEPT_EULA=Y apt-get install -y mssql-tools18
+            echo "/opt/mssql-tools18/bin" >> "$GITHUB_PATH"
+          fi
+
       - name: Run browser journeys
         run: npm run test:e2e
         working-directory: FP.dev/frontend/customer-web
