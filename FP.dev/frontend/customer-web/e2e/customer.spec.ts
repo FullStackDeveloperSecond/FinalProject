@@ -1,6 +1,7 @@
 import { createHmac, randomUUID } from 'node:crypto'
 import type { APIRequestContext } from '@playwright/test'
 import { expect, test } from './fixtures.js'
+import { sqlExec, sqlScalar } from './sqlAssert.js'
 
 const guestAccessPepper = 'e2e-guest-order-access-pepper-32-bytes'
 
@@ -119,6 +120,88 @@ async function createGuestOrder(
     `The E2E setup must complete a real guest Checkout. Response: ${createResponseBody}`,
   ).toBe(201)
   return JSON.parse(createResponseBody) as OrderSnapshot
+}
+
+async function attemptGuestCheckout(
+  api: APIRequestContext,
+  skuPublicId: string,
+  quantity: number,
+  email: string,
+  requestToken: string,
+): Promise<{ status: number, body: unknown }> {
+  const guestCartKey = `e2e-guest-cart-${randomUUID()}`
+  const cartHeaders = unsafeHeaders(requestToken, {
+    'X-DoSelect-Guest-Cart-Key': guestCartKey,
+  })
+  const initialCartResponse = await api.get('/api/v1/cart', { headers: cartHeaders })
+  expect(initialCartResponse.ok(), 'The E2E setup must create a real guest cart').toBe(true)
+  const initialCart = await initialCartResponse.json() as CartSnapshot
+
+  const addItemResponse = await api.post('/api/v1/cart/items', {
+    headers: cartHeaders,
+    data: {
+      skuPublicId,
+      quantity,
+      cartRowVersion: initialCart.rowVersion,
+    },
+  })
+  expect(addItemResponse.ok(), 'The seeded SKU must be addable to a real guest cart').toBe(true)
+  const cart = await addItemResponse.json() as CartSnapshot
+
+  const policyResponse = await api.get('/api/v1/checkout/policy-versions')
+  expect(policyResponse.ok(), 'The Checkout policy versions must be available').toBe(true)
+  const policies = await policyResponse.json() as {
+    terms: number
+    return: number
+    privacy: number
+  }
+
+  const createResponse = await api.post('/api/v1/orders', {
+    headers: unsafeHeaders(requestToken, {
+      'X-DoSelect-Guest-Cart-Key': guestCartKey,
+      'Idempotency-Key': `e2e-checkout-${randomUUID()}`,
+    }),
+    data: {
+      cartPublicId: cart.publicId,
+      cartRowVersion: cart.rowVersion,
+      buyer: {
+        email,
+        name: '訪客測試買家',
+        phone: '0912345678',
+      },
+      shipping: {
+        methodCode: 'HomeDelivery',
+        address: {
+          recipientName: '訪客測試買家',
+          phone: '0912345678',
+          postalCode: '100',
+          city: '台北市',
+          district: '中正區',
+          addressLine1: '測試路 1 號',
+          addressLine2: null,
+        },
+        storePublicId: null,
+        deliveryNote: null,
+      },
+      paymentMethod: 'creditCard',
+      couponCode: null,
+      invoice: {
+        type: 'simulated',
+        buyerType: 'personal',
+        carrierType: null,
+        carrierValue: null,
+        companyTaxId: null,
+        companyName: null,
+      },
+      acceptPolicyVersions: {
+        terms: policies.terms,
+        return: policies.return,
+        privacy: policies.privacy,
+      },
+    },
+  })
+  const body = await createResponse.json().catch(() => undefined)
+  return { status: createResponse.status(), body }
 }
 
 function deriveGuestVerificationCode(requestPublicId: string, sendNumber = 1): string {
@@ -448,4 +531,148 @@ test('a guest keeps the checkout payment attempt after reloading the payment pag
   }, order.publicId)
   expect(latest.method).toBe('atm')
   expect(latest.status).toBe('awaitingPayment')
+})
+
+test('exactly one of two concurrent checkouts wins the last unit of stock, and inventory is never oversold', async ({
+  api,
+  seed,
+}) => {
+  // WP-H05：EfCheckoutTransactionGateway.ReserveInventoryAsync 用 UPDLOCK/HOLDLOCK 悲觀鎖擋超賣，
+  // 這裡直接把庫存改成只剩 1 件可用，讓兩個訪客同時搶最後一件，驗證真的只有一邊能贏、輸家收到
+  // inventory_insufficient，且資料庫裡的庫存數字沒有變成負的或被重複扣兩次。
+  // AvailableQuantity 是 SQL 端的計算欄位（OnHandQuantity - ReservedQuantity），不能直接 UPDATE ——
+  // 所以只改 OnHandQuantity，並且要連同既有測試已建立的 ReservedQuantity 一起算，才能讓可用量剛好是 1，
+  // 而不是把它們的保留量憑空歸零。
+  const skuFilter = `SkuId = (SELECT Id FROM Skus WHERE PublicId = '${seed.skuPublicId}')`
+  const originalOnHand = sqlScalar(`SELECT OnHandQuantity FROM InventoryBalances WHERE ${skuFilter}`)
+  const reservedBefore = sqlScalar(`SELECT ReservedQuantity FROM InventoryBalances WHERE ${skuFilter}`)
+  const scarceOnHand = Number(reservedBefore) + 1
+  sqlExec(`UPDATE InventoryBalances SET OnHandQuantity = ${scarceOnHand} WHERE ${skuFilter}`)
+
+  try {
+    const requestToken = await getAntiforgeryToken(api)
+    const emailA = `race-a-${randomUUID()}@example.test`
+    const emailB = `race-b-${randomUUID()}@example.test`
+
+    const [resultA, resultB] = await Promise.all([
+      attemptGuestCheckout(api, seed.skuPublicId, 1, emailA, requestToken),
+      attemptGuestCheckout(api, seed.skuPublicId, 1, emailB, requestToken),
+    ])
+
+    const statuses = [resultA.status, resultB.status].sort((a, b) => a - b)
+    expect(statuses, 'Exactly one concurrent checkout must win the last unit').toEqual([201, 409])
+
+    const loser = resultA.status === 409 ? resultA : resultB
+    expect((loser.body as { code: string }).code).toBe('inventory_insufficient')
+
+    const onHand = sqlScalar(`SELECT OnHandQuantity FROM InventoryBalances WHERE ${skuFilter}`)
+    const reserved = sqlScalar(`SELECT ReservedQuantity FROM InventoryBalances WHERE ${skuFilter}`)
+    const available = sqlScalar(`SELECT AvailableQuantity FROM InventoryBalances WHERE ${skuFilter}`)
+    expect(onHand, 'OnHandQuantity must not change from a reservation').toBe(String(scarceOnHand))
+    expect(reserved, 'Exactly one more reservation must have been made, not two')
+      .toBe(String(Number(reservedBefore) + 1))
+    expect(available, 'The last available unit must not be oversold').toBe('0')
+  } finally {
+    sqlExec(`UPDATE InventoryBalances SET OnHandQuantity = ${originalOnHand} WHERE ${skuFilter}`)
+  }
+})
+
+test('replaying the exact same checkout request returns the original order, and the same key with a different payload is rejected', async ({
+  api,
+  seed,
+}) => {
+  // WP-H05：IIdempotencyExecutor 應該讓「同一把 Idempotency-Key + 同一份 payload」重放時直接拿回
+  // 原本那筆訂單，不會重新跑一次下單邏輯；同一把 key 但 payload 不同則要被拒絕，且資料庫裡
+  // 自始至終只有一筆 Order。
+  const requestToken = await getAntiforgeryToken(api)
+  const email = `idempotency-${randomUUID()}@example.test`
+  const guestCartKey = `e2e-guest-cart-${randomUUID()}`
+  const cartHeaders = unsafeHeaders(requestToken, {
+    'X-DoSelect-Guest-Cart-Key': guestCartKey,
+  })
+
+  const initialCartResponse = await api.get('/api/v1/cart', { headers: cartHeaders })
+  expect(initialCartResponse.ok()).toBe(true)
+  const initialCart = await initialCartResponse.json() as CartSnapshot
+
+  const addItemResponse = await api.post('/api/v1/cart/items', {
+    headers: cartHeaders,
+    data: {
+      skuPublicId: seed.skuPublicId,
+      quantity: 1,
+      cartRowVersion: initialCart.rowVersion,
+    },
+  })
+  expect(addItemResponse.ok()).toBe(true)
+  const cart = await addItemResponse.json() as CartSnapshot
+
+  const policyResponse = await api.get('/api/v1/checkout/policy-versions')
+  expect(policyResponse.ok()).toBe(true)
+  const policies = await policyResponse.json() as { terms: number, return: number, privacy: number }
+
+  const idempotencyKey = `e2e-idempotency-${randomUUID()}`
+  const buildBody = (buyerName: string) => ({
+    cartPublicId: cart.publicId,
+    cartRowVersion: cart.rowVersion,
+    buyer: {
+      email,
+      name: buyerName,
+      phone: '0912345678',
+    },
+    shipping: {
+      methodCode: 'HomeDelivery',
+      address: {
+        recipientName: buyerName,
+        phone: '0912345678',
+        postalCode: '100',
+        city: '台北市',
+        district: '中正區',
+        addressLine1: '測試路 1 號',
+        addressLine2: null,
+      },
+      storePublicId: null,
+      deliveryNote: null,
+    },
+    paymentMethod: 'creditCard',
+    couponCode: null,
+    invoice: {
+      type: 'simulated',
+      buyerType: 'personal',
+      carrierType: null,
+      carrierValue: null,
+      companyTaxId: null,
+      companyName: null,
+    },
+    acceptPolicyVersions: {
+      terms: policies.terms,
+      return: policies.return,
+      privacy: policies.privacy,
+    },
+  })
+
+  const originalBody = buildBody('訪客測試買家')
+  const headers = unsafeHeaders(requestToken, {
+    'X-DoSelect-Guest-Cart-Key': guestCartKey,
+    'Idempotency-Key': idempotencyKey,
+  })
+
+  const firstResponse = await api.post('/api/v1/orders', { headers, data: originalBody })
+  expect(firstResponse.status()).toBe(201)
+  const firstOrder = await firstResponse.json() as OrderSnapshot
+
+  const replayResponse = await api.post('/api/v1/orders', { headers, data: originalBody })
+  expect(replayResponse.status(), 'Replaying the same key and payload must return the original order').toBe(201)
+  const replayedOrder = await replayResponse.json() as OrderSnapshot
+  expect(replayedOrder.publicId).toBe(firstOrder.publicId)
+  expect(replayedOrder.orderNumber).toBe(firstOrder.orderNumber)
+
+  const conflictingBody = buildBody('不同的買家姓名')
+  const conflictResponse = await api.post('/api/v1/orders', { headers, data: conflictingBody })
+  expect(
+    conflictResponse.status(),
+    'The same Idempotency-Key with a different payload must be rejected',
+  ).toBe(409)
+
+  const orderCount = sqlScalar(`SELECT COUNT(*) FROM Orders WHERE PublicId = '${firstOrder.publicId}'`)
+  expect(orderCount, 'Only one Order row must exist despite the replay and the conflicting attempt').toBe('1')
 })
