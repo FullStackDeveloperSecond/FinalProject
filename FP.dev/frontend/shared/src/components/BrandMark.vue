@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 
 /**
  * DoSelect 正式品牌標記。
@@ -22,6 +22,24 @@ import { ref } from 'vue'
  * Admin 是 `/admin/`），避免被 Vite 當成建置期資產匯入。
  * 素材缺失時退回帶標示的預留框，不顯示破圖。
  */
+
+const props = withDefaults(defineProps<{
+  /**
+   * 裝飾模式：圖片改用空 `alt`，缺圖後備也對輔助技術隱藏。
+   *
+   * 兩支 App 的 header 都在標記旁邊放了可見的「DoSelect 懂選」文字。
+   * 螢幕閱讀器計算連結的 accessible name 時會把 `alt` 和那段文字**都**算進去，
+   * 於是品牌名被念兩次。這種「圖 + 同義文字」的組合，正確作法是讓圖片成為裝飾，
+   * 由旁邊的文字擔任唯一的 accessible name。
+   *
+   * 預設 `false`（保留 alt），這樣單獨使用這個元件時仍然是可存取的；
+   * 旁邊已經有品牌文字的地方才明確傳入 `decorative`。
+   */
+  decorative?: boolean
+}>(), { decorative: false })
+
+/** 裝飾模式下 alt 必須是空字串（不是省略），才會被輔助技術忽略。 */
+const altText = computed(() => (props.decorative ? '' : 'DoSelect 懂選'))
 
 // 兩個 App 的 public base 不同，同一個元件在兩邊都能正確取到素材。
 const assetBase = import.meta.env.BASE_URL
@@ -49,7 +67,7 @@ const markAvailable = ref(true)
         class="brand-mark__img"
         :src="markSrc"
         :srcset="pngSrcset"
-        alt="DoSelect 懂選"
+        :alt="altText"
         width="40"
         height="40"
         decoding="async"
@@ -59,8 +77,9 @@ const markAvailable = ref(true)
     <span
       v-else
       class="brand-mark__slot"
-      role="img"
-      aria-label="DoSelect 懂選（正式 Logo 尚未匯入）"
+      :role="decorative ? undefined : 'img'"
+      :aria-label="decorative ? undefined : 'DoSelect 懂選（正式 Logo 尚未匯入）'"
+      :aria-hidden="decorative ? 'true' : undefined"
     >D</span>
   </span>
 </template>

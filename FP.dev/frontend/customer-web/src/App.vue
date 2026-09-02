@@ -74,7 +74,8 @@ async function handleLogout(): Promise<void> {
           class="brand-link"
           to="/"
         >
-          <BrandMark />
+          <!-- 標記是裝飾：旁邊的文字才是這個連結唯一的 accessible name，避免品牌名被念兩次 -->
+          <BrandMark decorative />
           <span class="brand-link__text">DoSelect<span class="brand-link__sub">懂選</span></span>
         </RouterLink>
 

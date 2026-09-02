@@ -561,9 +561,18 @@ describe('11. 既有保證全部保留', () => {
     // 比例、替代文字與錯誤後備
     expect(mark).toContain('aspect-ratio: 1 / 1')
     expect(mark).toContain('object-fit: contain')
-    expect(mark).toContain('alt="DoSelect 懂選"')
+    // alt 依 decorative 決定：header 旁邊已有可見品牌文字，圖片必須是裝飾（空 alt），
+    // 否則螢幕閱讀器會把品牌名念兩次。實際行為由 components/BrandMark.spec.ts 驗證。
+    expect(mark).toContain(':alt="altText"')
+    expect(mark).toContain(`props.decorative ? '' : 'DoSelect 懂選'`)
+    for (const app of [customerRoot, adminRoot]) {
+      expect(read(join(app, 'src', 'App.vue')), `${app} 的 header 必須用裝飾模式`)
+        .toContain('<BrandMark decorative />')
+    }
     expect(mark).toContain('@error="markAvailable = false"')
-    expect(mark).toMatch(/v-else[\s\S]{0,160}aria-label="DoSelect 懂選（正式 Logo 尚未匯入）"/)
+    // 缺圖後備：非裝飾時朗讀為圖片並帶說明，裝飾時對輔助技術隱藏
+    expect(mark).toMatch(/v-else[\s\S]{0,260}DoSelect 懂選（正式 Logo 尚未匯入）/)
+    expect(mark).toContain(`:aria-hidden="decorative ? 'true' : undefined"`)
   })
 
   it('全前端沒有任何舊 Logo 檔名的殘留引用', () => {
@@ -599,7 +608,6 @@ describe('11. 既有保證全部保留', () => {
     const mark = read(join(sharedRoot, 'src', 'components', 'BrandMark.vue'))
     for (const root of [customerRoot, adminRoot]) {
       const readme = read(join(root, 'public', 'brand', 'README.md'))
-      // 唯一來源要寫清楚
       expect(readme).toContain('DoSelect 懂選 正式商標2')
       // README 列出的檔名必須真的被 BrandMark 引用
       for (const file of ['doselect-mark-40.webp', 'doselect-mark-80.webp', 'doselect-mark-120.webp']) {
@@ -610,6 +618,34 @@ describe('11. 既有保證全部保留', () => {
       expect(readme).not.toContain('donggu-mark.png')
       expect(readme).not.toContain('不需要改任何程式碼')
     }
+  })
+
+  it('README 不得把素材來源寫成某個人電腦上的絕對路徑', () => {
+    // 寫成 D:\... 別人照著做不到；母檔的共用位置與保管人要寫在 README 裡
+    for (const root of [customerRoot, adminRoot]) {
+      const readme = read(join(root, 'public', 'brand', 'README.md'))
+      // \b 讓它只抓「碟符 + 路徑」，不會誤傷 file:// 這種 scheme
+      expect(readme, '不得出現本機絕對路徑').not.toMatch(/\b[A-Za-z]:[\\/]/)
+      expect(readme).toContain('共用位置')
+      expect(readme).toContain('保管人')
+    }
+  })
+
+  it('兩份 README 各自描述自己 App 真的擁有的素材', () => {
+    const customerReadme = read(join(customerRoot, 'public', 'brand', 'README.md'))
+    const adminReadme = read(join(adminRoot, 'public', 'brand', 'README.md'))
+
+    // Hero 裝飾只有前台有；後台 README 提到它就是在誤導
+    expect(existsSync(join(customerRoot, 'public', 'brand', 'donggu-hero-wave.png'))).toBe(true)
+    expect(existsSync(join(adminRoot, 'public', 'brand', 'donggu-hero-wave.png'))).toBe(false)
+    // 前台的檔案表要列出它；後台的檔案表不得列出它
+    // （後台 README 可以用散文說「不要複製過來」，那不是「列為可用素材」）
+    const tableRow = /\|\s*`donggu-hero-wave\.png`\s*\|/
+    expect(customerReadme).toMatch(tableRow)
+    expect(adminReadme, '後台沒有 Hero 圖，檔案表不該列出它').not.toMatch(tableRow)
+
+    // 兩份不是同一份複製品
+    expect(customerReadme).not.toBe(adminReadme)
   })
 
   it('正式動效決策不變', () => {

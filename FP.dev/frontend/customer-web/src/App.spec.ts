@@ -164,3 +164,17 @@ describe('行動版導覽在路由變更後關閉', () => {
     expect(wrapper.find('.primary-nav--open').exists()).toBe(false)
   })
 })
+
+
+describe('Header 品牌連結的可及名稱只出現一次', () => {
+  it('標記是裝飾圖片，品牌名由旁邊的文字承載', async () => {
+    const { wrapper } = await mountAppAt('/')
+    const brandLink = wrapper.get('a.brand-link')
+    const img = brandLink.get('img')
+
+    // 圖片是裝飾：空 alt，不進 accessible name 的計算
+    expect(img.attributes('alt')).toBe('')
+    // 可見文字只出現一次
+    expect(brandLink.text().replace(/s+/g, '')).toBe('DoSelect懂選')
+  })
+})

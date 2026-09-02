@@ -90,8 +90,9 @@ async function onLogout(): Promise<void> {
         class="brand-link"
         to="/"
       >
-        <BrandMark />
-        <!-- 正式商標 2 是方形徽章，40px 下裡面的字樣讀不出來，品牌名以文字承載 -->
+        <!-- 正式商標 2 是方形徽章，40px 下裡面的字樣讀不出來，品牌名以文字承載；
+             標記本身是裝飾，避免螢幕閱讀器把品牌名念兩次 -->
+        <BrandMark decorative />
         <span class="brand-link__text">
           <span class="brand-link__name">DoSelect 懂選</span>
           <span class="brand-link__scope">管理後台</span>
