@@ -360,7 +360,18 @@ describe('CheckoutPage', () => {
   })
 
   it('keeps a guest on a success handoff with the order number and verification entry point', async () => {
-    mockCreateOrder.mockResolvedValue(createdOrder())
+    const order = createdOrder()
+    order.amounts = {
+      merchandiseSubtotal: 59900,
+      itemDiscountTotal: 2000,
+      shippingFee: 0,
+      assemblyFee: 300,
+      grandTotal: 58200,
+      paidAmount: 0,
+      refundedAmount: 0,
+      currency: 'TWD',
+    }
+    mockCreateOrder.mockResolvedValue(order)
     const { wrapper, router } = await mountCheckoutPage()
     await vi.waitFor(() => expect(wrapper.text()).toContain('宅配'))
     await fillValidHomeDeliveryForm(wrapper)
@@ -368,6 +379,11 @@ describe('CheckoutPage', () => {
     await wrapper.get('.checkout-page__submit').trigger('submit')
 
     await vi.waitFor(() => expect(wrapper.text()).toContain('ORD-20260902-0001'))
+    expect(wrapper.text()).toContain('商品小計：NT$59,900')
+    expect(wrapper.text()).toContain('優惠折扣：−NT$2,000')
+    expect(wrapper.text()).toContain('配送費：NT$0')
+    expect(wrapper.text()).toContain('組裝費：NT$300')
+    expect(wrapper.text()).toContain('應付總額：NT$58,200')
     expect(wrapper.text()).toContain('驗證訂單後繼續付款')
     expect(wrapper.get('a[href="/guest-orders/access"]').attributes('href')).toBe('/guest-orders/access')
     expect(router.currentRoute.value.name).toBe('checkout')

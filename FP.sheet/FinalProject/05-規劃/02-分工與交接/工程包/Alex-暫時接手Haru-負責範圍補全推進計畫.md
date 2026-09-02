@@ -1,12 +1,12 @@
 ---
-文件狀態: WP-H01 已合併，下一步 WP-H02
-最後更新: 2026-09-01
-基準分支: dev@e93f2d2a
-執行分支: dev（PR #72 已 squash merge）
+文件狀態: WP-H01～WP-H05 已完成
+最後更新: 2026-09-02
+基準分支: dev@16091fcf
+執行分支: codex/wp-a04-core-transaction-e2e-20260902
 原負責人: haru
 暫時接手: alex
 第一線覆核: yinyin
-關聯 PR: "#72"
+關聯 PR: "#72、#80、#83、#91"
 ---
 
 # Alex 暫時接手 Haru｜未完成範圍與推進記錄
@@ -117,6 +117,9 @@ PR #72 原本混合 `M-01`、`M-02`、`M-08`、`S-01`，且 base 落後、最新
 | 2026-09-01 | PR #72 最終 exact-head CI | 通過 | 遠端 head `a9596de9`；GitHub run `33475238852` 的 Backend、Browser E2E、兩套 Frontend、OpenAPI、Secret Scan、AI contract、Package Source Evidence 與 `CI Required` 全部成功 |
 | 2026-09-01 | PR #72 合併 | 完成 | 標題校正為「完成會員個人資料與收件地址前台（M-01／C-21／C-22）」；Approve 後於 `2026-09-01 06:02:46 UTC` squash merge，dev commit `e93f2d2a` |
 | 2026-09-01 | 共用 DB 啟動副作用 | 已停止並裁定保留 | OpenAPI check 啟動 API 時誤連 `DoSelectDb`，觸發 7 天未驗證會員清理；155 筆於 `2026-09-01 05:09:46.221 UTC` 匿名化。API 已立即停止；msdb 無 DoSelectDb backup；使用者採用選項 1，接受既有保留規則結果，不復原 |
+| 2026-09-02 | WP-H02／WP-H03 | 完成／已進 `dev` | WP-H02 會員 Session／管理員 TOTP Browser E2E 由 PR #80 合併；WP-H03 Guest 查單、跨單隔離、取消與 SQL 零副作用由 PR #83 合併。兩包皆使用專屬 `DoSelectE2E_<GUID>`。 |
+| 2026-09-02 | WP-H04 | 完成／已進 `dev` | C-14 Checkout 與 C-15 付款續接由 PR #91 合併；只消費正式 Orders／Shipping／Payment／Policy／Guest 契約。 |
+| 2026-09-02 | WP-H05 | 完成／以 PR #94 進 `dev` | 固定 Guest Cart 完成組裝商品、優惠、宅配、信用卡、訂單 replay、Guest 驗證、模擬付款與發票 Browser 旅程；另有 SQL Server replay／最後庫存競爭證據。依 DEC-P356 只允許隔離 E2E 顯式啟用模擬端點，未操作共用 `DoSelectDb`。PR #94 已 rebase `dev@16091fcf` 並整合 PR #88 的 Checkout 導頁失敗復原，依 exact-head CI、final review 與 squash merge 收尾。 |
 
 ### 8.1 共用 DB 事故後續約束
 
@@ -127,4 +130,4 @@ PR #72 原本混合 `M-01`、`M-02`、`M-08`、`S-01`，且 base 落後、最新
 
 ## 9. 下一步
 
-WP-H01 已透過 PR #72 合併至 `dev@e93f2d2a`。下一步依序執行 WP-H02：補齊 M-01／M-01B 的真實 Browser E2E；測試必須使用專屬資料庫並確認啟動型 BackgroundService 不會操作共用 `DoSelectDb`。完成 WP-H02 後再推進 WP-H03；已合併的 PR #73 可供後續 WP-H04 消費，但不提前跳過工作包順序。
+WP-H01～WP-H05 已完成；Haru 暫時移交的 H02～H05 即告一段落。WP-H06 仍是 Order 邊界交叉覆核，WP-H07／S-01 仍無本輪授權。

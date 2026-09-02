@@ -14,6 +14,15 @@ interface OrderSnapshot {
   orderNumber: string
   orderStatus: string
   rowVersion: string
+  items: Array<{ publicId: string }>
+  amounts: {
+    merchandiseSubtotal: number
+    itemDiscountTotal: number
+    shippingFee: number
+    assemblyFee: number
+    grandTotal: number
+    paidAmount: number
+  }
 }
 
 async function getAntiforgeryToken(api: APIRequestContext): Promise<string> {
@@ -448,4 +457,149 @@ test('a guest keeps the checkout payment attempt after reloading the payment pag
   }, order.publicId)
   expect(latest.method).toBe('atm')
   expect(latest.status).toBe('awaitingPayment')
+})
+
+test('a guest completes the prepared cart through checkout payment and invoice', async ({
+  page,
+  seed,
+}) => {
+  test.setTimeout(60_000)
+  const email = `core-transaction-${randomUUID()}@example.test`
+  await page.addInitScript((guestCartKey) => {
+    const browser = globalThis as unknown as {
+      localStorage: { setItem: (key: string, value: string) => void }
+    }
+    browser.localStorage.setItem('doselect.guestCartKey', guestCartKey)
+  }, seed.coreTransactionGuestCartKey)
+
+  await page.goto('/cart')
+  await expect(page.getByRole('heading', { level: 1, name: '購物車' })).toBeVisible()
+  await expect(page.getByText('自訂組裝', { exact: true })).toBeVisible()
+  await expect(page.getByRole('list', { name: /組裝品項：/ }).getByRole('listitem')).toHaveCount(8)
+
+  const checkoutButton = page.getByRole('button', { name: '前往結帳' })
+  await expect(checkoutButton).toBeEnabled()
+  await checkoutButton.click()
+  await expect(page).toHaveURL(/\/checkout$/)
+  await expect(page.getByRole('heading', { level: 1, name: '結帳' })).toBeVisible()
+
+  await page.getByLabel('Email').fill(email)
+  await page.getByLabel('姓名').fill('核心交易訪客')
+  await page.getByLabel('電話').fill('0912345678')
+
+  await page.getByLabel('優惠碼（選填）').fill('CREATOR10')
+  await page.getByRole('button', { name: '套用優惠券' }).click()
+  await expect(page.getByText('已套用 CREATOR10')).toBeVisible()
+
+  await page.getByRole('radio', { name: '組裝電腦宅配' }).check()
+  await page.getByLabel('收件人').fill('核心交易訪客')
+  await page.getByLabel('收件電話').fill('0912345678')
+  await page.getByLabel('郵遞區號').fill('100')
+  await page.getByLabel('縣市').fill('台北市')
+  await page.getByLabel('行政區').fill('中正區')
+  await page.getByLabel('地址', { exact: true }).fill('測試路 1 號')
+
+  await page.getByRole('radio', { name: '信用卡' }).check()
+  await page.getByRole('checkbox', { name: /我同意服務條款/ }).check()
+  await page.getByRole('checkbox', { name: /我同意退換貨政策/ }).check()
+  await page.getByRole('checkbox', { name: /我同意隱私權政策/ }).check()
+
+  const createResponsePromise = page.waitForResponse(response =>
+    response.request().method() === 'POST'
+    && new URL(response.url()).pathname === '/api/v1/orders')
+  await page.getByRole('button', { name: '確認建立訂單' }).click()
+  const createResponse = await createResponsePromise
+  expect(createResponse.status(), 'The browser Checkout must create the order').toBe(201)
+  const order = await createResponse.json() as OrderSnapshot
+  const createRequest = createResponse.request()
+  const idempotencyKey = createRequest.headers()['idempotency-key']
+  const requestBody = createRequest.postDataJSON()
+  expect(idempotencyKey, 'The browser Checkout must send its idempotency key').toBeTruthy()
+
+  await expect(page.getByRole('heading', { level: 2, name: '訂單已建立' })).toBeVisible()
+  await expect(page.getByText(`訂單編號：${order.orderNumber}`)).toBeVisible()
+  await expect(page.getByText('商品小計：').locator('..')).toContainText('NT$45,000')
+  await expect(page.getByText('優惠折扣：').locator('..')).toContainText('−NT$2,000')
+  await expect(page.getByText('配送費：').locator('..')).toContainText('NT$300')
+  await expect(page.getByText('組裝費：').locator('..')).toContainText('NT$300')
+  await expect(page.getByText('應付總額：').locator('..')).toContainText('NT$43,600')
+
+  const replay = await page.evaluate(async ({ body, key, guestCartKey }) => {
+    const tokenResponse = await fetch('/api/v1/security/antiforgery-token', {
+      credentials: 'include',
+      headers: { 'X-DoSelect-Client': 'member' },
+    })
+    const token = await tokenResponse.json() as { requestToken: string }
+    const response = await fetch('/api/v1/orders', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-DoSelect-Client': 'member',
+        'X-XSRF-TOKEN': token.requestToken,
+        'X-DoSelect-Guest-Cart-Key': guestCartKey,
+        'Idempotency-Key': key,
+      },
+      body: JSON.stringify(body),
+    })
+    return { status: response.status, body: await response.json() as OrderSnapshot }
+  }, {
+    body: requestBody,
+    key: idempotencyKey!,
+    guestCartKey: seed.coreTransactionGuestCartKey,
+  })
+  expect(replay.status).toBe(201)
+  expect(replay.body.publicId).toBe(order.publicId)
+  expect(replay.body.orderNumber).toBe(order.orderNumber)
+
+  await page.getByRole('link', { name: '驗證訂單後繼續付款' }).click()
+  await page.getByLabel('訂單編號').fill(order.orderNumber)
+  await page.getByLabel('訂單 Email').fill(email)
+  await page.getByRole('button', { name: '寄送驗證碼' }).click()
+  await expect(page).toHaveURL(/\/guest-orders\/verify\?requestPublicId=/)
+  const requestPublicId = new URL(page.url()).searchParams.get('requestPublicId')
+  expect(requestPublicId).toBeTruthy()
+  await page.getByLabel('六位數驗證碼').fill(deriveGuestVerificationCode(requestPublicId!))
+  await page.getByRole('button', { name: '驗證並查看訂單' }).click()
+  await expect(page).toHaveURL(new RegExp(`/orders/${order.publicId}$`))
+
+  const persistedOrder = await page.evaluate(async (orderPublicId) => {
+    const response = await fetch(`/api/v1/orders/${orderPublicId}`, { credentials: 'include' })
+    if (!response.ok) {
+      throw new Error(`Expected the verified order to load, got ${response.status}.`)
+    }
+    return await response.json() as OrderSnapshot
+  }, order.publicId)
+  expect(persistedOrder.items).toHaveLength(9)
+  expect(persistedOrder.amounts).toEqual(expect.objectContaining({
+    merchandiseSubtotal: 45000,
+    itemDiscountTotal: 2000,
+    shippingFee: 300,
+    assemblyFee: 300,
+    grandTotal: 43600,
+    paidAmount: 0,
+  }))
+
+  await page.getByRole('link', { name: '前往付款' }).click()
+  await expect(page.getByRole('region', { name: '付款嘗試' })).toContainText('信用卡')
+  await page.getByRole('button', { name: '模擬付款成功' }).click()
+  await expect(page.getByText('付款已完成', { exact: true })).toBeVisible()
+
+  await expect.poll(async () => {
+    return await page.evaluate(async (orderPublicId) => {
+      const response = await fetch(`/api/v1/orders/${orderPublicId}/invoice`, {
+        credentials: 'include',
+      })
+      return response.status
+    }, order.publicId)
+  }, {
+    message: 'The payment outbox must create the simulated invoice',
+    timeout: 20_000,
+    intervals: [500, 1_000, 2_000],
+  }).toBe(200)
+
+  await page.getByRole('link', { name: '← 回訂單詳情' }).click()
+  await expect(page.getByText('付款狀態：已付款', { exact: true })).toBeVisible()
+  await expect(page.getByText(/DEMO-NOT-A-TAX-INVOICE/)).toBeVisible()
+  await expect(page.getByText('狀態：已開立', { exact: true })).toBeVisible()
 })

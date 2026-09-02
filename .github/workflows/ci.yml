@@ -298,6 +298,9 @@ jobs:
       GuestOrderAccess__Pepper: "ci-only-guest-order-access-pepper-32-bytes"
       Seed__AdminPassword: "E2e_Admin_123!"
       Seed__MemberPassword: "E2e_Member_123!"
+      E2E_ASPNETCORE_ENVIRONMENT: "E2E"
+      E2E_BACKGROUND_JOBS_ENABLED: "true"
+      E2E_SIMULATION_ENDPOINTS_ENABLED: "true"
 
     steps:
       - name: Checkout repository

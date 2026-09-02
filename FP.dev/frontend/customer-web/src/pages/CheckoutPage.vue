@@ -415,6 +415,28 @@ async function submitOrder(): Promise<void> {
         訂單已建立
       </h2>
       <p>訂單編號：<strong>{{ createdOrderHandoff.order.orderNumber }}</strong></p>
+      <dl class="checkout-page__amount-breakdown">
+        <div>
+          <dt>商品小計：</dt>
+          <dd>{{ formatTwd(createdOrderHandoff.order.amounts.merchandiseSubtotal) }}</dd>
+        </div>
+        <div>
+          <dt>優惠折扣：</dt>
+          <dd>−{{ formatTwd(createdOrderHandoff.order.amounts.itemDiscountTotal) }}</dd>
+        </div>
+        <div>
+          <dt>配送費：</dt>
+          <dd>{{ formatTwd(createdOrderHandoff.order.amounts.shippingFee) }}</dd>
+        </div>
+        <div>
+          <dt>組裝費：</dt>
+          <dd>{{ formatTwd(createdOrderHandoff.order.amounts.assemblyFee) }}</dd>
+        </div>
+        <div class="checkout-page__amount-total">
+          <dt>應付總額：</dt>
+          <dd>{{ formatTwd(createdOrderHandoff.order.amounts.grandTotal) }}</dd>
+        </div>
+      </dl>
 
       <template v-if="createdOrderHandoff.kind === 'guest'">
         <p>為保護訂單資料，訪客需以訂單編號與結帳 Email 完成一次性驗證，才能繼續付款或查看訂單。</p>
@@ -842,6 +864,30 @@ async function submitOrder(): Promise<void> {
   grid-template-columns: minmax(7rem, 10rem) minmax(0, 1fr);
   gap: 0.75rem;
   align-items: center;
+}
+
+.checkout-page__amount-breakdown {
+  display: grid;
+  gap: 0.375rem;
+  max-width: 24rem;
+  margin: 1rem 0;
+}
+
+.checkout-page__amount-breakdown > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.checkout-page__amount-breakdown dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.checkout-page__amount-total {
+  padding-top: 0.5rem;
+  border-top: 1px solid #d1d5db;
+  font-weight: 700;
 }
 
 .checkout-page__address {

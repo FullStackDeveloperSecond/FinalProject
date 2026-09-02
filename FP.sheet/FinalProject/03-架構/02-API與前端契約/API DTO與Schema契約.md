@@ -115,7 +115,7 @@
 | `PaymentAttemptDto` | `publicId`、`method`、`status`、`amount`、`currency`、`instruction?:{type,maskedAccount?,code?,expiresAtUtc?}`、`createdAtUtc`、`paidAtUtc?`、`rowVersion` |
 
 `GET /api/v1/orders/{id}/payment-attempts/latest` 與建立／完成付款共用 `PaymentAttemptDto`；回目前 Owner Scope 內最新一筆 Attempt，包含 `paid`／`failed`／`expired`／`cancelled` 等終態。訂單不存在或尚無 Attempt 均為 `404 resource_not_found`，未登入為 `401 authentication_required`；不得以 Null Body 的 `200`、`204` 或跨 Owner 查詢代替。
-| `CompleteSimulatedPaymentRequest` | `outcome:succeeded/failed/cancelled/expired`、`simulationKey:string(8..128)`；展示端點只在 Demo Profile 且 `Demo:SimulationEndpointsEnabled=true` 開放；`simulationKey` 同時作為此命令的唯一重播鍵與不可重複模擬 Provider Event ID，不另使用 `Idempotency-Key` Header；COD 不接受此 Request，必須由 Delivered／PickedUp 收款事件完成 |
+| `CompleteSimulatedPaymentRequest` | `outcome:succeeded/failed/cancelled/expired`、`simulationKey:string(8..128)`；產品展示端點只在 Demo Profile 且 `Demo:SimulationEndpointsEnabled=true` 開放，DEC-P356 另允許隔離 E2E Environment 用相同顯式開關驗證契約；`simulationKey` 同時作為此命令的唯一重播鍵與不可重複模擬 Provider Event ID，不另使用 `Idempotency-Key` Header；COD 不接受此 Request，必須由 Delivered／PickedUp 收款事件完成 |
 | `CreateReturnRequest` | `items:{orderItemPublicId,quantity,reasonCode,description?:string(0..500)}[1..20]`、`requestReason:string(1..1000)`、`orderRowVersion` |
 | `ReturnRequestDto` | `publicId`、`orderPublicId`、`status`、`items[]`、`attachments[]`、`requestedAtUtc`、審核／收貨／結案時間、`availableActions[]`、`rowVersion` |
 | `ApproveReturnRequest` | `decision:approved/rejected`、`items:{returnItemPublicId,approvedQuantity:int(0..requestedQuantity),inspectionRequired:bool}[1..20]`、`reasonCode:string(1..64)`、`note?:string(0..500)`、`assemblyFeeDisposition?:enum`、`returnShippingCost?:decimal(18,2)>=0`、`returnRowVersion`；核准且不需寄回／驗收時兩個退款快照欄位成對必填，需寄回或拒絕時不得提供 |
