@@ -320,7 +320,7 @@ function providerLabel(code: string): string {
     </form>
 
     <LoadingState
-      v-if="isPending && !result"
+      v-if="isPending"
       label="門市載入中"
     />
     <ErrorState

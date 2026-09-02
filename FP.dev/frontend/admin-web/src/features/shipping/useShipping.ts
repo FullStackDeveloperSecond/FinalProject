@@ -15,11 +15,19 @@ import type {
   UpdateConvenienceStoreRequest,
 } from './types'
 
+/**
+ * 組長 PR #78 round-3 review [P2]：上一輪我只把 `placeholderData` 從版本清單拿掉，同一個檔案裡的
+ * 門市清單卻留著——切換物流商、縣市、行政區、Active-only 或頁碼之後，新請求回來之前畫面上還是
+ * 上一組門市，而且那些列的「編輯」「停用」按鈕照樣按得下去。管理員會在新篩選條件的畫面上改到
+ * 或停用另一組查詢的門市。
+ *
+ * 與 usePackageLimitVersionList 一致：不沿用 placeholder，換 key 時 `isPending` 就是 true，頁面
+ * 顯示載入中而不是舊資料。
+ */
 export function useConvenienceStoreList(params: MaybeRefOrGetter<ConvenienceStoreListParams>) {
   return useQuery({
     queryKey: computed(() => ['shipping', 'stores', toValue(params)] as const),
     queryFn: () => listConvenienceStores(toValue(params)),
-    placeholderData: (previous) => previous,
   })
 }
 

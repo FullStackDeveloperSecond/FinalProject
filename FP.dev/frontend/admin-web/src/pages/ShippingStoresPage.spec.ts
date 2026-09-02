@@ -243,4 +243,72 @@ describe('ShippingStoresPage', () => {
       expect((mockList.mock.calls.at(-1)![0] as { pageNumber: number }).pageNumber).toBe(1)
     })
   })
+
+  /**
+   * 組長 PR #78 round-3 review [P2]：`placeholderData` 會跨物流商／縣市／行政區／Active-only／
+   * 頁碼保留上一組門市，而頁面只看 `isPending`——新查詢還在飛的時候，畫面上是舊門市，而且那些列
+   * 的「編輯」「停用」按鈕照樣按得下去。管理員會在新篩選條件的畫面上改到另一組查詢的門市。
+   *
+   * 這支測試把第二次查詢卡住，斷言在 pending 期間舊門市「已經不在畫面上」，因此也不可能被編輯
+   * 或停用——只斷言「API 被呼叫兩次」是看不出這件事的。
+   */
+  it('drops the previous stores and their write controls while a new filter is loading', async () => {
+    mockList.mockResolvedValueOnce(page([store({ publicId: 's1', storeName: '大安門市' })]))
+
+    const wrapper = mountPage()
+    await flushPromises()
+    expect(wrapper.text()).toContain('大安門市')
+    expect(wrapper.findAll('button').some((button) => button.text() === '停用')).toBe(true)
+
+    let releaseSecond!: (value: unknown) => void
+    mockList.mockImplementationOnce(() => new Promise((resolve) => { releaseSecond = resolve }))
+
+    await wrapper.find('input[aria-label="縣市"]').setValue('高雄市')
+    await wrapper.find('form[aria-label="門市篩選"]').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('大安門市')
+    expect(wrapper.text()).toContain('門市載入中')
+    // 舊列不在畫面上，寫入入口自然也不在——不會有「對上一組查詢的門市按下停用」這種事。
+    expect(wrapper.findAll('button').some((button) => button.text() === '停用')).toBe(false)
+    expect(wrapper.findAll('button').some((button) => button.text() === '編輯')).toBe(false)
+
+    releaseSecond(page([store({ publicId: 's9', storeName: '苓雅門市', city: '高雄市' })]))
+    await flushPromises()
+    expect(wrapper.text()).toContain('苓雅門市')
+  })
+
+  /** 換頁同理：頁碼也是 query key 的一部分。 */
+  it('drops the previous page rows while the next page is loading', async () => {
+    mockList.mockResolvedValueOnce({
+      items: [store({ publicId: 's1', storeName: '第一頁門市' })],
+      pageNumber: 1,
+      pageSize: 20,
+      totalCount: 40,
+      totalPages: 2,
+    })
+
+    const wrapper = mountPage()
+    await flushPromises()
+    expect(wrapper.text()).toContain('第一頁門市')
+
+    let releaseSecond!: (value: unknown) => void
+    mockList.mockImplementationOnce(() => new Promise((resolve) => { releaseSecond = resolve }))
+
+    await wrapper.findAll('button').find((button) => button.text() === '下一頁')!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('第一頁門市')
+    expect(wrapper.findAll('button').some((button) => button.text() === '停用')).toBe(false)
+
+    releaseSecond({
+      items: [store({ publicId: 's2', storeName: '第二頁門市' })],
+      pageNumber: 2,
+      pageSize: 20,
+      totalCount: 40,
+      totalPages: 2,
+    })
+    await flushPromises()
+    expect(wrapper.text()).toContain('第二頁門市')
+  })
 })
