@@ -1,4 +1,5 @@
 using DoSelect.Application.Notifications;
+using DoSelect.Infrastructure.Imports;
 using DoSelect.Infrastructure.Notifications;
 using DoSelect.Infrastructure.Persistence;
 using Hangfire;
@@ -46,6 +47,7 @@ public static class BackgroundJobServiceCollectionExtensions
         services.AddScoped<OutboxRetentionJob>();
         services.AddScoped<AuditRetentionJob>();
         services.AddScoped<StorageMaintenanceJob>();
+        services.AddScoped<ImportRetentionJob>();
 
         var connectionString = configuration.GetConnectionString(
             PersistenceServiceCollectionExtensions.ConnectionStringName);
@@ -111,6 +113,12 @@ public static class BackgroundJobServiceCollectionExtensions
             "maintenance:audit-retention",
             job => job.RunAsync(CancellationToken.None),
             "20 4 * * *",
+            new RecurringJobOptions { TimeZone = taipeiTimeZone });
+        // 匯入暫存與庫存調整設計.md「清理由 maintenance Queue 執行」：列 24 小時、摘要 90 天。
+        recurringJobs.AddOrUpdate<ImportRetentionJob>(
+            "maintenance:import-retention",
+            job => job.RunAsync(CancellationToken.None),
+            "0 3 * * *",
             new RecurringJobOptions { TimeZone = taipeiTimeZone });
     }
 }

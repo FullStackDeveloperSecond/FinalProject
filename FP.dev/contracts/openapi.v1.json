@@ -7014,17 +7014,17 @@
             "content": {
               "text/plain": {
                 "schema": {
-                  "$ref": "#/components/schemas/CursorPageOfImportRowDto"
+                  "$ref": "#/components/schemas/CursorPageOfInventoryImportRowDto"
                 }
               },
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CursorPageOfImportRowDto"
+                  "$ref": "#/components/schemas/CursorPageOfInventoryImportRowDto"
                 }
               },
               "text/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CursorPageOfImportRowDto"
+                  "$ref": "#/components/schemas/CursorPageOfInventoryImportRowDto"
                 }
               }
             }
@@ -7169,6 +7169,14 @@
                     "type": "object",
                     "properties": {
                       "specificationsFile": {
+                        "$ref": "#/components/schemas/IFormFile"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "workbookFile": {
                         "$ref": "#/components/schemas/IFormFile"
                       }
                     }
@@ -18143,6 +18151,31 @@
           }
         }
       },
+      "CursorPageOfInventoryImportRowDto": {
+        "required": [
+          "items",
+          "nextCursor",
+          "hasMore"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InventoryImportRowDto"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        }
+      },
       "CursorPageOfInventoryReservationDto": {
         "required": [
           "items",
@@ -18785,6 +18818,91 @@
           "rowVersion": {
             "type": "string",
             "format": "byte"
+          }
+        }
+      },
+      "InventoryImportRowDto": {
+        "required": [
+          "sourceRowNumber",
+          "skuCode",
+          "action",
+          "errorCodes",
+          "beforeOnHand",
+          "reservedQuantity",
+          "targetOnHand",
+          "delta",
+          "reasonCode",
+          "note"
+        ],
+        "type": "object",
+        "properties": {
+          "sourceRowNumber": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "skuCode": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "errorCodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "beforeOnHand": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "reservedQuantity": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "targetOnHand": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "delta": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "reasonCode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

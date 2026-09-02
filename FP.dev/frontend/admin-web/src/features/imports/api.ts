@@ -2,8 +2,20 @@ import { apiClient } from '../../api/client'
 import type {
   ImportRowsPage,
   InventoryImportBatchDto,
+  InventoryImportRowsPage,
   ProductImportBatchDto,
 } from './types'
+
+/**
+ * 商品匯入的兩種上傳（匯入暫存與庫存調整設計.md：「上傳 XLSX，或三份 CSV」）。有 workbook 就走
+ * 單一 XLSX，三個 CSV 欄位不送；後端對「兩邊都給」回 validation_failed。
+ */
+export interface ProductImportFiles {
+  products?: File
+  skus?: File
+  specifications?: File
+  workbook?: File
+}
 
 export interface ImportRowsParams {
   errorsOnly?: boolean
@@ -27,13 +39,18 @@ export async function downloadProductImportTemplate(): Promise<Blob> {
 }
 
 export async function previewProductImport(
-  files: { products: File, skus: File, specifications: File },
+  files: ProductImportFiles,
   templateVersion: number,
 ): Promise<ProductImportBatchDto> {
   const formData = new FormData()
-  formData.set('productsFile', files.products)
-  formData.set('skusFile', files.skus)
-  formData.set('specificationsFile', files.specifications)
+  if (files.workbook) {
+    formData.set('workbookFile', files.workbook)
+  }
+  else {
+    formData.set('productsFile', files.products!)
+    formData.set('skusFile', files.skus!)
+    formData.set('specificationsFile', files.specifications!)
+  }
   formData.set('templateVersion', String(templateVersion))
 
   const { data, error } = await apiClient.POST('/api/v1/admin/product-imports/preview', {
@@ -110,7 +127,7 @@ export async function getInventoryImportBatch(id: string): Promise<InventoryImpo
 export async function getInventoryImportRows(
   id: string,
   params: ImportRowsParams,
-): Promise<ImportRowsPage> {
+): Promise<InventoryImportRowsPage> {
   const { data, error } = await apiClient.GET('/api/v1/admin/inventory-imports/{id}/rows', {
     params: { path: { id }, query: normalizeRowsQuery(params) },
   })

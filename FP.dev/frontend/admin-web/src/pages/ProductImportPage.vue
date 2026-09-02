@@ -1,23 +1,34 @@
 <script setup lang="ts">
-/** A-07 `/admin/products/import`（UC-IMPORT-01）：模板下載、三 CSV 預覽、逐列錯誤、原子確認。 */
+/**
+ * A-07 `/admin/products/import`（UC-IMPORT-01）：模板下載、XLSX 或三 CSV 預覽、逐列錯誤、原子確認。
+ *
+ * 組長 PR #89 item 6（裁定 A1）：規格是「上傳 XLSX，或三份 CSV」，兩條路都要能走。XLSX 是單一檔
+ * 三張固定名稱的工作表（Products／Skus／Specifications），後端把工作表讀成與 CSV 相同的列再走同一組
+ * 驗證，所以兩種格式的預覽結果對等。
+ */
 import { isApiError } from '@doselect/web-shared/api'
 import { computed, ref } from 'vue'
 import ImportBatchPanel from '../features/imports/components/ImportBatchPanel.vue'
 import { describeApiError } from '../features/shared/errorMessages'
 import { useDownloadProductTemplate, usePreviewImport } from '../features/imports/useImports'
 
+type UploadMode = 'csv' | 'workbook'
+
+const mode = ref<UploadMode>('csv')
 const productsFile = ref<File | null>(null)
 const skusFile = ref<File | null>(null)
 const specificationsFile = ref<File | null>(null)
+const workbookFile = ref<File | null>(null)
 const batchId = ref<string | null>(null)
 const uploadError = ref<string | null>(null)
 
 const template = useDownloadProductTemplate()
 const preview = usePreviewImport('product')
 
-const canUpload = computed(() =>
-  Boolean(productsFile.value && skusFile.value && specificationsFile.value)
-  && !preview.isPending.value)
+const hasRequiredFiles = computed(() => (mode.value === 'workbook'
+  ? Boolean(workbookFile.value)
+  : Boolean(productsFile.value && skusFile.value && specificationsFile.value)))
+const canUpload = computed(() => hasRequiredFiles.value && !preview.isPending.value)
 
 function pick(target: EventTarget | null): File | null {
   const input = target as HTMLInputElement | null
@@ -38,11 +49,13 @@ async function upload() {
   if (!canUpload.value) return
   uploadError.value = null
   try {
-    const batch = await preview.mutateAsync({
-      products: productsFile.value!,
-      skus: skusFile.value!,
-      specifications: specificationsFile.value!,
-    })
+    const batch = await preview.mutateAsync(mode.value === 'workbook'
+      ? { workbook: workbookFile.value! }
+      : {
+          products: productsFile.value!,
+          skus: skusFile.value!,
+          specifications: specificationsFile.value!,
+        })
     batchId.value = batch.publicId
   }
   catch (caught) {
@@ -61,7 +74,9 @@ function uploadErrorMessage(caught: unknown): string {
     case 'import_format_unsupported':
       return '檔案格式或模板版本不符，整批未暫存。請用最新模板重新匯出。'
     case 'import_dataset_missing':
-      return '三個資料集都必須提供，而且不能是空檔。'
+      return mode.value === 'workbook'
+        ? '工作簿必須包含 Products、Skus、Specifications 三張工作表，而且不能是空的。'
+        : '三個資料集都必須提供，而且不能是空檔。'
     default:
       return isApiError(caught) ? describeApiError(caught) : '上傳失敗，整批未暫存。'
   }
@@ -74,7 +89,7 @@ function uploadErrorMessage(caught: unknown): string {
       商品匯入
     </h1>
     <p class="product-import__lead">
-      上傳三個資料集的 CSV 進行預覽；確認之前不會寫入任何資料，確認時整批一次套用，任一列失敗全部回滾。
+      上傳一個 XLSX（三張工作表）或三個資料集的 CSV 進行預覽；確認之前不會寫入任何資料，確認時整批一次套用，任一列失敗全部回滾。
     </p>
 
     <div class="product-import__template">
@@ -93,33 +108,67 @@ function uploadErrorMessage(caught: unknown): string {
       aria-label="商品匯入上傳"
       @submit.prevent="upload"
     >
-      <label>
-        Products CSV
-        <input
-          type="file"
-          accept=".csv,text/csv"
-          aria-label="Products CSV"
-          @change="productsFile = pick($event.target)"
-        >
-      </label>
-      <label>
-        SKUs CSV
-        <input
-          type="file"
-          accept=".csv,text/csv"
-          aria-label="SKUs CSV"
-          @change="skusFile = pick($event.target)"
-        >
-      </label>
-      <label>
-        Specifications CSV
-        <input
-          type="file"
-          accept=".csv,text/csv"
-          aria-label="Specifications CSV"
-          @change="specificationsFile = pick($event.target)"
-        >
-      </label>
+      <fieldset class="product-import__mode">
+        <legend>上傳格式</legend>
+        <label>
+          <input
+            v-model="mode"
+            type="radio"
+            name="upload-mode"
+            value="csv"
+          >
+          三個 CSV
+        </label>
+        <label>
+          <input
+            v-model="mode"
+            type="radio"
+            name="upload-mode"
+            value="workbook"
+          >
+          單一 XLSX（Products／Skus／Specifications 三張工作表）
+        </label>
+      </fieldset>
+      <template v-if="mode === 'workbook'">
+        <label>
+          商品匯入 XLSX
+          <input
+            type="file"
+            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            aria-label="商品匯入 XLSX"
+            @change="workbookFile = pick($event.target)"
+          >
+        </label>
+      </template>
+      <template v-else>
+        <label>
+          Products CSV
+          <input
+            type="file"
+            accept=".csv,text/csv"
+            aria-label="Products CSV"
+            @change="productsFile = pick($event.target)"
+          >
+        </label>
+        <label>
+          SKUs CSV
+          <input
+            type="file"
+            accept=".csv,text/csv"
+            aria-label="SKUs CSV"
+            @change="skusFile = pick($event.target)"
+          >
+        </label>
+        <label>
+          Specifications CSV
+          <input
+            type="file"
+            accept=".csv,text/csv"
+            aria-label="Specifications CSV"
+            @change="specificationsFile = pick($event.target)"
+          >
+        </label>
+      </template>
       <button
         type="submit"
         :disabled="!canUpload"
@@ -171,6 +220,21 @@ function uploadErrorMessage(caught: unknown): string {
   flex-direction: column;
   gap: 0.375rem;
   font-size: 0.875rem;
+}
+
+.product-import__mode {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+
+.product-import__mode label {
+  flex-direction: row;
+  align-items: center;
 }
 
 .product-import__error {

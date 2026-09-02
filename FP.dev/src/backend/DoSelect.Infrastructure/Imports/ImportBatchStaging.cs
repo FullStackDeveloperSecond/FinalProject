@@ -85,9 +85,35 @@ internal static class ImportBatchStaging
                 $"The {datasetLabel} file is not valid CSV: {exception.Message}");
         }
 
+        return ParseRows(rows, parse);
+    }
+
+    /// <summary>
+    /// CSV 與 XLSX 在這裡會合：不管來源是逗號分隔文字還是工作表，進了 Parser 都是同一種
+    /// <c>string[]</c> 列。兩種格式的對等就是靠這一個入口保證的。
+    /// </summary>
+    public static IReadOnlyList<StagedImportRow<TPayload>> ParseRows<TPayload>(
+        IReadOnlyList<string[]> rows,
+        Func<IReadOnlyList<string[]>, IReadOnlyList<StagedImportRow<TPayload>>> parse)
+    {
         try
         {
             return parse(rows);
+        }
+        catch (ImportBatchParseException exception)
+        {
+            throw DomainProblemException.BadRequest(exception.ErrorCode, exception.Message);
+        }
+    }
+
+    /// <summary>XLSX：讀出固定名稱的工作表，錯誤映射與 CSV 一致（穩定錯誤碼，不是 500）。</summary>
+    public static IReadOnlyDictionary<string, IReadOnlyList<string[]>> ReadWorkbookSheets(
+        byte[] content,
+        IReadOnlyList<string> sheetNames)
+    {
+        try
+        {
+            return XlsxWorkbookReader.ReadSheets(content, sheetNames);
         }
         catch (ImportBatchParseException exception)
         {
@@ -213,12 +239,26 @@ internal static class ImportBatchStaging
     /// 游標帶指紋：換了篩選條件卻沿用舊游標，會拿到一份對不上自己條件的資料——直接拒絕，要求
     /// 從第一頁重新開始。
     /// </summary>
-    public static async Task<CursorPage<ImportRowDto>> GetRowsAsync(
+    public static Task<CursorPage<ImportRowDto>> GetRowsAsync(
         DoSelectDbContext dbContext,
         long batchId,
         Guid batchPublicId,
         ImportRowsQuery query,
         IReadOnlyList<ImportDataset> allowedDatasets,
+        CancellationToken cancellationToken) =>
+        GetRowsAsync(dbContext, batchId, batchPublicId, query, allowedDatasets, ToImportRowDto, cancellationToken);
+
+    /// <summary>
+    /// 同一段分頁，換一個投影：庫存匯入要回明確型別的預覽列（Before／Delta／After），商品匯入回
+    /// 通用的 <see cref="ImportRowDto"/>。游標、篩選與排序不因 DTO 不同而分岔。
+    /// </summary>
+    public static async Task<CursorPage<TDto>> GetRowsAsync<TDto>(
+        DoSelectDbContext dbContext,
+        long batchId,
+        Guid batchPublicId,
+        ImportRowsQuery query,
+        IReadOnlyList<ImportDataset> allowedDatasets,
+        Func<ImportRow, TDto> project,
         CancellationToken cancellationToken)
     {
         var pageSize = query.PageSize;
@@ -267,15 +307,7 @@ internal static class ImportBatchStaging
             .ToListAsync(cancellationToken);
 
         var hasMore = page.Count > pageSize;
-        var items = page.Take(pageSize)
-            .Select(row => new ImportRowDto(
-                row.Dataset.ToString(),
-                row.SourceRowNumber,
-                row.ImportKey,
-                row.Action.ToString(),
-                string.IsNullOrEmpty(row.ErrorCodes) ? [] : row.ErrorCodes.Split(',', StringSplitOptions.RemoveEmptyEntries),
-                UnwrapPayloadJson(row.NormalizedPayloadJson)))
-            .ToList();
+        var items = page.Take(pageSize).Select(project).ToList();
 
         string? nextCursor = null;
         if (hasMore)
@@ -284,8 +316,19 @@ internal static class ImportBatchStaging
             nextCursor = OpaqueCursorCodec.Encode(new RowCursorPayload(last.Dataset, last.SourceRowNumber), fingerprint);
         }
 
-        return new CursorPage<ImportRowDto>(items, nextCursor, hasMore);
+        return new CursorPage<TDto>(items, nextCursor, hasMore);
     }
+
+    public static IReadOnlyList<string> SplitErrorCodes(string? errorCodes) =>
+        string.IsNullOrEmpty(errorCodes) ? [] : errorCodes.Split(',', StringSplitOptions.RemoveEmptyEntries);
+
+    private static ImportRowDto ToImportRowDto(ImportRow row) => new(
+        row.Dataset.ToString(),
+        row.SourceRowNumber,
+        row.ImportKey,
+        row.Action.ToString(),
+        SplitErrorCodes(row.ErrorCodes),
+        UnwrapPayloadJson(row.NormalizedPayloadJson));
 
     public static string UnwrapPayloadJson(string normalizedPayloadJson)
     {

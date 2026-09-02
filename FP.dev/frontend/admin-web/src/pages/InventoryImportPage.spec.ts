@@ -49,14 +49,19 @@ function rowsPage(items: unknown[] = []) {
   return { items, nextCursor: null, hasMore: false }
 }
 
+/** 庫存匯入的預覽列是明確型別（組長 PR #89 item 2）：Before／Delta／After／原因／說明。 */
 function row(overrides: Record<string, unknown> = {}) {
   return {
-    dataset: 'InventoryAdjustments',
     sourceRowNumber: 2,
-    importKey: 'SKU-1',
+    skuCode: 'SKU-1',
     action: 'Update',
     errorCodes: [],
-    normalizedPayloadJson: '{}',
+    beforeOnHand: 5,
+    reservedQuantity: 1,
+    targetOnHand: 8,
+    delta: 3,
+    reasonCode: 'StocktakeDifference',
+    note: null,
     ...overrides,
   }
 }
@@ -147,6 +152,56 @@ describe('InventoryImportPage', () => {
 
     expect(wrapper.text()).toContain('整批未套用')
     expect(wrapper.text()).toContain('重新上傳')
+  })
+
+  /**
+   * 管理員要在原子確認之前核對實際的庫存變化：調整前、已保留、目標、調整量、原因與說明都要在
+   * 表格上，而且調整量帶正負號。
+   */
+  it('shows before, reserved, target, delta, reason and note for every preview row', async () => {
+    mockPreview.mockResolvedValue(batch())
+    mockGetBatch.mockResolvedValue(batch())
+    mockGetRows.mockResolvedValue(rowsPage([
+      row(),
+      row({ sourceRowNumber: 3, skuCode: 'SKU-2', action: 'NoChange', beforeOnHand: 4, targetOnHand: 4, delta: 0, reasonCode: 'Other', note: '櫃位 B 重新盤點' }),
+    ]))
+
+    const wrapper = mountPage()
+    await attachFile(wrapper)
+    await wrapper.find('form[aria-label="庫存匯入上傳"]').trigger('submit')
+    await flushPromises()
+
+    // 頁面上還有一張「欄位格式」對照表，所以只看預覽表格。
+    const cells = wrapper.findAll('.import-panel__rows tbody tr').map(tr => tr.findAll('td').map(td => td.text()))
+    expect(cells[0]).toEqual(['2', 'SKU-1', '更新', '5', '1', '8', '+3', 'StocktakeDifference', '—', ''])
+    expect(cells[1]).toEqual(['3', 'SKU-2', '無變更', '4', '1', '4', '0', 'Other', '櫃位 B 重新盤點', ''])
+  })
+
+  /**
+   * 組長 PR #89 item 5：「載入更多」要累加。第二頁回來之後第一頁的列還在，而且第二次請求帶的是
+   * 第一頁給的游標。
+   */
+  it('keeps the earlier rows when loading more', async () => {
+    mockPreview.mockResolvedValue(batch({ rowCount: 60 }))
+    mockGetBatch.mockResolvedValue(batch({ rowCount: 60 }))
+    mockGetRows
+      .mockResolvedValueOnce({ items: [row({ skuCode: 'SKU-FIRST' })], nextCursor: 'cursor-2', hasMore: true })
+      .mockResolvedValueOnce({ items: [row({ sourceRowNumber: 52, skuCode: 'SKU-SECOND' })], nextCursor: null, hasMore: false })
+
+    const wrapper = mountPage()
+    await attachFile(wrapper)
+    await wrapper.find('form[aria-label="庫存匯入上傳"]').trigger('submit')
+    await flushPromises()
+    expect(wrapper.text()).toContain('SKU-FIRST')
+
+    await wrapper.findAll('button').find((button) => button.text() === '載入更多')!.trigger('click')
+    await flushPromises()
+
+    expect(mockGetRows).toHaveBeenCalledTimes(2)
+    expect(mockGetRows.mock.calls[1][1]).toEqual(expect.objectContaining({ cursor: 'cursor-2' }))
+    expect(wrapper.text()).toContain('SKU-FIRST')
+    expect(wrapper.text()).toContain('SKU-SECOND')
+    expect(wrapper.findAll('button').find((button) => button.text() === '載入更多')).toBeUndefined()
   })
 
   it('sends the batch RowVersion when confirming', async () => {

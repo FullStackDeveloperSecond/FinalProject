@@ -36,19 +36,23 @@ public sealed class AdminProductImportsController : ControllerBase
     [Consumes("multipart/form-data")]
     [ProducesResponseType<ProductImportBatchDto>(StatusCodes.Status202Accepted)]
     [RequestSizeLimit(MultipartBodyLengthLimit)]
-    [RequestFormLimits(MultipartBodyLengthLimit = MultipartBodyLengthLimit, ValueCountLimit = 4)]
+    [RequestFormLimits(MultipartBodyLengthLimit = MultipartBodyLengthLimit, ValueCountLimit = 5)]
     public async Task<ActionResult<ProductImportBatchDto>> Preview(
         IFormFile? productsFile,
         IFormFile? skusFile,
         IFormFile? specificationsFile,
+        IFormFile? workbookFile,
         [FromForm] int templateVersion,
         CancellationToken cancellationToken)
     {
+        // 「上傳 XLSX，或三份 CSV」：workbookFile 有檔就走單一 XLSX，三個 CSV 欄位必須留空；
+        // 兩邊都給由服務以 validation_failed 拒絕。
         var request = new PreviewProductImportRequest(
             ToIncomingFile(productsFile),
             ToIncomingFile(skusFile),
             ToIncomingFile(specificationsFile),
-            templateVersion);
+            templateVersion,
+            workbookFile is null ? null : ToIncomingFile(workbookFile));
 
         var result = await _service.PreviewAsync(request, GetAdminUserId(), cancellationToken);
         return StatusCode(StatusCodes.Status202Accepted, result);

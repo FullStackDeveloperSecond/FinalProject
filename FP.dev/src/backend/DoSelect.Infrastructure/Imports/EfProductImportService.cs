@@ -22,6 +22,9 @@ namespace DoSelect.Infrastructure.Imports;
 /// </summary>
 public sealed class EfProductImportService : IProductImportService
 {
+    /// <summary>匯入暫存與庫存調整設計.md「商品模板 v1」：XLSX 工作表名稱固定，順序對應三個資料集。</summary>
+    public static readonly IReadOnlyList<string> WorkbookSheetNames = ["Products", "Skus", "Specifications"];
+
     private const int MaxFileSizeBytes = 10 * 1024 * 1024;
     private const int MaxTotalRows = 5_000;
 
@@ -69,13 +72,52 @@ public sealed class EfProductImportService : IProductImportService
         await ImportBatchStaging.ExpireStaleBatchesAsync(
             _dbContext, createdByAdminUserId, ImportType.Product, now, cancellationToken);
 
-        var productsBytes = await ImportBatchStaging.ReadFileAsync(request.ProductsFile, "Products", "a product import", cancellationToken);
-        var skusBytes = await ImportBatchStaging.ReadFileAsync(request.SkusFile, "Skus", "a product import", cancellationToken);
-        var specificationsBytes = await ImportBatchStaging.ReadFileAsync(request.SpecificationsFile, "Specifications", "a product import", cancellationToken);
+        IReadOnlyList<StagedImportRow<ProductPayload>> productRows;
+        IReadOnlyList<StagedImportRow<SkuPayload>> skuRows;
+        IReadOnlyList<StagedImportRow<SpecificationPayload>> specificationRows;
+        Action<ImportBatch> setSources;
 
-        var productRows = ImportBatchStaging.ParseCsv(productsBytes, ProductRowParser.Parse, "Products");
-        var skuRows = ImportBatchStaging.ParseCsv(skusBytes, SkuRowParser.Parse, "Skus");
-        var specificationRows = ImportBatchStaging.ParseCsv(specificationsBytes, SpecificationRowParser.Parse, "Specifications");
+        if (request.WorkbookFile is { HasFile: true })
+        {
+            // 「上傳 XLSX，或三份 CSV」——兩條路只能走一條，同時給就是呼叫端搞錯了。
+            if (request.ProductsFile.HasFile || request.SkusFile.HasFile || request.SpecificationsFile.HasFile)
+            {
+                throw DomainProblemException.Validation(
+                    "Upload either one XLSX workbook or the three CSV files, not both.");
+            }
+
+            var workbookBytes = await ImportBatchStaging.ReadFileAsync(request.WorkbookFile, "Workbook", "a product import", cancellationToken);
+            var sheets = ImportBatchStaging.ReadWorkbookSheets(workbookBytes, WorkbookSheetNames);
+
+            // 工作表讀成字串列之後走與 CSV 完全相同的 Parser——對等在這裡是結構性的。
+            productRows = ImportBatchStaging.ParseRows(sheets[WorkbookSheetNames[0]], ProductRowParser.Parse);
+            skuRows = ImportBatchStaging.ParseRows(sheets[WorkbookSheetNames[1]], SkuRowParser.Parse);
+            specificationRows = ImportBatchStaging.ParseRows(sheets[WorkbookSheetNames[2]], SpecificationRowParser.Parse);
+
+            // 單一檔就只有一組來源；第 2／3 組留 null，與庫存匯入「只用第 1 組」同一種表達。
+            var workbookHash = SHA256.HashData(workbookBytes);
+            var workbookName = request.WorkbookFile.OriginalFileName;
+            setSources = batch => batch.SetSources(workbookHash, workbookName, null, null, null, null, now);
+        }
+        else
+        {
+            var productsBytes = await ImportBatchStaging.ReadFileAsync(request.ProductsFile, "Products", "a product import", cancellationToken);
+            var skusBytes = await ImportBatchStaging.ReadFileAsync(request.SkusFile, "Skus", "a product import", cancellationToken);
+            var specificationsBytes = await ImportBatchStaging.ReadFileAsync(request.SpecificationsFile, "Specifications", "a product import", cancellationToken);
+
+            productRows = ImportBatchStaging.ParseCsv(productsBytes, ProductRowParser.Parse, "Products");
+            skuRows = ImportBatchStaging.ParseCsv(skusBytes, SkuRowParser.Parse, "Skus");
+            specificationRows = ImportBatchStaging.ParseCsv(specificationsBytes, SpecificationRowParser.Parse, "Specifications");
+
+            var productsHash = SHA256.HashData(productsBytes);
+            var skusHash = SHA256.HashData(skusBytes);
+            var specificationsHash = SHA256.HashData(specificationsBytes);
+            setSources = batch => batch.SetSources(
+                productsHash, request.ProductsFile.OriginalFileName,
+                skusHash, request.SkusFile.OriginalFileName,
+                specificationsHash, request.SpecificationsFile.OriginalFileName,
+                now);
+        }
 
         var totalRowCount = productRows.Count + skuRows.Count + specificationRows.Count;
         if (totalRowCount == 0)
@@ -103,11 +145,7 @@ public sealed class EfProductImportService : IProductImportService
             now.AddHours(24),
             Guid.CreateVersion7(),
             now);
-        batch.SetSources(
-            SHA256.HashData(productsBytes), request.ProductsFile.OriginalFileName,
-            SHA256.HashData(skusBytes), request.SkusFile.OriginalFileName,
-            SHA256.HashData(specificationsBytes), request.SpecificationsFile.OriginalFileName,
-            now);
+        setSources(batch);
 
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
         try

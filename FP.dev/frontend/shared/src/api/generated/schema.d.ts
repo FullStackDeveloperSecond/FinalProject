@@ -4754,9 +4754,9 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "text/plain": components["schemas"]["CursorPageOfImportRowDto"];
-                        "application/json": components["schemas"]["CursorPageOfImportRowDto"];
-                        "text/json": components["schemas"]["CursorPageOfImportRowDto"];
+                        "text/plain": components["schemas"]["CursorPageOfInventoryImportRowDto"];
+                        "application/json": components["schemas"]["CursorPageOfInventoryImportRowDto"];
+                        "text/json": components["schemas"]["CursorPageOfInventoryImportRowDto"];
                     };
                 };
             };
@@ -4893,6 +4893,8 @@ export interface paths {
                         skusFile?: components["schemas"]["IFormFile"];
                     } & {
                         specificationsFile?: components["schemas"]["IFormFile"];
+                    } & {
+                        workbookFile?: components["schemas"]["IFormFile"];
                     } & {
                         /** Format: int32 */
                         templateVersion?: number | string;
@@ -10222,6 +10224,11 @@ export interface components {
             nextCursor: null | string;
             hasMore: boolean;
         };
+        CursorPageOfInventoryImportRowDto: {
+            items: components["schemas"]["InventoryImportRowDto"][];
+            nextCursor: null | string;
+            hasMore: boolean;
+        };
         CursorPageOfInventoryReservationDto: {
             items: components["schemas"]["InventoryReservationDto"][];
             nextCursor: null | string;
@@ -10387,6 +10394,23 @@ export interface components {
             confirmedAtUtc: null | string;
             /** Format: byte */
             rowVersion: string;
+        };
+        InventoryImportRowDto: {
+            /** Format: int32 */
+            sourceRowNumber: number | string;
+            skuCode: string;
+            action: string;
+            errorCodes: string[];
+            /** Format: int32 */
+            beforeOnHand: null | number | string;
+            /** Format: int32 */
+            reservedQuantity: null | number | string;
+            /** Format: int32 */
+            targetOnHand: null | number | string;
+            /** Format: int32 */
+            delta: null | number | string;
+            reasonCode: null | string;
+            note: null | string;
         };
         InventoryMovementDto: {
             /** Format: uuid */

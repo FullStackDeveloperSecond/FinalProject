@@ -116,6 +116,32 @@ describe('ProductImportPage', () => {
     expect(submit().attributes('disabled')).toBeUndefined()
   })
 
+  /**
+   * 組長 PR #89 item 6：XLSX 是規格明列的另一條路。選了 XLSX 模式就只送 workbook，三個 CSV 欄位
+   * 不再是必填——否則管理員得為了一個 XLSX 再湊三個空 CSV。
+   */
+  it('uploads a single workbook when the XLSX mode is chosen', async () => {
+    mockPreview.mockResolvedValue(batch())
+    mockGetBatch.mockResolvedValue(batch())
+    mockGetRows.mockResolvedValue(rowsPage([row()]))
+
+    const wrapper = mountPage()
+    await wrapper.find('input[type="radio"][value="workbook"]').setValue()
+    const submit = () => wrapper.findAll('button').find((button) => button.text() === '上傳並預覽')!
+    expect(submit().attributes('disabled')).toBeDefined()
+
+    await attachFile(wrapper, '商品匯入 XLSX')
+    expect(submit().attributes('disabled')).toBeUndefined()
+    await wrapper.find('form[aria-label="商品匯入上傳"]').trigger('submit')
+    await flushPromises()
+
+    expect(mockPreview).toHaveBeenCalledWith(
+      expect.objectContaining({ workbook: expect.any(File) }),
+      1,
+    )
+    expect(mockPreview.mock.calls[0][0].products).toBeUndefined()
+  })
+
   it('uploads the three datasets and shows the preview statistics', async () => {
     mockPreview.mockResolvedValue(batch())
     mockGetBatch.mockResolvedValue(batch())

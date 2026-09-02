@@ -5,11 +5,15 @@
  * 兩頁只有「上傳什麼」不同——商品是三個資料集、庫存是一個——所以上傳表單留在各自的頁面，
  * 上傳之後的一切都在這裡。共用的是同一段程式而不是兩份長得像的程式：確認按鈕什麼時候該亮、
  * 錯誤怎麼呈現這種規則，分成兩份遲早會分岔。
+ *
+ * 唯一不共用的是預覽列的欄位：庫存匯入的列是明確型別（Before／Delta／After／原因／說明），管理員
+ * 要在原子確認前核對實際庫存變化；商品匯入的列只有鍵值與動作。
  */
 import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { describeApiError } from '../../shared/errorMessages'
+import { isInventoryImportRow, isProductImportRow, type AnyImportRow, type InventoryImportRowDto } from '../types'
 import { useConfirmImport, useDownloadImportErrors, useImportBatch, useImportRows, type ImportKind } from '../useImports'
 
 const props = defineProps<{
@@ -20,17 +24,27 @@ const props = defineProps<{
 const emit = defineEmits<{ committed: [] }>()
 
 const errorsOnly = ref(false)
-const cursor = ref<string | undefined>(undefined)
 
 const { data: batch, isPending: isBatchPending, isError: isBatchError, error: batchError, refetch: refetchBatch }
   = useImportBatch(props.kind, () => props.batchId)
 
-const rowsParams = computed(() => ({ errorsOnly: errorsOnly.value, cursor: cursor.value, pageSize: 50 }))
-const { data: rows, isPending: isRowsPending, isError: isRowsError, error: rowsError, refetch: refetchRows }
-  = useImportRows(props.kind, () => props.batchId, rowsParams)
+const rowsFilter = computed(() => ({ errorsOnly: errorsOnly.value, pageSize: 50 }))
+const {
+  data: rowPages,
+  isPending: isRowsPending,
+  isError: isRowsError,
+  error: rowsError,
+  refetch: refetchRows,
+  fetchNextPage,
+  hasNextPage,
+  isFetchingNextPage,
+} = useImportRows(props.kind, () => props.batchId, rowsFilter)
 
-// 換批次或換篩選就回到第一頁；沿用舊游標會拿到一份對不上目前條件的資料。
-watch(() => [props.batchId, errorsOnly.value], () => { cursor.value = undefined })
+// 組長 PR #89 item 5：所有已載入的頁攤平顯示，「載入更多」只往後加，不覆蓋前面的列。
+const rowItems = computed<AnyImportRow[]>(() => rowPages.value?.pages.flatMap(page => page.items as AnyImportRow[]) ?? [])
+const inventoryRows = computed(() => rowItems.value.filter(isInventoryImportRow))
+const productRows = computed(() => rowItems.value.filter(isProductImportRow))
+const isInventory = computed(() => props.kind === 'inventory')
 
 const confirmMutation = useConfirmImport(props.kind)
 const downloadErrors = useDownloadImportErrors(props.kind)
@@ -118,6 +132,17 @@ function formatStatus(status: string): string {
 
 function formatAction(action: string): string {
   return { Insert: '新增', Update: '更新', NoChange: '無變更', Error: '錯誤' }[action] ?? action
+}
+
+function formatQuantity(value: InventoryImportRowDto['beforeOnHand']): string {
+  return value === null || value === undefined ? '—' : String(value)
+}
+
+/** 調整量帶正負號，管理員一眼分得出補進與扣掉。 */
+function formatDelta(value: InventoryImportRowDto['delta']): string {
+  if (value === null || value === undefined) return '—'
+  const delta = Number(value)
+  return delta > 0 ? `+${delta}` : String(delta)
 }
 </script>
 
@@ -236,12 +261,53 @@ function formatAction(action: string): string {
         @retry="refetchRows"
       />
       <EmptyState
-        v-else-if="(rows?.items.length ?? 0) === 0"
+        v-else-if="rowItems.length === 0"
         title="沒有可顯示的預覽列"
         description="調整篩選條件，或重新上傳檔案。"
       />
-      <template v-else-if="rows">
-        <table class="import-panel__rows">
+      <template v-else>
+        <table
+          v-if="isInventory"
+          class="import-panel__rows"
+        >
+          <caption>調整量是「目標 − 調整前」，以 Preview 當時的庫存計算；確認時若庫存已變動，整批會被拒絕。</caption>
+          <thead>
+            <tr>
+              <th>來源列</th>
+              <th>SKU</th>
+              <th>動作</th>
+              <th>調整前</th>
+              <th>已保留</th>
+              <th>目標</th>
+              <th>調整量</th>
+              <th>原因</th>
+              <th>說明</th>
+              <th>錯誤碼</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="row in inventoryRows"
+              :key="row.sourceRowNumber"
+              :class="{ 'import-panel__row--error': row.action === 'Error' }"
+            >
+              <td>{{ row.sourceRowNumber }}</td>
+              <td>{{ row.skuCode }}</td>
+              <td>{{ formatAction(row.action) }}</td>
+              <td>{{ formatQuantity(row.beforeOnHand) }}</td>
+              <td>{{ formatQuantity(row.reservedQuantity) }}</td>
+              <td>{{ formatQuantity(row.targetOnHand) }}</td>
+              <td>{{ formatDelta(row.delta) }}</td>
+              <td>{{ row.reasonCode ?? '—' }}</td>
+              <td>{{ row.note ?? '—' }}</td>
+              <td>{{ row.errorCodes.join('、') }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <table
+          v-else
+          class="import-panel__rows"
+        >
           <thead>
             <tr>
               <th>資料集</th>
@@ -253,7 +319,7 @@ function formatAction(action: string): string {
           </thead>
           <tbody>
             <tr
-              v-for="row in rows.items"
+              v-for="row in productRows"
               :key="`${row.dataset}-${row.sourceRowNumber}`"
               :class="{ 'import-panel__row--error': row.action === 'Error' }"
             >
@@ -266,11 +332,12 @@ function formatAction(action: string): string {
           </tbody>
         </table>
         <button
-          v-if="rows.hasMore"
+          v-if="hasNextPage"
           type="button"
-          @click="cursor = rows.nextCursor ?? undefined"
+          :disabled="isFetchingNextPage"
+          @click="fetchNextPage()"
         >
-          載入更多
+          {{ isFetchingNextPage ? '載入中…' : '載入更多' }}
         </button>
       </template>
     </template>

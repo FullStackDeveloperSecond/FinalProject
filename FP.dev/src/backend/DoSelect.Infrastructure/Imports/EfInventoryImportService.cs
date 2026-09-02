@@ -180,6 +180,11 @@ public sealed class EfInventoryImportService : IInventoryImportService
 
             var target = row.Payload.TargetOnHand!.Value;
 
+            // Preview 當時的 Before／Reserved 存進暫存列：預覽畫面要顯示 Before／Delta／After，而這些
+            // 數字只在此刻成立。錯誤列（低於已保留）也記，管理員才看得出為什麼被擋。
+            row.Payload.BeforeOnHand = balance.OnHandQuantity;
+            row.Payload.ReservedQuantity = balance.ReservedQuantity;
+
             // 「不允許造成負 Reserved、Reserved 大於 OnHand，或覆蓋 Active Reservation」——把 OnHand
             // 調到低於已保留的數量，等於把別人已經下單佔住的貨憑空變不見。這是列級錯誤，在 Preview
             // 就要讓管理員看到，而不是等 Confirm 整批炸掉。
@@ -206,7 +211,7 @@ public sealed class EfInventoryImportService : IInventoryImportService
         return batch is null ? null : ToDto(batch);
     }
 
-    public async Task<CursorPage<ImportRowDto>> GetRowsAsync(
+    public async Task<CursorPage<InventoryImportRowDto>> GetRowsAsync(
         Guid batchPublicId,
         ImportRowsQuery query,
         CancellationToken cancellationToken)
@@ -227,7 +232,29 @@ public sealed class EfInventoryImportService : IInventoryImportService
             batchPublicId,
             query,
             [ImportDataset.InventoryAdjustments],
+            ToRowDto,
             cancellationToken);
+    }
+
+    /// <summary>
+    /// 暫存列 → 明確型別的預覽列。超過 32 KB 而只剩最小信封的列沒有 payload，那就只給得出鍵與錯誤碼。
+    /// </summary>
+    private static InventoryImportRowDto ToRowDto(ImportRow row)
+    {
+        var payload = Deserialize(row)?.Payload;
+        var target = payload?.TargetOnHand;
+        var before = payload?.BeforeOnHand;
+        return new InventoryImportRowDto(
+            row.SourceRowNumber,
+            payload?.SkuCode is { Length: > 0 } code ? code : ImportBatchStaging.OriginalKeyOf(row),
+            row.Action.ToString(),
+            ImportBatchStaging.SplitErrorCodes(row.ErrorCodes),
+            before,
+            payload?.ReservedQuantity,
+            target,
+            before is not null && target is not null ? target - before : null,
+            payload?.ReasonCode,
+            payload?.Note);
     }
 
     public async Task<byte[]?> GetErrorsCsvAsync(Guid batchPublicId, CancellationToken cancellationToken)
@@ -411,21 +438,23 @@ public sealed class EfInventoryImportService : IInventoryImportService
 
             var target = payload.TargetOnHand!.Value;
             var beforeOnHand = balance.OnHandQuantity;
-            if (target == beforeOnHand)
-            {
-                continue;
-            }
+            var beforeReserved = balance.ReservedQuantity;
 
             // 目標低於已保留數量會讓 Reserved 大於 OnHand。Preview 已經擋過一次，但 Reserved 在
             // Preview 之後可能又變多了，所以套用前再擋一次——這是最後一道，過了就寫進資料庫了。
-            if (target < balance.ReservedQuantity)
+            if (target < beforeReserved)
             {
                 throw DomainProblemException.Conflict(
                     DomainErrorCodes.InventoryImportValidationFailed,
-                    $"SKU '{payload.SkuCode}' now has {balance.ReservedQuantity} reserved, more than the target on-hand of {target}. Upload the file again to re-preview.");
+                    $"SKU '{payload.SkuCode}' now has {beforeReserved} reserved, more than the target on-hand of {target}. Upload the file again to re-preview.");
             }
 
-            balance.ApplyQuantities(target, balance.ReservedQuantity, now);
+            // 組長 PR #89 item 1：NoChange 列也要真的寫 Balance。只設 OriginalValue 不會產生 UPDATE，
+            // SQL 端的 RowVersion 條件根本不會送出去——Preview 之後被別人改到剛好等於目標值的 SKU 就
+            // 靜靜通過了。ApplyQuantities 會更新 UpdatedAtUtc，EF 才會送出帶 RowVersion 條件的 UPDATE。
+            // 同一個理由，每一列（含 Delta 為 0 的）都留一筆 Adjustment Movement：「所有列都保存
+            // Before、Delta、After、Reason、Actor、Batch PublicId 及時間」。
+            balance.ApplyQuantities(target, beforeReserved, now);
 
             _dbContext.InventoryMovements.Add(new InventoryMovement(
                 Guid.CreateVersion7(),
@@ -436,14 +465,15 @@ public sealed class EfInventoryImportService : IInventoryImportService
                 reservedDelta: 0,
                 beforeOnHand: beforeOnHand,
                 afterOnHand: target,
-                beforeReserved: balance.ReservedQuantity,
-                afterReserved: balance.ReservedQuantity,
+                beforeReserved: beforeReserved,
+                afterReserved: beforeReserved,
                 unitCostSnapshot: sku.UnitCost,
                 reasonCode: payload.ReasonCode!,
                 referenceType: "ImportBatch",
                 referencePublicId: batch.PublicId,
                 actorUserId: adminUserId,
-                occurredAtUtc: now));
+                occurredAtUtc: now,
+                adjustmentNote: payload.Note));
             applied++;
         }
 

@@ -33,6 +33,24 @@ public sealed record InventoryImportBatchDto(
     byte[] RowVersion);
 
 /// <summary>
+/// 庫存匯入預覽的一列（組長 PR #89 item 2）。與商品匯入共用的 <see cref="ImportRowDto"/> 只給得出
+/// 鍵值與動作；盤點差異要在原子確認之前被核對，所以這裡把 Preview 當時算出的 Before／Delta／After
+/// 連同原因碼與說明明確型別化，不讓前台自己猜 Raw JSON。Before／Reserved／Delta 在找不到 SKU 或
+/// Balance 的錯誤列上是 null。
+/// </summary>
+public sealed record InventoryImportRowDto(
+    int SourceRowNumber,
+    string SkuCode,
+    string Action,
+    IReadOnlyList<string> ErrorCodes,
+    int? BeforeOnHand,
+    int? ReservedQuantity,
+    int? TargetOnHand,
+    int? Delta,
+    string? ReasonCode,
+    string? Note);
+
+/// <summary>
 /// UC-ADM-INV-01 匯入（匯入暫存與庫存調整設計.md「庫存匯入確認」）。
 ///
 /// Preview 依目前 Balance 算出每一列的 Adjustment Delta 並暫存；Confirm 重新檢查 Preview 當時的
@@ -51,7 +69,7 @@ public interface IInventoryImportService
 
     Task<InventoryImportBatchDto?> GetAsync(Guid batchPublicId, CancellationToken cancellationToken);
 
-    Task<CursorPage<ImportRowDto>> GetRowsAsync(
+    Task<CursorPage<InventoryImportRowDto>> GetRowsAsync(
         Guid batchPublicId,
         ImportRowsQuery query,
         CancellationToken cancellationToken);

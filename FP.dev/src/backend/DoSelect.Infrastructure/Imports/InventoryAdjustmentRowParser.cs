@@ -9,7 +9,17 @@ internal sealed record InventoryAdjustmentPayload(
     string SkuCode,
     int? TargetOnHand,
     string? ReasonCode,
-    string? Note);
+    string? Note)
+{
+    /// <summary>
+    /// Preview 對照 Balance 之後算出來的快照（組長 PR #89 item 2）。管理員在原子確認之前要看得到
+    /// Before／Delta／After，而這些數字只在 Preview 那一刻成立，所以存進暫存列，不在讀取時重算——
+    /// 重算會拿到「現在」的庫存，而 Confirm 檢查的正是它有沒有變。
+    /// </summary>
+    public int? BeforeOnHand { get; set; }
+
+    public int? ReservedQuantity { get; set; }
+}
 
 /// <summary>
 /// 匯入暫存與庫存調整設計.md「Inventory Adjustments」欄位契約。標題列固定為

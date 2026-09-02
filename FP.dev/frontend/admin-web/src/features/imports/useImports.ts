@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 import {
   confirmInventoryImport,
@@ -12,8 +12,9 @@ import {
   getProductImportRows,
   previewInventoryImport,
   previewProductImport,
-  type ImportRowsParams,
+  type ProductImportFiles,
 } from './api'
+import type { AnyImportRowsPage } from './types'
 
 /** 目前的模板版本，與後端的 CurrentTemplateVersion 一致。 */
 export const CurrentTemplateVersion = 1
@@ -36,16 +37,28 @@ export function useImportBatch(kind: ImportKind, batchId: MaybeRefOrGetter<strin
   })
 }
 
+export interface ImportRowsFilter {
+  errorsOnly?: boolean
+  pageSize?: number
+}
+
+/**
+ * 組長 PR #89 item 5：「載入更多」是累加，不是換頁。上一版只改 cursor，新的一頁會取代上一頁，
+ * 超過 50 列就沒辦法連續檢視、也回不去。改用 infinite query：每一頁的游標由上一頁的 nextCursor
+ * 提供，畫面把所有頁攤平。換篩選條件（只看錯誤列）就是換 key，從第一頁重來。
+ */
 export function useImportRows(
   kind: ImportKind,
   batchId: MaybeRefOrGetter<string | null>,
-  params: MaybeRefOrGetter<ImportRowsParams>,
+  filter: MaybeRefOrGetter<ImportRowsFilter>,
 ) {
-  return useQuery({
-    queryKey: computed(() => ['imports', kind, 'rows', toValue(batchId), toValue(params)] as const),
-    queryFn: () => (kind === 'product'
-      ? getProductImportRows(toValue(batchId)!, toValue(params))
-      : getInventoryImportRows(toValue(batchId)!, toValue(params))),
+  return useInfiniteQuery({
+    queryKey: computed(() => ['imports', kind, 'rows', toValue(batchId), toValue(filter)] as const),
+    queryFn: ({ pageParam }): Promise<AnyImportRowsPage> => (kind === 'product'
+      ? getProductImportRows(toValue(batchId)!, { ...toValue(filter), cursor: pageParam })
+      : getInventoryImportRows(toValue(batchId)!, { ...toValue(filter), cursor: pageParam })),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: last => (last.hasMore ? last.nextCursor ?? undefined : undefined),
     enabled: computed(() => Boolean(toValue(batchId))),
   })
 }
@@ -53,13 +66,14 @@ export function useImportRows(
 export function usePreviewImport(kind: ImportKind) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (files: { products?: File, skus?: File, specifications?: File, adjustments?: File }) =>
+    mutationFn: (files: ProductImportFiles & { adjustments?: File }) =>
       (kind === 'product'
         ? previewProductImport(
             {
-              products: files.products!,
-              skus: files.skus!,
-              specifications: files.specifications!,
+              products: files.products,
+              skus: files.skus,
+              specifications: files.specifications,
+              workbook: files.workbook,
             },
             CurrentTemplateVersion)
         : previewInventoryImport(files.adjustments!, CurrentTemplateVersion)),

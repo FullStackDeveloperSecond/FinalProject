@@ -64,7 +64,7 @@ public sealed class AdminInventoryImportsController : ControllerBase
     [Authorize(Policy = DoSelectPolicies.InventoryImportReadAll)]
     // 標上回應型別，OpenAPI 才描述得出這支端點回什麼；沒有它，產生的 typed client 只能
     // 拿到 unknown，前端得自己轉型——那等於把契約檢查關掉。
-    [ProducesResponseType<CursorPage<ImportRowDto>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<CursorPage<InventoryImportRowDto>>(StatusCodes.Status200OK)]
     public async Task<ActionResult> GetRows(
         Guid id,
         [FromQuery] string? dataset,
