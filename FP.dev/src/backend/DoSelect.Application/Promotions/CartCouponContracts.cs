@@ -21,6 +21,14 @@ public sealed record CartCouponLines(
     bool IsAssemblyDelivery);
 
 /// <summary>
+/// A stateless coupon quote together with the cart projection updated by that quote. Shipping
+/// consumes the calculation facts so fee and COD previews use the same discount result.
+/// </summary>
+public sealed record CartCouponQuote(
+    CartDto Cart,
+    CouponCalculationResult Calculation);
+
+/// <summary>
 /// 取得購物車優惠券試算輸入的讀取埠。**實作屬於 Shopping 模組（terry）的 Infrastructure。**
 /// </summary>
 /// <remarks>

@@ -10,9 +10,13 @@ function guestHeaders(guestCartKey?: string): HeadersInit | undefined {
   return guestCartKey ? { 'X-DoSelect-Guest-Cart-Key': guestCartKey } : undefined
 }
 
-export async function getShippingOptions(guestCartKey?: string): Promise<ShippingOptionsDto> {
+export async function getShippingOptions(
+  guestCartKey?: string,
+  couponCode?: string,
+): Promise<ShippingOptionsDto> {
   const { data } = await apiClient.GET('/api/v1/cart/shipping-options', {
     headers: guestHeaders(guestCartKey),
+    params: { query: { couponCode } },
   })
   return data!
 }

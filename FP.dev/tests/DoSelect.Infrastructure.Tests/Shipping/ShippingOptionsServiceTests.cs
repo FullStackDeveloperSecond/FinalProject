@@ -1,12 +1,15 @@
 using DoSelect.Application.Idempotency;
 using DoSelect.Application.Shipping;
 using DoSelect.Application.Shopping;
+using DoSelect.Application.Promotions;
 using DoSelect.Infrastructure.Idempotency;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Shipping;
 using DoSelect.Infrastructure.Shopping;
+using DoSelect.Infrastructure.Promotions;
 using Microsoft.Extensions.Options;
 using DoSelect.Domain.Shipping;
+using DoSelect.Domain.Payments;
 
 namespace DoSelect.Infrastructure.Tests.Shipping;
 
@@ -58,10 +61,10 @@ public sealed class ShippingOptionsServiceTests
         Assert.Equal(0m, options.Options.Single().Fee);
     }
 
-    /// <summary>購物車、訂單、付款與物流.md line 199: "組裝電腦...只能選擇宅配" — a cart containing an
-    /// assembly-group item must not be able to select store pickup.</summary>
+    /// <summary>組裝訂單只能選擇獨立的組裝宅配方式；一般宅配與超商取貨都必須在送出
+    /// Checkout 前標示為不可用，與 EfCheckoutTransactionGateway 的最終檢核一致。</summary>
     [Fact]
-    public async Task GetOptionsForCartAsync_WhenCartContainsAnAssemblyItem_StorePickupIsIneligible()
+    public async Task GetOptionsForCartAsync_WhenCartContainsAnAssemblyItem_OnlyAssemblyDeliveryIsEligible()
     {
         await using var context = ShippingServiceFixture.CreateContext();
         await ShippingServiceFixture.ClearShippingMethodsAsync(context);
@@ -69,6 +72,8 @@ public sealed class ShippingOptionsServiceTests
             context, ShippingMethodKinds.StorePickup, 60m, 2000m, true, false);
         var homeDelivery = await ShippingServiceFixture.SeedShippingMethodAsync(
             context, ShippingMethodKinds.HomeDelivery, 150m, 5000m, true, false);
+        var assemblyDelivery = await ShippingServiceFixture.SeedShippingMethodAsync(
+            context, ShippingMethodKinds.HomeDeliveryAssembly, 300m, 30000m, false, true);
         var sku = await ShippingServiceFixture.SeedPublishedSkuAsync(context, listPrice: 1000m);
         var identity = new CartIdentity(null, ShippingServiceFixture.UniqueGuestKey());
         await AddItemAsync(context, identity, sku, quantity: 1);
@@ -80,7 +85,10 @@ public sealed class ShippingOptionsServiceTests
         Assert.False(storePickupOption.IsEligible);
         Assert.Equal("shipping_method_not_allowed", storePickupOption.IneligibleReasonCode);
         var homeDeliveryOption = options.Options.Single(option => option.MethodCode == homeDelivery.Code);
-        Assert.True(homeDeliveryOption.IsEligible);
+        Assert.False(homeDeliveryOption.IsEligible);
+        Assert.Equal("shipping_method_not_allowed", homeDeliveryOption.IneligibleReasonCode);
+        var assemblyDeliveryOption = options.Options.Single(option => option.MethodCode == assemblyDelivery.Code);
+        Assert.True(assemblyDeliveryOption.IsEligible);
     }
 
     [Fact]
@@ -96,7 +104,8 @@ public sealed class ShippingOptionsServiceTests
 
         var options = await CreateService(context).GetOptionsForCartAsync(identity, CancellationToken.None);
 
-        Assert.DoesNotContain("cashOnDelivery", options.Options.Single().AllowedPaymentMethods);
+        Assert.DoesNotContain(PaymentMethod.CashOnDelivery, options.Options.Single().AllowedPaymentMethods);
+        Assert.Equal(PaymentMethodPolicy.PrepaidMethods, options.Options.Single().AllowedPaymentMethods);
     }
 
     [Fact]
@@ -112,7 +121,7 @@ public sealed class ShippingOptionsServiceTests
 
         var options = await CreateService(context).GetOptionsForCartAsync(identity, CancellationToken.None);
 
-        Assert.DoesNotContain("cashOnDelivery", options.Options.Single().AllowedPaymentMethods);
+        Assert.DoesNotContain(PaymentMethod.CashOnDelivery, options.Options.Single().AllowedPaymentMethods);
     }
 
     /// <summary>
@@ -187,11 +196,18 @@ public sealed class ShippingOptionsServiceTests
         Assert.Equal(ShippingErrorCodes.ShippingMethodNotAllowed, option.IneligibleReasonCode);
     }
 
-    private static EfShippingOptionsService CreateService(DoSelectDbContext context) =>
-        new(context, new EfCartService(context, new EfIdempotencyExecutor(
+    private static EfShippingOptionsService CreateService(DoSelectDbContext context)
+    {
+        var cartService = new EfCartService(context, new EfIdempotencyExecutor(
             context,
             Options.Create(new IdempotencyOptions { ActorScopePepper = TestActorScopePepper }),
-            TimeProvider.System)));
+            TimeProvider.System));
+        var couponService = new ApplyCartCouponService(
+            cartService,
+            new EfCartCouponLineReader(context, cartService),
+            new CouponQuoteService(new CouponRuleReader(context), TimeProvider.System));
+        return new EfShippingOptionsService(context, cartService, couponService);
+    }
 
     private static Task AddItemAsync(DoSelectDbContext context, CartIdentity identity, DoSelect.Domain.Catalog.Sku sku, int quantity)
     {

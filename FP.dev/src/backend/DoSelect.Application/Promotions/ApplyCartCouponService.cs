@@ -43,7 +43,18 @@ public sealed class ApplyCartCouponService
     public async Task<CartDto> ApplyAsync(
         CartIdentity identity,
         ApplyCartCouponRequest request,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        (await QuoteAsync(identity, request, cancellationToken)).Cart;
+
+    /// <summary>
+    /// Returns both the public cart projection and the calculation facts needed by Shipping.
+    /// The quote remains read-only and does not reserve coupon usage.
+    /// </summary>
+    public async Task<CartCouponQuote> QuoteAsync(
+        CartIdentity identity,
+        ApplyCartCouponRequest request,
+        CancellationToken cancellationToken = default,
+        bool? isAssemblyDeliveryOverride = null)
     {
         ArgumentNullException.ThrowIfNull(identity);
         ArgumentNullException.ThrowIfNull(request);
@@ -60,7 +71,7 @@ public sealed class ApplyCartCouponService
                 identity.MemberUserId,
                 // 訪客預覽不帶每人身分（DEC-P262）。詳見 GuestUsageKeyHash 的說明。
                 GuestUsageKeyHash: null,
-                input.IsAssemblyDelivery),
+                isAssemblyDeliveryOverride ?? input.IsAssemblyDelivery),
             cancellationToken);
 
         if (!quote.IsSuccess)
@@ -76,7 +87,7 @@ public sealed class ApplyCartCouponService
 
         var cart = await _cartService.GetCartAsync(identity, cancellationToken);
         RequireSameCart(input, cart);
-        return WithCoupon(cart, request.Code, quote);
+        return new CartCouponQuote(WithCoupon(cart, request.Code, quote), quote);
     }
 
     /// <summary>

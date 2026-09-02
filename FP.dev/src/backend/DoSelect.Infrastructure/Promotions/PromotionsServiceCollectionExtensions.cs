@@ -17,6 +17,7 @@ public static class PromotionsServiceCollectionExtensions
         services.AddSingleton<CouponGuestUsageHasher>();
         services.AddScoped<ICouponRuleReader, CouponRuleReader>();
         services.AddScoped<CouponQuoteService>();
+        services.AddScoped<ApplyCartCouponService>();
         services.AddScoped<IAdminCouponService, EfAdminCouponService>();
 
         return services;

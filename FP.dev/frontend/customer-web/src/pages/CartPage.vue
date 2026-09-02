@@ -2,6 +2,7 @@
 import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
 import { computed, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import CartLineItem from '../features/cart/components/CartLineItem.vue'
 import ShippingOptionList from '../features/shipping/components/ShippingOptionList.vue'
 import { useShippingOptions } from '../features/shipping/useShipping'
@@ -17,6 +18,7 @@ import { useSessionStore } from '../stores/session'
 import type { CartItemDto, CartIssueDto } from '../features/cart/types'
 
 const sessionStore = useSessionStore()
+const router = useRouter()
 
 // 組長 PR #29 review: bare issue codes ("cart_item_requires_attention") aren't something a
 // shopper can act on — CartWarningDto already carries a backend-authored human message, but
@@ -158,6 +160,12 @@ const canCheckout = computed(() => {
   }
   return validatedForRowVersion.value === cart.value.rowVersion && isCheckoutReady.value
 })
+
+function goToCheckout(): void {
+  if (canCheckout.value) {
+    void router.push({ name: 'checkout' })
+  }
+}
 
 // PR #29 review round 2: runRevalidate used to be fired-and-forgotten from onMounted and every
 // mutation's onSuccess with no lifecycle management — overlapping calls could resolve out of
@@ -534,8 +542,9 @@ const {
           class="cart-page__checkout"
           :disabled="!canCheckout"
           :title="!canCheckout ? '請先完成購物車檢查才能結帳' : undefined"
+          @click="goToCheckout"
         >
-          前往結帳（開發中）
+          前往結帳
         </button>
       </div>
     </div>

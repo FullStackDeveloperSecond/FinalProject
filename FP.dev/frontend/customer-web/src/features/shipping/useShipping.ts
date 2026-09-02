@@ -31,13 +31,22 @@ function useShippingIdentity() {
 export function useShippingOptions(
   enabled: MaybeRefOrGetter<boolean> = true,
   cartRowVersion: MaybeRefOrGetter<string | null | undefined> = null,
+  couponCode: MaybeRefOrGetter<string | null | undefined> = null,
 ) {
   const sessionStore = useSessionStore()
   const identity = useShippingIdentity()
 
   return useQuery({
-    queryKey: computed(() => ['shipping-options', ...identity.value, toValue(cartRowVersion) ?? ''] as const),
-    queryFn: () => getShippingOptions(getOrCreateGuestCartKey()),
+    queryKey: computed(() => [
+      'shipping-options',
+      ...identity.value,
+      toValue(cartRowVersion) ?? '',
+      toValue(couponCode) ?? '',
+    ] as const),
+    queryFn: () => getShippingOptions(
+      getOrCreateGuestCartKey(),
+      toValue(couponCode) || undefined,
+    ),
     enabled: computed(() => sessionStore.isIdentityConfirmed && toValue(enabled)),
     // 組長 PR #79 round-2 review item 1：這裡原本用 `placeholderData` 保留上一版結果避免閃爍，
     // 但那正好抵銷了把 RowVersion 放進 key 的意義——購物車改完之後，新請求回來之前畫面上仍是

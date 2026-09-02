@@ -722,6 +722,17 @@
         "tags": [
           "Shipping"
         ],
+        "parameters": [
+          {
+            "name": "couponCode",
+            "in": "query",
+            "schema": {
+              "maxLength": 64,
+              "minLength": 0,
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "OK",
@@ -22797,7 +22808,7 @@
           "allowedPaymentMethods": {
             "type": "array",
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/PaymentMethod"
             }
           }
         }

@@ -522,7 +522,9 @@ export interface paths {
         };
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    couponCode?: string;
+                };
                 header?: never;
                 path?: never;
                 cookie?: never;
@@ -11123,7 +11125,7 @@ export interface components {
             freeShippingThreshold: null | number | string;
             requiresAddress: boolean;
             requiresStore: boolean;
-            allowedPaymentMethods: string[];
+            allowedPaymentMethods: components["schemas"]["PaymentMethod"][];
         };
         ShippingOptionsDto: {
             /** Format: uuid */
