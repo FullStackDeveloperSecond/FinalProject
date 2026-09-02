@@ -3,9 +3,8 @@ namespace DoSelect.Application.Orders;
 /// <summary>
 /// M-10 逾時取消的排程入口（庫存規則.md：「背景排程自動取消逾時訂單並釋放保留庫存」）。
 ///
-/// 組長 PR #85 round-1 review [P1]：先前的排程只呼叫
-/// <c>IInventoryReservationService.ExpireOverdueReservationsAsync</c> 釋放庫存，訂單本身留在
-/// PendingPayment，優惠券座位與待處理組裝資源也沒有回收。除了讓訂單永遠停在待付款之外，付款成功
+/// 組長 PR #85 round-1 review [P1]：先前的排程只釋放庫存保留，訂單本身留在 PendingPayment，
+/// 優惠券座位與待處理組裝資源也沒有回收。除了讓訂單永遠停在待付款之外，付款成功
 /// 與逾時掃描在期限邊界還可以同時成立：付款先讀到 PendingPayment，排程另行釋放 Reservation，付款
 /// 再提交 Confirmed——最後是一筆已付款卻沒有有效庫存保留的訂單。
 ///

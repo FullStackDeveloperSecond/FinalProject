@@ -250,6 +250,98 @@ public sealed class OrderTimeoutCancellationServiceTests
         }
     }
 
+    /// <summary>
+    /// 組長 PR #85 round-2 review [P1]：一次把整批 Order 當成 tracked entity 載入，而清理路徑呼叫
+    /// 的 ChangeTracker.Clear() 會連帶 detach 批次裡尚未處理的訂單。後面那些訂單照樣跑完流程——
+    /// Releaser 查出的 Reservation／Balance／Coupon 與新增的 History／Audit 都是這一輪才追蹤的，
+    /// 會被提交；唯獨 detached 的 order.ChangeOrderStatus(Cancelled) 不會。結果就是資源釋放了、
+    /// 訂單卻還停在 PendingPayment。
+    ///
+    /// 這支測試不靠時序：第一筆刻意種成庫存不一致（Balance 的 Reserved 少於該訂單的保留量），
+    /// Releaser 會丟 InvalidOperationException 走清理路徑；第二筆是健康的，必須完整取消——
+    /// 訂單進 Cancelled **而且** 保留被釋放，兩件事在同一次 SaveChanges 裡。
+    /// </summary>
+    [Fact]
+    public async Task WhenAnEarlierOrderHitsCleanup_TheNextOrderStillCancelsAndReleasesTogether()
+    {
+        await using var context = OrderServiceFixture.CreateContext();
+        await NeutraliseExistingDeadlinesAsync(context);
+        var memberUserId = await OrderServiceFixture.SeedMemberUserIdAsync(context);
+        var provider = await OrderServiceFixture.SeedShippingProviderProfileAsync(context);
+
+        // 先種的 Id 較小，所以在 (PaymentDueAtUtc, Id) 排序下一定先被處理。
+        var broken = await OrderServiceFixture.SeedOrderAsync(
+            context, memberUserId, provider.Id, OrderStatus.PendingPayment);
+        var (brokenBalance, brokenReservation) =
+            await OrderServiceFixture.SeedInventoryReservationAsync(context, broken);
+
+        // 讓 Balance 的 Reserved 少於這筆訂單的保留量：Releaser 認定庫存狀態不一致而拋出。
+        await context.Database.ExecuteSqlAsync(
+            $"UPDATE [InventoryBalances] SET [ReservedQuantity] = 0 WHERE [Id] = {brokenBalance.Id}");
+
+        var healthy = await OrderServiceFixture.SeedOrderAsync(
+            context, memberUserId, provider.Id, OrderStatus.PendingPayment);
+        var (_, healthyReservation) =
+            await OrderServiceFixture.SeedInventoryReservationAsync(context, healthy);
+
+        await using var actContext = OrderServiceFixture.CreateContext();
+        var cancelled = await CreateService(actContext).CancelOverduePendingPaymentOrdersAsync(
+            PastTheDeadline(), batchSize: 100, CancellationToken.None);
+
+        Assert.Equal(1, cancelled);
+
+        await using var verify = OrderServiceFixture.CreateContext();
+
+        // 壞掉的那筆完全沒動——不能只釋放資源卻留下 PendingPayment 的訂單。
+        Assert.Equal(OrderStatus.PendingPayment, await StatusOf(verify, broken.PublicId));
+        var brokenReloaded = await verify.InventoryReservations.AsNoTracking()
+            .SingleAsync(candidate => candidate.Id == brokenReservation.Id);
+        Assert.Equal(InventoryReservationStatus.Active, brokenReloaded.Status);
+
+        // 第二筆必須兩件事都成立，而不是只提交了資源變更。
+        Assert.Equal(OrderStatus.Cancelled, await StatusOf(verify, healthy.PublicId));
+        var healthyReloaded = await verify.InventoryReservations.AsNoTracking()
+            .SingleAsync(candidate => candidate.Id == healthyReservation.Id);
+        Assert.Equal(InventoryReservationStatus.Released, healthyReloaded.Status);
+    }
+
+    /// <summary>
+    /// 查詢與處理之間狀態變了（付款成功、人工取消）就跳過這一筆。因為現在是每筆重新載入 tracked
+    /// Order，這個檢查用的是「重新讀到的狀態」而不是批次查詢當下的快照。
+    /// </summary>
+    [Fact]
+    public async Task SkipsAnOrderThatLeftPendingPaymentBetweenTheQueryAndTheReload()
+    {
+        await using var context = OrderServiceFixture.CreateContext();
+        await NeutraliseExistingDeadlinesAsync(context);
+        var memberUserId = await OrderServiceFixture.SeedMemberUserIdAsync(context);
+        var provider = await OrderServiceFixture.SeedShippingProviderProfileAsync(context);
+        var order = await OrderServiceFixture.SeedOrderAsync(
+            context, memberUserId, provider.Id, OrderStatus.PendingPayment);
+        var (_, reservation) = await OrderServiceFixture.SeedInventoryReservationAsync(context, order);
+
+        await using var actContext = OrderServiceFixture.CreateContext();
+        var service = CreateService(actContext);
+
+        // 在掃描開始前把它推進 Confirmed——批次查詢會查不到它，重新載入時也不再是 PendingPayment。
+        await using (var other = OrderServiceFixture.CreateContext())
+        {
+            var concurrent = await other.Orders.SingleAsync(candidate => candidate.Id == order.Id);
+            concurrent.ChangeOrderStatus(OrderStatus.Confirmed, DateTime.UtcNow);
+            await other.SaveChangesAsync();
+        }
+
+        var cancelled = await service.CancelOverduePendingPaymentOrdersAsync(
+            PastTheDeadline(), batchSize: 100, CancellationToken.None);
+
+        Assert.Equal(0, cancelled);
+        await using var verify = OrderServiceFixture.CreateContext();
+        Assert.Equal(OrderStatus.Confirmed, await StatusOf(verify, order.PublicId));
+        var reloaded = await verify.InventoryReservations.AsNoTracking()
+            .SingleAsync(candidate => candidate.Id == reservation.Id);
+        Assert.Equal(InventoryReservationStatus.Active, reloaded.Status);
+    }
+
     [Fact]
     public async Task RejectsANonPositiveBatchSize()
     {

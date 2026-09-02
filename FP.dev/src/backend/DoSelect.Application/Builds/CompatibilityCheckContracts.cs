@@ -48,9 +48,8 @@ public interface ICompatibilityCheckService
     /// without a retention job the tables grow indefinitely (組長 PR #34 round-4 review, item 3).
     /// Bounded per call and safe to call repeatedly until it returns 0 (retryable/monitorable batch
     /// shape — no recurring-job scheduler is wired up to call this automatically yet; that is
-    /// shared background-job infrastructure this PR does not introduce, mirroring
-    /// IInventoryReservationService.ExpireOverdueReservationsAsync's same "job logic exists, caller
-    /// decides when to invoke it" shape). Never deletes a Run referenced by a still-live
+    /// shared background-job infrastructure this PR does not introduce). Never deletes a Run
+    /// referenced by a still-live
     /// InventoryReconciliationCase-style FK — Runs have no such external reference, so a plain
     /// age-based delete is safe. Returns the number of Runs deleted.
     /// </summary>

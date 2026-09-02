@@ -9,9 +9,9 @@ namespace DoSelect.Infrastructure.Inventory;
 /// M-10 逾時取消（庫存規則.md「背景排程自動取消逾時訂單並釋放保留庫存」）。形狀比照
 /// <see cref="Builds.CompatibilityCheckRunRetentionBackgroundService"/>。
 ///
-/// 組長 PR #85 round-1 review [P1]：第一版只呼叫 <c>ExpireOverdueReservationsAsync</c> 釋放庫存，
-/// 訂單留在 PendingPayment、優惠券座位與待處理組裝資源也沒回收，而且付款成功與這輪掃描在期限邊界
-/// 可以同時成立。現在改為以「訂單」為單位，透過
+/// 組長 PR #85 round-1 review [P1]：第一版只釋放庫存保留，訂單留在 PendingPayment、優惠券座位與
+/// 待處理組裝資源也沒回收，而且付款成功與這輪掃描在期限邊界可以同時成立。round-2 裁定 B1 進一步
+/// 移除了那個「只釋放庫存卻不取消訂單」的公開契約，訂單層取消是現在唯一的逾時入口。現在改為以「訂單」為單位，透過
 /// <see cref="IOrderTimeoutCancellationService"/> 在同一交易內原子取消並回收全部資源；訂單列的
 /// RowVersion 是併發仲裁者，付款與排程不可能都成功。
 ///
