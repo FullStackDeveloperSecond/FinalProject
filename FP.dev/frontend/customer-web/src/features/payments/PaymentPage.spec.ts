@@ -301,4 +301,24 @@ describe('PaymentPage', () => {
     expect(wrapper.text()).not.toContain('無法載入先前的付款狀態')
     expect(wrapper.text()).toContain('等待付款')
   })
+
+  it('shows the payment method of the restored attempt', async () => {
+    // Issue #86 D1 要求重新整理後仍顯示「金額、付款方式、狀態與 Instruction」。
+    // 只有 API 回得出 method 不算 —— 使用者要在畫面上看得到。
+    fetchOrder.mockResolvedValue(buildOrder())
+    fetchLatestPaymentAttempt.mockResolvedValue(buildAttempt({
+      method: 'atm',
+      instruction: {
+        type: 'virtualAccount',
+        maskedAccount: null,
+        code: '9556123456789',
+        expiresAtUtc: '2026-09-02T08:00:00Z',
+      },
+    }))
+
+    const wrapper = mount(PaymentPage)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('ATM 虛擬帳號')
+  })
 })

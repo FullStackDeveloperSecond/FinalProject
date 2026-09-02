@@ -197,6 +197,15 @@ function formatDateTime(value?: string | null): string {
   return value ? new Date(value).toLocaleString('zh-TW') : '—'
 }
 
+/**
+ * 付款方式的顯示名稱，直接取自建立表單用的同一份清單 —— 兩份會漂移。
+ */
+const attemptMethodLabel = computed(() =>
+  paymentMethods.find(method => method.value === attempt.value?.method)?.label
+  ?? attempt.value?.method
+  ?? '',
+)
+
 const attemptStatusLabel: Record<string, string> = {
   pending: '等待處理',
   processing: '處理中',
@@ -290,6 +299,7 @@ const attemptStatusLabel: Record<string, string> = {
         <h2 id="attempt-title">
           付款嘗試
         </h2>
+        <p>付款方式：{{ attemptMethodLabel }}</p>
         <p>狀態：{{ attemptStatusLabel[attempt.status] ?? attempt.status }}</p>
         <p>金額：NT$ {{ attempt.amount }} {{ attempt.currency }}</p>
         <template v-if="attempt.instruction">

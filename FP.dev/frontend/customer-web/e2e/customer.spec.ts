@@ -420,6 +420,8 @@ test('a guest keeps the checkout payment attempt after reloading the payment pag
   await expect(attemptPanel).toBeVisible()
   // 進行中的嘗試已經在了，所以不該出現建立表單。
   await expect(page.locator('#payment-method')).toHaveCount(0)
+  // 重新整理「前」就要看得到付款方式 —— 沒有這一條，下面的比對在兩邊都不顯示時也會過。
+  await expect(attemptPanel).toContainText('ATM 虛擬帳號')
   const beforeReload = (await attemptPanel.textContent())?.trim()
   expect(beforeReload, 'The checkout attempt must render before the reload').toBeTruthy()
 
@@ -427,6 +429,9 @@ test('a guest keeps the checkout payment attempt after reloading the payment pag
 
   await expect(attemptPanel).toBeVisible()
   expect((await attemptPanel.textContent())?.trim()).toBe(beforeReload)
+  // D1 要求畫面上仍顯示相同的金額、付款方式、狀態與 Instruction。
+  // 只在 API JSON 上斷言 method 是測錯層級 —— 那是伺服器回得出來，不是使用者看得到。
+  await expect(attemptPanel).toContainText('ATM 虛擬帳號')
   await expect(attemptPanel).toContainText('等待付款')
   await expect(attemptPanel).toContainText('繳費代碼')
 
