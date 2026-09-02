@@ -119,6 +119,22 @@ public interface IOrderService
         OrderQuery query,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// 這個會員是不是這張訂單的擁有者。
+    /// </summary>
+    /// <remarks>
+    /// 授權解析要在<b>寫入之前</b>知道這件事：會員不是擁有者時，仍要讓同一個瀏覽器裡
+    /// 有效的 Guest token 證明權限（alex 2026-09-01 Issue #86 C1）。把判斷留到寫入內部
+    /// 才做就太晚了 —— 那時已經在冪等交易裡，沒辦法再換一條授權路徑重試。
+    /// <para>
+    /// 訂單不存在時回 <c>false</c>：呼叫端本來就把「不存在」與「不是你的」折成同一個 404。
+    /// </para>
+    /// </remarks>
+    Task<bool> IsMemberOwnerAsync(
+        string memberUserId,
+        Guid orderPublicId,
+        CancellationToken cancellationToken);
+
     Task<OrderDto> GetOrderAsync(
         OrderActor actor,
         Guid orderPublicId,

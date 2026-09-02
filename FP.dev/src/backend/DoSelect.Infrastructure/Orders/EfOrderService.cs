@@ -87,6 +87,17 @@ public sealed class EfOrderService : IOrderService
             totalCount);
     }
 
+    public Task<bool> IsMemberOwnerAsync(
+        string memberUserId,
+        Guid orderPublicId,
+        CancellationToken cancellationToken) =>
+        string.IsNullOrWhiteSpace(memberUserId) || orderPublicId == Guid.Empty
+            ? Task.FromResult(false)
+            : _dbContext.Orders.AsNoTracking().AnyAsync(
+                candidate => candidate.PublicId == orderPublicId
+                    && candidate.MemberUserId == memberUserId,
+                cancellationToken);
+
     public async Task<OrderDto> GetOrderAsync(
         OrderActor actor,
         Guid orderPublicId,

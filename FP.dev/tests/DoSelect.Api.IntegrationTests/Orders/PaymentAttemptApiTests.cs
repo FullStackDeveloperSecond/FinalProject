@@ -7,6 +7,7 @@ using System.Text.Json.Serialization;
 using DoSelect.Api.Orders;
 using DoSelect.Api.Security;
 using DoSelect.Application.Idempotency;
+using DoSelect.Application.Common;
 using DoSelect.Application.Orders;
 using DoSelect.Application.Payments;
 using DoSelect.Domain.Payments;
@@ -80,6 +81,10 @@ public sealed class PaymentAttemptApiTests : IClassFixture<WebApplicationFactory
             services.AddSingleton<IIdempotencyExecutor, UnusedIdempotencyExecutor>();
             services.RemoveAll<IPaymentAttemptWriter>();
             services.AddSingleton<IPaymentAttemptWriter>(writer);
+            // 擁有者比對現在在寫入之前做（Issue #86 C1 的 Member → Guest 回退需要它），
+            // 所以這個以假 writer 為主的測試也要有一個會說「是擁有者」的 IOrderService。
+            services.RemoveAll<IOrderService>();
+            services.AddSingleton<IOrderService, OwnerOrderService>();
         }));
 
     private static async Task<HttpResponseMessage> PostAsync(
@@ -121,6 +126,30 @@ public sealed class PaymentAttemptApiTests : IClassFixture<WebApplicationFactory
         response.EnsureSuccessStatusCode();
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         return body.GetProperty("requestToken").GetString()!;
+    }
+
+    /// <summary>只回答擁有者比對；這個測試不碰其他訂單操作。</summary>
+    private sealed class OwnerOrderService : IOrderService
+    {
+        public Task<bool> IsMemberOwnerAsync(
+            string memberUserId, Guid orderPublicId, CancellationToken cancellationToken) =>
+            Task.FromResult(memberUserId == MemberUserId);
+
+        public Task<PageResult<OrderSummaryDto>> GetOrdersAsync(
+            string memberUserId, OrderQuery query, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<OrderDto> GetOrderAsync(
+            OrderActor actor, Guid orderPublicId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<OrderDto> CancelOrderAsync(
+            OrderActor actor,
+            Guid orderPublicId,
+            CancelOrderRequest request,
+            OrderCancellationAuditContext auditContext,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 
     private sealed class FakeWriter : IPaymentAttemptWriter

@@ -126,7 +126,7 @@ public sealed class OrdersController : ControllerBase
         var resolution = await ResolveActorAsync(id, cancellationToken);
         if (resolution.Actor is null)
         {
-            return resolution.HadAuthenticatedCookie ? OrderNotFound() : Unauthorized();
+            return DenyResolution(resolution);
         }
 
         var result = await _paymentAttemptWriter.CreateAsync(
@@ -264,7 +264,7 @@ public sealed class OrdersController : ControllerBase
         var resolution = await ResolveActorAsync(id, cancellationToken);
         if (resolution.Actor is null)
         {
-            return resolution.HadAuthenticatedCookie ? OrderNotFound() : Unauthorized();
+            return DenyResolution(resolution);
         }
 
         try
@@ -287,7 +287,7 @@ public sealed class OrdersController : ControllerBase
         var resolution = await ResolveActorAsync(id, cancellationToken);
         if (resolution.Actor is null)
         {
-            return resolution.HadAuthenticatedCookie ? OrderNotFound() : Unauthorized();
+            return DenyResolution(resolution);
         }
 
         try
@@ -327,10 +327,31 @@ public sealed class OrdersController : ControllerBase
         return memberUserId;
     }
 
+    /// <summary>
+    /// 解析這個請求能不能碰這張訂單，並帶出失敗時該回的狀態碼與錯誤碼。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>會員不是擁有者時不立即拒絕</b>：同一台裝置可以同時有會員 cookie 與某張訪客訂單的
+    /// 有效 token，仍要讓那個 token 證明權限（alex 2026-09-01 Issue #86 C1、#70 finding 4）。
+    /// 擁有者比對在這裡先做完，因為寫入端點一旦進了冪等交易就沒辦法再換一條授權路徑重試。
+    /// </para>
+    /// <para>
+    /// 只有在會員不是擁有者時才去驗 Guest token。反過來先驗 Guest 會有副作用 ——
+    /// <see cref="GuestOrderAccessScopeAuthorizer"/> 對跨訂單存取會記一次違規；
+    /// 一個持有舊 token 的擁有者查自己的訂單不該被記上違規。
+    /// </para>
+    /// <para>
+    /// <b>保留 authorizer 的錯誤語意</b>：過期／撤銷是 401 <c>guest_order_access_expired</c>，
+    /// 讓使用者知道要重新驗證；Scope 不符與資源不存在一律折成 404，不洩漏資源是否存在
+    /// （#70 finding 3）。
+    /// </para>
+    /// </remarks>
     private async Task<OrderActorResolution> ResolveActorAsync(
         Guid orderPublicId,
         CancellationToken cancellationToken)
     {
+        var hadCredential = false;
         var memberAuthentication = await HttpContext.AuthenticateAsync(
             DoSelectAuthenticationSchemes.Member);
         if (memberAuthentication.Succeeded &&
@@ -338,6 +359,7 @@ public sealed class OrdersController : ControllerBase
                 DoSelectClaimTypes.AccountType,
                 DoSelectClaimValues.Member) == true)
         {
+            hadCredential = true;
             var memberUserId = memberAuthentication.Principal.FindFirstValue(ClaimTypes.NameIdentifier);
             if (string.IsNullOrWhiteSpace(memberUserId))
             {
@@ -345,14 +367,19 @@ public sealed class OrdersController : ControllerBase
                     "Authenticated member request is missing its identifier claim.");
             }
 
-            return new OrderActorResolution(new OrderActor.Member(memberUserId), true);
+            if (await _orderService.IsMemberOwnerAsync(memberUserId, orderPublicId, cancellationToken))
+            {
+                return OrderActorResolution.ForActor(new OrderActor.Member(memberUserId));
+            }
         }
 
         var guestAuthentication = await HttpContext.AuthenticateAsync(
             DoSelectAuthenticationSchemes.GuestOrderAccess);
         if (!guestAuthentication.Succeeded || guestAuthentication.Principal is null)
         {
-            return new OrderActorResolution(Actor: null, HadAuthenticatedCookie: false);
+            return hadCredential
+                ? OrderActorResolution.NotFound()
+                : OrderActorResolution.Unauthenticated();
         }
 
         var authorization = await _guestAuthorizer.AuthorizeAsync(
@@ -363,20 +390,53 @@ public sealed class OrdersController : ControllerBase
                 Activity.Current?.TraceId.ToString() ?? ActivityTraceId.CreateRandom().ToString(),
                 HttpContext.Connection.RemoteIpAddress),
             cancellationToken);
-        return authorization is GuestOrderAccessAuthorizationResult.Success success
-            ? new OrderActorResolution(new OrderActor.Guest(success.TokenPublicId), true)
-            : new OrderActorResolution(Actor: null, HadAuthenticatedCookie: true);
+
+        return authorization switch
+        {
+            GuestOrderAccessAuthorizationResult.Success success =>
+                OrderActorResolution.ForActor(new OrderActor.Guest(success.TokenPublicId)),
+            GuestOrderAccessAuthorizationResult.Failure failure
+                when failure.ErrorCode == GuestOrderErrorCodes.AccessExpired =>
+                OrderActorResolution.Expired(),
+            _ => OrderActorResolution.NotFound(GuestOrderErrorCodes.ScopeMismatch),
+        };
     }
 
-    private ActionResult OrderNotFound()
+    /// <summary>把解析失敗轉成回應。成功時呼叫端不會走到這裡。</summary>
+    private ActionResult DenyResolution(OrderActorResolution resolution) =>
+        resolution.StatusCode == StatusCodes.Status401Unauthorized
+            ? Unauthorized(ApiProblemDetailsFactory.Create(
+                HttpContext,
+                StatusCodes.Status401Unauthorized,
+                resolution.ErrorCode,
+                detail: "The request requires an authenticated owner or a valid guest order token."))
+            : NotFound(ApiProblemDetailsFactory.Create(
+                HttpContext,
+                StatusCodes.Status404NotFound,
+                resolution.ErrorCode,
+                detail: "The referenced order was not found."));
+
+
+    /// <summary>授權解析的結果；失敗時帶著該回的狀態碼與錯誤碼。</summary>
+    private sealed record OrderActorResolution(
+        OrderActor? Actor,
+        int StatusCode,
+        string ErrorCode)
     {
-        var problem = ApiProblemDetailsFactory.Create(
-            HttpContext,
-            StatusCodes.Status404NotFound,
-            OrderWriteException.ErrorCodes.ResourceNotFound,
-            detail: "The referenced order was not found.");
-        return NotFound(problem);
-    }
+        public static OrderActorResolution ForActor(OrderActor actor) =>
+            new(actor, StatusCodes.Status200OK, string.Empty);
 
-    private sealed record OrderActorResolution(OrderActor? Actor, bool HadAuthenticatedCookie);
+        /// <summary>完全沒有可用的憑證。</summary>
+        public static OrderActorResolution Unauthenticated() =>
+            new(null, StatusCodes.Status401Unauthorized, ApiErrorCodes.AuthenticationRequired);
+
+        /// <summary>Guest token 已過期或被撤銷 —— 使用者要知道該重新驗證。</summary>
+        public static OrderActorResolution Expired() =>
+            new(null, StatusCodes.Status401Unauthorized, GuestOrderErrorCodes.AccessExpired);
+
+        /// <summary>不是你的、或不存在 —— 對外不可區分。</summary>
+        public static OrderActorResolution NotFound(
+            string errorCode = OrderWriteException.ErrorCodes.ResourceNotFound) =>
+            new(null, StatusCodes.Status404NotFound, errorCode);
+    }
 }
