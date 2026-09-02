@@ -265,7 +265,7 @@ test('a shopper can open the seeded catalog and view product details', async ({ 
     level: 1,
     name: '說出需求，組出適合你的電腦',
   })).toBeVisible()
-  await page.getByRole('link', { name: /瀏覽全部商品/ }).click()
+  await page.getByRole('button', { name: '看全部商品' }).click()
 
   await expect(page).toHaveURL(/\/products$/)
   await expect(page.getByRole('heading', { level: 1, name: '商品搜尋' })).toBeVisible()
