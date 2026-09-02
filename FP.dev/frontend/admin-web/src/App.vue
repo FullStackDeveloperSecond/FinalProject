@@ -27,6 +27,16 @@ const shippingManageRoles = ['OrderManager', 'SuperAdmin']
 const canManageShipping = computed(() =>
   shippingManageRoles.some(role => auth.currentUser?.roles?.includes(role) ?? false))
 
+// 組長 PR #78 round-2 review item 2 的原則：不給一個點下去只會被導到 /forbidden 的入口。
+// 兩個匯入頁的角色與後端 Policy 對齊——商品匯入是 CatalogImport.*（CatalogManager／SuperAdmin），
+// 庫存匯入是 InventoryAdjust.*（InventoryManager／SuperAdmin）。Route guard 仍是真正的邊界。
+const catalogImportRoles = ['CatalogManager', 'SuperAdmin']
+const canImportCatalog = computed(() =>
+  catalogImportRoles.some(role => auth.currentUser?.roles?.includes(role) ?? false))
+const inventoryImportRoles = ['InventoryManager', 'SuperAdmin']
+const canImportInventory = computed(() =>
+  inventoryImportRoles.some(role => auth.currentUser?.roles?.includes(role) ?? false))
+
 const canManageCoupons = computed(() =>
   couponRoles.some(role => auth.currentUser?.roles?.includes(role) ?? false))
 const invoiceRoles = ['FinanceManager', 'SuperAdmin']
@@ -96,7 +106,10 @@ async function onLogout(): Promise<void> {
           <RouterLink to="/products">
             商品管理
           </RouterLink>
-          <RouterLink to="/products/import">
+          <RouterLink
+            v-if="canImportCatalog"
+            to="/products/import"
+          >
             商品匯入
           </RouterLink>
           <RouterLink to="/catalog/specifications">
@@ -120,7 +133,10 @@ async function onLogout(): Promise<void> {
           <RouterLink to="/inventory">
             庫存管理
           </RouterLink>
-          <RouterLink to="/inventory/imports">
+          <RouterLink
+            v-if="canImportInventory"
+            to="/inventory/imports"
+          >
             庫存匯入
           </RouterLink>
           <!--
