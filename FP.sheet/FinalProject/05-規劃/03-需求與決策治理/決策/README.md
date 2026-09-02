@@ -13,6 +13,7 @@
 
 ## 最近完成批次
 
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-046-E2E模擬付款安全邊界定版|DEC-BATCH-046｜E2E 模擬付款安全邊界定版]]：`DEC-P356`，1 項，已於 2026-09-02 寫回；產品仍只有 Demo Profile 可使用模擬完成端點，隔離 `E2E` Environment 只有在顯式開關、專屬可丟棄 SQL Database 與測試 Secret 下可啟用，Development／Production 繼續 fail-fast。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-045-付款續接Endpoint上游收束定版|DEC-BATCH-045｜付款續接 Endpoint 上游收束定版]]：`DEC-P355`，1 項，已於 2026-09-02 寫回並覆寫 `DEC-P352`；只保留上游 `/payment-attempts/latest`，涵蓋終態恢復、Owner／Guest 授權與 `404` 無 Attempt 語意，移除重複 `/current` 公開契約與實作。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-044-優惠券折扣類型欄位長度修正定版|DEC-BATCH-044｜優惠券折扣類型欄位長度修正定版]]：`DEC-P354`，1 項，已於 2026-09-02 寫回；Coupons／OrderCoupons 的 DiscountType 擴為 `varchar(24)`，以完整保存 `AssemblyFreeShipping`，Migration 只產生與審查、未套用資料庫。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-043-Checkout付款續接與優惠券配送試算定版|DEC-BATCH-043｜Checkout 付款續接與優惠券配送試算定版]]：`DEC-P352～DEC-P353`，2 項，已於 2026-09-02 寫回；其中 DEC-P352 已由 DEC-P355 覆寫，DEC-P353 的 Shipping Options Coupon Quote 與 Checkout 最終重驗維持有效。

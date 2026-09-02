@@ -18,9 +18,9 @@ namespace DoSelect.Api.Payments;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>只在 Demo Profile 開放。</b><c>Demo:SimulationEndpointsEnabled</c> 為 false 時回 404：
+/// <b>只在 Demo Profile 或隔離 E2E 測試開放。</b><c>Demo:SimulationEndpointsEnabled</c> 為 false 時回 404：
 /// 這個資源在這個 Profile 下就是不存在。<c>DemoOptionsValidator</c> 已經限制該設定
-/// 只有 Demo 環境能開成 true，所以正式環境一定關著。
+/// 只有 Demo 或隔離 E2E 環境能開成 true，所以 Development／Production 一定關著。
 /// </para>
 /// <para>
 /// 這道關卡<b>不宣稱藏起端點的存在</b>：Action 會先嘗試 Member 與 Guest 兩種票證，未登入的

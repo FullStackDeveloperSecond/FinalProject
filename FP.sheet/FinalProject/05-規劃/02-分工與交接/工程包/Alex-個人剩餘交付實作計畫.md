@@ -1,11 +1,11 @@
 ---
 文件狀態: 進行中
 最後更新: 2026-09-02
-基準分支: dev@72db6fcc
-實作分支: codex/wp-a03-status-sync-20260902
+基準分支: dev@a565627c
+實作分支: codex/wp-a04-core-transaction-e2e-20260902
 實作人: alex
 規劃範圍: alex 正式主責與已明確接手項目
-下一工作包: WP-A04／WP-H05 核心交易 Browser E2E
+下一工作包: WP-A05／AI-09 OpenAI Live baseline（WP-A04 完成 Git Gate 後）
 ---
 
 # Alex 個人剩餘交付實作計畫
@@ -161,7 +161,8 @@
 | 2026-09-01 | WP-A01／WP-H02 | 完成 | PR #80 已由 exact head `7a606f52` 通過 Required CI 與 Review，squash merge 為 `dev@6968cbea`；新增會員 Session 與管理員首次 TOTP 綁定／錯碼拒絕／二次登入 Browser E2E，customer 5/5、admin 4/4 均以獨立 `DoSelectE2E_<GUID>` SQL DB 通過並完成清理。完整 customer 回歸另觀察到既有 M-19 降級路徑的 Vue `Unhandled rejection` 警告，留待 WP-A07，不混入本包。 |
 | 2026-09-01 | WP-A02／WP-H03 | 完成 | PR #83 已由 exact head `3dba8f4c` 通過 Backend、兩個 Frontend、Browser E2E、Secret Scan、Package Source Evidence、AI Evaluation Contract 與 `CI Required`，最終 Review 無 P0～P3 finding，squash merge 為 `dev@9a034a16`，遠端分支已刪除。以兩張真實 Guest Checkout 訂單完成錯碼拒絕、正確查單、跨單 GET／取消 404、目標訂單取消及另一張訂單狀態／RowVersion 零副作用斷言；並補齊 `--seed-minimal` 主 SKU 的確定性包材尺寸。 |
 | 2026-09-02 | WP-A03／WP-H04 | 完成／已進 `dev` | 由 `dev@e3e5abdb` 起完成 C-14：正式 `/checkout`、Cart 導頁、收件／宅配／示範門市、政策版本、七種模擬付款、模擬發票、Coupon 套用、冪等重試及錯誤處理。依 DEC-P351 回傳具體 `PaymentMethod[]`；DEC-P352 已由 DEC-P355 覆寫，C-15 改接上游 Owner-scoped Latest Attempt；依 DEC-P353 以 Coupon Quote 重算 Shipping／COD；依 DEC-P354 將 DiscountType 擴為 `varchar(24)`。Review 修正組裝購物車只允許組裝宅配。rebase `dev@70015781` 後 exact head `192e0499` 的 Backend、Browser E2E、雙前端、OpenAPI、Secret Scan、AI contract、Package Source Evidence 與 `CI Required` 全部成功；PR #91 squash merge 為 `dev@72db6fcc`，遠端來源分支已刪除。WP-A04 核心交易 Browser E2E 仍未完成。 |
+| 2026-09-02 | WP-A04／WP-H05 | 本機完成／待 Git Gate | 使用固定 Guest Cart、八類組裝 SKU 與 `CREATOR10`，在專屬 `DoSelectE2E_<GUID>` 完成 Cart → Checkout → 同請求 replay → Email＋訂單編號限單驗證 → 信用卡模擬付款成功 → Invoice 顯示；金額 45,000／-2,000／+300／+300＝43,600。另以真實 SQL Server 證明同請求不重複建立 Order／Reservation／Payment／Idempotency，兩個 Guest Cart 競爭最後一件只成功一筆。依 DEC-P356，模擬端點只新增隔離 E2E Environment 顯式例外；Development／Production 仍 fail-fast。完整 Browser 聚焦案例 1／1、SQL 聚焦案例 2／2、Checkout component 7／7、typecheck 與 lint 已通過；尚待最新 `dev` rebase、final review、exact-head Required CI 與 squash merge。 |
 
 ## 11. 下一步
 
-開始 `WP-A04／WP-H05` 核心交易 Browser E2E；使用已進 `dev` 的正式 Cart、C-14 Checkout、Guest Email 限單驗證、Latest Payment Attempt 與 Order／Invoice 契約，建立隔離 SQL／Browser 跨交易證據。
+先完成 `WP-A04／WP-H05` 的最新 `dev` rebase、final review、exact-head Required CI 與 squash merge。Git Gate 通過後開始 `WP-A05／AI-09` OpenAI Live baseline；不得在未確認 OpenAI Key、成本保護與資料最小化設定前發出 Live 請求。

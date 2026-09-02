@@ -1,7 +1,11 @@
+using System.Security.Cryptography;
+using System.Text;
 using DoSelect.Domain.Builds;
 using DoSelect.Domain.Catalog;
 using DoSelect.Domain.Inventory;
 using DoSelect.Domain.Members;
+using DoSelect.Domain.Promotions;
+using DoSelect.Domain.Shopping;
 using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Persistence.Identity;
 using Microsoft.AspNetCore.Identity;
@@ -32,6 +36,7 @@ public sealed class MinimalDevelopmentDataSeeder(
         await EnsureShippingMethodsAsync(counters, cancellationToken);
         await EnsureShippingProvidersAsync(counters, cancellationToken);
         await EnsureConvenienceStoresAsync(counters, cancellationToken);
+        await EnsureCoreTransactionJourneyAsync(cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
         return new MinimalDevelopmentSeedResult(
@@ -603,8 +608,10 @@ public sealed class MinimalDevelopmentDataSeeder(
         await dbContext.SaveChangesAsync(cancellationToken);
         counters.CompatibilityRecordsCreated++;
 
+        var listPrice = categoryCode == CompatibilityCatalogContract.Categories.Gpu ? 10_000m : 5_000m;
+        var unitCost = categoryCode == CompatibilityCatalogContract.Categories.Gpu ? 7_000m : 3_000m;
         var sku = new Sku(
-            Guid.CreateVersion7(), skuCode, product.Id, name, 5000m, 3000m,
+            Guid.CreateVersion7(), skuCode, product.Id, name, listPrice, unitCost,
             MinimalDevelopmentSeedDefinitions.CreatedAtUtc);
         sku.ChangeStatus(SkuStatus.Published, MinimalDevelopmentSeedDefinitions.CreatedAtUtc);
         sku.UpdateCommercialDetails(
@@ -613,6 +620,12 @@ public sealed class MinimalDevelopmentDataSeeder(
             sku.UnitCost,
             isDefault: true,
             requiresPrepayment: false,
+            MinimalDevelopmentSeedDefinitions.CreatedAtUtc);
+        sku.UpdatePackageDimensions(
+            weightKg: 1m,
+            lengthCm: 30m,
+            widthCm: 20m,
+            heightCm: 5m,
             MinimalDevelopmentSeedDefinitions.CreatedAtUtc);
         dbContext.Skus.Add(sku);
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -686,15 +699,34 @@ public sealed class MinimalDevelopmentDataSeeder(
         var skus = await dbContext.Skus
             .Where(sku => skuCodes.Contains(sku.SkuCode))
             .ToListAsync(cancellationToken);
-        foreach (var sku in skus.Where(sku => !sku.IsDefault))
+        foreach (var sku in skus)
         {
-            sku.UpdateCommercialDetails(
-                sku.NameZhTw,
-                sku.ListPrice,
-                sku.UnitCost,
-                isDefault: true,
-                sku.RequiresPrepayment,
-                MinimalDevelopmentSeedDefinitions.CreatedAtUtc);
+            var isCoreTransactionGpu = sku.SkuCode == "DEV-COMPAT-GPU-001";
+            var expectedListPrice = isCoreTransactionGpu ? 10_000m : sku.ListPrice;
+            var expectedUnitCost = isCoreTransactionGpu ? 7_000m : sku.UnitCost;
+            if (!sku.IsDefault || sku.ListPrice != expectedListPrice || sku.UnitCost != expectedUnitCost)
+            {
+                sku.UpdateCommercialDetails(
+                    sku.NameZhTw,
+                    expectedListPrice,
+                    expectedUnitCost,
+                    isDefault: true,
+                    sku.RequiresPrepayment,
+                    MinimalDevelopmentSeedDefinitions.CreatedAtUtc);
+            }
+
+            // Checkout requires complete package facts. These fictional per-item packages combine
+            // to 8 kg and 90 cm across the eight-part build, safely inside the seeded home-delivery
+            // profile while still exercising the real package calculator.
+            if (sku.WeightKg is null || sku.LengthCm is null || sku.WidthCm is null || sku.HeightCm is null)
+            {
+                sku.UpdatePackageDimensions(
+                    weightKg: 1m,
+                    lengthCm: 30m,
+                    widthCm: 20m,
+                    heightCm: 5m,
+                    MinimalDevelopmentSeedDefinitions.CreatedAtUtc);
+            }
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -918,6 +950,124 @@ public sealed class MinimalDevelopmentDataSeeder(
             }
         }
 
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Creates the fixed, fictional starting state used by the WP-A04 browser journey. The
+    /// journey deliberately starts at Cart (matching the Demo runbook's prebuilt-cart fallback),
+    /// then exercises the real Checkout, reservation, payment, guest-access and invoice paths.
+    /// This data is created only when the explicit <c>--seed-minimal</c> command runs and is safe
+    /// to rebuild idempotently; no runtime startup path creates it.
+    /// </summary>
+    private async Task EnsureCoreTransactionJourneyAsync(CancellationToken cancellationToken)
+    {
+        var coupon = await dbContext.Coupons.SingleOrDefaultAsync(
+            candidate => candidate.Code == "CREATOR10",
+            cancellationToken);
+        if (coupon is null)
+        {
+            coupon = new Coupon(
+                MinimalDevelopmentSeedDefinitions.Creator10CouponPublicId,
+                new CouponCreation(
+                    "CREATOR10",
+                    "創作者指定分類九折",
+                    CouponDiscountType.Percentage,
+                    0.10m,
+                    20_000m,
+                    2_000m,
+                    MinimalDevelopmentSeedDefinitions.CreatedAtUtc,
+                    new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                    10_000,
+                    1,
+                    false,
+                    false,
+                    CouponScopeType.Restricted),
+                MinimalDevelopmentSeedDefinitions.CreatedAtUtc);
+            coupon.ActivateNow(
+                CouponUsageState.Unused,
+                MinimalDevelopmentSeedDefinitions.CreatedAtUtc);
+            dbContext.Coupons.Add(coupon);
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+
+        var eligibleCategoryCodes = new[]
+        {
+            CompatibilityCatalogContract.Categories.Cpu,
+            CompatibilityCatalogContract.Categories.Gpu,
+            CompatibilityCatalogContract.Categories.Memory,
+            // The standalone development GPU predates the compatibility category catalogue but
+            // represents the same customer-facing GPU category.
+            "DEV-GRAPHICS-CARDS",
+        };
+        var eligibleCategoryIds = await dbContext.Categories
+            .Where(category => eligibleCategoryCodes.Contains(category.Code))
+            .Select(category => category.Id)
+            .ToListAsync(cancellationToken);
+        if (eligibleCategoryIds.Count != eligibleCategoryCodes.Length)
+        {
+            throw new InvalidOperationException(
+                "The core transaction seed requires the CPU, GPU, memory, and development GPU categories.");
+        }
+
+        var existingCategoryIds = await dbContext.CouponCategories
+            .Where(link => link.CouponId == coupon.Id)
+            .Select(link => link.CategoryId)
+            .ToListAsync(cancellationToken);
+        dbContext.CouponCategories.AddRange(eligibleCategoryIds
+            .Except(existingCategoryIds)
+            .Select(categoryId => new CouponCategory(
+                coupon.Id,
+                categoryId,
+                MinimalDevelopmentSeedDefinitions.CreatedAtUtc)));
+
+        if (await dbContext.Carts.AnyAsync(
+                cart => cart.PublicId == MinimalDevelopmentSeedDefinitions.CoreTransactionGuestCartPublicId,
+                cancellationToken))
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        var cart = Cart.CreateForGuest(
+            MinimalDevelopmentSeedDefinitions.CoreTransactionGuestCartPublicId,
+            SHA256.HashData(Encoding.UTF8.GetBytes(
+                MinimalDevelopmentSeedDefinitions.CoreTransactionGuestCartKey)),
+            now.AddDays(30),
+            now);
+        dbContext.Carts.Add(cart);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        var assemblySkuCodes = new[]
+        {
+            "DEV-COMPAT-CPU-001",
+            "DEV-COMPAT-MB-001",
+            "DEV-COMPAT-MEM-001",
+            "DEV-COMPAT-GPU-001",
+            "DEV-COMPAT-STORAGE-001",
+            "DEV-COMPAT-PSU-001",
+            "DEV-COMPAT-CASE-001",
+            "DEV-COMPAT-COOLER-001",
+        };
+        var assemblySkus = await dbContext.Skus
+            .Where(sku => assemblySkuCodes.Contains(sku.SkuCode))
+            .ToListAsync(cancellationToken);
+        if (assemblySkus.Count != assemblySkuCodes.Length)
+        {
+            throw new InvalidOperationException(
+                "The core transaction seed requires all eight compatible component SKUs.");
+        }
+
+        dbContext.CartItems.AddRange(assemblySkus.Select(sku => new CartItem(
+            Guid.CreateVersion7(),
+            cart.Id,
+            sku.Id,
+            1,
+            MinimalDevelopmentSeedDefinitions.CoreTransactionAssemblyGroupKey,
+            now)));
+
+        cart.Touch(now);
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 

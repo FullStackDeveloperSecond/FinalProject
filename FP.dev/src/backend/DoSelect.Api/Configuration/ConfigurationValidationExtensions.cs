@@ -440,10 +440,11 @@ internal sealed class DemoOptionsValidator : IValidateOptions<DemoOptions>
     public ValidateOptionsResult Validate(string? name, DemoOptions options)
     {
         if (options.SimulationEndpointsEnabled &&
-            !_environment.IsEnvironment("Demo"))
+            !_environment.IsEnvironment("Demo") &&
+            !_environment.IsEnvironment("E2E"))
         {
             return ValidateOptionsResult.Fail(
-                "Configuration key 'Demo:SimulationEndpointsEnabled' may only be true in the Demo environment.");
+                "Configuration key 'Demo:SimulationEndpointsEnabled' may only be true in the Demo or E2E environment.");
         }
 
         return ValidateOptionsResult.Success;

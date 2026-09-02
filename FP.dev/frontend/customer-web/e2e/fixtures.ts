@@ -14,6 +14,7 @@ type DoSelectFixtures = {
     memberPassword: string
     productPublicId: string
     skuPublicId: string
+    coreTransactionGuestCartKey: string
   }
 }
 
@@ -75,6 +76,7 @@ export const test = base.extend<DoSelectFixtures>({
       memberPassword: process.env.Seed__MemberPassword ?? '',
       productPublicId: '5940b1db-3c83-4db0-b285-9777616d11b1',
       skuPublicId: '719dfd4a-77f0-4887-b3bf-239263d4ee1f',
+      coreTransactionGuestCartKey: 'e2e-core-transaction-guest-cart-key-0001',
     })
   },
 })

@@ -54,7 +54,7 @@ appsettings.json
 | `Features__AiEnabled` |  | Boolean，安全預設 `false`；明確設為 `true` 時必須通過 OpenAI 設定驗證 |
 | `Features__EmailEnabled` |  | Boolean，安全預設 `false`；明確設為 `true` 時必須通過 SMTP 設定驗證 |
 | `Observability__FileLoggingEnabled` |  | Boolean，預設 `true`；停用時只保留 Console JSON |
-| `Demo__SimulationEndpointsEnabled` |  | 只允許 Demo Environment 為 true |
+| `Demo__SimulationEndpointsEnabled` |  | 產品只允許 Demo Environment；隔離自動化測試另允許 E2E Environment 為 true，其他環境 fail-fast |
 
 Vue 只允許 `VITE_API_BASE_URL`、`VITE_APP_DISPLAY_NAME`、`VITE_DEFAULT_LOCALE` 等公開值。任何 `VITE_*` 都視為會出現在瀏覽器，不得放 API Key、SMTP、Connection String、JWT／Cookie Key。
 
@@ -108,4 +108,4 @@ Server=.\SQL2025;Database=DoSelectDb;Trusted_Connection=True;TrustServerCertific
 - Fresh Clone 以 AI／Email 預設停用，可在沒有 Secret 時啟動核心 API；明確啟用任一功能但缺少設定時，以安全且可理解的 Key 名啟動失敗。
 - 前端建置產物搜尋不到 OpenAI、SMTP、Connection String 或 Data Protection Key。
 - Repository、Log、Health、Audit、備份、錯誤頁與 Demo 影片均不含 Secret。
-- `Demo__SimulationEndpointsEnabled=true` 在非 Demo Environment 時啟動失敗。
+- `Demo__SimulationEndpointsEnabled=true` 只允許 Demo Environment，或依 DEC-P356 建立且只連專屬 `DoSelectE2E_<GUID>` 的 E2E Environment；Development、Production 與其他 Environment 必須啟動失敗。
