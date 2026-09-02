@@ -1,6 +1,7 @@
 import { createHmac, randomUUID } from 'node:crypto'
 import type { APIRequestContext } from '@playwright/test'
 import { expect, test } from './fixtures.js'
+import { sqlExec, sqlScalar } from './sqlAssert.js'
 
 const guestAccessPepper = 'e2e-guest-order-access-pepper-32-bytes'
 
@@ -116,6 +117,74 @@ async function createGuestOrder(
     `The E2E setup must complete a real guest Checkout. Response: ${createResponseBody}`,
   ).toBe(201)
   return JSON.parse(createResponseBody) as OrderSnapshot
+}
+
+/**
+ * Same Cart → Checkout sequence as createGuestOrder, but returns the raw checkout response
+ * (status + parsed body) instead of asserting 201 — needed for WP-H05's last-unit race test, where
+ * exactly one of two concurrent attempts is *expected* to lose with a 409.
+ */
+async function attemptGuestCheckout(
+  api: APIRequestContext,
+  skuPublicId: string,
+  quantity: number,
+  email: string,
+  requestToken: string,
+): Promise<{ status: number, body: { code?: string, publicId?: string, orderNumber?: string } }> {
+  const guestCartKey = `e2e-guest-cart-${randomUUID()}`
+  const cartHeaders = unsafeHeaders(requestToken, { 'X-DoSelect-Guest-Cart-Key': guestCartKey })
+  const initialCartResponse = await api.get('/api/v1/cart', { headers: cartHeaders })
+  expect(initialCartResponse.ok(), 'The E2E setup must create a real guest cart').toBe(true)
+  const initialCart = await initialCartResponse.json() as CartSnapshot
+
+  const addItemResponse = await api.post('/api/v1/cart/items', {
+    headers: cartHeaders,
+    data: { skuPublicId, quantity, cartRowVersion: initialCart.rowVersion },
+  })
+  expect(addItemResponse.ok(), 'The seeded SKU must be addable to a real guest cart').toBe(true)
+  const cart = await addItemResponse.json() as CartSnapshot
+
+  const policyResponse = await api.get('/api/v1/checkout/policy-versions')
+  expect(policyResponse.ok(), 'The Checkout policy versions must be available').toBe(true)
+  const policies = await policyResponse.json() as { terms: number, return: number, privacy: number }
+
+  const createResponse = await api.post('/api/v1/orders', {
+    headers: unsafeHeaders(requestToken, {
+      'X-DoSelect-Guest-Cart-Key': guestCartKey,
+      'Idempotency-Key': `e2e-checkout-${randomUUID()}`,
+    }),
+    data: {
+      cartPublicId: cart.publicId,
+      cartRowVersion: cart.rowVersion,
+      buyer: { email, name: '訪客測試買家', phone: '0912345678' },
+      shipping: {
+        methodCode: 'HomeDelivery',
+        address: {
+          recipientName: '訪客測試買家',
+          phone: '0912345678',
+          postalCode: '100',
+          city: '台北市',
+          district: '中正區',
+          addressLine1: '測試路 1 號',
+          addressLine2: null,
+        },
+        storePublicId: null,
+        deliveryNote: null,
+      },
+      paymentMethod: 'creditCard',
+      couponCode: null,
+      invoice: {
+        type: 'simulated',
+        buyerType: 'personal',
+        carrierType: null,
+        carrierValue: null,
+        companyTaxId: null,
+        companyName: null,
+      },
+      acceptPolicyVersions: { terms: policies.terms, return: policies.return, privacy: policies.privacy },
+    },
+  })
+  return { status: createResponse.status(), body: JSON.parse(await createResponse.text()) }
 }
 
 function deriveGuestVerificationCode(requestPublicId: string, sendNumber = 1): string {
@@ -241,6 +310,56 @@ test('a guest can verify, view and cancel only the matching order without cross-
   }, otherOrder.publicId)
   expect(unchangedOrder.orderStatus).toBe(otherOrder.orderStatus)
   expect(unchangedOrder.rowVersion).toBe(otherOrder.rowVersion)
+})
+
+// WP-H05: EfCheckoutTransactionGateway.ReserveInventoryAsync takes a real SQL Server row lock
+// (`WITH (UPDLOCK, HOLDLOCK)`) per SKU before checking AvailableQuantity, specifically so two
+// concurrent Checkouts racing for the same last unit can't both succeed — the second waits for the
+// first's transaction to commit, then re-reads the now-updated balance and is correctly rejected.
+// This is exactly the gap the WP-A delivery plan calls out as still missing evidence for ("最後一件
+// 商品競爭...仍缺證據"); everything above this point already covers the sequential/single-request
+// path. Requires `--workers=1` (matches this whole suite's local/CI convention already) since it
+// deliberately drives the shared demo SKU's stock down to exactly one unit for its duration.
+test('exactly one of two concurrent checkouts wins the last unit of stock, and inventory is never oversold', async ({
+  api,
+  seed,
+}) => {
+  const skuIdExpr = `(SELECT Id FROM Skus WHERE PublicId = '${seed.skuPublicId}')`
+  sqlExec(`UPDATE InventoryBalances SET OnHandQuantity = 1, ReservedQuantity = 0 WHERE SkuId = ${skuIdExpr};`)
+
+  try {
+    const requestToken = await getAntiforgeryToken(api)
+    const emailA = `race-a-${randomUUID()}@example.test`
+    const emailB = `race-b-${randomUUID()}@example.test`
+
+    const [resultA, resultB] = await Promise.all([
+      attemptGuestCheckout(api, seed.skuPublicId, 1, emailA, requestToken),
+      attemptGuestCheckout(api, seed.skuPublicId, 1, emailB, requestToken),
+    ])
+
+    const statuses = [resultA.status, resultB.status].sort((left, right) => left - right)
+    expect(statuses, `Expected exactly one 201 and one 409. Got: ${JSON.stringify([resultA, resultB])}`)
+      .toEqual([201, 409])
+
+    const winner = resultA.status === 201 ? resultA : resultB
+    const loser = resultA.status === 409 ? resultA : resultB
+    expect(winner.body.orderNumber, 'The winning attempt must be a real, complete order').toBeTruthy()
+    expect(loser.body.code).toBe('inventory_insufficient')
+
+    // The row lock must have serialized the two writes rather than letting the second proceed
+    // against a stale read — if it hadn't, ReservedQuantity would show 2 units reserved against
+    // only 1 on hand (an oversell) instead of exactly 1.
+    const onHand = sqlScalar(`SELECT OnHandQuantity FROM InventoryBalances WHERE SkuId = ${skuIdExpr};`)
+    const reserved = sqlScalar(`SELECT ReservedQuantity FROM InventoryBalances WHERE SkuId = ${skuIdExpr};`)
+    expect(onHand).toBe('1')
+    expect(reserved).toBe('1')
+  } finally {
+    // Restore the demo SKU's seeded OnHandQuantity so later tests in this run aren't affected —
+    // but ReservedQuantity is deliberately left alone: the winning attempt created a real
+    // InventoryReservation row tied to a real order, so zeroing it back out here would leave the
+    // balance row inconsistent with that row (an oversell-shaped bug of this cleanup's own making).
+    sqlExec(`UPDATE InventoryBalances SET OnHandQuantity = 10 WHERE SkuId = ${skuIdExpr};`)
+  }
 })
 
 test('a shopper can open the seeded catalog and view product details', async ({ page, api, seed }) => {

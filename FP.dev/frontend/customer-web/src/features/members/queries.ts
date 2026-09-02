@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
+import { toValue, type MaybeRefOrGetter } from 'vue'
 import {
   createAddress,
   deleteAddress,
@@ -16,10 +17,14 @@ const memberKeys = {
   addresses: () => ['members', 'me', 'addresses'] as const,
 }
 
-export function useProfileQuery() {
+// `enabled` defaults to true so every existing member-only page call site (ProfilePage.vue,
+// AddressesPage.vue) is unaffected; Checkout (Public Cart／Member) passes the session's
+// isAuthenticated so a guest never fires a call that can only 401.
+export function useProfileQuery(enabled: MaybeRefOrGetter<boolean> = true) {
   return useQuery({
     queryKey: memberKeys.profile(),
     queryFn: fetchProfile,
+    enabled: () => toValue(enabled),
   })
 }
 
@@ -31,10 +36,11 @@ export function useUpdateProfileMutation() {
   })
 }
 
-export function useAddressesQuery() {
+export function useAddressesQuery(enabled: MaybeRefOrGetter<boolean> = true) {
   return useQuery({
     queryKey: memberKeys.addresses(),
     queryFn: fetchAddresses,
+    enabled: () => toValue(enabled),
   })
 }
 

@@ -139,6 +139,11 @@ const router = createRouter({
       component: () => import('../pages/CartPage.vue'),
     },
     {
+      path: '/checkout',
+      name: 'checkout',
+      component: () => import('../pages/CheckoutPage.vue'),
+    },
+    {
       // 組長 PR #35 round-3 review, P2-3: a saved build-list is inherently a member resource (it
       // lives on the account, not a guest-local draft) — the list and its detail page must require
       // login the same as /account/orders or /account/addresses do. /builds/new (a guest draft
