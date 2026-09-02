@@ -1,4 +1,4 @@
-﻿import type { components } from '@doselect/web-shared/api'
+import type { components } from '@doselect/web-shared/api'
 
 export type ConvenienceStoreDto = components['schemas']['ConvenienceStoreDto']
 export type CreateConvenienceStoreRequest = components['schemas']['CreateConvenienceStoreRequest']

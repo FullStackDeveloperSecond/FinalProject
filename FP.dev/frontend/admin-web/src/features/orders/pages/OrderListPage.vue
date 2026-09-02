@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { EmptyState, ErrorState, HttpStatusPage, LoadingState } from '@doselect/web-shared/components'

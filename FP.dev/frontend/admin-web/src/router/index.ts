@@ -1,4 +1,4 @@
-﻿import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory } from 'vue-router'
 import { HttpStatusPage } from '@doselect/web-shared/components'
 import { useAdminAuthStore } from '../features/auth/stores/useAdminAuthStore'
 import { isOperationalReportKey } from '../features/operationalReports/types'
