@@ -22,6 +22,8 @@ public static class PaymentsServiceCollectionExtensions
         services.AddScoped<CashOnDeliveryCompletionService>();
         services.AddScoped<ISimulatedPaymentAuthorizationReader, SimulatedPaymentAuthorizationReader>();
         services.AddScoped<ISimulatedPaymentWriter, SimulatedPaymentWriter>();
+        services.AddScoped<ILatestPaymentAttemptReader, LatestPaymentAttemptReader>();
+        services.AddScoped<LatestPaymentAttemptService>();
 
         return services;
     }
