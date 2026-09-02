@@ -22,6 +22,9 @@ namespace DoSelect.Infrastructure.Imports;
 /// </summary>
 public sealed class EfProductImportService : IProductImportService
 {
+    /// <summary>匯入暫存與庫存調整設計.md「商品模板 v1」：XLSX 工作表名稱固定，順序對應三個資料集。</summary>
+    public static readonly IReadOnlyList<string> WorkbookSheetNames = ["Products", "Skus", "Specifications"];
+
     private const int MaxFileSizeBytes = 10 * 1024 * 1024;
     private const int MaxTotalRows = 5_000;
 
@@ -66,32 +69,55 @@ public sealed class EfProductImportService : IProductImportService
         // re-uploading kept failing with import_batch_in_progress. Close out any of this admin's
         // batches whose 24-hour window has passed before staging the new one.
         var now = DateTime.UtcNow;
-        var staleBatches = await _dbContext.ImportBatches
-            .Where(candidate => candidate.CreatedByAdminUserId == createdByAdminUserId &&
-                candidate.ImportType == ImportType.Product &&
-                candidate.ExpiresAtUtc <= now &&
-                (candidate.Status == ImportBatchStatus.Uploaded ||
-                 candidate.Status == ImportBatchStatus.Validating ||
-                 candidate.Status == ImportBatchStatus.Ready ||
-                 candidate.Status == ImportBatchStatus.Committing))
-            .ToListAsync(cancellationToken);
-        if (staleBatches.Count > 0)
+        await ImportBatchStaging.ExpireStaleBatchesAsync(
+            _dbContext, createdByAdminUserId, ImportType.Product, now, cancellationToken);
+
+        IReadOnlyList<StagedImportRow<ProductPayload>> productRows;
+        IReadOnlyList<StagedImportRow<SkuPayload>> skuRows;
+        IReadOnlyList<StagedImportRow<SpecificationPayload>> specificationRows;
+        Action<ImportBatch> setSources;
+
+        if (request.WorkbookFile is { HasFile: true })
         {
-            foreach (var stale in staleBatches)
+            // 「上傳 XLSX，或三份 CSV」——兩條路只能走一條，同時給就是呼叫端搞錯了。
+            if (request.ProductsFile.HasFile || request.SkusFile.HasFile || request.SpecificationsFile.HasFile)
             {
-                stale.ChangeStatus(ImportBatchStatus.Expired, now);
+                throw DomainProblemException.Validation(
+                    "Upload either one XLSX workbook or the three CSV files, not both.");
             }
 
-            await _dbContext.SaveChangesAsync(cancellationToken);
+            var workbookBytes = await ImportBatchStaging.ReadFileAsync(request.WorkbookFile, "Workbook", "a product import", cancellationToken);
+            var sheets = ImportBatchStaging.ReadWorkbookSheets(workbookBytes, WorkbookSheetNames);
+
+            // 工作表讀成字串列之後走與 CSV 完全相同的 Parser——對等在這裡是結構性的。
+            productRows = ImportBatchStaging.ParseRows(sheets[WorkbookSheetNames[0]], ProductRowParser.Parse);
+            skuRows = ImportBatchStaging.ParseRows(sheets[WorkbookSheetNames[1]], SkuRowParser.Parse);
+            specificationRows = ImportBatchStaging.ParseRows(sheets[WorkbookSheetNames[2]], SpecificationRowParser.Parse);
+
+            // 單一檔就只有一組來源；第 2／3 組留 null，與庫存匯入「只用第 1 組」同一種表達。
+            var workbookHash = SHA256.HashData(workbookBytes);
+            var workbookName = request.WorkbookFile.OriginalFileName;
+            setSources = batch => batch.SetSources(workbookHash, workbookName, null, null, null, null, now);
         }
+        else
+        {
+            var productsBytes = await ImportBatchStaging.ReadFileAsync(request.ProductsFile, "Products", "a product import", cancellationToken);
+            var skusBytes = await ImportBatchStaging.ReadFileAsync(request.SkusFile, "Skus", "a product import", cancellationToken);
+            var specificationsBytes = await ImportBatchStaging.ReadFileAsync(request.SpecificationsFile, "Specifications", "a product import", cancellationToken);
 
-        var productsBytes = await ReadFileAsync(request.ProductsFile, "Products", cancellationToken);
-        var skusBytes = await ReadFileAsync(request.SkusFile, "Skus", cancellationToken);
-        var specificationsBytes = await ReadFileAsync(request.SpecificationsFile, "Specifications", cancellationToken);
+            productRows = ImportBatchStaging.ParseCsv(productsBytes, ProductRowParser.Parse, "Products");
+            skuRows = ImportBatchStaging.ParseCsv(skusBytes, SkuRowParser.Parse, "Skus");
+            specificationRows = ImportBatchStaging.ParseCsv(specificationsBytes, SpecificationRowParser.Parse, "Specifications");
 
-        var productRows = ParseCsv(productsBytes, ProductRowParser.Parse, "Products");
-        var skuRows = ParseCsv(skusBytes, SkuRowParser.Parse, "Skus");
-        var specificationRows = ParseCsv(specificationsBytes, SpecificationRowParser.Parse, "Specifications");
+            var productsHash = SHA256.HashData(productsBytes);
+            var skusHash = SHA256.HashData(skusBytes);
+            var specificationsHash = SHA256.HashData(specificationsBytes);
+            setSources = batch => batch.SetSources(
+                productsHash, request.ProductsFile.OriginalFileName,
+                skusHash, request.SkusFile.OriginalFileName,
+                specificationsHash, request.SpecificationsFile.OriginalFileName,
+                now);
+        }
 
         var totalRowCount = productRows.Count + skuRows.Count + specificationRows.Count;
         if (totalRowCount == 0)
@@ -119,11 +145,7 @@ public sealed class EfProductImportService : IProductImportService
             now.AddHours(24),
             Guid.CreateVersion7(),
             now);
-        batch.SetSources(
-            SHA256.HashData(productsBytes), request.ProductsFile.OriginalFileName,
-            SHA256.HashData(skusBytes), request.SkusFile.OriginalFileName,
-            SHA256.HashData(specificationsBytes), request.SpecificationsFile.OriginalFileName,
-            now);
+        setSources(batch);
 
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
         try
@@ -131,19 +153,14 @@ public sealed class EfProductImportService : IProductImportService
             _dbContext.ImportBatches.Add(batch);
             await _dbContext.SaveChangesAsync(cancellationToken);
 
-            var newCount = 0;
-            var updatedCount = 0;
-            var unchangedCount = 0;
-            var errorCount = 0;
+            var counts = default(ImportRowCounts);
+            counts = ImportBatchStaging.AddRows(_dbContext, batch.Id, ImportDataset.Products, productRows, counts, now);
+            counts = ImportBatchStaging.AddRows(_dbContext, batch.Id, ImportDataset.Skus, skuRows, counts, now);
+            counts = ImportBatchStaging.AddRows(_dbContext, batch.Id, ImportDataset.Specifications, specificationRows, counts, now);
 
-            (newCount, updatedCount, unchangedCount, errorCount) = AddRows(
-                batch.Id, ImportDataset.Products, productRows, newCount, updatedCount, unchangedCount, errorCount, now);
-            (newCount, updatedCount, unchangedCount, errorCount) = AddRows(
-                batch.Id, ImportDataset.Skus, skuRows, newCount, updatedCount, unchangedCount, errorCount, now);
-            (newCount, updatedCount, unchangedCount, errorCount) = AddRows(
-                batch.Id, ImportDataset.Specifications, specificationRows, newCount, updatedCount, unchangedCount, errorCount, now);
-
-            batch.SetPreviewStatistics(totalRowCount, newCount, updatedCount, unchangedCount, errorCount, normalizedContentVersion: 1, now);
+            batch.SetPreviewStatistics(
+                totalRowCount, counts.New, counts.Updated, counts.Unchanged, counts.Errors,
+                normalizedContentVersion: 1, now);
 
             await _dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
@@ -195,70 +212,13 @@ public sealed class EfProductImportService : IProductImportService
                 $"pageSize must be between 1 and 200; got {query.PageSize}.");
         }
 
-        var pageSize = query.PageSize;
-        var fingerprint = OpaqueCursorCodec.ComputeFingerprint(
-            batchPublicId.ToString(), query.Dataset, query.ErrorsOnly.ToString());
-
-        var rowsQuery = _dbContext.ImportRows.AsNoTracking()
-            .Where(row => row.ImportBatchId == batch.Id);
-
-        if (!string.IsNullOrWhiteSpace(query.Dataset))
-        {
-            if (!Enum.TryParse<ImportDataset>(query.Dataset, ignoreCase: true, out var dataset) ||
-                !Enum.IsDefined(dataset))
-            {
-                throw DomainProblemException.Validation(
-                    $"Unknown dataset '{query.Dataset}'. Valid values: Products, Skus, Specifications.");
-            }
-
-            rowsQuery = rowsQuery.Where(row => row.Dataset == dataset);
-        }
-
-        if (query.ErrorsOnly)
-        {
-            rowsQuery = rowsQuery.Where(row => row.ErrorCodes != null);
-        }
-
-        if (!string.IsNullOrWhiteSpace(query.Cursor) &&
-            (!OpaqueCursorCodec.TryDecode<RowCursorPayload>(query.Cursor, fingerprint, out _)))
-        {
-            throw DomainProblemException.Validation(
-                "The cursor is invalid or was issued under different filters. Restart from the first page.");
-        }
-
-        if (OpaqueCursorCodec.TryDecode<RowCursorPayload>(query.Cursor, fingerprint, out var after) && after is not null)
-        {
-            var afterDataset = after.Dataset;
-            var afterSourceRowNumber = after.SourceRowNumber;
-            rowsQuery = rowsQuery.Where(row =>
-                row.Dataset > afterDataset ||
-                (row.Dataset == afterDataset && row.SourceRowNumber > afterSourceRowNumber));
-        }
-
-        var page = await rowsQuery
-            .OrderBy(row => row.Dataset).ThenBy(row => row.SourceRowNumber)
-            .Take(pageSize + 1)
-            .ToListAsync(cancellationToken);
-
-        var hasMore = page.Count > pageSize;
-        var items = page.Take(pageSize)
-            .Select(row => new ImportRowDto(
-                row.Dataset.ToString(),
-                row.SourceRowNumber,
-                row.ImportKey,
-                row.Action.ToString(),
-                string.IsNullOrEmpty(row.ErrorCodes) ? [] : row.ErrorCodes.Split(',', StringSplitOptions.RemoveEmptyEntries),
-                UnwrapPayloadJson(row.NormalizedPayloadJson)))
-            .ToList();
-
-        string? nextCursor = null;
-        if (hasMore)
-        {
-            var last = page[pageSize - 1];
-            nextCursor = OpaqueCursorCodec.Encode(new RowCursorPayload(last.Dataset, last.SourceRowNumber), fingerprint);
-        }
-
-        return new CursorPage<ImportRowDto>(items, nextCursor, hasMore);
+        return await ImportBatchStaging.GetRowsAsync(
+            _dbContext,
+            batch.Id,
+            batchPublicId,
+            query,
+            [ImportDataset.Products, ImportDataset.Skus, ImportDataset.Specifications],
+            cancellationToken);
     }
 
     public async Task<byte[]?> GetErrorsCsvAsync(Guid batchPublicId, CancellationToken cancellationToken)
@@ -275,18 +235,7 @@ public sealed class EfProductImportService : IProductImportService
             .OrderBy(row => row.Dataset).ThenBy(row => row.SourceRowNumber)
             .ToListAsync(cancellationToken);
 
-        var header = new[] { "dataset", "source_row_number", "import_key", "error_codes" };
-        var rows = errorRows.Select(row => (IReadOnlyList<string>)new[]
-        {
-            row.Dataset.ToString(),
-            row.SourceRowNumber.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            // 組長 PR #74 round-3, item 1：被判為重複的列是用不衝突的合成鍵儲存的，錯誤檔要給的是
-            // 管理員在自己檔案裡看得懂的「原始 offending key／pair」，所以優先從 payload 取值。
-            OriginalKeyOf(row),
-            row.ErrorCodes ?? string.Empty,
-        });
-
-        return DelimitedTextWriter.Write(header, rows);
+        return ImportBatchStaging.BuildErrorsCsv(errorRows);
     }
 
 
@@ -496,7 +445,7 @@ public sealed class EfProductImportService : IProductImportService
         var actions = new Dictionary<string, ImportRowAction>(StringComparer.Ordinal);
         foreach (var stored in storedRows.Where(row => row.Dataset == dataset))
         {
-            var envelope = JsonSerializer.Deserialize<RowEnvelope<TPayload>>(stored.NormalizedPayloadJson);
+            var envelope = JsonSerializer.Deserialize<ImportBatchStaging.RowEnvelope<TPayload>>(stored.NormalizedPayloadJson);
             if (envelope is null || envelope.Payload is null)
             {
                 throw DomainProblemException.Conflict(
@@ -851,7 +800,6 @@ public sealed class EfProductImportService : IProductImportService
         }
     }
 
-    private sealed record RowCursorPayload(ImportDataset Dataset, int SourceRowNumber);
 
     /// <summary>ImportRow.NormalizedPayloadJson / RawJson 的長度上限（與 Domain 建構子一致）。</summary>
     private const int MaxRowJsonLength = 32 * 1024;
@@ -862,23 +810,6 @@ public sealed class EfProductImportService : IProductImportService
     /// 原始 business key（本身有 64 字元上限），否則同時是 duplicate 的超長列在錯誤 CSV 只剩合成
     /// 鍵可顯示，與「顯示管理員原始鍵」的契約不符。
     /// </summary>
-    private static string BuildOversizedPayloadJson(string? originalKey)
-    {
-        // 組長 PR #74 round-5 review (P2)：原始 key 本身也可能是那個巨大的欄位（例如 40 KB 的
-        // product_key），把它整個放回最小信封只是換個地方超過 32 KB，建構子照樣拋錯。截斷成有界
-        // 長度並明確標記，讓錯誤檔仍指得出「是哪一列的哪個 key」而不假裝那是完整值。
-        var boundedKey = originalKey is { Length: > MaxPreservedKeyLength }
-            ? originalKey[..MaxPreservedKeyLength] + TruncatedKeyMarker
-            : originalKey;
-        var json = JsonSerializer.Serialize(new OversizedRowEnvelope(null, null, boundedKey));
-
-        // Belt and braces: if even that does not fit (a pathological escape expansion), drop the
-        // key too rather than throwing out of the ImportRow constructor.
-        return json.Length <= MaxRowJsonLength
-            ? json
-            : JsonSerializer.Serialize(new OversizedRowEnvelope(null, null, null));
-    }
-
     /// <summary>ImportKey 的欄位上限就是原始 key 合理的保存長度；超過即截斷並加註記。</summary>
     private const int MaxPreservedKeyLength = 64;
 
@@ -1223,195 +1154,6 @@ public sealed class EfProductImportService : IProductImportService
 
         return skuContexts.TryGetValue(skuRow.ImportKey, out var context) ? context.CategoryId : null;
     }
-
-    private (int New, int Updated, int Unchanged, int Errors) AddRows<TPayload>(
-        long batchId,
-        ImportDataset dataset,
-        IReadOnlyList<StagedImportRow<TPayload>> rows,
-        int newCount,
-        int updatedCount,
-        int unchangedCount,
-        int errorCount,
-        DateTime now)
-    {
-        foreach (var row in rows)
-        {
-            var action = row.Errors.Count > 0 ? ImportRowAction.Error : row.Action;
-
-            switch (action)
-            {
-                case ImportRowAction.Insert: newCount++; break;
-                case ImportRowAction.Update: updatedCount++; break;
-                case ImportRowAction.NoChange: unchangedCount++; break;
-                default: errorCount++; break;
-            }
-
-            var normalizedPayloadJson = JsonSerializer.Serialize(
-                new RowEnvelope<TPayload>(row.Payload, row.PreimageRowVersion));
-            var rawJson = JsonSerializer.Serialize(row.RawFields);
-            var errorCodes = row.Errors.Count > 0 ? string.Join(",", row.Errors.Distinct()) : null;
-
-            // 組長 PR #74 round-3, item 4：ImportRow 的兩個 JSON 欄位各有 32 KB 上限，超過就從
-            // 建構子丟 ArgumentOutOfRangeException——一個 40 KB 的無效欄位讓整批直接 500，管理員
-            // 連錯誤檔都拿不到。改為建立實體「之前」量測序列化後的大小：超限的列不保存巨量內容
-            // （RawJson 直接省略，payload 換成不含資料的最小信封），但仍然是一列帶錯誤碼的資料，
-            // 批次照常成為 Invalid 讓管理員修檔重傳。
-            if (normalizedPayloadJson.Length > MaxRowJsonLength)
-            {
-                normalizedPayloadJson = BuildOversizedPayloadJson(row.OriginalKey);
-                if (errorCodes is null)
-                {
-                    errorCodes = DomainErrorCodes.ImportValidationFailed;
-                    errorCount++;
-                    switch (action)
-                    {
-                        case ImportRowAction.Insert: newCount--; break;
-                        case ImportRowAction.Update: updatedCount--; break;
-                        case ImportRowAction.NoChange: unchangedCount--; break;
-                        default: errorCount--; break;
-                    }
-
-                    action = ImportRowAction.Error;
-                }
-            }
-
-            if (rawJson.Length > MaxRowJsonLength)
-            {
-                rawJson = null;
-            }
-
-            var rowHash = SHA256.HashData(Encoding.UTF8.GetBytes(normalizedPayloadJson));
-
-            _dbContext.ImportRows.Add(new ImportRow(
-                batchId,
-                dataset,
-                row.SourceRowNumber,
-                row.ImportKey,
-                action,
-                normalizedPayloadJson,
-                errorCodes,
-                rowHash,
-                rawJson,
-                now));
-        }
-
-        return (newCount, updatedCount, unchangedCount, errorCount);
-    }
-
-    private static IReadOnlyList<StagedImportRow<TPayload>> ParseCsv<TPayload>(
-        byte[] content,
-        Func<IReadOnlyList<string[]>, IReadOnlyList<StagedImportRow<TPayload>>> parse,
-        string datasetLabel)
-    {
-        IReadOnlyList<string[]> rows;
-        try
-        {
-            rows = DelimitedTextReader.Parse(content);
-        }
-        catch (FormatException exception)
-        {
-            throw DomainProblemException.BadRequest(
-                DomainErrorCodes.ImportFormatUnsupported,
-                $"The {datasetLabel} file is not valid CSV: {exception.Message}");
-        }
-
-        try
-        {
-            return parse(rows);
-        }
-        catch (ImportBatchParseException exception)
-        {
-            throw DomainProblemException.BadRequest(exception.ErrorCode, exception.Message);
-        }
-    }
-
-    private static async Task<byte[]> ReadFileAsync(
-        IncomingImportFile file,
-        string datasetLabel,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(file);
-        if (!file.HasFile)
-        {
-            throw DomainProblemException.BadRequest(
-                DomainErrorCodes.ImportDatasetMissing,
-                $"The {datasetLabel} file is required for a product import.");
-        }
-
-        if (file.DeclaredLength is > MaxFileSizeBytes)
-        {
-            throw DomainProblemException.BadRequest(
-                DomainErrorCodes.ImportFormatUnsupported,
-                $"The {datasetLabel} file exceeds the 10 MB limit.");
-        }
-
-        await using var stream = file.OpenRead();
-        using var buffer = new MemoryStream();
-        await stream.CopyToAsync(buffer, cancellationToken);
-        if (buffer.Length > MaxFileSizeBytes)
-        {
-            throw DomainProblemException.BadRequest(
-                DomainErrorCodes.ImportFormatUnsupported,
-                $"The {datasetLabel} file exceeds the 10 MB limit.");
-        }
-
-        return buffer.ToArray();
-    }
-
-    private static string UnwrapPayloadJson(string normalizedPayloadJson)
-    {
-        using var document = JsonDocument.Parse(normalizedPayloadJson);
-        return document.RootElement.TryGetProperty("Payload", out var payload)
-            ? payload.GetRawText()
-            : normalizedPayloadJson;
-    }
-
-    /// <summary>2601/2627: unique index / unique constraint violation.</summary>
-    /// <summary>
-    /// The business key the admin wrote in their own file. Normally identical to ImportRow.ImportKey;
-    /// it differs only for rows stored under a synthetic duplicate key, and for those the original
-    /// still lives in the stored payload (組長 PR #74 round-3, item 1). Falls back to the storage
-    /// key when the payload was dropped for being oversized (item 4).
-    /// </summary>
-    private static string OriginalKeyOf(ImportRow row)
-    {
-        try
-        {
-            using var document = JsonDocument.Parse(row.NormalizedPayloadJson);
-
-            // An oversized row kept only its key (round-4, P3).
-            if (ReadString(document.RootElement, "OriginalKey") is { } preservedKey)
-            {
-                return preservedKey;
-            }
-
-            if (!document.RootElement.TryGetProperty("Payload", out var payload) ||
-                payload.ValueKind != JsonValueKind.Object)
-            {
-                return row.ImportKey;
-            }
-
-            return row.Dataset switch
-            {
-                ImportDataset.Products => ReadString(payload, "ProductKey") ?? row.ImportKey,
-                ImportDataset.Skus => ReadString(payload, "SkuKey") ?? row.ImportKey,
-                ImportDataset.Specifications =>
-                    ReadString(payload, "SkuKey") is { } skuKey
-                        ? $"{skuKey}/{ReadString(payload, "SemanticKey") ?? string.Empty}"
-                        : row.ImportKey,
-                _ => row.ImportKey,
-            };
-        }
-        catch (JsonException)
-        {
-            return row.ImportKey;
-        }
-    }
-
-    private static string? ReadString(JsonElement payload, string propertyName) =>
-        payload.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String
-            ? value.GetString()
-            : null;
 
     private static bool IsUniqueKeyViolation(DbUpdateException exception) =>
         exception.GetBaseException() is SqlException { Number: 2601 or 2627 };

@@ -33,6 +33,22 @@ public sealed class ProductImportsApiTests
         Assert.Equal(1, body.GetProperty("items").GetArrayLength());
     }
 
+    /// <summary>組長 PR #89 item 6：XLSX 走同一支端點的 workbookFile part，回 202 並暫存同樣的列。</summary>
+    [Fact]
+    public async Task Preview_WithASingleWorkbook_StagesTheBatchLikeTheThreeCsvs()
+    {
+        var client = await _fixture.CreateAuthenticatedCatalogManagerClientAsync();
+        var batchId = await _fixture.StageWorkbookPreviewBatchAsync(client);
+
+        using var response = await client.GetAsync($"/api/v1/admin/product-imports/{batchId}/rows");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        var row = Assert.Single(body.GetProperty("items").EnumerateArray());
+        Assert.Equal("Products", row.GetProperty("dataset").GetString());
+        Assert.Equal("Insert", row.GetProperty("action").GetString());
+    }
+
     [Fact]
     public async Task GetRows_WithAnExplicitPageSizeOfZero_IsStillAValidationError()
     {

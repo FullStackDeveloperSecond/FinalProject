@@ -4571,6 +4571,304 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/import-templates/products/current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/inventory-imports/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "multipart/form-data": {
+                        adjustmentsFile?: components["schemas"]["IFormFile"];
+                    } & {
+                        /** Format: int32 */
+                        templateVersion?: number | string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Accepted */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["InventoryImportBatchDto"];
+                        "application/json": components["schemas"]["InventoryImportBatchDto"];
+                        "text/json": components["schemas"]["InventoryImportBatchDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/inventory-imports/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["InventoryImportBatchDto"];
+                        "application/json": components["schemas"]["InventoryImportBatchDto"];
+                        "text/json": components["schemas"]["InventoryImportBatchDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/inventory-imports/{id}/rows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    dataset?: string;
+                    errorsOnly?: boolean;
+                    cursor?: string;
+                    pageSize?: number | string;
+                };
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["CursorPageOfInventoryImportRowDto"];
+                        "application/json": components["schemas"]["CursorPageOfInventoryImportRowDto"];
+                        "text/json": components["schemas"]["CursorPageOfInventoryImportRowDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/inventory-imports/{id}/errors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/csv": unknown;
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/inventory-imports/{id}/actions/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ConfirmInventoryImportRequest"];
+                    "text/json": components["schemas"]["ConfirmInventoryImportRequest"];
+                    "application/*+json": components["schemas"]["ConfirmInventoryImportRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["InventoryImportBatchDto"];
+                        "application/json": components["schemas"]["InventoryImportBatchDto"];
+                        "text/json": components["schemas"]["InventoryImportBatchDto"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Gone */
+                410: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/product-imports/preview": {
         parameters: {
             query?: never;
@@ -4595,6 +4893,8 @@ export interface paths {
                         skusFile?: components["schemas"]["IFormFile"];
                     } & {
                         specificationsFile?: components["schemas"]["IFormFile"];
+                    } & {
+                        workbookFile?: components["schemas"]["IFormFile"];
                     } & {
                         /** Format: int32 */
                         templateVersion?: number | string;
@@ -4688,7 +4988,11 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "text/plain": components["schemas"]["CursorPageOfImportRowDto"];
+                        "application/json": components["schemas"]["CursorPageOfImportRowDto"];
+                        "text/json": components["schemas"]["CursorPageOfImportRowDto"];
+                    };
                 };
             };
         };
@@ -9559,6 +9863,10 @@ export interface components {
             outcome: components["schemas"]["SimulatedPaymentOutcome"];
             simulationKey: string;
         };
+        ConfirmInventoryImportRequest: {
+            /** Format: byte */
+            rowVersion: string;
+        };
         ConfirmProductImportRequest: {
             /** Format: byte */
             rowVersion: string;
@@ -9911,6 +10219,16 @@ export interface components {
             nextCursor: null | string;
             hasMore: boolean;
         };
+        CursorPageOfImportRowDto: {
+            items: components["schemas"]["ImportRowDto"][];
+            nextCursor: null | string;
+            hasMore: boolean;
+        };
+        CursorPageOfInventoryImportRowDto: {
+            items: components["schemas"]["InventoryImportRowDto"][];
+            nextCursor: null | string;
+            hasMore: boolean;
+        };
         CursorPageOfInventoryReservationDto: {
             items: components["schemas"]["InventoryReservationDto"][];
             nextCursor: null | string;
@@ -10005,6 +10323,15 @@ export interface components {
         };
         /** Format: binary */
         IFormFile: string;
+        ImportRowDto: {
+            dataset: string;
+            /** Format: int32 */
+            sourceRowNumber: number | string;
+            importKey: string;
+            action: string;
+            errorCodes: string[];
+            normalizedPayloadJson: string;
+        };
         InspectReturnItemLine: {
             /** Format: uuid */
             returnItemPublicId: string;
@@ -10040,6 +10367,50 @@ export interface components {
             lowStockThreshold: number | string;
             /** Format: byte */
             rowVersion: string;
+        };
+        InventoryImportBatchDto: {
+            /** Format: uuid */
+            publicId: string;
+            importType: string;
+            /** Format: int32 */
+            templateVersion: number | string;
+            status: string;
+            createdByAdminUserId: string;
+            /** Format: date-time */
+            createdAtUtc: string;
+            /** Format: date-time */
+            expiresAtUtc: string;
+            /** Format: int32 */
+            rowCount: number | string;
+            /** Format: int32 */
+            newCount: number | string;
+            /** Format: int32 */
+            updatedCount: number | string;
+            /** Format: int32 */
+            unchangedCount: number | string;
+            /** Format: int32 */
+            errorCount: number | string;
+            /** Format: date-time */
+            confirmedAtUtc: null | string;
+            /** Format: byte */
+            rowVersion: string;
+        };
+        InventoryImportRowDto: {
+            /** Format: int32 */
+            sourceRowNumber: number | string;
+            skuCode: string;
+            action: string;
+            errorCodes: string[];
+            /** Format: int32 */
+            beforeOnHand: null | number | string;
+            /** Format: int32 */
+            reservedQuantity: null | number | string;
+            /** Format: int32 */
+            targetOnHand: null | number | string;
+            /** Format: int32 */
+            delta: null | number | string;
+            reasonCode: null | string;
+            note: null | string;
         };
         InventoryMovementDto: {
             /** Format: uuid */

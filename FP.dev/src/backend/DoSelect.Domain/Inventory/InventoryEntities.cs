@@ -147,7 +147,8 @@ public sealed class InventoryMovement : PublicEntity
         string referenceType,
         Guid? referencePublicId,
         string? actorUserId,
-        DateTime occurredAtUtc)
+        DateTime occurredAtUtc,
+        string? adjustmentNote = null)
         : base(publicId, occurredAtUtc)
     {
         if (skuId <= 0 || reservationId is <= 0 ||
@@ -176,7 +177,24 @@ public sealed class InventoryMovement : PublicEntity
         ReferencePublicId = referencePublicId;
         ActorUserId = string.IsNullOrWhiteSpace(actorUserId) ? null : actorUserId.Trim();
         OccurredAtUtc = RequireUtc(occurredAtUtc, nameof(occurredAtUtc));
+
+        // 組長 PR #89 裁定：Other 的說明要進長期稽核資料。ImportRow 24 小時後就清掉，只留 ReasonCode
+        // 的話「Other」等於沒有原因。非 Adjustment 的 Movement 沒有這個欄位可填。
+        var trimmedNote = string.IsNullOrWhiteSpace(adjustmentNote) ? null : adjustmentNote.Trim();
+        if (trimmedNote is not null && MovementType != InventoryMovementTypes.Adjustment)
+        {
+            throw new ArgumentException("Only adjustment movements carry a note.", nameof(adjustmentNote));
+        }
+
+        if (trimmedNote is { Length: > MaxAdjustmentNoteLength })
+        {
+            throw new ArgumentOutOfRangeException(nameof(adjustmentNote));
+        }
+
+        AdjustmentNote = trimmedNote;
     }
+
+    public const int MaxAdjustmentNoteLength = 500;
 
     public long SkuId { get; private set; }
     public long? ReservationId { get; private set; }
@@ -193,6 +211,9 @@ public sealed class InventoryMovement : PublicEntity
     public Guid? ReferencePublicId { get; private set; }
     public string? ActorUserId { get; private set; }
     public DateTime OccurredAtUtc { get; private set; }
+
+    /// <summary>庫存調整（含匯入）的說明；`Other` 必填。非 Adjustment 的 Movement 固定為 null。</summary>
+    public string? AdjustmentNote { get; private set; }
 }
 
 public sealed class InventoryReconciliationCase : MutablePublicEntity

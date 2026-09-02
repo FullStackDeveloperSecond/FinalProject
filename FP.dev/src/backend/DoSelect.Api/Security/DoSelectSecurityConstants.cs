@@ -90,4 +90,11 @@ public static class DoSelectPolicies
     public const string CatalogImportExecute = "CatalogImport.Execute";
     public const string CatalogImportRead = "CatalogImport.Read";
     public const string CatalogImportReadAll = "CatalogImport.ReadAll";
+
+    /// <summary>
+    /// UC-ADM-INV-01 匯入。名稱依匯入暫存與庫存調整設計.md 的 API 契約表用 InventoryAdjust.*，
+    /// 與 CatalogImport.* 分開：改庫存與改型錄是不同的授權，能改商品資料的人不當然能盤點庫存。
+    /// </summary>
+    public const string InventoryImportExecute = "InventoryAdjust.Execute";
+    public const string InventoryImportReadAll = "InventoryAdjust.ReadAll";
 }

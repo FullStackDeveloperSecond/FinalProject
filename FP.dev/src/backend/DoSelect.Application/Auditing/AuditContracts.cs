@@ -82,6 +82,9 @@ public static class AuditActions
     public const string ProductBulkPublish = "product.bulk_publish";
     public const string ProductBulkUnpublish = "product.bulk_unpublish";
     public const string ProductBulkAdjustPrice = "product.bulk_adjust_price";
+
+    /// <summary>UC-ADM-INV-01 匯入確認：整批庫存調整寫入後留一筆稽核。</summary>
+    public const string InventoryImportConfirm = "inventory_import.confirm";
 }
 
 public static class AuditResourceTypes
@@ -708,6 +711,10 @@ internal static class AuditWritePolicy
                 AuditActions.SupportTicketInternalNote,
                 AuditResourceTypes.SupportTicket,
                 "note"),
+            [AuditActions.InventoryImportConfirm] = Definition(
+                AuditActions.InventoryImportConfirm,
+                AuditResourceTypes.ImportBatch,
+                "status", "inventoryBalances"),
             [AuditActions.CatalogImportConfirm] = Definition(
                 AuditActions.CatalogImportConfirm,
                 AuditResourceTypes.ImportBatch,

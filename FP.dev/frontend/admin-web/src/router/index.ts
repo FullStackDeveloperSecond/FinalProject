@@ -87,6 +87,14 @@ const router = createRouter({
       meta: { requiresAuth: true, requiredRoles: ['CatalogManager', 'SuperAdmin'] },
     },
     {
+      // M功能桌面UI與Route規格.md A-07。Policy 對齊後端的 CatalogImport.*（CatalogManager／
+      // SuperAdmin）。放在 /products/:productId 之前，否則 'import' 會被當成 productId。
+      path: '/products/import',
+      name: 'product-import',
+      component: () => import('../pages/ProductImportPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['CatalogManager', 'SuperAdmin'] },
+    },
+    {
       path: '/products/new',
       name: 'product-new',
       component: () => import('../pages/ProductEditPage.vue'),
@@ -250,6 +258,13 @@ const router = createRouter({
       name: 'shipping-package-limits',
       component: () => import('../pages/ShippingPackageLimitsPage.vue'),
       meta: { requiresAuth: true, requiredRoles: ['OrderManager', 'SuperAdmin'] },
+    },
+    {
+      // M功能桌面UI與Route規格.md A-13。後端是 InventoryAdjust.*（InventoryManager／SuperAdmin）。
+      path: '/inventory/imports',
+      name: 'inventory-imports',
+      component: () => import('../pages/InventoryImportPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['InventoryManager', 'SuperAdmin'] },
     },
     {
       path: '/inventory/reservations',

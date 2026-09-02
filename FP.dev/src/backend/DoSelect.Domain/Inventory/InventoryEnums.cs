@@ -50,6 +50,27 @@ public static class InventoryMovementTypes
 /// narrow. RiskRejected, not FraudReview: "under review" doesn't itself explain why a reservation
 /// was released.
 /// </summary>
+/// <summary>
+/// 庫存匯入（A-13、UC-ADM-INV-01 匯入）的調整原因碼。六個值由
+/// 匯入暫存與庫存調整設計.md「庫存匯入確認」固定，不是管理員可自由填寫的欄位；`Other` 必填說明。
+/// </summary>
+public static class InventoryAdjustmentReasonCodes
+{
+    public const string StocktakeDifference = "StocktakeDifference";
+    public const string Damaged = "Damaged";
+    public const string Lost = "Lost";
+    public const string ReturnRestock = "ReturnRestock";
+    public const string DataCorrection = "DataCorrection";
+    public const string Other = "Other";
+
+    public static readonly IReadOnlyList<string> All =
+        [StocktakeDifference, Damaged, Lost, ReturnRestock, DataCorrection, Other];
+
+    /// <summary>Other 之外的原因碼說明可以留白（模板以 \N 表示空值）。</summary>
+    public static bool RequiresNote(string reasonCode) =>
+        string.Equals(reasonCode, Other, StringComparison.Ordinal);
+}
+
 public static class InventoryReleaseReasonCodes
 {
     public const string CustomerCancelled = "customer_cancelled";

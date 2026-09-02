@@ -424,6 +424,10 @@ public static class SecurityServiceCollectionExtensions
             DoSelectRoles.CatalogManager, DoSelectRoles.SuperAdmin);
         AddAdminPolicy(options, DoSelectPolicies.CatalogImportReadAll,
             DoSelectRoles.CatalogManager, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.InventoryImportExecute,
+            DoSelectRoles.InventoryManager, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.InventoryImportReadAll,
+            DoSelectRoles.InventoryManager, DoSelectRoles.SuperAdmin);
     }
 
     private static bool AllowsHttpAntiforgeryCookie(IHostEnvironment environment) =>
