@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Text;
+using ClosedXML.Excel;
 using DoSelect.Infrastructure.Imports;
 
 namespace DoSelect.Infrastructure.Tests.Imports;
@@ -11,17 +12,33 @@ namespace DoSelect.Infrastructure.Tests.Imports;
 public sealed class ImportTemplateServiceTests
 {
     [Fact]
-    public void ProductTemplate_ContainsTheThreeDatasetsAsCsvEntries()
+    public void ProductTemplate_ContainsTheThreeCsvsAndOneWorkbook()
     {
         var template = new ImportTemplateService().GetCurrentProductTemplate();
 
         Assert.Equal("application/zip", template.ContentType);
         Assert.EndsWith(".zip", template.FileName, StringComparison.Ordinal);
-
         var entries = ReadEntries(template.Content);
         Assert.Equal(
-            new[] { "products.csv", "skus.csv", "specifications.csv" },
+            new[] { "product-import-template.xlsx", "products.csv", "skus.csv", "specifications.csv" },
             entries.Keys.Order(StringComparer.Ordinal).ToArray());
+    }
+
+    /// <summary>
+    /// 組長 PR #89 round 2 item 2：XLSX 模板的三張工作表名稱與標題列都要是上傳端真正接受的那一份。
+    /// 讀回來走的是與上傳相同的 XlsxWorkbookReader，所以這支綠就代表模板進得了 Preview 的門。
+    /// </summary>
+    [Fact]
+    public void ProductTemplate_WorkbookSheetsCarryPreciselyWhatTheParsersAccept()
+    {
+        var entries = ReadEntries(new ImportTemplateService().GetCurrentProductTemplate().Content);
+
+        var sheets = XlsxWorkbookReader.ReadSheets(
+            entries[ImportTemplateService.WorkbookEntryName], EfProductImportService.WorkbookSheetNames);
+
+        Assert.Equal(ProductRowParser.Header, sheets["Products"].Single());
+        Assert.Equal(SkuRowParser.Header, sheets["Skus"].Single());
+        Assert.Equal(SpecificationRowParser.Header, sheets["Specifications"].Single());
     }
 
     /// <summary>
@@ -47,7 +64,7 @@ public sealed class ImportTemplateServiceTests
     {
         var entries = ReadEntries(new ImportTemplateService().GetCurrentProductTemplate().Content);
 
-        foreach (var (name, content) in entries)
+        foreach (var (name, content) in entries.Where(entry => entry.Key.EndsWith(".csv", StringComparison.Ordinal)))
         {
             var lines = Decode(content).Split(
                 ["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries);
@@ -61,7 +78,7 @@ public sealed class ImportTemplateServiceTests
     {
         var entries = ReadEntries(new ImportTemplateService().GetCurrentProductTemplate().Content);
 
-        foreach (var (name, content) in entries)
+        foreach (var (name, content) in entries.Where(entry => entry.Key.EndsWith(".csv", StringComparison.Ordinal)))
         {
             Assert.True(
                 content.Length >= 3 && content[0] == 0xEF && content[1] == 0xBB && content[2] == 0xBF,

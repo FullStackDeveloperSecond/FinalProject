@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using ClosedXML.Excel;
 using DoSelect.Application.Common;
 using DoSelect.Application.Imports;
@@ -68,6 +69,90 @@ public sealed class EfProductImportXlsxTests
             Assert.Equal(fromCsv.NormalizedPayloadJson, fromXlsx.NormalizedPayloadJson);
         }
     }
+
+    /// <summary>
+    /// 組長 PR #89 round 2 item 2：「下載模板後直接送入 Preview」。模板只有標題列，原樣送進去會因為
+    /// 沒有資料列被拒——那是 import_dataset_missing，不是 Header 錯。補一列之後要能走到 Ready。
+    /// </summary>
+    [Fact]
+    public async Task PreviewAsync_AcceptsTheDownloadedWorkbookTemplate()
+    {
+        await using var context = ImportServiceFixture.CreateContext();
+        var (brand, category) = await ImportServiceFixture.SeedBrandAndCategoryAsync(context);
+        var emptyAdmin = await ImportServiceFixture.SeedAdminUserIdAsync(context);
+        var filledAdmin = await ImportServiceFixture.SeedAdminUserIdAsync(context);
+        var service = CreateService(context);
+        var template = TemplateEntries()[ImportTemplateService.WorkbookEntryName];
+
+        // 原樣送：標題列被接受，只是沒有資料。
+        var empty = await Assert.ThrowsAsync<DomainProblemException>(() => service.PreviewAsync(
+            new PreviewProductImportRequest(Empty(), Empty(), Empty(), 1, Xlsx(template)), emptyAdmin, CancellationToken.None));
+        Assert.Equal(DomainErrorCodes.ImportDatasetMissing, empty.Code);
+
+        // 在官方模板上補一列商品，走到 Ready。
+        byte[] filled;
+        using (var stream = new MemoryStream(template))
+        using (var workbook = new XLWorkbook(stream))
+        {
+            var products = workbook.Worksheet("Products");
+            var row = new[] { "PK1", ImportServiceFixture.UniqueCode("PROD"), "模板商品", brand.Code, category.Code, "\\N", "\\N", "Draft" };
+            for (var column = 0; column < row.Length; column++)
+            {
+                products.Cell(2, column + 1).Value = row[column];
+            }
+
+            using var output = new MemoryStream();
+            workbook.SaveAs(output);
+            filled = output.ToArray();
+        }
+
+        var preview = await service.PreviewAsync(
+            new PreviewProductImportRequest(Empty(), Empty(), Empty(), 1, Xlsx(filled)), filledAdmin, CancellationToken.None);
+
+        Assert.Equal(ImportBatchStatus.Ready.ToString(), preview.Status);
+        Assert.Equal(1, preview.NewCount);
+    }
+
+    [Fact]
+    public async Task PreviewAsync_AcceptsTheDownloadedCsvTemplates()
+    {
+        await using var context = ImportServiceFixture.CreateContext();
+        var (brand, category) = await ImportServiceFixture.SeedBrandAndCategoryAsync(context);
+        var adminId = await ImportServiceFixture.SeedAdminUserIdAsync(context);
+        var service = CreateService(context);
+        var entries = TemplateEntries();
+
+        var products = System.Text.Encoding.UTF8.GetString(entries["products.csv"]).TrimEnd('\r', '\n') +
+            $"\r\nPK1,{ImportServiceFixture.UniqueCode("PROD")},模板商品,{brand.Code},{category.Code},\\N,\\N,Draft\r\n";
+
+        var preview = await service.PreviewAsync(new PreviewProductImportRequest(
+            Csv(products),
+            Bytes(entries["skus.csv"]),
+            Bytes(entries["specifications.csv"]),
+            TemplateVersion: 1), adminId, CancellationToken.None);
+
+        Assert.Equal(ImportBatchStatus.Ready.ToString(), preview.Status);
+        Assert.Equal(1, preview.NewCount);
+    }
+
+    private static IReadOnlyDictionary<string, byte[]> TemplateEntries()
+    {
+        var zip = new ImportTemplateService().GetCurrentProductTemplate().Content;
+        using var archive = new ZipArchive(new MemoryStream(zip), ZipArchiveMode.Read);
+        var entries = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        foreach (var entry in archive.Entries)
+        {
+            using var stream = entry.Open();
+            using var buffer = new MemoryStream();
+            stream.CopyTo(buffer);
+            entries[entry.FullName] = buffer.ToArray();
+        }
+
+        return entries;
+    }
+
+    private static IncomingImportFile Bytes(byte[] bytes) =>
+        new("upload.csv", "text/csv", bytes.Length, true, () => new MemoryStream(bytes));
 
     [Fact]
     public async Task PreviewAsync_WithAWorkbookMissingASheet_RejectsWithDatasetMissing()

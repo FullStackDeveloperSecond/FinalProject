@@ -100,7 +100,7 @@ function uploadErrorMessage(caught: unknown): string {
       >
         下載匯入模板
       </button>
-      <span>模板是一個 ZIP，內含 products、skus、specifications 三個 CSV 的標題列。</span>
+      <span>模板是一個 ZIP，內含 products、skus、specifications 三個 CSV，以及同樣三張工作表的 XLSX；都只有標題列。</span>
     </div>
 
     <form

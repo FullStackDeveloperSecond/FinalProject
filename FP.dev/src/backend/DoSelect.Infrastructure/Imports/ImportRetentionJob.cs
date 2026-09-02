@@ -16,6 +16,10 @@ namespace DoSelect.Infrastructure.Imports;
 /// 形狀比照 <c>OutboxRetentionJob</c>／<c>AuditRetentionJob</c>：每次最多處理一個有界批次，重跑
 /// 是冪等的。刪的只有暫存列與逾期摘要——套用進去的商品、庫存 Movement 與 AuditLog 不在這裡，
 /// 也不該在這裡。
+///
+/// **允許的清理延遲**：排程每小時執行一次（見 BackgroundJobServiceCollectionExtensions），所以列在
+/// 進入終態滿 24 小時之後、最多再過 1 小時內被清；摘要在滿 90 天之後、最多再過 1 小時內被清。
+/// 每一輪最多處理 <see cref="BatchSize"/> 個批次，積壓時下一小時繼續。
 /// </summary>
 public sealed class ImportRetentionJob(
     DoSelectDbContext context,
