@@ -96,6 +96,9 @@ async function onLogout(): Promise<void> {
           <RouterLink to="/products">
             商品管理
           </RouterLink>
+          <RouterLink to="/products/import">
+            商品匯入
+          </RouterLink>
           <RouterLink to="/catalog/specifications">
             分類規格範本
           </RouterLink>
@@ -116,6 +119,9 @@ async function onLogout(): Promise<void> {
           </RouterLink>
           <RouterLink to="/inventory">
             庫存管理
+          </RouterLink>
+          <RouterLink to="/inventory/imports">
+            庫存匯入
           </RouterLink>
           <!--
             組長 PR #78 round-2 review item 2：兩個入口的角色不同——門市是 ShippingRead

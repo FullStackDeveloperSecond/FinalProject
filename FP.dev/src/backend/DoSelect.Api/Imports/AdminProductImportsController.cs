@@ -2,6 +2,7 @@ using System.Security.Claims;
 using DoSelect.Api.Security;
 using DoSelect.Api.Common;
 using DoSelect.Application.Auditing;
+using DoSelect.Application.Common;
 using DoSelect.Application.Imports;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -69,6 +70,9 @@ public sealed class AdminProductImportsController : ControllerBase
 
     [HttpGet("{id:guid}/rows")]
     [Authorize(Policy = DoSelectPolicies.CatalogImportReadAll)]
+    // 標上回應型別，OpenAPI 才描述得出這支端點回什麼；沒有它，產生的 typed client 只能
+    // 拿到 unknown，前端得自己轉型——那等於把契約檢查關掉。
+    [ProducesResponseType<CursorPage<ImportRowDto>>(StatusCodes.Status200OK)]
     public async Task<ActionResult> GetRows(
         Guid id,
         [FromQuery] string? dataset,
