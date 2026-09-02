@@ -6,6 +6,7 @@ import { fetchOrder, type OrderDto } from '../orders/api'
 import {
   completeSimulatedPayment,
   createPaymentAttempt,
+  fetchLatestPaymentAttempt,
   type PaymentAttemptDto,
   type PaymentMethod,
   type SimulatedPaymentOutcome,
@@ -24,6 +25,8 @@ const attempt = ref<PaymentAttemptDto>()
 const isCreating = ref(false)
 const isCompleting = ref(false)
 const actionError = ref<string>()
+const restoreFailed = ref(false)
+const isRestoring = ref(false)
 let createIdempotencyKey = crypto.randomUUID()
 let simulationKey = crypto.randomUUID()
 
@@ -37,8 +40,27 @@ const paymentMethods: ReadonlyArray<{ value: PaymentMethod; label: string }> = [
   { value: 'cashOnDelivery', label: '貨到付款' },
 ]
 
-const canCreateAttempt = computed(() =>
+/** 這筆嘗試已經結束，不會再變。 */
+const attemptIsTerminal = computed(() =>
+  attempt.value !== undefined
+  && ['paid', 'failed', 'expired', 'cancelled'].includes(attempt.value.status),
+)
+
+const orderAcceptsPayment = computed(() =>
   order.value?.orderStatus === 'pendingPayment' && order.value.paymentStatus !== 'paid',
+)
+
+/**
+ * 什麼時候顯示「建立付款方式」表單。
+ *
+ * 沒有付款嘗試時顯示，這是原本就有的行為。**已經有一筆但它走到終態時也要顯示** ——
+ * 恢復功能會把失敗／逾期的那一筆帶回來，如果因此就把表單藏起來，使用者付款失敗
+ * 後重新整理就再也沒有辦法重試（Issue #86 A1：終態要保留，但仍可重試）。
+ *
+ * 已付款不在此列：訂單的 paymentStatus 會是 paid，orderAcceptsPayment 就是 false。
+ */
+const canCreateAttempt = computed(() =>
+  orderAcceptsPayment.value && (attempt.value === undefined || attemptIsTerminal.value),
 )
 const canCompleteDemo = computed(() =>
   attempt.value !== undefined
@@ -51,6 +73,7 @@ async function loadOrder(): Promise<void> {
   pageState.value = 'loading'
   try {
     order.value = await fetchOrder(orderPublicId.value)
+    await restoreLatestAttempt()
     pageState.value = 'ready'
   }
   catch (error) {
@@ -66,6 +89,30 @@ async function loadOrder(): Promise<void> {
       loadErrorProps.value = { correlationId: error.correlationId, traceId: error.traceId }
     }
     pageState.value = 'error'
+  }
+}
+
+/**
+ * 把上一筆付款嘗試帶回來 —— 付款方式、金額、狀態與 ATM／超商的付款指示都在裡面。
+ * 少了這一步，那串繳費代碼一重新整理就不見了。
+ *
+ * 失敗**不會**讓整頁變成錯誤畫面：訂單已經載入成功，恢復只是加分。整頁掛掉會把
+ * 「看不到上一筆」升級成「什麼都不能做」。改成顯示一則可重試的提示。
+ *
+ * 恢復失敗時仍然顯示建立表單是安全的：後端的 PaymentAttemptPolicy 規定同時只能有
+ * 一筆進行中的嘗試，真的已經有一筆的話會回 payment_state_conflict，不會多建一筆。
+ */
+async function restoreLatestAttempt(): Promise<void> {
+  isRestoring.value = true
+  restoreFailed.value = false
+  try {
+    attempt.value = await fetchLatestPaymentAttempt(orderPublicId.value)
+  }
+  catch {
+    restoreFailed.value = true
+  }
+  finally {
+    isRestoring.value = false
   }
 }
 
@@ -191,6 +238,20 @@ const attemptStatusLabel: Record<string, string> = {
       </h1>
       <p>應付總額：NT$ {{ order.amounts.grandTotal }} {{ order.amounts.currency }}</p>
 
+      <p
+        v-if="restoreFailed"
+        role="alert"
+      >
+        無法載入先前的付款狀態，畫面可能不完整。
+        <button
+          type="button"
+          :disabled="isRestoring"
+          @click="restoreLatestAttempt"
+        >
+          重新載入付款狀態
+        </button>
+      </p>
+
       <EmptyState
         v-if="paymentCompleted"
         title="付款已完成"
@@ -198,7 +259,7 @@ const attemptStatusLabel: Record<string, string> = {
       />
 
       <form
-        v-else-if="canCreateAttempt && !attempt"
+        v-else-if="canCreateAttempt"
         @submit.prevent="submitAttempt"
       >
         <label for="payment-method">付款方式</label>

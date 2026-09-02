@@ -5,10 +5,16 @@ import PaymentPage from './PaymentPage.vue'
 import type { OrderDto } from '../orders/api'
 import type { PaymentAttemptDto } from './api'
 
-const { fetchOrder, createPaymentAttempt, completeSimulatedPayment } = vi.hoisted(() => ({
+const {
+  fetchOrder,
+  createPaymentAttempt,
+  completeSimulatedPayment,
+  fetchLatestPaymentAttempt,
+} = vi.hoisted(() => ({
   fetchOrder: vi.fn(),
   createPaymentAttempt: vi.fn(),
   completeSimulatedPayment: vi.fn(),
+  fetchLatestPaymentAttempt: vi.fn(),
 }))
 
 vi.mock('../orders/api', async (importOriginal) => {
@@ -18,7 +24,7 @@ vi.mock('../orders/api', async (importOriginal) => {
 
 vi.mock('./api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./api')>()
-  return { ...actual, createPaymentAttempt, completeSimulatedPayment }
+  return { ...actual, createPaymentAttempt, completeSimulatedPayment, fetchLatestPaymentAttempt }
 })
 
 vi.mock('vue-router', async (importOriginal) => {
@@ -81,6 +87,9 @@ describe('PaymentPage', () => {
     fetchOrder.mockReset()
     createPaymentAttempt.mockReset()
     completeSimulatedPayment.mockReset()
+    fetchLatestPaymentAttempt.mockReset()
+    // 預設「這張訂單還沒有付款嘗試」，也就是恢復功能之前的行為。
+    fetchLatestPaymentAttempt.mockResolvedValue(undefined)
   })
 
   it('creates a payment attempt from the trusted order version and shows its instruction', async () => {
@@ -189,5 +198,107 @@ describe('PaymentPage', () => {
 
     expect(wrapper.text()).toContain('貨到付款會在完成配送或取貨時入帳')
     expect(wrapper.find('[data-test="complete-payment"]').exists()).toBe(false)
+  })
+
+  it('restores the previous attempt on load instead of showing an empty form', async () => {
+    // 恢復功能的核心：重新整理後付款方式、金額、狀態與付款指示都還在。
+    fetchOrder.mockResolvedValue(buildOrder())
+    fetchLatestPaymentAttempt.mockResolvedValue(buildAttempt({
+      method: 'atm',
+      instruction: {
+        type: 'virtualAccount',
+        maskedAccount: null,
+        code: '9556123456789',
+        expiresAtUtc: '2026-09-02T08:00:00Z',
+      },
+    }))
+
+    const wrapper = mount(PaymentPage)
+    await flushPromises()
+
+    expect(fetchLatestPaymentAttempt).toHaveBeenCalledWith('order-public-id')
+    // ATM 代碼是使用者要拿去繳費的東西，正是最不能掉的欄位。
+    expect(wrapper.text()).toContain('9556123456789')
+    expect(wrapper.text()).toContain('等待付款')
+    // 恢復不等於重新建立 —— 多建一筆會讓同一張訂單出現兩筆付款嘗試。
+    expect(createPaymentAttempt).not.toHaveBeenCalled()
+  })
+
+  it('keeps showing the create form when there is no attempt yet', async () => {
+    // 對照組。少了它，一個「永遠顯示已恢復畫面」的實作也會讓上面那條過。
+    fetchOrder.mockResolvedValue(buildOrder())
+    fetchLatestPaymentAttempt.mockResolvedValue(undefined)
+
+    const wrapper = mount(PaymentPage)
+    await flushPromises()
+
+    expect(wrapper.find('#payment-method').exists()).toBe(true)
+  })
+
+  it('lets the shopper retry after a failed attempt without losing the failure', async () => {
+    // Issue #86 A1：終態要保留，但仍可重試。只保留不給重試，等於重新整理之後
+    // 就再也付不了款；只給重試不保留，使用者會不知道剛才發生什麼事。
+    fetchOrder.mockResolvedValue(buildOrder())
+    fetchLatestPaymentAttempt.mockResolvedValue(buildAttempt({ status: 'failed' }))
+
+    const wrapper = mount(PaymentPage)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('付款失敗')
+    expect(wrapper.find('#payment-method').exists()).toBe(true)
+  })
+
+  it('shows an expired attempt and still offers a retry', async () => {
+    fetchOrder.mockResolvedValue(buildOrder())
+    fetchLatestPaymentAttempt.mockResolvedValue(buildAttempt({ status: 'expired' }))
+
+    const wrapper = mount(PaymentPage)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('已逾期')
+    expect(wrapper.find('#payment-method').exists()).toBe(true)
+  })
+
+  it('offers no retry once the order is paid', async () => {
+    // 已付款不該再出現建立表單。
+    fetchOrder.mockResolvedValue(buildOrder({ paymentStatus: 'paid' }))
+    fetchLatestPaymentAttempt.mockResolvedValue(buildAttempt({ status: 'paid' }))
+
+    const wrapper = mount(PaymentPage)
+    await flushPromises()
+
+    expect(wrapper.find('#payment-method').exists()).toBe(false)
+    expect(wrapper.text()).toContain('付款已完成')
+  })
+
+  it('still renders the page when restoring the attempt fails', async () => {
+    // 恢復是加分功能，不該讓整頁掛掉 —— 訂單本身載入成功就要看得到付款流程。
+    fetchOrder.mockResolvedValue(buildOrder())
+    fetchLatestPaymentAttempt.mockRejectedValue(
+      new ApiError('boom', { status: 500, code: 'unexpected_error' }))
+
+    const wrapper = mount(PaymentPage)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('DS20260901001')
+  })
+
+  it('can retry loading the payment status after it failed', async () => {
+    // 交接單 §5.3：查詢失敗的狀態要可以重試，不能只留一則死掉的訊息。
+    fetchOrder.mockResolvedValue(buildOrder())
+    fetchLatestPaymentAttempt
+      .mockRejectedValueOnce(
+        new ApiError('boom', { status: 500, code: 'unexpected_error' }))
+      .mockResolvedValueOnce(buildAttempt({ status: 'awaitingPayment' }))
+
+    const wrapper = mount(PaymentPage)
+    await flushPromises()
+    expect(wrapper.text()).toContain('無法載入先前的付款狀態')
+
+    await wrapper.get('button[type="button"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('無法載入先前的付款狀態')
+    expect(wrapper.text()).toContain('等待付款')
   })
 })

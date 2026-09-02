@@ -9,6 +9,7 @@ using DoSelect.Application.Common;
 using DoSelect.Application.Members;
 using DoSelect.Application.Orders;
 using DoSelect.Application.Payments;
+using DoSelect.Domain.Payments;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -31,19 +32,22 @@ public sealed class OrdersController : ControllerBase
     private readonly CheckoutService _checkoutService;
     private readonly IMemberProfileGateway _memberProfileGateway;
     private readonly IPaymentAttemptWriter _paymentAttemptWriter;
+    private readonly LatestPaymentAttemptService _latestPaymentAttempts;
 
     public OrdersController(
         IOrderService orderService,
         GuestOrderAccessScopeAuthorizer guestAuthorizer,
         CheckoutService checkoutService,
         IMemberProfileGateway memberProfileGateway,
-        IPaymentAttemptWriter paymentAttemptWriter)
+        IPaymentAttemptWriter paymentAttemptWriter,
+        LatestPaymentAttemptService latestPaymentAttempts)
     {
         _orderService = orderService;
         _guestAuthorizer = guestAuthorizer;
         _checkoutService = checkoutService;
         _memberProfileGateway = memberProfileGateway;
         _paymentAttemptWriter = paymentAttemptWriter;
+        _latestPaymentAttempts = latestPaymentAttempts;
     }
 
     [HttpPost]
@@ -135,6 +139,104 @@ public sealed class OrdersController : ControllerBase
             cancellationToken);
         return StatusCode(result.StatusCode, result.Body);
     }
+
+    /// <summary>
+    /// 這張訂單最新的一筆付款嘗試，供付款頁重新整理後恢復畫面。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>包含所有終態</b>（<c>Failed</c>／<c>Expired</c>／<c>Cancelled</c>／<c>Paid</c>）
+    /// —— alex 2026-09-01 Issue #86 A1。終態當成「沒有付款嘗試」的話，使用者付款失敗後
+    /// 重新整理就再也看不到失敗原因，只會回到一張空的建立表單。
+    /// </para>
+    /// <para>
+    /// 授權沿用發票查詢的語意（同 Issue #86 C1）：會員不是擁有者時<b>不立即拒絕</b>，
+    /// 仍讓同一個瀏覽器中有效的 Guest token 證明權限；Guest Scope 過期回 401
+    /// <c>guest_order_access_expired</c>，Scope 不符與資源不存在一律折成 404。
+    /// </para>
+    /// </remarks>
+    [HttpGet("{id:guid}/payment-attempts/latest")]
+    [ProducesResponseType<PaymentAttemptDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<PaymentAttemptDto>> GetLatestPaymentAttempt(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        var hadMember = false;
+        var member = await HttpContext.AuthenticateAsync(DoSelectAuthenticationSchemes.Member);
+        if (member.Succeeded &&
+            member.Principal?.HasClaim(
+                DoSelectClaimTypes.AccountType, DoSelectClaimValues.Member) == true)
+        {
+            hadMember = true;
+            var memberUserId = member.Principal.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrWhiteSpace(memberUserId))
+            {
+                throw new InvalidOperationException(
+                    "Authenticated member request is missing its identifier claim.");
+            }
+
+            var memberResult = await _latestPaymentAttempts.FindLatestAsync(
+                new PaymentAttemptViewer.Member(memberUserId), id, cancellationToken);
+            switch (memberResult)
+            {
+                case LatestPaymentAttemptResult.Found found:
+                    return Ok(found.Attempt);
+                case LatestPaymentAttemptResult.NotFound:
+                    return PaymentAttemptNotFound();
+                case LatestPaymentAttemptResult.MemberAccessDenied:
+                    // 同一個瀏覽器可以同時有 Member 與 Guest cookie。會員不是擁有者時，
+                    // 仍要讓有效的 Guest token 證明它對這張訪客訂單有權限。
+                    break;
+            }
+        }
+
+        var guest = await HttpContext.AuthenticateAsync(
+            DoSelectAuthenticationSchemes.GuestOrderAccess);
+        if (!guest.Succeeded || guest.Principal is null)
+        {
+            return hadMember ? PaymentAttemptNotFound() : UnauthorizedPaymentAttempt();
+        }
+
+        var authorization = await _guestAuthorizer.AuthorizeAsync(
+            guest.Principal,
+            id,
+            new GuestOrderAccessAuthorizationAuditContext(
+                CorrelationIdMiddleware.GetCorrelationId(HttpContext),
+                Activity.Current?.TraceId.ToString() ?? ActivityTraceId.CreateRandom().ToString(),
+                HttpContext.Connection.RemoteIpAddress),
+            cancellationToken);
+
+        if (authorization is GuestOrderAccessAuthorizationResult.Failure failure)
+        {
+            return failure.ErrorCode == GuestOrderErrorCodes.AccessExpired
+                ? UnauthorizedPaymentAttempt(GuestOrderErrorCodes.AccessExpired)
+                : PaymentAttemptNotFound(GuestOrderErrorCodes.ScopeMismatch);
+        }
+
+        var guestResult = await _latestPaymentAttempts.FindLatestAsync(
+            new PaymentAttemptViewer.Guest(), id, cancellationToken);
+        return guestResult is LatestPaymentAttemptResult.Found guestFound
+            ? Ok(guestFound.Attempt)
+            : PaymentAttemptNotFound();
+    }
+
+    private ActionResult PaymentAttemptNotFound(
+        string code = PaymentErrorCodes.ResourceNotFound) =>
+        NotFound(ApiProblemDetailsFactory.Create(
+            HttpContext,
+            StatusCodes.Status404NotFound,
+            code,
+            detail: "The referenced payment attempt was not found."));
+
+    private ActionResult UnauthorizedPaymentAttempt(
+        string code = PaymentErrorCodes.ResourceNotFound) =>
+        Unauthorized(ApiProblemDetailsFactory.Create(
+            HttpContext,
+            StatusCodes.Status401Unauthorized,
+            code,
+            detail: "The request requires an authenticated owner or a valid guest order token."));
 
     [HttpGet]
     [Authorize(Policy = DoSelectPolicies.Member)]
