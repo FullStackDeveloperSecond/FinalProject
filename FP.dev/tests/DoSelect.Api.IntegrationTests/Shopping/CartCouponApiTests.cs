@@ -5,6 +5,7 @@ using System.Data;
 using DoSelect.Application.Idempotency;
 using DoSelect.Application.Promotions;
 using DoSelect.Application.Shopping;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -36,9 +37,10 @@ public sealed class CartCouponApiTests
     [Fact]
     public async Task AValidGuestRequestReachesTheCouponService()
     {
-        // 這條同時是請求 DTO 的綁定證據：ApplyCartCouponRequest 是本專案唯一用
-        // [property:] 掛驗證屬性的請求 record，而在這支端點出現之前，它從來沒有被
-        // 任何 [FromBody] 綁定過。綁定若壞掉，這裡會是 500 而不是 404。
+        // 這條同時是請求 DTO 的綁定證據：在這支端點出現之前，ApplyCartCouponRequest
+        // 從來沒有被任何 [FromBody] 綁定過，所以它掛驗證屬性的方式一直沒被檢驗過。
+        // 綁定若壞掉（例如改成 [property:] 讓驗證中繼資料提供者丟例外），
+        // 這裡會是 500 而不是 404。
         using var factory = CreateFactory();
         using var client = factory.CreateClient();
 
@@ -86,6 +88,48 @@ public sealed class CartCouponApiTests
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
+
+    /// <summary>
+    /// 公開契約要說得出 400 的界線在哪裡（alex 2026-09-03 PR #97 finding 3）。
+    /// </summary>
+    /// <remarks>
+    /// 與 <c>ReturnDtosOpenApiContractTests</c> 是同一類缺陷：原生 OpenAPI 產生器只讀
+    /// record <b>屬性</b>上的 DataAnnotations，掛在主建構式參數上的會被整個丟掉，schema
+    /// 因此少了長度限制，而 MVC 仍然照樣擋 —— 契約與實際行為對不起來。
+    /// 這裡讀<b>即時產生</b>的文件而不是 committed 的 <c>contracts/openapi.v1.json</c>，
+    /// 所以 DTO 一退回讀不到的形狀就會紅，不用等誰記得重新匯出。
+    /// 上面的空字串／65 字元 400 測試是同一條規則的另一半：那兩條驗執行期真的擋，
+    /// 這一條驗契約真的寫出來。
+    /// </remarks>
+    [Fact]
+    public async Task TheCodeLengthLimitsAppearInTheGeneratedOpenApiDocument()
+    {
+        using var factory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(builder => builder.UseEnvironment("Development"));
+        using var client = factory.CreateClient();
+
+        using var response = await client.GetAsync("/openapi/v1.json");
+        response.EnsureSuccessStatusCode();
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        var schema = document.RootElement
+            .GetProperty("components")
+            .GetProperty("schemas")
+            .GetProperty("ApplyCartCouponRequest");
+        var code = schema.GetProperty("properties").GetProperty("code");
+
+        Assert.Equal(1, code.GetProperty("minLength").GetInt32());
+        Assert.Equal(64, code.GetProperty("maxLength").GetInt32());
+
+        // 轉成屬性宣告式時，非可空欄位的 required 很容易一起掉（主建構式參數是隱含必填，
+        // 屬性則要自己寫 required 修飾詞）。
+        var required = schema.GetProperty("required").EnumerateArray()
+            .Select(element => element.GetString())
+            .ToHashSet();
+        Assert.Contains("code", required);
+        Assert.Contains("cartRowVersion", required);
+    }
+
 
     private static async Task<string?> ReadCodeAsync(HttpResponseMessage response)
     {

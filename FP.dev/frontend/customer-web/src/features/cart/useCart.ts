@@ -25,7 +25,14 @@ import type { CartDto } from './types'
  * structurally impossible: a different identity is a genuinely different cache entry, never
  * served in place of the current one, regardless of timing.
  */
-function useCartIdentityKey() {
+/**
+ * 購物車快取鍵，含身分。
+ *
+ * 匯出給結帳頁用：C-13 套用的優惠碼要在同一個 SPA 內交接到 C-14，而唯一符合
+ * 「不新增資料表、不持久化、不進 URL 或 localStorage」的載體就是這份記憶體快取。
+ * 鍵本身帶身分，所以換帳號或登出時自然不會沿用。
+ */
+export function useCartIdentityKey() {
   const sessionStore = useSessionStore()
   return computed(() =>
     sessionStore.isAuthenticated && sessionStore.user

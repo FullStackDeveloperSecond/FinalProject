@@ -147,6 +147,7 @@ function createdOrder(status: 'pendingPayment' | 'confirmed' = 'pendingPayment')
 async function mountCheckoutPage(options: {
   authenticated?: boolean
   failNavigationTo?: 'order-detail' | 'order-payment'
+  queryClient?: QueryClient
 } = {}) {
   const { default: CheckoutPage } = await import('./CheckoutPage.vue')
   const router = createRouter({
@@ -178,7 +179,8 @@ async function mountCheckoutPage(options: {
   } else {
     useSessionStore().status = 'anonymous'
   }
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const queryClient = options.queryClient
+    ?? new QueryClient({ defaultOptions: { queries: { retry: false } } })
 
   return {
     wrapper: mount(CheckoutPage, {
@@ -388,4 +390,60 @@ describe('CheckoutPage', () => {
     expect(wrapper.get('a[href="/guest-orders/access"]').attributes('href')).toBe('/guest-orders/access')
     expect(router.currentRoute.value.name).toBe('checkout')
   })
+
+  it('carries a coupon applied on the cart page into checkout and re-quotes shipping with it', async () => {
+    // alex #97 A1：同一 SPA、同一身分、同一有效版本才沿用；沿用的只是代碼，
+    // 運費仍由後端用那個代碼重算。
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    queryClient.setQueryData(['cart', 'guest', 'guest-checkout-key'], {
+      ...cart,
+      coupon: { code: 'FREESHIP', discountAmount: 0, isFreeShipping: true, isAssemblyFreeShipping: false },
+    })
+
+    const { wrapper } = await mountCheckoutPage({ queryClient })
+    await vi.waitFor(() => expect(wrapper.text()).toContain('宅配'))
+
+    expect((wrapper.get('#coupon-code').element as HTMLInputElement).value).toBe('FREESHIP')
+    expect(mockGetShippingOptions).toHaveBeenCalledWith('guest-checkout-key', 'FREESHIP')
+  })
+
+  it('does not carry a coupon whose cart version no longer matches', async () => {
+    // 版本變了代表原本的 quote 已經失效 —— 沿用會讓顧客看到一個算不出來的折扣。
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    queryClient.setQueryData(['cart', 'guest', 'guest-checkout-key'], {
+      ...cart,
+      rowVersion: 'STALE',
+      coupon: { code: 'FREESHIP', discountAmount: 0, isFreeShipping: true, isAssemblyFreeShipping: false },
+    })
+
+    const { wrapper } = await mountCheckoutPage({ queryClient })
+    await vi.waitFor(() => expect(wrapper.text()).toContain('宅配'))
+
+    expect((wrapper.get('#coupon-code').element as HTMLInputElement).value).toBe('')
+    expect(mockGetShippingOptions).toHaveBeenCalledWith('guest-checkout-key', undefined)
+  })
+
+  it('does not carry a coupon when there is no in-memory cart (a fresh page load)', async () => {
+    // 重新整理與跨裝置都是這一條：記憶體快取不存在，就不沿用。
+    const { wrapper } = await mountCheckoutPage()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('宅配'))
+
+    expect((wrapper.get('#coupon-code').element as HTMLInputElement).value).toBe('')
+    expect(mockGetShippingOptions).toHaveBeenCalledWith('guest-checkout-key', undefined)
+  })
+
+  it('does not read another identity\'s cached coupon', async () => {
+    // 快取鍵含身分：會員讀不到訪客那份，換帳號也讀不到上一個人的。
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    queryClient.setQueryData(['cart', 'guest', 'guest-checkout-key'], {
+      ...cart,
+      coupon: { code: 'FREESHIP', discountAmount: 0, isFreeShipping: true, isAssemblyFreeShipping: false },
+    })
+
+    const { wrapper } = await mountCheckoutPage({ authenticated: true, queryClient })
+    await vi.waitFor(() => expect(wrapper.text()).toContain('宅配'))
+
+    expect((wrapper.get('#coupon-code').element as HTMLInputElement).value).toBe('')
+  })
+
 })

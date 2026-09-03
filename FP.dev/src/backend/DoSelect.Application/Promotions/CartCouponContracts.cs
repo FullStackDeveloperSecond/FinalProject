@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Diagnostics.CodeAnalysis;
 using DoSelect.Application.Shopping;
 using DoSelect.Application.Support.Dtos;
 using DoSelect.Domain.Promotions;
@@ -65,24 +66,36 @@ public interface ICartCouponLineReader
 /// Checkout 會再驗證一次全部規則。
 /// </para>
 /// <para>
-/// <paramref name="CartRowVersion"/> 用於樂觀比對：購物車在使用者輸入優惠碼之後被改過時，
+/// <c>CartRowVersion</c> 用於樂觀比對：購物車在使用者輸入優惠碼之後被改過時，
 /// 試算結果對應的已經不是他看到的那個購物車，直接回 <c>concurrency_conflict</c>
 /// 比回一個對不上的金額安全。
 /// </para>
 /// </remarks>
 /// <remarks>
-/// 驗證屬性掛在<b>建構式參數</b>上，不是 <c>[property:]</c>。這個專案裝了
-/// <c>SystemTextJsonValidationMetadataProvider</c>，它看到 record 主建構式的參數帶
-/// property-target 的驗證中繼資料時會直接丟例外 —— 端點因此對每個請求都回 500，
-/// 而且那些規則<b>根本不會被套用</b>。
+/// 屬性寫成宣告式的 <c>{ get; init; }</c>，驗證屬性直接掛在屬性上 —— 與
+/// <c>AppendReturnShipmentEventRequest</c> 等既有請求 DTO 同一個形狀。這個形狀同時被
+/// MVC validation 與 OpenAPI 產生器讀得到，所以公開契約會帶出 <c>minLength</c>／
+/// <c>maxLength</c>，與實際的 400 行為一致。
 /// <para>
-/// 這個 DTO 在 <c>POST /api/v1/cart/coupon</c> 出現之前沒有任何 <c>[FromBody]</c>
-/// 綁定過，所以這個缺陷一直沒有被觸發。
+/// <b>不要改回主建構式參數。</b>掛在參數上 OpenAPI 讀不到（契約會少掉長度限制）；
+/// 改成 <c>[property:]</c> 更糟：本專案裝了 <c>SystemTextJsonValidationMetadataProvider</c>，
+/// 它看到 record 主建構式參數帶 property-target 的驗證中繼資料時會直接丟例外，端點對每個
+/// 請求都回 500，而且那些規則根本不會被套用。
 /// </para>
 /// </remarks>
-public sealed record ApplyCartCouponRequest(
+public sealed record ApplyCartCouponRequest
+{
     [Required]
     [StringLength(64, MinimumLength = 1)]
-    string Code,
+    public required string Code { get; init; }
+
     [RowVersionRequired]
-    byte[] CartRowVersion);
+    public required byte[] CartRowVersion { get; init; }
+
+    [SetsRequiredMembers]
+    public ApplyCartCouponRequest(string code, byte[] cartRowVersion)
+    {
+        Code = code;
+        CartRowVersion = cartRowVersion;
+    }
+}

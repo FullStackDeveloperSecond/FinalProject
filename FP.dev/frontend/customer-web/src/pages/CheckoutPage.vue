@@ -5,9 +5,9 @@ import { useQueryClient } from '@tanstack/vue-query'
 import { computed, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useSessionStore } from '../stores/session'
-import { useRevalidateCart } from '../features/cart/useCart'
+import { useCartIdentityKey, useRevalidateCart } from '../features/cart/useCart'
 import { clearGuestCartKey, getOrCreateGuestCartKey } from '../features/cart/guestCartKey'
-import type { CartIssueDto, CartValidationDto } from '../features/cart/types'
+import type { CartDto, CartIssueDto, CartValidationDto } from '../features/cart/types'
 import {
   createOrder,
   getCheckoutPolicyVersions,
@@ -74,6 +74,7 @@ const ISSUE_MESSAGES: Record<string, string> = {
 
 const router = useRouter()
 const queryClient = useQueryClient()
+const cartIdentityKey = useCartIdentityKey()
 const sessionStore = useSessionStore()
 const revalidateCart = useRevalidateCart()
 
@@ -211,6 +212,36 @@ watch(() => form.invoiceBuyerType, (buyerType) => {
   }
 })
 
+/**
+ * 沿用顧客在購物車頁已經套用的優惠碼（alex 2026-09-03 PR #97 A1 裁定）。
+ *
+ * 載體是既有的<b>記憶體</b>購物車快取 —— 沒有新資料表、沒有 Cart 的 Coupon 欄位，
+ * 也不放 URL 或 localStorage。這剛好給出裁定要求的邊界：
+ *
+ * - 重新整理／跨裝置：快取不存在，自然不沿用
+ * - 登入／登出／換帳號：快取鍵含身分，換人就讀不到上一個人的那份
+ * - 購物車版本改變：下面明確比對 RowVersion，舊 quote 已失效就不沿用
+ *
+ * 沿用的只是「代碼」。金額仍由後端重算：這個代碼會進 useShippingOptions 的
+ * query key 重新請求運費，建單時再由 Checkout 交易權威重驗全部規則。
+ */
+function adoptCartPageCoupon(
+  cartPageCart: CartDto | undefined,
+  nextValidation: CartValidationDto,
+): void {
+  if (appliedCouponCode.value !== null) {
+    return
+  }
+
+  const code = cartPageCart?.coupon?.code
+  if (!code || cartPageCart?.rowVersion !== nextValidation.cart.rowVersion) {
+    return
+  }
+
+  appliedCouponCode.value = code
+  form.couponCode = code
+}
+
 async function loadCheckout(): Promise<void> {
   if (!sessionStore.isIdentityConfirmed) {
     return
@@ -222,6 +253,9 @@ async function loadCheckout(): Promise<void> {
   validation.value = null
   policyVersions.value = null
   selectedShippingMethod.value = null
+  // 這一份必須在 revalidate 之前抓：useRevalidateCart 成功後會把權威購物車寫回同一個
+  // 快取鍵，而優惠碼並沒有被保存在購物車上，覆蓋之後就再也讀不到顧客在 C-13 套的代碼。
+  const cartPageCart = queryClient.getQueryData<CartDto>(cartIdentityKey.value)
 
   try {
     const [nextValidation, nextPolicies] = await Promise.all([
@@ -233,6 +267,7 @@ async function loadCheckout(): Promise<void> {
     }
     validation.value = nextValidation
     policyVersions.value = nextPolicies
+    adoptCartPageCoupon(cartPageCart, nextValidation)
   } catch (caught) {
     if (generation === loadGeneration) {
       initialError.value = caught

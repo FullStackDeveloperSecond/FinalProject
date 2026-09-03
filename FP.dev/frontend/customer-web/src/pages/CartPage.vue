@@ -157,13 +157,17 @@ const revalidateError = ref<unknown>(null)
 const validatedForRowVersion = ref<string | null>(null)
 
 const canCheckout = computed(() => {
-  if (!cart.value || revalidate.isPending.value || revalidateError.value) {
+  // isMutating 也算：套券還在飛的時候進結帳，結帳頁會拿到套券前的購物車，
+  // 而使用者以為折扣已經生效。（isMutating 宣告在下方，computed 惰性求值。）
+  if (!cart.value || revalidate.isPending.value || revalidateError.value || isMutating.value) {
     return false
   }
   return validatedForRowVersion.value === cart.value.rowVersion && isCheckoutReady.value
 })
 
 function goToCheckout(): void {
+  // 本來就有的防禦性檢查；canCheckout 現在也含 isMutating，所以套券還在飛的時候
+  // 就算有人繞過 disabled 的按鈕呼叫它，也不會進到結帳頁。
   if (canCheckout.value) {
     void router.push({ name: 'checkout' })
   }
@@ -319,8 +323,24 @@ async function onRemoveAssemblyGroup(assemblyGroupKey: string): Promise<void> {
   }
 }
 
+const applyCoupon = useApplyCartCoupon()
+const removeCoupon = useRemoveCartCoupon()
+const couponCodeInput = ref('')
+const couponError = ref<string>()
+
+/**
+ * 所有會改變購物車的操作共用同一個閘門。
+ *
+ * 套券也算 —— 它回傳的是完整的 <c>CartDto</c> 並寫進同一個快取鍵。套券還在飛的時候
+ * 讓使用者改品項或重驗，倒序抵達的舊購物車就會覆蓋較新的那一份；直接結帳則會在
+ * 套券結果落地前開始。
+ */
 const isMutating = computed(() =>
-  updateQuantity.isPending.value || removeItem.isPending.value || removeAssemblyGroup.isPending.value)
+  updateQuantity.isPending.value
+  || removeItem.isPending.value
+  || removeAssemblyGroup.isPending.value
+  || applyCoupon.isPending.value
+  || removeCoupon.isPending.value)
 const isBusy = computed(() => isMutating.value || revalidate.isPending.value || isRecoveringFromConflict.value)
 
 function formatTwd(amount: number | string): string {
@@ -346,12 +366,14 @@ const {
   isPending: isShippingPending,
   isError: isShippingError,
   refetch: refetchShipping,
-} = useShippingOptions(hasCartItems, computed(() => cart.value?.rowVersion))
+} = useShippingOptions(
+  hasCartItems,
+  computed(() => cart.value?.rowVersion),
+  // Coupon quote 是無狀態的，套券不會改變 RowVersion —— 不把代碼一起送進 query key，
+  // 套券後 shipping 查詢不會重跑，免運券就會出現「已套用卻仍顯示原運費」。
+  computed(() => cart.value?.coupon?.code),
+)
 
-const applyCoupon = useApplyCartCoupon()
-const removeCoupon = useRemoveCartCoupon()
-const couponCodeInput = ref('')
-const couponError = ref<string>()
 
 /**
  * 套用優惠碼。
@@ -361,7 +383,9 @@ const couponError = ref<string>()
  */
 async function submitCoupon(): Promise<void> {
   const code = couponCodeInput.value.trim()
-  if (code === '' || !cart.value) {
+  // 防禦性檢查：不只依賴 disabled 的按鈕。任何繞過 UI 的呼叫（測試、未來的鍵盤
+  // 捷徑）都不該在另一個購物車操作還在飛的時候送出。
+  if (code === '' || !cart.value || isBusy.value) {
     return
   }
 
@@ -376,6 +400,10 @@ async function submitCoupon(): Promise<void> {
 }
 
 async function clearCoupon(): Promise<void> {
+  if (isBusy.value) {
+    return
+  }
+
   couponError.value = undefined
   try {
     await removeCoupon.mutateAsync()
@@ -610,7 +638,7 @@ function describeCouponError(error: unknown): string {
           </p>
           <button
             type="button"
-            :disabled="removeCoupon.isPending.value"
+            :disabled="isBusy"
             @click="clearCoupon"
           >
             {{ removeCoupon.isPending.value ? '移除中…' : '移除優惠碼' }}
@@ -630,7 +658,7 @@ function describeCouponError(error: unknown): string {
           >
           <button
             type="submit"
-            :disabled="couponCodeInput.trim() === '' || applyCoupon.isPending.value"
+            :disabled="couponCodeInput.trim() === '' || isBusy"
           >
             {{ applyCoupon.isPending.value ? '套用中…' : '套用' }}
           </button>
