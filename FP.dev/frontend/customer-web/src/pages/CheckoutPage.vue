@@ -75,6 +75,7 @@ const ISSUE_MESSAGES: Record<string, string> = {
 const router = useRouter()
 const queryClient = useQueryClient()
 const cartIdentityKey = useCartIdentityKey()
+const identityKey = computed(() => cartIdentityKey.value.join(' '))
 const sessionStore = useSessionStore()
 const revalidateCart = useRevalidateCart()
 
@@ -90,6 +91,19 @@ const selectedPaymentMethod = ref<PaymentMethod | null>(null)
 const selectedStorePublicId = ref<string | null>(null)
 const selectedStoreSummary = ref<ConvenienceStoreOptionDto | null>(null)
 const appliedCouponCode = ref<string | null>(null)
+/** 目前的優惠碼 state 屬於哪個身分；不符就整組作廢，見 syncCouponStateToIdentity。 */
+const couponIdentityKey = ref<string | null>(null)
+/** 從購物車頁帶過來、還沒被採用的代碼；跨初始化重試保留，見 loadCheckout。 */
+const pendingCouponHandoff = ref<{ rowVersion: string, code: string } | null>(null)
+/**
+ * 真正生效的優惠碼：身分鍵一變就立刻是 null，不等任何 watcher。
+ *
+ * 直接用 appliedCouponCode 會有一個窗口：session 改變時 useShippingOptions 內部的
+ * query key 先反應（它比頁面底下那個 watch 早建立），於是舊代碼會以新身分再送一次
+ * 運費查詢。把「屬於哪個身分」寫進讀取端，這個窗口就不存在了。建單請求也讀這一份。
+ */
+const activeCouponCode = computed(() =>
+  couponIdentityKey.value === identityKey.value ? appliedCouponCode.value : null)
 const isSubmitting = ref(false)
 const submitError = ref<string | null>(null)
 const submitCorrelationId = ref<string | null>(null)
@@ -133,7 +147,7 @@ const {
 } = useShippingOptions(
   canLoadShipping,
   computed(() => cart.value?.rowVersion),
-  appliedCouponCode,
+  activeCouponCode,
 )
 
 const selectedShippingOption = computed<ShippingOptionDto | null>(() =>
@@ -219,33 +233,71 @@ watch(() => form.invoiceBuyerType, (buyerType) => {
  * 也不放 URL 或 localStorage。這剛好給出裁定要求的邊界：
  *
  * - 重新整理／跨裝置：快取不存在，自然不沿用
- * - 登入／登出／換帳號：快取鍵含身分，換人就讀不到上一個人的那份
+ * - 登入／登出／換帳號：候選值與已套用的 state 都綁在身分鍵上，換人一起丟掉
  * - 購物車版本改變：下面明確比對 RowVersion，舊 quote 已失效就不沿用
  *
  * 沿用的只是「代碼」。金額仍由後端重算：這個代碼會進 useShippingOptions 的
  * query key 重新請求運費，建單時再由 Checkout 交易權威重驗全部規則。
  */
-function adoptCartPageCoupon(
-  cartPageCart: CartDto | undefined,
-  nextValidation: CartValidationDto,
-): void {
-  if (appliedCouponCode.value !== null) {
+function adoptCartPageCoupon(nextValidation: CartValidationDto): void {
+  const candidate = pendingCouponHandoff.value
+  if (candidate === null || appliedCouponCode.value !== null) {
     return
   }
 
-  const code = cartPageCart?.coupon?.code
-  if (!code || cartPageCart?.rowVersion !== nextValidation.cart.rowVersion) {
+  if (candidate.rowVersion !== nextValidation.cart.rowVersion) {
+    pendingCouponHandoff.value = null
     return
   }
 
-  appliedCouponCode.value = code
-  form.couponCode = code
+  appliedCouponCode.value = candidate.code
+  form.couponCode = candidate.code
+  pendingCouponHandoff.value = null
 }
 
+/**
+ * 讓優惠碼 state 跟上目前的身分（alex 2026-09-03 PR #97 第二輪第 1 點）。
+ *
+ * 身分化的 query cache 只隔離得了<b>快取</b>，隔離不了已經複製到元件裡的那一份：
+ * CheckoutPage 掛載期間登入、登出或換帳號時，上一個身分的代碼會繼續被送進 Shipping
+ * Options，最後也會進建單請求。所以身分鍵一變，已套用的代碼與輸入框都要清掉，
+ * 候選值再從<b>新身分自己的</b>購物車快取重新取一份。
+ *
+ * 候選值必須在 revalidate <b>之前</b>取：useRevalidateCart 成功後會把權威購物車寫回
+ * 同一個快取鍵，而優惠碼不保存在購物車上，覆蓋之後就再也讀不到顧客在 C-13 套的代碼。
+ * 它也刻意活得比單次 loadCheckout 久 —— 見下面 loadCheckout 的說明。
+ */
+function syncCouponStateToIdentity(): void {
+  if (couponIdentityKey.value === identityKey.value) {
+    return
+  }
+
+  couponIdentityKey.value = identityKey.value
+  appliedCouponCode.value = null
+  form.couponCode = ''
+
+  const cartPageCart = queryClient.getQueryData<CartDto>(cartIdentityKey.value)
+  const code = cartPageCart?.coupon?.code
+  pendingCouponHandoff.value = cartPageCart !== undefined && code
+    ? { rowVersion: cartPageCart.rowVersion, code }
+    : null
+}
+
+/**
+ * 取得結帳所需的權威資料。**可以被重試呼叫多次**（初始化失敗時的重試按鈕）。
+ *
+ * 優惠碼的候選值刻意不放在這個函式的區域變數裡（alex 2026-09-03 PR #97 第二輪第 2 點）：
+ * revalidate 成功、政策版本失敗時 Promise.all 會進錯誤分支，但權威購物車已經寫回快取，
+ * 而它不帶優惠碼 —— 候選值若隨這次呼叫消失，重試時就再也讀不到顧客在 C-13 套的代碼，
+ * 即使仍是同一 SPA、同一身分、同一 RowVersion。所以候選值由 syncCouponStateToIdentity
+ * 維護，只有身分或版本不符時才清除。
+ */
 async function loadCheckout(): Promise<void> {
   if (!sessionStore.isIdentityConfirmed) {
     return
   }
+
+  syncCouponStateToIdentity()
 
   const generation = ++loadGeneration
   isInitialLoading.value = true
@@ -253,9 +305,6 @@ async function loadCheckout(): Promise<void> {
   validation.value = null
   policyVersions.value = null
   selectedShippingMethod.value = null
-  // 這一份必須在 revalidate 之前抓：useRevalidateCart 成功後會把權威購物車寫回同一個
-  // 快取鍵，而優惠碼並沒有被保存在購物車上，覆蓋之後就再也讀不到顧客在 C-13 套的代碼。
-  const cartPageCart = queryClient.getQueryData<CartDto>(cartIdentityKey.value)
 
   try {
     const [nextValidation, nextPolicies] = await Promise.all([
@@ -267,7 +316,7 @@ async function loadCheckout(): Promise<void> {
     }
     validation.value = nextValidation
     policyVersions.value = nextPolicies
-    adoptCartPageCoupon(cartPageCart, nextValidation)
+    adoptCartPageCoupon(nextValidation)
   } catch (caught) {
     if (generation === loadGeneration) {
       initialError.value = caught
@@ -337,7 +386,7 @@ function buildRequest(): CreateOrderRequest {
       deliveryNote: form.deliveryNote.trim() || null,
     },
     paymentMethod: selectedPaymentMethod.value!,
-    couponCode: appliedCouponCode.value,
+    couponCode: activeCouponCode.value,
     invoice: {
       type: 'simulated',
       buyerType: form.invoiceBuyerType,
@@ -728,15 +777,15 @@ async function submitOrder(): Promise<void> {
           套用優惠券
         </button>
         <button
-          v-if="appliedCouponCode"
+          v-if="activeCouponCode"
           type="button"
           data-test="remove-coupon"
           @click="removeCoupon"
         >
           移除優惠券
         </button>
-        <p v-if="appliedCouponCode && !isShippingError">
-          已套用 {{ appliedCouponCode }}；配送費與付款方式已由後端重新試算。
+        <p v-if="activeCouponCode && !isShippingError">
+          已套用 {{ activeCouponCode }}；配送費與付款方式已由後端重新試算。
         </p>
         <p>優惠資格與最終折扣會由後端在建立訂單時重新驗證。</p>
       </section>

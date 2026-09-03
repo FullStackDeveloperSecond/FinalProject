@@ -1,5 +1,6 @@
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 import { mount } from '@vue/test-utils'
+import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -205,6 +206,49 @@ async function fillValidHomeDeliveryForm(wrapper: Awaited<ReturnType<typeof moun
   await wrapper.get('#accept-terms').setValue(true)
   await wrapper.get('#accept-return').setValue(true)
   await wrapper.get('#accept-privacy').setValue(true)
+}
+
+/** C-13 已套用優惠碼的購物車快取內容。 */
+function withCoupon(code: string): CartDto {
+  return {
+    ...cart,
+    coupon: {
+      code,
+      discountAmount: 0,
+      isFreeShipping: true,
+      isAssemblyFreeShipping: false,
+    },
+  }
+}
+
+/** 讓測試自己決定 revalidate 與政策版本的先後與成敗。 */
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
+
+/**
+ * 在<b>已掛載的同一個</b> CheckoutPage 上切換身分。
+ *
+ * 重新 mount 只能證明初始讀取有沒有隔離；真正會出事的是掛載期間登入、登出或換帳號，
+ * 因為那時候代碼已經在元件 state 裡了。
+ */
+async function signInAs(publicId: string): Promise<void> {
+  const sessionStore = useSessionStore()
+  sessionStore.status = 'authenticated'
+  sessionStore.user = {
+    publicId,
+    displayName: '測試會員',
+    emailMasked: 'm***@example.com',
+    emailVerified: true,
+    locale: 'zh-TW',
+  }
+  await nextTick()
 }
 
 beforeEach(() => {
@@ -444,6 +488,73 @@ describe('CheckoutPage', () => {
     await vi.waitFor(() => expect(wrapper.text()).toContain('宅配'))
 
     expect((wrapper.get('#coupon-code').element as HTMLInputElement).value).toBe('')
+  })
+
+
+  it('drops the previous identity\'s coupon when the identity changes on the mounted page', async () => {
+    // alex #97 第二輪第 1 點：身分化的 query cache 只隔離得了快取，隔離不了已經複製到
+    // 元件 state 的那一份。訪客套券進 C-14 之後在同一個掛載中登入，舊代碼不能繼續被
+    // 送進 Shipping Options，更不能進建單請求。
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    queryClient.setQueryData(['cart', 'guest', 'guest-checkout-key'], withCoupon('FREESHIP'))
+
+    const { wrapper } = await mountCheckoutPage({ queryClient })
+    await vi.waitFor(() => expect(wrapper.text()).toContain('宅配'))
+    expect((wrapper.get('#coupon-code').element as HTMLInputElement).value).toBe('FREESHIP')
+
+    mockGetShippingOptions.mockClear()
+    await signInAs('member-1')
+    await vi.waitFor(() => expect(wrapper.text()).toContain('宅配'))
+
+    expect((wrapper.get('#coupon-code').element as HTMLInputElement).value).toBe('')
+    expect(mockGetShippingOptions).not.toHaveBeenCalledWith(expect.anything(), 'FREESHIP')
+  })
+
+  it('drops a coupon typed on the checkout page itself when the account changes', async () => {
+    // 沿用來的代碼與顧客自己在 C-14 打的代碼一樣是「上一個身分的東西」，
+    // 換帳號時兩者都要清掉 —— 這條走的是後者，證明清除不是只針對交接來的值。
+    const { wrapper } = await mountCheckoutPage({ authenticated: true })
+    await vi.waitFor(() => expect(wrapper.text()).toContain('宅配'))
+    await wrapper.get('#coupon-code').setValue('MEMBERA100')
+    await wrapper.get('[data-test="apply-coupon"]').trigger('click')
+    await vi.waitFor(() =>
+      expect(mockGetShippingOptions).toHaveBeenCalledWith(expect.anything(), 'MEMBERA100'))
+
+    mockGetShippingOptions.mockClear()
+    await signInAs('member-2')
+    await vi.waitFor(() => expect(wrapper.text()).toContain('宅配'))
+
+    expect((wrapper.get('#coupon-code').element as HTMLInputElement).value).toBe('')
+    expect(mockGetShippingOptions).not.toHaveBeenCalledWith(expect.anything(), 'MEMBERA100')
+  })
+
+  it('still carries the coupon when the first load fails halfway and the customer retries', async () => {
+    // alex #97 第二輪第 2 點：revalidate 成功會把不帶優惠碼的權威購物車寫回同一個快取鍵，
+    // 而政策版本失敗會讓整個 Promise.all 進錯誤分支。候選值若只活在單次 loadCheckout 裡，
+    // 重試時讀到的就是那份無券購物車，同身分同版本也沿用不了。
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    queryClient.setQueryData(['cart', 'guest', 'guest-checkout-key'], withCoupon('FREESHIP'))
+
+    const revalidated = deferred<CartValidationDto>()
+    const policiesFailed = deferred<AcceptedPolicyVersions>()
+    mockRevalidateCart.mockReturnValueOnce(revalidated.promise)
+    mockGetCheckoutPolicyVersions.mockReturnValueOnce(policiesFailed.promise)
+
+    const { wrapper } = await mountCheckoutPage({ queryClient })
+
+    // 先讓 revalidate 成功落地（快取被無券的權威購物車覆蓋），政策版本才失敗。
+    revalidated.resolve(readyValidation())
+    await vi.waitFor(() =>
+      expect(queryClient.getQueryData<CartDto>(['cart', 'guest', 'guest-checkout-key'])?.coupon)
+        .toBeNull())
+    policiesFailed.reject(new Error('policy versions unavailable'))
+    await vi.waitFor(() => expect(wrapper.text()).toContain('無法載入資料'))
+
+    await wrapper.get('.shared-state--error button').trigger('click')
+    await vi.waitFor(() => expect(wrapper.text()).toContain('宅配'))
+
+    expect((wrapper.get('#coupon-code').element as HTMLInputElement).value).toBe('FREESHIP')
+    expect(mockGetShippingOptions).toHaveBeenCalledWith('guest-checkout-key', 'FREESHIP')
   })
 
 })
