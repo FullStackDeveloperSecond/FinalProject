@@ -36,9 +36,44 @@ public sealed class OpenAiProductSearchClientTests
         Assert.Equal(
             "json_schema",
             body.RootElement.GetProperty("text").GetProperty("format").GetProperty("type").GetString());
+        Assert.DoesNotContain(
+            "\"uniqueItems\"",
+            body.RootElement.GetProperty("text").GetProperty("format").GetProperty("schema").GetRawText(),
+            StringComparison.Ordinal);
         using var input = JsonDocument.Parse(body.RootElement.GetProperty("input").GetString()!);
         Assert.Equal("untrusted_user_input", input.RootElement.GetProperty("userMessage").GetProperty("trust").GetString());
         Assert.Equal("untrusted_data", input.RootElement.GetProperty("allowedCatalog").GetProperty("trust").GetString());
+    }
+
+    [Fact]
+    public async Task ParseIntentAsync_DuplicateBrandCode_FailsClosedAfterSchemaValidation()
+    {
+        var output = JsonSerializer.Serialize(new
+        {
+            intent = "PrebuiltComputer",
+            purposes = new[] { "VideoEditing" },
+            budget = new { minimum = (decimal?)null, maximum = 50_000m },
+            keyword = "剪輯",
+            categoryCode = "PREBUILT_COMPUTER",
+            preferredBrandCodes = new[] { "DOSELECT", "DOSELECT" },
+            excludedBrandCodes = Array.Empty<string>(),
+            requiredSpecs = Array.Empty<object>(),
+            preferences = Array.Empty<string>(),
+            proposedExistingParts = Array.Empty<object>(),
+            clarifications = Array.Empty<string>(),
+        });
+        var handler = new RecordingHandler(_ => JsonResponse(output));
+        var subject = CreateSubject(handler);
+
+        var result = await subject.ParseIntentAsync(
+            "五萬元剪輯電腦",
+            SupportedLocale.ZhTw,
+            Metadata(),
+            default);
+
+        Assert.Equal(AiProductSearchModelStatus.InvalidOutput, result.Status);
+        Assert.Null(result.Intent);
+        Assert.Equal(2, handler.CallCount);
     }
 
     [Fact]
@@ -55,6 +90,8 @@ public sealed class OpenAiProductSearchClientTests
 
         Assert.Equal(AiProductSearchModelStatus.InvalidOutput, result.Status);
         Assert.Null(result.Intent);
+        Assert.Equal(200, result.Usage?.InputTokens);
+        Assert.Equal(40, result.Usage?.OutputTokens);
         Assert.Equal(2, handler.CallCount);
     }
 

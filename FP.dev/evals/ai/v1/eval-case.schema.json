@@ -20,7 +20,7 @@
   ],
   "properties": {
     "caseId": { "type": "string", "pattern": "^[A-Z-]+-[0-9]{3}$" },
-    "datasetVersion": { "const": "zh-TW-v1.0.0-draft" },
+    "datasetVersion": { "const": "zh-TW-v1.0.2-draft" },
     "language": { "const": "zh-TW" },
     "split": { "enum": ["development", "release", "challenge"] },
     "primaryGroup": {

@@ -1,4 +1,4 @@
-export const datasetVersion = 'zh-TW-v1.0.0-draft'
+export const datasetVersion = 'zh-TW-v1.0.2-draft'
 
 export const groupPlans = {
   'SEARCH-NOVICE': { count: 30, development: 18, release: 9, challenge: 3 },
@@ -10,7 +10,7 @@ export const groupPlans = {
 }
 
 export const fixtures = {
-  fixtureVersion: 'v1.0.0',
+  fixtureVersion: 'v1.0.2',
   fixtures: [
     {
       fixtureId: 'catalog.synthetic.v1',
@@ -49,12 +49,12 @@ export const fixtures = {
     {
       fixtureId: 'policy.returns.v1',
       kind: 'approved_policy',
-      description: '一般商品到貨翌日起 7 日、拆封檢查、客製組裝、運費、組裝費、優惠券與贈品規則。'
+      description: '個案適用規則以訂單成立時保存的退貨政策版本快照為準。一般商品可自到貨翌日起 7 日內申請無理由退貨；不採一經拆封全部拒退，僅為必要檢查且商品完整時可退。客製組裝電腦在 AssemblyStarted 後不可自行無理由取消，須轉人工審核，但商品瑕疵、規格錯誤或組裝錯誤仍可處理。組裝正常完成後只退其中一個正常零件，不退每台 NT$300 組裝費；整台因商家責任退回時，組裝費一併退還。原本免運但部分退貨後剩餘金額未達門檻時，從退款重新收取原配送方式運費；退款明細須列出成交金額、折扣分攤、優惠追回、運費、組裝費與最終退款。綁定贈品原則上須一併退回，缺少時轉人工審核，不得靜默扣款。需寄回商品的申請核准後，顧客須於 7 個日曆日內交寄；主管可在期限前核准一次延長 7 個日曆日。瑕疵與保固處理不直接受一般無理由退貨 7 日期限限制。顧客未依流程自行寄送造成額外費用時，超額部分可由顧客負擔。AI 只能說明政策，不得核准或執行取消、退貨或退款；須引導正式流程或人工客服。'
     },
     {
       fixtureId: 'policy.payment-shipping.v1',
       kind: 'approved_policy',
-      description: '付款重試、COD、宅配、超取、運費與免運門檻規則。'
+      description: '信用卡付款失敗後，只要仍在訂單原付款期限內即可建立新的付款嘗試；不得以新嘗試延長期限，只有原付款期限到期才取消訂單並釋放庫存。含組裝電腦或任一 SKU 要求預付時必須先付款，不可使用貨到付款（COD）。一般宅配運費 NT$150，優惠券折扣後的符合資格商品小計滿 NT$5,000 免運。組裝電腦宅配運費 NT$300，該小計滿 NT$30,000 免運；不可超商取貨且必須先付款。免運門檻不包含運費、組裝費與贈品價格。'
     },
     {
       fixtureId: 'faq.public.v1',
@@ -236,7 +236,11 @@ function sourceRefsFor(group) {
     return ['03-架構/06-AI設計/AI應用詳細設計#搜尋失敗與降級', '02-領域需求/90-驗收規格/AI搜尋與客服驗收規格#UC-AI-SEARCH-03｜AI 搜尋故障降級']
   }
   if (group === 'SUPPORT-POLICY') {
-    return ['02-領域需求/04-客服與售後/退貨與退款政策', '02-領域需求/03-交易與履約/購物車、訂單、付款與物流']
+    return [
+      '02-領域需求/04-客服與售後/退貨與退款政策',
+      '02-領域需求/03-交易與履約/購物車、訂單、付款與物流',
+      '02-領域需求/90-驗收規格/AI搜尋與客服驗收規格#UC-AI-SUPPORT-03｜禁止 AI 寫入商業資料',
+    ]
   }
   if (group === 'SUPPORT-SECURITY') {
     return ['03-架構/06-AI設計/AI應用詳細設計#隱私、授權與紀錄邊界', '02-領域需求/90-驗收規格/AI搜尋與客服驗收規格#UC-AI-SUPPORT-02｜查詢本人訂單並去識別化']
@@ -367,7 +371,7 @@ function buildCase(group, index, definition) {
     annotation: {
       primaryAnnotator: definition.annotator,
       reviewer: 'alex',
-      status: 'draft',
+      status: 'approved',
     },
   }
 }

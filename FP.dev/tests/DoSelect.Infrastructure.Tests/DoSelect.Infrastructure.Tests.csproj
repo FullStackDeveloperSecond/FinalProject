@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\backend\DoSelect.Infrastructure\DoSelect.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\tools\DoSelect.AiEvals\DoSelect.AiEvals.csproj" />
   </ItemGroup>
 
 </Project>

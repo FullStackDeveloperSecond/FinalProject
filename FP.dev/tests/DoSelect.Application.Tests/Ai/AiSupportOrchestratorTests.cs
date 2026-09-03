@@ -155,11 +155,19 @@ public sealed class AiSupportOrchestratorTests
     [Fact]
     public async Task ExecuteAsync_WhenModelIsUnavailable_DoesNotRefundReservation()
     {
+        var usage = new AiSupportModelUsage("gpt-5.6-terra-snapshot", 96, 18);
         var model = new RecordingAiSupportModelClient(
             answer: null,
-            AiSupportModelAnswerStatus.Unavailable);
+            AiSupportModelAnswerStatus.Unavailable,
+            usage);
         var admission = GrantedAdmission();
-        var subject = CreateSubject(admission, model);
+        var interactionStore = new RecordingInteractionStore();
+        var subject = new AiSupportOrchestrator(
+            admission,
+            new StubAiSupportContextReader(
+                new AiSupportContextReadResult(AiSupportContextStatus.Allowed, [])),
+            model,
+            interactionStore);
 
         var result = await subject.ExecuteAsync(CreateRequest());
 
@@ -168,6 +176,8 @@ public sealed class AiSupportOrchestratorTests
         Assert.Equal(1, admission.ReservationCount);
         Assert.Equal(1, model.CallCount);
         Assert.Equal(19, result.RemainingDailyMessages);
+        Assert.Equal(usage, interactionStore.LastWrite?.ModelUsage);
+        Assert.True(interactionStore.LastWrite?.IsDegraded);
     }
 
     [Fact]
@@ -310,6 +320,21 @@ public sealed class AiSupportOrchestratorTests
             Task.FromResult(new AiSupportInteractionWriteResult(
                 true,
                 interaction.ConversationPublicId ?? Guid.Parse("44444444-4444-4444-4444-444444444444")));
+    }
+
+    private sealed class RecordingInteractionStore : IAiSupportInteractionStore
+    {
+        public AiSupportInteractionWrite? LastWrite { get; private set; }
+
+        public Task<AiSupportInteractionWriteResult> SaveAsync(
+            AiSupportInteractionWrite interaction,
+            CancellationToken cancellationToken)
+        {
+            LastWrite = interaction;
+            return Task.FromResult(new AiSupportInteractionWriteResult(
+                true,
+                interaction.ConversationPublicId ?? Guid.Parse("44444444-4444-4444-4444-444444444444")));
+        }
     }
 
     private sealed class RecordingAiSupportModelClient : IAiSupportModelClient

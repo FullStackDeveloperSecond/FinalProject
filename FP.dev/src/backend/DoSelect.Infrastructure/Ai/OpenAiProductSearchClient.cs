@@ -83,10 +83,12 @@ public sealed class OpenAiProductSearchClient(
         };
 
         ModelResponse? lastResponse = null;
+        AiSupportModelUsage? accumulatedUsage = null;
         for (var attempt = 0; attempt < MaximumAttempts; attempt++)
         {
             var response = await SendForOutputAsync(payload, maximumAttempts: 1, cancellationToken);
             lastResponse = response;
+            accumulatedUsage = AddUsage(accumulatedUsage, response.Usage);
             if (response.Status == AiProductSearchModelStatus.Completed && response.OutputText is not null)
             {
                 try
@@ -98,7 +100,7 @@ public sealed class OpenAiProductSearchClient(
                         return new AiProductSearchIntentResult(
                             AiProductSearchModelStatus.Completed,
                             intent,
-                            response.Usage);
+                            accumulatedUsage);
                     }
                 }
                 catch (JsonException)
@@ -118,7 +120,7 @@ public sealed class OpenAiProductSearchClient(
                 ? AiProductSearchModelStatus.Unavailable
                 : AiProductSearchModelStatus.InvalidOutput,
             null,
-            lastResponse?.Usage);
+            accumulatedUsage);
     }
 
     public async Task<AiProductSearchExplanationResult> ExplainAsync(
@@ -180,10 +182,12 @@ public sealed class OpenAiProductSearchClient(
         };
 
         ModelResponse? lastResponse = null;
+        AiSupportModelUsage? accumulatedUsage = null;
         for (var attempt = 0; attempt < MaximumAttempts; attempt++)
         {
             var response = await SendForOutputAsync(payload, maximumAttempts: 1, cancellationToken);
             lastResponse = response;
+            accumulatedUsage = AddUsage(accumulatedUsage, response.Usage);
             if (response.Status != AiProductSearchModelStatus.Completed || response.OutputText is null)
             {
                 if (!response.CanRetry)
@@ -205,7 +209,7 @@ public sealed class OpenAiProductSearchClient(
                             new AiProductRecommendationReason(
                                 Guid.Parse(item.SkuPublicId!),
                                 item.Reason!.Trim())).ToArray(),
-                        response.Usage);
+                        accumulatedUsage);
                 }
             }
             catch (JsonException)
@@ -219,7 +223,7 @@ public sealed class OpenAiProductSearchClient(
                 ? AiProductSearchModelStatus.Unavailable
                 : AiProductSearchModelStatus.InvalidOutput,
             [],
-            lastResponse?.Usage);
+            accumulatedUsage);
     }
 
     private async Task<ModelResponse> SendForOutputAsync(
@@ -368,6 +372,23 @@ public sealed class OpenAiProductSearchClient(
         return true;
     }
 
+    private static AiSupportModelUsage? AddUsage(
+        AiSupportModelUsage? accumulated,
+        AiSupportModelUsage? current)
+    {
+        if (current is null)
+        {
+            return accumulated;
+        }
+
+        return accumulated is null
+            ? current
+            : new AiSupportModelUsage(
+                current.Model,
+                checked(accumulated.InputTokens + current.InputTokens),
+                checked(accumulated.OutputTokens + current.OutputTokens));
+    }
+
     private bool CanCall(string message, AiProductSearchMetadata metadata) =>
         !string.IsNullOrWhiteSpace(message) &&
         !string.IsNullOrWhiteSpace(options.Value.ApiKey) &&
@@ -391,6 +412,8 @@ public sealed class OpenAiProductSearchClient(
             output.Preferences is null || output.Preferences.Count > 10 ||
             output.ProposedExistingParts is null || output.ProposedExistingParts.Count > 12 ||
             output.Clarifications is null || output.Clarifications.Count > 2 ||
+            output.PreferredBrandCodes.Distinct(StringComparer.OrdinalIgnoreCase).Count() != output.PreferredBrandCodes.Count ||
+            output.ExcludedBrandCodes.Distinct(StringComparer.OrdinalIgnoreCase).Count() != output.ExcludedBrandCodes.Count ||
             output.Clarifications.Any(question => string.IsNullOrWhiteSpace(question) || question.Length > 160))
         {
             return null;
@@ -476,8 +499,8 @@ public sealed class OpenAiProductSearchClient(
                 },
                 ["keyword"] = new { type = new[] { "string", "null" }, maxLength = 100 },
                 ["categoryCode"] = new { type = new[] { "string", "null" }, @enum = metadata.CategoryCodes.Cast<string?>().Append(null).ToArray() },
-                ["preferredBrandCodes"] = new { type = "array", maxItems = 5, uniqueItems = true, items = new { type = "string", @enum = metadata.BrandCodes } },
-                ["excludedBrandCodes"] = new { type = "array", maxItems = 5, uniqueItems = true, items = new { type = "string", @enum = metadata.BrandCodes } },
+                ["preferredBrandCodes"] = new { type = "array", maxItems = 5, items = new { type = "string", @enum = metadata.BrandCodes } },
+                ["excludedBrandCodes"] = new { type = "array", maxItems = 5, items = new { type = "string", @enum = metadata.BrandCodes } },
                 ["requiredSpecs"] = new
                 {
                     type = "array",

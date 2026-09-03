@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <UserSecretsId>DoSelect.Api-d5a4d9d5-2f17-497e-9592-f787dc7eba5a</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\backend\DoSelect.Infrastructure\DoSelect.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

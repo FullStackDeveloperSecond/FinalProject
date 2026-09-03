@@ -90,6 +90,8 @@ Application 層新增客服／退貨 Use Case、授權 Query 與 DTO；API 使�
 
 前台 Page ID：`C-19`～`C-20`、`C-26`、`C-28`～`C-30`；`C-27` AI 頁由 alex 主責、你提供案例與領域覆核。後台：`A-19`～`A-20`、`A-24`～`A-26`。完整規格見 [[03-架構/02-API與前端契約/M功能桌面UI與Route規格]]。
 
+AI-09 的 `SUPPORT-POLICY` 修正版已依 `FP.dev/evals/ai/v1/reviews/SUPPORT-POLICY-v1.0.2-review.md` 完成 15 筆主標，並由 Alex 完成第二審；資料集已改為 `approved`，但第二次 Live 評估仍須獨立費用授權。
+
 角色重點：客服 `CustomerService`、主管 `CustomerServiceSupervisor`；退貨由 `OrderManager`／相應 Return Policy；不同角色在工作台只看到獲授權分支。前端隱藏卡片不等於後端分支授權。
 
 - `SupportTicket.Handle`：允許 `CustomerService`、`CustomerServiceSupervisor`；套用於 internal-notes、claim、一般 priority 調整、status、cancel、reopen 及日常案件處理。

@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-30
+最後更新: 2026-09-03
 追蹤項目:
   - AI-09
   - AI-13
@@ -73,7 +73,7 @@ AI 測試分成「確定性安全閘門」與「品質評估」兩類。安全�
 | AI-FAIL-003 | Structured Output 拒絕／截斷 | 不執行查詢或工具，顯示安全結果 | Integration |
 | AI-COST-001 | 使用者超出每日額度 | 不呼叫 OpenAI，回傳穩定錯誤與替代入口 | Integration |
 
-截至 2026-08-30，Application、API Integration、Domain 與 Infrastructure 已建立 AI 安全、授權、資料最小化及 Adapter 自動化證據。Responses Adapter 測試固定 `store=false`、Bearer Header、信任分層 Payload、strict Schema、可信引用、實際模型／Token、暫時錯誤重試一次、非暫時錯誤不重試、轉人工、取消、非法來源、Null 引用與非法語系 Fail Closed。SQL Server Provider-backed 測試驗證 append-only 同意紀錄、非目前版本同意拒絕且零 Usage、`Asia/Taipei` 午夜重置、每日最後一額併發競爭、RequestPublicId replay、最新撤回拒絕，以及 Owner Query 的本人去識別投影；API 另以真正 GuestOrderAccess Cookie Scheme 證明 `403` 且 Admission Gate／Model Client 零呼叫。M-18 與 M-19 已合併，其瀏覽器證據涵蓋既定降級旅程；自動化仍不呼叫 OpenAI，也不等於 AI-09 live 品質、延遲或成本基準。
+截至 2026-09-02，Application、API Integration、Domain 與 Infrastructure 已建立 AI 安全、授權、資料最小化及 Adapter 自動化證據。Responses Adapter 測試固定 `store=false`、Bearer Header、信任分層 Payload、strict Schema、可信引用、實際模型／Token、暫時錯誤重試一次、非暫時錯誤不重試、轉人工、取消、非法來源、Null 引用與非法語系 Fail Closed；DEC-P358 另固定所有已完成 Responses 嘗試的 Token 聚合與轉人工降級 Interaction 成本保存。SQL Server Provider-backed 測試驗證 append-only 同意紀錄、非目前版本同意拒絕且零 Usage、`Asia/Taipei` 午夜重置、每日最後一額併發競爭、RequestPublicId replay、最新撤回拒絕，以及 Owner Query 的本人去識別投影；API 另以真正 GuestOrderAccess Cookie Scheme 證明 `403` 且 Admission Gate／Model Client 零呼叫。M-18 與 M-19 已合併，其瀏覽器證據涵蓋既定降級旅程；自動化仍不呼叫 OpenAI，也不等於 AI-09 live 品質、延遲或成本基準。
 
 ## 品質指標
 
@@ -125,7 +125,7 @@ OpenAI 官方建議以代表實際使用分布、包含正常與邊界案例的�
 
 ## 待實作
 
-- 120 筆繁中實際案例、Fixture、Schema、Grader 與本機／CI deterministic 驗證已建立；仍須由 Terry 覆核商品／相容性、Kafen 覆核客服／安全，Alex 第二審後把案例從 `draft` 提升為已核准版本。
-- Prompt、SearchIntent Schema、Tool Adapter 與 AI 功能形成後，建立不洩漏 Secret、需成本確認且可保存 sanitized 結果的手動 live runner，並保存首次品質、P95、Token 與成本基準。
+- 120 筆繁中實際案例、Fixture、Schema、Grader 與本機／CI deterministic 驗證已建立。`zh-TW-v1.0.0-draft` 曾於 2026-09-02 完成 Terry／Kafen 主標與 Alex 第二審；初次煙霧測試及覆核前檢查發現政策 Fixture 只列主題、無法支持 15 筆案例的具體答案，因此已補齊核准政策快照並提升為 `zh-TW-v1.0.2-draft`／Fixture `v1.0.2`。Kafen 主標與 Alex 第二審已完成，120 筆案例均為 `approved`；Release 與雙案例 dry-run 均為 `IsLiveReady=true`，但 commit 與第二次 Live 費用授權仍是獨立 Gate。
+- 手動 `DoSelect.AiEvals` Live Runner 已建立，預設 Dry Run；`--execute` 強制正值成本停止線，且只讀 User Secrets。2026-09-03 初次兩案例煙霧測試成本 US$0.001880：商品搜尋因 strict Schema 的 `uniqueItems` 在產生 Token 前失敗；客服通過 Schema／引用，但政策 Fixture 缺少案例要求的具體規則。Schema 已改用支援子集合並由後端拒絕重複品牌，兩個政策 Fixture 已補齊 15 筆案例所需的核准快照，Runner 亦拒絕零單價與不存在的指定案例；尚須完成覆核、commit 與重新授權的第二次煙霧測試，再核准 Release 三輪上限。
 - 啟動 S 後建立日文 30 筆、韓文 30 筆，並指定具語言能力的覆核者。
 - 正式同意／額度資料來源、訂單與客服 Owner Query、真正 GuestOrderAccess Cookie `403`、資料庫併發、RequestPublicId 冪等、客服 Responses Adapter、M-19 與 M-18 垂直切片均已合併。M-18 的搜尋 Adapter／Endpoint／UI、`ProposedExistingPart` 確認閘門、Provider-backed 測試與公開搜尋降級 Playwright 已形成；現有 deterministic／Provider-backed／降級 E2E 證據仍不能取代 AI-09 live evaluation。
