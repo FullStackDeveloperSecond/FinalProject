@@ -8,6 +8,8 @@ import {
   removeCartItem,
   revalidateCart,
   updateCartItemQuantity,
+  applyCartCoupon,
+  removeCartCoupon,
 } from './api'
 import { clearGuestCartKey, getOrCreateGuestCartKey } from './guestCartKey'
 import { useSessionStore } from '../../stores/session'
@@ -247,6 +249,37 @@ export function useMergeCartOnLogin() {
     onSuccess: (result, _variables, targetKey) => {
       queryClient.setQueryData(targetKey, result.cart)
       clearGuestCartKey()
+    },
+  })
+}
+
+/**
+ * 套用優惠碼。
+ *
+ * 與其他購物車異動一樣用 `onMutate` 把身分鎖在送出當下 —— 回應落地時若身分已經
+ * 換人，寫進當時的快取鍵才不會把某個人的購物車寫到另一個身分底下。
+ */
+export function useApplyCartCoupon() {
+  const queryClient = useQueryClient()
+  const sessionStore = useSessionStore()
+  return useMutation({
+    mutationFn: (params: { code: string, cartRowVersion: string }) =>
+      applyCartCoupon(params.code, params.cartRowVersion, getOrCreateGuestCartKey()),
+    onMutate: () => snapshotCartMutationIdentity(sessionStore),
+    onSuccess: (cart, _variables, targetKey) => {
+      queryClient.setQueryData(targetKey, cart)
+    },
+  })
+}
+
+export function useRemoveCartCoupon() {
+  const queryClient = useQueryClient()
+  const sessionStore = useSessionStore()
+  return useMutation({
+    mutationFn: () => removeCartCoupon(getOrCreateGuestCartKey()),
+    onMutate: () => snapshotCartMutationIdentity(sessionStore),
+    onSuccess: (cart, _variables, targetKey) => {
+      queryClient.setQueryData(targetKey, cart)
     },
   })
 }

@@ -7,8 +7,10 @@ import CartLineItem from '../features/cart/components/CartLineItem.vue'
 import ShippingOptionList from '../features/shipping/components/ShippingOptionList.vue'
 import { useShippingOptions } from '../features/shipping/useShipping'
 import {
+  useApplyCartCoupon,
   useCart,
   useReloadCart,
+  useRemoveCartCoupon,
   useRemoveCartAssemblyGroup,
   useRemoveCartItem,
   useRevalidateCart,
@@ -345,6 +347,66 @@ const {
   isError: isShippingError,
   refetch: refetchShipping,
 } = useShippingOptions(hasCartItems, computed(() => cart.value?.rowVersion))
+
+const applyCoupon = useApplyCartCoupon()
+const removeCoupon = useRemoveCartCoupon()
+const couponCodeInput = ref('')
+const couponError = ref<string>()
+
+/**
+ * 套用優惠碼。
+ *
+ * 折扣一律由伺服器算 —— 這裡只把代碼與目前的購物車版本送出去，成功後整個
+ * `CartDto` 被換掉，金額欄位也跟著更新。前端不自己扣任何金額。
+ */
+async function submitCoupon(): Promise<void> {
+  const code = couponCodeInput.value.trim()
+  if (code === '' || !cart.value) {
+    return
+  }
+
+  couponError.value = undefined
+  try {
+    await applyCoupon.mutateAsync({ code, cartRowVersion: cart.value.rowVersion })
+    couponCodeInput.value = ''
+  }
+  catch (error) {
+    couponError.value = describeCouponError(error)
+  }
+}
+
+async function clearCoupon(): Promise<void> {
+  couponError.value = undefined
+  try {
+    await removeCoupon.mutateAsync()
+  }
+  catch (error) {
+    couponError.value = describeCouponError(error)
+  }
+}
+
+/** 錯誤碼照 `API Endpoint目錄` UC-COUPON-01 的三個，其餘落到通用訊息。 */
+function describeCouponError(error: unknown): string {
+  if (!isApiError(error)) {
+    return '套用優惠碼時發生問題，請稍後再試。'
+  }
+
+  switch (error.code) {
+    case 'coupon_not_applicable':
+      return '這張優惠券不適用於目前的購物車內容。'
+    case 'coupon_usage_exhausted':
+      return '這張優惠券的可用次數已用完。'
+    case 'coupon_not_active':
+      return '這張優惠券目前不在可使用的期間。'
+    case 'coupon_invalid':
+      return '找不到這個優惠碼，請確認後再試。'
+    case 'cart_version_conflict':
+    case 'concurrency_conflict':
+      return '購物車剛剛有變動，請重新整理後再套用。'
+    default:
+      return '套用優惠碼時發生問題，請稍後再試。'
+  }
+}
 </script>
 
 <template>
@@ -533,6 +595,56 @@ const {
         </template>
       </section>
 
+      <section
+        class="cart-page__coupon"
+        aria-labelledby="cart-coupon-title"
+      >
+        <h2 id="cart-coupon-title">
+          優惠碼
+        </h2>
+
+        <template v-if="cart.coupon">
+          <p>
+            已套用：{{ cart.coupon.code }}
+            （折抵 {{ formatTwd(cart.amounts.couponDiscount) }}）
+          </p>
+          <button
+            type="button"
+            :disabled="removeCoupon.isPending.value"
+            @click="clearCoupon"
+          >
+            {{ removeCoupon.isPending.value ? '移除中…' : '移除優惠碼' }}
+          </button>
+        </template>
+
+        <form
+          v-else
+          @submit.prevent="submitCoupon"
+        >
+          <label for="cart-coupon-code">優惠碼</label>
+          <input
+            id="cart-coupon-code"
+            v-model="couponCodeInput"
+            type="text"
+            maxlength="64"
+          >
+          <button
+            type="submit"
+            :disabled="couponCodeInput.trim() === '' || applyCoupon.isPending.value"
+          >
+            {{ applyCoupon.isPending.value ? '套用中…' : '套用' }}
+          </button>
+        </form>
+
+        <p
+          v-if="couponError"
+          class="cart-page__coupon-error"
+          role="alert"
+        >
+          {{ couponError }}
+        </p>
+      </section>
+
       <div class="cart-page__summary">
         <p class="cart-page__total">
           合計：{{ formatTwd(cart.amounts.totalEstimate) }}
@@ -654,6 +766,17 @@ const {
 }
 
 .cart-page__shipping-error {
+  color: #b91c1c;
+  margin: 0;
+}
+
+.cart-page__coupon {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.cart-page__coupon-error {
   color: #b91c1c;
   margin: 0;
 }

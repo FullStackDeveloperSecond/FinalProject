@@ -108,3 +108,34 @@ export async function mergeCartOnLogin(
   })
   return data!
 }
+
+/**
+ * 套用優惠碼，回傳重算後的購物車。
+ *
+ * 折扣由伺服器算 —— 前端不自己把金額扣掉，也不判斷券適不適用。不合用時
+ * 後端回 `coupon_not_applicable`／`coupon_usage_exhausted`／`coupon_not_active`。
+ */
+export async function applyCartCoupon(
+  code: string,
+  cartRowVersion: string,
+  guestCartKey?: string,
+): Promise<CartDto> {
+  const { data } = await apiClient.POST('/api/v1/cart/coupon', {
+    body: { code, cartRowVersion },
+    headers: guestHeaders(guestCartKey),
+  })
+  return data!
+}
+
+/**
+ * 移除優惠碼。
+ *
+ * 折扣沒有被保存下來，套用是每次重算的，所以這支只是回傳目前的購物車 ——
+ * 端點存在是為了讓前端有對稱的 API。
+ */
+export async function removeCartCoupon(guestCartKey?: string): Promise<CartDto> {
+  const { data } = await apiClient.DELETE('/api/v1/cart/coupon', {
+    headers: guestHeaders(guestCartKey),
+  })
+  return data!
+}

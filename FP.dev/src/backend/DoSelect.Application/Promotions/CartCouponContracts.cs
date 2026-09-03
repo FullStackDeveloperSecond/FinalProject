@@ -70,9 +70,19 @@ public interface ICartCouponLineReader
 /// 比回一個對不上的金額安全。
 /// </para>
 /// </remarks>
+/// <remarks>
+/// 驗證屬性掛在<b>建構式參數</b>上，不是 <c>[property:]</c>。這個專案裝了
+/// <c>SystemTextJsonValidationMetadataProvider</c>，它看到 record 主建構式的參數帶
+/// property-target 的驗證中繼資料時會直接丟例外 —— 端點因此對每個請求都回 500，
+/// 而且那些規則<b>根本不會被套用</b>。
+/// <para>
+/// 這個 DTO 在 <c>POST /api/v1/cart/coupon</c> 出現之前沒有任何 <c>[FromBody]</c>
+/// 綁定過，所以這個缺陷一直沒有被觸發。
+/// </para>
+/// </remarks>
 public sealed record ApplyCartCouponRequest(
-    [property: Required]
-    [property: StringLength(64, MinimumLength = 1)]
+    [Required]
+    [StringLength(64, MinimumLength = 1)]
     string Code,
-    [property: RowVersionRequired]
+    [RowVersionRequired]
     byte[] CartRowVersion);
