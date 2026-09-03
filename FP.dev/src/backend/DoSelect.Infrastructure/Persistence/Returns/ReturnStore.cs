@@ -429,11 +429,16 @@ public sealed class ReturnStore : IReturnStore
                     ReturnsWriteException.ErrorCodes.ConcurrencyConflict,
                     "The return was modified by another request. Reload and try again.");
             }
-            catch (DbUpdateException ex) when (IsIndexViolation(ex, "UX_Refunds_IdempotencyKey"))
+            catch (DbUpdateException ex) when (
+                IsIndexViolation(ex, "UX_Refunds_IdempotencyKey") ||
+                IsIndexViolation(ex, "UX_Refunds_RefundNumber"))
             {
                 // 這個轉移把退貨推進 AwaitingRefund，退款由 IReturnRefundCreationPort 一起
-                // 暫存。金鑰由退貨對外識別推導，因此兩個並行的核准會撞同一把 —— 撞到的
-                // 那一邊整筆交易回滾（退貨狀態不會單獨落地），拿到的是狀態衝突而不是 500。
+                // 暫存。RefundNumber 與 IdempotencyKey 都是由同一個 ReturnPublicId 推導的
+                // 決定性值，兩個並行的核准撞同一把 —— 但 SQL Server 回報哪一個索引先違規
+                // 不保證順序，兩個都要轉譯，否則沒被攔到的那個會讓 provider 例外原樣冒出
+                // 變成 500（alex 2026-09-03 #99 P2）。撞到的那一邊整筆交易回滾
+                // （退貨狀態不會單獨落地），拿到的是狀態衝突而不是 500。
                 throw new ReturnsWriteException(
                     ReturnsWriteException.ErrorCodes.ReturnStateConflict,
                     "This return already has a refund awaiting review.");

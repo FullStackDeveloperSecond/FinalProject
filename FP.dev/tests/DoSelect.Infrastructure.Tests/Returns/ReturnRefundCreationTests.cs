@@ -126,6 +126,48 @@ public sealed class ReturnRefundCreationTests
             });
     }
 
+    [SqlServerFact]
+    public async Task ARefundNumberCollisionAloneIsAlsoTranslatedNotLeakedAs500()
+    {
+        // P2（alex 2026-09-03 #99）：RefundNumber 與 IdempotencyKey 都是由同一個
+        // ReturnPublicId 推導的決定性值，先前的並行測試剛好只逼出 IdempotencyKey 那條
+        // 分支就通過了，SQL Server 回報哪個索引違規在先並不保證順序 —— RefundNumber
+        // 那條完全沒被驗證過。這裡刻意讓兩者分開：預先塞一筆 IdempotencyKey 不同、
+        // 但 RefundNumber 與「seed 這筆退貨將產生的值」相同的 Refund，逼真正的建立
+        // 只可能撞 RefundNumber。
+        await using var context = ReturnStoreConcurrencyFixture.CreateContext();
+        var seed = await SeedReceivedReturnAsync(context, withPaidAttempt: true);
+        var decoy = await SeedReceivedReturnAsync(context, withPaidAttempt: true);
+
+        context.Refunds.Add(new Refund(
+            Guid.CreateVersion7(),
+            decoy.OrderId,
+            decoy.ReturnRequestId,
+            decoy.PaymentAttemptId,
+            ReturnRefundCreationPort.RefundNumberFor(seed.ReturnPublicId),
+            50m,
+            "Defective",
+            decoy.AdminUserId,
+            ReturnRefundCreationPort.IdempotencyKeyFor(decoy.ReturnPublicId),
+            NowUtc));
+        await context.SaveChangesAsync();
+
+        var caught = await Assert.ThrowsAsync<ReturnsWriteException>(() =>
+            CreateService(context).InspectAsync(
+                seed.ReturnPublicId, seed.AdminUserId, InspectRequest(seed), CancellationToken.None));
+
+        Assert.Equal(ReturnsWriteException.ErrorCodes.ReturnStateConflict, caught.ErrorCode);
+
+        await using var verify = ReturnStoreConcurrencyFixture.CreateContext();
+        Assert.Empty(await verify.Refunds
+            .Where(candidate => candidate.ReturnRequestId == seed.ReturnRequestId)
+            .ToListAsync());
+
+        var returnRequest = await verify.ReturnRequests
+            .SingleAsync(candidate => candidate.Id == seed.ReturnRequestId);
+        Assert.Equal(ReturnRequestStatus.Received, returnRequest.Status);
+    }
+
     /// <summary>回 <c>null</c> 代表成功，否則回錯誤碼。</summary>
     private static async Task<string?> InspectCatchingAsync(DoSelectDbContext context, ReturnSeed seed)
     {

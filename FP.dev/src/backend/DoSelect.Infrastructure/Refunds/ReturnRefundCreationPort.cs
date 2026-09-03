@@ -117,21 +117,17 @@ public sealed class ReturnRefundCreationPort : IReturnRefundCreationPort
             trustedInputs.AssemblyDisposition,
             trustedInputs.ReturnShippingCost));
 
+        // 淨額為 0 或負數（扣回蓋過退款，例如退貨後不再符合優惠門檻）已經是
+        // RefundCalculator 自己決定並測過的行為 —— 它在那種情況下回
+        // Failure(RefundAmountExceeded)，不是 Success。這裡不需要另外接一個
+        // NetRefundAmount <= 0 的檢查：那樣的檢查永遠走不到，一旦 IsSuccess 為真，
+        // NetRefundAmount 保證 > 0（見 RefundCalculatorTests
+        // .WhenTheClawbackSwallowsTheWholeRefund_TheAmountIsRejected）。
         if (!calculation.IsSuccess)
         {
             throw DomainProblemException.Conflict(
                 calculation.ErrorCode!,
                 "The approved return does not produce a refundable amount.");
-        }
-
-        // 淨額為 0 或負數代表扣回蓋過了退款（例如退貨後不再符合優惠門檻）。
-        // Refund 的建構式與 CK_Refunds_Amounts 都要求 RequestedAmount > 0，
-        // 硬寫會是資料庫例外；這是一個要讓管理員看得懂的狀態，不是系統錯誤。
-        if (calculation.NetRefundAmount <= 0m)
-        {
-            throw DomainProblemException.Conflict(
-                RefundErrorCodes.RefundStateConflict,
-                "The approved return nets no refundable amount.");
         }
 
         _context.Refunds.Add(new Refund(
@@ -156,6 +152,6 @@ public sealed class ReturnRefundCreationPort : IReturnRefundCreationPort
     /// 欄位上限 32 字元，取 GUID 的 <c>N</c> 格式（32）再留前綴空間 —— 取 29 碼，
     /// 前綴 "RF-" 共 32。
     /// </remarks>
-    private static string RefundNumberFor(Guid returnPublicId) =>
+    internal static string RefundNumberFor(Guid returnPublicId) =>
         $"RF-{returnPublicId:N}"[..32];
 }

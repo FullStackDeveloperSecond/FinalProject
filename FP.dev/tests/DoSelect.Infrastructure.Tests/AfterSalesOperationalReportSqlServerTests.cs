@@ -73,8 +73,21 @@ public sealed class AfterSalesOperationalReportSqlServerTests
         // M-13 is owned by PR #16. INT-04 starts from the durable state that
         // upstream refund execution publishes instead of testing that executor here.
         context.ChangeTracker.Clear();
-        var settledRefund = await context.Refunds
-            .SingleAsync(candidate => candidate.PublicId == seeded.RefundPublicId);
+        var returnRequestId = await context.ReturnRequests
+            .Where(candidate => candidate.PublicId == seeded.ReturnPublicId)
+            .Select(candidate => candidate.Id)
+            .SingleAsync();
+
+        // 唯一 Refund 不變量：InspectAsync 走 production 路徑只能為這張退貨留下一筆。
+        var settledRefund = Assert.Single(await context.Refunds
+            .Where(candidate => candidate.ReturnRequestId == returnRequestId)
+            .ToListAsync());
+        Assert.Equal(RefundStatus.PendingReview, settledRefund.Status);
+        Assert.Equal(500m, settledRefund.RequestedAmount);
+
+        // M-13 owns Refund.Approve too; WP2（獨立核准 API）尚未交付，這裡與既有做法一致，
+        // 直接呼叫 Domain 方法核准，而不假裝走了一個還不存在的端點。
+        settledRefund.Approve(500m, seeded.AdminUserId, Now.UtcDateTime.AddMinutes(-3));
         settledRefund.BeginProcessing(seeded.AdminUserId, Now.UtcDateTime.AddMinutes(-2));
         settledRefund.Complete(500m, Now.UtcDateTime.AddMinutes(-1));
         context.RefundAllocations.Add(new RefundAllocation(
@@ -103,9 +116,9 @@ public sealed class AfterSalesOperationalReportSqlServerTests
         var allowanceResult = await allowanceWriter.CreateAsync(
             new CreateInvoiceAllowanceCommand(
                 invoice.PublicId,
-                seeded.RefundPublicId,
+                settledRefund.PublicId,
                 invoice.RowVersion.ToArray(),
-                $"int04-allowance-{seeded.RefundPublicId:N}",
+                $"int04-allowance-{settledRefund.PublicId:N}",
                 seeded.AdminUserId,
                 "int04-allowance",
                 new string('b', 32),
@@ -132,7 +145,7 @@ public sealed class AfterSalesOperationalReportSqlServerTests
         Assert.Equal(300m, movement.UnitCostSnapshot);
 
         var refund = await context.Refunds.AsNoTracking()
-            .SingleAsync(candidate => candidate.PublicId == seeded.RefundPublicId);
+            .SingleAsync(candidate => candidate.PublicId == settledRefund.PublicId);
         Assert.Equal(RefundStatus.Succeeded, refund.Status);
         Assert.Equal(500m, refund.SucceededAmount);
 
@@ -316,14 +329,15 @@ public sealed class AfterSalesOperationalReportSqlServerTests
         context.ReturnRequests.Add(returnRequest);
         await context.SaveChangesAsync();
 
+        // P3（alex 2026-09-03 #99）：不預先建立／核准 Refund。InspectAsync 現在會在
+        // 同一筆交易自動建立 PendingReview Refund（PR #99），這裡先建立退貨到 Received
+        // 為止，讓主測試方法呼叫 InspectAsync 走 production 路徑，再依 ReturnRequestId
+        // 取得那一筆自動建立的 Refund 並斷言唯一 —— 否則會在同一張退貨留下兩筆 Refund，
+        // 違反 #98 裁定的唯一 Refund 不變量，也沒驗證到 WP1 這次正式建立的 Refund
+        // 能接上後續流程。
         var returnItem = new ReturnItem(
             Guid.CreateVersion7(), returnRequest.Id, orderItem.Id, 1, 500m, "NotInspected", createdAtUtc);
-        var refund = new Refund(
-            Guid.CreateVersion7(), order.Id, returnRequest.Id, payment.Id,
-            $"I4RF{Guid.NewGuid():N}"[..20], 500m, "customer_request",
-            adminUserId, $"int04-create-{suffix}", createdAtUtc);
-        refund.Approve(500m, adminUserId, createdAtUtc.AddHours(6));
-        context.AddRange(returnItem, refund);
+        context.Add(returnItem);
         await context.SaveChangesAsync();
 
         return new SeededJourney(
@@ -334,7 +348,6 @@ public sealed class AfterSalesOperationalReportSqlServerTests
             returnRequest.PublicId,
             returnItem.PublicId,
             returnRequest.RowVersion.ToArray(),
-            refund.PublicId,
             invoice.PublicId);
     }
 
@@ -346,7 +359,6 @@ public sealed class AfterSalesOperationalReportSqlServerTests
         Guid ReturnPublicId,
         Guid ReturnItemPublicId,
         byte[] ReturnRowVersion,
-        Guid RefundPublicId,
         Guid InvoicePublicId);
 
     private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
