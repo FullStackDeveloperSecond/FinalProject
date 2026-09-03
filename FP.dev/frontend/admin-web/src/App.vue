@@ -157,6 +157,12 @@ async function onLogout(): Promise<void> {
           >
             包裹限制版本
           </RouterLink>
+          <RouterLink
+            v-if="canManageShipping"
+            to="/shipping/batches"
+          >
+            批次出貨
+          </RouterLink>
           <RouterLink to="/inventory/reservations">
             庫存保留佇列
           </RouterLink>

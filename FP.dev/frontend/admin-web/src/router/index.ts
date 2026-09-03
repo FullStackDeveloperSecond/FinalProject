@@ -267,6 +267,14 @@ const router = createRouter({
       meta: { requiresAuth: true, requiredRoles: ['InventoryManager', 'SuperAdmin'] },
     },
     {
+      // M功能桌面UI與Route規格.md A-16 `/admin/shipping/batches`（Order Manage）。整頁都是寫入
+      // 動作，所以與包裹限制一樣只放 ShippingManage 的角色。
+      path: '/shipping/batches',
+      name: 'shipping-batches',
+      component: () => import('../pages/ShipmentBatchesPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['OrderManager', 'SuperAdmin'] },
+    },
+    {
       path: '/inventory/reservations',
       name: 'inventory-reservations',
       component: () => import('../pages/InventoryReservationsPage.vue'),

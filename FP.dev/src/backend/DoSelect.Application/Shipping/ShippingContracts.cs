@@ -56,6 +56,11 @@ public static class ShippingErrorCodes
 {
     public const string CartNotFound = "cart_not_found";
     public const string ShippingMethodNotAllowed = "shipping_method_not_allowed";
+
+    /// <summary>UC-ADM-SHIP-02 批次出貨（API 錯誤碼目錄第 144～149 列）。</summary>
+    public const string ShippingBatchLimitExceeded = "shipping_batch_limit_exceeded";
+    public const string ShippingOrderNotReady = "shipping_order_not_ready";
+    public const string ShippingTrackingDuplicate = "shipping_tracking_duplicate";
 }
 
 public interface IShippingOptionsService

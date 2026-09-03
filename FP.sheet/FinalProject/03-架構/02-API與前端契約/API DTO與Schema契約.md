@@ -186,7 +186,7 @@
 | `AdminOrderDto` | Summary＋Order Item／付款／物流／組裝／退貨退款摘要、狀態歷程、遮蔽買家資料、`availableActions[]`；完整收件資料不內嵌 |
 | `OrderRecipientDto` | OrderPublicId、RecipientName、Phone、Email、PostalCode、Address、Store Snapshot、`accessPurpose`；每次讀取稽核 |
 | `BatchShipmentRequest` | `orders:{orderPublicId,rowVersion}[1..100]`、`shippingAction:createLabel/markShipped`、`idempotencyKey` |
-| `BatchShipmentResultDto` | BatchPublicId、Total／Succeeded／Failed、`items:{orderPublicId,status,trackingNumber?,errorCode?}[]`、建立時間 |
+| `BatchShipmentResultDto` | BatchPublicId、Total／Succeeded／Failed、`items:{sourceRowNumber,orderPublicId,orderNumber?,status,trackingNumber?,errorCode?,message?}[]`、建立時間、`isReplay`。BatchPublicId 是這次批次作業的識別碼，保存在冪等記錄裡，同鍵同 payload 重送會拿回同一個值與同一份逐筆結果（`isReplay=true`，代表沒有任何訂單被重複出貨）；系統無 ShipmentBatch 表，結果 CSV 由前端從這份回應就地產生 |
 | `RetryOutboxMessageRequest` | `reasonCode:string(1..64)`；ASCII 穩定碼，只允許字母、數字、`.`、`_`、`:`、`-`，並須通過中央 Audit 敏感詞拒絕規則 |
 | `RetryOutboxMessageResponse` | `publicId`、`status:Pending`、`availableAtUtc`；HTTP 202 |
 | `InventoryBalanceQuery` | `q?`、`stockState?`、`categoryCode?`、`pageNumber/pageSize` |
