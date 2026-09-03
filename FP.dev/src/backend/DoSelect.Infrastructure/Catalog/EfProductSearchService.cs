@@ -407,6 +407,10 @@ public sealed class EfProductSearchService : IProductSearchService
             rows.Select(row => row.Category.Id),
             locale,
             cancellationToken);
+        var primaryImages = await ProductImageProjection.LoadPublishedPrimaryAsync(
+            _dbContext,
+            rows.Select(row => row.Product.Id).Distinct().ToArray(),
+            cancellationToken);
 
         return rows
             .Select(row => new ProductCardDto(
@@ -423,9 +427,7 @@ public sealed class EfProductSearchService : IProductSearchService
                     categoryNames.GetValueOrDefault(row.Category.Id, row.Category.NameZhTw)),
                 new ProductPrice(row.Sku.ListPrice, row.SalePrice, "TWD"),
                 ResolveAvailability(row.Balance),
-                // Public image URLs depend on the shared file/image service (SH-06),
-                // which is not available yet; deferred to a follow-up slice.
-                null,
+                primaryImages.GetValueOrDefault(row.Product.Id),
                 row.Product.IsFeatured ? ["featured"] : Array.Empty<string>()))
             .ToList();
     }

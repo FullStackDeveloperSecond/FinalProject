@@ -1239,6 +1239,12 @@ public sealed class CatalogAdminAuthorizationTests
             { "POST", "/api/v1/admin/products/actions/publish" },
             { "POST", "/api/v1/admin/products/actions/unpublish" },
             { "POST", "/api/v1/admin/products/actions/adjust-price" },
+            // M 商品圖片（CatalogImage.Manage／Publish）：授權在繫結之前，所以上傳路由拿到 JSON
+            // 也一樣先被 401／403 擋下。
+            { "POST", "/api/v1/admin/products/00000000-0000-0000-0000-000000000001/images" },
+            { "PATCH", "/api/v1/admin/product-images/00000000-0000-0000-0000-000000000001" },
+            { "POST", "/api/v1/admin/product-images/00000000-0000-0000-0000-000000000001/actions/publish" },
+            { "DELETE", "/api/v1/admin/product-images/00000000-0000-0000-0000-000000000001" },
         };
     [Theory]
     [InlineData("/api/v1/admin/brands")]
@@ -1425,7 +1431,11 @@ public sealed class CatalogAdminAuthorizationTests
     private static HttpRequestMessage CreateWriteRequest(string method, string path) =>
         new(new HttpMethod(method), path)
         {
-            Content = JsonContent.Create(new { authorizationMustRunBeforeBinding = true }),
+            // 商品圖片上傳掛了 [Consumes("multipart/form-data")]：Endpoint 路由階段就依 Content-Type
+            // 篩掉不符的候選（415），那發生在授權之前——要證明「授權先於繫結」，請求本身得是 multipart。
+            Content = path.EndsWith("/images", StringComparison.Ordinal)
+                ? new MultipartFormDataContent { { new StringContent("x"), "altText" } }
+                : JsonContent.Create(new { authorizationMustRunBeforeBinding = true }),
         };
 
     private async Task<string> ReadCatalogSnapshotAsync()

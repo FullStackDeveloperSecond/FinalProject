@@ -92,7 +92,9 @@ public sealed record AdminProductDetailDto(
     string Status,
     bool IsFeatured,
     IReadOnlyList<TagRef> Tags,
-    IReadOnlyList<ProductImageDto> Images,
+    // A-06 圖片區塊要的是後台形狀（狀態、RowVersion、預覽路徑、發布後的公開 URL），不是
+    // 公開的 ProductImageDto；未刪除的全部列出，第一張是主圖。
+    IReadOnlyList<AdminProductImageDto> Images,
     IReadOnlyList<SkuDto> Skus,
     DateTime CreatedAtUtc,
     DateTime UpdatedAtUtc,

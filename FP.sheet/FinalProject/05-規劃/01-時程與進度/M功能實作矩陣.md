@@ -23,7 +23,7 @@
 | M-01 會員註冊與登入 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | 註冊、驗證、登入、重設密碼已合併；PR #80 已補會員登入／Session Browser E2E，註冊、驗證與重設密碼仍未逐條覆蓋。 |
 | M-01B 管理員 TOTP／Session | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | PR #38 已合併 TOTP、Recovery Code、Session 撤銷、後台登入與 Provider-backed 證據；PR #80 已補管理員登入／TOTP Browser E2E，Recovery Code 與撤銷變體仍未逐條覆蓋。 |
 | M-02 訪客結帳與訂單驗證 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | C-14、會員／訪客建單後交接、Guest Email 限單 Cookie、本人查單／取消及 WP-A02 跨訂單隔離均已交付；WP-A04 再證明 Cart→Checkout→Guest 驗證→Payment／Invoice 的預付主旅程。其他訪客付款與錯誤變體尚未全覆蓋。 |
-| M-03 商品、SKU 與目錄 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | PR #24 已交付前後台型錄垂直切片；PR #52 新增可重跑的商品列表→詳情 Playwright Smoke，但尚未覆蓋後台型錄管理旅程。 |
+| M-03 商品、SKU 與目錄 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | PR #24 已交付前後台型錄垂直切片；PR #52 新增可重跑的商品列表→詳情 Playwright Smoke，但尚未覆蓋後台型錄管理旅程。商品圖片後台五條端點、`CatalogImage.*` Policy、A-06 圖片區塊與前台／商品卡圖片投影已交付（2026-09-04，Provider-backed 與 HTTP 測試各 10／6 支）。 |
 | M-04 商品批次與 Excel | 🔵 | 🔵 | 🔵 | ✅ | ⬜ | 🔵 | PR #85 已合併商品批次上下架／調價、共用篩選的 CSV／XLSX 匯出、A-04 UI、單一交易與 SQL Provider-backed 證據。Excel／CSV 匯入 Staging、驗證預覽與原子提交仍未完成。 |
 | M-05 商品搜尋與篩選 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | 公開查詢與前台型錄已合併；PR #52 的 Playwright Smoke 已驗證固定 Seed 商品可由搜尋列表進入詳情，但尚未覆蓋完整篩選與排序組合。 |
 | M-06 購物車 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | 購物車後端、前端、身份隔離、組裝整組移除、結帳前重驗及 C-13 配送預覽均已交付；WP-A04 以固定 Guest Cart 完成組裝購物車到 Checkout 的預付主旅程。完整功能變體仍未逐一 E2E。 |

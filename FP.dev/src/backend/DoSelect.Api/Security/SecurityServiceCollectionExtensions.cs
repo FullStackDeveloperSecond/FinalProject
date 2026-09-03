@@ -424,6 +424,12 @@ public static class SecurityServiceCollectionExtensions
             DoSelectRoles.CatalogManager, DoSelectRoles.SuperAdmin);
         AddAdminPolicy(options, DoSelectPolicies.CatalogImportReadAll,
             DoSelectRoles.CatalogManager, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.CatalogImageManage,
+            DoSelectRoles.CatalogManager, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.CatalogImageViewDraft,
+            DoSelectRoles.CatalogManager, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.CatalogImagePublish,
+            DoSelectRoles.CatalogManager, DoSelectRoles.SuperAdmin);
         AddAdminPolicy(options, DoSelectPolicies.InventoryImportExecute,
             DoSelectRoles.InventoryManager, DoSelectRoles.SuperAdmin);
         AddAdminPolicy(options, DoSelectPolicies.InventoryImportReadAll,

@@ -72,6 +72,7 @@ public sealed partial class EfProductAdminService : IProductAdminService
         var balancesBySku = await _dbContext.InventoryBalances.AsNoTracking()
             .Where(balance => skuIds.Contains(balance.SkuId))
             .ToDictionaryAsync(balance => balance.SkuId, cancellationToken);
+        var primaryImages = await ProductImageProjection.LoadAdminPrimaryAsync(_dbContext, productIds, cancellationToken);
 
         var items = page.Select(row =>
         {
@@ -89,8 +90,7 @@ public sealed partial class EfProductAdminService : IProductAdminService
                 skus.Count == 0 ? 0 : skus.Min(sku => sku.ListPrice),
                 skus.Count == 0 ? 0 : skus.Max(sku => sku.ListPrice),
                 onHand,
-                // Deferred with the shared file service (SH-06); see EfProductSearchService.
-                null,
+                primaryImages.GetValueOrDefault(row.Product.Id),
                 row.Product.UpdatedAtUtc,
                 row.Product.RowVersion);
         }).ToList();
@@ -474,8 +474,7 @@ public sealed partial class EfProductAdminService : IProductAdminService
             product.Status.ToString(),
             product.IsFeatured,
             tags,
-            // Deferred with the shared file service (SH-06); see EfProductSearchService.
-            [],
+            await ProductImageProjection.LoadAdminImagesAsync(_dbContext, product.Id, product.PublicId, cancellationToken),
             skuDtos,
             product.CreatedAtUtc,
             product.UpdatedAtUtc,

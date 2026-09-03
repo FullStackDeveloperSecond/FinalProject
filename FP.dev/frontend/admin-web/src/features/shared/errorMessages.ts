@@ -27,6 +27,13 @@ const codeMessages: Record<string, string> = {
   // 這張表是全站共用的（相容性規則、商品、SKU、庫存都經由 describeApiError 取字），所以
   // resource_not_found 不能寫成任一功能專屬的字——ProductEditPage 與庫存頁同樣會拿到它。
   resource_not_found: '找不到此資料',
+  // M 商品圖片（檔案與圖片儲存設計.md「API 與錯誤契約」／API錯誤碼目錄）。
+  file_size_exceeded: '檔案超過 10 MB',
+  file_format_invalid: '只接受 JPG、PNG 或 WebP 圖片',
+  file_malware_detected: '檔案未通過安全掃描',
+  file_scan_unavailable: '安全掃描暫時無法使用，請稍後再試',
+  image_processing_failed: '圖片無法解碼或安全處理，請換一張圖片',
+  image_metadata_incomplete: '請先填齊 Alt、來源網址、授權名稱與授權網址再發布',
   coupon_code_duplicate: '優惠碼已存在',
   // 管理員的 activate 只接受 Draft 或符合條件的 Paused：Scheduled 由排程喚醒、
   // Exhausted 由名額返還，兩者都是系統事件（狀態機設計「優惠券狀態」）。

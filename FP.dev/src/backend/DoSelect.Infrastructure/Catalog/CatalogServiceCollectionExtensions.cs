@@ -18,6 +18,7 @@ public static class CatalogServiceCollectionExtensions
         services.AddScoped<ISpecificationDefinitionAdminService, EfSpecificationDefinitionAdminService>();
         services.AddScoped<ITagAdminService, EfTagAdminService>();
         services.AddScoped<IProductAdminService, EfProductAdminService>();
+        services.AddScoped<IProductImageAdminService, EfProductImageAdminService>();
         services.AddScoped<ISkuAdminService, EfSkuAdminService>();
         services.AddScoped<ICompatibilityCatalogReader, EfCompatibilityCatalogReader>();
         // 優惠券挑選器的唯讀目錄參考（PR #64 P2#3）。契約與實作屬 Catalog，
