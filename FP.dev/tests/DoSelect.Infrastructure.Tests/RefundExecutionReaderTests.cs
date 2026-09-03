@@ -198,6 +198,16 @@ public sealed class RefundExecutionReaderTests
                 ["Users"] = ["Id", "PublicId", "Email"],
             },
 
+            // 退貨核准時建立待審退款（alex 2026-09-03 #98 A2 裁定）。
+            // 跨模組只讀 ReturnRequests 的兩個識別欄位 —— 金額所需的可信快照不在這裡讀，
+            // 交給白名單內的 RefundTrustedInputsReader，它有自己的欄位清單。
+            ["ReturnRefundCreationPort.cs"] = new Dictionary<string, string[]>(StringComparer.Ordinal)
+            {
+                ["Refunds"] = ["*"],
+                ["PaymentAttempts"] = ["*"],
+                ["ReturnRequests"] = ["Id", "OrderId", "PublicId"],
+            },
+
             // 只做 DI 註冊，不碰任何表。
             ["RefundsServiceCollectionExtensions.cs"] =
                 new Dictionary<string, string[]>(StringComparer.Ordinal),

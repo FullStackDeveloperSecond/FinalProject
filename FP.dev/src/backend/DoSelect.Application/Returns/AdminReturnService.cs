@@ -1,4 +1,5 @@
 using DoSelect.Application.Common;
+using DoSelect.Application.Refunds;
 using DoSelect.Domain.Refunds;
 using DoSelect.Domain.Returns;
 
@@ -44,17 +45,20 @@ public sealed class AdminReturnService : IAdminReturnService
     private readonly IReturnStore _store;
     private readonly IReturnOrderEligibilityPort _orderPort;
     private readonly IReturnInventoryPort _inventoryPort;
+    private readonly IReturnRefundCreationPort _refundPort;
     private readonly TimeProvider _timeProvider;
 
     public AdminReturnService(
         IReturnStore store,
         IReturnOrderEligibilityPort orderPort,
         IReturnInventoryPort inventoryPort,
+        IReturnRefundCreationPort refundPort,
         TimeProvider timeProvider)
     {
         _store = store;
         _orderPort = orderPort;
         _inventoryPort = inventoryPort;
+        _refundPort = refundPort;
         _timeProvider = timeProvider;
     }
 
@@ -141,6 +145,20 @@ public sealed class AdminReturnService : IAdminReturnService
                 returnRequest.Id, ReturnRequestStatus.Approved,
                 requiresShipment ? ReturnRequestStatus.AwaitingShipment : ReturnRequestStatus.AwaitingRefund,
                 request.ReasonCode, request.Note, adminUserId, nowUtc));
+
+            if (!requiresShipment)
+            {
+                // 不需寄回檢查的核准直接落在 AwaitingRefund，退款在同一筆交易一起建立。
+                await _refundPort.StagePendingRefundAsync(
+                    new ReturnRefundCreationCommand(
+                        returnRequest.PublicId,
+                        adminUserId,
+                        returnRequest.ReasonCode,
+                        request.AssemblyFeeDisposition!.Value,
+                        request.ReturnShippingCost!.Value,
+                        nowUtc),
+                    cancellationToken);
+            }
         }
         else
         {
@@ -233,6 +251,17 @@ public sealed class AdminReturnService : IAdminReturnService
 
         histories.Add(TransitionAndRecord(
             returnRequest, ReturnRequestStatus.AwaitingRefund, "inspection-complete", null, adminUserId, nowUtc));
+
+        // 需要寄回檢查的退貨在這裡才到 AwaitingRefund，退款同樣在同一筆交易建立。
+        await _refundPort.StagePendingRefundAsync(
+            new ReturnRefundCreationCommand(
+                returnRequest.PublicId,
+                adminUserId,
+                returnRequest.ReasonCode,
+                request.AssemblyFeeDisposition!.Value,
+                request.ReturnShippingCost!.Value,
+                nowUtc),
+            cancellationToken);
 
         var returnToStock = updatedItems
             .Where(item => item.RestockDisposition == RestockDisposition.Resellable)
