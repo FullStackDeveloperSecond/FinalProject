@@ -7,8 +7,10 @@ import CartLineItem from '../features/cart/components/CartLineItem.vue'
 import ShippingOptionList from '../features/shipping/components/ShippingOptionList.vue'
 import { useShippingOptions } from '../features/shipping/useShipping'
 import {
+  useApplyCartCoupon,
   useCart,
   useReloadCart,
+  useRemoveCartCoupon,
   useRemoveCartAssemblyGroup,
   useRemoveCartItem,
   useRevalidateCart,
@@ -155,13 +157,17 @@ const revalidateError = ref<unknown>(null)
 const validatedForRowVersion = ref<string | null>(null)
 
 const canCheckout = computed(() => {
-  if (!cart.value || revalidate.isPending.value || revalidateError.value) {
+  // isMutating 也算：套券還在飛的時候進結帳，結帳頁會拿到套券前的購物車，
+  // 而使用者以為折扣已經生效。（isMutating 宣告在下方，computed 惰性求值。）
+  if (!cart.value || revalidate.isPending.value || revalidateError.value || isMutating.value) {
     return false
   }
   return validatedForRowVersion.value === cart.value.rowVersion && isCheckoutReady.value
 })
 
 function goToCheckout(): void {
+  // 本來就有的防禦性檢查；canCheckout 現在也含 isMutating，所以套券還在飛的時候
+  // 就算有人繞過 disabled 的按鈕呼叫它，也不會進到結帳頁。
   if (canCheckout.value) {
     void router.push({ name: 'checkout' })
   }
@@ -317,8 +323,24 @@ async function onRemoveAssemblyGroup(assemblyGroupKey: string): Promise<void> {
   }
 }
 
+const applyCoupon = useApplyCartCoupon()
+const removeCoupon = useRemoveCartCoupon()
+const couponCodeInput = ref('')
+const couponError = ref<string>()
+
+/**
+ * 所有會改變購物車的操作共用同一個閘門。
+ *
+ * 套券也算 —— 它回傳的是完整的 <c>CartDto</c> 並寫進同一個快取鍵。套券還在飛的時候
+ * 讓使用者改品項或重驗，倒序抵達的舊購物車就會覆蓋較新的那一份；直接結帳則會在
+ * 套券結果落地前開始。
+ */
 const isMutating = computed(() =>
-  updateQuantity.isPending.value || removeItem.isPending.value || removeAssemblyGroup.isPending.value)
+  updateQuantity.isPending.value
+  || removeItem.isPending.value
+  || removeAssemblyGroup.isPending.value
+  || applyCoupon.isPending.value
+  || removeCoupon.isPending.value)
 const isBusy = computed(() => isMutating.value || revalidate.isPending.value || isRecoveringFromConflict.value)
 
 function formatTwd(amount: number | string): string {
@@ -344,7 +366,75 @@ const {
   isPending: isShippingPending,
   isError: isShippingError,
   refetch: refetchShipping,
-} = useShippingOptions(hasCartItems, computed(() => cart.value?.rowVersion))
+} = useShippingOptions(
+  hasCartItems,
+  computed(() => cart.value?.rowVersion),
+  // Coupon quote 是無狀態的，套券不會改變 RowVersion —— 不把代碼一起送進 query key，
+  // 套券後 shipping 查詢不會重跑，免運券就會出現「已套用卻仍顯示原運費」。
+  computed(() => cart.value?.coupon?.code),
+)
+
+
+/**
+ * 套用優惠碼。
+ *
+ * 折扣一律由伺服器算 —— 這裡只把代碼與目前的購物車版本送出去，成功後整個
+ * `CartDto` 被換掉，金額欄位也跟著更新。前端不自己扣任何金額。
+ */
+async function submitCoupon(): Promise<void> {
+  const code = couponCodeInput.value.trim()
+  // 防禦性檢查：不只依賴 disabled 的按鈕。任何繞過 UI 的呼叫（測試、未來的鍵盤
+  // 捷徑）都不該在另一個購物車操作還在飛的時候送出。
+  if (code === '' || !cart.value || isBusy.value) {
+    return
+  }
+
+  couponError.value = undefined
+  try {
+    await applyCoupon.mutateAsync({ code, cartRowVersion: cart.value.rowVersion })
+    couponCodeInput.value = ''
+  }
+  catch (error) {
+    couponError.value = describeCouponError(error)
+  }
+}
+
+async function clearCoupon(): Promise<void> {
+  if (isBusy.value) {
+    return
+  }
+
+  couponError.value = undefined
+  try {
+    await removeCoupon.mutateAsync()
+  }
+  catch (error) {
+    couponError.value = describeCouponError(error)
+  }
+}
+
+/** 錯誤碼照 `API Endpoint目錄` UC-COUPON-01 的三個，其餘落到通用訊息。 */
+function describeCouponError(error: unknown): string {
+  if (!isApiError(error)) {
+    return '套用優惠碼時發生問題，請稍後再試。'
+  }
+
+  switch (error.code) {
+    case 'coupon_not_applicable':
+      return '這張優惠券不適用於目前的購物車內容。'
+    case 'coupon_usage_exhausted':
+      return '這張優惠券的可用次數已用完。'
+    case 'coupon_not_active':
+      return '這張優惠券目前不在可使用的期間。'
+    case 'coupon_invalid':
+      return '找不到這個優惠碼，請確認後再試。'
+    case 'cart_version_conflict':
+    case 'concurrency_conflict':
+      return '購物車剛剛有變動，請重新整理後再套用。'
+    default:
+      return '套用優惠碼時發生問題，請稍後再試。'
+  }
+}
 </script>
 
 <template>
@@ -533,6 +623,56 @@ const {
         </template>
       </section>
 
+      <section
+        class="cart-page__coupon"
+        aria-labelledby="cart-coupon-title"
+      >
+        <h2 id="cart-coupon-title">
+          優惠碼
+        </h2>
+
+        <template v-if="cart.coupon">
+          <p>
+            已套用：{{ cart.coupon.code }}
+            （折抵 {{ formatTwd(cart.amounts.couponDiscount) }}）
+          </p>
+          <button
+            type="button"
+            :disabled="isBusy"
+            @click="clearCoupon"
+          >
+            {{ removeCoupon.isPending.value ? '移除中…' : '移除優惠碼' }}
+          </button>
+        </template>
+
+        <form
+          v-else
+          @submit.prevent="submitCoupon"
+        >
+          <label for="cart-coupon-code">優惠碼</label>
+          <input
+            id="cart-coupon-code"
+            v-model="couponCodeInput"
+            type="text"
+            maxlength="64"
+          >
+          <button
+            type="submit"
+            :disabled="couponCodeInput.trim() === '' || isBusy"
+          >
+            {{ applyCoupon.isPending.value ? '套用中…' : '套用' }}
+          </button>
+        </form>
+
+        <p
+          v-if="couponError"
+          class="cart-page__coupon-error"
+          role="alert"
+        >
+          {{ couponError }}
+        </p>
+      </section>
+
       <div class="cart-page__summary">
         <p class="cart-page__total">
           合計：{{ formatTwd(cart.amounts.totalEstimate) }}
@@ -654,6 +794,17 @@ const {
 }
 
 .cart-page__shipping-error {
+  color: #b91c1c;
+  margin: 0;
+}
+
+.cart-page__coupon {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.cart-page__coupon-error {
   color: #b91c1c;
   margin: 0;
 }
