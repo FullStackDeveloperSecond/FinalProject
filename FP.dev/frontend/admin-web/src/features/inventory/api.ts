@@ -1,16 +1,10 @@
-import { apiClient, createApiClient } from '../../api/client'
+import { apiClient } from '../../api/client'
 import type {
   CursorPageOfInventoryReservationDto,
-  InventoryReleaseApiPaths,
   PageResultOfInventoryBalanceDto,
   PageResultOfInventoryMovementDto,
   ReleaseReservationRequest,
 } from './types'
-
-// Only the withdrawn manual-release route still needs a narrow local client — see the
-// InventoryReleaseApiPaths remarks in types.ts. Everything else goes through the official
-// typed client (組長 PR #37 review item 5).
-const releaseApiClient = createApiClient<InventoryReleaseApiPaths>()
 
 export interface InventoryBalanceListParams {
   q?: string
@@ -87,7 +81,7 @@ export async function listReservations(
 }
 
 export async function releaseReservation(publicId: string, request: ReleaseReservationRequest): Promise<void> {
-  await releaseApiClient.POST('/api/v1/admin/inventory/reservations/{id}/actions/release', {
+  await apiClient.POST('/api/v1/admin/inventory/reservations/{id}/actions/release', {
     params: { path: { id: publicId } },
     body: request,
   })

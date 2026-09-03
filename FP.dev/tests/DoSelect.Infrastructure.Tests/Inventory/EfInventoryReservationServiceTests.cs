@@ -1,6 +1,10 @@
 using System.Data.Common;
+using System.Text.Json;
+using DoSelect.Application.Auditing;
+using DoSelect.Application.Common;
 using DoSelect.Application.Inventory;
 using DoSelect.Domain.Inventory;
+using DoSelect.Infrastructure.Auditing;
 using DoSelect.Infrastructure.Inventory;
 using DoSelect.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -23,13 +27,16 @@ public sealed class EfInventoryReservationServiceTests
         _fixture = fixture;
     }
 
+    private static readonly AuditRequestContext TestAuditContext =
+        new("release-test-correlation", "0123456789abcdef0123456789abcdef", null);
+
     [Fact]
     public async Task ReserveAsync_WhenStockIsSufficient_IncreasesReservedAndCreatesMovement()
     {
         await using var context = InventoryReservationServiceFixture.CreateContext();
         var sku = await _fixture.SeedSkuWithBalanceAsync(context, onHandQuantity: 10);
         var orderId = await _fixture.SeedOrderAsync(context);
-        var service = new EfInventoryReservationService(context);
+        var service = new EfInventoryReservationService(context, new EfAuditWriter(context, TimeProvider.System));
 
         await using (var transaction = await context.Database.BeginTransactionAsync())
         {
@@ -60,7 +67,7 @@ public sealed class EfInventoryReservationServiceTests
         var plentifulSku = await _fixture.SeedSkuWithBalanceAsync(context, onHandQuantity: 10);
         var scarceSku = await _fixture.SeedSkuWithBalanceAsync(context, onHandQuantity: 1);
         var orderId = await _fixture.SeedOrderAsync(context);
-        var service = new EfInventoryReservationService(context);
+        var service = new EfInventoryReservationService(context, new EfAuditWriter(context, TimeProvider.System));
 
         await using var transaction = await context.Database.BeginTransactionAsync();
         var exception = await Assert.ThrowsAsync<InventoryWriteException>(() => service.ReserveAsync(
@@ -93,7 +100,7 @@ public sealed class EfInventoryReservationServiceTests
 
         var interceptor = new ThrowOnInventoryMovementInsertInterceptor();
         await using var context = InventoryReservationServiceFixture.CreateContext(interceptor);
-        var service = new EfInventoryReservationService(context);
+        var service = new EfInventoryReservationService(context, new EfAuditWriter(context, TimeProvider.System));
 
         await using (var transaction = await context.Database.BeginTransactionAsync())
         {
@@ -161,8 +168,8 @@ public sealed class EfInventoryReservationServiceTests
 
         await using var contextA = InventoryReservationServiceFixture.CreateContext();
         await using var contextB = InventoryReservationServiceFixture.CreateContext();
-        var serviceA = new EfInventoryReservationService(contextA);
-        var serviceB = new EfInventoryReservationService(contextB);
+        var serviceA = new EfInventoryReservationService(contextA, new EfAuditWriter(contextA, TimeProvider.System));
+        var serviceB = new EfInventoryReservationService(contextB, new EfAuditWriter(contextB, TimeProvider.System));
         var line = new ReservationLine(sku.PublicId, 1);
         var now = DateTime.UtcNow;
 
@@ -222,7 +229,7 @@ public sealed class EfInventoryReservationServiceTests
         await using var context = InventoryReservationServiceFixture.CreateContext();
         var sku = await _fixture.SeedSkuWithBalanceAsync(context, onHandQuantity: 10);
         var orderId = await _fixture.SeedOrderAsync(context);
-        var service = new EfInventoryReservationService(context);
+        var service = new EfInventoryReservationService(context, new EfAuditWriter(context, TimeProvider.System));
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.ReserveAsync(
             orderId, [new ReservationLine(sku.PublicId, 1)], null, DateTime.UtcNow, CancellationToken.None));
@@ -243,7 +250,7 @@ public sealed class EfInventoryReservationServiceTests
         await using var context = InventoryReservationServiceFixture.CreateContext();
         var sku = await _fixture.SeedSkuWithBalanceAsync(context, onHandQuantity: 10);
         var orderId = await _fixture.SeedOrderAsync(context);
-        var service = new EfInventoryReservationService(context);
+        var service = new EfInventoryReservationService(context, new EfAuditWriter(context, TimeProvider.System));
 
         await ReserveWithinTransactionAsync(
             service, context, orderId,
@@ -264,7 +271,7 @@ public sealed class EfInventoryReservationServiceTests
         // per-line check individually.
         var sku = await _fixture.SeedSkuWithBalanceAsync(context, onHandQuantity: 5);
         var orderId = await _fixture.SeedOrderAsync(context);
-        var service = new EfInventoryReservationService(context);
+        var service = new EfInventoryReservationService(context, new EfAuditWriter(context, TimeProvider.System));
 
         await using var transaction = await context.Database.BeginTransactionAsync();
         var exception = await Assert.ThrowsAsync<InventoryWriteException>(() => service.ReserveAsync(
@@ -283,15 +290,15 @@ public sealed class EfInventoryReservationServiceTests
         await using var context = InventoryReservationServiceFixture.CreateContext();
         var sku = await _fixture.SeedSkuWithBalanceAsync(context, onHandQuantity: 5);
         var orderId = await _fixture.SeedOrderAsync(context);
-        var adminUserId = await InventoryReservationServiceFixture.SeedAdminUserIdAsync(context);
-        var service = new EfInventoryReservationService(context);
+        var adminUserId = await InventoryReservationServiceFixture.SeedAdminUserIdAsync(context, AuditRoleNames.InventoryManager);
+        var service = new EfInventoryReservationService(context, new EfAuditWriter(context, TimeProvider.System));
         var now = DateTime.UtcNow;
         await ReserveWithinTransactionAsync(service, context, orderId, [new ReservationLine(sku.PublicId, 2)], null, now);
         var reservation = await context.InventoryReservations.AsNoTracking().SingleAsync(r => r.OrderId == orderId);
 
         await service.ReleaseAsync(
             reservation.PublicId, "customer_cancelled", "customer requested", adminUserId, reservation.RowVersion,
-            now.AddMinutes(1), CancellationToken.None);
+            TestAuditContext, now.AddMinutes(1), CancellationToken.None);
 
         var balance = await context.InventoryBalances.AsNoTracking().SingleAsync(b => b.SkuId == sku.Id);
         Assert.Equal(0, balance.ReservedQuantity);
@@ -300,22 +307,231 @@ public sealed class EfInventoryReservationServiceTests
         Assert.Equal(InventoryReservationStatus.Released, updated.Status);
     }
 
+    // ---------------------------------------------------------------------------------------
+    // UC-ADM-INV-01「手動釋放成功 → 保存 InventoryMovement 與 Audit Log」。這幾支是這條路由被撤回
+    // （PR #36 round 3）又補回來的理由：稽核要跟釋放同一次 SaveChanges，而且內容要能回答
+    // 「誰、為什麼、從哪個狀態、哪張訂單、哪個 SKU、幾件」。
+    // ---------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task ReleaseAsync_WhenActive_WritesTheCentralAuditLogWithActorReasonAndBeforeAfterValues()
+    {
+        await using var context = InventoryReservationServiceFixture.CreateContext();
+        var sku = await _fixture.SeedSkuWithBalanceAsync(context, onHandQuantity: 5);
+        var orderId = await _fixture.SeedOrderAsync(context);
+        var adminUserId = await InventoryReservationServiceFixture.SeedAdminUserIdAsync(context, AuditRoleNames.InventoryManager);
+        var adminPublicId = await context.Users.AsNoTracking().Where(u => u.Id == adminUserId).Select(u => u.PublicId).SingleAsync();
+        var orderPublicId = await context.Orders.AsNoTracking().Where(o => o.Id == orderId).Select(o => o.PublicId).SingleAsync();
+        var service = new EfInventoryReservationService(context, new EfAuditWriter(context, TimeProvider.System));
+        var now = DateTime.UtcNow;
+        await ReserveWithinTransactionAsync(service, context, orderId, [new ReservationLine(sku.PublicId, 2)], null, now);
+        var reservation = await context.InventoryReservations.AsNoTracking().SingleAsync(r => r.OrderId == orderId);
+
+        await service.ReleaseAsync(
+            reservation.PublicId, "inventory_correction", "盤點後修正：實際庫存不足", adminUserId, reservation.RowVersion,
+            TestAuditContext, now.AddMinutes(1), CancellationToken.None);
+
+        await using var verify = InventoryReservationServiceFixture.CreateContext();
+        var audit = await verify.AuditLogs.AsNoTracking()
+            .SingleAsync(a => a.ResourcePublicId == reservation.PublicId);
+        Assert.Equal(AuditActions.InventoryReservationRelease, audit.Action);
+        Assert.Equal(AuditResourceTypes.InventoryReservation, audit.ResourceType);
+        Assert.Equal(adminPublicId, audit.ActorPublicId);
+        Assert.Contains(AuditRoleNames.InventoryManager, audit.ActorRolesJson);
+        Assert.Equal("inventory_correction", audit.Reason);
+        Assert.Equal(TestAuditContext.CorrelationId, audit.CorrelationId);
+        Assert.Equal(TestAuditContext.TraceId, audit.TraceId);
+
+        using var envelope = JsonDocument.Parse(audit.ChangedFieldsJson);
+        Assert.Equal("盤點後修正：實際庫存不足", envelope.RootElement.GetProperty("note").GetString());
+        var changes = envelope.RootElement.GetProperty("changes").EnumerateArray()
+            .ToDictionary(
+                change => change.GetProperty("field").GetString()!,
+                change => (Before: change.GetProperty("beforeCode").GetString(), After: change.GetProperty("afterCode").GetString()));
+        Assert.Equal(("Active", "Released"), changes["status"]);
+        Assert.Equal((null, "inventory_correction"), changes["reasonCode"]);
+        Assert.Equal((null, orderPublicId.ToString("D")), changes["orderPublicId"]);
+        Assert.Equal((null, sku.PublicId.ToString("D")), changes["skuPublicId"]);
+        Assert.Equal((null, "2"), changes["quantity"]);
+        Assert.Equal(("2", "0"), changes["reservedQuantity"]);
+
+        // 同一筆釋放也留了 Movement——驗收是「Movement 與 Audit Log」兩個都要。
+        var movement = await verify.InventoryMovements.AsNoTracking()
+            .SingleAsync(m => m.ReservationId == reservation.Id && m.MovementType == InventoryMovementTypes.Release);
+        Assert.Equal(adminUserId, movement.ActorUserId);
+    }
+
+    /// <summary>
+    /// 稽核與釋放必須在同一次 SaveChanges。這支把 AuditLogs 的 INSERT 弄壞：如果稽核是釋放**之後**
+    /// 另一次 SaveChanges 才寫（ReleaseAsync 沒有自己的交易，那樣釋放早就提交了），Balance 會已經
+    /// 扣掉、Reservation 已經 Released、卻沒有稽核——正是驗收不允許的狀態，這支就會轉紅。
+    /// </summary>
+    [Fact]
+    public async Task ReleaseAsync_WhenTheAuditInsertFails_ReleasesNothing()
+    {
+        await using var seedContext = InventoryReservationServiceFixture.CreateContext();
+        var sku = await _fixture.SeedSkuWithBalanceAsync(seedContext, onHandQuantity: 5);
+        var orderId = await _fixture.SeedOrderAsync(seedContext);
+        var adminUserId = await InventoryReservationServiceFixture.SeedAdminUserIdAsync(seedContext, AuditRoleNames.InventoryManager);
+        var now = DateTime.UtcNow;
+        await ReserveWithinTransactionAsync(
+            new EfInventoryReservationService(seedContext, new EfAuditWriter(seedContext, TimeProvider.System)),
+            seedContext, orderId, [new ReservationLine(sku.PublicId, 2)], null, now);
+        var reservation = await seedContext.InventoryReservations.AsNoTracking().SingleAsync(r => r.OrderId == orderId);
+
+        var interceptor = new ThrowOnTableInsertInterceptor("[AuditLogs]");
+        await using var context = InventoryReservationServiceFixture.CreateContext(interceptor);
+        var service = new EfInventoryReservationService(context, new EfAuditWriter(context, TimeProvider.System));
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => service.ReleaseAsync(
+            reservation.PublicId, "customer_cancelled", "customer requested", adminUserId, reservation.RowVersion,
+            TestAuditContext, now.AddMinutes(1), CancellationToken.None));
+        Assert.True(interceptor.Engaged);
+
+        await using var verify = InventoryReservationServiceFixture.CreateContext();
+        var unchanged = await verify.InventoryReservations.AsNoTracking().SingleAsync(r => r.PublicId == reservation.PublicId);
+        Assert.Equal(InventoryReservationStatus.Active, unchanged.Status);
+        var balance = await verify.InventoryBalances.AsNoTracking().SingleAsync(b => b.SkuId == sku.Id);
+        Assert.Equal(2, balance.ReservedQuantity);
+        Assert.False(await verify.InventoryMovements.AsNoTracking()
+            .AnyAsync(m => m.ReservationId == reservation.Id && m.MovementType == InventoryMovementTypes.Release));
+        Assert.False(await verify.AuditLogs.AsNoTracking().AnyAsync(a => a.ResourcePublicId == reservation.PublicId));
+    }
+
+    [Fact]
+    public async Task ReleaseAsync_WhenTheNoteIsBlank_ThrowsValidationFailedAndChangesNothing()
+    {
+        await using var context = InventoryReservationServiceFixture.CreateContext();
+        var sku = await _fixture.SeedSkuWithBalanceAsync(context, onHandQuantity: 5);
+        var orderId = await _fixture.SeedOrderAsync(context);
+        var adminUserId = await InventoryReservationServiceFixture.SeedAdminUserIdAsync(context, AuditRoleNames.InventoryManager);
+        var service = new EfInventoryReservationService(context, new EfAuditWriter(context, TimeProvider.System));
+        var now = DateTime.UtcNow;
+        await ReserveWithinTransactionAsync(service, context, orderId, [new ReservationLine(sku.PublicId, 2)], null, now);
+        var reservation = await context.InventoryReservations.AsNoTracking().SingleAsync(r => r.OrderId == orderId);
+
+        var exception = await Assert.ThrowsAsync<InventoryWriteException>(() => service.ReleaseAsync(
+            reservation.PublicId, "customer_cancelled", "   ", adminUserId, reservation.RowVersion,
+            TestAuditContext, now, CancellationToken.None));
+
+        Assert.Equal(InventoryWriteException.ErrorCodes.ValidationFailed, exception.ErrorCode);
+        await AssertStillActiveAsync(reservation.PublicId, sku.Id, expectedReserved: 2);
+    }
+
+    /// <summary>
+    /// note 進的是中央稽核，所以要過中央稽核的字元規則（不收 &lt; &gt; 引號等）。這要在任何東西送到
+    /// 資料庫之前就擋成 validation_failed，而不是讓 AuditWriteRequest.Create 的 ArgumentException
+    /// 變成 500。
+    /// </summary>
+    [Fact]
+    public async Task ReleaseAsync_WhenTheNoteBreaksTheAuditRules_ThrowsValidationFailedAndChangesNothing()
+    {
+        await using var context = InventoryReservationServiceFixture.CreateContext();
+        var sku = await _fixture.SeedSkuWithBalanceAsync(context, onHandQuantity: 5);
+        var orderId = await _fixture.SeedOrderAsync(context);
+        var adminUserId = await InventoryReservationServiceFixture.SeedAdminUserIdAsync(context, AuditRoleNames.InventoryManager);
+        var service = new EfInventoryReservationService(context, new EfAuditWriter(context, TimeProvider.System));
+        var now = DateTime.UtcNow;
+        await ReserveWithinTransactionAsync(service, context, orderId, [new ReservationLine(sku.PublicId, 2)], null, now);
+        var reservation = await context.InventoryReservations.AsNoTracking().SingleAsync(r => r.OrderId == orderId);
+
+        var exception = await Assert.ThrowsAsync<InventoryWriteException>(() => service.ReleaseAsync(
+            reservation.PublicId, "customer_cancelled", "<script>alert(1)</script>", adminUserId, reservation.RowVersion,
+            TestAuditContext, now, CancellationToken.None));
+
+        Assert.Equal(InventoryWriteException.ErrorCodes.ValidationFailed, exception.ErrorCode);
+        await AssertStillActiveAsync(reservation.PublicId, sku.Id, expectedReserved: 2);
+    }
+
+    /// <summary>稽核的角色快照從 UserRoles 讀；沒有 InventoryManager／SuperAdmin 的管理員不能釋放。</summary>
+    [Fact]
+    public async Task ReleaseAsync_WhenTheAdminLacksTheInventoryRole_ThrowsForbiddenAndChangesNothing()
+    {
+        await using var context = InventoryReservationServiceFixture.CreateContext();
+        var sku = await _fixture.SeedSkuWithBalanceAsync(context, onHandQuantity: 5);
+        var orderId = await _fixture.SeedOrderAsync(context);
+        var adminUserId = await InventoryReservationServiceFixture.SeedAdminUserIdAsync(context, AuditRoleNames.CatalogManager);
+        var service = new EfInventoryReservationService(context, new EfAuditWriter(context, TimeProvider.System));
+        var now = DateTime.UtcNow;
+        await ReserveWithinTransactionAsync(service, context, orderId, [new ReservationLine(sku.PublicId, 2)], null, now);
+        var reservation = await context.InventoryReservations.AsNoTracking().SingleAsync(r => r.OrderId == orderId);
+
+        var exception = await Assert.ThrowsAsync<DomainProblemException>(() => service.ReleaseAsync(
+            reservation.PublicId, "customer_cancelled", "n/a", adminUserId, reservation.RowVersion,
+            TestAuditContext, now, CancellationToken.None));
+
+        Assert.Equal(403, exception.StatusCode);
+        await AssertStillActiveAsync(reservation.PublicId, sku.Id, expectedReserved: 2);
+    }
+
+    private static async Task AssertStillActiveAsync(Guid reservationPublicId, long skuId, int expectedReserved)
+    {
+        await using var verify = InventoryReservationServiceFixture.CreateContext();
+        var reservation = await verify.InventoryReservations.AsNoTracking().SingleAsync(r => r.PublicId == reservationPublicId);
+        Assert.Equal(InventoryReservationStatus.Active, reservation.Status);
+        var balance = await verify.InventoryBalances.AsNoTracking().SingleAsync(b => b.SkuId == skuId);
+        Assert.Equal(expectedReserved, balance.ReservedQuantity);
+        Assert.False(await verify.AuditLogs.AsNoTracking().AnyAsync(a => a.ResourcePublicId == reservationPublicId));
+    }
+
+    /// <summary>Throws only when the SQL text is an INSERT into the named table.</summary>
+    private sealed class ThrowOnTableInsertInterceptor(string table) : DbCommandInterceptor
+    {
+        public bool Engaged { get; private set; }
+
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            ThrowIfInsert(command);
+            return base.NonQueryExecutingAsync(command, eventData, result, cancellationToken);
+        }
+
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            ThrowIfInsert(command);
+            return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
+        }
+
+        private void ThrowIfInsert(DbCommand command)
+        {
+            if (command.CommandText.Contains("INSERT", StringComparison.OrdinalIgnoreCase) &&
+                command.CommandText.Contains(table, StringComparison.OrdinalIgnoreCase))
+            {
+                Engaged = true;
+                throw new InvalidOperationException($"Injected {table} insert failure.");
+            }
+        }
+    }
+
     [Fact]
     public async Task ReleaseAsync_WhenAlreadyReleased_ThrowsReservationNotActive()
     {
         await using var context = InventoryReservationServiceFixture.CreateContext();
         var sku = await _fixture.SeedSkuWithBalanceAsync(context, onHandQuantity: 5);
         var orderId = await _fixture.SeedOrderAsync(context);
-        var adminUserId = await InventoryReservationServiceFixture.SeedAdminUserIdAsync(context);
-        var service = new EfInventoryReservationService(context);
+        var adminUserId = await InventoryReservationServiceFixture.SeedAdminUserIdAsync(context, AuditRoleNames.InventoryManager);
+        var service = new EfInventoryReservationService(context, new EfAuditWriter(context, TimeProvider.System));
         var now = DateTime.UtcNow;
         await ReserveWithinTransactionAsync(service, context, orderId, [new ReservationLine(sku.PublicId, 2)], null, now);
         var reservation = await context.InventoryReservations.AsNoTracking().SingleAsync(r => r.OrderId == orderId);
-        await service.ReleaseAsync(reservation.PublicId, "customer_cancelled", "n/a", adminUserId, reservation.RowVersion, now, CancellationToken.None);
+        await service.ReleaseAsync(
+            reservation.PublicId, "customer_cancelled", "n/a", adminUserId, reservation.RowVersion,
+            TestAuditContext, now, CancellationToken.None);
 
         var exception = await Assert.ThrowsAsync<InventoryWriteException>(() => service.ReleaseAsync(
-            reservation.PublicId, "customer_cancelled", "n/a", adminUserId, reservation.RowVersion, now, CancellationToken.None));
+            reservation.PublicId, "customer_cancelled", "n/a", adminUserId, reservation.RowVersion,
+            TestAuditContext, now, CancellationToken.None));
         Assert.Equal(InventoryWriteException.ErrorCodes.ReservationNotActive, exception.ErrorCode);
+
+        // 驗收「同一請求重送 → 不得再次減少 ReservedQuantity」：第二次被拒之後仍只有一筆釋放稽核。
+        Assert.Equal(1, await context.AuditLogs.AsNoTracking().CountAsync(a => a.ResourcePublicId == reservation.PublicId));
     }
 
     [Fact]
@@ -324,8 +540,8 @@ public sealed class EfInventoryReservationServiceTests
         await using var context = InventoryReservationServiceFixture.CreateContext();
         var sku = await _fixture.SeedSkuWithBalanceAsync(context, onHandQuantity: 5);
         var orderId = await _fixture.SeedOrderAsync(context);
-        var adminUserId = await InventoryReservationServiceFixture.SeedAdminUserIdAsync(context);
-        var service = new EfInventoryReservationService(context);
+        var adminUserId = await InventoryReservationServiceFixture.SeedAdminUserIdAsync(context, AuditRoleNames.InventoryManager);
+        var service = new EfInventoryReservationService(context, new EfAuditWriter(context, TimeProvider.System));
         var now = DateTime.UtcNow;
         await ReserveWithinTransactionAsync(service, context, orderId, [new ReservationLine(sku.PublicId, 2)], null, now);
         var reservation = await context.InventoryReservations.AsNoTracking().SingleAsync(r => r.OrderId == orderId);
@@ -334,7 +550,8 @@ public sealed class EfInventoryReservationServiceTests
         // ruling superseded it with "customer_cancelled" (Guest orders can be released too) —
         // proving the old name is now rejected, not silently accepted as a synonym.
         var exception = await Assert.ThrowsAsync<InventoryWriteException>(() => service.ReleaseAsync(
-            reservation.PublicId, "member_cancelled", "n/a", adminUserId, reservation.RowVersion, now, CancellationToken.None));
+            reservation.PublicId, "member_cancelled", "n/a", adminUserId, reservation.RowVersion,
+            TestAuditContext, now, CancellationToken.None));
 
         Assert.Equal(InventoryWriteException.ErrorCodes.ValidationFailed, exception.ErrorCode);
         var unchanged = await context.InventoryReservations.AsNoTracking().SingleAsync(r => r.PublicId == reservation.PublicId);
@@ -347,7 +564,7 @@ public sealed class EfInventoryReservationServiceTests
         await using var context = InventoryReservationServiceFixture.CreateContext();
         var sku = await _fixture.SeedSkuWithBalanceAsync(context, onHandQuantity: 5);
         var orderId = await _fixture.SeedOrderAsync(context);
-        var service = new EfInventoryReservationService(context);
+        var service = new EfInventoryReservationService(context, new EfAuditWriter(context, TimeProvider.System));
         var now = DateTime.UtcNow;
         await ReserveWithinTransactionAsync(service, context, orderId, [new ReservationLine(sku.PublicId, 2)], null, now);
 

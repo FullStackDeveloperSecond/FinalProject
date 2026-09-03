@@ -1,4 +1,8 @@
+using System.Globalization;
+using DoSelect.Application.Auditing;
+using DoSelect.Application.Common;
 using DoSelect.Application.Inventory;
+using DoSelect.Domain.Auditing;
 using DoSelect.Domain.Inventory;
 using DoSelect.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -16,10 +20,12 @@ public sealed class EfInventoryReservationService : IInventoryReservationService
     private const string OrderReferenceType = "Order";
 
     private readonly DoSelectDbContext _dbContext;
+    private readonly IAuditWriter _auditWriter;
 
-    public EfInventoryReservationService(DoSelectDbContext dbContext)
+    public EfInventoryReservationService(DoSelectDbContext dbContext, IAuditWriter auditWriter)
     {
         _dbContext = dbContext;
+        _auditWriter = auditWriter;
     }
 
     public async Task ReserveAsync(
@@ -218,6 +224,7 @@ public sealed class EfInventoryReservationService : IInventoryReservationService
         string note,
         string adminUserId,
         byte[] expectedRowVersion,
+        AuditRequestContext auditContext,
         DateTime now,
         CancellationToken cancellationToken)
     {
@@ -227,6 +234,16 @@ public sealed class EfInventoryReservationService : IInventoryReservationService
                 InventoryWriteException.ErrorCodes.ValidationFailed,
                 $"Unsupported reasonCode '{reasonCode}'.");
         }
+
+        if (string.IsNullOrWhiteSpace(note))
+        {
+            // 驗收：「管理員未填原因，When 送出，Then API 拒絕操作且庫存數量不變」。reasonCode 是
+            // 白名單裡的分類，note 才是人看得懂的原因，兩個都要。
+            throw new InventoryWriteException(
+                InventoryWriteException.ErrorCodes.ValidationFailed, "A release note is required.");
+        }
+
+        var actor = await ResolveActorAsync(adminUserId, cancellationToken);
 
         var reservation = await _dbContext.InventoryReservations
             .FirstOrDefaultAsync(candidate => candidate.PublicId == reservationPublicId, cancellationToken);
@@ -249,12 +266,63 @@ public sealed class EfInventoryReservationService : IInventoryReservationService
             .Where(order => order.Id == reservation.OrderId)
             .Select(order => order.PublicId)
             .SingleAsync(cancellationToken);
+        var skuPublicId = await _dbContext.Skus
+            .Where(sku => sku.Id == reservation.SkuId)
+            .Select(sku => sku.PublicId)
+            .SingleAsync(cancellationToken);
+        // 先把 Balance 追蹤進來拿稽核要記的 before 值。ReleaseCoreAsync 稍後查同一列時會拿到這個
+        // 已追蹤的實體（同一個 DbContext），所以稽核寫的 before／after 跟它實際套用的是同一組數字。
+        var balance = await _dbContext.InventoryBalances
+            .SingleAsync(candidate => candidate.SkuId == reservation.SkuId, cancellationToken);
+        var beforeReserved = balance.ReservedQuantity;
+
+        // 中央稽核先加進 ChangeTracker，再由 ReleaseCoreAsync 的那一次 SaveChanges 跟 Balance／
+        // Reservation／Movement 一起寫：稽核寫不進去，釋放就整筆不成立（驗收「保存 InventoryMovement
+        // 與 Audit Log」是一個條件，不是兩個）。Create 會依中央規則驗 note 的字元與長度，這裡把
+        // 它翻成 validation_failed——這時還沒有任何東西送到資料庫。
+        AuditWriteRequest auditRequest;
+        try
+        {
+            auditRequest = AuditWriteRequest.Create(
+                Guid.CreateVersion7(),
+                actor,
+                AuditActions.InventoryReservationRelease,
+                AuditResourceTypes.InventoryReservation,
+                reservation.PublicId,
+                AuditResult.Success,
+                errorCode: null,
+                [
+                    AuditFieldChange.Code("status", InventoryReservationStatus.Active.ToString(), InventoryReservationStatus.Released.ToString()),
+                    AuditFieldChange.Code("reasonCode", null, reasonCode),
+                    AuditFieldChange.Code("orderPublicId", null, orderPublicId.ToString("D")),
+                    AuditFieldChange.Code("skuPublicId", null, skuPublicId.ToString("D")),
+                    AuditFieldChange.Code("quantity", null, reservation.Quantity.ToString(CultureInfo.InvariantCulture)),
+                    AuditFieldChange.Code(
+                        "reservedQuantity",
+                        beforeReserved.ToString(CultureInfo.InvariantCulture),
+                        (beforeReserved - reservation.Quantity).ToString(CultureInfo.InvariantCulture)),
+                ],
+                reason: reasonCode,
+                auditContext.CorrelationId,
+                auditContext.TraceId,
+                jobPublicId: null,
+                auditContext.RemoteIpAddress,
+                note: note);
+        }
+        catch (ArgumentException exception)
+        {
+            throw new InventoryWriteException(
+                InventoryWriteException.ErrorCodes.ValidationFailed,
+                $"The release note is not accepted by the audit log: {exception.Message}");
+        }
+
+        _auditWriter.Add(auditRequest);
 
         try
         {
             await ReleaseCoreAsync(
                 [reservation], reasonCode, expired: false, OrderReferenceType, orderPublicId, now, cancellationToken,
-                actorUserId: adminUserId, note: note);
+                actorUserId: adminUserId);
         }
         catch (DbUpdateConcurrencyException)
         {
@@ -267,6 +335,39 @@ public sealed class EfInventoryReservationService : IInventoryReservationService
         }
     }
 
+    /// <summary>
+    /// 與 EfInventoryImportService.ResolveActorAsync 同形：稽核的角色快照要從真正的 UserRoles 讀，
+    /// 不信任呼叫端傳來的任何角色字串。人工釋放的 Policy 是 InventoryManager／SuperAdmin。
+    /// </summary>
+    private async Task<AuditActor> ResolveActorAsync(string adminUserId, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(adminUserId))
+        {
+            throw DomainProblemException.Forbidden("The administrator identity is invalid.");
+        }
+
+        var admin = await _dbContext.Users.AsNoTracking()
+            .Where(user => user.Id == adminUserId && user.AccountType == DoSelect.Domain.Members.AccountType.Admin)
+            .Select(user => new { user.Id, user.PublicId })
+            .SingleOrDefaultAsync(cancellationToken)
+            ?? throw DomainProblemException.Forbidden("The administrator identity is invalid.");
+
+        var roles = await (
+            from userRole in _dbContext.UserRoles.AsNoTracking()
+            join role in _dbContext.Roles.AsNoTracking() on userRole.RoleId equals role.Id
+            where userRole.UserId == admin.Id && role.Name != null
+            select role.Name!)
+            .Distinct()
+            .ToArrayAsync(cancellationToken);
+        if (!roles.Contains(AuditRoleNames.InventoryManager, StringComparer.Ordinal) &&
+            !roles.Contains(AuditRoleNames.SuperAdmin, StringComparer.Ordinal))
+        {
+            throw DomainProblemException.Forbidden("The administrator is not allowed to release inventory reservations.");
+        }
+
+        return AuditActor.Create(AuditActorType.Admin, admin.PublicId, roles);
+    }
+
     private async Task ReleaseCoreAsync(
         IReadOnlyList<InventoryReservation> reservations,
         string reasonCode,
@@ -275,8 +376,7 @@ public sealed class EfInventoryReservationService : IInventoryReservationService
         Guid referencePublicId,
         DateTime now,
         CancellationToken cancellationToken,
-        string? actorUserId = null,
-        string? note = null)
+        string? actorUserId = null)
     {
         var skuIds = reservations.Select(reservation => reservation.SkuId).Distinct().ToArray();
         var balancesBySkuId = await _dbContext.InventoryBalances
@@ -292,12 +392,8 @@ public sealed class EfInventoryReservationService : IInventoryReservationService
             var beforeReserved = balance.ReservedQuantity;
             var afterReserved = beforeReserved - reservation.Quantity;
             balance.ApplyQuantities(beforeOnHand, afterReserved, now);
-            // note has no column to land in: ReleaseReason/ReasonCode are both HasMaxLength(32)
-            // domain reason codes. 組長 PR #36 review, item 4: the central Audit Log/IAuditWriter
-            // this originally waited on has since merged into dev, but wiring manual release up to
-            // it (same-transaction write, Action/Resource whitelist) is explicitly deferred to a
-            // follow-up PR — this PR keeps the manual-release/reconciliation-resolve HTTP
-            // endpoints withdrawn, so note stays validated but not persisted here for now.
+            // 人工釋放的自由文字 note 不在這裡：ReleaseReason／ReasonCode 都是 HasMaxLength(32) 的
+            // 領域代碼，放不下；它落在 ReleaseAsync 寫的中央稽核（inventory_reservation.release）的 note。
             reservation.Release(reasonCode, expired, now);
             movements.Add(new InventoryMovement(
                 Guid.CreateVersion7(), reservation.SkuId, reservation.Id, InventoryMovementTypes.Release,

@@ -16,26 +16,8 @@ export type PageResultOfInventoryMovementDto = components['schemas']['PageResult
 export type CursorPageOfInventoryReservationDto = components['schemas']['CursorPageOfInventoryReservationDto']
 
 /**
- * The one deliberate exception to "everything comes from the generated schema": the manual-release
- * HTTP endpoint is withdrawn on the backend until a follow-up PR wires it to the central Audit Log
- * in the same transaction (組長 PR #36 round-3 ruling), so the official contract has no
- * release path or request schema to import yet. The release UI stays dormant behind
- * `reservation.availableActions.includes('release')`, which the backend keeps empty for the same
- * reason — these two local types exist only so that dormant path still compiles, and they must be
- * replaced by the generated ones in the PR that re-adds the endpoint.
+ * 人工釋放（UC-ADM-INV-01）。這個端點在 PR #36 round 3 被撤回，這裡曾經留一份手寫的 request／
+ * path 型別讓休眠的釋放 UI 能編譯；端點連同中央稽核補回契約之後，那份例外就不該再存在——
+ * 跟其他 DTO 一樣直接用產生的 schema。`rowVersion` 是後端 byte[] 的 base64 字串。
  */
-export interface ReleaseReservationRequest {
-  reasonCode: string
-  note: string
-  rowVersion: string
-}
-
-export interface InventoryReleaseApiPaths {
-  '/api/v1/admin/inventory/reservations/{id}/actions/release': {
-    post: {
-      parameters: { path: { id: string } }
-      requestBody: { content: { 'application/json': ReleaseReservationRequest } }
-      responses: { 204: { content?: never } }
-    }
-  }
-}
+export type ReleaseReservationRequest = components['schemas']['ReleaseReservationRequest']

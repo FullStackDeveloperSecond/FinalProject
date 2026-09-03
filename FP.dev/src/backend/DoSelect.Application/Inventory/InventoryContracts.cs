@@ -77,6 +77,17 @@ public sealed record InventoryMovementDto(
 /// <summary>Cursor pagination request — stable sort key is ExpiresAtUtc DESC, ReservationPublicId DESC (API共通規範.md).</summary>
 public sealed record InventoryReservationListQuery(string? Cursor, string? Status, int PageSize = 20);
 
+/// <summary>
+/// <see cref="InventoryReservationDto.AvailableActions"/> 的合法值。A-12 頁只依這份清單顯示按鈕，
+/// 後端只在 Active 保留上列出 release（UC-ADM-INV-01：其餘三個狀態都是終態）。
+/// </summary>
+public static class InventoryReservationActions
+{
+    public const string Release = "release";
+
+    public static readonly IReadOnlyList<string> ForActive = [Release];
+}
+
 public sealed record InventoryReservationDto(
     Guid PublicId,
     InventoryOrderSummaryDto Order,

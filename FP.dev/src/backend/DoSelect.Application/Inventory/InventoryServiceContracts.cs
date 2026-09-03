@@ -1,3 +1,4 @@
+using DoSelect.Application.Auditing;
 using DoSelect.Application.Common;
 
 namespace DoSelect.Application.Inventory;
@@ -60,11 +61,15 @@ public interface IInventoryReservationService
     /// currently Active, or <see cref="InventoryWriteException.ErrorCodes.ReservationAlreadyProcessed"/>
     /// if a concurrent request processed it first. <paramref name="reasonCode"/> must be one of
     /// <see cref="DoSelect.Domain.Inventory.InventoryReleaseReasonCodes.All"/>.
-    /// Not wired to any HTTP endpoint yet (PR #36 round-3 ruling) — UC-ADM-INV-01's acceptance
-    /// criteria require a successful release to persist an Audit Log entry. The central
-    /// <c>IAuditWriter</c> now exists on dev, but connecting this release to it is deferred to a
-    /// follow-up PR, so the endpoint stays withdrawn for now. Re-adding
-    /// <c>AdminInventoryController</c>'s route is the only remaining step once that wiring lands.
+    /// <para>
+    /// UC-ADM-INV-01 驗收：釋放成功要保存 InventoryMovement 與 Audit Log。這裡把
+    /// <see cref="AuditActions.InventoryReservationRelease"/> 與 Balance／Reservation／Movement 放在
+    /// 同一次 SaveChanges（同一筆交易）——寫不進稽核就整筆不算釋放。<paramref name="adminUserId"/>
+    /// 必須是持有 InventoryManager 或 SuperAdmin 角色的管理員（稽核要留角色快照），否則
+    /// <see cref="DomainProblemException"/> Forbidden。<paramref name="note"/> 是自由文字，會進稽核的
+    /// note；不符合中央稽核的字元規則時以
+    /// <see cref="InventoryWriteException.ErrorCodes.ValidationFailed"/> 拒絕，庫存不變。
+    /// </para>
     /// </summary>
     Task ReleaseAsync(
         Guid reservationPublicId,
@@ -72,6 +77,7 @@ public interface IInventoryReservationService
         string note,
         string adminUserId,
         byte[] expectedRowVersion,
+        AuditRequestContext auditContext,
         DateTime now,
         CancellationToken cancellationToken);
 }

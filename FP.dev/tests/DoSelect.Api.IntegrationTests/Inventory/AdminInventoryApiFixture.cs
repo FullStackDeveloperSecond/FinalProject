@@ -9,6 +9,7 @@ using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
@@ -106,8 +107,16 @@ public sealed class AdminInventoryApiFixture : IAsyncLifetime
 
     public HttpClient CreateClient() => _factory.CreateClient();
 
-    /// <summary>Signs in as a real seeded admin user with the InventoryManager role — Movement/Case actor columns have a real FK to AspNetUsers.</summary>
-    public async Task<HttpClient> CreateAuthenticatedInventoryManagerClientAsync()
+    /// <summary>
+    /// Signs in as a real seeded admin user with the InventoryManager role — Movement/Case actor
+    /// columns have a real FK to AspNetUsers, and the manual-release audit's role snapshot is read
+    /// back from the real Roles／UserRoles tables (not the sign-in claims), so the role rows are
+    /// seeded too — same shape as ProductImportsApiFixture.
+    /// </summary>
+    public Task<HttpClient> CreateAuthenticatedInventoryManagerClientAsync() =>
+        CreateAuthenticatedAdminClientAsync(DoSelectRoles.InventoryManager);
+
+    public async Task<HttpClient> CreateAuthenticatedAdminClientAsync(params string[] roles)
     {
         string adminUserId;
         await using (var context = CreateContext())
@@ -116,6 +125,21 @@ public sealed class AdminInventoryApiFixture : IAsyncLifetime
             context.Users.Add(admin);
             await context.SaveChangesAsync();
             adminUserId = admin.Id;
+
+            foreach (var roleName in roles)
+            {
+                var role = await context.Roles.SingleOrDefaultAsync(candidate => candidate.Name == roleName);
+                if (role is null)
+                {
+                    role = new IdentityRole(roleName);
+                    context.Roles.Add(role);
+                    await context.SaveChangesAsync();
+                }
+
+                context.UserRoles.Add(new IdentityUserRole<string> { UserId = admin.Id, RoleId = role.Id });
+            }
+
+            await context.SaveChangesAsync();
         }
 
         var client = CreateClient();
@@ -125,7 +149,7 @@ public sealed class AdminInventoryApiFixture : IAsyncLifetime
             Content = JsonContent.Create(new
             {
                 includeMfa = true,
-                roles = new[] { DoSelectRoles.InventoryManager },
+                roles,
                 userId = adminUserId,
             }),
         };

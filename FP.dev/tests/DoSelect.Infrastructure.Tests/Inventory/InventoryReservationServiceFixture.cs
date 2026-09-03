@@ -5,6 +5,7 @@ using DoSelect.Domain.Orders;
 using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 
@@ -76,10 +77,29 @@ public sealed class InventoryReservationServiceFixture : IAsyncLifetime
 
     // InventoryMovements.ActorUserId and InventoryReconciliationCases's admin columns have real
     // foreign keys to AspNetUsers, so tests that pass an actor need a seeded row, not an arbitrary string.
-    public static async Task<string> SeedAdminUserIdAsync(DoSelectDbContext context)
+    /// <summary>
+    /// 種一個真的管理員，並掛上指定角色的 Roles／UserRoles 列。人工釋放的中央稽核要留角色快照，
+    /// 服務層是從 UserRoles 讀的，不是從呼叫端傳的字串——所以測試裡的管理員也要有真的角色列。
+    /// </summary>
+    public static async Task<string> SeedAdminUserIdAsync(DoSelectDbContext context, params string[] roles)
     {
         var admin = ApplicationUser.CreateAdmin(Guid.CreateVersion7(), $"{Guid.NewGuid():N}@doselect.test", DateTime.UtcNow);
         context.Users.Add(admin);
+        await context.SaveChangesAsync();
+
+        foreach (var roleName in roles)
+        {
+            var role = await context.Roles.SingleOrDefaultAsync(candidate => candidate.Name == roleName);
+            if (role is null)
+            {
+                role = new IdentityRole(roleName);
+                context.Roles.Add(role);
+                await context.SaveChangesAsync();
+            }
+
+            context.UserRoles.Add(new IdentityUserRole<string> { UserId = admin.Id, RoleId = role.Id });
+        }
+
         await context.SaveChangesAsync();
         return admin.Id;
     }
