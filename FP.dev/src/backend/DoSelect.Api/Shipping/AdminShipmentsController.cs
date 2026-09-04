@@ -4,9 +4,11 @@ using System.Security.Claims;
 using DoSelect.Api.Common;
 using DoSelect.Application.Auditing;
 using DoSelect.Api.Security;
+using DoSelect.Application.Orders;
 using DoSelect.Application.Shipping;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 
 namespace DoSelect.Api.Shipping;
 
@@ -18,13 +20,65 @@ namespace DoSelect.Api.Shipping;
 [Route("api/v1/admin/shipments")]
 public sealed class AdminShipmentsController : ControllerBase
 {
+    public const string IdempotencyKeyHeaderName = "Idempotency-Key";
+
     private readonly IBatchShipmentService _service;
+    private readonly IShipmentStatusService _statusService;
     private readonly TimeProvider _timeProvider;
 
-    public AdminShipmentsController(IBatchShipmentService service, TimeProvider timeProvider)
+    public AdminShipmentsController(
+        IBatchShipmentService service,
+        IShipmentStatusService statusService,
+        TimeProvider timeProvider)
     {
         _service = service;
+        _statusService = statusService;
         _timeProvider = timeProvider;
+    }
+
+    /// <summary>
+    /// M-11 物流狀態命令（組長 2026-09-04 裁定 A1）：in-transit／delivered／pickup-ready／picked-up／
+    /// delivery-failed／returned。必帶 Idempotency-Key；同鍵同 payload 重播原結果，不同 payload 回
+    /// idempotency_payload_conflict（GlobalExceptionHandler 轉 409）。狀態轉移、歷程、Order 投影、COD
+    /// 收款、Completed、Audit 與 Outbox 同一交易（B1）。成功回傳更新後的 AdminOrderDto（C1）。
+    /// </summary>
+    // 路由參數不能叫 `action`（ASP.NET Core 路由保留值，會撞 controller/action 環境路由值而 404）。
+    [HttpPost("{shipmentPublicId:guid}/actions/{shipmentAction}")]
+    [Authorize(Policy = DoSelectPolicies.ShippingManage)]
+    [ProducesResponseType<AdminOrderDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest, "application/problem+json")]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized, "application/problem+json")]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden, "application/problem+json")]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound, "application/problem+json")]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict, "application/problem+json")]
+    public async Task<ActionResult<AdminOrderDto>> ExecuteStatusAction(
+        Guid shipmentPublicId,
+        string shipmentAction,
+        [FromHeader(Name = IdempotencyKeyHeaderName), BindRequired]
+        [StringLength(128, MinimumLength = 1)]
+        string idempotencyKey,
+        [FromBody] ShipmentStatusActionRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            ModelState.AddModelError("idempotencyKey", $"{IdempotencyKeyHeaderName} is required.");
+            return BadRequest(ApiProblemDetailsFactory.CreateValidation(HttpContext, ModelState));
+        }
+
+        var adminUserId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
+        var result = await _statusService.ExecuteAsync(
+            new ShipmentStatusCommand(
+                shipmentPublicId,
+                shipmentAction,
+                request.ShipmentRowVersion,
+                request.ReasonCode,
+                request.Note,
+                idempotencyKey),
+            adminUserId,
+            BuildAuditContext(),
+            cancellationToken);
+        return Ok(result.Order);
     }
 
     /// <summary>

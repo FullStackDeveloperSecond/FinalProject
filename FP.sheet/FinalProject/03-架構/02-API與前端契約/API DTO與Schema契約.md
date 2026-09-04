@@ -193,6 +193,9 @@
 | `BatchShipmentResultDto` | BatchPublicId、Total／Succeeded／Failed、`items:{sourceRowNumber,orderPublicId,orderNumber?,status,trackingNumber?,errorCode?,message?}[]`、建立時間、`isReplay`。BatchPublicId 是這次批次作業的識別碼，保存在冪等記錄裡，同鍵同 payload 重送會拿回同一個值與同一份逐筆結果（`isReplay=true`，代表沒有任何訂單被重複出貨）；系統無 ShipmentBatch 表，結果 CSV 由前端從這份回應就地產生 |
 | `RetryOutboxMessageRequest` | `reasonCode:string(1..64)`；ASCII 穩定碼，只允許字母、數字、`.`、`_`、`:`、`-`，並須通過中央 Audit 敏感詞拒絕規則 |
 | `RetryOutboxMessageResponse` | `publicId`、`status:Pending`、`availableAtUtc`；HTTP 202 |
+| `ShipmentStatusActionRequest` | `shipmentRowVersion`、`reasonCode?`（`ShipmentStatusReasonCodes` 白名單：`recipient_absent`、`address_invalid`、`recipient_refused`、`pickup_expired`、`package_damaged`、`carrier_issue`、`redelivery`、`other`；`delivery-failed`／`returned` 必填）、`note?`(≤500，只進管理端 Audit)；Header `Idempotency-Key` 必帶 |
+| `AdminShipmentDto` | `AdminOrderDto.shipment`：PublicId、ShipmentNumber、TrackingNumber、Status、ShippingMethodCode、ShippedAtUtc、DeliveredAtUtc、`history:{fromStatus?,toStatus,actorPublicId?,occurredAtUtc}[]`（依時間）、後端計算的 `availableActions[]`、RowVersion；無物流單時為 null |
+| `OrderShipmentDto` | 顧客 `OrderDto.shipment`：ShipmentNumber、TrackingNumber、Status、ShippingMethodCode、ShippedAtUtc、DeliveredAtUtc、`history:{fromStatus?,toStatus,occurredAtUtc}[]`；不含 Actor、原因備註或內部 ID |
 | `InventoryBalanceQuery` | `q?`、`stockState?`、`categoryCode?`、`pageNumber/pageSize` |
 | `InventoryBalanceDto` | SKU PublicId／Code／名稱、`onHand`、`reserved`、`available`、`lowStockThreshold`、`rowVersion` |
 | `InventoryReservationDto` | PublicId、Order／SKU 摘要、Quantity、Status、ExpiresAtUtc、CreatedAtUtc、合法 `availableActions[]`、RowVersion |

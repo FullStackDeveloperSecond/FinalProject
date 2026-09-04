@@ -161,6 +161,18 @@ const paymentStatusLabel: Record<string, string> = {
   expired: '付款已逾期',
 }
 
+const fulfillmentStatusLabel: Record<string, string> = {
+  pending: '待處理',
+  preparing: '備貨中',
+  shipped: '已出貨',
+  inTransit: '配送中',
+  pickupReady: '超商到店，請於期限內取貨',
+  pickedUp: '已取貨',
+  delivered: '已送達',
+  deliveryFailed: '配送失敗',
+  returned: '已退回',
+}
+
 const refundStatusLabel: Record<string, string> = {
   none: '尚無退款',
   pending: '退款處理中',
@@ -276,6 +288,39 @@ const invoiceStatusLabel: Record<string, string> = {
           description="訂單資料仍可正常查看，請稍後重試發票查詢。"
           @retry="loadInvoice"
         />
+      </section>
+
+      <section aria-labelledby="shipment-title">
+        <h2 id="shipment-title">
+          配送資訊
+        </h2>
+        <p>
+          配送方式：{{ order.recipient.shippingMethodCode }}<template v-if="order.recipient.storeName">
+            （{{ order.recipient.storeName }}）
+          </template>
+        </p>
+        <p v-if="!order.shipment">
+          尚未出貨。
+        </p>
+        <template v-else>
+          <p>物流單號：{{ order.shipment.shipmentNumber }}</p>
+          <p>追蹤號碼：{{ order.shipment.trackingNumber ?? '—' }}</p>
+          <p>物流狀態：{{ fulfillmentStatusLabel[order.shipment.status] ?? order.shipment.status }}</p>
+          <p v-if="order.shipment.deliveredAtUtc">
+            送達／取貨時間：{{ formatDateTime(order.shipment.deliveredAtUtc) }}
+          </p>
+          <ul
+            v-if="order.shipment.history.length > 0"
+            aria-label="物流歷程"
+          >
+            <li
+              v-for="(entry, index) in order.shipment.history"
+              :key="index"
+            >
+              {{ formatDateTime(entry.occurredAtUtc) }} — {{ fulfillmentStatusLabel[entry.toStatus] ?? entry.toStatus }}
+            </li>
+          </ul>
+        </template>
       </section>
 
       <!-- 同一頁支援會員與已完成查單驗證的訪客；後端會把 GuestOrderAccess Cookie

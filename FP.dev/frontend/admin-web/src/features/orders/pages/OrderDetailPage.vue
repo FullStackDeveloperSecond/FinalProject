@@ -3,11 +3,20 @@ import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { EmptyState, ErrorState, HttpStatusPage, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
-import { ORDER_ACTION_OPTIONS, orderStatusLabel, summaryStatusLabel, badgeLabel } from '../api'
+import {
+  ORDER_ACTION_OPTIONS,
+  SHIPMENT_ACTION_OPTIONS,
+  SHIPMENT_REASON_OPTIONS,
+  fulfillmentStatusLabel,
+  orderStatusLabel,
+  summaryStatusLabel,
+  badgeLabel,
+} from '../api'
 import {
   useAdminOrderActionMutation,
   useAdminOrderDetailQuery,
   useAdminOrderRecipientQuery,
+  useShipmentStatusActionMutation,
 } from '../queries/useAdminOrders'
 
 const route = useRoute()
@@ -86,6 +95,81 @@ function describeActionError(code: string): string {
       return '輸入內容不正確，請確認後再試一次。'
     default:
       return '執行操作時發生問題，請稍後再試。'
+  }
+}
+
+// ---------------------------------------------------------------- M-11 物流狀態命令（A1／C1）
+const shipmentMutation = useShipmentStatusActionMutation()
+const selectedShipmentAction = ref('')
+const shipmentReasonCode = ref('')
+const shipmentNote = ref('')
+const shipmentErrorMessage = ref<string | undefined>(undefined)
+// Idempotency-Key 在開啟表單時產生；失敗重試沿用同一把，成功後表單關閉才換新——這樣重送拿回的是
+// 第一次那一份結果，不會推進兩次。
+const shipmentIdempotencyKey = ref('')
+
+const selectedShipmentActionOption = computed(() =>
+  SHIPMENT_ACTION_OPTIONS.find(option => option.value === selectedShipmentAction.value))
+
+function startShipmentAction(actionName: string): void {
+  selectedShipmentAction.value = actionName
+  shipmentReasonCode.value = ''
+  shipmentNote.value = ''
+  shipmentErrorMessage.value = undefined
+  shipmentIdempotencyKey.value = crypto.randomUUID()
+}
+
+function cancelShipmentActionForm(): void {
+  selectedShipmentAction.value = ''
+}
+
+async function submitShipmentAction(): Promise<void> {
+  const shipment = order.value?.shipment
+  if (!order.value || !shipment || !selectedShipmentAction.value) {
+    return
+  }
+  if (selectedShipmentActionOption.value?.requiresReason && !shipmentReasonCode.value) {
+    return
+  }
+
+  shipmentErrorMessage.value = undefined
+  try {
+    await shipmentMutation.mutateAsync({
+      orderPublicId: order.value.publicId,
+      shipmentPublicId: shipment.publicId,
+      shipmentAction: selectedShipmentAction.value,
+      request: {
+        shipmentRowVersion: shipment.rowVersion,
+        reasonCode: shipmentReasonCode.value || undefined,
+        note: shipmentNote.value || undefined,
+      },
+      idempotencyKey: shipmentIdempotencyKey.value,
+    })
+    selectedShipmentAction.value = ''
+  }
+  catch (submitError) {
+    shipmentErrorMessage.value = isApiError(submitError)
+      ? describeShipmentError(submitError.code)
+      : '執行物流操作時發生問題，請稍後再試。'
+  }
+}
+
+function describeShipmentError(code: string): string {
+  switch (code) {
+    case 'shipping_status_transition_invalid':
+      return '物流狀態不允許這個轉移（宅配才能送達、超商才能到店／取貨），請重新整理後確認。'
+    case 'payment_state_conflict':
+      return '貨到付款無法在此時完成收款，物流狀態未變更，請先確認付款狀態。'
+    case 'concurrency_conflict':
+      return '物流資料已被更新，請重新整理後再試一次。'
+    case 'idempotency_payload_conflict':
+      return '同一把作業鍵已用於不同內容，請關閉表單後重新操作。'
+    case 'idempotency_request_in_progress':
+      return '同一筆操作仍在處理中，請稍候再試。'
+    case 'validation_failed':
+      return '輸入內容不正確（配送失敗與退回必須選擇原因），請確認後再試一次。'
+    default:
+      return '執行物流操作時發生問題，請稍後再試。'
   }
 }
 
@@ -283,6 +367,120 @@ function formatDateTime(value?: string | null): string {
             </template>
           </li>
         </ul>
+      </section>
+
+      <section aria-labelledby="shipment-title">
+        <h2 id="shipment-title">
+          物流
+        </h2>
+        <EmptyState
+          v-if="!order.shipment"
+          title="尚未建立物流單"
+        />
+        <template v-else>
+          <dl>
+            <dt>物流單號</dt>
+            <dd>{{ order.shipment.shipmentNumber }}</dd>
+            <dt>追蹤號碼</dt>
+            <dd>{{ order.shipment.trackingNumber ?? '—' }}</dd>
+            <dt>物流狀態</dt>
+            <dd>{{ fulfillmentStatusLabel(order.shipment.status) }}</dd>
+            <dt>配送方式</dt>
+            <dd>{{ order.shipment.shippingMethodCode }}</dd>
+            <dt>出貨時間</dt>
+            <dd>{{ formatDateTime(order.shipment.shippedAtUtc) }}</dd>
+            <dt>送達／取貨時間</dt>
+            <dd>{{ formatDateTime(order.shipment.deliveredAtUtc) }}</dd>
+          </dl>
+          <h3>物流歷程</h3>
+          <EmptyState
+            v-if="order.shipment.history.length === 0"
+            title="尚無物流歷程"
+          />
+          <ul
+            v-else
+            aria-label="物流歷程"
+          >
+            <li
+              v-for="(entry, index) in order.shipment.history"
+              :key="index"
+            >
+              {{ formatDateTime(entry.occurredAtUtc) }}
+              — {{ entry.fromStatus ? fulfillmentStatusLabel(entry.fromStatus) : '（初始）' }} → {{ fulfillmentStatusLabel(entry.toStatus) }}
+            </li>
+          </ul>
+          <h3>物流操作</h3>
+          <EmptyState
+            v-if="order.shipment.availableActions.length === 0"
+            title="目前沒有可執行的物流操作"
+          />
+          <template v-else>
+            <button
+              v-for="actionName in order.shipment.availableActions"
+              :key="actionName"
+              type="button"
+              :disabled="shipmentMutation.isPending.value"
+              @click="startShipmentAction(actionName)"
+            >
+              {{ SHIPMENT_ACTION_OPTIONS.find(option => option.value === actionName)?.label ?? actionName }}
+            </button>
+
+            <form
+              v-if="selectedShipmentAction"
+              aria-label="物流狀態命令"
+              @submit.prevent="submitShipmentAction"
+            >
+              <p>
+                確定要將物流狀態更新為「{{ selectedShipmentActionOption?.label ?? selectedShipmentAction }}」嗎？
+                <template v-if="selectedShipmentAction === 'delivered' || selectedShipmentAction === 'picked-up'">
+                  貨到付款訂單會同時完成收款並將訂單標記為已完成。
+                </template>
+              </p>
+              <label for="shipment-reason">原因{{ selectedShipmentActionOption?.requiresReason ? '（必填）' : '（選填）' }}</label>
+              <select
+                id="shipment-reason"
+                v-model="shipmentReasonCode"
+                :required="selectedShipmentActionOption?.requiresReason"
+              >
+                <option value="">
+                  {{ selectedShipmentActionOption?.requiresReason ? '請選擇原因' : '不填原因' }}
+                </option>
+                <option
+                  v-for="reason in SHIPMENT_REASON_OPTIONS"
+                  :key="reason.value"
+                  :value="reason.value"
+                >
+                  {{ reason.label }}
+                </option>
+              </select>
+              <label for="shipment-note">備註（只留在稽核）</label>
+              <input
+                id="shipment-note"
+                v-model="shipmentNote"
+                maxlength="500"
+              >
+              <button
+                type="submit"
+                :disabled="shipmentMutation.isPending.value || (selectedShipmentActionOption?.requiresReason && !shipmentReasonCode)"
+              >
+                確認更新
+              </button>
+              <button
+                type="button"
+                :disabled="shipmentMutation.isPending.value"
+                @click="cancelShipmentActionForm"
+              >
+                取消
+              </button>
+              <p
+                v-if="shipmentErrorMessage"
+                role="alert"
+              >
+                {{ shipmentErrorMessage }}
+              </p>
+            </form>
+          </template>
+        </template>
       </section>
 
       <section aria-labelledby="actions-title">

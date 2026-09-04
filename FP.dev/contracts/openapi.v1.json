@@ -873,6 +873,134 @@
         }
       }
     },
+    "/api/v1/admin/shipments/{shipmentPublicId}/actions/{shipmentAction}": {
+      "post": {
+        "tags": [
+          "AdminShipments"
+        ],
+        "parameters": [
+          {
+            "name": "shipmentPublicId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "shipmentAction",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShipmentStatusActionRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShipmentStatusActionRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShipmentStatusActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminOrderDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminOrderDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminOrderDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/shipments/batches": {
       "post": {
         "tags": [
@@ -14238,6 +14366,16 @@
           "rowVersion": {
             "type": "string",
             "format": "byte"
+          },
+          "shipment": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AdminShipmentDto"
+              }
+            ]
           }
         }
       },
@@ -14989,6 +15127,103 @@
             "items": {
               "$ref": "#/components/schemas/ReviewImageDto"
             }
+          }
+        }
+      },
+      "AdminShipmentDto": {
+        "required": [
+          "publicId",
+          "shipmentNumber",
+          "trackingNumber",
+          "status",
+          "shippingMethodCode",
+          "shippedAtUtc",
+          "deliveredAtUtc",
+          "history",
+          "availableActions",
+          "rowVersion"
+        ],
+        "type": "object",
+        "properties": {
+          "publicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "shipmentNumber": {
+            "type": "string"
+          },
+          "trackingNumber": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "shippingMethodCode": {
+            "type": "string"
+          },
+          "shippedAtUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "deliveredAtUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "history": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminShipmentHistoryDto"
+            }
+          },
+          "availableActions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rowVersion": {
+            "type": "string",
+            "format": "byte"
+          }
+        }
+      },
+      "AdminShipmentHistoryDto": {
+        "required": [
+          "fromStatus",
+          "toStatus",
+          "actorPublicId",
+          "occurredAtUtc"
+        ],
+        "type": "object",
+        "properties": {
+          "fromStatus": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "toStatus": {
+            "type": "string"
+          },
+          "actorPublicId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "occurredAtUtc": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -21028,6 +21263,16 @@
           "rowVersion": {
             "type": "string",
             "format": "byte"
+          },
+          "shipment": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrderShipmentDto"
+              }
+            ]
           }
         }
       },
@@ -21217,6 +21462,82 @@
           "partiallyRefunded",
           "refunded"
         ]
+      },
+      "OrderShipmentDto": {
+        "required": [
+          "shipmentNumber",
+          "trackingNumber",
+          "status",
+          "shippingMethodCode",
+          "shippedAtUtc",
+          "deliveredAtUtc",
+          "history"
+        ],
+        "type": "object",
+        "properties": {
+          "shipmentNumber": {
+            "type": "string"
+          },
+          "trackingNumber": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/FulfillmentStatus"
+          },
+          "shippingMethodCode": {
+            "type": "string"
+          },
+          "shippedAtUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "deliveredAtUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "history": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderShipmentHistoryDto"
+            }
+          }
+        }
+      },
+      "OrderShipmentHistoryDto": {
+        "required": [
+          "fromStatus",
+          "toStatus",
+          "occurredAtUtc"
+        ],
+        "type": "object",
+        "properties": {
+          "fromStatus": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FulfillmentStatus"
+              }
+            ]
+          },
+          "toStatus": {
+            "$ref": "#/components/schemas/FulfillmentStatus"
+          },
+          "occurredAtUtc": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
       },
       "OrderStatus": {
         "enum": [
@@ -24759,6 +25080,35 @@
           },
           "canAddToCart": {
             "type": "boolean"
+          }
+        }
+      },
+      "ShipmentStatusActionRequest": {
+        "required": [
+          "shipmentRowVersion"
+        ],
+        "type": "object",
+        "properties": {
+          "shipmentRowVersion": {
+            "minLength": 1,
+            "type": "string",
+            "format": "byte"
+          },
+          "reasonCode": {
+            "maxLength": 64,
+            "minLength": 0,
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "note": {
+            "maxLength": 500,
+            "minLength": 0,
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

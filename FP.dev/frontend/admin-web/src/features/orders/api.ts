@@ -79,6 +79,47 @@ export const ORDER_ACTION_OPTIONS: ReadonlyArray<{ value: string; label: string;
   { value: 'cancel', label: '人工取消訂單', requiresReason: true },
 ]
 
+/**
+ * M-11 物流狀態命令（組長 2026-09-04 裁定 A1）：六個 action 對應後端 ShipmentStatusActions；
+ * delivery-failed／returned 必填 reasonCode。哪些可按由後端的 `shipment.availableActions` 決定，這裡只有文案。
+ */
+export const SHIPMENT_ACTION_OPTIONS: ReadonlyArray<{ value: string; label: string; requiresReason: boolean }> = [
+  { value: 'in-transit', label: '配送中', requiresReason: false },
+  { value: 'delivered', label: '宅配送達', requiresReason: false },
+  { value: 'pickup-ready', label: '超商到店', requiresReason: false },
+  { value: 'picked-up', label: '顧客取貨', requiresReason: false },
+  { value: 'delivery-failed', label: '配送失敗', requiresReason: true },
+  { value: 'returned', label: '退回商家', requiresReason: true },
+]
+
+/** 對應後端 ShipmentStatusReasonCodes 白名單，兩邊需同步維護。 */
+export const SHIPMENT_REASON_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: 'recipient_absent', label: '無人簽收' },
+  { value: 'address_invalid', label: '地址錯誤' },
+  { value: 'recipient_refused', label: '收件人拒收' },
+  { value: 'pickup_expired', label: '逾期未取' },
+  { value: 'package_damaged', label: '包裹損毀' },
+  { value: 'carrier_issue', label: '物流業者問題' },
+  { value: 'redelivery', label: '再次配送' },
+  { value: 'other', label: '其他' },
+]
+
+const fulfillmentStatusLabels: Record<string, string> = {
+  Pending: '待處理',
+  Preparing: '備貨中',
+  Shipped: '已出貨',
+  InTransit: '配送中',
+  PickupReady: '超商到店',
+  PickedUp: '已取貨',
+  Delivered: '已送達',
+  DeliveryFailed: '配送失敗',
+  Returned: '已退回',
+}
+
+export function fulfillmentStatusLabel(value: string): string {
+  return fulfillmentStatusLabels[value] ?? value
+}
+
 export interface CursorPage<T> {
   items: T[]
   nextCursor?: string | null
@@ -166,6 +207,27 @@ export interface OrderStatusHistoryDto {
   occurredAtUtc: string
 }
 
+export interface AdminShipmentHistoryDto {
+  fromStatus?: string | null
+  toStatus: string
+  actorPublicId?: string | null
+  occurredAtUtc: string
+}
+
+/** C1（組長 2026-09-04）：訂單明細上的物流摘要；availableActions 由後端算，前端只照單顯示。 */
+export interface AdminShipmentDto {
+  publicId: string
+  shipmentNumber: string
+  trackingNumber?: string | null
+  status: FulfillmentStatus
+  shippingMethodCode: string
+  shippedAtUtc?: string | null
+  deliveredAtUtc?: string | null
+  history: AdminShipmentHistoryDto[]
+  availableActions: string[]
+  rowVersion: string
+}
+
 export interface AdminOrderDto {
   publicId: string
   orderNumber: string
@@ -193,6 +255,7 @@ export interface AdminOrderDto {
   cancelledAtUtc?: string | null
   createdAtUtc: string
   rowVersion: string
+  shipment?: AdminShipmentDto | null
 }
 
 export interface OrderRecipientDto {
@@ -223,6 +286,13 @@ export interface AdminOrderActionRequestBody {
   reasonCode?: string
   note?: string
   rowVersion: string
+}
+
+/** A1：`shipmentRowVersion`、`reasonCode?`、`note?`；不送 occurredAtUtc（伺服器 UTC）。 */
+export interface ShipmentStatusActionRequestBody {
+  shipmentRowVersion: string
+  reasonCode?: string
+  note?: string
 }
 
 interface AdminOrdersPaths {
@@ -261,6 +331,18 @@ interface AdminOrdersPaths {
     post: {
       parameters: { path: { id: string; actionName: string } }
       requestBody: { content: { 'application/json': AdminOrderActionRequestBody } }
+      responses: {
+        200: { content: { 'application/json': AdminOrderDto } }
+      }
+    }
+  }
+  '/api/v1/admin/shipments/{shipmentPublicId}/actions/{shipmentAction}': {
+    post: {
+      parameters: {
+        path: { shipmentPublicId: string; shipmentAction: string }
+        header: { 'Idempotency-Key': string }
+      }
+      requestBody: { content: { 'application/json': ShipmentStatusActionRequestBody } }
       responses: {
         200: { content: { 'application/json': AdminOrderDto } }
       }
@@ -307,6 +389,26 @@ export async function executeAdminOrderAction(
 ): Promise<AdminOrderDto> {
   const { data } = await client.POST('/api/v1/admin/orders/{id}/actions/{actionName}', {
     params: { path: { id: publicId, actionName } },
+    body,
+  })
+  return data as AdminOrderDto
+}
+
+/**
+ * M-11 物流狀態命令。Idempotency-Key 由呼叫端在開啟表單時產生、失敗重試沿用同一把，成功後才換新
+ * （同 A-16 批次出貨的做法）；成功回傳更新後的 AdminOrderDto（C1）。
+ */
+export async function executeShipmentStatusAction(
+  shipmentPublicId: string,
+  shipmentAction: string,
+  body: ShipmentStatusActionRequestBody,
+  idempotencyKey: string,
+): Promise<AdminOrderDto> {
+  const { data } = await client.POST('/api/v1/admin/shipments/{shipmentPublicId}/actions/{shipmentAction}', {
+    params: {
+      path: { shipmentPublicId, shipmentAction },
+      header: { 'Idempotency-Key': idempotencyKey },
+    },
     body,
   })
   return data as AdminOrderDto

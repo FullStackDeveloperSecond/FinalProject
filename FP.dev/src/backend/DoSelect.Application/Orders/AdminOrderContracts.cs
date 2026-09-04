@@ -131,7 +131,10 @@ public sealed record AdminOrderDto(
     DateTime? CompletedAtUtc,
     DateTime? CancelledAtUtc,
     DateTime CreatedAtUtc,
-    byte[] RowVersion);
+    byte[] RowVersion,
+    // C1（組長 2026-09-04）：物流摘要、歷程與後端計算的 availableActions 直接掛在訂單明細上，
+    // 不另開查詢端點。沒有物流單時為 null。
+    AdminShipmentDto? Shipment = null);
 
 /// <summary>
 /// UC-ADM-ORDER-02：完整收件資料只給有履約權限者查看，且每次讀取需可稽核。本切片的

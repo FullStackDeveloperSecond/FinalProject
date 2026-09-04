@@ -80,6 +80,17 @@ public static class AuditActions
     /// </summary>
     public const string ShipmentCreateLabel = "shipment.create_label";
     public const string ShipmentMarkShipped = "shipment.mark_shipped";
+
+    /// <summary>
+    /// M-11 物流狀態命令（組長 2026-09-04 裁定 D1）：Resource 維持 Order，記真實前後狀態；進入
+    /// Delivered／PickedUp 完成 COD 時另記 PaymentStatus／OrderStatus 的實際變更；Note 只留在管理端 Audit。
+    /// </summary>
+    public const string ShipmentMarkInTransit = "shipment.mark_in_transit";
+    public const string ShipmentMarkDelivered = "shipment.mark_delivered";
+    public const string ShipmentMarkPickupReady = "shipment.mark_pickup_ready";
+    public const string ShipmentMarkPickedUp = "shipment.mark_picked_up";
+    public const string ShipmentMarkDeliveryFailed = "shipment.mark_delivery_failed";
+    public const string ShipmentMarkReturned = "shipment.mark_returned";
     public const string ShippingStoreCreate = "shipping.store.create";
     public const string ShippingStoreUpdate = "shipping.store.update";
     /// UC-IMPORT-01 商品匯入確認 (匯入暫存與庫存調整設計.md step 6): a successful confirm writes the
@@ -547,6 +558,30 @@ internal static class AuditWritePolicy
                 AuditActions.ShipmentMarkShipped,
                 AuditResourceTypes.Order,
                 "fulfillmentStatus", "shipmentNumber", "trackingNumber"),
+            [AuditActions.ShipmentMarkInTransit] = DefinitionWithNote(
+                AuditActions.ShipmentMarkInTransit,
+                AuditResourceTypes.Order,
+                "fulfillmentStatus", "reasonCode"),
+            [AuditActions.ShipmentMarkDelivered] = DefinitionWithNote(
+                AuditActions.ShipmentMarkDelivered,
+                AuditResourceTypes.Order,
+                "fulfillmentStatus", "reasonCode", "paymentStatus", "orderStatus"),
+            [AuditActions.ShipmentMarkPickupReady] = DefinitionWithNote(
+                AuditActions.ShipmentMarkPickupReady,
+                AuditResourceTypes.Order,
+                "fulfillmentStatus", "reasonCode"),
+            [AuditActions.ShipmentMarkPickedUp] = DefinitionWithNote(
+                AuditActions.ShipmentMarkPickedUp,
+                AuditResourceTypes.Order,
+                "fulfillmentStatus", "reasonCode", "paymentStatus", "orderStatus"),
+            [AuditActions.ShipmentMarkDeliveryFailed] = DefinitionWithNote(
+                AuditActions.ShipmentMarkDeliveryFailed,
+                AuditResourceTypes.Order,
+                "fulfillmentStatus", "reasonCode"),
+            [AuditActions.ShipmentMarkReturned] = DefinitionWithNote(
+                AuditActions.ShipmentMarkReturned,
+                AuditResourceTypes.Order,
+                "fulfillmentStatus", "reasonCode"),
             [AuditActions.ShippingStoreCreate] = Definition(
                 AuditActions.ShippingStoreCreate,
                 AuditResourceTypes.ConvenienceStore,

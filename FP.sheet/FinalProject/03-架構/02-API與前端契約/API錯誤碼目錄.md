@@ -147,6 +147,7 @@
 | `shipping_tracking_duplicate` | 409 | 物流單號已被使用 |
 | `shipping_batch_limit_exceeded` | 400 | 批次出貨超過 100 筆 |
 | `shipping_order_not_ready` | 409 | 付款、組裝、保留或狀態尚未符合出貨條件 |
+| `shipping_status_transition_invalid` | 409 | 物流狀態機不允許的轉移，或配送方式不允許的目標狀態（宅配才可 Delivered、超取才可 PickupReady／PickedUp） |
 | `package_limit_period_overlap` | 409 | 同一物流 Provider 的包裹限制版本生效期間重疊 |
 | `store_code_duplicate` | 409 | 同一 Provider 下的示範門市代碼已存在 |
 | `return_deadline_expired` | 409 | 不符合一般退貨期限且不屬例外原因 |

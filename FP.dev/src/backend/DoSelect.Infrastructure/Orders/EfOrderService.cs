@@ -110,7 +110,11 @@ public sealed class EfOrderService : IOrderService
             .Where(item => item.OrderId == order.Id)
             .ToListAsync(cancellationToken);
 
-        return OrderDtoMapper.Map(order, items);
+        // C1：顧客形狀的物流摘要——只有單號、狀態與時間歷程。擁有者／Guest Scope 已由 FindOwnedOrderAsync 擋完。
+        return OrderDtoMapper.Map(
+            order,
+            items,
+            await DoSelect.Infrastructure.Shipping.ShipmentProjection.LoadCustomerAsync(_dbContext, order, cancellationToken));
     }
 
     public async Task<OrderDto> CancelOrderAsync(
