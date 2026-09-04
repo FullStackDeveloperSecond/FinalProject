@@ -1,7 +1,7 @@
 ---
 文件狀態: 持續更新
-最後更新: 2026-09-04
-基準分支: dev@49a3a6a0 + codex/wp-h06-order-refund-projection-20260904
+最後更新: 2026-09-05
+基準分支: dev@5b64a739 + PR #105@ed66dce0
 ---
 
 # M 功能實作矩陣
@@ -28,12 +28,12 @@
 | M-05 商品搜尋與篩選 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | 公開查詢與前台型錄已合併；PR #52 的 Playwright Smoke 已驗證固定 Seed 商品可由搜尋列表進入詳情，但尚未覆蓋完整篩選與排序組合。 |
 | M-06 購物車 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | 購物車後端、前端、身份隔離、組裝整組移除、結帳前重驗及 C-13 配送預覽均已交付；WP-A04 以固定 Guest Cart 完成組裝購物車到 Checkout 的預付主旅程。完整功能變體仍未逐一 E2E。 |
 | M-07 優惠券 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | 已有優惠券計算／生命週期、管理 API、A-23、用途 Catalog picker、Checkout 套用與 Shipping／COD 重算；PR #97 已合併正式 Cart Coupon `POST/DELETE` 與購物車套券 UI，WP-A04 證明 `CREATOR10` 的門檻、上限與金額快照。其他優惠券錯誤與並行變體仍未完整 E2E。 |
-| M-08 訂單 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | 原子建單、缺貨回滾、訂單快照、正式 Checkout API、C-14、前後台查詢與 Guest 查單／取消均已交付；PR #94 補核心隔離 Browser／SQL 旅程，PR #95 補同冪等鍵不同 payload 的 SQL 零副作用。WP-H06 分支另補 Refund→Order 的 `OrderRefundStatus`／`RefundedAmount`／歷程同交易投影，待進 PR／Required CI。其他狀態變體仍未完整 E2E。 |
+| M-08 訂單 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | 原子建單、缺貨回滾、訂單快照、正式 Checkout API、C-14、前後台查詢與 Guest 查單／取消均已交付；PR #94 補核心隔離 Browser／SQL 旅程，PR #95 補同冪等鍵不同 payload 的 SQL 零副作用。PR #105 另補 Refund→Order 的 `OrderRefundStatus`／`RefundedAmount`／歷程同交易投影，已同步 `dev@5b64a739` 並等待 Required CI。其他狀態變體仍未完整 E2E。 |
 | M-09 模擬付款 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | 付款 Attempt、Demo complete、Owner／Guest Scope、Antiforgery、`simulationKey`、SQL Writer、Audit／Outbox、發票 Consumer、Latest Attempt 與 C-15 均已交付；WP-A04 補信用卡模擬成功至 Invoice 的隔離 Browser E2E。COD 正式物流命令接線仍缺。 |
 | M-10 庫存保留與逾時取消 | ✅ | ✅ | ✅ | ✅ | 🔵 | 🔵 | 庫存保留／後台、Checkout 成功與缺貨回滾、逾時取消／釋放、RowVersion 與背景排程均已交付；WP-A04 新增兩個 Guest Cart 競爭最後一件的 SQL Server 證據，並由 Browser 主旅程形成保留。其他逾時 UI 變體仍未 E2E。 |
 | M-11 物流與批次出貨 | ✅ | ✅ | 🔵 | ✅ | 🔵 | 🔵 | 宅配／超取、Provider、限制、運費／免運、配送選項、門市 API、C-13／C-14 與 Typed Client 均已交付；WP-A04 證明組裝宅配與優惠後運費快照。批次出貨、物流狀態命令與 COD 收款接線仍缺。 |
 | M-12 單項退貨 | ✅ | ✅ | ✅ | ✅ | ⬜ | ✅ | PR #42 已交付退貨申請、審核、寄回、收件、檢查、退款交接與前後台；PR #53 修復可信退款輸入，PR #99 讓核准／檢查同交易建立唯一待審退款，PR #102 讓正額退款成功時同交易完成 Return，PR #103 補零淨額核准取消與回放／回滾。仍缺完整瀏覽器 E2E。 |
-| M-13 部分退款 | ✅ | ✅ | ✅ | ✅ | ⬜ | ✅ | 退款 execute、可信七類分攤、中央冪等／Audit、清單／明細 API、A-21/A-22、OpenAPI／Typed Client、角色路由與穩定 Idempotency-Key 已進 `dev`；PR #99／#102／#103 補齊待審建立、Return 結案、獨立核准及零淨額原子取消。WP-H06 分支再補 Order 退款累計投影與 SQL Server 44/44 證據，待進 PR／Required CI；完整退款瀏覽器 E2E 仍缺。 |
+| M-13 部分退款 | ✅ | ✅ | ✅ | ✅ | ⬜ | ✅ | 退款 execute、可信七類分攤、中央冪等／Audit、清單／明細 API、A-21/A-22、OpenAPI／Typed Client、角色路由與穩定 Idempotency-Key 已進 `dev`；PR #99／#102／#103 補齊待審建立、Return 結案、獨立核准及零淨額原子取消。PR #105 再補 Order 退款累計投影；完整 Infrastructure／SQL Server 1087/1087 與同步最新 dev 後聚焦 57/57 通過，等待 Required CI；完整退款瀏覽器 E2E 仍缺。 |
 | M-14 客服案件與 SLA | ✅ | ✅ | ✅ | ✅ | ⬜ | ✅ | PR #10 已交付客服前後台、SLA 與 SQL 證據；PR #51 已完成主管 Action、Internal Note、Reopen SLA、案件工作台、Actor Scope、衝突刷新與中央 Audit。仍缺完整顧客→客服瀏覽器 E2E。 |
 | M-15 營運報表 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | PR #66 已合併七個報表 Query、一般／財務 Policy、CSV／XLSX、A-27 UI、SQL Provider-backed 與 INT-04 對帳證據；已有代表性後台 Playwright 旅程，但未逐一涵蓋七個 Report Key。固定 10,000 筆資料下的 P95 仍待 DATA-06～08／效能 Gate。 |
 | M-16 自由組裝電腦 | ✅ | ✅ | ✅ | ✅ | ⬜ | ✅ | PR #34 已交付組裝清單、分享、整套加入購物車與 SQL Server 證據；PR #35 已交付前端並合併 `dev`。完整瀏覽器旅程仍缺。 |
