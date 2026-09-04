@@ -3,6 +3,7 @@ import { ErrorState, HttpStatusPage, LoadingState } from '@doselect/web-shared/c
 import { isApiError } from '@doselect/web-shared/api'
 import { computed, reactive, ref, useTemplateRef, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import ProductImagesPanel from '../components/catalog/ProductImagesPanel.vue'
 import SkuEditorRow from '../components/catalog/SkuEditorRow.vue'
 import { useAdminProductDetail, useCreateProduct, useUpdateProduct } from '../features/products/useProducts'
 import { useFullBrandList } from '../features/brands/useBrands'
@@ -816,6 +817,12 @@ function submitNewSku() {
           {{ describeApiError(createSkuMutation.error.value) }}
         </p>
       </section>
+
+      <ProductImagesPanel
+        v-if="isEditMode && product"
+        :product-public-id="product.publicId"
+        :images="product.images"
+      />
     </template>
   </section>
 </template>

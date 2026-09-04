@@ -19,6 +19,8 @@ public sealed class ProductImageTests
         var large = Enumerable.Repeat((byte)3, 32).ToArray();
         image.RecordVariantHashes(small, medium, large, Now.AddSeconds(30));
         small[0] = 99;
+        // 組長 PR #101 裁定 C：只有 Ready → Published。
+        image.MarkReady(Now.AddSeconds(45));
 
         image.Publish(Now.AddMinutes(1));
 

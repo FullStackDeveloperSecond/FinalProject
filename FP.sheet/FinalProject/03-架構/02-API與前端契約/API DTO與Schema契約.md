@@ -171,7 +171,11 @@
 | `SpecValueInput` | `semanticKey:string(1..64)`、`valueType:enum`、四值欄 oneOf |
 | `SkuDto` | PublicId、SkuCode、Product 摘要、全部可編輯欄位、Spec DTO、庫存摘要、時間、RowVersion；非 Finance/Catalog 不回 UnitCost |
 | `AdminProductQuery` | `q?`、`brandCodes?`、`categoryCodes?`、`statuses?`、`stockState?`、`sort?`、`pageNumber/pageSize`；排序與篩選使用白名單 |
-| `AdminProductSummaryDto` | Product PublicId／Code／名稱、品牌、分類、狀態、SKU 數、價格區間、加總庫存、主要圖片、更新時間、RowVersion |
+| `AdminProductSummaryDto` | Product PublicId／Code／名稱、品牌、分類、狀態、SKU 數、價格區間、加總庫存、主要圖片（未刪除且排序最前的一張，URL 走後台預覽路由 `…/preview/320`）、更新時間、RowVersion |
+| `AdminProductImageDto` | PublicId、ProductPublicId、Status（Ready／Published／Deleted…）、AltText、SortOrder、IsPrimary、SourceUrl／LicenseName／LicenseUrl、HasCompleteMetadata、OriginalFileName／MediaType／FileSizeBytes／Width／Height、`previewPathBase`（接 `/original`／`/320`／`/800`／`/1600` 即後台預覽路由）、`variants:{variant,width,height,publicUrl?}[]`（`publicUrl` 只有 Published 有值，即 SH-06 公開路由）、CreatedAtUtc／UpdatedAtUtc／PublishedAtUtc、RowVersion；`AdminProductDetailDto.images` 為此型別（未刪除全部、依排序、第一張為主圖） |
+| 商品圖片上傳（multipart） | `file`（JPG／PNG／WebP，≤10 MB）＋ `altText?`(≤160)、`sourceUrl?`(≤1000)、`licenseName?`(≤100)、`licenseUrl?`(≤1000)；`sourceUrl`／`licenseUrl` 僅接受 absolute HTTP／HTTPS URL（否則 `validation_failed`）；未給 altText 取檔名；成功 201 `AdminProductImageDto`（Ready）；寫 `product_image.upload` 稽核 |
+| `UpdateProductImageRequest` | `altText`(1..160)、`sortOrder`(0..9999)、`sourceUrl?`、`licenseName?`、`licenseUrl?`（網址規則同上）、`rowVersion`；Published 圖片不得改成來源／授權不完整（422 `image_metadata_incomplete`）；寫 `product_image.update` 稽核 |
+| `ProductImageActionRequest` | `rowVersion`；`actions/publish` 與 `DELETE` 共用。只允許 Ready → Published，且須 Alt／來源／授權齊備，否則 422 `image_metadata_incomplete`；已發布再發布為 no-op；各寫 `product_image.publish`／`product_image.delete` 稽核 |
 | `CreateProductRequest` | `productCode:string(1..64)`、`nameZhTw:string(1..160)`、`brandPublicId`、`categoryPublicId`、`descriptionZhTw?:string(0..4000)`、`warrantyMonths?:int(0..120)`、`tagPublicIds:uuid[0..20]`、`status:draft/published/unpublished/discontinued`、必填 `defaultSku:CreateSkuRequest`；服務端固定 `defaultSku.isDefault=true`，Product、Tags 與第一個預設 SKU 必須同交易全部成功或全部回滾 |
 | `UpdateProductRequest` | Create 欄位但 Product Code 不可改；加 `rowVersion` |
 | `AdminProductDetailDto` | Product 全部可編輯欄位、`skus:SkuDto[]`、`images[]`、規格範本摘要、稽核時間及 RowVersion |

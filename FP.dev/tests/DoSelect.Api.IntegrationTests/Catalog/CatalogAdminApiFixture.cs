@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using DoSelect.Api.Security;
+using DoSelect.Application.Files;
 using DoSelect.Infrastructure.Persistence.Identity;
 using Microsoft.AspNetCore.Identity;
 using DoSelect.Infrastructure.Persistence;
@@ -9,6 +10,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace DoSelect.Api.IntegrationTests.Catalog;
 
@@ -83,9 +85,22 @@ public sealed class CatalogAdminApiFixture : IAsyncLifetime
                     services
                         .AddControllers()
                         .AddApplicationPart(typeof(SecurityFoundationTestController).Assembly);
+                    // 商品圖片上傳走真的 LocalImageStorage（Storage__DataRoot 指到暫存目錄），只把
+                    // Defender 換成「一律乾淨」的掃描器——CI 沒有 Defender，不換就是 503。
+                    services.RemoveAll<IFileScanner>();
+                    services.AddSingleton<IFileScanner>(new CleanFileScanner());
                 });
             });
             Client = _factory.CreateClient();
+        }
+    }
+
+    private sealed class CleanFileScanner : IFileScanner
+    {
+        public Task<FileScanResult> ScanAsync(string quarantinedFilePath, CancellationToken cancellationToken = default)
+        {
+            var now = DateTimeOffset.UtcNow;
+            return Task.FromResult(new FileScanResult(FileScanOutcome.Clean, "Synthetic scanner", now, now));
         }
     }
 

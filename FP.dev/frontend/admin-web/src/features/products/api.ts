@@ -2,10 +2,13 @@ import { apiClient } from '../../api/client'
 import type {
   AdminProductDetailDto,
   AdminProductExportFormat,
+  AdminProductImageDto,
   BulkProductAction,
   BulkProductActionRequest,
   BulkProductActionResultDto,
   CreateProductRequest,
+  ProductImageUploadInput,
+  UpdateProductImageRequest,
   UpdateProductRequest,
 } from './types'
 
@@ -106,4 +109,55 @@ export async function exportAdminProducts(
     throw new Error('The product export response was not a file.')
   }
   return data
+}
+
+// ---------------------------------------------------------------- M-03 商品圖片（A-06）
+
+export async function uploadProductImage(
+  productPublicId: string,
+  input: ProductImageUploadInput,
+): Promise<AdminProductImageDto> {
+  const formData = new FormData()
+  formData.set('file', input.file)
+  if (input.altText) formData.set('altText', input.altText)
+  if (input.sourceUrl) formData.set('sourceUrl', input.sourceUrl)
+  if (input.licenseName) formData.set('licenseName', input.licenseName)
+  if (input.licenseUrl) formData.set('licenseUrl', input.licenseUrl)
+
+  const { data, error } = await apiClient.POST('/api/v1/admin/products/{productId}/images', {
+    params: { path: { productId: productPublicId } },
+    // openapi-fetch 看到 FormData 就不做 JSON 序列化，讓瀏覽器自己帶 multipart boundary（與匯入同一個做法）。
+    body: formData as unknown as Record<string, never>,
+  })
+  if (error) throw error
+  return data!
+}
+
+export async function updateProductImage(
+  imagePublicId: string,
+  request: UpdateProductImageRequest,
+): Promise<AdminProductImageDto> {
+  const { data, error } = await apiClient.PATCH('/api/v1/admin/product-images/{imageId}', {
+    params: { path: { imageId: imagePublicId } },
+    body: request,
+  })
+  if (error) throw error
+  return data!
+}
+
+export async function publishProductImage(imagePublicId: string, rowVersion: string): Promise<AdminProductImageDto> {
+  const { data, error } = await apiClient.POST('/api/v1/admin/product-images/{imageId}/actions/publish', {
+    params: { path: { imageId: imagePublicId } },
+    body: { rowVersion },
+  })
+  if (error) throw error
+  return data!
+}
+
+export async function deleteProductImage(imagePublicId: string, rowVersion: string): Promise<void> {
+  const { error } = await apiClient.DELETE('/api/v1/admin/product-images/{imageId}', {
+    params: { path: { imageId: imagePublicId } },
+    body: { rowVersion },
+  })
+  if (error) throw error
 }

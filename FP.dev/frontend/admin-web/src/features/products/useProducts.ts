@@ -3,10 +3,14 @@ import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 import {
   applyBulkProductAction,
   createProduct,
+  deleteProductImage,
   exportAdminProducts,
   getAdminProduct,
   listAdminProducts,
+  publishProductImage,
   updateProduct,
+  updateProductImage,
+  uploadProductImage,
   type AdminProductListParams,
 } from './api'
 import type {
@@ -14,6 +18,8 @@ import type {
   BulkProductAction,
   BulkProductActionRequest,
   CreateProductRequest,
+  ProductImageUploadInput,
+  UpdateProductImageRequest,
   UpdateProductRequest,
 } from './types'
 
@@ -83,5 +89,51 @@ export function useExportProducts() {
       link.click()
       URL.revokeObjectURL(url)
     },
+  })
+}
+
+// ---------------------------------------------------------------- M-03 商品圖片（A-06）
+//
+// 圖片是獨立的 Aggregate：四個動作都只讓「這個商品的詳情」與列表（主圖）失效重取，
+// 商品本身的 RowVersion 不會變，頁面上的商品表單不用重抓 token。
+
+function invalidateProductImages(queryClient: ReturnType<typeof useQueryClient>, productPublicId: string) {
+  queryClient.invalidateQueries({ queryKey: ['admin-products', 'detail', productPublicId] })
+  queryClient.invalidateQueries({ queryKey: ['admin-products', 'list'] })
+}
+
+export function useUploadProductImage() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ productPublicId, input }: { productPublicId: string, input: ProductImageUploadInput }) =>
+      uploadProductImage(productPublicId, input),
+    onSuccess: (_data, variables) => invalidateProductImages(queryClient, variables.productPublicId),
+  })
+}
+
+export function useUpdateProductImage() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ imagePublicId, request }: { productPublicId: string, imagePublicId: string, request: UpdateProductImageRequest }) =>
+      updateProductImage(imagePublicId, request),
+    onSuccess: (_data, variables) => invalidateProductImages(queryClient, variables.productPublicId),
+  })
+}
+
+export function usePublishProductImage() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ imagePublicId, rowVersion }: { productPublicId: string, imagePublicId: string, rowVersion: string }) =>
+      publishProductImage(imagePublicId, rowVersion),
+    onSuccess: (_data, variables) => invalidateProductImages(queryClient, variables.productPublicId),
+  })
+}
+
+export function useDeleteProductImage() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ imagePublicId, rowVersion }: { productPublicId: string, imagePublicId: string, rowVersion: string }) =>
+      deleteProductImage(imagePublicId, rowVersion),
+    onSuccess: (_data, variables) => invalidateProductImages(queryClient, variables.productPublicId),
   })
 }

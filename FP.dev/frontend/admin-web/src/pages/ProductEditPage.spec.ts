@@ -16,6 +16,10 @@ vi.mock('../features/products/api', () => ({
   updateProduct: mockUpdateProduct,
   createProduct: mockCreateProduct,
   listAdminProducts: vi.fn(),
+  uploadProductImage: vi.fn(),
+  updateProductImage: vi.fn(),
+  publishProductImage: vi.fn(),
+  deleteProductImage: vi.fn(),
 }))
 vi.mock('../features/brands/api', () => ({ listBrands: mockListBrands }))
 vi.mock('../features/categories/api', () => ({ listCategories: mockListCategories }))

@@ -22,6 +22,8 @@ public static class DomainErrorCodes
     public const string FileFormatInvalid = "file_format_invalid";
     public const string FileMalwareDetected = "file_malware_detected";
     public const string FileScanUnavailable = "file_scan_unavailable";
+    public const string ImageProcessingFailed = "image_processing_failed";
+    public const string ImageMetadataIncomplete = "image_metadata_incomplete";
 
     public const string ImportFormatUnsupported = "import_format_unsupported";
     public const string ImportDatasetMissing = "import_dataset_missing";
