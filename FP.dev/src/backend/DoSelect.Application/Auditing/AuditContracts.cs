@@ -6,6 +6,11 @@ namespace DoSelect.Application.Auditing;
 public static class AuditActions
 {
     public const string RefundExecute = "refund.execute";
+    public const string RefundApprove = "refund.approve";
+    /// <summary>核准時依可信快照重算後已無款可退，終止為 Cancelled（alex 2026-09-04
+    /// #103 裁定，延續 #99 A1）。獨立於 <see cref="RefundApprove"/>，讓稽核查詢能把
+    /// 「正常核准」與「核准時被系統終止」分開。</summary>
+    public const string RefundApprovalCancelled = "refund.approval_cancelled";
     public const string InvoiceAllowanceCreate = "invoice.allowance.create";
     public const string InvoiceIssue = "invoice.issue";
     public const string InvoiceVoid = "invoice.void";
@@ -540,6 +545,14 @@ internal static class AuditWritePolicy
                 AuditActions.RefundExecute,
                 AuditResourceTypes.Refund,
                 "status", "succeededAmount", "allocationCount"),
+            [AuditActions.RefundApprove] = DefinitionWithNote(
+                AuditActions.RefundApprove,
+                AuditResourceTypes.Refund,
+                "status", "approvedAmount"),
+            [AuditActions.RefundApprovalCancelled] = DefinitionWithNote(
+                AuditActions.RefundApprovalCancelled,
+                AuditResourceTypes.Refund,
+                "status", "cancelReason"),
             [AuditActions.InvoiceAllowanceCreate] = Definition(
                 AuditActions.InvoiceAllowanceCreate,
                 AuditResourceTypes.SimulatedInvoiceAllowance,

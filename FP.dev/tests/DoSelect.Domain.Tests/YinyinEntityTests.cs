@@ -102,6 +102,22 @@ public sealed class YinyinEntityTests
     }
 
     [Fact]
+    public void Refund_CancelIsOnlyLegalFromPendingReview()
+    {
+        // alex 2026-09-04 #103 裁定：核准當下重算後已無款可退是合法終局，
+        // 不是可重試錯誤——Refund 要能終止成 Cancelled，而不是永遠停在
+        // PendingReview。只有 PendingReview 能到 Cancelled，其餘任何狀態
+        // 都不合法。
+        var refund = new Refund(Guid.NewGuid(), 1, null, 1, "RF-2", 500m,
+            "ReturnApproved", "member", "refund-2", CreatedAtUtc);
+
+        refund.Cancel(CreatedAtUtc.AddMinutes(1));
+
+        Assert.Equal(RefundStatus.Cancelled, refund.Status);
+        Assert.Throws<InvalidOperationException>(() => refund.Cancel(CreatedAtUtc.AddMinutes(2)));
+    }
+
+    [Fact]
     public void SimulatedInvoice_AlwaysCarriesNonTaxInvoiceMarker()
     {
         var invoice = new SimulatedInvoice(Guid.NewGuid(), new SimulatedInvoiceCreation(

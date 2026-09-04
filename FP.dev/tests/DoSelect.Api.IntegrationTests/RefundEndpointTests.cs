@@ -20,6 +20,8 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
     private static readonly Guid RefundPublicId = new("cccccccc-cccc-cccc-cccc-cccccccccccc");
     private const string ExecuteRoute =
         "/api/v1/admin/refunds/cccccccc-cccc-cccc-cccc-cccccccccccc/actions/execute";
+    private const string ApproveRoute =
+        "/api/v1/admin/refunds/cccccccc-cccc-cccc-cccc-cccccccccccc/actions/approve";
 
     private readonly WebApplicationFactory<Program> _factory;
 
@@ -346,6 +348,194 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
         Assert.Contains(errorCode, problem, StringComparison.Ordinal);
     }
 
+    // ── 退款核准（alex 2026-09-04 #98 WP2 裁定） ──────────────────────────────
+
+    [Fact]
+    public async Task AFinanceManagerCanApproveAPendingRefund()
+    {
+        var approver = new FakeRefundApprover(ApprovedSettled(500m));
+        using var factory = CreateFactory(new FakeRefundExecutor(Settled(500m)), approver: approver);
+        using var client = factory.CreateClient();
+        await SignInAsync(client, includeMfa: true, DoSelectRoles.FinanceManager);
+
+        using var response = await PostApproveAsync(client);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<RefundDto>(ResponseJsonOptions);
+        Assert.Equal(RefundPublicId, body!.PublicId);
+        Assert.Equal(RefundPublicId, approver.LastRequest!.RefundPublicId);
+        Assert.Equal("refund-approve-1", approver.LastRequest.IdempotencyKey);
+    }
+
+    [Fact]
+    public async Task AZeroNetApprovalCancellationReturns200NotAConflict()
+    {
+        // alex 2026-09-04 #103 裁定,延續 #99 A1:核准當下重算已無款可退是合法終局,
+        // 不是可重試錯誤——前端不該因為看到 4xx 進入重試迴圈。這裡證明 Controller
+        // 對 WasCancelled 的結果一律走 result.ErrorCode is null 的成功分支。
+        var approver = new FakeRefundApprover(CancelledSettled());
+        using var factory = CreateFactory(new FakeRefundExecutor(Settled(500m)), approver: approver);
+        using var client = factory.CreateClient();
+        await SignInAsync(client, includeMfa: true, DoSelectRoles.FinanceManager);
+
+        using var response = await PostApproveAsync(client);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<RefundDto>(ResponseJsonOptions);
+        Assert.Equal(RefundPublicId, body!.PublicId);
+        Assert.Equal(RefundPublicId, approver.LastRequest!.RefundPublicId);
+    }
+
+    [Fact]
+    public async Task AReplayedZeroNetApprovalCancellationAlsoReturns200()
+    {
+        // 同一把冪等金鑰重送一筆已經因為零淨額被取消的核准，一樣不得變成需要
+        // 重試的錯誤——重播結果與第一次的終止結果同樣走成功分支。
+        var approver = new FakeRefundApprover(ApproveRefundResult.CancelledReplayed());
+        using var factory = CreateFactory(new FakeRefundExecutor(Settled(500m)), approver: approver);
+        using var client = factory.CreateClient();
+        await SignInAsync(client, includeMfa: true, DoSelectRoles.FinanceManager);
+
+        using var response = await PostApproveAsync(client);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<RefundDto>(ResponseJsonOptions);
+        Assert.Equal(RefundPublicId, body!.PublicId);
+    }
+
+    [Fact]
+    public async Task ApprovalSharesTheSameAuthorizationBoundaryAsExecution()
+    {
+        // 核准與執行同一個 Policy（Refund.Execute）：同一組角色、同一個 MFA 要求。
+        using var factory = CreateFactory(
+            new FakeRefundExecutor(Settled(500m)),
+            approver: new FakeRefundApprover(ApprovedSettled(500m)));
+        using var client = factory.CreateClient();
+        await SignInAsync(client, includeMfa: false, DoSelectRoles.FinanceManager);
+
+        using var response = await PostApproveAsync(client);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task AnonymousApprovalIsChallenged()
+    {
+        using var factory = CreateFactory(
+            new FakeRefundExecutor(Settled(500m)),
+            approver: new FakeRefundApprover(ApprovedSettled(500m)));
+        using var client = factory.CreateClient();
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, ApproveRoute)
+        {
+            Content = JsonContent.Create(new
+            {
+                reasonCode = "customer_request",
+                note = (string?)null,
+                refundRowVersion = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 },
+            }),
+        };
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task AMissingIdempotencyKeyIsRejectedBeforeAnyApproval()
+    {
+        var approver = new FakeRefundApprover(ApprovedSettled(500m));
+        using var factory = CreateFactory(new FakeRefundExecutor(Settled(500m)), approver: approver);
+        using var client = factory.CreateClient();
+        await SignInAsync(client, includeMfa: true, DoSelectRoles.FinanceManager);
+
+        using var response = await PostApproveAsync(client, idempotencyKey: null);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Null(approver.LastRequest);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(4)]
+    [InlineData(16)]
+    public async Task ARowVersionOfTheWrongLengthOnApprovalReturns400NotAServerError(int length)
+    {
+        var approver = new FakeRefundApprover(ApprovedSettled(500m));
+        using var factory = CreateFactory(new FakeRefundExecutor(Settled(500m)), approver: approver);
+        using var client = factory.CreateClient();
+        await SignInAsync(client, includeMfa: true, DoSelectRoles.FinanceManager);
+
+        using var response = await PostApproveAsync(client, rowVersion: new byte[length]);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Null(approver.LastRequest);
+    }
+
+    [Theory]
+    [InlineData("contact me@example.com")]
+    [InlineData("see <b>here</b>")]
+    public async Task AnUnsafeNoteOnApprovalReturns400NotAServerError(string note)
+    {
+        var approver = new FakeRefundApprover(ApprovedSettled(500m));
+        using var factory = CreateFactory(new FakeRefundExecutor(Settled(500m)), approver: approver);
+        using var client = factory.CreateClient();
+        await SignInAsync(client, includeMfa: true, DoSelectRoles.FinanceManager);
+
+        using var response = await PostApproveAsync(client, note: note);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task AReplayedApprovalReturnsTheSameRefundWithoutASecondEffect()
+    {
+        using var factory = CreateFactory(
+            new FakeRefundExecutor(Settled(500m)),
+            approver: new FakeRefundApprover(ApproveRefundResult.Replayed(500m)));
+        using var client = factory.CreateClient();
+        await SignInAsync(client, includeMfa: true, DoSelectRoles.FinanceManager);
+
+        using var response = await PostApproveAsync(client);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<RefundDto>(ResponseJsonOptions);
+        Assert.Equal(RefundPublicId, body!.PublicId);
+    }
+
+    [Theory]
+    [InlineData(RefundErrorCodes.ResourceNotFound, HttpStatusCode.NotFound)]
+    [InlineData(RefundErrorCodes.RefundStateConflict, HttpStatusCode.Conflict)]
+    [InlineData(RefundErrorCodes.RefundAmountExceeded, HttpStatusCode.Conflict)]
+    [InlineData(RefundErrorCodes.RefundSnapshotUnavailable, HttpStatusCode.Conflict)]
+    [InlineData(RefundErrorCodes.RefundCalculationMismatch, HttpStatusCode.Conflict)]
+    public async Task ApprovalErrorCodesMapToTheDocumentedStatuses(
+        string errorCode,
+        HttpStatusCode expected)
+    {
+        using var factory = CreateFactory(
+            new FakeRefundExecutor(Settled(500m)),
+            approver: new FakeRefundApprover(ApproveRefundResult.Failure(errorCode)));
+        using var client = factory.CreateClient();
+        await SignInAsync(client, includeMfa: true, DoSelectRoles.FinanceManager);
+
+        using var response = await PostApproveAsync(client);
+
+        Assert.Equal(expected, response.StatusCode);
+        var problem = await response.Content.ReadAsStringAsync();
+        Assert.Contains(errorCode, problem, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheApprovalRequestCarriesNoAllocationsOrAmounts()
+    {
+        // 契約層級的保證，與 Application 層的同名測試互相獨立驗證（alex #98 WP2）。
+        var properties = typeof(ApproveRefundRequestBody).GetProperties();
+
+        Assert.DoesNotContain(properties, property =>
+            property.PropertyType == typeof(decimal) ||
+            property.PropertyType == typeof(decimal?));
+    }
+
     /// <summary>
     /// 用與 API 相同的 JSON 慣例讀回應。
     /// </summary>
@@ -370,6 +560,28 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
                 "refund-1",
                 [1, 2, 3, 4, 5, 6, 7, 8],
                 []));
+
+    private static ApproveRefundResult ApprovedSettled(decimal amount) =>
+        ApproveRefundResult.Settled(
+            amount,
+            new RefundApprovalPlan(
+                11L,
+                amount,
+                "finance-1",
+                "refund-approve-1",
+                [1, 2, 3, 4, 5, 6, 7, 8]));
+
+    // alex 2026-09-04 #103 裁定,延續 #99 A1:核准時重算淨額 <= 0 終止為 Cancelled,
+    // 不是可重試的錯誤碼——這裡驗證 Controller 對它一律走成功路徑（200），
+    // 不會落入 result.ErrorCode 那個分支。
+    private static ApproveRefundResult CancelledSettled() =>
+        ApproveRefundResult.CancelledSettled(
+            new RefundCancellationPlan(
+                11L,
+                501L,
+                "finance-1",
+                "refund-approve-1",
+                [1, 2, 3, 4, 5, 6, 7, 8]));
 
     private async Task<HttpResponseMessage> PostAsync(
         HttpClient client,
@@ -407,9 +619,37 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
         return await client.SendAsync(request);
     }
 
+    private async Task<HttpResponseMessage> PostApproveAsync(
+        HttpClient client,
+        string? idempotencyKey = "refund-approve-1",
+        byte[]? rowVersion = null,
+        string? note = null,
+        string reasonCode = "customer_request")
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, ApproveRoute);
+        if (idempotencyKey is not null)
+        {
+            request.Headers.Add(RefundsController.IdempotencyKeyHeaderName, idempotencyKey);
+        }
+
+        request.Headers.Add("X-XSRF-TOKEN", await GetAntiforgeryTokenAsync(client, "admin"));
+
+        // Body 只帶理由與 RowVersion，沒有 allocations 也沒有金額——與 execute 同一個
+        // 契約（alex 2026-09-04 #98 WP2 裁定）。
+        request.Content = JsonContent.Create(new
+        {
+            reasonCode,
+            note,
+            refundRowVersion = rowVersion ?? new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 },
+        });
+
+        return await client.SendAsync(request);
+    }
+
     private WebApplicationFactory<Program> CreateFactory(
         IRefundExecutor executor,
-        IRefundReader? reader = null) =>
+        IRefundReader? reader = null,
+        IRefundApprover? approver = null) =>
         _factory.WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("Development");
@@ -418,6 +658,14 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
                 services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
                 services.AddSingleton(executor);
                 services.AddSingleton<IRefundReader>(reader ?? new FakeRefundReader());
+                // RefundsController 建構式一次注入全部三個依賴，MVC 會在每個 action
+                // 都建構整支 Controller——execute 相關測試即使不打 approve 路由，
+                // 真正的 RefundApprover 仍會被解析，而它依賴的 IIdempotencyExecutor
+                // 若沒有設定 Idempotency:ActorScopePepper 會在解析當下丟例外，
+                // 讓每個 Refund 端點都變成 500（與 IReturnRefundCreationPort 那次
+                // 同一個 DI 陷阱）。一律覆寫成假的，不論這條測試會不會真的核准。
+                services.AddSingleton(approver ?? new FakeRefundApprover(ApprovedSettled(500m)));
+
                 services
                     .AddControllers()
                     .AddApplicationPart(typeof(SecurityFoundationTestController).Assembly);
@@ -514,6 +762,27 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
 
         public Task<ExecuteRefundResult> ExecuteAsync(
             ExecuteRefundRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            LastRequest = request;
+            return Task.FromResult(result);
+        }
+    }
+
+    private sealed class ThrowingRefundApprover(Exception exception) : IRefundApprover
+    {
+        public Task<ApproveRefundResult> ApproveAsync(
+            ApproveRefundRequest request,
+            CancellationToken cancellationToken = default) =>
+            throw exception;
+    }
+
+    private sealed class FakeRefundApprover(ApproveRefundResult result) : IRefundApprover
+    {
+        public ApproveRefundRequest? LastRequest { get; private set; }
+
+        public Task<ApproveRefundResult> ApproveAsync(
+            ApproveRefundRequest request,
             CancellationToken cancellationToken = default)
         {
             LastRequest = request;

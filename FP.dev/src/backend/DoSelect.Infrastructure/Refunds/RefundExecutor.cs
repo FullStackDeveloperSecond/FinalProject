@@ -39,6 +39,10 @@ public sealed class RefundExecutor : IRefundExecutor
     /// <summary>中央 Idempotency 的 Operation 名稱（DEC-BATCH-019）。</summary>
     public const string Operation = "refund.execute";
 
+    /// <summary>正常退款執行成功結案的原因碼——與核准時重算後無款可退的
+    /// <c>RefundApprover.ZeroNetApprovalReasonCode</c> 區分。</summary>
+    private const string RefundSucceededReasonCode = "refund-succeeded";
+
     private readonly DoSelectDbContext _context;
     private readonly IAuditWriter _auditWriter;
     private readonly IIdempotencyExecutor _idempotencyExecutor;
@@ -209,7 +213,7 @@ public sealed class RefundExecutor : IRefundExecutor
         {
             await _returnCompletionPort.CompleteReturnAsync(
                 new RefundReturnCompletionCommand(
-                    returnRequestId, plan.ExecutedByAdminUserId, occurredAtUtc),
+                    returnRequestId, plan.ExecutedByAdminUserId, occurredAtUtc, RefundSucceededReasonCode),
                 cancellationToken);
         }
 
