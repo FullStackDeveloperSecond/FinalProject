@@ -3,7 +3,9 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using DoSelect.Api.Inventory;
+using DoSelect.Api.Security;
 using DoSelect.Domain.Inventory;
+using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 namespace DoSelect.Api.IntegrationTests.Inventory;
@@ -53,26 +55,151 @@ public sealed class AdminInventoryApiTests
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
+    // ---------------------------------------------------------------------------------------
+    // UC-ADM-INV-01 人工釋放（Endpoint 目錄「UC-ADM-INV-01 保留」列）。PR #36 round 3 撤回的路由，
+    // 現在釋放與中央稽核同一次 SaveChanges 落地後補回。
+    // ---------------------------------------------------------------------------------------
+
     [Fact]
-    public async Task ReleaseReservation_EndpointIsWithdrawn_ReturnsNotFound()
+    public async Task ReleaseReservation_WhenActive_ReleasesOnceAndPersistsMovementAndAuditLog()
     {
-        // UC-ADM-INV-01's manual release must persist an Audit Log entry to meet its acceptance
-        // criteria. The central IAuditWriter now exists on dev, but this PR does not wire the
-        // release up to it, so 組長's PR #36 round-3 ruling to withdraw the HTTP action still
-        // stands — the wiring is deferred to a follow-up PR. This test exists so re-adding the
-        // route without also wiring Audit Log gets caught immediately.
         var sku = await _fixture.SeedSkuWithBalanceAsync(onHandQuantity: 10);
         var (reservationPublicId, rowVersion) = await _fixture.SeedActiveReservationAsync(sku.Id, quantity: 3);
         var client = await _fixture.CreateAuthenticatedInventoryManagerClientAsync();
 
+        using var response = await ReleaseAsync(client, reservationPublicId, rowVersion, note: "客戶來電取消");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        var correlationId = Assert.Single(response.Headers.GetValues("X-Correlation-ID"));
+
+        await using var context = AdminInventoryApiFixture.CreateContext();
+        var reservation = await context.InventoryReservations.AsNoTracking().SingleAsync(r => r.PublicId == reservationPublicId);
+        Assert.Equal(InventoryReservationStatus.Released, reservation.Status);
+        var balance = await context.InventoryBalances.AsNoTracking().SingleAsync(b => b.SkuId == sku.Id);
+        Assert.Equal(0, balance.ReservedQuantity);
+        Assert.Equal(10, balance.AvailableQuantity);
+        Assert.True(await context.InventoryMovements.AsNoTracking()
+            .AnyAsync(m => m.ReservationId == reservation.Id && m.MovementType == InventoryMovementTypes.Release));
+
+        // 驗收「保存 InventoryMovement 與 Audit Log」：稽核帶著這次請求的 Correlation／Trace，
+        // 而且角色快照來自真正的 UserRoles。
+        var audit = await context.AuditLogs.AsNoTracking().SingleAsync(a => a.ResourcePublicId == reservationPublicId);
+        Assert.Equal("inventory_reservation.release", audit.Action);
+        Assert.Equal("InventoryReservation", audit.ResourceType);
+        Assert.Equal(correlationId, audit.CorrelationId);
+        Assert.False(string.IsNullOrWhiteSpace(audit.TraceId));
+        Assert.Contains(DoSelectRoles.InventoryManager, audit.ActorRolesJson);
+        Assert.Contains("客戶來電取消", audit.ChangedFieldsJson);
+    }
+
+    /// <summary>驗收：「同一請求重送，冪等識別相同，不得再次減少 ReservedQuantity」——RowVersion 就是那個識別。</summary>
+    [Fact]
+    public async Task ReleaseReservation_WhenResentWithTheSameRowVersion_ReturnsConflictAndDoesNotReleaseTwice()
+    {
+        var sku = await _fixture.SeedSkuWithBalanceAsync(onHandQuantity: 10);
+        var (reservationPublicId, rowVersion) = await _fixture.SeedActiveReservationAsync(sku.Id, quantity: 3);
+        var client = await _fixture.CreateAuthenticatedInventoryManagerClientAsync();
+
+        using var first = await ReleaseAsync(client, reservationPublicId, rowVersion, note: "n/a");
+        Assert.Equal(HttpStatusCode.NoContent, first.StatusCode);
+
+        using var second = await ReleaseAsync(client, reservationPublicId, rowVersion, note: "n/a");
+
+        Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
+        var problem = await second.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("inventory_reservation_not_active", problem.GetProperty("code").GetString());
+
+        await using var context = AdminInventoryApiFixture.CreateContext();
+        var balance = await context.InventoryBalances.AsNoTracking().SingleAsync(b => b.SkuId == sku.Id);
+        Assert.Equal(0, balance.ReservedQuantity);
+        Assert.Equal(1, await context.InventoryMovements.AsNoTracking()
+            .CountAsync(m => m.SkuId == sku.Id && m.MovementType == InventoryMovementTypes.Release));
+        Assert.Equal(1, await context.AuditLogs.AsNoTracking().CountAsync(a => a.ResourcePublicId == reservationPublicId));
+    }
+
+    /// <summary>驗收：「管理員未填原因，When 送出，Then API 拒絕操作且庫存數量不變」。</summary>
+    [Theory]
+    [InlineData("customer_cancelled", "")]
+    [InlineData("", "n/a")]
+    [InlineData("member_cancelled", "n/a")]
+    public async Task ReleaseReservation_WhenReasonOrNoteIsMissingOrInvalid_ReturnsValidationFailedAndLeavesStockUnchanged(
+        string reasonCode, string note)
+    {
+        var sku = await _fixture.SeedSkuWithBalanceAsync(onHandQuantity: 10);
+        var (reservationPublicId, rowVersion) = await _fixture.SeedActiveReservationAsync(sku.Id, quantity: 3);
+        var client = await _fixture.CreateAuthenticatedInventoryManagerClientAsync();
+
+        using var response = await ReleaseAsync(client, reservationPublicId, rowVersion, note, reasonCode);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("validation_failed", problem.GetProperty("code").GetString());
+
+        await using var context = AdminInventoryApiFixture.CreateContext();
+        var reservation = await context.InventoryReservations.AsNoTracking().SingleAsync(r => r.PublicId == reservationPublicId);
+        Assert.Equal(InventoryReservationStatus.Active, reservation.Status);
+        var balance = await context.InventoryBalances.AsNoTracking().SingleAsync(b => b.SkuId == sku.Id);
+        Assert.Equal(3, balance.ReservedQuantity);
+        Assert.False(await context.AuditLogs.AsNoTracking().AnyAsync(a => a.ResourcePublicId == reservationPublicId));
+    }
+
+    [Fact]
+    public async Task ReleaseReservation_WhenCallerLacksInventoryManagerRole_ReturnsForbidden()
+    {
+        var sku = await _fixture.SeedSkuWithBalanceAsync(onHandQuantity: 10);
+        var (reservationPublicId, rowVersion) = await _fixture.SeedActiveReservationAsync(sku.Id, quantity: 3);
+        var client = await _fixture.CreateAuthenticatedUnrelatedAdminClientAsync();
+
+        using var response = await ReleaseAsync(client, reservationPublicId, rowVersion, note: "n/a");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ReleaseReservation_WhenReservationDoesNotExist_ReturnsNotFound()
+    {
+        var client = await _fixture.CreateAuthenticatedInventoryManagerClientAsync();
+
+        using var response = await ReleaseAsync(client, Guid.NewGuid(), new byte[8], note: "n/a");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    /// <summary>A-12 頁只依 availableActions 決定要不要顯示釋放按鈕：Active 有、終態沒有。</summary>
+    [Fact]
+    public async Task ListReservations_AdvertisesReleaseOnlyWhileTheReservationIsActive()
+    {
+        var sku = await _fixture.SeedSkuWithBalanceAsync(onHandQuantity: 10);
+        var (reservationPublicId, rowVersion) = await _fixture.SeedActiveReservationAsync(sku.Id, quantity: 3);
+        var client = await _fixture.CreateAuthenticatedInventoryManagerClientAsync();
+
+        Assert.Equal(["release"], await ReadAvailableActionsAsync(client, reservationPublicId, "Active"));
+
+        using var release = await ReleaseAsync(client, reservationPublicId, rowVersion, note: "n/a");
+        Assert.Equal(HttpStatusCode.NoContent, release.StatusCode);
+
+        Assert.Empty(await ReadAvailableActionsAsync(client, reservationPublicId, "Released"));
+    }
+
+    private static async Task<HttpResponseMessage> ReleaseAsync(
+        HttpClient client, Guid reservationPublicId, byte[] rowVersion, string note, string reasonCode = "customer_cancelled")
+    {
         using var request = new HttpRequestMessage(
             HttpMethod.Post, $"/api/v1/admin/inventory/reservations/{reservationPublicId}/actions/release")
         {
-            Content = JsonContent.Create(new { reasonCode = "customer_cancelled", note = "n/a", rowVersion }),
+            Content = JsonContent.Create(new { reasonCode, note, rowVersion }),
         };
-        using var response = await AdminInventoryApiFixture.SendWithAntiforgeryAsync(client, request);
+        return await AdminInventoryApiFixture.SendWithAntiforgeryAsync(client, request);
+    }
 
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    private static async Task<string[]> ReadAvailableActionsAsync(HttpClient client, Guid reservationPublicId, string status)
+    {
+        using var response = await client.GetAsync($"/api/v1/admin/inventory/reservations?status={status}&pageSize=100");
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var row = body.GetProperty("items").EnumerateArray()
+            .Single(item => item.GetProperty("publicId").GetGuid() == reservationPublicId);
+        return row.GetProperty("availableActions").EnumerateArray().Select(action => action.GetString()!).ToArray();
     }
 
     [Fact]

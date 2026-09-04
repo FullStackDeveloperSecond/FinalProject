@@ -1,9 +1,12 @@
 using System.ComponentModel.DataAnnotations;
+using System.Diagnostics;
 using System.Security.Claims;
 using DoSelect.Api.Common;
 using DoSelect.Api.Security;
+using DoSelect.Application.Auditing;
 using DoSelect.Application.Common;
 using DoSelect.Application.Inventory;
+using DoSelect.Domain.Inventory;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -15,13 +18,16 @@ namespace DoSelect.Api.Inventory;
 public sealed class AdminInventoryController : ControllerBase
 {
     private readonly IInventoryAdminQueryService _queryService;
+    private readonly IInventoryReservationService _reservationService;
     private readonly IInventoryReconciliationService _reconciliationService;
 
     public AdminInventoryController(
         IInventoryAdminQueryService queryService,
+        IInventoryReservationService reservationService,
         IInventoryReconciliationService reconciliationService)
     {
         _queryService = queryService;
+        _reservationService = reservationService;
         _reconciliationService = reconciliationService;
     }
 
@@ -73,15 +79,39 @@ public sealed class AdminInventoryController : ControllerBase
         }
     }
 
-    // UC-ADM-INV-01's manual-release action is intentionally not exposed here yet. Its acceptance
-    // criteria (商品訂單物流後台驗收規格.md) require a successful release to persist an Audit Log
-    // entry (operator, from-state, order, SKU, quantity, time, TraceId). The central IAuditWriter
-    // this originally waited on has since merged into dev, so the dependency exists — but wiring
-    // the release up to it (same-transaction write, Action/Resource whitelist entries) is deferred
-    // to a follow-up PR, so 組長's PR #36 round-3 ruling to withdraw the HTTP endpoint still stands
-    // for this PR. IInventoryReservationService.ReleaseAsync itself (and its ReasonCode whitelist)
-    // is already built and tested at the service layer — re-adding this action is the only
-    // remaining step once that Audit wiring lands.
+    /// <summary>
+    /// UC-ADM-INV-01 人工釋放（Endpoint 目錄「UC-ADM-INV-01 保留」列）。PR #36 round 3 時因為中央
+    /// Audit 尚未落地而撤回；現在釋放與 <c>inventory_reservation.release</c> 稽核同一次 SaveChanges
+    /// 寫入，驗收條件「保存 InventoryMovement 與 Audit Log」成立，路由補回。
+    /// 重送保護靠 RowVersion：同一筆保留釋放後 RowVersion 就變了，帶舊值重送會被拒，不會再減一次。
+    /// </summary>
+    [HttpPost("reservations/{id:guid}/actions/release")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ReleaseReservation(
+        Guid id, [FromBody] ReleaseReservationRequest request, CancellationToken cancellationToken)
+    {
+        var adminUserId = RequireAdminUserId();
+        try
+        {
+            await _reservationService.ReleaseAsync(
+                id,
+                request.ReasonCode,
+                request.Note,
+                adminUserId,
+                request.RowVersion,
+                BuildAuditContext(),
+                DateTime.UtcNow,
+                cancellationToken);
+            return NoContent();
+        }
+        catch (InventoryWriteException exception)
+        {
+            return exception.ToActionResult(HttpContext);
+        }
+    }
 
     [HttpGet("reconciliation-cases")]
     public async Task<ActionResult<PageResult<InventoryReconciliationCaseDto>>> ListReconciliationCases(
@@ -115,17 +145,26 @@ public sealed class AdminInventoryController : ControllerBase
     }
 
     // Reconciliation Resolve (both the Dismiss and the real-correction path share this one action
-    // via ResolveReconciliationCaseRequest.Dismissed) is intentionally not exposed here yet — same
-    // class of gap as the manual-release action above. The real-correction path is a high-risk
-    // manual stock adjustment; UC-ADM-INV-01's acceptance criteria require it to persist an Audit
-    // Log entry (operator, before/after values, SKU, case, time, TraceId). The central IAuditWriter
-    // now exists on dev, but this PR does not wire the resolution up to it, so 組長's PR #36 round-4
-    // ruling to withdraw the whole action (not just the correction half) still stands rather than
-    // let a Dismiss-only route imply Resolve is otherwise done.
+    // via ResolveReconciliationCaseRequest.Dismissed) is still not exposed here. The real-correction
+    // path is a high-risk manual stock adjustment; UC-ADM-INV-01's acceptance criteria require it
+    // to persist an Audit Log entry (operator, before/after values, SKU, case, time, TraceId), and
+    // this action is not wired to the central IAuditWriter yet, so 組長's PR #36 round-4 ruling to
+    // withdraw the whole action (not just the correction half) still stands rather than let a
+    // Dismiss-only route imply Resolve is otherwise done. Reconciliation is also not in the API
+    // Endpoint 目錄 — whether to catalogue and expose it is 組長's call, not this PR's.
     // IInventoryReconciliationService.ResolveAsync itself is already built, transaction-safe, and
-    // tested at the service layer (see round-1/round-4 fixes) — re-adding this route is the only
-    // remaining step once that Audit wiring lands in a follow-up PR. List and Acknowledge
-    // stay available since neither touches Balance or claims to record an audited correction.
+    // tested at the service layer; the manual-release route above shows the shape the wiring
+    // takes once that ruling lands. List and Acknowledge stay available since neither touches
+    // Balance or claims to record an audited correction.
+
+    private AuditRequestContext BuildAuditContext()
+    {
+        var traceId = Activity.Current?.TraceId.ToString() ?? ActivityTraceId.CreateRandom().ToString();
+        return new AuditRequestContext(
+            CorrelationIdMiddleware.GetCorrelationId(HttpContext),
+            traceId,
+            HttpContext.Connection.RemoteIpAddress);
+    }
 
     private string RequireAdminUserId()
     {
@@ -199,6 +238,27 @@ public sealed class InventoryReconciliationCaseListRequest
 
     [Range(1, 100)]
     public int PageSize { get; init; } = 20;
+}
+
+/// <summary>
+/// `ReleaseReservationRequest`（Endpoint 目錄「UC-ADM-INV-01 保留」列）。reasonCode 是
+/// <see cref="InventoryReleaseReasonCodes.All"/> 白名單（服務層驗）；note 是必填的自由文字說明
+/// （驗收：「未填原因 → API 拒絕操作且庫存數量不變」），會進中央稽核的 note；長度 1..500 依
+/// API DTO與Schema契約.md 的 `ReleaseReservationRequest` 列。
+/// </summary>
+public sealed class ReleaseReservationRequest
+{
+    [Required]
+    [StringLength(32, MinimumLength = 1)]
+    public string ReasonCode { get; init; } = string.Empty;
+
+    [Required]
+    [StringLength(500, MinimumLength = 1)]
+    public string Note { get; init; } = string.Empty;
+
+    [Required]
+    [MinLength(1)]
+    public byte[] RowVersion { get; init; } = [];
 }
 
 public sealed class AcknowledgeReconciliationCaseRequest

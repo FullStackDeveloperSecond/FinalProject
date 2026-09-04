@@ -96,6 +96,13 @@ public static class AuditActions
 
     /// <summary>UC-ADM-INV-01 匯入確認：整批庫存調整寫入後留一筆稽核。</summary>
     public const string InventoryImportConfirm = "inventory_import.confirm";
+
+    /// <summary>
+    /// UC-ADM-INV-01 人工釋放一筆 Active 保留。驗收規格要求釋放成功要「保存 InventoryMovement 與
+    /// Audit Log」：Movement 記數量，這一筆記的是誰、為什麼（reasonCode＋自由文字 note）、從哪個
+    /// 狀態釋放、影響哪張訂單與哪個 SKU。與 Movement 同一次 SaveChanges 落地。
+    /// </summary>
+    public const string InventoryReservationRelease = "inventory_reservation.release";
 }
 
 public static class AuditResourceTypes
@@ -118,6 +125,7 @@ public static class AuditResourceTypes
     public const string ConvenienceStore = "ConvenienceStore";
     public const string ImportBatch = "ImportBatch";
     public const string Product = "Product";
+    public const string InventoryReservation = "InventoryReservation";
 }
 
 public static class AuditRoleNames
@@ -742,6 +750,12 @@ internal static class AuditWritePolicy
                 AuditActions.InventoryImportConfirm,
                 AuditResourceTypes.ImportBatch,
                 "status", "inventoryBalances"),
+            // 允許 note：手動釋放的「原因」是 reasonCode 白名單，但管理員還要留一段自由文字說明
+            // （A-12 頁的備註欄）。Movement 的 ReasonCode 欄只有 32 字，放不下它，稽核是唯一的落點。
+            [AuditActions.InventoryReservationRelease] = DefinitionWithNote(
+                AuditActions.InventoryReservationRelease,
+                AuditResourceTypes.InventoryReservation,
+                "status", "reasonCode", "orderPublicId", "skuPublicId", "quantity", "reservedQuantity"),
             [AuditActions.CatalogImportConfirm] = Definition(
                 AuditActions.CatalogImportConfirm,
                 AuditResourceTypes.ImportBatch,

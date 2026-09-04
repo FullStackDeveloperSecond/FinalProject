@@ -251,11 +251,11 @@ public sealed class EfInventoryAdminQueryService : IInventoryAdminQueryService
                 row.reservation.Status.ToString(),
                 row.reservation.ExpiresAtUtc,
                 row.reservation.CreatedAtUtc,
-                // "release" is deliberately never advertised here — the manual-release HTTP action
-                // stays withdrawn until a follow-up PR wires it to the central Audit Log in the same
-                // transaction (PR #36 round-3 ruling); see AdminInventoryController's comment where
-                // the endpoint used to be.
-                Array.Empty<string>(),
+                // 只有 Active 才有「release」可做（UC-ADM-INV-01 狀態表：Consumed／Released／Expired
+                // 都是終態）。A-12 頁只依這個清單決定要不要顯示釋放按鈕，不自己猜狀態。
+                row.reservation.Status == InventoryReservationStatus.Active
+                    ? InventoryReservationActions.ForActive
+                    : Array.Empty<string>(),
                 row.reservation.RowVersion);
         }).ToList();
 

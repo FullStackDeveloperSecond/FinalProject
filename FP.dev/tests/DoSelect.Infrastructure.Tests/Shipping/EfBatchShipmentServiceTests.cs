@@ -862,7 +862,7 @@ public sealed class EfBatchShipmentServiceTests
         ILogger<EfBatchShipmentService>? logger = null) =>
         new(
             context,
-            new EfInventoryReservationService(context),
+            new EfInventoryReservationService(context, new EfAuditWriter(context, TimeProvider.System)),
             new EfOutboxWriter(context, TimeProvider.System),
             new EfAuditWriter(context, TimeProvider.System),
             new BatchShipmentIdempotency(context, Options.Create(new IdempotencyOptions

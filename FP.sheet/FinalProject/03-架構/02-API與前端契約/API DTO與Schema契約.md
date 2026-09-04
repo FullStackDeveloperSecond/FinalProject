@@ -178,7 +178,7 @@
 | `BulkProductActionRequest` | `productPublicIds:uuid[1..100]`、`rowVersions:{productPublicId,rowVersion}[]`；`adjust-price` 另帶 `priceAdjustment:{mode,value,reason}`。`mode` 白名單 `percentage`／`amount`；`percentage` 的 `value` 限 -90～+100；`reason` 必填 1..500 且須通過中央 Audit 的安全字元與敏感詞檢查。調整後價格必須 >= 0 且符合 `decimal(18,2)`，任一 SKU 超出即整批拒絕（組長裁定 A1，2026-09-02） |
 | `CatalogLookupDto` | `publicId`、`code`、`nameZhTw`、`isActive`、`sortOrder`、`rowVersion`；Brand／Category／Tag 使用各自具名 Schema |
 | `SpecificationDefinitionDto` | `publicId`、`categoryPublicId`、`categoryCode`、`semanticKey`、`displayNameZhTw`、`valueType`、`unitCode?`、`isRequired`、`allowsMultiple`、`isProtected`、`isActive`、`sortOrder`、Options、RowVersion |
-| `ReleaseReservationRequest` | `reasonCode:enum`、`note:string(1..500)`、`rowVersion` |
+| `ReleaseReservationRequest` | `reasonCode:enum`（`InventoryReleaseReasonCodes` 白名單）、`note:string(1..500)`（必填；落在 `inventory_reservation.release` 稽核的 note，須通過中央稽核的字元規則）、`rowVersion` |
 | `PackageLimitVersionRequest` | Weight／三邊／總長／申報價正數、`effectiveFromUtc`、`effectiveToUtc?`、`rowVersion?` |
 | `ConvenienceStoreRequest` | `providerCode:string(1..64)`、`storeCode:string(1..64)`、`name:string(1..160)`、`address:string(1..500)`、`isActive`、`rowVersion?` |
 | `ConvenienceStoreDto` | Request 欄位＋PublicId、縣市／行政區、是否展示資料、建立／更新時間、RowVersion |
