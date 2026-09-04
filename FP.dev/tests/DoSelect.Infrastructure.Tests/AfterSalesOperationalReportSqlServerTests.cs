@@ -323,7 +323,7 @@ public sealed class AfterSalesOperationalReportSqlServerTests
             Guid.CreateVersion7(), $"I4R{Guid.NewGuid():N}"[..20], order.Id, null,
             "Defective", "INT-04 partial return", 1, createdAtUtc);
         returnRequest.Transition(ReturnRequestStatus.UnderReview, createdAtUtc.AddHours(2));
-        returnRequest.Approve(adminUserId, requiresShipment: true, createdAtUtc.AddHours(3));
+        returnRequest.Approve(adminUserId, ReturnApprovalOutcome.RequiresShipment, createdAtUtc.AddHours(3));
         returnRequest.Transition(ReturnRequestStatus.InTransit, createdAtUtc.AddHours(4));
         returnRequest.Transition(ReturnRequestStatus.Received, createdAtUtc.AddHours(5));
         context.ReturnRequests.Add(returnRequest);

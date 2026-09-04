@@ -4,7 +4,8 @@ using DoSelect.Domain.Refunds;
 namespace DoSelect.Application.Refunds;
 
 /// <summary>
-/// 退貨進入 <c>AwaitingRefund</c> 時建立那筆待審退款的窄介面（alex 2026-09-03 #98 A2 裁定）。
+/// 退貨核准／檢查完成後，判斷並暫存那筆退款的窄介面
+/// （alex 2026-09-03 #98 A2、2026-09-04 #99 A1 裁定）。
 /// </summary>
 /// <remarks>
 /// <para>
@@ -44,10 +45,32 @@ public interface IReturnRefundCreationPort
     /// 與執行端同一個錯誤碼。此時整筆核准都不成立 —— 建立不出退款的核准，
     /// 只會留下一張永遠等不到退款的退貨。
     /// </para>
+    /// <para>
+    /// <b>回傳具名結果，不用例外表達「無款可退」（#99 A1）。</b>後端依可信快照算出
+    /// 淨額 &lt;= 0 是一個合法的業務結果 —— 折扣／運費扣回蓋過了品項退款，不是錯誤。
+    /// 呼叫端不得把它跟真正的失敗（快照缺漏、計算輸入不合法）混在同一個例外類型裡，
+    /// 用 <c>catch</c> 判斷業務分支。只有 <see cref="ReturnRefundCreationOutcome.NoRefundDue"/>
+    /// 是無款可退；其餘情形（找不到已付款嘗試、可信快照不齊、計算本身失敗）仍然丟例外。
+    /// </para>
     /// </remarks>
-    Task StagePendingRefundAsync(
+    Task<ReturnRefundCreationOutcome> StagePendingRefundAsync(
         ReturnRefundCreationCommand command,
         CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// <see cref="IReturnRefundCreationPort.StagePendingRefundAsync"/> 的結果（#99 A1 裁定）。
+/// </summary>
+public abstract record ReturnRefundCreationOutcome
+{
+    /// <summary>已暫存唯一一筆 <c>PendingReview</c> 退款。</summary>
+    public sealed record PendingRefundStaged : ReturnRefundCreationOutcome;
+
+    /// <summary>
+    /// 可信快照算出的淨額 &lt;= 0，沒有建立任何 Refund。呼叫端據此讓退貨直接結案
+    /// （<c>Approved</c>／<c>Inspecting</c> → <c>Completed</c>），不得經過 <c>AwaitingRefund</c>。
+    /// </summary>
+    public sealed record NoRefundDue : ReturnRefundCreationOutcome;
 }
 
 /// <summary>

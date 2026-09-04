@@ -217,6 +217,39 @@ public sealed class AdminReturnServiceTests
     }
 
     [Fact]
+    public async Task InspectAsync_ZeroNetRefund_SkipsAwaitingRefundCompletesButStillRestocksInventory()
+    {
+        // #99 A1 裁定：需要寄回檢查的路徑一樣不得經過 AwaitingRefund。品項處置、
+        // ReturnInspection 與庫存回補照常進行——商品確實收回來了，只是淨額算出 <= 0，
+        // 不是沒有退貨這件事。
+        var (service, store, request, refunds) = CreateSutWithRequestedReturn();
+        await service.ReviewAsync(
+            request.PublicId, "admin-1",
+            Approve(true, [new ApproveReturnItemLine(store.Items[0].PublicId, 1, true)], "eligible", null, request.RowVersion),
+            CancellationToken.None);
+        await service.ReceiveAsync(request.PublicId, "admin-1", Receive(null, request.RowVersion), CancellationToken.None);
+
+        refunds.NextCallHasNoRefundDue = true;
+        var inspect = new InspectReturnRequest(
+            [new InspectReturnItemLine(store.Items[0].PublicId, "Unopened", RestockDisposition.Resellable, null)], request.RowVersion,
+            AssemblyFeeDisposition.NotApplicable, 80m);
+        var dto = await service.InspectAsync(request.PublicId, "admin-1", inspect, CancellationToken.None);
+
+        Assert.Equal(ReturnRequestStatus.Completed, dto.Status);
+        Assert.DoesNotContain(store.Histories, h => h.ToStatus == ReturnRequestStatus.AwaitingRefund);
+
+        // 庫存回補不受淨額結果影響——沒有退款不代表商品沒退回來。
+        Assert.Equal(RestockDisposition.Resellable, store.Items[0].RestockDisposition);
+        var restock = Assert.Single(store.ReturnToStockInstructions);
+        Assert.Equal(store.Items[0].PublicId, restock.ReturnItemPublicId);
+
+        var lastHistory = store.Histories[^1];
+        Assert.Equal(ReturnRequestStatus.Inspecting, lastHistory.FromStatus);
+        Assert.Equal(ReturnRequestStatus.Completed, lastHistory.ToStatus);
+        Assert.Equal("zero-net-refund", lastHistory.ReasonCode);
+    }
+
+    [Fact]
     public async Task InspectAsync_MissingRefundTrustedInputs_RejectsBeforeInspectionMutation()
     {
         var (service, store, request, _) = CreateSutWithRequestedReturn();
@@ -552,6 +585,33 @@ public sealed class AdminReturnServiceTests
     }
 
     [Fact]
+    public async Task ReviewAsync_Approve_WithoutInspectionRequired_ZeroNetRefund_SkipsAwaitingRefundAndCompletes()
+    {
+        // #99 A1 裁定：淨額 <= 0 時不得經過 AwaitingRefund（那條邊必須同一交易建立
+        // 唯一的 PendingReview Refund，零淨額沒有 Refund）。核准直接落在 Completed，
+        // 歷史用獨立原因碼 zero-net-refund 讓稽核區分於正常退款成功結案。
+        var (service, store, request, refunds) = CreateSutWithRequestedReturn();
+        refunds.NextCallHasNoRefundDue = true;
+        var approval = Approve(
+            true, [new ApproveReturnItemLine(store.Items[0].PublicId, 1, InspectionRequired: false)], "goodwill", null, request.RowVersion,
+            AssemblyFeeDisposition.NotApplicable, 0m);
+
+        var dto = await service.ReviewAsync(request.PublicId, "admin-1", approval, CancellationToken.None);
+
+        Assert.Equal(ReturnRequestStatus.Completed, dto.Status);
+        Assert.DoesNotContain(store.Histories, h => h.ToStatus == ReturnRequestStatus.AwaitingRefund);
+        Assert.Collection(
+            store.Histories,
+            h => AssertHistory(h, ReturnRequestStatus.Requested, ReturnRequestStatus.UnderReview, "admin-1"),
+            h => AssertHistory(h, ReturnRequestStatus.UnderReview, ReturnRequestStatus.Approved, "admin-1"),
+            h =>
+            {
+                AssertHistory(h, ReturnRequestStatus.Approved, ReturnRequestStatus.Completed, "admin-1");
+                Assert.Equal("zero-net-refund", h.ReasonCode);
+            });
+    }
+
+    [Fact]
     public async Task ReviewAsync_Reject_DoesNotStageARefund()
     {
         var (service, store, request, refunds) = CreateSutWithRequestedReturn();
@@ -572,12 +632,18 @@ public sealed class AdminReturnServiceTests
     {
         public List<ReturnRefundCreationCommand> Calls { get; } = [];
 
-        public Task StagePendingRefundAsync(
+        /// <summary>預設回有建立退款；設 true 讓下一次呼叫改回 NoRefundDue。</summary>
+        public bool NextCallHasNoRefundDue { get; set; }
+
+        public Task<ReturnRefundCreationOutcome> StagePendingRefundAsync(
             ReturnRefundCreationCommand command,
             CancellationToken cancellationToken)
         {
             Calls.Add(command);
-            return Task.CompletedTask;
+            ReturnRefundCreationOutcome outcome = NextCallHasNoRefundDue
+                ? new ReturnRefundCreationOutcome.NoRefundDue()
+                : new ReturnRefundCreationOutcome.PendingRefundStaged();
+            return Task.FromResult(outcome);
         }
     }
 

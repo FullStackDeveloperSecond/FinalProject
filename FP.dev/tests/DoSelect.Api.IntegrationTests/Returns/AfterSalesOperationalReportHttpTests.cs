@@ -272,7 +272,7 @@ public sealed class AfterSalesOperationalReportHttpTests(ReturnsApiFixture fixtu
                 order.Id, null, "Defective", "INT-04 HTTP partial return", 1,
                 createdAtUtc);
             returnRequest.Transition(ReturnRequestStatus.UnderReview, createdAtUtc.AddHours(2));
-            returnRequest.Approve(admin.Id, true, createdAtUtc.AddHours(3));
+            returnRequest.Approve(admin.Id, ReturnApprovalOutcome.RequiresShipment, createdAtUtc.AddHours(3));
             returnRequest.Transition(ReturnRequestStatus.InTransit, createdAtUtc.AddHours(4));
             returnRequest.Transition(ReturnRequestStatus.Received, createdAtUtc.AddHours(5));
             context.ReturnRequests.Add(returnRequest);

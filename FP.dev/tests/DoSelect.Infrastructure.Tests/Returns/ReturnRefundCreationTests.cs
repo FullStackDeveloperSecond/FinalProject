@@ -2,8 +2,11 @@ using DoSelect.Application.Common;
 using DoSelect.Application.Refunds;
 using DoSelect.Application.Returns;
 using DoSelect.Domain.Invoicing;
+using DoSelect.Domain.Catalog;
+using DoSelect.Domain.Inventory;
 using DoSelect.Domain.Orders;
 using DoSelect.Domain.Payments;
+using DoSelect.Domain.Promotions;
 using DoSelect.Domain.Refunds;
 using DoSelect.Domain.Returns;
 using DoSelect.Domain.Shipping;
@@ -127,6 +130,49 @@ public sealed class ReturnRefundCreationTests
     }
 
     [SqlServerFact]
+    public async Task ZeroNetRefundInspectionCompletesInOneTransactionWithoutCreatingAnyRefund()
+    {
+        // #99 A1 裁定：淨額 <= 0 時退貨、檢查、庫存回補與歷史仍須同一筆交易落地，
+        // 只是終點是 Completed 而不是 AwaitingRefund，而且完全不建立 Refund。
+        await using var context = ReturnStoreConcurrencyFixture.CreateContext();
+        var seed = await SeedReceivedReturnAsync(
+            context, withPaidAttempt: true, withClawbackExceedingCoupon: true);
+
+        var dto = await CreateService(context).InspectAsync(
+            seed.ReturnPublicId, seed.AdminUserId,
+            new InspectReturnRequest(
+                [new InspectReturnItemLine(seed.ReturnItemPublicId, "Unopened", RestockDisposition.Resellable, null)],
+                seed.ReturnRowVersion,
+                AssemblyFeeDisposition.NotApplicable,
+                returnShippingCost: 0m),
+            CancellationToken.None);
+
+        Assert.Equal(ReturnRequestStatus.Completed, dto.Status);
+
+        await using var verify = ReturnStoreConcurrencyFixture.CreateContext();
+        Assert.Empty(await verify.Refunds
+            .Where(candidate => candidate.ReturnRequestId == seed.ReturnRequestId)
+            .ToListAsync());
+
+        var returnRequest = await verify.ReturnRequests
+            .SingleAsync(candidate => candidate.Id == seed.ReturnRequestId);
+        Assert.Equal(ReturnRequestStatus.Completed, returnRequest.Status);
+
+        var history = await verify.ReturnStatusHistories
+            .Where(candidate => candidate.ReturnRequestId == seed.ReturnRequestId)
+            .OrderBy(candidate => candidate.Id)
+            .ToListAsync();
+        Assert.DoesNotContain(history, h => h.ToStatus == ReturnRequestStatus.AwaitingRefund);
+        var lastHistory = Assert.Single(history, h => h.ToStatus == ReturnRequestStatus.Completed);
+        Assert.Equal("zero-net-refund", lastHistory.ReasonCode);
+
+        // 商品確實收回來了——沒有退款不是沒有退貨這件事。
+        var movement = await verify.InventoryMovements
+            .SingleOrDefaultAsync(candidate => candidate.ReferencePublicId == seed.ReturnItemPublicId);
+        Assert.NotNull(movement);
+    }
+
+    [SqlServerFact]
     public async Task ARefundNumberCollisionAloneIsAlsoTranslatedNotLeakedAs500()
     {
         // P2（alex 2026-09-03 #99）：RefundNumber 與 IdempotencyKey 都是由同一個
@@ -210,7 +256,7 @@ public sealed class ReturnRefundCreationTests
         long PaymentAttemptId);
 
     private static async Task<ReturnSeed> SeedReceivedReturnAsync(
-        DoSelectDbContext context, bool withPaidAttempt)
+        DoSelectDbContext context, bool withPaidAttempt, bool withClawbackExceedingCoupon = false)
     {
         var admin = ApplicationUser.CreateAdmin(
             Guid.CreateVersion7(), $"{Guid.NewGuid():N}@doselect.test", NowUtc);
@@ -234,8 +280,28 @@ public sealed class ReturnRefundCreationTests
         context.Orders.Add(order);
         await context.SaveChangesAsync();
 
+        // 真的 SKU／庫存餘額：Quarantine 情境用不到，Resellable 回補測試需要它。
+        var catalogSuffix = Guid.NewGuid().ToString("N")[..10];
+        var brand = new Brand(Guid.CreateVersion7(), $"RFB{catalogSuffix}", "退款測試品牌", NowUtc);
+        var category = new Category(
+            Guid.CreateVersion7(), $"RFC{catalogSuffix}", $"refund-test-{catalogSuffix}",
+            "退款測試分類", null, NowUtc);
+        context.AddRange(brand, category);
+        await context.SaveChangesAsync();
+        var product = new Product(
+            Guid.CreateVersion7(), $"RFP{catalogSuffix}", brand.Id, category.Id, "退款測試商品", NowUtc);
+        context.Products.Add(product);
+        await context.SaveChangesAsync();
+        var sku = new Sku(
+            Guid.CreateVersion7(), $"RFS{catalogSuffix}", product.Id, "退款測試 SKU", 100m, 60m, NowUtc);
+        context.Skus.Add(sku);
+        await context.SaveChangesAsync();
+        context.InventoryBalances.Add(new InventoryBalance(
+            Guid.CreateVersion7(), sku.Id, onHandQuantity: 4, reorderLevel: 1, NowUtc));
+        await context.SaveChangesAsync();
+
         var orderItem = new OrderItem(
-            Guid.CreateVersion7(), order.Id, skuId: null, "SKU-1", "27型螢幕", "27型螢幕 White",
+            Guid.CreateVersion7(), order.Id, sku.Id, sku.SkuCode, "27型螢幕", "27型螢幕 White",
             quantity: 2, listUnitPrice: 100m, saleUnitPrice: 100m, finalUnitPrice: 100m,
             unitCostSnapshot: 60m, lineSubtotal: 200m, discountAllocation: 0m,
             lineTotal: 200m, assemblyGroupKey: null, returnableQuantity: 2, NowUtc,
@@ -243,6 +309,19 @@ public sealed class ReturnRefundCreationTests
             new OrderItemSpecificationSnapshot("Test specification", "{}", 1));
         context.OrderItems.Add(orderItem);
         await context.SaveChangesAsync();
+
+        if (withClawbackExceedingCoupon)
+        {
+            // 保留下來的品項小計（(2-1)*100=100）遠低於門檻 3000，扣回蓋過品項退款
+            // （100 - 500 = -400）。與 RefundCalculatorTests
+            // .WhenTheClawbackSwallowsTheWholeRefund_TheAmountIsRejected 同一組數字。
+            context.OrderCoupons.Add(new OrderCoupon(
+                Guid.CreateVersion7(), order.Id, couponId: null, redemptionId: null,
+                "CLAWBACK500", "扣回測試券", CouponDiscountType.FixedAmount, ruleVersion: 1,
+                discountValue: 500m, minimumSpendAmount: 3000m, appliedAmount: 500m,
+                eligibleSubtotal: 3000m, isFreeShipping: false, NowUtc));
+            await context.SaveChangesAsync();
+        }
 
         long paymentAttemptId = 0;
         if (withPaidAttempt)
@@ -269,7 +348,7 @@ public sealed class ReturnRefundCreationTests
 
         var returnRequest = creation.Request;
         returnRequest.Transition(ReturnRequestStatus.UnderReview, NowUtc);
-        returnRequest.Approve(admin.Id, requiresShipment: true, NowUtc);
+        returnRequest.Approve(admin.Id, ReturnApprovalOutcome.RequiresShipment, NowUtc);
         returnRequest.Transition(ReturnRequestStatus.InTransit, NowUtc);
         returnRequest.Transition(ReturnRequestStatus.Received, NowUtc);
         await context.SaveChangesAsync();

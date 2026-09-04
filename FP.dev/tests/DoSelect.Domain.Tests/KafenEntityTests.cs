@@ -35,7 +35,7 @@ public sealed class KafenEntityTests
     public void ReturnRequest_ApprovalSeparatesShipmentAndRefundPaths()
     {
         var request = new ReturnRequest(Guid.NewGuid(), "RT-1", 1, "member", "Defect", "商品故障", 1, CreatedAtUtc);
-        request.Transition(ReturnRequestStatus.UnderReview, CreatedAtUtc.AddMinutes(1)); request.Approve("manager", true, CreatedAtUtc.AddMinutes(2));
+        request.Transition(ReturnRequestStatus.UnderReview, CreatedAtUtc.AddMinutes(1)); request.Approve("manager", ReturnApprovalOutcome.RequiresShipment, CreatedAtUtc.AddMinutes(2));
         Assert.Equal(ReturnRequestStatus.AwaitingShipment, request.Status); Assert.Equal(CreatedAtUtc.AddMinutes(2).AddDays(7), request.ReturnShipmentDueAtUtc);
     }
 
@@ -140,7 +140,7 @@ public sealed class KafenEntityTests
     {
         var request = new ReturnRequest(Guid.NewGuid(), "RT-4", 1, "member", "Defect", "商品故障", 1, CreatedAtUtc);
         request.Transition(ReturnRequestStatus.UnderReview, CreatedAtUtc.AddMinutes(1));
-        request.Approve("manager", requiresShipment: true, CreatedAtUtc.AddMinutes(2));
+        request.Approve("manager", ReturnApprovalOutcome.RequiresShipment, CreatedAtUtc.AddMinutes(2));
         var originalDue = request.ReturnShipmentDueAtUtc!.Value;
 
         Assert.False(request.HasShipmentDeadlineBeenExtended);
@@ -157,7 +157,7 @@ public sealed class KafenEntityTests
     {
         var request = new ReturnRequest(Guid.NewGuid(), "RT-5", 1, "member", "Defect", "商品故障", 1, CreatedAtUtc);
         request.Transition(ReturnRequestStatus.UnderReview, CreatedAtUtc.AddMinutes(1));
-        request.Approve("manager", requiresShipment: true, CreatedAtUtc.AddMinutes(2));
+        request.Approve("manager", ReturnApprovalOutcome.RequiresShipment, CreatedAtUtc.AddMinutes(2));
         var pastDue = request.ReturnShipmentDueAtUtc!.Value.AddDays(1);
 
         Assert.Throws<InvalidOperationException>(() => request.ExtendShipmentDeadline(pastDue));
@@ -168,7 +168,7 @@ public sealed class KafenEntityTests
     {
         var request = new ReturnRequest(Guid.NewGuid(), "RT-6", 1, "member", "Defect", "商品故障", 1, CreatedAtUtc);
         request.Transition(ReturnRequestStatus.UnderReview, CreatedAtUtc.AddMinutes(1));
-        request.Approve("manager", requiresShipment: false, CreatedAtUtc.AddMinutes(2));
+        request.Approve("manager", ReturnApprovalOutcome.RefundDue, CreatedAtUtc.AddMinutes(2));
 
         Assert.Equal(ReturnRequestStatus.AwaitingRefund, request.Status);
         Assert.Throws<InvalidOperationException>(() => request.ExtendShipmentDeadline(CreatedAtUtc.AddMinutes(3)));

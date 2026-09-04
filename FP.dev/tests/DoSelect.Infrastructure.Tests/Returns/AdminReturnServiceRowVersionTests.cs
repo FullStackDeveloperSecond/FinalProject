@@ -168,7 +168,7 @@ public sealed class AdminReturnServiceRowVersionTests
 
         var returnRequest = creation.Request;
         returnRequest.Transition(ReturnRequestStatus.UnderReview, NowUtc);
-        returnRequest.Approve(admin.Id, requiresShipment: true, NowUtc); // -> AwaitingShipment
+        returnRequest.Approve(admin.Id, ReturnApprovalOutcome.RequiresShipment, NowUtc); // -> AwaitingShipment
         returnRequest.Transition(ReturnRequestStatus.InTransit, NowUtc);
         returnRequest.Transition(ReturnRequestStatus.Received, NowUtc);
         context.ReturnStatusHistories.AddRange(
@@ -242,8 +242,9 @@ public sealed class AdminReturnServiceRowVersionTests
     /// <remarks>這幾條測的是 RowVersion 前置條件，退款建立由自己的測試覆蓋。</remarks>
     private sealed class NoOpReturnRefundCreationPort : IReturnRefundCreationPort
     {
-        public Task StagePendingRefundAsync(
+        public Task<ReturnRefundCreationOutcome> StagePendingRefundAsync(
             ReturnRefundCreationCommand command,
-            CancellationToken cancellationToken) => Task.CompletedTask;
+            CancellationToken cancellationToken) =>
+            Task.FromResult<ReturnRefundCreationOutcome>(new ReturnRefundCreationOutcome.PendingRefundStaged());
     }
 }

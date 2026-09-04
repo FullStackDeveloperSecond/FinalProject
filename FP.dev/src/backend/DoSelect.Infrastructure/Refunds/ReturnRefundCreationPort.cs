@@ -9,7 +9,8 @@ using Microsoft.EntityFrameworkCore;
 namespace DoSelect.Infrastructure.Refunds;
 
 /// <summary>
-/// 退貨進入 <c>AwaitingRefund</c> 時，暫存唯一一筆 <c>PendingReview</c> 退款。
+/// 退貨核准／檢查完成時判斷退款去向：算出淨額 > 0 就暫存唯一一筆 <c>PendingReview</c>
+/// 退款，算出淨額 <= 0 就回報無款可退，不建立任何 Refund（#99 A1 裁定）。
 /// </summary>
 /// <remarks>
 /// <para>
@@ -54,7 +55,7 @@ public sealed class ReturnRefundCreationPort : IReturnRefundCreationPort
     internal static string IdempotencyKeyFor(Guid returnPublicId) =>
         $"{IdempotencyKeyPrefix}{returnPublicId:D}";
 
-    public async Task StagePendingRefundAsync(
+    public async Task<ReturnRefundCreationOutcome> StagePendingRefundAsync(
         ReturnRefundCreationCommand command,
         CancellationToken cancellationToken)
     {
@@ -119,12 +120,18 @@ public sealed class ReturnRefundCreationPort : IReturnRefundCreationPort
 
         // 淨額為 0 或負數（扣回蓋過退款，例如退貨後不再符合優惠門檻）已經是
         // RefundCalculator 自己決定並測過的行為 —— 它在那種情況下回
-        // Failure(RefundAmountExceeded)，不是 Success。這裡不需要另外接一個
-        // NetRefundAmount <= 0 的檢查：那樣的檢查永遠走不到，一旦 IsSuccess 為真，
-        // NetRefundAmount 保證 > 0（見 RefundCalculatorTests
-        // .WhenTheClawbackSwallowsTheWholeRefund_TheAmountIsRejected）。
+        // Failure(RefundAmountExceeded)，不是 Success（見 RefundCalculatorTests
+        // .WhenTheClawbackSwallowsTheWholeRefund_TheAmountIsRejected）。這是一個合法的
+        // 業務結果，不是錯誤：#99 A1 裁定回具名結果讓呼叫端走 Completed，不得讓退貨
+        // 卡在 409 重試迴圈，也不能用例外表達正常業務分支（#99 review 對此的意見）。
+        // 其餘計算失敗（找不到品項、退貨數量超過等）仍然是真正的錯誤，照原本方式丟。
         if (!calculation.IsSuccess)
         {
+            if (calculation.ErrorCode == RefundErrorCodes.RefundAmountExceeded)
+            {
+                return new ReturnRefundCreationOutcome.NoRefundDue();
+            }
+
             throw DomainProblemException.Conflict(
                 calculation.ErrorCode!,
                 "The approved return does not produce a refundable amount.");
@@ -141,6 +148,8 @@ public sealed class ReturnRefundCreationPort : IReturnRefundCreationPort
             command.AdminUserId,
             IdempotencyKeyFor(returnPublicId),
             command.OccurredAtUtc));
+
+        return new ReturnRefundCreationOutcome.PendingRefundStaged();
     }
 
     /// <summary>
