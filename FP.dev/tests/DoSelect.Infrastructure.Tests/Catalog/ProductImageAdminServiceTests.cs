@@ -254,6 +254,55 @@ public sealed class ProductImageAdminServiceTests : IAsyncLifetime
         Assert.Equal(CatalogWriteException.ErrorCodes.ConcurrencyConflict, stale.ErrorCode);
     }
 
+    /// <summary>組長 PR #101 round 2：只改排序或原值重送時，稽核不能宣稱 Alt／來源／授權變過。</summary>
+    [Fact]
+    public async Task UpdateAsync_WithOnlyASortOrderChangeOrUnchangedValues_DoesNotClaimTheMetadataChanged()
+    {
+        await using var context = CatalogAdminFixture.CreateContext();
+        var (product, admin) = await SeedAsync(context);
+        var service = CreateService(context);
+        var uploaded = await UploadAsync(service, product.PublicId, admin, "front.png");
+
+        var reordered = await service.UpdateAsync(
+            uploaded.PublicId,
+            new UpdateProductImageCommand(
+                uploaded.AltText, 3, uploaded.SourceUrl, uploaded.LicenseName, uploaded.LicenseUrl, uploaded.RowVersion),
+            admin,
+            TestAuditContext,
+            CancellationToken.None);
+        var resubmitted = await service.UpdateAsync(
+            reordered.PublicId,
+            new UpdateProductImageCommand(
+                reordered.AltText, reordered.SortOrder, reordered.SourceUrl, reordered.LicenseName, reordered.LicenseUrl, reordered.RowVersion),
+            admin,
+            TestAuditContext,
+            CancellationToken.None);
+        await service.UpdateAsync(
+            resubmitted.PublicId,
+            new UpdateProductImageCommand(
+                "顯示卡正面", resubmitted.SortOrder, null, null, null, resubmitted.RowVersion),
+            admin,
+            TestAuditContext,
+            CancellationToken.None);
+
+        await using var verify = CatalogAdminFixture.CreateContext();
+        var audits = (await verify.AuditLogs.AsNoTracking()
+                .Where(a => a.ResourcePublicId == uploaded.PublicId && a.Action == AuditActions.ProductImageUpdate)
+                .ToListAsync())
+            .Select(Changes)
+            .ToList();
+        Assert.Equal(3, audits.Count);
+
+        var sortOnly = Assert.Single(audits, changes => changes.ContainsKey("sortOrder"));
+        Assert.Equal(("0", "3"), sortOnly["sortOrder"]);
+        Assert.DoesNotContain("metadata", sortOnly.Keys);
+
+        var unchanged = Assert.Single(audits, changes => !changes.ContainsKey("sortOrder") && !changes.ContainsKey("metadata"));
+        Assert.Equal(["productPublicId"], unchanged.Keys);
+
+        Assert.Single(audits, changes => changes.ContainsKey("metadata"));
+    }
+
     /// <summary>組長 PR #101 item 1：Published 的圖片不能被 PATCH 成來源／授權不完整卻繼續公開。</summary>
     [Fact]
     public async Task UpdateAsync_OnAPublishedImage_RejectsClearingTheAttributionAndLeavesItUntouched()

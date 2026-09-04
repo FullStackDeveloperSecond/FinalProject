@@ -200,13 +200,20 @@ public sealed class EfProductImageAdminService : IProductImageAdminService
 
         var sortOrderBefore = image.SortOrder;
         var completeBefore = image.HasCompleteMetadata;
+        var metadataBefore = (image.AltTextZhTw, image.SourceUrl, image.LicenseName, image.LicenseUrl);
         image.UpdateMetadata(altText, command.SortOrder, sourceUrl, licenseName, licenseUrl, UtcNow());
 
         var changes = new List<AuditFieldChange>
         {
             AuditFieldChange.Code(ProductImageAuditFields.ProductPublicId, null, productPublicId.ToString("D")),
-            AuditFieldChange.Changed(ProductImageAuditFields.Metadata),
         };
+        // 組長 PR #101 round 2：`metadata` 只在 Alt／來源／授權真的有改時才記；只改排序或原值重送
+        // 不能讓稽核宣稱中繼資料變過。比對的是實體正規化後的值，與實際存進去的內容一致。
+        if (metadataBefore != (image.AltTextZhTw, image.SourceUrl, image.LicenseName, image.LicenseUrl))
+        {
+            changes.Add(AuditFieldChange.Changed(ProductImageAuditFields.Metadata));
+        }
+
         if (sortOrderBefore != image.SortOrder)
         {
             changes.Add(AuditFieldChange.Code(ProductImageAuditFields.SortOrder, Number(sortOrderBefore), Number(image.SortOrder)));
