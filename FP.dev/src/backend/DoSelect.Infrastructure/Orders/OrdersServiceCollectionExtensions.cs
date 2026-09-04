@@ -1,5 +1,7 @@
 using DoSelect.Application.Orders;
+using DoSelect.Application.Refunds;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace DoSelect.Infrastructure.Orders;
 
@@ -11,6 +13,7 @@ public static class OrdersServiceCollectionExtensions
 
         services.AddScoped<IOrderService, EfOrderService>();
         services.AddScoped<IOrderTimeoutCancellationService, EfOrderTimeoutCancellationService>();
+        services.TryAddScoped<IRefundOrderProjectionPort, EfRefundOrderProjectionPort>();
 
         return services;
     }

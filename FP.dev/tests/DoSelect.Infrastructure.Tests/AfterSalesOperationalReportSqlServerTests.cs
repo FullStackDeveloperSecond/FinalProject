@@ -17,6 +17,7 @@ using DoSelect.Infrastructure.Auditing;
 using DoSelect.Infrastructure.Idempotency;
 using DoSelect.Infrastructure.Invoicing;
 using DoSelect.Infrastructure.OperationalReports;
+using DoSelect.Infrastructure.Orders;
 using DoSelect.Infrastructure.Refunds;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Returns;
@@ -51,7 +52,7 @@ public sealed class AfterSalesOperationalReportSqlServerTests
             new ReturnStore(context),
             new ReturnOrderEligibilityLookup(context),
             new ReturnInventoryRestockWriter(context),
-            new ReturnRefundCreationPort(context),
+            new ReturnRefundCreationPort(context, new EfRefundOrderProjectionPort(context)),
             timeProvider);
 
         var inspected = await returnService.InspectAsync(

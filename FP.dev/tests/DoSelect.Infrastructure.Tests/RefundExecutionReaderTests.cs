@@ -199,6 +199,14 @@ public sealed class RefundExecutionReaderTests
                 ["Roles"] = ["Id", "Name"],
             },
 
+            // WP-H06：Refund 自有資料的訂單退款彙總計算。只讀 Refunds，實際 Orders
+            // 寫入透過 IRefundOrderProjectionPort；沒有新增任何跨模組資料表例外。
+            ["RefundOrderProjectionStager.cs"] =
+                new Dictionary<string, string[]>(StringComparer.Ordinal)
+                {
+                    ["Refunds"] = ["*"],
+                },
+
             // B1-3：正式 RefundDto 的唯讀投影。
             ["RefundReader.cs"] = new Dictionary<string, string[]>(StringComparer.Ordinal)
             {

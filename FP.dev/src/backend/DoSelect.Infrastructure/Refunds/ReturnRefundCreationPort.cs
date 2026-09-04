@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using DoSelect.Application.Common;
 using DoSelect.Application.Refunds;
 using DoSelect.Application.Returns;
@@ -44,11 +45,16 @@ public sealed class ReturnRefundCreationPort : IReturnRefundCreationPort
     internal const string IdempotencyKeyPrefix = "return-refund:";
 
     private readonly DoSelectDbContext _context;
+    private readonly IRefundOrderProjectionPort _orderProjectionPort;
 
-    public ReturnRefundCreationPort(DoSelectDbContext context)
+    public ReturnRefundCreationPort(
+        DoSelectDbContext context,
+        IRefundOrderProjectionPort orderProjectionPort)
     {
         ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(orderProjectionPort);
         _context = context;
+        _orderProjectionPort = orderProjectionPort;
     }
 
     /// <summary>這張退貨對應的決定性建立金鑰。</summary>
@@ -137,7 +143,7 @@ public sealed class ReturnRefundCreationPort : IReturnRefundCreationPort
                 "The approved return does not produce a refundable amount.");
         }
 
-        _context.Refunds.Add(new Refund(
+        var refund = new Refund(
             Guid.CreateVersion7(),
             returnRequest.OrderId,
             returnRequest.Id,
@@ -147,7 +153,16 @@ public sealed class ReturnRefundCreationPort : IReturnRefundCreationPort
             trustedInputs.Reason.ToString(),
             command.AdminUserId,
             IdempotencyKeyFor(returnPublicId),
-            command.OccurredAtUtc));
+            command.OccurredAtUtc);
+        _context.Refunds.Add(refund);
+
+        await new RefundOrderProjectionStager(_context, _orderProjectionPort).StageAsync(
+            refund,
+            "refund-pending-review",
+            command.AdminUserId,
+            command.OccurredAtUtc,
+            Activity.Current?.TraceId.ToString() ?? ActivityTraceId.CreateRandom().ToString(),
+            cancellationToken);
 
         return new ReturnRefundCreationOutcome.PendingRefundStaged();
     }
