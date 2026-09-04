@@ -10,8 +10,10 @@ namespace DoSelect.Application.Refunds;
 /// <remarks>
 /// <para>
 /// <b>介面歸 Refund（M-13）所有</b>，由 Returns（M-12）呼叫。金額、付款嘗試、退款編號與
-/// 冪等金鑰全部由實作決定；退貨端只宣告「這張退貨到了 <c>AwaitingRefund</c>」，
-/// 不建構 <see cref="DoSelect.Domain.Refunds.Refund"/>，也不傳任何金額。
+/// 冪等金鑰全部由實作決定；退貨端只宣告「核准或檢查已完成」，不建構
+/// <see cref="DoSelect.Domain.Refunds.Refund"/>，也不傳任何金額。<b>呼叫時退貨還沒有
+/// 終態</b>——是否進入 <c>AwaitingRefund</c> 由這個埠的回傳結果決定
+/// （見 <see cref="ReturnRefundCreationOutcome"/>），退貨端不能先假設。
 /// </para>
 /// <para>
 /// 這是本模組刻意與 <c>IReturnInventoryPort</c> 不同的地方：那個埠定義在
@@ -22,14 +24,18 @@ namespace DoSelect.Application.Refunds;
 /// <para>
 /// <b>實作不得呼叫 SaveChanges。</b>與 <c>IReturnInventoryPort.StageReturnToStockAsync</c>
 /// 同一個約定：只在目前這個 scoped Unit of Work 上暫存，由
-/// <c>IReturnStore.SaveTransitionAsync</c> 把退貨狀態、歷程與這筆退款一起提交。
-/// 退貨狀態進了資料庫、退款卻沒有（或反過來）就是一筆對不了帳的財務紀錄。
+/// <c>IReturnStore.SaveTransitionAsync</c> 把退貨狀態、歷程與（若有）這筆退款一起提交。
+/// 回傳 <see cref="ReturnRefundCreationOutcome.PendingRefundStaged"/> 時，退貨狀態進了
+/// 資料庫、退款卻沒有（或反過來）就是一筆對不了帳的財務紀錄；回傳
+/// <see cref="ReturnRefundCreationOutcome.NoRefundDue"/> 時本來就沒有 Refund，
+/// 這條保證不適用。
 /// </para>
 /// </remarks>
 public interface IReturnRefundCreationPort
 {
     /// <summary>
-    /// 為 <paramref name="returnPublicId"/> 暫存唯一一筆 <c>PendingReview</c> 退款。
+    /// 依可信快照判斷 <paramref name="command"/> 對應退貨的退款去向：淨額 &gt; 0 就暫存
+    /// 唯一一筆 <c>PendingReview</c> 退款，&lt;= 0 就回報無款可退、不建立任何 Refund。
     /// </summary>
     /// <remarks>
     /// <para>
@@ -74,7 +80,8 @@ public abstract record ReturnRefundCreationOutcome
 }
 
 /// <summary>
-/// 退貨端在推進到 <c>AwaitingRefund</c> 的<b>同一刻</b>交給退款模組的可信退貨快照。
+/// 退貨端在核准或檢查完成的<b>同一刻</b>交給退款模組的可信退貨快照——這一刻退貨
+/// 是否會進入 <c>AwaitingRefund</c> 還沒決定，取決於 <see cref="ReturnRefundCreationOutcome"/>。
 /// </summary>
 /// <remarks>
 /// 這三項（原因、組裝費處置、退貨運費）必須由呼叫端傳進來，不能由實作回頭讀資料庫：

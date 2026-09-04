@@ -170,6 +170,19 @@ public sealed class ReturnRefundCreationTests
         var movement = await verify.InventoryMovements
             .SingleOrDefaultAsync(candidate => candidate.ReferencePublicId == seed.ReturnItemPublicId);
         Assert.NotNull(movement);
+
+        // #99 review：ReturnInspection 也要在同一筆交易落地，不只是庫存與歷史
+        // （alex 2026-09-04）。
+        var returnItemId = await verify.ReturnItems
+            .Where(candidate => candidate.PublicId == seed.ReturnItemPublicId)
+            .Select(candidate => candidate.Id)
+            .SingleAsync();
+        var inspection = Assert.Single(await verify.ReturnInspections
+            .Where(candidate => candidate.ReturnItemId == returnItemId)
+            .ToListAsync());
+        Assert.Equal("Resellable", inspection.Result);
+        Assert.Equal("Unopened", inspection.ConditionCode);
+        Assert.Equal(seed.AdminUserId, inspection.InspectedByAdminUserId);
     }
 
     [SqlServerFact]
