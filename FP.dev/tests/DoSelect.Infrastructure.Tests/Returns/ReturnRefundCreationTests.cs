@@ -14,6 +14,7 @@ using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using DoSelect.Infrastructure.Persistence.Returns;
 using DoSelect.Infrastructure.Refunds;
+using DoSelect.Infrastructure.Orders;
 using Microsoft.EntityFrameworkCore;
 
 namespace DoSelect.Infrastructure.Tests.Returns;
@@ -66,6 +67,21 @@ public sealed class ReturnRefundCreationTests
         var returnRequest = await verify.ReturnRequests
             .SingleAsync(candidate => candidate.Id == seed.ReturnRequestId);
         Assert.Equal(ReturnRequestStatus.AwaitingRefund, returnRequest.Status);
+
+        // Order 邊界也必須在同一筆交易收到退款投影：待審退款存在時為 Pending，
+        // 尚未成功退款所以累計金額仍為 0，並留下可稽核的狀態歷程。
+        var order = await verify.Orders.SingleAsync(candidate => candidate.Id == seed.OrderId);
+        Assert.Equal(OrderRefundStatus.Pending, order.OrderRefundStatus);
+        Assert.Equal(0m, order.RefundedAmount);
+
+        var orderHistory = Assert.Single(await verify.OrderStatusHistories
+            .Where(candidate =>
+                candidate.OrderId == seed.OrderId &&
+                candidate.StateDimension == OrderStateDimension.OrderRefundStatus)
+            .ToListAsync());
+        Assert.Equal(OrderRefundStatus.None.ToString(), orderHistory.FromStatus);
+        Assert.Equal(OrderRefundStatus.Pending.ToString(), orderHistory.ToStatus);
+        Assert.Equal(seed.AdminUserId, orderHistory.ActorUserId);
     }
 
     [SqlServerFact]
@@ -90,6 +106,13 @@ public sealed class ReturnRefundCreationTests
         var returnRequest = await verify.ReturnRequests
             .SingleAsync(candidate => candidate.Id == seed.ReturnRequestId);
         Assert.Equal(ReturnRequestStatus.Received, returnRequest.Status);
+
+        var order = await verify.Orders.SingleAsync(candidate => candidate.Id == seed.OrderId);
+        Assert.Equal(OrderRefundStatus.None, order.OrderRefundStatus);
+        Assert.Equal(0m, order.RefundedAmount);
+        Assert.False(await verify.OrderStatusHistories.AnyAsync(candidate =>
+            candidate.OrderId == seed.OrderId &&
+            candidate.StateDimension == OrderStateDimension.OrderRefundStatus));
     }
 
     [SqlServerFact]
@@ -247,7 +270,7 @@ public sealed class ReturnRefundCreationTests
             new ReturnStore(context),
             new ReturnOrderEligibilityLookup(context),
             new ReturnInventoryRestockWriter(context),
-            new ReturnRefundCreationPort(context),
+            new ReturnRefundCreationPort(context, new EfRefundOrderProjectionPort(context)),
             TimeProvider.System);
 
     private static InspectReturnRequest InspectRequest(ReturnSeed seed) =>
@@ -346,6 +369,7 @@ public sealed class ReturnRefundCreationTests
             attempt.Transition(PaymentAttemptStatus.Processing, NowUtc);
             attempt.Transition(PaymentAttemptStatus.Paid, NowUtc);
             context.PaymentAttempts.Add(attempt);
+            order.ApplyPaymentProjection(PaymentStatus.Paid, 1_325m, NowUtc);
             await context.SaveChangesAsync();
             paymentAttemptId = attempt.Id;
         }

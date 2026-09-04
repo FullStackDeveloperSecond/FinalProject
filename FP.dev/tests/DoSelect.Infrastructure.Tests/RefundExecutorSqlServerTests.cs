@@ -20,6 +20,7 @@ using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using DoSelect.Infrastructure.Persistence.Returns;
 using DoSelect.Infrastructure.Refunds;
+using DoSelect.Infrastructure.Orders;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -234,6 +235,20 @@ public sealed class RefundExecutorSqlServerTests
         var stored = await verify.Refunds.SingleAsync(r => r.PublicId == refund.PublicId);
         Assert.Equal(RefundStatus.Succeeded, stored.Status);
         Assert.True(await verify.RefundAllocations.AnyAsync(a => a.RefundId == stored.Id));
+
+        var order = await verify.Orders.SingleAsync(candidate => candidate.Id == stored.OrderId);
+        Assert.Equal(OrderRefundStatus.PartiallyRefunded, order.OrderRefundStatus);
+        Assert.Equal(500m, order.RefundedAmount);
+
+        var projectionHistory = Assert.Single(await verify.OrderStatusHistories
+            .Where(candidate =>
+                candidate.OrderId == stored.OrderId &&
+                candidate.StateDimension == OrderStateDimension.OrderRefundStatus &&
+                candidate.ToStatus == OrderRefundStatus.PartiallyRefunded.ToString())
+            .ToListAsync());
+        Assert.Equal(OrderRefundStatus.Pending.ToString(), projectionHistory.FromStatus);
+        Assert.Equal("refund-succeeded", projectionHistory.ReasonCode);
+        Assert.Equal(RefundExecutorSqlFixture.AdminUserId, projectionHistory.ActorUserId);
     }
 
     [RefundExecutorSqlFact]
@@ -765,6 +780,10 @@ public sealed class RefundExecutorSqlServerTests
         Assert.Equal(RefundStatus.Succeeded, stored.Status);
         Assert.Equal(1000m, stored.SucceededAmount);
 
+        var order = await verify.Orders.SingleAsync(candidate => candidate.Id == stored.OrderId);
+        Assert.Equal(OrderRefundStatus.Refunded, order.OrderRefundStatus);
+        Assert.Equal(1000m, order.RefundedAmount);
+
         // 完整退貨不得產生免運追回。
         Assert.False(await verify.RefundAllocations.AnyAsync(a =>
             a.RefundId == stored.Id &&
@@ -1157,6 +1176,14 @@ public sealed class RefundExecutorSqlServerTests
             Assert.Equal(933.33m, firstResult.SettledAmount);
         }
 
+        await using (var afterFirst = RefundExecutorSqlFixture.CreateContext())
+        {
+            var order = await afterFirst.Orders.SingleAsync(candidate => candidate.Id == first.OrderId);
+            // 第二筆仍是 Approved，因此彙總維持 Pending；成功累計仍必須同步成 933.33。
+            Assert.Equal(OrderRefundStatus.Pending, order.OrderRefundStatus);
+            Assert.Equal(933.33m, order.RefundedAmount);
+        }
+
         await using (var secondContext = RefundExecutorSqlFixture.CreateContext())
         {
             var secondResult = await CreateExecutor(secondContext).ExecuteAsync(Request(second));
@@ -1207,6 +1234,10 @@ public sealed class RefundExecutorSqlServerTests
                 (refund.Id == first.Id || refund.Id == second.Id))
             .SumAsync(refund => refund.SucceededAmount!.Value);
         Assert.Equal(1460m, settled);
+
+        var projectedOrder = await verify.Orders.SingleAsync(candidate => candidate.Id == first.OrderId);
+        Assert.Equal(OrderRefundStatus.Refunded, projectedOrder.OrderRefundStatus);
+        Assert.Equal(1460m, projectedOrder.RefundedAmount);
     }
 
     private static async Task AssertSignedAllocationTotalAsync(
@@ -1443,6 +1474,7 @@ public sealed class RefundExecutorSqlServerTests
                 }),
                 timeProvider),
             new RefundReturnCompletionPort(context),
+            new EfRefundOrderProjectionPort(context),
             timeProvider);
     }
 
@@ -1472,6 +1504,7 @@ public sealed class RefundExecutorSqlServerTests
                 }),
                 timeProvider),
             new RefundReturnCompletionPort(context),
+            new EfRefundOrderProjectionPort(context),
             timeProvider);
     }
 
@@ -1655,6 +1688,19 @@ public sealed class RefundExecutorSqlServerTests
         Assert.Equal(RefundStatus.Cancelled, stored.Status);
         Assert.Null(stored.ApprovedAmount);
 
+        var order = await verify.Orders.SingleAsync(candidate => candidate.Id == stored.OrderId);
+        Assert.Equal(OrderRefundStatus.None, order.OrderRefundStatus);
+        Assert.Equal(0m, order.RefundedAmount);
+
+        var orderHistory = Assert.Single(await verify.OrderStatusHistories
+            .Where(candidate =>
+                candidate.OrderId == stored.OrderId &&
+                candidate.StateDimension == OrderStateDimension.OrderRefundStatus &&
+                candidate.ReasonCode == RefundApprover.ZeroNetApprovalReasonCode)
+            .ToListAsync());
+        Assert.Equal(OrderRefundStatus.Pending.ToString(), orderHistory.FromStatus);
+        Assert.Equal(OrderRefundStatus.None.ToString(), orderHistory.ToStatus);
+
         var returnRequest = await verify.ReturnRequests.SingleAsync(r => r.Id == returnRequestId);
         Assert.Equal(ReturnRequestStatus.Completed, returnRequest.Status);
 
@@ -1733,6 +1779,13 @@ public sealed class RefundExecutorSqlServerTests
         var auditCount = await verify.Set<AuditLog>()
             .CountAsync(log => log.ResourcePublicId == refund.PublicId);
         Assert.Equal(1, auditCount);
+
+        var orderProjectionHistoryCount = await verify.OrderStatusHistories
+            .CountAsync(candidate =>
+                candidate.OrderId == stored.OrderId &&
+                candidate.StateDimension == OrderStateDimension.OrderRefundStatus &&
+                candidate.ReasonCode == RefundApprover.ZeroNetApprovalReasonCode);
+        Assert.Equal(1, orderProjectionHistoryCount);
     }
 
     /// <summary>
@@ -1852,6 +1905,7 @@ public sealed class RefundExecutorSqlServerTests
         attempt.Transition(PaymentAttemptStatus.AwaitingPayment, createdAtUtc);
         attempt.Transition(PaymentAttemptStatus.Processing, createdAtUtc);
         attempt.Transition(PaymentAttemptStatus.Paid, createdAtUtc);
+        order.ApplyPaymentProjection(PaymentStatus.Paid, 1460m, createdAtUtc);
         context.Add(attempt);
         await context.SaveChangesAsync();
 
@@ -1895,6 +1949,20 @@ public sealed class RefundExecutorSqlServerTests
             reasonCode: "customer_request", requestedBy: RefundExecutorSqlFixture.AdminUserId,
             idempotencyKey: $"create-{Guid.NewGuid():N}", createdAtUtc);
         refund.Approve(approvedAmount, RefundExecutorSqlFixture.AdminUserId, createdAtUtc.AddHours(1));
+        if (order.OrderRefundStatus == OrderRefundStatus.None)
+        {
+            order.ApplyRefundProjection(OrderRefundStatus.Pending, 0m, createdAtUtc.AddHours(1));
+            context.OrderStatusHistories.Add(new OrderStatusHistory(
+                Guid.CreateVersion7(),
+                order.Id,
+                OrderStateDimension.OrderRefundStatus,
+                OrderRefundStatus.None.ToString(),
+                OrderRefundStatus.Pending.ToString(),
+                "test-refund-seeded",
+                RefundExecutorSqlFixture.AdminUserId,
+                createdAtUtc.AddHours(1),
+                new string('b', 32)));
+        }
         context.Refunds.Add(refund);
         await context.SaveChangesAsync();
 
@@ -1960,6 +2028,10 @@ public sealed class RefundExecutorSqlServerTests
                 // 免運規則套用前的配送方式基本費。舊訂單為 Null 且不回填。
                 withBaseFeeSnapshot ? 60m : null),
             createdAtUtc);
+        order.ApplyPaymentProjection(
+            PaymentStatus.Paid,
+            Math.Min(paidAmount, order.GrandTotal),
+            createdAtUtc);
         context.Orders.Add(order);
         await context.SaveChangesAsync();
 
@@ -2023,6 +2095,17 @@ public sealed class RefundExecutorSqlServerTests
         {
             refund.Approve(approvedAmount, RefundExecutorSqlFixture.AdminUserId, createdAtUtc.AddHours(1));
         }
+        order.ApplyRefundProjection(OrderRefundStatus.Pending, 0m, createdAtUtc.AddHours(1));
+        context.OrderStatusHistories.Add(new OrderStatusHistory(
+            Guid.CreateVersion7(),
+            order.Id,
+            OrderStateDimension.OrderRefundStatus,
+            OrderRefundStatus.None.ToString(),
+            OrderRefundStatus.Pending.ToString(),
+            "test-refund-seeded",
+            RefundExecutorSqlFixture.AdminUserId,
+            createdAtUtc.AddHours(1),
+            new string('b', 32)));
         context.Refunds.Add(refund);
         await context.SaveChangesAsync();
 

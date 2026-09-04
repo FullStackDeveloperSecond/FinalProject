@@ -47,6 +47,7 @@ public sealed class RefundExecutor : IRefundExecutor
     private readonly IAuditWriter _auditWriter;
     private readonly IIdempotencyExecutor _idempotencyExecutor;
     private readonly IRefundReturnCompletionPort _returnCompletionPort;
+    private readonly IRefundOrderProjectionPort _orderProjectionPort;
     private readonly TimeProvider _timeProvider;
 
     public RefundExecutor(
@@ -54,18 +55,21 @@ public sealed class RefundExecutor : IRefundExecutor
         IAuditWriter auditWriter,
         IIdempotencyExecutor idempotencyExecutor,
         IRefundReturnCompletionPort returnCompletionPort,
+        IRefundOrderProjectionPort orderProjectionPort,
         TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(auditWriter);
         ArgumentNullException.ThrowIfNull(idempotencyExecutor);
         ArgumentNullException.ThrowIfNull(returnCompletionPort);
+        ArgumentNullException.ThrowIfNull(orderProjectionPort);
         ArgumentNullException.ThrowIfNull(timeProvider);
 
         _context = context;
         _auditWriter = auditWriter;
         _idempotencyExecutor = idempotencyExecutor;
         _returnCompletionPort = returnCompletionPort;
+        _orderProjectionPort = orderProjectionPort;
         _timeProvider = timeProvider;
     }
 
@@ -221,6 +225,14 @@ public sealed class RefundExecutor : IRefundExecutor
         // 發票折讓與稽核的 allocationCount 全部失真（DEC-P287／P289）。
         var allocationCount = await WriteAllocationsAsync(
             refund, plan.Allocations, occurredAtUtc, cancellationToken);
+
+        await new RefundOrderProjectionStager(_context, _orderProjectionPort).StageAsync(
+            refund,
+            RefundSucceededReasonCode,
+            plan.ExecutedByAdminUserId,
+            occurredAtUtc,
+            request.TraceId,
+            cancellationToken);
 
         // 稽核與退款狀態同批提交。Audit 寫入失敗時，下面的 SaveChanges 會整批失敗，
         // 退款狀態也不會留下來（DEC-P289）。

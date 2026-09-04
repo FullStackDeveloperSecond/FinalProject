@@ -1,12 +1,12 @@
 ---
-文件狀態: WP-H01～WP-H05 已完成
-最後更新: 2026-09-02
-基準分支: dev@16091fcf
-執行分支: codex/wp-a04-core-transaction-e2e-20260902
+文件狀態: WP-H01～WP-H06、WP-H08 已完成；WP-H07 未授權
+最後更新: 2026-09-04
+基準分支: dev@49a3a6a0
+執行分支: codex/wp-h06-order-refund-projection-20260904
 原負責人: haru
 暫時接手: alex
 第一線覆核: yinyin
-關聯 PR: "#72、#80、#83、#91"
+關聯 PR: "#72、#80、#83、#91、#94、#95、#97、#99、#102、#103"
 ---
 
 # Alex 暫時接手 Haru｜未完成範圍與推進記錄
@@ -23,7 +23,7 @@ PR #72 原本混合 `M-01`、`M-02`、`M-08`、`S-01`，且 base 落後、最新
 
 | 類型 | 基準 |
 |---|---|
-| 實作 | `dev@e93f2d2a` |
+| 實作 | `dev@49a3a6a0`；WP-H06 位於 `codex/wp-h06-order-refund-projection-20260904` |
 | 接手 PR | `#72 haru/feature/member-favorites@84e99ab` |
 | 配送依賴 | PR #73 已合併為 `dev@0f6be3ba`；Shipping／Store 仍為 Terry-owned 公開邊界 |
 | 會員 API | 最新 dev 的 `GET/PUT /api/v1/members/me` 與 Address CRUD |
@@ -67,8 +67,8 @@ PR #72 原本混合 `M-01`、`M-02`、`M-08`、`S-01`，且 base 落後、最新
 4. ~~Review／merge PR #73，先證明 Store brand code 與 Shipping profile code 語意可正確對接。~~ 已於 `dev@0f6be3ba` 完成。
 5. `WP-H04`：C-14 Checkout 完整前端。
 6. `WP-H05`：Cart → Checkout → Payment → Order／Invoice 隔離 SQL Server E2E。
-7. `WP-H06`：Haru 對 DES-21／DES-22 的 Order 邊界交叉覆核。
-8. `WP-H08`：依 exact evidence 回填矩陣、追蹤與本文件。
+7. ~~`WP-H06`：Haru 對 DES-21／DES-22 的 Order 邊界交叉覆核。~~ 已完成：找出 Refund 建立／成功／零淨額取消未更新 Order 退款投影的缺口，補上 Application port、同交易投影與歷程及 SQL Server 證據。
+8. ~~`WP-H08`：依 exact evidence 回填矩陣、追蹤與本文件。~~ 已於 2026-09-04 依 `dev@49a3a6a0` 與 WP-H06 證據同步回填三份文件。
 9. `WP-H07`：S-01，只在明確例外授權後執行。
 
 ## 5. 共通 Gate
@@ -120,6 +120,9 @@ PR #72 原本混合 `M-01`、`M-02`、`M-08`、`S-01`，且 base 落後、最新
 | 2026-09-02 | WP-H02／WP-H03 | 完成／已進 `dev` | WP-H02 會員 Session／管理員 TOTP Browser E2E 由 PR #80 合併；WP-H03 Guest 查單、跨單隔離、取消與 SQL 零副作用由 PR #83 合併。兩包皆使用專屬 `DoSelectE2E_<GUID>`。 |
 | 2026-09-02 | WP-H04 | 完成／已進 `dev` | C-14 Checkout 與 C-15 付款續接由 PR #91 合併；只消費正式 Orders／Shipping／Payment／Policy／Guest 契約。 |
 | 2026-09-02 | WP-H05 | 完成／以 PR #94 進 `dev` | 固定 Guest Cart 完成組裝商品、優惠、宅配、信用卡、訂單 replay、Guest 驗證、模擬付款與發票 Browser 旅程；另有 SQL Server replay／最後庫存競爭證據。依 DEC-P356 只允許隔離 E2E 顯式啟用模擬端點，未操作共用 `DoSelectDb`。PR #94 已 rebase `dev@16091fcf` 並整合 PR #88 的 Checkout 導頁失敗復原，依 exact-head CI、final review 與 squash merge 收尾。 |
+| 2026-09-04 | 後續交易基線 | 已進 `dev` | PR #95 補 Checkout 同冪等鍵不同 payload 的 SQL 零副作用；PR #97 交付 Cart Coupon Endpoint／UI；PR #99 建立待審退款；PR #102 讓正額退款成功時完成 Return；PR #103 交付退款核准與零淨額原子取消。PR #103 於 Required CI 全綠後由 alex 授權 Approve／squash merge，形成 `dev@49a3a6a0`。 |
+| 2026-09-04 | WP-H06 Order 邊界覆核與補完 | 完成／待分支進 PR | 依 Order／Refund 正式狀態機查出 production 退款路徑從未呼叫 `Order.ApplyRefundProjection`。於 `codex/wp-h06-order-refund-projection-20260904` 增加 Refund→Order Application port；待審建立寫 `Pending/0`，成功依累計寫 `PartiallyRefunded`／`Refunded`，零淨額取消回 `None`，所有投影與 `OrderStatusHistory`、Refund／Return／Audit 共用原交易提交。無 Schema、Migration、套件或 Production SQL。固定 SDK 10.0.303，SQL Server 紅燈 3/3 如預期失敗；修正後核心 7/7、相關 suite 44/44、完整 Infrastructure 1087/1087、Domain 483/483、Application 607/607 通過；solution 0 warning build 與 format verify 通過。獨立 review 找到的 DI 註冊與 B1 具名守門兩項整合問題均已修正並重驗。 |
+| 2026-09-04 | WP-H08 文件回填 | 完成 | 同步更新本文件、`未完成項目追蹤表.md` 與 `M功能實作矩陣.md`；只關閉 Haru 的 WP-H06／H08，不將 DES-21／DES-22 的其他 owner 剩餘範圍或 WP-H07／S-01 誤標完成。 |
 
 ### 8.1 共用 DB 事故後續約束
 
@@ -130,4 +133,4 @@ PR #72 原本混合 `M-01`、`M-02`、`M-08`、`S-01`，且 base 落後、最新
 
 ## 9. 下一步
 
-WP-H01～WP-H05 已完成；Haru 暫時移交的 H02～H05 即告一段落。WP-H06 仍是 Order 邊界交叉覆核，WP-H07／S-01 仍無本輪授權。
+WP-H01～WP-H06 與 WP-H08 已完成。下一個 Gate 是將 `codex/wp-h06-order-refund-projection-20260904` 送交 PR／Required CI；WP-H07／S-01 仍無本輪例外授權，不實作。

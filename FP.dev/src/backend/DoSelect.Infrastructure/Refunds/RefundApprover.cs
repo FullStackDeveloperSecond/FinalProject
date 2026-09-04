@@ -57,6 +57,7 @@ public sealed class RefundApprover : IRefundApprover
     private readonly IAuditWriter _auditWriter;
     private readonly IIdempotencyExecutor _idempotencyExecutor;
     private readonly IRefundReturnCompletionPort _returnCompletionPort;
+    private readonly IRefundOrderProjectionPort _orderProjectionPort;
     private readonly TimeProvider _timeProvider;
 
     public RefundApprover(
@@ -64,18 +65,21 @@ public sealed class RefundApprover : IRefundApprover
         IAuditWriter auditWriter,
         IIdempotencyExecutor idempotencyExecutor,
         IRefundReturnCompletionPort returnCompletionPort,
+        IRefundOrderProjectionPort orderProjectionPort,
         TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(auditWriter);
         ArgumentNullException.ThrowIfNull(idempotencyExecutor);
         ArgumentNullException.ThrowIfNull(returnCompletionPort);
+        ArgumentNullException.ThrowIfNull(orderProjectionPort);
         ArgumentNullException.ThrowIfNull(timeProvider);
 
         _context = context;
         _auditWriter = auditWriter;
         _idempotencyExecutor = idempotencyExecutor;
         _returnCompletionPort = returnCompletionPort;
+        _orderProjectionPort = orderProjectionPort;
         _timeProvider = timeProvider;
     }
 
@@ -190,6 +194,14 @@ public sealed class RefundApprover : IRefundApprover
             var previousStatus = refund.Status;
             refund.Approve(plan.ApprovedAmount, plan.ApprovedByAdminUserId, occurredAtUtc);
 
+            await new RefundOrderProjectionStager(_context, _orderProjectionPort).StageAsync(
+                refund,
+                "refund-approved",
+                plan.ApprovedByAdminUserId,
+                occurredAtUtc,
+                request.TraceId,
+                cancellationToken);
+
             WriteApprovalAudit(refund, request, plan, actor, previousStatus);
 
             await _context.SaveChangesAsync(cancellationToken);
@@ -221,6 +233,14 @@ public sealed class RefundApprover : IRefundApprover
                         ZeroNetApprovalReasonCode),
                     cancellationToken);
             }
+
+            await new RefundOrderProjectionStager(_context, _orderProjectionPort).StageAsync(
+                refund,
+                ZeroNetApprovalReasonCode,
+                cancelPlan.CancelledByAdminUserId,
+                occurredAtUtc,
+                request.TraceId,
+                cancellationToken);
 
             WriteCancellationAudit(refund, request, actor, previousStatus);
 
