@@ -1,4 +1,5 @@
 using DoSelect.Application.Common;
+using DoSelect.Application.Refunds;
 using DoSelect.Domain.Refunds;
 using DoSelect.Domain.Returns;
 
@@ -41,20 +42,29 @@ public sealed class AdminReturnService : IAdminReturnService
     private static readonly string[] ConditionCodes =
         ["Unopened", "OpenedForInspection", "Installed", "Used", "Damaged", "MissingAccessories", "Activated"];
 
+    /// <summary>
+    /// 淨額 &lt;= 0 直接結案時的 <c>ReturnStatusHistory.ReasonCode</c>（#99 A1 裁定）。
+    /// 讓稽核能區分「零退款結案」與正常退款成功結案。
+    /// </summary>
+    private const string ZeroNetRefundReasonCode = "zero-net-refund";
+
     private readonly IReturnStore _store;
     private readonly IReturnOrderEligibilityPort _orderPort;
     private readonly IReturnInventoryPort _inventoryPort;
+    private readonly IReturnRefundCreationPort _refundPort;
     private readonly TimeProvider _timeProvider;
 
     public AdminReturnService(
         IReturnStore store,
         IReturnOrderEligibilityPort orderPort,
         IReturnInventoryPort inventoryPort,
+        IReturnRefundCreationPort refundPort,
         TimeProvider timeProvider)
     {
         _store = store;
         _orderPort = orderPort;
         _inventoryPort = inventoryPort;
+        _refundPort = refundPort;
         _timeProvider = timeProvider;
     }
 
@@ -126,21 +136,51 @@ public sealed class AdminReturnService : IAdminReturnService
         {
             // Approve performs two legal Domain transitions. Preserve each edge separately in
             // the audit trail even though the aggregate method applies both in one call.
+            //
+            // 不需寄回檢查的分支要先知道退款去向才能決定第二條邊的終點：
+            // 淨額 > 0 落在 AwaitingRefund，<= 0 直接落在 Completed（#99 A1 裁定），
+            // 不能像以前一樣先假設終點是 AwaitingRefund。
+            var outcome = ReturnApprovalOutcome.RequiresShipment;
             if (!requiresShipment)
             {
                 returnRequest.CaptureRefundTrustedInputs(
                     request.AssemblyFeeDisposition!.Value,
                     request.ReturnShippingCost!.Value,
                     nowUtc);
+
+                var refundOutcome = await _refundPort.StagePendingRefundAsync(
+                    new ReturnRefundCreationCommand(
+                        returnRequest.PublicId,
+                        adminUserId,
+                        returnRequest.ReasonCode,
+                        request.AssemblyFeeDisposition!.Value,
+                        request.ReturnShippingCost!.Value,
+                        nowUtc),
+                    cancellationToken);
+                outcome = refundOutcome is ReturnRefundCreationOutcome.NoRefundDue
+                    ? ReturnApprovalOutcome.NoRefundDue
+                    : ReturnApprovalOutcome.RefundDue;
             }
-            returnRequest.Approve(adminUserId, requiresShipment, nowUtc);
+
+            var approvedToStatus = outcome switch
+            {
+                ReturnApprovalOutcome.RequiresShipment => ReturnRequestStatus.AwaitingShipment,
+                ReturnApprovalOutcome.RefundDue => ReturnRequestStatus.AwaitingRefund,
+                ReturnApprovalOutcome.NoRefundDue => ReturnRequestStatus.Completed,
+                _ => throw new ArgumentOutOfRangeException(nameof(outcome)),
+            };
+            // 零淨額結案用獨立原因碼，讓稽核能區分「零退款結案」與正常退款成功結案。
+            var approvedToReasonCode = outcome == ReturnApprovalOutcome.NoRefundDue
+                ? ZeroNetRefundReasonCode
+                : request.ReasonCode;
+
+            returnRequest.Approve(adminUserId, outcome, nowUtc);
             histories.Add(new ReturnStatusHistory(
                 returnRequest.Id, ReturnRequestStatus.UnderReview, ReturnRequestStatus.Approved,
                 request.ReasonCode, request.Note, adminUserId, nowUtc));
             histories.Add(new ReturnStatusHistory(
-                returnRequest.Id, ReturnRequestStatus.Approved,
-                requiresShipment ? ReturnRequestStatus.AwaitingShipment : ReturnRequestStatus.AwaitingRefund,
-                request.ReasonCode, request.Note, adminUserId, nowUtc));
+                returnRequest.Id, ReturnRequestStatus.Approved, approvedToStatus,
+                approvedToReasonCode, request.Note, adminUserId, nowUtc));
         }
         else
         {
@@ -231,8 +271,24 @@ public sealed class AdminReturnService : IAdminReturnService
                 returnRequest, ReturnRequestStatus.Inspecting, "inspection-started", null, adminUserId, nowUtc));
         }
 
-        histories.Add(TransitionAndRecord(
-            returnRequest, ReturnRequestStatus.AwaitingRefund, "inspection-complete", null, adminUserId, nowUtc));
+        // 需要寄回檢查的退貨在這裡才知道退款去向：淨額 > 0 才進 AwaitingRefund 並建立
+        // 退款，<= 0 直接結案（#99 A1 裁定）。品項處置、ReturnInspection 與庫存回補
+        // 不受影響，兩種結果都照常進行 —— 商品是真的收回來了。
+        var refundOutcome = await _refundPort.StagePendingRefundAsync(
+            new ReturnRefundCreationCommand(
+                returnRequest.PublicId,
+                adminUserId,
+                returnRequest.ReasonCode,
+                request.AssemblyFeeDisposition!.Value,
+                request.ReturnShippingCost!.Value,
+                nowUtc),
+            cancellationToken);
+
+        histories.Add(refundOutcome is ReturnRefundCreationOutcome.NoRefundDue
+            ? TransitionAndRecord(
+                returnRequest, ReturnRequestStatus.Completed, ZeroNetRefundReasonCode, null, adminUserId, nowUtc)
+            : TransitionAndRecord(
+                returnRequest, ReturnRequestStatus.AwaitingRefund, "inspection-complete", null, adminUserId, nowUtc));
 
         var returnToStock = updatedItems
             .Where(item => item.RestockDisposition == RestockDisposition.Resellable)

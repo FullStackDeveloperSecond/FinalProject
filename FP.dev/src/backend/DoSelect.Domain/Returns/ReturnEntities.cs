@@ -5,6 +5,13 @@ using DoSelect.Domain.Support;
 namespace DoSelect.Domain.Returns;
 
 public enum ReturnRequestStatus { Requested, UnderReview, Approved, AwaitingShipment, InTransit, Received, Inspecting, AwaitingRefund, Completed, Rejected, Cancelled }
+
+/// <summary>
+/// 核准後的三種去向（alex 2026-09-04 #99 A1 裁定）。取代原本的 <c>bool requiresShipment</c>：
+/// 那個布林值只夠分辨兩種去向，退款模組算出淨額 &lt;= 0 時需要第三種——不寄回、不等退款，
+/// 直接結案。
+/// </summary>
+public enum ReturnApprovalOutcome { RequiresShipment, RefundDue, NoRefundDue }
 public enum RestockDisposition { Resellable, Quarantine, Scrap }
 public enum ReturnShipmentMethod { HomePickup, ConvenienceStore, SelfShip }
 public enum ReturnShipmentStatus { Pending, Scheduled, PickedUp, InTransit, Delivered, Failed, Cancelled }
@@ -15,11 +22,16 @@ public sealed class ReturnRequest : MutablePublicEntity
     {
         [ReturnRequestStatus.Requested] = [ReturnRequestStatus.UnderReview, ReturnRequestStatus.Cancelled],
         [ReturnRequestStatus.UnderReview] = [ReturnRequestStatus.Approved, ReturnRequestStatus.Rejected],
-        [ReturnRequestStatus.Approved] = [ReturnRequestStatus.AwaitingShipment, ReturnRequestStatus.AwaitingRefund],
+        // Completed 邊：淨額計算 <= 0 時直接結案，不建立 Refund，因此不得經過
+        // AwaitingRefund（#98 A2：進入 AwaitingRefund 就必須同一交易建立唯一的
+        // PendingReview Refund；零淨額沒有 Refund）。
+        [ReturnRequestStatus.Approved] =
+            [ReturnRequestStatus.AwaitingShipment, ReturnRequestStatus.AwaitingRefund, ReturnRequestStatus.Completed],
         [ReturnRequestStatus.AwaitingShipment] = [ReturnRequestStatus.InTransit, ReturnRequestStatus.Cancelled],
         [ReturnRequestStatus.InTransit] = [ReturnRequestStatus.Received],
         [ReturnRequestStatus.Received] = [ReturnRequestStatus.Inspecting],
-        [ReturnRequestStatus.Inspecting] = [ReturnRequestStatus.AwaitingRefund, ReturnRequestStatus.Rejected],
+        [ReturnRequestStatus.Inspecting] =
+            [ReturnRequestStatus.AwaitingRefund, ReturnRequestStatus.Rejected, ReturnRequestStatus.Completed],
         [ReturnRequestStatus.AwaitingRefund] = [ReturnRequestStatus.Completed],
         [ReturnRequestStatus.Completed] = [],
         [ReturnRequestStatus.Rejected] = [],
@@ -72,8 +84,28 @@ public sealed class ReturnRequest : MutablePublicEntity
         ReturnShippingCost = returnShippingCost;
         MarkUpdated(occurredAtUtc);
     }
-    public void Approve(string adminUserId, bool requiresShipment, DateTime occurredAtUtc)
-    { if (Status != ReturnRequestStatus.UnderReview) throw new InvalidOperationException("The return is not under review."); ReviewedByAdminUserId = RequireText(adminUserId, nameof(adminUserId)); Transition(ReturnRequestStatus.Approved, occurredAtUtc); ApprovedAtUtc = occurredAtUtc; if (requiresShipment) { ReturnShipmentDueAtUtc = occurredAtUtc.AddDays(7); Transition(ReturnRequestStatus.AwaitingShipment, occurredAtUtc); } else Transition(ReturnRequestStatus.AwaitingRefund, occurredAtUtc); }
+    public void Approve(string adminUserId, ReturnApprovalOutcome outcome, DateTime occurredAtUtc)
+    {
+        if (Status != ReturnRequestStatus.UnderReview) throw new InvalidOperationException("The return is not under review.");
+        ReviewedByAdminUserId = RequireText(adminUserId, nameof(adminUserId));
+        Transition(ReturnRequestStatus.Approved, occurredAtUtc);
+        ApprovedAtUtc = occurredAtUtc;
+        switch (outcome)
+        {
+            case ReturnApprovalOutcome.RequiresShipment:
+                ReturnShipmentDueAtUtc = occurredAtUtc.AddDays(7);
+                Transition(ReturnRequestStatus.AwaitingShipment, occurredAtUtc);
+                break;
+            case ReturnApprovalOutcome.RefundDue:
+                Transition(ReturnRequestStatus.AwaitingRefund, occurredAtUtc);
+                break;
+            case ReturnApprovalOutcome.NoRefundDue:
+                Transition(ReturnRequestStatus.Completed, occurredAtUtc);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(outcome));
+        }
+    }
     /// <summary>Rejects the request from UnderReview (ineligible) or Inspecting (failed inspection) — both are legal Transition targets already.</summary>
     public void Reject(string adminUserId, DateTime occurredAtUtc)
     { ReviewedByAdminUserId = RequireText(adminUserId, nameof(adminUserId)); Transition(ReturnRequestStatus.Rejected, occurredAtUtc); }

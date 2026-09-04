@@ -147,6 +147,35 @@ public sealed class RefundTrustedInputsReader
             return null;
         }
 
+        return await FindAsync(
+            orderId, refundId, id, reason, assemblyDisposition, returnShippingCost, cancellationToken);
+    }
+
+    /// <summary>
+    /// 可信的退貨三項<b>由呼叫端提供</b>的多載。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 給「退貨核准的同一筆交易內建立退款」用（alex 2026-09-03 #98 A2）：那一刻
+    /// <c>CaptureRefundTrustedInputs</c> 只改了記憶體中的實體，還沒 SaveChanges，
+    /// 從資料庫讀 <c>ReturnRequests</c> 只會讀到舊值（或空值）。呼叫端把剛剛驗證並
+    /// 記錄下來的三項傳進來，其餘（訂單、明細、優惠券）仍由這裡讀。
+    /// </para>
+    /// <para>
+    /// 訂單那一半刻意<b>不</b>另外複製一份：執行階段與這裡共用同一段程式碼，
+    /// 兩處各寫一份就會出現「建立時算得出來、執行時算不出來」的落差。
+    /// </para>
+    /// </remarks>
+    public async Task<RefundTrustedInputs?> FindAsync(
+        long orderId,
+        long refundId,
+        long returnRequestId,
+        ReturnReason reason,
+        AssemblyFeeDisposition assemblyDisposition,
+        decimal returnShippingCost,
+        CancellationToken cancellationToken)
+    {
+        var id = returnRequestId;
         var order = await _context.Orders
             .AsNoTracking()
             .Where(candidate => candidate.Id == orderId)
