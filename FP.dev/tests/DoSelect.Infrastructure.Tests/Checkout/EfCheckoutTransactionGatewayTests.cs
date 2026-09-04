@@ -215,6 +215,56 @@ public sealed class EfCheckoutTransactionGatewayTests
     }
 
     [global::DoSelect.Infrastructure.Tests.Idempotency.SqlServerFact]
+    public async Task CheckoutService_WhenSameIdempotencyKeyIsReusedWithDifferentPayload_RejectsWithoutDuplicateSqlSideEffects()
+    {
+        var seed = await SeedAsync(onHandQuantity: 5);
+        var request = ToCreateOrderRequest(seed.Command);
+
+        await using (var firstContext = EfCheckoutTransactionGatewayFixture.CreateContext())
+        {
+            await CreateCheckoutService(firstContext, seed.Command.PolicyVersions).CreateOrderAsync(
+                seed.Command.Actor,
+                request,
+                seed.Command.IdempotencyKey);
+        }
+
+        var conflictingRequest = request with
+        {
+            Buyer = request.Buyer with { Name = "Different guest name" },
+        };
+        await using (var conflictContext = EfCheckoutTransactionGatewayFixture.CreateContext())
+        {
+            var exception = await Assert.ThrowsAsync<IdempotencyConflictException>(() =>
+                CreateCheckoutService(conflictContext, seed.Command.PolicyVersions).CreateOrderAsync(
+                    seed.Command.Actor,
+                    conflictingRequest,
+                    seed.Command.IdempotencyKey));
+            Assert.Equal(IdempotencyErrorCodes.PayloadConflict, exception.ErrorCode);
+        }
+
+        await using var verification = EfCheckoutTransactionGatewayFixture.CreateContext();
+        var order = await verification.Orders.SingleAsync(
+            candidate => candidate.SourceCartPublicId == seed.Command.CartPublicId);
+        Assert.Single(await verification.InventoryReservations
+            .Where(candidate => candidate.OrderId == order.Id)
+            .ToListAsync());
+        Assert.Single(await verification.PaymentAttempts
+            .Where(candidate => candidate.OrderId == order.Id)
+            .ToListAsync());
+        Assert.Single(await verification.IdempotencyRecords
+            .Where(candidate => candidate.Operation == CheckoutService.Operation &&
+                                candidate.Key == seed.Command.IdempotencyKey)
+            .ToListAsync());
+
+        var sku = await verification.Skus.SingleAsync(
+            candidate => candidate.PublicId == seed.SkuPublicId);
+        var balance = await verification.InventoryBalances.SingleAsync(
+            candidate => candidate.SkuId == sku.Id);
+        Assert.Equal(4, balance.AvailableQuantity);
+        Assert.Equal(1, balance.ReservedQuantity);
+    }
+
+    [global::DoSelect.Infrastructure.Tests.Idempotency.SqlServerFact]
     public async Task CheckoutService_WhenTwoCartsRaceForTheLastItem_OnlyOneCreatesAnOrder()
     {
         var firstSeed = await SeedAsync(onHandQuantity: 1);
