@@ -193,6 +193,9 @@ async function submitApproval() {
             </tr>
           </tbody>
         </table>
+        <p v-else-if="refund.status === 'cancelled'">
+          核准時重算後已無款可退，退款已終止為「已取消」，未產生退款分攤。
+        </p>
         <p v-else>
           尚未執行退款；後端會在執行交易內依可信快照計算並保存分攤，成功後顯示於此。
         </p>

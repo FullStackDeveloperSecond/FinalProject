@@ -33,7 +33,9 @@ const codeMessages: Record<string, string> = {
   coupon_state_conflict: '優惠券目前狀態不允許這個操作',
   refund_state_conflict: '退款目前狀態已變更，請重新整理後再試',
   refund_amount_exceeded: '退款金額超過目前可退款餘額',
-  refund_snapshot_unavailable: '缺少可信交易快照，不能執行退款',
+  // 執行與核准共用同一個錯誤碼目錄；文字不能寫死「執行」，核准階段撞到
+  // 同一個碼一樣要看得懂（alex 2026-09-04 #104 review）。
+  refund_snapshot_unavailable: '缺少可信交易快照，無法處理退款',
   idempotency_payload_conflict: '同一重試識別已用於不同內容，請重新整理後再試',
   inventory_reservation_not_active: '此保留已非 Active 狀態，無法釋放',
   inventory_reservation_already_processed: '此保留已被消耗、釋放或逾時',

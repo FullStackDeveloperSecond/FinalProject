@@ -2,6 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { ApiError } from '@doselect/web-shared/api'
 
 const mockListRefunds = vi.fn()
 const mockGetRefund = vi.fn()
@@ -172,5 +173,33 @@ describe('AdminRefundDetailPage', () => {
     expect(mockApproveRefund).toHaveBeenCalledOnce()
     expect(wrapper.find('[role="alert"]').exists()).toBe(false)
     expect(wrapper.text()).toContain('已取消')
+
+    // alex 2026-09-04 #104 review：已取消的頁面上方說「不需要另外處理」，空分攤區
+    // 不能沿用「尚未執行退款……成功後顯示於此」那段——兩者互相矛盾，只斷言
+    // 「已取消」看不出這個矛盾還在。
+    expect(wrapper.text()).toContain('未產生退款分攤')
+    expect(wrapper.text()).not.toContain('尚未執行退款')
+  })
+
+  it('shows an approval-specific message when the trusted snapshot is unavailable', async () => {
+    // alex 2026-09-04 #104 review：refund_snapshot_unavailable 的共用文字原本寫死
+    // 「不能執行退款」，但這裡撞到的是核准動作，不是執行——文字不能誤導管理員
+    // 以為是執行失敗。
+    mockGetRefund.mockResolvedValue(refund({ status: 'pendingReview', approvedBy: null }))
+    mockApproveRefund.mockRejectedValue(
+      new ApiError('Conflict', { status: 409, code: 'refund_snapshot_unavailable' }),
+    )
+
+    const wrapper = await mountPage()
+    await flushPromises()
+    await wrapper.find('[name="approveReasonCode"]').setValue('return_approved')
+    await wrapper.find('[name="approveConfirmed"]').setValue(true)
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    const alert = wrapper.find('[role="alert"]')
+    expect(alert.exists()).toBe(true)
+    expect(alert.text()).toContain('無法處理退款')
+    expect(alert.text()).not.toContain('不能執行退款')
   })
 })
