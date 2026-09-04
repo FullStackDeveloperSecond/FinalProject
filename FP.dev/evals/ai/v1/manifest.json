@@ -1,5 +1,5 @@
 {
-  "datasetVersion": "zh-TW-v1.0.2-draft",
+  "datasetVersion": "zh-TW-v1.0.3-draft",
   "language": "zh-TW",
   "caseFile": "dataset.zh-TW.v1.jsonl",
   "caseSchema": "eval-case.schema.json",
@@ -20,18 +20,18 @@
     "SUPPORT-SECURITY": 20
   },
   "versions": {
-    "prompt": "product-search-v2+support-v2",
+    "prompt": "product-search-v5+support-v2",
     "searchIntentSchema": "contract-v1.0.1-2026-09-03",
     "toolContract": "contract-v1",
     "grader": "deterministic-v1.1.0",
-    "fixture": "v1.0.2"
+    "fixture": "v1.0.3"
   },
   "candidateModels": {
     "productSearch": "gpt-5.6-luna",
     "aiSupport": "gpt-5.6-terra"
   },
-  "annotationStatus": "approved_by_primary_annotators_and_alex_2026-09-03",
-  "liveBaselineStatus": "release_failed_remediation_in_progress_2026-09-04",
+  "annotationStatus": "all_120_cases_approved_2026-09-04",
+  "liveBaselineStatus": "low_latency_smoke_failed_quality_product_search_v5_remediation_in_progress_2026-09-05",
   "containsProductionData": false,
   "containsRealPersonalData": false
 }

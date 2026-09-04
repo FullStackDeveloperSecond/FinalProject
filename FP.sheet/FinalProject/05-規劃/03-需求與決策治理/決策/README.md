@@ -1,6 +1,6 @@
 ---
 文件狀態: 持續更新
-最後更新: 2026-09-04
+最後更新: 2026-09-05
 ---
 
 # 決策工作區
@@ -13,6 +13,11 @@
 
 ## 最近完成批次
 
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-055-AI商品意圖分類人工覆核與安全診斷定版|DEC-BATCH-055｜AI 商品意圖分類、人工覆核與安全診斷定版]]：`DEC-P389～DEC-P391`，3 項，已於 2026-09-05 寫回；一般「主機」無用途／組裝詞時採 Prebuilt，用途＋預算或明示組裝才採 CustomBuild；低延遲 Smoke 正式覆核 3 Pass／3 Fail；InvalidOutput 只保存固定原因碼與欄位名稱，不保存 raw output。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-054-AI商品搜尋低延遲推理設定定版|DEC-BATCH-054｜AI 商品搜尋低延遲推理設定定版]]：`DEC-P385～DEC-P388`，4 項，已於 2026-09-04 寫回；保留 Luna、單次 5 秒、零同步重試與預設 service tier，商品 SearchIntent 改用 `reasoning.effort: none`、`text.verbosity: low`。後續 6 案 Smoke 的商品 P95 為 3,013 ms，但品質 Gate 仍失敗；taxonomy 與正式人工覆核已由 DEC-BATCH-055 完成，v5 尚未重驗，不進 baseline。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-053-AI商品搜尋單次模型與5秒降級定版|DEC-BATCH-053｜AI 商品搜尋單次模型與 5 秒降級定版]]：`DEC-P381～DEC-P384`，4 項，已於 2026-09-04 寫回；採方案 A，商品搜尋只做一次 5 秒意圖模型呼叫、零同步重試，理由改由後端核准事實確定性產生，三輪 Release 規劃降為 66 次。公開 API 不變；尚未付費重驗 v4 品質與 P95。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-052-AI創作者Fixture-v1.0.3定版|DEC-BATCH-052｜AI 創作者 Fixture v1.0.3 定版]]：`DEC-P378～DEC-P380`，3 項，已於 2026-09-04 寫回；核准最小合成名稱、GPU 預算取向與 64GB RAM，Runner 原樣映射 Name／Badges。資料集／Fixture 升為 v1.0.3，受影響兩案後續已完成 Terry／Alex 覆核，完整 Release Dry Run 現為 `IsLiveReady=true`；仍未付費重跑。當時未決的延遲方向已由 DEC-BATCH-053 完成。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-051-AI修正版Smoke結果與後續Gate定版|DEC-BATCH-051｜AI 修正版 Smoke 結果與後續 Gate 定版]]：`DEC-P372～DEC-P377`，6 項，已於 2026-09-04 寫回；Commit `f195c453` 的 6 案 Smoke 成本 US$0.010242、實際 11 次請求，Verdict `FAIL`。T2 證據完整，客服安全／引用通過；商品 Prompt 升為 v3 修正既有契約，Fixture 精確事實與延遲方向後續分別由 DEC-BATCH-052／053 完成，未付費重跑。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-050-AI首次ReleaseBaseline失敗與修正定版|DEC-BATCH-050｜AI 首次 Release baseline 失敗與修正定版]]：`DEC-P366～DEC-P371`，6 項，已於 2026-09-04 寫回；Commit `5e7cc8f2` 的三輪 baseline 成本 US$0.149338，品質與商品延遲 Gate 失敗。已分離 Adapter／orchestration 範圍、修正安全拒絕契約、Prompt／grader／JSONL／分階段觀測，並定版測試期間逐案追加結果與 checkpoint；尚未授權付費重跑，AI-09 維持進行中。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-049-AI第二次煙霧測試結果定版|DEC-BATCH-049｜AI 第二次煙霧測試結果定版]]：`DEC-P365`，1 項，已於 2026-09-04 寫回；Commit `9ea03fc3` 的雙案例 deterministic 與人工覆核均通過，成本 US$0.006085；單筆商品搜尋延遲只列為正式 baseline 待確認風險，未授權 129 次 Release baseline。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-048-AI煙霧測試缺口與資料集修正版定版|DEC-BATCH-048｜AI 煙霧測試缺口與資料集修正版定版]]：`DEC-P359～DEC-P364`，6 項，已於 2026-09-03 寫回；商品搜尋 strict Schema 移除不支援的 `uniqueItems` 並保留後端重複值拒絕，兩個政策 Fixture 補齊 15 筆案例所需的核准規則快照，資料集升為 `zh-TW-v1.0.2-draft`；Runner 拒絕零單價與不存在的指定案例 ID。Kafen／Alex 逐案覆核已完成，120 筆均核准；仍待可追溯 commit 與第二次 Live 費用授權。

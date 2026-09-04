@@ -220,6 +220,26 @@ describe('AiProductSearchPage', () => {
     expect(wrapper.text()).toContain('不代表 AI 推薦或相容性保證')
   })
 
+  it('shows bounded ways to relax constraints when no catalog result exists', async () => {
+    const response = baseResult({
+      resultType: 'noResults',
+      recommendations: [],
+      fallbackProducts: [],
+    })
+    mutateAsync.mockImplementation(async () => {
+      mutationData.value = response
+      return response
+    })
+    const wrapper = mountPage()
+
+    await wrapper.find('textarea').setValue('要求資料庫不存在的規格')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('目前沒有完全符合的商品')
+    expect(wrapper.text()).toContain('提高預算、放寬品牌或規格偏好')
+  })
+
   it('submits a user-confirmed structured manual part', async () => {
     const response = baseResult()
     mutateAsync.mockImplementation(async () => {

@@ -39,8 +39,8 @@ flowchart TD
     G -- 是 --> I["SQL Server 查詢公開、上架商品候選"]
     I --> J["價格、庫存與相容性確定性規則"]
     J --> K["排序並限制候選數"]
-    K --> L["OpenAI：僅依核准候選產生推薦理由"]
-    L --> M["後端驗證引用與商品識別"]
+    K --> L["後端：僅依核准候選事實產生確定性推薦理由"]
+    L --> M["後端驗證商品識別與理由完整性"]
     M --> N["回傳結果或安全降級"]
 ```
 
@@ -148,9 +148,9 @@ General
 
 | 情境 | 處理 |
 |---|---|
-| 搜尋呼叫超過 8 秒 | 中止 AI 流程；依錯誤類型決定是否已使用一次重試 |
-| 限流或暫時性服務錯誤 | 短暫退避後最多重試一次 |
-| Schema 格式錯誤 | 最多進行一次格式修復；仍失敗即降級 |
+| 搜尋呼叫超過 5 秒 | 中止 AI 意圖流程，不同步重試，直接降級為關鍵字搜尋 |
+| 限流或暫時性服務錯誤 | 不在使用者同步請求內重試，直接降級為關鍵字搜尋 |
+| Schema 格式錯誤 | 不進行第二次模型修復，Fail Closed 並降級為關鍵字搜尋 |
 | 必要資訊不足 | 回傳澄清問題，不執行 SQL 商品查詢 |
 | 無合法候選 | 顯示無結果原因及可放寬條件，不虛構商品 |
 | OpenAI 不可用 | 使用既有關鍵字搜尋與一般篩選 |
@@ -255,4 +255,4 @@ sequenceDiagram
 
 AI-13、Responses Adapter 與 M-19 已透過 PR #59 合併 `dev`，包含同意查詢／Grant／Withdraw、本人 Order／SupportTicket／Conversation Query、互動／引用／Token／成本保存、會員用量、A-28 管理彙總、會員聊天 UI、管理成本 UI 與 Playwright 降級旅程。Migration `20260828110755_AddAiSupportConversationsAndInteractions` 新增的 `AiInteractions.SearchPublicId` 與 `IntentJson` 已可直接承接搜尋互動，M-18 不需新增資料表或 Migration。
 
-M-18 已透過 PR #62 合併 `dev`，包含搜尋專用 SearchIntent 與推薦理由 strict Responses Adapter、訪客／會員 10／30 額度、IP＋30 日 Browser ID 匿名鍵、SQL 公開候選、站內 SKU／使用者確認手填零件、自然語言 `ProposedExistingPart` 確認閘門、八類完整 CustomBuild、NT$300 組裝費與既有零件不重複計價、正式確定性相容性檢查、核准候選理由驗證、Fail Closed 互動保存、關鍵字降級、公開 Endpoint、OpenAPI 與 `/ai-search` UI。Playwright 已以隔離 `DoSelectE2E_*` 資料庫驗證公開搜尋降級旅程並完成清理；這只證明確定性降級路徑。AI-09 的 Terry／Kafen 資料覆核、真實模型品質、P95、Token 與成本 baseline 仍未完成。
+M-18 已透過 PR #62 合併 `dev`。後續 AI-09 實測顯示兩次串行模型請求不符合 5 秒 P95，因此現行工作樹依 DEC-BATCH-053 收旂為單次 SearchIntent Responses 請求、5 秒且不同步重試；DEC-BATCH-054 進一步固定商品意圖請求使用 `reasoning.effort: none`、`text.verbosity: low` 與預設 service tier。DEC-BATCH-055 將候選 Prompt 升為 `product-search-v5`：一般「主機」沒有用途、效能或組裝詞時為 PrebuiltComputer；用途＋預算或明示組裝時為 CustomBuild；職稱「遊戲美術」不得自動加入 Gaming。strict Schema、白名單與後端驗證仍是正確性邊界，InvalidOutput 只向內部評估產物提供固定原因碼與欄位名，不保存 raw output。後端白名單候選完成後，只以名稱、品牌、分類、價格、預算與 Badges 確定性產生推薦理由。訪客／會員 10／30 額度、SQL 公開候選、既有零件確認閘門、八類 CustomBuild、NT$300 組裝費、確定性相容檢查、Fail Closed 保存、關鍵字降級、Endpoint、OpenAPI 與 `/ai-search` UI 契約均不變。v5 的真實品質、P95、Token 與成本仍須由另行授權的 AI-09 Smoke／baseline 驗證。

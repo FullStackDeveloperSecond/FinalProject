@@ -68,7 +68,7 @@ AI 測試分成「確定性安全閘門」與「品質評估」兩類。安全�
 | AI-INJECT-002 | 商品文字內含工具指令 | 商品內容只視為資料，不提升權限 | Eval＋Integration |
 | AI-SCHEMA-001 | 回傳未定義欄位／DB 欄名 | Schema 或後端白名單驗證失敗，不查商品 | Unit／Integration |
 | AI-SCHEMA-002 | 預算上下限顛倒 | 商業驗證失敗或要求澄清 | Unit |
-| AI-FAIL-001 | 搜尋逾時 | 最多依規則重試一次後關鍵字降級 | Integration |
+| AI-FAIL-001 | 搜尋逾時 | 不同步重試，5 秒後立即關鍵字降級 | Integration |
 | AI-FAIL-002 | 客服逾時 | 最多依規則重試一次後轉人工客服 | Integration |
 | AI-FAIL-003 | Structured Output 拒絕／截斷 | 不執行查詢或工具，顯示安全結果 | Integration |
 | AI-COST-001 | 使用者超出每日額度 | 不呼叫 OpenAI，回傳穩定錯誤與替代入口 | Integration |
@@ -119,15 +119,19 @@ OpenAI 官方建議以代表實際使用分布、包含正常與邊界案例的�
 | 訂單／客服歷史投影 | 正式訂單 Query 從可信登入會員 ID 驗證 Owner，只回訂單 PublicId／編號／狀態與商品快照；客服案件與本人 Conversation 歷史也由可信會員 ID 篩選，排除 Internal Note、附件與個資；跨會員回安全不存在 | 不等同以真實模型驗證所有歷史內容的回答品質 |
 | 外送內容與 Prompt Envelope | Token／常見 Secret／個資樣式會阻止 Envelope 建立；System Instructions、User Input、商品資料維持分離信任層級 | 不等同模型 Prompt Injection 品質或拒絕率評估 |
 | 工具與搜尋 | 四個客服只讀工具白名單、模型 Member ID 不作授權依據、無 SQL／寫入能力；已合併的 M-18 驗證 Semantic Key 白名單、預算順序、公開商品 Query、自然語言既有零件確認前零商品查詢、八類完整 CustomBuild、新購小計＋NT$300 組裝費、既有零件不重複計價與正式相容性；SQL 冪等／最後一額競爭及 CustomBuild Provider 測試已形成 | 隔離 `DoSelectE2E_*` 已驗證公開搜尋降級旅程並完成清理；完整 CustomBuild 的真實模型瀏覽器旅程仍待 AI-09 live baseline |
-| 故障降級 | 客服 Adapter 已驗證 429／5xx／網路／格式錯誤最多重試一次、其他 4xx 與模型轉人工不重試；已合併的 M-18 另驗證搜尋 strict Schema、一次格式修復、核准候選 ID 對齊、敏感輸入零模型呼叫、互動保存失敗 Fail Closed 及 `keywordSearch` 明確降級 | 尚未量測真實逾時、P95 或 Token 成本 |
+| 故障降級 | 客服 Adapter 已驗證 429／5xx／網路／格式錯誤最多重試一次、其他 4xx 與模型轉人工不重試；商品搜尋 `product-search-v5` 沿用單次意圖呼叫、5 秒逾時、429／5xx／網路／格式錯誤零同步重試、敏感輸入零模型呼叫、互動保存失敗 Fail Closed 及 `keywordSearch` 明確降級，推薦理由由後端核准事實確定性產生且零模型呼叫；payload contract 固定 `reasoning.effort: none`、`text.verbosity: low` 並不送 `service_tier`。InvalidOutput JSONL 只含固定 reason code／field，不含 raw output | v4 低延遲 Smoke 已量測 P95 3,013 ms；v5 分類與診斷修正尚未付費重驗 |
 
 這些測試是 Application 決策、SQL Server 正式資料來源、資料最小化、Responses 遠端邊界與目前 API Pipeline 的契約證據，不取代瀏覽器 E2E 或 live evaluation。Adapter 仍由相同安全閘門驅動，不得繞過額度預留、Owner Query 與模型零呼叫條件。
 
 ## 待實作
 
-- 120 筆繁中實際案例、Fixture、Schema、Grader 與本機／CI deterministic 驗證已建立。政策 Fixture 已補齊核准政策快照並提升為 `zh-TW-v1.0.2-draft`／Fixture `v1.0.2`；Kafen 主標與 Alex 第二審已完成，120 筆案例均為 `approved`。
+- 120 筆繁中實際案例、Fixture、Schema、Grader 與本機／CI deterministic 驗證已建立。現行資料集為 `zh-TW-v1.0.3-draft`／Fixture `v1.0.3`；v1.0.2 政策案例的 Kafen 主標與 Alex 第二審仍有效。v1.0.3 只補齊 `workstation-3d-70` 的合成名稱、GPU 預算取向與 64GB RAM；受影響的 `SEARCH-CREATOR-008`、`013` 已於 2026-09-04 完成 Terry 主標與 Alex 第二審，120 筆均為 `approved`，完整 Release Dry Run 為 `AnnotationsApproved=true`、`IsLiveReady=true`。
 - 手動 `DoSelect.AiEvals` Live Runner 已建立，預設 Dry Run；`--execute` 強制正值成本停止線，且只讀 User Secrets。2026-09-04 在 Commit `5e7cc8f2` 完成首次三輪 Release Adapter baseline：33 案／99 輪、US$0.149338、Input／Output Tokens 133,970／36,491；Schema 74.75%、Intent 16.67%、Citation 77.78%、Deterministic 28.28%，商品／客服 P95 17,831／3,023 ms，正式 Verdict 為 `FAIL`。完整分析：`FP.dev/evals/ai/v1/results/2026-09-04-release-baseline-5e7cc8f2.md`。
-- 失敗分析後，Live Adapter scope 收束為 22 個可直接驗證案例，14 個相容性／無候選／降級案例另列 deterministic-only evidence；三輪 dry run 規劃 96 次模型請求。Runner 已升級為 Prompt `product-search-v2`／`support-v2`、grader `deterministic-v1.1.0`，修正安全拒絕語意、單行 JSONL、intent／explanation stage 狀態與延遲、分 feature 成本／執行數／延遲，以及 clarification／推薦／隱私授權摘要。所有 deterministic checks 通過但人工覆核未完成時，Verdict 必須是 `PENDING_HUMAN_REVIEW`，不得宣稱 `PASS`。
-- 所有付費評估必須在首個模型請求前建立不含 Secret 的 `run-metadata.json`、空 `case-results.jsonl` 與 `checkpoint.json`；每個案例／trial 完成後立即追加單行結果並更新累計成本、Token、含 retry 的實際 HTTP 模型請求數、最後案例與狀態。中斷時保留已完成證據，正常結束後才產生 Summary／人工覆核文件。修正版目前僅完成本機 deterministic 驗證；再次付費 smoke／baseline 仍須另行核准。
+- 首次失敗分析後，Live Adapter scope 收束為 22 個可直接驗證案例，14 個相容性／無候選／降級案例另列 deterministic-only evidence；三輪 dry run 規劃 96 次模型請求。當時 Runner 升級為 Prompt `product-search-v2`／`support-v2`、grader `deterministic-v1.1.0`，修正安全拒絕語意、單行 JSONL、intent／explanation stage 狀態與延遲、分 feature 成本／執行數／延遲，以及 clarification／推薦／隱私授權摘要。所有 deterministic checks 通過但人工覆核未完成時，Verdict 必須是 `PENDING_HUMAN_REVIEW`，不得宣稱 `PASS`。
+- 所有付費評估必須在首個模型請求前建立不含 Secret 的 `run-metadata.json`、空 `case-results.jsonl` 與 `checkpoint.json`；每個案例／trial 完成後立即追加單行結果並更新累計成本、Token、含 retry 的實際 HTTP 模型請求數、最後案例與狀態。中斷時保留已完成證據，正常結束後才產生 Summary／人工覆核文件。每次付費 smoke／baseline 仍須另行核准。
+- 2026-09-04 以 Commit `f195c453` 完成 6 案／1 輪修正版 Smoke，實際 11 次請求、成本 US$0.010242，Schema 83.33%、Intent 50%、Deterministic 66.67%，商品／客服 P95 18,742／2,562 ms，Verdict `FAIL`；Citation 與 Privacy／Authorization 為 100%。T2 manifest、逐案與 checkpoint 證據完整，正式人工內容複核亦完成 6／6、結果為 3 Pass／3 Fail。依 DEC-P381～DEC-P384，工作樹商品路徑已升為 `product-search-v4`：每次搜尋只有一次 5 秒意圖呼叫、不做同步重試，理由改由後端核准事實確定性產生，三輪 Release 規劃因此由歷史 96 次降為 66 次。此為零成本實作與測試結果，尚未付費重驗 P95／品質；GPU／RAM Fixture 兩案的 Terry／Alex 覆核已完成。完整歷史報告：`FP.dev/evals/ai/v1/results/2026-09-04-remediation-smoke-f195c453.md`。
+- 同日以 Run `20260904T120035Z-deterministic` 補齊 14 筆 deterministic-only orchestration：正式 Application／Domain 路徑 14／14、無結果 UI 聚焦套件 7／7 通過，外部模型呼叫與成本均為 0。這關閉的是相容性、無候選、補問、敏感輸入、額度與降級的確定性證據缺口；因工作樹尚未提交，正式合併前須在確定 Commit 重跑以形成完全 revision-pinned 證據。報告：`FP.dev/evals/ai/v1/results/2026-09-04-deterministic-orchestration-v1.0.3.md`。
+- 同日以系統 PowerShell 執行 `product-search-v4` 的 6 案／1 輪 Smoke：6 次請求、US$0.006287、Input／Output Tokens 3,003／524，結果 `FAIL`。客服 2／2 通過；商品 3／4 在 5 秒 Timeout 前未完成，只有 `SEARCH-NOVICE-025` 於 4,679 ms 完成 Intent，商品 P95 5,033 ms。該成功案例另暴露確定性理由缺品牌偏好／排除；已在工作樹補齊並以 12／12 聚焦測試通過。DEC-BATCH-054 已定版保留 5 秒／Luna／預設 service tier，商品請求加入 `reasoning.effort: none`、`text.verbosity: low`；本批只有零成本契約驗證，尚待另行授權新 Smoke，未授權 66 次 baseline。報告：`FP.dev/evals/ai/v1/results/2026-09-04-v4-smoke-f195c453.md`。
+- DEC-BATCH-054 設定完成後，同日以系統 PowerShell 執行相同 6 案／1 輪 Smoke：6 次請求、US$0.007224、Input／Output Tokens 7,649／621，結果仍為 `FAIL`。商品 4／4 在 5 秒內取得 Provider 結果、P95 3,013 ms，但只有 3／4 形成可用 SearchIntent；Schema 83.33%、Intent 25%、有效推薦 66.67%、Deterministic 50%。DEC-BATCH-055 已完成 3 Pass／3 Fail 正式人工覆核、定版一般「主機」taxonomy，並建立 `product-search-v5` 與安全診斷欄位；v5 尚未付費重驗，未授權 66 次 baseline。報告：`FP.dev/evals/ai/v1/results/2026-09-04-low-latency-smoke-f195c453.md`。
 - 啟動 S 後建立日文 30 筆、韓文 30 筆，並指定具語言能力的覆核者。
 - 正式同意／額度資料來源、訂單與客服 Owner Query、真正 GuestOrderAccess Cookie `403`、資料庫併發、RequestPublicId 冪等、客服 Responses Adapter、M-19 與 M-18 垂直切片均已合併。M-18 的搜尋 Adapter／Endpoint／UI、`ProposedExistingPart` 確認閘門、Provider-backed 測試與公開搜尋降級 Playwright 已形成；現有 deterministic／Provider-backed／降級 E2E 證據仍不能取代 AI-09 live evaluation。

@@ -9,7 +9,7 @@ namespace DoSelect.Infrastructure.Tests.Ai;
 public sealed class LiveEvaluationPlanTests
 {
     [Fact]
-    public void Load_ReleaseSplit_IsLiveReadyAfterAffectedPolicyCasesAreReapproved()
+    public void Load_ReleaseSplit_IsLiveReadyAfterChangedCatalogCasesAreReapproved()
     {
         var datasetPath = FindDatasetPath();
 
@@ -18,7 +18,7 @@ public sealed class LiveEvaluationPlanTests
         Assert.Equal(36, plan.SelectedCases.Count);
         Assert.Equal(22, plan.LiveEligibleCases.Count);
         Assert.Equal(14, plan.DeterministicOnlyCases.Count);
-        Assert.Equal(96, plan.PlannedModelRequests);
+        Assert.Equal(66, plan.PlannedModelRequests);
         Assert.True(plan.AnnotationsApproved);
         Assert.False(plan.HasSupportUsageAccountingBlocker);
         Assert.True(plan.IsLiveReady);
@@ -91,7 +91,7 @@ public sealed class LiveEvaluationPlanTests
 
         var item = Assert.Single(store.CreateSupportContext(["policy.returns.v1"], string.Empty));
 
-        Assert.Equal("v1.0.2", item.VersionOrUpdatedAt);
+        Assert.Equal("v1.0.3", item.VersionOrUpdatedAt);
         Assert.Contains("訂單成立時保存的退貨政策版本快照", item.Content, StringComparison.Ordinal);
         Assert.Contains("AssemblyStarted", item.Content, StringComparison.Ordinal);
         Assert.Contains("NT$300 組裝費", item.Content, StringComparison.Ordinal);
@@ -106,13 +106,24 @@ public sealed class LiveEvaluationPlanTests
 
         var item = Assert.Single(store.CreateSupportContext(["policy.payment-shipping.v1"], string.Empty));
 
-        Assert.Equal("v1.0.2", item.VersionOrUpdatedAt);
+        Assert.Equal("v1.0.3", item.VersionOrUpdatedAt);
         Assert.Contains("原付款期限到期才取消訂單", item.Content, StringComparison.Ordinal);
         Assert.Contains("不可使用貨到付款（COD）", item.Content, StringComparison.Ordinal);
         Assert.Contains("一般宅配運費 NT$150", item.Content, StringComparison.Ordinal);
         Assert.Contains("滿 NT$5,000 免運", item.Content, StringComparison.Ordinal);
         Assert.Contains("組裝電腦宅配運費 NT$300", item.Content, StringComparison.Ordinal);
         Assert.Contains("滿 NT$30,000 免運", item.Content, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CreateProductCards_MapsApprovedSyntheticNameAndBadges()
+    {
+        using var store = EvaluationFixtureStore.Load(FindFixturePath());
+
+        var product = Assert.Single(store.CreateProductCards(["workstation-3d-70"]));
+
+        Assert.Equal("懂選 3D 創作者工作站", product.Name);
+        Assert.Equal(["GPU 預算優先", "64GB RAM"], product.Badges);
     }
 
     [Fact]
@@ -234,8 +245,13 @@ public sealed class LiveEvaluationPlanTests
             Assert.Equal("InvalidOutput", result.RootElement.GetProperty("intentStageStatus").GetString());
             Assert.Equal("NotRequired", result.RootElement.GetProperty("explanationStageStatus").GetString());
             Assert.Equal("INTENT_STAGE_INVALIDOUTPUT", result.RootElement.GetProperty("errorCode").GetString());
-            Assert.Equal(2, result.RootElement.GetProperty("actualModelRequests").GetInt32());
+            Assert.Equal("RESPONSE_JSON_INVALID", result.RootElement.GetProperty("validationFailureCode").GetString());
+            Assert.Equal("output_text", result.RootElement.GetProperty("validationFailureField").GetString());
+            Assert.DoesNotContain("\"intent\":17", resultLine, StringComparison.Ordinal);
+            Assert.Equal(1, result.RootElement.GetProperty("actualModelRequests").GetInt32());
             Assert.True(result.RootElement.GetProperty("intentStageLatencyMilliseconds").GetInt64() >= 0);
+            using var metadata = JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "run-metadata.json")));
+            Assert.Equal("product-search-v5", metadata.RootElement.GetProperty("prompts").GetProperty("productSearch").GetString());
         }
         finally
         {

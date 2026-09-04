@@ -1,5 +1,5 @@
 {
-  "fixtureVersion": "v1.0.2",
+  "fixtureVersion": "v1.0.3",
   "fixtures": [
     {
       "fixtureId": "catalog.synthetic.v1",
@@ -117,12 +117,17 @@
         },
         {
           "id": "workstation-3d-70",
+          "name": "懂選 3D 創作者工作站",
           "category": "CustomBuild",
           "purposes": [
             "ThreeDRendering",
             "GraphicDesign"
           ],
-          "price": 70000
+          "price": 70000,
+          "badges": [
+            "GPU 預算優先",
+            "64GB RAM"
+          ]
         },
         {
           "id": "workstation-programming-30",

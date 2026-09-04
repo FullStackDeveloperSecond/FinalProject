@@ -1,4 +1,4 @@
-export const datasetVersion = 'zh-TW-v1.0.2-draft'
+export const datasetVersion = 'zh-TW-v1.0.3-draft'
 
 export const groupPlans = {
   'SEARCH-NOVICE': { count: 30, development: 18, release: 9, challenge: 3 },
@@ -10,7 +10,7 @@ export const groupPlans = {
 }
 
 export const fixtures = {
-  fixtureVersion: 'v1.0.2',
+  fixtureVersion: 'v1.0.3',
   fixtures: [
     {
       fixtureId: 'catalog.synthetic.v1',
@@ -30,7 +30,14 @@ export const fixtures = {
         { id: 'workstation-video-40', category: 'PrebuiltComputer', purposes: ['VideoEditing'], price: 40000 },
         { id: 'workstation-video-80', category: 'CustomBuild', purposes: ['VideoEditing', 'Streaming'], price: 80000 },
         { id: 'workstation-3d-90', category: 'CustomBuild', purposes: ['ThreeDRendering'], price: 90000 },
-        { id: 'workstation-3d-70', category: 'CustomBuild', purposes: ['ThreeDRendering', 'GraphicDesign'], price: 70000 },
+        {
+          id: 'workstation-3d-70',
+          name: '懂選 3D 創作者工作站',
+          category: 'CustomBuild',
+          purposes: ['ThreeDRendering', 'GraphicDesign'],
+          price: 70000,
+          badges: ['GPU 預算優先', '64GB RAM'],
+        },
         { id: 'workstation-programming-30', category: 'PrebuiltComputer', purposes: ['Programming'], price: 30000 },
         { id: 'monitor-4k-creator', category: 'Monitor', purposes: ['GraphicDesign', 'VideoEditing'], price: 18000 },
         { id: 'monitor-4k-gaming', category: 'Monitor', purposes: ['Gaming'], price: 12000 },
@@ -124,12 +131,12 @@ const creator = [
   { message: '剪 8K RAW 素材但只有三萬元，請不要降低素材規格。', outcome: 'no_result', intent: ['CustomBuild', ['VideoEditing'], 30000], points: ['保留 8K RAW 硬限制', '說明預算不足'] },
   { message: 'After Effects 動態設計，六萬元內，RAM 至少 64GB。', intent: ['CustomBuild', ['GraphicDesign', 'VideoEditing'], 60000], candidates: ['workstation-video-45'], specs: ['memory.capacity_gb>=64'], points: ['不得把 64GB 改成偏好'] },
   { message: '直播加遊戲同時進行，五萬五，希望編碼穩定。', intent: ['CustomBuild', ['Streaming', 'Gaming'], 55000], candidates: ['build-streaming-55'], points: ['同時保留兩種用途'] },
-  { message: '做 CAD 與一般 3D 建模，七萬元，沒有指定品牌。', intent: ['CustomBuild', ['ThreeDRendering'], 70000], candidates: ['workstation-3d-70'], points: ['品牌缺少不補問'] },
+  { message: '做 CAD 與一般 3D 建模，七萬元，沒有指定品牌。', intent: ['CustomBuild', ['ThreeDRendering'], 70000], candidates: ['workstation-3d-70'], points: ['品牌缺少不補問'], annotationStatus: 'approved' },
   { message: '攝影師修 RAW，螢幕兩萬元內，要能引用真實色彩規格。', intent: ['SingleProduct', ['GraphicDesign'], 20000], category: 'Monitor', candidates: ['monitor-4k-creator'], points: ['色彩事實必須引用來源'] },
   { message: '程式編譯和多個虛擬環境，主機三萬元，RAM 至少 32GB。', intent: ['PrebuiltComputer', ['Programming'], 30000], candidates: ['workstation-programming-30'], specs: ['memory.capacity_gb>=32'], points: ['32GB 是硬限制'] },
   { message: '要做 3D，但沒有說軟體與預算，先幫我直接推薦最強的。', outcome: 'clarify', intent: ['CustomBuild', ['ThreeDRendering'], null], clarify: ['budget.max'], tags: ['core_clarification'], points: ['至少詢問最高預算'] },
   { message: '專業剪輯主機預算八萬，偏好安靜但效能不能因此低於 64GB RAM。', intent: ['CustomBuild', ['VideoEditing'], 80000], candidates: ['workstation-video-80'], specs: ['memory.capacity_gb>=64'], points: ['安靜是軟偏好', '64GB 是硬限制'] },
-  { message: '遊戲美術要同時跑繪圖與 3D，七萬五，請解釋取捨。', intent: ['CustomBuild', ['GraphicDesign', 'ThreeDRendering'], 75000], candidates: ['workstation-3d-70'], points: ['解釋 GPU、RAM 與預算取捨'] },
+  { message: '遊戲美術要同時跑繪圖與 3D，七萬五，請解釋取捨。', intent: ['CustomBuild', ['GraphicDesign', 'ThreeDRendering'], 75000], candidates: ['workstation-3d-70'], points: ['解釋 GPU、RAM 與預算取捨'], annotationStatus: 'approved' },
   { message: '剪輯素材很多，另外要 2TB SSD，整體五萬元。', intent: ['CustomBuild', ['VideoEditing'], 50000], candidates: ['workstation-video-45'], specs: ['storage.capacity_gb>=2000'], points: ['保留 2TB 硬限制'] },
   { message: 'YouTube 影片 1080p 剪輯，四萬元，想保留升級空間。', intent: ['PrebuiltComputer', ['VideoEditing'], 40000], candidates: ['workstation-video-40'], points: ['升級空間只能依已知規格說明'] },
   { message: '3D 渲染希望雙顯卡，但預算五萬。', outcome: 'no_result', intent: ['CustomBuild', ['ThreeDRendering'], 50000], specs: ['gpu.count>=2'], points: ['不虛構雙 GPU 候選', '提出放寬方式'] },
@@ -283,6 +290,7 @@ function searchCase(group, definition, index) {
     hardFailRules: definition.hard ?? inferSearchHardFails(definition),
     tags: definition.tags ?? [],
     annotator: 'terry',
+    annotationStatus: definition.annotationStatus ?? 'approved',
   })
 }
 
@@ -309,6 +317,7 @@ function supportCase(group, definition, index) {
     hardFailRules: definition.hard ?? [],
     tags: definition.hard ?? [],
     annotator: 'kafen',
+    annotationStatus: definition.annotationStatus ?? 'approved',
   })
 }
 
@@ -371,7 +380,7 @@ function buildCase(group, index, definition) {
     annotation: {
       primaryAnnotator: definition.annotator,
       reviewer: 'alex',
-      status: 'approved',
+      status: definition.annotationStatus,
     },
   }
 }

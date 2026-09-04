@@ -46,7 +46,9 @@ public sealed record LiveEvaluationCaseResult(
     bool? ClarificationExpected = null,
     bool ClarificationAsked = false,
     bool? RecommendationValid = null,
-    bool IsPrivacyAuthorizationCase = false);
+    bool IsPrivacyAuthorizationCase = false,
+    string? ValidationFailureCode = null,
+    string? ValidationFailureField = null);
 
 public sealed record LiveEvaluationSummary(
     string RunId,
@@ -352,7 +354,9 @@ public sealed class LiveEvaluationRunner : IDisposable
             ClarificationAsked: intentResult.Intent?.Clarifications.Count > 0,
             RecommendationValid: approvedCandidateIds.Count == 0
                 ? null
-                : schemaValid && explanationValid);
+                : schemaValid && explanationValid,
+            ValidationFailureCode: intentResult.ValidationFailureCode,
+            ValidationFailureField: intentResult.ValidationFailureField);
     }
 
     private async Task<LiveEvaluationCaseResult> RunSupportAsync(
@@ -961,18 +965,24 @@ public sealed class EvaluationFixtureStore : IDisposable
             var candidate = candidates[id];
             var category = candidate.GetProperty("category").GetString()!;
             var price = candidate.GetProperty("price").GetDecimal();
+            var name = candidate.TryGetProperty("name", out var nameProperty)
+                ? nameProperty.GetString()!
+                : id;
+            var badges = candidate.TryGetProperty("badges", out var badgesProperty)
+                ? badgesProperty.EnumerateArray().Select(item => item.GetString()!).ToArray()
+                : [];
             return new ProductCardDto(
                 StableGuid($"product:{id}"),
                 StableGuid($"sku:{id}"),
                 $"EVAL-{id.ToUpperInvariant()}",
                 $"EVAL-{id.ToUpperInvariant()}-01",
-                id,
+                name,
                 new ProductBrandRef("DOSELECT", "懂選"),
                 new ProductCategoryRef(NormalizeCategory(category), category),
                 new ProductPrice(price, null, "TWD"),
                 ProductAvailabilityCodes.InStock,
                 PrimaryImage: null,
-                Badges: []);
+                Badges: badges);
         }).ToArray();
     }
 

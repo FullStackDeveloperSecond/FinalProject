@@ -1,6 +1,6 @@
 ---
 文件狀態: 進行中
-最後更新: 2026-09-04
+最後更新: 2026-09-05
 基準分支: dev@453e56ef
 實作分支: codex/wp-a05-ai-live-baseline-20260902
 實作人: alex
@@ -165,7 +165,14 @@
 | 2026-09-03 | WP-A05／AI-09 | 進行中 | User Secrets 前置已完成。初次兩案例煙霧測試實際成本 US$0.001880、未達 US$0.10 停止線；商品搜尋因 `uniqueItems` 不在 Responses strict Schema 支援子集合而零 Token 失敗，客服通過 Schema／引用但政策來源不足。已移除該 Schema 關鍵字並在後端拒絕重複品牌，Runner 補上成本與案例選取防呆，兩個政策 Fixture 補齊 15 筆案例需要的核准快照，資料集升為 `zh-TW-v1.0.2-draft`。Kafen 主標與 Alex 第二審完成後 120 筆均核准，Release 與雙案例 dry-run 均為 `IsLiveReady=true`；仍待 commit 與第二次 Live 費用授權，初次結果不算 baseline。 |
 | 2026-09-04 | WP-A05／AI-09 | 進行中 | Commit `9ea03fc3` 已推送；第二次雙案例 Live 煙霧測試 deterministic 與人工覆核 2／2 Pass，成本 US$0.006085、Input／Output Tokens 3,545／694。商品搜尋單筆 10,083 ms 高於 5 秒目標，只列為正式 baseline 待確認風險；完整 Release 為 102 次商品搜尋＋27 次客服，共 129 次模型請求，尚待獨立成本授權。 |
 | 2026-09-04 | WP-A05／AI-09 | 進行中／首次 baseline 失敗 | Commit `5e7cc8f2` 的首次三輪 Release Adapter baseline 已完成 33 案／99 輪，成本 US$0.149338；Schema 74.75%、Intent 16.67%、Citation 77.78%、Deterministic 28.28%，商品／客服 P95 17,831／3,023 ms，Verdict `FAIL`。已依報告在本分支收束 Adapter scope 為 22 live／14 deterministic-only、96 規劃請求，修正安全拒絕、Prompt v2、grader v1.1、單行 JSONL、分階段觀測、分 feature Summary，以及執行前 metadata／逐案 append／checkpoint。focused tests 已通過；未進行付費重跑，模型品質與延遲改善尚未驗證。 |
+| 2026-09-04 | WP-A05／AI-09 | 進行中／修正版 Smoke 失敗 | 先建立 Commit `f195c453`，再以 6 個核准案例、1 輪與 US$0.05 停止線執行 Run `20260904T090934Z`；6／6 完成，規劃／實際 9／11 次請求、成本 US$0.010242，Verdict `FAIL`。執行中逐案與 T2 manifest 證據完整；客服引用／安全通過，商品暴露整機詞彙、衝突預算、Fixture 與 P95 18,742 ms 缺口。商品 Prompt v3 兩項契約修正 focused 20／20 通過；GPU／RAM Fixture 已升為 v1.0.3 並加入 Runner 映射與回歸測試，待 Terry／Alex 覆核。延遲方向仍待裁定，未付費重跑。 |
+| 2026-09-04 | WP-A05／AI-09 | 進行中／方案 A 零成本實作完成 | 依 DEC-P381～DEC-P384 將商品搜尋升為 `product-search-v4`：單次 5 秒 Responses 意圖呼叫、零同步重試，推薦理由只由後端核准候選事實確定性產生。公開 API／Schema／資料庫不變，三輪 Release 規劃由歷史 96 次降為 66 次；focused Infrastructure 22／22、Application 10／10 通過。尚未付費重驗 P95／品質，Fixture 兩案仍待 Terry／Alex 覆核。 |
+| 2026-09-04 | WP-A05／AI-09 | 進行中／標註與 deterministic 證據完成 | `SEARCH-CREATOR-008`、`013` 已完成 Terry 主標與 Alex 第二審，120 筆均為 `approved`，Release Dry Run 為 `AnnotationsApproved=true`、`IsLiveReady=true`。Run `20260904T120035Z-deterministic` 以正式 Application／Domain 路徑補齊 14 筆 deterministic-only orchestration，14／14 通過；無結果 UI 7／7 通過，模型呼叫與成本均為 0。Commit `f195c453` 的 6 案歷史 Smoke 正式人工複核亦已完成，3 Pass／3 Fail，維持 `FAIL`。只剩另行授權的 v4 Live Gate。 |
+| 2026-09-04 | WP-A05／AI-09 | 進行中／v4 Smoke 失敗 | 系統 PowerShell 的 6 案／1 輪 Run `20260904T133533Z-v4-smoke-system` 完成 6 次模型請求，成本 US$0.006287；客服 2／2 通過，商品 3／4 在 5 秒 Timeout 前無輸出，唯一成功案例於 4,679 ms 完成，商品 P95 5,033 ms，正式結果 `FAIL`。品牌偏好／排除理由缺口已在工作樹修正，聚焦測試 12／12；Timeout／5 秒方向待組長決策，未執行 baseline。 |
+| 2026-09-04 | WP-A05／AI-09 | 進行中／低延遲設定完成 | 依 DEC-BATCH-054 保留 `gpt-5.6-luna`、單次 5 秒、零同步重試與預設 service tier；商品 SearchIntent payload 新增 `reasoning.effort: none`、`text.verbosity: low`，strict Schema／白名單／後端驗證與公開契約不變。聚焦 Adapter 12／12、Live plan 12／12 通過；本批未呼叫 Provider，仍待另行授權固定 Smoke。 |
+| 2026-09-04 | WP-A05／AI-09 | 進行中／低延遲 Smoke 失敗 | 系統 PowerShell Run `20260904T144911Z` 完成 6 案／6 次請求，成本 US$0.007224。商品 4／4 在 5 秒內取得 Provider 結果，P95 3,013 ms；但可用 Intent 3／4、Schema 83.33%、Intent 25%、有效推薦 66.67%，Verdict `FAIL`。品牌案例通過；013 多推論 Gaming、019 無效輸出、026 與資料集分類衝突。T2 證據與報告已形成；當時尚待的正式 Alex 覆核與 taxonomy 已於 2026-09-05 由 DEC-BATCH-055 完成。 |
+| 2026-09-05 | WP-A05／AI-09 | 進行中／v5 零成本修正完成 | 依 DEC-BATCH-055 完成正式覆核 3 Pass／3 Fail，定版一般「主機」為 `PrebuiltComputer`、明示組裝或用途＋預算整機需求為 `CustomBuild`，且職稱「遊戲美術」不自動代表 Gaming。商品 Prompt 升為 `product-search-v5`；InvalidOutput 只在內部結果與評估 JSONL 保存固定原因碼＋欄位名稱，不保存 raw output，也不擴張公開 DTO／資料庫／產品日誌。RED 先證明契約尚無診斷欄位；GREEN 後 Infrastructure 24／24、Application 10／10、Build、Format、120 筆資料驗證與 6 案 Dry Run 均通過。本批未呼叫付費 Provider。 |
 
 ## 11. 下一步
 
-先以零成本 Gate 驗證修正版資料、dry run、格式、建置與 focused tests。通過後仍須由使用者另行核准修正版付費 smoke／Release baseline 的案例、輪次與成本停止線；新結果必須保存執行中 metadata／checkpoint、逐案 JSONL、完整品質、P95、Token、成本與人工覆核。14 個 deterministic-only orchestration 案例另補可重跑證據，不得由 Adapter baseline 代替。
+DEC-BATCH-055 的 taxonomy、正式 Alex 覆核與 `product-search-v5` 零成本修正均已完成；歷史 v4 Smoke 維持 3 Pass／3 Fail，不回寫成通過。下一步是先形成可追溯 Commit／Review，再由組長另行授權固定 6 案的 v5 小型付費 Smoke；只有品質、延遲、安全與成本 Gate 通過後，才可另行決定是否執行 66 次 Release baseline。

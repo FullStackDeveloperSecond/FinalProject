@@ -112,8 +112,7 @@ public static class EvaluationPlanBuilder
         var root = document.RootElement;
         var feature = RequiredString(root, "feature");
         var expected = root.GetProperty("expected");
-        var allowedCandidateCount = expected.GetProperty("allowedCandidateIds").GetArrayLength();
-        var requestsPerTrial = feature == "product_search" && allowedCandidateCount > 0 ? 2 : 1;
+        const int requestsPerTrial = 1;
 
         return new EvaluationCasePlan(
             RequiredString(root, "caseId"),

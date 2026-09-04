@@ -21,7 +21,7 @@ public sealed class OpenAiResponsesOptions
 
     public int SupportTimeoutMilliseconds { get; set; } = 12_000;
 
-    public int ProductSearchTimeoutMilliseconds { get; set; } = 8_000;
+    public int ProductSearchTimeoutMilliseconds { get; set; } = 5_000;
 
     public decimal SupportInputCostPerMillionTokens { get; set; } = -1m;
 
