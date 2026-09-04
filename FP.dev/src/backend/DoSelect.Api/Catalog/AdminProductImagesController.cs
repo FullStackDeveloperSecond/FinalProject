@@ -1,6 +1,9 @@
 using System.ComponentModel.DataAnnotations;
+using System.Diagnostics;
+using System.Security.Claims;
 using DoSelect.Api.Common;
 using DoSelect.Api.Security;
+using DoSelect.Application.Auditing;
 using DoSelect.Application.Catalog;
 using DoSelect.Application.Files;
 using Microsoft.AspNetCore.Authorization;
@@ -73,6 +76,8 @@ public sealed class AdminProductImagesController : ControllerBase
                 productId,
                 upload,
                 new UploadProductImageMetadata(form.AltText, form.SourceUrl, form.LicenseName, form.LicenseUrl),
+                ActorUserId(),
+                BuildAuditContext(),
                 cancellationToken);
             return StatusCode(StatusCodes.Status201Created, created);
         }
@@ -135,6 +140,8 @@ public sealed class AdminProductImagesController : ControllerBase
                     request.LicenseName,
                     request.LicenseUrl,
                     request.RowVersion),
+                ActorUserId(),
+                BuildAuditContext(),
                 cancellationToken);
             return Ok(updated);
         }
@@ -158,7 +165,7 @@ public sealed class AdminProductImagesController : ControllerBase
     {
         try
         {
-            return Ok(await _service.PublishAsync(imageId, request.RowVersion, cancellationToken));
+            return Ok(await _service.PublishAsync(imageId, request.RowVersion, ActorUserId(), BuildAuditContext(), cancellationToken));
         }
         catch (CatalogWriteException exception)
         {
@@ -179,13 +186,24 @@ public sealed class AdminProductImagesController : ControllerBase
     {
         try
         {
-            await _service.DeleteAsync(imageId, request.RowVersion, cancellationToken);
+            await _service.DeleteAsync(imageId, request.RowVersion, ActorUserId(), BuildAuditContext(), cancellationToken);
             return NoContent();
         }
         catch (CatalogWriteException exception)
         {
             return exception.ToActionResult(HttpContext);
         }
+    }
+
+    private string ActorUserId() => User.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
+
+    private AuditRequestContext BuildAuditContext()
+    {
+        var traceId = Activity.Current?.TraceId.ToString() ?? ActivityTraceId.CreateRandom().ToString();
+        return new AuditRequestContext(
+            CorrelationIdMiddleware.GetCorrelationId(HttpContext),
+            traceId,
+            HttpContext.Connection.RemoteIpAddress);
     }
 }
 

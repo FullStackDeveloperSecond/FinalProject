@@ -25,9 +25,11 @@ internal static class ProductImageProjection
         }
 
         var rows = await dbContext.ProductImages.AsNoTracking()
-            .Where(image => productIds.Contains(image.ProductId) && image.Status == ProductImageStatus.Published)
+            .Where(image => productIds.Contains(image.ProductId) && image.Status == ProductImageStatus.Published &&
+                image.SmallSha256 != null && image.MediumSha256 != null && image.LargeSha256 != null)
             .OrderBy(image => image.SortOrder)
             .ThenBy(image => image.CreatedAtUtc)
+            .ThenBy(image => image.Id)
             .Select(image => new PublishedImageRow(
                 image.ProductId, image.PublicId, image.AltTextZhTw, image.Width, image.Height, image.SmallSha256, image.MediumSha256))
             .ToListAsync(cancellationToken);
@@ -43,10 +45,14 @@ internal static class ProductImageProjection
         long productId,
         CancellationToken cancellationToken)
     {
+        // 組長 PR #101 item 2：既有 Published 資料若缺任何一個衍生圖雜湊（Migration 之前的列），媒體
+        // 端點一定 404——那種列不投影，不輸出假的 URL。
         var rows = await dbContext.ProductImages.AsNoTracking()
-            .Where(image => image.ProductId == productId && image.Status == ProductImageStatus.Published)
+            .Where(image => image.ProductId == productId && image.Status == ProductImageStatus.Published &&
+                image.SmallSha256 != null && image.MediumSha256 != null && image.LargeSha256 != null)
             .OrderBy(image => image.SortOrder)
             .ThenBy(image => image.CreatedAtUtc)
+            .ThenBy(image => image.Id)
             .Select(image => new PublishedImageRow(
                 image.ProductId, image.PublicId, image.AltTextZhTw, image.Width, image.Height, image.SmallSha256, image.MediumSha256))
             .ToListAsync(cancellationToken);
@@ -78,6 +84,7 @@ internal static class ProductImageProjection
                 image.Status != ProductImageStatus.PendingDelete)
             .OrderBy(image => image.SortOrder)
             .ThenBy(image => image.CreatedAtUtc)
+            .ThenBy(image => image.Id)
             .Select(image => new { image.ProductId, image.PublicId, image.AltTextZhTw, image.Width, image.Height })
             .ToListAsync(cancellationToken);
 
@@ -108,6 +115,7 @@ internal static class ProductImageProjection
                 image.Status != ProductImageStatus.PendingDelete)
             .OrderBy(image => image.SortOrder)
             .ThenBy(image => image.CreatedAtUtc)
+            .ThenBy(image => image.Id)
             .ToListAsync(cancellationToken);
         return images
             .Select((image, index) => ToAdminDto(image, productPublicId, isPrimary: index == 0))
@@ -168,12 +176,12 @@ internal static class ProductImageProjection
 
     private static ProductImageSummary ToSummary(PublishedImageRow row, ProductImageVariant variant)
     {
-        var hash = variant == ProductImageVariant.Small320 ? row.SmallSha256 : row.MediumSha256;
+        // 查詢已排除缺雜湊的列，這裡不會是 null；若真的是，寧可炸也不要輸出一個一定 404 的網址。
+        var hash = (variant == ProductImageVariant.Small320 ? row.SmallSha256 : row.MediumSha256)
+            ?? throw new InvalidOperationException("A published image projection requires its variant hashes.");
         var (width, height) = ProductImageVariantSizing.Fit(row.Width, row.Height, ProductImageVariantNames.LongEdge(variant));
-        // Published 的圖三個雜湊一定齊備（ProductImage.Publish 的不變量）；這裡的 fallback 只是
-        // 讓相容既有資料的 nullable 欄位不會讓投影丟例外。
         return new ProductImageSummary(
-            ProductImagePublicUrls.Build(row.PublicId, variant, hash ?? new byte[32]),
+            ProductImagePublicUrls.Build(row.PublicId, variant, hash),
             row.AltText,
             width,
             height);

@@ -24,7 +24,7 @@ public sealed class ProductImagesAdminApiTests
     [Fact]
     public async Task Upload_ThenPreview_ThenPublish_ExposesThePublicMediaRoute()
     {
-        using var client = await _fixture.CreateAuthenticatedAdminClientAsync();
+        using var client = await _fixture.CreateAuthenticatedAdminClientWithIdentityAsync();
         var productId = await CatalogAdminApiSeeding.CreateProductWithCatalogAsync(client);
 
         using var uploadResponse = await UploadAsync(client, productId, altText: "正面");
@@ -96,7 +96,7 @@ public sealed class ProductImagesAdminApiTests
     [Fact]
     public async Task Upload_WithoutAFile_ReturnsValidationFailed()
     {
-        using var client = await _fixture.CreateAuthenticatedAdminClientAsync();
+        using var client = await _fixture.CreateAuthenticatedAdminClientWithIdentityAsync();
         var productId = await CatalogAdminApiSeeding.CreateProductWithCatalogAsync(client);
 
         using var content = new MultipartFormDataContent { { new StringContent("正面"), "altText" } };
@@ -111,7 +111,7 @@ public sealed class ProductImagesAdminApiTests
     [Fact]
     public async Task Upload_WhenTheFileIsNotAnImage_Returns415FileFormatInvalid()
     {
-        using var client = await _fixture.CreateAuthenticatedAdminClientAsync();
+        using var client = await _fixture.CreateAuthenticatedAdminClientWithIdentityAsync();
         var productId = await CatalogAdminApiSeeding.CreateProductWithCatalogAsync(client);
 
         using var response = await UploadAsync(client, productId, bytes: "definitely not an image"u8.ToArray(), fileName: "notes.txt", contentType: "text/plain");
@@ -120,13 +120,15 @@ public sealed class ProductImagesAdminApiTests
         Assert.Equal(415, status);
         Assert.Equal("file_format_invalid", code);
         await using var context = _fixture.CreateScopedContext();
-        Assert.False(await context.ProductImages.AsNoTracking().AnyAsync());
+        var productInternalId = await context.Products.AsNoTracking()
+            .Where(product => product.PublicId == productId).Select(product => product.Id).SingleAsync();
+        Assert.False(await context.ProductImages.AsNoTracking().AnyAsync(image => image.ProductId == productInternalId));
     }
 
     [Fact]
     public async Task Upload_WhenTheProductDoesNotExist_Returns404()
     {
-        using var client = await _fixture.CreateAuthenticatedAdminClientAsync();
+        using var client = await _fixture.CreateAuthenticatedAdminClientWithIdentityAsync();
 
         using var response = await UploadAsync(client, Guid.NewGuid());
 
@@ -137,7 +139,7 @@ public sealed class ProductImagesAdminApiTests
     [Fact]
     public async Task Preview_WithoutTheViewDraftPolicy_Returns404NotAuthorizationErrors()
     {
-        using var client = await _fixture.CreateAuthenticatedAdminClientAsync();
+        using var client = await _fixture.CreateAuthenticatedAdminClientWithIdentityAsync();
         var productId = await CatalogAdminApiSeeding.CreateProductWithCatalogAsync(client);
         using var uploadResponse = await UploadAsync(client, productId);
         var imageId = (await uploadResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("publicId").GetGuid();
@@ -157,7 +159,7 @@ public sealed class ProductImagesAdminApiTests
     [Fact]
     public async Task Delete_HidesThePreviewAndTheImageFromTheProduct()
     {
-        using var client = await _fixture.CreateAuthenticatedAdminClientAsync();
+        using var client = await _fixture.CreateAuthenticatedAdminClientWithIdentityAsync();
         var productId = await CatalogAdminApiSeeding.CreateProductWithCatalogAsync(client);
         using var uploadResponse = await UploadAsync(client, productId);
         var uploaded = await uploadResponse.Content.ReadFromJsonAsync<JsonElement>();
@@ -189,6 +191,129 @@ public sealed class ProductImagesAdminApiTests
         Assert.Equal(ProductImageStatus.Deleted, image.Status);
     }
 
+    /// <summary>組長 PR #101 item 1：Published 的圖片不能被 PATCH 成來源／授權不完整。</summary>
+    [Fact]
+    public async Task Patch_OnAPublishedImage_ClearingTheLicense_Returns422AndKeepsItPublished()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientWithIdentityAsync();
+        var productId = await CatalogAdminApiSeeding.CreateProductWithCatalogAsync(client);
+        var published = await UploadAndPublishAsync(client, productId);
+        var imageId = published.GetProperty("publicId").GetGuid();
+
+        using var response = await CatalogAdminApiFixture.SendWithAntiforgeryAsync(client,
+            new HttpRequestMessage(HttpMethod.Patch, $"/api/v1/admin/product-images/{imageId}")
+            {
+                Content = JsonContent.Create(new
+                {
+                    altText = "正面",
+                    sortOrder = 0,
+                    sourceUrl = "https://example.com/source",
+                    licenseName = (string?)null,
+                    licenseUrl = "https://creativecommons.org/licenses/by/4.0/",
+                    rowVersion = published.GetProperty("rowVersion").GetString(),
+                }),
+            });
+
+        var (status, code, _) = await CatalogAdminApiFixture.ReadProblemAsync(response);
+        Assert.Equal(422, status);
+        Assert.Equal("image_metadata_incomplete", code);
+        await using var context = _fixture.CreateScopedContext();
+        var image = await context.ProductImages.AsNoTracking().SingleAsync(candidate => candidate.PublicId == imageId);
+        Assert.Equal(ProductImageStatus.Published, image.Status);
+        Assert.Equal("CC BY 4.0", image.LicenseName);
+    }
+
+    /// <summary>組長 PR #101 裁定 D：來源／授權網址只接受 absolute HTTP／HTTPS。</summary>
+    [Theory]
+    [InlineData("ftp://example.com/source", "https://example.com/license")]
+    [InlineData("https://example.com/source", "example.com/license")]
+    public async Task UploadAndPatch_WithANonHttpUrl_Return400ValidationFailed(string sourceUrl, string licenseUrl)
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientWithIdentityAsync();
+        var productId = await CatalogAdminApiSeeding.CreateProductWithCatalogAsync(client);
+
+        using var upload = await UploadAsync(client, productId, sourceUrl: sourceUrl, licenseUrl: licenseUrl);
+        var (uploadStatus, uploadCode, _) = await CatalogAdminApiFixture.ReadProblemAsync(upload);
+        Assert.Equal(400, uploadStatus);
+        Assert.Equal("validation_failed", uploadCode);
+
+        using var created = await UploadAsync(client, productId);
+        var uploaded = await created.Content.ReadFromJsonAsync<JsonElement>();
+        using var patch = await CatalogAdminApiFixture.SendWithAntiforgeryAsync(client,
+            new HttpRequestMessage(HttpMethod.Patch, $"/api/v1/admin/product-images/{uploaded.GetProperty("publicId").GetGuid()}")
+            {
+                Content = JsonContent.Create(new
+                {
+                    altText = "正面",
+                    sortOrder = 0,
+                    sourceUrl,
+                    licenseName = "CC0",
+                    licenseUrl,
+                    rowVersion = uploaded.GetProperty("rowVersion").GetString(),
+                }),
+            });
+        var (patchStatus, patchCode, _) = await CatalogAdminApiFixture.ReadProblemAsync(patch);
+        Assert.Equal(400, patchStatus);
+        Assert.Equal("validation_failed", patchCode);
+    }
+
+    /// <summary>組長 PR #101 裁定 B：四個動作都寫中央 Audit，帶本次請求的 Correlation。</summary>
+    [Fact]
+    public async Task EveryImageActionWritesACentralAuditEntry()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientWithIdentityAsync();
+        var productId = await CatalogAdminApiSeeding.CreateProductWithCatalogAsync(client);
+        var published = await UploadAndPublishAsync(client, productId);
+        var imageId = published.GetProperty("publicId").GetGuid();
+        using var delete = await CatalogAdminApiFixture.SendWithAntiforgeryAsync(client,
+            new HttpRequestMessage(HttpMethod.Delete, $"/api/v1/admin/product-images/{imageId}")
+            {
+                Content = JsonContent.Create(new { rowVersion = published.GetProperty("rowVersion").GetString() }),
+            });
+        Assert.Equal(HttpStatusCode.NoContent, delete.StatusCode);
+        var deleteCorrelation = Assert.Single(delete.Headers.GetValues("X-Correlation-ID"));
+
+        await using var context = _fixture.CreateScopedContext();
+        var audits = await context.AuditLogs.AsNoTracking()
+            .Where(a => a.ResourcePublicId == imageId)
+            .OrderBy(a => a.OccurredAtUtc)
+            .Select(a => new { a.Action, a.ResourceType, a.CorrelationId, a.ChangedFieldsJson, a.ActorRolesJson })
+            .ToListAsync();
+        Assert.Equal(
+            ["product_image.upload", "product_image.update", "product_image.publish", "product_image.delete"],
+            audits.Select(a => a.Action).ToArray());
+        Assert.All(audits, a => Assert.Equal("ProductImage", a.ResourceType));
+        Assert.All(audits, a => Assert.Contains(DoSelectRoles.CatalogManager, a.ActorRolesJson));
+        Assert.All(audits, a => Assert.DoesNotContain("example.com", a.ChangedFieldsJson));
+        Assert.Equal(deleteCorrelation, audits[^1].CorrelationId);
+        Assert.Contains(productId.ToString("D"), audits[0].ChangedFieldsJson);
+    }
+
+    private async Task<JsonElement> UploadAndPublishAsync(HttpClient client, Guid productId)
+    {
+        using var uploadResponse = await UploadAsync(client, productId, altText: "正面");
+        var uploaded = await uploadResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var imageId = uploaded.GetProperty("publicId").GetGuid();
+        using var patch = await CatalogAdminApiFixture.SendWithAntiforgeryAsync(client,
+            new HttpRequestMessage(HttpMethod.Patch, $"/api/v1/admin/product-images/{imageId}")
+            {
+                Content = JsonContent.Create(new
+                {
+                    altText = "正面",
+                    sortOrder = 0,
+                    sourceUrl = "https://example.com/source",
+                    licenseName = "CC BY 4.0",
+                    licenseUrl = "https://creativecommons.org/licenses/by/4.0/",
+                    rowVersion = uploaded.GetProperty("rowVersion").GetString(),
+                }),
+            });
+        patch.EnsureSuccessStatusCode();
+        var patched = await patch.Content.ReadFromJsonAsync<JsonElement>();
+        using var publish = await PublishAsync(client, imageId, patched.GetProperty("rowVersion").GetString()!);
+        publish.EnsureSuccessStatusCode();
+        return await publish.Content.ReadFromJsonAsync<JsonElement>();
+    }
+
     private static Task<HttpResponseMessage> PublishAsync(HttpClient client, Guid imageId, string rowVersion) =>
         CatalogAdminApiFixture.SendWithAntiforgeryAsync(client,
             new HttpRequestMessage(HttpMethod.Post, $"/api/v1/admin/product-images/{imageId}/actions/publish")
@@ -202,7 +327,9 @@ public sealed class ProductImagesAdminApiTests
         string? altText = null,
         byte[]? bytes = null,
         string fileName = "front.png",
-        string contentType = "image/png")
+        string contentType = "image/png",
+        string? sourceUrl = null,
+        string? licenseUrl = null)
     {
         var file = new ByteArrayContent(bytes ?? OnePixelPng);
         file.Headers.ContentType = new MediaTypeHeaderValue(contentType);
@@ -210,6 +337,16 @@ public sealed class ProductImagesAdminApiTests
         if (altText is not null)
         {
             content.Add(new StringContent(altText), "altText");
+        }
+
+        if (sourceUrl is not null)
+        {
+            content.Add(new StringContent(sourceUrl), "sourceUrl");
+        }
+
+        if (licenseUrl is not null)
+        {
+            content.Add(new StringContent(licenseUrl), "licenseUrl");
         }
 
         return await CatalogAdminApiFixture.SendWithAntiforgeryAsync(client,

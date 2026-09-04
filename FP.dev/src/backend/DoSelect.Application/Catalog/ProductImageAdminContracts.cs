@@ -1,3 +1,4 @@
+using DoSelect.Application.Auditing;
 using DoSelect.Application.Files;
 
 namespace DoSelect.Application.Catalog;
@@ -18,6 +19,8 @@ public interface IProductImageAdminService
         Guid productPublicId,
         ProductImageUpload upload,
         UploadProductImageMetadata metadata,
+        string actorUserId,
+        AuditRequestContext auditContext,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -29,10 +32,16 @@ public interface IProductImageAdminService
         string variant,
         CancellationToken cancellationToken);
 
-    /// <summary>更新 Alt、排序與來源／授權中繼資料；RowVersion 不符回 concurrency_conflict。</summary>
+    /// <summary>
+    /// 更新 Alt、排序與來源／授權中繼資料；RowVersion 不符回 concurrency_conflict。已發布的圖片不能
+    /// 被改成中繼資料不完整（組長 PR #101 item 1）：那會回 <c>image_metadata_incomplete</c>。
+    /// 來源／授權網址只接受 absolute HTTP／HTTPS（裁定 D）。
+    /// </summary>
     Task<AdminProductImageDto> UpdateAsync(
         Guid imagePublicId,
         UpdateProductImageCommand command,
+        string actorUserId,
+        AuditRequestContext auditContext,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -43,6 +52,8 @@ public interface IProductImageAdminService
     Task<AdminProductImageDto> PublishAsync(
         Guid imagePublicId,
         byte[] rowVersion,
+        string actorUserId,
+        AuditRequestContext auditContext,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -52,7 +63,31 @@ public interface IProductImageAdminService
     Task DeleteAsync(
         Guid imagePublicId,
         byte[] rowVersion,
+        string actorUserId,
+        AuditRequestContext auditContext,
         CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// 商品圖片四個動作的中央 Audit 欄位（組長 PR #101 裁定 B：記圖片／商品識別、狀態前後、排序與
+/// 中繼資料完整性等安全欄位，不記完整 URL 或檔案內容）。
+/// </summary>
+public static class ProductImageAuditFields
+{
+    public const string ProductPublicId = "productPublicId";
+    public const string Status = "status";
+    public const string SortOrder = "sortOrder";
+    public const string HasCompleteMetadata = "hasCompleteMetadata";
+    /// <summary>Alt／來源／授權有改（值不進稽核，只記「改過」）。</summary>
+    public const string Metadata = "metadata";
+}
+
+public static class ProductImageAuditReasons
+{
+    public const string AdminUpload = "admin_upload";
+    public const string AdminEdit = "admin_edit";
+    public const string AdminPublish = "admin_publish";
+    public const string AdminDelete = "admin_delete";
 }
 
 /// <summary>Multipart 的文字欄位（檔案與圖片儲存設計：altText 160、sourceUrl 1000、licenseName 100、licenseUrl 1000）。</summary>

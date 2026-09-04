@@ -128,18 +128,35 @@ public sealed class ProductImage : MutablePublicEntity
             throw new ArgumentOutOfRangeException(nameof(sortOrder));
         }
 
+        var nextSourceUrl = CatalogText.Optional(sourceUrl);
+        var nextLicenseName = CatalogText.Optional(licenseName);
+        var nextLicenseUrl = CatalogText.Optional(licenseUrl);
+        // 公開中的圖片要維持發布門檻（組長 PR #101 item 1）：不能一邊 Published 一邊缺來源／授權。
+        if (Status == ProductImageStatus.Published &&
+            (nextSourceUrl is null || nextLicenseName is null || nextLicenseUrl is null))
+        {
+            throw new InvalidOperationException(
+                "A published image must keep its source URL, license name and license URL.");
+        }
+
         AltTextZhTw = RequireText(altTextZhTw, nameof(altTextZhTw));
         SortOrder = sortOrder;
-        SourceUrl = CatalogText.Optional(sourceUrl);
-        LicenseName = CatalogText.Optional(licenseName);
-        LicenseUrl = CatalogText.Optional(licenseUrl);
+        SourceUrl = nextSourceUrl;
+        LicenseName = nextLicenseName;
+        LicenseUrl = nextLicenseUrl;
         MarkUpdated(updatedAtUtc);
     }
 
+    /// <summary>組長 PR #101 裁定 C：現階段只有 Ready → Published 這一條邊；Rejected／PendingDelete 保留但不由現有端點推進。</summary>
     public void Publish(DateTime publishedAtUtc)
     {
         publishedAtUtc = RequireUtc(publishedAtUtc, nameof(publishedAtUtc));
         EnsureNotDeleted();
+        if (Status != ProductImageStatus.Ready)
+        {
+            throw new InvalidOperationException("Only a ready image can be published.");
+        }
+
         if (SmallSha256 is null || MediumSha256 is null || LargeSha256 is null)
         {
             throw new InvalidOperationException(

@@ -64,6 +64,36 @@ public sealed class ProductImageLifecycleTests
         Assert.Throws<InvalidOperationException>(() => image.MarkDeleted(Now.AddMinutes(2)));
     }
 
+    /// <summary>組長 PR #101 裁定 C：只有 Ready → Published；Processing（沒 MarkReady）不能直接發布。</summary>
+    [Fact]
+    public void Publish_RequiresReady()
+    {
+        var image = CreateImage();
+        RecordHashes(image);
+
+        Assert.Throws<InvalidOperationException>(() => image.Publish(Now.AddMinutes(1)));
+        Assert.Equal(ProductImageStatus.Processing, image.Status);
+    }
+
+    /// <summary>組長 PR #101 item 1：Published 的圖片不能被改成來源／授權不完整。</summary>
+    [Fact]
+    public void UpdateMetadata_OnAPublishedImage_RejectsClearingTheAttribution()
+    {
+        var image = CreateImage();
+        RecordHashes(image);
+        image.MarkReady(Now);
+        image.UpdateMetadata("Alt", 0, "https://example.com/src", "CC0", "https://example.com/l", Now);
+        image.Publish(Now.AddMinutes(1));
+
+        Assert.Throws<InvalidOperationException>(() =>
+            image.UpdateMetadata("Alt", 0, "https://example.com/src", null, "https://example.com/l", Now.AddMinutes(2)));
+        Assert.Equal("CC0", image.LicenseName);
+
+        image.UpdateMetadata("新 Alt", 3, "https://example.com/src", "CC0", "https://example.com/l", Now.AddMinutes(2));
+        Assert.Equal("新 Alt", image.AltTextZhTw);
+        Assert.Equal(3, image.SortOrder);
+    }
+
     [Fact]
     public void Publish_FromReady_RecordsPublishedAt()
     {

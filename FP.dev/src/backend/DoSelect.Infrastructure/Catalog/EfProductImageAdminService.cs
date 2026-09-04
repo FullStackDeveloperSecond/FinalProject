@@ -1,6 +1,9 @@
+using System.Globalization;
+using DoSelect.Application.Auditing;
 using DoSelect.Application.Catalog;
 using DoSelect.Application.Common;
 using DoSelect.Application.Files;
+using DoSelect.Domain.Auditing;
 using DoSelect.Domain.Catalog;
 using DoSelect.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -12,17 +15,26 @@ namespace DoSelect.Infrastructure.Catalog;
 /// 屬 M-03 商品功能垂直切片；須沿用既有儲存與清理能力，不自建第二套檔案服務」）。
 /// 檔案的檢查、掃描、衍生圖與 Staging→正式目錄的原子發布全部在 <see cref="IImageStorage"/>；
 /// 這裡只負責 ProductImages 那一列的生命週期：Processing→Ready→Published→Deleted。
+///
+/// 組長 PR #101 裁定 B：upload／update／publish／delete 都寫中央 Audit，且與資料庫異動同一次
+/// SaveChanges——稽核先加進 ChangeTracker，再跟圖片那一列一起提交，寫不進去就整筆不成立。
 /// </summary>
 public sealed class EfProductImageAdminService : IProductImageAdminService
 {
     private readonly DoSelectDbContext _dbContext;
     private readonly IImageStorage _imageStorage;
+    private readonly IAuditWriter _auditWriter;
     private readonly TimeProvider _timeProvider;
 
-    public EfProductImageAdminService(DoSelectDbContext dbContext, IImageStorage imageStorage, TimeProvider timeProvider)
+    public EfProductImageAdminService(
+        DoSelectDbContext dbContext,
+        IImageStorage imageStorage,
+        IAuditWriter auditWriter,
+        TimeProvider timeProvider)
     {
         _dbContext = dbContext;
         _imageStorage = imageStorage;
+        _auditWriter = auditWriter;
         _timeProvider = timeProvider;
     }
 
@@ -30,11 +42,15 @@ public sealed class EfProductImageAdminService : IProductImageAdminService
         Guid productPublicId,
         ProductImageUpload upload,
         UploadProductImageMetadata metadata,
+        string actorUserId,
+        AuditRequestContext auditContext,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(upload);
         ArgumentNullException.ThrowIfNull(metadata);
+        ArgumentNullException.ThrowIfNull(auditContext);
 
+        var actor = await ResolveActorAsync(actorUserId, cancellationToken);
         var product = await _dbContext.Products.AsNoTracking()
             .Where(candidate => candidate.PublicId == productPublicId)
             .Select(candidate => new { candidate.Id, candidate.PublicId })
@@ -42,10 +58,10 @@ public sealed class EfProductImageAdminService : IProductImageAdminService
             ?? throw new CatalogWriteException(
                 CatalogWriteException.ErrorCodes.ResourceNotFound, "The product was not found.");
 
-        // 中繼資料先驗再存檔：長度不對就不該花掃描與轉圖的成本，也不會留下要清的孤兒檔。
-        var sourceUrl = RequireOptional(metadata.SourceUrl, ProductImageMetadataLimits.SourceUrlMaxLength, "sourceUrl");
+        // 中繼資料先驗再存檔：長度或網址不對就不該花掃描與轉圖的成本，也不會留下要清的孤兒檔。
+        var sourceUrl = RequireOptionalHttpUrl(metadata.SourceUrl, ProductImageMetadataLimits.SourceUrlMaxLength, "sourceUrl");
         var licenseName = RequireOptional(metadata.LicenseName, ProductImageMetadataLimits.LicenseNameMaxLength, "licenseName");
-        var licenseUrl = RequireOptional(metadata.LicenseUrl, ProductImageMetadataLimits.LicenseUrlMaxLength, "licenseUrl");
+        var licenseUrl = RequireOptionalHttpUrl(metadata.LicenseUrl, ProductImageMetadataLimits.LicenseUrlMaxLength, "licenseUrl");
         var altText = RequireOptional(metadata.AltText, ProductImageMetadataLimits.AltTextMaxLength, "altText")
             ?? DefaultAltText(upload.OriginalFileName);
 
@@ -87,9 +103,28 @@ public sealed class EfProductImageAdminService : IProductImageAdminService
             image.UpdateMetadata(altText, nextSortOrder, sourceUrl, licenseName, licenseUrl, now);
 
             _dbContext.ProductImages.Add(image);
+            _auditWriter.Add(AuditWriteRequest.Create(
+                Guid.CreateVersion7(),
+                actor,
+                AuditActions.ProductImageUpload,
+                AuditResourceTypes.ProductImage,
+                image.PublicId,
+                AuditResult.Success,
+                errorCode: null,
+                [
+                    AuditFieldChange.Code(ProductImageAuditFields.ProductPublicId, null, product.PublicId.ToString("D")),
+                    AuditFieldChange.Code(ProductImageAuditFields.Status, null, image.Status.ToString()),
+                    AuditFieldChange.Code(ProductImageAuditFields.SortOrder, null, Number(image.SortOrder)),
+                    AuditFieldChange.Code(ProductImageAuditFields.HasCompleteMetadata, null, Flag(image.HasCompleteMetadata)),
+                ],
+                reason: ProductImageAuditReasons.AdminUpload,
+                auditContext.CorrelationId,
+                auditContext.TraceId,
+                jobPublicId: null,
+                auditContext.RemoteIpAddress));
             await _dbContext.SaveChangesAsync(cancellationToken);
 
-            return ProductImageProjection.ToAdminDto(image, product.PublicId, isPrimary: nextSortOrder == 0 || await IsPrimaryAsync(image, cancellationToken));
+            return ProductImageProjection.ToAdminDto(image, product.PublicId, await IsPrimaryAsync(image, cancellationToken));
         }
         catch
         {
@@ -133,9 +168,12 @@ public sealed class EfProductImageAdminService : IProductImageAdminService
     public async Task<AdminProductImageDto> UpdateAsync(
         Guid imagePublicId,
         UpdateProductImageCommand command,
+        string actorUserId,
+        AuditRequestContext auditContext,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
+        ArgumentNullException.ThrowIfNull(auditContext);
         var altText = RequireOptional(command.AltText, ProductImageMetadataLimits.AltTextMaxLength, "altText")
             ?? throw new CatalogWriteException(CatalogWriteException.ErrorCodes.ValidationFailed, "altText is required.");
         if (command.SortOrder is < 0 or > ProductImageMetadataLimits.SortOrderMax)
@@ -143,12 +181,56 @@ public sealed class EfProductImageAdminService : IProductImageAdminService
             throw new CatalogWriteException(CatalogWriteException.ErrorCodes.ValidationFailed, "sortOrder is out of range.");
         }
 
-        var sourceUrl = RequireOptional(command.SourceUrl, ProductImageMetadataLimits.SourceUrlMaxLength, "sourceUrl");
+        var sourceUrl = RequireOptionalHttpUrl(command.SourceUrl, ProductImageMetadataLimits.SourceUrlMaxLength, "sourceUrl");
         var licenseName = RequireOptional(command.LicenseName, ProductImageMetadataLimits.LicenseNameMaxLength, "licenseName");
-        var licenseUrl = RequireOptional(command.LicenseUrl, ProductImageMetadataLimits.LicenseUrlMaxLength, "licenseUrl");
+        var licenseUrl = RequireOptionalHttpUrl(command.LicenseUrl, ProductImageMetadataLimits.LicenseUrlMaxLength, "licenseUrl");
 
+        var actor = await ResolveActorAsync(actorUserId, cancellationToken);
         var (image, productPublicId) = await LoadForWriteAsync(imagePublicId, command.RowVersion, cancellationToken);
+
+        // 組長 PR #101 item 1：已發布的圖片不能被改成中繼資料不完整卻繼續公開。發布門檻與這裡
+        // 是同一條規則，只是方向相反——公開中的圖片要維持門檻。
+        if (image.Status == ProductImageStatus.Published &&
+            (sourceUrl is null || licenseName is null || licenseUrl is null))
+        {
+            throw DomainProblemException.UnprocessableEntity(
+                DomainErrorCodes.ImageMetadataIncomplete,
+                "A published image must keep its source URL, license name and license URL.");
+        }
+
+        var sortOrderBefore = image.SortOrder;
+        var completeBefore = image.HasCompleteMetadata;
         image.UpdateMetadata(altText, command.SortOrder, sourceUrl, licenseName, licenseUrl, UtcNow());
+
+        var changes = new List<AuditFieldChange>
+        {
+            AuditFieldChange.Code(ProductImageAuditFields.ProductPublicId, null, productPublicId.ToString("D")),
+            AuditFieldChange.Changed(ProductImageAuditFields.Metadata),
+        };
+        if (sortOrderBefore != image.SortOrder)
+        {
+            changes.Add(AuditFieldChange.Code(ProductImageAuditFields.SortOrder, Number(sortOrderBefore), Number(image.SortOrder)));
+        }
+
+        if (completeBefore != image.HasCompleteMetadata)
+        {
+            changes.Add(AuditFieldChange.Code(ProductImageAuditFields.HasCompleteMetadata, Flag(completeBefore), Flag(image.HasCompleteMetadata)));
+        }
+
+        _auditWriter.Add(AuditWriteRequest.Create(
+            Guid.CreateVersion7(),
+            actor,
+            AuditActions.ProductImageUpdate,
+            AuditResourceTypes.ProductImage,
+            image.PublicId,
+            AuditResult.Success,
+            errorCode: null,
+            changes,
+            reason: ProductImageAuditReasons.AdminEdit,
+            auditContext.CorrelationId,
+            auditContext.TraceId,
+            jobPublicId: null,
+            auditContext.RemoteIpAddress));
         await SaveWithConcurrencyCheckAsync(cancellationToken);
 
         return ProductImageProjection.ToAdminDto(image, productPublicId, await IsPrimaryAsync(image, cancellationToken));
@@ -157,8 +239,12 @@ public sealed class EfProductImageAdminService : IProductImageAdminService
     public async Task<AdminProductImageDto> PublishAsync(
         Guid imagePublicId,
         byte[] rowVersion,
+        string actorUserId,
+        AuditRequestContext auditContext,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(auditContext);
+        var actor = await ResolveActorAsync(actorUserId, cancellationToken);
         var (image, productPublicId) = await LoadForWriteAsync(imagePublicId, rowVersion, cancellationToken);
         if (image.Status != ProductImageStatus.Published)
         {
@@ -169,7 +255,28 @@ public sealed class EfProductImageAdminService : IProductImageAdminService
                     "Alt text, source URL, license name and license URL are required before publishing.");
             }
 
+            // 組長 PR #101 裁定 C：現階段只允許 Ready → Published；Domain 的 Publish 守著這條邊。
+            var statusBefore = image.Status;
             image.Publish(UtcNow());
+            _auditWriter.Add(AuditWriteRequest.Create(
+                Guid.CreateVersion7(),
+                actor,
+                AuditActions.ProductImagePublish,
+                AuditResourceTypes.ProductImage,
+                image.PublicId,
+                AuditResult.Success,
+                errorCode: null,
+                [
+                    AuditFieldChange.Code(ProductImageAuditFields.ProductPublicId, null, productPublicId.ToString("D")),
+                    AuditFieldChange.Code(ProductImageAuditFields.Status, statusBefore.ToString(), image.Status.ToString()),
+                    AuditFieldChange.Code(ProductImageAuditFields.SortOrder, null, Number(image.SortOrder)),
+                    AuditFieldChange.Code(ProductImageAuditFields.HasCompleteMetadata, null, Flag(image.HasCompleteMetadata)),
+                ],
+                reason: ProductImageAuditReasons.AdminPublish,
+                auditContext.CorrelationId,
+                auditContext.TraceId,
+                jobPublicId: null,
+                auditContext.RemoteIpAddress));
             await SaveWithConcurrencyCheckAsync(cancellationToken);
         }
 
@@ -179,10 +286,33 @@ public sealed class EfProductImageAdminService : IProductImageAdminService
     public async Task DeleteAsync(
         Guid imagePublicId,
         byte[] rowVersion,
+        string actorUserId,
+        AuditRequestContext auditContext,
         CancellationToken cancellationToken)
     {
-        var (image, _) = await LoadForWriteAsync(imagePublicId, rowVersion, cancellationToken);
+        ArgumentNullException.ThrowIfNull(auditContext);
+        var actor = await ResolveActorAsync(actorUserId, cancellationToken);
+        var (image, productPublicId) = await LoadForWriteAsync(imagePublicId, rowVersion, cancellationToken);
+        var statusBefore = image.Status;
         image.MarkDeleted(UtcNow());
+        _auditWriter.Add(AuditWriteRequest.Create(
+            Guid.CreateVersion7(),
+            actor,
+            AuditActions.ProductImageDelete,
+            AuditResourceTypes.ProductImage,
+            image.PublicId,
+            AuditResult.Success,
+            errorCode: null,
+            [
+                AuditFieldChange.Code(ProductImageAuditFields.ProductPublicId, null, productPublicId.ToString("D")),
+                AuditFieldChange.Code(ProductImageAuditFields.Status, statusBefore.ToString(), image.Status.ToString()),
+                AuditFieldChange.Code(ProductImageAuditFields.SortOrder, Number(image.SortOrder), null),
+            ],
+            reason: ProductImageAuditReasons.AdminDelete,
+            auditContext.CorrelationId,
+            auditContext.TraceId,
+            jobPublicId: null,
+            auditContext.RemoteIpAddress));
         await SaveWithConcurrencyCheckAsync(cancellationToken);
     }
 
@@ -244,9 +374,39 @@ public sealed class EfProductImageAdminService : IProductImageAdminService
                 candidate.Status != ProductImageStatus.PendingDelete)
             .OrderBy(candidate => candidate.SortOrder)
             .ThenBy(candidate => candidate.CreatedAtUtc)
+            .ThenBy(candidate => candidate.Id)
             .Select(candidate => candidate.Id)
             .FirstOrDefaultAsync(cancellationToken);
         return firstId == image.Id;
+    }
+
+    /// <summary>Same shape as EfProductAdminService.BulkActions.ResolveActorAsync：稽核的角色快照從真正的 UserRoles 讀。</summary>
+    private async Task<AuditActor> ResolveActorAsync(string actorUserId, CancellationToken cancellationToken)
+    {
+        var admin = await _dbContext.Users.AsNoTracking()
+            .Where(user => user.Id == actorUserId && user.AccountType == DoSelect.Domain.Members.AccountType.Admin)
+            .Select(user => new { user.Id, user.PublicId })
+            .SingleOrDefaultAsync(cancellationToken)
+            ?? throw new CatalogWriteException(
+                CatalogWriteException.ErrorCodes.ValidationFailed,
+                "The administrator identity is invalid.");
+
+        var roles = await (
+            from userRole in _dbContext.UserRoles.AsNoTracking()
+            join role in _dbContext.Roles.AsNoTracking() on userRole.RoleId equals role.Id
+            where userRole.UserId == admin.Id && role.Name != null
+            select role.Name!)
+            .Distinct()
+            .ToArrayAsync(cancellationToken);
+        if (!roles.Contains(AuditRoleNames.CatalogManager, StringComparer.Ordinal) &&
+            !roles.Contains(AuditRoleNames.SuperAdmin, StringComparer.Ordinal))
+        {
+            throw new CatalogWriteException(
+                CatalogWriteException.ErrorCodes.ValidationFailed,
+                "The administrator is not allowed to manage product images.");
+        }
+
+        return AuditActor.Create(AuditActorType.Admin, admin.PublicId, roles);
     }
 
     private static byte[] VariantHash(StoredProductImage file, ProductImageVariant variant) =>
@@ -283,6 +443,27 @@ public sealed class EfProductImageAdminService : IProductImageAdminService
         return value;
     }
 
+    /// <summary>組長 PR #101 裁定 D：來源與授權網址只接受 absolute HTTP／HTTPS URL。</summary>
+    private static string? RequireOptionalHttpUrl(string? value, int maximumLength, string field)
+    {
+        var trimmed = RequireOptional(value, maximumLength, field);
+        if (trimmed is null)
+        {
+            return null;
+        }
+
+        if (!Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) ||
+            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps) ||
+            string.IsNullOrEmpty(uri.Host))
+        {
+            throw new CatalogWriteException(
+                CatalogWriteException.ErrorCodes.ValidationFailed,
+                $"{field} must be an absolute http or https URL.");
+        }
+
+        return trimmed;
+    }
+
     /// <summary>檔案與圖片儲存設計「API 與錯誤契約」：413／415／422／503 與對應錯誤碼。</summary>
     private static DomainProblemException MapStorageFailure(ProductImageStoreStatus status) => status switch
     {
@@ -298,6 +479,10 @@ public sealed class EfProductImageAdminService : IProductImageAdminService
             DomainErrorCodes.ImageProcessingFailed, "The uploaded image could not be decoded or safely processed."),
         _ => throw new ArgumentOutOfRangeException(nameof(status), status, "A stored image has no failure response."),
     };
+
+    private static string Number(int value) => value.ToString(CultureInfo.InvariantCulture);
+
+    private static string Flag(bool value) => value ? "true" : "false";
 
     private DateTime UtcNow() => _timeProvider.GetUtcNow().UtcDateTime;
 }

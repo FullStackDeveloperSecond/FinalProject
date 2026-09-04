@@ -20,6 +20,8 @@ public sealed class ProductMediaApiTests(ProductsApiFixture fixture)
             var (product, _, _) = await ProductsApiSeeding.CreatePublishedProductAsync(context);
             var image = CreateImage(imagePublicId, product.Id, storageKey);
             image.RecordVariantHashes(hash, new byte[32], new byte[32], DateTime.UtcNow);
+            // 組長 PR #101 裁定 C：只有 Ready → Published，上傳流程結束時 MarkReady。
+            image.MarkReady(DateTime.UtcNow);
             image.Publish(DateTime.UtcNow);
             context.ProductImages.Add(image);
             await context.SaveChangesAsync();

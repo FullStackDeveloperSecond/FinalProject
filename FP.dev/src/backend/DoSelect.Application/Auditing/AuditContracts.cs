@@ -94,6 +94,12 @@ public static class AuditActions
     public const string ProductBulkUnpublish = "product.bulk_unpublish";
     public const string ProductBulkAdjustPrice = "product.bulk_adjust_price";
 
+    /// <summary>M-03 商品圖片後台四個動作（組長 PR #101 裁定 B）。Resource 是圖片本身，商品識別放在欄位裡。</summary>
+    public const string ProductImageUpload = "product_image.upload";
+    public const string ProductImageUpdate = "product_image.update";
+    public const string ProductImagePublish = "product_image.publish";
+    public const string ProductImageDelete = "product_image.delete";
+
     /// <summary>UC-ADM-INV-01 匯入確認：整批庫存調整寫入後留一筆稽核。</summary>
     public const string InventoryImportConfirm = "inventory_import.confirm";
 
@@ -126,6 +132,7 @@ public static class AuditResourceTypes
     public const string ImportBatch = "ImportBatch";
     public const string Product = "Product";
     public const string InventoryReservation = "InventoryReservation";
+    public const string ProductImage = "ProductImage";
 }
 
 public static class AuditRoleNames
@@ -672,6 +679,23 @@ internal static class AuditWritePolicy
                 AuditActions.ProductBulkAdjustPrice,
                 AuditResourceTypes.Product,
                 "listPrice", "adjustmentMode", "adjustmentValue"),
+            // 商品圖片：只記識別、狀態、排序與「中繼資料是否完整」，URL 與檔案內容不進稽核。
+            [AuditActions.ProductImageUpload] = Definition(
+                AuditActions.ProductImageUpload,
+                AuditResourceTypes.ProductImage,
+                "productPublicId", "status", "sortOrder", "hasCompleteMetadata"),
+            [AuditActions.ProductImageUpdate] = Definition(
+                AuditActions.ProductImageUpdate,
+                AuditResourceTypes.ProductImage,
+                "productPublicId", "status", "sortOrder", "hasCompleteMetadata", "metadata"),
+            [AuditActions.ProductImagePublish] = Definition(
+                AuditActions.ProductImagePublish,
+                AuditResourceTypes.ProductImage,
+                "productPublicId", "status", "sortOrder", "hasCompleteMetadata"),
+            [AuditActions.ProductImageDelete] = Definition(
+                AuditActions.ProductImageDelete,
+                AuditResourceTypes.ProductImage,
+                "productPublicId", "status", "sortOrder"),
             [AuditActions.ProductReviewApprove] = DefinitionWithNote(
                 AuditActions.ProductReviewApprove,
                 AuditResourceTypes.ProductReview,

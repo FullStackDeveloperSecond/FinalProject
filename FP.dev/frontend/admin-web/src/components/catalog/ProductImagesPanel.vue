@@ -115,7 +115,8 @@ function publish(image: AdminProductImageDto) {
 }
 
 function remove(image: AdminProductImageDto) {
-  if (!globalThis.confirm(`確定要移除這張圖片（${image.originalFileName}）嗎？已發布的公開網址會立即失效。`)) {
+  // 組長 PR #101：商品頁會立即移除，但既有瀏覽器／CDN 的 immutable 快取可能還會顯示一段時間，文案不能說「立即失效」。
+  if (!globalThis.confirm(`確定要移除這張圖片（${image.originalFileName}）嗎？商品頁會立即移除；已快取的公開網址可能仍會顯示一段時間。`)) {
     return
   }
   deleteMutation.mutate({
