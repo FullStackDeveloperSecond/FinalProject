@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
-import { executeRefund, getRefund, listRefunds, type RefundListParams } from './api'
-import type { ExecuteRefundRequest } from './types'
+import { approveRefund, executeRefund, getRefund, listRefunds, type RefundListParams } from './api'
+import type { ApproveRefundRequest, ExecuteRefundRequest } from './types'
 
 export function useRefundList(params: MaybeRefOrGetter<RefundListParams>) {
   return useQuery({
@@ -31,6 +31,25 @@ export function useExecuteRefund() {
       request: ExecuteRefundRequest
       idempotencyKey: string
     }) => executeRefund(refundPublicId, request, idempotencyKey),
+    onSuccess: async (refund) => {
+      queryClient.setQueryData(['refunds', 'detail', refund.publicId], refund)
+      await queryClient.invalidateQueries({ queryKey: ['refunds', 'list'] })
+    },
+  })
+}
+
+export function useApproveRefund() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      refundPublicId,
+      request,
+      idempotencyKey,
+    }: {
+      refundPublicId: string
+      request: ApproveRefundRequest
+      idempotencyKey: string
+    }) => approveRefund(refundPublicId, request, idempotencyKey),
     onSuccess: async (refund) => {
       queryClient.setQueryData(['refunds', 'detail', refund.publicId], refund)
       await queryClient.invalidateQueries({ queryKey: ['refunds', 'list'] })
