@@ -17,6 +17,7 @@ using DoSelect.Infrastructure.Auditing;
 using DoSelect.Infrastructure.Idempotency;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
+using DoSelect.Infrastructure.Persistence.Returns;
 using DoSelect.Infrastructure.Refunds;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -253,6 +254,84 @@ public sealed class RefundExecutorSqlServerTests
         Assert.All(allocations, allocation => Assert.True(allocation.Amount > 0m));
         Assert.All(allocations, allocation =>
             Assert.NotEqual(RefundAllocationType.OtherAdjustment, allocation.AllocationType));
+    }
+
+    [RefundExecutorSqlFact]
+    public async Task ASuccessfulExecutionCompletesTheAssociatedReturnInTheSameTransaction()
+    {
+        // #98 追蹤（接續 #99 A1）：正常正額退款執行成功後，先前沒有 production 呼叫端
+        // 把對應退貨從 AwaitingRefund 推到 Completed，退貨會永遠卡住。這裡證明
+        // RefundExecutor 執行成功時，退貨的結案與退款狀態、分攤、稽核同一筆交易落地。
+        await using var context = RefundExecutorSqlFixture.CreateContext();
+        var refund = await SeedRefundAsync(context);
+        var returnRequestId = refund.ReturnRequestId!.Value;
+
+        await using var verifyBefore = RefundExecutorSqlFixture.CreateContext();
+        Assert.Equal(
+            ReturnRequestStatus.AwaitingRefund,
+            (await verifyBefore.ReturnRequests.SingleAsync(r => r.Id == returnRequestId)).Status);
+
+        var result = await CreateExecutor(context).ExecuteAsync(Request(refund));
+        Assert.True(result.IsSuccess);
+
+        await using var verify = RefundExecutorSqlFixture.CreateContext();
+        var returnRequest = await verify.ReturnRequests.SingleAsync(r => r.Id == returnRequestId);
+        Assert.Equal(ReturnRequestStatus.Completed, returnRequest.Status);
+
+        var history = Assert.Single(await verify.ReturnStatusHistories
+            .Where(h => h.ReturnRequestId == returnRequestId && h.ToStatus == ReturnRequestStatus.Completed)
+            .ToListAsync());
+        Assert.Equal(ReturnRequestStatus.AwaitingRefund, history.FromStatus);
+        Assert.Equal("refund-succeeded", history.ReasonCode);
+        Assert.Equal(RefundExecutorSqlFixture.AdminUserId, history.ActorUserId);
+    }
+
+    [RefundExecutorSqlFact]
+    public async Task AFailedExecutionLeavesTheAssociatedReturnInAwaitingRefund()
+    {
+        // 執行失敗時（例如版本衝突）退貨不能單獨被推進 Completed——沒有真的收到錢的
+        // 退貨若顯示已結案，顧客與稽核都會被誤導。
+        await using var context = RefundExecutorSqlFixture.CreateContext();
+        var refund = await SeedRefundAsync(context);
+        var returnRequestId = refund.ReturnRequestId!.Value;
+
+        await using var execute = RefundExecutorSqlFixture.CreateContext();
+        var result = await CreateExecutor(execute).ExecuteAsync(
+            Request(refund) with { RefundRowVersion = [9, 9, 9, 9, 9, 9, 9, 9] });
+        Assert.Equal(RefundErrorCodes.ConcurrencyConflict, result.ErrorCode);
+
+        await using var verify = RefundExecutorSqlFixture.CreateContext();
+        var returnRequest = await verify.ReturnRequests.SingleAsync(r => r.Id == returnRequestId);
+        Assert.Equal(ReturnRequestStatus.AwaitingRefund, returnRequest.Status);
+        Assert.False(await verify.ReturnStatusHistories
+            .AnyAsync(h => h.ReturnRequestId == returnRequestId && h.ToStatus == ReturnRequestStatus.Completed));
+    }
+
+    [RefundExecutorSqlFact]
+    public async Task ARefundWhoseReturnAlreadyLeftAwaitingRefundThrowsAndWritesNothing()
+    {
+        // 正常流程下不可能發生：一張退貨只會有唯一一筆 Refund，且那筆 Refund 建立的
+        // 同一筆交易才把退貨推進 AwaitingRefund，該狀態唯一出口是 Completed。這裡
+        // 直接繞過正常流程人為構造「別的原因已經把退貨結案，退款卻還沒執行」，
+        // 證明這個不變量真的被守住：寧可整筆退款執行回滾，也不要靜默略過或誤結案。
+        await using var context = RefundExecutorSqlFixture.CreateContext();
+        var refund = await SeedRefundAsync(context);
+        var returnRequestId = refund.ReturnRequestId!.Value;
+
+        await using (var corrupt = RefundExecutorSqlFixture.CreateContext())
+        {
+            var returnRequest = await corrupt.ReturnRequests.SingleAsync(r => r.Id == returnRequestId);
+            returnRequest.Transition(ReturnRequestStatus.Completed, NowUtc);
+            await corrupt.SaveChangesAsync();
+        }
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            CreateExecutor(context).ExecuteAsync(Request(refund)));
+
+        await using var verify = RefundExecutorSqlFixture.CreateContext();
+        var stored = await verify.Refunds.SingleAsync(r => r.PublicId == refund.PublicId);
+        Assert.Equal(RefundStatus.Approved, stored.Status);
+        Assert.False(await verify.RefundAllocations.AnyAsync(a => a.RefundId == stored.Id));
     }
 
     [RefundExecutorSqlFact]
@@ -1362,6 +1441,7 @@ public sealed class RefundExecutorSqlServerTests
                     ActorScopePepper = new string('p', 48),
                 }),
                 timeProvider),
+            new RefundReturnCompletionPort(context),
             timeProvider);
     }
 
@@ -1408,6 +1488,11 @@ public sealed class RefundExecutorSqlServerTests
         returnRequest.Transition(ReturnRequestStatus.UnderReview, createdAtUtc);
         returnRequest.CaptureRefundTrustedInputs(
             AssemblyFeeDisposition.NotApplicable, returnShippingCost: 0m, createdAtUtc);
+        // 執行成功後要能把這張退貨推到 Completed，前提是它真的先到了 AwaitingRefund——
+        // 這些測試先前只停在 UnderReview，Refund 因此掛在一張退貨狀態機不允許的
+        // 前置狀態上。
+        returnRequest.Approve(
+            RefundExecutorSqlFixture.AdminUserId, ReturnApprovalOutcome.RefundDue, createdAtUtc);
         context.ReturnRequests.Add(returnRequest);
         await context.SaveChangesAsync();
 
@@ -1515,6 +1600,8 @@ public sealed class RefundExecutorSqlServerTests
         returnRequest.Transition(ReturnRequestStatus.UnderReview, createdAtUtc);
         returnRequest.CaptureRefundTrustedInputs(
             AssemblyFeeDisposition.NotApplicable, returnShippingCost: 0m, createdAtUtc);
+        returnRequest.Approve(
+            RefundExecutorSqlFixture.AdminUserId, ReturnApprovalOutcome.RefundDue, createdAtUtc);
         context.ReturnRequests.Add(returnRequest);
         await context.SaveChangesAsync();
 
@@ -1618,6 +1705,10 @@ public sealed class RefundExecutorSqlServerTests
         {
             returnRequest.CaptureRefundTrustedInputs(
                 AssemblyFeeDisposition.NotApplicable, returnShippingCost: 0m, createdAtUtc);
+            // 只有可信快照齊全時才能核准到 AwaitingRefund——沒有這三項，
+            // Approve() 本身雖然放行，但這張退貨永遠不會是真的可執行退款的前置狀態。
+            returnRequest.Approve(
+                RefundExecutorSqlFixture.AdminUserId, ReturnApprovalOutcome.RefundDue, createdAtUtc);
         }
 
         context.ReturnRequests.Add(returnRequest);

@@ -15,11 +15,12 @@ using Microsoft.EntityFrameworkCore;
 namespace DoSelect.Infrastructure.Refunds;
 
 /// <summary>
-/// 退款執行：核對狀態與可退款餘額 → 條件更新退款 → 寫入七類分攤 → 寫入稽核。
-/// 交易由共用 <c>IIdempotencyExecutor</c> 擁有並以 Serializable 開啟（DEC-BATCH-019 A1），
-/// 因此餘額所依據的範圍查詢在交易期間不會被其他交易插入；
+/// 退款執行：核對狀態與可退款餘額 → 條件更新退款 → 完成關聯退貨 → 寫入七類分攤 →
+/// 寫入稽核。交易由共用 <c>IIdempotencyExecutor</c> 擁有並以 Serializable 開啟
+/// （DEC-BATCH-019 A1），因此餘額所依據的範圍查詢在交易期間不會被其他交易插入；
 /// 退款列本身另有 rowversion 樂觀鎖，兩者共同保證成功退款累計不超過已收款金額。
-/// 稽核與退款狀態同批提交，任一寫入失敗即整體回滾（DEC-P289）。
+/// 稽核、退款狀態與（有關聯退貨時）退貨結案同批提交，任一寫入失敗即整體回滾
+/// （DEC-P289；退貨結案是 #98 追蹤、接續 #99 A1 補上的一段）。
 /// </summary>
 public sealed class RefundExecutor : IRefundExecutor
 {
@@ -41,22 +42,26 @@ public sealed class RefundExecutor : IRefundExecutor
     private readonly DoSelectDbContext _context;
     private readonly IAuditWriter _auditWriter;
     private readonly IIdempotencyExecutor _idempotencyExecutor;
+    private readonly IRefundReturnCompletionPort _returnCompletionPort;
     private readonly TimeProvider _timeProvider;
 
     public RefundExecutor(
         DoSelectDbContext context,
         IAuditWriter auditWriter,
         IIdempotencyExecutor idempotencyExecutor,
+        IRefundReturnCompletionPort returnCompletionPort,
         TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(auditWriter);
         ArgumentNullException.ThrowIfNull(idempotencyExecutor);
+        ArgumentNullException.ThrowIfNull(returnCompletionPort);
         ArgumentNullException.ThrowIfNull(timeProvider);
 
         _context = context;
         _auditWriter = auditWriter;
         _idempotencyExecutor = idempotencyExecutor;
+        _returnCompletionPort = returnCompletionPort;
         _timeProvider = timeProvider;
     }
 
@@ -197,6 +202,16 @@ public sealed class RefundExecutor : IRefundExecutor
         var previousStatus = refund.Status;
         refund.BeginProcessing(plan.ExecutedByAdminUserId, occurredAtUtc);
         refund.Complete(plan.Amount, occurredAtUtc);
+
+        // 退款結案時一併把對應退貨從 AwaitingRefund 推到 Completed（#98 追蹤、接續
+        // #99 A1）。沒有關聯退貨（例如未來非退貨來源的退款）就沒有東西可結案。
+        if (refund.ReturnRequestId is { } returnRequestId)
+        {
+            await _returnCompletionPort.CompleteReturnAsync(
+                new RefundReturnCompletionCommand(
+                    returnRequestId, plan.ExecutedByAdminUserId, occurredAtUtc),
+                cancellationToken);
+        }
 
         // 權威七類分攤與退款狀態同交易寫入。沒有分攤的成功退款，會讓對帳、
         // 發票折讓與稽核的 allocationCount 全部失真（DEC-P287／P289）。
