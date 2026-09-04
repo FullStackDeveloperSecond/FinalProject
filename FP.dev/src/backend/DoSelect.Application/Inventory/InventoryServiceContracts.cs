@@ -106,29 +106,38 @@ public interface IInventoryReconciliationService
         Guid casePublicId, string adminUserId, byte[] expectedRowVersion, DateTime now, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Dismissed: closes the case with a reason, no Balance change. Otherwise: re-verifies, inside
-    /// the same transaction, that the live Balance and a fresh ledger recomputation still match
-    /// what was captured at detection time (<see cref="InventoryReconciliationCaseDto.ExpectedOnHand"/>／
-    /// <see cref="InventoryReconciliationCaseDto.ActualOnHand"/> etc.) — a legitimate StockIn／Ship／
-    /// Reserve between detection and resolution makes the case's snapshot stale, and applying it
-    /// anyway would silently erase that later change. A mismatch throws
-    /// <see cref="InventoryWriteException.ErrorCodes.ConcurrencyConflict"/> and leaves the case
-    /// unresolved rather than overwriting Balance with a stale target. Quantities that would leave
-    /// Reserved &gt; OnHand are rejected the same way instead of throwing an unmapped domain
-    /// exception — reconciliation exists to catch inconsistent ledgers, so an inconsistent result
-    /// must be a stable, no-side-effect error, not a 500 that partially corrupts state. When the
-    /// checks pass, creates an <see cref="DoSelect.Domain.Inventory.InventoryMovementTypes.Adjustment"/>
-    /// InventoryMovement (zero OnHand／Reserved delta — a correction record, not a ledger change) and
-    /// resolves the case referencing it. Not wired to any HTTP endpoint yet (PR #36 round-4 ruling,
-    /// same class of gap as <see cref="IInventoryReservationService.ReleaseAsync"/>): a real
-    /// non-dismissed resolution is a high-risk manual stock correction, and although the central
-    /// <c>IAuditWriter</c> that records who／why now exists on dev, this PR does not wire the
-    /// resolution up to it — that is deferred to a follow-up PR.
+    /// 對帳案件以「核對基準錯誤」結案（組長對帳裁定 C1／D1／F1）：不動 Balance、不建 Movement；案件狀態與
+    /// <c>inventory_reconciliation.dismiss</c> 稽核同一次 SaveChanges。reasonCode 限
+    /// <see cref="DoSelect.Domain.Inventory.InventoryReconciliationReasonCodes.ForDismiss"/>，note 必填（trim 後存進案件
+    /// ResolutionReason 與稽核 note）。Open／Acknowledged 以外的案件丟
+    /// <see cref="InventoryWriteException.ErrorCodes.ReconciliationCaseNotOpen"/>；角色從 UserRoles 解析，
+    /// 非 InventoryManager／SuperAdmin 丟 <see cref="DoSelect.Application.Common.DomainProblemException"/>（403）。
+    /// 所有驗證都在第一個資料寫入之前完成。
+    /// </summary>
+    Task DismissAsync(
+        Guid casePublicId,
+        ReconciliationCaseResolutionCommand command,
+        string adminUserId,
+        AuditRequestContext auditContext,
+        DateTime now,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// 以帳本重算值修正 Balance（高風險的人工庫存調整）。在同一個 SQL transaction 裡：先重驗 live Balance
+    /// 仍等於案件的 Expected*、帳本重算仍等於 Actual*（偵測後合法的進貨／出貨／保留會讓快照過期，套用會
+    /// 把那筆變更抹掉——丟 <see cref="InventoryWriteException.ErrorCodes.ConcurrencyConflict"/>），重算後
+    /// Reserved &gt; OnHand 丟 <see cref="InventoryWriteException.ErrorCodes.ReconciliationLedgerInconsistent"/>
+    /// （不是重送能修的，案件留著人工調查）；通過後第一次 SaveChanges 寫 Balance＋零差額
+    /// <see cref="DoSelect.Domain.Inventory.InventoryMovementTypes.Adjustment"/> Movement（要拿 identity），
+    /// 第二次寫案件狀態＋<c>inventory_reconciliation.resolve</c> 稽核，任一步失敗全部 rollback（裁定 F1）。
+    /// reasonCode 限 <see cref="DoSelect.Domain.Inventory.InventoryReconciliationReasonCodes.ForResolve"/>；
+    /// 其餘規則同 <see cref="DismissAsync"/>。
     /// </summary>
     Task ResolveAsync(
         Guid casePublicId,
+        ReconciliationCaseResolutionCommand command,
         string adminUserId,
-        ResolveReconciliationCaseRequest request,
+        AuditRequestContext auditContext,
         DateTime now,
         CancellationToken cancellationToken);
 }

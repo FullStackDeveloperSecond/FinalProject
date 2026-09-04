@@ -201,6 +201,9 @@
 | `InventoryReservationDto` | PublicId、Order／SKU 摘要、Quantity、Status、ExpiresAtUtc、CreatedAtUtc、合法 `availableActions[]`、RowVersion |
 | `InventoryMovementQuery` | `skuPublicId?`、`movementTypes?`、`from/to?`、`pageNumber/pageSize` |
 | `InventoryMovementDto` | PublicId、SKU 摘要、Type、Before／Delta／After、ReasonCode、Actor 摘要、Reference Type／PublicId、OccurredAtUtc |
+| `InventoryReconciliationCaseQuery` | `status?`（Open／Acknowledged／Resolved／Dismissed）、`pageNumber/pageSize` |
+| `InventoryReconciliationCaseDto` | PublicId、SKU 摘要、Status、Expected／Actual OnHand、Expected／Actual Reserved（偵測時 Balance 快照 vs 帳本重算）、DetectedAtUtc、AcknowledgedBy／ResolvedBy Actor 摘要、ResolutionMovementPublicId?、ResolutionReason?、ResolvedAtUtc?、RowVersion |
+| `ReconciliationCaseResolutionRequest` | dismiss／resolve 共用：`reasonCode:string(1..32)`（dismiss 限 `false_positive/system_error/other`、resolve 限 `count_verified/system_error/other`）、`note:string(1..500)` 必填（trim 後存案件 `ResolutionReason` 並寫中央 Audit note）、`rowVersion` 必填；成功 204 |
 | `ProductImportBatchDto`／`InventoryImportBatchDto` | Batch PublicId、Type、Template Version、Status、建立者摘要、三組來源檔安全顯示名／Hash 是否存在、RowCount、新增／更新／無變更／錯誤統計、NormalizedContentVersion、CorrelationId、ResultSummary、ExpiresAtUtc、RowVersion；庫存匯入第 2／3 組為 Null |
 | `ProductImportRowDto`／`InventoryImportRowDto` | Dataset、SourceRowNumber、StableKey、Action、ErrorCodes[]、安全欄位摘要；不回未清理原始公式 |
 

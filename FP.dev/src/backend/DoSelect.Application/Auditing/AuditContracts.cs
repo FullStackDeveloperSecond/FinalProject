@@ -120,6 +120,17 @@ public static class AuditActions
     /// 狀態釋放、影響哪張訂單與哪個 SKU。與 Movement 同一次 SaveChanges 落地。
     /// </summary>
     public const string InventoryReservationRelease = "inventory_reservation.release";
+    /// UC-ADM-INV-01 對帳：把案件以「核對基準錯誤」結案，不動 Balance、不建 Movement。稽核是唯一
+    /// 記下誰、用哪個 reasonCode、寫了什麼說明的地方（組長對帳裁定 E1）。與案件狀態同一次 SaveChanges。
+    /// </summary>
+    public const string InventoryReconciliationDismiss = "inventory_reconciliation.dismiss";
+
+    /// <summary>
+    /// UC-ADM-INV-01 對帳：以帳本重算值修正 Balance（高風險的人工庫存調整）。記 OnHand／Reserved 的
+    /// Expected→Actual 與零差額 Adjustment Movement 的 PublicId；與案件狀態同一次 SaveChanges，
+    /// 並與 Balance／Movement 同一個 SQL transaction（裁定 F1）。
+    /// </summary>
+    public const string InventoryReconciliationResolve = "inventory_reconciliation.resolve";
 }
 
 public static class AuditResourceTypes
@@ -144,6 +155,7 @@ public static class AuditResourceTypes
     public const string Product = "Product";
     public const string InventoryReservation = "InventoryReservation";
     public const string ProductImage = "ProductImage";
+    public const string InventoryReconciliationCase = "InventoryReconciliationCase";
 }
 
 public static class AuditRoleNames
@@ -823,6 +835,16 @@ internal static class AuditWritePolicy
                 AuditActions.InventoryReservationRelease,
                 AuditResourceTypes.InventoryReservation,
                 "status", "reasonCode", "orderPublicId", "skuPublicId", "quantity", "reservedQuantity"),
+            // 對帳兩個動作都允許 note：reasonCode 是白名單，管理員的說明（trim 後也存進案件的
+            // ResolutionReason）只有稽核 note 放得下。數量欄記案件偵測時的 Expected→Actual。
+            [AuditActions.InventoryReconciliationDismiss] = DefinitionWithNote(
+                AuditActions.InventoryReconciliationDismiss,
+                AuditResourceTypes.InventoryReconciliationCase,
+                "status", "reasonCode", "skuPublicId"),
+            [AuditActions.InventoryReconciliationResolve] = DefinitionWithNote(
+                AuditActions.InventoryReconciliationResolve,
+                AuditResourceTypes.InventoryReconciliationCase,
+                "status", "reasonCode", "skuPublicId", "onHandQuantity", "reservedQuantity", "resolutionMovementPublicId"),
             [AuditActions.CatalogImportConfirm] = Definition(
                 AuditActions.CatalogImportConfirm,
                 AuditResourceTypes.ImportBatch,

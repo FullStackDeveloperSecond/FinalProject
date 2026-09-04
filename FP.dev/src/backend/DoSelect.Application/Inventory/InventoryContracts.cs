@@ -123,10 +123,16 @@ public sealed record InventoryReconciliationCaseDto(
 /// physical recount already produced them) — there is no separate "enter the correct number"
 /// field. Dismissing means the detection itself was wrong; Reason is required and no Movement is
 /// created (資料字典-商品庫存與組裝.md: "Dismissed 需說明核對基準錯誤原因，不得用來隱藏未解差異").
+/// 組長對帳裁定 C1／D1：兩條路由共用同一個 Request，reasonCode 依動作各有白名單
+/// （<see cref="DoSelect.Domain.Inventory.InventoryReconciliationReasonCodes"/>），note 兩邊都必填。
 /// </summary>
-public sealed record ResolveReconciliationCaseRequest(
-    bool Dismissed,
-    [StringLength(1000)] string? Reason,
-    [Required] byte[] RowVersion);
+public sealed record ReconciliationCaseResolutionCommand(
+    [Required][StringLength(32, MinimumLength = 1)] string ReasonCode,
+    [Required][StringLength(ReconciliationCaseResolutionCommand.NoteMaxLength, MinimumLength = 1)] string Note,
+    [Required] byte[] RowVersion)
+{
+    /// <summary>與人工釋放的 note 同上限（API DTO與Schema契約），不擴充到中央稽核的 1000。</summary>
+    public const int NoteMaxLength = 500;
+}
 
 public readonly record struct ReservationLine(Guid SkuPublicId, int Quantity);
