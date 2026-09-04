@@ -16,15 +16,17 @@ public sealed record IncomingImportFile(
     Func<Stream> OpenRead);
 
 /// <summary>
-/// CSV upload for 商品匯入 (product import). XLSX upload (the spec's other supported format,
-/// a single file with three named sheets) is not yet implemented — see 待實作 in
-/// 匯入暫存與庫存調整設計.md; this covers the "or three matching CSVs" path only for now.
+/// 商品匯入的上傳（匯入暫存與庫存調整設計.md API 契約：「上傳 XLSX，或三份 CSV 加 templateVersion」）。
+/// 兩條路只能走一條：<see cref="WorkbookFile"/> 有檔時必須是單一 XLSX（工作表 Products／Skus／
+/// Specifications），三個 CSV 欄位都要是空的；反之亦然。XLSX 的工作表讀成字串列之後走與 CSV
+/// 完全相同的 Parser，所以兩種格式的驗證結果對等是結構上保證的，不是靠兩份程式碼寫得一樣。
 /// </summary>
 public sealed record PreviewProductImportRequest(
     IncomingImportFile ProductsFile,
     IncomingImportFile SkusFile,
     IncomingImportFile SpecificationsFile,
-    int TemplateVersion);
+    int TemplateVersion,
+    IncomingImportFile? WorkbookFile = null);
 
 public sealed record ProductImportBatchDto(
     Guid PublicId,

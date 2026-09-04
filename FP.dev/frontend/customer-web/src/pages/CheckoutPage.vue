@@ -5,9 +5,9 @@ import { useQueryClient } from '@tanstack/vue-query'
 import { computed, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useSessionStore } from '../stores/session'
-import { useRevalidateCart } from '../features/cart/useCart'
+import { useCartIdentityKey, useRevalidateCart } from '../features/cart/useCart'
 import { clearGuestCartKey, getOrCreateGuestCartKey } from '../features/cart/guestCartKey'
-import type { CartIssueDto, CartValidationDto } from '../features/cart/types'
+import type { CartDto, CartIssueDto, CartValidationDto } from '../features/cart/types'
 import {
   createOrder,
   getCheckoutPolicyVersions,
@@ -44,6 +44,17 @@ interface CheckoutForm {
   acceptPrivacy: boolean
 }
 
+type MemberOrderRouteName = 'order-detail' | 'order-payment'
+
+type CreatedOrderHandoff =
+  | { kind: 'guest', order: OrderDto }
+  | {
+      kind: 'member'
+      order: OrderDto
+      routeName: MemberOrderRouteName
+      navigationFailed: boolean
+    }
+
 const PAYMENT_LABELS: Record<PaymentMethod, string> = {
   creditCard: '信用卡',
   atm: 'ATM 虛擬帳號',
@@ -63,6 +74,8 @@ const ISSUE_MESSAGES: Record<string, string> = {
 
 const router = useRouter()
 const queryClient = useQueryClient()
+const cartIdentityKey = useCartIdentityKey()
+const identityKey = computed(() => cartIdentityKey.value.join(' '))
 const sessionStore = useSessionStore()
 const revalidateCart = useRevalidateCart()
 
@@ -70,7 +83,7 @@ const validation = ref<CartValidationDto | null>(null)
 const policyVersions = ref<AcceptedPolicyVersions | null>(null)
 const isInitialLoading = ref(false)
 const initialError = ref<unknown>(null)
-const createdGuestOrder = ref<OrderDto | null>(null)
+const createdOrderHandoff = ref<CreatedOrderHandoff | null>(null)
 let loadGeneration = 0
 
 const selectedShippingMethod = ref<string | null>(null)
@@ -78,6 +91,19 @@ const selectedPaymentMethod = ref<PaymentMethod | null>(null)
 const selectedStorePublicId = ref<string | null>(null)
 const selectedStoreSummary = ref<ConvenienceStoreOptionDto | null>(null)
 const appliedCouponCode = ref<string | null>(null)
+/** 目前的優惠碼 state 屬於哪個身分；不符就整組作廢，見 syncCouponStateToIdentity。 */
+const couponIdentityKey = ref<string | null>(null)
+/** 從購物車頁帶過來、還沒被採用的代碼；跨初始化重試保留，見 loadCheckout。 */
+const pendingCouponHandoff = ref<{ rowVersion: string, code: string } | null>(null)
+/**
+ * 真正生效的優惠碼：身分鍵一變就立刻是 null，不等任何 watcher。
+ *
+ * 直接用 appliedCouponCode 會有一個窗口：session 改變時 useShippingOptions 內部的
+ * query key 先反應（它比頁面底下那個 watch 早建立），於是舊代碼會以新身分再送一次
+ * 運費查詢。把「屬於哪個身分」寫進讀取端，這個窗口就不存在了。建單請求也讀這一份。
+ */
+const activeCouponCode = computed(() =>
+  couponIdentityKey.value === identityKey.value ? appliedCouponCode.value : null)
 const isSubmitting = ref(false)
 const submitError = ref<string | null>(null)
 const submitCorrelationId = ref<string | null>(null)
@@ -121,7 +147,7 @@ const {
 } = useShippingOptions(
   canLoadShipping,
   computed(() => cart.value?.rowVersion),
-  appliedCouponCode,
+  activeCouponCode,
 )
 
 const selectedShippingOption = computed<ShippingOptionDto | null>(() =>
@@ -200,10 +226,78 @@ watch(() => form.invoiceBuyerType, (buyerType) => {
   }
 })
 
+/**
+ * 沿用顧客在購物車頁已經套用的優惠碼（alex 2026-09-03 PR #97 A1 裁定）。
+ *
+ * 載體是既有的<b>記憶體</b>購物車快取 —— 沒有新資料表、沒有 Cart 的 Coupon 欄位，
+ * 也不放 URL 或 localStorage。這剛好給出裁定要求的邊界：
+ *
+ * - 重新整理／跨裝置：快取不存在，自然不沿用
+ * - 登入／登出／換帳號：候選值與已套用的 state 都綁在身分鍵上，換人一起丟掉
+ * - 購物車版本改變：下面明確比對 RowVersion，舊 quote 已失效就不沿用
+ *
+ * 沿用的只是「代碼」。金額仍由後端重算：這個代碼會進 useShippingOptions 的
+ * query key 重新請求運費，建單時再由 Checkout 交易權威重驗全部規則。
+ */
+function adoptCartPageCoupon(nextValidation: CartValidationDto): void {
+  const candidate = pendingCouponHandoff.value
+  if (candidate === null || appliedCouponCode.value !== null) {
+    return
+  }
+
+  if (candidate.rowVersion !== nextValidation.cart.rowVersion) {
+    pendingCouponHandoff.value = null
+    return
+  }
+
+  appliedCouponCode.value = candidate.code
+  form.couponCode = candidate.code
+  pendingCouponHandoff.value = null
+}
+
+/**
+ * 讓優惠碼 state 跟上目前的身分（alex 2026-09-03 PR #97 第二輪第 1 點）。
+ *
+ * 身分化的 query cache 只隔離得了<b>快取</b>，隔離不了已經複製到元件裡的那一份：
+ * CheckoutPage 掛載期間登入、登出或換帳號時，上一個身分的代碼會繼續被送進 Shipping
+ * Options，最後也會進建單請求。所以身分鍵一變，已套用的代碼與輸入框都要清掉，
+ * 候選值再從<b>新身分自己的</b>購物車快取重新取一份。
+ *
+ * 候選值必須在 revalidate <b>之前</b>取：useRevalidateCart 成功後會把權威購物車寫回
+ * 同一個快取鍵，而優惠碼不保存在購物車上，覆蓋之後就再也讀不到顧客在 C-13 套的代碼。
+ * 它也刻意活得比單次 loadCheckout 久 —— 見下面 loadCheckout 的說明。
+ */
+function syncCouponStateToIdentity(): void {
+  if (couponIdentityKey.value === identityKey.value) {
+    return
+  }
+
+  couponIdentityKey.value = identityKey.value
+  appliedCouponCode.value = null
+  form.couponCode = ''
+
+  const cartPageCart = queryClient.getQueryData<CartDto>(cartIdentityKey.value)
+  const code = cartPageCart?.coupon?.code
+  pendingCouponHandoff.value = cartPageCart !== undefined && code
+    ? { rowVersion: cartPageCart.rowVersion, code }
+    : null
+}
+
+/**
+ * 取得結帳所需的權威資料。**可以被重試呼叫多次**（初始化失敗時的重試按鈕）。
+ *
+ * 優惠碼的候選值刻意不放在這個函式的區域變數裡（alex 2026-09-03 PR #97 第二輪第 2 點）：
+ * revalidate 成功、政策版本失敗時 Promise.all 會進錯誤分支，但權威購物車已經寫回快取，
+ * 而它不帶優惠碼 —— 候選值若隨這次呼叫消失，重試時就再也讀不到顧客在 C-13 套的代碼，
+ * 即使仍是同一 SPA、同一身分、同一 RowVersion。所以候選值由 syncCouponStateToIdentity
+ * 維護，只有身分或版本不符時才清除。
+ */
 async function loadCheckout(): Promise<void> {
   if (!sessionStore.isIdentityConfirmed) {
     return
   }
+
+  syncCouponStateToIdentity()
 
   const generation = ++loadGeneration
   isInitialLoading.value = true
@@ -222,6 +316,7 @@ async function loadCheckout(): Promise<void> {
     }
     validation.value = nextValidation
     policyVersions.value = nextPolicies
+    adoptCartPageCoupon(nextValidation)
   } catch (caught) {
     if (generation === loadGeneration) {
       initialError.value = caught
@@ -291,7 +386,7 @@ function buildRequest(): CreateOrderRequest {
       deliveryNote: form.deliveryNote.trim() || null,
     },
     paymentMethod: selectedPaymentMethod.value!,
-    couponCode: appliedCouponCode.value,
+    couponCode: activeCouponCode.value,
     invoice: {
       type: 'simulated',
       buyerType: form.invoiceBuyerType,
@@ -344,26 +439,44 @@ async function submitOrder(): Promise<void> {
   submitError.value = null
   submitCorrelationId.value = null
 
+  let order: OrderDto
   try {
-    const order = await createOrder(request, idempotencyKey, getOrCreateGuestCartKey())
-    queryClient.removeQueries({ queryKey: ['cart'] })
-    queryClient.removeQueries({ queryKey: ['shipping-options'] })
-
-    if (!sessionStore.isAuthenticated) {
-      createdGuestOrder.value = order
-      clearGuestCartKey()
-      return
-    }
-
-    await router.push({
-      name: selectedPaymentMethod.value === 'cashOnDelivery' ? 'order-detail' : 'order-payment',
-      params: { orderId: order.publicId },
-    })
+    order = await createOrder(request, idempotencyKey, getOrCreateGuestCartKey())
   } catch (caught) {
     submitError.value = describeSubmitError(caught)
     submitCorrelationId.value = isApiError(caught) ? caught.correlationId ?? null : null
+    return
   } finally {
     isSubmitting.value = false
+  }
+
+  queryClient.removeQueries({ queryKey: ['cart'] })
+  queryClient.removeQueries({ queryKey: ['shipping-options'] })
+
+  if (!sessionStore.isAuthenticated) {
+    createdOrderHandoff.value = { kind: 'guest', order }
+    clearGuestCartKey()
+    return
+  }
+
+  const routeName: MemberOrderRouteName =
+    selectedPaymentMethod.value === 'cashOnDelivery' ? 'order-detail' : 'order-payment'
+  createdOrderHandoff.value = {
+    kind: 'member',
+    order,
+    routeName,
+    navigationFailed: false,
+  }
+
+  try {
+    await router.push({ name: routeName, params: { orderId: order.publicId } })
+  } catch {
+    createdOrderHandoff.value = {
+      kind: 'member',
+      order,
+      routeName,
+      navigationFailed: true,
+    }
   }
 }
 </script>
@@ -378,18 +491,57 @@ async function submitOrder(): Promise<void> {
     </h1>
 
     <section
-      v-if="createdGuestOrder"
+      v-if="createdOrderHandoff"
       class="checkout-page__guest-success"
-      aria-labelledby="guest-order-created-title"
+      aria-labelledby="order-created-title"
     >
-      <h2 id="guest-order-created-title">
+      <h2 id="order-created-title">
         訂單已建立
       </h2>
-      <p>訂單編號：<strong>{{ createdGuestOrder.orderNumber }}</strong></p>
-      <p>為保護訂單資料，訪客需以訂單編號與結帳 Email 完成一次性驗證，才能繼續付款或查看訂單。</p>
-      <RouterLink to="/guest-orders/access">
-        驗證訂單後繼續付款
-      </RouterLink>
+      <p>訂單編號：<strong>{{ createdOrderHandoff.order.orderNumber }}</strong></p>
+      <dl class="checkout-page__amount-breakdown">
+        <div>
+          <dt>商品小計：</dt>
+          <dd>{{ formatTwd(createdOrderHandoff.order.amounts.merchandiseSubtotal) }}</dd>
+        </div>
+        <div>
+          <dt>優惠折扣：</dt>
+          <dd>−{{ formatTwd(createdOrderHandoff.order.amounts.itemDiscountTotal) }}</dd>
+        </div>
+        <div>
+          <dt>配送費：</dt>
+          <dd>{{ formatTwd(createdOrderHandoff.order.amounts.shippingFee) }}</dd>
+        </div>
+        <div>
+          <dt>組裝費：</dt>
+          <dd>{{ formatTwd(createdOrderHandoff.order.amounts.assemblyFee) }}</dd>
+        </div>
+        <div class="checkout-page__amount-total">
+          <dt>應付總額：</dt>
+          <dd>{{ formatTwd(createdOrderHandoff.order.amounts.grandTotal) }}</dd>
+        </div>
+      </dl>
+
+      <template v-if="createdOrderHandoff.kind === 'guest'">
+        <p>為保護訂單資料，訪客需以訂單編號與結帳 Email 完成一次性驗證，才能繼續付款或查看訂單。</p>
+        <RouterLink to="/guest-orders/access">
+          驗證訂單後繼續付款
+        </RouterLink>
+      </template>
+
+      <template v-else>
+        <p v-if="createdOrderHandoff.navigationFailed">
+          訂單已經建立成功，只是沒能自動開啟下一頁。
+        </p>
+        <RouterLink
+          :to="{
+            name: createdOrderHandoff.routeName,
+            params: { orderId: createdOrderHandoff.order.publicId },
+          }"
+        >
+          {{ createdOrderHandoff.routeName === 'order-payment' ? '前往付款' : '查看訂單' }}
+        </RouterLink>
+      </template>
     </section>
 
     <div
@@ -625,15 +777,15 @@ async function submitOrder(): Promise<void> {
           套用優惠券
         </button>
         <button
-          v-if="appliedCouponCode"
+          v-if="activeCouponCode"
           type="button"
           data-test="remove-coupon"
           @click="removeCoupon"
         >
           移除優惠券
         </button>
-        <p v-if="appliedCouponCode && !isShippingError">
-          已套用 {{ appliedCouponCode }}；配送費與付款方式已由後端重新試算。
+        <p v-if="activeCouponCode && !isShippingError">
+          已套用 {{ activeCouponCode }}；配送費與付款方式已由後端重新試算。
         </p>
         <p>優惠資格與最終折扣會由後端在建立訂單時重新驗證。</p>
       </section>
@@ -796,6 +948,30 @@ async function submitOrder(): Promise<void> {
   grid-template-columns: minmax(7rem, 10rem) minmax(0, 1fr);
   gap: 0.75rem;
   align-items: center;
+}
+
+.checkout-page__amount-breakdown {
+  display: grid;
+  gap: 0.375rem;
+  max-width: 24rem;
+  margin: 1rem 0;
+}
+
+.checkout-page__amount-breakdown > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.checkout-page__amount-breakdown dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.checkout-page__amount-total {
+  padding-top: 0.5rem;
+  border-top: 1px solid #d1d5db;
+  font-weight: 700;
 }
 
 .checkout-page__address {

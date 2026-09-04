@@ -2633,6 +2633,10 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                         .HasMaxLength(450)
                         .HasColumnType("nvarchar(450)");
 
+                    b.Property<string>("AdjustmentNote")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
                     b.Property<int>("AfterOnHand")
                         .HasColumnType("int");
 

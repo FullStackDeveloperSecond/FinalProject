@@ -4,6 +4,25 @@ export type ConvenienceStoreDto = components['schemas']['ConvenienceStoreDto']
 export type CreateConvenienceStoreRequest = components['schemas']['CreateConvenienceStoreRequest']
 export type UpdateConvenienceStoreRequest = components['schemas']['UpdateConvenienceStoreRequest']
 
+export type BatchShipmentRequest = components['schemas']['AdminBatchShipmentRequest']
+export type BatchShipmentOrderInput = components['schemas']['AdminBatchShipmentOrder']
+export type BatchShipmentResultDto = components['schemas']['BatchShipmentResultDto']
+export type BatchShipmentItemResultDto = components['schemas']['BatchShipmentItemResultDto']
+
+/**
+ * UC-ADM-SHIP-02 的兩個動作。`createLabel` 只建立物流單、把訂單推到準備出貨；`markShipped`
+ * 才把保留庫存轉為已消耗並扣掉實體庫存。差別就是「貨有沒有真的離開倉庫」，所以送出前要讓
+ * 管理員看清楚自己選的是哪一個。
+ */
+export const BATCH_SHIPMENT_ACTIONS = [
+  { value: 'createLabel', label: '建立物流單（不扣庫存）' },
+  { value: 'markShipped', label: '標記已出貨（扣庫存）' },
+] as const
+export type BatchShipmentAction = (typeof BATCH_SHIPMENT_ACTIONS)[number]['value']
+
+/** 後端 MaxBatchSize 也是 100；超過整批會被退回 shipping_batch_limit_exceeded，所以前台先擋。 */
+export const MAX_BATCH_SHIPMENT_ORDERS = 100
+
 export type PackageLimitVersionDto = components['schemas']['PackageLimitVersionDto']
 export type CreatePackageLimitVersionRequest = components['schemas']['CreatePackageLimitVersionRequest']
 export type PublishPackageLimitVersionRequest = components['schemas']['PublishPackageLimitVersionRequest']

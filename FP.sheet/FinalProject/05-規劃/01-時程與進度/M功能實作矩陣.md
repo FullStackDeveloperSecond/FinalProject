@@ -1,7 +1,7 @@
 ---
 文件狀態: 持續更新
 最後更新: 2026-09-02
-基準分支: dev@72db6fcc
+基準分支: dev@16091fcf + WP-A04／WP-H05
 ---
 
 # M 功能實作矩陣
@@ -22,16 +22,16 @@
 |---|---:|---:|---:|---:|---:|---:|---|
 | M-01 會員註冊與登入 | ✅ | ✅ | ✅ | ✅ | ⬜ | ✅ | 註冊、驗證、登入、重設密碼已合併；尚無瀏覽器 E2E。 |
 | M-01B 管理員 TOTP／Session | ✅ | ✅ | ✅ | ✅ | ⬜ | ✅ | PR #38 已合併至 `dev`：TOTP、Recovery Code、Session 撤銷、後台登入與 Provider-backed 證據存在；尚無瀏覽器 E2E。 |
-| M-02 訪客結帳與訂單驗證 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | PR #91 已將 C-14、會員／訪客建單後交接與正式 Typed Client 合併至 `dev`；既有 Guest Email 驗證／限單 Cookie、本人查單／取消及 WP-A02 跨訂單 Browser 隔離證據保留。Cart→Checkout→Guest 驗證→Payment 完整跨交易 E2E 仍由 WP-A04 追蹤。 |
+| M-02 訪客結帳與訂單驗證 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | C-14、會員／訪客建單後交接、Guest Email 限單 Cookie、本人查單／取消及 WP-A02 跨訂單隔離均已交付；WP-A04 再證明 Cart→Checkout→Guest 驗證→Payment／Invoice 的預付主旅程。其他訪客付款與錯誤變體尚未全覆蓋。 |
 | M-03 商品、SKU 與目錄 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | PR #24 已交付前後台型錄垂直切片；PR #52 新增可重跑的商品列表→詳情 Playwright Smoke，但尚未覆蓋後台型錄管理旅程。 |
 | M-04 商品批次與 Excel | 🔵 | 🔵 | 🔵 | ✅ | ⬜ | 🔵 | PR #85 已合併商品批次上下架／調價、共用篩選的 CSV／XLSX 匯出、A-04 UI、單一交易與 SQL Provider-backed 證據。Excel／CSV 匯入 Staging、驗證預覽與原子提交仍未完成。 |
 | M-05 商品搜尋與篩選 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | 公開查詢與前台型錄已合併；PR #52 的 Playwright Smoke 已驗證固定 Seed 商品可由搜尋列表進入詳情，但尚未覆蓋完整篩選與排序組合。 |
-| M-06 購物車 | ✅ | ✅ | ✅ | ✅ | ⬜ | ✅ | 購物車後端、前端、身份隔離、組裝整組移除、結帳前重驗及 C-13 配送預覽均已進 `dev`；完整 Cart→Checkout Browser E2E 仍缺。 |
-| M-07 優惠券 | ✅ | ✅ | 🔵 | ✅ | ⬜ | 🔵 | `dev` 已有優惠券計算／生命週期、管理 API、A-23、用途 Catalog picker，以及 PR #91 的 Checkout 套用與 Coupon Quote 後 Shipping／COD 重算。購物車頁套券 UI、持久化 Cart Coupon Endpoint 與完整 E2E 仍缺。 |
-| M-08 訂單 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | 原子建單、缺貨回滾、訂單快照、正式 Checkout API、C-14、前後台訂單查詢與 WP-A02 Guest 查單／取消 E2E 已進 `dev`。完整 Checkout replay 與跨交易 E2E 仍缺。 |
-| M-09 模擬付款 | ✅ | ✅ | ✅ | ✅ | ⬜ | ✅ | 付款重試／新增 Attempt、Demo complete、Owner／Guest Scope、Antiforgery、`simulationKey` 冪等、SQL Writer、Audit／Outbox、付款成功發票 Consumer、Owner-scoped Latest Attempt GET 與 PR #91 的 C-15 續接均已進 `dev`。COD 正式物流命令接線與完整 E2E 仍缺。 |
-| M-10 庫存保留與逾時取消 | ✅ | ✅ | ✅ | ✅ | ⬜ | 🔵 | PR #36／#37 已合併庫存保留、異動、盤點後台 API／UI；PR #52 已有 Checkout 成功保留與缺貨整體回滾，PR #85 已將逾時處理收束為訂單層取消、資源釋放、RowVersion 競爭與有界背景排程。最後一件商品雙請求競爭與完整跨交易 E2E 仍缺。 |
-| M-11 物流與批次出貨 | ✅ | ✅ | 🔵 | ✅ | ⬜ | 🔵 | 宅配／超取、Provider、包裹限制、運費／免運、配送選項、示範門市 API、C-13 預覽，以及 PR #91 的 C-14、Coupon Quote 後運費／COD 重算與正式 Typed Client 均已進 `dev`。批次出貨、物流狀態命令、COD 收款接線與完整 E2E 仍缺。 |
+| M-06 購物車 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | 購物車後端、前端、身份隔離、組裝整組移除、結帳前重驗及 C-13 配送預覽均已交付；WP-A04 以固定 Guest Cart 完成組裝購物車到 Checkout 的預付主旅程。完整功能變體仍未逐一 E2E。 |
+| M-07 優惠券 | ✅ | ✅ | 🔵 | ✅ | 🔵 | 🔵 | 已有優惠券計算／生命週期、管理 API、A-23、用途 Catalog picker、Checkout 套用與 Shipping／COD 重算；WP-A04 證明 `CREATOR10` 的門檻、上限與金額快照。購物車頁套券 UI、持久化 Cart Coupon Endpoint 仍缺。 |
+| M-08 訂單 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | 原子建單、缺貨回滾、訂單快照、正式 Checkout API、C-14、前後台查詢與 Guest 查單／取消均已交付；WP-A04 補相同 Checkout replay 零重複及預付跨交易 Browser 證據。其他狀態變體仍未完整 E2E。 |
+| M-09 模擬付款 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | 付款 Attempt、Demo complete、Owner／Guest Scope、Antiforgery、`simulationKey`、SQL Writer、Audit／Outbox、發票 Consumer、Latest Attempt 與 C-15 均已交付；WP-A04 補信用卡模擬成功至 Invoice 的隔離 Browser E2E。COD 正式物流命令接線仍缺。 |
+| M-10 庫存保留與逾時取消 | ✅ | ✅ | ✅ | ✅ | 🔵 | 🔵 | 庫存保留／後台、Checkout 成功與缺貨回滾、逾時取消／釋放、RowVersion 與背景排程均已交付；WP-A04 新增兩個 Guest Cart 競爭最後一件的 SQL Server 證據，並由 Browser 主旅程形成保留。其他逾時 UI 變體仍未 E2E。 |
+| M-11 物流與批次出貨 | ✅ | ✅ | 🔵 | ✅ | 🔵 | 🔵 | 宅配／超取、Provider、限制、運費／免運、配送選項、門市 API、C-13／C-14 與 Typed Client 均已交付；WP-A04 證明組裝宅配與優惠後運費快照。批次出貨、物流狀態命令與 COD 收款接線仍缺。 |
 | M-12 單項退貨 | ✅ | ✅ | ✅ | ✅ | ⬜ | ✅ | PR #42 已交付退貨申請、審核、寄回、收件、檢查、退款交接與前後台；PR #53 修復可信退款輸入及 CI Gate。仍缺完整瀏覽器 E2E。 |
 | M-13 部分退款 | ✅ | ✅ | ✅ | ✅ | ⬜ | ✅ | 退款 execute、可信七類分攤、中央冪等／Audit、SQL Server 證據，以及 WP-05 的清單／明細 API、A-21/A-22、OpenAPI／Typed Client、角色路由、確認門檻與穩定 Idempotency-Key 均已隨 `8cf41558` 進 `dev`；完整 E2E 仍缺。 |
 | M-14 客服案件與 SLA | ✅ | ✅ | ✅ | ✅ | ⬜ | ✅ | PR #10 已交付客服前後台、SLA 與 SQL 證據；PR #51 已完成主管 Action、Internal Note、Reopen SLA、案件工作台、Actor Scope、衝突刷新與中央 Audit。仍缺完整顧客→客服瀏覽器 E2E。 |
@@ -40,7 +40,7 @@
 | M-17 零件相容性 | ✅ | ✅ | ✅ | ✅ | ⬜ | ✅ | PR #52 已交付來源型規格資料基礎；PR #34 已交付確定性檢查、後台規則、Audit 與 Provider-backed 證據；PR #35 已交付前端並合併 `dev`。完整瀏覽器旅程仍缺。 |
 | M-18 AI 商品搜尋推薦 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | PR #62 已完成 Review、Required CI 並 squash merge 至 `dev`：strict Adapter、公開 Endpoint、10／30 額度、SQL 候選、既有零件確認、八類 CustomBuild、正式相容性、Fail Closed 保存、關鍵字降級、`/ai-search` UI、OpenAPI／Typed Client 均已合併。Provider-backed CustomBuild 與隔離公開搜尋降級 E2E 已通過；真實模型推薦旅程、品質、P95、Token／成本仍由 AI-09 獨立追蹤。 |
 | M-19 AI 客服 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | PR #57／#58／#59 已合併 SQL-backed 同意／額度、Responses Adapter、本人 Order／SupportTicket／Conversation Query、互動／引用／Token／成本、US$70／US$90 保護、會員聊天、A-28 管理彙總與 Playwright 降級旅程。AI-09 live baseline 獨立保持未完成。 |
-| M-20 模擬發票與折讓 | ✅ | ✅ | ✅ | ✅ | ⬜ | 🔵 | 折讓、付款成功冪等發票 Outbox／Consumer、前後台查詢、WP-06 開立／作廢 API、DEC-P348 窄查詢、A-24/A-25 管理 UI、WP-07 顧客發票 UI 與 SQL Server 49/49 均已納入 `dev`；COD 正式物流接線與完整跨層 E2E 仍缺。M-20 是模擬發票支援流程的實作追蹤 ID，不增加 [[01-需求/功能範圍]] 原列 19 項 M 功能數。 |
+| M-20 模擬發票與折讓 | ✅ | ✅ | ✅ | ✅ | 🔵 | 🔵 | 折讓、付款成功冪等發票 Outbox／Consumer、前後台查詢、開立／作廢 API、A-24/A-25 與顧客發票 UI 均已交付；WP-A04 補信用卡付款成功後由 Browser 輪詢並顯示發票。COD 正式物流接線與其他發票／折讓跨層變體仍缺。M-20 不增加 [[01-需求/功能範圍]] 原列 19 項 M 功能數。 |
 
 ## 完成判定邊界
 
@@ -54,6 +54,6 @@
 - AI 商品搜尋與客服的 Live Model 品質、P95、Token 與成本評估均未執行；由 AI-09 獨立追蹤，不回退 M-18／M-19 已合併狀態。
 - DATA-06 完整 10,000 筆展示 Seed 與特殊案例分布。
 - 各 M 功能的完整 SQL Server Provider-backed 覆蓋；Required CI 已啟用 SQL Gate，但現有測試通過不代表每個功能案例皆有 Provider-backed 證據。
-- 核心交易與其他 M 功能的瀏覽器 E2E。
+- 核心信用卡預付主旅程已有 WP-A04 E2E；COD 履約收款、Cart 持久化套券及其他 M 功能的完整瀏覽器 E2E 仍未完成。
 
 Coverage 收集與失敗門檻已由 PR #55 納入 Required CI：Domain＋Application 70%，雙前端核心 Composable／Store 60%。Coverage Gate 完成只表示門檻可執行，不會自動補足缺少的功能測試。

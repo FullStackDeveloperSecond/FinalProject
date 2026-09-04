@@ -8,6 +8,8 @@ import {
   removeCartItem,
   revalidateCart,
   updateCartItemQuantity,
+  applyCartCoupon,
+  removeCartCoupon,
 } from './api'
 import { clearGuestCartKey, getOrCreateGuestCartKey } from './guestCartKey'
 import { useSessionStore } from '../../stores/session'
@@ -23,7 +25,14 @@ import type { CartDto } from './types'
  * structurally impossible: a different identity is a genuinely different cache entry, never
  * served in place of the current one, regardless of timing.
  */
-function useCartIdentityKey() {
+/**
+ * 購物車快取鍵，含身分。
+ *
+ * 匯出給結帳頁用：C-13 套用的優惠碼要在同一個 SPA 內交接到 C-14，而唯一符合
+ * 「不新增資料表、不持久化、不進 URL 或 localStorage」的載體就是這份記憶體快取。
+ * 鍵本身帶身分，所以換帳號或登出時自然不會沿用。
+ */
+export function useCartIdentityKey() {
   const sessionStore = useSessionStore()
   return computed(() =>
     sessionStore.isAuthenticated && sessionStore.user
@@ -247,6 +256,37 @@ export function useMergeCartOnLogin() {
     onSuccess: (result, _variables, targetKey) => {
       queryClient.setQueryData(targetKey, result.cart)
       clearGuestCartKey()
+    },
+  })
+}
+
+/**
+ * 套用優惠碼。
+ *
+ * 與其他購物車異動一樣用 `onMutate` 把身分鎖在送出當下 —— 回應落地時若身分已經
+ * 換人，寫進當時的快取鍵才不會把某個人的購物車寫到另一個身分底下。
+ */
+export function useApplyCartCoupon() {
+  const queryClient = useQueryClient()
+  const sessionStore = useSessionStore()
+  return useMutation({
+    mutationFn: (params: { code: string, cartRowVersion: string }) =>
+      applyCartCoupon(params.code, params.cartRowVersion, getOrCreateGuestCartKey()),
+    onMutate: () => snapshotCartMutationIdentity(sessionStore),
+    onSuccess: (cart, _variables, targetKey) => {
+      queryClient.setQueryData(targetKey, cart)
+    },
+  })
+}
+
+export function useRemoveCartCoupon() {
+  const queryClient = useQueryClient()
+  const sessionStore = useSessionStore()
+  return useMutation({
+    mutationFn: () => removeCartCoupon(getOrCreateGuestCartKey()),
+    onMutate: () => snapshotCartMutationIdentity(sessionStore),
+    onSuccess: (cart, _variables, targetKey) => {
+      queryClient.setQueryData(targetKey, cart)
     },
   })
 }

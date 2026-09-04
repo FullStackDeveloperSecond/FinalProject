@@ -33,4 +33,10 @@ public static class DomainErrorCodes
     public const string ImportAlreadyCommitted = "import_already_committed";
     public const string ImportBatchExpired = "import_batch_expired";
     public const string ImportBatchInProgress = "import_batch_in_progress";
+
+    /// <summary>
+    /// UC-ADM-INV-01 匯入。與商品匯入分開的錯誤碼（Endpoint 目錄「UC-ADM-INV-01 匯入」列指定）：
+    /// 庫存匯入還會因為「Preview 之後 Balance 被動過」而整批拒絕，那不是商品匯入會有的情形。
+    /// </summary>
+    public const string InventoryImportValidationFailed = "inventory_import_validation_failed";
 }

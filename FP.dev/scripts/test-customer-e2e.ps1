@@ -103,6 +103,9 @@ $previousAdminPassword = $env:Seed__AdminPassword
 $previousMemberPassword = $env:Seed__MemberPassword
 $previousDataRoot = $env:E2E_STORAGE_DATA_ROOT
 $previousReuseExistingServer = $env:E2E_REUSE_EXISTING_SERVER
+$previousApiEnvironment = $env:E2E_ASPNETCORE_ENVIRONMENT
+$previousBackgroundJobsEnabled = $env:E2E_BACKGROUND_JOBS_ENABLED
+$previousSimulationEndpointsEnabled = $env:E2E_SIMULATION_ENDPOINTS_ENABLED
 
 Push-Location $projectRoot
 try {
@@ -116,6 +119,17 @@ try {
     $env:Seed__MemberPassword = 'E2e_Member_123!'
     $env:E2E_STORAGE_DATA_ROOT = $dataRoot
     $env:E2E_REUSE_EXISTING_SERVER = 'false'
+    $isCoreTransactionJourney =
+        $JourneyTitle -eq 'a guest completes the prepared cart through checkout payment and invoice'
+    $env:E2E_ASPNETCORE_ENVIRONMENT = 'E2E'
+    if ($isCoreTransactionJourney) {
+        $env:E2E_BACKGROUND_JOBS_ENABLED = 'true'
+        $env:E2E_SIMULATION_ENDPOINTS_ENABLED = 'true'
+    }
+    else {
+        $env:E2E_BACKGROUND_JOBS_ENABLED = 'false'
+        $env:E2E_SIMULATION_ENDPOINTS_ENABLED = 'false'
+    }
 
     Write-Host "Preparing isolated E2E database '$databaseName'."
     & dotnet tool run dotnet-ef -- database update `
@@ -169,6 +183,9 @@ finally {
         $env:Seed__MemberPassword = $previousMemberPassword
         $env:E2E_STORAGE_DATA_ROOT = $previousDataRoot
         $env:E2E_REUSE_EXISTING_SERVER = $previousReuseExistingServer
+        $env:E2E_ASPNETCORE_ENVIRONMENT = $previousApiEnvironment
+        $env:E2E_BACKGROUND_JOBS_ENABLED = $previousBackgroundJobsEnabled
+        $env:E2E_SIMULATION_ENDPOINTS_ENABLED = $previousSimulationEndpointsEnabled
         Pop-Location
     }
 }

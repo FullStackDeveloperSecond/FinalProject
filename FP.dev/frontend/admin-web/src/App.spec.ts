@@ -104,4 +104,34 @@ describe('admin shell navigation', () => {
     expect(wrapper.text()).not.toContain('示範超商門市')
     expect(wrapper.text()).not.toContain('包裹限制版本')
   })
+
+  /**
+   * 兩個匯入頁的角色不同：商品匯入是 CatalogImport.*（CatalogManager／SuperAdmin），庫存匯入是
+   * InventoryAdjust.*（InventoryManager／SuperAdmin）。組長 PR #78 round-2 review item 2 的原則
+   * ——不給一個點下去只會被導到 /forbidden 的入口。
+   */
+  it('shows only the catalog import entry to a CatalogManager', async () => {
+    signIn(['CatalogManager'])
+
+    const wrapper = await mountShell()
+
+    expect(wrapper.text()).toContain('商品匯入')
+    expect(wrapper.text()).not.toContain('庫存匯入')
+  })
+
+  it('shows only the inventory import entry to an InventoryManager', async () => {
+    signIn(['InventoryManager'])
+
+    const wrapper = await mountShell()
+
+    expect(wrapper.text()).toContain('庫存匯入')
+    expect(wrapper.text()).not.toContain('商品匯入')
+  })
+
+  it('hides both import entries when nobody is signed in', async () => {
+    const wrapper = await mountShell()
+
+    expect(wrapper.text()).not.toContain('商品匯入')
+    expect(wrapper.text()).not.toContain('庫存匯入')
+  })
 })

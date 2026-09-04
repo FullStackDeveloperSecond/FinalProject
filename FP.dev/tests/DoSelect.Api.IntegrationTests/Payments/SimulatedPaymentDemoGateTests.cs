@@ -24,11 +24,13 @@ using Microsoft.Extensions.Options;
 namespace DoSelect.Api.IntegrationTests.Payments;
 
 /// <summary>
-/// 模擬付款端點的 Demo Profile 關卡，以及走完整條 HTTP 路徑的成功案例。
+/// 模擬付款端點的 Demo／隔離 E2E Profile 關卡，以及走完整條 HTTP 路徑的成功案例。
 /// </summary>
 /// <remarks>
 /// <para>
-/// <c>Demo:SimulationEndpointsEnabled</c> 在 <c>dev</c> 上<b>沒有任何程式讀過</b> ——
+/// <c>Demo:SimulationEndpointsEnabled</c> 在 <c>Development</c>／<c>Production</c> 上不得開啟；
+/// 隔離 E2E 只為了重用正式 HTTP 契約建立可重跑的跨層證據。
+/// 原先這個設定在 <c>dev</c> 上<b>沒有任何程式讀過</b> ——
 /// 它有驗證器、每個 fixture 都設成 false，但沒有端點依賴它。這支端點是第一個使用者，
 /// 所以那個旗標的行為到現在為止是沒有被證明過的。
 /// </para>
@@ -42,11 +44,13 @@ public sealed class SimulatedPaymentDemoGateTests
     private static readonly string ConnectionString =
         SqlServerTestConnection.Build("DoSelectSimPaymentGateTests");
 
-    [Fact]
-    public async Task TheDemoProfileCompletesThePaymentAndPaysTheOrder()
+    [Theory]
+    [InlineData("Demo")]
+    [InlineData("E2E")]
+    public async Task AnAllowedSimulationProfileCompletesThePaymentAndPaysTheOrder(string environment)
     {
         await using var harness = await Harness.StartAsync(
-            ConnectionString, simulationEnabled: true, environment: "Demo");
+            ConnectionString, simulationEnabled: true, environment);
         var seeded = await harness.SeedPaymentAsync();
         var client = await harness.CreateMemberClientAsync(seeded.MemberUserId!);
 
@@ -116,9 +120,9 @@ public sealed class SimulatedPaymentDemoGateTests
     }
 
     [Fact]
-    public async Task TheSameRequestIsNotAvailableOutsideTheDemoProfile()
+    public async Task TheSameRequestIsNotAvailableWhenTheSimulationFlagIsDisabled()
     {
-        // 與上一條完全相同的請求，只差 Demo 旗標。這是關卡真正被證明的地方 ——
+        // 與上一條完全相同的請求，只差模擬端點旗標。這是關卡真正被證明的地方 ——
         // 少了上面那條對照，一個永遠回 404 的實作也會讓這條過。
         await using var harness = await Harness.StartAsync(
             ConnectionString, simulationEnabled: false, environment: "Development");
@@ -136,7 +140,7 @@ public sealed class SimulatedPaymentDemoGateTests
     }
 
     [Fact]
-    public async Task TurningTheFlagOnOutsideTheDemoProfileFailsFastAtStartup()
+    public async Task TurningTheFlagOnOutsideTheAllowedProfilesFailsFastAtStartup()
     {
         // DemoOptionsValidator 真正的價值：不小心在正式設定裡打開這個旗標時，
         // 應用程式要拒絕啟動，而不是安靜地把模擬端點暴露出去。

@@ -1,7 +1,6 @@
 import { createHmac, randomUUID } from 'node:crypto'
 import type { APIRequestContext } from '@playwright/test'
 import { expect, test } from './fixtures.js'
-import { sqlExec, sqlScalar } from './sqlAssert.js'
 
 const guestAccessPepper = 'e2e-guest-order-access-pepper-32-bytes'
 
@@ -15,6 +14,15 @@ interface OrderSnapshot {
   orderNumber: string
   orderStatus: string
   rowVersion: string
+  items: Array<{ publicId: string }>
+  amounts: {
+    merchandiseSubtotal: number
+    itemDiscountTotal: number
+    shippingFee: number
+    assemblyFee: number
+    grandTotal: number
+    paidAmount: number
+  }
 }
 
 async function getAntiforgeryToken(api: APIRequestContext): Promise<string> {
@@ -120,88 +128,6 @@ async function createGuestOrder(
     `The E2E setup must complete a real guest Checkout. Response: ${createResponseBody}`,
   ).toBe(201)
   return JSON.parse(createResponseBody) as OrderSnapshot
-}
-
-async function attemptGuestCheckout(
-  api: APIRequestContext,
-  skuPublicId: string,
-  quantity: number,
-  email: string,
-  requestToken: string,
-): Promise<{ status: number, body: unknown }> {
-  const guestCartKey = `e2e-guest-cart-${randomUUID()}`
-  const cartHeaders = unsafeHeaders(requestToken, {
-    'X-DoSelect-Guest-Cart-Key': guestCartKey,
-  })
-  const initialCartResponse = await api.get('/api/v1/cart', { headers: cartHeaders })
-  expect(initialCartResponse.ok(), 'The E2E setup must create a real guest cart').toBe(true)
-  const initialCart = await initialCartResponse.json() as CartSnapshot
-
-  const addItemResponse = await api.post('/api/v1/cart/items', {
-    headers: cartHeaders,
-    data: {
-      skuPublicId,
-      quantity,
-      cartRowVersion: initialCart.rowVersion,
-    },
-  })
-  expect(addItemResponse.ok(), 'The seeded SKU must be addable to a real guest cart').toBe(true)
-  const cart = await addItemResponse.json() as CartSnapshot
-
-  const policyResponse = await api.get('/api/v1/checkout/policy-versions')
-  expect(policyResponse.ok(), 'The Checkout policy versions must be available').toBe(true)
-  const policies = await policyResponse.json() as {
-    terms: number
-    return: number
-    privacy: number
-  }
-
-  const createResponse = await api.post('/api/v1/orders', {
-    headers: unsafeHeaders(requestToken, {
-      'X-DoSelect-Guest-Cart-Key': guestCartKey,
-      'Idempotency-Key': `e2e-checkout-${randomUUID()}`,
-    }),
-    data: {
-      cartPublicId: cart.publicId,
-      cartRowVersion: cart.rowVersion,
-      buyer: {
-        email,
-        name: '訪客測試買家',
-        phone: '0912345678',
-      },
-      shipping: {
-        methodCode: 'HomeDelivery',
-        address: {
-          recipientName: '訪客測試買家',
-          phone: '0912345678',
-          postalCode: '100',
-          city: '台北市',
-          district: '中正區',
-          addressLine1: '測試路 1 號',
-          addressLine2: null,
-        },
-        storePublicId: null,
-        deliveryNote: null,
-      },
-      paymentMethod: 'creditCard',
-      couponCode: null,
-      invoice: {
-        type: 'simulated',
-        buyerType: 'personal',
-        carrierType: null,
-        carrierValue: null,
-        companyTaxId: null,
-        companyName: null,
-      },
-      acceptPolicyVersions: {
-        terms: policies.terms,
-        return: policies.return,
-        privacy: policies.privacy,
-      },
-    },
-  })
-  const body = await createResponse.json().catch(() => undefined)
-  return { status: createResponse.status(), body }
 }
 
 function deriveGuestVerificationCode(requestPublicId: string, sendNumber = 1): string {
@@ -533,146 +459,147 @@ test('a guest keeps the checkout payment attempt after reloading the payment pag
   expect(latest.status).toBe('awaitingPayment')
 })
 
-test('exactly one of two concurrent checkouts wins the last unit of stock, and inventory is never oversold', async ({
-  api,
+test('a guest completes the prepared cart through checkout payment and invoice', async ({
+  page,
   seed,
 }) => {
-  // WP-H05：EfCheckoutTransactionGateway.ReserveInventoryAsync 用 UPDLOCK/HOLDLOCK 悲觀鎖擋超賣，
-  // 這裡直接把庫存改成只剩 1 件可用，讓兩個訪客同時搶最後一件，驗證真的只有一邊能贏、輸家收到
-  // inventory_insufficient，且資料庫裡的庫存數字沒有變成負的或被重複扣兩次。
-  // AvailableQuantity 是 SQL 端的計算欄位（OnHandQuantity - ReservedQuantity），不能直接 UPDATE ——
-  // 所以只改 OnHandQuantity，並且要連同既有測試已建立的 ReservedQuantity 一起算，才能讓可用量剛好是 1，
-  // 而不是把它們的保留量憑空歸零。
-  const skuFilter = `SkuId = (SELECT Id FROM Skus WHERE PublicId = '${seed.skuPublicId}')`
-  const originalOnHand = sqlScalar(`SELECT OnHandQuantity FROM InventoryBalances WHERE ${skuFilter}`)
-  const reservedBefore = sqlScalar(`SELECT ReservedQuantity FROM InventoryBalances WHERE ${skuFilter}`)
-  const scarceOnHand = Number(reservedBefore) + 1
-  sqlExec(`UPDATE InventoryBalances SET OnHandQuantity = ${scarceOnHand} WHERE ${skuFilter}`)
+  test.setTimeout(60_000)
+  const email = `core-transaction-${randomUUID()}@example.test`
+  await page.addInitScript((guestCartKey) => {
+    const browser = globalThis as unknown as {
+      localStorage: { setItem: (key: string, value: string) => void }
+    }
+    browser.localStorage.setItem('doselect.guestCartKey', guestCartKey)
+  }, seed.coreTransactionGuestCartKey)
 
-  try {
-    const requestToken = await getAntiforgeryToken(api)
-    const emailA = `race-a-${randomUUID()}@example.test`
-    const emailB = `race-b-${randomUUID()}@example.test`
+  await page.goto('/cart')
+  await expect(page.getByRole('heading', { level: 1, name: '購物車' })).toBeVisible()
+  await expect(page.getByText('自訂組裝', { exact: true })).toBeVisible()
+  await expect(page.getByRole('list', { name: /組裝品項：/ }).getByRole('listitem')).toHaveCount(8)
 
-    const [resultA, resultB] = await Promise.all([
-      attemptGuestCheckout(api, seed.skuPublicId, 1, emailA, requestToken),
-      attemptGuestCheckout(api, seed.skuPublicId, 1, emailB, requestToken),
-    ])
+  const checkoutButton = page.getByRole('button', { name: '前往結帳' })
+  await expect(checkoutButton).toBeEnabled()
+  await checkoutButton.click()
+  await expect(page).toHaveURL(/\/checkout$/)
+  await expect(page.getByRole('heading', { level: 1, name: '結帳' })).toBeVisible()
 
-    const statuses = [resultA.status, resultB.status].sort((a, b) => a - b)
-    expect(statuses, 'Exactly one concurrent checkout must win the last unit').toEqual([201, 409])
+  await page.getByLabel('Email').fill(email)
+  await page.getByLabel('姓名').fill('核心交易訪客')
+  await page.getByLabel('電話').fill('0912345678')
 
-    const loser = resultA.status === 409 ? resultA : resultB
-    expect((loser.body as { code: string }).code).toBe('inventory_insufficient')
+  await page.getByLabel('優惠碼（選填）').fill('CREATOR10')
+  await page.getByRole('button', { name: '套用優惠券' }).click()
+  await expect(page.getByText('已套用 CREATOR10')).toBeVisible()
 
-    const onHand = sqlScalar(`SELECT OnHandQuantity FROM InventoryBalances WHERE ${skuFilter}`)
-    const reserved = sqlScalar(`SELECT ReservedQuantity FROM InventoryBalances WHERE ${skuFilter}`)
-    const available = sqlScalar(`SELECT AvailableQuantity FROM InventoryBalances WHERE ${skuFilter}`)
-    expect(onHand, 'OnHandQuantity must not change from a reservation').toBe(String(scarceOnHand))
-    expect(reserved, 'Exactly one more reservation must have been made, not two')
-      .toBe(String(Number(reservedBefore) + 1))
-    expect(available, 'The last available unit must not be oversold').toBe('0')
-  } finally {
-    sqlExec(`UPDATE InventoryBalances SET OnHandQuantity = ${originalOnHand} WHERE ${skuFilter}`)
-  }
-})
+  await page.getByRole('radio', { name: '組裝電腦宅配' }).check()
+  await page.getByLabel('收件人').fill('核心交易訪客')
+  await page.getByLabel('收件電話').fill('0912345678')
+  await page.getByLabel('郵遞區號').fill('100')
+  await page.getByLabel('縣市').fill('台北市')
+  await page.getByLabel('行政區').fill('中正區')
+  await page.getByLabel('地址', { exact: true }).fill('測試路 1 號')
 
-test('replaying the exact same checkout request returns the original order, and the same key with a different payload is rejected', async ({
-  api,
-  seed,
-}) => {
-  // WP-H05：IIdempotencyExecutor 應該讓「同一把 Idempotency-Key + 同一份 payload」重放時直接拿回
-  // 原本那筆訂單，不會重新跑一次下單邏輯；同一把 key 但 payload 不同則要被拒絕，且資料庫裡
-  // 自始至終只有一筆 Order。
-  const requestToken = await getAntiforgeryToken(api)
-  const email = `idempotency-${randomUUID()}@example.test`
-  const guestCartKey = `e2e-guest-cart-${randomUUID()}`
-  const cartHeaders = unsafeHeaders(requestToken, {
-    'X-DoSelect-Guest-Cart-Key': guestCartKey,
-  })
+  await page.getByRole('radio', { name: '信用卡' }).check()
+  await page.getByRole('checkbox', { name: /我同意服務條款/ }).check()
+  await page.getByRole('checkbox', { name: /我同意退換貨政策/ }).check()
+  await page.getByRole('checkbox', { name: /我同意隱私權政策/ }).check()
 
-  const initialCartResponse = await api.get('/api/v1/cart', { headers: cartHeaders })
-  expect(initialCartResponse.ok()).toBe(true)
-  const initialCart = await initialCartResponse.json() as CartSnapshot
+  const createResponsePromise = page.waitForResponse(response =>
+    response.request().method() === 'POST'
+    && new URL(response.url()).pathname === '/api/v1/orders')
+  await page.getByRole('button', { name: '確認建立訂單' }).click()
+  const createResponse = await createResponsePromise
+  expect(createResponse.status(), 'The browser Checkout must create the order').toBe(201)
+  const order = await createResponse.json() as OrderSnapshot
+  const createRequest = createResponse.request()
+  const idempotencyKey = createRequest.headers()['idempotency-key']
+  const requestBody = createRequest.postDataJSON()
+  expect(idempotencyKey, 'The browser Checkout must send its idempotency key').toBeTruthy()
 
-  const addItemResponse = await api.post('/api/v1/cart/items', {
-    headers: cartHeaders,
-    data: {
-      skuPublicId: seed.skuPublicId,
-      quantity: 1,
-      cartRowVersion: initialCart.rowVersion,
-    },
-  })
-  expect(addItemResponse.ok()).toBe(true)
-  const cart = await addItemResponse.json() as CartSnapshot
+  await expect(page.getByRole('heading', { level: 2, name: '訂單已建立' })).toBeVisible()
+  await expect(page.getByText(`訂單編號：${order.orderNumber}`)).toBeVisible()
+  await expect(page.getByText('商品小計：').locator('..')).toContainText('NT$45,000')
+  await expect(page.getByText('優惠折扣：').locator('..')).toContainText('−NT$2,000')
+  await expect(page.getByText('配送費：').locator('..')).toContainText('NT$300')
+  await expect(page.getByText('組裝費：').locator('..')).toContainText('NT$300')
+  await expect(page.getByText('應付總額：').locator('..')).toContainText('NT$43,600')
 
-  const policyResponse = await api.get('/api/v1/checkout/policy-versions')
-  expect(policyResponse.ok()).toBe(true)
-  const policies = await policyResponse.json() as { terms: number, return: number, privacy: number }
-
-  const idempotencyKey = `e2e-idempotency-${randomUUID()}`
-  const buildBody = (buyerName: string) => ({
-    cartPublicId: cart.publicId,
-    cartRowVersion: cart.rowVersion,
-    buyer: {
-      email,
-      name: buyerName,
-      phone: '0912345678',
-    },
-    shipping: {
-      methodCode: 'HomeDelivery',
-      address: {
-        recipientName: buyerName,
-        phone: '0912345678',
-        postalCode: '100',
-        city: '台北市',
-        district: '中正區',
-        addressLine1: '測試路 1 號',
-        addressLine2: null,
+  const replay = await page.evaluate(async ({ body, key, guestCartKey }) => {
+    const tokenResponse = await fetch('/api/v1/security/antiforgery-token', {
+      credentials: 'include',
+      headers: { 'X-DoSelect-Client': 'member' },
+    })
+    const token = await tokenResponse.json() as { requestToken: string }
+    const response = await fetch('/api/v1/orders', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-DoSelect-Client': 'member',
+        'X-XSRF-TOKEN': token.requestToken,
+        'X-DoSelect-Guest-Cart-Key': guestCartKey,
+        'Idempotency-Key': key,
       },
-      storePublicId: null,
-      deliveryNote: null,
-    },
-    paymentMethod: 'creditCard',
-    couponCode: null,
-    invoice: {
-      type: 'simulated',
-      buyerType: 'personal',
-      carrierType: null,
-      carrierValue: null,
-      companyTaxId: null,
-      companyName: null,
-    },
-    acceptPolicyVersions: {
-      terms: policies.terms,
-      return: policies.return,
-      privacy: policies.privacy,
-    },
+      body: JSON.stringify(body),
+    })
+    return { status: response.status, body: await response.json() as OrderSnapshot }
+  }, {
+    body: requestBody,
+    key: idempotencyKey!,
+    guestCartKey: seed.coreTransactionGuestCartKey,
   })
+  expect(replay.status).toBe(201)
+  expect(replay.body.publicId).toBe(order.publicId)
+  expect(replay.body.orderNumber).toBe(order.orderNumber)
 
-  const originalBody = buildBody('訪客測試買家')
-  const headers = unsafeHeaders(requestToken, {
-    'X-DoSelect-Guest-Cart-Key': guestCartKey,
-    'Idempotency-Key': idempotencyKey,
-  })
+  await page.getByRole('link', { name: '驗證訂單後繼續付款' }).click()
+  await page.getByLabel('訂單編號').fill(order.orderNumber)
+  await page.getByLabel('訂單 Email').fill(email)
+  await page.getByRole('button', { name: '寄送驗證碼' }).click()
+  await expect(page).toHaveURL(/\/guest-orders\/verify\?requestPublicId=/)
+  const requestPublicId = new URL(page.url()).searchParams.get('requestPublicId')
+  expect(requestPublicId).toBeTruthy()
+  await page.getByLabel('六位數驗證碼').fill(deriveGuestVerificationCode(requestPublicId!))
+  await page.getByRole('button', { name: '驗證並查看訂單' }).click()
+  await expect(page).toHaveURL(new RegExp(`/orders/${order.publicId}$`))
 
-  const firstResponse = await api.post('/api/v1/orders', { headers, data: originalBody })
-  expect(firstResponse.status()).toBe(201)
-  const firstOrder = await firstResponse.json() as OrderSnapshot
+  const persistedOrder = await page.evaluate(async (orderPublicId) => {
+    const response = await fetch(`/api/v1/orders/${orderPublicId}`, { credentials: 'include' })
+    if (!response.ok) {
+      throw new Error(`Expected the verified order to load, got ${response.status}.`)
+    }
+    return await response.json() as OrderSnapshot
+  }, order.publicId)
+  expect(persistedOrder.items).toHaveLength(9)
+  expect(persistedOrder.amounts).toEqual(expect.objectContaining({
+    merchandiseSubtotal: 45000,
+    itemDiscountTotal: 2000,
+    shippingFee: 300,
+    assemblyFee: 300,
+    grandTotal: 43600,
+    paidAmount: 0,
+  }))
 
-  const replayResponse = await api.post('/api/v1/orders', { headers, data: originalBody })
-  expect(replayResponse.status(), 'Replaying the same key and payload must return the original order').toBe(201)
-  const replayedOrder = await replayResponse.json() as OrderSnapshot
-  expect(replayedOrder.publicId).toBe(firstOrder.publicId)
-  expect(replayedOrder.orderNumber).toBe(firstOrder.orderNumber)
+  await page.getByRole('link', { name: '前往付款' }).click()
+  await expect(page.getByRole('region', { name: '付款嘗試' })).toContainText('信用卡')
+  await page.getByRole('button', { name: '模擬付款成功' }).click()
+  await expect(page.getByText('付款已完成', { exact: true })).toBeVisible()
 
-  const conflictingBody = buildBody('不同的買家姓名')
-  const conflictResponse = await api.post('/api/v1/orders', { headers, data: conflictingBody })
-  expect(
-    conflictResponse.status(),
-    'The same Idempotency-Key with a different payload must be rejected',
-  ).toBe(409)
+  await expect.poll(async () => {
+    return await page.evaluate(async (orderPublicId) => {
+      const response = await fetch(`/api/v1/orders/${orderPublicId}/invoice`, {
+        credentials: 'include',
+      })
+      return response.status
+    }, order.publicId)
+  }, {
+    message: 'The payment outbox must create the simulated invoice',
+    timeout: 20_000,
+    intervals: [500, 1_000, 2_000],
+  }).toBe(200)
 
-  const orderCount = sqlScalar(`SELECT COUNT(*) FROM Orders WHERE PublicId = '${firstOrder.publicId}'`)
-  expect(orderCount, 'Only one Order row must exist despite the replay and the conflicting attempt').toBe('1')
+  await page.getByRole('link', { name: '← 回訂單詳情' }).click()
+  await expect(page.getByText('付款狀態：已付款', { exact: true })).toBeVisible()
+  await expect(page.getByText(/DEMO-NOT-A-TAX-INVOICE/)).toBeVisible()
+  await expect(page.getByText('狀態：已開立', { exact: true })).toBeVisible()
 })

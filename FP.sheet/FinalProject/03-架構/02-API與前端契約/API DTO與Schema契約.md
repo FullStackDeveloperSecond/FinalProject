@@ -115,7 +115,7 @@
 | `PaymentAttemptDto` | `publicId`、`method`、`status`、`amount`、`currency`、`instruction?:{type,maskedAccount?,code?,expiresAtUtc?}`、`createdAtUtc`、`paidAtUtc?`、`rowVersion` |
 
 `GET /api/v1/orders/{id}/payment-attempts/latest` 與建立／完成付款共用 `PaymentAttemptDto`；回目前 Owner Scope 內最新一筆 Attempt，包含 `paid`／`failed`／`expired`／`cancelled` 等終態。訂單不存在或尚無 Attempt 均為 `404 resource_not_found`，未登入為 `401 authentication_required`；不得以 Null Body 的 `200`、`204` 或跨 Owner 查詢代替。
-| `CompleteSimulatedPaymentRequest` | `outcome:succeeded/failed/cancelled/expired`、`simulationKey:string(8..128)`；展示端點只在 Demo Profile 且 `Demo:SimulationEndpointsEnabled=true` 開放；`simulationKey` 同時作為此命令的唯一重播鍵與不可重複模擬 Provider Event ID，不另使用 `Idempotency-Key` Header；COD 不接受此 Request，必須由 Delivered／PickedUp 收款事件完成 |
+| `CompleteSimulatedPaymentRequest` | `outcome:succeeded/failed/cancelled/expired`、`simulationKey:string(8..128)`；產品展示端點只在 Demo Profile 且 `Demo:SimulationEndpointsEnabled=true` 開放，DEC-P356 另允許隔離 E2E Environment 用相同顯式開關驗證契約；`simulationKey` 同時作為此命令的唯一重播鍵與不可重複模擬 Provider Event ID，不另使用 `Idempotency-Key` Header；COD 不接受此 Request，必須由 Delivered／PickedUp 收款事件完成 |
 | `CreateReturnRequest` | `items:{orderItemPublicId,quantity,reasonCode,description?:string(0..500)}[1..20]`、`requestReason:string(1..1000)`、`orderRowVersion` |
 | `ReturnRequestDto` | `publicId`、`orderPublicId`、`status`、`items[]`、`attachments[]`、`requestedAtUtc`、審核／收貨／結案時間、`availableActions[]`、`rowVersion` |
 | `ApproveReturnRequest` | `decision:approved/rejected`、`items:{returnItemPublicId,approvedQuantity:int(0..requestedQuantity),inspectionRequired:bool}[1..20]`、`reasonCode:string(1..64)`、`note?:string(0..500)`、`assemblyFeeDisposition?:enum`、`returnShippingCost?:decimal(18,2)>=0`、`returnRowVersion`；核准且不需寄回／驗收時兩個退款快照欄位成對必填，需寄回或拒絕時不得提供 |
@@ -186,7 +186,7 @@
 | `AdminOrderDto` | Summary＋Order Item／付款／物流／組裝／退貨退款摘要、狀態歷程、遮蔽買家資料、`availableActions[]`；完整收件資料不內嵌 |
 | `OrderRecipientDto` | OrderPublicId、RecipientName、Phone、Email、PostalCode、Address、Store Snapshot、`accessPurpose`；每次讀取稽核 |
 | `BatchShipmentRequest` | `orders:{orderPublicId,rowVersion}[1..100]`、`shippingAction:createLabel/markShipped`、`idempotencyKey` |
-| `BatchShipmentResultDto` | BatchPublicId、Total／Succeeded／Failed、`items:{orderPublicId,status,trackingNumber?,errorCode?}[]`、建立時間 |
+| `BatchShipmentResultDto` | BatchPublicId、Total／Succeeded／Failed、`items:{sourceRowNumber,orderPublicId,orderNumber?,status,trackingNumber?,errorCode?,message?}[]`、建立時間、`isReplay`。BatchPublicId 是這次批次作業的識別碼，保存在冪等記錄裡，同鍵同 payload 重送會拿回同一個值與同一份逐筆結果（`isReplay=true`，代表沒有任何訂單被重複出貨）；系統無 ShipmentBatch 表，結果 CSV 由前端從這份回應就地產生 |
 | `RetryOutboxMessageRequest` | `reasonCode:string(1..64)`；ASCII 穩定碼，只允許字母、數字、`.`、`_`、`:`、`-`，並須通過中央 Audit 敏感詞拒絕規則 |
 | `RetryOutboxMessageResponse` | `publicId`、`status:Pending`、`availableAtUtc`；HTTP 202 |
 | `InventoryBalanceQuery` | `q?`、`stockState?`、`categoryCode?`、`pageNumber/pageSize` |

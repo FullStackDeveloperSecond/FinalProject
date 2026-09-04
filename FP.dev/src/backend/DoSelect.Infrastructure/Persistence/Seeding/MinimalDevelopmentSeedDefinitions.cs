@@ -51,6 +51,18 @@ internal static class MinimalDevelopmentSeedDefinitions
     internal static readonly Guid HomeDeliveryPackageLimitPublicId =
         Guid.Parse("3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a07");
 
+    internal const string CoreTransactionGuestCartKey =
+        "e2e-core-transaction-guest-cart-key-0001";
+
+    internal static readonly Guid CoreTransactionGuestCartPublicId =
+        Guid.Parse("3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a08");
+
+    internal static readonly Guid CoreTransactionAssemblyGroupKey =
+        Guid.Parse("3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a09");
+
+    internal static readonly Guid Creator10CouponPublicId =
+        Guid.Parse("3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a10");
+
     internal static readonly DateTime CreatedAtUtc =
         new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 

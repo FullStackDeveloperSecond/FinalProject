@@ -1,7 +1,10 @@
 using System.Net;
 using System.Net.Http.Json;
 using DoSelect.Api.Security;
+using DoSelect.Application.Common;
+using DoSelect.Application.Idempotency;
 using DoSelect.Application.Shipping;
+using Microsoft.AspNetCore.Http;
 
 namespace DoSelect.Api.IntegrationTests.Shipping;
 
@@ -15,6 +18,157 @@ public sealed class ShippingAdminApiTests
     {
         _fixture = fixture;
     }
+
+    // UC-ADM-SHIP-02 批次出貨（A-16）。逐筆的商業規則在 EfBatchShipmentServiceTests；這裡守的是
+    // 端點本身：路由對得上、Policy 是 ShippingManage、整批拒絕會變成帶錯誤碼的 problem+json，
+    // 而逐筆失敗仍然是 200 加一份逐筆結果，不是把整個回應變成錯誤。
+
+    [Fact]
+    public async Task ShipBatch_WithoutAuthentication_ReturnsUnauthorized()
+    {
+        using var client = _fixture.CreateClient();
+
+        using var response = await ShippingApiFixture.SendWithAntiforgeryAsync(
+            client, new HttpRequestMessage(HttpMethod.Post, "/api/v1/admin/shipments/batches")
+            {
+                Content = JsonContent.Create(BatchBody(Guid.CreateVersion7())),
+            });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ShipBatch_AsCatalogManager_ReturnsForbidden()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync(DoSelectRoles.CatalogManager);
+
+        using var response = await ShippingApiFixture.SendWithAntiforgeryAsync(
+            client, new HttpRequestMessage(HttpMethod.Post, "/api/v1/admin/shipments/batches")
+            {
+                Content = JsonContent.Create(BatchBody(Guid.CreateVersion7())),
+            });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ShipBatch_OverTheHundredOrderLimit_ReturnsShippingBatchLimitExceeded()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync(DoSelectRoles.OrderManager);
+        var orders = Enumerable.Range(0, 101)
+            .Select(_ => new { orderPublicId = Guid.CreateVersion7(), rowVersion = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 } })
+            .ToArray();
+
+        using var response = await ShippingApiFixture.SendWithAntiforgeryAsync(
+            client, new HttpRequestMessage(HttpMethod.Post, "/api/v1/admin/shipments/batches")
+            {
+                Content = JsonContent.Create(new
+                {
+                    orders,
+                    shippingAction = BatchShipmentActions.MarkShipped,
+                    idempotencyKey = Guid.NewGuid().ToString("N"),
+                }),
+            });
+
+        var (status, code, _) = await ShippingApiFixture.ReadProblemAsync(response);
+        Assert.Equal(StatusCodes.Status400BadRequest, status);
+        Assert.Equal(ShippingErrorCodes.ShippingBatchLimitExceeded, code);
+    }
+
+    /// <summary>
+    /// 組長 PR #93 review item 1：冪等鍵要在 HTTP 這一層真的生效。同一位管理員用同一把鍵重送
+    /// 同一份請求，拿回的必須是第一次那一份結果（同一個 batchPublicId），而且標記為重播。
+    /// </summary>
+    [Fact]
+    public async Task ShipBatch_ResentWithTheSameKeyAndPayload_ReplaysTheOriginalResult()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync(DoSelectRoles.OrderManager);
+        var body = BatchBody(Guid.CreateVersion7(), idempotencyKey: Guid.NewGuid().ToString("N"));
+
+        using var firstResponse = await ShippingApiFixture.SendWithAntiforgeryAsync(
+            client, new HttpRequestMessage(HttpMethod.Post, "/api/v1/admin/shipments/batches")
+            {
+                Content = JsonContent.Create(body),
+            });
+        firstResponse.EnsureSuccessStatusCode();
+        var first = await firstResponse.Content.ReadFromJsonAsync<BatchShipmentResultDto>();
+        Assert.False(first!.IsReplay);
+
+        using var secondResponse = await ShippingApiFixture.SendWithAntiforgeryAsync(
+            client, new HttpRequestMessage(HttpMethod.Post, "/api/v1/admin/shipments/batches")
+            {
+                Content = JsonContent.Create(body),
+            });
+
+        Assert.Equal(HttpStatusCode.OK, secondResponse.StatusCode);
+        var replay = await secondResponse.Content.ReadFromJsonAsync<BatchShipmentResultDto>();
+        Assert.True(replay!.IsReplay);
+        Assert.Equal(first.BatchPublicId, replay.BatchPublicId);
+        Assert.Equal(first.Items.Single().ErrorCode, replay.Items.Single().ErrorCode);
+    }
+
+    /// <summary>同一把鍵配不同清單是呼叫端搞錯，必須是 409 而不是靜靜出另一批貨。</summary>
+    [Fact]
+    public async Task ShipBatch_ResentWithTheSameKeyButADifferentPayload_ReturnsConflict()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync(DoSelectRoles.OrderManager);
+        var key = Guid.NewGuid().ToString("N");
+
+        using var firstResponse = await ShippingApiFixture.SendWithAntiforgeryAsync(
+            client, new HttpRequestMessage(HttpMethod.Post, "/api/v1/admin/shipments/batches")
+            {
+                Content = JsonContent.Create(BatchBody(Guid.CreateVersion7(), idempotencyKey: key)),
+            });
+        firstResponse.EnsureSuccessStatusCode();
+
+        using var response = await ShippingApiFixture.SendWithAntiforgeryAsync(
+            client, new HttpRequestMessage(HttpMethod.Post, "/api/v1/admin/shipments/batches")
+            {
+                Content = JsonContent.Create(BatchBody(Guid.CreateVersion7(), idempotencyKey: key)),
+            });
+
+        var (status, code, _) = await ShippingApiFixture.ReadProblemAsync(response);
+        Assert.Equal(StatusCodes.Status409Conflict, status);
+        Assert.Equal(IdempotencyErrorCodes.PayloadConflict, code);
+    }
+
+    /// <summary>
+    /// 「每筆訂單獨立驗證及獨立回傳結果」在 HTTP 這一層的意思是：整批都失敗也還是 200 加一份
+    /// 逐筆結果，管理員才看得到是哪幾列出問題。整個回應變成 4xx 就等於把逐筆結果丟掉了。
+    /// </summary>
+    [Fact]
+    public async Task ShipBatch_WithAnUnknownOrder_StillReturnsOkWithThatRowFailed()
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync(DoSelectRoles.OrderManager);
+        var missing = Guid.CreateVersion7();
+
+        using var response = await ShippingApiFixture.SendWithAntiforgeryAsync(
+            client, new HttpRequestMessage(HttpMethod.Post, "/api/v1/admin/shipments/batches")
+            {
+                Content = JsonContent.Create(BatchBody(missing)),
+            });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var result = await response.Content.ReadFromJsonAsync<BatchShipmentResultDto>();
+
+        Assert.Equal(1, result!.Total);
+        Assert.Equal(0, result.Succeeded);
+        Assert.Equal(1, result.Failed);
+        var row = Assert.Single(result.Items);
+        Assert.Equal(1, row.SourceRowNumber);
+        Assert.Equal(missing, row.OrderPublicId);
+        Assert.Equal(DomainErrorCodes.ResourceNotFound, row.ErrorCode);
+    }
+
+    private static object BatchBody(Guid orderPublicId, string? idempotencyKey = null) => new
+    {
+        orders = new[]
+        {
+            new { orderPublicId, rowVersion = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 } },
+        },
+        shippingAction = BatchShipmentActions.MarkShipped,
+        idempotencyKey = idempotencyKey ?? Guid.NewGuid().ToString("N"),
+    };
 
     [Fact]
     public async Task ListPackageLimitVersions_WithoutAuthentication_ReturnsUnauthorized()
