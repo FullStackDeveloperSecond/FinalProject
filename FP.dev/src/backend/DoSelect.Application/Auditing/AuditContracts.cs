@@ -6,6 +6,7 @@ namespace DoSelect.Application.Auditing;
 public static class AuditActions
 {
     public const string RefundExecute = "refund.execute";
+    public const string RefundApprove = "refund.approve";
     public const string InvoiceAllowanceCreate = "invoice.allowance.create";
     public const string InvoiceIssue = "invoice.issue";
     public const string InvoiceVoid = "invoice.void";
@@ -540,6 +541,10 @@ internal static class AuditWritePolicy
                 AuditActions.RefundExecute,
                 AuditResourceTypes.Refund,
                 "status", "succeededAmount", "allocationCount"),
+            [AuditActions.RefundApprove] = DefinitionWithNote(
+                AuditActions.RefundApprove,
+                AuditResourceTypes.Refund,
+                "status", "approvedAmount"),
             [AuditActions.InvoiceAllowanceCreate] = Definition(
                 AuditActions.InvoiceAllowanceCreate,
                 AuditResourceTypes.SimulatedInvoiceAllowance,

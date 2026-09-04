@@ -18,6 +18,7 @@ public static class RefundsServiceCollectionExtensions
         services.AddScoped<IRefundReader, RefundReader>();
         services.AddScoped<IRefundInvoiceReferenceReader, RefundInvoiceReferenceReader>();
         services.AddScoped<IRefundExecutor, RefundExecutor>();
+        services.AddScoped<IRefundApprover, RefundApprover>();
         services.AddScoped<IReturnRefundCreationPort, ReturnRefundCreationPort>();
         services.AddScoped<ExecuteRefundService>();
 

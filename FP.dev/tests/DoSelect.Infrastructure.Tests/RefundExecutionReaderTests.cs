@@ -187,6 +187,18 @@ public sealed class RefundExecutionReaderTests
                 ["Roles"] = ["Id", "Name"],
             },
 
+            // #98 WP2：退款核准，與 RefundExecutor.cs 逐項一致的身分重查，但不建分攤、
+            // 不讀 PaymentAttempts／OrderItems——可信快照透過白名單內的
+            // RefundTrustedInputsReader 取得，不在這裡直接讀。
+            ["RefundApprover.cs"] = new Dictionary<string, string[]>(StringComparer.Ordinal)
+            {
+                ["Refunds"] = ["*"],
+                ["Users"] = ["Id", "PublicId", "AccountType", "AccountStatus"],
+                ["AdminProfiles"] = ["UserId", "IsActive"],
+                ["UserRoles"] = ["UserId", "RoleId"],
+                ["Roles"] = ["Id", "Name"],
+            },
+
             // B1-3：正式 RefundDto 的唯讀投影。
             ["RefundReader.cs"] = new Dictionary<string, string[]>(StringComparer.Ordinal)
             {

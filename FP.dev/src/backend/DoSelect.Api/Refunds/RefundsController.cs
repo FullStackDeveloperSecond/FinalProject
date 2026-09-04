@@ -22,6 +22,7 @@ namespace DoSelect.Api.Refunds;
 [Route("api/v1/admin/refunds")]
 [Authorize(Policy = DoSelectPolicies.RefundExecute)]
 public sealed class RefundsController(
+    IRefundApprover refundApprover,
     IRefundExecutor refundExecutor,
     IRefundReader refundReader) : ControllerBase
 {
@@ -71,6 +72,85 @@ public sealed class RefundsController(
         }
 
         return Ok(refund);
+    }
+
+    /// <summary>
+    /// 核准一筆待審退款（A-22，alex 2026-09-04 #98 WP2 裁定）。核准與執行是不同的
+    /// Use Case，本端點不執行退款。
+    /// </summary>
+    /// <remarks>
+    /// 刻意沒有金額欄位：<c>ApprovedAmount</c> 一律由後端依可信交易快照重新計算，
+    /// 管理員只確認、填理由與 RowVersion，不提交金額或分攤。
+    /// 相同 Idempotency-Key 重送回同一結果；不同金鑰不會對已核准的退款產生第二次副作用。
+    /// </remarks>
+    [HttpPost("{refundPublicId:guid}/actions/approve")]
+    [ProducesResponseType(typeof(RefundDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<RefundDto>> Approve(
+        Guid refundPublicId,
+        [FromHeader(Name = IdempotencyKeyHeaderName), BindRequired]
+        [StringLength(128, MinimumLength = 1)]
+        string idempotencyKey,
+        [FromBody] ApproveRefundRequestBody body,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            ModelState.AddModelError(
+                "idempotencyKey",
+                $"{IdempotencyKeyHeaderName} is required.");
+            return BadRequest(ApiProblemDetailsFactory.CreateValidation(HttpContext, ModelState));
+        }
+
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(ApiProblemDetailsFactory.CreateValidation(HttpContext, ModelState));
+        }
+
+        var approvedBy = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrWhiteSpace(approvedBy))
+        {
+            return Problem(ApiProblemDetailsFactory.Create(
+                HttpContext,
+                StatusCodes.Status403Forbidden,
+                ApiErrorCodes.AuthorizationForbidden));
+        }
+
+        var result = await refundApprover.ApproveAsync(
+            new ApproveRefundRequest(
+                refundPublicId,
+                body.RefundRowVersion,
+                idempotencyKey,
+                approvedBy,
+                body.ReasonCode,
+                body.Note,
+                CorrelationIdMiddleware.GetCorrelationId(HttpContext),
+                Activity.Current?.TraceId.ToString() ?? ActivityTraceId.CreateRandom().ToString(),
+                HttpContext.Connection.RemoteIpAddress),
+            cancellationToken);
+
+        if (result.ErrorCode is { } errorCode)
+        {
+            return Problem(ApiProblemDetailsFactory.Create(
+                HttpContext,
+                StatusCodeFor(errorCode),
+                errorCode));
+        }
+
+        var approved = await refundReader.FindByPublicIdAsync(refundPublicId, cancellationToken);
+        if (approved is null)
+        {
+            return Problem(ApiProblemDetailsFactory.Create(
+                HttpContext,
+                StatusCodes.Status404NotFound,
+                ApiErrorCodes.ResourceNotFound));
+        }
+
+        return Ok(approved);
     }
 
     /// <summary>
@@ -204,6 +284,29 @@ public sealed record ExecuteRefundRequestBody
 
     // 專案共用的 rowversion 驗證（8 bytes）。[Required] 不夠：record 的 byte[] 預設是
     // 非 null 的空陣列，完全省略欄位仍會通過，然後在樂觀鎖比對時變成誤導的 409。
+    [RowVersionRequired]
+    public required byte[] RefundRowVersion { get; init; }
+}
+
+/// <summary>
+/// 核准退款的 Request Body。
+/// </summary>
+/// <remarks>
+/// 刻意沒有金額欄位（alex 2026-09-04 #98 WP2 裁定）：<c>ApprovedAmount</c> 一律由後端
+/// 依可信交易快照重新計算。<c>reasonCode</c> 與 <c>note</c> 只寫進中央 AuditLog，
+/// 不存回 Refund——與 <see cref="ExecuteRefundRequestBody"/> 同一個約定。
+/// </remarks>
+public sealed record ApproveRefundRequestBody
+{
+    [Required]
+    [StringLength(64, MinimumLength = 1)]
+    [AuditSafeReason]
+    public required string ReasonCode { get; init; }
+
+    [StringLength(1000)]
+    [AuditSafeNote]
+    public string? Note { get; init; }
+
     [RowVersionRequired]
     public required byte[] RefundRowVersion { get; init; }
 }
