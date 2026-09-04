@@ -6,11 +6,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mockListRefunds = vi.fn()
 const mockGetRefund = vi.fn()
 const mockExecuteRefund = vi.fn()
+const mockApproveRefund = vi.fn()
 
 vi.mock('../../features/refunds/api', () => ({
   listRefunds: mockListRefunds,
   getRefund: mockGetRefund,
   executeRefund: mockExecuteRefund,
+  approveRefund: mockApproveRefund,
 }))
 
 const { default: AdminRefundDetailPage } = await import('./AdminRefundDetailPage.vue')
@@ -116,5 +118,59 @@ describe('AdminRefundDetailPage', () => {
     await flushPromises()
 
     expect(mockExecuteRefund).toHaveBeenCalledOnce()
+  })
+
+  it('requires an explicit confirmation before approving a pending refund', async () => {
+    mockGetRefund.mockResolvedValue(refund({ status: 'pendingReview', approvedBy: null }))
+    mockApproveRefund.mockResolvedValue(refund({ status: 'approved', approvedAmount: 480 }))
+
+    const wrapper = await mountPage()
+    await flushPromises()
+    await wrapper.find('[name="approveReasonCode"]').setValue('return_approved')
+
+    expect(wrapper.find('button[type="submit"]').attributes('disabled')).toBeDefined()
+    await wrapper.find('[name="approveConfirmed"]').setValue(true)
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(mockApproveRefund).toHaveBeenCalledWith(
+      refundId,
+      expect.objectContaining({
+        reasonCode: 'return_approved',
+        refundRowVersion: 'AAAAAAAAAAE=',
+      }),
+      expect.any(String),
+    )
+  })
+
+  it('does not show the execute action for a refund still awaiting approval', async () => {
+    mockGetRefund.mockResolvedValue(refund({ status: 'pendingReview', approvedBy: null }))
+
+    const wrapper = await mountPage()
+    await flushPromises()
+
+    expect(wrapper.find('#refund-approve-title').exists()).toBe(true)
+    expect(wrapper.find('#refund-execute-title').exists()).toBe(false)
+  })
+
+  it('surfaces a zero-net approval as a cancelled refund, not an error', async () => {
+    // alex 2026-09-04 #103 裁定，延續 #99 A1：核准時重算後已無款可退終止為
+    // Cancelled，Controller 一律回 200——前端不需要另外分支，畫面只是照常顯示
+    // 重新查詢回來的狀態。
+    mockGetRefund.mockResolvedValue(refund({ status: 'pendingReview', approvedBy: null }))
+    mockApproveRefund.mockResolvedValue(
+      refund({ status: 'cancelled', approvedAmount: null, allocations: [] }),
+    )
+
+    const wrapper = await mountPage()
+    await flushPromises()
+    await wrapper.find('[name="approveReasonCode"]').setValue('return_approved')
+    await wrapper.find('[name="approveConfirmed"]').setValue(true)
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(mockApproveRefund).toHaveBeenCalledOnce()
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('已取消')
   })
 })

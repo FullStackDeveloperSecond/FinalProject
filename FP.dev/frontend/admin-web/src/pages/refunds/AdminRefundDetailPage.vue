@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { isApiError } from '@doselect/web-shared/api'
 import { ErrorState, HttpStatusPage, LoadingState } from '@doselect/web-shared/components'
-import { useExecuteRefund, useRefund } from '../../features/refunds/useRefunds'
+import { useApproveRefund, useExecuteRefund, useRefund } from '../../features/refunds/useRefunds'
 import {
   allocationSign,
   formatRefundDate,
@@ -24,10 +24,21 @@ const confirmed = ref(false)
 const idempotencyKey = ref(createIdempotencyKey())
 const executeMutation = useExecuteRefund()
 
+const approveReasonCode = ref('')
+const approveNote = ref('')
+const approveConfirmed = ref(false)
+const approveIdempotencyKey = ref(createIdempotencyKey())
+const approveMutation = useApproveRefund()
+
 const mayExecute = computed(() => refund.value?.status === 'approved')
+const mayApprove = computed(() => refund.value?.status === 'pendingReview')
 const executionError = computed(() => {
   const candidate = executeMutation.error.value
   return isApiError(candidate) ? describeApiError(candidate) : '退款執行失敗，請稍後再試。'
+})
+const approvalError = computed(() => {
+  const candidate = approveMutation.error.value
+  return isApiError(candidate) ? describeApiError(candidate) : '退款核准失敗，請稍後再試。'
 })
 
 function createIdempotencyKey(): string {
@@ -52,6 +63,29 @@ async function submitExecution() {
     })
     confirmed.value = false
     idempotencyKey.value = createIdempotencyKey()
+  }
+  catch {
+    // mutation 保留同一把 idempotency key 與錯誤，管理員可安全重送同一請求。
+  }
+}
+
+async function submitApproval() {
+  if (!refund.value || !mayApprove.value || !approveConfirmed.value || !approveReasonCode.value) {
+    return
+  }
+
+  try {
+    await approveMutation.mutateAsync({
+      refundPublicId: refund.value.publicId,
+      request: {
+        reasonCode: approveReasonCode.value,
+        note: approveNote.value.trim() || null,
+        refundRowVersion: refund.value.rowVersion,
+      },
+      idempotencyKey: approveIdempotencyKey.value,
+    })
+    approveConfirmed.value = false
+    approveIdempotencyKey.value = createIdempotencyKey()
   }
   catch {
     // mutation 保留同一把 idempotency key 與錯誤，管理員可安全重送同一請求。
@@ -177,6 +211,72 @@ async function submitExecution() {
             執行：{{ refund.executedBy.maskedLabel }}，{{ formatRefundDate(refund.succeededAtUtc) }}
           </li>
         </ul>
+      </section>
+
+      <section
+        v-if="mayApprove"
+        aria-labelledby="refund-approve-title"
+      >
+        <h2 id="refund-approve-title">
+          核准退款
+        </h2>
+        <p>此操作要求 FinanceManager／SuperAdmin 且目前登入已通過 TOTP；送出後會留下中央 Audit。核准金額由後端依可信交易快照重新計算，若重算後已無款可退，退款會直接終止為「已取消」，不需要另外處理。</p>
+        <form @submit.prevent="submitApproval">
+          <label for="refund-approve-reason">核准原因</label>
+          <select
+            id="refund-approve-reason"
+            v-model="approveReasonCode"
+            name="approveReasonCode"
+            required
+          >
+            <option
+              value=""
+              disabled
+            >
+              請選擇原因
+            </option>
+            <option value="customer_request">
+              顧客退款申請
+            </option>
+            <option value="merchant_correction">
+              商家更正
+            </option>
+            <option value="return_approved">
+              退貨已核准
+            </option>
+          </select>
+
+          <label for="refund-approve-note">補充說明（選填）</label>
+          <textarea
+            id="refund-approve-note"
+            v-model="approveNote"
+            name="approveNote"
+            maxlength="1000"
+          />
+
+          <label>
+            <input
+              v-model="approveConfirmed"
+              name="approveConfirmed"
+              type="checkbox"
+            >
+            我已核對申請金額與訂單，確認核准後金額將依後端重新計算。
+          </label>
+
+          <p
+            v-if="approveMutation.isError.value"
+            role="alert"
+          >
+            {{ approvalError }}
+          </p>
+
+          <button
+            type="submit"
+            :disabled="approveMutation.isPending.value || !approveConfirmed || !approveReasonCode"
+          >
+            {{ approveMutation.isPending.value ? '核准中…' : '確認核准退款' }}
+          </button>
+        </form>
       </section>
 
       <section

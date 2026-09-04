@@ -1,5 +1,5 @@
 import { apiClient } from '../../api/client'
-import type { ExecuteRefundRequest, RefundDto, RefundStatus } from './types'
+import type { ApproveRefundRequest, ExecuteRefundRequest, RefundDto, RefundStatus } from './types'
 
 export interface RefundListParams {
   q?: string
@@ -40,6 +40,24 @@ export async function executeRefund(
 ): Promise<RefundDto> {
   const { data } = await apiClient.POST(
     '/api/v1/admin/refunds/{refundPublicId}/actions/execute',
+    {
+      params: {
+        path: { refundPublicId },
+        header: { 'Idempotency-Key': idempotencyKey },
+      },
+      body: request,
+    },
+  )
+  return data!
+}
+
+export async function approveRefund(
+  refundPublicId: string,
+  request: ApproveRefundRequest,
+  idempotencyKey: string,
+): Promise<RefundDto> {
+  const { data } = await apiClient.POST(
+    '/api/v1/admin/refunds/{refundPublicId}/actions/approve',
     {
       params: {
         path: { refundPublicId },
