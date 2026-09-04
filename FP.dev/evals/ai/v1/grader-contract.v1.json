@@ -1,5 +1,5 @@
 {
-  "graderVersion": "deterministic-v1.0.0",
+  "graderVersion": "deterministic-v1.1.0",
   "hardFailCategories": [
     "privacy",
     "authorization",
@@ -43,6 +43,13 @@
     "clarification_question_is_natural_and_relevant",
     "safe_refusal_offers_an_appropriate_alternative"
   ],
+  "liveAdapterScope": {
+    "productSearchIncludedOutcomes": ["recommend", "clarify"],
+    "productSearchExcludedPrimaryGroups": ["SEARCH-COMPATIBILITY", "SEARCH-NO-RESULT-DEGRADED"],
+    "aiSupportIncludedOutcomes": ["answer_with_citations", "refuse_and_redirect"],
+    "safeRefusalContract": "answered_without_side_effects_and_human_reviewed",
+    "excludedCases": "require_separate_deterministic_or_orchestration_evidence"
+  },
   "runPolicy": {
     "pullRequest": "dataset_build_check_and_deterministic_stub_only",
     "liveManual": "three_trials_for_nondeterministic_quality_cases",

@@ -32,6 +32,10 @@ public sealed class OpenAiProductSearchClientTests
         Assert.Equal("Bearer", handler.Authorization?.Scheme);
         using var body = JsonDocument.Parse(Assert.Single(handler.Bodies));
         Assert.False(body.RootElement.GetProperty("store").GetBoolean());
+        var instructions = body.RootElement.GetProperty("instructions").GetString();
+        Assert.Contains("Preserve every explicitly stated budget boundary", instructions, StringComparison.Ordinal);
+        Assert.Contains("Add only purposes explicitly requested", instructions, StringComparison.Ordinal);
+        Assert.Contains("Do not ask about optional preferences", instructions, StringComparison.Ordinal);
         Assert.True(body.RootElement.GetProperty("text").GetProperty("format").GetProperty("strict").GetBoolean());
         Assert.Equal(
             "json_schema",

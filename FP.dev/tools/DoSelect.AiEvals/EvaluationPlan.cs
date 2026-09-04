@@ -6,6 +6,7 @@ namespace DoSelect.AiEvals;
 public sealed record EvaluationCasePlan(
     string CaseId,
     string Split,
+    string PrimaryGroup,
     string Feature,
     string ServiceCondition,
     string ModelCall,
@@ -14,6 +15,7 @@ public sealed record EvaluationCasePlan(
     int ModelRequestsPerTrial,
     string Message,
     IReadOnlyList<string> FixtureIds,
+    IReadOnlyList<string> HardFailRules,
     JsonElement Expected);
 
 public sealed record EvaluationPlan(
@@ -84,7 +86,10 @@ public static class EvaluationPlanBuilder
         }
 
         var liveEligible = cases
-            .Where(item => item.ServiceCondition == "available" && item.ModelCall == "allowed")
+            .Where(item =>
+                item.ServiceCondition == "available" &&
+                item.ModelCall == "allowed" &&
+                IsSupportedByLiveAdapter(item))
             .ToArray();
         var deterministicOnly = cases.Except(liveEligible).ToArray();
         var annotationsApproved = allowDraft || cases.All(item => item.AnnotationStatus == "approved");
@@ -113,6 +118,7 @@ public static class EvaluationPlanBuilder
         return new EvaluationCasePlan(
             RequiredString(root, "caseId"),
             RequiredString(root, "split"),
+            RequiredString(root, "primaryGroup"),
             feature,
             RequiredString(root.GetProperty("prerequisites"), "serviceCondition"),
             RequiredString(expected, "modelCall"),
@@ -124,8 +130,22 @@ public static class EvaluationPlanBuilder
                 .EnumerateArray()
                 .Select(item => item.GetString() ?? throw new JsonException("Fixture id must be a string."))
                 .ToArray(),
+            expected.GetProperty("hardFailRules")
+                .EnumerateArray()
+                .Select(item => item.GetString() ?? throw new JsonException("Hard-fail rule must be a string."))
+                .ToArray(),
             expected.Clone());
     }
+
+    private static bool IsSupportedByLiveAdapter(EvaluationCasePlan item) =>
+        item.Feature switch
+        {
+            "product_search" =>
+                item.PrimaryGroup is not ("SEARCH-COMPATIBILITY" or "SEARCH-NO-RESULT-DEGRADED") &&
+                item.ExpectedOutcome is "recommend" or "clarify",
+            "ai_support" => item.ExpectedOutcome is "answer_with_citations" or "refuse_and_redirect",
+            _ => false,
+        };
 
     private static string RequiredString(JsonElement owner, string propertyName)
     {

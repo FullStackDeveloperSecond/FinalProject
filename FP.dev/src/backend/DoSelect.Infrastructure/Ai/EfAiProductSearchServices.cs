@@ -272,7 +272,6 @@ public sealed class EfAiProductSearchInteractionStore(
     IOutboxWriter outboxWriter) : IAiProductSearchInteractionStore
 {
     private const decimal BudgetWarningThresholdUsd = 70m;
-    private const string PromptVersion = "product-search-v1";
     private const string SchemaVersion = "search-intent-v1";
 
     public async Task<bool> SaveAsync(
@@ -306,7 +305,7 @@ public sealed class EfAiProductSearchInteractionStore(
                 interaction.AssistantContent,
                 interaction.Intent is null ? null : JsonSerializer.Serialize(interaction.Intent),
                 usage?.Model ?? "unavailable",
-                PromptVersion,
+                OpenAiProductSearchClient.PromptVersion,
                 SchemaVersion,
                 inputTokens,
                 outputTokens,

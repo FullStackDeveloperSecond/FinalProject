@@ -126,6 +126,8 @@ OpenAI 官方建議以代表實際使用分布、包含正常與邊界案例的�
 ## 待實作
 
 - 120 筆繁中實際案例、Fixture、Schema、Grader 與本機／CI deterministic 驗證已建立。政策 Fixture 已補齊核准政策快照並提升為 `zh-TW-v1.0.2-draft`／Fixture `v1.0.2`；Kafen 主標與 Alex 第二審已完成，120 筆案例均為 `approved`。
-- 手動 `DoSelect.AiEvals` Live Runner 已建立，預設 Dry Run；`--execute` 強制正值成本停止線，且只讀 User Secrets。2026-09-04 在 Commit `9ea03fc3` 的第二次雙案例煙霧測試 deterministic 與人工覆核皆 2／2 通過，成本 US$0.006085、Input／Output Tokens 3,545／694。商品搜尋單筆 10,083 ms 高於 5 秒目標，因樣本僅一筆，不宣稱 P95 通過或失敗；須由另行授權的三輪 Release baseline 確認。完整證據：`FP.dev/evals/ai/v1/results/2026-09-04-smoke-9ea03fc3.md`。
+- 手動 `DoSelect.AiEvals` Live Runner 已建立，預設 Dry Run；`--execute` 強制正值成本停止線，且只讀 User Secrets。2026-09-04 在 Commit `5e7cc8f2` 完成首次三輪 Release Adapter baseline：33 案／99 輪、US$0.149338、Input／Output Tokens 133,970／36,491；Schema 74.75%、Intent 16.67%、Citation 77.78%、Deterministic 28.28%，商品／客服 P95 17,831／3,023 ms，正式 Verdict 為 `FAIL`。完整分析：`FP.dev/evals/ai/v1/results/2026-09-04-release-baseline-5e7cc8f2.md`。
+- 失敗分析後，Live Adapter scope 收束為 22 個可直接驗證案例，14 個相容性／無候選／降級案例另列 deterministic-only evidence；三輪 dry run 規劃 96 次模型請求。Runner 已升級為 Prompt `product-search-v2`／`support-v2`、grader `deterministic-v1.1.0`，修正安全拒絕語意、單行 JSONL、intent／explanation stage 狀態與延遲、分 feature 成本／執行數／延遲，以及 clarification／推薦／隱私授權摘要。所有 deterministic checks 通過但人工覆核未完成時，Verdict 必須是 `PENDING_HUMAN_REVIEW`，不得宣稱 `PASS`。
+- 所有付費評估必須在首個模型請求前建立不含 Secret 的 `run-metadata.json`、空 `case-results.jsonl` 與 `checkpoint.json`；每個案例／trial 完成後立即追加單行結果並更新累計成本、Token、含 retry 的實際 HTTP 模型請求數、最後案例與狀態。中斷時保留已完成證據，正常結束後才產生 Summary／人工覆核文件。修正版目前僅完成本機 deterministic 驗證；再次付費 smoke／baseline 仍須另行核准。
 - 啟動 S 後建立日文 30 筆、韓文 30 筆，並指定具語言能力的覆核者。
 - 正式同意／額度資料來源、訂單與客服 Owner Query、真正 GuestOrderAccess Cookie `403`、資料庫併發、RequestPublicId 冪等、客服 Responses Adapter、M-19 與 M-18 垂直切片均已合併。M-18 的搜尋 Adapter／Endpoint／UI、`ProposedExistingPart` 確認閘門、Provider-backed 測試與公開搜尋降級 Playwright 已形成；現有 deterministic／Provider-backed／降級 E2E 證據仍不能取代 AI-09 live evaluation。
