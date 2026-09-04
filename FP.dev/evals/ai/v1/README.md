@@ -69,7 +69,8 @@ dotnet run --project .\tools\DoSelect.AiEvals\DoSelect.AiEvals.csproj -- `
 - `SUPPORT-POLICY` 修正版已依 [`reviews/SUPPORT-POLICY-v1.0.2-review.md`](reviews/SUPPORT-POLICY-v1.0.2-review.md) 完成 Kafen 主標與 Alex 第二審，15 筆均為 `approved`。
 - `zh-TW-v1.0.0-draft` 的 120 筆案例曾完成 Terry／Kafen 主標與 Alex 第二審。2026-09-03 初次煙霧測試及覆核前檢查確認政策 Fixture 不足以支持具體必答點，因此兩個政策快照已補齊，現行版本為 `zh-TW-v1.0.2-draft`／Fixture `v1.0.2`；Kafen 主標與 Alex 第二審完成後，120 筆案例均為 `approved`。
 - 2026-09-03 初次煙霧測試執行 2 案例，實際成本 US$0.001880，未達 US$0.10 停止線。商品搜尋因 strict Schema 含 Responses 不支援的 `uniqueItems` 而在產生 Token 前失敗；客服 Schema／引用通過，但人工必答點缺少 Fixture 依據。兩項均已修正，修正版在覆核及 commit 前不得重跑或視為 baseline。
-- AI 客服 Responses Adapter、M-19 與 M-18 搜尋垂直切片均已合併 `dev`；M-18 包含搜尋專用 SearchIntent／推薦理由 strict Adapter、後端白名單候選流程、既有零件確認閘門、降級路徑與 `/ai-search` UI。Live Runner 已建立 Dry Run、明確執行旗標、User Secrets、成本停止線與結果產物；仍須完成修正版覆核與第二次兩案例煙霧測試，再依實際成本核准並執行正式 baseline。
+- 2026-09-04 在 Commit `9ea03fc3` 執行第二次煙霧測試：2／2 deterministic 與人工覆核通過，成本 US$0.006085，Input／Output Tokens 3,545／694。商品搜尋單筆 10,083 ms 高於 5 秒目標，只視為待正式 baseline 確認的風險訊號；完整證據見 [`results/2026-09-04-smoke-9ea03fc3.md`](results/2026-09-04-smoke-9ea03fc3.md)。
+- AI 客服 Responses Adapter、M-19 與 M-18 搜尋垂直切片均已合併 `dev`；M-18 包含搜尋專用 SearchIntent／推薦理由 strict Adapter、後端白名單候選流程、既有零件確認閘門、降級路徑與 `/ai-search` UI。Live Runner 已建立 Dry Run、明確執行旗標、User Secrets、成本停止線與結果產物；修正版煙霧測試已通過，仍須另行核准並執行三輪 Release baseline。
 - PR／CI 只執行資料產物與 deterministic contract 檢查，不呼叫 OpenAI。
 - `DoSelect.Application.Tests`、API Integration 與 SQL Provider-backed tests 固定 AI-13 的隱私、授權、同意、額度預留、最後一額、併發競爭、Owner、語系、唯讀工具、Schema 與降級契約；Responses Adapter tests 另固定 `store=false`、引用、模型／Token、重試與 Fail Closed。這些證據都不取代完整 live model 評估；目前瀏覽器證據只涵蓋既定降級旅程。
 - 未來 live runner 必須在呼叫前顯示預估成本，保存模型／Prompt／Schema／Tool／資料集／Grader／Commit 版本，且不得輸出 API Key。

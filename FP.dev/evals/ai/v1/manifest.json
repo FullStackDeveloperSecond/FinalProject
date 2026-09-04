@@ -31,7 +31,7 @@
     "aiSupport": "gpt-5.6-terra"
   },
   "annotationStatus": "approved_by_primary_annotators_and_alex_2026-09-03",
-  "liveBaselineStatus": "smoke_fix_reviewed_pending_commit_and_rerun_2026-09-03",
+  "liveBaselineStatus": "smoke_passed_pending_release_budget_2026-09-04",
   "containsProductionData": false,
   "containsRealPersonalData": false
 }

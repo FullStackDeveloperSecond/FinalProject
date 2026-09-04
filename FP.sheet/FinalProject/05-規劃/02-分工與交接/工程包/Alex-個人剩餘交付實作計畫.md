@@ -1,6 +1,6 @@
 ---
 文件狀態: 進行中
-最後更新: 2026-09-02
+最後更新: 2026-09-04
 基準分支: dev@453e56ef
 實作分支: codex/wp-a05-ai-live-baseline-20260902
 實作人: alex
@@ -163,7 +163,8 @@
 | 2026-09-02 | WP-A03／WP-H04 | 完成／已進 `dev` | 由 `dev@e3e5abdb` 起完成 C-14：正式 `/checkout`、Cart 導頁、收件／宅配／示範門市、政策版本、七種模擬付款、模擬發票、Coupon 套用、冪等重試及錯誤處理。依 DEC-P351 回傳具體 `PaymentMethod[]`；DEC-P352 已由 DEC-P355 覆寫，C-15 改接上游 Owner-scoped Latest Attempt；依 DEC-P353 以 Coupon Quote 重算 Shipping／COD；依 DEC-P354 將 DiscountType 擴為 `varchar(24)`。Review 修正組裝購物車只允許組裝宅配。rebase `dev@70015781` 後 exact head `192e0499` 的 Backend、Browser E2E、雙前端、OpenAPI、Secret Scan、AI contract、Package Source Evidence 與 `CI Required` 全部成功；PR #91 squash merge 為 `dev@72db6fcc`，遠端來源分支已刪除。後續 WP-A04／WP-H05 已由 PR #94 補齊核心交易 Browser／SQL E2E。 |
 | 2026-09-02 | WP-A04／WP-H05 | 完成／以 PR #94 進 `dev` | 使用固定 Guest Cart、八類組裝 SKU＋一件獨立 GPU 與 `CREATOR10`，在專屬 `DoSelectE2E_<GUID>` 完成 Cart → Checkout → 同請求 replay → Email＋訂單編號限單驗證 → 信用卡模擬付款成功 → Invoice 顯示；金額 45,000／-2,000／+300／+300＝43,600。額外獨立 GPU 讓優惠適用小計達 20,000，但不修改 AI 組裝依賴的相容性 Seed 單價。另以真實 SQL Server 證明同請求不重複建立 Order／Reservation／Payment／Idempotency，兩個 Guest Cart 競爭最後一件只成功一筆。依 DEC-P356，模擬端點只新增隔離 E2E Environment 顯式例外；Development／Production 仍 fail-fast。PR #94 已整合上游 PR #88 的導頁失敗復原，並以 rebase 後聚焦元件、typecheck、lint 與核心 Browser E2E 通過後進行 exact-head CI、final review 與 squash merge。 |
 | 2026-09-03 | WP-A05／AI-09 | 進行中 | User Secrets 前置已完成。初次兩案例煙霧測試實際成本 US$0.001880、未達 US$0.10 停止線；商品搜尋因 `uniqueItems` 不在 Responses strict Schema 支援子集合而零 Token 失敗，客服通過 Schema／引用但政策來源不足。已移除該 Schema 關鍵字並在後端拒絕重複品牌，Runner 補上成本與案例選取防呆，兩個政策 Fixture 補齊 15 筆案例需要的核准快照，資料集升為 `zh-TW-v1.0.2-draft`。Kafen 主標與 Alex 第二審完成後 120 筆均核准，Release 與雙案例 dry-run 均為 `IsLiveReady=true`；仍待 commit 與第二次 Live 費用授權，初次結果不算 baseline。 |
+| 2026-09-04 | WP-A05／AI-09 | 進行中 | Commit `9ea03fc3` 已推送；第二次雙案例 Live 煙霧測試 deterministic 與人工覆核 2／2 Pass，成本 US$0.006085、Input／Output Tokens 3,545／694。商品搜尋單筆 10,083 ms 高於 5 秒目標，只列為正式 baseline 待確認風險；完整 Release 為 102 次商品搜尋＋27 次客服，共 129 次模型請求，尚待獨立成本授權。 |
 
 ## 11. 下一步
 
-修正版已完成 Kafen 主標、Alex 第二審與本機 dry-run；下一步先形成可追溯 commit，再明確授權以 `SEARCH-NOVICE-001`＋`SUPPORT-POLICY-001` 單輪、US$0.10 停止線重跑煙霧測試。第二次煙霧測試通過並確認實際 Token／成本前，不執行三輪 Release baseline。
+修正版、可追溯 commit 與第二次煙霧測試均已完成。下一步依煙霧測試實際成本裁定三輪 Release baseline 的停止線；取得獨立授權後才執行 129 次模型請求，並保存完整品質、P95、Token、成本及人工覆核結果。

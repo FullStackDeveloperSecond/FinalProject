@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-09-03
+最後更新: 2026-09-04
 追蹤項目:
   - AI-09
   - AI-13
@@ -125,7 +125,7 @@ OpenAI 官方建議以代表實際使用分布、包含正常與邊界案例的�
 
 ## 待實作
 
-- 120 筆繁中實際案例、Fixture、Schema、Grader 與本機／CI deterministic 驗證已建立。`zh-TW-v1.0.0-draft` 曾於 2026-09-02 完成 Terry／Kafen 主標與 Alex 第二審；初次煙霧測試及覆核前檢查發現政策 Fixture 只列主題、無法支持 15 筆案例的具體答案，因此已補齊核准政策快照並提升為 `zh-TW-v1.0.2-draft`／Fixture `v1.0.2`。Kafen 主標與 Alex 第二審已完成，120 筆案例均為 `approved`；Release 與雙案例 dry-run 均為 `IsLiveReady=true`，但 commit 與第二次 Live 費用授權仍是獨立 Gate。
-- 手動 `DoSelect.AiEvals` Live Runner 已建立，預設 Dry Run；`--execute` 強制正值成本停止線，且只讀 User Secrets。2026-09-03 初次兩案例煙霧測試成本 US$0.001880：商品搜尋因 strict Schema 的 `uniqueItems` 在產生 Token 前失敗；客服通過 Schema／引用，但政策 Fixture 缺少案例要求的具體規則。Schema 已改用支援子集合並由後端拒絕重複品牌，兩個政策 Fixture 已補齊 15 筆案例所需的核准快照，Runner 亦拒絕零單價與不存在的指定案例；尚須完成覆核、commit 與重新授權的第二次煙霧測試，再核准 Release 三輪上限。
+- 120 筆繁中實際案例、Fixture、Schema、Grader 與本機／CI deterministic 驗證已建立。政策 Fixture 已補齊核准政策快照並提升為 `zh-TW-v1.0.2-draft`／Fixture `v1.0.2`；Kafen 主標與 Alex 第二審已完成，120 筆案例均為 `approved`。
+- 手動 `DoSelect.AiEvals` Live Runner 已建立，預設 Dry Run；`--execute` 強制正值成本停止線，且只讀 User Secrets。2026-09-04 在 Commit `9ea03fc3` 的第二次雙案例煙霧測試 deterministic 與人工覆核皆 2／2 通過，成本 US$0.006085、Input／Output Tokens 3,545／694。商品搜尋單筆 10,083 ms 高於 5 秒目標，因樣本僅一筆，不宣稱 P95 通過或失敗；須由另行授權的三輪 Release baseline 確認。完整證據：`FP.dev/evals/ai/v1/results/2026-09-04-smoke-9ea03fc3.md`。
 - 啟動 S 後建立日文 30 筆、韓文 30 筆，並指定具語言能力的覆核者。
 - 正式同意／額度資料來源、訂單與客服 Owner Query、真正 GuestOrderAccess Cookie `403`、資料庫併發、RequestPublicId 冪等、客服 Responses Adapter、M-19 與 M-18 垂直切片均已合併。M-18 的搜尋 Adapter／Endpoint／UI、`ProposedExistingPart` 確認閘門、Provider-backed 測試與公開搜尋降級 Playwright 已形成；現有 deterministic／Provider-backed／降級 E2E 證據仍不能取代 AI-09 live evaluation。

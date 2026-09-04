@@ -1,6 +1,6 @@
 ---
 文件狀態: 持續更新
-最後更新: 2026-09-03
+最後更新: 2026-09-04
 ---
 
 # 決策工作區
@@ -13,6 +13,7 @@
 
 ## 最近完成批次
 
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-049-AI第二次煙霧測試結果定版|DEC-BATCH-049｜AI 第二次煙霧測試結果定版]]：`DEC-P365`，1 項，已於 2026-09-04 寫回；Commit `9ea03fc3` 的雙案例 deterministic 與人工覆核均通過，成本 US$0.006085；單筆商品搜尋延遲只列為正式 baseline 待確認風險，未授權 129 次 Release baseline。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-048-AI煙霧測試缺口與資料集修正版定版|DEC-BATCH-048｜AI 煙霧測試缺口與資料集修正版定版]]：`DEC-P359～DEC-P364`，6 項，已於 2026-09-03 寫回；商品搜尋 strict Schema 移除不支援的 `uniqueItems` 並保留後端重複值拒絕，兩個政策 Fixture 補齊 15 筆案例所需的核准規則快照，資料集升為 `zh-TW-v1.0.2-draft`；Runner 拒絕零單價與不存在的指定案例 ID。Kafen／Alex 逐案覆核已完成，120 筆均核准；仍待可追溯 commit 與第二次 Live 費用授權。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-047-AI評估覆核與完整Token成本保存定版|DEC-BATCH-047｜AI 評估覆核與完整 Token 成本保存定版]]：`DEC-P357～DEC-P358`，2 項，已於 2026-09-02 寫回；120 筆繁中案例完成 Terry／Kafen 主標與 Alex 第二審，所有已完成且具 usage 的 Responses 嘗試在回答、重試或轉人工降級時都必須保存 Token／成本。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-046-E2E模擬付款安全邊界定版|DEC-BATCH-046｜E2E 模擬付款安全邊界定版]]：`DEC-P356`，1 項，已於 2026-09-02 寫回；產品仍只有 Demo Profile 可使用模擬完成端點，隔離 `E2E` Environment 只有在顯式開關、專屬可丟棄 SQL Database 與測試 Secret 下可啟用，Development／Production 繼續 fail-fast。

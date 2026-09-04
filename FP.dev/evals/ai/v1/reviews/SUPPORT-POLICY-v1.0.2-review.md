@@ -89,4 +89,4 @@ Alex 備註：15 筆來源 ID、Outcome、Tool、必答點與 Fixture `v1.0.2` �
 1. [x] 保留兩位覆核者的核准結論與備註。
 2. [x] 將 15 筆 `SUPPORT-POLICY` 改為 `approved`，重建資料集並執行 validator。
 3. [x] 確認 dry-run 的 `AnnotationsApproved=true` 與 `IsLiveReady=true`。
-4. [ ] 形成可追溯 commit 後，另取得第二次兩案例 Live 煙霧測試與成本停止線授權。
+4. [x] 形成可追溯 Commit `9ea03fc3`，另取得第二次兩案例 Live 煙霧測試與成本停止線授權，結果 2／2 Pass。
