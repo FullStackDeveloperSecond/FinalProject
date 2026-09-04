@@ -12,9 +12,6 @@ namespace DoSelect.Infrastructure.Persistence.Returns;
 /// </summary>
 public sealed class RefundReturnCompletionPort : IRefundReturnCompletionPort
 {
-    /// <summary>正常退款執行成功結案的原因碼——與零淨額結案的 <c>zero-net-refund</c> 區分。</summary>
-    private const string RefundSucceededReasonCode = "refund-succeeded";
-
     private readonly DoSelectDbContext _context;
 
     public RefundReturnCompletionPort(DoSelectDbContext context)
@@ -29,6 +26,7 @@ public sealed class RefundReturnCompletionPort : IRefundReturnCompletionPort
     {
         ArgumentNullException.ThrowIfNull(command);
         ArgumentException.ThrowIfNullOrWhiteSpace(command.AdminUserId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(command.ReasonCode);
 
         var returnRequest = await _context.ReturnRequests
             .SingleOrDefaultAsync(request => request.Id == command.ReturnRequestId, cancellationToken)
@@ -48,7 +46,7 @@ public sealed class RefundReturnCompletionPort : IRefundReturnCompletionPort
             command.ReturnRequestId,
             fromStatus,
             ReturnRequestStatus.Completed,
-            RefundSucceededReasonCode,
+            command.ReasonCode,
             note: null,
             command.AdminUserId,
             command.OccurredAtUtc));

@@ -20,9 +20,14 @@ namespace DoSelect.Infrastructure.Refunds;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>不建立分攤、不完成退貨</b>——那兩件事分別屬於執行（<see cref="RefundExecutor"/>）與
-/// 退款結案（<c>IRefundReturnCompletionPort</c>）。核准只做一件事：把 <c>PendingReview</c>
-/// 依可信快照重算出的金額推進 <c>Approved</c>，讓它成為之後可以被執行的退款。
+/// <b>不建立分攤</b>——那件事屬於執行（<see cref="RefundExecutor"/>）。核准正常只做一件事：
+/// 把 <c>PendingReview</c> 依可信快照重算出的金額推進 <c>Approved</c>，讓它成為之後可以
+/// 被執行的退款。
+/// </para>
+/// <para>
+/// <b>但重算後淨額 &lt;= 0 是例外</b>（alex 2026-09-04 #103 裁定，延續 #99 A1）：這是合法
+/// 終局，不是可重試錯誤，此時改為終止退款（<c>Cancelled</c>）並完成關聯退貨，與
+/// <see cref="RefundExecutor"/> 一樣依賴 <c>IRefundReturnCompletionPort</c>。
 /// </para>
 /// <para>
 /// 這裡刻意複製 <see cref="RefundExecutor"/> 的身分重查邏輯（<see cref="AuthorizeActorAsync"/>
@@ -44,25 +49,33 @@ public sealed class RefundApprover : IRefundApprover
     /// <summary>中央 Idempotency 的 Operation 名稱。</summary>
     public const string Operation = "refund.approve";
 
+    /// <summary>核准時重算後無款可退而終止的原因碼——與正常執行成功結案的
+    /// <c>RefundExecutor.RefundSucceededReasonCode</c> 區分。</summary>
+    internal const string ZeroNetApprovalReasonCode = "refund-approval-zero-net";
+
     private readonly DoSelectDbContext _context;
     private readonly IAuditWriter _auditWriter;
     private readonly IIdempotencyExecutor _idempotencyExecutor;
+    private readonly IRefundReturnCompletionPort _returnCompletionPort;
     private readonly TimeProvider _timeProvider;
 
     public RefundApprover(
         DoSelectDbContext context,
         IAuditWriter auditWriter,
         IIdempotencyExecutor idempotencyExecutor,
+        IRefundReturnCompletionPort returnCompletionPort,
         TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(auditWriter);
         ArgumentNullException.ThrowIfNull(idempotencyExecutor);
+        ArgumentNullException.ThrowIfNull(returnCompletionPort);
         ArgumentNullException.ThrowIfNull(timeProvider);
 
         _context = context;
         _auditWriter = auditWriter;
         _idempotencyExecutor = idempotencyExecutor;
+        _returnCompletionPort = returnCompletionPort;
         _timeProvider = timeProvider;
     }
 
@@ -128,6 +141,11 @@ public sealed class RefundApprover : IRefundApprover
     {
         await AuthorizeActorAsync(adminUserId, cancellationToken);
 
+        if (stored.ResponseSummary == ApproveRefundResult.CancelledResponseSummary)
+        {
+            return ApproveRefundResult.CancelledReplayed();
+        }
+
         return decimal.TryParse(
             stored.ResponseSummary,
             NumberStyles.Number,
@@ -157,30 +175,64 @@ public sealed class RefundApprover : IRefundApprover
             refund.Id,
             refund.Status,
             refund.RequestedAmount,
+            refund.ReturnRequestId,
             refund.RowVersion,
             await FindTrustedInputsAsync(refund, cancellationToken));
 
         var decision = RefundApprovalDecision.Evaluate(snapshot, request);
-        if (decision.Plan is not { } plan)
+        var occurredAtUtc = _timeProvider.GetUtcNow().UtcDateTime;
+
+        if (decision.Plan is { } plan)
         {
-            return Rejected(decision);
+            _context.Entry(refund).Property(entity => entity.RowVersion).OriginalValue =
+                plan.ExpectedRefundRowVersion;
+
+            var previousStatus = refund.Status;
+            refund.Approve(plan.ApprovedAmount, plan.ApprovedByAdminUserId, occurredAtUtc);
+
+            WriteApprovalAudit(refund, request, plan, actor, previousStatus);
+
+            await _context.SaveChangesAsync(cancellationToken);
+
+            return new IdempotencyResponse<ApproveRefundResult>(
+                StatusCodes200Ok,
+                ApproveRefundResult.Settled(plan.ApprovedAmount, plan),
+                plan.ApprovedAmount.ToString(CultureInfo.InvariantCulture));
         }
 
-        _context.Entry(refund).Property(entity => entity.RowVersion).OriginalValue =
-            plan.ExpectedRefundRowVersion;
+        if (decision.CancellationPlan is { } cancelPlan)
+        {
+            // alex 2026-09-04 #103 裁定，延續 #99 A1：核准時重算後已無款可退是合法終局，
+            // 不是可重試錯誤。目前沒有 Refund reject／cancel 的其他 production 路徑，
+            // 因此不能只回錯誤碼讓退款永遠停在 PendingReview——終止為 Cancelled，
+            // 並讓關聯退貨（若有）在同一筆交易完成，回傳可識別的終止結果（200、
+            // status=cancelled）而不是需要重試的 409，前端才不會進入重試迴圈。
+            _context.Entry(refund).Property(entity => entity.RowVersion).OriginalValue =
+                cancelPlan.ExpectedRefundRowVersion;
 
-        var occurredAtUtc = _timeProvider.GetUtcNow().UtcDateTime;
-        var previousStatus = refund.Status;
-        refund.Approve(plan.ApprovedAmount, plan.ApprovedByAdminUserId, occurredAtUtc);
+            var previousStatus = refund.Status;
+            refund.Cancel(occurredAtUtc);
 
-        WriteAudit(refund, request, plan, actor, previousStatus);
+            if (cancelPlan.ReturnRequestId is { } returnRequestId)
+            {
+                await _returnCompletionPort.CompleteReturnAsync(
+                    new RefundReturnCompletionCommand(
+                        returnRequestId, cancelPlan.CancelledByAdminUserId, occurredAtUtc,
+                        ZeroNetApprovalReasonCode),
+                    cancellationToken);
+            }
 
-        await _context.SaveChangesAsync(cancellationToken);
+            WriteCancellationAudit(refund, request, actor, previousStatus);
 
-        return new IdempotencyResponse<ApproveRefundResult>(
-            StatusCodes200Ok,
-            ApproveRefundResult.Settled(plan.ApprovedAmount, plan),
-            plan.ApprovedAmount.ToString(CultureInfo.InvariantCulture));
+            await _context.SaveChangesAsync(cancellationToken);
+
+            return new IdempotencyResponse<ApproveRefundResult>(
+                StatusCodes200Ok,
+                ApproveRefundResult.CancelledSettled(cancelPlan),
+                ApproveRefundResult.CancelledResponseSummary);
+        }
+
+        return Rejected(decision);
     }
 
     /// <summary>以例外中止交易，把拒絕帶回 <see cref="ApproveAsync"/>。與
@@ -208,7 +260,7 @@ public sealed class RefundApprover : IRefundApprover
             .FindAsync(refund.OrderId, refund.Id, refund.ReturnRequestId, cancellationToken);
 
     /// <summary>把核准理由寫進中央 <c>AuditLog</c>。</summary>
-    private void WriteAudit(
+    private void WriteApprovalAudit(
         Refund refund,
         ApproveRefundRequest request,
         RefundApprovalPlan plan,
@@ -229,6 +281,40 @@ public sealed class RefundApprover : IRefundApprover
                     "status", previousStatus.ToString(), refund.Status.ToString()),
                 AuditFieldChange.Code(
                     "approvedAmount", null, Text(plan.ApprovedAmount)),
+            ],
+            reason: request.ReasonCode.Trim(),
+            correlationId: request.CorrelationId,
+            traceId: request.TraceId,
+            jobPublicId: null,
+            remoteIpAddress: request.RemoteIpAddress,
+            note: request.Note));
+    }
+
+    /// <summary>
+    /// 把核准時重算後已無款可退的終止結果寫進中央 AuditLog。用獨立的 Action 名稱
+    /// （不是 <see cref="AuditActions.RefundApprove"/>），讓稽核查詢能把「正常核准」與
+    /// 「核准時被系統終止」分開，不必逐筆比對狀態欄位才看得出差異。
+    /// </summary>
+    private void WriteCancellationAudit(
+        Refund refund,
+        ApproveRefundRequest request,
+        AuditActor actor,
+        RefundStatus previousStatus)
+    {
+        _auditWriter.Add(AuditWriteRequest.Create(
+            Guid.NewGuid(),
+            actor,
+            AuditActions.RefundApprovalCancelled,
+            AuditResourceTypes.Refund,
+            refund.PublicId,
+            AuditResult.Success,
+            errorCode: null,
+            changes:
+            [
+                AuditFieldChange.Code(
+                    "status", previousStatus.ToString(), refund.Status.ToString()),
+                AuditFieldChange.Code(
+                    "cancelReason", null, ZeroNetApprovalReasonCode),
             ],
             reason: request.ReasonCode.Trim(),
             correlationId: request.CorrelationId,

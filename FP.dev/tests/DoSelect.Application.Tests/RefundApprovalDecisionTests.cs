@@ -107,18 +107,22 @@ public sealed class RefundApprovalDecisionTests
     }
 
     [Fact]
-    public void AZeroOrNegativeRecomputedAmountIsRefused()
+    public void AZeroOrNegativeRecomputedAmountCancelsTheRefundInstead()
     {
-        // #99 A1 的同一個行為：RefundCalculator 對淨額 <= 0 回
-        // Failure(RefundAmountExceeded)，不是 Success。在核准這一刻遇到代表建立
-        // 這筆退款之後，同一張訂單又受理了其他退貨，可信快照重算出的淨額已經降到
-        // 0 或負數——退款維持 PendingReview，需要管理員另外處理。
+        // alex 2026-09-04 #103 裁定，延續 #99 A1：核准當下依可信快照重算後已無款
+        // 可退，是合法終局，不是可重試錯誤。RefundCalculator 對淨額 <= 0 回
+        // Failure(RefundAmountExceeded)，Evaluate 把它轉成 Cancelled 計畫，而不是
+        // 讓退款卡在 PendingReview 或回一個可重試的錯誤碼給呼叫端。
         var result = Evaluate(
             Request(),
-            Snapshot(requestedAmount: 500m, clawbackExceedsRefund: true));
+            Snapshot(requestedAmount: 500m, clawbackExceedsRefund: true, returnRequestId: 501L));
 
-        Assert.Equal(RefundErrorCodes.RefundAmountExceeded, result.ErrorCode);
+        Assert.True(result.IsSuccess);
+        Assert.True(result.WasCancelled);
         Assert.Null(result.Plan);
+        Assert.NotNull(result.CancellationPlan);
+        Assert.Equal(11L, result.CancellationPlan!.RefundId);
+        Assert.Equal(501L, result.CancellationPlan.ReturnRequestId);
     }
 
     [Fact]
@@ -238,11 +242,13 @@ public sealed class RefundApprovalDecisionTests
         decimal requestedAmount = 500m,
         bool withTrustedInputs = true,
         int requestedQuantity = 1,
-        bool clawbackExceedsRefund = false) =>
+        bool clawbackExceedsRefund = false,
+        long? returnRequestId = 501L) =>
         new(
             11L,
             status,
             requestedAmount,
+            returnRequestId,
             CurrentRowVersion,
             withTrustedInputs
                 ? TrustedInputsFor(requestedQuantity, clawbackExceedsRefund)

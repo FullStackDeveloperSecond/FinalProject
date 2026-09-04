@@ -111,6 +111,14 @@ public sealed class Refund : MutablePublicEntity
         Transition(RefundStatus.Approved, occurredAtUtc);
     }
 
+    /// <summary>
+    /// 終止一筆待審退款——核准當下依可信快照重算後已無款可退（alex 2026-09-04 #103
+    /// 裁定，延續 #99 A1：這是合法終局，不是可重試錯誤，不得讓退款永遠停在
+    /// <c>PendingReview</c>）。只從 <c>PendingReview</c> 合法，交給
+    /// <see cref="Transition"/> 的 <c>AllowedTransitions</c> 守住。
+    /// </summary>
+    public void Cancel(DateTime occurredAtUtc) => Transition(RefundStatus.Cancelled, occurredAtUtc);
+
     public void BeginProcessing(string executedByAdminUserId, DateTime occurredAtUtc)
     {
         ExecutedByAdminUserId = RequireText(executedByAdminUserId, nameof(executedByAdminUserId));

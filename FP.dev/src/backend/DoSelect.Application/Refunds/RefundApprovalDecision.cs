@@ -22,6 +22,7 @@ public sealed record RefundApprovalSnapshot(
     long RefundId,
     RefundStatus Status,
     decimal RequestedAmount,
+    long? ReturnRequestId,
     byte[] RowVersion,
     RefundTrustedInputs? TrustedInputs);
 
@@ -66,29 +67,68 @@ public sealed record RefundApprovalPlan(
     string IdempotencyKey,
     byte[] ExpectedRefundRowVersion);
 
+/// <summary>
+/// 核准時依可信快照重算後已無款可退——把待審退款終止為 <c>Cancelled</c>，並把關聯退貨
+/// （若有）從 <c>AwaitingRefund</c> 推到 <c>Completed</c>（alex 2026-09-04 #103 裁定，
+/// 延續 #99 A1：這是合法終局，不是可重試錯誤，不得讓退款永遠停在 <c>PendingReview</c>）。
+/// </summary>
+public sealed record RefundCancellationPlan(
+    long RefundId,
+    long? ReturnRequestId,
+    string CancelledByAdminUserId,
+    string IdempotencyKey,
+    byte[] ExpectedRefundRowVersion);
+
 public sealed class ApproveRefundResult
 {
-    private ApproveRefundResult(string? errorCode, decimal? approvedAmount, RefundApprovalPlan? plan)
+    /// <summary>重播時回放用的固定字串——與可解析成 <see cref="decimal"/> 的核准金額區分。
+    /// 公開給 Infrastructure 的 IIdempotencyExecutor replayFactory 判斷用。</summary>
+    public const string CancelledResponseSummary = "cancelled";
+
+    private ApproveRefundResult(
+        string? errorCode,
+        decimal? approvedAmount,
+        RefundApprovalPlan? plan,
+        RefundCancellationPlan? cancellationPlan)
     {
         ErrorCode = errorCode;
         ApprovedAmount = approvedAmount;
         Plan = plan;
+        CancellationPlan = cancellationPlan;
     }
 
     public bool IsSuccess => ErrorCode is null;
 
+    /// <summary>
+    /// 這次成功的結果是核准被終止為 <c>Cancelled</c>，不是核准成功。呼叫端（含
+    /// Controller）不需要另外分支——終止一樣是 <c>IsSuccess</c>，一樣回 200 與目前的
+    /// <c>RefundDto</c>；差別只在那份 DTO 的 <c>status</c> 會是 <c>cancelled</c>，
+    /// 這就是給前端的「可識別的終止結果」，不是需要重試的錯誤。
+    /// </summary>
+    public bool WasCancelled => CancellationPlan is not null || IsCancelledReplay;
+
+    private bool IsCancelledReplay { get; init; }
+
     public string? ErrorCode { get; }
 
+    /// <summary>只在核准（而不是終止）成功時有值。</summary>
     public decimal? ApprovedAmount { get; }
 
-    /// <summary>拒絕時為 <c>null</c>。</summary>
+    /// <summary>拒絕或終止時為 <c>null</c>。</summary>
     public RefundApprovalPlan? Plan { get; }
 
-    public static ApproveRefundResult Failure(string errorCode) => new(errorCode, null, null);
+    /// <summary>只在決策判定要終止時有值。</summary>
+    public RefundCancellationPlan? CancellationPlan { get; }
 
-    /// <summary>共用 <c>IIdempotencyExecutor</c> 判定為重播時，回放先前保存的金額。</summary>
+    public static ApproveRefundResult Failure(string errorCode) => new(errorCode, null, null, null);
+
+    /// <summary>共用 <c>IIdempotencyExecutor</c> 判定為重播時，回放先前保存的核准金額。</summary>
     public static ApproveRefundResult Replayed(decimal approvedAmount) =>
-        new(null, approvedAmount, null);
+        new(null, approvedAmount, null, null);
+
+    /// <summary>重播一筆先前已終止的核准。</summary>
+    public static ApproveRefundResult CancelledReplayed() =>
+        new(null, null, null, null) { IsCancelledReplay = true };
 
     /// <summary>
     /// 決策通過、尚未寫入——呼叫端據此執行 <see cref="RefundApprovalPlan"/>。
@@ -97,11 +137,19 @@ public sealed class ApproveRefundResult
     /// <see cref="Settled"/>。
     /// </summary>
     public static ApproveRefundResult Approved(RefundApprovalPlan plan) =>
-        new(null, plan.ApprovedAmount, plan);
+        new(null, plan.ApprovedAmount, plan, null);
+
+    /// <summary>決策判定要終止、尚未寫入——呼叫端據此執行 <see cref="RefundCancellationPlan"/>。</summary>
+    public static ApproveRefundResult Cancelled(RefundCancellationPlan plan) =>
+        new(null, null, null, plan);
 
     /// <summary>首次核准成功寫入後的結果——首次執行與重播都回同一份形狀。</summary>
     public static ApproveRefundResult Settled(decimal approvedAmount, RefundApprovalPlan plan) =>
-        new(null, approvedAmount, plan);
+        new(null, approvedAmount, plan, null);
+
+    /// <summary>首次終止成功寫入後的結果——首次執行與重播都回同一份形狀。</summary>
+    public static ApproveRefundResult CancelledSettled(RefundCancellationPlan plan) =>
+        new(null, null, null, plan);
 }
 
 /// <summary>
@@ -145,12 +193,25 @@ public static class RefundApprovalDecision
             trustedInputs.AssemblyDisposition,
             trustedInputs.ReturnShippingCost));
 
-        // 計算器本身失敗（含淨額 <= 0）時原樣回傳它的錯誤碼——包含
-        // RefundAmountExceeded。建立這筆退款之後，若同一張訂單受理了其他退貨，
-        // 可信快照重算出的淨額可能已經降到 0 或負數；退款維持 PendingReview，
-        // 需要管理員介入決定後續（見 PR 說明的已知邊界）。
+        // 淨額 <= 0（RefundAmountExceeded）不是可重試錯誤，是合法終局（alex 2026-09-04
+        // #103 裁定，延續 #99 A1）：建立這筆退款之後，若同一張訂單受理了其他退貨，
+        // 可信快照重算出的淨額可能已經降到 0 或負數。目前沒有 Refund reject／cancel
+        // 的其他 production 路徑，因此不能只回錯誤碼讓退款永遠停在 PendingReview——
+        // 終止為 Cancelled，並讓關聯退貨（若有）從 AwaitingRefund 完成，不是拒絕。
+        //
+        // 其餘計算失敗（找不到品項、退貨數量超過等）仍然是真正的錯誤，原樣回傳。
         if (!calculation.IsSuccess)
         {
+            if (calculation.ErrorCode == RefundErrorCodes.RefundAmountExceeded)
+            {
+                return ApproveRefundResult.Cancelled(new RefundCancellationPlan(
+                    snapshot.RefundId,
+                    snapshot.ReturnRequestId,
+                    request.ApprovedByAdminUserId.Trim(),
+                    request.IdempotencyKey.Trim(),
+                    snapshot.RowVersion));
+            }
+
             return ApproveRefundResult.Failure(calculation.ErrorCode!);
         }
 

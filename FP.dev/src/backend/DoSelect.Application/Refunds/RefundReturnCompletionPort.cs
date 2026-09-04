@@ -1,8 +1,11 @@
 namespace DoSelect.Application.Refunds;
 
 /// <summary>
-/// 退款執行成功後，把對應退貨從 <c>AwaitingRefund</c> 推到 <c>Completed</c> 的窄介面
-/// （alex 2026-09-04 #98 追蹤：正常正額退款完成後 Return 的收尾，接續 #99 A1 裁定）。
+/// 把對應退貨從 <c>AwaitingRefund</c> 推到 <c>Completed</c> 的窄介面。原本只服務
+/// 「退款執行成功」那一刻（alex 2026-09-04 #98 追蹤，接續 #99 A1 裁定）；#103 裁定
+/// 把「核准時重算後已無款可退，退款終止為 <c>Cancelled</c>」也納入同一個埠——兩者
+/// 都是退貨結案的合法終局，差別只在<b>為什麼</b>結案，因此由呼叫端提供
+/// <see cref="RefundReturnCompletionCommand.ReasonCode"/> 而不是寫死在實作裡。
 /// </summary>
 /// <remarks>
 /// <para>
@@ -34,12 +37,21 @@ public interface IRefundReturnCompletionPort
 }
 
 /// <summary>
-/// 退款執行成功那一刻，Refund 模組交給 Returns 完成結案所需的最小資訊。
+/// 退款結案那一刻，Refund 模組交給 Returns 完成結案所需的最小資訊。
 /// </summary>
 /// <remarks>
+/// <para>
 /// 不帶金額——退貨結案不需要知道退了多少錢，那是 Refund 自己的紀錄。
+/// </para>
+/// <para>
+/// <paramref name="ReasonCode"/> 寫進 <c>ReturnStatusHistory.ReasonCode</c>，讓稽核能
+/// 區分退貨是因為退款真的執行成功而結案，還是核准時重算後已無款可退——兩者都是
+/// 合法終局，但對帳意義完全不同。呼叫端須用既有的 <c>AuditFieldChange.RequireSafeCode</c>
+/// 規則（ASCII、64 字元內），不得夾帶自由文字。
+/// </para>
 /// </remarks>
 public sealed record RefundReturnCompletionCommand(
     long ReturnRequestId,
     string AdminUserId,
-    DateTime OccurredAtUtc);
+    DateTime OccurredAtUtc,
+    string ReasonCode);

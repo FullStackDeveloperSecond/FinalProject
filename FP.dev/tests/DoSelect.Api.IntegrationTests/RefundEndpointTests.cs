@@ -368,6 +368,42 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
     }
 
     [Fact]
+    public async Task AZeroNetApprovalCancellationReturns200NotAConflict()
+    {
+        // alex 2026-09-04 #103 裁定,延續 #99 A1:核准當下重算已無款可退是合法終局,
+        // 不是可重試錯誤——前端不該因為看到 4xx 進入重試迴圈。這裡證明 Controller
+        // 對 WasCancelled 的結果一律走 result.ErrorCode is null 的成功分支。
+        var approver = new FakeRefundApprover(CancelledSettled());
+        using var factory = CreateFactory(new FakeRefundExecutor(Settled(500m)), approver: approver);
+        using var client = factory.CreateClient();
+        await SignInAsync(client, includeMfa: true, DoSelectRoles.FinanceManager);
+
+        using var response = await PostApproveAsync(client);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<RefundDto>(ResponseJsonOptions);
+        Assert.Equal(RefundPublicId, body!.PublicId);
+        Assert.Equal(RefundPublicId, approver.LastRequest!.RefundPublicId);
+    }
+
+    [Fact]
+    public async Task AReplayedZeroNetApprovalCancellationAlsoReturns200()
+    {
+        // 同一把冪等金鑰重送一筆已經因為零淨額被取消的核准，一樣不得變成需要
+        // 重試的錯誤——重播結果與第一次的終止結果同樣走成功分支。
+        var approver = new FakeRefundApprover(ApproveRefundResult.CancelledReplayed());
+        using var factory = CreateFactory(new FakeRefundExecutor(Settled(500m)), approver: approver);
+        using var client = factory.CreateClient();
+        await SignInAsync(client, includeMfa: true, DoSelectRoles.FinanceManager);
+
+        using var response = await PostApproveAsync(client);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<RefundDto>(ResponseJsonOptions);
+        Assert.Equal(RefundPublicId, body!.PublicId);
+    }
+
+    [Fact]
     public async Task ApprovalSharesTheSameAuthorizationBoundaryAsExecution()
     {
         // 核准與執行同一個 Policy（Refund.Execute）：同一組角色、同一個 MFA 要求。
@@ -531,6 +567,18 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
             new RefundApprovalPlan(
                 11L,
                 amount,
+                "finance-1",
+                "refund-approve-1",
+                [1, 2, 3, 4, 5, 6, 7, 8]));
+
+    // alex 2026-09-04 #103 裁定,延續 #99 A1:核准時重算淨額 <= 0 終止為 Cancelled,
+    // 不是可重試的錯誤碼——這裡驗證 Controller 對它一律走成功路徑（200），
+    // 不會落入 result.ErrorCode 那個分支。
+    private static ApproveRefundResult CancelledSettled() =>
+        ApproveRefundResult.CancelledSettled(
+            new RefundCancellationPlan(
+                11L,
+                501L,
                 "finance-1",
                 "refund-approve-1",
                 [1, 2, 3, 4, 5, 6, 7, 8]));

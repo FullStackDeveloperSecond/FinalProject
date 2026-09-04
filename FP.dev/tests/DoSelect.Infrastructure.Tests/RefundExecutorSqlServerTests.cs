@@ -10,6 +10,7 @@ using DoSelect.Domain.Orders;
 using DoSelect.Domain.Invoicing;
 using DoSelect.Domain.Members;
 using DoSelect.Domain.Payments;
+using DoSelect.Domain.Promotions;
 using DoSelect.Domain.Refunds;
 using DoSelect.Domain.Returns;
 using DoSelect.Domain.Shipping;
@@ -1470,6 +1471,7 @@ public sealed class RefundExecutorSqlServerTests
                     ActorScopePepper = new string('p', 48),
                 }),
                 timeProvider),
+            new RefundReturnCompletionPort(context),
             timeProvider);
     }
 
@@ -1627,6 +1629,110 @@ public sealed class RefundExecutorSqlServerTests
         Assert.Null(stored.ApprovedAmount);
         Assert.False(await verify.Set<AuditLog>()
             .AnyAsync(log => log.ResourcePublicId == refund.PublicId));
+    }
+
+    // ── 核准時重算淨額 <= 0（alex 2026-09-04 #103 裁定，延續 #99 A1）─────────────
+
+    [RefundExecutorSqlFact]
+    public async Task AZeroNetApprovalCancelsTheRefundAndCompletesTheReturn()
+    {
+        // 建立退款當下淨額還是正的；核准前優惠券門檻的追回讓可信快照重算出的淨額
+        // 精準落到 0。這是合法終局，不是可重試錯誤：退款終止為 Cancelled，
+        // 關聯退貨在同一筆交易被結案，而不是讓退款永遠卡在 PendingReview。
+        await using var context = RefundExecutorSqlFixture.CreateContext();
+        var refund = await SeedRefundAsync(
+            context, leaveAsPendingReview: true, couponClawbackSwallowsRefund: true);
+        var returnRequestId = refund.ReturnRequestId!.Value;
+
+        var result = await CreateApprover(context).ApproveAsync(ApproveRequest(refund));
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.WasCancelled);
+        Assert.NotNull(result.CancellationPlan);
+
+        await using var verify = RefundExecutorSqlFixture.CreateContext();
+        var stored = await verify.Refunds.SingleAsync(r => r.PublicId == refund.PublicId);
+        Assert.Equal(RefundStatus.Cancelled, stored.Status);
+        Assert.Null(stored.ApprovedAmount);
+
+        var returnRequest = await verify.ReturnRequests.SingleAsync(r => r.Id == returnRequestId);
+        Assert.Equal(ReturnRequestStatus.Completed, returnRequest.Status);
+
+        var history = Assert.Single(await verify.ReturnStatusHistories
+            .Where(h => h.ReturnRequestId == returnRequestId && h.ToStatus == ReturnRequestStatus.Completed)
+            .ToListAsync());
+        Assert.Equal(ReturnRequestStatus.AwaitingRefund, history.FromStatus);
+        Assert.Equal(RefundApprover.ZeroNetApprovalReasonCode, history.ReasonCode);
+        Assert.Equal(RefundExecutorSqlFixture.AdminUserId, history.ActorUserId);
+
+        var audit = await verify.Set<AuditLog>()
+            .SingleAsync(log => log.ResourcePublicId == refund.PublicId);
+        Assert.Equal(AuditActions.RefundApprovalCancelled, audit.Action);
+        Assert.Equal(AuditResult.Success, audit.Result);
+    }
+
+    [RefundExecutorSqlFact]
+    public async Task AZeroNetApprovalWhoseReturnAlreadyLeftAwaitingRefundRollsBackTheWholeCancellation()
+    {
+        // 與執行端 ARefundWhoseReturnAlreadyLeftAwaitingRefundThrowsAndWritesNothing
+        // 同一個理由：人為構造「別的原因已經把退貨結案，核准時的取消卻還沒發生」，
+        // 證明退款的 Cancel 與退貨的 Complete 真的在同一筆交易——寧可整個回滾，
+        // 也不讓退款單獨變成 Cancelled 卻留下一張已經結案的退貨被覆寫歷史。
+        await using var context = RefundExecutorSqlFixture.CreateContext();
+        var refund = await SeedRefundAsync(
+            context, leaveAsPendingReview: true, couponClawbackSwallowsRefund: true);
+        var returnRequestId = refund.ReturnRequestId!.Value;
+
+        await using (var corrupt = RefundExecutorSqlFixture.CreateContext())
+        {
+            var returnRequest = await corrupt.ReturnRequests.SingleAsync(r => r.Id == returnRequestId);
+            returnRequest.Transition(ReturnRequestStatus.Completed, NowUtc);
+            await corrupt.SaveChangesAsync();
+        }
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            CreateApprover(context).ApproveAsync(ApproveRequest(refund)));
+
+        await using var verify = RefundExecutorSqlFixture.CreateContext();
+        var stored = await verify.Refunds.SingleAsync(r => r.PublicId == refund.PublicId);
+        Assert.Equal(RefundStatus.PendingReview, stored.Status);
+        Assert.False(await verify.Set<AuditLog>()
+            .AnyAsync(log => log.ResourcePublicId == refund.PublicId));
+    }
+
+    [RefundExecutorSqlFact]
+    public async Task TheSameApprovalKeyReplaysTheCancellationWithoutASecondEffect()
+    {
+        // 同一把冪等金鑰重送不得把已經結案的退貨再結案一次（ReturnRequest.Transition
+        // 只允許 AwaitingRefund → Completed，第二次一定丟例外)，也不得寫出第二筆稽核。
+        await using var context = RefundExecutorSqlFixture.CreateContext();
+        var refund = await SeedRefundAsync(
+            context, leaveAsPendingReview: true, couponClawbackSwallowsRefund: true);
+        var returnRequestId = refund.ReturnRequestId!.Value;
+        var request = ApproveRequest(refund);
+
+        var first = await CreateApprover(context).ApproveAsync(request);
+        var second = await CreateApprover(context).ApproveAsync(request);
+
+        Assert.True(first.IsSuccess);
+        Assert.True(first.WasCancelled);
+        Assert.True(second.IsSuccess);
+        Assert.True(second.WasCancelled);
+
+        await using var verify = RefundExecutorSqlFixture.CreateContext();
+        var stored = await verify.Refunds.SingleAsync(r => r.PublicId == refund.PublicId);
+        Assert.Equal(RefundStatus.Cancelled, stored.Status);
+
+        var returnRequest = await verify.ReturnRequests.SingleAsync(r => r.Id == returnRequestId);
+        Assert.Equal(ReturnRequestStatus.Completed, returnRequest.Status);
+
+        var historyCount = await verify.ReturnStatusHistories
+            .CountAsync(h => h.ReturnRequestId == returnRequestId && h.ToStatus == ReturnRequestStatus.Completed);
+        Assert.Equal(1, historyCount);
+
+        var auditCount = await verify.Set<AuditLog>()
+            .CountAsync(log => log.ResourcePublicId == refund.PublicId);
+        Assert.Equal(1, auditCount);
     }
 
     /// <summary>
@@ -1810,7 +1916,12 @@ public sealed class RefundExecutorSqlServerTests
         int returnedQuantity = 1,
         // #98 WP2：核准測試需要一筆還沒被核准過的退款，其餘所有既有呼叫端都需要
         // 一筆已核准、可執行的退款——預設值維持後者，不改變任何既有測試的前置狀態。
-        bool leaveAsPendingReview = false)
+        bool leaveAsPendingReview = false,
+        // #103 A1：核准當下重算，優惠券扣回吃光整筆退款（複製
+        // RefundCalculatorTests.WhenTheClawbackSwallowsTheWholeRefund_TheAmountIsRejected
+        // 的同一組數據）。只有搭配預設的 returnedQuantity/returnableQuantity 時淨額才會
+        // 精準落在 0，其他呼叫端維持 false 不受影響。
+        bool couponClawbackSwallowsRefund = false)
     {
         var createdAtUtc = NowUtc.AddDays(-3);
 
@@ -1857,9 +1968,19 @@ public sealed class RefundExecutorSqlServerTests
             quantity: 2, listUnitPrice: 500m, saleUnitPrice: 500m, finalUnitPrice: 500m,
             unitCostSnapshot: 300m, lineSubtotal: 1000m, discountAllocation: 0m,
             lineTotal: 1000m, assemblyGroupKey: null, returnableQuantity: returnableQuantity,
-            createdAtUtc: createdAtUtc, isCouponEligible: false,
+            createdAtUtc: createdAtUtc, isCouponEligible: couponClawbackSwallowsRefund,
             specificationSnapshot: new OrderItemSpecificationSnapshot("{}", "{}", 1));
         context.OrderItems.Add(item);
+
+        if (couponClawbackSwallowsRefund)
+        {
+            context.Add(new OrderCoupon(
+                Guid.NewGuid(), order.Id, couponId: null, redemptionId: null,
+                couponCodeSnapshot: "CLAWBACK500", nameSnapshot: "Test Coupon",
+                CouponDiscountType.FixedAmount, ruleVersion: 1, discountValue: 500m,
+                minimumSpendAmount: 3000m, appliedAmount: 500m, eligibleSubtotal: 1000m,
+                isFreeShipping: false, createdAtUtc));
+        }
 
         // 可退款餘額 = 已成功收款 - 其他退款已成功累計。付款必須真的走到 Paid，
         // 否則餘額為 0，每一條測試都會先撞上 refund_amount_exceeded。
