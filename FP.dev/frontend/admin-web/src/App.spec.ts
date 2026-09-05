@@ -134,4 +134,36 @@ describe('admin shell navigation', () => {
     expect(wrapper.text()).not.toContain('商品匯入')
     expect(wrapper.text()).not.toContain('庫存匯入')
   })
+
+  /**
+   * 組長 PR #114 裁定 B1：對帳案件頁（A-29）的入口只給 InventoryManager／SuperAdmin——與 route meta
+   * 和後端 InventoryManager Policy 相同；其他角色與未登入不該看到一個點下去只會被導到 /forbidden 的入口。
+   */
+  it.each([
+    ['InventoryManager'],
+    ['SuperAdmin'],
+  ])('shows the inventory reconciliation entry to %s', async (role) => {
+    signIn([role])
+
+    const wrapper = await mountShell()
+
+    expect(wrapper.text()).toContain('庫存對帳案件')
+  })
+
+  it.each([
+    ['CatalogManager'],
+    ['OrderManager'],
+  ])('hides the inventory reconciliation entry from %s', async (role) => {
+    signIn([role])
+
+    const wrapper = await mountShell()
+
+    expect(wrapper.text()).not.toContain('庫存對帳案件')
+  })
+
+  it('hides the inventory reconciliation entry when nobody is signed in', async () => {
+    const wrapper = await mountShell()
+
+    expect(wrapper.text()).not.toContain('庫存對帳案件')
+  })
 })

@@ -10,3 +10,4 @@ export type InspectReturnRequest = components['schemas']['InspectReturnRequest']
 export type InspectReturnItemLine = components['schemas']['InspectReturnItemLine']
 export type ExtendShipmentDeadlineRequest = components['schemas']['ExtendShipmentDeadlineRequest']
 export type RestockDisposition = components['schemas']['RestockDisposition']
+export type AssemblyFeeDisposition = Exclude<components['schemas']['AssemblyFeeDisposition'], null>

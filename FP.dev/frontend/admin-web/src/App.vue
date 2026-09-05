@@ -36,6 +36,11 @@ const canImportCatalog = computed(() =>
 const inventoryImportRoles = ['InventoryManager', 'SuperAdmin']
 const canImportInventory = computed(() =>
   inventoryImportRoles.some(role => auth.currentUser?.roles?.includes(role) ?? false))
+// 組長 PR #114 裁定 B1：對帳案件頁（A-29）的入口只給 InventoryManager／SuperAdmin，與 route meta 和後端
+// AdminInventoryController 的 InventoryManager Policy 相同。Route guard 仍是真正的邊界。
+const inventoryReconciliationRoles = ['InventoryManager', 'SuperAdmin']
+const canReconcileInventory = computed(() =>
+  inventoryReconciliationRoles.some(role => auth.currentUser?.roles?.includes(role) ?? false))
 
 const canManageCoupons = computed(() =>
   couponRoles.some(role => auth.currentUser?.roles?.includes(role) ?? false))
@@ -165,6 +170,12 @@ async function onLogout(): Promise<void> {
           </RouterLink>
           <RouterLink to="/inventory/reservations">
             庫存保留佇列
+          </RouterLink>
+          <RouterLink
+            v-if="canReconcileInventory"
+            to="/inventory/reconciliation-cases"
+          >
+            庫存對帳案件
           </RouterLink>
           <RouterLink
             v-if="canManageInvoices"
