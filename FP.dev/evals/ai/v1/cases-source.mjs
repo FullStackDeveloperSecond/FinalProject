@@ -1,4 +1,4 @@
-export const datasetVersion = 'zh-TW-v1.0.3-draft'
+export const datasetVersion = 'zh-TW-v1.0.4-draft'
 
 export const groupPlans = {
   'SEARCH-NOVICE': { count: 30, development: 18, release: 9, challenge: 3 },
@@ -116,7 +116,16 @@ const novice = [
   { message: '打競技遊戲想追求高更新率，主機四萬五。', outcome: 'recommend', intent: ['CustomBuild', ['Gaming'], 45000], candidates: ['build-gaming-balanced-35'], points: ['不承諾未提供的 FPS'] },
   { message: '文書加簡單修圖，兩萬二，品牌沒有特別偏好。', outcome: 'recommend', intent: ['PrebuiltComputer', ['Office', 'GraphicDesign'], 22000], candidates: ['prebuilt-general-20'], points: ['品牌缺少不必補問'] },
   { message: '長輩視訊、看新聞，預算一萬二，操作越簡單越好。', outcome: 'no_result', intent: ['PrebuiltComputer', ['General'], 12000], fixture: 'catalog.synthetic.v1', points: ['說明目前無符合預算候選', '建議安全放寬預算'] },
-  { message: '想存家庭照片，請推薦 8TB 儲存裝置，預算八千。', outcome: 'recommend', intent: ['SingleProduct', ['General'], 8000], category: 'Storage', candidates: ['storage-nas-8tb'], points: ['不把儲存裝置說成完整備份方案'] },
+  {
+    message: '想存家庭照片，請推薦 8TB 儲存裝置，預算八千。',
+    outcome: 'recommend',
+    intent: ['SingleProduct', [], 8000],
+    category: 'Storage',
+    specs: [{ semanticKey: 'STORAGE_CAPACITY_GB', operator: 'gte', value: '8192', unit: 'GB' }],
+    preferences: ['家庭照片'],
+    candidates: ['storage-nas-8tb'],
+    points: ['不把儲存裝置說成完整備份方案'],
+  },
   { message: '主機板要有 Wi-Fi，其他零件我已經有 AM5 CPU，預算七千。', outcome: 'recommend', intent: ['SingleProduct', ['General'], 7000], category: 'Motherboard', candidates: ['motherboard-wifi-am5'], points: ['既有 CPU 仍須使用者確認', 'Socket 交由規則驗證'] },
   { message: '想換 2TB SSD，四千元內，速度比舊硬碟快就好。', outcome: 'recommend', intent: ['SingleProduct', ['General'], 4000], category: 'Storage', candidates: ['ssd-2tb'], points: ['需提醒介面相容性由規格確認'] },
   { message: '辦公室用安靜鍵盤，兩千五以內。', outcome: 'recommend', intent: ['SingleProduct', ['Office'], 2500], category: 'Keyboard', candidates: ['keyboard-silent'], points: ['安靜描述只能引用核准規格'] },
@@ -282,6 +291,7 @@ function searchCase(group, definition, index) {
       'budget.maxTwd': budgetMaxTwd,
       ...(definition.category ? { productCategory: definition.category } : {}),
       ...(definition.specs ? { requiredSpecs: definition.specs } : {}),
+      ...(definition.preferences ? { preferences: definition.preferences } : {}),
     },
     clarificationConcepts: definition.clarify ?? [],
     compatibility: definition.status ? {

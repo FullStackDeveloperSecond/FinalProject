@@ -13,6 +13,7 @@
 
 ## 最近完成批次
 
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-059-AI-v6失敗根因與v7零成本修正定版|DEC-BATCH-059｜AI v6 失敗根因與 v7 零成本修正定版]]：`DEC-P399～DEC-P402`，4 項，已於 2026-09-05 寫回；Runner 對齊正式流程，新增 `STORAGE_CAPACITY_GB`、分類規格白名單與 TB→GB，Prompt 升 v7，Dataset／Grader 升為 `v1.0.4`／`v1.1.3`。零成本回歸通過；未呼叫 OpenAI，Live Smoke 仍須另行授權。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-058-AI評估產物與安全套件同步定版|DEC-BATCH-058｜AI 評估產物與安全套件同步定版]]：`DEC-P398`，1 項，已於 2026-09-05 寫回；`cases-source.mjs` 為 Dataset／Fixture 單一來源，既有 `v1.0.4` 顧客內容補回來源；評估工具直接使用中央定版 `Newtonsoft.Json 13.0.4`，不壓制 NU1903、不擴大升級 Hangfire。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-057-AI顧客視角回答與覆核契約修正定版|DEC-BATCH-057｜AI 顧客視角回答與覆核契約修正定版]]：`DEC-P397`，1 項，已於 2026-09-05 寫回；AI 回答對象固定為顧客／實際使用者，內部 Enum、Semantic Key、Fixture ID、代碼與後端術語不得顯示；人工覆核表必須並列顧客問題、必要回答重點與顧客可見回答。Grader 升為 `deterministic-v1.1.2`，未執行付費重跑。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-056-AI-v5覆核與v6零成本修正定版|DEC-BATCH-056｜AI v5 覆核與 v6 零成本修正定版]]：`DEC-P392～DEC-P396`，5 項，已於 2026-09-05 寫回；v5 六案正式人工結果全部待 Alex 重審，Citation 選填仍受來源 allowlist 約束，Semantic Key 統一大寫契約，推薦理由明確說明預算／Badge 取捨，商品 Prompt 升 v6 泛化範例。本批未付費重跑。

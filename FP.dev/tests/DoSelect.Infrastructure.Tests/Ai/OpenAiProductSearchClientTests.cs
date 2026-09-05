@@ -37,16 +37,20 @@ public sealed class OpenAiProductSearchClientTests
         Assert.False(body.RootElement.TryGetProperty("service_tier", out _));
         var instructions = body.RootElement.GetProperty("instructions").GetString();
         Assert.Contains("Preserve every explicitly stated budget boundary", instructions, StringComparison.Ordinal);
+        Assert.Contains("single colloquial amount", instructions, StringComparison.Ordinal);
         Assert.Contains("Add only purposes explicitly requested", instructions, StringComparison.Ordinal);
         Assert.Contains("ready-made, prebuilt, branded package", instructions, StringComparison.Ordinal);
         Assert.Contains("budget-based gaming 主機", instructions, StringComparison.Ordinal);
         Assert.Contains("generic 主機", instructions, StringComparison.Ordinal);
         Assert.Contains("遊戲美術", instructions, StringComparison.Ordinal);
         Assert.Contains("Do not ask about optional preferences", instructions, StringComparison.Ordinal);
+        Assert.Contains("Do not ask whether peripherals", instructions, StringComparison.Ordinal);
+        Assert.Contains("STORAGE_CAPACITY_GB is storage capacity", instructions, StringComparison.Ordinal);
+        Assert.Contains("1 TB = 1024 GB", instructions, StringComparison.Ordinal);
         Assert.Contains("set minimum to null", instructions, StringComparison.Ordinal);
         Assert.Contains("Example: at least 30,000 but at most 20,000 for a computer", instructions, StringComparison.Ordinal);
         Assert.Contains("Example: a 40,000 video-editing computer", instructions, StringComparison.Ordinal);
-        Assert.Equal("product-search-v6", OpenAiProductSearchClient.PromptVersion);
+        Assert.Equal("product-search-v7", OpenAiProductSearchClient.PromptVersion);
         Assert.True(body.RootElement.GetProperty("text").GetProperty("format").GetProperty("strict").GetBoolean());
         Assert.Equal(
             "json_schema",
@@ -58,6 +62,7 @@ public sealed class OpenAiProductSearchClientTests
         using var input = JsonDocument.Parse(body.RootElement.GetProperty("input").GetString()!);
         Assert.Equal("untrusted_user_input", input.RootElement.GetProperty("userMessage").GetProperty("trust").GetString());
         Assert.Equal("untrusted_data", input.RootElement.GetProperty("allowedCatalog").GetProperty("trust").GetString());
+        Assert.True(input.RootElement.GetProperty("allowedCatalog").TryGetProperty("semanticKeysByCategory", out _));
     }
 
     [Fact]
@@ -249,6 +254,77 @@ public sealed class OpenAiProductSearchClientTests
     }
 
     [Fact]
+    public async Task ParseIntentAsync_StorageCategoryWithMemoryCapacitySpec_FailsClosed()
+    {
+        var output = JsonSerializer.Serialize(new
+        {
+            intent = "SingleProduct",
+            purposes = Array.Empty<string>(),
+            budget = new { minimum = (decimal?)null, maximum = 8_000m },
+            keyword = "儲存裝置",
+            categoryCode = "STORAGE",
+            preferredBrandCodes = Array.Empty<string>(),
+            excludedBrandCodes = Array.Empty<string>(),
+            requiredSpecs = new[]
+            {
+                new { semanticKey = "MEMORY_KIT_CAPACITY_GB", @operator = "gte", value = "8192", unit = "GB" },
+            },
+            preferences = new[] { "家庭照片" },
+            proposedExistingParts = Array.Empty<object>(),
+            clarifications = Array.Empty<string>(),
+        });
+        var handler = new RecordingHandler(_ => JsonResponse(output));
+        var subject = CreateSubject(handler);
+
+        var result = await subject.ParseIntentAsync(
+            "想存家庭照片，請推薦 8TB 儲存裝置，預算八千。",
+            SupportedLocale.ZhTw,
+            StorageMetadata(),
+            default);
+
+        Assert.Equal(AiProductSearchModelStatus.InvalidOutput, result.Status);
+        Assert.Null(result.Intent);
+        Assert.Equal("INTENT_SPECIFICATION_CATEGORY_MISMATCH", result.ValidationFailureCode);
+        Assert.Equal("requiredSpecs", result.ValidationFailureField);
+    }
+
+    [Fact]
+    public async Task ParseIntentAsync_StorageCapacityInTb_NormalizesToGb()
+    {
+        var output = JsonSerializer.Serialize(new
+        {
+            intent = "SingleProduct",
+            purposes = Array.Empty<string>(),
+            budget = new { minimum = (decimal?)null, maximum = 8_000m },
+            keyword = "儲存裝置",
+            categoryCode = "STORAGE",
+            preferredBrandCodes = Array.Empty<string>(),
+            excludedBrandCodes = Array.Empty<string>(),
+            requiredSpecs = new[]
+            {
+                new { semanticKey = "STORAGE_CAPACITY_GB", @operator = "gte", value = "8", unit = "TB" },
+            },
+            preferences = new[] { "家庭照片" },
+            proposedExistingParts = Array.Empty<object>(),
+            clarifications = Array.Empty<string>(),
+        });
+        var handler = new RecordingHandler(_ => JsonResponse(output));
+        var subject = CreateSubject(handler);
+
+        var result = await subject.ParseIntentAsync(
+            "想存家庭照片，請推薦 8TB 儲存裝置，預算八千。",
+            SupportedLocale.ZhTw,
+            StorageMetadata(),
+            default);
+
+        Assert.Equal(AiProductSearchModelStatus.Completed, result.Status);
+        var spec = Assert.Single(result.Intent!.RequiredSpecs);
+        Assert.Equal("STORAGE_CAPACITY_GB", spec.SemanticKey);
+        Assert.Equal("8192", spec.Value);
+        Assert.Equal("GB", spec.Unit);
+    }
+
+    [Fact]
     public async Task ExplainAsync_ApprovedCandidate_ReturnsGroundedReasonWithoutHttpCall()
     {
         var handler = new RecordingHandler(_ => throw new InvalidOperationException("No explanation HTTP call expected."));
@@ -405,6 +481,17 @@ public sealed class OpenAiProductSearchClientTests
 
     private static AiProductSearchMetadata Metadata() =>
         new(["PREBUILT_COMPUTER"], ["DOSELECT"], ["MEMORY_TYPE"]);
+
+    private static AiProductSearchMetadata StorageMetadata() =>
+        new(
+            ["STORAGE", "MEMORY"],
+            ["DOSELECT"],
+            ["STORAGE_CAPACITY_GB", "MEMORY_KIT_CAPACITY_GB"],
+            new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
+            {
+                ["STORAGE"] = ["STORAGE_CAPACITY_GB"],
+                ["MEMORY"] = ["MEMORY_KIT_CAPACITY_GB"],
+            });
 
     private static AiProductSearchIntent Intent() =>
         new(

@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-09-04
+最後更新: 2026-09-05
 追蹤項目:
   - AI-09
   - AI-13
@@ -119,13 +119,13 @@ OpenAI 官方建議以代表實際使用分布、包含正常與邊界案例的�
 | 訂單／客服歷史投影 | 正式訂單 Query 從可信登入會員 ID 驗證 Owner，只回訂單 PublicId／編號／狀態與商品快照；客服案件與本人 Conversation 歷史也由可信會員 ID 篩選，排除 Internal Note、附件與個資；跨會員回安全不存在 | 不等同以真實模型驗證所有歷史內容的回答品質 |
 | 外送內容與 Prompt Envelope | Token／常見 Secret／個資樣式會阻止 Envelope 建立；System Instructions、User Input、商品資料維持分離信任層級 | 不等同模型 Prompt Injection 品質或拒絕率評估 |
 | 工具與搜尋 | 四個客服只讀工具白名單、模型 Member ID 不作授權依據、無 SQL／寫入能力；已合併的 M-18 驗證 Semantic Key 白名單、預算順序、公開商品 Query、自然語言既有零件確認前零商品查詢、八類完整 CustomBuild、新購小計＋NT$300 組裝費、既有零件不重複計價與正式相容性；SQL 冪等／最後一額競爭及 CustomBuild Provider 測試已形成 | 隔離 `DoSelectE2E_*` 已驗證公開搜尋降級旅程並完成清理；完整 CustomBuild 的真實模型瀏覽器旅程仍待 AI-09 live baseline |
-| 故障降級 | 客服 Adapter 已驗證 429／5xx／網路／格式錯誤最多重試一次、其他 4xx 與模型轉人工不重試；商品搜尋 `product-search-v6` 沿用單次意圖呼叫、5 秒逾時、零同步重試、敏感輸入零模型呼叫、互動保存失敗 Fail Closed 及 `keywordSearch` 明確降級，推薦理由由後端核准事實確定性產生且零模型呼叫；payload 固定 `reasoning.effort: none`、`text.verbosity: low` 且不送 `service_tier`。Semantic Key 採正式大寫＋精確 allowlist；顧客可見理由必須承接用途、預算、硬性規格與偏好，並拒絕內部 Enum／代碼／Fixture ID／後端術語；InvalidOutput JSONL 只含固定 reason code／field，不含 raw output | v5 Smoke 商品 P95 3,588 ms 但品質 `FAIL`；v6 顧客視角零成本修正完成，尚待新人工覆核與付費重驗 |
+| 故障降級 | 客服 Adapter 已驗證 429／5xx／網路／格式錯誤最多重試一次、其他 4xx 與模型轉人工不重試；商品搜尋 `product-search-v7` 沿用單次意圖呼叫、5 秒逾時、零同步重試、敏感輸入零模型呼叫、互動保存失敗 Fail Closed 及 `keywordSearch` 明確降級，推薦理由由後端核准事實確定性產生且零模型呼叫；payload 固定 `reasoning.effort: none`、`text.verbosity: low` 且不送 `service_tier`。Semantic Key 採正式大寫＋分類精確 allowlist；`STORAGE_CAPACITY_GB` 與 RAM Key 分離，TB→GB 由後端正規化；補問或既有零件確認時 Runner 不得虛構推薦。顧客可見理由承接用途、預算、硬性規格與偏好，並拒絕內部 Enum／代碼／Fixture ID／後端術語；InvalidOutput JSONL 只含固定 reason code／field，不含 raw output | v6 Smoke 品質 `FAIL`；v7 零成本 deterministic／SQL 回歸已通過，尚待另行授權 Live Smoke |
 
 這些測試是 Application 決策、SQL Server 正式資料來源、資料最小化、Responses 遠端邊界與目前 API Pipeline 的契約證據，不取代瀏覽器 E2E 或 live evaluation。Adapter 仍由相同安全閘門驅動，不得繞過額度預留、Owner Query 與模型零呼叫條件。
 
 ## 待實作
 
-- 120 筆繁中實際案例、Fixture、Schema、Grader 與本機／CI deterministic 驗證已建立。現行資料集為 `zh-TW-v1.0.3-draft`／Fixture `v1.0.4`；v1.0.2 政策案例及 v1.0.3 創作者案例覆核仍有效。v1.0.4 依既有已核准 `SEARCH-NOVICE-019` 必答點，補齊 `storage-nas-8tb` 的顧客名稱、8TB 容量與「單一裝置不等同完整備份」合成 Badge，未改變案例預期。120 筆案例定義均為 `approved`，完整 Release Dry Run 為 `AnnotationsApproved=true`、`IsLiveReady=true`；新的 v6 顧客可見輸出仍須逐案人工覆核。
+- 120 筆繁中實際案例、Fixture、Schema、Grader 與本機／CI deterministic 驗證已建立。現行資料集為 `zh-TW-v1.0.4-draft`／Fixture `v1.0.4`；v1.0.2 政策案例及 v1.0.3 創作者案例覆核仍有效。依 DEC-BATCH-059，`SEARCH-NOVICE-019` 的意圖校正為 Storage、`STORAGE_CAPACITY_GB >= 8192 GB` 與「家庭照片」偏好，grader `deterministic-v1.1.3` 精確核對分類、結構化必要規格與已宣告偏好。120 筆案例定義均為 `approved`，完整 Release Dry Run 為 `AnnotationsApproved=true`、`IsLiveReady=true`；任何新的 v7 顧客可見輸出仍須逐案人工覆核。
 - 手動 `DoSelect.AiEvals` Live Runner 已建立，預設 Dry Run；`--execute` 強制正值成本停止線，且只讀 User Secrets。2026-09-04 在 Commit `5e7cc8f2` 完成首次三輪 Release Adapter baseline：33 案／99 輪、US$0.149338、Input／Output Tokens 133,970／36,491；Schema 74.75%、Intent 16.67%、Citation 77.78%、Deterministic 28.28%，商品／客服 P95 17,831／3,023 ms，正式 Verdict 為 `FAIL`。完整分析：`FP.dev/evals/ai/v1/results/2026-09-04-release-baseline-5e7cc8f2.md`。
 - 首次失敗分析後，Live Adapter scope 收束為 22 個可直接驗證案例，14 個相容性／無候選／降級案例另列 deterministic-only evidence；三輪 dry run 規劃 96 次模型請求。當時 Runner 升級為 Prompt `product-search-v2`／`support-v2`、grader `deterministic-v1.1.0`，修正安全拒絕語意、單行 JSONL、intent／explanation stage 狀態與延遲、分 feature 成本／執行數／延遲，以及 clarification／推薦／隱私授權摘要。所有 deterministic checks 通過但人工覆核未完成時，Verdict 必須是 `PENDING_HUMAN_REVIEW`，不得宣稱 `PASS`。
 - 所有付費評估必須在首個模型請求前建立不含 Secret 的 `run-metadata.json`、空 `case-results.jsonl` 與 `checkpoint.json`；每個案例／trial 完成後立即追加單行結果並更新累計成本、Token、含 retry 的實際 HTTP 模型請求數、最後案例與狀態。中斷時保留已完成證據，正常結束後才產生 Summary／人工覆核文件。每次付費 smoke／baseline 仍須另行核准。
@@ -135,5 +135,7 @@ OpenAI 官方建議以代表實際使用分布、包含正常與邊界案例的�
 - DEC-BATCH-054 設定完成後，同日以系統 PowerShell 執行相同 6 案／1 輪 Smoke：6 次請求、US$0.007224、Input／Output Tokens 7,649／621，結果仍為 `FAIL`。商品 4／4 在 5 秒內取得 Provider 結果、P95 3,013 ms，但只有 3／4 形成可用 SearchIntent；Schema 83.33%、Intent 25%、有效推薦 66.67%、Deterministic 50%。DEC-BATCH-055 已完成 3 Pass／3 Fail 正式人工覆核、定版一般「主機」taxonomy，並建立 `product-search-v5` 與安全診斷欄位；v5 尚未付費重驗，未授權 66 次 baseline。報告：`FP.dev/evals/ai/v1/results/2026-09-04-low-latency-smoke-f195c453.md`。
 - v5 系統 PowerShell Smoke Run `20260904T193855Z-v5-smoke-system` 執行固定 6 案／1 輪，6 次請求、US$0.006735，商品 P95 3,588 ms；Schema 83.33%、Intent 50%、有效推薦 66.67%、Citation 50%，Verdict `FAIL`。DEC-BATCH-056 規定六案正式人工結果全部重審，並以零成本方式完成 `product-search-v6` 泛化 Prompt、正式大寫 Semantic Key、選填 citation allowlist 語意與預算／Badge 取捨理由。後續覆核確認舊表未列顧客問題／必要重點，且商品回答暴露內部術語；DEC-BATCH-057 已修正顧客視角回答、覆核表與 `deterministic-v1.1.2` Grader。舊六案輸出不改寫且正式結果仍為 `pending`，未授權 v6 付費 Smoke 或 66 次 baseline。
 - 合併前 Review 發現正式 SQL Metadata 仍殘留小寫正規化，與 DEC-P394／大寫 Regex 不一致；已改為 Trim＋大寫並在既有 `AiCustomBuildSqlServerTests` 加入正式 Metadata 斷言。系統 PowerShell 的 SQL Server 2025 聚焦測試 1／1 通過；本輪沒有重跑完整 Infrastructure Provider suite。
+- 2026-09-05 於 `dev@eb83ecf6` 執行 `product-search-v6` 固定 6 案／1 輪 Smoke：6 次請求、US$0.007227、Input／Output Tokens 8,153／629；商品／客服 P95 4,199／2,126 ms，Schema 100%、有效推薦 100%、Citation 100%、Privacy／Authorization 100%。Intent 75%、Clarification Precision 50%、Deterministic 66.67%，因此 Verdict 為 `FAIL`。`SEARCH-CREATOR-013` 在資訊完整時仍提出兩個非必要問題；`SEARCH-NOVICE-019` 把 8TB 儲存容量誤映射為 `MEMORY_KIT_CAPACITY_GB >= 8192`。Alex 已完成顧客方向與根因審查；因 Runner 會虛構推薦階段、019 的資料集／grader 也有語意缺陷，舊六案表不作為 v7 通過證據。正式報告：`FP.dev/evals/ai/v1/results/2026-09-05-v6-smoke-eb83ecf6.md`。
+- DEC-BATCH-059 已完成 v7 零成本修正：Runner 對齊正式補問／推薦流程，新增 `STORAGE_CAPACITY_GB`、分類規格白名單及 TB→GB 正規化，Prompt 升 v7，Dataset／Grader 升 v1.0.4／v1.1.3。功能 Commit `90e71a43` 已 rebase `origin/dev@b2862e0b` 並建立 PR #120；Application AI 47／47、Infrastructure AI focused 50／50、API AI 24／24、系統 PowerShell SQL Server focused 1／1、120 筆資料驗證與 0 warning Solution Build 通過，模型呼叫與成本均為 0。正式報告：`FP.dev/evals/ai/v1/results/2026-09-05-v7-zero-cost-remediation.md`。仍須另行授權新 v7 Smoke；通過前不執行 66 次 baseline。
 - 啟動 S 後建立日文 30 筆、韓文 30 筆，並指定具語言能力的覆核者。
 - 正式同意／額度資料來源、訂單與客服 Owner Query、真正 GuestOrderAccess Cookie `403`、資料庫併發、RequestPublicId 冪等、客服 Responses Adapter、M-19 與 M-18 垂直切片均已合併。M-18 的搜尋 Adapter／Endpoint／UI、`ProposedExistingPart` 確認閘門、Provider-backed 測試與公開搜尋降級 Playwright 已形成；現有 deterministic／Provider-backed／降級 E2E 證據仍不能取代 AI-09 live evaluation。

@@ -282,7 +282,7 @@ public sealed class LiveEvaluationPlanTests
             Assert.Equal(1, result.RootElement.GetProperty("actualModelRequests").GetInt32());
             Assert.True(result.RootElement.GetProperty("intentStageLatencyMilliseconds").GetInt64() >= 0);
             using var metadata = JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "run-metadata.json")));
-            Assert.Equal("product-search-v6", metadata.RootElement.GetProperty("prompts").GetProperty("productSearch").GetString());
+            Assert.Equal("product-search-v7", metadata.RootElement.GetProperty("prompts").GetProperty("productSearch").GetString());
         }
         finally
         {
@@ -347,6 +347,137 @@ public sealed class LiveEvaluationPlanTests
             Assert.DoesNotContain("CustomBuild", answer, StringComparison.Ordinal);
             Assert.DoesNotContain("DOSELECT", answer, StringComparison.Ordinal);
             Assert.DoesNotContain("後端", answer, StringComparison.Ordinal);
+        }
+        finally
+        {
+            if (Directory.Exists(output))
+            {
+                Directory.Delete(output, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task RunAsync_ProductIntentWithClarification_DoesNotFabricateRecommendationStage()
+    {
+        var datasetPath = FindDatasetPath();
+        var projectRoot = new FileInfo(datasetPath).Directory!.Parent!.Parent!.Parent!.FullName;
+        var plan = EvaluationPlanBuilder.Load(
+            datasetPath,
+            "release",
+            trials: 1,
+            allowDraft: true,
+            caseIds: new HashSet<string>(["SEARCH-CREATOR-013"], StringComparer.Ordinal));
+        var output = Path.Combine(Path.GetTempPath(), $"DoSelectAiEval_{Guid.NewGuid():N}");
+        var responseBody = JsonSerializer.Serialize(new
+        {
+            status = "completed",
+            model = "gpt-5.6-luna-snapshot",
+            usage = new { input_tokens = 100, output_tokens = 20 },
+            output_text = JsonSerializer.Serialize(new
+            {
+                intent = "CustomBuild",
+                purposes = new[] { "GraphicDesign", "ThreeDRendering" },
+                budget = new { minimum = (decimal?)null, maximum = 75_000m },
+                keyword = "繪圖 3D",
+                categoryCode = "CUSTOM_BUILD",
+                preferredBrandCodes = Array.Empty<string>(),
+                excludedBrandCodes = Array.Empty<string>(),
+                requiredSpecs = Array.Empty<object>(),
+                preferences = Array.Empty<string>(),
+                proposedExistingParts = Array.Empty<object>(),
+                clarifications = new[] { "是否需要包含螢幕？" },
+            }),
+        });
+        try
+        {
+            using var runner = new LiveEvaluationRunner(
+                ValidLiveOptions(),
+                new StaticJsonHandler(responseBody),
+                new ThrowingHandler());
+
+            var summary = await runner.RunAsync(
+                plan,
+                new LiveEvaluationRunOptions(projectRoot, output, StopAfterCostUsd: 0.10m));
+
+            Assert.Equal("FAIL", summary.Verdict);
+            var resultLine = Assert.Single(File.ReadAllLines(Path.Combine(output, "case-results.jsonl")));
+            using var result = JsonDocument.Parse(resultLine);
+            Assert.Equal("NotRequired", result.RootElement.GetProperty("explanationStageStatus").GetString());
+            Assert.Equal(JsonValueKind.Null, result.RootElement.GetProperty("answer").ValueKind);
+            Assert.False(result.RootElement.GetProperty("clarificationShapeMatch").GetBoolean());
+            Assert.False(result.RootElement.GetProperty("deterministicPass").GetBoolean());
+
+            var review = File.ReadAllText(Path.Combine(output, "human-review.md"));
+            Assert.Contains("是否需要包含螢幕？", review, StringComparison.Ordinal);
+            Assert.DoesNotContain("推薦", result.RootElement.GetProperty("answer").GetRawText(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            if (Directory.Exists(output))
+            {
+                Directory.Delete(output, recursive: true);
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData("8192", true)]
+    [InlineData("4096", false)]
+    public async Task RunAsync_StorageRegression_GradesCategoryCapacityAndPreference(
+        string capacityGb,
+        bool expectedIntentMatch)
+    {
+        var datasetPath = FindDatasetPath();
+        var projectRoot = new FileInfo(datasetPath).Directory!.Parent!.Parent!.Parent!.FullName;
+        var plan = EvaluationPlanBuilder.Load(
+            datasetPath,
+            "release",
+            trials: 1,
+            allowDraft: true,
+            caseIds: new HashSet<string>(["SEARCH-NOVICE-019"], StringComparer.Ordinal));
+        var output = Path.Combine(Path.GetTempPath(), $"DoSelectAiEval_{Guid.NewGuid():N}");
+        var responseBody = JsonSerializer.Serialize(new
+        {
+            status = "completed",
+            model = "gpt-5.6-luna-snapshot",
+            usage = new { input_tokens = 100, output_tokens = 20 },
+            output_text = JsonSerializer.Serialize(new
+            {
+                intent = "SingleProduct",
+                purposes = Array.Empty<string>(),
+                budget = new { minimum = (decimal?)null, maximum = 8_000m },
+                keyword = "儲存裝置",
+                categoryCode = "STORAGE",
+                preferredBrandCodes = Array.Empty<string>(),
+                excludedBrandCodes = Array.Empty<string>(),
+                requiredSpecs = new[]
+                {
+                    new { semanticKey = "STORAGE_CAPACITY_GB", @operator = "gte", value = capacityGb, unit = "GB" },
+                },
+                preferences = new[] { "家庭照片" },
+                proposedExistingParts = Array.Empty<object>(),
+                clarifications = Array.Empty<string>(),
+            }),
+        });
+        try
+        {
+            using var runner = new LiveEvaluationRunner(
+                ValidLiveOptions(),
+                new StaticJsonHandler(responseBody),
+                new ThrowingHandler());
+
+            var summary = await runner.RunAsync(
+                plan,
+                new LiveEvaluationRunOptions(projectRoot, output, StopAfterCostUsd: 0.10m));
+
+            var resultLine = Assert.Single(File.ReadAllLines(Path.Combine(output, "case-results.jsonl")));
+            using var result = JsonDocument.Parse(resultLine);
+            Assert.Equal(expectedIntentMatch, result.RootElement.GetProperty("intentFieldsMatch").GetBoolean());
+            Assert.Equal(expectedIntentMatch, result.RootElement.GetProperty("deterministicPass").GetBoolean());
+            Assert.Equal(
+                expectedIntentMatch ? "PENDING_HUMAN_REVIEW" : "FAIL",
+                summary.Verdict);
         }
         finally
         {

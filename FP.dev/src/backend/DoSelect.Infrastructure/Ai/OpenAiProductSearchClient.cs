@@ -15,7 +15,7 @@ public sealed class OpenAiProductSearchClient(
     HttpClient httpClient,
     IOptions<OpenAiResponsesOptions> options) : IAiProductSearchModelClient
 {
-    public const string PromptVersion = "product-search-v6";
+    public const string PromptVersion = "product-search-v7";
 
     private static readonly Uri ResponsesEndpoint =
         new("https://api.openai.com/v1/responses", UriKind.Absolute);
@@ -54,6 +54,7 @@ public sealed class OpenAiProductSearchClient(
                 categoryCodes = metadata.CategoryCodes,
                 brandCodes = metadata.BrandCodes,
                 semanticKeys = metadata.SemanticKeys,
+                semanticKeysByCategory = metadata.SemanticKeysByCategory,
             },
         }, JsonOptions);
         var payload = new
@@ -66,9 +67,12 @@ public sealed class OpenAiProductSearchClient(
                 "Never invent a code, product, price, stock state, or compatibility result. " +
                 "Preserve every explicitly stated budget boundary, including Chinese-number amounts: words such " +
                 "as within, at most, or a maximum set budget.maximum; do not drop a stated amount. " +
+                "When a user gives a single colloquial amount after describing the shopping need, treat it as " +
+                "budget.maximum unless the user explicitly says it is a minimum. " +
                 "Add only purposes explicitly requested by the user. Do not infer Gaming merely from a job, " +
                 "creative-work label, or a word that contains game terminology; 遊戲美術 is a creative-work " +
-                "role, not Gaming, unless the user explicitly asks to play games. " +
+                "role, not Gaming, unless the user explicitly asks to play games. Storage context such as keeping " +
+                "family photos is a preference, not the General purpose. " +
                 "Classify a complete computer as PrebuiltComputer when the user explicitly asks for a " +
                 "ready-made, prebuilt, branded package, 現成, 套裝, or 買整台 computer, or makes a generic 主機 " +
                 "request without a purpose, performance target, or assembly wording. Classify 配, 組, 組裝, " +
@@ -76,6 +80,11 @@ public sealed class OpenAiProductSearchClient(
                 "ready-made wording, as CustomBuild. " +
                 "For CustomBuild require at least one purpose and a maximum budget. " +
                 "For SingleProduct require a category or recognizable product keyword. " +
+                "If those required values are explicit, return no clarification. Do not ask whether peripherals " +
+                "or a monitor should be included unless the user mentioned them. " +
+                "Use semanticKeysByCategory to keep every required specification within its selected category. " +
+                "STORAGE_CAPACITY_GB is storage capacity and MEMORY_* capacity keys are RAM only. Convert storage " +
+                "capacity deterministically with 1 TB = 1024 GB. " +
                 "If the user describes a part they already own, put only explicitly stated facts in " +
                 "proposedExistingParts. Never map free text to a catalog SKU and never mark a proposal confirmed. " +
                 "When required information is missing, return one or two short clarification questions " +
@@ -329,7 +338,7 @@ public sealed class OpenAiProductSearchClient(
         {
             CompatibilityCatalogContract.SemanticKeys.MemoryKitCapacityGb or
                 CompatibilityCatalogContract.SemanticKeys.MemoryMaxCapacityGb => "memory",
-            "STORAGE_CAPACITY_GB" => "storage",
+            CompatibilityCatalogContract.SemanticKeys.StorageCapacityGb => "storage",
             "GPU_COUNT" => "gpuCount",
             _ => "requirement",
         };
@@ -657,8 +666,10 @@ public sealed class OpenAiProductSearchClient(
         var categories = metadata.CategoryCodes.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var brands = metadata.BrandCodes.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var semanticKeys = metadata.SemanticKeys.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var requiredSpecs = output.RequiredSpecs.Select(spec =>
-            new AiRequiredSpec(spec.SemanticKey ?? string.Empty, spec.Operator ?? string.Empty, spec.Value ?? string.Empty, spec.Unit)).ToArray();
+        if (!TryNormalizeRequiredSpecs(output.RequiredSpecs, out var requiredSpecs))
+        {
+            return InvalidMapping("INTENT_SPECIFICATION_INVALID", "requiredSpecs");
+        }
         var proposedExistingParts = output.ProposedExistingParts.Select(part =>
             new AiProductSearchProposedPart(
                 part.CategoryCode ?? string.Empty,
@@ -688,6 +699,13 @@ public sealed class OpenAiProductSearchClient(
             return InvalidMapping("INTENT_CATALOG_CODE_NOT_ALLOWED", "categoryCode");
         }
 
+        if (intentType == AiProductSearchIntentType.SingleProduct &&
+            output.CategoryCode is not null &&
+            !AreSemanticKeysAllowedForCategory(metadata, output.CategoryCode, requiredSpecs))
+        {
+            return InvalidMapping("INTENT_SPECIFICATION_CATEGORY_MISMATCH", "requiredSpecs");
+        }
+
         if (output.PreferredBrandCodes.Any(code => !brands.Contains(code)))
         {
             return InvalidMapping("INTENT_BRAND_CODE_NOT_ALLOWED", "preferredBrandCodes");
@@ -707,6 +725,7 @@ public sealed class OpenAiProductSearchClient(
             !categories.Contains(part.CategoryCode) ||
             string.IsNullOrWhiteSpace(part.DisplayName) || part.DisplayName.Length > 160 ||
             part.Quantity is < 1 or > 8 || part.Specifications.Count > 12 ||
+            !AreSemanticKeysAllowedForCategory(metadata, part.CategoryCode, part.Specifications) ||
             !AiSearchIntentSafetyValidator.Validate(
                 new AiSearchIntentCandidate(null, part.Specifications),
                 semanticKeys).IsValid))
@@ -744,6 +763,87 @@ public sealed class OpenAiProductSearchClient(
 
     private static IntentMappingResult InvalidMapping(string code, string field) =>
         new(Intent: null, code, field);
+
+    private static bool TryNormalizeRequiredSpecs(
+        IReadOnlyList<OpenAiRequiredSpec> source,
+        out IReadOnlyList<AiRequiredSpec> requiredSpecs)
+    {
+        var normalized = new List<AiRequiredSpec>(source.Count);
+        foreach (var spec in source)
+        {
+            var semanticKey = spec.SemanticKey ?? string.Empty;
+            var value = spec.Value?.Trim() ?? string.Empty;
+            var unit = string.IsNullOrWhiteSpace(spec.Unit)
+                ? null
+                : spec.Unit.Trim().ToUpperInvariant();
+            if (string.Equals(
+                    semanticKey,
+                    CompatibilityCatalogContract.SemanticKeys.StorageCapacityGb,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                if (unit == "TB")
+                {
+                    if (!decimal.TryParse(
+                            value,
+                            NumberStyles.Number,
+                            CultureInfo.InvariantCulture,
+                            out var terabytes) || terabytes < 0)
+                    {
+                        requiredSpecs = [];
+                        return false;
+                    }
+
+                    value = (terabytes * 1024m).ToString("0.############################", CultureInfo.InvariantCulture);
+                    unit = "GB";
+                }
+                else if (unit is not null and not "GB")
+                {
+                    requiredSpecs = [];
+                    return false;
+                }
+
+                else if (!decimal.TryParse(
+                             value,
+                             NumberStyles.Number,
+                             CultureInfo.InvariantCulture,
+                             out var gigabytes) || gigabytes < 0)
+                {
+                    requiredSpecs = [];
+                    return false;
+                }
+            }
+
+            normalized.Add(new AiRequiredSpec(
+                semanticKey,
+                spec.Operator ?? string.Empty,
+                value,
+                unit));
+        }
+
+        requiredSpecs = normalized;
+        return true;
+    }
+
+    private static bool AreSemanticKeysAllowedForCategory(
+        AiProductSearchMetadata metadata,
+        string categoryCode,
+        IReadOnlyList<AiRequiredSpec> specifications)
+    {
+        if (specifications.Count == 0 || metadata.SemanticKeysByCategory is null)
+        {
+            return true;
+        }
+
+        var category = metadata.SemanticKeysByCategory.FirstOrDefault(pair =>
+            string.Equals(pair.Key, categoryCode, StringComparison.OrdinalIgnoreCase));
+        if (category.Key is null)
+        {
+            return false;
+        }
+
+        var allowed = category.Value.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return specifications.All(specification => allowed.Contains(specification.SemanticKey));
+    }
 
     private static JsonElement CreateIntentSchema(AiProductSearchMetadata metadata) =>
         JsonSerializer.SerializeToElement(new

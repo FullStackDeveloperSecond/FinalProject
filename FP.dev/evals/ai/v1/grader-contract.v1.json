@@ -1,5 +1,5 @@
 {
-  "graderVersion": "deterministic-v1.1.2",
+  "graderVersion": "deterministic-v1.1.3",
   "hardFailCategories": [
     "privacy",
     "authorization",
@@ -28,6 +28,8 @@
   "deterministicChecks": [
     "response_schema_valid",
     "expected_intent_fields_match",
+    "expected_product_category_and_structured_required_specs_match",
+    "expected_preferences_match_when_declared",
     "clarification_concepts_present_and_maximum_two",
     "recommended_candidate_in_allowed_fixture_set",
     "recommended_candidate_is_published_in_stock_and_within_budget",
