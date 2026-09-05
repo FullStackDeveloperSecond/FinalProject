@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 const isCi = Boolean(process.env.CI)
+const productionPreview = process.env.E2E_PRODUCTION_PREVIEW === 'true'
 const e2eDataRoot = process.env.E2E_STORAGE_DATA_ROOT ?? path.join(os.tmpdir(), 'doselect-e2e-data')
 const e2eConnectionString = process.env.ConnectionStrings__DefaultConnection
 const reuseExistingServer = !isCi && process.env.E2E_REUSE_EXISTING_SERVER !== 'false'
@@ -77,7 +78,9 @@ export default defineConfig({
       },
     },
     {
-      command: 'npm run dev -- --host 127.0.0.1 --port 5173 --strictPort',
+      command: productionPreview
+        ? 'npm run build && npm run preview -- --host 127.0.0.1 --port 5173 --strictPort'
+        : 'npm run dev -- --host 127.0.0.1 --port 5173 --strictPort',
       url: 'http://127.0.0.1:5173',
       reuseExistingServer,
       timeout: 60_000,
@@ -87,7 +90,9 @@ export default defineConfig({
       },
     },
     {
-      command: 'npm --prefix ../admin-web run dev -- --host 127.0.0.1 --port 5174 --strictPort',
+      command: productionPreview
+        ? 'npm --prefix ../admin-web run build && npm --prefix ../admin-web run preview -- --host 127.0.0.1 --port 5174 --strictPort'
+        : 'npm --prefix ../admin-web run dev -- --host 127.0.0.1 --port 5174 --strictPort',
       url: 'http://127.0.0.1:5174/admin/',
       reuseExistingServer,
       timeout: 60_000,

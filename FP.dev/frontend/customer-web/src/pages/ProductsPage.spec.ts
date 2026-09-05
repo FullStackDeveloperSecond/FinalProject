@@ -69,6 +69,18 @@ async function mountPage(initialLocation = '/products') {
 }
 
 describe('ProductsPage', () => {
+  it('shows labelled all-category and all-brand defaults without a query', async () => {
+    mockSearchProducts.mockResolvedValue(emptyResult)
+    mockGetCatalogFilterOptions.mockResolvedValue(filterOptionsWithSpec)
+    const wrapper = await mountPage()
+    await flushPromises()
+    for (const label of ['分類', '品牌']) {
+      const select = wrapper.get(`select[aria-label="${label}"]`)
+      expect((select.element as HTMLSelectElement).value).toBe('')
+      expect((select.element as HTMLSelectElement).selectedOptions[0]?.textContent).toContain(`全部${label}`)
+      expect(select.element.closest('label')?.textContent).toContain(label)
+    }
+  })
   it('shows retry and clear actions when catalog filter options fail to load', async () => {
     mockSearchProducts.mockResolvedValue(emptyResult)
     mockGetCatalogFilterOptions.mockRejectedValue(new Error('lookup failed'))

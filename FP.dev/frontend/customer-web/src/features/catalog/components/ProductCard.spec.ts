@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import ProductCard from './ProductCard.vue'
 
 describe('ProductCard', () => {
-  it('compares string prices numerically when deciding whether to show a sale', () => {
+  it('compares string prices numerically and recovers image rendering when its URL changes', async () => {
     const wrapper = mount(ProductCard, {
       props: {
         product: {
@@ -28,5 +28,13 @@ describe('ProductCard', () => {
     })
 
     expect(wrapper.find('.product-card__price-original').text()).toBe('NT$100')
+    expect(wrapper.text()).toContain('尚無商品圖片')
+    const product = wrapper.props('product')
+    await wrapper.setProps({ product: { ...product, primaryImage: { url: '/broken.png', alt: '商品照片' } } })
+    await wrapper.get('img').trigger('error')
+    expect(wrapper.find('img').exists()).toBe(false)
+    expect(wrapper.text()).toContain('圖片暫時無法載入')
+    await wrapper.setProps({ product: { ...product, primaryImage: { url: '/replacement.png', alt: '商品照片' } } })
+    expect(wrapper.get('img').attributes('src')).toBe('/replacement.png')
   })
 })

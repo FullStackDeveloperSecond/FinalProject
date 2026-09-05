@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import { motionPresetIds, motionPresets, type MotionPresetId } from './presets'
 import { isMotionExplorationEnabled } from './useMotionPresetSelection'
 
@@ -14,6 +15,7 @@ defineProps<{
   reducedMotion?: boolean
 }>()
 
+const expanded = ref(false)
 const emit = defineEmits<{ select: [MotionPresetId] }>()
 </script>
 
@@ -24,10 +26,20 @@ const emit = defineEmits<{ select: [MotionPresetId] }>()
     data-motion-dev-switcher
     aria-label="動態方案切換（開發限定）"
   >
-    <p class="motion-dev-switcher__title">
+    <button
+      type="button"
+      class="motion-dev-switcher__title"
+      :aria-expanded="expanded"
+      aria-controls="motion-dev-options"
+      @click="expanded = !expanded"
+    >
       動態方案（開發限定）
-    </p>
-    <div class="motion-dev-switcher__options">
+    </button>
+    <div
+      v-show="expanded"
+      id="motion-dev-options"
+      class="motion-dev-switcher__options"
+    >
       <button
         v-for="id in motionPresetIds"
         :key="id"
@@ -40,7 +52,7 @@ const emit = defineEmits<{ select: [MotionPresetId] }>()
       </button>
     </div>
     <p
-      v-if="reducedMotion"
+      v-if="reducedMotion && expanded"
       class="motion-dev-switcher__note"
     >
       系統偏好為減少動態，目前不建立任何位移／縮放動畫。

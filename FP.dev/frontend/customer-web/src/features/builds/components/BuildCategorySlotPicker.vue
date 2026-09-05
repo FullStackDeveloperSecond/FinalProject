@@ -12,6 +12,7 @@ import type { ProductCardDto, PublicSkuDto } from '../../catalog/types'
 const props = defineProps<{
   categoryCode: string
   disabled?: boolean
+  inStockOnly?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -87,7 +88,7 @@ async function runSearch(value: string, token: number): Promise<void> {
   searchError.value = null
   try {
     const page = await searchProducts({
-      q: value, category: props.categoryCode, inStock: true, pageSize: 10,
+      q: value, category: props.categoryCode, inStock: props.inStockOnly ?? true, pageSize: 10,
     })
     // A later search that started after this one but resolved first must win — discard this
     // response if a newer search has since been kicked off, or if the query has since changed to

@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { ProductCardDto } from '../types'
 
 const props = defineProps<{
   product: ProductCardDto
 }>()
+
+const imageFailed = ref(false)
+watch(() => props.product.primaryImage?.url, () => { imageFailed.value = false })
 
 const availabilityLabel = computed(() => ({
   inStock: '現貨供應',
@@ -33,14 +36,17 @@ function formatTwd(amount: number | string): string {
       aria-hidden="true"
     >
       <img
-        v-if="product.primaryImage"
+        v-if="product.primaryImage && !imageFailed"
         :src="product.primaryImage.url"
         :alt="product.primaryImage.alt"
+        loading="lazy"
+        decoding="async"
+        @error="imageFailed = true"
       >
       <span
         v-else
         class="product-card__image-placeholder"
-      >尚無商品圖片</span>
+      >{{ imageFailed ? '圖片暫時無法載入' : '尚無商品圖片' }}</span>
     </div>
     <p class="product-card__brand">
       {{ product.brand.name }}
@@ -96,7 +102,7 @@ function formatTwd(amount: number | string): string {
 .product-card__image img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
 }
 
 .product-card__image-placeholder {
@@ -111,12 +117,14 @@ function formatTwd(amount: number | string): string {
 }
 
 .product-card__name {
+  overflow-wrap: anywhere;
   margin: 0;
   font-size: var(--fs-body);
   color: var(--color-text);
 }
 
 .product-card__price {
+  flex-wrap: wrap;
   margin: 0;
   display: flex;
   align-items: baseline;

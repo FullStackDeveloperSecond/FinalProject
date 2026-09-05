@@ -141,7 +141,7 @@ async function handleLogout(): Promise<void> {
           </template>
           <RouterLink
             v-else-if="sessionStore.status === 'anonymous'"
-            to="/register"
+            to="/login"
           >
             登入／註冊
           </RouterLink>

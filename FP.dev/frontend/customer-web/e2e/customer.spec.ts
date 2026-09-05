@@ -1,3 +1,4 @@
+import { captureVisualEvidence } from './visualEvidence.js'
 import { createHmac, randomUUID } from 'node:crypto'
 import type { APIRequestContext } from '@playwright/test'
 import { expect, test } from './fixtures.js'
@@ -462,12 +463,11 @@ test('a guest keeps the checkout payment attempt after reloading the payment pag
   expect(latest.status).toBe('awaitingPayment')
 })
 
-<<<<<<< HEAD
 test('a guest completes the prepared cart through checkout payment and invoice', async ({
   page,
   seed,
 }) => {
-  test.setTimeout(60_000)
+  test.setTimeout(180_000)
   const email = `core-transaction-${randomUUID()}@example.test`
   await page.addInitScript((guestCartKey) => {
     const browser = globalThis as unknown as {
@@ -486,6 +486,7 @@ test('a guest completes the prepared cart through checkout payment and invoice',
   await checkoutButton.click()
   await expect(page).toHaveURL(/\/checkout$/)
   await expect(page.getByRole('heading', { level: 1, name: '結帳' })).toBeVisible()
+  await captureVisualEvidence(page, 'real-customer-checkout')
 
   await page.getByLabel('Email').fill(email)
   await page.getByLabel('姓名').fill('核心交易訪客')
@@ -588,6 +589,7 @@ test('a guest completes the prepared cart through checkout payment and invoice',
   await expect(page.getByRole('region', { name: '付款嘗試' })).toContainText('信用卡')
   await page.getByRole('button', { name: '模擬付款成功' }).click()
   await expect(page.getByText('付款已完成', { exact: true })).toBeVisible()
+  await captureVisualEvidence(page, 'real-customer-payment-complete')
 
   await expect.poll(async () => {
     return await page.evaluate(async (orderPublicId) => {
@@ -606,7 +608,8 @@ test('a guest completes the prepared cart through checkout payment and invoice',
   await expect(page.getByText('付款狀態：已付款', { exact: true })).toBeVisible()
   await expect(page.getByText(/DEMO-NOT-A-TAX-INVOICE/)).toBeVisible()
   await expect(page.getByText('狀態：已開立', { exact: true })).toBeVisible()
-=======
+})
+
 test('a shopper can jump from a home category card into that seeded catalog category', async ({ page }) => {
   // 首頁分類卡曾經送出 desktop／laptop／monitor 這類後端不認得的代碼，點進去只會拿到空結果。
   // 這裡驗證卡片送出的是 catalog 契約真的有的代碼，而且落地頁真的看得到該分類的 seeded 商品。
@@ -638,4 +641,38 @@ test('the home free-build card still routes to the build wizard, not the catalog
 
   await freeBuild.click()
   await expect(page).toHaveURL(/\/builds\/new$/)
+})
+
+test('visual review uses real catalog member and support journeys', async ({ page, loginAsMember }) => {
+  test.setTimeout(180_000)
+  for (const [url, label] of [['/', 'home'], ['/products', 'products'], ['/login', 'login'], ['/register', 'register'], ['/ai-search', 'ai-search'], ['/support', 'support-home']]) {
+    await page.goto(url!)
+    await expect(page.locator('main h1').first()).toBeVisible()
+    await captureVisualEvidence(page, 'real-customer-' + label)
+  }
+  await page.goto('/products')
+  await expect(page.getByLabel('分類', { exact: true })).toHaveValue('')
+  await expect(page.getByLabel('品牌', { exact: true })).toHaveValue('')
+  await loginAsMember()
+  for (const [url, label] of [['/account', 'profile'], ['/account/addresses', 'addresses'], ['/account/builds', 'builds'], ['/support/tickets', 'support-list']]) {
+    await page.goto(url!)
+    await expect(page.locator('main h1').first()).toBeVisible()
+    await captureVisualEvidence(page, 'real-member-' + label)
+  }
+  await page.goto('/support/tickets/new')
+  await page.getByLabel('主旨（1–200 字）').fill('視覺驗收：長訊息與客服回覆')
+  await page.getByLabel('問題說明（1–4000 字）').fill('請協助確認商品與配送資訊。'.repeat(35))
+  await captureVisualEvidence(page, 'real-member-support-new')
+  await page.getByRole('button', { name: '送出案件' }).click()
+  await expect(page).toHaveURL(/\/support\/tickets\/[0-9a-f-]+$/)
+  await expect(page.getByLabel('新增訊息')).toBeVisible()
+  await captureVisualEvidence(page, 'real-member-support-long-message')
+  await page.getByLabel('新增訊息').fill('補充：希望能了解後續處理進度。')
+  await page.getByRole('button', { name: '送出訊息' }).click()
+  await expect(page.getByText('補充：希望能了解後續處理進度。', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '取消這個案件' }).click()
+  await page.getByLabel('取消原因').fill('隔離測試資料，驗收完成')
+  await page.getByRole('button', { name: '確認取消案件' }).click()
+  await expect(page.getByLabel('新增訊息')).toHaveCount(0)
+  await captureVisualEvidence(page, 'real-member-support-cancelled')
 })

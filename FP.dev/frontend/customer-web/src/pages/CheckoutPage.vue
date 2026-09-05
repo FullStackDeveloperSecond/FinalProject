@@ -924,7 +924,7 @@ async function submitOrder(): Promise<void> {
 .checkout-page__submit {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: var(--space-6);
 }
 
 .checkout-page__submit > section,
@@ -932,8 +932,8 @@ async function submitOrder(): Promise<void> {
 .checkout-page__guest-success,
 .checkout-page__blocked {
   padding: 1rem;
-  border: 1px solid #e5e7eb;
-  border-radius: 0.5rem;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-md);
 }
 
 .checkout-page__submit h2,
@@ -946,7 +946,7 @@ async function submitOrder(): Promise<void> {
 .checkout-page__fields {
   display: grid;
   grid-template-columns: minmax(7rem, 10rem) minmax(0, 1fr);
-  gap: 0.75rem;
+  gap: var(--space-3);
   align-items: center;
 }
 
@@ -970,7 +970,7 @@ async function submitOrder(): Promise<void> {
 
 .checkout-page__amount-total {
   padding-top: 0.5rem;
-  border-top: 1px solid #d1d5db;
+  border-top: 1px solid var(--color-border);
   font-weight: 700;
 }
 
@@ -986,14 +986,14 @@ async function submitOrder(): Promise<void> {
 }
 
 .checkout-page__summary {
-  background: #f8fafc;
+  background: var(--color-surface-strong);
 }
 
 .checkout-page__alert {
   padding: 0.75rem 1rem;
-  border-radius: 0.5rem;
-  background: #fee2e2;
-  color: #991b1b;
+  border-radius: var(--radius-md);
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
 }
 
 @media (max-width: 40rem) {

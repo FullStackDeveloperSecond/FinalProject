@@ -18,8 +18,8 @@ const SPEC_BOOLEAN_QUERY_PREFIX = 'specBool_'
 function readFiltersFromQuery() {
   return {
     q: readQueryString('q'),
-    category: readQueryString('category'),
-    brand: readQueryString('brand'),
+    category: readQueryString('category') ?? '',
+    brand: readQueryString('brand') ?? '',
     minPrice: readQueryString('minPrice'),
     maxPrice: readQueryString('maxPrice'),
     inStock: route.query.inStock === 'true',
@@ -320,36 +320,42 @@ watch(
         placeholder="搜尋商品名稱或代碼"
         aria-label="關鍵字"
       >
-      <select
-        v-model="filters.category"
-        aria-label="分類"
-      >
-        <option value="">
-          全部分類
-        </option>
-        <option
-          v-for="category in categoryOptions"
-          :key="category.publicId"
-          :value="category.code"
+      <label class="products-filter-field">
+        <span>分類</span>
+        <select
+          v-model="filters.category"
+          aria-label="分類"
         >
-          {{ category.name }}
-        </option>
-      </select>
-      <select
-        v-model="filters.brand"
-        aria-label="品牌"
-      >
-        <option value="">
-          全部品牌
-        </option>
-        <option
-          v-for="brand in filterOptions?.brands ?? []"
-          :key="brand.publicId"
-          :value="brand.code"
+          <option value="">
+            全部分類
+          </option>
+          <option
+            v-for="category in categoryOptions"
+            :key="category.publicId"
+            :value="category.code"
+          >
+            {{ category.name }}
+          </option>
+        </select>
+      </label>
+      <label class="products-filter-field">
+        <span>品牌</span>
+        <select
+          v-model="filters.brand"
+          aria-label="品牌"
         >
-          {{ brand.name }}
-        </option>
-      </select>
+          <option value="">
+            全部品牌
+          </option>
+          <option
+            v-for="brand in filterOptions?.brands ?? []"
+            :key="brand.publicId"
+            :value="brand.code"
+          >
+            {{ brand.name }}
+          </option>
+        </select>
+      </label>
       <label class="products-filters__price">
         最低價
         <input
@@ -510,6 +516,9 @@ watch(
 </template>
 
 <style scoped>
+.products-filter-field { display: grid; gap: var(--space-1); min-width: 0; }
+.products-filter-field select { width: 100%; }
+
 .products-filters {
   display: flex;
   flex-wrap: wrap;

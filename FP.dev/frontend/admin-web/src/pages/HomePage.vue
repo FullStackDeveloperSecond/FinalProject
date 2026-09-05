@@ -6,6 +6,7 @@ import {
   useInjectedMotionPreset,
   useMotionScope,
 } from '@doselect/web-shared/motion'
+import { canAccessAdminPage } from '../router/access'
 import { useAdminAuthStore } from '../features/auth/stores/useAdminAuthStore'
 
 const auth = useAdminAuthStore()
@@ -66,6 +67,10 @@ const visibleSections = computed(() => sections
         }
       : section
   ))
+  .map(section => ({
+    ...section,
+    cards: section.cards.filter(card => canAccessAdminPage(card.to, auth.currentUser?.roles ?? [], auth.isAuthenticated)),
+  }))
   .filter(section => section.cards.length > 0))
 
 function playIntro(): void {
@@ -98,10 +103,10 @@ watch(
       id="page-title"
       ref="headingRef"
     >
-      管理後台基礎環境已就緒
+      管理工作台
     </h1>
     <p class="view-lede">
-      後續功能將依照正式規格逐步加入。以下只列出已經上線的管理頁面。
+      從你的管理權限出發，快速前往今日需要處理的工作。
     </p>
 
     <section

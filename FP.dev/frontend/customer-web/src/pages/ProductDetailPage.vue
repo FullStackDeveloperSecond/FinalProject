@@ -10,6 +10,7 @@ import { useSessionStore } from '../stores/session'
 import { usePublicProductReviewsQuery } from '../features/reviews/queries'
 import { formatReviewDate } from '../features/reviews/labels'
 
+const failedImageUrls = ref<string[]>([])
 const route = useRoute()
 const sessionStore = useSessionStore()
 const productPublicId = computed(() => route.params.productId as string)
@@ -186,12 +187,18 @@ const isNotFound = computed(() => isApiError(error.value) && error.value.status 
         v-for="image in product.images"
         :key="image.url"
       >
+        <span
+          v-if="failedImageUrls.includes(image.url)"
+          class="product-detail__image-fallback"
+        >圖片暫時無法載入</span>
         <img
+          v-else
           :src="image.url"
           :alt="image.alt"
           :width="Number(image.width)"
           :height="Number(image.height)"
           loading="lazy"
+          @error="failedImageUrls.push(image.url)"
         >
       </li>
     </ul>
