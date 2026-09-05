@@ -472,10 +472,6 @@ public sealed class AuditWriteRequest
     }
 
     /// <summary>
-    /// internal 而非 private：呼叫端要在進交易前用同一份規則驗證，否則不合規的 note
-    /// 會在稽核建構時丟例外並變成 500。規則本身未變動。
-    /// </summary>
-    /// <summary>
     /// 讓寫入端在第一個資料寫入之前，用<b>同一份</b>中央 note 規則（1000 字上限、`@ &lt; &gt; &amp; \ " '`
     /// 與控制字元、敏感詞）先驗過管理員輸入，把不合規的輸入翻成 <c>validation_failed</c>，而不是等到
     /// <see cref="Create"/> 在交易裡丟 <see cref="ArgumentException"/> 變成 500（組長 PR #106 P2）。
@@ -483,6 +479,10 @@ public sealed class AuditWriteRequest
     /// </summary>
     public static string? ValidateNote(string? note) => RequireSafeNote(note, allowsNote: true);
 
+    /// <summary>
+    /// 中央 note 規則的唯一實作；<see cref="ValidateNote"/> 是它的 public 入口，<see cref="Create"/>
+    /// 在建構稽核時再套一次同一份規則。規則本身未變動。
+    /// </summary>
     internal static string? RequireSafeNote(string? note, bool allowsNote)
     {
         if (string.IsNullOrWhiteSpace(note))
