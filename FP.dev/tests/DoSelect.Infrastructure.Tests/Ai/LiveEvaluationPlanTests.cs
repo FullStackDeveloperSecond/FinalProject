@@ -282,7 +282,7 @@ public sealed class LiveEvaluationPlanTests
             Assert.Equal(1, result.RootElement.GetProperty("actualModelRequests").GetInt32());
             Assert.True(result.RootElement.GetProperty("intentStageLatencyMilliseconds").GetInt64() >= 0);
             using var metadata = JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "run-metadata.json")));
-            Assert.Equal("product-search-v7", metadata.RootElement.GetProperty("prompts").GetProperty("productSearch").GetString());
+            Assert.Equal("product-search-v8", metadata.RootElement.GetProperty("prompts").GetProperty("productSearch").GetString());
         }
         finally
         {
@@ -314,7 +314,7 @@ public sealed class LiveEvaluationPlanTests
             {
                 intent = "CustomBuild",
                 purposes = new[] { "Gaming" },
-                budget = new { minimum = (decimal?)null, maximum = 35_000m },
+                budget = (object?)null,
                 keyword = "主機",
                 categoryCode = "CUSTOM_BUILD",
                 preferredBrandCodes = new[] { "NOVACORE" },
@@ -322,7 +322,7 @@ public sealed class LiveEvaluationPlanTests
                 requiredSpecs = Array.Empty<object>(),
                 preferences = Array.Empty<string>(),
                 proposedExistingParts = Array.Empty<object>(),
-                clarifications = Array.Empty<string>(),
+                clarifications = new[] { "你的最高預算是多少？" },
             }),
         });
         try
@@ -422,10 +422,16 @@ public sealed class LiveEvaluationPlanTests
     }
 
     [Theory]
-    [InlineData("8192", true)]
-    [InlineData("4096", false)]
+    [InlineData("eq", "8192", "用於儲存家庭照片", null, true)]
+    [InlineData("gte", "8192", "家庭照片", null, false)]
+    [InlineData("eq", "4096", "用於儲存家庭照片", null, false)]
+    [InlineData("eq", "8192", "企業監控錄影", null, false)]
+    [InlineData("eq", "8192", "用於儲存家庭照片", "安靜", false)]
     public async Task RunAsync_StorageRegression_GradesCategoryCapacityAndPreference(
+        string @operator,
         string capacityGb,
+        string preference,
+        string? extraPreference,
         bool expectedIntentMatch)
     {
         var datasetPath = FindDatasetPath();
@@ -453,9 +459,11 @@ public sealed class LiveEvaluationPlanTests
                 excludedBrandCodes = Array.Empty<string>(),
                 requiredSpecs = new[]
                 {
-                    new { semanticKey = "STORAGE_CAPACITY_GB", @operator = "gte", value = capacityGb, unit = "GB" },
+                    new { semanticKey = "STORAGE_CAPACITY_GB", @operator, value = capacityGb, unit = "GB" },
                 },
-                preferences = new[] { "家庭照片" },
+                preferences = extraPreference is null
+                    ? new[] { preference }
+                    : new[] { preference, extraPreference },
                 proposedExistingParts = Array.Empty<object>(),
                 clarifications = Array.Empty<string>(),
             }),

@@ -764,12 +764,7 @@ public sealed class LiveEvaluationRunner : IDisposable
                 productCategory.GetString(),
                 StringComparison.OrdinalIgnoreCase);
         var preferencesMatch = !expected.TryGetProperty("preferences", out var preferences) ||
-            preferences.EnumerateArray()
-                .Select(item => item.GetString())
-                .Where(item => item is not null)
-                .Cast<string>()
-                .ToHashSet(StringComparer.Ordinal)
-                .SetEquals(actual.Preferences);
+            PreferencesMatch(preferences, actual.Preferences);
         var requiredSpecsMatch = !expected.TryGetProperty("requiredSpecs", out var requiredSpecs) ||
             RequiredSpecsMatch(requiredSpecs, actual.RequiredSpecs);
 
@@ -794,7 +789,7 @@ public sealed class LiveEvaluationRunner : IDisposable
         foreach (var expectedItem in expectedItems)
         {
             // Earlier dataset revisions used opaque strings. Preserve their historical
-            // count-only behavior; v1.0.4 structured expectations are compared exactly.
+            // count-only behavior; v1.0.4+ structured expectations are compared exactly.
             if (expectedItem.ValueKind == JsonValueKind.String)
             {
                 continue;
@@ -824,6 +819,27 @@ public sealed class LiveEvaluationRunner : IDisposable
 
         return true;
     }
+
+    private static bool PreferencesMatch(
+        JsonElement expected,
+        IReadOnlyList<string> actual)
+    {
+        var normalizedExpected = expected.EnumerateArray()
+            .Select(item => NormalizePreference(item.GetString() ?? string.Empty))
+            .Where(item => item.Length > 0)
+            .ToArray();
+        var normalizedActual = actual
+            .Select(NormalizePreference)
+            .Where(item => item.Length > 0)
+            .ToArray();
+
+        return normalizedExpected.Length == normalizedActual.Length &&
+            normalizedExpected.All(expectedPreference => normalizedActual.Any(actualPreference =>
+                actualPreference.Contains(expectedPreference, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private static string NormalizePreference(string value) =>
+        string.Concat(value.Where(character => char.IsLetterOrDigit(character)));
 
     private static bool ClarificationMatches(JsonElement expected, AiProductSearchIntent? actual)
     {
