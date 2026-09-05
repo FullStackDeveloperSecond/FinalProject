@@ -21,6 +21,10 @@ type DoSelectFixtures = {
     coreTransactionGuestCartKey: string
     returnOrderPublicId: string
     returnOrderItemPublicId: string
+    refundJourneyOrderPublicId: string
+    refundJourneyOrderNumber: string
+    refundJourneyBuyerEmail: string
+    refundJourneyOrderItemPublicId: string
   }
 }
 
@@ -89,6 +93,10 @@ export const test = base.extend<DoSelectFixtures>({
       coreTransactionGuestCartKey: 'e2e-core-transaction-guest-cart-key-0001',
       returnOrderPublicId: '3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a11',
       returnOrderItemPublicId: '3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a12',
+      refundJourneyOrderPublicId: '3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a16',
+      refundJourneyOrderNumber: 'E2E-REFUND-000001',
+      refundJourneyBuyerEmail: 'refund-e2e-buyer@doselect.local',
+      refundJourneyOrderItemPublicId: '3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a17',
     })
   },
 })
