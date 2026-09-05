@@ -1,4 +1,5 @@
 using DoSelect.Application.Auditing;
+using DoSelect.Application.Outbox;
 using DoSelect.Application.Support;
 using DoSelect.Application.Support.Admin;
 using DoSelect.Application.Support.Dtos;
@@ -12,11 +13,16 @@ public sealed class AdminSupportTicketStore : IAdminSupportTicketStore
 {
     private readonly DoSelectDbContext _dbContext;
     private readonly IAuditWriter _auditWriter;
+    private readonly IOutboxWriter _outboxWriter;
 
-    public AdminSupportTicketStore(DoSelectDbContext dbContext, IAuditWriter auditWriter)
+    public AdminSupportTicketStore(
+        DoSelectDbContext dbContext,
+        IAuditWriter auditWriter,
+        IOutboxWriter outboxWriter)
     {
         _dbContext = dbContext;
         _auditWriter = auditWriter;
+        _outboxWriter = outboxWriter;
     }
 
     public async Task<SupportTicketClaimResult> ClaimAsync(
@@ -668,6 +674,167 @@ public sealed class AdminSupportTicketStore : IAdminSupportTicketStore
         }
 
         var detail = await GetDetailAsync(command.TicketPublicId, command.ActorUserId, command.CanSupervise, cancellationToken);
+        return detail is null
+            ? SupportTicketMutationResult.NotFound
+            : SupportTicketMutationResult.Success(detail);
+    }
+
+    public async Task<SupportTicketMutationResult> AddPublicReplyAsync(
+        SupportTicketAddPublicReplyCommand command,
+        CancellationToken cancellationToken)
+    {
+        var actor = await ResolveActiveAdminAsync(command.ActorUserId, cancellationToken);
+        if (actor is null)
+        {
+            return SupportTicketMutationResult.AdminNotEligible;
+        }
+
+        var ticket = await _dbContext.SupportTickets
+            .Where(t => t.PublicId == command.TicketPublicId &&
+                t.AssigneeAdminUserId != null &&
+                (command.CanSupervise || t.AssigneeAdminUserId == command.ActorUserId))
+            .SingleOrDefaultAsync(cancellationToken);
+        if (ticket is null)
+        {
+            return SupportTicketMutationResult.NotFound;
+        }
+
+        var beforeStatus = ticket.Status;
+        var isFirstHumanResponse = ticket.FirstHumanResponseAtUtc is null;
+        SupportStatusHistory? statusHistory = null;
+        try
+        {
+            if (beforeStatus is SupportTicketStatus.Resolved or SupportTicketStatus.Closed or SupportTicketStatus.Cancelled)
+            {
+                return SupportTicketMutationResult.StateConflict;
+            }
+
+            if (beforeStatus == SupportTicketStatus.Assigned)
+            {
+                ticket.Transition(SupportTicketStatus.InProgress, command.OccurredAtUtc);
+                statusHistory = new SupportStatusHistory(
+                    ticket.Id,
+                    beforeStatus,
+                    SupportTicketStatus.InProgress,
+                    reasonCode: "admin-replied",
+                    note: null,
+                    actorUserId: command.ActorUserId,
+                    occurredAtUtc: command.OccurredAtUtc);
+            }
+            else
+            {
+                ticket.RecordActivity(command.OccurredAtUtc);
+            }
+
+            ticket.RecordFirstHumanResponse(command.OccurredAtUtc);
+        }
+        catch (InvalidOperationException)
+        {
+            return SupportTicketMutationResult.StateConflict;
+        }
+
+        _dbContext.Entry(ticket).Property(t => t.RowVersion).OriginalValue = command.ExpectedRowVersion;
+        await _dbContext.SupportMessages.AddAsync(
+            new SupportMessage(
+                Guid.CreateVersion7(),
+                ticket.Id,
+                SupportSenderType.Admin,
+                command.ActorUserId,
+                command.Body,
+                isInternal: false,
+                aiGenerated: false,
+                replyToMessageId: null,
+                language: "zh-TW",
+                sentAtUtc: command.OccurredAtUtc),
+            cancellationToken);
+
+        if (statusHistory is not null)
+        {
+            await _dbContext.SupportStatusHistories.AddAsync(statusHistory, cancellationToken);
+        }
+
+        var memberPublicId = await _dbContext.MemberProfiles.AsNoTracking()
+            .Where(profile => profile.UserId == ticket.MemberUserId)
+            .Select(profile => (Guid?)profile.PublicId)
+            .SingleOrDefaultAsync(cancellationToken);
+        var emailNotificationPublicId = Guid.CreateVersion7();
+        _outboxWriter.Add(OutboxWriteRequest.Create(
+            Guid.CreateVersion7(),
+            AuditResourceTypes.SupportTicket,
+            command.TicketPublicId,
+            new EmailNotificationRequestedV1(
+                emailNotificationPublicId,
+                "support.replied",
+                "support.customer",
+                AuditResourceTypes.SupportTicket,
+                command.TicketPublicId,
+                "zh-TW",
+                ParameterSetVersion: 1),
+            command.OccurredAtUtc,
+            command.OccurredAtUtc,
+            command.CorrelationId));
+
+        if (memberPublicId is { } publicId)
+        {
+            _outboxWriter.Add(OutboxWriteRequest.Create(
+                Guid.CreateVersion7(),
+                AuditResourceTypes.SupportTicket,
+                command.TicketPublicId,
+                new InAppNotificationRequestedV1(
+                    Guid.CreateVersion7(),
+                    publicId,
+                    "support.replied",
+                    AuditResourceTypes.SupportTicket,
+                    command.TicketPublicId,
+                    "zh-TW",
+                    ParameterSetVersion: 1),
+                command.OccurredAtUtc,
+                command.OccurredAtUtc,
+                command.CorrelationId));
+        }
+
+        var auditChanges = new List<AuditFieldChange>
+        {
+            AuditFieldChange.Changed("message"),
+        };
+        if (isFirstHumanResponse)
+        {
+            auditChanges.Add(AuditFieldChange.Changed("firstHumanResponse"));
+        }
+        if (beforeStatus != ticket.Status)
+        {
+            auditChanges.Add(AuditFieldChange.Code("status", beforeStatus.ToString(), ticket.Status.ToString()));
+        }
+
+        _auditWriter.Add(AuditWriteRequest.Create(
+            Guid.CreateVersion7(),
+            AuditActor.Create(AuditActorType.Admin, actor.Value.PublicId, command.ActorRoles),
+            AuditActions.SupportTicketReply,
+            AuditResourceTypes.SupportTicket,
+            command.TicketPublicId,
+            AuditResult.Success,
+            errorCode: null,
+            auditChanges,
+            "public_reply",
+            command.CorrelationId,
+            command.TraceId,
+            jobPublicId: null,
+            command.RemoteIpAddress));
+
+        try
+        {
+            await _dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return SupportTicketMutationResult.ConcurrencyConflict;
+        }
+
+        var detail = await GetDetailAsync(
+            command.TicketPublicId,
+            command.ActorUserId,
+            command.CanSupervise,
+            cancellationToken);
         return detail is null
             ? SupportTicketMutationResult.NotFound
             : SupportTicketMutationResult.Success(detail);

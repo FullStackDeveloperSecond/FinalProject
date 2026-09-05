@@ -30,6 +30,7 @@ const supportMocks = await vi.hoisted(async () => {
     cancel: newMutationMock(),
     reopen: newMutationMock(),
     internalNote: newMutationMock(),
+    publicReply: newMutationMock(),
   }
 })
 
@@ -49,6 +50,7 @@ vi.mock('../../features/support/queries', () => ({
   useCancelSupportTicketByAdminMutation: () => supportMocks.cancel,
   useReopenSupportTicketMutation: () => supportMocks.reopen,
   useAddInternalNoteMutation: () => supportMocks.internalNote,
+  useAddPublicSupportReplyMutation: () => supportMocks.publicReply,
 }))
 
 const ticketId = '018f2e6a-0000-7000-8000-000000000001'
@@ -137,6 +139,7 @@ describe('SupportTicketDetailPage', () => {
       supportMocks.cancel,
       supportMocks.reopen,
       supportMocks.internalNote,
+      supportMocks.publicReply,
     ]) {
       mock.isPending.value = false
       mock.isError.value = false
@@ -269,5 +272,28 @@ describe('SupportTicketDetailPage', () => {
 
     expect(wrapper.text()).not.toContain('新增內部備註')
     expect(wrapper.find('textarea').exists()).toBe(false)
+  })
+
+  it('M-14: gates the public reply form and submits member-visible text with RowVersion', async () => {
+    supportMocks.ticket.value = sampleTicket(['reply'])
+    const wrapper = await mountPage()
+
+    expect(wrapper.text()).toContain('公開回覆會員')
+    expect(wrapper.text()).toContain('顯示在會員的客服案件中')
+    await wrapper.get('textarea').setValue('您好，已為您確認處理進度。')
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+
+    expect(supportMocks.publicReply.mutateAsync).toHaveBeenCalledWith({
+      body: '您好，已為您確認處理進度。',
+      rowVersion: 'AAAAAAAAAAE=',
+    })
+  })
+
+  it('M-14: hides the public reply form when the backend omits the exact reply token', async () => {
+    supportMocks.ticket.value = sampleTicket(['reply-ticket'])
+    const wrapper = await mountPage()
+
+    expect(wrapper.text()).not.toContain('公開回覆會員')
   })
 })

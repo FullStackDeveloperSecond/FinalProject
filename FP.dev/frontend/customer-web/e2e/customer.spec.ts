@@ -1,8 +1,9 @@
 import { createHmac, randomUUID } from 'node:crypto'
-import type { APIRequestContext } from '@playwright/test'
+import type { APIRequestContext, Page } from '@playwright/test'
 import { expect, test } from './fixtures.js'
 
 const guestAccessPepper = 'e2e-guest-order-access-pepper-32-bytes'
+const base32Alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
 
 interface CartSnapshot {
   publicId: string
@@ -138,6 +139,54 @@ function deriveGuestVerificationCode(requestPublicId: string, sendNumber = 1): s
   return String(digest.readUInt32BE(0) % 1_000_000).padStart(6, '0')
 }
 
+function decodeBase32(value: string): Buffer {
+  const normalized = value.toUpperCase().replace(/[=\s-]/g, '')
+  let bits = 0
+  let buffer = 0
+  const bytes: number[] = []
+
+  for (const character of normalized) {
+    const index = base32Alphabet.indexOf(character)
+    if (index < 0) {
+      throw new Error('The TOTP enrollment secret contains an invalid Base32 character.')
+    }
+
+    buffer = (buffer << 5) | index
+    bits += 5
+    if (bits >= 8) {
+      bits -= 8
+      bytes.push((buffer >>> bits) & 0xff)
+    }
+  }
+
+  return Buffer.from(bytes)
+}
+
+function currentTotp(secret: string): string {
+  const counter = Buffer.alloc(8)
+  counter.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30_000)))
+  const digest = createHmac('sha1', decodeBase32(secret)).update(counter).digest()
+  const offset = digest[digest.length - 1]! & 0x0f
+  const binary = digest.readUInt32BE(offset) & 0x7fffffff
+  return (binary % 1_000_000).toString().padStart(6, '0')
+}
+
+async function loginAsAdmin(page: Page, email: string, password: string) {
+  await page.goto('http://127.0.0.1:5174/admin/')
+  await page.getByRole('textbox', { name: '電子郵件' }).fill(email)
+  await page.getByLabel('密碼').fill(password)
+  await page.getByRole('button', { name: '登入' }).click()
+
+  await expect(page).toHaveURL((url) => url.pathname === '/admin/login/enroll')
+  const secret = (await page.locator('.totp-secret code').textContent())?.trim()
+  expect(secret, 'The enrollment page must expose a manual TOTP secret for the operator').toBeTruthy()
+  await page.getByLabel('請輸入 App 顯示的 6 位數驗證碼以確認綁定').fill(currentTotp(secret!))
+  await page.getByRole('button', { name: '確認綁定' }).click()
+  await page.getByRole('checkbox', { name: '我已抄下並妥善保存這些備援碼' }).check()
+  await page.getByRole('button', { name: '完成，進入後台' }).click()
+  await expect(page).toHaveURL(/\/admin\/$/)
+}
+
 test('a seeded member can sign in, open a protected profile, and sign out', async ({
   page,
   loginAsMember,
@@ -156,6 +205,146 @@ test('a seeded member can sign in, open a protected profile, and sign out', asyn
   await page.goto('/account')
   await expect(page).toHaveURL((url) =>
     url.pathname === '/login' && url.searchParams.get('redirect') === '/account')
+})
+
+test('a member submits an item return and an administrator completes inspection', async ({
+  page,
+  loginAsMember,
+  seed,
+}) => {
+  test.setTimeout(60_000)
+  await loginAsMember()
+
+  const order = await page.evaluate(async (orderPublicId) => {
+    const response = await fetch(`/api/v1/orders/${orderPublicId}`, { credentials: 'include' })
+    if (!response.ok) {
+      throw new Error(`Expected the seeded return order to load, got ${response.status}.`)
+    }
+    return await response.json() as {
+      rowVersion: string
+      items: Array<{ publicId: string, skuNameSnapshot: string }>
+    }
+  }, seed.returnOrderPublicId)
+  const returnItem = order.items.find(item => item.publicId === seed.returnOrderItemPublicId)
+  expect(returnItem, 'The return E2E order must expose its seeded item').toBeTruthy()
+  const items = JSON.stringify([{
+    orderItemPublicId: seed.returnOrderItemPublicId,
+    skuName: returnItem!.skuNameSnapshot,
+    maxQuantity: 1,
+  }])
+  await page.goto(`/orders/${seed.returnOrderPublicId}/returns/new?${new URLSearchParams({
+    orderRowVersion: order.rowVersion,
+    items,
+  })}`)
+
+  await expect(page.getByRole('heading', { level: 1, name: '申請退貨' })).toBeVisible()
+  await page.getByLabel('說明（選填，最多 500 字）').fill('風扇運轉時有異常噪音')
+  await page.getByLabel('整體退貨說明（1–1000 字）').fill('商品到貨後測試發現瑕疵，申請退貨。')
+  const createResponsePromise = page.waitForResponse(response =>
+    response.request().method() === 'POST'
+    && new URL(response.url()).pathname === `/api/v1/orders/${seed.returnOrderPublicId}/returns`)
+  await page.getByRole('button', { name: '送出退貨申請' }).click()
+  const createResponse = await createResponsePromise
+  expect(createResponse.status(), await createResponse.text()).toBe(201)
+  const created = await createResponse.json() as { publicId: string, returnNumber: string }
+
+  await expect(page).toHaveURL(new RegExp(`/returns/${created.publicId}$`))
+  await expect(page.getByRole('heading', { level: 1, name: created.returnNumber })).toBeVisible()
+  await expect(page.getByText('已申請', { exact: true })).toBeVisible()
+  await expect(page.getByText(/說明 風扇運轉時有異常噪音/)).toBeVisible()
+
+  if (!seed.adminPassword) {
+    throw new Error('Seed__AdminPassword is required for the return administration journey.')
+  }
+  await loginAsAdmin(page, seed.returnAdminEmail, seed.adminPassword)
+  await page.goto('http://127.0.0.1:5174/admin/returns')
+  await page.getByRole('link', { name: created.returnNumber }).click()
+  await expect(page.getByRole('heading', { level: 1, name: created.returnNumber })).toBeVisible()
+
+  await page.getByLabel('理由代碼').fill('eligible-defect')
+  await page.getByLabel('備註').fill('確認符合瑕疵退貨條件')
+  await page.getByRole('button', { name: '核准', exact: true }).click()
+  await expect(page.getByText('等待寄回', { exact: true })).toBeVisible()
+
+  await page.getByLabel('備註').fill('倉庫已點收')
+  await page.getByRole('button', { name: '確認收貨' }).click()
+  await expect(page.getByText('商家已收件', { exact: true })).toBeVisible()
+
+  await page.getByLabel('組裝費處置').selectOption('notApplicable')
+  await page.getByLabel('退貨運費（元）').fill('0')
+  await page.getByRole('button', { name: '送出檢查結果' }).click()
+  await expect(page.getByText('等待退款', { exact: true })).toBeVisible()
+  await expect(page.getByText(/商品到貨後測試發現瑕疵/)).toBeVisible()
+  await expect(page.getByText(/風扇運轉時有異常噪音/)).toBeVisible()
+})
+
+test('a member creates a support case and the assigned administrator publicly replies', async ({
+  page,
+  loginAsMember,
+  seed,
+}) => {
+  test.setTimeout(60_000)
+  const subject = `E2E 客服回覆 ${randomUUID().slice(0, 8)}`
+  const memberMessage = '請協助確認這筆測試案件。'
+  const internalNote = 'E2E 內部查核內容，不得顯示給會員。'
+  const publicReply = '您好，客服已完成查核並公開回覆。'
+
+  await loginAsMember()
+  await page.goto('/support/tickets/new')
+  await expect(page.getByRole('heading', { level: 1, name: '建立客服案件' })).toBeVisible()
+  await page.getByLabel('問題分類').selectOption('order')
+  await page.getByLabel('主旨（1–200 字）').fill(subject)
+  await page.getByLabel('問題說明（1–4000 字）').fill(memberMessage)
+  const createResponsePromise = page.waitForResponse(response =>
+    response.request().method() === 'POST'
+    && new URL(response.url()).pathname === '/api/v1/support-tickets')
+  await page.getByRole('button', { name: '送出案件' }).click()
+  const createResponse = await createResponsePromise
+  expect(createResponse.status(), await createResponse.text()).toBe(201)
+  const created = await createResponse.json() as { publicId: string, ticketNumber: string }
+
+  await expect(page).toHaveURL(new RegExp(`/support/tickets/${created.publicId}$`))
+  await expect(page.getByRole('heading', { level: 1, name: `${created.ticketNumber}｜${subject}` })).toBeVisible()
+  await expect(page.getByText(memberMessage, { exact: true })).toBeVisible()
+
+  if (!seed.adminPassword) {
+    throw new Error('Seed__AdminPassword is required for the support administration journey.')
+  }
+  await loginAsAdmin(page, seed.supportAdminEmail, seed.adminPassword)
+  await page.goto('http://127.0.0.1:5174/admin/support')
+  await page.getByRole('link', { name: created.ticketNumber }).click()
+  await expect(page.getByRole('heading', { level: 1, name: `${created.ticketNumber}｜${subject}` })).toBeVisible()
+
+  await page.getByLabel('目標客服 PublicId').fill(seed.supportAdminPublicId)
+  await page.getByLabel('理由', { exact: true }).first().fill('E2E 指派給登入中的客服主管')
+  await page.getByRole('button', { name: '指派', exact: true }).click()
+  await expect(page.getByText('DoSelect 客服測試主管', { exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 3, name: '公開回覆會員' })).toBeVisible()
+
+  await page.getByLabel('備註內容').fill(internalNote)
+  await page.getByRole('button', { name: '新增備註' }).click()
+  await expect(page.getByText(internalNote, { exact: true })).toBeVisible()
+
+  await page.getByLabel('回覆內容').fill(publicReply)
+  const replyResponsePromise = page.waitForResponse(response =>
+    response.request().method() === 'POST'
+    && new URL(response.url()).pathname === `/api/v1/admin/support-tickets/${created.publicId}/messages`)
+  await page.getByRole('button', { name: '傳送公開回覆' }).click()
+  const replyResponse = await replyResponsePromise
+  expect(replyResponse.status(), await replyResponse.text()).toBe(200)
+  const replyResult = await replyResponse.json() as {
+    status: string
+    firstHumanResponseAtUtc: string | null
+  }
+  expect(replyResult.status).toBe('inProgress')
+  expect(replyResult.firstHumanResponseAtUtc).toBeTruthy()
+  await expect(page.getByText(publicReply, { exact: true })).toBeVisible()
+
+  await page.goto(`http://127.0.0.1:5173/support/tickets/${created.publicId}`)
+  await expect(page.getByRole('heading', { level: 1, name: `${created.ticketNumber}｜${subject}` })).toBeVisible()
+  await expect(page.getByText(publicReply, { exact: true })).toBeVisible()
+  await expect(page.getByText(internalNote, { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '取消這個案件' })).toHaveCount(0)
 })
 
 test('a guest can verify, view and cancel only the matching order without cross-order effects', async ({

@@ -82,31 +82,40 @@ function ensureInspectionLine(itemPublicId: string) {
   return inspectionLines[itemPublicId]
 }
 
+function mutationErrorMessage(candidateError: unknown): string {
+  return isApiError(candidateError) ? candidateError.message : '操作失敗，請稍後再試一次。'
+}
+
 async function handleApprove() {
   if (!data.value || !canSubmitApprove.value) {
     return
   }
 
-  await reviewMutation.mutateAsync({
-    approved: true,
-    items: data.value.return.items.map((item) => ({
-      returnItemPublicId: item.publicId,
-      approvedQuantity: item.quantity,
-      inspectionRequired: requiresShipmentInspection.value,
-    })),
-    reasonCode: reviewReasonCode.value.trim() || 'eligible',
-    note: reviewNote.value.trim() || null,
-    returnRowVersion: data.value.return.rowVersion,
-    // 需要寄回檢查時完全省略這兩欄，不送 null——即使管理員曾經取消勾選、填過值，
-    // 重新勾選後這裡讀的是目前的勾選狀態，不會把隱藏欄位的殘留值一起送出去
-    // （alex #109 裁定第 2 點）。
-    ...(reviewNeedsTrustedFields.value
-      ? {
-          assemblyFeeDisposition: reviewAssemblyFeeDisposition.value as AssemblyFeeDisposition,
-          returnShippingCost: reviewReturnShippingCost.value.trim(),
-        }
-      : {}),
-  })
+  try {
+    await reviewMutation.mutateAsync({
+      approved: true,
+      items: data.value.return.items.map((item) => ({
+        returnItemPublicId: item.publicId,
+        approvedQuantity: item.quantity,
+        inspectionRequired: requiresShipmentInspection.value,
+      })),
+      reasonCode: reviewReasonCode.value.trim() || 'eligible',
+      note: reviewNote.value.trim() || null,
+      returnRowVersion: data.value.return.rowVersion,
+      // 需要寄回檢查時完全省略這兩欄，不送 null——即使管理員曾經取消勾選、填過值，
+      // 重新勾選後這裡讀的是目前的勾選狀態，不會把隱藏欄位的殘留值一起送出去
+      // （alex #109 裁定第 2 點）。
+      ...(reviewNeedsTrustedFields.value
+        ? {
+            assemblyFeeDisposition: reviewAssemblyFeeDisposition.value as AssemblyFeeDisposition,
+            returnShippingCost: reviewReturnShippingCost.value.trim(),
+          }
+        : {}),
+    })
+  }
+  catch {
+    // Mutation 狀態會在下方顯示 API 或一般錯誤；避免 click handler 產生未處理 rejection。
+  }
 }
 
 async function handleReject() {
@@ -139,21 +148,26 @@ async function handleInspect() {
     return
   }
 
-  await inspectMutation.mutateAsync({
-    items: data.value.return.items.map((item) => {
-      const line = ensureInspectionLine(item.publicId)
-      return {
-        returnItemPublicId: item.publicId,
-        conditionCode: line.conditionCode,
-        disposition: line.disposition,
-        note: line.note.trim() || null,
-      }
-    }),
-    returnRowVersion: data.value.return.rowVersion,
-    // 檢查完成一定會建立 Refund，這兩欄固定必填（alex #109 裁定第 4 點）。
-    assemblyFeeDisposition: inspectAssemblyFeeDisposition.value as AssemblyFeeDisposition,
-    returnShippingCost: inspectReturnShippingCost.value.trim(),
-  })
+  try {
+    await inspectMutation.mutateAsync({
+      items: data.value.return.items.map((item) => {
+        const line = ensureInspectionLine(item.publicId)
+        return {
+          returnItemPublicId: item.publicId,
+          conditionCode: line.conditionCode,
+          disposition: line.disposition,
+          note: line.note.trim() || null,
+        }
+      }),
+      returnRowVersion: data.value.return.rowVersion,
+      // 檢查完成一定會建立 Refund，這兩欄固定必填（alex #109 裁定第 4 點）。
+      assemblyFeeDisposition: inspectAssemblyFeeDisposition.value as AssemblyFeeDisposition,
+      returnShippingCost: inspectReturnShippingCost.value.trim(),
+    })
+  }
+  catch {
+    // Mutation 狀態會在下方顯示 API 或一般錯誤；避免 click handler 產生未處理 rejection。
+  }
 }
 
 async function handleExtend() {
@@ -326,6 +340,13 @@ function isConflict(err: unknown): boolean {
             重新整理
           </button>
         </p>
+        <p
+          v-else-if="reviewMutation.isError.value"
+          class="admin-return-detail__conflict"
+          role="alert"
+        >
+          {{ mutationErrorMessage(reviewMutation.error.value) }}
+        </p>
         <div class="admin-return-detail__actions">
           <button
             type="button"
@@ -454,6 +475,13 @@ function isConflict(err: unknown): boolean {
           role="alert"
         >
           此案件已被其他人更新，請重新整理後再操作。
+        </p>
+        <p
+          v-else-if="inspectMutation.isError.value"
+          class="admin-return-detail__conflict"
+          role="alert"
+        >
+          {{ mutationErrorMessage(inspectMutation.error.value) }}
         </p>
         <button
           type="button"

@@ -3,7 +3,10 @@ using System.Text;
 using DoSelect.Domain.Builds;
 using DoSelect.Domain.Catalog;
 using DoSelect.Domain.Inventory;
+using DoSelect.Domain.Invoicing;
 using DoSelect.Domain.Members;
+using DoSelect.Domain.Orders;
+using DoSelect.Domain.Payments;
 using DoSelect.Domain.Promotions;
 using DoSelect.Domain.Shopping;
 using DoSelect.Domain.Shipping;
@@ -37,6 +40,7 @@ public sealed class MinimalDevelopmentDataSeeder(
         await EnsureShippingProvidersAsync(counters, cancellationToken);
         await EnsureConvenienceStoresAsync(counters, cancellationToken);
         await EnsureCoreTransactionJourneyAsync(cancellationToken);
+        await EnsureReturnE2eJourneyAsync(cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
         return new MinimalDevelopmentSeedResult(
@@ -69,32 +73,33 @@ public sealed class MinimalDevelopmentDataSeeder(
         SeedCounters counters,
         CancellationToken cancellationToken)
     {
-        var admin = await EnsureUserAsync(
+        await EnsureAdminAsync(
             MinimalDevelopmentSeedDefinitions.AdminEmail,
             passwords.AdminPassword,
-            AccountType.Admin,
             MinimalDevelopmentSeedDefinitions.AdminPublicId,
-            counters);
-
-        if (!await userManager.IsInRoleAsync(admin, "SuperAdmin"))
-        {
-            EnsureSucceeded(
-                "assign the SuperAdmin role",
-                await userManager.AddToRoleAsync(admin, "SuperAdmin"));
-        }
-
-        if (!await dbContext.AdminProfiles.AnyAsync(
-                profile => profile.UserId == admin.Id,
-                cancellationToken))
-        {
-            dbContext.AdminProfiles.Add(new AdminProfile(
-                admin.Id,
-                MinimalDevelopmentSeedDefinitions.AdminPublicId,
-                "DEV-ADMIN-001",
-                "DoSelect 開發管理員",
-                MinimalDevelopmentSeedDefinitions.CreatedAtUtc));
-            counters.ProfilesCreated++;
-        }
+            "DEV-ADMIN-001",
+            "DoSelect 開發管理員",
+            ["SuperAdmin", "CustomerServiceSupervisor"],
+            counters,
+            cancellationToken);
+        await EnsureAdminAsync(
+            MinimalDevelopmentSeedDefinitions.ReturnE2eAdminEmail,
+            passwords.AdminPassword,
+            MinimalDevelopmentSeedDefinitions.ReturnE2eAdminPublicId,
+            "DEV-RETURN-001",
+            "DoSelect 退貨測試管理員",
+            ["SuperAdmin"],
+            counters,
+            cancellationToken);
+        await EnsureAdminAsync(
+            MinimalDevelopmentSeedDefinitions.SupportE2eAdminEmail,
+            passwords.AdminPassword,
+            MinimalDevelopmentSeedDefinitions.SupportE2eAdminPublicId,
+            "DEV-SUPPORT-001",
+            "DoSelect 客服測試主管",
+            ["CustomerServiceSupervisor"],
+            counters,
+            cancellationToken);
 
         var member = await EnsureUserAsync(
             MinimalDevelopmentSeedDefinitions.MemberEmail,
@@ -117,6 +122,47 @@ public sealed class MinimalDevelopmentDataSeeder(
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task EnsureAdminAsync(
+        string email,
+        string password,
+        Guid publicId,
+        string employeeNumber,
+        string displayName,
+        IReadOnlyCollection<string> roles,
+        SeedCounters counters,
+        CancellationToken cancellationToken)
+    {
+        var admin = await EnsureUserAsync(
+            email,
+            password,
+            AccountType.Admin,
+            publicId,
+            counters);
+
+        foreach (var roleName in roles)
+        {
+            if (!await userManager.IsInRoleAsync(admin, roleName))
+            {
+                EnsureSucceeded(
+                    $"assign the {roleName} role",
+                    await userManager.AddToRoleAsync(admin, roleName));
+            }
+        }
+
+        if (!await dbContext.AdminProfiles.AnyAsync(
+                profile => profile.UserId == admin.Id,
+                cancellationToken))
+        {
+            dbContext.AdminProfiles.Add(new AdminProfile(
+                admin.Id,
+                publicId,
+                employeeNumber,
+                displayName,
+                MinimalDevelopmentSeedDefinitions.CreatedAtUtc));
+            counters.ProfilesCreated++;
+        }
     }
 
     private async Task<ApplicationUser> EnsureUserAsync(
@@ -1122,6 +1168,134 @@ public sealed class MinimalDevelopmentDataSeeder(
             now));
 
         cart.Touch(now);
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Creates the delivered member order that lets the M-12 Playwright journey begin at the
+    /// real return application page. There is no production action that can advance an outbound
+    /// shipment to Delivered, so creating this precondition in the explicit, idempotent
+    /// <c>--seed-minimal</c> path is narrower than introducing a test-only HTTP endpoint. The
+    /// journey still exercises the real member and admin UIs and every Returns write endpoint.
+    /// </summary>
+    private async Task EnsureReturnE2eJourneyAsync(CancellationToken cancellationToken)
+    {
+        if (await dbContext.Orders.AnyAsync(
+                order => order.PublicId == MinimalDevelopmentSeedDefinitions.ReturnE2eOrderPublicId,
+                cancellationToken))
+        {
+            return;
+        }
+
+        var member = await userManager.FindByEmailAsync(MinimalDevelopmentSeedDefinitions.MemberEmail)
+            ?? throw new InvalidOperationException("The return E2E seed requires the minimal member.");
+        var sku = await dbContext.Skus.SingleAsync(
+            candidate => candidate.PublicId == MinimalDevelopmentSeedDefinitions.SkuPublicId,
+            cancellationToken);
+        var provider = await dbContext.ShippingProviderProfiles.SingleAsync(
+            candidate => candidate.PublicId == MinimalDevelopmentSeedDefinitions.HomeDeliveryProviderProfilePublicId,
+            cancellationToken);
+        var packageLimit = await dbContext.PackageLimitVersions.SingleAsync(
+            candidate => candidate.PublicId == MinimalDevelopmentSeedDefinitions.HomeDeliveryPackageLimitPublicId,
+            cancellationToken);
+
+        var createdAtUtc = DateTime.UtcNow.AddDays(-2);
+        var deliveredAtUtc = DateTime.UtcNow.AddDays(-1);
+        var order = Order.Create(
+            MinimalDevelopmentSeedDefinitions.ReturnE2eOrderPublicId,
+            new OrderCreation(
+                "DS-E2E-RETURN-001",
+                member.Id,
+                null,
+                OrderStatus.Processing,
+                PaymentStatus.Paid,
+                FulfillmentStatus.Preparing,
+                AssemblyStatus.NotRequired,
+                19_900m,
+                0m,
+                0m,
+                0m,
+                19_900m,
+                "DoSelect 測試會員",
+                "0912345678",
+                MinimalDevelopmentSeedDefinitions.MemberEmail,
+                "100",
+                "台北市",
+                "中正區",
+                "測試路 1 號",
+                null,
+                "HomeDelivery",
+                provider.Id,
+                null,
+                null,
+                null,
+                1,
+                1,
+                null,
+                null,
+                "e2e-return-checkout-0001",
+                null,
+                1,
+                1,
+                new OrderInvoicePreference(
+                    SimulatedInvoiceBuyerType.Individual,
+                    MinimalDevelopmentSeedDefinitions.MemberEmail,
+                    null,
+                    null,
+                    null,
+                    null),
+                5_000m,
+                null,
+                new OrderPackageSnapshot(
+                    packageLimit.Id,
+                    1.2m,
+                    35m,
+                    20m,
+                    8m,
+                    63m,
+                    19_900m),
+                150m),
+            createdAtUtc);
+        order.ApplyPaymentProjection(PaymentStatus.Paid, order.GrandTotal, createdAtUtc.AddHours(1));
+        order.ApplyFulfillmentProjection(FulfillmentStatus.Delivered, deliveredAtUtc);
+        order.ChangeOrderStatus(OrderStatus.Completed, deliveredAtUtc.AddHours(1));
+        dbContext.Orders.Add(order);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        dbContext.OrderItems.Add(new OrderItem(
+            MinimalDevelopmentSeedDefinitions.ReturnE2eOrderItemPublicId,
+            order.Id,
+            sku.Id,
+            sku.SkuCode,
+            "懂選開發用顯示卡",
+            sku.NameZhTw,
+            quantity: 1,
+            listUnitPrice: 19_900m,
+            saleUnitPrice: 19_900m,
+            finalUnitPrice: 19_900m,
+            unitCostSnapshot: 15_000m,
+            lineSubtotal: 19_900m,
+            discountAllocation: 0m,
+            lineTotal: 19_900m,
+            assemblyGroupKey: null,
+            returnableQuantity: 1,
+            createdAtUtc,
+            isCouponEligible: true,
+            new OrderItemSpecificationSnapshot("16GB", "{}", 1)));
+
+        var paymentAttempt = new PaymentAttempt(
+            MinimalDevelopmentSeedDefinitions.ReturnE2ePaymentAttemptPublicId,
+            order.Id,
+            PaymentMethod.CreditCard,
+            order.GrandTotal,
+            "SIMULATED",
+            "e2e-return-payment-0001",
+            null,
+            createdAtUtc);
+        paymentAttempt.Transition(PaymentAttemptStatus.AwaitingPayment, createdAtUtc.AddMinutes(1));
+        paymentAttempt.Transition(PaymentAttemptStatus.Processing, createdAtUtc.AddMinutes(2));
+        paymentAttempt.Transition(PaymentAttemptStatus.Paid, createdAtUtc.AddMinutes(3));
+        dbContext.PaymentAttempts.Add(paymentAttempt);
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 

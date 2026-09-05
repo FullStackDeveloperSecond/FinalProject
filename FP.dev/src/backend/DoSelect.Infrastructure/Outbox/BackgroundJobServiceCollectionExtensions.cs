@@ -48,6 +48,7 @@ public static class BackgroundJobServiceCollectionExtensions
         services.AddScoped<AuditRetentionJob>();
         services.AddScoped<StorageMaintenanceJob>();
         services.AddScoped<ImportRetentionJob>();
+        services.AddScoped<SupportSlaMaintenanceJob>();
 
         var connectionString = configuration.GetConnectionString(
             PersistenceServiceCollectionExtensions.ConnectionStringName);
@@ -128,6 +129,12 @@ public static class BackgroundJobServiceCollectionExtensions
             "maintenance",
             job => job.RunAsync(CancellationToken.None),
             "0 * * * *",
+            new RecurringJobOptions { TimeZone = taipeiTimeZone });
+        recurringJobs.AddOrUpdate<SupportSlaMaintenanceJob>(
+            "support-sla-scan",
+            "critical",
+            job => job.RunAsync(CancellationToken.None),
+            "*/5 * * * *",
             new RecurringJobOptions { TimeZone = taipeiTimeZone });
     }
 }

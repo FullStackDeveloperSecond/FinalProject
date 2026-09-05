@@ -18,10 +18,11 @@
   },
   "dependencies": {
     "@doselect/web-shared": "file:../shared",
+    "@primeuix/themes": "2.0.3",
     "@tanstack/vue-query": "5.101.4",
     "openapi-fetch": "0.17.0",
     "pinia": "4.0.3",
-    "primevue": "5.0.1",
+    "primevue": "4.5.5",
     "vue": "3.5.41",
     "vue-router": "5.2.0"
   },

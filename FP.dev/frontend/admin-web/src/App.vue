@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { DoSelectBrand, UiButton } from '@doselect/web-shared/ui'
 import { useAdminAuthStore } from './features/auth/stores/useAdminAuthStore'
 
 const route = useRoute()
@@ -71,7 +72,7 @@ async function onLogout(): Promise<void> {
         class="brand-link"
         to="/"
       >
-        DoSelect 懂選｜管理後台
+        <DoSelectBrand context="admin" />
       </RouterLink>
       <div class="site-header__end">
         <span class="demo-badge">DEMO DATA</span>
@@ -86,14 +87,13 @@ async function onLogout(): Promise<void> {
         >
           重新綁定 TOTP
         </RouterLink>
-        <button
+        <UiButton
           v-if="auth.isAuthenticated"
           type="button"
           class="logout-button"
+          label="登出"
           @click="onLogout"
-        >
-          登出
-        </button>
+        />
       </div>
     </header>
     <div class="admin-frame">

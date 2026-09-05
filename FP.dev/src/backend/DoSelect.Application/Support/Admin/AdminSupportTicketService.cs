@@ -236,6 +236,29 @@ public sealed class AdminSupportTicketService : IAdminSupportTicketService
         return ToDetailDto(result, DomainErrorCodes.SupportTicketStateConflict, CanHandle(context), context.CanSupervise, nowUtc);
     }
 
+    public async Task<AdminSupportTicketDetailDto> AddPublicReplyAsync(
+        SupportTicketActionContext context,
+        Guid ticketPublicId,
+        CreateAdminSupportReplyRequest request,
+        CancellationToken cancellationToken)
+    {
+        var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        var result = await _store.AddPublicReplyAsync(
+            new SupportTicketAddPublicReplyCommand(
+                ticketPublicId,
+                context.AdminUserId,
+                context.Roles,
+                context.CanSupervise,
+                request.RowVersion,
+                nowUtc,
+                context.CorrelationId,
+                context.TraceId,
+                context.RemoteIpAddress,
+                request.Body),
+            cancellationToken);
+        return ToDetailDto(result, DomainErrorCodes.SupportTicketStateConflict, CanHandle(context), context.CanSupervise, nowUtc);
+    }
+
     private static AdminSupportTicketDto ToDto(SupportTicketAssignResult result, string actionName) =>
         result.Outcome switch
         {
@@ -346,6 +369,16 @@ public sealed class AdminSupportTicketService : IAdminSupportTicketService
         {
             actions.Add("change-status");
             actions.Add("internal-note");
+        }
+
+        if (canHandle &&
+            detail.AssigneeAdminPublicId is not null &&
+            detail.Status is (SupportTicketStatus.Assigned or
+                SupportTicketStatus.InProgress or
+                SupportTicketStatus.WaitingForCustomer or
+                SupportTicketStatus.WaitingForInternal))
+        {
+            actions.Add("reply");
         }
 
         if (canHandle &&

@@ -5,6 +5,7 @@ using DoSelect.Infrastructure.Auditing;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using DoSelect.Infrastructure.Persistence.Support.Admin;
+using DoSelect.Infrastructure.Outbox;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -130,7 +131,10 @@ public sealed class AdminSupportTicketClaimStoreTests : IClassFixture<WebApplica
             .AddInterceptors(new RejectAssignmentHistorySaveInterceptor())
             .Options;
         await using var db = new DoSelectDbContext(options);
-        var store = new AdminSupportTicketStore(db, new EfAuditWriter(db, TimeProvider.System));
+        var store = new AdminSupportTicketStore(
+            db,
+            new EfAuditWriter(db, TimeProvider.System),
+            new EfOutboxWriter(db, TimeProvider.System));
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => store.ClaimAsync(
             fixture.TicketPublicId,

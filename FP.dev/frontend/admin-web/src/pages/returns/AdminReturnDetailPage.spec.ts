@@ -1,3 +1,4 @@
+import { ApiError } from '@doselect/web-shared/api'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -13,12 +14,14 @@ const mocks = await vi.hoisted(async () => {
     refetch: vi.fn(),
     reviewMutateAsync: vi.fn(),
     reviewIsPending: ref(false),
+    reviewIsError: ref(false),
     reviewError: ref<unknown>(null),
     receiveMutateAsync: vi.fn(),
     receiveIsPending: ref(false),
     receiveError: ref<unknown>(null),
     inspectMutateAsync: vi.fn(),
     inspectIsPending: ref(false),
+    inspectIsError: ref(false),
     inspectError: ref<unknown>(null),
     extendMutateAsync: vi.fn(),
     extendIsPending: ref(false),
@@ -37,6 +40,7 @@ vi.mock('../../features/returns/queries', () => ({
   useReviewReturnMutation: () => ({
     mutateAsync: mocks.reviewMutateAsync,
     isPending: mocks.reviewIsPending,
+    isError: mocks.reviewIsError,
     error: mocks.reviewError,
   }),
   useReceiveReturnMutation: () => ({
@@ -47,6 +51,7 @@ vi.mock('../../features/returns/queries', () => ({
   useInspectReturnMutation: () => ({
     mutateAsync: mocks.inspectMutateAsync,
     isPending: mocks.inspectIsPending,
+    isError: mocks.inspectIsError,
     error: mocks.inspectError,
   }),
   useExtendShipmentDeadlineMutation: () => ({
@@ -106,7 +111,7 @@ function detail(availableActions: string[], returnOverrides: Record<string, unkn
   }
 }
 
-async function mountPage() {
+async function mountPage(errorHandler?: (error: unknown) => void) {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -117,7 +122,12 @@ async function mountPage() {
   await router.push(`/returns/${returnId}`)
   await router.isReady()
 
-  return mount(AdminReturnDetailPage, { global: { plugins: [router] } })
+  return mount(AdminReturnDetailPage, {
+    global: {
+      plugins: [router],
+      config: errorHandler ? { errorHandler } : {},
+    },
+  })
 }
 
 describe('AdminReturnDetailPage', () => {
@@ -129,10 +139,12 @@ describe('AdminReturnDetailPage', () => {
     mocks.refetch.mockReset()
     mocks.reviewMutateAsync.mockReset().mockResolvedValue(undefined)
     mocks.reviewIsPending.value = false
+    mocks.reviewIsError.value = false
     mocks.reviewError.value = null
     mocks.receiveMutateAsync.mockReset().mockResolvedValue(undefined)
     mocks.inspectMutateAsync.mockReset().mockResolvedValue(undefined)
     mocks.inspectIsPending.value = false
+    mocks.inspectIsError.value = false
     mocks.inspectError.value = null
     mocks.extendMutateAsync.mockReset().mockResolvedValue(undefined)
   })
@@ -301,5 +313,44 @@ describe('AdminReturnDetailPage', () => {
     const submittedBody = spy.mock.calls[0]![0] as Record<string, unknown>
     // 原始字串「1.01」原封不動送出——不是 Number(1.01) 也不是任何四捨五入的結果。
     expect(submittedBody.returnShippingCost).toBe('1.01')
+  })
+
+  it.each([
+    { panel: 'review' as const, expectedMessage: '退貨運費超出允許範圍。' },
+    { panel: 'inspect' as const, expectedMessage: '操作失敗，請稍後再試一次。' },
+  ])('renders a non-conflict mutation failure without leaking a rejected promise ($panel)', async ({ panel, expectedMessage }) => {
+    mocks.data.value = panel === 'review'
+      ? detail(['review'])
+      : detail(['inspect'], { status: 'received' })
+    const unhandledErrors: unknown[] = []
+    const wrapper = await mountPage(error => unhandledErrors.push(error))
+
+    if (panel === 'review') {
+      await wrapper.find('[type="checkbox"]').setValue(false)
+    }
+
+    const dispositionName = panel === 'review' ? 'reviewAssemblyFeeDisposition' : 'inspectAssemblyFeeDisposition'
+    const costName = panel === 'review' ? 'reviewReturnShippingCost' : 'inspectReturnShippingCost'
+    const submitText = panel === 'review' ? '核准' : '送出檢查結果'
+    const mutationError = panel === 'review'
+      ? new ApiError(expectedMessage, { status: 400, code: 'validation_failed' })
+      : new Error('network unavailable')
+    const mutateAsync = panel === 'review' ? mocks.reviewMutateAsync : mocks.inspectMutateAsync
+    const isMutationError = panel === 'review' ? mocks.reviewIsError : mocks.inspectIsError
+    const error = panel === 'review' ? mocks.reviewError : mocks.inspectError
+
+    await wrapper.find(`[name="${dispositionName}"]`).setValue('notApplicable')
+    await wrapper.find(`[name="${costName}"]`).setValue('1.01')
+    mutateAsync.mockImplementationOnce(async () => {
+      error.value = mutationError
+      isMutationError.value = true
+      throw mutationError
+    })
+
+    await wrapper.findAll('button').find(button => button.text() === submitText)!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[role="alert"]').text()).toContain(expectedMessage)
+    expect(unhandledErrors).toEqual([])
   })
 })
