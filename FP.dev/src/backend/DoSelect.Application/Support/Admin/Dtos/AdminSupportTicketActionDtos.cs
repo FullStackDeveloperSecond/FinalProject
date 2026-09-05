@@ -93,3 +93,13 @@ public sealed record CreateInternalNoteRequest
     [RowVersionRequired]
     public byte[] RowVersion { get; init; } = [];
 }
+
+public sealed record CreateAdminSupportReplyRequest
+{
+    [NotWhiteSpace]
+    [MaxLength(4000)]
+    public string Body { get; init; } = string.Empty;
+
+    [RowVersionRequired]
+    public byte[] RowVersion { get; init; } = [];
+}

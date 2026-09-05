@@ -4,6 +4,7 @@ using DoSelect.Application.Auditing;
 using DoSelect.Application.Notifications;
 using DoSelect.Application.Orders;
 using DoSelect.Application.Outbox;
+using DoSelect.Application.Support;
 using DoSelect.Domain.Members;
 using DoSelect.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -29,6 +30,20 @@ internal static class NotificationTemplateCatalog
             ["refund.succeeded"] = Localized("退款完成", "您的退款已完成。", "返金が完了しました", "返金処理が完了しました。", "환불이 완료되었습니다", "환불 처리가 완료되었습니다."),
             ["refund.failed"] = Localized("退款處理未完成", "退款處理未完成，請聯絡客服。", "返金処理を完了できませんでした", "カスタマーサポートへお問い合わせください。", "환불 처리가 완료되지 않았습니다", "고객센터에 문의해 주세요."),
             ["support.replied"] = Localized("客服已回覆", "您的客服案件已有新回覆。", "サポートから返信がありました", "お問い合わせに新しい返信があります。", "고객센터 답변이 등록되었습니다", "문의에 새로운 답변이 등록되었습니다."),
+            [SupportSlaNotificationContract.Warning80TemplateKey] = Localized(
+                "客服案件即將逾時",
+                "承辦案件已使用 80% SLA 時間，請儘速處理。",
+                "サポート案件の期限が近づいています",
+                "担当案件が SLA 時間の 80% に達しました。早めにご対応ください。",
+                "고객지원 건의 기한이 임박했습니다",
+                "담당 건이 SLA 시간의 80%에 도달했습니다. 신속히 처리해 주세요."),
+            [SupportSlaNotificationContract.Overdue100TemplateKey] = Localized(
+                "客服案件已逾時",
+                "客服案件已超過 SLA 時限，請優先處理。",
+                "サポート案件が期限を超過しました",
+                "サポート案件が SLA 期限を超過しました。優先してご対応ください。",
+                "고객지원 건이 기한을 초과했습니다",
+                "고객지원 건이 SLA 기한을 초과했습니다. 우선 처리해 주세요."),
             [AiBudgetAlertNotificationContract.TemplateKey] = Localized(
                 "AI 成本已達警示門檻",
                 "AI 累計估算成本已達 US$70，請至 AI 用量頁確認成本與展示額度。",
@@ -105,6 +120,7 @@ public sealed class EmailNotificationContentResolver(
         }
 
         var recipient = await ResolveRecipientAsync(
+            request.RecipientPurpose,
             request.ResourceType,
             request.ResourcePublicId,
             cancellationToken);
@@ -164,43 +180,45 @@ public sealed class EmailNotificationContentResolver(
     }
 
     private async Task<(string? UserId, string Email)?> ResolveRecipientAsync(
+        string recipientPurpose,
         string resourceType,
         Guid resourcePublicId,
         CancellationToken cancellationToken)
     {
-        var orderRecipient = resourceType switch
+        var orderRecipient = (recipientPurpose, resourceType) switch
         {
-            "Order" => context.Orders.AsNoTracking()
+            (_, "Order") => context.Orders.AsNoTracking()
                 .Where(order => order.PublicId == resourcePublicId)
                 .Select(order => new { order.MemberUserId, order.GuestEmailNormalized }),
-            "PaymentAttempt" =>
+            (_, "PaymentAttempt") =>
                 from payment in context.PaymentAttempts.AsNoTracking()
                 join order in context.Orders.AsNoTracking() on payment.OrderId equals order.Id
                 where payment.PublicId == resourcePublicId
                 select new { order.MemberUserId, order.GuestEmailNormalized },
-            "Shipment" =>
+            (_, "Shipment") =>
                 from shipment in context.Shipments.AsNoTracking()
                 join order in context.Orders.AsNoTracking() on shipment.OrderId equals order.Id
                 where shipment.PublicId == resourcePublicId
                 select new { order.MemberUserId, order.GuestEmailNormalized },
-            "ReturnRequest" =>
+            (_, "ReturnRequest") =>
                 from returnRequest in context.ReturnRequests.AsNoTracking()
                 join order in context.Orders.AsNoTracking() on returnRequest.OrderId equals order.Id
                 where returnRequest.PublicId == resourcePublicId
                 select new { order.MemberUserId, order.GuestEmailNormalized },
-            "Refund" =>
+            (_, "Refund") =>
                 from refund in context.Refunds.AsNoTracking()
                 join order in context.Orders.AsNoTracking() on refund.OrderId equals order.Id
                 where refund.PublicId == resourcePublicId
                 select new { order.MemberUserId, order.GuestEmailNormalized },
-            "SupportTicket" => context.SupportTickets.AsNoTracking()
+            (_, "SupportTicket") => context.SupportTickets.AsNoTracking()
                 .Where(ticket => ticket.PublicId == resourcePublicId)
                 .Select(ticket => new
                 {
                     MemberUserId = (string?)ticket.MemberUserId,
                     GuestEmailNormalized = (string?)null,
                 }),
-            AiBudgetAlertNotificationContract.ResourceType =>
+            (AiBudgetAlertNotificationContract.RecipientPurpose,
+                AiBudgetAlertNotificationContract.ResourceType) =>
                 from user in context.Users.AsNoTracking()
                 join profile in context.AdminProfiles.AsNoTracking()
                     on user.Id equals profile.UserId
@@ -213,6 +231,20 @@ public sealed class EmailNotificationContentResolver(
                     user.AccountStatus == AccountStatus.Active &&
                     profile.IsActive &&
                     role.Name == AuditRoleNames.SuperAdmin
+                select new
+                {
+                    MemberUserId = (string?)user.Id,
+                    GuestEmailNormalized = user.Email,
+                },
+            (SupportSlaNotificationContract.RecipientPurpose,
+                SupportSlaNotificationContract.EmailRecipientResourceType) =>
+                from user in context.Users.AsNoTracking()
+                join profile in context.AdminProfiles.AsNoTracking()
+                    on user.Id equals profile.UserId
+                where user.PublicId == resourcePublicId &&
+                    user.AccountType == AccountType.Admin &&
+                    user.AccountStatus == AccountStatus.Active &&
+                    profile.IsActive
                 select new
                 {
                     MemberUserId = (string?)user.Id,
@@ -259,6 +291,8 @@ public sealed class EmailNotificationContentResolver(
             ("support.customer", "SupportTicket") => true,
             (AiBudgetAlertNotificationContract.RecipientPurpose,
                 AiBudgetAlertNotificationContract.ResourceType) => true,
+            (SupportSlaNotificationContract.RecipientPurpose,
+                SupportSlaNotificationContract.EmailRecipientResourceType) => true,
             _ => false,
         };
 }

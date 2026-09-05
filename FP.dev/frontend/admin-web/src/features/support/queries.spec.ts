@@ -346,4 +346,38 @@ describe('admin support queries', () => {
 
     wrapper.unmount()
   })
+
+  it('M-14: posts a public reply with RowVersion and refreshes all support projections', async () => {
+    const updatedTicket = { publicId: ticketId, rowVersion: 'AAAAAAAAAAI=' }
+    const fetchStub = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ requestToken: 'admin-csrf-token' }))
+      .mockResolvedValueOnce(Response.json(updatedTicket))
+    vi.stubGlobal('fetch', fetchStub)
+    const { useAddPublicSupportReplyMutation } = await import('./queries')
+    const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+    let reply!: (request: { body: string, rowVersion: string }) => Promise<unknown>
+    runHarness = () => {
+      const mutation = useAddPublicSupportReplyMutation(ticketId)
+      reply = request => mutation.mutateAsync(request)
+    }
+    const wrapper = mount(Harness, {
+      global: { plugins: [[VueQueryPlugin, { queryClient }]] },
+    })
+
+    await expect(reply({ body: 'public reply', rowVersion: 'AAAAAAAAAAE=' })).resolves.toEqual(updatedTicket)
+
+    const [replyUrl, replyInit] = fetchStub.mock.calls[1] ?? []
+    const replyRequest = replyUrl instanceof Request ? replyUrl : new Request(String(replyUrl), replyInit)
+    expect(replyRequest.url).toBe(`http://localhost:5126/api/v1/admin/support-tickets/${ticketId}/messages`)
+    await expect(replyRequest.clone().json()).resolves.toEqual({
+      body: 'public reply',
+      rowVersion: 'AAAAAAAAAAE=',
+    })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['admin-support-ticket-detail', ticketId] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['admin-support-sla-queue'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['admin-case-workbench'] })
+
+    wrapper.unmount()
+  })
 })

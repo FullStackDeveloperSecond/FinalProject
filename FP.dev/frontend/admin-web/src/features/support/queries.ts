@@ -12,6 +12,7 @@ import type {
   ChangeSupportTicketStatusRequest,
   ClaimSupportTicketRequest,
   CreateInternalNoteRequest,
+  CreateAdminSupportReplyRequest,
   ReopenSupportTicketRequest,
   SupportSlaQueuePage,
   TransferSupportTicketRequest,
@@ -253,6 +254,27 @@ export function useAddInternalNoteMutation(ticketId: MaybeRefOrGetter<string>) {
     },
     onError: async (error) => {
       // concurrency_conflict is the only conflict code this action can return.
+      if (isApiError(error) && error.status === 409) {
+        await invalidateSupportProjections(queryClient, toValue(ticketId))
+      }
+    },
+  })
+}
+
+export function useAddPublicSupportReplyMutation(ticketId: MaybeRefOrGetter<string>) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (request: CreateAdminSupportReplyRequest): Promise<AdminSupportTicketDetailDto> => {
+      const { data } = await apiClient.POST('/api/v1/admin/support-tickets/{id}/messages', {
+        params: { path: { id: toValue(ticketId) } },
+        body: request,
+      })
+      return data as AdminSupportTicketDetailDto
+    },
+    onSuccess: async () => {
+      await invalidateSupportProjections(queryClient, toValue(ticketId))
+    },
+    onError: async (error) => {
       if (isApiError(error) && error.status === 409) {
         await invalidateSupportProjections(queryClient, toValue(ticketId))
       }
