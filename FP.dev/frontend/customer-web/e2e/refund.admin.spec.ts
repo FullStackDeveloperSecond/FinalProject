@@ -146,13 +146,17 @@ test('a finance administrator approves, executes and issues an allowance for a p
   expect(createReturnResult.status, 'The production Return creation path must succeed').toBe(201)
   const createdReturn = createReturnResult.body
 
-  // ── 管理員：登入並綁定 TOTP（全程沿用同一個 page，後面所有動作共用這個登入態） ──
+  // ── 管理員：登入並綁定 TOTP（全程沿用同一個 page，後面所有動作共用這個登入態）。
+  // 用獨立的 refundJourneyAdminEmail，不是共用的 seed.adminEmail——同一輪 CI 的
+  // admin-chromium 專案單一 worker 依序跑完所有 spec，admin.spec.ts 自己的 TOTP
+  // 綁定測試會先把共用帳號綁定掉，這裡如果沿用會在登入時只看到已綁定的驗證頁，
+  // 卻沒有金鑰可用。 ──────────────────────────────────────────────────────
   if (!seed.adminPassword) {
     throw new Error('Seed__AdminPassword is required for an administrator E2E journey.')
   }
 
   await page.goto('./')
-  await page.getByRole('textbox', { name: '電子郵件' }).fill(seed.adminEmail)
+  await page.getByRole('textbox', { name: '電子郵件' }).fill(seed.refundJourneyAdminEmail)
   await page.getByLabel('密碼').fill(seed.adminPassword)
   await page.getByRole('button', { name: '登入' }).click()
 

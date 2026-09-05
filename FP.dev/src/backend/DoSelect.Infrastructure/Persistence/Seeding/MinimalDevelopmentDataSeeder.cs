@@ -40,7 +40,7 @@ public sealed class MinimalDevelopmentDataSeeder(
         await EnsureShippingProvidersAsync(counters, cancellationToken);
         await EnsureConvenienceStoresAsync(counters, cancellationToken);
         await EnsureCoreTransactionJourneyAsync(cancellationToken);
-        await EnsureRefundJourneyOrderAsync(cancellationToken);
+        await EnsureRefundJourneyOrderAsync(passwords, counters, cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
         return new MinimalDevelopmentSeedResult(
@@ -1085,9 +1085,50 @@ public sealed class MinimalDevelopmentDataSeeder(
     /// Delivered——物流狀態命令屬於另一個範圍，尚未落地。這裡只頂住「訂單、付款、出貨」這段
     /// 裁定明確允許 seed 的前置資料；從建立退貨申請開始，E2E 一律走 production API／UI，
     /// 不得再往後 seed 任何 Return／Refund 狀態。
+    ///
+    /// 也在這裡建立退款旅程專用的獨立管理員帳號
+    /// （<see cref="MinimalDevelopmentSeedDefinitions.RefundJourneyAdminEmail"/>），不沿用
+    /// 一般 <see cref="MinimalDevelopmentSeedDefinitions.AdminEmail"/>——同一輪 CI 的
+    /// admin-chromium 專案是單一 worker 依序執行，admin.spec.ts 自己的 TOTP 綁定測試會先
+    /// 把那個帳號綁定掉，退款旅程若共用會在登入時只看到 requiresEnrollment=false 的驗證頁，
+    /// 卻沒有金鑰。
     /// </summary>
-    private async Task EnsureRefundJourneyOrderAsync(CancellationToken cancellationToken)
+    private async Task EnsureRefundJourneyOrderAsync(
+        (string AdminPassword, string MemberPassword) passwords,
+        SeedCounters counters,
+        CancellationToken cancellationToken)
     {
+        // 獨立管理員帳號，見 RefundJourneyAdminEmail 的說明：不能沿用一般 AdminEmail，
+        // 那個帳號的「尚未綁定 TOTP」狀態會被 admin.spec.ts 自己的綁定測試用掉。
+        var refundJourneyAdmin = await EnsureUserAsync(
+            MinimalDevelopmentSeedDefinitions.RefundJourneyAdminEmail,
+            passwords.AdminPassword,
+            AccountType.Admin,
+            MinimalDevelopmentSeedDefinitions.RefundJourneyAdminPublicId,
+            counters);
+
+        if (!await userManager.IsInRoleAsync(refundJourneyAdmin, "SuperAdmin"))
+        {
+            EnsureSucceeded(
+                "assign the SuperAdmin role",
+                await userManager.AddToRoleAsync(refundJourneyAdmin, "SuperAdmin"));
+        }
+
+        if (!await dbContext.AdminProfiles.AnyAsync(
+                profile => profile.UserId == refundJourneyAdmin.Id,
+                cancellationToken))
+        {
+            dbContext.AdminProfiles.Add(new AdminProfile(
+                refundJourneyAdmin.Id,
+                MinimalDevelopmentSeedDefinitions.RefundJourneyAdminPublicId,
+                "DEV-ADMIN-002",
+                "退款 E2E 管理員",
+                MinimalDevelopmentSeedDefinitions.CreatedAtUtc));
+            counters.ProfilesCreated++;
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
         if (await dbContext.Orders.AnyAsync(
                 order => order.PublicId == MinimalDevelopmentSeedDefinitions.RefundJourneyOrderPublicId,
                 cancellationToken))

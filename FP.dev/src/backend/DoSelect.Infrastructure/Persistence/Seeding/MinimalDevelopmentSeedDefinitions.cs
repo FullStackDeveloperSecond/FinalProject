@@ -76,6 +76,15 @@ internal static class MinimalDevelopmentSeedDefinitions
 
     internal const string RefundJourneyBuyerEmail = "refund-e2e-buyer@doselect.local";
 
+    // 獨立於一般管理員帳號：admin.spec.ts 自己的 TOTP 綁定測試會用掉
+    // AdminEmail 唯一一次的「尚未綁定」狀態，同一輪 CI 的 admin-chromium 專案單一
+    // worker 依序跑完所有 spec，退款旅程若沿用同一個帳號，登入時只會看到
+    // requiresEnrollment=false 的驗證頁，卻沒有金鑰可用。
+    internal static readonly Guid RefundJourneyAdminPublicId =
+        Guid.Parse("3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a13");
+
+    internal const string RefundJourneyAdminEmail = "refund-e2e-admin@doselect.local";
+
     internal static readonly DateTime CreatedAtUtc =
         new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
