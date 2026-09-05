@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-28
+最後更新: 2026-08-30
 追蹤項目:
   - REQ-02
   - REQ-03
@@ -58,7 +58,9 @@ Schema 採小型業務條件且不得暴露資料庫欄位；用途 Enum 與補�
 - Given 失敗已降級，Then 回應不得暴露 API Key、原始例外、系統 Prompt 或內部 Stack Trace。
 - Given 降級發生，Then 記錄功能、使用者類型、錯誤類別、Token／成本估算及降級結果，不記錄不必要個資。
 
-- 商品搜尋 8 秒逾時；限流或暫時性服務錯誤最多重試一次，Schema 格式錯誤最多修復一次，仍失敗立即降級。
+- 商品搜尋的單次意圖模型呼叫最長 5 秒，固定使用 `reasoning.effort: none`、`text.verbosity: low` 與預設 service tier；限流、暫時服務錯誤、逾時或 Schema 格式錯誤均不在同步請求內重試，立即 Fail Closed 並降級為關鍵字搜尋。strict Schema、白名單與後端驗證不得因低推理量而省略。推薦理由只能由後端使用核准候選事實確定性產生，不得再呼叫第二次模型。
+- 一般「主機」且沒有用途、效能目標或配／組／組裝字詞時，Intent 應為 `PrebuiltComputer`；明示組裝或提出用途＋預算的整機需求時，Intent 應為 `CustomBuild`。職稱或創作領域含「遊戲」不得單獨推論 Gaming 用途。
+- InvalidOutput 的內部評估證據只允許固定失敗原因碼與欄位名稱；不得保存模型 raw output、使用者文字、Secret 或個資，也不得把診斷欄位加入公開 HTTP DTO。
 
 ## UC-AI-SUPPORT-01｜取得 AI 處理同意
 
@@ -115,4 +117,4 @@ Schema 採小型業務條件且不得暴露資料庫欄位；用途 Enum 與補�
 - 完整自然語言搜尋 JSON Schema 欄位型別與 Enum 已定於 [[03-架構/06-AI設計/AI應用詳細設計]]。
 - AI 客服四個工具、引用欄位及精確 Request／Response DTO 已定於 [[03-架構/06-AI設計/AI應用詳細設計]] 與 [[03-架構/02-API與前端契約/API DTO與Schema契約]]。
 - Prompt、Schema、工具版本規則已確認，實作格式詳見 [[03-架構/06-AI設計/AI應用詳細設計]]。
-- 個資遮蔽、跨會員、同意、額度預留、最後一額、併發競爭、語系、唯讀工具、Schema、故障與 Prompt Injection 信任分層已有自動化證據。`dev` 已包含 SQL Server Admission Gate、append-only 同意／額度、本人訂單 Owner Query、RequestPublicId 冪等、Guest Cookie 403、Responses Adapter 與 M-19 完整垂直切片。`codex/m18-ai-product-search` 另形成 SearchIntent、自然語言既有零件確認閘門、公開 Endpoint、10／30 額度、八類完整 CustomBuild、新購小計＋NT$300 組裝費、既有零件不重複計價、正式相容性、理由與降級 UI；其狀態仍須以 Required CI／Review／合併為準。Live evaluation 由 AI-09 獨立追蹤，詳見 [[03-架構/06-AI設計/AI測試與評估規格]]。
+- 個資遮蔽、跨會員、同意、額度預留、最後一額、併發競爭、語系、唯讀工具、Schema、故障與 Prompt Injection 信任分層已有自動化證據。`dev` 已包含 SQL Server Admission Gate、append-only 同意／額度、本人訂單／客服 Owner Query、RequestPublicId 冪等、Guest Cookie 403、Responses Adapter、M-19 完整客服切片，以及 PR #62 合併的 M-18 SearchIntent、既有零件確認閘門、公開 Endpoint、10／30 額度、八類完整 CustomBuild、新購小計＋NT$300 組裝費、正式相容性、推薦理由與降級 UI。公開搜尋 Playwright 目前證明的是故障降級旅程；Live evaluation 仍由 AI-09 獨立追蹤，詳見 [[03-架構/06-AI設計/AI測試與評估規格]]。

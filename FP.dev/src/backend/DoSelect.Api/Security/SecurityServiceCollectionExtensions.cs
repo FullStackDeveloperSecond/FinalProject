@@ -369,6 +369,10 @@ public static class SecurityServiceCollectionExtensions
             DoSelectRoles.FinanceManager, DoSelectRoles.SuperAdmin);
         AddAdminPolicy(options, DoSelectPolicies.CatalogManager,
             DoSelectRoles.CatalogManager, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.InventoryManager,
+            DoSelectRoles.InventoryManager, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.OrderManage,
+            DoSelectRoles.OrderManager, DoSelectRoles.SuperAdmin);
         AddAdminPolicy(options, DoSelectPolicies.ReturnApprove,
             DoSelectRoles.OrderManager, DoSelectRoles.SuperAdmin);
         AddAdminPolicy(options, DoSelectPolicies.RefundExecute,
@@ -408,6 +412,28 @@ public static class SecurityServiceCollectionExtensions
             DoSelectRoles.CatalogManager, DoSelectRoles.SuperAdmin);
         AddAdminPolicy(options, DoSelectPolicies.OutboxRetry,
             DoSelectRoles.SuperAdmin);
+        // UC-ADM-SHIP-01 / UC-ADM-STORE-01: package limits and demo stores are OrderManager's
+        // to write; CatalogManager gets read-only per the same use cases' role table.
+        AddAdminPolicy(options, DoSelectPolicies.ShippingManage,
+            DoSelectRoles.OrderManager, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.ShippingRead,
+            DoSelectRoles.OrderManager, DoSelectRoles.CatalogManager, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.CatalogImportExecute,
+            DoSelectRoles.CatalogManager, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.CatalogImportRead,
+            DoSelectRoles.CatalogManager, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.CatalogImportReadAll,
+            DoSelectRoles.CatalogManager, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.CatalogImageManage,
+            DoSelectRoles.CatalogManager, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.CatalogImageViewDraft,
+            DoSelectRoles.CatalogManager, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.CatalogImagePublish,
+            DoSelectRoles.CatalogManager, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.InventoryImportExecute,
+            DoSelectRoles.InventoryManager, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.InventoryImportReadAll,
+            DoSelectRoles.InventoryManager, DoSelectRoles.SuperAdmin);
     }
 
     private static bool AllowsHttpAntiforgeryCookie(IHostEnvironment environment) =>

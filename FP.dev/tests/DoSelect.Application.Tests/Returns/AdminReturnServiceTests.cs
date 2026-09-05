@@ -1,3 +1,4 @@
+using DoSelect.Application.Refunds;
 using DoSelect.Application.Returns;
 using DoSelect.Domain.Refunds;
 using DoSelect.Domain.Returns;
@@ -16,7 +17,8 @@ public sealed class AdminReturnServiceTests
         typeof(ReturnItem).BaseType!.BaseType!
             .GetField("<Id>k__BackingField", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
 
-    private static (AdminReturnService Service, FakeReturnStore Store, ReturnRequest Request) CreateSutWithRequestedReturn()
+    private static (AdminReturnService Service, FakeReturnStore Store, ReturnRequest Request, RecordingRefundCreationPort Refunds)
+        CreateSutWithRequestedReturn()
     {
         var store = new FakeReturnStore();
         var orderPort = new FakeReturnOrderEligibilityPort();
@@ -31,8 +33,10 @@ public sealed class AdminReturnServiceTests
         ItemIdField.SetValue(item, 100L);
         store.Items.Add(item);
 
-        var service = new AdminReturnService(store, orderPort, store, new FixedTimeProvider(NowOffset));
-        return (service, store, request);
+        var refunds = new RecordingRefundCreationPort();
+        var service = new AdminReturnService(
+            store, orderPort, store, refunds, new FixedTimeProvider(NowOffset));
+        return (service, store, request, refunds);
     }
 
     private static ReturnItem AddSecondItem(FakeReturnStore store)
@@ -102,7 +106,7 @@ public sealed class AdminReturnServiceTests
     [Fact]
     public async Task ReviewAsync_Approve_WithInspectionRequired_MovesToAwaitingShipment()
     {
-        var (service, store, request) = CreateSutWithRequestedReturn();
+        var (service, store, request, _) = CreateSutWithRequestedReturn();
         var approval = Approve(
             true, [new ApproveReturnItemLine(store.Items[0].PublicId, 1, InspectionRequired: true)], "eligible", null, request.RowVersion);
 
@@ -116,7 +120,7 @@ public sealed class AdminReturnServiceTests
     [Fact]
     public async Task ReviewAsync_Approve_WithoutInspectionRequired_MovesStraightToAwaitingRefund()
     {
-        var (service, store, request) = CreateSutWithRequestedReturn();
+        var (service, store, request, _) = CreateSutWithRequestedReturn();
         var approval = Approve(
             true, [new ApproveReturnItemLine(store.Items[0].PublicId, 1, InspectionRequired: false)], "goodwill", null, request.RowVersion,
             AssemblyFeeDisposition.NotApplicable, 0m);
@@ -132,7 +136,7 @@ public sealed class AdminReturnServiceTests
     [Fact]
     public async Task ReviewAsync_Approve_WithoutInspectionRequired_RejectsMissingRefundTrustedInputsBeforeMutation()
     {
-        var (service, store, request) = CreateSutWithRequestedReturn();
+        var (service, store, request, _) = CreateSutWithRequestedReturn();
         var approval = Approve(
             true, [new ApproveReturnItemLine(store.Items[0].PublicId, 1, InspectionRequired: false)], "eligible", null, request.RowVersion);
 
@@ -147,7 +151,7 @@ public sealed class AdminReturnServiceTests
     [Fact]
     public async Task ReviewAsync_Reject_MovesToRejectedWithReason()
     {
-        var (service, store, request) = CreateSutWithRequestedReturn();
+        var (service, store, request, _) = CreateSutWithRequestedReturn();
         var rejection = Approve(false, [], "not-eligible", "超過期限", request.RowVersion);
 
         var dto = await service.ReviewAsync(request.PublicId, "admin-1", rejection, CancellationToken.None);
@@ -163,7 +167,7 @@ public sealed class AdminReturnServiceTests
     [Fact]
     public async Task ReviewAsync_PartialQuantityApproval_ThrowsValidationFailed()
     {
-        var (service, store, request) = CreateSutWithRequestedReturn();
+        var (service, store, request, _) = CreateSutWithRequestedReturn();
         var approval = Approve(
             true, [new ApproveReturnItemLine(store.Items[0].PublicId, 0, InspectionRequired: true)], "partial", null, request.RowVersion);
 
@@ -176,7 +180,7 @@ public sealed class AdminReturnServiceTests
     [Fact]
     public async Task FullLifecycle_ApproveReceiveInspect_ReachesAwaitingRefund()
     {
-        var (service, store, request) = CreateSutWithRequestedReturn();
+        var (service, store, request, _) = CreateSutWithRequestedReturn();
         await service.ReviewAsync(
             request.PublicId, "admin-1",
             Approve(true, [new ApproveReturnItemLine(store.Items[0].PublicId, 1, true)], "eligible", null, request.RowVersion),
@@ -213,9 +217,42 @@ public sealed class AdminReturnServiceTests
     }
 
     [Fact]
+    public async Task InspectAsync_ZeroNetRefund_SkipsAwaitingRefundCompletesButStillRestocksInventory()
+    {
+        // #99 A1 裁定：需要寄回檢查的路徑一樣不得經過 AwaitingRefund。品項處置、
+        // ReturnInspection 與庫存回補照常進行——商品確實收回來了，只是淨額算出 <= 0，
+        // 不是沒有退貨這件事。
+        var (service, store, request, refunds) = CreateSutWithRequestedReturn();
+        await service.ReviewAsync(
+            request.PublicId, "admin-1",
+            Approve(true, [new ApproveReturnItemLine(store.Items[0].PublicId, 1, true)], "eligible", null, request.RowVersion),
+            CancellationToken.None);
+        await service.ReceiveAsync(request.PublicId, "admin-1", Receive(null, request.RowVersion), CancellationToken.None);
+
+        refunds.NextCallHasNoRefundDue = true;
+        var inspect = new InspectReturnRequest(
+            [new InspectReturnItemLine(store.Items[0].PublicId, "Unopened", RestockDisposition.Resellable, null)], request.RowVersion,
+            AssemblyFeeDisposition.NotApplicable, 80m);
+        var dto = await service.InspectAsync(request.PublicId, "admin-1", inspect, CancellationToken.None);
+
+        Assert.Equal(ReturnRequestStatus.Completed, dto.Status);
+        Assert.DoesNotContain(store.Histories, h => h.ToStatus == ReturnRequestStatus.AwaitingRefund);
+
+        // 庫存回補不受淨額結果影響——沒有退款不代表商品沒退回來。
+        Assert.Equal(RestockDisposition.Resellable, store.Items[0].RestockDisposition);
+        var restock = Assert.Single(store.ReturnToStockInstructions);
+        Assert.Equal(store.Items[0].PublicId, restock.ReturnItemPublicId);
+
+        var lastHistory = store.Histories[^1];
+        Assert.Equal(ReturnRequestStatus.Inspecting, lastHistory.FromStatus);
+        Assert.Equal(ReturnRequestStatus.Completed, lastHistory.ToStatus);
+        Assert.Equal("zero-net-refund", lastHistory.ReasonCode);
+    }
+
+    [Fact]
     public async Task InspectAsync_MissingRefundTrustedInputs_RejectsBeforeInspectionMutation()
     {
-        var (service, store, request) = CreateSutWithRequestedReturn();
+        var (service, store, request, _) = CreateSutWithRequestedReturn();
         await service.ReviewAsync(
             request.PublicId, "admin-1",
             Approve(true, [new ApproveReturnItemLine(store.Items[0].PublicId, 1, true)], "eligible", null, request.RowVersion),
@@ -245,7 +282,7 @@ public sealed class AdminReturnServiceTests
         // "expected" version was always re-derived from whatever the server currently holds.
         // Here the two are made deliberately different so only the fix's precise plumbing —
         // not an accidental match — can make the assertion pass.
-        var (service, store, request) = CreateSutWithRequestedReturn();
+        var (service, store, request, _) = CreateSutWithRequestedReturn();
         await service.ReviewAsync(
             request.PublicId, "admin-1",
             Approve(true, [new ApproveReturnItemLine(store.Items[0].PublicId, 1, true)], "eligible", null, request.RowVersion),
@@ -268,7 +305,7 @@ public sealed class AdminReturnServiceTests
     [Fact]
     public async Task ExtendShipmentDeadlineAsync_SecondCall_ThrowsExtensionNotAllowed()
     {
-        var (service, store, request) = CreateSutWithRequestedReturn();
+        var (service, store, request, _) = CreateSutWithRequestedReturn();
         await service.ReviewAsync(
             request.PublicId, "admin-1",
             Approve(true, [new ApproveReturnItemLine(store.Items[0].PublicId, 1, true)], "eligible", null, request.RowVersion),
@@ -286,7 +323,7 @@ public sealed class AdminReturnServiceTests
     [Fact]
     public async Task ReviewAsync_WhenAlreadyDecided_ThrowsStateConflict()
     {
-        var (service, store, request) = CreateSutWithRequestedReturn();
+        var (service, store, request, _) = CreateSutWithRequestedReturn();
         var approval = Approve(
             true, [new ApproveReturnItemLine(store.Items[0].PublicId, 1, true)], "eligible", null, request.RowVersion);
         await service.ReviewAsync(request.PublicId, "admin-1", approval, CancellationToken.None);
@@ -301,7 +338,7 @@ public sealed class AdminReturnServiceTests
     [Fact]
     public async Task ReviewAsync_DuplicateItemThatOmitsAnotherItem_ThrowsBeforeMutation()
     {
-        var (service, store, request) = CreateSutWithRequestedReturn();
+        var (service, store, request, _) = CreateSutWithRequestedReturn();
         AddSecondItem(store);
         var duplicatedId = store.Items[0].PublicId;
         var approval = Approve(
@@ -325,7 +362,7 @@ public sealed class AdminReturnServiceTests
     [Fact]
     public async Task InspectAsync_DuplicateItemThatOmitsAnotherItem_ThrowsBeforeInspectionMutation()
     {
-        var (service, store, request) = CreateSutWithRequestedReturn();
+        var (service, store, request, _) = CreateSutWithRequestedReturn();
         var secondItem = AddSecondItem(store);
         await service.ReviewAsync(
             request.PublicId,
@@ -366,7 +403,7 @@ public sealed class AdminReturnServiceTests
 
     private static async Task<(AdminReturnService Service, FakeReturnStore Store, ReturnRequest Request)> CreateSutWithAwaitingShipmentReturnAsync()
     {
-        var (service, store, request) = CreateSutWithRequestedReturn();
+        var (service, store, request, _) = CreateSutWithRequestedReturn();
         await service.ReviewAsync(
             request.PublicId, "admin-1",
             Approve(true, [new ApproveReturnItemLine(store.Items[0].PublicId, 1, true)], "eligible", null, request.RowVersion),
@@ -509,4 +546,105 @@ public sealed class AdminReturnServiceTests
 
         Assert.Single(store.ShipmentEvents);
     }
+    [Fact]
+    public async Task ReviewAsync_Approve_WithoutInspectionRequired_StagesTheRefundWithTheJustCapturedSnapshot()
+    {
+        // 直接落在 AwaitingRefund 的核准必須在同一筆交易裡建立退款（alex 2026-09-03 #98 A2）。
+        // 這一層看得到的「同一筆交易」就是「SaveTransitionAsync 之前呼叫過埠」，
+        // 真正的原子性由 ReturnRefundCreationTests 在 SQL Server 上證明。
+        var (service, store, request, refunds) = CreateSutWithRequestedReturn();
+        var approval = Approve(
+            true, [new ApproveReturnItemLine(store.Items[0].PublicId, 1, InspectionRequired: false)], "goodwill", null, request.RowVersion,
+            AssemblyFeeDisposition.AssemblyFault, 120m);
+
+        await service.ReviewAsync(request.PublicId, "admin-1", approval, CancellationToken.None);
+
+        var command = Assert.Single(refunds.Calls);
+        Assert.Equal(request.PublicId, command.ReturnPublicId);
+        Assert.Equal("admin-1", command.AdminUserId);
+        Assert.Equal(request.ReasonCode, command.ReasonCode);
+
+        // 可信的三項必須是這次核准剛剛驗證下來的值。實作不能自己回頭讀資料庫 ——
+        // 此刻 CaptureRefundTrustedInputs 只改了記憶體中的實體，SaveChanges 還沒發生。
+        Assert.Equal(AssemblyFeeDisposition.AssemblyFault, command.AssemblyFeeDisposition);
+        Assert.Equal(120m, command.ReturnShippingCost);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_Approve_WithInspectionRequired_DoesNotStageARefundYet()
+    {
+        // 需要寄回檢查的核准只到 AwaitingShipment。這時候建立退款會讓一張還沒收到貨、
+        // 還沒檢查的退貨先佔住可退款餘額。
+        var (service, store, request, refunds) = CreateSutWithRequestedReturn();
+        var approval = Approve(
+            true, [new ApproveReturnItemLine(store.Items[0].PublicId, 1, InspectionRequired: true)], "eligible", null, request.RowVersion);
+
+        await service.ReviewAsync(request.PublicId, "admin-1", approval, CancellationToken.None);
+
+        Assert.Empty(refunds.Calls);
+    }
+
+    [Fact]
+    public async Task ReviewAsync_Approve_WithoutInspectionRequired_ZeroNetRefund_SkipsAwaitingRefundAndCompletes()
+    {
+        // #99 A1 裁定：淨額 <= 0 時不得經過 AwaitingRefund（那條邊必須同一交易建立
+        // 唯一的 PendingReview Refund，零淨額沒有 Refund）。核准直接落在 Completed，
+        // 歷史用獨立原因碼 zero-net-refund 讓稽核區分於正常退款成功結案。
+        var (service, store, request, refunds) = CreateSutWithRequestedReturn();
+        refunds.NextCallHasNoRefundDue = true;
+        var approval = Approve(
+            true, [new ApproveReturnItemLine(store.Items[0].PublicId, 1, InspectionRequired: false)], "goodwill", null, request.RowVersion,
+            AssemblyFeeDisposition.NotApplicable, 0m);
+
+        var dto = await service.ReviewAsync(request.PublicId, "admin-1", approval, CancellationToken.None);
+
+        Assert.Equal(ReturnRequestStatus.Completed, dto.Status);
+        Assert.DoesNotContain(store.Histories, h => h.ToStatus == ReturnRequestStatus.AwaitingRefund);
+        Assert.Collection(
+            store.Histories,
+            h => AssertHistory(h, ReturnRequestStatus.Requested, ReturnRequestStatus.UnderReview, "admin-1"),
+            h => AssertHistory(h, ReturnRequestStatus.UnderReview, ReturnRequestStatus.Approved, "admin-1"),
+            h =>
+            {
+                AssertHistory(h, ReturnRequestStatus.Approved, ReturnRequestStatus.Completed, "admin-1");
+                Assert.Equal("zero-net-refund", h.ReasonCode);
+            });
+    }
+
+    [Fact]
+    public async Task ReviewAsync_Reject_DoesNotStageARefund()
+    {
+        var (service, store, request, refunds) = CreateSutWithRequestedReturn();
+        var rejection = Approve(
+            false, [new ApproveReturnItemLine(store.Items[0].PublicId, 1, InspectionRequired: false)], "not-eligible", null, request.RowVersion);
+
+        await service.ReviewAsync(request.PublicId, "admin-1", rejection, CancellationToken.None);
+
+        Assert.Empty(refunds.Calls);
+    }
+
+    /// <summary>記下退款建立埠被呼叫的時機與參數。</summary>
+    /// <remarks>
+    /// 退貨核准要在<b>同一筆交易</b>裡建立退款，而這一層看得到的「同一筆交易」就是
+    /// 「SaveTransitionAsync 之前已經呼叫過」。實際的原子性由 SQL 層的測試證明。
+    /// </remarks>
+    private sealed class RecordingRefundCreationPort : IReturnRefundCreationPort
+    {
+        public List<ReturnRefundCreationCommand> Calls { get; } = [];
+
+        /// <summary>預設回有建立退款；設 true 讓下一次呼叫改回 NoRefundDue。</summary>
+        public bool NextCallHasNoRefundDue { get; set; }
+
+        public Task<ReturnRefundCreationOutcome> StagePendingRefundAsync(
+            ReturnRefundCreationCommand command,
+            CancellationToken cancellationToken)
+        {
+            Calls.Add(command);
+            ReturnRefundCreationOutcome outcome = NextCallHasNoRefundDue
+                ? new ReturnRefundCreationOutcome.NoRefundDue()
+                : new ReturnRefundCreationOutcome.PendingRefundStaged();
+            return Task.FromResult(outcome);
+        }
+    }
+
 }

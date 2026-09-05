@@ -249,6 +249,9 @@ public sealed class EfProductDetailService : IProductDetailService
 
         balances.TryGetValue(defaultSku.Id, out var defaultBalance);
         activeSalePrices.TryGetValue(defaultSku.Id, out var defaultSalePrice);
+        // SH-06 公開路由已定版（ProductMediaController）：只投影 Published 的圖，URL 帶各衍生圖
+        // 自己的內容雜湊。
+        var gallery = await ProductImageProjection.LoadPublishedGalleryAsync(_dbContext, product.Id, cancellationToken);
 
         return new ProductDetailDto(
             product.PublicId,
@@ -260,14 +263,11 @@ public sealed class EfProductDetailService : IProductDetailService
             new ProductCategoryRef(category.Code, categoryName),
             new ProductPrice(defaultSku.ListPrice, defaultSalePrice?.Price, "TWD"),
             ResolveAvailability(defaultBalance),
-            // Public image URLs depend on the shared file/image service (SH-06),
-            // which is not available yet; deferred to a follow-up slice.
-            null,
+            gallery.Primary,
             product.IsFeatured ? ["featured"] : Array.Empty<string>(),
             description,
             tags.Select(tag => new TagRef(tag.Code, tag.NameZhTw)).ToList(),
-            // Same SH-06 dependency as PrimaryImage above.
-            [],
+            gallery.Images,
             skuDtos,
             specificationGroups,
             // Cross-checking against ShippingProviderProfile/PackageLimitVersion package

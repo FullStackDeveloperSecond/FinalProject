@@ -2,10 +2,15 @@
 import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
 import { computed, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import CartLineItem from '../features/cart/components/CartLineItem.vue'
+import ShippingOptionList from '../features/shipping/components/ShippingOptionList.vue'
+import { useShippingOptions } from '../features/shipping/useShipping'
 import {
+  useApplyCartCoupon,
   useCart,
   useReloadCart,
+  useRemoveCartCoupon,
   useRemoveCartAssemblyGroup,
   useRemoveCartItem,
   useRevalidateCart,
@@ -15,6 +20,7 @@ import { useSessionStore } from '../stores/session'
 import type { CartItemDto, CartIssueDto } from '../features/cart/types'
 
 const sessionStore = useSessionStore()
+const router = useRouter()
 
 // 組長 PR #29 review: bare issue codes ("cart_item_requires_attention") aren't something a
 // shopper can act on — CartWarningDto already carries a backend-authored human message, but
@@ -151,11 +157,21 @@ const revalidateError = ref<unknown>(null)
 const validatedForRowVersion = ref<string | null>(null)
 
 const canCheckout = computed(() => {
-  if (!cart.value || revalidate.isPending.value || revalidateError.value) {
+  // isMutating 也算：套券還在飛的時候進結帳，結帳頁會拿到套券前的購物車，
+  // 而使用者以為折扣已經生效。（isMutating 宣告在下方，computed 惰性求值。）
+  if (!cart.value || revalidate.isPending.value || revalidateError.value || isMutating.value) {
     return false
   }
   return validatedForRowVersion.value === cart.value.rowVersion && isCheckoutReady.value
 })
+
+function goToCheckout(): void {
+  // 本來就有的防禦性檢查；canCheckout 現在也含 isMutating，所以套券還在飛的時候
+  // 就算有人繞過 disabled 的按鈕呼叫它，也不會進到結帳頁。
+  if (canCheckout.value) {
+    void router.push({ name: 'checkout' })
+  }
+}
 
 // PR #29 review round 2: runRevalidate used to be fired-and-forgotten from onMounted and every
 // mutation's onSuccess with no lifecycle management — overlapping calls could resolve out of
@@ -307,8 +323,24 @@ async function onRemoveAssemblyGroup(assemblyGroupKey: string): Promise<void> {
   }
 }
 
+const applyCoupon = useApplyCartCoupon()
+const removeCoupon = useRemoveCartCoupon()
+const couponCodeInput = ref('')
+const couponError = ref<string>()
+
+/**
+ * 所有會改變購物車的操作共用同一個閘門。
+ *
+ * 套券也算 —— 它回傳的是完整的 <c>CartDto</c> 並寫進同一個快取鍵。套券還在飛的時候
+ * 讓使用者改品項或重驗，倒序抵達的舊購物車就會覆蓋較新的那一份；直接結帳則會在
+ * 套券結果落地前開始。
+ */
 const isMutating = computed(() =>
-  updateQuantity.isPending.value || removeItem.isPending.value || removeAssemblyGroup.isPending.value)
+  updateQuantity.isPending.value
+  || removeItem.isPending.value
+  || removeAssemblyGroup.isPending.value
+  || applyCoupon.isPending.value
+  || removeCoupon.isPending.value)
 const isBusy = computed(() => isMutating.value || revalidate.isPending.value || isRecoveringFromConflict.value)
 
 function formatTwd(amount: number | string): string {
@@ -319,6 +351,90 @@ function formatTwd(amount: number | string): string {
 // can't be clicked to simulate a trigger arriving mid-revalidate — the DOM itself suppresses
 // click on disabled controls, which is also exactly the real UI guard this relies on).
 defineExpose({ runRevalidate })
+
+/**
+ * C-13 的「Shipping Options」：購物車頁預覽可用的配送方式與運費，讓顧客在進結帳前就知道超取能不能
+ * 用、為什麼不能用（購物車、訂單、付款與物流.md：「只能選擇宅配並顯示原因」）。這裡只是預覽，
+ * 選擇配送方式是結帳頁的事，所以不傳 selectable。
+ *
+ * 只在購物車有商品時查：空車問後端要配送選項沒有意義，而且後端會對空車回一組全部不可用的選項，
+ * 顯示出來只會讓顧客困惑。
+ */
+const hasCartItems = computed(() => (cart.value?.items.length ?? 0) > 0)
+const {
+  data: shippingOptions,
+  isPending: isShippingPending,
+  isError: isShippingError,
+  refetch: refetchShipping,
+} = useShippingOptions(
+  hasCartItems,
+  computed(() => cart.value?.rowVersion),
+  // Coupon quote 是無狀態的，套券不會改變 RowVersion —— 不把代碼一起送進 query key，
+  // 套券後 shipping 查詢不會重跑，免運券就會出現「已套用卻仍顯示原運費」。
+  computed(() => cart.value?.coupon?.code),
+)
+
+
+/**
+ * 套用優惠碼。
+ *
+ * 折扣一律由伺服器算 —— 這裡只把代碼與目前的購物車版本送出去，成功後整個
+ * `CartDto` 被換掉，金額欄位也跟著更新。前端不自己扣任何金額。
+ */
+async function submitCoupon(): Promise<void> {
+  const code = couponCodeInput.value.trim()
+  // 防禦性檢查：不只依賴 disabled 的按鈕。任何繞過 UI 的呼叫（測試、未來的鍵盤
+  // 捷徑）都不該在另一個購物車操作還在飛的時候送出。
+  if (code === '' || !cart.value || isBusy.value) {
+    return
+  }
+
+  couponError.value = undefined
+  try {
+    await applyCoupon.mutateAsync({ code, cartRowVersion: cart.value.rowVersion })
+    couponCodeInput.value = ''
+  }
+  catch (error) {
+    couponError.value = describeCouponError(error)
+  }
+}
+
+async function clearCoupon(): Promise<void> {
+  if (isBusy.value) {
+    return
+  }
+
+  couponError.value = undefined
+  try {
+    await removeCoupon.mutateAsync()
+  }
+  catch (error) {
+    couponError.value = describeCouponError(error)
+  }
+}
+
+/** 錯誤碼照 `API Endpoint目錄` UC-COUPON-01 的三個，其餘落到通用訊息。 */
+function describeCouponError(error: unknown): string {
+  if (!isApiError(error)) {
+    return '套用優惠碼時發生問題，請稍後再試。'
+  }
+
+  switch (error.code) {
+    case 'coupon_not_applicable':
+      return '這張優惠券不適用於目前的購物車內容。'
+    case 'coupon_usage_exhausted':
+      return '這張優惠券的可用次數已用完。'
+    case 'coupon_not_active':
+      return '這張優惠券目前不在可使用的期間。'
+    case 'coupon_invalid':
+      return '找不到這個優惠碼，請確認後再試。'
+    case 'cart_version_conflict':
+    case 'concurrency_conflict':
+      return '購物車剛剛有變動，請重新整理後再套用。'
+    default:
+      return '套用優惠碼時發生問題，請稍後再試。'
+  }
+}
 </script>
 
 <template>
@@ -475,6 +591,88 @@ defineExpose({ runRevalidate })
         </li>
       </ul>
 
+      <section
+        v-if="hasCartItems"
+        class="cart-page__shipping"
+        aria-labelledby="cart-shipping-title"
+      >
+        <h2 id="cart-shipping-title">
+          配送方式
+        </h2>
+        <LoadingState
+          v-if="isShippingPending"
+          label="配送方式載入中"
+        />
+        <p
+          v-else-if="isShippingError"
+          class="cart-page__shipping-error"
+        >
+          配送方式暫時無法載入。
+          <button
+            type="button"
+            @click="refetchShipping()"
+          >
+            重試
+          </button>
+        </p>
+        <template v-else-if="shippingOptions">
+          <ShippingOptionList :options="shippingOptions.options" />
+          <p class="cart-page__shipping-note">
+            運費以結帳時的最終計算為準；配送方式在結帳頁選擇。
+          </p>
+        </template>
+      </section>
+
+      <section
+        class="cart-page__coupon"
+        aria-labelledby="cart-coupon-title"
+      >
+        <h2 id="cart-coupon-title">
+          優惠碼
+        </h2>
+
+        <template v-if="cart.coupon">
+          <p>
+            已套用：{{ cart.coupon.code }}
+            （折抵 {{ formatTwd(cart.amounts.couponDiscount) }}）
+          </p>
+          <button
+            type="button"
+            :disabled="isBusy"
+            @click="clearCoupon"
+          >
+            {{ removeCoupon.isPending.value ? '移除中…' : '移除優惠碼' }}
+          </button>
+        </template>
+
+        <form
+          v-else
+          @submit.prevent="submitCoupon"
+        >
+          <label for="cart-coupon-code">優惠碼</label>
+          <input
+            id="cart-coupon-code"
+            v-model="couponCodeInput"
+            type="text"
+            maxlength="64"
+          >
+          <button
+            type="submit"
+            :disabled="couponCodeInput.trim() === '' || isBusy"
+          >
+            {{ applyCoupon.isPending.value ? '套用中…' : '套用' }}
+          </button>
+        </form>
+
+        <p
+          v-if="couponError"
+          class="cart-page__coupon-error"
+          role="alert"
+        >
+          {{ couponError }}
+        </p>
+      </section>
+
       <div class="cart-page__summary">
         <p class="cart-page__total">
           合計：{{ formatTwd(cart.amounts.totalEstimate) }}
@@ -484,8 +682,9 @@ defineExpose({ runRevalidate })
           class="cart-page__checkout"
           :disabled="!canCheckout"
           :title="!canCheckout ? '請先完成購物車檢查才能結帳' : undefined"
+          @click="goToCheckout"
         >
-          前往結帳（開發中）
+          前往結帳
         </button>
       </div>
     </div>
@@ -574,6 +773,39 @@ defineExpose({ runRevalidate })
 }
 
 .cart-page__identity-error p {
+  margin: 0;
+}
+
+.cart-page__shipping {
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  padding: 1rem;
+}
+
+.cart-page__shipping h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+}
+
+.cart-page__shipping-note {
+  margin: 0.75rem 0 0;
+  color: #6b7280;
+  font-size: 0.8125rem;
+}
+
+.cart-page__shipping-error {
+  color: #b91c1c;
+  margin: 0;
+}
+
+.cart-page__coupon {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.cart-page__coupon-error {
+  color: #b91c1c;
   margin: 0;
 }
 

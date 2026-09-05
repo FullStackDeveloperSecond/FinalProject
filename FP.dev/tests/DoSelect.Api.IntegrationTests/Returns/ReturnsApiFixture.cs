@@ -7,6 +7,7 @@ using DoSelect.Domain.Inventory;
 using DoSelect.Domain.Invoicing;
 using DoSelect.Domain.Members;
 using DoSelect.Domain.Orders;
+using DoSelect.Domain.Payments;
 using DoSelect.Domain.Returns;
 using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Persistence;
@@ -370,6 +371,18 @@ public sealed class ReturnsApiFixture : IAsyncLifetime
         context.Orders.Add(order);
         await context.SaveChangesAsync();
         order.ApplyFulfillmentProjection(FulfillmentStatus.Delivered, nowUtc.AddDays(-10));
+        await context.SaveChangesAsync();
+
+        // 退貨核准會在同一筆交易建立待審退款，那筆退款必須掛在一筆真的付款成功的
+        // 嘗試上 —— 沒有它，Inspect／不需寄回檢查的 Approve 到 AwaitingRefund 就會回
+        // refund_state_conflict（alex 2026-09-03 #98 A2 裁定的正式建立路徑）。
+        var paymentAttempt = new PaymentAttempt(
+            Guid.CreateVersion7(), order.Id, PaymentMethod.CreditCard, order.GrandTotal,
+            "SIMULATED", $"pay-{Guid.NewGuid():N}", null, nowUtc);
+        paymentAttempt.Transition(PaymentAttemptStatus.AwaitingPayment, nowUtc);
+        paymentAttempt.Transition(PaymentAttemptStatus.Processing, nowUtc);
+        paymentAttempt.Transition(PaymentAttemptStatus.Paid, nowUtc);
+        context.PaymentAttempts.Add(paymentAttempt);
         await context.SaveChangesAsync();
 
         var catalogSuffix = Guid.NewGuid().ToString("N")[..10];

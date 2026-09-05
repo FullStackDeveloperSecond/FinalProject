@@ -1,10 +1,22 @@
 [CmdletBinding()]
 param(
-    [string] $JourneyTitle = 'a public shopper can use AI search safely when the provider is disabled'
+    [ValidateSet('customer-chromium', 'admin-chromium')]
+    [string] $Project = 'customer-chromium',
+
+    [string] $JourneyTitle
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+if ([string]::IsNullOrWhiteSpace($JourneyTitle)) {
+    $JourneyTitle = if ($Project -eq 'admin-chromium') {
+        'a seeded administrator can enroll TOTP, reject a wrong code, and sign in again'
+    }
+    else {
+        'a public shopper can use AI search safely when the provider is disabled'
+    }
+}
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $apiProject = Join-Path $projectRoot 'src\backend\DoSelect.Api'
@@ -91,6 +103,9 @@ $previousAdminPassword = $env:Seed__AdminPassword
 $previousMemberPassword = $env:Seed__MemberPassword
 $previousDataRoot = $env:E2E_STORAGE_DATA_ROOT
 $previousReuseExistingServer = $env:E2E_REUSE_EXISTING_SERVER
+$previousApiEnvironment = $env:E2E_ASPNETCORE_ENVIRONMENT
+$previousBackgroundJobsEnabled = $env:E2E_BACKGROUND_JOBS_ENABLED
+$previousSimulationEndpointsEnabled = $env:E2E_SIMULATION_ENDPOINTS_ENABLED
 
 Push-Location $projectRoot
 try {
@@ -104,6 +119,19 @@ try {
     $env:Seed__MemberPassword = 'E2e_Member_123!'
     $env:E2E_STORAGE_DATA_ROOT = $dataRoot
     $env:E2E_REUSE_EXISTING_SERVER = 'false'
+    $requiresPaymentCompletionInfrastructure =
+        $JourneyTitle -eq 'a guest completes the prepared cart through checkout payment and invoice' -or
+        $JourneyTitle -eq 'a seeded administrator can enroll TOTP, reject a wrong code, and sign in again' -or
+        $JourneyTitle -eq 'H-R02 fulfills COD home delivery and store pickup exactly once'
+    $env:E2E_ASPNETCORE_ENVIRONMENT = 'E2E'
+    if ($requiresPaymentCompletionInfrastructure) {
+        $env:E2E_BACKGROUND_JOBS_ENABLED = 'true'
+        $env:E2E_SIMULATION_ENDPOINTS_ENABLED = 'true'
+    }
+    else {
+        $env:E2E_BACKGROUND_JOBS_ENABLED = 'false'
+        $env:E2E_SIMULATION_ENDPOINTS_ENABLED = 'false'
+    }
 
     Write-Host "Preparing isolated E2E database '$databaseName'."
     & dotnet tool run dotnet-ef -- database update `
@@ -126,9 +154,9 @@ try {
 
     Push-Location $customerWeb
     try {
-        & npm run test:e2e -- --project customer-chromium --grep $JourneyTitle
+        & npm run test:e2e -- --project $Project --grep $JourneyTitle
         if ($LASTEXITCODE -ne 0) {
-            throw "Customer E2E journey '$JourneyTitle' failed."
+            throw "E2E journey '$JourneyTitle' in project '$Project' failed."
         }
     }
     finally {
@@ -157,6 +185,9 @@ finally {
         $env:Seed__MemberPassword = $previousMemberPassword
         $env:E2E_STORAGE_DATA_ROOT = $previousDataRoot
         $env:E2E_REUSE_EXISTING_SERVER = $previousReuseExistingServer
+        $env:E2E_ASPNETCORE_ENVIRONMENT = $previousApiEnvironment
+        $env:E2E_BACKGROUND_JOBS_ENABLED = $previousBackgroundJobsEnabled
+        $env:E2E_SIMULATION_ENDPOINTS_ENABLED = $previousSimulationEndpointsEnabled
         Pop-Location
     }
 }

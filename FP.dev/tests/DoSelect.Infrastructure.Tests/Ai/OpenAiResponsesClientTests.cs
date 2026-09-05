@@ -108,6 +108,8 @@ public sealed class OpenAiResponsesClientTests
         Assert.Equal(AiSupportModelAnswerStatus.Unavailable, result.Status);
         Assert.Null(result.Answer);
         Assert.Empty(result.Citations);
+        Assert.Equal(256, result.Usage?.InputTokens);
+        Assert.Equal(84, result.Usage?.OutputTokens);
         Assert.Equal(2, handler.CallCount);
     }
 
@@ -192,6 +194,9 @@ public sealed class OpenAiResponsesClientTests
 
         Assert.Equal(AiSupportModelAnswerStatus.Unavailable, result.Status);
         Assert.Null(result.Answer);
+        Assert.Equal("gpt-5.6-terra-2026-08-01", result.Usage?.Model);
+        Assert.Equal(128, result.Usage?.InputTokens);
+        Assert.Equal(42, result.Usage?.OutputTokens);
         Assert.Equal(1, handler.CallCount);
     }
 

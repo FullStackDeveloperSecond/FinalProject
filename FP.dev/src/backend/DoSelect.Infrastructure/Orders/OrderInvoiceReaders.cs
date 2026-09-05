@@ -54,6 +54,7 @@ public sealed class OrderInvoiceIssuanceReader : IOrderInvoiceIssuanceReader
                 candidate.InvoiceCarrierValueMasked,
                 candidate.InvoiceCompanyTaxId,
                 candidate.InvoiceCompanyName,
+                candidate.RowVersion,
             })
             .SingleOrDefaultAsync(cancellationToken);
 
@@ -121,7 +122,29 @@ public sealed class OrderInvoiceIssuanceReader : IOrderInvoiceIssuanceReader
             order.InvoiceCarrierValueMasked,
             order.InvoiceCompanyTaxId,
             order.InvoiceCompanyName,
+            order.RowVersion,
             lines);
+    }
+
+    public Task<InvoiceIssuanceOrderSummary?> FindAdminSummaryAsync(
+        Guid orderPublicId,
+        CancellationToken cancellationToken = default)
+    {
+        if (orderPublicId == Guid.Empty)
+        {
+            return Task.FromResult<InvoiceIssuanceOrderSummary?>(null);
+        }
+
+        return _context.Orders.AsNoTracking()
+            .Where(order => order.PublicId == orderPublicId)
+            .Select(order => new InvoiceIssuanceOrderSummary(
+                order.Id,
+                order.PublicId,
+                order.OrderNumber,
+                order.OrderStatus == OrderStatus.Cancelled,
+                order.PaymentStatus == PaymentStatus.Paid,
+                order.RowVersion))
+            .SingleOrDefaultAsync(cancellationToken);
     }
 
     /// <remarks>
@@ -200,6 +223,24 @@ public sealed class OrderInvoiceReferenceReader : IOrderInvoiceReferenceReader
         return rows.ToDictionary(row => row.OrderId);
     }
 
+    public async Task<IReadOnlyDictionary<long, Guid>> FindItemPublicIdsAsync(
+        IReadOnlyCollection<long> orderItemIds,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(orderItemIds);
+
+        var wanted = orderItemIds.Where(id => id > 0).Distinct().ToArray();
+        if (wanted.Length == 0)
+        {
+            return new Dictionary<long, Guid>();
+        }
+
+        return await _context.OrderItems.AsNoTracking()
+            .Where(item => wanted.Contains(item.Id))
+            .Select(item => new { item.Id, item.PublicId })
+            .ToDictionaryAsync(item => item.Id, item => item.PublicId, cancellationToken);
+    }
+
     private static IQueryable<OrderInvoiceReference> Project(IQueryable<Order> orders) =>
         orders.Select(order => new OrderInvoiceReference(
             order.Id,
@@ -207,4 +248,23 @@ public sealed class OrderInvoiceReferenceReader : IOrderInvoiceReferenceReader
             order.OrderNumber,
             order.MemberUserId,
             order.GuestEmailNormalized));
+}
+
+public sealed class OrderInvoiceVoidReader : IOrderInvoiceVoidReader
+{
+    private readonly DoSelectDbContext _context;
+
+    public OrderInvoiceVoidReader(DoSelectDbContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        _context = context;
+    }
+
+    public Task<InvoiceVoidOrderSnapshot?> FindVoidSnapshotAsync(
+        long orderId,
+        CancellationToken cancellationToken = default) =>
+        _context.Orders.AsNoTracking()
+            .Where(order => order.Id == orderId)
+            .Select(order => new InvoiceVoidOrderSnapshot(order.OrderStatus == OrderStatus.Cancelled))
+            .SingleOrDefaultAsync(cancellationToken);
 }

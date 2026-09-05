@@ -6,7 +6,14 @@ namespace DoSelect.Application.Auditing;
 public static class AuditActions
 {
     public const string RefundExecute = "refund.execute";
+    public const string RefundApprove = "refund.approve";
+    /// <summary>核准時依可信快照重算後已無款可退，終止為 Cancelled（alex 2026-09-04
+    /// #103 裁定，延續 #99 A1）。獨立於 <see cref="RefundApprove"/>，讓稽核查詢能把
+    /// 「正常核准」與「核准時被系統終止」分開。</summary>
+    public const string RefundApprovalCancelled = "refund.approval_cancelled";
     public const string InvoiceAllowanceCreate = "invoice.allowance.create";
+    public const string InvoiceIssue = "invoice.issue";
+    public const string InvoiceVoid = "invoice.void";
     public const string PersonalDataView = "personal_data.view";
     public const string MemberSuspend = "member.suspend";
     public const string MemberRestore = "member.restore";
@@ -19,6 +26,10 @@ public static class AuditActions
     public const string CouponPause = "coupon.pause";
     public const string CouponDisable = "coupon.disable";
     public const string OrderCancel = "order.cancel";
+    public const string OrderRecipientView = "order.recipient_view";
+    // alex PR #47 review round 2: startProcessing is a significant order-status action but
+    // previously only wrote per-dimension OrderStatusHistory rows, with no central AuditLog entry.
+    public const string OrderStartProcessing = "order.start_processing";
     public const string ProductReviewApprove = "product_review.approve";
     public const string ProductReviewReject = "product_review.reject";
     public const string ProductReviewHide = "product_review.hide";
@@ -53,12 +64,80 @@ public static class AuditActions
     public const string CompatibilityRuleActivationUpdate = "compatibility_rule.activation.update";
     public const string CompatibilityRuleTest = "compatibility_rule.test";
     public const string OutboxRetry = "outbox.retry";
+    public const string PaymentSimulateComplete = "payment.simulate.complete";
+
+    /// <summary>
+    /// UC-ADM-SHIP-01／UC-ADM-STORE-01 (組長 PR #73 review item 2): package-limit and demo-store
+    /// admin writes must land a central AuditLog entry in the same SQL transaction as the write
+    /// itself. Free-text store names/addresses never enter the safe-code fields — updates record
+    /// which fields changed (AuditFieldChange.Changed), the coupon.update precedent.
+    /// </summary>
+    public const string ShippingPackageLimitCreate = "shipping.package_limit.create";
+    public const string ShippingPackageLimitPublish = "shipping.package_limit.publish";
+    /// <summary>
+    /// UC-ADM-SHIP-02 批次出貨（組長 PR #93 裁定 B1）。兩個動作分開記：印單與實際出貨對庫存的
+    /// 影響完全不同，混成一個代碼就查不出「貨到底離開倉庫了沒有」。
+    /// </summary>
+    public const string ShipmentCreateLabel = "shipment.create_label";
+    public const string ShipmentMarkShipped = "shipment.mark_shipped";
+
+    /// <summary>
+    /// M-11 物流狀態命令（組長 2026-09-04 裁定 D1）：Resource 維持 Order，記真實前後狀態；進入
+    /// Delivered／PickedUp 完成 COD 時另記 PaymentStatus／OrderStatus 的實際變更；Note 只留在管理端 Audit。
+    /// </summary>
+    public const string ShipmentMarkInTransit = "shipment.mark_in_transit";
+    public const string ShipmentMarkDelivered = "shipment.mark_delivered";
+    public const string ShipmentMarkPickupReady = "shipment.mark_pickup_ready";
+    public const string ShipmentMarkPickedUp = "shipment.mark_picked_up";
+    public const string ShipmentMarkDeliveryFailed = "shipment.mark_delivery_failed";
+    public const string ShipmentMarkReturned = "shipment.mark_returned";
+    public const string ShippingStoreCreate = "shipping.store.create";
+    public const string ShippingStoreUpdate = "shipping.store.update";
+    /// UC-IMPORT-01 商品匯入確認 (匯入暫存與庫存調整設計.md step 6): a successful confirm writes the
+    /// central AuditLog in the same transaction as the catalog writes. Only safe-code counters and
+    /// the status transition are recorded; file names/hashes stay on the ImportBatch row itself.
+    /// </summary>
+    public const string CatalogImportConfirm = "catalog_import.confirm";
+
+    /// <summary>UC-ADM-PROD-02 批次上架／下架／調價。每個受影響的商品各留一列，稽核才查得到
+    /// 「這個商品是被哪一次批次動作改的」，而不是只知道有人做過一次批次。</summary>
+    public const string ProductBulkPublish = "product.bulk_publish";
+    public const string ProductBulkUnpublish = "product.bulk_unpublish";
+    public const string ProductBulkAdjustPrice = "product.bulk_adjust_price";
+
+    /// <summary>M-03 商品圖片後台四個動作（組長 PR #101 裁定 B）。Resource 是圖片本身，商品識別放在欄位裡。</summary>
+    public const string ProductImageUpload = "product_image.upload";
+    public const string ProductImageUpdate = "product_image.update";
+    public const string ProductImagePublish = "product_image.publish";
+    public const string ProductImageDelete = "product_image.delete";
+
+    /// <summary>UC-ADM-INV-01 匯入確認：整批庫存調整寫入後留一筆稽核。</summary>
+    public const string InventoryImportConfirm = "inventory_import.confirm";
+
+    /// <summary>
+    /// UC-ADM-INV-01 人工釋放一筆 Active 保留。驗收規格要求釋放成功要「保存 InventoryMovement 與
+    /// Audit Log」：Movement 記數量，這一筆記的是誰、為什麼（reasonCode＋自由文字 note）、從哪個
+    /// 狀態釋放、影響哪張訂單與哪個 SKU。與 Movement 同一次 SaveChanges 落地。
+    /// </summary>
+    public const string InventoryReservationRelease = "inventory_reservation.release";
+    /// UC-ADM-INV-01 對帳：把案件以「核對基準錯誤」結案，不動 Balance、不建 Movement。稽核是唯一
+    /// 記下誰、用哪個 reasonCode、寫了什麼說明的地方（組長對帳裁定 E1）。與案件狀態同一次 SaveChanges。
+    /// </summary>
+    public const string InventoryReconciliationDismiss = "inventory_reconciliation.dismiss";
+
+    /// <summary>
+    /// UC-ADM-INV-01 對帳：以帳本重算值修正 Balance（高風險的人工庫存調整）。記 OnHand／Reserved 的
+    /// Expected→Actual 與零差額 Adjustment Movement 的 PublicId；與案件狀態同一次 SaveChanges，
+    /// 並與 Balance／Movement 同一個 SQL transaction（裁定 F1）。
+    /// </summary>
+    public const string InventoryReconciliationResolve = "inventory_reconciliation.resolve";
 }
 
 public static class AuditResourceTypes
 {
     public const string Refund = "Refund";
     public const string SimulatedInvoiceAllowance = "SimulatedInvoiceAllowance";
+    public const string SimulatedInvoice = "SimulatedInvoice";
     public const string Member = "Member";
     public const string AuditLog = "AuditLog";
     public const string AdminAccount = "AdminAccount";
@@ -69,6 +148,14 @@ public static class AuditResourceTypes
     public const string CompatibilityRuleSetting = "CompatibilityRuleSetting";
     public const string CompatibilityCheckRun = "CompatibilityCheckRun";
     public const string OutboxMessage = "OutboxMessage";
+    public const string PaymentAttempt = "PaymentAttempt";
+    public const string PackageLimitVersion = "PackageLimitVersion";
+    public const string ConvenienceStore = "ConvenienceStore";
+    public const string ImportBatch = "ImportBatch";
+    public const string Product = "Product";
+    public const string InventoryReservation = "InventoryReservation";
+    public const string ProductImage = "ProductImage";
+    public const string InventoryReconciliationCase = "InventoryReconciliationCase";
 }
 
 public static class AuditRoleNames
@@ -388,6 +475,14 @@ public sealed class AuditWriteRequest
     /// internal 而非 private：呼叫端要在進交易前用同一份規則驗證，否則不合規的 note
     /// 會在稽核建構時丟例外並變成 500。規則本身未變動。
     /// </summary>
+    /// <summary>
+    /// 讓寫入端在第一個資料寫入之前，用<b>同一份</b>中央 note 規則（1000 字上限、`@ &lt; &gt; &amp; \ " '`
+    /// 與控制字元、敏感詞）先驗過管理員輸入，把不合規的輸入翻成 <c>validation_failed</c>，而不是等到
+    /// <see cref="Create"/> 在交易裡丟 <see cref="ArgumentException"/> 變成 500（組長 PR #106 P2）。
+    /// 回傳 trim 後的 note；空白回 null。
+    /// </summary>
+    public static string? ValidateNote(string? note) => RequireSafeNote(note, allowsNote: true);
+
     internal static string? RequireSafeNote(string? note, bool allowsNote)
     {
         if (string.IsNullOrWhiteSpace(note))
@@ -467,14 +562,79 @@ internal static class AuditWritePolicy
     private static readonly IReadOnlyDictionary<string, AuditActionDefinition> Definitions =
         new Dictionary<string, AuditActionDefinition>(StringComparer.Ordinal)
         {
+            [AuditActions.ShippingPackageLimitCreate] = Definition(
+                AuditActions.ShippingPackageLimitCreate,
+                AuditResourceTypes.PackageLimitVersion,
+                "providerCode", "version", "status"),
+            [AuditActions.ShippingPackageLimitPublish] = Definition(
+                AuditActions.ShippingPackageLimitPublish,
+                AuditResourceTypes.PackageLimitVersion,
+                "providerCode", "version", "status", "supersededVersion"),
+            [AuditActions.ShipmentCreateLabel] = Definition(
+                AuditActions.ShipmentCreateLabel,
+                AuditResourceTypes.Order,
+                "fulfillmentStatus", "shipmentNumber", "trackingNumber"),
+            [AuditActions.ShipmentMarkShipped] = Definition(
+                AuditActions.ShipmentMarkShipped,
+                AuditResourceTypes.Order,
+                "fulfillmentStatus", "shipmentNumber", "trackingNumber"),
+            [AuditActions.ShipmentMarkInTransit] = DefinitionWithNote(
+                AuditActions.ShipmentMarkInTransit,
+                AuditResourceTypes.Order,
+                "fulfillmentStatus", "reasonCode"),
+            [AuditActions.ShipmentMarkDelivered] = DefinitionWithNote(
+                AuditActions.ShipmentMarkDelivered,
+                AuditResourceTypes.Order,
+                "fulfillmentStatus", "reasonCode", "paymentStatus", "orderStatus"),
+            [AuditActions.ShipmentMarkPickupReady] = DefinitionWithNote(
+                AuditActions.ShipmentMarkPickupReady,
+                AuditResourceTypes.Order,
+                "fulfillmentStatus", "reasonCode"),
+            [AuditActions.ShipmentMarkPickedUp] = DefinitionWithNote(
+                AuditActions.ShipmentMarkPickedUp,
+                AuditResourceTypes.Order,
+                "fulfillmentStatus", "reasonCode", "paymentStatus", "orderStatus"),
+            [AuditActions.ShipmentMarkDeliveryFailed] = DefinitionWithNote(
+                AuditActions.ShipmentMarkDeliveryFailed,
+                AuditResourceTypes.Order,
+                "fulfillmentStatus", "reasonCode"),
+            [AuditActions.ShipmentMarkReturned] = DefinitionWithNote(
+                AuditActions.ShipmentMarkReturned,
+                AuditResourceTypes.Order,
+                "fulfillmentStatus", "reasonCode"),
+            [AuditActions.ShippingStoreCreate] = Definition(
+                AuditActions.ShippingStoreCreate,
+                AuditResourceTypes.ConvenienceStore,
+                "providerCode", "storeCode", "isActive"),
+            [AuditActions.ShippingStoreUpdate] = Definition(
+                AuditActions.ShippingStoreUpdate,
+                AuditResourceTypes.ConvenienceStore,
+                "providerCode", "storeCode", "isActive",
+                "storeName", "address", "city", "district"),
             [AuditActions.RefundExecute] = DefinitionWithNote(
                 AuditActions.RefundExecute,
                 AuditResourceTypes.Refund,
                 "status", "succeededAmount", "allocationCount"),
+            [AuditActions.RefundApprove] = DefinitionWithNote(
+                AuditActions.RefundApprove,
+                AuditResourceTypes.Refund,
+                "status", "approvedAmount"),
+            [AuditActions.RefundApprovalCancelled] = DefinitionWithNote(
+                AuditActions.RefundApprovalCancelled,
+                AuditResourceTypes.Refund,
+                "status", "cancelReason"),
             [AuditActions.InvoiceAllowanceCreate] = Definition(
                 AuditActions.InvoiceAllowanceCreate,
                 AuditResourceTypes.SimulatedInvoiceAllowance,
                 "status", "allowanceAmount", "allowanceItemCount"),
+            [AuditActions.InvoiceIssue] = Definition(
+                AuditActions.InvoiceIssue,
+                AuditResourceTypes.SimulatedInvoice,
+                "status", "itemCount", "grossAmount"),
+            [AuditActions.InvoiceVoid] = DefinitionWithNote(
+                AuditActions.InvoiceVoid,
+                AuditResourceTypes.SimulatedInvoice,
+                "status"),
             [AuditActions.PersonalDataView] = Definition(
                 AuditActions.PersonalDataView,
                 AuditResourceTypes.Member,
@@ -546,10 +706,51 @@ internal static class AuditWritePolicy
                 AuditActions.CouponDisable,
                 AuditResourceTypes.Coupon,
                 "status"),
+            // alex PR #47 review round 2: cancelling an assembly order now also cancels
+            // AssemblyStatus/AssemblyJob rows (OrderCancellationResourceReleaser) — "assemblyStatus"
+            // must be an allowed field so the audit trail can say so when it actually happens.
             [AuditActions.OrderCancel] = DefinitionWithNote(
                 AuditActions.OrderCancel,
                 AuditResourceTypes.Order,
-                "orderStatus", "inventoryReservations", "couponRedemptions"),
+                "orderStatus", "inventoryReservations", "couponRedemptions", "assemblyStatus"),
+            [AuditActions.OrderRecipientView] = Definition(
+                AuditActions.OrderRecipientView,
+                AuditResourceTypes.Order,
+                "accessPurpose"),
+            [AuditActions.OrderStartProcessing] = DefinitionWithNote(
+                AuditActions.OrderStartProcessing,
+                AuditResourceTypes.Order,
+                "orderStatus", "fulfillmentStatus", "assemblyStatus"),
+            [AuditActions.ProductBulkPublish] = DefinitionWithNote(
+                AuditActions.ProductBulkPublish,
+                AuditResourceTypes.Product,
+                "status"),
+            [AuditActions.ProductBulkUnpublish] = DefinitionWithNote(
+                AuditActions.ProductBulkUnpublish,
+                AuditResourceTypes.Product,
+                "status"),
+            // 調價允許 note：規格要求「原因」，那是管理員自己輸入的自由文字，只有 note 欄位收得下。
+            [AuditActions.ProductBulkAdjustPrice] = DefinitionWithNote(
+                AuditActions.ProductBulkAdjustPrice,
+                AuditResourceTypes.Product,
+                "listPrice", "adjustmentMode", "adjustmentValue"),
+            // 商品圖片：只記識別、狀態、排序與「中繼資料是否完整」，URL 與檔案內容不進稽核。
+            [AuditActions.ProductImageUpload] = Definition(
+                AuditActions.ProductImageUpload,
+                AuditResourceTypes.ProductImage,
+                "productPublicId", "status", "sortOrder", "hasCompleteMetadata"),
+            [AuditActions.ProductImageUpdate] = Definition(
+                AuditActions.ProductImageUpdate,
+                AuditResourceTypes.ProductImage,
+                "productPublicId", "status", "sortOrder", "hasCompleteMetadata", "metadata"),
+            [AuditActions.ProductImagePublish] = Definition(
+                AuditActions.ProductImagePublish,
+                AuditResourceTypes.ProductImage,
+                "productPublicId", "status", "sortOrder", "hasCompleteMetadata"),
+            [AuditActions.ProductImageDelete] = Definition(
+                AuditActions.ProductImageDelete,
+                AuditResourceTypes.ProductImage,
+                "productPublicId", "status", "sortOrder"),
             [AuditActions.ProductReviewApprove] = DefinitionWithNote(
                 AuditActions.ProductReviewApprove,
                 AuditResourceTypes.ProductReview,
@@ -624,6 +825,30 @@ internal static class AuditWritePolicy
                 AuditActions.SupportTicketInternalNote,
                 AuditResourceTypes.SupportTicket,
                 "note"),
+            [AuditActions.InventoryImportConfirm] = Definition(
+                AuditActions.InventoryImportConfirm,
+                AuditResourceTypes.ImportBatch,
+                "status", "inventoryBalances"),
+            // 允許 note：手動釋放的「原因」是 reasonCode 白名單，但管理員還要留一段自由文字說明
+            // （A-12 頁的備註欄）。Movement 的 ReasonCode 欄只有 32 字，放不下它，稽核是唯一的落點。
+            [AuditActions.InventoryReservationRelease] = DefinitionWithNote(
+                AuditActions.InventoryReservationRelease,
+                AuditResourceTypes.InventoryReservation,
+                "status", "reasonCode", "orderPublicId", "skuPublicId", "quantity", "reservedQuantity"),
+            // 對帳兩個動作都允許 note：reasonCode 是白名單，管理員的說明（trim 後也存進案件的
+            // ResolutionReason）只有稽核 note 放得下。數量欄記案件偵測時的 Expected→Actual。
+            [AuditActions.InventoryReconciliationDismiss] = DefinitionWithNote(
+                AuditActions.InventoryReconciliationDismiss,
+                AuditResourceTypes.InventoryReconciliationCase,
+                "status", "reasonCode", "skuPublicId"),
+            [AuditActions.InventoryReconciliationResolve] = DefinitionWithNote(
+                AuditActions.InventoryReconciliationResolve,
+                AuditResourceTypes.InventoryReconciliationCase,
+                "status", "reasonCode", "skuPublicId", "onHandQuantity", "reservedQuantity", "resolutionMovementPublicId"),
+            [AuditActions.CatalogImportConfirm] = Definition(
+                AuditActions.CatalogImportConfirm,
+                AuditResourceTypes.ImportBatch,
+                "status", "templateVersion", "rowCount", "newCount", "updatedCount", "unchangedCount"),
             [AuditActions.CompatibilityRuleWarningSettingUpdate] = Definition(
                 AuditActions.CompatibilityRuleWarningSettingUpdate,
                 AuditResourceTypes.CompatibilityRuleSetting,
@@ -640,6 +865,10 @@ internal static class AuditWritePolicy
                 AuditActions.OutboxRetry,
                 AuditResourceTypes.OutboxMessage,
                 "status"),
+            [AuditActions.PaymentSimulateComplete] = Definition(
+                AuditActions.PaymentSimulateComplete,
+                AuditResourceTypes.PaymentAttempt,
+                "attemptStatus", "paymentStatus", "orderStatus", "paymentEvent", "notification"),
         };
 
     public static AuditActionDefinition RequireDefinition(string action)

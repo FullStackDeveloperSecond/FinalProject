@@ -81,6 +81,24 @@ describe('customer router authentication guard', () => {
     expect(router.currentRoute.value.name).toBe('build-lists')
   })
 
+  it.each([
+    ['/account', 'account-profile'],
+    ['/account/addresses', 'account-addresses'],
+  ])('protects %s and allows an authenticated member to open it', async (path, expectedName) => {
+    const session = useSessionStore()
+    session.status = 'anonymous'
+
+    await router.push(path)
+
+    expect(router.currentRoute.value.name).toBe('login')
+    expect(router.currentRoute.value.query.redirect).toBe(path)
+
+    session.status = 'authenticated'
+    await router.push(path)
+
+    expect(router.currentRoute.value.name).toBe(expectedName)
+  })
+
   it('redirects an anonymous visitor from a build detail page to login and preserves the destination', async () => {
     const session = useSessionStore()
     session.status = 'anonymous'

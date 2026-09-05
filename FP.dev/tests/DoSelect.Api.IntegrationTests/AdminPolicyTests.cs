@@ -16,6 +16,9 @@ public sealed class AdminPolicyTests(WebApplicationFactory<Program> factory)
     [Theory]
     [InlineData(DoSelectPolicies.InvoiceManage)]
     [InlineData(DoSelectPolicies.CouponManage)]
+    [InlineData(DoSelectPolicies.CatalogImageManage)]
+    [InlineData(DoSelectPolicies.CatalogImageViewDraft)]
+    [InlineData(DoSelectPolicies.CatalogImagePublish)]
     public async Task TheManagementPoliciesAreRegistered(string policyName) =>
         Assert.NotNull(await GetPolicyAsync(policyName));
 

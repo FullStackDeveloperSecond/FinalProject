@@ -64,6 +64,8 @@ public static class DoSelectPolicies
     public const string OperationalReportFinanceView = "OperationalReport.FinanceView";
     public const string Admin = "Admin";
     public const string CatalogManager = "CatalogManager";
+    public const string InventoryManager = "InventoryManager";
+    public const string OrderManage = "Order.Manage";
     public const string ReturnApprove = "Return.Approve";
     public const string RefundExecute = "Refund.Execute";
     public const string InvoiceManage = "Invoice.Manage";
@@ -83,4 +85,25 @@ public static class DoSelectPolicies
     public const string CompatibilityRuleManageActivation = "CompatibilityRule.ManageActivation";
     public const string CompatibilityRuleTest = "CompatibilityRule.Test";
     public const string OutboxRetry = "Outbox.Retry";
+    public const string ShippingManage = "Shipping.Manage";
+    public const string ShippingRead = "Shipping.Read";
+    public const string CatalogImportExecute = "CatalogImport.Execute";
+    public const string CatalogImportRead = "CatalogImport.Read";
+    public const string CatalogImportReadAll = "CatalogImport.ReadAll";
+
+    /// <summary>
+    /// M 商品圖片（檔案與圖片儲存設計.md「API 與錯誤契約」）。三個都給 CatalogManager／SuperAdmin
+    /// （角色與權限.md：「上下架、圖片核准」只有這兩個角色），名稱分開是為了讓授權矩陣以後能把
+    /// 「改中繼資料」與「核准發布」拆給不同角色而不用改路由。
+    /// </summary>
+    public const string CatalogImageManage = "CatalogImage.Manage";
+    public const string CatalogImageViewDraft = "CatalogImage.ViewDraft";
+    public const string CatalogImagePublish = "CatalogImage.Publish";
+
+    /// <summary>
+    /// UC-ADM-INV-01 匯入。名稱依匯入暫存與庫存調整設計.md 的 API 契約表用 InventoryAdjust.*，
+    /// 與 CatalogImport.* 分開：改庫存與改型錄是不同的授權，能改商品資料的人不當然能盤點庫存。
+    /// </summary>
+    public const string InventoryImportExecute = "InventoryAdjust.Execute";
+    public const string InventoryImportReadAll = "InventoryAdjust.ReadAll";
 }

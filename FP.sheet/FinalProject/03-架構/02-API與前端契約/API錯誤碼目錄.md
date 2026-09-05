@@ -118,6 +118,8 @@
 | `inventory_reservation_not_active` | 409 | 嘗試消耗或釋放非 Active 保留 |
 | `inventory_reservation_already_processed` | 409 | 保留已消耗、釋放或逾時 |
 | `inventory_import_validation_failed` | 400 | 庫存調整預覽含錯誤，整批不得提交 |
+| `inventory_reconciliation_case_not_open` | 409 | 對帳案件狀態不允許該動作：`acknowledge` 只允許 Open；`dismiss`／`resolve` 允許 Open 或 Acknowledged；其他狀態或已結案（Resolved／Dismissed）重送（含帶舊 RowVersion 重送）一律回此碼 |
+| `inventory_reconciliation_ledger_inconsistent` | 409 | 對帳 resolve 重算帳本後 Reserved > OnHand；不是重新整理／重送能修好的過期（那是 `concurrency_conflict`），案件維持未結等人工調查，零副作用 |
 | `order_state_conflict` | 409 | 目前訂單狀態不允許所要求操作 |
 | `order_total_changed` | 409 | 結帳重算後總額與使用者確認快照不同，需重新確認 |
 | `order_total_below_minimum` | 409 | 後端完成折扣、運費、組裝費與整數化後，最終應付低於 NT$1；結帳零副作用，前端提示移除優惠券或調整購物車後重新送出，不把折扣偷偷截短 |
@@ -147,6 +149,7 @@
 | `shipping_tracking_duplicate` | 409 | 物流單號已被使用 |
 | `shipping_batch_limit_exceeded` | 400 | 批次出貨超過 100 筆 |
 | `shipping_order_not_ready` | 409 | 付款、組裝、保留或狀態尚未符合出貨條件 |
+| `shipping_status_transition_invalid` | 409 | 物流狀態機不允許的轉移，或配送方式不允許的目標狀態（宅配才可 Delivered、超取才可 PickupReady／PickedUp） |
 | `package_limit_period_overlap` | 409 | 同一物流 Provider 的包裹限制版本生效期間重疊 |
 | `store_code_duplicate` | 409 | 同一 Provider 下的示範門市代碼已存在 |
 | `return_deadline_expired` | 409 | 不符合一般退貨期限且不屬例外原因 |
@@ -157,6 +160,7 @@
 | `refund_amount_exceeded` | 409 | 金額超過可退款餘額 |
 | `refund_state_conflict` | 409 | 退款交易目前狀態不允許操作 |
 | `refund_snapshot_unavailable` | 409 | 退款所需的受控退貨原因、組裝費處置或退貨運費可信快照缺漏；不得以預設值或目前設定回推 |
+| `refund_calculation_mismatch` | 409 | 後端依可信快照算出的淨退款與已核准金額不一致；不得寫入分攤或改變退款狀態 |
 
 ## 模擬發票與折讓
 

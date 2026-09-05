@@ -148,4 +148,14 @@ public sealed class PaymentEvent : PublicEntity
     public byte[] PayloadHash { get; private set; } = [];
     public string? PayloadSummaryJson { get; private set; }
     public PaymentEventProcessingStatus ProcessingStatus { get; private set; }
+
+    public void MarkProcessed()
+    {
+        if (ProcessingStatus != PaymentEventProcessingStatus.Received)
+        {
+            throw new InvalidOperationException("Only a received payment event can be processed.");
+        }
+
+        ProcessingStatus = PaymentEventProcessingStatus.Processed;
+    }
 }

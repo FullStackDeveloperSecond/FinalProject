@@ -15,15 +15,19 @@ using DoSelect.Infrastructure.Checkout;
 using DoSelect.Infrastructure.Email;
 using DoSelect.Infrastructure.Files;
 using DoSelect.Infrastructure.Idempotency;
+using DoSelect.Infrastructure.Inventory;
+using DoSelect.Infrastructure.Imports;
+using DoSelect.Infrastructure.Payments;
+using DoSelect.Infrastructure.Orders;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using DoSelect.Infrastructure.Invoicing;
-using DoSelect.Infrastructure.Orders;
 using DoSelect.Infrastructure.OperationalReports;
 using DoSelect.Infrastructure.Persistence.Orders;
 using DoSelect.Infrastructure.Persistence.Returns;
 using DoSelect.Infrastructure.Outbox;
 using DoSelect.Infrastructure.Persistence.Seeding;
+using DoSelect.Infrastructure.Shipping;
 using DoSelect.Infrastructure.Refunds;
 using DoSelect.Infrastructure.Reviews;
 using DoSelect.Infrastructure.Security;
@@ -51,11 +55,14 @@ builder.Services.AddDoSelectFileStorage();
 builder.Services.AddDoSelectSecurity(builder.Environment, builder.Configuration);
 builder.Services.AddDoSelectAdminAuth();
 builder.Services.AddDoSelectRefunds();
+builder.Services.AddDoSelectPayments();
 builder.Services.AddDoSelectReviews();
 builder.Services.AddDoSelectCatalogServices();
 builder.Services.AddDoSelectShoppingServices();
 builder.Services.AddDoSelectGuestOrderAccess(builder.Configuration);
 builder.Services.AddDoSelectCheckout();
+builder.Services.AddDoSelectAdminOrderServices();
+builder.Services.AddDoSelectImportServices();
 builder.Services.AddDoSelectApplication();
 builder.Services.AddDoSelectOrderServices();
 builder.Services.AddDoSelectOperationalReports();
@@ -64,6 +71,8 @@ builder.Services.AddDoSelectPromotions();
 builder.Services.AddDoSelectReturnsServices();
 builder.Services.AddScoped<ReturnActorResolver>();
 builder.Services.AddDoSelectBuildsServices();
+builder.Services.AddDoSelectInventory();
+builder.Services.AddDoSelectShippingServices();
 builder.Services.AddSingleton<IEmailSender>(services =>
 {
     var emailEnabled = builder.Configuration.GetValue<bool>("Features:EmailEnabled");
@@ -76,6 +85,7 @@ builder.Services.AddSingleton<IEmailDispatchQueue>(services => services.GetRequi
 builder.Services.AddHostedService<EmailDispatchBackgroundService>();
 builder.Services.AddHostedService<UnverifiedMemberCleanupBackgroundService>();
 builder.Services.AddHostedService<CompatibilityCheckRunRetentionBackgroundService>();
+builder.Services.AddHostedService<InventoryReservationExpiryBackgroundService>();
 
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSupportInfrastructure();
@@ -94,12 +104,13 @@ if (args.Contains("--seed-minimal", StringComparer.OrdinalIgnoreCase))
     var seeder = scope.ServiceProvider.GetRequiredService<MinimalDevelopmentDataSeeder>();
     var result = await seeder.SeedAsync();
     app.Logger.LogInformation(
-        "Minimal development seed completed. RolesCreated={RolesCreated}, UsersCreated={UsersCreated}, ProfilesCreated={ProfilesCreated}, CatalogRecordsCreated={CatalogRecordsCreated}, CompatibilityRecordsCreated={CompatibilityRecordsCreated}",
+        "Minimal development seed completed. RolesCreated={RolesCreated}, UsersCreated={UsersCreated}, ProfilesCreated={ProfilesCreated}, CatalogRecordsCreated={CatalogRecordsCreated}, CompatibilityRecordsCreated={CompatibilityRecordsCreated}, ShippingRecordsCreated={ShippingRecordsCreated}",
         result.RolesCreated,
         result.UsersCreated,
         result.ProfilesCreated,
         result.CatalogRecordsCreated,
-        result.CompatibilityRecordsCreated);
+        result.CompatibilityRecordsCreated,
+        result.ShippingRecordsCreated);
     return;
 }
 

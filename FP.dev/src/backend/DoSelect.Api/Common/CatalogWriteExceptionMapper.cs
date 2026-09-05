@@ -36,6 +36,8 @@ internal static class CatalogWriteExceptionMapper
         CatalogWriteException.ErrorCodes.CategoryParentInvalid => StatusCodes.Status400BadRequest,
         CatalogWriteException.ErrorCodes.ReferenceNotFound => StatusCodes.Status400BadRequest,
         CatalogWriteException.ErrorCodes.SpecificationInvalid => StatusCodes.Status400BadRequest,
+        CatalogWriteException.ErrorCodes.SpecificationSemanticKeyDuplicate => StatusCodes.Status409Conflict,
+        CatalogWriteException.ErrorCodes.SpecificationDefinitionReferenced => StatusCodes.Status409Conflict,
         CatalogWriteException.ErrorCodes.SkuMissingRequiredSpecification => StatusCodes.Status400BadRequest,
         CatalogWriteException.ErrorCodes.ValidationFailed => StatusCodes.Status400BadRequest,
         _ => StatusCodes.Status400BadRequest,

@@ -8,6 +8,7 @@ using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace DoSelect.Infrastructure.Tests.Orders;
 
@@ -21,13 +22,22 @@ public sealed class OrderServiceFixture : IAsyncLifetime
         await context.Database.EnsureDeletedAsync();
     }
 
-    public static DoSelectDbContext CreateContext()
+    /// <summary>
+    /// interceptor 參數讓測試在「查詢已經跑完、但服務還沒做下一步」的接縫上插手——組長 PR #85
+    /// round-3 review 指出，只在呼叫服務之前改狀態證明不了逐筆重新載入的新鮮度檢查。形狀比照
+    /// CompatibilityCheckServiceFixture.CreateContext。
+    /// </summary>
+    public static DoSelectDbContext CreateContext(params IInterceptor[] interceptors)
     {
-        var options = new DbContextOptionsBuilder<DoSelectDbContext>()
+        var builder = new DbContextOptionsBuilder<DoSelectDbContext>()
             .UseSqlServer(global::DoSelect.Infrastructure.Tests.SqlServerTestConnection.Build(
-                "DoSelectOrderServiceTests"))
-            .Options;
-        return new DoSelectDbContext(options);
+                "DoSelectOrderServiceTests"));
+        if (interceptors.Length > 0)
+        {
+            builder.AddInterceptors(interceptors);
+        }
+
+        return new DoSelectDbContext(builder.Options);
     }
 
     public static async Task<string> SeedMemberUserIdAsync(DoSelectDbContext context)
@@ -84,6 +94,31 @@ public sealed class OrderServiceFixture : IAsyncLifetime
     /// with returnable quantity pass <paramref name="deliveredAtUtc"/> and
     /// <paramref name="returnableQuantity"/>.
     /// </summary>
+    /// <summary>
+    /// SeedOrderAsync 用的是固定的 `home-delivery` 代碼，但沒有建立對應的 ShippingMethod 列——
+    /// 出貨流程要靠代碼查回那一列，所以測試得自己種。已存在就沿用（同一個資料庫在整個 collection
+    /// 內共用）。
+    /// </summary>
+    public static async Task<ShippingMethod> SeedShippingMethodAsync(
+        DoSelectDbContext context,
+        string code = "home-delivery")
+    {
+        var existing = await context.ShippingMethods
+            .FirstOrDefaultAsync(candidate => candidate.Code == code);
+        if (existing is not null)
+        {
+            return existing;
+        }
+
+        var method = new ShippingMethod(
+            Guid.CreateVersion7(), code, "宅配", "HomeDelivery",
+            baseFee: 0m, freeShippingThreshold: null, allowsCod: true, requiresPrepayment: false,
+            providerCode: "TCAT", createdAtUtc: DateTime.UtcNow);
+        context.ShippingMethods.Add(method);
+        await context.SaveChangesAsync();
+        return method;
+    }
+
     public static async Task<Order> SeedOrderAsync(
         DoSelectDbContext context,
         string? memberUserId,
@@ -92,7 +127,9 @@ public sealed class OrderServiceFixture : IAsyncLifetime
         FulfillmentStatus fulfillmentStatus = FulfillmentStatus.Pending,
         DateTime? deliveredAtUtc = null,
         int returnableQuantity = 0,
-        int returnedQuantity = 0)
+        int returnedQuantity = 0,
+        string? storeCode = null,
+        IReadOnlyList<(long SkuId, int Quantity)>? items = null)
     {
         var now = DateTime.UtcNow;
         var packageLimitVersionId = await context.PackageLimitVersions
@@ -122,9 +159,9 @@ public sealed class OrderServiceFixture : IAsyncLifetime
             AddressLine2: null,
             ShippingMethodCode: "home-delivery",
             ShippingProviderProfileVersionId: shippingProviderProfileId,
-            StoreCode: null,
-            StoreName: null,
-            StoreAddress: null,
+            StoreCode: storeCode,
+            StoreName: storeCode is null ? null : "測試門市",
+            StoreAddress: storeCode is null ? null : "台北市中正區測試路 1 號",
             ShippingConstraintPolicyVersion: 1,
             ReturnPolicyVersion: 1,
             CouponPolicyVersion: null,
@@ -168,35 +205,94 @@ public sealed class OrderServiceFixture : IAsyncLifetime
             order.ApplyFulfillmentProjection(fulfillmentStatus, deliveredAtUtc ?? now);
         }
 
-        var item = new OrderItem(
-            Guid.CreateVersion7(),
-            order.Id,
-            skuId: null,
-            skuCodeSnapshot: "SKU-TEST",
-            productNameSnapshot: "測試商品",
-            skuNameSnapshot: "測試規格",
-            quantity: 1,
-            listUnitPrice: 1000m,
-            saleUnitPrice: 1000m,
-            finalUnitPrice: 1000m,
-            unitCostSnapshot: 600m,
-            lineSubtotal: 1000m,
-            discountAllocation: 0m,
-            lineTotal: 1000m,
-            assemblyGroupKey: null,
-            returnableQuantity: returnableQuantity,
-            createdAtUtc: now,
-            isCouponEligible: false,
-            specificationSnapshot: new OrderItemSpecificationSnapshot("測試規格", "{}", 1));
-        if (returnedQuantity > 0)
+        var lines = items ?? [(0L, 1)];
+        var first = true;
+        foreach (var (skuId, quantity) in lines)
         {
-            item.RecordReturnedQuantity(returnedQuantity);
+            var item = new OrderItem(
+                Guid.CreateVersion7(),
+                order.Id,
+                skuId: skuId == 0 ? null : skuId,
+                skuCodeSnapshot: "SKU-TEST",
+                productNameSnapshot: "測試商品",
+                skuNameSnapshot: "測試規格",
+                quantity: quantity,
+                listUnitPrice: 1000m,
+                saleUnitPrice: 1000m,
+                finalUnitPrice: 1000m,
+                unitCostSnapshot: 600m,
+                lineSubtotal: 1000m * quantity,
+                discountAllocation: 0m,
+                lineTotal: 1000m * quantity,
+                assemblyGroupKey: null,
+                returnableQuantity: first ? returnableQuantity : 0,
+                createdAtUtc: now,
+                isCouponEligible: false,
+                specificationSnapshot: new OrderItemSpecificationSnapshot("測試規格", "{}", 1));
+            if (first && returnedQuantity > 0)
+            {
+                item.RecordReturnedQuantity(returnedQuantity);
+            }
+
+            context.OrderItems.Add(item);
+            first = false;
         }
 
-        context.OrderItems.Add(item);
         await context.SaveChangesAsync();
 
         return order;
+    }
+
+    /// <summary>
+    /// 一個可保留的 SKU 與它的庫存餘額。批次出貨要驗「Active 保留逐 SKU 覆蓋訂單品項的數量」，
+    /// 所以測試得先有 SkuId 才能建訂單品項，順序與 SeedInventoryReservationAsync 相反。
+    /// </summary>
+    public static async Task<Sku> SeedSkuWithBalanceAsync(
+        DoSelectDbContext context,
+        int onHandQuantity = 5,
+        int reservedQuantity = 0)
+    {
+        var now = DateTime.UtcNow;
+        var suffix = Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
+        var brand = new Brand(Guid.CreateVersion7(), $"BR-{suffix}", "訂單測試品牌", now);
+        var category = new Category(
+            Guid.CreateVersion7(), $"CAT-{suffix}", $"order-test-{suffix.ToLowerInvariant()}",
+            "訂單測試分類", parentCategoryId: null, createdAtUtc: now);
+        context.AddRange(brand, category);
+        await context.SaveChangesAsync();
+
+        var product = new Product(
+            Guid.CreateVersion7(), $"PROD-{suffix}", brand.Id, category.Id, "訂單測試商品", now);
+        context.Products.Add(product);
+        await context.SaveChangesAsync();
+
+        var sku = new Sku(
+            Guid.CreateVersion7(), $"SKU-{suffix}", product.Id, "訂單測試 SKU",
+            listPrice: 1_000m, unitCost: 600m, createdAtUtc: now);
+        context.Skus.Add(sku);
+        await context.SaveChangesAsync();
+
+        var balance = new InventoryBalance(
+            Guid.CreateVersion7(), sku.Id, onHandQuantity: onHandQuantity, reorderLevel: 1, createdAtUtc: now);
+        balance.ApplyQuantities(onHandQuantity, reservedQuantity, now);
+        context.InventoryBalances.Add(balance);
+        await context.SaveChangesAsync();
+        return sku;
+    }
+
+    /// <summary>指定 SKU 的 Active 保留；數量必須與訂單品項對得上，出貨才會通過覆蓋檢查。</summary>
+    public static async Task<InventoryReservation> SeedReservationForSkuAsync(
+        DoSelectDbContext context,
+        Order order,
+        long skuId,
+        int quantity)
+    {
+        var now = DateTime.UtcNow;
+        var reservation = new InventoryReservation(
+            Guid.CreateVersion7(), skuId, order.Id, quantity, now.AddMinutes(15), now);
+        context.InventoryReservations.Add(reservation);
+        await context.SaveChangesAsync();
+        return reservation;
     }
 
     public static async Task<(InventoryBalance Balance, InventoryReservation Reservation)>

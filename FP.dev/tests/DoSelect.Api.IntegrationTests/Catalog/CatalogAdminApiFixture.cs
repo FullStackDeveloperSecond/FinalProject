@@ -1,12 +1,16 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using DoSelect.Api.Security;
+using DoSelect.Application.Files;
+using DoSelect.Infrastructure.Persistence.Identity;
+using Microsoft.AspNetCore.Identity;
 using DoSelect.Infrastructure.Persistence;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace DoSelect.Api.IntegrationTests.Catalog;
 
@@ -81,9 +85,22 @@ public sealed class CatalogAdminApiFixture : IAsyncLifetime
                     services
                         .AddControllers()
                         .AddApplicationPart(typeof(SecurityFoundationTestController).Assembly);
+                    // 商品圖片上傳走真的 LocalImageStorage（Storage__DataRoot 指到暫存目錄），只把
+                    // Defender 換成「一律乾淨」的掃描器——CI 沒有 Defender，不換就是 503。
+                    services.RemoveAll<IFileScanner>();
+                    services.AddSingleton<IFileScanner>(new CleanFileScanner());
                 });
             });
             Client = _factory.CreateClient();
+        }
+    }
+
+    private sealed class CleanFileScanner : IFileScanner
+    {
+        public Task<FileScanResult> ScanAsync(string quarantinedFilePath, CancellationToken cancellationToken = default)
+        {
+            var now = DateTimeOffset.UtcNow;
+            return Task.FromResult(new FileScanResult(FileScanOutcome.Clean, "Synthetic scanner", now, now));
         }
     }
 
@@ -114,6 +131,52 @@ public sealed class CatalogAdminApiFixture : IAsyncLifetime
         using var request = new HttpRequestMessage(HttpMethod.Post, "/__tests/security/sign-in/admin")
         {
             Content = JsonContent.Create(new { includeMfa = true, roles = effectiveRoles }),
+        };
+        request.Headers.Add("X-XSRF-TOKEN", signInToken);
+        using var response = await client.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+        return client;
+    }
+
+    /// <summary>
+    /// 和 <see cref="CreateAuthenticatedAdminClientAsync"/> 的差別：這支會先在資料庫建立一個真的
+    /// Admin 使用者與角色列，再用那個 userId 登入。批次動作要寫中央 Audit，而 Audit 的 Actor 必須
+    /// 對得上一位真實管理員（EfProductAdminService.ResolveActorAsync），只有 Cookie 上的 Claim 是
+    /// 不夠的。形狀比照 ProductImportsApiFixture.CreateAuthenticatedCatalogManagerClientAsync。
+    /// </summary>
+    public async Task<HttpClient> CreateAuthenticatedAdminClientWithIdentityAsync(params string[] roles)
+    {
+        var effectiveRoles = roles.Length > 0 ? roles : [DoSelectRoles.CatalogManager];
+        string adminUserId;
+        await using (var context = CreateContext())
+        {
+            var admin = ApplicationUser.CreateAdmin(
+                Guid.CreateVersion7(), $"{Guid.NewGuid():N}@doselect.test", DateTime.UtcNow);
+            context.Users.Add(admin);
+            await context.SaveChangesAsync();
+            adminUserId = admin.Id;
+
+            foreach (var roleName in effectiveRoles)
+            {
+                var role = await context.Roles.SingleOrDefaultAsync(candidate => candidate.Name == roleName);
+                if (role is null)
+                {
+                    role = new IdentityRole(roleName);
+                    context.Roles.Add(role);
+                    await context.SaveChangesAsync();
+                }
+
+                context.UserRoles.Add(new IdentityUserRole<string> { UserId = admin.Id, RoleId = role.Id });
+            }
+
+            await context.SaveChangesAsync();
+        }
+
+        var client = CreateClient();
+        var signInToken = await GetAdminAntiforgeryTokenAsync(client);
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/__tests/security/sign-in/admin")
+        {
+            Content = JsonContent.Create(new { includeMfa = true, roles = effectiveRoles, userId = adminUserId }),
         };
         request.Headers.Add("X-XSRF-TOKEN", signInToken);
         using var response = await client.SendAsync(request);

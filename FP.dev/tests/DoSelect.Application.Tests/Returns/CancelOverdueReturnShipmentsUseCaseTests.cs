@@ -54,7 +54,7 @@ public sealed class CancelOverdueReturnShipmentsUseCaseTests
         request.Transition(ReturnRequestStatus.UnderReview, NowUtc.AddDays(-19));
         // Approve() sets ReturnShipmentDueAtUtc = occurredAtUtc + 7 days, so approving "7 days
         // before" the desired due date lands exactly on it.
-        request.Approve("admin-1", requiresShipment: true, dueAtUtc.AddDays(-7));
+        request.Approve("admin-1", ReturnApprovalOutcome.RequiresShipment, dueAtUtc.AddDays(-7));
         return request;
     }
 }

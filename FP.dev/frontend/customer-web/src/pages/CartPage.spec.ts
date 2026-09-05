@@ -31,6 +31,18 @@ vi.mock('../features/cart/api', () => ({
   removeCartAssemblyGroup: (...args: unknown[]) => mockRemoveCartAssemblyGroup(...args),
   revalidateCart: () => mockRevalidateCart(),
   mergeCartOnLogin: vi.fn(),
+  applyCartCoupon: (...args: unknown[]) => mockApplyCartCoupon(...args),
+  removeCartCoupon: (...args: unknown[]) => mockRemoveCartCoupon(...args),
+}))
+
+// C-13：購物車頁現在也預覽配送方式，測試必須自己餵這支 API，否則每個案例都會多打一支真的請求。
+const mockApplyCartCoupon = vi.fn<(...args: unknown[]) => Promise<CartDto>>()
+const mockRemoveCartCoupon = vi.fn<(...args: unknown[]) => Promise<CartDto>>()
+const mockGetShippingOptions = vi.fn()
+
+vi.mock('../features/shipping/api', () => ({
+  getShippingOptions: (...args: unknown[]) => mockGetShippingOptions(...args),
+  searchConvenienceStores: vi.fn(),
 }))
 
 vi.mock('../features/cart/guestCartKey', () => ({
@@ -73,7 +85,13 @@ async function mountCartPage(
 ) {
   const { default: CartPage } = await import('./CartPage.vue')
   const queryClient = options.queryClient ?? new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<div />' } }] })
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/', component: { template: '<div />' } },
+      { path: '/checkout', name: 'checkout', component: { template: '<div>checkout</div>' } },
+    ],
+  })
 
   const pinia = createPinia()
   setActivePinia(pinia)
@@ -94,12 +112,45 @@ async function mountCartPage(
   })
 }
 
+function readyValidation(cart: CartDto = oneItemCart) {
+  return { cart, isCheckoutReady: true, issues: [], validatedAtUtc: new Date().toISOString() }
+}
+
+function shippingOptions(options: unknown[]) {
+  return {
+    cartPublicId: 'cart-1',
+    options,
+    evaluatedAtUtc: '2026-09-01T00:00:00Z',
+    cartRowVersion: 'AAAA',
+  }
+}
+
+function shippingOption(overrides: Record<string, unknown> = {}) {
+  return {
+    methodCode: 'HOME_DELIVERY',
+    name: '宅配',
+    fee: 120,
+    isEligible: true,
+    ineligibleReasonCode: null,
+    freeShippingThreshold: null,
+    requiresAddress: true,
+    requiresStore: false,
+    allowedPaymentMethods: ['creditCard'],
+    ...overrides,
+  }
+}
+
 beforeEach(() => {
   mockGetCart.mockReset()
   mockRevalidateCart.mockReset()
   mockUpdateCartItemQuantity.mockReset()
   mockRemoveCartItem.mockReset()
   mockRemoveCartAssemblyGroup.mockReset()
+  mockGetCart.mockResolvedValue(oneItemCart)
+  mockApplyCartCoupon.mockReset()
+  mockRemoveCartCoupon.mockReset()
+  mockGetShippingOptions.mockReset()
+  mockGetShippingOptions.mockResolvedValue(shippingOptions([shippingOption()]))
 })
 
 describe('CartPage', () => {
@@ -203,6 +254,18 @@ describe('CartPage', () => {
     // a test fixture that happened to agree with the (wrong) component code never caught this;
     // asserting the actual rendered total is what proves the real nested shape renders correctly.
     expect(wrapper.text()).toContain('NT$36,000')
+  })
+
+  it('navigates to the checkout route after the current cart version passes revalidation', async () => {
+    mockGetCart.mockResolvedValue(oneItemCart)
+    mockRevalidateCart.mockResolvedValue(readyValidation())
+
+    const wrapper = await mountCartPage()
+    await vi.waitFor(() => expect(wrapper.find('.cart-page__checkout').attributes('disabled')).toBeUndefined())
+
+    await wrapper.find('.cart-page__checkout').trigger('click')
+
+    await vi.waitFor(() => expect(wrapper.vm.$route.name).toBe('checkout'))
   })
 
   /** PR #29 review round 2: a failed revalidate used to be silently swallowed — no error shown, no way to retry. */
@@ -676,6 +739,312 @@ describe('CartPage', () => {
     const wrapper = await mountCartPage()
     await vi.waitFor(() => expect(wrapper.text()).toContain('購物車已超過 100 件上限，請先清空部分品項。'))
   })
+  /**
+   * C-13 的「Shipping Options」：購物車頁預覽可用的配送方式與運費，讓顧客在進結帳前就知道超取能
+   * 不能用。可選與否一律以後端的 isEligible 為準，前台不自行推算尺寸／重量。
+   */
+  it('shows the available shipping methods with their fees', async () => {
+    mockGetCart.mockResolvedValue(oneItemCart)
+    mockRevalidateCart.mockResolvedValue(readyValidation())
+    mockGetShippingOptions.mockResolvedValue(shippingOptions([
+      shippingOption({ methodCode: 'HOME_DELIVERY', name: '宅配', fee: 120 }),
+      shippingOption({ methodCode: 'STORE_PICKUP', name: '超商取貨', fee: 60, requiresStore: true, requiresAddress: false }),
+    ]))
+
+    const wrapper = await mountCartPage()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('配送方式'))
+
+    expect(wrapper.text()).toContain('宅配')
+    expect(wrapper.text()).toContain('超商取貨')
+    expect(wrapper.text()).toContain('NT$ 120')
+    expect(wrapper.text()).toContain('NT$ 60')
+  })
+
+  /**
+   * 購物車、訂單、付款與物流.md：「只能選擇宅配並顯示原因」——不可用的配送方式要留在畫面上並說明
+   * 原因，不是把它藏起來讓顧客猜。
+   */
+  it('keeps an ineligible shipping method visible and explains why', async () => {
+    mockGetCart.mockResolvedValue(oneItemCart)
+    mockRevalidateCart.mockResolvedValue(readyValidation())
+    mockGetShippingOptions.mockResolvedValue(shippingOptions([
+      shippingOption({ methodCode: 'HOME_DELIVERY', name: '宅配' }),
+      shippingOption({
+        methodCode: 'STORE_PICKUP',
+        name: '超商取貨',
+        isEligible: false,
+        ineligibleReasonCode: 'shipping_constraint_exceeded',
+        requiresStore: true,
+      }),
+    ]))
+
+    const wrapper = await mountCartPage()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('超商取貨'))
+
+    expect(wrapper.text()).toContain('超過這個配送方式的包裹尺寸或重量限制')
+  })
+
+  it('warns when no shipping method is available at all', async () => {
+    mockGetCart.mockResolvedValue(oneItemCart)
+    mockRevalidateCart.mockResolvedValue(readyValidation())
+    mockGetShippingOptions.mockResolvedValue(shippingOptions([
+      shippingOption({ isEligible: false, ineligibleReasonCode: 'shipping_method_not_allowed' }),
+    ]))
+
+    const wrapper = await mountCartPage()
+
+    await vi.waitFor(() => expect(wrapper.text()).toContain('目前購物車沒有可用的配送方式'))
+  })
+
+  /** 空車問後端要配送選項沒有意義——後端會回一組全部不可用的選項，顯示出來只會讓顧客困惑。 */
+  it('does not request shipping options for an empty cart', async () => {
+    const empty = { ...oneItemCart, items: [] }
+    mockGetCart.mockResolvedValue(empty)
+    mockRevalidateCart.mockResolvedValue(readyValidation(empty))
+
+    const wrapper = await mountCartPage()
+    await vi.waitFor(() => expect(mockRevalidateCart).toHaveBeenCalled())
+
+    expect(mockGetShippingOptions).not.toHaveBeenCalled()
+    expect(wrapper.text()).not.toContain('配送方式')
+  })
+
+  /**
+   * 自我審查發現：購物車的 mutation 只用 setQueryData 寫回 cart 的快取鍵，沒有任何東西會讓配送
+   * 選項失效——改完數量之後畫面上的超取資格與運費還是舊的。配送選項的 query key 現在含購物車的
+   * RowVersion，購物車一變就是另一個鍵，舊結果結構上不可能被當成新的用。
+   */
+  it('recomputes the shipping options after the cart changes', async () => {
+    mockGetCart.mockResolvedValue(oneItemCart)
+    mockRevalidateCart.mockResolvedValue(readyValidation())
+    mockGetShippingOptions.mockResolvedValue(shippingOptions([shippingOption()]))
+
+    const wrapper = await mountCartPage()
+    await vi.waitFor(() => expect(mockGetShippingOptions).toHaveBeenCalledTimes(1))
+
+    // 改數量後購物車換了 RowVersion——配送選項必須重算，不能沿用上一版的結果。
+    const changedCart = { ...oneItemCart, rowVersion: 'BBBB' }
+    mockUpdateCartItemQuantity.mockResolvedValue(changedCart)
+    mockRevalidateCart.mockResolvedValue(readyValidation(changedCart))
+    await wrapper.find('select[aria-label="數量"]').setValue('3')
+
+    await vi.waitFor(() => expect(mockGetShippingOptions).toHaveBeenCalledTimes(2))
+  })
+
+  /**
+   * 組長 PR #79 round-2 review item 1：把 RowVersion 放進 query key 只擋住「舊結果被當成新的
+   * 快取項」，`placeholderData` 卻又會把上一版結果畫在新 RowVersion 底下——購物車改完之後、新
+   * 請求回來之前，畫面上仍是舊運費與舊資格。這支測試在第二次請求 pending 時斷言舊選項已經不在
+   * 畫面上，而不只是「API 被呼叫兩次」。
+   */
+  it('hides the previous options while the post-change request is still pending', async () => {
+    mockGetCart.mockResolvedValue(oneItemCart)
+    mockRevalidateCart.mockResolvedValue(readyValidation())
+    mockGetShippingOptions.mockResolvedValueOnce(shippingOptions([
+      shippingOption({ methodCode: 'STORE_PICKUP', name: '超商取貨', fee: 60 }),
+    ]))
+
+    const wrapper = await mountCartPage()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('超商取貨'))
+
+    // 第二次請求卡住不回應，模擬「購物車已改、配送選項還在算」。
+    let releaseSecond!: (value: unknown) => void
+    mockGetShippingOptions.mockImplementationOnce(
+      () => new Promise((resolve) => { releaseSecond = resolve }))
+
+    const changedCart = { ...oneItemCart, rowVersion: 'BBBB' }
+    mockUpdateCartItemQuantity.mockResolvedValue(changedCart)
+    mockRevalidateCart.mockResolvedValue(readyValidation(changedCart))
+    await wrapper.find('select[aria-label="數量"]').setValue('3')
+
+    await vi.waitFor(() => expect(mockGetShippingOptions).toHaveBeenCalledTimes(2))
+    await flushPromises()
+
+    // 舊的那組選項屬於上一台購物車，不可以還留在畫面上。
+    expect(wrapper.text()).not.toContain('超商取貨')
+    expect(wrapper.text()).toContain('配送方式載入中')
+
+    releaseSecond(shippingOptions([shippingOption({ methodCode: 'HOME_DELIVERY', name: '宅配', fee: 120 })]))
+    await flushPromises()
+    expect(wrapper.text()).toContain('宅配')
+  })
+
+  /** 配送選項只是預覽：載入失敗不該擋住購物車本身。 */
+  it('keeps the cart usable when the shipping options fail to load', async () => {
+    mockGetCart.mockResolvedValue(oneItemCart)
+    mockRevalidateCart.mockResolvedValue(readyValidation())
+    mockGetShippingOptions.mockRejectedValue(new ApiError('boom', { status: 500, code: 'unexpected_error' }))
+
+    const wrapper = await mountCartPage()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('RTX 4070'))
+
+    await vi.waitFor(() => expect(wrapper.text()).toContain('配送方式暫時無法載入'))
+  })
+
+  function withCoupon(code: string): CartDto {
+    return {
+      ...oneItemCart,
+      coupon: { code, discountAmount: 3600, isFreeShipping: false, isAssemblyFreeShipping: false },
+      amounts: { ...oneItemCart.amounts, couponDiscount: 3600, totalEstimate: 32400 },
+    }
+  }
+
+  /** 優惠碼的測試都從一個已解析的購物車開始。 */
+  async function mountCartWithCoupon() {
+    mockRevalidateCart.mockResolvedValue({
+      cart: oneItemCart, isCheckoutReady: true, issues: [], validatedAtUtc: new Date().toISOString(),
+    })
+    const wrapper = await mountCartPage()
+    await vi.waitFor(() => expect(wrapper.find('.cart-page__coupon').exists()).toBe(true))
+    return wrapper
+  }
+
+  it('applies a coupon with the current cart version and shows the discount', async () => {
+    // 折扣由伺服器算 —— 這裡只驗前端送出的是代碼與目前版本，然後把回傳的購物車顯示出來。
+    mockApplyCartCoupon.mockResolvedValue({
+      ...oneItemCart,
+      coupon: { code: 'SAVE10', discountAmount: 3600, isFreeShipping: false, isAssemblyFreeShipping: false },
+      amounts: { ...oneItemCart.amounts, couponDiscount: 3600, totalEstimate: 32400 },
+    })
+    const wrapper = await mountCartWithCoupon()
+
+    await wrapper.get('#cart-coupon-code').setValue('SAVE10')
+    await wrapper.get('.cart-page__coupon form').trigger('submit')
+    await flushPromises()
+
+    expect(mockApplyCartCoupon).toHaveBeenCalledWith('SAVE10', oneItemCart.rowVersion, 'guest-test-key')
+    expect(wrapper.get('.cart-page__coupon').text()).toContain('SAVE10')
+  })
+
+  it('does not send an empty coupon code', async () => {
+    const wrapper = await mountCartWithCoupon()
+
+    await wrapper.get('#cart-coupon-code').setValue('   ')
+    await wrapper.get('.cart-page__coupon form').trigger('submit')
+    await flushPromises()
+
+    expect(mockApplyCartCoupon).not.toHaveBeenCalled()
+  })
+
+  it('explains why a coupon was rejected instead of showing a generic error', async () => {
+    // UC-COUPON-01 的三個錯誤碼要各自有訊息，否則顧客不知道該換一張券還是換時間。
+    for (const [code, expected] of [
+      ['coupon_not_applicable', '不適用於目前的購物車內容'],
+      ['coupon_usage_exhausted', '可用次數已用完'],
+      ['coupon_not_active', '不在可使用的期間'],
+    ] as const) {
+      mockApplyCartCoupon.mockRejectedValue(
+        new ApiError('rejected', { status: 409, code }))
+      const wrapper = await mountCartWithCoupon()
+
+      await wrapper.get('#cart-coupon-code').setValue('SAVE10')
+      await wrapper.get('.cart-page__coupon form').trigger('submit')
+      await flushPromises()
+
+      expect(wrapper.get('.cart-page__coupon-error').text()).toContain(expected)
+    }
+  })
+
+  it('removes an applied coupon', async () => {
+    const couponedCart = {
+      ...oneItemCart,
+      coupon: { code: 'SAVE10', discountAmount: 3600, isFreeShipping: false, isAssemblyFreeShipping: false },
+      amounts: { ...oneItemCart.amounts, couponDiscount: 3600, totalEstimate: 32400 },
+    }
+    mockGetCart.mockResolvedValue(couponedCart)
+    // revalidate 也要回同一份 —— 它的結果會覆蓋快取，回沒有券的那份就等於券被清掉。
+    mockRevalidateCart.mockResolvedValue({
+      cart: couponedCart, isCheckoutReady: true, issues: [], validatedAtUtc: new Date().toISOString(),
+    })
+    mockRemoveCartCoupon.mockResolvedValue(oneItemCart)
+    const wrapper = await mountCartPage()
+    await vi.waitFor(() => expect(wrapper.find('.cart-page__coupon').exists()).toBe(true))
+
+    // 已套用時顯示的是移除按鈕，不是輸入框。
+    expect(wrapper.find('#cart-coupon-code').exists()).toBe(false)
+    await wrapper.get('.cart-page__coupon button').trigger('click')
+    await flushPromises()
+
+    expect(mockRemoveCartCoupon).toHaveBeenCalled()
+  })
+
+  it('re-requests the shipping options with the applied coupon code', async () => {
+    // Coupon quote 無狀態、不改 RowVersion —— 代碼沒有進 query key 的話，免運券會顯示
+    // 已套用，運費卻還是套券前的。這條測試在修好之前不可能紅，因為舊的 mock
+    // 把所有參數都吞掉了。
+    const couponed = withCoupon('FREESHIP')
+    mockApplyCartCoupon.mockResolvedValue(couponed)
+    mockGetShippingOptions.mockResolvedValue(shippingOptions([shippingOption({ fee: 0 })]))
+    const wrapper = await mountCartWithCoupon()
+
+    await wrapper.get('#cart-coupon-code').setValue('FREESHIP')
+    await wrapper.get('.cart-page__coupon form').trigger('submit')
+    await flushPromises()
+
+    await vi.waitFor(() => {
+      expect(mockGetShippingOptions).toHaveBeenCalledWith('guest-test-key', 'FREESHIP')
+    })
+  })
+
+  it('does not keep showing the pre-coupon shipping result while the new one loads', async () => {
+    // 舊結果留在畫面上比載入中更糟：使用者會以為那就是套券後的運費。
+    mockApplyCartCoupon.mockResolvedValue(withCoupon('FREESHIP'))
+    const wrapper = await mountCartWithCoupon()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('宅配'))
+
+    let resolveShipping!: (value: unknown) => void
+    mockGetShippingOptions.mockImplementationOnce(
+      () => new Promise((resolve) => { resolveShipping = resolve }))
+
+    await wrapper.get('#cart-coupon-code').setValue('FREESHIP')
+    await wrapper.get('.cart-page__coupon form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('配送方式載入中')
+    resolveShipping(shippingOptions([shippingOption({ fee: 0 })]))
+    await flushPromises()
+  })
+
+  it('blocks other cart actions while a coupon mutation is in flight', async () => {
+    // 套券回傳完整的 CartDto 並寫進同一個快取鍵，所以它和品項異動、重驗、結帳
+    // 必須共用同一個閘門，否則倒序抵達的舊購物車會覆蓋較新的那一份。
+    let resolveApply!: (cart: CartDto) => void
+    mockApplyCartCoupon.mockImplementationOnce(
+      () => new Promise((resolve) => { resolveApply = resolve }))
+    const wrapper = await mountCartWithCoupon()
+
+    await wrapper.get('#cart-coupon-code').setValue('SAVE10')
+    await wrapper.get('.cart-page__coupon form').trigger('submit')
+    await flushPromises()
+
+    const disabled = wrapper.findAll('button').filter(button => button.attributes('disabled') !== undefined)
+    expect(disabled.length).toBeGreaterThan(0)
+    expect(wrapper.get('.cart-page__checkout').attributes('disabled')).toBeDefined()
+
+    resolveApply(withCoupon('SAVE10'))
+    await flushPromises()
+  })
+
+  it('does not let a slower coupon response overwrite a newer cart', async () => {
+    // 倒序抵達的證明：套券的回應比後來的品項異動晚回來，也不能把較新的購物車蓋掉。
+    let resolveApply!: (cart: CartDto) => void
+    mockApplyCartCoupon.mockImplementationOnce(
+      () => new Promise((resolve) => { resolveApply = resolve }))
+    const wrapper = await mountCartWithCoupon()
+
+    await wrapper.get('#cart-coupon-code').setValue('SAVE10')
+    await wrapper.get('.cart-page__coupon form').trigger('submit')
+    await flushPromises()
+
+    // 套券還在飛：品項異動的入口是關著的，所以那個交錯根本無法發生。
+    expect(wrapper.findAll('.cart-page__quantity button')
+      .every(button => button.attributes('disabled') !== undefined)).toBe(true)
+    expect(mockUpdateCartItemQuantity).not.toHaveBeenCalled()
+
+    resolveApply(withCoupon('SAVE10'))
+    await flushPromises()
+  })
+
 })
 
 describe('CartPage — session identity fail-closed (組長 PR #29 round 7 review, P1)', () => {
@@ -710,4 +1079,5 @@ describe('CartPage — session identity fail-closed (組長 PR #29 round 7 revie
     await vi.waitFor(() => expect(wrapper.text()).toContain('RTX 4070'))
     expect(wrapper.text()).not.toContain('無法確認登入狀態')
   })
+
 })

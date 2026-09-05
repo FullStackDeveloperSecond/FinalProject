@@ -21,7 +21,7 @@ public sealed class OpenAiResponsesOptions
 
     public int SupportTimeoutMilliseconds { get; set; } = 12_000;
 
-    public int ProductSearchTimeoutMilliseconds { get; set; } = 8_000;
+    public int ProductSearchTimeoutMilliseconds { get; set; } = 5_000;
 
     public decimal SupportInputCostPerMillionTokens { get; set; } = -1m;
 
@@ -78,13 +78,15 @@ public sealed class OpenAiResponsesClient : IAiSupportModelClient, IDisposable
         }
 
         var payload = CreateRequestPayload(envelope);
+        AiSupportModelUsage? accumulatedUsage = null;
         for (var attempt = 0; attempt < MaximumAttempts; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var outcome = await SendAttemptAsync(payload, envelope, cancellationToken);
+            accumulatedUsage = AddUsage(accumulatedUsage, outcome.Usage);
             if (outcome.Answer is not null)
             {
-                return outcome.Answer;
+                return outcome.Answer with { Usage = accumulatedUsage };
             }
 
             if (!outcome.MayRetry)
@@ -93,7 +95,7 @@ public sealed class OpenAiResponsesClient : IAiSupportModelClient, IDisposable
             }
         }
 
-        return Unavailable();
+        return Unavailable(accumulatedUsage);
     }
 
     public void Dispose() => _httpClient.Dispose();
@@ -217,7 +219,7 @@ public sealed class OpenAiResponsesClient : IAiSupportModelClient, IDisposable
         var outputText = TryReadOutputText(root);
         if (string.IsNullOrWhiteSpace(outputText))
         {
-            return AttemptOutcome.RetryableFailure;
+            return AttemptOutcome.RetryableFailureWithUsage(usage);
         }
 
         OpenAiSupportOutput? output;
@@ -227,19 +229,22 @@ public sealed class OpenAiResponsesClient : IAiSupportModelClient, IDisposable
         }
         catch (JsonException)
         {
-            return AttemptOutcome.RetryableFailure;
+            return AttemptOutcome.RetryableFailureWithUsage(usage);
         }
 
-        if (output is null ||
-            output.NeedsHumanSupport ||
-            string.IsNullOrWhiteSpace(output.Answer) ||
-            output.Answer.Length > MaximumAnswerLength ||
-            output.Citations is null ||
-            output.Citations.Count > MaximumCitations)
+        if (output is null || output.Citations is null || output.Citations.Count > MaximumCitations)
         {
-            return output?.NeedsHumanSupport == true
-                ? AttemptOutcome.TerminalFailure
-                : AttemptOutcome.RetryableFailure;
+            return AttemptOutcome.RetryableFailureWithUsage(usage);
+        }
+
+        if (output.NeedsHumanSupport)
+        {
+            return AttemptOutcome.Success(Unavailable(usage));
+        }
+
+        if (string.IsNullOrWhiteSpace(output.Answer) || output.Answer.Length > MaximumAnswerLength)
+        {
+            return AttemptOutcome.RetryableFailureWithUsage(usage);
         }
 
         var approvedSources = new Dictionary<(string SourceType, string SourceId), AiPromptContent>(
@@ -257,13 +262,13 @@ public sealed class OpenAiResponsesClient : IAiSupportModelClient, IDisposable
                 string.IsNullOrWhiteSpace(citation.SourceType) ||
                 string.IsNullOrWhiteSpace(citation.SourceId))
             {
-                return AttemptOutcome.RetryableFailure;
+                return AttemptOutcome.RetryableFailureWithUsage(usage);
             }
 
             var key = (citation.SourceType, citation.SourceId);
             if (!approvedSources.TryGetValue(key, out var approved))
             {
-                return AttemptOutcome.RetryableFailure;
+                return AttemptOutcome.RetryableFailureWithUsage(usage);
             }
 
             if (seen.Add(key))
@@ -395,12 +400,29 @@ public sealed class OpenAiResponsesClient : IAiSupportModelClient, IDisposable
         _ => throw new ArgumentOutOfRangeException(nameof(locale)),
     };
 
-    private static AiSupportModelAnswer Unavailable() =>
+    private static AiSupportModelAnswer Unavailable(AiSupportModelUsage? usage = null) =>
         new(
             Answer: null,
             AiSupportModelAnswerStatus.Unavailable,
             ModelCitations: [],
-            Usage: null);
+            Usage: usage);
+
+    private static AiSupportModelUsage? AddUsage(
+        AiSupportModelUsage? accumulated,
+        AiSupportModelUsage? current)
+    {
+        if (current is null)
+        {
+            return accumulated;
+        }
+
+        return accumulated is null
+            ? current
+            : new AiSupportModelUsage(
+                current.Model,
+                checked(accumulated.InputTokens + current.InputTokens),
+                checked(accumulated.OutputTokens + current.OutputTokens));
+    }
 
     private static JsonElement CreateSupportOutputSchema() =>
         JsonDocument.Parse(
@@ -445,14 +467,20 @@ public sealed class OpenAiResponsesClient : IAiSupportModelClient, IDisposable
         string? Title,
         string? VersionOrUpdatedAt);
 
-    private sealed record AttemptOutcome(AiSupportModelAnswer? Answer, bool MayRetry)
+    private sealed record AttemptOutcome(
+        AiSupportModelAnswer? Answer,
+        bool MayRetry,
+        AiSupportModelUsage? Usage = null)
     {
         public static AttemptOutcome RetryableFailure { get; } = new(null, MayRetry: true);
 
         public static AttemptOutcome TerminalFailure { get; } = new(null, MayRetry: false);
 
+        public static AttemptOutcome RetryableFailureWithUsage(AiSupportModelUsage? usage) =>
+            new(null, MayRetry: true, usage);
+
         public static AttemptOutcome Success(AiSupportModelAnswer answer) =>
-            new(answer, MayRetry: false);
+            new(answer, MayRetry: false, answer.Usage);
     }
 
     private sealed class SourceIdentityComparer : IEqualityComparer<(string SourceType, string SourceId)>

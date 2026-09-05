@@ -74,7 +74,7 @@
 | PublicId | `uniqueidentifier` | NO | 應用層產生 | — | UNIQUE | 對外識別 |
 | Code | `nvarchar(64)` | NO | — | — | UNIQUE | 優惠碼，Trim＋NFKC＋統一大寫 |
 | NameZhTw | `nvarchar(160)` | NO | — | — | INDEX | 中文名稱 |
-| DiscountType | `varchar(16)` | NO | — | — | INDEX | `FixedAmount`、`Percentage`、`FreeShipping`、`AssemblyFreeShipping` |
+| DiscountType | `varchar(24)` | NO | — | — | INDEX | `FixedAmount`、`Percentage`、`FreeShipping`、`AssemblyFreeShipping`；DEC-P354 擴欄以免最長值遭截斷 |
 | DiscountValue | `decimal(18,2)` | YES | `NULL` | — | — | 固定金額／百分比數值；免運型可為 Null |
 | MinimumSpend | `decimal(18,2)` | YES | `NULL` | — | — | 最低消費門檻 |
 | MaximumDiscount | `decimal(18,2)` | YES | `NULL` | — | — | 百分比券最大折抵 |
@@ -151,7 +151,7 @@
 | RedemptionId | `bigint` | YES | `NULL` | FK → CouponRedemptions.Id | UNIQUE / INDEX | Restrict |
 | CouponCodeSnapshot | `nvarchar(64)` | NO | — | — | — | 優惠碼快照 |
 | NameSnapshot | `nvarchar(160)` | NO | — | — | — | 名稱快照 |
-| DiscountType | `varchar(16)` | NO | — | — | — | 類型快照 |
+| DiscountType | `varchar(24)` | NO | — | — | — | 類型快照；完整保存正式 enum |
 | RuleVersion | `int` | NO | — | — | — | 規則版本快照 |
 | DiscountValue | `decimal(18,2)` | YES | `NULL` | — | — | 優惠值快照；百分比使用 0～1 |
 | MinimumSpendAmount | `decimal(18,2)` | YES | `NULL` | — | — | 下單時最低消費門檻；Null 表示無門檻 |

@@ -297,7 +297,6 @@ public sealed class EfAiSupportInteractionStore(
     IOutboxWriter outboxWriter) : IAiSupportInteractionStore
 {
     private const decimal BudgetWarningThresholdUsd = 70m;
-    private const string PromptVersion = "support-v1";
     private const string SchemaVersion = "support-answer-v1";
 
     public async Task<AiSupportInteractionWriteResult> SaveAsync(
@@ -359,7 +358,7 @@ public sealed class EfAiSupportInteractionStore(
                 interaction.UserMessage,
                 interaction.Answer,
                 usage?.Model ?? "unavailable",
-                PromptVersion,
+                AiPromptEnvelopeFactory.SupportPromptVersion,
                 SchemaVersion,
                 inputTokens,
                 outputTokens,

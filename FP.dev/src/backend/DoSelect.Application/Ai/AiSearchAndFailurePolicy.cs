@@ -89,7 +89,7 @@ public static partial class AiSearchIntentSafetyValidator
             reason);
     }
 
-    [GeneratedRegex("^[a-z0-9][a-z0-9._-]{0,63}$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("^[A-Z0-9][A-Z0-9._-]{0,63}$", RegexOptions.CultureInvariant)]
     private static partial Regex SemanticKeyPattern();
 }
 

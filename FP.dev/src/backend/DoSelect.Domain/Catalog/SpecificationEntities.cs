@@ -78,9 +78,85 @@ public sealed class ProductImage : MutablePublicEntity
         MarkUpdated(updatedAtUtc);
     }
 
+    /// <summary>
+    /// 第一版要求的中繼資料（API錯誤碼目錄 `image_metadata_incomplete`：「商品圖片缺少第一版要求的
+    /// Alt、來源或授權欄位」）：Alt、來源 URL、授權名稱與授權 URL 都要有才能發布。
+    /// </summary>
+    public bool HasCompleteMetadata =>
+        !string.IsNullOrWhiteSpace(AltTextZhTw) &&
+        !string.IsNullOrWhiteSpace(SourceUrl) &&
+        !string.IsNullOrWhiteSpace(LicenseName) &&
+        !string.IsNullOrWhiteSpace(LicenseUrl);
+
+    /// <summary>
+    /// 上傳流程的終點：三種衍生圖雜湊都記錄後 Processing → Ready。Ready 可預覽、可改中繼資料，
+    /// 但公開路由讀不到（只有 Published 能）。
+    /// </summary>
+    public void MarkReady(DateTime updatedAtUtc)
+    {
+        if (Status != ProductImageStatus.Processing)
+        {
+            throw new InvalidOperationException("Only a processing image can become ready.");
+        }
+
+        if (SmallSha256 is null || MediumSha256 is null || LargeSha256 is null)
+        {
+            throw new InvalidOperationException(
+                "All public image variant hashes must be recorded before the image is ready.");
+        }
+
+        Status = ProductImageStatus.Ready;
+        MarkUpdated(updatedAtUtc);
+    }
+
+    /// <summary>
+    /// 後台 PATCH：Alt、排序與來源／授權。Alt 必填（資料表 NOT NULL，也是無障礙的底線）；
+    /// 來源／授權可各自留空——完整與否由 <see cref="HasCompleteMetadata"/> 在發布時把關，
+    /// 而不是在每次編輯時擋管理員。已刪除的圖片不可再改。
+    /// </summary>
+    public void UpdateMetadata(
+        string altTextZhTw,
+        int sortOrder,
+        string? sourceUrl,
+        string? licenseName,
+        string? licenseUrl,
+        DateTime updatedAtUtc)
+    {
+        EnsureNotDeleted();
+        if (sortOrder < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(sortOrder));
+        }
+
+        var nextSourceUrl = CatalogText.Optional(sourceUrl);
+        var nextLicenseName = CatalogText.Optional(licenseName);
+        var nextLicenseUrl = CatalogText.Optional(licenseUrl);
+        // 公開中的圖片要維持發布門檻（組長 PR #101 item 1）：不能一邊 Published 一邊缺來源／授權。
+        if (Status == ProductImageStatus.Published &&
+            (nextSourceUrl is null || nextLicenseName is null || nextLicenseUrl is null))
+        {
+            throw new InvalidOperationException(
+                "A published image must keep its source URL, license name and license URL.");
+        }
+
+        AltTextZhTw = RequireText(altTextZhTw, nameof(altTextZhTw));
+        SortOrder = sortOrder;
+        SourceUrl = nextSourceUrl;
+        LicenseName = nextLicenseName;
+        LicenseUrl = nextLicenseUrl;
+        MarkUpdated(updatedAtUtc);
+    }
+
+    /// <summary>組長 PR #101 裁定 C：現階段只有 Ready → Published 這一條邊；Rejected／PendingDelete 保留但不由現有端點推進。</summary>
     public void Publish(DateTime publishedAtUtc)
     {
         publishedAtUtc = RequireUtc(publishedAtUtc, nameof(publishedAtUtc));
+        EnsureNotDeleted();
+        if (Status != ProductImageStatus.Ready)
+        {
+            throw new InvalidOperationException("Only a ready image can be published.");
+        }
+
         if (SmallSha256 is null || MediumSha256 is null || LargeSha256 is null)
         {
             throw new InvalidOperationException(
@@ -113,9 +189,18 @@ public sealed class ProductImage : MutablePublicEntity
     public void MarkDeleted(DateTime deletedAtUtc)
     {
         deletedAtUtc = RequireUtc(deletedAtUtc, nameof(deletedAtUtc));
+        EnsureNotDeleted();
         Status = ProductImageStatus.Deleted;
         DeletedAtUtc = deletedAtUtc;
         MarkUpdated(deletedAtUtc);
+    }
+
+    private void EnsureNotDeleted()
+    {
+        if (Status is ProductImageStatus.Deleted or ProductImageStatus.PendingDelete)
+        {
+            throw new InvalidOperationException("A deleted product image cannot be changed.");
+        }
     }
 }
 
@@ -203,6 +288,37 @@ public sealed class SpecificationDefinition : MutablePublicEntity
     public bool AllowsMultiple { get; private set; }
     public bool IsActive { get; private set; }
     public int SortOrder { get; private set; }
+
+    /// <summary>
+    /// 資料字典-商品庫存與組裝：「Definition 被使用後 SemanticKey、ValueType、Category、Unit 與
+    /// AllowsMultiple 不可改」。API Endpoint 目錄把這條寫成「Semantic Key／型別受保護」——結構欄位
+    /// 完全不開放編輯，因此這裡只更新展示與排序類欄位；要換型別就是新增一個定義並停用舊的。
+    /// </summary>
+    public void UpdateDetails(string displayNameZhTw, bool isRequired, int sortOrder, DateTime updatedAtUtc)
+    {
+        DisplayNameZhTw = RequireText(displayNameZhTw, nameof(displayNameZhTw));
+        IsRequired = isRequired;
+        SortOrder = sortOrder;
+        MarkUpdated(updatedAtUtc);
+    }
+
+    /// <summary>以停用代替刪除（資料字典同條）。受保護的定義由呼叫端擋下，本方法不查其他資料。</summary>
+    public void SetActive(bool isActive, DateTime updatedAtUtc)
+    {
+        IsActive = isActive;
+        MarkUpdated(updatedAtUtc);
+    }
+
+    /// <summary>
+    /// 標記這個定義是固定相容性引擎依賴的受保護組合（<see cref="CompatibilityCatalogContract"/>
+    /// 的 Category／SemanticKey 目錄）。受保護與否由程式碼目錄決定，不是管理員可填的欄位，所以只
+    /// 在建立當下由服務層依目錄設定。
+    /// </summary>
+    public void MarkProtected(DateTime updatedAtUtc)
+    {
+        IsProtected = true;
+        MarkUpdated(updatedAtUtc);
+    }
 }
 
 public sealed class SpecificationOption : MutablePublicEntity
@@ -232,6 +348,21 @@ public sealed class SpecificationOption : MutablePublicEntity
     public string DisplayNameZhTw { get; private set; } = string.Empty;
     public bool IsActive { get; private set; }
     public int SortOrder { get; private set; }
+
+    /// <summary>資料字典：「被使用後不可刪除或改 Code」——Code 完全不開放編輯，只改展示與排序。</summary>
+    public void UpdateDetails(string displayNameZhTw, int sortOrder, DateTime updatedAtUtc)
+    {
+        DisplayNameZhTw = RequireText(displayNameZhTw, nameof(displayNameZhTw));
+        SortOrder = sortOrder;
+        MarkUpdated(updatedAtUtc);
+    }
+
+    /// <summary>選項同樣以停用代替刪除。</summary>
+    public void SetActive(bool isActive, DateTime updatedAtUtc)
+    {
+        IsActive = isActive;
+        MarkUpdated(updatedAtUtc);
+    }
 }
 
 public sealed class SpecificationSource : MutablePublicEntity

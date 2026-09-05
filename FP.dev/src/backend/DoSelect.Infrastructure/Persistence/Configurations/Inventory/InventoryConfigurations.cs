@@ -81,6 +81,7 @@ public sealed class InventoryMovementConfiguration
         builder.Property(entity => entity.ActorUserId).HasMaxLength(450);
         builder.Property(entity => entity.OccurredAtUtc).HasPrecision(3).IsRequired();
         builder.Property(entity => entity.UnitCostSnapshot).HasPrecision(18, 2);
+        builder.Property(entity => entity.AdjustmentNote).HasMaxLength(InventoryMovement.MaxAdjustmentNoteLength);
         builder.HasIndex(entity => new { entity.SkuId, entity.OccurredAtUtc })
             .HasDatabaseName("IX_InventoryMovements_SkuId_OccurredAtUtc");
         builder.HasOne<Sku>()

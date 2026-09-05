@@ -1,9 +1,12 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using DoSelect.Application.Builds;
 using DoSelect.Application.Checkout;
 using DoSelect.Application.Common;
+using DoSelect.Application.Idempotency;
 using DoSelect.Domain.Catalog;
+using DoSelect.Domain.Inventory;
 using DoSelect.Domain.Invoicing;
 using DoSelect.Domain.Payments;
 using DoSelect.Domain.Promotions;
@@ -12,9 +15,11 @@ using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Builds;
 using DoSelect.Infrastructure.Catalog;
 using DoSelect.Infrastructure.Checkout;
+using DoSelect.Infrastructure.Idempotency;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Promotions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace DoSelect.Infrastructure.Tests.Checkout;
 
@@ -26,6 +31,10 @@ public sealed class EfCheckoutTransactionGatewayCollection
 [Trait("Category", "RequiresSqlServer")]
 public sealed class EfCheckoutTransactionGatewayTests
 {
+    private const string CouponGuestUsageKey =
+        "checkout-coupon-guest-usage-v1-test-key-32-bytes-minimum";
+    private const string IdempotencyActorScopePepper =
+        "checkout-idempotency-actor-scope-test-key-32-bytes";
     private static readonly DateTime NowUtc =
         new(2026, 8, 27, 6, 0, 0, DateTimeKind.Utc);
 
@@ -151,6 +160,156 @@ public sealed class EfCheckoutTransactionGatewayTests
         Assert.Equal(CartStatus.Converted, cart.Status);
         Assert.Equal(5, await verification.OrderStatusHistories.CountAsync(candidate => candidate.OrderId == order.Id));
         Assert.Single(await verification.OrderItems.Where(candidate => candidate.OrderId == order.Id).ToListAsync());
+        Assert.Single(created.Items);
+        Assert.Equal(1_150m, created.Amounts.GrandTotal);
+        Assert.Equal("Guest", created.Recipient.RecipientName);
+        Assert.Contains("cancel", created.AvailableActions);
+
+        var replay = await CreateGateway(verification).FindCreatedOrderAsync(created.PublicId);
+        Assert.NotNull(replay);
+        Assert.Equal(JsonSerializer.Serialize(created), JsonSerializer.Serialize(replay));
+    }
+
+    [global::DoSelect.Infrastructure.Tests.Idempotency.SqlServerFact]
+    public async Task CheckoutService_ReplaysTheSameRequestWithoutDuplicatingSqlSideEffects()
+    {
+        var seed = await SeedAsync(onHandQuantity: 5);
+        await using var context = EfCheckoutTransactionGatewayFixture.CreateContext();
+        var service = CreateCheckoutService(context, seed.Command.PolicyVersions);
+        var request = ToCreateOrderRequest(seed.Command);
+
+        var first = await service.CreateOrderAsync(
+            seed.Command.Actor,
+            request,
+            seed.Command.IdempotencyKey);
+        var replay = await service.CreateOrderAsync(
+            seed.Command.Actor,
+            request,
+            seed.Command.IdempotencyKey);
+
+        Assert.False(first.IsReplay);
+        Assert.True(replay.IsReplay);
+        Assert.Equal(first.Body.PublicId, replay.Body.PublicId);
+        Assert.Equal(first.Body.OrderNumber, replay.Body.OrderNumber);
+
+        await using var verification = EfCheckoutTransactionGatewayFixture.CreateContext();
+        var order = await verification.Orders.SingleAsync(
+            candidate => candidate.SourceCartPublicId == seed.Command.CartPublicId);
+        Assert.Single(await verification.InventoryReservations
+            .Where(candidate => candidate.OrderId == order.Id)
+            .ToListAsync());
+        Assert.Single(await verification.PaymentAttempts
+            .Where(candidate => candidate.OrderId == order.Id)
+            .ToListAsync());
+        Assert.Single(await verification.IdempotencyRecords
+            .Where(candidate => candidate.Operation == CheckoutService.Operation &&
+                                candidate.Key == seed.Command.IdempotencyKey)
+            .ToListAsync());
+
+        var sku = await verification.Skus.SingleAsync(
+            candidate => candidate.PublicId == seed.SkuPublicId);
+        var balance = await verification.InventoryBalances.SingleAsync(
+            candidate => candidate.SkuId == sku.Id);
+        Assert.Equal(4, balance.AvailableQuantity);
+        Assert.Equal(1, balance.ReservedQuantity);
+    }
+
+    [global::DoSelect.Infrastructure.Tests.Idempotency.SqlServerFact]
+    public async Task CheckoutService_WhenSameIdempotencyKeyIsReusedWithDifferentPayload_RejectsWithoutDuplicateSqlSideEffects()
+    {
+        var seed = await SeedAsync(onHandQuantity: 5);
+        var request = ToCreateOrderRequest(seed.Command);
+
+        await using (var firstContext = EfCheckoutTransactionGatewayFixture.CreateContext())
+        {
+            await CreateCheckoutService(firstContext, seed.Command.PolicyVersions).CreateOrderAsync(
+                seed.Command.Actor,
+                request,
+                seed.Command.IdempotencyKey);
+        }
+
+        var conflictingRequest = request with
+        {
+            Buyer = request.Buyer with { Name = "Different guest name" },
+        };
+        await using (var conflictContext = EfCheckoutTransactionGatewayFixture.CreateContext())
+        {
+            var exception = await Assert.ThrowsAsync<IdempotencyConflictException>(() =>
+                CreateCheckoutService(conflictContext, seed.Command.PolicyVersions).CreateOrderAsync(
+                    seed.Command.Actor,
+                    conflictingRequest,
+                    seed.Command.IdempotencyKey));
+            Assert.Equal(IdempotencyErrorCodes.PayloadConflict, exception.ErrorCode);
+        }
+
+        await using var verification = EfCheckoutTransactionGatewayFixture.CreateContext();
+        var order = await verification.Orders.SingleAsync(
+            candidate => candidate.SourceCartPublicId == seed.Command.CartPublicId);
+        Assert.Single(await verification.InventoryReservations
+            .Where(candidate => candidate.OrderId == order.Id)
+            .ToListAsync());
+        Assert.Single(await verification.PaymentAttempts
+            .Where(candidate => candidate.OrderId == order.Id)
+            .ToListAsync());
+        Assert.Single(await verification.IdempotencyRecords
+            .Where(candidate => candidate.Operation == CheckoutService.Operation &&
+                                candidate.Key == seed.Command.IdempotencyKey)
+            .ToListAsync());
+
+        var sku = await verification.Skus.SingleAsync(
+            candidate => candidate.PublicId == seed.SkuPublicId);
+        var balance = await verification.InventoryBalances.SingleAsync(
+            candidate => candidate.SkuId == sku.Id);
+        Assert.Equal(4, balance.AvailableQuantity);
+        Assert.Equal(1, balance.ReservedQuantity);
+    }
+
+    [global::DoSelect.Infrastructure.Tests.Idempotency.SqlServerFact]
+    public async Task CheckoutService_WhenTwoCartsRaceForTheLastItem_OnlyOneCreatesAnOrder()
+    {
+        var firstSeed = await SeedAsync(onHandQuantity: 1);
+        var secondCommand = await SeedCompetingCartAsync(firstSeed);
+        await using var firstContext = EfCheckoutTransactionGatewayFixture.CreateContext();
+        await using var secondContext = EfCheckoutTransactionGatewayFixture.CreateContext();
+        var firstService = CreateCheckoutService(firstContext, firstSeed.Command.PolicyVersions);
+        var secondService = CreateCheckoutService(secondContext, secondCommand.PolicyVersions);
+
+        var outcomes = await Task.WhenAll(
+            RunCheckoutOrCaptureErrorAsync(firstService, firstSeed.Command),
+            RunCheckoutOrCaptureErrorAsync(secondService, secondCommand));
+
+        Assert.Single(outcomes, outcome => outcome.Order is not null);
+        Assert.Single(outcomes, outcome => outcome.ErrorCode == "inventory_insufficient");
+
+        await using var verification = EfCheckoutTransactionGatewayFixture.CreateContext();
+        var sourceCartIds = new[] { firstSeed.Command.CartPublicId, secondCommand.CartPublicId };
+        var createdOrders = await verification.Orders
+            .Where(candidate => candidate.SourceCartPublicId.HasValue &&
+                sourceCartIds.Contains(candidate.SourceCartPublicId.Value))
+            .ToListAsync();
+        var order = Assert.Single(createdOrders);
+        var sku = await verification.Skus.SingleAsync(
+            candidate => candidate.PublicId == firstSeed.SkuPublicId);
+        var balance = await verification.InventoryBalances.SingleAsync(
+            candidate => candidate.SkuId == sku.Id);
+
+        Assert.Equal(0, balance.AvailableQuantity);
+        Assert.Equal(1, balance.ReservedQuantity);
+        Assert.Single(await verification.InventoryReservations
+            .Where(candidate => candidate.OrderId == order.Id &&
+                                candidate.Status == InventoryReservationStatus.Active)
+            .ToListAsync());
+        Assert.Single(await verification.PaymentAttempts
+            .Where(candidate => candidate.OrderId == order.Id)
+            .ToListAsync());
+        Assert.Equal(
+            1,
+            await verification.Carts.CountAsync(candidate =>
+                sourceCartIds.Contains(candidate.PublicId) && candidate.Status == CartStatus.Converted));
+        Assert.Equal(
+            1,
+            await verification.Carts.CountAsync(candidate =>
+                sourceCartIds.Contains(candidate.PublicId) && candidate.Status == CartStatus.Active));
     }
 
     [global::DoSelect.Infrastructure.Tests.Idempotency.SqlServerFact]
@@ -231,6 +390,11 @@ public sealed class EfCheckoutTransactionGatewayTests
         Assert.Equal("Checkout 免運券", orderCoupon.NameSnapshot);
         Assert.True(orderCoupon.IsFreeShipping);
         Assert.Equal(CouponRedemptionStatus.Reserved, redemption.Status);
+        Assert.Equal(
+            HMACSHA256.HashData(
+                Encoding.UTF8.GetBytes(CouponGuestUsageKey),
+                Encoding.UTF8.GetBytes("guest@example.test")),
+            redemption.GuestUsageKeyHash);
     }
 
     [global::DoSelect.Infrastructure.Tests.Idempotency.SqlServerFact]
@@ -550,6 +714,11 @@ public sealed class EfCheckoutTransactionGatewayTests
             new EfCompatibilityCatalogReader(context),
             new CouponRuleReader(context),
             new SqlOrderNumberGenerator(context),
+            new CouponGuestUsageHasher(
+                Microsoft.Extensions.Options.Options.Create(new CouponGuestUsageOptions
+                {
+                    CouponGuestUsageHmacKeyV1 = CouponGuestUsageKey,
+                })),
             new FixedTimeProvider(NowUtc));
 
     /// <summary>
@@ -563,6 +732,141 @@ public sealed class EfCheckoutTransactionGatewayTests
 
         await CreateGateway(context).ExecuteAsync(other.Command);
         await transaction.CommitAsync();
+    }
+
+    /// <summary>
+    /// 組長 PR #73 review A1／item 1: the store's ProviderCode is the CVS brand (7-11／FamilyMart)
+    /// while the method's ProviderCode is the logistics profile class, so the old
+    /// store.ProviderCode == method.ProviderCode comparison made every store-pickup checkout fail
+    /// with "store not found". These are the first store-pickup checkouts covered at all — the
+    /// conflated comparison shipped precisely because no test exercised this path.
+    /// </summary>
+    [Theory]
+    [InlineData("7-11")]
+    [InlineData("FamilyMart")]
+    public async Task ExecuteAsync_StorePickup_CreatesTheOrderForEitherStoreBrand(string storeBrand)
+    {
+        var seed = await SeedStorePickupAsync(storeBrand, storeIsActive: true);
+        await using var context = EfCheckoutTransactionGatewayFixture.CreateContext();
+        await using var transaction = await context.Database.BeginTransactionAsync();
+
+        var created = await CreateGateway(context).ExecuteAsync(seed.Command);
+        await transaction.CommitAsync();
+
+        await using var verification = EfCheckoutTransactionGatewayFixture.CreateContext();
+        var order = await verification.Orders.SingleAsync(candidate => candidate.PublicId == created.PublicId);
+        Assert.Equal(DoSelect.Domain.Orders.OrderStatus.PendingPayment, order.OrderStatus);
+        // The order keeps the store *display* snapshot, immune to later store edits.
+        Assert.Equal(seed.StoreName, order.StoreName);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_StorePickup_WhenTheStoreIsInactive_RejectsWithShippingStoreInactive()
+    {
+        var seed = await SeedStorePickupAsync("7-11", storeIsActive: false);
+        await using var context = EfCheckoutTransactionGatewayFixture.CreateContext();
+        await using var transaction = await context.Database.BeginTransactionAsync();
+
+        var exception = await Assert.ThrowsAsync<DomainProblemException>(
+            () => CreateGateway(context).ExecuteAsync(seed.Command));
+
+        Assert.Equal("shipping_store_inactive", exception.Code);
+    }
+
+    private sealed record StorePickupSeed(CheckoutCommand Command, string StoreName);
+
+    private static async Task<StorePickupSeed> SeedStorePickupAsync(string storeBrand, bool storeIsActive)
+    {
+        await using var context = EfCheckoutTransactionGatewayFixture.CreateContext();
+        var suffix = Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
+        var brand = new Brand(Guid.CreateVersion7(), $"BR-{suffix}", "Checkout 品牌", NowUtc);
+        var category = new Category(
+            Guid.CreateVersion7(), $"CAT-{suffix}", $"category-{suffix.ToLowerInvariant()}", "周邊", null, NowUtc);
+        context.AddRange(brand, category);
+        await context.SaveChangesAsync();
+
+        var product = new Product(
+            Guid.CreateVersion7(), $"PROD-{suffix}", brand.Id, category.Id, "測試商品", NowUtc);
+        product.ChangeStatus(ProductStatus.Published, NowUtc);
+        context.Products.Add(product);
+        await context.SaveChangesAsync();
+        var sku = new Sku(
+            Guid.CreateVersion7(), $"SKU-{suffix}", product.Id, "測試 SKU", 1_000m, 600m, NowUtc);
+        sku.UpdatePackageDimensions(1m, 30m, 20m, 10m, NowUtc);
+        sku.ChangeStatus(SkuStatus.Published, NowUtc);
+        context.Skus.Add(sku);
+        await context.SaveChangesAsync();
+        context.InventoryBalances.Add(new DoSelect.Domain.Inventory.InventoryBalance(
+            Guid.CreateVersion7(), sku.Id, 5, 1, NowUtc));
+
+        // Method Kind must be checkout's own "ConvenienceStorePickup" constant; the method's
+        // ProviderCode is the logistics profile class — deliberately different from storeBrand.
+        var method = new ShippingMethod(
+            Guid.CreateVersion7(),
+            $"CVS-{suffix}",
+            "超商取貨",
+            "ConvenienceStorePickup",
+            60m,
+            2_000m,
+            allowsCod: true,
+            requiresPrepayment: false,
+            $"PROVIDER-{suffix}",
+            NowUtc);
+        var profile = new ShippingProviderProfile(
+            Guid.CreateVersion7(), $"PROVIDER-{suffix}", 1, "Published", null, null, "{}", 1, NowUtc);
+        context.AddRange(method, profile);
+        await context.SaveChangesAsync();
+        context.PackageLimitVersions.Add(new PackageLimitVersion(
+            Guid.CreateVersion7(), profile.Id, 1, 5m, 45m, 45m, 45m, 105m, 20_000m,
+            null, null, NowUtc));
+
+        var storeName = $"{storeBrand} 測試門市 {suffix}";
+        var store = new ConvenienceStore(
+            Guid.CreateVersion7(), storeBrand, $"ST{suffix}", storeName,
+            "測試路 1 號", "台北市", "大安區", isDemoData: true, NowUtc);
+        if (!storeIsActive)
+        {
+            store.UpdateDetails(storeName, "測試路 1 號", "台北市", "大安區", isActive: false, NowUtc);
+        }
+
+        context.ConvenienceStores.Add(store);
+        await context.SaveChangesAsync();
+
+        var guestKey = "checkout-cvs-secret-" + suffix;
+        var cart = Cart.CreateForGuest(
+            Guid.CreateVersion7(),
+            SHA256.HashData(Encoding.UTF8.GetBytes(guestKey)),
+            NowUtc.AddDays(30),
+            NowUtc);
+        context.Carts.Add(cart);
+        await context.SaveChangesAsync();
+        context.CartItems.Add(new CartItem(
+            Guid.CreateVersion7(), cart.Id, sku.Id, 1, null, NowUtc));
+        cart.Touch(NowUtc);
+        await context.SaveChangesAsync();
+
+        var command = new CheckoutCommand(
+            CheckoutActor.ForGuest(guestKey),
+            cart.PublicId,
+            cart.RowVersion.ToArray(),
+            new CheckoutRecipientSnapshot(
+                "Guest", "0912345678", "guest@example.test", "TW",
+                "100", "Taipei", "Zhongzheng", "No. 1", null),
+            null,
+            method.Code,
+            store.PublicId,
+            PaymentMethod.CreditCard,
+            null,
+            new CheckoutInvoicePreferenceSnapshot(
+                SimulatedInvoiceBuyerType.Individual,
+                "guest@example.test",
+                null,
+                null,
+                null,
+                null),
+            new CheckoutPolicySnapshot(1, 1, 1, 1),
+            "checkout-cvs-test-" + Guid.NewGuid().ToString("N"));
+        return new StorePickupSeed(command, storeName);
     }
 
     private static async Task<CheckoutSeed> SeedAsync(
@@ -684,7 +988,120 @@ public sealed class EfCheckoutTransactionGatewayTests
         return new CheckoutSeed(command, sku.PublicId);
     }
 
+    private static CheckoutService CreateCheckoutService(
+        DoSelectDbContext context,
+        CheckoutPolicySnapshot policies)
+    {
+        var timeProvider = new FixedTimeProvider(NowUtc);
+        return new CheckoutService(
+            new EfIdempotencyExecutor(
+                context,
+                Options.Create(new IdempotencyOptions
+                {
+                    ActorScopePepper = IdempotencyActorScopePepper,
+                }),
+                timeProvider),
+            CreateGateway(context),
+            new StaticCheckoutPolicyProvider(policies));
+    }
+
+    private static CreateOrderRequest ToCreateOrderRequest(CheckoutCommand command) => new(
+        command.CartPublicId,
+        command.CartRowVersion.ToArray(),
+        new CheckoutBuyerInput(
+            command.Recipient.Email,
+            command.Recipient.Name,
+            command.Recipient.Phone),
+        new CheckoutShippingInput(
+            command.ShippingMethodCode,
+            command.StorePublicId.HasValue
+                ? null
+                : new CheckoutAddressInput(
+                    command.Recipient.Name,
+                    command.Recipient.Phone,
+                    command.Recipient.PostalCode,
+                    command.Recipient.City,
+                    command.Recipient.District,
+                    command.Recipient.AddressLine1,
+                    command.Recipient.AddressLine2),
+            command.StorePublicId,
+            command.DeliveryNote),
+        command.PaymentMethod,
+        command.CouponCode,
+        new CheckoutInvoiceInput(
+            CheckoutInvoiceType.Simulated,
+            command.InvoicePreference.BuyerType == SimulatedInvoiceBuyerType.Company
+                ? CheckoutInvoiceBuyerType.Company
+                : CheckoutInvoiceBuyerType.Personal,
+            command.InvoicePreference.CarrierType,
+            command.InvoicePreference.CarrierValueMasked,
+            command.InvoicePreference.CompanyTaxId,
+            command.InvoicePreference.CompanyName),
+        new AcceptedPolicyVersions(
+            command.PolicyVersions.Terms,
+            command.PolicyVersions.Return,
+            command.PolicyVersions.Privacy));
+
+    private static async Task<CheckoutCommand> SeedCompetingCartAsync(CheckoutSeed firstSeed)
+    {
+        await using var context = EfCheckoutTransactionGatewayFixture.CreateContext();
+        var sku = await context.Skus.SingleAsync(
+            candidate => candidate.PublicId == firstSeed.SkuPublicId);
+        var suffix = Guid.NewGuid().ToString("N");
+        var guestKey = "checkout-competing-secret-" + suffix;
+        var cart = Cart.CreateForGuest(
+            Guid.CreateVersion7(),
+            SHA256.HashData(Encoding.UTF8.GetBytes(guestKey)),
+            NowUtc.AddDays(30),
+            NowUtc);
+        context.Carts.Add(cart);
+        await context.SaveChangesAsync();
+        context.CartItems.Add(new CartItem(
+            Guid.CreateVersion7(), cart.Id, sku.Id, 1, null, NowUtc));
+        cart.Touch(NowUtc);
+        await context.SaveChangesAsync();
+
+        var email = $"competing-{suffix}@example.test";
+        return firstSeed.Command with
+        {
+            Actor = CheckoutActor.ForGuest(guestKey),
+            CartPublicId = cart.PublicId,
+            CartRowVersion = cart.RowVersion.ToArray(),
+            Recipient = firstSeed.Command.Recipient with { Email = email },
+            InvoicePreference = firstSeed.Command.InvoicePreference with { BuyerEmail = email },
+            IdempotencyKey = "checkout-competing-" + suffix,
+        };
+    }
+
+    private static async Task<CheckoutOutcome> RunCheckoutOrCaptureErrorAsync(
+        CheckoutService service,
+        CheckoutCommand command)
+    {
+        try
+        {
+            var result = await service.CreateOrderAsync(
+                command.Actor,
+                ToCreateOrderRequest(command),
+                command.IdempotencyKey);
+            return new CheckoutOutcome(result.Body, null);
+        }
+        catch (DomainProblemException exception)
+        {
+            return new CheckoutOutcome(null, exception.Code);
+        }
+    }
+
     private sealed record CheckoutSeed(CheckoutCommand Command, Guid SkuPublicId);
+
+    private sealed record CheckoutOutcome(
+        DoSelect.Application.Orders.OrderDto? Order,
+        string? ErrorCode);
+
+    private sealed class StaticCheckoutPolicyProvider(CheckoutPolicySnapshot current)
+        : ICheckoutPolicyProvider
+    {
+        public CheckoutPolicySnapshot Current => current;
+    }
 
     private sealed class FixedTimeProvider(DateTime utcNow) : TimeProvider
     {

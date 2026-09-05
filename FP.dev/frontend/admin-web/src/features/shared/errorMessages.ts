@@ -15,9 +15,42 @@ const codeMessages: Record<string, string> = {
   category_parent_invalid: '上層分類不正確',
   reference_not_found: '關聯的資料不存在',
   specification_invalid: '規格值不正確',
+  // A-09 分類規格範本（API錯誤碼目錄）。
+  specification_semantic_key_duplicate: '此分類下已有相同的規格語意鍵',
+  specification_definition_referenced: '此規格為相容性規則所需，必須維持必填，也不可停用',
   validation_failed: '資料驗證失敗',
+  // A-17／A-18 物流後台（API錯誤碼目錄）。store_code_duplicate 是新增門市最常撞到的一個，
+  // 沒有對應字串就只會顯示泛用訊息，管理員看不出是代碼重複。
+  package_limit_period_overlap: '同一物流服務已有生效期間重疊的版本',
+  store_code_duplicate: '同一品牌下已有相同的門市代碼',
   compatibility_threshold_out_of_range: '門檻數值超出允許範圍',
-  resource_not_found: '找不到此規則',
+  // 這張表是全站共用的（相容性規則、商品、SKU、庫存都經由 describeApiError 取字），所以
+  // resource_not_found 不能寫成任一功能專屬的字——ProductEditPage 與庫存頁同樣會拿到它。
+  resource_not_found: '找不到此資料',
+  // M 商品圖片（檔案與圖片儲存設計.md「API 與錯誤契約」／API錯誤碼目錄）。
+  file_size_exceeded: '檔案超過 10 MB',
+  file_format_invalid: '只接受 JPG、PNG 或 WebP 圖片',
+  file_malware_detected: '檔案未通過安全掃描',
+  file_scan_unavailable: '安全掃描暫時無法使用，請稍後再試',
+  image_processing_failed: '圖片無法解碼或安全處理，請換一張圖片',
+  image_metadata_incomplete: '請先填齊 Alt、來源網址、授權名稱與授權網址再發布',
+  coupon_code_duplicate: '優惠碼已存在',
+  // 管理員的 activate 只接受 Draft 或符合條件的 Paused：Scheduled 由排程喚醒、
+  // Exhausted 由名額返還，兩者都是系統事件（狀態機設計「優惠券狀態」）。
+  coupon_state_conflict: '優惠券目前狀態不允許這個操作',
+  refund_state_conflict: '退款目前狀態已變更，請重新整理後再試',
+  refund_amount_exceeded: '退款金額超過目前可退款餘額',
+  // 執行與核准共用同一個錯誤碼目錄；文字不能寫死「執行」，核准階段撞到
+  // 同一個碼一樣要看得懂（alex 2026-09-04 #104 review）。
+  refund_snapshot_unavailable: '缺少可信交易快照，無法處理退款',
+  idempotency_payload_conflict: '同一重試識別已用於不同內容，請重新整理後再試',
+  inventory_reservation_not_active: '此保留已非 Active 狀態，無法釋放',
+  inventory_reservation_already_processed: '此保留已被消耗、釋放或逾時',
+  invoice_order_unpaid: '訂單尚未付款，不能開立發票',
+  invoice_order_cancelled: '訂單已取消，不能開立發票',
+  invoice_already_exists: '這張訂單已經有模擬發票',
+  invoice_state_conflict: '發票目前狀態不允許這個操作',
+  invoice_allowance_required: '訂單已有成功退款，必須建立折讓而不能作廢',
 }
 
 export function describeApiError(error: ApiError): string {

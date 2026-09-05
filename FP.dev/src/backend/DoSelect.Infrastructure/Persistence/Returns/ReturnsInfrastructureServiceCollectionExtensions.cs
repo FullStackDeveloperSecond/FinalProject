@@ -1,3 +1,4 @@
+using DoSelect.Application.Refunds;
 using DoSelect.Application.Returns;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -16,6 +17,7 @@ public static class ReturnsInfrastructureServiceCollectionExtensions
         services.AddScoped<IReturnStore, ReturnStore>();
         services.AddScoped<IReturnOrderEligibilityPort, ReturnOrderEligibilityLookup>();
         services.AddScoped<IReturnInventoryPort, ReturnInventoryRestockWriter>();
+        services.AddScoped<IRefundReturnCompletionPort, RefundReturnCompletionPort>();
         services.AddScoped<IGuestOrderAccessValidator, GuestOrderAccessValidator>();
         services.AddScoped<IReturnService, ReturnService>();
         services.AddScoped<IAdminReturnService, AdminReturnService>();

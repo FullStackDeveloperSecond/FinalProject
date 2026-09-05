@@ -53,7 +53,9 @@ public enum AiProductSearchModelStatus
 public sealed record AiProductSearchIntentResult(
     AiProductSearchModelStatus Status,
     AiProductSearchIntent? Intent,
-    AiSupportModelUsage? Usage);
+    AiSupportModelUsage? Usage,
+    string? ValidationFailureCode = null,
+    string? ValidationFailureField = null);
 
 public sealed record AiProductRecommendationReason(
     Guid SkuPublicId,

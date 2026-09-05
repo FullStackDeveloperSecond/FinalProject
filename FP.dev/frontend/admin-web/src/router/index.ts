@@ -87,6 +87,14 @@ const router = createRouter({
       meta: { requiresAuth: true, requiredRoles: ['CatalogManager', 'SuperAdmin'] },
     },
     {
+      // M功能桌面UI與Route規格.md A-07。Policy 對齊後端的 CatalogImport.*（CatalogManager／
+      // SuperAdmin）。放在 /products/:productId 之前，否則 'import' 會被當成 productId。
+      path: '/products/import',
+      name: 'product-import',
+      component: () => import('../pages/ProductImportPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['CatalogManager', 'SuperAdmin'] },
+    },
+    {
       path: '/products/new',
       name: 'product-new',
       component: () => import('../pages/ProductEditPage.vue'),
@@ -102,10 +110,48 @@ const router = createRouter({
       meta: { requiresAuth: true, requiredRoles: ['CatalogManager', 'SuperAdmin'] },
     },
     {
+      // A-23：Coupon.Manage（FinanceManager／MarketingAnalyst／SuperAdmin）。
+      // 與 Invoice.Manage 只差多允許 MarketingAnalyst（DEC-P284）。
+      path: '/coupons',
+      name: 'admin-coupons',
+      component: () => import('../pages/coupons/AdminCouponsPage.vue'),
+      meta: {
+        requiresAuth: true,
+        requiredRoles: ['FinanceManager', 'MarketingAnalyst', 'SuperAdmin'],
+      },
+    },
+    {
       path: '/returns',
       name: 'admin-return-queue',
       component: () => import('../pages/returns/AdminReturnQueuePage.vue'),
       meta: { requiresAuth: true, requiredRoles: ['OrderManager', 'SuperAdmin'] },
+    },
+    {
+      // A-21：退款清單。後端 Refund.Execute policy 同時要求角色與 MFA；
+      // 前端角色 guard 只做導覽體驗，不取代後端授權。
+      path: '/refunds',
+      name: 'admin-refund-list',
+      component: () => import('../pages/refunds/AdminRefundsPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['FinanceManager', 'SuperAdmin'] },
+    },
+    {
+      // A-22：可信分攤、核准上限與具冪等鍵的退款執行。
+      path: '/refunds/:refundId',
+      name: 'admin-refund-detail',
+      component: () => import('../pages/refunds/AdminRefundDetailPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['FinanceManager', 'SuperAdmin'] },
+    },
+    {
+      path: '/invoices',
+      name: 'admin-invoice-list',
+      component: () => import('../pages/invoices/AdminInvoicesPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['FinanceManager', 'SuperAdmin'] },
+    },
+    {
+      path: '/invoices/:invoiceId',
+      name: 'admin-invoice-detail',
+      component: () => import('../pages/invoices/AdminInvoiceDetailPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['FinanceManager', 'SuperAdmin'] },
     },
     {
       path: '/ai/usage',
@@ -144,6 +190,19 @@ const router = createRouter({
       meta: { requiresAuth: true, requiredRoles: ['OrderManager', 'SuperAdmin'] },
     },
     {
+      // 前台目前沒有登入流程（屬於 haru/feature/admin-membermanage 分支範圍，尚未合併），
+      // 所以這裡先不掛 meta.requiresAuth／router guard；401/403 由頁面自己處理（比照
+      // customer-web OrderDetailPage.vue 現有模式）。待該分支合併後可補上 Guard。
+      path: '/orders',
+      name: 'admin-order-list',
+      component: () => import('../features/orders/pages/OrderListPage.vue'),
+    },
+    {
+      path: '/orders/:publicId',
+      name: 'admin-order-detail',
+      component: () => import('../features/orders/pages/OrderDetailPage.vue'),
+    },
+    {
       // 組長 PR #35 review, item 6: official route is /admin/catalog/compatibility, not
       // /admin/compatibility — base: '/admin/' in vite.config.ts means this entry only needs
       // the /catalog/compatibility part, matching the existing /catalog/lookups sibling route.
@@ -159,6 +218,67 @@ const router = createRouter({
       name: 'compatibility-rules',
       component: () => import('../pages/CompatibilityRulesPage.vue'),
       meta: { requiresAuth: true, requiredRoles: ['CatalogManager', 'SuperAdmin'] },
+    },
+    {
+      // M功能桌面UI與Route規格.md A-09 `/admin/catalog/specifications`；base: '/admin/' 已在
+      // vite.config.ts 設定，所以這裡只寫 /catalog/specifications，與同層的 lookups、
+      // compatibility 一致。Policy 與後端 specification-definitions 端點相同。
+      path: '/catalog/specifications',
+      name: 'specification-definitions',
+      component: () => import('../pages/SpecificationDefinitionsPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['CatalogManager', 'SuperAdmin'] },
+    },
+    {
+      // M功能桌面UI與Route規格.md A-11
+      //
+      // 組長 PR #35 round-3 review, P2-3 的同一個缺口：這兩條路由原本完全沒有 meta，而 guard 的
+      // 第一行是「三個 meta 旗標都沒有就直接放行」，等於未登入也能打開後台庫存頁——它們是這份
+      // router 裡唯一沒有 meta 的功能性路由。後端 AdminInventoryController 掛的是
+      // [Authorize(Policy = InventoryManager)]，對應 InventoryManager 與 SuperAdmin
+      // （SecurityServiceCollectionExtensions 的 AddAdminPolicy），前端比照對齊，避免使用者
+      // 看得到頁面、按下去才被後端擋掉。前端 Guard 是體驗與最小揭露，不是後端 Policy 的替代品。
+      path: '/inventory',
+      name: 'inventory',
+      component: () => import('../pages/InventoryPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['InventoryManager', 'SuperAdmin'] },
+    },
+    {
+      // M功能桌面UI與Route規格.md A-12
+      // M功能桌面UI與Route規格.md A-17／A-18。後端的 ShippingRead 允許 OrderManager／
+      // CatalogManager／SuperAdmin 檢視，ShippingManage 的寫入只給 OrderManager／SuperAdmin
+      // （UC-ADM-STORE-01：「CatalogManager 只有檢視權限」），所以門市頁的 route 放檢視角色、
+      // 頁面內再隱藏寫入控制項；包裹限制整頁都是 Order Manage，route 就只放寫入角色。
+      path: '/shipping/stores',
+      name: 'shipping-stores',
+      component: () => import('../pages/ShippingStoresPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['OrderManager', 'CatalogManager', 'SuperAdmin'] },
+    },
+    {
+      path: '/shipping/package-limits',
+      name: 'shipping-package-limits',
+      component: () => import('../pages/ShippingPackageLimitsPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['OrderManager', 'SuperAdmin'] },
+    },
+    {
+      // M功能桌面UI與Route規格.md A-13。後端是 InventoryAdjust.*（InventoryManager／SuperAdmin）。
+      path: '/inventory/imports',
+      name: 'inventory-imports',
+      component: () => import('../pages/InventoryImportPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['InventoryManager', 'SuperAdmin'] },
+    },
+    {
+      // M功能桌面UI與Route規格.md A-16 `/admin/shipping/batches`（Order Manage）。整頁都是寫入
+      // 動作，所以與包裹限制一樣只放 ShippingManage 的角色。
+      path: '/shipping/batches',
+      name: 'shipping-batches',
+      component: () => import('../pages/ShipmentBatchesPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['OrderManager', 'SuperAdmin'] },
+    },
+    {
+      path: '/inventory/reservations',
+      name: 'inventory-reservations',
+      component: () => import('../pages/InventoryReservationsPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['InventoryManager', 'SuperAdmin'] },
     },
     {
       path: '/unauthorized',

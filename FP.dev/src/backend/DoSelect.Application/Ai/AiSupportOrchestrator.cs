@@ -205,7 +205,7 @@ public sealed class AiSupportOrchestrator
                     request,
                     answer: null,
                     citations: [],
-                    modelUsage: null,
+                    modelUsage: modelAnswer.Usage,
                     isDegraded: true,
                     fallbackReason: AiSafetyReason.ServiceUnavailable.ToString(),
                     stopwatch.ElapsedMilliseconds),

@@ -91,6 +91,21 @@ const router = createRouter({
       component: () => import('../features/orders/OrderDetailPage.vue'),
     },
     {
+      path: '/orders/:orderId/payment',
+      name: 'order-payment',
+      component: () => import('../features/payments/PaymentPage.vue'),
+    },
+    {
+      path: '/guest-orders/access',
+      name: 'guest-order-access',
+      component: () => import('../features/orders/GuestOrderAccessPage.vue'),
+    },
+    {
+      path: '/guest-orders/verify',
+      name: 'guest-order-verify',
+      component: () => import('../features/orders/GuestOrderVerifyPage.vue'),
+    },
+    {
       path: '/orders/:orderId/returns/new',
       name: 'return-new',
       component: () => import('../pages/returns/ReturnNewPage.vue'),
@@ -99,6 +114,18 @@ const router = createRouter({
       path: '/returns/:returnId',
       name: 'return-detail',
       component: () => import('../pages/returns/ReturnDetailPage.vue'),
+    },
+    {
+      path: '/account',
+      name: 'account-profile',
+      component: () => import('../pages/account/ProfilePage.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/account/addresses',
+      name: 'account-addresses',
+      component: () => import('../pages/account/AddressesPage.vue'),
+      meta: { requiresAuth: true },
     },
     {
       path: '/account/reviews',
@@ -116,6 +143,11 @@ const router = createRouter({
       path: '/cart',
       name: 'cart',
       component: () => import('../pages/CartPage.vue'),
+    },
+    {
+      path: '/checkout',
+      name: 'checkout',
+      component: () => import('../pages/CheckoutPage.vue'),
     },
     {
       // 組長 PR #35 round-3 review, P2-3: a saved build-list is inherently a member resource (it

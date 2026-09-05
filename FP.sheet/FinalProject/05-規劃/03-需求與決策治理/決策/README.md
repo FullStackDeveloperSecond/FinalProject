@@ -1,6 +1,6 @@
 ---
 文件狀態: 持續更新
-最後更新: 2026-08-28
+最後更新: 2026-09-05
 ---
 
 # 決策工作區
@@ -13,6 +13,29 @@
 
 ## 最近完成批次
 
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-058-AI評估產物與安全套件同步定版|DEC-BATCH-058｜AI 評估產物與安全套件同步定版]]：`DEC-P398`，1 項，已於 2026-09-05 寫回；`cases-source.mjs` 為 Dataset／Fixture 單一來源，既有 `v1.0.4` 顧客內容補回來源；評估工具直接使用中央定版 `Newtonsoft.Json 13.0.4`，不壓制 NU1903、不擴大升級 Hangfire。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-057-AI顧客視角回答與覆核契約修正定版|DEC-BATCH-057｜AI 顧客視角回答與覆核契約修正定版]]：`DEC-P397`，1 項，已於 2026-09-05 寫回；AI 回答對象固定為顧客／實際使用者，內部 Enum、Semantic Key、Fixture ID、代碼與後端術語不得顯示；人工覆核表必須並列顧客問題、必要回答重點與顧客可見回答。Grader 升為 `deterministic-v1.1.2`，未執行付費重跑。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-056-AI-v5覆核與v6零成本修正定版|DEC-BATCH-056｜AI v5 覆核與 v6 零成本修正定版]]：`DEC-P392～DEC-P396`，5 項，已於 2026-09-05 寫回；v5 六案正式人工結果全部待 Alex 重審，Citation 選填仍受來源 allowlist 約束，Semantic Key 統一大寫契約，推薦理由明確說明預算／Badge 取捨，商品 Prompt 升 v6 泛化範例。本批未付費重跑。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-055-AI商品意圖分類人工覆核與安全診斷定版|DEC-BATCH-055｜AI 商品意圖分類、人工覆核與安全診斷定版]]：`DEC-P389～DEC-P391`，3 項，已於 2026-09-05 寫回；一般「主機」無用途／組裝詞時採 Prebuilt，用途＋預算或明示組裝才採 CustomBuild；低延遲 Smoke 正式覆核 3 Pass／3 Fail；InvalidOutput 只保存固定原因碼與欄位名稱，不保存 raw output。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-054-AI商品搜尋低延遲推理設定定版|DEC-BATCH-054｜AI 商品搜尋低延遲推理設定定版]]：`DEC-P385～DEC-P388`，4 項，已於 2026-09-04 寫回；保留 Luna、單次 5 秒、零同步重試與預設 service tier，商品 SearchIntent 改用 `reasoning.effort: none`、`text.verbosity: low`。後續 6 案 Smoke 的商品 P95 為 3,013 ms，但品質 Gate 仍失敗；taxonomy 與正式人工覆核已由 DEC-BATCH-055 完成，v5 尚未重驗，不進 baseline。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-053-AI商品搜尋單次模型與5秒降級定版|DEC-BATCH-053｜AI 商品搜尋單次模型與 5 秒降級定版]]：`DEC-P381～DEC-P384`，4 項，已於 2026-09-04 寫回；採方案 A，商品搜尋只做一次 5 秒意圖模型呼叫、零同步重試，理由改由後端核准事實確定性產生，三輪 Release 規劃降為 66 次。公開 API 不變；尚未付費重驗 v4 品質與 P95。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-052-AI創作者Fixture-v1.0.3定版|DEC-BATCH-052｜AI 創作者 Fixture v1.0.3 定版]]：`DEC-P378～DEC-P380`，3 項，已於 2026-09-04 寫回；核准最小合成名稱、GPU 預算取向與 64GB RAM，Runner 原樣映射 Name／Badges。資料集／Fixture 升為 v1.0.3，受影響兩案後續已完成 Terry／Alex 覆核，完整 Release Dry Run 現為 `IsLiveReady=true`；仍未付費重跑。當時未決的延遲方向已由 DEC-BATCH-053 完成。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-051-AI修正版Smoke結果與後續Gate定版|DEC-BATCH-051｜AI 修正版 Smoke 結果與後續 Gate 定版]]：`DEC-P372～DEC-P377`，6 項，已於 2026-09-04 寫回；Commit `f195c453` 的 6 案 Smoke 成本 US$0.010242、實際 11 次請求，Verdict `FAIL`。T2 證據完整，客服安全／引用通過；商品 Prompt 升為 v3 修正既有契約，Fixture 精確事實與延遲方向後續分別由 DEC-BATCH-052／053 完成，未付費重跑。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-050-AI首次ReleaseBaseline失敗與修正定版|DEC-BATCH-050｜AI 首次 Release baseline 失敗與修正定版]]：`DEC-P366～DEC-P371`，6 項，已於 2026-09-04 寫回；Commit `5e7cc8f2` 的三輪 baseline 成本 US$0.149338，品質與商品延遲 Gate 失敗。已分離 Adapter／orchestration 範圍、修正安全拒絕契約、Prompt／grader／JSONL／分階段觀測，並定版測試期間逐案追加結果與 checkpoint；尚未授權付費重跑，AI-09 維持進行中。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-049-AI第二次煙霧測試結果定版|DEC-BATCH-049｜AI 第二次煙霧測試結果定版]]：`DEC-P365`，1 項，已於 2026-09-04 寫回；Commit `9ea03fc3` 的雙案例 deterministic 與人工覆核均通過，成本 US$0.006085；單筆商品搜尋延遲只列為正式 baseline 待確認風險，未授權 129 次 Release baseline。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-048-AI煙霧測試缺口與資料集修正版定版|DEC-BATCH-048｜AI 煙霧測試缺口與資料集修正版定版]]：`DEC-P359～DEC-P364`，6 項，已於 2026-09-03 寫回；商品搜尋 strict Schema 移除不支援的 `uniqueItems` 並保留後端重複值拒絕，兩個政策 Fixture 補齊 15 筆案例所需的核准規則快照，資料集升為 `zh-TW-v1.0.2-draft`；Runner 拒絕零單價與不存在的指定案例 ID。Kafen／Alex 逐案覆核已完成，120 筆均核准；仍待可追溯 commit 與第二次 Live 費用授權。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-047-AI評估覆核與完整Token成本保存定版|DEC-BATCH-047｜AI 評估覆核與完整 Token 成本保存定版]]：`DEC-P357～DEC-P358`，2 項，已於 2026-09-02 寫回；120 筆繁中案例完成 Terry／Kafen 主標與 Alex 第二審，所有已完成且具 usage 的 Responses 嘗試在回答、重試或轉人工降級時都必須保存 Token／成本。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-046-E2E模擬付款安全邊界定版|DEC-BATCH-046｜E2E 模擬付款安全邊界定版]]：`DEC-P356`，1 項，已於 2026-09-02 寫回；產品仍只有 Demo Profile 可使用模擬完成端點，隔離 `E2E` Environment 只有在顯式開關、專屬可丟棄 SQL Database 與測試 Secret 下可啟用，Development／Production 繼續 fail-fast。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-045-付款續接Endpoint上游收束定版|DEC-BATCH-045｜付款續接 Endpoint 上游收束定版]]：`DEC-P355`，1 項，已於 2026-09-02 寫回並覆寫 `DEC-P352`；只保留上游 `/payment-attempts/latest`，涵蓋終態恢復、Owner／Guest 授權與 `404` 無 Attempt 語意，移除重複 `/current` 公開契約與實作。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-044-優惠券折扣類型欄位長度修正定版|DEC-BATCH-044｜優惠券折扣類型欄位長度修正定版]]：`DEC-P354`，1 項，已於 2026-09-02 寫回；Coupons／OrderCoupons 的 DiscountType 擴為 `varchar(24)`，以完整保存 `AssemblyFreeShipping`，Migration 只產生與審查、未套用資料庫。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-043-Checkout付款續接與優惠券配送試算定版|DEC-BATCH-043｜Checkout 付款續接與優惠券配送試算定版]]：`DEC-P352～DEC-P353`，2 項，已於 2026-09-02 寫回；其中 DEC-P352 已由 DEC-P355 覆寫，DEC-P353 的 Shipping Options Coupon Quote 與 Checkout 最終重驗維持有效。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-042-Checkout具體付款方式契約定版|DEC-BATCH-042｜Checkout 具體付款方式契約定版]]：`DEC-P351`，1 項，已於 2026-09-02 寫回；Shipping Options 只回傳可直接提交的具體 `PaymentMethod[]`，六種預付固定存在，COD 只由既有後端 Policy 決定是否追加，禁止 `prepaid` 群組別名與前端展開。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-041-Checkout配送查詢責任邊界定版|DEC-BATCH-041｜Checkout 配送查詢責任邊界定版]]：`DEC-P350`，1 項，已於 2026-09-01 寫回；維持只接手 yinyin，不跨入 Terry-owned Shipping／Shopping，C-14／WP-08 等待兩支正式配送查詢與 Provider-backed 證據，禁止前端硬寫或跨 owner 查表。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-040-Checkout政策版本查詢契約定版|DEC-BATCH-040｜Checkout 政策版本查詢契約定版]]：`DEC-P349`，1 項，已於 2026-09-01 寫回；C-14 只從既有 `ICheckoutPolicyProvider` 取得 Terms／Return／Privacy 三個目前版本，不寫死 `1/1/1`，不暴露伺服器 ShippingConstraint。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-039-發票手動開立窄查詢契約定版|DEC-BATCH-039｜發票手動開立窄查詢契約定版]]：`DEC-P348`，1 項，已於 2026-09-01 寫回；`Invoice.Manage` 只取得六個開票必要訂單欄位，不擴大 `Order.Manage`，並以快照 RowVersion 完成手動開立與衝突重查。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-038-COD物流接線交付邊界定版|DEC-BATCH-038｜COD 物流接線交付邊界定版]]：`DEC-P347`，1 項，已於 2026-08-31 寫回；不新增平行履約 Endpoint，Demo 完成端點拒絕 COD，本次先交付可供物流 writer 使用的 Delivered／PickedUp 決策服務，正式物流接線前維持未完成。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-037-S02例外授權與模擬付款完成邊界定版|DEC-BATCH-037｜S-02 例外授權與模擬付款完成邊界定版]]：`DEC-P343～DEC-P346`，4 項，已於 2026-08-31 寫回；S-02 為一次性例外，付款沿用 PR #71 的 Demo 開關與單一 `simulationKey`，並補 `cancelled`、COD 履約收款及付款後冪等模擬發票 Outbox。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-036-PrimeVue版本與授權基線定版|DEC-BATCH-036｜PrimeVue 版本與授權基線定版]]：`DEC-P342`，1 項，已於 2026-08-31 寫回；前後台確定使用並精確鎖定 MIT 的 `PrimeVue 4.5.5`，現行 5.0.1 套件漂移須在元件實作前修正並通過雙前端完整 Gate。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-035-M18完整組裝推薦與預算邊界定版|DEC-BATCH-035｜M-18 完整組裝推薦與預算邊界定版]]：`DEC-P340～DEC-P341`，2 項，已於 2026-08-29 寫回；CustomBuild 固定回傳八類完整清單，既有零件納入相容性但不計入新購預算，最高預算涵蓋新購小計與 NT$300 組裝費。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-034-M19-AI客服垂直切片定版|DEC-BATCH-034｜M-19 AI 客服垂直切片定版]]：`DEC-P335～DEC-P339`，5 項，已於 2026-08-28 寫回；新增可重載同意查詢、本人客服公開訊息脈絡、版本化 Token 成本設定、A-28 四角色最小權限，以及指定組長的 US$70 Email／站內一次性通知。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-033-OpenAI-Responses-API-Adapter定版|DEC-BATCH-033｜OpenAI Responses API Adapter 定版]]：`DEC-P331～DEC-P334`，4 項，已於 2026-08-28 寫回；客服採既有 `HttpClient`、`store=false`、Terra／12 秒、一次暫時錯誤重試、strict Schema、可信引用正規化及模型／Token 證據，功能維持預設關閉且 live baseline 仍由 AI-09 追蹤。

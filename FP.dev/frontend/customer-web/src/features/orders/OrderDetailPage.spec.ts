@@ -4,15 +4,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import OrderDetailPage from './OrderDetailPage.vue'
 import type { OrderDto } from './api'
 
-const { fetchOrder, cancelOrder, routerPush } = vi.hoisted(() => ({
+const { fetchOrder, cancelOrder, fetchOrderInvoice, routerPush } = vi.hoisted(() => ({
   fetchOrder: vi.fn(),
   cancelOrder: vi.fn(),
+  fetchOrderInvoice: vi.fn(),
   routerPush: vi.fn(),
 }))
 
 vi.mock('./api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./api')>()
   return { ...actual, fetchOrder, cancelOrder }
+})
+
+vi.mock('../payments/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../payments/api')>()
+  return { ...actual, fetchOrderInvoice }
 })
 
 vi.mock('vue-router', async (importOriginal) => {
@@ -67,7 +73,48 @@ describe('OrderDetailPage', () => {
   beforeEach(() => {
     fetchOrder.mockReset()
     cancelOrder.mockReset()
+    fetchOrderInvoice.mockReset()
+    fetchOrderInvoice.mockRejectedValue(new ApiError('Not Found', {
+      status: 404,
+      code: 'resource_not_found',
+    }))
     routerPush.mockReset()
+  })
+
+  it('renders the shipment summary and history for the owner without any actor details', async () => {
+    fetchOrder.mockResolvedValueOnce(buildOrder({
+      fulfillmentStatus: 'delivered',
+      shipment: {
+        shipmentNumber: 'SH-0001',
+        trackingNumber: 'TRK-0001',
+        status: 'delivered',
+        shippingMethodCode: 'home-delivery',
+        shippedAtUtc: '2026-09-04T01:00:00Z',
+        deliveredAtUtc: '2026-09-04T05:00:00Z',
+        history: [
+          { fromStatus: 'shipped', toStatus: 'inTransit', occurredAtUtc: '2026-09-04T02:00:00Z' },
+          { fromStatus: 'inTransit', toStatus: 'delivered', occurredAtUtc: '2026-09-04T05:00:00Z' },
+        ],
+      },
+    }))
+    const wrapper = mount(OrderDetailPage)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('SH-0001')
+    expect(wrapper.text()).toContain('TRK-0001')
+    expect(wrapper.text()).toContain('物流狀態：已送達')
+    const history = wrapper.find('ul[aria-label="物流歷程"]')
+    expect(history.findAll('li')).toHaveLength(2)
+    expect(history.text()).toContain('配送中')
+    expect(history.text()).toContain('已送達')
+  })
+
+  it('tells the customer the order has not shipped when there is no shipment', async () => {
+    fetchOrder.mockResolvedValueOnce(buildOrder({ shipment: null }))
+    const wrapper = mount(OrderDetailPage)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('尚未出貨')
   })
 
   it('renders order items once loaded', async () => {
@@ -176,5 +223,57 @@ describe('OrderDetailPage', () => {
         }]),
       },
     })
+  })
+
+  it('shows payment and refund state with a payment entry for an unpaid order', async () => {
+    fetchOrder.mockResolvedValueOnce(buildOrder({
+      paymentStatus: 'failed',
+      orderRefundStatus: 'partiallyRefunded',
+      amounts: { ...buildOrder().amounts, paidAmount: 1000, refundedAmount: 200 },
+    }))
+    const wrapper = mount(OrderDetailPage)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('付款失敗')
+    expect(wrapper.text()).toContain('部分退款')
+    expect(wrapper.text()).toContain('已退款：NT$ 200')
+    expect(wrapper.get('a[href="/orders/order-public-id/payment"]').text()).toContain('重新付款')
+  })
+
+  it('shows the customer-safe invoice after a paid order is loaded', async () => {
+    fetchOrder.mockResolvedValueOnce(buildOrder({
+      orderStatus: 'confirmed',
+      paymentStatus: 'paid',
+      amounts: { ...buildOrder().amounts, paidAmount: 1990 },
+    }))
+    fetchOrderInvoice.mockResolvedValueOnce({
+      publicId: 'invoice-1',
+      invoiceNumber: 'AB12345678',
+      orderPublicId: 'order-public-id',
+      status: 'issued',
+      buyerType: 'individual',
+      buyerEmailMasked: 'a***@example.com',
+      carrierType: null,
+      carrierValueMasked: null,
+      companyTaxIdMasked: null,
+      netAmount: 1895,
+      taxAmount: 95,
+      grossAmount: 1990,
+      currency: 'TWD',
+      taxRate: 0.05,
+      items: [],
+      allowances: [],
+      issuedAtUtc: '2026-09-01T08:05:00Z',
+      voidedAtUtc: null,
+      demoMarker: 'DEMO',
+      rowVersion: 'AAAAAAAAB9M=',
+    })
+    const wrapper = mount(OrderDetailPage)
+    await flushPromises()
+
+    expect(fetchOrderInvoice).toHaveBeenCalledWith('order-public-id')
+    expect(wrapper.text()).toContain('AB12345678')
+    expect(wrapper.text()).toContain('DEMO')
+    expect(wrapper.text()).toContain('a***@example.com')
   })
 })

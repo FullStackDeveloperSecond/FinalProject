@@ -245,7 +245,7 @@ public sealed class AiProductSearchOrchestratorTests
                 new AiProductSearchProposedPart(
                     "CPU",
                     "AM5 CPU",
-                    [new AiRequiredSpec("cpu_socket", "eq", "AM5", null)],
+                    [new AiRequiredSpec("CPU_SOCKET", "eq", "AM5", null)],
                     1),
             ],
         };
@@ -386,7 +386,7 @@ public sealed class AiProductSearchOrchestratorTests
             return Task.FromResult(new AiProductSearchMetadata(
                 ["PREBUILT_COMPUTER"],
                 ["DOSELECT"],
-                ["memory_type"]));
+                ["MEMORY_TYPE"]));
         }
 
         public Task<AiProductSearchCandidateResult> FindCandidatesAsync(

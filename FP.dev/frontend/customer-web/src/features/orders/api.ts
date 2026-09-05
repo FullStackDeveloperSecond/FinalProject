@@ -58,6 +58,23 @@ export interface OrderRecipientSummaryDto {
   storeName?: string | null
 }
 
+/** C1（組長 2026-09-04）：顧客看得到單號、狀態與時間歷程；沒有 Actor、原因備註或內部 ID。 */
+export interface OrderShipmentHistoryDto {
+  fromStatus?: FulfillmentStatus | null
+  toStatus: FulfillmentStatus
+  occurredAtUtc: string
+}
+
+export interface OrderShipmentDto {
+  shipmentNumber: string
+  trackingNumber?: string | null
+  status: FulfillmentStatus
+  shippingMethodCode: string
+  shippedAtUtc?: string | null
+  deliveredAtUtc?: string | null
+  history: OrderShipmentHistoryDto[]
+}
+
 export interface OrderDto {
   publicId: string
   orderNumber: string
@@ -79,6 +96,7 @@ export interface OrderDto {
   returnRequestDeadlineUtc?: string | null
   availableActions: string[]
   rowVersion: string
+  shipment?: OrderShipmentDto | null
 }
 
 export interface CancelOrderRequestBody {

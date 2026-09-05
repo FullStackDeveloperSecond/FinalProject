@@ -31,6 +31,7 @@ public sealed class EfOutboxWriter : IOutboxWriter
             EmailNotificationRequestedV1 payload => JsonSerializer.Serialize(payload, JsonOptions),
             InAppNotificationRequestedV1 payload => JsonSerializer.Serialize(payload, JsonOptions),
             InventoryReconciliationMismatchDetectedV1 payload => JsonSerializer.Serialize(payload, JsonOptions),
+            SimulatedInvoiceRequestedV1 payload => JsonSerializer.Serialize(payload, JsonOptions),
             _ => throw new ArgumentOutOfRangeException(
                 nameof(request),
                 "The outbox payload type is not registered."),

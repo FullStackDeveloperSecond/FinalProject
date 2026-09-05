@@ -55,6 +55,9 @@ public sealed class DomainProblemException : Exception
     public static DomainProblemException UnprocessableEntity(string code, string message) =>
         new(422, code, message);
 
+    public static DomainProblemException Gone(string code, string message) =>
+        new(410, code, message);
+
     public static DomainProblemException ServiceUnavailable(string code, string message) =>
         new(503, code, message);
 }

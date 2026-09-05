@@ -136,6 +136,203 @@ describe('admin router role guard', () => {
     expect(router.currentRoute.value.query.redirect).toBe('/catalog/compatibility')
   })
 
+  // 同一個缺口在本 PR 的兩條庫存路由上重演：它們原本也完全沒有 meta，而 guard 的第一行是「三個
+  // meta 旗標都沒有就直接放行」。後端 AdminInventoryController 是 [Authorize(Policy =
+  // InventoryManager)]（對應 InventoryManager／SuperAdmin），前端對齊到同一組角色。
+  it.each([
+    ['/inventory'],
+    ['/inventory/reservations'],
+  ])('redirects an anonymous administrator away from %s to login', async (path) => {
+    const auth = useAdminAuthStore()
+    auth.session = { isAuthenticated: false, user: null, expiresAtUtc: null, requiresTwoFactor: null }
+
+    await router.push(path)
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('login')
+    expect(router.currentRoute.value.query.redirect).toBe(path)
+  })
+
+  it.each([
+    ['/inventory'],
+    ['/inventory/reservations'],
+  ])('redirects an administrator with an unrelated role away from %s to forbidden', async (path) => {
+    const auth = useAdminAuthStore()
+    auth.session = {
+      isAuthenticated: true,
+      user: {
+        publicId: 'admin-4',
+        displayName: 'Catalog',
+        emailMasked: 'c***@example.test',
+        emailVerified: true,
+        locale: 'zh-TW',
+        roles: ['CatalogManager'],
+      },
+      expiresAtUtc: null,
+      requiresTwoFactor: false,
+    }
+
+    await router.push(path)
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('forbidden')
+  })
+
+  it.each([
+    ['/inventory', 'inventory'],
+    ['/inventory/reservations', 'inventory-reservations'],
+  ])('lets an InventoryManager open %s', async (path, name) => {
+    const auth = useAdminAuthStore()
+    auth.session = {
+      isAuthenticated: true,
+      user: {
+        publicId: 'admin-5',
+        displayName: 'Inventory',
+        emailMasked: 'i***@example.test',
+        emailVerified: true,
+        locale: 'zh-TW',
+        roles: ['InventoryManager'],
+      },
+      expiresAtUtc: null,
+      requiresTwoFactor: false,
+    }
+
+    await router.push(path)
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe(name)
+  })
+
+  // A-09 `/catalog/specifications` 與同層的 lookups／compatibility 走同一組角色
+  // （後端 AdminSpecificationDefinitionsController 是 [Authorize(Policy = CatalogManager)]）。
+  // 新路由一併補齊三種身分的 guard 覆蓋，不要重蹈 #35 那次「新頁面沒有 meta」的缺口。
+  it('redirects an anonymous administrator away from the specification definitions page to login', async () => {
+    const auth = useAdminAuthStore()
+    auth.session = { isAuthenticated: false, user: null, expiresAtUtc: null, requiresTwoFactor: null }
+
+    await router.push('/catalog/specifications')
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('login')
+    expect(router.currentRoute.value.query.redirect).toBe('/catalog/specifications')
+  })
+
+  it('redirects an authenticated administrator with an unrelated role away from the specification definitions page', async () => {
+    const auth = useAdminAuthStore()
+    auth.session = {
+      isAuthenticated: true,
+      user: {
+        publicId: 'admin-spec-1',
+        displayName: 'Support',
+        emailMasked: 's***@example.test',
+        emailVerified: true,
+        locale: 'zh-TW',
+        roles: ['OrderManager'],
+      },
+      expiresAtUtc: null,
+      requiresTwoFactor: false,
+    }
+
+    await router.push('/catalog/specifications')
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('forbidden')
+  })
+
+  it.each([['CatalogManager'], ['SuperAdmin']])(
+    'allows a %s administrator into the specification definitions page',
+    async (role) => {
+      const auth = useAdminAuthStore()
+      auth.session = {
+        isAuthenticated: true,
+        user: {
+          publicId: 'admin-spec-2',
+          displayName: 'Catalog',
+          emailMasked: 'c***@example.test',
+          emailVerified: true,
+          locale: 'zh-TW',
+          roles: [role],
+        },
+        expiresAtUtc: null,
+        requiresTwoFactor: false,
+      }
+
+      await router.push('/catalog/specifications')
+      await router.isReady()
+
+      expect(router.currentRoute.value.name).toBe('specification-definitions')
+    },
+  )
+
+  // A-17／A-18：門市頁是 ShippingRead（OrderManager／CatalogManager／SuperAdmin 都可檢視），
+  // 包裹限制頁整頁都是 ShippingManage（只有 OrderManager／SuperAdmin）。兩條新路由都補齊 guard
+  // 覆蓋，不要重蹈 #35 那次「新頁面沒有 meta」的缺口。
+  it.each([
+    ['/shipping/stores'],
+    ['/shipping/package-limits'],
+  ])('redirects an anonymous administrator away from %s to login', async (path) => {
+    const auth = useAdminAuthStore()
+    auth.session = { isAuthenticated: false, user: null, expiresAtUtc: null, requiresTwoFactor: null }
+
+    await router.push(path)
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('login')
+    expect(router.currentRoute.value.query.redirect).toBe(path)
+  })
+
+  /** CatalogManager 可以看門市（UC-ADM-STORE-01「只有檢視權限」），但不得進入包裹限制頁。 */
+  it('lets a CatalogManager view the stores page but not the package-limits page', async () => {
+    const auth = useAdminAuthStore()
+    auth.session = {
+      isAuthenticated: true,
+      user: {
+        publicId: 'admin-ship-1',
+        displayName: 'Catalog',
+        emailMasked: 'c***@example.test',
+        emailVerified: true,
+        locale: 'zh-TW',
+        roles: ['CatalogManager'],
+      },
+      expiresAtUtc: null,
+      requiresTwoFactor: false,
+    }
+
+    await router.push('/shipping/stores')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('shipping-stores')
+
+    await router.push('/shipping/package-limits')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('forbidden')
+  })
+
+  it.each([['/shipping/stores'], ['/shipping/package-limits']])(
+    'lets an OrderManager into %s',
+    async (path) => {
+      const auth = useAdminAuthStore()
+      auth.session = {
+        isAuthenticated: true,
+        user: {
+          publicId: 'admin-ship-2',
+          displayName: 'Ops',
+          emailMasked: 'o***@example.test',
+          emailVerified: true,
+          locale: 'zh-TW',
+          roles: ['OrderManager'],
+        },
+        expiresAtUtc: null,
+        requiresTwoFactor: false,
+      }
+
+      await router.push(path)
+      await router.isReady()
+
+      expect(router.currentRoute.value.name).not.toBe('forbidden')
+      expect(router.currentRoute.value.name).not.toBe('login')
+    },
+  )
+
   it('redirects an authenticated administrator with an unrelated role away from the compatibility rules page', async () => {
     const auth = useAdminAuthStore()
     auth.session = {

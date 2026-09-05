@@ -7,6 +7,7 @@ using System.Text.Json;
 using DoSelect.Application.Builds;
 using DoSelect.Application.Checkout;
 using DoSelect.Application.Common;
+using DoSelect.Application.Orders;
 using DoSelect.Application.Promotions;
 using DoSelect.Domain.Builds;
 using DoSelect.Domain.Catalog;
@@ -17,6 +18,7 @@ using DoSelect.Domain.Promotions;
 using DoSelect.Domain.Shopping;
 using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Persistence;
+using DoSelect.Infrastructure.Promotions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 
@@ -31,7 +33,7 @@ namespace DoSelect.Infrastructure.Checkout;
 public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
 {
     private const decimal AssemblyFeePerGroup = 300m;
-    private const string PublishedProviderStatus = "Published";
+    private const string DraftProviderStatus = "Draft";
     private const string AssemblyShippingKind = "HomeDeliveryAssembly";
     private const string StorePickupShippingKind = "ConvenienceStorePickup";
     private const string PaymentProviderCode = "SIMULATED";
@@ -45,6 +47,7 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
     private readonly ICompatibilityCatalogReader _compatibilityCatalogReader;
     private readonly ICouponRuleReader _couponRuleReader;
     private readonly IOrderNumberGenerator _orderNumberGenerator;
+    private readonly CouponGuestUsageHasher _couponGuestUsageHasher;
     private readonly TimeProvider _timeProvider;
 
     public EfCheckoutTransactionGateway(
@@ -52,22 +55,25 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
         ICompatibilityCatalogReader compatibilityCatalogReader,
         ICouponRuleReader couponRuleReader,
         IOrderNumberGenerator orderNumberGenerator,
+        CouponGuestUsageHasher couponGuestUsageHasher,
         TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(compatibilityCatalogReader);
         ArgumentNullException.ThrowIfNull(couponRuleReader);
         ArgumentNullException.ThrowIfNull(orderNumberGenerator);
+        ArgumentNullException.ThrowIfNull(couponGuestUsageHasher);
         ArgumentNullException.ThrowIfNull(timeProvider);
 
         _context = context;
         _compatibilityCatalogReader = compatibilityCatalogReader;
         _couponRuleReader = couponRuleReader;
         _orderNumberGenerator = orderNumberGenerator;
+        _couponGuestUsageHasher = couponGuestUsageHasher;
         _timeProvider = timeProvider;
     }
 
-    public async Task<CheckoutCreatedOrder> ExecuteAsync(
+    public async Task<OrderDto> ExecuteAsync(
         CheckoutCommand command,
         CancellationToken cancellationToken = default)
     {
@@ -94,7 +100,9 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
             now,
             cancellationToken);
         var package = CalculateAndValidatePackage(lines, shipping.PackageLimit);
-        var guestHash = command.Actor.IsMember ? null : HashGuestKey(command.Actor.GuestCartKey!);
+        var guestHash = command.Actor.IsMember || command.CouponCode is null
+            ? null
+            : _couponGuestUsageHasher.HashEmail(command.Recipient.Email);
         var coupon = await CalculateCouponAsync(
             command,
             lines,
@@ -170,7 +178,7 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
             now,
             cancellationToken);
 
-        var paymentAttempt = AddPaymentAttempt(
+        AddPaymentAttempt(
             order,
             command.PaymentMethod,
             paymentDueAtUtc,
@@ -179,34 +187,26 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
         cart.ChangeStatus(CartStatus.Converted, now);
         await _context.SaveChangesAsync(cancellationToken);
 
-        return new CheckoutCreatedOrder(
-            order.PublicId,
-            order.OrderNumber,
-            order.GrandTotal,
-            order.Currency,
-            paymentAttempt.PublicId,
-            order.PaymentDueAtUtc);
+        return await FindCreatedOrderAsync(order.PublicId, cancellationToken)
+            ?? throw new InvalidOperationException("The newly created Checkout order could not be projected.");
     }
 
-    public async Task<CheckoutCreatedOrder?> FindCreatedOrderAsync(
+    public async Task<OrderDto?> FindCreatedOrderAsync(
         Guid orderPublicId,
         CancellationToken cancellationToken = default)
     {
-        var result = await (
-                from order in _context.Orders.AsNoTracking()
-                where order.PublicId == orderPublicId
-                join attempt in _context.PaymentAttempts.AsNoTracking()
-                    on order.Id equals attempt.OrderId
-                orderby attempt.CreatedAtUtc
-                select new CheckoutCreatedOrder(
-                    order.PublicId,
-                    order.OrderNumber,
-                    order.GrandTotal,
-                    order.Currency,
-                    attempt.PublicId,
-                    order.PaymentDueAtUtc))
-            .FirstOrDefaultAsync(cancellationToken);
-        return result;
+        var order = await _context.Orders.AsNoTracking()
+            .SingleOrDefaultAsync(candidate => candidate.PublicId == orderPublicId, cancellationToken);
+        if (order is null)
+        {
+            return null;
+        }
+
+        var items = await _context.OrderItems.AsNoTracking()
+            .Where(item => item.OrderId == order.Id)
+            .OrderBy(item => item.Id)
+            .ToListAsync(cancellationToken);
+        return OrderDtoMapper.Map(order, items);
     }
 
     private void EnsureExistingTransaction()
@@ -238,7 +238,7 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
             : cart.GuestCartKeyHash is not null &&
               CryptographicOperations.FixedTimeEquals(
                   cart.GuestCartKeyHash,
-                  HashGuestKey(command.Actor.GuestCartKey!));
+                  HashGuestCartKey(command.Actor.GuestCartKey!));
         if (!ownsCart)
         {
             throw DomainProblemException.Forbidden("The cart does not belong to the current actor.");
@@ -400,10 +400,15 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
                 throw Conflict("shipping_method_not_allowed", "A convenience store is required.");
             }
 
+            // 組長 PR #73 review A1: the store's ProviderCode is the CVS *brand* (7-11／FamilyMart,
+            // the store model in 購物車、訂單、付款與物流.md) while the method's ProviderCode is the
+            // logistics *profile class* (StorePickup) — the old equality compared those two
+            // different vocabularies, so every store-pickup checkout failed with "store not
+            // found". The store resolves by PublicId + IsActive alone; method.ProviderCode is only
+            // used to resolve the ShippingProviderProfile below.
             store = await _context.ConvenienceStores.AsNoTracking()
-                .SingleOrDefaultAsync(candidate =>
-                        candidate.PublicId == command.StorePublicId.Value &&
-                        candidate.ProviderCode == method.ProviderCode,
+                .SingleOrDefaultAsync(
+                    candidate => candidate.PublicId == command.StorePublicId.Value,
                     cancellationToken)
                 ?? throw DomainProblemException.NotFound("The convenience store was not found.");
             if (!store.IsActive)
@@ -416,9 +421,12 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
             throw Conflict("shipping_method_not_allowed", "A home-delivery address is required.");
         }
 
+        // 組長 PR #73 round-3, item 2 (裁定 B1)：版本可用性以有效時間窗為準。被新版本接班的舊版本在
+        // cutoff 之前仍是唯一有效版本（Publish 只把它的窗口收在 cutoff），所以這裡排除的是「從未生效
+        // 的 Draft」，不是「已被接班」。Shipping Options 用完全相同的條件。
         var profiles = await _context.ShippingProviderProfiles.AsNoTracking()
             .Where(profile => profile.ProviderCode == method.ProviderCode &&
-                              profile.Status == PublishedProviderStatus &&
+                              profile.Status != DraftProviderStatus &&
                               (profile.EffectiveFromUtc == null || profile.EffectiveFromUtc <= now) &&
                               (profile.EffectiveToUtc == null || now < profile.EffectiveToUtc))
             .ToListAsync(cancellationToken);
@@ -945,7 +953,7 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
         }
     }
 
-    private static byte[] HashGuestKey(string guestCartKey) =>
+    private static byte[] HashGuestCartKey(string guestCartKey) =>
         SHA256.HashData(Encoding.UTF8.GetBytes(guestCartKey));
 
     private static decimal RoundMoney(decimal value) =>

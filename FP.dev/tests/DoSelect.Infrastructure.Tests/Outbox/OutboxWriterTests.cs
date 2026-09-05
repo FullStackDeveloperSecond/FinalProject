@@ -54,6 +54,29 @@ public sealed class OutboxWriterTests
     }
 
     [Fact]
+    public void Add_SerializesTheRegisteredSimulatedInvoicePayload()
+    {
+        using var context = CreateContext();
+        var writer = new EfOutboxWriter(context, new FixedTimeProvider(Now));
+        var orderPublicId = Guid.CreateVersion7();
+        var request = OutboxWriteRequest.Create(
+            Guid.CreateVersion7(),
+            "Order",
+            orderPublicId,
+            new SimulatedInvoiceRequestedV1(orderPublicId),
+            Now,
+            Now,
+            "correlation-invoice-requested");
+
+        var message = writer.Add(request);
+
+        Assert.Equal(EntityState.Added, context.Entry(message).State);
+        Assert.Equal(OutboxEventTypes.SimulatedInvoiceRequestedV1, message.Type);
+        using var document = JsonDocument.Parse(message.PayloadJson);
+        Assert.Equal(orderPublicId, document.RootElement.GetProperty("orderPublicId").GetGuid());
+    }
+
+    [Fact]
     public void Model_UsesTheApprovedAContractAndDispatcherIndexes()
     {
         using var context = CreateContext();

@@ -4,6 +4,25 @@ namespace DoSelect.Application.Tests.Outbox;
 
 public sealed class OutboxWriteRequestTests
 {
+    [Fact]
+    public void SimulatedInvoiceRequest_UsesTheRegisteredVersionedEventType()
+    {
+        var orderPublicId = Guid.NewGuid();
+        var nowUtc = new DateTime(2026, 8, 31, 1, 0, 0, DateTimeKind.Utc);
+
+        var request = OutboxWriteRequest.Create(
+            Guid.NewGuid(),
+            "Order",
+            orderPublicId,
+            new SimulatedInvoiceRequestedV1(orderPublicId),
+            nowUtc,
+            nowUtc,
+            "correlation-invoice-test");
+
+        Assert.Equal(OutboxEventTypes.SimulatedInvoiceRequestedV1, request.Type);
+        Assert.Equal(1, request.PayloadVersion);
+    }
+
     private static readonly DateTime Now =
         new(2026, 8, 26, 8, 0, 0, DateTimeKind.Utc);
 

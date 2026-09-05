@@ -1,3 +1,4 @@
+using DoSelect.Application.Refunds;
 using DoSelect.Application.Returns;
 using DoSelect.Domain.Invoicing;
 using DoSelect.Domain.Orders;
@@ -46,7 +47,8 @@ public sealed class AdminReturnServiceRowVersionTests
         await using var context = ReturnStoreConcurrencyFixture.CreateContext();
         var store = new ReturnStore(context);
         var orderPort = new ReturnOrderEligibilityLookup(context);
-        var service = new AdminReturnService(store, orderPort, new NoOpReturnInventoryPort(), TimeProvider.System);
+        var service = new AdminReturnService(
+            store, orderPort, new NoOpReturnInventoryPort(), new NoOpReturnRefundCreationPort(), TimeProvider.System);
 
         var inspectRequest = new InspectReturnRequest(
             [new InspectReturnItemLine(returnItemPublicId, "Unopened", RestockDisposition.Resellable, null)],
@@ -99,7 +101,8 @@ public sealed class AdminReturnServiceRowVersionTests
         await using var context = ReturnStoreConcurrencyFixture.CreateContext();
         var store = new ReturnStore(context);
         var orderPort = new ReturnOrderEligibilityLookup(context);
-        var service = new AdminReturnService(store, orderPort, new NoOpReturnInventoryPort(), TimeProvider.System);
+        var service = new AdminReturnService(
+            store, orderPort, new NoOpReturnInventoryPort(), new NoOpReturnRefundCreationPort(), TimeProvider.System);
 
         var inspectRequest = new InspectReturnRequest(
             [new InspectReturnItemLine(returnItemPublicId, "Unopened", RestockDisposition.Resellable, null)],
@@ -165,7 +168,7 @@ public sealed class AdminReturnServiceRowVersionTests
 
         var returnRequest = creation.Request;
         returnRequest.Transition(ReturnRequestStatus.UnderReview, NowUtc);
-        returnRequest.Approve(admin.Id, requiresShipment: true, NowUtc); // -> AwaitingShipment
+        returnRequest.Approve(admin.Id, ReturnApprovalOutcome.RequiresShipment, NowUtc); // -> AwaitingShipment
         returnRequest.Transition(ReturnRequestStatus.InTransit, NowUtc);
         returnRequest.Transition(ReturnRequestStatus.Received, NowUtc);
         context.ReturnStatusHistories.AddRange(
@@ -234,5 +237,14 @@ public sealed class AdminReturnServiceRowVersionTests
             IReadOnlyList<ReturnToStockInstruction> instructions,
             DateTime occurredAtUtc,
             CancellationToken cancellationToken) => Task.CompletedTask;
+    }
+
+    /// <remarks>這幾條測的是 RowVersion 前置條件，退款建立由自己的測試覆蓋。</remarks>
+    private sealed class NoOpReturnRefundCreationPort : IReturnRefundCreationPort
+    {
+        public Task<ReturnRefundCreationOutcome> StagePendingRefundAsync(
+            ReturnRefundCreationCommand command,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<ReturnRefundCreationOutcome>(new ReturnRefundCreationOutcome.PendingRefundStaged());
     }
 }

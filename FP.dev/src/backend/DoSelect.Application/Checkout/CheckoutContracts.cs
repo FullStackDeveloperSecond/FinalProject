@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using DoSelect.Application.Common;
+using DoSelect.Application.Orders;
 using DoSelect.Domain.Invoicing;
 using DoSelect.Domain.Orders;
 using DoSelect.Domain.Payments;
@@ -127,14 +128,6 @@ public sealed record CheckoutCommand(
     CheckoutPolicySnapshot PolicyVersions,
     string IdempotencyKey);
 
-public sealed record CheckoutCreatedOrder(
-    Guid PublicId,
-    string OrderNumber,
-    decimal GrandTotal,
-    string Currency,
-    Guid PaymentAttemptPublicId,
-    DateTime? PaymentDueAtUtc);
-
 /// <summary>
 /// Infrastructure owns the actual atomic Order → Reservation → Coupon → Payment write. The
 /// implementation must share the transaction opened by IIdempotencyExecutor and must not commit,
@@ -142,11 +135,11 @@ public sealed record CheckoutCreatedOrder(
 /// </summary>
 public interface ICheckoutTransactionGateway
 {
-    Task<CheckoutCreatedOrder> ExecuteAsync(
+    Task<OrderDto> ExecuteAsync(
         CheckoutCommand command,
         CancellationToken cancellationToken = default);
 
-    Task<CheckoutCreatedOrder?> FindCreatedOrderAsync(
+    Task<OrderDto?> FindCreatedOrderAsync(
         Guid orderPublicId,
         CancellationToken cancellationToken = default);
 }

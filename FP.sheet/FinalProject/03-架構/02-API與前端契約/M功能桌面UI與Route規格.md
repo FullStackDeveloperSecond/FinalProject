@@ -44,8 +44,8 @@
 | C-11 | `/forgot-password` | PublicOnly | 送出一致安全訊息，不揭露帳號是否存在 | UC-AUTH-03 |
 | C-12 | `/reset-password` | Public | 驗證短效 Token 並設定新密碼 | UC-AUTH-03 |
 | C-13 | `/cart` | Public Cart／Member | 購物車群組、增刪改、價格／庫存／相容性衝突處理、優惠券及結帳前重驗 | Cart、Coupon、Shipping Options、UC-CART-01／02、UC-COUPON-01 |
-| C-14 | `/checkout` | Public Cart／Member | 收件資料、配送、示範門市、付款方式、模擬發票及政策確認；只送識別與使用者輸入，不送價格 | Shipping／Store、`POST /orders`、UC-CHECKOUT-01／COD-01 |
-| C-15 | `/orders/:orderId/payment` | Order Owner／Guest Scope | 建立或重試付款嘗試、顯示 ATM／超商代碼或即時付款模擬結果 | UC-PAY-01 |
+| C-14 | `/checkout` | Public Cart／Member | 收件資料、配送、示範門市、優惠券套用、付款方式、模擬發票及政策確認；只送識別與使用者輸入，不送價格 | Shipping／Coupon Quote／Store、`POST /orders`、UC-CHECKOUT-01／COD-01 |
+| C-15 | `/orders/:orderId/payment` | Order Owner／Guest Scope | 先載入最新付款嘗試；非終態續接，失敗／過期／取消顯示結果並允許重試，已付款保留完成結果，尚無 Attempt 才建立第一筆；顯示 ATM／超商代碼或即時付款模擬結果 | Latest Payment Attempt／UC-PAY-01 |
 | C-16 | `/guest-orders/access` | Public | 輸入訂單編號與 Email，回應不揭露訂單是否存在 | UC-GUEST-ORDER-01 |
 | C-17 | `/guest-orders/verify` | Public | 驗證 10 分鐘一次性碼並建立 30 分鐘限單 Cookie | UC-GUEST-ORDER-01 |
 | C-18 | `/orders/:orderId` | Owner Member／Guest Scope | 訂單、付款、物流、退款、快照與合法取消／退貨入口 | `GET /orders/{id}`、Cancel Action、UC-GUEST-ORDER-01、UC-RETURN-01 |
@@ -61,6 +61,8 @@
 | C-28 | `/support/tickets` | Member | 自己的客服案件列表及建立入口 | `GET /support-tickets`、API-M-11 |
 | C-29 | `/support/tickets/new` | Member | 七類分類、主旨、訊息、可選本人訂單與最多三個附件 | `POST /support-tickets`、附件、UC-SUPPORT-01／02 |
 | C-30 | `/support/tickets/:ticketId` | Owner Member | 對話、附件、狀態、SLA 摘要與合法取消；不顯示內部備註 | Ticket Detail／Messages／Cancel、UC-SUPPORT-01／02 |
+
+C-14 的付款方式只依 `ShippingOptionsDto.allowedPaymentMethods:PaymentMethod[]` 顯示與提交，不展開 `prepaid` 或自行判定 COD。優惠券只有按下套用後才成為已套用狀態，並以同一代碼重新查詢配送費與付款方式；代碼變更或移除時必須清除舊付款選擇。會員建單成功後可依付款方式進入 C-15 或 C-18；訪客仍須先走 C-16／C-17，以訂單編號與結帳 Email 完成限單驗證後才能進入受保護的付款／訂單 Route。C-15 先查 Latest Payment Attempt；尚無 Attempt 的 `404` 才建立第一筆，非終態續接，`failed`／`expired`／`cancelled` 可重試，`paid` 保留完成結果且不得重複付款。
 
 `/orders/:orderId` 是會員與已驗證訪客共用的畫面 Route，但 API 分別以會員 Cookie 或限單 Cookie 授權；前端不得接受使用者輸入 Member PublicId。
 

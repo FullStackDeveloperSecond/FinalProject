@@ -41,11 +41,10 @@ public sealed class EfAiProductSearchCatalog(
             .Select(definition => definition.SemanticKey)
             .Distinct()
             .ToArrayAsync(cancellationToken);
-        // SearchIntent is an external/versioned contract and deliberately uses lower ASCII
-        // semantic keys. Catalog persistence normalizes codes to upper case; the ordinary
-        // ProductSearchService normalizes them back at its boundary before querying.
+        // SearchIntent and catalog persistence share the formally approved upper-case
+        // semantic-key contract. ProductSearchService still normalizes at its query boundary.
         var semanticKeys = storedSemanticKeys
-            .Select(key => key.ToLowerInvariant())
+            .Select(key => key.Trim().ToUpperInvariant())
             .ToArray();
         return new AiProductSearchMetadata(categoryCodes, brandCodes, semanticKeys);
     }

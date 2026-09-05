@@ -35,6 +35,16 @@ public sealed class CatalogWriteException : Exception
         /// IsRequired specification its category defines.</summary>
         public const string SkuMissingRequiredSpecification = "sku_missing_required_specification";
         public const string SpecificationInvalid = "specification_invalid";
+
+        /// <summary>API錯誤碼目錄：同一分類下的規格語意鍵重複（409）。</summary>
+        public const string SpecificationSemanticKeyDuplicate = "specification_semantic_key_duplicate";
+
+        /// <summary>
+        /// API錯誤碼目錄：「規格定義已被商品、搜尋、匯入或相容性規則引用，只能停用」（409）。
+        /// 這個 API 沒有刪除端點，實際會觸發的情境是「停用固定相容性引擎依賴的受保護定義」——
+        /// 停掉它會讓該分類的硬性相容規則失去必要欄位。
+        /// </summary>
+        public const string SpecificationDefinitionReferenced = "specification_definition_referenced";
         public const string ConcurrencyConflict = "concurrency_conflict";
         public const string ResourceNotFound = "resource_not_found";
         public const string CategoryParentInvalid = "category_parent_invalid";

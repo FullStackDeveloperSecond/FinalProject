@@ -1,11 +1,12 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-28
+最後更新: 2026-08-31
 追蹤項目:
   - DES-10
   - DES-20
   - DES-22
   - DES-23
+  - DES-25
   - REQ-03
 ---
 
@@ -97,7 +98,7 @@
 | `CreateOrderRequest` | `cartPublicId`、`cartRowVersion`、`buyer:{email,name,phone}`、`shipping:{methodCode,address?:AddressInput,storePublicId?:uuid}`、`paymentMethod:enum`、`invoice:{type:simulated,carrier?:string(64)}`、`acceptPolicyVersions:{terms,return,privacy}` |
 | `AddressInput` | `recipientName:string(1..100)`、`phone:string(6..32)`、`postalCode?:string(1..16)`、`city?:string(1..50)`、`district?:string(1..50)`、`addressLine1?:string(1..300)`、`addressLine2?:string(0..300)`；宅配時地址欄全部必填，超取不得用地址取代 storePublicId；不接受地址簿 Label |
 | `OrderDto` | `publicId`、`orderNumber`、五個狀態、`items:OrderItemDto[]`、收件遮蔽摘要、物流摘要、付款摘要、`amounts`、`paymentDueAtUtc?`、合法 `availableActions:string[]`、各事件時間、`rowVersion` |
-| `ShippingOptionsDto` | `cartPublicId`、`options:{methodCode,name,fee,isEligible,ineligibleReasonCode?,freeShippingThreshold?,requiresAddress,requiresStore,allowedPaymentMethods[]}[]`、`evaluatedAtUtc`、`cartRowVersion` |
+| `ShippingOptionsDto` | `cartPublicId`、`options:{methodCode,name,fee,isEligible,ineligibleReasonCode?,freeShippingThreshold?,requiresAddress,requiresStore,allowedPaymentMethods:PaymentMethod[]}[]`、`evaluatedAtUtc`、`cartRowVersion`；付款陣列固定使用可直接提交的具體 enum：六種預付方式，COD 只在後端資格通過時追加；不得回傳 `prepaid` 群組別名。查詢可帶 `couponCode?:string(1..64)`，提供時回應必須以 Coupon Quote 後符合資格小計與最終應付金額重算免運、運費與 COD |
 | `ConvenienceStoreQuery` | `providerCode?:string(64)`、`city?:string(50)`、`district?:string(50)`、`q?:string(100)`、`pageNumber/pageSize` |
 | `ConvenienceStoreOptionDto` | `publicId`、`providerCode`、`storeCode`、`name`、`city`、`district`、`address`、`isDemoData:true` |
 | `OrderQuery` | `status?:enum[0..10]`、`fromDate/toDate?:YYYY-MM-DD`、`pageNumber/pageSize`；只查目前會員自己的訂單 |
@@ -112,7 +113,9 @@
 |---|---|
 | `CreatePaymentAttemptRequest` | `method:enum`、`orderRowVersion`；金額由後端訂單決定 |
 | `PaymentAttemptDto` | `publicId`、`method`、`status`、`amount`、`currency`、`instruction?:{type,maskedAccount?,code?,expiresAtUtc?}`、`createdAtUtc`、`paidAtUtc?`、`rowVersion` |
-| `CompleteSimulatedPaymentRequest` | `outcome:succeeded/failed/expired`、`simulationKey:string(8..128)`；展示端點只在 Demo Profile 開放 |
+
+`GET /api/v1/orders/{id}/payment-attempts/latest` 與建立／完成付款共用 `PaymentAttemptDto`；回目前 Owner Scope 內最新一筆 Attempt，包含 `paid`／`failed`／`expired`／`cancelled` 等終態。訂單不存在或尚無 Attempt 均為 `404 resource_not_found`，未登入為 `401 authentication_required`；不得以 Null Body 的 `200`、`204` 或跨 Owner 查詢代替。
+| `CompleteSimulatedPaymentRequest` | `outcome:succeeded/failed/cancelled/expired`、`simulationKey:string(8..128)`；產品展示端點只在 Demo Profile 且 `Demo:SimulationEndpointsEnabled=true` 開放，DEC-P356 另允許隔離 E2E Environment 用相同顯式開關驗證契約；`simulationKey` 同時作為此命令的唯一重播鍵與不可重複模擬 Provider Event ID，不另使用 `Idempotency-Key` Header；COD 不接受此 Request，必須由 Delivered／PickedUp 收款事件完成 |
 | `CreateReturnRequest` | `items:{orderItemPublicId,quantity,reasonCode,description?:string(0..500)}[1..20]`、`requestReason:string(1..1000)`、`orderRowVersion` |
 | `ReturnRequestDto` | `publicId`、`orderPublicId`、`status`、`items[]`、`attachments[]`、`requestedAtUtc`、審核／收貨／結案時間、`availableActions[]`、`rowVersion` |
 | `ApproveReturnRequest` | `decision:approved/rejected`、`items:{returnItemPublicId,approvedQuantity:int(0..requestedQuantity),inspectionRequired:bool}[1..20]`、`reasonCode:string(1..64)`、`note?:string(0..500)`、`assemblyFeeDisposition?:enum`、`returnShippingCost?:decimal(18,2)>=0`、`returnRowVersion`；核准且不需寄回／驗收時兩個退款快照欄位成對必填，需寄回或拒絕時不得提供 |
@@ -143,6 +146,7 @@
 | Schema | 精確欄位 |
 |---|---|
 | `IssueSimulatedInvoiceRequest` | `orderRowVersion`；發票買受人、品項及金額只讀取訂單交易快照；`Idempotency-Key` 使用 Header |
+| `InvoiceIssuanceOrderDto` | `orderPublicId`、`orderNumber`、`orderIsPaid`、`orderIsCancelled`、`rowVersion`、`hasInvoice`；只供 `Invoice.Manage` 手動開立前確認，不得加入收件人、品項、Member／Guest 身分或內部 `OrderId` |
 | `SimulatedInvoiceItemDto` | `publicId`、`orderItemPublicId?`、`kind:merchandise\|shipping\|assemblyFee`、商品／SKU 顯示快照、`quantity`、`unitPrice`、`discountAmount`、`netAmount`、`taxAmount`、`grossAmount` |
 | `SimulatedInvoiceAllowanceDto` | `publicId`、`allowanceNumber`、`invoicePublicId`、`refundPublicId`、`netAmount`、`taxAmount`、`grossAmount`、`items[]`、`issuedAtUtc`、`demoMarker` |
 | `SimulatedInvoiceDto` | `publicId`、`invoiceNumber`、`orderPublicId`、`status`、遮蔽買受人摘要、`netAmount`、`taxAmount`、`grossAmount`、`currency:TWD`、`taxRate:0.05`、`items[]`、`allowances[]`、開立／作廢時間、`demoMarker`、`rowVersion` |
@@ -167,14 +171,18 @@
 | `SpecValueInput` | `semanticKey:string(1..64)`、`valueType:enum`、四值欄 oneOf |
 | `SkuDto` | PublicId、SkuCode、Product 摘要、全部可編輯欄位、Spec DTO、庫存摘要、時間、RowVersion；非 Finance/Catalog 不回 UnitCost |
 | `AdminProductQuery` | `q?`、`brandCodes?`、`categoryCodes?`、`statuses?`、`stockState?`、`sort?`、`pageNumber/pageSize`；排序與篩選使用白名單 |
-| `AdminProductSummaryDto` | Product PublicId／Code／名稱、品牌、分類、狀態、SKU 數、價格區間、加總庫存、主要圖片、更新時間、RowVersion |
+| `AdminProductSummaryDto` | Product PublicId／Code／名稱、品牌、分類、狀態、SKU 數、價格區間、加總庫存、主要圖片（未刪除且排序最前的一張，URL 走後台預覽路由 `…/preview/320`）、更新時間、RowVersion |
+| `AdminProductImageDto` | PublicId、ProductPublicId、Status（Ready／Published／Deleted…）、AltText、SortOrder、IsPrimary、SourceUrl／LicenseName／LicenseUrl、HasCompleteMetadata、OriginalFileName／MediaType／FileSizeBytes／Width／Height、`previewPathBase`（接 `/original`／`/320`／`/800`／`/1600` 即後台預覽路由）、`variants:{variant,width,height,publicUrl?}[]`（`publicUrl` 只有 Published 有值，即 SH-06 公開路由）、CreatedAtUtc／UpdatedAtUtc／PublishedAtUtc、RowVersion；`AdminProductDetailDto.images` 為此型別（未刪除全部、依排序、第一張為主圖） |
+| 商品圖片上傳（multipart） | `file`（JPG／PNG／WebP，≤10 MB）＋ `altText?`(≤160)、`sourceUrl?`(≤1000)、`licenseName?`(≤100)、`licenseUrl?`(≤1000)；`sourceUrl`／`licenseUrl` 僅接受 absolute HTTP／HTTPS URL（否則 `validation_failed`）；未給 altText 取檔名；成功 201 `AdminProductImageDto`（Ready）；寫 `product_image.upload` 稽核 |
+| `UpdateProductImageRequest` | `altText`(1..160)、`sortOrder`(0..9999)、`sourceUrl?`、`licenseName?`、`licenseUrl?`（網址規則同上）、`rowVersion`；Published 圖片不得改成來源／授權不完整（422 `image_metadata_incomplete`）；寫 `product_image.update` 稽核 |
+| `ProductImageActionRequest` | `rowVersion`；`actions/publish` 與 `DELETE` 共用。只允許 Ready → Published，且須 Alt／來源／授權齊備，否則 422 `image_metadata_incomplete`；已發布再發布為 no-op；各寫 `product_image.publish`／`product_image.delete` 稽核 |
 | `CreateProductRequest` | `productCode:string(1..64)`、`nameZhTw:string(1..160)`、`brandPublicId`、`categoryPublicId`、`descriptionZhTw?:string(0..4000)`、`warrantyMonths?:int(0..120)`、`tagPublicIds:uuid[0..20]`、`status:draft/published/unpublished/discontinued`、必填 `defaultSku:CreateSkuRequest`；服務端固定 `defaultSku.isDefault=true`，Product、Tags 與第一個預設 SKU 必須同交易全部成功或全部回滾 |
 | `UpdateProductRequest` | Create 欄位但 Product Code 不可改；加 `rowVersion` |
 | `AdminProductDetailDto` | Product 全部可編輯欄位、`skus:SkuDto[]`、`images[]`、規格範本摘要、稽核時間及 RowVersion |
-| `BulkProductActionRequest` | `productPublicIds:uuid[1..100]`、`rowVersions:{productPublicId,rowVersion}[]`；`adjust-price` 另帶受控調價模式與值、原因 |
+| `BulkProductActionRequest` | `productPublicIds:uuid[1..100]`、`rowVersions:{productPublicId,rowVersion}[]`；`adjust-price` 另帶 `priceAdjustment:{mode,value,reason}`。`mode` 白名單 `percentage`／`amount`；`percentage` 的 `value` 限 -90～+100；`reason` 必填 1..500 且須通過中央 Audit 的安全字元與敏感詞檢查。調整後價格必須 >= 0 且符合 `decimal(18,2)`，任一 SKU 超出即整批拒絕（組長裁定 A1，2026-09-02） |
 | `CatalogLookupDto` | `publicId`、`code`、`nameZhTw`、`isActive`、`sortOrder`、`rowVersion`；Brand／Category／Tag 使用各自具名 Schema |
-| `SpecificationDefinitionDto` | `publicId`、`categoryPublicId`、`semanticKey`、`displayNameZhTw`、`valueType`、`unitCode?`、`isRequired`、`isFilterable`、`isProtected`、`isActive`、`sortOrder`、Options、RowVersion |
-| `ReleaseReservationRequest` | `reasonCode:enum`、`note:string(1..500)`、`rowVersion` |
+| `SpecificationDefinitionDto` | `publicId`、`categoryPublicId`、`categoryCode`、`semanticKey`、`displayNameZhTw`、`valueType`、`unitCode?`、`isRequired`、`allowsMultiple`、`isProtected`、`isActive`、`sortOrder`、Options、RowVersion |
+| `ReleaseReservationRequest` | `reasonCode:enum`（`InventoryReleaseReasonCodes` 白名單）、`note:string(1..500)`（必填；落在 `inventory_reservation.release` 稽核的 note，須通過中央稽核的字元規則）、`rowVersion` |
 | `PackageLimitVersionRequest` | Weight／三邊／總長／申報價正數、`effectiveFromUtc`、`effectiveToUtc?`、`rowVersion?` |
 | `ConvenienceStoreRequest` | `providerCode:string(1..64)`、`storeCode:string(1..64)`、`name:string(1..160)`、`address:string(1..500)`、`isActive`、`rowVersion?` |
 | `ConvenienceStoreDto` | Request 欄位＋PublicId、縣市／行政區、是否展示資料、建立／更新時間、RowVersion |
@@ -182,14 +190,20 @@
 | `AdminOrderDto` | Summary＋Order Item／付款／物流／組裝／退貨退款摘要、狀態歷程、遮蔽買家資料、`availableActions[]`；完整收件資料不內嵌 |
 | `OrderRecipientDto` | OrderPublicId、RecipientName、Phone、Email、PostalCode、Address、Store Snapshot、`accessPurpose`；每次讀取稽核 |
 | `BatchShipmentRequest` | `orders:{orderPublicId,rowVersion}[1..100]`、`shippingAction:createLabel/markShipped`、`idempotencyKey` |
-| `BatchShipmentResultDto` | BatchPublicId、Total／Succeeded／Failed、`items:{orderPublicId,status,trackingNumber?,errorCode?}[]`、建立時間 |
+| `BatchShipmentResultDto` | BatchPublicId、Total／Succeeded／Failed、`items:{sourceRowNumber,orderPublicId,orderNumber?,status,trackingNumber?,errorCode?,message?}[]`、建立時間、`isReplay`。BatchPublicId 是這次批次作業的識別碼，保存在冪等記錄裡，同鍵同 payload 重送會拿回同一個值與同一份逐筆結果（`isReplay=true`，代表沒有任何訂單被重複出貨）；系統無 ShipmentBatch 表，結果 CSV 由前端從這份回應就地產生 |
 | `RetryOutboxMessageRequest` | `reasonCode:string(1..64)`；ASCII 穩定碼，只允許字母、數字、`.`、`_`、`:`、`-`，並須通過中央 Audit 敏感詞拒絕規則 |
 | `RetryOutboxMessageResponse` | `publicId`、`status:Pending`、`availableAtUtc`；HTTP 202 |
+| `ShipmentStatusActionRequest` | `shipmentRowVersion`、`reasonCode?`（`ShipmentStatusReasonCodes` 白名單：`recipient_absent`、`address_invalid`、`recipient_refused`、`pickup_expired`、`package_damaged`、`carrier_issue`、`redelivery`、`other`；`delivery-failed`／`returned` 必填）、`note?`(≤500，只進管理端 Audit，寫入前以中央 Audit note 規則驗證，不合規回 `validation_failed`)；Header `Idempotency-Key` 必帶；同鍵同 payload 不重複副作用，重播回傳目前最新的 `AdminOrderDto` |
+| `AdminShipmentDto` | `AdminOrderDto.shipment`：PublicId、ShipmentNumber、TrackingNumber、Status、ShippingMethodCode、ShippedAtUtc、DeliveredAtUtc、`history:{fromStatus?,toStatus,actorPublicId?,occurredAtUtc}[]`（依時間）、後端計算的 `availableActions[]`、RowVersion；無物流單時為 null |
+| `OrderShipmentDto` | 顧客 `OrderDto.shipment`：ShipmentNumber、TrackingNumber、Status、ShippingMethodCode、ShippedAtUtc、DeliveredAtUtc、`history:{fromStatus?,toStatus,occurredAtUtc}[]`；不含 Actor、原因備註或內部 ID |
 | `InventoryBalanceQuery` | `q?`、`stockState?`、`categoryCode?`、`pageNumber/pageSize` |
 | `InventoryBalanceDto` | SKU PublicId／Code／名稱、`onHand`、`reserved`、`available`、`lowStockThreshold`、`rowVersion` |
 | `InventoryReservationDto` | PublicId、Order／SKU 摘要、Quantity、Status、ExpiresAtUtc、CreatedAtUtc、合法 `availableActions[]`、RowVersion |
 | `InventoryMovementQuery` | `skuPublicId?`、`movementTypes?`、`from/to?`、`pageNumber/pageSize` |
 | `InventoryMovementDto` | PublicId、SKU 摘要、Type、Before／Delta／After、ReasonCode、Actor 摘要、Reference Type／PublicId、OccurredAtUtc |
+| `InventoryReconciliationCaseQuery` | `status?`（Open／Acknowledged／Resolved／Dismissed）、`pageNumber/pageSize` |
+| `InventoryReconciliationCaseDto` | PublicId、SKU 摘要、Status、Expected／Actual OnHand、Expected／Actual Reserved（偵測時 Balance 快照 vs 帳本重算）、DetectedAtUtc、AcknowledgedBy／ResolvedBy Actor 摘要、ResolutionMovementPublicId?、ResolutionReason?、ResolvedAtUtc?、RowVersion |
+| `ReconciliationCaseResolutionRequest` | dismiss／resolve 共用：`reasonCode:string(1..32)`（dismiss 限 `false_positive/system_error/other`、resolve 限 `count_verified/system_error/other`）、`note:string(1..500)` 必填（trim 後存案件 `ResolutionReason` 並寫中央 Audit note）、`rowVersion` 必填；成功 204 |
 | `ProductImportBatchDto`／`InventoryImportBatchDto` | Batch PublicId、Type、Template Version、Status、建立者摘要、三組來源檔安全顯示名／Hash 是否存在、RowCount、新增／更新／無變更／錯誤統計、NormalizedContentVersion、CorrelationId、ResultSummary、ExpiresAtUtc、RowVersion；庫存匯入第 2／3 組為 Null |
 | `ProductImportRowDto`／`InventoryImportRowDto` | Dataset、SourceRowNumber、StableKey、Action、ErrorCodes[]、安全欄位摘要；不回未清理原始公式 |
 

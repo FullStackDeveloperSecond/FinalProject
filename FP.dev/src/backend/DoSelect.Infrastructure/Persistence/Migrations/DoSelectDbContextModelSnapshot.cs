@@ -2633,6 +2633,10 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                         .HasMaxLength(450)
                         .HasColumnType("nvarchar(450)");
 
+                    b.Property<string>("AdjustmentNote")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
                     b.Property<int>("AfterOnHand")
                         .HasColumnType("int");
 
@@ -4741,9 +4745,9 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("DiscountType")
                         .IsRequired()
-                        .HasMaxLength(16)
+                        .HasMaxLength(24)
                         .IsUnicode(false)
-                        .HasColumnType("varchar(16)");
+                        .HasColumnType("varchar(24)");
 
                     b.Property<decimal?>("DiscountValue")
                         .HasPrecision(18, 2)
@@ -5031,9 +5035,9 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("DiscountType")
                         .IsRequired()
-                        .HasMaxLength(16)
+                        .HasMaxLength(24)
                         .IsUnicode(false)
-                        .HasColumnType("varchar(16)");
+                        .HasColumnType("varchar(24)");
 
                     b.Property<decimal?>("DiscountValue")
                         .HasPrecision(18, 2)

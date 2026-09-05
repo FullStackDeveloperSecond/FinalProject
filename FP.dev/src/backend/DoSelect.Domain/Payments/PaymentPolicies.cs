@@ -36,6 +36,21 @@ public enum PaymentSettlementKind
 
 public static class PaymentMethodPolicy
 {
+    /// <summary>
+    /// 可在結帳時先付款的六種具體方式。API 必須回傳這些正式列舉值，不能以
+    /// <c>prepaid</c> 之類無法提交訂單的群組代碼代替。
+    /// </summary>
+    public static IReadOnlyList<PaymentMethod> PrepaidMethods { get; } =
+        Array.AsReadOnly<PaymentMethod>(
+        [
+            PaymentMethod.CreditCard,
+            PaymentMethod.ATM,
+            PaymentMethod.ConvenienceCode,
+            PaymentMethod.LinePay,
+            PaymentMethod.ApplePay,
+            PaymentMethod.GooglePay,
+        ]);
+
     /// <summary>即時付款的保留期限。</summary>
     public static readonly TimeSpan RealtimeInstructionLifetime = TimeSpan.FromMinutes(15);
 

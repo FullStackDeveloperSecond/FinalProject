@@ -1,6 +1,34 @@
+using DoSelect.Application.Idempotency;
+using DoSelect.Application.Orders;
+using DoSelect.Application.Support.Dtos;
 using DoSelect.Domain.Payments;
 
 namespace DoSelect.Application.Payments;
+
+/// <summary>建立或重試付款嘗試的公開 Request；金額與訂單識別由 route／後端決定。</summary>
+public sealed record CreatePaymentAttemptRequest(
+    PaymentMethod Method,
+    [RowVersionRequired] byte[] OrderRowVersion);
+
+/// <summary>由受信任 API 邊界組合，不接受客戶端指定 Actor 或冪等作用域。</summary>
+public sealed record CreatePaymentAttemptCommand(
+    Guid OrderPublicId,
+    PaymentMethod Method,
+    byte[] OrderRowVersion,
+    string IdempotencyKey,
+    OrderActor Actor);
+
+public interface IPaymentAttemptWriter
+{
+    Task<IdempotencyExecutionResult<PaymentAttemptDto>> CreateAsync(
+        CreatePaymentAttemptCommand command,
+        CancellationToken cancellationToken = default);
+}
+
+public static class PaymentAttemptWriteConstants
+{
+    public const string Operation = "payment-attempt.create";
+}
 
 /// <summary>
 /// 訂單的付款狀態快照。<paramref name="OrderId"/> 為內部識別，不得對外回傳。

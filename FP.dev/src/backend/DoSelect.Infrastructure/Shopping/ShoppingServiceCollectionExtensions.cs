@@ -1,4 +1,5 @@
 using DoSelect.Application.Shopping;
+using DoSelect.Application.Promotions;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace DoSelect.Infrastructure.Shopping;
@@ -10,6 +11,7 @@ public static class ShoppingServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
 
         services.AddScoped<ICartService, EfCartService>();
+        services.AddScoped<ICartCouponLineReader, EfCartCouponLineReader>();
 
         return services;
     }

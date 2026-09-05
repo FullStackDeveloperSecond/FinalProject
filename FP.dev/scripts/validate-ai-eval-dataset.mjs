@@ -144,13 +144,17 @@ function validateRequiredShape(item, validationErrors) {
       validationErrors.push(`${item.caseId ?? '<unknown>'}: missing ${property}`)
     }
   }
-  if (item.datasetVersion !== 'zh-TW-v1.0.0-draft') validationErrors.push(`${item.caseId}: wrong dataset version`)
+  if (item.datasetVersion !== 'zh-TW-v1.0.3-draft') validationErrors.push(`${item.caseId}: wrong dataset version`)
   if (item.language !== 'zh-TW') validationErrors.push(`${item.caseId}: wrong language`)
   if (!/^[A-Z-]+-\d{3}$/.test(item.caseId)) validationErrors.push(`${item.caseId}: invalid caseId format`)
   if (typeof item.input?.message !== 'string' || item.input.message.length > 2000) validationErrors.push(`${item.caseId}: invalid message`)
   if (!Array.isArray(item.prerequisites?.fixtureIds) || item.prerequisites.fixtureIds.length === 0) validationErrors.push(`${item.caseId}: fixtureIds required`)
   if (!Array.isArray(item.expected?.answer?.requiredPoints) || item.expected.answer.requiredPoints.length === 0) validationErrors.push(`${item.caseId}: answer points required`)
   if (!Array.isArray(item.evidence?.sourceRefs) || item.evidence.sourceRefs.length === 0) validationErrors.push(`${item.caseId}: sourceRefs required`)
+  if (item.caseId === 'SUPPORT-POLICY-015' &&
+      !item.evidence?.sourceRefs?.includes('02-領域需求/90-驗收規格/AI搜尋與客服驗收規格#UC-AI-SUPPORT-03｜禁止 AI 寫入商業資料')) {
+    validationErrors.push(`${item.caseId}: AI no-write evidence source required`)
+  }
   if (!item.annotation?.primaryAnnotator || !item.annotation?.reviewer) validationErrors.push(`${item.caseId}: annotation responsibility required`)
 }
 
