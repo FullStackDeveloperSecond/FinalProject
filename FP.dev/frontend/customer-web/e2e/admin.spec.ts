@@ -751,7 +751,7 @@ test('a seeded administrator can enroll TOTP, reject a wrong code, and sign in a
   await expect(page).toHaveURL(/\/admin\/login$/)
 })
 
-test('a delivered order can be returned, refunded and allowed to update the order and invoice projections; H-R03 DES-21/DES-22 refund and allowance journey', async ({
+test('a delivered order can be returned, refunded and allowed to update the order and invoice projections; H-R03 DES-21/DES-22 refund and allowance journey, invoice via payment outbox not manual issuance', async ({
   page,
   api,
   seed,
@@ -832,50 +832,27 @@ test('a delivered order can be returned, refunded and allowed to update the orde
   await expect(customerPage.getByText('已申請', { exact: true })).toBeVisible()
 
   // Admin: approve the return through the no-shipment fast path (淨額 > 0 → AwaitingRefund).
-  // AdminReturnDetailPage.vue's 審核 form has no fields for AssemblyFeeDisposition/
-  // ReturnShippingCost even though the backend requires both here — a real UI gap, flagged to
-  // the user separately. Per that decision this one submission goes through the API directly
-  // (the same no-UI escape hatch this file already uses for shipment actions with no button),
-  // while every surrounding step still drives the real UI.
+  // PR #111 (alex 2026-09-05 #109 裁定) added the AssemblyFeeDisposition/ReturnShippingCost
+  // fields to AdminReturnDetailPage.vue's 審核 form — drive the real UI now instead of the
+  // API-direct-call workaround this test used before that fix landed.
   await page.goto(`./returns/${returnRequest.publicId}`)
   await expect(page.getByRole('heading', { level: 1, name: returnRequest.returnNumber })).toBeVisible()
-  const approveReturn = await page.evaluate(async ({ returnPublicId, orderItemPublicId, rowVersion }) => {
-    const tokenResponse = await fetch('/api/v1/security/antiforgery-token', {
-      credentials: 'include',
-      headers: { 'X-DoSelect-Client': 'admin' },
-    })
-    const token = await tokenResponse.json() as { requestToken: string }
-    const response = await fetch(`/api/v1/admin/returns/${returnPublicId}/actions/review`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-DoSelect-Client': 'admin',
-        'X-XSRF-TOKEN': token.requestToken,
-      },
-      body: JSON.stringify({
-        approved: true,
-        items: [{ returnItemPublicId: orderItemPublicId, approvedQuantity: 1, inspectionRequired: false }],
-        reasonCode: 'eligible',
-        note: 'H-R03 E2E: goodwill approval, no physical return required.',
-        assemblyFeeDisposition: 'notApplicable',
-        returnShippingCost: 0,
-        returnRowVersion: rowVersion,
-      }),
-    })
-    return { status: response.status, body: await response.json() as { status: string } }
-  }, {
-    returnPublicId: returnRequest.publicId,
-    orderItemPublicId: returnRequest.items[0]!.publicId,
-    rowVersion: returnRequest.rowVersion,
-  })
+  await page.getByRole('checkbox', { name: '需要寄回檢查' }).uncheck()
+  await page.getByLabel('組裝費處置').selectOption('notApplicable')
+  await page.getByLabel('退貨運費').fill('0')
+  await page.getByLabel('備註').fill('H-R03 E2E: goodwill approval, no physical return required.')
+  const approveReturnResponsePromise = page.waitForResponse(response =>
+    response.request().method() === 'POST'
+    && new URL(response.url()).pathname === `/api/v1/admin/returns/${returnRequest.publicId}/actions/review`)
+  await page.getByRole('button', { name: '核准' }).click()
+  const approveReturnResponse = await approveReturnResponsePromise
+  const approveReturnResponseText = await approveReturnResponse.text()
   expect(
-    approveReturn.status,
-    `The return approval must succeed. Response: ${JSON.stringify(approveReturn.body)}`,
+    approveReturnResponse.status(),
+    `The return approval must succeed. Response: ${approveReturnResponseText}`,
   ).toBe(200)
-  expect(approveReturn.body.status).toBe('awaitingRefund')
+  expect((JSON.parse(approveReturnResponseText) as { status: string }).status).toBe('awaitingRefund')
 
-  await page.reload()
   await expect(page.getByText('等待退款', { exact: true })).toBeVisible()
 
   // Admin: find the PendingReview refund the approval just created.
@@ -1010,6 +987,12 @@ test('a delivered order can be returned, refunded and allowed to update the orde
   // Invoice allowance (DES-22): built from the trusted RefundAllocation snapshot, not
   // recomputed from the return. AdminInvoiceDetailPage.vue has no create-allowance form at all
   // (a real gap, not a bug — see the report), so this drives the endpoint directly.
+  //
+  // alex 2026-09-05 分工裁定第 2 點：這張發票本身不是本測試建立的——它是稍早的信用卡付款成功
+  // 觸發付款 Outbox／Consumer 自動開立的（同一支測試上方的 `page.getByRole('button', { name:
+  // '模擬付款成功' })` 之後），這裡只驗證 `status === 'issued'` 是那條自動開票鏈路已經跑完。
+  // 這與 PR #108 用「管理員開票 API」手動開立發票的證據是不同的兩件事，不能互相替代：這裡證明
+  // 的是付款完成 → Outbox → Consumer → 唯一發票的整合鏈路，不是開票 API 本身。
   const invoiceBefore = await customerPage.evaluate(async (orderPublicId) => {
     const response = await fetch(`/api/v1/orders/${orderPublicId}/invoice`, { credentials: 'include' })
     return {
@@ -1220,44 +1203,28 @@ test('a partially returned order settles as PartiallyRefunded and a different gu
 
   // Admin: approve the partial return through the no-shipment fast path — only the 1 requested
   // unit, not the order item's full original quantity of 2 (ValidateFullQuantityApproval checks
-  // the *return*'s own requested quantity, not the order item's).
+  // the *return*'s own requested quantity, not the order item's; the UI's approve form always
+  // submits every line under `data.return.items`, which for this return is just that 1 unit).
+  // PR #111 (alex 2026-09-05 #109 裁定) added the AssemblyFeeDisposition/ReturnShippingCost
+  // fields to this form — drive the real UI now instead of the API-direct-call workaround this
+  // test used before that fix landed.
   await page.goto(`./returns/${returnRequest.publicId}`)
   await expect(page.getByRole('heading', { level: 1, name: returnRequest.returnNumber })).toBeVisible()
-  const approveReturn = await page.evaluate(async ({ returnPublicId, returnItemPublicId, rowVersion }) => {
-    const tokenResponse = await fetch('/api/v1/security/antiforgery-token', {
-      credentials: 'include',
-      headers: { 'X-DoSelect-Client': 'admin' },
-    })
-    const token = await tokenResponse.json() as { requestToken: string }
-    const response = await fetch(`/api/v1/admin/returns/${returnPublicId}/actions/review`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-DoSelect-Client': 'admin',
-        'X-XSRF-TOKEN': token.requestToken,
-      },
-      body: JSON.stringify({
-        approved: true,
-        items: [{ returnItemPublicId, approvedQuantity: 1, inspectionRequired: false }],
-        reasonCode: 'eligible',
-        note: 'H-R03 E2E: partial goodwill approval, no physical return required.',
-        assemblyFeeDisposition: 'notApplicable',
-        returnShippingCost: 0,
-        returnRowVersion: rowVersion,
-      }),
-    })
-    return { status: response.status, body: await response.json() as { status: string } }
-  }, {
-    returnPublicId: returnRequest.publicId,
-    returnItemPublicId: returnRequest.items[0]!.publicId,
-    rowVersion: returnRequest.rowVersion,
-  })
+  await page.getByRole('checkbox', { name: '需要寄回檢查' }).uncheck()
+  await page.getByLabel('組裝費處置').selectOption('notApplicable')
+  await page.getByLabel('退貨運費').fill('0')
+  await page.getByLabel('備註').fill('H-R03 E2E: partial goodwill approval, no physical return required.')
+  const approveReturnResponsePromise = page.waitForResponse(response =>
+    response.request().method() === 'POST'
+    && new URL(response.url()).pathname === `/api/v1/admin/returns/${returnRequest.publicId}/actions/review`)
+  await page.getByRole('button', { name: '核准' }).click()
+  const approveReturnResponse = await approveReturnResponsePromise
+  const approveReturnResponseText = await approveReturnResponse.text()
   expect(
-    approveReturn.status,
-    `The partial return approval must succeed. Response: ${JSON.stringify(approveReturn.body)}`,
+    approveReturnResponse.status(),
+    `The partial return approval must succeed. Response: ${approveReturnResponseText}`,
   ).toBe(200)
-  expect(approveReturn.body.status).toBe('awaitingRefund')
+  expect((JSON.parse(approveReturnResponseText) as { status: string }).status).toBe('awaitingRefund')
 
   // Admin: find, approve and execute the refund through the real UI form.
   await page.goto('./refunds')
