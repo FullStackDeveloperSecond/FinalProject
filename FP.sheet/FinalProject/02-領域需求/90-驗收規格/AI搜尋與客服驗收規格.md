@@ -58,7 +58,9 @@ Schema 採小型業務條件且不得暴露資料庫欄位；用途 Enum 與補�
 - Given 失敗已降級，Then 回應不得暴露 API Key、原始例外、系統 Prompt 或內部 Stack Trace。
 - Given 降級發生，Then 記錄功能、使用者類型、錯誤類別、Token／成本估算及降級結果，不記錄不必要個資。
 
-- 商品搜尋 8 秒逾時；限流或暫時性服務錯誤最多重試一次，Schema 格式錯誤最多修復一次，仍失敗立即降級。
+- 商品搜尋的單次意圖模型呼叫最長 5 秒，固定使用 `reasoning.effort: none`、`text.verbosity: low` 與預設 service tier；限流、暫時服務錯誤、逾時或 Schema 格式錯誤均不在同步請求內重試，立即 Fail Closed 並降級為關鍵字搜尋。strict Schema、白名單與後端驗證不得因低推理量而省略。推薦理由只能由後端使用核准候選事實確定性產生，不得再呼叫第二次模型。
+- 一般「主機」且沒有用途、效能目標或配／組／組裝字詞時，Intent 應為 `PrebuiltComputer`；明示組裝或提出用途＋預算的整機需求時，Intent 應為 `CustomBuild`。職稱或創作領域含「遊戲」不得單獨推論 Gaming 用途。
+- InvalidOutput 的內部評估證據只允許固定失敗原因碼與欄位名稱；不得保存模型 raw output、使用者文字、Secret 或個資，也不得把診斷欄位加入公開 HTTP DTO。
 
 ## UC-AI-SUPPORT-01｜取得 AI 處理同意
 

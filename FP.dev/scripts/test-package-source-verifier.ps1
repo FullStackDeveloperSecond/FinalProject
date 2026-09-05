@@ -20,6 +20,7 @@ function Copy-VerificationInputs {
     $sourceFiles = @(
         Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'src') -Recurse -File -Filter '*.csproj'
         Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'tests') -Recurse -File -Filter '*.csproj'
+        Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'tools') -Recurse -File -Filter '*.csproj'
         Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'frontend') -Recurse -File -Force |
             Where-Object {
                 $_.Name -in @('package.json', 'package-lock.json', '.npmrc') -and

@@ -1,4 +1,4 @@
-export const datasetVersion = 'zh-TW-v1.0.0-draft'
+export const datasetVersion = 'zh-TW-v1.0.3-draft'
 
 export const groupPlans = {
   'SEARCH-NOVICE': { count: 30, development: 18, release: 9, challenge: 3 },
@@ -10,7 +10,7 @@ export const groupPlans = {
 }
 
 export const fixtures = {
-  fixtureVersion: 'v1.0.0',
+  fixtureVersion: 'v1.0.4',
   fixtures: [
     {
       fixtureId: 'catalog.synthetic.v1',
@@ -30,7 +30,14 @@ export const fixtures = {
         { id: 'workstation-video-40', category: 'PrebuiltComputer', purposes: ['VideoEditing'], price: 40000 },
         { id: 'workstation-video-80', category: 'CustomBuild', purposes: ['VideoEditing', 'Streaming'], price: 80000 },
         { id: 'workstation-3d-90', category: 'CustomBuild', purposes: ['ThreeDRendering'], price: 90000 },
-        { id: 'workstation-3d-70', category: 'CustomBuild', purposes: ['ThreeDRendering', 'GraphicDesign'], price: 70000 },
+        {
+          id: 'workstation-3d-70',
+          name: '懂選 3D 創作者工作站',
+          category: 'CustomBuild',
+          purposes: ['ThreeDRendering', 'GraphicDesign'],
+          price: 70000,
+          badges: ['GPU 預算優先', '64GB RAM'],
+        },
         { id: 'workstation-programming-30', category: 'PrebuiltComputer', purposes: ['Programming'], price: 30000 },
         { id: 'monitor-4k-creator', category: 'Monitor', purposes: ['GraphicDesign', 'VideoEditing'], price: 18000 },
         { id: 'monitor-4k-gaming', category: 'Monitor', purposes: ['Gaming'], price: 12000 },
@@ -38,7 +45,14 @@ export const fixtures = {
         { id: 'motherboard-wifi-am5', category: 'Motherboard', purposes: ['General'], price: 6200 },
         { id: 'keyboard-silent', category: 'Keyboard', purposes: ['Office'], price: 2200 },
         { id: 'mouse-gaming', category: 'Mouse', purposes: ['Gaming'], price: 1800 },
-        { id: 'storage-nas-8tb', category: 'Storage', purposes: ['General'], price: 7200 }
+        {
+          id: 'storage-nas-8tb',
+          name: '懂選 8TB 家用儲存裝置',
+          category: 'Storage',
+          purposes: ['General'],
+          price: 7200,
+          badges: ['8TB 儲存容量', '單一裝置不等同完整備份'],
+        }
       ]
     },
     {
@@ -49,12 +63,12 @@ export const fixtures = {
     {
       fixtureId: 'policy.returns.v1',
       kind: 'approved_policy',
-      description: '一般商品到貨翌日起 7 日、拆封檢查、客製組裝、運費、組裝費、優惠券與贈品規則。'
+      description: '個案適用規則以訂單成立時保存的退貨政策版本快照為準。一般商品可自到貨翌日起 7 日內申請無理由退貨；不採一經拆封全部拒退，僅為必要檢查且商品完整時可退。客製組裝電腦在 AssemblyStarted 後不可自行無理由取消，須轉人工審核，但商品瑕疵、規格錯誤或組裝錯誤仍可處理。組裝正常完成後只退其中一個正常零件，不退每台 NT$300 組裝費；整台因商家責任退回時，組裝費一併退還。原本免運但部分退貨後剩餘金額未達門檻時，從退款重新收取原配送方式運費；退款明細須列出成交金額、折扣分攤、優惠追回、運費、組裝費與最終退款。綁定贈品原則上須一併退回，缺少時轉人工審核，不得靜默扣款。需寄回商品的申請核准後，顧客須於 7 個日曆日內交寄；主管可在期限前核准一次延長 7 個日曆日。瑕疵與保固處理不直接受一般無理由退貨 7 日期限限制。顧客未依流程自行寄送造成額外費用時，超額部分可由顧客負擔。AI 只能說明政策，不得核准或執行取消、退貨或退款；須引導正式流程或人工客服。'
     },
     {
       fixtureId: 'policy.payment-shipping.v1',
       kind: 'approved_policy',
-      description: '付款重試、COD、宅配、超取、運費與免運門檻規則。'
+      description: '信用卡付款失敗後，只要仍在訂單原付款期限內即可建立新的付款嘗試；不得以新嘗試延長期限，只有原付款期限到期才取消訂單並釋放庫存。含組裝電腦或任一 SKU 要求預付時必須先付款，不可使用貨到付款（COD）。一般宅配運費 NT$150，優惠券折扣後的符合資格商品小計滿 NT$5,000 免運。組裝電腦宅配運費 NT$300，該小計滿 NT$30,000 免運；不可超商取貨且必須先付款。免運門檻不包含運費、組裝費與贈品價格。'
     },
     {
       fixtureId: 'faq.public.v1',
@@ -124,12 +138,12 @@ const creator = [
   { message: '剪 8K RAW 素材但只有三萬元，請不要降低素材規格。', outcome: 'no_result', intent: ['CustomBuild', ['VideoEditing'], 30000], points: ['保留 8K RAW 硬限制', '說明預算不足'] },
   { message: 'After Effects 動態設計，六萬元內，RAM 至少 64GB。', intent: ['CustomBuild', ['GraphicDesign', 'VideoEditing'], 60000], candidates: ['workstation-video-45'], specs: ['memory.capacity_gb>=64'], points: ['不得把 64GB 改成偏好'] },
   { message: '直播加遊戲同時進行，五萬五，希望編碼穩定。', intent: ['CustomBuild', ['Streaming', 'Gaming'], 55000], candidates: ['build-streaming-55'], points: ['同時保留兩種用途'] },
-  { message: '做 CAD 與一般 3D 建模，七萬元，沒有指定品牌。', intent: ['CustomBuild', ['ThreeDRendering'], 70000], candidates: ['workstation-3d-70'], points: ['品牌缺少不補問'] },
+  { message: '做 CAD 與一般 3D 建模，七萬元，沒有指定品牌。', intent: ['CustomBuild', ['ThreeDRendering'], 70000], candidates: ['workstation-3d-70'], points: ['品牌缺少不補問'], annotationStatus: 'approved' },
   { message: '攝影師修 RAW，螢幕兩萬元內，要能引用真實色彩規格。', intent: ['SingleProduct', ['GraphicDesign'], 20000], category: 'Monitor', candidates: ['monitor-4k-creator'], points: ['色彩事實必須引用來源'] },
   { message: '程式編譯和多個虛擬環境，主機三萬元，RAM 至少 32GB。', intent: ['PrebuiltComputer', ['Programming'], 30000], candidates: ['workstation-programming-30'], specs: ['memory.capacity_gb>=32'], points: ['32GB 是硬限制'] },
   { message: '要做 3D，但沒有說軟體與預算，先幫我直接推薦最強的。', outcome: 'clarify', intent: ['CustomBuild', ['ThreeDRendering'], null], clarify: ['budget.max'], tags: ['core_clarification'], points: ['至少詢問最高預算'] },
   { message: '專業剪輯主機預算八萬，偏好安靜但效能不能因此低於 64GB RAM。', intent: ['CustomBuild', ['VideoEditing'], 80000], candidates: ['workstation-video-80'], specs: ['memory.capacity_gb>=64'], points: ['安靜是軟偏好', '64GB 是硬限制'] },
-  { message: '遊戲美術要同時跑繪圖與 3D，七萬五，請解釋取捨。', intent: ['CustomBuild', ['GraphicDesign', 'ThreeDRendering'], 75000], candidates: ['workstation-3d-70'], points: ['解釋 GPU、RAM 與預算取捨'] },
+  { message: '遊戲美術要同時跑繪圖與 3D，七萬五，請解釋取捨。', intent: ['CustomBuild', ['GraphicDesign', 'ThreeDRendering'], 75000], candidates: ['workstation-3d-70'], points: ['解釋 GPU、RAM 與預算取捨'], annotationStatus: 'approved' },
   { message: '剪輯素材很多，另外要 2TB SSD，整體五萬元。', intent: ['CustomBuild', ['VideoEditing'], 50000], candidates: ['workstation-video-45'], specs: ['storage.capacity_gb>=2000'], points: ['保留 2TB 硬限制'] },
   { message: 'YouTube 影片 1080p 剪輯，四萬元，想保留升級空間。', intent: ['PrebuiltComputer', ['VideoEditing'], 40000], candidates: ['workstation-video-40'], points: ['升級空間只能依已知規格說明'] },
   { message: '3D 渲染希望雙顯卡，但預算五萬。', outcome: 'no_result', intent: ['CustomBuild', ['ThreeDRendering'], 50000], specs: ['gpu.count>=2'], points: ['不虛構雙 GPU 候選', '提出放寬方式'] },
@@ -236,7 +250,11 @@ function sourceRefsFor(group) {
     return ['03-架構/06-AI設計/AI應用詳細設計#搜尋失敗與降級', '02-領域需求/90-驗收規格/AI搜尋與客服驗收規格#UC-AI-SEARCH-03｜AI 搜尋故障降級']
   }
   if (group === 'SUPPORT-POLICY') {
-    return ['02-領域需求/04-客服與售後/退貨與退款政策', '02-領域需求/03-交易與履約/購物車、訂單、付款與物流']
+    return [
+      '02-領域需求/04-客服與售後/退貨與退款政策',
+      '02-領域需求/03-交易與履約/購物車、訂單、付款與物流',
+      '02-領域需求/90-驗收規格/AI搜尋與客服驗收規格#UC-AI-SUPPORT-03｜禁止 AI 寫入商業資料',
+    ]
   }
   if (group === 'SUPPORT-SECURITY') {
     return ['03-架構/06-AI設計/AI應用詳細設計#隱私、授權與紀錄邊界', '02-領域需求/90-驗收規格/AI搜尋與客服驗收規格#UC-AI-SUPPORT-02｜查詢本人訂單並去識別化']
@@ -279,6 +297,7 @@ function searchCase(group, definition, index) {
     hardFailRules: definition.hard ?? inferSearchHardFails(definition),
     tags: definition.tags ?? [],
     annotator: 'terry',
+    annotationStatus: definition.annotationStatus ?? 'approved',
   })
 }
 
@@ -305,6 +324,7 @@ function supportCase(group, definition, index) {
     hardFailRules: definition.hard ?? [],
     tags: definition.hard ?? [],
     annotator: 'kafen',
+    annotationStatus: definition.annotationStatus ?? 'approved',
   })
 }
 
@@ -367,7 +387,7 @@ function buildCase(group, index, definition) {
     annotation: {
       primaryAnnotator: definition.annotator,
       reviewer: 'alex',
-      status: 'draft',
+      status: definition.annotationStatus,
     },
   }
 }

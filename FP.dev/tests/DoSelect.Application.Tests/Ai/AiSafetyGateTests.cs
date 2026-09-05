@@ -197,7 +197,10 @@ public sealed class AiSafetyGateTests
             []);
         var envelope = Assert.IsType<AiPromptEnvelope>(preparation.Envelope);
 
+        Assert.Equal("support-v2", AiPromptEnvelopeFactory.SupportPromptVersion);
         Assert.DoesNotContain(injection, envelope.SystemInstructions, StringComparison.Ordinal);
+        Assert.Contains("Give a concise refusal", envelope.SystemInstructions, StringComparison.Ordinal);
+        Assert.Contains("official support flow", envelope.SystemInstructions, StringComparison.Ordinal);
         Assert.Equal(injection, envelope.UserMessage.Content);
         Assert.Equal(AiContentTrust.UntrustedUserInput, envelope.UserMessage.Trust);
     }
@@ -294,6 +297,23 @@ public sealed class AiSafetyGateTests
         Assert.False(result.IsValid);
         Assert.False(result.MayQueryCatalog);
         Assert.Equal(AiSafetyReason.InvalidBudgetRange, result.Reason);
+    }
+
+    [Fact]
+    public void AiSchema003_UppercaseAllowlistedSemanticKey_IsAccepted()
+    {
+        const string semanticKey = "CPU_SOCKET";
+        var intent = new AiSearchIntentCandidate(
+            Budget: null,
+            [new AiRequiredSpec(semanticKey, "eq", "AM5", Unit: null)]);
+
+        var result = AiSearchIntentSafetyValidator.Validate(
+            intent,
+            new HashSet<string>(StringComparer.Ordinal) { semanticKey });
+
+        Assert.True(result.IsValid);
+        Assert.True(result.MayQueryCatalog);
+        Assert.Equal(AiSafetyReason.None, result.Reason);
     }
 
     [Fact]

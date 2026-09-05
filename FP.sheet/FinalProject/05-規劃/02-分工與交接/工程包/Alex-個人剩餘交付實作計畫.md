@@ -1,8 +1,8 @@
 ---
 文件狀態: 進行中
-最後更新: 2026-09-02
-基準分支: dev@16091fcf
-實作分支: codex/wp-a04-core-transaction-e2e-20260902
+最後更新: 2026-09-05
+基準分支: dev@453e56ef
+實作分支: codex/wp-a05-ai-live-baseline-20260902
 實作人: alex
 規劃範圍: alex 正式主責與已明確接手項目
 下一工作包: WP-A05／AI-09 OpenAI Live baseline
@@ -162,7 +162,20 @@
 | 2026-09-01 | WP-A02／WP-H03 | 完成 | PR #83 已由 exact head `3dba8f4c` 通過 Backend、兩個 Frontend、Browser E2E、Secret Scan、Package Source Evidence、AI Evaluation Contract 與 `CI Required`，最終 Review 無 P0～P3 finding，squash merge 為 `dev@9a034a16`，遠端分支已刪除。以兩張真實 Guest Checkout 訂單完成錯碼拒絕、正確查單、跨單 GET／取消 404、目標訂單取消及另一張訂單狀態／RowVersion 零副作用斷言；並補齊 `--seed-minimal` 主 SKU 的確定性包材尺寸。 |
 | 2026-09-02 | WP-A03／WP-H04 | 完成／已進 `dev` | 由 `dev@e3e5abdb` 起完成 C-14：正式 `/checkout`、Cart 導頁、收件／宅配／示範門市、政策版本、七種模擬付款、模擬發票、Coupon 套用、冪等重試及錯誤處理。依 DEC-P351 回傳具體 `PaymentMethod[]`；DEC-P352 已由 DEC-P355 覆寫，C-15 改接上游 Owner-scoped Latest Attempt；依 DEC-P353 以 Coupon Quote 重算 Shipping／COD；依 DEC-P354 將 DiscountType 擴為 `varchar(24)`。Review 修正組裝購物車只允許組裝宅配。rebase `dev@70015781` 後 exact head `192e0499` 的 Backend、Browser E2E、雙前端、OpenAPI、Secret Scan、AI contract、Package Source Evidence 與 `CI Required` 全部成功；PR #91 squash merge 為 `dev@72db6fcc`，遠端來源分支已刪除。後續 WP-A04／WP-H05 已由 PR #94 補齊核心交易 Browser／SQL E2E。 |
 | 2026-09-02 | WP-A04／WP-H05 | 完成／以 PR #94 進 `dev` | 使用固定 Guest Cart、八類組裝 SKU＋一件獨立 GPU 與 `CREATOR10`，在專屬 `DoSelectE2E_<GUID>` 完成 Cart → Checkout → 同請求 replay → Email＋訂單編號限單驗證 → 信用卡模擬付款成功 → Invoice 顯示；金額 45,000／-2,000／+300／+300＝43,600。額外獨立 GPU 讓優惠適用小計達 20,000，但不修改 AI 組裝依賴的相容性 Seed 單價。另以真實 SQL Server 證明同請求不重複建立 Order／Reservation／Payment／Idempotency，兩個 Guest Cart 競爭最後一件只成功一筆。依 DEC-P356，模擬端點只新增隔離 E2E Environment 顯式例外；Development／Production 仍 fail-fast。PR #94 已整合上游 PR #88 的導頁失敗復原，並以 rebase 後聚焦元件、typecheck、lint 與核心 Browser E2E 通過後進行 exact-head CI、final review 與 squash merge。 |
+| 2026-09-03 | WP-A05／AI-09 | 進行中 | User Secrets 前置已完成。初次兩案例煙霧測試實際成本 US$0.001880、未達 US$0.10 停止線；商品搜尋因 `uniqueItems` 不在 Responses strict Schema 支援子集合而零 Token 失敗，客服通過 Schema／引用但政策來源不足。已移除該 Schema 關鍵字並在後端拒絕重複品牌，Runner 補上成本與案例選取防呆，兩個政策 Fixture 補齊 15 筆案例需要的核准快照，資料集升為 `zh-TW-v1.0.2-draft`。Kafen 主標與 Alex 第二審完成後 120 筆均核准，Release 與雙案例 dry-run 均為 `IsLiveReady=true`；仍待 commit 與第二次 Live 費用授權，初次結果不算 baseline。 |
+| 2026-09-04 | WP-A05／AI-09 | 進行中 | Commit `9ea03fc3` 已推送；第二次雙案例 Live 煙霧測試 deterministic 與人工覆核 2／2 Pass，成本 US$0.006085、Input／Output Tokens 3,545／694。商品搜尋單筆 10,083 ms 高於 5 秒目標，只列為正式 baseline 待確認風險；完整 Release 為 102 次商品搜尋＋27 次客服，共 129 次模型請求，尚待獨立成本授權。 |
+| 2026-09-04 | WP-A05／AI-09 | 進行中／首次 baseline 失敗 | Commit `5e7cc8f2` 的首次三輪 Release Adapter baseline 已完成 33 案／99 輪，成本 US$0.149338；Schema 74.75%、Intent 16.67%、Citation 77.78%、Deterministic 28.28%，商品／客服 P95 17,831／3,023 ms，Verdict `FAIL`。已依報告在本分支收束 Adapter scope 為 22 live／14 deterministic-only、96 規劃請求，修正安全拒絕、Prompt v2、grader v1.1、單行 JSONL、分階段觀測、分 feature Summary，以及執行前 metadata／逐案 append／checkpoint。focused tests 已通過；未進行付費重跑，模型品質與延遲改善尚未驗證。 |
+| 2026-09-04 | WP-A05／AI-09 | 進行中／修正版 Smoke 失敗 | 先建立 Commit `f195c453`，再以 6 個核准案例、1 輪與 US$0.05 停止線執行 Run `20260904T090934Z`；6／6 完成，規劃／實際 9／11 次請求、成本 US$0.010242，Verdict `FAIL`。執行中逐案與 T2 manifest 證據完整；客服引用／安全通過，商品暴露整機詞彙、衝突預算、Fixture 與 P95 18,742 ms 缺口。商品 Prompt v3 兩項契約修正 focused 20／20 通過；GPU／RAM Fixture 已升為 v1.0.3 並加入 Runner 映射與回歸測試，待 Terry／Alex 覆核。延遲方向仍待裁定，未付費重跑。 |
+| 2026-09-04 | WP-A05／AI-09 | 進行中／方案 A 零成本實作完成 | 依 DEC-P381～DEC-P384 將商品搜尋升為 `product-search-v4`：單次 5 秒 Responses 意圖呼叫、零同步重試，推薦理由只由後端核准候選事實確定性產生。公開 API／Schema／資料庫不變，三輪 Release 規劃由歷史 96 次降為 66 次；focused Infrastructure 22／22、Application 10／10 通過。尚未付費重驗 P95／品質，Fixture 兩案仍待 Terry／Alex 覆核。 |
+| 2026-09-04 | WP-A05／AI-09 | 進行中／標註與 deterministic 證據完成 | `SEARCH-CREATOR-008`、`013` 已完成 Terry 主標與 Alex 第二審，120 筆均為 `approved`，Release Dry Run 為 `AnnotationsApproved=true`、`IsLiveReady=true`。Run `20260904T120035Z-deterministic` 以正式 Application／Domain 路徑補齊 14 筆 deterministic-only orchestration，14／14 通過；無結果 UI 7／7 通過，模型呼叫與成本均為 0。Commit `f195c453` 的 6 案歷史 Smoke 正式人工複核亦已完成，3 Pass／3 Fail，維持 `FAIL`。只剩另行授權的 v4 Live Gate。 |
+| 2026-09-04 | WP-A05／AI-09 | 進行中／v4 Smoke 失敗 | 系統 PowerShell 的 6 案／1 輪 Run `20260904T133533Z-v4-smoke-system` 完成 6 次模型請求，成本 US$0.006287；客服 2／2 通過，商品 3／4 在 5 秒 Timeout 前無輸出，唯一成功案例於 4,679 ms 完成，商品 P95 5,033 ms，正式結果 `FAIL`。品牌偏好／排除理由缺口已在工作樹修正，聚焦測試 12／12；Timeout／5 秒方向待組長決策，未執行 baseline。 |
+| 2026-09-04 | WP-A05／AI-09 | 進行中／低延遲設定完成 | 依 DEC-BATCH-054 保留 `gpt-5.6-luna`、單次 5 秒、零同步重試與預設 service tier；商品 SearchIntent payload 新增 `reasoning.effort: none`、`text.verbosity: low`，strict Schema／白名單／後端驗證與公開契約不變。聚焦 Adapter 12／12、Live plan 12／12 通過；本批未呼叫 Provider，仍待另行授權固定 Smoke。 |
+| 2026-09-04 | WP-A05／AI-09 | 進行中／低延遲 Smoke 失敗 | 系統 PowerShell Run `20260904T144911Z` 完成 6 案／6 次請求，成本 US$0.007224。商品 4／4 在 5 秒內取得 Provider 結果，P95 3,013 ms；但可用 Intent 3／4、Schema 83.33%、Intent 25%、有效推薦 66.67%，Verdict `FAIL`。品牌案例通過；013 多推論 Gaming、019 無效輸出、026 與資料集分類衝突。T2 證據與報告已形成；當時尚待的正式 Alex 覆核與 taxonomy 已於 2026-09-05 由 DEC-BATCH-055 完成。 |
+| 2026-09-05 | WP-A05／AI-09 | 進行中／v5 零成本修正完成 | 依 DEC-BATCH-055 完成正式覆核 3 Pass／3 Fail，定版一般「主機」為 `PrebuiltComputer`、明示組裝或用途＋預算整機需求為 `CustomBuild`，且職稱「遊戲美術」不自動代表 Gaming。商品 Prompt 升為 `product-search-v5`；InvalidOutput 只在內部結果與評估 JSONL 保存固定原因碼＋欄位名稱，不保存 raw output，也不擴張公開 DTO／資料庫／產品日誌。RED 先證明契約尚無診斷欄位；GREEN 後 Infrastructure 24／24、Application 10／10、Build、Format、120 筆資料驗證與 6 案 Dry Run 均通過。本批未呼叫付費 Provider。 |
+| 2026-09-05 | WP-A05／AI-09 | 進行中／v5 Smoke 失敗、v6 零成本修正完成 | Run `20260904T193855Z-v5-smoke-system` 為 6 案／6 次請求、US$0.006735、商品 P95 3,588 ms，品質 Verdict `FAIL`。依 DEC-BATCH-056，六案正式 Human Verdict 全部維持 pending；完成 `product-search-v6` 泛化 Prompt、大寫 Semantic Key＋精確 allowlist、選填 Citation 語意及預算／Badge 取捨理由。聚焦 Application 35／35、Infrastructure AI 26／26、Application 完整 578／578、Build、focused Format、120 筆驗證與 Release Dry Run 通過；完整 Infrastructure Provider-backed 測試因本機 SQL Server 加密／SSPI／登入中斷而不可用。本批未呼叫 Provider。 |
+| 2026-09-05 | WP-A05／AI-09 | 進行中／顧客視角零成本修正完成 | Alex 確認舊商品回答未切合顧客問題，且以內部人員為讀者。依 DEC-BATCH-057，推薦理由改為承接用途、預算、硬性規格與軟性偏好，使用在地化顯示名稱並排除 Enum／代碼／Fixture ID／後端術語；Live Runner 將此列為確定性 Gate，人工覆核表並列顧客問題、必要回答重點與顧客可見回答。8 個回歸檢查先 RED，修正後 Infrastructure AI 聚焦測試 31／31 通過；未呼叫 Provider，AI-09 仍待可追溯 Commit、新 v6 小型 Smoke 與正式人工覆核。 |
+| 2026-09-05 | WP-A05／AI-09 | 進行中／合併前契約飄移已修正 | Review 發現 DEC-P394 已定版大寫 Semantic Key，但正式 SQL 型錄 Metadata 仍轉成小寫，會讓含規格的真實 SearchIntent 被驗證器拒絕。已將正式 Metadata 統一 Trim＋大寫並補規格書與 SQL 斷言；Application AI 47／47、Infrastructure AI 31／31、系統 PowerShell SQL Server 聚焦 1／1 通過。未呼叫 OpenAI；v6 Live Gate 狀態不變。 |
 
 ## 11. 下一步
 
-開始 `WP-A05／AI-09` OpenAI Live baseline；不得在未確認 OpenAI Key、成本保護與資料最小化設定前發出 Live 請求。
+DEC-BATCH-056／057 的 v6 零成本修正已完成，但 AI-09 尚未完成。下一步先形成可追溯 Commit／Review，再另行決定是否授權固定六案的 v6 小型付費 Smoke；新輸出產生後由 Alex 依顧客問題、必要重點與顧客可見回答逐案覆核。只有品質、延遲、安全與成本 Gate 通過後，才可另行決定是否執行 66 次 Release baseline；若 v6 taxonomy／衝突預算仍失敗，再另案評估 deterministic parser。

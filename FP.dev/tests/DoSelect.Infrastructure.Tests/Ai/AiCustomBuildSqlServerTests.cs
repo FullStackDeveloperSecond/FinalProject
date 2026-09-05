@@ -63,6 +63,12 @@ public sealed class AiCustomBuildSqlServerTests
 
             await using var searchScope = provider.CreateAsyncScope();
             var catalog = searchScope.ServiceProvider.GetRequiredService<IAiProductSearchCatalog>();
+            var metadata = await catalog.ReadMetadataAsync(CancellationToken.None);
+            Assert.NotEmpty(metadata.SemanticKeys);
+            Assert.Contains(CompatibilityCatalogContract.SemanticKeys.CpuSocket, metadata.SemanticKeys);
+            Assert.All(
+                metadata.SemanticKeys,
+                semanticKey => Assert.Matches("^[A-Z0-9][A-Z0-9._-]{0,63}$", semanticKey));
             var result = await catalog.FindCandidatesAsync(
                 new AiProductSearchIntent(
                     AiProductSearchIntentType.CustomBuild,

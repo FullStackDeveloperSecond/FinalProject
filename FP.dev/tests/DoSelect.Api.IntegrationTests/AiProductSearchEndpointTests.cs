@@ -263,7 +263,7 @@ public sealed class AiProductSearchEndpointTests : IClassFixture<WebApplicationF
                     ["OpenAI:SupportInputCostPerMillionTokens"] = "0",
                     ["OpenAI:SupportOutputCostPerMillionTokens"] = "0",
                     ["OpenAI:ProductSearchModel"] = "integration-test-search-model",
-                    ["OpenAI:ProductSearchTimeoutMilliseconds"] = "8000",
+                    ["OpenAI:ProductSearchTimeoutMilliseconds"] = "5000",
                     ["OpenAI:ProductSearchInputCostPerMillionTokens"] = "0",
                     ["OpenAI:ProductSearchOutputCostPerMillionTokens"] = "0",
                     ["OpenAI:AnonymousIdentityPepper"] = "integration-test-ai-anonymous-pepper-32-bytes",

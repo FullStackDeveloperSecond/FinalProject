@@ -39,8 +39,8 @@ flowchart TD
     G -- 是 --> I["SQL Server 查詢公開、上架商品候選"]
     I --> J["價格、庫存與相容性確定性規則"]
     J --> K["排序並限制候選數"]
-    K --> L["OpenAI：僅依核准候選產生推薦理由"]
-    L --> M["後端驗證引用與商品識別"]
+    K --> L["後端：以核准事實產生顧客可讀的確定性推薦理由"]
+    L --> M["後端驗證商品識別、理由完整性與顧客視角"]
     M --> N["回傳結果或安全降級"]
 ```
 
@@ -74,6 +74,16 @@ General
 
 模型不得建立新 Enum；無法對應時保留待澄清，而不是把任意文字直接帶入 SQL。
 
+### 顧客可見回答契約
+
+`SearchIntent`、Semantic Key、Fixture ID、商品／SKU／分類／品牌代碼與相容性規則結果是系統內部契約；前端可使用結構化欄位組合畫面，但不得把這些內部值當成 AI 對話文字顯示給顧客。推薦理由與補問的讀者固定為顧客／實際 AI 使用者，必須：
+
+- 直接承接顧客提出的用途、預算、硬性規格、軟性偏好與品牌條件；
+- 使用商品、品牌與分類的在地化顯示名稱，不顯示 `CustomBuild`、`PREBUILT_COMPUTER`、Fixture 候選 ID 或 `DOSELECT` 等內部代碼；
+- 將硬性規格說成不可放寬條件，將外觀、安靜、升級性等偏好說成排序偏好，不暗示尚未由商品資料證實的結果；
+- 不使用「後端候選」「通過後端驗證」等面向開發者的說法；需要表達安全邊界時，改以顧客能理解的條件或限制說明；
+- AI 意圖服務不可用時維持既有關鍵字搜尋降級，不為了潤飾文字新增第二次模型呼叫。
+
 `requiredSpecs.operator` 只允許 `eq`、`gte`、`lte`、`in`。模型不得傳入資料庫欄名；`semanticKey` 與 `unit` 必須由分類規格白名單解析。重複或互相衝突的條件交由後端拒絕或要求澄清，不由模型自行取捨。
 
 ### SearchIntent 大小與型別限制
@@ -85,7 +95,7 @@ General
 | `budget.min`／`max` | decimal 語意、0～10,000,000 TWD |
 | 偏好／排除品牌 | 各最多 5 個既有 Brand PublicId，不可重複或同時偏好與排除 |
 | `requiredSpecs` | 最多 12 筆 |
-| `semanticKey` | 最多 64 個 ASCII 小寫字母、數字、`.`、`_`、`-` |
+| `semanticKey` | 最多 64 個 ASCII 大寫字母、數字、`.`、`_`、`-`；必須命中後端提供的精確 allowlist |
 | `value` | `string`（100 字）、decimal、boolean 或最多 10 個各 100 字的 string array |
 | `unit` | Null 或最多 16 字元的受控 Unit Code |
 | `preferences` | 最多 10 筆，每筆 Key 64 字、值 100 字 |
@@ -148,9 +158,9 @@ General
 
 | 情境 | 處理 |
 |---|---|
-| 搜尋呼叫超過 8 秒 | 中止 AI 流程；依錯誤類型決定是否已使用一次重試 |
-| 限流或暫時性服務錯誤 | 短暫退避後最多重試一次 |
-| Schema 格式錯誤 | 最多進行一次格式修復；仍失敗即降級 |
+| 搜尋呼叫超過 5 秒 | 中止 AI 意圖流程，不同步重試，直接降級為關鍵字搜尋 |
+| 限流或暫時性服務錯誤 | 不在使用者同步請求內重試，直接降級為關鍵字搜尋 |
+| Schema 格式錯誤 | 不進行第二次模型修復，Fail Closed 並降級為關鍵字搜尋 |
 | 必要資訊不足 | 回傳澄清問題，不執行 SQL 商品查詢 |
 | 無合法候選 | 顯示無結果原因及可放寬條件，不虛構商品 |
 | OpenAI 不可用 | 使用既有關鍵字搜尋與一般篩選 |
@@ -255,4 +265,4 @@ sequenceDiagram
 
 AI-13、Responses Adapter 與 M-19 已透過 PR #59 合併 `dev`，包含同意查詢／Grant／Withdraw、本人 Order／SupportTicket／Conversation Query、互動／引用／Token／成本保存、會員用量、A-28 管理彙總、會員聊天 UI、管理成本 UI 與 Playwright 降級旅程。Migration `20260828110755_AddAiSupportConversationsAndInteractions` 新增的 `AiInteractions.SearchPublicId` 與 `IntentJson` 已可直接承接搜尋互動，M-18 不需新增資料表或 Migration。
 
-M-18 已透過 PR #62 合併 `dev`，包含搜尋專用 SearchIntent 與推薦理由 strict Responses Adapter、訪客／會員 10／30 額度、IP＋30 日 Browser ID 匿名鍵、SQL 公開候選、站內 SKU／使用者確認手填零件、自然語言 `ProposedExistingPart` 確認閘門、八類完整 CustomBuild、NT$300 組裝費與既有零件不重複計價、正式確定性相容性檢查、核准候選理由驗證、Fail Closed 互動保存、關鍵字降級、公開 Endpoint、OpenAPI 與 `/ai-search` UI。Playwright 已以隔離 `DoSelectE2E_*` 資料庫驗證公開搜尋降級旅程並完成清理；這只證明確定性降級路徑。AI-09 的 Terry／Kafen 資料覆核、真實模型品質、P95、Token 與成本 baseline 仍未完成。
+M-18 已透過 PR #62 合併 `dev`。後續 AI-09 實測顯示兩次串行模型請求不符合 5 秒 P95，因此現行工作樹依 DEC-BATCH-053 收旂為單次 SearchIntent Responses 請求、5 秒且不同步重試；DEC-BATCH-054 進一步固定商品意圖請求使用 `reasoning.effort: none`、`text.verbosity: low` 與預設 service tier。DEC-BATCH-055 定版一般「主機」taxonomy；DEC-BATCH-056 再依 v5 Smoke 將 Prompt 升為 `product-search-v6`，使用不複製 Release 案例的泛化整機／衝突預算範例。strict Schema、正式大寫 Semantic Key、精確白名單與後端驗證仍是內部正確性邊界，InvalidOutput 只向內部評估產物提供固定原因碼與欄位名，不保存 raw output。DEC-BATCH-057 進一步將推薦理由的讀者固定為顧客／實際 AI 使用者：後端只以核准商品事實確定性產生自然語言，承接用途、預算、硬性規格、軟性偏好、品牌與 Badges，並拒絕內部識別碼及後端術語；兩個以上 Badge 時仍明確說明預算內的取捨。訪客／會員 10／30 額度、SQL 公開候選、既有零件確認閘門、八類 CustomBuild、NT$300 組裝費、確定性相容檢查、Fail Closed 保存、關鍵字降級、Endpoint、OpenAPI 與 `/ai-search` UI 契約均不變。v5 Smoke 為 `FAIL`，v6 的真實品質、P95、Token 與成本仍須另行授權 AI-09 Smoke／baseline 驗證。
