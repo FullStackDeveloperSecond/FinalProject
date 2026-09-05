@@ -63,6 +63,19 @@ internal static class MinimalDevelopmentSeedDefinitions
     internal static readonly Guid Creator10CouponPublicId =
         Guid.Parse("3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a10");
 
+    // M-13 WP4（alex 2026-09-05 #98 A1 裁定）：物流狀態命令沒有 HTTP 可達的路徑能把訂單
+    // 推進 Delivered，這段前置資料用 deterministic seed 頂住；退貨申請開始一律走 production
+    // API／UI，不得再往後 seed 任何 Return／Refund 狀態。
+    internal static readonly Guid RefundJourneyOrderPublicId =
+        Guid.Parse("3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a11");
+
+    internal static readonly Guid RefundJourneyOrderItemPublicId =
+        Guid.Parse("3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a12");
+
+    internal const string RefundJourneyOrderNumber = "E2E-REFUND-000001";
+
+    internal const string RefundJourneyBuyerEmail = "refund-e2e-buyer@doselect.local";
+
     internal static readonly DateTime CreatedAtUtc =
         new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
