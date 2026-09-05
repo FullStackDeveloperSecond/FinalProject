@@ -126,7 +126,8 @@ try {
         $JourneyTitle -like '*a guest completes the prepared cart through checkout payment and invoice*' -or
         $JourneyTitle -like '*a seeded administrator can enroll TOTP, reject a wrong code, and sign in again*' -or
         $JourneyTitle -like '*H-R02 fulfills COD home delivery and store pickup exactly once*' -or
-        $JourneyTitle -like '*H-R03 DES-21*DES-22 refund and allowance journey*'
+        $JourneyTitle -like '*H-R03 DES-21*DES-22 refund and allowance journey*' -or
+        $JourneyTitle -like '*H-R03 minimum cases partial refund and Actor scope*'
     $env:E2E_ASPNETCORE_ENVIRONMENT = 'E2E'
     if ($requiresPaymentCompletionInfrastructure) {
         $env:E2E_BACKGROUND_JOBS_ENABLED = 'true'

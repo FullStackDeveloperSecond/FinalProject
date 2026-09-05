@@ -391,6 +391,7 @@ async function createGuestPrepaidHomeDeliveryOrder(
   skuPublicId: string,
   email: string,
   requestToken: string,
+  quantity = 1,
 ): Promise<PrepaidOrderSnapshot> {
   const guestCartKey = `e2e-refund-cart-${randomUUID()}`
   const cartHeaders = unsafeMemberHeaders(requestToken, {
@@ -404,7 +405,7 @@ async function createGuestPrepaidHomeDeliveryOrder(
     headers: cartHeaders,
     data: {
       skuPublicId,
-      quantity: 1,
+      quantity,
       cartRowVersion: initialCart.rowVersion,
     },
   })
@@ -1074,6 +1075,269 @@ test('a delivered order can be returned, refunded and allowed to update the orde
   await expect(customerPage.getByText('折讓筆數：1', { exact: true })).toBeVisible()
 
   await customerContext.close()
+})
+
+test('a partially returned order settles as PartiallyRefunded and a different guest cannot reach it; H-R03 minimum cases partial refund and Actor scope', async ({
+  page,
+  api,
+  seed,
+  browser,
+}) => {
+  test.setTimeout(180_000)
+  if (!seed.adminPassword) {
+    throw new Error('Seed__AdminPassword is required for an administrator E2E journey.')
+  }
+
+  const requestToken = await getMemberAntiforgeryToken(api)
+  const ownerEmail = `partial-refund-owner-${randomUUID()}@example.test`
+  const order = await createGuestPrepaidHomeDeliveryOrder(api, seed.skuPublicId, ownerEmail, requestToken, 2)
+
+  // A second, unrelated guest order — used only to prove Actor Scope: a currently-valid guest
+  // session for a *different* order must never resolve someone else's order or return.
+  const outsiderEmail = `partial-refund-outsider-${randomUUID()}@example.test`
+  const outsiderOrder = await createGuestPrepaidHomeDeliveryOrder(
+    api, seed.skuPublicId, outsiderEmail, requestToken)
+
+  const ownerContext = await browser.newContext({ baseURL: 'http://127.0.0.1:5173' })
+  const ownerPage = await ownerContext.newPage()
+  await grantGuestOrderAccess(ownerPage, order, ownerEmail)
+
+  const outsiderContext = await browser.newContext({ baseURL: 'http://127.0.0.1:5173' })
+  const outsiderPage = await outsiderContext.newPage()
+  await grantGuestOrderAccess(outsiderPage, outsiderOrder, outsiderEmail)
+
+  await ownerPage.getByRole('link', { name: '前往付款' }).click()
+  await ownerPage.getByRole('button', { name: '模擬付款成功' }).click()
+  await expect(ownerPage.getByText('付款已完成', { exact: true })).toBeVisible()
+
+  // Admin: fresh TOTP enrollment (mirrors the journeys above), then deliver the owner's order.
+  await page.goto('./')
+  await page.getByRole('textbox', { name: '電子郵件' }).fill(seed.adminEmail)
+  await page.getByLabel('密碼').fill(seed.adminPassword)
+  await page.getByRole('button', { name: '登入' }).click()
+
+  await expect(page).toHaveURL((url) => url.pathname === '/admin/login/enroll')
+  const secret = (await page.locator('.totp-secret code').textContent())?.trim()
+  expect(secret, 'The enrollment page must expose a manual TOTP secret').toBeTruthy()
+  await page.getByLabel('請輸入 App 顯示的 6 位數驗證碼以確認綁定').fill(currentTotp(secret!))
+  await page.getByRole('button', { name: '確認綁定' }).click()
+  await expect(page.getByRole('heading', { level: 1, name: '請保存您的備援碼' })).toBeVisible()
+  await page.getByRole('checkbox', { name: '我已抄下並妥善保存這些備援碼' }).check()
+  await page.getByRole('button', { name: '完成，進入後台' }).click()
+  await expect(page).toHaveURL(/\/admin\/$/)
+
+  await page.goto(`./orders/${order.publicId}`)
+  await markOrderShippedDirectly(page, order)
+  await page.reload()
+  await executeShipmentActionThroughAdminUi(page, '配送中', 'in-transit')
+  const delivered = await executeShipmentActionThroughAdminUi(page, '宅配送達', 'delivered')
+  expect(delivered.order.fulfillmentStatus).toBe('Delivered')
+  expect(delivered.order.paymentStatus).toBe('Paid')
+
+  const persistedOrder = await ownerPage.evaluate(async (orderPublicId) => {
+    const response = await fetch(`/api/v1/orders/${orderPublicId}`, { credentials: 'include' })
+    return await response.json() as {
+      items: Array<{ publicId: string, lineTotal: number, returnableQuantity: number, returnedQuantity: number }>
+    }
+  }, order.publicId)
+  const item = persistedOrder.items[0]!
+  expect(item.returnableQuantity).toBe(2)
+
+  // Customer: request a return for only 1 of the 2 units (ReturnNewPage.vue defaults every
+  // line's quantity to 1 regardless of maxQuantity — the partial case needs no extra UI step).
+  await ownerPage.goto(`/orders/${order.publicId}`)
+  await ownerPage.getByRole('button', { name: '申請退貨' }).click()
+  await ownerPage.getByLabel('整體退貨說明（1–1000 字）')
+    .fill('兩台只有一台風扇異音，先退一台（H-R03 partial E2E）。')
+
+  const createReturnResponsePromise = ownerPage.waitForResponse(response =>
+    response.request().method() === 'POST'
+    && new URL(response.url()).pathname === `/api/v1/orders/${order.publicId}/returns`)
+  await ownerPage.getByRole('button', { name: '送出退貨申請' }).click()
+  const createReturnResponse = await createReturnResponsePromise
+  const createReturnResponseText = await createReturnResponse.text()
+  expect(
+    createReturnResponse.status(),
+    `The browser must create the partial return request. Response: ${createReturnResponseText}`,
+  ).toBe(201)
+  const returnRequest = JSON.parse(createReturnResponseText) as {
+    publicId: string
+    returnNumber: string
+    rowVersion: string
+    items: Array<{ publicId: string, orderItemPublicId: string, quantity: number }>
+  }
+  expect(returnRequest.items[0]?.quantity).toBe(1)
+
+  // Actor scope, read side: the outsider's own currently-valid guest session (for a different
+  // order) must not resolve the owner's order or return — same 404 whether it doesn't exist,
+  // belongs to someone else, or falls outside this session's Guest Scope.
+  const outsiderReturnRead = await outsiderPage.evaluate(async (returnPublicId) => {
+    const response = await fetch(`/api/v1/returns/${returnPublicId}`, { credentials: 'include' })
+    return response.status
+  }, returnRequest.publicId)
+  expect(outsiderReturnRead, 'A different guest session must not read someone else\'s return').toBe(404)
+
+  const outsiderOrderRead = await outsiderPage.evaluate(async (orderPublicId) => {
+    const response = await fetch(`/api/v1/orders/${orderPublicId}`, { credentials: 'include' })
+    return response.status
+  }, order.publicId)
+  expect(outsiderOrderRead, 'A different guest session must not read someone else\'s order').toBe(404)
+
+  // Actor scope, write side: the outsider must not be able to create a return against the
+  // owner's order either, even with a real antiforgery token from their own valid session.
+  const outsiderCreateReturn = await outsiderPage.evaluate(async ({ orderPublicId, orderItemPublicId, rowVersion }) => {
+    const tokenResponse = await fetch('/api/v1/security/antiforgery-token', {
+      credentials: 'include',
+      headers: { 'X-DoSelect-Client': 'member' },
+    })
+    const token = await tokenResponse.json() as { requestToken: string }
+    const response = await fetch(`/api/v1/orders/${orderPublicId}/returns`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-DoSelect-Client': 'member',
+        'X-XSRF-TOKEN': token.requestToken,
+      },
+      body: JSON.stringify({
+        items: [{ orderItemPublicId, quantity: 1, reasonCode: 'Defective', description: '' }],
+        requestReason: 'cross-actor return attempt',
+        orderRowVersion: rowVersion,
+      }),
+    })
+    return response.status
+  }, { orderPublicId: order.publicId, orderItemPublicId: item.publicId, rowVersion: order.rowVersion })
+  expect(outsiderCreateReturn, 'A different guest session must not create a return on someone else\'s order')
+    .toBe(404)
+
+  // Actor scope, admin side: an anonymous caller (the plain `api` fixture carries no admin
+  // session) must not be able to approve the return either — zero side effects, still 401.
+  const anonymousApproval = await api.post(
+    `/api/v1/admin/returns/${returnRequest.publicId}/actions/review`,
+    { data: { approved: true, items: [], reasonCode: 'x', returnRowVersion: returnRequest.rowVersion } },
+  )
+  expect(anonymousApproval.status(), 'An anonymous caller must not approve a return').toBe(401)
+
+  // Admin: approve the partial return through the no-shipment fast path — only the 1 requested
+  // unit, not the order item's full original quantity of 2 (ValidateFullQuantityApproval checks
+  // the *return*'s own requested quantity, not the order item's).
+  await page.goto(`./returns/${returnRequest.publicId}`)
+  await expect(page.getByRole('heading', { level: 1, name: returnRequest.returnNumber })).toBeVisible()
+  const approveReturn = await page.evaluate(async ({ returnPublicId, returnItemPublicId, rowVersion }) => {
+    const tokenResponse = await fetch('/api/v1/security/antiforgery-token', {
+      credentials: 'include',
+      headers: { 'X-DoSelect-Client': 'admin' },
+    })
+    const token = await tokenResponse.json() as { requestToken: string }
+    const response = await fetch(`/api/v1/admin/returns/${returnPublicId}/actions/review`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-DoSelect-Client': 'admin',
+        'X-XSRF-TOKEN': token.requestToken,
+      },
+      body: JSON.stringify({
+        approved: true,
+        items: [{ returnItemPublicId, approvedQuantity: 1, inspectionRequired: false }],
+        reasonCode: 'eligible',
+        note: 'H-R03 E2E: partial goodwill approval, no physical return required.',
+        assemblyFeeDisposition: 'notApplicable',
+        returnShippingCost: 0,
+        returnRowVersion: rowVersion,
+      }),
+    })
+    return { status: response.status, body: await response.json() as { status: string } }
+  }, {
+    returnPublicId: returnRequest.publicId,
+    returnItemPublicId: returnRequest.items[0]!.publicId,
+    rowVersion: returnRequest.rowVersion,
+  })
+  expect(
+    approveReturn.status,
+    `The partial return approval must succeed. Response: ${JSON.stringify(approveReturn.body)}`,
+  ).toBe(200)
+  expect(approveReturn.body.status).toBe('awaitingRefund')
+
+  // Admin: find, approve and execute the refund through the real UI form.
+  await page.goto('./refunds')
+  await page.getByLabel('退款狀態').selectOption('pendingReview')
+  await page.getByRole('button', { name: '搜尋' }).click()
+  await expect(page.getByRole('cell', { name: '待審核' })).toHaveCount(1)
+  await page.getByRole('link', { name: '查看明細' }).click()
+  await expect(page).toHaveURL(/\/refunds\/[0-9a-f-]+$/)
+
+  await page.getByLabel('核准原因').selectOption('return_approved')
+  await page.getByRole('checkbox', { name: /我已核對申請金額與訂單/ }).check()
+  const approveRefundResponsePromise = page.waitForResponse(response =>
+    response.request().method() === 'POST'
+    && new URL(response.url()).pathname.endsWith('/actions/approve'))
+  await page.getByRole('button', { name: '確認核准退款' }).click()
+  const approveRefundResponse = await approveRefundResponsePromise
+  const approvedRefund = await approveRefundResponse.json() as {
+    requestedAmount: number
+    approvedAmount: number
+    requestedBy: Record<string, unknown> | null
+  }
+  expect(approveRefundResponse.status()).toBe(200)
+  // The exact amount is the backend's own trusted-snapshot calculation (RefundCalculator), not
+  // re-derived here — the meaningful assertion is that it is a *partial* refund, strictly less
+  // than the full order, not that it equals some independently guessed per-unit price.
+  const refundAmount = approvedRefund.approvedAmount
+  expect(refundAmount).toBeGreaterThan(0)
+  expect(refundAmount).toBeLessThan(order.amounts.grandTotal)
+  // Masked admin summary (H-R03 minimum case 7): only publicId + maskedLabel travel over the
+  // wire, never an Internal Id or a raw, unmasked identity field.
+  expect(Object.keys(approvedRefund.requestedBy ?? {}).sort()).toEqual(['maskedLabel', 'publicId'])
+
+  await page.reload()
+  await page.getByLabel('執行原因').selectOption('return_approved')
+  await page.getByRole('checkbox', { name: /我已核對退款上限/ }).check()
+  const executeResponsePromise = page.waitForResponse(response =>
+    response.request().method() === 'POST'
+    && new URL(response.url()).pathname.endsWith('/actions/execute'))
+  await page.getByRole('button', { name: '確認執行退款' }).click()
+  const executeResponse = await executeResponsePromise
+  expect(executeResponse.status()).toBe(200)
+  const executed = await executeResponse.json() as {
+    status: string
+    succeededAmount: number
+    executedBy: Record<string, unknown> | null
+    allocations: Array<{ type: string, amount: number, quantity: number | null }>
+  }
+  expect(executed.status).toBe('succeeded')
+  expect(executed.succeededAmount).toBe(refundAmount)
+  expect(Object.keys(executed.executedBy ?? {}).sort()).toEqual(['maskedLabel', 'publicId'])
+  const itemRefundAllocation = executed.allocations.find(a => a.type === 'itemRefund')
+  expect(itemRefundAllocation?.quantity).toBe(1)
+  expect(itemRefundAllocation?.amount).toBeGreaterThan(0)
+  // succeededAmount is the *net* total (credits minus debits) — a partial return that drops the
+  // order's retained subtotal below a free-shipping threshold it originally qualified for adds
+  // a shippingClawback debit component alongside the itemRefund credit (RefundCalculator
+  // .ResolveShippingClawback), so the item allocation alone need not equal the net amount.
+  const debitTypes = new Set(['discountClawback', 'shippingClawback'])
+  const signedTotal = executed.allocations.reduce(
+    (sum, a) => sum + (debitTypes.has(a.type) ? -a.amount : a.amount), 0)
+  expect(signedTotal).toBe(refundAmount)
+
+  // Order projection: a partially returned order settles on PartiallyRefunded, not Refunded —
+  // the other unit was never touched (DES-21).
+  const orderAfterRefund = await page.evaluate(async (orderPublicId) => {
+    const response = await fetch(`/api/v1/admin/orders/${orderPublicId}`, { credentials: 'include' })
+    return await response.json() as { orderRefundStatus: string, amounts: { refundedAmount: number, paidAmount: number } }
+  }, order.publicId)
+  expect(orderAfterRefund.orderRefundStatus).toBe('PartiallyRefunded')
+  expect(orderAfterRefund.amounts.refundedAmount).toBe(refundAmount)
+  expect(orderAfterRefund.amounts.paidAmount).toBe(order.amounts.grandTotal)
+
+  await ownerPage.goto(`/orders/${order.publicId}`)
+  await expect(ownerPage.getByText('退款狀態：部分退款', { exact: true })).toBeVisible()
+  await expect(ownerPage.getByText(`已退款：NT$ ${refundAmount}`, { exact: true })).toBeVisible()
+  // The remaining, un-returned unit keeps the return CTA available.
+  await expect(ownerPage.getByRole('button', { name: '申請退貨' })).toBeVisible()
+
+  await ownerContext.close()
+  await outsiderContext.close()
 })
 
 test('an anonymous administrator is routed to the login page', async ({ page }) => {
