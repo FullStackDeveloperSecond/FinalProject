@@ -621,6 +621,99 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/shipments/{shipmentPublicId}/actions/{shipmentAction}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": string;
+                };
+                path: {
+                    shipmentPublicId: string;
+                    shipmentAction: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ShipmentStatusActionRequest"];
+                    "text/json": components["schemas"]["ShipmentStatusActionRequest"];
+                    "application/*+json": components["schemas"]["ShipmentStatusActionRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminOrderDto"];
+                        "application/json": components["schemas"]["AdminOrderDto"];
+                        "text/json": components["schemas"]["AdminOrderDto"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/shipments/batches": {
         parameters: {
             query?: never;
@@ -9751,6 +9844,7 @@ export interface components {
             createdAtUtc: string;
             /** Format: byte */
             rowVersion: string;
+            shipment?: null | components["schemas"]["AdminShipmentDto"];
         };
         AdminOrderItemDto: {
             /** Format: uuid */
@@ -9937,6 +10031,30 @@ export interface components {
             reviewedAtUtc: null | string;
             rowVersion: string;
             images: components["schemas"]["ReviewImageDto"][];
+        };
+        AdminShipmentDto: {
+            /** Format: uuid */
+            publicId: string;
+            shipmentNumber: string;
+            trackingNumber: null | string;
+            status: string;
+            shippingMethodCode: string;
+            /** Format: date-time */
+            shippedAtUtc: null | string;
+            /** Format: date-time */
+            deliveredAtUtc: null | string;
+            history: components["schemas"]["AdminShipmentHistoryDto"][];
+            availableActions: string[];
+            /** Format: byte */
+            rowVersion: string;
+        };
+        AdminShipmentHistoryDto: {
+            fromStatus: null | string;
+            toStatus: string;
+            /** Format: uuid */
+            actorPublicId: null | string;
+            /** Format: date-time */
+            occurredAtUtc: string;
         };
         AdminSupportMessageDto: {
             /** Format: uuid */
@@ -11406,6 +11524,7 @@ export interface components {
             availableActions: string[];
             /** Format: byte */
             rowVersion: string;
+            shipment?: null | components["schemas"]["OrderShipmentDto"];
         };
         OrderItemDto: {
             /** Format: uuid */
@@ -11448,6 +11567,23 @@ export interface components {
         };
         /** @enum {unknown} */
         OrderRefundStatus: "none" | "pending" | "partiallyRefunded" | "refunded";
+        OrderShipmentDto: {
+            shipmentNumber: string;
+            trackingNumber: null | string;
+            status: components["schemas"]["FulfillmentStatus"];
+            shippingMethodCode: string;
+            /** Format: date-time */
+            shippedAtUtc: null | string;
+            /** Format: date-time */
+            deliveredAtUtc: null | string;
+            history: components["schemas"]["OrderShipmentHistoryDto"][];
+        };
+        OrderShipmentHistoryDto: {
+            fromStatus: null | components["schemas"]["FulfillmentStatus"];
+            toStatus: components["schemas"]["FulfillmentStatus"];
+            /** Format: date-time */
+            occurredAtUtc: string;
+        };
         /** @enum {unknown} */
         OrderStatus: "pendingPayment" | "confirmed" | "processing" | "completed" | "cancelled";
         OrderStatusHistoryDto: {
@@ -12283,6 +12419,12 @@ export interface components {
             totals: components["schemas"]["BuildTotalsDto"];
             canCopy: boolean;
             canAddToCart: boolean;
+        };
+        ShipmentStatusActionRequest: {
+            /** Format: byte */
+            shipmentRowVersion: string;
+            reasonCode?: null | string;
+            note?: null | string;
         };
         ShippingOptionDto: {
             methodCode: string;

@@ -2,11 +2,13 @@ import { computed, type Ref } from 'vue'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import {
   executeAdminOrderAction,
+  executeShipmentStatusAction,
   fetchAdminOrder,
   fetchAdminOrderRecipient,
   fetchAdminOrders,
   type AdminOrderActionRequestBody,
   type AdminOrderListFilters,
+  type ShipmentStatusActionRequestBody,
 } from '../api'
 
 export function useAdminOrderListQuery(filters: Ref<AdminOrderListFilters>) {
@@ -39,6 +41,27 @@ export function useAdminOrderActionMutation() {
       executeAdminOrderAction(input.publicId, input.actionName, input.request),
     onSuccess: async (_data, variables) => {
       await queryClient.invalidateQueries({ queryKey: ['admin-orders', 'detail', variables.publicId] })
+      await queryClient.invalidateQueries({ queryKey: ['admin-orders', 'list'] })
+    },
+  })
+}
+
+/**
+ * M-11 物流狀態命令。回應就是更新後的 AdminOrderDto（C1），直接寫進詳情快取，不用再打一次；
+ * 列表的摘要狀態（已出貨／已完成）可能變了，一併失效。
+ */
+export function useShipmentStatusActionMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: {
+      orderPublicId: string
+      shipmentPublicId: string
+      shipmentAction: string
+      request: ShipmentStatusActionRequestBody
+      idempotencyKey: string
+    }) => executeShipmentStatusAction(input.shipmentPublicId, input.shipmentAction, input.request, input.idempotencyKey),
+    onSuccess: async (data, variables) => {
+      queryClient.setQueryData(['admin-orders', 'detail', variables.orderPublicId], data)
       await queryClient.invalidateQueries({ queryKey: ['admin-orders', 'list'] })
     },
   })

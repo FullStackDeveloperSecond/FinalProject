@@ -51,7 +51,9 @@ public sealed record OrderDto(
     DateTime? CancelledAtUtc,
     DateTime? ReturnRequestDeadlineUtc,
     IReadOnlyList<string> AvailableActions,
-    byte[] RowVersion);
+    byte[] RowVersion,
+    // C1：顧客看得到單號、狀態與時間歷程；不含 Actor、原因備註或內部 ID。
+    OrderShipmentDto? Shipment = null);
 
 public sealed record OrderSummaryDto(
     Guid PublicId,

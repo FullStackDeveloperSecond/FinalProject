@@ -12,7 +12,7 @@ public static class OrderDtoMapper
     private const string CancelAction = "cancel";
     private const string RequestReturnAction = "requestReturn";
 
-    public static OrderDto Map(Order order, IReadOnlyList<OrderItem> items)
+    public static OrderDto Map(Order order, IReadOnlyList<OrderItem> items, OrderShipmentDto? shipment = null)
     {
         ArgumentNullException.ThrowIfNull(order);
         ArgumentNullException.ThrowIfNull(items);
@@ -80,6 +80,7 @@ public static class OrderDtoMapper
                 ? ReturnEligibilityPolicy.ComputeCoolingOffDeadlineUtc(deliveredAtUtc)
                 : null,
             actions,
-            order.RowVersion);
+            order.RowVersion,
+            shipment);
     }
 }

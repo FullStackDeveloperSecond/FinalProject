@@ -81,6 +81,42 @@ describe('OrderDetailPage', () => {
     routerPush.mockReset()
   })
 
+  it('renders the shipment summary and history for the owner without any actor details', async () => {
+    fetchOrder.mockResolvedValueOnce(buildOrder({
+      fulfillmentStatus: 'delivered',
+      shipment: {
+        shipmentNumber: 'SH-0001',
+        trackingNumber: 'TRK-0001',
+        status: 'delivered',
+        shippingMethodCode: 'home-delivery',
+        shippedAtUtc: '2026-09-04T01:00:00Z',
+        deliveredAtUtc: '2026-09-04T05:00:00Z',
+        history: [
+          { fromStatus: 'shipped', toStatus: 'inTransit', occurredAtUtc: '2026-09-04T02:00:00Z' },
+          { fromStatus: 'inTransit', toStatus: 'delivered', occurredAtUtc: '2026-09-04T05:00:00Z' },
+        ],
+      },
+    }))
+    const wrapper = mount(OrderDetailPage)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('SH-0001')
+    expect(wrapper.text()).toContain('TRK-0001')
+    expect(wrapper.text()).toContain('物流狀態：已送達')
+    const history = wrapper.find('ul[aria-label="物流歷程"]')
+    expect(history.findAll('li')).toHaveLength(2)
+    expect(history.text()).toContain('配送中')
+    expect(history.text()).toContain('已送達')
+  })
+
+  it('tells the customer the order has not shipped when there is no shipment', async () => {
+    fetchOrder.mockResolvedValueOnce(buildOrder({ shipment: null }))
+    const wrapper = mount(OrderDetailPage)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('尚未出貨')
+  })
+
   it('renders order items once loaded', async () => {
     fetchOrder.mockResolvedValueOnce(buildOrder())
     const wrapper = mount(OrderDetailPage)

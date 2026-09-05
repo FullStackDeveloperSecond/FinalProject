@@ -61,6 +61,9 @@ public static class ShippingErrorCodes
     public const string ShippingBatchLimitExceeded = "shipping_batch_limit_exceeded";
     public const string ShippingOrderNotReady = "shipping_order_not_ready";
     public const string ShippingTrackingDuplicate = "shipping_tracking_duplicate";
+
+    /// <summary>M-11 物流狀態命令：狀態機不允許的邊，或配送方式不允許的目標狀態（宅配／超取限制）。</summary>
+    public const string ShippingStatusTransitionInvalid = "shipping_status_transition_invalid";
 }
 
 public interface IShippingOptionsService

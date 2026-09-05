@@ -16,6 +16,7 @@ public static class ShippingServiceCollectionExtensions
         // 冪等協調器與服務同一個 scope，才會共用同一個 DbContext 與連線。
         services.AddScoped<BatchShipmentIdempotency>();
         services.AddScoped<IBatchShipmentService, EfBatchShipmentService>();
+        services.AddScoped<IShipmentStatusService, EfShipmentStatusService>();
 
 
         return services;

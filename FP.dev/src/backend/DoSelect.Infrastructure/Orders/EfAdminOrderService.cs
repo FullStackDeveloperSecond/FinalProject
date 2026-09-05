@@ -7,6 +7,7 @@ using DoSelect.Application.Orders;
 using DoSelect.Domain.Auditing;
 using DoSelect.Domain.Orders;
 using DoSelect.Infrastructure.Persistence;
+using DoSelect.Infrastructure.Shipping;
 using Microsoft.EntityFrameworkCore;
 
 namespace DoSelect.Infrastructure.Orders;
@@ -511,7 +512,8 @@ public sealed class EfAdminOrderService : IAdminOrderService
             order.CompletedAtUtc,
             order.CancelledAtUtc,
             order.CreatedAtUtc,
-            order.RowVersion);
+            order.RowVersion,
+            await ShipmentProjection.LoadAdminAsync(_dbContext, order, cancellationToken));
     }
 
     private static AdminOrderSummaryDto ToSummaryDto(Order order) => new(
