@@ -144,18 +144,57 @@ public sealed class AdminInventoryController : ControllerBase
         }
     }
 
-    // Reconciliation Resolve (both the Dismiss and the real-correction path share this one action
-    // via ResolveReconciliationCaseRequest.Dismissed) is still not exposed here. The real-correction
-    // path is a high-risk manual stock adjustment; UC-ADM-INV-01's acceptance criteria require it
-    // to persist an Audit Log entry (operator, before/after values, SKU, case, time, TraceId), and
-    // this action is not wired to the central IAuditWriter yet, so 組長's PR #36 round-4 ruling to
-    // withdraw the whole action (not just the correction half) still stands rather than let a
-    // Dismiss-only route imply Resolve is otherwise done. Reconciliation is also not in the API
-    // Endpoint 目錄 — whether to catalogue and expose it is 組長's call, not this PR's.
-    // IInventoryReconciliationService.ResolveAsync itself is already built, transaction-safe, and
-    // tested at the service layer; the manual-release route above shows the shape the wiring
-    // takes once that ruling lands. List and Acknowledge stay available since neither touches
-    // Balance or claims to record an audited correction.
+    /// <summary>
+    /// UC-ADM-INV-01 對帳 dismiss（Endpoint 目錄「UC-ADM-INV-01 對帳」列）：核對基準錯誤，結案不動庫存。
+    /// PR #36 round 4 撤回的動作，依組長對帳裁定 A1～H1 拆成 dismiss／resolve 兩條路由補回；Body 不再帶
+    /// `dismissed` 布林。重送保護靠 RowVersion：案件結案後 RowVersion 就變了，帶舊值重送會被拒。
+    /// </summary>
+    [HttpPost("reconciliation-cases/{id:guid}/actions/dismiss")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> DismissReconciliationCase(
+        Guid id, [FromBody] ReconciliationCaseResolutionRequest request, CancellationToken cancellationToken)
+    {
+        var adminUserId = RequireAdminUserId();
+        try
+        {
+            await _reconciliationService.DismissAsync(
+                id, request.ToCommand(), adminUserId, BuildAuditContext(), DateTime.UtcNow, cancellationToken);
+            return NoContent();
+        }
+        catch (InventoryWriteException exception)
+        {
+            return exception.ToActionResult(HttpContext);
+        }
+    }
+
+    /// <summary>
+    /// UC-ADM-INV-01 對帳 resolve：以帳本重算值修正 Balance，建立零差額 Adjustment Movement 並寫中央稽核，
+    /// 全部同一個 SQL transaction。Balance／帳本快照過期回 409 `concurrency_conflict`（重新偵測後再操作）；
+    /// 重算後 Reserved &gt; OnHand 回 409 `inventory_reconciliation_ledger_inconsistent`（重送修不好，案件留著人工調查）。
+    /// </summary>
+    [HttpPost("reconciliation-cases/{id:guid}/actions/resolve")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ResolveReconciliationCase(
+        Guid id, [FromBody] ReconciliationCaseResolutionRequest request, CancellationToken cancellationToken)
+    {
+        var adminUserId = RequireAdminUserId();
+        try
+        {
+            await _reconciliationService.ResolveAsync(
+                id, request.ToCommand(), adminUserId, BuildAuditContext(), DateTime.UtcNow, cancellationToken);
+            return NoContent();
+        }
+        catch (InventoryWriteException exception)
+        {
+            return exception.ToActionResult(HttpContext);
+        }
+    }
 
     private AuditRequestContext BuildAuditContext()
     {
@@ -259,6 +298,28 @@ public sealed class ReleaseReservationRequest
     [Required]
     [MinLength(1)]
     public byte[] RowVersion { get; init; } = [];
+}
+
+/// <summary>
+/// `ReconciliationCaseResolutionRequest`（API DTO與Schema契約）：dismiss／resolve 共用。reasonCode 是
+/// <see cref="InventoryReconciliationReasonCodes"/> 依動作的白名單（服務層驗）；note 必填，trim 後存進案件
+/// `ResolutionReason` 也寫進中央稽核 note；長度 1..500 與人工釋放相同。
+/// </summary>
+public sealed class ReconciliationCaseResolutionRequest
+{
+    [Required]
+    [StringLength(32, MinimumLength = 1)]
+    public string ReasonCode { get; init; } = string.Empty;
+
+    [Required]
+    [StringLength(ReconciliationCaseResolutionCommand.NoteMaxLength, MinimumLength = 1)]
+    public string Note { get; init; } = string.Empty;
+
+    [Required]
+    [MinLength(1)]
+    public byte[] RowVersion { get; init; } = [];
+
+    internal ReconciliationCaseResolutionCommand ToCommand() => new(ReasonCode, Note, RowVersion);
 }
 
 public sealed class AcknowledgeReconciliationCaseRequest

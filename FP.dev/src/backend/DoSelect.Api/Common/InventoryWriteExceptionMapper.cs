@@ -27,6 +27,7 @@ internal static class InventoryWriteExceptionMapper
         InventoryWriteException.ErrorCodes.ReservationNotActive => StatusCodes.Status409Conflict,
         InventoryWriteException.ErrorCodes.ReservationAlreadyProcessed => StatusCodes.Status409Conflict,
         InventoryWriteException.ErrorCodes.ReconciliationCaseNotOpen => StatusCodes.Status409Conflict,
+        InventoryWriteException.ErrorCodes.ReconciliationLedgerInconsistent => StatusCodes.Status409Conflict,
         InventoryWriteException.ErrorCodes.ConcurrencyConflict => StatusCodes.Status409Conflict,
         InventoryWriteException.ErrorCodes.ValidationFailed => StatusCodes.Status400BadRequest,
         _ => StatusCodes.Status400BadRequest,

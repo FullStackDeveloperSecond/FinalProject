@@ -118,6 +118,8 @@
 | `inventory_reservation_not_active` | 409 | 嘗試消耗或釋放非 Active 保留 |
 | `inventory_reservation_already_processed` | 409 | 保留已消耗、釋放或逾時 |
 | `inventory_import_validation_failed` | 400 | 庫存調整預覽含錯誤，整批不得提交 |
+| `inventory_reconciliation_case_not_open` | 409 | 對帳案件狀態不允許該動作：`acknowledge` 只允許 Open；`dismiss`／`resolve` 允許 Open 或 Acknowledged；其他狀態或已結案（Resolved／Dismissed）重送（含帶舊 RowVersion 重送）一律回此碼 |
+| `inventory_reconciliation_ledger_inconsistent` | 409 | 對帳 resolve 重算帳本後 Reserved > OnHand；不是重新整理／重送能修好的過期（那是 `concurrency_conflict`），案件維持未結等人工調查，零副作用 |
 | `order_state_conflict` | 409 | 目前訂單狀態不允許所要求操作 |
 | `order_total_changed` | 409 | 結帳重算後總額與使用者確認快照不同，需重新確認 |
 | `order_total_below_minimum` | 409 | 後端完成折扣、運費、組裝費與整數化後，最終應付低於 NT$1；結帳零副作用，前端提示移除優惠券或調整購物車後重新送出，不把折扣偷偷截短 |

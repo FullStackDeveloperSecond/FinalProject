@@ -254,6 +254,19 @@ public sealed class AdminInventoryApiFixture : IAsyncLifetime
         return publicId;
     }
 
+    /// <summary>直接種一筆 Open 案件（Expected＝Balance 快照、Actual＝帳本重算），不跑偵測排程。</summary>
+    public async Task<(Guid CasePublicId, byte[] RowVersion)> SeedReconciliationCaseAsync(
+        long skuId, int expectedOnHand, int actualOnHand, int expectedReserved = 0, int actualReserved = 0)
+    {
+        await using var context = CreateContext();
+        var now = DateTime.UtcNow;
+        var reconciliationCase = new InventoryReconciliationCase(
+            Guid.CreateVersion7(), skuId, expectedOnHand, actualOnHand, expectedReserved, actualReserved, now, now);
+        context.InventoryReconciliationCases.Add(reconciliationCase);
+        await context.SaveChangesAsync();
+        return (reconciliationCase.PublicId, reconciliationCase.RowVersion);
+    }
+
     public async Task<(Guid ReservationPublicId, byte[] RowVersion)> SeedActiveReservationAsync(long skuId, int quantity)
     {
         await using var context = CreateContext();

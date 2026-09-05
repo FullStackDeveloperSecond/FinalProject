@@ -276,23 +276,198 @@ public sealed class AdminInventoryApiTests
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
+    // ---------------------------------------------------------------------------------------
+    // UC-ADM-INV-01 對帳 dismiss／resolve（Endpoint 目錄「UC-ADM-INV-01 對帳」列；組長對帳裁定 A1～H1）。
+    // PR #36 round 4 撤回的動作，現在案件狀態與中央稽核同一次 SaveChanges、與 Balance／Movement 同一個
+    // SQL transaction 落地後補回。
+    // ---------------------------------------------------------------------------------------
+
     [Fact]
-    public async Task ResolveReconciliationCase_EndpointIsWithdrawn_ReturnsNotFound()
+    public async Task DismissReconciliationCase_WhenOpen_ClosesTheCaseWithoutTouchingBalanceAndPersistsAuditLog()
     {
-        // Same class of gap as the manual-release action: the central IAuditWriter exists on dev,
-        // but UC-ADM-INV-01's real stock correction is not wired to it in this PR — 組長's PR #36
-        // round-4 ruling withdrew the whole Resolve action (both Dismiss and the real-correction
-        // path share it) until that follow-up PR lands.
+        var sku = await _fixture.SeedSkuWithBalanceAsync(onHandQuantity: 8);
+        var (casePublicId, rowVersion) = await _fixture.SeedReconciliationCaseAsync(sku.Id, expectedOnHand: 8, actualOnHand: 0);
         var client = await _fixture.CreateAuthenticatedInventoryManagerClientAsync();
 
+        using var response = await CloseCaseAsync(client, "dismiss", casePublicId, rowVersion, "false_positive", "盤點基準用錯批號");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        var correlationId = Assert.Single(response.Headers.GetValues("X-Correlation-ID"));
+
+        await using var context = AdminInventoryApiFixture.CreateContext();
+        var reconciliationCase = await context.InventoryReconciliationCases.AsNoTracking().SingleAsync(c => c.PublicId == casePublicId);
+        Assert.Equal(InventoryReconciliationStatus.Dismissed, reconciliationCase.Status);
+        Assert.Equal("盤點基準用錯批號", reconciliationCase.ResolutionReason);
+        Assert.Null(reconciliationCase.ResolutionMovementId);
+        var balance = await context.InventoryBalances.AsNoTracking().SingleAsync(b => b.SkuId == sku.Id);
+        Assert.Equal(8, balance.OnHandQuantity);
+        Assert.False(await context.InventoryMovements.AsNoTracking().AnyAsync(m => m.SkuId == sku.Id));
+
+        // 稽核帶著這次請求的 Correlation／Trace，角色快照來自真正的 UserRoles（裁定 B1／E1）。
+        var audit = await context.AuditLogs.AsNoTracking().SingleAsync(a => a.ResourcePublicId == casePublicId);
+        Assert.Equal("inventory_reconciliation.dismiss", audit.Action);
+        Assert.Equal("InventoryReconciliationCase", audit.ResourceType);
+        Assert.Equal(correlationId, audit.CorrelationId);
+        Assert.False(string.IsNullOrWhiteSpace(audit.TraceId));
+        Assert.Contains(DoSelectRoles.InventoryManager, audit.ActorRolesJson);
+        Assert.Contains("盤點基準用錯批號", audit.ChangedFieldsJson);
+    }
+
+    [Fact]
+    public async Task ResolveReconciliationCase_WhenSnapshotsStillMatch_CorrectsBalanceAndPersistsMovementAndAuditLog()
+    {
+        var sku = await _fixture.SeedSkuWithBalanceAsync(onHandQuantity: 8);
+        var (casePublicId, rowVersion) = await _fixture.SeedReconciliationCaseAsync(sku.Id, expectedOnHand: 8, actualOnHand: 0);
+        var client = await _fixture.CreateAuthenticatedInventoryManagerClientAsync();
+
+        using var response = await CloseCaseAsync(client, "resolve", casePublicId, rowVersion, "count_verified", "實點確認為 0");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+
+        await using var context = AdminInventoryApiFixture.CreateContext();
+        var reconciliationCase = await context.InventoryReconciliationCases.AsNoTracking().SingleAsync(c => c.PublicId == casePublicId);
+        Assert.Equal(InventoryReconciliationStatus.Resolved, reconciliationCase.Status);
+        var balance = await context.InventoryBalances.AsNoTracking().SingleAsync(b => b.SkuId == sku.Id);
+        Assert.Equal(0, balance.OnHandQuantity);
+        var movement = await context.InventoryMovements.AsNoTracking().SingleAsync(m => m.Id == reconciliationCase.ResolutionMovementId);
+        Assert.Equal(InventoryMovementTypes.Adjustment, movement.MovementType);
+        Assert.Equal("reconciliation_correction", movement.ReasonCode);
+        Assert.Equal(0, movement.OnHandDelta);
+
+        var audit = await context.AuditLogs.AsNoTracking().SingleAsync(a => a.ResourcePublicId == casePublicId);
+        Assert.Equal("inventory_reconciliation.resolve", audit.Action);
+        Assert.Contains(movement.PublicId.ToString("D"), audit.ChangedFieldsJson);
+        Assert.Contains(DoSelectRoles.InventoryManager, audit.ActorRolesJson);
+    }
+
+    /// <summary>驗收 H1：RowVersion 重送不重複處理——案件已 Resolved，舊值再送被拒，沒有第二筆 Movement 與稽核。</summary>
+    [Fact]
+    public async Task ResolveReconciliationCase_WhenResentWithTheSameRowVersion_ReturnsConflictAndDoesNotCorrectTwice()
+    {
+        var sku = await _fixture.SeedSkuWithBalanceAsync(onHandQuantity: 8);
+        var (casePublicId, rowVersion) = await _fixture.SeedReconciliationCaseAsync(sku.Id, expectedOnHand: 8, actualOnHand: 0);
+        var client = await _fixture.CreateAuthenticatedInventoryManagerClientAsync();
+
+        using var first = await CloseCaseAsync(client, "resolve", casePublicId, rowVersion, "count_verified", "n/a");
+        Assert.Equal(HttpStatusCode.NoContent, first.StatusCode);
+
+        using var second = await CloseCaseAsync(client, "resolve", casePublicId, rowVersion, "count_verified", "n/a");
+
+        Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
+        var problem = await second.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("inventory_reconciliation_case_not_open", problem.GetProperty("code").GetString());
+
+        await using var context = AdminInventoryApiFixture.CreateContext();
+        Assert.Equal(1, await context.InventoryMovements.AsNoTracking().CountAsync(m => m.SkuId == sku.Id));
+        Assert.Equal(1, await context.AuditLogs.AsNoTracking().CountAsync(a => a.ResourcePublicId == casePublicId));
+    }
+
+    /// <summary>裁定 G1：重算後 Reserved &gt; OnHand 用專用碼 409，不是 concurrency_conflict；零副作用。</summary>
+    [Fact]
+    public async Task ResolveReconciliationCase_WhenRecomputedLedgerIsInconsistent_ReturnsDedicatedConflictCodeWithoutSideEffects()
+    {
+        // Balance 5／Reserved 2，但帳本沒有任何進貨 Movement：重算 OnHand=0、Reserved=2。
+        var sku = await _fixture.SeedSkuWithBalanceAsync(onHandQuantity: 5);
+        await _fixture.SeedActiveReservationAsync(sku.Id, quantity: 2);
+        var (casePublicId, rowVersion) = await _fixture.SeedReconciliationCaseAsync(
+            sku.Id, expectedOnHand: 5, actualOnHand: 0, expectedReserved: 2, actualReserved: 2);
+        var client = await _fixture.CreateAuthenticatedInventoryManagerClientAsync();
+
+        using var response = await CloseCaseAsync(client, "resolve", casePublicId, rowVersion, "count_verified", "n/a");
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("inventory_reconciliation_ledger_inconsistent", problem.GetProperty("code").GetString());
+
+        await using var context = AdminInventoryApiFixture.CreateContext();
+        var balance = await context.InventoryBalances.AsNoTracking().SingleAsync(b => b.SkuId == sku.Id);
+        Assert.Equal(5, balance.OnHandQuantity);
+        Assert.Equal(2, balance.ReservedQuantity);
+        var stillOpen = await context.InventoryReconciliationCases.AsNoTracking().SingleAsync(c => c.PublicId == casePublicId);
+        Assert.Equal(InventoryReconciliationStatus.Open, stillOpen.Status);
+        Assert.False(await context.InventoryMovements.AsNoTracking()
+            .AnyAsync(m => m.SkuId == sku.Id && m.MovementType == InventoryMovementTypes.Adjustment));
+        Assert.False(await context.AuditLogs.AsNoTracking().AnyAsync(a => a.ResourcePublicId == casePublicId));
+    }
+
+    /// <summary>裁定 D1：白名單依動作分開、note 必填；不合法的一律 400 validation_failed 且零副作用。</summary>
+    [Theory]
+    [InlineData("dismiss", "count_verified", "n/a")]
+    [InlineData("resolve", "false_positive", "n/a")]
+    [InlineData("dismiss", "", "n/a")]
+    [InlineData("resolve", "count_verified", "")]
+    [InlineData("dismiss", "false_positive", "   ")]
+    public async Task DismissOrResolveReconciliationCase_WhenReasonCodeOrNoteIsInvalid_ReturnsValidationFailedAndLeavesTheCaseOpen(
+        string action, string reasonCode, string note)
+    {
+        var sku = await _fixture.SeedSkuWithBalanceAsync(onHandQuantity: 8);
+        var (casePublicId, rowVersion) = await _fixture.SeedReconciliationCaseAsync(sku.Id, expectedOnHand: 8, actualOnHand: 0);
+        var client = await _fixture.CreateAuthenticatedInventoryManagerClientAsync();
+
+        using var response = await CloseCaseAsync(client, action, casePublicId, rowVersion, reasonCode, note);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("validation_failed", problem.GetProperty("code").GetString());
+
+        await using var context = AdminInventoryApiFixture.CreateContext();
+        var stillOpen = await context.InventoryReconciliationCases.AsNoTracking().SingleAsync(c => c.PublicId == casePublicId);
+        Assert.Equal(InventoryReconciliationStatus.Open, stillOpen.Status);
+        var balance = await context.InventoryBalances.AsNoTracking().SingleAsync(b => b.SkuId == sku.Id);
+        Assert.Equal(8, balance.OnHandQuantity);
+        Assert.False(await context.AuditLogs.AsNoTracking().AnyAsync(a => a.ResourcePublicId == casePublicId));
+    }
+
+    [Theory]
+    [InlineData("dismiss")]
+    [InlineData("resolve")]
+    public async Task DismissOrResolveReconciliationCase_WhenCallerLacksInventoryManagerRole_ReturnsForbidden(string action)
+    {
+        var sku = await _fixture.SeedSkuWithBalanceAsync(onHandQuantity: 8);
+        var (casePublicId, rowVersion) = await _fixture.SeedReconciliationCaseAsync(sku.Id, expectedOnHand: 8, actualOnHand: 0);
+        var client = await _fixture.CreateAuthenticatedUnrelatedAdminClientAsync();
+
+        using var response = await CloseCaseAsync(client, action, casePublicId, rowVersion, "other", "n/a");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task DismissReconciliationCase_WhenAnonymous_ReturnsUnauthorized()
+    {
+        var client = _fixture.CreateClient();
+
         using var request = new HttpRequestMessage(
-            HttpMethod.Post, $"/api/v1/admin/inventory/reconciliation-cases/{Guid.NewGuid()}/actions/resolve")
+            HttpMethod.Post, $"/api/v1/admin/inventory/reconciliation-cases/{Guid.NewGuid()}/actions/dismiss")
         {
-            Content = JsonContent.Create(new { dismissed = true, reason = "n/a", rowVersion = new byte[8] }),
+            Content = JsonContent.Create(new { reasonCode = "other", note = "n/a", rowVersion = new byte[8] }),
         };
-        using var response = await AdminInventoryApiFixture.SendWithAntiforgeryAsync(client, request);
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("dismiss")]
+    [InlineData("resolve")]
+    public async Task DismissOrResolveReconciliationCase_WhenCaseDoesNotExist_ReturnsNotFound(string action)
+    {
+        var client = await _fixture.CreateAuthenticatedInventoryManagerClientAsync();
+
+        using var response = await CloseCaseAsync(client, action, Guid.NewGuid(), new byte[8], "other", "n/a");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    private static async Task<HttpResponseMessage> CloseCaseAsync(
+        HttpClient client, string action, Guid casePublicId, byte[] rowVersion, string reasonCode, string note)
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post, $"/api/v1/admin/inventory/reconciliation-cases/{casePublicId}/actions/{action}")
+        {
+            Content = JsonContent.Create(new { reasonCode, note, rowVersion }),
+        };
+        return await AdminInventoryApiFixture.SendWithAntiforgeryAsync(client, request);
     }
 
     [Fact]

@@ -82,3 +82,19 @@ public static class InventoryReleaseReasonCodes
     public static readonly IReadOnlyCollection<string> All =
         [CustomerCancelled, DuplicateOrder, RiskRejected, InventoryCorrection, Other];
 }
+
+/// <summary>
+/// 對帳案件結案原因（組長對帳裁定 D1）。dismiss 與 resolve 各有白名單：`false_positive`（核對基準錯誤）
+/// 只能 dismiss——差異本來就不存在，沒有東西可修；`count_verified`（實點確認）只能 resolve——已確認
+/// 帳本才是對的，不能拿來把差異藏掉。`system_error`／`other` 兩邊都可。
+/// </summary>
+public static class InventoryReconciliationReasonCodes
+{
+    public const string FalsePositive = "false_positive";
+    public const string CountVerified = "count_verified";
+    public const string SystemError = "system_error";
+    public const string Other = "other";
+
+    public static readonly IReadOnlyCollection<string> ForDismiss = [FalsePositive, SystemError, Other];
+    public static readonly IReadOnlyCollection<string> ForResolve = [CountVerified, SystemError, Other];
+}
