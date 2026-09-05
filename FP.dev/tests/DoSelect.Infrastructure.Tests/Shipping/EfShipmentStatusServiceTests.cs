@@ -192,9 +192,9 @@ public sealed class EfShipmentStatusServiceTests
         Assert.DoesNotContain(returned.Order.Shipment.History, entry => entry.ToStatus.Contains("無人簽收"));
     }
 
-    /// <summary>A1：同鍵同 payload 重播原結果；E1：重播不得產生重複付款、歷程、Audit、通知或發票。</summary>
+    /// <summary>A1：同鍵同 payload 重播回傳目前的訂單；E1：重播不得產生重複付款、歷程、Audit、通知或發票。</summary>
     [Fact]
-    public async Task Replay_SameKeyAndPayload_ReturnsTheOriginalResultWithoutSecondSideEffects()
+    public async Task Replay_SameKeyAndPayload_ReturnsTheCurrentOrderWithoutSecondSideEffects()
     {
         await using var context = OrderServiceFixture.CreateContext();
         var seed = await SeedAsync(context, storePickup: false, cashOnDelivery: true);
@@ -224,6 +224,58 @@ public sealed class EfShipmentStatusServiceTests
         var conflict = await Assert.ThrowsAsync<IdempotencyConflictException>(() =>
             Execute(conflictContext, seed, ShipmentStatusActions.Delivered, inTransit.Order.Shipment.RowVersion, key: key, note: "different payload"));
         Assert.Equal(IdempotencyErrorCodes.PayloadConflict, conflict.ErrorCode);
+    }
+
+    /// <summary>
+    /// 組長 #106 裁定 A1：冪等保證是「不重複副作用」，重播回的是目前最新的 AdminOrderDto——鍵 A 推 InTransit、
+    /// 鍵 B 再推 Delivered，之後重播鍵 A 拿到的是 Delivered，而且沒有任何新的歷程、稽核、通知或冪等記錄。
+    /// </summary>
+    [Fact]
+    public async Task Replay_AfterAnotherKeyAdvancedTheShipment_ReturnsTheLatestOrderWithoutNewSideEffects()
+    {
+        await using var context = OrderServiceFixture.CreateContext();
+        var seed = await SeedAsync(context, storePickup: false, cashOnDelivery: false);
+        var keyA = $"key-{Guid.NewGuid():N}";
+
+        await using var contextA = OrderServiceFixture.CreateContext();
+        var inTransit = await Execute(contextA, seed, ShipmentStatusActions.InTransit, seed.Shipment.RowVersion, key: keyA);
+        await using var contextB = OrderServiceFixture.CreateContext();
+        var delivered = await Execute(contextB, seed, ShipmentStatusActions.Delivered, inTransit.Order.Shipment!.RowVersion);
+        Assert.Equal("Delivered", delivered.Order.Shipment!.Status);
+        var before = await SnapshotSideEffectsAsync(seed);
+
+        await using var replayContext = OrderServiceFixture.CreateContext();
+        var replay = await Execute(replayContext, seed, ShipmentStatusActions.InTransit, seed.Shipment.RowVersion, key: keyA);
+
+        Assert.True(replay.IsReplay);
+        Assert.Equal("Delivered", replay.Order.Shipment!.Status);
+        Assert.Equal(delivered.Order.Shipment.RowVersion, replay.Order.Shipment.RowVersion);
+        Assert.Equal(delivered.Order.Shipment.History.Count, replay.Order.Shipment.History.Count);
+        Assert.Equal(before, await SnapshotSideEffectsAsync(seed));
+    }
+
+    /// <summary>
+    /// 組長 #106 P2：note 含中央 Audit 規則拒絕的字元（`@`、單引號…）要在第一個寫入前擋成 400 validation_failed，
+    /// 不是交易裡的 500；Shipment、歷程、Audit、Outbox 與冪等記錄都不能有殘留。
+    /// </summary>
+    [Theory]
+    [InlineData("請聯絡 ops@doselect.test")]
+    [InlineData("recipient's neighbour signed")]
+    [InlineData("<script>alert(1)</script>")]
+    public async Task Note_RejectedByTheCentralAuditRule_Returns400BeforeAnyWrite(string note)
+    {
+        await using var context = OrderServiceFixture.CreateContext();
+        var seed = await SeedAsync(context, storePickup: false, cashOnDelivery: false);
+        var before = await SnapshotSideEffectsAsync(seed);
+
+        await using var attempt = OrderServiceFixture.CreateContext();
+        var exception = await Assert.ThrowsAsync<DomainProblemException>(() =>
+            Execute(attempt, seed, ShipmentStatusActions.InTransit, seed.Shipment.RowVersion, note: note));
+
+        Assert.Equal(400, exception.StatusCode);
+        Assert.Equal(DomainErrorCodes.ValidationFailed, exception.Code);
+        await AssertUntouchedAsync(seed, FulfillmentStatus.Shipped);
+        Assert.Equal(before, await SnapshotSideEffectsAsync(seed));
     }
 
     /// <summary>E1：RowVersion 競態——過期版本被拒；兩個同時的請求只有一個贏。</summary>
@@ -332,6 +384,19 @@ public sealed class EfShipmentStatusServiceTests
         Assert.False(await verify.ShipmentStatusHistories.AsNoTracking()
             .AnyAsync(h => h.ShipmentId == seed.Shipment.Id && !allowed.Contains(h.ToStatus)));
         Assert.False(await verify.AuditLogs.AsNoTracking().AnyAsync(a => a.ResourcePublicId == seed.Order.PublicId && a.Action != AuditActions.ShipmentMarkInTransit));
+    }
+
+    /// <summary>同一張訂單／物流單的所有副作用計數（含冪等記錄總數——測試在同一 collection 內循序執行）。</summary>
+    private static async Task<(int Histories, int OrderHistories, int Audits, int Outbox, int PaymentEvents, int Idempotency)> SnapshotSideEffectsAsync(Seed seed)
+    {
+        await using var verify = OrderServiceFixture.CreateContext();
+        return (
+            await verify.ShipmentStatusHistories.AsNoTracking().CountAsync(h => h.ShipmentId == seed.Shipment.Id),
+            await verify.OrderStatusHistories.AsNoTracking().CountAsync(h => h.OrderId == seed.Order.Id),
+            await verify.AuditLogs.AsNoTracking().CountAsync(a => a.ResourcePublicId == seed.Order.PublicId),
+            await verify.OutboxMessages.AsNoTracking().CountAsync(m => m.AggregatePublicId == seed.Order.PublicId || m.AggregatePublicId == seed.Shipment.PublicId),
+            await verify.PaymentEvents.AsNoTracking().CountAsync(e => e.PaymentAttemptId == seed.CodAttemptId),
+            await verify.IdempotencyRecords.AsNoTracking().CountAsync());
     }
 
     private static EfShipmentStatusService CreateService(DoSelectDbContext context) =>

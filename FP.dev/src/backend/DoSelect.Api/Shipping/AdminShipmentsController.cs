@@ -38,8 +38,8 @@ public sealed class AdminShipmentsController : ControllerBase
 
     /// <summary>
     /// M-11 物流狀態命令（組長 2026-09-04 裁定 A1）：in-transit／delivered／pickup-ready／picked-up／
-    /// delivery-failed／returned。必帶 Idempotency-Key；同鍵同 payload 重播原結果，不同 payload 回
-    /// idempotency_payload_conflict（GlobalExceptionHandler 轉 409）。狀態轉移、歷程、Order 投影、COD
+    /// delivery-failed／returned。必帶 Idempotency-Key；同鍵同 payload 不重複副作用、重播回傳目前最新的
+    /// AdminOrderDto（不是第一次的快照），不同 payload 回 idempotency_payload_conflict（GlobalExceptionHandler 轉 409）。狀態轉移、歷程、Order 投影、COD
     /// 收款、Completed、Audit 與 Outbox 同一交易（B1）。成功回傳更新後的 AdminOrderDto（C1）。
     /// </summary>
     // 路由參數不能叫 `action`（ASP.NET Core 路由保留值，會撞 controller/action 環境路由值而 404）。

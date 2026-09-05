@@ -99,6 +99,18 @@ public sealed class EfShipmentStatusService : IShipmentStatusService
             throw DomainProblemException.Validation("note cannot exceed 500 characters.");
         }
 
+        // 組長 PR #106 P2：note 最後會進中央 Audit，Create 會依中央規則拒絕 `@ < > & \ " '`、控制字元與敏感詞。
+        // 那個 ArgumentException 若留到交易裡才發生會變成 500（交易會回滾，但合法操作不該是伺服器錯誤），
+        // 所以在任何寫入之前先用同一份規則驗過，翻成 400 validation_failed（比照 #100 人工釋放）。
+        try
+        {
+            note = AuditWriteRequest.ValidateNote(note);
+        }
+        catch (ArgumentException exception)
+        {
+            throw DomainProblemException.Validation($"note is not accepted by the audit log: {exception.Message}");
+        }
+
         // 冪等的 Actor Scope 要在交易外算（Executor 自己開交易）；角色在交易內重查（AuthorizeActorAsync）。
         var actor = await ResolveActorAsync(adminUserId, cancellationToken);
 

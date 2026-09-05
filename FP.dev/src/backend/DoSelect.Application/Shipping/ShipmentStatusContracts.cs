@@ -136,7 +136,10 @@ public sealed record ShipmentStatusCommand(
     string? Note,
     string IdempotencyKey);
 
-/// <summary>C1：狀態命令成功後回傳更新的 AdminOrderDto；<see cref="IsReplay"/> 表示這是同鍵同 payload 的重播。</summary>
+/// <summary>
+/// C1：狀態命令成功後回傳更新的 AdminOrderDto；<see cref="IsReplay"/> 表示這是同鍵同 payload 的重播——
+/// 重播回傳的是<b>目前最新</b>的 AdminOrderDto（訂單可能已被另一把鍵推進），不是第一次的快照。
+/// </summary>
 public sealed record ShipmentStatusResult(AdminOrderDto Order, bool IsReplay);
 
 public interface IShipmentStatusService
@@ -144,8 +147,10 @@ public interface IShipmentStatusService
     /// <summary>
     /// B1：狀態轉移、ShipmentStatusHistory、Order 的 Fulfillment 投影、OrderStatusHistory、中央 Audit、
     /// 必要 Outbox（通知、COD 付款事件、模擬發票）在同一個 SQL Server Transaction；任何一步失敗整體回滾。
-    /// A1：同 Idempotency-Key＋同 payload 重播原結果，不重複任何副作用；不同 payload
-    /// 回 <c>idempotency_payload_conflict</c>。
+    /// A1（組長 #106 裁定）：冪等保證是「同 Idempotency-Key＋同 payload 不重複任何副作用，重播回傳目前最新的
+    /// AdminOrderDto」——不保存第一次的完整 DTO；若訂單之後已被另一把鍵推進，重播舊鍵拿到的是推進後的狀態。
+    /// 不同 payload 回 <c>idempotency_payload_conflict</c>。note 在任何寫入前先以中央 Audit 的 note 規則驗證，
+    /// 不合規回 <c>validation_failed</c>。
     /// </summary>
     Task<ShipmentStatusResult> ExecuteAsync(
         ShipmentStatusCommand command,

@@ -54,7 +54,7 @@ public sealed class ShipmentStatusApiTests
     }
 
     [Fact]
-    public async Task Replay_SameKeyReturnsTheSameResult_DifferentPayloadConflicts()
+    public async Task Replay_SameKeyReturnsTheCurrentOrder_DifferentPayloadConflicts()
     {
         var seed = await SeedShippedOrderAsync();
         using var client = await _fixture.CreateAuthenticatedAdminClientAsync(DoSelectRoles.OrderManager);
@@ -79,6 +79,25 @@ public sealed class ShipmentStatusApiTests
         await using var context = _fixture.CreateScopedContext();
         Assert.Equal(1, await context.ShipmentStatusHistories.AsNoTracking()
             .CountAsync(h => h.ToStatus == FulfillmentStatus.InTransit && h.ShipmentId == seed.ShipmentId));
+    }
+
+    /// <summary>組長 #106 P2：note 含 `@` 走中央 Audit 規則，在寫入前變成 400，不是 500；沒有任何歷程殘留。</summary>
+    [Fact]
+    public async Task Note_RejectedByTheAuditRule_Returns400ValidationFailedWithoutSideEffects()
+    {
+        var seed = await SeedShippedOrderAsync();
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync(DoSelectRoles.OrderManager);
+
+        using var response = await PostActionAsync(
+            client, seed.ShipmentPublicId, ShipmentStatusActions.InTransit, seed.RowVersion, Guid.NewGuid().ToString("N"), note: "請聯絡 ops@doselect.test");
+
+        var (status, code, _) = await ShippingApiFixture.ReadProblemAsync(response);
+        Assert.Equal(400, status);
+        Assert.Equal("validation_failed", code);
+        await using var context = _fixture.CreateScopedContext();
+        Assert.Equal(0, await context.ShipmentStatusHistories.AsNoTracking()
+            .CountAsync(h => h.ShipmentId == seed.ShipmentId && h.ToStatus == FulfillmentStatus.InTransit));
+        Assert.False(await context.AuditLogs.AsNoTracking().AnyAsync(a => a.ResourcePublicId == seed.OrderPublicId));
     }
 
     [Fact]
