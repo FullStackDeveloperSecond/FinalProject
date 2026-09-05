@@ -1,30 +1,10 @@
-:root {
-  --color-bg: #ffffff;
-  --color-surface: #f4f8fc;
-  --color-surface-strong: #e8f2fc;
-  --color-primary: #2f7dd3;
-  --color-primary-dark: #1f63ac;
-  --color-primary-soft: #eaf3fc;
-  --color-text: #153452;
-  --color-text-muted: #4c6b85;
-  --color-border: #c9dcec;
-  --color-border-soft: #dcebf7;
-  --color-success: #1f8a5c;
-  --color-success-bg: #e6f5ee;
-  --color-warning: #b8790f;
-  --color-warning-bg: #fbf1e0;
-  --color-danger: #c23a3a;
-  --color-danger-bg: #fbeaea;
-  --shadow-sm: 0 1px 2px rgba(21, 52, 82, 0.07);
-  --shadow-md: 0 4px 14px rgba(21, 52, 82, 0.09);
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 20px;
-  --max-width: 1200px;
-  --control-height: 44px;
-  --header-h: 64px;
+/* 色彩／間距／圓角／陰影／字體 Token 皆來自 @doselect/web-shared/styles/design-tokens.css
+   （於 main.ts 先行匯入）。本檔只保留 App 專屬版面尺寸與全站基礎樣式。 */
 
-  font-family: "Segoe UI", "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", system-ui, sans-serif;
+:root {
+  --max-width: 1200px;
+
+  font-family: var(--font-body);
   color: var(--color-text);
   background: var(--color-bg);
   font-synthesis: none;
@@ -68,7 +48,7 @@ button {
   left: 8px;
   top: -48px;
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
   padding: 10px 16px;
   border-radius: var(--radius-sm);
   z-index: 100;
@@ -99,7 +79,7 @@ button {
   position: sticky;
   top: 0;
   z-index: 40;
-  background: #fff;
+  background: var(--color-surface);
   border-bottom: 1px solid var(--color-border-soft);
 }
 
@@ -166,8 +146,8 @@ button {
   min-height: auto;
   padding: 0.375rem 0.75rem;
   background: transparent;
-  color: #1f2937;
-  border-color: #d1d5db;
+  color: var(--color-text);
+  border-color: var(--color-border);
   font-size: 0.875rem;
 }
 
@@ -195,7 +175,7 @@ button {
 
 .site-footer {
   border-top: 1px solid var(--color-border-soft);
-  background: #fff;
+  background: var(--color-surface);
   padding: 20px 24px;
   text-align: center;
   color: var(--color-text-muted);
@@ -205,7 +185,7 @@ button {
 /* ---------- Reusable components ---------- */
 
 .card {
-  background: #fff;
+  background: var(--color-surface);
   border: 1px solid var(--color-border-soft);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
@@ -225,7 +205,7 @@ button {
   font-weight: 700;
   font-size: 0.95rem;
   cursor: pointer;
-  background: #fff;
+  background: var(--color-surface);
   color: var(--color-text);
   font: inherit;
 }
@@ -238,7 +218,7 @@ button:hover {
 button[type="submit"] {
   background: var(--color-primary);
   border-color: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
   box-shadow: var(--shadow-sm);
 }
 
@@ -258,7 +238,7 @@ button:disabled {
 }
 
 .btn-danger {
-  background: #fff;
+  background: var(--color-surface);
   border-color: var(--color-danger);
   color: var(--color-danger);
 }
@@ -269,12 +249,12 @@ button:disabled {
 
 .btn-danger-solid {
   background: var(--color-danger);
-  border-color: #991b1b;
-  color: #fff;
+  border-color: var(--color-danger-strong);
+  color: var(--color-on-primary);
 }
 
 .btn-danger-solid:hover {
-  background: #a83232;
+  background: var(--color-danger-strong);
 }
 
 a.btn-link {
@@ -285,7 +265,7 @@ a.btn-link {
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-primary);
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
   font-weight: 700;
   text-decoration: none;
 }
@@ -351,7 +331,7 @@ a.btn-link:hover {
   font-size: 0.95rem;
   font-family: inherit;
   font-weight: 400;
-  background: #fff;
+  background: var(--color-surface);
   color: var(--color-text);
 }
 
@@ -380,7 +360,7 @@ a.btn-link:hover {
   padding: 2rem;
   border: 1px solid var(--color-border-soft);
   border-radius: var(--radius-lg);
-  background: #fff;
+  background: var(--color-surface);
   box-shadow: var(--shadow-sm);
 }
 
@@ -394,7 +374,7 @@ a.btn-link:hover {
 }
 
 .shared-state--error {
-  border-color: #f3c6c6;
+  border-color: var(--color-danger-border);
   background: var(--color-danger-bg);
 }
 
@@ -461,17 +441,17 @@ button:focus-visible {
 .form-field input {
   min-height: 2.75rem;
   padding: 0.5rem 0.75rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--color-border);
   border-radius: 0.5rem;
   font: inherit;
 }
 
 .form-field input[aria-invalid="true"] {
-  border-color: #dc2626;
+  border-color: var(--color-danger);
 }
 
 .form-field input:focus-visible {
-  outline: 3px solid #f59e0b;
+  outline: 3px solid var(--color-warning);
   outline-offset: 1px;
 }
 
@@ -498,22 +478,22 @@ button:focus-visible {
   padding: 0;
   background: transparent;
   border: none;
-  color: #4b5563;
+  color: var(--color-text-muted);
 }
 
 .password-field__toggle:hover {
-  color: #1f2937;
+  color: var(--color-text);
 }
 
 .form-field__hint {
   margin: 0;
-  color: #4b5563;
+  color: var(--color-text-muted);
   font-size: 0.8125rem;
 }
 
 .form-field__error {
   margin: 0;
-  color: #dc2626;
+  color: var(--color-danger);
   font-size: 0.8125rem;
 }
 
@@ -536,9 +516,9 @@ button:focus-visible {
 }
 
 .form-banner--error {
-  border: 1px solid #fca5a5;
-  background: #fef2f2;
-  color: #991b1b;
+  border: 1px solid var(--color-danger-border);
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
 }
 
 .form-banner__message {
@@ -556,8 +536,8 @@ button:focus-visible {
   min-height: auto;
   padding: 0.375rem 0.75rem;
   background: transparent;
-  border: 1px solid #991b1b;
-  color: #991b1b;
+  border: 1px solid var(--color-danger);
+  color: var(--color-danger);
   font-size: 0.8125rem;
   text-decoration: none;
 }
@@ -569,7 +549,7 @@ button:focus-visible {
 
 .form-field__forgot-link {
   align-self: flex-end;
-  color: #2563eb;
+  color: var(--color-primary-dark);
   font-size: 0.8125rem;
   text-decoration: none;
 }
@@ -619,4 +599,982 @@ button:focus-visible {
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* =============================================================================
+   前台視覺第一批（PM-02）：殼層、品牌區與導覽
+   一律使用 design-tokens.css 的語意 token，不新增色票。
+   置於檔尾，以來源順序覆蓋前面同名的舊殼層規則（不使用 !important）。
+   ============================================================================= */
+
+.app-shell {
+  background: var(--color-bg);
+}
+
+.site-header {
+  /* v4：header 依參考圖改為白色實心，不再套殼層漸層 */
+  background: var(--color-surface);
+  border-bottom: none;
+  box-shadow: var(--shadow-sm);
+}
+
+.header-bar {
+  max-width: var(--content-max);
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-5);
+}
+
+.brand-link {
+  gap: var(--space-2);
+  color: var(--color-on-brand);
+  font-size: var(--fs-h3);
+}
+
+.brand-link__text {
+  font-weight: 700;
+}
+
+.brand-link__sub {
+  margin-inline-start: var(--space-1);
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+.brand-mark {
+  display: inline-flex;
+}
+
+.brand-mark__img {
+  border-radius: 999px;
+  object-fit: contain;
+}
+
+.brand-mark__slot {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 2px dashed var(--color-mint-line);
+  border-radius: 999px;
+  background: var(--color-mint-soft);
+  color: var(--color-on-brand);
+  font-size: var(--fs-caption);
+  font-weight: 700;
+}
+
+.nav-toggle {
+  display: none;
+  min-height: 36px;
+  margin-inline-start: auto;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-on-brand);
+  font: inherit;
+  font-size: var(--fs-caption);
+  font-weight: 600;
+}
+
+.primary-nav {
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.primary-nav a,
+.primary-nav .site-header__member {
+  color: var(--color-on-brand);
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  padding: var(--space-2) var(--space-3);
+  min-height: 40px;
+}
+
+.primary-nav a:hover {
+  background: var(--color-surface);
+}
+
+.primary-nav a.router-link-active,
+.primary-nav a[aria-current="page"] {
+  background: var(--color-surface);
+  color: var(--color-on-primary);
+}
+
+.site-header__logout,
+.site-header__identity-retry {
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-on-brand);
+  font-size: var(--fs-caption);
+  font-weight: 600;
+}
+
+.site-header__logout:hover,
+.site-header__identity-retry:hover {
+  background: var(--color-surface);
+  border-color: var(--color-primary);
+}
+
+.site-main {
+  background: var(--color-bg);
+}
+
+.view-shell {
+  max-width: var(--content-max);
+  padding: var(--space-6) var(--space-5) var(--space-8);
+}
+
+.site-footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+}
+
+.site-footer__brand {
+  color: var(--color-text);
+  font-weight: 700;
+}
+
+.site-footer__links {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-4);
+  margin-top: var(--space-1);
+}
+
+.site-footer__links a {
+  color: var(--color-primary-dark);
+}
+
+/* ---------- 首頁 ---------- */
+
+.home {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-7);
+}
+
+.home-hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-6);
+  padding: var(--space-6);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.home-hero__text {
+  display: flex;
+  flex: 1 1 320px;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.home-hero__text h1 {
+  margin: 0;
+  font-size: var(--fs-display);
+  line-height: var(--lh-heading);
+  color: var(--color-text);
+  text-wrap: balance;
+}
+
+.home-hero__text p {
+  max-width: 46ch;
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.home-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.home-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.home-section h2 {
+  margin: 0;
+  font-size: var(--fs-h2);
+  color: var(--color-text);
+}
+
+.home-section__lede {
+  margin: 0 0 var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--fs-caption);
+}
+
+.home-steps,
+.home-categories {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.home-step,
+.home-category {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  height: 100%;
+  padding: var(--space-5);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  color: inherit;
+  text-decoration: none;
+}
+
+.home-category:hover {
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-md);
+}
+
+.home-step__no {
+  align-self: flex-start;
+  padding: 1px var(--space-2);
+  border-radius: 999px;
+  background: var(--color-primary-soft);
+  color: var(--color-primary-dark);
+  font-size: var(--fs-caption);
+  font-weight: 700;
+}
+
+.home-step h3,
+.home-category h3 {
+  margin: 0;
+  font-size: var(--fs-h3);
+  color: var(--color-text);
+}
+
+.home-step p,
+.home-category p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--fs-caption);
+}
+
+.home-hint {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-5);
+  border: 1px solid var(--color-mint-line);
+  border-radius: var(--radius-lg);
+  background: var(--color-mint-soft);
+}
+
+.home-hint h2 {
+  margin: 0;
+  font-size: var(--fs-h3);
+  color: var(--color-text);
+}
+
+.home-hint p {
+  max-width: 60ch;
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--fs-caption);
+}
+
+.home-hint a {
+  align-self: flex-start;
+  color: var(--color-primary-dark);
+  font-size: var(--fs-caption);
+  font-weight: 600;
+}
+
+/* ---------- 商品列表 / 商品詳細：視覺層 ---------- */
+
+.catalog-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-bottom: var(--space-4);
+  margin-bottom: var(--space-5);
+  border-bottom: 2px solid var(--color-border);
+}
+
+.catalog-head h1 {
+  margin: 0;
+  font-size: var(--fs-h1);
+  color: var(--color-text);
+}
+
+.catalog-head p {
+  max-width: 62ch;
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+/* ---------- 窄畫面：導覽收合，避免頁面級橫向捲動 ---------- */
+
+@media (max-width: 900px) {
+  .nav-toggle {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .site-header .primary-nav {
+    display: none;
+    order: 3;
+    width: 100%;
+  }
+
+  .site-header .primary-nav--open {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    padding-bottom: var(--space-2);
+  }
+
+  .view-shell {
+    padding: var(--space-5) var(--space-4) var(--space-7);
+  }
+
+  .home-hero {
+    padding: var(--space-5);
+  }
+
+  .home-hero__text h1 {
+    font-size: var(--fs-h1);
+  }
+}
+
+/* =============================================================================
+   前台交易與會員（UI 第二批 A）
+   只補視覺層：金額對齊、主/危險操作分離、表單與狀態可辨識。
+   不改動任何購物車、結帳、優惠券或訂單邏輯。
+   ============================================================================= */
+
+/* ---------- 金額：等寬數字、右對齊 ---------- */
+
+.cart-page__total,
+.cart-line-item__line-total,
+.cart-line-item__price,
+.amount {
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+}
+
+.cart-page__total {
+  color: var(--color-text);
+  font-size: var(--fs-h2);
+  font-weight: 700;
+}
+
+.cart-page__summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-5);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.cart-page__items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.cart-line-item {
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+
+/* ---------- 主操作 vs 危險操作：視覺分離 ---------- */
+
+.cart-page__checkout {
+  min-height: var(--control-height);
+  background: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  color: var(--color-on-primary);
+  font-weight: 700;
+}
+
+.cart-page__checkout:not(:disabled):hover {
+  background: var(--color-primary-dark);
+  border-color: var(--color-primary-dark);
+}
+
+.cart-line-item__remove,
+.danger-action {
+  background: var(--color-surface);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-sm);
+  color: var(--color-danger);
+  font-weight: 600;
+}
+
+.cart-line-item__remove:not(:disabled):hover,
+.danger-action:not(:disabled):hover {
+  background: var(--color-danger-bg);
+}
+
+/* ---------- 表單與流程狀態 ---------- */
+
+.is-loading,
+[aria-busy="true"] {
+  cursor: progress;
+}
+
+button:disabled,
+.btn:disabled,
+[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.state-success {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-success-border);
+  border-radius: var(--radius-md);
+  background: var(--color-success-bg);
+  color: var(--color-primary-dark);
+  font-size: var(--fs-caption);
+}
+
+.state-warning,
+.cart-page__warnings,
+.cart-page__issues {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-butter-line);
+  border-radius: var(--radius-md);
+  background: var(--color-warning-bg);
+  color: var(--color-text);
+  font-size: var(--fs-caption);
+}
+
+.state-error,
+.cart-page__identity-error,
+.cart-page__revalidate-error,
+.cart-line-item__error {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-danger-border);
+  border-radius: var(--radius-md);
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+  font-size: var(--fs-caption);
+}
+
+/* ---------- 會員／訂單／評價／組裝清單：共通卡片節奏 ---------- */
+
+.account-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-4);
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.panel__title {
+  margin: 0;
+  font-size: var(--fs-h3);
+  color: var(--color-text);
+}
+
+/* =============================================================================
+   DoSelect v4.0 — Customer 前台（reference-aligned）
+   基準：DoSelect_全組第一版UI預覽_2026-08-27／01 首頁、02 會員中心、03 購物車結帳。
+   置於檔尾，以來源順序覆蓋前面的舊殼層規則（不使用 !important）。
+
+   六張預覽的共同語言，逐條落實：
+   1. 大面積白色／近白內容畫布 —— header、卡片、表格列一律白色。
+   2. 淡藍／淡青只做分區：表頭、提示區、選取狀態、訊息泡泡。
+   3. 高飽和亮藍做操作與資訊焦點：主按鈕、連結、進度、當前項、重點數字。
+   4. 深海軍藍只做文字與少數強調區，不鋪滿 header／footer／login。
+   5. 卡片＝白底＋細邊＋輕陰影。
+   6. #E6C8D4 是輔助色：hero 角落光暈、footer 尾端、售後柔性表面。
+   ========================================================================== */
+
+/* ---- 頁面畫布：近白冷色 ---- */
+.app-shell {
+  background: var(--gradient-page);
+  background-attachment: fixed;
+}
+
+/* =============================================================================
+   Header —— 預覽 01/02/03：白底、細底線、深墨藍導覽字、當前項亮藍底線
+   ========================================================================== */
+.site-header {
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border-line);
+  box-shadow: var(--shadow-sm);
+  color: var(--color-ink);
+}
+
+.site-header .brand-link {
+  color: var(--color-ink);
+}
+
+.site-header .nav-toggle {
+  border-color: var(--color-border);
+  color: var(--color-ink);
+  background: var(--color-surface);
+}
+
+.site-header .nav-toggle:hover {
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.primary-nav a,
+.primary-nav .site-header__member {
+  color: var(--color-ink);
+}
+
+.primary-nav a:hover {
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+}
+
+/* 當前項：亮藍文字 + 亮藍底線（預覽 01 的導覽語彙），不用深藍膠囊 */
+.primary-nav a.router-link-active,
+.primary-nav a[aria-current="page"] {
+  background: transparent;
+  color: var(--color-primary);
+  font-weight: 700;
+  box-shadow: inset 0 -3px 0 var(--color-primary);
+  border-radius: 0;
+}
+
+/* 右側控制項：會員身分是淡藍 chip，登出是亮藍實心鈕 */
+.site-header__member {
+  background: var(--color-primary-soft);
+  border: 1px solid var(--color-border-soft);
+  color: var(--color-ink);
+}
+
+.site-header__logout,
+.site-header__identity-retry {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.site-header__logout:hover,
+.site-header__identity-retry:hover {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+  color: var(--color-on-primary);
+}
+
+.site-header a:focus-visible,
+.site-header button:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+/* =============================================================================
+   Hero —— 預覽 01：近白→淡藍→極淡粉，右上角 #E6C8D4 光暈，主標深海軍藍
+   ========================================================================== */
+.home-hero {
+  position: relative;
+  overflow: hidden;
+  background: var(--gradient-hero-glow), var(--gradient-hero);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+
+.home-hero__text h1 {
+  color: var(--color-ink);
+}
+
+.home-hero__text p {
+  color: var(--color-text-muted);
+}
+
+/* Hero 裝飾層：正式素材，純裝飾，不烘焙文字 */
+.home-hero__art {
+  position: absolute;
+  right: var(--space-5);
+  bottom: 0;
+  z-index: 0;
+  width: clamp(140px, 18vw, 220px);
+  opacity: 0.95;
+  pointer-events: none;
+  user-select: none;
+}
+
+.home-hero__art img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 480 / 720;
+  object-fit: contain;
+}
+
+.home-hero__text {
+  position: relative;
+  z-index: 1;
+}
+
+/* 375px 隱藏裝飾，CTA 必須完整可見 */
+@media (max-width: 640px) {
+  .home-hero__art {
+    display: none;
+  }
+}
+
+/* =============================================================================
+   Footer —— 預覽 01 底部信任列：淡藍分區，尾端帶少量品牌粉，文字深海軍藍
+   ========================================================================== */
+.site-footer {
+  background: var(--gradient-footer);
+  border-top: 1px solid var(--color-border-line);
+  color: var(--color-ink);
+}
+
+.site-footer p {
+  color: var(--color-text-muted);
+}
+
+.site-footer__brand {
+  color: var(--color-ink);
+}
+
+.site-footer__links a {
+  color: var(--color-primary);
+  text-decoration: underline;
+}
+
+.site-footer__links a:hover {
+  color: var(--color-primary-hover);
+}
+
+.site-footer a:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+/* =============================================================================
+   表面：卡片、表格、表單 —— 白底、細邊、輕陰影
+   ========================================================================== */
+.card,
+.panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+table thead th {
+  background: var(--color-section);
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border-soft);
+}
+
+tbody tr:hover {
+  background: var(--color-surface-raised);
+}
+
+/* 選取列＝淡藍（預覽 05 案件列表選取列 #F5F8FE 的語彙） */
+tbody tr[aria-selected="true"],
+.is-selected {
+  background: var(--color-primary-soft);
+}
+
+input,
+select,
+textarea {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+
+/* Keep native checkout/account controls consistent with the shared form fields. */
+:where(.checkout-page, .profile-page, .addresses-page) :is(input:not([type='checkbox']):not([type='radio']), select, textarea) {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 2.75rem;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font: inherit;
+}
+
+input:hover,
+select:hover,
+textarea:hover {
+  border-color: var(--color-border-strong);
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+a:focus-visible,
+button:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+input:disabled,
+select:disabled,
+textarea:disabled,
+button:disabled {
+  background: var(--color-section);
+  color: var(--color-text-faint);
+  border-color: var(--color-border-soft);
+  cursor: not-allowed;
+}
+
+/* ---- 連結：亮藍（白底 5.15:1） ---- */
+.view-shell a:not(.btn-link):not([class*="button"]) {
+  color: var(--color-primary);
+}
+
+.view-shell a:not(.btn-link):not([class*="button"]):hover {
+  color: var(--color-primary-hover);
+}
+
+/* ---- 徽章 ---- */
+.status-pill {
+  background: var(--color-section);
+  color: var(--color-ink);
+  border: 1px solid var(--color-border-soft);
+}
+
+.tag {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  border: 1px solid var(--color-accent-line);
+}
+
+/* =============================================================================
+   三步驟導購 —— 預覽 01：編號圓標 + 圖示 + 步驟間箭頭連接線
+   圖示是導覽手段，不是小型裝飾。
+   ========================================================================== */
+.home-steps {
+  position: relative;
+}
+
+.home-step {
+  position: relative;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-soft);
+  box-shadow: var(--shadow-sm);
+}
+
+.home-step__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+/* 編號圓標：實心亮藍 + 白字（5.15:1）。文字步驟標籤仍保留在 .home-step__no。 */
+.home-step__marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-pill);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  font-size: var(--fs-caption);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.home-step__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-strong);
+  border: 1px solid var(--color-border-soft);
+  color: var(--color-primary);
+}
+
+.home-step__no {
+  align-self: flex-start;
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--color-section);
+  color: var(--color-text-muted);
+  font-size: var(--fs-caption);
+  font-weight: 700;
+}
+
+/* 步驟間的流程箭頭：只在單列時出現，落在 grid gap 的正中央。
+   純裝飾（父層已 aria-hidden 不到，改用 ::after 不進 a11y tree）。 */
+@media (min-width: 900px) {
+  .home-step::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    right: calc(var(--space-4) * -1);
+    width: var(--space-4);
+    height: 2px;
+    background: var(--color-border-line);
+    transform: translateY(-50%);
+  }
+
+  .home-step::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    right: calc(var(--space-4) * -1 + 1px);
+    width: 7px;
+    height: 7px;
+    border-top: 2px solid var(--color-border-line);
+    border-right: 2px solid var(--color-border-line);
+    transform: translateY(-50%) rotate(45deg);
+  }
+
+  .home-step:last-child::after,
+  .home-step:last-child::before {
+    content: none;
+  }
+}
+
+/* =============================================================================
+   分類入口 —— 預覽 01：圖示是辨識入口，整張卡片可點擊
+   ========================================================================== */
+.home-category {
+  display: block;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-soft);
+  box-shadow: var(--shadow-sm);
+  transition:
+    border-color var(--dur-micro) var(--ease-out),
+    box-shadow var(--dur-micro) var(--ease-out);
+}
+
+.home-category:hover,
+.home-category:focus-visible {
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-md);
+}
+
+.home-category__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-strong);
+  border: 1px solid var(--color-border-soft);
+  color: var(--color-primary);
+  transition:
+    color var(--dur-micro) var(--ease-out),
+    background var(--dur-micro) var(--ease-out),
+    transform var(--dur-micro) var(--ease-out);
+}
+
+.home-category:hover .home-category__icon,
+.home-category:focus-visible .home-category__icon {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  transform: translateY(-2px);
+}
+
+/* reduced motion 下取消非必要位移，只保留顏色變化 */
+@media (prefers-reduced-motion: reduce) {
+  .home-category__icon {
+    transition:
+      color var(--dur-micro) var(--ease-out),
+      background var(--dur-micro) var(--ease-out);
+  }
+
+  .home-category:hover .home-category__icon,
+  .home-category:focus-visible .home-category__icon {
+    transform: none;
+  }
+}
+
+/* Windows 高對比：確保圖示容器與卡片邊界仍看得出來 */
+@media (forced-colors: active) {
+  .home-step__icon,
+  .home-step__marker,
+  .home-category__icon {
+    border: 1px solid CanvasText;
+  }
+
+  .home-category {
+    border: 1px solid LinkText;
+  }
+}
+
+/* ---- 首頁提示區：青綠 accent 保留為小面積點綴 ---- */
+.home-hint {
+  border-color: var(--color-accent-line);
+  background: var(--color-accent-soft);
+}
+
+.home-hint a {
+  color: var(--color-accent);
+}
+
+/* =============================================================================
+   v4 RWD 收尾 —— 375px 水平溢位
+   .app-shell 是 grid，軌道預設 min-width: auto，任何超寬內容都會把整個殼層
+   （header／main／footer）一起撐寬。夾成 minmax(0, 1fr) 後由內層自己處理溢位。
+   與 Admin 的 .app-shell--bare 用的是同一招。這是既有版面問題，與配色無關。
+   ========================================================================== */
+.app-shell {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.view-shell {
+  min-width: 0;
+}
+
+.table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* =============================================================================
+   v4.1 —— Header 品牌鎖定塊
+   正式商標 2 是方形徽章，在 40px 顯示尺寸下裡面的 "DoSelect" 字樣讀不出來，
+   因此**所有 viewport** 都保留旁邊的文字字標（與參考圖 01 的 header 一致）。
+   舊版之所以在 >= 641px 隱藏字標，是因為當時桌面用的是自帶字標的橫式 Logo；
+   那支 Logo 已移除，這條規則跟著移除。
+   ========================================================================== */
+.site-header .brand-mark__img {
+  /* 正式商標 2 自帶白底，白色 header 上不需要再加底板或陰影 */
+  background: transparent;
+  box-shadow: none;
 }

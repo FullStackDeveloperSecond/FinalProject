@@ -78,9 +78,9 @@ defineExpose({ reset: () => { reason.value = '' } })
 <style scoped>
 .confirm-dialog {
   padding: 1rem;
-  border: 1px solid #fca5a5;
+  border: 1px solid var(--color-danger-border);
   border-radius: 0.5rem;
-  background: #fef2f2;
+  background: var(--color-danger-bg);
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -103,7 +103,7 @@ defineExpose({ reset: () => { reason.value = '' } })
 
 .confirm-dialog textarea {
   padding: 0.5rem 0.75rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--color-border);
   border-radius: 0.375rem;
   font: inherit;
   resize: vertical;

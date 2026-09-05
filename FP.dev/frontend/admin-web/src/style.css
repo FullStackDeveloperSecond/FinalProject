@@ -1,35 +1,29 @@
+/* 色彩／間距／圓角／陰影／字體 Token 皆來自 @doselect/web-shared/styles/design-tokens.css
+   （於 main.ts 先行匯入）。本檔只保留 App 專屬版面尺寸與全站基礎樣式。 */
+
 :root {
-  --color-bg: #ffffff;
-  --color-surface: #f4f8fc;
-  --color-surface-strong: #e8f2fc;
-  --color-primary: #2f7dd3;
-  --color-primary-dark: #1f63ac;
-  --color-primary-soft: #eaf3fc;
-  --color-text: #153452;
-  --color-text-muted: #4c6b85;
-  --color-border: #c9dcec;
-  --color-border-soft: #dcebf7;
-  --color-success: #1f8a5c;
-  --color-success-bg: #e6f5ee;
-  --color-warning: #b8790f;
-  --color-warning-bg: #fbf1e0;
-  --color-danger: #c23a3a;
-  --color-danger-bg: #fbeaea;
-  --shadow-sm: 0 1px 2px rgba(21, 52, 82, 0.07);
-  --shadow-md: 0 4px 14px rgba(21, 52, 82, 0.09);
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 20px;
   --max-width: 1440px;
-  --control-height: 44px;
   --sidebar-width: 15rem;
 
-  font-family: "Segoe UI", "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", system-ui, sans-serif;
+  font-family: var(--font-body);
   color: var(--color-text);
   background: var(--color-bg);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
+
+.skip-link {
+  position: fixed;
+  top: -5rem;
+  left: 1rem;
+  z-index: 100;
+  padding: 0.75rem 1rem;
+  color: var(--color-on-primary);
+  background: var(--color-primary);
+  border-radius: var(--radius-sm);
+}
+.skip-link:focus { top: 0.5rem; }
+.admin-nav-toggle { display: none; }
 
 * {
   box-sizing: border-box;
@@ -52,7 +46,7 @@ body {
   justify-content: space-between;
   gap: 1rem;
   padding: 1rem 1.5rem;
-  background: #fff;
+  background: var(--color-surface);
   border-bottom: 1px solid var(--color-border-soft);
 }
 
@@ -134,7 +128,7 @@ body {
 /* ---------- Reusable components ---------- */
 
 .card {
-  background: #fff;
+  background: var(--color-surface);
   border: 1px solid var(--color-border-soft);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
@@ -147,7 +141,7 @@ body {
   padding: 2rem;
   border: 1px solid var(--color-border-soft);
   border-radius: var(--radius-lg);
-  background: #fff;
+  background: var(--color-surface);
   box-shadow: var(--shadow-sm);
 }
 
@@ -161,7 +155,7 @@ body {
 }
 
 .shared-state--error {
-  border-color: #f3c6c6;
+  border-color: var(--color-danger-border);
   background: var(--color-danger-bg);
 }
 
@@ -208,7 +202,7 @@ button {
   font-weight: 700;
   font-size: 0.95rem;
   cursor: pointer;
-  background: #fff;
+  background: var(--color-surface);
   color: var(--color-text);
   font: inherit;
 }
@@ -221,7 +215,7 @@ button[type="submit"],
 .support-ticket-detail__claim > button {
   background: var(--color-primary);
   border-color: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
   box-shadow: var(--shadow-sm);
 }
 
@@ -246,7 +240,7 @@ button:disabled {
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-primary);
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
   font: inherit;
   line-height: var(--control-height);
   text-decoration: none;
@@ -348,7 +342,7 @@ button:focus-visible {
   display: grid;
   place-items: center;
   min-height: 100vh;
-  background: #f3f4f6;
+  background: var(--color-bg);
 }
 
 .auth-page {
@@ -363,10 +357,10 @@ button:focus-visible {
   gap: 1rem;
   width: min(100%, 24rem);
   padding: 2.5rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--color-border);
   border-radius: 0.75rem;
-  background: #fff;
-  box-shadow: 0 10px 30px rgb(0 0 0 / 8%);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-md);
 }
 
 .auth-card h1 {
@@ -376,7 +370,7 @@ button:focus-visible {
 
 .auth-card__subtitle {
   margin: -0.5rem 0 0;
-  color: #6b7280;
+  color: var(--color-text-muted);
 }
 
 .auth-card__submit {
@@ -386,7 +380,7 @@ button:focus-visible {
 .auth-card__link {
   background: none;
   border: none;
-  color: #2563eb;
+  color: var(--color-info);
   min-height: auto;
   padding: 0;
   text-decoration: underline;
@@ -414,8 +408,8 @@ button:focus-visible {
   margin: 0;
   padding: 0.5rem 0.75rem;
   border-radius: 0.5rem;
-  background: #fef2f2;
-  color: #b91c1c;
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
   font-size: 0.875rem;
 }
 
@@ -427,7 +421,7 @@ input[type='date'],
 select {
   min-height: 2.75rem;
   padding: 0.5rem 0.75rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--color-border);
   border-radius: 0.5rem;
   font: inherit;
 }
@@ -440,7 +434,7 @@ select {
 
 .totp-secret {
   text-align: center;
-  color: #4b5563;
+  color: var(--color-text-muted);
   font-size: 0.875rem;
   word-break: break-all;
 }
@@ -452,7 +446,7 @@ select {
   margin: 0;
   padding: 1rem;
   border-radius: 0.5rem;
-  background: #f9fafb;
+  background: var(--color-surface-strong);
   list-style: none;
   font-family: ui-monospace, monospace;
 }
@@ -466,7 +460,7 @@ select {
 }
 
 .current-user {
-  color: #4b5563;
+  color: var(--color-text-muted);
   font-size: 0.875rem;
 }
 
@@ -477,7 +471,7 @@ select {
 }
 
 .totp-rebind-link {
-  color: #4b5563;
+  color: var(--color-text-muted);
   font-size: 0.875rem;
   text-decoration: underline;
 }
@@ -494,7 +488,533 @@ select {
 }
 
 .admin-sidebar a.router-link-active {
-  background: #eff6ff;
-  color: #1d4ed8;
+  background: var(--color-info-bg);
+  color: var(--color-info);
   font-weight: 700;
+}
+
+/* =============================================================================
+   DoSelect 管理後台殼層（Batch 2C）
+   置於檔尾，以來源順序覆蓋前面同名的舊殼層規則（不使用 !important）。
+   後台走高資訊密度：深藍頂欄 + 白側欄 + 緊湊表格，色彩全部來自 design tokens。
+   ========================================================================== */
+
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-header);
+  gap: var(--space-4);
+  padding: 0 var(--space-5);
+  min-height: var(--header-h);
+  /* v4：頂欄依參考圖改為白色實心，不再套殼層漸層 */
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border-line);
+  color: var(--color-ink);
+}
+
+.site-header .brand-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--color-on-brand);
+}
+
+.brand-link__mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  font-size: var(--fs-body);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.brand-link__text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.brand-link__name {
+  font-size: var(--fs-body);
+  font-weight: 700;
+}
+
+.brand-link__scope {
+  font-size: var(--fs-caption);
+  font-weight: 400;
+  color: var(--color-mint);
+}
+
+.site-header__end {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--fs-caption);
+}
+
+.site-header .current-user {
+  color: var(--color-on-brand);
+  font-weight: 600;
+}
+
+.site-header .totp-rebind-link {
+  color: var(--color-mint);
+  text-decoration: none;
+}
+
+.site-header .totp-rebind-link:hover {
+  text-decoration: underline;
+}
+
+.site-header .logout-button {
+  padding: var(--space-1) var(--space-3);
+  color: var(--color-on-brand);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: var(--fs-caption);
+  cursor: pointer;
+}
+
+.site-header .logout-button:hover {
+  background: var(--color-primary);
+}
+
+.site-header .logout-button:focus-visible,
+.site-header .brand-link:focus-visible,
+.site-header .totp-rebind-link:focus-visible {
+  outline: 2px solid var(--color-mint);
+  outline-offset: 2px;
+}
+
+.admin-frame {
+  gap: 0;
+  align-items: start;
+}
+
+.admin-sidebar {
+  position: sticky;
+  top: var(--header-h);
+  min-height: calc(100vh - var(--header-h));
+  padding: var(--space-4) var(--space-3);
+  border-right: 1px solid var(--color-border);
+}
+
+.admin-sidebar__nav {
+  gap: 2px;
+}
+
+.admin-sidebar__group-title {
+  margin: var(--space-4) 0 var(--space-1);
+  padding-inline: var(--space-3);
+  font-size: var(--fs-caption);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--color-text-faint);
+}
+
+.admin-sidebar__nav > .admin-sidebar__group-title:first-child {
+  margin-top: 0;
+}
+
+/* 後台側欄走緊湊列高，讓 10 個以上功能不需捲動。 */
+.admin-sidebar a {
+  padding: var(--space-2) var(--space-3);
+  min-height: 36px;
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  border-left: 3px solid transparent;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.admin-sidebar a:hover {
+  color: var(--color-text);
+  background: var(--color-surface-strong);
+}
+
+.admin-sidebar a[aria-current="page"] {
+  color: var(--color-primary-dark);
+  background: var(--color-primary-soft);
+  border-left-color: var(--color-primary);
+}
+
+.admin-sidebar a:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: -2px;
+}
+
+.site-main {
+  padding: var(--space-5) var(--space-6) var(--space-8);
+}
+
+.site-main h1 {
+  font-size: var(--fs-h2);
+  line-height: var(--lh-heading);
+}
+
+/* 後台表格：緊湊列高、置頂表頭、數字與代號等寬對齊。 */
+.site-main table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-caption);
+}
+
+.site-main thead th {
+  position: sticky;
+  top: var(--header-h);
+  z-index: 1;
+  background: var(--color-surface-strong);
+  color: var(--color-text-muted);
+  font-weight: 700;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.site-main tbody tr:hover {
+  background: var(--color-surface-strong);
+}
+
+.site-main td time,
+.site-main td code {
+  font-variant-numeric: tabular-nums;
+}
+
+.demo-badge {
+  background: var(--color-butter);
+  color: var(--color-warning);
+  letter-spacing: 0.04em;
+}
+
+/* 資料表統一給白底外框，讓表格在淡藍底的工作區上有明確邊界。 */
+.site-main table {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-soft);
+}
+
+.site-main th,
+.site-main td {
+  padding: var(--space-2) var(--space-3);
+}
+
+/* 後台以桌面（>=1024）為設計目標；窄畫面時側欄改為橫向堆疊列，
+   分組標題要自成一行，當前項指示改放在底部。 */
+@media (max-width: 768px) {
+  .admin-sidebar {
+    position: static;
+    min-height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .admin-sidebar__group-title {
+    flex-basis: 100%;
+    margin: var(--space-3) 0 var(--space-1);
+    padding-inline: 0;
+  }
+
+  .admin-sidebar__nav > .admin-sidebar__group-title:first-child {
+    margin-top: 0;
+  }
+
+  .admin-sidebar a {
+    border-left: none;
+    border-bottom: 3px solid transparent;
+    border-radius: var(--radius-sm);
+  }
+
+  .admin-sidebar a[aria-current="page"] {
+    border-left-color: transparent;
+    border-bottom-color: var(--color-primary);
+  }
+}
+
+/* =============================================================================
+   DoSelect v4.0 — Admin 後台（reference-aligned）
+   基準：DoSelect_全組第一版UI預覽_2026-08-27／04 商品與庫存、05 客服工作台、
+         06 營運報表。置於檔尾，以來源順序覆蓋前面的舊殼層規則（不用 !important）。
+
+   預覽 04/05/06 的後台語言：
+   - Sidebar 白底、細右框；當前項＝淡藍膠囊 + 亮藍左側指示條 + 亮藍字。
+     不使用整片粉色，也不使用大片漸層。
+   - 頂欄白底、細底線，頁面標題深海軍藍。
+   - 工作區近白；表頭／篩選區淡藍；表格分隔低對比中性藍灰。
+   - 主要操作亮藍實心，次要操作白底亮藍描邊。
+   - 圖表系列用藍／淺藍／青綠／黃橘／粉／紫，圖例一律附文字與數值。
+   ========================================================================== */
+
+/* ---- 頂欄：白底細底線 ---- */
+.site-header {
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border-line);
+  color: var(--color-ink);
+  box-shadow: var(--shadow-sm);
+}
+
+.site-header .brand-link {
+  color: var(--color-ink);
+}
+
+/* 正式商標 2 自帶白底，白色頂欄上不需要再加底板或陰影 */
+.site-header .brand-mark__img {
+  background: transparent;
+  box-shadow: none;
+}
+
+.site-header .brand-link__name {
+  color: var(--color-ink);
+  font-size: var(--fs-body);
+  font-weight: 700;
+}
+
+.brand-link__scope {
+  /* 在 .brand-link__text 這個 column flex 裡，膠囊必須靠左自撐，不然會被拉滿寬 */
+  align-self: flex-start;
+  padding: 2px var(--space-2);
+  background: var(--color-primary-soft);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-caption);
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.site-header .current-user {
+  color: var(--color-ink);
+}
+
+.site-header .totp-rebind-link {
+  color: var(--color-primary);
+  text-decoration: underline;
+}
+
+.site-header .totp-rebind-link:hover {
+  color: var(--color-primary-hover);
+}
+
+.site-header .logout-button {
+  background: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.site-header .logout-button:hover {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+  color: var(--color-on-primary);
+}
+
+.site-header .logout-button:focus-visible,
+.site-header .brand-link:focus-visible,
+.site-header .totp-rebind-link:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+.demo-badge {
+  background: var(--color-warning-bg);
+  border: 1px solid var(--color-warning-border);
+  color: var(--color-warning);
+}
+
+/* =============================================================================
+   Sidebar —— 預覽 04/05/06：白底、細右框、當前項淡藍膠囊 + 亮藍左指示條
+   ========================================================================== */
+.admin-sidebar {
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-border-line);
+}
+
+.admin-sidebar__group-title {
+  color: var(--color-text-faint);
+}
+
+.admin-sidebar a {
+  color: var(--color-text-muted);
+}
+
+.admin-sidebar a:hover {
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
+.admin-sidebar a[aria-current="page"] {
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+  border-left-color: var(--color-primary);
+  font-weight: 700;
+}
+
+.admin-sidebar a:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: -2px;
+}
+
+/* =============================================================================
+   工作區與表格 —— 白色工作區、淡藍表頭、低對比中性藍灰分隔
+   ========================================================================== */
+.site-main {
+  background: var(--gradient-page);
+  background-attachment: fixed;
+}
+
+.site-main table {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-soft);
+}
+
+.site-main thead th {
+  background: var(--color-section);
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border-soft);
+}
+
+.site-main th,
+.site-main td {
+  border-color: var(--color-border-soft);
+}
+
+.site-main tbody tr:hover {
+  background: var(--color-surface-raised);
+}
+
+.site-main tbody tr[aria-selected="true"] {
+  background: var(--color-primary-soft);
+}
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ---- 表單 ---- */
+input,
+select,
+textarea {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+
+input:hover,
+select:hover,
+textarea:hover {
+  border-color: var(--color-border-strong);
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+a:focus-visible,
+button:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+input:disabled,
+select:disabled,
+textarea:disabled,
+button:disabled {
+  background: var(--color-section);
+  color: var(--color-text-faint);
+  border-color: var(--color-border-soft);
+  cursor: not-allowed;
+}
+
+/* =============================================================================
+   登入 / 2FA —— 預覽語言：白心徑向，外圈淡藍轉極淡粉，不是整片深藍
+   ========================================================================== */
+.app-shell--bare {
+  background: var(--gradient-auth);
+  /* `place-items: center` 讓 grid item 不撐滿，auto 軌道會被 .auth-card 的 24rem
+     撐寬，在 375px 產生約 12px 水平溢位（改版前既有）。固定成單一 minmax(0, 1fr)
+     軌道後即可夾住，桌面置中行為不變。 */
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.auth-page {
+  width: 100%;
+  max-width: 100%;
+  padding: var(--space-5) var(--space-4);
+}
+
+.auth-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-soft);
+  box-shadow: var(--shadow-lg);
+}
+
+/* ---- 徽章 ---- */
+.status-pill {
+  background: var(--color-section);
+  color: var(--color-ink);
+  border: 1px solid var(--color-border-soft);
+}
+
+.tag {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  border: 1px solid var(--color-accent-line);
+}
+
+/* ---- 窄畫面側欄 ---- */
+@media (max-width: 768px) {
+  .admin-sidebar {
+    border-right: none;
+    border-bottom: 1px solid var(--color-border-line);
+  }
+}
+
+/* =============================================================================
+   v4 RWD 收尾 —— 375px 水平溢位
+   參考圖 04／05／06 都是高密度表格；窄畫面必須讓表格在自己的容器內橫向捲動，
+   而不是把整個頁面推寬。以下三條都是既有的版面問題，與配色無關。
+   ========================================================================== */
+
+/* 1. grid 軌道預設 min-width: auto，內容一旦超過就把整個殼層撐寬。
+      夾成 minmax(0, 1fr) 後，溢位由各自的捲動容器處理。 */
+.app-shell {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* 2. .table-scroll 是本專案既有的表格捲動慣例（AiUsagePage、OperationalReportPage
+      早就在用），但一直沒有對應的規則。補上之後高密度表格才真的會自己捲。 */
+.table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* .table-scroll 一旦成為捲動容器，`.site-main thead th` 的
+   `position: sticky; top: var(--header-h)` 就會改以這個容器為基準，
+   表頭會浮在資料列中間。橫向捲動容器裡的垂直 sticky 沒有意義，直接關掉；
+   參考圖 04／06 的表頭本來就是跟著卡片一起捲的。 */
+.table-scroll thead th {
+  position: static;
+  top: auto;
+}
+
+/* 3. 報表篩選列在 375px 仍是兩欄（2 × 10rem + gap > 375px），改為單欄。 */
+@media (max-width: 560px) {
+  .report-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Keep the authenticated header usable without page-level horizontal scrolling. */
+@media (max-width: 768px) {
+  .site-header { flex-wrap: wrap; padding: var(--space-3) var(--space-4); }
+  .site-header__end { flex-wrap: wrap; width: 100%; min-width: 0; gap: var(--space-2); }
+  .site-header .brand-link { flex-shrink: 0; }
+  .site-header .current-user { overflow-wrap: anywhere; }
+  .admin-nav-toggle { display: inline-flex; }
+  .admin-sidebar:not(.admin-sidebar--open) { display: none; }
 }

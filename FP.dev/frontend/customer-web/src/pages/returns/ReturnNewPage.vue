@@ -117,11 +117,16 @@ async function handleSubmit() {
 </script>
 
 <template>
-  <section aria-labelledby="return-new-title">
+  <section
+    class="return-new"
+    aria-labelledby="return-new-title"
+  >
     <h1 id="return-new-title">
       申請退貨
     </h1>
-    <p>訂單 #{{ orderId }}</p>
+    <p class="view-lede">
+      訂單 #{{ orderId }}
+    </p>
 
     <EmptyState
       v-if="!hasTrustedHandoff"
@@ -131,7 +136,7 @@ async function handleSubmit() {
 
     <form
       v-else
-      class="return-form"
+      class="return-form card"
       @submit.prevent="handleSubmit"
     >
       <fieldset
@@ -223,7 +228,7 @@ async function handleSubmit() {
   flex-direction: column;
   gap: 0.75rem;
   padding: 1rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--color-border);
   border-radius: 0.5rem;
 }
 
@@ -248,11 +253,35 @@ async function handleSubmit() {
   font-weight: 400;
   font: inherit;
   padding: 0.5rem 0.625rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--color-border);
   border-radius: 0.375rem;
 }
 
 .return-form__error {
-  color: #b91c1c;
+  color: var(--color-danger);
+}
+
+/* --- DoSelect 視覺系統：退貨申請 --- */
+.return-new > h1 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--fs-h1);
+  line-height: var(--lh-heading);
+}
+
+.return-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.return-form__item {
+  border-radius: var(--radius-md);
+  background: var(--color-surface-strong);
+}
+
+.return-form__item legend {
+  font-size: var(--fs-caption);
+  font-weight: 700;
+  color: var(--color-text-muted);
 }
 </style>

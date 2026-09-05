@@ -1,3 +1,4 @@
+import { captureVisualEvidence } from './visualEvidence.js'
 import { createHmac, randomUUID } from 'node:crypto'
 import type { APIRequestContext } from '@playwright/test'
 import { expect, test } from './fixtures.js'
@@ -261,8 +262,11 @@ test('a shopper can open the seeded catalog and view product details', async ({ 
 
   await page.goto('/')
 
-  await expect(page.getByRole('heading', { level: 1, name: 'DoSelect 懂選' })).toBeVisible()
-  await page.getByRole('link', { name: /瀏覽全部商品/ }).click()
+  await expect(page.getByRole('heading', {
+    level: 1,
+    name: '說出需求，組出適合你的電腦',
+  })).toBeVisible()
+  await page.getByRole('button', { name: '看全部商品' }).click()
 
   await expect(page).toHaveURL(/\/products$/)
   await expect(page.getByRole('heading', { level: 1, name: '商品搜尋' })).toBeVisible()
@@ -463,7 +467,7 @@ test('a guest completes the prepared cart through checkout payment and invoice',
   page,
   seed,
 }) => {
-  test.setTimeout(60_000)
+  test.setTimeout(180_000)
   const email = `core-transaction-${randomUUID()}@example.test`
   await page.addInitScript((guestCartKey) => {
     const browser = globalThis as unknown as {
@@ -482,6 +486,7 @@ test('a guest completes the prepared cart through checkout payment and invoice',
   await checkoutButton.click()
   await expect(page).toHaveURL(/\/checkout$/)
   await expect(page.getByRole('heading', { level: 1, name: '結帳' })).toBeVisible()
+  await captureVisualEvidence(page, 'real-customer-checkout')
 
   await page.getByLabel('Email').fill(email)
   await page.getByLabel('姓名').fill('核心交易訪客')
@@ -584,6 +589,7 @@ test('a guest completes the prepared cart through checkout payment and invoice',
   await expect(page.getByRole('region', { name: '付款嘗試' })).toContainText('信用卡')
   await page.getByRole('button', { name: '模擬付款成功' }).click()
   await expect(page.getByText('付款已完成', { exact: true })).toBeVisible()
+  await captureVisualEvidence(page, 'real-customer-payment-complete')
 
   await expect.poll(async () => {
     return await page.evaluate(async (orderPublicId) => {
@@ -602,4 +608,87 @@ test('a guest completes the prepared cart through checkout payment and invoice',
   await expect(page.getByText('付款狀態：已付款', { exact: true })).toBeVisible()
   await expect(page.getByText(/DEMO-NOT-A-TAX-INVOICE/)).toBeVisible()
   await expect(page.getByText('狀態：已開立', { exact: true })).toBeVisible()
+})
+
+test('a shopper can jump from a home category card into that seeded catalog category', async ({ page }) => {
+  // 首頁分類卡曾經送出 desktop／laptop／monitor 這類後端不認得的代碼，點進去只會拿到空結果。
+  // 這裡驗證卡片送出的是 catalog 契約真的有的代碼，而且落地頁真的看得到該分類的 seeded 商品。
+  await page.goto('/')
+
+  const cpuCard = page.getByRole('link', { name: /處理器/ })
+  await expect(cpuCard).toBeVisible()
+  await expect(cpuCard).toHaveAttribute('data-category-code', 'CPU')
+
+  await cpuCard.click()
+
+  await expect(page).toHaveURL(/\/products\?category=CPU$/)
+  await expect(page.getByRole('heading', { level: 1, name: '商品搜尋' })).toBeVisible()
+
+  // seeded 相容性示範 SKU：分類 CPU 的「懂選開發用 CPU」
+  await expect(page.getByRole('heading', { level: 3, name: '懂選開發用 CPU', exact: true }))
+    .toBeVisible()
+
+  // 分類下拉也要停在同一個代碼，代表 query 真的被 ProductsPage 接住
+  await expect(page.getByLabel('分類')).toHaveValue('CPU')
+})
+
+test('the home free-build card still routes to the build wizard, not the catalog', async ({ page }) => {
+  await page.goto('/')
+
+  const freeBuild = page.getByRole('link', { name: /自由組裝/ })
+  await expect(freeBuild).toBeVisible()
+  await expect(freeBuild).not.toHaveAttribute('data-category-code', /./)
+
+  await freeBuild.click()
+  await expect(page).toHaveURL(/\/builds\/new$/)
+})
+
+test('visual review uses real catalog member and support journeys', async ({ page, loginAsMember }) => {
+  test.setTimeout(180_000)
+  for (const [url, label] of [['/', 'home'], ['/products', 'products'], ['/login', 'login'], ['/register', 'register'], ['/ai-search', 'ai-search'], ['/support', 'support-home']]) {
+    await page.goto(url!)
+    await expect(page.locator('main h1').first()).toBeVisible()
+    await captureVisualEvidence(page, 'real-customer-' + label)
+  }
+  await page.goto('/products')
+  await expect(page.getByLabel('分類', { exact: true })).toHaveValue('')
+  await expect(page.getByLabel('品牌', { exact: true })).toHaveValue('')
+  await loginAsMember()
+  for (const [url, label] of [['/account', 'profile'], ['/account/addresses', 'addresses'], ['/account/builds', 'builds'], ['/support/tickets', 'support-list']]) {
+    await page.goto(url!)
+    await expect(page.locator('main h1').first()).toBeVisible()
+    await captureVisualEvidence(page, 'real-member-' + label)
+  }
+  await page.goto('/support/tickets/new')
+  await page.getByLabel('主旨（1–200 字）').fill('視覺驗收：長訊息與客服回覆')
+  await page.getByLabel('問題說明（1–4000 字）').fill('請協助確認商品與配送資訊。'.repeat(35))
+  await captureVisualEvidence(page, 'real-member-support-new')
+  await page.getByRole('button', { name: '送出案件' }).click()
+  await expect(page).toHaveURL(/\/support\/tickets\/[0-9a-f-]+$/)
+  await expect(page.getByLabel('新增訊息')).toBeVisible()
+  await captureVisualEvidence(page, 'real-member-support-long-message')
+  await page.getByLabel('新增訊息').fill('補充：希望能了解後續處理進度。')
+  await page.getByRole('button', { name: '送出訊息' }).click()
+  await expect(page.getByText('補充：希望能了解後續處理進度。', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '取消這個案件' }).click()
+  await page.getByLabel('取消原因').fill('隔離測試資料，驗收完成')
+  await page.getByRole('button', { name: '確認取消案件' }).click()
+  await expect(page.getByLabel('新增訊息')).toHaveCount(0)
+  await captureVisualEvidence(page, 'real-member-support-cancelled')
+})
+
+test('the home page supports keyboard entry and 200 percent content scaling with reduced motion', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('/')
+  await page.keyboard.press('Tab')
+  await expect(page.getByRole('link', { name: '跳到主要內容' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('#main-content')).toBeFocused()
+  await page.evaluate(() => { document.documentElement.style.zoom = '2' })
+  await expect(page.getByRole('link', { name: /自由組裝/ })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1)
+  await page.getByRole('link', { name: /自由組裝/ }).focus()
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/\/builds\/new$/)
 })

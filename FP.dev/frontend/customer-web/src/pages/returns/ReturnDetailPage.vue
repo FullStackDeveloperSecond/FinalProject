@@ -27,8 +27,14 @@ async function handleFileChange(event: Event) {
 </script>
 
 <template>
-  <section aria-labelledby="return-detail-title">
-    <RouterLink to="/">
+  <section
+    class="return-detail"
+    aria-labelledby="return-detail-title"
+  >
+    <RouterLink
+      class="return-detail__back"
+      to="/"
+    >
       ← 回首頁
     </RouterLink>
 
@@ -179,8 +185,8 @@ async function handleFileChange(event: Event) {
   display: inline-block;
   padding: 0.25rem 0.75rem;
   border-radius: 999px;
-  background: #eff6ff;
-  color: #1d4ed8;
+  background: var(--color-info-bg);
+  color: var(--color-info);
   font-weight: 700;
 }
 
@@ -190,13 +196,13 @@ async function handleFileChange(event: Event) {
   gap: 1rem;
   margin-block: 1.5rem;
   padding: 1rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--color-border);
   border-radius: 0.75rem;
 }
 
 .return-detail__summary dt {
   font-size: 0.75rem;
-  color: #6b7280;
+  color: var(--color-text-muted);
 }
 
 .return-detail__summary dd {
@@ -214,7 +220,7 @@ async function handleFileChange(event: Event) {
 
 .return-detail__description {
   white-space: pre-wrap;
-  color: #374151;
+  color: var(--color-text);
 }
 
 .return-detail__upload {
@@ -222,6 +228,42 @@ async function handleFileChange(event: Event) {
 }
 
 .return-detail__error {
-  color: #b91c1c;
+  color: var(--color-danger);
+}
+
+/* --- DoSelect 視覺系統：退貨案件進度 --- */
+.return-detail__back {
+  display: inline-block;
+  margin-bottom: var(--space-4);
+  font-size: var(--fs-caption);
+  color: var(--color-text-muted);
+}
+
+.return-detail__back:hover {
+  color: var(--color-primary);
+}
+
+.return-detail > h1 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--fs-h1);
+  line-height: var(--lh-heading);
+  font-family: var(--font-mono);
+}
+
+/* 內容分節做成卡片，讓長頁面在藍底背景上分層清楚。 */
+.return-detail > section {
+  margin-block: var(--space-5);
+  padding: var(--space-5);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.return-detail > section > h2 {
+  margin: 0 0 var(--space-4);
+  font-size: var(--fs-h3);
+  line-height: var(--lh-heading);
+  color: var(--color-text);
 }
 </style>

@@ -538,13 +538,13 @@ function isConflict(err: unknown): boolean {
   gap: 1rem;
   margin-block: 1.5rem;
   padding: 1rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--color-border);
   border-radius: 0.75rem;
 }
 
 .admin-return-detail__summary dt {
   font-size: 0.75rem;
-  color: #6b7280;
+  color: var(--color-text-muted);
 }
 
 .admin-return-detail__summary dd {
@@ -563,7 +563,7 @@ function isConflict(err: unknown): boolean {
 .admin-return-detail__action-panel {
   margin-top: 1.5rem;
   padding: 1rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--color-border);
   border-radius: 0.5rem;
   display: flex;
   flex-direction: column;
@@ -583,7 +583,7 @@ function isConflict(err: unknown): boolean {
   font-weight: 400;
   font: inherit;
   padding: 0.5rem 0.625rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--color-border);
   border-radius: 0.375rem;
 }
 
@@ -605,7 +605,7 @@ function isConflict(err: unknown): boolean {
   align-items: end;
   gap: 1rem;
   padding-block: 0.5rem;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .admin-return-detail__actions {
@@ -614,16 +614,16 @@ function isConflict(err: unknown): boolean {
 }
 
 .admin-return-detail__conflict {
-  color: #b91c1c;
+  color: var(--color-danger);
 }
 
 .admin-return-detail__hint {
-  color: #6b7280;
+  color: var(--color-text-muted);
   font-size: 0.875rem;
 }
 
 .admin-return-detail__description {
   white-space: pre-wrap;
-  color: #374151;
+  color: var(--color-text);
 }
 </style>

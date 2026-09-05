@@ -12,6 +12,7 @@ import type { ProductCardDto, PublicSkuDto } from '../../catalog/types'
 const props = defineProps<{
   categoryCode: string
   disabled?: boolean
+  inStockOnly?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -87,7 +88,7 @@ async function runSearch(value: string, token: number): Promise<void> {
   searchError.value = null
   try {
     const page = await searchProducts({
-      q: value, category: props.categoryCode, inStock: true, pageSize: 10,
+      q: value, category: props.categoryCode, inStock: props.inStockOnly ?? true, pageSize: 10,
     })
     // A later search that started after this one but resolved first must win — discard this
     // response if a newer search has since been kicked off, or if the query has since changed to
@@ -243,7 +244,7 @@ function cancelSkuSelection(): void {
   width: 100%;
   min-height: 2.5rem;
   padding: 0.5rem 0.75rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--color-border);
   border-radius: 0.5rem;
   font: inherit;
 }
@@ -251,16 +252,16 @@ function cancelSkuSelection(): void {
 .slot-picker__status {
   margin: 0.25rem 0 0;
   font-size: 0.8125rem;
-  color: #4b5563;
+  color: var(--color-text-muted);
 }
 
 .slot-picker__back {
-  color: #4b5563;
+  color: var(--color-text-muted);
   font-size: 0.8125rem;
 }
 
 .slot-picker__status--error {
-  color: #b91c1c;
+  color: var(--color-danger);
 }
 
 .slot-picker__results {
@@ -270,10 +271,10 @@ function cancelSkuSelection(): void {
   margin: 0.25rem 0 0;
   padding: 0.25rem;
   list-style: none;
-  background: white;
-  border: 1px solid #d1d5db;
-  border-radius: 0.5rem;
-  box-shadow: 0 4px 12px rgb(0 0 0 / 10%);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
   max-height: 16rem;
   overflow-y: auto;
 }
@@ -293,7 +294,7 @@ function cancelSkuSelection(): void {
 
 .slot-picker__results button:hover,
 .slot-picker__results button:focus-visible {
-  background: #f3f4f6;
+  background: var(--color-surface-strong);
 }
 
 .slot-picker__result-name {
@@ -303,11 +304,11 @@ function cancelSkuSelection(): void {
 .slot-picker__result-code {
   font-family: ui-monospace, SFMono-Regular, monospace;
   font-size: 0.75rem;
-  color: #6b7280;
+  color: var(--color-text-muted);
 }
 
 .slot-picker__result-price {
   font-size: 0.8125rem;
-  color: #4b5563;
+  color: var(--color-text-muted);
 }
 </style>

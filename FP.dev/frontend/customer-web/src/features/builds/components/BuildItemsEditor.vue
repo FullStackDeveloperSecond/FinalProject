@@ -164,7 +164,7 @@ function updateQuantity(skuPublicId: string, categoryCode: string, quantity: num
 
 .build-items-editor__slot {
   padding: 0.75rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--color-border-soft);
   border-radius: 0.5rem;
 }
 
@@ -176,13 +176,13 @@ function updateQuantity(skuPublicId: string, categoryCode: string, quantity: num
 
 .build-items-editor__slot-missing {
   font-weight: 400;
-  color: #b91c1c;
+  color: var(--color-danger);
 }
 
 .build-items-editor__slot-replace-hint {
   margin: 0 0 0.375rem;
   font-size: 0.8125rem;
-  color: #6b7280;
+  color: var(--color-text-muted);
 }
 
 .build-items-editor__slot-items {
@@ -207,7 +207,7 @@ function updateQuantity(skuPublicId: string, categoryCode: string, quantity: num
 .build-items-editor__slot-items input {
   width: 4.5rem;
   padding: 0.375rem 0.5rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--color-border);
   border-radius: 0.375rem;
   font: inherit;
 }

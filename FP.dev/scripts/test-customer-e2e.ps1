@@ -3,7 +3,9 @@ param(
     [ValidateSet('customer-chromium', 'admin-chromium')]
     [string] $Project = 'customer-chromium',
 
-    [string] $JourneyTitle
+    [string] $JourneyTitle,
+
+    [switch] $All
 )
 
 Set-StrictMode -Version Latest
@@ -119,7 +121,7 @@ try {
     $env:Seed__MemberPassword = 'E2e_Member_123!'
     $env:E2E_STORAGE_DATA_ROOT = $dataRoot
     $env:E2E_REUSE_EXISTING_SERVER = 'false'
-    $requiresPaymentCompletionInfrastructure =
+    $requiresPaymentCompletionInfrastructure = $All -or
         $JourneyTitle -eq 'a guest completes the prepared cart through checkout payment and invoice' -or
         $JourneyTitle -eq 'a seeded administrator can enroll TOTP, reject a wrong code, and sign in again' -or
         $JourneyTitle -eq 'H-R02 fulfills COD home delivery and store pickup exactly once'
@@ -154,7 +156,12 @@ try {
 
     Push-Location $customerWeb
     try {
-        & npm run test:e2e -- --project $Project --grep $JourneyTitle
+        if ($All) {
+            & npm run test:e2e -- --workers=1
+        }
+        else {
+            & npm run test:e2e -- --project $Project --grep $JourneyTitle --workers=1
+        }
         if ($LASTEXITCODE -ne 0) {
             throw "E2E journey '$JourneyTitle' in project '$Project' failed."
         }

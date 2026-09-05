@@ -297,7 +297,7 @@ defineExpose({ closeEditRow: cancelEdit, closeCreateRow: cancelCreate })
 .catalog-lookup-table__table th,
 .catalog-lookup-table__table td {
   padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--color-border);
   text-align: left;
 }
 
@@ -305,13 +305,13 @@ defineExpose({ closeEditRow: cancelEdit, closeCreateRow: cancelCreate })
 .catalog-lookup-table__table input:not([type]) {
   min-height: 2.25rem;
   padding: 0.25rem 0.5rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--color-border);
   border-radius: 0.375rem;
   font: inherit;
 }
 
 .catalog-lookup-table__row-error {
-  color: #b91c1c;
+  color: var(--color-danger);
   font-size: 0.875rem;
 }
 </style>
