@@ -144,8 +144,8 @@ describe('AdminReturnDetailPage', () => {
     const wrapper = await mountPage()
     await wrapper.find('[type="checkbox"]').setValue(false)
 
-    const select = wrapper.findAll('select').at(-1)!
-    expect(select.element.value).toBe('')
+    const select = wrapper.find('[name="reviewAssemblyFeeDisposition"]')
+    expect((select.element as HTMLSelectElement).value).toBe('')
     const optionValues = select.findAll('option').map((option) => option.attributes('value'))
     expect(optionValues).toEqual([
       '',
@@ -167,10 +167,8 @@ describe('AdminReturnDetailPage', () => {
     const approveButton = wrapper.findAll('button').find((btn) => btn.text() === '核准')!
     expect(approveButton.attributes('disabled')).toBeDefined()
 
-    const selects = wrapper.findAll('select')
-    const dispositionSelect = selects.at(-1)!
-    const inputs = wrapper.findAll('input[type="number"]')
-    const shippingCostInput = inputs[0]!
+    const dispositionSelect = wrapper.find('[name="reviewAssemblyFeeDisposition"]')
+    const shippingCostInput = wrapper.find('[name="reviewReturnShippingCost"]')
 
     await dispositionSelect.setValue('merchantCancelled')
     expect(approveButton.attributes('disabled')).toBeDefined()
@@ -184,7 +182,7 @@ describe('AdminReturnDetailPage', () => {
     expect(mocks.reviewMutateAsync).toHaveBeenCalledWith(expect.objectContaining({
       approved: true,
       assemblyFeeDisposition: 'merchantCancelled',
-      returnShippingCost: 60,
+      returnShippingCost: '60',
     }))
   })
 
@@ -200,8 +198,8 @@ describe('AdminReturnDetailPage', () => {
     // 取消勾選、填值，再重新勾選。
     const checkbox = wrapper.find('[type="checkbox"]')
     await checkbox.setValue(false)
-    await wrapper.findAll('select').at(-1)!.setValue('merchantCancelled')
-    await wrapper.findAll('input[type="number"]')[0]!.setValue('60')
+    await wrapper.find('[name="reviewAssemblyFeeDisposition"]').setValue('merchantCancelled')
+    await wrapper.find('[name="reviewReturnShippingCost"]').setValue('60')
     await checkbox.setValue(true)
 
     await approveButton.trigger('click')
@@ -219,8 +217,8 @@ describe('AdminReturnDetailPage', () => {
     const wrapper = await mountPage()
 
     await wrapper.find('[type="checkbox"]').setValue(false)
-    await wrapper.findAll('select').at(-1)!.setValue('merchantCancelled')
-    await wrapper.findAll('input[type="number"]')[0]!.setValue('60')
+    await wrapper.find('[name="reviewAssemblyFeeDisposition"]').setValue('merchantCancelled')
+    await wrapper.find('[name="reviewReturnShippingCost"]').setValue('60')
 
     const rejectButton = wrapper.findAll('button').find((btn) => btn.text() === '拒絕')!
     await rejectButton.trigger('click')
@@ -241,14 +239,10 @@ describe('AdminReturnDetailPage', () => {
     const submitButton = wrapper.findAll('button').find((btn) => btn.text() === '送出檢查結果')!
     expect(submitButton.attributes('disabled')).toBeDefined()
 
-    const selects = wrapper.findAll('select')
-    // 第一個 select 是商品狀態、第二個是回補判定，組裝費處置是這個面板唯一的第三個 select。
-    const dispositionSelect = selects.at(-1)!
-    await dispositionSelect.setValue('notApplicable')
+    await wrapper.find('[name="inspectAssemblyFeeDisposition"]').setValue('notApplicable')
     expect(submitButton.attributes('disabled')).toBeDefined()
 
-    const costInput = wrapper.find('input[type="number"]')
-    await costInput.setValue('0')
+    await wrapper.find('[name="inspectReturnShippingCost"]').setValue('0')
     expect(submitButton.attributes('disabled')).toBeUndefined()
 
     await submitButton.trigger('click')
@@ -256,7 +250,7 @@ describe('AdminReturnDetailPage', () => {
 
     expect(mocks.inspectMutateAsync).toHaveBeenCalledWith(expect.objectContaining({
       assemblyFeeDisposition: 'notApplicable',
-      returnShippingCost: 0,
+      returnShippingCost: '0',
       items: [expect.objectContaining({
         returnItemPublicId: 'item-1',
         conditionCode: 'Unopened',
@@ -265,21 +259,47 @@ describe('AdminReturnDetailPage', () => {
     }))
   })
 
-  // 裁定第 5 點：returnShippingCost 不得小於 0，必須允許合法的 0。
-  it('blocks empty and negative shipping cost but allows zero', async () => {
-    mocks.data.value = detail(['inspect'], { status: 'received' })
+  // 2026-09-05 #111 review P2 裁定：不得用 JavaScript 浮點數靜默改寫退貨運費。
+  // 這裡逐一驗證 review／inspect 兩條路徑對同一組輸入的判斷與送出結果一致，
+  // 且金額一律以原始字串送出，不經過 Number() 或任何四捨五入。
+  it.each([
+    { label: 'review（免寄回）', panel: 'review' as const },
+    { label: 'inspect（商品檢查）', panel: 'inspect' as const },
+  ])('blocks negative, empty and more-than-two-decimal shipping cost, allows integral and two-decimal values ($label)', async ({ panel }) => {
+    mocks.data.value = panel === 'review'
+      ? detail(['review'])
+      : detail(['inspect'], { status: 'received' })
     const wrapper = await mountPage()
 
-    const submitButton = wrapper.findAll('button').find((btn) => btn.text() === '送出檢查結果')!
-    await wrapper.findAll('select').at(-1)!.setValue('notApplicable')
-    const costInput = wrapper.find('input[type="number"]')
+    if (panel === 'review') {
+      await wrapper.find('[type="checkbox"]').setValue(false)
+    }
 
-    expect(submitButton.attributes('disabled')).toBeDefined()
+    const dispositionName = panel === 'review' ? 'reviewAssemblyFeeDisposition' : 'inspectAssemblyFeeDisposition'
+    const costName = panel === 'review' ? 'reviewReturnShippingCost' : 'inspectReturnShippingCost'
+    const submitButton = wrapper.findAll('button')
+      .find((btn) => btn.text() === (panel === 'review' ? '核准' : '送出檢查結果'))!
+    const costInput = wrapper.find(`[name="${costName}"]`)
 
-    await costInput.setValue('-1')
-    expect(submitButton.attributes('disabled')).toBeDefined()
+    await wrapper.find(`[name="${dispositionName}"]`).setValue('notApplicable')
 
-    await costInput.setValue('0')
-    expect(submitButton.attributes('disabled')).toBeUndefined()
+    for (const blocked of ['', '-1', '1.005', '0.001', 'abc']) {
+      await costInput.setValue(blocked)
+      expect(submitButton.attributes('disabled'), `"${blocked}" must block submission`).toBeDefined()
+    }
+
+    for (const allowed of ['0', '1.01', '60']) {
+      await costInput.setValue(allowed)
+      expect(submitButton.attributes('disabled'), `"${allowed}" must be accepted`).toBeUndefined()
+    }
+
+    await costInput.setValue('1.01')
+    await submitButton.trigger('click')
+    await flushPromises()
+
+    const spy = panel === 'review' ? mocks.reviewMutateAsync : mocks.inspectMutateAsync
+    const submittedBody = spy.mock.calls[0]![0] as Record<string, unknown>
+    // 原始字串「1.01」原封不動送出——不是 Number(1.01) 也不是任何四捨五入的結果。
+    expect(submittedBody.returnShippingCost).toBe('1.01')
   })
 })

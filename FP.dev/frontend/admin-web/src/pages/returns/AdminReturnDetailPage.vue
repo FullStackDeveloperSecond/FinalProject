@@ -41,11 +41,16 @@ const inspectionLines = reactive<Record<string, { conditionCode: string, disposi
 // alex 2026-09-05 #109 裁定：這兩欄不得有會影響退款結果的靜默預設值，一律從空字串
 // 起始，逼管理員自己選、自己填——不能讓 UI 替他們決定 notApplicable／0。
 const reviewAssemblyFeeDisposition = ref<AssemblyFeeDisposition | ''>('')
-// v-model 在 <input type="number"> 上會把值轉成 number（空字串除外），
-// 不是單純的字串——兩個型別都要接受。
-const reviewReturnShippingCost = ref<string | number>('')
+// 刻意維持原始字串，不轉成 JavaScript number 再做任何四捨五入——這是退款計算會用
+// 到的可信輸入，JS 的 IEEE-754 浮點數與後端 decimal／MidpointRounding.AwayFromZero
+// 不是同一套規則（例如 1.005 用 Math.round(value*100)/100 會因為浮點誤差變成
+// 1.00，但後端規則應該是 1.01）。畫面只驗證格式，不能替管理員「修正」金額
+// （alex 2026-09-05 #111 review P2 裁定）。<input type="text"> 搭配下面的正規表達式
+// 檢查，不用 type="number"：那個型別的 v-model 會把值轉成 number，一樣會弄丟原始
+// 字串。
+const reviewReturnShippingCost = ref('')
 const inspectAssemblyFeeDisposition = ref<AssemblyFeeDisposition | ''>('')
-const inspectReturnShippingCost = ref<string | number>('')
+const inspectReturnShippingCost = ref('')
 
 const canReview = computed(() => data.value?.availableActions.includes('review') ?? false)
 const canReceive = computed(() => data.value?.availableActions.includes('receive') ?? false)
@@ -55,17 +60,11 @@ const canExtend = computed(() => data.value?.availableActions.includes('extendSh
 // 取消勾選「需要寄回檢查」才會建立 Refund，此時才需要可信欄位（見 #109 D1）。
 const reviewNeedsTrustedFields = computed(() => !requiresShipmentInspection.value)
 
-function isValidShippingCost(value: string | number): boolean {
-  if (String(value).trim() === '') {
-    return false
-  }
-  const parsed = Number(value)
-  return Number.isFinite(parsed) && parsed >= 0
-}
+// 非負、最多兩位小數；超過兩位小數（例如 1.005）或負數一律擋下送出，不自動修正。
+const shippingCostPattern = /^\d+(\.\d{1,2})?$/
 
-// 退貨運費固定送到小數兩位，對齊後端 decimal(18,2)。
-function toShippingCostAmount(value: string | number): number {
-  return Math.round(Number(value) * 100) / 100
+function isValidShippingCost(value: string): boolean {
+  return shippingCostPattern.test(value.trim())
 }
 
 const canSubmitApprove = computed(() => {
@@ -104,7 +103,7 @@ async function handleApprove() {
     ...(reviewNeedsTrustedFields.value
       ? {
           assemblyFeeDisposition: reviewAssemblyFeeDisposition.value as AssemblyFeeDisposition,
-          returnShippingCost: toShippingCostAmount(reviewReturnShippingCost.value),
+          returnShippingCost: reviewReturnShippingCost.value.trim(),
         }
       : {}),
   })
@@ -153,7 +152,7 @@ async function handleInspect() {
     returnRowVersion: data.value.return.rowVersion,
     // 檢查完成一定會建立 Refund，這兩欄固定必填（alex #109 裁定第 4 點）。
     assemblyFeeDisposition: inspectAssemblyFeeDisposition.value as AssemblyFeeDisposition,
-    returnShippingCost: toShippingCostAmount(inspectReturnShippingCost.value),
+    returnShippingCost: inspectReturnShippingCost.value.trim(),
   })
 }
 
@@ -284,7 +283,10 @@ function isConflict(err: unknown): boolean {
         <template v-if="reviewNeedsTrustedFields">
           <label>
             <span>組裝費處置</span>
-            <select v-model="reviewAssemblyFeeDisposition">
+            <select
+              v-model="reviewAssemblyFeeDisposition"
+              name="reviewAssemblyFeeDisposition"
+            >
               <option
                 value=""
                 disabled
@@ -304,9 +306,10 @@ function isConflict(err: unknown): boolean {
             <span>退貨運費</span>
             <input
               v-model="reviewReturnShippingCost"
-              type="number"
-              min="0"
-              step="0.01"
+              name="reviewReturnShippingCost"
+              type="text"
+              inputmode="decimal"
+              placeholder="0.00"
             >
           </label>
         </template>
@@ -416,7 +419,10 @@ function isConflict(err: unknown): boolean {
         </div>
         <label>
           <span>組裝費處置</span>
-          <select v-model="inspectAssemblyFeeDisposition">
+          <select
+            v-model="inspectAssemblyFeeDisposition"
+            name="inspectAssemblyFeeDisposition"
+          >
             <option
               value=""
               disabled
@@ -436,9 +442,10 @@ function isConflict(err: unknown): boolean {
           <span>退貨運費</span>
           <input
             v-model="inspectReturnShippingCost"
-            type="number"
-            min="0"
-            step="0.01"
+            name="inspectReturnShippingCost"
+            type="text"
+            inputmode="decimal"
+            placeholder="0.00"
           >
         </label>
         <p
