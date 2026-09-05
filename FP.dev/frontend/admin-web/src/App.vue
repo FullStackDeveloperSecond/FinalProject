@@ -166,6 +166,9 @@ async function onLogout(): Promise<void> {
           <RouterLink to="/inventory/reservations">
             庫存保留佇列
           </RouterLink>
+          <RouterLink to="/inventory/reconciliation-cases">
+            庫存對帳案件
+          </RouterLink>
           <RouterLink
             v-if="canManageInvoices"
             to="/invoices"
