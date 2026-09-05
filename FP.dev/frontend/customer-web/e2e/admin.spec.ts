@@ -331,6 +331,145 @@ async function readCustomerInvoice(
   }, orderPublicId)
 }
 
+interface PrepaidOrderItemSnapshot {
+  publicId: string
+}
+
+interface PrepaidOrderSnapshot extends CustomerOrderSnapshot {
+  items: PrepaidOrderItemSnapshot[]
+}
+
+/**
+ * A no-UI setup step, not the feature under test: OrderListPage.vue's batch-selection state is
+ * module-scoped and gets cleared on *any* refetch of the order list (not only a genuine filter/
+ * page change — see that file's own watcher comment), which made the real checkbox-driven batch
+ * flow (`shipOrdersThroughAdminUi` above) unreliable for getting a single order to Delivered
+ * before this journey's actual subject — Return/Refund/Allowance — even starts. `markShipped`
+ * is a legal single-call entry for an order with no shipment yet (EfBatchShipmentService), so
+ * this drives the same endpoint the batch UI calls, directly — the same no-UI escape hatch this
+ * file already uses elsewhere (e.g. shipment status actions with no button).
+ */
+async function markOrderShippedDirectly(page: Page, order: CustomerOrderSnapshot): Promise<void> {
+  const adminOrder = await page.evaluate(async (orderPublicId) => {
+    const response = await fetch(`/api/v1/admin/orders/${orderPublicId}`, { credentials: 'include' })
+    return await response.json() as { rowVersion: string }
+  }, order.publicId)
+
+  const result = await page.evaluate(async ({ orderPublicId, rowVersion }) => {
+    const tokenResponse = await fetch('/api/v1/security/antiforgery-token', {
+      credentials: 'include',
+      headers: { 'X-DoSelect-Client': 'admin' },
+    })
+    const token = await tokenResponse.json() as { requestToken: string }
+    const response = await fetch('/api/v1/admin/shipments/batches', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': `h-r03-mark-shipped-${crypto.randomUUID()}`,
+        'X-DoSelect-Client': 'admin',
+        'X-XSRF-TOKEN': token.requestToken,
+      },
+      body: JSON.stringify({
+        orders: [{ orderPublicId, rowVersion }],
+        shippingAction: 'markShipped',
+        idempotencyKey: `h-r03-mark-shipped-${crypto.randomUUID()}`,
+      }),
+    })
+    return { status: response.status, body: await response.json() as { items: Array<{ errorCode: string | null }> } }
+  }, { orderPublicId: order.publicId, rowVersion: adminOrder.rowVersion })
+
+  expect(
+    result.status,
+    `The batch shipment call must succeed. Response: ${JSON.stringify(result.body)}`,
+  ).toBe(200)
+  expect(result.body.items[0]?.errorCode, `Response: ${JSON.stringify(result.body)}`).toBeNull()
+}
+
+async function createGuestPrepaidHomeDeliveryOrder(
+  api: APIRequestContext,
+  skuPublicId: string,
+  email: string,
+  requestToken: string,
+): Promise<PrepaidOrderSnapshot> {
+  const guestCartKey = `e2e-refund-cart-${randomUUID()}`
+  const cartHeaders = unsafeMemberHeaders(requestToken, {
+    'X-DoSelect-Guest-Cart-Key': guestCartKey,
+  })
+  const initialCartResponse = await api.get('/api/v1/cart', { headers: cartHeaders })
+  expect(initialCartResponse.ok(), 'The H-R03 E2E setup must create a guest cart').toBe(true)
+  const initialCart = await initialCartResponse.json() as CartSnapshot
+
+  const addItemResponse = await api.post('/api/v1/cart/items', {
+    headers: cartHeaders,
+    data: {
+      skuPublicId,
+      quantity: 1,
+      cartRowVersion: initialCart.rowVersion,
+    },
+  })
+  expect(addItemResponse.ok(), 'The seeded SKU must be addable to a guest cart').toBe(true)
+  const cart = await addItemResponse.json() as CartSnapshot
+
+  const policyResponse = await api.get('/api/v1/checkout/policy-versions')
+  expect(policyResponse.ok(), 'Checkout policy versions must be available').toBe(true)
+  const policies = await policyResponse.json() as { terms: number, return: number, privacy: number }
+
+  const createResponse = await api.post('/api/v1/orders', {
+    headers: unsafeMemberHeaders(requestToken, {
+      'X-DoSelect-Guest-Cart-Key': guestCartKey,
+      'Idempotency-Key': `e2e-refund-checkout-${randomUUID()}`,
+    }),
+    data: {
+      cartPublicId: cart.publicId,
+      cartRowVersion: cart.rowVersion,
+      buyer: {
+        email,
+        name: '退款測試買家',
+        phone: '0912345678',
+      },
+      shipping: {
+        methodCode: 'HomeDelivery',
+        address: {
+          recipientName: '退款測試買家',
+          phone: '0912345678',
+          postalCode: '100',
+          city: '台北市',
+          district: '中正區',
+          addressLine1: '測試路 1 號',
+          addressLine2: null,
+        },
+        storePublicId: null,
+        deliveryNote: null,
+      },
+      paymentMethod: 'creditCard',
+      couponCode: null,
+      invoice: {
+        type: 'simulated',
+        buyerType: 'personal',
+        carrierType: null,
+        carrierValue: null,
+        companyTaxId: null,
+        companyName: null,
+      },
+      acceptPolicyVersions: policies,
+    },
+  })
+  const responseBody = await createResponse.text()
+  expect(
+    createResponse.status(),
+    `The real Checkout endpoint must create the prepaid order. Response: ${responseBody}`,
+  ).toBe(201)
+
+  const order = JSON.parse(responseBody) as PrepaidOrderSnapshot
+  // Unlike COD (confirmed immediately, no payment gate), a prepaid order stays pendingPayment
+  // until the payment attempt actually succeeds.
+  expect(order.orderStatus).toBe('pendingPayment')
+  expect(order.paymentStatus).toBe('awaitingPayment')
+  expect(order.amounts.paidAmount).toBe(0)
+  return order
+}
+
 test('a seeded administrator can enroll TOTP, reject a wrong code, and sign in again; H-R02 fulfills COD home delivery and store pickup exactly once', async ({
   page,
   api,
@@ -609,6 +748,332 @@ test('a seeded administrator can enroll TOTP, reject a wrong code, and sign in a
   await expect(page.getByText('DoSelect 開發管理員', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: '登出' }).click()
   await expect(page).toHaveURL(/\/admin\/login$/)
+})
+
+test('a delivered order can be returned, refunded and allowed to update the order and invoice projections; H-R03 DES-21/DES-22 refund and allowance journey', async ({
+  page,
+  api,
+  seed,
+  browser,
+}) => {
+  test.setTimeout(180_000)
+  if (!seed.adminPassword) {
+    throw new Error('Seed__AdminPassword is required for an administrator E2E journey.')
+  }
+
+  const requestToken = await getMemberAntiforgeryToken(api)
+  const email = `refund-journey-${randomUUID()}@example.test`
+  const order = await createGuestPrepaidHomeDeliveryOrder(api, seed.skuPublicId, email, requestToken)
+
+  const customerContext = await browser.newContext({ baseURL: 'http://127.0.0.1:5173' })
+  const customerPage = await customerContext.newPage()
+  await grantGuestOrderAccess(customerPage, order, email)
+
+  await customerPage.getByRole('link', { name: '前往付款' }).click()
+  await expect(customerPage.getByRole('region', { name: '付款嘗試' })).toContainText('信用卡')
+  await customerPage.getByRole('button', { name: '模擬付款成功' }).click()
+  await expect(customerPage.getByText('付款已完成', { exact: true })).toBeVisible()
+  await customerPage.getByRole('link', { name: '← 回訂單詳情' }).click()
+  await expect(customerPage.getByText('付款狀態：已付款', { exact: true })).toBeVisible()
+
+  // Admin: fresh TOTP enrollment (mirrors the COD journey above) then ship the prepaid order to
+  // Delivered — shipping progression does not depend on how the order was paid.
+  await page.goto('./')
+  await page.getByRole('textbox', { name: '電子郵件' }).fill(seed.adminEmail)
+  await page.getByLabel('密碼').fill(seed.adminPassword)
+  await page.getByRole('button', { name: '登入' }).click()
+
+  await expect(page).toHaveURL((url) => url.pathname === '/admin/login/enroll')
+  const secret = (await page.locator('.totp-secret code').textContent())?.trim()
+  expect(secret, 'The enrollment page must expose a manual TOTP secret').toBeTruthy()
+  await page.getByLabel('請輸入 App 顯示的 6 位數驗證碼以確認綁定').fill(currentTotp(secret!))
+  await page.getByRole('button', { name: '確認綁定' }).click()
+  await expect(page.getByRole('heading', { level: 1, name: '請保存您的備援碼' })).toBeVisible()
+  await page.getByRole('checkbox', { name: '我已抄下並妥善保存這些備援碼' }).check()
+  await page.getByRole('button', { name: '完成，進入後台' }).click()
+  await expect(page).toHaveURL(/\/admin\/$/)
+
+  await page.goto(`./orders/${order.publicId}`)
+  await markOrderShippedDirectly(page, order)
+  await page.reload()
+  await executeShipmentActionThroughAdminUi(page, '配送中', 'in-transit')
+  const delivered = await executeShipmentActionThroughAdminUi(page, '宅配送達', 'delivered')
+  expect(delivered.order.fulfillmentStatus).toBe('Delivered')
+  expect(delivered.order.orderStatus).toBe('Completed')
+  expect(delivered.order.paymentStatus).toBe('Paid')
+  expect(delivered.order.amounts.paidAmount).toBe(order.amounts.grandTotal)
+
+  // Customer: request a return for the whole (single-item) order — H-R03's full-refund case.
+  await customerPage.reload()
+  await expect(customerPage.getByRole('button', { name: '申請退貨' })).toBeVisible()
+  await customerPage.getByRole('button', { name: '申請退貨' }).click()
+  await expect(customerPage).toHaveURL(new RegExp(`/orders/${order.publicId}/returns/new\\?`))
+  await customerPage.getByLabel('整體退貨說明（1–1000 字）')
+    .fill('商品風扇異音，申請退貨（H-R03 E2E）。')
+
+  const createReturnResponsePromise = customerPage.waitForResponse(response =>
+    response.request().method() === 'POST'
+    && new URL(response.url()).pathname === `/api/v1/orders/${order.publicId}/returns`)
+  await customerPage.getByRole('button', { name: '送出退貨申請' }).click()
+  const createReturnResponse = await createReturnResponsePromise
+  const createReturnResponseText = await createReturnResponse.text()
+  expect(
+    createReturnResponse.status(),
+    `The browser must create the return request. Response: ${createReturnResponseText}`,
+  ).toBe(201)
+  const returnRequest = JSON.parse(createReturnResponseText) as {
+    publicId: string
+    returnNumber: string
+    rowVersion: string
+    items: Array<{ publicId: string, orderItemPublicId: string }>
+  }
+  await expect(customerPage).toHaveURL(new RegExp(`/returns/${returnRequest.publicId}$`))
+  await expect(customerPage.getByText('已申請', { exact: true })).toBeVisible()
+
+  // Admin: approve the return through the no-shipment fast path (淨額 > 0 → AwaitingRefund).
+  // AdminReturnDetailPage.vue's 審核 form has no fields for AssemblyFeeDisposition/
+  // ReturnShippingCost even though the backend requires both here — a real UI gap, flagged to
+  // the user separately. Per that decision this one submission goes through the API directly
+  // (the same no-UI escape hatch this file already uses for shipment actions with no button),
+  // while every surrounding step still drives the real UI.
+  await page.goto(`./returns/${returnRequest.publicId}`)
+  await expect(page.getByRole('heading', { level: 1, name: returnRequest.returnNumber })).toBeVisible()
+  const approveReturn = await page.evaluate(async ({ returnPublicId, orderItemPublicId, rowVersion }) => {
+    const tokenResponse = await fetch('/api/v1/security/antiforgery-token', {
+      credentials: 'include',
+      headers: { 'X-DoSelect-Client': 'admin' },
+    })
+    const token = await tokenResponse.json() as { requestToken: string }
+    const response = await fetch(`/api/v1/admin/returns/${returnPublicId}/actions/review`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-DoSelect-Client': 'admin',
+        'X-XSRF-TOKEN': token.requestToken,
+      },
+      body: JSON.stringify({
+        approved: true,
+        items: [{ returnItemPublicId: orderItemPublicId, approvedQuantity: 1, inspectionRequired: false }],
+        reasonCode: 'eligible',
+        note: 'H-R03 E2E: goodwill approval, no physical return required.',
+        assemblyFeeDisposition: 'notApplicable',
+        returnShippingCost: 0,
+        returnRowVersion: rowVersion,
+      }),
+    })
+    return { status: response.status, body: await response.json() as { status: string } }
+  }, {
+    returnPublicId: returnRequest.publicId,
+    orderItemPublicId: returnRequest.items[0]!.publicId,
+    rowVersion: returnRequest.rowVersion,
+  })
+  expect(
+    approveReturn.status,
+    `The return approval must succeed. Response: ${JSON.stringify(approveReturn.body)}`,
+  ).toBe(200)
+  expect(approveReturn.body.status).toBe('awaitingRefund')
+
+  await page.reload()
+  await expect(page.getByText('等待退款', { exact: true })).toBeVisible()
+
+  // Admin: find the PendingReview refund the approval just created.
+  await page.goto('./refunds')
+  await page.getByLabel('退款狀態').selectOption('pendingReview')
+  await page.getByRole('button', { name: '搜尋' }).click()
+  await expect(page.getByRole('cell', { name: '待審核' })).toHaveCount(1)
+  await page.getByRole('link', { name: '查看明細' }).click()
+  await expect(page).toHaveURL(/\/refunds\/[0-9a-f-]+$/)
+  await expect(page.getByText('待審核', { exact: true })).toBeVisible()
+  await expect(page.getByText('尚未執行退款')).toBeVisible()
+  const refundPublicId = new URL(page.url()).pathname.split('/').pop()!
+
+  // Approve the refund through the real UI form.
+  await page.getByLabel('核准原因').selectOption('return_approved')
+  await page.getByRole('checkbox', { name: /我已核對申請金額與訂單/ }).check()
+  const approveRefundResponsePromise = page.waitForResponse(response =>
+    response.request().method() === 'POST'
+    && new URL(response.url()).pathname.endsWith('/actions/approve'))
+  await page.getByRole('button', { name: '確認核准退款' }).click()
+  const approveRefundResponse = await approveRefundResponsePromise
+  expect(approveRefundResponse.status()).toBe(200)
+  const approveRequest = approveRefundResponse.request()
+  const approveIdempotencyKey = approveRequest.headers()['idempotency-key']
+  expect(approveIdempotencyKey, 'The admin UI must send an Idempotency-Key').toBeTruthy()
+  const approveRequestBody = approveRequest.postDataJSON()
+  await expect(page.getByText('已核准', { exact: true })).toBeVisible()
+
+  // Replay the exact same approval request: same Idempotency-Key must not double-approve.
+  const approveReplay = await page.evaluate(async ({ id, idempotencyKey, body }) => {
+    const tokenResponse = await fetch('/api/v1/security/antiforgery-token', {
+      credentials: 'include',
+      headers: { 'X-DoSelect-Client': 'admin' },
+    })
+    const token = await tokenResponse.json() as { requestToken: string }
+    const response = await fetch(`/api/v1/admin/refunds/${id}/actions/approve`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey,
+        'X-DoSelect-Client': 'admin',
+        'X-XSRF-TOKEN': token.requestToken,
+      },
+      body: JSON.stringify(body),
+    })
+    return { status: response.status, body: await response.json() as { status: string, approvedAmount: number } }
+  }, { id: refundPublicId, idempotencyKey: approveIdempotencyKey, body: approveRequestBody })
+  expect(approveReplay.status).toBe(200)
+  expect(approveReplay.body.status).toBe('approved')
+
+  // Execute the refund through the real UI form.
+  await page.reload()
+  await page.getByLabel('執行原因').selectOption('return_approved')
+  await page.getByRole('checkbox', { name: /我已核對退款上限/ }).check()
+  const executeResponsePromise = page.waitForResponse(response =>
+    response.request().method() === 'POST'
+    && new URL(response.url()).pathname.endsWith('/actions/execute'))
+  await page.getByRole('button', { name: '確認執行退款' }).click()
+  const executeResponse = await executeResponsePromise
+  expect(executeResponse.status()).toBe(200)
+  const executeRequest = executeResponse.request()
+  const executeIdempotencyKey = executeRequest.headers()['idempotency-key']
+  const executeRequestBody = executeRequest.postDataJSON()
+  const executed = await executeResponse.json() as {
+    status: string
+    succeededAmount: number
+    allocations: Array<{
+      type: string
+      amount: number
+      orderItemPublicId: string | null
+      quantity: number | null
+    }>
+  }
+  expect(executed.status).toBe('succeeded')
+  expect(executed.succeededAmount).toBe(order.amounts.grandTotal)
+
+  // Allocation integrity (H-R03 minimum case 6): itemRefund carries a positive integer quantity
+  // and the exact order item; the signed allocation total reconstructs the succeeded amount.
+  const itemRefundAllocation = executed.allocations.find(a => a.type === 'itemRefund')
+  expect(itemRefundAllocation?.orderItemPublicId).toBe(returnRequest.items[0]!.orderItemPublicId)
+  expect(itemRefundAllocation?.quantity).toBe(1)
+  const debitTypes = new Set(['discountClawback', 'shippingClawback'])
+  const signedTotal = executed.allocations.reduce(
+    (sum, a) => sum + (debitTypes.has(a.type) ? -a.amount : a.amount), 0)
+  expect(signedTotal).toBe(executed.succeededAmount)
+
+  await expect(page.getByText('退款成功', { exact: true })).toBeVisible()
+
+  // Replay the exact same execution request: same Idempotency-Key must not double the refund or
+  // duplicate allocations.
+  const executeReplay = await page.evaluate(async ({ id, idempotencyKey, body }) => {
+    const tokenResponse = await fetch('/api/v1/security/antiforgery-token', {
+      credentials: 'include',
+      headers: { 'X-DoSelect-Client': 'admin' },
+    })
+    const token = await tokenResponse.json() as { requestToken: string }
+    const response = await fetch(`/api/v1/admin/refunds/${id}/actions/execute`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey,
+        'X-DoSelect-Client': 'admin',
+        'X-XSRF-TOKEN': token.requestToken,
+      },
+      body: JSON.stringify(body),
+    })
+    return {
+      status: response.status,
+      body: await response.json() as { succeededAmount: number, allocations: unknown[] },
+    }
+  }, { id: refundPublicId, idempotencyKey: executeIdempotencyKey, body: executeRequestBody })
+  expect(executeReplay.status).toBe(200)
+  expect(executeReplay.body.succeededAmount).toBe(executed.succeededAmount)
+  expect(executeReplay.body.allocations.length).toBe(executed.allocations.length)
+
+  // Order projection: a single-item order refunded in full must settle on Refunded, not stay
+  // PartiallyRefunded (DES-21).
+  const orderAfterRefund = await page.evaluate(async (orderPublicId) => {
+    const response = await fetch(`/api/v1/admin/orders/${orderPublicId}`, { credentials: 'include' })
+    return await response.json() as { orderRefundStatus: string, amounts: { refundedAmount: number } }
+  }, order.publicId)
+  expect(orderAfterRefund.orderRefundStatus).toBe('Refunded')
+  expect(orderAfterRefund.amounts.refundedAmount).toBe(order.amounts.grandTotal)
+
+  await customerPage.goto(`/orders/${order.publicId}`)
+  await expect(customerPage.getByText('退款狀態：已全額退款', { exact: true })).toBeVisible()
+  await expect(customerPage.getByText(`已退款：NT$ ${order.amounts.grandTotal}`, { exact: true }))
+    .toBeVisible()
+
+  // Invoice allowance (DES-22): built from the trusted RefundAllocation snapshot, not
+  // recomputed from the return. AdminInvoiceDetailPage.vue has no create-allowance form at all
+  // (a real gap, not a bug — see the report), so this drives the endpoint directly.
+  const invoiceBefore = await customerPage.evaluate(async (orderPublicId) => {
+    const response = await fetch(`/api/v1/orders/${orderPublicId}/invoice`, { credentials: 'include' })
+    return {
+      status: response.status,
+      body: await response.json() as {
+        publicId: string
+        rowVersion: string
+        status: string
+        allowances: unknown[]
+      },
+    }
+  }, order.publicId)
+  expect(invoiceBefore.status).toBe(200)
+  expect(invoiceBefore.body.status).toBe('issued')
+  expect(invoiceBefore.body.allowances).toHaveLength(0)
+
+  const allowanceIdempotencyKey = `h-r03-allowance-${randomUUID()}`
+  const createAllowance = async () => await page.evaluate(async ({ invoicePublicId, invoiceRowVersion, refundPublicId, idempotencyKey }) => {
+    const tokenResponse = await fetch('/api/v1/security/antiforgery-token', {
+      credentials: 'include',
+      headers: { 'X-DoSelect-Client': 'admin' },
+    })
+    const token = await tokenResponse.json() as { requestToken: string }
+    const response = await fetch(`/api/v1/admin/invoices/${invoicePublicId}/allowances`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey,
+        'X-DoSelect-Client': 'admin',
+        'X-XSRF-TOKEN': token.requestToken,
+      },
+      body: JSON.stringify({ refundPublicId, invoiceRowVersion }),
+    })
+    return {
+      status: response.status,
+      body: await response.json() as { publicId: string, allowanceNumber: string, grossAmount: number, refundPublicId: string },
+    }
+  }, {
+    invoicePublicId: invoiceBefore.body.publicId,
+    invoiceRowVersion: invoiceBefore.body.rowVersion,
+    refundPublicId,
+    idempotencyKey: allowanceIdempotencyKey,
+  })
+
+  const allowanceResult = await createAllowance()
+  expect(
+    [200, 201],
+    `The allowance creation must succeed. Response: ${JSON.stringify(allowanceResult.body)}`,
+  ).toContain(allowanceResult.status)
+  expect(allowanceResult.body.refundPublicId).toBe(refundPublicId)
+  expect(allowanceResult.body.grossAmount).toBe(order.amounts.grandTotal)
+
+  // Replay with the same Idempotency-Key: must not create a second allowance.
+  const allowanceReplay = await createAllowance()
+  expect([200, 201]).toContain(allowanceReplay.status)
+  expect(allowanceReplay.body.publicId).toBe(allowanceResult.body.publicId)
+
+  await page.goto(`./invoices/${invoiceBefore.body.publicId}`)
+  await expect(page.getByText(allowanceResult.body.allowanceNumber)).toBeVisible()
+
+  await customerPage.reload()
+  await expect(customerPage.getByText('折讓筆數：1', { exact: true })).toBeVisible()
+
+  await customerContext.close()
 })
 
 test('an anonymous administrator is routed to the login page', async ({ page }) => {

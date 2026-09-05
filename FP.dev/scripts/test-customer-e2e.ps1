@@ -119,10 +119,14 @@ try {
     $env:Seed__MemberPassword = 'E2e_Member_123!'
     $env:E2E_STORAGE_DATA_ROOT = $dataRoot
     $env:E2E_REUSE_EXISTING_SERVER = 'false'
+    # -like (substring) rather than -eq: Playwright test titles built from multiple journeys are
+    # joined with "; " (e.g. the H-R02 title below is actually prefixed with the TOTP enrollment
+    # title), so an exact match against either half alone never matched the real combined title.
     $requiresPaymentCompletionInfrastructure =
-        $JourneyTitle -eq 'a guest completes the prepared cart through checkout payment and invoice' -or
-        $JourneyTitle -eq 'a seeded administrator can enroll TOTP, reject a wrong code, and sign in again' -or
-        $JourneyTitle -eq 'H-R02 fulfills COD home delivery and store pickup exactly once'
+        $JourneyTitle -like '*a guest completes the prepared cart through checkout payment and invoice*' -or
+        $JourneyTitle -like '*a seeded administrator can enroll TOTP, reject a wrong code, and sign in again*' -or
+        $JourneyTitle -like '*H-R02 fulfills COD home delivery and store pickup exactly once*' -or
+        $JourneyTitle -like '*H-R03 DES-21*DES-22 refund and allowance journey*'
     $env:E2E_ASPNETCORE_ENVIRONMENT = 'E2E'
     if ($requiresPaymentCompletionInfrastructure) {
         $env:E2E_BACKGROUND_JOBS_ENABLED = 'true'
