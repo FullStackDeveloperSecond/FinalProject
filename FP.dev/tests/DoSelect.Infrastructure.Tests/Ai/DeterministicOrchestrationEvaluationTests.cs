@@ -232,13 +232,13 @@ public sealed class DeterministicOrchestrationEvaluationTests
         AiProductSearchIntent? actual)
     {
         Assert.NotNull(actual);
-        var expectedSpecs = item.Expected.GetProperty("intentFields")
+        var expectedSpecCount = item.Expected.GetProperty("intentFields")
             .TryGetProperty("requiredSpecs", out var specs)
-            ? specs.EnumerateArray().Select(value => value.GetString()).ToArray()
-            : [];
-        if (expectedSpecs.Length > 0)
+            ? specs.GetArrayLength()
+            : 0;
+        if (expectedSpecCount > 0)
         {
-            Assert.Equal(expectedSpecs.Length, actual.RequiredSpecs.Count);
+            Assert.Equal(expectedSpecCount, actual.RequiredSpecs.Count);
         }
     }
 

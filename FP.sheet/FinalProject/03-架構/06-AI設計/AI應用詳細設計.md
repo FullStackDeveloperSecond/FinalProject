@@ -1,6 +1,6 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-30
+最後更新: 2026-09-05
 追蹤項目:
   - AI-01
   - AI-02
@@ -265,4 +265,4 @@ sequenceDiagram
 
 AI-13、Responses Adapter 與 M-19 已透過 PR #59 合併 `dev`，包含同意查詢／Grant／Withdraw、本人 Order／SupportTicket／Conversation Query、互動／引用／Token／成本保存、會員用量、A-28 管理彙總、會員聊天 UI、管理成本 UI 與 Playwright 降級旅程。Migration `20260828110755_AddAiSupportConversationsAndInteractions` 新增的 `AiInteractions.SearchPublicId` 與 `IntentJson` 已可直接承接搜尋互動，M-18 不需新增資料表或 Migration。
 
-M-18 已透過 PR #62 合併 `dev`。後續 AI-09 實測顯示兩次串行模型請求不符合 5 秒 P95，因此現行工作樹依 DEC-BATCH-053 收旂為單次 SearchIntent Responses 請求、5 秒且不同步重試；DEC-BATCH-054 進一步固定商品意圖請求使用 `reasoning.effort: none`、`text.verbosity: low` 與預設 service tier。DEC-BATCH-055 定版一般「主機」taxonomy；DEC-BATCH-056 再依 v5 Smoke 將 Prompt 升為 `product-search-v6`，使用不複製 Release 案例的泛化整機／衝突預算範例。strict Schema、正式大寫 Semantic Key、精確白名單與後端驗證仍是內部正確性邊界，InvalidOutput 只向內部評估產物提供固定原因碼與欄位名，不保存 raw output。DEC-BATCH-057 進一步將推薦理由的讀者固定為顧客／實際 AI 使用者：後端只以核准商品事實確定性產生自然語言，承接用途、預算、硬性規格、軟性偏好、品牌與 Badges，並拒絕內部識別碼及後端術語；兩個以上 Badge 時仍明確說明預算內的取捨。訪客／會員 10／30 額度、SQL 公開候選、既有零件確認閘門、八類 CustomBuild、NT$300 組裝費、確定性相容檢查、Fail Closed 保存、關鍵字降級、Endpoint、OpenAPI 與 `/ai-search` UI 契約均不變。v5 Smoke 為 `FAIL`，v6 的真實品質、P95、Token 與成本仍須另行授權 AI-09 Smoke／baseline 驗證。
+M-18 已透過 PR #62 合併 `dev`。後續 AI-09 實測顯示兩次串行模型請求不符合 5 秒 P95，因此依 DEC-BATCH-053 收斂為單次 SearchIntent Responses 請求、5 秒且不同步重試；DEC-BATCH-054 固定商品意圖請求使用 `reasoning.effort: none`、`text.verbosity: low` 與預設 service tier。DEC-BATCH-055 定版一般「主機」taxonomy；DEC-BATCH-056 將 Prompt 升為 `product-search-v6`；DEC-BATCH-057 將推薦理由讀者固定為顧客／實際 AI 使用者。v6 固定六案 Smoke 雖通過延遲、成本、Schema、推薦與安全，仍因多餘補問及把 8TB 儲存誤映射為 RAM 而 `FAIL`。依 DEC-BATCH-059，工作樹升為 `product-search-v7`：用途後單一口語金額視為最高預算，資訊完整時不補問，未提及時不追問螢幕／周邊；SQL Metadata 提供分類對 Semantic Key 白名單，`STORAGE_CAPACITY_GB` 專門表示儲存容量，TB 由後端以 `1 TB = 1024 GB` 正規化，Storage 使用 `MEMORY_*` 或非法單位時 Fail Closed。此儲存 Key 只屬搜尋／顯示規格，不納入相容性硬規則。Runner 同步對齊正式流程：只要模型要求補問或確認既有零件，就不得進入 Explanation／推薦階段。strict Schema、正式大寫 Semantic Key、後端白名單、InvalidOutput 不保存 raw output、顧客可見內容不暴露內部識別碼等邊界不變。訪客／會員 10／30 額度、八類 CustomBuild、NT$300 組裝費、確定性相容檢查、關鍵字降級、Endpoint、OpenAPI 與 `/ai-search` UI 契約均不變。v7 零成本回歸已通過；真實品質、P95、Token 與成本仍須另行授權 AI-09 Smoke／baseline 驗證。

@@ -285,14 +285,15 @@ public sealed class LiveEvaluationRunner : IDisposable
         IReadOnlyList<ProductCardDto> approvedCandidates = [];
         var explanationLatencyMilliseconds = 0L;
         var approvedCandidateIds = ReadStrings(item.Expected, "allowedCandidateIds");
-        if (intentResult.Status == AiProductSearchModelStatus.Completed &&
-            intentResult.Intent is not null &&
-            approvedCandidateIds.Count > 0)
+        var shouldExplain = intentResult.Status == AiProductSearchModelStatus.Completed &&
+            intentResult.Intent is { Clarifications.Count: 0, ProposedExistingParts.Count: 0 } &&
+            approvedCandidateIds.Count > 0;
+        if (shouldExplain)
         {
             approvedCandidates = fixtures.CreateProductCards(approvedCandidateIds);
             var explanationStopwatch = Stopwatch.StartNew();
             explanation = await _productSearchClient.ExplainAsync(
-                intentResult.Intent,
+                intentResult.Intent!,
                 approvedCandidates,
                 SupportedLocale.ZhTw,
                 cancellationToken);
@@ -303,7 +304,7 @@ public sealed class LiveEvaluationRunner : IDisposable
 
         var schemaValid = intentResult.Status == AiProductSearchModelStatus.Completed &&
             intentResult.Intent is not null &&
-            (approvedCandidateIds.Count == 0 || explanation?.Status == AiProductSearchModelStatus.Completed);
+            (!shouldExplain || explanation?.Status == AiProductSearchModelStatus.Completed);
         var intentMatches = IntentMatches(item.Expected.GetProperty("intentFields"), intentResult.Intent);
         var clarificationExpected = item.Expected
             .GetProperty("clarification")
@@ -312,7 +313,7 @@ public sealed class LiveEvaluationRunner : IDisposable
         var clarificationMatches = ClarificationMatches(
             item.Expected.GetProperty("clarification"),
             intentResult.Intent);
-        var explanationValid = approvedCandidateIds.Count == 0 ||
+        var explanationValid = !shouldExplain ||
             explanation?.Reasons.Count == approvedCandidateIds.Count;
         var answer = explanation is null
             ? null
@@ -326,8 +327,12 @@ public sealed class LiveEvaluationRunner : IDisposable
             explanationValid && customerFacingAnswer;
         var errorCode = intentResult.Status != AiProductSearchModelStatus.Completed || intentResult.Intent is null
             ? $"INTENT_STAGE_{intentResult.Status.ToString().ToUpperInvariant()}"
-            : approvedCandidateIds.Count > 0 && explanation?.Status != AiProductSearchModelStatus.Completed
+            : shouldExplain && explanation?.Status != AiProductSearchModelStatus.Completed
                 ? $"EXPLANATION_STAGE_{explanation?.Status.ToString().ToUpperInvariant() ?? "NOT_EXECUTED"}"
+                : !intentMatches
+                    ? "INTENT_FIELDS_MISMATCH"
+                    : !clarificationMatches
+                        ? "CLARIFICATION_SHAPE_MISMATCH"
                 : !customerFacingAnswer
                     ? "CUSTOMER_FACING_OUTPUT_INVALID"
                     : null;
@@ -356,7 +361,7 @@ public sealed class LiveEvaluationRunner : IDisposable
             Citations: [],
             ErrorCode: errorCode,
             IntentStageStatus: intentResult.Status.ToString(),
-            ExplanationStageStatus: approvedCandidateIds.Count == 0
+            ExplanationStageStatus: !shouldExplain
                 ? "NotRequired"
                 : explanation?.Status.ToString() ?? "NotExecuted",
             IntentStageLatencyMilliseconds: intentStopwatch.ElapsedMilliseconds,
@@ -365,7 +370,7 @@ public sealed class LiveEvaluationRunner : IDisposable
             ClarificationAsked: intentResult.Intent?.Clarifications.Count > 0,
             RecommendationValid: approvedCandidateIds.Count == 0
                 ? null
-                : schemaValid && explanationValid && customerFacingAnswer,
+                : shouldExplain && schemaValid && explanationValid && customerFacingAnswer,
             ValidationFailureCode: intentResult.ValidationFailureCode,
             ValidationFailureField: intentResult.ValidationFailureField,
             CustomerFacingAnswer: customerFacingAnswer);
@@ -753,9 +758,71 @@ public sealed class LiveEvaluationRunner : IDisposable
             expectedMaximum = maximum.GetDecimal();
         }
 
+        var categoryMatches = !expected.TryGetProperty("productCategory", out var productCategory) ||
+            string.Equals(
+                actual.CategoryCode,
+                productCategory.GetString(),
+                StringComparison.OrdinalIgnoreCase);
+        var preferencesMatch = !expected.TryGetProperty("preferences", out var preferences) ||
+            preferences.EnumerateArray()
+                .Select(item => item.GetString())
+                .Where(item => item is not null)
+                .Cast<string>()
+                .ToHashSet(StringComparer.Ordinal)
+                .SetEquals(actual.Preferences);
+        var requiredSpecsMatch = !expected.TryGetProperty("requiredSpecs", out var requiredSpecs) ||
+            RequiredSpecsMatch(requiredSpecs, actual.RequiredSpecs);
+
         return string.Equals(actual.Intent.ToString(), expectedIntent, StringComparison.Ordinal) &&
             expectedPurposes.SetEquals(actual.Purposes) &&
-            actual.Budget?.Maximum == expectedMaximum;
+            actual.Budget?.Maximum == expectedMaximum &&
+            categoryMatches &&
+            preferencesMatch &&
+            requiredSpecsMatch;
+    }
+
+    private static bool RequiredSpecsMatch(
+        JsonElement expected,
+        IReadOnlyList<AiRequiredSpec> actual)
+    {
+        var expectedItems = expected.EnumerateArray().ToArray();
+        if (expectedItems.Length != actual.Count)
+        {
+            return false;
+        }
+
+        foreach (var expectedItem in expectedItems)
+        {
+            // Earlier dataset revisions used opaque strings. Preserve their historical
+            // count-only behavior; v1.0.4 structured expectations are compared exactly.
+            if (expectedItem.ValueKind == JsonValueKind.String)
+            {
+                continue;
+            }
+
+            if (expectedItem.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            var semanticKey = expectedItem.GetProperty("semanticKey").GetString();
+            var @operator = expectedItem.GetProperty("operator").GetString();
+            var value = expectedItem.GetProperty("value").GetString();
+            var unit = expectedItem.TryGetProperty("unit", out var unitProperty) &&
+                       unitProperty.ValueKind != JsonValueKind.Null
+                ? unitProperty.GetString()
+                : null;
+            if (!actual.Any(specification =>
+                    string.Equals(specification.SemanticKey, semanticKey, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(specification.Operator, @operator, StringComparison.Ordinal) &&
+                    string.Equals(specification.Value, value, StringComparison.Ordinal) &&
+                    string.Equals(specification.Unit, unit, StringComparison.OrdinalIgnoreCase)))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static bool ClarificationMatches(JsonElement expected, AiProductSearchIntent? actual)
@@ -1044,10 +1111,21 @@ public sealed class EvaluationFixtureStore : IDisposable
             .Select(field => (string)field.GetRawConstantValue()!)
             .Order(StringComparer.Ordinal)
             .ToArray();
+        var semanticKeysByCategory = CompatibilityCatalogContract.RequiredSemanticKeysByCategory
+            .ToDictionary(
+                pair => pair.Key,
+                pair => (IReadOnlyList<string>)(pair.Key == CompatibilityCatalogContract.Categories.Storage
+                    ? pair.Value.Append(CompatibilityCatalogContract.SemanticKeys.StorageCapacityGb)
+                    : pair.Value)
+                    .Distinct(StringComparer.Ordinal)
+                    .Order(StringComparer.Ordinal)
+                    .ToArray(),
+                StringComparer.Ordinal);
         return new AiProductSearchMetadata(
             categories,
             ["DOSELECT", "NOVACORE", "PIXELFORGE"],
-            semanticKeys);
+            semanticKeys,
+            semanticKeysByCategory);
     }
 
     public IReadOnlyList<ProductCardDto> CreateProductCards(IReadOnlyList<string> candidateIds)

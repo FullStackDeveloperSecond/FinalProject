@@ -1,8 +1,8 @@
 ---
 文件狀態: 進行中
 最後更新: 2026-09-05
-基準分支: dev@453e56ef
-實作分支: codex/wp-a05-ai-live-baseline-20260902
+基準分支: dev@eb83ecf6
+實作分支: codex/wp-a05-ai-v6-smoke-20260905
 實作人: alex
 規劃範圍: alex 正式主責與已明確接手項目
 下一工作包: WP-A05／AI-09 OpenAI Live baseline
@@ -175,7 +175,9 @@
 | 2026-09-05 | WP-A05／AI-09 | 進行中／v5 Smoke 失敗、v6 零成本修正完成 | Run `20260904T193855Z-v5-smoke-system` 為 6 案／6 次請求、US$0.006735、商品 P95 3,588 ms，品質 Verdict `FAIL`。依 DEC-BATCH-056，六案正式 Human Verdict 全部維持 pending；完成 `product-search-v6` 泛化 Prompt、大寫 Semantic Key＋精確 allowlist、選填 Citation 語意及預算／Badge 取捨理由。聚焦 Application 35／35、Infrastructure AI 26／26、Application 完整 578／578、Build、focused Format、120 筆驗證與 Release Dry Run 通過；完整 Infrastructure Provider-backed 測試因本機 SQL Server 加密／SSPI／登入中斷而不可用。本批未呼叫 Provider。 |
 | 2026-09-05 | WP-A05／AI-09 | 進行中／顧客視角零成本修正完成 | Alex 確認舊商品回答未切合顧客問題，且以內部人員為讀者。依 DEC-BATCH-057，推薦理由改為承接用途、預算、硬性規格與軟性偏好，使用在地化顯示名稱並排除 Enum／代碼／Fixture ID／後端術語；Live Runner 將此列為確定性 Gate，人工覆核表並列顧客問題、必要回答重點與顧客可見回答。8 個回歸檢查先 RED，修正後 Infrastructure AI 聚焦測試 31／31 通過；未呼叫 Provider，AI-09 仍待可追溯 Commit、新 v6 小型 Smoke 與正式人工覆核。 |
 | 2026-09-05 | WP-A05／AI-09 | 進行中／合併前契約飄移已修正 | Review 發現 DEC-P394 已定版大寫 Semantic Key，但正式 SQL 型錄 Metadata 仍轉成小寫，會讓含規格的真實 SearchIntent 被驗證器拒絕。已將正式 Metadata 統一 Trim＋大寫並補規格書與 SQL 斷言；Application AI 47／47、Infrastructure AI 31／31、系統 PowerShell SQL Server 聚焦 1／1 通過。未呼叫 OpenAI；v6 Live Gate 狀態不變。 |
+| 2026-09-05 | WP-A05／AI-09 | 進行中／v6 Smoke 失敗 | PR #112 已 squash merge 為 `dev@eb83ecf6`。同 revision 的固定 6 案／1 輪 Run `20260905T100442Z-v6-smoke-system` 完成 6 次請求、US$0.007227，商品／客服 P95 4,199／2,126 ms；Schema、推薦、引用與隱私安全通過，但 Intent 75%、補問精確率 50%、Deterministic 66.67%，Verdict `FAIL`。`SEARCH-CREATOR-013` 多問兩個非必要問題，`SEARCH-NOVICE-019` 把 8TB 儲存容量映射成 8192GB 記憶體。T2 證據完整；Alex 後續顧客方向與根因審查確認 Runner fidelity／資料語意也需修正，舊覆核表不作為 v7 通過證據。 |
+| 2026-09-05 | WP-A05／AI-09 | 進行中／v7 零成本修正完成 | 依 DEC-BATCH-059，Runner 在補問／既有零件確認時停止推薦；新增 `STORAGE_CAPACITY_GB`、分類規格白名單、TB→GB、Prompt v7，Dataset／Grader 升為 v1.0.4／v1.1.3。RED 證明三類根因後，Application AI 47／47、Infrastructure focused 50／50、API AI 24／24、系統 PowerShell SQL Server 1／1、Dataset 驗證與 Solution Build 通過；模型呼叫／成本為 0。工作樹落後 `origin/dev` 一個 Commit，尚待 Review、整合、提交與另行授權的新 v7 Smoke。 |
 
 ## 11. 下一步
 
-DEC-BATCH-056／057 的 v6 零成本修正已完成，但 AI-09 尚未完成。下一步先形成可追溯 Commit／Review，再另行決定是否授權固定六案的 v6 小型付費 Smoke；新輸出產生後由 Alex 依顧客問題、必要重點與顧客可見回答逐案覆核。只有品質、延遲、安全與成本 Gate 通過後，才可另行決定是否執行 66 次 Release baseline；若 v6 taxonomy／衝突預算仍失敗，再另案評估 deterministic parser。
+v6 歷史 Smoke 維持 `FAIL`；DEC-BATCH-059 的 v7 零成本修正已完成。下一步先 Review 工作樹、整合最新 `origin/dev` 並建立不可變 Commit；其後若取得新的付費授權，以同一固定六案／一輪／成本停止線執行 v7 Smoke，再由 Alex 覆核新顧客輸出。只有自動 Gate 與人工覆核都通過，才另行核准 66 次 Release baseline。

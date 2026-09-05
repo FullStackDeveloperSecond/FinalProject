@@ -35,18 +35,35 @@ public sealed class EfAiProductSearchCatalog(
             .OrderBy(brand => brand.Code)
             .Select(brand => brand.Code)
             .ToArrayAsync(cancellationToken);
-        var storedSemanticKeys = await dbContext.SpecificationDefinitions.AsNoTracking()
-            .Where(definition => definition.IsActive)
-            .OrderBy(definition => definition.SemanticKey)
-            .Select(definition => definition.SemanticKey)
-            .Distinct()
+        var storedDefinitions = await (
+                from definition in dbContext.SpecificationDefinitions.AsNoTracking()
+                join category in dbContext.Categories.AsNoTracking() on definition.CategoryId equals category.Id
+                where definition.IsActive && category.IsActive
+                orderby category.Code, definition.SemanticKey
+                select new { CategoryCode = category.Code, definition.SemanticKey })
             .ToArrayAsync(cancellationToken);
         // SearchIntent and catalog persistence share the formally approved upper-case
         // semantic-key contract. ProductSearchService still normalizes at its query boundary.
-        var semanticKeys = storedSemanticKeys
+        var semanticKeys = storedDefinitions
+            .Select(definition => definition.SemanticKey)
             .Select(key => key.Trim().ToUpperInvariant())
+            .Distinct(StringComparer.Ordinal)
             .ToArray();
-        return new AiProductSearchMetadata(categoryCodes, brandCodes, semanticKeys);
+        var semanticKeysByCategory = storedDefinitions
+            .GroupBy(definition => definition.CategoryCode, StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group => (IReadOnlyList<string>)group
+                    .Select(definition => definition.SemanticKey.Trim().ToUpperInvariant())
+                    .Distinct(StringComparer.Ordinal)
+                    .Order(StringComparer.Ordinal)
+                    .ToArray(),
+                StringComparer.Ordinal);
+        return new AiProductSearchMetadata(
+            categoryCodes,
+            brandCodes,
+            semanticKeys,
+            semanticKeysByCategory);
     }
 
     public async Task<AiProductSearchCandidateResult> FindCandidatesAsync(

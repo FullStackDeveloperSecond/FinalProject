@@ -144,7 +144,7 @@ function validateRequiredShape(item, validationErrors) {
       validationErrors.push(`${item.caseId ?? '<unknown>'}: missing ${property}`)
     }
   }
-  if (item.datasetVersion !== 'zh-TW-v1.0.3-draft') validationErrors.push(`${item.caseId}: wrong dataset version`)
+  if (item.datasetVersion !== manifest.datasetVersion) validationErrors.push(`${item.caseId}: wrong dataset version`)
   if (item.language !== 'zh-TW') validationErrors.push(`${item.caseId}: wrong language`)
   if (!/^[A-Z-]+-\d{3}$/.test(item.caseId)) validationErrors.push(`${item.caseId}: invalid caseId format`)
   if (typeof item.input?.message !== 'string' || item.input.message.length > 2000) validationErrors.push(`${item.caseId}: invalid message`)

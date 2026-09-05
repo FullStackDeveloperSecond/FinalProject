@@ -43,8 +43,9 @@ public sealed class AiCustomBuildSqlServerTests
             {
                 var context = migrationScope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
                 await context.Database.MigrateAsync();
-                await migrationScope.ServiceProvider.GetRequiredService<MinimalDevelopmentDataSeeder>()
-                    .SeedAsync();
+                var seeder = migrationScope.ServiceProvider.GetRequiredService<MinimalDevelopmentDataSeeder>();
+                await seeder.SeedAsync();
+                await seeder.SeedAsync();
             }
 
             Guid cpuPublicId;
@@ -59,6 +60,16 @@ public sealed class AiCustomBuildSqlServerTests
                               sku.SkuCode == "DEV-COMPAT-CPU-001"
                         select sku.PublicId)
                     .SingleAsync();
+                var storageCapacityValues = await (
+                        from value in context.SkuSpecificationValues.AsNoTracking()
+                        join sku in context.Skus.AsNoTracking() on value.SkuId equals sku.Id
+                        join definition in context.SpecificationDefinitions.AsNoTracking()
+                            on value.SpecificationDefinitionId equals definition.Id
+                        where sku.SkuCode == "DEV-COMPAT-STORAGE-001" &&
+                              definition.SemanticKey == CompatibilityCatalogContract.SemanticKeys.StorageCapacityGb
+                        select value.DecimalValue)
+                    .ToArrayAsync();
+                Assert.Equal(2048m, Assert.Single(storageCapacityValues));
             }
 
             await using var searchScope = provider.CreateAsyncScope();
@@ -66,6 +77,11 @@ public sealed class AiCustomBuildSqlServerTests
             var metadata = await catalog.ReadMetadataAsync(CancellationToken.None);
             Assert.NotEmpty(metadata.SemanticKeys);
             Assert.Contains(CompatibilityCatalogContract.SemanticKeys.CpuSocket, metadata.SemanticKeys);
+            Assert.Contains(CompatibilityCatalogContract.SemanticKeys.StorageCapacityGb, metadata.SemanticKeys);
+            Assert.NotNull(metadata.SemanticKeysByCategory);
+            Assert.Contains(
+                CompatibilityCatalogContract.SemanticKeys.StorageCapacityGb,
+                metadata.SemanticKeysByCategory[CompatibilityCatalogContract.Categories.Storage]);
             Assert.All(
                 metadata.SemanticKeys,
                 semanticKey => Assert.Matches("^[A-Z0-9][A-Z0-9._-]{0,63}$", semanticKey));

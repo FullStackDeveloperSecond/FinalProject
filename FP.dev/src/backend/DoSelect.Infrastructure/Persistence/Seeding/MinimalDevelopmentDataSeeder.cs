@@ -293,7 +293,11 @@ public sealed class MinimalDevelopmentDataSeeder(
     /// ATX form factor throughout, ~345W estimated draw against a 650W PSU).
     /// </summary>
     private sealed record CompatibilitySpecDefinitionTemplate(
-        string SemanticKey, SpecificationValueType ValueType, bool AllowsMultiple);
+        string SemanticKey,
+        SpecificationValueType ValueType,
+        bool AllowsMultiple,
+        bool IsRequired = true,
+        bool IsProtected = true);
 
     private static readonly IReadOnlyDictionary<string, CompatibilitySpecDefinitionTemplate[]>
         BuildCompatibilitySpecTemplates = new Dictionary<string, CompatibilitySpecDefinitionTemplate[]>
@@ -336,6 +340,12 @@ public sealed class MinimalDevelopmentDataSeeder(
             [
                 new(CompatibilityCatalogContract.SemanticKeys.StorageInterface, SpecificationValueType.Option, false),
                 new(CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts, SpecificationValueType.Decimal, false),
+                new(
+                    CompatibilityCatalogContract.SemanticKeys.StorageCapacityGb,
+                    SpecificationValueType.Decimal,
+                    false,
+                    IsRequired: true,
+                    IsProtected: false),
             ],
             [CompatibilityCatalogContract.Categories.Psu] =
             [
@@ -411,7 +421,7 @@ public sealed class MinimalDevelopmentDataSeeder(
                 dbContext.SpecificationDefinitions.Add(new SpecificationDefinition(
                     Guid.CreateVersion7(), category.Id, template.SemanticKey, template.SemanticKey,
                     template.ValueType, null,
-                    isRequired: true, isProtected: true, sortOrder: 0,
+                    template.IsRequired, template.IsProtected, sortOrder: 0,
                     MinimalDevelopmentSeedDefinitions.CreatedAtUtc, allowsMultiple: template.AllowsMultiple));
                 counters.CompatibilityRecordsCreated++;
             }
@@ -419,12 +429,8 @@ public sealed class MinimalDevelopmentDataSeeder(
             await dbContext.SaveChangesAsync(cancellationToken);
         }
 
-        if (await dbContext.Skus.AnyAsync(
-                entity => entity.SkuCode == "DEV-COMPAT-CPU-001", cancellationToken))
-        {
-            await EnsureBuildComponentSkusAreDefaultAsync(cancellationToken);
-            return;
-        }
+        var buildComponentsAlreadyExist = await dbContext.Skus.AnyAsync(
+            entity => entity.SkuCode == "DEV-COMPAT-CPU-001", cancellationToken);
 
         var brand = await dbContext.Brands.SingleOrDefaultAsync(
             entity => entity.Code == "DEV-COMPAT-BRAND", cancellationToken);
@@ -470,6 +476,13 @@ public sealed class MinimalDevelopmentDataSeeder(
             dbContext.SpecificationSources.Add(source);
             await dbContext.SaveChangesAsync(cancellationToken);
             counters.CompatibilityRecordsCreated++;
+        }
+
+        if (buildComponentsAlreadyExist)
+        {
+            await EnsureBuildComponentSkusAreDefaultAsync(cancellationToken);
+            await EnsureStorageCapacitySeedValueAsync(source, counters, cancellationToken);
+            return;
         }
 
         await CreateComponentSkuAsync(
@@ -555,6 +568,7 @@ public sealed class MinimalDevelopmentDataSeeder(
             specValues: new Dictionary<string, object>
             {
                 [CompatibilityCatalogContract.SemanticKeys.StorageInterface] = "M2_NVME",
+                [CompatibilityCatalogContract.SemanticKeys.StorageCapacityGb] = 2048m,
                 [CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 5m,
             }, cancellationToken: cancellationToken);
 
@@ -725,6 +739,42 @@ public sealed class MinimalDevelopmentDataSeeder(
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task EnsureStorageCapacitySeedValueAsync(
+        SpecificationSource source,
+        SeedCounters counters,
+        CancellationToken cancellationToken)
+    {
+        var storage = await (
+                from sku in dbContext.Skus
+                join product in dbContext.Products on sku.ProductId equals product.Id
+                join category in dbContext.Categories on product.CategoryId equals category.Id
+                join definition in dbContext.SpecificationDefinitions on category.Id equals definition.CategoryId
+                where sku.SkuCode == "DEV-COMPAT-STORAGE-001" &&
+                      category.Code == CompatibilityCatalogContract.Categories.Storage &&
+                      definition.SemanticKey == CompatibilityCatalogContract.SemanticKeys.StorageCapacityGb
+                select new { SkuId = sku.Id, DefinitionId = definition.Id })
+            .SingleAsync(cancellationToken);
+        if (await dbContext.SkuSpecificationValues.AnyAsync(
+                value => value.SkuId == storage.SkuId &&
+                         value.SpecificationDefinitionId == storage.DefinitionId,
+                cancellationToken))
+        {
+            return;
+        }
+
+        dbContext.SkuSpecificationValues.Add(new SkuSpecificationValue(
+            storage.SkuId,
+            storage.DefinitionId,
+            stringValue: null,
+            decimalValue: 2048m,
+            booleanValue: null,
+            optionId: null,
+            source.Id,
+            MinimalDevelopmentSeedDefinitions.CreatedAtUtc));
+        await dbContext.SaveChangesAsync(cancellationToken);
+        counters.CompatibilityRecordsCreated++;
     }
 
     private async Task<SpecificationOption> GetOrCreateOptionAsync(
