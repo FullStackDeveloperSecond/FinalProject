@@ -10,8 +10,14 @@ import {
   useReceiveReturnMutation,
   useReviewReturnMutation,
 } from '../../features/returns/queries'
-import { conditionCodeOptions, formatDateTime, priorityLabels, statusLabels } from '../../features/returns/labels'
-import type { RestockDisposition } from '../../features/returns/types'
+import {
+  assemblyFeeDispositionOptions,
+  conditionCodeOptions,
+  formatDateTime,
+  priorityLabels,
+  statusLabels,
+} from '../../features/returns/labels'
+import type { AssemblyFeeDisposition, RestockDisposition } from '../../features/returns/types'
 
 const route = useRoute()
 const returnId = computed(() => String(route.params.returnId))
@@ -32,10 +38,44 @@ const receiveNote = ref('')
 const extendReasonCode = ref('')
 const inspectionLines = reactive<Record<string, { conditionCode: string, disposition: RestockDisposition, note: string }>>({})
 
+// alex 2026-09-05 #109 裁定：這兩欄不得有會影響退款結果的靜默預設值，一律從空字串
+// 起始，逼管理員自己選、自己填——不能讓 UI 替他們決定 notApplicable／0。
+const reviewAssemblyFeeDisposition = ref<AssemblyFeeDisposition | ''>('')
+// 刻意維持原始字串，不轉成 JavaScript number 再做任何四捨五入——這是退款計算會用
+// 到的可信輸入，JS 的 IEEE-754 浮點數與後端 decimal／MidpointRounding.AwayFromZero
+// 不是同一套規則（例如 1.005 用 Math.round(value*100)/100 會因為浮點誤差變成
+// 1.00，但後端規則應該是 1.01）。畫面只驗證格式，不能替管理員「修正」金額
+// （alex 2026-09-05 #111 review P2 裁定）。<input type="text"> 搭配下面的正規表達式
+// 檢查，不用 type="number"：那個型別的 v-model 會把值轉成 number，一樣會弄丟原始
+// 字串。
+const reviewReturnShippingCost = ref('')
+const inspectAssemblyFeeDisposition = ref<AssemblyFeeDisposition | ''>('')
+const inspectReturnShippingCost = ref('')
+
 const canReview = computed(() => data.value?.availableActions.includes('review') ?? false)
 const canReceive = computed(() => data.value?.availableActions.includes('receive') ?? false)
 const canInspect = computed(() => data.value?.availableActions.includes('inspect') ?? false)
 const canExtend = computed(() => data.value?.availableActions.includes('extendShipmentDeadline') ?? false)
+
+// 取消勾選「需要寄回檢查」才會建立 Refund，此時才需要可信欄位（見 #109 D1）。
+const reviewNeedsTrustedFields = computed(() => !requiresShipmentInspection.value)
+
+// 非負、最多兩位小數；超過兩位小數（例如 1.005）或負數一律擋下送出，不自動修正。
+const shippingCostPattern = /^\d+(\.\d{1,2})?$/
+
+function isValidShippingCost(value: string): boolean {
+  return shippingCostPattern.test(value.trim())
+}
+
+const canSubmitApprove = computed(() => {
+  if (!reviewNeedsTrustedFields.value) {
+    return true
+  }
+  return reviewAssemblyFeeDisposition.value !== '' && isValidShippingCost(reviewReturnShippingCost.value)
+})
+
+const canSubmitInspect = computed(() =>
+  inspectAssemblyFeeDisposition.value !== '' && isValidShippingCost(inspectReturnShippingCost.value))
 
 function ensureInspectionLine(itemPublicId: string) {
   inspectionLines[itemPublicId] ??= { conditionCode: conditionCodeOptions[0], disposition: 'resellable', note: '' }
@@ -43,7 +83,7 @@ function ensureInspectionLine(itemPublicId: string) {
 }
 
 async function handleApprove() {
-  if (!data.value) {
+  if (!data.value || !canSubmitApprove.value) {
     return
   }
 
@@ -57,6 +97,15 @@ async function handleApprove() {
     reasonCode: reviewReasonCode.value.trim() || 'eligible',
     note: reviewNote.value.trim() || null,
     returnRowVersion: data.value.return.rowVersion,
+    // 需要寄回檢查時完全省略這兩欄，不送 null——即使管理員曾經取消勾選、填過值，
+    // 重新勾選後這裡讀的是目前的勾選狀態，不會把隱藏欄位的殘留值一起送出去
+    // （alex #109 裁定第 2 點）。
+    ...(reviewNeedsTrustedFields.value
+      ? {
+          assemblyFeeDisposition: reviewAssemblyFeeDisposition.value as AssemblyFeeDisposition,
+          returnShippingCost: reviewReturnShippingCost.value.trim(),
+        }
+      : {}),
   })
 }
 
@@ -86,7 +135,7 @@ async function handleReceive() {
 }
 
 async function handleInspect() {
-  if (!data.value) {
+  if (!data.value || !canSubmitInspect.value) {
     return
   }
 
@@ -101,6 +150,9 @@ async function handleInspect() {
       }
     }),
     returnRowVersion: data.value.return.rowVersion,
+    // 檢查完成一定會建立 Refund，這兩欄固定必填（alex #109 裁定第 4 點）。
+    assemblyFeeDisposition: inspectAssemblyFeeDisposition.value as AssemblyFeeDisposition,
+    returnShippingCost: inspectReturnShippingCost.value.trim(),
   })
 }
 
@@ -228,6 +280,39 @@ function isConflict(err: unknown): boolean {
             核准後將跳過實體寄回與商品檢查，直接進入等待退款（適用於無需寄回的核准，例如商譽退款）。
           </template>
         </p>
+        <template v-if="reviewNeedsTrustedFields">
+          <label>
+            <span>組裝費處置</span>
+            <select
+              v-model="reviewAssemblyFeeDisposition"
+              name="reviewAssemblyFeeDisposition"
+            >
+              <option
+                value=""
+                disabled
+              >
+                請選擇
+              </option>
+              <option
+                v-for="option in assemblyFeeDispositionOptions"
+                :key="option.value"
+                :value="option.value"
+              >
+                {{ option.label }}
+              </option>
+            </select>
+          </label>
+          <label>
+            <span>退貨運費</span>
+            <input
+              v-model="reviewReturnShippingCost"
+              name="reviewReturnShippingCost"
+              type="text"
+              inputmode="decimal"
+              placeholder="0.00"
+            >
+          </label>
+        </template>
         <p
           v-if="isConflict(reviewMutation.error.value)"
           class="admin-return-detail__conflict"
@@ -244,7 +329,7 @@ function isConflict(err: unknown): boolean {
         <div class="admin-return-detail__actions">
           <button
             type="button"
-            :disabled="reviewMutation.isPending.value"
+            :disabled="reviewMutation.isPending.value || !canSubmitApprove"
             @click="handleApprove"
           >
             核准
@@ -332,6 +417,37 @@ function isConflict(err: unknown): boolean {
             </select>
           </label>
         </div>
+        <label>
+          <span>組裝費處置</span>
+          <select
+            v-model="inspectAssemblyFeeDisposition"
+            name="inspectAssemblyFeeDisposition"
+          >
+            <option
+              value=""
+              disabled
+            >
+              請選擇
+            </option>
+            <option
+              v-for="option in assemblyFeeDispositionOptions"
+              :key="option.value"
+              :value="option.value"
+            >
+              {{ option.label }}
+            </option>
+          </select>
+        </label>
+        <label>
+          <span>退貨運費</span>
+          <input
+            v-model="inspectReturnShippingCost"
+            name="inspectReturnShippingCost"
+            type="text"
+            inputmode="decimal"
+            placeholder="0.00"
+          >
+        </label>
         <p
           v-if="isConflict(inspectMutation.error.value)"
           class="admin-return-detail__conflict"
@@ -341,7 +457,7 @@ function isConflict(err: unknown): boolean {
         </p>
         <button
           type="button"
-          :disabled="inspectMutation.isPending.value"
+          :disabled="inspectMutation.isPending.value || !canSubmitInspect"
           @click="handleInspect"
         >
           送出檢查結果
