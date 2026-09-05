@@ -181,6 +181,83 @@ describe('InventoryReconciliationCasesPage', () => {
     expect(wrapper.find('select[aria-label="原因代碼"]').exists()).toBe(true)
   })
 
+  /**
+   * 組長 PR #114 round 2 P2（1）：換頁時 placeholderData 先留著舊列——新頁碼已顯示、列卻還是上一頁的。
+   * 這段時間所有案件動作與分頁必須停用並顯示更新中，舊列點了也不能送出。
+   */
+  it('disables every case action while a page change is still loading and re-enables it afterwards', async () => {
+    mockListReconciliationCases.mockResolvedValueOnce(page([reconciliationCase()], { totalPages: 2 }))
+    const { wrapper } = mountPage()
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('資料更新中')
+
+    let resolveSecondPage!: (value: unknown) => void
+    mockListReconciliationCases.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveSecondPage = resolve
+    }))
+    await buttons(wrapper, '下一頁')[0]!.trigger('click')
+    await flushPromises()
+
+    // The stale row is still rendered as a placeholder, but nothing on it is clickable.
+    const staleRow = wrapper.find('tr[data-case-id="c1"]')
+    expect(staleRow.exists()).toBe(true)
+    expect(staleRow.findAll('button').length).toBeGreaterThan(0)
+    expect(staleRow.findAll('button').every((button) => button.attributes('disabled') !== undefined)).toBe(true)
+    expect(wrapper.text()).toContain('資料更新中')
+    expect(wrapper.find('table').attributes('aria-busy')).toBe('true')
+    await buttons(wrapper, '確認受理')[0]!.trigger('click')
+    expect(mockAcknowledgeReconciliationCase).not.toHaveBeenCalled()
+    expect(buttons(wrapper, '上一頁')[0]!.attributes('disabled')).toBeDefined()
+
+    resolveSecondPage(page([reconciliationCase({ publicId: 'c2' })], { pageNumber: 2, totalPages: 2 }))
+    await flushPromises()
+
+    const freshRow = wrapper.find('tr[data-case-id="c2"]')
+    expect(freshRow.findAll('button').every((button) => button.attributes('disabled') === undefined)).toBe(true)
+    expect(wrapper.text()).not.toContain('資料更新中')
+  })
+
+  /**
+   * 組長 PR #114 round 2 P2（2）：結案送出中，「取消」只會關表單、關不掉已送出的 API；其他案件的動作
+   * 也不能在這時候做。要等回應回來才解鎖。
+   */
+  it('locks cancel and every other case action while a close request is in flight', async () => {
+    mockListReconciliationCases.mockResolvedValue(page([
+      reconciliationCase({ publicId: 'c1' }),
+      reconciliationCase({ publicId: 'c2' }),
+    ]))
+    let resolveClose!: () => void
+    mockCloseReconciliationCase.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      resolveClose = resolve
+    }))
+    vi.spyOn(globalThis, 'confirm').mockReturnValue(true)
+
+    const { wrapper } = mountPage()
+    await flushPromises()
+    await wrapper.find('tr[data-case-id="c1"]').findAll('button').find((button) => button.text() === '修正庫存')!.trigger('click')
+    await wrapper.find('select[aria-label="原因代碼"]').setValue('count_verified')
+    await wrapper.find('input[aria-label="說明"]').setValue('實點確認為 0')
+    await buttons(wrapper, '確認修正庫存')[0]!.trigger('click')
+    await flushPromises()
+    expect(mockCloseReconciliationCase).toHaveBeenCalledTimes(1)
+
+    expect(buttons(wrapper, '取消')[0]!.attributes('disabled')).toBeDefined()
+    expect(buttons(wrapper, '確認修正庫存')[0]!.attributes('disabled')).toBeDefined()
+    const otherRow = wrapper.find('tr[data-case-id="c2"]')
+    expect(otherRow.findAll('button').length).toBeGreaterThan(0)
+    expect(otherRow.findAll('button').every((button) => button.attributes('disabled') !== undefined)).toBe(true)
+    await buttons(wrapper, '取消')[0]!.trigger('click')
+    expect(wrapper.find('select[aria-label="原因代碼"]').exists()).toBe(true)
+    await otherRow.findAll('button')[0]!.trigger('click')
+    expect(mockAcknowledgeReconciliationCase).not.toHaveBeenCalled()
+
+    resolveClose()
+    await flushPromises()
+
+    expect(wrapper.find('select[aria-label="原因代碼"]').exists()).toBe(false)
+    expect(wrapper.find('tr[data-case-id="c2"]').findAll('button').every((button) => button.attributes('disabled') === undefined)).toBe(true)
+  })
+
   it('pages with pageNumber and resets to the first page when the status filter is applied', async () => {
     mockListReconciliationCases.mockResolvedValue(page([reconciliationCase()], { totalPages: 3 }))
 

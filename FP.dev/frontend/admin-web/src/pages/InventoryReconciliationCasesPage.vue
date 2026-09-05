@@ -41,7 +41,7 @@ const listParams = computed(() => ({
   pageNumber: appliedFilters.pageNumber,
   pageSize,
 }))
-const { data, isPending, isError, error, refetch } = useInventoryReconciliationCaseList(listParams)
+const { data, isPending, isError, error, refetch, isPlaceholderData, isFetching } = useInventoryReconciliationCaseList(listParams)
 const items = computed<InventoryReconciliationCaseDto[]>(() => data.value?.items ?? [])
 const totalPages = computed(() => Number(data.value?.totalPages ?? 0))
 
@@ -67,7 +67,19 @@ function canClose(reconciliationCase: InventoryReconciliationCaseDto): boolean {
 const acknowledgeMutation = useAcknowledgeReconciliationCase()
 const closeMutation = useCloseReconciliationCase()
 
+// 組長 PR #114 round 2 P2（1）：換頁或套用篩選時 placeholderData 會先留著上一批列，畫面已顯示新頁碼、
+// 列卻還是舊的；重新查詢期間也一樣。這段時間全部案件動作與分頁都鎖住，並顯示更新中，避免管理員對
+// 一列已經不是他以為的案件做受理／駁回／修正。
+const isRefreshing = computed(() => isPlaceholderData.value || isFetching.value)
+// 組長 PR #114 round 2 P2（2）：結案送出中不能取消、切換案件或做其他動作——「取消」只會關表單，
+// 關不掉已送出的 API，會讓人誤以為高風險的庫存修正已經取消。
+const isBusy = computed(() =>
+  isRefreshing.value || acknowledgeMutation.isPending.value || closeMutation.isPending.value)
+
 function acknowledge(reconciliationCase: InventoryReconciliationCaseDto) {
+  if (isBusy.value) {
+    return
+  }
   closeForm.publicId = null
   acknowledgeMutation.mutate({ publicId: reconciliationCase.publicId, rowVersion: reconciliationCase.rowVersion })
 }
@@ -84,6 +96,9 @@ const closeReasonOptions = computed(() =>
 const closeActionLabel = computed(() => (closeForm.action === 'dismiss' ? '駁回' : '修正庫存'))
 
 function startClose(reconciliationCase: InventoryReconciliationCaseDto, action: ReconciliationCaseCloseAction) {
+  if (isBusy.value) {
+    return
+  }
   closeMutation.reset()
   closeForm.publicId = reconciliationCase.publicId
   closeForm.action = action
@@ -92,10 +107,16 @@ function startClose(reconciliationCase: InventoryReconciliationCaseDto, action: 
 }
 
 function cancelClose() {
+  if (closeMutation.isPending.value) {
+    return
+  }
   closeForm.publicId = null
 }
 
 function confirmClose(reconciliationCase: InventoryReconciliationCaseDto) {
+  if (isBusy.value) {
+    return
+  }
   const message = closeForm.action === 'dismiss'
     ? `確定要駁回 SKU ${reconciliationCase.sku.skuCode} 的對帳案件嗎？案件會以「核對基準錯誤」結案，庫存不會變動。`
     : `確定要修正 SKU ${reconciliationCase.sku.skuCode} 的庫存嗎？在庫 ${Number(reconciliationCase.expectedOnHand)} → ${Number(reconciliationCase.actualOnHand)}、保留 ${Number(reconciliationCase.expectedReserved)} → ${Number(reconciliationCase.actualReserved)}，並留下一筆修正異動。此動作無法復原。`
@@ -187,7 +208,18 @@ function actorLabel(reconciliationCase: InventoryReconciliationCaseDto): string 
       >
         {{ describeApiError(acknowledgeMutation.error.value) }}
       </p>
-      <table class="reconciliation-table">
+      <p
+        v-if="isRefreshing"
+        class="reconciliation-updating"
+        role="status"
+        aria-live="polite"
+      >
+        資料更新中，動作暫時停用…
+      </p>
+      <table
+        class="reconciliation-table"
+        :aria-busy="isRefreshing"
+      >
         <thead>
           <tr>
             <th>SKU</th>
@@ -220,7 +252,7 @@ function actorLabel(reconciliationCase: InventoryReconciliationCaseDto): string 
                 <button
                   v-if="canAcknowledge(reconciliationCase)"
                   type="button"
-                  :disabled="acknowledgeMutation.isPending.value"
+                  :disabled="isBusy"
                   @click="acknowledge(reconciliationCase)"
                 >
                   確認受理
@@ -228,12 +260,14 @@ function actorLabel(reconciliationCase: InventoryReconciliationCaseDto): string 
                 <template v-if="canClose(reconciliationCase) && closeForm.publicId !== reconciliationCase.publicId">
                   <button
                     type="button"
+                    :disabled="isBusy"
                     @click="startClose(reconciliationCase, 'dismiss')"
                   >
                     駁回
                   </button>
                   <button
                     type="button"
+                    :disabled="isBusy"
                     @click="startClose(reconciliationCase, 'resolve')"
                   >
                     修正庫存
@@ -281,13 +315,14 @@ function actorLabel(reconciliationCase: InventoryReconciliationCaseDto): string 
                   </label>
                   <button
                     type="button"
-                    :disabled="closeMutation.isPending.value || !closeForm.reasonCode || !closeForm.note.trim()"
+                    :disabled="isBusy || !closeForm.reasonCode || !closeForm.note.trim()"
                     @click="confirmClose(reconciliationCase)"
                   >
                     確認{{ closeActionLabel }}
                   </button>
                   <button
                     type="button"
+                    :disabled="closeMutation.isPending.value"
                     @click="cancelClose"
                   >
                     取消
@@ -311,7 +346,7 @@ function actorLabel(reconciliationCase: InventoryReconciliationCaseDto): string 
       >
         <button
           type="button"
-          :disabled="appliedFilters.pageNumber <= 1"
+          :disabled="isRefreshing || appliedFilters.pageNumber <= 1"
           @click="goToPage(appliedFilters.pageNumber - 1)"
         >
           上一頁
@@ -319,7 +354,7 @@ function actorLabel(reconciliationCase: InventoryReconciliationCaseDto): string 
         <span>第 {{ appliedFilters.pageNumber }} / {{ totalPages }} 頁</span>
         <button
           type="button"
-          :disabled="appliedFilters.pageNumber >= totalPages"
+          :disabled="isRefreshing || appliedFilters.pageNumber >= totalPages"
           @click="goToPage(appliedFilters.pageNumber + 1)"
         >
           下一頁
@@ -397,6 +432,12 @@ function actorLabel(reconciliationCase: InventoryReconciliationCaseDto): string 
   flex-direction: column;
   gap: 0.25rem;
   font-size: 0.8125rem;
+}
+
+.reconciliation-updating {
+  color: #92400e;
+  font-size: 0.875rem;
+  margin: 0 0 0.5rem;
 }
 
 .close-form__error,
