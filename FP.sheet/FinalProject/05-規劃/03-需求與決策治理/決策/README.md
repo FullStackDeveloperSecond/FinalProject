@@ -13,6 +13,8 @@
 
 ## 最近完成批次
 
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-057-AI顧客視角回答與覆核契約修正定版|DEC-BATCH-057｜AI 顧客視角回答與覆核契約修正定版]]：`DEC-P397`，1 項，已於 2026-09-05 寫回；AI 回答對象固定為顧客／實際使用者，內部 Enum、Semantic Key、Fixture ID、代碼與後端術語不得顯示；人工覆核表必須並列顧客問題、必要回答重點與顧客可見回答。Grader 升為 `deterministic-v1.1.2`，未執行付費重跑。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-056-AI-v5覆核與v6零成本修正定版|DEC-BATCH-056｜AI v5 覆核與 v6 零成本修正定版]]：`DEC-P392～DEC-P396`，5 項，已於 2026-09-05 寫回；v5 六案正式人工結果全部待 Alex 重審，Citation 選填仍受來源 allowlist 約束，Semantic Key 統一大寫契約，推薦理由明確說明預算／Badge 取捨，商品 Prompt 升 v6 泛化範例。本批未付費重跑。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-055-AI商品意圖分類人工覆核與安全診斷定版|DEC-BATCH-055｜AI 商品意圖分類、人工覆核與安全診斷定版]]：`DEC-P389～DEC-P391`，3 項，已於 2026-09-05 寫回；一般「主機」無用途／組裝詞時採 Prebuilt，用途＋預算或明示組裝才採 CustomBuild；低延遲 Smoke 正式覆核 3 Pass／3 Fail；InvalidOutput 只保存固定原因碼與欄位名稱，不保存 raw output。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-054-AI商品搜尋低延遲推理設定定版|DEC-BATCH-054｜AI 商品搜尋低延遲推理設定定版]]：`DEC-P385～DEC-P388`，4 項，已於 2026-09-04 寫回；保留 Luna、單次 5 秒、零同步重試與預設 service tier，商品 SearchIntent 改用 `reasoning.effort: none`、`text.verbosity: low`。後續 6 案 Smoke 的商品 P95 為 3,013 ms，但品質 Gate 仍失敗；taxonomy 與正式人工覆核已由 DEC-BATCH-055 完成，v5 尚未重驗，不進 baseline。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-053-AI商品搜尋單次模型與5秒降級定版|DEC-BATCH-053｜AI 商品搜尋單次模型與 5 秒降級定版]]：`DEC-P381～DEC-P384`，4 項，已於 2026-09-04 寫回；採方案 A，商品搜尋只做一次 5 秒意圖模型呼叫、零同步重試，理由改由後端核准事實確定性產生，三輪 Release 規劃降為 66 次。公開 API 不變；尚未付費重驗 v4 品質與 P95。

@@ -48,7 +48,8 @@ public sealed record LiveEvaluationCaseResult(
     bool? RecommendationValid = null,
     bool IsPrivacyAuthorizationCase = false,
     string? ValidationFailureCode = null,
-    string? ValidationFailureField = null);
+    string? ValidationFailureField = null,
+    bool? CustomerFacingAnswer = null);
 
 public sealed record LiveEvaluationSummary(
     string RunId,
@@ -281,16 +282,18 @@ public sealed class LiveEvaluationRunner : IDisposable
         intentStopwatch.Stop();
         var usage = intentResult.Usage;
         AiProductSearchExplanationResult? explanation = null;
+        IReadOnlyList<ProductCardDto> approvedCandidates = [];
         var explanationLatencyMilliseconds = 0L;
         var approvedCandidateIds = ReadStrings(item.Expected, "allowedCandidateIds");
         if (intentResult.Status == AiProductSearchModelStatus.Completed &&
             intentResult.Intent is not null &&
             approvedCandidateIds.Count > 0)
         {
+            approvedCandidates = fixtures.CreateProductCards(approvedCandidateIds);
             var explanationStopwatch = Stopwatch.StartNew();
             explanation = await _productSearchClient.ExplainAsync(
                 intentResult.Intent,
-                fixtures.CreateProductCards(approvedCandidateIds),
+                approvedCandidates,
                 SupportedLocale.ZhTw,
                 cancellationToken);
             explanationStopwatch.Stop();
@@ -314,12 +317,20 @@ public sealed class LiveEvaluationRunner : IDisposable
         var answer = explanation is null
             ? null
             : string.Join("\n", explanation.Reasons.Select(reason => reason.Reason));
-        var deterministicPass = schemaValid && intentMatches && clarificationMatches && explanationValid;
+        var customerFacingAnswer = IsCustomerFacingProductOutput(
+            answer,
+            intentResult.Intent?.Clarifications ?? [],
+            approvedCandidateIds,
+            approvedCandidates);
+        var deterministicPass = schemaValid && intentMatches && clarificationMatches &&
+            explanationValid && customerFacingAnswer;
         var errorCode = intentResult.Status != AiProductSearchModelStatus.Completed || intentResult.Intent is null
             ? $"INTENT_STAGE_{intentResult.Status.ToString().ToUpperInvariant()}"
             : approvedCandidateIds.Count > 0 && explanation?.Status != AiProductSearchModelStatus.Completed
                 ? $"EXPLANATION_STAGE_{explanation?.Status.ToString().ToUpperInvariant() ?? "NOT_EXECUTED"}"
-                : null;
+                : !customerFacingAnswer
+                    ? "CUSTOMER_FACING_OUTPUT_INVALID"
+                    : null;
 
         return new LiveEvaluationCaseResult(
             item.CaseId,
@@ -354,9 +365,56 @@ public sealed class LiveEvaluationRunner : IDisposable
             ClarificationAsked: intentResult.Intent?.Clarifications.Count > 0,
             RecommendationValid: approvedCandidateIds.Count == 0
                 ? null
-                : schemaValid && explanationValid,
+                : schemaValid && explanationValid && customerFacingAnswer,
             ValidationFailureCode: intentResult.ValidationFailureCode,
-            ValidationFailureField: intentResult.ValidationFailureField);
+            ValidationFailureField: intentResult.ValidationFailureField,
+            CustomerFacingAnswer: customerFacingAnswer);
+    }
+
+    private static bool IsCustomerFacingProductOutput(
+        string? answer,
+        IReadOnlyList<string> clarifications,
+        IReadOnlyList<string> candidateIds,
+        IReadOnlyList<ProductCardDto> products)
+    {
+        var output = string.Join("\n", new[] { answer }
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Concat(clarifications));
+        var forbidden = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "CustomBuild",
+            "PrebuiltComputer",
+            "SingleProduct",
+            "CUSTOM_BUILD",
+            "PREBUILT_COMPUTER",
+            "後端候選",
+            "後端驗證",
+            "バックエンド",
+            "백엔드",
+        };
+        foreach (var candidateId in candidateIds)
+        {
+            forbidden.Add(candidateId);
+        }
+
+        foreach (var product in products)
+        {
+            forbidden.Add(product.ProductCode);
+            forbidden.Add(product.SkuCode);
+            if (!string.Equals(product.Brand.Code, product.Brand.Name, StringComparison.OrdinalIgnoreCase))
+            {
+                forbidden.Add(product.Brand.Code);
+            }
+
+            if (!string.Equals(product.Category.Code, product.Category.Name, StringComparison.OrdinalIgnoreCase))
+            {
+                forbidden.Add(product.Category.Code);
+            }
+        }
+
+        return forbidden
+            .Where(term => !string.IsNullOrWhiteSpace(term))
+            .All(term => !output.Contains(term, StringComparison.OrdinalIgnoreCase));
     }
 
     private async Task<LiveEvaluationCaseResult> RunSupportAsync(
@@ -382,11 +440,16 @@ public sealed class LiveEvaluationRunner : IDisposable
         var schemaValid = expectsAnswer
             ? answer.Status == AiSupportModelAnswerStatus.Answered && !string.IsNullOrWhiteSpace(answer.Answer)
             : answer.Status == AiSupportModelAnswerStatus.Unavailable;
-        var expectedCitations = ReadStrings(item.Expected.GetProperty("citations"), "sourceIds");
+        var citationExpectation = item.Expected.GetProperty("citations");
+        var citationsRequired = citationExpectation.GetProperty("required").GetBoolean();
+        var expectedCitations = ReadStrings(citationExpectation, "sourceIds");
         var actualCitations = answer.Citations.Select(citation => citation.SourceId).ToArray();
-        var citationGrounded = expectedCitations.Count == 0
-            ? actualCitations.Length == 0
-            : expectedCitations.All(expected => actualCitations.Contains(expected, StringComparer.Ordinal));
+        var allActualCitationsAllowed = actualCitations.All(actual =>
+            expectedCitations.Contains(actual, StringComparer.Ordinal));
+        var requiredCitationsPresent = !citationsRequired ||
+            (expectedCitations.Count > 0 && expectedCitations.All(expected =>
+                actualCitations.Contains(expected, StringComparer.Ordinal)));
+        var citationGrounded = schemaValid && allActualCitationsAllowed && requiredCitationsPresent;
 
         return new LiveEvaluationCaseResult(
             item.CaseId,
@@ -624,7 +687,7 @@ public sealed class LiveEvaluationRunner : IDisposable
             cancellationToken);
         await File.WriteAllTextAsync(
             runFiles.HumanReviewPath,
-            CreateHumanReview(results),
+            CreateHumanReview(plan, results),
             cancellationToken);
         return summary;
     }
@@ -851,26 +914,58 @@ public sealed class LiveEvaluationRunner : IDisposable
         return process.ExitCode == 0 ? output.Trim() : "uncommitted";
     }
 
-    private static string CreateHumanReview(IReadOnlyList<LiveEvaluationCaseResult> results)
+    private static string CreateHumanReview(
+        EvaluationPlan plan,
+        IReadOnlyList<LiveEvaluationCaseResult> results)
     {
+        var cases = plan.SelectedCases.ToDictionary(item => item.CaseId, StringComparer.Ordinal);
         var builder = new StringBuilder();
-        builder.AppendLine("# AI Live evaluation human review");
+        builder.AppendLine("# AI Live 評估人工覆核表");
         builder.AppendLine();
-        builder.AppendLine("Only synthetic/deidentified evaluation inputs were used. Review required points, helpfulness, unsupported claims, refusal quality, and language quality.");
+        builder.AppendLine("本次只使用合成或去識別化的評估資料。請以顧客／AI 使用者的角度，逐案檢查回答是否切合問題、涵蓋必要重點、清楚實用、沒有未經來源支持的陳述，並符合安全與語言品質要求。");
         builder.AppendLine();
         foreach (var result in results.Where(result => result.HumanReviewRequired))
         {
-            builder.AppendLine($"## {result.CaseId} / trial {result.Trial}");
+            var item = cases[result.CaseId];
+            var requiredPoints = ReadStrings(item.Expected.GetProperty("answer"), "requiredPoints");
+            builder.AppendLine($"## {result.CaseId}／第 {result.Trial} 輪");
             builder.AppendLine();
-            builder.AppendLine($"- Deterministic pass: `{result.DeterministicPass}`");
-            builder.AppendLine($"- Model: `{result.Model ?? "unavailable"}`");
-            builder.AppendLine($"- Answer: {result.Answer ?? "（無回答／已降級）"}");
-            builder.AppendLine("- Human verdict: `pending`");
-            builder.AppendLine("- Reviewer notes:");
+            builder.AppendLine($"- 顧客問題：{item.Message}");
+            builder.AppendLine($"- 必要回答重點：{string.Join("；", requiredPoints)}");
+            builder.AppendLine($"- 確定性檢查通過：`{result.DeterministicPass}`");
+            builder.AppendLine($"- 顧客視角檢查通過：`{result.CustomerFacingAnswer?.ToString() ?? "不適用"}`");
+            builder.AppendLine($"- 模型：`{result.Model ?? "unavailable"}`");
+            builder.AppendLine($"- 顧客可見回答：{CreateCustomerVisibleReviewText(result)}");
+            builder.AppendLine("- 人工判定：`pending`");
+            builder.AppendLine("- 覆核意見：");
             builder.AppendLine();
         }
 
         return builder.ToString();
+    }
+
+    private static string CreateCustomerVisibleReviewText(LiveEvaluationCaseResult result)
+    {
+        if (!string.IsNullOrWhiteSpace(result.Answer))
+        {
+            return result.Answer;
+        }
+
+        if (result.StructuredOutput is { } output &&
+            output.TryGetProperty("clarifications", out var clarifications) &&
+            clarifications.ValueKind == JsonValueKind.Array)
+        {
+            var questions = clarifications.EnumerateArray()
+                .Select(item => item.GetString())
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .ToArray();
+            if (questions.Length > 0)
+            {
+                return string.Join("／", questions!);
+            }
+        }
+
+        return "（沒有可提供給顧客的回答／已降級）";
     }
 
     private sealed record LiveEvaluationRunFiles(
@@ -967,7 +1062,7 @@ public sealed class EvaluationFixtureStore : IDisposable
             var price = candidate.GetProperty("price").GetDecimal();
             var name = candidate.TryGetProperty("name", out var nameProperty)
                 ? nameProperty.GetString()!
-                : id;
+                : CreateCustomerFacingProductName(candidate, category);
             var badges = candidate.TryGetProperty("badges", out var badgesProperty)
                 ? badgesProperty.EnumerateArray().Select(item => item.GetString()!).ToArray()
                 : [];
@@ -978,7 +1073,7 @@ public sealed class EvaluationFixtureStore : IDisposable
                 $"EVAL-{id.ToUpperInvariant()}-01",
                 name,
                 new ProductBrandRef("DOSELECT", "懂選"),
-                new ProductCategoryRef(NormalizeCategory(category), category),
+                new ProductCategoryRef(NormalizeCategory(category), CreateCustomerFacingCategoryName(category)),
                 new ProductPrice(price, null, "TWD"),
                 ProductAvailabilityCodes.InStock,
                 PrimaryImage: null,
@@ -1047,6 +1142,38 @@ public sealed class EvaluationFixtureStore : IDisposable
         "CustomBuild" => "CUSTOM_BUILD",
         _ => string.Concat(category.Select((character, index) =>
             index > 0 && char.IsUpper(character) ? $"_{character}" : character.ToString())).ToUpperInvariant(),
+    };
+
+    private static string CreateCustomerFacingProductName(JsonElement candidate, string category)
+    {
+        var purpose = candidate.GetProperty("purposes")
+            .EnumerateArray()
+            .Select(item => item.GetString())
+            .FirstOrDefault();
+        var purposeName = purpose switch
+        {
+            "Gaming" => "遊戲",
+            "VideoEditing" => "影音剪輯",
+            "ThreeDRendering" => "3D 創作",
+            "GraphicDesign" => "平面設計",
+            "Office" => "文書",
+            "Programming" => "程式開發",
+            "Streaming" => "直播",
+            _ => string.Empty,
+        };
+        return $"懂選{purposeName}{CreateCustomerFacingCategoryName(category)}";
+    }
+
+    private static string CreateCustomerFacingCategoryName(string category) => category switch
+    {
+        "PrebuiltComputer" => "品牌套裝電腦",
+        "CustomBuild" => "客製組裝電腦",
+        "Monitor" => "顯示器",
+        "Storage" => "儲存裝置",
+        "Motherboard" => "主機板",
+        "Keyboard" => "鍵盤",
+        "Mouse" => "滑鼠",
+        _ => "商品",
     };
 
     private static Guid StableGuid(string value)

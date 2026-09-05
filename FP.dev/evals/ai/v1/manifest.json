@@ -20,18 +20,18 @@
     "SUPPORT-SECURITY": 20
   },
   "versions": {
-    "prompt": "product-search-v5+support-v2",
+    "prompt": "product-search-v6+support-v2",
     "searchIntentSchema": "contract-v1.0.1-2026-09-03",
     "toolContract": "contract-v1",
-    "grader": "deterministic-v1.1.0",
-    "fixture": "v1.0.3"
+    "grader": "deterministic-v1.1.2",
+    "fixture": "v1.0.4"
   },
   "candidateModels": {
     "productSearch": "gpt-5.6-luna",
     "aiSupport": "gpt-5.6-terra"
   },
-  "annotationStatus": "all_120_cases_approved_2026-09-04",
-  "liveBaselineStatus": "low_latency_smoke_failed_quality_product_search_v5_remediation_in_progress_2026-09-05",
+  "annotationStatus": "all_120_case_definitions_approved_2026-09-04_customer_facing_output_requires_new_human_review_2026-09-05",
+  "liveBaselineStatus": "product_search_v5_smoke_failed_v6_customer_audience_remediation_complete_pending_human_review_and_authorized_smoke_2026-09-05",
   "containsProductionData": false,
   "containsRealPersonalData": false
 }

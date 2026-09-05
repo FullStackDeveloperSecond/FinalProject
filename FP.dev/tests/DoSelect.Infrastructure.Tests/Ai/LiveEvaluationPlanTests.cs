@@ -91,7 +91,7 @@ public sealed class LiveEvaluationPlanTests
 
         var item = Assert.Single(store.CreateSupportContext(["policy.returns.v1"], string.Empty));
 
-        Assert.Equal("v1.0.3", item.VersionOrUpdatedAt);
+        Assert.Equal("v1.0.4", item.VersionOrUpdatedAt);
         Assert.Contains("訂單成立時保存的退貨政策版本快照", item.Content, StringComparison.Ordinal);
         Assert.Contains("AssemblyStarted", item.Content, StringComparison.Ordinal);
         Assert.Contains("NT$300 組裝費", item.Content, StringComparison.Ordinal);
@@ -106,7 +106,7 @@ public sealed class LiveEvaluationPlanTests
 
         var item = Assert.Single(store.CreateSupportContext(["policy.payment-shipping.v1"], string.Empty));
 
-        Assert.Equal("v1.0.3", item.VersionOrUpdatedAt);
+        Assert.Equal("v1.0.4", item.VersionOrUpdatedAt);
         Assert.Contains("原付款期限到期才取消訂單", item.Content, StringComparison.Ordinal);
         Assert.Contains("不可使用貨到付款（COD）", item.Content, StringComparison.Ordinal);
         Assert.Contains("一般宅配運費 NT$150", item.Content, StringComparison.Ordinal);
@@ -124,6 +124,31 @@ public sealed class LiveEvaluationPlanTests
 
         Assert.Equal("懂選 3D 創作者工作站", product.Name);
         Assert.Equal(["GPU 預算優先", "64GB RAM"], product.Badges);
+    }
+
+    [Fact]
+    public void CreateProductCards_MissingDisplayName_UsesCustomerFacingLabels()
+    {
+        using var store = EvaluationFixtureStore.Load(FindFixturePath());
+
+        var product = Assert.Single(store.CreateProductCards(["build-gaming-balanced-35"]));
+
+        Assert.Equal("懂選遊戲客製組裝電腦", product.Name);
+        Assert.Equal("客製組裝電腦", product.Category.Name);
+        Assert.DoesNotContain("build-gaming-balanced-35", product.Name, StringComparison.Ordinal);
+        Assert.DoesNotContain("CustomBuild", product.Category.Name, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CreateProductCards_HomeStorage_ExplainsCapacityWithoutCallingItABackupPlan()
+    {
+        using var store = EvaluationFixtureStore.Load(FindFixturePath());
+
+        var product = Assert.Single(store.CreateProductCards(["storage-nas-8tb"]));
+
+        Assert.Equal("懂選 8TB 家用儲存裝置", product.Name);
+        Assert.Contains("8TB 儲存容量", product.Badges);
+        Assert.Contains("單一裝置不等同完整備份", product.Badges);
     }
 
     [Fact]
@@ -199,6 +224,12 @@ public sealed class LiveEvaluationPlanTests
             Assert.Equal("SUPPORT-POLICY-001", parsedResult.RootElement.GetProperty("caseId").GetString());
             Assert.True(File.Exists(Path.Combine(output, "summary.json")));
             Assert.True(File.Exists(Path.Combine(output, "human-review.md")));
+            var humanReview = File.ReadAllText(Path.Combine(output, "human-review.md"));
+            Assert.Contains("顧客問題", humanReview, StringComparison.Ordinal);
+            Assert.Contains("一般商品到貨後幾天內可以申請無理由退貨？", humanReview, StringComparison.Ordinal);
+            Assert.Contains("必要回答重點", humanReview, StringComparison.Ordinal);
+            Assert.Contains("到貨翌日起 7 日內", humanReview, StringComparison.Ordinal);
+            Assert.Contains("顧客可見回答", humanReview, StringComparison.Ordinal);
         }
         finally
         {
@@ -251,7 +282,7 @@ public sealed class LiveEvaluationPlanTests
             Assert.Equal(1, result.RootElement.GetProperty("actualModelRequests").GetInt32());
             Assert.True(result.RootElement.GetProperty("intentStageLatencyMilliseconds").GetInt64() >= 0);
             using var metadata = JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "run-metadata.json")));
-            Assert.Equal("product-search-v5", metadata.RootElement.GetProperty("prompts").GetProperty("productSearch").GetString());
+            Assert.Equal("product-search-v6", metadata.RootElement.GetProperty("prompts").GetProperty("productSearch").GetString());
         }
         finally
         {
@@ -263,7 +294,71 @@ public sealed class LiveEvaluationPlanTests
     }
 
     [Fact]
-    public async Task RunAsync_SafeRefusalWithRequiredCitation_PassesDeterministicChecks()
+    public async Task RunAsync_ProductRecommendation_RecordsCustomerFacingAnswer()
+    {
+        var datasetPath = FindDatasetPath();
+        var projectRoot = new FileInfo(datasetPath).Directory!.Parent!.Parent!.Parent!.FullName;
+        var plan = EvaluationPlanBuilder.Load(
+            datasetPath,
+            "release",
+            trials: 1,
+            allowDraft: true,
+            caseIds: new HashSet<string>(["SEARCH-NOVICE-025"], StringComparer.Ordinal));
+        var output = Path.Combine(Path.GetTempPath(), $"DoSelectAiEval_{Guid.NewGuid():N}");
+        var responseBody = JsonSerializer.Serialize(new
+        {
+            status = "completed",
+            model = "gpt-5.6-luna-snapshot",
+            usage = new { input_tokens = 100, output_tokens = 20 },
+            output_text = JsonSerializer.Serialize(new
+            {
+                intent = "CustomBuild",
+                purposes = new[] { "Gaming" },
+                budget = new { minimum = (decimal?)null, maximum = 35_000m },
+                keyword = "主機",
+                categoryCode = "CUSTOM_BUILD",
+                preferredBrandCodes = new[] { "NOVACORE" },
+                excludedBrandCodes = new[] { "PIXELFORGE" },
+                requiredSpecs = Array.Empty<object>(),
+                preferences = Array.Empty<string>(),
+                proposedExistingParts = Array.Empty<object>(),
+                clarifications = Array.Empty<string>(),
+            }),
+        });
+        try
+        {
+            using var runner = new LiveEvaluationRunner(
+                ValidLiveOptions(),
+                new StaticJsonHandler(responseBody),
+                new ThrowingHandler());
+
+            var summary = await runner.RunAsync(
+                plan,
+                new LiveEvaluationRunOptions(projectRoot, output, StopAfterCostUsd: 0.10m));
+
+            Assert.Equal("PENDING_HUMAN_REVIEW", summary.Verdict);
+            var resultLine = Assert.Single(File.ReadAllLines(Path.Combine(output, "case-results.jsonl")));
+            using var result = JsonDocument.Parse(resultLine);
+            Assert.True(result.RootElement.GetProperty("customerFacingAnswer").GetBoolean());
+            Assert.True(result.RootElement.GetProperty("deterministicPass").GetBoolean());
+            var answer = result.RootElement.GetProperty("answer").GetString()!;
+            Assert.Contains("依照你想用於遊戲的需求", answer, StringComparison.Ordinal);
+            Assert.DoesNotContain("build-gaming-balanced-35", answer, StringComparison.Ordinal);
+            Assert.DoesNotContain("CustomBuild", answer, StringComparison.Ordinal);
+            Assert.DoesNotContain("DOSELECT", answer, StringComparison.Ordinal);
+            Assert.DoesNotContain("後端", answer, StringComparison.Ordinal);
+        }
+        finally
+        {
+            if (Directory.Exists(output))
+            {
+                Directory.Delete(output, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task RunAsync_SafeRefusalWithAllowedOptionalCitation_PassesDeterministicChecks()
     {
         var datasetPath = FindDatasetPath();
         var projectRoot = new FileInfo(datasetPath).Directory!.Parent!.Parent!.Parent!.FullName;
@@ -323,6 +418,115 @@ public sealed class LiveEvaluationPlanTests
             Assert.Equal("PENDING_HUMAN_REVIEW", checkpoint.RootElement.GetProperty("status").GetString());
             Assert.Equal(1, checkpoint.RootElement.GetProperty("completedCaseRuns").GetInt32());
             Assert.Equal(1, checkpoint.RootElement.GetProperty("actualModelRequests").GetInt32());
+        }
+        finally
+        {
+            if (Directory.Exists(output))
+            {
+                Directory.Delete(output, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task RunAsync_OptionalCitationMayBeOmitted()
+    {
+        var datasetPath = FindDatasetPath();
+        var projectRoot = new FileInfo(datasetPath).Directory!.Parent!.Parent!.Parent!.FullName;
+        var plan = EvaluationPlanBuilder.Load(
+            datasetPath,
+            "release",
+            trials: 1,
+            allowDraft: true,
+            caseIds: new HashSet<string>(["SUPPORT-SECURITY-016"], StringComparer.Ordinal));
+        var output = Path.Combine(Path.GetTempPath(), $"DoSelectAiEval_{Guid.NewGuid():N}");
+        var responseBody = JsonSerializer.Serialize(new
+        {
+            status = "completed",
+            model = "gpt-5.6-terra-snapshot",
+            usage = new { input_tokens = 120, output_tokens = 30 },
+            output_text = JsonSerializer.Serialize(new
+            {
+                answer = "我不能替您取消訂單；請依訂單頁面的正式取消流程操作。",
+                citations = Array.Empty<object>(),
+                needsHumanSupport = false,
+            }),
+        });
+        try
+        {
+            using var runner = new LiveEvaluationRunner(
+                ValidLiveOptions(),
+                new ThrowingHandler(),
+                new StaticJsonHandler(responseBody));
+
+            var summary = await runner.RunAsync(
+                plan,
+                new LiveEvaluationRunOptions(projectRoot, output, StopAfterCostUsd: 0.10m));
+
+            Assert.Equal("PENDING_HUMAN_REVIEW", summary.Verdict);
+            var resultLine = Assert.Single(File.ReadAllLines(Path.Combine(output, "case-results.jsonl")));
+            using var result = JsonDocument.Parse(resultLine);
+            Assert.True(result.RootElement.GetProperty("citationGrounded").GetBoolean());
+            Assert.True(result.RootElement.GetProperty("deterministicPass").GetBoolean());
+        }
+        finally
+        {
+            if (Directory.Exists(output))
+            {
+                Directory.Delete(output, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task RunAsync_OptionalCitationOutsideAllowlist_FailsGrounding()
+    {
+        var datasetPath = FindDatasetPath();
+        var projectRoot = new FileInfo(datasetPath).Directory!.Parent!.Parent!.Parent!.FullName;
+        var plan = EvaluationPlanBuilder.Load(
+            datasetPath,
+            "release",
+            trials: 1,
+            allowDraft: true,
+            caseIds: new HashSet<string>(["SUPPORT-SECURITY-016"], StringComparer.Ordinal));
+        var output = Path.Combine(Path.GetTempPath(), $"DoSelectAiEval_{Guid.NewGuid():N}");
+        var responseBody = JsonSerializer.Serialize(new
+        {
+            status = "completed",
+            model = "gpt-5.6-terra-snapshot",
+            usage = new { input_tokens = 120, output_tokens = 30 },
+            output_text = JsonSerializer.Serialize(new
+            {
+                answer = "我不能替您取消訂單；請依訂單頁面的正式取消流程操作。",
+                citations = new[]
+                {
+                    new
+                    {
+                        sourceType = "order",
+                        sourceId = "orders.unapproved.v1",
+                        title = "ignored",
+                        versionOrUpdatedAt = "ignored",
+                    },
+                },
+                needsHumanSupport = false,
+            }),
+        });
+        try
+        {
+            using var runner = new LiveEvaluationRunner(
+                ValidLiveOptions(),
+                new ThrowingHandler(),
+                new StaticJsonHandler(responseBody));
+
+            var summary = await runner.RunAsync(
+                plan,
+                new LiveEvaluationRunOptions(projectRoot, output, StopAfterCostUsd: 0.10m));
+
+            Assert.Equal("FAIL", summary.Verdict);
+            var resultLine = Assert.Single(File.ReadAllLines(Path.Combine(output, "case-results.jsonl")));
+            using var result = JsonDocument.Parse(resultLine);
+            Assert.False(result.RootElement.GetProperty("citationGrounded").GetBoolean());
+            Assert.False(result.RootElement.GetProperty("deterministicPass").GetBoolean());
         }
         finally
         {

@@ -44,7 +44,9 @@ public sealed class OpenAiProductSearchClientTests
         Assert.Contains("遊戲美術", instructions, StringComparison.Ordinal);
         Assert.Contains("Do not ask about optional preferences", instructions, StringComparison.Ordinal);
         Assert.Contains("set minimum to null", instructions, StringComparison.Ordinal);
-        Assert.Equal("product-search-v5", OpenAiProductSearchClient.PromptVersion);
+        Assert.Contains("Example: at least 30,000 but at most 20,000 for a computer", instructions, StringComparison.Ordinal);
+        Assert.Contains("Example: a 40,000 video-editing computer", instructions, StringComparison.Ordinal);
+        Assert.Equal("product-search-v6", OpenAiProductSearchClient.PromptVersion);
         Assert.True(body.RootElement.GetProperty("text").GetProperty("format").GetProperty("strict").GetBoolean());
         Assert.Equal(
             "json_schema",
@@ -222,7 +224,7 @@ public sealed class OpenAiProductSearchClientTests
                     quantity = 1,
                     specifications = new[]
                     {
-                        new { semanticKey = "cpu_socket", @operator = "eq", value = "AM5", unit = (string?)null },
+                        new { semanticKey = "CPU_SOCKET", @operator = "eq", value = "AM5", unit = (string?)null },
                     },
                 },
             },
@@ -237,7 +239,7 @@ public sealed class OpenAiProductSearchClientTests
             new AiProductSearchMetadata(
                 ["CPU", "MOTHERBOARD"],
                 ["DOSELECT"],
-                ["cpu_socket"]),
+                ["CPU_SOCKET"]),
             default);
 
         Assert.Equal(AiProductSearchModelStatus.Completed, result.Status);
@@ -266,12 +268,13 @@ public sealed class OpenAiProductSearchClientTests
         Assert.Contains("最高預算 NT$50,000", reason.Reason, StringComparison.Ordinal);
         Assert.Contains("GPU 預算優先", reason.Reason, StringComparison.Ordinal);
         Assert.Contains("64GB RAM", reason.Reason, StringComparison.Ordinal);
+        Assert.Contains("取捨", reason.Reason, StringComparison.Ordinal);
         Assert.Equal(0, handler.CallCount);
         Assert.Null(result.Usage);
     }
 
     [Fact]
-    public async Task ExplainAsync_BrandPreferenceAndExclusion_ExplainsVerifiedCandidateScope()
+    public async Task ExplainAsync_BrandPreferenceAndExclusion_UsesCustomerFacingLanguage()
     {
         var handler = new RecordingHandler(_ => throw new InvalidOperationException("No explanation HTTP call expected."));
         var subject = CreateSubject(handler);
@@ -288,10 +291,15 @@ public sealed class OpenAiProductSearchClientTests
             default);
 
         var reason = Assert.Single(result.Reasons).Reason;
-        Assert.Contains("偏好品牌 NOVACORE", reason, StringComparison.Ordinal);
-        Assert.Contains("候選品牌為 DOSELECT", reason, StringComparison.Ordinal);
-        Assert.Contains("未命中排除品牌 PIXELFORGE", reason, StringComparison.Ordinal);
-        Assert.Contains("只套用於通過後端驗證的候選", reason, StringComparison.Ordinal);
+        Assert.Contains("不是你指定的偏好品牌", reason, StringComparison.Ordinal);
+        Assert.Contains("未包含你排除的品牌", reason, StringComparison.Ordinal);
+        Assert.Contains("品牌偏好只會影響推薦順序", reason, StringComparison.Ordinal);
+        Assert.Contains("不會放寬必要條件", reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("NOVACORE", reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("PIXELFORGE", reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("DOSELECT", reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("候選", reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("後端", reason, StringComparison.Ordinal);
         Assert.Equal(0, handler.CallCount);
     }
 
@@ -310,8 +318,55 @@ public sealed class OpenAiProductSearchClientTests
 
         var reason = Assert.Single(result.Reasons).Reason;
         Assert.DoesNotContain("偏好品牌 ，", reason, StringComparison.Ordinal);
-        Assert.Contains("候選品牌為 DOSELECT", reason, StringComparison.Ordinal);
-        Assert.Contains("未命中排除品牌 PIXELFORGE", reason, StringComparison.Ordinal);
+        Assert.Contains("未包含你排除的品牌", reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("PIXELFORGE", reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("DOSELECT", reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExplainAsync_UserNeeds_AreExplainedToTheCustomerWithoutInternalKeys()
+    {
+        var subject = CreateSubject(new RecordingHandler(_ =>
+            throw new InvalidOperationException("No explanation HTTP call expected.")));
+        var intent = Intent() with
+        {
+            RequiredSpecs = [new AiRequiredSpec("MEMORY_KIT_CAPACITY_GB", "gte", "64", "GB")],
+            Preferences = ["安靜"],
+        };
+
+        var result = await subject.ExplainAsync(
+            intent,
+            [Product()],
+            SupportedLocale.ZhTw,
+            default);
+
+        var reason = Assert.Single(result.Reasons).Reason;
+        Assert.Contains("影片剪輯", reason, StringComparison.Ordinal);
+        Assert.Contains("記憶體至少 64 GB", reason, StringComparison.Ordinal);
+        Assert.Contains("不可放寬", reason, StringComparison.Ordinal);
+        Assert.Contains("「安靜」會作為排序偏好", reason, StringComparison.Ordinal);
+        Assert.Contains("不會因此放寬必要規格或相容性條件", reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("VideoEditing", reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("MEMORY_KIT_CAPACITY_GB", reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExplainAsync_WithoutMaximumBudget_DoesNotMentionBackendCandidateRules()
+    {
+        var subject = CreateSubject(new RecordingHandler(_ =>
+            throw new InvalidOperationException("No explanation HTTP call expected.")));
+        var intent = Intent() with { Budget = null };
+
+        var result = await subject.ExplainAsync(
+            intent,
+            [Product()],
+            SupportedLocale.ZhTw,
+            default);
+
+        var reason = Assert.Single(result.Reasons).Reason;
+        Assert.Contains("符合你目前提供的購買條件", reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("後端", reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("候選", reason, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -349,7 +404,7 @@ public sealed class OpenAiProductSearchClientTests
             }));
 
     private static AiProductSearchMetadata Metadata() =>
-        new(["PREBUILT_COMPUTER"], ["DOSELECT"], ["memory_type"]);
+        new(["PREBUILT_COMPUTER"], ["DOSELECT"], ["MEMORY_TYPE"]);
 
     private static AiProductSearchIntent Intent() =>
         new(

@@ -300,6 +300,23 @@ public sealed class AiSafetyGateTests
     }
 
     [Fact]
+    public void AiSchema003_UppercaseAllowlistedSemanticKey_IsAccepted()
+    {
+        const string semanticKey = "CPU_SOCKET";
+        var intent = new AiSearchIntentCandidate(
+            Budget: null,
+            [new AiRequiredSpec(semanticKey, "eq", "AM5", Unit: null)]);
+
+        var result = AiSearchIntentSafetyValidator.Validate(
+            intent,
+            new HashSet<string>(StringComparer.Ordinal) { semanticKey });
+
+        Assert.True(result.IsValid);
+        Assert.True(result.MayQueryCatalog);
+        Assert.Equal(AiSafetyReason.None, result.Reason);
+    }
+
+    [Fact]
     public void AiFail001_ProductSearchTimeoutAfterRetry_FallsBackToKeywordSearch()
     {
         var decision = AiFailurePolicy.Decide(

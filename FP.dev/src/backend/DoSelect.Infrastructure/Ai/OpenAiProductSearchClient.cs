@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using DoSelect.Application.Ai;
 using DoSelect.Application.Catalog;
+using DoSelect.Domain.Catalog;
 using DoSelect.Domain.Members;
 using Microsoft.Extensions.Options;
 
@@ -14,7 +15,7 @@ public sealed class OpenAiProductSearchClient(
     HttpClient httpClient,
     IOptions<OpenAiResponsesOptions> options) : IAiProductSearchModelClient
 {
-    public const string PromptVersion = "product-search-v5";
+    public const string PromptVersion = "product-search-v6";
 
     private static readonly Uri ResponsesEndpoint =
         new("https://api.openai.com/v1/responses", UriKind.Absolute);
@@ -81,7 +82,11 @@ public sealed class OpenAiProductSearchClient(
                 "and do not guess the missing value. Do not ask about optional preferences when all required " +
                 "information is already explicit. If a stated minimum is greater than a stated maximum, never " +
                 "emit that invalid range: keep the stricter maximum, set minimum to null, and restate both " +
-                "original boundaries in a clarification asking the user to resolve the conflict.",
+                "original boundaries in a clarification asking the user to resolve the conflict. " +
+                "Example: at least 30,000 but at most 20,000 for a computer is a generic PrebuiltComputer " +
+                "request; keep maximum 20,000, set minimum to null, and ask only to resolve the conflicting " +
+                "budget rather than asking about assembly purpose. Example: a 40,000 video-editing computer " +
+                "is CustomBuild because both a purpose and maximum budget are explicit.",
             input,
             store = false,
             reasoning = new
@@ -191,9 +196,9 @@ public sealed class OpenAiProductSearchClient(
             }
             : locale switch
             {
-                SupportedLocale.ZhTw => "已由後端候選規則核對本次條件",
-                SupportedLocale.JaJp => "バックエンドの候補ルールで今回の条件を確認済みです",
-                SupportedLocale.KoKr => "백엔드 후보 규칙으로 이번 조건을 확인했습니다",
+                SupportedLocale.ZhTw => "符合你目前提供的購買條件",
+                SupportedLocale.JaJp => "現在提示されている購入条件に合っています",
+                SupportedLocale.KoKr => "현재 알려 주신 구매 조건에 맞습니다",
                 _ => throw new ArgumentOutOfRangeException(nameof(locale)),
             };
         var badges = product.Badges.Count == 0
@@ -205,13 +210,206 @@ public sealed class OpenAiProductSearchClient(
                 SupportedLocale.KoKr => $". 확인된 특징: {string.Join(", ", product.Badges)}",
                 _ => throw new ArgumentOutOfRangeException(nameof(locale)),
             };
+        var tradeoffContext = CreateTradeoffContext(intent, product, price, locale);
         var brandContext = CreateBrandContext(intent, product, locale);
+        var requirementContext = CreateRequirementContext(intent, locale);
+        var preferenceContext = CreatePreferenceContext(intent, locale);
+        var purposeContext = CreatePurposeContext(intent, locale);
+        var categoryName = CreateCustomerCategoryName(product.Category, locale);
 
         return locale switch
         {
-            SupportedLocale.ZhTw => $"{product.Name}為{product.Brand.Name}的{product.Category.Name}，目前價格 {formattedPrice}，{budgetText}{badges}{brandContext}。",
-            SupportedLocale.JaJp => $"{product.Name}は{product.Brand.Name}の{product.Category.Name}で、現在価格は {formattedPrice}、{budgetText}{badges}{brandContext}。",
-            SupportedLocale.KoKr => $"{product.Name}은(는) {product.Brand.Name}의 {product.Category.Name}이며 현재 가격은 {formattedPrice}, {budgetText}{badges}{brandContext}.",
+            SupportedLocale.ZhTw => $"{purposeContext}推薦 {product.Name}。這是{product.Brand.Name}的{categoryName}，目前價格 {formattedPrice}，{budgetText}{badges}{tradeoffContext}{requirementContext}{preferenceContext}{brandContext}。",
+            SupportedLocale.JaJp => $"{purposeContext}{product.Name}をおすすめします。{product.Brand.Name}の{categoryName}で、現在価格は {formattedPrice}、{budgetText}{badges}{tradeoffContext}{requirementContext}{preferenceContext}{brandContext}。",
+            SupportedLocale.KoKr => $"{purposeContext}{product.Name}을(를) 추천합니다. {product.Brand.Name}의 {categoryName}이며 현재 가격은 {formattedPrice}, {budgetText}{badges}{tradeoffContext}{requirementContext}{preferenceContext}{brandContext}.",
+            _ => throw new ArgumentOutOfRangeException(nameof(locale)),
+        };
+    }
+
+    private static string CreatePurposeContext(AiProductSearchIntent intent, SupportedLocale locale)
+    {
+        if (intent.Purposes.Count == 0)
+        {
+            return locale switch
+            {
+                SupportedLocale.ZhTw => "依照你目前提供的需求，",
+                SupportedLocale.JaJp => "現在提示されているご要望に基づき、",
+                SupportedLocale.KoKr => "현재 알려 주신 요구 사항을 기준으로 ",
+                _ => throw new ArgumentOutOfRangeException(nameof(locale)),
+            };
+        }
+
+        var purposes = intent.Purposes.Select(purpose => CreatePurposeName(purpose, locale));
+        return locale switch
+        {
+            SupportedLocale.ZhTw => $"依照你想用於{string.Join("、", purposes)}的需求，",
+            SupportedLocale.JaJp => $"{string.Join("・", purposes)}で使いたいというご要望に基づき、",
+            SupportedLocale.KoKr => $"{string.Join(", ", purposes)} 용도를 기준으로 ",
+            _ => throw new ArgumentOutOfRangeException(nameof(locale)),
+        };
+    }
+
+    private static string CreatePurposeName(string purpose, SupportedLocale locale) => (purpose, locale) switch
+    {
+        ("Gaming", SupportedLocale.ZhTw) => "遊戲",
+        ("VideoEditing", SupportedLocale.ZhTw) => "影片剪輯",
+        ("ThreeDRendering", SupportedLocale.ZhTw) => "3D 建模與渲染",
+        ("GraphicDesign", SupportedLocale.ZhTw) => "平面設計與修圖",
+        ("Office", SupportedLocale.ZhTw) => "文書處理",
+        ("Programming", SupportedLocale.ZhTw) => "程式開發",
+        ("Streaming", SupportedLocale.ZhTw) => "直播",
+        ("General", SupportedLocale.ZhTw) => "日常上網與影音",
+        ("Gaming", SupportedLocale.JaJp) => "ゲーム",
+        ("VideoEditing", SupportedLocale.JaJp) => "動画編集",
+        ("ThreeDRendering", SupportedLocale.JaJp) => "3D 制作・レンダリング",
+        ("GraphicDesign", SupportedLocale.JaJp) => "グラフィック制作・写真編集",
+        ("Office", SupportedLocale.JaJp) => "文書作成",
+        ("Programming", SupportedLocale.JaJp) => "プログラミング",
+        ("Streaming", SupportedLocale.JaJp) => "配信",
+        ("General", SupportedLocale.JaJp) => "ウェブ閲覧・動画視聴",
+        ("Gaming", SupportedLocale.KoKr) => "게임",
+        ("VideoEditing", SupportedLocale.KoKr) => "영상 편집",
+        ("ThreeDRendering", SupportedLocale.KoKr) => "3D 제작 및 렌더링",
+        ("GraphicDesign", SupportedLocale.KoKr) => "그래픽 및 사진 편집",
+        ("Office", SupportedLocale.KoKr) => "문서 작업",
+        ("Programming", SupportedLocale.KoKr) => "프로그래밍",
+        ("Streaming", SupportedLocale.KoKr) => "방송",
+        ("General", SupportedLocale.KoKr) => "웹 및 영상 감상",
+        _ => purpose,
+    };
+
+    private static string CreateRequirementContext(AiProductSearchIntent intent, SupportedLocale locale)
+    {
+        if (intent.RequiredSpecs.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var requirements = intent.RequiredSpecs.Select(spec => CreateRequirementText(spec, locale));
+        return locale switch
+        {
+            SupportedLocale.ZhTw => $"；你的硬性需求「{string.Join("、", requirements)}」會保留為不可放寬條件",
+            SupportedLocale.JaJp => $"。必須満たす条件「{string.Join("・", requirements)}」は緩和しません",
+            SupportedLocale.KoKr => $". 필수 조건 '{string.Join(", ", requirements)}'은 완화하지 않습니다",
+            _ => throw new ArgumentOutOfRangeException(nameof(locale)),
+        };
+    }
+
+    private static string CreateRequirementText(AiRequiredSpec spec, SupportedLocale locale)
+    {
+        var label = CreateSpecificationName(spec.SemanticKey, locale);
+        var operation = (spec.Operator, locale) switch
+        {
+            ("gte", SupportedLocale.ZhTw) => "至少",
+            ("lte", SupportedLocale.ZhTw) => "最多",
+            (_, SupportedLocale.ZhTw) => "為",
+            ("gte", SupportedLocale.JaJp) => "以上",
+            ("lte", SupportedLocale.JaJp) => "以下",
+            (_, SupportedLocale.JaJp) => "",
+            ("gte", SupportedLocale.KoKr) => "최소",
+            ("lte", SupportedLocale.KoKr) => "최대",
+            (_, SupportedLocale.KoKr) => "",
+            _ => throw new ArgumentOutOfRangeException(nameof(locale)),
+        };
+        var value = string.IsNullOrWhiteSpace(spec.Unit)
+            ? spec.Value
+            : $"{spec.Value} {spec.Unit}";
+        return locale switch
+        {
+            SupportedLocale.ZhTw => $"{label}{operation} {value}",
+            SupportedLocale.JaJp => $"{label} {value}{operation}",
+            SupportedLocale.KoKr => $"{label} {operation} {value}".Replace("  ", " ", StringComparison.Ordinal),
+            _ => throw new ArgumentOutOfRangeException(nameof(locale)),
+        };
+    }
+
+    private static string CreateSpecificationName(string semanticKey, SupportedLocale locale)
+    {
+        var meaning = semanticKey switch
+        {
+            CompatibilityCatalogContract.SemanticKeys.MemoryKitCapacityGb or
+                CompatibilityCatalogContract.SemanticKeys.MemoryMaxCapacityGb => "memory",
+            "STORAGE_CAPACITY_GB" => "storage",
+            "GPU_COUNT" => "gpuCount",
+            _ => "requirement",
+        };
+        return (meaning, locale) switch
+        {
+            ("memory", SupportedLocale.ZhTw) => "記憶體",
+            ("storage", SupportedLocale.ZhTw) => "儲存空間",
+            ("gpuCount", SupportedLocale.ZhTw) => "顯示卡數量",
+            (_, SupportedLocale.ZhTw) => "必要規格",
+            ("memory", SupportedLocale.JaJp) => "メモリ",
+            ("storage", SupportedLocale.JaJp) => "ストレージ容量",
+            ("gpuCount", SupportedLocale.JaJp) => "GPU 数",
+            (_, SupportedLocale.JaJp) => "必須仕様",
+            ("memory", SupportedLocale.KoKr) => "메모리",
+            ("storage", SupportedLocale.KoKr) => "저장 공간",
+            ("gpuCount", SupportedLocale.KoKr) => "그래픽 카드 수",
+            (_, SupportedLocale.KoKr) => "필수 사양",
+            _ => throw new ArgumentOutOfRangeException(nameof(locale)),
+        };
+    }
+
+    private static string CreatePreferenceContext(AiProductSearchIntent intent, SupportedLocale locale)
+    {
+        if (intent.Preferences.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var preferences = string.Join(locale == SupportedLocale.KoKr ? ", " : "、", intent.Preferences);
+        return locale switch
+        {
+            SupportedLocale.ZhTw => $"；「{preferences}」會作為排序偏好，但不會因此放寬必要規格或相容性條件",
+            SupportedLocale.JaJp => $"。「{preferences}」は並び替えの希望条件として扱いますが、必須仕様や互換性条件は緩和しません",
+            SupportedLocale.KoKr => $". '{preferences}'은 정렬 선호 조건으로 반영하지만 필수 사양이나 호환성 조건은 완화하지 않습니다",
+            _ => throw new ArgumentOutOfRangeException(nameof(locale)),
+        };
+    }
+
+    private static string CreateCustomerCategoryName(ProductCategoryRef category, SupportedLocale locale) =>
+        (category.Code, locale) switch
+        {
+            ("CUSTOM_BUILD", SupportedLocale.ZhTw) => "客製組裝電腦",
+            ("PREBUILT_COMPUTER", SupportedLocale.ZhTw) => "品牌套裝電腦",
+            ("CUSTOM_BUILD", SupportedLocale.JaJp) => "カスタム組立パソコン",
+            ("PREBUILT_COMPUTER", SupportedLocale.JaJp) => "メーカー製完成品パソコン",
+            ("CUSTOM_BUILD", SupportedLocale.KoKr) => "맞춤 조립 컴퓨터",
+            ("PREBUILT_COMPUTER", SupportedLocale.KoKr) => "브랜드 완제품 컴퓨터",
+            _ => category.Name,
+        };
+
+    private static string CreateTradeoffContext(
+        AiProductSearchIntent intent,
+        ProductCardDto product,
+        decimal price,
+        SupportedLocale locale)
+    {
+        if (product.Badges.Count < 2)
+        {
+            return string.Empty;
+        }
+
+        var firstPriority = product.Badges[0];
+        var retainedCapability = product.Badges[1];
+        var maximum = intent.Budget?.Maximum;
+        var withinMaximum = maximum is not null && price <= maximum.Value;
+
+        return locale switch
+        {
+            SupportedLocale.ZhTw when withinMaximum =>
+                $"；取捨：在最高預算 {FormatPrice(maximum!.Value, product.Price.Currency)} 內優先「{firstPriority}」，同時保留「{retainedCapability}」",
+            SupportedLocale.ZhTw =>
+                $"；取捨：優先「{firstPriority}」，同時保留「{retainedCapability}」",
+            SupportedLocale.JaJp when withinMaximum =>
+                $"。トレードオフ：上限予算 {FormatPrice(maximum!.Value, product.Price.Currency)} 内で「{firstPriority}」を優先し、「{retainedCapability}」も維持します",
+            SupportedLocale.JaJp =>
+                $"。トレードオフ：「{firstPriority}」を優先し、「{retainedCapability}」も維持します",
+            SupportedLocale.KoKr when withinMaximum =>
+                $". 절충: 최대 예산 {FormatPrice(maximum!.Value, product.Price.Currency)} 안에서 '{firstPriority}'을 우선하고 '{retainedCapability}'도 유지합니다",
+            SupportedLocale.KoKr =>
+                $". 절충: '{firstPriority}'을 우선하고 '{retainedCapability}'도 유지합니다",
             _ => throw new ArgumentOutOfRangeException(nameof(locale)),
         };
     }
@@ -226,8 +424,9 @@ public sealed class OpenAiProductSearchClient(
             return string.Empty;
         }
 
-        var preferred = string.Join("、", intent.PreferredBrandCodes);
-        var excluded = string.Join("、", intent.ExcludedBrandCodes);
+        var preferredMatch = intent.PreferredBrandCodes.Contains(
+            product.Brand.Code,
+            StringComparer.OrdinalIgnoreCase);
         var excludedMatch = intent.ExcludedBrandCodes.Contains(
             product.Brand.Code,
             StringComparer.OrdinalIgnoreCase);
@@ -236,34 +435,40 @@ public sealed class OpenAiProductSearchClient(
         {
             SupportedLocale.ZhTw =>
                 (intent.PreferredBrandCodes.Count == 0
-                    ? $"；候選品牌為 {product.Brand.Code}"
-                    : $"；偏好品牌 {preferred}，候選品牌為 {product.Brand.Code}") +
+                    ? string.Empty
+                    : preferredMatch
+                        ? "；符合你指定的偏好品牌"
+                        : "；這個商品不是你指定的偏好品牌，但仍符合其他已確認條件") +
                 (intent.ExcludedBrandCodes.Count == 0
                     ? string.Empty
                     : excludedMatch
-                        ? $"，但命中排除品牌 {excluded}"
-                        : $"，未命中排除品牌 {excluded}") +
-                "；品牌條件只套用於通過後端驗證的候選",
+                        ? "；這個商品屬於你排除的品牌，請重新調整搜尋條件"
+                        : "；未包含你排除的品牌") +
+                "；品牌偏好只會影響推薦順序，不會放寬必要條件",
             SupportedLocale.JaJp =>
                 (intent.PreferredBrandCodes.Count == 0
-                    ? $"。候補ブランドは {product.Brand.Code}"
-                    : $"。希望ブランドは {preferred}、候補ブランドは {product.Brand.Code}") +
+                    ? string.Empty
+                    : preferredMatch
+                        ? "。指定した希望ブランドに合っています"
+                        : "。指定した希望ブランドではありませんが、ほかの確認済み条件には合っています") +
                 (intent.ExcludedBrandCodes.Count == 0
                     ? string.Empty
                     : excludedMatch
-                        ? $"で、除外ブランド {excluded} に該当します"
-                        : $"で、除外ブランド {excluded} には該当しません") +
-                "。ブランド条件はバックエンド検証済みの候補にのみ適用します",
+                        ? "。除外したブランドの商品なので、検索条件を見直してください"
+                        : "。除外したブランドは含まれていません") +
+                "。ブランドの希望条件はおすすめ順だけに反映し、必須条件は緩和しません",
             SupportedLocale.KoKr =>
                 (intent.PreferredBrandCodes.Count == 0
-                    ? $". 후보 브랜드는 {product.Brand.Code}"
-                    : $". 선호 브랜드는 {preferred}, 후보 브랜드는 {product.Brand.Code}") +
+                    ? string.Empty
+                    : preferredMatch
+                        ? ". 지정한 선호 브랜드에 맞습니다"
+                        : ". 지정한 선호 브랜드는 아니지만 확인된 다른 조건에는 맞습니다") +
                 (intent.ExcludedBrandCodes.Count == 0
                     ? string.Empty
                     : excludedMatch
-                        ? $"이며 제외 브랜드 {excluded}에 해당합니다"
-                        : $"이며 제외 브랜드 {excluded}에 해당하지 않습니다") +
-                ". 브랜드 조건은 백엔드 검증을 통과한 후보에만 적용합니다",
+                        ? ". 제외한 브랜드의 상품이므로 검색 조건을 다시 확인해 주세요"
+                        : ". 제외한 브랜드는 포함되지 않았습니다") +
+                ". 브랜드 선호 조건은 추천 순서에만 반영하며 필수 조건은 완화하지 않습니다",
             _ => throw new ArgumentOutOfRangeException(nameof(locale)),
         };
     }
