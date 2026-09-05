@@ -119,10 +119,12 @@ try {
     $env:Seed__MemberPassword = 'E2e_Member_123!'
     $env:E2E_STORAGE_DATA_ROOT = $dataRoot
     $env:E2E_REUSE_EXISTING_SERVER = 'false'
-    $isCoreTransactionJourney =
-        $JourneyTitle -eq 'a guest completes the prepared cart through checkout payment and invoice'
+    $requiresPaymentCompletionInfrastructure =
+        $JourneyTitle -eq 'a guest completes the prepared cart through checkout payment and invoice' -or
+        $JourneyTitle -eq 'a seeded administrator can enroll TOTP, reject a wrong code, and sign in again' -or
+        $JourneyTitle -eq 'H-R02 fulfills COD home delivery and store pickup exactly once'
     $env:E2E_ASPNETCORE_ENVIRONMENT = 'E2E'
-    if ($isCoreTransactionJourney) {
+    if ($requiresPaymentCompletionInfrastructure) {
         $env:E2E_BACKGROUND_JOBS_ENABLED = 'true'
         $env:E2E_SIMULATION_ENDPOINTS_ENABLED = 'true'
     }
