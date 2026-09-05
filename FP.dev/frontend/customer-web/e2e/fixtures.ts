@@ -15,6 +15,11 @@ type DoSelectFixtures = {
     productPublicId: string
     skuPublicId: string
     coreTransactionGuestCartKey: string
+    refundJourneyOrderPublicId: string
+    refundJourneyOrderNumber: string
+    refundJourneyBuyerEmail: string
+    refundJourneyOrderItemPublicId: string
+    refundJourneyAdminEmail: string
   }
 }
 
@@ -77,6 +82,11 @@ export const test = base.extend<DoSelectFixtures>({
       productPublicId: '5940b1db-3c83-4db0-b285-9777616d11b1',
       skuPublicId: '719dfd4a-77f0-4887-b3bf-239263d4ee1f',
       coreTransactionGuestCartKey: 'e2e-core-transaction-guest-cart-key-0001',
+      refundJourneyOrderPublicId: '3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a11',
+      refundJourneyOrderNumber: 'E2E-REFUND-000001',
+      refundJourneyBuyerEmail: 'refund-e2e-buyer@doselect.local',
+      refundJourneyOrderItemPublicId: '3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a12',
+      refundJourneyAdminEmail: 'refund-e2e-admin@doselect.local',
     })
   },
 })

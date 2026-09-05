@@ -2,8 +2,11 @@ using System.Security.Cryptography;
 using System.Text;
 using DoSelect.Domain.Builds;
 using DoSelect.Domain.Catalog;
+using DoSelect.Domain.Invoicing;
 using DoSelect.Domain.Inventory;
 using DoSelect.Domain.Members;
+using DoSelect.Domain.Orders;
+using DoSelect.Domain.Payments;
 using DoSelect.Domain.Promotions;
 using DoSelect.Domain.Shopping;
 using DoSelect.Domain.Shipping;
@@ -37,6 +40,7 @@ public sealed class MinimalDevelopmentDataSeeder(
         await EnsureShippingProvidersAsync(counters, cancellationToken);
         await EnsureConvenienceStoresAsync(counters, cancellationToken);
         await EnsureCoreTransactionJourneyAsync(cancellationToken);
+        await EnsureRefundJourneyOrderAsync(passwords, counters, cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
         return new MinimalDevelopmentSeedResult(
@@ -1072,6 +1076,143 @@ public sealed class MinimalDevelopmentDataSeeder(
             now));
 
         cart.Touch(now);
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// M-13 WP4（alex 2026-09-05 #98 A1 裁定）：退款 E2E 需要一筆已付款、已送達的訂單才能
+    /// 建立退貨申請，但目前 production 沒有任何 HTTP 可達的路徑把 FulfillmentStatus 推進
+    /// Delivered——物流狀態命令屬於另一個範圍，尚未落地。這裡只頂住「訂單、付款、出貨」這段
+    /// 裁定明確允許 seed 的前置資料；從建立退貨申請開始，E2E 一律走 production API／UI，
+    /// 不得再往後 seed 任何 Return／Refund 狀態。
+    ///
+    /// 也在這裡建立退款旅程專用的獨立管理員帳號
+    /// （<see cref="MinimalDevelopmentSeedDefinitions.RefundJourneyAdminEmail"/>），不沿用
+    /// 一般 <see cref="MinimalDevelopmentSeedDefinitions.AdminEmail"/>——同一輪 CI 的
+    /// admin-chromium 專案是單一 worker 依序執行，admin.spec.ts 自己的 TOTP 綁定測試會先
+    /// 把那個帳號綁定掉，退款旅程若共用會在登入時只看到 requiresEnrollment=false 的驗證頁，
+    /// 卻沒有金鑰。
+    /// </summary>
+    private async Task EnsureRefundJourneyOrderAsync(
+        (string AdminPassword, string MemberPassword) passwords,
+        SeedCounters counters,
+        CancellationToken cancellationToken)
+    {
+        // 獨立管理員帳號，見 RefundJourneyAdminEmail 的說明：不能沿用一般 AdminEmail，
+        // 那個帳號的「尚未綁定 TOTP」狀態會被 admin.spec.ts 自己的綁定測試用掉。
+        var refundJourneyAdmin = await EnsureUserAsync(
+            MinimalDevelopmentSeedDefinitions.RefundJourneyAdminEmail,
+            passwords.AdminPassword,
+            AccountType.Admin,
+            MinimalDevelopmentSeedDefinitions.RefundJourneyAdminPublicId,
+            counters);
+
+        if (!await userManager.IsInRoleAsync(refundJourneyAdmin, "SuperAdmin"))
+        {
+            EnsureSucceeded(
+                "assign the SuperAdmin role",
+                await userManager.AddToRoleAsync(refundJourneyAdmin, "SuperAdmin"));
+        }
+
+        if (!await dbContext.AdminProfiles.AnyAsync(
+                profile => profile.UserId == refundJourneyAdmin.Id,
+                cancellationToken))
+        {
+            dbContext.AdminProfiles.Add(new AdminProfile(
+                refundJourneyAdmin.Id,
+                MinimalDevelopmentSeedDefinitions.RefundJourneyAdminPublicId,
+                "DEV-ADMIN-002",
+                "退款 E2E 管理員",
+                MinimalDevelopmentSeedDefinitions.CreatedAtUtc));
+            counters.ProfilesCreated++;
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        if (await dbContext.Orders.AnyAsync(
+                order => order.PublicId == MinimalDevelopmentSeedDefinitions.RefundJourneyOrderPublicId,
+                cancellationToken))
+        {
+            return;
+        }
+
+        var homeDeliveryProfile = await dbContext.ShippingProviderProfiles.SingleAsync(
+            profile => profile.PublicId ==
+                MinimalDevelopmentSeedDefinitions.HomeDeliveryProviderProfilePublicId,
+            cancellationToken);
+        var homeDeliveryPackageLimit = await dbContext.PackageLimitVersions.SingleAsync(
+            limit => limit.PublicId ==
+                MinimalDevelopmentSeedDefinitions.HomeDeliveryPackageLimitPublicId,
+            cancellationToken);
+        var sku = await dbContext.Skus.SingleAsync(
+            candidate => candidate.PublicId == MinimalDevelopmentSeedDefinitions.SkuPublicId,
+            cancellationToken);
+
+        var createdAtUtc = MinimalDevelopmentSeedDefinitions.CreatedAtUtc;
+        var deliveredAtUtc = createdAtUtc.AddDays(3);
+
+        var order = Order.Create(
+            MinimalDevelopmentSeedDefinitions.RefundJourneyOrderPublicId,
+            new OrderCreation(
+                MinimalDevelopmentSeedDefinitions.RefundJourneyOrderNumber,
+                null,
+                MinimalDevelopmentSeedDefinitions.RefundJourneyBuyerEmail,
+                OrderStatus.Completed,
+                PaymentStatus.Paid,
+                FulfillmentStatus.Preparing,
+                AssemblyStatus.NotRequired,
+                19_900m, 0m, 100m, 0m, 20_000m,
+                "退款 E2E 收件人", "0912345678", MinimalDevelopmentSeedDefinitions.RefundJourneyBuyerEmail,
+                "100", "台北市", "中正區", "測試路 1 號", null,
+                "HomeDelivery", homeDeliveryProfile.Id, null, null, null,
+                1, 1, null, null, "e2e-refund-journey-seed", null,
+                1, 1,
+                new OrderInvoicePreference(
+                    SimulatedInvoiceBuyerType.Individual,
+                    MinimalDevelopmentSeedDefinitions.RefundJourneyBuyerEmail,
+                    null, null, null, null),
+                null,
+                null,
+                new OrderPackageSnapshot(homeDeliveryPackageLimit.Id, 1.2m, 40m, 30m, 20m, 90m, 20_000m)),
+            createdAtUtc);
+        dbContext.Orders.Add(order);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        // InvoiceCalculator 核對發票行項與 Order.PaidAmount 是否一致（IssueInvoiceService 走
+        // production 手動開立路徑，不是這支 seed 自己模擬付款成功事件），沒有這行金額對不上，
+        // 開立發票會丟 ArgumentException。
+        order.ApplyPaymentProjection(PaymentStatus.Paid, 20_000m, createdAtUtc);
+        order.ApplyFulfillmentProjection(FulfillmentStatus.Delivered, deliveredAtUtc);
+
+        dbContext.OrderItems.Add(new OrderItem(
+            MinimalDevelopmentSeedDefinitions.RefundJourneyOrderItemPublicId,
+            order.Id,
+            sku.Id,
+            sku.SkuCode,
+            "懂選開發用顯示卡",
+            "16GB",
+            quantity: 1,
+            listUnitPrice: 19_900m,
+            saleUnitPrice: 19_900m,
+            finalUnitPrice: 19_900m,
+            unitCostSnapshot: 15_000m,
+            lineSubtotal: 19_900m,
+            discountAllocation: 0m,
+            lineTotal: 19_900m,
+            assemblyGroupKey: null,
+            returnableQuantity: 1,
+            createdAtUtc,
+            isCouponEligible: false,
+            new OrderItemSpecificationSnapshot("E2E 退款旅程測試品項", "{}", 1)));
+
+        var paymentAttempt = new PaymentAttempt(
+            Guid.CreateVersion7(), order.Id, PaymentMethod.CreditCard, 20_000m,
+            "SIMULATED", "e2e-refund-journey-seed-payment", null, createdAtUtc);
+        paymentAttempt.Transition(PaymentAttemptStatus.AwaitingPayment, createdAtUtc);
+        paymentAttempt.Transition(PaymentAttemptStatus.Processing, createdAtUtc);
+        paymentAttempt.Transition(PaymentAttemptStatus.Paid, createdAtUtc);
+        dbContext.PaymentAttempts.Add(paymentAttempt);
+
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
