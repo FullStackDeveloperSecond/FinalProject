@@ -8795,6 +8795,66 @@
         }
       }
     },
+    "/api/v1/admin/support-tickets/{id}/messages": {
+      "post": {
+        "tags": [
+          "AdminSupportTickets"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAdminSupportReplyRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAdminSupportReplyRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAdminSupportReplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSupportTicketDetailDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSupportTicketDetailDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSupportTicketDetailDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/support-tickets/sla": {
       "get": {
         "tags": [
@@ -18868,6 +18928,19 @@
               "string"
             ],
             "format": "int32"
+          }
+        }
+      },
+      "CreateAdminSupportReplyRequest": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "maxLength": 4000,
+            "type": "string"
+          },
+          "rowVersion": {
+            "type": "string",
+            "format": "byte"
           }
         }
       },

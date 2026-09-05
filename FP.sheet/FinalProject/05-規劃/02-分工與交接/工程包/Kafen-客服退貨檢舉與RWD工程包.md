@@ -1,6 +1,6 @@
 ---
 文件狀態: 可開發
-最後更新: 2026-09-04
+最後更新: 2026-09-05
 適用對象: kafen
 主要覆核: terry
 最終整合: alex
@@ -54,7 +54,7 @@ dotnet tool run dotnet-ef -- database update `
 Migration 名稱與數量會隨整合變動，不再複製到個人工程包。唯一來源是 `FP.dev/src/backend/DoSelect.Infrastructure/Persistence/Migrations/` 與 `DoSelectDbContextModelSnapshot.cs`；每次先同步最新 `dev`，再由不指定 Migration 名稱的命令套用完整歷程。不得只停在特定 Migration，也不得在功能分支自行 scaffold／apply 新 Migration；Schema 需求交 alex 走 Migration Gate。實作進度統一查看 [[05-規劃/01-時程與進度/M功能實作矩陣]]。
 需要最小帳號時，以 Visual Studio 管理 User Secrets 後，用 PATH 中的 `dotnet` 執行 API `--seed-minimal`。現有 Seed PowerShell 腳本含組長本機 `.NET` 絕對路徑；不要直接依賴或在客服 PR 順便修正。
 
-首次 Clone 若沒有 `appsettings.Development.json`，由同目錄的 `.example.json` 複製後調整非機密 `Storage:DataRoot`，本機檔案不得提交。Cookie／Policy、私有檔案掃描與儲存、共用 OpenAPI Typed Client、中央 Outbox／通知與 Hangfire 維護工作均已合併；客服／SLA／附件前後台垂直切片及主管指派核心也已進 `dev`。不得把私有檔案放 `wwwroot`、同步寄通知或自建排程器。
+首次 Clone 若沒有 `appsettings.Development.json`，由同目錄的 `.example.json` 複製後調整非機密 `Storage:DataRoot`，本機檔案不得提交。Cookie／Policy、私有檔案掃描與儲存、共用 OpenAPI Typed Client、中央 Outbox／通知與 Hangfire 維護工作均已合併；客服／附件前後台、SLA 唯讀佇列、工作台及主管指派核心已進 `dev`。2026-09-05 稽核確認 UC-SLA-01 的 80%／100% 背景通知與 Resolved 3 天自動關閉原先未實作；PR #110／`codex/kafen-completion` 已補齊，rebase Review 並修正批次飢餓、重新開案 SLA 週期去重及共用 TOTP E2E 身分污染，仍須等 Required CI、最終 Review 與合併 `dev`，不得提前視為已交付。不得把私有檔案放 `wwwroot`、同步寄通知或自建排程器。
 
 ## 3. 權威規格閱讀順序
 

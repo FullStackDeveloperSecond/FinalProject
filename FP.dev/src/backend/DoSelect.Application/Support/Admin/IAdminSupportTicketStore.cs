@@ -111,6 +111,16 @@ public interface IAdminSupportTicketStore
     Task<SupportTicketMutationResult> AddInternalNoteAsync(
         SupportTicketAddInternalNoteCommand command,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Appends an Admin public message to an assigned, active ticket. A Handle-only actor must
+    /// be the assignee; a supervisor may reply to any assigned ticket. The message, first-human
+    /// timestamp, optional Assigned-to-InProgress history, Audit, and Outbox notifications are
+    /// committed in one optimistic-concurrency protected transaction.
+    /// </summary>
+    Task<SupportTicketMutationResult> AddPublicReplyAsync(
+        SupportTicketAddPublicReplyCommand command,
+        CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -177,6 +187,20 @@ public sealed record SupportTicketChangeStatusCommand(
         OccurredAtUtc, CorrelationId, TraceId, RemoteIpAddress);
 
 public sealed record SupportTicketAddInternalNoteCommand(
+    Guid TicketPublicId,
+    string ActorUserId,
+    IReadOnlyCollection<string> ActorRoles,
+    bool CanSupervise,
+    byte[] ExpectedRowVersion,
+    DateTime OccurredAtUtc,
+    string CorrelationId,
+    string TraceId,
+    System.Net.IPAddress? RemoteIpAddress,
+    string Body)
+    : SupportTicketActionCommand(TicketPublicId, ActorUserId, ActorRoles, CanSupervise, ExpectedRowVersion,
+        OccurredAtUtc, CorrelationId, TraceId, RemoteIpAddress);
+
+public sealed record SupportTicketAddPublicReplyCommand(
     Guid TicketPublicId,
     string ActorUserId,
     IReadOnlyCollection<string> ActorRoles,

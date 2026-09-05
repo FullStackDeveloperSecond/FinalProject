@@ -13,7 +13,7 @@ namespace DoSelect.Api.IntegrationTests.Support;
 public sealed class M14BReadModelSqlServerFixture : IAsyncLifetime
 {
     private readonly string _connectionString = SqlServerTestConnection.Build(
-        $"DoSelectM14BReadModelTests_{Guid.NewGuid():N}");
+        $"DoSelectE2E_{Guid.NewGuid():N}") + ";Encrypt=False;";
     private readonly Dictionary<string, string?> _previousEnvironment = [];
 
     public WebApplicationFactory<Program> Factory { get; private set; } = null!;
@@ -50,7 +50,10 @@ public sealed class M14BReadModelSqlServerFixture : IAsyncLifetime
     {
         try
         {
-            await Factory.DisposeAsync();
+            if (Factory is not null)
+            {
+                await Factory.DisposeAsync();
+            }
 
             await using var context = CreateContext();
             await context.Database.EnsureDeletedAsync();

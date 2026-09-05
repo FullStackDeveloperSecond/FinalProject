@@ -5,12 +5,20 @@ namespace DoSelect.Infrastructure.Persistence.Seeding;
 internal static class MinimalDevelopmentSeedDefinitions
 {
     internal const string AdminEmail = "admin@doselect.local";
+    internal const string ReturnE2eAdminEmail = "return-admin@doselect.local";
+    internal const string SupportE2eAdminEmail = "support-admin@doselect.local";
     internal const string MemberEmail = "member@doselect.local";
     internal const string AdminPasswordKey = "Seed:AdminPassword";
     internal const string MemberPasswordKey = "Seed:MemberPassword";
 
     internal static readonly Guid AdminPublicId =
         Guid.Parse("0f269121-89a5-43a4-97f5-b95278bc0cf6");
+
+    internal static readonly Guid ReturnE2eAdminPublicId =
+        Guid.Parse("3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a14");
+
+    internal static readonly Guid SupportE2eAdminPublicId =
+        Guid.Parse("3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a15");
 
     internal static readonly Guid MemberPublicId =
         Guid.Parse("f84625a0-f32a-44bb-a801-5f69fed2cb12");
@@ -62,6 +70,15 @@ internal static class MinimalDevelopmentSeedDefinitions
 
     internal static readonly Guid Creator10CouponPublicId =
         Guid.Parse("3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a10");
+
+    internal static readonly Guid ReturnE2eOrderPublicId =
+        Guid.Parse("3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a11");
+
+    internal static readonly Guid ReturnE2eOrderItemPublicId =
+        Guid.Parse("3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a12");
+
+    internal static readonly Guid ReturnE2ePaymentAttemptPublicId =
+        Guid.Parse("3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a13");
 
     internal static readonly DateTime CreatedAtUtc =
         new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
