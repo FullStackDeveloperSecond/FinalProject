@@ -1,7 +1,7 @@
 ---
 文件狀態: 持續更新
 最後更新: 2026-09-05
-基準分支: dev@5e5f4356（H-R04 交付：PR #116）
+基準分支: dev@b2862e0b（Admin Return 欄位補齊：PR #111）
 ---
 
 # M 功能實作矩陣
@@ -38,7 +38,7 @@
 | M-15 營運報表 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | PR #66 已合併七個報表 Query、一般／財務 Policy、CSV／XLSX、A-27 UI、SQL Provider-backed 與 INT-04 對帳證據；已有代表性後台 Playwright 旅程，但未逐一涵蓋七個 Report Key。固定 10,000 筆資料下的 P95 仍待 DATA-06～08／效能 Gate。 |
 | M-16 自由組裝電腦 | ✅ | ✅ | ✅ | ✅ | ⬜ | ✅ | PR #34 已交付組裝清單、分享、整套加入購物車與 SQL Server 證據；PR #35 已交付前端並合併 `dev`。完整瀏覽器旅程仍缺。 |
 | M-17 零件相容性 | ✅ | ✅ | ✅ | ✅ | ⬜ | ✅ | PR #52 已交付來源型規格資料基礎；PR #34 已交付確定性檢查、後台規則、Audit 與 Provider-backed 證據；PR #35 已交付前端並合併 `dev`。完整瀏覽器旅程仍缺。 |
-| M-18 AI 商品搜尋推薦 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | PR #62 的公開 Endpoint、額度、SQL 候選、組裝／相容性、Fail Closed、關鍵字降級、UI 與契約已合併；PR #112 再將單次 5 秒意圖呼叫、後端確定性理由、低延遲設定、`product-search-v6`、大寫 Semantic Key 與顧客視角理由合併至 `dev@eb83ecf6`。同 revision 六案 Live Gate 因多餘補問及 8TB 儲存語意錯映射而 `FAIL`。DEC-BATCH-059 的工作樹已完成 Runner fidelity、`STORAGE_CAPACITY_GB`、分類規格白名單、TB→GB、Prompt v7 與精確 grader，零成本回歸通過但尚未進 `dev`／Live。公開 API／資料庫 Schema 不變，M-18 合併狀態不回退；Live Gate 由 AI-09 繼續追蹤。 |
+| M-18 AI 商品搜尋推薦 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | PR #62 的公開 Endpoint、額度、SQL 候選、組裝／相容性、Fail Closed、關鍵字降級、UI 與契約已合併；PR #112 再將單次 5 秒意圖呼叫、後端確定性理由、低延遲設定、`product-search-v6`、大寫 Semantic Key 與顧客視角理由合併至 `dev@eb83ecf6`。同 revision 六案 Live Gate 因多餘補問及 8TB 儲存語意錯映射而 `FAIL`。DEC-BATCH-059 的功能 Commit `90e71a43` 已 rebase `origin/dev@b2862e0b` 並建立 PR #120，完成 Runner fidelity、`STORAGE_CAPACITY_GB`、分類規格白名單、TB→GB、Prompt v7 與精確 grader；零成本回歸通過，但尚未合併或執行 v7 Live。公開 API／資料庫 Schema 不變，M-18 合併狀態不回退；Live Gate 由 AI-09 繼續追蹤。 |
 | M-19 AI 客服 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | PR #57／#58／#59 已合併 SQL-backed 同意／額度、Responses Adapter、本人 Order／SupportTicket／Conversation Query、互動／引用／Token／成本、US$70／US$90 保護、會員聊天、A-28 管理彙總與 Playwright 降級旅程。AI-09 live baseline 獨立保持未完成。 |
 | M-20 模擬發票與折讓 | ✅ | ✅ | ✅ | ✅ | 🔵 | 🔵 | 折讓、付款成功冪等發票 Outbox／Consumer、前後台查詢、開立／作廢 API、A-24/A-25 與顧客發票 UI 均已交付；WP-A04 補信用卡付款成功後由 Browser 輪詢並顯示發票。PR #106／#115 已補 COD 正式物流接線，以及宅配 `Delivered`／超取 `PickedUp` 後由 Outbox Consumer 開立唯一發票並顯示於顧客頁的隔離 Browser E2E；其他發票／折讓跨層變體仍缺。M-20 不增加 [[01-需求/功能範圍]] 原列 19 項 M 功能數。 |
 
@@ -51,7 +51,7 @@
 
 ## 明確未完成
 
-- AI 客服已有歷史 Live 樣本；`product-search-v6` 六案 Smoke 已於 `dev@eb83ecf6` 執行，延遲、成本與安全通過，但 Intent、補問精確率及 deterministic Gate 失敗。v7 零成本修正已在工作樹通過，仍待可追溯 Commit、整合 `dev`、另行授權 Live Smoke 與新輸出人工覆核；由 AI-09 獨立追蹤，不回退 M-18／M-19 已合併狀態。
+- AI 客服已有歷史 Live 樣本；`product-search-v6` 六案 Smoke 已於 `dev@eb83ecf6` 執行，延遲、成本與安全通過，但 Intent、補問精確率及 deterministic Gate 失敗。v7 零成本修正已形成 rebase 最新 `dev` 的 Commit `90e71a43` 並建立 PR #120，仍待合併、另行授權 Live Smoke 與新輸出人工覆核；由 AI-09 獨立追蹤，不回退 M-18／M-19 已合併狀態。
 - DATA-06 完整 10,000 筆展示 Seed 與特殊案例分布。
 - 各 M 功能的完整 SQL Server Provider-backed 覆蓋；Required CI 已啟用 SQL Gate，但現有測試通過不代表每個功能案例皆有 Provider-backed 證據。
 - 核心信用卡預付主旅程已有 WP-A04 E2E，COD 宅配／超取履約收款與發票主旅程已由 PR #115 補齊；其他付款、物流、退款／折讓及各 M 功能的非主路徑瀏覽器 E2E 仍未完整覆蓋。

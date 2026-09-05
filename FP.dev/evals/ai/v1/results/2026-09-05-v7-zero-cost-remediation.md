@@ -3,12 +3,12 @@
 ## Evaluation decision
 
 - Verdict：`PASS_WITH_GATES`（本輪零成本 deterministic／Provider-backed 範圍通過；不代表 Live 模型通過）
-- Feature／revision：`product-search-v7 + support-v2`／工作樹基準 `eb83ecf6136ca9dd1e58c8f2212d7dea34ababc2`
+- Feature／revision：`product-search-v7 + support-v2`／功能 Commit `90e71a43`，基準 `origin/dev@b2862e0b`
 - Dataset／Fixture／grader：`zh-TW-v1.0.4-draft`／`v1.0.4`／`deterministic-v1.1.3`
 - SearchIntent Schema：`contract-v1.0.2-2026-09-05`
 - Live external calls：No
 - 本輪模型請求／Token／成本：0／0／US$0
-- 證據層級：尚未提交的工作樹零成本回歸；形成不可變 Commit 後才可執行新 Live Smoke
+- 證據層級：已提交並 rebase 最新 `dev` 的零成本回歸；Live Smoke 仍須另行授權
 
 ## 修正範圍
 
@@ -61,7 +61,6 @@ SQL Server focused test 必須在可連線 `DoSelect` 開發執行個體的系�
 
 ## Limitations and next gate
 
-1. 目前工作樹仍以 `eb83ecf6` 為基準，且落後 `origin/dev` 一個 Commit；本報告不是 immutable commit-pinned Live evidence。
-2. 先完成 Review、整合最新 `dev`、提交並取得可追溯 SHA。
-3. 若要驗證 v7 Provider 行為，必須另行取得付費授權，再以固定六案／一輪／成本停止線執行 Smoke。
-4. 只有新 Smoke 的自動 Gate 與顧客視角人工覆核皆通過，才可另行核准 66 次 Release baseline。
+1. 功能 Commit `90e71a43` 已 rebase `origin/dev@b2862e0b` 並建立 PR #120；尚未合併，因此不是已發布證據。
+2. 若要驗證 v7 Provider 行為，必須另行取得付費授權，再以固定六案／一輪／成本停止線執行 Smoke。
+3. 只有新 Smoke 的自動 Gate 與顧客視角人工覆核皆通過，才可另行核准 66 次 Release baseline。
