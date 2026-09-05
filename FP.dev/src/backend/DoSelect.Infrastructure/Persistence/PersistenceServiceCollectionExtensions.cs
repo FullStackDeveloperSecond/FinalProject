@@ -1,3 +1,4 @@
+using DoSelect.Application.Favorites;
 using DoSelect.Application.Members;
 using DoSelect.Infrastructure.Persistence.Identity;
 using DoSelect.Infrastructure.Persistence.Seeding;
@@ -84,6 +85,7 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<IMemberLoginGateway, MemberLoginGateway>();
         services.AddScoped<IMemberPasswordResetGateway, MemberPasswordResetGateway>();
         services.AddScoped<IMemberCleanupGateway, MemberCleanupGateway>();
+        services.AddScoped<IFavoriteGateway, EfFavoriteGateway>();
         services.AddScoped<MinimalDevelopmentDataSeeder>();
 
         return services;
