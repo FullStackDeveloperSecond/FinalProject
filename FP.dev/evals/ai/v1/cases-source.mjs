@@ -10,7 +10,7 @@ export const groupPlans = {
 }
 
 export const fixtures = {
-  fixtureVersion: 'v1.0.3',
+  fixtureVersion: 'v1.0.4',
   fixtures: [
     {
       fixtureId: 'catalog.synthetic.v1',
@@ -45,7 +45,14 @@ export const fixtures = {
         { id: 'motherboard-wifi-am5', category: 'Motherboard', purposes: ['General'], price: 6200 },
         { id: 'keyboard-silent', category: 'Keyboard', purposes: ['Office'], price: 2200 },
         { id: 'mouse-gaming', category: 'Mouse', purposes: ['Gaming'], price: 1800 },
-        { id: 'storage-nas-8tb', category: 'Storage', purposes: ['General'], price: 7200 }
+        {
+          id: 'storage-nas-8tb',
+          name: '懂選 8TB 家用儲存裝置',
+          category: 'Storage',
+          purposes: ['General'],
+          price: 7200,
+          badges: ['8TB 儲存容量', '單一裝置不等同完整備份'],
+        }
       ]
     },
     {
