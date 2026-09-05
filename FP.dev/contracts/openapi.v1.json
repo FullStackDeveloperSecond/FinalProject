@@ -18932,10 +18932,15 @@
         }
       },
       "CreateAdminSupportReplyRequest": {
+        "required": [
+          "body",
+          "rowVersion"
+        ],
         "type": "object",
         "properties": {
           "body": {
             "maxLength": 4000,
+            "minLength": 1,
             "type": "string"
           },
           "rowVersion": {

@@ -11085,9 +11085,9 @@ export interface components {
             remainingCount: null | number | string;
         };
         CreateAdminSupportReplyRequest: {
-            body?: string;
+            body: string;
             /** Format: byte */
-            rowVersion?: string;
+            rowVersion: string;
         };
         CreateBrandRequest: {
             code: string;
