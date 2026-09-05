@@ -9,6 +9,30 @@ import { useSessionStore } from '../stores/session'
 const mockGetProductDetail = vi.fn()
 const mockAddCartItem = vi.fn()
 
+const favoriteMocks = await vi.hoisted(async () => {
+  const { ref } = await import('vue')
+  return {
+    data: ref<{ items: Array<{ productPublicId: string }> }>({ items: [] }),
+    isPending: ref(false),
+    isError: ref(false),
+    error: ref<unknown>(null),
+    add: { isPending: ref(false), mutate: vi.fn() },
+    remove: { isPending: ref(false), mutate: vi.fn() },
+  }
+})
+
+vi.mock('../features/favorites/queries', () => ({
+  useMyFavoritesQuery: () => ({
+    data: favoriteMocks.data,
+    isPending: favoriteMocks.isPending,
+    isError: favoriteMocks.isError,
+    error: favoriteMocks.error,
+    refetch: vi.fn(),
+  }),
+  useAddFavoriteMutation: () => favoriteMocks.add,
+  useRemoveFavoriteMutation: () => favoriteMocks.remove,
+}))
+
 vi.mock('../features/catalog/api', () => ({
   getProductDetail: mockGetProductDetail,
   searchProducts: vi.fn(),
@@ -90,6 +114,9 @@ async function mountPage(id = 'p1') {
 describe('ProductDetailPage', () => {
   beforeEach(() => {
     mockAddCartItem.mockReset()
+    favoriteMocks.data.value = { items: [] }
+    favoriteMocks.add.mutate.mockReset()
+    favoriteMocks.remove.mutate.mockReset()
   })
 
   /** PR #24 review: C-03's DTO already carries images, but the detail page never rendered them. */
@@ -434,5 +461,49 @@ describe('ProductDetailPage', () => {
     await addButton.trigger('click')
     await flushPromises()
     expect(mockAddCartItem).not.toHaveBeenCalled()
+  })
+
+  it('lets an authenticated member add and remove the product from their favorites', async () => {
+    mockGetProductDetail.mockResolvedValue(productDetail())
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/products/:productId', name: 'product-detail', component: ProductDetailPage, props: true },
+      ],
+    })
+    await router.push('/products/p1')
+    await router.isReady()
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    useSessionStore().status = 'authenticated'
+
+    const wrapper = mount(ProductDetailPage, { global: { plugins: [[VueQueryPlugin, { queryClient }], router] } })
+    await flushPromises()
+
+    const favoriteButton = wrapper.find('.product-detail__favorite-toggle')
+    expect(favoriteButton.text()).toContain('加入收藏')
+
+    await favoriteButton.trigger('click')
+    expect(favoriteMocks.add.mutate).toHaveBeenCalledWith('p1', expect.any(Object))
+
+    favoriteMocks.data.value = { items: [{ productPublicId: 'p1' }] }
+    await flushPromises()
+
+    const toggledButton = wrapper.find('.product-detail__favorite-toggle')
+    expect(toggledButton.text()).toContain('已收藏')
+    await toggledButton.trigger('click')
+    expect(favoriteMocks.remove.mutate).toHaveBeenCalledWith('p1', expect.any(Object))
+  })
+
+  it('shows a login link instead of a favorite toggle for an anonymous visitor', async () => {
+    mockGetProductDetail.mockResolvedValue(productDetail())
+    const wrapper = await mountPage()
+    await flushPromises()
+
+    const link = wrapper.find('a.product-detail__favorite-toggle')
+    expect(link.exists()).toBe(true)
+    expect(link.text()).toContain('登入後收藏')
+    expect(wrapper.find('button.product-detail__favorite-toggle').exists()).toBe(false)
   })
 })

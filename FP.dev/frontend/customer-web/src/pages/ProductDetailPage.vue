@@ -9,6 +9,7 @@ import { useAddCartItem } from '../features/cart/useCart'
 import { useSessionStore } from '../stores/session'
 import { usePublicProductReviewsQuery } from '../features/reviews/queries'
 import { formatReviewDate } from '../features/reviews/labels'
+import { useAddFavoriteMutation, useMyFavoritesQuery, useRemoveFavoriteMutation } from '../features/favorites/queries'
 
 const route = useRoute()
 const sessionStore = useSessionStore()
@@ -41,6 +42,10 @@ function describeAddToCartError(caught: unknown): string {
     return ADD_TO_CART_ERROR_MESSAGES[caught.code] ?? `加入購物車失敗（${caught.code}），請重試。`
   }
   return '加入購物車失敗，請重試。'
+}
+
+function describeError(caught: unknown): string {
+  return isApiError(caught) ? caught.message : '操作失敗，請稍後再試。'
 }
 
 // 組長 PR #29 round-6 review, P1 (widened in round 7 review, P1): a shopper whose member Cookie
@@ -92,6 +97,30 @@ function onAddToCart(): void {
       },
     },
   )
+}
+
+// 評價收藏檢舉與模擬發票規格.md: 收藏只開放登入會員. There is no "check one favorite" endpoint —
+// only the paginated list — so the toggle state is read off the largest allowed page (100, the
+// API's own PageSize ceiling) rather than a per-product lookup call.
+const favoritesQuery = useMyFavoritesQuery(1, 100, () => sessionStore.isAuthenticated)
+const addFavoriteMutation = useAddFavoriteMutation()
+const removeFavoriteMutation = useRemoveFavoriteMutation()
+const favoriteError = ref<string | null>(null)
+
+const isFavorited = computed(() =>
+  favoritesQuery.data.value?.items.some(item => item.productPublicId === product.value?.productPublicId) ?? false)
+const isFavoriteMutating = computed(() =>
+  addFavoriteMutation.isPending.value || removeFavoriteMutation.isPending.value)
+
+function toggleFavorite(): void {
+  if (!product.value || isFavoriteMutating.value) {
+    return
+  }
+  favoriteError.value = null
+  const mutation = isFavorited.value ? removeFavoriteMutation : addFavoriteMutation
+  mutation.mutate(product.value.productPublicId, {
+    onError: (caught) => { favoriteError.value = describeError(caught) },
+  })
 }
 
 // Switching to a different SKU makes a stale success/error message from the previous SKU
@@ -168,7 +197,33 @@ const isNotFound = computed(() => isApiError(error.value) && error.value.status 
       <p class="product-detail__brand">
         {{ product.brand.name }} · {{ product.category.name }}
       </p>
-      <h1>{{ product.name }}</h1>
+      <div class="product-detail__title-row">
+        <h1>{{ product.name }}</h1>
+        <button
+          v-if="sessionStore.isAuthenticated"
+          type="button"
+          class="product-detail__favorite-toggle"
+          :class="{ 'product-detail__favorite-toggle--active': isFavorited }"
+          :disabled="isFavoriteMutating"
+          :aria-pressed="isFavorited"
+          @click="toggleFavorite"
+        >
+          {{ isFavorited ? '★ 已收藏' : '☆ 加入收藏' }}
+        </button>
+        <RouterLink
+          v-else-if="sessionStore.status === 'anonymous'"
+          class="product-detail__favorite-toggle"
+          :to="{ path: '/login', query: { redirect: route.fullPath } }"
+        >
+          ☆ 登入後收藏
+        </RouterLink>
+      </div>
+      <p
+        v-if="favoriteError"
+        class="product-detail__favorite-error"
+      >
+        {{ favoriteError }}
+      </p>
       <p
         v-if="product.badges.includes('featured')"
         class="product-detail__badge"
@@ -418,6 +473,40 @@ const isNotFound = computed(() => isApiError(error.value) && error.value.status 
   background: #dbeafe;
   color: #1e40af;
   font-size: 0.75rem;
+}
+
+.product-detail__title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.product-detail__title-row h1 {
+  margin: 0.25rem 0;
+}
+
+.product-detail__favorite-toggle {
+  padding: 0.375rem 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  background: #fff;
+  color: inherit;
+  text-decoration: none;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.product-detail__favorite-toggle--active {
+  border-color: #f59e0b;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.product-detail__favorite-error {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 0.875rem;
 }
 
 .product-detail__gallery {
