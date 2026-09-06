@@ -140,32 +140,39 @@ function formatDateTime(value: string): string {
         title="沒有符合條件的庫存資料"
       />
       <template v-else-if="balanceResult">
-        <table class="inventory-table">
-          <thead>
-            <tr>
-              <th>SKU 代碼</th>
-              <th>名稱</th>
-              <th>在庫</th>
-              <th>已保留</th>
-              <th>可售</th>
-              <th>低庫存門檻</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="balance in balanceResult.items"
-              :key="balance.skuPublicId"
-              :class="stockRowClass(Number(balance.available), Number(balance.lowStockThreshold))"
-            >
-              <td>{{ balance.skuCode }}</td>
-              <td>{{ balance.skuNameZhTw }}</td>
-              <td>{{ balance.onHand }}</td>
-              <td>{{ balance.reserved }}</td>
-              <td>{{ balance.available }}</td>
-              <td>{{ balance.lowStockThreshold }}</td>
-            </tr>
-          </tbody>
-        </table>
+        <div
+          class="table-scroll"
+          role="region"
+          aria-label="庫存餘額表格，可橫向捲動"
+          tabindex="0"
+        >
+          <table class="inventory-table">
+            <thead>
+              <tr>
+                <th>SKU 代碼</th>
+                <th>名稱</th>
+                <th>在庫</th>
+                <th>已保留</th>
+                <th>可售</th>
+                <th>低庫存門檻</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="balance in balanceResult.items"
+                :key="balance.skuPublicId"
+                :class="stockRowClass(Number(balance.available), Number(balance.lowStockThreshold))"
+              >
+                <td>{{ balance.skuCode }}</td>
+                <td>{{ balance.skuNameZhTw }}</td>
+                <td>{{ balance.onHand }}</td>
+                <td>{{ balance.reserved }}</td>
+                <td>{{ balance.available }}</td>
+                <td>{{ balance.lowStockThreshold }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <nav
           v-if="balanceTotalPages > 1"
           class="inventory-pagination"
@@ -249,33 +256,40 @@ function formatDateTime(value: string): string {
         title="沒有符合條件的異動紀錄"
       />
       <template v-else-if="movementResult">
-        <table class="inventory-table">
-          <thead>
-            <tr>
-              <th>時間</th>
-              <th>SKU</th>
-              <th>類型</th>
-              <th>在庫變化</th>
-              <th>保留變化</th>
-              <th>原因</th>
-              <th>操作人</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="movement in movementResult.items"
-              :key="movement.publicId"
-            >
-              <td>{{ formatDateTime(movement.occurredAtUtc) }}</td>
-              <td>{{ movement.sku.skuCode }}</td>
-              <td>{{ movement.movementType }}</td>
-              <td>{{ Number(movement.onHandDelta) >= 0 ? '+' : '' }}{{ movement.onHandDelta }}</td>
-              <td>{{ Number(movement.reservedDelta) >= 0 ? '+' : '' }}{{ movement.reservedDelta }}</td>
-              <td>{{ movement.reasonCode }}</td>
-              <td>{{ movement.actor?.email ?? '系統' }}</td>
-            </tr>
-          </tbody>
-        </table>
+        <div
+          class="table-scroll"
+          role="region"
+          aria-label="庫存異動表格，可橫向捲動"
+          tabindex="0"
+        >
+          <table class="inventory-table">
+            <thead>
+              <tr>
+                <th>時間</th>
+                <th>SKU</th>
+                <th>類型</th>
+                <th>在庫變化</th>
+                <th>保留變化</th>
+                <th>原因</th>
+                <th>操作人</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="movement in movementResult.items"
+                :key="movement.publicId"
+              >
+                <td>{{ formatDateTime(movement.occurredAtUtc) }}</td>
+                <td>{{ movement.sku.skuCode }}</td>
+                <td>{{ movement.movementType }}</td>
+                <td>{{ Number(movement.onHandDelta) >= 0 ? '+' : '' }}{{ movement.onHandDelta }}</td>
+                <td>{{ Number(movement.reservedDelta) >= 0 ? '+' : '' }}{{ movement.reservedDelta }}</td>
+                <td>{{ movement.reasonCode }}</td>
+                <td>{{ movement.actor?.email ?? '系統' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <nav
           v-if="movementTotalPages > 1"
           class="inventory-pagination"

@@ -170,6 +170,11 @@ const errorTitle = computed(() => {
           >
           {{ option.label }}
         </label>
+        <p class="case-workbench__unavailable-types">
+          尚未開放：退貨、檢舉。
+          後端統一案件檢視目前只回傳客服案件，待各自的授權範圍與明細頁完成後才會納入篩選，
+          因此這裡不提供這兩種案件類型的選項。
+        </p>
       </fieldset>
 
       <fieldset>
@@ -453,5 +458,16 @@ const errorTitle = computed(() => {
   display: flex;
   gap: 0.75rem;
   margin-top: 1.25rem;
+}
+
+.case-workbench__unavailable-types {
+  grid-column: 1 / -1;
+  margin: var(--space-2) 0 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-strong);
+  border-left: 3px solid var(--color-border);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  font-size: var(--fs-caption);
+  color: var(--color-text-muted);
 }
 </style>

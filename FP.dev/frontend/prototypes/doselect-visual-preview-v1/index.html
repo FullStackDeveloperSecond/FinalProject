@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DoSelect 懂選｜整站第一版視覺預覽</title>
+<meta name="description" content="DoSelect 懂選前台與後台整站第一版視覺預覽。僅示意版面、資訊配置與操作流程，不含真實資料、API 或後端功能。" />
+<link rel="stylesheet" href="assets/preview.css" />
+</head>
+<body>
+<a class="skip-link" href="#preview-main">跳到主要內容</a>
+<p id="route-announcer" class="visually-hidden" role="status" aria-live="polite"></p>
+
+<div class="preview-banner" role="note">
+  <strong>視覺預覽版</strong>
+  <span>本頁為第一版畫面審查用原型：所有資料皆為假資料，不連線 API、不寫入資料庫，重新整理即回復初始狀態。</span>
+</div>
+
+<header class="topbar">
+  <a class="brand" href="#/store/home">
+    <img class="brand__mark" src="../donggu-blue-white/assets/images/donggu-official.png" alt="" width="36" height="36" />
+    <span class="brand__name">DoSelect<span class="brand__sub">懂選</span></span>
+  </a>
+
+  <nav class="mode-switch" aria-label="前台後台切換">
+    <a href="#/store/home" data-mode-link="store">前台</a>
+    <a href="#/admin/dashboard" data-mode-link="admin">後台</a>
+  </nav>
+
+  <div class="topbar__spacer"></div>
+
+  <div class="topbar__session" id="topbar-session"></div>
+
+  <button type="button" class="btn btn--ghost topbar__menu" id="nav-toggle" aria-expanded="false" aria-controls="page-nav">
+    畫面選單
+  </button>
+</header>
+
+<div class="shell" id="shell">
+  <nav class="page-nav" id="page-nav" aria-label="預覽畫面導覽"></nav>
+  <main class="preview-main" id="preview-main" tabindex="-1"></main>
+</div>
+
+<footer class="site-foot">
+  <p>DoSelect 懂選 · 整站第一版視覺預覽 · 假資料展示，非正式系統</p>
+  <p>Demo 用途，無品牌背書；商品、訂單、案件、金額與人名均為虛構。</p>
+</footer>
+
+<script src="assets/data.js"></script>
+<script src="assets/views-store.js"></script>
+<script src="assets/views-admin.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

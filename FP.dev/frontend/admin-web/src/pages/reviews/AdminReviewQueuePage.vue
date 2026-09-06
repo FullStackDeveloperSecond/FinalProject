@@ -174,13 +174,13 @@ function moderate(review: AdminReview, action: 'approve' | 'reject' | 'hide' | '
 <style scoped>
 .review-queue { display: grid; gap: 1rem; }
 .review-queue__filter { display: grid; gap: .25rem; max-width: 14rem; font-weight: 600; }
-.review-queue__filter select, .review-card input, .review-card textarea { padding: .625rem; border: 1px solid #9ca3af; border-radius: .375rem; font: inherit; }
-.review-queue__feedback { padding: .75rem; background: #ecfdf5; color: #166534; border-radius: .5rem; }
-.review-card { display: grid; gap: .75rem; padding: 1rem; border: 1px solid #d1d5db; border-radius: .75rem; }
+.review-queue__filter select, .review-card input, .review-card textarea { padding: .625rem; border: 1px solid var(--color-border); border-radius: .375rem; font: inherit; }
+.review-queue__feedback { padding: .75rem; background: var(--color-success-bg); color: var(--color-success); border-radius: .5rem; }
+.review-card { display: grid; gap: .75rem; padding: 1rem; border: 1px solid var(--color-border); border-radius: .75rem; }
 .review-card__heading { display: flex; justify-content: space-between; gap: 1rem; }
 .review-card__heading h2, .review-card__heading p { margin: 0; }
-.review-card__heading span { align-self: start; padding: .2rem .6rem; border-radius: 999px; background: #e5e7eb; }
-.review-card__rejection { color: #b91c1c; }
+.review-card__heading span { align-self: start; padding: .2rem .6rem; border-radius: 999px; background: var(--color-border); }
+.review-card__rejection { color: var(--color-danger); }
 .review-card__images { display: flex; gap: .5rem; padding: 0; list-style: none; }
 .review-card__images img { object-fit: cover; border-radius: .375rem; }
 .review-card__reason { display: grid; grid-template-columns: minmax(12rem, .5fr) minmax(16rem, 1fr); gap: .75rem; }

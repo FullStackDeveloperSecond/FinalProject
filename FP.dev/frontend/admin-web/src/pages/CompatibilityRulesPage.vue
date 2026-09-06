@@ -639,7 +639,7 @@ const severityLabels: Record<string, string> = {
 
 <style scoped>
 .compatibility-rules-page__version {
-  color: #4b5563;
+  color: var(--color-text-muted);
   margin-block-end: 1rem;
 }
 
@@ -652,7 +652,7 @@ const severityLabels: Record<string, string> = {
 .compatibility-rules-page__table th,
 .compatibility-rules-page__table td {
   padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--color-border);
   text-align: left;
   vertical-align: top;
 }
@@ -660,7 +660,7 @@ const severityLabels: Record<string, string> = {
 .compatibility-rules-page__code {
   font-family: ui-monospace, SFMono-Regular, monospace;
   font-size: 0.75rem;
-  color: #4b5563;
+  color: var(--color-text-muted);
 }
 
 .compatibility-rules-page__warning-editor {
@@ -680,31 +680,31 @@ const severityLabels: Record<string, string> = {
 
 .compatibility-rules-page__range {
   font-size: 0.8125rem;
-  color: #4b5563;
+  color: var(--color-text-muted);
 }
 
 .compatibility-rules-page__validation-error {
   margin: 0.25rem 0 0;
   font-size: 0.8125rem;
-  color: #b91c1c;
+  color: var(--color-danger);
 }
 
 .compatibility-rules-page__no-threshold {
-  color: #4b5563;
+  color: var(--color-text-muted);
   font-size: 0.875rem;
 }
 
 .compatibility-rules-page__table input {
   min-height: 2.5rem;
   padding: 0.375rem 0.625rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--color-border);
   border-radius: 0.375rem;
   font: inherit;
 }
 
 .compatibility-rules-page__test {
   padding-block-start: 1.5rem;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--color-border);
 }
 
 .compatibility-rules-page__add-row {
@@ -717,7 +717,7 @@ const severityLabels: Record<string, string> = {
 .compatibility-rules-page__add-row input {
   min-height: 2.75rem;
   padding: 0.5rem 0.75rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--color-border);
   border-radius: 0.5rem;
   font: inherit;
 }
@@ -742,21 +742,21 @@ const severityLabels: Record<string, string> = {
   gap: 0.5rem 1rem;
   padding: 0.75rem;
   margin-block-end: 1rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--color-border);
   border-radius: 0.5rem;
 }
 
 .compatibility-rules-page__rule-select legend {
   padding-inline: 0.25rem;
   font-size: 0.8125rem;
-  color: #4b5563;
+  color: var(--color-text-muted);
 }
 
 .compatibility-rules-page__draft-settings input {
   min-height: 2.5rem;
   margin-inline-start: 0.5rem;
   padding: 0.375rem 0.625rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--color-border);
   border-radius: 0.375rem;
   font: inherit;
   width: 8rem;
@@ -765,9 +765,9 @@ const severityLabels: Record<string, string> = {
 .compatibility-rules-page__test-result {
   margin-block-start: 1rem;
   padding: 1rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--color-border);
   border-radius: 0.5rem;
-  background: #f9fafb;
+  background: var(--color-surface-strong);
 }
 
 .compatibility-rules-page__test-result ul {

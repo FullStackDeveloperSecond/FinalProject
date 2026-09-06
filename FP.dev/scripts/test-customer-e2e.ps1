@@ -3,7 +3,9 @@ param(
     [ValidateSet('customer-chromium', 'admin-chromium')]
     [string] $Project = 'customer-chromium',
 
-    [string] $JourneyTitle
+    [string] $JourneyTitle,
+
+    [switch] $All
 )
 
 Set-StrictMode -Version Latest
@@ -132,7 +134,7 @@ try {
     # -like (substring) rather than -eq: Playwright test titles built from multiple journeys are
     # joined with "; " (e.g. the H-R02 title below is actually prefixed with the TOTP enrollment
     # title), so an exact match against either half alone never matched the real combined title.
-    $requiresPaymentCompletionInfrastructure =
+    $requiresPaymentCompletionInfrastructure = $All -or
         $JourneyTitle -like '*a guest completes the prepared cart through checkout payment and invoice*' -or
         $JourneyTitle -like '*a seeded administrator can enroll TOTP, reject a wrong code, and sign in again*' -or
         $JourneyTitle -like '*H-R02 fulfills COD home delivery and store pickup exactly once*' -or
@@ -180,7 +182,12 @@ try {
 
     Push-Location $customerWeb
     try {
-        & npm run test:e2e -- --project $Project --grep $JourneyTitle
+        if ($All) {
+            & npm run test:e2e -- --workers=1
+        }
+        else {
+            & npm run test:e2e -- --project $Project --grep $JourneyTitle --workers=1
+        }
         if ($LASTEXITCODE -ne 0) {
             throw "E2E journey '$JourneyTitle' in project '$Project' failed."
         }

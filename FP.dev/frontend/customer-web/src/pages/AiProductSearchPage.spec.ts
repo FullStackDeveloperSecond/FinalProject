@@ -73,6 +73,17 @@ function mountPage() {
   })
 }
 
+it('keeps incomplete existing parts visible and blocks submitting a search that drops them', async () => {
+  mutateAsync.mockClear()
+  const wrapper = mountPage()
+  await wrapper.find('textarea').setValue('找相容的主機板')
+  await wrapper.findAll('button').find(button => button.text() === '加入手填零件')!.trigger('click')
+  await wrapper.find('form').trigger('submit')
+  expect(mutateAsync).not.toHaveBeenCalled()
+  expect(wrapper.get('[role="alert"]').text()).toContain('請選好站內零件')
+  expect(wrapper.find('[data-testid="manual-category"]').exists()).toBe(true)
+})
+
 beforeEach(() => {
   mutateAsync.mockReset()
   mutationData.value = undefined
@@ -253,7 +264,7 @@ describe('AiProductSearchPage', () => {
     await addManual!.trigger('click')
     await wrapper.get('[data-testid="manual-category"]').setValue('CPU')
     await wrapper.get('[data-testid="manual-display-name"]').setValue('既有處理器')
-    await wrapper.get('[data-testid="manual-semantic-key"]').setValue('cpu_socket')
+    await wrapper.get('[data-testid="manual-semantic-key"]').setValue('CPU_SOCKET')
     await wrapper.get('[data-testid="manual-spec-value"]').setValue('AM5')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
@@ -265,7 +276,7 @@ describe('AiProductSearchPage', () => {
         displayName: '既有處理器',
         confirmedByUser: true,
         specifications: [expect.objectContaining({
-          semanticKey: 'cpu_socket',
+          semanticKey: 'CPU_SOCKET',
           value: 'AM5',
         })],
       })],

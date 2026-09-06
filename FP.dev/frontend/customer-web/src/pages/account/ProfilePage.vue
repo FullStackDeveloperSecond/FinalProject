@@ -200,13 +200,13 @@ const localeLabel = computed(() => {
 <style scoped>
 .profile-page {
   display: grid;
-  gap: 1.5rem;
+  gap: var(--space-6);
   max-width: 32rem;
 }
 
 .profile-page__summary {
   display: grid;
-  gap: 0.75rem;
+  gap: var(--space-3);
 }
 
 .profile-page__row {
@@ -217,7 +217,7 @@ const localeLabel = computed(() => {
 }
 
 .profile-page__row dt {
-  color: #6b7280;
+  color: var(--color-text-muted);
 }
 
 .profile-page__row dd {
@@ -227,7 +227,7 @@ const localeLabel = computed(() => {
 
 .profile-page__form {
   display: grid;
-  gap: 0.75rem;
+  gap: var(--space-3);
 }
 
 .profile-page__actions {
@@ -236,6 +236,6 @@ const localeLabel = computed(() => {
 }
 
 .profile-page__error {
-  color: #b91c1c;
+  color: var(--color-danger);
 }
 </style>

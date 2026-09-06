@@ -274,7 +274,7 @@ function remove() {
 
 <style scoped>
 .sku-editor-row__error {
-  color: #b91c1c;
+  color: var(--color-danger);
   font-size: 0.875rem;
 }
 </style>

@@ -180,7 +180,7 @@ async function handleCancel() {
       </dl>
 
       <section
-        class="support-ticket-detail__messages"
+        class="support-ticket-detail__messages card"
         aria-labelledby="support-ticket-messages-title"
       >
         <h2 id="support-ticket-messages-title">
@@ -297,7 +297,7 @@ async function handleCancel() {
 
       <form
         v-if="canAddMessage"
-        class="support-ticket-detail__reply-form"
+        class="support-ticket-detail__reply-form card"
         @submit.prevent="handleAddMessage"
       >
         <label class="form-field">
@@ -430,11 +430,11 @@ async function handleCancel() {
 .support-ticket-detail__message--member {
   align-self: flex-end;
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
 }
 
 .support-ticket-detail__message--member .support-ticket-detail__message-meta {
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--color-primary-soft);
 }
 
 .support-ticket-detail__message-meta {

@@ -713,7 +713,7 @@ function describeCouponError(error: unknown): string {
 .cart-page__assembly-group {
   padding: 0.75rem;
   margin-block-end: 0.5rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--color-border);
   border-radius: 0.5rem;
 }
 
@@ -725,7 +725,7 @@ function describeCouponError(error: unknown): string {
 
 .cart-page__assembly-group-hint {
   margin: 0 0 0.5rem;
-  color: #4b5563;
+  color: var(--color-text-muted);
   font-size: 0.8125rem;
 }
 
@@ -743,30 +743,30 @@ function describeCouponError(error: unknown): string {
 
 .cart-page__assembly-group-error {
   margin: 0.5rem 0 0;
-  color: #991b1b;
+  color: var(--color-danger);
   font-size: 0.875rem;
 }
 
 .cart-page__warnings {
   padding: 0.75rem 1rem;
-  background: #fef3c7;
+  background: var(--color-warning-bg);
   border-radius: 0.5rem;
-  color: #92400e;
+  color: var(--color-warning);
 }
 
 .cart-page__issues {
   padding: 0.75rem 1rem;
-  background: #fef3c7;
+  background: var(--color-warning-bg);
   border-radius: 0.5rem;
-  color: #92400e;
+  color: var(--color-warning);
 }
 
 .cart-page__revalidate-error,
 .cart-page__identity-error {
   padding: 0.75rem 1rem;
-  background: #fee2e2;
+  background: var(--color-danger-bg);
   border-radius: 0.5rem;
-  color: #991b1b;
+  color: var(--color-danger);
   display: flex;
   align-items: center;
   gap: 0.75rem;
@@ -814,7 +814,7 @@ function describeCouponError(error: unknown): string {
   justify-content: space-between;
   align-items: center;
   padding-top: 1rem;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--color-border-soft);
 }
 
 .cart-page__total {
@@ -824,8 +824,8 @@ function describeCouponError(error: unknown): string {
 }
 
 .cart-page__checkout:disabled {
-  background: #9ca3af;
-  border-color: #9ca3af;
+  background: var(--color-text-faint);
+  border-color: var(--color-text-faint);
   cursor: not-allowed;
 }
 </style>

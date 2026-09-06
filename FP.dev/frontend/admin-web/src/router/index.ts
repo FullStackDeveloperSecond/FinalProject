@@ -1,3 +1,4 @@
+import { adminRouteRoles } from './access'
 import { createRouter, createWebHistory } from 'vue-router'
 import { HttpStatusPage } from '@doselect/web-shared/components'
 import { useAdminAuthStore } from '../features/auth/stores/useAdminAuthStore'
@@ -51,7 +52,7 @@ const router = createRouter({
       component: () => import('../pages/support/SupportSlaQueuePage.vue'),
       meta: {
         requiresAuth: true,
-        requiredRoles: ['CustomerService', 'CustomerServiceSupervisor', 'SuperAdmin'],
+        requiredRoles: adminRouteRoles['/support'],
       },
     },
     {
@@ -60,7 +61,7 @@ const router = createRouter({
       component: () => import('../pages/support/SupportTicketDetailPage.vue'),
       meta: {
         requiresAuth: true,
-        requiredRoles: ['CustomerService', 'CustomerServiceSupervisor', 'SuperAdmin'],
+        requiredRoles: adminRouteRoles['/support/tickets/:ticketId'],
       },
     },
     {
@@ -78,13 +79,13 @@ const router = createRouter({
       path: '/catalog/lookups',
       name: 'catalog-lookups',
       component: () => import('../pages/CatalogLookupsPage.vue'),
-      meta: { requiresAuth: true, requiredRoles: ['CatalogManager', 'SuperAdmin'] },
+      meta: { requiresAuth: true, requiredRoles: adminRouteRoles['/catalog/lookups'] },
     },
     {
       path: '/products',
       name: 'products',
       component: () => import('../pages/ProductsPage.vue'),
-      meta: { requiresAuth: true, requiredRoles: ['CatalogManager', 'SuperAdmin'] },
+      meta: { requiresAuth: true, requiredRoles: adminRouteRoles['/products'] },
     },
     {
       // M功能桌面UI與Route規格.md A-07。Policy 對齊後端的 CatalogImport.*（CatalogManager／
@@ -92,13 +93,13 @@ const router = createRouter({
       path: '/products/import',
       name: 'product-import',
       component: () => import('../pages/ProductImportPage.vue'),
-      meta: { requiresAuth: true, requiredRoles: ['CatalogManager', 'SuperAdmin'] },
+      meta: { requiresAuth: true, requiredRoles: adminRouteRoles['/products/import'] },
     },
     {
       path: '/products/new',
       name: 'product-new',
       component: () => import('../pages/ProductEditPage.vue'),
-      meta: { requiresAuth: true, requiredRoles: ['CatalogManager', 'SuperAdmin'] },
+      meta: { requiresAuth: true, requiredRoles: adminRouteRoles['/products/new'] },
     },
     {
       // Confirmed Route contract (M功能桌面UI與Route規格.md A-06): /admin/products/:productId,
@@ -107,7 +108,7 @@ const router = createRouter({
       name: 'product-edit',
       component: () => import('../pages/ProductEditPage.vue'),
       props: true,
-      meta: { requiresAuth: true, requiredRoles: ['CatalogManager', 'SuperAdmin'] },
+      meta: { requiresAuth: true, requiredRoles: adminRouteRoles['/products/:productId'] },
     },
     {
       // A-23：Coupon.Manage（FinanceManager／MarketingAnalyst／SuperAdmin）。
@@ -117,14 +118,14 @@ const router = createRouter({
       component: () => import('../pages/coupons/AdminCouponsPage.vue'),
       meta: {
         requiresAuth: true,
-        requiredRoles: ['FinanceManager', 'MarketingAnalyst', 'SuperAdmin'],
+        requiredRoles: adminRouteRoles['/coupons'],
       },
     },
     {
       path: '/returns',
       name: 'admin-return-queue',
       component: () => import('../pages/returns/AdminReturnQueuePage.vue'),
-      meta: { requiresAuth: true, requiredRoles: ['OrderManager', 'SuperAdmin'] },
+      meta: { requiresAuth: true, requiredRoles: adminRouteRoles['/returns'] },
     },
     {
       // A-21：退款清單。後端 Refund.Execute policy 同時要求角色與 MFA；
@@ -132,26 +133,26 @@ const router = createRouter({
       path: '/refunds',
       name: 'admin-refund-list',
       component: () => import('../pages/refunds/AdminRefundsPage.vue'),
-      meta: { requiresAuth: true, requiredRoles: ['FinanceManager', 'SuperAdmin'] },
+      meta: { requiresAuth: true, requiredRoles: adminRouteRoles['/refunds'] },
     },
     {
       // A-22：可信分攤、核准上限與具冪等鍵的退款執行。
       path: '/refunds/:refundId',
       name: 'admin-refund-detail',
       component: () => import('../pages/refunds/AdminRefundDetailPage.vue'),
-      meta: { requiresAuth: true, requiredRoles: ['FinanceManager', 'SuperAdmin'] },
+      meta: { requiresAuth: true, requiredRoles: adminRouteRoles['/refunds/:refundId'] },
     },
     {
       path: '/invoices',
       name: 'admin-invoice-list',
       component: () => import('../pages/invoices/AdminInvoicesPage.vue'),
-      meta: { requiresAuth: true, requiredRoles: ['FinanceManager', 'SuperAdmin'] },
+      meta: { requiresAuth: true, requiredRoles: adminRouteRoles['/invoices'] },
     },
     {
       path: '/invoices/:invoiceId',
       name: 'admin-invoice-detail',
       component: () => import('../pages/invoices/AdminInvoiceDetailPage.vue'),
-      meta: { requiresAuth: true, requiredRoles: ['FinanceManager', 'SuperAdmin'] },
+      meta: { requiresAuth: true, requiredRoles: adminRouteRoles['/invoices/:invoiceId'] },
     },
     {
       path: '/ai/usage',
@@ -159,7 +160,7 @@ const router = createRouter({
       component: () => import('../pages/AiUsagePage.vue'),
       meta: {
         requiresAuth: true,
-        requiredRoles: ['FinanceManager', 'CustomerServiceSupervisor', 'MarketingAnalyst', 'SuperAdmin'],
+        requiredRoles: adminRouteRoles['/ai/usage'],
       },
     },
     {
@@ -168,7 +169,7 @@ const router = createRouter({
       component: () => import('../pages/reviews/AdminReviewQueuePage.vue'),
       meta: {
         requiresAuth: true,
-        requiredRoles: ['CustomerService', 'CustomerServiceSupervisor', 'SuperAdmin'],
+        requiredRoles: adminRouteRoles['/reviews'],
       },
     },
     {
@@ -180,27 +181,27 @@ const router = createRouter({
         : { name: 'not-found' },
       meta: {
         requiresAuth: true,
-        requiredRoles: ['FinanceManager', 'MarketingAnalyst', 'SuperAdmin'],
+        requiredRoles: adminRouteRoles['/reports/:reportKey'],
       },
     },
     {
       path: '/returns/:returnId',
       name: 'admin-return-detail',
       component: () => import('../pages/returns/AdminReturnDetailPage.vue'),
-      meta: { requiresAuth: true, requiredRoles: ['OrderManager', 'SuperAdmin'] },
+      meta: { requiresAuth: true, requiredRoles: adminRouteRoles['/returns/:returnId'] },
     },
     {
-      // 前台目前沒有登入流程（屬於 haru/feature/admin-membermanage 分支範圍，尚未合併），
-      // 所以這裡先不掛 meta.requiresAuth／router guard；401/403 由頁面自己處理（比照
-      // customer-web OrderDetailPage.vue 現有模式）。待該分支合併後可補上 Guard。
+      // Match AdminOrdersController's Order.Manage policy now that authentication is available.
       path: '/orders',
       name: 'admin-order-list',
       component: () => import('../features/orders/pages/OrderListPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: adminRouteRoles['/orders'] },
     },
     {
       path: '/orders/:publicId',
       name: 'admin-order-detail',
       component: () => import('../features/orders/pages/OrderDetailPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: adminRouteRoles['/orders/:publicId'] },
     },
     {
       // 組長 PR #35 review, item 6: official route is /admin/catalog/compatibility, not
@@ -217,7 +218,7 @@ const router = createRouter({
       path: '/catalog/compatibility',
       name: 'compatibility-rules',
       component: () => import('../pages/CompatibilityRulesPage.vue'),
-      meta: { requiresAuth: true, requiredRoles: ['CatalogManager', 'SuperAdmin'] },
+      meta: { requiresAuth: true, requiredRoles: adminRouteRoles['/catalog/compatibility'] },
     },
     {
       // M功能桌面UI與Route規格.md A-09 `/admin/catalog/specifications`；base: '/admin/' 已在
@@ -226,7 +227,7 @@ const router = createRouter({
       path: '/catalog/specifications',
       name: 'specification-definitions',
       component: () => import('../pages/SpecificationDefinitionsPage.vue'),
-      meta: { requiresAuth: true, requiredRoles: ['CatalogManager', 'SuperAdmin'] },
+      meta: { requiresAuth: true, requiredRoles: adminRouteRoles['/catalog/specifications'] },
     },
     {
       // M功能桌面UI與Route規格.md A-11
@@ -240,7 +241,7 @@ const router = createRouter({
       path: '/inventory',
       name: 'inventory',
       component: () => import('../pages/InventoryPage.vue'),
-      meta: { requiresAuth: true, requiredRoles: ['InventoryManager', 'SuperAdmin'] },
+      meta: { requiresAuth: true, requiredRoles: adminRouteRoles['/inventory'] },
     },
     {
       // M功能桌面UI與Route規格.md A-12
@@ -251,20 +252,20 @@ const router = createRouter({
       path: '/shipping/stores',
       name: 'shipping-stores',
       component: () => import('../pages/ShippingStoresPage.vue'),
-      meta: { requiresAuth: true, requiredRoles: ['OrderManager', 'CatalogManager', 'SuperAdmin'] },
+      meta: { requiresAuth: true, requiredRoles: adminRouteRoles['/shipping/stores'] },
     },
     {
       path: '/shipping/package-limits',
       name: 'shipping-package-limits',
       component: () => import('../pages/ShippingPackageLimitsPage.vue'),
-      meta: { requiresAuth: true, requiredRoles: ['OrderManager', 'SuperAdmin'] },
+      meta: { requiresAuth: true, requiredRoles: adminRouteRoles['/shipping/package-limits'] },
     },
     {
       // M功能桌面UI與Route規格.md A-13。後端是 InventoryAdjust.*（InventoryManager／SuperAdmin）。
       path: '/inventory/imports',
       name: 'inventory-imports',
       component: () => import('../pages/InventoryImportPage.vue'),
-      meta: { requiresAuth: true, requiredRoles: ['InventoryManager', 'SuperAdmin'] },
+      meta: { requiresAuth: true, requiredRoles: adminRouteRoles['/inventory/imports'] },
     },
     {
       // M功能桌面UI與Route規格.md A-16 `/admin/shipping/batches`（Order Manage）。整頁都是寫入
@@ -272,13 +273,13 @@ const router = createRouter({
       path: '/shipping/batches',
       name: 'shipping-batches',
       component: () => import('../pages/ShipmentBatchesPage.vue'),
-      meta: { requiresAuth: true, requiredRoles: ['OrderManager', 'SuperAdmin'] },
+      meta: { requiresAuth: true, requiredRoles: adminRouteRoles['/shipping/batches'] },
     },
     {
       path: '/inventory/reservations',
       name: 'inventory-reservations',
       component: () => import('../pages/InventoryReservationsPage.vue'),
-      meta: { requiresAuth: true, requiredRoles: ['InventoryManager', 'SuperAdmin'] },
+      meta: { requiresAuth: true, requiredRoles: adminRouteRoles['/inventory/reservations'] },
     },
     {
       // M功能桌面UI與Route規格.md A-29。後端 reconciliation-cases 四條路由都掛 InventoryManager

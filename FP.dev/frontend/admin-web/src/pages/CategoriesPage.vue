@@ -215,7 +215,7 @@ function handleUpdate(publicId: string, rowVersion: string, rawState: Record<str
 .categories-filters input {
   min-height: 2.75rem;
   padding: 0.5rem 0.75rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--color-border);
   border-radius: 0.5rem;
   font: inherit;
 }
@@ -229,6 +229,6 @@ function handleUpdate(publicId: string, rowVersion: string, rawState: Record<str
 }
 
 .categories-lookup-error {
-  color: #b91c1c;
+  color: var(--color-danger);
 }
 </style>

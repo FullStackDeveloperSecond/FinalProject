@@ -748,7 +748,7 @@ async function handleClaim() {
   align-items: flex-end;
   gap: 0.75rem;
   padding-block: 0.75rem;
-  border-bottom: 1px solid var(--color-border, #e5e7eb);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .support-ticket-detail__action-form:last-child {
@@ -849,11 +849,11 @@ async function handleClaim() {
 .support-ticket-detail__message--admin {
   align-self: flex-end;
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
 }
 
 .support-ticket-detail__message--admin .support-ticket-detail__message-meta {
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--color-primary-soft);
 }
 
 .support-ticket-detail__message--internal {

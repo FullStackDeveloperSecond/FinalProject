@@ -26,67 +26,69 @@ const { data, isPending, isError, error, refetch } = useAdminReturnListQuery()
       title="目前沒有退貨案件"
       description="有新的退貨申請時會顯示在這裡。"
     />
-    <table
+    <div
       v-else-if="data"
-      class="admin-returns__table"
+      class="table-scroll"
     >
-      <thead>
-        <tr>
-          <th scope="col">
-            退貨編號
-          </th>
-          <th scope="col">
-            訂單編號
-          </th>
-          <th scope="col">
-            狀態
-          </th>
-          <th scope="col">
-            優先度
-          </th>
-          <th scope="col">
-            品項數
-          </th>
-          <th scope="col">
-            申請時間
-          </th>
-          <th scope="col">
-            寄回期限
-          </th>
-          <th scope="col" />
-        </tr>
-      </thead>
-      <tbody>
-        <tr
-          v-for="item in data.items"
-          :key="item.publicId"
-          :class="{ 'admin-returns__row--attention': item.needsAttention }"
-        >
-          <td>
-            <RouterLink :to="`/returns/${item.publicId}`">
-              {{ item.returnNumber }}
-            </RouterLink>
-          </td>
-          <td>{{ item.orderNumber }}</td>
-          <td>{{ statusLabels[item.status] }}</td>
-          <td>{{ priorityLabels[item.priority] }}</td>
-          <td>{{ item.itemCount }}</td>
-          <td>{{ formatDateTime(item.requestedAtUtc) }}</td>
-          <td>
-            {{ formatDateTime(item.returnShipmentDueAtUtc) }}
-            <span
-              v-if="item.needsAttention"
-              class="admin-returns__attention-badge"
-            >即將逾期</span>
-          </td>
-          <td>
-            <RouterLink :to="`/returns/${item.publicId}`">
-              查看
-            </RouterLink>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+      <table class="admin-returns__table">
+        <thead>
+          <tr>
+            <th scope="col">
+              退貨編號
+            </th>
+            <th scope="col">
+              訂單編號
+            </th>
+            <th scope="col">
+              狀態
+            </th>
+            <th scope="col">
+              優先度
+            </th>
+            <th scope="col">
+              品項數
+            </th>
+            <th scope="col">
+              申請時間
+            </th>
+            <th scope="col">
+              寄回期限
+            </th>
+            <th scope="col" />
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="item in data.items"
+            :key="item.publicId"
+            :class="{ 'admin-returns__row--attention': item.needsAttention }"
+          >
+            <td>
+              <RouterLink :to="`/returns/${item.publicId}`">
+                {{ item.returnNumber }}
+              </RouterLink>
+            </td>
+            <td>{{ item.orderNumber }}</td>
+            <td>{{ statusLabels[item.status] }}</td>
+            <td>{{ priorityLabels[item.priority] }}</td>
+            <td>{{ item.itemCount }}</td>
+            <td>{{ formatDateTime(item.requestedAtUtc) }}</td>
+            <td>
+              {{ formatDateTime(item.returnShipmentDueAtUtc) }}
+              <span
+                v-if="item.needsAttention"
+                class="admin-returns__attention-badge"
+              >即將逾期</span>
+            </td>
+            <td>
+              <RouterLink :to="`/returns/${item.publicId}`">
+                查看
+              </RouterLink>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
     <p
       v-if="data"
       class="admin-returns__count"
@@ -106,27 +108,27 @@ const { data, isPending, isError, error, refetch } = useAdminReturnListQuery()
 .admin-returns__table th,
 .admin-returns__table td {
   padding: 0.625rem 0.75rem;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--color-border);
   text-align: left;
 }
 
 .admin-returns__row--attention {
-  background: #fff7ed;
+  background: var(--color-warning-bg);
 }
 
 .admin-returns__attention-badge {
   margin-left: 0.5rem;
   padding: 0.125rem 0.5rem;
   border-radius: 999px;
-  background: #fed7aa;
-  color: #9a3412;
+  background: var(--color-warning);
+  color: var(--color-on-primary);
   font-size: 0.75rem;
   font-weight: 700;
 }
 
 .admin-returns__count {
   margin-top: 0.75rem;
-  color: #4b5563;
+  color: var(--color-text-muted);
   font-size: 0.875rem;
 }
 </style>

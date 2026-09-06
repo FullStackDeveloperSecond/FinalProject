@@ -306,7 +306,7 @@ watch(() => props.shareToken, () => {
 }
 
 .shared-build-page__hint {
-  color: #4b5563;
+  color: var(--color-text-muted);
   margin-block-end: 1.5rem;
 }
 
@@ -332,7 +332,7 @@ watch(() => props.shareToken, () => {
 }
 
 .shared-build-page__note {
-  color: #4b5563;
+  color: var(--color-text-muted);
   font-size: 0.875rem;
 }
 </style>

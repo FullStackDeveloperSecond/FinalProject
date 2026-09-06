@@ -10,6 +10,7 @@ import { useSessionStore } from '../stores/session'
 import { usePublicProductReviewsQuery } from '../features/reviews/queries'
 import { formatReviewDate } from '../features/reviews/labels'
 
+const failedImageUrls = ref<string[]>([])
 const route = useRoute()
 const sessionStore = useSessionStore()
 const productPublicId = computed(() => route.params.productId as string)
@@ -186,12 +187,18 @@ const isNotFound = computed(() => isApiError(error.value) && error.value.status 
         v-for="image in product.images"
         :key="image.url"
       >
+        <span
+          v-if="failedImageUrls.includes(image.url)"
+          class="product-detail__image-fallback"
+        >圖片暫時無法載入</span>
         <img
+          v-else
           :src="image.url"
           :alt="image.alt"
           :width="Number(image.width)"
           :height="Number(image.height)"
           loading="lazy"
+          @error="failedImageUrls.push(image.url)"
         >
       </li>
     </ul>
@@ -407,7 +414,7 @@ const isNotFound = computed(() => isApiError(error.value) && error.value.status 
 
 .product-detail__brand {
   margin: 0;
-  color: #6b7280;
+  color: var(--color-text-muted);
   font-size: 0.875rem;
 }
 
@@ -415,8 +422,8 @@ const isNotFound = computed(() => isApiError(error.value) && error.value.status 
   display: inline-block;
   padding: 0.125rem 0.5rem;
   border-radius: 999px;
-  background: #dbeafe;
-  color: #1e40af;
+  background: var(--color-info-bg);
+  color: var(--color-info);
   font-size: 0.75rem;
 }
 
@@ -432,12 +439,12 @@ const isNotFound = computed(() => isApiError(error.value) && error.value.status 
   max-width: 12rem;
   height: auto;
   border-radius: 0.5rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--color-border-soft);
 }
 
 .product-detail__warranty {
   margin: 0;
-  color: #6b7280;
+  color: var(--color-text-muted);
   font-size: 0.875rem;
 }
 
@@ -451,12 +458,12 @@ const isNotFound = computed(() => isApiError(error.value) && error.value.status 
 }
 
 .product-detail__shipping-item--blocked {
-  color: #b91c1c;
+  color: var(--color-danger);
 }
 
 .product-detail__purchase {
   padding: 1rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--color-border-soft);
   border-radius: 0.75rem;
   display: flex;
   flex-direction: column;
@@ -477,7 +484,7 @@ const isNotFound = computed(() => isApiError(error.value) && error.value.status 
 }
 
 .product-detail__price-original {
-  color: #9ca3af;
+  color: var(--color-text-faint);
   text-decoration: line-through;
 }
 
@@ -490,18 +497,18 @@ const isNotFound = computed(() => isApiError(error.value) && error.value.status 
 }
 
 .product-detail__availability--inStock {
-  background: #dcfce7;
-  color: #166534;
+  background: var(--color-success-bg);
+  color: var(--color-primary-dark);
 }
 
 .product-detail__availability--lowStock {
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--color-butter-soft);
+  color: var(--color-navy);
 }
 
 .product-detail__availability--outOfStock {
-  background: #fee2e2;
-  color: #991b1b;
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
 }
 
 .product-detail__sku-select {
@@ -513,26 +520,26 @@ const isNotFound = computed(() => isApiError(error.value) && error.value.status 
 .product-detail__sku-select select {
   min-height: 2.75rem;
   padding: 0.5rem 0.75rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--color-border);
   border-radius: 0.5rem;
   font: inherit;
 }
 
 button[disabled] {
-  background: #9ca3af;
-  border-color: #9ca3af;
+  background: var(--color-text-faint);
+  border-color: var(--color-text-faint);
   cursor: not-allowed;
 }
 
 .product-detail__add-to-cart-success {
   margin: 0;
-  color: #166534;
+  color: var(--color-primary-dark);
   font-size: 0.875rem;
 }
 
 .product-detail__add-to-cart-error {
   margin: 0;
-  color: #b91c1c;
+  color: var(--color-danger);
   font-size: 0.875rem;
 }
 
@@ -543,7 +550,7 @@ button[disabled] {
 }
 
 .product-detail__specs dt {
-  color: #6b7280;
+  color: var(--color-text-muted);
 }
 
 .product-detail__specs dd {
@@ -561,14 +568,14 @@ button[disabled] {
 .product-detail__tags li {
   padding: 0.125rem 0.625rem;
   border-radius: 999px;
-  background: #f3f4f6;
+  background: var(--color-surface-strong);
   font-size: 0.75rem;
 }
 
 .product-detail__review {
   margin-top: .75rem;
   padding: 1rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--color-border-soft);
   border-radius: .75rem;
 }
 
@@ -576,12 +583,12 @@ button[disabled] {
   display: flex;
   flex-wrap: wrap;
   gap: .75rem;
-  color: #4b5563;
+  color: var(--color-text-muted);
   font-size: .875rem;
 }
 
 .product-detail__review-heading span {
-  color: #166534;
+  color: var(--color-primary-dark);
 }
 
 .product-detail__review-images {
@@ -597,6 +604,6 @@ button[disabled] {
 }
 
 .product-detail__reviews-error {
-  color: #b91c1c;
+  color: var(--color-danger);
 }
 </style>

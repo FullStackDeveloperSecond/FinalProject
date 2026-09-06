@@ -261,7 +261,7 @@ async function remove(address: MemberAddress): Promise<void> {
 <style scoped>
 .addresses-page {
   display: grid;
-  gap: 1.5rem;
+  gap: var(--space-6);
   max-width: 40rem;
 }
 
@@ -273,7 +273,7 @@ async function remove(address: MemberAddress): Promise<void> {
 
 .addresses-page__list {
   display: grid;
-  gap: 0.75rem;
+  gap: var(--space-3);
   padding: 0;
   list-style: none;
 }
@@ -284,7 +284,7 @@ async function remove(address: MemberAddress): Promise<void> {
   justify-content: space-between;
   gap: 1rem;
   padding: 1rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--color-border-soft);
   border-radius: 0.75rem;
 }
 
@@ -325,6 +325,6 @@ async function remove(address: MemberAddress): Promise<void> {
 
 .addresses-page__error {
   margin: 0;
-  color: #b91c1c;
+  color: var(--color-danger);
 }
 </style>

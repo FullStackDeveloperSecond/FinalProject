@@ -59,23 +59,23 @@ const severityLabels: Record<string, string> = {
 .compat-findings {
   padding: 1rem;
   border-radius: 0.5rem;
-  border: 1px solid #e5e7eb;
-  background: #f9fafb;
+  border: 1px solid var(--color-border-soft);
+  background: var(--color-surface-strong);
 }
 
 .compat-findings--blocked {
-  border-color: #fca5a5;
-  background: #fef2f2;
+  border-color: var(--color-danger-border);
+  background: var(--color-danger-bg);
 }
 
 .compat-findings--warning {
-  border-color: #fcd34d;
-  background: #fffbeb;
+  border-color: var(--color-butter);
+  background: var(--color-warning-bg);
 }
 
 .compat-findings--compatible {
-  border-color: #86efac;
-  background: #f0fdf4;
+  border-color: var(--color-success-border);
+  background: var(--color-success-bg);
 }
 
 .compat-findings__overall {
@@ -105,21 +105,21 @@ const severityLabels: Record<string, string> = {
 }
 
 .compat-findings__item--blocked .compat-findings__severity {
-  color: #b91c1c;
+  color: var(--color-danger);
 }
 
 .compat-findings__item--warning .compat-findings__severity {
-  color: #92400e;
+  color: var(--color-warning);
 }
 
 .compat-findings__item--insufficientData .compat-findings__severity,
 .compat-findings__item--ruleDisabled .compat-findings__severity {
-  color: #4b5563;
+  color: var(--color-text-muted);
 }
 
 .compat-findings__rule {
   font-family: ui-monospace, SFMono-Regular, monospace;
   font-size: 0.75rem;
-  color: #4b5563;
+  color: var(--color-text-muted);
 }
 </style>
