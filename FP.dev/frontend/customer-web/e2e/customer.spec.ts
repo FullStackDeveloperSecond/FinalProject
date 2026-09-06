@@ -455,7 +455,7 @@ test('a shopper can open the seeded catalog and view product details', async ({ 
     level: 1,
     name: '說出需求，組出適合你的電腦',
   })).toBeVisible()
-  await page.getByRole('button', { name: '看全部商品' }).click()
+  await page.locator('.home-step__link').filter({ hasText: '給預算' }).click()
 
   await expect(page).toHaveURL(/\/products$/)
   await expect(page.getByRole('heading', { level: 1, name: '商品搜尋' })).toBeVisible()
@@ -482,6 +482,8 @@ test('a member can consent to AI support and fall back to a human case when AI i
   await page.goto('/support')
 
   await expect(page.getByRole('heading', { level: 1, name: 'AI 客服' })).toBeVisible()
+  await page.getByRole('button', { name: '收起 Donngu 導覽' }).click()
+  await expect(page.locator('#donngu-dialog')).toHaveCount(0)
   const consentCheckbox = page.getByRole('checkbox', {
     name: '我已閱讀並同意上述外部 AI 處理方式',
   })
