@@ -102,6 +102,39 @@ public sealed class OpenAiProductSearchClientTests
     }
 
     [Fact]
+    public async Task ParseIntentAsync_HardwareSpecificationNumberIsNotTreatedAsBudgetMinimum()
+    {
+        var output = JsonSerializer.Serialize(new
+        {
+            intent = "PrebuiltComputer",
+            purposes = new[] { "GraphicDesign" },
+            budget = (object?)null,
+            keyword = "繪圖主機",
+            categoryCode = "PREBUILT_COMPUTER",
+            preferredBrandCodes = Array.Empty<string>(),
+            excludedBrandCodes = Array.Empty<string>(),
+            requiredSpecs = Array.Empty<object>(),
+            preferences = Array.Empty<string>(),
+            proposedExistingParts = Array.Empty<object>(),
+            clarifications = Array.Empty<string>(),
+        });
+        var handler = new RecordingHandler(_ => JsonResponse(output));
+        var subject = CreateSubject(handler);
+
+        var result = await subject.ParseIntentAsync(
+            "預算六萬元內，RAM 至少 64GB。",
+            SupportedLocale.ZhTw,
+            Metadata(),
+            default);
+
+        Assert.Equal(AiProductSearchModelStatus.Completed, result.Status);
+        Assert.Null(result.Intent?.Budget?.Minimum);
+        Assert.Equal(60_000m, result.Intent?.Budget?.Maximum);
+        Assert.Empty(result.Intent!.Clarifications);
+        Assert.Equal(1, handler.CallCount);
+    }
+
+    [Fact]
     public async Task ParseIntentAsync_SearchNovice025_RestoresMaximumAndRemovesBudgetQuestion()
     {
         var output = JsonSerializer.Serialize(new

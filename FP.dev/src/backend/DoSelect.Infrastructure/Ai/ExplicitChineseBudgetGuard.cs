@@ -19,7 +19,7 @@ internal static class ExplicitChineseBudgetGuard
         RegexOptions.CultureInvariant);
 
     private static readonly Regex MinimumPrefixRegex = new(
-        $"(?:至少|最低|起碼)\\s*{AmountPattern}\\s*(?:元|塊)?",
+        $"(?:(?:預算\\s*)?(?:至少|最低|起碼))\\s*{AmountPattern}\\s*(?:元|塊)?",
         RegexOptions.CultureInvariant);
 
     private static readonly Regex MinimumSuffixRegex = new(
@@ -27,7 +27,7 @@ internal static class ExplicitChineseBudgetGuard
         RegexOptions.CultureInvariant);
 
     private static readonly Regex MaximumPrefixRegex = new(
-        $"(?:最多只能花|最多花|最多|最高|上限(?:是|為)?|預算(?:是|為)?|不能超過|不超過|只能花)\\s*{AmountPattern}\\s*(?:元|塊)?",
+        $"(?:最多只能花|最多花|預算\\s*(?:最多|最高|上限)?(?:是|為)?|最多|最高|上限(?:是|為)?|不能超過|不超過|只能花)\\s*{AmountPattern}\\s*(?:元|塊)?",
         RegexOptions.CultureInvariant);
 
     private static readonly Regex MaximumSuffixRegex = new(
@@ -92,15 +92,21 @@ internal static class ExplicitChineseBudgetGuard
 
     private static IReadOnlyList<decimal> CollectAmounts(string message, params Regex[] patterns) =>
         patterns
-            .SelectMany(pattern => pattern.Matches(message))
-            .Select(match => match.Groups["amount"])
-            .Where(group => group.Success)
-            .GroupBy(group => group.Index)
-            .Select(group => group.First().Value)
+            .SelectMany(pattern => pattern.Matches(message).Cast<Match>())
+            .Where(match => match.Groups["amount"].Success && HasFinancialContext(match))
+            .GroupBy(match => match.Groups["amount"].Index)
+            .Select(group => group.First().Groups["amount"].Value)
             .Select(value => TryParseAmount(value, out var parsed) ? parsed : (decimal?)null)
             .Where(value => value is not null)
             .Select(value => value!.Value)
             .ToArray();
+
+    private static bool HasFinancialContext(Match match) =>
+        match.Groups["amount"].Value.Contains('萬') ||
+        match.Value.Contains('元') ||
+        match.Value.Contains('塊') ||
+        match.Value.Contains("預算", StringComparison.Ordinal) ||
+        match.Value.Contains('花');
 
     private static bool TryParseAmount(string raw, out decimal amount)
     {
