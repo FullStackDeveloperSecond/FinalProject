@@ -1,4 +1,4 @@
-export const datasetVersion = 'zh-TW-v1.0.4-draft'
+export const datasetVersion = 'zh-TW-v1.0.5-draft'
 
 export const groupPlans = {
   'SEARCH-NOVICE': { count: 30, development: 18, release: 9, challenge: 3 },
@@ -121,7 +121,7 @@ const novice = [
     outcome: 'recommend',
     intent: ['SingleProduct', [], 8000],
     category: 'Storage',
-    specs: [{ semanticKey: 'STORAGE_CAPACITY_GB', operator: 'gte', value: '8192', unit: 'GB' }],
+    specs: [{ semanticKey: 'STORAGE_CAPACITY_GB', operator: 'eq', value: '8192', unit: 'GB' }],
     preferences: ['家庭照片'],
     candidates: ['storage-nas-8tb'],
     points: ['不把儲存裝置說成完整備份方案'],

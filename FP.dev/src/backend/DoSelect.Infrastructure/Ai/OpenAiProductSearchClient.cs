@@ -15,7 +15,7 @@ public sealed class OpenAiProductSearchClient(
     HttpClient httpClient,
     IOptions<OpenAiResponsesOptions> options) : IAiProductSearchModelClient
 {
-    public const string PromptVersion = "product-search-v7";
+    public const string PromptVersion = "product-search-v8";
 
     private static readonly Uri ResponsesEndpoint =
         new("https://api.openai.com/v1/responses", UriKind.Absolute);
@@ -67,7 +67,7 @@ public sealed class OpenAiProductSearchClient(
                 "Never invent a code, product, price, stock state, or compatibility result. " +
                 "Preserve every explicitly stated budget boundary, including Chinese-number amounts: words such " +
                 "as within, at most, or a maximum set budget.maximum; do not drop a stated amount. " +
-                "When a user gives a single colloquial amount after describing the shopping need, treat it as " +
+                "When a user gives a single unambiguous colloquial amount before or after the shopping need, treat it as " +
                 "budget.maximum unless the user explicitly says it is a minimum. " +
                 "Add only purposes explicitly requested by the user. Do not infer Gaming merely from a job, " +
                 "creative-work label, or a word that contains game terminology; 遊戲美術 is a creative-work " +
@@ -121,7 +121,7 @@ public sealed class OpenAiProductSearchClient(
             try
             {
                 var output = JsonSerializer.Deserialize<OpenAiSearchIntent>(response.OutputText, JsonOptions);
-                var validation = MapAndValidate(output, metadata);
+                var validation = MapAndValidate(output, metadata, message, locale);
                 if (validation.Intent is not null)
                 {
                     return new AiProductSearchIntentResult(
@@ -604,7 +604,9 @@ public sealed class OpenAiProductSearchClient(
 
     private static IntentMappingResult MapAndValidate(
         OpenAiSearchIntent? output,
-        AiProductSearchMetadata metadata)
+        AiProductSearchMetadata metadata,
+        string message,
+        SupportedLocale locale)
     {
         if (output is null)
         {
@@ -680,8 +682,22 @@ public sealed class OpenAiProductSearchClient(
                     spec.Value ?? string.Empty,
                     spec.Unit)).ToArray(),
                 part.Quantity)).ToArray();
+        var budget = output.Budget is null
+            ? null
+            : new AiBudgetRange(output.Budget.Minimum, output.Budget.Maximum);
+        IReadOnlyList<string> clarifications = output.Clarifications;
+        if (ExplicitChineseBudgetGuard.TryParse(message, locale, out var budgetSignal))
+        {
+            budget = new AiBudgetRange(
+                budgetSignal.HasConflict ? null : budgetSignal.Minimum,
+                budgetSignal.Maximum);
+            clarifications = budgetSignal.HasConflict
+                ? [CreateBudgetConflictClarification(budgetSignal)]
+                : output.Clarifications.Where(question => !IsBudgetClarification(question)).ToArray();
+        }
+
         var candidate = new AiSearchIntentCandidate(
-            output.Budget is null ? null : new AiBudgetRange(output.Budget.Minimum, output.Budget.Maximum),
+            budget,
             requiredSpecs);
         var safety = AiSearchIntentSafetyValidator.Validate(candidate, semanticKeys);
         if (!safety.IsValid)
@@ -733,13 +749,12 @@ public sealed class OpenAiProductSearchClient(
             return InvalidMapping("INTENT_EXISTING_PART_INVALID", "proposedExistingParts");
         }
 
-        var budget = candidate.Budget;
         var lacksRequiredInput = intentType == AiProductSearchIntentType.CustomBuild
             ? output.Purposes.Count == 0 || budget?.Maximum is null
             : intentType == AiProductSearchIntentType.SingleProduct &&
               string.IsNullOrWhiteSpace(output.CategoryCode) &&
               string.IsNullOrWhiteSpace(output.Keyword);
-        if (lacksRequiredInput && output.Clarifications.Count == 0)
+        if (lacksRequiredInput && clarifications.Count == 0)
         {
             return InvalidMapping("INTENT_REQUIRED_CLARIFICATION_MISSING", "clarifications");
         }
@@ -756,13 +771,25 @@ public sealed class OpenAiProductSearchClient(
                 requiredSpecs,
                 output.Preferences,
                 proposedExistingParts,
-                output.Clarifications),
+                clarifications),
             FailureCode: null,
             FailureField: null);
     }
 
     private static IntentMappingResult InvalidMapping(string code, string field) =>
         new(Intent: null, code, field);
+
+    private static string CreateBudgetConflictClarification(ExplicitBudgetSignal signal) =>
+        $"你提供的最低預算 {signal.Minimum?.ToString("N0", CultureInfo.InvariantCulture)} 元高於最高預算 " +
+        $"{signal.Maximum.ToString("N0", CultureInfo.InvariantCulture)} 元，請確認可接受的預算範圍。";
+
+    private static bool IsBudgetClarification(string question) =>
+        question.Contains("預算", StringComparison.Ordinal) ||
+        question.Contains("價位", StringComparison.Ordinal) ||
+        question.Contains("金額", StringComparison.Ordinal) ||
+        question.Contains("能花", StringComparison.Ordinal) ||
+        question.Contains("花費", StringComparison.Ordinal) ||
+        question.Contains("多少錢", StringComparison.Ordinal);
 
     private static bool TryNormalizeRequiredSpecs(
         IReadOnlyList<OpenAiRequiredSpec> source,
