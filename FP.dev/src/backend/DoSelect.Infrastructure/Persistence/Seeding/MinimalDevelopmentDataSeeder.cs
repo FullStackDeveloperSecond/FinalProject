@@ -8,6 +8,7 @@ using DoSelect.Domain.Promotions;
 using DoSelect.Domain.Shopping;
 using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Persistence.Identity;
+using DoSelect.Infrastructure.Security;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -96,6 +97,23 @@ public sealed class MinimalDevelopmentDataSeeder(
             counters.ProfilesCreated++;
         }
 
+        await EnsurePreEnrolledAdminAsync(
+            MinimalDevelopmentSeedDefinitions.AdminHr03PrimaryEmail,
+            passwords.AdminPassword,
+            MinimalDevelopmentSeedDefinitions.AdminHr03PrimaryPublicId,
+            "DEV-ADMIN-HR03-1",
+            "H-R03 E2E 管理員一號",
+            counters,
+            cancellationToken);
+        await EnsurePreEnrolledAdminAsync(
+            MinimalDevelopmentSeedDefinitions.AdminHr03SecondaryEmail,
+            passwords.AdminPassword,
+            MinimalDevelopmentSeedDefinitions.AdminHr03SecondaryPublicId,
+            "DEV-ADMIN-HR03-2",
+            "H-R03 E2E 管理員二號",
+            counters,
+            cancellationToken);
+
         var member = await EnsureUserAsync(
             MinimalDevelopmentSeedDefinitions.MemberEmail,
             passwords.MemberPassword,
@@ -154,6 +172,63 @@ public sealed class MinimalDevelopmentDataSeeder(
             await userManager.CreateAsync(user, password));
         counters.UsersCreated++;
         return user;
+    }
+
+    /// <summary>
+    /// 種出一個「已知秘鑰、已完成 TOTP 綁定」的管理員帳號，專供 H-R03 的 admin-chromium
+    /// Browser E2E 使用（見 <see cref="MinimalDevelopmentSeedDefinitions.AdminHr03PrimaryEmail"/>
+    /// 旁的說明：整套測試共用一顆 CI 資料庫，沿用主要管理員會讓「誰先綁定 TOTP」變成競態）。
+    /// 直接用 <see cref="IdentityAdminAuthGateway"/> 內同一組 Identity 內部 LoginProvider／
+    /// TokenName 常數把 AuthenticatorKey 寫成固定值，而不是呼叫只會產生亂數新秘鑰的
+    /// ResetAuthenticatorKeyAsync——這樣 Playwright 端才能不透過任何 UI 就算出正確的 TOTP
+    /// code，完全跳過 enroll 流程。已綁定過（TwoFactorEnabled 已是 true）就不重覆寫入，
+    /// 讓本方法可安全重跑。
+    /// </summary>
+    private async Task EnsurePreEnrolledAdminAsync(
+        string email,
+        string password,
+        Guid publicId,
+        string adminCode,
+        string displayName,
+        SeedCounters counters,
+        CancellationToken cancellationToken)
+    {
+        var admin = await EnsureUserAsync(email, password, AccountType.Admin, publicId, counters);
+
+        if (!await userManager.IsInRoleAsync(admin, "SuperAdmin"))
+        {
+            EnsureSucceeded(
+                "assign the SuperAdmin role",
+                await userManager.AddToRoleAsync(admin, "SuperAdmin"));
+        }
+
+        if (!await dbContext.AdminProfiles.AnyAsync(
+                profile => profile.UserId == admin.Id,
+                cancellationToken))
+        {
+            dbContext.AdminProfiles.Add(new AdminProfile(
+                admin.Id,
+                publicId,
+                adminCode,
+                displayName,
+                MinimalDevelopmentSeedDefinitions.CreatedAtUtc));
+            counters.ProfilesCreated++;
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+
+        if (!await userManager.GetTwoFactorEnabledAsync(admin))
+        {
+            EnsureSucceeded(
+                "set the fixed E2E authenticator key",
+                await userManager.SetAuthenticationTokenAsync(
+                    admin,
+                    IdentityAdminAuthGateway.IdentityAuthenticatorLoginProvider,
+                    IdentityAdminAuthGateway.IdentityAuthenticatorKeyTokenName,
+                    MinimalDevelopmentSeedDefinitions.AdminHr03TotpSecret));
+            EnsureSucceeded(
+                "enable two-factor authentication",
+                await userManager.SetTwoFactorEnabledAsync(admin, true));
+        }
     }
 
     private async Task EnsureCatalogAsync(

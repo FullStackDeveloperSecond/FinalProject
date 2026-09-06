@@ -40,6 +40,31 @@ function differentTotp(validCode: string): string {
   return ((Number(validCode) + 1) % 1_000_000).toString().padStart(6, '0')
 }
 
+// H-R03's admin-chromium tests run against a shared CI database for the whole suite, so they
+// cannot reuse the primary seed admin's live enrollment flow — whichever test happens to bind
+// its TOTP secret first flips every later test from /admin/login/enroll to /admin/login/verify
+// (alex PR #117 review P1). Instead they sign in as a dedicated admin the backend seeds with a
+// known, already-bound secret (MinimalDevelopmentDataSeeder.EnsurePreEnrolledAdminAsync), so this
+// helper goes straight to the verify step and never touches the enrollment UI.
+async function loginAsPreEnrolledAdmin(
+  page: Page,
+  email: string,
+  password: string,
+  totpSecret: string,
+): Promise<void> {
+  await page.goto('./')
+  await page.getByRole('textbox', { name: '電子郵件' }).fill(email)
+  await page.getByLabel('密碼').fill(password)
+  await page.getByRole('button', { name: '登入' }).click()
+
+  // A pathname predicate, not a regex anchored with `$`: the real URL carries a
+  // `?redirect=/` query string, which a `$`-anchored regex against the full URL never matches.
+  await expect(page).toHaveURL((url) => url.pathname === '/admin/login/verify')
+  await page.getByLabel('驗證碼').fill(currentTotp(totpSecret))
+  await page.getByRole('button', { name: '驗證', exact: true }).click()
+  await expect(page).toHaveURL(/\/admin\/$/)
+}
+
 interface CartSnapshot {
   publicId: string
   rowVersion: string
@@ -777,22 +802,11 @@ test('a delivered order can be returned, refunded and allowed to update the orde
   await customerPage.getByRole('link', { name: '← 回訂單詳情' }).click()
   await expect(customerPage.getByText('付款狀態：已付款', { exact: true })).toBeVisible()
 
-  // Admin: fresh TOTP enrollment (mirrors the COD journey above) then ship the prepaid order to
-  // Delivered — shipping progression does not depend on how the order was paid.
-  await page.goto('./')
-  await page.getByRole('textbox', { name: '電子郵件' }).fill(seed.adminEmail)
-  await page.getByLabel('密碼').fill(seed.adminPassword)
-  await page.getByRole('button', { name: '登入' }).click()
-
-  await expect(page).toHaveURL((url) => url.pathname === '/admin/login/enroll')
-  const secret = (await page.locator('.totp-secret code').textContent())?.trim()
-  expect(secret, 'The enrollment page must expose a manual TOTP secret').toBeTruthy()
-  await page.getByLabel('請輸入 App 顯示的 6 位數驗證碼以確認綁定').fill(currentTotp(secret!))
-  await page.getByRole('button', { name: '確認綁定' }).click()
-  await expect(page.getByRole('heading', { level: 1, name: '請保存您的備援碼' })).toBeVisible()
-  await page.getByRole('checkbox', { name: '我已抄下並妥善保存這些備援碼' }).check()
-  await page.getByRole('button', { name: '完成，進入後台' }).click()
-  await expect(page).toHaveURL(/\/admin\/$/)
+  // Admin: sign in as the dedicated, pre-enrolled H-R03 admin — see loginAsPreEnrolledAdmin for
+  // why this test cannot share the primary admin's live enrollment flow — then ship the prepaid
+  // order to Delivered (shipping progression does not depend on how the order was paid).
+  await loginAsPreEnrolledAdmin(
+    page, seed.adminHr03PrimaryEmail, seed.adminPassword, seed.adminHr03TotpSecret)
 
   await page.goto(`./orders/${order.publicId}`)
   await markOrderShippedDirectly(page, order)
@@ -1093,21 +1107,11 @@ test('a partially returned order settles as PartiallyRefunded and a different gu
   await ownerPage.getByRole('button', { name: '模擬付款成功' }).click()
   await expect(ownerPage.getByText('付款已完成', { exact: true })).toBeVisible()
 
-  // Admin: fresh TOTP enrollment (mirrors the journeys above), then deliver the owner's order.
-  await page.goto('./')
-  await page.getByRole('textbox', { name: '電子郵件' }).fill(seed.adminEmail)
-  await page.getByLabel('密碼').fill(seed.adminPassword)
-  await page.getByRole('button', { name: '登入' }).click()
-
-  await expect(page).toHaveURL((url) => url.pathname === '/admin/login/enroll')
-  const secret = (await page.locator('.totp-secret code').textContent())?.trim()
-  expect(secret, 'The enrollment page must expose a manual TOTP secret').toBeTruthy()
-  await page.getByLabel('請輸入 App 顯示的 6 位數驗證碼以確認綁定').fill(currentTotp(secret!))
-  await page.getByRole('button', { name: '確認綁定' }).click()
-  await expect(page.getByRole('heading', { level: 1, name: '請保存您的備援碼' })).toBeVisible()
-  await page.getByRole('checkbox', { name: '我已抄下並妥善保存這些備援碼' }).check()
-  await page.getByRole('button', { name: '完成，進入後台' }).click()
-  await expect(page).toHaveURL(/\/admin\/$/)
+  // Admin: sign in as the dedicated, pre-enrolled H-R03 admin (a *different* seeded admin than
+  // the first H-R03 test's, since admin-chromium runs fullyParallel — see
+  // loginAsPreEnrolledAdmin), then deliver the owner's order.
+  await loginAsPreEnrolledAdmin(
+    page, seed.adminHr03SecondaryEmail, seed.adminPassword, seed.adminHr03TotpSecret)
 
   await page.goto(`./orders/${order.publicId}`)
   await markOrderShippedDirectly(page, order)
@@ -1168,6 +1172,26 @@ test('a partially returned order settles as PartiallyRefunded and a different gu
 
   // Actor scope, write side: the outsider must not be able to create a return against the
   // owner's order either, even with a real antiforgery token from their own valid session.
+  //
+  // A 404 alone only proves the *response* looked like a rejection — not that the write was
+  // genuinely a no-op (alex PR #117 review P3). Snapshot the legitimate return and order state
+  // through the already-authenticated admin `page` before and after each attempt and assert
+  // they are byte-for-byte identical, so a partial/silent mutation behind a rejected response
+  // would fail this test even though the HTTP status alone would not have caught it.
+  const fetchReturnSnapshot = async (returnPublicId: string) => page.evaluate(async (id) => {
+    const response = await fetch(`/api/v1/admin/returns/${id}`, { credentials: 'include' })
+    const body = await response.json() as { return: { status: string, rowVersion: string } }
+    return { status: body.return.status, rowVersion: body.return.rowVersion }
+  }, returnPublicId)
+  const fetchOrderSnapshot = async (orderPublicId: string) => page.evaluate(async (id) => {
+    const response = await fetch(`/api/v1/admin/orders/${id}`, { credentials: 'include' })
+    const body = await response.json() as { rowVersion: string, orderRefundStatus: string }
+    return { rowVersion: body.rowVersion, orderRefundStatus: body.orderRefundStatus }
+  }, orderPublicId)
+
+  const returnBeforeCrossActorAttempt = await fetchReturnSnapshot(returnRequest.publicId)
+  const orderBeforeCrossActorAttempt = await fetchOrderSnapshot(order.publicId)
+
   const outsiderCreateReturn = await outsiderPage.evaluate(async ({ orderPublicId, orderItemPublicId, rowVersion }) => {
     const tokenResponse = await fetch('/api/v1/security/antiforgery-token', {
       credentials: 'include',
@@ -1193,13 +1217,27 @@ test('a partially returned order settles as PartiallyRefunded and a different gu
   expect(outsiderCreateReturn, 'A different guest session must not create a return on someone else\'s order')
     .toBe(404)
 
+  expect(
+    await fetchReturnSnapshot(returnRequest.publicId),
+    'The cross-actor create-return attempt must leave the legitimate return completely untouched',
+  ).toEqual(returnBeforeCrossActorAttempt)
+  expect(
+    await fetchOrderSnapshot(order.publicId),
+    'The cross-actor create-return attempt must leave the order completely untouched',
+  ).toEqual(orderBeforeCrossActorAttempt)
+
   // Actor scope, admin side: an anonymous caller (the plain `api` fixture carries no admin
   // session) must not be able to approve the return either — zero side effects, still 401.
+  const returnBeforeAnonymousApproval = await fetchReturnSnapshot(returnRequest.publicId)
   const anonymousApproval = await api.post(
     `/api/v1/admin/returns/${returnRequest.publicId}/actions/review`,
     { data: { approved: true, items: [], reasonCode: 'x', returnRowVersion: returnRequest.rowVersion } },
   )
   expect(anonymousApproval.status(), 'An anonymous caller must not approve a return').toBe(401)
+  expect(
+    await fetchReturnSnapshot(returnRequest.publicId),
+    'An anonymous approval attempt must not move the return past its pre-approval status or bump its rowVersion',
+  ).toEqual(returnBeforeAnonymousApproval)
 
   // Admin: approve the partial return through the no-shipment fast path — only the 1 requested
   // unit, not the order item's full original quantity of 2 (ValidateFullQuantityApproval checks

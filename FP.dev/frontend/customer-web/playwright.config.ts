@@ -69,6 +69,14 @@ export default defineConfig({
         Features__BackgroundJobsEnabled: backgroundJobsEnabled,
         Features__EmailEnabled: 'false',
         Demo__SimulationEndpointsEnabled: simulationEndpointsEnabled,
+        // admin-chromium's CI run exercises the whole suite in one worker against one API
+        // instance, so every guest-order-access call (grantGuestOrderAccess, plus deliberate
+        // wrong-email/actor-scope negative cases) shares the same per-IP counter — the default
+        // production threshold (10 per 15 minutes, DEC-P266) gets exhausted well before the
+        // suite finishes and later journeys get stuck retrying against 429s (alex PR #117
+        // review P2). No E2E test asserts on this limit itself, and this only ever targets an
+        // isolated DoSelectE2E* database (enforced above), so raising it here is safe.
+        RateLimiting__GuestOrderAccessIpPermitLimit: '1000',
         GuestOrderAccess__Pepper: 'e2e-guest-order-access-pepper-32-bytes',
         Idempotency__ActorScopePepper: 'e2e-idempotency-actor-scope-pepper-32-bytes',
         Security__CouponGuestUsageHmacKeyV1: 'e2e-coupon-guest-usage-hmac-key-v1-32-bytes',

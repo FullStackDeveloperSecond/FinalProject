@@ -26,8 +26,10 @@ public sealed class IdentityAdminAuthGateway : IAdminAuthGateway
     // 「特定」秘鑰值設成正式 key 的方式——UserManager 沒有公開的
     // SetAuthenticatorKey(value) 方法，只有會產生亂數新值的 ResetAuthenticatorKeyAsync。
     // 若此慣例未來變動，AdminAuthControllerTests 的 Rebind 回滾測試會立即失敗。
-    private const string IdentityAuthenticatorLoginProvider = "[AspNetUserStore]";
-    private const string IdentityAuthenticatorKeyTokenName = "AuthenticatorKey";
+    // internal（而非 private）是為了讓 MinimalDevelopmentDataSeeder 用同一組常數種出
+    // 「已知秘鑰、已完成綁定」的 H-R03 E2E 專用管理員，不必在別處重複這段內部知識。
+    internal const string IdentityAuthenticatorLoginProvider = "[AspNetUserStore]";
+    internal const string IdentityAuthenticatorKeyTokenName = "AuthenticatorKey";
 
     // 跟 MemberLoginGateway 同一套手法：密碼雜湊驗證本身就是刻意昂貴的計算，任何略過它的
     // 路徑（帳號不存在／已鎖定）耗時都會明顯較短。對一個固定假使用者的雜湊跑一次「不可能
