@@ -19,6 +19,8 @@ public sealed class OpenAiResponsesOptions
 
     public string ProductSearchModel { get; set; } = "gpt-5.6-luna";
 
+    public string ProductSearchServiceTier { get; set; } = "fast";
+
     public int SupportTimeoutMilliseconds { get; set; } = 12_000;
 
     public int ProductSearchTimeoutMilliseconds { get; set; } = 5_000;

@@ -170,6 +170,12 @@ public static class LiveEvaluationConfigurationValidator
             failures.Add("OpenAI:ApiKey is missing.");
         }
 
+        if (!string.Equals(options.ProductSearchServiceTier, "default", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(options.ProductSearchServiceTier, "fast", StringComparison.OrdinalIgnoreCase))
+        {
+            failures.Add("OpenAI:ProductSearchServiceTier must be either 'default' or 'fast'.");
+        }
+
         AddPositivePrice(
             failures,
             options.ProductSearchInputCostPerMillionTokens,
