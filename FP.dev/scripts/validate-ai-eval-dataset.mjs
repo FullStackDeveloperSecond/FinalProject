@@ -150,12 +150,43 @@ function validateRequiredShape(item, validationErrors) {
   if (typeof item.input?.message !== 'string' || item.input.message.length > 2000) validationErrors.push(`${item.caseId}: invalid message`)
   if (!Array.isArray(item.prerequisites?.fixtureIds) || item.prerequisites.fixtureIds.length === 0) validationErrors.push(`${item.caseId}: fixtureIds required`)
   if (!Array.isArray(item.expected?.answer?.requiredPoints) || item.expected.answer.requiredPoints.length === 0) validationErrors.push(`${item.caseId}: answer points required`)
+  validateRequiredFacts(item, validationErrors)
   if (!Array.isArray(item.evidence?.sourceRefs) || item.evidence.sourceRefs.length === 0) validationErrors.push(`${item.caseId}: sourceRefs required`)
   if (item.caseId === 'SUPPORT-POLICY-015' &&
       !item.evidence?.sourceRefs?.includes('02-領域需求/90-驗收規格/AI搜尋與客服驗收規格#UC-AI-SUPPORT-03｜禁止 AI 寫入商業資料')) {
     validationErrors.push(`${item.caseId}: AI no-write evidence source required`)
   }
   if (!item.annotation?.primaryAnnotator || !item.annotation?.reviewer) validationErrors.push(`${item.caseId}: annotation responsibility required`)
+}
+
+function validateRequiredFacts(item, validationErrors) {
+  const requiredFacts = item.expected?.answer?.requiredFacts
+  if (!Array.isArray(requiredFacts)) {
+    validationErrors.push(`${item.caseId}: requiredFacts must be an array`)
+    return
+  }
+
+  const seenFactIds = new Set()
+  for (const fact of requiredFacts) {
+    if (typeof fact?.id !== 'string' || !/^[a-z0-9-]+$/.test(fact.id)) {
+      validationErrors.push(`${item.caseId}: required fact id must be kebab-case`)
+    } else if (seenFactIds.has(fact.id)) {
+      validationErrors.push(`${item.caseId}: duplicate required fact id ${fact.id}`)
+    } else {
+      seenFactIds.add(fact.id)
+    }
+
+    if (!Array.isArray(fact?.allOf) || fact.allOf.length === 0 ||
+        fact.allOf.some((group) => !Array.isArray(group) || group.length === 0 ||
+          group.some((alternative) => typeof alternative !== 'string' || alternative.length === 0))) {
+      validationErrors.push(`${item.caseId}: required fact ${fact?.id ?? '<unknown>'} needs non-empty allOf alternative groups`)
+    }
+    if (fact?.noneOf !== undefined &&
+        (!Array.isArray(fact.noneOf) || fact.noneOf.length === 0 ||
+          fact.noneOf.some((term) => typeof term !== 'string' || term.length === 0))) {
+      validationErrors.push(`${item.caseId}: required fact ${fact?.id ?? '<unknown>'} noneOf must contain non-empty strings`)
+    }
+  }
 }
 
 function increment(map, key) {
