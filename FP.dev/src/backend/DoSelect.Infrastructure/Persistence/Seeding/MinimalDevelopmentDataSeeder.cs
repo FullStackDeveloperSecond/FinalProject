@@ -1301,12 +1301,12 @@ public sealed class MinimalDevelopmentDataSeeder(
     }
 
     /// <summary>
-    /// M-13 WP4（alex 2026-09-05 #98 A1 裁定；alex 2026-09-06 #98 review：與 #110 的
-    /// ReturnE2e* deterministic IDs 撞號後改配 ...a16 起的新範圍）：退款 E2E 需要一筆已付款、
-    /// 已送達的訂單才能建立退貨申請，但目前 production 沒有任何 HTTP 可達的路徑把
-    /// FulfillmentStatus 推進 Delivered——物流狀態命令屬於另一個範圍，尚未落地。這裡只頂住
-    /// 「訂單、付款、出貨」這段裁定明確允許 seed 的前置資料；從建立退貨申請開始，E2E 一律走
-    /// production API／UI，不得再往後 seed 任何 Return／Refund 狀態。
+    /// M-13 WP4（alex 2026-09-05 #98 A1 裁定：依既有裁定保留穩定、隔離的前置資料——訂單、
+    /// 付款、出貨用 deterministic seed 頂住，讓這支 E2E 專注在退貨申請開始之後的 Return／
+    /// Refund／Allowance 全程 production API／UI 路徑，不需要因此重寫成完整垂直旅程；
+    /// alex 2026-09-06 #98 review：與 #110 的 ReturnE2e* deterministic IDs 撞號後改配
+    /// ...a16 起的新範圍）。從建立退貨申請開始，E2E 一律走 production API／UI，不得再往後
+    /// seed 任何 Return／Refund 狀態。
     ///
     /// 也在這裡建立退款旅程專用的獨立管理員帳號
     /// （<see cref="MinimalDevelopmentSeedDefinitions.RefundJourneyAdminEmail"/>），不沿用

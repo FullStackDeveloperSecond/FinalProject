@@ -3,9 +3,10 @@ import type { Page } from '@playwright/test'
 import { expect, test } from './fixtures.js'
 
 // M-13 WP4（alex 2026-09-05 #98 A1～D1 裁定；#111 合併後依 #98 執行順序第 5 點更新）：
-// 訂單、付款、出貨等前置資料由 --seed-minimal 頂住（見
-// MinimalDevelopmentDataSeeder.EnsureRefundJourneyOrderAsync）——目前 production 沒有任何
-// HTTP 可達的路徑能把訂單推進 Delivered，那個缺口屬於物流範圍，另案處理（#98）。
+// 依既有 A1 裁定保留穩定、隔離的前置資料——訂單、付款、出貨由 --seed-minimal 頂住（見
+// MinimalDevelopmentDataSeeder.EnsureRefundJourneyOrderAsync），讓這支測試專注在退貨申請
+// 開始之後的 Return／Refund／Allowance 全程 production API／UI 路徑，不需要因此重寫成
+// 涵蓋物流狀態命令的完整垂直旅程（那條垂直路徑的證據在 #117）。
 // 從建立退貨申請開始，這支測試全程走 production API／UI，不 seed 任何 Return／Refund 狀態：
 // 建立退貨申請（API）→ 審核／收貨（A-21 UI）→ 檢查（A-21 UI，assemblyFeeDisposition／
 // returnShippingCost 兩個欄位已隨 #111 補進 UI，不再用 API 繞過）→ 驗證這筆 Return 只建立了

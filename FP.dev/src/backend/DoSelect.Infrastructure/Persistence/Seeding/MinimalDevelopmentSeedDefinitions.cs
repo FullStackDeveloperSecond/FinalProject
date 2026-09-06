@@ -80,10 +80,11 @@ internal static class MinimalDevelopmentSeedDefinitions
     internal static readonly Guid ReturnE2ePaymentAttemptPublicId =
         Guid.Parse("3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a13");
 
-    // M-13 WP4（alex 2026-09-05 #98 A1 裁定；alex 2026-09-06 #98 review：與 #110 的
-    // ReturnE2e* deterministic IDs 撞號後改配 ...a16 起的新範圍）：物流狀態命令沒有 HTTP
-    // 可達的路徑能把訂單推進 Delivered，這段前置資料用 deterministic seed 頂住；退貨申請
-    // 開始一律走 production API／UI，不得再往後 seed 任何 Return／Refund 狀態。
+    // M-13 WP4（alex 2026-09-05 #98 A1 裁定：訂單、付款、出貨等前置資料用 deterministic seed
+    // 頂住，維持穩定、隔離的測試前置狀態，不需要因此重寫成完整垂直旅程；alex 2026-09-06 #98
+    // review：與 #110 的 ReturnE2e* deterministic IDs 撞號後改配 ...a16 起的新範圍）。從建立
+    // 退貨申請開始，這支 E2E 一律走 production API／UI，不得再往後 seed 任何 Return／Refund
+    // 狀態。
     internal static readonly Guid RefundJourneyOrderPublicId =
         Guid.Parse("3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a16");
 
