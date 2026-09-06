@@ -26,6 +26,7 @@ type DoSelectFixtures = {
     refundJourneyBuyerEmail: string
     refundJourneyOrderItemPublicId: string
     refundJourneyAdminEmail: string
+    refundJourneyAdminTotpSecret: string
   }
 }
 
@@ -99,6 +100,7 @@ export const test = base.extend<DoSelectFixtures>({
       refundJourneyBuyerEmail: 'refund-e2e-buyer@doselect.local',
       refundJourneyOrderItemPublicId: '3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a17',
       refundJourneyAdminEmail: 'refund-e2e-admin@doselect.local',
+      refundJourneyAdminTotpSecret: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP',
     })
   },
 })

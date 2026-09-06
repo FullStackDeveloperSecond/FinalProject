@@ -1336,6 +1336,31 @@ public sealed class MinimalDevelopmentDataSeeder(
                 await userManager.AddToRoleAsync(refundJourneyAdmin, "SuperAdmin"));
         }
 
+        // alex 2026-09-05 #98 review P3：直接寫入已知的 authenticator key，讓這個帳號從
+        // seed 完成那一刻就是「已綁定 TOTP」狀態，E2E 不需要再跑一次性的 UI 綁定流程。
+        // ⚠ "[AspNetUserStore]"／"AuthenticatorKey" 是 ASP.NET Core Identity UserManager
+        // 內部存放「正式 authenticator key」的 LoginProvider／TokenName（非公開 API 契約，
+        // 見 IdentityAdminAuthGateway 對同一組常數的說明）——UserManager 沒有公開的
+        // SetAuthenticatorKey(value)，只有會產生亂數新值的 ResetAuthenticatorKeyAsync，
+        // 所以只能透過這個慣例直接寫入「特定」秘鑰值。
+        if (string.IsNullOrEmpty(await userManager.GetAuthenticatorKeyAsync(refundJourneyAdmin)))
+        {
+            EnsureSucceeded(
+                "seed a deterministic TOTP authenticator key",
+                await userManager.SetAuthenticationTokenAsync(
+                    refundJourneyAdmin,
+                    "[AspNetUserStore]",
+                    "AuthenticatorKey",
+                    MinimalDevelopmentSeedDefinitions.RefundJourneyAdminTotpSecret));
+        }
+
+        if (!await userManager.GetTwoFactorEnabledAsync(refundJourneyAdmin))
+        {
+            EnsureSucceeded(
+                "enable two-factor authentication",
+                await userManager.SetTwoFactorEnabledAsync(refundJourneyAdmin, true));
+        }
+
         if (!await dbContext.AdminProfiles.AnyAsync(
                 profile => profile.UserId == refundJourneyAdmin.Id,
                 cancellationToken))

@@ -2,18 +2,22 @@ import { createHmac } from 'node:crypto'
 import type { Page } from '@playwright/test'
 import { expect, test } from './fixtures.js'
 
-// M-13 WP4（alex 2026-09-05 #98 A1～D1 裁定）：訂單、付款、出貨等前置資料由 --seed-minimal
-// 頂住（見 MinimalDevelopmentDataSeeder.EnsureRefundJourneyOrderAsync）——目前 production 沒有
-// 任何 HTTP 可達的路徑能把訂單推進 Delivered，那個缺口屬於物流範圍，另案處理（#98）。
+// M-13 WP4（alex 2026-09-05 #98 A1～D1 裁定；#111 合併後依 #98 執行順序第 5 點更新）：
+// 訂單、付款、出貨等前置資料由 --seed-minimal 頂住（見
+// MinimalDevelopmentDataSeeder.EnsureRefundJourneyOrderAsync）——目前 production 沒有任何
+// HTTP 可達的路徑能把訂單推進 Delivered，那個缺口屬於物流範圍，另案處理（#98）。
 // 從建立退貨申請開始，這支測試全程走 production API／UI，不 seed 任何 Return／Refund 狀態：
-// 建立退貨申請（API）→ 審核／收貨（A-21 UI）→ 檢查（API，UI 缺少 assemblyFeeDisposition／
-// returnShippingCost 兩個必要欄位，另案追蹤，見 D1）→ 驗證系統自己建立唯一的 PendingReview
-// Refund → 核准／執行（A-22 UI，斷言分攤方向與合計）→ 驗證 Return 完成 → 開立折讓（API，
-// 見 C1：Invoice UI 目前只顯示折讓，沒有建立表單）。
+// 建立退貨申請（API）→ 審核／收貨（A-21 UI）→ 檢查（A-21 UI，assemblyFeeDisposition／
+// returnShippingCost 兩個欄位已隨 #111 補進 UI，不再用 API 繞過）→ 驗證這筆 Return 只建立了
+// 唯一一筆 PendingReview Refund → 核准／執行（A-22 UI，斷言分攤方向與合計）→ 驗證 Return
+// 完成 → 開立折讓（API，見 C1：Invoice UI 目前只顯示折讓，沒有建立表單；這裡的手動開票只
+// 證明「管理員開票 API」這條路徑，不代表付款 Outbox／Consumer 自動開票鏈路——那條鏈路的證據
+// 在 #117，見 alex 2026-09-05 #98 裁定第 2 點）。
 //
-// 全程只用一個 test()：TOTP 只能在第一次登入時綁定，第二個 test() 若並行跑同一個管理員會撞
-// requiresEnrollment=false 卻沒有金鑰可用（playwright.config.ts 的 admin-chromium 專案
-// fullyParallel），因此整段旅程刻意收在同一個 test 裡，一次登入重複使用同一把 TOTP 金鑰。
+// 管理員登入用的是 seed 階段就已寫死綁定 TOTP 秘鑰的獨立帳號（refundJourneyAdminEmail／
+// refundJourneyAdminTotpSecret，見 MinimalDevelopmentDataSeeder），不在這支測試裡跑一次性
+// 的 UI 綁定流程——退款旅程不需要驗證「綁定」這個能力本身（admin.spec.ts 已有專門測試），
+// 用已知秘鑰能讓 Playwright CI 的內建 retry 安全重跑（alex 2026-09-05 #98 review P3）。
 
 const guestAccessPepper = 'e2e-guest-order-access-pepper-32-bytes'
 const base32Alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
@@ -63,8 +67,8 @@ function deriveGuestVerificationCode(requestPublicId: string, sendNumber = 1): s
 /// Cookie（非 Development），標準的 <c>APIRequestContext</c> 不會像瀏覽器一樣把
 /// 127.0.0.1／localhost 當成可信任的安全來源，收到後不會在下一次純 HTTP 請求帶回去——
 /// 所以 guest 與 admin 兩段都必須讓 <c>page</c> 自己的瀏覽器 fetch 發球，Cookie 才留得住。
-/// 核准／執行走 A-22 真實 UI；檢查（inspect）與折讓建立則是 admin-web 既有的欄位缺口／
-/// 缺少的 UI（alex D1／C1 裁定：另案處理，這支測試先直接呼叫 production API）。
+/// 審核／收貨／檢查／核准／執行都走 A-21／A-22 真實 UI；折讓建立仍是 admin-web 既有的
+/// UI 缺口（alex C1 裁定：另案處理，這支測試先直接呼叫 production API）。
 /// </summary>
 async function browserFetch<T>(
   page: Page,
@@ -104,7 +108,7 @@ interface ReturnRequestSnapshot {
   items: Array<{ publicId: string }>
 }
 
-test('a finance administrator approves, executes and issues an allowance for a production-created refund', async ({
+test('a finance administrator approves, executes and issues an allowance via the manual invoice API for a production-created refund', async ({
   page,
   seed,
 }) => {
@@ -146,11 +150,16 @@ test('a finance administrator approves, executes and issues an allowance for a p
   expect(createReturnResult.status, 'The production Return creation path must succeed').toBe(201)
   const createdReturn = createReturnResult.body
 
-  // ── 管理員：登入並綁定 TOTP（全程沿用同一個 page，後面所有動作共用這個登入態）。
-  // 用獨立的 refundJourneyAdminEmail，不是共用的 seed.adminEmail——同一輪 CI 的
-  // admin-chromium 專案單一 worker 依序跑完所有 spec，admin.spec.ts 自己的 TOTP
-  // 綁定測試會先把共用帳號綁定掉，這裡如果沿用會在登入時只看到已綁定的驗證頁，
-  // 卻沒有金鑰可用。 ──────────────────────────────────────────────────────
+  // ── 管理員：登入（全程沿用同一個 page，後面所有動作共用這個登入態）。用獨立的
+  // refundJourneyAdminEmail，不是共用的 seed.adminEmail——同一輪 CI 的 admin-chromium
+  // 專案單一 worker 依序跑完所有 spec，admin.spec.ts 自己的 TOTP 綁定測試會先把共用帳號
+  // 綁定掉。這個帳號的 TOTP 秘鑰在 seed 階段就已經寫死綁定（見
+  // MinimalDevelopmentDataSeeder.EnsureRefundJourneyOrderAsync 與
+  // seed.refundJourneyAdminTotpSecret），不在這支測試裡跑一次性的 UI 綁定流程——退款旅程
+  // 不需要驗證「綁定」這個能力本身（admin.spec.ts 已經有專門測試），用已知秘鑰讓登入本身
+  // 可以安全重試：Playwright CI 的內建 retry 只需要用同一把秘鑰重新算一次 TOTP code，
+  // 不會像走一次性 enroll 畫面那樣，秘鑰只活在第一次成功的畫面上，重試落在 verify 頁面
+  // 就必然失敗、遮蔽原始錯誤（alex 2026-09-05 #98 review P3）。 ──────────────────
   if (!seed.adminPassword) {
     throw new Error('Seed__AdminPassword is required for an administrator E2E journey.')
   }
@@ -160,15 +169,9 @@ test('a finance administrator approves, executes and issues an allowance for a p
   await page.getByLabel('密碼').fill(seed.adminPassword)
   await page.getByRole('button', { name: '登入' }).click()
 
-  await expect(page).toHaveURL((url) => url.pathname === '/admin/login/enroll')
-  const secret = (await page.locator('.totp-secret code').textContent())?.trim()
-  expect(secret, 'The enrollment page must expose a manual TOTP secret').toBeTruthy()
-  await page.getByLabel('請輸入 App 顯示的 6 位數驗證碼以確認綁定').fill(currentTotp(secret!))
-  await page.getByRole('button', { name: '確認綁定' }).click()
-
-  await expect(page.getByRole('heading', { level: 1, name: '請保存您的備援碼' })).toBeVisible()
-  await page.getByRole('checkbox', { name: '我已抄下並妥善保存這些備援碼' }).check()
-  await page.getByRole('button', { name: '完成，進入後台' }).click()
+  await expect(page).toHaveURL((url) => url.pathname === '/admin/login/verify')
+  await page.getByLabel('驗證碼').fill(currentTotp(seed.refundJourneyAdminTotpSecret))
+  await page.getByRole('button', { name: '驗證', exact: true }).click()
   await expect(page).toHaveURL(/\/admin\/$/)
 
   // ── 審核：走 A-21 真實表單，保留預設「需要寄回檢查」，不需要額外欄位（alex D1） ──
@@ -183,40 +186,29 @@ test('a finance administrator approves, executes and issues an allowance for a p
   await page.getByRole('button', { name: '確認收貨' }).click()
   await expect(page.getByRole('heading', { level: 2, name: '商品檢查' })).toBeVisible()
 
-  // ── 檢查：admin-web 的檢查表單沒有 assemblyFeeDisposition／returnShippingCost 欄位，
-  // 但這條路徑建立 Refund 一定需要這兩個值（alex D1：另開 Issue／PR 修 UI，這支測試先
-  // 直接呼叫 production API 補上）。 ─────────────────────────────────────────
-  const preInspect = await browserFetch<{ return: ReturnRequestSnapshot }>(
-    page, 'admin', 'GET', `/api/v1/admin/returns/${createdReturn.publicId}`)
-  expect(preInspect.status).toBe(200)
-  const returnItemPublicId = preInspect.body.return.items[0]!.publicId
+  // ── 檢查：改走 A-21 真實 UI——assemblyFeeDisposition／returnShippingCost 兩個欄位已隨
+  // #111 補進「商品檢查」表單，不再需要 API 繞過（alex 2026-09-05 #98 裁定第 5 點）。 ──
+  await page.getByLabel('回補判定').selectOption('quarantine')
+  await page.getByLabel('組裝費處置').selectOption('notApplicable')
+  await page.getByLabel('退貨運費').fill('0.00')
+  await page.getByRole('button', { name: '送出檢查結果' }).click()
 
-  const inspectResult = await browserFetch<ReturnRequestSnapshot>(
-    page, 'admin', 'POST', `/api/v1/admin/returns/${createdReturn.publicId}/actions/inspect`,
-    {
-      items: [{
-        returnItemPublicId,
-        conditionCode: 'Unopened',
-        disposition: 'quarantine',
-        note: null,
-      }],
-      returnRowVersion: preInspect.body.return.rowVersion,
-      assemblyFeeDisposition: 'notApplicable',
-      returnShippingCost: 0,
-    },
-  )
-  expect(inspectResult.status, 'The production Inspect action must create the Refund').toBe(200)
-  expect(inspectResult.body.status).toBe('awaitingRefund')
+  await expect(page.getByText('等待退款', { exact: true })).toBeVisible()
 
-  // ── 驗證系統自己建立了唯一的 PendingReview Refund（不是這支測試 seed 出來的） ──
-  const pendingRefunds = await browserFetch<{ items: Array<{ publicId: string }> }>(
+  // ── 驗證這筆 Return 自己只建立了唯一一筆 PendingReview Refund——查詢先按 returnPublicId
+  // 篩到這次的 Return，而不是斷言「整個系統只有一筆待審退款」（alex 2026-09-05 #98 review
+  // P2：全系統唯一性跟其他 E2E 或並行資料無關，篩錯清單也可能誤拿到不屬於這次 Return 的
+  // 退款）。 ──────────────────────────────────────────────────────────────
+  const pendingRefunds = await browserFetch<{ items: Array<{ publicId: string, returnPublicId: string | null }> }>(
     page, 'admin', 'GET', '/api/v1/admin/refunds?Statuses=pendingReview&PageSize=50')
   expect(pendingRefunds.status).toBe(200)
+  const refundsForThisReturn = pendingRefunds.body.items.filter(
+    (item) => item.returnPublicId === createdReturn.publicId)
   expect(
-    pendingRefunds.body.items,
-    'Exactly one PendingReview Refund must exist — the one just staged by Inspect',
+    refundsForThisReturn,
+    'Exactly one PendingReview Refund must exist for this Return — the one just staged by Inspect',
   ).toHaveLength(1)
-  const refundPublicId = pendingRefunds.body.items[0]!.publicId
+  const refundPublicId = refundsForThisReturn[0]!.publicId
 
   // ── 核准：A-22 真實 UI，斷言核准金額 = 商品退款 + 原運費（全額退貨，無扣回） ──
   await page.goto(`./refunds/${refundPublicId}`)
@@ -243,7 +235,10 @@ test('a finance administrator approves, executes and issues an allowance for a p
   await expect(page.getByText('已完成', { exact: true })).toBeVisible()
 
   // ── 折讓：目前沒有任何 admin-web UI 能建立折讓（alex C1），直接呼叫既有 production
-  // API；驗證則回到 Invoice UI 真的點。 ──────────────────────────────────────
+  // API；驗證則回到 Invoice UI 真的點。這裡呼叫的是「管理員手動開票」端點——只證明
+  // POST /admin/orders/{id}/invoices 這條 API 本身能開票並掛上折讓，不代表付款完成後
+  // Outbox／Consumer 自動開票那條鏈路有被驗證過；那條鏈路的整合證據在 #117
+  // （alex 2026-09-05 #98 裁定第 2 點：兩種開票路徑不可混為同一項驗收）。──────────
   const adminOrder = await browserFetch<{ rowVersion: string }>(
     page, 'admin', 'GET', `/api/v1/admin/orders/${seed.refundJourneyOrderPublicId}`)
   expect(adminOrder.status).toBe(200)
@@ -269,7 +264,7 @@ test('a finance administrator approves, executes and issues an allowance for a p
   }, { orderId: seed.refundJourneyOrderPublicId, orderRowVersion: adminOrder.body.rowVersion })
   expect(
     issuedInvoice.status,
-    `The manual invoice-issuance path must succeed: ${JSON.stringify(issuedInvoice.body)}`,
+    `The admin manual invoice-issuance API must succeed (this is not the payment-Outbox auto-invoice path — see #117): ${JSON.stringify(issuedInvoice.body)}`,
   ).toBe(201)
   const invoice = issuedInvoice.body as {
     invoice: { publicId: string, rowVersion: string }

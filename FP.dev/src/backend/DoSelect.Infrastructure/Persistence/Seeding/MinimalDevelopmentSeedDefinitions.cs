@@ -103,6 +103,14 @@ internal static class MinimalDevelopmentSeedDefinitions
 
     internal const string RefundJourneyAdminEmail = "refund-e2e-admin@doselect.local";
 
+    // alex 2026-09-05 #98 review P3：這支帳號的 TOTP 秘鑰在 seed 階段就直接寫死綁定
+    // （見 MinimalDevelopmentDataSeeder.EnsureRefundJourneyOrderAsync），不是讓 E2E 自己跑一次性
+    // 的 UI 綁定流程再從畫面撈出秘鑰。退款旅程不需要驗證「綁定」這個能力本身（admin.spec.ts
+    // 已經有專門的測試），只需要一個能重複登入的帳號；用固定值就能讓 Playwright 的內建 retry
+    // 重新算出同一把秘鑰的 TOTP code 再次登入，不會因為秘鑰只活在第一次 enroll 畫面、重試又落在
+    // verify 頁面而必然失敗、遮蔽原始錯誤。
+    internal const string RefundJourneyAdminTotpSecret = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP";
+
     internal static readonly DateTime CreatedAtUtc =
         new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
