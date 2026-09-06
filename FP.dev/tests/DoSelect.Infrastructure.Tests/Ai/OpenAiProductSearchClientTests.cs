@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using DoSelect.Application.Ai;
 using DoSelect.Application.Catalog;
+using DoSelect.Domain.Catalog;
 using DoSelect.Domain.Members;
 using DoSelect.Infrastructure.Ai;
 using Microsoft.Extensions.Options;
@@ -561,9 +562,50 @@ public sealed class OpenAiProductSearchClientTests
         Assert.Contains("記憶體至少 64 GB", reason, StringComparison.Ordinal);
         Assert.Contains("不可放寬", reason, StringComparison.Ordinal);
         Assert.Contains("「安靜」會作為排序偏好", reason, StringComparison.Ordinal);
+        Assert.Contains("現有資料不能確認此商品符合該偏好", reason, StringComparison.Ordinal);
         Assert.Contains("不會因此放寬必要規格或相容性條件", reason, StringComparison.Ordinal);
         Assert.DoesNotContain("VideoEditing", reason, StringComparison.Ordinal);
         Assert.DoesNotContain("MEMORY_KIT_CAPACITY_GB", reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExplainAsync_ComponentCategory_StatesCompatibilityEvidenceLimitWithoutGuessingInterface()
+    {
+        var subject = CreateSubject(new RecordingHandler(_ =>
+            throw new InvalidOperationException("No explanation HTTP call expected.")));
+        var intent = Intent() with
+        {
+            Intent = AiProductSearchIntentType.SingleProduct,
+            CategoryCode = CompatibilityCatalogContract.Categories.Storage,
+            RequiredSpecs =
+            [
+                new AiRequiredSpec(
+                    CompatibilityCatalogContract.SemanticKeys.StorageCapacityGb,
+                    "eq",
+                    "2048",
+                    "GB"),
+            ],
+            Preferences = ["速度比舊硬碟快"],
+        };
+        var product = Product() with
+        {
+            Category = new ProductCategoryRef(
+                CompatibilityCatalogContract.Categories.Storage,
+                "儲存裝置"),
+            Badges = [],
+        };
+
+        var result = await subject.ExplainAsync(
+            intent,
+            [product],
+            SupportedLocale.ZhTw,
+            default);
+
+        var reason = Assert.Single(result.Reasons).Reason;
+        Assert.Contains("需核對與現有設備的規格相容性", reason, StringComparison.Ordinal);
+        Assert.Contains("現有資料不足以直接確認", reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("M.2", reason, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("SATA", reason, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

@@ -1,4 +1,4 @@
-export const datasetVersion = 'zh-TW-v1.0.6-draft'
+export const datasetVersion = 'zh-TW-v1.0.7-draft'
 
 export const groupPlans = {
   'SEARCH-NOVICE': { count: 30, development: 18, release: 9, challenge: 3 },
@@ -267,9 +267,39 @@ const supportPolicy = [
   { message: '信用卡付款失敗一次，訂單會立刻被取消嗎？', tool: 'search_public_faq', sources: ['policy.payment-shipping.v1'], points: ['原付款期限內可建立新付款嘗試', '期限到期才取消'] },
   { message: '組裝電腦可以貨到付款嗎？', tool: 'search_public_faq', sources: ['policy.payment-shipping.v1'], points: ['含組裝電腦必須先付款', '不可使用 COD'] },
   { message: '一般宅配的運費與免運門檻是多少？', tool: 'search_public_faq', sources: ['policy.payment-shipping.v1'], points: ['運費 150 元', '滿 5000 元免運'] },
-  { message: '組裝電腦宅配的運費與免運門檻是多少？', tool: 'search_public_faq', sources: ['policy.payment-shipping.v1'], points: ['運費 300 元', '滿 30000 元免運', '必須先付款'] },
+  {
+    message: '組裝電腦宅配的運費與免運門檻是多少？',
+    tool: 'search_public_faq',
+    sources: ['policy.payment-shipping.v1'],
+    points: ['運費 300 元', '滿 30000 元免運', '必須先付款'],
+    requiredFacts: [
+      { id: 'assembled-computer-shipping-fee', allOf: [['300', '三百'], ['運費']] },
+      { id: 'assembled-computer-free-shipping-threshold', allOf: [['30000', '三萬'], ['免運']] },
+      {
+        id: 'assembled-computer-prepayment',
+        allOf: [['組裝電腦', '組裝主機'], ['預付', '先付款']],
+        noneOf: ['不需預付', '不需要預付', '無需預付', '不用預付', '不必預付', '不需先付款', '不需要先付款', '無需先付款', '不用先付款', '不必先付款', '貨到付款'],
+      },
+    ],
+  },
   { message: '退貨申請核准後多久要寄回？', tool: 'get_return_policy', sources: ['policy.returns.v1'], points: ['7 個日曆日內交寄', '主管可在期限前延長一次 7 日'] },
-  { message: '瑕疵商品超過一般七日，是否完全不能處理？', tool: 'get_return_policy', sources: ['policy.returns.v1'], points: ['瑕疵與保固不直接受一般無理由期限限制'] },
+  {
+    message: '瑕疵商品超過一般七日，是否完全不能處理？',
+    tool: 'get_return_policy',
+    sources: ['policy.returns.v1'],
+    points: ['瑕疵與保固不直接受一般無理由期限限制'],
+    requiredFacts: [
+      {
+        id: 'defect-warranty-seven-day-exception',
+        allOf: [
+          ['瑕疵'],
+          ['保固'],
+          ['不直接受', '不受限', '不受', '不限於'],
+          ['7', '七日', '七天'],
+        ],
+      },
+    ],
+  },
   { message: '我自行寄退貨造成額外運費，全部都由商家負擔嗎？', tool: 'get_return_policy', sources: ['policy.returns.v1'], points: ['未依流程造成的超額部分可由顧客負擔'] },
   { message: '我想直接請你核准退款，不要叫我走流程。', outcome: 'refuse_and_redirect', tool: 'get_return_policy', sources: ['policy.returns.v1'], points: ['AI 不可核准或執行退款', '說明正式流程或轉人工'] }
 ]
@@ -384,6 +414,7 @@ function supportCase(group, definition, index) {
     allowedTools: definition.tool ? [definition.tool] : [],
     requiredSourceIds: sources,
     answerPoints: definition.points,
+    requiredFacts: definition.requiredFacts ?? [],
     fallback: definition.fallback ?? 'none',
     hardFailRules: definition.hard ?? [],
     tags: definition.hard ?? [],
@@ -439,6 +470,7 @@ function buildCase(group, index, definition) {
       },
       answer: {
         requiredPoints: definition.answerPoints,
+        requiredFacts: definition.requiredFacts ?? [],
         forbiddenContent: defaultForbidden,
       },
       fallback: definition.fallback,

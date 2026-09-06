@@ -228,14 +228,15 @@ public sealed class OpenAiProductSearchClient(
         var brandContext = CreateBrandContext(intent, product, locale);
         var requirementContext = CreateRequirementContext(intent, locale);
         var preferenceContext = CreatePreferenceContext(intent, locale);
+        var compatibilityEvidenceContext = CreateCompatibilityEvidenceContext(intent, locale);
         var purposeContext = CreatePurposeContext(intent, locale);
         var categoryName = CreateCustomerCategoryName(product.Category, locale);
 
         return locale switch
         {
-            SupportedLocale.ZhTw => $"{purposeContext}推薦 {product.Name}。這是{product.Brand.Name}的{categoryName}，目前價格 {formattedPrice}，{budgetText}{badges}{tradeoffContext}{requirementContext}{preferenceContext}{brandContext}。",
-            SupportedLocale.JaJp => $"{purposeContext}{product.Name}をおすすめします。{product.Brand.Name}の{categoryName}で、現在価格は {formattedPrice}、{budgetText}{badges}{tradeoffContext}{requirementContext}{preferenceContext}{brandContext}。",
-            SupportedLocale.KoKr => $"{purposeContext}{product.Name}을(를) 추천합니다. {product.Brand.Name}의 {categoryName}이며 현재 가격은 {formattedPrice}, {budgetText}{badges}{tradeoffContext}{requirementContext}{preferenceContext}{brandContext}.",
+            SupportedLocale.ZhTw => $"{purposeContext}推薦 {product.Name}。這是{product.Brand.Name}的{categoryName}，目前價格 {formattedPrice}，{budgetText}{badges}{tradeoffContext}{requirementContext}{preferenceContext}{compatibilityEvidenceContext}{brandContext}。",
+            SupportedLocale.JaJp => $"{purposeContext}{product.Name}をおすすめします。{product.Brand.Name}の{categoryName}で、現在価格は {formattedPrice}、{budgetText}{badges}{tradeoffContext}{requirementContext}{preferenceContext}{compatibilityEvidenceContext}{brandContext}。",
+            SupportedLocale.KoKr => $"{purposeContext}{product.Name}을(를) 추천합니다. {product.Brand.Name}의 {categoryName}이며 현재 가격은 {formattedPrice}, {budgetText}{badges}{tradeoffContext}{requirementContext}{preferenceContext}{compatibilityEvidenceContext}{brandContext}.",
             _ => throw new ArgumentOutOfRangeException(nameof(locale)),
         };
     }
@@ -375,9 +376,31 @@ public sealed class OpenAiProductSearchClient(
         var preferences = string.Join(locale == SupportedLocale.KoKr ? ", " : "、", intent.Preferences);
         return locale switch
         {
-            SupportedLocale.ZhTw => $"；「{preferences}」會作為排序偏好，但不會因此放寬必要規格或相容性條件",
-            SupportedLocale.JaJp => $"。「{preferences}」は並び替えの希望条件として扱いますが、必須仕様や互換性条件は緩和しません",
-            SupportedLocale.KoKr => $". '{preferences}'은 정렬 선호 조건으로 반영하지만 필수 사양이나 호환성 조건은 완화하지 않습니다",
+            SupportedLocale.ZhTw => $"；「{preferences}」會作為排序偏好；除非上方已知重點明確支持，現有資料不能確認此商品符合該偏好，且不會因此放寬必要規格或相容性條件",
+            SupportedLocale.JaJp => $"。「{preferences}」は並び替えの希望条件として扱います。上記の確認済み情報が明確に裏付けない限り、現在の情報だけではこの商品が希望条件を満たすと確認できず、必須仕様や互換性条件も緩和しません",
+            SupportedLocale.KoKr => $". '{preferences}'은 정렬 선호 조건으로 반영합니다. 위의 확인된 정보가 명확히 뒷받침하지 않는 한 현재 정보만으로는 이 상품이 선호 조건을 충족한다고 확인할 수 없으며, 필수 사양이나 호환성 조건도 완화하지 않습니다",
+            _ => throw new ArgumentOutOfRangeException(nameof(locale)),
+        };
+    }
+
+    private static string CreateCompatibilityEvidenceContext(
+        AiProductSearchIntent intent,
+        SupportedLocale locale)
+    {
+        if (intent.Intent != AiProductSearchIntentType.SingleProduct ||
+            string.IsNullOrWhiteSpace(intent.CategoryCode) ||
+            !CompatibilityCatalogContract.Categories.All.Contains(
+                intent.CategoryCode,
+                StringComparer.OrdinalIgnoreCase))
+        {
+            return string.Empty;
+        }
+
+        return locale switch
+        {
+            SupportedLocale.ZhTw => "；安裝前仍需核對與現有設備的規格相容性，現有資料不足以直接確認",
+            SupportedLocale.JaJp => "。取り付け前に既存機器との仕様上の互換性を確認する必要があり、現在の情報だけでは確定できません",
+            SupportedLocale.KoKr => ". 설치 전에 기존 장비와의 사양 호환성을 확인해야 하며 현재 정보만으로는 확정할 수 없습니다",
             _ => throw new ArgumentOutOfRangeException(nameof(locale)),
         };
     }
