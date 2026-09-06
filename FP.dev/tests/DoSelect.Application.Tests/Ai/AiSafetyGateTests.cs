@@ -197,7 +197,7 @@ public sealed class AiSafetyGateTests
             []);
         var envelope = Assert.IsType<AiPromptEnvelope>(preparation.Envelope);
 
-        Assert.Equal("support-v4", AiPromptEnvelopeFactory.SupportPromptVersion);
+        Assert.Equal("support-v5", AiPromptEnvelopeFactory.SupportPromptVersion);
         Assert.DoesNotContain(injection, envelope.SystemInstructions, StringComparison.Ordinal);
         Assert.Contains("Give a concise refusal", envelope.SystemInstructions, StringComparison.Ordinal);
         Assert.Contains("official support flow", envelope.SystemInstructions, StringComparison.Ordinal);
@@ -206,6 +206,7 @@ public sealed class AiSafetyGateTests
         Assert.Contains("payment, fulfillment-channel, and eligibility restrictions", envelope.SystemInstructions, StringComparison.Ordinal);
         Assert.Contains("next action", envelope.SystemInstructions, StringComparison.Ordinal);
         Assert.Contains("internal codes", envelope.SystemInstructions, StringComparison.Ordinal);
+        Assert.Contains("opened products being generally or automatically ineligible", envelope.SystemInstructions, StringComparison.Ordinal);
         Assert.Equal(injection, envelope.UserMessage.Content);
         Assert.Equal(AiContentTrust.UntrustedUserInput, envelope.UserMessage.Trust);
     }
