@@ -114,7 +114,11 @@ export const test = base.extend<DoSelectFixtures>({
       refundJourneyBuyerEmail: 'refund-e2e-buyer@doselect.local',
       refundJourneyOrderItemPublicId: '3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a17',
       refundJourneyAdminEmail: 'refund-e2e-admin@doselect.local',
-      refundJourneyAdminTotpSecret: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP',
+      // 跟 adminHr03TotpSecret 同一套慣例（AUTO-DEC-006）：不寫死在原始碼，值只由
+      // scripts/test-customer-e2e.ps1／CI 以 Seed__RefundJourneyAdminTotpSecret 環境變數
+      // 注入，跟後端種子（MinimalDevelopmentDataSeeder.EnsureRefundJourneyOrderAsync）讀的
+      // 是同一把秘鑰（han00r 2026-09-06 #108 回報：原本兩邊都寫死，已補上守門）。
+      refundJourneyAdminTotpSecret: process.env.Seed__RefundJourneyAdminTotpSecret ?? '',
     })
   },
 })
