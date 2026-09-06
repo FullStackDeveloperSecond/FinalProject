@@ -6,13 +6,21 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url))
 const projectRoot = resolve(scriptDirectory, '..')
 const evalDirectory = resolve(projectRoot, 'evals', 'ai', 'v1')
 
-const [manifest, fixtureDocument, datasetText] = await Promise.all([
+const [manifest, fixtureDocument, caseSchema, graderContract, datasetText] = await Promise.all([
   readJson(resolve(evalDirectory, 'manifest.json')),
   readJson(resolve(evalDirectory, 'context-fixtures.v1.json')),
+  readJson(resolve(evalDirectory, 'eval-case.schema.json')),
+  readJson(resolve(evalDirectory, 'grader-contract.v1.json')),
   readFile(resolve(evalDirectory, 'dataset.zh-TW.v1.jsonl'), 'utf8'),
 ])
 
 const errors = []
+if (caseSchema.properties?.datasetVersion?.const !== manifest.datasetVersion) {
+  errors.push('case schema dataset version must match manifest dataset version')
+}
+if (graderContract.graderVersion !== manifest.versions?.grader) {
+  errors.push('grader contract version must match manifest grader version')
+}
 const lines = datasetText.trimEnd().split(/\r?\n/)
 const cases = lines.map((line, index) => {
   try {

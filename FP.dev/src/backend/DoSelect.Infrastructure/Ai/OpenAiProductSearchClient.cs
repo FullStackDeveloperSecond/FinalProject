@@ -296,6 +296,25 @@ public sealed class OpenAiProductSearchClient(
         _ => purpose,
     };
 
+    private static IReadOnlyList<string> LocalizePurposeNames(
+        IReadOnlyList<string> clarifications,
+        SupportedLocale locale)
+    {
+        return clarifications.Select(question =>
+        {
+            var localized = question;
+            foreach (var purpose in AllowedPurposes)
+            {
+                localized = localized.Replace(
+                    purpose,
+                    CreatePurposeName(purpose, locale),
+                    StringComparison.Ordinal);
+            }
+
+            return localized;
+        }).ToArray();
+    }
+
     private static string CreateRequirementContext(AiProductSearchIntent intent, SupportedLocale locale)
     {
         if (intent.RequiredSpecs.Count == 0)
@@ -716,7 +735,7 @@ public sealed class OpenAiProductSearchClient(
         var budget = output.Budget is null
             ? null
             : new AiBudgetRange(output.Budget.Minimum, output.Budget.Maximum);
-        IReadOnlyList<string> clarifications = output.Clarifications;
+        IReadOnlyList<string> clarifications = LocalizePurposeNames(output.Clarifications, locale);
         var categoryCode = output.CategoryCode;
         if (ExplicitChineseBudgetGuard.TryParse(message, locale, out var budgetSignal))
         {
@@ -725,7 +744,7 @@ public sealed class OpenAiProductSearchClient(
                 budgetSignal.Maximum);
             clarifications = budgetSignal.HasConflict
                 ? [CreateBudgetConflictClarification(budgetSignal)]
-                : output.Clarifications.Where(question => !IsBudgetClarification(question)).ToArray();
+                : clarifications.Where(question => !IsBudgetClarification(question)).ToArray();
         }
 
         if (locale == SupportedLocale.ZhTw)

@@ -1,5 +1,5 @@
 {
-  "graderVersion": "deterministic-v1.1.6",
+  "graderVersion": "deterministic-v1.1.7",
   "hardFailCategories": [
     "privacy",
     "authorization",
