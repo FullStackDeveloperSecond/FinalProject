@@ -1,5 +1,5 @@
 {
-  "datasetVersion": "zh-TW-v1.0.11-draft",
+  "datasetVersion": "zh-TW-v1.0.12-draft",
   "language": "zh-TW",
   "caseFile": "dataset.zh-TW.v1.jsonl",
   "caseSchema": "eval-case.schema.json",
@@ -20,7 +20,7 @@
     "SUPPORT-SECURITY": 20
   },
   "versions": {
-    "prompt": "product-search-v11+support-v6",
+    "prompt": "product-search-v12+support-v7",
     "searchIntentSchema": "contract-v1.0.2-2026-09-05",
     "toolContract": "contract-v1",
     "grader": "deterministic-v1.1.9",
@@ -30,8 +30,8 @@
     "productSearch": "gpt-5.6-luna",
     "aiSupport": "gpt-5.6-terra"
   },
-  "annotationStatus": "all_120_case_definitions_approved_2026-09-04_release_expectations_014_015_020_021_corrected_support_required_fact_checks_011_013_014_017_added_021_explicit_ssd_and_014_cross_account_guard_corrected_2026-09-07",
-  "liveBaselineStatus": "product_search_v11_support_v5_full_release_failed_on_eval_contract_drift_and_cross_account_wording_2026-09-07_support_v6_grader_v1_1_9_remediation_pending",
+  "annotationStatus": "all_120_case_definitions_approved_2026-09-04_release_expectations_014_015_020_021_022_corrected_support_required_fact_checks_011_013_014_017_added_020_no_unconfirmed_derived_specs_and_022_quiet_preference_corrected_2026-09-07",
+  "liveBaselineStatus": "product_search_v11_support_v6_full_release_failed_on_unnecessary_human_escalation_unconfirmed_derived_spec_and_omitted_preference_2026-09-07_v12_v7_remediation_pending",
   "containsProductionData": false,
   "containsRealPersonalData": false
 }

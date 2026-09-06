@@ -242,7 +242,7 @@ public sealed class LiveEvaluationPlanTests
             Assert.Contains("一般商品到貨後幾天內可以申請無理由退貨？", humanReview, StringComparison.Ordinal);
             Assert.Contains("必要回答重點", humanReview, StringComparison.Ordinal);
             Assert.Contains("到貨翌日起 7 日內", humanReview, StringComparison.Ordinal);
-            Assert.Contains("客服提示詞版本：`support-v6`", humanReview, StringComparison.Ordinal);
+            Assert.Contains("客服提示詞版本：`support-v7`", humanReview, StringComparison.Ordinal);
             Assert.Contains("客服回答規格摘要（非完整 system prompt）", humanReview, StringComparison.Ordinal);
             Assert.Contains("先直接回答顧客問題", humanReview, StringComparison.Ordinal);
             Assert.Contains("模型可用核准來源", humanReview, StringComparison.Ordinal);
@@ -483,7 +483,7 @@ public sealed class LiveEvaluationPlanTests
             Assert.Equal(1, result.RootElement.GetProperty("actualModelRequests").GetInt32());
             Assert.True(result.RootElement.GetProperty("intentStageLatencyMilliseconds").GetInt64() >= 0);
             using var metadata = JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "run-metadata.json")));
-            Assert.Equal("product-search-v11", metadata.RootElement.GetProperty("prompts").GetProperty("productSearch").GetString());
+            Assert.Equal("product-search-v12", metadata.RootElement.GetProperty("prompts").GetProperty("productSearch").GetString());
         }
         finally
         {
@@ -705,10 +705,13 @@ public sealed class LiveEvaluationPlanTests
     }
 
     [Theory]
-    [InlineData("需要 Wi-Fi")]
-    [InlineData("Wi-Fi")]
+    [InlineData("需要 Wi-Fi", false, true)]
+    [InlineData("Wi-Fi", false, true)]
+    [InlineData("Wi-Fi", true, false)]
     public async Task RunAsync_ExistingPartConfirmation_GradesProposalWithoutTreatingItAsRecommendation(
-        string preference)
+        string preference,
+        bool includeUnsupportedTargetSpec,
+        bool expectedIntentMatch)
     {
         var datasetPath = FindDatasetPath();
         var projectRoot = new FileInfo(datasetPath).Directory!.Parent!.Parent!.Parent!.FullName;
@@ -719,6 +722,18 @@ public sealed class LiveEvaluationPlanTests
             allowDraft: true,
             caseIds: new HashSet<string>(["SEARCH-NOVICE-020"], StringComparer.Ordinal));
         var output = Path.Combine(Path.GetTempPath(), $"DoSelectAiEval_{Guid.NewGuid():N}");
+        object[] requiredSpecs = includeUnsupportedTargetSpec
+            ?
+            [
+                new
+                {
+                    semanticKey = "MOTHERBOARD_CPU_EPS_8PIN_REQUIRED_COUNT",
+                    @operator = "gte",
+                    value = "1",
+                    unit = (string?)null,
+                },
+            ]
+            : [];
         var responseBody = JsonSerializer.Serialize(new
         {
             status = "completed",
@@ -733,7 +748,7 @@ public sealed class LiveEvaluationPlanTests
                 categoryCode = "MOTHERBOARD",
                 preferredBrandCodes = Array.Empty<string>(),
                 excludedBrandCodes = Array.Empty<string>(),
-                requiredSpecs = Array.Empty<object>(),
+                requiredSpecs,
                 preferences = new[] { preference },
                 proposedExistingParts = new[]
                 {
@@ -765,12 +780,75 @@ public sealed class LiveEvaluationPlanTests
 
             var resultLine = Assert.Single(File.ReadAllLines(Path.Combine(output, "case-results.jsonl")));
             using var result = JsonDocument.Parse(resultLine);
-            Assert.True(result.RootElement.GetProperty("intentFieldsMatch").GetBoolean());
+            Assert.Equal(expectedIntentMatch, result.RootElement.GetProperty("intentFieldsMatch").GetBoolean());
             Assert.True(result.RootElement.GetProperty("clarificationShapeMatch").GetBoolean());
             Assert.True(result.RootElement.GetProperty("clarificationExpected").GetBoolean());
             Assert.True(result.RootElement.GetProperty("clarificationAsked").GetBoolean());
             Assert.Equal(JsonValueKind.Null, result.RootElement.GetProperty("recommendationValid").ValueKind);
-            Assert.Equal("PENDING_HUMAN_REVIEW", summary.Verdict);
+            Assert.Equal(expectedIntentMatch ? "PENDING_HUMAN_REVIEW" : "FAIL", summary.Verdict);
+        }
+        finally
+        {
+            if (Directory.Exists(output))
+            {
+                Directory.Delete(output, recursive: true);
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData("", false)]
+    [InlineData("安靜", true)]
+    public async Task RunAsync_ExplicitQuietPreference_MustRemainRepresented(
+        string preference,
+        bool expectedIntentMatch)
+    {
+        var datasetPath = FindDatasetPath();
+        var projectRoot = new FileInfo(datasetPath).Directory!.Parent!.Parent!.Parent!.FullName;
+        var plan = EvaluationPlanBuilder.Load(
+            datasetPath,
+            "release",
+            trials: 1,
+            allowDraft: true,
+            caseIds: new HashSet<string>(["SEARCH-NOVICE-022"], StringComparer.Ordinal));
+        var output = Path.Combine(Path.GetTempPath(), $"DoSelectAiEval_{Guid.NewGuid():N}");
+        var responseBody = JsonSerializer.Serialize(new
+        {
+            status = "completed",
+            model = "gpt-5.6-luna-snapshot",
+            usage = new { input_tokens = 100, output_tokens = 20 },
+            output_text = JsonSerializer.Serialize(new
+            {
+                intent = "SingleProduct",
+                purposes = new[] { "Office" },
+                budget = new { minimum = (decimal?)null, maximum = 2_500m },
+                keyword = "鍵盤",
+                categoryCode = "KEYBOARD",
+                preferredBrandCodes = Array.Empty<string>(),
+                excludedBrandCodes = Array.Empty<string>(),
+                requiredSpecs = Array.Empty<object>(),
+                preferences = string.IsNullOrEmpty(preference) ? [] : new[] { preference },
+                proposedExistingParts = Array.Empty<object>(),
+                clarifications = Array.Empty<string>(),
+            }),
+        });
+
+        try
+        {
+            using var runner = new LiveEvaluationRunner(
+                ValidLiveOptions(),
+                new StaticJsonHandler(responseBody),
+                new ThrowingHandler());
+
+            var summary = await runner.RunAsync(
+                plan,
+                new LiveEvaluationRunOptions(projectRoot, output, StopAfterCostUsd: 0.10m));
+
+            var resultLine = Assert.Single(File.ReadAllLines(Path.Combine(output, "case-results.jsonl")));
+            using var result = JsonDocument.Parse(resultLine);
+            Assert.Equal(expectedIntentMatch, result.RootElement.GetProperty("intentFieldsMatch").GetBoolean());
+            Assert.Equal(expectedIntentMatch, result.RootElement.GetProperty("deterministicPass").GetBoolean());
+            Assert.Equal(expectedIntentMatch ? "PENDING_HUMAN_REVIEW" : "FAIL", summary.Verdict);
         }
         finally
         {
@@ -836,7 +914,7 @@ public sealed class LiveEvaluationPlanTests
             Assert.True(supportHandler.ObservedEmptyResultFileBeforeFirstRequest);
             Assert.True(supportHandler.ObservedRunningCheckpointBeforeFirstRequest);
             using var metadata = JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "run-metadata.json")));
-            Assert.Equal("support-v6", metadata.RootElement.GetProperty("prompts").GetProperty("aiSupport").GetString());
+            Assert.Equal("support-v7", metadata.RootElement.GetProperty("prompts").GetProperty("aiSupport").GetString());
             Assert.DoesNotContain("apiKey", metadata.RootElement.GetRawText(), StringComparison.OrdinalIgnoreCase);
             using var checkpoint = JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "checkpoint.json")));
             Assert.Equal("PENDING_HUMAN_REVIEW", checkpoint.RootElement.GetProperty("status").GetString());

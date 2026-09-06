@@ -42,6 +42,8 @@ public sealed class OpenAiProductSearchClientTests
         Assert.Contains("Add only purposes explicitly requested", instructions, StringComparison.Ordinal);
         Assert.Contains("named component or accessory", instructions, StringComparison.Ordinal);
         Assert.Contains("product label explicitly describes its intended use", instructions, StringComparison.Ordinal);
+        Assert.Contains("Preserve every explicitly stated qualitative preference", instructions, StringComparison.Ordinal);
+        Assert.Contains("quiet operation remains a preference", instructions, StringComparison.Ordinal);
         Assert.Contains("separate application confirmation", instructions, StringComparison.Ordinal);
         Assert.Contains("ready-made, prebuilt, branded package", instructions, StringComparison.Ordinal);
         Assert.Contains("budget-based gaming 主機", instructions, StringComparison.Ordinal);
@@ -54,10 +56,12 @@ public sealed class OpenAiProductSearchClientTests
         Assert.Contains("without minimum or maximum wording", instructions, StringComparison.Ordinal);
         Assert.Contains("specifications of an existing part only in proposedExistingParts", instructions, StringComparison.Ordinal);
         Assert.Contains("never repeat that part's category", instructions, StringComparison.Ordinal);
+        Assert.Contains("Never derive target-product requiredSpecs from an unconfirmed", instructions, StringComparison.Ordinal);
+        Assert.Contains("only after the user confirms that part", instructions, StringComparison.Ordinal);
         Assert.Contains("set minimum to null", instructions, StringComparison.Ordinal);
         Assert.Contains("Example: at least 30,000 but at most 20,000 for a computer", instructions, StringComparison.Ordinal);
         Assert.Contains("Example: a 40,000 video-editing computer", instructions, StringComparison.Ordinal);
-        Assert.Equal("product-search-v11", OpenAiProductSearchClient.PromptVersion);
+        Assert.Equal("product-search-v12", OpenAiProductSearchClient.PromptVersion);
         Assert.True(body.RootElement.GetProperty("text").GetProperty("format").GetProperty("strict").GetBoolean());
         Assert.Equal(
             "json_schema",

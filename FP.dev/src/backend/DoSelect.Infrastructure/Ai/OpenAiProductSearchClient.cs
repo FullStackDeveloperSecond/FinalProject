@@ -16,7 +16,7 @@ public sealed class OpenAiProductSearchClient(
     HttpClient httpClient,
     IOptions<OpenAiResponsesOptions> options) : IAiProductSearchModelClient
 {
-    public const string PromptVersion = "product-search-v11";
+    public const string PromptVersion = "product-search-v12";
 
     private static readonly Uri ResponsesEndpoint =
         new("https://api.openai.com/v1/responses", UriKind.Absolute);
@@ -76,6 +76,9 @@ public sealed class OpenAiProductSearchClient(
                 "Do not infer Gaming merely from a job or creative-work label; 遊戲美術 is a creative-work role, not Gaming, " +
                 "unless the user explicitly asks to play games. Storage context such as keeping " +
                 "family photos is a preference, not the General purpose. " +
+                "Preserve every explicitly stated qualitative preference in preferences unless it is already represented " +
+                "exactly as a purpose, budget, brand, required specification, category, keyword, or proposed existing part. " +
+                "For example, quiet operation remains a preference. " +
                 "Classify a complete computer as PrebuiltComputer when the user explicitly asks for a " +
                 "ready-made, prebuilt, branded package, 現成, 套裝, or 買整台 computer, or makes a generic 主機 " +
                 "request without a purpose, performance target, or assembly wording. Classify 配, 組, 組裝, " +
@@ -95,6 +98,8 @@ public sealed class OpenAiProductSearchClient(
                 "If the user describes a part they already own, put specifications of an existing part only in proposedExistingParts " +
                 "and never repeat that part's category, display name, or specification facts in keyword, requiredSpecs, or preferences. " +
                 "Put only explicitly stated facts there. Never map free text to a catalog SKU and never mark a proposal confirmed. " +
+                "Never derive target-product requiredSpecs from an unconfirmed proposed existing part; the application computes " +
+                "compatibility requirements only after the user confirms that part. " +
                 "The application performs a separate application confirmation for proposed existing parts, so do not ask for a " +
                 "whole-computer purpose when the requested SingleProduct category or keyword and its budget are already explicit. " +
                 "When required information is missing, return one or two short clarification questions " +
