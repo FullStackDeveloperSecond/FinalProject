@@ -1440,67 +1440,40 @@ public sealed class MinimalDevelopmentDataSeeder(
     /// admin-chromium 專案是單一 worker 依序執行，admin.spec.ts 自己的 TOTP 綁定測試會先
     /// 把那個帳號綁定掉，退款旅程若共用會在登入時只看到 requiresEnrollment=false 的驗證頁，
     /// 卻沒有金鑰。
+    ///
+    /// ⚠ han00r 2026-09-06 #108 回報：這個帳號的預先綁定只能在
+    /// <see cref="IsIsolatedE2EEnvironment"/> 為 true 時建立（AUTO-DEC-006：Seed 不預先設定
+    /// TOTP；比照 #117 的 H-R03 帳號同一套守門）。原本無條件建立，一般 Development／CI 對
+    /// 共用 DoSelectDb 執行 --seed-minimal 也會種出這顆秘鑰已公開、已啟用 2FA 的 SuperAdmin
+    /// 帳號。這個帳號在隔離 E2E 之外沒有任何用途，直接整段略過，不是退化成「建立帳號但不
+    /// 預綁 TOTP」——跟 #117 的 H-R03 帳號在非 E2E 環境完全不建立是同一個決定。
     /// </summary>
     private async Task EnsureRefundJourneyOrderAsync(
         (string AdminPassword, string MemberPassword) passwords,
         SeedCounters counters,
         CancellationToken cancellationToken)
     {
-        // 獨立管理員帳號，見 RefundJourneyAdminEmail 的說明：不能沿用一般 AdminEmail，
-        // 那個帳號的「尚未綁定 TOTP」狀態會被 admin.spec.ts 自己的綁定測試用掉。
-        var refundJourneyAdmin = await EnsureUserAsync(
-            MinimalDevelopmentSeedDefinitions.RefundJourneyAdminEmail,
-            passwords.AdminPassword,
-            AccountType.Admin,
-            MinimalDevelopmentSeedDefinitions.RefundJourneyAdminPublicId,
-            counters);
-
-        if (!await userManager.IsInRoleAsync(refundJourneyAdmin, "SuperAdmin"))
+        if (IsIsolatedE2EEnvironment())
         {
-            EnsureSucceeded(
-                "assign the SuperAdmin role",
-                await userManager.AddToRoleAsync(refundJourneyAdmin, "SuperAdmin"));
-        }
+            var refundJourneyAdminTotpSecret =
+                configuration[MinimalDevelopmentSeedDefinitions.RefundJourneyAdminTotpSecretKey];
+            if (string.IsNullOrWhiteSpace(refundJourneyAdminTotpSecret))
+            {
+                throw new InvalidOperationException(
+                    $"Required E2E User Secret is missing: " +
+                    $"{MinimalDevelopmentSeedDefinitions.RefundJourneyAdminTotpSecretKey}.");
+            }
 
-        // alex 2026-09-05 #98 review P3：直接寫入已知的 authenticator key，讓這個帳號從
-        // seed 完成那一刻就是「已綁定 TOTP」狀態，E2E 不需要再跑一次性的 UI 綁定流程。
-        // ⚠ "[AspNetUserStore]"／"AuthenticatorKey" 是 ASP.NET Core Identity UserManager
-        // 內部存放「正式 authenticator key」的 LoginProvider／TokenName（非公開 API 契約，
-        // 見 IdentityAdminAuthGateway 對同一組常數的說明）——UserManager 沒有公開的
-        // SetAuthenticatorKey(value)，只有會產生亂數新值的 ResetAuthenticatorKeyAsync，
-        // 所以只能透過這個慣例直接寫入「特定」秘鑰值。
-        if (string.IsNullOrEmpty(await userManager.GetAuthenticatorKeyAsync(refundJourneyAdmin)))
-        {
-            EnsureSucceeded(
-                "seed a deterministic TOTP authenticator key",
-                await userManager.SetAuthenticationTokenAsync(
-                    refundJourneyAdmin,
-                    "[AspNetUserStore]",
-                    "AuthenticatorKey",
-                    MinimalDevelopmentSeedDefinitions.RefundJourneyAdminTotpSecret));
-        }
-
-        if (!await userManager.GetTwoFactorEnabledAsync(refundJourneyAdmin))
-        {
-            EnsureSucceeded(
-                "enable two-factor authentication",
-                await userManager.SetTwoFactorEnabledAsync(refundJourneyAdmin, true));
-        }
-
-        if (!await dbContext.AdminProfiles.AnyAsync(
-                profile => profile.UserId == refundJourneyAdmin.Id,
-                cancellationToken))
-        {
-            dbContext.AdminProfiles.Add(new AdminProfile(
-                refundJourneyAdmin.Id,
+            await EnsurePreEnrolledAdminAsync(
+                MinimalDevelopmentSeedDefinitions.RefundJourneyAdminEmail,
+                passwords.AdminPassword,
                 MinimalDevelopmentSeedDefinitions.RefundJourneyAdminPublicId,
                 "DEV-ADMIN-002",
                 "退款 E2E 管理員",
-                MinimalDevelopmentSeedDefinitions.CreatedAtUtc));
-            counters.ProfilesCreated++;
+                refundJourneyAdminTotpSecret,
+                counters,
+                cancellationToken);
         }
-
-        await dbContext.SaveChangesAsync(cancellationToken);
 
         if (await dbContext.Orders.AnyAsync(
                 order => order.PublicId == MinimalDevelopmentSeedDefinitions.RefundJourneyOrderPublicId,

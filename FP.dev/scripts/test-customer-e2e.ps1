@@ -103,6 +103,7 @@ $previousEnvironment = $env:ASPNETCORE_ENVIRONMENT
 $previousAdminPassword = $env:Seed__AdminPassword
 $previousMemberPassword = $env:Seed__MemberPassword
 $previousAdminHr03TotpSecret = $env:Seed__AdminHr03TotpSecret
+$previousRefundJourneyAdminTotpSecret = $env:Seed__RefundJourneyAdminTotpSecret
 $previousDataRoot = $env:E2E_STORAGE_DATA_ROOT
 $previousReuseExistingServer = $env:E2E_REUSE_EXISTING_SERVER
 $previousApiEnvironment = $env:E2E_ASPNETCORE_ENVIRONMENT
@@ -123,6 +124,9 @@ try {
     # ASPNETCORE_ENVIRONMENT=E2E）由 MinimalDevelopmentDataSeeder 讀取並寫入，一般 Development
     # Seed 不會設定這個環境變數，也就不會建立這兩個帳號（AUTO-DEC-006：Seed 不預先設定 TOTP）。
     $env:Seed__AdminHr03TotpSecret = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP'
+    # 退款旅程管理員（refund-e2e-admin@doselect.local）同一套守門，見
+    # MinimalDevelopmentDataSeeder.EnsureRefundJourneyOrderAsync。
+    $env:Seed__RefundJourneyAdminTotpSecret = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP'
     $env:E2E_STORAGE_DATA_ROOT = $dataRoot
     $env:E2E_REUSE_EXISTING_SERVER = 'false'
     # -like (substring) rather than -eq: Playwright test titles built from multiple journeys are
