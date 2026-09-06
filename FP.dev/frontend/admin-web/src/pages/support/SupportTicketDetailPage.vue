@@ -5,6 +5,7 @@ import { computed, reactive } from 'vue'
 import { useRoute } from 'vue-router'
 import {
   useAddInternalNoteMutation,
+  useAddPublicSupportReplyMutation,
   useAssignSupportTicketMutation,
   useCancelSupportTicketByAdminMutation,
   useChangeSupportTicketPriorityMutation,
@@ -30,6 +31,7 @@ const changeStatusMutation = useChangeSupportTicketStatusMutation(ticketId)
 const cancelMutation = useCancelSupportTicketByAdminMutation(ticketId)
 const reopenMutation = useReopenSupportTicketMutation(ticketId)
 const internalNoteMutation = useAddInternalNoteMutation(ticketId)
+const publicReplyMutation = useAddPublicSupportReplyMutation(ticketId)
 
 // Every gate below reads the backend's AvailableActions list (AdminSupportTicketService.
 // ComputeAvailableActions) — a public-safe, usability-only hint computed from the ticket's own
@@ -50,6 +52,7 @@ const canChangeStatus = computed(() => hasAction('change-status'))
 const canCancel = computed(() => hasAction('cancel'))
 const canReopen = computed(() => hasAction('reopen'))
 const canAddInternalNote = computed(() => hasAction('internal-note'))
+const canReply = computed(() => hasAction('reply'))
 
 const priorityOptions: CasePriority[] = ['low', 'normal', 'high', 'urgent']
 const statusOptions: SupportTicketStatus[] = [
@@ -67,6 +70,7 @@ const statusForm = reactive<{ status: SupportTicketStatus, reason: string }>({ s
 const cancelForm = reactive({ reason: '' })
 const reopenForm = reactive({ reason: '' })
 const internalNoteForm = reactive({ body: '' })
+const publicReplyForm = reactive({ body: '' })
 
 function isConflict(candidateError: unknown): boolean {
   return isApiError(candidateError) && candidateError.status === 409
@@ -186,6 +190,19 @@ async function handleAddInternalNote() {
   }
   catch {
     // See handleAssign.
+  }
+}
+
+async function handlePublicReply() {
+  if (!ticket.value || !publicReplyForm.body) {
+    return
+  }
+  try {
+    await publicReplyMutation.mutateAsync({ body: publicReplyForm.body, rowVersion: ticket.value.rowVersion })
+    publicReplyForm.body = ''
+  }
+  catch {
+    // Mutation state renders the error below; a 409 also refreshes every support projection.
   }
 }
 
@@ -335,13 +352,45 @@ async function handleClaim() {
       </div>
 
       <section
-        v-if="canAssign || canTransfer || canChangePriority || canChangeStatus || canCancel || canReopen || canAddInternalNote"
+        v-if="canAssign || canTransfer || canChangePriority || canChangeStatus || canCancel || canReopen || canAddInternalNote || canReply"
         class="support-ticket-detail__actions card"
         aria-labelledby="support-ticket-actions-title"
       >
         <h2 id="support-ticket-actions-title">
           客服主管與案件操作
         </h2>
+
+        <div
+          v-if="canReply"
+          class="support-ticket-detail__action-form"
+        >
+          <h3>公開回覆會員</h3>
+          <p class="support-ticket-detail__public-reply-hint">
+            這則回覆會顯示在會員的客服案件中，並通知會員。
+          </p>
+          <label class="support-ticket-detail__message-label">
+            回覆內容
+            <textarea
+              v-model="publicReplyForm.body"
+              rows="4"
+              maxlength="4000"
+            />
+          </label>
+          <button
+            type="button"
+            :disabled="publicReplyMutation.isPending.value"
+            @click="handlePublicReply"
+          >
+            {{ publicReplyMutation.isPending.value ? '傳送中…' : '傳送公開回覆' }}
+          </button>
+          <p
+            v-if="publicReplyMutation.isError.value"
+            class="form-error"
+            role="alert"
+          >
+            {{ errorMessage(publicReplyMutation.error.value, '案件已被其他操作變更，畫面已更新為最新狀態，請重新確認。') }}
+          </p>
+        </div>
 
         <div
           v-if="canAssign"
@@ -725,6 +774,23 @@ async function handleClaim() {
   margin: 0 0 0.25rem;
   font-size: 0.8125rem;
   color: var(--color-text-muted);
+}
+
+.support-ticket-detail__public-reply-hint {
+  flex-basis: 100%;
+  margin: 0 0 0.25rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.support-ticket-detail__message-label {
+  flex-basis: 100%;
+}
+
+.support-ticket-detail__message-label textarea {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
 }
 
 .support-ticket-detail__internal-note-label {

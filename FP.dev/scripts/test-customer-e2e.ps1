@@ -21,6 +21,7 @@ if ([string]::IsNullOrWhiteSpace($JourneyTitle)) {
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $apiProject = Join-Path $projectRoot 'src\backend\DoSelect.Api'
 $infrastructureProject = Join-Path $projectRoot 'src\backend\DoSelect.Infrastructure'
+$apiIntegrationTests = Join-Path $projectRoot 'tests\DoSelect.Api.IntegrationTests\DoSelect.Api.IntegrationTests.csproj'
 $customerWeb = Join-Path $projectRoot 'frontend\customer-web'
 $databaseName = "DoSelectE2E_$([Guid]::NewGuid().ToString('N'))"
 $dataRoot = Join-Path ([IO.Path]::GetTempPath()) $databaseName
@@ -150,6 +151,17 @@ try {
     & dotnet run --project $apiProject --no-build --no-launch-profile -- --seed-minimal
     if ($LASTEXITCODE -ne 0) {
         throw 'Minimal E2E seed failed.'
+    }
+
+    if ($JourneyTitle -eq 'a member creates a support case and the assigned administrator publicly replies') {
+        & dotnet test $apiIntegrationTests `
+            --no-restore `
+            --nologo `
+            --filter 'FullyQualifiedName~AdminSupportTicketReplyStoreTests' `
+            --logger 'console;verbosity=minimal'
+        if ($LASTEXITCODE -ne 0) {
+            throw 'M-14 provider-backed support reply tests failed.'
+        }
     }
 
     Push-Location $customerWeb
