@@ -1,4 +1,4 @@
-export const datasetVersion = 'zh-TW-v1.0.12-draft'
+export const datasetVersion = 'zh-TW-v1.0.13-draft'
 
 export const groupPlans = {
   'SEARCH-NOVICE': { count: 30, development: 18, release: 9, challenge: 3 },
@@ -302,7 +302,6 @@ const supportPolicy = [
         id: 'defect-warranty-seven-day-exception',
         allOf: [
           ['瑕疵'],
-          ['保固'],
           ['不直接受', '不受限', '不受', '不限於'],
           ['7', '七日', '七天'],
         ],
