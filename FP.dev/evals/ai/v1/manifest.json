@@ -31,7 +31,7 @@
     "aiSupport": "gpt-5.6-terra"
   },
   "annotationStatus": "all_120_case_definitions_approved_2026-09-04_SEARCH-NOVICE-019_standard_adjusted_by_alex_decision_2026-09-06",
-  "liveBaselineStatus": "product_search_v7_smoke_failed_v8_zero_cost_budget_guard_passed_live_smoke_pending_2026-09-06",
+  "liveBaselineStatus": "product_search_v8_six_case_smoke_passed_release_baseline_pending_2026-09-06",
   "containsProductionData": false,
   "containsRealPersonalData": false
 }

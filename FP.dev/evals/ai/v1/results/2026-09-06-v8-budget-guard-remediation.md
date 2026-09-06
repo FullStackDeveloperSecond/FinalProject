@@ -35,4 +35,4 @@
 
 1. 零成本回歸只能證明已知 025／026 失敗在 Adapter 邊界被穩定處理，不能證明 Provider 對全部六案的品質或變異。
 2. 歷史 v7 Smoke 仍為 `FAIL`，不得追溯改寫。
-3. 新六案 v8 Smoke 需要新的明確費用授權；自動 Gate 通過後再進行顧客視角人工覆核，兩者通過後才考慮 66 次 Release baseline。
+3. 後續 v8 六案 Live Smoke 已於 Commit `45eeed27` 完成：自動 Gate 全數通過，Alex 顧客視角人工覆核 6／6 Pass，正式 Smoke Verdict 為 `PASS`；詳見 [`2026-09-06-v8-smoke-45eeed27.md`](2026-09-06-v8-smoke-45eeed27.md)。66 次 Release baseline 仍是獨立 Gate，尚未因本報告或 Smoke 自動獲得授權。

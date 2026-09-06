@@ -13,7 +13,8 @@
 
 ## 最近完成批次
 
-- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-061-AI-025與026中文預算保護定版|DEC-BATCH-061｜AI 025 與 026 中文預算保護定版]]：`DEC-P404`，1 項，已於 2026-09-06 寫回；既有 Adapter 增加僅限 `zh-TW` 的明確口語預算與衝突安全上限保護，模糊金額不強制覆寫，Prompt 升為 `product-search-v8`。025／026 零成本回歸通過；新 Live Smoke 仍須另行授權。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-062-AI-v8六案Smoke結果定版|DEC-BATCH-062｜AI v8 六案 Smoke 結果定版]]：`DEC-P405`，1 項，已於 2026-09-06 寫回；Commit `45eeed27` 的 v8 六案／一輪 Live Smoke 完成 6 次請求、US$0.007117，自動 Gate 全數通過，Alex 顧客視角人工覆核 6／6 Pass，正式 Smoke Verdict 為 `PASS`。66 次 Release baseline 仍須獨立決策與費用授權。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-061-AI-025與026中文預算保護定版|DEC-BATCH-061｜AI 025 與 026 中文預算保護定版]]：`DEC-P404`，1 項，已於 2026-09-06 寫回；既有 Adapter 增加僅限 `zh-TW` 的明確口語預算與衝突安全上限保護，模糊金額不強制覆寫，Prompt 升為 `product-search-v8`。025／026 零成本回歸通過；後續 Live Smoke 已由 DEC-BATCH-062 定版為通過。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-060-AI-019容量與偏好評分標準調整|DEC-BATCH-060｜AI 019 容量與偏好評分標準調整]]：`DEC-P403`，1 項，已於 2026-09-06 寫回；019 的無「至少／以上」8TB 改採 `eq 8192GB`，偏好改為正規化後概念包含且數量必須相等。Dataset／Grader 升為 `v1.0.5`／`v1.1.4`；歷史 v7 Smoke 不改寫，025／026 後續由 DEC-BATCH-061 完成零成本修正。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-059-AI-v6失敗根因與v7零成本修正定版|DEC-BATCH-059｜AI v6 失敗根因與 v7 零成本修正定版]]：`DEC-P399～DEC-P402`，4 項，已於 2026-09-05 寫回；Runner 對齊正式流程，新增 `STORAGE_CAPACITY_GB`、分類規格白名單與 TB→GB，Prompt 升 v7，Dataset／Grader 升為 `v1.0.4`／`v1.1.3`。零成本回歸通過；未呼叫 OpenAI，Live Smoke 仍須另行授權。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-058-AI評估產物與安全套件同步定版|DEC-BATCH-058｜AI 評估產物與安全套件同步定版]]：`DEC-P398`，1 項，已於 2026-09-05 寫回；`cases-source.mjs` 為 Dataset／Fixture 單一來源，既有 `v1.0.4` 顧客內容補回來源；評估工具直接使用中央定版 `Newtonsoft.Json 13.0.4`，不壓制 NU1903、不擴大升級 Hangfire。
