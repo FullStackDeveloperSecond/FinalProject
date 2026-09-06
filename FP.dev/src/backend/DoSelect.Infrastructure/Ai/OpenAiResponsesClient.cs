@@ -451,7 +451,10 @@ public sealed class OpenAiResponsesClient : IAiSupportModelClient, IDisposable
                     "additionalProperties": false
                   }
                 },
-                "needsHumanSupport": { "type": "boolean" }
+                "needsHumanSupport": {
+                  "type": "boolean",
+                  "description": "True only when this response cannot safely answer or guide the user from approved data. Keep false when approved data is sufficient or when a safe refusal plus an official flow fully answers the request; do not set true merely because a human or official flow must perform the write action, decision, or submission."
+                }
               },
               "required": ["answer", "citations", "needsHumanSupport"],
               "additionalProperties": false

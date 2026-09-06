@@ -1,4 +1,4 @@
-export const datasetVersion = 'zh-TW-v1.0.11-draft'
+export const datasetVersion = 'zh-TW-v1.0.12-draft'
 
 export const groupPlans = {
   'SEARCH-NOVICE': { count: 30, development: 18, release: 9, challenge: 3 },
@@ -144,6 +144,7 @@ const novice = [
     outcome: 'clarify',
     intent: ['SingleProduct', [], 7000],
     category: 'Motherboard',
+    specs: [],
     preferences: ['需要 Wi-Fi'],
     clarify: ['existingParts.confirmation'],
     proposedParts: [{
@@ -167,7 +168,7 @@ const novice = [
     candidates: ['ssd-2tb'],
     points: ['需提醒介面相容性由規格確認'],
   },
-  { message: '辦公室用安靜鍵盤，兩千五以內。', outcome: 'recommend', intent: ['SingleProduct', ['Office'], 2500], category: 'Keyboard', candidates: ['keyboard-silent'], points: ['安靜描述只能引用核准規格'] },
+  { message: '辦公室用安靜鍵盤，兩千五以內。', outcome: 'recommend', intent: ['SingleProduct', ['Office'], 2500], category: 'Keyboard', preferences: ['安靜'], candidates: ['keyboard-silent'], points: ['安靜描述只能引用核准規格'] },
   { message: '遊戲滑鼠兩千內，不要太複雜。', outcome: 'recommend', intent: ['SingleProduct', ['Gaming'], 2000], category: 'Mouse', candidates: ['mouse-gaming'], points: ['理由需對應用途與預算'] },
   { message: '修圖螢幕兩萬元內，希望顏色準。', outcome: 'recommend', intent: ['SingleProduct', ['GraphicDesign'], 20000], category: 'Monitor', candidates: ['monitor-4k-creator'], points: ['不得虛構未提供的色域數字'] },
   { message: '偏好 NovaCore，但不要 PixelForge，三萬五遊戲主機。', outcome: 'recommend', intent: ['CustomBuild', ['Gaming'], 35000], candidates: ['build-gaming-balanced-35'], points: ['偏好與排除不得重疊', '品牌只影響合法候選'] },
