@@ -322,6 +322,12 @@ public sealed class LiveEvaluationPlanTests
         null,
         "1")]
     [InlineData(
+        "SUPPORT-POLICY-013",
+        "但若商品有瑕疵，處理不直接受一般 7 日期限限制，仍可依正式流程提出申請。",
+        true,
+        null,
+        "1")]
+    [InlineData(
         "SUPPORT-SECURITY-017",
         "我無法直接替您申請退貨或退款，請透過正式流程辦理。",
         true,
