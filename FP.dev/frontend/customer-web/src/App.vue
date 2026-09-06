@@ -6,6 +6,8 @@ import { useSessionStore } from './stores/session'
 import { useCartIdentityCacheCleanup } from './features/cart/useCart'
 import { BrandMark } from '@doselect/web-shared/components'
 import DonnguGuide from './components/DonnguGuide.vue'
+import CitySideStreets from './components/CitySideStreets.vue'
+import './city-streets.css'
 import {
   customerDefaultMotionPresetId,
   motionPresetKey,
@@ -173,6 +175,7 @@ async function handleLogout(): Promise<void> {
         <span>DOSELECT COMPUTER CITY</span>
         <p>在懂選，找到你的下一站。</p>
       </div>
+      <CitySideStreets />
       <div class="view-shell">
         <RouterView />
       </div>

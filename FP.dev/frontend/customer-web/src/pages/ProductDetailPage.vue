@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ErrorState, HttpStatusPage, LoadingState } from '@doselect/web-shared/components'
+import { rememberProduct, celebrateCart } from '../components/cityCompanion'
 import { isApiError } from '@doselect/web-shared/api'
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
@@ -17,6 +18,9 @@ const sessionStore = useSessionStore()
 const productPublicId = computed(() => route.params.productId as string)
 
 const { data: product, isPending, isError, error, refetch } = useProductDetail(productPublicId)
+watch(product, value => {
+  if (value && value.productPublicId === productPublicId.value) rememberProduct({ id: value.productPublicId, name: value.name })
+}, { immediate: true })
 const publicReviewsQuery = usePublicProductReviewsQuery(productPublicId)
 
 const selectedSkuPublicId = ref<string>()
@@ -89,6 +93,7 @@ function onAddToCart(): void {
       onSuccess: () => {
         if (selectedSku.value?.publicId === requestSkuPublicId) {
           addToCartSucceeded.value = true
+          celebrateCart()
         }
       },
       onError: (caught) => {
