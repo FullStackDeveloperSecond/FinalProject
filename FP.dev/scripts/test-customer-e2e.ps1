@@ -210,6 +210,7 @@ finally {
         $env:Seed__AdminPassword = $previousAdminPassword
         $env:Seed__MemberPassword = $previousMemberPassword
         $env:Seed__AdminHr03TotpSecret = $previousAdminHr03TotpSecret
+        $env:Seed__RefundJourneyAdminTotpSecret = $previousRefundJourneyAdminTotpSecret
         $env:E2E_STORAGE_DATA_ROOT = $previousDataRoot
         $env:E2E_REUSE_EXISTING_SERVER = $previousReuseExistingServer
         $env:E2E_ASPNETCORE_ENVIRONMENT = $previousApiEnvironment

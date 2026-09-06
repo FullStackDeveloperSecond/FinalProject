@@ -164,7 +164,6 @@ public sealed class MinimalDevelopmentDataSeeder(
                 counters,
                 cancellationToken);
         }
-
         var member = await EnsureUserAsync(
             MinimalDevelopmentSeedDefinitions.MemberEmail,
             passwords.MemberPassword,
@@ -186,6 +185,65 @@ public sealed class MinimalDevelopmentDataSeeder(
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// #108 曾在一般 Development 資料庫建立退款 E2E 專用的固定身分，並替它預綁已知的
+    /// AuthenticatorKey。單純阻止之後建立並不能清掉已經執行過舊版 Seed 的資料庫，因此一般
+    /// Seed 重跑時，必須精確比對固定 PublicId 與 Email，把該測試帳號撤權。這個帳號在隔離
+    /// E2E 之外沒有產品用途；同時停權、停用管理員 Profile、移除角色及第二因素，既可阻止
+    /// 密碼登入與既有 Session，又不需要刪除可能已被 Audit 等資料參照的使用者列。
+    /// </summary>
+    private async Task RevokeLegacyRefundJourneyAdminAsync(CancellationToken cancellationToken)
+    {
+        var admin = await dbContext.Users.SingleOrDefaultAsync(
+            candidate =>
+                candidate.PublicId == MinimalDevelopmentSeedDefinitions.RefundJourneyAdminPublicId &&
+                candidate.Email == MinimalDevelopmentSeedDefinitions.RefundJourneyAdminEmail,
+            cancellationToken);
+        if (admin is null)
+        {
+            return;
+        }
+
+        if (admin.AccountStatus is not (AccountStatus.Suspended or AccountStatus.Anonymized or AccountStatus.Disabled))
+        {
+            admin.Suspend(DateTime.UtcNow);
+            EnsureSucceeded(
+                "suspend the legacy refund journey E2E administrator",
+                await userManager.UpdateAsync(admin));
+        }
+
+        var roles = await userManager.GetRolesAsync(admin);
+        if (roles.Count > 0)
+        {
+            EnsureSucceeded(
+                "remove roles from the legacy refund journey E2E administrator",
+                await userManager.RemoveFromRolesAsync(admin, roles));
+        }
+
+        if (await userManager.GetTwoFactorEnabledAsync(admin))
+        {
+            EnsureSucceeded(
+                "disable two-factor authentication for the legacy refund journey E2E administrator",
+                await userManager.SetTwoFactorEnabledAsync(admin, false));
+        }
+
+        EnsureSucceeded(
+            "remove the fixed authenticator key from the legacy refund journey E2E administrator",
+            await userManager.RemoveAuthenticationTokenAsync(
+                admin,
+                IdentityAdminAuthGateway.IdentityAuthenticatorLoginProvider,
+                IdentityAdminAuthGateway.IdentityAuthenticatorKeyTokenName));
+
+        var profile = await dbContext.AdminProfiles.SingleOrDefaultAsync(
+            candidate => candidate.UserId == admin.Id,
+            cancellationToken);
+        if (profile?.IsActive == true)
+        {
+            profile.SetActive(false, DateTime.UtcNow);
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
     }
 
     private async Task EnsureAdminAsync(
@@ -1473,6 +1531,10 @@ public sealed class MinimalDevelopmentDataSeeder(
                 refundJourneyAdminTotpSecret,
                 counters,
                 cancellationToken);
+        }
+        else
+        {
+            await RevokeLegacyRefundJourneyAdminAsync(cancellationToken);
         }
 
         if (await dbContext.Orders.AnyAsync(
