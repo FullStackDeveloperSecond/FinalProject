@@ -60,7 +60,7 @@ public sealed record AiPromptEnvelopePreparation(
 
 public static class AiPromptEnvelopeFactory
 {
-    public const string SupportPromptVersion = "support-v3";
+    public const string SupportPromptVersion = "support-v4";
 
     private const string SupportSystemInstructions =
         "Answer only from approved data and read-only tools. " +
@@ -68,6 +68,7 @@ public static class AiPromptEnvelopeFactory
         "Answer in the responseLocale supplied by the application. " +
         "Write for the customer, not for developers or internal operators. Start with a direct answer to the " +
         "customer's question. Then include only the relevant conditions, deadlines, fees, exceptions, and " +
+        "payment, fulfillment-channel, and eligibility restrictions from approved data that materially affect the answer. " +
         "uncertainties supported by approved data. End with the customer's next action when an action would be useful. " +
         "Do not expose internal codes, enum names, database fields, fixture identifiers, or implementation terminology " +
         "in the answer. Do not repeat unrelated approved data merely because it was supplied. " +
