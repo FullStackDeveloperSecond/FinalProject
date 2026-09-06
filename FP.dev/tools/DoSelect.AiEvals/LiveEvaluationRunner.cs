@@ -326,6 +326,8 @@ public sealed class LiveEvaluationRunner : IDisposable
             approvedCandidates);
         var deterministicPass = schemaValid && intentMatches && clarificationMatches &&
             explanationValid && customerFacingAnswer;
+        var clarificationAsked = intentResult.Intent?.Clarifications.Count > 0 ||
+            intentResult.Intent?.ProposedExistingParts.Count > 0;
         var errorCode = intentResult.Status != AiProductSearchModelStatus.Completed || intentResult.Intent is null
             ? $"INTENT_STAGE_{intentResult.Status.ToString().ToUpperInvariant()}"
             : shouldExplain && explanation?.Status != AiProductSearchModelStatus.Completed
@@ -368,7 +370,7 @@ public sealed class LiveEvaluationRunner : IDisposable
             IntentStageLatencyMilliseconds: intentStopwatch.ElapsedMilliseconds,
             ExplanationStageLatencyMilliseconds: explanationLatencyMilliseconds,
             ClarificationExpected: clarificationExpected,
-            ClarificationAsked: intentResult.Intent?.Clarifications.Count > 0,
+            ClarificationAsked: clarificationAsked,
             RecommendationValid: approvedCandidateIds.Count == 0
                 ? null
                 : shouldExplain && schemaValid && explanationValid && customerFacingAnswer,
@@ -769,13 +771,39 @@ public sealed class LiveEvaluationRunner : IDisposable
             PreferencesMatch(preferences, actual.Preferences);
         var requiredSpecsMatch = !expected.TryGetProperty("requiredSpecs", out var requiredSpecs) ||
             RequiredSpecsMatch(requiredSpecs, actual.RequiredSpecs);
+        var proposedExistingPartsMatch =
+            !expected.TryGetProperty("proposedExistingParts", out var proposedExistingParts) ||
+            ProposedExistingPartsMatch(proposedExistingParts, actual.ProposedExistingParts);
 
         return string.Equals(actual.Intent.ToString(), expectedIntent, StringComparison.Ordinal) &&
             expectedPurposes.SetEquals(actual.Purposes) &&
             actual.Budget?.Maximum == expectedMaximum &&
             categoryMatches &&
             preferencesMatch &&
-            requiredSpecsMatch;
+            requiredSpecsMatch &&
+            proposedExistingPartsMatch;
+    }
+
+    private static bool ProposedExistingPartsMatch(
+        JsonElement expected,
+        IReadOnlyList<AiProductSearchProposedPart> actual)
+    {
+        var expectedItems = expected.EnumerateArray().ToArray();
+        if (expectedItems.Length != actual.Count)
+        {
+            return false;
+        }
+
+        return expectedItems.All(expectedItem =>
+        {
+            var categoryCode = expectedItem.GetProperty("categoryCode").GetString();
+            var quantity = expectedItem.GetProperty("quantity").GetInt32();
+            var specifications = expectedItem.GetProperty("specifications");
+            return actual.Any(part =>
+                string.Equals(part.CategoryCode, categoryCode, StringComparison.OrdinalIgnoreCase) &&
+                part.Quantity == quantity &&
+                RequiredSpecsMatch(specifications, part.Specifications));
+        });
     }
 
     private static bool RequiredSpecsMatch(
@@ -852,6 +880,17 @@ public sealed class LiveEvaluationRunner : IDisposable
 
         var required = expected.GetProperty("required").GetBoolean();
         var maximum = expected.GetProperty("maximumQuestions").GetInt32();
+        var expectsExistingPartConfirmation = expected.GetProperty("concepts")
+            .EnumerateArray()
+            .Any(item => string.Equals(
+                item.GetString(),
+                "existingParts.confirmation",
+                StringComparison.Ordinal));
+        if (expectsExistingPartConfirmation)
+        {
+            return actual.ProposedExistingParts.Count > 0 && actual.Clarifications.Count == 0;
+        }
+
         return required
             ? actual.Clarifications.Count is > 0 && actual.Clarifications.Count <= maximum
             : actual.Clarifications.Count == 0;
@@ -1141,6 +1180,14 @@ public sealed class LiveEvaluationRunner : IDisposable
             {
                 return string.Join("／", questions!);
             }
+        }
+
+        if (result.StructuredOutput is { } structuredOutput &&
+            structuredOutput.TryGetProperty("proposedExistingParts", out var proposedExistingParts) &&
+            proposedExistingParts.ValueKind == JsonValueKind.Array &&
+            proposedExistingParts.GetArrayLength() > 0)
+        {
+            return "請確認 AI 解析出的既有零件與規格；確認前不會納入相容性計算。";
         }
 
         return "（沒有可提供給顧客的回答／已降級）";

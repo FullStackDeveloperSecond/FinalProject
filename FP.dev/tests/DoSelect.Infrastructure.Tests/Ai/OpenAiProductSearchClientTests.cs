@@ -39,6 +39,9 @@ public sealed class OpenAiProductSearchClientTests
         Assert.Contains("Preserve every explicitly stated budget boundary", instructions, StringComparison.Ordinal);
         Assert.Contains("single unambiguous colloquial amount", instructions, StringComparison.Ordinal);
         Assert.Contains("Add only purposes explicitly requested", instructions, StringComparison.Ordinal);
+        Assert.Contains("named component or accessory", instructions, StringComparison.Ordinal);
+        Assert.Contains("product label explicitly describes its intended use", instructions, StringComparison.Ordinal);
+        Assert.Contains("separate application confirmation", instructions, StringComparison.Ordinal);
         Assert.Contains("ready-made, prebuilt, branded package", instructions, StringComparison.Ordinal);
         Assert.Contains("budget-based gaming 主機", instructions, StringComparison.Ordinal);
         Assert.Contains("generic 主機", instructions, StringComparison.Ordinal);
@@ -50,7 +53,7 @@ public sealed class OpenAiProductSearchClientTests
         Assert.Contains("set minimum to null", instructions, StringComparison.Ordinal);
         Assert.Contains("Example: at least 30,000 but at most 20,000 for a computer", instructions, StringComparison.Ordinal);
         Assert.Contains("Example: a 40,000 video-editing computer", instructions, StringComparison.Ordinal);
-        Assert.Equal("product-search-v8", OpenAiProductSearchClient.PromptVersion);
+        Assert.Equal("product-search-v9", OpenAiProductSearchClient.PromptVersion);
         Assert.True(body.RootElement.GetProperty("text").GetProperty("format").GetProperty("strict").GetBoolean());
         Assert.Equal(
             "json_schema",

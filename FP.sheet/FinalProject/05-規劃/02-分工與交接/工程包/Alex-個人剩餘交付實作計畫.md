@@ -180,7 +180,8 @@
 | 2026-09-06 | WP-A05／AI-09 | 進行中／v7 Smoke 失敗、019 Gate 已修正 | PR #120 已 squash merge 為 `dev@19b7d9c6`。Run `20260905T161454Z-v7-smoke-system` 以固定六案、各一輪、US$0.05 停止線完成 6 次請求，實際 US$0.007161；Schema、Citation、安全與 P95 通過，但執行時整體 Verdict `FAIL`。DEC-BATCH-060 已將 019 的無「至少／以上」8TB 定為 `eq 8192GB`、偏好改採正規化概念包含且數量相同，聚焦 5／5 與 120 筆資料驗證通過；當時 025／026 仍待修正，後續由 DEC-BATCH-061 關閉零成本缺口。 |
 | 2026-09-06 | WP-A05／AI-09 | 進行中／v8 預算零成本修正完成 | 依 DEC-BATCH-061 在既有商品搜尋 Adapter 加入僅限 `zh-TW` 的確定性預算保護：明確單一口語金額保存為最高預算；最低值高於最高值時保留安全上限並補問；模糊金額不覆寫。Prompt 升為 `product-search-v8`。025／026 RED／GREEN、Adapter 20／20、Live Evaluation 23／23、Solution Build、Format、120 筆資料驗證與 66 次 Release dry run 通過；沒有 OpenAI 呼叫、Token 或費用。當時的下一 Gate 是另行授權 v8 六案 Smoke，後續已由 DEC-BATCH-062 定版為通過。 |
 | 2026-09-06 | WP-A05／AI-09 | 進行中／v8 六案 Smoke 通過 | 依 DEC-BATCH-062，Commit `45eeed27` 的固定六案／一輪 Live Run `20260905T190220Z-v8-smoke-system` 完成 6 次請求、成本 US$0.007117；Schema、Intent、補問、有效推薦、Citation、Privacy／Authorization、deterministic、P95 與平均成本 Gate 全數通過。Alex 已完成顧客視角人工覆核 6／6 Pass，正式 Smoke Verdict 為 `PASS`。AI-09 尚未完成；下一 Gate 是另行決策與費用授權的 66 次 Release baseline。 |
+| 2026-09-06 | WP-A05／AI-09 | 進行中／v8 baseline 失敗、v9 零成本修正完成 | `dev@155bafa3` 的 `product-search-v8 + support-v2` 三輪 Release baseline 執行 66 次、成本 US$0.110179；安全、引用、延遲與成本通過，但商品 Intent 61.54%、補問 Precision 75%、有效推薦 90%，正式 Verdict `FAIL`。DEC-BATCH-063 已將客服升為 `support-v3`；DEC-BATCH-064 依逐輪證據修正商品五案，Prompt／Dataset／Grader 升為 `product-search-v9`／`zh-TW-v1.0.6-draft`／`deterministic-v1.1.5`，Fixture 與 120 案不變。零成本驗證與 66 次 Dry Run 通過；下一 Gate 是另行授權的小型 Live Smoke 與人工覆核。 |
 
 ## 11. 下一步
 
-`product-search-v8` 已形成可追溯 Commit `45eeed27`，固定六案 Live Smoke 的自動 Gate 與 Alex 顧客視角人工覆核 6／6 均通過。下一步不是再重跑 Smoke，而是由組長另行決策是否授權三輪、66 次 Release baseline 與其成本停止線；未授權前 AI-09 維持進行中。
+現行候選版本為 `product-search-v9 + support-v3`。五個商品 baseline 缺口與客服回答契約都已完成版本化零成本修正，但尚無此版本組合的 Provider-backed 證據。下一步由組長另行授權小型 Live Smoke 的精確案例、請求上限及成本停止線；完成顧客視角人工覆核且 Gate 通過後，才決定是否重跑三輪 66 次 Release baseline。未完成上述 Gate 前，AI-09 維持進行中。

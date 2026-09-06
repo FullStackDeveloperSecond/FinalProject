@@ -289,7 +289,7 @@ public sealed class LiveEvaluationPlanTests
             Assert.Equal(1, result.RootElement.GetProperty("actualModelRequests").GetInt32());
             Assert.True(result.RootElement.GetProperty("intentStageLatencyMilliseconds").GetInt64() >= 0);
             using var metadata = JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "run-metadata.json")));
-            Assert.Equal("product-search-v8", metadata.RootElement.GetProperty("prompts").GetProperty("productSearch").GetString());
+            Assert.Equal("product-search-v9", metadata.RootElement.GetProperty("prompts").GetProperty("productSearch").GetString());
         }
         finally
         {
@@ -500,6 +500,80 @@ public sealed class LiveEvaluationPlanTests
             Assert.Equal(
                 expectedIntentMatch ? "PENDING_HUMAN_REVIEW" : "FAIL",
                 summary.Verdict);
+        }
+        finally
+        {
+            if (Directory.Exists(output))
+            {
+                Directory.Delete(output, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task RunAsync_ExistingPartConfirmation_GradesProposalWithoutTreatingItAsRecommendation()
+    {
+        var datasetPath = FindDatasetPath();
+        var projectRoot = new FileInfo(datasetPath).Directory!.Parent!.Parent!.Parent!.FullName;
+        var plan = EvaluationPlanBuilder.Load(
+            datasetPath,
+            "release",
+            trials: 1,
+            allowDraft: true,
+            caseIds: new HashSet<string>(["SEARCH-NOVICE-020"], StringComparer.Ordinal));
+        var output = Path.Combine(Path.GetTempPath(), $"DoSelectAiEval_{Guid.NewGuid():N}");
+        var responseBody = JsonSerializer.Serialize(new
+        {
+            status = "completed",
+            model = "gpt-5.6-luna-snapshot",
+            usage = new { input_tokens = 100, output_tokens = 20 },
+            output_text = JsonSerializer.Serialize(new
+            {
+                intent = "SingleProduct",
+                purposes = Array.Empty<string>(),
+                budget = new { minimum = (decimal?)null, maximum = 7_000m },
+                keyword = "主機板",
+                categoryCode = "MOTHERBOARD",
+                preferredBrandCodes = Array.Empty<string>(),
+                excludedBrandCodes = Array.Empty<string>(),
+                requiredSpecs = Array.Empty<object>(),
+                preferences = new[] { "需要 Wi-Fi" },
+                proposedExistingParts = new[]
+                {
+                    new
+                    {
+                        categoryCode = "CPU",
+                        displayName = "AM5 處理器",
+                        quantity = 1,
+                        specifications = new[]
+                        {
+                            new { semanticKey = "CPU_SOCKET", @operator = "eq", value = "AM5", unit = (string?)null },
+                        },
+                    },
+                },
+                clarifications = Array.Empty<string>(),
+            }),
+        });
+
+        try
+        {
+            using var runner = new LiveEvaluationRunner(
+                ValidLiveOptions(),
+                new StaticJsonHandler(responseBody),
+                new ThrowingHandler());
+
+            var summary = await runner.RunAsync(
+                plan,
+                new LiveEvaluationRunOptions(projectRoot, output, StopAfterCostUsd: 0.10m));
+
+            var resultLine = Assert.Single(File.ReadAllLines(Path.Combine(output, "case-results.jsonl")));
+            using var result = JsonDocument.Parse(resultLine);
+            Assert.True(result.RootElement.GetProperty("intentFieldsMatch").GetBoolean());
+            Assert.True(result.RootElement.GetProperty("clarificationShapeMatch").GetBoolean());
+            Assert.True(result.RootElement.GetProperty("clarificationExpected").GetBoolean());
+            Assert.True(result.RootElement.GetProperty("clarificationAsked").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, result.RootElement.GetProperty("recommendationValid").ValueKind);
+            Assert.Equal("PENDING_HUMAN_REVIEW", summary.Verdict);
         }
         finally
         {
