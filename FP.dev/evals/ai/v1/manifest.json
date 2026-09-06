@@ -20,7 +20,7 @@
     "SUPPORT-SECURITY": 20
   },
   "versions": {
-    "prompt": "product-search-v13+support-v7",
+    "prompt": "product-search-v14+support-v7",
     "searchIntentSchema": "contract-v1.0.2-2026-09-05",
     "toolContract": "contract-v1",
     "grader": "deterministic-v1.1.9",
@@ -31,7 +31,7 @@
     "aiSupport": "gpt-5.6-terra"
   },
   "annotationStatus": "all_120_case_definitions_approved_2026-09-04_release_expectations_014_015_020_021_022_corrected_support_required_fact_checks_011_013_014_017_added_020_no_unconfirmed_derived_specs_022_quiet_preference_and_013_defect_question_scope_corrected_2026-09-07",
-  "liveBaselineStatus": "product_search_v12_support_v7_dataset_v1_0_13_focused_passed_full_release_failed_on_one_search_023_explicit_budget_omission_2026-09-07_product_search_v13_remediation_pending",
+  "liveBaselineStatus": "product_search_v13_support_v7_search_023_focused_passed_full_release_failed_on_one_search_creator_013_redundant_form_clarification_2026-09-07_product_search_v14_remediation_pending",
   "containsProductionData": false,
   "containsRealPersonalData": false
 }
