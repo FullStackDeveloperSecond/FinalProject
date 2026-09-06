@@ -1,9 +1,10 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using DoSelect.Domain.Builds;
 using DoSelect.Domain.Catalog;
-using DoSelect.Domain.Inventory;
 using DoSelect.Domain.Invoicing;
+using DoSelect.Domain.Inventory;
 using DoSelect.Domain.Members;
 using DoSelect.Domain.Orders;
 using DoSelect.Domain.Payments;
@@ -11,6 +12,7 @@ using DoSelect.Domain.Promotions;
 using DoSelect.Domain.Shopping;
 using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Persistence.Identity;
+using DoSelect.Infrastructure.Security;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -23,6 +25,37 @@ public sealed class MinimalDevelopmentDataSeeder(
     RoleManager<IdentityRole> roleManager,
     IConfiguration configuration)
 {
+    // AUTO-DEC-006「管理員 TOTP：Seed 不預先設定 TOTP；首次正式管理登入流程必須先完成
+    // Google Authenticator 綁定」——H-R03 的預綁定管理員（見下方 EnsurePreEnrolledAdminAsync）
+    // 違反這條規則，只能限制在「確定是拋棄式、隔離的 E2E 資料庫」時才建立，一般
+    // Development／CI 對共用 DoSelectDb 執行同一個 Seeder 時必須維持原本未預綁定的安全邊界
+    // （alex PR #117 review 第三輪 P1：先前版本無條件建立，一般 --seed-minimal 也會種出這兩個
+    // 第二因素已公開且可預測的最高權限帳號）。與 playwright.config.ts／
+    // scripts/test-customer-e2e.ps1 各自獨立檢查同一個資料庫命名規則，屬多層防護，不是唯一防線。
+    //
+    // ⚠ 直接讀 OS 環境變數而不是注入 IHostEnvironment：這個 Seeder 也被多個
+    // DoSelect.Infrastructure.Tests 的 SQL Server provider-backed 測試直接用一個裸
+    // ServiceCollection 建構（未經過 WebApplicationBuilder，不會自動註冊
+    // IHostEnvironment），加了這個建構函式相依會讓那些測試在 DI 解析階段直接炸掉
+    // （CI 已實測：AiCustomBuildSqlServerTests 等測試組建 ServiceProvider 失敗）。
+    // ASPNETCORE_ENVIRONMENT 本來就是一個環境變數，直接讀取跟任何主機／DI 設定無關，
+    // 兩邊（真實 API 啟動與純測試 ServiceCollection）都能一致運作。
+    private static readonly Regex IsolatedE2EDatabaseNamePattern = new(
+        @"(?:Database|Initial Catalog)\s*=\s*DoSelectE2E(?:_[0-9a-f]{32})?(?:;|$)",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private bool IsIsolatedE2EEnvironment()
+    {
+        var environmentName = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
+        if (!string.Equals(environmentName, "E2E", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var connectionString = dbContext.Database.GetConnectionString();
+        return connectionString is not null && IsolatedE2EDatabaseNamePattern.IsMatch(connectionString);
+    }
+
     public async Task<MinimalDevelopmentSeedResult> SeedAsync(
         CancellationToken cancellationToken = default)
     {
@@ -41,6 +74,7 @@ public sealed class MinimalDevelopmentDataSeeder(
         await EnsureConvenienceStoresAsync(counters, cancellationToken);
         await EnsureCoreTransactionJourneyAsync(cancellationToken);
         await EnsureReturnE2eJourneyAsync(cancellationToken);
+        await EnsureRefundJourneyOrderAsync(passwords, counters, cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
         return new MinimalDevelopmentSeedResult(
@@ -101,6 +135,35 @@ public sealed class MinimalDevelopmentDataSeeder(
             counters,
             cancellationToken);
 
+        if (IsIsolatedE2EEnvironment())
+        {
+            var hr03TotpSecret = configuration[MinimalDevelopmentSeedDefinitions.AdminHr03TotpSecretKey];
+            if (string.IsNullOrWhiteSpace(hr03TotpSecret))
+            {
+                throw new InvalidOperationException(
+                    $"Required E2E User Secret is missing: " +
+                    $"{MinimalDevelopmentSeedDefinitions.AdminHr03TotpSecretKey}.");
+            }
+
+            await EnsurePreEnrolledAdminAsync(
+                MinimalDevelopmentSeedDefinitions.AdminHr03PrimaryEmail,
+                passwords.AdminPassword,
+                MinimalDevelopmentSeedDefinitions.AdminHr03PrimaryPublicId,
+                "DEV-ADMIN-HR03-1",
+                "H-R03 E2E 管理員一號",
+                hr03TotpSecret,
+                counters,
+                cancellationToken);
+            await EnsurePreEnrolledAdminAsync(
+                MinimalDevelopmentSeedDefinitions.AdminHr03SecondaryEmail,
+                passwords.AdminPassword,
+                MinimalDevelopmentSeedDefinitions.AdminHr03SecondaryPublicId,
+                "DEV-ADMIN-HR03-2",
+                "H-R03 E2E 管理員二號",
+                hr03TotpSecret,
+                counters,
+                cancellationToken);
+        }
         var member = await EnsureUserAsync(
             MinimalDevelopmentSeedDefinitions.MemberEmail,
             passwords.MemberPassword,
@@ -122,6 +185,65 @@ public sealed class MinimalDevelopmentDataSeeder(
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// #108 曾在一般 Development 資料庫建立退款 E2E 專用的固定身分，並替它預綁已知的
+    /// AuthenticatorKey。單純阻止之後建立並不能清掉已經執行過舊版 Seed 的資料庫，因此一般
+    /// Seed 重跑時，必須精確比對固定 PublicId 與 Email，把該測試帳號撤權。這個帳號在隔離
+    /// E2E 之外沒有產品用途；同時停權、停用管理員 Profile、移除角色及第二因素，既可阻止
+    /// 密碼登入與既有 Session，又不需要刪除可能已被 Audit 等資料參照的使用者列。
+    /// </summary>
+    private async Task RevokeLegacyRefundJourneyAdminAsync(CancellationToken cancellationToken)
+    {
+        var admin = await dbContext.Users.SingleOrDefaultAsync(
+            candidate =>
+                candidate.PublicId == MinimalDevelopmentSeedDefinitions.RefundJourneyAdminPublicId &&
+                candidate.Email == MinimalDevelopmentSeedDefinitions.RefundJourneyAdminEmail,
+            cancellationToken);
+        if (admin is null)
+        {
+            return;
+        }
+
+        if (admin.AccountStatus is not (AccountStatus.Suspended or AccountStatus.Anonymized or AccountStatus.Disabled))
+        {
+            admin.Suspend(DateTime.UtcNow);
+            EnsureSucceeded(
+                "suspend the legacy refund journey E2E administrator",
+                await userManager.UpdateAsync(admin));
+        }
+
+        var roles = await userManager.GetRolesAsync(admin);
+        if (roles.Count > 0)
+        {
+            EnsureSucceeded(
+                "remove roles from the legacy refund journey E2E administrator",
+                await userManager.RemoveFromRolesAsync(admin, roles));
+        }
+
+        if (await userManager.GetTwoFactorEnabledAsync(admin))
+        {
+            EnsureSucceeded(
+                "disable two-factor authentication for the legacy refund journey E2E administrator",
+                await userManager.SetTwoFactorEnabledAsync(admin, false));
+        }
+
+        EnsureSucceeded(
+            "remove the fixed authenticator key from the legacy refund journey E2E administrator",
+            await userManager.RemoveAuthenticationTokenAsync(
+                admin,
+                IdentityAdminAuthGateway.IdentityAuthenticatorLoginProvider,
+                IdentityAdminAuthGateway.IdentityAuthenticatorKeyTokenName));
+
+        var profile = await dbContext.AdminProfiles.SingleOrDefaultAsync(
+            candidate => candidate.UserId == admin.Id,
+            cancellationToken);
+        if (profile?.IsActive == true)
+        {
+            profile.SetActive(false, DateTime.UtcNow);
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
     }
 
     private async Task EnsureAdminAsync(
@@ -200,6 +322,69 @@ public sealed class MinimalDevelopmentDataSeeder(
             await userManager.CreateAsync(user, password));
         counters.UsersCreated++;
         return user;
+    }
+
+    /// <summary>
+    /// 種出一個「已知秘鑰、已完成 TOTP 綁定」的管理員帳號，專供 H-R03 的 admin-chromium
+    /// Browser E2E 使用（見 <see cref="MinimalDevelopmentSeedDefinitions.AdminHr03PrimaryEmail"/>
+    /// 旁的說明：整套測試共用一顆 CI 資料庫，沿用主要管理員會讓「誰先綁定 TOTP」變成競態）。
+    /// 直接用 <see cref="IdentityAdminAuthGateway"/> 內同一組 Identity 內部 LoginProvider／
+    /// TokenName 常數把 AuthenticatorKey 寫成固定值，而不是呼叫只會產生亂數新秘鑰的
+    /// ResetAuthenticatorKeyAsync——這樣 Playwright 端才能不透過任何 UI 就算出正確的 TOTP
+    /// code，完全跳過 enroll 流程。已綁定過（TwoFactorEnabled 已是 true）就不重覆寫入，
+    /// 讓本方法可安全重跑。
+    ///
+    /// ⚠ 只能由 <see cref="IsIsolatedE2EEnvironment"/> 為 true 時的呼叫端呼叫（AUTO-DEC-006：
+    /// 一般 Seed 不得預先設定 TOTP）；<paramref name="totpSecret"/> 一律來自呼叫端從
+    /// <see cref="MinimalDevelopmentSeedDefinitions.AdminHr03TotpSecretKey"/> 讀到的設定值，
+    /// 不在本類別內寫死。
+    /// </summary>
+    private async Task EnsurePreEnrolledAdminAsync(
+        string email,
+        string password,
+        Guid publicId,
+        string adminCode,
+        string displayName,
+        string totpSecret,
+        SeedCounters counters,
+        CancellationToken cancellationToken)
+    {
+        var admin = await EnsureUserAsync(email, password, AccountType.Admin, publicId, counters);
+
+        if (!await userManager.IsInRoleAsync(admin, "SuperAdmin"))
+        {
+            EnsureSucceeded(
+                "assign the SuperAdmin role",
+                await userManager.AddToRoleAsync(admin, "SuperAdmin"));
+        }
+
+        if (!await dbContext.AdminProfiles.AnyAsync(
+                profile => profile.UserId == admin.Id,
+                cancellationToken))
+        {
+            dbContext.AdminProfiles.Add(new AdminProfile(
+                admin.Id,
+                publicId,
+                adminCode,
+                displayName,
+                MinimalDevelopmentSeedDefinitions.CreatedAtUtc));
+            counters.ProfilesCreated++;
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+
+        if (!await userManager.GetTwoFactorEnabledAsync(admin))
+        {
+            EnsureSucceeded(
+                "set the fixed E2E authenticator key",
+                await userManager.SetAuthenticationTokenAsync(
+                    admin,
+                    IdentityAdminAuthGateway.IdentityAuthenticatorLoginProvider,
+                    IdentityAdminAuthGateway.IdentityAuthenticatorKeyTokenName,
+                    totpSecret));
+            EnsureSucceeded(
+                "enable two-factor authentication",
+                await userManager.SetTwoFactorEnabledAsync(admin, true));
+        }
     }
 
     private async Task EnsureCatalogAsync(
@@ -1296,6 +1481,146 @@ public sealed class MinimalDevelopmentDataSeeder(
         paymentAttempt.Transition(PaymentAttemptStatus.Processing, createdAtUtc.AddMinutes(2));
         paymentAttempt.Transition(PaymentAttemptStatus.Paid, createdAtUtc.AddMinutes(3));
         dbContext.PaymentAttempts.Add(paymentAttempt);
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// M-13 WP4（alex 2026-09-05 #98 A1 裁定：依既有裁定保留穩定、隔離的前置資料——訂單、
+    /// 付款、出貨用 deterministic seed 頂住，讓這支 E2E 專注在退貨申請開始之後的 Return／
+    /// Refund／Allowance 全程 production API／UI 路徑，不需要因此重寫成完整垂直旅程；
+    /// alex 2026-09-06 #98 review：與 #110 的 ReturnE2e* deterministic IDs 撞號後改配
+    /// ...a16 起的新範圍）。從建立退貨申請開始，E2E 一律走 production API／UI，不得再往後
+    /// seed 任何 Return／Refund 狀態。
+    ///
+    /// 也在這裡建立退款旅程專用的獨立管理員帳號
+    /// （<see cref="MinimalDevelopmentSeedDefinitions.RefundJourneyAdminEmail"/>），不沿用
+    /// 一般 <see cref="MinimalDevelopmentSeedDefinitions.AdminEmail"/>——同一輪 CI 的
+    /// admin-chromium 專案是單一 worker 依序執行，admin.spec.ts 自己的 TOTP 綁定測試會先
+    /// 把那個帳號綁定掉，退款旅程若共用會在登入時只看到 requiresEnrollment=false 的驗證頁，
+    /// 卻沒有金鑰。
+    ///
+    /// ⚠ han00r 2026-09-06 #108 回報：這個帳號的預先綁定只能在
+    /// <see cref="IsIsolatedE2EEnvironment"/> 為 true 時建立（AUTO-DEC-006：Seed 不預先設定
+    /// TOTP；比照 #117 的 H-R03 帳號同一套守門）。原本無條件建立，一般 Development／CI 對
+    /// 共用 DoSelectDb 執行 --seed-minimal 也會種出這顆秘鑰已公開、已啟用 2FA 的 SuperAdmin
+    /// 帳號。這個帳號在隔離 E2E 之外沒有任何用途，直接整段略過，不是退化成「建立帳號但不
+    /// 預綁 TOTP」——跟 #117 的 H-R03 帳號在非 E2E 環境完全不建立是同一個決定。
+    /// </summary>
+    private async Task EnsureRefundJourneyOrderAsync(
+        (string AdminPassword, string MemberPassword) passwords,
+        SeedCounters counters,
+        CancellationToken cancellationToken)
+    {
+        if (IsIsolatedE2EEnvironment())
+        {
+            var refundJourneyAdminTotpSecret =
+                configuration[MinimalDevelopmentSeedDefinitions.RefundJourneyAdminTotpSecretKey];
+            if (string.IsNullOrWhiteSpace(refundJourneyAdminTotpSecret))
+            {
+                throw new InvalidOperationException(
+                    $"Required E2E User Secret is missing: " +
+                    $"{MinimalDevelopmentSeedDefinitions.RefundJourneyAdminTotpSecretKey}.");
+            }
+
+            await EnsurePreEnrolledAdminAsync(
+                MinimalDevelopmentSeedDefinitions.RefundJourneyAdminEmail,
+                passwords.AdminPassword,
+                MinimalDevelopmentSeedDefinitions.RefundJourneyAdminPublicId,
+                "DEV-ADMIN-002",
+                "退款 E2E 管理員",
+                refundJourneyAdminTotpSecret,
+                counters,
+                cancellationToken);
+        }
+        else
+        {
+            await RevokeLegacyRefundJourneyAdminAsync(cancellationToken);
+        }
+
+        if (await dbContext.Orders.AnyAsync(
+                order => order.PublicId == MinimalDevelopmentSeedDefinitions.RefundJourneyOrderPublicId,
+                cancellationToken))
+        {
+            return;
+        }
+
+        var homeDeliveryProfile = await dbContext.ShippingProviderProfiles.SingleAsync(
+            profile => profile.PublicId ==
+                MinimalDevelopmentSeedDefinitions.HomeDeliveryProviderProfilePublicId,
+            cancellationToken);
+        var homeDeliveryPackageLimit = await dbContext.PackageLimitVersions.SingleAsync(
+            limit => limit.PublicId ==
+                MinimalDevelopmentSeedDefinitions.HomeDeliveryPackageLimitPublicId,
+            cancellationToken);
+        var sku = await dbContext.Skus.SingleAsync(
+            candidate => candidate.PublicId == MinimalDevelopmentSeedDefinitions.SkuPublicId,
+            cancellationToken);
+
+        var createdAtUtc = MinimalDevelopmentSeedDefinitions.CreatedAtUtc;
+        var deliveredAtUtc = createdAtUtc.AddDays(3);
+
+        var order = Order.Create(
+            MinimalDevelopmentSeedDefinitions.RefundJourneyOrderPublicId,
+            new OrderCreation(
+                MinimalDevelopmentSeedDefinitions.RefundJourneyOrderNumber,
+                null,
+                MinimalDevelopmentSeedDefinitions.RefundJourneyBuyerEmail,
+                OrderStatus.Completed,
+                PaymentStatus.Paid,
+                FulfillmentStatus.Preparing,
+                AssemblyStatus.NotRequired,
+                19_900m, 0m, 100m, 0m, 20_000m,
+                "退款 E2E 收件人", "0912345678", MinimalDevelopmentSeedDefinitions.RefundJourneyBuyerEmail,
+                "100", "台北市", "中正區", "測試路 1 號", null,
+                "HomeDelivery", homeDeliveryProfile.Id, null, null, null,
+                1, 1, null, null, "e2e-refund-journey-seed", null,
+                1, 1,
+                new OrderInvoicePreference(
+                    SimulatedInvoiceBuyerType.Individual,
+                    MinimalDevelopmentSeedDefinitions.RefundJourneyBuyerEmail,
+                    null, null, null, null),
+                null,
+                null,
+                new OrderPackageSnapshot(homeDeliveryPackageLimit.Id, 1.2m, 40m, 30m, 20m, 90m, 20_000m)),
+            createdAtUtc);
+        dbContext.Orders.Add(order);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        // InvoiceCalculator 核對發票行項與 Order.PaidAmount 是否一致（IssueInvoiceService 走
+        // production 手動開立路徑，不是這支 seed 自己模擬付款成功事件），沒有這行金額對不上，
+        // 開立發票會丟 ArgumentException。
+        order.ApplyPaymentProjection(PaymentStatus.Paid, 20_000m, createdAtUtc);
+        order.ApplyFulfillmentProjection(FulfillmentStatus.Delivered, deliveredAtUtc);
+
+        dbContext.OrderItems.Add(new OrderItem(
+            MinimalDevelopmentSeedDefinitions.RefundJourneyOrderItemPublicId,
+            order.Id,
+            sku.Id,
+            sku.SkuCode,
+            "懂選開發用顯示卡",
+            "16GB",
+            quantity: 1,
+            listUnitPrice: 19_900m,
+            saleUnitPrice: 19_900m,
+            finalUnitPrice: 19_900m,
+            unitCostSnapshot: 15_000m,
+            lineSubtotal: 19_900m,
+            discountAllocation: 0m,
+            lineTotal: 19_900m,
+            assemblyGroupKey: null,
+            returnableQuantity: 1,
+            createdAtUtc,
+            isCouponEligible: false,
+            new OrderItemSpecificationSnapshot("E2E 退款旅程測試品項", "{}", 1)));
+
+        var paymentAttempt = new PaymentAttempt(
+            Guid.CreateVersion7(), order.Id, PaymentMethod.CreditCard, 20_000m,
+            "SIMULATED", "e2e-refund-journey-seed-payment", null, createdAtUtc);
+        paymentAttempt.Transition(PaymentAttemptStatus.AwaitingPayment, createdAtUtc);
+        paymentAttempt.Transition(PaymentAttemptStatus.Processing, createdAtUtc);
+        paymentAttempt.Transition(PaymentAttemptStatus.Paid, createdAtUtc);
+        dbContext.PaymentAttempts.Add(paymentAttempt);
+
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
