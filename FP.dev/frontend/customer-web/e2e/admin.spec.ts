@@ -1032,6 +1032,12 @@ test('a delivered order can be returned, refunded and allowed to update the orde
   // '模擬付款成功' })` 之後），這裡只驗證 `status === 'issued'` 是那條自動開票鏈路已經跑完。
   // 這與 PR #108 用「管理員開票 API」手動開立發票的證據是不同的兩件事，不能互相替代：這裡證明
   // 的是付款完成 → Outbox → Consumer → 唯一發票的整合鏈路，不是開票 API 本身。
+  // Issuance is asynchronous: wait for the payment outbox consumer, without creating an invoice here.
+  await expect.poll(async () => customerPage.evaluate(async (orderPublicId) => {
+    const response = await fetch(`/api/v1/orders/${orderPublicId}/invoice`, { credentials: 'include' })
+    if (!response.ok) return response.status
+    return (await response.json() as { status: string }).status
+  }, order.publicId), { timeout: 30_000 }).toBe('issued')
   const invoiceBefore = await customerPage.evaluate(async (orderPublicId) => {
     const response = await fetch(`/api/v1/orders/${orderPublicId}/invoice`, { credentials: 'include' })
     return {
