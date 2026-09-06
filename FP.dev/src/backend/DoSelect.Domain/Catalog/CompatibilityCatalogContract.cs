@@ -45,6 +45,7 @@ public static class CompatibilityCatalogContract
         public const string GpuPcie62PinRequiredCount = "GPU_PCIE_6_2PIN_REQUIRED_COUNT";
         public const string Gpu12VhpwrRequiredCount = "GPU_12VHPWR_REQUIRED_COUNT";
         public const string StorageInterface = "STORAGE_INTERFACE";
+        public const string StorageCapacityGb = "STORAGE_CAPACITY_GB";
         public const string PsuRatedWatts = "PSU_RATED_WATTS";
         public const string PsuPcie62PinCount = "PSU_PCIE_6_2PIN_COUNT";
         public const string Psu12VhpwrCount = "PSU_12VHPWR_COUNT";

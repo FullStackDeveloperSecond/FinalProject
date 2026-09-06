@@ -58,6 +58,7 @@ public static class AuditActions
     public const string SupportTicketCancel = "support_ticket.cancel";
     public const string SupportTicketReopen = "support_ticket.reopen";
     public const string SupportTicketInternalNote = "support_ticket.internal_note";
+    public const string SupportTicketReply = "support_ticket.reply";
 
     /// <summary>DEC-BATCH-026 (DEC-P309): compatibility rule admin surface writes to the central Audit Log instead of adding its own Actor/IP/TraceId columns.</summary>
     public const string CompatibilityRuleWarningSettingUpdate = "compatibility_rule.warning_setting.update";
@@ -825,6 +826,10 @@ internal static class AuditWritePolicy
                 AuditActions.SupportTicketInternalNote,
                 AuditResourceTypes.SupportTicket,
                 "note"),
+            [AuditActions.SupportTicketReply] = Definition(
+                AuditActions.SupportTicketReply,
+                AuditResourceTypes.SupportTicket,
+                "message", "firstHumanResponse", "status"),
             [AuditActions.InventoryImportConfirm] = Definition(
                 AuditActions.InventoryImportConfirm,
                 AuditResourceTypes.ImportBatch,

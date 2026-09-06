@@ -89,6 +89,16 @@ public interface IAdminSupportTicketService
         Guid ticketPublicId,
         CreateInternalNoteRequest request,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// SupportTicket.Handle: append a member-visible admin reply, record the first human
+    /// response once, and enqueue the existing support notification contracts atomically.
+    /// </summary>
+    Task<AdminSupportTicketDetailDto> AddPublicReplyAsync(
+        SupportTicketActionContext context,
+        Guid ticketPublicId,
+        CreateAdminSupportReplyRequest request,
+        CancellationToken cancellationToken);
 }
 
 /// <summary>

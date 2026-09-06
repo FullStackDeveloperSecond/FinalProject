@@ -41,7 +41,8 @@ public sealed record AiProductSearchIntent(
 public sealed record AiProductSearchMetadata(
     IReadOnlyList<string> CategoryCodes,
     IReadOnlyList<string> BrandCodes,
-    IReadOnlyList<string> SemanticKeys);
+    IReadOnlyList<string> SemanticKeys,
+    IReadOnlyDictionary<string, IReadOnlyList<string>>? SemanticKeysByCategory = null);
 
 public enum AiProductSearchModelStatus
 {

@@ -18,11 +18,17 @@ type DoSelectFixtures = {
     adminHr03PrimaryEmail: string
     adminHr03SecondaryEmail: string
     adminHr03TotpSecret: string
+    adminPublicId: string
+    returnAdminEmail: string
+    supportAdminEmail: string
+    supportAdminPublicId: string
     memberEmail: string
     memberPassword: string
     productPublicId: string
     skuPublicId: string
     coreTransactionGuestCartKey: string
+    returnOrderPublicId: string
+    returnOrderItemPublicId: string
   }
 }
 
@@ -86,11 +92,17 @@ export const test = base.extend<DoSelectFixtures>({
       // scripts/test-customer-e2e.ps1 以 Seed__AdminHr03TotpSecret 環境變數注入，跟後端種子
       // （EnsurePreEnrolledAdminAsync）讀的是同一把秘鑰。
       adminHr03TotpSecret: process.env.Seed__AdminHr03TotpSecret ?? '',
+      adminPublicId: '0f269121-89a5-43a4-97f5-b95278bc0cf6',
+      returnAdminEmail: 'return-admin@doselect.local',
+      supportAdminEmail: 'support-admin@doselect.local',
+      supportAdminPublicId: '3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a15',
       memberEmail: 'member@doselect.local',
       memberPassword: process.env.Seed__MemberPassword ?? '',
       productPublicId: '5940b1db-3c83-4db0-b285-9777616d11b1',
       skuPublicId: '719dfd4a-77f0-4887-b3bf-239263d4ee1f',
       coreTransactionGuestCartKey: 'e2e-core-transaction-guest-cart-key-0001',
+      returnOrderPublicId: '3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a11',
+      returnOrderItemPublicId: '3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a12',
     })
   },
 })
