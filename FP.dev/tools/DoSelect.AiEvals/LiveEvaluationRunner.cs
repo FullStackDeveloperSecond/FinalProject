@@ -891,8 +891,13 @@ public sealed class LiveEvaluationRunner : IDisposable
                 actualPreference.Contains(expectedPreference, StringComparison.OrdinalIgnoreCase)));
     }
 
-    private static string NormalizePreference(string value) =>
-        string.Concat(value.Where(character => char.IsLetterOrDigit(character)));
+    private static string NormalizePreference(string value)
+    {
+        var normalized = string.Concat(value.Where(character => char.IsLetterOrDigit(character)));
+        return normalized.StartsWith("需要", StringComparison.Ordinal)
+            ? normalized[2..]
+            : normalized;
+    }
 
     private static bool ClarificationMatches(JsonElement expected, AiProductSearchIntent? actual)
     {

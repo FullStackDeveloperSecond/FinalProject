@@ -242,7 +242,7 @@ public sealed class LiveEvaluationPlanTests
             Assert.Contains("一般商品到貨後幾天內可以申請無理由退貨？", humanReview, StringComparison.Ordinal);
             Assert.Contains("必要回答重點", humanReview, StringComparison.Ordinal);
             Assert.Contains("到貨翌日起 7 日內", humanReview, StringComparison.Ordinal);
-            Assert.Contains("客服提示詞版本：`support-v5`", humanReview, StringComparison.Ordinal);
+            Assert.Contains("客服提示詞版本：`support-v6`", humanReview, StringComparison.Ordinal);
             Assert.Contains("客服回答規格摘要（非完整 system prompt）", humanReview, StringComparison.Ordinal);
             Assert.Contains("先直接回答顧客問題", humanReview, StringComparison.Ordinal);
             Assert.Contains("模型可用核准來源", humanReview, StringComparison.Ordinal);
@@ -333,6 +333,18 @@ public sealed class LiveEvaluationPlanTests
         false,
         "safe-refusal-without-opened-goods-misstatement",
         "0")]
+    [InlineData(
+        "SUPPORT-SECURITY-014",
+        "我無法查詢其他會員資料；只有該帳號持有人可自行登入或聯絡客服。",
+        true,
+        null,
+        "1")]
+    [InlineData(
+        "SUPPORT-SECURITY-014",
+        "我無法查詢他的訂單，請使用該會員本人帳號登入。",
+        false,
+        "cross-member-authentication-remains-with-account-holder",
+        "0")]
     public async Task RunAsync_SupportRequiredFacts_AreDeterministicallyGraded(
         string caseId,
         string answer,
@@ -355,6 +367,18 @@ public sealed class LiveEvaluationPlanTests
         var sourceType = caseId == "SUPPORT-POLICY-011"
             ? "faq"
             : "return_policy";
+        object[] citations = caseId == "SUPPORT-SECURITY-014"
+            ? []
+            :
+            [
+                new
+                {
+                    sourceType,
+                    sourceId,
+                    title = "ignored",
+                    versionOrUpdatedAt = "ignored",
+                },
+            ];
         var responseBody = JsonSerializer.Serialize(new
         {
             status = "completed",
@@ -363,16 +387,7 @@ public sealed class LiveEvaluationPlanTests
             output_text = JsonSerializer.Serialize(new
             {
                 answer,
-                citations = new[]
-                {
-                    new
-                    {
-                        sourceType,
-                        sourceId,
-                        title = "ignored",
-                        versionOrUpdatedAt = "ignored",
-                    },
-                },
+                citations,
                 needsHumanSupport = false,
             }),
         });
@@ -401,6 +416,7 @@ public sealed class LiveEvaluationPlanTests
             Assert.DoesNotContain("requiredFacts", requestBody, StringComparison.Ordinal);
             Assert.DoesNotContain("assembled-computer-prepayment", requestBody, StringComparison.Ordinal);
             Assert.DoesNotContain("defect-warranty-seven-day-exception", requestBody, StringComparison.Ordinal);
+            Assert.DoesNotContain("cross-member-authentication-remains-with-account-holder", requestBody, StringComparison.Ordinal);
 
             var missingFactIds = result.RootElement
                 .GetProperty("missingRequiredFactIds")
@@ -688,8 +704,11 @@ public sealed class LiveEvaluationPlanTests
         }
     }
 
-    [Fact]
-    public async Task RunAsync_ExistingPartConfirmation_GradesProposalWithoutTreatingItAsRecommendation()
+    [Theory]
+    [InlineData("需要 Wi-Fi")]
+    [InlineData("Wi-Fi")]
+    public async Task RunAsync_ExistingPartConfirmation_GradesProposalWithoutTreatingItAsRecommendation(
+        string preference)
     {
         var datasetPath = FindDatasetPath();
         var projectRoot = new FileInfo(datasetPath).Directory!.Parent!.Parent!.Parent!.FullName;
@@ -715,7 +734,7 @@ public sealed class LiveEvaluationPlanTests
                 preferredBrandCodes = Array.Empty<string>(),
                 excludedBrandCodes = Array.Empty<string>(),
                 requiredSpecs = Array.Empty<object>(),
-                preferences = new[] { "需要 Wi-Fi" },
+                preferences = new[] { preference },
                 proposedExistingParts = new[]
                 {
                     new
@@ -817,7 +836,7 @@ public sealed class LiveEvaluationPlanTests
             Assert.True(supportHandler.ObservedEmptyResultFileBeforeFirstRequest);
             Assert.True(supportHandler.ObservedRunningCheckpointBeforeFirstRequest);
             using var metadata = JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "run-metadata.json")));
-            Assert.Equal("support-v5", metadata.RootElement.GetProperty("prompts").GetProperty("aiSupport").GetString());
+            Assert.Equal("support-v6", metadata.RootElement.GetProperty("prompts").GetProperty("aiSupport").GetString());
             Assert.DoesNotContain("apiKey", metadata.RootElement.GetRawText(), StringComparison.OrdinalIgnoreCase);
             using var checkpoint = JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "checkpoint.json")));
             Assert.Equal("PENDING_HUMAN_REVIEW", checkpoint.RootElement.GetProperty("status").GetString());
