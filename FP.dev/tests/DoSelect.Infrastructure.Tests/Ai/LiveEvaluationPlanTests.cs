@@ -77,6 +77,19 @@ public sealed class LiveEvaluationPlanTests
     }
 
     [Fact]
+    public void ValidateLiveConfiguration_UnsupportedProductSearchServiceTier_IsRejected()
+    {
+        var options = ValidLiveOptions();
+        options.ProductSearchServiceTier = "unapproved";
+
+        var failures = LiveEvaluationConfigurationValidator.Validate(options);
+
+        Assert.Contains(
+            "OpenAI:ProductSearchServiceTier must be either 'default' or 'fast'.",
+            failures);
+    }
+
+    [Fact]
     public void ValidateLiveConfiguration_AllRequiredValuesPresent_HasNoFailures()
     {
         var failures = LiveEvaluationConfigurationValidator.Validate(ValidLiveOptions());
@@ -454,7 +467,7 @@ public sealed class LiveEvaluationPlanTests
             Assert.Equal(1, result.RootElement.GetProperty("actualModelRequests").GetInt32());
             Assert.True(result.RootElement.GetProperty("intentStageLatencyMilliseconds").GetInt64() >= 0);
             using var metadata = JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "run-metadata.json")));
-            Assert.Equal("product-search-v10", metadata.RootElement.GetProperty("prompts").GetProperty("productSearch").GetString());
+            Assert.Equal("product-search-v11", metadata.RootElement.GetProperty("prompts").GetProperty("productSearch").GetString());
         }
         finally
         {

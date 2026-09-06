@@ -35,7 +35,7 @@ public sealed class OpenAiProductSearchClientTests
         Assert.False(body.RootElement.GetProperty("store").GetBoolean());
         Assert.Equal("none", body.RootElement.GetProperty("reasoning").GetProperty("effort").GetString());
         Assert.Equal("low", body.RootElement.GetProperty("text").GetProperty("verbosity").GetString());
-        Assert.False(body.RootElement.TryGetProperty("service_tier", out _));
+        Assert.Equal("fast", body.RootElement.GetProperty("service_tier").GetString());
         var instructions = body.RootElement.GetProperty("instructions").GetString();
         Assert.Contains("Preserve every explicitly stated budget boundary", instructions, StringComparison.Ordinal);
         Assert.Contains("single unambiguous colloquial amount", instructions, StringComparison.Ordinal);
@@ -53,10 +53,11 @@ public sealed class OpenAiProductSearchClientTests
         Assert.Contains("1 TB = 1024 GB", instructions, StringComparison.Ordinal);
         Assert.Contains("without minimum or maximum wording", instructions, StringComparison.Ordinal);
         Assert.Contains("specifications of an existing part only in proposedExistingParts", instructions, StringComparison.Ordinal);
+        Assert.Contains("never repeat that part's category", instructions, StringComparison.Ordinal);
         Assert.Contains("set minimum to null", instructions, StringComparison.Ordinal);
         Assert.Contains("Example: at least 30,000 but at most 20,000 for a computer", instructions, StringComparison.Ordinal);
         Assert.Contains("Example: a 40,000 video-editing computer", instructions, StringComparison.Ordinal);
-        Assert.Equal("product-search-v10", OpenAiProductSearchClient.PromptVersion);
+        Assert.Equal("product-search-v11", OpenAiProductSearchClient.PromptVersion);
         Assert.True(body.RootElement.GetProperty("text").GetProperty("format").GetProperty("strict").GetBoolean());
         Assert.Equal(
             "json_schema",
@@ -69,6 +70,23 @@ public sealed class OpenAiProductSearchClientTests
         Assert.Equal("untrusted_user_input", input.RootElement.GetProperty("userMessage").GetProperty("trust").GetString());
         Assert.Equal("untrusted_data", input.RootElement.GetProperty("allowedCatalog").GetProperty("trust").GetString());
         Assert.True(input.RootElement.GetProperty("allowedCatalog").TryGetProperty("semanticKeysByCategory", out _));
+    }
+
+    [Fact]
+    public async Task ParseIntentAsync_DefaultServiceTier_NormalizesRollbackPayload()
+    {
+        var handler = new RecordingHandler(_ => JsonResponse(IntentResponse()));
+        var subject = CreateSubject(handler, serviceTier: "DEFAULT");
+
+        var result = await subject.ParseIntentAsync(
+            "五萬元剪輯電腦",
+            SupportedLocale.ZhTw,
+            Metadata(),
+            default);
+
+        Assert.Equal(AiProductSearchModelStatus.Completed, result.Status);
+        using var body = JsonDocument.Parse(Assert.Single(handler.Bodies));
+        Assert.Equal("default", body.RootElement.GetProperty("service_tier").GetString());
     }
 
     [Fact]
@@ -384,6 +402,23 @@ public sealed class OpenAiProductSearchClientTests
     }
 
     [Fact]
+    public async Task ParseIntentAsync_UnsupportedServiceTier_FailsClosedWithoutHttpCall()
+    {
+        var handler = new RecordingHandler(_ => throw new InvalidOperationException("No HTTP call expected."));
+        var subject = CreateSubject(handler, serviceTier: "unapproved");
+
+        var result = await subject.ParseIntentAsync(
+            "五萬元剪輯電腦",
+            SupportedLocale.ZhTw,
+            Metadata(),
+            default);
+
+        Assert.Equal(AiProductSearchModelStatus.Unavailable, result.Status);
+        Assert.Null(result.Intent);
+        Assert.Equal(0, handler.CallCount);
+    }
+
+    [Fact]
     public async Task ParseIntentAsync_NaturalLanguageExistingPart_ReturnsUnconfirmedProposalOnly()
     {
         var output = JsonSerializer.Serialize(new
@@ -399,7 +434,7 @@ public sealed class OpenAiProductSearchClientTests
             {
                 new { semanticKey = "CPU_SOCKET", @operator = "eq", value = "AM5", unit = (string?)null },
             },
-            preferences = Array.Empty<string>(),
+            preferences = new[] { "需要 Wi-Fi", "支援 AM5 CPU", "AM5 CPU 供電穩定" },
             proposedExistingParts = new[]
             {
                 new
@@ -432,6 +467,7 @@ public sealed class OpenAiProductSearchClientTests
         Assert.Equal("CPU", proposal.CategoryCode);
         Assert.Equal("AM5", Assert.Single(proposal.Specifications).Value);
         Assert.Empty(result.Intent.RequiredSpecs);
+        Assert.Equal(["需要 Wi-Fi", "AM5 CPU 供電穩定"], result.Intent.Preferences);
     }
 
     [Fact]
@@ -883,13 +919,15 @@ public sealed class OpenAiProductSearchClientTests
 
     private static OpenAiProductSearchClient CreateSubject(
         HttpMessageHandler handler,
-        int timeoutMilliseconds = 5_000) =>
+        int timeoutMilliseconds = 5_000,
+        string serviceTier = "fast") =>
         new(
             new HttpClient(handler),
             Options.Create(new OpenAiResponsesOptions
             {
                 ApiKey = "synthetic-key",
                 ProductSearchModel = "gpt-5.6-luna",
+                ProductSearchServiceTier = serviceTier,
                 ProductSearchTimeoutMilliseconds = timeoutMilliseconds,
             }));
 

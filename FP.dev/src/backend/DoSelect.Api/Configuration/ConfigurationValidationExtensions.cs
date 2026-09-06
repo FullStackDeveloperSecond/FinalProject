@@ -218,6 +218,13 @@ internal sealed class OpenAiOptionsValidator : IValidateOptions<OpenAiResponsesO
                 "Configuration key 'OpenAI:ProductSearchModel' is required when 'Features:AiEnabled' is true.");
         }
 
+        if (!string.Equals(options.ProductSearchServiceTier, "default", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(options.ProductSearchServiceTier, "fast", StringComparison.OrdinalIgnoreCase))
+        {
+            failures.Add(
+                "Configuration key 'OpenAI:ProductSearchServiceTier' must be either 'default' or 'fast'.");
+        }
+
         if (options.SupportTimeoutMilliseconds is < 1_000 or > 60_000)
         {
             failures.Add(
