@@ -74,6 +74,16 @@ export default defineConfig({
         Security__CouponGuestUsageHmacKeyV1: 'e2e-coupon-guest-usage-hmac-key-v1-32-bytes',
         DataProtection__KeyRingPath: path.join(e2eDataRoot, 'data-protection-keys'),
         Storage__DataRoot: e2eDataRoot,
+        // AdminChallengeRateLimiter（見 RateLimitOptions.AdminChallengePermitLimit）用一個
+        // 跨所有管理員帳號共用的 ip:{clientIp} bucket 擋 2FA challenge 暴力嘗試，production
+        // 預設 5 次／15 分鐘。這個 bucket 在 E2E 全套 admin-chromium／customer-chromium
+        // 單一 worker 依序執行時是跨檔案共用的：customer.spec.ts 對 returnAdminEmail／
+        // supportAdminEmail 各跑一次 TOTP 綁定（2 次）、admin.spec.ts 自己的綁定測試跑
+        // 綁定＋錯誤碼＋正確碼（3 次），兩者相加已經等於這個門檻——任何再多一次的真實 2FA
+        // 呼叫（例如本檔案退款旅程管理員的登入）都會被判定為超額，而不是真的重試或並行
+        // 造成的偶發衝突（alex 2026-09-06 #98 review 追查得到的確定性衝突，非隨機 flaky）。
+        // 只在 E2E 環境放寬這個門檻，不影響 production 預設值。
+        RateLimiting__AdminChallengePermitLimit: '50',
       },
     },
     {
