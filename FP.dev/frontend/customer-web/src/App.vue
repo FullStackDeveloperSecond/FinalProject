@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { DoSelectBrand, UiButton } from '@doselect/web-shared/ui'
 import { useSessionStore } from './stores/session'
 import { useCartIdentityCacheCleanup } from './features/cart/useCart'
 
@@ -39,7 +40,7 @@ async function handleLogout(): Promise<void> {
           class="brand-link"
           to="/"
         >
-          DoSelect 懂選
+          <DoSelectBrand />
         </RouterLink>
         <nav
           class="primary-nav"
@@ -81,13 +82,12 @@ async function handleLogout(): Promise<void> {
               收件地址
             </RouterLink>
             <span class="site-header__member">{{ sessionStore.user?.displayName }}</span>
-            <button
+            <UiButton
               type="button"
               class="site-header__logout"
+              label="登出"
               @click="handleLogout"
-            >
-              登出
-            </button>
+            />
           </template>
           <RouterLink
             v-else-if="sessionStore.status === 'anonymous'"

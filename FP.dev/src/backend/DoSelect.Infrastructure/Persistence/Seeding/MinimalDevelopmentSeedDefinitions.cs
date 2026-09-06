@@ -5,12 +5,43 @@ namespace DoSelect.Infrastructure.Persistence.Seeding;
 internal static class MinimalDevelopmentSeedDefinitions
 {
     internal const string AdminEmail = "admin@doselect.local";
+    internal const string ReturnE2eAdminEmail = "return-admin@doselect.local";
+    internal const string SupportE2eAdminEmail = "support-admin@doselect.local";
     internal const string MemberEmail = "member@doselect.local";
     internal const string AdminPasswordKey = "Seed:AdminPassword";
     internal const string MemberPasswordKey = "Seed:MemberPassword";
 
     internal static readonly Guid AdminPublicId =
         Guid.Parse("0f269121-89a5-43a4-97f5-b95278bc0cf6");
+
+    // H-R03 的 admin-chromium Browser E2E 在 CI 對整套測試共用一顆資料庫（見
+    // scripts/test-customer-e2e.ps1 與 CI 設定），若沿用上面唯一的主要管理員帳號，誰先
+    // 完成 TOTP 綁定，其餘測試看到的畫面就從「/admin/login/enroll」變成
+    // 「/admin/login/verify」，斷言直接失敗（alex PR #117 review P1）。這兩個帳號在種子時
+    // 就直接寫入「已知秘鑰、已完成綁定」狀態（見 MinimalDevelopmentDataSeeder.
+    // EnsurePreEnrolledAdminAsync），讓 H-R03 兩支測試完全跳過 enroll 流程、各自用固定秘鑰
+    // 算 TOTP code；一支測試一個帳號是為了避免 fullyParallel 下兩支測試互搶同一顆帳號的
+    // 登入/操作狀態。H-R02 仍是唯一實際操作 enroll 流程本身的測試，兩邊互不干擾。
+    internal const string AdminHr03PrimaryEmail = "admin-h-r03-primary@doselect.local";
+    internal const string AdminHr03SecondaryEmail = "admin-h-r03-secondary@doselect.local";
+
+    internal static readonly Guid AdminHr03PrimaryPublicId =
+        Guid.Parse("eb73d60d-7def-4609-8129-fff09551d014");
+
+    internal static readonly Guid AdminHr03SecondaryPublicId =
+        Guid.Parse("6e897e04-67ae-4578-bb8c-ddeae6f76316");
+
+    // 固定的 Base32 TOTP 秘鑰不寫死在原始碼裡——跟 AdminPasswordKey／MemberPasswordKey 同一套
+    // 既有慣例（AUTO-DEC-006：密碼只存於 .NET User Secrets／CI 環境變數，不進 Repository），
+    // 由呼叫端（MinimalDevelopmentDataSeeder，且僅限已確認是隔離 E2E 資料庫時）從這個設定鍵
+    // 讀取；實際值由 scripts/test-customer-e2e.ps1 以 Seed__AdminHr03TotpSecret 環境變數注入。
+    internal const string AdminHr03TotpSecretKey = "Seed:AdminHr03TotpSecret";
+
+    internal static readonly Guid ReturnE2eAdminPublicId =
+        Guid.Parse("3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a14");
+
+    internal static readonly Guid SupportE2eAdminPublicId =
+        Guid.Parse("3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a15");
 
     internal static readonly Guid MemberPublicId =
         Guid.Parse("f84625a0-f32a-44bb-a801-5f69fed2cb12");
@@ -62,6 +93,49 @@ internal static class MinimalDevelopmentSeedDefinitions
 
     internal static readonly Guid Creator10CouponPublicId =
         Guid.Parse("3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a10");
+
+    internal static readonly Guid ReturnE2eOrderPublicId =
+        Guid.Parse("3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a11");
+
+    internal static readonly Guid ReturnE2eOrderItemPublicId =
+        Guid.Parse("3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a12");
+
+    internal static readonly Guid ReturnE2ePaymentAttemptPublicId =
+        Guid.Parse("3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a13");
+
+    // M-13 WP4（alex 2026-09-05 #98 A1 裁定：訂單、付款、出貨等前置資料用 deterministic seed
+    // 頂住，維持穩定、隔離的測試前置狀態，不需要因此重寫成完整垂直旅程；alex 2026-09-06 #98
+    // review：與 #110 的 ReturnE2e* deterministic IDs 撞號後改配 ...a16 起的新範圍）。從建立
+    // 退貨申請開始，這支 E2E 一律走 production API／UI，不得再往後 seed 任何 Return／Refund
+    // 狀態。
+    internal static readonly Guid RefundJourneyOrderPublicId =
+        Guid.Parse("3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a16");
+
+    internal static readonly Guid RefundJourneyOrderItemPublicId =
+        Guid.Parse("3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a17");
+
+    internal const string RefundJourneyOrderNumber = "E2E-REFUND-000001";
+
+    internal const string RefundJourneyBuyerEmail = "refund-e2e-buyer@doselect.local";
+
+    // 獨立於一般管理員帳號：admin.spec.ts 自己的 TOTP 綁定測試會用掉
+    // AdminEmail 唯一一次的「尚未綁定」狀態，同一輪 CI 的 admin-chromium 專案單一
+    // worker 依序跑完所有 spec，退款旅程若沿用同一個帳號，登入時只會看到
+    // requiresEnrollment=false 的驗證頁，卻沒有金鑰可用。
+    internal static readonly Guid RefundJourneyAdminPublicId =
+        Guid.Parse("3f6a0c1e-3b7e-4c1a-9f4d-5b6d9e2f1a18");
+
+    internal const string RefundJourneyAdminEmail = "refund-e2e-admin@doselect.local";
+
+    // alex 2026-09-05 #98 review P3：這支帳號的 TOTP 秘鑰在 seed 階段就直接寫死綁定
+    // （見 MinimalDevelopmentDataSeeder.EnsureRefundJourneyOrderAsync），不是讓 E2E 自己跑一次性
+    // 的 UI 綁定流程再從畫面撈出秘鑰。退款旅程不需要驗證「綁定」這個能力本身（admin.spec.ts
+    // 已經有專門的測試），只需要一個能重複登入的帳號；用固定值可以讓「登入」這一步用同一把
+    // 秘鑰重新算 TOTP code 再次嘗試，不會因為秘鑰只活在第一次 enroll 畫面而遺失。但這支帳號
+    // 所屬的整條 E2E 旅程仍不是冪等的（建立退貨申請等寫入操作對著同一筆 seed 訂單），該測試
+    // 已改用 retries: 0 明確關閉重試，不依賴「登入可重算」讓整條旅程看起來能安全 retry
+    // （alex 2026-09-06 #98 review P2）。
+    internal const string RefundJourneyAdminTotpSecret = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP";
 
     internal static readonly DateTime CreatedAtUtc =
         new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);

@@ -114,7 +114,9 @@ public sealed class AdminSupportTicketServiceTests
     [InlineData(SupportTicketStatus.Open, false, new[] { "claim", "change-priority", "change-status", "internal-note", "cancel" })]
     [InlineData(SupportTicketStatus.Open, true, new[] { "change-priority", "change-status", "internal-note", "cancel" })]
     [InlineData(SupportTicketStatus.Assigned, false, new[] { "change-priority", "change-status", "internal-note", "cancel" })]
+    [InlineData(SupportTicketStatus.Assigned, true, new[] { "change-priority", "change-status", "internal-note", "reply", "cancel" })]
     [InlineData(SupportTicketStatus.InProgress, false, new[] { "change-priority", "change-status", "internal-note" })]
+    [InlineData(SupportTicketStatus.InProgress, true, new[] { "change-priority", "change-status", "internal-note", "reply" })]
     [InlineData(SupportTicketStatus.Resolved, false, new[] { "change-priority", "change-status", "internal-note", "reopen" })]
     [InlineData(SupportTicketStatus.Closed, false, new string[0])]
     public async Task GetDetailAsync_ByHandleOnlyCaller_ExposesStateGatedActionsWithoutAssignOrTransfer(
@@ -136,7 +138,7 @@ public sealed class AdminSupportTicketServiceTests
     [Theory]
     [InlineData(SupportTicketStatus.Open, false, new[] { "claim", "assign", "change-priority", "change-status", "internal-note", "cancel" })]
     [InlineData(SupportTicketStatus.Open, true, new[] { "transfer", "change-priority", "change-status", "internal-note", "cancel" })]
-    [InlineData(SupportTicketStatus.InProgress, true, new[] { "transfer", "change-priority", "change-status", "internal-note" })]
+    [InlineData(SupportTicketStatus.InProgress, true, new[] { "transfer", "change-priority", "change-status", "internal-note", "reply" })]
     [InlineData(SupportTicketStatus.Closed, true, new string[0])]
     public async Task GetDetailAsync_BySupervisor_AlsoExposesAssignOrTransferWhenEligible(
         SupportTicketStatus status,
@@ -400,6 +402,66 @@ public sealed class AdminSupportTicketServiceTests
         Assert.Equal("internal note body", command.Body);
     }
 
+    [Fact]
+    public async Task AddPublicReplyAsync_WhenStoreSucceeds_ReturnsDetailAndForwardsBody()
+    {
+        var store = new StubAdminSupportTicketStore { AddPublicReplyResult = SupportTicketMutationResult.Success(NewDetail()) };
+        var service = new AdminSupportTicketService(store, new FixedTimeProvider(Now));
+
+        var result = await service.AddPublicReplyAsync(
+            NewContext(),
+            store.AddPublicReplyResult.Ticket!.PublicId,
+            new CreateAdminSupportReplyRequest { Body = "member-visible reply", RowVersion = new byte[8] },
+            CancellationToken.None);
+
+        Assert.NotNull(result);
+        var command = Assert.IsType<SupportTicketAddPublicReplyCommand>(store.LastCommand);
+        Assert.Equal("member-visible reply", command.Body);
+        Assert.Equal(Now.UtcDateTime, command.OccurredAtUtc);
+    }
+
+    [Fact]
+    public void CreateAdminSupportReplyRequest_RequiresBodyAndEightByteRowVersion()
+    {
+        Assert.False(IsValid(new CreateAdminSupportReplyRequest()));
+        Assert.False(IsValid(new CreateAdminSupportReplyRequest
+        {
+            Body = "reply",
+            RowVersion = new byte[7],
+        }));
+        Assert.True(IsValid(new CreateAdminSupportReplyRequest
+        {
+            Body = "reply",
+            RowVersion = new byte[8],
+        }));
+    }
+
+    [Theory]
+    [InlineData(SupportTicketMutationOutcome.NotFound, 404, DomainErrorCodes.ResourceNotFound)]
+    [InlineData(SupportTicketMutationOutcome.StateConflict, 409, DomainErrorCodes.SupportTicketStateConflict)]
+    [InlineData(SupportTicketMutationOutcome.ConcurrencyConflict, 409, DomainErrorCodes.ConcurrencyConflict)]
+    [InlineData(SupportTicketMutationOutcome.AdminNotEligible, 403, DomainErrorCodes.AuthorizationForbidden)]
+    public async Task AddPublicReplyAsync_MapsStoreOutcomeToStableProblemCode(
+        SupportTicketMutationOutcome outcome,
+        int status,
+        string code)
+    {
+        var store = new StubAdminSupportTicketStore
+        {
+            AddPublicReplyResult = new SupportTicketMutationResult(outcome, null),
+        };
+        var service = new AdminSupportTicketService(store, new FixedTimeProvider(Now));
+
+        var exception = await Assert.ThrowsAsync<DomainProblemException>(() => service.AddPublicReplyAsync(
+            NewContext(),
+            Guid.NewGuid(),
+            new CreateAdminSupportReplyRequest { Body = "reply", RowVersion = new byte[8] },
+            CancellationToken.None));
+
+        Assert.Equal(status, exception.StatusCode);
+        Assert.Equal(code, exception.Code);
+    }
+
     [Theory]
     [InlineData(SupportTicketMutationOutcome.NotFound, 404, DomainErrorCodes.ResourceNotFound)]
     [InlineData(SupportTicketMutationOutcome.StateConflict, 409, DomainErrorCodes.SupportTicketStateConflict)]
@@ -579,11 +641,18 @@ public sealed class AdminSupportTicketServiceTests
         }
 
         public SupportTicketMutationResult AddInternalNoteResult { get; init; } = SupportTicketMutationResult.NotFound;
+        public SupportTicketMutationResult AddPublicReplyResult { get; init; } = SupportTicketMutationResult.NotFound;
 
         public Task<SupportTicketMutationResult> AddInternalNoteAsync(SupportTicketAddInternalNoteCommand command, CancellationToken cancellationToken)
         {
             LastCommand = command;
             return Task.FromResult(AddInternalNoteResult);
+        }
+
+        public Task<SupportTicketMutationResult> AddPublicReplyAsync(SupportTicketAddPublicReplyCommand command, CancellationToken cancellationToken)
+        {
+            LastCommand = command;
+            return Task.FromResult(AddPublicReplyResult);
         }
     }
 }

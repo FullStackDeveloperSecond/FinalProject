@@ -1,13 +1,18 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using DoSelect.Domain.Builds;
 using DoSelect.Domain.Catalog;
+using DoSelect.Domain.Invoicing;
 using DoSelect.Domain.Inventory;
 using DoSelect.Domain.Members;
+using DoSelect.Domain.Orders;
+using DoSelect.Domain.Payments;
 using DoSelect.Domain.Promotions;
 using DoSelect.Domain.Shopping;
 using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Persistence.Identity;
+using DoSelect.Infrastructure.Security;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -20,6 +25,37 @@ public sealed class MinimalDevelopmentDataSeeder(
     RoleManager<IdentityRole> roleManager,
     IConfiguration configuration)
 {
+    // AUTO-DEC-006「管理員 TOTP：Seed 不預先設定 TOTP；首次正式管理登入流程必須先完成
+    // Google Authenticator 綁定」——H-R03 的預綁定管理員（見下方 EnsurePreEnrolledAdminAsync）
+    // 違反這條規則，只能限制在「確定是拋棄式、隔離的 E2E 資料庫」時才建立，一般
+    // Development／CI 對共用 DoSelectDb 執行同一個 Seeder 時必須維持原本未預綁定的安全邊界
+    // （alex PR #117 review 第三輪 P1：先前版本無條件建立，一般 --seed-minimal 也會種出這兩個
+    // 第二因素已公開且可預測的最高權限帳號）。與 playwright.config.ts／
+    // scripts/test-customer-e2e.ps1 各自獨立檢查同一個資料庫命名規則，屬多層防護，不是唯一防線。
+    //
+    // ⚠ 直接讀 OS 環境變數而不是注入 IHostEnvironment：這個 Seeder 也被多個
+    // DoSelect.Infrastructure.Tests 的 SQL Server provider-backed 測試直接用一個裸
+    // ServiceCollection 建構（未經過 WebApplicationBuilder，不會自動註冊
+    // IHostEnvironment），加了這個建構函式相依會讓那些測試在 DI 解析階段直接炸掉
+    // （CI 已實測：AiCustomBuildSqlServerTests 等測試組建 ServiceProvider 失敗）。
+    // ASPNETCORE_ENVIRONMENT 本來就是一個環境變數，直接讀取跟任何主機／DI 設定無關，
+    // 兩邊（真實 API 啟動與純測試 ServiceCollection）都能一致運作。
+    private static readonly Regex IsolatedE2EDatabaseNamePattern = new(
+        @"(?:Database|Initial Catalog)\s*=\s*DoSelectE2E(?:_[0-9a-f]{32})?(?:;|$)",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private bool IsIsolatedE2EEnvironment()
+    {
+        var environmentName = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
+        if (!string.Equals(environmentName, "E2E", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var connectionString = dbContext.Database.GetConnectionString();
+        return connectionString is not null && IsolatedE2EDatabaseNamePattern.IsMatch(connectionString);
+    }
+
     public async Task<MinimalDevelopmentSeedResult> SeedAsync(
         CancellationToken cancellationToken = default)
     {
@@ -37,6 +73,8 @@ public sealed class MinimalDevelopmentDataSeeder(
         await EnsureShippingProvidersAsync(counters, cancellationToken);
         await EnsureConvenienceStoresAsync(counters, cancellationToken);
         await EnsureCoreTransactionJourneyAsync(cancellationToken);
+        await EnsureReturnE2eJourneyAsync(cancellationToken);
+        await EnsureRefundJourneyOrderAsync(passwords, counters, cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
         return new MinimalDevelopmentSeedResult(
@@ -69,31 +107,62 @@ public sealed class MinimalDevelopmentDataSeeder(
         SeedCounters counters,
         CancellationToken cancellationToken)
     {
-        var admin = await EnsureUserAsync(
+        await EnsureAdminAsync(
             MinimalDevelopmentSeedDefinitions.AdminEmail,
             passwords.AdminPassword,
-            AccountType.Admin,
             MinimalDevelopmentSeedDefinitions.AdminPublicId,
-            counters);
+            "DEV-ADMIN-001",
+            "DoSelect 開發管理員",
+            ["SuperAdmin", "CustomerServiceSupervisor"],
+            counters,
+            cancellationToken);
+        await EnsureAdminAsync(
+            MinimalDevelopmentSeedDefinitions.ReturnE2eAdminEmail,
+            passwords.AdminPassword,
+            MinimalDevelopmentSeedDefinitions.ReturnE2eAdminPublicId,
+            "DEV-RETURN-001",
+            "DoSelect 退貨測試管理員",
+            ["SuperAdmin"],
+            counters,
+            cancellationToken);
+        await EnsureAdminAsync(
+            MinimalDevelopmentSeedDefinitions.SupportE2eAdminEmail,
+            passwords.AdminPassword,
+            MinimalDevelopmentSeedDefinitions.SupportE2eAdminPublicId,
+            "DEV-SUPPORT-001",
+            "DoSelect 客服測試主管",
+            ["CustomerServiceSupervisor"],
+            counters,
+            cancellationToken);
 
-        if (!await userManager.IsInRoleAsync(admin, "SuperAdmin"))
+        if (IsIsolatedE2EEnvironment())
         {
-            EnsureSucceeded(
-                "assign the SuperAdmin role",
-                await userManager.AddToRoleAsync(admin, "SuperAdmin"));
-        }
+            var hr03TotpSecret = configuration[MinimalDevelopmentSeedDefinitions.AdminHr03TotpSecretKey];
+            if (string.IsNullOrWhiteSpace(hr03TotpSecret))
+            {
+                throw new InvalidOperationException(
+                    $"Required E2E User Secret is missing: " +
+                    $"{MinimalDevelopmentSeedDefinitions.AdminHr03TotpSecretKey}.");
+            }
 
-        if (!await dbContext.AdminProfiles.AnyAsync(
-                profile => profile.UserId == admin.Id,
-                cancellationToken))
-        {
-            dbContext.AdminProfiles.Add(new AdminProfile(
-                admin.Id,
-                MinimalDevelopmentSeedDefinitions.AdminPublicId,
-                "DEV-ADMIN-001",
-                "DoSelect 開發管理員",
-                MinimalDevelopmentSeedDefinitions.CreatedAtUtc));
-            counters.ProfilesCreated++;
+            await EnsurePreEnrolledAdminAsync(
+                MinimalDevelopmentSeedDefinitions.AdminHr03PrimaryEmail,
+                passwords.AdminPassword,
+                MinimalDevelopmentSeedDefinitions.AdminHr03PrimaryPublicId,
+                "DEV-ADMIN-HR03-1",
+                "H-R03 E2E 管理員一號",
+                hr03TotpSecret,
+                counters,
+                cancellationToken);
+            await EnsurePreEnrolledAdminAsync(
+                MinimalDevelopmentSeedDefinitions.AdminHr03SecondaryEmail,
+                passwords.AdminPassword,
+                MinimalDevelopmentSeedDefinitions.AdminHr03SecondaryPublicId,
+                "DEV-ADMIN-HR03-2",
+                "H-R03 E2E 管理員二號",
+                hr03TotpSecret,
+                counters,
+                cancellationToken);
         }
 
         var member = await EnsureUserAsync(
@@ -117,6 +186,47 @@ public sealed class MinimalDevelopmentDataSeeder(
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task EnsureAdminAsync(
+        string email,
+        string password,
+        Guid publicId,
+        string employeeNumber,
+        string displayName,
+        IReadOnlyCollection<string> roles,
+        SeedCounters counters,
+        CancellationToken cancellationToken)
+    {
+        var admin = await EnsureUserAsync(
+            email,
+            password,
+            AccountType.Admin,
+            publicId,
+            counters);
+
+        foreach (var roleName in roles)
+        {
+            if (!await userManager.IsInRoleAsync(admin, roleName))
+            {
+                EnsureSucceeded(
+                    $"assign the {roleName} role",
+                    await userManager.AddToRoleAsync(admin, roleName));
+            }
+        }
+
+        if (!await dbContext.AdminProfiles.AnyAsync(
+                profile => profile.UserId == admin.Id,
+                cancellationToken))
+        {
+            dbContext.AdminProfiles.Add(new AdminProfile(
+                admin.Id,
+                publicId,
+                employeeNumber,
+                displayName,
+                MinimalDevelopmentSeedDefinitions.CreatedAtUtc));
+            counters.ProfilesCreated++;
+        }
     }
 
     private async Task<ApplicationUser> EnsureUserAsync(
@@ -154,6 +264,69 @@ public sealed class MinimalDevelopmentDataSeeder(
             await userManager.CreateAsync(user, password));
         counters.UsersCreated++;
         return user;
+    }
+
+    /// <summary>
+    /// 種出一個「已知秘鑰、已完成 TOTP 綁定」的管理員帳號，專供 H-R03 的 admin-chromium
+    /// Browser E2E 使用（見 <see cref="MinimalDevelopmentSeedDefinitions.AdminHr03PrimaryEmail"/>
+    /// 旁的說明：整套測試共用一顆 CI 資料庫，沿用主要管理員會讓「誰先綁定 TOTP」變成競態）。
+    /// 直接用 <see cref="IdentityAdminAuthGateway"/> 內同一組 Identity 內部 LoginProvider／
+    /// TokenName 常數把 AuthenticatorKey 寫成固定值，而不是呼叫只會產生亂數新秘鑰的
+    /// ResetAuthenticatorKeyAsync——這樣 Playwright 端才能不透過任何 UI 就算出正確的 TOTP
+    /// code，完全跳過 enroll 流程。已綁定過（TwoFactorEnabled 已是 true）就不重覆寫入，
+    /// 讓本方法可安全重跑。
+    ///
+    /// ⚠ 只能由 <see cref="IsIsolatedE2EEnvironment"/> 為 true 時的呼叫端呼叫（AUTO-DEC-006：
+    /// 一般 Seed 不得預先設定 TOTP）；<paramref name="totpSecret"/> 一律來自呼叫端從
+    /// <see cref="MinimalDevelopmentSeedDefinitions.AdminHr03TotpSecretKey"/> 讀到的設定值，
+    /// 不在本類別內寫死。
+    /// </summary>
+    private async Task EnsurePreEnrolledAdminAsync(
+        string email,
+        string password,
+        Guid publicId,
+        string adminCode,
+        string displayName,
+        string totpSecret,
+        SeedCounters counters,
+        CancellationToken cancellationToken)
+    {
+        var admin = await EnsureUserAsync(email, password, AccountType.Admin, publicId, counters);
+
+        if (!await userManager.IsInRoleAsync(admin, "SuperAdmin"))
+        {
+            EnsureSucceeded(
+                "assign the SuperAdmin role",
+                await userManager.AddToRoleAsync(admin, "SuperAdmin"));
+        }
+
+        if (!await dbContext.AdminProfiles.AnyAsync(
+                profile => profile.UserId == admin.Id,
+                cancellationToken))
+        {
+            dbContext.AdminProfiles.Add(new AdminProfile(
+                admin.Id,
+                publicId,
+                adminCode,
+                displayName,
+                MinimalDevelopmentSeedDefinitions.CreatedAtUtc));
+            counters.ProfilesCreated++;
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+
+        if (!await userManager.GetTwoFactorEnabledAsync(admin))
+        {
+            EnsureSucceeded(
+                "set the fixed E2E authenticator key",
+                await userManager.SetAuthenticationTokenAsync(
+                    admin,
+                    IdentityAdminAuthGateway.IdentityAuthenticatorLoginProvider,
+                    IdentityAdminAuthGateway.IdentityAuthenticatorKeyTokenName,
+                    totpSecret));
+            EnsureSucceeded(
+                "enable two-factor authentication",
+                await userManager.SetTwoFactorEnabledAsync(admin, true));
+        }
     }
 
     private async Task EnsureCatalogAsync(
@@ -293,7 +466,11 @@ public sealed class MinimalDevelopmentDataSeeder(
     /// ATX form factor throughout, ~345W estimated draw against a 650W PSU).
     /// </summary>
     private sealed record CompatibilitySpecDefinitionTemplate(
-        string SemanticKey, SpecificationValueType ValueType, bool AllowsMultiple);
+        string SemanticKey,
+        SpecificationValueType ValueType,
+        bool AllowsMultiple,
+        bool IsRequired = true,
+        bool IsProtected = true);
 
     private static readonly IReadOnlyDictionary<string, CompatibilitySpecDefinitionTemplate[]>
         BuildCompatibilitySpecTemplates = new Dictionary<string, CompatibilitySpecDefinitionTemplate[]>
@@ -336,6 +513,12 @@ public sealed class MinimalDevelopmentDataSeeder(
             [
                 new(CompatibilityCatalogContract.SemanticKeys.StorageInterface, SpecificationValueType.Option, false),
                 new(CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts, SpecificationValueType.Decimal, false),
+                new(
+                    CompatibilityCatalogContract.SemanticKeys.StorageCapacityGb,
+                    SpecificationValueType.Decimal,
+                    false,
+                    IsRequired: true,
+                    IsProtected: false),
             ],
             [CompatibilityCatalogContract.Categories.Psu] =
             [
@@ -411,7 +594,7 @@ public sealed class MinimalDevelopmentDataSeeder(
                 dbContext.SpecificationDefinitions.Add(new SpecificationDefinition(
                     Guid.CreateVersion7(), category.Id, template.SemanticKey, template.SemanticKey,
                     template.ValueType, null,
-                    isRequired: true, isProtected: true, sortOrder: 0,
+                    template.IsRequired, template.IsProtected, sortOrder: 0,
                     MinimalDevelopmentSeedDefinitions.CreatedAtUtc, allowsMultiple: template.AllowsMultiple));
                 counters.CompatibilityRecordsCreated++;
             }
@@ -419,12 +602,8 @@ public sealed class MinimalDevelopmentDataSeeder(
             await dbContext.SaveChangesAsync(cancellationToken);
         }
 
-        if (await dbContext.Skus.AnyAsync(
-                entity => entity.SkuCode == "DEV-COMPAT-CPU-001", cancellationToken))
-        {
-            await EnsureBuildComponentSkusAreDefaultAsync(cancellationToken);
-            return;
-        }
+        var buildComponentsAlreadyExist = await dbContext.Skus.AnyAsync(
+            entity => entity.SkuCode == "DEV-COMPAT-CPU-001", cancellationToken);
 
         var brand = await dbContext.Brands.SingleOrDefaultAsync(
             entity => entity.Code == "DEV-COMPAT-BRAND", cancellationToken);
@@ -470,6 +649,13 @@ public sealed class MinimalDevelopmentDataSeeder(
             dbContext.SpecificationSources.Add(source);
             await dbContext.SaveChangesAsync(cancellationToken);
             counters.CompatibilityRecordsCreated++;
+        }
+
+        if (buildComponentsAlreadyExist)
+        {
+            await EnsureBuildComponentSkusAreDefaultAsync(cancellationToken);
+            await EnsureStorageCapacitySeedValueAsync(source, counters, cancellationToken);
+            return;
         }
 
         await CreateComponentSkuAsync(
@@ -555,6 +741,7 @@ public sealed class MinimalDevelopmentDataSeeder(
             specValues: new Dictionary<string, object>
             {
                 [CompatibilityCatalogContract.SemanticKeys.StorageInterface] = "M2_NVME",
+                [CompatibilityCatalogContract.SemanticKeys.StorageCapacityGb] = 2048m,
                 [CompatibilityCatalogContract.SemanticKeys.PowerDrawWatts] = 5m,
             }, cancellationToken: cancellationToken);
 
@@ -725,6 +912,42 @@ public sealed class MinimalDevelopmentDataSeeder(
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task EnsureStorageCapacitySeedValueAsync(
+        SpecificationSource source,
+        SeedCounters counters,
+        CancellationToken cancellationToken)
+    {
+        var storage = await (
+                from sku in dbContext.Skus
+                join product in dbContext.Products on sku.ProductId equals product.Id
+                join category in dbContext.Categories on product.CategoryId equals category.Id
+                join definition in dbContext.SpecificationDefinitions on category.Id equals definition.CategoryId
+                where sku.SkuCode == "DEV-COMPAT-STORAGE-001" &&
+                      category.Code == CompatibilityCatalogContract.Categories.Storage &&
+                      definition.SemanticKey == CompatibilityCatalogContract.SemanticKeys.StorageCapacityGb
+                select new { SkuId = sku.Id, DefinitionId = definition.Id })
+            .SingleAsync(cancellationToken);
+        if (await dbContext.SkuSpecificationValues.AnyAsync(
+                value => value.SkuId == storage.SkuId &&
+                         value.SpecificationDefinitionId == storage.DefinitionId,
+                cancellationToken))
+        {
+            return;
+        }
+
+        dbContext.SkuSpecificationValues.Add(new SkuSpecificationValue(
+            storage.SkuId,
+            storage.DefinitionId,
+            stringValue: null,
+            decimalValue: 2048m,
+            booleanValue: null,
+            optionId: null,
+            source.Id,
+            MinimalDevelopmentSeedDefinitions.CreatedAtUtc));
+        await dbContext.SaveChangesAsync(cancellationToken);
+        counters.CompatibilityRecordsCreated++;
     }
 
     private async Task<SpecificationOption> GetOrCreateOptionAsync(
@@ -1072,6 +1295,297 @@ public sealed class MinimalDevelopmentDataSeeder(
             now));
 
         cart.Touch(now);
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Creates the delivered member order that lets the M-12 Playwright journey begin at the
+    /// real return application page. There is no production action that can advance an outbound
+    /// shipment to Delivered, so creating this precondition in the explicit, idempotent
+    /// <c>--seed-minimal</c> path is narrower than introducing a test-only HTTP endpoint. The
+    /// journey still exercises the real member and admin UIs and every Returns write endpoint.
+    /// </summary>
+    private async Task EnsureReturnE2eJourneyAsync(CancellationToken cancellationToken)
+    {
+        if (await dbContext.Orders.AnyAsync(
+                order => order.PublicId == MinimalDevelopmentSeedDefinitions.ReturnE2eOrderPublicId,
+                cancellationToken))
+        {
+            return;
+        }
+
+        var member = await userManager.FindByEmailAsync(MinimalDevelopmentSeedDefinitions.MemberEmail)
+            ?? throw new InvalidOperationException("The return E2E seed requires the minimal member.");
+        var sku = await dbContext.Skus.SingleAsync(
+            candidate => candidate.PublicId == MinimalDevelopmentSeedDefinitions.SkuPublicId,
+            cancellationToken);
+        var provider = await dbContext.ShippingProviderProfiles.SingleAsync(
+            candidate => candidate.PublicId == MinimalDevelopmentSeedDefinitions.HomeDeliveryProviderProfilePublicId,
+            cancellationToken);
+        var packageLimit = await dbContext.PackageLimitVersions.SingleAsync(
+            candidate => candidate.PublicId == MinimalDevelopmentSeedDefinitions.HomeDeliveryPackageLimitPublicId,
+            cancellationToken);
+
+        var createdAtUtc = DateTime.UtcNow.AddDays(-2);
+        var deliveredAtUtc = DateTime.UtcNow.AddDays(-1);
+        var order = Order.Create(
+            MinimalDevelopmentSeedDefinitions.ReturnE2eOrderPublicId,
+            new OrderCreation(
+                "DS-E2E-RETURN-001",
+                member.Id,
+                null,
+                OrderStatus.Processing,
+                PaymentStatus.Paid,
+                FulfillmentStatus.Preparing,
+                AssemblyStatus.NotRequired,
+                19_900m,
+                0m,
+                0m,
+                0m,
+                19_900m,
+                "DoSelect 測試會員",
+                "0912345678",
+                MinimalDevelopmentSeedDefinitions.MemberEmail,
+                "100",
+                "台北市",
+                "中正區",
+                "測試路 1 號",
+                null,
+                "HomeDelivery",
+                provider.Id,
+                null,
+                null,
+                null,
+                1,
+                1,
+                null,
+                null,
+                "e2e-return-checkout-0001",
+                null,
+                1,
+                1,
+                new OrderInvoicePreference(
+                    SimulatedInvoiceBuyerType.Individual,
+                    MinimalDevelopmentSeedDefinitions.MemberEmail,
+                    null,
+                    null,
+                    null,
+                    null),
+                5_000m,
+                null,
+                new OrderPackageSnapshot(
+                    packageLimit.Id,
+                    1.2m,
+                    35m,
+                    20m,
+                    8m,
+                    63m,
+                    19_900m),
+                150m),
+            createdAtUtc);
+        order.ApplyPaymentProjection(PaymentStatus.Paid, order.GrandTotal, createdAtUtc.AddHours(1));
+        order.ApplyFulfillmentProjection(FulfillmentStatus.Delivered, deliveredAtUtc);
+        order.ChangeOrderStatus(OrderStatus.Completed, deliveredAtUtc.AddHours(1));
+        dbContext.Orders.Add(order);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        dbContext.OrderItems.Add(new OrderItem(
+            MinimalDevelopmentSeedDefinitions.ReturnE2eOrderItemPublicId,
+            order.Id,
+            sku.Id,
+            sku.SkuCode,
+            "懂選開發用顯示卡",
+            sku.NameZhTw,
+            quantity: 1,
+            listUnitPrice: 19_900m,
+            saleUnitPrice: 19_900m,
+            finalUnitPrice: 19_900m,
+            unitCostSnapshot: 15_000m,
+            lineSubtotal: 19_900m,
+            discountAllocation: 0m,
+            lineTotal: 19_900m,
+            assemblyGroupKey: null,
+            returnableQuantity: 1,
+            createdAtUtc,
+            isCouponEligible: true,
+            new OrderItemSpecificationSnapshot("16GB", "{}", 1)));
+
+        var paymentAttempt = new PaymentAttempt(
+            MinimalDevelopmentSeedDefinitions.ReturnE2ePaymentAttemptPublicId,
+            order.Id,
+            PaymentMethod.CreditCard,
+            order.GrandTotal,
+            "SIMULATED",
+            "e2e-return-payment-0001",
+            null,
+            createdAtUtc);
+        paymentAttempt.Transition(PaymentAttemptStatus.AwaitingPayment, createdAtUtc.AddMinutes(1));
+        paymentAttempt.Transition(PaymentAttemptStatus.Processing, createdAtUtc.AddMinutes(2));
+        paymentAttempt.Transition(PaymentAttemptStatus.Paid, createdAtUtc.AddMinutes(3));
+        dbContext.PaymentAttempts.Add(paymentAttempt);
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// M-13 WP4（alex 2026-09-05 #98 A1 裁定：依既有裁定保留穩定、隔離的前置資料——訂單、
+    /// 付款、出貨用 deterministic seed 頂住，讓這支 E2E 專注在退貨申請開始之後的 Return／
+    /// Refund／Allowance 全程 production API／UI 路徑，不需要因此重寫成完整垂直旅程；
+    /// alex 2026-09-06 #98 review：與 #110 的 ReturnE2e* deterministic IDs 撞號後改配
+    /// ...a16 起的新範圍）。從建立退貨申請開始，E2E 一律走 production API／UI，不得再往後
+    /// seed 任何 Return／Refund 狀態。
+    ///
+    /// 也在這裡建立退款旅程專用的獨立管理員帳號
+    /// （<see cref="MinimalDevelopmentSeedDefinitions.RefundJourneyAdminEmail"/>），不沿用
+    /// 一般 <see cref="MinimalDevelopmentSeedDefinitions.AdminEmail"/>——同一輪 CI 的
+    /// admin-chromium 專案是單一 worker 依序執行，admin.spec.ts 自己的 TOTP 綁定測試會先
+    /// 把那個帳號綁定掉，退款旅程若共用會在登入時只看到 requiresEnrollment=false 的驗證頁，
+    /// 卻沒有金鑰。
+    /// </summary>
+    private async Task EnsureRefundJourneyOrderAsync(
+        (string AdminPassword, string MemberPassword) passwords,
+        SeedCounters counters,
+        CancellationToken cancellationToken)
+    {
+        // 獨立管理員帳號，見 RefundJourneyAdminEmail 的說明：不能沿用一般 AdminEmail，
+        // 那個帳號的「尚未綁定 TOTP」狀態會被 admin.spec.ts 自己的綁定測試用掉。
+        var refundJourneyAdmin = await EnsureUserAsync(
+            MinimalDevelopmentSeedDefinitions.RefundJourneyAdminEmail,
+            passwords.AdminPassword,
+            AccountType.Admin,
+            MinimalDevelopmentSeedDefinitions.RefundJourneyAdminPublicId,
+            counters);
+
+        if (!await userManager.IsInRoleAsync(refundJourneyAdmin, "SuperAdmin"))
+        {
+            EnsureSucceeded(
+                "assign the SuperAdmin role",
+                await userManager.AddToRoleAsync(refundJourneyAdmin, "SuperAdmin"));
+        }
+
+        // alex 2026-09-05 #98 review P3：直接寫入已知的 authenticator key，讓這個帳號從
+        // seed 完成那一刻就是「已綁定 TOTP」狀態，E2E 不需要再跑一次性的 UI 綁定流程。
+        // ⚠ "[AspNetUserStore]"／"AuthenticatorKey" 是 ASP.NET Core Identity UserManager
+        // 內部存放「正式 authenticator key」的 LoginProvider／TokenName（非公開 API 契約，
+        // 見 IdentityAdminAuthGateway 對同一組常數的說明）——UserManager 沒有公開的
+        // SetAuthenticatorKey(value)，只有會產生亂數新值的 ResetAuthenticatorKeyAsync，
+        // 所以只能透過這個慣例直接寫入「特定」秘鑰值。
+        if (string.IsNullOrEmpty(await userManager.GetAuthenticatorKeyAsync(refundJourneyAdmin)))
+        {
+            EnsureSucceeded(
+                "seed a deterministic TOTP authenticator key",
+                await userManager.SetAuthenticationTokenAsync(
+                    refundJourneyAdmin,
+                    "[AspNetUserStore]",
+                    "AuthenticatorKey",
+                    MinimalDevelopmentSeedDefinitions.RefundJourneyAdminTotpSecret));
+        }
+
+        if (!await userManager.GetTwoFactorEnabledAsync(refundJourneyAdmin))
+        {
+            EnsureSucceeded(
+                "enable two-factor authentication",
+                await userManager.SetTwoFactorEnabledAsync(refundJourneyAdmin, true));
+        }
+
+        if (!await dbContext.AdminProfiles.AnyAsync(
+                profile => profile.UserId == refundJourneyAdmin.Id,
+                cancellationToken))
+        {
+            dbContext.AdminProfiles.Add(new AdminProfile(
+                refundJourneyAdmin.Id,
+                MinimalDevelopmentSeedDefinitions.RefundJourneyAdminPublicId,
+                "DEV-ADMIN-002",
+                "退款 E2E 管理員",
+                MinimalDevelopmentSeedDefinitions.CreatedAtUtc));
+            counters.ProfilesCreated++;
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        if (await dbContext.Orders.AnyAsync(
+                order => order.PublicId == MinimalDevelopmentSeedDefinitions.RefundJourneyOrderPublicId,
+                cancellationToken))
+        {
+            return;
+        }
+
+        var homeDeliveryProfile = await dbContext.ShippingProviderProfiles.SingleAsync(
+            profile => profile.PublicId ==
+                MinimalDevelopmentSeedDefinitions.HomeDeliveryProviderProfilePublicId,
+            cancellationToken);
+        var homeDeliveryPackageLimit = await dbContext.PackageLimitVersions.SingleAsync(
+            limit => limit.PublicId ==
+                MinimalDevelopmentSeedDefinitions.HomeDeliveryPackageLimitPublicId,
+            cancellationToken);
+        var sku = await dbContext.Skus.SingleAsync(
+            candidate => candidate.PublicId == MinimalDevelopmentSeedDefinitions.SkuPublicId,
+            cancellationToken);
+
+        var createdAtUtc = MinimalDevelopmentSeedDefinitions.CreatedAtUtc;
+        var deliveredAtUtc = createdAtUtc.AddDays(3);
+
+        var order = Order.Create(
+            MinimalDevelopmentSeedDefinitions.RefundJourneyOrderPublicId,
+            new OrderCreation(
+                MinimalDevelopmentSeedDefinitions.RefundJourneyOrderNumber,
+                null,
+                MinimalDevelopmentSeedDefinitions.RefundJourneyBuyerEmail,
+                OrderStatus.Completed,
+                PaymentStatus.Paid,
+                FulfillmentStatus.Preparing,
+                AssemblyStatus.NotRequired,
+                19_900m, 0m, 100m, 0m, 20_000m,
+                "退款 E2E 收件人", "0912345678", MinimalDevelopmentSeedDefinitions.RefundJourneyBuyerEmail,
+                "100", "台北市", "中正區", "測試路 1 號", null,
+                "HomeDelivery", homeDeliveryProfile.Id, null, null, null,
+                1, 1, null, null, "e2e-refund-journey-seed", null,
+                1, 1,
+                new OrderInvoicePreference(
+                    SimulatedInvoiceBuyerType.Individual,
+                    MinimalDevelopmentSeedDefinitions.RefundJourneyBuyerEmail,
+                    null, null, null, null),
+                null,
+                null,
+                new OrderPackageSnapshot(homeDeliveryPackageLimit.Id, 1.2m, 40m, 30m, 20m, 90m, 20_000m)),
+            createdAtUtc);
+        dbContext.Orders.Add(order);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        // InvoiceCalculator 核對發票行項與 Order.PaidAmount 是否一致（IssueInvoiceService 走
+        // production 手動開立路徑，不是這支 seed 自己模擬付款成功事件），沒有這行金額對不上，
+        // 開立發票會丟 ArgumentException。
+        order.ApplyPaymentProjection(PaymentStatus.Paid, 20_000m, createdAtUtc);
+        order.ApplyFulfillmentProjection(FulfillmentStatus.Delivered, deliveredAtUtc);
+
+        dbContext.OrderItems.Add(new OrderItem(
+            MinimalDevelopmentSeedDefinitions.RefundJourneyOrderItemPublicId,
+            order.Id,
+            sku.Id,
+            sku.SkuCode,
+            "懂選開發用顯示卡",
+            "16GB",
+            quantity: 1,
+            listUnitPrice: 19_900m,
+            saleUnitPrice: 19_900m,
+            finalUnitPrice: 19_900m,
+            unitCostSnapshot: 15_000m,
+            lineSubtotal: 19_900m,
+            discountAllocation: 0m,
+            lineTotal: 19_900m,
+            assemblyGroupKey: null,
+            returnableQuantity: 1,
+            createdAtUtc,
+            isCouponEligible: false,
+            new OrderItemSpecificationSnapshot("E2E 退款旅程測試品項", "{}", 1)));
+
+        var paymentAttempt = new PaymentAttempt(
+            Guid.CreateVersion7(), order.Id, PaymentMethod.CreditCard, 20_000m,
+            "SIMULATED", "e2e-refund-journey-seed-payment", null, createdAtUtc);
+        paymentAttempt.Transition(PaymentAttemptStatus.AwaitingPayment, createdAtUtc);
+        paymentAttempt.Transition(PaymentAttemptStatus.Processing, createdAtUtc);
+        paymentAttempt.Transition(PaymentAttemptStatus.Paid, createdAtUtc);
+        dbContext.PaymentAttempts.Add(paymentAttempt);
+
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 

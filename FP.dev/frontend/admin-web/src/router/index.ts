@@ -281,6 +281,14 @@ const router = createRouter({
       meta: { requiresAuth: true, requiredRoles: ['InventoryManager', 'SuperAdmin'] },
     },
     {
+      // M功能桌面UI與Route規格.md A-29。後端 reconciliation-cases 四條路由都掛 InventoryManager
+      // Policy（InventoryManager／SuperAdmin），與 A-12 相同。
+      path: '/inventory/reconciliation-cases',
+      name: 'inventory-reconciliation-cases',
+      component: () => import('../pages/InventoryReconciliationCasesPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['InventoryManager', 'SuperAdmin'] },
+    },
+    {
       path: '/unauthorized',
       name: 'unauthorized',
       component: HttpStatusPage,

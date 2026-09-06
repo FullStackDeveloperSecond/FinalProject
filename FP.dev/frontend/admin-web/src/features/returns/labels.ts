@@ -28,6 +28,17 @@ export const restockDispositionLabels: Record<string, string> = {
   scrap: '報廢 Scrap',
 }
 
+// 文字直接沿用後端 AssemblyFeeDisposition 列舉的 XML 文件註解（RefundCalculation.cs），
+// 避免前後端各自維護一套用語、之後對不上（alex 2026-09-05 #109 裁定）。
+export const assemblyFeeDispositionOptions: Array<{ value: string, label: string }> = [
+  { value: 'notApplicable', label: '訂單沒有組裝電腦' },
+  { value: 'notStarted', label: '尚未開始組裝' },
+  { value: 'merchantCancelled', label: '商家取消或無法組裝' },
+  { value: 'assemblyFault', label: '組裝錯誤或服務瑕疵' },
+  { value: 'merchantFaultWholeUnit', label: '整台因商家責任退回' },
+  { value: 'completedPartialReturn', label: '組裝正常完成後只退其中一個零件' },
+]
+
 export const conditionCodeOptions = [
   'Unopened',
   'OpenedForInspection',

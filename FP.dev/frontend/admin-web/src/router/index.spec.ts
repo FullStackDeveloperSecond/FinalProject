@@ -142,6 +142,7 @@ describe('admin router role guard', () => {
   it.each([
     ['/inventory'],
     ['/inventory/reservations'],
+    ['/inventory/reconciliation-cases'],
   ])('redirects an anonymous administrator away from %s to login', async (path) => {
     const auth = useAdminAuthStore()
     auth.session = { isAuthenticated: false, user: null, expiresAtUtc: null, requiresTwoFactor: null }
@@ -156,6 +157,7 @@ describe('admin router role guard', () => {
   it.each([
     ['/inventory'],
     ['/inventory/reservations'],
+    ['/inventory/reconciliation-cases'],
   ])('redirects an administrator with an unrelated role away from %s to forbidden', async (path) => {
     const auth = useAdminAuthStore()
     auth.session = {
@@ -181,6 +183,7 @@ describe('admin router role guard', () => {
   it.each([
     ['/inventory', 'inventory'],
     ['/inventory/reservations', 'inventory-reservations'],
+    ['/inventory/reconciliation-cases', 'inventory-reconciliation-cases'],
   ])('lets an InventoryManager open %s', async (path, name) => {
     const auth = useAdminAuthStore()
     auth.session = {
@@ -201,6 +204,30 @@ describe('admin router role guard', () => {
     await router.isReady()
 
     expect(router.currentRoute.value.name).toBe(name)
+  })
+
+  // 組長 PR #114：A-29 對帳案件頁與 A-11／A-12 同一組角色；SuperAdmin 也要能進（上面的 it.each 只驗
+  // InventoryManager）。
+  it('lets a SuperAdmin open /inventory/reconciliation-cases', async () => {
+    const auth = useAdminAuthStore()
+    auth.session = {
+      isAuthenticated: true,
+      user: {
+        publicId: 'admin-6',
+        displayName: 'Super',
+        emailMasked: 's***@example.test',
+        emailVerified: true,
+        locale: 'zh-TW',
+        roles: ['SuperAdmin'],
+      },
+      expiresAtUtc: null,
+      requiresTwoFactor: false,
+    }
+
+    await router.push('/inventory/reconciliation-cases')
+    await router.isReady()
+
+    expect(router.currentRoute.value.name).toBe('inventory-reconciliation-cases')
   })
 
   // A-09 `/catalog/specifications` 與同層的 lookups／compatibility 走同一組角色
