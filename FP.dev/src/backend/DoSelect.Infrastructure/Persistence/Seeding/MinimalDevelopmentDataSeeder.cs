@@ -16,7 +16,6 @@ using DoSelect.Infrastructure.Security;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Hosting;
 
 namespace DoSelect.Infrastructure.Persistence.Seeding;
 
@@ -24,8 +23,7 @@ public sealed class MinimalDevelopmentDataSeeder(
     DoSelectDbContext dbContext,
     UserManager<ApplicationUser> userManager,
     RoleManager<IdentityRole> roleManager,
-    IConfiguration configuration,
-    IHostEnvironment hostEnvironment)
+    IConfiguration configuration)
 {
     // AUTO-DEC-006「管理員 TOTP：Seed 不預先設定 TOTP；首次正式管理登入流程必須先完成
     // Google Authenticator 綁定」——H-R03 的預綁定管理員（見下方 EnsurePreEnrolledAdminAsync）
@@ -34,13 +32,22 @@ public sealed class MinimalDevelopmentDataSeeder(
     // （alex PR #117 review 第三輪 P1：先前版本無條件建立，一般 --seed-minimal 也會種出這兩個
     // 第二因素已公開且可預測的最高權限帳號）。與 playwright.config.ts／
     // scripts/test-customer-e2e.ps1 各自獨立檢查同一個資料庫命名規則，屬多層防護，不是唯一防線。
+    //
+    // ⚠ 直接讀 OS 環境變數而不是注入 IHostEnvironment：這個 Seeder 也被多個
+    // DoSelect.Infrastructure.Tests 的 SQL Server provider-backed 測試直接用一個裸
+    // ServiceCollection 建構（未經過 WebApplicationBuilder，不會自動註冊
+    // IHostEnvironment），加了這個建構函式相依會讓那些測試在 DI 解析階段直接炸掉
+    // （CI 已實測：AiCustomBuildSqlServerTests 等測試組建 ServiceProvider 失敗）。
+    // ASPNETCORE_ENVIRONMENT 本來就是一個環境變數，直接讀取跟任何主機／DI 設定無關，
+    // 兩邊（真實 API 啟動與純測試 ServiceCollection）都能一致運作。
     private static readonly Regex IsolatedE2EDatabaseNamePattern = new(
         @"(?:Database|Initial Catalog)\s*=\s*DoSelectE2E(?:_[0-9a-f]{32})?(?:;|$)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private bool IsIsolatedE2EEnvironment()
     {
-        if (!hostEnvironment.IsEnvironment("E2E"))
+        var environmentName = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
+        if (!string.Equals(environmentName, "E2E", StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
