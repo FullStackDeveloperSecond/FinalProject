@@ -29,9 +29,11 @@ internal static class MinimalDevelopmentSeedDefinitions
     internal static readonly Guid AdminHr03SecondaryPublicId =
         Guid.Parse("6e897e04-67ae-4578-bb8c-ddeae6f76316");
 
-    // 固定的 Base32 TOTP 秘鑰，僅供本機／CI 種子帳號使用（非正式環境資料，兩個帳號共用同一
-    // 組即可——各自的帳號列互相獨立，不構成安全疑慮）。
-    internal const string AdminHr03TotpSecret = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP";
+    // 固定的 Base32 TOTP 秘鑰不寫死在原始碼裡——跟 AdminPasswordKey／MemberPasswordKey 同一套
+    // 既有慣例（AUTO-DEC-006：密碼只存於 .NET User Secrets／CI 環境變數，不進 Repository），
+    // 由呼叫端（MinimalDevelopmentDataSeeder，且僅限已確認是隔離 E2E 資料庫時）從這個設定鍵
+    // 讀取；實際值由 scripts/test-customer-e2e.ps1 以 Seed__AdminHr03TotpSecret 環境變數注入。
+    internal const string AdminHr03TotpSecretKey = "Seed:AdminHr03TotpSecret";
 
     internal static readonly Guid MemberPublicId =
         Guid.Parse("f84625a0-f32a-44bb-a801-5f69fed2cb12");

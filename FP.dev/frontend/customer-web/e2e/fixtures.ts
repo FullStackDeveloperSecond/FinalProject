@@ -82,7 +82,10 @@ export const test = base.extend<DoSelectFixtures>({
       adminPassword: process.env.Seed__AdminPassword ?? '',
       adminHr03PrimaryEmail: 'admin-h-r03-primary@doselect.local',
       adminHr03SecondaryEmail: 'admin-h-r03-secondary@doselect.local',
-      adminHr03TotpSecret: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP',
+      // 跟 adminPassword 同一套慣例（AUTO-DEC-006）：不寫死在原始碼，值只由
+      // scripts/test-customer-e2e.ps1 以 Seed__AdminHr03TotpSecret 環境變數注入，跟後端種子
+      // （EnsurePreEnrolledAdminAsync）讀的是同一把秘鑰。
+      adminHr03TotpSecret: process.env.Seed__AdminHr03TotpSecret ?? '',
       memberEmail: 'member@doselect.local',
       memberPassword: process.env.Seed__MemberPassword ?? '',
       productPublicId: '5940b1db-3c83-4db0-b285-9777616d11b1',

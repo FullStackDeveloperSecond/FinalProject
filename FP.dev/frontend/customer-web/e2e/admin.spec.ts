@@ -786,6 +786,9 @@ test('a delivered order can be returned, refunded and allowed to update the orde
   if (!seed.adminPassword) {
     throw new Error('Seed__AdminPassword is required for an administrator E2E journey.')
   }
+  if (!seed.adminHr03TotpSecret) {
+    throw new Error('Seed__AdminHr03TotpSecret is required for the H-R03 pre-enrolled admin journeys.')
+  }
 
   const requestToken = await getMemberAntiforgeryToken(api)
   const email = `refund-journey-${randomUUID()}@example.test`
@@ -1084,6 +1087,9 @@ test('a partially returned order settles as PartiallyRefunded and a different gu
   if (!seed.adminPassword) {
     throw new Error('Seed__AdminPassword is required for an administrator E2E journey.')
   }
+  if (!seed.adminHr03TotpSecret) {
+    throw new Error('Seed__AdminHr03TotpSecret is required for the H-R03 pre-enrolled admin journeys.')
+  }
 
   const requestToken = await getMemberAntiforgeryToken(api)
   const ownerEmail = `partial-refund-owner-${randomUUID()}@example.test`
@@ -1188,9 +1194,24 @@ test('a partially returned order settles as PartiallyRefunded and a different gu
     const body = await response.json() as { rowVersion: string, orderRefundStatus: string }
     return { rowVersion: body.rowVersion, orderRefundStatus: body.orderRefundStatus }
   }, orderPublicId)
+  // The cross-actor attempt below tries to *create a second, separate* ReturnRequest — it does
+  // not touch the existing legitimate one, so comparing only that one return's own status/
+  // rowVersion can never see a phantom row appear (alex PR #117 review, 2nd round P2). There is
+  // no order-scoped or return-count read endpoint anywhere in the API (checked: neither
+  // AdminReturnsController.List, which only filters by ReturnNumber/status/date, nor any
+  // customer-facing listing exists), so this lists the *entire* admin returns collection instead
+  // — sufficient because each Playwright run gets its own freshly isolated DoSelectE2E* database,
+  // so at this point in the test the whole database contains exactly this one ReturnRequest; any
+  // extra row created anywhere would change either the count or the id set.
+  const fetchReturnListSnapshot = async () => page.evaluate(async () => {
+    const response = await fetch('/api/v1/admin/returns?pageSize=100', { credentials: 'include' })
+    const body = await response.json() as { totalCount: number, items: Array<{ publicId: string }> }
+    return { totalCount: body.totalCount, publicIds: body.items.map(item => item.publicId).sort() }
+  })
 
   const returnBeforeCrossActorAttempt = await fetchReturnSnapshot(returnRequest.publicId)
   const orderBeforeCrossActorAttempt = await fetchOrderSnapshot(order.publicId)
+  const returnListBeforeCrossActorAttempt = await fetchReturnListSnapshot()
 
   const outsiderCreateReturn = await outsiderPage.evaluate(async ({ orderPublicId, orderItemPublicId, rowVersion }) => {
     const tokenResponse = await fetch('/api/v1/security/antiforgery-token', {
@@ -1225,6 +1246,11 @@ test('a partially returned order settles as PartiallyRefunded and a different gu
     await fetchOrderSnapshot(order.publicId),
     'The cross-actor create-return attempt must leave the order completely untouched',
   ).toEqual(orderBeforeCrossActorAttempt)
+  expect(
+    await fetchReturnListSnapshot(),
+    'The cross-actor create-return attempt must not create any new ReturnRequest anywhere '
+    + '(this test\'s database is freshly isolated, so the whole collection must stay exactly one row)',
+  ).toEqual(returnListBeforeCrossActorAttempt)
 
   // Actor scope, admin side: an anonymous caller (the plain `api` fixture carries no admin
   // session) must not be able to approve the return either — zero side effects, still 401.
