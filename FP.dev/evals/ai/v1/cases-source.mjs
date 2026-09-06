@@ -1,4 +1,4 @@
-export const datasetVersion = 'zh-TW-v1.0.7-draft'
+export const datasetVersion = 'zh-TW-v1.0.8-draft'
 
 export const groupPlans = {
   'SEARCH-NOVICE': { count: 30, development: 18, release: 9, challenge: 3 },
@@ -202,7 +202,7 @@ const creator = [
     intent: ['CustomBuild', ['VideoEditing'], 50000],
     candidates: ['workstation-video-45'],
     specs: [
-      { semanticKey: 'STORAGE_CAPACITY_GB', operator: 'gte', value: '2048', unit: 'GB' },
+      { semanticKey: 'STORAGE_CAPACITY_GB', operator: 'eq', value: '2048', unit: 'GB' },
       { semanticKey: 'STORAGE_INTERFACE', operator: 'eq', value: 'SSD', unit: null },
     ],
     points: ['保留 2TB 與 SSD 硬限制'],

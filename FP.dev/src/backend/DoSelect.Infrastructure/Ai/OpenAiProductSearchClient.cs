@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using DoSelect.Application.Ai;
 using DoSelect.Application.Catalog;
 using DoSelect.Domain.Catalog;
@@ -15,7 +16,7 @@ public sealed class OpenAiProductSearchClient(
     HttpClient httpClient,
     IOptions<OpenAiResponsesOptions> options) : IAiProductSearchModelClient
 {
-    public const string PromptVersion = "product-search-v9";
+    public const string PromptVersion = "product-search-v10";
 
     private static readonly Uri ResponsesEndpoint =
         new("https://api.openai.com/v1/responses", UriKind.Absolute);
@@ -87,9 +88,11 @@ public sealed class OpenAiProductSearchClient(
                 "or a monitor should be included unless the user mentioned them. " +
                 "Use semanticKeysByCategory to keep every required specification within its selected category. " +
                 "STORAGE_CAPACITY_GB is storage capacity and MEMORY_* capacity keys are RAM only. Convert storage " +
-                "capacity deterministically with 1 TB = 1024 GB. " +
-                "If the user describes a part they already own, put only explicitly stated facts in " +
-                "proposedExistingParts. Never map free text to a catalog SKU and never mark a proposal confirmed. " +
+                "capacity deterministically with 1 TB = 1024 GB. Treat an explicit capacity without minimum or maximum wording " +
+                "as an exact eq requirement; use gte or lte only when the user states that boundary. Preserve an explicit SSD " +
+                "requirement as STORAGE_INTERFACE eq SSD when that semantic key is allowed. " +
+                "If the user describes a part they already own, put specifications of an existing part only in proposedExistingParts " +
+                "and put only explicitly stated facts there. Never map free text to a catalog SKU and never mark a proposal confirmed. " +
                 "The application performs a separate application confirmation for proposed existing parts, so do not ask for a " +
                 "whole-computer purpose when the requested SingleProduct category or keyword and its budget are already explicit. " +
                 "When required information is missing, return one or two short clarification questions " +
@@ -714,6 +717,7 @@ public sealed class OpenAiProductSearchClient(
             ? null
             : new AiBudgetRange(output.Budget.Minimum, output.Budget.Maximum);
         IReadOnlyList<string> clarifications = output.Clarifications;
+        var categoryCode = output.CategoryCode;
         if (ExplicitChineseBudgetGuard.TryParse(message, locale, out var budgetSignal))
         {
             budget = new AiBudgetRange(
@@ -723,6 +727,26 @@ public sealed class OpenAiProductSearchClient(
                 ? [CreateBudgetConflictClarification(budgetSignal)]
                 : output.Clarifications.Where(question => !IsBudgetClarification(question)).ToArray();
         }
+
+        if (locale == SupportedLocale.ZhTw)
+        {
+            if (intentType == AiProductSearchIntentType.PrebuiltComputer &&
+                categories.Contains("CUSTOM_BUILD") &&
+                HasExplicitAssemblyWording(message))
+            {
+                intentType = AiProductSearchIntentType.CustomBuild;
+                categoryCode = "CUSTOM_BUILD";
+            }
+
+            requiredSpecs = NormalizeExplicitStorageRequirements(
+                message,
+                intentType,
+                categoryCode,
+                semanticKeys,
+                requiredSpecs);
+        }
+
+        requiredSpecs = RemoveSpecificationsAlreadyCapturedAsExistingParts(requiredSpecs, proposedExistingParts);
 
         var candidate = new AiSearchIntentCandidate(
             budget,
@@ -738,14 +762,14 @@ public sealed class OpenAiProductSearchClient(
             };
         }
 
-        if (output.CategoryCode is not null && !categories.Contains(output.CategoryCode))
+        if (categoryCode is not null && !categories.Contains(categoryCode))
         {
             return InvalidMapping("INTENT_CATALOG_CODE_NOT_ALLOWED", "categoryCode");
         }
 
         if (intentType == AiProductSearchIntentType.SingleProduct &&
-            output.CategoryCode is not null &&
-            !AreSemanticKeysAllowedForCategory(metadata, output.CategoryCode, requiredSpecs))
+            categoryCode is not null &&
+            !AreSemanticKeysAllowedForCategory(metadata, categoryCode, requiredSpecs))
         {
             return InvalidMapping("INTENT_SPECIFICATION_CATEGORY_MISMATCH", "requiredSpecs");
         }
@@ -780,7 +804,7 @@ public sealed class OpenAiProductSearchClient(
         var lacksRequiredInput = intentType == AiProductSearchIntentType.CustomBuild
             ? output.Purposes.Count == 0 || budget?.Maximum is null
             : intentType == AiProductSearchIntentType.SingleProduct &&
-              string.IsNullOrWhiteSpace(output.CategoryCode) &&
+              string.IsNullOrWhiteSpace(categoryCode) &&
               string.IsNullOrWhiteSpace(output.Keyword);
         if (lacksRequiredInput && clarifications.Count == 0)
         {
@@ -793,7 +817,7 @@ public sealed class OpenAiProductSearchClient(
                 output.Purposes,
                 budget,
                 output.Keyword,
-                output.CategoryCode,
+                categoryCode,
                 output.PreferredBrandCodes,
                 output.ExcludedBrandCodes,
                 requiredSpecs,
@@ -818,6 +842,127 @@ public sealed class OpenAiProductSearchClient(
         question.Contains("能花", StringComparison.Ordinal) ||
         question.Contains("花費", StringComparison.Ordinal) ||
         question.Contains("多少錢", StringComparison.Ordinal);
+
+    private static bool HasExplicitAssemblyWording(string message) =>
+        new[] { "組裝", "幫我組", "組一台", "組台", "組電腦", "組主機", "幫我配", "配一台", "配台", "配電腦", "配主機" }
+            .Any(term => message.Contains(term, StringComparison.Ordinal));
+
+    private static IReadOnlyList<AiRequiredSpec> NormalizeExplicitStorageRequirements(
+        string message,
+        AiProductSearchIntentType intentType,
+        string? categoryCode,
+        IReadOnlySet<string> semanticKeys,
+        IReadOnlyList<AiRequiredSpec> requiredSpecs)
+    {
+        var normalized = requiredSpecs.ToList();
+        normalized = normalized
+            .Select(spec => string.Equals(
+                    spec.SemanticKey,
+                    CompatibilityCatalogContract.SemanticKeys.StorageCapacityGb,
+                    StringComparison.OrdinalIgnoreCase) &&
+                HasExactStorageCapacity(message, spec.Value)
+                ? spec with { Operator = "eq" }
+                : spec)
+            .ToList();
+
+        var acceptsStorageSpecification = intentType == AiProductSearchIntentType.CustomBuild ||
+            string.Equals(categoryCode, "STORAGE", StringComparison.OrdinalIgnoreCase);
+        if (acceptsStorageSpecification &&
+            message.Contains("SSD", StringComparison.OrdinalIgnoreCase) &&
+            semanticKeys.Contains(CompatibilityCatalogContract.SemanticKeys.StorageInterface) &&
+            !normalized.Any(spec => string.Equals(
+                spec.SemanticKey,
+                CompatibilityCatalogContract.SemanticKeys.StorageInterface,
+                StringComparison.OrdinalIgnoreCase)))
+        {
+            normalized.Add(new AiRequiredSpec(
+                CompatibilityCatalogContract.SemanticKeys.StorageInterface,
+                "eq",
+                "SSD",
+                Unit: null));
+        }
+
+        return normalized;
+    }
+
+    private static bool HasExactStorageCapacity(string message, string normalizedCapacityGb)
+    {
+        if (!decimal.TryParse(
+                normalizedCapacityGb,
+                NumberStyles.Number,
+                CultureInfo.InvariantCulture,
+                out var expectedGigabytes))
+        {
+            return false;
+        }
+
+        const string capacity = @"(?<value>\d+(?:\.\d+)?)\s*(?<unit>TB|GB)";
+        var options = RegexOptions.IgnoreCase | RegexOptions.CultureInvariant;
+        foreach (Match match in Regex.Matches(message, capacity, options))
+        {
+            if (!decimal.TryParse(
+                    match.Groups["value"].Value,
+                    NumberStyles.Number,
+                    CultureInfo.InvariantCulture,
+                    out var value))
+            {
+                continue;
+            }
+
+            var gigabytes = string.Equals(match.Groups["unit"].Value, "TB", StringComparison.OrdinalIgnoreCase)
+                ? value * 1024m
+                : value;
+            if (gigabytes != expectedGigabytes)
+            {
+                continue;
+            }
+
+            var prefixStart = Math.Max(0, match.Index - 24);
+            var prefix = message[prefixStart..match.Index];
+            var suffixLength = Math.Min(12, message.Length - match.Index - match.Length);
+            var suffix = message.Substring(match.Index + match.Length, suffixLength);
+            if (!HasCapacityBoundary(prefix, suffix, options))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool HasCapacityBoundary(string prefix, string suffix, RegexOptions options)
+    {
+        const string precedingBoundary = @"(?:至少|最少|最低|不低於|起碼|最多|最高|不超過|上限|at\s+least|minimum|no\s+less\s+than|at\s+most|maximum|up\s+to|no\s+more\s+than)[^，,。.;；]{0,8}$";
+        const string followingBoundary = @"^[^，,。.;；]{0,4}(?:以上|或更多|以下|以內|or\s+more|or\s+less)";
+        return Regex.IsMatch(prefix, precedingBoundary, options) ||
+               Regex.IsMatch(suffix, followingBoundary, options);
+    }
+
+    private static IReadOnlyList<AiRequiredSpec> RemoveSpecificationsAlreadyCapturedAsExistingParts(
+        IReadOnlyList<AiRequiredSpec> requiredSpecs,
+        IReadOnlyList<AiProductSearchProposedPart> proposedExistingParts)
+    {
+        if (proposedExistingParts.Count == 0)
+        {
+            return requiredSpecs;
+        }
+
+        var existingPartSpecifications = proposedExistingParts
+            .SelectMany(part => part.Specifications)
+            .ToArray();
+        return requiredSpecs
+            .Where(required => !existingPartSpecifications.Any(existing => SpecificationsEqual(required, existing)))
+            .ToArray();
+    }
+
+    private static bool SpecificationsEqual(AiRequiredSpec left, AiRequiredSpec right) =>
+        string.Equals(left.SemanticKey, right.SemanticKey, StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(left.Operator, right.Operator, StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(left.Value, right.Value, StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(
+            string.IsNullOrWhiteSpace(left.Unit) ? null : left.Unit,
+            string.IsNullOrWhiteSpace(right.Unit) ? null : right.Unit,
+            StringComparison.OrdinalIgnoreCase);
 
     private static bool TryNormalizeRequiredSpecs(
         IReadOnlyList<OpenAiRequiredSpec> source,

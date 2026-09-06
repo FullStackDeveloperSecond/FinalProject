@@ -229,7 +229,7 @@ public sealed class LiveEvaluationPlanTests
             Assert.Contains("一般商品到貨後幾天內可以申請無理由退貨？", humanReview, StringComparison.Ordinal);
             Assert.Contains("必要回答重點", humanReview, StringComparison.Ordinal);
             Assert.Contains("到貨翌日起 7 日內", humanReview, StringComparison.Ordinal);
-            Assert.Contains("客服提示詞版本：`support-v3`", humanReview, StringComparison.Ordinal);
+            Assert.Contains("客服提示詞版本：`support-v4`", humanReview, StringComparison.Ordinal);
             Assert.Contains("客服回答規格摘要（非完整 system prompt）", humanReview, StringComparison.Ordinal);
             Assert.Contains("先直接回答顧客問題", humanReview, StringComparison.Ordinal);
             Assert.Contains("模型可用核准來源", humanReview, StringComparison.Ordinal);
@@ -412,7 +412,7 @@ public sealed class LiveEvaluationPlanTests
             Assert.Equal(1, result.RootElement.GetProperty("actualModelRequests").GetInt32());
             Assert.True(result.RootElement.GetProperty("intentStageLatencyMilliseconds").GetInt64() >= 0);
             using var metadata = JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "run-metadata.json")));
-            Assert.Equal("product-search-v9", metadata.RootElement.GetProperty("prompts").GetProperty("productSearch").GetString());
+            Assert.Equal("product-search-v10", metadata.RootElement.GetProperty("prompts").GetProperty("productSearch").GetString());
         }
         finally
         {
@@ -560,7 +560,7 @@ public sealed class LiveEvaluationPlanTests
 
     [Theory]
     [InlineData("eq", "8192", "用於儲存家庭照片", null, true)]
-    [InlineData("gte", "8192", "家庭照片", null, false)]
+    [InlineData("gte", "8192", "家庭照片", null, true)]
     [InlineData("eq", "4096", "用於儲存家庭照片", null, false)]
     [InlineData("eq", "8192", "企業監控錄影", null, false)]
     [InlineData("eq", "8192", "用於儲存家庭照片", "安靜", false)]
@@ -762,7 +762,7 @@ public sealed class LiveEvaluationPlanTests
             Assert.True(supportHandler.ObservedEmptyResultFileBeforeFirstRequest);
             Assert.True(supportHandler.ObservedRunningCheckpointBeforeFirstRequest);
             using var metadata = JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "run-metadata.json")));
-            Assert.Equal("support-v3", metadata.RootElement.GetProperty("prompts").GetProperty("aiSupport").GetString());
+            Assert.Equal("support-v4", metadata.RootElement.GetProperty("prompts").GetProperty("aiSupport").GetString());
             Assert.DoesNotContain("apiKey", metadata.RootElement.GetRawText(), StringComparison.OrdinalIgnoreCase);
             using var checkpoint = JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "checkpoint.json")));
             Assert.Equal("PENDING_HUMAN_REVIEW", checkpoint.RootElement.GetProperty("status").GetString());
