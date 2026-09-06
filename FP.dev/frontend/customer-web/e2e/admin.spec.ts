@@ -872,16 +872,28 @@ test('a delivered order can be returned, refunded and allowed to update the orde
 
   await expect(page.getByText('等待退款', { exact: true })).toBeVisible()
 
-  // Admin: find the PendingReview refund the approval just created.
+  // Admin: find the PendingReview refund the approval just created. The list itself is shared
+  // across the whole admin-chromium suite in CI (one DB for the file), so more than one
+  // pendingReview refund can legitimately coexist at this point (e.g. a retried attempt's own
+  // leftover refund from an earlier failed run) — asserting exactly one row system-wide is not
+  // reliable there. Use the real UI search as a smoke test that the filter works, then resolve
+  // the specific refund that belongs to *this* order rather than assuming there is only one.
   await page.goto('./refunds')
   await page.getByLabel('退款狀態').selectOption('pendingReview')
   await page.getByRole('button', { name: '搜尋' }).click()
-  await expect(page.getByRole('cell', { name: '待審核' })).toHaveCount(1)
-  await page.getByRole('link', { name: '查看明細' }).click()
-  await expect(page).toHaveURL(/\/refunds\/[0-9a-f-]+$/)
+  await expect(page.getByRole('cell', { name: '待審核' }).first()).toBeVisible()
+  const refundPublicId = await page.evaluate(async (orderPublicId) => {
+    const response = await fetch('/api/v1/admin/refunds?statuses=pendingReview&pageSize=100', { credentials: 'include' })
+    const body = await response.json() as { items: Array<{ publicId: string, orderPublicId: string }> }
+    const match = body.items.find(item => item.orderPublicId === orderPublicId)
+    if (!match) {
+      throw new Error(`No pendingReview refund found for order ${orderPublicId}.`)
+    }
+    return match.publicId
+  }, order.publicId)
+  await page.goto(`./refunds/${refundPublicId}`)
   await expect(page.getByText('待審核', { exact: true })).toBeVisible()
   await expect(page.getByText('尚未執行退款')).toBeVisible()
-  const refundPublicId = new URL(page.url()).pathname.split('/').pop()!
 
   // Approve the refund through the real UI form.
   await page.getByLabel('核准原因').selectOption('return_approved')
@@ -1290,13 +1302,24 @@ test('a partially returned order settles as PartiallyRefunded and a different gu
   ).toBe(200)
   expect((JSON.parse(approveReturnResponseText) as { status: string }).status).toBe('awaitingRefund')
 
-  // Admin: find, approve and execute the refund through the real UI form.
+  // Admin: find, approve and execute the refund through the real UI form. Same reasoning as the
+  // full-refund journey above: the admin-chromium suite shares one CI database, so more than one
+  // pendingReview refund can coexist — resolve the one that belongs to *this* order instead of
+  // assuming the filtered list has exactly one row.
   await page.goto('./refunds')
   await page.getByLabel('退款狀態').selectOption('pendingReview')
   await page.getByRole('button', { name: '搜尋' }).click()
-  await expect(page.getByRole('cell', { name: '待審核' })).toHaveCount(1)
-  await page.getByRole('link', { name: '查看明細' }).click()
-  await expect(page).toHaveURL(/\/refunds\/[0-9a-f-]+$/)
+  await expect(page.getByRole('cell', { name: '待審核' }).first()).toBeVisible()
+  const refundPublicId = await page.evaluate(async (orderPublicId) => {
+    const response = await fetch('/api/v1/admin/refunds?statuses=pendingReview&pageSize=100', { credentials: 'include' })
+    const body = await response.json() as { items: Array<{ publicId: string, orderPublicId: string }> }
+    const match = body.items.find(item => item.orderPublicId === orderPublicId)
+    if (!match) {
+      throw new Error(`No pendingReview refund found for order ${orderPublicId}.`)
+    }
+    return match.publicId
+  }, order.publicId)
+  await page.goto(`./refunds/${refundPublicId}`)
 
   await page.getByLabel('核准原因').selectOption('return_approved')
   await page.getByRole('checkbox', { name: /我已核對申請金額與訂單/ }).check()
