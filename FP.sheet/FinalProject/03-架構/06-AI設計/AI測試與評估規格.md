@@ -47,6 +47,10 @@ AI 測試分成「確定性安全閘門」與「品質評估」兩類。安全�
 
 每筆評估資料至少包含：穩定案例 ID、輸入語言、使用者輸入、必要前置資料、預期結構、禁止結果、可接受答案要點、來源、資料集版本及審核者。
 
+`requiredPoints`／必要回答重點只供 Grader 與人工覆核，不得作為提示內容送入模型。模型必須從顧客問題、版本化通用回答規格與該案核准資料合理形成答案；若評分要點無法由這三者推導，視為資料集／Grader 缺陷，不得歸因於模型。`support-v3` 的通用回答規格要求先直接回答，再只補充相關的條件、期限、費用、例外、不確定性與顧客下一步，同時維持引用、唯讀、隱私與 Prompt Injection 邊界。
+
+人工覆核表必須顯示商品與客服 Prompt 版本、顧客問題、該案例實際提供的核准來源與核准資料、只供評分的必要回答重點，以及顧客可見回答。商品搜尋案例另須集中列出意圖模型實際取得的分類／品牌／規格語意鍵及分類白名單，並逐案列出確實進入推薦階段的後端核准商品名稱、品牌、分類、價格、供應狀態與 Badge；後者須明示不會送入意圖模型。歷史 Run 的覆核表與結果不可追溯改寫。
+
 ## 確定性安全測試目錄
 
 | 測試 ID | 測試 | 必須結果 | 建議層級 |
@@ -140,5 +144,6 @@ OpenAI 官方建議以代表實際使用分布、包含正常與邊界案例的�
 - PR #120 已 squash merge 為 `dev@19b7d9c6`。同 revision 的 v7 固定六案／一輪 Smoke Run `20260905T161454Z-v7-smoke-system` 完成 6 次請求、US$0.007161；Schema、Citation、Privacy／Authorization 與 P95 通過，但執行時 Intent 25%、補問精確率 50%、有效推薦 66.67%、deterministic 50%，Verdict `FAIL`。DEC-BATCH-060 後續確認 019 為 Dataset／grader defect 並完成零成本修正；歷史 Run 不改寫。正式報告：`FP.dev/evals/ai/v1/results/2026-09-06-v7-smoke-19b7d9c6.md`。
 - DEC-BATCH-061 已完成 `product-search-v8` 中文預算確定性保護：025 保存明確 NT$35,000 且移除錯誤預算補問；026 保存 NT$15,000 安全上限並產生衝突補問；模糊金額負例不覆寫。Adapter 20／20、Live Evaluation 23／23、Solution Build、Format、120 筆資料檢查與三輪 66 次 Release Dry Run 通過；模型呼叫與成本為 0。零成本報告：`FP.dev/evals/ai/v1/results/2026-09-06-v8-budget-guard-remediation.md`。
 - DEC-BATCH-062 定版 Commit `45eeed27` 的 v8 固定六案／一輪 Live Smoke：Run `20260905T190220Z-v8-smoke-system` 完成 6 次請求、成本 US$0.007117，Schema、Intent、補問、有效推薦、Citation、Privacy／Authorization、deterministic、P95 與平均成本 Gate 全數通過；Alex 顧客視角人工覆核 6／6 Pass，正式 Smoke Verdict 為 `PASS`。原始 Runner Summary／Checkpoint 保留自動化階段的 `PENDING_HUMAN_REVIEW`；正式報告：`FP.dev/evals/ai/v1/results/2026-09-06-v8-smoke-45eeed27.md`。此結果不等於完整 Release baseline，66 次執行仍須另行決策與費用授權。
+- 2026-09-06 已在 `dev@155bafa3` 完成三輪 Release baseline：22 案／66 次、US$0.110179，Schema、Citation、Privacy／Authorization、延遲及成本 Gate 通過；商品 Intent 61.54%、補問 Precision 75%、有效推薦 90%，正式 Verdict `FAIL`，66 個顧客輸出仍待人工覆核。報告：`FP.dev/evals/ai/v1/results/2026-09-06-v8-release-baseline-155bafa3.md`。DEC-BATCH-063 後續將客服 Prompt 升為 `support-v3` 並補齊人工覆核輸入透明度；Application AI 47／47、受影響 Infrastructure 34／34、Solution Build 與 focused Format 通過，未呼叫 OpenAI。歷史 `support-v2` baseline 不改寫，也不能當作 `support-v3` Live 品質證據。
 - 啟動 S 後建立日文 30 筆、韓文 30 筆，並指定具語言能力的覆核者。
 - 正式同意／額度資料來源、訂單與客服 Owner Query、真正 GuestOrderAccess Cookie `403`、資料庫併發、RequestPublicId 冪等、客服 Responses Adapter、M-19 與 M-18 垂直切片均已合併。M-18 的搜尋 Adapter／Endpoint／UI、`ProposedExistingPart` 確認閘門、Provider-backed 測試與公開搜尋降級 Playwright 已形成；現有 deterministic／Provider-backed／降級 E2E 證據仍不能取代 AI-09 live evaluation。

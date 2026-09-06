@@ -248,6 +248,7 @@ public sealed class LiveEvaluationRunner : IDisposable
             runOptions,
             runFiles,
             results,
+            fixtureStore,
             stoppedByCost,
             cancellationToken);
         await WriteCheckpointAsync(
@@ -589,6 +590,7 @@ public sealed class LiveEvaluationRunner : IDisposable
         LiveEvaluationRunOptions runOptions,
         LiveEvaluationRunFiles runFiles,
         IReadOnlyList<LiveEvaluationCaseResult> results,
+        EvaluationFixtureStore fixtures,
         bool stoppedByCost,
         CancellationToken cancellationToken)
     {
@@ -692,7 +694,7 @@ public sealed class LiveEvaluationRunner : IDisposable
             cancellationToken);
         await File.WriteAllTextAsync(
             runFiles.HumanReviewPath,
-            CreateHumanReview(plan, results),
+            CreateHumanReview(plan, results, fixtures),
             cancellationToken);
         return summary;
     }
@@ -999,7 +1001,8 @@ public sealed class LiveEvaluationRunner : IDisposable
 
     private static string CreateHumanReview(
         EvaluationPlan plan,
-        IReadOnlyList<LiveEvaluationCaseResult> results)
+        IReadOnlyList<LiveEvaluationCaseResult> results,
+        EvaluationFixtureStore fixtures)
     {
         var cases = plan.SelectedCases.ToDictionary(item => item.CaseId, StringComparer.Ordinal);
         var builder = new StringBuilder();
@@ -1007,6 +1010,16 @@ public sealed class LiveEvaluationRunner : IDisposable
         builder.AppendLine();
         builder.AppendLine("本次只使用合成或去識別化的評估資料。請以顧客／AI 使用者的角度，逐案檢查回答是否切合問題、涵蓋必要重點、清楚實用、沒有未經來源支持的陳述，並符合安全與語言品質要求。");
         builder.AppendLine();
+        builder.AppendLine($"- 商品搜尋提示詞版本：`{OpenAiProductSearchClient.PromptVersion}`");
+        builder.AppendLine($"- 客服提示詞版本：`{AiPromptEnvelopeFactory.SupportPromptVersion}`");
+        builder.AppendLine("- 客服回答規格摘要（非完整 system prompt）：先直接回答顧客問題，再只列相關且有核准資料支持的條件、期限、費用、例外與不確定性；需要操作時提供顧客下一步，不顯示內部術語。");
+        builder.AppendLine("- 說明：顧客問題只是模型的使用者訊息；下方另列該案例實際提供的核准資料。必要回答重點只供評分，未送給模型。");
+        builder.AppendLine();
+        if (results.Any(result => result.HumanReviewRequired && result.Feature == "product_search"))
+        {
+            AppendProductSearchMetadata(builder, fixtures.CreateProductSearchMetadata());
+        }
+
         foreach (var result in results.Where(result => result.HumanReviewRequired))
         {
             var item = cases[result.CaseId];
@@ -1014,7 +1027,8 @@ public sealed class LiveEvaluationRunner : IDisposable
             builder.AppendLine($"## {result.CaseId}／第 {result.Trial} 輪");
             builder.AppendLine();
             builder.AppendLine($"- 顧客問題：{item.Message}");
-            builder.AppendLine($"- 必要回答重點：{string.Join("；", requiredPoints)}");
+            AppendApprovedModelContext(builder, item, result, fixtures);
+            builder.AppendLine($"- 必要回答重點（只供評分，未送給模型）：{string.Join("；", requiredPoints)}");
             builder.AppendLine($"- 確定性檢查通過：`{result.DeterministicPass}`");
             builder.AppendLine($"- 顧客視角檢查通過：`{result.CustomerFacingAnswer?.ToString() ?? "不適用"}`");
             builder.AppendLine($"- 模型：`{result.Model ?? "unavailable"}`");
@@ -1026,6 +1040,87 @@ public sealed class LiveEvaluationRunner : IDisposable
 
         return builder.ToString();
     }
+
+    private static void AppendProductSearchMetadata(
+        StringBuilder builder,
+        AiProductSearchMetadata metadata)
+    {
+        builder.AppendLine("## 商品搜尋意圖模型共用核准 Metadata");
+        builder.AppendLine();
+        builder.AppendLine($"- 分類代碼：{FormatReviewCodes(metadata.CategoryCodes)}");
+        builder.AppendLine($"- 品牌代碼：{FormatReviewCodes(metadata.BrandCodes)}");
+        builder.AppendLine($"- 規格語意鍵：{FormatReviewCodes(metadata.SemanticKeys)}");
+        builder.AppendLine("- 各分類允許的規格語意鍵：");
+        foreach (var pair in (metadata.SemanticKeysByCategory ?? new Dictionary<string, IReadOnlyList<string>>())
+                     .OrderBy(pair => pair.Key, StringComparer.Ordinal))
+        {
+            builder.AppendLine($"  - `{pair.Key}`：{FormatReviewCodes(pair.Value)}");
+        }
+
+        builder.AppendLine();
+    }
+
+    private static string FormatReviewCodes(IEnumerable<string> values) =>
+        string.Join("、", values.Select(value => $"`{value}`"));
+
+    private static void AppendApprovedModelContext(
+        StringBuilder builder,
+        EvaluationCasePlan item,
+        LiveEvaluationCaseResult result,
+        EvaluationFixtureStore fixtures)
+    {
+        if (item.Feature != "ai_support")
+        {
+            builder.AppendLine("- 模型可用核准來源：`catalog_metadata`／`catalog.synthetic.v1`");
+            builder.AppendLine("- 模型可用核准資料：上方列出的分類、品牌與規格語意鍵；商品候選、價格、庫存及推薦理由不會送入意圖模型。");
+            AppendApprovedProductFacts(builder, item, result, fixtures);
+            return;
+        }
+
+        var dataItems = fixtures.CreateSupportContext(item.FixtureIds, item.Message);
+        if (dataItems.Count == 0)
+        {
+            builder.AppendLine("- 模型可用核准來源：（無）");
+            builder.AppendLine("- 模型可用核准資料：（無；模型只能依系統安全規則回答）");
+            return;
+        }
+
+        builder.AppendLine($"- 模型可用核准來源：{string.Join("；", dataItems.Select(data => $"`{data.SourceType}`／`{data.SourceId}`"))}");
+        builder.AppendLine("- 模型可用核准資料：");
+        foreach (var data in dataItems)
+        {
+            builder.AppendLine($"  - `{data.SourceId}`：{NormalizeReviewText(data.Content)}");
+        }
+    }
+
+    private static void AppendApprovedProductFacts(
+        StringBuilder builder,
+        EvaluationCasePlan item,
+        LiveEvaluationCaseResult result,
+        EvaluationFixtureStore fixtures)
+    {
+        if (result.ExplanationStageStatus != AiProductSearchModelStatus.Completed.ToString())
+        {
+            builder.AppendLine("- 後端核准回答事實（不送入意圖模型）：本輪沒有進入推薦理由階段。");
+            return;
+        }
+
+        var approvedCandidates = fixtures.CreateProductCards(ReadStrings(item.Expected, "allowedCandidateIds"));
+        builder.AppendLine("- 後端核准回答事實（不送入意圖模型）：");
+        foreach (var product in approvedCandidates)
+        {
+            var price = product.Price.Sale ?? product.Price.List;
+            var badges = product.Badges.Count == 0 ? "（無）" : string.Join("、", product.Badges);
+            builder.AppendLine(
+                $"  - `{product.DefaultSkuPublicId}`：{product.Name}；品牌 {product.Brand.Name}；" +
+                $"分類 {product.Category.Name}；價格 {product.Price.Currency} {price:N0}；" +
+                $"供應狀態 {product.Availability}；核准重點 {badges}");
+        }
+    }
+
+    private static string NormalizeReviewText(string value) =>
+        value.Replace("\r", " ", StringComparison.Ordinal)
+            .Replace("\n", " ", StringComparison.Ordinal);
 
     private static string CreateCustomerVisibleReviewText(LiveEvaluationCaseResult result)
     {

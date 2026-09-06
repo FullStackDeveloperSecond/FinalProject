@@ -229,6 +229,13 @@ public sealed class LiveEvaluationPlanTests
             Assert.Contains("一般商品到貨後幾天內可以申請無理由退貨？", humanReview, StringComparison.Ordinal);
             Assert.Contains("必要回答重點", humanReview, StringComparison.Ordinal);
             Assert.Contains("到貨翌日起 7 日內", humanReview, StringComparison.Ordinal);
+            Assert.Contains("客服提示詞版本：`support-v3`", humanReview, StringComparison.Ordinal);
+            Assert.Contains("客服回答規格摘要（非完整 system prompt）", humanReview, StringComparison.Ordinal);
+            Assert.Contains("先直接回答顧客問題", humanReview, StringComparison.Ordinal);
+            Assert.Contains("模型可用核准來源", humanReview, StringComparison.Ordinal);
+            Assert.Contains("`return_policy`／`policy.returns.v1`", humanReview, StringComparison.Ordinal);
+            Assert.Contains("模型可用核准資料", humanReview, StringComparison.Ordinal);
+            Assert.Contains("一般商品可自到貨翌日起 7 日內申請無理由退貨", humanReview, StringComparison.Ordinal);
             Assert.Contains("顧客可見回答", humanReview, StringComparison.Ordinal);
         }
         finally
@@ -347,6 +354,13 @@ public sealed class LiveEvaluationPlanTests
             Assert.DoesNotContain("CustomBuild", answer, StringComparison.Ordinal);
             Assert.DoesNotContain("DOSELECT", answer, StringComparison.Ordinal);
             Assert.DoesNotContain("後端", answer, StringComparison.Ordinal);
+            var humanReview = File.ReadAllText(Path.Combine(output, "human-review.md"));
+            Assert.Contains("商品搜尋意圖模型共用核准 Metadata", humanReview, StringComparison.Ordinal);
+            Assert.Contains("`CUSTOM_BUILD`", humanReview, StringComparison.Ordinal);
+            Assert.Contains("`STORAGE_CAPACITY_GB`", humanReview, StringComparison.Ordinal);
+            Assert.Contains("後端核准回答事實（不送入意圖模型）", humanReview, StringComparison.Ordinal);
+            Assert.Contains("懂選遊戲客製組裝電腦", humanReview, StringComparison.Ordinal);
+            Assert.Contains("TWD 35,000", humanReview, StringComparison.Ordinal);
         }
         finally
         {
@@ -551,7 +565,7 @@ public sealed class LiveEvaluationPlanTests
             Assert.True(supportHandler.ObservedEmptyResultFileBeforeFirstRequest);
             Assert.True(supportHandler.ObservedRunningCheckpointBeforeFirstRequest);
             using var metadata = JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "run-metadata.json")));
-            Assert.Equal("support-v2", metadata.RootElement.GetProperty("prompts").GetProperty("aiSupport").GetString());
+            Assert.Equal("support-v3", metadata.RootElement.GetProperty("prompts").GetProperty("aiSupport").GetString());
             Assert.DoesNotContain("apiKey", metadata.RootElement.GetRawText(), StringComparison.OrdinalIgnoreCase);
             using var checkpoint = JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "checkpoint.json")));
             Assert.Equal("PENDING_HUMAN_REVIEW", checkpoint.RootElement.GetProperty("status").GetString());
