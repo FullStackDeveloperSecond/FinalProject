@@ -108,6 +108,40 @@ public sealed class OpenAiProductSearchClientTests
     }
 
     [Fact]
+    public async Task ParseIntentAsync_ClarificationPurposeCodesUseCustomerFacingNames()
+    {
+        var output = JsonSerializer.Serialize(new
+        {
+            intent = "CustomBuild",
+            purposes = Array.Empty<string>(),
+            budget = new { minimum = (decimal?)null, maximum = 30_000m },
+            keyword = (string?)null,
+            categoryCode = "CUSTOM_BUILD",
+            preferredBrandCodes = Array.Empty<string>(),
+            excludedBrandCodes = Array.Empty<string>(),
+            requiredSpecs = Array.Empty<object>(),
+            preferences = Array.Empty<string>(),
+            proposedExistingParts = Array.Empty<object>(),
+            clarifications = new[] { "請選擇 Gaming、Office、Programming 或 VideoEditing。" },
+        });
+        var handler = new RecordingHandler(_ => JsonResponse(output));
+        var subject = CreateSubject(handler);
+
+        var result = await subject.ParseIntentAsync(
+            "三萬元幫我組電腦，主要用途我不想說。",
+            SupportedLocale.ZhTw,
+            SearchNovice025Metadata(),
+            default);
+
+        Assert.Equal(AiProductSearchModelStatus.Completed, result.Status);
+        var clarification = Assert.Single(result.Intent!.Clarifications);
+        Assert.Equal("請選擇 遊戲、文書處理、程式開發 或 影片剪輯。", clarification);
+        Assert.DoesNotContain("Gaming", clarification, StringComparison.Ordinal);
+        Assert.DoesNotContain("VideoEditing", clarification, StringComparison.Ordinal);
+        Assert.Equal(1, handler.CallCount);
+    }
+
+    [Fact]
     public async Task ParseIntentAsync_HardwareSpecificationNumberIsNotTreatedAsBudgetMinimum()
     {
         var output = JsonSerializer.Serialize(new

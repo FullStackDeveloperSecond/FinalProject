@@ -262,6 +262,36 @@ public sealed class LiveEvaluationPlanTests
         "1")]
     [InlineData(
         "SUPPORT-POLICY-011",
+        "組裝電腦宅配運費 NT$300，滿 NT$30,000 免運，必須先付款，無法使用貨到付款。",
+        true,
+        null,
+        "1")]
+    [InlineData(
+        "SUPPORT-POLICY-011",
+        "組裝電腦宅配運費 NT$300，滿 NT$30,000 免運，必須先付款，不可以貨到付款。",
+        true,
+        null,
+        "1")]
+    [InlineData(
+        "SUPPORT-POLICY-011",
+        "組裝電腦宅配運費 NT$300，滿 NT$30,000 免運，必須先付款，無法貨到付款。",
+        true,
+        null,
+        "1")]
+    [InlineData(
+        "SUPPORT-POLICY-011",
+        "組裝電腦宅配運費 NT$300，滿 NT$30,000 免運，必須先付款，無法使用超商取貨或貨到付款。",
+        true,
+        null,
+        "1")]
+    [InlineData(
+        "SUPPORT-POLICY-011",
+        "組裝電腦宅配運費 NT$300，滿 NT$30,000 免運，必須先付款，貨到付款也可以使用。",
+        false,
+        "assembled-computer-prepayment",
+        "0.6667")]
+    [InlineData(
+        "SUPPORT-POLICY-011",
         "組裝電腦宅配運費 NT$300，滿 NT$30,000 免運，而且不必先付款。",
         false,
         "assembled-computer-prepayment",

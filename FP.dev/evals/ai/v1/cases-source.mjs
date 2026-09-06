@@ -1,4 +1,4 @@
-export const datasetVersion = 'zh-TW-v1.0.8-draft'
+export const datasetVersion = 'zh-TW-v1.0.9-draft'
 
 export const groupPlans = {
   'SEARCH-NOVICE': { count: 30, development: 18, release: 9, challenge: 3 },
@@ -278,7 +278,12 @@ const supportPolicy = [
       {
         id: 'assembled-computer-prepayment',
         allOf: [['組裝電腦', '組裝主機'], ['預付', '先付款']],
-        noneOf: ['不需預付', '不需要預付', '無需預付', '不用預付', '不必預付', '不需先付款', '不需要先付款', '無需先付款', '不用先付款', '不必先付款', '貨到付款'],
+        noneOf: [
+          '不需預付', '不需要預付', '無需預付', '不用預付', '不必預付',
+          '不需先付款', '不需要先付款', '無需先付款', '不用先付款', '不必先付款',
+          '貨到付款可以使用', '貨到付款可使用', '貨到付款可用',
+          '貨到付款也可以', '貨到付款也可', '貨到付款有提供',
+        ],
       },
     ],
   },
