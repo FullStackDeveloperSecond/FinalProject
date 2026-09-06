@@ -225,6 +225,7 @@
 | `SupportTicketSummaryDto` | PublicId、案件編號、Category、Subject、Status、最近活動、是否等待會員、未讀回覆數、RowVersion |
 | `CreateSupportMessageRequest` | `body:string(1..4000)`、`isInternal:false`（前台不可指定 true）、`rowVersion` |
 | `CreateInternalNoteRequest` | `body:string(1..4000)`、`rowVersion`；只存在後台 Schema，不得進會員 Response 或 AI Context |
+| `CreateAdminSupportReplyRequest` | `body:string(1..4000)`、`rowVersion`；只供 `SupportTicket.Handle` 對已指派有效案件建立人工公開回覆。Body 只存 `SupportMessages`，不得進 Audit 或 Outbox Payload；會員明細可見，並觸發既有 `support.replied` Email／站內通知 |
 | `SupportTicketActionRequest` | Action 對應 claim／assign／transfer／change-priority／change-status／cancel／reopen 的具名 oneOf Payload；指派、優先級、取消及重開必填理由，皆帶 RowVersion。claim、一般 change-priority、change-status、cancel、reopen 使用 `SupportTicket.Handle`；assign、transfer、優先級覆核／覆寫使用 `SupportTicket.Supervise` |
 | `SupportSlaItemDto` | Ticket PublicId／案件編號、Priority、Assignee、Status、FirstResponseDueAtUtc、ResolutionDueAtUtc、使用比例、IsOverdue、LastActivityAtUtc、RowVersion |
 | `CaseWorkbenchQuery` | `caseTypes?:support/report/return[1..3]`、`statuses?:string[0..10]`、`priorities?:string[0..4]`、`assigneePublicId?:uuid`、`overdue?:bool`、`cursor?:string(512)`、`pageSize:int(1..100)` |

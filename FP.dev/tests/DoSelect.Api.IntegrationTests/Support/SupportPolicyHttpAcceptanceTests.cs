@@ -10,6 +10,7 @@ using DoSelect.Application.Support.Admin.Dtos;
 using DoSelect.Domain.Support;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
@@ -425,6 +426,50 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
         Assert.Equal(0, fakes.AddInternalNoteCalls);
     }
 
+    [Theory]
+    [InlineData("CustomerService", HttpStatusCode.OK)]
+    [InlineData("CustomerServiceSupervisor", HttpStatusCode.OK)]
+    [InlineData("SuperAdmin", HttpStatusCode.Forbidden)]
+    [InlineData("Member", HttpStatusCode.Forbidden)]
+    public async Task AddPublicReply_EnforcesHandleRoleMatrix(string role, HttpStatusCode expected)
+    {
+        var fakes = new SupportHttpFakes();
+        using var factory = CreateFactory(fakes);
+        using var client = CreateClient(factory, role);
+
+        using var response = await client.PostAsJsonWithAntiforgeryAsync(
+            $"/api/v1/admin/support-tickets/{Guid.NewGuid()}/messages",
+            new { body = "member-visible reply", rowVersion = Convert.ToBase64String(new byte[8]) },
+            DoSelectClaimValues.Admin);
+
+        Assert.Equal(expected, response.StatusCode);
+        Assert.Equal(expected == HttpStatusCode.OK ? 1 : 0, fakes.AddPublicReplyCalls);
+    }
+
+    [Fact]
+    public async Task AddPublicReply_OpenApiSchema_RequiresBodyAndRowVersion()
+    {
+        using var factory = _baseFactory.WithWebHostBuilder(
+            builder => builder.UseEnvironment("Development"));
+        using var client = factory.CreateClient();
+
+        using var response = await client.GetAsync("/openapi/v1.json");
+        response.EnsureSuccessStatusCode();
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var schema = document.RootElement
+            .GetProperty("components")
+            .GetProperty("schemas")
+            .GetProperty("CreateAdminSupportReplyRequest");
+        var required = schema.GetProperty("required").EnumerateArray()
+            .Select(element => element.GetString())
+            .ToHashSet();
+
+        Assert.Contains("body", required);
+        Assert.Contains("rowVersion", required);
+        Assert.Equal(1, schema.GetProperty("properties").GetProperty("body")
+            .GetProperty("minLength").GetInt32());
+    }
+
     [Fact]
     public async Task Sla_WhenHandleAuthorized_DelegatesBoundPaginationQuery()
     {
@@ -667,12 +712,22 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
         }
 
         public int AddInternalNoteCalls { get; private set; }
+        public int AddPublicReplyCalls { get; private set; }
 
         public Task<AdminSupportTicketDetailDto> AddInternalNoteAsync(
             SupportTicketActionContext context, Guid ticketPublicId, CreateInternalNoteRequest request,
             CancellationToken cancellationToken)
         {
             AddInternalNoteCalls++;
+            LastContext = context;
+            return Task.FromResult(DetailResult);
+        }
+
+        public Task<AdminSupportTicketDetailDto> AddPublicReplyAsync(
+            SupportTicketActionContext context, Guid ticketPublicId, CreateAdminSupportReplyRequest request,
+            CancellationToken cancellationToken)
+        {
+            AddPublicReplyCalls++;
             LastContext = context;
             return Task.FromResult(DetailResult);
         }

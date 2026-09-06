@@ -105,8 +105,9 @@ public sealed class SupportTicket : MutablePublicEntity
     /// already does today) and then additionally recomputes ResolutionDueAtUtc from
     /// <paramref name="resolutionTarget"/> — the caller (Application/Infrastructure) supplies
     /// this from the ticket's current Priority via SupportSlaPolicy, since Domain must not
-    /// depend on Application. FirstHumanResponseAtUtc is untouched: a reopen is not a first
-    /// response event.
+    /// depend on Application. A reopen starts a new resolution SLA cycle, so pause time from
+    /// the resolved cycle is reset; the historical pause/resume SLA events remain available
+    /// for audit. FirstHumanResponseAtUtc is untouched: a reopen is not a first response event.
     /// </summary>
     public void Reopen(DateTime occurredAtUtc, TimeSpan resolutionTarget)
     {
@@ -122,6 +123,7 @@ public sealed class SupportTicket : MutablePublicEntity
         }
 
         Transition(SupportTicketStatus.InProgress, occurredAtUtc);
+        PausedSeconds = 0;
         ResolutionDueAtUtc = occurredAtUtc.Add(resolutionTarget);
     }
 

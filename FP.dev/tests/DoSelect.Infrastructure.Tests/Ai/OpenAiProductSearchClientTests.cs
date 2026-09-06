@@ -37,16 +37,20 @@ public sealed class OpenAiProductSearchClientTests
         Assert.False(body.RootElement.TryGetProperty("service_tier", out _));
         var instructions = body.RootElement.GetProperty("instructions").GetString();
         Assert.Contains("Preserve every explicitly stated budget boundary", instructions, StringComparison.Ordinal);
+        Assert.Contains("single unambiguous colloquial amount", instructions, StringComparison.Ordinal);
         Assert.Contains("Add only purposes explicitly requested", instructions, StringComparison.Ordinal);
         Assert.Contains("ready-made, prebuilt, branded package", instructions, StringComparison.Ordinal);
         Assert.Contains("budget-based gaming 主機", instructions, StringComparison.Ordinal);
         Assert.Contains("generic 主機", instructions, StringComparison.Ordinal);
         Assert.Contains("遊戲美術", instructions, StringComparison.Ordinal);
         Assert.Contains("Do not ask about optional preferences", instructions, StringComparison.Ordinal);
+        Assert.Contains("Do not ask whether peripherals", instructions, StringComparison.Ordinal);
+        Assert.Contains("STORAGE_CAPACITY_GB is storage capacity", instructions, StringComparison.Ordinal);
+        Assert.Contains("1 TB = 1024 GB", instructions, StringComparison.Ordinal);
         Assert.Contains("set minimum to null", instructions, StringComparison.Ordinal);
         Assert.Contains("Example: at least 30,000 but at most 20,000 for a computer", instructions, StringComparison.Ordinal);
         Assert.Contains("Example: a 40,000 video-editing computer", instructions, StringComparison.Ordinal);
-        Assert.Equal("product-search-v6", OpenAiProductSearchClient.PromptVersion);
+        Assert.Equal("product-search-v8", OpenAiProductSearchClient.PromptVersion);
         Assert.True(body.RootElement.GetProperty("text").GetProperty("format").GetProperty("strict").GetBoolean());
         Assert.Equal(
             "json_schema",
@@ -58,6 +62,7 @@ public sealed class OpenAiProductSearchClientTests
         using var input = JsonDocument.Parse(body.RootElement.GetProperty("input").GetString()!);
         Assert.Equal("untrusted_user_input", input.RootElement.GetProperty("userMessage").GetProperty("trust").GetString());
         Assert.Equal("untrusted_data", input.RootElement.GetProperty("allowedCatalog").GetProperty("trust").GetString());
+        Assert.True(input.RootElement.GetProperty("allowedCatalog").TryGetProperty("semanticKeysByCategory", out _));
     }
 
     [Fact]
@@ -67,7 +72,7 @@ public sealed class OpenAiProductSearchClientTests
         {
             intent = "PrebuiltComputer",
             purposes = Array.Empty<string>(),
-            budget = new { minimum = (decimal?)null, maximum = 15_000m },
+            budget = (object?)null,
             keyword = "主機",
             categoryCode = "PREBUILT_COMPUTER",
             preferredBrandCodes = Array.Empty<string>(),
@@ -75,7 +80,7 @@ public sealed class OpenAiProductSearchClientTests
             requiredSpecs = Array.Empty<object>(),
             preferences = Array.Empty<string>(),
             proposedExistingParts = Array.Empty<object>(),
-            clarifications = new[] { "您同時指定至少兩萬元與最多一萬五，請確認可接受的預算範圍。" },
+            clarifications = Array.Empty<string>(),
         });
         var handler = new RecordingHandler(_ => JsonResponse(output));
         var subject = CreateSubject(handler);
@@ -89,6 +94,143 @@ public sealed class OpenAiProductSearchClientTests
         Assert.Equal(AiProductSearchModelStatus.Completed, result.Status);
         Assert.Null(result.Intent?.Budget?.Minimum);
         Assert.Equal(15_000m, result.Intent?.Budget?.Maximum);
+        var clarification = Assert.Single(result.Intent!.Clarifications);
+        Assert.Contains("20,000", clarification, StringComparison.Ordinal);
+        Assert.Contains("15,000", clarification, StringComparison.Ordinal);
+        Assert.Contains("預算範圍", clarification, StringComparison.Ordinal);
+        Assert.Equal(1, handler.CallCount);
+    }
+
+    [Fact]
+    public async Task ParseIntentAsync_HardwareSpecificationNumberIsNotTreatedAsBudgetMinimum()
+    {
+        var output = JsonSerializer.Serialize(new
+        {
+            intent = "PrebuiltComputer",
+            purposes = new[] { "GraphicDesign" },
+            budget = (object?)null,
+            keyword = "繪圖主機",
+            categoryCode = "PREBUILT_COMPUTER",
+            preferredBrandCodes = Array.Empty<string>(),
+            excludedBrandCodes = Array.Empty<string>(),
+            requiredSpecs = Array.Empty<object>(),
+            preferences = Array.Empty<string>(),
+            proposedExistingParts = Array.Empty<object>(),
+            clarifications = Array.Empty<string>(),
+        });
+        var handler = new RecordingHandler(_ => JsonResponse(output));
+        var subject = CreateSubject(handler);
+
+        var result = await subject.ParseIntentAsync(
+            "預算六萬元內，RAM 至少 64GB。",
+            SupportedLocale.ZhTw,
+            Metadata(),
+            default);
+
+        Assert.Equal(AiProductSearchModelStatus.Completed, result.Status);
+        Assert.Null(result.Intent?.Budget?.Minimum);
+        Assert.Equal(60_000m, result.Intent?.Budget?.Maximum);
+        Assert.Empty(result.Intent!.Clarifications);
+        Assert.Equal(1, handler.CallCount);
+    }
+
+    [Fact]
+    public async Task ParseIntentAsync_SearchNovice025_RestoresMaximumAndRemovesBudgetQuestion()
+    {
+        var output = JsonSerializer.Serialize(new
+        {
+            intent = "CustomBuild",
+            purposes = new[] { "Gaming" },
+            budget = (object?)null,
+            keyword = "遊戲主機",
+            categoryCode = "CUSTOM_BUILD",
+            preferredBrandCodes = new[] { "NOVACORE" },
+            excludedBrandCodes = new[] { "PIXELFORGE" },
+            requiredSpecs = Array.Empty<object>(),
+            preferences = Array.Empty<string>(),
+            proposedExistingParts = Array.Empty<object>(),
+            clarifications = new[] { "你的最高預算是多少？" },
+        });
+        var handler = new RecordingHandler(_ => JsonResponse(output));
+        var subject = CreateSubject(handler);
+
+        var result = await subject.ParseIntentAsync(
+            "偏好 NovaCore，但不要 PixelForge，三萬五遊戲主機。",
+            SupportedLocale.ZhTw,
+            SearchNovice025Metadata(),
+            default);
+
+        Assert.Equal(AiProductSearchModelStatus.Completed, result.Status);
+        Assert.Null(result.Intent?.Budget?.Minimum);
+        Assert.Equal(35_000m, result.Intent?.Budget?.Maximum);
+        Assert.Equal(["NOVACORE"], result.Intent?.PreferredBrandCodes);
+        Assert.Equal(["PIXELFORGE"], result.Intent?.ExcludedBrandCodes);
+        Assert.Empty(result.Intent!.Clarifications);
+        Assert.Equal(1, handler.CallCount);
+    }
+
+    [Theory]
+    [InlineData("想玩動作遊戲，三萬五左右的主機。")]
+    [InlineData("想玩動作遊戲，兩三萬的主機。")]
+    public async Task ParseIntentAsync_AmbiguousChineseAmountDoesNotOverrideModel(string message)
+    {
+        var output = JsonSerializer.Serialize(new
+        {
+            intent = "CustomBuild",
+            purposes = new[] { "Gaming" },
+            budget = (object?)null,
+            keyword = "遊戲主機",
+            categoryCode = "PREBUILT_COMPUTER",
+            preferredBrandCodes = Array.Empty<string>(),
+            excludedBrandCodes = Array.Empty<string>(),
+            requiredSpecs = Array.Empty<object>(),
+            preferences = Array.Empty<string>(),
+            proposedExistingParts = Array.Empty<object>(),
+            clarifications = new[] { "請確認可接受的最高預算。" },
+        });
+        var handler = new RecordingHandler(_ => JsonResponse(output));
+        var subject = CreateSubject(handler);
+
+        var result = await subject.ParseIntentAsync(
+            message,
+            SupportedLocale.ZhTw,
+            Metadata(),
+            default);
+
+        Assert.Equal(AiProductSearchModelStatus.Completed, result.Status);
+        Assert.Null(result.Intent?.Budget);
+        Assert.Single(result.Intent!.Clarifications);
+        Assert.Equal(1, handler.CallCount);
+    }
+
+    [Fact]
+    public async Task ParseIntentAsync_NonZhTw_DoesNotApplyChineseBudgetGuard()
+    {
+        var output = JsonSerializer.Serialize(new
+        {
+            intent = "CustomBuild",
+            purposes = new[] { "Gaming" },
+            budget = (object?)null,
+            keyword = "遊戲主機",
+            categoryCode = "PREBUILT_COMPUTER",
+            preferredBrandCodes = Array.Empty<string>(),
+            excludedBrandCodes = Array.Empty<string>(),
+            requiredSpecs = Array.Empty<object>(),
+            preferences = Array.Empty<string>(),
+            proposedExistingParts = Array.Empty<object>(),
+            clarifications = new[] { "請確認可接受的最高預算。" },
+        });
+        var handler = new RecordingHandler(_ => JsonResponse(output));
+        var subject = CreateSubject(handler);
+
+        var result = await subject.ParseIntentAsync(
+            "想玩動作遊戲，三萬五的主機。",
+            SupportedLocale.JaJp,
+            Metadata(),
+            default);
+
+        Assert.Equal(AiProductSearchModelStatus.Completed, result.Status);
+        Assert.Null(result.Intent?.Budget);
         Assert.Single(result.Intent!.Clarifications);
         Assert.Equal(1, handler.CallCount);
     }
@@ -249,6 +391,77 @@ public sealed class OpenAiProductSearchClientTests
     }
 
     [Fact]
+    public async Task ParseIntentAsync_StorageCategoryWithMemoryCapacitySpec_FailsClosed()
+    {
+        var output = JsonSerializer.Serialize(new
+        {
+            intent = "SingleProduct",
+            purposes = Array.Empty<string>(),
+            budget = new { minimum = (decimal?)null, maximum = 8_000m },
+            keyword = "儲存裝置",
+            categoryCode = "STORAGE",
+            preferredBrandCodes = Array.Empty<string>(),
+            excludedBrandCodes = Array.Empty<string>(),
+            requiredSpecs = new[]
+            {
+                new { semanticKey = "MEMORY_KIT_CAPACITY_GB", @operator = "gte", value = "8192", unit = "GB" },
+            },
+            preferences = new[] { "家庭照片" },
+            proposedExistingParts = Array.Empty<object>(),
+            clarifications = Array.Empty<string>(),
+        });
+        var handler = new RecordingHandler(_ => JsonResponse(output));
+        var subject = CreateSubject(handler);
+
+        var result = await subject.ParseIntentAsync(
+            "想存家庭照片，請推薦 8TB 儲存裝置，預算八千。",
+            SupportedLocale.ZhTw,
+            StorageMetadata(),
+            default);
+
+        Assert.Equal(AiProductSearchModelStatus.InvalidOutput, result.Status);
+        Assert.Null(result.Intent);
+        Assert.Equal("INTENT_SPECIFICATION_CATEGORY_MISMATCH", result.ValidationFailureCode);
+        Assert.Equal("requiredSpecs", result.ValidationFailureField);
+    }
+
+    [Fact]
+    public async Task ParseIntentAsync_StorageCapacityInTb_NormalizesToGb()
+    {
+        var output = JsonSerializer.Serialize(new
+        {
+            intent = "SingleProduct",
+            purposes = Array.Empty<string>(),
+            budget = new { minimum = (decimal?)null, maximum = 8_000m },
+            keyword = "儲存裝置",
+            categoryCode = "STORAGE",
+            preferredBrandCodes = Array.Empty<string>(),
+            excludedBrandCodes = Array.Empty<string>(),
+            requiredSpecs = new[]
+            {
+                new { semanticKey = "STORAGE_CAPACITY_GB", @operator = "gte", value = "8", unit = "TB" },
+            },
+            preferences = new[] { "家庭照片" },
+            proposedExistingParts = Array.Empty<object>(),
+            clarifications = Array.Empty<string>(),
+        });
+        var handler = new RecordingHandler(_ => JsonResponse(output));
+        var subject = CreateSubject(handler);
+
+        var result = await subject.ParseIntentAsync(
+            "想存家庭照片，請推薦 8TB 儲存裝置，預算八千。",
+            SupportedLocale.ZhTw,
+            StorageMetadata(),
+            default);
+
+        Assert.Equal(AiProductSearchModelStatus.Completed, result.Status);
+        var spec = Assert.Single(result.Intent!.RequiredSpecs);
+        Assert.Equal("STORAGE_CAPACITY_GB", spec.SemanticKey);
+        Assert.Equal("8192", spec.Value);
+        Assert.Equal("GB", spec.Unit);
+    }
+
+    [Fact]
     public async Task ExplainAsync_ApprovedCandidate_ReturnsGroundedReasonWithoutHttpCall()
     {
         var handler = new RecordingHandler(_ => throw new InvalidOperationException("No explanation HTTP call expected."));
@@ -405,6 +618,20 @@ public sealed class OpenAiProductSearchClientTests
 
     private static AiProductSearchMetadata Metadata() =>
         new(["PREBUILT_COMPUTER"], ["DOSELECT"], ["MEMORY_TYPE"]);
+
+    private static AiProductSearchMetadata StorageMetadata() =>
+        new(
+            ["STORAGE", "MEMORY"],
+            ["DOSELECT"],
+            ["STORAGE_CAPACITY_GB", "MEMORY_KIT_CAPACITY_GB"],
+            new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
+            {
+                ["STORAGE"] = ["STORAGE_CAPACITY_GB"],
+                ["MEMORY"] = ["MEMORY_KIT_CAPACITY_GB"],
+            });
+
+    private static AiProductSearchMetadata SearchNovice025Metadata() =>
+        new(["CUSTOM_BUILD"], ["NOVACORE", "PIXELFORGE"], ["MEMORY_TYPE"]);
 
     private static AiProductSearchIntent Intent() =>
         new(
