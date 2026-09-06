@@ -10,6 +10,14 @@ type DoSelectFixtures = {
   seed: {
     adminEmail: string
     adminPassword: string
+    // H-R03 的 admin-chromium 測試在 CI 對整套測試共用一顆資料庫，若沿用上面 adminEmail
+    // 這顆「唯一」管理員帳號，誰先完成 TOTP 綁定，其餘測試看到的畫面就會從
+    // /admin/login/enroll 變成 /admin/login/verify（alex PR #117 review P1）。這兩個帳號
+    // 由後端種子（MinimalDevelopmentDataSeeder.EnsurePreEnrolledAdminAsync）直接種成
+    // 「已知秘鑰、已完成綁定」狀態，H-R03 兩支測試各用一個、完全跳過 enroll 流程。
+    adminHr03PrimaryEmail: string
+    adminHr03SecondaryEmail: string
+    adminHr03TotpSecret: string
     adminPublicId: string
     returnAdminEmail: string
     supportAdminEmail: string
@@ -84,6 +92,12 @@ export const test = base.extend<DoSelectFixtures>({
     await use({
       adminEmail: 'admin@doselect.local',
       adminPassword: process.env.Seed__AdminPassword ?? '',
+      adminHr03PrimaryEmail: 'admin-h-r03-primary@doselect.local',
+      adminHr03SecondaryEmail: 'admin-h-r03-secondary@doselect.local',
+      // 跟 adminPassword 同一套慣例（AUTO-DEC-006）：不寫死在原始碼，值只由
+      // scripts/test-customer-e2e.ps1 以 Seed__AdminHr03TotpSecret 環境變數注入，跟後端種子
+      // （EnsurePreEnrolledAdminAsync）讀的是同一把秘鑰。
+      adminHr03TotpSecret: process.env.Seed__AdminHr03TotpSecret ?? '',
       adminPublicId: '0f269121-89a5-43a4-97f5-b95278bc0cf6',
       returnAdminEmail: 'return-admin@doselect.local',
       supportAdminEmail: 'support-admin@doselect.local',

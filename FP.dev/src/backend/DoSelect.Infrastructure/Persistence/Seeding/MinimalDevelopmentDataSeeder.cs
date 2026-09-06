@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using DoSelect.Domain.Builds;
 using DoSelect.Domain.Catalog;
 using DoSelect.Domain.Invoicing;
@@ -11,6 +12,7 @@ using DoSelect.Domain.Promotions;
 using DoSelect.Domain.Shopping;
 using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Persistence.Identity;
+using DoSelect.Infrastructure.Security;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -23,6 +25,37 @@ public sealed class MinimalDevelopmentDataSeeder(
     RoleManager<IdentityRole> roleManager,
     IConfiguration configuration)
 {
+    // AUTO-DEC-006「管理員 TOTP：Seed 不預先設定 TOTP；首次正式管理登入流程必須先完成
+    // Google Authenticator 綁定」——H-R03 的預綁定管理員（見下方 EnsurePreEnrolledAdminAsync）
+    // 違反這條規則，只能限制在「確定是拋棄式、隔離的 E2E 資料庫」時才建立，一般
+    // Development／CI 對共用 DoSelectDb 執行同一個 Seeder 時必須維持原本未預綁定的安全邊界
+    // （alex PR #117 review 第三輪 P1：先前版本無條件建立，一般 --seed-minimal 也會種出這兩個
+    // 第二因素已公開且可預測的最高權限帳號）。與 playwright.config.ts／
+    // scripts/test-customer-e2e.ps1 各自獨立檢查同一個資料庫命名規則，屬多層防護，不是唯一防線。
+    //
+    // ⚠ 直接讀 OS 環境變數而不是注入 IHostEnvironment：這個 Seeder 也被多個
+    // DoSelect.Infrastructure.Tests 的 SQL Server provider-backed 測試直接用一個裸
+    // ServiceCollection 建構（未經過 WebApplicationBuilder，不會自動註冊
+    // IHostEnvironment），加了這個建構函式相依會讓那些測試在 DI 解析階段直接炸掉
+    // （CI 已實測：AiCustomBuildSqlServerTests 等測試組建 ServiceProvider 失敗）。
+    // ASPNETCORE_ENVIRONMENT 本來就是一個環境變數，直接讀取跟任何主機／DI 設定無關，
+    // 兩邊（真實 API 啟動與純測試 ServiceCollection）都能一致運作。
+    private static readonly Regex IsolatedE2EDatabaseNamePattern = new(
+        @"(?:Database|Initial Catalog)\s*=\s*DoSelectE2E(?:_[0-9a-f]{32})?(?:;|$)",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private bool IsIsolatedE2EEnvironment()
+    {
+        var environmentName = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
+        if (!string.Equals(environmentName, "E2E", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var connectionString = dbContext.Database.GetConnectionString();
+        return connectionString is not null && IsolatedE2EDatabaseNamePattern.IsMatch(connectionString);
+    }
+
     public async Task<MinimalDevelopmentSeedResult> SeedAsync(
         CancellationToken cancellationToken = default)
     {
@@ -101,6 +134,36 @@ public sealed class MinimalDevelopmentDataSeeder(
             ["CustomerServiceSupervisor"],
             counters,
             cancellationToken);
+
+        if (IsIsolatedE2EEnvironment())
+        {
+            var hr03TotpSecret = configuration[MinimalDevelopmentSeedDefinitions.AdminHr03TotpSecretKey];
+            if (string.IsNullOrWhiteSpace(hr03TotpSecret))
+            {
+                throw new InvalidOperationException(
+                    $"Required E2E User Secret is missing: " +
+                    $"{MinimalDevelopmentSeedDefinitions.AdminHr03TotpSecretKey}.");
+            }
+
+            await EnsurePreEnrolledAdminAsync(
+                MinimalDevelopmentSeedDefinitions.AdminHr03PrimaryEmail,
+                passwords.AdminPassword,
+                MinimalDevelopmentSeedDefinitions.AdminHr03PrimaryPublicId,
+                "DEV-ADMIN-HR03-1",
+                "H-R03 E2E 管理員一號",
+                hr03TotpSecret,
+                counters,
+                cancellationToken);
+            await EnsurePreEnrolledAdminAsync(
+                MinimalDevelopmentSeedDefinitions.AdminHr03SecondaryEmail,
+                passwords.AdminPassword,
+                MinimalDevelopmentSeedDefinitions.AdminHr03SecondaryPublicId,
+                "DEV-ADMIN-HR03-2",
+                "H-R03 E2E 管理員二號",
+                hr03TotpSecret,
+                counters,
+                cancellationToken);
+        }
 
         var member = await EnsureUserAsync(
             MinimalDevelopmentSeedDefinitions.MemberEmail,
@@ -201,6 +264,69 @@ public sealed class MinimalDevelopmentDataSeeder(
             await userManager.CreateAsync(user, password));
         counters.UsersCreated++;
         return user;
+    }
+
+    /// <summary>
+    /// 種出一個「已知秘鑰、已完成 TOTP 綁定」的管理員帳號，專供 H-R03 的 admin-chromium
+    /// Browser E2E 使用（見 <see cref="MinimalDevelopmentSeedDefinitions.AdminHr03PrimaryEmail"/>
+    /// 旁的說明：整套測試共用一顆 CI 資料庫，沿用主要管理員會讓「誰先綁定 TOTP」變成競態）。
+    /// 直接用 <see cref="IdentityAdminAuthGateway"/> 內同一組 Identity 內部 LoginProvider／
+    /// TokenName 常數把 AuthenticatorKey 寫成固定值，而不是呼叫只會產生亂數新秘鑰的
+    /// ResetAuthenticatorKeyAsync——這樣 Playwright 端才能不透過任何 UI 就算出正確的 TOTP
+    /// code，完全跳過 enroll 流程。已綁定過（TwoFactorEnabled 已是 true）就不重覆寫入，
+    /// 讓本方法可安全重跑。
+    ///
+    /// ⚠ 只能由 <see cref="IsIsolatedE2EEnvironment"/> 為 true 時的呼叫端呼叫（AUTO-DEC-006：
+    /// 一般 Seed 不得預先設定 TOTP）；<paramref name="totpSecret"/> 一律來自呼叫端從
+    /// <see cref="MinimalDevelopmentSeedDefinitions.AdminHr03TotpSecretKey"/> 讀到的設定值，
+    /// 不在本類別內寫死。
+    /// </summary>
+    private async Task EnsurePreEnrolledAdminAsync(
+        string email,
+        string password,
+        Guid publicId,
+        string adminCode,
+        string displayName,
+        string totpSecret,
+        SeedCounters counters,
+        CancellationToken cancellationToken)
+    {
+        var admin = await EnsureUserAsync(email, password, AccountType.Admin, publicId, counters);
+
+        if (!await userManager.IsInRoleAsync(admin, "SuperAdmin"))
+        {
+            EnsureSucceeded(
+                "assign the SuperAdmin role",
+                await userManager.AddToRoleAsync(admin, "SuperAdmin"));
+        }
+
+        if (!await dbContext.AdminProfiles.AnyAsync(
+                profile => profile.UserId == admin.Id,
+                cancellationToken))
+        {
+            dbContext.AdminProfiles.Add(new AdminProfile(
+                admin.Id,
+                publicId,
+                adminCode,
+                displayName,
+                MinimalDevelopmentSeedDefinitions.CreatedAtUtc));
+            counters.ProfilesCreated++;
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+
+        if (!await userManager.GetTwoFactorEnabledAsync(admin))
+        {
+            EnsureSucceeded(
+                "set the fixed E2E authenticator key",
+                await userManager.SetAuthenticationTokenAsync(
+                    admin,
+                    IdentityAdminAuthGateway.IdentityAuthenticatorLoginProvider,
+                    IdentityAdminAuthGateway.IdentityAuthenticatorKeyTokenName,
+                    totpSecret));
+            EnsureSucceeded(
+                "enable two-factor authentication",
+                await userManager.SetTwoFactorEnabledAsync(admin, true));
+        }
     }
 
     private async Task EnsureCatalogAsync(
