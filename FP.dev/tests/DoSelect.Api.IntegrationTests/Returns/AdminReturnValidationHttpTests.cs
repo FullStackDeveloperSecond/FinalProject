@@ -190,6 +190,45 @@ public sealed class AdminReturnValidationHttpTests
         await AssertReturnUnchangedAsync(returnPublicId, rowVersion);
     }
 
+    /// <summary>
+    /// alex 2026-09-05 #111 review P1：admin-web 為了不讓 JavaScript 浮點數靜默改寫可信的
+    /// 退款輸入（見 #109／#111），把 <c>returnShippingCost</c> 當原始 decimal 字串送出
+    /// （例如 <c>"1.01"</c>），符合 generated contract 的 <c>number | string</c>。這裡直接
+    /// 送原始 JSON（而不是強型別的 C# 物件——那樣 System.Text.Json 會把 decimal 序列化成
+    /// JSON number，測不到前端真正送出的形狀）驗證 <c>JsonNumberHandling</c> 有正確加在
+    /// <see cref="DoSelect.Application.Returns.ApproveReturnRequest.ReturnShippingCost"/> 上，
+    /// 不會在模型繫結時就 400。
+    /// </summary>
+    [Fact]
+    public async Task Review_ReturnShippingCostAsJsonString_ModelBindsAndCreatesRefund()
+    {
+        var client = await _fixture.CreateAuthenticatedOrderManagerClientAsync();
+        var (returnPublicId, rowVersion, itemIds, _) =
+            await _fixture.SeedReturnAsync(ReturnRequestStatus.Requested);
+
+        var response = await PostAdminRawJsonAsync(
+            client, $"/api/v1/admin/returns/{returnPublicId}/actions/review",
+            $$"""
+            {
+              "approved": true,
+              "items": [{"returnItemPublicId":"{{itemIds[0]}}","approvedQuantity":1,"inspectionRequired":false}],
+              "reasonCode": "eligible",
+              "assemblyFeeDisposition": "notApplicable",
+              "returnShippingCost": "1.01",
+              "returnRowVersion": "{{Convert.ToBase64String(rowVersion)}}"
+            }
+            """);
+
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.True(response.StatusCode == HttpStatusCode.OK, $"Expected 200 but received {(int)response.StatusCode}: {body}");
+
+        await using var context = _fixture.CreateScopedContext();
+        var returnRequestId = await context.ReturnRequests
+            .Where(r => r.PublicId == returnPublicId).Select(r => r.Id).SingleAsync();
+        var refundCreated = await context.Refunds.AnyAsync(r => r.ReturnRequestId == returnRequestId);
+        Assert.True(refundCreated, "The skip-shipment review path must have staged a Refund.");
+    }
+
     // ---- Receive ----
 
     [Fact]
@@ -277,6 +316,36 @@ public sealed class AdminReturnValidationHttpTests
 
         await AssertValidationFailedAsync(response);
         await AssertReturnUnchangedAsync(returnPublicId, rowVersion);
+    }
+
+    /// <summary>見 Review_ReturnShippingCostAsJsonString_ModelBindsAndCreatesRefund 的說明——
+    /// 同一個原因，驗證同一件事發生在 Inspect 這條路徑（<c>InspectReturnRequest</c>）。</summary>
+    [Fact]
+    public async Task Inspect_ReturnShippingCostAsJsonString_ModelBindsAndCreatesRefund()
+    {
+        var client = await _fixture.CreateAuthenticatedOrderManagerClientAsync();
+        var (returnPublicId, rowVersion, itemIds, _) =
+            await _fixture.SeedReturnAsync(ReturnRequestStatus.Received);
+
+        var response = await PostAdminRawJsonAsync(
+            client, $"/api/v1/admin/returns/{returnPublicId}/actions/inspect",
+            $$"""
+            {
+              "items": [{"returnItemPublicId":"{{itemIds[0]}}","conditionCode":"Unopened","disposition":"resellable","note":null}],
+              "assemblyFeeDisposition": "notApplicable",
+              "returnShippingCost": "1.01",
+              "returnRowVersion": "{{Convert.ToBase64String(rowVersion)}}"
+            }
+            """);
+
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.True(response.StatusCode == HttpStatusCode.OK, $"Expected 200 but received {(int)response.StatusCode}: {body}");
+
+        await using var context = _fixture.CreateScopedContext();
+        var returnRequestId = await context.ReturnRequests
+            .Where(r => r.PublicId == returnPublicId).Select(r => r.Id).SingleAsync();
+        var refundCreated = await context.Refunds.AnyAsync(r => r.ReturnRequestId == returnRequestId);
+        Assert.True(refundCreated, "The Inspect path must have staged a Refund.");
     }
 
     // ---- Extend shipment deadline ----

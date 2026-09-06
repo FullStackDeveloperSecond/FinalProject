@@ -298,6 +298,14 @@ jobs:
       GuestOrderAccess__Pepper: "ci-only-guest-order-access-pepper-32-bytes"
       Seed__AdminPassword: "E2e_Admin_123!"
       Seed__MemberPassword: "E2e_Member_123!"
+      # H-R03 的兩個預綁定管理員只在 ASPNETCORE_ENVIRONMENT=E2E 且連線字串指向隔離
+      # DoSelectE2E* 資料庫時才會種出（見 MinimalDevelopmentDataSeeder.IsIsolatedE2EEnvironment，
+      # AUTO-DEC-006）。E2E_ASPNETCORE_ENVIRONMENT 只會傳給 Playwright 自己另外啟動的那個
+      # webServer API 行程，不會影響下面「Prepare disposable E2E database」這步直接呼叫的
+      # `dotnet run -- --seed-minimal`——這裡要另外設 ASPNETCORE_ENVIRONMENT 本身，這個種子步驟
+      # 才會實際建立 H-R03 帳號，而不是被自己的安全守門悄悄跳過。
+      ASPNETCORE_ENVIRONMENT: "E2E"
+      Seed__AdminHr03TotpSecret: "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
       E2E_ASPNETCORE_ENVIRONMENT: "E2E"
       E2E_BACKGROUND_JOBS_ENABLED: "true"
       E2E_SIMULATION_ENDPOINTS_ENABLED: "true"

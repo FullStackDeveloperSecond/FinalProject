@@ -1,14 +1,20 @@
 ---
 文件狀態: 已確認
-最後更新: 2026-08-13
+最後更新: 2026-09-06
 追蹤項目: [DEMO-02]
 ---
 
 # Demo 前檢查表
 
+## 本輪 Release Candidate 基準
+
+- Exact SHA：`48819192644fe3cbf7540e45274f5cf9c045307c`
+- Required CI：GitHub Actions Run `34015666174`，`CI Required` 成功。
+- 展示環境開始前必須執行 `git rev-parse HEAD` 並取得上述完整 SHA；不一致時停止，不得以根工作樹或其他 revision 展示。
+
 ## 前一天
 
-- [ ] Git Commit、Migration、Prompt／Schema 版本與 Seed 版本已凍結並記錄。
+- [ ] `git rev-parse HEAD` 等於 `48819192644fe3cbf7540e45274f5cf9c045307c`，且 Migration、Prompt／Schema 版本與 Seed 版本已凍結並記錄。
 - [ ] SQL＋檔案 Backup Set 已建立且還原驗證成功。
 - [ ] 完整預錄與 AI 片段可離線播放，聲音與字幕正常。
 - [ ] 展示帳號、TOTP、Email 收件匣與瀏覽器 Profile 可用。

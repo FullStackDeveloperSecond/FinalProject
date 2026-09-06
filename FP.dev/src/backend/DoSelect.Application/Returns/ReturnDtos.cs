@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 using DoSelect.Application.Common;
 using DoSelect.Application.Support.Dtos;
 using DoSelect.Domain.Refunds;
@@ -180,6 +181,12 @@ public sealed record ApproveReturnRequest
 
     public AssemblyFeeDisposition? AssemblyFeeDisposition { get; init; }
 
+    // alex 2026-09-05 #111 review P1：admin-web 為了不讓 JavaScript 浮點數靜默改寫可信的
+    // 退款輸入，把這個欄位當原始 decimal 字串送出（例如 "1.01"）。明確加上這個屬性，
+    // 不依賴目前這個專案的 JsonSerializerOptions（Web defaults + enum converter）恰好
+    // 能反序列化字串——那是這個組合現在的行為，不是這個型別的保證，換一種設定或未來
+    // .NET 版本都可能改變。加了這個屬性，行為就不再取決於外部設定。
+    [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
     [Range(typeof(decimal), "0", "79228162514264337593543950335")]
     public decimal? ReturnShippingCost { get; init; }
 
@@ -224,6 +231,8 @@ public sealed record InspectReturnRequest
 
     public AssemblyFeeDisposition? AssemblyFeeDisposition { get; init; }
 
+    // 見 ApproveReturnRequest.ReturnShippingCost 上的說明——同一個原因，同一個修正。
+    [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
     [Range(typeof(decimal), "0", "79228162514264337593543950335")]
     public decimal? ReturnShippingCost { get; init; }
 }

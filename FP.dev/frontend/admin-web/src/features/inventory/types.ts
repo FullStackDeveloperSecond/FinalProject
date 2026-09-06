@@ -21,3 +21,12 @@ export type CursorPageOfInventoryReservationDto = components['schemas']['CursorP
  * 跟其他 DTO 一樣直接用產生的 schema。`rowVersion` 是後端 byte[] 的 base64 字串。
  */
 export type ReleaseReservationRequest = components['schemas']['ReleaseReservationRequest']
+
+/**
+ * 對帳案件（UC-ADM-INV-01 對帳；PR #107 補回 dismiss／resolve 端點後的產生契約）。
+ * `rowVersion` 同樣是 byte[] 的 base64 字串；int32 欄位在產生器裡是 `number | string`，頁面用 Number() 收斂。
+ */
+export type InventoryReconciliationCaseDto = components['schemas']['InventoryReconciliationCaseDto']
+export type PageResultOfInventoryReconciliationCaseDto = components['schemas']['PageResultOfInventoryReconciliationCaseDto']
+export type AcknowledgeReconciliationCaseRequest = components['schemas']['AcknowledgeReconciliationCaseRequest']
+export type ReconciliationCaseResolutionRequest = components['schemas']['ReconciliationCaseResolutionRequest']

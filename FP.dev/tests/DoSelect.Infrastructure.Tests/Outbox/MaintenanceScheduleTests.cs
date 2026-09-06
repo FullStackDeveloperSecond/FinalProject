@@ -36,6 +36,18 @@ public sealed class MaintenanceScheduleTests
         Assert.Equal("Asia/Taipei", registration.Options.TimeZone?.Id);
     }
 
+    [Fact]
+    public void SupportSlaScan_RunsEveryFiveMinutesOnCriticalQueue()
+    {
+        var registration = Registration("support-sla-scan");
+
+        Assert.Equal("critical", registration.Job.Queue);
+        Assert.Equal(typeof(SupportSlaMaintenanceJob), registration.Job.Type);
+        Assert.Equal(nameof(SupportSlaMaintenanceJob.RunAsync), registration.Job.Method.Name);
+        Assert.Equal("*/5 * * * *", registration.Cron);
+        Assert.Equal("Asia/Taipei", registration.Options.TimeZone?.Id);
+    }
+
     private static CapturedRegistration Registration(string recurringJobId)
     {
         var manager = new CapturingRecurringJobManager();

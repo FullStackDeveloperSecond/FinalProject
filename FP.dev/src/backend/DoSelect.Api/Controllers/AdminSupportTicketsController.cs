@@ -152,6 +152,17 @@ public sealed class AdminSupportTicketsController : ControllerBase
         return Ok(result);
     }
 
+    [Authorize(Policy = DoSelectPolicies.SupportTicketHandle)]
+    [HttpPost("{id:guid}/messages")]
+    public async Task<ActionResult<AdminSupportTicketDetailDto>> AddPublicReply(
+        Guid id,
+        [FromBody] CreateAdminSupportReplyRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _service.AddPublicReplyAsync(BuildContext(), id, request, cancellationToken);
+        return Ok(result);
+    }
+
     [Authorize(Policy = DoSelectPolicies.Admin)]
     [HttpGet("sla")]
     public async Task<ActionResult<CursorPage<SupportSlaItemDto>>> GetSlaQueue(

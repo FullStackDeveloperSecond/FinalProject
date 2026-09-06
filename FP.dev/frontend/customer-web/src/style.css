@@ -1,34 +1,7 @@
 :root {
-  --color-bg: #ffffff;
-  --color-surface: #f4f8fc;
-  --color-surface-strong: #e8f2fc;
-  --color-primary: #2f7dd3;
-  --color-primary-dark: #1f63ac;
-  --color-primary-soft: #eaf3fc;
-  --color-text: #153452;
-  --color-text-muted: #4c6b85;
-  --color-border: #c9dcec;
-  --color-border-soft: #dcebf7;
-  --color-success: #1f8a5c;
-  --color-success-bg: #e6f5ee;
-  --color-warning: #b8790f;
-  --color-warning-bg: #fbf1e0;
-  --color-danger: #c23a3a;
-  --color-danger-bg: #fbeaea;
-  --shadow-sm: 0 1px 2px rgba(21, 52, 82, 0.07);
-  --shadow-md: 0 4px 14px rgba(21, 52, 82, 0.09);
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 20px;
   --max-width: 1200px;
   --control-height: 44px;
   --header-h: 64px;
-
-  font-family: "Segoe UI", "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", system-ui, sans-serif;
-  color: var(--color-text);
-  background: var(--color-bg);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
 }
 
 * {

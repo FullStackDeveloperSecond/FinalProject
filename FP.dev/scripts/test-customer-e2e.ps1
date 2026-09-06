@@ -21,6 +21,7 @@ if ([string]::IsNullOrWhiteSpace($JourneyTitle)) {
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $apiProject = Join-Path $projectRoot 'src\backend\DoSelect.Api'
 $infrastructureProject = Join-Path $projectRoot 'src\backend\DoSelect.Infrastructure'
+$apiIntegrationTests = Join-Path $projectRoot 'tests\DoSelect.Api.IntegrationTests\DoSelect.Api.IntegrationTests.csproj'
 $customerWeb = Join-Path $projectRoot 'frontend\customer-web'
 $databaseName = "DoSelectE2E_$([Guid]::NewGuid().ToString('N'))"
 $dataRoot = Join-Path ([IO.Path]::GetTempPath()) $databaseName
@@ -101,6 +102,7 @@ $previousConnectionString = $env:ConnectionStrings__DefaultConnection
 $previousEnvironment = $env:ASPNETCORE_ENVIRONMENT
 $previousAdminPassword = $env:Seed__AdminPassword
 $previousMemberPassword = $env:Seed__MemberPassword
+$previousAdminHr03TotpSecret = $env:Seed__AdminHr03TotpSecret
 $previousDataRoot = $env:E2E_STORAGE_DATA_ROOT
 $previousReuseExistingServer = $env:E2E_REUSE_EXISTING_SERVER
 $previousApiEnvironment = $env:E2E_ASPNETCORE_ENVIRONMENT
@@ -117,12 +119,21 @@ try {
     $env:ASPNETCORE_ENVIRONMENT = 'E2E'
     $env:Seed__AdminPassword = 'E2e_Admin_123!'
     $env:Seed__MemberPassword = 'E2e_Member_123!'
+    # H-R03 的兩個預綁定管理員專用固定 TOTP 秘鑰——只在此處（隔離的 DoSelectE2E* 資料庫、
+    # ASPNETCORE_ENVIRONMENT=E2E）由 MinimalDevelopmentDataSeeder 讀取並寫入，一般 Development
+    # Seed 不會設定這個環境變數，也就不會建立這兩個帳號（AUTO-DEC-006：Seed 不預先設定 TOTP）。
+    $env:Seed__AdminHr03TotpSecret = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP'
     $env:E2E_STORAGE_DATA_ROOT = $dataRoot
     $env:E2E_REUSE_EXISTING_SERVER = 'false'
+    # -like (substring) rather than -eq: Playwright test titles built from multiple journeys are
+    # joined with "; " (e.g. the H-R02 title below is actually prefixed with the TOTP enrollment
+    # title), so an exact match against either half alone never matched the real combined title.
     $requiresPaymentCompletionInfrastructure =
-        $JourneyTitle -eq 'a guest completes the prepared cart through checkout payment and invoice' -or
-        $JourneyTitle -eq 'a seeded administrator can enroll TOTP, reject a wrong code, and sign in again' -or
-        $JourneyTitle -eq 'H-R02 fulfills COD home delivery and store pickup exactly once'
+        $JourneyTitle -like '*a guest completes the prepared cart through checkout payment and invoice*' -or
+        $JourneyTitle -like '*a seeded administrator can enroll TOTP, reject a wrong code, and sign in again*' -or
+        $JourneyTitle -like '*H-R02 fulfills COD home delivery and store pickup exactly once*' -or
+        $JourneyTitle -like '*H-R03 DES-21*DES-22 refund and allowance journey*' -or
+        $JourneyTitle -like '*H-R03 minimum cases partial refund and Actor scope*'
     $env:E2E_ASPNETCORE_ENVIRONMENT = 'E2E'
     if ($requiresPaymentCompletionInfrastructure) {
         $env:E2E_BACKGROUND_JOBS_ENABLED = 'true'
@@ -150,6 +161,17 @@ try {
     & dotnet run --project $apiProject --no-build --no-launch-profile -- --seed-minimal
     if ($LASTEXITCODE -ne 0) {
         throw 'Minimal E2E seed failed.'
+    }
+
+    if ($JourneyTitle -eq 'a member creates a support case and the assigned administrator publicly replies') {
+        & dotnet test $apiIntegrationTests `
+            --no-restore `
+            --nologo `
+            --filter 'FullyQualifiedName~AdminSupportTicketReplyStoreTests' `
+            --logger 'console;verbosity=minimal'
+        if ($LASTEXITCODE -ne 0) {
+            throw 'M-14 provider-backed support reply tests failed.'
+        }
     }
 
     Push-Location $customerWeb
@@ -183,6 +205,7 @@ finally {
         $env:ASPNETCORE_ENVIRONMENT = $previousEnvironment
         $env:Seed__AdminPassword = $previousAdminPassword
         $env:Seed__MemberPassword = $previousMemberPassword
+        $env:Seed__AdminHr03TotpSecret = $previousAdminHr03TotpSecret
         $env:E2E_STORAGE_DATA_ROOT = $previousDataRoot
         $env:E2E_REUSE_EXISTING_SERVER = $previousReuseExistingServer
         $env:E2E_ASPNETCORE_ENVIRONMENT = $previousApiEnvironment
