@@ -1,4 +1,4 @@
-export const datasetVersion = 'zh-TW-v1.0.5-draft'
+export const datasetVersion = 'zh-TW-v1.0.6-draft'
 
 export const groupPlans = {
   'SEARCH-NOVICE': { count: 30, development: 18, release: 9, challenge: 3 },
@@ -106,7 +106,20 @@ const novice = [
   { message: '白色主機、預算四萬五，主要玩遊戲，也希望外觀好看。', outcome: 'recommend', intent: ['CustomBuild', ['Gaming'], 45000], candidates: ['build-gaming-balanced-35'], points: ['白色外觀是軟性偏好', '不得為外觀放寬相容性'] },
   { message: '想直播遊戲，整套主機五萬五內，不知道 CPU 和顯卡怎麼選。', outcome: 'recommend', intent: ['CustomBuild', ['Gaming', 'Streaming'], 55000], candidates: ['build-streaming-55'], points: ['說明直播與遊戲負載'] },
   { message: '寫程式、開很多瀏覽器分頁，預算三萬，想買現成主機。', outcome: 'recommend', intent: ['PrebuiltComputer', ['Programming'], 30000], candidates: ['workstation-programming-30'], points: ['說明記憶體與多工需求'] },
-  { message: '學生用，做報告、上網和偶爾修照片，兩萬元內。', outcome: 'recommend', intent: ['PrebuiltComputer', ['Office', 'GraphicDesign'], 20000], candidates: ['prebuilt-general-20'], points: ['說明輕度修圖限制'] },
+  {
+    message: '我有 DDR5 記憶體，只想買一張相容的主機板，預算六千五。',
+    outcome: 'clarify',
+    intent: ['SingleProduct', [], 6500],
+    category: 'Motherboard',
+    clarify: ['existingParts.confirmation'],
+    proposedParts: [{
+      categoryCode: 'MEMORY',
+      quantity: 1,
+      specifications: [{ semanticKey: 'MEMORY_TYPE', operator: 'eq', value: 'DDR5', unit: null }],
+    }],
+    tags: ['intent-generalization', 'existing-part-confirmation'],
+    points: ['單品需求不改判整機組裝', '既有記憶體須先由使用者確認'],
+  },
   { message: '我只知道想要 RGB 很亮的電腦，其他都不知道。', outcome: 'clarify', intent: ['CustomBuild', [], null], clarify: ['purposes', 'budget.max'], tags: ['core_clarification'], points: ['最多同時詢問用途與最高預算'] },
   { message: '房間很小，想要小台主機，三萬五內玩遊戲。', outcome: 'recommend', intent: ['CustomBuild', ['Gaming'], 35000], candidates: ['build-gaming-balanced-35'], points: ['小尺寸是偏好', '仍需後端尺寸規則驗證'] },
   { message: '希望電腦安靜一點，四萬元做一般工作和看影片。', outcome: 'recommend', intent: ['PrebuiltComputer', ['Office', 'General'], 40000], candidates: ['prebuilt-general-20'], points: ['安靜是排序偏好', '不得虛構噪音數據'] },
@@ -126,8 +139,31 @@ const novice = [
     candidates: ['storage-nas-8tb'],
     points: ['不把儲存裝置說成完整備份方案'],
   },
-  { message: '主機板要有 Wi-Fi，其他零件我已經有 AM5 CPU，預算七千。', outcome: 'recommend', intent: ['SingleProduct', ['General'], 7000], category: 'Motherboard', candidates: ['motherboard-wifi-am5'], points: ['既有 CPU 仍須使用者確認', 'Socket 交由規則驗證'] },
-  { message: '想換 2TB SSD，四千元內，速度比舊硬碟快就好。', outcome: 'recommend', intent: ['SingleProduct', ['General'], 4000], category: 'Storage', candidates: ['ssd-2tb'], points: ['需提醒介面相容性由規格確認'] },
+  {
+    message: '主機板要有 Wi-Fi，其他零件我已經有 AM5 CPU，預算七千。',
+    outcome: 'clarify',
+    intent: ['SingleProduct', [], 7000],
+    category: 'Motherboard',
+    preferences: ['需要 Wi-Fi'],
+    clarify: ['existingParts.confirmation'],
+    proposedParts: [{
+      categoryCode: 'CPU',
+      quantity: 1,
+      specifications: [{ semanticKey: 'CPU_SOCKET', operator: 'eq', value: 'AM5', unit: null }],
+    }],
+    tags: ['existing-part-confirmation'],
+    points: ['既有 CPU 仍須使用者確認', '確認前不得推薦', 'Socket 交由規則驗證'],
+  },
+  {
+    message: '想換 2TB SSD，四千元內，速度比舊硬碟快就好。',
+    outcome: 'recommend',
+    intent: ['SingleProduct', [], 4000],
+    category: 'Storage',
+    specs: [{ semanticKey: 'STORAGE_CAPACITY_GB', operator: 'eq', value: '2048', unit: 'GB' }],
+    preferences: ['速度比舊硬碟快'],
+    candidates: ['ssd-2tb'],
+    points: ['需提醒介面相容性由規格確認'],
+  },
   { message: '辦公室用安靜鍵盤，兩千五以內。', outcome: 'recommend', intent: ['SingleProduct', ['Office'], 2500], category: 'Keyboard', candidates: ['keyboard-silent'], points: ['安靜描述只能引用核准規格'] },
   { message: '遊戲滑鼠兩千內，不要太複雜。', outcome: 'recommend', intent: ['SingleProduct', ['Gaming'], 2000], category: 'Mouse', candidates: ['mouse-gaming'], points: ['理由需對應用途與預算'] },
   { message: '修圖螢幕兩萬元內，希望顏色準。', outcome: 'recommend', intent: ['SingleProduct', ['GraphicDesign'], 20000], category: 'Monitor', candidates: ['monitor-4k-creator'], points: ['不得虛構未提供的色域數字'] },
@@ -136,7 +172,15 @@ const novice = [
   { message: '三萬元幫我組電腦，主要用途我不想說。', outcome: 'clarify', intent: ['CustomBuild', [], 30000], clarify: ['purposes'], tags: ['core_clarification'], points: ['先詢問用途', '不可自行猜測'] },
   { message: '我要剪影片的電腦，但預算還不知道。', outcome: 'clarify', intent: ['CustomBuild', ['VideoEditing'], null], clarify: ['budget.max'], tags: ['core_clarification'], points: ['詢問最高預算'] },
   { message: '我只想要一台快的電腦，預算和用途都不要問。', outcome: 'fallback_keyword_search', intent: ['PrebuiltComputer', [], null], fallback: 'keyword_search', points: ['尊重拒絕補充', '提供一般搜尋與篩選'] },
-  { message: '預算三萬，玩遊戲也要剪片，但如果不能兩者兼顧請說明取捨。', outcome: 'recommend', intent: ['CustomBuild', ['Gaming', 'VideoEditing'], 30000], candidates: ['build-hybrid-30'], points: ['明確說明預算下的取捨'] }
+  {
+    message: '想找 FPS 專用的滑鼠，三千元內，按鍵不要太多。',
+    outcome: 'recommend',
+    intent: ['SingleProduct', ['Gaming'], 3000],
+    category: 'Mouse',
+    candidates: ['mouse-gaming'],
+    tags: ['intent-generalization', 'purpose-in-product-label'],
+    points: ['FPS 專用明確表示遊戲用途', '理由需對應用途與預算'],
+  }
 ]
 
 const creator = [
@@ -153,8 +197,17 @@ const creator = [
   { message: '要做 3D，但沒有說軟體與預算，先幫我直接推薦最強的。', outcome: 'clarify', intent: ['CustomBuild', ['ThreeDRendering'], null], clarify: ['budget.max'], tags: ['core_clarification'], points: ['至少詢問最高預算'] },
   { message: '專業剪輯主機預算八萬，偏好安靜但效能不能因此低於 64GB RAM。', intent: ['CustomBuild', ['VideoEditing'], 80000], candidates: ['workstation-video-80'], specs: ['memory.capacity_gb>=64'], points: ['安靜是軟偏好', '64GB 是硬限制'] },
   { message: '遊戲美術要同時跑繪圖與 3D，七萬五，請解釋取捨。', intent: ['CustomBuild', ['GraphicDesign', 'ThreeDRendering'], 75000], candidates: ['workstation-3d-70'], points: ['解釋 GPU、RAM 與預算取捨'], annotationStatus: 'approved' },
-  { message: '剪輯素材很多，另外要 2TB SSD，整體五萬元。', intent: ['CustomBuild', ['VideoEditing'], 50000], candidates: ['workstation-video-45'], specs: ['storage.capacity_gb>=2000'], points: ['保留 2TB 硬限制'] },
-  { message: 'YouTube 影片 1080p 剪輯，四萬元，想保留升級空間。', intent: ['PrebuiltComputer', ['VideoEditing'], 40000], candidates: ['workstation-video-40'], points: ['升級空間只能依已知規格說明'] },
+  {
+    message: '剪輯素材很多，另外要 2TB SSD，整體五萬元。',
+    intent: ['CustomBuild', ['VideoEditing'], 50000],
+    candidates: ['workstation-video-45'],
+    specs: [
+      { semanticKey: 'STORAGE_CAPACITY_GB', operator: 'gte', value: '2048', unit: 'GB' },
+      { semanticKey: 'STORAGE_INTERFACE', operator: 'eq', value: 'SSD', unit: null },
+    ],
+    points: ['保留 2TB 與 SSD 硬限制'],
+  },
+  { message: 'YouTube 影片 1080p 剪輯，四萬元，想保留升級空間。', intent: ['CustomBuild', ['VideoEditing'], 40000], candidates: ['workstation-video-40'], points: ['升級空間只能依已知規格說明'] },
   { message: '3D 渲染希望雙顯卡，但預算五萬。', outcome: 'no_result', intent: ['CustomBuild', ['ThreeDRendering'], 50000], specs: ['gpu.count>=2'], points: ['不虛構雙 GPU 候選', '提出放寬方式'] },
   { message: '設計工作站要 128GB RAM，預算六萬元，硬需求不能改。', outcome: 'no_result', intent: ['CustomBuild', ['GraphicDesign'], 60000], specs: ['memory.capacity_gb>=128'], points: ['保留 128GB 硬限制'] },
   { message: '剪輯和直播，預算沒有上限，但請先問我可以接受多少。', outcome: 'clarify', intent: ['CustomBuild', ['VideoEditing', 'Streaming'], null], clarify: ['budget.max'], tags: ['core_clarification'], points: ['詢問最高預算'] },
@@ -292,6 +345,7 @@ function searchCase(group, definition, index) {
       ...(definition.category ? { productCategory: definition.category } : {}),
       ...(definition.specs ? { requiredSpecs: definition.specs } : {}),
       ...(definition.preferences ? { preferences: definition.preferences } : {}),
+      ...(definition.proposedParts ? { proposedExistingParts: definition.proposedParts } : {}),
     },
     clarificationConcepts: definition.clarify ?? [],
     compatibility: definition.status ? {

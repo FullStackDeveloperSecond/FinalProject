@@ -15,7 +15,7 @@ public sealed class OpenAiProductSearchClient(
     HttpClient httpClient,
     IOptions<OpenAiResponsesOptions> options) : IAiProductSearchModelClient
 {
-    public const string PromptVersion = "product-search-v8";
+    public const string PromptVersion = "product-search-v9";
 
     private static readonly Uri ResponsesEndpoint =
         new("https://api.openai.com/v1/responses", UriKind.Absolute);
@@ -69,9 +69,10 @@ public sealed class OpenAiProductSearchClient(
                 "as within, at most, or a maximum set budget.maximum; do not drop a stated amount. " +
                 "When a user gives a single unambiguous colloquial amount before or after the shopping need, treat it as " +
                 "budget.maximum unless the user explicitly says it is a minimum. " +
-                "Add only purposes explicitly requested by the user. Do not infer Gaming merely from a job, " +
-                "creative-work label, or a word that contains game terminology; 遊戲美術 is a creative-work " +
-                "role, not Gaming, unless the user explicitly asks to play games. Storage context such as keeping " +
+                "Add only purposes explicitly requested by the user. When a product label explicitly describes its intended use, " +
+                "such as a competitive-gaming headset or a keyboard for office work, preserve that stated use as a purpose. " +
+                "Do not infer Gaming merely from a job or creative-work label; 遊戲美術 is a creative-work role, not Gaming, " +
+                "unless the user explicitly asks to play games. Storage context such as keeping " +
                 "family photos is a preference, not the General purpose. " +
                 "Classify a complete computer as PrebuiltComputer when the user explicitly asks for a " +
                 "ready-made, prebuilt, branded package, 現成, 套裝, or 買整台 computer, or makes a generic 主機 " +
@@ -79,7 +80,9 @@ public sealed class OpenAiProductSearchClient(
                 "or a purpose-and-budget computer request, including a budget-based gaming 主機 request without " +
                 "ready-made wording, as CustomBuild. " +
                 "For CustomBuild require at least one purpose and a maximum budget. " +
-                "For SingleProduct require a category or recognizable product keyword. " +
+                "For SingleProduct require a category or recognizable product keyword. A request for a named component or accessory " +
+                "remains SingleProduct even when the user also describes hardware they already own; do not reinterpret that request " +
+                "as a whole-computer CustomBuild. " +
                 "If those required values are explicit, return no clarification. Do not ask whether peripherals " +
                 "or a monitor should be included unless the user mentioned them. " +
                 "Use semanticKeysByCategory to keep every required specification within its selected category. " +
@@ -87,6 +90,8 @@ public sealed class OpenAiProductSearchClient(
                 "capacity deterministically with 1 TB = 1024 GB. " +
                 "If the user describes a part they already own, put only explicitly stated facts in " +
                 "proposedExistingParts. Never map free text to a catalog SKU and never mark a proposal confirmed. " +
+                "The application performs a separate application confirmation for proposed existing parts, so do not ask for a " +
+                "whole-computer purpose when the requested SingleProduct category or keyword and its budget are already explicit. " +
                 "When required information is missing, return one or two short clarification questions " +
                 "and do not guess the missing value. Do not ask about optional preferences when all required " +
                 "information is already explicit. If a stated minimum is greater than a stated maximum, never " +
