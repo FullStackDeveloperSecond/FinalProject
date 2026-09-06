@@ -61,7 +61,7 @@ public sealed class OpenAiProductSearchClientTests
         Assert.Contains("set minimum to null", instructions, StringComparison.Ordinal);
         Assert.Contains("Example: at least 30,000 but at most 20,000 for a computer", instructions, StringComparison.Ordinal);
         Assert.Contains("Example: a 40,000 video-editing computer", instructions, StringComparison.Ordinal);
-        Assert.Equal("product-search-v12", OpenAiProductSearchClient.PromptVersion);
+        Assert.Equal("product-search-v13", OpenAiProductSearchClient.PromptVersion);
         Assert.True(body.RootElement.GetProperty("text").GetProperty("format").GetProperty("strict").GetBoolean());
         Assert.Equal(
             "json_schema",
@@ -402,6 +402,72 @@ public sealed class OpenAiProductSearchClientTests
 
         Assert.Equal(AiProductSearchModelStatus.Unavailable, result.Status);
         Assert.Null(result.Intent);
+        Assert.Equal(1, handler.CallCount);
+    }
+
+    [Fact]
+    public async Task ParseIntentAsync_SearchNovice023_RestoresBareThousandsMaximum()
+    {
+        var output = JsonSerializer.Serialize(new
+        {
+            intent = "SingleProduct",
+            purposes = new[] { "Gaming" },
+            budget = (object?)null,
+            keyword = "滑鼠",
+            categoryCode = "MOUSE",
+            preferredBrandCodes = Array.Empty<string>(),
+            excludedBrandCodes = Array.Empty<string>(),
+            requiredSpecs = Array.Empty<object>(),
+            preferences = new[] { "不要太複雜" },
+            proposedExistingParts = Array.Empty<object>(),
+            clarifications = Array.Empty<string>(),
+        });
+        var handler = new RecordingHandler(_ => JsonResponse(output));
+        var subject = CreateSubject(handler);
+
+        var result = await subject.ParseIntentAsync(
+            "遊戲滑鼠兩千內，不要太複雜。",
+            SupportedLocale.ZhTw,
+            new AiProductSearchMetadata(["MOUSE"], ["DOSELECT"], []),
+            default);
+
+        Assert.Equal(AiProductSearchModelStatus.Completed, result.Status);
+        Assert.Null(result.Intent?.Budget?.Minimum);
+        Assert.Equal(2_000m, result.Intent?.Budget?.Maximum);
+        Assert.Equal(["不要太複雜"], result.Intent?.Preferences);
+        Assert.Empty(result.Intent!.Clarifications);
+        Assert.Equal(1, handler.CallCount);
+    }
+
+    [Fact]
+    public async Task ParseIntentAsync_BareThousandsHardwareThresholdDoesNotBecomeBudget()
+    {
+        var output = JsonSerializer.Serialize(new
+        {
+            intent = "SingleProduct",
+            purposes = new[] { "Gaming" },
+            budget = (object?)null,
+            keyword = "滑鼠",
+            categoryCode = "MOUSE",
+            preferredBrandCodes = Array.Empty<string>(),
+            excludedBrandCodes = Array.Empty<string>(),
+            requiredSpecs = Array.Empty<object>(),
+            preferences = new[] { "DPI 兩千以下" },
+            proposedExistingParts = Array.Empty<object>(),
+            clarifications = Array.Empty<string>(),
+        });
+        var handler = new RecordingHandler(_ => JsonResponse(output));
+        var subject = CreateSubject(handler);
+
+        var result = await subject.ParseIntentAsync(
+            "滑鼠 DPI 兩千以下，不限預算。",
+            SupportedLocale.ZhTw,
+            new AiProductSearchMetadata(["MOUSE"], ["DOSELECT"], []),
+            default);
+
+        Assert.Equal(AiProductSearchModelStatus.Completed, result.Status);
+        Assert.Null(result.Intent?.Budget);
+        Assert.Equal(["DPI 兩千以下"], result.Intent?.Preferences);
         Assert.Equal(1, handler.CallCount);
     }
 

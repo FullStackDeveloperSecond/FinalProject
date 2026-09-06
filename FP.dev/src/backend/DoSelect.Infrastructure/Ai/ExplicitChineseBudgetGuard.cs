@@ -41,6 +41,7 @@ internal static class ExplicitChineseBudgetGuard
     public static bool TryParse(
         string message,
         SupportedLocale locale,
+        string? productKeyword,
         out ExplicitBudgetSignal signal)
     {
         signal = null!;
@@ -51,8 +52,8 @@ internal static class ExplicitChineseBudgetGuard
             return false;
         }
 
-        var minimums = CollectAmounts(message, MinimumPrefixRegex, MinimumSuffixRegex);
-        var maximums = CollectAmounts(message, MaximumPrefixRegex, MaximumSuffixRegex);
+        var minimums = CollectAmounts(message, productKeyword, MinimumPrefixRegex, MinimumSuffixRegex);
+        var maximums = CollectAmounts(message, productKeyword, MaximumPrefixRegex, MaximumSuffixRegex);
         if (minimums.Count > 1 || maximums.Count > 1)
         {
             return false;
@@ -90,10 +91,14 @@ internal static class ExplicitChineseBudgetGuard
         return true;
     }
 
-    private static IReadOnlyList<decimal> CollectAmounts(string message, params Regex[] patterns) =>
+    private static IReadOnlyList<decimal> CollectAmounts(
+        string message,
+        string? productKeyword,
+        params Regex[] patterns) =>
         patterns
             .SelectMany(pattern => pattern.Matches(message).Cast<Match>())
-            .Where(match => match.Groups["amount"].Success && HasFinancialContext(match))
+            .Where(match => match.Groups["amount"].Success &&
+                HasFinancialContext(message, match, productKeyword))
             .GroupBy(match => match.Groups["amount"].Index)
             .Select(group => group.First().Groups["amount"].Value)
             .Select(value => TryParseAmount(value, out var parsed) ? parsed : (decimal?)null)
@@ -101,12 +106,36 @@ internal static class ExplicitChineseBudgetGuard
             .Select(value => value!.Value)
             .ToArray();
 
-    private static bool HasFinancialContext(Match match) =>
+    private static bool HasFinancialContext(string message, Match match, string? productKeyword) =>
         match.Groups["amount"].Value.Contains('萬') ||
         match.Value.Contains('元') ||
         match.Value.Contains('塊') ||
         match.Value.Contains("預算", StringComparison.Ordinal) ||
-        match.Value.Contains('花');
+        match.Value.Contains('花') ||
+        (match.Groups["amount"].Value.Contains('千') &&
+         IsAdjacentToExplicitProductKeyword(message, match, productKeyword));
+
+    private static bool IsAdjacentToExplicitProductKeyword(
+        string message,
+        Match match,
+        string? productKeyword)
+    {
+        var keyword = productKeyword?.Trim();
+        if (string.IsNullOrEmpty(keyword) ||
+            !message.Contains(keyword, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var beforeAmount = message[..match.Groups["amount"].Index].TrimEnd();
+        if (beforeAmount.EndsWith(keyword, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var afterBoundary = message[(match.Index + match.Length)..].TrimStart();
+        return afterBoundary.StartsWith(keyword, StringComparison.Ordinal);
+    }
 
     private static bool TryParseAmount(string raw, out decimal amount)
     {

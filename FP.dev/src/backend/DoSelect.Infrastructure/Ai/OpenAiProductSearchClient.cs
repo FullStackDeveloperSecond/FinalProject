@@ -16,7 +16,7 @@ public sealed class OpenAiProductSearchClient(
     HttpClient httpClient,
     IOptions<OpenAiResponsesOptions> options) : IAiProductSearchModelClient
 {
-    public const string PromptVersion = "product-search-v12";
+    public const string PromptVersion = "product-search-v13";
 
     private static readonly Uri ResponsesEndpoint =
         new("https://api.openai.com/v1/responses", UriKind.Absolute);
@@ -752,7 +752,7 @@ public sealed class OpenAiProductSearchClient(
             : new AiBudgetRange(output.Budget.Minimum, output.Budget.Maximum);
         IReadOnlyList<string> clarifications = LocalizePurposeNames(output.Clarifications, locale);
         var categoryCode = output.CategoryCode;
-        if (ExplicitChineseBudgetGuard.TryParse(message, locale, out var budgetSignal))
+        if (ExplicitChineseBudgetGuard.TryParse(message, locale, output.Keyword, out var budgetSignal))
         {
             budget = new AiBudgetRange(
                 budgetSignal.HasConflict ? null : budgetSignal.Minimum,
