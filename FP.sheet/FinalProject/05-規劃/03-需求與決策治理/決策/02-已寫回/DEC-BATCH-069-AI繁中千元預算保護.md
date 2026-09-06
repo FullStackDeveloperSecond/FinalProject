@@ -1,6 +1,6 @@
 # DEC-BATCH-069｜AI 繁中千元預算保護
 
-- 狀態：已接受，零成本驗證進行中
+- 狀態：已完成；後續獨立缺口由 DEC-BATCH-070 處理
 - 日期：2026-09-07
 - 決策者：Codex（依 alex 常駐授權）
 - 來源：`dev@d7c12700` 的 v12／support-v7 Dataset v1.0.13 完整 Release baseline

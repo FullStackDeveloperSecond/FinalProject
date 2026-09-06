@@ -61,7 +61,7 @@ public sealed class OpenAiProductSearchClientTests
         Assert.Contains("set minimum to null", instructions, StringComparison.Ordinal);
         Assert.Contains("Example: at least 30,000 but at most 20,000 for a computer", instructions, StringComparison.Ordinal);
         Assert.Contains("Example: a 40,000 video-editing computer", instructions, StringComparison.Ordinal);
-        Assert.Equal("product-search-v13", OpenAiProductSearchClient.PromptVersion);
+        Assert.Equal("product-search-v14", OpenAiProductSearchClient.PromptVersion);
         Assert.True(body.RootElement.GetProperty("text").GetProperty("format").GetProperty("strict").GetBoolean());
         Assert.Equal(
             "json_schema",
@@ -801,6 +801,99 @@ public sealed class OpenAiProductSearchClientTests
         Assert.Equal(AiProductSearchIntentType.CustomBuild, result.Intent!.Intent);
         Assert.Equal("CUSTOM_BUILD", result.Intent.CategoryCode);
         Assert.Single(result.Intent.Clarifications);
+    }
+
+    [Fact]
+    public async Task ParseIntentAsync_CompleteCustomBuild_RemovesRedundantComputerFormClarification()
+    {
+        var output = JsonSerializer.Serialize(new
+        {
+            intent = "CustomBuild",
+            purposes = new[] { "GraphicDesign", "ThreeDRendering" },
+            budget = new { minimum = (decimal?)null, maximum = 75_000m },
+            keyword = (string?)null,
+            categoryCode = (string?)null,
+            preferredBrandCodes = Array.Empty<string>(),
+            excludedBrandCodes = Array.Empty<string>(),
+            requiredSpecs = Array.Empty<object>(),
+            preferences = Array.Empty<string>(),
+            proposedExistingParts = Array.Empty<object>(),
+            clarifications = new[] { "您希望組裝電腦，還是購買現成整機？" },
+        });
+        var handler = new RecordingHandler(_ => JsonResponse(output));
+        var subject = CreateSubject(handler);
+
+        var result = await subject.ParseIntentAsync(
+            "遊戲美術要同時跑繪圖與 3D，七萬五，請解釋取捨。",
+            SupportedLocale.ZhTw,
+            SearchNovice025Metadata(),
+            default);
+
+        Assert.Equal(AiProductSearchModelStatus.Completed, result.Status);
+        Assert.Equal(AiProductSearchIntentType.CustomBuild, result.Intent!.Intent);
+        Assert.Equal(["GraphicDesign", "ThreeDRendering"], result.Intent.Purposes);
+        Assert.Equal(75_000m, result.Intent.Budget?.Maximum);
+        Assert.Empty(result.Intent.Clarifications);
+    }
+
+    [Fact]
+    public async Task ParseIntentAsync_CustomBuildWithoutPurpose_KeepsComputerFormClarification()
+    {
+        var output = JsonSerializer.Serialize(new
+        {
+            intent = "CustomBuild",
+            purposes = Array.Empty<string>(),
+            budget = new { minimum = (decimal?)null, maximum = 75_000m },
+            keyword = (string?)null,
+            categoryCode = (string?)null,
+            preferredBrandCodes = Array.Empty<string>(),
+            excludedBrandCodes = Array.Empty<string>(),
+            requiredSpecs = Array.Empty<object>(),
+            preferences = Array.Empty<string>(),
+            proposedExistingParts = Array.Empty<object>(),
+            clarifications = new[] { "您希望組裝電腦，還是購買現成整機？" },
+        });
+        var handler = new RecordingHandler(_ => JsonResponse(output));
+        var subject = CreateSubject(handler);
+
+        var result = await subject.ParseIntentAsync(
+            "七萬五的電腦。",
+            SupportedLocale.ZhTw,
+            SearchNovice025Metadata(),
+            default);
+
+        Assert.Equal(AiProductSearchModelStatus.Completed, result.Status);
+        Assert.Single(result.Intent!.Clarifications);
+    }
+
+    [Fact]
+    public async Task ParseIntentAsync_CompleteCustomBuild_KeepsUnrelatedClarification()
+    {
+        var output = JsonSerializer.Serialize(new
+        {
+            intent = "CustomBuild",
+            purposes = new[] { "GraphicDesign", "ThreeDRendering" },
+            budget = new { minimum = (decimal?)null, maximum = 75_000m },
+            keyword = (string?)null,
+            categoryCode = (string?)null,
+            preferredBrandCodes = Array.Empty<string>(),
+            excludedBrandCodes = Array.Empty<string>(),
+            requiredSpecs = Array.Empty<object>(),
+            preferences = Array.Empty<string>(),
+            proposedExistingParts = Array.Empty<object>(),
+            clarifications = new[] { "是否需要包含螢幕？" },
+        });
+        var handler = new RecordingHandler(_ => JsonResponse(output));
+        var subject = CreateSubject(handler);
+
+        var result = await subject.ParseIntentAsync(
+            "遊戲美術要同時跑繪圖與 3D，七萬五，請解釋取捨。",
+            SupportedLocale.ZhTw,
+            SearchNovice025Metadata(),
+            default);
+
+        Assert.Equal(AiProductSearchModelStatus.Completed, result.Status);
+        Assert.Equal("是否需要包含螢幕？", Assert.Single(result.Intent!.Clarifications));
     }
 
     [Fact]

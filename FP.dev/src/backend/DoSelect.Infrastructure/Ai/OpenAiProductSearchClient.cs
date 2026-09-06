@@ -16,7 +16,7 @@ public sealed class OpenAiProductSearchClient(
     HttpClient httpClient,
     IOptions<OpenAiResponsesOptions> options) : IAiProductSearchModelClient
 {
-    public const string PromptVersion = "product-search-v13";
+    public const string PromptVersion = "product-search-v14";
 
     private static readonly Uri ResponsesEndpoint =
         new("https://api.openai.com/v1/responses", UriKind.Absolute);
@@ -772,6 +772,15 @@ public sealed class OpenAiProductSearchClient(
                 categoryCode = "CUSTOM_BUILD";
             }
 
+            if (intentType == AiProductSearchIntentType.CustomBuild &&
+                output.Purposes.Count > 0 &&
+                budget?.Maximum is not null)
+            {
+                clarifications = clarifications
+                    .Where(question => !IsResolvedComputerFormClarification(question))
+                    .ToArray();
+            }
+
             requiredSpecs = NormalizeExplicitStorageRequirements(
                 message,
                 intentType,
@@ -883,6 +892,12 @@ public sealed class OpenAiProductSearchClient(
     private static bool HasExplicitAssemblyWording(string message) =>
         new[] { "組裝", "幫我組", "組一台", "組台", "組電腦", "組主機", "幫我配", "配一台", "配台", "配電腦", "配主機" }
             .Any(term => message.Contains(term, StringComparison.Ordinal));
+
+    private static bool IsResolvedComputerFormClarification(string question) =>
+        new[] { "組裝", "客製", "自組", "組機" }
+            .Any(term => question.Contains(term, StringComparison.Ordinal)) &&
+        new[] { "現成", "整機", "套裝", "品牌機" }
+            .Any(term => question.Contains(term, StringComparison.Ordinal));
 
     private static IReadOnlyList<AiRequiredSpec> NormalizeExplicitStorageRequirements(
         string message,
