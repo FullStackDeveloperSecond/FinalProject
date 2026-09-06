@@ -18,7 +18,11 @@ import { expect, test } from './fixtures.js'
 // 管理員登入用的是 seed 階段就已寫死綁定 TOTP 秘鑰的獨立帳號（refundJourneyAdminEmail／
 // refundJourneyAdminTotpSecret，見 MinimalDevelopmentDataSeeder），不在這支測試裡跑一次性
 // 的 UI 綁定流程——退款旅程不需要驗證「綁定」這個能力本身（admin.spec.ts 已有專門測試），
-// 用已知秘鑰能讓 Playwright CI 的內建 retry 安全重跑（alex 2026-09-05 #98 review P3）。
+// 用已知秘鑰讓「登入」這個子步驟本身可以安全重算 TOTP code（alex 2026-09-05 #98 review
+// P3）。但這不代表整條旅程可以安全 retry：建立退貨申請等寫入操作不是冪等的，若第一次
+// 執行在建立 Return 之後才失敗，Playwright 的 retry 對同一筆 seed 訂單重新呼叫建立
+// Return 會拿到 409（alex 2026-09-06 #98 review P2 實際在 CI 重現）。因此下面用
+// retries: 0 明確關掉這支測試的 retry，而不是假裝整條旅程可重入。
 
 const guestAccessPepper = 'e2e-guest-order-access-pepper-32-bytes'
 const base32Alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
@@ -109,6 +113,14 @@ interface ReturnRequestSnapshot {
   items: Array<{ publicId: string }>
 }
 
+// alex 2026-09-06 #98 review P2：這支測試不是冪等的——建立退貨申請等寫入操作都對著同一筆
+// deterministic seed 訂單，若 attempt 1 在建立 Return 之後才失敗（例如先前的 Admin
+// Challenge 限流問題），Playwright 的 retry 會對同一筆訂單重新呼叫建立 Return，拿到 409
+// 而不是預期的 201（CI run 34010798650 已實際重現）。管理員登入步驟本身可以用同一把
+// deterministic TOTP 秘鑰安全重算驗證碼，但那不代表整條旅程可以重入；與其把旅程改造成
+// 每次 attempt 都建立全新訂單（會明顯擴大這支 PR 的範圍），直接關掉這支測試的 retry。
+test.describe.configure({ retries: 0 })
+
 test('a finance administrator approves, executes and issues an allowance via the manual invoice API for a production-created refund', async ({
   page,
   seed,
@@ -157,10 +169,11 @@ test('a finance administrator approves, executes and issues an allowance via the
   // 綁定掉。這個帳號的 TOTP 秘鑰在 seed 階段就已經寫死綁定（見
   // MinimalDevelopmentDataSeeder.EnsureRefundJourneyOrderAsync 與
   // seed.refundJourneyAdminTotpSecret），不在這支測試裡跑一次性的 UI 綁定流程——退款旅程
-  // 不需要驗證「綁定」這個能力本身（admin.spec.ts 已經有專門測試），用已知秘鑰讓登入本身
-  // 可以安全重試：Playwright CI 的內建 retry 只需要用同一把秘鑰重新算一次 TOTP code，
-  // 不會像走一次性 enroll 畫面那樣，秘鑰只活在第一次成功的畫面上，重試落在 verify 頁面
-  // 就必然失敗、遮蔽原始錯誤（alex 2026-09-05 #98 review P3）。 ──────────────────
+  // 不需要驗證「綁定」這個能力本身（admin.spec.ts 已經有專門測試），用已知秘鑰讓「登入」
+  // 這一步本身用同一把秘鑰重新算 TOTP code 就能重來，不會像走一次性 enroll 畫面那樣，
+  // 秘鑰只活在第一次成功的畫面上（alex 2026-09-05 #98 review P3）。但整條旅程仍非冪等
+  // （見檔案開頭說明），這支測試已用 retries: 0 明確關閉重試，不依賴這一步「可重算」
+  // 來偽裝整條旅程可安全 retry（alex 2026-09-06 #98 review P2）。 ──────────────────
   if (!seed.adminPassword) {
     throw new Error('Seed__AdminPassword is required for an administrator E2E journey.')
   }

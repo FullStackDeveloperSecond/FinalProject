@@ -107,9 +107,11 @@ internal static class MinimalDevelopmentSeedDefinitions
     // alex 2026-09-05 #98 review P3：這支帳號的 TOTP 秘鑰在 seed 階段就直接寫死綁定
     // （見 MinimalDevelopmentDataSeeder.EnsureRefundJourneyOrderAsync），不是讓 E2E 自己跑一次性
     // 的 UI 綁定流程再從畫面撈出秘鑰。退款旅程不需要驗證「綁定」這個能力本身（admin.spec.ts
-    // 已經有專門的測試），只需要一個能重複登入的帳號；用固定值就能讓 Playwright 的內建 retry
-    // 重新算出同一把秘鑰的 TOTP code 再次登入，不會因為秘鑰只活在第一次 enroll 畫面、重試又落在
-    // verify 頁面而必然失敗、遮蔽原始錯誤。
+    // 已經有專門的測試），只需要一個能重複登入的帳號；用固定值可以讓「登入」這一步用同一把
+    // 秘鑰重新算 TOTP code 再次嘗試，不會因為秘鑰只活在第一次 enroll 畫面而遺失。但這支帳號
+    // 所屬的整條 E2E 旅程仍不是冪等的（建立退貨申請等寫入操作對著同一筆 seed 訂單），該測試
+    // 已改用 retries: 0 明確關閉重試，不依賴「登入可重算」讓整條旅程看起來能安全 retry
+    // （alex 2026-09-06 #98 review P2）。
     internal const string RefundJourneyAdminTotpSecret = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP";
 
     internal static readonly DateTime CreatedAtUtc =
