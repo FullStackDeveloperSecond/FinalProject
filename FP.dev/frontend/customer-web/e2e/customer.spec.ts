@@ -834,6 +834,99 @@ test('the home free-build card still routes to the build wizard, not the catalog
   await expect(page).toHaveURL(/\/builds\/new$/)
 })
 
+test('a member can save, share, and add a compatible build to the cart; E2E-RC-03 M-16 journey', async ({
+  page,
+  browser,
+  loginAsMember,
+}) => {
+  test.setTimeout(180_000)
+
+  await loginAsMember()
+  await page.getByRole('link', { name: /自由組裝/ }).click()
+  await expect(page).toHaveURL(/\/builds\/new$/)
+  await page.getByLabel('清單名稱').fill('E2E-RC-03 完整相容組裝')
+
+  const components = [
+    ['CPU', '懂選開發用 CPU'],
+    ['MOTHERBOARD', '懂選開發用主機板'],
+    ['MEMORY', '懂選開發用記憶體'],
+    ['GPU', '懂選開發用顯示卡（組裝用）'],
+    ['STORAGE', '懂選開發用固態硬碟'],
+    ['PSU', '懂選開發用電源供應器'],
+    ['CASE', '懂選開發用機殼'],
+    ['CPU_COOLER', '懂選開發用散熱器'],
+  ] as const
+
+  for (const [categoryCode, productName] of components) {
+    await page.getByRole('searchbox', { name: `搜尋${categoryCode}商品` }).fill(productName)
+    const result = page.getByRole('button', { name: new RegExp(productName) })
+    await expect(result).toBeVisible()
+    await result.click()
+    await expect(page.getByText(productName, { exact: true })).toBeVisible()
+  }
+
+  await expect(page.getByText('相容性檢查結果：相容', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '儲存為我的清單' }).click()
+  await expect(page).toHaveURL(/\/builds\/[0-9a-f-]+$/)
+
+  const buildPublicId = new URL(page.url()).pathname.split('/').at(-1)!
+  const savedBuild = await page.evaluate(async (publicId) => {
+    const response = await fetch(`/api/v1/build-lists/${publicId}`, { credentials: 'include' })
+    return {
+      status: response.status,
+      body: await response.json() as {
+        name: string
+        items: Array<{ skuPublicId: string }>
+        compatibility: { overall: string }
+      },
+    }
+  }, buildPublicId)
+  expect(savedBuild.status).toBe(200)
+  expect(savedBuild.body.name).toBe('E2E-RC-03 完整相容組裝')
+  expect(savedBuild.body.items).toHaveLength(8)
+  expect(savedBuild.body.compatibility.overall).toBe('compatible')
+
+  await page.getByRole('button', { name: '建立分享連結' }).click()
+  const shareUrl = await page.locator('code').textContent()
+  expect(shareUrl).toBeTruthy()
+
+  const sharedContext = await browser.newContext({ baseURL: 'http://127.0.0.1:5173' })
+  const sharedPage = await sharedContext.newPage()
+  await sharedPage.goto(shareUrl!)
+  await expect(sharedPage.getByRole('heading', { level: 1, name: 'E2E-RC-03 完整相容組裝' })).toBeVisible()
+  await expect(sharedPage.getByRole('list', { name: '零件清單' }).getByRole('listitem')).toHaveCount(8)
+  await expect(sharedPage.getByText('相容性檢查結果：相容', { exact: true })).toBeVisible()
+  await sharedContext.close()
+
+  const readCart = async () => await page.evaluate(async () => {
+    const response = await fetch('/api/v1/cart', { credentials: 'include' })
+    return await response.json() as {
+      items: Array<{ assemblyGroupKey: string | null }>
+      amounts: { assemblyFee: number }
+    }
+  })
+  const cartBefore = await readCart()
+  const existingAssemblyGroups = new Set(
+    cartBefore.items.map((item) => item.assemblyGroupKey).filter((key): key is string => key !== null),
+  )
+
+  await page.getByRole('button', { name: '加入購物車', exact: true }).click()
+  await expect(page.getByText('已加入購物車。', { exact: true })).toBeVisible()
+
+  const cartAfter = await readCart()
+  const newAssemblyGroups = [...new Set(
+    cartAfter.items.map((item) => item.assemblyGroupKey).filter((key): key is string => key !== null),
+  )].filter((key) => !existingAssemblyGroups.has(key))
+  expect(newAssemblyGroups).toHaveLength(1)
+  expect(cartAfter.items.filter((item) => item.assemblyGroupKey === newAssemblyGroups[0])).toHaveLength(8)
+  expect(cartAfter.amounts.assemblyFee).toBe(cartBefore.amounts.assemblyFee + 300)
+
+  await page.goto('/cart')
+  await expect(page.getByText('自訂組裝', { exact: true })).toBeVisible()
+  await expect(page.getByRole('list', { name: `組裝品項：${newAssemblyGroups[0]}` }).getByRole('listitem'))
+    .toHaveCount(8)
+})
+
 test('visual review uses real catalog member and support journeys', async ({ page, loginAsMember }) => {
   test.setTimeout(180_000)
   for (const [url, label] of [['/', 'home'], ['/products', 'products'], ['/login', 'login'], ['/register', 'register'], ['/ai-search', 'ai-search'], ['/support', 'support-home']]) {

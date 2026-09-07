@@ -67,6 +67,7 @@ export default defineConfig({
         ConnectionStrings__DefaultConnection: e2eConnectionString,
         ASPNETCORE_ENVIRONMENT: apiEnvironment,
         ASPNETCORE_URLS: 'http://127.0.0.1:5126',
+        Frontend__BaseUrl: 'http://127.0.0.1:5173',
         Features__BackgroundJobsEnabled: backgroundJobsEnabled,
         Features__EmailEnabled: 'false',
         Demo__SimulationEndpointsEnabled: simulationEndpointsEnabled,
