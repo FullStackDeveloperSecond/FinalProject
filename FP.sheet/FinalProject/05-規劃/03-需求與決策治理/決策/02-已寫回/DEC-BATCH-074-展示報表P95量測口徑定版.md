@@ -1,6 +1,6 @@
 # DEC-BATCH-074｜展示報表 P95 量測口徑定版
 
-- 狀態：本機實作、review、測試與正式量測通過，待 Security／PR Required CI／合併
+- 狀態：✅ 已完成；本機實作、review、測試、正式量測、Security、PR Required CI 與 squash merge 均通過
 - 日期：2026-09-07
 - 決策者：Codex（依 alex 常駐授權）
 - 來源：DATA-RC-04／M-15／NFR-PERF-03
@@ -28,8 +28,9 @@
 - 七報表 P95（ms）：銷售 6.122、ABC 10.682、同期 3.995、庫存周轉 63.603、毛利 9.361、關聯 6.820、預測 2.990。
 - 最慢為 `inventory-turnover` 63.603 ms，僅占 3,000 ms 門檻約 2.12%；7／7 通過。
 - 完整原始時間與環境摘要：[[05-規劃/04-稽核與報告/2026-09-07-DATA-RC-04報表P95原始時間.json]]。
+- 交付 Gate：PR #149；head `def5f1d1c83da315b19bbb44d68de591be7d2832`；CI Run `34095108111` 全綠；Codex Security `7c785a81-def9-4abe-a278-18490c8bb733` 12／12、0 finding；squash merge `b024fe150204c2232c282c50ff005d6432452e8e`。
 
 ## 邊界
 
 - 結果只適用於所列本機展示環境、固定資料版本與 Query 層範圍；不推論 Production、遠端網路、HTTP、匯出、併發或前端渲染效能。
-- DATA-RC-04 在 Security、PR Required CI、exact-head review 與 squash merge 前保持待驗證。
+- DATA-RC-04 已在 exact-head review、Security、PR Required CI 與 squash merge 後關閉；上述量測邊界不因結案而擴張。
