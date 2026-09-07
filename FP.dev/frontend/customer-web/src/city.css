@@ -118,3 +118,68 @@ body { background: #e4efec; }
  .home-promotions__controls { gap: 2px; padding-inline: 4px; }
 }
 @media(prefers-reduced-motion: reduce) { .promotion-slide-enter-active,.promotion-slide-leave-active,.home .home-hero .home-step { transition: none; } }
+
+/* Keep the news and the three-step introduction together in the desktop first view. */
+.home .home-category:hover .home-category__icon,
+.home .home-category:focus-visible .home-category__icon { background: #dceee9; color: #176d68; border-color: #a7cbc2; }
+.home .home-category:hover .brand-icon,
+.home .home-category:focus-visible .brand-icon { color: #176d68; }
+.home > .home-promotions { margin-top: 0; margin-bottom: 20px; }
+@media (min-width: 701px) {
+ .home .home-promotions__slide { min-height: 150px; }
+ .home .home-promotions__slide > div:first-child { padding: 16px 24px; }
+ .home .home-promotions__slide h2 { font-size: 1.5rem; margin: 6px 0; }
+ .home .home-promotions__slide p { margin: 6px 0 10px; }
+ .home .home-promotions__top { padding: 6px 20px; }
+ .home .home-promotions__controls { padding: 0 16px; }
+ .home .home-hero { min-height: 0; padding: 20px 24px 24px; }
+ .home .home-hero__text { max-width: none; }
+ .home .home-hero__text::before { display: none; }
+ .home .home-hero__text h1 { max-width: none; font-size: clamp(1.5rem, 2.3vw, 2rem); margin: 0 0 12px; }
+ .home .home-hero__guide h2 { font-size: 1.1rem; }
+ .home .home-hero__guide > p { margin: 4px 0 12px; }
+ .home .home-step__link { padding: 14px 16px; }
+ .home .home-hero .home-step h3 { margin: 8px 0 6px; font-size: 1.15rem; }
+ .home .home-hero .home-step p { margin-bottom: 10px; }
+ .home .home-step__icon { width: 38px; height: 38px; }
+ .home .home-step__go { padding-top: 8px; }
+}
+@media (min-width: 701px) {
+ .city-content:has(.home) .view-shell { padding-top: 12px; }
+ .home { gap: 20px; }
+ .home > .home-promotions { margin-bottom: 0; }
+ .home .home-promotions__slide { min-height: 126px; }
+ .home .home-promotions__slide > div:first-child { padding: 10px 20px; }
+ .home .home-promotions__eyebrow { display: none; }
+ .home .home-promotions__slide a { padding: 6px 14px; }
+ .home .home-hero { padding: 16px 20px 20px; }
+ .home .home-hero__guide > p { margin-bottom: 8px; }
+ .home .home-step__link { padding: 10px 14px; }
+ .home .home-step__head { gap: 8px; }
+ .home .home-hero .home-step__marker { width: 28px; height: 28px; font-size: .95rem; }
+ .home .home-step__icon { width: 30px; height: 30px; }
+}
+/* 首頁本身就有 hero、三步驟與分類入口，城市路標在這裡是重複的導覽。
+   原本下限訂在 701px，導致手機（375）反而保留它，把 hero 推到 y=624、
+   標題推到 726 而視窗只有 812。拿掉下限，讓手機與桌機一致。 */
+@media (max-width: 1579px) {
+ .city-content:has(.home) > .city-streets { display: none; }
+ .city-content:has(.home) .view-shell { padding-top: 16px; }
+}
+
+/* 促銷 CTA 已在上方（.home-promotions__slide a）自帶淺綠底 #d9f5b8 與深色字 #102d36，
+   不能跟著深色投影片套 --city-text，否則會變成白字配淺綠底（1.19:1）。這裡只留 .home-hint a。 */
+.view-shell .home-hint a { color: var(--city-text); }
+.donngu-guide__bubble > a, .site-footer a, .home-hint a { display: inline-flex; align-items: center; min-height: var(--control-height, 44px); }
+.donngu-guide__bar button, .site-header button, #primary-nav a { min-height: var(--control-height, 44px); }
+.donngu-guide__bar button { min-width: var(--control-height, 44px); }
+@media (min-width: 360px) and (max-width: 600px) {
+ .view-shell .products-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+ .view-shell .product-card { min-width: 0; padding: 10px; }
+ .view-shell .product-card h2, .view-shell .product-card h3 { font-size: 1rem; overflow-wrap: anywhere; }
+}
+.active-filter-chips, .ai-search__quick-examples { display: flex; flex-wrap: wrap; gap: 8px; margin-block: 12px; }
+.active-filter-chips span { padding: 6px 12px; background: var(--city-surface-hover); color: var(--city-text); border-radius: 20px; }
+.ai-search__quick-examples button { min-height: 44px; border-radius: 24px; background: var(--city-surface-hover); color: var(--city-text); border: 1px solid var(--city-border); padding: 8px 16px; }
+.product-quantity { display: flex; align-items: center; gap: 12px; margin-block: 14px; }
+.product-quantity input { width: 100px; min-height: 44px; }

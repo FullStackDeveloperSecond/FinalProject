@@ -7,10 +7,10 @@
 .city-station__routes { padding: 0 10px 12px; }
 .city-station__hello { font-size: .72rem; color: #467065; margin: 0 0 10px; }
 .city-station__routes > a { position: relative; display: flex; align-items: center; gap: 8px; color: #255356; text-decoration: none; border: 1px solid #b7d0c5; border-radius: 8px 14px 14px 8px; padding: 10px 8px; margin-bottom: 12px; background: #fff; }
-.city-station__routes > a:not(:nth-last-child(2))::after { content: ''; position: absolute; height: 13px; border-left: 2px dashed #9dbbb0; bottom: -14px; left: 16px; }
+.city-station__routes > a:not(:last-child)::after { content: ''; position: absolute; height: 13px; border-left: 2px dashed #9dbbb0; bottom: -14px; left: 16px; }
 .city-station__routes strong { display: block; font-size: .86rem; }
 .city-station__routes small { display: block; font-size: .63rem; margin-top: 3px; }
-.city-station__number { font: 600 10px monospace; color: #648c81; }
+.city-station__number { font: 600 12px monospace; color: var(--city-text-muted); }
 .city-station__routes > a:hover,.city-station__routes > a.city-station__active { background: #dff3d0; border-color: #6e9c75; }
 .city-station__host { display: flex; align-items: center; gap: 8px; padding-top: 8px; font: 600 10px/1.7 monospace; color: #457c72; }
 .city-station__host img { object-fit: contain; transform: rotate(-8deg); }
@@ -21,7 +21,9 @@
 .city-pocket__contents a span:first-of-type { overflow-wrap: anywhere; }
 .city-pocket__contents .brand-icon { flex-shrink: 0; }
 .city-pocket__contents small { display: block; color: #4c7069; font-size: .62rem; }
-.city-pocket__contents button { margin-top: 6px; border: 0; background: transparent; color: #315c53; text-decoration: underline; min-height: 36px; }
+/* 「清空口袋」是動作不是連結：拿掉底線、補到 44px 觸控高度、改讀語意 token。 */
+.city-pocket__contents button { margin-top: 8px; padding: 0 12px; border: 1px solid var(--color-border-soft); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-muted); font-size: var(--fs-caption); font-weight: 600; text-decoration: none; min-height: 44px; cursor: pointer; }
+.city-pocket__contents button:hover { border-color: var(--color-danger); color: var(--color-danger); background: var(--color-danger-bg); }
 .city-streets summary:focus-visible,.city-streets a:focus-visible,.city-streets button:focus-visible { outline: 3px solid #087d8c; outline-offset: 3px; }
 .city-streets__scene { display: none; }
 .donngu-guide__tour-start,.donngu-tour button { min-height: 40px; padding: 8px 12px; border: 1px solid #a5c9b7; border-radius: 10px; background: #e4f4d9; color: #20514a; font-weight: 700; cursor: pointer; }
@@ -56,3 +58,15 @@
 @media (prefers-reduced-motion: reduce) { .donngu-guide__avatar img,.city-streets__chevron { transition: none; animation: none !important; } .donngu-guide__avatar:hover img { transform: none; } }
 .city-pocket summary { font-size: .75rem; gap: 5px; }
 @media (min-width: 1580px) { .city-streets__scene { bottom: 130px; } }
+/* Side content participates in layout below the district banner. */
+.city-content { width: 100%; }
+@media (min-width: 1580px) {
+ .city-content { display: grid; grid-template-columns: 170px minmax(0, 1200px) 170px; gap: 24px; max-width: 1640px; margin: 32px auto 0; padding: 0 16px; box-sizing: border-box; align-items: start; }
+ .city-content .city-streets { display: contents; }
+ .city-content > .view-shell { grid-column: 2; grid-row: 1 / span 2; width: 100%; padding: 0; margin: 0; min-width: 0; }
+ .city-content .city-station { grid-column: 1; grid-row: 1; position: sticky; top: 82px; left: auto; width: auto; max-height: calc(100dvh - 110px); overflow-y: auto; }
+ .city-content .city-pocket { grid-column: 3; grid-row: 1; position: sticky; top: 82px; right: auto; width: auto; }
+ .city-content .city-streets__scene { grid-column: 1; grid-row: 2; position: static; margin: 20px 0; width: 160px; }
+ .city-content:not(:has(.city-streets)) > .view-shell { grid-column: 2; }
+}
+@media (max-width: 1579px) { .city-content > .city-streets { padding: 16px 16px 0; } }

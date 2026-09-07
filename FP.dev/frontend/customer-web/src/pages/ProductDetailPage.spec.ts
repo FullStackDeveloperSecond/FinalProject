@@ -507,3 +507,22 @@ describe('ProductDetailPage', () => {
     expect(wrapper.find('button.product-detail__favorite-toggle').exists()).toBe(false)
   })
 })
+
+it('submits the selected quantity and rejects fractional or over-limit quantities', async () => {
+  mockGetProductDetail.mockResolvedValue(productDetail())
+  mockAddCartItem.mockReset()
+  mockAddCartItem.mockResolvedValue({})
+  const wrapper = await mountPage()
+  await flushPromises()
+  const quantity = wrapper.get('input[type="number"]')
+  for (const invalid of ['0', '1.5', '11']) {
+    await quantity.setValue(invalid)
+    expect(wrapper.find('button').attributes('disabled')).toBeDefined()
+  }
+  expect(mockAddCartItem).not.toHaveBeenCalled()
+  await quantity.setValue('2')
+  await wrapper.find('button').trigger('click')
+  await flushPromises()
+  expect(mockAddCartItem.mock.calls[0]?.slice(0, 2)).toEqual(['sku-1', 2])
+  wrapper.unmount()
+})

@@ -1,23 +1,17 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import SpotlightTour from './SpotlightTour.vue'
+import { computed, nextTick, ref } from 'vue'
 import { companionMessage } from './cityCompanion'
 import { useRoute } from 'vue-router'
 
 const route = useRoute()
 const avatar = `${import.meta.env.BASE_URL}brand/donggu-hero-wave.png`
 const storageKey = 'doselect-donngu-guide-open'
-const open = ref(true)
-try { open.value = localStorage.getItem(storageKey) !== 'false' } catch { /* Storage is optional. */ }
+const open = ref(false)
+try { open.value = localStorage.getItem(storageKey) === 'true' } catch { /* Storage is optional. */ }
 const touring = ref(false)
-const tourStep = ref(0)
-const tour = [
-  { title: '第一站：說用途', text: '遊戲、創作還是日常？先告訴我你想做什麼，不用背規格。', to: '/ai-search', action: '前往說用途' },
-  { title: '第二站：給預算', text: '在商品頁設定價格範圍，讓每一次挑選都更有方向。', to: '/products', action: '前往設定預算' },
-  { title: '第三站：看推薦', text: '把用途與預算一起告訴 AI 懂選，再查看推薦與相容性說明。', to: '/ai-search', action: '前往 AI 懂選' },
-]
-const tourGuide = computed(() => tour[tourStep.value]!)
-function startTour() { tourStep.value = 0; touring.value = true }
-function nextStop() { if (tourStep.value < 2) tourStep.value++; else touring.value = false }
+function startTour() { touring.value = true }
+async function finishTour() { touring.value = false; await nextTick(); toggle.value?.focus({ preventScroll: true }) }
 const toggle = ref<HTMLButtonElement | null>(null)
 const guide = computed(() => {
   const path = route.path
@@ -58,7 +52,7 @@ function close() {
       {{ companionMessage }}
     </div>
     <section
-      v-if="open"
+      v-if="open && !touring"
       id="donngu-dialog"
       class="donngu-guide__bubble"
       aria-labelledby="donngu-title"
@@ -74,37 +68,10 @@ function close() {
         </button>
       </div>
       <h2 id="donngu-title">
-        {{ touring ? tourGuide.title : guide.title }}
+        {{ guide.title }}
       </h2>
-      <p>{{ touring ? tourGuide.text : guide.text }}</p>
-      <div
-        v-if="touring"
-        class="donngu-tour"
-      >
-        <span class="donngu-tour__progress">城市初體驗 {{ tourStep + 1 }} / 3</span>
-        <RouterLink
-          :to="tourGuide.to"
-          @click="setOpen(false)"
-        >
-          {{ tourGuide.action }} →
-        </RouterLink>
-        <div>
-          <button
-            type="button"
-            @click="nextStop"
-          >
-            {{ tourStep === 2 ? '完成導覽' : '下一站 →' }}
-          </button>
-          <button
-            type="button"
-            @click="touring = false"
-          >
-            跳過導覽
-          </button>
-        </div>
-      </div>
+      <p>{{ guide.text }}</p>
       <button
-        v-else
         class="donngu-guide__tour-start"
         type="button"
         @click="startTour"
@@ -137,4 +104,8 @@ function close() {
       <span>Donngu</span>
     </button>
   </aside>
+  <SpotlightTour
+    v-if="touring"
+    @close="finishTour"
+  />
 </template>
