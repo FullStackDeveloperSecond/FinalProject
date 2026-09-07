@@ -81,8 +81,27 @@
     "releaseBuildErrors": 0,
     "format": "PASS",
     "powershellParser": "PASS",
-    "security": "PENDING",
-    "requiredCi": "PENDING"
+    "security": {
+      "result": "PASS",
+      "scanId": "f7a363ed-7c97-44d2-a4c8-f79e99fdfef2",
+      "snapshotDigest": "cf89e056ac1ecf57f90b7c4955b083b498956b126815d1acf709fa422ed6cbfd",
+      "reviewItems": 7,
+      "surfaces": 5,
+      "findings": 0,
+      "coverage": "complete"
+    },
+    "requiredCi": {
+      "result": "PASS",
+      "runId": 34089858394,
+      "headRevision": "473d9a4d752948d28582d716d7631dfb2fdd2747"
+    }
+  },
+  "delivery": {
+    "pullRequest": 147,
+    "mergeStrategy": "squash",
+    "mergeRevision": "483deeee830bbcb071143ee366cbc93ea3523899",
+    "mergedAt": "2026-09-07T14:26:32+08:00",
+    "remoteBranchDeleted": true
   },
   "artifactSha256": {
     "focusedTrx": "448bd643782c5a3c2c02738dc02d9479e226d2bb83fdd9afdfa52faa88f9ac99",
