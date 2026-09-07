@@ -709,6 +709,21 @@ public sealed class MinimalDevelopmentDataSeeder(
             counters.CompatibilityRecordsCreated++;
         }
 
+        // Keep one intentionally incomplete, still-sellable GPU in the real development seed so
+        // the customer journey can demonstrate the contract's fail-closed "規格資料不足" state.
+        // It has no reviewed compatibility facts by design; the ordinary compatible GPU below
+        // remains the default happy-path choice.
+        var missingEvidenceGpuExists = await dbContext.Skus.AnyAsync(
+            entity => entity.SkuCode == "DEV-COMPAT-GPU-MISSING-001", cancellationToken);
+        if (!missingEvidenceGpuExists)
+        {
+            await CreateComponentSkuAsync(
+                "DEV-COMPAT-GPU-MISSING-001", "懂選開發用顯示卡（規格待覆核）",
+                CompatibilityCatalogContract.Categories.Gpu,
+                brand, categoriesByCode, source, counters,
+                cancellationToken: cancellationToken);
+        }
+
         if (buildComponentsAlreadyExist)
         {
             await EnsureBuildComponentSkusAreDefaultAsync(cancellationToken);

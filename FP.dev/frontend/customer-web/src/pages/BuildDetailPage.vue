@@ -245,7 +245,10 @@ const cartBlockReason = computed<string | null>(() => {
     return '此組裝清單目前不相容，請先解決相容性問題才能加入購物車。'
   }
   if (build.compatibility.overall === 'insufficientData') {
-    return '尚缺少必要元件（CPU、主機板、記憶體、顯示卡、儲存裝置、電源供應器、機殼、散熱器），請補齊後再加入購物車。'
+    if (build.compatibility.results.some((finding) => finding.ruleCode === 'BUILD_REQUIRED_COMPONENT')) {
+      return '尚缺少必要元件（CPU、主機板、記憶體、顯示卡、儲存裝置、電源供應器、機殼、散熱器），請補齊後再加入購物車。'
+    }
+    return '缺少計算所需的規格資料，需人工確認；目前無法將整套組裝加入購物車。'
   }
   if (build.items.some((item) => item.availability !== 'available')) {
     return '有品項已下架或庫存不足，請先調整後再加入購物車。'
