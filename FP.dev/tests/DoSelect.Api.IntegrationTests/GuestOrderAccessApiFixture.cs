@@ -35,6 +35,9 @@ public sealed class GuestOrderAccessApiFixture : IAsyncLifetime
             ["Observability__FileLoggingEnabled"] = "false",
             ["Features__AiEnabled"] = "false",
             ["Features__EmailEnabled"] = "false",
+            // Tests invoke the selected outbox consumer explicitly. A local Development
+            // settings file must not start a dispatcher that also sends earlier test messages.
+            ["Features__BackgroundJobsEnabled"] = "false",
             ["Demo__SimulationEndpointsEnabled"] = "false",
             ["GuestOrderAccess__Pepper"] = "guest-order-access-api-tests-pepper-32-bytes",
             ["Idempotency__ActorScopePepper"] = "guest-order-access-api-tests-idempotency-pepper",

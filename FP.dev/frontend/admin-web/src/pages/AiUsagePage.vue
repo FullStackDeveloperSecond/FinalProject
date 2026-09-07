@@ -95,8 +95,8 @@ function formatCost(value: number | string | null) {
 
 <style scoped>
 .ai-budget { margin: 1rem 0; padding: .9rem 1rem; border-radius: var(--radius-sm); font-weight: 700; }
-.ai-budget--warning { background: #fff4cc; color: #725000; }
-.ai-budget--danger { background: #ffe1e1; color: #8b1e1e; }
+.ai-budget--warning { background: var(--color-warning-bg); color: var(--color-warning); border: 1px solid var(--color-warning-border); }
+.ai-budget--danger { background: var(--color-danger-bg); color: var(--color-danger); border: 1px solid var(--color-danger-border); }
 .ai-summary { display: grid; gap: .35rem; margin: 1rem 0; }
 .ai-summary strong { font-size: 1.6rem; }
 .ai-summary small { color: var(--color-text-muted); }

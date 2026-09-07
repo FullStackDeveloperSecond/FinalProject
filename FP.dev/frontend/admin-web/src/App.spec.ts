@@ -43,6 +43,22 @@ describe('admin shell navigation', () => {
     return mount(App, { global: { plugins: [router] } })
   }
 
+  it('collapses groups on overview, toggles them and expands the current route group', async () => {
+    signIn(['SuperAdmin'])
+    const wrapper = await mountShell()
+    await wrapper.get('.admin-nav-toggle').trigger('click')
+    const toggle = wrapper.get('[aria-controls="admin-group-catalog"]')
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+    expect((wrapper.get('#admin-group-catalog').element as HTMLElement).style.display).toBe('none')
+    await toggle.trigger('click')
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+    expect((wrapper.get('#admin-group-catalog').element as HTMLElement).style.display).toBe('')
+    await toggle.trigger('click')
+    await wrapper.vm.$router.push('/products/import')
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+    expect((wrapper.get('#admin-group-inventory').element as HTMLElement).style.display).toBe('none')
+  })
+
   it.each([
     ['FinanceManager'],
     ['MarketingAnalyst'],

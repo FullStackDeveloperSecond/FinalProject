@@ -8,6 +8,30 @@ export default defineConfig({
   resolve: {
     preserveSymlinks: true,
   },
+  // `@doselect/web-shared` is a file: link, so in dev Vite pre-bundled the entries the
+  // app imports (primevue/config, the shared theme and components) while serving the
+  // PrimeVue internals those components pull in as raw ESM. That produced two copies of
+  // the @primeuix/styled engine: DoSelectPreset registered its component tokens into the
+  // pre-bundled one and @primevue/core/base/style read from the raw one, so every
+  // --p-button-* / --p-paginator-* token came out empty and PrimeVue components rendered
+  // unstyled. Production was unaffected because Rollup emits a single instance. Excluding
+  // the shared package and the whole PrimeVue/PrimeUIX runtime keeps dev on raw ESM only,
+  // so there is one engine instance again — without touching resolve.preserveSymlinks.
+  optimizeDeps: {
+    exclude: [
+      '@doselect/web-shared',
+      'primevue',
+      '@primevue/core',
+      '@primevue/icons',
+      '@primeuix/themes',
+      '@primeuix/styled',
+      '@primeuix/styles',
+      // gsap is consumed both directly by this app and by @doselect/web-shared/motion.
+      // Keeping it on raw ESM alongside the shared package guarantees a single GSAP
+      // module instance in dev, so one gsap.context()/matchMedia registry owns every tween.
+      'gsap',
+    ],
+  },
   server: {
     port: 5174,
     strictPort: true,

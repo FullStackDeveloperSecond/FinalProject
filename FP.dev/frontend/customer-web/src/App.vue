@@ -1,9 +1,24 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, defineAsyncComponent, onMounted, provide, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { DoSelectBrand, UiButton } from '@doselect/web-shared/ui'
+import { UiButton } from '@doselect/web-shared/ui'
 import { useSessionStore } from './stores/session'
 import { useCartIdentityCacheCleanup } from './features/cart/useCart'
+import { BrandMark } from '@doselect/web-shared/components'
+import DonnguGuide from './components/DonnguGuide.vue'
+import {
+  customerDefaultMotionPresetId,
+  motionPresetKey,
+  useMotionPreference,
+  useMotionPresetSelection,
+} from '@doselect/web-shared/motion'
+
+// 切換器只在 dev 進入模組圖。`import.meta.env.DEV` 在 production build 被折成 false，
+// 因此 Rollup 會把整個動態 import 分支連同元件與其字串一起移除 ——
+// 正式產物裡不存在任何實驗模式選單。
+const MotionDevSwitcher = import.meta.env.DEV
+  ? defineAsyncComponent(() => import('@doselect/web-shared/motion/MotionDevSwitcher.vue'))
+  : null
 
 const route = useRoute()
 const router = useRouter()
@@ -15,6 +30,27 @@ const isSupportSection = computed(() => route.path === '/support' || route.path.
 // evicts the previous identity's cart cache regardless of which page happens to be open at the
 // moment it changes.
 useCartIdentityCacheCleanup()
+
+// 窄畫面把主導覽收起來，避免導覽列擠壓內容或造成頁面級橫向捲動。
+const navOpen = ref(false)
+
+/**
+ * 路由一變就把展開的行動版選單關掉。
+ *
+ * 監聽 `route.fullPath` 而不是 `route.path`：只換 query 或 hash 也算導覽
+ * （首頁分類卡去的就是 `/products?category=CPU`，路徑相同、query 不同），
+ * 這種情況一樣要收起選單。也因為監聽的是路由狀態而不是點擊事件，
+ * RouterLink 與程式導航（`router.push`）兩條路徑都會被涵蓋。
+ */
+watch(() => route.fullPath, () => {
+  navOpen.value = false
+})
+
+// GSAP 動態視覺探索：A／B／C 方案由 App 統一選定後 provide 給頁面。
+// `canSwitch` 在 production build 是常數 false，切換介面會被整段 tree-shake 掉。
+const { presetId, preset, canSwitch, select } = useMotionPresetSelection(customerDefaultMotionPresetId)
+const prefersReducedMotion = useMotionPreference()
+provide(motionPresetKey, preset)
 
 onMounted(() => {
   void sessionStore.refresh()
@@ -40,10 +76,25 @@ async function handleLogout(): Promise<void> {
           class="brand-link"
           to="/"
         >
-          <DoSelectBrand />
+          <!-- 標記是裝飾：旁邊的文字才是這個連結唯一的 accessible name，避免品牌名被念兩次 -->
+          <BrandMark decorative />
+          <span class="brand-link__text">DoSelect<span class="brand-link__sub">懂選</span></span>
         </RouterLink>
+
+        <button
+          type="button"
+          class="nav-toggle"
+          :aria-expanded="navOpen"
+          aria-controls="primary-nav"
+          @click="navOpen = !navOpen"
+        >
+          選單
+        </button>
+
         <nav
+          id="primary-nav"
           class="primary-nav"
+          :class="{ 'primary-nav--open': navOpen }"
           aria-label="主要導覽"
         >
           <RouterLink to="/">
@@ -94,7 +145,7 @@ async function handleLogout(): Promise<void> {
           </template>
           <RouterLink
             v-else-if="sessionStore.status === 'anonymous'"
-            to="/register"
+            to="/login"
           >
             登入／註冊
           </RouterLink>
@@ -114,12 +165,39 @@ async function handleLogout(): Promise<void> {
       class="site-main"
       tabindex="-1"
     >
+      <div
+        v-if="route.path !== '/'"
+        class="city-district"
+        aria-hidden="true"
+      >
+        <span>DOSELECT COMPUTER CITY</span>
+        <p>在懂選，找到你的下一站。</p>
+      </div>
       <div class="view-shell">
         <RouterView />
       </div>
     </main>
     <footer class="site-footer">
-      畢業專題展示系統｜商品、付款與物流資料皆為示範用途
+      <p class="site-footer__brand">
+        DoSelect 懂選
+      </p>
+      <p>畢業專題展示系統｜商品、付款與物流資料皆為示範用途</p>
+      <p class="site-footer__links">
+        <RouterLink to="/support">
+          客服中心
+        </RouterLink>
+        <RouterLink to="/products">
+          全部商品
+        </RouterLink>
+      </p>
     </footer>
+    <DonnguGuide />
+    <component
+      :is="MotionDevSwitcher"
+      v-if="canSwitch && MotionDevSwitcher"
+      :preset-id="presetId"
+      :reduced-motion="prefersReducedMotion"
+      @select="select"
+    />
   </div>
 </template>

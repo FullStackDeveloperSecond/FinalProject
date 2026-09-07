@@ -1,5 +1,6 @@
 import { createHmac, randomUUID } from 'node:crypto'
 import type { APIRequestContext, Page } from '@playwright/test'
+import { captureVisualEvidence } from './visualEvidence.js'
 import { expect, test } from './fixtures.js'
 
 const base32Alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
@@ -534,6 +535,7 @@ test('a seeded administrator can enroll TOTP, reject a wrong code, and sign in a
 
   await expect(page).toHaveURL((url) => url.pathname === '/admin/login/enroll')
   await expect(page.getByRole('heading', { level: 1, name: '綁定兩步驟驗證' })).toBeVisible()
+  await captureVisualEvidence(page, 'real-admin-totp-enroll')
   const secret = (await page.locator('.totp-secret code').textContent())?.trim()
   expect(secret, 'The enrollment page must expose a manual TOTP secret for the operator').toBeTruthy()
 
@@ -542,12 +544,19 @@ test('a seeded administrator can enroll TOTP, reject a wrong code, and sign in a
   await page.getByRole('button', { name: '確認綁定' }).click()
 
   await expect(page.getByRole('heading', { level: 1, name: '請保存您的備援碼' })).toBeVisible()
+  await captureVisualEvidence(page, 'real-admin-recovery-codes-redacted')
   await page.getByRole('checkbox', { name: '我已抄下並妥善保存這些備援碼' }).check()
   await page.getByRole('button', { name: '完成，進入後台' }).click()
 
   await expect(page).toHaveURL(/\/admin\/$/)
-  await expect(page.getByRole('heading', { level: 1, name: '管理後台基礎環境已就緒' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1, name: '管理工作台' })).toBeVisible()
   await expect(page.getByText('DoSelect 開發管理員', { exact: true })).toBeVisible()
+  await captureVisualEvidence(page, 'real-admin-dashboard')
+  for (const [url, label] of [['products', 'products'], ['inventory', 'inventory'], ['support', 'support-queue'], ['cases', 'case-workbench'], ['returns', 'returns'], ['refunds', 'refunds'], ['security/totp-rebind', 'totp-rebind']]) {
+    await page.goto('./' + url)
+    await expect(page.locator('main h1').first()).toBeVisible()
+    await captureVisualEvidence(page, 'real-admin-' + label)
+  }
   await page.getByRole('button', { name: '登出' }).click()
 
   await expect(page).toHaveURL(/\/admin\/login$/)
@@ -560,6 +569,7 @@ test('a seeded administrator can enroll TOTP, reject a wrong code, and sign in a
   await page.getByLabel('驗證碼').fill(differentTotp(validCode))
   await page.getByRole('button', { name: '驗證', exact: true }).click()
   await expect(page.getByRole('alert')).toHaveText('驗證碼不正確，請重新輸入。')
+  await captureVisualEvidence(page, 'real-admin-totp-invalid')
 
   await page.getByLabel('驗證碼').fill(currentTotp(secret!))
   await page.getByRole('button', { name: '驗證', exact: true }).click()
@@ -1022,6 +1032,12 @@ test('a delivered order can be returned, refunded and allowed to update the orde
   // '模擬付款成功' })` 之後），這裡只驗證 `status === 'issued'` 是那條自動開票鏈路已經跑完。
   // 這與 PR #108 用「管理員開票 API」手動開立發票的證據是不同的兩件事，不能互相替代：這裡證明
   // 的是付款完成 → Outbox → Consumer → 唯一發票的整合鏈路，不是開票 API 本身。
+  // Issuance is asynchronous: wait for the payment outbox consumer, without creating an invoice here.
+  await expect.poll(async () => customerPage.evaluate(async (orderPublicId) => {
+    const response = await fetch(`/api/v1/orders/${orderPublicId}/invoice`, { credentials: 'include' })
+    if (!response.ok) return response.status
+    return (await response.json() as { status: string }).status
+  }, order.publicId), { timeout: 30_000 }).toBe('issued')
   const invoiceBefore = await customerPage.evaluate(async (orderPublicId) => {
     const response = await fetch(`/api/v1/orders/${orderPublicId}/invoice`, { credentials: 'include' })
     return {

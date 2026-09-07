@@ -179,6 +179,8 @@ const errorTitle = computed(() => {
 }
 
 .sla-queue__table thead th {
+  /* The horizontal scroll wrapper is the sticky containing block, not the page. */
+  top: 0;
   color: var(--color-text-muted);
   font-size: 0.8125rem;
   font-weight: 600;

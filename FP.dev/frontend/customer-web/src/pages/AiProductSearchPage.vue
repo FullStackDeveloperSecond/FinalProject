@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { ErrorState } from '@doselect/web-shared/components'
+import BuildCategorySlotPicker from '../features/builds/components/BuildCategorySlotPicker.vue'
+import { CATALOG_CATEGORY_CODES, categoryLabel } from '../features/catalog/categoryLabels'
+import { partSpecificationLabels } from '../features/aiProductSearch/partLabels'
 import { computed, ref } from 'vue'
 import ProductCard from '../features/catalog/components/ProductCard.vue'
 import { useAiProductSearchMutation } from '../features/aiProductSearch/queries'
@@ -7,6 +10,7 @@ import type { AiExistingPartRequest, AiProposedExistingPart } from '../features/
 
 const example = '預算五萬元，主要用 Premiere 剪 4K 影片，偶爾玩 3A 遊戲，希望安靜、不要 RGB。'
 const message = ref('')
+const partsError = ref('')
 const accumulatedContext = ref('')
 const existingParts = ref<AiExistingPartRequest[]>([])
 const confirmedProposalKeys = ref<string[]>([])
@@ -25,6 +29,8 @@ function addCatalogPart() {
   existingParts.value.push({
     sourceType: 'catalogSku',
     skuPublicId: '',
+    categoryCode: '',
+    displayName: '',
     specifications: [],
     quantity: 1,
     confirmedByUser: true,
@@ -93,6 +99,11 @@ async function submitSearch() {
       : Boolean(part.categoryCode && part.displayName && part.specifications.length
         && part.specifications.every(spec => spec.semanticKey && spec.operator && spec.value)))
     .map(part => ({ ...part, quantity: Number(part.quantity ?? 1) }))
+  partsError.value = ''
+  if (validParts.length !== existingParts.value.length) {
+    partsError.value = '請選好站內零件，或填妥手填零件的分類、名稱與規格；也可以移除尚未確認的零件。'
+    return
+  }
   const response = await mutation.mutateAsync({
     message: combined.slice(0, 2000),
     locale: 'zh-TW',
@@ -165,35 +176,70 @@ function formatMoney(value: number | string): string {
         帶入展示範例
       </button>
 
+      <p
+        v-if="partsError"
+        role="alert"
+        class="form-error"
+      >
+        {{ partsError }}
+      </p>
       <details class="ai-search__parts">
         <summary>我有既有零件，需要一起檢查相容性</summary>
-        <p>可貼上站內 SKU，或輸入你已確認的結構化規格；不確定的自由文字不會直接參與相容性計算，最多 12 項。</p>
+        <p>搜尋站內商品並選擇規格，或填入手邊零件的資訊。不確定的規格可先在上方描述需求，最多加入 12 項零件。</p>
         <div
           v-for="(part, index) in existingParts"
           :key="index"
           class="ai-search__part-row"
         >
-          <label v-if="part.sourceType === 'catalogSku'">
-            SKU 公開識別碼
-            <input
-              v-model="part.skuPublicId"
-              type="text"
-              inputmode="text"
-              placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+          <div
+            v-if="part.sourceType === 'catalogSku'"
+            class="ai-search__catalog-part"
+          >
+            <label>
+              零件分類
+              <select
+                v-model="part.categoryCode"
+                @change="part.skuPublicId = ''; part.displayName = ''"
+              >
+                <option value="">請選擇分類</option>
+                <option
+                  v-for="code in CATALOG_CATEGORY_CODES"
+                  :key="code"
+                  :value="code"
+                >{{ categoryLabel(code) }}</option>
+              </select>
+            </label>
+            <BuildCategorySlotPicker
+              v-if="part.categoryCode"
+              :key="part.categoryCode"
+              :category-code="part.categoryCode"
+              :in-stock-only="false"
+              @select="part.skuPublicId = $event.skuPublicId; part.displayName = $event.name"
+            />
+            <p
+              v-if="part.skuPublicId"
+              role="status"
             >
-          </label>
+              已選擇：{{ part.displayName }}
+            </p>
+          </div>
           <div
             v-else
             class="ai-search__manual-part"
           >
             <label>
-              零件分類代碼
-              <input
+              零件分類
+              <select
                 v-model="part.categoryCode"
                 data-testid="manual-category"
-                type="text"
-                placeholder="例如 CPU、GPU、MOTHERBOARD"
               >
+                <option value="">請選擇分類</option>
+                <option
+                  v-for="code in CATALOG_CATEGORY_CODES"
+                  :key="code"
+                  :value="code"
+                >{{ categoryLabel(code) }}</option>
+              </select>
             </label>
             <label>
               顯示名稱
@@ -211,13 +257,28 @@ function formatMoney(value: number | string): string {
               :key="specIndex"
               class="ai-search__spec-row"
             >
-              <input
+              <select
                 v-model="spec.semanticKey"
                 data-testid="manual-semantic-key"
-                type="text"
-                placeholder="semantic_key"
-                aria-label="規格語意鍵"
+                aria-label="規格項目"
               >
+                <option value="">
+                  請選擇規格項目
+                </option>
+                <option
+                  v-if="spec.semanticKey && !partSpecificationLabels[spec.semanticKey]"
+                  :value="spec.semanticKey"
+                >
+                  其他已確認規格
+                </option>
+                <option
+                  v-for="(label, key) in partSpecificationLabels"
+                  :key="key"
+                  :value="key"
+                >
+                  {{ label }}
+                </option>
+              </select>
               <select
                 v-model="spec.operator"
                 aria-label="規格運算子"
@@ -520,6 +581,9 @@ function formatMoney(value: number | string): string {
 </template>
 
 <style scoped>
+.ai-search__catalog-part { display: grid; gap: var(--space-3); min-width: 0; }
+.ai-search__catalog-part select, .ai-search__manual-part select { max-width: 100%; min-width: 0; }
+
 .ai-search { display: grid; gap: 1.5rem; }
 .ai-search__hero { padding: 1rem 0; }
 .ai-search__eyebrow { margin: 0; color: var(--color-primary-dark); font-weight: 800; letter-spacing: .08em; }

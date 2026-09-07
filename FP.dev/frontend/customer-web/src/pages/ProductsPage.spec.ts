@@ -52,7 +52,7 @@ const filterOptionsWithSpec = {
   sortOptions: ['relevance', 'priceAsc', 'priceDesc', 'newest'],
 }
 
-async function mountPage() {
+async function mountPage(initialLocation = '/products') {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
@@ -63,12 +63,24 @@ async function mountPage() {
       { path: '/products/:productId', name: 'product-detail', component: { template: '<div />' } },
     ],
   })
-  await router.push('/products')
+  await router.push(initialLocation)
   await router.isReady()
   return mount(ProductsPage, { global: { plugins: [[VueQueryPlugin, { queryClient }], router] } })
 }
 
 describe('ProductsPage', () => {
+  it('shows labelled all-category and all-brand defaults without a query', async () => {
+    mockSearchProducts.mockResolvedValue(emptyResult)
+    mockGetCatalogFilterOptions.mockResolvedValue(filterOptionsWithSpec)
+    const wrapper = await mountPage()
+    await flushPromises()
+    for (const label of ['分類', '品牌']) {
+      const select = wrapper.get(`select[aria-label="${label}"]`)
+      expect((select.element as HTMLSelectElement).value).toBe('')
+      expect((select.element as HTMLSelectElement).selectedOptions[0]?.textContent).toContain(`全部${label}`)
+      expect(select.element.closest('label')?.textContent).toContain(label)
+    }
+  })
   it('shows retry and clear actions when catalog filter options fail to load', async () => {
     mockSearchProducts.mockResolvedValue(emptyResult)
     mockGetCatalogFilterOptions.mockRejectedValue(new Error('lookup failed'))
@@ -218,5 +230,102 @@ describe('ProductsPage', () => {
 
     expect(mockSearchProducts).toHaveBeenLastCalledWith(expect.objectContaining({ q: '4090' }))
     expect(wrapper.vm.$route.query.q).toBe('4090')
+  })
+
+  /**
+   * 從首頁分類卡進來時 route query 已經有 category=CPU，但 filter-options 還在飛。
+   *
+   * 而且 `/api/v1/catalog/filter-options` 的 `categories` 是「可再往下鑽的分類」：
+   * 未選分類時回頂層清單，**已選分類時回該分類的子分類**
+   * （EfCatalogFilterOptionsService.GetCategoriesAsync）。seeded 的 CPU／GPU 等
+   * 都是沒有子分類的頂層分類，所以帶 Category=CPU 查回來的 `categories` 是空陣列 ——
+   * 回應裡永遠不會有 CPU 這個 option，原生 <select> 只能落回空值。
+   */
+  it('keeps the deep-linked category selected once filter options resolve late', async () => {
+    mockSearchProducts.mockClear()
+    mockSearchProducts.mockResolvedValue(emptyResult)
+
+    let resolveOptions: (value: unknown) => void = () => {}
+    mockGetCatalogFilterOptions.mockReturnValue(new Promise((resolve) => { resolveOptions = resolve }))
+
+    const wrapper = await mountPage('/products?category=CPU')
+    await flushPromises()
+
+    const select = () => wrapper.find('select[aria-label="分類"]')
+    const optionValues = () => select().findAll('option').map((option) => option.attributes('value'))
+
+    // 選項還沒到就必須已經顯示 CPU，不能先閃一下「全部分類」
+    expect(optionValues()).toContain('CPU')
+    expect((select().element as HTMLSelectElement).value).toBe('CPU')
+
+    // 真實契約：帶了 Category 就只回子分類，CPU 自己不在裡面
+    resolveOptions({ ...filterOptionsWithSpec, categories: [] })
+    await flushPromises()
+    await wrapper.vm.$nextTick()
+
+    // 套用中的分類仍必須出現在選項裡，而且是被選中的那一個
+    expect(optionValues()).toContain('CPU')
+    expect((select().element as HTMLSelectElement).value).toBe('CPU')
+    // 名稱走本地對照表，深連結進來也顯示中文而不是代碼
+    expect(select().find('option[value="CPU"]').text()).toBe('處理器')
+
+    // route query 仍是唯一來源，載入選項不得 push route
+    expect(wrapper.vm.$route.query.category).toBe('CPU')
+    expect(wrapper.vm.$route.fullPath).toBe('/products?category=CPU')
+    // 也不得因為同步控制項而多打一次搜尋
+    expect(mockSearchProducts).toHaveBeenCalledTimes(1)
+    expect(mockSearchProducts).toHaveBeenLastCalledWith(expect.objectContaining({ category: 'CPU' }))
+  })
+
+  it('does not clobber an unapplied category edit when filter options arrive', async () => {
+    mockSearchProducts.mockResolvedValue(emptyResult)
+
+    let resolveOptions: (value: unknown) => void = () => {}
+    mockGetCatalogFilterOptions.mockReturnValue(new Promise((resolve) => { resolveOptions = resolve }))
+
+    const wrapper = await mountPage('/products?category=CPU')
+    await flushPromises()
+
+    // 使用者在選項到齊前就先把草稿改回「全部分類」
+    await wrapper.find('select[aria-label="分類"]').setValue('')
+
+    resolveOptions({
+      ...filterOptionsWithSpec,
+      categories: [
+        { publicId: 'c-cpu', code: 'CPU', name: '處理器' },
+        { publicId: 'c-gpu', code: 'GPU', name: '顯示卡' },
+      ],
+    })
+    await flushPromises()
+    await wrapper.vm.$nextTick()
+
+    // 尚未套用的編輯不得被選項載入蓋掉
+    expect((wrapper.find('select[aria-label="分類"]').element as HTMLSelectElement).value).toBe('')
+    // route query 沒被動到
+    expect(wrapper.vm.$route.query.category).toBe('CPU')
+  })
+
+  it('re-syncs the category control on query-only back/forward navigation', async () => {
+    mockSearchProducts.mockResolvedValue(emptyResult)
+    mockGetCatalogFilterOptions.mockResolvedValue({ ...filterOptionsWithSpec, categories: [] })
+
+    const wrapper = await mountPage('/products?category=CPU')
+    await flushPromises()
+    await wrapper.vm.$nextTick()
+
+    const select = () => wrapper.find('select[aria-label="分類"]')
+    expect((select().element as HTMLSelectElement).value).toBe('CPU')
+
+    await wrapper.vm.$router.push('/products?category=GPU')
+    await flushPromises()
+    await wrapper.vm.$nextTick()
+
+    expect((select().element as HTMLSelectElement).value).toBe('GPU')
+
+    await wrapper.vm.$router.back()
+    await flushPromises()
+    await wrapper.vm.$nextTick()
+
+    expect((select().element as HTMLSelectElement).value).toBe('CPU')
   })
 })
