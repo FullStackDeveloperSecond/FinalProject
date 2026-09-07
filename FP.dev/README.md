@@ -147,7 +147,17 @@ node .\scripts\validate-ai-eval-dataset.mjs
 
 只有修改 `cases-source.mjs` 後才執行不含 `--check` 的產生指令；產生檔必須與來源一起提交。Live baseline 必須等待 Prompt、Schema、Adapter 與明確成本核准，不得由一般 PR 自動呼叫。
 
-第一次啟動前可將 `src/backend/DoSelect.Api/appsettings.Development.example.json` 複製為未追蹤的 `appsettings.Development.json`，再依本機環境調整非敏感設定；OpenAI 與 SMTP Secret 使用 .NET User Secrets 或環境變數，不得填入範例檔。AI 與 Email 預設停用，因此 Fresh Clone 不需要 Secret 即可啟動；若明確啟用但缺少必要 Key，API 會在啟動時失敗。
+第一次啟動前可將 `src/backend/DoSelect.Api/appsettings.Development.example.json` 複製為未追蹤的 `appsettings.Development.json`，再依本機環境調整非敏感設定；OpenAI、SMTP 與 HMAC Secret 使用 .NET User Secrets 或環境變數，不得填入範例檔。AI 與 Email 預設停用，因此 Fresh Clone 不需要 OpenAI／SMTP Secret；但 `GuestOrderAccess:Pepper` 是 API 啟動時必填的安全設定，必須先為每台開發電腦產生獨立值。下列 PowerShell 只把隨機值存入目前使用者的 .NET User Secrets，不顯示或寫入 Repository：
+
+```powershell
+$guestAccessPepper = [Convert]::ToBase64String(
+  [Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+dotnet user-secrets set "GuestOrderAccess:Pepper" $guestAccessPepper `
+  --project src/backend/DoSelect.Api | Out-Null
+Remove-Variable guestAccessPepper
+```
+
+若明確啟用 AI／Email 卻缺少必要 Key，或缺少／誤設必要 Pepper，API 會在啟動時 fail closed。不得把 `dotnet user-secrets list` 的輸出貼入日誌、聊天或 PR。
 
 啟用 AI 前還必須設定 `OpenAI:ProductSearchInputCostPerMillionTokens`、`OpenAI:ProductSearchOutputCostPerMillionTokens`、至少 32 UTF-8 bytes 的 `OpenAI:AnonymousIdentityPepper`，以及有效的 `OpenAI:BudgetAlertRecipientAdminPublicId`。商品搜尋成本預設為 `-1`，刻意讓未確認價格的環境 Fail Closed；不得以 `0` 假裝免費。`AnonymousIdentityPepper` 屬 Secret，不得提交；模型與每百萬 Token 單價則依實際使用帳戶的已確認價格設定。
 
@@ -218,6 +228,17 @@ npm run test:coverage --prefix frontend\admin-web
 .\scripts\verify-clean-environment.ps1 -RunVerification
 ```
 
+`-RunVerification` 涵蓋 Restore、Build、.NET tests、雙前端 `npm ci`／Typecheck／Lint／Coverage／production build，但不會修改資料庫或啟動服務。Fresh Clone 驗收還必須在設定 `GuestOrderAccess:Pepper` 後依序執行下方的完整 Migration、最小 Seed、SQL 驗證、三服務啟動與健康檢查；任何步驟失敗都不得把 DEV-02／ENV-RC-03 標成完成。執行紀錄只保存 revision、環境版本、命令、通過／失敗與去識別日誌，不保存 User Secrets、連線字串、帳號、機器名或資料列。
+
+ENV-RC-03 的第二機執行順序固定如下；各命令的參數與安全邊界見後續章節：
+
+1. 讀回 `git rev-parse HEAD` 與乾淨工作樹，確認是指定 revision。
+2. 執行 `verify-clean-environment.ps1 -RunVerification`。
+3. 以前述隨機產生方式設定 `GuestOrderAccess:Pepper`，並以互動腳本設定最小 Seed 密碼。
+4. 執行不指定目標名稱的 `dotnet-ef database update`，套用完整 Migration chain，再執行最小 Seed 與兩支 SQL 驗證檔。
+5. 執行 `start-all.ps1`、`health-check.ps1`、`stop-all.ps1`，最後在 Port 已釋放後執行 `smoke-api-database.ps1`。
+6. 確認 `git status --short` 沒有 tracked 變更；只交付去識別結果與日誌 hash。
+
 ## EF Core 工具
 
 全案固定使用單一 `DoSelectDbContext` 與 `DoSelect.Infrastructure` Migration Assembly。Entity／Configuration 依模組分資料夾；不得建立每模組獨立 DbContext 或 Migration。
@@ -235,10 +256,10 @@ dotnet tool run dotnet-ef -- dbcontext info `
 
 四份 Schema、Entity／Configuration、第一輪跨模組 Review 與 `20260819013357_InitialCreate` 已完成。Migration 建立 93 張應用／Identity 資料表、315 個索引及 `vw_CaseWorkbench`，Review SQL 位於 `database-deploy/initial-create/InitialCreate.review.sql`。本機 `DoSelectDb` 已套用並由 `database-deploy/initial-create/verify.sql` 驗證通過；API 啟動仍不得呼叫 `Database.Migrate()`／`MigrateAsync()`。
 
-新開發環境需由開發者明確套用 Migration：
+新開發環境需由開發者明確套用目前完整 Migration chain；不可指定 `InitialCreate`，否則全新資料庫會停在過時 schema：
 
 ```powershell
-dotnet tool run dotnet-ef -- database update InitialCreate `
+dotnet tool run dotnet-ef -- database update `
   --project src/backend/DoSelect.Infrastructure `
   --startup-project src/backend/DoSelect.Infrastructure `
   --context DoSelectDbContext

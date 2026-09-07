@@ -49,7 +49,9 @@ appsettings.json
 | `Email__Password` | ✓ | Brevo SMTP 啟用時必填 |
 | `Email__SenderAddress` |  | 必須是已驗證寄件者 |
 | `Storage__DataRoot` |  | Development 未覆寫時使用系統暫存目錄下的 `DoSelectData`；Demo 設為 `E:\FinalProjectData`；啟動時驗證為非磁碟根目錄的絕對路徑，檔案 Logging 啟用時另驗證可寫 |
-| `Security__DataProtectionKeyPath` | ✓ | Demo 固定登入／Token 跨重啟時必填 |
+| `DataProtection__KeyRingPath` |  | Demo 固定登入／Token 跨重啟時必填；值是 Repository 外的絕對目錄，目錄內 Key material 視為 Secret 並限制 ACL |
+| `Idempotency__ActorScopePepper` | ✓ | 第一次呼叫冪等命令前必填；至少 32 UTF-8 bytes |
+| `GuestOrderAccess__Pepper` | ✓ | API 啟動必填；每台開發／展示電腦使用不同的至少 32 UTF-8 bytes 高熵值 |
 | `Security__CouponGuestUsageHmacKeyV1` | ✓ | 訪客使用公開優惠券前必填；至少 32 bytes 隨機值，只用於 HMAC-SHA-256，不得回傳、記錄或放入 Repository |
 | `Features__AiEnabled` |  | Boolean，安全預設 `false`；明確設為 `true` 時必須通過 OpenAI 設定驗證 |
 | `Features__EmailEnabled` |  | Boolean，安全預設 `false`；明確設為 `true` 時必須通過 SMTP 設定驗證 |
@@ -105,7 +107,7 @@ Server=.\SQL2025;Database=DoSelectDb;Trusted_Connection=True;TrustServerCertific
 
 ## 驗收
 
-- Fresh Clone 以 AI／Email 預設停用，可在沒有 Secret 時啟動核心 API；明確啟用任一功能但缺少設定時，以安全且可理解的 Key 名啟動失敗。
+- Fresh Clone 以 AI／Email 預設停用，不需要 OpenAI／SMTP Secret；核心 API 仍須先在目前使用者的 .NET User Secrets 設定獨立 `GuestOrderAccess:Pepper`。缺少或不足 32 UTF-8 bytes 時必須以只含 Key 名的訊息 fail closed。
 - 前端建置產物搜尋不到 OpenAI、SMTP、Connection String 或 Data Protection Key。
 - Repository、Log、Health、Audit、備份、錯誤頁與 Demo 影片均不含 Secret。
 - `Demo__SimulationEndpointsEnabled=true` 只允許 Demo Environment，或依 DEC-P356 建立且只連專屬 `DoSelectE2E_<GUID>` 的 E2E Environment；Development、Production 與其他 Environment 必須啟動失敗。
