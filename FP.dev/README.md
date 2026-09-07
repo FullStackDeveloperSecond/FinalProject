@@ -221,7 +221,7 @@ npm run test:coverage --prefix frontend\admin-web
 .\scripts\prune-demo-backups.ps1 -WhatIf
 ```
 
-`test-backup-retention-safety.ps1` 以暫存資料同時驗證 database-only fail-closed、最近集合選取及 `private/support` 封存／展開路徑不變量；不連線 SQL 或讀取真實附件。
+`test-backup-retention-safety.ps1` 以暫存資料同時驗證 database-only fail-closed、最近集合選取、`private/support` 封存／展開路徑不變量，以及拒絕會指向 DataRoot 外的 junction／symlink；不連線 SQL 或讀取真實附件。
 
 乾淨環境可依下列命令執行前置檢查。ENV-RC-03／DEV-02 的第二機 Fresh Clone 目前明確保留為「未測試、非阻擋」：尚未取得跨機通過證據，也不得宣稱完成，但不阻擋 ENV-RC-04 與其後工作。日後補驗時，另一位組員應在 Fresh Clone 上使用完整模式並把去識別結果寫入日誌：
 

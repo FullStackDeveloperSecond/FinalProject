@@ -70,6 +70,8 @@ Repository 只提交去識別摘要與 hash；原始 SQL Backup 不進 Git。清
 
 推送前 Security 複核另以暫存 probe 確認原先直接將 `private/support` 交給 `Compress-Archive` 會產生 `support/probe.txt`，而 Restore 未驗證相對路徑，可能高估檔案復原完整性。revision `e9c74c92` 改由既有 `common.ps1` 共用 helper 在暫存 staging 中保留 DataRoot 相對結構，並把實際封存／展開斷言接入同一回歸測試。本地案例已通過且暫存殘留為 0；因仍未使用真實商品圖片／附件資料，此結果只關閉程式路徑回歸，不改寫下列「未測試／非阻擋」狀態。
 
+同一 exact-head 安全複核再以全合成 junction 重現 `Copy-Item -Recurse` 會跟隨連結，將 DataRoot 外的 marker 收進 ZIP；這是潛在資訊外洩邊界，不適用未測試非阻擋。revision `1ac877f0` 已在複製前拒絕來源路徑鏈或子樹內的任何 reparse point，並新增 Windows junction／Linux symlink 回歸。修正後路徑、reparse、database-only、排序與 parser 測試通過，暫存殘留為 0；最終 exact-head Security 與 Required CI 仍須在推送前後完成。
+
 ## 限制與後續
 
 - 商品圖片、私有附件、還原後授權與五條核心 UI Smoke 尚未在具備實際檔案資料根目錄的展示環境執行；依使用者裁定為未測試、非阻擋。
