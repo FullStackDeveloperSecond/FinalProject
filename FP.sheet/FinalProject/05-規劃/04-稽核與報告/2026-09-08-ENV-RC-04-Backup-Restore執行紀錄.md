@@ -72,6 +72,8 @@ Repository 只提交去識別摘要與 hash；原始 SQL Backup 不進 Git。清
 
 同一 exact-head 安全複核再以全合成 junction 重現 `Copy-Item -Recurse` 會跟隨連結，將 DataRoot 外的 marker 收進 ZIP；這是潛在資訊外洩邊界，不適用未測試非阻擋。revision `1ac877f0` 已在複製前拒絕來源路徑鏈或子樹內的任何 reparse point，並新增 Windows junction／Linux symlink 回歸。修正後路徑、reparse、database-only、排序與 parser 測試通過，暫存殘留為 0；最終 exact-head Security 與 Required CI 仍須在推送前後完成。
 
+後續架構覆核指出「先檢查、再 `Copy-Item`」仍有競態窗口。revision `13fd5944` 依 Windows 內建工具契約改用 `robocopy /SL /SJ` 複製 junction／symlink 本體，Unix 則使用 `cp -a`，並在 staging 再次拒絕任何 reparse point。本機直接 probe 得到 `destinationIsReparsePoint=true`、未解參照目標；既有回歸、parser、diff check 與暫存清理仍通過。此修正不新增外部套件，但最終 exact-head Security／Required CI 仍為硬性 Gate。
+
 ## 限制與後續
 
 - 商品圖片、私有附件、還原後授權與五條核心 UI Smoke 尚未在具備實際檔案資料根目錄的展示環境執行；依使用者裁定為未測試、非阻擋。
