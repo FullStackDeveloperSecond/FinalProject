@@ -306,6 +306,10 @@ jobs:
       # 才會實際建立 H-R03 帳號，而不是被自己的安全守門悄悄跳過。
       ASPNETCORE_ENVIRONMENT: "E2E"
       Seed__AdminHr03TotpSecret: "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
+      # 退款旅程管理員（refund-e2e-admin@doselect.local）同一套 AUTO-DEC-006 守門，見
+      # MinimalDevelopmentDataSeeder.EnsureRefundJourneyOrderAsync（han00r 2026-09-06 #108
+      # 回報：原本無條件建立，已比照上面 H-R03 帳號補上 IsIsolatedE2EEnvironment 守門）。
+      Seed__RefundJourneyAdminTotpSecret: "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
       E2E_ASPNETCORE_ENVIRONMENT: "E2E"
       E2E_BACKGROUND_JOBS_ENABLED: "true"
       E2E_SIMULATION_ENDPOINTS_ENABLED: "true"

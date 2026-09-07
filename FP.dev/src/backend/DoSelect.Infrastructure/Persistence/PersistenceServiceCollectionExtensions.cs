@@ -88,6 +88,7 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<IFavoriteGateway, EfFavoriteGateway>();
         services.AddScoped<IMemberProfileGateway, MemberProfileGateway>();
         services.AddScoped<MinimalDevelopmentDataSeeder>();
+        services.AddScoped<DemoDataSeeder>();
 
         return services;
     }

@@ -107,13 +107,47 @@ function toggleSelected(order: {
 }
 
 /**
- * 換篩選條件或換頁時清掉勾選。留著的話，管理員會在一份看不見的清單上按下「批次出貨」——畫面上
- * 是這一頁的訂單，送出去的卻是上一頁勾的那些。這與 placeholderData 那組 review 是同一個問題：
- * 身分變了，就不能讓上一個身分的資料繼續是可操作的。
+ * 換篩選條件或換頁（cursor）時清掉全部勾選。留著的話，管理員會在一份看不見的清單上按下
+ * 「批次出貨」——畫面上是這一頁的訂單，送出去的卻是上一頁勾的那些。這與 placeholderData 那組
+ * review 是同一個問題：身分變了，就不能讓上一個身分的資料繼續是可操作的。
+ *
+ * 刻意監看 `filters` 而不是 `data.value`：換頁與換篩選一定會改到 `filters`，但同一組篩選條件下
+ * 的背景 refetch（例如視窗重新取得焦點）不會——那種情況要走下面的 reconcile watcher 保留仍然
+ * 有效的勾選，而不是無條件清空。
  */
-watch(() => data.value, () => {
-  if (selected.value.size > 0) {
-    selected.value = new Map()
+watch(
+  () => [filters.summaryStatus, filters.badge, filters.cursor],
+  () => {
+    if (selected.value.size > 0) {
+      selected.value = new Map()
+    }
+  },
+)
+
+/**
+ * 同一組篩選條件下的背景 refetch 不是換頁，不該清空——但那次 refetch 之後，勾選裡如果有訂單
+ * 已經不在畫面上（例如剛好被移出這一頁），或狀態已經不是可批次出貨（例如剛好被別人出貨），
+ * 就要把它從勾選集合移除：留著送出去只會逐筆失敗，而且管理員在畫面上根本看不到自己還勾著它。
+ * 這個 reconcile 沿用 `isSelectable`，不是另外造一套資格規則。
+ */
+watch(() => data.value, (nextData) => {
+  if (!nextData || selected.value.size === 0) {
+    return
+  }
+
+  const visibleByPublicId = new Map(nextData.items.map(item => [item.publicId, item]))
+  const next = new Map(selected.value)
+  let pruned = false
+  for (const publicId of next.keys()) {
+    const stillVisible = visibleByPublicId.get(publicId)
+    if (!stillVisible || !isSelectable(stillVisible.summaryStatus)) {
+      next.delete(publicId)
+      pruned = true
+    }
+  }
+
+  if (pruned) {
+    selected.value = next
   }
 })
 

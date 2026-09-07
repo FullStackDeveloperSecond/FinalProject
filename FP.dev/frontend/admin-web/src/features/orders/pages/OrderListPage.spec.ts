@@ -81,7 +81,7 @@ async function mountPage() {
     global: { plugins: [[VueQueryPlugin, { queryClient }], router] },
   })
   await flushPromises()
-  return { wrapper, router }
+  return { wrapper, router, queryClient }
 }
 
 describe('OrderListPage 批次出貨勾選', () => {
@@ -151,5 +151,96 @@ describe('OrderListPage 批次出貨勾選', () => {
     const { wrapper } = await mountPage()
 
     expect(wrapper.findAll('tbody input[type="checkbox"]')).toHaveLength(0)
+  })
+
+  /**
+   * 換頁（cursor）跟換篩選是同一類「畫面換了一批訂單」，也該清空——不是只有 fieldset 篩選勾選
+   * 才算。這條跟上面「drops the selection when the list itself changes」互補，各自對應清空的
+   * 兩種真正觸發來源。
+   */
+  it('drops the selection when the page changes', async () => {
+    signIn(['OrderManager'])
+    mockFetchOrders.mockResolvedValue(list([order()], { nextCursor: 'cursor-2', hasMore: true }))
+    const { wrapper } = await mountPage()
+
+    await wrapper.findAll('tbody input[type="checkbox"]')[0].setValue(true)
+    expect(wrapper.text()).toContain('已選取 1 筆')
+
+    mockFetchOrders.mockResolvedValue(list([order({ publicId: 'order-9', orderNumber: 'DS0009' })]))
+    await wrapper.find('table + button').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('已選取')
+  })
+
+  /**
+   * alex 2026-09-05 對 `bug-order-list-batch-selection-race.md` 的裁定：同一組篩選條件下的
+   * 背景 refetch（例如視窗重新取得焦點）不是換頁，仍在畫面上、仍可批次出貨的勾選要保留，
+   * 不能無條件清空——這是原本 `watch(() => data.value, ...)` 的 bug，會把管理員剛勾好的
+   * 選取整批清掉。
+   */
+  it('keeps a still-valid selection across a same-filter background refetch', async () => {
+    signIn(['OrderManager'])
+    mockFetchOrders.mockResolvedValue(list([order()]))
+    const { wrapper, queryClient } = await mountPage()
+
+    await wrapper.findAll('tbody input[type="checkbox"]')[0].setValue(true)
+    expect(wrapper.text()).toContain('已選取 1 筆')
+
+    // 篩選條件沒變，只是同一個 query key 被背景重新整理（例如視窗重新取得焦點）——這裡刻意讓
+    // 回傳內容跟上一次不同（多一筆新訂單），確保 `data.value` 真的換了參考、watcher 真的觸發，
+    // 而不是被 TanStack Query 的 structural sharing 擋下來、兩種實作看起來都「沒事」。
+    mockFetchOrders.mockResolvedValue(list([order(), order({ publicId: 'order-3', orderNumber: 'DS0003' })]))
+    await queryClient.invalidateQueries({ queryKey: ['admin-orders', 'list'] })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('已選取 1 筆')
+    expect((wrapper.findAll('tbody input[type="checkbox"]')[0].element as HTMLInputElement).checked).toBe(true)
+  })
+
+  /**
+   * alex 裁定第 3 點：refetch 之後如果勾選的訂單已經不在畫面上，要從勾選集合移除，避免送出
+   * 一份畫面上看不到的舊選取。
+   */
+  it('removes a selection whose order disappeared from a refetch, but keeps other still-valid selections', async () => {
+    signIn(['OrderManager'])
+    mockFetchOrders.mockResolvedValue(list([order(), order({ publicId: 'order-2', orderNumber: 'DS0002' })]))
+    const { wrapper, queryClient } = await mountPage()
+
+    await wrapper.findAll('tbody input[type="checkbox"]')[0].setValue(true)
+    await wrapper.findAll('tbody input[type="checkbox"]')[1].setValue(true)
+    expect(wrapper.text()).toContain('已選取 2 筆')
+
+    // order-2 refetch 後不見了（例如剛好被別人排除在這組篩選之外），order-1 還在、還可以批次出貨。
+    // 只清 order-2、留著 order-1，才是跟舊版「整批清空」真正不一樣的地方——單一勾選項目測不出這個差異。
+    mockFetchOrders.mockResolvedValue(list([order()]))
+    await queryClient.invalidateQueries({ queryKey: ['admin-orders', 'list'] })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('已選取 1 筆')
+    expect((wrapper.findAll('tbody input[type="checkbox"]')[0].element as HTMLInputElement).checked).toBe(true)
+  })
+
+  /**
+   * alex 裁定第 3 點的另一半：訂單還在畫面上，但 refetch 後狀態已經不是可批次出貨（例如剛好
+   * 被別人出貨），也要從勾選集合移除。
+   */
+  it('removes a selection whose order became ineligible after a refetch, but keeps other still-valid selections', async () => {
+    signIn(['OrderManager'])
+    mockFetchOrders.mockResolvedValue(list([order(), order({ publicId: 'order-2', orderNumber: 'DS0002' })]))
+    const { wrapper, queryClient } = await mountPage()
+
+    await wrapper.findAll('tbody input[type="checkbox"]')[0].setValue(true)
+    await wrapper.findAll('tbody input[type="checkbox"]')[1].setValue(true)
+    expect(wrapper.text()).toContain('已選取 2 筆')
+
+    // order-2 還在畫面上，但 refetch 後狀態已經不是可批次出貨（例如剛好被別人出貨）；order-1
+    // 沒變、還留著才是跟舊版「整批清空」不一樣的地方。
+    mockFetchOrders.mockResolvedValue(list([order(), order({ publicId: 'order-2', orderNumber: 'DS0002', summaryStatus: 'shipped' })]))
+    await queryClient.invalidateQueries({ queryKey: ['admin-orders', 'list'] })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('已選取 1 筆')
+    expect((wrapper.findAll('tbody input[type="checkbox"]')[0].element as HTMLInputElement).checked).toBe(true)
   })
 })
