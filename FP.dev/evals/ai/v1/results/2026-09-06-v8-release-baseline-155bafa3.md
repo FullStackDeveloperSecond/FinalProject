@@ -2,7 +2,7 @@
 
 ## Evaluation decision
 
-- Verdict：`FAIL`；66 次 Live Provider 請求全部完成，但 automated thresholds 未通過，人工覆核仍為 66／66 pending。
+- Verdict：`FAIL`；66 次 Live Provider 請求全部完成但 automated thresholds 未通過；後續人工覆核已完成 66／66，44 Pass／22 Fail。
 - Feature／revision：AI 商品搜尋推薦與 AI 客服；`dev@155bafa363f99641e530f65727d7a6cbf677f626`（PR #122 squash merge）。
 - Model／configuration：商品 `gpt-5.6-luna`＋`product-search-v8`；客服 `gpt-5.6-terra`＋`support-v2`；Standard／short-context 單價於 2026-09-06 依 OpenAI 官方價格頁重新核對。
 - Dataset／grader：`zh-TW-v1.0.5-draft`／`deterministic-v1.1.4`；Fixture `v1.0.4`。
@@ -11,7 +11,7 @@
 - 執行時間：2026-09-06 04:29:48Z～04:31:59Z，共 131.286 秒。
 - 證據層級：T2；原始產物保存在 Git 忽略的 `.run/ai-evals/20260906T042931Z-v8-release-dev-155bafa3/`。
 
-本結果是可重現且可診斷的失敗 baseline，不是整體系統 Release verdict，也不得用來宣稱 AI-09 已完成。14 個 deterministic-only Release 案例依契約不由 Live Adapter 執行，仍須引用既有 orchestration 證據；66 個顧客可見輸出亦尚待人工覆核。
+本結果是可重現且可診斷的失敗 baseline，不是整體系統 Release verdict，也不得用來宣稱 AI-09 已完成。14 個 deterministic-only Release 案例依契約不由 Live Adapter 執行，仍須引用既有 orchestration 證據；66 個顧客可見輸出已完成逐筆人工覆核，完整結果見 [`../reviews/2026-09-06-v8-release-baseline-human-review.md`](../reviews/2026-09-06-v8-release-baseline-human-review.md)。
 
 ## 執行前 Gate
 
@@ -42,7 +42,7 @@
 | 商品平均成本 | ≤ US$0.01 | US$0.000534 | 39 個商品案例輪次 | Pass |
 | 客服平均成本 | ≤ US$0.03 | US$0.003310 | 27 個客服案例輪次 | Pass |
 | 整體 deterministic pass | 未設獨立門檻 | 77.27% | 51／66 | Observation |
-| 顧客視角人工覆核 | 全部需覆核 | 0／66 已覆核 | Runner 正確維持 pending | Pending |
+| 顧客視角人工覆核 | 全部需覆核 | 44 Pass／22 Fail | 66／66 已覆核；原始 Runner pending 產物保留 | **Fail** |
 
 Token 合計為 Input 108,339、Output 6,736。商品平均延遲 1,954 ms，客服平均延遲 2,032 ms。實際 HTTP 模型請求與規劃相同，皆為 66，未觀察到額外 retry。
 
@@ -112,7 +112,7 @@ Token 合計為 Input 108,339、Output 6,736。商品平均延遲 1,954 ms，客
 
 ## Limitations
 
-1. 66 個顧客可見輸出尚未人工覆核；automated FAIL 不因後續人工判定而自動變成 PASS。
+1. 66 個顧客可見輸出已人工覆核；44 Pass／22 Fail。人工結果不會把 automated FAIL 改成 PASS。
 2. 14 個 deterministic-only 案例未由 Live Adapter 執行；本報告不取代其既有 Application／Domain／UI orchestration 證據。
 3. Release split 已被用於本次診斷；修正不得只針對原句，必須提升版本並加入未用來調 Prompt 的 development／challenge 泛化證據。
 4. 本次結果只支援 AI 特定功能的失敗判定，不是整體專案發布就緒結論。

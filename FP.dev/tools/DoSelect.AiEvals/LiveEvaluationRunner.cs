@@ -49,7 +49,11 @@ public sealed record LiveEvaluationCaseResult(
     bool IsPrivacyAuthorizationCase = false,
     string? ValidationFailureCode = null,
     string? ValidationFailureField = null,
-    bool? CustomerFacingAnswer = null);
+    bool? CustomerFacingAnswer = null,
+    bool? RequiredFactsCovered = null,
+    int RequiredFacts = 0,
+    int CoveredRequiredFacts = 0,
+    IReadOnlyList<string>? MissingRequiredFactIds = null);
 
 public sealed record LiveEvaluationSummary(
     string RunId,
@@ -84,6 +88,7 @@ public sealed record LiveEvaluationSummary(
     decimal ClarificationRecall,
     decimal ValidRecommendationRate,
     decimal CitationGroundingRate,
+    decimal SupportRequiredFactCoverageRate,
     decimal PrivacyAuthorizationDeterministicPassRate,
     decimal DeterministicPassRate,
     bool AutomatedThresholdsPass,
@@ -458,6 +463,8 @@ public sealed class LiveEvaluationRunner : IDisposable
             (expectedCitations.Count > 0 && expectedCitations.All(expected =>
                 actualCitations.Contains(expected, StringComparer.Ordinal)));
         var citationGrounded = schemaValid && allActualCitationsAllowed && requiredCitationsPresent;
+        var requiredFactGrade = GradeRequiredFacts(item.Expected, answer.Answer);
+        var requiredFactsCovered = requiredFactGrade.Covered == requiredFactGrade.Total;
 
         return new LiveEvaluationCaseResult(
             item.CaseId,
@@ -469,7 +476,7 @@ public sealed class LiveEvaluationRunner : IDisposable
             IntentFieldsMatch: true,
             ClarificationShapeMatch: true,
             citationGrounded,
-            DeterministicPass: schemaValid && citationGrounded,
+            DeterministicPass: schemaValid && citationGrounded && requiredFactsCovered,
             HumanReviewRequired: HasRequiredAnswerPoints(item.Expected),
             stopwatch.ElapsedMilliseconds,
             answer.Usage?.Model,
@@ -479,9 +486,17 @@ public sealed class LiveEvaluationRunner : IDisposable
             answer.Answer,
             StructuredOutput: null,
             actualCitations,
-            ErrorCode: schemaValid ? null : "MODEL_OUTCOME_MISMATCH",
+            ErrorCode: !schemaValid
+                ? "MODEL_OUTCOME_MISMATCH"
+                : !requiredFactsCovered
+                    ? "REQUIRED_FACTS_MISSING"
+                    : null,
             IsPrivacyAuthorizationCase: item.HardFailRules.Any(rule =>
-                rule is "privacy" or "authorization" or "consent" or "unsafe_action" or "prompt_injection"));
+                rule is "privacy" or "authorization" or "consent" or "unsafe_action" or "prompt_injection"),
+            RequiredFactsCovered: requiredFactsCovered,
+            RequiredFacts: requiredFactGrade.Total,
+            CoveredRequiredFacts: requiredFactGrade.Covered,
+            MissingRequiredFactIds: requiredFactGrade.MissingIds);
     }
 
     private async Task<LiveEvaluationRunFiles> InitializeRunFilesAsync(
@@ -612,6 +627,12 @@ public sealed class LiveEvaluationRunner : IDisposable
             recommendationResults,
             result => result.RecommendationValid == true);
         var citationGroundingRate = Rate(supportResults, result => result.CitationGrounded);
+        var supportRequiredFacts = supportResults.Sum(result => result.RequiredFacts);
+        var supportRequiredFactCoverageRate = supportRequiredFacts == 0
+            ? 1m
+            : decimal.Round(
+                supportResults.Sum(result => result.CoveredRequiredFacts) / (decimal)supportRequiredFacts,
+                4);
         var privacyAuthorizationResults = supportResults
             .Where(result => result.IsPrivacyAuthorizationCase)
             .ToArray();
@@ -638,6 +659,7 @@ public sealed class LiveEvaluationRunner : IDisposable
                 validRecommendationRate >= thresholds.ValidRecommendationRate) &&
             (supportResults.Length == 0 ||
                 (citationGroundingRate >= thresholds.CitationGroundingRate &&
+                 supportRequiredFactCoverageRate >= thresholds.SupportRequiredFactCoverageRate &&
                  supportP95 <= thresholds.AiSupportP95LatencyMilliseconds &&
                  supportAverageCost <= thresholds.AiSupportAverageCostUsd)) &&
             (privacyAuthorizationResults.Length == 0 ||
@@ -683,6 +705,7 @@ public sealed class LiveEvaluationRunner : IDisposable
             clarificationRecall,
             validRecommendationRate,
             citationGroundingRate,
+            supportRequiredFactCoverageRate,
             privacyAuthorizationPassRate,
             deterministicPassRate,
             automatedThresholdsPass,
@@ -868,8 +891,13 @@ public sealed class LiveEvaluationRunner : IDisposable
                 actualPreference.Contains(expectedPreference, StringComparison.OrdinalIgnoreCase)));
     }
 
-    private static string NormalizePreference(string value) =>
-        string.Concat(value.Where(character => char.IsLetterOrDigit(character)));
+    private static string NormalizePreference(string value)
+    {
+        var normalized = string.Concat(value.Where(character => char.IsLetterOrDigit(character)));
+        return normalized.StartsWith("需要", StringComparison.Ordinal)
+            ? normalized[2..]
+            : normalized;
+    }
 
     private static bool ClarificationMatches(JsonElement expected, AiProductSearchIntent? actual)
     {
@@ -905,11 +933,69 @@ public sealed class LiveEvaluationRunner : IDisposable
     private static bool HasRequiredAnswerPoints(JsonElement expected) =>
         expected.GetProperty("answer").GetProperty("requiredPoints").GetArrayLength() > 0;
 
+    private static RequiredFactGrade GradeRequiredFacts(JsonElement expected, string? answer)
+    {
+        var answerContract = expected.GetProperty("answer");
+        if (!answerContract.TryGetProperty("requiredFacts", out var requiredFacts) ||
+            requiredFacts.ValueKind != JsonValueKind.Array)
+        {
+            return new RequiredFactGrade(0, 0, []);
+        }
+
+        var normalizedAnswer = NormalizeFactText(answer ?? string.Empty);
+        var missingIds = new List<string>();
+        var total = 0;
+        var covered = 0;
+        foreach (var fact in requiredFacts.EnumerateArray())
+        {
+            total++;
+            var factId = fact.GetProperty("id").GetString() ??
+                throw new JsonException("Required fact id is missing.");
+            var requiredGroupsCovered = fact.GetProperty("allOf").EnumerateArray().All(group =>
+                group.EnumerateArray().Any(alternative =>
+                {
+                    var normalizedAlternative = NormalizeFactText(
+                        alternative.GetString() ??
+                        throw new JsonException("Required fact alternatives must be strings."));
+                    return normalizedAlternative.Length > 0 &&
+                        normalizedAnswer.Contains(normalizedAlternative, StringComparison.Ordinal);
+                }));
+            var forbiddenTermsAbsent = !fact.TryGetProperty("noneOf", out var forbiddenTerms) ||
+                forbiddenTerms.EnumerateArray().All(term =>
+                {
+                    var normalizedTerm = NormalizeFactText(
+                        term.GetString() ??
+                        throw new JsonException("Required fact forbidden terms must be strings."));
+                    return normalizedTerm.Length == 0 ||
+                        !normalizedAnswer.Contains(normalizedTerm, StringComparison.Ordinal);
+                });
+            var factCovered = requiredGroupsCovered && forbiddenTermsAbsent;
+            if (factCovered)
+            {
+                covered++;
+            }
+            else
+            {
+                missingIds.Add(factId);
+            }
+        }
+
+        return new RequiredFactGrade(total, covered, missingIds);
+    }
+
+    private static string NormalizeFactText(string value) =>
+        string.Concat(value
+            .Normalize(NormalizationForm.FormKC)
+            .Where(char.IsLetterOrDigit))
+            .ToUpperInvariant();
+
     private static LiveEvaluationCaseResult Failed(
         EvaluationCasePlan item,
         int trial,
-        string errorCode) =>
-        new(
+        string errorCode)
+    {
+        var requiredFactGrade = GradeRequiredFacts(item.Expected, answer: null);
+        return new LiveEvaluationCaseResult(
             item.CaseId,
             trial,
             item.Feature,
@@ -929,7 +1015,12 @@ public sealed class LiveEvaluationRunner : IDisposable
             Answer: null,
             StructuredOutput: null,
             Citations: [],
-            errorCode);
+            errorCode,
+            RequiredFactsCovered: requiredFactGrade.Total == 0,
+            RequiredFacts: requiredFactGrade.Total,
+            CoveredRequiredFacts: 0,
+            MissingRequiredFactIds: requiredFactGrade.MissingIds);
+    }
 
     private static decimal Rate(
         IEnumerable<LiveEvaluationCaseResult> source,
@@ -1013,6 +1104,7 @@ public sealed class LiveEvaluationRunner : IDisposable
             thresholds.GetProperty("clarificationRecall").GetDecimal(),
             thresholds.GetProperty("validRecommendationRate").GetDecimal(),
             thresholds.GetProperty("citationGroundingRate").GetDecimal(),
+            thresholds.GetProperty("supportRequiredFactCoverageRate").GetDecimal(),
             thresholds.GetProperty("privacyAuthorizationPassRate").GetDecimal(),
             thresholds.GetProperty("productSearchP95LatencyMilliseconds").GetInt64(),
             thresholds.GetProperty("aiSupportP95LatencyMilliseconds").GetInt64(),
@@ -1069,6 +1161,10 @@ public sealed class LiveEvaluationRunner : IDisposable
             AppendApprovedModelContext(builder, item, result, fixtures);
             builder.AppendLine($"- 必要回答重點（只供評分，未送給模型）：{string.Join("；", requiredPoints)}");
             builder.AppendLine($"- 確定性檢查通過：`{result.DeterministicPass}`");
+            if (result.MissingRequiredFactIds is { Count: > 0 })
+            {
+                builder.AppendLine($"- 缺少必要事實：`{string.Join("`、`", result.MissingRequiredFactIds)}`");
+            }
             builder.AppendLine($"- 顧客視角檢查通過：`{result.CustomerFacingAnswer?.ToString() ?? "不適用"}`");
             builder.AppendLine($"- 模型：`{result.Model ?? "unavailable"}`");
             builder.AppendLine($"- 顧客可見回答：{CreateCustomerVisibleReviewText(result)}");
@@ -1203,6 +1299,11 @@ public sealed class LiveEvaluationRunner : IDisposable
         string SummaryPath,
         string HumanReviewPath);
 
+    private sealed record RequiredFactGrade(
+        int Total,
+        int Covered,
+        IReadOnlyList<string> MissingIds);
+
     private sealed record LiveEvaluationThresholds(
         decimal SchemaValidRate,
         decimal IntentFieldAccuracy,
@@ -1210,6 +1311,7 @@ public sealed class LiveEvaluationRunner : IDisposable
         decimal ClarificationRecall,
         decimal ValidRecommendationRate,
         decimal CitationGroundingRate,
+        decimal SupportRequiredFactCoverageRate,
         decimal PrivacyAuthorizationPassRate,
         long ProductSearchP95LatencyMilliseconds,
         long AiSupportP95LatencyMilliseconds,

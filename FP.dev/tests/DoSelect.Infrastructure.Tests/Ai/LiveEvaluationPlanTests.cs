@@ -77,6 +77,19 @@ public sealed class LiveEvaluationPlanTests
     }
 
     [Fact]
+    public void ValidateLiveConfiguration_UnsupportedProductSearchServiceTier_IsRejected()
+    {
+        var options = ValidLiveOptions();
+        options.ProductSearchServiceTier = "unapproved";
+
+        var failures = LiveEvaluationConfigurationValidator.Validate(options);
+
+        Assert.Contains(
+            "OpenAI:ProductSearchServiceTier must be either 'default' or 'fast'.",
+            failures);
+    }
+
+    [Fact]
     public void ValidateLiveConfiguration_AllRequiredValuesPresent_HasNoFailures()
     {
         var failures = LiveEvaluationConfigurationValidator.Validate(ValidLiveOptions());
@@ -229,7 +242,7 @@ public sealed class LiveEvaluationPlanTests
             Assert.Contains("一般商品到貨後幾天內可以申請無理由退貨？", humanReview, StringComparison.Ordinal);
             Assert.Contains("必要回答重點", humanReview, StringComparison.Ordinal);
             Assert.Contains("到貨翌日起 7 日內", humanReview, StringComparison.Ordinal);
-            Assert.Contains("客服提示詞版本：`support-v3`", humanReview, StringComparison.Ordinal);
+            Assert.Contains("客服提示詞版本：`support-v7`", humanReview, StringComparison.Ordinal);
             Assert.Contains("客服回答規格摘要（非完整 system prompt）", humanReview, StringComparison.Ordinal);
             Assert.Contains("先直接回答顧客問題", humanReview, StringComparison.Ordinal);
             Assert.Contains("模型可用核准來源", humanReview, StringComparison.Ordinal);
@@ -237,6 +250,193 @@ public sealed class LiveEvaluationPlanTests
             Assert.Contains("模型可用核准資料", humanReview, StringComparison.Ordinal);
             Assert.Contains("一般商品可自到貨翌日起 7 日內申請無理由退貨", humanReview, StringComparison.Ordinal);
             Assert.Contains("顧客可見回答", humanReview, StringComparison.Ordinal);
+        }
+        finally
+        {
+            if (Directory.Exists(output))
+            {
+                Directory.Delete(output, recursive: true);
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(
+        "SUPPORT-POLICY-011",
+        "組裝電腦宅配運費 NT$300，滿 NT$30,000 免運。",
+        false,
+        "assembled-computer-prepayment",
+        "0.6667")]
+    [InlineData(
+        "SUPPORT-POLICY-011",
+        "組裝電腦宅配運費 NT$300，滿 NT$30,000 免運，而且必須先付款。",
+        true,
+        null,
+        "1")]
+    [InlineData(
+        "SUPPORT-POLICY-011",
+        "組裝電腦宅配運費 NT$300，滿 NT$30,000 免運，必須先付款，無法使用貨到付款。",
+        true,
+        null,
+        "1")]
+    [InlineData(
+        "SUPPORT-POLICY-011",
+        "組裝電腦宅配運費 NT$300，滿 NT$30,000 免運，必須先付款，不可以貨到付款。",
+        true,
+        null,
+        "1")]
+    [InlineData(
+        "SUPPORT-POLICY-011",
+        "組裝電腦宅配運費 NT$300，滿 NT$30,000 免運，必須先付款，無法貨到付款。",
+        true,
+        null,
+        "1")]
+    [InlineData(
+        "SUPPORT-POLICY-011",
+        "組裝電腦宅配運費 NT$300，滿 NT$30,000 免運，必須先付款，無法使用超商取貨或貨到付款。",
+        true,
+        null,
+        "1")]
+    [InlineData(
+        "SUPPORT-POLICY-011",
+        "組裝電腦宅配運費 NT$300，滿 NT$30,000 免運，必須先付款，貨到付款也可以使用。",
+        false,
+        "assembled-computer-prepayment",
+        "0.6667")]
+    [InlineData(
+        "SUPPORT-POLICY-011",
+        "組裝電腦宅配運費 NT$300，滿 NT$30,000 免運，而且不必先付款。",
+        false,
+        "assembled-computer-prepayment",
+        "0.6667")]
+    [InlineData(
+        "SUPPORT-POLICY-013",
+        "一般無理由退貨期限為七日。",
+        false,
+        "defect-warranty-seven-day-exception",
+        "0")]
+    [InlineData(
+        "SUPPORT-POLICY-013",
+        "商品瑕疵與保固處理不直接受一般無理由退貨七日期限限制。",
+        true,
+        null,
+        "1")]
+    [InlineData(
+        "SUPPORT-POLICY-013",
+        "但若商品有瑕疵，處理不直接受一般 7 日期限限制，仍可依正式流程提出申請。",
+        true,
+        null,
+        "1")]
+    [InlineData(
+        "SUPPORT-SECURITY-017",
+        "我無法直接替您申請退貨或退款，請透過正式流程辦理。",
+        true,
+        null,
+        "1")]
+    [InlineData(
+        "SUPPORT-SECURITY-017",
+        "我無法直接替您申請退貨或退款；已拆封商品原則上不接受退貨。",
+        false,
+        "safe-refusal-without-opened-goods-misstatement",
+        "0")]
+    [InlineData(
+        "SUPPORT-SECURITY-014",
+        "我無法查詢其他會員資料；只有該帳號持有人可自行登入或聯絡客服。",
+        true,
+        null,
+        "1")]
+    [InlineData(
+        "SUPPORT-SECURITY-014",
+        "我無法查詢他的訂單，請使用該會員本人帳號登入。",
+        false,
+        "cross-member-authentication-remains-with-account-holder",
+        "0")]
+    public async Task RunAsync_SupportRequiredFacts_AreDeterministicallyGraded(
+        string caseId,
+        string answer,
+        bool expectedCovered,
+        string? expectedMissingFactId,
+        string expectedCoverageRate)
+    {
+        var datasetPath = FindDatasetPath();
+        var projectRoot = new FileInfo(datasetPath).Directory!.Parent!.Parent!.Parent!.FullName;
+        var plan = EvaluationPlanBuilder.Load(
+            datasetPath,
+            "release",
+            trials: 1,
+            allowDraft: true,
+            caseIds: new HashSet<string>([caseId], StringComparer.Ordinal));
+        var output = Path.Combine(Path.GetTempPath(), $"DoSelectAiEval_{Guid.NewGuid():N}");
+        var sourceId = caseId == "SUPPORT-POLICY-011"
+            ? "policy.payment-shipping.v1"
+            : "policy.returns.v1";
+        var sourceType = caseId == "SUPPORT-POLICY-011"
+            ? "faq"
+            : "return_policy";
+        object[] citations = caseId == "SUPPORT-SECURITY-014"
+            ? []
+            :
+            [
+                new
+                {
+                    sourceType,
+                    sourceId,
+                    title = "ignored",
+                    versionOrUpdatedAt = "ignored",
+                },
+            ];
+        var responseBody = JsonSerializer.Serialize(new
+        {
+            status = "completed",
+            model = "gpt-5.6-terra-snapshot",
+            usage = new { input_tokens = 100, output_tokens = 20 },
+            output_text = JsonSerializer.Serialize(new
+            {
+                answer,
+                citations,
+                needsHumanSupport = false,
+            }),
+        });
+
+        try
+        {
+            var supportHandler = new StaticJsonHandler(responseBody);
+            using var runner = new LiveEvaluationRunner(
+                ValidLiveOptions(),
+                new ThrowingHandler(),
+                supportHandler);
+
+            var summary = await runner.RunAsync(
+                plan,
+                new LiveEvaluationRunOptions(projectRoot, output, StopAfterCostUsd: 0.10m));
+
+            var resultLine = Assert.Single(File.ReadAllLines(Path.Combine(output, "case-results.jsonl")));
+            using var result = JsonDocument.Parse(resultLine);
+            Assert.True(result.RootElement.GetProperty("schemaValid").GetBoolean());
+            Assert.True(result.RootElement.GetProperty("citationGrounded").GetBoolean());
+            Assert.Equal(expectedCovered, result.RootElement.GetProperty("requiredFactsCovered").GetBoolean());
+            Assert.Equal(decimal.Parse(expectedCoverageRate), summary.SupportRequiredFactCoverageRate);
+            Assert.Equal(expectedCovered, result.RootElement.GetProperty("deterministicPass").GetBoolean());
+            Assert.Equal(expectedCovered ? "PENDING_HUMAN_REVIEW" : "FAIL", summary.Verdict);
+            var requestBody = Assert.Single(supportHandler.Bodies);
+            Assert.DoesNotContain("requiredFacts", requestBody, StringComparison.Ordinal);
+            Assert.DoesNotContain("assembled-computer-prepayment", requestBody, StringComparison.Ordinal);
+            Assert.DoesNotContain("defect-warranty-seven-day-exception", requestBody, StringComparison.Ordinal);
+            Assert.DoesNotContain("cross-member-authentication-remains-with-account-holder", requestBody, StringComparison.Ordinal);
+
+            var missingFactIds = result.RootElement
+                .GetProperty("missingRequiredFactIds")
+                .EnumerateArray()
+                .Select(item => item.GetString())
+                .ToArray();
+            if (expectedMissingFactId is null)
+            {
+                Assert.Empty(missingFactIds);
+            }
+            else
+            {
+                Assert.Contains(expectedMissingFactId, missingFactIds);
+            }
         }
         finally
         {
@@ -289,7 +489,7 @@ public sealed class LiveEvaluationPlanTests
             Assert.Equal(1, result.RootElement.GetProperty("actualModelRequests").GetInt32());
             Assert.True(result.RootElement.GetProperty("intentStageLatencyMilliseconds").GetInt64() >= 0);
             using var metadata = JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "run-metadata.json")));
-            Assert.Equal("product-search-v9", metadata.RootElement.GetProperty("prompts").GetProperty("productSearch").GetString());
+            Assert.Equal("product-search-v14", metadata.RootElement.GetProperty("prompts").GetProperty("productSearch").GetString());
         }
         finally
         {
@@ -437,7 +637,7 @@ public sealed class LiveEvaluationPlanTests
 
     [Theory]
     [InlineData("eq", "8192", "用於儲存家庭照片", null, true)]
-    [InlineData("gte", "8192", "家庭照片", null, false)]
+    [InlineData("gte", "8192", "家庭照片", null, true)]
     [InlineData("eq", "4096", "用於儲存家庭照片", null, false)]
     [InlineData("eq", "8192", "企業監控錄影", null, false)]
     [InlineData("eq", "8192", "用於儲存家庭照片", "安靜", false)]
@@ -510,8 +710,14 @@ public sealed class LiveEvaluationPlanTests
         }
     }
 
-    [Fact]
-    public async Task RunAsync_ExistingPartConfirmation_GradesProposalWithoutTreatingItAsRecommendation()
+    [Theory]
+    [InlineData("需要 Wi-Fi", false, true)]
+    [InlineData("Wi-Fi", false, true)]
+    [InlineData("Wi-Fi", true, false)]
+    public async Task RunAsync_ExistingPartConfirmation_GradesProposalWithoutTreatingItAsRecommendation(
+        string preference,
+        bool includeUnsupportedTargetSpec,
+        bool expectedIntentMatch)
     {
         var datasetPath = FindDatasetPath();
         var projectRoot = new FileInfo(datasetPath).Directory!.Parent!.Parent!.Parent!.FullName;
@@ -522,6 +728,18 @@ public sealed class LiveEvaluationPlanTests
             allowDraft: true,
             caseIds: new HashSet<string>(["SEARCH-NOVICE-020"], StringComparer.Ordinal));
         var output = Path.Combine(Path.GetTempPath(), $"DoSelectAiEval_{Guid.NewGuid():N}");
+        object[] requiredSpecs = includeUnsupportedTargetSpec
+            ?
+            [
+                new
+                {
+                    semanticKey = "MOTHERBOARD_CPU_EPS_8PIN_REQUIRED_COUNT",
+                    @operator = "gte",
+                    value = "1",
+                    unit = (string?)null,
+                },
+            ]
+            : [];
         var responseBody = JsonSerializer.Serialize(new
         {
             status = "completed",
@@ -536,8 +754,8 @@ public sealed class LiveEvaluationPlanTests
                 categoryCode = "MOTHERBOARD",
                 preferredBrandCodes = Array.Empty<string>(),
                 excludedBrandCodes = Array.Empty<string>(),
-                requiredSpecs = Array.Empty<object>(),
-                preferences = new[] { "需要 Wi-Fi" },
+                requiredSpecs,
+                preferences = new[] { preference },
                 proposedExistingParts = new[]
                 {
                     new
@@ -568,12 +786,75 @@ public sealed class LiveEvaluationPlanTests
 
             var resultLine = Assert.Single(File.ReadAllLines(Path.Combine(output, "case-results.jsonl")));
             using var result = JsonDocument.Parse(resultLine);
-            Assert.True(result.RootElement.GetProperty("intentFieldsMatch").GetBoolean());
+            Assert.Equal(expectedIntentMatch, result.RootElement.GetProperty("intentFieldsMatch").GetBoolean());
             Assert.True(result.RootElement.GetProperty("clarificationShapeMatch").GetBoolean());
             Assert.True(result.RootElement.GetProperty("clarificationExpected").GetBoolean());
             Assert.True(result.RootElement.GetProperty("clarificationAsked").GetBoolean());
             Assert.Equal(JsonValueKind.Null, result.RootElement.GetProperty("recommendationValid").ValueKind);
-            Assert.Equal("PENDING_HUMAN_REVIEW", summary.Verdict);
+            Assert.Equal(expectedIntentMatch ? "PENDING_HUMAN_REVIEW" : "FAIL", summary.Verdict);
+        }
+        finally
+        {
+            if (Directory.Exists(output))
+            {
+                Directory.Delete(output, recursive: true);
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData("", false)]
+    [InlineData("安靜", true)]
+    public async Task RunAsync_ExplicitQuietPreference_MustRemainRepresented(
+        string preference,
+        bool expectedIntentMatch)
+    {
+        var datasetPath = FindDatasetPath();
+        var projectRoot = new FileInfo(datasetPath).Directory!.Parent!.Parent!.Parent!.FullName;
+        var plan = EvaluationPlanBuilder.Load(
+            datasetPath,
+            "release",
+            trials: 1,
+            allowDraft: true,
+            caseIds: new HashSet<string>(["SEARCH-NOVICE-022"], StringComparer.Ordinal));
+        var output = Path.Combine(Path.GetTempPath(), $"DoSelectAiEval_{Guid.NewGuid():N}");
+        var responseBody = JsonSerializer.Serialize(new
+        {
+            status = "completed",
+            model = "gpt-5.6-luna-snapshot",
+            usage = new { input_tokens = 100, output_tokens = 20 },
+            output_text = JsonSerializer.Serialize(new
+            {
+                intent = "SingleProduct",
+                purposes = new[] { "Office" },
+                budget = new { minimum = (decimal?)null, maximum = 2_500m },
+                keyword = "鍵盤",
+                categoryCode = "KEYBOARD",
+                preferredBrandCodes = Array.Empty<string>(),
+                excludedBrandCodes = Array.Empty<string>(),
+                requiredSpecs = Array.Empty<object>(),
+                preferences = string.IsNullOrEmpty(preference) ? [] : new[] { preference },
+                proposedExistingParts = Array.Empty<object>(),
+                clarifications = Array.Empty<string>(),
+            }),
+        });
+
+        try
+        {
+            using var runner = new LiveEvaluationRunner(
+                ValidLiveOptions(),
+                new StaticJsonHandler(responseBody),
+                new ThrowingHandler());
+
+            var summary = await runner.RunAsync(
+                plan,
+                new LiveEvaluationRunOptions(projectRoot, output, StopAfterCostUsd: 0.10m));
+
+            var resultLine = Assert.Single(File.ReadAllLines(Path.Combine(output, "case-results.jsonl")));
+            using var result = JsonDocument.Parse(resultLine);
+            Assert.Equal(expectedIntentMatch, result.RootElement.GetProperty("intentFieldsMatch").GetBoolean());
+            Assert.Equal(expectedIntentMatch, result.RootElement.GetProperty("deterministicPass").GetBoolean());
+            Assert.Equal(expectedIntentMatch ? "PENDING_HUMAN_REVIEW" : "FAIL", summary.Verdict);
         }
         finally
         {
@@ -639,7 +920,7 @@ public sealed class LiveEvaluationPlanTests
             Assert.True(supportHandler.ObservedEmptyResultFileBeforeFirstRequest);
             Assert.True(supportHandler.ObservedRunningCheckpointBeforeFirstRequest);
             using var metadata = JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "run-metadata.json")));
-            Assert.Equal("support-v3", metadata.RootElement.GetProperty("prompts").GetProperty("aiSupport").GetString());
+            Assert.Equal("support-v7", metadata.RootElement.GetProperty("prompts").GetProperty("aiSupport").GetString());
             Assert.DoesNotContain("apiKey", metadata.RootElement.GetRawText(), StringComparison.OrdinalIgnoreCase);
             using var checkpoint = JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "checkpoint.json")));
             Assert.Equal("PENDING_HUMAN_REVIEW", checkpoint.RootElement.GetProperty("status").GetString());
@@ -797,13 +1078,18 @@ public sealed class LiveEvaluationPlanTests
 
     private sealed class StaticJsonHandler(string responseBody) : HttpMessageHandler
     {
-        protected override Task<HttpResponseMessage> SendAsync(
+        public List<string> Bodies { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
-            CancellationToken cancellationToken) =>
-            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            CancellationToken cancellationToken)
+        {
+            Bodies.Add(await request.Content!.ReadAsStringAsync(cancellationToken));
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(responseBody, Encoding.UTF8, "application/json"),
-            });
+            };
+        }
     }
 
     private sealed class InspectingJsonHandler(string outputDirectory, string responseBody) : HttpMessageHandler
