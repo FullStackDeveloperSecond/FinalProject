@@ -13,11 +13,17 @@
 | `doselect-mark-40.png` | 不支援 WebP 時的後備 1x | 40×40 | ~3.7 KB |
 | `doselect-mark-80.png` | 不支援 WebP 時的後備 2x | 80×80 | ~12.5 KB |
 | `doselect-mark-120.png` | 不支援 WebP 時的後備 3x | 120×120 | ~27.1 KB |
-| `donggu-hero-wave.png` | **前台限定**：首頁 Hero 裝飾（`aria-hidden`、空 alt、375px 隱藏） | 320×480 | ~152 KB |
+| `city-map.jpg` | 首頁 Hero 與廣告輪播城市場景 | 1264×843 | ~999 KB |
+| `city-interior.jpg` | 前台背景與廣告輪播城市場景 | 1264×843 | ~978 KB |
+| `donggu-hero-wave.png` | **前台限定**：Donngu 導覽員裝飾（空 alt） | 320×480 | ~152 KB |
 
 `doselect-mark-*` 這六個檔在 `admin-web/public/brand/` 也要有一模一樣的一份 ——
 兩支 App 的 `import.meta.env.BASE_URL` 不同（`/` 與 `/admin/`），沒辦法共用同一份實體檔案。
 `donggu-hero-wave.png` **只有前台會用**，不要複製到後台。
+
+`city-map.jpg`、`city-interior.jpg` 與 `donggu-hero-wave.png` 是 PR #82 提交的專案執行期素材；
+版控內未附第三方下載來源。對外重製或改作前，應由組內素材負責人確認原始檔與使用權，
+日常建置則只使用本目錄的固定版本。
 
 ## 原始母檔在版本庫外
 

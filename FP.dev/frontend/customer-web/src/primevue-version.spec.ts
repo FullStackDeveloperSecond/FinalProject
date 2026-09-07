@@ -15,7 +15,7 @@ import { AppButton, PagePager } from '@doselect/web-shared/components'
  */
 
 const PINNED_PRIMEVUE = '4.5.5'
-const PINNED_THEMES = '1.2.5'
+const PINNED_THEMES = '2.0.3'
 
 // `npm test` 以套件根目錄為 cwd 執行 vitest。
 const pkgRoot = process.cwd()
