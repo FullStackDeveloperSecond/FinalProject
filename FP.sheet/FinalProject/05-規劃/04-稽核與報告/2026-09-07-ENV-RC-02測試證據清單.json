@@ -1,0 +1,94 @@
+{
+  "schemaVersion": "capture-test-evidence/v1",
+  "runId": "env-rc-02-20260907-dev-569369b5",
+  "callingSkill": "diagnose-vue-dotnet-incident",
+  "evidenceSkill": "capture-test-evidence",
+  "evidenceTier": "T2",
+  "repository": "FullStackDeveloperSecond/FinalProject",
+  "branch": "codex/env-rc-02-sql-connectivity-20260907",
+  "revision": "569369b51daa62e6174c0d8e74f5c5d4aaa49227",
+  "environment": {
+    "executionContext": "signed-in system PowerShell",
+    "dotnetSdk": "10.0.303",
+    "testRunner": "VSTest",
+    "testSdk": "17.14.1",
+    "sqlServer": "17.0.1125.2 Standard Developer Edition",
+    "sqlcmd": "ODBC 18 17.0.1000.7",
+    "authentication": "Windows Authentication",
+    "encrypted": true,
+    "authScheme": "NTLM",
+    "transport": "Shared memory"
+  },
+  "runs": [
+    {
+      "scope": "AiCustomBuildSqlServerTests.ExistingCpu_IsIncludedButExcludedFromPurchaseBudget_AndBuildIsCompleteAndCompatible",
+      "startedAtUtc": "2026-09-07T15:46:17.2041407Z",
+      "finishedAtUtc": "2026-09-07T15:46:58.8825486Z",
+      "durationSeconds": 41.678,
+      "executed": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "retries": 0,
+      "status": "PASS"
+    },
+    {
+      "scope": "FullyQualifiedName~DoSelect.Infrastructure.Tests.Ai.",
+      "startedAtUtc": "2026-09-07T15:48:53.1246158Z",
+      "finishedAtUtc": "2026-09-07T15:49:35.7385025Z",
+      "durationSeconds": 42.614,
+      "executed": 122,
+      "passed": 122,
+      "failed": 0,
+      "skipped": 0,
+      "retries": 0,
+      "status": "PASS"
+    }
+  ],
+  "thresholds": {
+    "allSelectedTestsPass": true,
+    "zeroSkipped": true,
+    "zeroRetries": true,
+    "currentRunDatabasesRemoved": true,
+    "sharedDoSelectDbUntouched": true
+  },
+  "artifacts": [
+    {
+      "name": "env-rc-02-provider.trx",
+      "location": "%LOCALAPPDATA%\\Temp\\env-rc-02-569369b5-20260907",
+      "bytes": 3274,
+      "sha256": "5896f093af9631ed385594c8380ee8572a80981ac23c0416ba2078033fda310a",
+      "retention": "local OS temporary-file policy"
+    },
+    {
+      "name": "env-rc-02-infrastructure-ai.trx",
+      "location": "%LOCALAPPDATA%\\Temp\\env-rc-02-569369b5-20260907",
+      "bytes": 203047,
+      "sha256": "2b1f20f7fe084395be3370021ff7f5b8e10c8a610b5bb949e9a313c8e45e6838",
+      "retention": "local OS temporary-file policy"
+    }
+  ],
+  "sanitization": {
+    "status": "PASS",
+    "excluded": [
+      "credentials",
+      "connection strings",
+      "Windows identity and SID",
+      "machine name and IP",
+      "database rows",
+      "production data"
+    ]
+  },
+  "cleanup": {
+    "currentRunResidualCount": 0,
+    "preExistingResidualCount": 1,
+    "preExistingResidualCreatedAt": "2026-08-31T18:27:19.807",
+    "preExistingResidualChangedByRun": false,
+    "note": "The pre-existing synthetic test database was outside this run and was not modified or deleted."
+  },
+  "limitations": [
+    "This run does not prove a second clean-computer setup or display-environment restore rehearsal.",
+    "Raw TRX files remain local and are not committed."
+  ],
+  "status": "PASS"
+}
