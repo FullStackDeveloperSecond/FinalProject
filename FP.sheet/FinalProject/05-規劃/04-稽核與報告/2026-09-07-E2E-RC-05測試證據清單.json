@@ -80,7 +80,7 @@
     "connectionStringValueMatches": 0,
     "quotedCredentialValueMatches": 0,
     "identifierOnlyPasswordAssignments": 3,
-    "transientVisualEvidenceMaskedAndRemoved": true
+    "visualEvidenceDirectoryConfigured": false
   },
   "databaseCleanup": {
     "relevantIsolatedDatabaseCount": 0
@@ -99,6 +99,6 @@
     "The browser journey covers one representative highest-data-risk failure/return path; it does not exhaust every carrier or reason-code combination.",
     "The existing H-R02 happy paths remain in the same test and provider suites; E2E-RC-05 adds the failure/return variant rather than duplicating all delivery paths.",
     "The API test emitted NU1900 because the NuGet vulnerability index was temporarily unreachable; package audit remains a required pull-request CI gate.",
-    "Responsive screenshots were masked and written only to the disposable E2E data root, then removed after the run."
+    "VISUAL_REVIEW_DIR was not configured for this T2 run, so captureVisualEvidence was a no-op and no screenshots were produced or retained."
   ]
 }
