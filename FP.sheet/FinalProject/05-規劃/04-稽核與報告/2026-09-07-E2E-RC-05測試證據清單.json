@@ -1,0 +1,104 @@
+{
+  "schemaVersion": "1.0",
+  "runId": "e2e-rc-05-20260907-commit-443df7ed",
+  "revision": "443df7ed347a08eb9a75e1b432b15994ae4a259d",
+  "evidenceTier": "T2",
+  "environment": {
+    "osFamily": "Windows",
+    "dotnetSdk": "10.0.303",
+    "node": "24.18.1",
+    "npm": "11.16.0",
+    "playwright": "1.62.1",
+    "databaseProvider": "SQL Server",
+    "databaseIdentity": "generated allowlisted test databases; names omitted"
+  },
+  "execution": {
+    "workers": 1,
+    "configuredRetries": 1,
+    "actualTestRetries": 0,
+    "discovered": 21,
+    "executed": 21,
+    "passed": 21,
+    "failed": 0,
+    "skipped": 0,
+    "browser": {
+      "executed": 1,
+      "passed": 1,
+      "durationSeconds": 35.8
+    },
+    "sqlProvider": {
+      "executed": 20,
+      "passed": 20,
+      "durationSeconds": 4,
+      "classes": [
+        "EfShipmentStatusServiceTests",
+        "ShipmentStatusApiTests"
+      ]
+    }
+  },
+  "assertions": {
+    "journey": "COD HomeDelivery: InTransit -> DeliveryFailed -> Returned",
+    "deliveryFailedReasonRequired": true,
+    "deliveryFailedReasonCode": "recipient_absent",
+    "returnedReasonRequired": true,
+    "returnedReasonCode": "recipient_refused",
+    "shipmentAndFulfillmentHistoryAligned": true,
+    "orderStatusUnchanged": true,
+    "paymentStatus": "AwaitingPayment",
+    "paidAmount": 0,
+    "paidAtUtc": null,
+    "invoiceAbsentAfterFailure": true,
+    "invoiceAbsentAfterReturn": true,
+    "customerSeesReturnedStatus": true
+  },
+  "artifacts": [
+    {
+      "kind": "playwright-html",
+      "retention": "local ignored workspace artifact",
+      "bytes": 540831,
+      "sha256": "6dc637e99a25f92d73cb9e16622a0b711ad926b39c08c03b9fb017c57d06835e"
+    },
+    {
+      "kind": "vstest-trx-infrastructure",
+      "retention": "local ignored workspace artifact",
+      "bytes": 24121,
+      "sha256": "f8a655031904343cf2436099efb512b72a9c5a84d219c6b362a8fdb05dfbe248"
+    },
+    {
+      "kind": "vstest-trx-api",
+      "retention": "local ignored workspace artifact",
+      "bytes": 51154,
+      "sha256": "792918e5e3c053bb0253b4270a5b9232488e6358f1c9b71ab3ac06e9eff5946b"
+    }
+  ],
+  "sanitization": {
+    "status": "PASS",
+    "authorizationHeaderPatternMatches": 0,
+    "cookieHeaderPatternMatches": 0,
+    "privateKeyPatternMatches": 0,
+    "jwtPatternMatches": 0,
+    "connectionStringValueMatches": 0,
+    "quotedCredentialValueMatches": 0,
+    "identifierOnlyPasswordAssignments": 3,
+    "transientVisualEvidenceMaskedAndRemoved": true
+  },
+  "databaseCleanup": {
+    "relevantIsolatedDatabaseCount": 0
+  },
+  "testStatus": "PASS",
+  "deliveryStatus": "LOCAL_VALIDATED",
+  "delivery": {
+    "baseRevision": "bec295fa8e04ebb791011db9e3ee0fd4ee91c958",
+    "implementationRevision": "443df7ed347a08eb9a75e1b432b15994ae4a259d",
+    "securityScanId": null,
+    "pullRequest": null,
+    "requiredCi": "PENDING",
+    "mergeMethod": "squash"
+  },
+  "limitations": [
+    "The browser journey covers one representative highest-data-risk failure/return path; it does not exhaust every carrier or reason-code combination.",
+    "The existing H-R02 happy paths remain in the same test and provider suites; E2E-RC-05 adds the failure/return variant rather than duplicating all delivery paths.",
+    "The API test emitted NU1900 because the NuGet vulnerability index was temporarily unreachable; package audit remains a required pull-request CI gate.",
+    "Responsive screenshots were masked and written only to the disposable E2E data root, then removed after the run."
+  ]
+}
