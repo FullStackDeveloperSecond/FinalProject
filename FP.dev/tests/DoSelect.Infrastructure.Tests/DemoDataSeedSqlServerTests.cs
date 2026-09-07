@@ -13,12 +13,13 @@ public sealed class DemoDataSeedSqlServerTests
     [Fact]
     public void Manifest_HasExactVersionedTenThousandRecordAllocation()
     {
-        Assert.Equal("implemented-features-v1", DemoSeedManifest.Version);
+        Assert.Equal("implemented-features-v2", DemoSeedManifest.Version);
         Assert.Equal(20260907, DemoSeedManifest.RandomSeed);
         Assert.Equal(10_000, DemoSeedManifest.MainBusinessRecordTotal);
         Assert.Equal(10_000, DemoSeedManifest.ExpectedCounts.Values.Sum());
         Assert.Equal(130, DemoSeedManifest.Coupons + DemoSeedManifest.CouponRedemptions);
         Assert.Equal(0, DemoSeedManifest.AiSearchFunnelEvents);
+        Assert.Equal(100, DemoSeedManifest.ExpectedDistributionCounts["succeededRefunds"]);
     }
 
     [Fact]
@@ -83,6 +84,9 @@ public sealed class DemoDataSeedSqlServerTests
                 Assert.Equal(
                     DemoSeedManifest.ExpectedCounts.OrderBy(entry => entry.Key),
                     first.Counts.OrderBy(entry => entry.Key));
+                Assert.Equal(
+                    DemoSeedManifest.ExpectedDistributionCounts.OrderBy(entry => entry.Key),
+                    first.Distribution.OrderBy(entry => entry.Key));
                 firstProductPublicId = await context.Products
                     .OrderBy(product => product.ProductCode)
                     .Select(product => product.PublicId)
@@ -119,6 +123,10 @@ public sealed class DemoDataSeedSqlServerTests
                     attempt.Status == PaymentAttemptStatus.Failed &&
                     (attempt.FailedAtUtc == null || attempt.FailureCode == null)));
                 Assert.Equal(150, await context.ReturnItems.CountAsync());
+                Assert.Equal(100, await context.Refunds.CountAsync(refund =>
+                    refund.Status == DoSelect.Domain.Refunds.RefundStatus.Succeeded));
+                Assert.Equal(100, await context.ReturnRequests.CountAsync(request =>
+                    request.Status == DoSelect.Domain.Returns.ReturnRequestStatus.Completed));
                 Assert.False(await context.ReturnRequests.AnyAsync(request =>
                     request.Status == DoSelect.Domain.Returns.ReturnRequestStatus.Completed &&
                     !context.Refunds.Any(refund =>
@@ -138,6 +146,9 @@ public sealed class DemoDataSeedSqlServerTests
 
                 Assert.False(second.Created);
                 Assert.Equal(10_000, second.MainBusinessRecordTotal);
+                Assert.Equal(
+                    DemoSeedManifest.ExpectedDistributionCounts.OrderBy(entry => entry.Key),
+                    second.Distribution.OrderBy(entry => entry.Key));
                 Assert.Equal(firstProductPublicId, await context.Products
                     .OrderBy(product => product.ProductCode)
                     .Select(product => product.PublicId)

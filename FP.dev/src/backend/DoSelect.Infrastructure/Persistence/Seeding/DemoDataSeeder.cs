@@ -20,7 +20,7 @@ namespace DoSelect.Infrastructure.Persistence.Seeding;
 
 public sealed class DemoDataSeeder(DoSelectDbContext dbContext)
 {
-    private const string MarkerBrandCode = "DEMO-BRAND-001";
+    private const string MarkerBrandCode = "DEMO-V2-BRAND-001";
 
     public async Task<DemoSeedResult> SeedAsync(CancellationToken cancellationToken = default)
     {
@@ -61,7 +61,7 @@ public sealed class DemoDataSeeder(DoSelectDbContext dbContext)
                 brand => brand.Code == MarkerBrandCode,
                 cancellationToken))
         {
-            return CreateResult(created: false, before);
+            return await CreateResultAsync(created: false, before, cancellationToken);
         }
 
         if (beforeTotal != 0 ||
@@ -105,7 +105,7 @@ public sealed class DemoDataSeeder(DoSelectDbContext dbContext)
         }
 
         await transaction.CommitAsync(cancellationToken);
-        return CreateResult(created: true, after);
+        return await CreateResultAsync(created: true, after, cancellationToken);
     }
 
     private void EnsureAllowedDatabase()
@@ -221,7 +221,7 @@ public sealed class DemoDataSeeder(DoSelectDbContext dbContext)
         };
         var brands = brandNames.Select((name, i) => new Brand(
             StableGuid($"brand:{i}"),
-            $"DEMO-BRAND-{i + 1:D3}",
+            i == 0 ? MarkerBrandCode : $"DEMO-BRAND-{i + 1:D3}",
             name,
             DemoSeedManifest.PeriodStartUtc)).ToArray();
         var categories = Enumerable.Range(0, 5).Select(i => new Category(
@@ -795,19 +795,16 @@ public sealed class DemoDataSeeder(DoSelectDbContext dbContext)
                 order.MemberUserId,
                 $"demo-refund-{i + 1:D4}",
                 createdAt);
-            if (i < 90)
+            if (i < 100)
             {
                 refund.Approve(1_000m, "demo-admin-0001", createdAt.AddMinutes(1));
-                if (i < 60)
-                {
-                    refund.BeginProcessing("demo-admin-0001", createdAt.AddMinutes(2));
-                    refund.Complete(1_000m, createdAt.AddMinutes(3));
-                    request.Transition(ReturnRequestStatus.Completed, createdAt.AddMinutes(4));
-                    order.ApplyRefundProjection(
-                        OrderRefundStatus.PartiallyRefunded,
-                        1_000m,
-                        createdAt.AddMinutes(4));
-                }
+                refund.BeginProcessing("demo-admin-0001", createdAt.AddMinutes(2));
+                refund.Complete(1_000m, createdAt.AddMinutes(3));
+                request.Transition(ReturnRequestStatus.Completed, createdAt.AddMinutes(4));
+                order.ApplyRefundProjection(
+                    OrderRefundStatus.PartiallyRefunded,
+                    1_000m,
+                    createdAt.AddMinutes(4));
             }
             refunds.Add(refund);
         }
@@ -951,9 +948,10 @@ public sealed class DemoDataSeeder(DoSelectDbContext dbContext)
             actual.TryGetValue(expected.Key, out var count) && count == expected.Value) &&
         actual.Values.Sum() == DemoSeedManifest.MainBusinessRecordTotal;
 
-    private static DemoSeedResult CreateResult(
+    private async Task<DemoSeedResult> CreateResultAsync(
         bool created,
-        IReadOnlyDictionary<string, int> counts) =>
+        IReadOnlyDictionary<string, int> counts,
+        CancellationToken cancellationToken) =>
         new(
             DemoSeedManifest.Version,
             DemoSeedManifest.RandomSeed,
@@ -961,7 +959,86 @@ public sealed class DemoDataSeeder(DoSelectDbContext dbContext)
             DemoSeedManifest.PeriodEndUtc,
             counts.Values.Sum(),
             created,
-            counts);
+            counts,
+            await ReadDistributionAsync(cancellationToken));
+
+    private async Task<IReadOnlyDictionary<string, int>> ReadDistributionAsync(
+        CancellationToken cancellationToken)
+    {
+        var lowStockPublishedSkus = await (
+            from balance in dbContext.InventoryBalances
+            join sku in dbContext.Skus on balance.SkuId equals sku.Id
+            where sku.Status == SkuStatus.Published &&
+                balance.AvailableQuantity <= balance.ReorderLevel
+            select balance.Id).CountAsync(cancellationToken);
+
+        return new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            ["completedOrders"] = await dbContext.Orders.CountAsync(
+                order => order.OrderStatus == OrderStatus.Completed,
+                cancellationToken),
+            ["cancelledOrders"] = await dbContext.Orders.CountAsync(
+                order => order.OrderStatus == OrderStatus.Cancelled,
+                cancellationToken),
+            ["ordersWithExpiredPayment"] = await dbContext.Orders.CountAsync(
+                order => order.PaymentStatus == PaymentStatus.Expired,
+                cancellationToken),
+            ["cancelledOrExpiredOrders"] = await dbContext.Orders.CountAsync(
+                order => order.OrderStatus == OrderStatus.Cancelled ||
+                    order.PaymentStatus == PaymentStatus.Expired,
+                cancellationToken),
+            ["refundRecords"] = await dbContext.Refunds.CountAsync(cancellationToken),
+            ["succeededRefunds"] = await dbContext.Refunds.CountAsync(
+                refund => refund.Status == RefundStatus.Succeeded,
+                cancellationToken),
+            ["failedPaymentAttempts"] = await dbContext.PaymentAttempts.CountAsync(
+                attempt => attempt.Status == PaymentAttemptStatus.Failed,
+                cancellationToken),
+            ["expiredPaymentAttempts"] = await dbContext.PaymentAttempts.CountAsync(
+                attempt => attempt.Status == PaymentAttemptStatus.Expired,
+                cancellationToken),
+            ["lowStockPublishedSkus"] = lowStockPublishedSkus,
+            ["pendingShipments"] = await dbContext.Shipments.CountAsync(
+                shipment => shipment.Status == FulfillmentStatus.Pending,
+                cancellationToken),
+            ["preparingShipments"] = await dbContext.Shipments.CountAsync(
+                shipment => shipment.Status == FulfillmentStatus.Preparing,
+                cancellationToken),
+            ["inTransitShipments"] = await dbContext.Shipments.CountAsync(
+                shipment => shipment.Status == FulfillmentStatus.InTransit,
+                cancellationToken),
+            ["deliveredShipments"] = await dbContext.Shipments.CountAsync(
+                shipment => shipment.Status == FulfillmentStatus.Delivered,
+                cancellationToken),
+            ["openSupportTickets"] = await dbContext.SupportTickets.CountAsync(
+                ticket => ticket.Status == SupportTicketStatus.Open,
+                cancellationToken),
+            ["inProgressSupportTickets"] = await dbContext.SupportTickets.CountAsync(
+                ticket => ticket.Status == SupportTicketStatus.InProgress,
+                cancellationToken),
+            ["waitingForCustomerSupportTickets"] = await dbContext.SupportTickets.CountAsync(
+                ticket => ticket.Status == SupportTicketStatus.WaitingForCustomer,
+                cancellationToken),
+            ["closedSupportTickets"] = await dbContext.SupportTickets.CountAsync(
+                ticket => ticket.Status == SupportTicketStatus.Closed,
+                cancellationToken),
+            ["awaitingRefundReturnRequests"] = await dbContext.ReturnRequests.CountAsync(
+                request => request.Status == ReturnRequestStatus.AwaitingRefund,
+                cancellationToken),
+            ["awaitingShipmentReturnRequests"] = await dbContext.ReturnRequests.CountAsync(
+                request => request.Status == ReturnRequestStatus.AwaitingShipment,
+                cancellationToken),
+            ["completedReturnRequests"] = await dbContext.ReturnRequests.CountAsync(
+                request => request.Status == ReturnRequestStatus.Completed,
+                cancellationToken),
+            ["pendingReviewProductReviews"] = await dbContext.ProductReviews.CountAsync(
+                review => review.Status == ProductReviewStatus.PendingReview,
+                cancellationToken),
+            ["approvedProductReviews"] = await dbContext.ProductReviews.CountAsync(
+                review => review.Status == ProductReviewStatus.Approved,
+                cancellationToken),
+        };
+    }
 
     private static DateTime SeedDate(
         string scope,

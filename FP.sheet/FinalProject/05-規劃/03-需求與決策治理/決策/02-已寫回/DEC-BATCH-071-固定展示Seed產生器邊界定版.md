@@ -1,6 +1,6 @@
 # DEC-BATCH-071｜固定展示 Seed 產生器邊界定版
 
-- 狀態：本機實作、驗證與安全審查通過，待 PR Required CI／合併
+- 狀態：✅ 已核准並合併（PR #144；`dev@a50bb8e0aafb0794181f18143c273da5c40777b2`）
 - 日期：2026-09-07
 - 決策者：Codex（依 alex 常駐授權）
 - 來源：DATA-RC-01／DATA-06 與《報表與展示資料》10,000 筆配額
@@ -55,3 +55,4 @@
 - `DemoDataSeedSqlServerTests` 4／4 Pass；包含 fresh database、固定鍵、no-op、部分非空拒絕、遠端 SQL 拒絕、DB constraints 與核心狀態不變量。
 - Release solution build 0 warning／0 error、`dotnet format --verify-no-changes`、PowerShell parser 與 `git diff --check` 通過。
 - 完整 `DoSelect.Infrastructure.Tests` 1,231／1,231 Pass。前期 Security snapshots 在發現遠端同名 DB、既有 pending migration 與預先建立空白 DB 邊界需修正後失效／取消，不作為最終通過證據；程式碼凍結後固定 source snapshot scan `e0e84208-c54c-4b2b-86ca-5e8319d8c3da`、digest `3c3cf15b2728ba5134c7cd52d4d6d3b73ecf8f76c8a1d28feee20f8cb637d055` 覆蓋 5／5，0 candidate／0 finding／0 deferred，coverage `complete`。TAC `not_granted` 為 advisory warning，未降低或略過掃描。
+- PR #144 exact head `c267d2140efa97d6662b43b79f0b986fc9012617` 的 Required CI Run `34071018985` 全綠；同帳號核准被 GitHub 拒絕後，依既有授權以 admin bypass squash merge 至 `dev@a50bb8e0aafb0794181f18143c273da5c40777b2`。

@@ -2,7 +2,7 @@ namespace DoSelect.Infrastructure.Persistence.Seeding;
 
 public static class DemoSeedManifest
 {
-    public const string Version = "implemented-features-v1";
+    public const string Version = "implemented-features-v2";
     public const int RandomSeed = 20260907;
 
     public static readonly DateTime PeriodStartUtc =
@@ -59,6 +59,33 @@ public static class DemoSeedManifest
             ["couponsAndRedemptions"] = Coupons + CouponRedemptions,
             ["aiSearchFunnelEvents"] = AiSearchFunnelEvents,
         };
+
+    public static IReadOnlyDictionary<string, int> ExpectedDistributionCounts { get; } =
+        new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            ["completedOrders"] = 250,
+            ["cancelledOrders"] = 100,
+            ["ordersWithExpiredPayment"] = 75,
+            ["cancelledOrExpiredOrders"] = 125,
+            ["refundRecords"] = 120,
+            ["succeededRefunds"] = 100,
+            ["failedPaymentAttempts"] = 100,
+            ["expiredPaymentAttempts"] = 100,
+            ["lowStockPublishedSkus"] = 100,
+            ["pendingShipments"] = 100,
+            ["preparingShipments"] = 50,
+            ["inTransitShipments"] = 150,
+            ["deliveredShipments"] = 250,
+            ["openSupportTickets"] = 50,
+            ["inProgressSupportTickets"] = 100,
+            ["waitingForCustomerSupportTickets"] = 50,
+            ["closedSupportTickets"] = 50,
+            ["awaitingRefundReturnRequests"] = 20,
+            ["awaitingShipmentReturnRequests"] = 30,
+            ["completedReturnRequests"] = 100,
+            ["pendingReviewProductReviews"] = 50,
+            ["approvedProductReviews"] = 200,
+        };
 }
 
 public sealed record DemoSeedResult(
@@ -68,4 +95,5 @@ public sealed record DemoSeedResult(
     DateTime PeriodEndUtc,
     int MainBusinessRecordTotal,
     bool Created,
-    IReadOnlyDictionary<string, int> Counts);
+    IReadOnlyDictionary<string, int> Counts,
+    IReadOnlyDictionary<string, int> Distribution);
