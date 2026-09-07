@@ -2,8 +2,10 @@
 param()
 
 $ErrorActionPreference = 'Stop'
+$sourceRoot = Join-Path ([IO.Path]::GetTempPath()) "DoSelectBackupSource_$([Guid]::NewGuid().ToString('N'))"
 $backupRoot = Join-Path ([IO.Path]::GetTempPath()) "DoSelectBackupRetention_$([Guid]::NewGuid().ToString('N'))"
 $pruneScript = Join-Path $PSScriptRoot 'prune-demo-backups.ps1'
+. (Join-Path $PSScriptRoot 'common.ps1')
 
 function Write-TestManifest {
     param(
@@ -32,6 +34,23 @@ function Write-TestManifest {
 }
 
 try {
+    $supportRoot = Join-Path (Join-Path $sourceRoot 'private') 'support'
+    New-Item -ItemType Directory -Path $supportRoot -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $supportRoot 'probe.txt') -Value 'path-preservation-probe'
+    $archivePath = Join-Path $backupRoot 'path-preservation.zip'
+    $expandedRoot = Join-Path $backupRoot 'expanded'
+    New-RelativeDirectoryArchive `
+        -SourceRoot $sourceRoot `
+        -RelativePaths @('private/support') `
+        -DestinationPath $archivePath
+    Expand-Archive -LiteralPath $archivePath -DestinationPath $expandedRoot
+    if (-not (Test-Path -LiteralPath (Join-Path $expandedRoot 'private/support/probe.txt') -PathType Leaf)) {
+        throw 'The file snapshot archive did not preserve private/support relative paths.'
+    }
+    if (Test-Path -LiteralPath (Join-Path $expandedRoot 'support/probe.txt') -PathType Leaf) {
+        throw 'The file snapshot archive incorrectly flattened private/support to support.'
+    }
+
     New-Item -ItemType Directory -Path $backupRoot -Force | Out-Null
     Write-TestManifest `
         -DirectoryName 'database-only' `
@@ -60,10 +79,12 @@ try {
     Write-Host 'Backup retention safety tests passed.'
 }
 finally {
-    $resolvedBackupRoot = [IO.Path]::GetFullPath($backupRoot)
     $tempPrefix = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetTempPath()) + [IO.Path]::DirectorySeparatorChar
-    if ($resolvedBackupRoot.StartsWith($tempPrefix, [StringComparison]::OrdinalIgnoreCase) -and
-        (Split-Path -Leaf $resolvedBackupRoot) -like 'DoSelectBackupRetention_*') {
-        Remove-Item -LiteralPath $resolvedBackupRoot -Recurse -Force -ErrorAction SilentlyContinue
+    foreach ($cleanupTarget in @($sourceRoot, $backupRoot)) {
+        $resolvedCleanupTarget = [IO.Path]::GetFullPath($cleanupTarget)
+        if ($resolvedCleanupTarget.StartsWith($tempPrefix, [StringComparison]::OrdinalIgnoreCase) -and
+            (Split-Path -Leaf $resolvedCleanupTarget) -like 'DoSelectBackup*_*') {
+            Remove-Item -LiteralPath $resolvedCleanupTarget -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
 }

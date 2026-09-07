@@ -115,9 +115,10 @@ try {
     })
     $manifest.fileSnapshot.capturedRoots = @($snapshotSources | ForEach-Object { $_.RelativePath })
     if ($snapshotSources.Count -gt 0) {
-        Compress-Archive -LiteralPath @($snapshotSources | ForEach-Object { $_.FullPath }) `
-            -DestinationPath $filesArchivePath `
-            -CompressionLevel Optimal
+        New-RelativeDirectoryArchive `
+            -SourceRoot $resolvedDataRoot `
+            -RelativePaths @($snapshotSources | ForEach-Object { $_.RelativePath }) `
+            -DestinationPath $filesArchivePath
         $manifest.files = Get-FileEvidence -Path $filesArchivePath
         $manifest.fileSnapshot.status = 'complete'
     }

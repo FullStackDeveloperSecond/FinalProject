@@ -41,6 +41,66 @@ function Get-SqlCmdCommand {
     return $command.Source
 }
 
+function New-RelativeDirectoryArchive {
+    param(
+        [Parameter(Mandatory)]
+        [string] $SourceRoot,
+
+        [Parameter(Mandatory)]
+        [string[]] $RelativePaths,
+
+        [Parameter(Mandatory)]
+        [string] $DestinationPath
+    )
+
+    $resolvedSourceRoot = [IO.Path]::GetFullPath($SourceRoot)
+    $sourcePrefix = [IO.Path]::TrimEndingDirectorySeparator($resolvedSourceRoot) +
+        [IO.Path]::DirectorySeparatorChar
+    $resolvedDestinationPath = [IO.Path]::GetFullPath($DestinationPath)
+    if ($resolvedDestinationPath.StartsWith($sourcePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'DestinationPath must be outside SourceRoot.'
+    }
+
+    $destinationDirectory = Split-Path -Parent $resolvedDestinationPath
+    New-Item -ItemType Directory -Path $destinationDirectory -Force | Out-Null
+    $stagingRoot = Join-Path $destinationDirectory ".snapshot-$([Guid]::NewGuid().ToString('N'))"
+
+    try {
+        New-Item -ItemType Directory -Path $stagingRoot -Force | Out-Null
+        foreach ($relativePath in $RelativePaths) {
+            if ([IO.Path]::IsPathRooted($relativePath)) {
+                throw "Archive source path must be relative: $relativePath"
+            }
+
+            $sourcePath = [IO.Path]::GetFullPath((Join-Path $resolvedSourceRoot $relativePath))
+            if (-not $sourcePath.StartsWith($sourcePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+                throw "Archive source path escaped SourceRoot: $relativePath"
+            }
+            if (-not (Test-Path -LiteralPath $sourcePath -PathType Container)) {
+                throw "Archive source directory was not found: $sourcePath"
+            }
+
+            $stagedPath = Join-Path $stagingRoot $relativePath
+            New-Item -ItemType Directory -Path (Split-Path -Parent $stagedPath) -Force | Out-Null
+            Copy-Item -LiteralPath $sourcePath -Destination $stagedPath -Recurse -Force
+        }
+
+        $archiveRoots = @(Get-ChildItem -LiteralPath $stagingRoot -Force)
+        if ($archiveRoots.Count -eq 0) {
+            throw 'At least one relative directory is required to create the archive.'
+        }
+
+        Compress-Archive -LiteralPath @($archiveRoots | ForEach-Object { $_.FullName }) `
+            -DestinationPath $resolvedDestinationPath `
+            -CompressionLevel Optimal
+    }
+    finally {
+        if (Test-Path -LiteralPath $stagingRoot) {
+            Remove-Item -LiteralPath $stagingRoot -Recurse -Force
+        }
+    }
+}
+
 function Test-SqlServerConnection {
     $service = Get-Service -Name $script:SqlServiceName -ErrorAction SilentlyContinue
     if ($null -eq $service) {
