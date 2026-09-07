@@ -13,6 +13,8 @@
 
 ## 最近完成批次
 
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-064-AI-v8-Baseline五案零成本修正定版|DEC-BATCH-064｜AI v8 Baseline 五案零成本修正定版]]：`DEC-P407`，1 項，已於 2026-09-06 寫回；依 v8 三輪原始逐輪證據修正商品五案，Prompt／Dataset／Grader 升為 `product-search-v9`／`zh-TW-v1.0.6-draft`／`deterministic-v1.1.5`，Fixture、120 筆總數與分割不變。零成本驗證通過；小型 Live Smoke 與人工覆核仍須另行授權。
+- [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-063-AI客服回答規格與覆核輸入透明化定版|DEC-BATCH-063｜AI 客服回答規格與覆核輸入透明化定版]]：`DEC-P406`，1 項，已於 2026-09-06 寫回；客服 Prompt 升為 `support-v3`，補齊不洩題的通用顧客回答方式。`requiredPoints` 只供評分，覆核表另列 Prompt 版本、實際核准來源與核准資料；歷史 `support-v2` 結果不改寫，Live 重驗須另行授權。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-062-AI-v8六案Smoke結果定版|DEC-BATCH-062｜AI v8 六案 Smoke 結果定版]]：`DEC-P405`，1 項，已於 2026-09-06 寫回；Commit `45eeed27` 的 v8 六案／一輪 Live Smoke 完成 6 次請求、US$0.007117，自動 Gate 全數通過，Alex 顧客視角人工覆核 6／6 Pass，正式 Smoke Verdict 為 `PASS`。66 次 Release baseline 仍須獨立決策與費用授權。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-061-AI-025與026中文預算保護定版|DEC-BATCH-061｜AI 025 與 026 中文預算保護定版]]：`DEC-P404`，1 項，已於 2026-09-06 寫回；既有 Adapter 增加僅限 `zh-TW` 的明確口語預算與衝突安全上限保護，模糊金額不強制覆寫，Prompt 升為 `product-search-v8`。025／026 零成本回歸通過；後續 Live Smoke 已由 DEC-BATCH-062 定版為通過。
 - [[05-規劃/03-需求與決策治理/決策/02-已寫回/DEC-BATCH-060-AI-019容量與偏好評分標準調整|DEC-BATCH-060｜AI 019 容量與偏好評分標準調整]]：`DEC-P403`，1 項，已於 2026-09-06 寫回；019 的無「至少／以上」8TB 改採 `eq 8192GB`，偏好改為正規化後概念包含且數量必須相等。Dataset／Grader 升為 `v1.0.5`／`v1.1.4`；歷史 v7 Smoke 不改寫，025／026 後續由 DEC-BATCH-061 完成零成本修正。

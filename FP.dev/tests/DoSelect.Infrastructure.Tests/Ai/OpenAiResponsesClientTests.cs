@@ -69,6 +69,15 @@ public sealed class OpenAiResponsesClientTests
             .Select(item => item.GetString())
             .ToArray();
         Assert.Contains("support_ticket", sourceTypes);
+        var needsHumanSupportDescription = root.GetProperty("text")
+            .GetProperty("format")
+            .GetProperty("schema")
+            .GetProperty("properties")
+            .GetProperty("needsHumanSupport")
+            .GetProperty("description")
+            .GetString();
+        Assert.Contains("cannot safely answer or guide", needsHumanSupportDescription, StringComparison.Ordinal);
+        Assert.Contains("do not set true merely because", needsHumanSupportDescription, StringComparison.Ordinal);
 
         using var input = JsonDocument.Parse(root.GetProperty("input").GetString()!);
         Assert.Equal("ja-JP", input.RootElement.GetProperty("responseLocale").GetString());

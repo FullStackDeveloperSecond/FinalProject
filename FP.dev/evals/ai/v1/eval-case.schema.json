@@ -20,7 +20,7 @@
   ],
   "properties": {
     "caseId": { "type": "string", "pattern": "^[A-Z-]+-[0-9]{3}$" },
-    "datasetVersion": { "const": "zh-TW-v1.0.5-draft" },
+    "datasetVersion": { "const": "zh-TW-v1.0.13-draft" },
     "language": { "const": "zh-TW" },
     "split": { "enum": ["development", "release", "challenge"] },
     "primaryGroup": {
@@ -73,7 +73,52 @@
         "allowedCandidateIds": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
         "tools": { "type": "object" },
         "citations": { "type": "object" },
-        "answer": { "type": "object" },
+        "answer": {
+          "type": "object",
+          "required": ["requiredPoints", "requiredFacts", "forbiddenContent"],
+          "properties": {
+            "requiredPoints": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            "requiredFacts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["id", "allOf"],
+                "properties": {
+                  "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+                  "allOf": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "array",
+                      "minItems": 1,
+                      "items": { "type": "string", "minLength": 1 },
+                      "uniqueItems": true
+                    }
+                  },
+                  "noneOf": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "type": "string", "minLength": 1 },
+                    "uniqueItems": true
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "forbiddenContent": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "minItems": 1,
+              "uniqueItems": true
+            }
+          },
+          "additionalProperties": false
+        },
         "fallback": { "type": "string" },
         "hardFailRules": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
       }

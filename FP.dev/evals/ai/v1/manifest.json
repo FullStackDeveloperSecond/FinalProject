@@ -1,5 +1,5 @@
 {
-  "datasetVersion": "zh-TW-v1.0.5-draft",
+  "datasetVersion": "zh-TW-v1.0.13-draft",
   "language": "zh-TW",
   "caseFile": "dataset.zh-TW.v1.jsonl",
   "caseSchema": "eval-case.schema.json",
@@ -20,18 +20,18 @@
     "SUPPORT-SECURITY": 20
   },
   "versions": {
-    "prompt": "product-search-v8+support-v2",
+    "prompt": "product-search-v14+support-v7",
     "searchIntentSchema": "contract-v1.0.2-2026-09-05",
     "toolContract": "contract-v1",
-    "grader": "deterministic-v1.1.4",
+    "grader": "deterministic-v1.1.9",
     "fixture": "v1.0.4"
   },
   "candidateModels": {
     "productSearch": "gpt-5.6-luna",
     "aiSupport": "gpt-5.6-terra"
   },
-  "annotationStatus": "all_120_case_definitions_approved_2026-09-04_SEARCH-NOVICE-019_standard_adjusted_by_alex_decision_2026-09-06",
-  "liveBaselineStatus": "product_search_v8_six_case_smoke_passed_release_baseline_pending_2026-09-06",
+  "annotationStatus": "all_120_case_definitions_approved_2026-09-04_release_expectations_014_015_020_021_022_corrected_support_required_fact_checks_011_013_014_017_added_020_no_unconfirmed_derived_specs_022_quiet_preference_and_013_defect_question_scope_corrected_2026-09-07",
+  "liveBaselineStatus": "product_search_v14_support_v7_dataset_v1_0_13_release_66_of_66_automated_and_formal_human_pass_at_f3c44ae7_2026-09-07",
   "containsProductionData": false,
   "containsRealPersonalData": false
 }

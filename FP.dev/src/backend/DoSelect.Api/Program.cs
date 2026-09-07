@@ -114,6 +114,21 @@ if (args.Contains("--seed-minimal", StringComparer.OrdinalIgnoreCase))
     return;
 }
 
+if (args.Contains("--seed-demo", StringComparer.OrdinalIgnoreCase))
+{
+    if (!app.Environment.IsDevelopment())
+    {
+        throw new InvalidOperationException(
+            "The demo seed command is restricted to the Development environment.");
+    }
+
+    await using var scope = app.Services.CreateAsyncScope();
+    var seeder = scope.ServiceProvider.GetRequiredService<DemoDataSeeder>();
+    var result = await seeder.SeedAsync();
+    Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(result));
+    return;
+}
+
 app.UseRequestObservability();
 app.UseApiFoundation();
 
