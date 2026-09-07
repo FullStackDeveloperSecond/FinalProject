@@ -45,7 +45,10 @@ function formatTwd(amount: number): string {
       <h1 id="build-lists-page-title">
         我的組裝清單
       </h1>
-      <RouterLink to="/builds/new">
+      <RouterLink
+        class="page-action"
+        to="/builds/new"
+      >
         新增組裝清單
       </RouterLink>
     </div>

@@ -1783,6 +1783,200 @@ button:disabled {
 }
 
 /* =============================================================================
+   v4.3 —— 會員下拉選單
+   登入後頂層原本有 13 個項目。把「我的內容」（組裝清單／收藏／評價）與
+   「帳戶設定」（會員資料／收件地址）收進以會員名稱為觸發鈕的下拉，
+   頂層只剩客服中心與這顆選單。手機的收合選單裡改為攤平清單——
+   已經收合過一層，再套一層下拉只會更難操作。
+   ========================================================================== */
+.member-menu {
+  position: relative;
+}
+
+.member-menu__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-height);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--color-primary-soft);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.member-menu__trigger:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.member-menu__name {
+  max-width: 11ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.member-menu__chevron {
+  flex: none;
+  transition: transform var(--dur-micro) var(--ease-out);
+}
+
+.member-menu__trigger[aria-expanded='true'] .member-menu__chevron {
+  transform: rotate(180deg);
+}
+
+.member-menu__panel {
+  position: absolute;
+  inset-inline-end: 0;
+  inset-block-start: calc(100% + var(--space-2));
+  z-index: var(--z-drawer);
+  display: flex;
+  flex-direction: column;
+  min-width: 13rem;
+  padding: var(--space-2);
+  border: 1px solid var(--color-border-line);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.member-menu__group {
+  margin: var(--space-2) var(--space-3) var(--space-1);
+  color: var(--color-text-faint);
+  font-size: var(--fs-caption);
+  font-weight: 700;
+}
+
+.member-menu__group:first-child {
+  margin-block-start: var(--space-1);
+}
+
+.member-menu__panel a,
+.member-menu__logout {
+  display: flex;
+  align-items: center;
+  min-height: var(--control-height);
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-ink);
+  font: inherit;
+  font-size: var(--fs-body);
+  font-weight: 600;
+  text-align: start;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.member-menu__panel a:hover,
+.member-menu__logout:hover {
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+}
+
+.member-menu__panel a.router-link-active {
+  color: var(--color-primary);
+}
+
+/* 登出是破壞性動作，與上方瀏覽項目以分隔線隔開並用 danger 色 */
+.member-menu__logout {
+  margin-block-start: var(--space-2);
+  padding-block-start: var(--space-2);
+  border-block-start: 1px solid var(--color-border-soft);
+  border-radius: 0;
+  color: var(--color-danger);
+}
+
+.member-menu__logout:hover {
+  background: var(--color-danger-bg);
+  color: var(--color-danger-strong);
+}
+
+@media (max-width: 900px) {
+  /* 收合選單內：面板改為就地攤平，不再浮動 */
+  .member-menu {
+    width: 100%;
+  }
+
+  .member-menu__trigger {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .member-menu__name {
+    max-width: none;
+  }
+
+  .member-menu__panel {
+    position: static;
+    min-width: 0;
+    margin-block-start: var(--space-2);
+    box-shadow: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .member-menu__chevron {
+    transition: none;
+  }
+}
+
+/* =============================================================================
+   v4.3 —— 頁面層級的動作連結
+   有幾處 RouterLink 是頁面的主要動作（頁首的「新增組裝清單」、結帳完成後的
+   「前往付款」、AI 無結果時的「前往一般商品搜尋」），但沒有任何 class，
+   落回瀏覽器預設的藍字底線，看起來像內文連結而不是可按的動作。
+   這裡給它們與 EmptyState 動作相同的按鈕形狀，維持全站一致的可點擊語彙。
+   ========================================================================== */
+.page-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: var(--control-height);
+  padding: 0 var(--space-5);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  font-size: var(--fs-body);
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.view-shell a.page-action {
+  color: var(--color-on-primary);
+}
+
+.page-action:hover,
+.view-shell a.page-action:hover {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+  color: var(--color-on-primary);
+}
+
+/* 次要動作：同樣的形狀與高度，但不與主要動作搶注意力 */
+.page-action--secondary,
+.view-shell a.page-action--secondary {
+  background: var(--color-surface);
+  color: var(--color-primary);
+}
+
+.page-action--secondary:hover,
+.view-shell a.page-action--secondary:hover {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+/* =============================================================================
    v4.2 —— AI 懂選的「既有零件」摺疊區
    `.ai-search__parts` 在任何樣式表都沒有定義，整組 details/summary 是瀏覽器
    預設外觀：26px 高、系統三角標記、沒有可點擊的視覺提示。這裡補上與其他
