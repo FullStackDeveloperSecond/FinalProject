@@ -99,6 +99,11 @@ jobs:
         run: ./scripts/test-package-source-verifier.ps1
         working-directory: FP.dev
 
+      - name: Verify dotnet script resolution policy
+        shell: pwsh
+        run: ./scripts/test-dotnet-script-resolution.ps1 -SkipExecutableProbe
+        working-directory: FP.dev
+
   backend:
     name: Backend
     runs-on: ubuntu-latest

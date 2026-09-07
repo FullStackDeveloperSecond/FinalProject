@@ -8,13 +8,9 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 
-$dotnet = 'C:\Users\alexy\.dotnet\dotnet.exe'
+$dotnet = Get-RequiredCommand -Name 'dotnet.exe'
 $apiProject = Join-Path $script:ProjectRoot 'src\backend\DoSelect.Api\DoSelect.Api.csproj'
 $process = $null
-
-if (-not (Test-Path -LiteralPath $dotnet -PathType Leaf)) {
-    throw "The pinned .NET SDK executable was not found at '$dotnet'."
-}
 
 Initialize-RunDirectory
 Assert-PortAvailable -Port 5126 -ServiceName 'API database smoke test'
