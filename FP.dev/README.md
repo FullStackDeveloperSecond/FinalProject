@@ -215,7 +215,7 @@ npm run test:coverage --prefix frontend\admin-web
 .\scripts\restore-demo.ps1 -BackupSetDirectory E:\FinalProjectBackups\<backup-set-id> -VerificationDatabaseName DoSelectDemo_<32-hex>
 ```
 
-保留清理預設保留每日 7 份、每週 4 份；沒有任何「成功還原驗證且仍被保留」的 Backup Set 時會拒絕刪除。先使用 `-WhatIf` 查看目標：
+保留清理預設保留最近每日 7 份、最近每週 4 份；沒有任何同時通過資料庫與檔案復原驗證且仍被保留的完整 Backup Set 時會拒絕刪除。資料根目錄不存在時仍可建立 `fileSnapshot.status=not_captured` 的資料庫-only Backup Set，但該集合不得授權清理其他備份。先使用 `-WhatIf` 查看目標：
 
 ```powershell
 .\scripts\prune-demo-backups.ps1 -WhatIf

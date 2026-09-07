@@ -54,7 +54,7 @@
 | 還原後應用驗證 | PASS | 11／11 checks 為 true、Failures 0、資料完整性異常 0 |
 | Backup 起至應用驗證完成 | PASS | 71.508 秒，小於 RTO 7,200 秒 |
 | 清理 | PASS | 3 顆本輪隔離 DB、2 個驗證目錄、2 個非正式 Backup Set 均清為 0 |
-| 保留策略 `-WhatIf` | PASS | 沒有刪除；唯一保留 Backup Set 已有成功還原驗證 |
+| 保留策略 `-WhatIf` | 部分通過 | 當次沒有刪除；後續複核確認該資料庫-only 集合只有 SQL 還原成功，不具備檔案復原資格，不能作為完整備份清理的唯一安全依據 |
 | 圖片／私有附件封存與授權 Smoke | 未測試／非阻擋 | 執行前 `E:\FinalProjectData` 不存在；Manifest `files=null` |
 
 ## 保留 Artifact
@@ -64,7 +64,9 @@
 | `manifest.json` | 798 bytes | `9f57aed252296cc4403f9546bda3f60ab7e215d26241e7c429565aac1e94a9d5` | `E:\FinalProjectBackups\20260907T171432Z-5c77922a60324f8f90970aaa2ed54e44` |
 | SQL `.bak` | 2,654,720 bytes | `fee5308209e4bca65a1ced095b1bd0bae53ad76ccf3c98e759d90610055e1ddb` | 同一 Backup Set |
 
-Repository 只提交去識別摘要與 hash；原始 SQL Backup 不進 Git。清除的失敗／非正式產物不可復原，但正式 Backup Set 仍保留且已通過還原驗證。
+Repository 只提交去識別摘要與 hash；原始 SQL Backup 不進 Git。清除的失敗／非正式產物不可復原，但正式 Backup Set 仍保留且已通過 SQL 還原驗證；因 `files=null`，檔案復原仍未測試。
+
+後續 exact-head 安全複核以真實 Manifest 重現：資料庫-only 集合會被舊清理條件視為已驗證完整集合，且 `Group-Object` 會破壞原先的最新優先順序。revision `069d22ec` 已將資料庫／檔案復原狀態分離、要求完整集合才能授權刪除、修正每日／每週新到舊選取，並加入 CI 回歸。修正後同一資料庫-only 情境明確為 `fileSnapshot.status=not_captured`、`fileRecoveryResult=not_tested`，`prune-demo-backups.ps1 -WhatIf` 會 fail closed；這不會把本次缺少真實檔案的演練改寫為通過。
 
 ## 限制與後續
 
