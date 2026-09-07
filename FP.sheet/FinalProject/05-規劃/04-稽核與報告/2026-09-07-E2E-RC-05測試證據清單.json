@@ -86,19 +86,27 @@
     "relevantIsolatedDatabaseCount": 0
   },
   "testStatus": "PASS",
-  "deliveryStatus": "LOCAL_VALIDATED",
+  "deliveryStatus": "MERGED_DEV",
   "delivery": {
     "baseRevision": "bec295fa8e04ebb791011db9e3ee0fd4ee91c958",
     "implementationRevision": "443df7ed347a08eb9a75e1b432b15994ae4a259d",
-    "securityScanId": null,
-    "pullRequest": null,
-    "requiredCi": "PENDING",
-    "mergeMethod": "squash"
+    "headRevision": "d8e07e65cca81fd18900e18f62294ac692c115b6",
+    "securityScanId": "767cd9d2-cdf7-42cb-b55b-d0ae33ccf05a",
+    "securityCoverage": "complete",
+    "securityFindingCount": 0,
+    "pullRequest": 158,
+    "ciRun": 34130352468,
+    "requiredCi": "PASS",
+    "formalApproval": "REJECTED_SELF_REVIEW",
+    "adminBypass": "AUTHORIZED_AFTER_ALL_GATES_PASSED",
+    "mergeMethod": "squash",
+    "mergeRevision": "d7966e923e95d01a148354938323f4e37d1a1e96",
+    "mergedAtUtc": "2026-09-07T14:13:46Z"
   },
   "limitations": [
     "The browser journey covers one representative highest-data-risk failure/return path; it does not exhaust every carrier or reason-code combination.",
     "The existing H-R02 happy paths remain in the same test and provider suites; E2E-RC-05 adds the failure/return variant rather than duplicating all delivery paths.",
-    "The API test emitted NU1900 because the NuGet vulnerability index was temporarily unreachable; package audit remains a required pull-request CI gate.",
+    "The local API test emitted NU1900 because the NuGet vulnerability index was temporarily unreachable; PR #158 later passed the required Package Source Evidence and Backend package-vulnerability steps.",
     "VISUAL_REVIEW_DIR was not configured for this T2 run, so captureVisualEvidence was a no-op and no screenshots were produced or retained."
   ]
 }
