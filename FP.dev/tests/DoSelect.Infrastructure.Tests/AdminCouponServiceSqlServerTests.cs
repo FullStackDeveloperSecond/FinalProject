@@ -1250,24 +1250,64 @@ public sealed class AdminCouponServiceSqlServerTests
     }
 
     [AdminCouponSqlFact]
-    public async Task AnAdministratorWithoutACouponRoleIsRefused()
+    public async Task EveryWritePath_WhenCouponRoleWasWithdrawn_IsRefusedWithoutSideEffects()
     {
         // Policy 在請求進入時檢查過一次，這裡是第二次：Token 可能簽發於角色撤銷之前。
         await using var context = AdminCouponSqlFixture.CreateContext();
+        var created = await CreateService(context).CreateAsync(CreateRequest(UniqueCode()));
         var stranger = ApplicationUser.CreateAdmin(
             Guid.NewGuid(),
             $"stranger-{Guid.NewGuid():N}@example.test",
             NowUtc.AddDays(-10));
         context.Add(stranger);
         await context.SaveChangesAsync();
+        var actor = new AdminCouponActorContext(
+            stranger.Id, "coupon-test-correlation", new string('a', 32), null);
+        var couponCount = await context.Coupons.CountAsync();
+        var categoryScopeCount = await context.CouponCategories.CountAsync();
+        var productScopeCount = await context.CouponProducts.CountAsync();
+        var excludedProductScopeCount = await context.CouponExcludedProducts.CountAsync();
+        var auditCount = await context.Set<AuditLog>().CountAsync();
+        var unauthorizedCode = UniqueCode();
 
-        var exception = await Assert.ThrowsAsync<DomainProblemException>(
+        var createException = await Assert.ThrowsAsync<DomainProblemException>(
             () => CreateService(context).Inner.CreateAsync(
-                CreateRequest(UniqueCode()),
-                new AdminCouponActorContext(
-                    stranger.Id, "coupon-test-correlation", new string('a', 32), null)));
+                CreateRequest(unauthorizedCode), actor));
+        Assert.Equal(403, createException.StatusCode);
 
-        Assert.Equal(403, exception.StatusCode);
+        await using (var update = AdminCouponSqlFixture.CreateContext())
+        {
+            var updateException = await Assert.ThrowsAsync<DomainProblemException>(
+                () => CreateService(update).Inner.UpdateAsync(
+                    created.PublicId,
+                    UpdateRequest(created) with { NameZhTw = "Intruded" },
+                    actor));
+            Assert.Equal(403, updateException.StatusCode);
+        }
+
+        await using (var action = AdminCouponSqlFixture.CreateContext())
+        {
+            var actionException = await Assert.ThrowsAsync<DomainProblemException>(
+                () => CreateService(action).Inner.ExecuteActionAsync(
+                    created.PublicId,
+                    AdminCouponActions.Activate,
+                    ActionRequest(created),
+                    actor));
+            Assert.Equal(403, actionException.StatusCode);
+        }
+
+        await using var verify = AdminCouponSqlFixture.CreateContext();
+        var reloaded = (await CreateService(verify).FindByPublicIdAsync(created.PublicId))!;
+        Assert.Equal(created.NameZhTw, reloaded.NameZhTw);
+        Assert.Equal(CouponStatus.Draft, reloaded.Status);
+        Assert.Equal(created.RuleVersion, reloaded.RuleVersion);
+        Assert.Equal(created.RowVersion, reloaded.RowVersion);
+        Assert.Equal(couponCount, await verify.Coupons.CountAsync());
+        Assert.False(await verify.Coupons.AnyAsync(coupon => coupon.Code == unauthorizedCode));
+        Assert.Equal(categoryScopeCount, await verify.CouponCategories.CountAsync());
+        Assert.Equal(productScopeCount, await verify.CouponProducts.CountAsync());
+        Assert.Equal(excludedProductScopeCount, await verify.CouponExcludedProducts.CountAsync());
+        Assert.Equal(auditCount, await verify.Set<AuditLog>().CountAsync());
     }
 
     [AdminCouponSqlFact]
