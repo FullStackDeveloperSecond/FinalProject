@@ -133,6 +133,11 @@ public sealed class ReturnsApiFixture : IAsyncLifetime
 
     public HttpClient CreateClient() => _factory.CreateClient();
 
+    public int CountStoredFiles() =>
+        Directory.Exists(_dataRoot)
+            ? Directory.EnumerateFiles(_dataRoot, "*", SearchOption.AllDirectories).Count()
+            : 0;
+
     /// <summary>
     /// A fresh client signed in as a member via the test-only sign-in endpoint, plus a real
     /// delivered Order + OrderItem owned by that exact member (Orders.MemberUserId is a real
@@ -517,7 +522,13 @@ public sealed class ReturnsApiFixture : IAsyncLifetime
     /// has a foreign key to AspNetUsers, so an arbitrary test-only identifier (the sign-in
     /// endpoint's random-GUID fallback) fails with a 500 the moment Review/Reject writes it.
     /// </summary>
-    public async Task<HttpClient> CreateAuthenticatedOrderManagerClientAsync()
+    public Task<HttpClient> CreateAuthenticatedOrderManagerClientAsync() =>
+        CreateAuthenticatedAdminClientAsync("OrderManager");
+
+    public Task<HttpClient> CreateAuthenticatedAdminWithoutReturnApproveClientAsync() =>
+        CreateAuthenticatedAdminClientAsync("CatalogManager");
+
+    private async Task<HttpClient> CreateAuthenticatedAdminClientAsync(string role)
     {
         string adminUserId;
         await using (var context = CreateContext())
@@ -533,7 +544,7 @@ public sealed class ReturnsApiFixture : IAsyncLifetime
         using var request = new HttpRequestMessage(HttpMethod.Post, "/__tests/security/sign-in/admin")
         {
             // Return.Approve's policy also requires the MultiFactor authentication-method claim.
-            Content = JsonContent.Create(new { includeMfa = true, roles = new[] { "OrderManager" }, userId = adminUserId }),
+            Content = JsonContent.Create(new { includeMfa = true, roles = new[] { role }, userId = adminUserId }),
         };
         request.Headers.Add("X-XSRF-TOKEN", signInToken);
         using var response = await client.SendAsync(request);
