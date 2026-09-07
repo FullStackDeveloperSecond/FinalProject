@@ -17,6 +17,41 @@ public sealed class EfFavoriteGatewayCollection : ICollectionFixture<EfFavoriteG
 public sealed class EfFavoriteGatewayTests
 {
     [Fact]
+    public async Task IsFavoritedAsync_IsScopedToTheRequestedMember()
+    {
+        await using var context = EfFavoriteGatewayFixture.CreateContext();
+        var gateway = new EfFavoriteGateway(context, TimeProvider.System);
+
+        await gateway.AddAsync(
+            EfFavoriteGatewayFixture.MemberAId,
+            EfFavoriteGatewayFixture.InStockProductPublicId,
+            CancellationToken.None);
+
+        try
+        {
+            Assert.True(await gateway.IsFavoritedAsync(
+                EfFavoriteGatewayFixture.MemberAId,
+                EfFavoriteGatewayFixture.InStockProductPublicId,
+                CancellationToken.None));
+            Assert.False(await gateway.IsFavoritedAsync(
+                EfFavoriteGatewayFixture.MemberBId,
+                EfFavoriteGatewayFixture.InStockProductPublicId,
+                CancellationToken.None));
+            Assert.False(await gateway.IsFavoritedAsync(
+                EfFavoriteGatewayFixture.MemberAId,
+                Guid.NewGuid(),
+                CancellationToken.None));
+        }
+        finally
+        {
+            await gateway.RemoveAsync(
+                EfFavoriteGatewayFixture.MemberAId,
+                EfFavoriteGatewayFixture.InStockProductPublicId,
+                CancellationToken.None);
+        }
+    }
+
+    [Fact]
     public async Task AddAsync_WhenProductDoesNotExist_ReturnsProductNotFound()
     {
         await using var context = EfFavoriteGatewayFixture.CreateContext();

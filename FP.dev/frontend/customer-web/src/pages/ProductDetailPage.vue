@@ -9,7 +9,7 @@ import { useAddCartItem } from '../features/cart/useCart'
 import { useSessionStore } from '../stores/session'
 import { usePublicProductReviewsQuery } from '../features/reviews/queries'
 import { formatReviewDate } from '../features/reviews/labels'
-import { useAddFavoriteMutation, useMyFavoritesQuery, useRemoveFavoriteMutation } from '../features/favorites/queries'
+import { useAddFavoriteMutation, useFavoriteStatusQuery, useRemoveFavoriteMutation } from '../features/favorites/queries'
 
 const route = useRoute()
 const sessionStore = useSessionStore()
@@ -99,16 +99,18 @@ function onAddToCart(): void {
   )
 }
 
-// 評價收藏檢舉與模擬發票規格.md: 收藏只開放登入會員. There is no "check one favorite" endpoint —
-// only the paginated list — so the toggle state is read off the largest allowed page (100, the
-// API's own PageSize ceiling) rather than a per-product lookup call.
-const favoritesQuery = useMyFavoritesQuery(1, 100, () => sessionStore.isAuthenticated)
+// Query this product directly rather than inferring membership from one favorites page. A member
+// can have more than the list endpoint's 100-item page-size ceiling, so a page is not a complete set.
+const favoriteStatusQuery = useFavoriteStatusQuery(
+  computed(() => product.value?.productPublicId),
+  () => sessionStore.isAuthenticated,
+)
 const addFavoriteMutation = useAddFavoriteMutation()
 const removeFavoriteMutation = useRemoveFavoriteMutation()
 const favoriteError = ref<string | null>(null)
 
 const isFavorited = computed(() =>
-  favoritesQuery.data.value?.items.some(item => item.productPublicId === product.value?.productPublicId) ?? false)
+  favoriteStatusQuery.data.value?.isFavorited ?? false)
 const isFavoriteMutating = computed(() =>
   addFavoriteMutation.isPending.value || removeFavoriteMutation.isPending.value)
 

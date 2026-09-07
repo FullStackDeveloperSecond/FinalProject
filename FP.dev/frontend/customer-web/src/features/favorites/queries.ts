@@ -4,10 +4,11 @@ import { apiClient } from '../../api/client'
 
 const favoriteKeys = {
   list: (pageNumber: number, pageSize: number) => ['favorites', 'list', pageNumber, pageSize] as const,
+  status: (productPublicId: string) => ['favorites', 'status', productPublicId] as const,
 }
 
-function invalidateLists(queryClient: ReturnType<typeof useQueryClient>) {
-  void queryClient.invalidateQueries({ queryKey: ['favorites', 'list'] })
+function invalidateFavorites(queryClient: ReturnType<typeof useQueryClient>) {
+  return queryClient.invalidateQueries({ queryKey: ['favorites'] })
 }
 
 export function useMyFavoritesQuery(
@@ -28,6 +29,25 @@ export function useMyFavoritesQuery(
   })
 }
 
+export function useFavoriteStatusQuery(
+  productPublicId: MaybeRefOrGetter<string | undefined>,
+  enabled: () => boolean = () => true,
+) {
+  return useQuery({
+    queryKey: computed(() => favoriteKeys.status(toValue(productPublicId) ?? '')),
+    queryFn: async () => {
+      const publicId = toValue(productPublicId)
+      if (!publicId) throw new Error('Product public id is required.')
+      const { data, error } = await apiClient.GET('/api/v1/members/me/favorites/{productId}', {
+        params: { path: { productId: publicId } },
+      })
+      if (error) throw error
+      return data
+    },
+    enabled: computed(() => enabled() && Boolean(toValue(productPublicId))),
+  })
+}
+
 export function useAddFavoriteMutation() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -37,7 +57,7 @@ export function useAddFavoriteMutation() {
       })
       if (error) throw error
     },
-    onSuccess: () => invalidateLists(queryClient),
+    onSuccess: () => invalidateFavorites(queryClient),
   })
 }
 
@@ -50,6 +70,6 @@ export function useRemoveFavoriteMutation() {
       })
       if (error) throw error
     },
-    onSuccess: () => invalidateLists(queryClient),
+    onSuccess: () => invalidateFavorites(queryClient),
   })
 }

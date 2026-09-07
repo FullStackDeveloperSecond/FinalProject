@@ -19,6 +19,7 @@ const Harness = defineComponent({
 
 describe('customer favorites queries', () => {
   afterEach(() => {
+    vi.resetModules()
     vi.unstubAllGlobals()
   })
 
@@ -59,6 +60,28 @@ describe('customer favorites queries', () => {
     await Promise.resolve()
 
     expect(fetchStub).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('queries favorite status directly for the current product', async () => {
+    const productPublicId = '11111111-1111-1111-1111-111111111111'
+    const fetchStub = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json({ isFavorited: true }),
+    )
+    vi.stubGlobal('fetch', fetchStub)
+    const { useFavoriteStatusQuery } = await import('./queries')
+    const { ref } = await import('vue')
+    const currentProductPublicId = ref(productPublicId)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const wrapper = mount(Harness, {
+      props: { run: () => { useFavoriteStatusQuery(currentProductPublicId) } },
+      global: { plugins: [[VueQueryPlugin, { queryClient }]] },
+    })
+
+    await vi.waitFor(() => expect(fetchStub).toHaveBeenCalledTimes(1))
+
+    expect(requestUrl(fetchStub.mock.calls[0]![0]).pathname)
+      .toBe(`/api/v1/members/me/favorites/${productPublicId}`)
     wrapper.unmount()
   })
 })

@@ -22,6 +22,16 @@ public sealed class EfFavoriteGateway : IFavoriteGateway
         _timeProvider = timeProvider;
     }
 
+    public Task<bool> IsFavoritedAsync(
+        string memberUserId,
+        Guid productPublicId,
+        CancellationToken cancellationToken) =>
+        (from favorite in _dbContext.Favorites.AsNoTracking()
+         join product in _dbContext.Products.AsNoTracking() on favorite.ProductId equals product.Id
+         where favorite.MemberUserId == memberUserId && product.PublicId == productPublicId
+         select favorite)
+        .AnyAsync(cancellationToken);
+
     public async Task<AddFavoriteResult> AddAsync(
         string memberUserId,
         Guid productPublicId,
@@ -142,7 +152,7 @@ public sealed class EfFavoriteGateway : IFavoriteGateway
             .Where(balance => skuIds.Contains(balance.SkuId))
             .ToDictionaryAsync(balance => balance.SkuId, cancellationToken);
 
-        var nowUtc = DateTime.UtcNow;
+        var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
         var salePricesBySkuId = await _dbContext.SalePrices.AsNoTracking()
             .Where(salePrice =>
                 skuIds.Contains(salePrice.SkuId) &&

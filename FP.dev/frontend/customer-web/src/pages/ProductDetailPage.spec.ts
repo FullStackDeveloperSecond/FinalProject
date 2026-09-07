@@ -12,7 +12,7 @@ const mockAddCartItem = vi.fn()
 const favoriteMocks = await vi.hoisted(async () => {
   const { ref } = await import('vue')
   return {
-    data: ref<{ items: Array<{ productPublicId: string }> }>({ items: [] }),
+    data: ref<{ isFavorited: boolean }>({ isFavorited: false }),
     isPending: ref(false),
     isError: ref(false),
     error: ref<unknown>(null),
@@ -22,7 +22,7 @@ const favoriteMocks = await vi.hoisted(async () => {
 })
 
 vi.mock('../features/favorites/queries', () => ({
-  useMyFavoritesQuery: () => ({
+  useFavoriteStatusQuery: () => ({
     data: favoriteMocks.data,
     isPending: favoriteMocks.isPending,
     isError: favoriteMocks.isError,
@@ -114,7 +114,7 @@ async function mountPage(id = 'p1') {
 describe('ProductDetailPage', () => {
   beforeEach(() => {
     mockAddCartItem.mockReset()
-    favoriteMocks.data.value = { items: [] }
+    favoriteMocks.data.value = { isFavorited: false }
     favoriteMocks.add.mutate.mockReset()
     favoriteMocks.remove.mutate.mockReset()
   })
@@ -487,7 +487,7 @@ describe('ProductDetailPage', () => {
     await favoriteButton.trigger('click')
     expect(favoriteMocks.add.mutate).toHaveBeenCalledWith('p1', expect.any(Object))
 
-    favoriteMocks.data.value = { items: [{ productPublicId: 'p1' }] }
+    favoriteMocks.data.value = { isFavorited: true }
     await flushPromises()
 
     const toggledButton = wrapper.find('.product-detail__favorite-toggle')

@@ -5737,7 +5737,30 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    productId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["FavoriteStatusDto"];
+                        "application/json": components["schemas"]["FavoriteStatusDto"];
+                        "text/json": components["schemas"]["FavoriteStatusDto"];
+                    };
+                };
+            };
+        };
         put: {
             parameters: {
                 query?: never;
@@ -11519,6 +11542,9 @@ export interface components {
             isPurchasable: boolean;
             /** Format: date-time */
             createdAtUtc: string;
+        };
+        FavoriteStatusDto: {
+            isFavorited: boolean;
         };
         /** @enum {unknown} */
         FulfillmentStatus: "pending" | "preparing" | "shipped" | "inTransit" | "pickupReady" | "pickedUp" | "delivered" | "deliveryFailed" | "returned";

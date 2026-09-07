@@ -82,6 +82,35 @@ public sealed class FavoritesControllerTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task GetStatus_DoesNotExposeAnotherMembersFavorite()
+    {
+        using var actorAClient = CreateClient(_memberAId);
+        using var addResponse = await actorAClient.PutWithAntiforgeryAsync(
+            $"/api/v1/members/me/favorites/{_productPublicId}",
+            DoSelectClaimValues.Member);
+        Assert.Equal(HttpStatusCode.NoContent, addResponse.StatusCode);
+
+        using var actorAStatusResponse = await actorAClient.GetAsync(
+            $"/api/v1/members/me/favorites/{_productPublicId}");
+        using var actorAStatus = await ReadJsonAsync(actorAStatusResponse);
+        Assert.Equal(HttpStatusCode.OK, actorAStatusResponse.StatusCode);
+        Assert.True(actorAStatus.RootElement.GetProperty("isFavorited").GetBoolean());
+
+        using var actorBClient = CreateClient(_memberBId);
+        using var actorBStatusResponse = await actorBClient.GetAsync(
+            $"/api/v1/members/me/favorites/{_productPublicId}");
+        using var actorBStatus = await ReadJsonAsync(actorBStatusResponse);
+        Assert.Equal(HttpStatusCode.OK, actorBStatusResponse.StatusCode);
+        Assert.False(actorBStatus.RootElement.GetProperty("isFavorited").GetBoolean());
+
+        using var missingStatusResponse = await actorAClient.GetAsync(
+            $"/api/v1/members/me/favorites/{Guid.NewGuid()}");
+        using var missingStatus = await ReadJsonAsync(missingStatusResponse);
+        Assert.Equal(HttpStatusCode.OK, missingStatusResponse.StatusCode);
+        Assert.False(missingStatus.RootElement.GetProperty("isFavorited").GetBoolean());
+    }
+
+    [Fact]
     public async Task AddThenList_RoundTripsTheFavoritedProduct()
     {
         using var client = CreateClient(_memberAId);

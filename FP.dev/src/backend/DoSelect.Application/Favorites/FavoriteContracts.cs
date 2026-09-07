@@ -25,6 +25,8 @@ public sealed record FavoriteItemDto(
     bool IsPurchasable,
     DateTime CreatedAtUtc);
 
+public sealed record FavoriteStatusDto(bool IsFavorited);
+
 /// <summary>
 /// A favorited product keeps its own <see cref="ProductAvailabilityCodes"/> stock state
 /// (inStock/lowStock/outOfStock) while listed, but 評價收藏檢舉與模擬發票規格.md also requires a
@@ -45,6 +47,11 @@ public enum AddFavoriteResult
 
 public interface IFavoriteGateway
 {
+    Task<bool> IsFavoritedAsync(
+        string memberUserId,
+        Guid productPublicId,
+        CancellationToken cancellationToken);
+
     Task<AddFavoriteResult> AddAsync(
         string memberUserId,
         Guid productPublicId,

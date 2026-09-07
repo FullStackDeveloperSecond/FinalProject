@@ -38,6 +38,19 @@ public sealed class FavoritesController : ControllerBase
         return Ok(result);
     }
 
+    [HttpGet("{productId:guid}")]
+    [ProducesResponseType<FavoriteStatusDto>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<FavoriteStatusDto>> GetStatus(
+        Guid productId,
+        CancellationToken cancellationToken)
+    {
+        var isFavorited = await _favoriteGateway.IsFavoritedAsync(
+            GetMemberUserId(),
+            productId,
+            cancellationToken);
+        return Ok(new FavoriteStatusDto(isFavorited));
+    }
+
     // PUT, not POST: adding an already-favorited product is success, not a second resource
     // (評價收藏檢舉與模擬發票規格.md — MemberId+ProductId 唯一，重複加入視為成功且不建立第二筆), which is
     // PUT's idempotent-create semantics rather than POST's.
