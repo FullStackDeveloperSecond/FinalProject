@@ -927,6 +927,96 @@ test('a member can save, share, and add a compatible build to the cart; E2E-RC-0
     .toHaveCount(8)
 })
 
+test('compatibility warnings remain actionable while hard failures and missing evidence block the build; E2E-RC-04 M-17 journey', async ({
+  page,
+  loginAsMember,
+}) => {
+  test.setTimeout(240_000)
+  await loginAsMember()
+
+  const startBuild = async (name: string, memoryQuantity: number, gpuName: string) => {
+    await page.goto('/builds/new')
+    await page.getByLabel('清單名稱').fill(name)
+    const components = [
+      ['CPU', '懂選開發用 CPU'],
+      ['MOTHERBOARD', '懂選開發用主機板'],
+      ['MEMORY', '懂選開發用記憶體'],
+      ['GPU', gpuName],
+      ['STORAGE', '懂選開發用固態硬碟'],
+      ['PSU', '懂選開發用電源供應器'],
+      ['CASE', '懂選開發用機殼'],
+      ['CPU_COOLER', '懂選開發用散熱器'],
+    ] as const
+
+    for (const [categoryCode, productName] of components) {
+      await page.getByRole('searchbox', { name: `搜尋${categoryCode}商品` }).fill(productName)
+      const result = page.getByRole('button').filter({ hasText: productName })
+      await expect(result).toBeVisible()
+      await result.click()
+      await expect(page.getByText(productName, { exact: true })).toBeVisible()
+    }
+
+    const memoryQuantityInput = page.getByLabel('懂選開發用記憶體 數量')
+    await memoryQuantityInput.fill(String(memoryQuantity))
+    await memoryQuantityInput.blur()
+  }
+
+  const saveAndReadBuild = async () => {
+    await page.getByRole('button', { name: '儲存為我的清單' }).click()
+    await expect(page).toHaveURL(/\/builds\/[0-9a-f-]+$/)
+    const publicId = new URL(page.url()).pathname.split('/').at(-1)!
+    const response = await page.evaluate(async (buildPublicId) => {
+      const result = await fetch(`/api/v1/build-lists/${buildPublicId}`, { credentials: 'include' })
+      return {
+        status: result.status,
+        body: await result.json() as {
+          compatibility: {
+            overall: string
+            results: Array<{ ruleCode: string, severity: string, messageKey: string }>
+          }
+        },
+      }
+    }, publicId)
+    expect(response.status).toBe(200)
+    return response.body
+  }
+
+  await startBuild('E2E-RC-04 警告仍可繼續', 4, '懂選開發用顯示卡（組裝用）')
+  await expect(page.getByText('相容性檢查結果：有警告，仍可繼續', { exact: true })).toBeVisible()
+  await expect(page.getByText('安裝後剩餘記憶體插槽數量偏低。', { exact: true })).toBeVisible()
+  const warningBuild = await saveAndReadBuild()
+  expect(warningBuild.compatibility.overall).toBe('warning')
+  expect(warningBuild.compatibility.results).toContainEqual(expect.objectContaining({
+    ruleCode: 'MEMORY_SLOTS', severity: 'warning', messageKey: 'compatibility.memory_slots_low',
+  }))
+  const warningCartButton = page.getByRole('button', { name: '加入購物車', exact: true })
+  await expect(warningCartButton).toBeEnabled()
+  await warningCartButton.click()
+  await expect(page.getByText('已加入購物車。', { exact: true })).toBeVisible()
+
+  await startBuild('E2E-RC-04 硬規則阻擋', 5, '懂選開發用顯示卡（組裝用）')
+  await expect(page.getByText('相容性檢查結果：不相容，無法加入購物車', { exact: true })).toBeVisible()
+  await expect(page.getByText('記憶體需要 5 個插槽，但主機板只有 4 個。', { exact: true })).toBeVisible()
+  const blockedBuild = await saveAndReadBuild()
+  expect(blockedBuild.compatibility.overall).toBe('blocked')
+  expect(blockedBuild.compatibility.results).toContainEqual(expect.objectContaining({
+    ruleCode: 'MEMORY_SLOTS', severity: 'blocked', messageKey: 'compatibility.memory_slots_exceeded',
+  }))
+  await expect(page.getByText('此組裝清單目前不相容，請先解決相容性問題才能加入購物車。', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '加入購物車', exact: true })).toBeDisabled()
+
+  await startBuild('E2E-RC-04 缺規格證據', 1, '懂選開發用顯示卡（規格待覆核）')
+  await expect(page.getByText('相容性檢查結果：規格資料不足，無法完整判斷', { exact: true })).toBeVisible()
+  await expect(page.getByText('缺少計算所需的規格資料，無法判斷相容性。', { exact: true }).first()).toBeVisible()
+  const missingEvidenceBuild = await saveAndReadBuild()
+  expect(missingEvidenceBuild.compatibility.overall).toBe('insufficientData')
+  expect(missingEvidenceBuild.compatibility.results).toEqual(expect.arrayContaining([
+    expect.objectContaining({ severity: 'insufficientData', messageKey: 'compatibility.required_data_missing' }),
+  ]))
+  await expect(page.getByText('缺少計算所需的規格資料，需人工確認；目前無法將整套組裝加入購物車。', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '加入購物車', exact: true })).toBeDisabled()
+})
+
 test('visual review uses real catalog member and support journeys', async ({ page, loginAsMember }) => {
   test.setTimeout(180_000)
   for (const [url, label] of [['/', 'home'], ['/products', 'products'], ['/login', 'login'], ['/register', 'register'], ['/ai-search', 'ai-search'], ['/support', 'support-home']]) {

@@ -138,7 +138,13 @@ describe('BuildDetailPage — proactive add-to-cart disable (組長 PR #35 revie
 
   it('disables add-to-cart and explains why for insufficientData (e.g. a missing required category)', async () => {
     mockGetBuildList.mockResolvedValue(baseBuild({
-      compatibility: { overall: 'insufficientData', ruleSetVersion: 1, settingsVersion: 1, results: [] },
+      compatibility: {
+        overall: 'insufficientData', ruleSetVersion: 1, settingsVersion: 1,
+        results: [{
+          ruleCode: 'BUILD_REQUIRED_COMPONENT', severity: 'insufficientData',
+          messageKey: 'compatibility.required_component_missing', subjectSkuPublicIds: [], facts: {},
+        }],
+      },
     }))
     const wrapper = await mountPage()
     await vi.waitFor(() => expect(wrapper.text()).toContain('我的組裝'))
@@ -146,6 +152,25 @@ describe('BuildDetailPage — proactive add-to-cart disable (組長 PR #35 revie
     const cartButton = wrapper.findAll('button').find((button) => button.text() === '加入購物車')
     expect(cartButton!.attributes('disabled')).toBeDefined()
     expect(wrapper.text()).toContain('尚缺少必要元件')
+  })
+
+  it('distinguishes missing specification evidence from a missing component', async () => {
+    mockGetBuildList.mockResolvedValue(baseBuild({
+      compatibility: {
+        overall: 'insufficientData', ruleSetVersion: 1, settingsVersion: 1,
+        results: [{
+          ruleCode: 'PSU_CAPACITY', severity: 'insufficientData',
+          messageKey: 'compatibility.required_data_missing', subjectSkuPublicIds: ['sku-gpu'], facts: {},
+        }],
+      },
+    }))
+    const wrapper = await mountPage()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('我的組裝'))
+
+    const cartButton = wrapper.findAll('button').find((button) => button.text() === '加入購物車')
+    expect(cartButton!.attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain('缺少計算所需的規格資料，需人工確認')
+    expect(wrapper.text()).not.toContain('尚缺少必要元件')
   })
 
   it('disables add-to-cart when an item is unavailable, even if overall is compatible', async () => {

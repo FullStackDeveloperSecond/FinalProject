@@ -1,0 +1,97 @@
+{
+  "schemaVersion": "1.0",
+  "runId": "e2e-rc-04-20260907-commit-779d1402",
+  "revision": "779d1402dd89fb342e5fb3d8b67ab8a522e5abd7",
+  "evidenceTier": "T2",
+  "environment": {
+    "osFamily": "Windows",
+    "dotnetSdk": "10.0.400",
+    "node": "24.18.1",
+    "npm": "11.16.0",
+    "playwright": "1.62.1",
+    "databaseProvider": "SQL Server",
+    "databaseIdentity": "generated allowlisted test databases; names omitted"
+  },
+  "execution": {
+    "workers": 1,
+    "configuredRetries": 1,
+    "actualTestRetries": 0,
+    "discovered": 56,
+    "executed": 56,
+    "passed": 56,
+    "failed": 0,
+    "skipped": 0,
+    "browser": {
+      "executed": 1,
+      "passed": 1,
+      "durationSeconds": 28.0
+    },
+    "sqlProvider": {
+      "executed": 55,
+      "passed": 55,
+      "durationSeconds": 6,
+      "classes": [
+        "EfBuildListServiceTests",
+        "CompatibilityCheckServiceTests"
+      ]
+    }
+  },
+  "assertions": {
+    "warning": {
+      "trigger": "four one-module memory kits use all four motherboard slots",
+      "overall": "warning",
+      "ruleCode": "MEMORY_SLOTS",
+      "messageKey": "compatibility.memory_slots_low",
+      "addToCartAllowed": true
+    },
+    "blocked": {
+      "trigger": "five one-module memory kits exceed four motherboard slots",
+      "overall": "blocked",
+      "ruleCode": "MEMORY_SLOTS",
+      "messageKey": "compatibility.memory_slots_exceeded",
+      "addToCartAllowed": false
+    },
+    "missingEvidence": {
+      "trigger": "published synthetic GPU intentionally has no reviewed compatibility facts",
+      "overall": "insufficientData",
+      "messageKey": "compatibility.required_data_missing",
+      "addToCartAllowed": false,
+      "customerMessageDistinguishesMissingFactsFromMissingComponents": true
+    }
+  },
+  "artifacts": [
+    {
+      "kind": "playwright-html",
+      "retention": "local ignored workspace artifact",
+      "bytes": 523363,
+      "sha256": "4a9a87b4a185ca3abaa56a032d5cacb985eff3508bf34c4ea117d4fb1b1fd2e6"
+    },
+    {
+      "kind": "vstest-trx",
+      "retention": "local ignored workspace artifact",
+      "bytes": 88259,
+      "sha256": "0dd8452a75438a815101c27631e4811da998a216ef33ad044066305c3d2991a1"
+    }
+  ],
+  "sanitization": {
+    "status": "PASS",
+    "authorizationHeaderPatternMatches": 0,
+    "cookieHeaderPatternMatches": 0,
+    "privateKeyPatternMatches": 0,
+    "jwtPatternMatches": 0,
+    "connectionStringValueMatches": 0,
+    "quotedCredentialValueMatches": 0,
+    "identifierOnlyPasswordAssignments": 3
+  },
+  "databaseCleanup": {
+    "relevantIsolatedDatabaseCount": 0
+  },
+  "testStatus": "PASS",
+  "deliveryStatus": "PENDING_SECURITY_PR_CI_REVIEW",
+  "limitations": [
+    "The browser journey exercises one representative warning and one representative hard rule; broader deterministic rule coverage remains in the 55 SQL provider tests.",
+    "The missing-evidence SKU is fictional development seed data and intentionally omits reviewed compatibility facts; it does not represent production catalog data.",
+    "Passing Playwright runs do not retain trace, screenshot, or video under the repository failure-only policy.",
+    "The HTML report contains three source-level password identifier assignments and no quoted credential value."
+  ]
+}
