@@ -1,0 +1,141 @@
+{
+  "evidenceSchemaVersion": "data-rc-04-evidence-v1",
+  "runId": "20260907T070234Z-data-rc-04-99412604",
+  "revision": "99412604a5b003413623c7c422ca823c6cc0b391",
+  "branch": "codex/data-rc-04-report-p95-20260907",
+  "repositoryDirtyAtRun": false,
+  "redactedCommand": ".\\scripts\\measure-demo-report-p95.ps1 -DatabaseName <allowlisted-demo-db>",
+  "environment": {
+    "os": "Microsoft Windows 11 Pro 10.0.26200",
+    "dotnetSdk": "10.0.400",
+    "powerShell": "7.6.5",
+    "sqlServer": "17.0.1125.2 Standard Developer Edition (64-bit)",
+    "processor": "12th Gen Intel(R) Core(TM) i5-12500",
+    "logicalProcessors": 12,
+    "memoryGiB": 31.8,
+    "machineNameStored": false,
+    "connectionStringStored": false
+  },
+  "wallDurationSeconds": 20.333,
+  "artifacts": {
+    "rawBenchmarkJson": {
+      "bytes": 3100,
+      "sha256": "05d29f1bdb8ef1a73c7dd67cdde53c00a9effd4c8469706a43e9b5d9af251eeb",
+      "retention": "local system temp; benchmark payload embedded below"
+    },
+    "consoleLog": {
+      "bytes": 4728,
+      "sha256": "bc437ece5eb0fc60d5c447c76ba75628473753967693636b6a2b094231d9dc04",
+      "retention": "local system temp only; not committed because it contains unrelated framework warning output"
+    },
+    "focusedProviderTrx": {
+      "bytes": 3176,
+      "sha256": "9c733c7c5d370cef3590442658e5045f34ce9f50412dec5765c008bc7b191c10",
+      "retention": "local system temp only"
+    },
+    "fullInfrastructureTrx": {
+      "bytes": 1967550,
+      "sha256": "eef4987e13bbe1966b0554fc15724188f602d78e5e8d3d1d675210d5ef77ab1c",
+      "tests": {
+        "executed": 1242,
+        "passed": 1242,
+        "failed": 0
+      },
+      "retention": "local system temp only"
+    }
+  },
+  "sanitization": {
+    "status": "PASS",
+    "excluded": [
+      "connection strings",
+      "machine and user names",
+      "secrets and credentials",
+      "personal data",
+      "production data",
+      "report rows and values"
+    ]
+  },
+  "benchmark": {
+    "schemaVersion": "demo-report-performance-v1",
+    "datasetVersion": "implemented-features-v2",
+    "randomSeed": 20260907,
+    "periodStartUtc": "2026-03-01T00:00:00Z",
+    "periodEndUtc": "2026-08-31T23:59:59Z",
+    "startedAtUtc": "2026-09-07T07:02:49.2868097Z",
+    "finishedAtUtc": "2026-09-07T07:02:55.0350493Z",
+    "warmupIterations": 3,
+    "measuredIterations": 30,
+    "p95LimitMilliseconds": 3000,
+    "percentileMethod": "nearest-rank",
+    "scope": "query-service-and-sql-materialization",
+    "executionMode": "sequential-single-client",
+    "datasetIsValid": true,
+    "isValid": true,
+    "validationFailures": [],
+    "reports": [
+      {
+        "reportKey": "sales-overview",
+        "durationsMilliseconds": [5.523, 4.440, 4.656, 6.122, 5.310, 4.518, 5.769, 4.864, 4.304, 5.457, 5.468, 5.043, 4.936, 5.073, 4.757, 4.321, 6.037, 5.269, 4.108, 6.268, 4.857, 5.850, 5.581, 5.261, 4.330, 5.130, 5.662, 4.290, 4.125, 5.735],
+        "minimumMilliseconds": 4.108,
+        "p50Milliseconds": 5.073,
+        "p95Milliseconds": 6.122,
+        "maximumMilliseconds": 6.268,
+        "passed": true
+      },
+      {
+        "reportKey": "product-abc",
+        "durationsMilliseconds": [8.595, 7.448, 6.793, 8.335, 6.886, 8.513, 7.495, 9.753, 13.244, 10.682, 7.938, 7.390, 7.262, 7.932, 6.312, 7.824, 6.793, 7.020, 7.512, 6.898, 7.015, 6.127, 8.440, 6.267, 7.972, 6.874, 6.413, 8.935, 6.662, 8.252],
+        "minimumMilliseconds": 6.127,
+        "p50Milliseconds": 7.448,
+        "p95Milliseconds": 10.682,
+        "maximumMilliseconds": 13.244,
+        "passed": true
+      },
+      {
+        "reportKey": "period-comparison",
+        "durationsMilliseconds": [2.665, 3.995, 2.336, 2.626, 2.495, 2.089, 3.950, 3.463, 2.550, 2.222, 2.000, 2.285, 2.989, 3.278, 2.432, 2.228, 2.175, 2.110, 1.968, 2.177, 3.987, 2.761, 2.368, 2.043, 1.865, 1.713, 3.277, 4.331, 2.687, 2.393],
+        "minimumMilliseconds": 1.713,
+        "p50Milliseconds": 2.393,
+        "p95Milliseconds": 3.995,
+        "maximumMilliseconds": 4.331,
+        "passed": true
+      },
+      {
+        "reportKey": "inventory-turnover",
+        "durationsMilliseconds": [58.904, 55.981, 56.058, 54.651, 57.989, 60.112, 56.313, 59.081, 58.204, 54.892, 60.075, 58.919, 61.041, 58.761, 59.322, 60.241, 60.476, 57.331, 58.147, 60.662, 59.113, 65.231, 59.799, 59.426, 61.263, 63.603, 57.850, 61.154, 59.088, 60.148],
+        "minimumMilliseconds": 54.651,
+        "p50Milliseconds": 59.088,
+        "p95Milliseconds": 63.603,
+        "maximumMilliseconds": 65.231,
+        "passed": true
+      },
+      {
+        "reportKey": "gross-margin",
+        "durationsMilliseconds": [9.361, 7.184, 8.921, 7.411, 9.153, 7.288, 8.783, 7.530, 8.500, 8.503, 9.022, 7.780, 9.183, 8.130, 8.546, 7.668, 7.895, 7.703, 7.389, 9.088, 6.945, 9.201, 7.477, 9.406, 7.905, 9.031, 7.516, 8.417, 7.118, 8.668],
+        "minimumMilliseconds": 6.945,
+        "p50Milliseconds": 8.130,
+        "p95Milliseconds": 9.361,
+        "maximumMilliseconds": 9.406,
+        "passed": true
+      },
+      {
+        "reportKey": "product-associations",
+        "durationsMilliseconds": [5.264, 5.082, 5.783, 5.502, 4.684, 14.924, 5.322, 6.820, 5.931, 4.874, 6.116, 5.088, 4.853, 6.136, 4.855, 4.680, 6.228, 5.194, 4.662, 5.751, 5.090, 4.946, 5.140, 6.275, 5.466, 4.755, 6.716, 4.991, 4.544, 6.354],
+        "minimumMilliseconds": 4.544,
+        "p50Milliseconds": 5.194,
+        "p95Milliseconds": 6.820,
+        "maximumMilliseconds": 14.924,
+        "passed": true
+      },
+      {
+        "reportKey": "forecast-anomalies",
+        "durationsMilliseconds": [1.578, 2.321, 2.990, 1.952, 2.275, 2.177, 1.774, 2.149, 1.802, 2.258, 3.088, 2.380, 2.004, 2.031, 1.958, 1.812, 1.774, 2.934, 2.912, 2.317, 2.066, 2.798, 1.940, 1.819, 2.450, 2.894, 2.150, 2.095, 1.938, 2.816],
+        "minimumMilliseconds": 1.578,
+        "p50Milliseconds": 2.149,
+        "p95Milliseconds": 2.990,
+        "maximumMilliseconds": 3.088,
+        "passed": true
+      }
+    ]
+  }
+}

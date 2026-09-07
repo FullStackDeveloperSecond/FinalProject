@@ -148,6 +148,25 @@ if (args.Contains("--validate-demo", StringComparer.OrdinalIgnoreCase))
     return;
 }
 
+if (args.Contains("--benchmark-demo-reports", StringComparer.OrdinalIgnoreCase))
+{
+    if (!app.Environment.IsDevelopment())
+    {
+        throw new InvalidOperationException(
+            "The demo report benchmark is restricted to the Development environment.");
+    }
+
+    await using var scope = app.Services.CreateAsyncScope();
+    var benchmark = scope.ServiceProvider.GetRequiredService<DemoReportPerformanceBenchmark>();
+    var result = await benchmark.MeasureAsync();
+    Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(result));
+    if (!result.IsValid)
+    {
+        Environment.ExitCode = 1;
+    }
+    return;
+}
+
 app.UseRequestObservability();
 app.UseApiFoundation();
 
