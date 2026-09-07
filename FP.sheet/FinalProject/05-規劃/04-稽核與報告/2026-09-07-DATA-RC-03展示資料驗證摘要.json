@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "evidenceType": "demo-data-validation",
+  "sourceRevision": "36f32a0087ba612b6ccaf905f00ef09db08f4d7a",
+  "baseRevision": "3658a849ce36c51d75037ee35ca1f79df0def051",
+  "featureProfile": "implemented-features-v2",
+  "randomSeed": 20260907,
+  "executedAt": "2026-09-07T13:45:01+08:00",
+  "mainBusinessRecordTotal": 10000,
+  "successRun": {
+    "exitCode": 0,
+    "isValid": true,
+    "checks": {
+      "schemaCurrent": true,
+      "featureProfileMarker": true,
+      "mainBusinessRecordTotal": true,
+      "entityCounts": true,
+      "specialDistributions": true,
+      "orphanRows": true,
+      "databaseConstraints": true,
+      "negativeInventoryRows": true,
+      "invalidEnumRows": true,
+      "invalidWorkflowRows": true,
+      "reportBaselines": true
+    },
+    "integrity": {
+      "constraintViolationRows": 0,
+      "orphanedForeignKeyRows": 0,
+      "negativeInventoryRows": 0,
+      "invalidEnumRows": 0,
+      "invalidWorkflowRows": 0
+    }
+  },
+  "intentionalFailureRun": {
+    "mutation": "Increase one synthetic paid payment amount by 1 in a disposable local demo database.",
+    "exitCode": 1,
+    "isValid": false,
+    "failures": ["reportBaselines"],
+    "databaseCleanup": "PASS"
+  },
+  "reportBaselines": {
+    "sales-overview.paid_amount": 1350000.00,
+    "sales-overview.refund_amount": 100000.00,
+    "sales-overview.net_revenue": 1250000.00,
+    "sales-overview.order_count": 500,
+    "sales-overview.average_order_value": 2500.00,
+    "sales-overview.refund_amount_rate": 0.0740740740740740740740740741,
+    "sales-overview.cancellation_rate": 0.1538461538461538461538461538,
+    "sales-overview.payment_method_credit_card_share": 1,
+    "product-abc.net_revenue": 650000.00,
+    "product-abc.quantity": 650,
+    "product-abc.sku_count": 650,
+    "period-comparison.net_revenue": 1250000.00,
+    "period-comparison.paid_amount": 1350000.00,
+    "period-comparison.refund_amount": 100000.00,
+    "period-comparison.order_count": 500,
+    "period-comparison.average_order_value": 2500.00,
+    "inventory-turnover.cost_of_goods_sold": 455000.0000,
+    "inventory-turnover.sku_count": 750,
+    "inventory-turnover.low_stock_count": 100,
+    "inventory-turnover.out_of_stock_count": 0,
+    "inventory-turnover.long_term_unsold_count": 368,
+    "inventory-turnover.insufficient_data_count": 750,
+    "gross-margin.net_revenue": 650000.00,
+    "gross-margin.cost_of_goods_sold": 455000.0000,
+    "gross-margin.gross_profit": 195000.0000,
+    "gross-margin.gross_margin_rate": 0.30,
+    "gross-margin.quantity_sold": 650,
+    "gross-margin.refunded_quantity": 100,
+    "product-associations.completed_order_count": 250,
+    "product-associations.directional_rule_count": 0,
+    "forecast-anomalies.observed_days": 30,
+    "forecast-anomalies.forecast_days": 7,
+    "forecast-anomalies.anomaly_count": 1,
+    "forecast-anomalies.slope": -0.234705228031146
+  },
+  "verification": {
+    "focusedSqlServerTests": { "passed": 3, "failed": 0 },
+    "infrastructureTests": { "passed": 1241, "failed": 0 },
+    "releaseBuildWarnings": 0,
+    "releaseBuildErrors": 0,
+    "format": "PASS",
+    "powershellParser": "PASS",
+    "security": "PENDING",
+    "requiredCi": "PENDING"
+  },
+  "artifactSha256": {
+    "focusedTrx": "448bd643782c5a3c2c02738dc02d9479e226d2bb83fdd9afdfa52faa88f9ac99",
+    "infrastructureTrx": "4b033dbe81acc9506cafced2a14f48e6c700d1dfa3984cbe58c27a148a8e21f9",
+    "successOutput": "b12a3d1855cf21d8f36e936256e9e235ab8f86a4963acf3b2ed5754229565d9a",
+    "intentionalFailureOutput": "c3086e7ab16a19a25459962b3689fc621449021ccfaaaf3470a312406b11a188"
+  },
+  "invalidatedRuns": [
+    "Sandbox SQL Server TLS/credential failure before assertions.",
+    "First outer intentional-failure rehearsal did not inject drift because sqlcmd lacked -b and QUOTED_IDENTIFIER; validation correctly returned success and cleanup passed."
+  ],
+  "knownWarnings": [
+    "Existing EF model warning: ReturnRequest.Priority has a database-generated default without a configured sentinel."
+  ]
+}
