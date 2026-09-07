@@ -102,7 +102,29 @@ function New-RelativeDirectoryArchive {
 
             $stagedPath = Join-Path $stagingRoot $relativePath
             New-Item -ItemType Directory -Path (Split-Path -Parent $stagedPath) -Force | Out-Null
-            Copy-Item -LiteralPath $sourcePath -Destination $stagedPath -Recurse -Force
+            if ($env:OS -eq 'Windows_NT') {
+                $robocopy = Get-RequiredCommand -Name 'robocopy.exe'
+                & $robocopy $sourcePath $stagedPath /E /COPY:DAT /DCOPY:DAT /SL /SJ /R:0 /W:0 /NP /NFL /NDL /NJH /NJS | Out-Null
+                $robocopyExitCode = $LASTEXITCODE
+                if ($robocopyExitCode -ge 8) {
+                    throw "robocopy failed while staging archive source '$relativePath' with exit code $robocopyExitCode."
+                }
+            }
+            else {
+                $copyCommand = Get-RequiredCommand -Name 'cp'
+                & $copyCommand '-a' $sourcePath $stagedPath
+                if ($LASTEXITCODE -ne 0) {
+                    throw "cp failed while staging archive source '$relativePath'."
+                }
+            }
+
+            $stagedItem = Get-Item -LiteralPath $stagedPath -Force
+            $stagedReparsePoint = @($stagedItem) + @(Get-ChildItem -LiteralPath $stagedPath -Force -Recurse) |
+                Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 } |
+                Select-Object -First 1
+            if ($null -ne $stagedReparsePoint) {
+                throw "Staged archive source contains a reparse point: $relativePath"
+            }
         }
 
         $archiveRoots = @(Get-ChildItem -LiteralPath $stagingRoot -Force)
