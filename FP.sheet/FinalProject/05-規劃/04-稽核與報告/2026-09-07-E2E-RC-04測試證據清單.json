@@ -87,7 +87,21 @@
     "relevantIsolatedDatabaseCount": 0
   },
   "testStatus": "PASS",
-  "deliveryStatus": "PENDING_SECURITY_PR_CI_REVIEW",
+  "deliveryStatus": "MERGED_DEV",
+  "delivery": {
+    "pullRequest": 156,
+    "headRevision": "a26684cb4d82e52ac75b30644a6ee16472214a08",
+    "securityScanId": "1dc5a168-3651-4866-9f6f-28540f5ca3f5",
+    "securityCoverage": "complete",
+    "securityFindingCount": 0,
+    "ciRun": 34120867361,
+    "requiredCi": "PASS",
+    "formalApproval": "REJECTED_SELF_REVIEW",
+    "adminBypass": "AUTHORIZED_AFTER_ALL_GATES_PASSED",
+    "mergeMethod": "squash",
+    "mergeRevision": "5bf2a0dcd326110556fc5f5651b5dfe9b28b2de2",
+    "mergedAtUtc": "2026-09-07T12:28:51Z"
+  },
   "limitations": [
     "The browser journey exercises one representative warning and one representative hard rule; broader deterministic rule coverage remains in the 55 SQL provider tests.",
     "The missing-evidence SKU is fictional development seed data and intentionally omits reviewed compatibility facts; it does not represent production catalog data.",
