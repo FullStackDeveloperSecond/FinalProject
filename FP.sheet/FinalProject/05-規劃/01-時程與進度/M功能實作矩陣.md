@@ -1,7 +1,7 @@
 ---
 文件狀態: 持續更新
-最後更新: 2026-09-06
-基準分支: dev@34d5c662（含 M-12／M-14：PR #110、M-13：PR #108、M-13／M-20：PR #117）；本次更新: PR #113（M-04／M-10／M-11／M-12／M-13／M-14／M-20 狀態校正）
+最後更新: 2026-09-07
+基準分支: dev@bb254ff6（含 PR #117 H-R03 退款／折讓 Browser E2E、PR #121 批次出貨勾選修正、PR #118 WP-H07／S-01 會員收藏）
 ---
 
 # M 功能實作矩陣
@@ -32,15 +32,15 @@
 | M-09 模擬付款 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | 付款 Attempt、Demo complete、Owner／Guest Scope、Antiforgery、`simulationKey`、SQL Writer、Audit／Outbox、發票 Consumer、Latest Attempt 與 C-15 均已交付；WP-A04 補信用卡模擬成功至 Invoice 的隔離 Browser E2E。PR #106 已完成 COD 於宅配 `Delivered`／超取 `PickedUp` 的正式物流收款接線，PR #115 以隔離 Browser E2E 證明中間狀態不提前收款、Demo complete 拒絕 COD、最終 Paid／Completed 與冪等重播。其他付款失敗／逾期等非主路徑仍未完整 E2E。 |
 | M-10 庫存保留與逾時取消 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | 庫存保留／後台、Checkout 成功與缺貨回滾、逾時取消／釋放、RowVersion 與背景排程均已交付；WP-A04 新增兩個 Guest Cart 競爭最後一件的 SQL Server 證據，並由 Browser 主旅程形成保留。UC-ADM-INV-01 人工釋放端點（PR #36 round 3 撤回）已連同 `inventory_reservation.release` 中央 Audit 補回，A-12 釋放 UI 啟用。UC-ADM-INV-01 對帳 dismiss／resolve 端點（PR #36 round 4 撤回）已依組長裁定 A1～H1 補回，`inventory_reconciliation.dismiss`／`resolve` 中央 Audit 與案件同交易。A-29 對帳案件後台頁（PR #114）已交付。其他逾時 UI 變體仍未 E2E。 |
 | M-11 物流與批次出貨 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | 宅配／超取、Provider、限制、運費／免運、配送選項、門市 API、C-13／C-14 與 Typed Client 均已交付；WP-A04 證明組裝宅配與優惠後運費快照。批次出貨已由 PR #93 交付；PR #106 交付物流狀態命令（`POST /admin/shipments/{id}/actions/{action}`）、COD 於 `Delivered`／`PickedUp` 同交易收款與 Order Completed、訂單 DTO 物流摘要／歷程／availableActions。PR #115 以真實管理員 TOTP、批次出貨與兩種履約 UI 完成隔離 Browser E2E；其他失敗／退回變體仍未逐條 Browser E2E。 |
-| M-12 單項退貨 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | PR #42 已交付退貨申請、審核、寄回、收件、檢查、退款交接與前後台；PR #53 修復可信退款輸入，PR #99 讓核准／檢查同交易建立唯一待審退款，PR #102 讓正額退款成功時同交易完成 Return，PR #103 補零淨額核准取消與回放／回滾。PR #110 已合併為 `dev@9f543d23`，補上會員申請至管理員檢查／等待退款的完整瀏覽器旅程，並以退貨專用 E2E 管理員隔離 TOTP 狀態；與客服旅程同庫並行及依序執行均通過。退貨拒絕、免寄回及其他分支尚未逐條 E2E。 |
-| M-13 部分退款 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | 退款 execute、可信七類分攤、中央冪等／Audit、清單／明細 API、A-21/A-22、OpenAPI／Typed Client、角色路由與穩定 Idempotency-Key 已進 `dev`；PR #99／#102／#103 補齊待審建立、Return 結案、獨立核准及零淨額原子取消，PR #105 補 Order 退款累計投影。PR #108 已補實體退貨至退款／折讓的瀏覽器旅程；PR #117 再以正式 Checkout／付款／物流狀態命令驗證全額與部分退款、冪等、Actor Scope、Order 投影及自動開票至折讓。零淨額及其他退款變體仍只有較低層測試或尚未逐條 E2E。 |
+| M-12 單項退貨 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | PR #42 已交付退貨申請、審核、寄回、收件、檢查、退款交接與前後台；PR #53、#99、#102、#103 補齊可信快照、待審建立、正額退款完成 Return 與零淨額原子取消。PR #110 補會員申請至管理員檢查／等待退款；PR #117（已合併 `dev@ba48489`）再驗證全額／部分退款與 Actor Scope 負向案例。零淨額、退貨拒絕、免寄回及其他分支尚未逐條 Browser E2E。 |
+| M-13 部分退款 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | 退款 execute、可信七類分攤、中央冪等／Audit、管理 API、OpenAPI／Typed Client 與 Order 累計投影均已進 `dev`。PR #108 補實體退貨至退款／折讓旅程；PR #117（已合併 `dev@ba48489`）再以正式 Checkout／付款／物流命令驗證全額與部分退款、冪等、Actor Scope、Order 投影及自動開票至折讓。零淨額及其他退款變體仍只有較低層測試或尚未逐條 Browser E2E。 |
 | M-14 客服案件與 SLA | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | PR #10／#51 已交付客服基礎、主管 Action、Internal Note、Reopen、SLA 唯讀佇列、案件工作台、Actor Scope、衝突刷新與中央 Audit。PR #110 已合併為 `dev@9f543d23`，補齊 M-14A claim／公開回覆／承辦範圍，以及 M-14B SLA 80%／100% Hangfire／Outbox 通知、System Audit 與 Resolved 3 天自動關閉；SQL Server 6／6 與公開回覆瀏覽器旅程通過。SLA 時間推進及其他客服分支尚未逐條 E2E。 |
 | M-15 營運報表 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | PR #66 已合併七個報表 Query、一般／財務 Policy、CSV／XLSX、A-27 UI、SQL Provider-backed 與 INT-04 對帳證據；已有代表性後台 Playwright 旅程，但未逐一涵蓋七個 Report Key。固定 10,000 筆資料下的 P95 仍待 DATA-06～08／效能 Gate。 |
 | M-16 自由組裝電腦 | ✅ | ✅ | ✅ | ✅ | ⬜ | ✅ | PR #34 已交付組裝清單、分享、整套加入購物車與 SQL Server 證據；PR #35 已交付前端並合併 `dev`。完整瀏覽器旅程仍缺。 |
 | M-17 零件相容性 | ✅ | ✅ | ✅ | ✅ | ⬜ | ✅ | PR #52 已交付來源型規格資料基礎；PR #34 已交付確定性檢查、後台規則、Audit 與 Provider-backed 證據；PR #35 已交付前端並合併 `dev`。完整瀏覽器旅程仍缺。 |
 | M-18 AI 商品搜尋推薦 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | PR #62 的公開 Endpoint、額度、SQL 候選、組裝／相容性、Fail Closed、關鍵字降級、UI 與契約已合併；PR #112 再將單次 5 秒意圖呼叫、後端確定性理由、低延遲設定、`product-search-v6`、大寫 Semantic Key 與顧客視角理由合併至 `dev@eb83ecf6`。PR #120 的 v7 Runner fidelity、Storage Key、分類白名單、TB→GB、Prompt 與 grader 已 squash merge 為 `dev@19b7d9c6`；同 revision 六案 Live Smoke 的 Schema／安全／延遲通過但整體 Verdict `FAIL`。DEC-BATCH-060／061 已以零成本回歸關閉 019、025、026 已知缺口；DEC-BATCH-062 的 `product-search-v8` 六案 Live Smoke 自動 Gate 與 Alex 人工覆核 6／6 均通過。公開 API／資料庫 Schema 不變，M-18 已合併狀態不回退；完整 66 次 Release baseline 由 AI-09 繼續追蹤。 |
 | M-19 AI 客服 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | PR #57／#58／#59 已合併 SQL-backed 同意／額度、Responses Adapter、本人 Order／SupportTicket／Conversation Query、互動／引用／Token／成本、US$70／US$90 保護、會員聊天、A-28 管理彙總與 Playwright 降級旅程。AI-09 live baseline 獨立保持未完成。 |
-| M-20 模擬發票與折讓 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | 折讓、付款成功冪等發票 Outbox／Consumer、前後台查詢、開立／作廢 API、A-24/A-25 與顧客發票 UI 均已交付；WP-A04 補信用卡付款成功後由 Browser 輪詢並顯示發票。PR #106／#115 已補 COD 正式物流接線，以及宅配 `Delivered`／超取 `PickedUp` 後由 Outbox Consumer 開立唯一發票並顯示於顧客頁的隔離 Browser E2E；PR #117 再驗證信用卡付款自動開票、全額／部分退款執行至折讓及冪等重播。其他發票／折讓跨層變體仍未逐條 E2E。M-20 不增加 [[01-需求/功能範圍]] 原列 19 項 M 功能數。 |
+| M-20 模擬發票與折讓 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | 折讓、付款成功冪等發票 Outbox／Consumer、前後台查詢、開立／作廢 API、A-24/A-25 與顧客發票 UI 均已交付；WP-A04 補信用卡付款成功後由 Browser 輪詢並顯示發票。PR #106／#115 已補 COD 正式物流接線與履約後唯一發票；PR #117（已合併 `dev@ba48489`）再驗證退款成立後的發票折讓、Idempotency-Key 重播及前後台筆數一致。零淨額與其他發票／折讓跨層變體仍未逐條 E2E。M-20 不增加 [[01-需求/功能範圍]] 原列 19 項 M 功能數。 |
 
 ## 完成判定邊界
 
@@ -51,9 +51,9 @@
 
 ## 明確未完成
 
-- AI 客服已有歷史 Live 樣本；v7 已進入 `dev@19b7d9c6`，但固定六案 Smoke Run `20260905T161454Z-v7-smoke-system` 為 `FAIL`。DEC-BATCH-060／061 已以零成本回歸關閉 019 精確容量／偏好及 025／026 中文預算缺口；DEC-BATCH-062 的 `product-search-v8` 六案 Live Smoke 已達自動 Gate 全數通過與 Alex 人工覆核 6／6 Pass。AI-09 仍須另行授權並完成 66 次 Release baseline，不回退 M-18／M-19 已合併狀態。
+- AI-09 已由 PR #142 與合併後 66／66 Release baseline 關閉；後續模型、Dataset 或 grader 變更須重新建立版本化證據，不回退 M-18／M-19 已合併狀態。
 - DATA-06 完整 10,000 筆展示 Seed 與特殊案例分布。
 - 各 M 功能的完整 SQL Server Provider-backed 覆蓋；Required CI 已啟用 SQL Gate，但現有測試通過不代表每個功能案例皆有 Provider-backed 證據。
-- 核心信用卡預付主旅程已有 WP-A04 E2E，COD 宅配／超取履約收款與發票主旅程已由 PR #115 補齊；其他付款、物流、退款／折讓及各 M 功能的非主路徑瀏覽器 E2E 仍未完整覆蓋。
+- 核心信用卡預付主旅程已有 WP-A04 E2E，COD 宅配／超取履約收款與發票主旅程已由 PR #115 補齊；退款／折讓的全額退款、部分退款與發票折讓建立主旅程已由 H-R03／PR #117（`dev@ba48489`）補齊，零淨額案例受限於種子資料仍缺；其他付款、物流及各 M 功能的非主路徑瀏覽器 E2E 仍未完整覆蓋。
 
 Coverage 收集與失敗門檻已由 PR #55 納入 Required CI：Domain＋Application 70%，雙前端核心 Composable／Store 60%。Coverage Gate 完成只表示門檻可執行，不會自動補足缺少的功能測試。
