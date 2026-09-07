@@ -80,6 +80,26 @@ function New-RelativeDirectoryArchive {
                 throw "Archive source directory was not found: $sourcePath"
             }
 
+            $pathToCheck = $sourcePath
+            while ($true) {
+                $pathItem = Get-Item -LiteralPath $pathToCheck -Force
+                if (($pathItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                    throw "Archive source path contains a reparse point: $relativePath"
+                }
+                if ($pathToCheck.Equals($resolvedSourceRoot, [StringComparison]::OrdinalIgnoreCase)) {
+                    break
+                }
+
+                $pathToCheck = Split-Path -Parent $pathToCheck
+            }
+
+            $nestedReparsePoint = Get-ChildItem -LiteralPath $sourcePath -Force -Recurse |
+                Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 } |
+                Select-Object -First 1
+            if ($null -ne $nestedReparsePoint) {
+                throw "Archive source directory contains a reparse point: $relativePath"
+            }
+
             $stagedPath = Join-Path $stagingRoot $relativePath
             New-Item -ItemType Directory -Path (Split-Path -Parent $stagedPath) -Force | Out-Null
             Copy-Item -LiteralPath $sourcePath -Destination $stagedPath -Recurse -Force

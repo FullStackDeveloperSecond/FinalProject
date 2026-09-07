@@ -3,6 +3,7 @@ param()
 
 $ErrorActionPreference = 'Stop'
 $sourceRoot = Join-Path ([IO.Path]::GetTempPath()) "DoSelectBackupSource_$([Guid]::NewGuid().ToString('N'))"
+$outsideRoot = Join-Path ([IO.Path]::GetTempPath()) "DoSelectBackupOutside_$([Guid]::NewGuid().ToString('N'))"
 $backupRoot = Join-Path ([IO.Path]::GetTempPath()) "DoSelectBackupRetention_$([Guid]::NewGuid().ToString('N'))"
 $pruneScript = Join-Path $PSScriptRoot 'prune-demo-backups.ps1'
 . (Join-Path $PSScriptRoot 'common.ps1')
@@ -51,6 +52,24 @@ try {
         throw 'The file snapshot archive incorrectly flattened private/support to support.'
     }
 
+    New-Item -ItemType Directory -Path $outsideRoot -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $outsideRoot 'outside-marker.txt') -Value 'synthetic-outside-marker'
+    $linkType = if ($IsWindows) { 'Junction' } else { 'SymbolicLink' }
+    New-Item -ItemType $linkType -Path (Join-Path $supportRoot 'link-outside') -Target $outsideRoot | Out-Null
+    $reparsePointWasRejected = $false
+    try {
+        New-RelativeDirectoryArchive `
+            -SourceRoot $sourceRoot `
+            -RelativePaths @('private/support') `
+            -DestinationPath (Join-Path $backupRoot 'reparse-point.zip')
+    }
+    catch {
+        $reparsePointWasRejected = $_.Exception.Message -like 'Archive source *contains a reparse point*'
+    }
+    if (-not $reparsePointWasRejected) {
+        throw 'The file snapshot archive did not reject a reparse point below DataRoot.'
+    }
+
     New-Item -ItemType Directory -Path $backupRoot -Force | Out-Null
     Write-TestManifest `
         -DirectoryName 'database-only' `
@@ -80,7 +99,7 @@ try {
 }
 finally {
     $tempPrefix = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetTempPath()) + [IO.Path]::DirectorySeparatorChar
-    foreach ($cleanupTarget in @($sourceRoot, $backupRoot)) {
+    foreach ($cleanupTarget in @($sourceRoot, $outsideRoot, $backupRoot)) {
         $resolvedCleanupTarget = [IO.Path]::GetFullPath($cleanupTarget)
         if ($resolvedCleanupTarget.StartsWith($tempPrefix, [StringComparison]::OrdinalIgnoreCase) -and
             (Split-Path -Leaf $resolvedCleanupTarget) -like 'DoSelectBackup*_*') {
