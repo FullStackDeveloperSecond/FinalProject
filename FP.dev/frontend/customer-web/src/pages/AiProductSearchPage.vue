@@ -584,6 +584,7 @@ function formatMoney(value: number | string): string {
       </div>
       <RouterLink
         v-else
+        class="page-action page-action--secondary"
         :to="{ name: 'products', query: { q: message } }"
       >
         前往一般商品搜尋

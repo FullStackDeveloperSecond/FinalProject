@@ -524,7 +524,10 @@ async function submitOrder(): Promise<void> {
 
       <template v-if="createdOrderHandoff.kind === 'guest'">
         <p>為保護訂單資料，訪客需以訂單編號與結帳 Email 完成一次性驗證，才能繼續付款或查看訂單。</p>
-        <RouterLink to="/guest-orders/access">
+        <RouterLink
+          class="page-action"
+          to="/guest-orders/access"
+        >
           驗證訂單後繼續付款
         </RouterLink>
       </template>
@@ -534,6 +537,7 @@ async function submitOrder(): Promise<void> {
           訂單已經建立成功，只是沒能自動開啟下一頁。
         </p>
         <RouterLink
+          class="page-action"
           :to="{
             name: createdOrderHandoff.routeName,
             params: { orderId: createdOrderHandoff.order.publicId },

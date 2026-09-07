@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, provide, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { UiButton } from '@doselect/web-shared/ui'
 import { useSessionStore } from './stores/session'
 import { useCartIdentityCacheCleanup } from './features/cart/useCart'
 import { BrandMark } from '@doselect/web-shared/components'
 import DonnguGuide from './components/DonnguGuide.vue'
 import CitySideStreets from './components/CitySideStreets.vue'
+import MemberMenu from './components/MemberMenu.vue'
 import './city-streets.css'
 import {
   customerDefaultMotionPresetId,
@@ -128,35 +128,17 @@ async function handleLogout(): Promise<void> {
             >
               客服中心
             </RouterLink>
-            <RouterLink to="/account/builds">
-              我的組裝清單
-            </RouterLink>
-            <template v-if="sessionStore.isAuthenticated">
-              <!-- dev #118 的會員收藏，歸入需登入的會員區 -->
-              <RouterLink to="/account/favorites">
-                我的收藏
-              </RouterLink>
-              <RouterLink to="/account/reviews">
-                我的評價
-              </RouterLink>
-              <RouterLink to="/account">
-                會員資料
-              </RouterLink>
-              <RouterLink to="/account/addresses">
-                收件地址
-              </RouterLink>
-              <!-- 名稱在窄版面會以省略號截斷，title 保留完整值 -->
-              <span
-                class="site-header__member"
-                :title="sessionStore.user?.displayName"
-              >{{ sessionStore.user?.displayName }}</span>
-              <UiButton
-                type="button"
-                class="site-header__logout"
-                label="登出"
-                @click="handleLogout"
-              />
-            </template>
+            <!--
+              登入後原本會攤開 6 個會員項目加名稱與登出，頂層一共 13 項，
+              掃視成本太高。改成把個人內容（組裝清單／收藏／評價）與帳戶設定
+              （會員資料／收件地址）收進以名稱為觸發鈕的下拉選單，
+              頂層只留「客服中心」與會員選單兩項。
+            -->
+            <MemberMenu
+              v-if="sessionStore.isAuthenticated"
+              :display-name="sessionStore.user?.displayName"
+              @logout="handleLogout"
+            />
             <RouterLink
               v-else-if="sessionStore.status === 'anonymous'"
               class="site-header__signin"
