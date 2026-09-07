@@ -123,7 +123,27 @@ public static class AntiforgeryTestClient
         this HttpClient client,
         string requestUri,
         T value,
-        string clientType)
+        string clientType) =>
+        await SendWithAntiforgeryAsync(client, HttpMethod.Post, requestUri, clientType, JsonContent.Create(value));
+
+    public static async Task<HttpResponseMessage> PutWithAntiforgeryAsync(
+        this HttpClient client,
+        string requestUri,
+        string clientType) =>
+        await SendWithAntiforgeryAsync(client, HttpMethod.Put, requestUri, clientType, content: null);
+
+    public static async Task<HttpResponseMessage> DeleteWithAntiforgeryAsync(
+        this HttpClient client,
+        string requestUri,
+        string clientType) =>
+        await SendWithAntiforgeryAsync(client, HttpMethod.Delete, requestUri, clientType, content: null);
+
+    private static async Task<HttpResponseMessage> SendWithAntiforgeryAsync(
+        HttpClient client,
+        HttpMethod method,
+        string requestUri,
+        string clientType,
+        HttpContent? content)
     {
         using var tokenRequest = new HttpRequestMessage(
             HttpMethod.Get,
@@ -139,10 +159,7 @@ public static class AntiforgeryTestClient
                 .SingleOrDefault(value => value.StartsWith(".DoSelect.Antiforgery=", StringComparison.Ordinal))
             : null;
 
-        var request = new HttpRequestMessage(HttpMethod.Post, requestUri)
-        {
-            Content = JsonContent.Create(value),
-        };
+        var request = new HttpRequestMessage(method, requestUri) { Content = content };
         request.Headers.Add("X-XSRF-TOKEN", token);
         if (antiforgeryCookie is not null)
         {
