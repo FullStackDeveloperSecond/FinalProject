@@ -73,20 +73,20 @@
     "relevantIsolatedDatabaseCount": 0
   },
   "testStatus": "PASS",
-  "deliveryStatus": "PENDING_PR",
+  "deliveryStatus": "MERGED_DEV",
   "delivery": {
-    "pullRequest": null,
-    "headRevision": null,
-    "securityScanId": null,
-    "securityCoverage": "pending",
-    "securityFindingCount": null,
-    "ciRun": null,
-    "requiredCi": "PENDING",
-    "formalApproval": "PENDING",
-    "adminBypass": "NOT_USED",
+    "pullRequest": 154,
+    "headRevision": "1be68c03cb23dd4ed466fc1548d8f909fd55ba2d",
+    "securityScanId": "00be63a4-c7ab-4c2d-89bc-75e1c8d4dbec",
+    "securityCoverage": "complete",
+    "securityFindingCount": 0,
+    "ciRun": 34114063138,
+    "requiredCi": "PASS",
+    "formalApproval": "REJECTED_SELF_REVIEW",
+    "adminBypass": "AUTHORIZED_AFTER_ALL_GATES_PASSED",
     "mergeMethod": "squash",
-    "mergeRevision": null,
-    "mergedAtUtc": null
+    "mergeRevision": "1efd0e460df835f432eb6023fb1f63e06829f34a",
+    "mergedAtUtc": "2026-09-07T11:11:00Z"
   },
   "limitations": [
     "The browser journey covers one deterministic compatible eight-category build; blocked and insufficient-data result journeys remain E2E-RC-04.",
