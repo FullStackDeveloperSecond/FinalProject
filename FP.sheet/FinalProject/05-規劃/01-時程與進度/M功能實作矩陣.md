@@ -1,7 +1,7 @@
 ---
 文件狀態: 持續更新
 最後更新: 2026-09-07
-基準分支: dev@5bf2a0dc（含 PR #117 H-R03 退款／折讓 Browser E2E、PR #121 批次出貨勾選修正、PR #118 WP-H07／S-01 會員收藏、DATA-RC-04、E2E-RC-01～04 結案）
+基準分支: dev@d7966e92（含 PR #117 H-R03 退款／折讓 Browser E2E、PR #121 批次出貨勾選修正、PR #118 WP-H07／S-01 會員收藏、DATA-RC-04、E2E-RC-01～05 結案）
 ---
 
 # M 功能實作矩陣
@@ -31,7 +31,7 @@
 | M-08 訂單 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | 原子建單、缺貨回滾、訂單快照、正式 Checkout API、C-14、前後台查詢與 Guest 查單／取消均已交付；PR #94 補核心隔離 Browser／SQL 旅程，PR #95 補同冪等鍵不同 payload 的 SQL 零副作用。PR #105 已補 Refund→Order 的 `OrderRefundStatus`／`RefundedAmount`／歷程同交易投影並合併為 `dev@4224cac0`；PR #115 再證明 COD 履約後 Paid／Completed 的顧客與管理員 Browser 投影。其他狀態變體仍未完整 E2E。 |
 | M-09 模擬付款 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | 付款 Attempt、Demo complete、Owner／Guest Scope、Antiforgery、`simulationKey`、SQL Writer、Audit／Outbox、發票 Consumer、Latest Attempt 與 C-15 均已交付；WP-A04 補信用卡模擬成功至 Invoice 的隔離 Browser E2E。PR #106 已完成 COD 於宅配 `Delivered`／超取 `PickedUp` 的正式物流收款接線，PR #115 以隔離 Browser E2E 證明中間狀態不提前收款、Demo complete 拒絕 COD、最終 Paid／Completed 與冪等重播。其他付款失敗／逾期等非主路徑仍未完整 E2E。 |
 | M-10 庫存保留與逾時取消 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | 庫存保留／後台、Checkout 成功與缺貨回滾、逾時取消／釋放、RowVersion 與背景排程均已交付；WP-A04 新增兩個 Guest Cart 競爭最後一件的 SQL Server 證據，並由 Browser 主旅程形成保留。UC-ADM-INV-01 人工釋放端點（PR #36 round 3 撤回）已連同 `inventory_reservation.release` 中央 Audit 補回，A-12 釋放 UI 啟用。UC-ADM-INV-01 對帳 dismiss／resolve 端點（PR #36 round 4 撤回）已依組長裁定 A1～H1 補回，`inventory_reconciliation.dismiss`／`resolve` 中央 Audit 與案件同交易。A-29 對帳案件後台頁（PR #114）已交付。其他逾時 UI 變體仍未 E2E。 |
-| M-11 物流與批次出貨 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | 宅配／超取、Provider、限制、運費／免運、配送選項、門市 API、C-13／C-14 與 Typed Client 均已交付；WP-A04 證明組裝宅配與優惠後運費快照。批次出貨已由 PR #93 交付；PR #106 交付物流狀態命令（`POST /admin/shipments/{id}/actions/{action}`）、COD 於 `Delivered`／`PickedUp` 同交易收款與 Order Completed、訂單 DTO 物流摘要／歷程／availableActions。PR #115 以真實管理員 TOTP、批次出貨與兩種履約 UI 完成隔離 Browser E2E；其他失敗／退回變體仍未逐條 Browser E2E。 |
+| M-11 物流與批次出貨 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 宅配／超取、Provider、限制、運費／免運、配送選項、門市 API、C-13／C-14 與 Typed Client 均已交付；PR #93 交付批次出貨，PR #106 交付物流狀態命令、COD 於 `Delivered`／`PickedUp` 同交易收款與 Order Completed、物流摘要／歷程／availableActions。PR #115 以真實管理員 TOTP、批次出貨與兩種履約 UI 完成主路徑；E2E-RC-05／PR #158 再以正式 Admin／Customer UI 驗證 COD 宅配 `InTransit → DeliveryFailed → Returned`、兩次原因必填、Shipment／Fulfillment 歷程、OrderStatus 不變與未收款／未開票。Browser 1／1、SQL Server 20／20、Security 0 finding 與 Required CI 全綠後 squash merge 為 `dev@d7966e92`。 |
 | M-12 單項退貨 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | PR #42 已交付退貨申請、審核、寄回、收件、檢查、退款交接與前後台；PR #53、#99、#102、#103 補齊可信快照、待審建立、正額退款完成 Return 與零淨額原子取消。PR #110 補會員申請至管理員檢查／等待退款；PR #117（已合併 `dev@ba48489`）再驗證全額／部分退款與 Actor Scope 負向案例。零淨額、退貨拒絕、免寄回及其他分支尚未逐條 Browser E2E。 |
 | M-13 部分退款 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | 退款 execute、可信七類分攤、中央冪等／Audit、管理 API、OpenAPI／Typed Client 與 Order 累計投影均已進 `dev`。PR #108 補實體退貨至退款／折讓旅程；PR #117（已合併 `dev@ba48489`）再以正式 Checkout／付款／物流命令驗證全額與部分退款、冪等、Actor Scope、Order 投影及自動開票至折讓。E2E-RC-01 已於 `dev@e5d46f4a` fresh 重跑 Browser 2／2 與退款／折讓 SQL Server 48／48，主旅程 Gate 完成；零淨額及其他退款變體仍未逐條 Browser E2E，因此本列 E2E 維持部分覆蓋。 |
 | M-14 客服案件與 SLA | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | PR #10／#51 已交付客服基礎、主管 Action、Internal Note、Reopen、SLA 唯讀佇列、案件工作台、Actor Scope、衝突刷新與中央 Audit。PR #110 已合併為 `dev@9f543d23`，補齊 M-14A claim／公開回覆／承辦範圍，以及 M-14B SLA 80%／100% Hangfire／Outbox 通知、System Audit 與 Resolved 3 天自動關閉；SQL Server 6／6 與公開回覆瀏覽器旅程通過。SLA 時間推進及其他客服分支尚未逐條 E2E。 |
