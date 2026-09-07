@@ -1,7 +1,7 @@
 ---
 文件狀態: 持續更新
 最後更新: 2026-09-07
-基準分支: dev@e5d46f4a（含 PR #117 H-R03 退款／折讓 Browser E2E、PR #121 批次出貨勾選修正、PR #118 WP-H07／S-01 會員收藏，以及 DATA-RC-04 結案）
+基準分支: dev@9ceca151（含 PR #117 H-R03 退款／折讓 Browser E2E、PR #121 批次出貨勾選修正、PR #118 WP-H07／S-01 會員收藏、DATA-RC-04 與 E2E-RC-01 結案）
 ---
 
 # M 功能實作矩陣
@@ -40,7 +40,7 @@
 | M-17 零件相容性 | ✅ | ✅ | ✅ | ✅ | ⬜ | ✅ | PR #52 已交付來源型規格資料基礎；PR #34 已交付確定性檢查、後台規則、Audit 與 Provider-backed 證據；PR #35 已交付前端並合併 `dev`。完整瀏覽器旅程仍缺。 |
 | M-18 AI 商品搜尋推薦 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | PR #62 的公開 Endpoint、額度、SQL 候選、組裝／相容性、Fail Closed、關鍵字降級、UI 與契約已合併；PR #112 再將單次 5 秒意圖呼叫、後端確定性理由、低延遲設定、`product-search-v6`、大寫 Semantic Key 與顧客視角理由合併至 `dev@eb83ecf6`。PR #120 的 v7 Runner fidelity、Storage Key、分類白名單、TB→GB、Prompt 與 grader 已 squash merge 為 `dev@19b7d9c6`；同 revision 六案 Live Smoke 的 Schema／安全／延遲通過但整體 Verdict `FAIL`。DEC-BATCH-060／061 已以零成本回歸關閉 019、025、026 已知缺口；DEC-BATCH-062 的 `product-search-v8` 六案 Live Smoke 自動 Gate 與 Alex 人工覆核 6／6 均通過。公開 API／資料庫 Schema 不變，M-18 已合併狀態不回退；完整 66 次 Release baseline 由 AI-09 繼續追蹤。 |
 | M-19 AI 客服 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | PR #57／#58／#59 已合併 SQL-backed 同意／額度、Responses Adapter、本人 Order／SupportTicket／Conversation Query、互動／引用／Token／成本、US$70／US$90 保護、會員聊天、A-28 管理彙總與 Playwright 降級旅程。AI-09 live baseline 獨立保持未完成。 |
-| M-20 模擬發票與折讓 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | 折讓、付款成功冪等發票 Outbox／Consumer、前後台查詢、開立／作廢 API、A-24/A-25 與顧客發票 UI 均已交付；WP-A04 補信用卡付款成功後由 Browser 輪詢並顯示發票。PR #106／#115 已補 COD 正式物流接線與履約後唯一發票；PR #117（已合併 `dev@ba48489`）再驗證退款成立後的發票折讓、Idempotency-Key 重播及前後台筆數一致。零淨額與其他發票／折讓跨層變體仍未逐條 E2E。M-20 不增加 [[01-需求/功能範圍]] 原列 19 項 M 功能數。 |
+| M-20 模擬發票與折讓 | ✅ | ✅ | ✅ | ✅ | 🔵 | ✅ | 折讓、付款成功冪等發票 Outbox／Consumer、前後台查詢、開立／作廢 API、A-24/A-25 與顧客發票 UI 均已交付；WP-A04 補信用卡付款成功後由 Browser 輪詢並顯示發票。PR #106／#115 已補 COD 正式物流接線與履約後唯一發票；PR #117（已合併 `dev@ba48489`）再驗證退款成立後的發票折讓、Idempotency-Key 重播及前後台筆數一致。E2E-RC-02 在 commit `569eb6a0` 新增成功退款後由正式 UI 嘗試作廢、收到 `invoice_allowance_required` 且 SQL-backed 狀態／RowVersion／折讓集合零副作用的高風險非主路徑；本機 Browser 1／1、SQL Server 10／10，待 Security／PR／CI／merge。零淨額與其他發票／折讓跨層變體仍未逐條 E2E，因此本列維持部分覆蓋。M-20 不增加 [[01-需求/功能範圍]] 原列 19 項 M 功能數。 |
 
 ## 完成判定邊界
 
