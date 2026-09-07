@@ -67,6 +67,7 @@ SQL Server Provider-backed 測試統一從 `DOSELECT_SQLSERVER_TEST_CONNECTION` 
 ```powershell
 .\scripts\seed-demo-data.ps1 -DatabaseName DoSelectDemo
 .\scripts\validate-demo-data.ps1 -DatabaseName DoSelectDemo
+.\scripts\measure-demo-report-p95.ps1 -DatabaseName DoSelectDemo
 ```
 
 在 `frontend/customer-web` 與 `frontend/admin-web` 分別執行前端驗證：

@@ -90,6 +90,7 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<MinimalDevelopmentDataSeeder>();
         services.AddScoped<DemoDataSeeder>();
         services.AddScoped<DemoDataValidator>();
+        services.AddScoped<DemoReportPerformanceBenchmark>();
 
         return services;
     }

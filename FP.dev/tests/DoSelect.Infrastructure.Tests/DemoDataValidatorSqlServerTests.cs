@@ -1,5 +1,6 @@
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Seeding;
+using DoSelect.Application.OperationalReports;
 using DoSelect.Domain.Members;
 using DoSelect.Domain.Payments;
 using Microsoft.Data.SqlClient;
@@ -82,6 +83,41 @@ public sealed class DemoDataValidatorSqlServerTests
             Assert.True(result.Checks["databaseConstraints"]);
             Assert.True(result.Checks["orphanRows"]);
             Assert.False(result.Checks["reportBaselines"]);
+        });
+    }
+
+    [Fact]
+    public async Task MeasureAsync_ExactSeed_ReportsAllSevenP95Results()
+    {
+        Assert.Equal(3, DemoReportPerformanceBenchmark.DefaultOptions.WarmupIterations);
+        Assert.Equal(30, DemoReportPerformanceBenchmark.DefaultOptions.MeasuredIterations);
+        Assert.Equal(3_000m, DemoReportPerformanceBenchmark.DefaultOptions.P95LimitMilliseconds);
+
+        await RunWithSeededDatabaseAsync(async context =>
+        {
+            var benchmark = new DemoReportPerformanceBenchmark(context);
+
+            var result = await benchmark.MeasureAsync(
+                new DemoReportBenchmarkOptions(
+                    WarmupIterations: 0,
+                    MeasuredIterations: 2,
+                    P95LimitMilliseconds: 60_000));
+
+            Assert.True(result.DatasetIsValid);
+            Assert.True(result.IsValid);
+            Assert.Empty(result.ValidationFailures);
+            Assert.Equal(OperationalReportCatalog.All.Count, result.Reports.Count);
+            Assert.Equal(
+                OperationalReportCatalog.All.Select(report => report.Key),
+                result.Reports.Select(report => report.ReportKey));
+            Assert.All(result.Reports, report =>
+            {
+                Assert.Equal(2, report.DurationsMilliseconds.Count);
+                Assert.True(report.MinimumMilliseconds >= 0m);
+                Assert.Equal(report.MinimumMilliseconds, report.P50Milliseconds);
+                Assert.Equal(report.MaximumMilliseconds, report.P95Milliseconds);
+                Assert.True(report.Passed);
+            });
         });
     }
 
