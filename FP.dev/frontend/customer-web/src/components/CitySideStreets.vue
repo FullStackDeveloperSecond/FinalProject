@@ -5,7 +5,6 @@ import { BrandIcon, type BrandIconName } from '@doselect/web-shared/components'
 import { clearRecentProducts, loadRecentProducts, recentProducts } from './cityCompanion'
 
 const route = useRoute()
-const avatar = `${import.meta.env.BASE_URL}brand/donggu-hero-wave.png`
 const stations: { name: string; to: string; icon: BrandIconName; note: string }[] = [
   { name: '靈感站', to: '/ai-search', icon: 'purpose', note: '說說你的用途' },
   { name: '零件街', to: '/products', icon: 'cpu', note: '探索電腦配備' },
@@ -58,17 +57,6 @@ onUnmounted(() => media?.removeEventListener('change', resize))
             :size="23"
           /><span><strong>{{ station.name }}</strong><small>{{ station.note }}</small></span>
         </RouterLink>
-        <div
-          class="city-station__host"
-          aria-hidden="true"
-        >
-          <img
-            :src="avatar"
-            alt=""
-            width="60"
-            height="88"
-          ><span>DONNGU<br>城市嚮導</span>
-        </div>
       </nav>
     </details>
     <details
@@ -103,20 +91,5 @@ onUnmounted(() => media?.removeEventListener('change', resize))
         </button>
       </div>
     </details>
-    <div
-      class="city-streets__scene"
-      aria-hidden="true"
-    >
-      <span class="city-streets__scene-label">NEXT STOP / YOUR NEXT PC</span><div class="city-streets__buildings">
-        <i /><i /><i />
-      </div><div class="city-streets__courier">
-        <img
-          :src="avatar"
-          alt=""
-          width="48"
-          height="70"
-        ><span>零件補給中</span>
-      </div><div class="city-streets__road" />
-    </div>
   </div>
 </template>

@@ -1352,12 +1352,16 @@ button:disabled {
   cursor: not-allowed;
 }
 
-/* ---- 連結：亮藍（白底 5.15:1） ---- */
-.view-shell a:not(.btn-link):not([class*="button"]) {
+/* ---- 連結：亮藍（白底 5.15:1） ----
+   兩個 :not() 原本讓這條規則的特異度變成 (0,3,1)，會壓過所有用單一 class
+   命名的元件規則（例如 .shared-state__actions > a），造成元件自己設的文字色
+   被這裡蓋掉。改用 :where() 包住排除條件：篩選行為完全不變，但特異度降到
+   (0,1,1)，回到「頁面層預設值、元件可覆寫」的正確關係。 */
+.view-shell a:where(:not(.btn-link)):where(:not([class*="button"])) {
   color: var(--color-primary);
 }
 
-.view-shell a:not(.btn-link):not([class*="button"]):hover {
+.view-shell a:where(:not(.btn-link)):where(:not([class*="button"])):hover {
   color: var(--color-primary-hover);
 }
 
@@ -1577,4 +1581,268 @@ button:disabled {
   /* 正式商標 2 自帶白底，白色 header 上不需要再加底板或陰影 */
   background: transparent;
   box-shadow: none;
+}
+
+/* =============================================================================
+   v4.2 —— 主導覽分兩區：瀏覽區（免登入）與會員區（需登入）
+   瀏覽區的順序對齊「城市路標」四站，讓側欄與頁首講同一套動線。
+   會員區只放 router meta 標了 requiresAuth 的目的地，靠右並以分隔線隔開，
+   使用者在點下去之前就看得出哪些會要求登入。
+   ========================================================================== */
+.primary-nav__group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.primary-nav__browse {
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+}
+
+.primary-nav__account {
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  margin-inline-start: auto;
+  padding-inline-start: var(--space-4);
+  /* 分隔線：兩區之間唯一的視覺界線，不再另加背景色塊 */
+  border-inline-start: 1px solid var(--color-border-line);
+}
+
+/* 會員區的連結降一階：仍可讀，但不與瀏覽區的主要動線競爭 */
+.primary-nav__account a {
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.primary-nav__account a:hover {
+  color: var(--color-primary);
+}
+
+.primary-nav__account a.router-link-active,
+.primary-nav__account a[aria-current="page"] {
+  color: var(--color-primary);
+}
+
+/* 登入入口是這一區的主要動作，給它實心底 */
+.site-header__signin {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.primary-nav__account a.site-header__signin {
+  color: var(--color-on-primary);
+}
+
+.primary-nav__account a.site-header__signin:hover {
+  background: var(--color-primary-hover);
+  color: var(--color-on-primary);
+}
+
+/* ---------------------------------------------------------------------------
+   桌機：整條 header 鎖在同一行
+   登入後會員區會多出「我的評價／會員資料／收件地址／會員名稱／登出」，
+   實測 1440 寬時需要 1190px 但只有 1152px，超出 38px 就整條換行、
+   header 從 64px 撐到 120px。這裡用三招把寬度壓回來，而不是縮字級：
+     1. 會員區的連結內距從 14px 收到 8px（6 個連結共省約 72px）
+     2. 會員名稱設上限並以省略號截斷，長名字不會再把版面撐開
+     3. 全區 nowrap，確保任何情況下都不換行
+   --------------------------------------------------------------------------- */
+@media (min-width: 901px) {
+  .header-bar {
+    flex-wrap: nowrap;
+  }
+
+  .primary-nav {
+    flex-wrap: nowrap;
+    min-width: 0;
+  }
+
+  .primary-nav__group {
+    flex-wrap: nowrap;
+    min-width: 0;
+  }
+
+  .primary-nav a,
+  .primary-nav .site-header__member {
+    white-space: nowrap;
+  }
+
+  .primary-nav__account {
+    padding-inline-start: var(--space-3);
+  }
+
+  .primary-nav__account a {
+    padding-inline: var(--space-2);
+  }
+
+  /* 會員名稱可長可短，截斷才能保證單行；完整名稱放在 title 供滑鼠停留查看 */
+  .site-header__member {
+    max-width: 11ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 900px) {
+  /* 收合選單裡改成上下兩區，分隔線從直線轉成橫線 */
+  .primary-nav__group {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .primary-nav__account {
+    margin-inline-start: 0;
+    padding-inline-start: 0;
+    padding-block-start: var(--space-2);
+    margin-block-start: var(--space-2);
+    border-inline-start: 0;
+    border-block-start: 1px solid var(--color-border-line);
+  }
+
+  .primary-nav__account .site-header__signin {
+    text-align: center;
+    justify-content: center;
+  }
+}
+
+/* =============================================================================
+   v4.2 —— 空狀態／錯誤狀態的動作連結
+   EmptyState 與 ErrorState 的 slot 之前沒有任何樣式，裡面的 RouterLink 會落回
+   瀏覽器預設連結外觀（藍字加底線），跟旁邊的按鈕語言完全不同。
+   這裡把它們統一成次要按鈕：同樣的 44px 控制高度、圓角與焦點樣式。
+   ========================================================================== */
+.shared-state__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-block-start: var(--space-4);
+}
+
+.shared-state__actions > a,
+.shared-state__actions > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: var(--control-height);
+  padding: 0 var(--space-5);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-primary);
+  font-size: var(--fs-body);
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.shared-state__actions > a:hover,
+.shared-state__actions > button:hover {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+/* 第一個動作視為建議動作，用實心亮藍 */
+.shared-state__actions > a:first-child,
+.shared-state__actions > button:first-child {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.shared-state__actions > a:first-child:hover,
+.shared-state__actions > button:first-child:hover {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+  color: var(--color-on-primary);
+}
+
+/* 錯誤狀態沿用同一套按鈕形狀，只換成危險色，避免「重試」看起來像連結 */
+.shared-state--error .shared-state__actions > a,
+.shared-state--error .shared-state__actions > button {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+  background: var(--color-surface);
+}
+
+.shared-state--error .shared-state__actions > a:first-child,
+.shared-state--error .shared-state__actions > button:first-child {
+  background: var(--color-danger);
+  border-color: var(--color-danger);
+  color: var(--color-text-on-dark);
+}
+
+.shared-state--error .shared-state__actions > a:hover,
+.shared-state--error .shared-state__actions > button:hover {
+  background: var(--color-danger);
+  color: var(--color-text-on-dark);
+}
+
+/* =============================================================================
+   v4.2 —— AI 懂選的「既有零件」摺疊區
+   `.ai-search__parts` 在任何樣式表都沒有定義，整組 details/summary 是瀏覽器
+   預設外觀：26px 高、系統三角標記、沒有可點擊的視覺提示。這裡補上與其他
+   控制項一致的形狀與 44px 觸控高度，並用自繪箭頭取代系統標記。
+   ========================================================================== */
+.ai-search__parts {
+  margin-block-start: var(--space-4);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.ai-search__parts > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-height);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  color: var(--color-ink);
+  font-size: var(--fs-body);
+  font-weight: 700;
+  list-style: none;
+  cursor: pointer;
+}
+
+.ai-search__parts > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* 自繪箭頭：展開時旋轉 90 度，取代系統三角標記 */
+.ai-search__parts > summary::before {
+  content: '';
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-inline-end: 2px solid var(--color-primary);
+  border-block-end: 2px solid var(--color-primary);
+  transform: rotate(-45deg);
+  transition: transform var(--dur-micro) var(--ease-out);
+}
+
+.ai-search__parts[open] > summary::before {
+  transform: rotate(45deg);
+}
+
+.ai-search__parts > summary:hover {
+  color: var(--color-primary);
+}
+
+.ai-search__parts > *:not(summary) {
+  padding-inline: var(--space-4);
+}
+
+.ai-search__parts > *:last-child {
+  padding-block-end: var(--space-4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-search__parts > summary::before {
+    transition: none;
+  }
 }

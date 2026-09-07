@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, provide, ref, watch } from 'vue'
+import { computed, onMounted, provide, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { UiButton } from '@doselect/web-shared/ui'
 import { useSessionStore } from './stores/session'
@@ -11,16 +11,9 @@ import './city-streets.css'
 import {
   customerDefaultMotionPresetId,
   motionPresetKey,
-  useMotionPreference,
+
   useMotionPresetSelection,
 } from '@doselect/web-shared/motion'
-
-// 切換器只在 dev 進入模組圖。`import.meta.env.DEV` 在 production build 被折成 false，
-// 因此 Rollup 會把整個動態 import 分支連同元件與其字串一起移除 ——
-// 正式產物裡不存在任何實驗模式選單。
-const MotionDevSwitcher = import.meta.env.DEV
-  ? defineAsyncComponent(() => import('@doselect/web-shared/motion/MotionDevSwitcher.vue'))
-  : null
 
 const route = useRoute()
 const router = useRouter()
@@ -50,8 +43,7 @@ watch(() => route.fullPath, () => {
 
 // GSAP 動態視覺探索：A／B／C 方案由 App 統一選定後 provide 給頁面。
 // `canSwitch` 在 production build 是常數 false，切換介面會被整段 tree-shake 掉。
-const { presetId, preset, canSwitch, select } = useMotionPresetSelection(customerDefaultMotionPresetId)
-const prefersReducedMotion = useMotionPreference()
+const { preset } = useMotionPresetSelection(customerDefaultMotionPresetId)
 provide(motionPresetKey, preset)
 
 onMounted(() => {
@@ -99,66 +91,88 @@ async function handleLogout(): Promise<void> {
           :class="{ 'primary-nav--open': navOpen }"
           aria-label="主要導覽"
         >
-          <RouterLink to="/">
-            首頁
-          </RouterLink>
-          <RouterLink to="/products">
-            商品
-          </RouterLink>
-          <RouterLink to="/ai-search">
-            AI 懂選
-          </RouterLink>
-          <RouterLink to="/cart">
-            購物車
-          </RouterLink>
-          <RouterLink to="/account/builds">
-            我的組裝清單
-          </RouterLink>
-          <RouterLink to="/builds/new">
-            新增組裝清單
-          </RouterLink>
-          <RouterLink
-            to="/support"
-            :aria-current="isSupportSection ? 'page' : undefined"
-            :class="{ 'router-link-active': isSupportSection }"
-          >
-            客服中心
-          </RouterLink>
-          <template v-if="sessionStore.isAuthenticated">
-            <RouterLink to="/account/favorites">
-              我的收藏
+          <!--
+            瀏覽區：不需登入就能看的頁面。順序刻意對齊「城市路標」的四站
+            （靈感站→AI 懂選、零件街→商品、組裝所→新增組裝清單），
+            讓側欄與頁首講同一套動線；購物車接在組裝流程之後。
+          -->
+          <div class="primary-nav__group primary-nav__browse">
+            <RouterLink to="/">
+              首頁
             </RouterLink>
-            <RouterLink to="/account/reviews">
-              我的評價
+            <RouterLink to="/ai-search">
+              AI 懂選
             </RouterLink>
-            <RouterLink to="/account">
-              會員資料
+            <RouterLink to="/products">
+              商品
             </RouterLink>
-            <RouterLink to="/account/addresses">
-              收件地址
+            <RouterLink to="/builds/new">
+              新增組裝清單
             </RouterLink>
-            <span class="site-header__member">{{ sessionStore.user?.displayName }}</span>
-            <UiButton
+            <RouterLink to="/cart">
+              購物車
+            </RouterLink>
+          </div>
+
+          <!--
+            會員區：靠右並以分隔線隔開。這裡只放 router meta 標了 requiresAuth 的目的地
+            （/support、/account/builds、/account/favorites、/account、/account/addresses、
+            /account/reviews）加上登入入口，讓「點了會要求登入」的項目在視覺上先分好類。
+            補給站（客服中心）雖然是城市路標第 04 站，但需要登入，所以歸在這一區。
+          -->
+          <div class="primary-nav__group primary-nav__account">
+            <RouterLink
+              to="/support"
+              :aria-current="isSupportSection ? 'page' : undefined"
+              :class="{ 'router-link-active': isSupportSection }"
+            >
+              客服中心
+            </RouterLink>
+            <RouterLink to="/account/builds">
+              我的組裝清單
+            </RouterLink>
+            <template v-if="sessionStore.isAuthenticated">
+              <!-- dev #118 的會員收藏，歸入需登入的會員區 -->
+              <RouterLink to="/account/favorites">
+                我的收藏
+              </RouterLink>
+              <RouterLink to="/account/reviews">
+                我的評價
+              </RouterLink>
+              <RouterLink to="/account">
+                會員資料
+              </RouterLink>
+              <RouterLink to="/account/addresses">
+                收件地址
+              </RouterLink>
+              <!-- 名稱在窄版面會以省略號截斷，title 保留完整值 -->
+              <span
+                class="site-header__member"
+                :title="sessionStore.user?.displayName"
+              >{{ sessionStore.user?.displayName }}</span>
+              <UiButton
+                type="button"
+                class="site-header__logout"
+                label="登出"
+                @click="handleLogout"
+              />
+            </template>
+            <RouterLink
+              v-else-if="sessionStore.status === 'anonymous'"
+              class="site-header__signin"
+              to="/login"
+            >
+              登入／註冊
+            </RouterLink>
+            <button
+              v-else-if="sessionStore.status === 'error'"
               type="button"
-              class="site-header__logout"
-              label="登出"
-              @click="handleLogout"
-            />
-          </template>
-          <RouterLink
-            v-else-if="sessionStore.status === 'anonymous'"
-            to="/login"
-          >
-            登入／註冊
-          </RouterLink>
-          <button
-            v-else-if="sessionStore.status === 'error'"
-            type="button"
-            class="site-header__identity-retry"
-            @click="sessionStore.refresh()"
-          >
-            無法確認登入狀態，點此重試
-          </button>
+              class="site-header__identity-retry"
+              @click="sessionStore.refresh()"
+            >
+              無法確認登入狀態，點此重試
+            </button>
+          </div>
         </nav>
       </div>
     </header>
@@ -175,9 +189,11 @@ async function handleLogout(): Promise<void> {
         <span>DOSELECT COMPUTER CITY</span>
         <p>在懂選，找到你的下一站。</p>
       </div>
-      <CitySideStreets />
-      <div class="view-shell">
-        <RouterView />
+      <div class="city-content">
+        <CitySideStreets />
+        <div class="view-shell">
+          <RouterView />
+        </div>
       </div>
     </main>
     <footer class="site-footer">
@@ -195,12 +211,5 @@ async function handleLogout(): Promise<void> {
       </p>
     </footer>
     <DonnguGuide />
-    <component
-      :is="MotionDevSwitcher"
-      v-if="canSwitch && MotionDevSwitcher"
-      :preset-id="presetId"
-      :reduced-motion="prefersReducedMotion"
-      @select="select"
-    />
   </div>
 </template>
