@@ -74,6 +74,7 @@ $escapedLogPath = $databaseLogPath.Replace("'", "''")
 $escapedDataLogicalName = $dataLogicalName.Replace("'", "''")
 $escapedLogLogicalName = $logLogicalName.Replace("'", "''")
 $restoreQuery = "IF DB_ID(N'$VerificationDatabaseName') IS NOT NULL THROW 51000, 'Verification database already exists.', 1; RESTORE DATABASE [$VerificationDatabaseName] FROM DISK = N'$escapedBackupPath' WITH MOVE N'$escapedDataLogicalName' TO N'$escapedDataPath', MOVE N'$escapedLogLogicalName' TO N'$escapedLogPath', CHECKSUM, RECOVERY; DBCC CHECKDB ([$VerificationDatabaseName]) WITH NO_INFOMSGS;"
+$fileRecoveryResult = 'not_tested'
 
 try {
     & $sqlcmd -S $script:SqlInstance -E -C -b -Q $restoreQuery
@@ -85,11 +86,17 @@ try {
         $filesArchivePath = Assert-FileEvidence -Root $resolvedSetDirectory -Evidence $manifest.files
         $filesRestoreRoot = Join-Path $verificationRoot 'files'
         Expand-Archive -LiteralPath $filesArchivePath -DestinationPath $filesRestoreRoot
+        $fileRecoveryResult = 'success'
+    }
+    elseif ($manifest.fileSnapshot.status -eq 'complete_empty') {
+        New-Item -ItemType Directory -Path (Join-Path $verificationRoot 'files') -Force | Out-Null
+        $fileRecoveryResult = 'success'
     }
 
     $manifest.lastRestoreVerification = [ordered]@{
         verifiedAtUtc = [DateTimeOffset]::UtcNow.ToString('O')
         result = 'success'
+        fileRecoveryResult = $fileRecoveryResult
         verificationDatabase = $VerificationDatabaseName
     }
     $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $manifestPath -Encoding utf8
@@ -98,6 +105,7 @@ catch {
     $manifest.lastRestoreVerification = [ordered]@{
         verifiedAtUtc = [DateTimeOffset]::UtcNow.ToString('O')
         result = 'failed'
+        fileRecoveryResult = $fileRecoveryResult
         verificationDatabase = $VerificationDatabaseName
     }
     $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $manifestPath -Encoding utf8
