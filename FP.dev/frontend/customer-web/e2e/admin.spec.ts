@@ -95,11 +95,18 @@ interface AdminOrderSnapshot {
     grandTotal: number
     paidAmount: number
   }
+  statusHistory: Array<{
+    stateDimension: string
+    fromStatus?: string | null
+    toStatus: string
+    reasonCode?: string | null
+  }>
   shipment: {
     publicId: string
     status: string
     rowVersion: string
-    history: Array<{ toStatus: string }>
+    history: Array<{ fromStatus?: string | null, toStatus: string }>
+    availableActions: string[]
   }
 }
 
@@ -318,14 +325,28 @@ async function executeShipmentActionThroughAdminUi(
   page: Page,
   buttonLabel: string,
   action: string,
+  options: {
+    reasonCode?: string
+    note?: string
+    assertReasonRequired?: boolean
+  } = {},
 ): Promise<ShipmentCommandCapture> {
   await page.getByRole('button', { name: buttonLabel, exact: true }).click()
+  const form = page.getByRole('form', { name: '物流狀態命令' })
+  const submitButton = form.getByRole('button', { name: '確認更新' })
+  if (options.assertReasonRequired) {
+    await expect(submitButton).toBeDisabled()
+  }
+  if (options.reasonCode) {
+    await form.locator('#shipment-reason').selectOption(options.reasonCode)
+  }
+  if (options.note) {
+    await form.locator('#shipment-note').fill(options.note)
+  }
   const responsePromise = page.waitForResponse(response =>
     response.request().method() === 'POST'
     && new URL(response.url()).pathname.endsWith(`/actions/${action}`))
-  await page.getByRole('form', { name: '物流狀態命令' })
-    .getByRole('button', { name: '確認更新' })
-    .click()
+  await submitButton.click()
   const response = await responsePromise
   const responseText = await response.text()
   expect(
@@ -497,7 +518,7 @@ async function createGuestPrepaidHomeDeliveryOrder(
   return order
 }
 
-test('a seeded administrator can enroll TOTP, reject a wrong code, and sign in again; H-R02 fulfills COD home delivery and store pickup exactly once', async ({
+test('a seeded administrator can enroll TOTP, reject a wrong code, and sign in again; H-R02 fulfills COD home delivery and store pickup exactly once; E2E-RC05 keeps failed and returned COD unpaid', async ({
   page,
   api,
   seed,
@@ -513,6 +534,7 @@ test('a seeded administrator can enroll TOTP, reject a wrong code, and sign in a
   const skuPublicId = await codEligibleSkuPublicId(api)
   const homeEmail = `cod-home-${randomUUID()}@example.test`
   const storeEmail = `cod-store-${randomUUID()}@example.test`
+  const returnedEmail = `cod-returned-${randomUUID()}@example.test`
   const homeOrder = await createGuestCodOrder(
     api,
     skuPublicId,
@@ -526,6 +548,13 @@ test('a seeded administrator can enroll TOTP, reject a wrong code, and sign in a
     storeEmail,
     requestToken,
     { methodCode: 'StorePickup', storePublicId },
+  )
+  const returnedOrder = await createGuestCodOrder(
+    api,
+    skuPublicId,
+    returnedEmail,
+    requestToken,
+    { methodCode: 'HomeDelivery' },
   )
 
   await page.goto('./')
@@ -627,7 +656,7 @@ test('a seeded administrator can enroll TOTP, reject a wrong code, and sign in a
   await expect(customerPage.getByText('已付款：NT$ 0', { exact: true })).toBeVisible()
   await expect(customerPage.getByRole('heading', { name: '模擬發票' })).toHaveCount(0)
 
-  await shipOrdersThroughAdminUi(page, [homeOrder, storeOrder])
+  await shipOrdersThroughAdminUi(page, [homeOrder, storeOrder, returnedOrder])
 
   await page.goto(`./orders/${homeOrder.publicId}`)
   await expect(page.getByRole('heading', { level: 1, name: `訂單 ${homeOrder.orderNumber}` }))
@@ -775,6 +804,90 @@ test('a seeded administrator can enroll TOTP, reject a wrong code, and sign in a
   await expect(customerPage.getByText(`已付款：NT$ ${storeOrder.amounts.grandTotal}`, { exact: true }))
     .toBeVisible()
   await expect(customerPage.getByText(/DEMO-NOT-A-TAX-INVOICE/)).toBeVisible()
+
+  // E2E-RC05 chooses the highest data-risk non-happy path left by M-11: a COD home-delivery
+  // order fails in transit and is returned. Neither transition may collect payment, complete the
+  // order, or issue an invoice. The real admin form must enforce reason selection, and both the
+  // shipment and order histories returned by the SQL-backed API must record the same transitions.
+  await grantGuestOrderAccess(customerPage, returnedOrder, returnedEmail)
+  await expect(customerPage.getByText('付款狀態：等待付款', { exact: true })).toBeVisible()
+  await expect(customerPage.getByText('已付款：NT$ 0', { exact: true })).toBeVisible()
+  expect((await readCustomerInvoice(customerPage, returnedOrder.publicId)).status).toBe(404)
+
+  await page.goto(`./orders/${returnedOrder.publicId}`)
+  const returnedInTransit = await executeShipmentActionThroughAdminUi(page, '配送中', 'in-transit')
+  expect(returnedInTransit.order.paymentStatus).toBe('AwaitingPayment')
+  expect(returnedInTransit.order.amounts.paidAmount).toBe(0)
+  const orderStatusBeforeFailure = returnedInTransit.order.orderStatus
+
+  const deliveryFailed = await executeShipmentActionThroughAdminUi(
+    page,
+    '配送失敗',
+    'delivery-failed',
+    {
+      reasonCode: 'recipient_absent',
+      note: 'E2E-RC05 recipient unavailable; verify fail-closed COD handling.',
+      assertReasonRequired: true,
+    },
+  )
+  expect(deliveryFailed.order.fulfillmentStatus).toBe('DeliveryFailed')
+  expect(deliveryFailed.order.shipment.status).toBe('DeliveryFailed')
+  expect(deliveryFailed.order.orderStatus).toBe(orderStatusBeforeFailure)
+  expect(deliveryFailed.order.paymentStatus).toBe('AwaitingPayment')
+  expect(deliveryFailed.order.amounts.paidAmount).toBe(0)
+  expect(deliveryFailed.order.paidAtUtc).toBeNull()
+  expect(deliveryFailed.order.shipment.availableActions).toEqual(['in-transit', 'returned'])
+  expect(deliveryFailed.order.shipment.history).toContainEqual(expect.objectContaining({
+    fromStatus: 'InTransit',
+    toStatus: 'DeliveryFailed',
+  }))
+  expect(deliveryFailed.order.statusHistory).toContainEqual(expect.objectContaining({
+    stateDimension: 'FulfillmentStatus',
+    fromStatus: 'InTransit',
+    toStatus: 'DeliveryFailed',
+    reasonCode: 'recipient_absent',
+  }))
+  expect((await readCustomerInvoice(customerPage, returnedOrder.publicId)).status).toBe(404)
+
+  const returned = await executeShipmentActionThroughAdminUi(
+    page,
+    '退回商家',
+    'returned',
+    {
+      reasonCode: 'recipient_refused',
+      note: 'E2E-RC05 shipment returned without COD collection.',
+      assertReasonRequired: true,
+    },
+  )
+  expect(returned.order.fulfillmentStatus).toBe('Returned')
+  expect(returned.order.shipment.status).toBe('Returned')
+  expect(returned.order.shipment.availableActions).toEqual([])
+  expect(returned.order.orderStatus).toBe(orderStatusBeforeFailure)
+  expect(returned.order.paymentStatus).toBe('AwaitingPayment')
+  expect(returned.order.amounts.paidAmount).toBe(0)
+  expect(returned.order.paidAtUtc).toBeNull()
+  expect(returned.order.shipment.history.slice(-2)).toEqual([
+    expect.objectContaining({ fromStatus: 'InTransit', toStatus: 'DeliveryFailed' }),
+    expect.objectContaining({ fromStatus: 'DeliveryFailed', toStatus: 'Returned' }),
+  ])
+  expect(returned.order.statusHistory).toContainEqual(expect.objectContaining({
+    stateDimension: 'FulfillmentStatus',
+    fromStatus: 'DeliveryFailed',
+    toStatus: 'Returned',
+    reasonCode: 'recipient_refused',
+  }))
+  const adminStatusHistory = page.getByRole('heading', { name: '狀態歷程' }).locator('..')
+  await expect(adminStatusHistory).toContainText('recipient_absent')
+  await expect(adminStatusHistory).toContainText('recipient_refused')
+  await captureVisualEvidence(page, 'e2e-rc-05-admin-shipment-returned')
+
+  await customerPage.reload()
+  await expect(customerPage.getByText('物流狀態：已退回', { exact: true })).toBeVisible()
+  await expect(customerPage.getByText('付款狀態：等待付款', { exact: true })).toBeVisible()
+  await expect(customerPage.getByText('已付款：NT$ 0', { exact: true })).toBeVisible()
+  await expect(customerPage.getByRole('heading', { name: '模擬發票' })).toHaveCount(0)
+  expect((await readCustomerInvoice(customerPage, returnedOrder.publicId)).status).toBe(404)
+  await captureVisualEvidence(customerPage, 'e2e-rc-05-customer-shipment-returned')
   await customerContext.close()
 
   // The order detail route currently has no auth metadata, so the hard navigation above does not
