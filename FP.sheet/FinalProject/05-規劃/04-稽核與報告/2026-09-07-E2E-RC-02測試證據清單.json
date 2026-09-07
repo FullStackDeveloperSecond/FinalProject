@@ -1,0 +1,76 @@
+{
+  "schemaVersion": "1.0",
+  "runId": "e2e-rc-02-20260907-commit-569eb6a0",
+  "revision": "569eb6a07428c8cc164e3a0af1b55bb4a3137fb6",
+  "evidenceTier": "T2",
+  "environment": {
+    "osFamily": "Windows",
+    "dotnetSdk": "10.0.303",
+    "node": "24.18.1",
+    "npm": "11.16.0",
+    "playwright": "1.62.1",
+    "databaseProvider": "SQL Server",
+    "databaseIdentity": "generated allowlisted test databases; names omitted"
+  },
+  "execution": {
+    "workers": 1,
+    "configuredRetries": 1,
+    "actualTestRetries": 0,
+    "discovered": 11,
+    "executed": 11,
+    "passed": 11,
+    "failed": 0,
+    "skipped": 0,
+    "browser": {
+      "executed": 1,
+      "passed": 1,
+      "durationSeconds": 18.8
+    },
+    "sqlProvider": {
+      "executed": 10,
+      "passed": 10,
+      "durationSeconds": 23,
+      "class": "InvoiceAllowanceWriterSqlServerTests"
+    }
+  },
+  "assertions": {
+    "uiErrorCode": "invoice_allowance_required",
+    "invoiceStatusAfterRejectedVoid": "issued",
+    "rowVersionUnchanged": true,
+    "allowanceCountAfterRejectedVoid": 0,
+    "sqlAuditSideEffectsAfterRejectedVoid": 0
+  },
+  "artifacts": [
+    {
+      "kind": "playwright-html",
+      "retention": "local ignored workspace artifact",
+      "bytes": 532335,
+      "sha256": "317bd1823faff993d65454c25293730e2a869020d8fafee19b7bde10f0c77f2a"
+    },
+    {
+      "kind": "vstest-trx",
+      "retention": "local ignored workspace artifact",
+      "bytes": 17170,
+      "sha256": "6112ae74eacbd3954a25737748d1d8f9579de7c95b85bf7bc68aefdeecaf3525"
+    }
+  ],
+  "sanitization": {
+    "status": "PASS",
+    "credentialValueMatches": 0,
+    "connectionStringValueMatches": 0,
+    "authorizationOrCookiePatternMatches": 0,
+    "privateKeyTokenOrJwtPatternMatches": 0,
+    "identifierOnlyPasswordAssignments": 3,
+    "quotedPasswordLiteralMatches": 0
+  },
+  "databaseCleanup": {
+    "recentIsolatedDatabaseCount": 0
+  },
+  "testStatus": "PASS",
+  "deliveryStatus": "PENDING_SECURITY_PR_CI_REVIEW_MERGE",
+  "limitations": [
+    "This gate covers the high-risk rejected-void path after a succeeded refund; it does not claim a successful void or every invoice and allowance variant.",
+    "Passing Playwright runs do not retain trace, screenshot or video under the repository failure-only policy.",
+    "The HTML report contains three source-level password variable assignments and no quoted password literal or credential value."
+  ]
+}

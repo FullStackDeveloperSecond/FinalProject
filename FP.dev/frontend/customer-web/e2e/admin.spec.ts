@@ -786,7 +786,7 @@ test('a seeded administrator can enroll TOTP, reject a wrong code, and sign in a
   await expect(page).toHaveURL(/\/admin\/login$/)
 })
 
-test('a delivered order can be returned, refunded and allowed to update the order and invoice projections; H-R03 DES-21/DES-22 refund and allowance journey, invoice via payment outbox not manual issuance', async ({
+test('a delivered order can be returned, refunded and allowed to update the order and invoice projections; H-R03 DES-21/DES-22 refund and allowance journey, E2E-RC-02 rejected void requires allowance, invoice via payment outbox not manual issuance', async ({
   page,
   api,
   seed,
@@ -1053,6 +1053,24 @@ test('a delivered order can be returned, refunded and allowed to update the orde
   expect(invoiceBefore.status).toBe(200)
   expect(invoiceBefore.body.status).toBe('issued')
   expect(invoiceBefore.body.allowances).toHaveLength(0)
+
+  // E2E-RC-02 high-risk non-main path: once a refund has succeeded, the issued invoice must
+  // remain immutable until an allowance is created. Drive the real admin UI and verify the
+  // rejected command leaves the SQL-backed customer projection and RowVersion unchanged.
+  await page.goto(`./invoices/${invoiceBefore.body.publicId}`)
+  await page.getByLabel('作廢原因').selectOption('order_cancelled')
+  await page.getByLabel('補充說明（選填）').fill('E2E-RC-02 已核對退款，必須改開折讓')
+  await page.getByLabel('我已核對訂單取消與退款狀態，確認作廢並留下中央 Audit。').check()
+  await page.getByRole('button', { name: '確認作廢' }).click()
+  await expect(page.getByRole('alert')).toContainText('訂單已有成功退款，必須建立折讓而不能作廢')
+
+  const invoiceAfterRejectedVoid = await customerPage.evaluate(async (orderPublicId) => {
+    const response = await fetch(`/api/v1/orders/${orderPublicId}/invoice`, { credentials: 'include' })
+    return await response.json() as { rowVersion: string, status: string, allowances: unknown[] }
+  }, order.publicId)
+  expect(invoiceAfterRejectedVoid.status).toBe('issued')
+  expect(invoiceAfterRejectedVoid.rowVersion).toBe(invoiceBefore.body.rowVersion)
+  expect(invoiceAfterRejectedVoid.allowances).toHaveLength(0)
 
   const allowanceIdempotencyKey = `h-r03-allowance-${randomUUID()}`
   const createAllowance = async () => await page.evaluate(async ({ invoicePublicId, invoiceRowVersion, refundPublicId, idempotencyKey }) => {
