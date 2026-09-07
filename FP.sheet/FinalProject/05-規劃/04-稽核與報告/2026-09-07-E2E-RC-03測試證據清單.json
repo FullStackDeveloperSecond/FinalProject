@@ -1,0 +1,97 @@
+{
+  "schemaVersion": "1.0",
+  "runId": "e2e-rc-03-20260907-commit-c219090d",
+  "revision": "c219090d73c2d5b063ac13828b82253dd034dd6a",
+  "evidenceTier": "T2",
+  "environment": {
+    "osFamily": "Windows",
+    "dotnetSdk": "10.0.400",
+    "node": "24.18.1",
+    "npm": "11.16.0",
+    "playwright": "1.62.1",
+    "databaseProvider": "SQL Server",
+    "databaseIdentity": "generated allowlisted test databases; names omitted"
+  },
+  "execution": {
+    "workers": 1,
+    "configuredRetries": 1,
+    "actualTestRetries": 0,
+    "discovered": 56,
+    "executed": 56,
+    "passed": 56,
+    "failed": 0,
+    "skipped": 0,
+    "browser": {
+      "executed": 1,
+      "passed": 1,
+      "durationSeconds": 17.0
+    },
+    "sqlProvider": {
+      "executed": 55,
+      "passed": 55,
+      "durationSeconds": 6,
+      "classes": [
+        "EfBuildListServiceTests",
+        "CompatibilityCheckServiceTests"
+      ]
+    }
+  },
+  "assertions": {
+    "selectedRequiredCategories": 8,
+    "savedItemCount": 8,
+    "compatibilityOverall": "compatible",
+    "anonymousSharedItemCount": 8,
+    "newAssemblyGroupCount": 1,
+    "newAssemblyGroupItemCount": 8,
+    "assemblyFeeIncrease": 300,
+    "unavailableShareErrorCode": "resource_not_found"
+  },
+  "artifacts": [
+    {
+      "kind": "playwright-html",
+      "retention": "local ignored workspace artifact",
+      "bytes": 521467,
+      "sha256": "7ecbcdcaf875f851be749f3d7e63651048c2172dda46c61ded8664bbd04ff4d4"
+    },
+    {
+      "kind": "vstest-trx",
+      "retention": "local ignored workspace artifact",
+      "bytes": 88259,
+      "sha256": "a309f5916210cbadadeb4495ad33749901b515acd43b044817a7ac90c7c03b9a"
+    }
+  ],
+  "sanitization": {
+    "status": "PASS",
+    "authorizationOrCookiePatternMatches": 0,
+    "privateKeyPatternMatches": 0,
+    "jwtPatternMatches": 0,
+    "connectionStringValueMatches": 0,
+    "quotedCredentialValueMatches": 0,
+    "identifierOnlyPasswordAssignments": 17
+  },
+  "databaseCleanup": {
+    "relevantIsolatedDatabaseCount": 0
+  },
+  "testStatus": "PASS",
+  "deliveryStatus": "PENDING_PR",
+  "delivery": {
+    "pullRequest": null,
+    "headRevision": null,
+    "securityScanId": null,
+    "securityCoverage": "pending",
+    "securityFindingCount": null,
+    "ciRun": null,
+    "requiredCi": "PENDING",
+    "formalApproval": "PENDING",
+    "adminBypass": "NOT_USED",
+    "mergeMethod": "squash",
+    "mergeRevision": null,
+    "mergedAtUtc": null
+  },
+  "limitations": [
+    "The browser journey covers one deterministic compatible eight-category build; blocked and insufficient-data result journeys remain E2E-RC-04.",
+    "Unavailable, revoked, deleted, and suspended-owner share tokens are covered by provider assertions returning the same resource_not_found code, not by four separate browser journeys.",
+    "Passing Playwright runs do not retain trace, screenshot, or video under the repository failure-only policy.",
+    "The HTML report contains 17 source-level password identifier assignments and no quoted credential value."
+  ]
+}
