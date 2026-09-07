@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { categoryLabel } from '../categoryLabels'
 import type { ProductCardDto } from '../types'
 
 const props = defineProps<{
@@ -48,12 +49,13 @@ function formatTwd(amount: number | string): string {
         class="product-card__image-placeholder"
       >{{ imageFailed ? '圖片暫時無法載入' : '尚無商品圖片' }}</span>
     </div>
+    <span class="product-card__category">{{ categoryLabel(product.category.code) }}</span>
     <p class="product-card__brand">
       {{ product.brand.name }}
     </p>
-    <h3 class="product-card__name">
+    <h2 class="product-card__name">
       {{ product.name }}
-    </h3>
+    </h2>
     <p class="product-card__price">
       <span class="product-card__price-current">{{ formattedPrice }}</span>
       <span

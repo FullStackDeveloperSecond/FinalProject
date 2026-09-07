@@ -19,6 +19,7 @@ const route = useRoute()
 const router = useRouter()
 const sessionStore = useSessionStore()
 const isSupportSection = computed(() => route.path === '/support' || route.path.startsWith('/support/'))
+const isWelcomePage = computed(() => route.name === 'welcome')
 
 // 組長 PR #29 round-6 review, P1 (point 3): registered here — mounted for the SPA's entire
 // lifetime — rather than inside CartPage.vue, so an identity change (login/logout/account switch)
@@ -68,7 +69,8 @@ async function handleLogout(): Promise<void> {
       <div class="header-bar">
         <RouterLink
           class="brand-link"
-          to="/"
+          to="/welcome"
+          aria-label="DoSelect 懂選城市入口"
         >
           <!-- 標記是裝飾：旁邊的文字才是這個連結唯一的 accessible name，避免品牌名被念兩次 -->
           <BrandMark decorative />
@@ -161,24 +163,37 @@ async function handleLogout(): Promise<void> {
     <main
       id="main-content"
       class="site-main"
+      :class="{ 'site-main--welcome': isWelcomePage }"
       tabindex="-1"
     >
       <div
-        v-if="route.path !== '/'"
+        v-if="route.path !== '/' && !isWelcomePage"
         class="city-district"
         aria-hidden="true"
       >
         <span>DOSELECT COMPUTER CITY</span>
         <p>在懂選，找到你的下一站。</p>
       </div>
-      <div class="city-content">
+      <div
+        v-if="isWelcomePage"
+        class="welcome-content"
+      >
+        <RouterView />
+      </div>
+      <div
+        v-else
+        class="city-content"
+      >
         <CitySideStreets />
         <div class="view-shell">
           <RouterView />
         </div>
       </div>
     </main>
-    <footer class="site-footer">
+    <footer
+      v-if="!isWelcomePage"
+      class="site-footer"
+    >
       <p class="site-footer__brand">
         DoSelect 懂選
       </p>
@@ -192,6 +207,6 @@ async function handleLogout(): Promise<void> {
         </RouterLink>
       </p>
     </footer>
-    <DonnguGuide />
+    <DonnguGuide v-if="!isWelcomePage" />
   </div>
 </template>

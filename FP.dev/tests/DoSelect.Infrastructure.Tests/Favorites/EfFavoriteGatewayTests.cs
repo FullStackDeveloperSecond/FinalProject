@@ -171,6 +171,9 @@ public sealed class EfFavoriteGatewayTests
             var inStock = Assert.Single(result.Items, item => item.ProductPublicId == EfFavoriteGatewayFixture.InStockProductPublicId);
             Assert.Equal(ProductAvailabilityCodes.InStock, inStock.Availability);
             Assert.True(inStock.IsPurchasable);
+            Assert.NotNull(inStock.Price);
+            Assert.Equal(1_000m, inStock.Price.List);
+            Assert.Null(inStock.Price.Sale);
 
             var outOfStock = Assert.Single(result.Items, item => item.ProductPublicId == EfFavoriteGatewayFixture.OutOfStockProductPublicId);
             Assert.Equal(ProductAvailabilityCodes.OutOfStock, outOfStock.Availability);

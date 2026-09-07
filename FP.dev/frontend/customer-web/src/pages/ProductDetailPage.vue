@@ -200,8 +200,12 @@ const isNotFound = computed(() => isApiError(error.value) && error.value.status 
     class="product-detail"
   >
     <nav aria-label="麵包屑">
-      <RouterLink to="/products">
-        ← 回商品列表
+      <RouterLink
+        class="page-action page-action--secondary product-detail__back"
+        to="/products"
+      >
+        <span aria-hidden="true">←</span>
+        回商品列表
       </RouterLink>
     </nav>
 

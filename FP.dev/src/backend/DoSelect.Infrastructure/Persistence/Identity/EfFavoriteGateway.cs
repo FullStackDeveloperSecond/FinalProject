@@ -197,7 +197,7 @@ public sealed class EfFavoriteGateway : IFavoriteGateway
 
         ProductPrice? price = sku is null
             ? null
-            : new ProductPrice(sku.ListPrice, salePricesBySkuId.GetValueOrDefault(sku.Id), "TWD");
+            : new ProductPrice(sku.ListPrice, salePricesBySkuId.TryGetValue(sku.Id, out var salePrice) ? salePrice : null, "TWD");
 
         if (!isPublished)
         {

@@ -87,7 +87,7 @@ const searchParams = computed(() => ({
   brand: appliedFilters.value.brand || undefined,
   minPrice: appliedFilters.value.minPrice ? Number(appliedFilters.value.minPrice) : undefined,
   maxPrice: appliedFilters.value.maxPrice ? Number(appliedFilters.value.maxPrice) : undefined,
-  inStock: appliedFilters.value.inStock || undefined,
+  inStock: appliedFilters.value.inStock,
   specs: specFilters.value.length > 0 ? specFilters.value : undefined,
   sort: appliedFilters.value.sort,
   pageNumber: pageNumber.value,
