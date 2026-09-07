@@ -1,8 +1,8 @@
 ---
-文件狀態: WP-H01～WP-H06、WP-H08、H-R02、H-R03 已完成；WP-H07（DEC-HARU-03 已授權，PR #118）等待 Required CI／Review／合併；H-R04 文件內容完成、交付於 PR #116（本次再同步 H-R03 已合併與 H-R06 進度）
-最後更新: 2026-09-06
-基準分支: dev@ba48489（含 PR #117）
-執行分支: haru/feature/h-r03-refund-discount-e2e、haru/feature/wp-h07-favorites
+文件狀態: WP-H01～WP-H08、H-R02、H-R03、H-R04 均已完成並合併；DEC-HARU-03 授權已執行
+最後更新: 2026-09-07
+基準分支: dev@bb254ff6（含 PR #117、#118、#121）
+交付 PR: "#117、#118、#119（文件收尾）"
 原負責人: haru
 暫時接手: alex
 第一線覆核: yinyin
@@ -134,6 +134,7 @@ PR #72 原本混合 `M-01`、`M-02`、`M-08`、`S-01`，且 base 落後、最新
 | 2026-09-05 | H-R04 文件回填 | 文件完成／交付於 PR #116 | 依 PR #105／#106／#115 的 merge commit、測試與 CI 證據同步本文件、`未完成項目追蹤表.md`、`M功能實作矩陣.md` 與 `核心交易整合協調.md`。移除 COD 接線／主旅程仍缺的過期敘述；DES-21／DES-22、其他非主路徑 E2E 與 WP-H07／S-01 狀態保持不變。PR 合併狀態以 GitHub 為準。 |
 | 2026-09-05 | H-R03 退款／折讓完整 Browser E2E | 完成／已進 `dev` | PR #117 已於 2026-09-06 squash merge 為 `dev@ba48489`；alex 三輪 review（管理員 TOTP 綁定共用狀態競態、Guest Order Access 共用 IP 流控、Actor Scope 負向案例零副作用資料層證據，以及 CI 實測後的 Seeder DI／CI 環境變數／共用資料庫退款清單定位問題）皆已修正並通過 exact-head Required CI。以 Browser E2E 補齊全額退款（Order 投影 `Refunded`，含核准／執行 Idempotency-Key 重播、退款分攤完整性、發票折讓建立與重播）、部分退款（Order 投影 `PartiallyRefunded`）、Actor Scope 負向案例（另一位訪客讀取／建立退貨回 404、匿名核准回 401，皆零副作用）與管理員摘要遮蔽。過程中一度懷疑核准與執行金額不一致是後端 bug，深入追查後確認是合法的 ShippingClawback 分攤（退貨後掉到免運門檻以下），非 bug。發現並記錄兩個既有缺口，未在本輪修改對應原始碼：後台退貨審核表單缺 `AssemblyFeeDisposition`／`ReturnShippingCost` 欄位（該步改走 API 直接呼叫）；`OrderListPage.vue` 批次勾選狀態在任何背景資料重新整理時都會被清空，造成既有 H-R02 測試共用的 `shipOrdersThroughAdminUi` 出現 race condition（新測試改用既有單筆 `markShipped` API 端點繞開）。零淨額案例受限於目前 E2E 種子資料（最便宜可套用優惠券商品 $5,000，優惠券折扣上限 $2,000，淨退款下限恆為 +$3,000）無法建構，暫不補瀏覽器端證據，核心邏輯已有 SQL Server 層測試覆蓋。無 Schema、Migration 或套件變更。 |
 | 2026-09-05 | DEC-HARU-03：WP-H07／S-01 本輪例外授權 | alex 已確認授權 | 使用者向 alex 確認取得本輪明確例外授權後，從最新 `dev`（`5e5f435`）重新稽核既有 `haru/feature/member-favorites` worktree 範圍，沿用既有 `Favorite` Entity／Migration／Configuration，未新增或修改資料庫欄位。合併 49 個既有 dev commit（merge，非 rebase），OpenAPI contract／generated schema 衝突已用專屬可丟棄資料庫重新產生（diff 只新增 Favorites 端點，未遺失或竄改既有內容）。Domain 481/481、Application 474/474、Infrastructure 653/653（含 Favorites）、Favorites API 整合測試 8/8、customer-web typecheck／lint／build／362 測試全數通過。已建立 PR #118，等待 Required CI／Review／合併。 |
+| 2026-09-07 | WP-H07／S-01 最終複核與合併 | 完成／已進 `dev` | PR #118 更新至最新 dev 後，review 發現商品詳情只以收藏清單前 100 筆推斷狀態，已改為會員範圍的單商品收藏狀態查詢，並補 Actor Scope、Gateway、Controller 與前端 query 回歸測試；同時修正測試模組快取造成的假通過風險。精確 head `3e7f587e` 的本機 Build、SQL/API 整合、前端測試／型別／lint、Codex Security 0 finding 與 Required CI Run `34079007646` 全綠，核准後 squash merge 為 `dev@bb254ff6`。無新 Schema、Migration、套件或安全例外。 |
 
 ### 8.1 共用 DB 事故後續約束
 
@@ -144,4 +145,4 @@ PR #72 原本混合 `M-01`、`M-02`、`M-08`、`S-01`，且 base 落後、最新
 
 ## 9. 下一步
 
-WP-H01～WP-H06、WP-H08 與後續 H-R02 已完成並進入 `dev@37402a81`。H-R04 文件內容已完成並交付於 PR #116（合併狀態以 GitHub 為準）。H-R03 退款／折讓完整 Browser E2E 已由 PR #117 於 2026-09-06 squash merge 為 `dev@ba48489`。WP-H07／S-01 已取得本輪明確例外授權（DEC-HARU-03），對應 PR #118 已建立，等待 Required CI／Review／合併——在合併前不得宣告已進 `dev`。零淨額退款案例、其他非主路徑 Browser E2E 仍由原追蹤項目管理，不因本輪提前關閉。
+WP-H01～WP-H08 與後續 H-R02／H-R03 已完成；H-R04 由 PR #116 與本次 PR #119 完成證據收尾。WP-H07／S-01 依 DEC-HARU-03 授權完成並由 PR #118 squash merge 為 `dev@bb254ff6`。Haru 暫接工程包已無待合併程式項目；零淨額退款與其他非主路徑 Browser E2E 繼續由 DES-21／DES-22 管理，不因本工程包結束而誤標完成。

@@ -15,9 +15,11 @@ import { expect, test } from './fixtures.js'
 // 證明「管理員開票 API」這條路徑，不代表付款 Outbox／Consumer 自動開票鏈路——那條鏈路的證據
 // 在 #117，見 alex 2026-09-05 #98 裁定第 2 點）。
 //
-// 管理員登入用的是 seed 階段就已寫死綁定 TOTP 秘鑰的獨立帳號（refundJourneyAdminEmail／
-// refundJourneyAdminTotpSecret，見 MinimalDevelopmentDataSeeder），不在這支測試裡跑一次性
-// 的 UI 綁定流程——退款旅程不需要驗證「綁定」這個能力本身（admin.spec.ts 已有專門測試），
+// 管理員登入用的是 seed 階段就已預先綁定 TOTP 秘鑰的獨立帳號（refundJourneyAdminEmail／
+// refundJourneyAdminTotpSecret，見 MinimalDevelopmentDataSeeder.EnsureRefundJourneyOrderAsync
+// ——只在隔離 E2E 資料庫才會建立，秘鑰值也不寫死在原始碼裡，由 Seed__RefundJourneyAdminTotpSecret
+// 環境變數注入，AUTO-DEC-006；han00r 2026-09-06 #108 回報原本無條件建立、秘鑰寫死的缺口），
+// 不在這支測試裡跑一次性的 UI 綁定流程——退款旅程不需要驗證「綁定」這個能力本身（admin.spec.ts 已有專門測試），
 // 用已知秘鑰讓「登入」這個子步驟本身可以安全重算 TOTP code（alex 2026-09-05 #98 review
 // P3）。但這不代表整條旅程可以安全 retry：建立退貨申請等寫入操作不是冪等的，若第一次
 // 執行在建立 Return 之後才失敗，Playwright 的 retry 對同一筆 seed 訂單重新呼叫建立
@@ -166,9 +168,10 @@ test('a finance administrator approves, executes and issues an allowance via the
   // ── 管理員：登入（全程沿用同一個 page，後面所有動作共用這個登入態）。用獨立的
   // refundJourneyAdminEmail，不是共用的 seed.adminEmail——同一輪 CI 的 admin-chromium
   // 專案單一 worker 依序跑完所有 spec，admin.spec.ts 自己的 TOTP 綁定測試會先把共用帳號
-  // 綁定掉。這個帳號的 TOTP 秘鑰在 seed 階段就已經寫死綁定（見
-  // MinimalDevelopmentDataSeeder.EnsureRefundJourneyOrderAsync 與
-  // seed.refundJourneyAdminTotpSecret），不在這支測試裡跑一次性的 UI 綁定流程——退款旅程
+  // 綁定掉。這個帳號的 TOTP 秘鑰在 seed 階段就已經預先綁定（見
+  // MinimalDevelopmentDataSeeder.EnsureRefundJourneyOrderAsync，僅限隔離 E2E 資料庫；秘鑰值
+  // 由 seed.refundJourneyAdminTotpSecret 讀取，兩邊都指向同一個 Seed__RefundJourneyAdminTotpSecret
+  // 環境變數，不寫死在原始碼裡），不在這支測試裡跑一次性的 UI 綁定流程——退款旅程
   // 不需要驗證「綁定」這個能力本身（admin.spec.ts 已經有專門測試），用已知秘鑰讓「登入」
   // 這一步本身用同一把秘鑰重新算 TOTP code 就能重來，不會像走一次性 enroll 畫面那樣，
   // 秘鑰只活在第一次成功的畫面上（alex 2026-09-05 #98 review P3）。但整條旅程仍非冪等
@@ -176,6 +179,9 @@ test('a finance administrator approves, executes and issues an allowance via the
   // 來偽裝整條旅程可安全 retry（alex 2026-09-06 #98 review P2）。 ──────────────────
   if (!seed.adminPassword) {
     throw new Error('Seed__AdminPassword is required for an administrator E2E journey.')
+  }
+  if (!seed.refundJourneyAdminTotpSecret) {
+    throw new Error('Seed__RefundJourneyAdminTotpSecret is required for the refund journey administrator.')
   }
 
   await page.goto('./')

@@ -5690,6 +5690,134 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/members/me/favorites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    PageNumber?: number | string;
+                    PageSize?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["PageResultOfFavoriteItemDto"];
+                        "application/json": components["schemas"]["PageResultOfFavoriteItemDto"];
+                        "text/json": components["schemas"]["PageResultOfFavoriteItemDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/members/me/favorites/{productId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    productId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["FavoriteStatusDto"];
+                        "application/json": components["schemas"]["FavoriteStatusDto"];
+                        "text/json": components["schemas"]["FavoriteStatusDto"];
+                    };
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    productId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    productId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/support-tickets/{id}": {
         parameters: {
             query?: never;
@@ -11401,6 +11529,23 @@ export interface components {
             /** Format: byte */
             returnRowVersion: string;
         };
+        FavoriteItemDto: {
+            /** Format: uuid */
+            productPublicId: string;
+            productCode: string;
+            name: string;
+            brand: components["schemas"]["ProductBrandRef"];
+            category: components["schemas"]["ProductCategoryRef"];
+            price: null | components["schemas"]["ProductPrice"];
+            primaryImage: null | components["schemas"]["ProductImageSummary"];
+            availability: string;
+            isPurchasable: boolean;
+            /** Format: date-time */
+            createdAtUtc: string;
+        };
+        FavoriteStatusDto: {
+            isFavorited: boolean;
+        };
         /** @enum {unknown} */
         FulfillmentStatus: "pending" | "preparing" | "shipped" | "inTransit" | "pickupReady" | "pickedUp" | "delivered" | "deliveryFailed" | "returned";
         GuestOrderAccessRequestAcceptedDto: {
@@ -11937,6 +12082,17 @@ export interface components {
         };
         PageResultOfCouponDto: {
             items: components["schemas"]["CouponDto"][];
+            /** Format: int32 */
+            pageNumber: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+            /** Format: int32 */
+            totalCount: number | string;
+            /** Format: int32 */
+            totalPages?: number | string;
+        };
+        PageResultOfFavoriteItemDto: {
+            items: components["schemas"]["FavoriteItemDto"][];
             /** Format: int32 */
             pageNumber: number | string;
             /** Format: int32 */

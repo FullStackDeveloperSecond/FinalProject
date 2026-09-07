@@ -135,7 +135,13 @@ internal static class MinimalDevelopmentSeedDefinitions
     // 所屬的整條 E2E 旅程仍不是冪等的（建立退貨申請等寫入操作對著同一筆 seed 訂單），該測試
     // 已改用 retries: 0 明確關閉重試，不依賴「登入可重算」讓整條旅程看起來能安全 retry
     // （alex 2026-09-06 #98 review P2）。
-    internal const string RefundJourneyAdminTotpSecret = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP";
+    //
+    // han00r 2026-09-06 #108 回報：秘鑰值不得寫死在原始碼裡，只能在
+    // MinimalDevelopmentDataSeeder.IsIsolatedE2EEnvironment() 為 true 時才由呼叫端讀取並寫入
+    // （跟 AdminPasswordKey／AdminHr03TotpSecretKey 同一套 AUTO-DEC-006 慣例）；實際值由
+    // scripts/test-customer-e2e.ps1 與 .github/workflows/ci.yml 以
+    // Seed__RefundJourneyAdminTotpSecret 環境變數注入。
+    internal const string RefundJourneyAdminTotpSecretKey = "Seed:RefundJourneyAdminTotpSecret";
 
     internal static readonly DateTime CreatedAtUtc =
         new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
