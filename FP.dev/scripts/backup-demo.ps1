@@ -89,10 +89,13 @@ try {
     }
     $manifest.database = Get-FileEvidence -Path $databaseBackupPath
 
-    $snapshotSources = @(
+    $snapshotCandidates = @(
         (Join-Path $resolvedDataRoot 'product-images'),
         (Join-Path $resolvedDataRoot 'private-files')
-    ) | Where-Object { Test-Path -LiteralPath $_ -PathType Container }
+    )
+    $snapshotSources = @($snapshotCandidates | Where-Object {
+        Test-Path -LiteralPath $_ -PathType Container
+    })
     if ($snapshotSources.Count -gt 0) {
         Compress-Archive -LiteralPath $snapshotSources -DestinationPath $filesArchivePath -CompressionLevel Optimal
         $manifest.files = Get-FileEvidence -Path $filesArchivePath
