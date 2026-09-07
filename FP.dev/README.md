@@ -221,14 +221,14 @@ npm run test:coverage --prefix frontend\admin-web
 .\scripts\prune-demo-backups.ps1 -WhatIf
 ```
 
-乾淨環境先執行前置檢查；另一位組員在 Fresh Clone 上使用完整模式並把結果寫入日誌，才能關閉 DEV-02：
+乾淨環境可依下列命令執行前置檢查。ENV-RC-03／DEV-02 的第二機 Fresh Clone 目前明確保留為「未測試、非阻擋」：尚未取得跨機通過證據，也不得宣稱完成，但不阻擋 ENV-RC-04 與其後工作。日後補驗時，另一位組員應在 Fresh Clone 上使用完整模式並把去識別結果寫入日誌：
 
 ```powershell
 .\scripts\verify-clean-environment.ps1
 .\scripts\verify-clean-environment.ps1 -RunVerification
 ```
 
-`-RunVerification` 涵蓋 Restore、Build、.NET tests、雙前端 `npm ci`／Typecheck／Lint／Coverage／production build，但不會修改資料庫或啟動服務。Fresh Clone 驗收還必須在設定 `GuestOrderAccess:Pepper` 後依序執行下方的完整 Migration、最小 Seed、SQL 驗證、三服務啟動與健康檢查；任何步驟失敗都不得把 DEV-02／ENV-RC-03 標成完成。執行紀錄只保存 revision、環境版本、命令、通過／失敗與去識別日誌，不保存 User Secrets、連線字串、帳號、機器名或資料列。
+`-RunVerification` 涵蓋 Restore、Build、.NET tests、雙前端 `npm ci`／Typecheck／Lint／Coverage／production build，但不會修改資料庫或啟動服務。Fresh Clone 驗收還必須在設定 `GuestOrderAccess:Pepper` 後依序執行下方的完整 Migration、最小 Seed、SQL 驗證、三服務啟動與健康檢查；未執行或任何步驟失敗都不得把 DEV-02／ENV-RC-03 標成完成，但依 2026-09-08 裁定不因此阻擋後續項目。執行紀錄只保存 revision、環境版本、命令、通過／失敗與去識別日誌，不保存 User Secrets、連線字串、帳號、機器名或資料列。
 
 ENV-RC-03 的第二機執行順序固定如下；各命令的參數與安全邊界見後續章節：
 
