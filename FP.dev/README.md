@@ -206,13 +206,13 @@ npm run test:coverage --prefix frontend\admin-web
 備份根目錄必須位於 `Storage:DataRoot` 外，避免壓縮檔包含自身。下列命令會建立同一 Backup Set ID 的 SQL 完整備份、商品圖／私有附件封存與不含 Secret 的 UTF-8 JSON Manifest：
 
 ```powershell
-.\scripts\backup-demo.ps1 -Environment Demo -Reason manual
+.\scripts\backup-demo.ps1 -DatabaseName DoSelectDemo -Environment Demo -Reason manual
 ```
 
 還原只允許建立另一個驗證資料庫與驗證檔案目錄，不覆寫 `DoSelectDb`：
 
 ```powershell
-.\scripts\restore-demo.ps1 -BackupSetDirectory E:\FinalProjectBackups\<backup-set-id>
+.\scripts\restore-demo.ps1 -BackupSetDirectory E:\FinalProjectBackups\<backup-set-id> -VerificationDatabaseName DoSelectDemo_<32-hex>
 ```
 
 保留清理預設保留每日 7 份、每週 4 份；沒有任何「成功還原驗證且仍被保留」的 Backup Set 時會拒絕刪除。先使用 `-WhatIf` 查看目標：
