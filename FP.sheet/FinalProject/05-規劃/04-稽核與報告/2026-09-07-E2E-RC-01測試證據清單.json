@@ -1,0 +1,63 @@
+{
+  "schemaVersion": "1.0",
+  "runId": "e2e-rc-01-20260907-dev-e5d46f4a",
+  "revision": "e5d46f4a53a5199b6dd1a0afabcf592baa05a593",
+  "evidenceTier": "T2",
+  "environment": {
+    "osFamily": "Windows",
+    "dotnetSdk": "10.0.400",
+    "node": "24.18.1",
+    "npm": "11.16.0",
+    "playwright": "1.62.1",
+    "databaseProvider": "SQL Server",
+    "databaseIdentity": "generated allowlisted test databases; names omitted"
+  },
+  "execution": {
+    "workers": 1,
+    "configuredRetries": 1,
+    "actualTestRetries": 0,
+    "discovered": 50,
+    "executed": 50,
+    "passed": 50,
+    "failed": 0,
+    "skipped": 0,
+    "browser": {
+      "executed": 2,
+      "passed": 2,
+      "durationSeconds": 30.9
+    },
+    "sqlProvider": {
+      "executed": 48,
+      "passed": 48,
+      "durationSeconds": 25,
+      "refundExecutor": 38,
+      "invoiceAllowance": 10
+    }
+  },
+  "artifacts": [
+    {
+      "kind": "playwright-html",
+      "retention": "local ignored workspace artifact",
+      "bytes": 546119,
+      "sha256": "2f466f6e1e97fd53463fdd2e586da58c214c4eab61a37fe08107f4b42efa6ebb"
+    },
+    {
+      "kind": "vstest-trx",
+      "retention": "local ignored workspace artifact",
+      "bytes": 74841,
+      "sha256": "146b6cc8607f28bf579a7c6d7bfc3a240dde33e404eb5c4d6f1513c4527a0614"
+    }
+  ],
+  "sanitization": {
+    "status": "PASS",
+    "credentialPatternMatches": 0,
+    "connectionStringPatternMatches": 0,
+    "authorizationOrCookiePatternMatches": 0
+  },
+  "status": "PASS",
+  "limitations": [
+    "Passing Playwright runs do not retain trace, screenshot or video under the repository failure-only policy.",
+    "The first sandbox attempt stopped before database creation because integrated SQL authentication was unavailable; the unchanged system-environment run passed.",
+    "E2E-RC-02 non-main invoice and allowance behavior remains out of scope."
+  ]
+}
