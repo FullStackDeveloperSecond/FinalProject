@@ -3,14 +3,10 @@ param()
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'common.ps1')
 
-$projectRoot = Split-Path -Parent $PSScriptRoot
-$apiProject = Join-Path $projectRoot 'src\backend\DoSelect.Api'
-$dotnet = 'C:\Users\alexy\.dotnet\dotnet.exe'
-
-if (-not (Test-Path -LiteralPath $dotnet -PathType Leaf)) {
-    throw "The pinned .NET SDK executable was not found at '$dotnet'."
-}
+$apiProject = Join-Path $script:ProjectRoot 'src\backend\DoSelect.Api'
+$dotnet = Get-RequiredCommand -Name 'dotnet.exe'
 
 function Set-SeedSecret {
     param(
@@ -57,8 +53,14 @@ function Set-SeedSecret {
     }
 }
 
-Write-Host 'Passwords require at least 6 characters with uppercase, lowercase, number, and special characters.'
-Set-SeedSecret -Key 'Seed:AdminPassword' -Prompt 'Seed admin password'
-Set-SeedSecret -Key 'Seed:MemberPassword' -Prompt 'Seed member password'
+Push-Location $script:ProjectRoot
+try {
+    Write-Host 'Passwords require at least 6 characters with uppercase, lowercase, number, and special characters.'
+    Set-SeedSecret -Key 'Seed:AdminPassword' -Prompt 'Seed admin password'
+    Set-SeedSecret -Key 'Seed:MemberPassword' -Prompt 'Seed member password'
 
-Write-Host 'Seed passwords were stored in .NET User Secrets. No values were written to the repository.'
+    Write-Host 'Seed passwords were stored in .NET User Secrets. No values were written to the repository.'
+}
+finally {
+    Pop-Location
+}

@@ -3,17 +3,13 @@ param()
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'common.ps1')
 
-$projectRoot = Split-Path -Parent $PSScriptRoot
-$apiProject = Join-Path $projectRoot 'src\backend\DoSelect.Api'
-$dotnet = 'C:\Users\alexy\.dotnet\dotnet.exe'
-
-if (-not (Test-Path -LiteralPath $dotnet -PathType Leaf)) {
-    throw "The pinned .NET SDK executable was not found at '$dotnet'."
-}
+$apiProject = Join-Path $script:ProjectRoot 'src\backend\DoSelect.Api'
+$dotnet = Get-RequiredCommand -Name 'dotnet.exe'
 
 $previousEnvironment = $env:ASPNETCORE_ENVIRONMENT
-Push-Location $projectRoot
+Push-Location $script:ProjectRoot
 try {
     $env:ASPNETCORE_ENVIRONMENT = 'Development'
     & $dotnet run --project $apiProject --no-launch-profile -- --seed-minimal
