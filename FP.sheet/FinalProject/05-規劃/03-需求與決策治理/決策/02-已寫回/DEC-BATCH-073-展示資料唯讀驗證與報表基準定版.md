@@ -1,6 +1,6 @@
 # DEC-BATCH-073｜展示資料唯讀驗證與報表基準定版
 
-- 狀態：本機實作、review 與測試通過，待 Security／PR Required CI／合併
+- 狀態：✅ 已完成並合併
 - 日期：2026-09-07
 - 決策者：Codex（依 alex 常駐授權）
 - 來源：DATA-RC-03／DATA-08
@@ -35,7 +35,9 @@
 - 故意將一筆已付款金額增加 1：筆數、約束與完整性仍通過，只有 `reportBaselines` 失敗、exit 1；拋棄式資料庫已刪除。
 - 首輪沙箱 TLS 失敗與首輪 `sqlcmd` 未注入污染的演練均明列為無效證據，不用於核准。
 
-## 後續 Gate
+## 交付 Gate 結果
 
-- 固定 revision 仍須完成 Security diff scan、push、PR exact-head review、Required CI 與 squash merge，才可關閉 DATA-RC-03／DATA-08。
-- DATA-RC-04 在本項合併後再執行，不提前宣告完成。
+- Security diff scan `f7a363ed-7c97-44d2-a4c8-f79e99fdfef2`：snapshot `cf89e056ac1ecf57f90b7c4955b083b498956b126815d1acf709fa422ed6cbfd`、7／7 review items、5 surfaces、0 finding、coverage `complete`。
+- PR #147 exact head `473d9a4d752948d28582d716d7631dfb2fdd2747` 的 Required CI Run `34089858394` 全綠；Backend 12m11s、Browser E2E 4m59s、`CI Required` 通過。
+- 同帳號正式核准被 GitHub 拒絕後，依 alex 既有授權以管理員 bypass squash merge；遠端 readback 為 `dev@483deeee830bbcb071143ee366cbc93ea3523899`，功能分支已刪除。
+- DATA-RC-03／DATA-08 關閉；DATA-RC-04 進入下一個待辦，不在本決策提前宣告完成。
