@@ -67,7 +67,21 @@
     "recentIsolatedDatabaseCount": 0
   },
   "testStatus": "PASS",
-  "deliveryStatus": "PENDING_SECURITY_PR_CI_REVIEW_MERGE",
+  "deliveryStatus": "MERGED_DEV",
+  "delivery": {
+    "pullRequest": 152,
+    "headRevision": "23edca0827821f8f633811874aa9371ed619da3f",
+    "securityScanId": "4a63c87e-bbe7-49d2-9357-6941928aac67",
+    "securityCoverage": "complete",
+    "securityFindingCount": 0,
+    "ciRun": 34107915949,
+    "requiredCi": "PASS",
+    "formalApproval": "REJECTED_SELF_REVIEW",
+    "adminBypass": "AUTHORIZED_AFTER_ALL_GATES_PASSED",
+    "mergeMethod": "squash",
+    "mergeRevision": "4132fe43eff240e2e46c9fe9df5d6ac6f6f01d7c",
+    "mergedAtUtc": "2026-09-07T09:59:52Z"
+  },
   "limitations": [
     "This gate covers the high-risk rejected-void path after a succeeded refund; it does not claim a successful void or every invoice and allowance variant.",
     "Passing Playwright runs do not retain trace, screenshot or video under the repository failure-only policy.",
