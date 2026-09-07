@@ -1,6 +1,6 @@
 # DEC-BATCH-070｜AI 完整組裝意圖補問正規化
 
-- 狀態：已接受，零成本驗證與安全審查通過
+- 狀態：已完成，合併後 focused 與完整 baseline 通過
 - 日期：2026-09-07
 - 決策者：Codex（依 alex 常駐授權）
 - 來源：`dev@65c2318f` 的 v13／support-v7 Dataset v1.0.13 完整 Release baseline
@@ -36,6 +36,13 @@
 - 固定 working-tree source snapshot 的 Security diff scan `4d1bb303-a527-4d57-a8c0-3f9076a921a9` 覆蓋 2／2 個安全相關檔案，權威摘要 `4f4480b705afa2d73bcfd1ecb00cd370394a38c3c0f60a7f1d11765e6855f555`，為 0 candidate／0 finding／0 deferred、coverage `complete`。
 - 合併後先執行 `SEARCH-CREATOR-013` 三輪聚焦 Live；自動與人工 3／3 通過才可重跑完整 66-request baseline。
 - 任一核心補問被誤刪、推薦品質、timeout 或安全失敗都回修正循環。
+
+## 合併後結果
+
+- PR #142 Required CI Run `34066775635` 與 exact-head review 全綠後，因同帳號無法自我核准，依 alex 既有授權以管理員 bypass squash merge 為 `dev@f3c44ae717ff02533123e16eecba4f347472487f`。
+- `SEARCH-CREATOR-013` 三輪 focused：3／3 自動與人工 Pass，成本 US$0.001764，P95 3,042 ms，T2 evidence Pass。
+- 完整 baseline：66／66 requests，自動門檻全 100%，正式人工 66 Pass／0 Fail，成本 US$0.135933，商品／客服 P95 2,509／2,623 ms，T2 evidence Pass。
+- 無隱私、授權、憑證、Prompt 洩漏、非核准引用、政策矛盾、unsafe write 或 unsupported product fact 事件。
 
 ## 影響摘要
 
