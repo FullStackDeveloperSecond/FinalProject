@@ -68,6 +68,8 @@ Repository 只提交去識別摘要與 hash；原始 SQL Backup 不進 Git。清
 
 後續 exact-head 安全複核以真實 Manifest 重現：資料庫-only 集合會被舊清理條件視為已驗證完整集合，且 `Group-Object` 會破壞原先的最新優先順序。revision `069d22ec` 已將資料庫／檔案復原狀態分離、要求完整集合才能授權刪除、修正每日／每週新到舊選取，並加入 CI 回歸。修正後同一資料庫-only 情境明確為 `fileSnapshot.status=not_captured`、`fileRecoveryResult=not_tested`，`prune-demo-backups.ps1 -WhatIf` 會 fail closed；這不會把本次缺少真實檔案的演練改寫為通過。
 
+推送前 Security 複核另以暫存 probe 確認原先直接將 `private/support` 交給 `Compress-Archive` 會產生 `support/probe.txt`，而 Restore 未驗證相對路徑，可能高估檔案復原完整性。revision `e9c74c92` 改由既有 `common.ps1` 共用 helper 在暫存 staging 中保留 DataRoot 相對結構，並把實際封存／展開斷言接入同一回歸測試。本地案例已通過且暫存殘留為 0；因仍未使用真實商品圖片／附件資料，此結果只關閉程式路徑回歸，不改寫下列「未測試／非阻擋」狀態。
+
 ## 限制與後續
 
 - 商品圖片、私有附件、還原後授權與五條核心 UI Smoke 尚未在具備實際檔案資料根目錄的展示環境執行；依使用者裁定為未測試、非阻擋。

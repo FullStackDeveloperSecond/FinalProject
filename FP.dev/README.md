@@ -203,7 +203,7 @@ npm run test:coverage --prefix frontend\admin-web
 
 ## Backup Set 與還原驗證
 
-備份根目錄必須位於 `Storage:DataRoot` 外，避免壓縮檔包含自身。下列命令會建立同一 Backup Set ID 的 SQL 完整備份、商品圖／私有附件封存與不含 Secret 的 UTF-8 JSON Manifest：
+備份根目錄必須位於 `Storage:DataRoot` 外，避免壓縮檔包含自身。檔案封存會保留相對於 DataRoot 的完整目錄結構，例如 `private/support` 不得扁平化為 `support`。下列命令會建立同一 Backup Set ID 的 SQL 完整備份、商品圖／私有附件封存與不含 Secret 的 UTF-8 JSON Manifest：
 
 ```powershell
 .\scripts\backup-demo.ps1 -DatabaseName DoSelectDemo -Environment Demo -Reason manual
@@ -220,6 +220,8 @@ npm run test:coverage --prefix frontend\admin-web
 ```powershell
 .\scripts\prune-demo-backups.ps1 -WhatIf
 ```
+
+`test-backup-retention-safety.ps1` 以暫存資料同時驗證 database-only fail-closed、最近集合選取及 `private/support` 封存／展開路徑不變量；不連線 SQL 或讀取真實附件。
 
 乾淨環境可依下列命令執行前置檢查。ENV-RC-03／DEV-02 的第二機 Fresh Clone 目前明確保留為「未測試、非阻擋」：尚未取得跨機通過證據，也不得宣稱完成，但不阻擋 ENV-RC-04 與其後工作。日後補驗時，另一位組員應在 Fresh Clone 上使用完整模式並把去識別結果寫入日誌：
 
