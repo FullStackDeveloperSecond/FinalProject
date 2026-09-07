@@ -129,6 +129,25 @@ if (args.Contains("--seed-demo", StringComparer.OrdinalIgnoreCase))
     return;
 }
 
+if (args.Contains("--validate-demo", StringComparer.OrdinalIgnoreCase))
+{
+    if (!app.Environment.IsDevelopment())
+    {
+        throw new InvalidOperationException(
+            "The demo validation command is restricted to the Development environment.");
+    }
+
+    await using var scope = app.Services.CreateAsyncScope();
+    var validator = scope.ServiceProvider.GetRequiredService<DemoDataValidator>();
+    var result = await validator.ValidateAsync();
+    Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(result));
+    if (!result.IsValid)
+    {
+        Environment.ExitCode = 1;
+    }
+    return;
+}
+
 app.UseRequestObservability();
 app.UseApiFoundation();
 

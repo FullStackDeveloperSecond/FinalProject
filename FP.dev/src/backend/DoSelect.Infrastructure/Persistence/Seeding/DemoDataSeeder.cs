@@ -13,18 +13,15 @@ using DoSelect.Domain.Reviews;
 using DoSelect.Domain.Shipping;
 using DoSelect.Domain.Support;
 using DoSelect.Infrastructure.Persistence.Identity;
-using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
 namespace DoSelect.Infrastructure.Persistence.Seeding;
 
 public sealed class DemoDataSeeder(DoSelectDbContext dbContext)
 {
-    private const string MarkerBrandCode = "DEMO-V2-BRAND-001";
-
     public async Task<DemoSeedResult> SeedAsync(CancellationToken cancellationToken = default)
     {
-        EnsureAllowedDatabase();
+        DemoDatabaseSafety.EnsureAllowedLocalDatabase(dbContext);
         if (await dbContext.Database.CanConnectAsync(cancellationToken))
         {
             var pendingMigrations = await dbContext.Database
@@ -58,7 +55,7 @@ public sealed class DemoDataSeeder(DoSelectDbContext dbContext)
         if (beforeTotal == DemoSeedManifest.MainBusinessRecordTotal &&
             CountsMatchManifest(before) &&
             await dbContext.Brands.AnyAsync(
-                brand => brand.Code == MarkerBrandCode,
+                brand => brand.Code == DemoSeedManifest.MarkerBrandCode,
                 cancellationToken))
         {
             return await CreateResultAsync(created: false, before, cancellationToken);
@@ -106,43 +103,6 @@ public sealed class DemoDataSeeder(DoSelectDbContext dbContext)
 
         await transaction.CommitAsync(cancellationToken);
         return await CreateResultAsync(created: true, after, cancellationToken);
-    }
-
-    private void EnsureAllowedDatabase()
-    {
-        var connectionString = dbContext.Database.GetConnectionString();
-        if (string.IsNullOrWhiteSpace(connectionString))
-        {
-            throw new InvalidOperationException("A SQL Server connection string is required.");
-        }
-
-        var builder = new SqlConnectionStringBuilder(connectionString);
-        var databaseName = builder.InitialCatalog;
-        var validSuffix = databaseName.StartsWith("DoSelectDemo_", StringComparison.Ordinal) &&
-            databaseName.Length == "DoSelectDemo_".Length + 32 &&
-            databaseName["DoSelectDemo_".Length..].All(Uri.IsHexDigit);
-        if (!string.Equals(databaseName, "DoSelectDemo", StringComparison.Ordinal) && !validSuffix)
-        {
-            throw new InvalidOperationException(
-                "Demo seed is restricted to 'DoSelectDemo' or 'DoSelectDemo_<32 hex>' databases.");
-        }
-
-        var dataSource = builder.DataSource.Trim();
-        if (dataSource.StartsWith("tcp:", StringComparison.OrdinalIgnoreCase))
-        {
-            dataSource = dataSource[4..];
-        }
-        var host = dataSource.Split(['\\', ','], 2)[0];
-        var isLocalHost = host is "." or "(local)" ||
-            string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(host, "127.0.0.1", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(host, "::1", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(host, Environment.MachineName, StringComparison.OrdinalIgnoreCase);
-        if (!isLocalHost)
-        {
-            throw new InvalidOperationException(
-                "Demo seed is restricted to a local or loopback SQL Server data source.");
-        }
     }
 
     private async Task SeedUsersAsync(CancellationToken cancellationToken)
@@ -221,7 +181,7 @@ public sealed class DemoDataSeeder(DoSelectDbContext dbContext)
         };
         var brands = brandNames.Select((name, i) => new Brand(
             StableGuid($"brand:{i}"),
-            i == 0 ? MarkerBrandCode : $"DEMO-BRAND-{i + 1:D3}",
+            i == 0 ? DemoSeedManifest.MarkerBrandCode : $"DEMO-BRAND-{i + 1:D3}",
             name,
             DemoSeedManifest.PeriodStartUtc)).ToArray();
         var categories = Enumerable.Range(0, 5).Select(i => new Category(
@@ -916,37 +876,11 @@ public sealed class DemoDataSeeder(DoSelectDbContext dbContext)
     }
 
     private async Task<Dictionary<string, int>> ReadCountsAsync(
-        CancellationToken cancellationToken)
-    {
-        return new Dictionary<string, int>(StringComparer.Ordinal)
-        {
-            ["members"] = await dbContext.MemberProfiles.CountAsync(cancellationToken),
-            ["addresses"] = await dbContext.MemberAddresses.CountAsync(cancellationToken),
-            ["products"] = await dbContext.Products.CountAsync(cancellationToken),
-            ["skus"] = await dbContext.Skus.CountAsync(cancellationToken),
-            ["productSpecificationValues"] = await dbContext.SkuSpecificationValues.CountAsync(cancellationToken),
-            ["orders"] = await dbContext.Orders.CountAsync(cancellationToken),
-            ["orderItems"] = await dbContext.OrderItems.CountAsync(cancellationToken),
-            ["paymentAttempts"] = await dbContext.PaymentAttempts.CountAsync(cancellationToken),
-            ["shipments"] = await dbContext.Shipments.CountAsync(cancellationToken),
-            ["inventoryMovements"] = await dbContext.InventoryMovements.CountAsync(cancellationToken),
-            ["supportTickets"] = await dbContext.SupportTickets.CountAsync(cancellationToken),
-            ["supportMessages"] = await dbContext.SupportMessages.CountAsync(cancellationToken),
-            ["returnRequests"] = await dbContext.ReturnRequests.CountAsync(cancellationToken),
-            ["refunds"] = await dbContext.Refunds.CountAsync(cancellationToken),
-            ["productReviews"] = await dbContext.ProductReviews.CountAsync(cancellationToken),
-            ["favorites"] = await dbContext.Favorites.CountAsync(cancellationToken),
-            ["couponsAndRedemptions"] =
-                await dbContext.Coupons.CountAsync(cancellationToken) +
-                await dbContext.CouponRedemptions.CountAsync(cancellationToken),
-            ["aiSearchFunnelEvents"] = 0,
-        };
-    }
+        CancellationToken cancellationToken) =>
+        await DemoDataSnapshotReader.ReadCountsAsync(dbContext, cancellationToken);
 
     private static bool CountsMatchManifest(IReadOnlyDictionary<string, int> actual) =>
-        DemoSeedManifest.ExpectedCounts.All(expected =>
-            actual.TryGetValue(expected.Key, out var count) && count == expected.Value) &&
-        actual.Values.Sum() == DemoSeedManifest.MainBusinessRecordTotal;
+        DemoDataSnapshotReader.CountsMatchManifest(actual);
 
     private async Task<DemoSeedResult> CreateResultAsync(
         bool created,
@@ -963,82 +897,8 @@ public sealed class DemoDataSeeder(DoSelectDbContext dbContext)
             await ReadDistributionAsync(cancellationToken));
 
     private async Task<IReadOnlyDictionary<string, int>> ReadDistributionAsync(
-        CancellationToken cancellationToken)
-    {
-        var lowStockPublishedSkus = await (
-            from balance in dbContext.InventoryBalances
-            join sku in dbContext.Skus on balance.SkuId equals sku.Id
-            where sku.Status == SkuStatus.Published &&
-                balance.AvailableQuantity <= balance.ReorderLevel
-            select balance.Id).CountAsync(cancellationToken);
-
-        return new Dictionary<string, int>(StringComparer.Ordinal)
-        {
-            ["completedOrders"] = await dbContext.Orders.CountAsync(
-                order => order.OrderStatus == OrderStatus.Completed,
-                cancellationToken),
-            ["cancelledOrders"] = await dbContext.Orders.CountAsync(
-                order => order.OrderStatus == OrderStatus.Cancelled,
-                cancellationToken),
-            ["ordersWithExpiredPayment"] = await dbContext.Orders.CountAsync(
-                order => order.PaymentStatus == PaymentStatus.Expired,
-                cancellationToken),
-            ["cancelledOrExpiredOrders"] = await dbContext.Orders.CountAsync(
-                order => order.OrderStatus == OrderStatus.Cancelled ||
-                    order.PaymentStatus == PaymentStatus.Expired,
-                cancellationToken),
-            ["refundRecords"] = await dbContext.Refunds.CountAsync(cancellationToken),
-            ["succeededRefunds"] = await dbContext.Refunds.CountAsync(
-                refund => refund.Status == RefundStatus.Succeeded,
-                cancellationToken),
-            ["failedPaymentAttempts"] = await dbContext.PaymentAttempts.CountAsync(
-                attempt => attempt.Status == PaymentAttemptStatus.Failed,
-                cancellationToken),
-            ["expiredPaymentAttempts"] = await dbContext.PaymentAttempts.CountAsync(
-                attempt => attempt.Status == PaymentAttemptStatus.Expired,
-                cancellationToken),
-            ["lowStockPublishedSkus"] = lowStockPublishedSkus,
-            ["pendingShipments"] = await dbContext.Shipments.CountAsync(
-                shipment => shipment.Status == FulfillmentStatus.Pending,
-                cancellationToken),
-            ["preparingShipments"] = await dbContext.Shipments.CountAsync(
-                shipment => shipment.Status == FulfillmentStatus.Preparing,
-                cancellationToken),
-            ["inTransitShipments"] = await dbContext.Shipments.CountAsync(
-                shipment => shipment.Status == FulfillmentStatus.InTransit,
-                cancellationToken),
-            ["deliveredShipments"] = await dbContext.Shipments.CountAsync(
-                shipment => shipment.Status == FulfillmentStatus.Delivered,
-                cancellationToken),
-            ["openSupportTickets"] = await dbContext.SupportTickets.CountAsync(
-                ticket => ticket.Status == SupportTicketStatus.Open,
-                cancellationToken),
-            ["inProgressSupportTickets"] = await dbContext.SupportTickets.CountAsync(
-                ticket => ticket.Status == SupportTicketStatus.InProgress,
-                cancellationToken),
-            ["waitingForCustomerSupportTickets"] = await dbContext.SupportTickets.CountAsync(
-                ticket => ticket.Status == SupportTicketStatus.WaitingForCustomer,
-                cancellationToken),
-            ["closedSupportTickets"] = await dbContext.SupportTickets.CountAsync(
-                ticket => ticket.Status == SupportTicketStatus.Closed,
-                cancellationToken),
-            ["awaitingRefundReturnRequests"] = await dbContext.ReturnRequests.CountAsync(
-                request => request.Status == ReturnRequestStatus.AwaitingRefund,
-                cancellationToken),
-            ["awaitingShipmentReturnRequests"] = await dbContext.ReturnRequests.CountAsync(
-                request => request.Status == ReturnRequestStatus.AwaitingShipment,
-                cancellationToken),
-            ["completedReturnRequests"] = await dbContext.ReturnRequests.CountAsync(
-                request => request.Status == ReturnRequestStatus.Completed,
-                cancellationToken),
-            ["pendingReviewProductReviews"] = await dbContext.ProductReviews.CountAsync(
-                review => review.Status == ProductReviewStatus.PendingReview,
-                cancellationToken),
-            ["approvedProductReviews"] = await dbContext.ProductReviews.CountAsync(
-                review => review.Status == ProductReviewStatus.Approved,
-                cancellationToken),
-        };
-    }
+        CancellationToken cancellationToken) =>
+        await DemoDataSnapshotReader.ReadDistributionAsync(dbContext, cancellationToken);
 
     private static DateTime SeedDate(
         string scope,
