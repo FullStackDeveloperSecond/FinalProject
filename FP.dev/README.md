@@ -62,6 +62,13 @@ dotnet list DoSelect.slnx package --vulnerable --include-transitive
 
 SQL Server Provider-backed 測試統一從 `DOSELECT_SQLSERVER_TEST_CONNECTION` 取得 CI 連線範本；Windows 非 CI 環境未設定時才回退至 `.\SQL2025`。每個會建立／刪除資料庫的 fixture 必須覆寫 `InitialCatalog` 為自己的專屬或隨機測試庫，測試結束只刪除該測試庫，禁止直接建立、清除或刪除 `DoSelectDb`。
 
+展示資料只能在 `Development` 及本機 SQL Server 的 allowlist 資料庫執行。產生器會建立／遷移全新資料庫，但驗證器全程唯讀，不建立或遷移資料庫；任一總筆數、版本標記、特殊分布、孤兒／資料庫約束、負庫存、非法列舉／工作流或七份報表摘要基準不符時，驗證命令會輸出不含明細資料的 JSON 並回傳非零結束碼：
+
+```powershell
+.\scripts\seed-demo-data.ps1 -DatabaseName DoSelectDemo
+.\scripts\validate-demo-data.ps1 -DatabaseName DoSelectDemo
+```
+
 在 `frontend/customer-web` 與 `frontend/admin-web` 分別執行前端驗證：
 
 ```powershell
@@ -168,7 +175,7 @@ API 共通管線已提供：
 
 - 已完成 Solution、專案參考、共用建置設定、套件鎖版、兩個 Vue 應用、Vue 共用 API／Query／狀態基礎、API 共通錯誤／驗證管線、單一 `DoSelectDbContext`、SQL Server Provider、Identity Store 與固定版 `dotnet-ef`。
 - 四位 Owner 的正式業務 Entity／Fluent Configuration、跨模組 FK 與初始 `InitialCreate` Migration 已完成；本機 `DoSelectDb` 已套用並驗證 93 張資料表、315 個索引、`vw_CaseWorkbench` 12 欄契約與 Migration History。
-- 已提供不自動執行的最小開發 Seed、User Secrets 密碼設定、SQL 驗證及 API SQL Readiness smoke script；10,000 筆完整展示資料產生器、認證授權流程與 Application 交易 Use Case 仍待後續實作。
+- 已提供不自動執行的最小開發 Seed、10,000 筆固定展示資料產生器與唯讀完整性／報表基準驗證器、User Secrets 密碼設定、SQL 驗證及 API SQL Readiness smoke script；認證授權流程與 Application 交易 Use Case 已依各功能模組逐步交付，正式完成狀態仍以規劃追蹤表及 Release Gate 為準。
 - 前後台確定使用 MIT 的 `PrimeVue 4.5.5`，維持 Styled Mode、Aura、既定藍白視覺與 `ui/` 包裝層方向。2026-08-31 文件更新時，兩個 Manifest／lockfile 仍暫存 `5.0.1` 且 source 尚無 PrimeVue import；開始新增元件前必須先調整至 `4.5.5`、確認不再解析 PrimeUI 5 license manager，並通過雙前端 typecheck、零警告 lint、完整測試、production build 與 production dependency audit。不得自行切回 5 或以隱藏提示規避授權。
 - OpenAPI TypeScript Client 流程、共用 generic client factory 與實際 `schema.d.ts` 已建立；任何 API 契約變更都必須重新匯出 OpenAPI、產生型別並通過 Diff Gate。
 
