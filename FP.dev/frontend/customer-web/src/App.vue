@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, provide, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onMounted, provide, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSessionStore } from './stores/session'
 import { useCartIdentityCacheCleanup } from './features/cart/useCart'
@@ -11,9 +11,14 @@ import './city-streets.css'
 import {
   customerDefaultMotionPresetId,
   motionPresetKey,
-
+  useMotionPreference,
   useMotionPresetSelection,
 } from '@doselect/web-shared/motion'
+
+// 切換器只在 dev 進入模組圖；production build 會移除整個動態 import 分支。
+const MotionDevSwitcher = import.meta.env.DEV
+  ? defineAsyncComponent(() => import('@doselect/web-shared/motion/MotionDevSwitcher.vue'))
+  : null
 
 const route = useRoute()
 const router = useRouter()
@@ -44,7 +49,8 @@ watch(() => route.fullPath, () => {
 
 // GSAP 動態視覺探索：A／B／C 方案由 App 統一選定後 provide 給頁面。
 // `canSwitch` 在 production build 是常數 false，切換介面會被整段 tree-shake 掉。
-const { preset } = useMotionPresetSelection(customerDefaultMotionPresetId)
+const { presetId, preset, canSwitch, select } = useMotionPresetSelection(customerDefaultMotionPresetId)
+const prefersReducedMotion = useMotionPreference()
 provide(motionPresetKey, preset)
 
 onMounted(() => {
@@ -208,5 +214,12 @@ async function handleLogout(): Promise<void> {
       </p>
     </footer>
     <DonnguGuide v-if="!isWelcomePage" />
+    <component
+      :is="MotionDevSwitcher"
+      v-if="canSwitch && MotionDevSwitcher"
+      :preset-id="presetId"
+      :reduced-motion="prefersReducedMotion"
+      @select="select"
+    />
   </div>
 </template>

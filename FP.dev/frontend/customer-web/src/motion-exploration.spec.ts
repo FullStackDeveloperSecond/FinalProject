@@ -384,6 +384,10 @@ describe('experimental preset switch is dev-only', () => {
 
     const selection = readText(join(sharedRoot, 'src', 'motion', 'useMotionPresetSelection.ts'))
     expect(selection).toContain('import.meta.env.DEV === true')
+
+    const customerShell = readText(join(customerRoot, 'src', 'App.vue'))
+    expect(customerShell).toContain("import.meta.env.DEV")
+    expect(customerShell).toContain('v-if="canSwitch && MotionDevSwitcher"')
   })
 
   it('never reaches vue-router for the experiment', () => {

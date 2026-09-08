@@ -53,8 +53,8 @@ onBeforeUnmount(() => {
       type="button"
       class="member-menu__trigger"
       :aria-expanded="open"
-      aria-haspopup="menu"
       aria-controls="member-menu-panel"
+      :title="displayName"
       @click="open = !open"
     >
       <span class="member-menu__name">{{ displayName }}</span>
