@@ -502,7 +502,7 @@ test('a shopper can enter the city, follow the Donngu tour, and keep a recent pr
 
   await page.goto(`/products/${seed.productPublicId}`)
   await expect(page.getByRole('heading', { level: 1, name: '懂選開發用顯示卡' })).toBeVisible()
-  await page.goto('/')
+  await page.goto('/products')
   const pocket = page.locator('.city-pocket')
   await expect(pocket).toBeVisible()
   await pocket.locator('summary').click()
