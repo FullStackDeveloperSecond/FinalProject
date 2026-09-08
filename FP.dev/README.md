@@ -103,7 +103,7 @@ npm audit --omit=dev
 .\scripts\start-all.ps1 -Environment Demo
 ```
 
-`reset-demo-data.ps1` 不刪除或覆寫 `DoSelectDb`／共用 `DoSelectDemo`；每次建立新的 `DoSelectDemo_<32-hex>` 隔離庫，完成 Seed 與唯讀驗證後，才把選定名稱寫入已忽略版控的 `.run/demo-database.json`。`start-all.ps1 -Environment Demo` 只接受該隔離命名，並把 API 明確綁定到選定資料庫；也可用腳本輸出的 `-DatabaseName` 命令明確重現同一環境。
+`reset-demo-data.ps1` 不刪除或覆寫 `DoSelectDb`／共用 `DoSelectDemo`；未指定名稱時，每次建立新的 `DoSelectDemo_<32-hex>` 隔離庫，完成 Seed 與唯讀驗證後，才把選定名稱寫入已忽略版控的 `.run/demo-database.json`。`start-all.ps1 -Environment Demo` 只接受該隔離命名，並把 API 明確綁定到選定資料庫；也可用腳本輸出的 `-DatabaseName` 命令明確重現或重新驗證同一環境。
 
 執行 `reset-demo-data.ps1` 前必須先用 `stop-all.ps1` 停止受管服務。Demo API 仍依設定與 Secrets 規範要求目前 Windows 使用者具備至少 32 UTF-8 bytes 的 `GuestOrderAccess__Pepper`；腳本不會產生、讀出或記錄該 Secret，缺少時 API 繼續 fail closed。
 
@@ -174,7 +174,7 @@ Remove-Variable guestAccessPepper
 健康檢查：
 
 - `GET /health/live`：確認 API 程序可處理請求。
-- `GET /health/ready`：確認本機 `Storage:DataRoot` 可寫，並透過 EF Core 對 `DoSelectDb` 執行最小 `SELECT 1` 讀取；Hangfire 檢查待其 Infrastructure 完成後加入。
+- `GET /health/ready`：確認本機 `Storage:DataRoot` 可寫，並透過 EF Core 對目前有效的 `DefaultConnection`（Development 預設為 `DoSelectDb`；Demo 為選定的隔離庫）執行最小 `SELECT 1` 讀取；啟用背景工作時也會檢查 Hangfire 儲存體。
 - 公開回應只包含 `status`，不輸出實體路徑、連線資訊或例外。
 
 Serilog 會將結構化 JSON 輸出到 Console，並在 `{Storage:DataRoot}/logs` 建立每日 Rolling File；單檔 100 MB、最長保存 14 天且最多 20 個檔案。可在測試設定 `Observability:FileLoggingEnabled=false` 停用檔案輸出。
