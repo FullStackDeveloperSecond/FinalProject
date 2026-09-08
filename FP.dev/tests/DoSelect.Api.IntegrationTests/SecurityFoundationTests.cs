@@ -54,6 +54,82 @@ public sealed class SecurityFoundationTests : IClassFixture<WebApplicationFactor
         Assert.False(string.IsNullOrWhiteSpace(token));
     }
 
+    [Fact]
+    public async Task AntiforgeryToken_InControlledLocalDemoHttpEnvironment_CanBeIssued()
+    {
+        var databaseName = $"DoSelectDemo_{Guid.NewGuid():N}";
+        using var environment = new EnvironmentOverrideScope(new Dictionary<string, string>
+        {
+            ["ASPNETCORE_ENVIRONMENT"] = "Demo",
+            ["ASPNETCORE_URLS"] = "http://localhost:5126",
+            ["ConnectionStrings__DefaultConnection"] =
+                $"Server=.\\SQL2025;Database={databaseName};Integrated Security=True;TrustServerCertificate=True;MultipleActiveResultSets=True",
+            ["Demo__AllowHttpLoopback"] = "true",
+            ["Demo__SimulationEndpointsEnabled"] = "true",
+            ["Features__AiEnabled"] = "false",
+            ["Features__EmailEnabled"] = "false",
+            ["GuestOrderAccess__Pepper"] = "local-demo-http-test-guest-order-pepper",
+            ["Idempotency__ActorScopePepper"] = "local-demo-http-test-idempotency-pepper",
+        });
+        using var factory = CreateFactory("Demo");
+        using var client = factory.CreateClient();
+
+        var token = await GetAntiforgeryTokenAsync(client, "member");
+        using var rejectedRequest = new HttpRequestMessage(HttpMethod.Post, "/__tests/security/write")
+        {
+            Content = JsonContent.Create(new { value = "rejected" }),
+        };
+        using var rejectedResponse = await client.SendAsync(rejectedRequest);
+        using var rejectedProblem = await ReadJsonAsync(rejectedResponse);
+        using var acceptedRequest = new HttpRequestMessage(HttpMethod.Post, "/__tests/security/write")
+        {
+            Content = JsonContent.Create(new { value = "accepted" }),
+        };
+        acceptedRequest.Headers.Add("X-XSRF-TOKEN", token);
+        acceptedRequest.Headers.Add(SecurityController.ClientHeaderName, "member");
+        using var acceptedResponse = await client.SendAsync(acceptedRequest);
+
+        Assert.False(string.IsNullOrWhiteSpace(token));
+        Assert.Equal(HttpStatusCode.BadRequest, rejectedResponse.StatusCode);
+        Assert.Equal(
+            ApiErrorCodes.AntiforgeryValidationFailed,
+            rejectedProblem.RootElement.GetProperty("code").GetString());
+        Assert.Equal(HttpStatusCode.OK, acceptedResponse.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("Production", "http://localhost:5126", "DoSelectDemo_0123456789abcdef0123456789abcdef", "http://localhost:5173")]
+    [InlineData("Demo", "http://0.0.0.0:5126", "DoSelectDemo_0123456789abcdef0123456789abcdef", "http://localhost:5173")]
+    [InlineData("Demo", "http://localhost:5126", "DoSelectDb", "http://localhost:5173")]
+    [InlineData("Demo", "http://localhost:5126", "DoSelectDemo_0123456789abcdef0123456789abcdef", "https://example.test")]
+    public async Task LocalDemoHttp_OutsideControlledBoundary_FailsFast(
+        string environmentName,
+        string urls,
+        string databaseName,
+        string allowedOrigin)
+    {
+        using var environment = new EnvironmentOverrideScope(new Dictionary<string, string>
+        {
+            ["ASPNETCORE_ENVIRONMENT"] = environmentName,
+            ["ASPNETCORE_URLS"] = urls,
+            ["ConnectionStrings__DefaultConnection"] =
+                $"Server=.\\SQL2025;Database={databaseName};Integrated Security=True;TrustServerCertificate=True;MultipleActiveResultSets=True",
+            ["Cors__AllowedOrigins__0"] = allowedOrigin,
+            ["Demo__AllowHttpLoopback"] = "true",
+            ["Demo__SimulationEndpointsEnabled"] = "false",
+            ["Features__AiEnabled"] = "false",
+            ["Features__EmailEnabled"] = "false",
+            ["GuestOrderAccess__Pepper"] = "local-demo-http-test-guest-order-pepper",
+            ["Idempotency__ActorScopePepper"] = "local-demo-http-test-idempotency-pepper",
+        });
+        using var factory = CreateFactory(environmentName);
+
+        var exception = await Assert.ThrowsAnyAsync<Exception>(() =>
+            Task.Run(() => factory.CreateClient().Dispose()));
+
+        Assert.Contains("Demo:AllowHttpLoopback", exception.ToString());
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("unknown")]

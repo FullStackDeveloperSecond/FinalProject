@@ -438,22 +438,90 @@ internal sealed class GuestOrderAccessOptionsValidator : IValidateOptions<GuestO
 internal sealed class DemoOptionsValidator : IValidateOptions<DemoOptions>
 {
     private readonly IHostEnvironment _environment;
+    private readonly IConfiguration _configuration;
 
-    public DemoOptionsValidator(IHostEnvironment environment)
+    public DemoOptionsValidator(IHostEnvironment environment, IConfiguration configuration)
     {
         _environment = environment;
+        _configuration = configuration;
     }
 
     public ValidateOptionsResult Validate(string? name, DemoOptions options)
     {
+        var failures = new List<string>();
         if (options.SimulationEndpointsEnabled &&
             !_environment.IsEnvironment("Demo") &&
             !_environment.IsEnvironment("E2E"))
         {
-            return ValidateOptionsResult.Fail(
+            failures.Add(
                 "Configuration key 'Demo:SimulationEndpointsEnabled' may only be true in the Demo or E2E environment.");
         }
 
-        return ValidateOptionsResult.Success;
+        if (options.AllowHttpLoopback)
+        {
+            if (!_environment.IsEnvironment("Demo"))
+            {
+                failures.Add(
+                    "Configuration key 'Demo:AllowHttpLoopback' may only be true in the Demo environment.");
+            }
+
+            var urls = _configuration["ASPNETCORE_URLS"] ?? _configuration["urls"];
+            if (!string.Equals(
+                    urls?.TrimEnd('/'),
+                    "http://localhost:5126",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                failures.Add(
+                    "Demo:AllowHttpLoopback requires ASPNETCORE_URLS to be exactly 'http://localhost:5126'.");
+            }
+
+            if (!UsesIsolatedLocalDemoDatabase(
+                    _configuration.GetConnectionString("DefaultConnection")))
+            {
+                failures.Add(
+                    "Demo:AllowHttpLoopback requires Windows Authentication to '.\\SQL2025' and an isolated 'DoSelectDemo_<32-hex>' database.");
+            }
+
+            var allowedOrigins = _configuration
+                .GetSection($"{CorsOptions.SectionName}:AllowedOrigins")
+                .Get<string[]>() ?? [];
+            if (allowedOrigins.Length == 0 || allowedOrigins.Any(origin => !IsLoopbackOrigin(origin)))
+            {
+                failures.Add(
+                    "Demo:AllowHttpLoopback requires every CORS origin to use HTTP loopback.");
+            }
+        }
+
+        return failures.Count == 0
+            ? ValidateOptionsResult.Success
+            : ValidateOptionsResult.Fail(failures);
     }
+
+    private static bool UsesIsolatedLocalDemoDatabase(string? connectionString)
+    {
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            return false;
+        }
+
+        try
+        {
+            var builder = new Microsoft.Data.SqlClient.SqlConnectionStringBuilder(connectionString);
+            const string prefix = "DoSelectDemo_";
+            var databaseName = builder.InitialCatalog;
+            return string.Equals(builder.DataSource, @".\SQL2025", StringComparison.OrdinalIgnoreCase) &&
+                builder.IntegratedSecurity &&
+                databaseName.StartsWith(prefix, StringComparison.Ordinal) &&
+                Guid.TryParseExact(databaseName[prefix.Length..], "N", out _);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsLoopbackOrigin(string origin) =>
+        Uri.TryCreate(origin, UriKind.Absolute, out var uri) &&
+        string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) &&
+        uri.IsLoopback;
 }

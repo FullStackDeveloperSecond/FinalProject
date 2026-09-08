@@ -56,6 +56,33 @@ if ($startSource -notmatch 'Read-DemoDatabaseState' -or
     $startSource -notmatch 'New-DemoConnectionString') {
     throw 'start-all.ps1 does not resolve and validate prepared Demo database state.'
 }
+foreach ($requiredRuntimeBinding in @(
+    "`$env:Demo__AllowHttpLoopback = 'true'"
+    "`$env:Demo__SimulationEndpointsEnabled = 'true'"
+    "`$env:Features__AiEnabled = 'false'"
+    "`$env:Features__EmailEnabled = 'false'"
+)) {
+    if ($startSource -notmatch [Regex]::Escape($requiredRuntimeBinding)) {
+        throw "start-all.ps1 is missing the formal local Demo binding: $requiredRuntimeBinding"
+    }
+}
+foreach ($restoredVariable in @(
+    'Demo__AllowHttpLoopback'
+    'Demo__SimulationEndpointsEnabled'
+    'Features__AiEnabled'
+    'Features__EmailEnabled'
+)) {
+    if ($startSource -notmatch "previous.*$restoredVariable" -and
+        $startSource -notmatch [Regex]::Escape("`$env:$restoredVariable = `$previous")) {
+        throw "start-all.ps1 does not preserve and restore the ambient $restoredVariable value."
+    }
+}
+
+$programSource = Get-Content -Raw -LiteralPath (Join-Path $script:ProjectRoot 'src\backend\DoSelect.Api\Program.cs')
+if ($programSource -notmatch 'AddUserSecrets<Program>' -or
+    $programSource -notmatch 'AddEnvironmentVariables') {
+    throw 'Program.cs does not load local Demo User Secrets while preserving environment-variable precedence.'
+}
 
 $resetSource = $scriptSources['reset-demo-data.ps1']
 foreach ($requiredCall in @('seed-demo-data.ps1', 'validate-demo-data.ps1', 'Write-DemoDatabaseState')) {
@@ -67,4 +94,4 @@ if ($resetSource -notmatch 'Test-ServiceProcesses') {
     throw 'reset-demo-data.ps1 does not reject preparation while managed services are running.'
 }
 
-Write-Output 'Demo environment safety tests passed: 1 allowed and 4 rejected database names; 2 scripts parsed and runtime bindings verified.'
+Write-Output 'Demo environment safety tests passed: 1 allowed and 4 rejected database names; 2 scripts parsed; local runtime, provider defaults, and secret precedence verified.'
