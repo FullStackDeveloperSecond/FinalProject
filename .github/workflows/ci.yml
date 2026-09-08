@@ -114,6 +114,11 @@ jobs:
         run: ./scripts/test-demo-environment-safety.ps1
         working-directory: FP.dev
 
+      - name: Verify Development environment database isolation
+        shell: pwsh
+        run: ./scripts/test-development-environment-safety.ps1
+        working-directory: FP.dev
+
   backend:
     name: Backend
     runs-on: ubuntu-latest

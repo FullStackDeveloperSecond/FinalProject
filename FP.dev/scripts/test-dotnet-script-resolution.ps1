@@ -8,7 +8,9 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 
 $scriptNames = @(
+    'configure-local-security-secrets.ps1'
     'configure-seed-secrets.ps1'
+    'initialize-development-database.ps1'
     'seed-minimal-development-data.ps1'
     'smoke-api-database.ps1'
 )

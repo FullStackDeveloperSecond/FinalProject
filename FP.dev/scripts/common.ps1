@@ -31,6 +31,10 @@ function New-DemoConnectionString {
     return "Server=$($script:SqlInstance);Database=$DatabaseName;Integrated Security=True;TrustServerCertificate=True;MultipleActiveResultSets=True"
 }
 
+function New-DevelopmentConnectionString {
+    return "Server=$($script:SqlInstance);Database=DoSelectDb;Integrated Security=True;TrustServerCertificate=True;MultipleActiveResultSets=True"
+}
+
 function Read-DemoDatabaseState {
     if (-not (Test-Path -LiteralPath $script:DemoDatabaseStateFile -PathType Leaf)) {
         return $null

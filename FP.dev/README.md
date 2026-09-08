@@ -241,8 +241,8 @@ ENV-RC-03 的第二機執行順序固定如下；各命令的參數與安全邊�
 1. 讀回 `git rev-parse HEAD` 與乾淨工作樹，確認是指定 revision。
 2. 執行 `verify-clean-environment.ps1 -RunVerification`。
 3. 執行 `configure-local-security-secrets.ps1`，並以互動腳本設定最小 Seed 密碼。
-4. 執行不指定目標名稱的 `dotnet-ef database update`，套用完整 Migration chain，再執行最小 Seed 與兩支 SQL 驗證檔。
-5. 執行 `start-all.ps1`、`health-check.ps1`、`stop-all.ps1`，最後在 Port 已釋放後執行 `smoke-api-database.ps1`。
+4. 執行 `initialize-development-database.ps1`，由固定入口完成 Migration、最小 Seed、兩支 SQL 驗證與 API database smoke test。
+5. 執行 `start-all.ps1`、`health-check.ps1`、`stop-all.ps1`。
 6. 確認 `git status --short` 沒有 tracked 變更；只交付去識別結果與日誌 hash。
 
 ## EF Core 工具
@@ -262,25 +262,27 @@ dotnet tool run dotnet-ef -- dbcontext info `
 
 四份 Schema、Entity／Configuration、第一輪跨模組 Review 與 `20260819013357_InitialCreate` 已完成。Migration 建立 93 張應用／Identity 資料表、315 個索引及 `vw_CaseWorkbench`，Review SQL 位於 `database-deploy/initial-create/InitialCreate.review.sql`。本機 `DoSelectDb` 已套用並由 `database-deploy/initial-create/verify.sql` 驗證通過；API 啟動仍不得呼叫 `Database.Migrate()`／`MigrateAsync()`。
 
-新開發環境需由開發者明確套用目前完整 Migration chain；不可指定 `InitialCreate`，否則全新資料庫會停在過時 schema：
+新開發環境的標準入口固定使用本機 `.\SQL2025`、`DoSelectDb` 與 Windows Authentication，並依序套用目前完整 Migration chain、最小 Seed、SQL 驗證及 API database smoke test：
+
+```powershell
+.\scripts\stop-all.ps1
+.\scripts\initialize-development-database.ps1
+```
+
+初始化前，先以互動腳本將兩組密碼存入 .NET User Secrets；重跑初始化不會重設既有密碼、關閉已啟用的 TOTP 或建立重複資料：
+
+```powershell
+.\scripts\configure-seed-secrets.ps1
+```
+
+下列個別命令只供定位初始化失敗，不是 Fresh Clone 的標準建置順序；不可指定 `InitialCreate`，否則全新資料庫會停在過時 schema：
 
 ```powershell
 dotnet tool run dotnet-ef -- database update `
   --project src/backend/DoSelect.Infrastructure `
   --startup-project src/backend/DoSelect.Infrastructure `
   --context DoSelectDbContext
-```
-
-建立最小開發資料時，先以互動腳本將兩組密碼存入 .NET User Secrets，再明確執行 Seed；重跑不會重設既有密碼、關閉已啟用的 TOTP 或建立重複資料：
-
-```powershell
-.\scripts\configure-seed-secrets.ps1
 .\scripts\seed-minimal-development-data.ps1
-```
-
-驗證資料庫結構、最小 Seed 與 API 實際讀取：
-
-```powershell
 sqlcmd -S .\SQL2025 -d DoSelectDb -E -C -b -i database-deploy\initial-create\verify.sql
 sqlcmd -S .\SQL2025 -d DoSelectDb -E -C -b -i database-deploy\initial-create\verify-minimal-seed.sql
 .\scripts\smoke-api-database.ps1

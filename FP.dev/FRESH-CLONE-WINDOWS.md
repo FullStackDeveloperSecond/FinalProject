@@ -148,24 +148,22 @@ Fresh Clone 第一次執行時 `stop-all.ps1` 可安全回報沒有受管程序�
 
 ## 7. 建立 Development 資料庫
 
-先還原固定版 Repository-local `dotnet-ef`，再套用**目前完整 Migration chain**：
+先確認本專案服務已停止，再執行單一初始化入口：
 
 ```powershell
-dotnet tool restore
-dotnet tool run dotnet-ef -- database update `
-  --project src/backend/DoSelect.Infrastructure `
-  --startup-project src/backend/DoSelect.Infrastructure `
-  --context DoSelectDbContext
+.\scripts\stop-all.ps1
+.\scripts\initialize-development-database.ps1
 ```
 
-接著建立可重複執行的最小資料並驗證：
+此入口固定使用本機 `.\SQL2025`、資料庫 `DoSelectDb` 與 Windows Authentication，且不接受資料庫名稱或 Connection String 參數。它會依序完成：
 
-```powershell
-.\scripts\seed-minimal-development-data.ps1
-sqlcmd -S .\SQL2025 -d DoSelectDb -E -C -b -i .\database-deploy\initial-create\verify.sql
-sqlcmd -S .\SQL2025 -d DoSelectDb -E -C -b -i .\database-deploy\initial-create\verify-minimal-seed.sql
-.\scripts\smoke-api-database.ps1
-```
+1. 確認固定 Port 5126／5173／5174 均未被占用。
+2. 還原 Repository-local `dotnet-ef`，套用目前完整 Migration chain。
+3. 建立可重複執行的最小資料。
+4. 執行 Schema 與最小 Seed SQL 驗證。
+5. 短暫啟動 API 完成資料庫 Readiness smoke test，再清理程序。
+
+成功訊息應為 `Development database migration, seed and verification passed.`。個別 Migration、Seed、SQL 或 smoke 命令只供失敗診斷，不作為 Fresh Clone 的標準建置流程。
 
 Migration／Seed 失敗時不得手動改 Migration History、不得重新 scaffold Migration，也不得刪除既有資料來掩蓋錯誤。Fresh Clone 若第一次建立 `DoSelectDb` 仍失敗，記錄去識別錯誤後停止。
 
@@ -248,7 +246,7 @@ Fresh Clone／ENV-RC-03 不需要啟用 OpenAI 或 Email。基本系統應先在
 | `dotnet --version` 不是 `10.0.303` | 安裝精確 SDK，重新開 PowerShell | 修改 `global.json` 或允許 roll forward |
 | 無法連線 `.\SQL2025` | 確認 Instance／服務名稱、目前 Windows 使用者權限與 ODBC 18 | 開 Mixed Mode、使用 `sa`、停用 TLS或硬編密碼 |
 | API 提示 Pepper 缺少 | 重跑安全 Secret 腳本 | 在 JSON、環境日誌或聊天填入值 |
-| Port 5126／5173／5174 被占用 | 找出 PID，先判斷是否為本專案；本專案用 `stop-all.ps1` | 批次終止所有 Node／.NET 程序 |
+| 初始化或啟動顯示 Port 5126／5173／5174 被占用 | 依訊息中的 PID 判斷是否為本專案；本專案用 `stop-all.ps1`，其他程序由其原本工具停止 | 自動換 Port，或批次終止所有 Node／.NET 程序 |
 | `npm ci` 改動 lockfile 或失敗 | 確認 Node 24／npm 11、官方 registry 與乾淨 clone | 改用 `npm install` 後提交未知 lockfile |
 | Migration 失敗 | 保留錯誤並停止，確認完整 chain 與 SQL 權限 | 指定舊 `InitialCreate`、手改 History、重建 Migration |
 | AI／Email 無憑證 | 保持功能停用，完成基本系統驗收 | 假 Key、共享 Key、把錯誤宣稱為 Live 成功 |

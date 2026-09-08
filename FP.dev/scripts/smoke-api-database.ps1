@@ -21,9 +21,11 @@ Remove-Item -LiteralPath $stdout, $stderr -Force -ErrorAction SilentlyContinue
 
 $previousEnvironment = $env:ASPNETCORE_ENVIRONMENT
 $previousUrls = $env:ASPNETCORE_URLS
+$previousConnection = $env:ConnectionStrings__DefaultConnection
 try {
     $env:ASPNETCORE_ENVIRONMENT = 'Development'
     $env:ASPNETCORE_URLS = $script:ApiUrl
+    $env:ConnectionStrings__DefaultConnection = New-DevelopmentConnectionString
     $process = Start-Process `
         -FilePath $dotnet `
         -ArgumentList @('run', '--no-launch-profile', '--project', $apiProject) `
@@ -61,6 +63,7 @@ catch {
 finally {
     $env:ASPNETCORE_ENVIRONMENT = $previousEnvironment
     $env:ASPNETCORE_URLS = $previousUrls
+    $env:ConnectionStrings__DefaultConnection = $previousConnection
 
     if ($null -ne $process) {
         $identities = @(Get-ServiceProcessIdentities `
