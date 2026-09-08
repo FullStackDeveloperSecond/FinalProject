@@ -123,6 +123,9 @@ try {
         if ($Environment -eq 'Demo') {
             $env:ConnectionStrings__DefaultConnection = $demoConnectionString
         }
+        else {
+            $env:ConnectionStrings__DefaultConnection = New-DevelopmentConnectionString
+        }
         $apiParameters = @{
             Name = 'API'
             FilePath = $dotnet

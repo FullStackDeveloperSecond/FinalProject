@@ -2,6 +2,8 @@
 
 本目錄是 DoSelect 的可執行程式碼根目錄。系統採模組化單體 ASP.NET Core Web API，並由消費者前台與管理後台兩個獨立 Vue 應用共用同一個 API。
 
+第二台 Windows 電腦從零安裝、Fresh Clone、Migration、Seed、三服務啟動與 ENV-RC-03 驗收，請直接依 [`FRESH-CLONE-WINDOWS.md`](FRESH-CLONE-WINDOWS.md) 執行。
+
 ## 目錄
 
 ```text
@@ -153,14 +155,10 @@ node .\scripts\validate-ai-eval-dataset.mjs
 
 只有修改 `cases-source.mjs` 後才執行不含 `--check` 的產生指令；產生檔必須與來源一起提交。Live baseline 必須等待 Prompt、Schema、Adapter 與明確成本核准，不得由一般 PR 自動呼叫。
 
-第一次啟動前可將 `src/backend/DoSelect.Api/appsettings.Development.example.json` 複製為未追蹤的 `appsettings.Development.json`，再依本機環境調整非敏感設定；OpenAI、SMTP 與 HMAC Secret 使用 .NET User Secrets 或環境變數，不得填入範例檔。AI 與 Email 預設停用，因此 Fresh Clone 不需要 OpenAI／SMTP Secret；但 `GuestOrderAccess:Pepper` 是 API 啟動時必填的安全設定，必須先為每台開發電腦產生獨立值。下列 PowerShell 只把隨機值存入目前使用者的 .NET User Secrets，不顯示或寫入 Repository：
+第一次啟動前可將 `src/backend/DoSelect.Api/appsettings.Development.example.json` 複製為未追蹤的 `appsettings.Development.json`，再依本機環境調整非敏感設定；OpenAI、SMTP 與 HMAC Secret 使用 .NET User Secrets 或環境變數，不得填入範例檔。AI 與 Email 預設停用，因此 Fresh Clone 不需要 OpenAI／SMTP Secret；但 `GuestOrderAccess:Pepper` 是 API 啟動時必填的安全設定，必須先為每台開發電腦產生獨立值。下列腳本會為 Guest Access、Idempotency 與訪客優惠券產生各自的 48-byte 高熵值，只寫入目前使用者的 .NET User Secrets，不顯示或寫入 Repository：
 
 ```powershell
-$guestAccessPepper = [Convert]::ToBase64String(
-  [Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
-dotnet user-secrets set "GuestOrderAccess:Pepper" $guestAccessPepper `
-  --project src/backend/DoSelect.Api | Out-Null
-Remove-Variable guestAccessPepper
+.\scripts\configure-local-security-secrets.ps1
 ```
 
 若明確啟用 AI／Email 卻缺少必要 Key，或缺少／誤設必要 Pepper，API 會在啟動時 fail closed。不得把 `dotnet user-secrets list` 的輸出貼入日誌、聊天或 PR。
@@ -236,15 +234,15 @@ npm run test:coverage --prefix frontend\admin-web
 .\scripts\verify-clean-environment.ps1 -RunVerification
 ```
 
-`-RunVerification` 涵蓋 Restore、Build、.NET tests、雙前端 `npm ci`／Typecheck／Lint／Coverage／production build，但不會修改資料庫或啟動服務。Fresh Clone 驗收還必須在設定 `GuestOrderAccess:Pepper` 後依序執行下方的完整 Migration、最小 Seed、SQL 驗證、三服務啟動與健康檢查；未執行或任何步驟失敗都不得把 DEV-02／ENV-RC-03 標成完成，但依 2026-09-08 裁定不因此阻擋後續項目。執行紀錄只保存 revision、環境版本、命令、通過／失敗與去識別日誌，不保存 User Secrets、連線字串、帳號、機器名或資料列。
+`-RunVerification` 涵蓋固定 Port 空閒、套件來源 Policy、Repository-local tool Restore、Solution Restore／Build／Format／.NET tests、NuGet 弱點稽核，以及雙前端 `npm ci`／Typecheck／Lint／Coverage／production build／production dependency audit。若此 Clone 曾啟動服務，先執行 `stop-all.ps1`；驗證會在 Port 5126／5173／5174 被占用時提早停止，避免 `npm ci` 到最後才因 native module 檔案鎖失敗。測試可能建立後刪除名稱受限的隔離測試資料庫，但不會清除或刪除共用 `DoSelectDb`，也不會啟動長駐服務。Fresh Clone 驗收還必須在設定本機安全 Secrets 後依序執行下方的完整 Migration、最小 Seed、SQL 驗證、三服務啟動與健康檢查；未執行或任何步驟失敗都不得把 DEV-02／ENV-RC-03 標成完成，但依 2026-09-08 裁定不因此阻擋後續項目。執行紀錄只保存 revision、環境版本、命令、通過／失敗與去識別日誌，不保存 User Secrets、連線字串、帳號、機器名或資料列。
 
 ENV-RC-03 的第二機執行順序固定如下；各命令的參數與安全邊界見後續章節：
 
 1. 讀回 `git rev-parse HEAD` 與乾淨工作樹，確認是指定 revision。
 2. 執行 `verify-clean-environment.ps1 -RunVerification`。
-3. 以前述隨機產生方式設定 `GuestOrderAccess:Pepper`，並以互動腳本設定最小 Seed 密碼。
-4. 執行不指定目標名稱的 `dotnet-ef database update`，套用完整 Migration chain，再執行最小 Seed 與兩支 SQL 驗證檔。
-5. 執行 `start-all.ps1`、`health-check.ps1`、`stop-all.ps1`，最後在 Port 已釋放後執行 `smoke-api-database.ps1`。
+3. 執行 `configure-local-security-secrets.ps1`，並以互動腳本設定最小 Seed 密碼。
+4. 執行 `initialize-development-database.ps1`，由固定入口完成 Migration、最小 Seed、兩支 SQL 驗證與 API database smoke test。
+5. 執行 `start-all.ps1`、`health-check.ps1`、`stop-all.ps1`。
 6. 確認 `git status --short` 沒有 tracked 變更；只交付去識別結果與日誌 hash。
 
 ## EF Core 工具
@@ -264,25 +262,27 @@ dotnet tool run dotnet-ef -- dbcontext info `
 
 四份 Schema、Entity／Configuration、第一輪跨模組 Review 與 `20260819013357_InitialCreate` 已完成。Migration 建立 93 張應用／Identity 資料表、315 個索引及 `vw_CaseWorkbench`，Review SQL 位於 `database-deploy/initial-create/InitialCreate.review.sql`。本機 `DoSelectDb` 已套用並由 `database-deploy/initial-create/verify.sql` 驗證通過；API 啟動仍不得呼叫 `Database.Migrate()`／`MigrateAsync()`。
 
-新開發環境需由開發者明確套用目前完整 Migration chain；不可指定 `InitialCreate`，否則全新資料庫會停在過時 schema：
+新開發環境的標準入口固定使用本機 `.\SQL2025`、`DoSelectDb` 與 Windows Authentication，並依序套用目前完整 Migration chain、最小 Seed、SQL 驗證及 API database smoke test：
+
+```powershell
+.\scripts\stop-all.ps1
+.\scripts\initialize-development-database.ps1
+```
+
+初始化前，先以互動腳本將兩組密碼存入 .NET User Secrets；重跑初始化不會重設既有密碼、關閉已啟用的 TOTP 或建立重複資料：
+
+```powershell
+.\scripts\configure-seed-secrets.ps1
+```
+
+下列個別命令只供定位初始化失敗，不是 Fresh Clone 的標準建置順序；不可指定 `InitialCreate`，否則全新資料庫會停在過時 schema：
 
 ```powershell
 dotnet tool run dotnet-ef -- database update `
   --project src/backend/DoSelect.Infrastructure `
   --startup-project src/backend/DoSelect.Infrastructure `
   --context DoSelectDbContext
-```
-
-建立最小開發資料時，先以互動腳本將兩組密碼存入 .NET User Secrets，再明確執行 Seed；重跑不會重設既有密碼、關閉已啟用的 TOTP 或建立重複資料：
-
-```powershell
-.\scripts\configure-seed-secrets.ps1
 .\scripts\seed-minimal-development-data.ps1
-```
-
-驗證資料庫結構、最小 Seed 與 API 實際讀取：
-
-```powershell
 sqlcmd -S .\SQL2025 -d DoSelectDb -E -C -b -i database-deploy\initial-create\verify.sql
 sqlcmd -S .\SQL2025 -d DoSelectDb -E -C -b -i database-deploy\initial-create\verify-minimal-seed.sql
 .\scripts\smoke-api-database.ps1
