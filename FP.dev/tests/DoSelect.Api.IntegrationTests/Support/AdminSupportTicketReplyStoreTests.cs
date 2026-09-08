@@ -16,11 +16,12 @@ namespace DoSelect.Api.IntegrationTests.Support;
 /// SQL Server coverage for the complete admin-public-reply write: actor scope, member
 /// visibility, first-human SLA timestamp, Audit, notifications, and optimistic concurrency.
 /// </summary>
-public sealed class AdminSupportTicketReplyStoreTests : IClassFixture<WebApplicationFactory<Program>>
+[Collection(nameof(SupportAuditSqlServerCollection))]
+public sealed class AdminSupportTicketReplyStoreTests
 {
     private readonly WebApplicationFactory<Program> _factory;
 
-    public AdminSupportTicketReplyStoreTests(WebApplicationFactory<Program> factory) => _factory = factory;
+    public AdminSupportTicketReplyStoreTests(SupportAuditSqlServerFixture fixture) => _factory = fixture.Factory;
 
     [Fact]
     public async Task AddPublicReplyAsync_CommitsMemberVisibleReplyFirstResponseAuditAndNotifications()
