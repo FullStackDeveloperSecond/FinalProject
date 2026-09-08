@@ -33,7 +33,7 @@ foreach ($rejectedDatabaseName in @(
 }
 
 $scriptSources = @{}
-foreach ($scriptName in @('reset-demo-data.ps1', 'start-all.ps1')) {
+foreach ($scriptName in @('reset-demo-data.ps1', 'activate-demo-accounts.ps1', 'start-all.ps1')) {
     $scriptPath = Join-Path $PSScriptRoot $scriptName
     $tokens = $null
     $parseErrors = $null
@@ -59,11 +59,16 @@ if ($startSource -notmatch 'Read-DemoDatabaseState' -or
 foreach ($requiredRuntimeBinding in @(
     "`$env:Demo__AllowHttpLoopback = 'true'"
     "`$env:Demo__SimulationEndpointsEnabled = 'true'"
-    "`$env:Features__AiEnabled = 'false'"
-    "`$env:Features__EmailEnabled = 'false'"
+    "`$env:Features__AiEnabled = if (`$EnableAi) { 'true' } else { 'false' }"
+    "`$env:Features__EmailEnabled = if (`$EnableEmail) { 'true' } else { 'false' }"
 )) {
     if ($startSource -notmatch [Regex]::Escape($requiredRuntimeBinding)) {
         throw "start-all.ps1 is missing the formal local Demo binding: $requiredRuntimeBinding"
+    }
+}
+foreach ($requiredProviderSwitch in @('[switch] $EnableAi', '[switch] $EnableEmail')) {
+    if ($startSource -notmatch [Regex]::Escape($requiredProviderSwitch)) {
+        throw "start-all.ps1 is missing the explicit provider opt-in: $requiredProviderSwitch"
     }
 }
 foreach ($restoredVariable in @(
@@ -94,4 +99,17 @@ if ($resetSource -notmatch 'Test-ServiceProcesses') {
     throw 'reset-demo-data.ps1 does not reject preparation while managed services are running.'
 }
 
-Write-Output 'Demo environment safety tests passed: 1 allowed and 4 rejected database names; 2 scripts parsed; local runtime, provider defaults, and secret precedence verified.'
+$accountSource = $scriptSources['activate-demo-accounts.ps1']
+foreach ($requiredAccountSafety in @(
+    'Assert-IsolatedDemoDatabaseName'
+    'Test-ServiceProcesses'
+    '--activate-demo-accounts'
+    "`$env:Features__AiEnabled = 'false'"
+    "`$env:Features__EmailEnabled = 'false'"
+)) {
+    if ($accountSource -notmatch [Regex]::Escape($requiredAccountSafety)) {
+        throw "activate-demo-accounts.ps1 is missing required safety behavior: $requiredAccountSafety"
+    }
+}
+
+Write-Output 'Demo environment safety tests passed: 1 allowed and 4 rejected database names; 3 scripts parsed; local runtime, account activation, explicit provider opt-in, and secret precedence verified.'
