@@ -25,6 +25,12 @@ public sealed class CaseWorkbenchStore : ICaseWorkbenchStore
         IReadOnlyCollection<string>? statuses,
         IReadOnlyCollection<CasePriority>? priorities,
         Guid? assigneePublicId,
+        CaseWorkbenchAssigneeFilter? assignee,
+        DateOnly? createdFrom,
+        DateOnly? createdTo,
+        DateOnly? lastActivityFrom,
+        DateOnly? lastActivityTo,
+        CaseWorkbenchSortOrder sort,
         bool? overdueOnly,
         string? keyword,
         int pageSize,
@@ -67,6 +73,42 @@ public sealed class CaseWorkbenchStore : ICaseWorkbenchStore
             query = query.Where(r => r.AssigneePublicId == assigneePublicId);
         }
 
+        query = assignee switch
+        {
+            CaseWorkbenchAssigneeFilter.Mine => query.Where(r =>
+                _dbContext.AdminProfiles.Any(profile =>
+                    profile.IsActive
+                    && profile.UserId == adminUserId
+                    && profile.PublicId == r.AssigneePublicId)),
+            CaseWorkbenchAssigneeFilter.Unassigned => query.Where(r => r.AssigneePublicId == null),
+            CaseWorkbenchAssigneeFilter.Assigned => query.Where(r => r.AssigneePublicId != null),
+            _ => query,
+        };
+
+        if (createdFrom is not null)
+        {
+            var lower = createdFrom.Value.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+            query = query.Where(r => r.CreatedAtUtc >= lower);
+        }
+
+        if (createdTo is not null)
+        {
+            var upper = createdTo.Value.ToDateTime(TimeOnly.MaxValue, DateTimeKind.Utc);
+            query = query.Where(r => r.CreatedAtUtc <= upper);
+        }
+
+        if (lastActivityFrom is not null)
+        {
+            var lower = lastActivityFrom.Value.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+            query = query.Where(r => r.LastActivityAtUtc >= lower);
+        }
+
+        if (lastActivityTo is not null)
+        {
+            var upper = lastActivityTo.Value.ToDateTime(TimeOnly.MaxValue, DateTimeKind.Utc);
+            query = query.Where(r => r.LastActivityAtUtc <= upper);
+        }
+
         if (overdueOnly == true)
         {
             query = query.Where(r => r.IsOverdue);
@@ -78,16 +120,26 @@ public sealed class CaseWorkbenchStore : ICaseWorkbenchStore
             query = query.Where(r => r.CaseNumber.Contains(trimmed) || r.Title.Contains(trimmed));
         }
 
-        if (after is not null)
+        var totalCount = await query.CountAsync(cancellationToken);
+
+        if (after is not null && sort == CaseWorkbenchSortOrder.Latest)
         {
             query = query.Where(r =>
                 r.LastActivityAtUtc < after.LastActivityAtUtc
                 || (r.LastActivityAtUtc == after.LastActivityAtUtc && r.CasePublicId < after.CasePublicId));
         }
+        else if (after is not null)
+        {
+            query = query.Where(r =>
+                r.LastActivityAtUtc > after.LastActivityAtUtc
+                || (r.LastActivityAtUtc == after.LastActivityAtUtc && r.CasePublicId > after.CasePublicId));
+        }
+
+        query = sort == CaseWorkbenchSortOrder.Latest
+            ? query.OrderByDescending(r => r.LastActivityAtUtc).ThenByDescending(r => r.CasePublicId)
+            : query.OrderBy(r => r.LastActivityAtUtc).ThenBy(r => r.CasePublicId);
 
         var rows = await query
-            .OrderByDescending(r => r.LastActivityAtUtc)
-            .ThenByDescending(r => r.CasePublicId)
             .Take(pageSize + 1)
             .Select(r => new CaseWorkbenchItemDto(
                 r.CaseType,
@@ -106,6 +158,6 @@ public sealed class CaseWorkbenchStore : ICaseWorkbenchStore
 
         var hasMore = rows.Count > pageSize;
         var items = hasMore ? rows.Take(pageSize).ToList() : rows;
-        return new CaseWorkbenchPage(items, hasMore);
+        return new CaseWorkbenchPage(items, hasMore, totalCount);
     }
 }

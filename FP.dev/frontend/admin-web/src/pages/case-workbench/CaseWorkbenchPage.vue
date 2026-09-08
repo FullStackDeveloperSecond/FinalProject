@@ -2,9 +2,16 @@
 import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
 import { computed, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { defaultCaseWorkbenchPageSize, useCaseWorkbenchQuery } from '../../features/case-workbench/queries'
-import type { CasePriority, CaseWorkbenchCaseType } from '../../features/case-workbench/types'
-import { formatDateTime, priorityLabels } from '../../features/support/labels'
+import type {
+  CasePriority,
+  CaseWorkbenchAssigneeFilter,
+  CaseWorkbenchCaseType,
+  CaseWorkbenchSortOrder,
+} from '../../features/case-workbench/types'
+import type { SupportTicketStatus } from '../../features/support/types'
+import { formatDateTime, priorityLabels, statusLabels } from '../../features/support/labels'
 
 // A-24 案件工作台：讀取既有 GET /api/v1/admin/case-workbench，欄位固定 12 欄（不自行擴張 DTO）。
 // This slice is authorized for Support only. Return/Report filters stay hidden until their
@@ -13,14 +20,46 @@ const caseTypeOptions: { value: CaseWorkbenchCaseType, label: string }[] = [
   { value: 'support', label: '客服案件' },
 ]
 const priorityOptions: CasePriority[] = ['low', 'normal', 'high', 'urgent']
+const statusOptions = Object.entries(statusLabels) as [SupportTicketStatus, string][]
+const assigneeOptions: { value: CaseWorkbenchAssigneeFilter, label: string }[] = [
+  { value: 'any', label: '全部承辦狀態' },
+  { value: 'mine', label: '我的案件' },
+  { value: 'unassigned', label: '未指派' },
+  { value: 'assigned', label: '已指派' },
+]
+
+const route = useRoute()
+const router = useRouter()
+
+function queryValue(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
+const initialCaseType = queryValue(route.query.caseType)
+const initialPriority = queryValue(route.query.priority)
+const initialStatus = queryValue(route.query.status)
+const initialAssignee = queryValue(route.query.assignee)
 
 const filters = reactive({
-  caseTypes: [] as CaseWorkbenchCaseType[],
-  priorities: [] as CasePriority[],
-  statusesInput: '',
-  assigneePublicId: '',
-  overdueOnly: false,
-  keyword: '',
+  caseType: (caseTypeOptions.some(option => option.value === initialCaseType)
+    ? initialCaseType
+    : '') as CaseWorkbenchCaseType | '',
+  priority: (priorityOptions.includes(initialPriority as CasePriority)
+    ? initialPriority
+    : '') as CasePriority | '',
+  status: (statusOptions.some(option => option[0] === initialStatus)
+    ? initialStatus
+    : '') as SupportTicketStatus | '',
+  assignee: (assigneeOptions.some(option => option.value === initialAssignee)
+    ? initialAssignee
+    : 'any') as CaseWorkbenchAssigneeFilter,
+  createdFrom: queryValue(route.query.createdFrom),
+  createdTo: queryValue(route.query.createdTo),
+  lastActivityFrom: queryValue(route.query.lastActivityFrom),
+  lastActivityTo: queryValue(route.query.lastActivityTo),
+  sort: (queryValue(route.query.sort) === 'oldest' ? 'oldest' : 'latest') as CaseWorkbenchSortOrder,
+  overdueOnly: queryValue(route.query.overdue) === 'true',
+  keyword: queryValue(route.query.keyword),
 })
 
 // Keyset (cursor) pagination has no "page N" concept — a stack of visited cursors is the
@@ -28,12 +67,17 @@ const filters = reactive({
 // SupportSlaQueuePage.vue's own pagination pattern exactly.
 const cursorStack = ref<(string | undefined)[]>([undefined])
 const filterFingerprint = computed(() => JSON.stringify({
-  caseTypes: [...filters.caseTypes].sort(),
-  priorities: [...filters.priorities].sort(),
-  statusesInput: filters.statusesInput,
-  assigneePublicId: filters.assigneePublicId,
+  caseType: filters.caseType,
+  priority: filters.priority,
+  status: filters.status,
+  assignee: filters.assignee,
+  createdFrom: filters.createdFrom,
+  createdTo: filters.createdTo,
+  lastActivityFrom: filters.lastActivityFrom,
+  lastActivityTo: filters.lastActivityTo,
+  sort: filters.sort,
   overdueOnly: filters.overdueOnly,
-  keyword: filters.keyword,
+  keyword: filters.keyword.trim(),
 }))
 const cursorFilterFingerprint = ref(filterFingerprint.value)
 const currentCursor = computed(() =>
@@ -46,19 +90,41 @@ function resetPagination() {
   cursorFilterFingerprint.value = filterFingerprint.value
 }
 
+function syncUrl() {
+  const query: Record<string, string> = {}
+  if (filters.caseType) query.caseType = filters.caseType
+  if (filters.status) query.status = filters.status
+  if (filters.priority) query.priority = filters.priority
+  if (filters.assignee !== 'any') query.assignee = filters.assignee
+  if (filters.createdFrom) query.createdFrom = filters.createdFrom
+  if (filters.createdTo) query.createdTo = filters.createdTo
+  if (filters.lastActivityFrom) query.lastActivityFrom = filters.lastActivityFrom
+  if (filters.lastActivityTo) query.lastActivityTo = filters.lastActivityTo
+  if (filters.sort !== 'latest') query.sort = filters.sort
+  if (filters.overdueOnly) query.overdue = 'true'
+  if (filters.keyword.trim()) query.keyword = filters.keyword.trim()
+  void router.replace({ query })
+}
+
 // flush:sync plus the fingerprint guard above guarantees a changed filter can never be paired
 // with a cursor issued for the previous filter set, even during the same input event.
-watch(filterFingerprint, resetPagination, { flush: 'sync' })
+watch(filterFingerprint, () => {
+  resetPagination()
+  syncUrl()
+}, { flush: 'sync' })
 
 const queryFilters = computed(() => ({
-  caseTypes: filters.caseTypes.length > 0 ? filters.caseTypes : undefined,
-  statuses: filters.statusesInput
-    ? filters.statusesInput.split(',').map(value => value.trim()).filter(Boolean)
-    : undefined,
-  priorities: filters.priorities.length > 0 ? filters.priorities : undefined,
-  assigneePublicId: filters.assigneePublicId || undefined,
+  caseTypes: filters.caseType ? [filters.caseType] : undefined,
+  statuses: filters.status ? [filters.status] : undefined,
+  priorities: filters.priority ? [filters.priority] : undefined,
+  assignee: filters.assignee,
+  createdFrom: filters.createdFrom || undefined,
+  createdTo: filters.createdTo || undefined,
+  lastActivityFrom: filters.lastActivityFrom || undefined,
+  lastActivityTo: filters.lastActivityTo || undefined,
+  sort: filters.sort,
   overdueOnly: filters.overdueOnly || undefined,
-  keyword: filters.keyword || undefined,
+  keyword: filters.keyword.trim() || undefined,
   cursor: currentCursor.value,
   pageSize: defaultCaseWorkbenchPageSize,
 }))
@@ -82,26 +148,8 @@ function goToPreviousPage() {
   }
 }
 
-function toggleCaseType(value: CaseWorkbenchCaseType) {
-  const index = filters.caseTypes.indexOf(value)
-  if (index === -1) {
-    filters.caseTypes.push(value)
-  }
-  else {
-    filters.caseTypes.splice(index, 1)
-  }
-  resetPagination()
-}
-
-function togglePriority(value: CasePriority) {
-  const index = filters.priorities.indexOf(value)
-  if (index === -1) {
-    filters.priorities.push(value)
-  }
-  else {
-    filters.priorities.splice(index, 1)
-  }
-  resetPagination()
+function setSort(sort: CaseWorkbenchSortOrder) {
+  filters.sort = sort
 }
 
 // CaseWorkbenchItemDto.caseType is a plain string sourced straight from vw_CaseWorkbench's SQL
@@ -118,6 +166,10 @@ function normalizeCaseType(caseType: string): CaseWorkbenchCaseType | null {
 function caseTypeLabel(caseType: string): string {
   const normalized = normalizeCaseType(caseType)
   return caseTypeOptions.find(option => option.value === normalized)?.label ?? caseType
+}
+
+function statusLabel(status: string): string {
+  return statusOptions.find(([value]) => value.toLowerCase() === status.toLowerCase())?.[1] ?? status
 }
 
 // A caseType this app can navigate to a real detail page for — Return/Report have no frontend
@@ -149,7 +201,7 @@ const errorTitle = computed(() => {
       案件工作台
     </h1>
     <p class="view-lede">
-      客服案件清單依最後活動時間排序。後端已依角色與 Actor Scope 過濾；退貨與檢舉將在各自授權範圍與明細頁完成後開放。
+      集中查看與追蹤目前可處理的客服案件。
     </p>
 
     <form
@@ -157,75 +209,156 @@ const errorTitle = computed(() => {
       aria-label="案件篩選"
       @submit.prevent="resetPagination"
     >
-      <fieldset>
-        <legend>案件類型</legend>
-        <label
-          v-for="option in caseTypeOptions"
-          :key="option.value"
+      <label class="case-workbench__filter-field">
+        案件編號或關鍵字
+        <input
+          id="case-search"
+          v-model.trim="filters.keyword"
+          type="search"
+          maxlength="100"
+          placeholder="輸入案件編號或標題"
         >
-          <input
-            type="checkbox"
-            :checked="filters.caseTypes.includes(option.value)"
-            @change="toggleCaseType(option.value)"
+      </label>
+
+      <label class="case-workbench__filter-field">
+        案件類型
+        <select
+          id="case-type-filter"
+          v-model="filters.caseType"
+        >
+          <option value="">
+            全部可見類型
+          </option>
+          <option
+            v-for="option in caseTypeOptions"
+            :key="option.value"
+            :value="option.value"
           >
-          {{ option.label }}
+            {{ option.label }}
+          </option>
+        </select>
+      </label>
+
+      <label class="case-workbench__filter-field">
+        狀態
+        <select
+          id="case-status-filter"
+          v-model="filters.status"
+        >
+          <option value="">
+            全部狀態
+          </option>
+          <option
+            v-for="([value, label]) in statusOptions"
+            :key="value"
+            :value="value"
+          >
+            {{ label }}
+          </option>
+        </select>
+      </label>
+
+      <label class="case-workbench__filter-field">
+        優先度
+        <select
+          id="case-priority-filter"
+          v-model="filters.priority"
+        >
+          <option value="">
+            全部優先度
+          </option>
+          <option
+            v-for="option in priorityOptions"
+            :key="option"
+            :value="option"
+          >
+            {{ priorityLabels[option] }}
+          </option>
+        </select>
+      </label>
+
+      <label class="case-workbench__filter-field">
+        承辦人
+        <select
+          id="case-assignee-filter"
+          v-model="filters.assignee"
+        >
+          <option
+            v-for="option in assigneeOptions"
+            :key="option.value"
+            :value="option.value"
+          >
+            {{ option.label }}
+          </option>
+        </select>
+      </label>
+
+      <fieldset class="case-workbench__date-range">
+        <legend>建立日期</legend>
+        <label>
+          從
+          <input
+            id="case-created-from"
+            v-model="filters.createdFrom"
+            type="date"
+            :max="filters.createdTo || undefined"
+          >
         </label>
-        <p class="case-workbench__unavailable-types">
-          尚未開放：退貨、檢舉。
-          後端統一案件檢視目前只回傳客服案件，待各自的授權範圍與明細頁完成後才會納入篩選，
-          因此這裡不提供這兩種案件類型的選項。
-        </p>
+        <label>
+          到
+          <input
+            id="case-created-to"
+            v-model="filters.createdTo"
+            type="date"
+            :min="filters.createdFrom || undefined"
+          >
+        </label>
       </fieldset>
 
-      <fieldset>
-        <legend>優先度</legend>
-        <label
-          v-for="option in priorityOptions"
-          :key="option"
-        >
+      <fieldset class="case-workbench__date-range">
+        <legend>最後活動日期</legend>
+        <label>
+          從
           <input
-            type="checkbox"
-            :checked="filters.priorities.includes(option)"
-            @change="togglePriority(option)"
+            id="case-activity-from"
+            v-model="filters.lastActivityFrom"
+            type="date"
+            :max="filters.lastActivityTo || undefined"
           >
-          {{ priorityLabels[option] }}
+        </label>
+        <label>
+          到
+          <input
+            id="case-activity-to"
+            v-model="filters.lastActivityTo"
+            type="date"
+            :min="filters.lastActivityFrom || undefined"
+          >
         </label>
       </fieldset>
 
-      <label class="case-workbench__filter-field">
-        狀態代碼（以逗號分隔）
-        <input
-          v-model="filters.statusesInput"
-          type="text"
-          placeholder="open,inProgress"
-          @change="resetPagination"
+      <fieldset class="case-workbench__sort">
+        <legend>最後活動排序</legend>
+        <button
+          type="button"
+          :aria-pressed="filters.sort === 'latest'"
+          @click="setSort('latest')"
         >
-      </label>
-
-      <label class="case-workbench__filter-field">
-        承辦人 PublicId
-        <input
-          v-model="filters.assigneePublicId"
-          type="text"
-          placeholder="guid"
-          @change="resetPagination"
+          最新優先
+        </button>
+        <button
+          type="button"
+          :aria-pressed="filters.sort === 'oldest'"
+          @click="setSort('oldest')"
         >
-      </label>
-
-      <label class="case-workbench__filter-field">
-        關鍵字
-        <input
-          v-model="filters.keyword"
-          type="text"
-          @change="resetPagination"
-        >
-      </label>
+          最舊優先
+        </button>
+      </fieldset>
 
       <label class="case-workbench__filter-checkbox">
         <input
           v-model="filters.overdueOnly"
           type="checkbox"
-          @change="resetPagination"
         >
         只顯示已逾時
       </label>
@@ -246,6 +379,12 @@ const errorTitle = computed(() => {
       description="調整篩選條件，或稍後再回來查看。"
     />
     <template v-else-if="data">
+      <p
+        class="case-workbench__result-count"
+        aria-live="polite"
+      >
+        共 {{ data.totalCount }} 筆符合條件的案件
+      </p>
       <div class="case-workbench__table-wrap card">
         <table class="case-workbench__table">
           <thead>
@@ -304,7 +443,7 @@ const errorTitle = computed(() => {
                 <span
                   v-else
                   class="case-workbench__no-detail"
-                  :title="`${caseTypeLabel(item.caseType)}明細頁面尚未上線`"
+                  :title="`${caseTypeLabel(item.caseType)}目前無可用明細`"
                 >
                   {{ item.caseNumber }}
                 </span>
@@ -313,7 +452,7 @@ const errorTitle = computed(() => {
                 {{ item.title }}
               </td>
               <td data-label="狀態">
-                <span class="status-pill">{{ item.status }}</span>
+                <span class="status-pill">{{ statusLabel(item.status) }}</span>
               </td>
               <td data-label="優先度">
                 {{ priorityLabels[item.priority] }}
@@ -410,6 +549,21 @@ const errorTitle = computed(() => {
   align-self: flex-end;
 }
 
+.case-workbench__date-range label {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.case-workbench__sort button[aria-pressed="true"] {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.case-workbench__result-count {
+  color: var(--color-text-muted);
+}
+
 .case-workbench__table-wrap {
   padding: 0;
   overflow-x: auto;
@@ -460,14 +614,4 @@ const errorTitle = computed(() => {
   margin-top: 1.25rem;
 }
 
-.case-workbench__unavailable-types {
-  grid-column: 1 / -1;
-  margin: var(--space-2) 0 0;
-  padding: var(--space-2) var(--space-3);
-  background: var(--color-surface-strong);
-  border-left: 3px solid var(--color-border);
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  font-size: var(--fs-caption);
-  color: var(--color-text-muted);
-}
 </style>

@@ -80,11 +80,14 @@ describe('admin motion integration', () => {
     expect(resolveMotionPresetId('?motion=donggu', false)).toBe(defaultMotionPresetId)
 
     const shell = readFileSync(join(adminRoot, 'src', 'App.vue'), 'utf8')
-    // 切換器只在 dev 進入模組圖：import 本身被 import.meta.env.DEV 包住，
-    // 渲染再由 canSwitch 擋一次，production build 兩層都不成立。
-    expect(shell).toContain('import.meta.env.DEV')
+    // 切換器只在明確啟用 motion debug 的 dev 進入模組圖，渲染再由 canSwitch 擋一次。
+    expect(shell).toContain('import.meta.env.DEV === true')
+    expect(shell).toContain("import.meta.env.VITE_ENABLE_MOTION_DEBUG === 'true'")
     expect(shell).toContain("v-if=\"canSwitch && MotionDevSwitcher\"")
     expect(shell).toContain('useMotionPresetSelection')
+
+    const envExample = readFileSync(join(adminRoot, '.env.example'), 'utf8')
+    expect(envExample).toContain('VITE_ENABLE_MOTION_DEBUG=false')
   })
 
   it('keeps the dev switcher out of the production bundle when dist exists', () => {

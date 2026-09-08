@@ -3,6 +3,8 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using DoSelect.Api.Common;
+using DoSelect.Api.Observability;
 using DoSelect.Api.Orders;
 using DoSelect.Api.Security;
 using DoSelect.Application.Checkout;
@@ -68,6 +70,26 @@ public sealed class CheckoutApiTests : IClassFixture<WebApplicationFactory<Progr
     }
 
     [Fact]
+    public async Task CreateOrder_WhenDatabaseSchemaIsOutdated_ReturnsSafeServiceUnavailableBeforeCheckout()
+    {
+        var gateway = new FakeGateway(CreateOrderDto());
+        using var factory = CreateFactory(
+            gateway,
+            databaseStatus: DatabaseReadinessProbeStatus.SchemaOutdated);
+        using var client = factory.CreateClient();
+
+        using var response = await PostAsync(client, includeIdempotencyKey: true);
+        var responseText = await response.Content.ReadAsStringAsync();
+        using var body = JsonDocument.Parse(responseText);
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        Assert.Equal(ApiErrorCodes.ServiceUnavailable, body.RootElement.GetProperty("code").GetString());
+        Assert.DoesNotContain("database", responseText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("migration", responseText, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, gateway.Calls);
+    }
+
+    [Fact]
     public async Task GetPolicyVersions_AsAnonymous_ReturnsOnlyTheCurrentAcceptedVersions()
     {
         var gateway = new FakeGateway(CreateOrderDto());
@@ -91,17 +113,21 @@ public sealed class CheckoutApiTests : IClassFixture<WebApplicationFactory<Progr
 
     private WebApplicationFactory<Program> CreateFactory(
         FakeGateway gateway,
-        CheckoutPolicySnapshot? policy = null) =>
+        CheckoutPolicySnapshot? policy = null,
+        DatabaseReadinessProbeStatus databaseStatus = DatabaseReadinessProbeStatus.Ready) =>
         _baseFactory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
         {
             services.AddDataProtection().UseEphemeralDataProtectionProvider();
             services.RemoveAll<ICheckoutTransactionGateway>();
             services.RemoveAll<IIdempotencyExecutor>();
             services.RemoveAll<ICheckoutPolicyProvider>();
+            services.RemoveAll<IDatabaseReadinessProbe>();
             services.AddSingleton<ICheckoutTransactionGateway>(gateway);
             services.AddSingleton<IIdempotencyExecutor, PassthroughIdempotencyExecutor>();
             services.AddSingleton<ICheckoutPolicyProvider>(
                 new StaticPolicyProvider(policy ?? new CheckoutPolicySnapshot(1, 1, 1, 1)));
+            services.AddSingleton<IDatabaseReadinessProbe>(
+                new StubDatabaseReadinessProbe(databaseStatus));
         }));
 
     private static async Task<HttpResponseMessage> PostAsync(
@@ -214,5 +240,12 @@ public sealed class CheckoutApiTests : IClassFixture<WebApplicationFactory<Progr
         : ICheckoutPolicyProvider
     {
         public CheckoutPolicySnapshot Current => current;
+    }
+
+    private sealed class StubDatabaseReadinessProbe(DatabaseReadinessProbeStatus status)
+        : IDatabaseReadinessProbe
+    {
+        public Task<DatabaseReadinessProbeStatus> CheckAsync(
+            CancellationToken cancellationToken) => Task.FromResult(status);
     }
 }

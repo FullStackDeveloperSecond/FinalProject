@@ -99,6 +99,27 @@ export interface OrderDto {
   shipment?: OrderShipmentDto | null
 }
 
+export interface OrderSummaryDto {
+  publicId: string
+  orderNumber: string
+  orderStatus: OrderStatus
+  paymentStatus: PaymentStatus
+  fulfillmentStatus: FulfillmentStatus
+  itemCount: number
+  grandTotal: number
+  currency: string
+  createdAtUtc: string
+  availableActions: string[]
+}
+
+export interface OrderPageDto {
+  items: OrderSummaryDto[]
+  pageNumber: number
+  pageSize: number
+  totalCount: number
+  totalPages: number
+}
+
 export interface CancelOrderRequestBody {
   reasonCode: string
   note?: string
@@ -118,6 +139,14 @@ export const CANCELLATION_REASON_OPTIONS: ReadonlyArray<{ value: string; label: 
 ]
 
 interface OrdersPaths {
+  '/api/v1/orders': {
+    get: {
+      parameters: { query?: { pageNumber?: number, pageSize?: number } }
+      responses: {
+        200: { content: { 'application/json': OrderPageDto } }
+      }
+    }
+  }
   '/api/v1/orders/{id}': {
     get: {
       parameters: { path: { id: string } }
@@ -138,6 +167,13 @@ interface OrdersPaths {
 }
 
 const client = createApiClient<OrdersPaths>()
+
+export async function fetchOrders(pageNumber: number, pageSize: number): Promise<OrderPageDto> {
+  const { data } = await client.GET('/api/v1/orders', {
+    params: { query: { pageNumber, pageSize } },
+  })
+  return data as OrderPageDto
+}
 
 export async function fetchOrder(orderPublicId: string): Promise<OrderDto> {
   const { data } = await client.GET('/api/v1/orders/{id}', {

@@ -57,7 +57,7 @@ function sampleItem(overrides: Partial<Record<string, unknown>> = {}) {
   }
 }
 
-async function mountPage() {
+async function mountPage(path = '/cases') {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -65,7 +65,7 @@ async function mountPage() {
       { path: '/support/tickets/:ticketId', name: 'support-ticket-detail', component: { template: '<div />' } },
     ],
   })
-  await router.push('/cases')
+  await router.push(path)
   await router.isReady()
 
   return mount(CaseWorkbenchPage, { global: { plugins: [router] } })
@@ -94,19 +94,19 @@ describe('CaseWorkbenchPage', () => {
     const wrapper = await mountPage()
 
     expect(wrapper.text()).toContain('無法載入案件工作台')
-    await wrapper.get('button[type="button"]').trigger('click')
+    await wrapper.findComponent({ name: 'ErrorState' }).get('button').trigger('click')
     expect(workbenchMocks.refetch).toHaveBeenCalledOnce()
   })
 
   it('shows an empty state when there are no matching cases', async () => {
-    workbenchMocks.data.value = { items: [], nextCursor: null, hasMore: false }
+    workbenchMocks.data.value = { items: [], nextCursor: null, hasMore: false, totalCount: 0 }
     const wrapper = await mountPage()
 
     expect(wrapper.text()).toContain('目前沒有符合條件的案件')
   })
 
   it('renders the fixed 12-column summary and links a Support case to its existing detail route', async () => {
-    workbenchMocks.data.value = { items: [sampleItem()], nextCursor: null, hasMore: false }
+    workbenchMocks.data.value = { items: [sampleItem()], nextCursor: null, hasMore: false, totalCount: 1 }
     const wrapper = await mountPage()
 
     expect(wrapper.text()).toContain('CS-20260819-0001')
@@ -117,6 +117,8 @@ describe('CaseWorkbenchPage', () => {
     // string, and must still be recognized as a navigable Support case despite the casing.
     expect(wrapper.text()).toContain('客服案件')
     expect(wrapper.text()).not.toContain('Support')
+    expect(wrapper.text()).toContain('待處理')
+    expect(wrapper.text()).toContain('共 1 筆符合條件的案件')
     const link = wrapper.get('a')
     expect(link.attributes('href')).toBe('/support/tickets/018f2e6a-0000-7000-8000-000000000001')
   })
@@ -126,6 +128,7 @@ describe('CaseWorkbenchPage', () => {
       items: [sampleItem({ caseType: 'Return', casePublicId: 'return-1', caseNumber: 'RT-0001' })],
       nextCursor: null,
       hasMore: false,
+      totalCount: 1,
     }
     const wrapper = await mountPage()
 
@@ -133,11 +136,11 @@ describe('CaseWorkbenchPage', () => {
     const hint = wrapper.find('.case-workbench__no-detail')
     expect(hint.exists()).toBe(true)
     expect(hint.text()).toContain('RT-0001')
-    expect(hint.attributes('title')).toContain('尚未上線')
+    expect(hint.attributes('title')).toContain('目前無可用明細')
   })
 
   it('disables previous on the first page and enables next only when hasMore is true', async () => {
-    workbenchMocks.data.value = { items: [sampleItem()], nextCursor: 'next-cursor', hasMore: true }
+    workbenchMocks.data.value = { items: [sampleItem()], nextCursor: 'next-cursor', hasMore: true, totalCount: 2 }
     const wrapper = await mountPage()
 
     const buttons = wrapper.findAll('.case-workbench__pagination button')
@@ -150,15 +153,14 @@ describe('CaseWorkbenchPage', () => {
   })
 
   it('toggling a case-type filter resets pagination and passes the selection through to the query', async () => {
-    workbenchMocks.data.value = { items: [sampleItem()], nextCursor: 'next-cursor', hasMore: true }
+    workbenchMocks.data.value = { items: [sampleItem()], nextCursor: 'next-cursor', hasMore: true, totalCount: 2 }
     const wrapper = await mountPage()
     const nextButton = wrapper.findAll('.case-workbench__pagination button')[1]
     await nextButton?.trigger('click')
     await flushPromises()
     expect(workbenchMocks.lastFilters.value?.cursor).toBe('next-cursor')
 
-    const supportCheckbox = wrapper.get('input[type="checkbox"]')
-    await supportCheckbox.setValue(true)
+    await wrapper.get('#case-type-filter').setValue('support')
     await flushPromises()
 
     expect(workbenchMocks.lastFilters.value?.cursor).toBeUndefined()
@@ -166,28 +168,51 @@ describe('CaseWorkbenchPage', () => {
   })
 
   it('shows only the currently authorized Support case-type filter', async () => {
-    workbenchMocks.data.value = { items: [], nextCursor: null, hasMore: false }
+    workbenchMocks.data.value = { items: [], nextCursor: null, hasMore: false, totalCount: 0 }
     const wrapper = await mountPage()
-    const caseTypeLabels = wrapper.findAll('fieldset')[0]?.findAll('label') ?? []
+    const caseTypeOptions = wrapper.get('#case-type-filter').findAll('option')
 
-    expect(caseTypeLabels).toHaveLength(1)
-    expect(caseTypeLabels[0]?.text()).toContain('客服案件')
+    expect(caseTypeOptions).toHaveLength(2)
+    expect(caseTypeOptions[1]?.text()).toContain('客服案件')
   })
 
   it.each([
-    [0, 'assigned'],
-    [1, '018f2e6a-0000-7000-8000-000000000099'],
-    [2, 'new keyword'],
-  ])('clears a second-page cursor synchronously when text filter %i changes', async (inputIndex, value) => {
-    workbenchMocks.data.value = { items: [sampleItem()], nextCursor: 'next-cursor', hasMore: true }
+    ['#case-search', 'new keyword'],
+    ['#case-assignee-filter', 'mine'],
+    ['#case-created-from', '2026-08-01'],
+  ])('clears a second-page cursor synchronously when filter %s changes', async (selector, value) => {
+    workbenchMocks.data.value = { items: [sampleItem()], nextCursor: 'next-cursor', hasMore: true, totalCount: 2 }
     const wrapper = await mountPage()
     await wrapper.findAll('.case-workbench__pagination button')[1]?.trigger('click')
     await flushPromises()
     expect(workbenchMocks.lastFilters.value?.cursor).toBe('next-cursor')
 
-    await wrapper.findAll('input[type="text"]')[inputIndex]?.setValue(value)
+    await wrapper.get(selector).setValue(value)
     await flushPromises()
 
     expect(workbenchMocks.lastFilters.value?.cursor).toBeUndefined()
+  })
+
+  it('restores readable filters from the URL and writes later changes back to it', async () => {
+    workbenchMocks.data.value = { items: [], nextCursor: null, hasMore: false, totalCount: 0 }
+    const wrapper = await mountPage(
+      '/cases?keyword=CS-2026&status=inProgress&priority=urgent&assignee=mine&createdFrom=2026-08-01&createdTo=2026-08-31&lastActivityFrom=2026-09-01&lastActivityTo=2026-09-08&sort=oldest',
+    )
+
+    expect(workbenchMocks.lastFilters.value).toMatchObject({
+      keyword: 'CS-2026',
+      statuses: ['inProgress'],
+      priorities: ['urgent'],
+      assignee: 'mine',
+      createdFrom: '2026-08-01',
+      createdTo: '2026-08-31',
+      lastActivityFrom: '2026-09-01',
+      lastActivityTo: '2026-09-08',
+      sort: 'oldest',
+    })
+
+    await wrapper.get('#case-status-filter').setValue('resolved')
+    await flushPromises()
+    expect(wrapper.vm.$route.query.status).toBe('resolved')
   })
 })

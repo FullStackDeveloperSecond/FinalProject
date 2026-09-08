@@ -12,14 +12,20 @@ public interface ICaseWorkbenchStore
 {
     /// <summary>
     /// Returns up to <paramref name="pageSize"/> rows for the given (already-authorized)
-    /// <paramref name="caseTypes"/>, ordered by LastActivityAtUtc DESC, CasePublicId DESC,
-    /// starting strictly after <paramref name="after"/> when supplied.
+    /// <paramref name="caseTypes"/>, ordered by LastActivityAtUtc and CasePublicId in the
+    /// requested direction, starting strictly after <paramref name="after"/> when supplied.
     /// </summary>
     Task<CaseWorkbenchPage> QueryPageAsync(
         IReadOnlyCollection<CaseWorkbenchCaseType> caseTypes,
         IReadOnlyCollection<string>? statuses,
         IReadOnlyCollection<CasePriority>? priorities,
         Guid? assigneePublicId,
+        CaseWorkbenchAssigneeFilter? assignee,
+        DateOnly? createdFrom,
+        DateOnly? createdTo,
+        DateOnly? lastActivityFrom,
+        DateOnly? lastActivityTo,
+        CaseWorkbenchSortOrder sort,
         bool? overdueOnly,
         string? keyword,
         int pageSize,
@@ -29,4 +35,7 @@ public interface ICaseWorkbenchStore
         CancellationToken cancellationToken);
 }
 
-public sealed record CaseWorkbenchPage(IReadOnlyList<CaseWorkbenchItemDto> Items, bool HasMore);
+public sealed record CaseWorkbenchPage(
+    IReadOnlyList<CaseWorkbenchItemDto> Items,
+    bool HasMore,
+    int TotalCount = 0);

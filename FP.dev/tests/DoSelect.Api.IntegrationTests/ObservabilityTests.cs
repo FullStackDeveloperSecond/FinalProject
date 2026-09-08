@@ -9,6 +9,8 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace DoSelect.Api.IntegrationTests;
 
@@ -91,6 +93,37 @@ public sealed class ObservabilityTests : IClassFixture<WebApplicationFactory<Pro
         Assert.Equal("Unhealthy", document.RootElement.GetProperty("status").GetString());
         Assert.Single(document.RootElement.EnumerateObject());
         Assert.DoesNotContain("database", responseBody, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task GetReady_WhenDatabaseSchemaIsOutdated_ReturnsSafeUnhealthyResponse()
+    {
+        using var factory = CreateFactory(
+            databaseStatus: DatabaseReadinessProbeStatus.SchemaOutdated);
+        using var client = factory.CreateClient();
+
+        using var response = await client.GetAsync("/health/ready");
+        var responseBody = await response.Content.ReadAsStringAsync();
+        using var document = JsonDocument.Parse(responseBody);
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        Assert.Equal("Unhealthy", document.RootElement.GetProperty("status").GetString());
+        Assert.Single(document.RootElement.EnumerateObject());
+        Assert.DoesNotContain("migration", responseBody, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("database", responseBody, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task DatabaseReadiness_WhenSchemaIsOutdated_ProvidesAnOperatorSafeDescription()
+    {
+        var healthCheck = new DatabaseReadinessHealthCheck(
+            new StubDatabaseReadinessProbe(DatabaseReadinessProbeStatus.SchemaOutdated),
+            NullLogger<DatabaseReadinessHealthCheck>.Instance);
+
+        var result = await healthCheck.CheckHealthAsync(new HealthCheckContext());
+
+        Assert.Equal(HealthStatus.Unhealthy, result.Status);
+        Assert.Equal("Database schema is outdated.", result.Description);
     }
 
     [Fact]
@@ -389,7 +422,8 @@ public sealed class ObservabilityTests : IClassFixture<WebApplicationFactory<Pro
 
     private WebApplicationFactory<Program> CreateFactory(
         IReadOnlyDictionary<string, string?>? settings = null,
-        bool databaseReady = true)
+        bool databaseReady = true,
+        DatabaseReadinessProbeStatus? databaseStatus = null)
     {
         var dataRoot = Path.Combine(
             Path.GetTempPath(),
@@ -421,7 +455,10 @@ public sealed class ObservabilityTests : IClassFixture<WebApplicationFactory<Pro
             {
                 services.RemoveAll<IDatabaseReadinessProbe>();
                 services.AddSingleton<IDatabaseReadinessProbe>(
-                    new StubDatabaseReadinessProbe(databaseReady));
+                    new StubDatabaseReadinessProbe(
+                        databaseStatus ?? (databaseReady
+                            ? DatabaseReadinessProbeStatus.Ready
+                            : DatabaseReadinessProbeStatus.QueryReturnedUnexpectedResult)));
             });
         });
     }
@@ -470,10 +507,10 @@ public sealed class ObservabilityTests : IClassFixture<WebApplicationFactory<Pro
         return lines;
     }
 
-    private sealed class StubDatabaseReadinessProbe(bool isReady)
+    private sealed class StubDatabaseReadinessProbe(DatabaseReadinessProbeStatus status)
         : IDatabaseReadinessProbe
     {
-        public Task<bool> CanReadAsync(CancellationToken cancellationToken) =>
-            Task.FromResult(isReady);
+        public Task<DatabaseReadinessProbeStatus> CheckAsync(
+            CancellationToken cancellationToken) => Task.FromResult(status);
     }
 }

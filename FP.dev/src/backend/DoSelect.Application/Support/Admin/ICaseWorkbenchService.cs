@@ -1,4 +1,3 @@
-using DoSelect.Application.Common;
 using DoSelect.Application.Support.Admin.Dtos;
 
 namespace DoSelect.Application.Support.Admin;
@@ -18,7 +17,7 @@ public interface ICaseWorkbenchService
     /// an empty page — never an error — when <paramref name="authorizedCaseTypes"/> is empty or
     /// does not intersect the requested case types.
     /// </summary>
-    Task<CursorPage<CaseWorkbenchItemDto>> GetPageAsync(
+    Task<CaseWorkbenchSearchResultDto> GetPageAsync(
         CaseWorkbenchQuery query,
         IReadOnlyCollection<CaseWorkbenchCaseType> authorizedCaseTypes,
         string adminUserId,

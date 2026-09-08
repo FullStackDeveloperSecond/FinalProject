@@ -169,6 +169,13 @@ jobs:
           --startup-project src/backend/DoSelect.Api
           --no-build
 
+      - name: Verify EF model and migration snapshot are synchronized
+        run: >-
+          "$HOME/.dotnet/tools/dotnet-ef" migrations has-pending-model-changes
+          --project src/backend/DoSelect.Infrastructure
+          --startup-project src/backend/DoSelect.Api
+          --no-build
+
       - name: Set up Node.js for OpenAPI contract check
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:

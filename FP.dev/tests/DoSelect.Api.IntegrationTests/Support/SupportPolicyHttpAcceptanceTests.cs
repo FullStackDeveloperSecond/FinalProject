@@ -517,16 +517,19 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
         var fakes = new SupportHttpFakes();
         using var factory = CreateFactory(fakes);
         using var client = CreateClient(factory, "CustomerServiceSupervisor");
-        var assignee = Guid.NewGuid();
-
         using var response = await client.GetAsync(
-            $"/api/v1/admin/case-workbench?pageSize=19&caseTypes=Return&caseTypes=Support&statuses=open&priorities=High&assigneePublicId={assignee}&overdueOnly=true&keyword=late&cursor=next");
+            "/api/v1/admin/case-workbench?pageSize=19&caseTypes=Return&caseTypes=Support&statuses=open&priorities=High&assignee=Mine&createdFrom=2026-08-01&createdTo=2026-08-31&lastActivityFrom=2026-09-01&lastActivityTo=2026-09-08&sort=Oldest&overdueOnly=true&keyword=late&cursor=next");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(19, fakes.WorkbenchQuery?.PageSize);
         Assert.Equal([CaseWorkbenchCaseType.Return, CaseWorkbenchCaseType.Support], fakes.WorkbenchQuery?.CaseTypes);
         Assert.Equal([CaseWorkbenchCaseType.Support], fakes.AuthorizedCaseTypes);
-        Assert.Equal(assignee, fakes.WorkbenchQuery?.AssigneePublicId);
+        Assert.Equal(CaseWorkbenchAssigneeFilter.Mine, fakes.WorkbenchQuery?.Assignee);
+        Assert.Equal(new DateOnly(2026, 8, 1), fakes.WorkbenchQuery?.CreatedFrom);
+        Assert.Equal(new DateOnly(2026, 8, 31), fakes.WorkbenchQuery?.CreatedTo);
+        Assert.Equal(new DateOnly(2026, 9, 1), fakes.WorkbenchQuery?.LastActivityFrom);
+        Assert.Equal(new DateOnly(2026, 9, 8), fakes.WorkbenchQuery?.LastActivityTo);
+        Assert.Equal(CaseWorkbenchSortOrder.Oldest, fakes.WorkbenchQuery?.Sort);
         Assert.True(fakes.WorkbenchQuery?.OverdueOnly);
         Assert.Equal("late", fakes.WorkbenchQuery?.Keyword);
         Assert.Equal("next", fakes.WorkbenchQuery?.Cursor);
@@ -626,14 +629,14 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
             return Task.FromResult(new CursorPage<SupportSlaItemDto>([], null, false));
         }
 
-        public Task<CursorPage<CaseWorkbenchItemDto>> GetPageAsync(CaseWorkbenchQuery query,
+        public Task<CaseWorkbenchSearchResultDto> GetPageAsync(CaseWorkbenchQuery query,
             IReadOnlyCollection<CaseWorkbenchCaseType> authorizedCaseTypes,
             string adminUserId, bool canSupervise, CancellationToken cancellationToken)
         {
             WorkbenchQuery = query;
             AuthorizedCaseTypes = authorizedCaseTypes.ToArray();
             LastWorkbenchCanSupervise = canSupervise;
-            return Task.FromResult(new CursorPage<CaseWorkbenchItemDto>([], null, false));
+            return Task.FromResult(new CaseWorkbenchSearchResultDto([], null, false, 0));
         }
 
         public bool ThrowAssignConflict { get; init; }

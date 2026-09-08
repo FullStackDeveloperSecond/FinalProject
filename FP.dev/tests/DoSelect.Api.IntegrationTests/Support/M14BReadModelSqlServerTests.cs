@@ -111,6 +111,7 @@ public sealed class M14BReadModelSqlServerTests : IClassFixture<M14BReadModelSql
         Assert.Equal(highId, firstItem.CasePublicId);
         Assert.Equal("Support", firstItem.CaseType);
         Assert.True(first.HasMore);
+        Assert.Equal(3, first.TotalCount);
 
         var second = await QueryWorkbenchAsync(
             [CaseWorkbenchCaseType.Support], marker, pageSize: 1,
@@ -126,6 +127,19 @@ public sealed class M14BReadModelSqlServerTests : IClassFixture<M14BReadModelSql
         Assert.Equal(olderId, thirdItem.CasePublicId);
         Assert.False(third.HasMore);
         Assert.Equal(3, new[] { firstItem.CasePublicId, secondItem.CasePublicId, thirdItem.CasePublicId }.Distinct().Count());
+
+        var oldestFirst = await QueryWorkbenchAsync(
+            [CaseWorkbenchCaseType.Support], marker, pageSize: 1, after: null,
+            sort: CaseWorkbenchSortOrder.Oldest);
+        Assert.Equal(olderId, Assert.Single(oldestFirst.Items).CasePublicId);
+        Assert.Equal(3, oldestFirst.TotalCount);
+
+        var createdDate = DateOnly.FromDateTime(now.AddDays(-1));
+        var dateFiltered = await QueryWorkbenchAsync(
+            [CaseWorkbenchCaseType.Support], marker, pageSize: 100, after: null,
+            createdFrom: createdDate, createdTo: createdDate);
+        Assert.Equal(2, dateFiltered.TotalCount);
+        Assert.All(dateFiltered.Items, item => Assert.Contains(item.CasePublicId, new[] { highId, lowId }));
 
         var unauthorized = await QueryWorkbenchAsync(
             [CaseWorkbenchCaseType.Return, CaseWorkbenchCaseType.Report], marker,
@@ -170,6 +184,12 @@ public sealed class M14BReadModelSqlServerTests : IClassFixture<M14BReadModelSql
             statuses: null,
             priorities: null,
             assigneePublicId: null,
+            assignee: null,
+            createdFrom: null,
+            createdTo: null,
+            lastActivityFrom: null,
+            lastActivityTo: null,
+            sort: CaseWorkbenchSortOrder.Latest,
             overdueOnly: null,
             keyword: marker,
             pageSize: 100,
@@ -182,6 +202,30 @@ public sealed class M14BReadModelSqlServerTests : IClassFixture<M14BReadModelSql
             statuses: null,
             priorities: null,
             assigneePublicId: null,
+            assignee: null,
+            createdFrom: null,
+            createdTo: null,
+            lastActivityFrom: null,
+            lastActivityTo: null,
+            sort: CaseWorkbenchSortOrder.Latest,
+            overdueOnly: null,
+            keyword: marker,
+            pageSize: 100,
+            after: null,
+            agentA.UserId,
+            canSupervise: true,
+            CancellationToken.None);
+        var mineOnly = await new CaseWorkbenchStore(scopedDb).QueryPageAsync(
+            [CaseWorkbenchCaseType.Support],
+            statuses: null,
+            priorities: null,
+            assigneePublicId: null,
+            assignee: CaseWorkbenchAssigneeFilter.Mine,
+            createdFrom: null,
+            createdTo: null,
+            lastActivityFrom: null,
+            lastActivityTo: null,
+            sort: CaseWorkbenchSortOrder.Latest,
             overdueOnly: null,
             keyword: marker,
             pageSize: 100,
@@ -194,6 +238,8 @@ public sealed class M14BReadModelSqlServerTests : IClassFixture<M14BReadModelSql
         Assert.Contains(agentWorkbench.Items, item => item.CasePublicId == assignedA.PublicId);
         Assert.DoesNotContain(agentWorkbench.Items, item => item.CasePublicId == assignedB.PublicId);
         Assert.Contains(supervisorWorkbench.Items, item => item.CasePublicId == assignedB.PublicId);
+        Assert.Equal(assignedA.PublicId, Assert.Single(mineOnly.Items).CasePublicId);
+        Assert.Equal(1, mineOnly.TotalCount);
     }
     private Task<IReadOnlyList<SupportSlaItemDto>> QueryAllSlaAsync(DateTime now) =>
         QueryAllScopedSlaAsync(now, "sql-test-supervisor", canSupervise: true);
@@ -231,7 +277,10 @@ public sealed class M14BReadModelSqlServerTests : IClassFixture<M14BReadModelSql
         IReadOnlyCollection<CaseWorkbenchCaseType> scopeTypes,
         string marker,
         int pageSize,
-        CaseWorkbenchCursorPosition? after)
+        CaseWorkbenchCursorPosition? after,
+        CaseWorkbenchSortOrder sort = CaseWorkbenchSortOrder.Latest,
+        DateOnly? createdFrom = null,
+        DateOnly? createdTo = null)
     {
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
@@ -240,6 +289,12 @@ public sealed class M14BReadModelSqlServerTests : IClassFixture<M14BReadModelSql
             statuses: [SupportTicketStatus.Open.ToString()],
             priorities: null,
             assigneePublicId: null,
+            assignee: null,
+            createdFrom,
+            createdTo,
+            lastActivityFrom: null,
+            lastActivityTo: null,
+            sort,
             overdueOnly: null,
             keyword: marker,
             pageSize,

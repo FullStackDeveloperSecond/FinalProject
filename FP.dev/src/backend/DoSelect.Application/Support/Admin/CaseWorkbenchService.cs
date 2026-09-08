@@ -7,7 +7,7 @@ namespace DoSelect.Application.Support.Admin;
 
 public sealed class CaseWorkbenchService : ICaseWorkbenchService
 {
-    private const string FingerprintTag = "case-workbench-v1";
+    private const string FingerprintTag = "case-workbench-v2";
 
     // caseTypes?:support/report/return[1..3] and statuses?:string[0..10] and
     // priorities?:string[0..4] per API DTO與Schema契約. Keyword has no documented bound in that
@@ -26,7 +26,7 @@ public sealed class CaseWorkbenchService : ICaseWorkbenchService
         _store = store;
     }
 
-    public async Task<CursorPage<CaseWorkbenchItemDto>> GetPageAsync(
+    public async Task<CaseWorkbenchSearchResultDto> GetPageAsync(
         CaseWorkbenchQuery query,
         IReadOnlyCollection<CaseWorkbenchCaseType> authorizedCaseTypes,
         string adminUserId,
@@ -63,6 +63,25 @@ public sealed class CaseWorkbenchService : ICaseWorkbenchService
             throw DomainProblemException.Validation($"keyword must not exceed {MaxKeywordLength} characters.");
         }
 
+        if (query.Assignee is { } assignee && !Enum.IsDefined(assignee))
+        {
+            throw DomainProblemException.Validation("assignee must be a valid value.");
+        }
+
+        if (query.AssigneePublicId is not null
+            && query.Assignee is not null and not CaseWorkbenchAssigneeFilter.Any)
+        {
+            throw DomainProblemException.Validation("assignee and assigneePublicId cannot both be specified.");
+        }
+
+        if (query.Sort is { } sort && !Enum.IsDefined(sort))
+        {
+            throw DomainProblemException.Validation("sort must be a valid value.");
+        }
+
+        ValidateDateRange(query.CreatedFrom, query.CreatedTo, "created");
+        ValidateDateRange(query.LastActivityFrom, query.LastActivityTo, "lastActivity");
+
         // The requested case types only ever narrow the authorized scope — a request for a type
         // outside the scope is dropped, never used to broaden it.
         var authorizedScope = authorizedCaseTypes.Distinct().OrderBy(t => t).ToArray();
@@ -88,14 +107,22 @@ public sealed class CaseWorkbenchService : ICaseWorkbenchService
             // Empty authorized scope, or every requested case type falls outside it: return an
             // empty page without querying the store so an unauthorized filter cannot be
             // distinguished from a genuinely empty result (no count/existence leak).
-            return new CursorPage<CaseWorkbenchItemDto>([], null, false);
+            return new CaseWorkbenchSearchResultDto([], null, false, 0);
         }
+
+        var effectiveSort = query.Sort ?? CaseWorkbenchSortOrder.Latest;
 
         var page = await _store.QueryPageAsync(
             effectiveCaseTypes,
             query.Statuses,
             query.Priorities,
             query.AssigneePublicId,
+            query.Assignee,
+            query.CreatedFrom,
+            query.CreatedTo,
+            query.LastActivityFrom,
+            query.LastActivityTo,
+            effectiveSort,
             query.OverdueOnly,
             query.Keyword,
             query.PageSize,
@@ -113,7 +140,19 @@ public sealed class CaseWorkbenchService : ICaseWorkbenchService
                 fingerprint);
         }
 
-        return new CursorPage<CaseWorkbenchItemDto>(page.Items, nextCursor, page.HasMore);
+        return new CaseWorkbenchSearchResultDto(
+            page.Items,
+            nextCursor,
+            page.HasMore,
+            page.TotalCount);
+    }
+
+    private static void ValidateDateRange(DateOnly? from, DateOnly? to, string name)
+    {
+        if (from is not null && to is not null && from > to)
+        {
+            throw DomainProblemException.Validation($"{name}From must not be after {name}To.");
+        }
     }
 
     /// <summary>
@@ -146,6 +185,12 @@ public sealed class CaseWorkbenchService : ICaseWorkbenchService
             statuses,
             priorities,
             query.AssigneePublicId?.ToString("D"),
+            query.Assignee?.ToString(),
+            query.CreatedFrom?.ToString("O"),
+            query.CreatedTo?.ToString("O"),
+            query.LastActivityFrom?.ToString("O"),
+            query.LastActivityTo?.ToString("O"),
+            (query.Sort ?? CaseWorkbenchSortOrder.Latest).ToString(),
             query.OverdueOnly?.ToString(),
             query.Keyword?.Trim(),
             adminUserId,

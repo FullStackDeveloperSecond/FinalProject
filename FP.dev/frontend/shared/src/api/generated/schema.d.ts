@@ -3485,6 +3485,17 @@ export interface paths {
                         "text/json": components["schemas"]["ProblemDetails"];
                     };
                 };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ProblemDetails"];
+                        "application/json": components["schemas"]["ProblemDetails"];
+                        "text/json": components["schemas"]["ProblemDetails"];
+                    };
+                };
             };
         };
         delete?: never;
@@ -6764,6 +6775,12 @@ export interface paths {
                     Statuses?: string[];
                     Priorities?: components["schemas"]["CasePriority"][];
                     AssigneePublicId?: string;
+                    Assignee?: components["schemas"]["CaseWorkbenchAssigneeFilter"];
+                    CreatedFrom?: string;
+                    CreatedTo?: string;
+                    LastActivityFrom?: string;
+                    LastActivityTo?: string;
+                    Sort?: components["schemas"]["CaseWorkbenchSortOrder"];
                     OverdueOnly?: boolean;
                     Keyword?: string;
                     Cursor?: string;
@@ -6781,9 +6798,9 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "text/plain": components["schemas"]["CursorPageOfCaseWorkbenchItemDto"];
-                        "application/json": components["schemas"]["CursorPageOfCaseWorkbenchItemDto"];
-                        "text/json": components["schemas"]["CursorPageOfCaseWorkbenchItemDto"];
+                        "text/plain": components["schemas"]["CaseWorkbenchSearchResultDto"];
+                        "application/json": components["schemas"]["CaseWorkbenchSearchResultDto"];
+                        "text/json": components["schemas"]["CaseWorkbenchSearchResultDto"];
                     };
                 };
             };
@@ -10918,6 +10935,8 @@ export interface components {
         /** @enum {unknown} */
         CasePriority: "low" | "normal" | "high" | "urgent";
         /** @enum {unknown} */
+        CaseWorkbenchAssigneeFilter: "any" | "mine" | "unassigned" | "assigned" | null;
+        /** @enum {unknown} */
         CaseWorkbenchCaseType: "support" | "return" | "report";
         CaseWorkbenchItemDto: {
             caseType: string;
@@ -10938,6 +10957,15 @@ export interface components {
             slaDueAtUtc: null | string;
             isOverdue: boolean;
         };
+        CaseWorkbenchSearchResultDto: {
+            items: components["schemas"]["CaseWorkbenchItemDto"][];
+            nextCursor: null | string;
+            hasMore: boolean;
+            /** Format: int32 */
+            totalCount: number | string;
+        };
+        /** @enum {unknown} */
+        CaseWorkbenchSortOrder: "latest" | "oldest" | null;
         CatalogFilterOptionsDto: {
             categories: components["schemas"]["CategoryFilterOption"][];
             brands: components["schemas"]["BrandFilterOption"][];
@@ -11444,11 +11472,6 @@ export interface components {
         };
         CursorPageOfAdminOrderSummaryDto: {
             items: components["schemas"]["AdminOrderSummaryDto"][];
-            nextCursor: null | string;
-            hasMore: boolean;
-        };
-        CursorPageOfCaseWorkbenchItemDto: {
-            items: components["schemas"]["CaseWorkbenchItemDto"][];
             nextCursor: null | string;
             hasMore: boolean;
         };
