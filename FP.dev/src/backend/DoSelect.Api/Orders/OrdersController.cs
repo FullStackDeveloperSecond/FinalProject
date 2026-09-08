@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Security.Claims;
 using System.ComponentModel.DataAnnotations;
 using DoSelect.Api.Common;
+using DoSelect.Api.Observability;
 using DoSelect.Api.Security;
 using DoSelect.Api.Shopping;
 using DoSelect.Application.Checkout;
@@ -33,6 +34,8 @@ public sealed class OrdersController : ControllerBase
     private readonly IMemberProfileGateway _memberProfileGateway;
     private readonly IPaymentAttemptWriter _paymentAttemptWriter;
     private readonly LatestPaymentAttemptService _latestPaymentAttempts;
+    private readonly IDatabaseReadinessProbe _databaseReadinessProbe;
+    private readonly ILogger<OrdersController> _logger;
 
     public OrdersController(
         IOrderService orderService,
@@ -40,7 +43,9 @@ public sealed class OrdersController : ControllerBase
         CheckoutService checkoutService,
         IMemberProfileGateway memberProfileGateway,
         IPaymentAttemptWriter paymentAttemptWriter,
-        LatestPaymentAttemptService latestPaymentAttempts)
+        LatestPaymentAttemptService latestPaymentAttempts,
+        IDatabaseReadinessProbe databaseReadinessProbe,
+        ILogger<OrdersController> logger)
     {
         _orderService = orderService;
         _guestAuthorizer = guestAuthorizer;
@@ -48,12 +53,15 @@ public sealed class OrdersController : ControllerBase
         _memberProfileGateway = memberProfileGateway;
         _paymentAttemptWriter = paymentAttemptWriter;
         _latestPaymentAttempts = latestPaymentAttempts;
+        _databaseReadinessProbe = databaseReadinessProbe;
+        _logger = logger;
     }
 
     [HttpPost]
     [ProducesResponseType<OrderDto>(StatusCodes.Status201Created)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status503ServiceUnavailable)]
     public async Task<ActionResult<OrderDto>> CreateOrder(
         [FromBody] CreateOrderRequest request,
         [FromHeader(Name = IdempotencyKeyHeaderName), BindRequired]
@@ -61,6 +69,28 @@ public sealed class OrdersController : ControllerBase
         string idempotencyKey,
         CancellationToken cancellationToken)
     {
+        DatabaseReadinessProbeStatus databaseStatus;
+        try
+        {
+            databaseStatus = await _databaseReadinessProbe.CheckAsync(cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(
+                "Checkout database readiness failed with exception type {ExceptionType}.",
+                exception.GetType().Name);
+            return CheckoutUnavailable();
+        }
+
+        if (databaseStatus != DatabaseReadinessProbeStatus.Ready)
+        {
+            return CheckoutUnavailable();
+        }
+
         if (string.IsNullOrWhiteSpace(idempotencyKey))
         {
             ModelState.AddModelError(
@@ -100,6 +130,14 @@ public sealed class OrdersController : ControllerBase
             cancellationToken);
         return StatusCode(result.StatusCode, result.Body);
     }
+
+    private ObjectResult CheckoutUnavailable() => StatusCode(
+        StatusCodes.Status503ServiceUnavailable,
+        ApiProblemDetailsFactory.Create(
+            HttpContext,
+            StatusCodes.Status503ServiceUnavailable,
+            ApiErrorCodes.ServiceUnavailable,
+            detail: "Checkout is temporarily unavailable. Please try again later."));
 
     [HttpPost("{id:guid}/payment-attempts")]
     [ProducesResponseType<PaymentAttemptDto>(StatusCodes.Status201Created)]
