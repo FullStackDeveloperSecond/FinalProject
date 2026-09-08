@@ -8,9 +8,9 @@
 
 ## 本輪 Release Candidate 基準
 
-- 前一核准 Exact SHA：`48819192644fe3cbf7540e45274f5cf9c045307c`；最新已驗證合併基準為 `7134a3a9654c6ecf89ac6473db52e7883720f0cd`。
-- 最新合併基準 Required CI：GitHub Actions Run `34173145044`，`CI Required` 成功。
-- DEV-04 候選完成 Security、Required CI 與 squash merge 後，必須在本節重新填入唯一最終 Exact SHA；未重新固定前不得宣稱 `READY FOR REHEARSAL`。
+- 本輪重新固定的唯一 Exact SHA：`5baadbef29ddcf6ab8b53c13a8e31d0a8ae333a4`（PR #164 squash merge）。
+- 對應最終 PR head：`bd1d9c02c21b6650cb4950765c1cc61ae61a8d4d`；GitHub Actions Run `34182596012` 的 `CI Required` 成功。
+- DEV-04 已完成 Security、Required CI、exact-head review 與 squash merge；真人完整彩排仍未測試，故整體不得宣稱 `READY FOR REHEARSAL`。
 - 展示環境開始前必須執行 `git rev-parse HEAD` 並取得本節最終完整 SHA；不一致時停止，不得以根工作樹或其他 revision 展示。
 
 ## 前一天
