@@ -2,11 +2,11 @@ import { computed, inject, ref, type ComputedRef, type InjectionKey, type Ref } 
 import { defaultMotionPresetId, isMotionPresetId, resolveMotionPreset, sensitiveFlowMotionPresetId, type MotionPreset, type MotionPresetId } from './presets'
 
 /**
- * 本輪 A／B／C 比較用的方案選擇 —— **只在 dev 有效**。
+ * 本輪 A／B／C 比較用的方案選擇 —— **只在明確啟用的 dev 環境有效**。
  *
  * 邊界：
  * - 不碰 vue-router：只讀 `location.search`，不註冊 route、不改 Router 契約。
- * - 不是正式產品功能：`import.meta.env.DEV` 為 false 時，
+ * - 不是正式產品功能：非 dev 或未設定 `VITE_ENABLE_MOTION_DEBUG=true` 時，
  *   `readPresetFromLocation` 根本不會被呼叫，永遠回傳 `defaultMotionPresetId`。
  * - production build 中 `isMotionExplorationEnabled` 是常數 false，
  *   Vite 會把整條讀取路徑與 dev 切換介面一起 tree-shake 掉。
@@ -14,6 +14,7 @@ import { defaultMotionPresetId, isMotionPresetId, resolveMotionPreset, sensitive
 
 /** 打包期就能決定的常數，讓 production 直接 dead-code-eliminate 實驗路徑。 */
 export const isMotionExplorationEnabled: boolean = import.meta.env.DEV === true
+  && import.meta.env.VITE_ENABLE_MOTION_DEBUG === 'true'
 
 /** dev 專用的 query 參數名。正式功能不得依賴這個字串。 */
 export const MOTION_QUERY_KEY = 'motion'
@@ -51,7 +52,7 @@ function readPresetFromLocation(appDefault: MotionPresetId): MotionPresetId {
 export interface MotionPresetSelection {
   presetId: Ref<MotionPresetId>
   preset: ComputedRef<MotionPreset>
-  /** dev 才會是 true；production build 固定 false。 */
+  /** 明確啟用 motion debug 的 dev 才會是 true；其餘環境固定 false。 */
   canSwitch: boolean
   /** dev 專用：切換方案並更新網址（不觸發 route 導覽）。 */
   select: (id: MotionPresetId) => void

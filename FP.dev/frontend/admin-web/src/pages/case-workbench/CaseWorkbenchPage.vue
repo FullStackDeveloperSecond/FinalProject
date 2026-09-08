@@ -149,7 +149,7 @@ const errorTitle = computed(() => {
       案件工作台
     </h1>
     <p class="view-lede">
-      客服案件清單依最後活動時間排序。後端已依角色與 Actor Scope 過濾；退貨與檢舉將在各自授權範圍與明細頁完成後開放。
+      集中查看與追蹤目前可處理的客服案件。
     </p>
 
     <form
@@ -170,11 +170,6 @@ const errorTitle = computed(() => {
           >
           {{ option.label }}
         </label>
-        <p class="case-workbench__unavailable-types">
-          尚未開放：退貨、檢舉。
-          後端統一案件檢視目前只回傳客服案件，待各自的授權範圍與明細頁完成後才會納入篩選，
-          因此這裡不提供這兩種案件類型的選項。
-        </p>
       </fieldset>
 
       <fieldset>
@@ -304,7 +299,7 @@ const errorTitle = computed(() => {
                 <span
                   v-else
                   class="case-workbench__no-detail"
-                  :title="`${caseTypeLabel(item.caseType)}明細頁面尚未上線`"
+                  :title="`${caseTypeLabel(item.caseType)}目前無可用明細`"
                 >
                   {{ item.caseNumber }}
                 </span>

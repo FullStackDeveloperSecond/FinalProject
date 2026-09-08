@@ -378,16 +378,21 @@ describe('experimental preset switch is dev-only', () => {
     expect(resolveMotionPresetId('', true)).toBe(defaultMotionPresetId)
   })
 
-  it('gates the switcher template behind the build-time dev constant', () => {
+  it('gates the switcher behind explicit local debug opt-in', () => {
     const switcher = readText(join(sharedRoot, 'src', 'motion', 'MotionDevSwitcher.vue'))
     expect(switcher).toContain('v-if="isMotionExplorationEnabled"')
 
     const selection = readText(join(sharedRoot, 'src', 'motion', 'useMotionPresetSelection.ts'))
     expect(selection).toContain('import.meta.env.DEV === true')
+    expect(selection).toContain("import.meta.env.VITE_ENABLE_MOTION_DEBUG === 'true'")
 
     const customerShell = readText(join(customerRoot, 'src', 'App.vue'))
-    expect(customerShell).toContain("import.meta.env.DEV")
+    expect(customerShell).toContain('import.meta.env.DEV === true')
+    expect(customerShell).toContain("import.meta.env.VITE_ENABLE_MOTION_DEBUG === 'true'")
     expect(customerShell).toContain('v-if="canSwitch && MotionDevSwitcher"')
+
+    expect(readText(join(customerRoot, '.env.example'))).toContain('VITE_ENABLE_MOTION_DEBUG=false')
+    expect(readText(join(adminRoot, '.env.example'))).toContain('VITE_ENABLE_MOTION_DEBUG=false')
   })
 
   it('never reaches vue-router for the experiment', () => {

@@ -15,8 +15,10 @@ import {
   useMotionPresetSelection,
 } from '@doselect/web-shared/motion'
 
-// 切換器只在 dev 進入模組圖；production build 會移除整個動態 import 分支。
-const MotionDevSwitcher = import.meta.env.DEV
+// 切換器只在明確啟用 motion debug 的 dev 進入模組圖；production build 會移除整個分支。
+const motionDebugEnabled = import.meta.env.DEV === true
+  && import.meta.env.VITE_ENABLE_MOTION_DEBUG === 'true'
+const MotionDevSwitcher = motionDebugEnabled
   ? defineAsyncComponent(() => import('@doselect/web-shared/motion/MotionDevSwitcher.vue'))
   : null
 
@@ -48,7 +50,7 @@ watch(() => route.fullPath, () => {
 })
 
 // GSAP 動態視覺探索：A／B／C 方案由 App 統一選定後 provide 給頁面。
-// `canSwitch` 在 production build 是常數 false，切換介面會被整段 tree-shake 掉。
+// `canSwitch` 預設為 false；只有明確啟用的本機 dev 才顯示切換介面。
 const { presetId, preset, canSwitch, select } = useMotionPresetSelection(customerDefaultMotionPresetId)
 const prefersReducedMotion = useMotionPreference()
 provide(motionPresetKey, preset)

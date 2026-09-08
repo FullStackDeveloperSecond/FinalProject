@@ -14,10 +14,12 @@ import {
   useMotionPresetSelection,
 } from '@doselect/web-shared/motion'
 
-// 切換器只在 dev 進入模組圖。`import.meta.env.DEV` 在 production build 被折成 false，
+// 切換器只在明確啟用 motion debug 的 dev 進入模組圖。production build 中條件為 false，
 // 因此 Rollup 會把整個動態 import 分支連同元件與其字串一起移除 ——
 // 正式產物裡不存在任何實驗模式選單。
-const MotionDevSwitcher = import.meta.env.DEV
+const motionDebugEnabled = import.meta.env.DEV === true
+  && import.meta.env.VITE_ENABLE_MOTION_DEBUG === 'true'
+const MotionDevSwitcher = motionDebugEnabled
   ? defineAsyncComponent(() => import('@doselect/web-shared/motion/MotionDevSwitcher.vue'))
   : null
 
