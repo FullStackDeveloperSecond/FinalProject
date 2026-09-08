@@ -49,16 +49,17 @@ public static class SecurityServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(environment);
         ArgumentNullException.ThrowIfNull(configuration);
 
+        var allowsHttpCookies = AllowsHttpCookies(environment, configuration);
         services
             .AddAuthentication()
             .AddCookie(DoSelectAuthenticationSchemes.Member, options =>
-                ConfigureMemberCookie(options, environment))
+                ConfigureMemberCookie(options, allowsHttpCookies))
             .AddCookie(DoSelectAuthenticationSchemes.Admin, options =>
-                ConfigureAdminCookie(options, environment))
+                ConfigureAdminCookie(options, allowsHttpCookies))
             .AddCookie(DoSelectAuthenticationSchemes.GuestOrderAccess, options =>
-                ConfigureGuestOrderAccessCookie(options, environment))
+                ConfigureGuestOrderAccessCookie(options, allowsHttpCookies))
             .AddCookie(DoSelectAuthenticationSchemes.AdminChallenge, options =>
-                ConfigureAdminChallengeCookie(options, environment));
+                ConfigureAdminChallengeCookie(options, allowsHttpCookies));
 
         services.AddAuthorization(options => ConfigurePolicies(options));
         services.AddAntiforgery(options =>
@@ -68,7 +69,7 @@ public static class SecurityServiceCollectionExtensions
             options.Cookie.HttpOnly = true;
             options.Cookie.IsEssential = true;
             options.Cookie.SameSite = SameSiteMode.Lax;
-            options.Cookie.SecurePolicy = AllowsHttpAntiforgeryCookie(environment)
+            options.Cookie.SecurePolicy = allowsHttpCookies
                 ? CookieSecurePolicy.SameAsRequest
                 : CookieSecurePolicy.Always;
         });
@@ -145,9 +146,9 @@ public static class SecurityServiceCollectionExtensions
 
     private static void ConfigureMemberCookie(
         CookieAuthenticationOptions options,
-        IHostEnvironment environment)
+        bool allowsHttpCookies)
     {
-        ConfigureCookieDefaults(options, environment, ".DoSelect.Member");
+        ConfigureCookieDefaults(options, allowsHttpCookies, ".DoSelect.Member");
         options.ExpireTimeSpan = MemberIdleTimeout;
         options.SlidingExpiration = true;
         options.Events.OnSigningIn = context =>
@@ -197,9 +198,9 @@ public static class SecurityServiceCollectionExtensions
 
     private static void ConfigureAdminCookie(
         CookieAuthenticationOptions options,
-        IHostEnvironment environment)
+        bool allowsHttpCookies)
     {
-        ConfigureCookieDefaults(options, environment, ".DoSelect.Admin");
+        ConfigureCookieDefaults(options, allowsHttpCookies, ".DoSelect.Admin");
         options.ExpireTimeSpan = AdminAbsoluteLifetime;
         options.SlidingExpiration = false;
 
@@ -292,9 +293,9 @@ public static class SecurityServiceCollectionExtensions
     /// </summary>
     private static void ConfigureAdminChallengeCookie(
         CookieAuthenticationOptions options,
-        IHostEnvironment environment)
+        bool allowsHttpCookies)
     {
-        ConfigureCookieDefaults(options, environment, ".DoSelect.AdminChallenge");
+        ConfigureCookieDefaults(options, allowsHttpCookies, ".DoSelect.AdminChallenge");
         options.ExpireTimeSpan = AdminChallengeLifetime;
         options.SlidingExpiration = false;
     }
@@ -308,23 +309,23 @@ public static class SecurityServiceCollectionExtensions
     /// </summary>
     private static void ConfigureGuestOrderAccessCookie(
         CookieAuthenticationOptions options,
-        IHostEnvironment environment)
+        bool allowsHttpCookies)
     {
-        ConfigureCookieDefaults(options, environment, ".DoSelect.GuestOrderAccess");
+        ConfigureCookieDefaults(options, allowsHttpCookies, ".DoSelect.GuestOrderAccess");
         options.ExpireTimeSpan = GuestOrderAccessLifetime;
         options.SlidingExpiration = false;
     }
 
     private static void ConfigureCookieDefaults(
         CookieAuthenticationOptions options,
-        IHostEnvironment environment,
+        bool allowsHttpCookies,
         string cookieName)
     {
         options.Cookie.Name = cookieName;
         options.Cookie.HttpOnly = true;
         options.Cookie.IsEssential = true;
         options.Cookie.SameSite = SameSiteMode.Lax;
-        options.Cookie.SecurePolicy = environment.IsDevelopment()
+        options.Cookie.SecurePolicy = allowsHttpCookies
             ? CookieSecurePolicy.SameAsRequest
             : CookieSecurePolicy.Always;
         options.Events.OnRedirectToLogin = static context =>
@@ -436,8 +437,13 @@ public static class SecurityServiceCollectionExtensions
             DoSelectRoles.InventoryManager, DoSelectRoles.SuperAdmin);
     }
 
-    private static bool AllowsHttpAntiforgeryCookie(IHostEnvironment environment) =>
-        environment.IsDevelopment() || environment.IsEnvironment("E2E");
+    internal static bool AllowsHttpCookies(
+        IHostEnvironment environment,
+        IConfiguration configuration) =>
+        environment.IsDevelopment() ||
+        environment.IsEnvironment("E2E") ||
+        (environment.IsEnvironment("Demo") &&
+            configuration.GetValue<bool>($"{DemoOptions.SectionName}:AllowHttpLoopback"));
 
     private static void AddAdminPolicy(
         AuthorizationOptions options,

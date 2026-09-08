@@ -1,5 +1,6 @@
 using DoSelect.Api.Common;
 using DoSelect.Api.Ai;
+using DoSelect.Api.Configuration;
 using DoSelect.Api.Observability;
 using DoSelect.Api.Returns;
 using DoSelect.Api.Security;
@@ -40,6 +41,21 @@ using Hangfire;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// The repository-managed Demo runner is intentionally loopback-only and uses an
+// isolated DoSelectDemo_<GUID> database. Load this Windows user's secrets for that
+// profile without letting a stored connection string or feature flag override the
+// runner's explicit environment variables.
+if (builder.Environment.IsEnvironment("Demo") &&
+    builder.Configuration.GetValue<bool>($"{DemoOptions.SectionName}:AllowHttpLoopback"))
+{
+    builder.Configuration.AddUserSecrets<Program>(optional: true, reloadOnChange: false);
+    builder.Configuration.AddEnvironmentVariables();
+    if (args.Length > 0)
+    {
+        builder.Configuration.AddCommandLine(args);
+    }
+}
 
 builder.AddObservability();
 builder.Services.AddApiFoundation();
@@ -190,7 +206,9 @@ if (app.Environment.IsDevelopment())
 // 這兩點都是既有 pipeline 設定的問題，不是本次新增的行為，只是這次第一次真的從
 // 瀏覽器打到 API 才浮現。
 app.UseCors(SecurityServiceCollectionExtensions.FrontendCorsPolicy);
-if (!app.Environment.IsDevelopment())
+if (!SecurityServiceCollectionExtensions.AllowsHttpCookies(
+        app.Environment,
+        app.Configuration))
 {
     app.UseHttpsRedirection();
 }

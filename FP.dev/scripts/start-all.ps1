@@ -116,15 +116,27 @@ try {
     $previousUrls = $env:ASPNETCORE_URLS
     $previousBackgroundJobsEnabled = $env:Features__BackgroundJobsEnabled
     $previousConnection = $env:ConnectionStrings__DefaultConnection
+    $previousAllowHttpLoopback = $env:Demo__AllowHttpLoopback
+    $previousSimulationEndpointsEnabled = $env:Demo__SimulationEndpointsEnabled
+    $previousAiEnabled = $env:Features__AiEnabled
+    $previousEmailEnabled = $env:Features__EmailEnabled
     try {
         $env:ASPNETCORE_ENVIRONMENT = $Environment
         $env:ASPNETCORE_URLS = $script:ApiUrl
         $env:Features__BackgroundJobsEnabled = 'true'
         if ($Environment -eq 'Demo') {
             $env:ConnectionStrings__DefaultConnection = $demoConnectionString
+            $env:Demo__AllowHttpLoopback = 'true'
+            $env:Demo__SimulationEndpointsEnabled = 'true'
+            # Provider-backed AI and email create external traffic and possible cost. The
+            # formal local Demo stays deterministic until each provider is explicitly enabled.
+            $env:Features__AiEnabled = 'false'
+            $env:Features__EmailEnabled = 'false'
         }
         else {
             $env:ConnectionStrings__DefaultConnection = New-DevelopmentConnectionString
+            $env:Demo__AllowHttpLoopback = 'false'
+            $env:Demo__SimulationEndpointsEnabled = 'false'
         }
         $apiParameters = @{
             Name = 'API'
@@ -140,6 +152,10 @@ try {
         $env:ASPNETCORE_URLS = $previousUrls
         $env:Features__BackgroundJobsEnabled = $previousBackgroundJobsEnabled
         $env:ConnectionStrings__DefaultConnection = $previousConnection
+        $env:Demo__AllowHttpLoopback = $previousAllowHttpLoopback
+        $env:Demo__SimulationEndpointsEnabled = $previousSimulationEndpointsEnabled
+        $env:Features__AiEnabled = $previousAiEnabled
+        $env:Features__EmailEnabled = $previousEmailEnabled
     }
 
     $customerParameters = @{

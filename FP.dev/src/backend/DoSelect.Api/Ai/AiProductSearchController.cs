@@ -22,6 +22,7 @@ public sealed class AiProductSearchController(
     IAiProductSearchCatalog catalog,
     IOptions<FeatureOptions> features,
     IOptions<OpenAiResponsesOptions> openAiOptions,
+    IConfiguration configuration,
     IWebHostEnvironment environment) : ControllerBase
 {
     private const string BrowserCookieName = ".DoSelect.AiBrowser";
@@ -128,7 +129,9 @@ public sealed class AiProductSearchController(
                 HttpOnly = true,
                 IsEssential = true,
                 SameSite = SameSiteMode.Lax,
-                Secure = !environment.IsDevelopment(),
+                Secure = !SecurityServiceCollectionExtensions.AllowsHttpCookies(
+                    environment,
+                    configuration),
                 MaxAge = TimeSpan.FromDays(30),
                 Path = "/",
             });

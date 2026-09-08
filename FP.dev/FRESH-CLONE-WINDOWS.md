@@ -216,6 +216,8 @@ Set-Location .\FP.dev
 
 `reset-demo-data.ps1` 每次預設建立新的 `DoSelectDemo_<32-hex>`，完成 Seed 與 11 項唯讀 Gate 後才發布 `.run\demo-database.json`。不得把名稱改成 `DoSelectDb` 或共用 `DoSelectDemo`，也不得刪除非本輪建立的資料庫。
 
+`start-all.ps1 -Environment Demo` 會把 API 固定綁在 `http://localhost:5126`，只對 `Demo` 環境、上述隔離資料庫與 loopback CORS origin 啟用本機 HTTP Cookie；任一條件不符時 API 會 fail-fast。此模式會直接載入目前 Windows 使用者的 .NET User Secrets，但腳本指定的隔離連線與功能旗標具有較高優先權，因此 User Secrets 內若殘留 Connection String 也不能把 Demo 導向共用資料庫。模擬付款端點會啟用；OpenAI 與外寄 Email 預設保持停用，避免未核准的費用或外部資料傳輸。
+
 Demo 驗收後：
 
 ```powershell
