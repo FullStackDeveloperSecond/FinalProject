@@ -10,6 +10,20 @@ public enum CaseWorkbenchCaseType
     Report,
 }
 
+public enum CaseWorkbenchAssigneeFilter
+{
+    Any,
+    Mine,
+    Unassigned,
+    Assigned,
+}
+
+public enum CaseWorkbenchSortOrder
+{
+    Latest,
+    Oldest,
+}
+
 /// <summary>
 /// Request shape for the unified case workbench (UC-WORKBENCH-01). CaseTypes is the caller's
 /// *requested* subset; it is intersected with the caller's authorized scope by
@@ -22,6 +36,12 @@ public sealed record CaseWorkbenchQuery(
     IReadOnlyCollection<string>? Statuses,
     IReadOnlyCollection<CasePriority>? Priorities,
     Guid? AssigneePublicId,
+    CaseWorkbenchAssigneeFilter? Assignee,
+    DateOnly? CreatedFrom,
+    DateOnly? CreatedTo,
+    DateOnly? LastActivityFrom,
+    DateOnly? LastActivityTo,
+    CaseWorkbenchSortOrder? Sort,
     bool? OverdueOnly,
     string? Keyword,
     string? Cursor,
@@ -47,8 +67,14 @@ public sealed record CaseWorkbenchItemDto(
     bool IsOverdue);
 
 /// <summary>
-/// The keyset position of the last item on a page: (LastActivityAtUtc, CasePublicId), matching
-/// the fixed LastActivityAtUtc DESC, CasePublicId DESC ordering. Carried inside the opaque
-/// cursor, never exposed directly to callers.
+/// The keyset position of the last item on a page: (LastActivityAtUtc, CasePublicId). The query's
+/// sort direction is bound into the cursor fingerprint, so a latest cursor cannot be replayed
+/// against oldest ordering (or vice versa).
 /// </summary>
 public sealed record CaseWorkbenchCursorPosition(DateTime LastActivityAtUtc, Guid CasePublicId);
+
+public sealed record CaseWorkbenchSearchResultDto(
+    IReadOnlyList<CaseWorkbenchItemDto> Items,
+    string? NextCursor,
+    bool HasMore,
+    int TotalCount);

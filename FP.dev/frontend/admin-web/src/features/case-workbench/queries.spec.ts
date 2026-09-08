@@ -23,13 +23,22 @@ describe('case workbench queries', () => {
       items: [],
       nextCursor: null,
       hasMore: false,
+      totalCount: 0,
     }))
     vi.stubGlobal('fetch', fetchStub)
     const { useCaseWorkbenchQuery } = await import('./queries')
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     runHarness = () => useCaseWorkbenchQuery(() => ({
       caseTypes: ['support', 'return'],
+      statuses: ['inProgress'],
       priorities: ['high'],
+      assignee: 'mine',
+      createdFrom: '2026-08-01',
+      createdTo: '2026-08-31',
+      lastActivityFrom: '2026-09-01',
+      lastActivityTo: '2026-09-08',
+      sort: 'oldest',
+      keyword: 'CS-2026',
       overdueOnly: true,
       cursor: 'opaque+cursor/==',
       pageSize: 20,
@@ -44,7 +53,15 @@ describe('case workbench queries', () => {
     const url = new URL(request.url)
     expect(url.pathname).toBe('/api/v1/admin/case-workbench')
     expect(url.searchParams.getAll('CaseTypes')).toEqual(['support', 'return'])
+    expect(url.searchParams.getAll('Statuses')).toEqual(['inProgress'])
     expect(url.searchParams.getAll('Priorities')).toEqual(['high'])
+    expect(url.searchParams.get('Assignee')).toBe('mine')
+    expect(url.searchParams.get('CreatedFrom')).toBe('2026-08-01')
+    expect(url.searchParams.get('CreatedTo')).toBe('2026-08-31')
+    expect(url.searchParams.get('LastActivityFrom')).toBe('2026-09-01')
+    expect(url.searchParams.get('LastActivityTo')).toBe('2026-09-08')
+    expect(url.searchParams.get('Sort')).toBe('oldest')
+    expect(url.searchParams.get('Keyword')).toBe('CS-2026')
     expect(url.searchParams.get('OverdueOnly')).toBe('true')
     expect(url.searchParams.get('Cursor')).toBe('opaque+cursor/==')
     expect(url.searchParams.get('PageSize')).toBe('20')

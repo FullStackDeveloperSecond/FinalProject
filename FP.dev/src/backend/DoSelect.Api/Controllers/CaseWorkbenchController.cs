@@ -1,6 +1,5 @@
 using System.Security.Claims;
 using DoSelect.Api.Security;
-using DoSelect.Application.Common;
 using DoSelect.Application.Support.Admin;
 using DoSelect.Application.Support.Admin.Dtos;
 using Microsoft.AspNetCore.Authorization;
@@ -29,7 +28,7 @@ public sealed class CaseWorkbenchController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<ActionResult<CursorPage<CaseWorkbenchItemDto>>> Get(
+    public async Task<ActionResult<CaseWorkbenchSearchResultDto>> Get(
         [FromQuery] CaseWorkbenchQuery query,
         CancellationToken cancellationToken)
     {

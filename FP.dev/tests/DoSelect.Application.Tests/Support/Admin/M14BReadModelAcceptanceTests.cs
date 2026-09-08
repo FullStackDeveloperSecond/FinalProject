@@ -169,6 +169,58 @@ public sealed class M14BReadModelAcceptanceTests
     }
 
     [Fact]
+    public async Task Workbench_ForwardsReadableAssigneeDatesAndSortAndReturnsFilteredTotal()
+    {
+        var createdFrom = new DateOnly(2026, 8, 1);
+        var createdTo = new DateOnly(2026, 8, 31);
+        var activityFrom = new DateOnly(2026, 9, 1);
+        var activityTo = new DateOnly(2026, 9, 8);
+        var store = new RecordingWorkbenchStore
+        {
+            Result = new CaseWorkbenchPage([], HasMore: false, TotalCount: 27),
+        };
+        var service = new CaseWorkbenchService(store);
+
+        var result = await service.GetPageAsync(
+            WorkbenchQuery(
+                assigneeFilter: CaseWorkbenchAssigneeFilter.Mine,
+                createdFrom: createdFrom,
+                createdTo: createdTo,
+                lastActivityFrom: activityFrom,
+                lastActivityTo: activityTo,
+                sort: CaseWorkbenchSortOrder.Oldest),
+            [CaseWorkbenchCaseType.Support],
+            CancellationToken.None);
+
+        Assert.Equal(CaseWorkbenchAssigneeFilter.Mine, store.Assignee);
+        Assert.Equal(createdFrom, store.CreatedFrom);
+        Assert.Equal(createdTo, store.CreatedTo);
+        Assert.Equal(activityFrom, store.LastActivityFrom);
+        Assert.Equal(activityTo, store.LastActivityTo);
+        Assert.Equal(CaseWorkbenchSortOrder.Oldest, store.Sort);
+        Assert.Equal(27, result.TotalCount);
+    }
+
+    [Fact]
+    public async Task Workbench_RejectsConflictingAssigneeAndReversedDateRanges()
+    {
+        var service = new CaseWorkbenchService(new RecordingWorkbenchStore());
+
+        await AssertValidationAsync(
+            service,
+            WorkbenchQuery(
+                assignee: Guid.NewGuid(),
+                assigneeFilter: CaseWorkbenchAssigneeFilter.Mine),
+            [CaseWorkbenchCaseType.Support]);
+        await AssertValidationAsync(
+            service,
+            WorkbenchQuery(
+                createdFrom: new DateOnly(2026, 9, 2),
+                createdTo: new DateOnly(2026, 9, 1)),
+            [CaseWorkbenchCaseType.Support]);
+    }
+
+    [Fact]
     public async Task Workbench_CursorAcceptsCanonicalEquivalentOrdering()
     {
         var store = new RecordingWorkbenchStore
@@ -213,6 +265,7 @@ public sealed class M14BReadModelAcceptanceTests
 
         await AssertValidationAsync(service, original with { Cursor = "not-a-cursor" }, [CaseWorkbenchCaseType.Support]);
         await AssertValidationAsync(service, original with { Statuses = ["Assigned"], Cursor = page.NextCursor }, [CaseWorkbenchCaseType.Support]);
+        await AssertValidationAsync(service, original with { Sort = CaseWorkbenchSortOrder.Oldest, Cursor = page.NextCursor }, [CaseWorkbenchCaseType.Support]);
         await AssertValidationAsync(service, original with { Cursor = page.NextCursor }, [CaseWorkbenchCaseType.Support, CaseWorkbenchCaseType.Report]);
     }
 
@@ -285,8 +338,28 @@ public sealed class M14BReadModelAcceptanceTests
         Guid? assignee = null,
         bool? overdueOnly = null,
         string? keyword = null,
+        CaseWorkbenchAssigneeFilter? assigneeFilter = null,
+        DateOnly? createdFrom = null,
+        DateOnly? createdTo = null,
+        DateOnly? lastActivityFrom = null,
+        DateOnly? lastActivityTo = null,
+        CaseWorkbenchSortOrder? sort = null,
         int pageSize = 20) =>
-        new(caseTypes, statuses, priorities, assignee, overdueOnly, keyword, null, pageSize);
+        new(
+            caseTypes,
+            statuses,
+            priorities,
+            assignee,
+            Assignee: assigneeFilter,
+            CreatedFrom: createdFrom,
+            CreatedTo: createdTo,
+            LastActivityFrom: lastActivityFrom,
+            LastActivityTo: lastActivityTo,
+            Sort: sort,
+            OverdueOnly: overdueOnly,
+            Keyword: keyword,
+            Cursor: null,
+            PageSize: pageSize);
 
     private sealed class RecordingSlaStore : ISupportSlaQueueStore
     {
@@ -312,6 +385,12 @@ public sealed class M14BReadModelAcceptanceTests
         public IReadOnlyCollection<string>? Statuses { get; private set; }
         public IReadOnlyCollection<CasePriority>? Priorities { get; private set; }
         public Guid? AssigneePublicId { get; private set; }
+        public CaseWorkbenchAssigneeFilter? Assignee { get; private set; }
+        public DateOnly? CreatedFrom { get; private set; }
+        public DateOnly? CreatedTo { get; private set; }
+        public DateOnly? LastActivityFrom { get; private set; }
+        public DateOnly? LastActivityTo { get; private set; }
+        public CaseWorkbenchSortOrder Sort { get; private set; }
         public bool? OverdueOnly { get; private set; }
         public string? Keyword { get; private set; }
         public int PageSize { get; private set; }
@@ -322,6 +401,12 @@ public sealed class M14BReadModelAcceptanceTests
             IReadOnlyCollection<string>? statuses,
             IReadOnlyCollection<CasePriority>? priorities,
             Guid? assigneePublicId,
+            CaseWorkbenchAssigneeFilter? assignee,
+            DateOnly? createdFrom,
+            DateOnly? createdTo,
+            DateOnly? lastActivityFrom,
+            DateOnly? lastActivityTo,
+            CaseWorkbenchSortOrder sort,
             bool? overdueOnly,
             string? keyword,
             int pageSize,
@@ -335,6 +420,12 @@ public sealed class M14BReadModelAcceptanceTests
             Statuses = statuses;
             Priorities = priorities;
             AssigneePublicId = assigneePublicId;
+            Assignee = assignee;
+            CreatedFrom = createdFrom;
+            CreatedTo = createdTo;
+            LastActivityFrom = lastActivityFrom;
+            LastActivityTo = lastActivityTo;
+            Sort = sort;
             OverdueOnly = overdueOnly;
             Keyword = keyword;
             PageSize = pageSize;
@@ -354,7 +445,7 @@ internal static class M14BServiceTestExtensions
         CancellationToken cancellationToken) =>
         service.GetPageAsync(query, UnitTestAdminUserId, canSupervise: false, cancellationToken);
 
-    public static Task<CursorPage<CaseWorkbenchItemDto>> GetPageAsync(
+    public static Task<CaseWorkbenchSearchResultDto> GetPageAsync(
         this CaseWorkbenchService service,
         CaseWorkbenchQuery query,
         IReadOnlyCollection<CaseWorkbenchCaseType> authorizedCaseTypes,

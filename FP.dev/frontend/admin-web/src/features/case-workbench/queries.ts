@@ -6,13 +6,25 @@ import { apiClient } from '../../api/client'
 // (see ../support/queries.ts's caseWorkbenchRootKey comment) so this page refreshes right along
 // with those actions without either module needing to know the other's query shape.
 import { caseWorkbenchRootKey } from '../support/queries'
-import type { CasePriority, CaseWorkbenchCaseType, CaseWorkbenchPage } from './types'
+import type {
+  CasePriority,
+  CaseWorkbenchAssigneeFilter,
+  CaseWorkbenchCaseType,
+  CaseWorkbenchPage,
+  CaseWorkbenchSortOrder,
+} from './types'
 
 export interface CaseWorkbenchFilters {
   caseTypes?: CaseWorkbenchCaseType[]
   statuses?: string[]
   priorities?: CasePriority[]
   assigneePublicId?: string
+  assignee?: CaseWorkbenchAssigneeFilter
+  createdFrom?: string
+  createdTo?: string
+  lastActivityFrom?: string
+  lastActivityTo?: string
+  sort?: CaseWorkbenchSortOrder
   overdueOnly?: boolean
   keyword?: string
   cursor?: string
@@ -37,6 +49,12 @@ export function useCaseWorkbenchQuery(filters: MaybeRefOrGetter<CaseWorkbenchFil
             Statuses: current.statuses,
             Priorities: current.priorities,
             AssigneePublicId: current.assigneePublicId,
+            Assignee: current.assignee,
+            CreatedFrom: current.createdFrom,
+            CreatedTo: current.createdTo,
+            LastActivityFrom: current.lastActivityFrom,
+            LastActivityTo: current.lastActivityTo,
+            Sort: current.sort,
             OverdueOnly: current.overdueOnly,
             Keyword: current.keyword,
             Cursor: current.cursor,
