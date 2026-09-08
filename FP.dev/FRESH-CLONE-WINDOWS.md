@@ -138,8 +138,11 @@ New-Item -ItemType Directory -Force -Path 'C:\DoSelectData' | Out-Null
 這一步可能花較長時間並需要連線官方 NuGet／npm registry。它會使用鎖定檔、執行完整 .NET 與前端驗證，並可能建立後刪除名稱受限的隔離測試資料庫；不會刪除或清空共用 `DoSelectDb`：
 
 ```powershell
+.\scripts\stop-all.ps1
 .\scripts\verify-clean-environment.ps1 -RunVerification
 ```
+
+Fresh Clone 第一次執行時 `stop-all.ps1` 可安全回報沒有受管程序；若曾啟動同一 Clone，它只停止狀態檔中 PID＋啟動時間吻合的本專案程序。完整驗證會先確認固定 Port 5126／5173／5174 空閒，再開始耗時工作，避免前端 native module 被執行中服務鎖住。
 
 成功訊息應為 `Clean-environment verification passed.`。若失敗，保留去識別後的命令名稱、結束碼與錯誤摘要；不要貼出環境變數、完整 Connection String、User Secrets 或原始資料列。
 

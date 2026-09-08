@@ -57,6 +57,14 @@ try {
         throw 'RunVerification requires a clean tracked worktree; commit or restore tracked changes first.'
     }
 
+    foreach ($endpoint in @(
+        @{ Port = 5126; Name = 'API' },
+        @{ Port = 5173; Name = 'Customer Web' },
+        @{ Port = 5174; Name = 'Admin Web' }
+    )) {
+        Assert-PortAvailable -Port $endpoint.Port -ServiceName $endpoint.Name
+    }
+
     & (Join-Path $script:ProjectRoot 'scripts\verify-package-sources.ps1')
     if ($LASTEXITCODE -ne 0) { throw 'package source policy verification failed.' }
     & dotnet tool restore

@@ -234,7 +234,7 @@ npm run test:coverage --prefix frontend\admin-web
 .\scripts\verify-clean-environment.ps1 -RunVerification
 ```
 
-`-RunVerification` 涵蓋套件來源 Policy、Repository-local tool Restore、Solution Restore／Build／Format／.NET tests、NuGet 弱點稽核，以及雙前端 `npm ci`／Typecheck／Lint／Coverage／production build／production dependency audit。測試可能建立後刪除名稱受限的隔離測試資料庫，但不會清除或刪除共用 `DoSelectDb`，也不會啟動長駐服務。Fresh Clone 驗收還必須在設定本機安全 Secrets 後依序執行下方的完整 Migration、最小 Seed、SQL 驗證、三服務啟動與健康檢查；未執行或任何步驟失敗都不得把 DEV-02／ENV-RC-03 標成完成，但依 2026-09-08 裁定不因此阻擋後續項目。執行紀錄只保存 revision、環境版本、命令、通過／失敗與去識別日誌，不保存 User Secrets、連線字串、帳號、機器名或資料列。
+`-RunVerification` 涵蓋固定 Port 空閒、套件來源 Policy、Repository-local tool Restore、Solution Restore／Build／Format／.NET tests、NuGet 弱點稽核，以及雙前端 `npm ci`／Typecheck／Lint／Coverage／production build／production dependency audit。若此 Clone 曾啟動服務，先執行 `stop-all.ps1`；驗證會在 Port 5126／5173／5174 被占用時提早停止，避免 `npm ci` 到最後才因 native module 檔案鎖失敗。測試可能建立後刪除名稱受限的隔離測試資料庫，但不會清除或刪除共用 `DoSelectDb`，也不會啟動長駐服務。Fresh Clone 驗收還必須在設定本機安全 Secrets 後依序執行下方的完整 Migration、最小 Seed、SQL 驗證、三服務啟動與健康檢查；未執行或任何步驟失敗都不得把 DEV-02／ENV-RC-03 標成完成，但依 2026-09-08 裁定不因此阻擋後續項目。執行紀錄只保存 revision、環境版本、命令、通過／失敗與去識別日誌，不保存 User Secrets、連線字串、帳號、機器名或資料列。
 
 ENV-RC-03 的第二機執行順序固定如下；各命令的參數與安全邊界見後續章節：
 
