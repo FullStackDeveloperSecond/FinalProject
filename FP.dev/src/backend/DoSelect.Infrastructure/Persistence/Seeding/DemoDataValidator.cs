@@ -242,6 +242,19 @@ public sealed class DemoDataValidator(DoSelectDbContext dbContext)
 
 internal static class DemoDatabaseSafety
 {
+    public static void EnsureAllowedIsolatedLocalDatabase(DoSelectDbContext dbContext)
+    {
+        EnsureAllowedLocalDatabase(dbContext);
+
+        var connectionString = dbContext.Database.GetConnectionString();
+        var databaseName = new SqlConnectionStringBuilder(connectionString).InitialCatalog;
+        if (!HasIsolatedDatabaseName(databaseName))
+        {
+            throw new InvalidOperationException(
+                "This operation is restricted to an isolated 'DoSelectDemo_<32 hex>' database.");
+        }
+    }
+
     public static void EnsureAllowedLocalDatabase(DoSelectDbContext dbContext)
     {
         var connectionString = dbContext.Database.GetConnectionString();
@@ -252,9 +265,7 @@ internal static class DemoDatabaseSafety
 
         var builder = new SqlConnectionStringBuilder(connectionString);
         var databaseName = builder.InitialCatalog;
-        var validSuffix = databaseName.StartsWith("DoSelectDemo_", StringComparison.Ordinal) &&
-            databaseName.Length == "DoSelectDemo_".Length + 32 &&
-            databaseName["DoSelectDemo_".Length..].All(Uri.IsHexDigit);
+        var validSuffix = HasIsolatedDatabaseName(databaseName);
         if (!string.Equals(databaseName, "DoSelectDemo", StringComparison.Ordinal) && !validSuffix)
         {
             throw new InvalidOperationException(
@@ -279,6 +290,11 @@ internal static class DemoDatabaseSafety
                 "Demo commands are restricted to a local or loopback SQL Server data source.");
         }
     }
+
+    private static bool HasIsolatedDatabaseName(string databaseName) =>
+        databaseName.StartsWith("DoSelectDemo_", StringComparison.Ordinal) &&
+        databaseName.Length == "DoSelectDemo_".Length + 32 &&
+        databaseName["DoSelectDemo_".Length..].All(Uri.IsHexDigit);
 }
 
 internal static class DemoDataSnapshotReader

@@ -102,10 +102,13 @@ npm audit --omit=dev
 
 ```powershell
 .\scripts\reset-demo-data.ps1
+.\scripts\activate-demo-accounts.ps1 -DatabaseName <reset-script-output>
 .\scripts\start-all.ps1 -Environment Demo
 ```
 
 `reset-demo-data.ps1` 不刪除或覆寫 `DoSelectDb`／共用 `DoSelectDemo`；未指定名稱時，每次建立新的 `DoSelectDemo_<32-hex>` 隔離庫，完成 Seed 與唯讀驗證後，才把選定名稱寫入已忽略版控的 `.run/demo-database.json`。`start-all.ps1 -Environment Demo` 只接受該隔離命名，並把 API 明確綁定到選定資料庫；也可用腳本輸出的 `-DatabaseName` 命令明確重現或重新驗證同一環境。
+
+需要真人登入時，先以 `configure-seed-secrets.ps1` 將測試密碼寫入目前 Windows 使用者的 .NET User Secrets，再對重設腳本輸出的隔離資料庫執行 `activate-demo-accounts.ps1`。此命令只替固定 Seed 內既有的 `member-0001@example.invalid` 與 `demo-admin@example.invalid` 設定密碼，並替後者加入 `SuperAdmin`、`CustomerServiceSupervisor`；不新增會員、商品或交易資料，完成後 10,000 筆驗證仍須通過。它也把該 Demo SuperAdmin 的 PublicId 寫入 `OpenAI:BudgetAlertRecipientAdminPublicId`，避免 AI 預算告警指向其他資料庫的帳號。管理員 TOTP 不會預先綁定，第一次登入依正常流程註冊驗證器。
 
 執行 `reset-demo-data.ps1` 前必須先用 `stop-all.ps1` 停止受管服務。Demo API 仍依設定與 Secrets 規範要求目前 Windows 使用者具備至少 32 UTF-8 bytes 的 `GuestOrderAccess__Pepper`；腳本不會產生、讀出或記錄該 Secret，缺少時 API 繼續 fail closed。
 
@@ -162,6 +165,8 @@ node .\scripts\validate-ai-eval-dataset.mjs
 ```
 
 若明確啟用 AI／Email 卻缺少必要 Key，或缺少／誤設必要 Pepper，API 會在啟動時 fail closed。不得把 `dotnet user-secrets list` 的輸出貼入日誌、聊天或 PR。
+
+隔離 Demo 預設不產生外部流量。完成 OpenAI 與 Brevo Secret 設定及各自測試後，使用 `./scripts/start-all.ps1 -Environment Demo -EnableAi -EnableEmail` 明確啟用；也可只指定其中一個開關。未指定的 Provider 一律保持停用。
 
 啟用 AI 前還必須設定 `OpenAI:ProductSearchInputCostPerMillionTokens`、`OpenAI:ProductSearchOutputCostPerMillionTokens`、至少 32 UTF-8 bytes 的 `OpenAI:AnonymousIdentityPepper`，以及有效的 `OpenAI:BudgetAlertRecipientAdminPublicId`。商品搜尋成本預設為 `-1`，刻意讓未確認價格的環境 Fail Closed；不得以 `0` 假裝免費。`AnonymousIdentityPepper` 屬 Secret，不得提交；模型與每百萬 Token 單價則依實際使用帳戶的已確認價格設定。
 

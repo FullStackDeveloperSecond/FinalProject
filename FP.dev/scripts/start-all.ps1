@@ -6,7 +6,11 @@ param(
     [string] $DatabaseName,
 
     [ValidateRange(10, 300)]
-    [int] $StartupTimeoutSeconds = 60
+    [int] $StartupTimeoutSeconds = 60,
+
+    [switch] $EnableAi,
+
+    [switch] $EnableEmail
 )
 
 $ErrorActionPreference = 'Stop'
@@ -81,6 +85,10 @@ try {
         throw 'DatabaseName can only be supplied with -Environment Demo.'
     }
 
+    if ($Environment -ne 'Demo' -and ($EnableAi -or $EnableEmail)) {
+        throw 'EnableAi and EnableEmail can only be supplied with -Environment Demo.'
+    }
+
     $existingState = Read-ProcessState
     if ($null -ne $existingState) {
         $running = @(@($existingState.Services) | Where-Object { Test-ServiceProcesses -Service $_ })
@@ -129,9 +137,9 @@ try {
             $env:Demo__AllowHttpLoopback = 'true'
             $env:Demo__SimulationEndpointsEnabled = 'true'
             # Provider-backed AI and email create external traffic and possible cost. The
-            # formal local Demo stays deterministic until each provider is explicitly enabled.
-            $env:Features__AiEnabled = 'false'
-            $env:Features__EmailEnabled = 'false'
+            # formal local Demo stays deterministic unless each provider is explicitly enabled.
+            $env:Features__AiEnabled = if ($EnableAi) { 'true' } else { 'false' }
+            $env:Features__EmailEnabled = if ($EnableEmail) { 'true' } else { 'false' }
         }
         else {
             $env:ConnectionStrings__DefaultConnection = New-DevelopmentConnectionString
@@ -195,6 +203,8 @@ try {
     Write-ProcessState -State ([pscustomobject]@{
         Environment = $Environment
         DatabaseName = if ($Environment -eq 'Demo') { $DatabaseName } else { $null }
+        AiEnabled = $Environment -eq 'Demo' -and $EnableAi
+        EmailEnabled = $Environment -eq 'Demo' -and $EnableEmail
         StartedAtUtc = [DateTimeOffset]::UtcNow.ToString('O')
         Services = $services
     })
@@ -206,6 +216,8 @@ try {
     Write-Host "Environment:  $Environment"
     if ($Environment -eq 'Demo') {
         Write-Host "Database:     $DatabaseName"
+        Write-Host "OpenAI:       $(if ($EnableAi) { 'Enabled' } else { 'Disabled' })"
+        Write-Host "Email:        $(if ($EnableEmail) { 'Enabled' } else { 'Disabled' })"
     }
     Write-Host "Runtime data: $($script:RunRoot)"
     exit 0
