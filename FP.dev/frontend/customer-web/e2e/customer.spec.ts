@@ -196,7 +196,7 @@ test('a seeded member can sign in, open a protected profile, and sign out', asyn
 
   await expect(page.getByText('DoSelect 測試會員', { exact: true })).toBeVisible()
   await page.goto('/account')
-  await expect(page.getByRole('heading', { level: 1, name: '會員資料' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 2, name: '會員資料' })).toBeVisible()
   await expect(page.getByRole('definition').filter({ hasText: 'DoSelect 測試會員' })).toBeVisible()
 
   await page.getByRole('button', { name: 'DoSelect 測試會員' }).click()
