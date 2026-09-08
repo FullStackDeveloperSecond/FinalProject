@@ -475,6 +475,45 @@ test('a shopper can open the seeded catalog and view product details', async ({ 
   await expect(page.getByText('現貨供應')).toBeVisible()
 })
 
+test('a shopper can enter the city, follow the Donngu tour, and keep a recent product', async ({
+  page,
+  api,
+  seed,
+}) => {
+  const productResponse = await api.get(`/api/v1/products/${seed.productPublicId}`)
+  expect(productResponse.ok(), 'The deterministic catalog seed must exist').toBe(true)
+
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.goto('/welcome')
+  const explore = page.getByRole('button', { name: '開始探索' })
+  await expect(explore).toBeEnabled()
+  await explore.click()
+  await expect(page).toHaveURL(/\/$/)
+
+  await page.getByRole('button', { name: '開啟 Donngu 導覽' }).click()
+  await page.getByRole('button', { name: '第一次來？陪我逛三站 →' }).click()
+  const tourHeading = page.locator('.spotlight-tour h2')
+  await expect(tourHeading).toHaveText('第一站：說用途')
+  await page.getByRole('button', { name: '下一站 →' }).click()
+  await expect(tourHeading).toHaveText('第二站：給預算')
+  await page.getByRole('button', { name: '下一站 →' }).click()
+  await expect(tourHeading).toHaveText('第三站：看推薦')
+  await page.getByRole('button', { name: '完成導覽' }).click()
+
+  await page.goto(`/products/${seed.productPublicId}`)
+  await expect(page.getByRole('heading', { level: 1, name: '懂選開發用顯示卡' })).toBeVisible()
+  await page.goto('/')
+  const pocket = page.locator('.city-pocket')
+  await expect(pocket).toBeVisible()
+  await pocket.locator('summary').click()
+  await expect(pocket.getByRole('link', { name: /懂選開發用顯示卡/ })).toHaveAttribute(
+    'href',
+    `/products/${seed.productPublicId}`,
+  )
+  await pocket.getByRole('button', { name: '清空口袋' }).click()
+  await expect(pocket).toHaveCount(0)
+})
+
 test('a member can consent to AI support and fall back to a human case when AI is disabled', async ({
   page,
   loginAsMember,
