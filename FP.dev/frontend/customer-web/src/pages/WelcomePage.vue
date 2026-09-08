@@ -27,9 +27,9 @@ onMounted(async () => {
 
 function explore(): void {
   const transition = gsap.timeline({ onComplete: () => void router.push('/') })
-  transition.to('.welcome-page__explore', { scale: 0.97, duration: 0.18 })
-    .to('.welcome-page__portal', { scale: 3.2, opacity: 0.42, duration: 1.35, ease: 'power1.inOut' }, '-=0.02')
-    .to('.welcome-page', { opacity: 0, duration: 0.85, ease: 'power1.inOut' }, '-=0.62')
+  transition.to('.welcome-page__explore', { scale: 0.985, opacity: 0.8, duration: 0.22 })
+    .to('.welcome-page__portal', { scale: 2.5, opacity: 0.2, duration: 1.65, ease: 'power1.inOut' }, '-=0.02')
+    .to('.welcome-page', { opacity: 0.08, duration: 1.2, ease: 'power1.inOut' }, '-=1.05')
 }
 </script>
 
