@@ -65,9 +65,10 @@ SQL Server Provider-backed 測試統一從 `DOSELECT_SQLSERVER_TEST_CONNECTION` 
 展示資料只能在 `Development` 及本機 SQL Server 的 allowlist 資料庫執行。產生器會建立／遷移全新資料庫，但驗證器全程唯讀，不建立或遷移資料庫；任一總筆數、版本標記、特殊分布、孤兒／資料庫約束、負庫存、非法列舉／工作流或七份報表摘要基準不符時，驗證命令會輸出不含明細資料的 JSON 並回傳非零結束碼：
 
 ```powershell
-.\scripts\seed-demo-data.ps1 -DatabaseName DoSelectDemo
-.\scripts\validate-demo-data.ps1 -DatabaseName DoSelectDemo
-.\scripts\measure-demo-report-p95.ps1 -DatabaseName DoSelectDemo
+.\scripts\reset-demo-data.ps1
+$demoDatabase = (Get-Content -Raw .\.run\demo-database.json | ConvertFrom-Json).DatabaseName
+.\scripts\validate-demo-data.ps1 -DatabaseName $demoDatabase
+.\scripts\measure-demo-report-p95.ps1 -DatabaseName $demoDatabase
 ```
 
 在 `frontend/customer-web` 與 `frontend/admin-web` 分別執行前端驗證：
@@ -98,8 +99,13 @@ npm audit --omit=dev
 展示環境需明確指定：
 
 ```powershell
+.\scripts\reset-demo-data.ps1
 .\scripts\start-all.ps1 -Environment Demo
 ```
+
+`reset-demo-data.ps1` 不刪除或覆寫 `DoSelectDb`／共用 `DoSelectDemo`；未指定名稱時，每次建立新的 `DoSelectDemo_<32-hex>` 隔離庫，完成 Seed 與唯讀驗證後，才把選定名稱寫入已忽略版控的 `.run/demo-database.json`。`start-all.ps1 -Environment Demo` 只接受該隔離命名，並把 API 明確綁定到選定資料庫；也可用腳本輸出的 `-DatabaseName` 命令明確重現或重新驗證同一環境。
+
+執行 `reset-demo-data.ps1` 前必須先用 `stop-all.ps1` 停止受管服務。Demo API 仍依設定與 Secrets 規範要求目前 Windows 使用者具備至少 32 UTF-8 bytes 的 `GuestOrderAccess__Pepper`；腳本不會產生、讀出或記錄該 Secret，缺少時 API 繼續 fail closed。
 
 啟動前會驗證 `dotnet`、Node、npm、`sqlcmd`、SQL Server `\.\SQL2025` Windows Authentication 與三個固定 Port。SQL 檢查優先使用 ODBC 18 工具並以 `-C` 對齊本機 `TrustServerCertificate=True` 基線，避免 PATH 中舊 ODBC 17 工具造成錯誤判定。PID、程序啟動時間及 stdout／stderr 保存在已忽略版控的 `.run/`；停止腳本只終止身分與啟動時間吻合的本專案程序，不停止 SQL Server，也不批次終止電腦上的其他 Node／.NET 程序。
 
@@ -168,7 +174,7 @@ Remove-Variable guestAccessPepper
 健康檢查：
 
 - `GET /health/live`：確認 API 程序可處理請求。
-- `GET /health/ready`：確認本機 `Storage:DataRoot` 可寫，並透過 EF Core 對 `DoSelectDb` 執行最小 `SELECT 1` 讀取；Hangfire 檢查待其 Infrastructure 完成後加入。
+- `GET /health/ready`：確認本機 `Storage:DataRoot` 可寫，並透過 EF Core 對目前有效的 `DefaultConnection`（Development 預設為 `DoSelectDb`；Demo 為選定的隔離庫）執行最小 `SELECT 1` 讀取；啟用背景工作時也會檢查 Hangfire 儲存體。
 - 公開回應只包含 `status`，不輸出實體路徑、連線資訊或例外。
 
 Serilog 會將結構化 JSON 輸出到 Console，並在 `{Storage:DataRoot}/logs` 建立每日 Rolling File；單檔 100 MB、最長保存 14 天且最多 20 個檔案。可在測試設定 `Observability:FileLoggingEnabled=false` 停用檔案輸出。

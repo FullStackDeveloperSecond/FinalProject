@@ -2,6 +2,9 @@ param(
     [ValidateSet('Development', 'Demo')]
     [string] $Environment = 'Development',
 
+    [ValidatePattern('^DoSelectDemo_[0-9a-fA-F]{32}$')]
+    [string] $DatabaseName,
+
     [ValidateRange(10, 300)]
     [int] $StartupTimeoutSeconds = 60
 )
@@ -61,6 +64,23 @@ function Start-ManagedService {
 try {
     Initialize-RunDirectory
 
+    if ($Environment -eq 'Demo') {
+        if ([string]::IsNullOrWhiteSpace($DatabaseName)) {
+            $demoDatabaseState = Read-DemoDatabaseState
+            if ($null -eq $demoDatabaseState) {
+                throw "No isolated Demo database is prepared. Run '.\scripts\reset-demo-data.ps1' first."
+            }
+
+            $DatabaseName = [string] $demoDatabaseState.DatabaseName
+        }
+
+        Assert-IsolatedDemoDatabaseName -DatabaseName $DatabaseName
+        $demoConnectionString = New-DemoConnectionString -DatabaseName $DatabaseName
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($DatabaseName)) {
+        throw 'DatabaseName can only be supplied with -Environment Demo.'
+    }
+
     $existingState = Read-ProcessState
     if ($null -ne $existingState) {
         $running = @(@($existingState.Services) | Where-Object { Test-ServiceProcesses -Service $_ })
@@ -95,10 +115,14 @@ try {
     $previousEnvironment = $env:ASPNETCORE_ENVIRONMENT
     $previousUrls = $env:ASPNETCORE_URLS
     $previousBackgroundJobsEnabled = $env:Features__BackgroundJobsEnabled
+    $previousConnection = $env:ConnectionStrings__DefaultConnection
     try {
         $env:ASPNETCORE_ENVIRONMENT = $Environment
         $env:ASPNETCORE_URLS = $script:ApiUrl
         $env:Features__BackgroundJobsEnabled = 'true'
+        if ($Environment -eq 'Demo') {
+            $env:ConnectionStrings__DefaultConnection = $demoConnectionString
+        }
         $apiParameters = @{
             Name = 'API'
             FilePath = $dotnet
@@ -112,6 +136,7 @@ try {
         $env:ASPNETCORE_ENVIRONMENT = $previousEnvironment
         $env:ASPNETCORE_URLS = $previousUrls
         $env:Features__BackgroundJobsEnabled = $previousBackgroundJobsEnabled
+        $env:ConnectionStrings__DefaultConnection = $previousConnection
     }
 
     $customerParameters = @{
@@ -150,6 +175,7 @@ try {
     }
     Write-ProcessState -State ([pscustomobject]@{
         Environment = $Environment
+        DatabaseName = if ($Environment -eq 'Demo') { $DatabaseName } else { $null }
         StartedAtUtc = [DateTimeOffset]::UtcNow.ToString('O')
         Services = $services
     })
@@ -159,6 +185,9 @@ try {
     Write-Host "Customer Web: $($script:CustomerUrl)"
     Write-Host "Admin Web:    $($script:AdminUrl)"
     Write-Host "Environment:  $Environment"
+    if ($Environment -eq 'Demo') {
+        Write-Host "Database:     $DatabaseName"
+    }
     Write-Host "Runtime data: $($script:RunRoot)"
     exit 0
 }

@@ -109,6 +109,11 @@ jobs:
         run: ./scripts/test-backup-retention-safety.ps1
         working-directory: FP.dev
 
+      - name: Verify Demo environment database isolation
+        shell: pwsh
+        run: ./scripts/test-demo-environment-safety.ps1
+        working-directory: FP.dev
+
   backend:
     name: Backend
     runs-on: ubuntu-latest

@@ -3,11 +3,64 @@ Set-StrictMode -Version Latest
 $script:ProjectRoot = Split-Path -Parent $PSScriptRoot
 $script:RunRoot = Join-Path $script:ProjectRoot '.run'
 $script:StateFile = Join-Path $script:RunRoot 'processes.json'
+$script:DemoDatabaseStateFile = Join-Path $script:RunRoot 'demo-database.json'
 $script:SqlInstance = '.\SQL2025'
 $script:SqlServiceName = 'MSSQL$SQL2025'
 $script:ApiUrl = 'http://localhost:5126'
 $script:CustomerUrl = 'http://localhost:5173'
 $script:AdminUrl = 'http://localhost:5174/admin/'
+
+function Assert-IsolatedDemoDatabaseName {
+    param(
+        [Parameter(Mandatory)]
+        [string] $DatabaseName
+    )
+
+    if ($DatabaseName -notmatch '^DoSelectDemo_[0-9a-fA-F]{32}$') {
+        throw "Demo runtime requires an isolated database named 'DoSelectDemo_<32-hex>'. Shared databases are not allowed."
+    }
+}
+
+function New-DemoConnectionString {
+    param(
+        [Parameter(Mandatory)]
+        [string] $DatabaseName
+    )
+
+    Assert-IsolatedDemoDatabaseName -DatabaseName $DatabaseName
+    return "Server=$($script:SqlInstance);Database=$DatabaseName;Integrated Security=True;TrustServerCertificate=True;MultipleActiveResultSets=True"
+}
+
+function Read-DemoDatabaseState {
+    if (-not (Test-Path -LiteralPath $script:DemoDatabaseStateFile -PathType Leaf)) {
+        return $null
+    }
+
+    $state = Get-Content -Raw -LiteralPath $script:DemoDatabaseStateFile | ConvertFrom-Json
+    Assert-IsolatedDemoDatabaseName -DatabaseName ([string] $state.DatabaseName)
+    return $state
+}
+
+function Write-DemoDatabaseState {
+    param(
+        [Parameter(Mandatory)]
+        [string] $DatabaseName
+    )
+
+    Assert-IsolatedDemoDatabaseName -DatabaseName $DatabaseName
+    Initialize-RunDirectory
+    $temporaryPath = "$($script:DemoDatabaseStateFile).$([Guid]::NewGuid().ToString('N')).tmp"
+    try {
+        [ordered]@{
+            DatabaseName = $DatabaseName
+            PreparedAtUtc = [DateTimeOffset]::UtcNow.ToString('O')
+        } | ConvertTo-Json | Set-Content -LiteralPath $temporaryPath -Encoding utf8
+        Move-Item -LiteralPath $temporaryPath -Destination $script:DemoDatabaseStateFile -Force
+    }
+    finally {
+        Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
+    }
+}
 
 function Initialize-RunDirectory {
     New-Item -ItemType Directory -Path $script:RunRoot -Force | Out-Null
