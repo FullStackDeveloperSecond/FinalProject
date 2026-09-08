@@ -41,6 +41,108 @@ function Get-SqlCmdCommand {
     return $command.Source
 }
 
+function New-RelativeDirectoryArchive {
+    param(
+        [Parameter(Mandatory)]
+        [string] $SourceRoot,
+
+        [Parameter(Mandatory)]
+        [string[]] $RelativePaths,
+
+        [Parameter(Mandatory)]
+        [string] $DestinationPath
+    )
+
+    $resolvedSourceRoot = [IO.Path]::GetFullPath($SourceRoot)
+    $sourcePrefix = [IO.Path]::TrimEndingDirectorySeparator($resolvedSourceRoot) +
+        [IO.Path]::DirectorySeparatorChar
+    $resolvedDestinationPath = [IO.Path]::GetFullPath($DestinationPath)
+    if ($resolvedDestinationPath.StartsWith($sourcePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'DestinationPath must be outside SourceRoot.'
+    }
+
+    $destinationDirectory = Split-Path -Parent $resolvedDestinationPath
+    New-Item -ItemType Directory -Path $destinationDirectory -Force | Out-Null
+    $stagingRoot = Join-Path $destinationDirectory ".snapshot-$([Guid]::NewGuid().ToString('N'))"
+
+    try {
+        New-Item -ItemType Directory -Path $stagingRoot -Force | Out-Null
+        foreach ($relativePath in $RelativePaths) {
+            if ([IO.Path]::IsPathRooted($relativePath)) {
+                throw "Archive source path must be relative: $relativePath"
+            }
+
+            $sourcePath = [IO.Path]::GetFullPath((Join-Path $resolvedSourceRoot $relativePath))
+            if (-not $sourcePath.StartsWith($sourcePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+                throw "Archive source path escaped SourceRoot: $relativePath"
+            }
+            if (-not (Test-Path -LiteralPath $sourcePath -PathType Container)) {
+                throw "Archive source directory was not found: $sourcePath"
+            }
+
+            $pathToCheck = $sourcePath
+            while ($true) {
+                $pathItem = Get-Item -LiteralPath $pathToCheck -Force
+                if (($pathItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                    throw "Archive source path contains a reparse point: $relativePath"
+                }
+                if ($pathToCheck.Equals($resolvedSourceRoot, [StringComparison]::OrdinalIgnoreCase)) {
+                    break
+                }
+
+                $pathToCheck = Split-Path -Parent $pathToCheck
+            }
+
+            $nestedReparsePoint = Get-ChildItem -LiteralPath $sourcePath -Force -Recurse |
+                Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 } |
+                Select-Object -First 1
+            if ($null -ne $nestedReparsePoint) {
+                throw "Archive source directory contains a reparse point: $relativePath"
+            }
+
+            $stagedPath = Join-Path $stagingRoot $relativePath
+            New-Item -ItemType Directory -Path (Split-Path -Parent $stagedPath) -Force | Out-Null
+            if ($env:OS -eq 'Windows_NT') {
+                $robocopy = Get-RequiredCommand -Name 'robocopy.exe'
+                & $robocopy $sourcePath $stagedPath /E /COPY:DAT /DCOPY:DAT /SL /SJ /R:0 /W:0 /NP /NFL /NDL /NJH /NJS | Out-Null
+                $robocopyExitCode = $LASTEXITCODE
+                if ($robocopyExitCode -ge 8) {
+                    throw "robocopy failed while staging archive source '$relativePath' with exit code $robocopyExitCode."
+                }
+            }
+            else {
+                $copyCommand = Get-RequiredCommand -Name 'cp'
+                & $copyCommand '-a' $sourcePath $stagedPath
+                if ($LASTEXITCODE -ne 0) {
+                    throw "cp failed while staging archive source '$relativePath'."
+                }
+            }
+
+            $stagedItem = Get-Item -LiteralPath $stagedPath -Force
+            $stagedReparsePoint = @($stagedItem) + @(Get-ChildItem -LiteralPath $stagedPath -Force -Recurse) |
+                Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 } |
+                Select-Object -First 1
+            if ($null -ne $stagedReparsePoint) {
+                throw "Staged archive source contains a reparse point: $relativePath"
+            }
+        }
+
+        $archiveRoots = @(Get-ChildItem -LiteralPath $stagingRoot -Force)
+        if ($archiveRoots.Count -eq 0) {
+            throw 'At least one relative directory is required to create the archive.'
+        }
+
+        Compress-Archive -LiteralPath @($archiveRoots | ForEach-Object { $_.FullName }) `
+            -DestinationPath $resolvedDestinationPath `
+            -CompressionLevel Optimal
+    }
+    finally {
+        if (Test-Path -LiteralPath $stagingRoot) {
+            Remove-Item -LiteralPath $stagingRoot -Recurse -Force
+        }
+    }
+}
+
 function Test-SqlServerConnection {
     $service = Get-Service -Name $script:SqlServiceName -ErrorAction SilentlyContinue
     if ($null -eq $service) {

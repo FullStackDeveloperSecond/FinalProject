@@ -104,6 +104,11 @@ jobs:
         run: ./scripts/test-dotnet-script-resolution.ps1 -SkipExecutableProbe
         working-directory: FP.dev
 
+      - name: Verify backup retention safety
+        shell: pwsh
+        run: ./scripts/test-backup-retention-safety.ps1
+        working-directory: FP.dev
+
   backend:
     name: Backend
     runs-on: ubuntu-latest

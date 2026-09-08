@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "runId": "env-rc-05-20260908-exact-head-8b56d0d8",
+  "callingSkill": "capture-test-evidence",
+  "evidenceTier": "T1",
+  "repository": "FullStackDeveloperSecond/FinalProject",
+  "branch": "codex/env-rc-03-fresh-clone-20260908",
+  "revision": "8b56d0d820da14e3416cb39c5538ce5a966f72c0",
+  "suite": "ENV-RC-05 private-resource authorization matrix",
+  "environment": {
+    "class": "local-system-cli-isolated-tests",
+    "databaseProvider": "SQL Server",
+    "dotnetSdk": "10.0.303"
+  },
+  "commands": [
+    "dotnet test DoSelect.Infrastructure.Tests.csproj --no-restore --filter <orders-or-builds-or-coupons> --logger trx",
+    "dotnet test DoSelect.Api.IntegrationTests.csproj --no-restore --filter <returns-namespace> --logger trx",
+    "dotnet test DoSelect.Application.Tests.csproj --no-restore --filter <return-service> --logger trx"
+  ],
+  "results": {
+    "total": 182,
+    "executed": 182,
+    "passed": 182,
+    "failed": 0,
+    "skipped": 0
+  },
+  "coverage": {
+    "memberOrders": "list, detail, cancellation actor isolation and no side effects",
+    "buildLists": "update, delete, share, revoke and add-to-cart actor isolation and no side effects",
+    "adminCoupons": "create, update and action withdrawn-role denial and no side effects",
+    "returns": "member and guest actor isolation, attachment database/file side effects, all admin routes wrong-role denial"
+  },
+  "artifacts": [
+    {
+      "type": "trx",
+      "path": ".run/evidence/env-rc-05/exact-head-8b56d0d8/infrastructure-auth.trx",
+      "sizeBytes": 151422,
+      "sha256": "27BF5809137B1F75FDE983A0FB519EA4B05F99CBCD1A5A421A3BC02463EC4A84",
+      "retention": "gitignored local evidence"
+    },
+    {
+      "type": "trx",
+      "path": ".run/evidence/env-rc-05/exact-head-8b56d0d8/returns-http.trx",
+      "sizeBytes": 297416,
+      "sha256": "04CB38F4965F7C14C2B90EE400FB9CFC2095194B3EDE7993E906D4DD132D2341",
+      "retention": "gitignored local evidence"
+    },
+    {
+      "type": "trx",
+      "path": ".run/evidence/env-rc-05/exact-head-8b56d0d8/returns-application.trx",
+      "sizeBytes": 66971,
+      "sha256": "9F49D5ECED9A063E04499E78E1A86A69915ED2B8E62C2001397B093AD03CB9DE",
+      "retention": "gitignored local evidence"
+    }
+  ],
+  "cleanup": {
+    "currentRunFixtureDatabases": "teardown_completed",
+    "preExistingDatabases": "two Returns test databases created in 2026-08-27/28 were not modified or deleted"
+  },
+  "security": {
+    "authorizationAndIsolation": "pass_local",
+    "secretsOrCredentialsPersisted": false,
+    "productionDataUsed": false,
+    "nugetVulnerabilityFeed": "NU1900_local_remote_required_ci_pending",
+    "requiredCi": "pending"
+  },
+  "sanitizationStatus": "pass",
+  "excluded": [
+    "secrets",
+    "credentials",
+    "connection strings",
+    "cookies and tokens",
+    "machine and user identity",
+    "business rows"
+  ],
+  "testResult": "PASS_LOCAL_AUTHORIZATION_MATRIX",
+  "status": "LOCAL_PASS_REMOTE_REQUIRED_CI_PENDING"
+}

@@ -68,6 +68,28 @@ public sealed class EfOrderServiceTests
     }
 
     [Fact]
+    public async Task GetOrdersAsync_ReturnsOnlyTheCallingMembersOrders()
+    {
+        await using var context = OrderServiceFixture.CreateContext();
+        var ownerUserId = await OrderServiceFixture.SeedMemberUserIdAsync(context);
+        var otherUserId = await OrderServiceFixture.SeedMemberUserIdAsync(context);
+        var profile = await OrderServiceFixture.SeedShippingProviderProfileAsync(context);
+        var ownersOrder = await OrderServiceFixture.SeedOrderAsync(
+            context, ownerUserId, profile.Id, OrderStatus.PendingPayment);
+        var otherOrder = await OrderServiceFixture.SeedOrderAsync(
+            context, otherUserId, profile.Id, OrderStatus.PendingPayment);
+        var service = CreateService(context);
+
+        var result = await service.GetOrdersAsync(
+            ownerUserId, new OrderQuery(), CancellationToken.None);
+
+        Assert.Equal(1, result.TotalCount);
+        var summary = Assert.Single(result.Items);
+        Assert.Equal(ownersOrder.PublicId, summary.PublicId);
+        Assert.DoesNotContain(result.Items, item => item.PublicId == otherOrder.PublicId);
+    }
+
+    [Fact]
     public async Task GetOrderAsync_WhenOrderIsDeliveredWithReturnableQuantity_ExposesRequestReturnAction()
     {
         await using var context = OrderServiceFixture.CreateContext();
@@ -151,6 +173,59 @@ public sealed class EfOrderServiceTests
         Assert.Equal(AuditActions.OrderCancel, audit.Action);
         Assert.Equal(AuditActorType.Member, audit.ActorType);
         Assert.Contains("重複下單", audit.ChangedFieldsJson, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CancelOrderAsync_WhenCallerDoesNotOwnOrder_ThrowsResourceNotFoundWithoutSideEffects()
+    {
+        await using var context = OrderServiceFixture.CreateContext();
+        var ownerUserId = await OrderServiceFixture.SeedMemberUserIdAsync(context);
+        var otherUserId = await OrderServiceFixture.SeedMemberUserIdAsync(context);
+        var profile = await OrderServiceFixture.SeedShippingProviderProfileAsync(context);
+        var order = await OrderServiceFixture.SeedOrderAsync(
+            context, ownerUserId, profile.Id, OrderStatus.PendingPayment);
+        var (_, reservation) = await OrderServiceFixture.SeedInventoryReservationAsync(context, order);
+        var (coupon, redemption) = await OrderServiceFixture.SeedCouponReservationAsync(
+            context, order, ownerUserId, markExhausted: true);
+        var originalRowVersion = order.RowVersion.ToArray();
+        var service = CreateService(context);
+        var request = new CancelOrderRequest(
+            OrderCancellationReasonCodes.ChangedMind, null, order.RowVersion);
+
+        var exception = await Assert.ThrowsAsync<OrderWriteException>(() =>
+            service.CancelOrderAsync(
+                new OrderActor.Member(otherUserId),
+                order.PublicId,
+                request,
+                AuditContext,
+                CancellationToken.None));
+        Assert.Equal(OrderWriteException.ErrorCodes.ResourceNotFound, exception.ErrorCode);
+
+        await using var verification = OrderServiceFixture.CreateContext();
+        var reloadedOrder = await verification.Orders.SingleAsync(candidate => candidate.Id == order.Id);
+        Assert.Equal(OrderStatus.PendingPayment, reloadedOrder.OrderStatus);
+        Assert.Equal(originalRowVersion, reloadedOrder.RowVersion);
+        Assert.Equal(
+            InventoryReservationStatus.Active,
+            (await verification.InventoryReservations.SingleAsync(candidate => candidate.Id == reservation.Id)).Status);
+        Assert.Equal(
+            1,
+            (await verification.InventoryBalances.SingleAsync(candidate => candidate.SkuId == reservation.SkuId)).ReservedQuantity);
+        Assert.Equal(
+            CouponRedemptionStatus.Reserved,
+            (await verification.CouponRedemptions.SingleAsync(candidate => candidate.Id == redemption.Id)).Status);
+        Assert.Equal(
+            CouponStatus.Exhausted,
+            (await verification.Coupons.SingleAsync(candidate => candidate.Id == coupon.Id)).Status);
+        Assert.Empty(await verification.InventoryMovements
+            .Where(candidate => candidate.ReservationId == reservation.Id)
+            .ToListAsync());
+        Assert.Empty(await verification.OrderStatusHistories
+            .Where(candidate => candidate.OrderId == order.Id)
+            .ToListAsync());
+        Assert.Empty(await verification.AuditLogs
+            .Where(candidate => candidate.ResourcePublicId == order.PublicId)
+            .ToListAsync());
     }
 
     [Fact]

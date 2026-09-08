@@ -24,21 +24,45 @@ $sets = @(Get-ChildItem -LiteralPath $resolvedRoot -Directory | ForEach-Object {
     if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
         $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
         if ($manifest.schemaVersion -eq 1 -and $manifest.result -eq 'success') {
+            $restoreVerified = $manifest.lastRestoreVerification.result -eq 'success'
+            $hasExplicitFileRecoveryResult =
+                $null -ne $manifest.lastRestoreVerification -and
+                $manifest.lastRestoreVerification.PSObject.Properties.Name -contains 'fileRecoveryResult'
+            $fileRecoveryVerified = if ($hasExplicitFileRecoveryResult) {
+                $manifest.lastRestoreVerification.fileRecoveryResult -eq 'success'
+            }
+            else {
+                # Backward compatibility: legacy manifests can authorize pruning only when a
+                # file archive existed and the overall restore verification succeeded.
+                $restoreVerified -and $null -ne $manifest.files
+            }
+
             [pscustomobject]@{
                 Directory = $_.FullName
                 CreatedAtUtc = [DateTimeOffset]::Parse($manifest.createdAtUtc)
-                RestoreVerified = $manifest.lastRestoreVerification.result -eq 'success'
+                RestoreVerified = $restoreVerified
+                FileRecoveryVerified = $fileRecoveryVerified
             }
         }
     }
 })
 
-$daily = @($sets | Sort-Object CreatedAtUtc -Descending | Group-Object { $_.CreatedAtUtc.UtcDateTime.ToString('yyyy-MM-dd') } | Select-Object -First $DailyCount | ForEach-Object { $_.Group | Select-Object -First 1 })
-$weekly = @($sets | Sort-Object CreatedAtUtc -Descending | Group-Object { '{0}-{1:D2}' -f [Globalization.ISOWeek]::GetYear($_.CreatedAtUtc.UtcDateTime), [Globalization.ISOWeek]::GetWeekOfYear($_.CreatedAtUtc.UtcDateTime) } | Select-Object -First $WeeklyCount | ForEach-Object { $_.Group | Select-Object -First 1 })
+$daily = @($sets |
+    Group-Object { $_.CreatedAtUtc.UtcDateTime.ToString('yyyy-MM-dd') } |
+    ForEach-Object { $_.Group | Sort-Object CreatedAtUtc -Descending | Select-Object -First 1 } |
+    Sort-Object CreatedAtUtc -Descending |
+    Select-Object -First $DailyCount)
+$weekly = @($sets |
+    Group-Object { '{0}-{1:D2}' -f [Globalization.ISOWeek]::GetYear($_.CreatedAtUtc.UtcDateTime), [Globalization.ISOWeek]::GetWeekOfYear($_.CreatedAtUtc.UtcDateTime) } |
+    ForEach-Object { $_.Group | Sort-Object CreatedAtUtc -Descending | Select-Object -First 1 } |
+    Sort-Object CreatedAtUtc -Descending |
+    Select-Object -First $WeeklyCount)
 $keep = @($daily + $weekly | Select-Object -ExpandProperty Directory -Unique)
 
-if (-not ($sets | Where-Object { $_.RestoreVerified -and $keep -contains $_.Directory })) {
-    throw 'No retained Backup Set has a successful restore verification; pruning is refused.'
+if (-not ($sets | Where-Object {
+    $_.RestoreVerified -and $_.FileRecoveryVerified -and $keep -contains $_.Directory
+})) {
+    throw 'No retained complete Backup Set has successful database and file recovery verification; pruning is refused.'
 }
 
 foreach ($set in $sets | Where-Object { $keep -notcontains $_.Directory }) {

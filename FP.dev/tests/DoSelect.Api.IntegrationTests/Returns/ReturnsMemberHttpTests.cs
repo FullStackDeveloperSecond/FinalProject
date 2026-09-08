@@ -121,4 +121,116 @@ public sealed class ReturnsMemberHttpTests
         Assert.Null(persisted.UploadedByGuestOrderId);
         Assert.Null(persisted.DeletedAtUtc);
     }
+
+    [Fact]
+    public async Task CreateReturn_WhenActorBTargetsActorAOrder_Returns404WithoutSideEffects()
+    {
+        var (_, _, orderPublicId, orderItemPublicId, orderRowVersion) =
+            await _fixture.CreateAuthenticatedMemberWithDeliveredOrderAsync();
+        var (actorBClient, _, _, _, _) = await _fixture.CreateAuthenticatedMemberWithDeliveredOrderAsync();
+        await using var before = _fixture.CreateScopedContext();
+        var order = await before.Orders.AsNoTracking().SingleAsync(candidate => candidate.PublicId == orderPublicId);
+        var originalOrderRowVersion = order.RowVersion.ToArray();
+        var originalReturnCount = await before.ReturnRequests.CountAsync(candidate => candidate.OrderId == order.Id);
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/orders/{orderPublicId}/returns")
+        {
+            Content = JsonContent.Create(new
+            {
+                items = new[]
+                {
+                    new { orderItemPublicId, quantity = 1, reasonCode = "Defective", description = (string?)null },
+                },
+                requestReason = "cross-account attempt",
+                orderRowVersion = Convert.ToBase64String(orderRowVersion),
+            }),
+        };
+
+        using var response = await ReturnsApiFixture.SendWithAntiforgeryAsync(actorBClient, request);
+        var problem = await ReturnsApiFixture.ReadProblemAsync(response);
+        Assert.Equal((int)HttpStatusCode.NotFound, problem.Status);
+        Assert.Equal("resource_not_found", problem.Code);
+
+        await using var verify = _fixture.CreateScopedContext();
+        var reloadedOrder = await verify.Orders.AsNoTracking().SingleAsync(candidate => candidate.Id == order.Id);
+        Assert.Equal(originalOrderRowVersion, reloadedOrder.RowVersion);
+        Assert.Equal(originalReturnCount, await verify.ReturnRequests.CountAsync(candidate => candidate.OrderId == order.Id));
+        Assert.False(await verify.ReturnItems.AnyAsync(item =>
+            verify.ReturnRequests
+                .Where(candidate => candidate.OrderId == order.Id)
+                .Select(candidate => candidate.Id)
+                .Contains(item.ReturnRequestId)));
+    }
+
+    [Fact]
+    public async Task DetailAndAttachment_WhenActorBTargetsActorAReturn_Return404WithoutDatabaseOrFileSideEffects()
+    {
+        var (actorAClient, _, orderPublicId, orderItemPublicId, orderRowVersion) =
+            await _fixture.CreateAuthenticatedMemberWithDeliveredOrderAsync();
+        var returnPublicId = await CreateReturnAsync(
+            actorAClient, orderPublicId, orderItemPublicId, orderRowVersion);
+        var (actorBClient, _, _, _, _) = await _fixture.CreateAuthenticatedMemberWithDeliveredOrderAsync();
+
+        await using var before = _fixture.CreateScopedContext();
+        var original = await before.ReturnRequests.AsNoTracking()
+            .SingleAsync(candidate => candidate.PublicId == returnPublicId);
+        var originalRowVersion = original.RowVersion.ToArray();
+        var originalAttachmentCount = await before.ReturnAttachments
+            .CountAsync(candidate => candidate.ReturnRequestId == original.Id);
+        var originalFileCount = _fixture.CountStoredFiles();
+
+        using var detailResponse = await actorBClient.GetAsync($"/api/v1/returns/{returnPublicId}");
+        var detailProblem = await ReturnsApiFixture.ReadProblemAsync(detailResponse);
+        Assert.Equal((int)HttpStatusCode.NotFound, detailProblem.Status);
+        Assert.Equal("resource_not_found", detailProblem.Code);
+
+        byte[] pngBytes = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 17, 255];
+        using var form = new MultipartFormDataContent();
+        var file = new ByteArrayContent(pngBytes);
+        file.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+        form.Add(file, "file", "actor-b-proof.png");
+        using var uploadRequest = new HttpRequestMessage(
+            HttpMethod.Post, $"/api/v1/returns/{returnPublicId}/attachments")
+        {
+            Content = form,
+        };
+        using var uploadResponse = await ReturnsApiFixture.SendWithAntiforgeryAsync(actorBClient, uploadRequest);
+        var uploadProblem = await ReturnsApiFixture.ReadProblemAsync(uploadResponse);
+        Assert.Equal((int)HttpStatusCode.NotFound, uploadProblem.Status);
+        Assert.Equal("resource_not_found", uploadProblem.Code);
+
+        await using var verify = _fixture.CreateScopedContext();
+        var reloaded = await verify.ReturnRequests.AsNoTracking()
+            .SingleAsync(candidate => candidate.Id == original.Id);
+        Assert.Equal(original.Status, reloaded.Status);
+        Assert.Equal(originalRowVersion, reloaded.RowVersion);
+        Assert.Equal(
+            originalAttachmentCount,
+            await verify.ReturnAttachments.CountAsync(candidate => candidate.ReturnRequestId == original.Id));
+        Assert.Equal(originalFileCount, _fixture.CountStoredFiles());
+    }
+
+    private static async Task<Guid> CreateReturnAsync(
+        HttpClient client,
+        Guid orderPublicId,
+        Guid orderItemPublicId,
+        byte[] orderRowVersion)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/orders/{orderPublicId}/returns")
+        {
+            Content = JsonContent.Create(new
+            {
+                items = new[]
+                {
+                    new { orderItemPublicId, quantity = 1, reasonCode = "Defective", description = (string?)null },
+                },
+                requestReason = "owner request",
+                orderRowVersion = Convert.ToBase64String(orderRowVersion),
+            }),
+        };
+        using var response = await ReturnsApiFixture.SendWithAntiforgeryAsync(client, request);
+        response.EnsureSuccessStatusCode();
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return document.RootElement.GetProperty("publicId").GetGuid();
+    }
 }
