@@ -84,8 +84,36 @@ const localeLabel = computed(() => {
     aria-labelledby="profile-title"
   >
     <h1 id="profile-title">
-      會員資料
+      會員中心
     </h1>
+
+    <nav
+      class="profile-page__navigation"
+      aria-label="會員中心功能"
+    >
+      <RouterLink to="/orders">
+        <strong>我的訂單</strong>
+        <span>付款、配送與退貨進度</span>
+      </RouterLink>
+      <RouterLink to="/account/builds">
+        <strong>我的組裝清單</strong>
+        <span>管理已儲存的電腦配置</span>
+      </RouterLink>
+      <RouterLink to="/account/favorites">
+        <strong>我的收藏</strong>
+        <span>快速回到關注的商品</span>
+      </RouterLink>
+      <RouterLink to="/account/reviews">
+        <strong>我的評價</strong>
+        <span>查看可評價與已發表內容</span>
+      </RouterLink>
+      <RouterLink to="/account/addresses">
+        <strong>收件地址</strong>
+        <span>維護配送聯絡資訊</span>
+      </RouterLink>
+    </nav>
+
+    <h2>會員資料</h2>
 
     <LoadingState
       v-if="profileQuery.isPending.value"
@@ -201,12 +229,41 @@ const localeLabel = computed(() => {
 .profile-page {
   display: grid;
   gap: var(--space-6);
-  max-width: 32rem;
+  max-width: 64rem;
+  margin-inline: auto;
+}
+
+.profile-page__navigation {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: var(--space-3);
+}
+
+.profile-page__navigation a {
+  display: grid;
+  gap: .35rem;
+  padding: 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: .75rem;
+  color: inherit;
+  text-decoration: none;
+  background: var(--color-surface);
+}
+
+.profile-page__navigation a:hover,
+.profile-page__navigation a:focus-visible {
+  border-color: currentColor;
+}
+
+.profile-page__navigation span {
+  color: var(--color-text-muted);
+  font-size: .875rem;
 }
 
 .profile-page__summary {
   display: grid;
   gap: var(--space-3);
+  max-width: 32rem;
 }
 
 .profile-page__row {
@@ -228,6 +285,7 @@ const localeLabel = computed(() => {
 .profile-page__form {
   display: grid;
   gap: var(--space-3);
+  max-width: 32rem;
 }
 
 .profile-page__actions {

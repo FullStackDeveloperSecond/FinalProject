@@ -58,6 +58,8 @@ describe('ProfilePage', () => {
     expect(wrapper.text()).toContain('測試會員')
     expect(wrapper.text()).toContain('0912345678')
     expect(wrapper.text()).toContain('繁體中文')
+    expect(wrapper.text()).toContain('我的訂單')
+    expect(wrapper.text()).toContain('我的組裝清單')
   })
 
   it('switches to edit mode, saves, and returns to the summary view', async () => {

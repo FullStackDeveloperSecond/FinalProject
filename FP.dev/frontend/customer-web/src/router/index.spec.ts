@@ -84,6 +84,7 @@ describe('customer router authentication guard', () => {
   it.each([
     ['/account', 'account-profile'],
     ['/account/addresses', 'account-addresses'],
+    ['/orders', 'order-list'],
   ])('protects %s and allows an authenticated member to open it', async (path, expectedName) => {
     const session = useSessionStore()
     session.status = 'anonymous'

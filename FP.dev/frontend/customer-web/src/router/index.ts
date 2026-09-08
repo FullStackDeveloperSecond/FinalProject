@@ -91,6 +91,12 @@ const router = createRouter({
       props: true,
     },
     {
+      path: '/orders',
+      name: 'order-list',
+      component: () => import('../features/orders/OrderListPage.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/orders/:orderId',
       name: 'order-detail',
       component: () => import('../features/orders/OrderDetailPage.vue'),

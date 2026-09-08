@@ -82,6 +82,9 @@ onBeforeUnmount(() => {
       <p class="member-menu__group">
         我的內容
       </p>
+      <RouterLink to="/orders">
+        我的訂單
+      </RouterLink>
       <RouterLink to="/account/builds">
         我的組裝清單
       </RouterLink>
