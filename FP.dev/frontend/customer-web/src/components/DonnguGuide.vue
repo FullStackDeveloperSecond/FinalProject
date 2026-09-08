@@ -1,12 +1,17 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import SpotlightTour from './SpotlightTour.vue'
+import { computed, nextTick, ref } from 'vue'
+import { companionMessage } from './cityCompanion'
 import { useRoute } from 'vue-router'
 
 const route = useRoute()
 const avatar = `${import.meta.env.BASE_URL}brand/donggu-hero-wave.png`
 const storageKey = 'doselect-donngu-guide-open'
-const open = ref(true)
-try { open.value = localStorage.getItem(storageKey) !== 'false' } catch { /* Storage is optional. */ }
+const open = ref(false)
+try { open.value = localStorage.getItem(storageKey) === 'true' } catch { /* Storage is optional. */ }
+const touring = ref(false)
+function startTour() { touring.value = true }
+async function finishTour() { touring.value = false; await nextTick(); toggle.value?.focus({ preventScroll: true }) }
 const toggle = ref<HTMLButtonElement | null>(null)
 const guide = computed(() => {
   const path = route.path
@@ -35,11 +40,19 @@ function close() {
 <template>
   <aside
     class="donngu-guide"
+    :class="{ 'donngu-guide--happy': companionMessage }"
     aria-label="Donngu 頁面導覽"
     @keydown.esc="close"
   >
+    <div
+      v-if="companionMessage"
+      class="donngu-guide__celebration"
+      role="status"
+    >
+      {{ companionMessage }}
+    </div>
     <section
-      v-if="open"
+      v-if="open && !touring"
       id="donngu-dialog"
       class="donngu-guide__bubble"
       aria-labelledby="donngu-title"
@@ -58,7 +71,15 @@ function close() {
         {{ guide.title }}
       </h2>
       <p>{{ guide.text }}</p>
+      <button
+        class="donngu-guide__tour-start"
+        type="button"
+        @click="startTour"
+      >
+        第一次來？陪我逛三站 →
+      </button>
       <RouterLink
+        v-if="!touring"
         to="/support"
         @click="setOpen(false)"
       >
@@ -83,4 +104,8 @@ function close() {
       <span>Donngu</span>
     </button>
   </aside>
+  <SpotlightTour
+    v-if="touring"
+    @close="finishTour"
+  />
 </template>

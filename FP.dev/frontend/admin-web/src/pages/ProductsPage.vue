@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
+import { EmptyState, ErrorState, LoadingState, StatusBadge } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -246,6 +246,19 @@ async function runExport(format: AdminProductExportFormat) {
   catch {
     bulkErrorMessage.value = '匯出失敗，請稍後再試。'
   }
+}
+
+/**
+ * 上架狀態對應到 StatusBadge 的視覺語意。
+ * StatusBadge 只負責顏色，文字一律由 `formatProductStatus` 供應。
+ */
+function productStatusKind(status: string): 'complete' | 'waiting' | 'failed' | 'stopped' {
+  return ({
+    Published: 'complete',
+    Draft: 'stopped',
+    Unpublished: 'waiting',
+    Discontinued: 'failed',
+  } as const)[status] ?? 'stopped'
 }
 
 function formatProductStatus(status: string): string {
@@ -507,10 +520,24 @@ function formatProductStatus(status: string): string {
               <td>{{ product.nameZhTw }}</td>
               <td>{{ product.brand.name }}</td>
               <td>{{ product.category.name }}</td>
-              <td>{{ formatProductStatus(product.status) }}</td>
+              <td>
+                <StatusBadge
+                  :status="productStatusKind(product.status)"
+                  :label="formatProductStatus(product.status)"
+                />
+              </td>
               <td>{{ product.skuCount }}</td>
               <td>{{ formatPriceRange(product.minPrice, product.maxPrice) }}</td>
-              <td>{{ product.totalOnHandQuantity }}</td>
+              <!--
+                清單 API 只提供 totalOnHandQuantity，沒有補貨水位，所以這裡只能
+                如實區分「0＝缺貨」與「有庫存」，不自行編造低庫存門檻。
+              -->
+              <td
+                class="products-table__stock"
+                :class="{ 'products-table__stock--empty': product.totalOnHandQuantity === 0 }"
+              >
+                {{ product.totalOnHandQuantity }}
+              </td>
               <td>
                 <RouterLink :to="`/products/${product.publicId}`">
                   編輯
@@ -551,6 +578,20 @@ function formatProductStatus(status: string): string {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
+}
+
+/* 庫存欄：數字靠右並用等寬數字，掃描一整欄時位數才會對齊；
+   缺貨（0）用 danger 語意色標出來，之前 0 和 74 是同一個顏色。
+   選擇器要寫到 (0,2,2)，才壓得過同檔案後面的
+   `.products-table th, .products-table td { text-align: left }`。 */
+.products-table tbody td.products-table__stock {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.products-table tbody td.products-table__stock--empty {
+  color: var(--color-danger);
+  font-weight: 700;
 }
 
 .products-filters {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ErrorState, HttpStatusPage, LoadingState } from '@doselect/web-shared/components'
+import { rememberProduct, celebrateCart } from '../components/cityCompanion'
 import { isApiError } from '@doselect/web-shared/api'
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
@@ -17,6 +18,9 @@ const sessionStore = useSessionStore()
 const productPublicId = computed(() => route.params.productId as string)
 
 const { data: product, isPending, isError, error, refetch } = useProductDetail(productPublicId)
+watch(product, value => {
+  if (value && value.productPublicId === productPublicId.value) rememberProduct({ id: value.productPublicId, name: value.name })
+}, { immediate: true })
 const publicReviewsQuery = usePublicProductReviewsQuery(productPublicId)
 
 const selectedSkuPublicId = ref<string>()
@@ -30,6 +34,10 @@ const selectedSku = computed<PublicSkuDto | undefined>(() =>
 const addCartItemMutation = useAddCartItem()
 const addToCartError = ref<string | null>(null)
 const addToCartSucceeded = ref(false)
+const quantity = ref(1)
+const quantityLimit = computed(() => Math.max(0, Math.floor(Number(selectedSku.value?.maxPurchasableQuantity ?? 0))))
+const quantityValid = computed(() => Number.isInteger(quantity.value) && quantity.value >= 1 && quantity.value <= quantityLimit.value)
+watch(() => selectedSku.value?.publicId, () => { quantity.value = 1 })
 
 const ADD_TO_CART_ERROR_MESSAGES: Record<string, string> = {
   sku_unavailable: '此規格已下架，請選擇其他規格。',
@@ -61,7 +69,7 @@ function describeError(caught: unknown): string {
 const isCartIdentityUnresolved = computed(() => !sessionStore.isIdentityConfirmed)
 
 const isAddToCartDisabled = computed(() => {
-  if (!selectedSku.value || addCartItemMutation.isPending.value || isCartIdentityUnresolved.value) {
+  if (!quantityValid.value || !selectedSku.value || addCartItemMutation.isPending.value || isCartIdentityUnresolved.value) {
     return true
   }
   return selectedSku.value.availability === 'outOfStock' || Number(selectedSku.value.maxPurchasableQuantity) <= 0
@@ -84,11 +92,12 @@ function onAddToCart(): void {
   addToCartError.value = null
   addToCartSucceeded.value = false
   addCartItemMutation.mutate(
-    { skuPublicId: requestSkuPublicId, quantity: 1, cartRowVersion: null },
+    { skuPublicId: requestSkuPublicId, quantity: quantity.value, cartRowVersion: null },
     {
       onSuccess: () => {
         if (selectedSku.value?.publicId === requestSkuPublicId) {
           addToCartSucceeded.value = true
+          celebrateCart()
         }
       },
       onError: (caught) => {
@@ -191,8 +200,12 @@ const isNotFound = computed(() => isApiError(error.value) && error.value.status 
     class="product-detail"
   >
     <nav aria-label="麵包屑">
-      <RouterLink to="/products">
-        ← 回商品列表
+      <RouterLink
+        class="page-action page-action--secondary product-detail__back"
+        to="/products"
+      >
+        <span aria-hidden="true">←</span>
+        回商品列表
       </RouterLink>
     </nav>
 
@@ -308,6 +321,20 @@ const isNotFound = computed(() => isApiError(error.value) && error.value.status 
         </select>
       </div>
 
+      <label class="product-quantity">數量 <input
+        v-model.number="quantity"
+        type="number"
+        min="1"
+        :max="quantityLimit"
+        step="1"
+        :disabled="quantityLimit === 0 || addCartItemMutation.isPending.value"
+      ></label>
+      <p
+        v-if="!quantityValid && quantityLimit > 0"
+        role="status"
+      >
+        請輸入 1 至 {{ quantityLimit }} 的整數數量。
+      </p>
       <button
         type="button"
         :disabled="isAddToCartDisabled"

@@ -46,6 +46,10 @@ const filters = reactive(readFiltersFromQuery())
 // Query is the single source of truth for what's actually searched; the draft form only feeds
 // it via `applyFilters()`.
 const appliedFilters = computed(() => readFiltersFromQuery())
+const activeFilterLabels = computed(() => {
+  const f = appliedFilters.value
+  return [f.q && `關鍵字：${f.q}`, f.category && `分類：${categoryLabel(f.category)}`, f.brand && `品牌：${f.brand}`, f.minPrice && `最低 NT$${f.minPrice}`, f.maxPrice && `最高 NT$${f.maxPrice}`, f.inStock && '只顯示現貨'].filter(Boolean)
+})
 
 const pageNumber = computed(() => Number(readQueryString('page') ?? '1') || 1)
 
@@ -83,7 +87,7 @@ const searchParams = computed(() => ({
   brand: appliedFilters.value.brand || undefined,
   minPrice: appliedFilters.value.minPrice ? Number(appliedFilters.value.minPrice) : undefined,
   maxPrice: appliedFilters.value.maxPrice ? Number(appliedFilters.value.maxPrice) : undefined,
-  inStock: appliedFilters.value.inStock || undefined,
+  inStock: appliedFilters.value.inStock,
   specs: specFilters.value.length > 0 ? specFilters.value : undefined,
   sort: appliedFilters.value.sort,
   pageNumber: pageNumber.value,
@@ -314,12 +318,15 @@ watch(
       aria-label="商品篩選"
       @submit.prevent="applyFilters"
     >
-      <input
-        v-model="filters.q"
-        type="search"
-        placeholder="搜尋商品名稱或代碼"
-        aria-label="關鍵字"
-      >
+      <label class="products-filter-field products-filter-field--wide">
+        <span>關鍵字</span>
+        <input
+          v-model="filters.q"
+          type="search"
+          placeholder="搜尋商品名稱或代碼"
+          aria-label="關鍵字"
+        >
+      </label>
       <label class="products-filter-field">
         <span>分類</span>
         <select
@@ -356,8 +363,8 @@ watch(
           </option>
         </select>
       </label>
-      <label class="products-filters__price">
-        最低價
+      <label class="products-filter-field products-filters__price">
+        <span>最低價</span>
         <input
           v-model="filters.minPrice"
           type="number"
@@ -365,14 +372,29 @@ watch(
           aria-label="最低價"
         >
       </label>
-      <label class="products-filters__price">
-        最高價
+      <label class="products-filter-field products-filters__price">
+        <span>最高價</span>
         <input
           v-model="filters.maxPrice"
           type="number"
           min="0"
           aria-label="最高價"
         >
+      </label>
+      <label class="products-filter-field">
+        <span>排序</span>
+        <select
+          v-model="filters.sort"
+          aria-label="排序方式"
+        >
+          <option
+            v-for="option in filterOptions?.sortOptions ?? ['relevance', 'priceAsc', 'priceDesc', 'newest']"
+            :key="option"
+            :value="option"
+          >
+            {{ { relevance: '相關度', priceAsc: '價格由低到高', priceDesc: '價格由高到低', newest: '最新上架' }[option] ?? option }}
+          </option>
+        </select>
       </label>
       <label class="products-filters__checkbox">
         <input
@@ -381,19 +403,10 @@ watch(
         >
         只顯示現貨
       </label>
-      <select
-        v-model="filters.sort"
-        aria-label="排序方式"
+      <button
+        class="products-filters__submit"
+        type="submit"
       >
-        <option
-          v-for="option in filterOptions?.sortOptions ?? ['relevance', 'priceAsc', 'priceDesc', 'newest']"
-          :key="option"
-          :value="option"
-        >
-          {{ { relevance: '相關度', priceAsc: '價格由低到高', priceDesc: '價格由高到低', newest: '最新上架' }[option] ?? option }}
-        </option>
-      </select>
-      <button type="submit">
         套用篩選
       </button>
 
@@ -480,6 +493,16 @@ watch(
       description="調整關鍵字或篩選條件後再試一次。"
     />
     <template v-else-if="result">
+      <div
+        v-if="activeFilterLabels.length"
+        class="active-filter-chips"
+        aria-label="已套用篩選"
+      >
+        <span
+          v-for="label in activeFilterLabels"
+          :key="String(label)"
+        >{{ label }}</span>
+      </div>
       <p class="products-summary">
         共 {{ result.totalCount }} 項商品
       </p>
@@ -516,57 +539,124 @@ watch(
 </template>
 
 <style scoped>
-.products-filter-field { display: grid; gap: var(--space-1); min-width: 0; }
-.products-filter-field select { width: 100%; }
+/* 每個欄位都是同一種結構：標籤在上、控制項 44px 在下。
+   之前搜尋框沒有標籤、價格與排序的標籤是內嵌的，六個欄位落在六個不同的
+   垂直位置；統一之後配合 align-items: end 就能對齊同一條基線。 */
+.products-filter-field {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
 
+.products-filter-field > span {
+  font-size: var(--fs-caption);
+  font-weight: 700;
+  color: var(--color-text-muted);
+}
+
+.products-filter-field select,
+.products-filter-field input {
+  width: 100%;
+}
+
+/* 關鍵字欄位比其他欄寬，佔兩格 */
+.products-filter-field--wide {
+  grid-column: span 2;
+}
+
+/* 篩選列包成一張卡片，與商品卡使用同一組表面語彙 */
 .products-filters {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.75rem;
-  margin-block-end: 1.5rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  align-items: end;
+  gap: var(--space-4) var(--space-3);
+  margin-block-end: var(--space-5);
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
 }
 
 .products-filters input[type='search'],
+.products-filters input[type='number'],
 .products-filters select {
-  min-height: 2.75rem;
+  min-height: var(--control-height);
   padding: 0.5rem 0.75rem;
   border: 1px solid var(--color-border);
-  border-radius: 0.5rem;
+  border-radius: var(--radius-sm);
   font: inherit;
 }
 
+/* 勾選框沒有上方標籤，補到同樣的 44px 讓它跟其他控制項齊底 */
 .products-filters__checkbox {
   display: flex;
   align-items: center;
-  gap: 0.375rem;
+  gap: var(--space-2);
+  min-height: var(--control-height);
+  font-size: var(--fs-caption);
+  color: var(--color-text-muted);
+  white-space: nowrap;
 }
 
-.products-filters__price {
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
-  font-size: 0.875rem;
-}
-
-.products-filters__price input {
-  width: 6rem;
-  min-height: 2.75rem;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid var(--color-border);
-  border-radius: 0.5rem;
+.products-filters__submit {
+  min-height: var(--control-height);
+  padding: 0 var(--space-5);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
   font: inherit;
+  font-weight: 700;
+  cursor: pointer;
 }
 
+.products-filters__submit:hover {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+}
+
+/* 規格篩選是整列展開的，跨滿所有格 */
 .products-filters__spec {
+  grid-column: 1 / -1;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.75rem;
+  gap: var(--space-3);
+  margin: 0;
   border: 1px solid var(--color-border-soft);
-  border-radius: 0.5rem;
-  padding: 0.5rem 0.75rem;
-  width: 100%;
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+}
+
+/* 桌機固定六欄，版面才不會隨欄位增減跳動：
+   第一列 關鍵字（跨兩格）／分類／品牌／最低價／最高價 剛好填滿，
+   第二列 排序／只顯示現貨 在左，送出鈕釘在最右格。 */
+@media (min-width: 901px) {
+  .products-filters {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .products-filters__submit {
+    grid-column: 6;
+    justify-self: end;
+  }
+}
+
+@media (max-width: 600px) {
+  /* 窄畫面一欄到底，關鍵字不再跨兩格 */
+  .products-filters {
+    grid-template-columns: 1fr;
+    padding: var(--space-4);
+  }
+
+  .products-filter-field--wide {
+    grid-column: span 1;
+  }
+
+  .products-filters__submit {
+    justify-self: stretch;
+  }
 }
 
 .products-filters__spec label {

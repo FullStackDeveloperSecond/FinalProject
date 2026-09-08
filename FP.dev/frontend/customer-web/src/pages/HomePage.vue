@@ -92,6 +92,7 @@ const categories: HomeCategoryItem[] = [
     ref="homeRoot"
     class="home"
   >
+    <HomePromotions />
     <section
       ref="heroRef"
       class="home-hero"
@@ -114,10 +115,6 @@ const categories: HomeCategoryItem[] = [
         <h1 id="page-title">
           說出需求，組出適合你的電腦
         </h1>
-        <p>
-          不用先懂規格。回答「要拿來做什麼」和「預算多少」，我們幫你篩掉不合適的，
-          只留下買得起、搭得起來的組合。
-        </p>
       </div>
       <section
         class="home-hero__guide"
@@ -167,7 +164,7 @@ const categories: HomeCategoryItem[] = [
       </section>
     </section>
 
-    <HomePromotions />
+
 
     <section
       class="home-section"

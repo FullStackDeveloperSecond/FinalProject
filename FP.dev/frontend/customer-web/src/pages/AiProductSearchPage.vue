@@ -10,6 +10,11 @@ import type { AiExistingPartRequest, AiProposedExistingPart } from '../features/
 
 const example = '預算五萬元，主要用 Premiere 剪 4K 影片，偶爾玩 3A 遊戲，希望安靜、不要 RGB。'
 const message = ref('')
+const quickExamples = [
+  { label: '遊戲娛樂', text: '預算三萬元，主要玩 1080p 遊戲，希望順暢且散熱安靜。' },
+  { label: '日常文書', text: '預算兩萬元，主要做文書、視訊會議和上網，希望省電、體積小。' },
+  { label: '影音創作', text: example },
+]
 const partsError = ref('')
 const accumulatedContext = ref('')
 const existingParts = ref<AiExistingPartRequest[]>([])
@@ -176,6 +181,20 @@ function formatMoney(value: number | string): string {
         帶入展示範例
       </button>
 
+      <div
+        class="ai-search__quick-examples"
+        aria-label="用途範例"
+      >
+        <button
+          v-for="item in quickExamples"
+          :key="item.label"
+          type="button"
+          :disabled="mutation.isPending.value"
+          @click="message = item.text"
+        >
+          {{ item.label }}
+        </button>
+      </div>
       <p
         v-if="partsError"
         role="alert"
@@ -565,6 +584,7 @@ function formatMoney(value: number | string): string {
       </div>
       <RouterLink
         v-else
+        class="page-action page-action--secondary"
         :to="{ name: 'products', query: { q: message } }"
       >
         前往一般商品搜尋

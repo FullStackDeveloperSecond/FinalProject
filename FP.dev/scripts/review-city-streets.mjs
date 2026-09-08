@@ -1,0 +1,42 @@
+import { createRequire } from 'node:module'
+import path from 'node:path'
+import { mkdir } from 'node:fs/promises'
+const require = createRequire(path.resolve('frontend/customer-web/package.json'))
+const {chromium, expect} = require('@playwright/test')
+const dir=path.resolve('frontend/review/city-streets'); await mkdir(dir,{recursive:true})
+const browser=await chromium.launch()
+try {
+ const page=await browser.newPage({viewport:{width:1920,height:1080},reducedMotion:'reduce'})
+ await page.goto('http://127.0.0.1:5173/')
+ await expect(page.getByRole('navigation',{name:'電腦城市快速導覽'})).toBeVisible()
+ await page.getByRole('button',{name:'開啟 Donngu 導覽'}).click()
+ await page.getByRole('button',{name:'第一次來？陪我逛三站 →'}).click()
+ await expect(page.locator('.spotlight-tour h2')).toHaveText('第一站：說用途')
+ await page.getByRole('button',{name:'下一站 →'}).click()
+ await expect(page.locator('.spotlight-tour h2')).toHaveText('第二站：給預算')
+ await page.getByRole('button',{name:'下一站 →'}).click()
+ await expect(page.locator('.spotlight-tour h2')).toHaveText('第三站：看推薦')
+ await page.getByRole('button',{name:'完成導覽'}).click()
+ await page.getByRole('button',{name:'收起 Donngu 導覽'}).click()
+ await page.goto('http://127.0.0.1:5173/products')
+ await page.locator('.product-card').first().click()
+ await expect(page.locator('.city-pocket')).toBeVisible()
+ const visited=await page.locator('.city-pocket a').first().getAttribute('href')
+ await page.goto('http://127.0.0.1:5173/')
+ await expect(page.locator('.city-pocket a').first()).toHaveAttribute('href',visited)
+ await page.locator('.home-hero__art img').evaluate(async image => { await image.decode() })
+ await page.screenshot({path:path.join(dir,'desktop.png')})
+ for(const width of [1440,768,360]) {
+  await page.setViewportSize({width,height:900})
+  await page.evaluate(()=>window.scrollTo(0,0))
+  await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth-document.documentElement.clientWidth)).toBeLessThanOrEqual(1)
+  await page.locator('.city-station summary').click()
+  await expect(page.getByRole('navigation',{name:'電腦城市快速導覽'})).toBeVisible()
+  await page.screenshot({path:path.join(dir,`width-${width}.png`)})
+  await page.locator('.city-station summary').click()
+ }
+ await page.locator('.city-pocket summary').click()
+ await page.getByRole('button',{name:'清空口袋'}).click()
+ await expect(page.locator('.city-pocket')).toHaveCount(0)
+ console.log('Verified tour, real product visit and persistence, clear history, wide rails and compact responsive navigation.')
+}finally{await browser.close()}

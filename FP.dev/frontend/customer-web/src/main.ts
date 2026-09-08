@@ -8,6 +8,7 @@ import '@doselect/web-shared/brand.css'
 import '@doselect/web-shared/styles/design-tokens.css'
 import './style.css'
 import './city.css'
+import './city-polish.css'
 import App from './App.vue'
 import router from './router'
 

@@ -10,6 +10,8 @@ it('toggles the guide, remembers dismissal and updates the introduction across r
   await router.push('/')
   await router.isReady()
   const wrapper = mount(DonnguGuide, { global: { plugins: [router] } })
+  expect(wrapper.find('#donngu-dialog').exists()).toBe(false)
+  await wrapper.get('.donngu-guide__avatar').trigger('click')
   expect(wrapper.text()).toContain('歡迎來到懂選電腦城')
   await wrapper.get('.donngu-guide__avatar').trigger('click')
   expect(wrapper.find('#donngu-dialog').exists()).toBe(false)

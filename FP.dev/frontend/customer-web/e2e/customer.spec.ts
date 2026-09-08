@@ -199,6 +199,7 @@ test('a seeded member can sign in, open a protected profile, and sign out', asyn
   await expect(page.getByRole('heading', { level: 1, name: '會員資料' })).toBeVisible()
   await expect(page.getByRole('definition').filter({ hasText: 'DoSelect 測試會員' })).toBeVisible()
 
+  await page.getByRole('button', { name: 'DoSelect 測試會員' }).click()
   await page.getByRole('button', { name: '登出' }).click()
   await expect(page).toHaveURL(/\/$/)
   await expect(page.getByRole('link', { name: '登入／註冊' })).toBeVisible()
@@ -461,7 +462,7 @@ test('a shopper can open the seeded catalog and view product details', async ({ 
   await expect(page.getByRole('heading', { level: 1, name: '商品搜尋' })).toBeVisible()
 
   const seededProduct = page.getByRole('heading', {
-    level: 3,
+    level: 2,
     name: '懂選開發用顯示卡',
     exact: true,
   })
@@ -474,6 +475,45 @@ test('a shopper can open the seeded catalog and view product details', async ({ 
   await expect(page.getByText('現貨供應')).toBeVisible()
 })
 
+test('a shopper can enter the city, follow the Donngu tour, and keep a recent product', async ({
+  page,
+  api,
+  seed,
+}) => {
+  const productResponse = await api.get(`/api/v1/products/${seed.productPublicId}`)
+  expect(productResponse.ok(), 'The deterministic catalog seed must exist').toBe(true)
+
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.goto('/welcome')
+  const explore = page.getByRole('button', { name: '開始探索' })
+  await expect(explore).toBeEnabled()
+  await explore.click()
+  await expect(page).toHaveURL(/\/$/)
+
+  await page.getByRole('button', { name: '開啟 Donngu 導覽' }).click()
+  await page.getByRole('button', { name: '第一次來？陪我逛三站 →' }).click()
+  const tourHeading = page.locator('.spotlight-tour h2')
+  await expect(tourHeading).toHaveText('第一站：說用途')
+  await page.getByRole('button', { name: '下一站 →' }).click()
+  await expect(tourHeading).toHaveText('第二站：給預算')
+  await page.getByRole('button', { name: '下一站 →' }).click()
+  await expect(tourHeading).toHaveText('第三站：看推薦')
+  await page.getByRole('button', { name: '完成導覽' }).click()
+
+  await page.goto(`/products/${seed.productPublicId}`)
+  await expect(page.getByRole('heading', { level: 1, name: '懂選開發用顯示卡' })).toBeVisible()
+  await page.goto('/products')
+  const pocket = page.locator('.city-pocket')
+  await expect(pocket).toBeVisible()
+  await pocket.locator('summary').click()
+  await expect(pocket.getByRole('link', { name: /懂選開發用顯示卡/ })).toHaveAttribute(
+    'href',
+    `/products/${seed.productPublicId}`,
+  )
+  await pocket.getByRole('button', { name: '清空口袋' }).click()
+  await expect(pocket).toHaveCount(0)
+})
+
 test('a member can consent to AI support and fall back to a human case when AI is disabled', async ({
   page,
   loginAsMember,
@@ -482,7 +522,7 @@ test('a member can consent to AI support and fall back to a human case when AI i
   await page.goto('/support')
 
   await expect(page.getByRole('heading', { level: 1, name: 'AI 客服' })).toBeVisible()
-  await page.getByRole('button', { name: '收起 Donngu 導覽' }).click()
+  await expect(page.getByRole('button', { name: '開啟 Donngu 導覽' })).toBeVisible()
   await expect(page.locator('#donngu-dialog')).toHaveCount(0)
   const consentCheckbox = page.getByRole('checkbox', {
     name: '我已閱讀並同意上述外部 AI 處理方式',
@@ -588,7 +628,7 @@ test('a public shopper can use AI search safely when the provider is disabled', 
   await expect(page.getByRole('heading', { name: 'AI 暫時無法使用，已改用一般搜尋' }))
     .toBeVisible()
   await expect(page.getByText('不代表 AI 推薦或相容性保證')).toBeVisible()
-  await expect(page.getByRole('heading', { level: 3, name: '懂選開發用顯示卡', exact: true }))
+  await expect(page.getByRole('heading', { level: 2, name: '懂選開發用顯示卡', exact: true }))
     .toBeVisible()
 })
 
@@ -816,7 +856,7 @@ test('a shopper can jump from a home category card into that seeded catalog cate
   await expect(page.getByRole('heading', { level: 1, name: '商品搜尋' })).toBeVisible()
 
   // seeded 相容性示範 SKU：分類 CPU 的「懂選開發用 CPU」
-  await expect(page.getByRole('heading', { level: 3, name: '懂選開發用 CPU', exact: true }))
+  await expect(page.getByRole('heading', { level: 2, name: '懂選開發用 CPU', exact: true }))
     .toBeVisible()
 
   // 分類下拉也要停在同一個代碼，代表 query 真的被 ProductsPage 接住

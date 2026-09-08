@@ -163,6 +163,67 @@ body {
   color: var(--color-danger);
 }
 
+/* EmptyState／ErrorState 的 slot 動作：之前沒有樣式，會落回瀏覽器預設連結外觀。
+   統一成次要按鈕，與後台其他控制項共用 44px 高度與圓角。 */
+.shared-state__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-block-start: var(--space-4);
+}
+
+.shared-state__actions > a,
+.shared-state__actions > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: var(--control-height);
+  padding: 0 var(--space-5);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-primary);
+  font-size: var(--fs-body);
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.shared-state__actions > a:first-child,
+.shared-state__actions > button:first-child {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.shared-state__actions > a:hover,
+.shared-state__actions > button:hover {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+  color: var(--color-on-primary);
+}
+
+.shared-state--error .shared-state__actions > a,
+.shared-state--error .shared-state__actions > button {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+  background: var(--color-surface);
+}
+
+.shared-state--error .shared-state__actions > a:first-child,
+.shared-state--error .shared-state__actions > button:first-child {
+  background: var(--color-danger);
+  border-color: var(--color-danger);
+  color: var(--color-text-on-dark);
+}
+
+.shared-state--error .shared-state__actions > a:hover,
+.shared-state--error .shared-state__actions > button:hover {
+  background: var(--color-danger-strong);
+  border-color: var(--color-danger-strong);
+  color: var(--color-text-on-dark);
+}
+
 .shared-state__spinner {
   display: inline-block;
   width: 1.5rem;

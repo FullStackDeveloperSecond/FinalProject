@@ -479,3 +479,10 @@
   --shadow-lg: 0 16px 40px rgba(0, 0, 0, .55);
   --shadow-inset-soft: inset 0 -1px 0 rgba(255, 255, 255, .08);
 }
+
+:root {
+ --city-text: #174f4a;
+ --city-text-muted: #3d665d;
+ --city-surface-hover: #dceee9;
+ --city-border: #a7cbc2;
+}

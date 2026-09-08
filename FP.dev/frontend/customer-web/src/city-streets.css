@@ -1,0 +1,72 @@
+.city-streets { display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 18px; position: relative; z-index: 8; }
+.city-streets details { background: #f8fffa; color: #204b50; border: 1px solid #9cbbb3; border-radius: 15px; box-shadow: 0 5px 0 #d4e5dd; }
+.city-streets summary { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 10px 14px; cursor: pointer; list-style: none; font-size: .85rem; font-weight: 800; }
+.city-streets summary::-webkit-details-marker { display: none; }
+.city-streets__chevron { margin-left: auto; transition: transform .2s; }
+.city-streets details[open] .city-streets__chevron { transform: rotate(180deg); }
+.city-station__routes { padding: 0 10px 12px; }
+.city-station__hello { font-size: .72rem; color: #467065; margin: 0 0 10px; }
+.city-station__routes > a { position: relative; display: flex; align-items: center; gap: 8px; color: #255356; text-decoration: none; border: 1px solid #b7d0c5; border-radius: 8px 14px 14px 8px; padding: 10px 8px; margin-bottom: 12px; background: #fff; }
+.city-station__routes > a:not(:last-child)::after { content: ''; position: absolute; height: 13px; border-left: 2px dashed #9dbbb0; bottom: -14px; left: 16px; }
+.city-station__routes strong { display: block; font-size: .86rem; }
+.city-station__routes small { display: block; font-size: .63rem; margin-top: 3px; }
+.city-station__number { font: 600 12px monospace; color: var(--city-text-muted); }
+.city-station__routes > a:hover,.city-station__routes > a.city-station__active { background: #dff3d0; border-color: #6e9c75; }
+.city-station__host { display: flex; align-items: center; gap: 8px; padding-top: 8px; font: 600 10px/1.7 monospace; color: #457c72; }
+.city-station__host img { object-fit: contain; transform: rotate(-8deg); }
+.city-pocket__count { display: inline-grid; place-items: center; border-radius: 50%; width: 22px; height: 22px; background: #1d5559; color: #fff; }
+.city-pocket__contents { padding: 0 12px 12px; max-height: 330px; overflow-y: auto; }
+.city-pocket__contents p { font-size: .75rem; line-height: 1.7; margin-top: 0; }
+.city-pocket__contents a { display: flex; align-items: center; gap: 8px; padding: 12px 0; border-top: 1px dashed #bbd5c9; font-size: .8rem; text-decoration: none; color: #204c50; }
+.city-pocket__contents a span:first-of-type { overflow-wrap: anywhere; }
+.city-pocket__contents .brand-icon { flex-shrink: 0; }
+.city-pocket__contents small { display: block; color: #4c7069; font-size: .62rem; }
+/* 「清空口袋」是動作不是連結：拿掉底線、補到 44px 觸控高度、改讀語意 token。 */
+.city-pocket__contents button { margin-top: 8px; padding: 0 12px; border: 1px solid var(--color-border-soft); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-muted); font-size: var(--fs-caption); font-weight: 600; text-decoration: none; min-height: 44px; cursor: pointer; }
+.city-pocket__contents button:hover { border-color: var(--color-danger); color: var(--color-danger); background: var(--color-danger-bg); }
+.city-streets summary:focus-visible,.city-streets a:focus-visible,.city-streets button:focus-visible { outline: 3px solid #087d8c; outline-offset: 3px; }
+.city-streets__scene { display: none; }
+.donngu-guide__tour-start,.donngu-tour button { min-height: 40px; padding: 8px 12px; border: 1px solid #a5c9b7; border-radius: 10px; background: #e4f4d9; color: #20514a; font-weight: 700; cursor: pointer; }
+.donngu-guide__tour-start { display: block; margin-bottom: 12px; }
+.donngu-tour__progress { display: block; color: #55796b; font-size: 11px; margin-bottom: 10px; }
+.donngu-tour > a { display: block; padding: 10px 0; }
+.donngu-tour > div { display: flex; gap: 8px; margin-top: 10px; }
+.donngu-tour button:last-child { background: transparent; }
+.donngu-guide__avatar img { transform-origin: center bottom; transition: transform .25s; }
+.donngu-guide__avatar:hover img,.donngu-guide__avatar:focus-visible img { transform: rotate(-8deg) translateY(-6px); }
+.donngu-guide__celebration { max-width: 270px; padding: 14px 18px; border: 1px solid #8bbb87; border-radius: 18px 18px 4px 18px; background: #e8f8d5; color: #245049; font-size: .9rem; line-height: 1.6; box-shadow: 0 5px 25px #183f4422; }
+.donngu-guide--happy .donngu-guide__avatar img { animation: donngu-cheer .7s ease-in-out 2; }
+@keyframes donngu-cheer { 40% { transform: translateY(-12px) rotate(-9deg); } 70% { transform: translateY(-4px) rotate(6deg); } }
+@media (min-width: 1580px) {
+ .city-streets { margin: 0; }
+ .city-station { position: fixed; left: max(16px, calc((100vw - 1200px) / 4 - 82px)); top: 150px; width: 168px; }
+ .city-pocket { position: fixed; right: max(16px, calc((100vw - 1200px) / 4 - 82px)); top: 150px; width: 168px; }
+ .city-pocket__contents { max-height: min(320px, calc(100dvh - 470px)); }
+ .city-streets__scene { display: block; position: fixed; bottom: 45px; left: max(20px, calc((100vw - 1200px) / 4 - 78px)); width: 160px; pointer-events: none; opacity: .85; }
+ .city-streets__scene-label { font: 8px monospace; color: #598c85; letter-spacing: .07em; }
+ .city-streets__buildings { display: flex; gap: 8px; align-items: end; height: 75px; padding: 0 12px; }
+ .city-streets__buildings i { width: 36px; height: 50px; border: 1px solid #7aaba3; background: repeating-linear-gradient(0deg,#c3dfd6 0 8px,#9bbfb8 8px 10px); border-radius: 7px 7px 0 0; transform: skewY(-10deg); }
+ .city-streets__buildings i:nth-child(2) { height: 72px; }
+ .city-streets__buildings i:nth-child(3) { height: 34px; }
+ .city-streets__courier { display: flex; align-items: end; justify-content: center; gap: 7px; margin-top: -20px; position: relative; }
+ .city-streets__courier img { object-fit: contain; transform: rotate(8deg); }
+ .city-streets__courier span { font-size: 10px; padding: 6px; background: #f4fff4; border: 1px solid #a5c9b7; border-radius: 7px; }
+ .city-streets__road { height: 12px; border-block: 1px solid #90b5b0; background: repeating-linear-gradient(90deg,transparent 0 16px,#9fc6bc 16px 28px); transform: skewX(-25deg); }
+}
+@media (max-width: 1579px) { .city-streets details[open] { flex-basis: 100%; } .city-station__routes { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; } .city-station__hello { grid-column: 1/-1; } .city-station__host { display: none; } .city-station__routes > a::after { display: none; } }
+@media (max-height: 760px) { .city-streets__scene { display: none; } }
+@media (prefers-reduced-motion: reduce) { .donngu-guide__avatar img,.city-streets__chevron { transition: none; animation: none !important; } .donngu-guide__avatar:hover img { transform: none; } }
+.city-pocket summary { font-size: .75rem; gap: 5px; }
+@media (min-width: 1580px) { .city-streets__scene { bottom: 130px; } }
+/* Side content participates in layout below the district banner. */
+.city-content { width: 100%; }
+@media (min-width: 1580px) {
+ .city-content { display: grid; grid-template-columns: 170px minmax(0, 1200px) 170px; gap: 24px; max-width: 1640px; margin: 32px auto 0; padding: 0 16px; box-sizing: border-box; align-items: start; }
+ .city-content .city-streets { display: contents; }
+ .city-content > .view-shell { grid-column: 2; grid-row: 1 / span 2; width: 100%; padding: 0; margin: 0; min-width: 0; }
+ .city-content .city-station { grid-column: 1; grid-row: 1; position: sticky; top: 82px; left: auto; width: auto; max-height: calc(100dvh - 110px); overflow-y: auto; }
+ .city-content .city-pocket { grid-column: 3; grid-row: 1; position: sticky; top: 82px; right: auto; width: auto; }
+ .city-content .city-streets__scene { grid-column: 1; grid-row: 2; position: static; margin: 20px 0; width: 160px; }
+ .city-content:not(:has(.city-streets)) > .view-shell { grid-column: 2; }
+}
+@media (max-width: 1579px) { .city-content > .city-streets { padding: 16px 16px 0; } }
