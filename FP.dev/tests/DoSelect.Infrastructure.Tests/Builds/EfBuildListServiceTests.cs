@@ -289,6 +289,87 @@ public sealed class EfBuildListServiceTests
         Assert.Equal(4, item.Quantity);
     }
 
+    [Theory]
+    [InlineData("update")]
+    [InlineData("delete")]
+    [InlineData("create-share")]
+    [InlineData("revoke-share")]
+    public async Task OwnerWrites_WhenCalledByAnotherMember_AreRejectedWithoutSideEffects(string operation)
+    {
+        await using var context = CompatibilityCheckServiceFixture.CreateContext();
+        var ownerUserId = await CompatibilityCheckServiceFixture.SeedMemberUserIdAsync(context);
+        var otherMemberId = await CompatibilityCheckServiceFixture.SeedMemberUserIdAsync(context);
+        var sku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
+            context, CompatibilityCatalogContract.Categories.Storage);
+        var replacementSku = await CompatibilityCheckServiceFixture.SeedComponentSkuAsync(
+            context, CompatibilityCatalogContract.Categories.Storage);
+        var service = CreateService(context);
+        var created = await service.CreateAsync(
+            ownerUserId,
+            new CreateBuildListRequest("Owner build", [new BuildItemInput(sku.PublicId, 1)]),
+            CancellationToken.None);
+
+        if (operation == "revoke-share")
+        {
+            await service.CreateShareAsync(ownerUserId, created.PublicId, CancellationToken.None);
+        }
+
+        var buildListId = await context.BuildLists
+            .Where(list => list.PublicId == created.PublicId)
+            .Select(list => list.Id)
+            .SingleAsync();
+        var originalList = await context.BuildLists.AsNoTracking()
+            .SingleAsync(list => list.Id == buildListId);
+        var originalItems = await context.BuildListItems.AsNoTracking()
+            .Where(item => item.BuildListId == buildListId)
+            .OrderBy(item => item.Id)
+            .Select(item => new { item.PublicId, item.SkuId, item.Quantity, item.SortOrder })
+            .ToListAsync();
+        var originalShares = await context.BuildShareTokens.AsNoTracking()
+            .Where(token => token.BuildListId == buildListId)
+            .OrderBy(token => token.Id)
+            .Select(token => new { token.PublicId, token.RevokedAtUtc, token.LastAccessedAtUtc })
+            .ToListAsync();
+
+        var exception = await Assert.ThrowsAsync<BuildWriteException>(() => operation switch
+        {
+            "update" => service.UpdateAsync(
+                otherMemberId,
+                created.PublicId,
+                new UpdateBuildListRequest(
+                    "Intruded", [new BuildItemInput(replacementSku.PublicId, 2)], originalList.RowVersion),
+                CancellationToken.None),
+            "delete" => service.DeleteAsync(
+                otherMemberId, created.PublicId, originalList.RowVersion, CancellationToken.None),
+            "create-share" => service.CreateShareAsync(
+                otherMemberId, created.PublicId, CancellationToken.None),
+            "revoke-share" => service.RevokeShareAsync(
+                otherMemberId, created.PublicId, CancellationToken.None),
+            _ => throw new ArgumentOutOfRangeException(nameof(operation)),
+        });
+        Assert.Equal(BuildWriteException.ErrorCodes.ResourceNotFound, exception.ErrorCode);
+
+        await using var verification = CompatibilityCheckServiceFixture.CreateContext();
+        var reloadedList = await verification.BuildLists.AsNoTracking()
+            .SingleAsync(list => list.Id == buildListId);
+        Assert.Equal(originalList.OwnerUserId, reloadedList.OwnerUserId);
+        Assert.Equal(originalList.Name, reloadedList.Name);
+        Assert.Equal(originalList.Status, reloadedList.Status);
+        Assert.Equal(originalList.RowVersion, reloadedList.RowVersion);
+        var reloadedItems = await verification.BuildListItems.AsNoTracking()
+            .Where(item => item.BuildListId == buildListId)
+            .OrderBy(item => item.Id)
+            .Select(item => new { item.PublicId, item.SkuId, item.Quantity, item.SortOrder })
+            .ToListAsync();
+        Assert.Equal(originalItems, reloadedItems);
+        var reloadedShares = await verification.BuildShareTokens.AsNoTracking()
+            .Where(token => token.BuildListId == buildListId)
+            .OrderBy(token => token.Id)
+            .Select(token => new { token.PublicId, token.RevokedAtUtc, token.LastAccessedAtUtc })
+            .ToListAsync();
+        Assert.Equal(originalShares, reloadedShares);
+    }
+
     [Fact]
     public async Task UpdateAsync_Throws_ConcurrencyConflict_ForAStaleRowVersion()
     {
@@ -609,6 +690,41 @@ public sealed class EfBuildListServiceTests
             memberUserId, created.PublicId, new AddBuildToCartRequest(1, created.RowVersion), "complete-key", CancellationToken.None);
 
         Assert.Equal(8, cart.Items.Count);
+    }
+
+    [Fact]
+    public async Task AddToCartAsync_WhenCalledByAnotherMember_IsRejectedWithoutSideEffects()
+    {
+        await using var context = CompatibilityCheckServiceFixture.CreateContext();
+        var ownerUserId = await CompatibilityCheckServiceFixture.SeedMemberUserIdAsync(context);
+        var otherMemberId = await CompatibilityCheckServiceFixture.SeedMemberUserIdAsync(context);
+        var components = await SeedCompleteBuildComponentsAsync(context);
+        var service = CreateService(context);
+        var created = await service.CreateAsync(
+            ownerUserId,
+            new CreateBuildListRequest("Owner build", ToBuildItems(components)),
+            CancellationToken.None);
+        var cartCount = await context.Carts.CountAsync();
+        var cartItemCount = await context.CartItems.CountAsync();
+        var idempotencyCount = await context.IdempotencyRecords.CountAsync();
+        var originalRowVersion = created.RowVersion.ToArray();
+
+        var exception = await Assert.ThrowsAsync<BuildWriteException>(() => service.AddToCartAsync(
+            otherMemberId,
+            created.PublicId,
+            new AddBuildToCartRequest(1, created.RowVersion),
+            "actor-b-add-to-cart",
+            CancellationToken.None));
+        Assert.Equal(BuildWriteException.ErrorCodes.ResourceNotFound, exception.ErrorCode);
+
+        await using var verification = CompatibilityCheckServiceFixture.CreateContext();
+        var reloaded = await verification.BuildLists.AsNoTracking()
+            .SingleAsync(list => list.PublicId == created.PublicId);
+        Assert.Equal(BuildListStatusCodes.Active, reloaded.Status);
+        Assert.Equal(originalRowVersion, reloaded.RowVersion);
+        Assert.Equal(cartCount, await verification.Carts.CountAsync());
+        Assert.Equal(cartItemCount, await verification.CartItems.CountAsync());
+        Assert.Equal(idempotencyCount, await verification.IdempotencyRecords.CountAsync());
     }
 
     /// <summary>PR #34 review: canAddToCart must require every item to be fully "available", not just "not unavailable" — insufficient_stock used to still pass.</summary>

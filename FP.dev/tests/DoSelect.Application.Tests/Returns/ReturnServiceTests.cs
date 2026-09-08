@@ -8,13 +8,17 @@ internal sealed class FakePrivateFileStorage : IPrivateFileStorage
 {
     public PrivateFileStoreStatus NextStatus { get; set; } = PrivateFileStoreStatus.Stored;
     public List<string> DeletedStorageKeys { get; } = [];
+    public int StoreCallCount { get; private set; }
 
-    public Task<PrivateFileStoreResult> StoreAsync(PrivateFileUpload upload, CancellationToken cancellationToken = default) =>
-        Task.FromResult(NextStatus == PrivateFileStoreStatus.Stored
+    public Task<PrivateFileStoreResult> StoreAsync(PrivateFileUpload upload, CancellationToken cancellationToken = default)
+    {
+        StoreCallCount++;
+        return Task.FromResult(NextStatus == PrivateFileStoreStatus.Stored
             ? new PrivateFileStoreResult(
                 PrivateFileStoreStatus.Stored,
                 new StoredPrivateFile($"private-files/ab/{Guid.NewGuid():N}.blob", upload.OriginalFileName, "pdf", "application/pdf", 1024, new byte[32]))
             : new PrivateFileStoreResult(NextStatus));
+    }
 
     public Task<Stream?> OpenReadAsync(string storageKey, CancellationToken cancellationToken = default) =>
         Task.FromResult<Stream?>(null);
@@ -249,6 +253,39 @@ public sealed class ReturnServiceTests
             service.GetDetailAsync(stranger, created.PublicId, CancellationToken.None));
 
         Assert.Equal(ReturnsWriteException.ErrorCodes.ResourceNotFound, exception.ErrorCode);
+    }
+
+    [Fact]
+    public async Task DetailAndAttachment_WhenGuestOrderDoesNotOwnReturn_AreRejectedWithoutFileOrMetadataSideEffects()
+    {
+        var fileStorage = new FakePrivateFileStorage();
+        var (service, store, _, orderPublicId, orderItemPublicId) = CreateSut(fileStorage: fileStorage);
+        var owner = new ReturnActor(null, GuestOrderId: 1);
+        var created = await service.CreateAsync(
+            owner,
+            orderPublicId,
+            DefectiveRequest(orderItemPublicId, 1, [1, 2, 3, 4, 5, 6, 7, 8]),
+            CancellationToken.None);
+        var originalStatus = store.Requests.Single().Status;
+        var originalRowVersion = store.Requests.Single().RowVersion.ToArray();
+        var otherGuest = new ReturnActor(null, GuestOrderId: 999);
+
+        var detailException = await Assert.ThrowsAsync<ReturnsWriteException>(() =>
+            service.GetDetailAsync(otherGuest, created.PublicId, CancellationToken.None));
+        Assert.Equal(ReturnsWriteException.ErrorCodes.ResourceNotFound, detailException.ErrorCode);
+
+        var attachmentException = await Assert.ThrowsAsync<ReturnsWriteException>(() =>
+            service.UploadAttachmentAsync(
+                otherGuest,
+                created.PublicId,
+                new PrivateFileUpload(new MemoryStream([1, 2, 3]), "guest-b.pdf", "application/pdf"),
+                CancellationToken.None));
+        Assert.Equal(ReturnsWriteException.ErrorCodes.ResourceNotFound, attachmentException.ErrorCode);
+
+        Assert.Empty(store.Attachments);
+        Assert.Equal(0, fileStorage.StoreCallCount);
+        Assert.Equal(originalStatus, store.Requests.Single().Status);
+        Assert.Equal(originalRowVersion, store.Requests.Single().RowVersion);
     }
 
     [Fact]

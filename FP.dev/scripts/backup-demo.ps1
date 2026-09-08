@@ -66,6 +66,12 @@ $manifest = [ordered]@{
     migration = $null
     database = $null
     files = $null
+    fileSnapshot = [ordered]@{
+        status = 'pending'
+        dataRootAvailable = $false
+        expectedRoots = @('product-images', 'private-files', 'private/support')
+        capturedRoots = @()
+    }
     result = 'failed'
     lastRestoreVerification = $null
 }
@@ -89,13 +95,38 @@ try {
     }
     $manifest.database = Get-FileEvidence -Path $databaseBackupPath
 
-    $snapshotSources = @(
-        (Join-Path $resolvedDataRoot 'product-images'),
-        (Join-Path $resolvedDataRoot 'private-files')
-    ) | Where-Object { Test-Path -LiteralPath $_ -PathType Container }
+    $manifest.fileSnapshot.dataRootAvailable = Test-Path -LiteralPath $resolvedDataRoot -PathType Container
+    $snapshotCandidates = @(
+        [pscustomobject]@{
+            RelativePath = 'product-images'
+            FullPath = Join-Path $resolvedDataRoot 'product-images'
+        },
+        [pscustomobject]@{
+            RelativePath = 'private-files'
+            FullPath = Join-Path $resolvedDataRoot 'private-files'
+        },
+        [pscustomobject]@{
+            RelativePath = 'private/support'
+            FullPath = Join-Path (Join-Path $resolvedDataRoot 'private') 'support'
+        }
+    )
+    $snapshotSources = @($snapshotCandidates | Where-Object {
+        Test-Path -LiteralPath $_.FullPath -PathType Container
+    })
+    $manifest.fileSnapshot.capturedRoots = @($snapshotSources | ForEach-Object { $_.RelativePath })
     if ($snapshotSources.Count -gt 0) {
-        Compress-Archive -LiteralPath $snapshotSources -DestinationPath $filesArchivePath -CompressionLevel Optimal
+        New-RelativeDirectoryArchive `
+            -SourceRoot $resolvedDataRoot `
+            -RelativePaths @($snapshotSources | ForEach-Object { $_.RelativePath }) `
+            -DestinationPath $filesArchivePath
         $manifest.files = Get-FileEvidence -Path $filesArchivePath
+        $manifest.fileSnapshot.status = 'complete'
+    }
+    elseif ($manifest.fileSnapshot.dataRootAvailable) {
+        $manifest.fileSnapshot.status = 'complete_empty'
+    }
+    else {
+        $manifest.fileSnapshot.status = 'not_captured'
     }
 
     $manifest.result = 'success'

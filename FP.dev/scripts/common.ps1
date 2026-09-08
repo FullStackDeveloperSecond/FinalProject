@@ -3,11 +3,64 @@ Set-StrictMode -Version Latest
 $script:ProjectRoot = Split-Path -Parent $PSScriptRoot
 $script:RunRoot = Join-Path $script:ProjectRoot '.run'
 $script:StateFile = Join-Path $script:RunRoot 'processes.json'
+$script:DemoDatabaseStateFile = Join-Path $script:RunRoot 'demo-database.json'
 $script:SqlInstance = '.\SQL2025'
 $script:SqlServiceName = 'MSSQL$SQL2025'
 $script:ApiUrl = 'http://localhost:5126'
 $script:CustomerUrl = 'http://localhost:5173'
 $script:AdminUrl = 'http://localhost:5174/admin/'
+
+function Assert-IsolatedDemoDatabaseName {
+    param(
+        [Parameter(Mandatory)]
+        [string] $DatabaseName
+    )
+
+    if ($DatabaseName -notmatch '^DoSelectDemo_[0-9a-fA-F]{32}$') {
+        throw "Demo runtime requires an isolated database named 'DoSelectDemo_<32-hex>'. Shared databases are not allowed."
+    }
+}
+
+function New-DemoConnectionString {
+    param(
+        [Parameter(Mandatory)]
+        [string] $DatabaseName
+    )
+
+    Assert-IsolatedDemoDatabaseName -DatabaseName $DatabaseName
+    return "Server=$($script:SqlInstance);Database=$DatabaseName;Integrated Security=True;TrustServerCertificate=True;MultipleActiveResultSets=True"
+}
+
+function Read-DemoDatabaseState {
+    if (-not (Test-Path -LiteralPath $script:DemoDatabaseStateFile -PathType Leaf)) {
+        return $null
+    }
+
+    $state = Get-Content -Raw -LiteralPath $script:DemoDatabaseStateFile | ConvertFrom-Json
+    Assert-IsolatedDemoDatabaseName -DatabaseName ([string] $state.DatabaseName)
+    return $state
+}
+
+function Write-DemoDatabaseState {
+    param(
+        [Parameter(Mandatory)]
+        [string] $DatabaseName
+    )
+
+    Assert-IsolatedDemoDatabaseName -DatabaseName $DatabaseName
+    Initialize-RunDirectory
+    $temporaryPath = "$($script:DemoDatabaseStateFile).$([Guid]::NewGuid().ToString('N')).tmp"
+    try {
+        [ordered]@{
+            DatabaseName = $DatabaseName
+            PreparedAtUtc = [DateTimeOffset]::UtcNow.ToString('O')
+        } | ConvertTo-Json | Set-Content -LiteralPath $temporaryPath -Encoding utf8
+        Move-Item -LiteralPath $temporaryPath -Destination $script:DemoDatabaseStateFile -Force
+    }
+    finally {
+        Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
+    }
+}
 
 function Initialize-RunDirectory {
     New-Item -ItemType Directory -Path $script:RunRoot -Force | Out-Null
@@ -39,6 +92,108 @@ function Get-SqlCmdCommand {
     }
 
     return $command.Source
+}
+
+function New-RelativeDirectoryArchive {
+    param(
+        [Parameter(Mandatory)]
+        [string] $SourceRoot,
+
+        [Parameter(Mandatory)]
+        [string[]] $RelativePaths,
+
+        [Parameter(Mandatory)]
+        [string] $DestinationPath
+    )
+
+    $resolvedSourceRoot = [IO.Path]::GetFullPath($SourceRoot)
+    $sourcePrefix = [IO.Path]::TrimEndingDirectorySeparator($resolvedSourceRoot) +
+        [IO.Path]::DirectorySeparatorChar
+    $resolvedDestinationPath = [IO.Path]::GetFullPath($DestinationPath)
+    if ($resolvedDestinationPath.StartsWith($sourcePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'DestinationPath must be outside SourceRoot.'
+    }
+
+    $destinationDirectory = Split-Path -Parent $resolvedDestinationPath
+    New-Item -ItemType Directory -Path $destinationDirectory -Force | Out-Null
+    $stagingRoot = Join-Path $destinationDirectory ".snapshot-$([Guid]::NewGuid().ToString('N'))"
+
+    try {
+        New-Item -ItemType Directory -Path $stagingRoot -Force | Out-Null
+        foreach ($relativePath in $RelativePaths) {
+            if ([IO.Path]::IsPathRooted($relativePath)) {
+                throw "Archive source path must be relative: $relativePath"
+            }
+
+            $sourcePath = [IO.Path]::GetFullPath((Join-Path $resolvedSourceRoot $relativePath))
+            if (-not $sourcePath.StartsWith($sourcePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+                throw "Archive source path escaped SourceRoot: $relativePath"
+            }
+            if (-not (Test-Path -LiteralPath $sourcePath -PathType Container)) {
+                throw "Archive source directory was not found: $sourcePath"
+            }
+
+            $pathToCheck = $sourcePath
+            while ($true) {
+                $pathItem = Get-Item -LiteralPath $pathToCheck -Force
+                if (($pathItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                    throw "Archive source path contains a reparse point: $relativePath"
+                }
+                if ($pathToCheck.Equals($resolvedSourceRoot, [StringComparison]::OrdinalIgnoreCase)) {
+                    break
+                }
+
+                $pathToCheck = Split-Path -Parent $pathToCheck
+            }
+
+            $nestedReparsePoint = Get-ChildItem -LiteralPath $sourcePath -Force -Recurse |
+                Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 } |
+                Select-Object -First 1
+            if ($null -ne $nestedReparsePoint) {
+                throw "Archive source directory contains a reparse point: $relativePath"
+            }
+
+            $stagedPath = Join-Path $stagingRoot $relativePath
+            New-Item -ItemType Directory -Path (Split-Path -Parent $stagedPath) -Force | Out-Null
+            if ($env:OS -eq 'Windows_NT') {
+                $robocopy = Get-RequiredCommand -Name 'robocopy.exe'
+                & $robocopy $sourcePath $stagedPath /E /COPY:DAT /DCOPY:DAT /SL /SJ /R:0 /W:0 /NP /NFL /NDL /NJH /NJS | Out-Null
+                $robocopyExitCode = $LASTEXITCODE
+                if ($robocopyExitCode -ge 8) {
+                    throw "robocopy failed while staging archive source '$relativePath' with exit code $robocopyExitCode."
+                }
+            }
+            else {
+                $copyCommand = Get-RequiredCommand -Name 'cp'
+                & $copyCommand '-a' $sourcePath $stagedPath
+                if ($LASTEXITCODE -ne 0) {
+                    throw "cp failed while staging archive source '$relativePath'."
+                }
+            }
+
+            $stagedItem = Get-Item -LiteralPath $stagedPath -Force
+            $stagedReparsePoint = @($stagedItem) + @(Get-ChildItem -LiteralPath $stagedPath -Force -Recurse) |
+                Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 } |
+                Select-Object -First 1
+            if ($null -ne $stagedReparsePoint) {
+                throw "Staged archive source contains a reparse point: $relativePath"
+            }
+        }
+
+        $archiveRoots = @(Get-ChildItem -LiteralPath $stagingRoot -Force)
+        if ($archiveRoots.Count -eq 0) {
+            throw 'At least one relative directory is required to create the archive.'
+        }
+
+        Compress-Archive -LiteralPath @($archiveRoots | ForEach-Object { $_.FullName }) `
+            -DestinationPath $resolvedDestinationPath `
+            -CompressionLevel Optimal
+    }
+    finally {
+        if (Test-Path -LiteralPath $stagingRoot) {
+            Remove-Item -LiteralPath $stagingRoot -Recurse -Force
+        }
+    }
 }
 
 function Test-SqlServerConnection {

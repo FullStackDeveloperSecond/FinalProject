@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "runId": "env-rc-04-20260907T171432Z-5c77922a60324f8f90970aaa2ed54e44",
+  "callingSkill": "capture-test-evidence",
+  "evidenceTier": "T2",
+  "repository": "FullStackDeveloperSecond/FinalProject",
+  "branch": "codex/env-rc-03-fresh-clone-20260908",
+  "revision": "14cc90ebbdd5bb016452c5d3dddbc67f4a2a26a0",
+  "suite": "ENV-RC-04 isolated Demo Backup to Restore rehearsal",
+  "environment": {
+    "class": "local-isolated-demo",
+    "databaseProvider": "SQL Server 17.0.1125.2",
+    "powershell": "7.6.5",
+    "dotnetSdk": "10.0.303"
+  },
+  "fixture": {
+    "featureProfile": "implemented-features-v2",
+    "randomSeed": 20260907,
+    "mainBusinessRecordTotal": 10000,
+    "migration": "20260902073750_AddInventoryMovementAdjustmentNote"
+  },
+  "formalRun": {
+    "startedAtUtc": "2026-09-07T17:14:31.9115858Z",
+    "backupFinishedAtUtc": "2026-09-07T17:14:32.4878981Z",
+    "restoreStartedAtUtc": "2026-09-07T17:15:02.8046882Z",
+    "restoreFinishedAtUtc": "2026-09-07T17:15:03.7711349Z",
+    "validationStartedAtUtc": "2026-09-07T17:15:37.8500432Z",
+    "validationFinishedAtUtc": "2026-09-07T17:15:43.4200633Z",
+    "backupDurationSeconds": 0.576,
+    "restoreDurationSeconds": 0.966,
+    "validationDurationSeconds": 5.57,
+    "backupStartToValidationFinishSeconds": 71.508
+  },
+  "commands": [
+    ".\\scripts\\seed-demo-data.ps1 -DatabaseName <isolated-allowlisted-demo-db>",
+    ".\\scripts\\validate-demo-data.ps1 -DatabaseName <isolated-allowlisted-demo-db>",
+    ".\\scripts\\backup-demo.ps1 -DatabaseName <isolated-allowlisted-demo-db> -Environment Demo -DataRoot E:\\FinalProjectData -BackupRoot E:\\FinalProjectBackups -Reason env-rc-04-isolated-14cc90eb",
+    ".\\scripts\\restore-demo.ps1 -BackupSetDirectory <verified-backup-set> -VerificationDatabaseName <different-isolated-allowlisted-demo-db> -VerificationDataRoot E:\\FinalProjectRestoreVerification",
+    ".\\scripts\\prune-demo-backups.ps1 -BackupRoot E:\\FinalProjectBackups -WhatIf"
+  ],
+  "thresholdResults": {
+    "sourceValidationChecks": "11/11 pass",
+    "restoredValidationChecks": "11/11 pass",
+    "validationFailures": 0,
+    "integrityViolationRows": 0,
+    "manifestRevisionMigrationSizeHash": "pass",
+    "backupVerifyOnly": "pass",
+    "restoreDbccCheckDb": "pass",
+    "rtoSecondsLimit": 7200,
+    "rtoResult": "pass",
+    "isolatedDatabaseCleanupRemaining": 0,
+    "verificationDirectoryCleanupRemaining": 0,
+    "nonRetainedBackupSetCleanupRemaining": 0,
+    "fileArchiveAndAuthorizationSmoke": "not_tested_non_blocking"
+  },
+  "firstFailure": {
+    "classification": "product_script",
+    "reason": "zero snapshot sources produced null under StrictMode before Count",
+    "preservedManifestResult": "failed",
+    "fixedByRevision": "14cc90ebbdd5bb016452c5d3dddbc67f4a2a26a0"
+  },
+  "sourceDrift": {
+    "databaseClass": "existing-shared-demo",
+    "status": "fail",
+    "failures": [
+      "featureProfileMarker",
+      "reportBaselines",
+      "specialDistributions"
+    ],
+    "action": "left unchanged and linked to DEV-04 reset flow"
+  },
+  "artifacts": [
+    {
+      "type": "backup-manifest",
+      "path": "E:\\FinalProjectBackups\\20260907T171432Z-5c77922a60324f8f90970aaa2ed54e44\\manifest.json",
+      "sizeBytes": 798,
+      "sha256": "9f57aed252296cc4403f9546bda3f60ab7e215d26241e7c429565aac1e94a9d5",
+      "retention": "repository-defined backup root"
+    },
+    {
+      "type": "sql-full-backup",
+      "path": "E:\\FinalProjectBackups\\20260907T171432Z-5c77922a60324f8f90970aaa2ed54e44\\DoSelectDemo_14cc90ebbdd5bb016452c5d3dddbc67f.bak",
+      "sizeBytes": 2654720,
+      "sha256": "fee5308209e4bca65a1ced095b1bd0bae53ad76ccf3c98e759d90610055e1ddb",
+      "retention": "repository-defined backup root"
+    }
+  ],
+  "sanitizationStatus": "pass",
+  "excluded": [
+    "secrets",
+    "credentials",
+    "connection strings",
+    "machine and user identity",
+    "business rows"
+  ],
+  "limitations": [
+    "E:\\FinalProjectData did not exist, so files.zip was not created and file restore or authorization smoke was not tested.",
+    "The existing shared DoSelectDemo failed the current seed contract and was not mutated.",
+    "This run does not claim complete release readiness."
+  ],
+  "testResult": "PASS_SQL_AND_DATA_RESTORE",
+  "status": "EVIDENCE_INCOMPLETE"
+}
