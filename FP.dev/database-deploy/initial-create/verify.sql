@@ -89,7 +89,29 @@ IF NOT EXISTS
     WHERE MigrationId = N'20260909040927_AddGuestCheckoutEmailVerification'
       AND ProductVersion = N'10.0.10'
 )
-    THROW 51006, 'The current checkout email verification migration is missing from EF migration history.', 1;
+    THROW 51006, 'The checkout email verification migration is missing from EF migration history.', 1;
+
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM dbo.__EFMigrationsHistory
+    WHERE MigrationId = N'20260909074216_AddBuildOwnedParts'
+      AND ProductVersion = N'10.0.10'
+)
+    THROW 51007, 'The current build owned-parts migration is missing from EF migration history.', 1;
+
+-- Column-only migrations do not change the table/index counts above.
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM sys.columns
+    WHERE object_id = OBJECT_ID(N'dbo.BuildLists')
+      AND name = N'OwnedPartsJson'
+      AND system_type_id = TYPE_ID(N'nvarchar')
+      AND max_length = -1
+      AND is_nullable = 1
+)
+    THROW 51008, 'dbo.BuildLists.OwnedPartsJson must be nullable nvarchar(max).', 1;
 
 DECLARE @WorkbenchRows bigint;
 SELECT @WorkbenchRows = COUNT_BIG(*) FROM dbo.vw_CaseWorkbench;
@@ -100,5 +122,5 @@ SELECT
     @ExplicitIndexCount AS ExplicitIndexes,
     12 AS WorkbenchColumns,
     @WorkbenchRows AS WorkbenchRows,
-    N'20260909040927_AddGuestCheckoutEmailVerification' AS LatestAppliedMigration,
+    (SELECT MAX(MigrationId) FROM dbo.__EFMigrationsHistory) AS LatestAppliedMigration,
     N'PASS' AS VerificationResult;

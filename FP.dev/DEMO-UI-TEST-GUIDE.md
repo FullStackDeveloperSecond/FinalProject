@@ -41,6 +41,8 @@
 - **頁碼補齊完成（本地程式）**：上述七處已實作，API 保留舊游標相容模式，總筆數依授權及篩選實際計算。追加驗證：後台完整 495／495；前台完整 688／688 後再補超商單頁縮減回歸 8／8（有重疊，不相加）；Application 65／65、Infrastructure SQL 19／19、API＋SQL 29／29，皆無略過。前後台建置、型別檢查及變更檔 lint 通過。此項 API 尚需隨本批重新啟動，不能僅憑前端熱更新視為線上已套用。
 - **客服權限 HTTP 測試已解決**：沙箱無法解密 Windows DPAPI 防偽金鑰造成 500；相同程式改用系統 CLI，單項及完整組別 57／57 通過。未修改程式、安全設定或金鑰，不關閉 CSRF。
 - **未測試，非無關工作阻擋項**：另一台電腦 SMTP 收信／OpenAI、完整真人彩排。
-- 已先建立本地 checkpoint `ced4c883`；沒有 push／CI／merge。整批最終安全掃描、Issue 完成複核及發布尚未完成。本批沒有略過出貨、授權或 MFA 檢查。
+- 本地提交 `ced4c883` 保存既有修正，`befe9dc2` 補齊剩餘頁碼；沒有 push／CI／merge。本批沒有略過出貨、授權或 MFA 檢查。
+- 安全差異掃描 `57bc5450-f695-4bbc-b983-af234088786e` 已封存：222 個來源盤點項目及另 33 個測試／文件／生成檔完成靜態複核，0 finding。**正式 coverage 仍為 partial**：工具封存時保留了兩筆早期待複核 checkpoint；最終提交的完整 coverage 沒有清除它們。未改寫已封存產物、不宣稱正式安全 Gate 通過。Issue 完成複核及發布仍未完成。
+- 建置驗證補查目前 `AddBuildOwnedParts` migration 與 nullable `OwnedPartsJson`，避免只有表／索引數相同便誤判完整。Windows PowerShell 5.1 靜態 safety 檢查已先重現缺失再通過；本輪未執行資料庫初始化或套用 SQL，不把靜態檢查當成第二機部署成功。
 
 詳細進度與裁定見 `FP.sheet/FinalProject/05-規劃/04-稽核與報告/2026-09-06-工作進度確認紀錄.md` 第 15–16 節；測試證據位於工作區根目錄 `.codex-evidence/member-operations-20260909/` 與 `.codex-evidence/pagination-20260909/`。

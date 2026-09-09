@@ -56,10 +56,22 @@ foreach ($scriptName in @('smoke-api-database.ps1', 'start-all.ps1')) {
 
 $schemaVerification = Get-Content -Raw -LiteralPath (
     Join-Path $script:ProjectRoot 'database-deploy\initial-create\verify.sql')
+$latestMigration = Get-ChildItem -LiteralPath (
+    Join-Path $script:ProjectRoot 'src\backend\DoSelect.Infrastructure\Persistence\Migrations') -Filter '*.cs' |
+    Where-Object { $_.BaseName -match '^\d{14}_[^.]+$' } |
+    Sort-Object BaseName | Select-Object -Last 1
+if ($null -eq $latestMigration) { throw 'No EF migration was found for schema verification.' }
 foreach ($requiredSchemaMarker in @(
     'IF @ApplicationTableCount <> 106'
     'IF @ExplicitIndexCount <> 357'
     "MigrationId = N'20260909040927_AddGuestCheckoutEmailVerification'"
+    "MigrationId = N'$($latestMigration.BaseName)'"
+    "OBJECT_ID(N'dbo.BuildLists')"
+    "name = N'OwnedPartsJson'"
+    "TYPE_ID(N'nvarchar')"
+    'max_length = -1'
+    'is_nullable = 1'
+    'MAX(MigrationId)'
 )) {
     if ($schemaVerification.IndexOf($requiredSchemaMarker, [StringComparison]::Ordinal) -lt 0) {
         throw "Development schema verification is missing '$requiredSchemaMarker'."
