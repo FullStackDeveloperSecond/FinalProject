@@ -1,6 +1,8 @@
 using System.Security.Cryptography;
 using DoSelect.Application.Ai;
 using DoSelect.Application.Auditing;
+using DoSelect.Application.Checkout;
+using DoSelect.Application.Common;
 using DoSelect.Application.Notifications;
 using DoSelect.Application.Orders;
 using DoSelect.Application.Outbox;
@@ -8,6 +10,7 @@ using DoSelect.Application.Support;
 using DoSelect.Domain.Members;
 using DoSelect.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace DoSelect.Infrastructure.Notifications;
 
@@ -95,7 +98,8 @@ public sealed class InAppNotificationContentRenderer : IInAppNotificationContent
 public sealed class EmailNotificationContentResolver(
     DoSelectDbContext context,
     IGuestOrderAccessHasher guestOrderAccessHasher,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    IOptions<FrontendLinkOptions> frontendLinkOptions)
     : IEmailNotificationContentResolver
 {
     public async Task<EmailNotificationContent?> ResolveAsync(
@@ -111,6 +115,16 @@ public sealed class EmailNotificationContentResolver(
             })
         {
             return await ResolveGuestOrderAccessAsync(request, cancellationToken);
+        }
+
+        if (request is
+            {
+                TemplateKey: GuestCheckoutEmailNotificationContract.TemplateKey,
+                RecipientPurpose: GuestCheckoutEmailNotificationContract.RecipientPurpose,
+                ResourceType: GuestCheckoutEmailNotificationContract.ResourceType,
+            })
+        {
+            return await ResolveGuestCheckoutEmailAsync(request, cancellationToken);
         }
 
         var template = NotificationTemplateCatalog.Find(request.TemplateKey, request.Locale);
@@ -177,6 +191,40 @@ public sealed class EmailNotificationContentResolver(
                 resource.RecipientEmail,
                 resource.OrderNumber,
                 code));
+    }
+
+    private async Task<EmailNotificationContent?> ResolveGuestCheckoutEmailAsync(
+        EmailNotificationRequestedV1 request,
+        CancellationToken cancellationToken)
+    {
+        var nowUtc = timeProvider.GetUtcNow().UtcDateTime;
+        var resource = await context.GuestCheckoutEmailVerifications.AsNoTracking()
+            .Where(item => item.PublicId == request.ResourcePublicId &&
+                item.ExpiresAtUtc > nowUtc &&
+                item.VerifiedAtUtc == null &&
+                item.ConsumedAtUtc == null &&
+                item.LockedAtUtc == null &&
+                item.RevokedAtUtc == null)
+            .Select(item => new { item.EmailNormalized, item.CodeHash })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (resource is null)
+        {
+            return null;
+        }
+
+        var code = guestOrderAccessHasher.DeriveVerificationCode(
+            request.ResourcePublicId, request.ParameterSetVersion);
+        if (!CryptographicOperations.FixedTimeEquals(
+            guestOrderAccessHasher.HashCode(code), resource.CodeHash))
+        {
+            return null;
+        }
+
+        var baseUrl = frontendLinkOptions.Value.BaseUrl.TrimEnd('/');
+        var link = $"{baseUrl}/checkout/verify-email#requestPublicId={request.ResourcePublicId:D}&code={Uri.EscapeDataString(code)}";
+        return new EmailNotificationContent(
+            RecipientUserId: null,
+            GuestCheckoutEmailComposer.Compose(resource.EmailNormalized, code, link));
     }
 
     private async Task<(string? UserId, string Email)?> ResolveRecipientAsync(

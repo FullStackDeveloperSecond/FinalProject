@@ -47,9 +47,7 @@ export async function createApiError(response: Response): Promise<ApiError> {
   const problemDetails = await readProblemDetails(response)
   const status = problemDetails?.status ?? response.status
   const code = problemDetails?.code ?? defaultCodeForStatus(status)
-  const message = problemDetails?.detail
-    ?? problemDetails?.title
-    ?? (response.statusText || 'Request failed.')
+  const message = resolveUserFacingMessage(problemDetails, status, code)
 
   return new ApiError(message, {
     status,
@@ -57,17 +55,73 @@ export async function createApiError(response: Response): Promise<ApiError> {
     traceId: problemDetails?.traceId,
     correlationId:
       problemDetails?.correlationId ?? response.headers.get('X-Correlation-ID') ?? undefined,
-    fieldErrors: problemDetails?.errors,
+    fieldErrors: localizeFieldErrors(problemDetails?.errors),
     retryAfter: response.headers.get('Retry-After') ?? undefined,
   })
 }
 
 export function createNetworkError(cause: unknown): ApiError {
-  return new ApiError('Unable to reach the service.', {
+  return new ApiError('目前無法連線至服務，請確認網路後再試一次。', {
     status: 0,
     code: 'network_error',
     cause,
   })
+}
+
+function resolveUserFacingMessage(
+  problemDetails: ProblemDetails | undefined,
+  status: number,
+  code: string,
+): string {
+  const detail = problemDetails?.detail?.trim()
+  if (detail && containsHanText(detail)) {
+    return detail
+  }
+
+  const messagesByCode: Record<string, string> = {
+    ai_service_unavailable: 'AI 服務暫時無法使用，請稍後再試，或改由人工客服協助。',
+    authentication_required: '請先登入後再繼續。',
+    authorization_forbidden: '你沒有權限執行此操作。',
+    request_conflict: '資料狀態已變更，請重新整理後再試一次。',
+    resource_not_found: '找不到要求的資料。',
+    validation_failed: '請檢查輸入內容後再試一次。',
+  }
+  if (messagesByCode[code]) {
+    return messagesByCode[code]
+  }
+
+  const messagesByStatus: Record<number, string> = {
+    400: '請檢查輸入內容後再試一次。',
+    401: '請先登入後再繼續。',
+    403: '你沒有權限執行此操作。',
+    404: '找不到要求的資料。',
+    405: '目前不支援這項操作。',
+    409: '資料狀態已變更，請重新整理後再試一次。',
+    413: '上傳內容超過大小限制。',
+    415: '不支援這種內容格式。',
+    422: '部分資料無法處理，請檢查後再試一次。',
+    429: '操作過於頻繁，請稍後再試。',
+    500: '系統發生未預期的錯誤，請稍後再試。',
+    503: '服務暫時無法使用，請稍後再試。',
+  }
+  return messagesByStatus[status] ?? '請求失敗，請稍後再試。'
+}
+
+function localizeFieldErrors(
+  fieldErrors: Record<string, string[]> | undefined,
+): Record<string, string[]> | undefined {
+  if (!fieldErrors) return undefined
+
+  return Object.fromEntries(Object.entries(fieldErrors).map(([field, messages]) => [
+    field,
+    messages.map(message => containsHanText(message)
+      ? message
+      : '輸入內容不符合要求。'),
+  ]))
+}
+
+function containsHanText(message: string): boolean {
+  return /[\u3400-\u9fff]/u.test(message)
 }
 
 export function isApiError(error: unknown): error is ApiError {

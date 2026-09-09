@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { EmptyState, ErrorState, LoadingState, StatusBadge } from '@doselect/web-shared/components'
+import { PagePager, EmptyState, ErrorState, LoadingState, StatusBadge } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -305,6 +305,7 @@ function formatProductStatus(status: string): string {
       <select
         v-model="filters.brandCode"
         aria-label="品牌"
+        @change="applyFilters"
       >
         <option value="">
           全部品牌
@@ -320,6 +321,7 @@ function formatProductStatus(status: string): string {
       <select
         v-model="filters.categoryCode"
         aria-label="分類"
+        @change="applyFilters"
       >
         <option value="">
           全部分類
@@ -335,6 +337,7 @@ function formatProductStatus(status: string): string {
       <select
         v-model="filters.status"
         aria-label="狀態"
+        @change="applyFilters"
       >
         <option value="">
           全部狀態
@@ -547,27 +550,14 @@ function formatProductStatus(status: string): string {
           </tbody>
         </table>
       </div>
-      <nav
+      <PagePager
         v-if="totalPages > 1"
-        class="products-pagination"
-        aria-label="分頁"
-      >
-        <button
-          type="button"
-          :disabled="pageNumber <= 1"
-          @click="goToPage(pageNumber - 1)"
-        >
-          上一頁
-        </button>
-        <span>第 {{ pageNumber }} / {{ totalPages }} 頁</span>
-        <button
-          type="button"
-          :disabled="pageNumber >= totalPages"
-          @click="goToPage(pageNumber + 1)"
-        >
-          下一頁
-        </button>
-      </nav>
+        :page="pageNumber"
+        :page-size="1"
+        :total-records="totalPages"
+        aria-label="列表分頁"
+        @update:page="goToPage"
+      />
     </template>
   </section>
 </template>

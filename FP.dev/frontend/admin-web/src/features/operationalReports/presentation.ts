@@ -47,6 +47,18 @@ export function formatMetric(value: number | string | null, unit: string): strin
   return number.toLocaleString('zh-TW', { maximumFractionDigits: 2 })
 }
 
+export function unitLabel(unit: string): string {
+  const labels: Readonly<Record<string, string>> = {
+    currency: '新臺幣',
+    percent: '百分比',
+    ratio: '比率',
+    days: '天',
+    count: '筆數',
+    quantity: '數量',
+  }
+  return labels[unit] ?? '數值'
+}
+
 function number(value: number | string | null, digits = 2): string {
   if (value === null || value === '') return '—'
   const parsed = Number(value)

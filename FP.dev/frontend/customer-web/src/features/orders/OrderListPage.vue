@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
+import { onMounted, ref } from 'vue'
+import { EmptyState, ErrorState, LoadingState, PagePager } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
 import { fetchOrders, type OrderSummaryDto } from './api'
 
@@ -12,8 +12,6 @@ const isLoading = ref(true)
 const isLoadingMore = ref(false)
 const loadError = ref<unknown>()
 const loadMoreError = ref(false)
-
-const hasMore = computed(() => orders.value.length < totalCount.value)
 
 async function loadFirstPage(): Promise<void> {
   isLoading.value = true
@@ -32,14 +30,14 @@ async function loadFirstPage(): Promise<void> {
   }
 }
 
-async function loadMore(): Promise<void> {
-  if (isLoadingMore.value || !hasMore.value) return
+async function goToPage(nextPage: number): Promise<void> {
+  if (isLoadingMore.value || nextPage === pageNumber.value) return
 
   isLoadingMore.value = true
   loadMoreError.value = false
   try {
-    const page = await fetchOrders(pageNumber.value + 1, pageSize)
-    orders.value.push(...page.items)
+    const page = await fetchOrders(nextPage, pageSize)
+    orders.value = page.items
     pageNumber.value = page.pageNumber
     totalCount.value = page.totalCount
   }
@@ -192,17 +190,16 @@ function formatAmount(amount: number, currency: string): string {
         class="order-list-page__more-error"
         role="alert"
       >
-        無法載入更多訂單，請再試一次。
+        無法載入指定頁面，目前保留原頁資料；請再次點選頁碼重試。
       </p>
-      <button
-        v-if="hasMore"
-        type="button"
-        class="order-list-page__more"
-        :disabled="isLoadingMore"
-        @click="loadMore"
-      >
-        {{ isLoadingMore ? '載入中…' : (loadMoreError ? '重試載入更多' : '載入更多') }}
-      </button>
+      <PagePager
+        :page="pageNumber"
+        :page-size="pageSize"
+        :total-records="totalCount"
+        :busy="isLoadingMore"
+        aria-label="會員訂單分頁"
+        @update:page="goToPage"
+      />
     </template>
   </section>
 </template>

@@ -106,12 +106,14 @@ export function useSharedBuild(token: MaybeRefOrGetter<string>) {
 }
 
 export function useAddBuildToCart() {
+  const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({ publicId, request, idempotencyKey }: {
       publicId: string
       request: AddBuildToCartRequest
       idempotencyKey: string
     }) => addBuildToCart(publicId, request, idempotencyKey),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['cart'] }),
   })
 }
 

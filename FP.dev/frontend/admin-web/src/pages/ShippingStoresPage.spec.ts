@@ -1,3 +1,5 @@
+import PrimeVue from 'primevue/config'
+import { chinesePaginationLocale } from '@doselect/web-shared/theme'
 import { flushPromises, mount } from '@vue/test-utils'
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import { createPinia, setActivePinia } from 'pinia'
@@ -61,7 +63,7 @@ function mountPage() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
-  return mount(ShippingStoresPage, { global: { plugins: [[VueQueryPlugin, { queryClient }]] } })
+  return mount(ShippingStoresPage, { global: { plugins: [[VueQueryPlugin, { queryClient }], [PrimeVue, { locale: chinesePaginationLocale }]] } })
 }
 
 describe('ShippingStoresPage', () => {
@@ -171,8 +173,7 @@ describe('ShippingStoresPage', () => {
     expect(editForm.find('input[aria-label="編輯門市名稱"]').exists()).toBe(true)
   })
 
-  /** 組長 PR #37 round-2 review, item 3：篩選只綁草稿，送出時才一起套用並把頁碼歸 1。 */
-  it('does not query while filters are being edited, then applies them on submit', async () => {
+  it('applies a dropdown immediately while text filters still wait for submit', async () => {
     mockList.mockResolvedValue(page([store()]))
 
     const wrapper = mountPage()
@@ -180,9 +181,18 @@ describe('ShippingStoresPage', () => {
     const callsBefore = mockList.mock.calls.length
 
     await wrapper.find('select[aria-label="品牌"]').setValue('FamilyMart')
+    await flushPromises()
+    expect(mockList).toHaveBeenLastCalledWith(expect.objectContaining({
+      providerCode: 'FamilyMart',
+      city: undefined,
+      pageNumber: 1,
+    }))
+    const callsAfterDropdown = mockList.mock.calls.length
+
     await wrapper.find('input[aria-label="縣市"]').setValue('台北市')
     await flushPromises()
-    expect(mockList.mock.calls.length).toBe(callsBefore)
+    expect(mockList.mock.calls.length).toBe(callsAfterDropdown)
+    expect(callsAfterDropdown).toBeGreaterThan(callsBefore)
 
     await wrapper.find('form[aria-label="門市篩選"]').trigger('submit')
     await flushPromises()

@@ -84,6 +84,45 @@ function Get-RequiredCommand {
     return $command.Source
 }
 
+function Get-DirectoryPathPrefix {
+    param(
+        [Parameter(Mandatory)]
+        [string] $Path
+    )
+
+    $resolvedPath = [IO.Path]::GetFullPath($Path)
+    $separatorCharacters = [char[]] @(
+        [IO.Path]::DirectorySeparatorChar,
+        [IO.Path]::AltDirectorySeparatorChar)
+    return $resolvedPath.TrimEnd($separatorCharacters) + [IO.Path]::DirectorySeparatorChar
+}
+
+function Get-IsoWeekKey {
+    param(
+        [Parameter(Mandatory)]
+        [DateTime] $Date
+    )
+
+    $calendar = [Globalization.CultureInfo]::InvariantCulture.Calendar
+    $dayOfWeek = $calendar.GetDayOfWeek($Date)
+    $isoDayOfWeek = if ($dayOfWeek -eq [DayOfWeek]::Sunday) {
+        7
+    }
+    else {
+        [int] $dayOfWeek
+    }
+    # ISO week-year is the calendar year containing that week's Thursday. Anchoring every
+    # date to Thursday handles both directions of a year boundary (for example 2023-01-01
+    # belongs to 2022-W52, while 2018-12-31 belongs to 2019-W01).
+    $Date = $Date.AddDays(4 - $isoDayOfWeek)
+
+    $week = $calendar.GetWeekOfYear(
+        $Date,
+        [Globalization.CalendarWeekRule]::FirstFourDayWeek,
+        [DayOfWeek]::Monday)
+    return '{0}-{1:D2}' -f $Date.Year, $week
+}
+
 function Get-SqlCmdCommand {
     $preferredSqlCmd = Join-Path $env:ProgramFiles 'Microsoft SQL Server\Client SDK\ODBC\180\Tools\Binn\SQLCMD.EXE'
     if (Test-Path -LiteralPath $preferredSqlCmd -PathType Leaf) {
@@ -111,8 +150,7 @@ function New-RelativeDirectoryArchive {
     )
 
     $resolvedSourceRoot = [IO.Path]::GetFullPath($SourceRoot)
-    $sourcePrefix = [IO.Path]::TrimEndingDirectorySeparator($resolvedSourceRoot) +
-        [IO.Path]::DirectorySeparatorChar
+    $sourcePrefix = Get-DirectoryPathPrefix -Path $resolvedSourceRoot
     $resolvedDestinationPath = [IO.Path]::GetFullPath($DestinationPath)
     if ($resolvedDestinationPath.StartsWith($sourcePrefix, [StringComparison]::OrdinalIgnoreCase)) {
         throw 'DestinationPath must be outside SourceRoot.'

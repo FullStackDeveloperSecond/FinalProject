@@ -115,7 +115,7 @@ public sealed class DemoDataSeeder(DoSelectDbContext dbContext)
             var createdAt = SeedDate("member", i);
             var email = $"member-{i + 1:D4}@example.invalid";
             var user = ApplicationUser.CreateMember(StableGuid($"member:{i}"), email, createdAt);
-            user.Id = $"demo-member-{i + 1:D4}";
+            user.Id = MemberUserId(i);
             user.NormalizedEmail = email.ToUpperInvariant();
             user.NormalizedUserName = email.ToUpperInvariant();
             user.SecurityStamp = StableGuid($"member-security:{i}").ToString("N");
@@ -160,7 +160,7 @@ public sealed class DemoDataSeeder(DoSelectDbContext dbContext)
                 profiles[i].UserId,
                 "展示地址",
                 $"收件人 {i + 1:D4}",
-                $"0900{i % 10_000:D4}",
+                $"090000{i % 10_000:D4}",
                 $"{100 + i % 900:D3}",
                 i % 2 == 0 ? "臺北市" : "新北市",
                 i % 2 == 0 ? "中正區" : "板橋區",
@@ -184,11 +184,15 @@ public sealed class DemoDataSeeder(DoSelectDbContext dbContext)
             i == 0 ? DemoSeedManifest.MarkerBrandCode : $"DEMO-BRAND-{i + 1:D3}",
             name,
             DemoSeedManifest.PeriodStartUtc)).ToArray();
-        var categories = Enumerable.Range(0, 5).Select(i => new Category(
+        var categoryDefinitions = new[] {
+            ("CPU", "處理器"), ("MOTHERBOARD", "主機板"), ("MEMORY", "記憶體"), ("GPU", "顯示卡"),
+            ("STORAGE", "儲存裝置"), ("PSU", "電源供應器"), ("CASE", "機殼"), ("CPU_COOLER", "處理器散熱器"),
+        };
+        var categories = categoryDefinitions.Select((definition, i) => new Category(
             StableGuid($"category:{i}"),
-            $"DEMO-CATEGORY-{i + 1:D2}",
-            $"demo-category-{i + 1:D2}",
-            $"展示分類 {i + 1}",
+            definition.Item1,
+            definition.Item1.ToLowerInvariant(),
+            definition.Item2,
             null,
             DemoSeedManifest.PeriodStartUtc)).ToArray();
         dbContext.Brands.AddRange(brands);
@@ -202,13 +206,15 @@ public sealed class DemoDataSeeder(DoSelectDbContext dbContext)
                 $"DEMO-P-{i + 1:D4}",
                 brands[i % brands.Length].Id,
                 categories[i % categories.Length].Id,
-                $"展示商品 {i + 1:D4}",
+                $"Demo {categoryDefinitions[i % categories.Length].Item2} {i + 1:D4}",
                 SeedDate("product", i));
             product.UpdateDetails(
                 product.BrandId,
                 product.CategoryId,
                 product.NameZhTw,
-                "固定 Seed 產生的合成展示商品，不含外部圖片。",
+                i < 8
+                    ? "合成參考組裝商品，規格與價格僅供 Demo，不代表真實廠商產品；不含外部圖片。"
+                    : "合成報表展示商品，相容性規格尚未補齊，檢查可能顯示資料不足；不含外部圖片。",
                 36,
                 i < 20,
                 product.CreatedAtUtc.AddMinutes(1));
@@ -241,6 +247,10 @@ public sealed class DemoDataSeeder(DoSelectDbContext dbContext)
                     index % 5 == 0,
                     sku.CreatedAtUtc.AddMinutes(1));
                 sku.ChangeStatus(SkuStatus.Published, sku.CreatedAtUtc.AddMinutes(2));
+                // 合成包裝資料只供 Demo 配送計算，不冒充真實廠商規格。
+                var isCase = categories[i % categories.Length].Code == "CASE";
+                sku.UpdatePackageDimensions(isCase ? 8m : 1m, isCase ? 50m : 20m,
+                    isCase ? 30m : 15m, isCase ? 50m : 10m, sku.CreatedAtUtc.AddMinutes(2));
                 skus.Add(sku);
             }
         }
@@ -266,9 +276,14 @@ public sealed class DemoDataSeeder(DoSelectDbContext dbContext)
         }
         await dbContext.SaveChangesAsync(cancellationToken);
 
+        var referenceValueCount = await SeedReferenceCompatibilityAsync(categories, products, skus, cancellationToken);
         var values = new List<SkuSpecificationValue>(DemoSeedManifest.ProductSpecificationValues);
         var productsById = products.ToDictionary(product => product.Id);
-        for (var i = 0; i < skus.Count; i++)
+        // 首八商品（三種 SKU／商品）提供可完整組裝的參考配置；其餘保留報表用資料。
+        // 由實際規格列數分配剩餘合成欄位，主業務總數仍為 10,000，不偽造計數。
+        var additionalValues = DemoSeedManifest.ProductSpecificationValues - referenceValueCount - (skus.Count - 24) * 2;
+        if (additionalValues < 0 || additionalValues > skus.Count - 24) throw new InvalidOperationException("Demo specification allocation is invalid.");
+        for (var i = 24; i < skus.Count; i++)
         {
             var product = productsById[skus[i].ProductId];
             var definitions = definitionsByCategory[product.CategoryId];
@@ -278,7 +293,7 @@ public sealed class DemoDataSeeder(DoSelectDbContext dbContext)
             values.Add(new SkuSpecificationValue(
                 skus[i].Id, definitions[1].Id, $"值-{i:D4}-B", null, null, null, null,
                 SeedDate("spec-value-b", i)));
-            if (i < 100)
+            if (i - 24 < additionalValues)
             {
                 values.Add(new SkuSpecificationValue(
                     skus[i].Id, definitions[2].Id, $"值-{i:D4}-C", null, null, null, null,
@@ -290,28 +305,106 @@ public sealed class DemoDataSeeder(DoSelectDbContext dbContext)
         return new CatalogSeed(products, skus);
     }
 
+    private async Task<int> SeedReferenceCompatibilityAsync(
+        Category[] categories, Product[] products, List<Sku> skus, CancellationToken cancellationToken)
+    {
+        var now = DemoSeedManifest.PeriodStartUtc;
+        var source = new SpecificationSource(StableGuid("reference-source"), SpecificationSourceType.SystemEstimate,
+            "懂選 Demo 合成規格", "https://example.invalid/doselect-demo", "合成參考配置，非真實廠商產品",
+            now, now, "demo-admin-0001", "v3", now);
+        dbContext.SpecificationSources.Add(source);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        var facts = new Dictionary<string, object>(StringComparer.Ordinal) {
+            ["CPU_SOCKET"] = "AM5", ["CPU_GENERATION"] = "RYZEN_7000", ["MOTHERBOARD_CHIPSET"] = "X670E",
+            ["MEMORY_TYPE"] = "DDR5", ["MEMORY_SLOT_COUNT"] = 4m, ["MEMORY_MAX_CAPACITY_GB"] = 128m,
+            ["MOTHERBOARD_FORM_FACTOR"] = "ATX", ["M2_SLOT_COUNT"] = 4m, ["SATA_PORT_COUNT"] = 4m,
+            ["MOTHERBOARD_CPU_EPS_8PIN_REQUIRED_COUNT"] = 1m, ["MEMORY_MODULE_COUNT"] = 1m,
+            ["MEMORY_KIT_CAPACITY_GB"] = 16m, ["GPU_LENGTH_MM"] = 280m, ["GPU_RECOMMENDED_PSU_WATTS"] = 450m,
+            ["GPU_PCIE_6_2PIN_REQUIRED_COUNT"] = 1m, ["GPU_12VHPWR_REQUIRED_COUNT"] = 0m,
+            ["STORAGE_INTERFACE"] = "M2_NVME", ["STORAGE_CAPACITY_GB"] = 2048m, ["PSU_RATED_WATTS"] = 650m,
+            ["PSU_FORM_FACTOR"] = "ATX", ["PSU_PCIE_6_2PIN_COUNT"] = 2m, ["PSU_12VHPWR_COUNT"] = 1m,
+            ["PSU_CPU_EPS_8PIN_COUNT"] = 2m, ["CASE_SUPPORTED_MOTHERBOARD_FORM_FACTOR"] = "ATX",
+            ["CASE_GPU_MAX_LENGTH_MM"] = 320m, ["CASE_COOLER_MAX_HEIGHT_MM"] = 170m,
+            ["CASE_SUPPORTED_PSU_FORM_FACTOR"] = "ATX", ["COOLER_HEIGHT_MM"] = 150m,
+        };
+        var powerByCategory = new Dictionary<string, decimal> {
+            ["CPU"] = 105m, ["MOTHERBOARD"] = 20m, ["MEMORY"] = 5m, ["GPU"] = 200m,
+            ["STORAGE"] = 5m, ["CPU_COOLER"] = 10m,
+        };
+        var labels = new Dictionary<string, string>(StringComparer.Ordinal) {
+            ["CPU_SOCKET"] = "處理器插槽", ["CPU_GENERATION"] = "處理器世代", ["MOTHERBOARD_CHIPSET"] = "主機板晶片組",
+            ["MEMORY_TYPE"] = "記憶體類型", ["MEMORY_SLOT_COUNT"] = "記憶體插槽數", ["MEMORY_MAX_CAPACITY_GB"] = "記憶體容量上限（GB）",
+            ["MOTHERBOARD_FORM_FACTOR"] = "主機板尺寸規格", ["M2_SLOT_COUNT"] = "M.2 插槽數", ["SATA_PORT_COUNT"] = "SATA 連接埠數",
+            ["MOTHERBOARD_CPU_EPS_8PIN_REQUIRED_COUNT"] = "處理器 EPS 8-pin 接頭需求數", ["MEMORY_MODULE_COUNT"] = "記憶體模組數",
+            ["MEMORY_KIT_CAPACITY_GB"] = "記憶體套組容量（GB）", ["GPU_LENGTH_MM"] = "顯示卡長度（mm）", ["GPU_RECOMMENDED_PSU_WATTS"] = "顯示卡建議電源功率（W）",
+            ["GPU_PCIE_6_2PIN_REQUIRED_COUNT"] = "顯示卡 PCIe 6+2-pin 接頭需求數", ["GPU_12VHPWR_REQUIRED_COUNT"] = "顯示卡 12VHPWR 接頭需求數",
+            ["STORAGE_INTERFACE"] = "儲存介面", ["STORAGE_CAPACITY_GB"] = "儲存容量（GB）", ["PSU_RATED_WATTS"] = "電源額定功率（W）",
+            ["PSU_FORM_FACTOR"] = "電源尺寸規格", ["PSU_PCIE_6_2PIN_COUNT"] = "電源 PCIe 6+2-pin 接頭數", ["PSU_12VHPWR_COUNT"] = "電源 12VHPWR 接頭數",
+            ["PSU_CPU_EPS_8PIN_COUNT"] = "電源 EPS 8-pin 接頭數", ["CASE_SUPPORTED_MOTHERBOARD_FORM_FACTOR"] = "機殼支援的主機板尺寸",
+            ["CASE_GPU_MAX_LENGTH_MM"] = "機殼顯示卡長度上限（mm）", ["CASE_COOLER_MAX_HEIGHT_MM"] = "機殼散熱器高度上限（mm）",
+            ["CASE_SUPPORTED_PSU_FORM_FACTOR"] = "機殼支援的電源尺寸", ["COOLER_HEIGHT_MM"] = "散熱器高度（mm）", ["POWER_DRAW_WATTS"] = "耗電功率（W）",
+        };
+        var count = 0;
+        foreach (var category in categories)
+        {
+            var product = products.First(item => item.CategoryId == category.Id);
+            var referenceSkus = skus.Where(item => item.ProductId == product.Id).ToArray();
+            foreach (var template in MinimalDevelopmentDataSeeder.BuildCompatibilitySpecTemplates[category.Code])
+            {
+                var definition = new SpecificationDefinition(StableGuid($"reference-definition:{category.Code}:{template.SemanticKey}"),
+                    category.Id, template.SemanticKey, labels[template.SemanticKey], template.ValueType, null,
+                    template.IsRequired, template.IsProtected, 0, now, allowsMultiple: template.AllowsMultiple);
+                dbContext.SpecificationDefinitions.Add(definition);
+                await dbContext.SaveChangesAsync(cancellationToken);
+                var value = template.SemanticKey == "POWER_DRAW_WATTS" ? powerByCategory[category.Code] : facts[template.SemanticKey];
+                SpecificationOption? option = null;
+                if (value is string code)
+                {
+                    option = new SpecificationOption(StableGuid($"reference-option:{category.Code}:{template.SemanticKey}"), definition.Id, code, code, 0, now);
+                    dbContext.SpecificationOptions.Add(option);
+                    await dbContext.SaveChangesAsync(cancellationToken);
+                }
+                foreach (var sku in referenceSkus)
+                {
+                    if (template.AllowsMultiple)
+                    {
+                        dbContext.SkuSpecificationOptionSelections.Add(new SkuSpecificationOptionSelection(sku.Id, option!.Id, now, source.Id));
+                    }
+                    else
+                    {
+                        dbContext.SkuSpecificationValues.Add(new SkuSpecificationValue(sku.Id, definition.Id, null,
+                            value is decimal number ? number : null, null, option?.Id, source.Id, now));
+                        count++;
+                    }
+                }
+                await dbContext.SaveChangesAsync(cancellationToken);
+            }
+        }
+        return count;
+    }
+
     private async Task<ShippingSeed> SeedShippingAsync(CancellationToken cancellationToken)
     {
         var provider = new ShippingProviderProfile(
             StableGuid("shipping-provider"),
-            "DEMO",
+            ShippingProviderCodes.HomeDelivery,
             1,
-            "Active",
+            ShippingProviderProfileStatuses.Published,
             DemoSeedManifest.PeriodStartUtc,
             null,
-            "{\"profile\":\"implemented-features-v1\"}",
+            "{\"profile\":\"implemented-features-v3\"}",
             1,
             DemoSeedManifest.PeriodStartUtc);
         var method = new ShippingMethod(
             StableGuid("shipping-method"),
-            "DEMO-HOME",
-            "展示宅配",
-            "HomeDeliveryStandard",
-            100m,
-            10_000m,
-            false,
+            "HomeDelivery",
+            "一般宅配",
+            ShippingMethodKinds.HomeDelivery,
+            150m,
+            5_000m,
             true,
-            "DEMO",
+            false,
+            ShippingProviderCodes.HomeDelivery,
             DemoSeedManifest.PeriodStartUtc);
         dbContext.ShippingProviderProfiles.Add(provider);
         dbContext.ShippingMethods.Add(method);
@@ -321,16 +414,44 @@ public sealed class DemoDataSeeder(DoSelectDbContext dbContext)
             StableGuid("package-limit"),
             provider.Id,
             1,
-            30m,
-            120m,
-            120m,
-            120m,
-            250m,
+            20m,
+            150m,
+            150m,
+            150m,
+            150m,
             200_000m,
             DemoSeedManifest.PeriodStartUtc,
             null,
             DemoSeedManifest.PeriodStartUtc);
         dbContext.PackageLimitVersions.Add(package);
+        var storeProvider = new ShippingProviderProfile(
+            StableGuid("store-provider"), ShippingProviderCodes.StorePickup, 1,
+            ShippingProviderProfileStatuses.Published, DemoSeedManifest.PeriodStartUtc, null,
+            "{\"profile\":\"implemented-features-v3\"}", 1, DemoSeedManifest.PeriodStartUtc);
+        dbContext.ShippingProviderProfiles.Add(storeProvider);
+        dbContext.ShippingMethods.AddRange(
+            new ShippingMethod(StableGuid("store-method"), "StorePickup", "超商取貨", ShippingMethodKinds.StorePickup,
+                60m, 2_000m, true, false, ShippingProviderCodes.StorePickup, DemoSeedManifest.PeriodStartUtc),
+            new ShippingMethod(StableGuid("assembly-method"), "HomeDeliveryAssembly", "組裝電腦宅配", ShippingMethodKinds.HomeDeliveryAssembly,
+                300m, 30_000m, false, true, ShippingProviderCodes.HomeDelivery, DemoSeedManifest.PeriodStartUtc));
+        await dbContext.SaveChangesAsync(cancellationToken);
+        var storeLimits = PackageLimitSafeRanges.StorePickupDefault;
+        dbContext.PackageLimitVersions.Add(new PackageLimitVersion(
+            StableGuid("store-package-limit"), storeProvider.Id, 1, storeLimits.MaxWeightKg,
+            storeLimits.MaxLengthCm, storeLimits.MaxWidthCm, storeLimits.MaxHeightCm, storeLimits.MaxTotalCm,
+            200_000m, DemoSeedManifest.PeriodStartUtc, null, DemoSeedManifest.PeriodStartUtc));
+        var regions = new[] { ("臺北市", "中正區"), ("臺北市", "大安區"), ("新北市", "板橋區"), ("臺中市", "北屯區"), ("高雄市", "苓雅區") };
+        foreach (var brand in new[] { "7-11", "FamilyMart" })
+        {
+            for (var i = 0; i < 50; i++)
+            {
+                var (city, district) = regions[i % regions.Length];
+                dbContext.ConvenienceStores.Add(new ConvenienceStore(
+                    StableGuid($"store:{brand}:{i}"), brand, $"DEMO-{i + 1:D3}",
+                    $"{brand} {district}展示門市 {i + 1:D3}", $"展示路 {i + 1} 號", city, district,
+                    true, DemoSeedManifest.PeriodStartUtc));
+            }
+        }
         await dbContext.SaveChangesAsync(cancellationToken);
         return new ShippingSeed(provider, method, package);
     }
@@ -349,7 +470,7 @@ public sealed class DemoDataSeeder(DoSelectDbContext dbContext)
                 "order",
                 i,
                 DemoSeedManifest.PeriodEndUtc.AddDays(-10));
-            var userId = $"demo-member-{i % DemoSeedManifest.Members + 1:D4}";
+            var userId = MemberUserId(i % DemoSeedManifest.Members);
             var order = Order.Create(
                 StableGuid($"order:{i}"),
                 new OrderCreation(
@@ -366,7 +487,7 @@ public sealed class DemoDataSeeder(DoSelectDbContext dbContext)
                     0m,
                     merchandiseSubtotal + 100m,
                     $"收件人 {i + 1:D4}",
-                    $"0911{i % 10_000:D4}",
+                    $"091100{i % 10_000:D4}",
                     $"member-{i % DemoSeedManifest.Members + 1:D4}@example.invalid",
                     "100",
                     "臺北市",
@@ -638,7 +759,7 @@ public sealed class DemoDataSeeder(DoSelectDbContext dbContext)
             var ticket = new SupportTicket(
                 StableGuid($"support-ticket:{i}"),
                 $"DEMO-TICKET-{i + 1:D4}",
-                $"demo-member-{i % DemoSeedManifest.Members + 1:D4}",
+                MemberUserId(i % DemoSeedManifest.Members),
                 orders[i % orders.Count].Id,
                 (SupportTicketCategory)(i % Enum.GetValues<SupportTicketCategory>().Length),
                 $"展示客服案件 {i + 1:D4}",
@@ -819,7 +940,7 @@ public sealed class DemoDataSeeder(DoSelectDbContext dbContext)
 
         var favorites = Enumerable.Range(0, DemoSeedManifest.Favorites)
             .Select(i => new Favorite(
-                $"demo-member-{i + 1:D4}",
+                MemberUserId(i),
                 products[i].Id,
                 SeedDate("favorite", i)))
             .ToArray();
@@ -836,19 +957,21 @@ public sealed class DemoDataSeeder(DoSelectDbContext dbContext)
             var coupon = new Coupon(
                 StableGuid($"coupon:{i}"),
                 new CouponCreation(
-                    $"DEMO{i + 1:D3}",
-                    $"展示優惠券 {i + 1:D3}",
-                    CouponDiscountType.FixedAmount,
-                    100m,
-                    1_000m,
-                    null,
+                    i == DemoSeedManifest.Coupons - 1 ? "CREATOR10" : $"DEMO{i + 1:D3}",
+                    i == DemoSeedManifest.Coupons - 1 ? "創作者指定分類九折" : $"展示優惠券 {i + 1:D3}",
+                    i == DemoSeedManifest.Coupons - 1 ? CouponDiscountType.Percentage : CouponDiscountType.FixedAmount,
+                    i == DemoSeedManifest.Coupons - 1 ? 0.10m : 100m,
+                    i == DemoSeedManifest.Coupons - 1 ? 20_000m : 1_000m,
+                    i == DemoSeedManifest.Coupons - 1 ? 2_000m : null,
                     DemoSeedManifest.PeriodStartUtc.AddDays(-1),
-                    DemoSeedManifest.PeriodEndUtc.AddDays(31),
+                    i == DemoSeedManifest.Coupons - 1
+                        ? new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+                        : DemoSeedManifest.PeriodEndUtc.AddDays(31),
                     1_000,
-                    10,
-                    true,
+                    i == DemoSeedManifest.Coupons - 1 ? 1 : 10,
+                    i != DemoSeedManifest.Coupons - 1,
                     false,
-                    CouponScopeType.All),
+                    i == DemoSeedManifest.Coupons - 1 ? CouponScopeType.Restricted : CouponScopeType.All),
                 DemoSeedManifest.PeriodStartUtc.AddDays(-2));
             coupon.ActivateNow(CouponUsageState.Unused, DemoSeedManifest.PeriodStartUtc);
             return coupon;
@@ -856,12 +979,18 @@ public sealed class DemoDataSeeder(DoSelectDbContext dbContext)
         dbContext.Coupons.AddRange(coupons);
         await dbContext.SaveChangesAsync(cancellationToken);
 
+        var creatorCoupon = coupons[^1];
+        var creatorCategories = await dbContext.Categories.Where(category =>
+            category.Code == "CPU" || category.Code == "GPU" || category.Code == "MEMORY").ToListAsync(cancellationToken);
+        dbContext.CouponCategories.AddRange(creatorCategories.Select(category =>
+            new CouponCategory(creatorCoupon.Id, category.Id, DemoSeedManifest.PeriodStartUtc)));
+
         var redemptions = Enumerable.Range(0, DemoSeedManifest.CouponRedemptions).Select(i =>
         {
             var order = orders[i];
             var redemption = new CouponRedemption(
                 StableGuid($"coupon-redemption:{i}"),
-                coupons[i % coupons.Length].Id,
+                coupons[i % (coupons.Length - 1)].Id,
                 order.Id,
                 order.MemberUserId,
                 null,
@@ -917,6 +1046,8 @@ public sealed class DemoDataSeeder(DoSelectDbContext dbContext)
             $"{DemoSeedManifest.RandomSeed}:{value}"));
         return (int)(BitConverter.ToUInt32(bytes, 0) % (uint)exclusiveMaximum);
     }
+
+    internal static string MemberUserId(int zeroBasedIndex) => StableGuid($"member-identity:{zeroBasedIndex}").ToString("D");
 
     private static Guid StableGuid(string value)
     {

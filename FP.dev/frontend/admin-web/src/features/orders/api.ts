@@ -69,6 +69,33 @@ export const orderStatusLabel: Record<string, string> = {
   Cancelled: '已取消',
 }
 
+export const paymentStatusLabel: Record<string, string> = {
+  Pending: '待付款',
+  AwaitingPayment: '等待付款',
+  Processing: '付款處理中',
+  Paid: '已付款',
+  Failed: '付款失敗',
+  Cancelled: '付款已取消',
+  Expired: '付款已逾期',
+}
+
+export const assemblyStatusLabel: Record<string, string> = {
+  NotRequired: '不需組裝',
+  Pending: '等待組裝',
+  Started: '組裝中',
+  Testing: '測試中',
+  ReadyToShip: '可出貨',
+  Failed: '組裝失敗',
+  Cancelled: '組裝已取消',
+}
+
+export const orderRefundStatusLabel: Record<string, string> = {
+  None: '尚無退款',
+  Pending: '退款處理中',
+  PartiallyRefunded: '部分退款',
+  Refunded: '已退款',
+}
+
 /**
  * API Endpoint目錄.md 沒有列出 POST .../actions/{action} 的白名單，只有非窮舉例子。
  * 這裡只開放後端 AdminOrderActions 目前實作的兩個動作（見 AdminOrderContracts.cs 註解），
@@ -77,6 +104,10 @@ export const orderStatusLabel: Record<string, string> = {
 export const ORDER_ACTION_OPTIONS: ReadonlyArray<{ value: string; label: string; requiresReason: boolean }> = [
   { value: 'startProcessing', label: '開始備貨／組裝', requiresReason: false },
   { value: 'cancel', label: '人工取消訂單', requiresReason: true },
+  { value: 'assemblyTesting', label: '組裝完成，開始測試', requiresReason: false },
+  { value: 'assemblyReady', label: '測試通過，確認可出貨', requiresReason: false },
+  { value: 'assemblyFailed', label: '標記組裝／測試失敗', requiresReason: true },
+  { value: 'assemblyRestart', label: '重新開始組裝', requiresReason: false },
 ]
 
 /**
@@ -229,6 +260,7 @@ export interface AdminShipmentDto {
 }
 
 export interface AdminOrderDto {
+  assemblyJobs?: Array<{ publicId: string; status: string; rowVersion: string; availableActions: string[] }> | null
   publicId: string
   orderNumber: string
   buyerType: string
@@ -283,6 +315,8 @@ export interface AdminOrderListFilters {
 }
 
 export interface AdminOrderActionRequestBody {
+  assemblyJobPublicId?: string
+  assemblyJobRowVersion?: string
   reasonCode?: string
   note?: string
   rowVersion: string

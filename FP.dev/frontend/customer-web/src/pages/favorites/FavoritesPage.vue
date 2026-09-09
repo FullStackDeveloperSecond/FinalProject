@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
+import { PagePager, EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
 import { computed, ref } from 'vue'
 import { useMyFavoritesQuery, useRemoveFavoriteMutation } from '../../features/favorites/queries'
 import { favoriteAvailabilityLabels, formatFavoritedDate } from '../../features/favorites/labels'
+import ProductBuildImportButton from '../../features/builds/components/ProductBuildImportButton.vue'
 
 const PAGE_SIZE = 20
 
@@ -144,6 +145,10 @@ function removeFavorite(productPublicId: string): void {
             </span>
 
             <div class="favorite-card__footer">
+              <ProductBuildImportButton
+                v-if="item.availability !== 'delisted'"
+                :product-public-id="item.productPublicId"
+              />
               <small>加入收藏：{{ formatFavoritedDate(item.createdAtUtc) }}</small>
               <button
                 type="button"
@@ -156,27 +161,14 @@ function removeFavorite(productPublicId: string): void {
           </article>
         </div>
 
-        <nav
+        <PagePager
           v-if="totalPages > 1"
-          class="favorites-pagination"
-          aria-label="分頁"
-        >
-          <button
-            type="button"
-            :disabled="pageNumber <= 1"
-            @click="goToPage(pageNumber - 1)"
-          >
-            上一頁
-          </button>
-          <span>第 {{ pageNumber }} / {{ totalPages }} 頁</span>
-          <button
-            type="button"
-            :disabled="pageNumber >= totalPages"
-            @click="goToPage(pageNumber + 1)"
-          >
-            下一頁
-          </button>
-        </nav>
+          :page="pageNumber"
+          :page-size="1"
+          :total-records="totalPages"
+          aria-label="列表分頁"
+          @update:page="goToPage"
+        />
       </template>
     </template>
   </section>

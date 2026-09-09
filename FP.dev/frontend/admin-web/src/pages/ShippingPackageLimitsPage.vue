@@ -24,6 +24,16 @@ const { data: versions, isPending, isError, error, refetch } = usePackageLimitVe
 const createMutation = useCreatePackageLimitVersion()
 const publishMutation = usePublishPackageLimitVersion()
 
+const PACKAGE_LIMIT_STATUS_LABELS: Readonly<Record<string, string>> = {
+  Draft: '草稿',
+  Published: '已發布',
+  Superseded: '已由新版接替',
+}
+
+function packageLimitStatusLabel(value: string): string {
+  return PACKAGE_LIMIT_STATUS_LABELS[value] ?? '其他狀態'
+}
+
 const isCreating = ref(false)
 const draft = reactive({
   maxLengthCm: 45,
@@ -385,7 +395,7 @@ function isEffectiveNow(version: PackageLimitVersionDto): boolean {
         >
           <td>{{ version.version }}</td>
           <td>
-            {{ version.status }}
+            {{ packageLimitStatusLabel(version.status) }}
             <span
               v-if="isEffectiveNow(version)"
               class="limits-badge"

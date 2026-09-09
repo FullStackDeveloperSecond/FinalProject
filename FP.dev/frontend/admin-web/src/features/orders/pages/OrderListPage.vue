@@ -174,7 +174,7 @@ async function goToBatchShipment(): Promise<void> {
     </h1>
 
     <fieldset>
-      <legend>摘要狀態</legend>
+      <legend>商品狀態（訂單進度與退款）</legend>
       <label
         v-for="option in SUMMARY_STATUS_OPTIONS"
         :key="option.value"
@@ -186,10 +186,10 @@ async function goToBatchShipment(): Promise<void> {
         >
         {{ option.label }}
       </label>
-    </fieldset>
-
-    <fieldset>
-      <legend>徽章</legend>
+      <span
+        class="order-filter-separator"
+        aria-hidden="true"
+      >／</span>
       <label
         v-for="option in BADGE_OPTIONS"
         :key="option.value"

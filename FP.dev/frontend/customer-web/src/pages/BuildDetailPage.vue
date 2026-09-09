@@ -13,7 +13,9 @@ import {
   useRevokeBuildShare,
   useUpdateBuildList,
 } from '../features/builds/useBuilds'
-import { validateBuildItems, type BuildShareDto } from '../features/builds/types'
+import { validateBuildItems, type BuildShareDto, type AddBuildToCartRequest } from '../features/builds/types'
+import { getCart } from '../features/cart/api'
+import type { OwnedBuildPart } from '../features/builds/buildImport'
 
 const props = defineProps<{ buildId: string }>()
 const router = useRouter()
@@ -27,6 +29,7 @@ const addToCart = useAddBuildToCart()
 
 const name = ref('')
 const items = ref<EditableBuildItem[]>([])
+const ownedParts = ref<OwnedBuildPart[]>([])
 const hasConcurrencyConflict = ref(false)
 const saveError = ref<unknown>(null)
 
@@ -41,6 +44,7 @@ function resetFromServer(): void {
     return
   }
   name.value = buildList.value.name
+  ownedParts.value = JSON.parse(JSON.stringify(buildList.value.ownedParts ?? []))
   items.value = buildList.value.items.map((item) => ({
     skuPublicId: item.skuPublicId, quantity: Number(item.quantity), name: item.name, categoryCode: item.categoryCode,
   }))
@@ -94,6 +98,7 @@ const isDirty = computed(() => {
   if (name.value !== build.name) {
     return true
   }
+  if (JSON.stringify(ownedParts.value) !== JSON.stringify(build.ownedParts ?? [])) return true
   const serverSignature = itemsSignature(build.items.map((item) => ({ skuPublicId: item.skuPublicId, quantity: Number(item.quantity) })))
   return itemsSignature(items.value) !== serverSignature
 })
@@ -101,7 +106,7 @@ const isDirty = computed(() => {
 // 組長 PR #35 round-3 review, P1-2: mirrors EfCompatibilityCheckService.MergeAndValidateItems's
 // own bounds (1–20 items, 1–8 per SKU) — must gate "儲存變更" the same way NewBuildPage.vue's
 // "儲存為我的清單" is gated, not just left for the backend to reject after the fact.
-const itemsValidation = computed(() => validateBuildItems(items.value))
+const itemsValidation = computed(() => validateBuildItems([...items.value, ...ownedParts.value.map((part, index) => ({ skuPublicId: part.skuPublicId ?? `owned-${index}`, quantity: Number(part.quantity) }))]))
 
 // 組長 PR #35 round-6 review, P2-2: `save()` only ever gated on `itemsValidation` — the name field
 // could be cleared to blank/whitespace-only and "儲存變更" would still submit it, even though the
@@ -129,6 +134,7 @@ async function save(): Promise<void> {
         name: name.value,
         items: items.value.map((item) => ({ skuPublicId: item.skuPublicId, quantity: item.quantity })),
         rowVersion: buildList.value.rowVersion,
+        ownedParts: ownedParts.value,
       },
     })
     // 組長 PR #35 round-3 review: mutation 成功後要以 server response 重設本地 editor
@@ -238,6 +244,7 @@ const cartBlockReason = computed<string | null>(() => {
   if (!build) {
     return null
   }
+  if (!build.items.length) return '本清單都是自有零件，沒有需要購買的商品。'
   if (isDirty.value) {
     return unsavedEditsMessage.value
   }
@@ -274,7 +281,8 @@ const canAddToCart = computed(() => cartBlockReason.value === null && isCartQuan
 // and its safe retries must share one key until it either succeeds or the shopper changes the
 // input (a different quantity is a genuinely different operation, not a retry of the same one).
 let cartIdempotencyKey = crypto.randomUUID()
-watch(cartQuantity, () => { cartIdempotencyKey = crypto.randomUUID() })
+let pendingCartRequest: AddBuildToCartRequest | null = null
+watch([cartQuantity, () => buildList.value?.rowVersion], () => { cartIdempotencyKey = crypto.randomUUID(); pendingCartRequest = null })
 
 /**
  * 組長 PR #35 round-3 review, P2-5: Vue Router 在同一個 route record 上只換 :buildId 參數時
@@ -289,6 +297,8 @@ watch(cartQuantity, () => { cartIdempotencyKey = crypto.randomUUID() })
 watch(() => props.buildId, () => {
   name.value = ''
   items.value = []
+  ownedParts.value = []
+  pendingCartRequest = null
   hasConcurrencyConflict.value = false
   saveError.value = null
   showDeleteConfirm.value = false
@@ -309,21 +319,30 @@ async function addBuildToCart(): Promise<void> {
   cartResultMessage.value = null
   cartError.value = null
   try {
+    if (!pendingCartRequest) {
+      const buildRowVersion = buildList.value.rowVersion
+      const quantity = cartQuantity.value
+      const cartRowVersion = ownedParts.value.length ? (await getCart()).rowVersion : undefined
+      if (!isStillViewing(requestedBuildId)) return
+      pendingCartRequest = { quantity, buildRowVersion, ...(cartRowVersion ? { cartRowVersion, cartTransfers: [] } : {}) }
+    }
     await addToCart.mutateAsync({
       publicId: requestedBuildId,
-      request: { quantity: cartQuantity.value, buildRowVersion: buildList.value.rowVersion },
+      request: pendingCartRequest,
       idempotencyKey: cartIdempotencyKey,
     })
     if (!isStillViewing(requestedBuildId)) {
       return
     }
     cartResultMessage.value = '已加入購物車。'
+    pendingCartRequest = null
     cartIdempotencyKey = crypto.randomUUID()
   } catch (error) {
     if (!isStillViewing(requestedBuildId)) {
       return
     }
     cartError.value = error
+    if (isApiError(error) && [400, 404, 409].includes(error.status)) pendingCartRequest = null
   }
 }
 </script>
@@ -417,9 +436,32 @@ async function addBuildToCart(): Promise<void> {
 
       <BuildItemsEditor
         :items="items"
+        :owned-category-codes="ownedParts.map(part => part.categoryCode ?? '')"
         :disabled="updateBuildList.isPending.value"
         @update:items="(next) => { items = next }"
       />
+      <section
+        v-if="ownedParts.length"
+        aria-label="自有零件"
+      >
+        <h2>自有零件</h2>
+        <p>不加入購物車，只購買新零件；不收組裝費，也不建立組裝工單。</p>
+        <ul>
+          <li
+            v-for="(part, index) in ownedParts"
+            :key="index"
+          >
+            {{ part.displayName }} × {{ part.quantity }}（自有）
+            <button
+              type="button"
+              :disabled="updateBuildList.isPending.value"
+              @click="ownedParts.splice(index, 1)"
+            >
+              移除自有零件
+            </button>
+          </li>
+        </ul>
+      </section>
 
       <ul
         v-if="!itemsValidation.isValid"

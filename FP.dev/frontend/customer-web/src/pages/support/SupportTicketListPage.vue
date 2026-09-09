@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
+import { EmptyState, ErrorState, LoadingState, PagePager } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
 import { computed, ref, watch } from 'vue'
 import { useSupportTicketsQuery } from '../../features/support/queries'
@@ -177,26 +177,12 @@ const totalPages = computed(() => Math.max(1, Math.ceil(Number(data.value?.total
           <p class="support-tickets__count">
             共 {{ data.totalCount }} 筆
           </p>
-          <nav
-            class="support-tickets__pagination"
+          <PagePager
+            v-model:page="pageNumber"
+            :total-records="totalPages"
+            :page-size="1"
             aria-label="客服案件分頁"
-          >
-            <button
-              type="button"
-              :disabled="pageNumber <= 1"
-              @click="pageNumber--"
-            >
-              上一頁
-            </button>
-            <span>第 {{ pageNumber }} / {{ totalPages }} 頁</span>
-            <button
-              type="button"
-              :disabled="pageNumber >= totalPages"
-              @click="pageNumber++"
-            >
-              下一頁
-            </button>
-          </nav>
+          />
         </template>
         <template #detail>
           <SupportTicketPreview

@@ -57,6 +57,19 @@ public sealed class GuestOrderAccessHasher : IGuestOrderAccessHasher
 
     public byte[] HashToken(string rawToken) => Hash("token", rawToken.Trim());
 
+    public byte[] HashGuestCartKey(string guestCartKey) => Hash("guest-cart", guestCartKey.Trim());
+
+    public string DeriveOrderAccessToken(Guid orderPublicId, Guid verificationPublicId)
+    {
+        if (orderPublicId == Guid.Empty || verificationPublicId == Guid.Empty)
+        {
+            throw new ArgumentException("Order and verification PublicIds are required.");
+        }
+
+        return Convert.ToHexStringLower(Hash(
+            "checkout-order-access", $"{orderPublicId:N}:{verificationPublicId:N}"));
+    }
+
     private byte[] Hash(string scope, string value) =>
         HMACSHA256.HashData(_pepper, Encoding.UTF8.GetBytes($"{scope}:{value}"));
 }

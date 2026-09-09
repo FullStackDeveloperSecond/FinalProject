@@ -17,20 +17,37 @@ const submitting = ref(false)
 const fieldErrors = ref<Record<string, string[]>>({})
 const topLevelError = ref<string | null>(null)
 const registered = ref<RegisterAcceptedResponseBody | null>(null)
+const touched = ref<Record<string, boolean>>({})
+const validationMessages: Record<string, string> = {
+  email: '請輸入有效的電子郵件地址，長度須為 3 至 320 個字元。',
+  password: '密碼長度須為 12 至 128 個字元。',
+  displayName: '請輸入姓名，長度須為 1 至 100 個字元。',
+  confirmPassword: '請再次輸入相同密碼。',
+  acceptTermsVersion: '請先閱讀並同意服務條款與隱私權政策。',
+}
+const localErrors = computed<Record<string, string[]>>(() => {
+  const errors: Record<string, string[]> = {}
+  if (!displayName.value.trim() || displayName.value.trim().length > 100) errors.displayName = [validationMessages.displayName!]
+  if (email.value.trim().length > 320 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value.trim())) errors.email = [validationMessages.email!]
+  if (password.value.length < 12 || password.value.length > 128) errors.password = [validationMessages.password!]
+  if (!confirmPassword.value || confirmPassword.value !== password.value) errors.confirmPassword = [validationMessages.confirmPassword!]
+  return errors
+})
 
 const passwordMismatch = computed(() =>
   confirmPassword.value.length > 0 && confirmPassword.value !== password.value,
 )
 
 function errorsFor(field: string): string[] {
-  return fieldErrors.value[field] ?? []
+  return (touched.value[field] ? localErrors.value[field] : undefined) ?? fieldErrors.value[field] ?? []
 }
 
 async function handleSubmit(): Promise<void> {
   fieldErrors.value = {}
   topLevelError.value = null
 
-  const clientErrors: Record<string, string[]> = {}
+  touched.value = { displayName: true, email: true, password: true, confirmPassword: true }
+  const clientErrors: Record<string, string[]> = { ...localErrors.value }
   if (passwordMismatch.value) {
     clientErrors.confirmPassword = ['密碼與確認密碼不一致。']
   }
@@ -55,9 +72,12 @@ async function handleSubmit(): Promise<void> {
       if (error.code === 'account_email_in_use') {
         fieldErrors.value = { email: ['此 Email 已被註冊，請改用其他 Email 或直接登入。'] }
       } else if (error.fieldErrors) {
-        fieldErrors.value = error.fieldErrors
+        fieldErrors.value = Object.fromEntries(Object.entries(error.fieldErrors).map(([field, messages]) => {
+          const key = field.charAt(0).toLowerCase() + field.slice(1)
+          return [key, messages.map(message => /[\u3400-\u9fff]/.test(message) ? message : validationMessages[key] ?? '欄位內容不符合規定，請檢查後再試。')]
+        }))
       } else {
-        topLevelError.value = error.message
+        topLevelError.value = /[\u3400-\u9fff]/.test(error.message) ? error.message : '註冊失敗，請確認資料後再試一次。'
       }
     } else {
       topLevelError.value = '註冊時發生未預期的錯誤，請稍後再試一次。'
@@ -94,14 +114,39 @@ async function handleSubmit(): Promise<void> {
     </p>
 
     <div class="form-field">
-      <label for="register-email">電子郵件</label>
+      <label for="register-display-name">姓名 *</label>
+      <input
+        id="register-display-name"
+        v-model="displayName"
+        type="text"
+        autocomplete="name"
+        maxlength="100"
+        required
+        :aria-invalid="errorsFor('displayName').length > 0"
+        @blur="touched.displayName = true"
+        @input="fieldErrors.displayName = []"
+      >
+      <p
+        v-for="message in errorsFor('displayName')"
+        :key="message"
+        class="form-field__error"
+      >
+        {{ message }}
+      </p>
+    </div>
+
+    <div class="form-field">
+      <label for="register-email">電子郵件 *</label>
       <input
         id="register-email"
         v-model="email"
         type="email"
         autocomplete="email"
         required
+        maxlength="320"
         :aria-invalid="errorsFor('email').length > 0"
+        @blur="touched.email = true"
+        @input="fieldErrors.email = []"
       >
       <p
         v-for="message in errorsFor('email')"
@@ -113,7 +158,7 @@ async function handleSubmit(): Promise<void> {
     </div>
 
     <div class="form-field">
-      <label for="register-password">密碼</label>
+      <label for="register-password">密碼 *</label>
       <div class="password-field">
         <input
           id="register-password"
@@ -124,6 +169,8 @@ async function handleSubmit(): Promise<void> {
           maxlength="128"
           required
           :aria-invalid="errorsFor('password').length > 0"
+          @blur="touched.password = true"
+          @input="fieldErrors.password = []"
         >
         <PasswordVisibilityToggle v-model="showPassword" />
       </div>
@@ -140,7 +187,7 @@ async function handleSubmit(): Promise<void> {
     </div>
 
     <div class="form-field">
-      <label for="register-confirm-password">確認密碼</label>
+      <label for="register-confirm-password">確認密碼 *</label>
       <div class="password-field">
         <input
           id="register-confirm-password"
@@ -149,34 +196,15 @@ async function handleSubmit(): Promise<void> {
           autocomplete="new-password"
           required
           :aria-invalid="passwordMismatch || errorsFor('confirmPassword').length > 0"
+          @blur="touched.confirmPassword = true"
         >
         <PasswordVisibilityToggle v-model="showConfirmPassword" />
       </div>
       <p
-        v-if="passwordMismatch"
+        v-if="passwordMismatch || errorsFor('confirmPassword').length"
         class="form-field__error"
       >
         密碼與確認密碼不一致。
-      </p>
-    </div>
-
-    <div class="form-field">
-      <label for="register-display-name">姓名</label>
-      <input
-        id="register-display-name"
-        v-model="displayName"
-        type="text"
-        autocomplete="name"
-        maxlength="100"
-        required
-        :aria-invalid="errorsFor('displayName').length > 0"
-      >
-      <p
-        v-for="message in errorsFor('displayName')"
-        :key="message"
-        class="form-field__error"
-      >
-        {{ message }}
       </p>
     </div>
 
@@ -186,7 +214,15 @@ async function handleSubmit(): Promise<void> {
         v-model="acceptTerms"
         type="checkbox"
       >
-      <label for="register-accept-terms">我同意服務條款與隱私權政策</label>
+      <label for="register-accept-terms">
+        我同意<RouterLink
+          to="/terms"
+          target="_blank"
+        >服務條款</RouterLink>與<RouterLink
+          to="/privacy"
+          target="_blank"
+        >隱私權政策</RouterLink>
+      </label>
     </div>
     <p
       v-for="message in errorsFor('acceptTermsVersion')"

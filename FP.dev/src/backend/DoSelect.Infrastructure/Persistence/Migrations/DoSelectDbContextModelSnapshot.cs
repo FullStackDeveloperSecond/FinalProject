@@ -547,6 +547,10 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                         .HasMaxLength(160)
                         .HasColumnType("nvarchar(160)");
 
+                    b.Property<string>("OwnedPartsJson")
+                        .HasMaxLength(32000)
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("OwnerUserId")
                         .IsRequired()
                         .HasMaxLength(450)
@@ -3742,6 +3746,109 @@ namespace DoSelect.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("IX_AssemblyJobStatusHistories_AssemblyJobId_OccurredAtUtc");
 
                     b.ToTable("AssemblyJobStatusHistories", (string)null);
+                });
+
+            modelBuilder.Entity("DoSelect.Domain.Orders.GuestCheckoutEmailVerification", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("AttemptCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(0);
+
+                    b.Property<byte[]>("CodeHash")
+                        .IsRequired()
+                        .HasColumnType("binary(32)");
+
+                    b.Property<DateTime?>("ConsumedAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<byte[]>("EmailHash")
+                        .IsRequired()
+                        .HasColumnType("binary(32)");
+
+                    b.Property<string>("EmailNormalized")
+                        .IsRequired()
+                        .HasMaxLength(320)
+                        .HasColumnType("nvarchar(320)");
+
+                    b.Property<DateTime>("ExpiresAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<byte[]>("GuestCartKeyHash")
+                        .IsRequired()
+                        .HasColumnType("binary(32)");
+
+                    b.Property<DateTime?>("LockedAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<byte[]>("ProofTokenHash")
+                        .HasColumnType("binary(32)");
+
+                    b.Property<Guid>("PublicId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<byte[]>("RequesterIpHash")
+                        .IsRequired()
+                        .HasColumnType("binary(32)");
+
+                    b.Property<DateTime?>("RevokedAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<DateTime?>("VerifiedAtUtc")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpiresAtUtc")
+                        .HasDatabaseName("IX_GuestCheckoutEmailVerifications_ExpiresAtUtc");
+
+                    b.HasIndex("ProofTokenHash")
+                        .IsUnique()
+                        .HasDatabaseName("UX_GuestCheckoutEmailVerifications_ProofTokenHash")
+                        .HasFilter("[ProofTokenHash] IS NOT NULL");
+
+                    b.HasIndex("PublicId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_GuestCheckoutEmailVerifications_PublicId");
+
+                    b.HasIndex("EmailHash", "CreatedAtUtc")
+                        .HasDatabaseName("IX_GuestCheckoutEmailVerifications_EmailHash_CreatedAtUtc");
+
+                    b.HasIndex("GuestCartKeyHash", "CreatedAtUtc")
+                        .HasDatabaseName("IX_GuestCheckoutEmailVerifications_GuestCartKeyHash_CreatedAtUtc");
+
+                    b.HasIndex("RequesterIpHash", "CreatedAtUtc")
+                        .HasDatabaseName("IX_GuestCheckoutEmailVerifications_RequesterIpHash_CreatedAtUtc");
+
+                    b.ToTable("GuestCheckoutEmailVerifications", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_GuestCheckoutEmailVerifications_AttemptCount", "[AttemptCount] >= 0 AND [AttemptCount] <= 5");
+                        });
                 });
 
             modelBuilder.Entity("DoSelect.Domain.Orders.GuestOrderAccessRequest", b =>

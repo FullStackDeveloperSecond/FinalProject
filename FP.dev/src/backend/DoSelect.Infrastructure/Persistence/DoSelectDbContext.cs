@@ -66,6 +66,9 @@ public sealed class DoSelectDbContext
     public DbSet<GuestOrderAccessToken> GuestOrderAccessTokens =>
         Set<GuestOrderAccessToken>();
 
+    public DbSet<GuestCheckoutEmailVerification> GuestCheckoutEmailVerifications =>
+        Set<GuestCheckoutEmailVerification>();
+
     public DbSet<AssemblyJob> AssemblyJobs => Set<AssemblyJob>();
 
     public DbSet<AssemblyJobStatusHistory> AssemblyJobStatusHistories =>

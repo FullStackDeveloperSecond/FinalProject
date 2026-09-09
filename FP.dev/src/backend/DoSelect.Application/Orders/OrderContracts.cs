@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Net;
+using System.Text.Json.Serialization;
 using DoSelect.Domain.Orders;
 
 namespace DoSelect.Application.Orders;
@@ -53,7 +54,18 @@ public sealed record OrderDto(
     IReadOnlyList<string> AvailableActions,
     byte[] RowVersion,
     // C1：顧客看得到單號、狀態與時間歷程；不含 Actor、原因備註或內部 ID。
-    OrderShipmentDto? Shipment = null);
+    OrderShipmentDto? Shipment = null)
+{
+    /// <summary>僅供 Checkout API 簽發 HttpOnly Cookie；永不序列化至回應。</summary>
+    [JsonIgnore]
+    public string? GuestOrderAccessToken { get; init; }
+
+    [JsonIgnore]
+    public Guid? GuestEmailVerificationPublicId { get; init; }
+
+    [JsonIgnore]
+    public DateTime? GuestOrderAccessExpiresAtUtc { get; init; }
+}
 
 public sealed record OrderSummaryDto(
     Guid PublicId,

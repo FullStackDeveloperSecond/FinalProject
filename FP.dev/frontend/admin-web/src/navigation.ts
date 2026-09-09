@@ -1,6 +1,9 @@
 export interface AdminNavigationItem { title: string; to: string; icon: string; description: string }
 export interface AdminNavigationGroup { id: string; title: string; icon: string; description: string; items: AdminNavigationItem[] }
 export const adminNavigation: AdminNavigationGroup[] = [
+  { id: 'members', title: '會員管理', icon: 'support', description: '查詢會員與管理帳號狀態', items: [
+    { title: '會員管理', to: '/members', icon: 'support', description: '查詢會員詳情與帳號啟停用紀錄。' },
+  ] },
   { id: 'support', title: '客服與售後', icon: 'support', description: '受理問題、追蹤案件與售後服務', items: [
     { title: '客服 SLA 佇列', to: '/support', icon: 'support', description: '受理待處理案件，掌握回覆時限。' },
     { title: '案件工作台', to: '/cases', icon: 'document', description: '依優先程度與進度追蹤案件。' },

@@ -9,10 +9,11 @@ DECLARE @ApplicationTableCount int =
     FROM sys.tables
     WHERE is_ms_shipped = 0
       AND name <> N'__EFMigrationsHistory'
+      AND schema_id = SCHEMA_ID(N'dbo')
 );
 
-IF @ApplicationTableCount <> 93
-    THROW 51001, 'Expected 93 application and Identity tables.', 1;
+IF @ApplicationTableCount <> 106
+    THROW 51001, 'Expected 106 application and Identity tables for the current migration chain.', 1;
 
 DECLARE @ExplicitIndexCount int =
 (
@@ -22,13 +23,14 @@ DECLARE @ExplicitIndexCount int =
         ON tables.object_id = indexes.object_id
     WHERE tables.is_ms_shipped = 0
       AND tables.name <> N'__EFMigrationsHistory'
+      AND tables.schema_id = SCHEMA_ID(N'dbo')
       AND indexes.index_id > 0
       AND indexes.is_primary_key = 0
       AND indexes.is_unique_constraint = 0
 );
 
-IF @ExplicitIndexCount <> 315
-    THROW 51002, 'Expected 315 explicit EF Core indexes.', 1;
+IF @ExplicitIndexCount <> 357
+    THROW 51002, 'Expected 357 explicit EF Core indexes for the current migration chain.', 1;
 
 IF OBJECT_ID(N'dbo.vw_CaseWorkbench', N'V') IS NULL
     THROW 51003, 'dbo.vw_CaseWorkbench was not created.', 1;
@@ -80,6 +82,15 @@ IF NOT EXISTS
 )
     THROW 51005, 'InitialCreate is missing from EF migration history.', 1;
 
+IF NOT EXISTS
+(
+    SELECT 1
+    FROM dbo.__EFMigrationsHistory
+    WHERE MigrationId = N'20260909040927_AddGuestCheckoutEmailVerification'
+      AND ProductVersion = N'10.0.10'
+)
+    THROW 51006, 'The current checkout email verification migration is missing from EF migration history.', 1;
+
 DECLARE @WorkbenchRows bigint;
 SELECT @WorkbenchRows = COUNT_BIG(*) FROM dbo.vw_CaseWorkbench;
 
@@ -89,5 +100,5 @@ SELECT
     @ExplicitIndexCount AS ExplicitIndexes,
     12 AS WorkbenchColumns,
     @WorkbenchRows AS WorkbenchRows,
-    N'20260819013357_InitialCreate' AS AppliedMigration,
+    N'20260909040927_AddGuestCheckoutEmailVerification' AS LatestAppliedMigration,
     N'PASS' AS VerificationResult;

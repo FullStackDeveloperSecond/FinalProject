@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { PagePager } from '@doselect/web-shared/components'
 import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
 import { computed } from 'vue'
@@ -94,26 +95,14 @@ function formatTwd(amount: number): string {
       </li>
     </ul>
 
-    <div
+    <PagePager
       v-if="totalPages > 1"
-      class="build-lists-page__pagination"
-    >
-      <button
-        type="button"
-        :disabled="pageNumber <= 1"
-        @click="goToPage(pageNumber - 1)"
-      >
-        上一頁
-      </button>
-      <span>第 {{ pageNumber }} / {{ totalPages }} 頁</span>
-      <button
-        type="button"
-        :disabled="pageNumber >= totalPages"
-        @click="goToPage(pageNumber + 1)"
-      >
-        下一頁
-      </button>
-    </div>
+      :page="pageNumber"
+      :page-size="1"
+      :total-records="totalPages"
+      aria-label="列表分頁"
+      @update:page="goToPage"
+    />
   </section>
 </template>
 

@@ -166,7 +166,7 @@ public sealed class EfAdminOrderService : IAdminOrderService
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(auditContext);
 
-        if (action != AdminOrderActions.StartProcessing && action != AdminOrderActions.Cancel)
+        if (!AdminOrderActions.All.Contains(action))
         {
             throw new AdminOrderWriteException(
                 AdminOrderWriteException.ErrorCodes.ValidationFailed,
@@ -201,6 +201,9 @@ public sealed class EfAdminOrderService : IAdminOrderService
         }
 
         _dbContext.Entry(order).Property(candidate => candidate.RowVersion).OriginalValue = request.RowVersion;
+
+        if (action is AdminOrderActions.AssemblyTesting or AdminOrderActions.AssemblyReady or AdminOrderActions.AssemblyFailed or AdminOrderActions.AssemblyRestart)
+            return await UpdateAssemblyAsync(order, action, actorUserId, auditContext, request, cancellationToken);
 
         var fromStatus = order.OrderStatus;
         var now = _timeProvider.GetUtcNow().UtcDateTime;
@@ -513,7 +516,71 @@ public sealed class EfAdminOrderService : IAdminOrderService
             order.CancelledAtUtc,
             order.CreatedAtUtc,
             order.RowVersion,
-            await ShipmentProjection.LoadAdminAsync(_dbContext, order, cancellationToken));
+            await ShipmentProjection.LoadAdminAsync(_dbContext, order, cancellationToken),
+            (await _dbContext.AssemblyJobs.AsNoTracking().Where(job => job.OrderId == order.Id)
+                .OrderBy(job => job.PublicId).ToListAsync(cancellationToken))
+                .Select(job => new AdminAssemblyJobDto(job.PublicId, job.Status.ToString(), job.RowVersion,
+                    order.OrderStatus == OrderStatus.Processing && order.FulfillmentStatus == FulfillmentStatus.Pending
+                        ? AssemblyActionsOf(job.Status) : [])).ToArray());
+    }
+
+    private static IReadOnlyList<string> AssemblyActionsOf(AssemblyJobStatus status) => status switch
+    {
+        AssemblyJobStatus.Started => [AdminOrderActions.AssemblyTesting, AdminOrderActions.AssemblyFailed],
+        AssemblyJobStatus.Testing => [AdminOrderActions.AssemblyReady, AdminOrderActions.AssemblyFailed],
+        AssemblyJobStatus.Failed => [AdminOrderActions.AssemblyRestart],
+        _ => [],
+    };
+
+    private async Task<AdminOrderDto> UpdateAssemblyAsync(Order order, string action, string actorUserId,
+        OrderCancellationAuditContext auditContext, AdminOrderActionRequest request, CancellationToken cancellationToken)
+    {
+        if (request.RowVersion.Length != 8 || request.AssemblyJobRowVersion?.Length != 8 || request.AssemblyJobPublicId is null)
+            throw new AdminOrderWriteException(AdminOrderWriteException.ErrorCodes.ValidationFailed, "請提供組裝工作及最新資料版本。");
+        if (action == AdminOrderActions.AssemblyFailed && string.IsNullOrWhiteSpace(request.ReasonCode))
+            throw new AdminOrderWriteException(AdminOrderWriteException.ErrorCodes.ValidationFailed, "請選擇組裝失敗原因。");
+        if (order.OrderStatus != OrderStatus.Processing || order.FulfillmentStatus != FulfillmentStatus.Pending)
+            throw new AdminOrderWriteException(AdminOrderWriteException.ErrorCodes.OrderStateConflict, "訂單目前不可更新組裝進度。");
+        var jobs = await _dbContext.AssemblyJobs.Where(job => job.OrderId == order.Id).ToListAsync(cancellationToken);
+        var target = jobs.SingleOrDefault(job => job.PublicId == request.AssemblyJobPublicId);
+        if (target is null || !AssemblyActionsOf(target.Status).Contains(action))
+            throw new AdminOrderWriteException(AdminOrderWriteException.ErrorCodes.OrderStateConflict, "組裝工作不存在或不能執行此步驟。");
+        if (!order.RowVersion.SequenceEqual(request.RowVersion) || !target.RowVersion.SequenceEqual(request.AssemblyJobRowVersion))
+            throw new AdminOrderWriteException(AdminOrderWriteException.ErrorCodes.ConcurrencyConflict, "組裝資料已更新，請重新整理。");
+        _dbContext.Entry(target).Property(job => job.RowVersion).OriginalValue = request.AssemblyJobRowVersion;
+        var next = action switch
+        {
+            AdminOrderActions.AssemblyTesting => AssemblyJobStatus.Testing,
+            AdminOrderActions.AssemblyReady => AssemblyJobStatus.ReadyToShip,
+            AdminOrderActions.AssemblyFailed => AssemblyJobStatus.Failed,
+            _ => AssemblyJobStatus.Started,
+        };
+        var now = _timeProvider.GetUtcNow().UtcDateTime;
+        var previous = target.Status;
+        target.ChangeStatus(next, now);
+        _dbContext.AssemblyJobStatusHistories.Add(new AssemblyJobStatusHistory(Guid.CreateVersion7(), target.Id,
+            previous, next, request.ReasonCode, actorUserId, now, auditContext.TraceId));
+        // Each computer is tracked independently. Shipping is possible only after every job passed.
+        var aggregate = jobs.All(job => job.Status == AssemblyJobStatus.ReadyToShip) ? AssemblyStatus.ReadyToShip
+            : jobs.Any(job => job.Status == AssemblyJobStatus.Failed) ? AssemblyStatus.Failed
+            : jobs.Any(job => job.Status == AssemblyJobStatus.Started) ? AssemblyStatus.Started
+            : jobs.Any(job => job.Status == AssemblyJobStatus.Pending) ? AssemblyStatus.Pending
+            : jobs.Any(job => job.Status == AssemblyJobStatus.Cancelled) ? AssemblyStatus.Cancelled
+            : AssemblyStatus.Testing;
+        var previousAggregate = order.AssemblyStatus;
+        order.ApplyAssemblyProjection(aggregate, now);
+        if (aggregate != previousAggregate)
+            _dbContext.OrderStatusHistories.Add(new OrderStatusHistory(Guid.CreateVersion7(), order.Id,
+                OrderStateDimension.AssemblyStatus, previousAggregate.ToString(), aggregate.ToString(),
+                request.ReasonCode, actorUserId, now, auditContext.TraceId));
+        _auditWriter.Add(AuditWriteRequest.Create(Guid.CreateVersion7(), await ResolveAdminAuditActorAsync(actorUserId, cancellationToken),
+            AuditActions.OrderAssemblyProgress, AuditResourceTypes.Order, order.PublicId, AuditResult.Success, null,
+            [AuditFieldChange.Code("assemblyStatus", previous.ToString(), next.ToString())], action,
+            auditContext.CorrelationId, auditContext.TraceId, null, auditContext.RemoteIpAddress, request.Note));
+        try { await _dbContext.SaveChangesAsync(cancellationToken); }
+        catch (DbUpdateConcurrencyException)
+        { throw new AdminOrderWriteException(AdminOrderWriteException.ErrorCodes.ConcurrencyConflict, "組裝資料已更新，請重新整理。"); }
+        return await BuildDetailAsync(order, cancellationToken);
     }
 
     private static AdminOrderSummaryDto ToSummaryDto(Order order) => new(

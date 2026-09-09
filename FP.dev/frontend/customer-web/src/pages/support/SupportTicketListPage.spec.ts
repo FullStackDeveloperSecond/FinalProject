@@ -1,3 +1,4 @@
+import PrimeVue from 'primevue/config'
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 import { createDoSelectClient } from '@doselect/web-shared/api'
 import { mount } from '@vue/test-utils'
@@ -86,7 +87,7 @@ describe('supportTicketListPage', () => {
     const router = createRouter({ history: createMemoryHistory(), routes: [] })
     const wrapper = mount(SupportTicketListPage, {
       global: {
-        plugins: [router, [VueQueryPlugin, {
+        plugins: [router, PrimeVue, [VueQueryPlugin, {
           queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }),
         }]],
       },
@@ -118,7 +119,7 @@ describe('supportTicketListPage', () => {
     const router = createRouter({ history: createMemoryHistory(), routes: [] })
     const wrapper = mount(SupportTicketListPage, {
       global: {
-        plugins: [router, [VueQueryPlugin, {
+        plugins: [router, PrimeVue, [VueQueryPlugin, {
           queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }),
         }]],
       },
@@ -165,14 +166,14 @@ describe('supportTicketListPage', () => {
     const router = createRouter({ history: createMemoryHistory(), routes: [] })
     const wrapper = mount(SupportTicketListPage, {
       global: {
-        plugins: [router, [VueQueryPlugin, {
+        plugins: [router, PrimeVue, [VueQueryPlugin, {
           queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }),
         }]],
       },
     })
 
     await vi.waitFor(() => {
-      expect(wrapper.text()).toContain('Authentication required')
+      expect(wrapper.text()).toContain('請先登入後再繼續。')
     })
     expect(fetchSpy).toHaveBeenCalledOnce()
   })

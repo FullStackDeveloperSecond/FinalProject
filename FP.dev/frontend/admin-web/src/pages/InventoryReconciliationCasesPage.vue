@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { PagePager } from '@doselect/web-shared/components'
 /**
  * A-29 (M功能桌面UI與Route規格.md): 對帳案件列表、確認受理、駁回與修正庫存（UC-ADM-INV-01 對帳）。
  * 後端契約是組長 PR #100 的對帳裁定 A1～H1（PR #107）：acknowledge 只帶 RowVersion；dismiss／resolve
@@ -30,7 +31,16 @@ const RESOLVE_REASON_OPTIONS = [
   { value: 'other', label: '其他' },
 ]
 
-const STATUS_OPTIONS = ['Open', 'Acknowledged', 'Resolved', 'Dismissed']
+const STATUS_OPTIONS = [
+  { value: 'Open', label: '待處理' },
+  { value: 'Acknowledged', label: '已受理' },
+  { value: 'Resolved', label: '已解決' },
+  { value: 'Dismissed', label: '已駁回' },
+]
+
+function statusLabel(value: string): string {
+  return STATUS_OPTIONS.find(option => option.value === value)?.label ?? '其他狀態'
+}
 
 // 與 A-11／A-12 相同的草稿→套用模式：只有按下搜尋才換 query key，並把頁碼重設為 1。
 const draftFilters = reactive({ status: '' })
@@ -158,8 +168,8 @@ function actorLabel(reconciliationCase: InventoryReconciliationCaseDto): string 
       庫存對帳案件
     </h1>
     <p class="reconciliation-intro">
-      每日對帳把 Balance 與 Movement／Reservation 帳本重算值比對，不一致的 SKU 開成案件。「駁回」表示核對基準錯誤、庫存不變；
-      「修正庫存」把 Balance 改成帳本重算值並留下一筆修正異動。兩者都會寫入中央稽核。
+      每日對帳會比對庫存餘額與異動／保留帳本的重算值，不一致的 SKU 會建立案件。「駁回」表示核對基準錯誤、庫存不變；
+      「修正庫存」會把庫存餘額改成帳本重算值並留下一筆修正異動。兩者都會寫入中央稽核。
     </p>
 
     <form
@@ -170,16 +180,17 @@ function actorLabel(reconciliationCase: InventoryReconciliationCaseDto): string 
       <select
         v-model="draftFilters.status"
         aria-label="狀態"
+        @change="search"
       >
         <option value="">
           全部狀態
         </option>
         <option
           v-for="status in STATUS_OPTIONS"
-          :key="status"
-          :value="status"
+          :key="status.value"
+          :value="status.value"
         >
-          {{ status }}
+          {{ status.label }}
         </option>
       </select>
       <button type="submit">
@@ -224,8 +235,8 @@ function actorLabel(reconciliationCase: InventoryReconciliationCaseDto): string 
           <tr>
             <th>SKU</th>
             <th>狀態</th>
-            <th>在庫（Balance → 帳本）</th>
-            <th>保留（Balance → 帳本）</th>
+            <th>在庫（目前餘額 → 帳本）</th>
+            <th>保留（目前餘額 → 帳本）</th>
             <th>偵測時間</th>
             <th>處理人</th>
             <th>結案說明</th>
@@ -242,7 +253,7 @@ function actorLabel(reconciliationCase: InventoryReconciliationCaseDto): string 
                 {{ reconciliationCase.sku.skuCode }}
                 <small class="reconciliation-table__sku-name">{{ reconciliationCase.sku.nameZhTw }}</small>
               </td>
-              <td>{{ reconciliationCase.status }}</td>
+              <td>{{ statusLabel(reconciliationCase.status) }}</td>
               <td>{{ formatQuantities(reconciliationCase.expectedOnHand, reconciliationCase.actualOnHand) }}</td>
               <td>{{ formatQuantities(reconciliationCase.expectedReserved, reconciliationCase.actualReserved) }}</td>
               <td>{{ formatDateTime(reconciliationCase.detectedAtUtc) }}</td>
@@ -340,26 +351,7 @@ function actorLabel(reconciliationCase: InventoryReconciliationCaseDto): string 
           </template>
         </tbody>
       </table>
-      <div
-        v-if="totalPages > 1"
-        class="reconciliation-pagination"
-      >
-        <button
-          type="button"
-          :disabled="isRefreshing || appliedFilters.pageNumber <= 1"
-          @click="goToPage(appliedFilters.pageNumber - 1)"
-        >
-          上一頁
-        </button>
-        <span>第 {{ appliedFilters.pageNumber }} / {{ totalPages }} 頁</span>
-        <button
-          type="button"
-          :disabled="isRefreshing || appliedFilters.pageNumber >= totalPages"
-          @click="goToPage(appliedFilters.pageNumber + 1)"
-        >
-          下一頁
-        </button>
-      </div>
+<PagePager v-if="totalPages > 1" :page="appliedFilters.pageNumber" :page-size="1" :total-records="totalPages" :busy="isRefreshing" aria-label="列表分頁" @update:page="goToPage" />
     </template>
   </section>
 </template>

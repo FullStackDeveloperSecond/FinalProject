@@ -16,13 +16,36 @@ public sealed class DemoAccountActivator(
     public const string MemberEmail = "member-0001@example.invalid";
 
     private const string AdminUserId = "demo-admin-0001";
-    private const string MemberUserId = "demo-member-0001";
+    private static readonly string MemberUserId = DemoDataSeeder.MemberUserId(0);
 
     private static readonly string[] AdminRoles =
     [
         "SuperAdmin",
         "CustomerServiceSupervisor",
     ];
+
+    // Local CLI only. Never expose this payload from an HTTP route or write it to application logs.
+    public async Task ExportLoginPackAsync(string path, CancellationToken cancellationToken = default)
+    {
+        DemoDatabaseSafety.EnsureAllowedIsolatedLocalDatabase(dbContext);
+        var passwords = MinimalDevelopmentSeedDefinitions.GetPasswords(configuration);
+        var admin = await FindRequiredUserAsync(AdminUserId, AdminEmail, AccountType.Admin, cancellationToken);
+        var member = await FindRequiredUserAsync(MemberUserId, MemberEmail, AccountType.Member, cancellationToken);
+        if (!await userManager.CheckPasswordAsync(admin, passwords.AdminPassword) || !await userManager.CheckPasswordAsync(member, passwords.MemberPassword))
+            throw new InvalidOperationException("Demo account passwords do not match the configured seed credentials. No pack was exported.");
+        var pack = new
+        {
+            version = 1,
+            database = dbContext.Database.GetDbConnection().Database,
+            accounts = new[]
+            {
+                new { label = "展示會員", accountType = "member", email = MemberEmail, password = passwords.MemberPassword },
+                new { label = "展示管理員", accountType = "admin", email = AdminEmail, password = passwords.AdminPassword },
+            },
+        };
+        await using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+        await System.Text.Json.JsonSerializer.SerializeAsync(stream, pack, cancellationToken: cancellationToken);
+    }
 
     public async Task<DemoAccountActivationResult> ActivateAsync(
         CancellationToken cancellationToken = default)

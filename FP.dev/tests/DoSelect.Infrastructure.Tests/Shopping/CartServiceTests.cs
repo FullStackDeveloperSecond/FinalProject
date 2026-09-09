@@ -54,6 +54,95 @@ public sealed class CartServiceTests
     }
 
     [Fact]
+    public async Task BuildImport_TransfersOneOfThreeWithoutIncreasingPurchasedQuantity()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var service = CreateService(context);
+        var sku = await _fixture.SeedPublishedSkuAsync(context, 1000m, availableQuantity: 3);
+        var identity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
+        var original = await service.AddItemAsync(identity, new AddCartItemRequest(sku.PublicId, 3, null), CancellationToken.None);
+        var source = Assert.Single(original.Items);
+        var result = await service.AddAssemblyGroupsAsync(identity, [new(sku.PublicId, 1)], 1, CancellationToken.None,
+            new(false, original.RowVersion, [new(source.PublicId, 1)]));
+        Assert.Equal(2, Assert.Single(result.Items, item => item.AssemblyGroupKey == null).Quantity);
+        Assert.Equal(1, Assert.Single(result.Items, item => item.AssemblyGroupKey != null).Quantity);
+        Assert.Equal(3, result.Items.Sum(item => item.Quantity));
+        Assert.Equal(300m, result.Amounts.AssemblyFee);
+    }
+
+    [Fact]
+    public async Task BuildImport_ConsumesWholeSourceAndRejectsStaleVersionWithoutPartialWrite()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var service = CreateService(context);
+        var sku = await _fixture.SeedPublishedSkuAsync(context, 1000m);
+        var identity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
+        var original = await service.AddItemAsync(identity, new AddCartItemRequest(sku.PublicId, 1, null), CancellationToken.None);
+        var source = Assert.Single(original.Items);
+        var result = await service.AddAssemblyGroupsAsync(identity, [new(sku.PublicId, 1)], 1, CancellationToken.None,
+            new(false, original.RowVersion, [new(source.PublicId, 1)]));
+        Assert.NotNull(Assert.Single(result.Items).AssemblyGroupKey);
+        var exception = await Assert.ThrowsAsync<ShoppingWriteException>(() => service.AddAssemblyGroupsAsync(
+            identity, [new(sku.PublicId, 1)], 1, CancellationToken.None, new(false, original.RowVersion, [new(source.PublicId, 1)])));
+        Assert.Equal(ShoppingWriteException.ErrorCodes.ConcurrencyConflict, exception.ErrorCode);
+        Assert.Single((await service.GetCartAsync(identity, CancellationToken.None)).Items);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task BuildImport_RejectsAnotherCartOrExistingAssemblySource(bool grouped)
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var service = CreateService(context);
+        var sku = await _fixture.SeedPublishedSkuAsync(context, 1000m);
+        var identity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
+        var another = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
+        var sourceCart = grouped
+            ? await service.AddAssemblyGroupsAsync(identity, [new(sku.PublicId, 1)], 1, CancellationToken.None)
+            : await service.AddItemAsync(another, new AddCartItemRequest(sku.PublicId, 1, null), CancellationToken.None);
+        var current = await service.GetCartAsync(identity, CancellationToken.None);
+        var exception = await Assert.ThrowsAsync<ShoppingWriteException>(() => service.AddAssemblyGroupsAsync(
+            identity, [new(sku.PublicId, 1)], 1, CancellationToken.None,
+            new(false, current.RowVersion, [new(sourceCart.Items[0].PublicId, 1)])));
+        Assert.Equal(ShoppingWriteException.ErrorCodes.ValidationFailed, exception.ErrorCode);
+        Assert.Equal(current.Items.Count, (await service.GetCartAsync(identity, CancellationToken.None)).Items.Count);
+    }
+
+    [Fact]
+    public async Task BuildImport_InsufficientResultingStockDoesNotConsumeSource()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var service = CreateService(context);
+        var sku = await _fixture.SeedPublishedSkuAsync(context, 1000m, availableQuantity: 3);
+        var identity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
+        var original = await service.AddItemAsync(identity, new AddCartItemRequest(sku.PublicId, 3, null), CancellationToken.None);
+        await Assert.ThrowsAsync<ShoppingWriteException>(() => service.AddAssemblyGroupsAsync(identity,
+            [new(sku.PublicId, 2)], 1, CancellationToken.None, new(false, original.RowVersion, [new(original.Items[0].PublicId, 1)])));
+        context.ChangeTracker.Clear();
+        var unchanged = await service.GetCartAsync(identity, CancellationToken.None);
+        Assert.Equal(3, Assert.Single(unchanged.Items).Quantity);
+        Assert.Null(unchanged.Items[0].AssemblyGroupKey);
+    }
+
+    [Fact]
+    public async Task BuildImport_LoosePartsOnlyTopsUpRequiredQuantityWithoutAssemblyFee()
+    {
+        await using var context = CartServiceFixture.CreateContext();
+        var service = CreateService(context);
+        var sku = await _fixture.SeedPublishedSkuAsync(context, 1000m);
+        var second = await _fixture.SeedPublishedSkuAsync(context, 500m);
+        var identity = new CartIdentity(null, CartServiceFixture.UniqueGuestKey());
+        var original = await service.AddItemAsync(identity, new AddCartItemRequest(sku.PublicId, 3, null), CancellationToken.None);
+        var result = await service.AddAssemblyGroupsAsync(identity, [new(sku.PublicId, 1), new(second.PublicId, 2)], 1,
+            CancellationToken.None, new(true, original.RowVersion, [new(original.Items[0].PublicId, 1)]));
+        Assert.Equal(3, Assert.Single(result.Items, item => item.SkuPublicId == sku.PublicId).Quantity);
+        Assert.Equal(2, Assert.Single(result.Items, item => item.SkuPublicId == second.PublicId).Quantity);
+        Assert.All(result.Items, item => Assert.Null(item.AssemblyGroupKey));
+        Assert.Equal(0m, result.Amounts.AssemblyFee);
+    }
+
+    [Fact]
     public async Task AddItemAsync_WhenSameSkuAddedTwice_CombinesQuantity()
     {
         await using var context = CartServiceFixture.CreateContext();

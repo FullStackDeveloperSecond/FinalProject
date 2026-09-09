@@ -49,7 +49,8 @@ foreach ($scriptName in $scriptNames) {
 }
 
 if (-not $SkipExecutableProbe) {
-    $pathDotNet = Get-Command 'dotnet.exe' -CommandType Application -ErrorAction Stop
+    $pathDotNet = Get-Command 'dotnet.exe' -CommandType Application -ErrorAction Stop |
+        Select-Object -First 1
     $cleanPath = Split-Path -Parent $pathDotNet.Source
     $requiredSdk = [string](
         Get-Content -Raw -LiteralPath (Join-Path $script:ProjectRoot 'global.json') |

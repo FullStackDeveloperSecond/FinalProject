@@ -6,6 +6,7 @@ import type { MemberProfile } from '../../features/members/api'
 
 const mockFetchProfile = vi.fn<() => Promise<MemberProfile>>()
 const mockUpdateProfile = vi.fn<(...args: unknown[]) => Promise<MemberProfile>>()
+vi.mock('../../features/orders/OrderListPage.vue', () => ({ __esModule: true, default: { template: '<div>訂單內容測試區</div>' } }))
 
 vi.mock('../../features/members/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../features/members/api')>()
@@ -42,6 +43,19 @@ beforeEach(() => {
 })
 
 describe('ProfilePage', () => {
+  it('switches the content panel without a navigation link and can return to the profile', async () => {
+    mockFetchProfile.mockResolvedValue(baseProfile)
+    const wrapper = await mountProfilePage()
+    await flushPromises()
+    expect(wrapper.findAll('.profile-page__navigation button')).toHaveLength(5)
+    expect(wrapper.find('.profile-page__navigation a').exists()).toBe(false)
+    await wrapper.get('.profile-page__navigation button').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('訂單內容測試區')
+    expect(wrapper.find('.profile-page__summary').exists()).toBe(false)
+    await wrapper.get('.profile-page__back').trigger('click')
+    expect(wrapper.text()).toContain(baseProfile.displayName)
+  })
   it('shows the loading state before the profile resolves', async () => {
     mockFetchProfile.mockReturnValue(new Promise(() => {}))
     const wrapper = await mountProfilePage()
@@ -68,7 +82,7 @@ describe('ProfilePage', () => {
     const wrapper = await mountProfilePage()
     await flushPromises()
 
-    await wrapper.get('button').trigger('click')
+    await wrapper.get('.profile-page__summary button').trigger('click')
     await wrapper.get('#profile-display-name').setValue('新名稱')
     await wrapper.get('form').trigger('submit')
     await flushPromises()
@@ -92,7 +106,7 @@ describe('ProfilePage', () => {
     const wrapper = await mountProfilePage()
     await flushPromises()
 
-    await wrapper.get('button').trigger('click')
+    await wrapper.get('.profile-page__summary button').trigger('click')
     await wrapper.get('form').trigger('submit')
     await flushPromises()
 
@@ -105,9 +119,9 @@ describe('ProfilePage', () => {
     const wrapper = await mountProfilePage()
     await flushPromises()
 
-    await wrapper.get('button').trigger('click')
+    await wrapper.get('.profile-page__summary button').trigger('click')
     await wrapper.get('#profile-display-name').setValue('未儲存的名稱')
-    await wrapper.get('button[type="button"]').trigger('click')
+    await wrapper.get('form button[type="button"]').trigger('click')
 
     expect(mockUpdateProfile).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('測試會員')

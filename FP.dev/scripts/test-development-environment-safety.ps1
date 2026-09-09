@@ -11,13 +11,13 @@ foreach ($requiredFragment in @(
     'Database=DoSelectDb'
     'Integrated Security=True'
 )) {
-    if (-not $connectionString.Contains($requiredFragment, [StringComparison]::OrdinalIgnoreCase)) {
+    if ($connectionString.IndexOf($requiredFragment, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
         throw "Development connection string is missing '$requiredFragment'."
     }
 }
 
 foreach ($forbiddenFragment in @('User ID=', 'Password=')) {
-    if ($connectionString.Contains($forbiddenFragment, [StringComparison]::OrdinalIgnoreCase)) {
+    if ($connectionString.IndexOf($forbiddenFragment, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
         throw "Development connection string must not contain '$forbiddenFragment'."
     }
 }
@@ -48,6 +48,24 @@ foreach ($scriptName in $scriptNames) {
     $scriptContents[$scriptName] = $content
 }
 
+foreach ($scriptName in @('smoke-api-database.ps1', 'start-all.ps1')) {
+    if ($scriptContents[$scriptName].IndexOf('`"$apiProject`"', [StringComparison]::Ordinal) -lt 0) {
+        throw "$scriptName must quote the API project path passed to Start-Process."
+    }
+}
+
+$schemaVerification = Get-Content -Raw -LiteralPath (
+    Join-Path $script:ProjectRoot 'database-deploy\initial-create\verify.sql')
+foreach ($requiredSchemaMarker in @(
+    'IF @ApplicationTableCount <> 106'
+    'IF @ExplicitIndexCount <> 357'
+    "MigrationId = N'20260909040927_AddGuestCheckoutEmailVerification'"
+)) {
+    if ($schemaVerification.IndexOf($requiredSchemaMarker, [StringComparison]::Ordinal) -lt 0) {
+        throw "Development schema verification is missing '$requiredSchemaMarker'."
+    }
+}
+
 $initializer = $scriptContents['initialize-development-database.ps1']
 foreach ($requiredOperation in @(
     'database update'
@@ -57,7 +75,7 @@ foreach ($requiredOperation in @(
     'smoke-api-database.ps1'
     'Assert-PortAvailable'
 )) {
-    if (-not $initializer.Contains($requiredOperation, [StringComparison]::OrdinalIgnoreCase)) {
+    if ($initializer.IndexOf($requiredOperation, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
         throw "Development initializer is missing '$requiredOperation'."
     }
 }

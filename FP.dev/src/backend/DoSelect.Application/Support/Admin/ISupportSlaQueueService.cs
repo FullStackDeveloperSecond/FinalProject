@@ -14,7 +14,7 @@ public interface ISupportSlaQueueService
     /// Throws DomainProblemException (validation_failed, 400) when PageSize is outside 1..100 or
     /// Cursor is present but malformed/mismatched for this query shape.
     /// </summary>
-    Task<CursorPage<SupportSlaItemDto>> GetPageAsync(
+    Task<SupportSlaQueueResponse> GetPageAsync(
         SupportSlaQueueQuery query,
         string adminUserId,
         bool canSupervise,

@@ -13,6 +13,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'common.ps1')
 $resolvedRoot = [IO.Path]::GetFullPath($BackupRoot)
 if (-not (Test-Path -LiteralPath $resolvedRoot -PathType Container)) {
     Write-Host "Backup root does not exist: $resolvedRoot"
@@ -53,7 +54,7 @@ $daily = @($sets |
     Sort-Object CreatedAtUtc -Descending |
     Select-Object -First $DailyCount)
 $weekly = @($sets |
-    Group-Object { '{0}-{1:D2}' -f [Globalization.ISOWeek]::GetYear($_.CreatedAtUtc.UtcDateTime), [Globalization.ISOWeek]::GetWeekOfYear($_.CreatedAtUtc.UtcDateTime) } |
+    Group-Object { Get-IsoWeekKey -Date $_.CreatedAtUtc.UtcDateTime } |
     ForEach-Object { $_.Group | Sort-Object CreatedAtUtc -Descending | Select-Object -First 1 } |
     Sort-Object CreatedAtUtc -Descending |
     Select-Object -First $WeeklyCount)
@@ -67,7 +68,7 @@ if (-not ($sets | Where-Object {
 
 foreach ($set in $sets | Where-Object { $keep -notcontains $_.Directory }) {
     $resolvedSet = [IO.Path]::GetFullPath($set.Directory)
-    $rootPrefix = [IO.Path]::TrimEndingDirectorySeparator($resolvedRoot) + [IO.Path]::DirectorySeparatorChar
+    $rootPrefix = Get-DirectoryPathPrefix -Path $resolvedRoot
     if (-not $resolvedSet.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase)) {
         throw "Resolved Backup Set escaped BackupRoot: $resolvedSet"
     }

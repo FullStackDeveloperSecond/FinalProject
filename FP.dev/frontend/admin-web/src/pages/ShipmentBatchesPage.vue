@@ -4,6 +4,8 @@ import { RouterLink } from 'vue-router'
 import { EmptyState, ErrorState, HttpStatusPage } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
 import { describeApiError } from '../features/shared/errorMessages'
+import { fulfillmentStatusLabel } from '../features/orders/api'
+import { batchResultMessage } from '../features/shipping/batchPresentation'
 import {
   BATCH_SHIPMENT_ACTIONS,
   MAX_BATCH_SHIPMENT_ORDERS,
@@ -38,8 +40,8 @@ const actionLabel = computed(() =>
   BATCH_SHIPMENT_ACTIONS.find(option => option.value === shippingAction.value)?.label ?? shippingAction.value)
 
 /**
- * 已經印過物流單的訂單（履約狀態 Preparing）只能用 markShipped 接續完成，再 createLabel 一次
- * 一定失敗。與其讓管理員送出去才收到一整批錯誤碼，不如在按鈕旁邊先講。
+ * Preparing 可能只代表開始備貨，不代表已有物流單；只有確實有物流單時才須改用 markShipped。
+ * 清單沒有物流單快照，因此提供條件式提示，最後由伺服器重新確認。
  */
 const alreadyPreparedCount = computed(() =>
   selection.value.filter(candidate => candidate.fulfillmentStatus !== 'Pending').length)
@@ -94,7 +96,7 @@ function submitErrorMessage(caught: unknown): string {
 }
 
 function rowStatusLabel(item: BatchShipmentItemResultDto): string {
-  return item.errorCode ? `失敗（${item.errorCode}）` : item.status
+  return item.errorCode ? '未完成' : fulfillmentStatusLabel(item.status)
 }
 
 function csvCell(value: string | number | null | undefined): string {
@@ -116,10 +118,10 @@ function downloadCsv(): void {
     item.sourceRowNumber,
     item.orderNumber,
     item.orderPublicId,
-    item.status,
+    rowStatusLabel(item),
     item.trackingNumber,
     item.errorCode,
-    item.message,
+    batchResultMessage(item),
   ])
 
   // 開頭的 BOM 是給 Excel 的：沒有它 Excel 會用系統編碼開檔，中文欄位直接變亂碼。
@@ -212,10 +214,14 @@ function startOver(): void {
               :key="item.sourceRowNumber"
             >
               <td>{{ item.sourceRowNumber }}</td>
-              <td>{{ item.orderNumber ?? item.orderPublicId }}</td>
+              <td>
+                <RouterLink :to="`/orders/${item.orderPublicId}`">
+                  {{ item.orderNumber ?? item.orderPublicId }}
+                </RouterLink>
+              </td>
               <td>{{ rowStatusLabel(item) }}</td>
               <td>{{ item.trackingNumber ?? '—' }}</td>
-              <td>{{ item.message ?? '—' }}</td>
+              <td>{{ batchResultMessage(item) }}</td>
             </tr>
           </tbody>
         </table>
@@ -268,8 +274,12 @@ function startOver(): void {
                 :key="candidate.publicId"
               >
                 <td>{{ index + 1 }}</td>
-                <td>{{ candidate.orderNumber }}</td>
-                <td>{{ candidate.fulfillmentStatus }}</td>
+                <td>
+                  <RouterLink :to="`/orders/${candidate.publicId}`">
+                    {{ candidate.orderNumber }}
+                  </RouterLink>
+                </td>
+                <td>{{ fulfillmentStatusLabel(candidate.fulfillmentStatus) }}</td>
               </tr>
             </tbody>
           </table>
@@ -279,8 +289,8 @@ function startOver(): void {
             class="batches__warning"
             role="alert"
           >
-            選取的訂單中有 {{ alreadyPreparedCount }} 筆已經建立過物流單，再建立一次會失敗。
-            請改選「標記已出貨」接續完成。
+            選取的訂單中有 {{ alreadyPreparedCount }} 筆已進入備貨階段。若已建立物流單，
+            請改選「標記已出貨」接續完成；尚未開單的備貨訂單仍可建立物流單。
           </p>
 
           <p

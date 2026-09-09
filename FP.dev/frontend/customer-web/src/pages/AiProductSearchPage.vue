@@ -7,6 +7,22 @@ import { computed, ref } from 'vue'
 import ProductCard from '../features/catalog/components/ProductCard.vue'
 import { useAiProductSearchMutation } from '../features/aiProductSearch/queries'
 import type { AiExistingPartRequest, AiProposedExistingPart } from '../features/aiProductSearch/types'
+import { useRouter } from 'vue-router'
+import { stageBuildImport, type OwnedBuildPart } from '../features/builds/buildImport'
+
+const router = useRouter()
+const resultOwnedParts = ref<OwnedBuildPart[]>([])
+async function importRecommendation(): Promise<void> {
+  if (!customBuild.value || mutation.isPending.value) return
+  try {
+    stageBuildImport({ name: 'AI 推薦組裝清單', ownedParts: resultOwnedParts.value,
+      items: customBuild.value.components.filter(part => !part.isExistingPart).map(part => {
+        if (!part.skuPublicId) throw new Error('推薦缺少可購買規格，請重新選擇。')
+        return { skuPublicId: part.skuPublicId, name: part.displayName, categoryCode: part.categoryCode, quantity: Number(part.quantity) }
+      }) })
+    await router.push('/builds/new')
+  } catch (caught) { partsError.value = caught instanceof Error ? caught.message : '匯入失敗，請確認瀏覽器允許儲存資料。' }
+}
 
 const example = '預算五萬元，主要用 Premiere 剪 4K 影片，偶爾玩 3A 遊戲，希望安靜、不要 RGB。'
 const message = ref('')
@@ -109,11 +125,14 @@ async function submitSearch() {
     partsError.value = '請選好站內零件，或填妥手填零件的分類、名稱與規格；也可以移除尚未確認的零件。'
     return
   }
+  const submittedParts = JSON.parse(JSON.stringify(validParts)) as OwnedBuildPart[]
+  try {
   const response = await mutation.mutateAsync({
     message: combined.slice(0, 2000),
     locale: 'zh-TW',
     existingParts: validParts,
   })
+  resultOwnedParts.value = submittedParts
 
   if (response.resultType === 'clarification') {
     accumulatedContext.value = combined
@@ -121,9 +140,13 @@ async function submitSearch() {
   } else {
     accumulatedContext.value = ''
   }
+  } catch {
+    // The mutation's ErrorState renders the request failure; avoid an unhandled promise rejection.
+  }
 }
 
 function restart() {
+  resultOwnedParts.value = []
   mutation.reset()
   accumulatedContext.value = ''
   message.value = ''
@@ -496,6 +519,9 @@ function formatMoney(value: number | string): string {
           <div>
             <h3>完整組裝清單</h3>
             <p>既有零件會參與相容性檢查，但不計入本次新購預算。</p>
+            <p v-if="customBuild.components.some(component => component.isExistingPart)">
+              含自有零件：僅購買新零件，不收組裝費、不提供本次整機組裝服務。
+            </p>
           </div>
           <dl>
             <div><dt>新購零件</dt><dd>{{ formatMoney(customBuild.purchaseSubtotal) }}</dd></div>
@@ -507,6 +533,13 @@ function formatMoney(value: number | string): string {
           </p>
         </div>
         <div class="ai-search__build-components">
+          <button
+            type="button"
+            :disabled="mutation.isPending.value"
+            @click="importRecommendation"
+          >
+            將這份推薦匯入組裝清單
+          </button>
           <article
             v-for="component in customBuild.components"
             :key="`${component.sourceType}:${component.skuPublicId ?? component.categoryCode}:${component.displayName}`"

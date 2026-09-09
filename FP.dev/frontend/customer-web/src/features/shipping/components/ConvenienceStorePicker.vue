@@ -1,30 +1,9 @@
 <script setup lang="ts">
-/**
- * C-14 的「示範門市」選擇器。超取配送方式（`requiresStore`）必須選一家門市，結帳才送得出去。
- *
- * 送給後端的只有門市的 PublicId——名稱、地址等顯示資料由後端在建單時自己快照，前台不回傳價格或
- * 快照欄位（M功能桌面UI與Route規格 C-14：「只送識別與使用者輸入，不送價格」）。
- */
-import { computed, reactive, ref } from 'vue'
-import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
-import { isApiError } from '@doselect/web-shared/api'
-import { useConvenienceStoreSearch } from '../useShipping'
+import { computed, ref, watch } from 'vue'
+import { ErrorState, LoadingState } from '@doselect/web-shared/components'
+import { useConvenienceStoreRegions, useConvenienceStoreSearch } from '../useShipping'
 import type { ConvenienceStoreOptionDto } from '../types'
 
-/**
- * 組長 PR #79 round-2 review item 2：只靠「目前搜尋結果裡找得到」還原選取，等於要求父層先搜尋、
- * 而且該門市正好落在目前這一頁——回到上一步或剛掛載時根本顯示不出既有選擇。所以父層若已經有
- * 選取，就連同顯示用摘要一起傳進來。
- *
- * round-3 review [P2]：上一版把摘要放在 `update:modelValue` 的第二個參數，那是拿不到的——`v-model`
- * 編譯後只會把第一個 `$event` 寫回 model，第二個參數直接被丟掉，父層永遠存不到摘要。改成兩個各自
- * 獨立的具名 model：
- *
- *     v-model="storePublicId" v-model:selected-summary="storeSummary"
- *
- * 主 model 仍是 PublicId——那是結帳送出去的唯一欄位（名稱／地址由後端建單時自己快照）；摘要是
- * 純顯示用的第二個 model，父層保存它才能在重新掛載時原樣傳回。
- */
 const props = defineProps<{
   modelValue: string | null
   selectedSummary?: ConvenienceStoreOptionDto | null
@@ -34,71 +13,61 @@ const emit = defineEmits<{
   'update:selectedSummary': [ConvenienceStoreOptionDto | null]
 }>()
 
-// 搜尋條件只綁草稿，按下搜尋才套用並把頁碼歸 1（與後台頁一致的理由：避免「新條件配舊頁碼」）。
-const draft = reactive({ city: '', district: '', q: '' })
-const applied = reactive({ city: '', district: '', q: '' })
-const pageNumber = ref(1)
-const hasSearched = ref(false)
-
-const searchParams = computed(() => ({
-  city: applied.city || undefined,
-  district: applied.district || undefined,
-  q: applied.q || undefined,
-  pageNumber: pageNumber.value,
-  pageSize: 20,
-}))
-
-// 門市共 100 筆，一次全撈對顧客沒有意義；先搜尋才查，避免一進結帳頁就打一支沒有條件的清單。
-const { data: result, isPending, isError, error, refetch } = useConvenienceStoreSearch(
-  searchParams,
-  computed(() => hasSearched.value),
-)
-
-const totalPages = computed(() => Number(result.value?.totalPages ?? 0))
-
-function search() {
-  applied.city = draft.city
-  applied.district = draft.district
-  applied.q = draft.q
-  pageNumber.value = 1
-  hasSearched.value = true
-}
-
-function goToPage(next: number) {
-  pageNumber.value = next
-}
-
+const providerCode = ref(props.selectedSummary?.providerCode ?? '')
+const city = ref(props.selectedSummary?.city ?? '')
+const district = ref(props.selectedSummary?.district ?? '')
+const cityPage = ref(1)
+const districtPage = ref(1)
+const storePage = ref(1)
 const pickedStore = ref<ConvenienceStoreOptionDto | null>(null)
-
-/**
- * 自我審查發現：只記住「這次點選的門市」的話，當 modelValue 是由父層帶進來的（例如回上一步、
- * 草稿還原）就永遠不顯示已選門市。改成先用這次點選的，找不到再從目前搜尋結果裡對回來。
- */
-const selectedStore = computed<ConvenienceStoreOptionDto | null>(() => {
-  if (!props.modelValue) {
-    return null
-  }
-  if (pickedStore.value?.publicId === props.modelValue) {
-    return pickedStore.value
-  }
-  // 父層帶進來的摘要優先——不需要先搜尋就能顯示；找不到才退回目前結果頁。
-  if (props.selectedSummary?.publicId === props.modelValue) {
-    return props.selectedSummary
-  }
-  return result.value?.items.find((store) => store.publicId === props.modelValue) ?? null
+const cities = useConvenienceStoreRegions(
+  computed(() => ({ providerCode: providerCode.value, pageNumber: cityPage.value })),
+  computed(() => Boolean(providerCode.value)),
+)
+const districts = useConvenienceStoreRegions(
+  computed(() => ({ providerCode: providerCode.value, city: city.value, pageNumber: districtPage.value })),
+  computed(() => Boolean(providerCode.value && city.value)),
+)
+const stores = useConvenienceStoreSearch(
+  computed(() => ({ providerCode: providerCode.value, city: city.value, district: district.value, pageNumber: storePage.value, pageSize: 100 })),
+  computed(() => Boolean(providerCode.value && city.value && district.value)),
+)
+const selectedStore = computed(() => {
+  if (!props.modelValue) return null
+  return [pickedStore.value, props.selectedSummary, ...(stores.data.value?.items ?? [])]
+    .find(store => store?.publicId === props.modelValue) ?? null
 })
 
-function select(store: ConvenienceStoreOptionDto) {
-  pickedStore.value = store
-  emit('update:modelValue', store.publicId)
-  // 兩個 model 一起更新：父層保存了摘要，重新掛載時才傳得回來。
-  emit('update:selectedSummary', store)
-}
-
-function clearSelection() {
+function clearSelection(): void {
   pickedStore.value = null
   emit('update:modelValue', null)
   emit('update:selectedSummary', null)
+}
+watch(providerCode, () => {
+  city.value = ''
+  district.value = ''
+  cityPage.value = districtPage.value = storePage.value = 1
+  clearSelection()
+}, { flush: 'sync' })
+watch(city, () => {
+  district.value = ''
+  districtPage.value = storePage.value = 1
+  clearSelection()
+}, { flush: 'sync' })
+watch(district, () => {
+  storePage.value = 1
+  clearSelection()
+}, { flush: 'sync' })
+
+function selectStore(event: Event): void {
+  if (stores.isPending.value || stores.isError.value) return
+  const id = (event.target as HTMLSelectElement).value
+  const store = stores.data.value?.items.find(candidate => candidate.publicId === id)
+  if (!store) { clearSelection(); return }
+  pickedStore.value = store
+  // 僅 PublicId 用於建單，名稱與地址摘要只供顯示；後端仍重新確認門市。
+  emit('update:modelValue', store.publicId)
+  emit('update:selectedSummary', store)
 }
 </script>
 
@@ -107,6 +76,124 @@ function clearSelection() {
     class="store-picker"
     aria-label="選擇取貨門市"
   >
+    <p>請依序選擇超商、縣市、行政區與門市，選單變更會立即更新。標示 * 為必填。</p>
+    <p>本站門市為專題展示用的虛構資料，並非即時官方門市；貨到付款是否可用依本次配送與商品條件顯示。</p>
+    <div class="store-picker__filters">
+      <label>
+        超商品牌 *
+        <select
+          v-model="providerCode"
+          aria-label="超商品牌"
+          required
+        >
+          <option value="">請選擇超商</option>
+          <option value="7-11">7-ELEVEN（7-11）</option>
+          <option value="FamilyMart">FamilyMart（全家）</option>
+        </select>
+      </label>
+      <label>
+        縣市 *
+        <select
+          v-model="city"
+          aria-label="門市縣市"
+          :disabled="!providerCode || cities.isPending.value || cities.isError.value"
+          required
+        >
+          <option value="">請選擇縣市</option>
+          <option
+            v-for="item in cities.data.value?.items"
+            :key="item"
+            :value="item"
+          >{{ item }}</option>
+        </select>
+      </label>
+      <label>
+        行政區 *
+        <select
+          v-model="district"
+          aria-label="門市行政區"
+          :disabled="!city || districts.isPending.value || districts.isError.value"
+          required
+        >
+          <option value="">請選擇行政區</option>
+          <option
+            v-for="item in districts.data.value?.items"
+            :key="item"
+            :value="item"
+          >{{ item }}</option>
+        </select>
+      </label>
+      <label>
+        取貨門市 *
+        <select
+          :value="modelValue ?? ''"
+          aria-label="取貨門市"
+          :disabled="!district || stores.isPending.value || stores.isError.value"
+          required
+          @change="selectStore"
+        >
+          <option value="">請選擇門市</option>
+          <option
+            v-if="selectedStore && !stores.data.value?.items.some(item => item.publicId === selectedStore?.publicId)"
+            :value="selectedStore.publicId"
+          >
+            {{ selectedStore.name }}（{{ selectedStore.storeCode }}）
+          </option>
+          <option
+            v-for="store in stores.data.value?.items"
+            :key="store.publicId"
+            :value="store.publicId"
+          >
+            {{ store.name }}（{{ store.storeCode }}）— {{ store.address }}{{ store.isDemoData ? '［展示資料］' : '' }}
+          </option>
+        </select>
+      </label>
+    </div>
+    <template
+      v-for="entry in [
+        { label: '縣市', query: cities, enabled: !!providerCode, page: cityPage, change: (n: number) => cityPage = n },
+        { label: '行政區', query: districts, enabled: !!city, page: districtPage, change: (n: number) => districtPage = n },
+        { label: '門市', query: stores, enabled: !!district, page: storePage, change: (n: number) => storePage = n },
+      ]"
+      :key="entry.label"
+    >
+      <template v-if="entry.enabled">
+        <LoadingState
+          v-if="entry.query.isPending.value"
+          :label="`${entry.label}載入中`"
+        />
+        <ErrorState
+          v-else-if="entry.query.isError.value"
+          @retry="entry.query.refetch()"
+        />
+        <p
+          v-else-if="entry.query.data.value?.items.length === 0"
+          role="status"
+        >
+          沒有符合條件的{{ entry.label }}，請重新選擇。
+        </p>
+        <nav
+          v-if="Number(entry.query.data.value?.totalPages ?? 0) > 1"
+          :aria-label="`${entry.label}分頁`"
+        >
+          <button
+            type="button"
+            :disabled="entry.page <= 1"
+            @click="entry.change(entry.page - 1)"
+          >
+            上一頁{{ entry.label }}
+          </button>
+          <span>{{ entry.page }} / {{ entry.query.data.value?.totalPages }}</span>
+          <button
+            type="button"
+            :disabled="entry.page >= Number(entry.query.data.value?.totalPages ?? 0)"
+            @click="entry.change(entry.page + 1)"
+          >
+            下一頁{{ entry.label }}
+          </button>
+        </nav>
+      </template>
+    </template>
     <p
       v-if="selectedStore"
       class="store-picker__selected"
@@ -120,195 +207,12 @@ function clearSelection() {
         重新選擇
       </button>
     </p>
-
-    <form
-      class="store-picker__filters"
-      aria-label="門市搜尋"
-      @submit.prevent="search"
-    >
-      <label>
-        縣市
-        <input
-          v-model="draft.city"
-          aria-label="門市縣市"
-          maxlength="60"
-        >
-      </label>
-      <label>
-        行政區
-        <input
-          v-model="draft.district"
-          aria-label="門市行政區"
-          maxlength="60"
-        >
-      </label>
-      <label>
-        門市名稱或代碼
-        <input
-          v-model="draft.q"
-          aria-label="門市關鍵字"
-          maxlength="64"
-        >
-      </label>
-      <button type="submit">
-        搜尋門市
-      </button>
-    </form>
-
-    <p
-      v-if="!hasSearched"
-      class="store-picker__hint"
-    >
-      請輸入縣市或關鍵字後搜尋門市。本站門市為專題展示用的虛構資料。
-    </p>
-    <LoadingState
-      v-else-if="isPending"
-      label="門市搜尋中"
-    />
-    <ErrorState
-      v-else-if="isError"
-      :correlation-id="isApiError(error) ? error.correlationId : undefined"
-      @retry="refetch"
-    />
-    <EmptyState
-      v-else-if="(result?.items.length ?? 0) === 0"
-      title="沒有符合條件的門市"
-    />
-    <template v-else>
-      <ul class="store-picker__list">
-        <li
-          v-for="store in result!.items"
-          :key="store.publicId"
-          class="store-picker__item"
-        >
-          <div>
-            <p class="store-picker__name">
-              {{ store.name }}
-              <span class="store-picker__code">{{ store.storeCode }}</span>
-              <span
-                v-if="store.isDemoData"
-                class="store-picker__badge"
-              >展示資料</span>
-            </p>
-            <p class="store-picker__address">
-              {{ store.city }}{{ store.district }}{{ store.address }}
-            </p>
-          </div>
-          <button
-            type="button"
-            :disabled="modelValue === store.publicId"
-            @click="select(store)"
-          >
-            {{ modelValue === store.publicId ? '已選擇' : '選擇' }}
-          </button>
-        </li>
-      </ul>
-
-      <div
-        v-if="totalPages > 1"
-        class="store-picker__pagination"
-      >
-        <button
-          type="button"
-          :disabled="pageNumber <= 1"
-          @click="goToPage(pageNumber - 1)"
-        >
-          上一頁
-        </button>
-        <span>{{ pageNumber }} / {{ totalPages }}</span>
-        <button
-          type="button"
-          :disabled="pageNumber >= totalPages"
-          @click="goToPage(pageNumber + 1)"
-        >
-          下一頁
-        </button>
-      </div>
-    </template>
   </section>
 </template>
 
 <style scoped>
-.store-picker__filters {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  gap: 0.75rem;
-  margin-block-end: 1rem;
-}
-
-.store-picker__filters label {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  font-size: 0.8125rem;
-}
-
-.store-picker__selected {
-  padding: 0.75rem;
-  border: 1px solid #bbf7d0;
-  border-radius: 0.5rem;
-  background: #f0fdf4;
-  margin-block-end: 1rem;
-}
-
-.store-picker__hint {
-  color: #6b7280;
-  font-size: 0.875rem;
-}
-
-.store-picker__list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.store-picker__item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.75rem;
-  border: 1px solid #e5e7eb;
-  border-radius: 0.5rem;
-}
-
-.store-picker__name {
-  margin: 0;
-  font-weight: 600;
-}
-
-.store-picker__code {
-  margin-inline-start: 0.375rem;
-  color: #6b7280;
-  font-weight: 400;
-  font-size: 0.8125rem;
-}
-
-.store-picker__badge {
-  margin-inline-start: 0.375rem;
-  padding: 0.125rem 0.375rem;
-  border-radius: 0.25rem;
-  background: #e0f2fe;
-  color: #075985;
-  font-size: 0.75rem;
-  font-weight: 400;
-}
-
-.store-picker__address {
-  margin: 0.25rem 0 0;
-  color: #6b7280;
-  font-size: 0.8125rem;
-}
-
-.store-picker__pagination {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.75rem;
-  margin-block-start: 1rem;
-}
+.store-picker__filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); gap: 0.75rem; }
+.store-picker__filters label { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+.store-picker__filters select { width: 100%; }
+.store-picker__selected { padding: 0.75rem; border: 1px solid #bbf7d0; border-radius: 0.5rem; background: #f0fdf4; }
 </style>

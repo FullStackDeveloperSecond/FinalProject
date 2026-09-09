@@ -117,6 +117,17 @@ describe('OrderDetailPage recipient error/retry', () => {
     orderMocks.refetchRecipient.mockReset()
   })
 
+  it('renders order state values in Traditional Chinese', async () => {
+    const wrapper = await mountPage()
+
+    expect(wrapper.text()).toContain('已付款')
+    expect(wrapper.text()).toContain('待處理')
+    expect(wrapper.text()).toContain('不需組裝')
+    expect(wrapper.text()).toContain('尚無退款')
+    expect(wrapper.text()).not.toContain('Paid')
+    expect(wrapper.text()).not.toContain('NotRequired')
+  })
+
   it('shows an ErrorState with a retry action instead of a blank area when the recipient fetch fails', async () => {
     orderMocks.recipientError.value = true
     orderMocks.recipientFailure.value = new ApiError('Internal error', {

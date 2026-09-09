@@ -221,7 +221,14 @@ public sealed class EfShippingOptionsService : IShippingOptionsService
             method.FreeShippingThreshold,
             RequiresAddress: method.Kind != ShippingMethodKinds.StorePickup,
             RequiresStore: method.Kind == ShippingMethodKinds.StorePickup,
-            allowedPaymentMethods);
+            allowedPaymentMethods,
+            new CheckoutAmountQuoteDto(
+                MerchandiseSubtotal: cart.Amounts.Subtotal,
+                ItemDiscountTotal: cart.Amounts.ItemDiscount + cart.Amounts.CouponDiscount,
+                ShippingFee: fee,
+                AssemblyFee: cart.Amounts.AssemblyFee,
+                GrandTotal: finalPayableAmount,
+                Currency: cart.Amounts.Currency));
     }
 
 }

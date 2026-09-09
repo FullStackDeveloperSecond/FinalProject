@@ -26,7 +26,9 @@ function readLinkParam(name: string): string {
 
   const hash = route.hash ?? ''
   const fragment = hash.startsWith('#') ? hash.slice(1) : hash
-  return new globalThis.URLSearchParams(fragment).get(name) ?? ''
+  // Vue Router 已先把 `%2B` 解成 `+`；URLSearchParams 又會把 `+` 當成表單空白。
+  // Token 不允許空白，因此先把 Router 解出的加號恢復成百分比編碼再解析。
+  return new globalThis.URLSearchParams(fragment.replaceAll('+', '%2B')).get(name) ?? ''
 }
 
 // New links carry one-time values in the fragment so they never reach the frontend host or

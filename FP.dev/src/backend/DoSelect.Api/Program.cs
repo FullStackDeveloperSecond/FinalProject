@@ -145,6 +145,17 @@ if (args.Contains("--seed-demo", StringComparer.OrdinalIgnoreCase))
     return;
 }
 
+if (args.Contains("--export-demo-login-pack", StringComparer.OrdinalIgnoreCase))
+{
+    if (!app.Environment.IsDevelopment()) throw new InvalidOperationException("Demo login export is restricted to the local Development CLI.");
+    var path = app.Configuration["Demo:LoginPackPath"];
+    if (string.IsNullOrWhiteSpace(path)) throw new InvalidOperationException("A protected local output path is required.");
+    await using var scope = app.Services.CreateAsyncScope();
+    await scope.ServiceProvider.GetRequiredService<DemoAccountActivator>().ExportLoginPackAsync(path);
+    Console.WriteLine("Demo login pack exported to the protected local destination. Credentials were not logged.");
+    return;
+}
+
 if (args.Contains("--activate-demo-accounts", StringComparer.OrdinalIgnoreCase))
 {
     if (!app.Environment.IsDevelopment())

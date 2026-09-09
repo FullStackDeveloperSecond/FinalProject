@@ -34,9 +34,13 @@ public sealed class EfCompatibilityCheckService : ICompatibilityCheckService
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var mergedItems = MergeAndValidateItems(request.Items);
+        var ownedParts = BuildOwnedParts.Validate(request.OwnedParts);
+        var newItems = BuildOwnedParts.NewItems(request.Items, ownedParts);
+        var catalogItems = newItems.Concat(ownedParts.Where(part => part.SkuPublicId.HasValue)
+            .Select(part => new BuildItemInput(part.SkuPublicId!.Value, part.Quantity))).ToArray();
+        var mergedItems = catalogItems.Length == 0 ? [] : MergeAndValidateItems(catalogItems);
 
-        var catalogResult = await _catalogReader.ReadAsync(
+        var catalogResult = mergedItems.Count == 0 ? new CompatibilityCatalogReadResult([], []) : await _catalogReader.ReadAsync(
             mergedItems.Select(item => new CompatibilityItemReference(item.SkuPublicId, item.Quantity)).ToArray(),
             cancellationToken);
         if (catalogResult.MissingSkuPublicIds.Count > 0)
@@ -47,7 +51,9 @@ public sealed class EfCompatibilityCheckService : ICompatibilityCheckService
         }
 
         var (settings, settingsVersion, disabledRuleCodes, _) = await LoadCurrentSettingsAsync(cancellationToken);
-        var evaluation = CompatibilityEvaluator.Evaluate(catalogResult.Components, settings, RuleCatalog);
+        var components = catalogResult.Components.Concat(ownedParts.Where(part => part.SourceType == "structuredManual")
+            .Select((part, index) => BuildOwnedParts.ManualComponent(part, index))).ToArray();
+        var evaluation = CompatibilityEvaluator.Evaluate(components, settings, RuleCatalog);
         var (overall, results) = ApplyDisabledRules(evaluation, disabledRuleCodes);
 
         var now = DateTime.UtcNow;
@@ -57,7 +63,8 @@ public sealed class EfCompatibilityCheckService : ICompatibilityCheckService
         // path. Every CheckAsync caller funnels through here, so recording it once at this level
         // covers the public/general check endpoint, BuildList create/update, share re-validate,
         // and the admin test tool uniformly.
-        await RecordRunAsync(mergedItems, buildListId, settingsVersion, overall, results, now, cancellationToken);
+        await RecordRunAsync(mergedItems, buildListId, settingsVersion, overall, results, now, cancellationToken,
+            ownedParts.Count == 0 ? null : "v2|" + BuildCanonicalInputText(mergedItems) + "|owned:" + BuildOwnedParts.Canonical(ownedParts));
 
         return new CompatibilityCheckDto(
             OverallToken(overall),
@@ -206,9 +213,10 @@ public sealed class EfCompatibilityCheckService : ICompatibilityCheckService
         CompatibilityOverall overall,
         IReadOnlyList<CompatibilityFindingDto> results,
         DateTime now,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? canonicalInput = null)
     {
-        var inputHash = SHA256.HashData(Encoding.UTF8.GetBytes(BuildCanonicalInputText(mergedItems)));
+        var inputHash = SHA256.HashData(Encoding.UTF8.GetBytes(canonicalInput ?? BuildCanonicalInputText(mergedItems)));
 
         var ownTransaction = _dbContext.Database.CurrentTransaction is null
             ? await _dbContext.Database.BeginTransactionAsync(cancellationToken)
@@ -261,6 +269,8 @@ public sealed class EfCompatibilityCheckService : ICompatibilityCheckService
                 BuildWriteException.ErrorCodes.ValidationFailed,
                 "Between 1 and 20 items are required.");
         }
+        if (items.Any(item => item is null || item.SkuPublicId == Guid.Empty || item.Quantity is < 1 or > 8))
+            throw new BuildWriteException(BuildWriteException.ErrorCodes.ValidationFailed, "每項零件須有有效 SKU，數量須為 1 到 8。");
 
         var merged = items
             .GroupBy(item => item.SkuPublicId)

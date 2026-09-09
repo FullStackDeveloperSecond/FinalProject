@@ -346,7 +346,8 @@ public sealed class ApplyCartCouponServiceTests
             CartIdentity identity,
             IReadOnlyList<AssemblyGroupItemInput> perUnitItems,
             int unitCount,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            BuildCartImportOptions? importOptions = null)
         {
             Writes++;
             return GetCartAsync(identity, cancellationToken);

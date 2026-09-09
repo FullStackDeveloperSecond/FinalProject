@@ -30,6 +30,7 @@ public static class AuditActions
     // alex PR #47 review round 2: startProcessing is a significant order-status action but
     // previously only wrote per-dimension OrderStatusHistory rows, with no central AuditLog entry.
     public const string OrderStartProcessing = "order.start_processing";
+    public const string OrderAssemblyProgress = "order.assembly_progress";
     public const string ProductReviewApprove = "product_review.approve";
     public const string ProductReviewReject = "product_review.reject";
     public const string ProductReviewHide = "product_review.hide";
@@ -722,6 +723,10 @@ internal static class AuditWritePolicy
                 AuditActions.OrderStartProcessing,
                 AuditResourceTypes.Order,
                 "orderStatus", "fulfillmentStatus", "assemblyStatus"),
+            [AuditActions.OrderAssemblyProgress] = DefinitionWithNote(
+                AuditActions.OrderAssemblyProgress,
+                AuditResourceTypes.Order,
+                "assemblyStatus"),
             [AuditActions.ProductBulkPublish] = DefinitionWithNote(
                 AuditActions.ProductBulkPublish,
                 AuditResourceTypes.Product,

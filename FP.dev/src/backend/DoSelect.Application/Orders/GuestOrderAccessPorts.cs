@@ -172,4 +172,12 @@ public interface IGuestOrderAccessHasher
     string DeriveVerificationCode(Guid requestPublicId, int sendNumber);
 
     byte[] HashToken(string rawToken);
+
+    byte[] HashGuestCartKey(string guestCartKey) =>
+        HashToken($"guest-cart:{guestCartKey.Trim()}");
+
+    /// <summary>讓冪等重播可重建相同的訪客限單存取權杖，而不在回執保存明文。</summary>
+    string DeriveOrderAccessToken(Guid orderPublicId, Guid verificationPublicId) =>
+        Convert.ToHexStringLower(HashToken(
+            $"checkout-order-access:{orderPublicId:N}:{verificationPublicId:N}"));
 }

@@ -73,8 +73,8 @@ public sealed class AiProductSearchOrchestratorTests
                     IsExistingPart: true),
             ],
             PurchaseSubtotal: 10_000,
-            AssemblyFee: 300,
-            PurchaseTotal: 10_300,
+            AssemblyFee: 0,
+            PurchaseTotal: 10_000,
             Currency: "TWD",
             AiCompatibilityStatus.Compatible,
             CompatibilityMessageKeys: []);
@@ -90,8 +90,8 @@ public sealed class AiProductSearchOrchestratorTests
         Assert.Equal(AiProductSearchExecutionStatus.Recommendations, result.Status);
         Assert.Empty(result.Recommendations);
         Assert.NotNull(result.CustomBuild);
-        Assert.Equal(10_300, result.CustomBuild.PurchaseTotal);
-        Assert.Equal(300, result.CustomBuild.AssemblyFee);
+        Assert.Equal(10_000, result.CustomBuild.PurchaseTotal);
+        Assert.Equal(0, result.CustomBuild.AssemblyFee);
         Assert.Equal("符合用途與新購預算。", result.CustomBuild.Components[0].Reason);
         Assert.Null(result.CustomBuild.Components[1].Reason);
         Assert.True(result.CustomBuild.Components[1].IsExistingPart);
@@ -119,8 +119,8 @@ public sealed class AiProductSearchOrchestratorTests
                     IsExistingPart: true),
             ],
             PurchaseSubtotal: 0,
-            AssemblyFee: 300,
-            PurchaseTotal: 300,
+            AssemblyFee: 0,
+            PurchaseTotal: 0,
             Currency: "TWD",
             AiCompatibilityStatus.Compatible,
             CompatibilityMessageKeys: []);
@@ -134,7 +134,7 @@ public sealed class AiProductSearchOrchestratorTests
 
         Assert.Equal(AiProductSearchExecutionStatus.Recommendations, result.Status);
         Assert.NotNull(result.CustomBuild);
-        Assert.Equal(300, result.CustomBuild.PurchaseTotal);
+        Assert.Equal(0, result.CustomBuild.PurchaseTotal);
         Assert.Equal(0, model.ExplainCount);
     }
 

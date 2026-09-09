@@ -56,7 +56,7 @@ public sealed class DemoAccountActivatorSqlServerTests
                 Assert.NotNull(admin);
                 Assert.NotNull(member);
                 Assert.Equal("demo-admin-0001", admin.Id);
-                Assert.Equal("demo-member-0001", member.Id);
+                Assert.Equal(DemoDataSeeder.MemberUserId(0), member.Id);
                 Assert.Equal(AccountType.Admin, admin.AccountType);
                 Assert.Equal(AccountType.Member, member.AccountType);
                 Assert.True(await userManager.CheckPasswordAsync(admin, "Demo_Admin_123!"));

@@ -8,6 +8,9 @@ import {
   SHIPMENT_ACTION_OPTIONS,
   SHIPMENT_REASON_OPTIONS,
   fulfillmentStatusLabel,
+  paymentStatusLabel,
+  assemblyStatusLabel,
+  orderRefundStatusLabel,
   orderStatusLabel,
   summaryStatusLabel,
   badgeLabel,
@@ -37,6 +40,7 @@ const recipientApiError = computed(() => (isApiError(recipientError.value) ? rec
 
 const actionMutation = useAdminOrderActionMutation()
 const selectedAction = ref('')
+const selectedAssemblyJob = ref<{ publicId: string; rowVersion: string } | null>(null)
 const reasonCode = ref('')
 const note = ref('')
 const actionErrorMessage = ref<string | undefined>(undefined)
@@ -44,7 +48,8 @@ const actionErrorMessage = ref<string | undefined>(undefined)
 const selectedActionOption = computed(() =>
   ORDER_ACTION_OPTIONS.find(option => option.value === selectedAction.value))
 
-function startAction(actionName: string): void {
+function startAction(actionName: string, job?: { publicId: string; rowVersion: string }): void {
+  selectedAssemblyJob.value = job ?? null
   selectedAction.value = actionName
   reasonCode.value = ''
   note.value = ''
@@ -72,6 +77,8 @@ async function submitAction(): Promise<void> {
         reasonCode: reasonCode.value || undefined,
         note: note.value || undefined,
         rowVersion: order.value.rowVersion,
+        assemblyJobPublicId: selectedAssemblyJob.value?.publicId,
+        assemblyJobRowVersion: selectedAssemblyJob.value?.rowVersion,
       },
     })
     selectedAction.value = ''
@@ -228,13 +235,13 @@ function formatDateTime(value?: string | null): string {
         <dt>訂單狀態</dt>
         <dd>{{ orderStatusLabel[order.orderStatus] ?? order.orderStatus }}</dd>
         <dt>付款狀態</dt>
-        <dd>{{ order.paymentStatus }}</dd>
+        <dd>{{ paymentStatusLabel[order.paymentStatus] ?? '未知付款狀態' }}</dd>
         <dt>物流狀態</dt>
-        <dd>{{ order.fulfillmentStatus }}</dd>
+        <dd>{{ fulfillmentStatusLabel(order.fulfillmentStatus) }}</dd>
         <dt>組裝狀態</dt>
-        <dd>{{ order.assemblyStatus }}</dd>
+        <dd>{{ assemblyStatusLabel[order.assemblyStatus] ?? '未知組裝狀態' }}</dd>
         <dt>退款狀態</dt>
-        <dd>{{ order.orderRefundStatus }}</dd>
+        <dd>{{ orderRefundStatusLabel[order.orderRefundStatus] ?? '未知退款狀態' }}</dd>
         <dt>買家</dt>
         <dd>{{ order.buyerType === 'Member' ? '會員' : '訪客' }}／{{ order.maskedBuyerEmail }}</dd>
         <dt>配送方式</dt>
@@ -488,10 +495,32 @@ function formatDateTime(value?: string | null): string {
           操作
         </h2>
         <EmptyState
-          v-if="order.availableActions.length === 0"
+          v-if="order.availableActions.length === 0 && !order.assemblyJobs?.some(job => job.availableActions.length)"
           title="目前沒有可執行的操作"
         />
         <template v-else>
+          <section
+            v-if="order.assemblyJobs?.length"
+            aria-label="組裝工作進度"
+          >
+            <h3>組裝工作進度</h3>
+            <p>每台電腦須完成組裝及測試；全部確認可出貨後，才可建立物流單。請依實際作業結果更新。</p>
+            <div
+              v-for="(job, index) in order.assemblyJobs"
+              :key="job.publicId"
+            >
+              <p>第 {{ index + 1 }} 台：{{ assemblyStatusLabel[job.status] ?? '未知狀態' }}</p>
+              <button
+                v-for="action in job.availableActions"
+                :key="action"
+                type="button"
+                :disabled="actionMutation.isPending.value"
+                @click="startAction(action, job)"
+              >
+                {{ ORDER_ACTION_OPTIONS.find(option => option.value === action)?.label }}
+              </button>
+            </div>
+          </section>
           <button
             v-for="actionName in order.availableActions"
             :key="actionName"
@@ -506,6 +535,7 @@ function formatDateTime(value?: string | null): string {
             @submit.prevent="submitAction"
           >
             <p>
+              <span v-if="selectedAssemblyJob">僅更新選取的這一台電腦。</span>
               確定要執行「{{ selectedActionOption?.label ?? selectedAction }}」嗎？此操作會變更訂單狀態並留下紀錄。
             </p>
             <template v-if="selectedActionOption?.requiresReason">

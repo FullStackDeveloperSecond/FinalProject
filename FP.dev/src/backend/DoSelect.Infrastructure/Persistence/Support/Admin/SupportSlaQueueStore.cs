@@ -28,7 +28,8 @@ public sealed class SupportSlaQueueStore : ISupportSlaQueueStore
         DateTime nowUtc,
         string adminUserId,
         bool canSupervise,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        SupportSlaQueueQuery? filters = null)
     {
         var active = _dbContext.SupportTickets
             .AsNoTracking()
@@ -38,6 +39,12 @@ public sealed class SupportSlaQueueStore : ISupportSlaQueueStore
             .Where(t => canSupervise
                 || t.AssigneeAdminUserId == null
                 || t.AssigneeAdminUserId == adminUserId);
+
+        if (!string.IsNullOrWhiteSpace(filters?.Search)) active = active.Where(t => t.TicketNumber.Contains(filters.Search.Trim()));
+        if (filters?.Status is { } status) active = active.Where(t => t.Status == status);
+        if (filters?.Priority is { } priority) active = active.Where(t => t.Priority == priority);
+        if (filters?.Assignee == "mine") active = active.Where(t => t.AssigneeAdminUserId == adminUserId);
+        if (filters?.Assignee == "unassigned") active = active.Where(t => t.AssigneeAdminUserId == null);
 
         var withPause = active.Select(t => new
         {
@@ -151,6 +158,8 @@ public sealed class SupportSlaQueueStore : ISupportSlaQueueStore
                 AssigneeDisplayName = admin.DisplayName,
             };
 
+        if (filters?.OnlyOverdue == true) withAssignee = withAssignee.Where(x => x.IsOverdue);
+        int? total = filters?.PageNumber is not null ? await withAssignee.CountAsync(cancellationToken) : null;
         var filtered = after is null
             ? withAssignee
             : withAssignee.Where(x =>
@@ -161,10 +170,11 @@ public sealed class SupportSlaQueueStore : ISupportSlaQueueStore
                     && x.EffectiveDueAtUtc == after.EffectiveDueAtUtc
                     && x.PublicId > after.TicketPublicId));
 
-        var rows = await filtered
+        var ordered = filters?.Sort == "recent" ? filtered.OrderByDescending(x => x.LastActivityAtUtc).ThenBy(x => x.PublicId) : filtered
             .OrderByDescending(x => x.IsOverdue)
             .ThenBy(x => x.EffectiveDueAtUtc)
-            .ThenBy(x => x.PublicId)
+            .ThenBy(x => x.PublicId);
+        var rows = await ordered.Skip(((filters?.PageNumber ?? 1) - 1) * pageSize)
             .Take(pageSize + 1)
             .ToListAsync(cancellationToken);
 
@@ -187,6 +197,6 @@ public sealed class SupportSlaQueueStore : ISupportSlaQueueStore
             x.LastActivityAtUtc,
             x.RowVersion)).ToList();
 
-        return new SupportSlaQueuePage(items, hasMore);
+        return new SupportSlaQueuePage(items, hasMore, total);
     }
 }

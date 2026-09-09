@@ -60,15 +60,21 @@ async function withdrawConsent() {
 async function sendMessage() {
   const content = message.value.trim()
   if (!content) return
-  const answer = await sendMutation.mutateAsync({
-    conversationPublicId: conversationPublicId.value,
-    message: content,
-    referencedOrderPublicIds: selectedOrderIds.value,
-    referencedSupportTicketPublicIds: selectedTicketIds.value,
-    locale: 'zh-TW',
-  })
-  conversationPublicId.value = answer.conversationPublicId
-  message.value = ''
+  try {
+    const answer = await sendMutation.mutateAsync({
+      conversationPublicId: conversationPublicId.value,
+      message: content,
+      referencedOrderPublicIds: selectedOrderIds.value,
+      referencedSupportTicketPublicIds: selectedTicketIds.value,
+      locale: 'zh-TW',
+    })
+    conversationPublicId.value = answer.conversationPublicId
+    message.value = ''
+  }
+  catch {
+    // Mutation 本身保存錯誤供下方錯誤訊息與人工客服引導顯示；這裡只終止
+    // async event handler，避免瀏覽器再產生未處理的 Promise 拒絕。
+  }
 }
 
 function toggleSelection(values: string[], value: string, checked: boolean) {

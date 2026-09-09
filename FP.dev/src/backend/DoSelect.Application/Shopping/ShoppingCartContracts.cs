@@ -45,7 +45,8 @@ public sealed record CartItemDto(
     bool PriceChanged,
     int MaxPurchasableQuantity,
     Guid? AssemblyGroupKey,
-    byte[] RowVersion);
+    byte[] RowVersion,
+    string? CategoryCode = null);
 
 /// <summary>Matches API DTO與Schema契約.md's `amounts{...}` object exactly.</summary>
 public sealed record CartAmountsDto(
@@ -102,6 +103,14 @@ public sealed record CartMergeResultDto(CartDto Cart, IReadOnlyList<CartMergeCon
 
 /// <summary>One SKU's per-physical-unit quantity for a build-derived assembly group (see <see cref="ICartService.AddAssemblyGroupsAsync"/>).</summary>
 public sealed record AssemblyGroupItemInput(Guid SkuPublicId, int Quantity);
+
+public sealed record CartItemTransferInput(Guid CartItemPublicId, int Quantity);
+
+/// <summary>Internal build purchase policy, never bound directly from an HTTP request.</summary>
+public sealed record BuildCartImportOptions(
+    bool AsLooseParts,
+    byte[] CartRowVersion,
+    IReadOnlyList<CartItemTransferInput> Transfers);
 
 public interface ICartService
 {
@@ -174,5 +183,6 @@ public interface ICartService
         CartIdentity identity,
         IReadOnlyList<AssemblyGroupItemInput> perUnitItems,
         int unitCount,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        BuildCartImportOptions? importOptions = null);
 }

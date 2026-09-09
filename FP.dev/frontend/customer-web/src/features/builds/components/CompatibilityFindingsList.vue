@@ -26,6 +26,24 @@ const severityLabels: Record<string, string> = {
   insufficientData: '資料不足',
   ruleDisabled: '規則已停用',
 }
+
+const ruleLabels: Record<string, string> = {
+  BUILD_REQUIRED_COMPONENT: '必要零組件',
+  CPU_SOCKET: 'CPU 與主機板腳位',
+  CPU_CHIPSET: 'CPU 與晶片組',
+  BIOS_UPDATE: 'BIOS 版本',
+  MEMORY_TYPE: '記憶體類型',
+  MEMORY_SLOTS: '記憶體插槽',
+  MEMORY_CAPACITY: '記憶體容量',
+  MOTHERBOARD_FORM_FACTOR: '主機板尺寸',
+  GPU_LENGTH: '顯示卡長度與機殼空間',
+  COOLER_SOCKET: '散熱器腳位',
+  COOLER_HEIGHT: '散熱器高度',
+  STORAGE_INTERFACE: '儲存裝置介面',
+  PSU_CAPACITY: '電源供應器瓦數',
+  PSU_CONNECTORS: '電源供應器接頭',
+  PSU_FORM_FACTOR: '電源供應器尺寸',
+}
 </script>
 
 <template>
@@ -35,7 +53,7 @@ const severityLabels: Record<string, string> = {
     aria-live="polite"
   >
     <p class="compat-findings__overall">
-      相容性檢查結果：{{ overallLabels[overall] ?? overall }}
+      相容性檢查結果：{{ overallLabels[overall] ?? '尚待確認' }}
     </p>
     <ul
       v-if="results.length > 0"
@@ -47,9 +65,9 @@ const severityLabels: Record<string, string> = {
         class="compat-findings__item"
         :class="`compat-findings__item--${finding.severity}`"
       >
-        <span class="compat-findings__severity">{{ severityLabels[finding.severity] ?? finding.severity }}</span>
+        <span class="compat-findings__severity">{{ severityLabels[finding.severity] ?? '尚待確認' }}</span>
         <span class="compat-findings__message">{{ describeCompatibilityMessage(finding.messageKey, finding.facts) }}</span>
-        <span class="compat-findings__rule">{{ finding.ruleCode }}</span>
+        <span class="compat-findings__rule">{{ ruleLabels[finding.ruleCode] ?? '零組件相容性' }}</span>
       </li>
     </ul>
   </section>

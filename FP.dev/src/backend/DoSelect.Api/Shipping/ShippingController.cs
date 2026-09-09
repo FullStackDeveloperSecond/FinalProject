@@ -50,6 +50,17 @@ public sealed class ShippingController : ControllerBase
         return Ok(options);
     }
 
+    [HttpGet("api/v1/convenience-stores/regions")]
+    public async Task<ActionResult<PageResult<string>>> ListConvenienceStoreRegions(
+        [FromQuery] ListConvenienceStoreRegionsRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _convenienceStoreQueryService.ListRegionsAsync(
+            new ConvenienceStoreRegionQuery(request.ProviderCode, request.City, request.PageNumber, request.PageSize),
+            cancellationToken);
+        return Ok(result);
+    }
+
     [HttpGet("api/v1/convenience-stores")]
     public async Task<ActionResult<PageResult<ConvenienceStoreOptionDto>>> ListConvenienceStores(
         [FromQuery] ListConvenienceStoresRequest request,
@@ -65,6 +76,21 @@ public sealed class ShippingController : ControllerBase
         var result = await _convenienceStoreQueryService.ListAsync(query, cancellationToken);
         return Ok(result);
     }
+}
+
+public sealed class ListConvenienceStoreRegionsRequest
+{
+    [Required, StringLength(32)]
+    public string ProviderCode { get; init; } = string.Empty;
+
+    [StringLength(64)]
+    public string? City { get; init; }
+
+    [Range(1, int.MaxValue)]
+    public int PageNumber { get; init; } = 1;
+
+    [Range(1, 100)]
+    public int PageSize { get; init; } = 100;
 }
 
 public sealed class ListConvenienceStoresRequest

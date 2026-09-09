@@ -1,4 +1,5 @@
 import { apiClient } from '../../api/client'
+import type { CartDto } from '../cart/types'
 import type {
   AddBuildToCartRequest,
   BuildListDto,
@@ -70,22 +71,18 @@ export async function getSharedBuild(token: string): Promise<SharedBuildDto> {
   return data!
 }
 
-/**
- * Returns the updated Cart as `unknown` — `features/cart` isn't merged into this branch's base
- * yet (feature/cart-frontend, PR #29), so there is no `CartDto` to import. Callers only need to
- * know the call succeeded; a future integration can type this properly once cart-frontend merges.
- */
+/** Returns the authoritative updated cart after the atomic build purchase/transfer. */
 export async function addBuildToCart(
   publicId: string,
   request: AddBuildToCartRequest,
   idempotencyKey: string,
-): Promise<unknown> {
+): Promise<CartDto> {
   const { data } = await apiClient.POST('/api/v1/build-lists/{id}/actions/add-to-cart', {
     params: { path: { id: publicId } },
     body: request,
     headers: { 'Idempotency-Key': idempotencyKey },
   })
-  return data
+  return data!
 }
 
 /** Public, unauthenticated — used for the live compatibility preview before a build is saved (UC-COMPAT-01). */

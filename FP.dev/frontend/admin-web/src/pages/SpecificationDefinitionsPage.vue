@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { PagePager } from '@doselect/web-shared/components'
 /** A-09 (M功能桌面UI與Route規格.md): 分類規格範本、Option、排序與受保護 Semantic Key。 */
 import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
@@ -213,6 +214,7 @@ const mutationError = computed(() => {
         <select
           v-model="draftFilters.categoryPublicId"
           aria-label="分類"
+          @change="search"
         >
           <option value="">
             全部分類
@@ -239,6 +241,8 @@ const mutationError = computed(() => {
           v-model="draftFilters.activeOnly"
           type="checkbox"
           aria-label="只顯示啟用中"
+
+          @change="search"
         >
         只顯示啟用中
       </label>
@@ -574,26 +578,14 @@ const mutationError = computed(() => {
         </tbody>
       </table>
 
-      <div
+      <PagePager
         v-if="totalPages > 1"
-        class="spec-pagination"
-      >
-        <button
-          type="button"
-          :disabled="pageNumber <= 1"
-          @click="goToPage(pageNumber - 1)"
-        >
-          上一頁
-        </button>
-        <span>{{ pageNumber }} / {{ totalPages }}</span>
-        <button
-          type="button"
-          :disabled="pageNumber >= totalPages"
-          @click="goToPage(pageNumber + 1)"
-        >
-          下一頁
-        </button>
-      </div>
+        :page="pageNumber"
+        :page-size="1"
+        :total-records="totalPages"
+        aria-label="列表分頁"
+        @update:page="goToPage"
+      />
     </template>
   </section>
 </template>

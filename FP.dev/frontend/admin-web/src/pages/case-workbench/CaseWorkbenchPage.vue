@@ -385,7 +385,7 @@ const errorTitle = computed(() => {
       >
         共 {{ data.totalCount }} 筆符合條件的案件
       </p>
-      <div class="case-workbench__table-wrap card">
+      <div class="case-workbench__table-wrap table-scroll card">
         <table class="case-workbench__table">
           <thead>
             <tr>

@@ -17,6 +17,10 @@ const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     {
+      path: '/members', name: 'members', component: () => import('../pages/MembersPage.vue'),
+      meta: { requiresAuth: true, requiredRoles: adminRouteRoles['/members'] },
+    },
+    {
       path: '/',
       name: 'home',
       component: () => import('../pages/HomePage.vue'),

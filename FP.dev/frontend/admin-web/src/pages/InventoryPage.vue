@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { PagePager } from '@doselect/web-shared/components'
 /** A-11 (M功能桌面UI與Route規格.md): SKU 庫存餘額、低庫存與異動明細。 */
 import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
@@ -10,9 +11,21 @@ import { endOfLocalDayExclusiveBoundary, startOfLocalDay } from '../features/inv
 // per 組長's PR #36 A1 ruling — the API returns and accepts it, so the filter must offer it too
 // (組長 PR #37 round-2 review, item 1).
 const MOVEMENT_TYPE_OPTIONS = [
-  'StockIn', 'Reserve', 'Release', 'Ship', 'ReturnToStock',
-  'ManualIncrease', 'ManualDecrease', 'Damage', 'Adjustment', 'CostChange',
+  { value: 'StockIn', label: '入庫' },
+  { value: 'Reserve', label: '保留' },
+  { value: 'Release', label: '釋放' },
+  { value: 'Ship', label: '出貨' },
+  { value: 'ReturnToStock', label: '退貨回庫' },
+  { value: 'ManualIncrease', label: '人工增加' },
+  { value: 'ManualDecrease', label: '人工減少' },
+  { value: 'Damage', label: '損壞' },
+  { value: 'Adjustment', label: '調整' },
+  { value: 'CostChange', label: '成本變更' },
 ]
+
+function movementTypeLabel(value: string): string {
+  return MOVEMENT_TYPE_OPTIONS.find(option => option.value === value)?.label ?? '其他異動'
+}
 
 // 組長 PR #37 round-2 review, item 3: the form binds to a *draft* the query never sees; only 搜尋
 // copies it into the applied filters and resets the page in the same tick, so typing or toggling
@@ -107,6 +120,7 @@ function formatDateTime(value: string): string {
         <select
           v-model="balanceDraft.stockState"
           aria-label="庫存狀態"
+          @change="searchBalances"
         >
           <option value="">
             全部狀態
@@ -173,27 +187,14 @@ function formatDateTime(value: string): string {
             </tbody>
           </table>
         </div>
-        <nav
+        <PagePager
           v-if="balanceTotalPages > 1"
-          class="inventory-pagination"
-          aria-label="庫存餘額分頁"
-        >
-          <button
-            type="button"
-            :disabled="balanceFilters.pageNumber <= 1"
-            @click="goToBalancePage(balanceFilters.pageNumber - 1)"
-          >
-            上一頁
-          </button>
-          <span>第 {{ balanceFilters.pageNumber }} / {{ balanceTotalPages }} 頁</span>
-          <button
-            type="button"
-            :disabled="balanceFilters.pageNumber >= balanceTotalPages"
-            @click="goToBalancePage(balanceFilters.pageNumber + 1)"
-          >
-            下一頁
-          </button>
-        </nav>
+          :page="balanceFilters.pageNumber"
+          :page-size="1"
+          :total-records="balanceTotalPages"
+          aria-label="列表分頁"
+          @update:page="goToBalancePage"
+        />
       </template>
     </section>
 
@@ -211,14 +212,16 @@ function formatDateTime(value: string): string {
           <legend>異動類型</legend>
           <label
             v-for="type in MOVEMENT_TYPE_OPTIONS"
-            :key="type"
+            :key="type.value"
           >
             <input
               v-model="movementDraft.movementTypes"
               type="checkbox"
-              :value="type"
+              :value="type.value"
+
+              @change="searchMovements"
             >
-            {{ type }}
+            {{ type.label }}
           </label>
         </fieldset>
         <label>
@@ -227,6 +230,8 @@ function formatDateTime(value: string): string {
             v-model="movementDraft.from"
             type="date"
             aria-label="起始日期"
+
+            @change="searchMovements"
           >
         </label>
         <label>
@@ -235,6 +240,8 @@ function formatDateTime(value: string): string {
             v-model="movementDraft.to"
             type="date"
             aria-label="結束日期"
+
+            @change="searchMovements"
           >
         </label>
         <button type="submit">
@@ -281,7 +288,7 @@ function formatDateTime(value: string): string {
               >
                 <td>{{ formatDateTime(movement.occurredAtUtc) }}</td>
                 <td>{{ movement.sku.skuCode }}</td>
-                <td>{{ movement.movementType }}</td>
+                <td>{{ movementTypeLabel(movement.movementType) }}</td>
                 <td>{{ Number(movement.onHandDelta) >= 0 ? '+' : '' }}{{ movement.onHandDelta }}</td>
                 <td>{{ Number(movement.reservedDelta) >= 0 ? '+' : '' }}{{ movement.reservedDelta }}</td>
                 <td>{{ movement.reasonCode }}</td>
@@ -290,27 +297,14 @@ function formatDateTime(value: string): string {
             </tbody>
           </table>
         </div>
-        <nav
+        <PagePager
           v-if="movementTotalPages > 1"
-          class="inventory-pagination"
-          aria-label="異動明細分頁"
-        >
-          <button
-            type="button"
-            :disabled="movementFilters.pageNumber <= 1"
-            @click="goToMovementPage(movementFilters.pageNumber - 1)"
-          >
-            上一頁
-          </button>
-          <span>第 {{ movementFilters.pageNumber }} / {{ movementTotalPages }} 頁</span>
-          <button
-            type="button"
-            :disabled="movementFilters.pageNumber >= movementTotalPages"
-            @click="goToMovementPage(movementFilters.pageNumber + 1)"
-          >
-            下一頁
-          </button>
-        </nav>
+          :page="movementFilters.pageNumber"
+          :page-size="1"
+          :total-records="movementTotalPages"
+          aria-label="列表分頁"
+          @update:page="goToMovementPage"
+        />
       </template>
     </section>
   </section>

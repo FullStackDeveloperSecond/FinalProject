@@ -4,7 +4,7 @@ import { useRoute } from 'vue-router'
 import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
 import { useAdminAuthStore } from '../features/auth/stores/useAdminAuthStore'
-import { cellsFor, formatMetric, headersFor, metricLabel } from '../features/operationalReports/presentation'
+import { cellsFor, formatMetric, headersFor, metricLabel, unitLabel } from '../features/operationalReports/presentation'
 import {
   isOperationalReportKey,
   operationalReportDefinitions,
@@ -83,6 +83,15 @@ function barWidth(value: number): string {
   return chartMaximum.value === 0 ? '0%' : `${Math.max(2, Math.abs(value) / chartMaximum.value * 100)}%`
 }
 
+function timeBasisLabel(value: string): string {
+  const labels: Readonly<Record<string, string>> = {
+    'Payment.PaidAtUtc / Refund.SucceededAtUtc': '付款完成時間／退款完成時間',
+    'Order.CompletedAtUtc / Refund.SucceededAtUtc': '訂單完成時間／退款完成時間',
+    'Order.CompletedAtUtc': '訂單完成時間',
+  }
+  return labels[value] ?? '依報表定義的交易時間'
+}
+
 function normalizedFilters(): OperationalReportFilters {
   return {
     fromDate: draft.fromDate,
@@ -116,7 +125,7 @@ watch(reportKey, async () => {
   <section aria-labelledby="operational-report-title">
     <div class="report-heading">
       <div>
-        <span class="demo-badge">DEMO DATA</span>
+        <span class="demo-badge">DEMO 資料</span>
         <h1 id="operational-report-title">
           {{ definition.title }}
         </h1>
@@ -166,6 +175,8 @@ watch(reportKey, async () => {
           v-model="draft.fromDate"
           type="date"
           required
+
+          @change="applyFilters"
         >
       </label>
       <label>
@@ -174,6 +185,8 @@ watch(reportKey, async () => {
           v-model="draft.toDate"
           type="date"
           required
+
+          @change="applyFilters"
         >
       </label>
       <label>
@@ -202,7 +215,10 @@ watch(reportKey, async () => {
       </label>
       <label>
         <span>粒度</span>
-        <select v-model="draft.granularity">
+        <select
+          v-model="draft.granularity"
+          @change="applyFilters"
+        >
           <option value="day">日</option>
           <option value="week">週</option>
           <option value="month">月</option>
@@ -239,7 +255,7 @@ watch(reportKey, async () => {
     />
     <template v-else-if="report.data.value">
       <div class="report-metadata">
-        <span>時間基準：{{ report.data.value.timeBasis }}</span>
+        <span>時間基準：{{ timeBasisLabel(report.data.value.timeBasis) }}</span>
         <span>資料截至：{{ new Date(report.data.value.asOfUtc).toLocaleString('zh-TW') }}</span>
       </div>
 
@@ -251,7 +267,7 @@ watch(reportKey, async () => {
         >
           <span>{{ metricLabel(metric.metricKey) }}</span>
           <strong>{{ formatMetric(metric.value, metric.unit) }}</strong>
-          <small>{{ metric.unit }}</small>
+          <small>{{ unitLabel(metric.unit) }}</small>
         </article>
       </div>
 

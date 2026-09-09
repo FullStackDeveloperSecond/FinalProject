@@ -3,6 +3,13 @@ using DoSelect.Domain.Orders;
 using DoSelect.Domain.Payments;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Persistence.Seeding;
+using DoSelect.Application.Builds;
+using DoSelect.Application.Ai;
+using DoSelect.Domain.Ai;
+using DoSelect.Domain.Members;
+using DoSelect.Infrastructure.Ai;
+using DoSelect.Infrastructure.Builds;
+using DoSelect.Infrastructure.Catalog;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
@@ -13,7 +20,7 @@ public sealed class DemoDataSeedSqlServerTests
     [Fact]
     public void Manifest_HasExactVersionedTenThousandRecordAllocation()
     {
-        Assert.Equal("implemented-features-v2", DemoSeedManifest.Version);
+        Assert.Equal("implemented-features-v3", DemoSeedManifest.Version);
         Assert.Equal(20260907, DemoSeedManifest.RandomSeed);
         Assert.Equal(10_000, DemoSeedManifest.MainBusinessRecordTotal);
         Assert.Equal(10_000, DemoSeedManifest.ExpectedCounts.Values.Sum());
@@ -80,6 +87,26 @@ public sealed class DemoDataSeedSqlServerTests
                 var first = await new DemoDataSeeder(context).SeedAsync();
 
                 Assert.True(first.Created);
+                Assert.False(await context.Skus.AnyAsync(sku => sku.WeightKg == null || sku.LengthCm == null || sku.WidthCm == null || sku.HeightCm == null));
+                Assert.True(await context.Categories.AnyAsync(category => category.Code == "CPU"));
+                Assert.Equal(8, await context.Categories.CountAsync());
+                var memberIds = await context.MemberProfiles.Select(member => member.UserId).ToListAsync();
+                Assert.All(memberIds, id => Assert.True(Guid.TryParse(id, out _)));
+                Assert.All(await context.MemberAddresses.Select(address => address.Phone).ToListAsync(), phone => Assert.Matches("^09[0-9]{8}$", phone));
+                Assert.Equal(100, await context.ConvenienceStores.CountAsync());
+                Assert.Equal(3, await context.ShippingMethods.CountAsync());
+                var creator = await context.Coupons.SingleAsync(coupon => coupon.Code == "CREATOR10");
+                Assert.Equal(3, await context.CouponCategories.CountAsync(link => link.CouponId == creator.Id));
+                Assert.False(await context.CouponRedemptions.AnyAsync(redemption => redemption.CouponId == creator.Id));
+                var referenceItems = await context.Skus.OrderBy(sku => sku.SkuCode).Take(24)
+                    .Where(sku => sku.IsDefault).Select(sku => new BuildItemInput(sku.PublicId, 1)).ToListAsync();
+                Assert.Equal(8, referenceItems.Count);
+                var compatibility = await new EfCompatibilityCheckService(context, new EfCompatibilityCatalogReader(context))
+                    .CheckAsync(new CompatibilityCheckRequest(referenceItems), null, CancellationToken.None);
+                Assert.Equal("compatible", compatibility.Overall);
+                var consent = await new EfAiConsentManager(context, TimeProvider.System).GrantAsync(
+                    Guid.Parse(DemoDataSeeder.MemberUserId(0)), AiConsentPolicy.CurrentVersion, SupportedLocale.ZhTw, CancellationToken.None);
+                Assert.Equal(AiConsentState.Granted, consent.State);
                 Assert.Equal(10_000, first.MainBusinessRecordTotal);
                 Assert.Equal(
                     DemoSeedManifest.ExpectedCounts.OrderBy(entry => entry.Key),
@@ -169,7 +196,7 @@ public sealed class DemoDataSeedSqlServerTests
             await reader.DisposeAsync();
             await constraintContext.Database.CloseConnectionAsync();
             constraintContext.Favorites.Add(new DoSelect.Domain.Members.Favorite(
-                "demo-member-0001",
+                DemoDataSeeder.MemberUserId(0),
                 await constraintContext.Products
                     .OrderBy(product => product.ProductCode)
                     .Skip(1)

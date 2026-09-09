@@ -1,3 +1,5 @@
+import { parseBuildImport, type OwnedBuildPart, type CartTransferSource } from './buildImport'
+
 const storageKey = 'doselect.guestBuildDraft'
 
 export interface GuestBuildDraftItem {
@@ -12,19 +14,17 @@ export interface GuestBuildDraftItem {
 export interface GuestBuildDraft {
   name: string
   items: GuestBuildDraftItem[]
+  ownedParts?: OwnedBuildPart[]
+  cartSource?: CartTransferSource
 }
 
 const emptyDraft: GuestBuildDraft = { name: '', items: [] }
 
 export function loadGuestBuildDraft(): GuestBuildDraft {
-  const raw = window.localStorage.getItem(storageKey)
-  if (!raw) {
-    return { name: emptyDraft.name, items: [] }
-  }
-
   try {
-    const parsed = JSON.parse(raw) as GuestBuildDraft
-    return { name: parsed.name ?? '', items: Array.isArray(parsed.items) ? parsed.items : [] }
+    const raw = window.localStorage.getItem(storageKey)
+    if (!raw || raw.length > 64_000) return { name: emptyDraft.name, items: [] }
+    return parseBuildImport(JSON.parse(raw))
   } catch {
     return { name: emptyDraft.name, items: [] }
   }

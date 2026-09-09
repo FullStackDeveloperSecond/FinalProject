@@ -79,7 +79,7 @@ describe('OperationalReportPage', () => {
     const wrapper = await mountPage()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Payment.PaidAtUtc / Refund.SucceededAtUtc')
+    expect(wrapper.text()).toContain('付款完成時間／退款完成時間')
     expect(wrapper.text()).toContain('NT$1,250')
     expect(wrapper.text()).toContain('2026-08-01')
     expect(wrapper.text()).not.toContain('毛利分析')
@@ -147,11 +147,14 @@ describe('OperationalReportPage', () => {
     const initialCalls = mocks.load.mock.calls.length
     const dateInputs = wrapper.findAll('input[type="date"]')
     await dateInputs[0]!.setValue('2026-09-01')
+    // The first valid date change applies immediately; the following invalid range must not.
+    const validDateCalls = mocks.load.mock.calls.length
+    expect(validDateCalls).toBeGreaterThanOrEqual(initialCalls)
     await dateInputs[1]!.setValue('2026-09-01')
 
     await wrapper.find('form').trigger('submit')
 
     expect(wrapper.text()).toContain('必須晚於開始日期')
-    expect(mocks.load).toHaveBeenCalledTimes(initialCalls)
+    expect(mocks.load).toHaveBeenCalledTimes(validDateCalls)
   })
 })

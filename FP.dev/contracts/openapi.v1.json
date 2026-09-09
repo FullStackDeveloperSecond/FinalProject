@@ -6,7 +6,7 @@
   },
   "servers": [
     {
-      "url": "http://localhost:5126/"
+      "url": "http://127.0.0.1:5128/"
     }
   ],
   "paths": {
@@ -1123,6 +1123,83 @@
               "text/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ShippingOptionsDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/convenience-stores/regions": {
+      "get": {
+        "tags": [
+          "Shipping"
+        ],
+        "parameters": [
+          {
+            "name": "ProviderCode",
+            "in": "query",
+            "schema": {
+              "maxLength": 32,
+              "minLength": 0,
+              "type": "string"
+            }
+          },
+          {
+            "name": "City",
+            "in": "query",
+            "schema": {
+              "maxLength": 64,
+              "minLength": 0,
+              "type": "string"
+            }
+          },
+          {
+            "name": "PageNumber",
+            "in": "query",
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 1,
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "PageSize",
+            "in": "query",
+            "schema": {
+              "maximum": 100,
+              "minimum": 1,
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageResultOfstring"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageResultOfstring"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageResultOfstring"
                 }
               }
             }
@@ -5828,6 +5905,164 @@
         }
       }
     },
+    "/api/v1/admin/members": {
+      "get": {
+        "tags": [
+          "AdminMembers"
+        ],
+        "parameters": [
+          {
+            "name": "Search",
+            "in": "query",
+            "schema": {
+              "maxLength": 100,
+              "minLength": 0,
+              "type": "string"
+            }
+          },
+          {
+            "name": "Status",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/AccountStatus"
+            }
+          },
+          {
+            "name": "Page",
+            "in": "query",
+            "schema": {
+              "maximum": 1000000,
+              "minimum": 1,
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "PageSize",
+            "in": "query",
+            "schema": {
+              "maximum": 100,
+              "minimum": 1,
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminMemberPage"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminMemberPage"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminMemberPage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/members/{publicId}": {
+      "get": {
+        "tags": [
+          "AdminMembers"
+        ],
+        "parameters": [
+          {
+            "name": "publicId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminMemberDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminMemberDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminMemberDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/members/{publicId}/status": {
+      "post": {
+        "tags": [
+          "AdminMembers"
+        ],
+        "parameters": [
+          {
+            "name": "publicId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminMemberStatusRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminMemberStatusRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminMemberStatusRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/v1/members/me": {
       "get": {
         "tags": [
@@ -9060,6 +9295,60 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "PageNumber",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "Search",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Status",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/SupportTicketStatus"
+            }
+          },
+          {
+            "name": "Priority",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/CasePriority"
+            }
+          },
+          {
+            "name": "OnlyOverdue",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "Assignee",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Sort",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -9068,17 +9357,17 @@
             "content": {
               "text/plain": {
                 "schema": {
-                  "$ref": "#/components/schemas/CursorPageOfSupportSlaItemDto"
+                  "$ref": "#/components/schemas/SupportSlaQueueResponse"
                 }
               },
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CursorPageOfSupportSlaItemDto"
+                  "$ref": "#/components/schemas/SupportSlaQueueResponse"
                 }
               },
               "text/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CursorPageOfSupportSlaItemDto"
+                  "$ref": "#/components/schemas/SupportSlaQueueResponse"
                 }
               }
             }
@@ -10141,6 +10430,133 @@
               "text/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AcceptedPolicyVersions"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/checkout/guest-email/verification-requests": {
+      "post": {
+        "tags": [
+          "GuestCheckoutEmailVerification"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuestCheckoutEmailVerificationRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuestCheckoutEmailVerificationRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuestCheckoutEmailVerificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestCheckoutEmailVerificationAcceptedDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestCheckoutEmailVerificationAcceptedDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestCheckoutEmailVerificationAcceptedDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/checkout/guest-email/verifications": {
+      "post": {
+        "tags": [
+          "GuestCheckoutEmailVerification"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuestCheckoutEmailVerificationCodeRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuestCheckoutEmailVerificationCodeRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuestCheckoutEmailVerificationCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestCheckoutEmailVerifiedDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestCheckoutEmailVerifiedDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestCheckoutEmailVerifiedDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/checkout/guest-email/verification-status": {
+      "get": {
+        "tags": [
+          "GuestCheckoutEmailVerification"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestCheckoutEmailVerificationStatusDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestCheckoutEmailVerificationStatusDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuestCheckoutEmailVerificationStatusDto"
                 }
               }
             }
@@ -12824,7 +13240,24 @@
         },
         "responses": {
           "200": {
-            "description": "OK"
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/CartDto"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CartDto"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CartDto"
+                }
+              }
+            }
           }
         }
       }
@@ -14227,6 +14660,16 @@
           }
         }
       },
+      "AccountStatus": {
+        "enum": [
+          "pendingEmailVerification",
+          "active",
+          "suspended",
+          "anonymized",
+          "disabled",
+          null
+        ]
+      },
       "AcknowledgeReconciliationCaseRequest": {
         "required": [
           "rowVersion"
@@ -14257,6 +14700,22 @@
           "buildRowVersion": {
             "type": "string",
             "format": "byte"
+          },
+          "cartRowVersion": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "byte"
+          },
+          "cartTransfers": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/CartItemTransferInput"
+            }
           }
         }
       },
@@ -14389,6 +14848,34 @@
               "string"
             ],
             "format": "double"
+          }
+        }
+      },
+      "AdminAssemblyJobDto": {
+        "required": [
+          "publicId",
+          "status",
+          "rowVersion",
+          "availableActions"
+        ],
+        "type": "object",
+        "properties": {
+          "publicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
+          },
+          "rowVersion": {
+            "type": "string",
+            "format": "byte"
+          },
+          "availableActions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -14605,6 +15092,112 @@
           }
         }
       },
+      "AdminMemberDto": {
+        "required": [
+          "publicId",
+          "displayName",
+          "emailMasked",
+          "status",
+          "emailVerified",
+          "createdAtUtc",
+          "updatedAtUtc",
+          "rowVersion"
+        ],
+        "type": "object",
+        "properties": {
+          "publicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "emailMasked": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "emailVerified": {
+            "type": "boolean"
+          },
+          "createdAtUtc": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAtUtc": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "rowVersion": {
+            "type": "string",
+            "format": "byte"
+          }
+        }
+      },
+      "AdminMemberPage": {
+        "required": [
+          "items",
+          "totalCount",
+          "page",
+          "pageSize"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminMemberDto"
+            }
+          },
+          "totalCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "page": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "pageSize": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "AdminMemberStatusRequest": {
+        "required": [
+          "rowVersion",
+          "reasonCode"
+        ],
+        "type": "object",
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "rowVersion": {
+            "maxLength": 8,
+            "minLength": 8,
+            "type": "string",
+            "format": "byte"
+          },
+          "reasonCode": {
+            "pattern": "^(user_request|policy_violation|resolved)$",
+            "type": "string"
+          }
+        }
+      },
       "AdminOrderActionRequest": {
         "required": [
           "reasonCode",
@@ -14627,6 +15220,20 @@
           },
           "rowVersion": {
             "type": "string",
+            "format": "byte"
+          },
+          "assemblyJobPublicId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "assemblyJobRowVersion": {
+            "type": [
+              "null",
+              "string"
+            ],
             "format": "byte"
           }
         }
@@ -14869,6 +15476,15 @@
                 "$ref": "#/components/schemas/AdminShipmentDto"
               }
             ]
+          },
+          "assemblyJobs": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/AdminAssemblyJobDto"
+            }
           }
         }
       },
@@ -16251,6 +16867,59 @@
           }
         }
       },
+      "AiProductSearchExistingPart": {
+        "required": [
+          "skuPublicId",
+          "sourceType",
+          "categoryCode",
+          "displayName",
+          "specifications",
+          "quantity",
+          "confirmedByUser"
+        ],
+        "type": "object",
+        "properties": {
+          "skuPublicId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "sourceType": {
+            "type": "string"
+          },
+          "categoryCode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "displayName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "specifications": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AiRequiredSpec"
+            }
+          },
+          "quantity": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "confirmedByUser": {
+            "type": "boolean"
+          }
+        }
+      },
       "AiProductSearchIntentDto": {
         "required": [
           "intent",
@@ -16484,6 +17153,32 @@
             "items": {
               "$ref": "#/components/schemas/AiSearchSpecDto"
             }
+          }
+        }
+      },
+      "AiRequiredSpec": {
+        "required": [
+          "semanticKey",
+          "operator",
+          "value",
+          "unit"
+        ],
+        "type": "object",
+        "properties": {
+          "semanticKey": {
+            "type": "string"
+          },
+          "operator": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "unit": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -17345,6 +18040,15 @@
           "rowVersion": {
             "type": "string",
             "format": "byte"
+          },
+          "ownedParts": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/AiProductSearchExistingPart"
+            }
           }
         }
       },
@@ -17839,6 +18543,33 @@
           "rowVersion": {
             "type": "string",
             "format": "byte"
+          },
+          "categoryCode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "CartItemTransferInput": {
+        "required": [
+          "cartItemPublicId",
+          "quantity"
+        ],
+        "type": "object",
+        "properties": {
+          "cartItemPublicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "quantity": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -18334,6 +19065,62 @@
           }
         }
       },
+      "CheckoutAmountQuoteDto": {
+        "required": [
+          "merchandiseSubtotal",
+          "itemDiscountTotal",
+          "shippingFee",
+          "assemblyFee",
+          "grandTotal",
+          "currency"
+        ],
+        "type": "object",
+        "properties": {
+          "merchandiseSubtotal": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "itemDiscountTotal": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "shippingFee": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "assemblyFee": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "grandTotal": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "currency": {
+            "type": "string"
+          }
+        }
+      },
       "CheckoutBuyerInput": {
         "required": [
           "email",
@@ -18503,6 +19290,15 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/BuildItemInput"
+            }
+          },
+          "ownedParts": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/AiProductSearchExistingPart"
             }
           }
         }
@@ -19282,6 +20078,15 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/BuildItemInput"
+            }
+          },
+          "ownedParts": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/AiProductSearchExistingPart"
             }
           }
         }
@@ -20323,31 +21128,6 @@
           }
         }
       },
-      "CursorPageOfSupportSlaItemDto": {
-        "required": [
-          "items",
-          "nextCursor",
-          "hasMore"
-        ],
-        "type": "object",
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/SupportSlaItemDto"
-            }
-          },
-          "nextCursor": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "hasMore": {
-            "type": "boolean"
-          }
-        }
-      },
       "DeleteBuildListRequest": {
         "required": [
           "rowVersion"
@@ -20620,6 +21400,92 @@
           "deliveryFailed",
           "returned"
         ]
+      },
+      "GuestCheckoutEmailVerificationAcceptedDto": {
+        "required": [
+          "requestPublicId",
+          "expiresAtUtc"
+        ],
+        "type": "object",
+        "properties": {
+          "requestPublicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expiresAtUtc": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "GuestCheckoutEmailVerificationCodeRequest": {
+        "required": [
+          "requestPublicId",
+          "code"
+        ],
+        "type": "object",
+        "properties": {
+          "requestPublicId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
+            "type": "string"
+          }
+        }
+      },
+      "GuestCheckoutEmailVerificationRequest": {
+        "required": [
+          "email"
+        ],
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          }
+        }
+      },
+      "GuestCheckoutEmailVerificationStatusDto": {
+        "required": [
+          "verified",
+          "email",
+          "expiresAtUtc"
+        ],
+        "type": "object",
+        "properties": {
+          "verified": {
+            "type": "boolean"
+          },
+          "email": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "expiresAtUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "GuestCheckoutEmailVerifiedDto": {
+        "required": [
+          "verified",
+          "expiresAtUtc"
+        ],
+        "type": "object",
+        "properties": {
+          "verified": {
+            "type": "boolean"
+          },
+          "expiresAtUtc": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
       },
       "GuestOrderAccessRequestAcceptedDto": {
         "required": [
@@ -23248,6 +24114,55 @@
           }
         }
       },
+      "PageResultOfstring": {
+        "required": [
+          "items",
+          "pageNumber",
+          "pageSize",
+          "totalCount"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "pageNumber": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "pageSize": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "totalCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "totalPages": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "PageResultOfSupportTicketSummaryDto": {
         "required": [
           "items",
@@ -25764,6 +26679,15 @@
           },
           "canAddToCart": {
             "type": "boolean"
+          },
+          "ownedParts": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/AiProductSearchExistingPart"
+            }
           }
         }
       },
@@ -25806,7 +26730,8 @@
           "freeShippingThreshold",
           "requiresAddress",
           "requiresStore",
-          "allowedPaymentMethods"
+          "allowedPaymentMethods",
+          "amounts"
         ],
         "type": "object",
         "properties": {
@@ -25853,6 +26778,9 @@
             "items": {
               "$ref": "#/components/schemas/PaymentMethod"
             }
+          },
+          "amounts": {
+            "$ref": "#/components/schemas/CheckoutAmountQuoteDto"
           }
         }
       },
@@ -27059,6 +27987,49 @@
           }
         }
       },
+      "SupportSlaQueueResponse": {
+        "required": [
+          "items",
+          "nextCursor",
+          "hasMore"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SupportSlaItemDto"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "totalCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "pageNumber": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "SupportTicketCategory": {
         "enum": [
           "order",
@@ -27483,6 +28454,15 @@
           "rowVersion": {
             "type": "string",
             "format": "byte"
+          },
+          "ownedParts": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/AiProductSearchExistingPart"
+            }
           }
         }
       },
@@ -28236,6 +29216,9 @@
       "name": "AdminOperationalReports"
     },
     {
+      "name": "AdminMembers"
+    },
+    {
       "name": "Members"
     },
     {
@@ -28282,6 +29265,9 @@
     },
     {
       "name": "CheckoutPolicy"
+    },
+    {
+      "name": "GuestCheckoutEmailVerification"
     },
     {
       "name": "AdminProductImages"

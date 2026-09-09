@@ -10,6 +10,8 @@ const datasetPath = resolve(evalDirectory, 'dataset.zh-TW.v1.jsonl')
 const fixturePath = resolve(evalDirectory, 'context-fixtures.v1.json')
 const checkOnly = process.argv.includes('--check')
 
+const normalizeLineEndings = value => value.replaceAll('\r\n', '\n')
+
 const datasetContent = `${cases.map((item) => JSON.stringify(item)).join('\n')}\n`
 const fixtureContent = `${JSON.stringify(fixtures, null, 2)}\n`
 
@@ -19,7 +21,8 @@ if (checkOnly) {
     readFile(fixturePath, 'utf8'),
   ])
 
-  if (existingDataset !== datasetContent || existingFixtures !== fixtureContent) {
+  if (normalizeLineEndings(existingDataset) !== datasetContent
+    || normalizeLineEndings(existingFixtures) !== fixtureContent) {
     console.error('AI evaluation artifacts are stale. Run: node scripts/build-ai-eval-dataset.mjs')
     process.exitCode = 1
   } else {

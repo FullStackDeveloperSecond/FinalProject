@@ -20,6 +20,17 @@ const RELEASE_REASON_CODE_OPTIONS = [
   { value: 'other', label: '其他' },
 ]
 
+const RESERVATION_STATUS_OPTIONS = [
+  { value: 'Active', label: '生效中' },
+  { value: 'Consumed', label: '已使用' },
+  { value: 'Released', label: '已釋放' },
+  { value: 'Expired', label: '已到期' },
+]
+
+function reservationStatusLabel(value: string): string {
+  return RESERVATION_STATUS_OPTIONS.find(option => option.value === value)?.label ?? '其他狀態'
+}
+
 // 組長 PR #37 round-2 review, item 3: the <select> binds to a draft; only 搜尋 copies it into the
 // applied status. Binding the query key straight to the form meant changing status on page two
 // fired "new status + old cursor", which the backend rejects by contract (a cursor is bound to
@@ -117,21 +128,17 @@ function formatDateTime(value: string | null): string {
       <select
         v-model="draftFilters.status"
         aria-label="狀態"
+        @change="search"
       >
         <option value="">
           全部狀態
         </option>
-        <option value="Active">
-          Active
-        </option>
-        <option value="Consumed">
-          Consumed
-        </option>
-        <option value="Released">
-          Released
-        </option>
-        <option value="Expired">
-          Expired
+        <option
+          v-for="option in RESERVATION_STATUS_OPTIONS"
+          :key="option.value"
+          :value="option.value"
+        >
+          {{ option.label }}
         </option>
       </select>
       <button type="submit">
@@ -174,7 +181,7 @@ function formatDateTime(value: string | null): string {
               <td>{{ reservation.order.orderNumber }}</td>
               <td>{{ reservation.sku.skuCode }}</td>
               <td>{{ reservation.quantity }}</td>
-              <td>{{ reservation.status }}</td>
+              <td>{{ reservationStatusLabel(reservation.status) }}</td>
               <td>{{ formatDateTime(reservation.expiresAtUtc) }}</td>
               <td>{{ formatDateTime(reservation.createdAtUtc) }}</td>
               <td>

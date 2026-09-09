@@ -20,6 +20,23 @@ public sealed class EfConvenienceStoreQueryService : IConvenienceStoreQueryServi
         _dbContext = dbContext;
     }
 
+    public async Task<PageResult<string>> ListRegionsAsync(
+        ConvenienceStoreRegionQuery query,
+        CancellationToken cancellationToken)
+    {
+        var stores = _dbContext.ConvenienceStores.AsNoTracking()
+            .Where(store => store.IsActive && store.ProviderCode == query.ProviderCode);
+        var regions = string.IsNullOrWhiteSpace(query.City)
+            ? stores.Select(store => store.City)
+            : stores.Where(store => store.City == query.City).Select(store => store.District);
+        regions = regions.Distinct();
+        var total = await regions.CountAsync(cancellationToken);
+        var skip = (long)(query.PageNumber - 1) * query.PageSize;
+        var items = skip > int.MaxValue ? [] : await regions.OrderBy(region => region)
+            .Skip((int)skip).Take(query.PageSize).ToListAsync(cancellationToken);
+        return new PageResult<string>(items, query.PageNumber, query.PageSize, total);
+    }
+
     public async Task<PageResult<ConvenienceStoreOptionDto>> ListAsync(
         ConvenienceStoreQuery query,
         CancellationToken cancellationToken)
@@ -62,6 +79,7 @@ public sealed class EfConvenienceStoreQueryService : IConvenienceStoreQueryServi
             .OrderBy(store => store.City)
             .ThenBy(store => store.District)
             .ThenBy(store => store.StoreCode)
+            .ThenBy(store => store.PublicId)
             .Skip((int)skip)
             .Take(pageSize)
             .Select(store => new ConvenienceStoreOptionDto(

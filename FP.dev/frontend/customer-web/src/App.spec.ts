@@ -5,6 +5,12 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { describe, expect, it, vi } from 'vitest'
 import App from './App.vue'
 import { useSessionStore } from './stores/session'
+import type { CartDto } from './features/cart/types'
+import { getOrCreateGuestCartKey } from './features/cart/guestCartKey'
+
+vi.mock('./features/cart/api', () => ({
+  getCart: vi.fn().mockResolvedValue({ items: [] }),
+}))
 
 async function mountAppAt(path: string) {
   const page = { template: '<div>頁面內容</div>' }
@@ -33,6 +39,7 @@ async function mountAppAt(path: string) {
 
   return {
     router,
+    queryClient,
     wrapper: mount(App, { global: { plugins: [pinia, router, [VueQueryPlugin, { queryClient }]] } }),
   }
 }
@@ -59,6 +66,27 @@ describe('App support navigation', () => {
     const supportLink = wrapper.get('a[href="/support"]')
     expect(supportLink.attributes('aria-current')).toBeUndefined()
     expect(supportLink.classes()).not.toContain('router-link-active')
+  })
+})
+
+describe('導覽購物車件數', () => {
+  it('以商品數量總和即時更新，切換身分不顯示舊購物車', async () => {
+    const { wrapper, queryClient } = await mountAppAt('/')
+    await flushPromises()
+    const key = ['cart', 'guest', getOrCreateGuestCartKey()]
+    const link = () => wrapper.get('.primary-nav a[href="/cart"]')
+    queryClient.setQueryData(key, { items: [{ quantity: 2 }, { quantity: 3 }] } as CartDto)
+    await flushPromises()
+    expect(link().text()).toContain('5')
+    queryClient.setQueryData(key, { items: [] } as unknown as CartDto)
+    await flushPromises()
+    expect(link().text()).toContain('0')
+    queryClient.setQueryData(key, { items: [{ quantity: 5 }] } as CartDto)
+    useSessionStore().status = 'error'
+    await flushPromises()
+    expect(link().text()).not.toContain('5')
+    expect(link().text()).not.toContain('0')
+    wrapper.unmount()
   })
 })
 

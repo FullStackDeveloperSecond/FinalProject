@@ -195,7 +195,9 @@ public sealed class EfAiProductSearchCatalog(
                 Clarifications: [CustomBuildRequirementsQuestion(locale)]);
         }
 
-        var maximumPurchaseSubtotal = intent.Budget.Maximum.Value - AiCustomBuildPricing.AssemblyFee;
+        // Mixed owned/new configurations are parts-only purchases, not an assembly service.
+        var assemblyFee = existingParts.Count > 0 ? 0m : AiCustomBuildPricing.AssemblyFee;
+        var maximumPurchaseSubtotal = intent.Budget.Maximum.Value - assemblyFee;
         if (maximumPurchaseSubtotal < 0)
         {
             return new AiProductSearchCandidateResult(
@@ -345,7 +347,7 @@ public sealed class EfAiProductSearchCatalog(
                 return false;
             }
 
-            var purchaseTotal = subtotal + AiCustomBuildPricing.AssemblyFee;
+            var purchaseTotal = subtotal + assemblyFee;
             if (intent.Budget.Minimum.HasValue && purchaseTotal < intent.Budget.Minimum.Value)
             {
                 return false;
@@ -379,7 +381,7 @@ public sealed class EfAiProductSearchCatalog(
             approvedBuild = new AiCustomBuildCandidate(
                 components,
                 subtotal,
-                AiCustomBuildPricing.AssemblyFee,
+                assemblyFee,
                 purchaseTotal,
                 "TWD",
                 compatibility.Overall == "warning"

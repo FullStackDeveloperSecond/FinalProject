@@ -442,6 +442,7 @@ function describeCouponError(error: unknown): string {
     <h1 id="cart-page-title">
       購物車
     </h1>
+    <RouterLink to="/builds/new?import=cart">挑選購物車零件，帶到組裝所</RouterLink>
 
     <div
       v-if="sessionStore.status === 'error'"
@@ -485,9 +486,10 @@ function describeCouponError(error: unknown): string {
           :disabled="isBusy"
           @click="runRevalidate"
         >
-          重新檢查
+          更新價格與庫存
         </button>
       </div>
+      <p>重新確認商品售價、庫存及是否可結帳；商品數量不會因此增加。</p>
 
       <p
         v-if="revalidateError"

@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using DoSelect.Application.Builds;
+using DoSelect.Application.Ai;
 using DoSelect.Application.Common;
 using DoSelect.Application.Idempotency;
 using DoSelect.Application.Shopping;
@@ -128,9 +129,9 @@ public sealed class EfBuildListService : IBuildListService
             return new BuildListSummaryDto(
                 list.PublicId,
                 list.Name,
-                listItems.Count,
+                listItems.Count + BuildOwnedParts.Read(list.OwnedPartsJson).Count,
                 OverallToToken(list.CompatibilityStatus ?? CompatibilityOverall.InsufficientData),
-                merchandise + AssemblyFeePerUnit,
+                merchandise + (list.OwnedPartsJson is null ? AssemblyFeePerUnit : 0m),
                 sharedBuildListIdSet.Contains(list.Id),
                 list.UpdatedAtUtc,
                 list.RowVersion);
@@ -167,7 +168,8 @@ public sealed class EfBuildListService : IBuildListService
         ArgumentNullException.ThrowIfNull(request);
 
         var now = DateTime.UtcNow;
-        var mergedItems = EfCompatibilityCheckService.MergeAndValidateItems(request.Items);
+        var ownedParts = await NormalizeOwnedPartsAsync(request.OwnedParts, cancellationToken);
+        var mergedItems = BuildOwnedParts.NewItems(request.Items, ownedParts);
         var skusByPublicId = await LoadSkusByPublicIdAsync(mergedItems, cancellationToken);
 
         // PR #34 review: this used to insert the BuildList (SaveChanges #1), then add items and
@@ -197,6 +199,7 @@ public sealed class EfBuildListService : IBuildListService
         }
 
         var buildList = new BuildList(Guid.CreateVersion7(), memberUserId, request.Name, BuildListStatusCodes.Active, now);
+        buildList.SetOwnedParts(ownedParts.Count == 0 ? null : JsonSerializer.Serialize(ownedParts), now);
         _dbContext.BuildLists.Add(buildList);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
@@ -219,7 +222,9 @@ public sealed class EfBuildListService : IBuildListService
 
         var now = DateTime.UtcNow;
         var buildList = await FindOwnedActiveAsync(memberUserId, buildListPublicId, cancellationToken);
-        var mergedItems = EfCompatibilityCheckService.MergeAndValidateItems(request.Items);
+        // Omitted ownedParts from an older client preserves existing ownership; [] explicitly clears it.
+        var ownedParts = await NormalizeOwnedPartsAsync(request.OwnedParts ?? BuildOwnedParts.Read(buildList.OwnedPartsJson), cancellationToken);
+        var mergedItems = BuildOwnedParts.NewItems(request.Items, ownedParts);
         var skusByPublicId = await LoadSkusByPublicIdAsync(mergedItems, cancellationToken);
 
         _dbContext.Entry(buildList).Property(candidate => candidate.RowVersion).OriginalValue = request.RowVersion;
@@ -230,6 +235,7 @@ public sealed class EfBuildListService : IBuildListService
         _dbContext.BuildListItems.RemoveRange(existingItems);
 
         buildList.Rename(request.Name, now);
+        buildList.SetOwnedParts(ownedParts.Count == 0 ? null : JsonSerializer.Serialize(ownedParts), now);
 
         var rows = AddItems(buildList.Id, mergedItems, skusByPublicId, now);
 
@@ -307,6 +313,23 @@ public sealed class EfBuildListService : IBuildListService
         return skus.ToDictionary(sku => sku.PublicId);
     }
 
+    private async Task<IReadOnlyList<AiProductSearchExistingPart>> NormalizeOwnedPartsAsync(
+        IReadOnlyList<AiProductSearchExistingPart>? input, CancellationToken cancellationToken)
+    {
+        var parts = BuildOwnedParts.Validate(input);
+        var ids = parts.Where(part => part.SkuPublicId.HasValue).Select(part => part.SkuPublicId!.Value).ToArray();
+        var catalog = await (from sku in _dbContext.Skus.AsNoTracking()
+            join product in _dbContext.Products.AsNoTracking() on sku.ProductId equals product.Id
+            join category in _dbContext.Categories.AsNoTracking() on product.CategoryId equals category.Id
+            where ids.Contains(sku.PublicId) && sku.Status == SkuStatus.Published && product.Status == ProductStatus.Published && category.IsActive
+            select new { sku.PublicId, sku.NameZhTw, category.Code }).ToDictionaryAsync(row => row.PublicId, cancellationToken);
+        if (ids.Any(id => !catalog.ContainsKey(id)))
+            throw new BuildWriteException(BuildWriteException.ErrorCodes.ValidationFailed, "自有零件的站內商品不存在，請重新選擇或填寫規格。");
+        return parts.Select(part => part.SkuPublicId is { } id
+            ? part with { CategoryCode = catalog[id].Code, DisplayName = catalog[id].NameZhTw }
+            : part).ToArray();
+    }
+
     private async Task<Dictionary<long, Sku>> LoadSkusAsync(IEnumerable<long> skuIds, CancellationToken cancellationToken)
     {
         var ids = skuIds.Distinct().ToArray();
@@ -378,7 +401,7 @@ public sealed class EfBuildListService : IBuildListService
         CancellationToken cancellationToken)
     {
         var compatibility = await _compatibilityCheckService.CheckAsync(
-            new CompatibilityCheckRequest(mergedItems), buildList.Id, cancellationToken);
+            new CompatibilityCheckRequest(mergedItems, BuildOwnedParts.Read(buildList.OwnedPartsJson)), buildList.Id, cancellationToken);
         buildList.RecordCompatibility(TokenToOverall(compatibility.Overall), now);
         return compatibility;
     }
@@ -426,7 +449,7 @@ public sealed class EfBuildListService : IBuildListService
         CompatibilityCheckDto? precomputedCompatibility = null)
     {
         var (itemDtos, compatibilityDto, totals) = await ComposeItemsAsync(
-            rows, buildList.Id, cancellationToken, precomputedCompatibility);
+            rows, buildList.Id, cancellationToken, precomputedCompatibility, BuildOwnedParts.Read(buildList.OwnedPartsJson));
         var activeShare = await LoadActiveShareAsync(buildList.Id, cancellationToken);
 
         return new BuildListDto(
@@ -437,7 +460,8 @@ public sealed class EfBuildListService : IBuildListService
             totals,
             activeShare,
             buildList.UpdatedAtUtc,
-            buildList.RowVersion);
+            buildList.RowVersion,
+            BuildOwnedParts.Read(buildList.OwnedPartsJson));
     }
 
     /// <summary>PR #35 review, item 3: what a reload CAN recover about an existing share — see <see cref="BuildActiveShareDto"/>'s remarks for why the URL itself can't be.</summary>
@@ -465,7 +489,8 @@ public sealed class EfBuildListService : IBuildListService
         IReadOnlyList<(Guid ItemPublicId, Sku Sku, int Quantity, int SortOrder)> rows,
         long? buildListId,
         CancellationToken cancellationToken,
-        CompatibilityCheckDto? precomputedCompatibility = null)
+        CompatibilityCheckDto? precomputedCompatibility = null,
+        IReadOnlyList<AiProductSearchExistingPart>? ownedParts = null)
     {
         var now = DateTime.UtcNow;
         var skuIds = rows.Select(row => row.Sku.Id).ToArray();
@@ -508,11 +533,12 @@ public sealed class EfBuildListService : IBuildListService
         {
             var mergedItems = rows.Select(row => new BuildItemInput(row.Sku.PublicId, row.Quantity)).ToList();
             compatibility = await _compatibilityCheckService.CheckAsync(
-                new CompatibilityCheckRequest(mergedItems), buildListId, cancellationToken);
+                new CompatibilityCheckRequest(mergedItems, ownedParts), buildListId, cancellationToken);
         }
 
         var merchandise = itemDtos.Sum(item => item.LineTotal);
-        var totals = new BuildTotalsDto(merchandise, AssemblyFeePerUnit, merchandise + AssemblyFeePerUnit, "TWD");
+        var assemblyFee = ownedParts is { Count: > 0 } ? 0m : AssemblyFeePerUnit;
+        var totals = new BuildTotalsDto(merchandise, assemblyFee, merchandise + assemblyFee, "TWD");
         var compatibilityDto = new BuildCompatibilitySummaryDto(
             compatibility.Overall, compatibility.RuleSetVersion, compatibility.SettingsVersion, compatibility.Results);
 
@@ -641,7 +667,8 @@ public sealed class EfBuildListService : IBuildListService
 
         // 每次分享頁開啟需重新驗證: recompute live and refresh the owner's cache too, unlike the
         // owner's own read-only GetAsync.
-        var (itemDtos, compatibility, totals) = await ComposeItemsAsync(rows, buildList.Id, cancellationToken);
+        var ownedParts = BuildOwnedParts.Read(buildList.OwnedPartsJson);
+        var (itemDtos, compatibility, totals) = await ComposeItemsAsync(rows, buildList.Id, cancellationToken, ownedParts: ownedParts);
         buildList.RecordCompatibility(TokenToOverall(compatibility.Overall), now);
         try
         {
@@ -660,11 +687,11 @@ public sealed class EfBuildListService : IBuildListService
         // "組合內任何必要零件缺貨或不可售時，整組不能直接結帳" — insufficient_stock blocks it too,
         // not just unavailable, so every item must be fully available. A ruleDisabled finding
         // blocks it too — see ExecuteAddToCartAsync's matching check (組長 PR #34 review).
-        var canAddToCart = compatibility.Overall is "compatible" or "warning" &&
+        var canAddToCart = itemDtos.Count > 0 && compatibility.Overall is "compatible" or "warning" &&
             itemDtos.All(item => item.Availability == "available") &&
             compatibility.Results.All(finding => finding.Severity != CompatibilitySeverityTokens.RuleDisabled);
 
-        return new SharedBuildDto(shareToken.PublicId, buildList.Name, itemDtos, compatibility, totals, CanCopy: true, canAddToCart);
+        return new SharedBuildDto(shareToken.PublicId, buildList.Name, itemDtos, compatibility, totals, CanCopy: true, canAddToCart, ownedParts);
     }
 
     public async Task<CartDto> AddToCartAsync(
@@ -680,17 +707,28 @@ public sealed class EfBuildListService : IBuildListService
             throw new BuildWriteException(
                 BuildWriteException.ErrorCodes.ValidationFailed, "An Idempotency-Key header is required.");
         }
+        if (request.Quantity is < 1 or > 8 || request.BuildRowVersion is not { Length: 8 } ||
+            request.CartRowVersion is { Length: not 8 } ||
+            request.CartTransfers is { Count: > 20 } ||
+            request.CartTransfers is { Count: > 0 } && request.CartRowVersion is null)
+        {
+            throw new BuildWriteException(BuildWriteException.ErrorCodes.ValidationFailed, "組裝數量或購物車版本不正確，請重新確認。");
+        }
 
         var userPublicId = await _dbContext.Users
             .Where(user => user.Id == memberUserId)
             .Select(user => user.PublicId)
             .SingleAsync(cancellationToken);
 
+        // Preserve the old payload shape for existing callers and in-flight legacy retries.
+        object payload = request.CartRowVersion is null && request.CartTransfers is not { Count: > 0 }
+            ? new { buildListPublicId, request.Quantity, BuildRowVersion = Convert.ToBase64String(request.BuildRowVersion) }
+            : new { buildListPublicId, request.Quantity, BuildRowVersion = Convert.ToBase64String(request.BuildRowVersion), request.CartRowVersion, request.CartTransfers };
         var command = IdempotencyCommand.Create(
             IdempotencyActorScope.ForUser(userPublicId),
             AddToCartOperation,
             idempotencyKey,
-            new { buildListPublicId, request.Quantity, BuildRowVersion = Convert.ToBase64String(request.BuildRowVersion) });
+            payload);
 
         var result = await _idempotencyExecutor.ExecuteAsync(
             command,
@@ -711,11 +749,17 @@ public sealed class EfBuildListService : IBuildListService
         var now = DateTime.UtcNow;
         var buildList = await FindOwnedActiveAsync(memberUserId, buildListPublicId, cancellationToken);
         _dbContext.Entry(buildList).Property(candidate => candidate.RowVersion).OriginalValue = request.BuildRowVersion;
+        var ownedParts = BuildOwnedParts.Read(buildList.OwnedPartsJson);
+        if (ownedParts.Count > 0 && request.CartRowVersion is null)
+            throw new BuildWriteException(BuildWriteException.ErrorCodes.ValidationFailed, "含自有零件時只補足新購數量，請重新載入購物車後確認。");
 
         var storedItems = await _dbContext.BuildListItems.AsNoTracking()
             .Where(item => item.BuildListId == buildList.Id)
             .ToListAsync(cancellationToken);
         var skusById = await LoadSkusAsync(storedItems.Select(item => item.SkuId), cancellationToken);
+
+        if (storedItems.Count == 0)
+            throw new BuildWriteException(BuildWriteException.ErrorCodes.ValidationFailed, "這份清單沒有需要新購的零件，無須加入購物車。");
 
         foreach (var item in storedItems)
         {
@@ -735,9 +779,11 @@ public sealed class EfBuildListService : IBuildListService
             .ToList();
 
         var catalogResult = await _catalogReader.ReadAsync(
-            mergedItems.Select(item => new CompatibilityItemReference(item.SkuPublicId, item.Quantity)).ToArray(),
+            mergedItems.Select(item => new CompatibilityItemReference(item.SkuPublicId, item.Quantity))
+                .Concat(ownedParts.Where(part => part.SkuPublicId.HasValue).Select(part => new CompatibilityItemReference(part.SkuPublicId!.Value, part.Quantity))).ToArray(),
             cancellationToken);
-        var presentCategoryCodes = catalogResult.Components.Select(component => component.CategoryCode).ToHashSet();
+        var presentCategoryCodes = catalogResult.Components.Select(component => component.CategoryCode)
+            .Concat(ownedParts.Where(part => part.SourceType == "structuredManual").Select(part => part.CategoryCode!)).ToHashSet();
         var missingCategoryCodes = RequiredComponentCategoryCodes
             .Where(categoryCode => !presentCategoryCodes.Contains(categoryCode))
             .ToList();
@@ -749,7 +795,7 @@ public sealed class EfBuildListService : IBuildListService
         }
 
         var compatibility = await _compatibilityCheckService.CheckAsync(
-            new CompatibilityCheckRequest(mergedItems), buildList.Id, cancellationToken);
+            new CompatibilityCheckRequest(mergedItems, ownedParts), buildList.Id, cancellationToken);
         // 組長 PR #34 review: Overall never reflects a ruleDisabled finding by design
         // (EfCompatibilityCheckService.ApplyDisabledRules keeps the rollup at whatever the
         // remaining active findings say) — that is fine for the admin test tool, but the real
@@ -788,7 +834,8 @@ public sealed class EfBuildListService : IBuildListService
             .Select(item => new AssemblyGroupItemInput(skusById[item.SkuId].PublicId, item.Quantity))
             .ToList();
         var cartDto = await _cartService.AddAssemblyGroupsAsync(
-            new CartIdentity(memberUserId, null), perUnitItems, request.Quantity, cancellationToken);
+            new CartIdentity(memberUserId, null), perUnitItems, request.Quantity, cancellationToken,
+            request.CartRowVersion is null ? null : new BuildCartImportOptions(ownedParts.Count > 0, request.CartRowVersion, request.CartTransfers ?? []));
 
         return new IdempotencyResponse<CartDto>(
             StatusCode: 200, Body: cartDto, ResponseSummary: JsonSerializer.Serialize(cartDto));

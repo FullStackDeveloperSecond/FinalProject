@@ -19,6 +19,9 @@ public static class DoSelectAuthenticationSchemes
     /// <see cref="DoSelectPolicies"/>。
     /// </summary>
     public const string GuestOrderAccess = "DoSelect.GuestOrderAccess";
+
+    /// <summary>訪客下單前已完成信箱驗證的短效、綁購物車證明。</summary>
+    public const string GuestCheckoutEmail = "DoSelect.GuestCheckoutEmail";
 }
 
 public static class DoSelectClaimTypes
@@ -57,6 +60,8 @@ public static class DoSelectRoles
 
 public static class DoSelectPolicies
 {
+    public const string MemberView = "Member.View";
+    public const string MemberManage = "Member.Manage";
     public const string Member = "Member";
     public const string AiSupportMember = "AiSupport.Member";
     public const string AiUsageView = "AiUsage.View";

@@ -58,6 +58,8 @@ public static class SecurityServiceCollectionExtensions
                 ConfigureAdminCookie(options, allowsHttpCookies))
             .AddCookie(DoSelectAuthenticationSchemes.GuestOrderAccess, options =>
                 ConfigureGuestOrderAccessCookie(options, allowsHttpCookies))
+            .AddCookie(DoSelectAuthenticationSchemes.GuestCheckoutEmail, options =>
+                ConfigureGuestCheckoutEmailCookie(options, allowsHttpCookies))
             .AddCookie(DoSelectAuthenticationSchemes.AdminChallenge, options =>
                 ConfigureAdminChallengeCookie(options, allowsHttpCookies));
 
@@ -316,6 +318,15 @@ public static class SecurityServiceCollectionExtensions
         options.SlidingExpiration = false;
     }
 
+    private static void ConfigureGuestCheckoutEmailCookie(
+        CookieAuthenticationOptions options,
+        bool allowsHttpCookies)
+    {
+        ConfigureCookieDefaults(options, allowsHttpCookies, ".DoSelect.GuestCheckoutEmail");
+        options.ExpireTimeSpan = TimeSpan.FromMinutes(10);
+        options.SlidingExpiration = false;
+    }
+
     private static void ConfigureCookieDefaults(
         CookieAuthenticationOptions options,
         bool allowsHttpCookies,
@@ -388,6 +399,10 @@ public static class SecurityServiceCollectionExtensions
             DoSelectRoles.CustomerService, DoSelectRoles.CustomerServiceSupervisor,
             DoSelectRoles.SuperAdmin);
         AddAdminPolicy(options, DoSelectPolicies.RoleAssignmentManage,
+            DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.MemberView,
+            DoSelectRoles.PrivacyAdmin, DoSelectRoles.SuperAdmin);
+        AddAdminPolicy(options, DoSelectPolicies.MemberManage,
             DoSelectRoles.SuperAdmin);
         AddAdminPolicy(options, DoSelectPolicies.PersonalDataViewFull,
             DoSelectRoles.PrivacyAdmin, DoSelectRoles.SuperAdmin);

@@ -1,3 +1,5 @@
+import PrimeVue from 'primevue/config'
+import { chinesePaginationLocale } from '@doselect/web-shared/theme'
 import { flushPromises, mount } from '@vue/test-utils'
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -53,7 +55,7 @@ function mountPage() {
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
   const wrapper = mount(SpecificationDefinitionsPage, {
-    global: { plugins: [[VueQueryPlugin, { queryClient }]] },
+    global: { plugins: [[VueQueryPlugin, { queryClient }], [PrimeVue, { locale: chinesePaginationLocale }]] },
   })
   return { wrapper, queryClient }
 }
@@ -125,11 +127,7 @@ describe('SpecificationDefinitionsPage', () => {
     expect(mockDisable).not.toHaveBeenCalled()
   })
 
-  /**
-   * 組長 PR #37 round-2 review, item 3 的同一條規則：篩選輸入只綁草稿，送出時才一起套用並把頁碼
-   * 歸 1，避免「新條件配舊頁碼」。
-   */
-  it('does not query while filters are being edited, then applies them on submit', async () => {
+  it('applies a category dropdown immediately while keyword text waits for submit', async () => {
     mockList.mockResolvedValue(page([definition()]))
     mockListCategories.mockResolvedValue(page([{ publicId: 'cat-1', nameZhTw: 'CPU', code: 'CPU' }]))
 
@@ -140,13 +138,23 @@ describe('SpecificationDefinitionsPage', () => {
     await wrapper.find('input[aria-label="關鍵字"]').setValue('socket')
     await wrapper.find('select[aria-label="分類"]').setValue('cat-1')
     await flushPromises()
-    expect(mockList.mock.calls.length).toBe(callsBefore)
+    expect(mockList.mock.calls.length).toBeGreaterThan(callsBefore)
+    expect(mockList).toHaveBeenLastCalledWith(expect.objectContaining({
+      q: 'socket',
+      categoryPublicId: 'cat-1',
+      pageNumber: 1,
+    }))
+    const callsAfterDropdown = mockList.mock.calls.length
+
+    await wrapper.find('input[aria-label="關鍵字"]').setValue('socket-2')
+    await flushPromises()
+    expect(mockList.mock.calls.length).toBe(callsAfterDropdown)
 
     await wrapper.find('form[aria-label="規格範本篩選"]').trigger('submit')
     await flushPromises()
 
     expect(mockList).toHaveBeenLastCalledWith(expect.objectContaining({
-      q: 'socket',
+      q: 'socket-2',
       categoryPublicId: 'cat-1',
       pageNumber: 1,
     }))

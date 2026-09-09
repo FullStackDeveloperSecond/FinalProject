@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
+import { EmptyState, ErrorState, LoadingState, PagePager } from '@doselect/web-shared/components'
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ProductCard from '../features/catalog/components/ProductCard.vue'
+import ProductBuildImportButton from '../features/builds/components/ProductBuildImportButton.vue'
 import { categoryLabel } from '../features/catalog/categoryLabels'
 import { useCatalogFilterOptions, useProductSearch } from '../features/catalog/useProductSearch'
 import type { SpecFilterRequest } from '../features/catalog/types'
@@ -91,7 +92,7 @@ const searchParams = computed(() => ({
   specs: specFilters.value.length > 0 ? specFilters.value : undefined,
   sort: appliedFilters.value.sort,
   pageNumber: pageNumber.value,
-  pageSize: 20,
+  pageSize: 24,
 }))
 
 const { data: result, isPending, isError, error, refetch } = useProductSearch(searchParams)
@@ -265,6 +266,15 @@ function applyFilters() {
   })
 }
 
+function applyCategoryFilter() {
+  // 分類一變，舊分類的規格條件就不再有語意；先移除再更新網址，避免送出
+  // 「新分類＋舊規格」而被 API 拒絕。
+  filters.specSelections = {}
+  filters.specRanges = {}
+  filters.specBooleans = {}
+  applyFilters()
+}
+
 function goToPage(nextPage: number) {
   router.push({ query: { ...route.query, page: String(nextPage) } })
 }
@@ -332,6 +342,7 @@ watch(
         <select
           v-model="filters.category"
           aria-label="分類"
+          @change="applyCategoryFilter"
         >
           <option value="">
             全部分類
@@ -350,6 +361,7 @@ watch(
         <select
           v-model="filters.brand"
           aria-label="品牌"
+          @change="applyFilters"
         >
           <option value="">
             全部品牌
@@ -386,6 +398,7 @@ watch(
         <select
           v-model="filters.sort"
           aria-label="排序方式"
+          @change="applyFilters"
         >
           <option
             v-for="option in filterOptions?.sortOptions ?? ['relevance', 'priceAsc', 'priceDesc', 'newest']"
@@ -464,6 +477,7 @@ watch(
         <select
           v-model="filters.specBooleans[spec.semanticKey]"
           :aria-label="spec.label"
+          @change="applyFilters"
         >
           <option value="">
             不限
@@ -507,33 +521,23 @@ watch(
         共 {{ result.totalCount }} 項商品
       </p>
       <div class="products-grid">
-        <ProductCard
+        <div
           v-for="product in result.items"
           :key="product.defaultSkuPublicId"
-          :product="product"
-        />
+        >
+          <ProductCard :product="product" />
+          <ProductBuildImportButton :product-public-id="product.productPublicId" />
+        </div>
       </div>
-      <nav
+      <PagePager
         v-if="totalPages > 1"
         class="products-pagination"
-        aria-label="分頁"
-      >
-        <button
-          type="button"
-          :disabled="pageNumber <= 1"
-          @click="goToPage(pageNumber - 1)"
-        >
-          上一頁
-        </button>
-        <span>第 {{ pageNumber }} / {{ totalPages }} 頁</span>
-        <button
-          type="button"
-          :disabled="pageNumber >= totalPages"
-          @click="goToPage(pageNumber + 1)"
-        >
-          下一頁
-        </button>
-      </nav>
+        :page="pageNumber"
+        :page-size="24"
+        :total-records="Number(result.totalCount)"
+        aria-label="商品分頁"
+        @update:page="goToPage"
+      />
     </template>
   </section>
 </template>
@@ -677,7 +681,7 @@ watch(
 
 .products-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1rem;
 }
 
@@ -687,5 +691,15 @@ watch(
   justify-content: center;
   gap: 1rem;
   margin-block-start: 2rem;
+}
+
+@media (min-width: 76rem) {
+  .products-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 55rem) {
+  .products-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 36rem) {
+  .products-grid { grid-template-columns: minmax(0, 1fr); }
 }
 </style>

@@ -620,13 +620,13 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
             return Task.FromResult(ClaimResult);
         }
 
-        public Task<CursorPage<SupportSlaItemDto>> GetPageAsync(
+        public Task<SupportSlaQueueResponse> GetPageAsync(
             SupportSlaQueueQuery query, string adminUserId, bool canSupervise,
             CancellationToken cancellationToken)
         {
             SlaQuery = query;
             LastSlaCanSupervise = canSupervise;
-            return Task.FromResult(new CursorPage<SupportSlaItemDto>([], null, false));
+            return Task.FromResult(new SupportSlaQueueResponse([], null, false));
         }
 
         public Task<CaseWorkbenchSearchResultDto> GetPageAsync(CaseWorkbenchQuery query,

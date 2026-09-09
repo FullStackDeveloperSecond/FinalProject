@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/vue-query'
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
-import { getShippingOptions, searchConvenienceStores, type ConvenienceStoreSearchParams } from './api'
+import { getShippingOptions, getConvenienceStoreRegions, searchConvenienceStores, type ConvenienceStoreRegionParams, type ConvenienceStoreSearchParams } from './api'
 import { getOrCreateGuestCartKey } from '../cart/guestCartKey'
 import { useSessionStore } from '../../stores/session'
 
@@ -52,6 +52,17 @@ export function useShippingOptions(
     // 但那正好抵銷了把 RowVersion 放進 key 的意義——購物車改完之後，新請求回來之前畫面上仍是
     // 舊運費與舊資格，selectable 模式下甚至可能被選走。寧可閃一下載入中，也不給一組屬於別台
     // 購物車的選項。
+  })
+}
+
+export function useConvenienceStoreRegions(
+  params: MaybeRefOrGetter<ConvenienceStoreRegionParams>,
+  enabled: MaybeRefOrGetter<boolean>,
+) {
+  return useQuery({
+    queryKey: computed(() => ['convenience-store-regions', toValue(params)] as const),
+    queryFn: () => getConvenienceStoreRegions(toValue(params)),
+    enabled: computed(() => toValue(enabled)),
   })
 }
 

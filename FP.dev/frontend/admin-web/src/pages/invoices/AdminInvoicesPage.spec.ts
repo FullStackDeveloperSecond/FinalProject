@@ -57,7 +57,7 @@ async function mountPage() {
   })
   await router.push('/invoices')
   await router.isReady()
-  return mount(AdminInvoicesPage, { global: { plugins: [router] } })
+  return mount(AdminInvoicesPage, { global: { plugins: [router, PrimeVue] } })
 }
 
 describe('AdminInvoicesPage', () => {
@@ -141,3 +141,4 @@ describe('AdminInvoicesPage', () => {
     expect(mocks.issue.mock.calls[0]?.[0]?.idempotencyKey).toEqual(expect.any(String))
   })
 })
+import PrimeVue from 'primevue/config'

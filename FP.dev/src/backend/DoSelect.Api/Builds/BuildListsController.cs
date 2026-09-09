@@ -3,6 +3,7 @@ using DoSelect.Api.Common;
 using DoSelect.Api.Security;
 using DoSelect.Application.Builds;
 using DoSelect.Application.Common;
+using DoSelect.Application.Shopping;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -161,7 +162,7 @@ public sealed class BuildListsController : ControllerBase
     }
 
     [HttpPost("{id:guid}/actions/add-to-cart")]
-    public async Task<ActionResult> AddToCart(
+    public async Task<ActionResult<CartDto>> AddToCart(
         Guid id,
         [FromBody] AddBuildToCartRequest request,
         [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
@@ -179,6 +180,10 @@ public sealed class BuildListsController : ControllerBase
             return Ok(cart);
         }
         catch (BuildWriteException exception)
+        {
+            return exception.ToActionResult(HttpContext);
+        }
+        catch (ShoppingWriteException exception)
         {
             return exception.ToActionResult(HttpContext);
         }

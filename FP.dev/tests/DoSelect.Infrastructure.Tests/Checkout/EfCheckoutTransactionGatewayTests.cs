@@ -5,9 +5,11 @@ using DoSelect.Application.Builds;
 using DoSelect.Application.Checkout;
 using DoSelect.Application.Common;
 using DoSelect.Application.Idempotency;
+using DoSelect.Application.Orders;
 using DoSelect.Domain.Catalog;
 using DoSelect.Domain.Inventory;
 using DoSelect.Domain.Invoicing;
+using DoSelect.Domain.Orders;
 using DoSelect.Domain.Payments;
 using DoSelect.Domain.Promotions;
 using DoSelect.Domain.Shopping;
@@ -18,6 +20,7 @@ using DoSelect.Infrastructure.Checkout;
 using DoSelect.Infrastructure.Idempotency;
 using DoSelect.Infrastructure.Persistence;
 using DoSelect.Infrastructure.Promotions;
+using DoSelect.Infrastructure.Security;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -145,6 +148,12 @@ public sealed class EfCheckoutTransactionGatewayTests
         var attempt = await verification.PaymentAttempts.SingleAsync(candidate => candidate.OrderId == order.Id);
         var cart = await verification.Carts.SingleAsync(candidate => candidate.PublicId == seed.Command.CartPublicId);
         var balance = await verification.InventoryBalances.SingleAsync(candidate => candidate.SkuId == reservation.SkuId);
+        var emailVerification = await verification.GuestCheckoutEmailVerifications
+            .SingleAsync(candidate => candidate.PublicId == created.GuestEmailVerificationPublicId);
+        var accessRequest = await verification.GuestOrderAccessRequests
+            .SingleAsync(candidate => candidate.OrderId == order.Id);
+        var accessToken = await verification.GuestOrderAccessTokens
+            .SingleAsync(candidate => candidate.OrderId == order.Id);
 
         Assert.Equal(1_150m, order.GrandTotal);
         Assert.Equal(1_000m, order.MerchandiseSubtotal);
@@ -164,10 +173,32 @@ public sealed class EfCheckoutTransactionGatewayTests
         Assert.Equal(1_150m, created.Amounts.GrandTotal);
         Assert.Equal("Guest", created.Recipient.RecipientName);
         Assert.Contains("cancel", created.AvailableActions);
+        Assert.NotNull(created.GuestOrderAccessToken);
+        Assert.NotNull(emailVerification.ConsumedAtUtc);
+        Assert.Equal(accessRequest.Id, accessToken.RequestId);
 
         var replay = await CreateGateway(verification).FindCreatedOrderAsync(created.PublicId);
         Assert.NotNull(replay);
         Assert.Equal(JsonSerializer.Serialize(created), JsonSerializer.Serialize(replay));
+    }
+
+    [global::DoSelect.Infrastructure.Tests.Idempotency.SqlServerFact]
+    public async Task ExecuteAsync_GuestWithoutVerifiedEmailProof_IsRejectedBeforeOrderCreation()
+    {
+        var seed = await SeedAsync(onHandQuantity: 5);
+        var command = seed.Command with
+        {
+            Actor = CheckoutActor.ForGuest(seed.Command.Actor.GuestCartKey!),
+        };
+        await using var context = EfCheckoutTransactionGatewayFixture.CreateContext();
+        await using var transaction = await context.Database.BeginTransactionAsync();
+        var orderCountBefore = await context.Orders.CountAsync();
+
+        var exception = await Assert.ThrowsAsync<DomainProblemException>(() =>
+            CreateGateway(context).ExecuteAsync(command));
+
+        Assert.Equal("guest_checkout_email_verification_required", exception.Code);
+        Assert.Equal(orderCountBefore, await context.Orders.CountAsync());
     }
 
     [global::DoSelect.Infrastructure.Tests.Idempotency.SqlServerFact]
@@ -182,8 +213,10 @@ public sealed class EfCheckoutTransactionGatewayTests
             seed.Command.Actor,
             request,
             seed.Command.IdempotencyKey);
+        // A successful first write consumed the proof and converted the cart. The same owner
+        // can retry with the original rowversion, without needing another email verification.
         var replay = await service.CreateOrderAsync(
-            seed.Command.Actor,
+            CheckoutActor.ForGuest(seed.Command.Actor.GuestCartKey!),
             request,
             seed.Command.IdempotencyKey);
 
@@ -191,6 +224,16 @@ public sealed class EfCheckoutTransactionGatewayTests
         Assert.True(replay.IsReplay);
         Assert.Equal(first.Body.PublicId, replay.Body.PublicId);
         Assert.Equal(first.Body.OrderNumber, replay.Body.OrderNumber);
+        Assert.Equal(first.Body.GuestOrderAccessToken, replay.Body.GuestOrderAccessToken);
+        Assert.Equal(first.Body.GuestOrderAccessExpiresAtUtc, replay.Body.GuestOrderAccessExpiresAtUtc);
+
+        // Knowing the original request/key alone cannot replay another visitor's order.
+        foreach (var proof in new string?[] { null, seed.Command.Actor.GuestEmailProofToken })
+        {
+            var denied = await Assert.ThrowsAsync<DomainProblemException>(() => service.CreateOrderAsync(
+                CheckoutActor.ForGuest("unrelated-guest-cart-key", proof), request, seed.Command.IdempotencyKey));
+            Assert.Equal(403, denied.StatusCode);
+        }
 
         await using var verification = EfCheckoutTransactionGatewayFixture.CreateContext();
         var order = await verification.Orders.SingleAsync(
@@ -663,8 +706,8 @@ public sealed class EfCheckoutTransactionGatewayTests
             Guid.CreateVersion7(), profile.Id, 1, 30m, 150m, 100m, 100m, 250m, 50_000m, null, null, NowUtc));
         await context.SaveChangesAsync();
 
-        CheckoutCommand BuildCommand(Cart cart, string idempotencyKeySuffix) => new(
-            CheckoutActor.ForGuest($"checkout-test-secret-{idempotencyKeySuffix}"),
+        CheckoutCommand BuildCommand(Cart cart, string idempotencyKeySuffix, string proofToken) => new(
+            CheckoutActor.ForGuest($"checkout-test-secret-{idempotencyKeySuffix}", proofToken),
             cart.PublicId,
             cart.RowVersion.ToArray(),
             new CheckoutRecipientSnapshot(
@@ -694,7 +737,9 @@ public sealed class EfCheckoutTransactionGatewayTests
                 sku => new CartItem(Guid.CreateVersion7(), cart.Id, sku.Id, 1, assemblyGroupKey, NowUtc)));
             cart.Touch(NowUtc);
             await context.SaveChangesAsync();
-            return BuildCommand(cart, guestKey);
+            var proofToken = await SeedVerifiedGuestAsync(
+                context, $"checkout-test-secret-{guestKey}", "guest@example.test");
+            return BuildCommand(cart, guestKey, proofToken);
         }
 
         var matchingCommand = await SeedCartAsync(matchingBoard, "match");
@@ -719,7 +764,38 @@ public sealed class EfCheckoutTransactionGatewayTests
                 {
                     CouponGuestUsageHmacKeyV1 = CouponGuestUsageKey,
                 })),
+            CreateGuestOrderAccessHasher(),
             new FixedTimeProvider(NowUtc));
+
+    private static GuestOrderAccessHasher CreateGuestOrderAccessHasher() =>
+        new(Options.Create(new GuestOrderAccessOptions
+        {
+            Pepper = "checkout-gateway-tests-guest-access-pepper-0001",
+        }));
+
+    private static async Task<string> SeedVerifiedGuestAsync(
+        DoSelectDbContext context,
+        string guestCartKey,
+        string email)
+    {
+        var hasher = CreateGuestOrderAccessHasher();
+        var codeHash = hasher.HashCode("123456");
+        var rawProof = "proof-" + Guid.NewGuid().ToString("N");
+        var verification = new GuestCheckoutEmailVerification(
+            Guid.CreateVersion7(),
+            email.ToLowerInvariant(),
+            hasher.HashEmail(email.ToLowerInvariant()),
+            hasher.HashGuestCartKey(guestCartKey),
+            hasher.HashIp("127.0.0.1"),
+            codeHash,
+            NowUtc.AddMinutes(10),
+            NowUtc);
+        Assert.True(verification.TryVerify(
+            codeHash, hasher.HashToken(rawProof), NowUtc.AddSeconds(1)));
+        context.GuestCheckoutEmailVerifications.Add(verification);
+        await context.SaveChangesAsync();
+        return rawProof;
+    }
 
     /// <summary>
     /// 送一筆會成功的結帳並 commit，讓「這次結帳沒有留下東西」的斷言有東西可以區分。
@@ -845,8 +921,9 @@ public sealed class EfCheckoutTransactionGatewayTests
         cart.Touch(NowUtc);
         await context.SaveChangesAsync();
 
+        var proofToken = await SeedVerifiedGuestAsync(context, guestKey, "guest@example.test");
         var command = new CheckoutCommand(
-            CheckoutActor.ForGuest(guestKey),
+            CheckoutActor.ForGuest(guestKey, proofToken),
             cart.PublicId,
             cart.RowVersion.ToArray(),
             new CheckoutRecipientSnapshot(
@@ -964,8 +1041,9 @@ public sealed class EfCheckoutTransactionGatewayTests
         cart.Touch(NowUtc);
         await context.SaveChangesAsync();
 
+        var proofToken = await SeedVerifiedGuestAsync(context, guestKey, "guest@example.test");
         var command = new CheckoutCommand(
-            CheckoutActor.ForGuest(guestKey),
+            CheckoutActor.ForGuest(guestKey, proofToken),
             cart.PublicId,
             cart.RowVersion.ToArray(),
             new CheckoutRecipientSnapshot(
@@ -1002,7 +1080,8 @@ public sealed class EfCheckoutTransactionGatewayTests
                 }),
                 timeProvider),
             CreateGateway(context),
-            new StaticCheckoutPolicyProvider(policies));
+            new StaticCheckoutPolicyProvider(policies),
+            CreateGuestOrderAccessHasher());
     }
 
     private static CreateOrderRequest ToCreateOrderRequest(CheckoutCommand command) => new(
@@ -1062,9 +1141,10 @@ public sealed class EfCheckoutTransactionGatewayTests
         await context.SaveChangesAsync();
 
         var email = $"competing-{suffix}@example.test";
+        var proofToken = await SeedVerifiedGuestAsync(context, guestKey, email);
         return firstSeed.Command with
         {
-            Actor = CheckoutActor.ForGuest(guestKey),
+            Actor = CheckoutActor.ForGuest(guestKey, proofToken),
             CartPublicId = cart.PublicId,
             CartRowVersion = cart.RowVersion.ToArray(),
             Recipient = firstSeed.Command.Recipient with { Email = email },

@@ -48,6 +48,7 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
     private readonly ICouponRuleReader _couponRuleReader;
     private readonly IOrderNumberGenerator _orderNumberGenerator;
     private readonly CouponGuestUsageHasher _couponGuestUsageHasher;
+    private readonly IGuestOrderAccessHasher _guestOrderAccessHasher;
     private readonly TimeProvider _timeProvider;
 
     public EfCheckoutTransactionGateway(
@@ -56,6 +57,7 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
         ICouponRuleReader couponRuleReader,
         IOrderNumberGenerator orderNumberGenerator,
         CouponGuestUsageHasher couponGuestUsageHasher,
+        IGuestOrderAccessHasher guestOrderAccessHasher,
         TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(context);
@@ -63,6 +65,7 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
         ArgumentNullException.ThrowIfNull(couponRuleReader);
         ArgumentNullException.ThrowIfNull(orderNumberGenerator);
         ArgumentNullException.ThrowIfNull(couponGuestUsageHasher);
+        ArgumentNullException.ThrowIfNull(guestOrderAccessHasher);
         ArgumentNullException.ThrowIfNull(timeProvider);
 
         _context = context;
@@ -70,6 +73,7 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
         _couponRuleReader = couponRuleReader;
         _orderNumberGenerator = orderNumberGenerator;
         _couponGuestUsageHasher = couponGuestUsageHasher;
+        _guestOrderAccessHasher = guestOrderAccessHasher;
         _timeProvider = timeProvider;
     }
 
@@ -82,6 +86,8 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
         var now = _timeProvider.GetUtcNow().UtcDateTime;
 
         var cart = await LoadAndValidateCartAsync(command, now, cancellationToken);
+        var guestEmailVerification = await LoadAndConsumeGuestEmailVerificationAsync(
+            command, now, cancellationToken);
         var lines = await LoadAuthoritativeLinesAsync(cart.Id, now, cancellationToken);
         if (lines.Count == 0)
         {
@@ -165,6 +171,19 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
         _context.Orders.Add(order);
         await _context.SaveChangesAsync(cancellationToken);
 
+        var guestAccess = AddGuestOrderAccess(order, guestEmailVerification, now);
+        if (guestAccess is not null)
+        {
+            await _context.SaveChangesAsync(cancellationToken);
+            _context.GuestOrderAccessTokens.Add(new GuestOrderAccessToken(
+                Guid.CreateVersion7(),
+                order.Id,
+                guestAccess.Value.Request.Id,
+                _guestOrderAccessHasher.HashToken(guestAccess.Value.RawToken),
+                guestAccess.Value.ExpiresAtUtc,
+                now));
+        }
+
         await AddOrderItemsAsync(order.Id, lines, coupon, now, cancellationToken);
         await AddInitialOrderHistoriesAsync(order, now, cancellationToken);
         await AddAssemblyJobsAsync(order.Id, assemblyGroups, now, cancellationToken);
@@ -187,9 +206,100 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
         cart.ChangeStatus(CartStatus.Converted, now);
         await _context.SaveChangesAsync(cancellationToken);
 
-        return await FindCreatedOrderAsync(order.PublicId, cancellationToken)
+        var created = await FindCreatedOrderAsync(order.PublicId, cancellationToken)
             ?? throw new InvalidOperationException("The newly created Checkout order could not be projected.");
+        return created with
+        {
+            GuestOrderAccessToken = guestAccess?.RawToken,
+            GuestEmailVerificationPublicId = guestEmailVerification?.PublicId,
+            GuestOrderAccessExpiresAtUtc = guestAccess?.ExpiresAtUtc,
+        };
     }
+
+    private async Task<GuestCheckoutEmailVerification?> LoadAndConsumeGuestEmailVerificationAsync(
+        CheckoutCommand command,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        if (command.Actor.IsMember)
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(command.Actor.GuestEmailProofToken))
+        {
+            throw Conflict(
+                "guest_checkout_email_verification_required",
+                "Guest Checkout requires a verified email address.");
+        }
+
+        var proofHash = _guestOrderAccessHasher.HashToken(command.Actor.GuestEmailProofToken);
+        var cartHash = _guestOrderAccessHasher.HashGuestCartKey(command.Actor.GuestCartKey!);
+        var emailHash = _guestOrderAccessHasher.HashEmail(command.Recipient.Email.ToLowerInvariant());
+        var verification = await _context.GuestCheckoutEmailVerifications
+            .SingleOrDefaultAsync(item => item.ProofTokenHash == proofHash, cancellationToken);
+        if (verification is null || !verification.MatchesProof(proofHash, cartHash, emailHash, now))
+        {
+            throw Conflict(
+                "guest_checkout_email_verification_required",
+                "Guest Checkout email verification is invalid, expired, or belongs to another cart.");
+        }
+
+        verification.Consume(now);
+        return verification;
+    }
+
+    private (GuestOrderAccessRequest Request, string RawToken, DateTime ExpiresAtUtc)? AddGuestOrderAccess(
+        Order order,
+        GuestCheckoutEmailVerification? verification,
+        DateTime now)
+    {
+        if (verification is null)
+        {
+            return null;
+        }
+
+        var accessRequest = GuestOrderAccessRequest.CreateValid(
+            Guid.CreateVersion7(),
+            order.Id,
+            verification.CodeHash,
+            verification.RequesterIpHash,
+            verification.EmailHash,
+            _guestOrderAccessHasher.HashOrderLookup(order.OrderNumber, verification.EmailNormalized),
+            now.Add(GuestOrderAccessUseCase.RequestLifetime),
+            now);
+        accessRequest.Consume(now);
+        _context.GuestOrderAccessRequests.Add(accessRequest);
+
+        var rawToken = _guestOrderAccessHasher.DeriveOrderAccessToken(
+            order.PublicId, verification.PublicId);
+        var expiresAtUtc = now.Add(GuestOrderAccessUseCase.TokenLifetime);
+        return (accessRequest, rawToken, expiresAtUtc);
+    }
+
+    public async Task ValidateCartOwnershipAsync(
+        CheckoutActor actor,
+        Guid cartPublicId,
+        CancellationToken cancellationToken = default)
+    {
+        var cart = await _context.Carts.AsNoTracking()
+            .Where(candidate => candidate.PublicId == cartPublicId)
+            .Select(candidate => new { candidate.OwnerUserId, candidate.GuestCartKeyHash })
+            .SingleOrDefaultAsync(cancellationToken)
+            ?? throw DomainProblemException.NotFound("The cart was not found.");
+        // Ownership survives conversion. Fresh status, rowversion and mailbox-proof checks
+        // remain inside the transaction and must not invalidate a legitimate lost-response retry.
+        if (!OwnsCart(actor, cart.OwnerUserId, cart.GuestCartKeyHash))
+        {
+            throw DomainProblemException.Forbidden("The cart does not belong to the current actor.");
+        }
+    }
+
+    private static bool OwnsCart(CheckoutActor actor, string? ownerUserId, byte[]? guestCartKeyHash) =>
+        actor.IsMember
+            ? string.Equals(ownerUserId, actor.MemberUserId, StringComparison.Ordinal)
+            : guestCartKeyHash is not null && actor.GuestCartKey is not null &&
+              CryptographicOperations.FixedTimeEquals(guestCartKeyHash, HashGuestCartKey(actor.GuestCartKey));
 
     public async Task<OrderDto?> FindCreatedOrderAsync(
         Guid orderPublicId,
@@ -233,12 +343,7 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
             throw Conflict("cart_item_requires_attention", "The cart is no longer active.");
         }
 
-        var ownsCart = command.Actor.IsMember
-            ? string.Equals(cart.OwnerUserId, command.Actor.MemberUserId, StringComparison.Ordinal)
-            : cart.GuestCartKeyHash is not null &&
-              CryptographicOperations.FixedTimeEquals(
-                  cart.GuestCartKeyHash,
-                  HashGuestCartKey(command.Actor.GuestCartKey!));
+        var ownsCart = OwnsCart(command.Actor, cart.OwnerUserId, cart.GuestCartKeyHash);
         if (!ownsCart)
         {
             throw DomainProblemException.Forbidden("The cart does not belong to the current actor.");

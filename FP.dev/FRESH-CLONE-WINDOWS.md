@@ -226,12 +226,53 @@ Demo 驗收後：
 
 真人 15～20 分鐘操作彩排與備援影片是不同 Gate；只完成本手冊不得把真人彩排或 DEMO-RC-03 改寫為通過。
 
+### 9.1 本批 v3 Demo 資料修正（開發驗證，尚非正式發布）
+
+`implemented-features-v3` 保留原本一萬筆主業務資料分配與歷史報表基準，補上八類商品分類、750 個 SKU 的合成配送尺寸、可供 AI 同意流程使用的會員識別碼、100 間虛構超商門市，以及既有 CREATOR10 優惠規則。只有首八項商品（`DEMO-P-0001`～`DEMO-P-0008`，共 24 個 SKU）補齊參考組裝規格；其餘商品明示規格不足，不能把它們當作真實廠商資料或完整相容性測試資料。
+
+舊 v2 資料庫不會自動升級或覆寫。確認使用包含本批修正的程式版本後，以 `reset-demo-data.ps1` 建立新隔離庫；此命令不是刪除舊庫。新庫通過 11 項資料 Gate 後才更新 `.run/demo-database.json`。前台與後台展示帳號需另行啟用，沿用本機既有 Seed 密碼：
+
+```powershell
+.\scripts\stop-all.ps1
+.\scripts\reset-demo-data.ps1
+$demoState = Get-Content -Raw .\.run\demo-database.json | ConvertFrom-Json
+.\scripts\activate-demo-accounts.ps1 -DatabaseName $demoState.DatabaseName
+```
+
+前台帳號為 `member-0001@example.invalid`，後台為 `demo-admin@example.invalid`；密碼由本機 User Secrets 的既有 Seed 設定提供，不在版本控制文件列出。這兩個示範信箱無法收信，訪客驗證與註冊收信請使用測試員自己的真實信箱，並依第 10 節啟用 SMTP。
+
+CREATOR10 需會員登入並輸入優惠碼，適用 CPU／顯示卡／記憶體，適用商品金額滿 NT$20,000 打九折，最高折 NT$2,000，每位會員限用一次；不是全館自動折扣。機殼或超過包裹限制的購物車不會因 Demo 而略過配送限制。
+
+一萬筆與固定報表數值是「建庫後、尚未啟動背景工作或進行真人操作」的基準。背景工作處理到期訂單、或測試員新增訂單後，數量與報表可能合理變動；不要重設舊庫、放寬 Validator 或修改預期值來掩蓋差異。需要重現初始基準時另建新隔離庫。建庫成功不代表 SMTP、OpenAI、瀏覽器完整下單或整批安全審查已通過。
+
 ## 10. 選用 Provider
 
 Fresh Clone／ENV-RC-03 不需要啟用 OpenAI 或 Email。基本系統應先在兩者停用時完成驗收。
 
 - 需要 OpenAI 時，使用 `.\scripts\configure-openai-eval-secrets.ps1` 隱藏輸入 API Key；只有確認模型、價格、預算與核准對象後才設定 `Features:AiEnabled=true`。若需要匿名 AI 身分，再執行 `.\scripts\configure-local-security-secrets.ps1 -IncludeAiAnonymousIdentity`。不得把未知價格填成 `0`。
 - 需要 Brevo 時，執行 `.\scripts\configure-brevo-secrets.ps1`，再以 `.\scripts\test-brevo-smtp.ps1` 寄送不含會員資料的測試信。不要經聊天或 Repository 搬移 SMTP Key。
+
+### 10.1 另一台電腦的真人下單與 Email 驗證
+
+User Secrets 只屬於設定當下的 Windows 使用者與電腦，不會隨 Git 同步。基本 Demo 啟動預設不外寄 Email；即使已填 SMTP 憑證，`Demo` 模式仍必須明確加上 `-EnableEmail`。這與寄件者和收件者是否為同一個 Email 無關。
+
+在 `FP.dev` 目錄執行；不要為了啟用寄信重新執行 `reset-demo-data.ps1`，以免切換到另一份測試資料：
+
+```powershell
+.\scripts\stop-all.ps1
+# 僅在這台電腦尚未設定時執行；憑證由腳本隱藏輸入。
+.\scripts\configure-brevo-secrets.ps1
+# 將下方範例換成測試員自己可收信的信箱。
+.\scripts\test-brevo-smtp.ps1 -RecipientAddress 'tester@example.com'
+# 沿用既有 Demo 資料庫，啟用 Email。
+.\scripts\start-all.ps1 -Environment Demo -EnableEmail
+.\scripts\status.ps1
+.\scripts\health-check.ps1
+```
+
+若原本使用 `Development`，完成上述 SMTP 設定後，啟動命令沿用 `.\scripts\start-all.ps1`，不要改成 Demo。設定腳本會在 User Secrets 啟用 Email；啟動前請確認系統環境沒有把 `Features__EmailEnabled` 覆寫為 `false`。AI 憑證與啟用狀態獨立，不需要為了測試寄信重新設定 AI。
+
+SMTP 測試通過只代表寄送呼叫成功，不代表郵件已到收件匣；健康檢查也不能取代收信測試。請確認收件匣與垃圾郵件，再測試訪客「下單前驗證 Email → 返回結帳 → 建立訂單」流程。仍無信時，只提供啟動命令（不含憑證）、使用環境、測試時間與去識別的錯誤代碼；不要貼 User Secrets、完整連線字串、驗證碼或驗證連結。本機結果不能代表另一台電腦已完成寄信驗證。
 
 ## 11. 交付驗收證據
 

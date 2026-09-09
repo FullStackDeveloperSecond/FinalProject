@@ -361,7 +361,25 @@ public sealed class EfGuestOrderAccessGateway : IGuestOrderAccessGateway
             }
         }
 
-        return deletedTokenCount + deletedRequestCount;
+        var verificationBudget = remainingBudget - deletedRequestCount;
+        var deletedVerificationCount = 0;
+        if (verificationBudget > 0)
+        {
+            var expiredVerificationIds = await dbContext.GuestCheckoutEmailVerifications
+                .Where(item => item.ExpiresAtUtc < cutoffUtc)
+                .OrderBy(item => item.Id)
+                .Select(item => item.Id)
+                .Take(verificationBudget)
+                .ToListAsync(cancellationToken);
+            if (expiredVerificationIds.Count > 0)
+            {
+                deletedVerificationCount = await dbContext.GuestCheckoutEmailVerifications
+                    .Where(item => expiredVerificationIds.Contains(item.Id))
+                    .ExecuteDeleteAsync(cancellationToken);
+            }
+        }
+
+        return deletedTokenCount + deletedRequestCount + deletedVerificationCount;
     }
 
     public async Task SaveChangesAsync(CancellationToken cancellationToken = default)

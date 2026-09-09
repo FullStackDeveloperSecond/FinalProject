@@ -369,7 +369,7 @@ public sealed class M14BReadModelAcceptanceTests
 
         public Task<SupportSlaQueuePage> QueryPageAsync(
             int pageSize, SupportSlaCursorPosition? after, DateTime nowUtc,
-            string adminUserId, bool canSupervise, CancellationToken cancellationToken)
+            string adminUserId, bool canSupervise, CancellationToken cancellationToken, SupportSlaQueueQuery? filters = null)
         {
             After = after;
             NowUtc = nowUtc;
@@ -439,7 +439,7 @@ internal static class M14BServiceTestExtensions
 {
     private const string UnitTestAdminUserId = "unit-test-admin";
 
-    public static Task<CursorPage<SupportSlaItemDto>> GetPageAsync(
+    public static Task<SupportSlaQueueResponse> GetPageAsync(
         this SupportSlaQueueService service,
         SupportSlaQueueQuery query,
         CancellationToken cancellationToken) =>

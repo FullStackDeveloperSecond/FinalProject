@@ -1,4 +1,6 @@
 import { ApiError } from '@doselect/web-shared/api'
+import PrimeVue from 'primevue/config'
+import { chinesePaginationLocale } from '@doselect/web-shared/theme'
 import { flushPromises, mount, RouterLinkStub } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { OrderPageDto, OrderSummaryDto } from './api'
@@ -33,7 +35,7 @@ function page(items: OrderSummaryDto[], pageNumber = 1, totalCount = items.lengt
 }
 
 function mountPage() {
-  return mount(OrderListPage, { global: { stubs: { RouterLink: RouterLinkStub } } })
+  return mount(OrderListPage, { global: { plugins: [[PrimeVue, { locale: chinesePaginationLocale }]], stubs: { RouterLink: RouterLinkStub } } })
 }
 
 describe('OrderListPage', () => {
@@ -90,21 +92,21 @@ describe('OrderListPage', () => {
 
   it('loads the next page without requiring an order UUID', async () => {
     fetchOrders
-      .mockResolvedValueOnce(page([order()], 1, 2))
+      .mockResolvedValueOnce(page([order()], 1, 11))
       .mockResolvedValueOnce(page([order({
         publicId: '22222222-2222-4222-8222-222222222222',
         orderNumber: 'DS20260908002',
-      })], 2, 2))
+      })], 2, 11))
     const wrapper = mountPage()
     await flushPromises()
 
-    await wrapper.get('.order-list-page__more').trigger('click')
+    await wrapper.get('button[aria-label="第 2 頁"]').trigger('click')
     await flushPromises()
 
     expect(fetchOrders).toHaveBeenNthCalledWith(1, 1, 10)
     expect(fetchOrders).toHaveBeenNthCalledWith(2, 2, 10)
-    expect(wrapper.text()).toContain('DS20260908001')
+    expect(wrapper.text()).not.toContain('DS20260908001')
     expect(wrapper.text()).toContain('DS20260908002')
-    expect(wrapper.find('.order-list-page__more').exists()).toBe(false)
+    expect(wrapper.get('[aria-current="page"]').text()).toBe('2')
   })
 })

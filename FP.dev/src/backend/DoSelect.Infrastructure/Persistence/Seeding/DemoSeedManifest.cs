@@ -2,8 +2,8 @@ namespace DoSelect.Infrastructure.Persistence.Seeding;
 
 public static class DemoSeedManifest
 {
-    public const string Version = "implemented-features-v2";
-    public const string MarkerBrandCode = "DEMO-V2-BRAND-001";
+    public const string Version = "implemented-features-v3";
+    public const string MarkerBrandCode = "DEMO-V3-BRAND-001";
     public const int RandomSeed = 20260907;
 
     public static readonly DateTime PeriodStartUtc =

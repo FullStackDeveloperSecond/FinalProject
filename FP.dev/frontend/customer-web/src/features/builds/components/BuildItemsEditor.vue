@@ -20,6 +20,7 @@ export interface EditableBuildItem {
 const props = defineProps<{
   items: EditableBuildItem[]
   disabled?: boolean
+  ownedCategoryCodes?: string[]
 }>()
 
 const emit = defineEmits<{
@@ -105,7 +106,7 @@ function updateQuantity(skuPublicId: string, categoryCode: string, quantity: num
       <h3 class="build-items-editor__slot-label">
         {{ slot.label }}
         <span
-          v-if="!(itemsByCategory.get(slot.code)?.length)"
+          v-if="!(itemsByCategory.get(slot.code)?.length) && !ownedCategoryCodes?.includes(slot.code)"
           class="build-items-editor__slot-missing"
         >
           （尚未選擇）
@@ -148,9 +149,12 @@ function updateQuantity(skuPublicId: string, categoryCode: string, quantity: num
       </p>
       <BuildCategorySlotPicker
         :category-code="slot.code"
-        :disabled="disabled"
+        :disabled="disabled || (slot.singleton && ownedCategoryCodes?.includes(slot.code))"
         @select="(picked) => selectForSlot(slot, picked)"
       />
+      <p v-if="slot.singleton && ownedCategoryCodes?.includes(slot.code)">
+        此分類使用自有零件；若要改成新購，請先移除上方自有零件。
+      </p>
     </section>
   </div>
 </template>

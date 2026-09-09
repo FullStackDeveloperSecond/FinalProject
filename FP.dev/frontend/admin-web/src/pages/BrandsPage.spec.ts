@@ -1,3 +1,5 @@
+import PrimeVue from 'primevue/config'
+import { chinesePaginationLocale } from '@doselect/web-shared/theme'
 import { flushPromises, mount } from '@vue/test-utils'
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import { ApiError } from '@doselect/web-shared/api'
@@ -19,7 +21,7 @@ function mountPage() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
-  return mount(BrandsPage, { global: { plugins: [[VueQueryPlugin, { queryClient }]] } })
+  return mount(BrandsPage, { global: { plugins: [[VueQueryPlugin, { queryClient }], [PrimeVue, { locale: chinesePaginationLocale }]] } })
 }
 
 describe('BrandsPage', () => {
@@ -81,7 +83,7 @@ describe('BrandsPage', () => {
     mockUpdateBrand.mockResolvedValueOnce({ publicId: 'b1', code: 'ACME', nameZhTw: 'Acme Updated', description: null, websiteUrl: null, isActive: true, sortOrder: 0, rowVersion: 'CCC=' })
 
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-    const wrapper = mount(BrandsPage, { global: { plugins: [[VueQueryPlugin, { queryClient }]] } })
+    const wrapper = mount(BrandsPage, { global: { plugins: [[VueQueryPlugin, { queryClient }], [PrimeVue, { locale: chinesePaginationLocale }]] } })
     await flushPromises()
 
     const editButton = wrapper.findAll('button').find((button) => button.text() === '編輯')

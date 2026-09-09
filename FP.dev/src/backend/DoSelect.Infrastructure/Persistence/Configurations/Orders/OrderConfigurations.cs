@@ -312,6 +312,43 @@ public sealed class GuestOrderAccessTokenConfiguration
     }
 }
 
+public sealed class GuestCheckoutEmailVerificationConfiguration
+    : IEntityTypeConfiguration<GuestCheckoutEmailVerification>
+{
+    public void Configure(EntityTypeBuilder<GuestCheckoutEmailVerification> builder)
+    {
+        builder.ConfigureMutablePublicEntity("GuestCheckoutEmailVerifications");
+        builder.Property(item => item.EmailNormalized).HasMaxLength(320).IsRequired();
+        builder.Property(item => item.EmailHash).HasColumnType("binary(32)").IsRequired();
+        builder.Property(item => item.GuestCartKeyHash).HasColumnType("binary(32)").IsRequired();
+        builder.Property(item => item.RequesterIpHash).HasColumnType("binary(32)").IsRequired();
+        builder.Property(item => item.CodeHash).HasColumnType("binary(32)").IsRequired();
+        builder.Property(item => item.ProofTokenHash).HasColumnType("binary(32)");
+        builder.Property(item => item.ExpiresAtUtc).HasPrecision(3).IsRequired();
+        builder.Property(item => item.AttemptCount).HasDefaultValue(0).IsRequired();
+        builder.Property(item => item.VerifiedAtUtc).HasPrecision(3);
+        builder.Property(item => item.ConsumedAtUtc).HasPrecision(3);
+        builder.Property(item => item.LockedAtUtc).HasPrecision(3);
+        builder.Property(item => item.RevokedAtUtc).HasPrecision(3);
+        builder.HasIndex(item => item.ProofTokenHash)
+            .IsUnique()
+            .HasFilter("[ProofTokenHash] IS NOT NULL")
+            .HasDatabaseName("UX_GuestCheckoutEmailVerifications_ProofTokenHash");
+        builder.HasIndex(item => new { item.RequesterIpHash, item.CreatedAtUtc })
+            .HasDatabaseName("IX_GuestCheckoutEmailVerifications_RequesterIpHash_CreatedAtUtc");
+        builder.HasIndex(item => new { item.EmailHash, item.CreatedAtUtc })
+            .HasDatabaseName("IX_GuestCheckoutEmailVerifications_EmailHash_CreatedAtUtc");
+        builder.HasIndex(item => new { item.GuestCartKeyHash, item.CreatedAtUtc })
+            .HasDatabaseName("IX_GuestCheckoutEmailVerifications_GuestCartKeyHash_CreatedAtUtc");
+        builder.HasIndex(item => item.ExpiresAtUtc)
+            .HasDatabaseName("IX_GuestCheckoutEmailVerifications_ExpiresAtUtc");
+        builder.ToTable("GuestCheckoutEmailVerifications", table =>
+            table.HasCheckConstraint(
+                "CK_GuestCheckoutEmailVerifications_AttemptCount",
+                "[AttemptCount] >= 0 AND [AttemptCount] <= 5"));
+    }
+}
+
 public sealed class AssemblyJobConfiguration : IEntityTypeConfiguration<AssemblyJob>
 {
     public void Configure(EntityTypeBuilder<AssemblyJob> builder)

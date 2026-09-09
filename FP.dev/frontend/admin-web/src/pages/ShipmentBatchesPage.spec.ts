@@ -134,7 +134,8 @@ describe('ShipmentBatchesPage', () => {
     const text = wrapper.text()
     expect(text).toContain('成功 1 筆、失敗 1 筆')
     expect(text).toContain('SIM123')
-    expect(text).toContain('shipping_order_not_ready')
+    expect(text).toContain('非貨到付款訂單尚未付款')
+    expect(text).not.toContain('shipping_order_not_ready')
   })
 
   /**
@@ -195,10 +196,10 @@ describe('ShipmentBatchesPage', () => {
     const wrapper = await mountPage()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('已經建立過物流單')
+    expect(wrapper.text()).toContain('尚未開單的備貨訂單仍可建立物流單')
 
     await wrapper.find('input[type="radio"][value="markShipped"]').setValue()
-    expect(wrapper.text()).not.toContain('已經建立過物流單')
+    expect(wrapper.text()).not.toContain('尚未開單的備貨訂單仍可建立物流單')
   })
 
   /**

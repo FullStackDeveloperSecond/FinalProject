@@ -200,6 +200,9 @@ public sealed class CheckoutApiTests : IClassFixture<WebApplicationFactory<Progr
 
     private sealed class FakeGateway(OrderDto result) : ICheckoutTransactionGateway
     {
+        public Task ValidateCartOwnershipAsync(CheckoutActor actor, Guid cartPublicId,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
+
         public int Calls { get; private set; }
         public CheckoutCommand? Command { get; private set; }
 

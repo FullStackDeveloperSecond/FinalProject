@@ -11,6 +11,8 @@ public static class CheckoutServiceCollectionExtensions
         services.AddSingleton<ICheckoutPolicyProvider, CheckoutPolicyProvider>();
         services.AddScoped<IOrderNumberGenerator, SqlOrderNumberGenerator>();
         services.AddScoped<ICheckoutTransactionGateway, EfCheckoutTransactionGateway>();
+        services.AddScoped<IGuestCheckoutEmailVerificationGateway, EfGuestCheckoutEmailVerificationGateway>();
+        services.AddScoped<GuestCheckoutEmailVerificationService>();
         services.AddScoped<CheckoutService>();
         return services;
     }

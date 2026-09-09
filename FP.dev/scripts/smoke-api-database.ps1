@@ -28,7 +28,7 @@ try {
     $env:ConnectionStrings__DefaultConnection = New-DevelopmentConnectionString
     $process = Start-Process `
         -FilePath $dotnet `
-        -ArgumentList @('run', '--no-launch-profile', '--project', $apiProject) `
+        -ArgumentList "run --no-launch-profile --project `"$apiProject`"" `
         -WorkingDirectory $script:ProjectRoot `
         -RedirectStandardOutput $stdout `
         -RedirectStandardError $stderr `

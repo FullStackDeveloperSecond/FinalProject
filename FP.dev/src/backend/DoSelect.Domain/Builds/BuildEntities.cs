@@ -32,6 +32,14 @@ public sealed class BuildList : MutablePublicEntity
     public string Status { get; private set; } = string.Empty;
     public DateTime? LastCheckedAtUtc { get; private set; }
     public CompatibilityOverall? CompatibilityStatus { get; private set; }
+    public string? OwnedPartsJson { get; private set; }
+
+    public void SetOwnedParts(string? json, DateTime updatedAtUtc)
+    {
+        if (json?.Length > 32_000) throw new ArgumentException("Owned parts exceed the storage limit.", nameof(json));
+        OwnedPartsJson = string.IsNullOrWhiteSpace(json) ? null : json;
+        MarkUpdated(updatedAtUtc);
+    }
 
     public void Rename(string name, DateTime updatedAtUtc)
     {

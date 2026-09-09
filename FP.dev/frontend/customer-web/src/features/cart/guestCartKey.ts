@@ -1,4 +1,7 @@
+import { ref } from 'vue'
+
 const storageKey = 'doselect.guestCartKey'
+const keyGeneration = ref(0)
 
 // Matches CartMergeRequest.GuestCartKey's [StringLength(256, MinimumLength = 32)] contract
 // (ShoppingCartContracts.cs) — any stored value outside this range can never succeed against
@@ -22,6 +25,8 @@ function isValidGuestCartKey(value: string): boolean {
  * on every read and silently replace an invalid value instead.
  */
 export function getOrCreateGuestCartKey(): string {
+  // 結帳或登入合併後，常駐導覽的購物車查詢必須切到新的訪客身分。
+  void keyGeneration.value
   const existing = window.localStorage.getItem(storageKey)
   if (existing && isValidGuestCartKey(existing)) {
     return existing
@@ -35,4 +40,5 @@ export function getOrCreateGuestCartKey(): string {
 /** Call once a merge into a member cart succeeds — the guest cart is Converted server-side. */
 export function clearGuestCartKey(): void {
   window.localStorage.removeItem(storageKey)
+  keyGeneration.value++
 }

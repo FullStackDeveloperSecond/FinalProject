@@ -6,6 +6,11 @@ export type CreateOrderRequest = components['schemas']['CreateOrderRequest']
 export type OrderDto = components['schemas']['OrderDto']
 export type PaymentMethod = components['schemas']['PaymentMethod']
 
+export type GuestCheckoutEmailVerificationAcceptedDto =
+  components['schemas']['GuestCheckoutEmailVerificationAcceptedDto']
+export type GuestCheckoutEmailVerificationStatusDto =
+  components['schemas']['GuestCheckoutEmailVerificationStatusDto']
+
 function guestHeaders(guestCartKey?: string): HeadersInit | undefined {
   return guestCartKey ? { 'X-DoSelect-Guest-Cart-Key': guestCartKey } : undefined
 }
@@ -29,5 +34,37 @@ export async function createOrder(
     params: { header: { 'Idempotency-Key': idempotencyKey } },
     headers: guestHeaders(guestCartKey),
   })
+  return data!
+}
+
+export async function requestGuestCheckoutEmailVerification(
+  email: string,
+  guestCartKey: string,
+): Promise<GuestCheckoutEmailVerificationAcceptedDto> {
+  const { data } = await apiClient.POST(
+    '/api/v1/checkout/guest-email/verification-requests',
+    { body: { email }, headers: guestHeaders(guestCartKey) },
+  )
+  return data!
+}
+
+export async function verifyGuestCheckoutEmail(
+  requestPublicId: string,
+  code: string,
+  guestCartKey: string,
+): Promise<void> {
+  await apiClient.POST('/api/v1/checkout/guest-email/verifications', {
+    body: { requestPublicId, code },
+    headers: guestHeaders(guestCartKey),
+  })
+}
+
+export async function getGuestCheckoutEmailVerificationStatus(
+  guestCartKey: string,
+): Promise<GuestCheckoutEmailVerificationStatusDto> {
+  const { data } = await apiClient.GET(
+    '/api/v1/checkout/guest-email/verification-status',
+    { headers: guestHeaders(guestCartKey) },
+  )
   return data!
 }

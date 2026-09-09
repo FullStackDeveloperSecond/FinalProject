@@ -165,7 +165,7 @@ public sealed class AdminSupportTicketsController : ControllerBase
 
     [Authorize(Policy = DoSelectPolicies.Admin)]
     [HttpGet("sla")]
-    public async Task<ActionResult<CursorPage<SupportSlaItemDto>>> GetSlaQueue(
+    public async Task<ActionResult<SupportSlaQueueResponse>> GetSlaQueue(
         [FromQuery] SupportSlaQueueQuery query,
         CancellationToken cancellationToken)
     {

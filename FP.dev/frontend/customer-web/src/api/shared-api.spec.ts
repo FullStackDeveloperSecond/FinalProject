@@ -67,9 +67,47 @@ describe('shared API foundation', () => {
 
     expect(error).toBeInstanceOf(ApiError)
     expect(error.code).toBe('validation_failed')
+    expect(error.message).toBe('請檢查輸入內容後再試一次。')
     expect(error.correlationId).toBe('request-123')
     expect(error.traceId).toBe('trace-123')
     expect(error.fieldErrors?.email).toEqual(['Email 格式不正確'])
+  })
+
+  it('does not expose an English HTTP reason phrase as the user-facing message', async () => {
+    const response = new Response(JSON.stringify({
+      title: 'Service Unavailable',
+      status: 503,
+      code: 'ai_service_unavailable',
+    }), {
+      status: 503,
+      headers: {
+        'Content-Type': 'application/problem+json',
+      },
+    })
+
+    const error = await createApiError(response)
+
+    expect(error.message).toBe('AI 服務暫時無法使用，請稍後再試，或改由人工客服協助。')
+  })
+
+  it('replaces English-only server details and field errors with safe Traditional Chinese text', async () => {
+    const response = new Response(JSON.stringify({
+      title: 'Bad Request',
+      detail: 'A member session or guest cart header is required.',
+      status: 400,
+      code: 'validation_failed',
+      errors: { email: ['The Email field is required.'] },
+    }), {
+      status: 400,
+      headers: {
+        'Content-Type': 'application/problem+json',
+      },
+    })
+
+    const error = await createApiError(response)
+
+    expect(error.message).toBe('請檢查輸入內容後再試一次。')
+    expect(error.fieldErrors?.email).toEqual(['輸入內容不符合要求。'])
   })
 
   it('only retries a query once for network and server failures', () => {

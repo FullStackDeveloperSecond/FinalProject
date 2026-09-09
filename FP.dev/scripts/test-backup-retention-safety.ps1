@@ -35,6 +35,19 @@ function Write-TestManifest {
 }
 
 try {
+    $isoWeekCases = @(
+        [pscustomobject]@{ Date = [DateTime] '2022-12-31'; Expected = '2022-52' }
+        [pscustomobject]@{ Date = [DateTime] '2023-01-01'; Expected = '2022-52' }
+        [pscustomobject]@{ Date = [DateTime] '2023-01-02'; Expected = '2023-01' }
+        [pscustomobject]@{ Date = [DateTime] '2018-12-31'; Expected = '2019-01' }
+    )
+    foreach ($case in $isoWeekCases) {
+        $actual = Get-IsoWeekKey -Date $case.Date
+        if ($actual -ne $case.Expected) {
+            throw "ISO week key for $($case.Date.ToString('yyyy-MM-dd')) expected '$($case.Expected)' but received '$actual'."
+        }
+    }
+
     $supportRoot = Join-Path (Join-Path $sourceRoot 'private') 'support'
     New-Item -ItemType Directory -Path $supportRoot -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $supportRoot 'probe.txt') -Value 'path-preservation-probe'
@@ -54,7 +67,7 @@ try {
 
     New-Item -ItemType Directory -Path $outsideRoot -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $outsideRoot 'outside-marker.txt') -Value 'synthetic-outside-marker'
-    $linkType = if ($IsWindows) { 'Junction' } else { 'SymbolicLink' }
+    $linkType = if ($env:OS -eq 'Windows_NT') { 'Junction' } else { 'SymbolicLink' }
     New-Item -ItemType $linkType -Path (Join-Path $supportRoot 'link-outside') -Target $outsideRoot | Out-Null
     $reparsePointWasRejected = $false
     try {
@@ -98,7 +111,7 @@ try {
     Write-Host 'Backup retention safety tests passed.'
 }
 finally {
-    $tempPrefix = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetTempPath()) + [IO.Path]::DirectorySeparatorChar
+    $tempPrefix = Get-DirectoryPathPrefix -Path ([IO.Path]::GetTempPath())
     foreach ($cleanupTarget in @($sourceRoot, $outsideRoot, $backupRoot)) {
         $resolvedCleanupTarget = [IO.Path]::GetFullPath($cleanupTarget)
         if ($resolvedCleanupTarget.StartsWith($tempPrefix, [StringComparison]::OrdinalIgnoreCase) -and

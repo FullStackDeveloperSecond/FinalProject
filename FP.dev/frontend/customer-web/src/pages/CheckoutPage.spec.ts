@@ -21,6 +21,16 @@ const mockCreateOrder = vi.fn<(
   idempotencyKey: string,
   guestCartKey?: string,
 ) => Promise<OrderDto>>()
+const mockGetGuestEmailStatus = vi.fn()
+const mockRequestGuestEmailVerification = vi.fn()
+const mockVerifyGuestEmail = vi.fn()
+const mockFetchProfile = vi.fn()
+const mockFetchAddresses = vi.fn()
+
+vi.mock('../features/members/api', () => ({
+  fetchProfile: () => mockFetchProfile(),
+  fetchAddresses: () => mockFetchAddresses(),
+}))
 
 vi.mock('../features/cart/api', () => ({
   getCart: vi.fn(),
@@ -48,6 +58,11 @@ vi.mock('../features/checkout/api', async (importOriginal) => {
       idempotencyKey: string,
       guestCartKey?: string,
     ) => mockCreateOrder(body, idempotencyKey, guestCartKey),
+    getGuestCheckoutEmailVerificationStatus: () => mockGetGuestEmailStatus(),
+    requestGuestCheckoutEmailVerification: (email: string, guestCartKey: string) =>
+      mockRequestGuestEmailVerification(email, guestCartKey),
+    verifyGuestCheckoutEmail: (requestPublicId: string, code: string, guestCartKey: string) =>
+      mockVerifyGuestEmail(requestPublicId, code, guestCartKey),
   }
 })
 
@@ -105,6 +120,14 @@ function shippingOptions(allowedPaymentMethods = ['creditCard', 'cashOnDelivery'
       requiresAddress: true,
       requiresStore: false,
       allowedPaymentMethods,
+      amounts: {
+        merchandiseSubtotal: 18000,
+        itemDiscountTotal: 0,
+        shippingFee: 120,
+        assemblyFee: 0,
+        grandTotal: 18120,
+        currency: 'TWD',
+      },
     }],
     evaluatedAtUtc: '2026-09-02T00:00:00Z',
     cartRowVersion: cart.rowVersion,
@@ -252,16 +275,121 @@ async function signInAs(publicId: string): Promise<void> {
 }
 
 beforeEach(() => {
+  mockFetchProfile.mockReset().mockResolvedValue({ displayName: '測試會員', phone: null })
+  mockFetchAddresses.mockReset().mockResolvedValue([])
   mockRevalidateCart.mockReset()
   mockGetShippingOptions.mockReset()
   mockGetCheckoutPolicyVersions.mockReset()
   mockCreateOrder.mockReset()
+  mockGetGuestEmailStatus.mockReset()
+  mockRequestGuestEmailVerification.mockReset()
+  mockVerifyGuestEmail.mockReset()
   mockRevalidateCart.mockResolvedValue(readyValidation())
   mockGetCheckoutPolicyVersions.mockResolvedValue(policies)
+  mockGetGuestEmailStatus.mockResolvedValue({
+    verified: true,
+    email: 'buyer@example.com',
+    expiresAtUtc: '2026-09-09T12:10:00Z',
+  })
   mockGetShippingOptions.mockResolvedValue(shippingOptions())
 })
 
 describe('CheckoutPage', () => {
+  it('immediately explains invalid mobile/email/postal inputs and clears corrected messages', async () => {
+    const { wrapper } = await mountCheckoutPage()
+    await vi.waitFor(() => expect(wrapper.find('#buyer-phone').exists()).toBe(true))
+    await fillValidHomeDeliveryForm(wrapper)
+    await wrapper.get('#buyer-phone').setValue('0000')
+    expect(wrapper.text()).toContain('手機號碼輸入錯誤，請輸入 09 開頭的 10 位數字')
+    expect(wrapper.get('#buyer-phone').attributes('aria-invalid')).toBe('true')
+    expect(wrapper.get('#buyer-phone').attributes('aria-describedby')).toBe('buyer-phone-error')
+    expect(wrapper.get('#buyer-phone-error').element.previousElementSibling?.id).toBe('buyer-phone')
+    expect(wrapper.findAll('#buyer-phone-error')).toHaveLength(1)
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('#buyer-phone').setValue('0912345678')
+    expect(wrapper.text()).not.toContain('手機號碼輸入錯誤')
+    await wrapper.get('#buyer-email').setValue('wrong@')
+    expect(wrapper.text()).toContain('電子郵件格式不正確')
+    await wrapper.get('#postal-code').setValue('12')
+    expect(wrapper.text()).toContain('郵遞區號請輸入 3、5 或 6 位數字')
+    await wrapper.get('#buyer-name').setValue('')
+    expect(wrapper.text()).toContain('姓名為必填')
+    expect(wrapper.text()).toContain('地址補充（選填）')
+    expect(wrapper.text()).toContain('配送備註（選填）')
+    wrapper.unmount()
+  })
+  it('opens each Demo policy without accepting it, submitting, or clearing the form', async () => {
+    const { wrapper } = await mountCheckoutPage()
+    await vi.waitFor(() => expect(wrapper.find('#accept-terms').exists()).toBe(true))
+    await wrapper.get('#buyer-name').setValue('測試姓名')
+    const dialog = wrapper.get('dialog').element as HTMLDialogElement
+    // jsdom has no top-layer implementation; browser focus/ESC behavior is a separate check.
+    dialog.showModal = vi.fn(() => dialog.setAttribute('open', ''))
+    dialog.close = vi.fn(() => dialog.removeAttribute('open'))
+    for (const [kind, title] of [['terms', '服務條款'], ['return', '退換貨政策'], ['privacy', '隱私權政策']]) {
+      await wrapper.get(`[data-test="read-${kind}"]`).trigger('click')
+      expect(dialog.open).toBe(true)
+      expect(wrapper.get('dialog h1').text()).toBe(title)
+      expect(wrapper.get('dialog').text()).toContain('Demo 引導範例')
+      expect((wrapper.get(`#accept-${kind}`).element as HTMLInputElement).checked).toBe(false)
+      await wrapper.get('[data-test="close-policy"]').trigger('click')
+      expect(dialog.open).toBe(false)
+      expect((wrapper.get('#buyer-name').element as HTMLInputElement).value).toBe('測試姓名')
+    }
+    expect(mockCreateOrder).not.toHaveBeenCalled()
+  })
+  it('prefills the saved default address for members and clears it when identity changes', async () => {
+    mockFetchAddresses.mockResolvedValue([{
+      publicId: 'address-1', label: '住家', isDefault: true,
+      recipientName: '合成收件人', phone: '0912345678', postalCode: '100',
+      city: '臺北市', district: '中正區', addressLine1: '測試路一號', addressLine2: null,
+    }])
+    const { wrapper } = await mountCheckoutPage({ authenticated: true })
+    await vi.waitFor(() => expect(wrapper.text()).toContain('宅配'))
+    await wrapper.get('input[value="HOME_DELIVERY"]').trigger('change')
+    await vi.waitFor(() => expect((wrapper.get('#recipient-name').element as HTMLInputElement).value).toBe('合成收件人'))
+    expect((wrapper.get('#city').element as HTMLSelectElement).value).toBe('臺北市')
+    useSessionStore().status = 'anonymous'
+    useSessionStore().user = undefined
+    await nextTick()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('宅配'))
+    await wrapper.get('input[value="HOME_DELIVERY"]').trigger('change')
+    expect((wrapper.get('#recipient-name').element as HTMLInputElement).value).toBe('')
+  })
+
+  it('rejects malformed phone, postal code and district before order submission', async () => {
+    const { wrapper } = await mountCheckoutPage()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('宅配'))
+    await fillValidHomeDeliveryForm(wrapper)
+    for (const [selector, invalid, valid] of [
+      ['#buyer-phone', 'abcdefghi', '0912345678'],
+      ['#recipient-phone', '123456', '0912345678'],
+      ['#postal-code', 'ABCDE', '100'],
+      ['#district', '123', '中正區'],
+    ]) {
+      await wrapper.get(selector!).setValue(invalid)
+      await wrapper.get('form').trigger('submit')
+      expect(mockCreateOrder).not.toHaveBeenCalled()
+      await wrapper.get(selector!).setValue(valid)
+    }
+    expect(wrapper.text()).toContain('收件手機號碼 *')
+  })
+
+  it('restores the recent receipt on return to an empty checkout within the same session', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    mockCreateOrder.mockResolvedValue(createdOrder())
+    const first = await mountCheckoutPage({ queryClient })
+    await vi.waitFor(() => expect(first.wrapper.text()).toContain('宅配'))
+    await fillValidHomeDeliveryForm(first.wrapper)
+    await first.wrapper.get('form').trigger('submit')
+    await vi.waitFor(() => expect(mockCreateOrder).toHaveBeenCalledOnce())
+    first.wrapper.unmount()
+    mockRevalidateCart.mockResolvedValue({ ...readyValidation(), cart: { ...cart, items: [] } })
+    const second = await mountCheckoutPage({ queryClient })
+    await vi.waitFor(() => expect(second.wrapper.text()).toContain('ORD-20260902-0001'))
+    expect(second.wrapper.text()).not.toContain('購物車是空的')
+  })
+
   it('keeps a loading state until the authoritative cart and policy versions resolve', async () => {
     mockRevalidateCart.mockReturnValue(new Promise(() => {}))
     mockGetCheckoutPolicyVersions.mockReturnValue(new Promise(() => {}))
@@ -283,6 +411,9 @@ describe('CheckoutPage', () => {
     expect(wrapper.find('input[name="payment-method"][value="cashOnDelivery"]').exists()).toBe(true)
     expect(wrapper.find('input[name="payment-method"][value="atm"]').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('prepaid')
+    expect(wrapper.text()).toContain('商品小計：NT$18,000')
+    expect(wrapper.text()).toContain('應付總額：NT$18,120')
+    expect(wrapper.text()).not.toContain('最終金額、折扣、運費及庫存以後端建立訂單時重新計算為準')
   })
 
   it('re-evaluates shipping fees and COD from the backend after applying a coupon', async () => {
@@ -405,34 +536,26 @@ describe('CheckoutPage', () => {
     expect(router.currentRoute.value.name).toBe('checkout')
   })
 
-  it('keeps a guest on a success handoff with the order number and verification entry point', async () => {
-    const order = createdOrder()
-    order.amounts = {
-      merchandiseSubtotal: 59900,
-      itemDiscountTotal: 2000,
-      shippingFee: 0,
-      assemblyFee: 300,
-      grandTotal: 58200,
-      paidAmount: 0,
-      refundedAmount: 0,
-      currency: 'TWD',
-    }
-    mockCreateOrder.mockResolvedValue(order)
+  it('routes a verified guest directly to payment instead of the guest-order lookup page', async () => {
+    mockCreateOrder.mockResolvedValue(createdOrder())
     const { wrapper, router } = await mountCheckoutPage()
     await vi.waitFor(() => expect(wrapper.text()).toContain('宅配'))
     await fillValidHomeDeliveryForm(wrapper)
 
     await wrapper.get('.checkout-page__submit').trigger('submit')
 
-    await vi.waitFor(() => expect(wrapper.text()).toContain('ORD-20260902-0001'))
-    expect(wrapper.text()).toContain('商品小計：NT$59,900')
-    expect(wrapper.text()).toContain('優惠折扣：−NT$2,000')
-    expect(wrapper.text()).toContain('配送費：NT$0')
-    expect(wrapper.text()).toContain('組裝費：NT$300')
-    expect(wrapper.text()).toContain('應付總額：NT$58,200')
-    expect(wrapper.text()).toContain('驗證訂單後繼續付款')
-    expect(wrapper.get('a[href="/guest-orders/access"]').attributes('href')).toBe('/guest-orders/access')
-    expect(router.currentRoute.value.name).toBe('checkout')
+    await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('order-payment'))
+    expect(mockCreateOrder).toHaveBeenCalledTimes(1)
+  })
+
+  it('blocks guest submission until the entered email has been verified', async () => {
+    mockGetGuestEmailStatus.mockResolvedValue({ verified: false, email: null, expiresAtUtc: null })
+    const { wrapper } = await mountCheckoutPage()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('宅配'))
+    await fillValidHomeDeliveryForm(wrapper)
+
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined()
+    expect(mockCreateOrder).not.toHaveBeenCalled()
   })
 
   it('carries a coupon applied on the cart page into checkout and re-quotes shipping with it', async () => {

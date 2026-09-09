@@ -2,7 +2,7 @@
 import { computed, defineAsyncComponent, onMounted, provide, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSessionStore } from './stores/session'
-import { useCartIdentityCacheCleanup } from './features/cart/useCart'
+import { useCart, useCartIdentityCacheCleanup } from './features/cart/useCart'
 import { BrandMark } from '@doselect/web-shared/components'
 import DonnguGuide from './components/DonnguGuide.vue'
 import CitySideStreets from './components/CitySideStreets.vue'
@@ -33,6 +33,10 @@ const isWelcomePage = computed(() => route.name === 'welcome')
 // evicts the previous identity's cart cache regardless of which page happens to be open at the
 // moment it changes.
 useCartIdentityCacheCleanup()
+const { data: currentCart, isError: cartLoadFailed } = useCart()
+const cartItemCount = computed(() => sessionStore.isIdentityConfirmed && !cartLoadFailed.value && currentCart.value
+  ? currentCart.value.items.reduce((total, item) => total + Number(item.quantity), 0)
+  : null)
 
 // 窄畫面把主導覽收起來，避免導覽列擠壓內容或造成頁面級橫向捲動。
 const navOpen = ref(false)
@@ -102,8 +106,8 @@ async function handleLogout(): Promise<void> {
           aria-label="主要導覽"
         >
           <!--
-            瀏覽區：不需登入就能看的頁面。順序刻意對齊「城市路標」的四站
-            （靈感站→AI 懂選、零件街→商品、組裝所→新增組裝清單），
+            瀏覽區：不需登入就能看的頁面。名稱與順序對齊「城市路標」三站
+            （AI 懂選、商品、新增組裝清單），
             讓側欄與頁首講同一套動線；購物車接在組裝流程之後。
           -->
           <div class="primary-nav__group primary-nav__browse">
@@ -121,6 +125,11 @@ async function handleLogout(): Promise<void> {
             </RouterLink>
             <RouterLink to="/cart">
               購物車
+              <span
+                v-if="cartItemCount !== null"
+                aria-live="polite"
+                aria-atomic="true"
+              >（{{ cartItemCount }} 件）</span>
             </RouterLink>
           </div>
 
@@ -128,7 +137,7 @@ async function handleLogout(): Promise<void> {
             會員區：靠右並以分隔線隔開。這裡只放 router meta 標了 requiresAuth 的目的地
             （/support、/account/builds、/account/favorites、/account、/account/addresses、
             /account/reviews）加上登入入口，讓「點了會要求登入」的項目在視覺上先分好類。
-            補給站（客服中心）雖然是城市路標第 04 站，但需要登入，所以歸在這一區。
+            客服中心不列入選購三站，入口保留在會員區。
           -->
           <div class="primary-nav__group primary-nav__account">
             <RouterLink
@@ -212,6 +221,12 @@ async function handleLogout(): Promise<void> {
         </RouterLink>
         <RouterLink to="/products">
           全部商品
+        </RouterLink>
+        <RouterLink to="/terms">
+          服務條款
+        </RouterLink>
+        <RouterLink to="/privacy">
+          隱私權政策
         </RouterLink>
       </p>
     </footer>

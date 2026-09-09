@@ -5,7 +5,10 @@ import {
   type paths,
 } from '@doselect/web-shared/api'
 
-export const apiBaseUrl = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL)
+const browserApiFallback = typeof window === 'undefined'
+  ? 'http://localhost:5126'
+  : window.location.origin
+export const apiBaseUrl = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL, browserApiFallback)
 const antiforgeryTokenProvider = createAntiforgeryTokenProvider({
   baseUrl: apiBaseUrl,
   client: 'member',

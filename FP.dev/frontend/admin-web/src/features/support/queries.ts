@@ -33,6 +33,13 @@ export const defaultSlaPageSize = 20
 export interface SupportSlaQueueFilters {
   pageSize?: number
   cursor?: string
+  pageNumber?: number
+  search?: string
+  status?: import('./types').SupportTicketStatus
+  priority?: import('./types').CasePriority
+  onlyOverdue?: boolean
+  assignee?: string
+  sort?: string
 }
 
 export function supportSlaQueueQueryKey(filters: SupportSlaQueueFilters = {}) {
@@ -49,7 +56,7 @@ export function useSupportSlaQueueQuery(filters: MaybeRefOrGetter<SupportSlaQueu
     queryFn: async (): Promise<SupportSlaQueuePage> => {
       const current = toValue(filters)
       const { data } = await apiClient.GET('/api/v1/admin/support-tickets/sla', {
-        params: { query: { PageSize: current.pageSize ?? defaultSlaPageSize, Cursor: current.cursor } },
+        params: { query: { PageSize: current.pageSize ?? defaultSlaPageSize, Cursor: current.cursor, PageNumber: current.pageNumber, Search: current.search, Status: current.status, Priority: current.priority, OnlyOverdue: current.onlyOverdue, Assignee: current.assignee, Sort: current.sort } },
       })
       return data as SupportSlaQueuePage
     },

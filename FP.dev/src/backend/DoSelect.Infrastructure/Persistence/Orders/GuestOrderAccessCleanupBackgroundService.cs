@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 namespace DoSelect.Infrastructure.Persistence.Orders;
 
 /// <summary>
-/// 每日清理到期滿 30 天的 GuestOrderAccessRequests／Tokens（DEC-P267）。依主鍵分批
+/// 每日清理到期滿 30 天的 GuestOrderAccessRequests／Tokens 與訪客結帳信箱驗證資料。依主鍵分批
 /// （每批最多 <see cref="BatchSize"/> 筆）刪除，一個 Tick 內反覆呼叫直到回傳 0——避免單次
 /// 累積了太多到期資料時，一個批次清不完就要等下一個 24 小時週期。結構比照
 /// <c>UnverifiedMemberCleanupBackgroundService</c>。

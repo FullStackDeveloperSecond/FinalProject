@@ -1,6 +1,8 @@
 import { ApiError } from '@doselect/web-shared/api'
 import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
+import PrimeVue from 'primevue/config'
+import { chinesePaginationLocale } from '@doselect/web-shared/theme'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import SupportSlaQueuePage from './SupportSlaQueuePage.vue'
@@ -14,7 +16,7 @@ const queueMocks = await vi.hoisted(async () => {
     isError: ref(false),
     error: ref<unknown>(null),
     refetch: vi.fn(),
-    filters: null as null | (() => { pageSize?: number, cursor?: string }),
+    filters: null as null | (() => Record<string, unknown>),
   }
 })
 
@@ -71,7 +73,7 @@ async function mountPage() {
   await router.push('/support')
   await router.isReady()
 
-  return mount(SupportSlaQueuePage, { global: { plugins: [router] } })
+  return mount(SupportSlaQueuePage, { global: { plugins: [router, [PrimeVue, { locale: chinesePaginationLocale }]] } })
 }
 
 describe('SupportSlaQueuePage', () => {
@@ -138,25 +140,24 @@ describe('SupportSlaQueuePage', () => {
     expect(wrapper.text()).not.toContain('secret-digest')
   })
 
-  it('moves forward with the opaque next cursor and returns to the previous cursor', async () => {
+  it('uses counted pages and applies dropdown and checkbox filters immediately', async () => {
     queueMocks.data.value = {
       items: [sampleItem({ isOverdue: false, usageRatio: 0.5 })],
       nextCursor: 'opaque+cursor/==',
       hasMore: true,
+      totalCount: 260,
     }
     const wrapper = await mountPage()
-    const buttons = wrapper.findAll('.sla-queue__pagination button')
-
-    expect(queueMocks.filters?.()).toEqual({ pageSize: 20, cursor: undefined })
-    expect(buttons[0]?.attributes()).toHaveProperty('disabled')
-
-    await buttons[1]?.trigger('click')
+    expect(queueMocks.filters?.()).toMatchObject({ pageSize: 20, pageNumber: 1 })
+    await wrapper.get('button[aria-label="第 13 頁"]').trigger('click')
     await nextTick()
-    expect(queueMocks.filters?.()).toEqual({ pageSize: 20, cursor: 'opaque+cursor/==' })
-    expect(buttons[0]?.attributes()).not.toHaveProperty('disabled')
-
-    await buttons[0]?.trigger('click')
+    expect(queueMocks.filters?.()).toMatchObject({ pageNumber: 13 })
+    await wrapper.findAll('select')[0]!.setValue('assigned')
     await nextTick()
-    expect(queueMocks.filters?.()).toEqual({ pageSize: 20, cursor: undefined })
+    expect(queueMocks.filters?.()).toMatchObject({ pageNumber: 1, status: 'assigned' })
+    await wrapper.get('input[type="checkbox"]').setValue(true)
+    expect(queueMocks.filters?.()).toMatchObject({ onlyOverdue: true })
+    await wrapper.findAll('select')[3]!.setValue('recent')
+    expect(queueMocks.filters?.()).toMatchObject({ sort: 'recent' })
   })
 })

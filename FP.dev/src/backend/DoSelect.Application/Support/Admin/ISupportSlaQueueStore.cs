@@ -21,7 +21,8 @@ public interface ISupportSlaQueueStore
         DateTime nowUtc,
         string adminUserId,
         bool canSupervise,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        SupportSlaQueueQuery? filters = null);
 }
 
-public sealed record SupportSlaQueuePage(IReadOnlyList<SupportSlaItemDto> Items, bool HasMore);
+public sealed record SupportSlaQueuePage(IReadOnlyList<SupportSlaItemDto> Items, bool HasMore, int? TotalCount = null);

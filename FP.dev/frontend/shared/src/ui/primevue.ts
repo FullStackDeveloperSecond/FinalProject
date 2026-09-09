@@ -20,6 +20,9 @@ export const DoSelectAura = definePreset(Aura, {
 })
 
 export const doSelectPrimeVueOptions = {
+  locale: {
+    aria: { firstPageLabel: '首頁', prevPageLabel: '上一頁', nextPageLabel: '下一頁', lastPageLabel: '尾頁', pageLabel: '第 {page} 頁' },
+  },
   theme: {
     preset: DoSelectAura,
     options: {

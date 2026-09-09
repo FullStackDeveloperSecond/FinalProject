@@ -4,7 +4,14 @@ import { isApiError } from '@doselect/web-shared/api'
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useReturnQuery, useUploadReturnAttachmentMutation } from '../../features/returns/queries'
-import { formatDateTime, reasonLabels, statusLabels } from '../../features/returns/labels'
+import {
+  formatDateTime,
+  inspectionStatusLabels,
+  reasonLabels,
+  shipmentMethodLabels,
+  shipmentStatusLabels,
+  statusLabels,
+} from '../../features/returns/labels'
 
 const route = useRoute()
 const returnId = computed(() => String(route.params.returnId))
@@ -99,7 +106,7 @@ async function handleFileChange(event: Event) {
             v-for="item in returnRequest.items"
             :key="item.publicId"
           >
-            {{ item.productNameSnapshot || item.skuCodeSnapshot }}｜數量 {{ item.quantity }}｜{{ item.inspectionStatus }}
+            {{ item.productNameSnapshot || item.skuCodeSnapshot }}｜數量 {{ item.quantity }}｜{{ inspectionStatusLabels[item.inspectionStatus] ?? '其他檢查狀態' }}
             <span v-if="item.description">｜說明 {{ item.description }}</span>
           </li>
         </ul>
@@ -115,11 +122,11 @@ async function handleFileChange(event: Event) {
         <dl class="return-detail__summary">
           <div>
             <dt>寄回方式</dt>
-            <dd>{{ returnRequest.shipment.method }}</dd>
+            <dd>{{ shipmentMethodLabels[returnRequest.shipment.method] ?? '其他寄回方式' }}</dd>
           </div>
           <div>
             <dt>物流狀態</dt>
-            <dd>{{ returnRequest.shipment.status }}</dd>
+            <dd>{{ shipmentStatusLabels[returnRequest.shipment.status] ?? '其他物流狀態' }}</dd>
           </div>
           <div v-if="returnRequest.shipment.trackingNumber">
             <dt>追蹤號碼</dt>

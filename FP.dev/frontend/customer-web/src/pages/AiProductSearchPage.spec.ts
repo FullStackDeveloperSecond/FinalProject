@@ -186,8 +186,8 @@ describe('AiProductSearchPage', () => {
           },
         ],
         purchaseSubtotal: 10000,
-        assemblyFee: 300,
-        purchaseTotal: 10300,
+        assemblyFee: 0,
+        purchaseTotal: 10000,
         currency: 'TWD',
         compatibilityStatus: 'Compatible',
         compatibilityMessageKeys: [],
@@ -204,7 +204,8 @@ describe('AiProductSearchPage', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('完整組裝清單')
-    expect(wrapper.text()).toContain('NT$10,300')
+    expect(wrapper.text()).toContain('NT$10,000')
+    expect(wrapper.text()).toContain('僅購買新零件，不收組裝費')
     expect(wrapper.text()).toContain('既有零件・不計入新購預算')
     expect(wrapper.text()).toContain('相容性：通過')
     expect(wrapper.text()).toContain('符合用途與新購預算。')

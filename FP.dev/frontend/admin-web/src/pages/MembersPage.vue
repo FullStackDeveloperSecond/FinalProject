@@ -1,0 +1,165 @@
+<script setup lang="ts">
+import { computed, ref, watch } from 'vue'
+import { useQuery } from '@tanstack/vue-query'
+import { isApiError } from '@doselect/web-shared/api'
+import { PagePager } from '@doselect/web-shared/components'
+import { listMembers, getMember, changeMemberStatus, type AdminMember } from '../features/members/api'
+import { useAdminAuthStore } from '../features/auth/stores/useAdminAuthStore'
+
+const auth = useAdminAuthStore()
+const search = ref('')
+const appliedSearch = ref('')
+const status = ref('')
+const page = ref(1)
+const selected = ref<AdminMember | null>(null)
+const busy = ref(false)
+const message = ref('')
+const reason = ref('')
+const labels: Record<string, string> = { Active: '啟用', Suspended: '停用', PendingEmailVerification: '待驗證信箱', Anonymized: '已匿名化', Disabled: '已關閉' }
+const canManage = computed(() => auth.currentUser?.roles?.includes('SuperAdmin') ?? false)
+watch(search, (value, _old, cleanup) => {
+  const timer = setTimeout(() => { appliedSearch.value = value.trim(); page.value = 1 }, 300)
+  cleanup(() => clearTimeout(timer))
+})
+watch(status, () => { page.value = 1 })
+const filters = computed(() => ({ Search: appliedSearch.value || undefined, Status: status.value || undefined, Page: page.value, PageSize: 20 }))
+const query = useQuery({ queryKey: computed(() => ['admin-members', filters.value]), queryFn: () => listMembers(filters.value) })
+let detailGeneration = 0
+watch(filters, () => { detailGeneration++; selected.value = null; reason.value = ''; message.value = '' })
+async function select(publicId: string) {
+  const generation = ++detailGeneration
+  selected.value = null
+  message.value = ''
+  reason.value = ''
+  try { const member = await getMember(publicId); if (generation === detailGeneration) selected.value = member }
+  catch { if (generation === detailGeneration) message.value = '無法載入會員詳情，請重試。' }
+}
+async function submit() {
+  if (!selected.value || !canManage.value || !reason.value || busy.value) return
+  const member = selected.value
+  busy.value = true
+  message.value = ''
+  try {
+    await changeMemberStatus(member.publicId, { active: member.status === 'Suspended', rowVersion: member.rowVersion, reasonCode: reason.value })
+    selected.value = null
+    detailGeneration++
+    await query.refetch()
+    message.value = '會員狀態已更新，並已留下稽核紀錄。'
+  } catch (error) {
+    message.value = isApiError(error) && error.status === 409 ? '會員資料或狀態已變更，請重新開啟詳情確認後再操作。' : '更新失敗，請確認權限與登入狀態後重試。'
+  } finally { busy.value = false }
+}
+</script>
+
+<template>
+  <section>
+    <h1>會員管理</h1>
+    <p>查詢會員與管理帳號狀態；聯絡資訊預設遮蔽，不提供刪除或密碼查閱。</p>
+    <div class="members-filters">
+      <label>姓名或電子郵件<input
+        v-model="search"
+        type="search"
+        maxlength="100"
+        :disabled="busy"
+      ></label>
+      <label>帳號狀態<select
+        v-model="status"
+        :disabled="busy"
+      ><option value="">全部</option><option
+        v-for="(label, value) in labels"
+        :key="value"
+        :value="value"
+      >{{ label }}</option></select></label>
+    </div>
+    <p
+      v-if="message"
+      role="status"
+    >
+      {{ message }}
+    </p>
+    <p v-if="query.isPending.value">
+      會員載入中…
+    </p>
+    <p
+      v-else-if="query.isError.value"
+      role="alert"
+    >
+      無法載入會員，請確認登入與查詢權限。<button
+        type="button"
+        @click="query.refetch()"
+      >
+        重試
+      </button>
+    </p>
+    <template v-else-if="query.data.value">
+      <p>共 {{ query.data.value.totalCount }} 位會員</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>姓名</th><th>電子郵件</th><th>狀態</th><th>信箱驗證</th><th>操作</th></tr></thead><tbody>
+            <tr
+              v-for="member in query.data.value.items"
+              :key="member.publicId"
+            >
+              <td>{{ member.displayName }}</td><td>{{ member.emailMasked }}</td><td>{{ labels[member.status] ?? '未知狀態' }}</td><td>{{ member.emailVerified ? '已驗證' : '未驗證' }}</td><td>
+                <button
+                  type="button"
+                  :disabled="busy"
+                  @click="select(member.publicId)"
+                >
+                  詳情
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <PagePager
+        v-model:page="page"
+        :total-records="query.data.value.totalCount"
+        :page-size="20"
+        aria-label="會員分頁"
+      />
+    </template>
+    <section
+      v-if="selected"
+      aria-labelledby="member-detail-title"
+      class="card"
+    >
+      <h2 id="member-detail-title">
+        {{ selected.displayName }}：會員詳情
+      </h2>
+      <p>電子郵件：{{ selected.emailMasked }}／{{ labels[selected.status] }}</p>
+      <p>建立時間：{{ new Date(selected.createdAtUtc).toLocaleString('zh-TW') }}</p>
+      <p>更新時間：{{ new Date(selected.updatedAtUtc).toLocaleString('zh-TW') }}</p>
+      <form
+        v-if="canManage && ['Active', 'Suspended'].includes(selected.status)"
+        @submit.prevent="submit"
+      >
+        <p>{{ selected.status === 'Active' ? '確認停用此會員？停用後現有登入將失效。' : '確認重新啟用此會員？未驗證的信箱仍不可啟用。' }}</p>
+        <label>操作原因 *<select
+          v-model="reason"
+          required
+          :disabled="busy"
+        ><option value="">請選擇</option><option value="user_request">會員要求</option><option value="policy_violation">違反使用規範</option><option value="resolved">問題已處理</option></select></label>
+        <button
+          type="submit"
+          :disabled="busy || !reason"
+        >
+          {{ busy ? '處理中…' : selected.status === 'Active' ? '確認停用' : '確認啟用' }}
+        </button>
+      </form>
+      <button
+        type="button"
+        :disabled="busy"
+        @click="selected = null"
+      >
+        關閉詳情
+      </button>
+    </section>
+  </section>
+</template>
+
+<style scoped>
+.members-filters { display: flex; flex-wrap: wrap; gap: 1rem; margin-block: 1rem; }
+.members-filters label { display: grid; gap: .4rem; }
+</style>

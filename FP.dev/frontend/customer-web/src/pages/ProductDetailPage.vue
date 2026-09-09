@@ -5,6 +5,7 @@ import { isApiError } from '@doselect/web-shared/api'
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useProductDetail } from '../features/catalog/useProductSearch'
+import ProductBuildImportButton from '../features/builds/components/ProductBuildImportButton.vue'
 import type { PublicSkuDto } from '../features/catalog/types'
 import { useAddCartItem } from '../features/cart/useCart'
 import { useSessionStore } from '../stores/session'
@@ -273,6 +274,15 @@ const isNotFound = computed(() => isApiError(error.value) && error.value.status 
       </li>
     </ul>
 
+    <div
+      v-else
+      class="product-detail__gallery product-detail__placeholder"
+      role="img"
+      :aria-label="`${product.name} 尚無商品圖片`"
+    >
+      尚無商品圖片
+    </div>
+
     <section
       v-if="selectedSku"
       class="product-detail__purchase"
@@ -342,6 +352,7 @@ const isNotFound = computed(() => isApiError(error.value) && error.value.status 
       >
         {{ sessionStore.status === 'error' ? '無法確認登入狀態' : sessionStore.status === 'loading' ? '登入狀態確認中…' : addCartItemMutation.isPending.value ? '加入中…' : '加入購物車' }}
       </button>
+      <ProductBuildImportButton :product-public-id="product.productPublicId" />
       <button
         v-if="sessionStore.status === 'error'"
         type="button"
@@ -486,10 +497,20 @@ const isNotFound = computed(() => isApiError(error.value) && error.value.status 
 
 <style scoped>
 .product-detail {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1.5rem;
-  max-width: 48rem;
+  width: 100%;
+  max-width: 76rem;
+  margin-inline: auto;
+}
+
+@media (min-width: 60rem) {
+  .product-detail { grid-template-columns: minmax(0, 1.2fr) minmax(20rem, 1fr); align-items: start; }
+  .product-detail > * { grid-column: 1 / -1; min-width: 0; }
+  .product-detail__header { grid-row: 2; }
+  .product-detail__gallery { grid-column: 1; grid-row: 3; }
+  .product-detail__purchase { grid-column: 2; grid-row: 3; padding: 1.5rem; border: 1px solid var(--color-border-soft); border-radius: 1rem; background: var(--color-surface); }
 }
 
 .product-detail__header h1 {
@@ -554,11 +575,14 @@ const isNotFound = computed(() => isApiError(error.value) && error.value.status 
 }
 
 .product-detail__gallery img {
-  max-width: 12rem;
+  max-width: 100%;
+  width: 18rem;
   height: auto;
   border-radius: 0.5rem;
   border: 1px solid var(--color-border-soft);
 }
+
+.product-detail__placeholder { min-height: 18rem; align-items: center; justify-content: center; background: var(--color-info-bg); border-radius: 1rem; color: var(--color-text-muted); }
 
 .product-detail__warranty {
   margin: 0;

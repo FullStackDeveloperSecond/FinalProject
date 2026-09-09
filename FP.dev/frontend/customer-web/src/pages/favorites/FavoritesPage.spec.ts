@@ -81,7 +81,7 @@ describe('FavoritesPage', () => {
     mocks.data.value = { items: [favoriteItem()], totalCount: 1, totalPages: 1 }
     const wrapper = mount(FavoritesPage, { global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } })
 
-    await wrapper.find('button').trigger('click')
+    await wrapper.findAll('button').find(button => button.text() === '取消收藏')!.trigger('click')
 
     expect(mocks.remove.mutate).toHaveBeenCalledWith(
       '11111111-1111-1111-1111-111111111111',

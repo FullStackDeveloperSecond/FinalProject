@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { isApiError } from '@doselect/web-shared/api'
-import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
+import { EmptyState, ErrorState, LoadingState, PagePager } from '@doselect/web-shared/components'
 import { useRefundList } from '../../features/refunds/useRefunds'
 import {
   formatRefundDate,
@@ -139,23 +139,13 @@ function changeStatus() {
         </tbody>
       </table>
 
-      <nav aria-label="退款分頁">
-        <button
-          type="button"
-          :disabled="filters.pageNumber <= 1"
-          @click="goToPage(filters.pageNumber - 1)"
-        >
-          上一頁
-        </button>
-        <span>第 {{ filters.pageNumber }} / {{ totalPages }} 頁</span>
-        <button
-          type="button"
-          :disabled="filters.pageNumber >= totalPages"
-          @click="goToPage(filters.pageNumber + 1)"
-        >
-          下一頁
-        </button>
-      </nav>
+      <PagePager
+        :page="filters.pageNumber"
+        :total-records="totalPages"
+        :page-size="1"
+        aria-label="退款分頁"
+        @update:page="goToPage"
+      />
     </template>
   </section>
 </template>

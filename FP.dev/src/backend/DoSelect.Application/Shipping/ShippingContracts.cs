@@ -18,7 +18,20 @@ public sealed record ShippingOptionDto(
     decimal? FreeShippingThreshold,
     bool RequiresAddress,
     bool RequiresStore,
-    IReadOnlyList<PaymentMethod> AllowedPaymentMethods);
+    IReadOnlyList<PaymentMethod> AllowedPaymentMethods,
+    CheckoutAmountQuoteDto Amounts);
+
+/// <summary>
+/// 後端針對單一配送方式即時計算的結帳金額。前端只顯示，不自行重算。
+/// Checkout 建單時仍會在同一交易內重新驗證所有金額與庫存。
+/// </summary>
+public sealed record CheckoutAmountQuoteDto(
+    decimal MerchandiseSubtotal,
+    decimal ItemDiscountTotal,
+    decimal ShippingFee,
+    decimal AssemblyFee,
+    decimal GrandTotal,
+    string Currency);
 
 public sealed record ShippingOptionsDto(
     Guid CartPublicId,
@@ -43,6 +56,8 @@ public sealed record ConvenienceStoreOptionDto(
     string District,
     string Address,
     bool IsDemoData);
+
+public sealed record ConvenienceStoreRegionQuery(string ProviderCode, string? City, int PageNumber, int PageSize);
 
 /// <summary>
 /// The authoritative go/no-go decision for cash-on-delivery on one cart, re-evaluated at the
@@ -76,6 +91,10 @@ public interface IShippingOptionsService
 
 public interface IConvenienceStoreQueryService
 {
+    Task<PageResult<string>> ListRegionsAsync(
+        ConvenienceStoreRegionQuery query,
+        CancellationToken cancellationToken);
+
     Task<PageResult<ConvenienceStoreOptionDto>> ListAsync(
         ConvenienceStoreQuery query,
         CancellationToken cancellationToken);

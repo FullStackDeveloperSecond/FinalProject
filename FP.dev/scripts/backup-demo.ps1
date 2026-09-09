@@ -30,7 +30,7 @@ if ($null -eq $sqlcmd) {
 $resolvedDataRoot = [IO.Path]::GetFullPath($DataRoot)
 $resolvedBackupRoot = [IO.Path]::GetFullPath($BackupRoot)
 if ($resolvedBackupRoot.StartsWith(
-    [IO.Path]::TrimEndingDirectorySeparator($resolvedDataRoot) + [IO.Path]::DirectorySeparatorChar,
+    (Get-DirectoryPathPrefix -Path $resolvedDataRoot),
     [StringComparison]::OrdinalIgnoreCase)) {
     throw 'BackupRoot must be outside DataRoot so a file snapshot cannot include its own backup output.'
 }

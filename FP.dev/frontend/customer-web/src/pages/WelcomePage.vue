@@ -30,16 +30,23 @@ onMounted(async () => {
       .from('.welcome-page__logo-part--bl', { x: -120, y: 80, rotate: 18, opacity: 0, duration: 0.65 }, '<')
       .from('.welcome-page__logo-part--br', { x: 120, y: 80, rotate: -18, opacity: 0, duration: 0.65 }, '<')
       .from('.welcome-page__logo-glow', { scale: 0.55, opacity: 0, duration: 0.7 }, '-=0.35')
-      .from('.welcome-page__scanline', { scaleY: 0, opacity: 0, duration: 0.35, transformOrigin: '50% 0%' }, '-=0.1')
+      .fromTo(
+        '.welcome-page__scanline',
+        { scaleY: 0, opacity: 0 },
+        { scaleY: 1, opacity: 0.85, duration: 0.25, transformOrigin: '50% 0%' },
+        '-=0.1',
+      )
+      .to('.welcome-page__scanline', { opacity: 0, duration: 0.2 })
       .from('.welcome-page__copy', { y: 22, opacity: 0, duration: 0.55 }, '-=0.2')
+      .to('.welcome-page__city', { filter: 'brightness(1) saturate(1)', duration: 0.45 }, '-=0.45')
       .add(() => { canExplore.value = true })
-    gsap.to('.welcome-page__city', { filter: 'brightness(1) saturate(1)', duration: 1.25, delay: 3.8, ease: 'power2.out' })
   })
 })
 
 function explore(): void {
   if (transitioning.value) return
   transitioning.value = true
+  introMotion.revert()
   exitMotion.run(({ reducedMotion }) => {
     if (reducedMotion) {
       void router.push('/')
@@ -47,9 +54,9 @@ function explore(): void {
     }
 
     const transition = gsap.timeline({ onComplete: () => void router.push('/') })
-    transition.to('.welcome-page__explore', { scale: 0.985, opacity: 0.8, duration: 0.22 })
-      .to('.welcome-page__portal', { scale: 2.5, opacity: 0.2, duration: 1.65, ease: 'power1.inOut' }, '-=0.02')
-      .to('.welcome-page', { opacity: 0.08, duration: 1.2, ease: 'power1.inOut' }, '-=1.05')
+    transition.to('.welcome-page__explore', { scale: 0.985, opacity: 0.8, duration: 0.08 })
+      .to('.welcome-page__portal', { scale: 6, opacity: 1, duration: 0.42, ease: 'power1.inOut' }, '<')
+      .to(scene.value, { opacity: 0.08, duration: 0.2, ease: 'power1.inOut' }, '-=0.2')
   })
 }
 </script>

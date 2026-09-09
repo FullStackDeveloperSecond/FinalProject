@@ -1,4 +1,6 @@
 using System.Data;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using DoSelect.Application.Checkout;
 using DoSelect.Application.Idempotency;
@@ -39,7 +41,8 @@ public sealed class CheckoutServiceTests
         var service = new CheckoutService(
             executor,
             gateway,
-            new StaticPolicyProvider(new CheckoutPolicySnapshot(1, 1, 1, 1)));
+            new StaticPolicyProvider(new CheckoutPolicySnapshot(1, 1, 1, 1)),
+            new StubGuestOrderAccessHasher());
         var memberPublicId = Guid.NewGuid();
 
         var result = await service.CreateOrderAsync(
@@ -65,7 +68,8 @@ public sealed class CheckoutServiceTests
         var service = new CheckoutService(
             new ReplayOnlyIdempotencyExecutor(created.PublicId),
             gateway,
-            new StaticPolicyProvider(new CheckoutPolicySnapshot(1, 1, 1, 1)));
+            new StaticPolicyProvider(new CheckoutPolicySnapshot(1, 1, 1, 1)),
+            new StubGuestOrderAccessHasher());
 
         var result = await service.CreateOrderAsync(
             CheckoutActor.ForGuest("guest-cart-secret"),
@@ -76,6 +80,37 @@ public sealed class CheckoutServiceTests
         Assert.True(result.IsReplay);
         Assert.Equal(created, result.Body);
         Assert.Equal(0, gateway.ExecuteCount);
+    }
+
+    [Fact]
+    public async Task CreateOrderAsync_WhenGuestReplayReceiptHasVerification_ReissuesDeterministicAccessToken()
+    {
+        var created = CreateOrderDto();
+        var verificationPublicId = Guid.NewGuid();
+        var expiresAtUtc = DateTime.UtcNow.AddMinutes(15);
+        var gateway = new FakeGateway(created);
+        var hasher = new StubGuestOrderAccessHasher();
+        var service = new CheckoutService(
+            new ReplayOnlyIdempotencyExecutor(
+                created.PublicId,
+                verificationPublicId,
+                expiresAtUtc),
+            gateway,
+            new StaticPolicyProvider(new CheckoutPolicySnapshot(1, 1, 1, 1)),
+            hasher);
+
+        var result = await service.CreateOrderAsync(
+            CheckoutActor.ForGuest("guest-cart-secret", "proof"),
+            Request(Guid.NewGuid()),
+            "checkout-key",
+            CancellationToken.None);
+
+        Assert.True(result.IsReplay);
+        Assert.Equal(
+            hasher.DeriveOrderAccessToken(created.PublicId, verificationPublicId),
+            result.Body.GuestOrderAccessToken);
+        Assert.Equal(verificationPublicId, result.Body.GuestEmailVerificationPublicId);
+        Assert.Equal(expiresAtUtc, result.Body.GuestOrderAccessExpiresAtUtc);
     }
 
     private static OrderDto CreateOrderDto() => new(
@@ -140,7 +175,10 @@ public sealed class CheckoutServiceTests
         }
     }
 
-    private sealed class ReplayOnlyIdempotencyExecutor(Guid orderPublicId) : IIdempotencyExecutor
+    private sealed class ReplayOnlyIdempotencyExecutor(
+        Guid orderPublicId,
+        Guid? verificationPublicId = null,
+        DateTime? accessExpiresAtUtc = null) : IIdempotencyExecutor
     {
         public async Task<IdempotencyExecutionResult<T>> ExecuteAsync<T>(
             IdempotencyCommand command,
@@ -153,7 +191,12 @@ public sealed class CheckoutServiceTests
                 new StoredIdempotencyResponse(
                     201,
                     "{}",
-                    JsonSerializer.Serialize(new { OrderPublicId = orderPublicId })),
+                    JsonSerializer.Serialize(new
+                    {
+                        OrderPublicId = orderPublicId,
+                        GuestEmailVerificationPublicId = verificationPublicId,
+                        GuestOrderAccessExpiresAtUtc = accessExpiresAtUtc,
+                    })),
                 cancellationToken);
             return new IdempotencyExecutionResult<T>(201, body, "{}", IsReplay: true);
         }
@@ -161,6 +204,9 @@ public sealed class CheckoutServiceTests
 
     private sealed class FakeGateway(OrderDto created) : ICheckoutTransactionGateway
     {
+        public Task ValidateCartOwnershipAsync(CheckoutActor actor, Guid cartPublicId,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
+
         public int ExecuteCount { get; private set; }
 
         public Task<OrderDto> ExecuteAsync(
@@ -182,5 +228,21 @@ public sealed class CheckoutServiceTests
         : ICheckoutPolicyProvider
     {
         public CheckoutPolicySnapshot Current => current;
+    }
+
+    private sealed class StubGuestOrderAccessHasher : IGuestOrderAccessHasher
+    {
+        public byte[] HashIp(string ipAddress) => Hash(ipAddress);
+        public byte[] HashEmail(string emailNormalized) => Hash(emailNormalized);
+        public byte[] HashOrderLookup(string orderNumber, string emailNormalized) =>
+            Hash($"{orderNumber}:{emailNormalized}");
+        public byte[] HashCode(string sixDigitCode) => Hash(sixDigitCode);
+        public string DeriveVerificationCode(Guid requestPublicId, int sendNumber) => "123456";
+        public byte[] HashToken(string rawToken) => Hash(rawToken);
+        public string DeriveOrderAccessToken(Guid orderPublicId, Guid verificationPublicId) =>
+            Convert.ToHexStringLower(Hash($"{orderPublicId:N}:{verificationPublicId:N}"));
+
+        private static byte[] Hash(string value) =>
+            SHA256.HashData(Encoding.UTF8.GetBytes(value));
     }
 }

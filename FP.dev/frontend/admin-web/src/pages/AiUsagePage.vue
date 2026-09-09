@@ -12,6 +12,14 @@ function formatNumber(value: number | string) {
 function formatCost(value: number | string | null) {
   return value === null ? '無權限' : `US$${Number(value).toFixed(6)}`
 }
+
+function featureLabel(value: string): string {
+  return ({ productSearch: 'AI 商品搜尋', support: 'AI 客服' } as Readonly<Record<string, string>>)[value] ?? '其他 AI 功能'
+}
+
+function resultLabel(value: string): string {
+  return ({ answered: '已回答', degraded: '降級處理' } as Readonly<Record<string, string>>)[value] ?? '其他結果'
+}
 </script>
 
 <template>
@@ -78,9 +86,9 @@ function formatCost(value: number | string | null) {
               v-for="row in query.data.value.rows"
               :key="`${row.feature}-${row.model}-${row.status}`"
             >
-              <td>{{ row.feature }}</td>
+              <td>{{ featureLabel(row.feature) }}</td>
               <td>{{ row.model }}</td>
-              <td>{{ row.status }}</td>
+              <td>{{ resultLabel(row.status) }}</td>
               <td>{{ formatNumber(row.interactionCount) }}</td>
               <td>{{ formatNumber(row.inputTokens) }}</td>
               <td>{{ formatNumber(row.outputTokens) }}</td>

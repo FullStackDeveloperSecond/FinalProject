@@ -36,7 +36,7 @@ public sealed class DemoDataValidatorSqlServerTests
         await RunWithSeededDatabaseAsync(async context =>
         {
             context.Favorites.Add(new Favorite(
-                "demo-member-0001",
+                DemoDataSeeder.MemberUserId(0),
                 await context.Products
                     .OrderBy(product => product.ProductCode)
                     .Skip(1)

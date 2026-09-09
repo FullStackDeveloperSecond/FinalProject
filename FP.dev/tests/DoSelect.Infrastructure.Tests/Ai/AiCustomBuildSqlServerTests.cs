@@ -89,7 +89,7 @@ public sealed class AiCustomBuildSqlServerTests
                 new AiProductSearchIntent(
                     AiProductSearchIntentType.CustomBuild,
                     ["Gaming"],
-                    new AiBudgetRange(null, 35_300m),
+                    new AiBudgetRange(null, 35_000m),
                     Keyword: null,
                     CategoryCode: null,
                     PreferredBrandCodes: [],
@@ -116,8 +116,8 @@ public sealed class AiCustomBuildSqlServerTests
                 CompatibilityCatalogContract.Categories.All.OrderBy(category => category),
                 result.CustomBuild.Components.Select(component => component.CategoryCode).OrderBy(category => category));
             Assert.Equal(35_000m, result.CustomBuild.PurchaseSubtotal);
-            Assert.Equal(300m, result.CustomBuild.AssemblyFee);
-            Assert.Equal(35_300m, result.CustomBuild.PurchaseTotal);
+            Assert.Equal(0m, result.CustomBuild.AssemblyFee);
+            Assert.Equal(35_000m, result.CustomBuild.PurchaseTotal);
             Assert.Equal(AiCompatibilityStatus.Compatible, result.CustomBuild.CompatibilityStatus);
             Assert.Equal(
                 result.CustomBuild.PurchaseSubtotal,
@@ -128,6 +128,15 @@ public sealed class AiCustomBuildSqlServerTests
                 component.CategoryCode == CompatibilityCatalogContract.Categories.Cpu);
             Assert.True(existingCpu.IsExistingPart);
             Assert.Equal(cpuPublicId, existingCpu.SkuPublicId);
+
+            var allNew = await catalog.FindCandidatesAsync(
+                new AiProductSearchIntent(AiProductSearchIntentType.CustomBuild, ["Gaming"],
+                    new AiBudgetRange(null, 100_000m), null, null, [], [], [], [], [], []),
+                [], SupportedLocale.ZhTw, CancellationToken.None);
+            Assert.NotNull(allNew.CustomBuild);
+            Assert.All(allNew.CustomBuild.Components, component => Assert.False(component.IsExistingPart));
+            Assert.Equal(300m, allNew.CustomBuild.AssemblyFee);
+            Assert.Equal(allNew.CustomBuild.PurchaseSubtotal + 300m, allNew.CustomBuild.PurchaseTotal);
         }
         finally
         {

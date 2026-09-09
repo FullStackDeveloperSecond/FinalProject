@@ -36,6 +36,7 @@ public sealed class OrdersController : ControllerBase
     private readonly LatestPaymentAttemptService _latestPaymentAttempts;
     private readonly IDatabaseReadinessProbe _databaseReadinessProbe;
     private readonly ILogger<OrdersController> _logger;
+    private readonly TimeProvider _timeProvider;
 
     public OrdersController(
         IOrderService orderService,
@@ -45,7 +46,8 @@ public sealed class OrdersController : ControllerBase
         IPaymentAttemptWriter paymentAttemptWriter,
         LatestPaymentAttemptService latestPaymentAttempts,
         IDatabaseReadinessProbe databaseReadinessProbe,
-        ILogger<OrdersController> logger)
+        ILogger<OrdersController> logger,
+        TimeProvider timeProvider)
     {
         _orderService = orderService;
         _guestAuthorizer = guestAuthorizer;
@@ -55,6 +57,7 @@ public sealed class OrdersController : ControllerBase
         _latestPaymentAttempts = latestPaymentAttempts;
         _databaseReadinessProbe = databaseReadinessProbe;
         _logger = logger;
+        _timeProvider = timeProvider;
     }
 
     [HttpPost]
@@ -120,7 +123,12 @@ public sealed class OrdersController : ControllerBase
         }
         else
         {
-            actor = CheckoutActor.ForGuest(identity.GuestCartKey!);
+            var verification = await HttpContext.AuthenticateAsync(
+                DoSelectAuthenticationSchemes.GuestCheckoutEmail);
+            var proofToken = verification.Succeeded
+                ? verification.Principal?.FindFirstValue(GuestCheckoutEmailClaimTypes.ProofToken)
+                : null;
+            actor = CheckoutActor.ForGuest(identity.GuestCartKey!, proofToken);
         }
 
         var result = await _checkoutService.CreateOrderAsync(
@@ -128,6 +136,23 @@ public sealed class OrdersController : ControllerBase
             request,
             idempotencyKey,
             cancellationToken);
+        if (!actor.IsMember &&
+            result.Body.GuestOrderAccessToken is { } rawToken &&
+            result.Body.GuestOrderAccessExpiresAtUtc is { } expiresAtUtc &&
+            expiresAtUtc > _timeProvider.GetUtcNow().UtcDateTime)
+        {
+            var guestIdentity = new ClaimsIdentity(DoSelectAuthenticationSchemes.GuestOrderAccess);
+            guestIdentity.AddClaim(new Claim(GuestOrderAccessClaimTypes.TokenValue, rawToken));
+            await HttpContext.SignInAsync(
+                DoSelectAuthenticationSchemes.GuestOrderAccess,
+                new ClaimsPrincipal(guestIdentity),
+                new AuthenticationProperties
+                {
+                    IsPersistent = false,
+                    ExpiresUtc = expiresAtUtc,
+                });
+        }
+
         return StatusCode(result.StatusCode, result.Body);
     }
 

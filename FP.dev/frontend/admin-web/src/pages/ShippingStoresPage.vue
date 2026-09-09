@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { PagePager } from '@doselect/web-shared/components'
 /** A-17 (M功能桌面UI與Route規格.md): 100 筆虛構門市、搜尋、新增、修改與停用（UC-ADM-STORE-01）。 */
 import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
@@ -180,6 +181,7 @@ function providerLabel(code: string): string {
         <select
           v-model="draftFilters.providerCode"
           aria-label="品牌"
+          @change="search"
         >
           <option value="">
             全部品牌
@@ -214,6 +216,7 @@ function providerLabel(code: string): string {
           v-model="draftFilters.activeOnly"
           type="checkbox"
           aria-label="只顯示啟用中"
+          @change="search"
         >
         只顯示啟用中
       </label>
@@ -457,26 +460,14 @@ function providerLabel(code: string): string {
         </tbody>
       </table>
 
-      <div
+      <PagePager
         v-if="totalPages > 1"
-        class="stores-pagination"
-      >
-        <button
-          type="button"
-          :disabled="pageNumber <= 1"
-          @click="goToPage(pageNumber - 1)"
-        >
-          上一頁
-        </button>
-        <span>{{ pageNumber }} / {{ totalPages }}</span>
-        <button
-          type="button"
-          :disabled="pageNumber >= totalPages"
-          @click="goToPage(pageNumber + 1)"
-        >
-          下一頁
-        </button>
-      </div>
+        :page="pageNumber"
+        :page-size="1"
+        :total-records="totalPages"
+        aria-label="列表分頁"
+        @update:page="goToPage"
+      />
     </template>
   </section>
 </template>

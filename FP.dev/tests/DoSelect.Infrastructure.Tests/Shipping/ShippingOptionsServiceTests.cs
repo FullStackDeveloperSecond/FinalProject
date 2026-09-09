@@ -43,6 +43,12 @@ public sealed class ShippingOptionsServiceTests
         Assert.True(storePickupOption.IsEligible);
         Assert.True(storePickupOption.RequiresStore);
         Assert.False(storePickupOption.RequiresAddress);
+        Assert.Equal(1_000m, storePickupOption.Amounts.MerchandiseSubtotal);
+        Assert.Equal(0m, storePickupOption.Amounts.ItemDiscountTotal);
+        Assert.Equal(60m, storePickupOption.Amounts.ShippingFee);
+        Assert.Equal(0m, storePickupOption.Amounts.AssemblyFee);
+        Assert.Equal(1_060m, storePickupOption.Amounts.GrandTotal);
+        Assert.Equal("TWD", storePickupOption.Amounts.Currency);
     }
 
     [Fact]

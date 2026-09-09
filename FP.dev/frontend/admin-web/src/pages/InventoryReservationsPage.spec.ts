@@ -207,7 +207,7 @@ describe('InventoryReservationsPage', () => {
     // The refreshed status is rendered in the ROW — asserting on wrapper.text() would false-pass
     // because the status <select> also contains the literal 'Consumed' as an option.
     const r2Row = wrapper.findAll('tbody > tr').find((row) => row.text().includes('ORD-2'))!
-    expect(r2Row.text()).toContain('Consumed')
+    expect(r2Row.text()).toContain('已使用')
     // And its stale release button is gone: availableActions came back empty.
     expect(r2Row.findAll('button').filter((button) => button.text() === '釋放')).toHaveLength(0)
   })
@@ -241,7 +241,7 @@ describe('InventoryReservationsPage', () => {
     await flushPromises()
 
     const r1Row = wrapper.findAll('tbody > tr').find((row) => row.text().includes('ORD-1'))!
-    expect(r1Row.text()).toContain('Consumed')
+    expect(r1Row.text()).toContain('已使用')
     expect(r1Row.findAll('button').filter((button) => button.text() === '釋放')).toHaveLength(0)
     // And page 2 is still rendered — the refresh replayed the whole page list, not just page 1.
     expect(wrapper.findAll('tbody > tr').length).toBe(2)
@@ -268,16 +268,13 @@ describe('InventoryReservationsPage', () => {
     await flushPromises()
     const callsBefore = mockListReservations.mock.calls.length
 
-    // Changing the select alone fires nothing — the draft is not part of the query key.
+    // 下拉選單立即套用，但 query key 同時重建，因此不會沿用舊 cursor。
+    mockListReservations.mockResolvedValueOnce({ items: [], nextCursor: null, hasMore: false })
     await wrapper.find('select[aria-label="狀態"]').setValue('Active')
     await flushPromises()
-    expect(mockListReservations.mock.calls.length).toBe(callsBefore)
+    expect(mockListReservations.mock.calls.length).toBeGreaterThan(callsBefore)
 
-    mockListReservations.mockResolvedValueOnce({ items: [], nextCursor: null, hasMore: false })
-    await wrapper.find('form[aria-label="保留篩選"]').trigger('submit')
-    await flushPromises()
-
-    // The submit's query carries the new status and NO cursor — never "Active + cursor-2".
+    // 即時查詢帶新狀態且沒有 cursor，絕不會送出「Active + cursor-2」。
     const lastCall = mockListReservations.mock.calls.at(-1)![0]
     expect(lastCall).toMatchObject({ status: 'Active' })
     expect(lastCall.cursor).toBeUndefined()

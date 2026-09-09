@@ -1,3 +1,5 @@
+import PrimeVue from 'primevue/config'
+import { chinesePaginationLocale } from '@doselect/web-shared/theme'
 import { flushPromises, mount } from '@vue/test-utils'
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -47,7 +49,7 @@ function mountPage() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
-  const wrapper = mount(InventoryReconciliationCasesPage, { global: { plugins: [[VueQueryPlugin, { queryClient }]] } })
+  const wrapper = mount(InventoryReconciliationCasesPage, { global: { plugins: [[VueQueryPlugin, { queryClient }], [PrimeVue, { locale: chinesePaginationLocale }]] } })
   return { wrapper, queryClient }
 }
 
@@ -267,13 +269,11 @@ describe('InventoryReconciliationCasesPage', () => {
     await flushPromises()
     expect(mockListReconciliationCases).toHaveBeenLastCalledWith({ status: undefined, pageNumber: 2, pageSize: 20 })
 
-    // Changing the select alone fires nothing; submitting applies the status and goes back to page 1.
+    // 下拉選單立即套用狀態並回到第 1 頁。
     const callsBefore = mockListReconciliationCases.mock.calls.length
     await wrapper.find('select[aria-label="狀態"]').setValue('Acknowledged')
     await flushPromises()
-    expect(mockListReconciliationCases.mock.calls.length).toBe(callsBefore)
-    await wrapper.find('form[aria-label="對帳篩選"]').trigger('submit')
-    await flushPromises()
+    expect(mockListReconciliationCases.mock.calls.length).toBeGreaterThan(callsBefore)
     expect(mockListReconciliationCases).toHaveBeenLastCalledWith({ status: 'Acknowledged', pageNumber: 1, pageSize: 20 })
   })
 })

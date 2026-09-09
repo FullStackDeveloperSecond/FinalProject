@@ -10,7 +10,10 @@ import { clearGuestCartKey, getOrCreateGuestCartKey } from '../features/cart/gue
 import type { CartDto, CartIssueDto, CartValidationDto } from '../features/cart/types'
 import {
   createOrder,
+  getGuestCheckoutEmailVerificationStatus,
   getCheckoutPolicyVersions,
+  requestGuestCheckoutEmailVerification,
+  verifyGuestCheckoutEmail,
   type AcceptedPolicyVersions,
   type CreateOrderRequest,
   type OrderDto,
@@ -20,6 +23,8 @@ import ShippingOptionList from '../features/shipping/components/ShippingOptionLi
 import ConvenienceStorePicker from '../features/shipping/components/ConvenienceStorePicker.vue'
 import { useShippingOptions } from '../features/shipping/useShipping'
 import type { ConvenienceStoreOptionDto, ShippingOptionDto } from '../features/shipping/types'
+import { fetchAddresses, fetchProfile, type MemberAddress } from '../features/members/api'
+import LegalDemoPage from './LegalDemoPage.vue'
 
 interface CheckoutForm {
   buyerEmail: string
@@ -46,14 +51,13 @@ interface CheckoutForm {
 
 type MemberOrderRouteName = 'order-detail' | 'order-payment'
 
-type CreatedOrderHandoff =
-  | { kind: 'guest', order: OrderDto }
-  | {
-      kind: 'member'
-      order: OrderDto
-      routeName: MemberOrderRouteName
-      navigationFailed: boolean
-    }
+type CreatedOrderHandoff = {
+  order: OrderDto
+  routeName: MemberOrderRouteName
+  navigationFailed: boolean
+}
+
+type RecentOrderReceipt = { handoff: CreatedOrderHandoff, expiresAt: number }
 
 const PAYMENT_LABELS: Record<PaymentMethod, string> = {
   creditCard: '信用卡',
@@ -73,6 +77,10 @@ const ISSUE_MESSAGES: Record<string, string> = {
 }
 
 const router = useRouter()
+const demoAutofillEnabled = import.meta.env.DEV && ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname)
+function fillDemoRecipient(): void {
+  Object.assign(form, { buyerName: '展示測試員', buyerPhone: '0912345678', recipientName: '展示測試員', recipientPhone: '0912345678', postalCode: '100', city: '臺北市', district: '中正區', addressLine1: '展示路 1 號（虛構測試地址）', addressLine2: '', deliveryNote: '僅供展示，請勿實際配送。' })
+}
 const queryClient = useQueryClient()
 const cartIdentityKey = useCartIdentityKey()
 const identityKey = computed(() => cartIdentityKey.value.join(' '))
@@ -81,6 +89,13 @@ const revalidateCart = useRevalidateCart()
 
 const validation = ref<CartValidationDto | null>(null)
 const policyVersions = ref<AcceptedPolicyVersions | null>(null)
+const policyDialog = ref<HTMLDialogElement | null>(null)
+const readingPolicy = ref<'terms' | 'privacy' | 'return'>('terms')
+const policyNames = { terms: '服務條款', return: '退換貨政策', privacy: '隱私權政策' } as const
+function openPolicy(kind: typeof readingPolicy.value): void {
+  readingPolicy.value = kind
+  policyDialog.value?.showModal()
+}
 const isInitialLoading = ref(false)
 const initialError = ref<unknown>(null)
 const createdOrderHandoff = ref<CreatedOrderHandoff | null>(null)
@@ -108,6 +123,26 @@ const isSubmitting = ref(false)
 const submitError = ref<string | null>(null)
 const submitCorrelationId = ref<string | null>(null)
 const idempotencyState = ref<{ signature: string, key: string } | null>(null)
+const guestVerificationRequestId = ref<string | null>(null)
+const guestVerificationCode = ref('')
+const verifiedGuestEmail = ref<string | null>(null)
+const isGuestVerificationBusy = ref(false)
+const guestVerificationMessage = ref<string | null>(null)
+const memberAddresses = ref<MemberAddress[]>([])
+const selectedAddressId = ref('')
+const memberDetailsMessage = ref<string | null>(null)
+const phonePattern = '09[0-9]{8}'
+const emailPattern = '[^\\s@]+@[^\\s@]+\\.[^\\s@]+'
+const carrierPattern = '/[A-Z0-9+.\\-]{7}'
+const postalPattern = '[0-9]{3}(?:[0-9]{2,3})?'
+const districtPattern = '[\\u4e00-\\u9fff]{1,20}[鄉鎮市區]'
+const cities = [
+  '臺北市', '新北市', '桃園市', '臺中市', '臺南市', '高雄市',
+  '基隆市', '新竹市', '嘉義市', '新竹縣', '苗栗縣', '彰化縣',
+  '南投縣', '雲林縣', '嘉義縣', '屏東縣', '宜蘭縣', '花蓮縣',
+  '臺東縣', '澎湖縣', '金門縣', '連江縣',
+]
+const matches = (pattern: string, value: string) => new RegExp(`^${pattern}$`, 'u').test(value.trim())
 
 const form = reactive<CheckoutForm>({
   buyerEmail: '',
@@ -131,6 +166,46 @@ const form = reactive<CheckoutForm>({
   acceptReturn: false,
   acceptPrivacy: false,
 })
+
+// 即時填寫提示不取代伺服器驗證。
+const touchedFields = reactive<Record<string, boolean>>({})
+const fieldErrors = computed<Record<string, string>>(() => {
+  const errors: Record<string, string> = {}
+  function check(id: string, value: string, label: string, pattern?: string, message?: string) {
+    if (!value.trim()) errors[id] = `${label}為必填。`
+    else if (pattern && !matches(pattern, value)) errors[id] = message ?? `${label}格式不正確。`
+  }
+  const mobileError = '手機號碼輸入錯誤，請輸入 09 開頭的 10 位數字。'
+  check('buyer-email', form.buyerEmail, '電子郵件', emailPattern, '電子郵件格式不正確，例如：name@example.com。')
+  check('buyer-name', form.buyerName, '姓名')
+  check('buyer-phone', form.buyerPhone, '聯絡手機號碼', phonePattern, mobileError)
+  if (selectedShippingOption.value?.requiresAddress) {
+    check('recipient-name', form.recipientName, '收件人')
+    check('recipient-phone', form.recipientPhone, '收件手機號碼', phonePattern, mobileError)
+    check('postal-code', form.postalCode, '郵遞區號', postalPattern, '郵遞區號請輸入 3、5 或 6 位數字。')
+    if (!cities.includes(form.city)) errors.city = '請選擇縣市。'
+    check('district', form.district, '行政區', districtPattern, '請輸入完整鄉鎮市區名稱，例如：中正區。')
+    check('address-line1', form.addressLine1, '地址')
+  }
+  if (form.invoiceBuyerType === 'company') {
+    check('company-tax-id', form.companyTaxId, '統一編號', '[0-9]{8}', '統一編號請輸入 8 位數字。')
+    check('company-name', form.companyName, '公司抬頭')
+  } else if (form.useMobileBarcode) {
+    check('carrier-value', form.carrierValue, '手機條碼', carrierPattern, '手機條碼須為 / 開頭，後接 7 位大寫英文字母、數字或 + - .。')
+  }
+  return errors
+})
+function touchField(event: Event): void {
+  const target = event.target
+  if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement) {
+    touchedFields[target.id] = true
+  }
+}
+function fieldFeedback(id: string) {
+  const invalid = Boolean(touchedFields[id] && fieldErrors.value[id])
+  return { 'aria-invalid': invalid, 'aria-describedby': invalid ? `${id}-error` : undefined }
+}
+const visibleFieldErrors = computed(() => Object.entries(fieldErrors.value).filter(([id]) => touchedFields[id]))
 
 const cart = computed(() => validation.value?.cart ?? null)
 const hasItems = computed(() => (cart.value?.items.length ?? 0) > 0)
@@ -162,10 +237,10 @@ const allowedPaymentMethods = computed<PaymentMethod[]>(() =>
 
 const isAddressComplete = computed(() => Boolean(
   form.recipientName.trim()
-  && form.recipientPhone.trim().length >= 6
-  && form.postalCode.trim()
-  && form.city.trim()
-  && form.district.trim()
+  && matches(phonePattern, form.recipientPhone)
+  && matches(postalPattern, form.postalCode)
+  && cities.includes(form.city)
+  && matches(districtPattern, form.district)
   && form.addressLine1.trim(),
 ))
 
@@ -173,8 +248,16 @@ const isInvoiceComplete = computed(() => {
   if (form.invoiceBuyerType === 'company') {
     return /^\d{8}$/.test(form.companyTaxId.trim()) && Boolean(form.companyName.trim())
   }
-  return !form.useMobileBarcode || Boolean(form.carrierValue.trim())
+  return !form.useMobileBarcode || matches(carrierPattern, form.carrierValue)
 })
+
+const normalizedBuyerEmail = computed(() => form.buyerEmail.trim().toLowerCase())
+const isGuestEmailVerified = computed(() =>
+  sessionStore.isAuthenticated || (
+    Boolean(verifiedGuestEmail.value)
+    && verifiedGuestEmail.value === normalizedBuyerEmail.value
+  ),
+)
 
 const canSubmit = computed(() => {
   const option = selectedShippingOption.value
@@ -184,7 +267,10 @@ const canSubmit = computed(() => {
   if (option.requiresAddress === option.requiresStore) {
     return false
   }
-  if (!form.buyerEmail.includes('@') || !form.buyerName.trim() || form.buyerPhone.trim().length < 6) {
+  if (Object.keys(fieldErrors.value).length > 0) {
+    return false
+  }
+  if (!isGuestEmailVerified.value) {
     return false
   }
   if (option.requiresAddress && !isAddressComplete.value) {
@@ -202,6 +288,76 @@ const canSubmit = computed(() => {
     && form.acceptPrivacy,
   )
 })
+
+async function refreshGuestEmailVerification(): Promise<void> {
+  if (sessionStore.isAuthenticated) {
+    verifiedGuestEmail.value = null
+    return
+  }
+  const owner = identityKey.value
+  try {
+    const status = await getGuestCheckoutEmailVerificationStatus(getOrCreateGuestCartKey())
+    if (owner !== identityKey.value || sessionStore.isAuthenticated) return
+    verifiedGuestEmail.value = status.verified && status.email
+      ? status.email.toLowerCase()
+      : null
+    if (status.verified) {
+      guestVerificationMessage.value = '信箱已完成驗證。'
+    }
+  } catch {
+    verifiedGuestEmail.value = null
+  }
+}
+
+async function sendGuestEmailVerification(): Promise<void> {
+  if (!matches(emailPattern, normalizedBuyerEmail.value) || isGuestVerificationBusy.value) {
+    return
+  }
+  isGuestVerificationBusy.value = true
+  guestVerificationMessage.value = null
+  verifiedGuestEmail.value = null
+  const email = normalizedBuyerEmail.value
+  const owner = identityKey.value
+  try {
+    const accepted = await requestGuestCheckoutEmailVerification(
+      email,
+      getOrCreateGuestCartKey(),
+    )
+    if (owner !== identityKey.value || email !== normalizedBuyerEmail.value) return
+    guestVerificationRequestId.value = accepted.requestPublicId
+    guestVerificationCode.value = ''
+    guestVerificationMessage.value = '已受理寄信，請稍候查看收件匣與垃圾郵件，開啟驗證連結或輸入六位數驗證碼。'
+  } catch {
+    guestVerificationMessage.value = '驗證信暫時無法寄出，請稍後再試。'
+  } finally {
+    isGuestVerificationBusy.value = false
+  }
+}
+
+async function confirmGuestEmailVerification(): Promise<void> {
+  if (!guestVerificationRequestId.value || !/^\d{6}$/.test(guestVerificationCode.value)) {
+    return
+  }
+  isGuestVerificationBusy.value = true
+  guestVerificationMessage.value = null
+  const email = normalizedBuyerEmail.value
+  const owner = identityKey.value
+  try {
+    await verifyGuestCheckoutEmail(
+      guestVerificationRequestId.value,
+      guestVerificationCode.value,
+      getOrCreateGuestCartKey(),
+    )
+    if (owner !== identityKey.value || email !== normalizedBuyerEmail.value) return
+    verifiedGuestEmail.value = email
+    guestVerificationMessage.value = '信箱已完成驗證。'
+  } catch {
+    verifiedGuestEmail.value = null
+    guestVerificationMessage.value = '驗證碼無效或已過期，請重新確認。'
+  } finally {
+    isGuestVerificationBusy.value = false
+  }
+}
 
 watch(selectedShippingMethod, () => {
   selectedPaymentMethod.value = null
@@ -223,6 +379,14 @@ watch(() => form.invoiceBuyerType, (buyerType) => {
   } else {
     form.companyTaxId = ''
     form.companyName = ''
+  }
+})
+
+watch(normalizedBuyerEmail, (email) => {
+  guestVerificationRequestId.value = null
+  guestVerificationCode.value = ''
+  if (verifiedGuestEmail.value && verifiedGuestEmail.value !== email) {
+    guestVerificationMessage.value = 'Email 已變更，請重新完成驗證。'
   }
 })
 
@@ -303,6 +467,11 @@ async function loadCheckout(): Promise<void> {
   isInitialLoading.value = true
   initialError.value = null
   validation.value = null
+  // A retry may load a new policy version; previous consent cannot silently carry over.
+  form.acceptTerms = false
+  form.acceptReturn = false
+  form.acceptPrivacy = false
+  if (policyDialog.value?.open) policyDialog.value.close()
   policyVersions.value = null
   selectedShippingMethod.value = null
 
@@ -316,7 +485,12 @@ async function loadCheckout(): Promise<void> {
     }
     validation.value = nextValidation
     policyVersions.value = nextPolicies
+    const receipt = queryClient.getQueryData<RecentOrderReceipt>(receiptKey())
+    if (nextValidation.cart.items.length === 0 && receipt && receipt.expiresAt > Date.now()) {
+      createdOrderHandoff.value = receipt.handoff
+    }
     adoptCartPageCoupon(nextValidation)
+    await refreshGuestEmailVerification()
   } catch (caught) {
     if (generation === loadGeneration) {
       initialError.value = caught
@@ -327,6 +501,57 @@ async function loadCheckout(): Promise<void> {
     }
   }
 }
+
+function applyMemberAddress(): void {
+  const address = memberAddresses.value.find(item => item.publicId === selectedAddressId.value)
+  if (!address) return
+  form.recipientName = address.recipientName
+  form.recipientPhone = address.phone
+  form.postalCode = address.postalCode
+  form.city = address.city.replace(/^台/, '臺')
+  form.district = address.district
+  form.addressLine1 = address.addressLine1
+  form.addressLine2 = address.addressLine2 ?? ''
+}
+
+let memberDetailsGeneration = 0
+watch(
+  () => [sessionStore.status, sessionStore.user?.publicId] as const,
+  async () => {
+    const generation = ++memberDetailsGeneration
+    memberAddresses.value = []
+    selectedAddressId.value = ''
+    memberDetailsMessage.value = null
+    createdOrderHandoff.value = null
+    for (const key of ['buyerEmail', 'buyerName', 'buyerPhone', 'recipientName', 'recipientPhone',
+      'postalCode', 'city', 'district', 'addressLine1', 'addressLine2', 'deliveryNote'] as const) {
+      form[key] = ''
+    }
+    verifiedGuestEmail.value = null
+    guestVerificationRequestId.value = null
+    guestVerificationCode.value = ''
+    if (!sessionStore.isAuthenticated) return
+    const [profile, addresses] = await Promise.allSettled([fetchProfile(), fetchAddresses()])
+    if (generation !== memberDetailsGeneration) return
+    if (profile.status === 'fulfilled') {
+      if (!form.buyerName) form.buyerName = profile.value.displayName
+      if (!form.buyerPhone) form.buyerPhone = profile.value.phone ?? ''
+    }
+    if (addresses.status === 'fulfilled') {
+      memberAddresses.value = addresses.value
+      const defaultAddress = addresses.value.find(address => address.isDefault)
+      if (defaultAddress && !form.recipientName && !form.addressLine1 && !form.recipientPhone
+        && !form.postalCode && !form.city && !form.district && !form.addressLine2) {
+        selectedAddressId.value = defaultAddress.publicId
+        applyMemberAddress()
+      }
+    }
+    if (profile.status === 'rejected' || addresses.status === 'rejected') {
+      memberDetailsMessage.value = '部分會員資料暫時無法載入，請手動填寫聯絡與收件資料。'
+    }
+  },
+  { immediate: true },
+)
 
 watch(
   () => [sessionStore.status, sessionStore.user?.publicId] as const,
@@ -424,6 +649,7 @@ function describeSubmitError(caught: unknown): string {
     payment_method_not_allowed: '此付款方式已無法使用，請重新選擇。',
     idempotency_payload_conflict: '送出的結帳內容與先前重試不同，請重新載入結帳頁。',
     validation_failed: '部分欄位格式不正確，請檢查後重試。',
+    guest_checkout_email_verification_required: '訪客信箱尚未驗證、已過期，或 Email 已變更，請重新驗證。',
   }
   return messages[caught.code] ?? '訂單建立失敗，請稍後重試。'
 }
@@ -434,6 +660,7 @@ async function submitOrder(): Promise<void> {
   }
 
   const request = buildRequest()
+  const owner = identityKey.value
   const idempotencyKey = resolveIdempotencyKey(request)
   isSubmitting.value = true
   submitError.value = null
@@ -450,34 +677,43 @@ async function submitOrder(): Promise<void> {
     isSubmitting.value = false
   }
 
+  if (owner !== identityKey.value || !sessionStore.isIdentityConfirmed) return
+
   queryClient.removeQueries({ queryKey: ['cart'] })
   queryClient.removeQueries({ queryKey: ['shipping-options'] })
-
-  if (!sessionStore.isAuthenticated) {
-    createdOrderHandoff.value = { kind: 'guest', order }
-    clearGuestCartKey()
-    return
-  }
 
   const routeName: MemberOrderRouteName =
     selectedPaymentMethod.value === 'cashOnDelivery' ? 'order-detail' : 'order-payment'
   createdOrderHandoff.value = {
-    kind: 'member',
     order,
     routeName,
     navigationFailed: false,
   }
 
+  if (!sessionStore.isAuthenticated) {
+    clearGuestCartKey()
+  }
+
+  queryClient.setQueryData<RecentOrderReceipt>(receiptKey(), {
+    handoff: createdOrderHandoff.value,
+    expiresAt: Date.now() + 30 * 60 * 1000,
+  })
+
   try {
     await router.push({ name: routeName, params: { orderId: order.publicId } })
   } catch {
     createdOrderHandoff.value = {
-      kind: 'member',
       order,
       routeName,
       navigationFailed: true,
     }
   }
+}
+
+function receiptKey() {
+  return sessionStore.isAuthenticated && sessionStore.user
+    ? ['checkout-receipt', 'member', sessionStore.user.publicId]
+    : ['checkout-receipt', 'guest', getOrCreateGuestCartKey()]
 }
 </script>
 
@@ -522,30 +758,18 @@ async function submitOrder(): Promise<void> {
         </div>
       </dl>
 
-      <template v-if="createdOrderHandoff.kind === 'guest'">
-        <p>為保護訂單資料，訪客需以訂單編號與結帳 Email 完成一次性驗證，才能繼續付款或查看訂單。</p>
-        <RouterLink
-          class="page-action"
-          to="/guest-orders/access"
-        >
-          驗證訂單後繼續付款
-        </RouterLink>
-      </template>
-
-      <template v-else>
-        <p v-if="createdOrderHandoff.navigationFailed">
-          訂單已經建立成功，只是沒能自動開啟下一頁。
-        </p>
-        <RouterLink
-          class="page-action"
-          :to="{
-            name: createdOrderHandoff.routeName,
-            params: { orderId: createdOrderHandoff.order.publicId },
-          }"
-        >
-          {{ createdOrderHandoff.routeName === 'order-payment' ? '前往付款' : '查看訂單' }}
-        </RouterLink>
-      </template>
+      <p v-if="createdOrderHandoff.navigationFailed">
+        訂單已經建立成功，只是沒能自動開啟下一頁。
+      </p>
+      <RouterLink
+        class="page-action"
+        :to="{
+          name: createdOrderHandoff.routeName,
+          params: { orderId: createdOrderHandoff.order.publicId },
+        }"
+      >
+        {{ createdOrderHandoff.routeName === 'order-payment' ? '前往付款' : '查看訂單' }}
+      </RouterLink>
     </section>
 
     <div
@@ -607,38 +831,140 @@ async function submitOrder(): Promise<void> {
     <form
       v-else-if="cart && policyVersions"
       class="checkout-page__submit"
+      @input.capture="touchField"
+      @change.capture="touchField"
+      @focusout.capture="touchField"
       @submit.prevent="submitOrder"
     >
       <section aria-labelledby="buyer-title">
         <h2 id="buyer-title">
           聯絡資料
         </h2>
+        <button
+          v-if="demoAutofillEnabled"
+          type="button"
+          @click="fillDemoRecipient"
+        >
+          填入 Demo 聯絡與收件資料（覆寫欄位）
+        </button>
+        <p>標示 * 的欄位為必填；其餘標示為選填。手機號碼請輸入 09 開頭的 10 位數字。</p>
+        <ul
+          v-if="visibleFieldErrors.length"
+          class="checkout-page__alert"
+          aria-live="polite"
+          aria-label="欄位格式提醒"
+        >
+          <li
+            v-for="[id, message] in visibleFieldErrors"
+            :key="id"
+          >
+            <a :href="`#${id}`">{{ message }}</a>
+          </li>
+        </ul>
+        <p
+          v-if="memberDetailsMessage"
+          role="status"
+        >
+          {{ memberDetailsMessage }}
+        </p>
         <div class="checkout-page__fields">
-          <label for="buyer-email">Email</label>
+          <label for="buyer-email">電子郵件 *</label>
           <input
             id="buyer-email"
+            v-bind="fieldFeedback('buyer-email')"
             v-model="form.buyerEmail"
             type="email"
             autocomplete="email"
             maxlength="320"
             required
           >
-          <label for="buyer-name">姓名</label>
+          <p
+            v-if="touchedFields['buyer-email'] && fieldErrors['buyer-email']"
+            id="buyer-email-error"
+            class="checkout-page__field-error"
+            aria-live="polite"
+          >
+            {{ fieldErrors['buyer-email'] }}
+          </p>
+          <template v-if="!sessionStore.isAuthenticated">
+            <button
+              type="button"
+              data-test="send-guest-email-verification"
+              :disabled="!matches(emailPattern, normalizedBuyerEmail) || isGuestVerificationBusy"
+              @click="sendGuestEmailVerification"
+            >
+              {{ isGuestVerificationBusy ? '處理中…' : '寄送驗證信' }}
+            </button>
+            <template v-if="guestVerificationRequestId && !isGuestEmailVerified">
+              <label for="guest-email-code">六位數驗證碼（使用驗證連結時可不填）</label>
+              <input
+                id="guest-email-code"
+                v-model="guestVerificationCode"
+                inputmode="numeric"
+                pattern="[0-9]{6}"
+                maxlength="6"
+              >
+              <button
+                type="button"
+                data-test="confirm-guest-email-verification"
+                :disabled="!/^\d{6}$/.test(guestVerificationCode) || isGuestVerificationBusy"
+                @click="confirmGuestEmailVerification"
+              >
+                確認驗證碼
+              </button>
+            </template>
+            <p
+              v-if="guestVerificationMessage"
+              :role="isGuestEmailVerified ? 'status' : undefined"
+            >
+              {{ guestVerificationMessage }}
+            </p>
+            <button
+              v-if="!isGuestEmailVerified"
+              type="button"
+              data-test="refresh-guest-email-verification"
+              @click="refreshGuestEmailVerification"
+            >
+              我已開啟驗證連結，重新確認
+            </button>
+          </template>
+          <label for="buyer-name">姓名 *</label>
           <input
             id="buyer-name"
+            v-bind="fieldFeedback('buyer-name')"
             v-model="form.buyerName"
             autocomplete="name"
             maxlength="100"
             required
           >
-          <label for="buyer-phone">電話</label>
+          <p
+            v-if="touchedFields['buyer-name'] && fieldErrors['buyer-name']"
+            id="buyer-name-error"
+            class="checkout-page__field-error"
+            aria-live="polite"
+          >
+            {{ fieldErrors['buyer-name'] }}
+          </p>
+          <label for="buyer-phone">聯絡手機號碼 *</label>
           <input
             id="buyer-phone"
+            v-bind="fieldFeedback('buyer-phone')"
             v-model="form.buyerPhone"
+            type="tel"
+            :pattern="phonePattern"
+            placeholder="例如：0912345678"
             autocomplete="tel"
             maxlength="32"
             required
           >
+          <p
+            v-if="touchedFields['buyer-phone'] && fieldErrors['buyer-phone']"
+            id="buyer-phone-error"
+            class="checkout-page__field-error"
+            aria-live="polite"
+          >
+            {{ fieldErrors['buyer-phone'] }}
+          </p>
         </div>
       </section>
 
@@ -666,49 +992,140 @@ async function submitOrder(): Promise<void> {
           v-if="selectedShippingOption?.requiresAddress"
           class="checkout-page__fields checkout-page__address"
         >
-          <label for="recipient-name">收件人</label>
+          <template v-if="sessionStore.isAuthenticated && memberAddresses.length">
+            <label for="saved-address">已儲存的收件地址</label>
+            <select
+              id="saved-address"
+              v-model="selectedAddressId"
+              @change="applyMemberAddress"
+            >
+              <option value="">
+                自行填寫
+              </option>
+              <option
+                v-for="address in memberAddresses"
+                :key="address.publicId"
+                :value="address.publicId"
+              >
+                {{ address.label }}{{ address.isDefault ? '（預設）' : '' }}
+              </option>
+            </select>
+          </template>
+          <label for="recipient-name">收件人 *</label>
           <input
             id="recipient-name"
+            v-bind="fieldFeedback('recipient-name')"
             v-model="form.recipientName"
             maxlength="100"
             required
           >
-          <label for="recipient-phone">收件電話</label>
+          <p
+            v-if="touchedFields['recipient-name'] && fieldErrors['recipient-name']"
+            id="recipient-name-error"
+            class="checkout-page__field-error"
+            aria-live="polite"
+          >
+            {{ fieldErrors['recipient-name'] }}
+          </p>
+          <label for="recipient-phone">收件手機號碼 *</label>
           <input
             id="recipient-phone"
+            v-bind="fieldFeedback('recipient-phone')"
             v-model="form.recipientPhone"
+            type="tel"
+            :pattern="phonePattern"
+            placeholder="例如：0912345678"
             maxlength="32"
             required
           >
-          <label for="postal-code">郵遞區號</label>
+          <p
+            v-if="touchedFields['recipient-phone'] && fieldErrors['recipient-phone']"
+            id="recipient-phone-error"
+            class="checkout-page__field-error"
+            aria-live="polite"
+          >
+            {{ fieldErrors['recipient-phone'] }}
+          </p>
+          <label for="postal-code">郵遞區號 *</label>
           <input
             id="postal-code"
+            v-bind="fieldFeedback('postal-code')"
             v-model="form.postalCode"
-            maxlength="16"
+            inputmode="numeric"
+            :pattern="postalPattern"
+            placeholder="3、5 或 6 位數字"
+            maxlength="6"
             required
           >
-          <label for="city">縣市</label>
-          <input
+          <p
+            v-if="touchedFields['postal-code'] && fieldErrors['postal-code']"
+            id="postal-code-error"
+            class="checkout-page__field-error"
+            aria-live="polite"
+          >
+            {{ fieldErrors['postal-code'] }}
+          </p>
+          <label for="city">縣市 *</label>
+          <select
             id="city"
+            v-bind="fieldFeedback('city')"
             v-model="form.city"
-            maxlength="50"
             required
           >
-          <label for="district">行政區</label>
+            <option value="">
+              請選擇縣市
+            </option>
+            <option
+              v-for="city in cities"
+              :key="city"
+              :value="city"
+            >
+              {{ city }}
+            </option>
+          </select>
+          <p
+            v-if="touchedFields['city'] && fieldErrors['city']"
+            id="city-error"
+            class="checkout-page__field-error"
+            aria-live="polite"
+          >
+            {{ fieldErrors['city'] }}
+          </p>
+          <label for="district">行政區 *</label>
           <input
             id="district"
+            v-bind="fieldFeedback('district')"
             v-model="form.district"
+            :pattern="districtPattern"
+            placeholder="完整鄉鎮市區名稱，例如：中正區"
             maxlength="50"
             required
           >
-          <label for="address-line1">地址</label>
+          <p
+            v-if="touchedFields['district'] && fieldErrors['district']"
+            id="district-error"
+            class="checkout-page__field-error"
+            aria-live="polite"
+          >
+            {{ fieldErrors['district'] }}
+          </p>
+          <label for="address-line1">地址 *</label>
           <input
             id="address-line1"
+            v-bind="fieldFeedback('address-line1')"
             v-model="form.addressLine1"
             maxlength="300"
             required
           >
-          <label for="address-line2">地址補充</label>
+          <p
+            v-if="touchedFields['address-line1'] && fieldErrors['address-line1']"
+            id="address-line1-error"
+            class="checkout-page__field-error"
+            aria-live="polite"
+          >
+            {{ fieldErrors['address-line1'] }}
+          </p>
+          <label for="address-line2">地址補充（選填）</label>
           <input
             id="address-line2"
             v-model="form.addressLine2"
@@ -725,7 +1142,7 @@ async function submitOrder(): Promise<void> {
         <label
           v-if="selectedShippingOption"
           for="delivery-note"
-        >配送備註</label>
+        >配送備註（選填）</label>
         <textarea
           v-if="selectedShippingOption"
           id="delivery-note"
@@ -788,10 +1205,17 @@ async function submitOrder(): Promise<void> {
         >
           移除優惠券
         </button>
-        <p v-if="activeCouponCode && !isShippingError">
-          已套用 {{ activeCouponCode }}；配送費與付款方式已由後端重新試算。
+        <p
+          v-if="activeCouponCode && isShippingPending"
+          role="status"
+        >
+          正在確認 {{ activeCouponCode }} 的優惠資格與金額…
         </p>
-        <p>優惠資格與最終折扣會由後端在建立訂單時重新驗證。</p>
+        <p v-else-if="activeCouponCode && !isShippingError && selectedShippingOption">
+          已套用 {{ activeCouponCode }}，折扣 {{ formatTwd(selectedShippingOption.amounts.itemDiscountTotal) }}；應付總額已更新。
+        </p>
+        <p>Demo 優惠 CREATOR10：輸入優惠碼後，CPU、顯示卡及記憶體等適用分類商品小計滿 NT$20,000 享九折，最高折抵 NT$2,000；每位會員限用一次。</p>
+        <p>機殼、運費及組裝費不列入本優惠門檻。例：顯示卡 NT$19,900 加機殼 NT$5,000，適用商品仍只有 NT$19,900，未達門檻。其他商品是否適用及可用次數，以本次優惠資格確認結果為準。</p>
       </section>
 
       <section aria-labelledby="invoice-title">
@@ -828,35 +1252,64 @@ async function submitOrder(): Promise<void> {
           <label
             v-if="form.useMobileBarcode"
             for="carrier-value"
-          >手機條碼</label>
+          >手機條碼 *</label>
           <input
             v-if="form.useMobileBarcode"
             id="carrier-value"
+            v-bind="fieldFeedback('carrier-value')"
             v-model="form.carrierValue"
+            :pattern="carrierPattern"
+            placeholder="例如：/ABC1234"
             maxlength="64"
             required
           >
+          <p
+            v-if="touchedFields['carrier-value'] && fieldErrors['carrier-value']"
+            id="carrier-value-error"
+            class="checkout-page__field-error"
+            aria-live="polite"
+          >
+            {{ fieldErrors['carrier-value'] }}
+          </p>
         </template>
         <div
           v-else
           class="checkout-page__fields"
         >
-          <label for="company-tax-id">統一編號</label>
+          <label for="company-tax-id">統一編號 *</label>
           <input
             id="company-tax-id"
+            v-bind="fieldFeedback('company-tax-id')"
             v-model="form.companyTaxId"
             inputmode="numeric"
             pattern="[0-9]{8}"
             maxlength="8"
             required
           >
-          <label for="company-name">公司名稱</label>
+          <p
+            v-if="touchedFields['company-tax-id'] && fieldErrors['company-tax-id']"
+            id="company-tax-id-error"
+            class="checkout-page__field-error"
+            aria-live="polite"
+          >
+            {{ fieldErrors['company-tax-id'] }}
+          </p>
+          <label for="company-name">公司抬頭 *</label>
           <input
             id="company-name"
+            v-bind="fieldFeedback('company-name')"
             v-model="form.companyName"
             maxlength="160"
             required
           >
+          <p
+            v-if="touchedFields['company-name'] && fieldErrors['company-name']"
+            id="company-name-error"
+            class="checkout-page__field-error"
+            aria-live="polite"
+          >
+            {{ fieldErrors['company-name'] }}
+          </p>
         </div>
       </section>
 
@@ -871,8 +1324,16 @@ async function submitOrder(): Promise<void> {
             type="checkbox"
             required
           >
-          我同意服務條款（版本 {{ policyVersions.terms }}）
+          我同意服務條款 *
         </label>
+        <button
+          type="button"
+          data-test="read-terms"
+          aria-haspopup="dialog"
+          @click="openPolicy('terms')"
+        >
+          服務條款詳細確認
+        </button>
         <label class="checkout-page__choice">
           <input
             id="accept-return"
@@ -880,8 +1341,16 @@ async function submitOrder(): Promise<void> {
             type="checkbox"
             required
           >
-          我同意退換貨政策（版本 {{ policyVersions.return }}）
+          我同意退換貨政策 *
         </label>
+        <button
+          type="button"
+          data-test="read-return"
+          aria-haspopup="dialog"
+          @click="openPolicy('return')"
+        >
+          退換貨政策詳細確認
+        </button>
         <label class="checkout-page__choice">
           <input
             id="accept-privacy"
@@ -889,16 +1358,34 @@ async function submitOrder(): Promise<void> {
             type="checkbox"
             required
           >
-          我同意隱私權政策（版本 {{ policyVersions.privacy }}）
+          我同意隱私權政策 *
         </label>
+        <button
+          type="button"
+          data-test="read-privacy"
+          aria-haspopup="dialog"
+          @click="openPolicy('privacy')"
+        >
+          隱私權政策詳細確認
+        </button>
       </section>
 
       <aside class="checkout-page__summary">
-        <p>商品預估合計：{{ formatTwd(cart.amounts.totalEstimate) }}</p>
-        <p v-if="selectedShippingOption">
-          配送費：{{ formatTwd(selectedShippingOption.fee) }}
+        <template v-if="selectedShippingOption">
+          <p>商品小計：{{ formatTwd(selectedShippingOption.amounts.merchandiseSubtotal) }}</p>
+          <p>優惠折扣：−{{ formatTwd(selectedShippingOption.amounts.itemDiscountTotal) }}</p>
+          <p>配送費：{{ formatTwd(selectedShippingOption.amounts.shippingFee) }}</p>
+          <p>組裝費：{{ formatTwd(selectedShippingOption.amounts.assemblyFee) }}</p>
+          <p>
+            <strong>應付總額：{{ formatTwd(selectedShippingOption.amounts.grandTotal) }}</strong>
+          </p>
+        </template>
+        <p v-else>
+          請先選擇配送方式，以取得即時應付金額。
         </p>
-        <p>最終金額、折扣、運費及庫存以後端建立訂單時重新計算為準。</p>
+        <p>
+          送出訂單時會再次確認優惠、金額與庫存；若有變動，會提醒您重新確認。
+        </p>
       </aside>
 
       <p
@@ -917,13 +1404,47 @@ async function submitOrder(): Promise<void> {
         {{ isSubmitting ? '建立訂單中…' : '確認建立訂單' }}
       </button>
     </form>
+    <dialog
+      ref="policyDialog"
+      class="checkout-page__policy-dialog"
+      :aria-label="policyNames[readingPolicy]"
+    >
+      <button
+        type="button"
+        autofocus
+        data-test="close-policy"
+        @click="policyDialog?.close()"
+      >
+        關閉政策內容
+      </button>
+      <p>結帳同意版本：{{ policyVersions?.[readingPolicy] }}；以下為 Demo 引導範例，非正式營運條文。</p>
+      <LegalDemoPage
+        :kind="readingPolicy"
+        embedded
+      />
+    </dialog>
   </section>
 </template>
 
 <style scoped>
+.checkout-page__field-error { grid-column: 1 / -1; margin: 0; color: #b91c1c; }
+
 .checkout-page {
   max-width: 52rem;
 }
+
+.checkout-page__policy-dialog {
+  box-sizing: border-box;
+  width: min(56rem, calc(100vw - 2rem));
+  max-height: 85dvh;
+  padding: 1rem;
+  overflow-y: auto;
+  border: 1px solid var(--color-border-soft);
+  border-radius: 1rem;
+  background: #fffdf8;
+  color: var(--color-text);
+}
+.checkout-page__policy-dialog::backdrop { background: #102f3c99; }
 
 .checkout-page__submit {
   display: flex;

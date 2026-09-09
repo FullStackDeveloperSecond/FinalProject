@@ -832,6 +832,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/convenience-stores/regions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    ProviderCode?: string;
+                    City?: string;
+                    PageNumber?: number | string;
+                    PageSize?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["PageResultOfstring"];
+                        "application/json": components["schemas"]["PageResultOfstring"];
+                        "text/json": components["schemas"]["PageResultOfstring"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/convenience-stores": {
         parameters: {
             query?: never;
@@ -3970,6 +4012,128 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    Search?: string;
+                    Status?: components["schemas"]["AccountStatus"];
+                    Page?: number | string;
+                    PageSize?: number | string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminMemberPage"];
+                        "application/json": components["schemas"]["AdminMemberPage"];
+                        "text/json": components["schemas"]["AdminMemberPage"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/members/{publicId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    publicId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminMemberDto"];
+                        "application/json": components["schemas"]["AdminMemberDto"];
+                        "text/json": components["schemas"]["AdminMemberDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/members/{publicId}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    publicId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AdminMemberStatusRequest"];
+                    "text/json": components["schemas"]["AdminMemberStatusRequest"];
+                    "application/*+json": components["schemas"]["AdminMemberStatusRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/members/me": {
         parameters: {
             query?: never;
@@ -6285,6 +6449,13 @@ export interface paths {
                 query?: {
                     PageSize?: number | string;
                     Cursor?: string;
+                    PageNumber?: number | string;
+                    Search?: string;
+                    Status?: components["schemas"]["SupportTicketStatus"];
+                    Priority?: components["schemas"]["CasePriority"];
+                    OnlyOverdue?: boolean;
+                    Assignee?: string;
+                    Sort?: string;
                 };
                 header?: never;
                 path?: never;
@@ -6298,9 +6469,9 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "text/plain": components["schemas"]["CursorPageOfSupportSlaItemDto"];
-                        "application/json": components["schemas"]["CursorPageOfSupportSlaItemDto"];
-                        "text/json": components["schemas"]["CursorPageOfSupportSlaItemDto"];
+                        "text/plain": components["schemas"]["SupportSlaQueueResponse"];
+                        "application/json": components["schemas"]["SupportSlaQueueResponse"];
+                        "text/json": components["schemas"]["SupportSlaQueueResponse"];
                     };
                 };
             };
@@ -7116,6 +7287,129 @@ export interface paths {
                         "text/plain": components["schemas"]["AcceptedPolicyVersions"];
                         "application/json": components["schemas"]["AcceptedPolicyVersions"];
                         "text/json": components["schemas"]["AcceptedPolicyVersions"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/checkout/guest-email/verification-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["GuestCheckoutEmailVerificationRequest"];
+                    "text/json": components["schemas"]["GuestCheckoutEmailVerificationRequest"];
+                    "application/*+json": components["schemas"]["GuestCheckoutEmailVerificationRequest"];
+                };
+            };
+            responses: {
+                /** @description Accepted */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["GuestCheckoutEmailVerificationAcceptedDto"];
+                        "application/json": components["schemas"]["GuestCheckoutEmailVerificationAcceptedDto"];
+                        "text/json": components["schemas"]["GuestCheckoutEmailVerificationAcceptedDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/checkout/guest-email/verifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["GuestCheckoutEmailVerificationCodeRequest"];
+                    "text/json": components["schemas"]["GuestCheckoutEmailVerificationCodeRequest"];
+                    "application/*+json": components["schemas"]["GuestCheckoutEmailVerificationCodeRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["GuestCheckoutEmailVerifiedDto"];
+                        "application/json": components["schemas"]["GuestCheckoutEmailVerifiedDto"];
+                        "text/json": components["schemas"]["GuestCheckoutEmailVerifiedDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/checkout/guest-email/verification-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["GuestCheckoutEmailVerificationStatusDto"];
+                        "application/json": components["schemas"]["GuestCheckoutEmailVerificationStatusDto"];
+                        "text/json": components["schemas"]["GuestCheckoutEmailVerificationStatusDto"];
                     };
                 };
             };
@@ -8946,7 +9240,11 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "text/plain": components["schemas"]["CartDto"];
+                        "application/json": components["schemas"]["CartDto"];
+                        "text/json": components["schemas"]["CartDto"];
+                    };
                 };
             };
         };
@@ -10022,6 +10320,8 @@ export interface components {
             /** Format: int32 */
             privacy: number | string;
         };
+        /** @enum {unknown} */
+        AccountStatus: "pendingEmailVerification" | "active" | "suspended" | "anonymized" | "disabled" | null;
         AcknowledgeReconciliationCaseRequest: {
             /** Format: byte */
             rowVersion: string;
@@ -10031,6 +10331,9 @@ export interface components {
             quantity: number | string;
             /** Format: byte */
             buildRowVersion: string;
+            /** Format: byte */
+            cartRowVersion?: null | string;
+            cartTransfers?: null | components["schemas"]["CartItemTransferInput"][];
         };
         AddCartItemRequest: {
             /** Format: uuid */
@@ -10065,6 +10368,14 @@ export interface components {
             outputTokens: number | string;
             /** Format: double */
             estimatedCostUsd: null | number | string;
+        };
+        AdminAssemblyJobDto: {
+            /** Format: uuid */
+            publicId: string;
+            status: string;
+            /** Format: byte */
+            rowVersion: string;
+            availableActions: string[];
         };
         AdminAssigneeSummaryDto: {
             /** Format: uuid */
@@ -10122,11 +10433,44 @@ export interface components {
             /** Format: uuid */
             twoFactorChallengePublicId: string;
         };
+        AdminMemberDto: {
+            /** Format: uuid */
+            publicId: string;
+            displayName: string;
+            emailMasked: string;
+            status: string;
+            emailVerified: boolean;
+            /** Format: date-time */
+            createdAtUtc: string;
+            /** Format: date-time */
+            updatedAtUtc: string;
+            /** Format: byte */
+            rowVersion: string;
+        };
+        AdminMemberPage: {
+            items: components["schemas"]["AdminMemberDto"][];
+            /** Format: int32 */
+            totalCount: number | string;
+            /** Format: int32 */
+            page: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+        };
+        AdminMemberStatusRequest: {
+            active?: boolean;
+            /** Format: byte */
+            rowVersion: string;
+            reasonCode: string;
+        };
         AdminOrderActionRequest: {
             reasonCode: null | string;
             note: null | string;
             /** Format: byte */
             rowVersion: string;
+            /** Format: uuid */
+            assemblyJobPublicId?: null | string;
+            /** Format: byte */
+            assemblyJobRowVersion?: null | string;
         };
         AdminOrderAmountsDto: {
             /** Format: double */
@@ -10183,6 +10527,7 @@ export interface components {
             /** Format: byte */
             rowVersion: string;
             shipment?: null | components["schemas"]["AdminShipmentDto"];
+            assemblyJobs?: null | components["schemas"]["AdminAssemblyJobDto"][];
         };
         AdminOrderItemDto: {
             /** Format: uuid */
@@ -10524,6 +10869,17 @@ export interface components {
             compatibilityStatus: string;
             compatibilityMessageKeys: string[];
         };
+        AiProductSearchExistingPart: {
+            /** Format: uuid */
+            skuPublicId: null | string;
+            sourceType: string;
+            categoryCode: null | string;
+            displayName: null | string;
+            specifications: components["schemas"]["AiRequiredSpec"][];
+            /** Format: int32 */
+            quantity: number | string;
+            confirmedByUser: boolean;
+        };
         AiProductSearchIntentDto: {
             intent: string;
             purposes: string[];
@@ -10569,6 +10925,12 @@ export interface components {
             /** Format: int32 */
             quantity: number | string;
             specifications: components["schemas"]["AiSearchSpecDto"][];
+        };
+        AiRequiredSpec: {
+            semanticKey: string;
+            operator: string;
+            value: string;
+            unit: null | string;
         };
         AiSearchSpecDto: {
             semanticKey: string;
@@ -10777,6 +11139,7 @@ export interface components {
             updatedAtUtc: string;
             /** Format: byte */
             rowVersion: string;
+            ownedParts?: null | components["schemas"]["AiProductSearchExistingPart"][];
         };
         BuildListSummaryDto: {
             /** Format: uuid */
@@ -10902,6 +11265,13 @@ export interface components {
             assemblyGroupKey: null | string;
             /** Format: byte */
             rowVersion: string;
+            categoryCode?: null | string;
+        };
+        CartItemTransferInput: {
+            /** Format: uuid */
+            cartItemPublicId: string;
+            /** Format: int32 */
+            quantity: number | string;
         };
         CartMergeConflictDto: {
             /** Format: uuid */
@@ -11026,6 +11396,19 @@ export interface components {
             addressLine1: null | string;
             addressLine2: null | string;
         };
+        CheckoutAmountQuoteDto: {
+            /** Format: double */
+            merchandiseSubtotal: number | string;
+            /** Format: double */
+            itemDiscountTotal: number | string;
+            /** Format: double */
+            shippingFee: number | string;
+            /** Format: double */
+            assemblyFee: number | string;
+            /** Format: double */
+            grandTotal: number | string;
+            currency: string;
+        };
         CheckoutBuyerInput: {
             email: string;
             name: string;
@@ -11066,6 +11449,7 @@ export interface components {
         };
         CompatibilityCheckRequest: {
             items: components["schemas"]["BuildItemInput"][];
+            ownedParts?: null | components["schemas"]["AiProductSearchExistingPart"][];
         };
         CompatibilityFindingDto: {
             ruleCode: string;
@@ -11257,6 +11641,7 @@ export interface components {
         CreateBuildListRequest: {
             name: string;
             items: components["schemas"]["BuildItemInput"][];
+            ownedParts?: null | components["schemas"]["AiProductSearchExistingPart"][];
         };
         CreateCategoryRequest: {
             code: string;
@@ -11495,11 +11880,6 @@ export interface components {
             nextCursor: null | string;
             hasMore: boolean;
         };
-        CursorPageOfSupportSlaItemDto: {
-            items: components["schemas"]["SupportSlaItemDto"][];
-            nextCursor: null | string;
-            hasMore: boolean;
-        };
         DeleteBuildListRequest: {
             /** Format: byte */
             rowVersion: string;
@@ -11571,6 +11951,31 @@ export interface components {
         };
         /** @enum {unknown} */
         FulfillmentStatus: "pending" | "preparing" | "shipped" | "inTransit" | "pickupReady" | "pickedUp" | "delivered" | "deliveryFailed" | "returned";
+        GuestCheckoutEmailVerificationAcceptedDto: {
+            /** Format: uuid */
+            requestPublicId: string;
+            /** Format: date-time */
+            expiresAtUtc: string;
+        };
+        GuestCheckoutEmailVerificationCodeRequest: {
+            /** Format: uuid */
+            requestPublicId: string;
+            code: string;
+        };
+        GuestCheckoutEmailVerificationRequest: {
+            email: string;
+        };
+        GuestCheckoutEmailVerificationStatusDto: {
+            verified: boolean;
+            email: null | string;
+            /** Format: date-time */
+            expiresAtUtc: null | string;
+        };
+        GuestCheckoutEmailVerifiedDto: {
+            verified: boolean;
+            /** Format: date-time */
+            expiresAtUtc: string;
+        };
         GuestOrderAccessRequestAcceptedDto: {
             /** Format: uuid */
             requestPublicId: string;
@@ -12202,6 +12607,17 @@ export interface components {
             /** Format: int32 */
             totalPages?: number | string;
         };
+        PageResultOfstring: {
+            items: string[];
+            /** Format: int32 */
+            pageNumber: number | string;
+            /** Format: int32 */
+            pageSize: number | string;
+            /** Format: int32 */
+            totalCount: number | string;
+            /** Format: int32 */
+            totalPages?: number | string;
+        };
         PageResultOfSupportTicketSummaryDto: {
             items: components["schemas"]["SupportTicketSummaryDto"][];
             /** Format: int32 */
@@ -12802,6 +13218,7 @@ export interface components {
             totals: components["schemas"]["BuildTotalsDto"];
             canCopy: boolean;
             canAddToCart: boolean;
+            ownedParts?: null | components["schemas"]["AiProductSearchExistingPart"][];
         };
         ShipmentStatusActionRequest: {
             /** Format: byte */
@@ -12821,6 +13238,7 @@ export interface components {
             requiresAddress: boolean;
             requiresStore: boolean;
             allowedPaymentMethods: components["schemas"]["PaymentMethod"][];
+            amounts: components["schemas"]["CheckoutAmountQuoteDto"];
         };
         ShippingOptionsDto: {
             /** Format: uuid */
@@ -13114,6 +13532,15 @@ export interface components {
             /** Format: byte */
             rowVersion: string;
         };
+        SupportSlaQueueResponse: {
+            items: components["schemas"]["SupportSlaItemDto"][];
+            nextCursor: null | string;
+            hasMore: boolean;
+            /** Format: int32 */
+            totalCount?: null | number | string;
+            /** Format: int32 */
+            pageNumber?: null | number | string;
+        };
         /** @enum {unknown} */
         SupportTicketCategory: "order" | "payment" | "logistics" | "productWarranty" | "returnHelp" | "account" | "other";
         SupportTicketDto: {
@@ -13228,6 +13655,7 @@ export interface components {
             items: components["schemas"]["BuildItemInput"][];
             /** Format: byte */
             rowVersion: string;
+            ownedParts?: null | components["schemas"]["AiProductSearchExistingPart"][];
         };
         UpdateCartItemRequest: {
             /** Format: int32 */

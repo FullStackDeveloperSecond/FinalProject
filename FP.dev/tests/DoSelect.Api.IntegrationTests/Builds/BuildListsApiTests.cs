@@ -12,6 +12,37 @@ public sealed class BuildListsApiTests
 {
     private readonly BuildListsApiFixture _fixture;
 
+    [Fact]
+    public async Task Create_PreservesManualOwnedPartWithoutCreatingPurchaseItems()
+    {
+        using var client = await _fixture.CreateAuthenticatedMemberClientAsync();
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/build-lists")
+        { Content = JsonContent.Create(new
+        {
+            name = "自有 SSD 清單",
+            items = Array.Empty<object>(),
+            ownedParts = new[] { new
+            {
+                sourceType = "structuredManual", categoryCode = "STORAGE", displayName = "我的 SSD",
+                quantity = 1, confirmedByUser = true,
+                specifications = new[] {
+                    new { semanticKey = "STORAGE_INTERFACE", @operator = "eq", value = "M2_NVME", unit = (string?)null },
+                    new { semanticKey = "POWER_DRAW_WATTS", @operator = "eq", value = "5", unit = (string?)"W" },
+                },
+            } },
+        }) };
+        using var response = await BuildListsApiFixture.SendWithAntiforgeryAsync(client, request);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var created = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(0, created.GetProperty("items").GetArrayLength());
+        Assert.Equal(1, created.GetProperty("ownedParts").GetArrayLength());
+        Assert.Equal(0m, created.GetProperty("totals").GetProperty("grandTotal").GetDecimal());
+        using var read = await client.GetAsync($"/api/v1/build-lists/{created.GetProperty("publicId").GetString()}");
+        Assert.Equal(HttpStatusCode.OK, read.StatusCode);
+        var persisted = await read.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("我的 SSD", persisted.GetProperty("ownedParts")[0].GetProperty("displayName").GetString());
+    }
+
     public BuildListsApiTests(BuildListsApiFixture fixture)
     {
         _fixture = fixture;

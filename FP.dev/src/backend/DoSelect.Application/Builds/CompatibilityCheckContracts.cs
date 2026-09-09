@@ -16,7 +16,9 @@ public sealed record CompatibilityCheckDto(
     IReadOnlyList<CompatibilityFindingDto> Results,
     DateTime EvaluatedAtUtc);
 
-public sealed record CompatibilityCheckRequest(IReadOnlyList<BuildItemInput> Items);
+public sealed record CompatibilityCheckRequest(
+    IReadOnlyList<BuildItemInput> Items,
+    IReadOnlyList<DoSelect.Application.Ai.AiProductSearchExistingPart>? OwnedParts = null);
 
 public interface ICompatibilityCheckService
 {

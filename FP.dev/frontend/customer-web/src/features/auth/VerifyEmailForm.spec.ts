@@ -73,6 +73,22 @@ describe('VerifyEmailForm', () => {
     expect(wrapper.text()).toContain('Email 驗證成功')
   })
 
+  it('preserves a plus sign that Vue Router has decoded inside the token fragment', async () => {
+    useRoute.mockReturnValue({
+      path: '/verify-email',
+      query: {},
+      hash: '#publicId=018f1f0a-70d1-7c53-9a3f-000000000000&token=synthetic+plus/token==',
+    })
+    confirmEmailVerification.mockResolvedValueOnce({ accountStatus: 'active' })
+    mount(VerifyEmailForm, { global: { stubs: globalStubs } })
+    await flushPromises()
+
+    expect(confirmEmailVerification).toHaveBeenCalledWith({
+      userPublicId: '018f1f0a-70d1-7c53-9a3f-000000000000',
+      token: 'synthetic+plus/token==',
+    })
+  })
+
   it('strips the publicId and token query params from the URL once they have been read', async () => {
     useRoute.mockReturnValue({
       path: '/verify-email',

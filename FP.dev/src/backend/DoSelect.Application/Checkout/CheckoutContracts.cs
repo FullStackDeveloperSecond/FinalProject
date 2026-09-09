@@ -66,17 +66,26 @@ public sealed record CreateOrderRequest(
 /// Backend-resolved Checkout identity. A member carries both its internal Identity id and public id;
 /// a guest carries only the secret cart key. Client input must never populate this object directly.
 /// </summary>
-public sealed record CheckoutActor(string? MemberUserId, Guid? MemberPublicId, string? GuestCartKey)
+public sealed record CheckoutActor(
+    string? MemberUserId,
+    Guid? MemberPublicId,
+    string? GuestCartKey,
+    string? GuestEmailProofToken)
 {
     public static CheckoutActor ForMember(string memberUserId, Guid memberPublicId) =>
         new(Require(memberUserId, nameof(memberUserId)),
             memberPublicId == Guid.Empty
                 ? throw new ArgumentException("Member PublicId is required.", nameof(memberPublicId))
                 : memberPublicId,
+            null,
             null);
 
-    public static CheckoutActor ForGuest(string guestCartKey) =>
-        new(null, null, Require(guestCartKey, nameof(guestCartKey)));
+    public static CheckoutActor ForGuest(string guestCartKey, string? guestEmailProofToken = null) =>
+        new(
+            null,
+            null,
+            Require(guestCartKey, nameof(guestCartKey)),
+            string.IsNullOrWhiteSpace(guestEmailProofToken) ? null : guestEmailProofToken.Trim());
 
     public bool IsMember => MemberUserId is not null;
 
@@ -135,6 +144,12 @@ public sealed record CheckoutCommand(
 /// </summary>
 public interface ICheckoutTransactionGateway
 {
+    /// <summary>Check ownership even on replay; converted carts remain valid retry targets.</summary>
+    Task ValidateCartOwnershipAsync(
+        CheckoutActor actor,
+        Guid cartPublicId,
+        CancellationToken cancellationToken = default);
+
     Task<OrderDto> ExecuteAsync(
         CheckoutCommand command,
         CancellationToken cancellationToken = default);

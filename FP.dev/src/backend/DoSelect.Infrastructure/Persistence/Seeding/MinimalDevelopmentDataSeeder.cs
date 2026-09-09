@@ -523,14 +523,14 @@ public sealed class MinimalDevelopmentDataSeeder(
     /// a real RYZEN_7000-compatible pairing per <see cref="CompatibilityRuleCatalog.CreateVersion1"/>,
     /// ATX form factor throughout, ~345W estimated draw against a 650W PSU).
     /// </summary>
-    private sealed record CompatibilitySpecDefinitionTemplate(
+    internal sealed record CompatibilitySpecDefinitionTemplate(
         string SemanticKey,
         SpecificationValueType ValueType,
         bool AllowsMultiple,
         bool IsRequired = true,
         bool IsProtected = true);
 
-    private static readonly IReadOnlyDictionary<string, CompatibilitySpecDefinitionTemplate[]>
+    internal static readonly IReadOnlyDictionary<string, CompatibilitySpecDefinitionTemplate[]>
         BuildCompatibilitySpecTemplates = new Dictionary<string, CompatibilitySpecDefinitionTemplate[]>
         {
             [CompatibilityCatalogContract.Categories.Cpu] =

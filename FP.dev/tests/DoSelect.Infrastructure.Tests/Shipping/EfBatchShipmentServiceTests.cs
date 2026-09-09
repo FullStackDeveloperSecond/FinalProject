@@ -39,6 +39,32 @@ public sealed class EfBatchShipmentServiceTests
     private static readonly AuditRequestContext TestAuditContext =
         new("batch-test-correlation", "0123456789abcdef0123456789abcdef", null);
 
+    [Theory]
+    [InlineData(BatchShipmentActions.CreateLabel)]
+    [InlineData(BatchShipmentActions.MarkShipped)]
+    public async Task ProcessingOrderPreparingWithoutShipmentCanProceed(string action)
+    {
+        await using var context = OrderServiceFixture.CreateContext();
+        var seed = await SeedBaseAsync(context);
+        var order = await SeedShippableOrderAsync(context, seed, withReservation: true);
+        order.ChangeOrderStatus(OrderStatus.Processing, DateTime.UtcNow);
+        order.ApplyFulfillmentProjection(FulfillmentStatus.Preparing, DateTime.UtcNow);
+        await context.SaveChangesAsync();
+
+        var logger = new CapturingLogger();
+        await using var actContext = OrderServiceFixture.CreateContext();
+        var result = await CreateService(actContext, logger).ShipBatchAsync(
+            Request(action, order), seed.AdminUserId, TestAuditContext, DateTime.UtcNow, CancellationToken.None);
+
+        Assert.Empty(logger.Errors);
+        Assert.Equal(1, result.Succeeded);
+        Assert.Equal(0, result.Failed);
+        await using var verify = OrderServiceFixture.CreateContext();
+        Assert.Equal(1, await verify.Shipments.CountAsync(candidate => candidate.OrderId == order.Id));
+        var saved = await verify.Orders.AsNoTracking().SingleAsync(candidate => candidate.Id == order.Id);
+        Assert.Equal(action == BatchShipmentActions.MarkShipped ? FulfillmentStatus.Shipped : FulfillmentStatus.Preparing, saved.FulfillmentStatus);
+    }
+
     /// <summary>
     /// 這支是整個功能的核心不變量：「一筆失敗不回滾其他已成功出貨的訂單」。
     ///

@@ -58,7 +58,7 @@ describe('InventoryPage', () => {
     expect(row.classes()).toContain('inventory-table__row--out-of-stock')
   })
 
-  it('sends the stockState filter when searching', async () => {
+  it('applies the stockState dropdown immediately', async () => {
     mockListBalances.mockResolvedValue({ items: [], pageNumber: 1, pageSize: 20, totalCount: 0 })
     mockListMovements.mockResolvedValue(emptyMovements)
 
@@ -66,7 +66,6 @@ describe('InventoryPage', () => {
     await flushPromises()
 
     await wrapper.find('select[aria-label="庫存狀態"]').setValue('low_stock')
-    await wrapper.find('form[aria-label="庫存餘額篩選"]').trigger('submit')
     await flushPromises()
 
     expect(mockListBalances).toHaveBeenLastCalledWith(expect.objectContaining({ stockState: 'low_stock', pageNumber: 1 }))
@@ -105,9 +104,7 @@ describe('InventoryPage', () => {
     expect(mockListMovements).toHaveBeenLastCalledWith(expect.objectContaining({ movementTypes: ['StockIn'] }))
   })
 
-  /** 組長 PR #37 round-2 review, item 3: A-11's inputs bind to a draft — changing them must not
-   * fire a query until 搜尋 submits the whole condition set atomically. */
-  it('does not query with half-updated movement filters before the form is submitted', async () => {
+  it('applies movement checkbox and date filters immediately and resets the page', async () => {
     mockListBalances.mockResolvedValue({ items: [], pageNumber: 1, pageSize: 20, totalCount: 0 })
     mockListMovements.mockResolvedValue(emptyMovements)
 
@@ -119,11 +116,7 @@ describe('InventoryPage', () => {
     await wrapper.find('input[aria-label="起始日期"]').setValue('2026-08-25')
     await flushPromises()
 
-    // Nothing fired: the draft is not part of the query key.
-    expect(mockListMovements.mock.calls.length).toBe(callsBefore)
-
-    await wrapper.find('form[aria-label="異動明細篩選"]').trigger('submit')
-    await flushPromises()
+    expect(mockListMovements.mock.calls.length).toBeGreaterThan(callsBefore)
     expect(mockListMovements).toHaveBeenLastCalledWith(expect.objectContaining({
       movementTypes: ['StockIn'],
       pageNumber: 1,

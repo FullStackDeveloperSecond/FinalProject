@@ -1,9 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { clearGuestCartKey, getOrCreateGuestCartKey } from './guestCartKey'
+import { computed } from 'vue'
 
 const storageKey = 'doselect.guestCartKey'
 
 describe('guestCartKey', () => {
+  it('invalidates a mounted cart identity when checkout clears the key', () => {
+    const identity = computed(() => getOrCreateGuestCartKey())
+    const before = identity.value
+    clearGuestCartKey()
+    expect(identity.value).not.toBe(before)
+    expect(identity.value).toBe(getOrCreateGuestCartKey())
+  })
   beforeEach(() => {
     window.localStorage.clear()
   })

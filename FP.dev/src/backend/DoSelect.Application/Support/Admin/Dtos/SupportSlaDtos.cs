@@ -3,7 +3,12 @@ using DoSelect.Domain.Support;
 namespace DoSelect.Application.Support.Admin.Dtos;
 
 /// <summary>Request shape for the admin SLA queue (UC-SLA-01). No filters beyond pagination are defined yet.</summary>
-public sealed record SupportSlaQueueQuery(int PageSize, string? Cursor);
+public sealed record SupportSlaQueueQuery(int PageSize, string? Cursor, int? PageNumber = null,
+    string? Search = null, SupportTicketStatus? Status = null, CasePriority? Priority = null,
+    bool OnlyOverdue = false, string Assignee = "all", string Sort = "deadline");
+
+public sealed record SupportSlaQueueResponse(IReadOnlyList<SupportSlaItemDto> Items, string? NextCursor, bool HasMore,
+    int? TotalCount = null, int? PageNumber = null);
 
 /// <summary>
 /// One row of the admin SLA queue. EffectiveDueAtUtc/UsageRatio/IsOverdue are computed against a

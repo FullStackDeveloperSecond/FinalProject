@@ -43,14 +43,14 @@ describe('support attachment query', () => {
 
     expect(fetchStub).toHaveBeenCalledTimes(2)
     expect(fetchStub.mock.calls[0]?.[0])
-      .toBe('http://localhost:5126/api/v1/security/antiforgery-token')
+      .toBe(`${window.location.origin}/api/v1/security/antiforgery-token`)
     expect(fetchStub.mock.calls[0]?.[1]).toMatchObject({ credentials: 'include' })
     expect(new Headers(fetchStub.mock.calls[0]?.[1]?.headers).get('X-DoSelect-Client'))
       .toBe('member')
 
     const [uploadUrl, uploadInit] = fetchStub.mock.calls[1] ?? []
     expect(uploadUrl)
-      .toBe('http://localhost:5126/api/v1/support-tickets/018f2e6a-0000-7000-8000-000000000001/attachments')
+      .toBe(`${window.location.origin}/api/v1/support-tickets/018f2e6a-0000-7000-8000-000000000001/attachments`)
     expect(uploadInit).toMatchObject({ method: 'POST', credentials: 'include' })
     const uploadHeaders = new Headers(uploadInit?.headers)
     expect(uploadHeaders.get('X-XSRF-TOKEN')).toBe('csrf-token')

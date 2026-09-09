@@ -8,9 +8,35 @@ namespace DoSelect.Infrastructure.Tests.Shipping;
 public sealed class ConvenienceStoreQueryServiceTests
 {
     [Fact]
+    public async Task ListRegionsAsync_UsesActiveProviderStoresAndDistinctPagedRegions()
+    {
+        await using var context = ShippingServiceFixture.CreateContext();
+        await ShippingServiceFixture.ClearConvenienceStoresAsync(context);
+        await ShippingServiceFixture.SeedStoreAsync(context, "7-11", "REGION-1", "臺北市", "中正區");
+        await ShippingServiceFixture.SeedStoreAsync(context, "7-11", "REGION-2", "臺北市", "中正區");
+        await ShippingServiceFixture.SeedStoreAsync(context, "7-11", "REGION-3", "臺北市", "大安區");
+        await ShippingServiceFixture.SeedStoreAsync(context, "7-11", "REGION-4", "臺中市", "西區");
+        await ShippingServiceFixture.SeedStoreAsync(context, "FamilyMart", "REGION-5", "高雄市", "苓雅區");
+        await ShippingServiceFixture.SeedStoreAsync(context, "7-11", "REGION-6", "桃園市", "桃園區", isActive: false);
+        var service = new EfConvenienceStoreQueryService(context);
+        var cities = await service.ListRegionsAsync(new("7-11", null, 1, 1), CancellationToken.None);
+        Assert.Equal(2, cities.TotalCount);
+        Assert.Single(cities.Items);
+        var next = await service.ListRegionsAsync(new("7-11", null, 2, 1), CancellationToken.None);
+        Assert.NotEqual(cities.Items[0], next.Items[0]);
+        var districts = await service.ListRegionsAsync(new("7-11", "臺北市", 1, 100), CancellationToken.None);
+        Assert.Equal(2, districts.TotalCount);
+        Assert.Contains("中正區", districts.Items);
+        Assert.Contains("大安區", districts.Items);
+        Assert.Empty((await service.ListRegionsAsync(new("7-11", "高雄市", 1, 100), CancellationToken.None)).Items);
+        Assert.Empty((await service.ListRegionsAsync(new("7-11", null, int.MaxValue, 100), CancellationToken.None)).Items);
+    }
+
+    [Fact]
     public async Task ListAsync_FiltersByCityAndDistrict()
     {
         await using var context = ShippingServiceFixture.CreateContext();
+        await ShippingServiceFixture.ClearConvenienceStoresAsync(context);
         await ShippingServiceFixture.SeedStoreAsync(context, "7-11", ShippingServiceFixture.UniqueCode("S"), "台北市", "大安區");
         await ShippingServiceFixture.SeedStoreAsync(context, "7-11", ShippingServiceFixture.UniqueCode("S"), "台北市", "信義區");
         await ShippingServiceFixture.SeedStoreAsync(context, "7-11", ShippingServiceFixture.UniqueCode("S"), "高雄市", "苓雅區");
@@ -27,6 +53,7 @@ public sealed class ConvenienceStoreQueryServiceTests
     public async Task ListAsync_ExcludesDeactivatedStores()
     {
         await using var context = ShippingServiceFixture.CreateContext();
+        await ShippingServiceFixture.ClearConvenienceStoresAsync(context);
         await ShippingServiceFixture.SeedStoreAsync(context, "7-11", ShippingServiceFixture.UniqueCode("S"), "台中市", "西區");
         await ShippingServiceFixture.SeedStoreAsync(context, "7-11", ShippingServiceFixture.UniqueCode("S"), "台中市", "西區", isActive: false);
 
@@ -40,6 +67,7 @@ public sealed class ConvenienceStoreQueryServiceTests
     public async Task ListAsync_PagesWithoutDuplicatesOrGaps()
     {
         await using var context = ShippingServiceFixture.CreateContext();
+        await ShippingServiceFixture.ClearConvenienceStoresAsync(context);
         for (var i = 0; i < 5; i++)
         {
             await ShippingServiceFixture.SeedStoreAsync(context, "FamilyMart", ShippingServiceFixture.UniqueCode("S"), "新北市", "板橋區");
@@ -61,6 +89,7 @@ public sealed class ConvenienceStoreQueryServiceTests
     public async Task ListAsync_FiltersByKeywordAgainstNameOrCode()
     {
         await using var context = ShippingServiceFixture.CreateContext();
+        await ShippingServiceFixture.ClearConvenienceStoresAsync(context);
         var matching = await ShippingServiceFixture.SeedStoreAsync(context, "7-11", "SEARCHABLE-CODE", "桃園市", "中壢區");
         await ShippingServiceFixture.SeedStoreAsync(context, "7-11", ShippingServiceFixture.UniqueCode("S"), "桃園市", "中壢區");
 

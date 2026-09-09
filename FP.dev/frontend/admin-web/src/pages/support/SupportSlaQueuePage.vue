@@ -1,35 +1,24 @@
 <script setup lang="ts">
-import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
+import { EmptyState, ErrorState, LoadingState, PagePager } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
-import { computed, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
+import type { CasePriority, SupportTicketStatus } from '../../features/support/types'
 import { defaultSlaPageSize, useSupportSlaQueueQuery } from '../../features/support/queries'
 import { formatDateTime, formatSlaUsage, priorityLabels, statusLabels } from '../../features/support/labels'
 
-// Keyset (cursor) pagination has no "page N" concept — a stack of visited cursors is the
-// simplest way to support "上一頁" without asking the backend for a total count.
-const cursorStack = ref<(string | undefined)[]>([undefined])
-const currentCursor = computed(() => cursorStack.value[cursorStack.value.length - 1])
+// Request server-counted pages so filters and page numbers describe the entire authorized queue.
+const page = ref(1)
+const search = ref('')
+const appliedSearch = ref('')
+const filters = reactive({ status: '' as SupportTicketStatus | '', priority: '' as CasePriority | '', onlyOverdue: false, assignee: 'all', sort: 'deadline' })
+watch(search, (value, _old, cleanup) => { const timer = setTimeout(() => { appliedSearch.value = value.trim(); page.value = 1 }, 300); cleanup(() => clearTimeout(timer)) })
+watch(filters, () => { page.value = 1 })
 
 const { data, isPending, isError, error, refetch } = useSupportSlaQueueQuery(() => ({
   pageSize: defaultSlaPageSize,
-  cursor: currentCursor.value,
+  pageNumber: page.value, search: appliedSearch.value || undefined, status: filters.status || undefined, priority: filters.priority || undefined, onlyOverdue: filters.onlyOverdue, assignee: filters.assignee, sort: filters.sort,
 }))
 
-const canGoPrevious = computed(() => cursorStack.value.length > 1)
-const canGoNext = computed(() => Boolean(data.value?.hasMore))
-
-function goToNextPage() {
-  const nextCursor = data.value?.nextCursor
-  if (nextCursor) {
-    cursorStack.value = [...cursorStack.value, nextCursor]
-  }
-}
-
-function goToPreviousPage() {
-  if (canGoPrevious.value) {
-    cursorStack.value = cursorStack.value.slice(0, -1)
-  }
-}
 
 const errorTitle = computed(() => {
   if (!isApiError(error.value)) {
@@ -55,6 +44,30 @@ const errorTitle = computed(() => {
     <p class="view-lede">
       依到期時間排序的待處理案件，逾時案件會優先顯示。
     </p>
+
+    <div class="sla-queue__filters">
+      <label>案件編號<input
+        v-model="search"
+        type="search"
+        maxlength="100"
+      ></label>
+      <label>狀態<select v-model="filters.status"><option value="">全部待處理狀態</option><option
+        v-for="value in (['open', 'assigned', 'inProgress', 'waitingForCustomer', 'waitingForInternal'] as const)"
+        :key="value"
+        :value="value"
+      >{{ statusLabels[value] }}</option></select></label>
+      <label>優先度<select v-model="filters.priority"><option value="">全部</option><option
+        v-for="(label, value) in priorityLabels"
+        :key="value"
+        :value="value"
+      >{{ label }}</option></select></label>
+      <label>承辦人<select v-model="filters.assignee"><option value="all">全部可見案件</option><option value="mine">由我承辦</option><option value="unassigned">尚未指派</option></select></label>
+      <label>排序<select v-model="filters.sort"><option value="deadline">逾時優先／到期時間</option><option value="recent">最近活動優先</option></select></label>
+      <label><input
+        v-model="filters.onlyOverdue"
+        type="checkbox"
+      >只顯示已逾時</label>
+    </div>
 
     <LoadingState v-if="isPending" />
     <ErrorState
@@ -138,27 +151,19 @@ const errorTitle = computed(() => {
         </table>
       </div>
 
-      <div class="sla-queue__pagination">
-        <button
-          type="button"
-          :disabled="!canGoPrevious"
-          @click="goToPreviousPage"
-        >
-          上一頁
-        </button>
-        <button
-          type="button"
-          :disabled="!canGoNext"
-          @click="goToNextPage"
-        >
-          下一頁
-        </button>
-      </div>
+      <PagePager
+        v-model:page="page"
+        :page-size="defaultSlaPageSize"
+        :total-records="Number(data?.totalCount ?? 0)"
+        aria-label="客服 SLA 分頁"
+      />
     </template>
   </section>
 </template>
 
 <style scoped>
+.sla-queue__filters { display: flex; flex-wrap: wrap; gap: 1rem; align-items: end; }
+.sla-queue__filters label { display: grid; gap: .35rem; }
 .sla-queue__table-wrap {
   padding: 0;
   overflow-x: auto;

@@ -1,4 +1,6 @@
 using DoSelect.Application.Builds;
+using DoSelect.Application.Ai;
+using DoSelect.Application.Shopping;
 using DoSelect.Application.Common;
 using DoSelect.Application.Idempotency;
 using DoSelect.Domain.Builds;
@@ -18,6 +20,111 @@ namespace DoSelect.Infrastructure.Tests.Builds;
 public sealed class EfBuildListServiceTests
 {
     private readonly CompatibilityCheckServiceFixture _fixture;
+
+    [Fact]
+    public async Task ManualOwnedPart_PersistsAndChangesCompatibilityInputHashWhenSpecificationsChange()
+    {
+        await using var context = CompatibilityCheckServiceFixture.CreateContext();
+        var member = await CompatibilityCheckServiceFixture.SeedMemberUserIdAsync(context);
+        var service = CreateService(context);
+        var owned = new AiProductSearchExistingPart(null, "structuredManual", "STORAGE", "我的 SSD",
+            [new("STORAGE_INTERFACE", "eq", "M2_NVME", null), new("POWER_DRAW_WATTS", "eq", "5", "W")], 1, true);
+        var created = await service.CreateAsync(member, new("Manual", [], [owned]), CancellationToken.None);
+        Assert.Equal("我的 SSD", Assert.Single(created.OwnedParts!).DisplayName);
+        var entityId = await context.BuildLists.Where(list => list.PublicId == created.PublicId).Select(list => list.Id).SingleAsync();
+        var firstHash = await context.CompatibilityCheckRuns.Where(run => run.BuildListId == entityId).Select(run => run.InputHash).SingleAsync();
+        var updated = await service.UpdateAsync(member, created.PublicId, new("Manual", [], created.RowVersion,
+            [owned with { Specifications = [new("STORAGE_INTERFACE", "eq", "M2_NVME", null), new("POWER_DRAW_WATTS", "eq", "8", "W")] }]), CancellationToken.None);
+        Assert.Equal(0m, updated.Totals.AssemblyFee);
+        var hashes = await context.CompatibilityCheckRuns.Where(run => run.BuildListId == entityId).OrderByDescending(run => run.Id).Select(run => run.InputHash).ToListAsync();
+        Assert.NotEqual(firstHash, hashes[0]);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OwnedManualPart_RejectsUnconfirmedOrMissingSpecifications(bool confirmed)
+    {
+        await using var context = CompatibilityCheckServiceFixture.CreateContext();
+        var member = await CompatibilityCheckServiceFixture.SeedMemberUserIdAsync(context);
+        var service = CreateService(context);
+        var owned = new AiProductSearchExistingPart(null, "structuredManual", "STORAGE", "我的 SSD", [], 1, confirmed);
+        var error = await Assert.ThrowsAsync<BuildWriteException>(() => service.CreateAsync(member, new("Invalid", [], [owned]), CancellationToken.None));
+        Assert.Equal(BuildWriteException.ErrorCodes.ValidationFailed, error.ErrorCode);
+        Assert.False(await context.BuildLists.AnyAsync(list => list.OwnerUserId == member));
+    }
+
+    [Fact]
+    public async Task OwnedCatalogPart_IsPersistedPreservedAndExcludedFromPurchase_WithReplaySafety()
+    {
+        await using var context = CompatibilityCheckServiceFixture.CreateContext();
+        var member = await CompatibilityCheckServiceFixture.SeedMemberUserIdAsync(context);
+        var components = await SeedCompleteBuildComponentsAsync(context);
+        var service = CreateService(context);
+        var newItems = ToBuildItems(components).Where(item => item.SkuPublicId != components.Cpu.PublicId).ToArray();
+        var owned = new AiProductSearchExistingPart(components.Cpu.PublicId, "catalogSku", null, null, [], 1, true);
+        var created = await service.CreateAsync(member, new("Mixed", newItems, [owned]), CancellationToken.None);
+        Assert.Single(created.OwnedParts!);
+        Assert.Equal("CPU", created.OwnedParts![0].CategoryCode);
+        Assert.Equal(0m, created.Totals.AssemblyFee);
+        var updated = await service.UpdateAsync(member, created.PublicId,
+            new("Mixed renamed", newItems, created.RowVersion), CancellationToken.None);
+        Assert.Single(updated.OwnedParts!);
+        var carts = new EfCartService(context, null!);
+        var initial = await carts.GetCartAsync(new(member, null), CancellationToken.None);
+        var request = new AddBuildToCartRequest(1, updated.RowVersion, initial.RowVersion, []);
+        var purchased = await service.AddToCartAsync(member, created.PublicId, request, "mixed-owned-replay", CancellationToken.None);
+        var replay = await service.AddToCartAsync(member, created.PublicId, request, "mixed-owned-replay", CancellationToken.None);
+        Assert.Equal(7, purchased.Items.Count);
+        Assert.DoesNotContain(purchased.Items, item => item.SkuPublicId == components.Cpu.PublicId);
+        Assert.All(purchased.Items, item => Assert.Null(item.AssemblyGroupKey));
+        Assert.Equal(0m, purchased.Amounts.AssemblyFee);
+        Assert.Equal(purchased.RowVersion, replay.RowVersion);
+        Assert.Equal(7, (await carts.GetCartAsync(new(member, null), CancellationToken.None)).Items.Count);
+    }
+
+    [Fact]
+    public async Task BuildTransfer_MovesOneOfThreeAndIdempotentRetryDoesNotDuplicate()
+    {
+        await using var context = CompatibilityCheckServiceFixture.CreateContext();
+        var member = await CompatibilityCheckServiceFixture.SeedMemberUserIdAsync(context);
+        var components = await SeedCompleteBuildComponentsAsync(context);
+        var service = CreateService(context);
+        var build = await service.CreateAsync(member, new("Transfer", ToBuildItems(components)), CancellationToken.None);
+        var carts = new EfCartService(context, null!);
+        var cart = await carts.AddItemAsync(new(member, null), new(components.Cpu.PublicId, 3, null), CancellationToken.None);
+        var source = Assert.Single(cart.Items);
+        var request = new AddBuildToCartRequest(1, build.RowVersion, cart.RowVersion, [new(source.PublicId, 1)]);
+        var first = await service.AddToCartAsync(member, build.PublicId, request, "transfer-one-replay", CancellationToken.None);
+        var replay = await service.AddToCartAsync(member, build.PublicId, request, "transfer-one-replay", CancellationToken.None);
+        Assert.Equal(first.RowVersion, replay.RowVersion);
+        var actual = await carts.GetCartAsync(new(member, null), CancellationToken.None);
+        Assert.Equal(2, Assert.Single(actual.Items, item => item.AssemblyGroupKey is null).Quantity);
+        Assert.Equal(8, actual.Items.Count(item => item.AssemblyGroupKey is not null));
+        Assert.Equal(3, actual.Items.Where(item => item.SkuPublicId == components.Cpu.PublicId).Sum(item => item.Quantity));
+        Assert.Equal(300m, actual.Amounts.AssemblyFee);
+    }
+
+    [Fact]
+    public async Task EntirelyOwnedBuild_CanBeSavedButCannotBePurchased()
+    {
+        await using var context = CompatibilityCheckServiceFixture.CreateContext();
+        var member = await CompatibilityCheckServiceFixture.SeedMemberUserIdAsync(context);
+        var components = await SeedCompleteBuildComponentsAsync(context);
+        var owned = ToBuildItems(components).Select(item => new AiProductSearchExistingPart(
+            item.SkuPublicId, "catalogSku", null, null, [], 1, true)).ToArray();
+        var service = CreateService(context);
+        var build = await service.CreateAsync(member, new("Owned", [], owned), CancellationToken.None);
+        Assert.Empty(build.Items);
+        Assert.Equal(8, build.OwnedParts!.Count);
+        Assert.Equal(0m, build.Totals.GrandTotal);
+        var carts = new EfCartService(context, null!);
+        var cart = await carts.GetCartAsync(new(member, null), CancellationToken.None);
+        var error = await Assert.ThrowsAsync<BuildWriteException>(() => service.AddToCartAsync(member, build.PublicId,
+            new(1, build.RowVersion, cart.RowVersion), "owned-no-purchase", CancellationToken.None));
+        Assert.Equal(BuildWriteException.ErrorCodes.ValidationFailed, error.ErrorCode);
+        Assert.Empty((await carts.GetCartAsync(new(member, null), CancellationToken.None)).Items);
+    }
 
     public EfBuildListServiceTests(CompatibilityCheckServiceFixture fixture)
     {

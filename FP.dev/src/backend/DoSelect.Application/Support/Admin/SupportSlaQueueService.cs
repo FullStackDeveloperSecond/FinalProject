@@ -19,7 +19,7 @@ public sealed class SupportSlaQueueService : ISupportSlaQueueService
         _timeProvider = timeProvider;
     }
 
-    public async Task<CursorPage<SupportSlaItemDto>> GetPageAsync(
+    public async Task<SupportSlaQueueResponse> GetPageAsync(
         SupportSlaQueueQuery query,
         string adminUserId,
         bool canSupervise,
@@ -30,10 +30,18 @@ public sealed class SupportSlaQueueService : ISupportSlaQueueService
             throw DomainProblemException.Validation("pageSize must be between 1 and 100.");
         }
 
+        if (query.PageNumber is < 1 or > 1000000 || query.Search?.Length > 100 ||
+            (query.Status is { } status && !Enum.IsDefined(status)) ||
+            (query.Priority is { } priority && !Enum.IsDefined(priority)) ||
+            query.Assignee is not ("all" or "mine" or "unassigned") || query.Sort is not ("deadline" or "recent") ||
+            (query.PageNumber is not null && query.Cursor is not null) || (query.PageNumber is null && query.Sort != "deadline"))
+            throw DomainProblemException.Validation("篩選或分頁條件不正確。");
+
         var fingerprint = OpaqueCursorCodec.ComputeFingerprint(
             FingerprintTag,
             adminUserId,
-            canSupervise.ToString());
+            canSupervise.ToString(), query.Search?.Trim() ?? "", query.Status?.ToString() ?? "",
+            query.Priority?.ToString() ?? "", query.OnlyOverdue.ToString(), query.Assignee, query.Sort);
 
         SupportSlaCursorPosition? after = null;
         if (query.Cursor is not null)
@@ -48,10 +56,10 @@ public sealed class SupportSlaQueueService : ISupportSlaQueueService
 
         var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
         var page = await _store.QueryPageAsync(
-            query.PageSize, after, nowUtc, adminUserId, canSupervise, cancellationToken);
+            query.PageSize, after, nowUtc, adminUserId, canSupervise, cancellationToken, query);
 
         string? nextCursor = null;
-        if (page.HasMore && page.Items.Count > 0)
+        if (query.PageNumber is null && page.HasMore && page.Items.Count > 0)
         {
             var last = page.Items[^1];
             nextCursor = OpaqueCursorCodec.Encode(
@@ -59,6 +67,6 @@ public sealed class SupportSlaQueueService : ISupportSlaQueueService
                 fingerprint);
         }
 
-        return new CursorPage<SupportSlaItemDto>(page.Items, nextCursor, page.HasMore);
+        return new SupportSlaQueueResponse(page.Items, nextCursor, page.HasMore, page.TotalCount, query.PageNumber);
     }
 }

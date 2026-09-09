@@ -48,7 +48,7 @@ async function mountPage() {
   await router.isReady()
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return mount(AdminRefundsPage, {
-    global: { plugins: [[VueQueryPlugin, { queryClient }], router] },
+    global: { plugins: [[VueQueryPlugin, { queryClient }], router, PrimeVue] },
   })
 }
 
@@ -84,3 +84,4 @@ describe('AdminRefundsPage', () => {
     }))
   })
 })
+import PrimeVue from 'primevue/config'

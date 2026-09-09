@@ -200,10 +200,13 @@ public sealed class EfCartService : ICartService
         CartIdentity identity,
         IReadOnlyList<AssemblyGroupItemInput> perUnitItems,
         int unitCount,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        BuildCartImportOptions? importOptions = null)
     {
         ArgumentNullException.ThrowIfNull(perUnitItems);
-        if (unitCount < 1)
+        if (unitCount is < 1 or > 8 || perUnitItems.Count is < 1 or > 20 ||
+            perUnitItems.Any(item => item is null || item.Quantity is < 1 or > 8 || item.SkuPublicId == Guid.Empty) ||
+            perUnitItems.Select(item => item.SkuPublicId).Distinct().Count() != perUnitItems.Count)
         {
             throw new ArgumentOutOfRangeException(nameof(unitCount));
         }
@@ -216,28 +219,110 @@ public sealed class EfCartService : ICartService
             .Where(sku => requestedPublicIds.Contains(sku.PublicId))
             .ToDictionaryAsync(sku => sku.PublicId, sku => sku.Id, cancellationToken);
 
+        if (skuIdByPublicId.Count != requestedPublicIds.Length)
+        {
+            throw new ShoppingWriteException(ShoppingWriteException.ErrorCodes.ValidationFailed, "組裝商品已變更，請重新選擇。");
+        }
+        var cartItems = await _dbContext.CartItems.Where(item => item.CartId == cart.Id).ToListAsync(cancellationToken);
+        var transfers = new Dictionary<Guid, int>();
+        if (importOptions is not null)
+        {
+            if (importOptions.CartRowVersion is not { Length: 8 } ||
+                !cart.RowVersion.SequenceEqual(importOptions.CartRowVersion))
+            {
+                throw new ShoppingWriteException(ShoppingWriteException.ErrorCodes.ConcurrencyConflict, "購物車已變更，請重新確認匯入數量。");
+            }
+            if (importOptions.Transfers is null || importOptions.Transfers.Count > 20 ||
+                importOptions.Transfers.Any(item => item is null || item.Quantity is < 1 or > 64 || item.CartItemPublicId == Guid.Empty) ||
+                importOptions.Transfers.Select(item => item.CartItemPublicId).Distinct().Count() != importOptions.Transfers.Count)
+            {
+                throw new ShoppingWriteException(ShoppingWriteException.ErrorCodes.ValidationFailed, "購物車轉移項目或數量不正確。");
+            }
+            var requiredBySku = perUnitItems.ToDictionary(item => skuIdByPublicId[item.SkuPublicId], item => item.Quantity * unitCount);
+            foreach (var transfer in importOptions.Transfers)
+            {
+                var source = cartItems.SingleOrDefault(item => item.PublicId == transfer.CartItemPublicId);
+                if (source is null || source.AssemblyGroupKey is not null || source.Quantity < transfer.Quantity ||
+                    !requiredBySku.TryGetValue(source.SkuId, out var required) || transfer.Quantity > required)
+                {
+                    throw new ShoppingWriteException(ShoppingWriteException.ErrorCodes.ValidationFailed, "只能轉移目前購物車中已選的新購零件，不能拆開既有組裝群組。");
+                }
+                transfers.Add(source.PublicId, transfer.Quantity);
+            }
+            _dbContext.Entry(cart).Property(item => item.RowVersion).OriginalValue = importOptions.CartRowVersion;
+        }
+
         // CartDto.items is documented as [0..100] — every assembly unit adds perUnitItems.Count
         // new rows (each with its own AssemblyGroupKey, so none of them can combine with an
         // existing row), unlike a normal AddItemAsync call which only ever adds at most one. The
         // whole add is rejected if it would exceed the cap — no partial assembly ever lands in
         // the cart — matching AddItemAsync's own cart_item_limit_exceeded check.
-        var currentItemCount = await _dbContext.CartItems.CountAsync(
-            candidate => candidate.CartId == cart.Id, cancellationToken);
-        if (currentItemCount + unitCount * perUnitItems.Count > 100)
+        var asLooseParts = importOptions?.AsLooseParts == true;
+        var removedCount = asLooseParts ? 0 : cartItems.Count(item => transfers.GetValueOrDefault(item.PublicId) == item.Quantity);
+        var addedCount = asLooseParts
+            ? perUnitItems.Count(item => !cartItems.Any(existing => existing.SkuId == skuIdByPublicId[item.SkuPublicId] && existing.AssemblyGroupKey == null))
+            : unitCount * perUnitItems.Count;
+        if (cartItems.Count - removedCount + addedCount > 100)
         {
             throw new ShoppingWriteException(
                 ShoppingWriteException.ErrorCodes.CartItemLimitExceeded,
                 "Adding this build would exceed the maximum of 100 items.");
         }
 
-        for (var unit = 0; unit < unitCount; unit++)
+        // Validate the complete resulting quantity before staging any changes. Other cart
+        // groups remain intact; imported loose quantities are counted only once.
+        if (importOptions is not null)
         {
-            var assemblyGroupKey = Guid.CreateVersion7();
+            var skuIds = skuIdByPublicId.Values.ToArray();
+            var available = await _dbContext.InventoryBalances.AsNoTracking()
+                .Where(balance => skuIds.Contains(balance.SkuId))
+                .ToDictionaryAsync(balance => balance.SkuId, balance => balance.AvailableQuantity, cancellationToken);
             foreach (var item in perUnitItems)
             {
                 var skuId = skuIdByPublicId[item.SkuPublicId];
-                _dbContext.CartItems.Add(new CartItem(
-                    Guid.CreateVersion7(), cart.Id, skuId, item.Quantity, assemblyGroupKey, now));
+                var existingRows = cartItems.Where(row => row.SkuId == skuId).ToArray();
+                var required = item.Quantity * unitCount;
+                var loose = existingRows.SingleOrDefault(row => row.AssemblyGroupKey == null);
+                var resulting = asLooseParts
+                    ? existingRows.Sum(row => row.Quantity) + Math.Max(0, required - (loose?.Quantity ?? 0))
+                    : existingRows.Sum(row => row.Quantity - transfers.GetValueOrDefault(row.PublicId)) + required;
+                if (resulting > available.GetValueOrDefault(skuId))
+                {
+                    throw new ShoppingWriteException(ShoppingWriteException.ErrorCodes.CartItemRequiresAttention, "購物車合計數量超過可購庫存，請調整後再試。");
+                }
+            }
+        }
+
+        if (asLooseParts)
+        {
+            foreach (var item in perUnitItems)
+            {
+                var skuId = skuIdByPublicId[item.SkuPublicId];
+                var existing = cartItems.SingleOrDefault(row => row.SkuId == skuId && row.AssemblyGroupKey == null);
+                var required = item.Quantity * unitCount;
+                if (existing is null)
+                    _dbContext.CartItems.Add(new CartItem(Guid.CreateVersion7(), cart.Id, skuId, required, null, now));
+                else if (existing.Quantity < required)
+                    existing.ChangeQuantity(required, now);
+            }
+        }
+        else
+        {
+            foreach (var source in cartItems.Where(item => transfers.ContainsKey(item.PublicId)))
+            {
+                var remaining = source.Quantity - transfers[source.PublicId];
+                if (remaining == 0) _dbContext.CartItems.Remove(source);
+                else source.ChangeQuantity(remaining, now);
+            }
+            for (var unit = 0; unit < unitCount; unit++)
+            {
+                var assemblyGroupKey = Guid.CreateVersion7();
+                foreach (var item in perUnitItems)
+                {
+                    var skuId = skuIdByPublicId[item.SkuPublicId];
+                    _dbContext.CartItems.Add(new CartItem(
+                        Guid.CreateVersion7(), cart.Id, skuId, item.Quantity, assemblyGroupKey, now));
+                }
             }
         }
 
@@ -829,6 +914,14 @@ public sealed class EfCartService : ICartService
             .Where(sku => skuIds.Contains(sku.Id))
             .ToDictionaryAsync(sku => sku.Id, cancellationToken);
 
+        var categoriesBySkuId = await (
+            from sku in _dbContext.Skus.AsNoTracking()
+            join product in _dbContext.Products.AsNoTracking() on sku.ProductId equals product.Id
+            join category in _dbContext.Categories.AsNoTracking() on product.CategoryId equals category.Id
+            where skuIds.Contains(sku.Id)
+            select new { sku.Id, category.Code })
+            .ToDictionaryAsync(row => row.Id, row => row.Code, cancellationToken);
+
         var effectivePricesBySkuId = await _dbContext.SalePrices.AsNoTracking()
             .Where(salePrice => skuIds.Contains(salePrice.SkuId) &&
                 salePrice.Status == SalePriceStatus.Active &&
@@ -895,7 +988,8 @@ public sealed class EfCartService : ICartService
                 PriceChanged: false, // No price-at-add snapshot column exists yet (see PR description / tracking issue).
                 concern.MaxPurchasableQuantity,
                 cartItem.AssemblyGroupKey,
-                cartItem.RowVersion));
+                cartItem.RowVersion,
+                categoriesBySkuId.GetValueOrDefault(sku.Id)));
         }
 
         foreach (var conflict in unresolvedConflicts)

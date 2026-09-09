@@ -149,7 +149,7 @@ describe('ProductsPage', () => {
   })
 
   /** PR #24 review round 2: valueType Boolean specs (no options) need an eq control. */
-  it('sends an eq Specs filter when a boolean spec is selected', async () => {
+  it('immediately applies an eq Specs filter when a boolean dropdown is selected', async () => {
     mockSearchProducts.mockResolvedValue(emptyResult)
     mockGetCatalogFilterOptions.mockResolvedValue(filterOptionsWithSpec)
 
@@ -157,7 +157,6 @@ describe('ProductsPage', () => {
     await flushPromises()
 
     await wrapper.find('select[aria-label="RGB 燈效"]').setValue('true')
-    await wrapper.find('form').trigger('submit')
     await flushPromises()
 
     expect(mockSearchProducts).toHaveBeenLastCalledWith(expect.objectContaining({
@@ -189,16 +188,13 @@ describe('ProductsPage', () => {
     await flushPromises()
 
     expect(wrapper.find('fieldset').exists()).toBe(false)
-
-    await wrapper.find('form').trigger('submit')
-    await flushPromises()
-
     expect(mockSearchProducts).toHaveBeenLastCalledWith(expect.objectContaining({ specs: undefined }))
+    expect(wrapper.vm.$route.query.category).toBe('other-category')
   })
 
   /**
    * Regression test (組長 PR #24 review round 3, item 3): typing into the keyword field, or
-   * switching brand/price, used to re-run the search on every change — before "套用篩選" ever
+   * editing text/price fields used to re-run the search on every change — before "套用篩選" ever
    * pushed the URL — so the visible results, the URL, and a shared/reloaded link all disagreed.
    */
   it('does not issue a new search while filters are edited but not yet applied', async () => {
@@ -277,7 +273,7 @@ describe('ProductsPage', () => {
     expect(mockSearchProducts).toHaveBeenLastCalledWith(expect.objectContaining({ category: 'CPU' }))
   })
 
-  it('does not clobber an unapplied category edit when filter options arrive', async () => {
+  it('keeps an immediately applied category edit when filter options arrive', async () => {
     mockSearchProducts.mockResolvedValue(emptyResult)
 
     let resolveOptions: (value: unknown) => void = () => {}
@@ -286,7 +282,7 @@ describe('ProductsPage', () => {
     const wrapper = await mountPage('/products?category=CPU')
     await flushPromises()
 
-    // 使用者在選項到齊前就先把草稿改回「全部分類」
+    // 使用者在選項到齊前就改回「全部分類」，下拉選單應立即套用
     await wrapper.find('select[aria-label="分類"]').setValue('')
 
     resolveOptions({
@@ -299,10 +295,9 @@ describe('ProductsPage', () => {
     await flushPromises()
     await wrapper.vm.$nextTick()
 
-    // 尚未套用的編輯不得被選項載入蓋掉
+    // 已套用的編輯不得被選項載入蓋掉
     expect((wrapper.find('select[aria-label="分類"]').element as HTMLSelectElement).value).toBe('')
-    // route query 沒被動到
-    expect(wrapper.vm.$route.query.category).toBe('CPU')
+    expect(wrapper.vm.$route.query.category).toBeUndefined()
   })
 
   it('re-syncs the category control on query-only back/forward navigation', async () => {

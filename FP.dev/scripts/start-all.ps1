@@ -149,7 +149,7 @@ try {
         $apiParameters = @{
             Name = 'API'
             FilePath = $dotnet
-            ArgumentList = @('run', '--no-launch-profile', '--project', $apiProject)
+            ArgumentList = "run --no-launch-profile --project `"$apiProject`""
             WorkingDirectory = $script:ProjectRoot
             Port = 5126
         }
@@ -169,7 +169,8 @@ try {
     $customerParameters = @{
         Name = 'Customer Web'
         FilePath = $npm
-        ArgumentList = @('run', 'dev', '--', '--host', '127.0.0.1', '--port', '5173', '--strictPort')
+        # Refresh dependency URLs: linked shared modules may otherwise remain immutable in the browser cache after an update.
+        ArgumentList = @('run', 'dev', '--', '--force', '--host', '127.0.0.1', '--port', '5173', '--strictPort')
         WorkingDirectory = $customerRoot
         Port = 5173
     }
@@ -177,7 +178,7 @@ try {
     $adminParameters = @{
         Name = 'Admin Web'
         FilePath = $npm
-        ArgumentList = @('run', 'dev', '--', '--host', '127.0.0.1', '--port', '5174', '--strictPort')
+        ArgumentList = @('run', 'dev', '--', '--force', '--host', '127.0.0.1', '--port', '5174', '--strictPort')
         WorkingDirectory = $adminRoot
         Port = 5174
     }

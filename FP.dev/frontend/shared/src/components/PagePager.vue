@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { computed, watch, watchEffect } from 'vue'
 import Paginator from 'primevue/paginator'
+import { usePrimeVue } from 'primevue/config'
+
+const primeVue = usePrimeVue()
+const pageLabel = (number: number) => (primeVue.config.locale?.aria?.pageLabel ?? '{page}').replace('{page}', String(number))
 
 const props = defineProps<{
   /** Current page, 1-based. Two-way bound via `v-model:page`. */
@@ -10,7 +14,8 @@ const props = defineProps<{
   /** Records per page. Must be a positive integer. */
   pageSize: number
   /** Accessible name for the pager navigation landmark, from the host app's locale. */
-  ariaLabel: string
+  ariaLabel?: string
+  busy?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -54,6 +59,12 @@ const safePage = computed(() =>
 /** PrimeVue Paginator wants a 0-based record offset; always a non-negative integer. */
 const first = computed(() => (safePage.value - 1) * safePageSize.value)
 
+// Five nearby pages plus explicit endpoints; never pretend a cursor result has a total.
+const visiblePages = computed(() => {
+  const start = Math.max(1, Math.min(safePage.value - 2, pageCount.value - 4))
+  return Array.from({ length: Math.min(5, pageCount.value) }, (_, index) => start + index)
+})
+
 if (import.meta.env.DEV) {
   watchEffect(() => {
     if (!pageSizeValid.value) {
@@ -93,7 +104,7 @@ watch(
 )
 
 function onPage(event: { page: number }) {
-  if (!inputsValid.value) {
+  if (!inputsValid.value || props.busy) {
     return
   }
   const next = event.page + 1
@@ -106,10 +117,74 @@ function onPage(event: { page: number }) {
 <template>
   <Paginator
     class="ds-page-pager"
-    :aria-label="ariaLabel"
+    :aria-label="ariaLabel ?? $attrs['aria-label']"
     :first="first"
     :rows="safePageSize"
     :total-records="safeTotalRecords"
     @page="onPage"
-  />
+  >
+    <template #container>
+      <div class="ds-page-pager__controls">
+        <button
+          type="button"
+          :disabled="busy || !inputsValid || safePage <= 1"
+          @click="onPage({ page: safePage - 2 })"
+        >
+          {{ primeVue.config.locale?.aria?.prevPageLabel }}
+        </button>
+        <template v-if="visiblePages[0]! > 1">
+          <button
+            type="button"
+            :disabled="busy || !inputsValid"
+            :aria-label="pageLabel(1)"
+            @click="onPage({ page: 0 })"
+          >
+            1
+          </button>
+          <span
+            v-if="visiblePages[0]! > 2"
+            aria-hidden="true"
+          >...</span>
+        </template>
+        <button
+          v-for="number in visiblePages"
+          :key="number"
+          type="button"
+          :disabled="busy || !inputsValid"
+          :aria-label="pageLabel(number)"
+          :aria-current="number === safePage ? 'page' : undefined"
+          @click="onPage({ page: number - 1 })"
+        >
+          {{ number }}
+        </button>
+        <template v-if="visiblePages[visiblePages.length - 1]! < pageCount">
+          <span
+            v-if="visiblePages[visiblePages.length - 1]! < pageCount - 1"
+            aria-hidden="true"
+          >...</span>
+          <button
+            type="button"
+            :disabled="busy || !inputsValid"
+            :aria-label="pageLabel(pageCount)"
+            @click="onPage({ page: pageCount - 1 })"
+          >
+            {{ pageCount }}
+          </button>
+        </template>
+        <button
+          type="button"
+          :disabled="busy || !inputsValid || safePage >= pageCount"
+          @click="onPage({ page: safePage })"
+        >
+          {{ primeVue.config.locale?.aria?.nextPageLabel }}
+        </button>
+      </div>
+    </template>
+  </Paginator>
 </template>
+
+<style scoped>
+.ds-page-pager__controls { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; justify-content: center; }
+.ds-page-pager__controls button { min-width: 2.5rem; min-height: 2.5rem; }
+.ds-page-pager__controls [aria-current="page"] { font-weight: 700; outline: 2px solid currentColor; outline-offset: -2px; }
+</style>

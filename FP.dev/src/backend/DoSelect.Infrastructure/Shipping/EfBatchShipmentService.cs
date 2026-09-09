@@ -442,7 +442,7 @@ public sealed class EfBatchShipmentService : IBatchShipmentService
                     "The order already has a shipment; use markShipped to complete it.");
             }
 
-            if (order.FulfillmentStatus != FulfillmentStatus.Pending)
+            if (order.FulfillmentStatus is not (FulfillmentStatus.Pending or FulfillmentStatus.Preparing))
             {
                 return (ShippingErrorCodes.ShippingOrderNotReady, $"The order is already {order.FulfillmentStatus}.");
             }
@@ -452,7 +452,7 @@ public sealed class EfBatchShipmentService : IBatchShipmentService
             // markShipped 有兩個合法入口：還沒開單（一次走完 Pending→Preparing→Shipped），或是
             // createLabel 已經開好單、停在 Preparing（接著走 Preparing→Shipped）。
             var isFreshOrder = existingShipmentStatus is null &&
-                order.FulfillmentStatus == FulfillmentStatus.Pending;
+                order.FulfillmentStatus is FulfillmentStatus.Pending or FulfillmentStatus.Preparing;
             var isPreparedOrder = existingShipmentStatus == FulfillmentStatus.Preparing &&
                 order.FulfillmentStatus == FulfillmentStatus.Preparing;
             if (!isFreshOrder && !isPreparedOrder)

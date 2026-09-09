@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using DoSelect.Application.Ai;
 using DoSelect.Application.Common;
 using DoSelect.Application.Shopping;
 
@@ -53,7 +54,8 @@ public sealed record BuildListDto(
     BuildTotalsDto Totals,
     BuildActiveShareDto? ActiveShare,
     DateTime UpdatedAtUtc,
-    byte[] RowVersion);
+    byte[] RowVersion,
+    IReadOnlyList<AiProductSearchExistingPart>? OwnedParts = null);
 
 public sealed record BuildListSummaryDto(
     Guid PublicId,
@@ -67,12 +69,14 @@ public sealed record BuildListSummaryDto(
 
 public sealed record CreateBuildListRequest(
     [Required, StringLength(160, MinimumLength = 1)] string Name,
-    IReadOnlyList<BuildItemInput> Items);
+    IReadOnlyList<BuildItemInput> Items,
+    IReadOnlyList<AiProductSearchExistingPart>? OwnedParts = null);
 
 public sealed record UpdateBuildListRequest(
     [Required, StringLength(160, MinimumLength = 1)] string Name,
     IReadOnlyList<BuildItemInput> Items,
-    byte[] RowVersion);
+    byte[] RowVersion,
+    IReadOnlyList<AiProductSearchExistingPart>? OwnedParts = null);
 
 /// <summary>Same bounds as ProductSearchQuery's paging convention (API DTO與Schema契約.md).</summary>
 public sealed record BuildListListQuery(
@@ -88,7 +92,11 @@ public sealed record BuildListListQuery(
 /// </summary>
 public sealed record BuildShareDto(Guid SharePublicId, string Url, DateTime? ExpiresAtUtc);
 
-public sealed record AddBuildToCartRequest([Range(1, 8)] int Quantity, byte[] BuildRowVersion);
+public sealed record AddBuildToCartRequest(
+    [Range(1, 8)] int Quantity,
+    byte[] BuildRowVersion,
+    byte[]? CartRowVersion = null,
+    IReadOnlyList<CartItemTransferInput>? CartTransfers = null);
 
 /// <summary>De-identified public view of a shared build list — never includes the owner.</summary>
 public sealed record SharedBuildDto(
@@ -98,7 +106,8 @@ public sealed record SharedBuildDto(
     BuildCompatibilitySummaryDto Compatibility,
     BuildTotalsDto Totals,
     bool CanCopy,
-    bool CanAddToCart);
+    bool CanAddToCart,
+    IReadOnlyList<AiProductSearchExistingPart>? OwnedParts = null);
 
 public interface IBuildListService
 {

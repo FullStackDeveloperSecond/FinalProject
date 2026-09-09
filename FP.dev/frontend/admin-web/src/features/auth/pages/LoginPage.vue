@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { DemoLoginFill } from '@doselect/web-shared/components'
 import { useRoute, useRouter } from 'vue-router'
 import { useAdminAuthStore } from '../stores/useAdminAuthStore'
 
@@ -33,6 +34,7 @@ async function onSubmit(): Promise<void> {
       @submit.prevent="onSubmit"
     >
       <h1>管理員登入</h1>
+      <DemoLoginFill account-type="admin" :disabled="auth.loading" @fill="account => { email = account.email; password = account.password }" />
       <p class="auth-card__subtitle">
         DoSelect 懂選．後台管理系統
       </p>

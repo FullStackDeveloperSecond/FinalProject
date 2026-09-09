@@ -21,6 +21,19 @@ export async function getShippingOptions(
   return data!
 }
 
+export interface ConvenienceStoreRegionParams {
+  providerCode: string
+  city?: string
+  pageNumber?: number
+}
+
+export async function getConvenienceStoreRegions(params: ConvenienceStoreRegionParams) {
+  const { data } = await apiClient.GET('/api/v1/convenience-stores/regions', {
+    params: { query: { ProviderCode: params.providerCode, City: params.city, PageNumber: params.pageNumber, PageSize: 100 } },
+  })
+  return data!
+}
+
 export interface ConvenienceStoreSearchParams {
   providerCode?: string
   city?: string

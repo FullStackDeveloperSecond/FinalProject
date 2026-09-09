@@ -40,6 +40,24 @@ const router = createRouter({
       component: () => import('../pages/VerifyEmailPage.vue'),
     },
     {
+      path: '/terms',
+      name: 'terms',
+      component: () => import('../pages/LegalDemoPage.vue'),
+      props: { kind: 'terms' },
+    },
+    {
+      path: '/privacy',
+      name: 'privacy',
+      component: () => import('../pages/LegalDemoPage.vue'),
+      props: { kind: 'privacy' },
+    },
+    {
+      path: '/return-policy',
+      name: 'return-policy',
+      component: () => import('../pages/LegalDemoPage.vue'),
+      props: { kind: 'return' },
+    },
+    {
       path: '/forgot-password',
       name: 'forgot-password',
       component: () => import('../pages/ForgotPasswordPage.vue'),
@@ -159,6 +177,11 @@ const router = createRouter({
       path: '/checkout',
       name: 'checkout',
       component: () => import('../pages/CheckoutPage.vue'),
+    },
+    {
+      path: '/checkout/verify-email',
+      name: 'guest-checkout-email-verification',
+      component: () => import('../pages/GuestCheckoutEmailVerificationPage.vue'),
     },
     {
       // 組長 PR #35 round-3 review, P2-3: a saved build-list is inherently a member resource (it

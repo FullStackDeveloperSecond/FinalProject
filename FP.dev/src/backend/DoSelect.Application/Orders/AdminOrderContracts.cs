@@ -134,7 +134,10 @@ public sealed record AdminOrderDto(
     byte[] RowVersion,
     // C1（組長 2026-09-04）：物流摘要、歷程與後端計算的 availableActions 直接掛在訂單明細上，
     // 不另開查詢端點。沒有物流單時為 null。
-    AdminShipmentDto? Shipment = null);
+    AdminShipmentDto? Shipment = null,
+    IReadOnlyList<AdminAssemblyJobDto>? AssemblyJobs = null);
+
+public sealed record AdminAssemblyJobDto(Guid PublicId, string Status, byte[] RowVersion, IReadOnlyList<string> AvailableActions);
 
 /// <summary>
 /// UC-ADM-ORDER-02：完整收件資料只給有履約權限者查看，且每次讀取需可稽核。本切片的
@@ -174,14 +177,20 @@ public static class AdminOrderActions
 {
     public const string StartProcessing = "startProcessing";
     public const string Cancel = "cancel";
+    public const string AssemblyTesting = "assemblyTesting";
+    public const string AssemblyReady = "assemblyReady";
+    public const string AssemblyFailed = "assemblyFailed";
+    public const string AssemblyRestart = "assemblyRestart";
 
-    public static readonly IReadOnlyList<string> All = [StartProcessing, Cancel];
+    public static readonly IReadOnlyList<string> All = [StartProcessing, Cancel, AssemblyTesting, AssemblyReady, AssemblyFailed, AssemblyRestart];
 }
 
 public sealed record AdminOrderActionRequest(
     [StringLength(64)] string? ReasonCode,
     [StringLength(500)] string? Note,
-    byte[] RowVersion);
+    byte[] RowVersion,
+    Guid? AssemblyJobPublicId = null,
+    byte[]? AssemblyJobRowVersion = null);
 
 public interface IAdminOrderService
 {

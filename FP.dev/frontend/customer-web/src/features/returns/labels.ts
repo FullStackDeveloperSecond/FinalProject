@@ -24,6 +24,29 @@ export const reasonLabels: Record<string, string> = {
   Warranty: '保固處理',
 }
 
+export const inspectionStatusLabels: Record<string, string> = {
+  NotInspected: '尚未檢查',
+  Resellable: '可重新販售',
+  Quarantine: '隔離保管',
+  Scrap: '報廢',
+}
+
+export const shipmentMethodLabels: Record<string, string> = {
+  homePickup: '到府取件',
+  convenienceStore: '超商寄回',
+  selfShip: '自行寄回',
+}
+
+export const shipmentStatusLabels: Record<string, string> = {
+  pending: '待安排',
+  scheduled: '已安排',
+  pickedUp: '已取件',
+  inTransit: '運送中',
+  delivered: '已送達商家',
+  failed: '寄回失敗',
+  cancelled: '已取消',
+}
+
 export function formatDateTime(value: string | null | undefined): string {
   if (!value) {
     return '—'

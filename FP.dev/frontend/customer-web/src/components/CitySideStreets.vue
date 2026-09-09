@@ -6,10 +6,9 @@ import { clearRecentProducts, loadRecentProducts, recentProducts } from './cityC
 
 const route = useRoute()
 const stations: { name: string; to: string; icon: BrandIconName; note: string }[] = [
-  { name: '靈感站', to: '/ai-search', icon: 'purpose', note: '說說你的用途' },
-  { name: '零件街', to: '/products', icon: 'cpu', note: '探索電腦配備' },
-  { name: '組裝所', to: '/builds/new', icon: 'custom-build', note: '搭建理想電腦' },
-  { name: '補給站', to: '/support', icon: 'recommend', note: '找人幫個忙' },
+  { name: 'AI 懂選', to: '/ai-search', icon: 'purpose', note: '核對需求與用途' },
+  { name: '商品', to: '/products', icon: 'cpu', note: '挑選電腦零件' },
+  { name: '新增組裝清單', to: '/builds/new', icon: 'custom-build', note: '確認配置與購買品項' },
 ]
 const quietPage = computed(() => /^\/(checkout|login|register|orders|guest-orders)/.test(route.path))
 const wide = ref(false)

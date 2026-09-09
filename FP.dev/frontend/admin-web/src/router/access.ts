@@ -1,5 +1,6 @@
 /** Navigation and route guards share the same roles; the API remains authoritative. */
 export const adminRouteRoles: Record<string, string[]> = {
+  '/members': ['SuperAdmin', 'PrivacyAdmin'],
   '/inventory/reconciliation-cases': ['InventoryManager', 'SuperAdmin'],
   '/orders': ['OrderManager', 'SuperAdmin'],
   '/orders/:publicId': ['OrderManager', 'SuperAdmin'],

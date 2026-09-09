@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { getCart } from '../features/cart/api'
+import type { AddBuildToCartRequest } from '../features/builds/types'
 import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
 import { computed, ref, watch } from 'vue'
@@ -79,6 +81,7 @@ async function copyToMyLists(): Promise<void> {
     const copy = await createBuildList.mutateAsync({
       name: `${sharedBuild.value.name}（複製）`,
       items: sharedBuild.value.items.map((item) => ({ skuPublicId: item.skuPublicId, quantity: item.quantity })),
+      ownedParts: sharedBuild.value.ownedParts ?? [],
     })
     if (!isStillViewing(requestedShareToken)) {
       return
@@ -109,6 +112,7 @@ async function copyToMyLists(): Promise<void> {
 // operation, out of scope for this round per 組長's own note.
 const pendingCopyForCart = ref<{ publicId: string, rowVersion: string } | null>(null)
 let cartIdempotencyKey = crypto.randomUUID()
+let pendingCartRequest: AddBuildToCartRequest | null = null
 
 async function addSharedBuildToCart(): Promise<void> {
   if (!sharedBuild.value) {
@@ -128,6 +132,7 @@ async function addSharedBuildToCart(): Promise<void> {
       const created = await createBuildList.mutateAsync({
         name: `${sharedBuild.value.name}（複製）`,
         items: sharedBuild.value.items.map((item) => ({ skuPublicId: item.skuPublicId, quantity: item.quantity })),
+        ownedParts: sharedBuild.value.ownedParts ?? [],
       })
       copy = { publicId: created.publicId, rowVersion: created.rowVersion }
       // 已切走時不得把這份複本記到新分享頁的 pendingCopyForCart 上，否則 B 的加入購物車會拿 A 的複本去送。
@@ -136,15 +141,21 @@ async function addSharedBuildToCart(): Promise<void> {
       }
       pendingCopyForCart.value = copy
     }
+    if (!pendingCartRequest) {
+      const cartRowVersion = sharedBuild.value.ownedParts?.length ? (await getCart()).rowVersion : undefined
+      if (!isStillViewing(requestedShareToken)) return
+      pendingCartRequest = { quantity: 1, buildRowVersion: copy.rowVersion, ...(cartRowVersion ? { cartRowVersion, cartTransfers: [] } : {}) }
+    }
     await addToCart.mutateAsync({
       publicId: copy.publicId,
-      request: { quantity: 1, buildRowVersion: copy.rowVersion },
+      request: pendingCartRequest,
       idempotencyKey: cartIdempotencyKey,
     })
     if (!isStillViewing(requestedShareToken)) {
       return
     }
     pendingCopyForCart.value = null
+    pendingCartRequest = null
     cartIdempotencyKey = crypto.randomUUID()
     await router.push(`/builds/${copy.publicId}`)
   } catch (caught) {
@@ -152,6 +163,7 @@ async function addSharedBuildToCart(): Promise<void> {
       return
     }
     actionError.value = caught
+    if (isApiError(caught) && [400, 404, 409].includes(caught.status)) pendingCartRequest = null
   } finally {
     if (isStillViewing(requestedShareToken)) {
       isBusy.value = false
@@ -194,6 +206,7 @@ watch(
  * 的錯誤訊息或忙碌狀態。
  */
 watch(() => props.shareToken, () => {
+  pendingCartRequest = null
   actionError.value = null
   isBusy.value = false
   pendingCopyForCart.value = null
@@ -248,6 +261,21 @@ watch(() => props.shareToken, () => {
         :results="sharedBuild.compatibility.results"
       />
 
+      <section
+        v-if="sharedBuild.ownedParts?.length"
+        aria-label="自有零件"
+      >
+        <h2>自有零件</h2>
+        <p>下列零件不會加入購物車；只購買新零件，不收組裝費，也不建立組裝工單。</p>
+        <ul>
+          <li
+            v-for="(part, index) in sharedBuild.ownedParts"
+            :key="index"
+          >
+            {{ part.displayName }} × {{ part.quantity }}（自有）
+          </li>
+        </ul>
+      </section>
       <!--
         送出前文件核對發現：這裡原本只顯示 grandTotal，但 商品、組裝與相容性.md 把「組裝服務費
         NT$300／台」列為組裝群組的一個明確項目，BuildDetailPage.vue 也是三行拆開顯示。同一份清單

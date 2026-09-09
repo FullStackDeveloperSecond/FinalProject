@@ -74,6 +74,21 @@ describe('ProductsPage', () => {
     expect(statusOptions).toEqual(['', 'Draft', 'Published', 'Unpublished', 'Discontinued'])
   })
 
+  it('immediately applies a dropdown filter and updates the URL', async () => {
+    mockListBrands.mockResolvedValue({ items: [], pageNumber: 1, pageSize: 100, totalCount: 0 })
+    mockListCategories.mockResolvedValue({ items: [], pageNumber: 1, pageSize: 100, totalCount: 0 })
+    mockListAdminProducts.mockResolvedValue({ items: [], pageNumber: 1, pageSize: 20, totalCount: 0 })
+
+    const wrapper = await mountPage()
+    await flushPromises()
+
+    await wrapper.find('select[aria-label="狀態"]').setValue('Published')
+    await flushPromises()
+
+    expect(mockListAdminProducts).toHaveBeenLastCalledWith(expect.objectContaining({ statuses: ['Published'] }))
+    expect(wrapper.vm.$route.query.status).toBe('Published')
+  })
+
   /** UC-ADM-PROD-01 acceptance: "價格顯示最低至最高區間" — AdminProductSummaryDto already carries minPrice/maxPrice, but the table never showed them. */
   it('renders the min-to-max price range for a multi-SKU product', async () => {
     mockListBrands.mockResolvedValue({ items: [], pageNumber: 1, pageSize: 100, totalCount: 0 })

@@ -70,7 +70,7 @@ describe('admin support queries', () => {
     await expect(claim({ rowVersion: 'AAAAAAAAAAE=' })).resolves.toEqual(claimedTicket)
     expect(fetchStub).toHaveBeenCalledTimes(2)
     expect(fetchStub.mock.calls[0]?.[0])
-      .toBe('http://localhost:5126/api/v1/security/antiforgery-token')
+      .toBe(`${window.location.origin}/api/v1/security/antiforgery-token`)
     expect(new Headers(fetchStub.mock.calls[0]?.[1]?.headers).get('X-DoSelect-Client')).toBe('admin')
 
     const [claimUrl, claimInit] = fetchStub.mock.calls[1] ?? []
@@ -78,7 +78,7 @@ describe('admin support queries', () => {
       ? claimUrl
       : new Request(String(claimUrl), claimInit)
     expect(claimRequest.url)
-      .toBe(`http://localhost:5126/api/v1/admin/support-tickets/${ticketId}/actions/claim`)
+      .toBe(`${window.location.origin}/api/v1/admin/support-tickets/${ticketId}/actions/claim`)
     expect(claimRequest.method).toBe('POST')
     expect(claimRequest.credentials).toBe('include')
     await expect(claimRequest.clone().json()).resolves.toEqual({ rowVersion: 'AAAAAAAAAAE=' })
@@ -176,7 +176,7 @@ describe('admin support queries', () => {
       ? assignUrl
       : new Request(String(assignUrl), assignInit)
     expect(assignRequest.url)
-      .toBe(`http://localhost:5126/api/v1/admin/support-tickets/${ticketId}/actions/assign`)
+      .toBe(`${window.location.origin}/api/v1/admin/support-tickets/${ticketId}/actions/assign`)
     await expect(assignRequest.clone().json()).resolves.toEqual({
       targetAdminPublicId,
       reason: 'supervisor assign',
@@ -303,7 +303,7 @@ describe('admin support queries', () => {
 
     const [noteUrl, noteInit] = fetchStub.mock.calls[1] ?? []
     const noteRequest = noteUrl instanceof Request ? noteUrl : new Request(String(noteUrl), noteInit)
-    expect(noteRequest.url).toBe(`http://localhost:5126/api/v1/admin/support-tickets/${ticketId}/internal-notes`)
+    expect(noteRequest.url).toBe(`${window.location.origin}/api/v1/admin/support-tickets/${ticketId}/internal-notes`)
     await expect(noteRequest.clone().json()).resolves.toEqual({ body: 'internal note text', rowVersion: 'AAAAAAAAAAE=' })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['admin-support-ticket-detail', ticketId] })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['admin-support-sla-queue'] })
@@ -369,7 +369,7 @@ describe('admin support queries', () => {
 
     const [replyUrl, replyInit] = fetchStub.mock.calls[1] ?? []
     const replyRequest = replyUrl instanceof Request ? replyUrl : new Request(String(replyUrl), replyInit)
-    expect(replyRequest.url).toBe(`http://localhost:5126/api/v1/admin/support-tickets/${ticketId}/messages`)
+    expect(replyRequest.url).toBe(`${window.location.origin}/api/v1/admin/support-tickets/${ticketId}/messages`)
     await expect(replyRequest.clone().json()).resolves.toEqual({
       body: 'public reply',
       rowVersion: 'AAAAAAAAAAE=',

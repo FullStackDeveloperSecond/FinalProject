@@ -19,6 +19,17 @@
 .site-main .view-shell .products-filters { border-color: var(--store-line); background: #fbfefc; box-shadow: 0 8px 24px #174f4a08; border-radius: 18px; }
 .site-main .view-shell .products-filters button[type=submit] { background: var(--store-accent); color: #fff; border-color: var(--store-accent); border-radius: 10px; }
 .product-detail__back { margin-bottom: 18px; }
+.site-main .view-shell .product-detail,
+.site-main .view-shell .cart-page,
+.site-main .view-shell .store-workspace {
+  min-width: 0;
+  padding: clamp(1rem, 2.5vw, 2rem);
+  border: 1px solid #d6d3c9;
+  border-radius: 1rem;
+  background: #fffdf8;
+  box-shadow: 0 6px 24px #173f3812;
+  overflow-wrap: anywhere;
+}
 .site-main--welcome { min-height: calc(100vh - 74px); padding: 0; }
 .welcome-content { width: 100%; min-height: inherit; }
 .welcome-page { position: relative; min-height: calc(100vh - 84px); overflow: hidden; display: grid; place-items: center; background: #0d3d46; color: #f2fffa; isolation: isolate; }
@@ -34,7 +45,7 @@
 .welcome-page__logo-part--br { clip-path: inset(50% 0 0 50%); }
 .welcome-page__logo-glow { position: absolute; inset: 10%; z-index: 2; border-radius: 50%; border: 1px solid #c8fff477; box-shadow: 0 0 50px #8cf9db66; pointer-events: none; }
 .welcome-page__scanline { position: absolute; inset: 0 8%; z-index: 5; height: 3px; margin-top: 12%; background: #b5fff0; box-shadow: 0 0 18px #b5fff0, 0 0 42px #62d9d0; opacity: 0; pointer-events: none; }
-.welcome-page__portal { position: absolute; z-index: 8; left: 50%; top: 48%; width: 180px; height: 180px; border-radius: 50%; background: #c8ffe8; box-shadow: 0 0 32px 8px #c8ffe833; opacity: 0; transform: translate(-50%, -50%) scale(.1); pointer-events: none; }
+.welcome-page__portal { position: absolute; z-index: 8; left: 50%; top: 48%; width: 22vmax; height: 22vmax; border-radius: 50%; background: #c8ffe8; box-shadow: 0 0 32px 8px #c8ffe833; opacity: 0; transform: translate(-50%, -50%) scale(.1); pointer-events: none; }
 .welcome-page h1 { margin: 0; color: #fff; font-size: clamp(30px, 5vw, 56px); line-height: 1.12; }
 .welcome-page__copy { max-width: 520px; margin: 0; color: #dbfff2; font-size: 17px; line-height: 1.8; }
 .welcome-page__explore { min-width: 190px; border: 0; border-radius: 999px; padding: 14px 24px; background: #b8edc2; color: #174f4a; font-size: 17px; font-weight: 800; box-shadow: 0 5px 0 #6db49b; cursor: pointer; transition: transform .2s, background .2s; }

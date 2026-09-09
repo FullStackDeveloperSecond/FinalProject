@@ -9,7 +9,10 @@ import {
 import router from '../router'
 import { useAdminAuthStore } from '../features/auth/stores/useAdminAuthStore'
 
-export const apiBaseUrl = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL)
+const browserApiFallback = typeof window === 'undefined'
+  ? 'http://localhost:5126'
+  : window.location.origin
+export const apiBaseUrl = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL, browserApiFallback)
 const antiforgeryTokenProvider = createAntiforgeryTokenProvider({
   baseUrl: apiBaseUrl,
   client: 'admin',

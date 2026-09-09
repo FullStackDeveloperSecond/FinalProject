@@ -6,9 +6,13 @@ import { createRouter, createMemoryHistory } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useSessionStore } from '../stores/session'
 import type { BuildListDto, CompatibilityCheckDto } from '../features/builds/types'
+import { stageBuildImport } from '../features/builds/buildImport'
 
 const mockCreateBuildList = vi.fn()
 const mockCheckCompatibility = vi.fn()
+const mockAddBuildToCart = vi.fn()
+const mockGetCart = vi.fn()
+vi.mock('../features/cart/api', () => ({ getCart: (...args: unknown[]) => mockGetCart(...args) }))
 
 vi.mock('../features/builds/api', () => ({
   listBuildLists: vi.fn(),
@@ -19,7 +23,7 @@ vi.mock('../features/builds/api', () => ({
   createBuildShare: vi.fn(),
   revokeBuildShare: vi.fn(),
   getSharedBuild: vi.fn(),
-  addBuildToCart: vi.fn(),
+  addBuildToCart: (...args: unknown[]) => mockAddBuildToCart(...args),
   checkCompatibility: (...args: unknown[]) => mockCheckCompatibility(...args),
 }))
 
@@ -56,6 +60,7 @@ async function mountPage() {
       { path: '/builds/new', name: 'build-new', component: NewBuildPage },
       { path: '/builds/:buildId', name: 'build-detail', component: { template: '<div />' } },
       { path: '/login', name: 'login', component: { template: '<div />' } },
+      { path: '/cart', name: 'cart', component: { template: '<div />' } },
     ],
   })
   const pinia = createPinia()
@@ -71,6 +76,8 @@ async function mountPage() {
 }
 
 beforeEach(() => {
+  mockAddBuildToCart.mockReset()
+  mockGetCart.mockReset()
   mockCreateBuildList.mockReset()
   mockCheckCompatibility.mockReset()
   mockCheckCompatibility.mockResolvedValue(compatibleResult)
@@ -82,6 +89,76 @@ beforeEach(() => {
 })
 
 describe('NewBuildPage', () => {
+  it('previews imported owned parts and saves them separately only after confirmation', async () => {
+    const owned = { sourceType: 'catalogSku', skuPublicId: 'owned-psu', categoryCode: 'PSU', displayName: '我的電源供應器', specifications: [], quantity: 1, confirmedByUser: true }
+    stageBuildImport({ name: '匯入', items: [draftItem], ownedParts: [owned] })
+    const { wrapper } = await mountPage()
+    expect(wrapper.text()).toContain('確認匯入內容')
+    expect(mockCreateBuildList).not.toHaveBeenCalled()
+    await wrapper.findAll('button').find(button => button.text() === '以匯入內容取代整份草稿')!.trigger('click')
+    await wrapper.find('.new-build-page__actions button').trigger('click')
+    await vi.waitFor(() => expect(mockCreateBuildList).toHaveBeenCalled())
+    expect(mockCreateBuildList.mock.calls[0]![0].ownedParts).toEqual([owned])
+    expect(mockCreateBuildList.mock.calls[0]![0].items).toEqual([{ skuPublicId: draftItem.skuPublicId, quantity: draftItem.quantity }])
+    wrapper.unmount()
+  })
+
+  it('keeps the exact transfer request and idempotency key when retrying a lost response', async () => {
+    mockLoadGuestBuildDraft.mockReturnValue({ name: '移轉', items: [draftItem], cartSource: {
+      publicId: 'cart-1', rowVersion: 'cart-v1', items: [{ cartItemPublicId: 'row-1', skuPublicId: draftItem.skuPublicId, quantity: 1 }],
+    } })
+    mockCreateBuildList.mockResolvedValue({ publicId: 'build-1', rowVersion: 'build-v1' })
+    mockGetCart.mockResolvedValue({ publicId: 'cart-1', rowVersion: 'cart-v1' })
+    mockAddBuildToCart.mockRejectedValueOnce(new Error('連線中斷')).mockResolvedValueOnce({})
+    const { wrapper, router } = await mountPage()
+    useSessionStore().status = 'authenticated'
+    await wrapper.vm.$nextTick()
+    const purchase = () => wrapper.findAll('button').find(button => button.text() === '儲存並加入購物車')!
+    await purchase().trigger('click')
+    await vi.waitFor(() => expect(wrapper.text()).toContain('連線中斷'))
+    await purchase().trigger('click')
+    await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/cart'))
+    expect(mockCreateBuildList).toHaveBeenCalledTimes(1)
+    expect(mockGetCart).toHaveBeenCalledTimes(1)
+    expect(mockAddBuildToCart.mock.calls[0]).toEqual(mockAddBuildToCart.mock.calls[1])
+    expect(mockAddBuildToCart.mock.calls[0]![1]).toEqual({ quantity: 1, buildRowVersion: 'build-v1', cartRowVersion: 'cart-v1', cartTransfers: [{ cartItemPublicId: 'row-1', quantity: 1 }] })
+    wrapper.unmount()
+  })
+
+  it('does not redirect or clear the draft when an in-flight purchase finishes after leaving the page', async () => {
+    mockLoadGuestBuildDraft.mockReturnValue({ name: '組裝', items: [draftItem] })
+    mockCreateBuildList.mockResolvedValue({ publicId: 'build-1', rowVersion: 'build-v1' })
+    mockGetCart.mockResolvedValue({ publicId: 'cart-1', rowVersion: 'cart-v1' })
+    let finishPurchase!: (value: unknown) => void
+    mockAddBuildToCart.mockImplementation(() => new Promise(resolve => { finishPurchase = resolve }))
+    const { wrapper, router } = await mountPage()
+    useSessionStore().status = 'authenticated'
+    await wrapper.vm.$nextTick()
+    await wrapper.findAll('button').find(button => button.text() === '儲存並加入購物車')!.trigger('click')
+    await vi.waitFor(() => expect(mockAddBuildToCart).toHaveBeenCalledOnce())
+    wrapper.unmount()
+    await router.push('/login')
+    finishPurchase({})
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(router.currentRoute.value.path).toBe('/login')
+    expect(mockClearGuestBuildDraft).not.toHaveBeenCalled()
+  })
+
+  it('does not turn an old cart selection into additional purchases after login merges or changes the cart', async () => {
+    mockLoadGuestBuildDraft.mockReturnValue({ name: '移轉', items: [draftItem], cartSource: {
+      publicId: 'guest-cart', rowVersion: 'old', items: [{ cartItemPublicId: 'old-row', skuPublicId: draftItem.skuPublicId, quantity: 1 }],
+    } })
+    mockCreateBuildList.mockResolvedValue({ publicId: 'build-1', rowVersion: 'build-v1' })
+    mockGetCart.mockResolvedValue({ publicId: 'member-cart', rowVersion: 'new' })
+    const { wrapper } = await mountPage()
+    useSessionStore().status = 'authenticated'
+    await wrapper.vm.$nextTick()
+    await wrapper.findAll('button').find(button => button.text() === '儲存並加入購物車')!.trigger('click')
+    await vi.waitFor(() => expect(wrapper.text()).toContain('購物車已變更'))
+    expect(mockAddBuildToCart).not.toHaveBeenCalled()
+    expect(mockClearGuestBuildDraft).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
   /**
    * 組長 PR #35 review, item 2: a guest hitting save() used to be sent to /unauthorized — a dead
    * end. It must redirect to /login instead, preserving this exact page as the return target so

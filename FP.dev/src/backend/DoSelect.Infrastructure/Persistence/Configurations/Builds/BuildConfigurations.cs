@@ -15,6 +15,7 @@ public sealed class BuildListConfiguration : IEntityTypeConfiguration<BuildList>
         builder.Property(entity => entity.Name).HasMaxLength(160).IsRequired();
         builder.Property(entity => entity.Status).HasMaxLength(16).IsUnicode(false).IsRequired();
         builder.Property(entity => entity.LastCheckedAtUtc).HasPrecision(3);
+        builder.Property(entity => entity.OwnedPartsJson).HasMaxLength(32_000);
         builder.Property(entity => entity.CompatibilityStatus)
             .HasConversion<string>()
             .HasMaxLength(24)
