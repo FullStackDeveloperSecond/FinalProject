@@ -8,4 +8,9 @@ namespace DoSelect.Application.Common;
 /// EfAdminOrderService; later Cursor 分頁 consumers (terry/kafen 的後台訂單、庫存保留、SLA
 /// 佇列等模組) should reuse this type rather than defining their own.
 /// </summary>
-public sealed record CursorPage<T>(IReadOnlyList<T> Items, string? NextCursor, bool HasMore);
+public sealed record CursorPage<T>(IReadOnlyList<T> Items, string? NextCursor, bool HasMore)
+{
+    /// <summary>僅支援頁碼模式的端點提供實際總數；舊游標回應不增加計數查詢或欄位。</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public int? TotalCount { get; init; }
+}

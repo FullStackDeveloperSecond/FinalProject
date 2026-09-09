@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 import {
   confirmInventoryImport,
@@ -38,27 +38,22 @@ export function useImportBatch(kind: ImportKind, batchId: MaybeRefOrGetter<strin
 }
 
 export interface ImportRowsFilter {
+  pageNumber?: number
   errorsOnly?: boolean
   pageSize?: number
 }
 
-/**
- * 組長 PR #89 item 5：「載入更多」是累加，不是換頁。上一版只改 cursor，新的一頁會取代上一頁，
- * 超過 50 列就沒辦法連續檢視、也回不去。改用 infinite query：每一頁的游標由上一頁的 nextCursor
- * 提供，畫面把所有頁攤平。換篩選條件（只看錯誤列）就是換 key，從第一頁重來。
- */
+/** 使用頁碼切換預覽列；目前頁可重新整理，確認仍由伺服器對整批原子驗證。 */
 export function useImportRows(
   kind: ImportKind,
   batchId: MaybeRefOrGetter<string | null>,
   filter: MaybeRefOrGetter<ImportRowsFilter>,
 ) {
-  return useInfiniteQuery({
+  return useQuery({
     queryKey: computed(() => ['imports', kind, 'rows', toValue(batchId), toValue(filter)] as const),
-    queryFn: ({ pageParam }): Promise<AnyImportRowsPage> => (kind === 'product'
-      ? getProductImportRows(toValue(batchId)!, { ...toValue(filter), cursor: pageParam })
-      : getInventoryImportRows(toValue(batchId)!, { ...toValue(filter), cursor: pageParam })),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: last => (last.hasMore ? last.nextCursor ?? undefined : undefined),
+    queryFn: (): Promise<AnyImportRowsPage> => (kind === 'product'
+      ? getProductImportRows(toValue(batchId)!, toValue(filter))
+      : getInventoryImportRows(toValue(batchId)!, toValue(filter))),
     enabled: computed(() => Boolean(toValue(batchId))),
   })
 }

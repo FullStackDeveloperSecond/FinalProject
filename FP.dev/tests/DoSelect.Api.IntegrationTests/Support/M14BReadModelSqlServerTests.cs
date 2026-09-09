@@ -133,6 +133,11 @@ public sealed class M14BReadModelSqlServerTests : IClassFixture<M14BReadModelSql
             sort: CaseWorkbenchSortOrder.Oldest);
         Assert.Equal(olderId, Assert.Single(oldestFirst.Items).CasePublicId);
         Assert.Equal(3, oldestFirst.TotalCount);
+        var numbered = await QueryWorkbenchAsync(
+            [CaseWorkbenchCaseType.Support], marker, pageSize: 1, after: null, pageNumber: 3);
+        Assert.Equal(olderId, Assert.Single(numbered.Items).CasePublicId);
+        Assert.Equal(3, numbered.TotalCount);
+        Assert.False(numbered.HasMore);
 
         var createdDate = DateOnly.FromDateTime(now.AddDays(-1));
         var dateFiltered = await QueryWorkbenchAsync(
@@ -280,7 +285,8 @@ public sealed class M14BReadModelSqlServerTests : IClassFixture<M14BReadModelSql
         CaseWorkbenchCursorPosition? after,
         CaseWorkbenchSortOrder sort = CaseWorkbenchSortOrder.Latest,
         DateOnly? createdFrom = null,
-        DateOnly? createdTo = null)
+        DateOnly? createdTo = null,
+        int? pageNumber = null)
     {
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
@@ -301,7 +307,8 @@ public sealed class M14BReadModelSqlServerTests : IClassFixture<M14BReadModelSql
             after,
             "sql-test-supervisor",
             canSupervise: true,
-            CancellationToken.None);
+            CancellationToken.None,
+            pageNumber);
     }
 
     private async Task<ApplicationUser> SeedMemberAsync(string marker)

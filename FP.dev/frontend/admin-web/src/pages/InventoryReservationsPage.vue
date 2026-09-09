@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** A-12 (M功能桌面UI與Route規格.md): Cursor 保留佇列、二次確認、理由及人工釋放。 */
-import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
+import { EmptyState, ErrorState, LoadingState, PagePager } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
 import { computed, reactive, ref } from 'vue'
 import { useInventoryReservationList, useReleaseReservation } from '../features/inventory/useInventory'
@@ -31,51 +31,25 @@ function reservationStatusLabel(value: string): string {
   return RESERVATION_STATUS_OPTIONS.find(option => option.value === value)?.label ?? '其他狀態'
 }
 
-// 組長 PR #37 round-2 review, item 3: the <select> binds to a draft; only 搜尋 copies it into the
-// applied status. Binding the query key straight to the form meant changing status on page two
-// fired "new status + old cursor", which the backend rejects by contract (a cursor is bound to
-// the filters that issued it). The applied status is part of the query key, so submitting swaps
-// the key and the infinite query restarts from an empty first page — the old "clear the cursor
-// on search" is now implicit and can't be forgotten.
+// 篩選即時套用並回第一頁；不沿用上一組條件的頁碼。
 const draftFilters = reactive({ status: '' })
 const appliedStatus = ref('')
 
-// 組長 PR #37 round-3 review (P2): the page no longer accumulates cursor pages in its own ref —
-// that made TanStack Query observe only the *current* cursor, so refocus/invalidate refreshed the
-// latest page and left earlier pages stale. useInfiniteQuery keeps every loaded page under one
-// query key and refetches them ALL on invalidate (see useInventory.ts).
-const listParams = computed(() => ({ status: appliedStatus.value || undefined, pageSize: 20 }))
+const pageNumber = ref(1)
+const listParams = computed(() => ({ status: appliedStatus.value || undefined, pageSize: 20, pageNumber: pageNumber.value }))
 const {
   data,
   isPending,
   isError,
   error,
   refetch,
-  fetchNextPage,
-  hasNextPage,
-  isFetchingNextPage,
 } = useInventoryReservationList(listParams)
 
-// Flatten the pages for rendering, still upserting by publicId (round-2 review, item 2): a full
-// refetch keeps pages internally consistent, but between a fetchNextPage and the pages fetched
-// before it a row can move across page boundaries — later pages are the fresher fetch, so the
-// last occurrence wins, and Map's insertion-order preservation keeps the list from reordering.
-const loadedItems = computed<InventoryReservationDto[]>(() => {
-  const byId = new Map<string, InventoryReservationDto>()
-  for (const pageData of data.value?.pages ?? []) {
-    for (const item of pageData.items) {
-      byId.set(item.publicId, item)
-    }
-  }
-  return [...byId.values()]
-})
+const loadedItems = computed<InventoryReservationDto[]>(() => data.value?.items ?? [])
 
 function search() {
+  pageNumber.value = 1
   appliedStatus.value = draftFilters.status
-}
-
-function loadMore() {
-  fetchNextPage()
 }
 
 const releaseMutation = useReleaseReservation()
@@ -256,19 +230,14 @@ function formatDateTime(value: string | null): string {
           </template>
         </tbody>
       </table>
-      <div
-        v-if="hasNextPage"
-        class="reservations-load-more"
-      >
-        <button
-          type="button"
-          :disabled="isFetchingNextPage"
-          @click="loadMore"
-        >
-          載入更多
-        </button>
-      </div>
     </template>
+    <PagePager
+      v-if="data?.totalCount != null && !isPending && !isError"
+      v-model:page="pageNumber"
+      :page-size="20"
+      :total-records="Number(data.totalCount)"
+      aria-label="庫存保留分頁"
+    />
   </section>
 </template>
 

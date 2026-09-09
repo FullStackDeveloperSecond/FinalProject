@@ -6,6 +6,7 @@
  */
 import { computed, ref } from 'vue'
 import { isApiError } from '@doselect/web-shared/api'
+import { PagePager } from '@doselect/web-shared/components'
 import {
   useProductOptionLabels,
   useProductOptionSearch,
@@ -48,21 +49,6 @@ function runSearch() {
   submittedTerm.value = term.value.trim()
   // 換關鍵字要回到第一頁，否則會拿新關鍵字去查舊頁碼。
   pageNumber.value = 1
-}
-
-/**
- * 看下一頁。
- *
- * `hasMore` 沒有翻頁的方法就只是一個沒有出口的狀態 —— 介面顯示「還有更多」
- * 卻讓管理員無從取得，等於那些商品選不到（alex #69 P2 的同一個問題，
- * 端點修好之後這裡也要跟上）。
- */
-function nextPage() {
-  pageNumber.value += 1
-}
-
-function previousPage() {
-  pageNumber.value = Math.max(pageNumber.value - 1, 1)
 }
 
 /** 這個商品能不能新增。停售品只會出現在既有已選清單，不會出現在搜尋結果。 */
@@ -161,27 +147,14 @@ function describeSelected(publicId: string): string {
       </li>
     </ul>
 
-    <nav
-      v-if="results && (results.hasMore || pageNumber > 1)"
-      class="scope-pages"
+    <PagePager
+      v-if="results && submittedTerm !== ''"
+      v-model:page="pageNumber"
+      :page-size="searchPageSize"
+      :total-records="results.totalCount"
+      :busy="isFetching"
       :aria-label="`${props.label}分頁`"
-    >
-      <button
-        type="button"
-        :disabled="pageNumber <= 1"
-        @click="previousPage"
-      >
-        上一頁
-      </button>
-      <span>第 {{ pageNumber }} 頁</span>
-      <button
-        type="button"
-        :disabled="!results.hasMore"
-        @click="nextPage"
-      >
-        下一頁
-      </button>
-    </nav>
+    />
 
     <h5>已選 {{ props.modelValue.length }} 項</h5>
     <p v-if="props.modelValue.length === 0">

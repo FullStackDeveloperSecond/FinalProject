@@ -56,7 +56,8 @@ public sealed record ImportRowsQuery(
     string? Dataset,
     bool ErrorsOnly,
     string? Cursor,
-    int PageSize);
+    int PageSize,
+    int? PageNumber = null);
 
 /// <summary>
 /// 商品匯入 Preview／Status／Rows／Errors／Confirm per UC-IMPORT-01 (匯入暫存與庫存調整設計.md).

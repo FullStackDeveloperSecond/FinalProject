@@ -24,6 +24,44 @@ public sealed class AdminOrdersApiTests
     public AdminOrdersApiTests(AdminOrdersApiFixture fixture) => _fixture = fixture;
 
     [Fact]
+    public async Task List_NumberedPagesReturnCountAndAllowDirectLastPageWithoutChangingCursorMode()
+    {
+        await using var context = _fixture.CreateScopedContext();
+        var profileId = await AdminOrdersApiSeeding.SeedShippingProviderProfileAsync(context);
+        await AdminOrdersApiSeeding.SeedOrderAsync(context, profileId);
+        await AdminOrdersApiSeeding.SeedOrderAsync(context, profileId);
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync();
+        using var first = await client.GetAsync("/api/v1/admin/orders?pageSize=1&pageNumber=1");
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        var firstBody = await first.Content.ReadFromJsonAsync<JsonElement>();
+        var count = firstBody.GetProperty("totalCount").GetInt32();
+        Assert.True(count >= 2);
+        using var last = await client.GetAsync($"/api/v1/admin/orders?pageSize=1&pageNumber={count}");
+        Assert.Equal(HttpStatusCode.OK, last.StatusCode);
+        var lastBody = await last.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(count, lastBody.GetProperty("totalCount").GetInt32());
+        Assert.Single(lastBody.GetProperty("items").EnumerateArray());
+        Assert.False(lastBody.GetProperty("hasMore").GetBoolean());
+        Assert.NotEqual(firstBody.GetProperty("items")[0].GetProperty("publicId").GetString(),
+            lastBody.GetProperty("items")[0].GetProperty("publicId").GetString());
+
+        using var legacy = await client.GetAsync("/api/v1/admin/orders?pageSize=1");
+        var legacyBody = await legacy.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(legacyBody.TryGetProperty("totalCount", out _));
+    }
+
+    [Theory]
+    [InlineData("pageNumber=0")]
+    [InlineData("pageNumber=1000001")]
+    [InlineData("pageNumber=1&cursor=invalid")]
+    public async Task List_RejectsInvalidOrMixedPagination(string query)
+    {
+        using var client = await _fixture.CreateAuthenticatedAdminClientAsync();
+        using var response = await client.GetAsync($"/api/v1/admin/orders?pageSize=1&{query}");
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
     public async Task List_ReturnsOkWithCursorPage()
     {
         await using var context = _fixture.CreateScopedContext();

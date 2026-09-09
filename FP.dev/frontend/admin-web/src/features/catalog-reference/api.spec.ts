@@ -57,7 +57,7 @@ describe('searchProductOptions', () => {
 
   it('passes the page number through so the caller can reach the second page', async () => {
     // hasMore 沒有翻頁的方法就只是一個沒有出口的狀態。
-    mockGet.mockResolvedValueOnce({ data: { items: [product('p2')], hasMore: false } })
+    mockGet.mockResolvedValueOnce({ data: { items: [product('p2')], hasMore: false, totalCount: 11 } })
 
     const result = await searchProductOptions({ q: '顯示卡', pageNumber: 2, pageSize: 10 })
 
@@ -66,6 +66,7 @@ describe('searchProductOptions', () => {
     })
     expect(result.hasMore).toBe(false)
     expect(result.items).toHaveLength(1)
+    expect(result.totalCount).toBe(11)
   })
 })
 

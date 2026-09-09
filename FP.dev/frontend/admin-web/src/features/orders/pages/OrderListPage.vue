@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
-import { EmptyState, ErrorState, HttpStatusPage, LoadingState } from '@doselect/web-shared/components'
+import { EmptyState, ErrorState, HttpStatusPage, LoadingState, PagePager } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
 import {
   BADGE_OPTIONS,
@@ -21,7 +21,7 @@ import { MAX_BATCH_SHIPMENT_ORDERS } from '../../shipping/types'
 const filters = reactive<AdminOrderListFilters>({
   summaryStatus: [],
   badge: [],
-  cursor: undefined,
+  pageNumber: 1,
   pageSize: 20,
 })
 
@@ -37,7 +37,7 @@ function toggle<T extends string>(list: T[], value: T): void {
   else {
     list.splice(index, 1)
   }
-  filters.cursor = undefined
+  filters.pageNumber = 1
 }
 
 function toggleSummaryStatus(value: SummaryStatus): void {
@@ -46,14 +46,6 @@ function toggleSummaryStatus(value: SummaryStatus): void {
 
 function toggleBadge(value: OrderBadge): void {
   toggle(filters.badge, value)
-}
-
-// Cursor 分頁採「換頁」而非累加式無限捲動（不用 useInfiniteQuery）——換頁時取代目前顯示的
-// items，不保留前一頁。範圍夠用即可，之後要做無限捲動再換 useInfiniteQuery。
-function loadMore(): void {
-  if (data.value?.nextCursor) {
-    filters.cursor = data.value.nextCursor
-  }
 }
 
 function formatDateTime(value?: string | null): string {
@@ -116,7 +108,7 @@ function toggleSelected(order: {
  * 有效的勾選，而不是無條件清空。
  */
 watch(
-  () => [filters.summaryStatus, filters.badge, filters.cursor],
+  () => [JSON.stringify(filters.summaryStatus), JSON.stringify(filters.badge), filters.pageNumber],
   () => {
     if (selected.value.size > 0) {
       selected.value = new Map()
@@ -294,13 +286,7 @@ async function goToBatchShipment(): Promise<void> {
         </tbody>
       </table>
 
-      <button
-        v-if="data.hasMore"
-        type="button"
-        @click="loadMore"
-      >
-        載入更多
-      </button>
+
 
       <p v-if="canShipBatch && selectionCount > 0">
         已選取 {{ selectionCount }} 筆
@@ -314,5 +300,13 @@ async function goToBatchShipment(): Promise<void> {
         </button>
       </p>
     </template>
+    <PagePager
+      v-if="data?.totalCount != null && !isPending && !isError"
+      :page="filters.pageNumber ?? 1"
+      :page-size="filters.pageSize"
+      :total-records="data.totalCount"
+      aria-label="訂單分頁"
+      @update:page="filters.pageNumber = $event"
+    />
   </section>
 </template>

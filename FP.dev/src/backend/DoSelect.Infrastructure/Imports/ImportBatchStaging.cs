@@ -262,6 +262,11 @@ internal static class ImportBatchStaging
         CancellationToken cancellationToken)
     {
         var pageSize = query.PageSize;
+        if (query.PageNumber is < 1 or > 1_000_000 ||
+            (query.PageNumber.HasValue && !string.IsNullOrWhiteSpace(query.Cursor)))
+        {
+            throw DomainProblemException.Validation("頁碼必須介於 1 至 1000000，且不能與游標同時使用。");
+        }
         var fingerprint = OpaqueCursorCodec.ComputeFingerprint(
             batchPublicId.ToString(), query.Dataset, query.ErrorsOnly.ToString());
 
@@ -285,6 +290,7 @@ internal static class ImportBatchStaging
             rowsQuery = rowsQuery.Where(row => row.ErrorCodes != null);
         }
 
+        int? totalCount = query.PageNumber.HasValue ? await rowsQuery.CountAsync(cancellationToken) : null;
         if (!string.IsNullOrWhiteSpace(query.Cursor) &&
             !OpaqueCursorCodec.TryDecode<RowCursorPayload>(query.Cursor, fingerprint, out _))
         {
@@ -303,6 +309,7 @@ internal static class ImportBatchStaging
 
         var page = await rowsQuery
             .OrderBy(row => row.Dataset).ThenBy(row => row.SourceRowNumber)
+            .Skip(((query.PageNumber ?? 1) - 1) * pageSize)
             .Take(pageSize + 1)
             .ToListAsync(cancellationToken);
 
@@ -316,7 +323,7 @@ internal static class ImportBatchStaging
             nextCursor = OpaqueCursorCodec.Encode(new RowCursorPayload(last.Dataset, last.SourceRowNumber), fingerprint);
         }
 
-        return new CursorPage<TDto>(items, nextCursor, hasMore);
+        return new CursorPage<TDto>(items, nextCursor, hasMore) { TotalCount = totalCount };
     }
 
     public static IReadOnlyList<string> SplitErrorCodes(string? errorCodes) =>

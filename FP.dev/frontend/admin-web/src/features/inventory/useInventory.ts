@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 import {
   acknowledgeReconciliationCase,
@@ -32,20 +32,11 @@ export function useInventoryMovementList(params: MaybeRefOrGetter<InventoryMovem
   })
 }
 
-/**
- * 組長 PR #37 round-3 review (P2): the page used to accumulate cursor pages itself while the
- * query only observed the *current* cursor — so a refocus/invalidate refreshed page N and left
- * pages 1..N-1 with stale Status/RowVersion/ExpiresAtUtc. useInfiniteQuery owns the full page
- * list instead: one query key covers every loaded page, and a refetch replays them all in order,
- * re-deriving each next cursor from the fresh previous page, so no loaded row can stay stale
- * after a refresh. The cursor is the pageParam and is no longer part of the caller's params.
- */
+/** 頁碼、篩選都是 query key；不保留前一頁的可操作列，重新整理更新目前頁的狀態與 RowVersion。 */
 export function useInventoryReservationList(params: MaybeRefOrGetter<Omit<InventoryReservationListParams, 'cursor'>>) {
-  return useInfiniteQuery({
+  return useQuery({
     queryKey: computed(() => ['inventory', 'reservations', toValue(params)] as const),
-    queryFn: ({ pageParam }) => listReservations({ ...toValue(params), cursor: pageParam }),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (lastPage) => (lastPage.hasMore && lastPage.nextCursor) ? lastPage.nextCursor : undefined,
+    queryFn: () => listReservations(toValue(params)),
   })
 }
 

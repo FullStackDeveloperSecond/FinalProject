@@ -134,6 +134,9 @@ public sealed class OperationalReportContractsTests
         ValidQuery() with { Cursor = new string('x', 513) },
         ValidQuery() with { PageSize = 0 },
         ValidQuery() with { PageSize = 101 },
+        ValidQuery() with { PageNumber = 0 },
+        ValidQuery() with { PageNumber = 1_000_001 },
+        ValidQuery() with { PageNumber = 1, Cursor = "cursor" },
     };
 
     private static ReportQuery ValidQuery() => new(

@@ -10,7 +10,7 @@ namespace DoSelect.Infrastructure.Catalog;
 /// </summary>
 /// <remarks>
 /// <para>
-/// 三個查詢都是<b>單次往返</b>，這是契約的一部分而不是最佳化：先前的做法對分類樹
+/// 分類與已選商品解析都是<b>單次往返</b>；搜尋另有固定一次 COUNT 供頁碼使用。先前的做法對分類樹
 /// 每個節點各打一次公開端點、對每個已選商品各查一次明細，一次編輯就會放大成
 /// 上百次 HTTP 與 SQL（alex 2026-08-29 PR #64 P2#3）。
 /// </para>
@@ -91,13 +91,9 @@ public sealed class CouponCatalogOptionsReader : ICouponCatalogOptionsReader
 
         // 契約允許 pageNumber 到 int.MaxValue，但 (page - 1) * size 用 int 會溢位成
         // 負的 offset —— 本該回空頁的請求會變成 SQL 查詢失敗。先用 long 算，
-        // 超過 int.MaxValue 就直接回空頁、不送 SQL。
+        // 超過 int.MaxValue 就回空頁，只查總數、不送明細 SQL。
         // 專案既有的 EfProductSearchService 也是這樣處理同一個問題。
         var skip = ((long)page - 1) * size;
-        if (skip > int.MaxValue)
-        {
-            return new CouponProductSearchResult([], HasMore: false);
-        }
         var trimmed = keyword?.Trim();
 
         var query = _context.Products.AsNoTracking()
@@ -111,7 +107,13 @@ public sealed class CouponCatalogOptionsReader : ICouponCatalogOptionsReader
                 product.ProductCode.Contains(trimmed));
         }
 
-        // 多取一筆來判斷還有沒有更多，不另外打一次 COUNT。
+        var totalCount = await query.CountAsync(cancellationToken);
+        if (skip > int.MaxValue)
+        {
+            return new CouponProductSearchResult([], HasMore: false, totalCount);
+        }
+
+        // 多取一筆判斷還有沒有更多；總數套用同一組條件且在分頁前計算。
         //
         // 排序用 ProductCode（唯一索引）：排序鍵不唯一的話，SQL Server 對相同鍵值的
         // 回傳順序沒有保證，同一筆可能同時出現在兩頁、也可能兩頁都漏掉。
@@ -133,7 +135,7 @@ public sealed class CouponCatalogOptionsReader : ICouponCatalogOptionsReader
             .Select(row => ToOption(row.PublicId, row.ProductCode, row.NameZhTw, row.Status))
             .ToArray();
 
-        return new CouponProductSearchResult(items, hasMore);
+        return new CouponProductSearchResult(items, hasMore, totalCount);
     }
 
     /// <remarks>

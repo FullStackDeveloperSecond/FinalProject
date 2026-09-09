@@ -45,7 +45,8 @@ public sealed record CaseWorkbenchQuery(
     bool? OverdueOnly,
     string? Keyword,
     string? Cursor,
-    int PageSize);
+    int PageSize,
+    int? PageNumber = null);
 
 /// <summary>
 /// The fixed 12-field workbench projection (統一案件工作台設計). Must never grow to include

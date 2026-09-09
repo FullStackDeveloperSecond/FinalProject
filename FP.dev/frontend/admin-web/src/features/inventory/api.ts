@@ -26,6 +26,7 @@ export interface InventoryMovementListParams {
 }
 
 export interface InventoryReservationListParams {
+  pageNumber?: number
   cursor?: string
   status?: string
   pageSize?: number
@@ -83,6 +84,7 @@ export async function listReservations(
     params: {
       query: {
         Cursor: params.cursor || undefined,
+        PageNumber: params.pageNumber,
         Status: params.status || undefined,
         PageSize: params.pageSize,
       },

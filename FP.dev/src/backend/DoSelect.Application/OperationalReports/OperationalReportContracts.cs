@@ -104,7 +104,8 @@ public sealed record ReportQuery(
     IReadOnlyList<string>? OrderStatuses,
     string Granularity,
     string? Cursor,
-    int PageSize);
+    int PageSize,
+    int? PageNumber = null);
 
 public sealed record ValidatedReportQuery(
     DateOnly FromDate,
@@ -115,7 +116,8 @@ public sealed record ValidatedReportQuery(
     IReadOnlyList<string> OrderStatuses,
     string Granularity,
     string? Cursor,
-    int PageSize);
+    int PageSize,
+    int? PageNumber = null);
 
 public sealed record ReportMetricDto(string MetricKey, decimal? Value, string Unit);
 

@@ -61,6 +61,18 @@ public sealed class EfInventoryImportServiceTests
         Assert.Equal("NoChange", unchangedRow.Action);
         Assert.Equal(0, unchangedRow.Delta);
         Assert.Equal("重新盤點後一致", unchangedRow.Note);
+        Assert.Null(rows.TotalCount);
+        var numbered = await service.GetRowsAsync(
+            preview.PublicId, new ImportRowsQuery(null, false, null, 1, PageNumber: 2), CancellationToken.None);
+        Assert.Equal(2, numbered.TotalCount);
+        Assert.Equal(unchanged.SkuCode, Assert.Single(numbered.Items).SkuCode);
+        Assert.False(numbered.HasMore);
+        var errors = await service.GetRowsAsync(
+            preview.PublicId, new ImportRowsQuery(null, true, null, 1, PageNumber: 1), CancellationToken.None);
+        Assert.Equal(0, errors.TotalCount);
+        Assert.Empty(errors.Items);
+        await Assert.ThrowsAsync<DomainProblemException>(() => service.GetRowsAsync(
+            preview.PublicId, new ImportRowsQuery(null, false, "invalid", 1, PageNumber: 1), CancellationToken.None));
     }
 
     /// <summary>

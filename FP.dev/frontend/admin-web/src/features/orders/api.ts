@@ -152,6 +152,7 @@ export function fulfillmentStatusLabel(value: string): string {
 }
 
 export interface CursorPage<T> {
+  totalCount?: number | null
   items: T[]
   nextCursor?: string | null
   hasMore: boolean
@@ -308,6 +309,7 @@ export interface OrderRecipientDto {
 }
 
 export interface AdminOrderListFilters {
+  pageNumber?: number
   summaryStatus: SummaryStatus[]
   badge: OrderBadge[]
   cursor?: string
@@ -337,6 +339,7 @@ interface AdminOrdersPaths {
           summaryStatus?: string[]
           badge?: string[]
           cursor?: string
+          pageNumber?: number
           pageSize?: number
         }
       }
@@ -395,6 +398,7 @@ export async function fetchAdminOrders(
         summaryStatus: filters.summaryStatus.length > 0 ? filters.summaryStatus : undefined,
         badge: filters.badge.length > 0 ? filters.badge : undefined,
         cursor: filters.cursor,
+        pageNumber: filters.pageNumber,
         pageSize: filters.pageSize,
       },
     },

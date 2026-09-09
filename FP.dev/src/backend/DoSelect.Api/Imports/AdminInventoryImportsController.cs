@@ -71,13 +71,14 @@ public sealed class AdminInventoryImportsController : ControllerBase
         [FromQuery] bool errorsOnly,
         [FromQuery] string? cursor,
         [FromQuery] int? pageSize,
+        [FromQuery] int? pageNumber,
         CancellationToken cancellationToken)
     {
         // pageSize 用 nullable 綁定：非 nullable 的 int 會把「沒送」變成 0，然後被服務的 1–200
         // 範圍檢查拒絕——一個不帶 pageSize 的普通 GET 就掛了（組長 PR #74 round-2 P2）。
         var result = await _service.GetRowsAsync(
             id,
-            new ImportRowsQuery(dataset, errorsOnly, cursor, pageSize ?? DefaultRowsPageSize),
+            new ImportRowsQuery(dataset, errorsOnly, cursor, pageSize ?? DefaultRowsPageSize, pageNumber),
             cancellationToken);
         return Ok(result);
     }

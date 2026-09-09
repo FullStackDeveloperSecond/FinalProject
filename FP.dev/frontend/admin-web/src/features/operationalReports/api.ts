@@ -17,6 +17,7 @@ function query(filters: OperationalReportFilters, cursor?: string) {
     OrderStatuses: filters.orderStatuses.length > 0 ? filters.orderStatuses : undefined,
     Granularity: filters.granularity,
     Cursor: cursor,
+    PageNumber: cursor ? undefined : filters.pageNumber,
     PageSize: filters.pageSize,
   }
 }

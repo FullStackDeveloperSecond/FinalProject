@@ -83,11 +83,12 @@ public sealed class AdminProductImportsController : ControllerBase
         [FromQuery] bool errorsOnly,
         [FromQuery] string? cursor,
         [FromQuery] int? pageSize,
+        [FromQuery] int? pageNumber,
         CancellationToken cancellationToken)
     {
         var result = await _service.GetRowsAsync(
             id,
-            new ImportRowsQuery(dataset, errorsOnly, cursor, pageSize ?? DefaultRowsPageSize),
+            new ImportRowsQuery(dataset, errorsOnly, cursor, pageSize ?? DefaultRowsPageSize, pageNumber),
             cancellationToken);
         return Ok(result);
     }

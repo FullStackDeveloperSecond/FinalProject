@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
+import { EmptyState, ErrorState, LoadingState, PagePager } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
 import { useAdminAuthStore } from '../features/auth/stores/useAdminAuthStore'
 import { cellsFor, formatMetric, headersFor, metricLabel, unitLabel } from '../features/operationalReports/presentation'
@@ -46,6 +46,7 @@ function initialFilters(): OperationalReportFilters {
     orderStatuses: [],
     granularity: 'day',
     pageSize: 20,
+    pageNumber: 1,
   }
 }
 
@@ -102,6 +103,7 @@ function normalizedFilters(): OperationalReportFilters {
     orderStatuses: draft.orderStatusesText.split(',').map((value) => value.trim()).filter(Boolean),
     granularity: draft.granularity,
     pageSize: draft.pageSize,
+    pageNumber: 1,
   }
 }
 
@@ -117,8 +119,14 @@ async function applyFilters(): Promise<void> {
 
 watch(reportKey, async () => {
   validationMessage.value = ''
+  appliedFilters.value = { ...appliedFilters.value, pageNumber: 1 }
   await report.load(reportKey.value, appliedFilters.value)
 }, { immediate: true })
+
+async function changePage(pageNumber: number) {
+  appliedFilters.value = { ...appliedFilters.value, pageNumber }
+  await report.load(reportKey.value, appliedFilters.value)
+}
 </script>
 
 <template>
@@ -328,14 +336,15 @@ watch(reportKey, async () => {
           </tbody>
         </table>
       </div>
-      <button
-        v-if="report.data.value.rows.hasMore"
-        type="button"
-        :disabled="report.isLoadingMore.value"
-        @click="report.loadMore(reportKey, appliedFilters)"
-      >
-        {{ report.isLoadingMore.value ? '載入中…' : '載入更多' }}
-      </button>
+      <PagePager
+        v-if="report.data.value.rows.totalCount != null"
+        :page="appliedFilters.pageNumber ?? 1"
+        :page-size="appliedFilters.pageSize"
+        :total-records="Number(report.data.value.rows.totalCount)"
+        :busy="report.isLoading.value"
+        aria-label="報表明細分頁"
+        @update:page="changePage"
+      />
     </template>
   </section>
 </template>

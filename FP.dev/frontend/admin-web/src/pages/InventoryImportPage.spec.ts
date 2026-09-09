@@ -1,3 +1,5 @@
+import PrimeVue from 'primevue/config'
+import { chinesePaginationLocale } from '@doselect/web-shared/theme'
 import { flushPromises, mount } from '@vue/test-utils'
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -70,7 +72,7 @@ function mountPage() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
-  return mount(InventoryImportPage, { global: { plugins: [[VueQueryPlugin, { queryClient }]] } })
+  return mount(InventoryImportPage, { global: { plugins: [[PrimeVue, { locale: chinesePaginationLocale }], [VueQueryPlugin, { queryClient }]] } })
 }
 
 async function attachFile(wrapper: ReturnType<typeof mountPage>) {
@@ -181,12 +183,12 @@ describe('InventoryImportPage', () => {
    * 組長 PR #89 item 5：「載入更多」要累加。第二頁回來之後第一頁的列還在，而且第二次請求帶的是
    * 第一頁給的游標。
    */
-  it('keeps the earlier rows when loading more', async () => {
+  it('replaces preview rows when moving directly to another numbered page', async () => {
     mockPreview.mockResolvedValue(batch({ rowCount: 60 }))
     mockGetBatch.mockResolvedValue(batch({ rowCount: 60 }))
     mockGetRows
-      .mockResolvedValueOnce({ items: [row({ skuCode: 'SKU-FIRST' })], nextCursor: 'cursor-2', hasMore: true })
-      .mockResolvedValueOnce({ items: [row({ sourceRowNumber: 52, skuCode: 'SKU-SECOND' })], nextCursor: null, hasMore: false })
+      .mockResolvedValueOnce({ items: [row({ skuCode: 'SKU-FIRST' })], nextCursor: 'cursor-2', hasMore: true, totalCount: 60 })
+      .mockResolvedValueOnce({ items: [row({ sourceRowNumber: 52, skuCode: 'SKU-SECOND' })], nextCursor: null, hasMore: false, totalCount: 60 })
 
     const wrapper = mountPage()
     await attachFile(wrapper)
@@ -194,12 +196,12 @@ describe('InventoryImportPage', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('SKU-FIRST')
 
-    await wrapper.findAll('button').find((button) => button.text() === '載入更多')!.trigger('click')
+    await wrapper.findAll('button').find((button) => button.text() === '2')!.trigger('click')
     await flushPromises()
 
     expect(mockGetRows).toHaveBeenCalledTimes(2)
-    expect(mockGetRows.mock.calls[1][1]).toEqual(expect.objectContaining({ cursor: 'cursor-2' }))
-    expect(wrapper.text()).toContain('SKU-FIRST')
+    expect(mockGetRows.mock.calls[1][1]).toEqual(expect.objectContaining({ pageNumber: 2 }))
+    expect(wrapper.text()).not.toContain('SKU-FIRST')
     expect(wrapper.text()).toContain('SKU-SECOND')
     expect(wrapper.findAll('button').find((button) => button.text() === '載入更多')).toBeUndefined()
   })

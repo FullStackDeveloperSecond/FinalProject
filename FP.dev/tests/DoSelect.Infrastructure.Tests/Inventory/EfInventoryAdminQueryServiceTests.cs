@@ -25,6 +25,32 @@ public sealed class EfInventoryAdminQueryServiceTests
     }
 
     [Fact]
+    public async Task Reservations_NumberedAndCursorPagesShareStableOrderAndFilteredCount()
+    {
+        await using var context = InventoryReservationServiceFixture.CreateContext();
+        var sku = await _fixture.SeedSkuWithBalanceAsync(context, 8);
+        var orderId = await _fixture.SeedOrderAsync(context);
+        var now = DateTime.UtcNow;
+        context.InventoryReservations.AddRange(
+            new InventoryReservation(Guid.NewGuid(), sku.Id, orderId, 1, now.AddHours(1), now),
+            new InventoryReservation(Guid.NewGuid(), sku.Id, orderId, 1, now.AddHours(2), now));
+        await context.SaveChangesAsync();
+        var service = new EfInventoryAdminQueryService(context);
+        var first = await service.ListReservationsAsync(new(null, "Active", 1, 1), CancellationToken.None);
+        Assert.True(first.TotalCount >= 2);
+        var second = await service.ListReservationsAsync(new(null, "Active", 1, 2), CancellationToken.None);
+        var cursorSecond = await service.ListReservationsAsync(new(first.NextCursor, "Active", 1), CancellationToken.None);
+        Assert.Equal(first.TotalCount, second.TotalCount);
+        Assert.Equal(Assert.Single(cursorSecond.Items).PublicId, Assert.Single(second.Items).PublicId);
+        Assert.Null(cursorSecond.TotalCount);
+        Assert.NotEqual(Assert.Single(first.Items).PublicId, Assert.Single(second.Items).PublicId);
+        var totalActive = await context.InventoryReservations.CountAsync(row => row.Status == InventoryReservationStatus.Active);
+        Assert.Equal(totalActive, first.TotalCount);
+        await Assert.ThrowsAsync<InventoryWriteException>(() => service.ListReservationsAsync(
+            new(first.NextCursor, "Active", 1, 1), CancellationToken.None));
+    }
+
+    [Fact]
     public async Task ListMovementsAsync_WhenFilteringByCostChange_ReturnsOnlyTheCostChangeRows()
     {
         await using var context = InventoryReservationServiceFixture.CreateContext();

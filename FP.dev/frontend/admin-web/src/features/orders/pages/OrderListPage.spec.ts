@@ -1,3 +1,5 @@
+import PrimeVue from 'primevue/config'
+import { chinesePaginationLocale } from '@doselect/web-shared/theme'
 import { flushPromises, mount } from '@vue/test-utils'
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import { createMemoryHistory, createRouter } from 'vue-router'
@@ -43,7 +45,7 @@ function order(overrides: Record<string, unknown> = {}) {
 }
 
 function list(items: unknown[], overrides: Record<string, unknown> = {}) {
-  return { items, nextCursor: null, hasMore: false, ...overrides }
+  return { items, nextCursor: null, hasMore: false, totalCount: items.length, ...overrides }
 }
 
 function signIn(roles: string[]) {
@@ -78,7 +80,7 @@ async function mountPage() {
   await router.push('/orders')
   await router.isReady()
   const wrapper = mount(OrderListPage, {
-    global: { plugins: [[VueQueryPlugin, { queryClient }], router] },
+    global: { plugins: [[PrimeVue, { locale: chinesePaginationLocale }], [VueQueryPlugin, { queryClient }], router] },
   })
   await flushPromises()
   return { wrapper, router, queryClient }
@@ -160,14 +162,14 @@ describe('OrderListPage 批次出貨勾選', () => {
    */
   it('drops the selection when the page changes', async () => {
     signIn(['OrderManager'])
-    mockFetchOrders.mockResolvedValue(list([order()], { nextCursor: 'cursor-2', hasMore: true }))
+    mockFetchOrders.mockResolvedValue(list([order()], { nextCursor: 'cursor-2', hasMore: true, totalCount: 40 }))
     const { wrapper } = await mountPage()
 
     await wrapper.findAll('tbody input[type="checkbox"]')[0].setValue(true)
     expect(wrapper.text()).toContain('已選取 1 筆')
 
     mockFetchOrders.mockResolvedValue(list([order({ publicId: 'order-9', orderNumber: 'DS0009' })]))
-    await wrapper.find('table + button').trigger('click')
+    await wrapper.get('[aria-label="第 2 頁"]').trigger('click')
     await flushPromises()
 
     expect(wrapper.text()).not.toContain('已選取')

@@ -44,6 +44,7 @@ export interface ProductSearchParams {
 export interface ProductSearchResult {
   items: ProductOption[]
   hasMore: boolean
+  totalCount: number
 }
 
 /**
@@ -65,7 +66,7 @@ export async function searchProductOptions(
     },
   })
 
-  return { items: data!.items, hasMore: data!.hasMore }
+  return { items: data!.items, hasMore: data!.hasMore, totalCount: Number(data!.totalCount) }
 }
 
 /**

@@ -32,7 +32,8 @@ public interface ICaseWorkbenchStore
         CaseWorkbenchCursorPosition? after,
         string adminUserId,
         bool canSupervise,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        int? pageNumber = null);
 }
 
 public sealed record CaseWorkbenchPage(

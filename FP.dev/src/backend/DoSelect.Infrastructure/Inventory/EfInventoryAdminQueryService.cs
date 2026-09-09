@@ -182,6 +182,12 @@ public sealed class EfInventoryAdminQueryService : IInventoryAdminQueryService
         InventoryReservationListQuery query, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(query);
+        if (query.PageNumber is < 1 or > 1_000_000 ||
+            (query.PageNumber.HasValue && !string.IsNullOrWhiteSpace(query.Cursor)))
+        {
+            throw new InventoryWriteException(InventoryWriteException.ErrorCodes.ValidationFailed,
+                "頁碼必須介於 1 至 1000000，且不能與游標同時使用。");
+        }
         var pageSize = Math.Clamp(query.PageSize, 1, MaxPageSize);
 
         var reservations = _dbContext.InventoryReservations.AsNoTracking().AsQueryable();
@@ -198,6 +204,7 @@ public sealed class EfInventoryAdminQueryService : IInventoryAdminQueryService
             reservations = reservations.Where(reservation => reservation.Status == status);
         }
 
+        int? totalCount = query.PageNumber.HasValue ? await reservations.CountAsync(cancellationToken) : null;
         if (!string.IsNullOrWhiteSpace(query.Cursor))
         {
             if (!TryDecodeCursor(query.Cursor, out var cursorStatus, out var cursorSortValue, out var cursorPublicId))
@@ -225,6 +232,7 @@ public sealed class EfInventoryAdminQueryService : IInventoryAdminQueryService
         var rows = await reservations
             .OrderByDescending(reservation => reservation.ExpiresAtUtc ?? NeverExpiresSortValue)
             .ThenByDescending(reservation => reservation.PublicId)
+            .Skip(((query.PageNumber ?? 1) - 1) * pageSize)
             .Take(pageSize + 1)
             .Join(_dbContext.Skus.AsNoTracking(), reservation => reservation.SkuId, sku => sku.Id,
                 (reservation, sku) => new { reservation, sku })
@@ -263,7 +271,7 @@ public sealed class EfInventoryAdminQueryService : IInventoryAdminQueryService
             ? EncodeCursor(query.Status, pageRows[^1].reservation.ExpiresAtUtc ?? NeverExpiresSortValue, pageRows[^1].reservation.PublicId)
             : null;
 
-        return new CursorPage<InventoryReservationDto>(dtos, nextCursor, hasMore);
+        return new CursorPage<InventoryReservationDto>(dtos, nextCursor, hasMore) { TotalCount = totalCount };
     }
 
     private static string EncodeCursor(string? status, DateTime sortValue, Guid publicId)

@@ -75,7 +75,7 @@ public sealed record InventoryMovementDto(
     DateTime OccurredAtUtc);
 
 /// <summary>Cursor pagination request — stable sort key is ExpiresAtUtc DESC, ReservationPublicId DESC (API共通規範.md).</summary>
-public sealed record InventoryReservationListQuery(string? Cursor, string? Status, int PageSize = 20);
+public sealed record InventoryReservationListQuery(string? Cursor, string? Status, int PageSize = 20, int? PageNumber = null);
 
 /// <summary>
 /// <see cref="InventoryReservationDto.AvailableActions"/> 的合法值。A-12 頁只依這份清單顯示按鈕，

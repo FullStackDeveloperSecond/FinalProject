@@ -37,7 +37,8 @@ public sealed class CaseWorkbenchStore : ICaseWorkbenchStore
         CaseWorkbenchCursorPosition? after,
         string adminUserId,
         bool canSupervise,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int? pageNumber = null)
     {
         // CaseWorkbenchCaseType member names match vw_CaseWorkbench.CaseType exactly
         // ("Support"/"Return"/"Report"); computed in C# so the authorization predicate below is a
@@ -140,6 +141,7 @@ public sealed class CaseWorkbenchStore : ICaseWorkbenchStore
             : query.OrderBy(r => r.LastActivityAtUtc).ThenBy(r => r.CasePublicId);
 
         var rows = await query
+            .Skip(((pageNumber ?? 1) - 1) * pageSize)
             .Take(pageSize + 1)
             .Select(r => new CaseWorkbenchItemDto(
                 r.CaseType,

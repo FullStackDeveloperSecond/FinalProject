@@ -1,3 +1,5 @@
+import PrimeVue from 'primevue/config'
+import { chinesePaginationLocale } from '@doselect/web-shared/theme'
 import { flushPromises, mount } from '@vue/test-utils'
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -33,7 +35,7 @@ function mountPage() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
-  const wrapper = mount(InventoryReservationsPage, { global: { plugins: [[VueQueryPlugin, { queryClient }]] } })
+  const wrapper = mount(InventoryReservationsPage, { global: { plugins: [[PrimeVue, { locale: chinesePaginationLocale }], [VueQueryPlugin, { queryClient }]] } })
   return { wrapper, queryClient }
 }
 
@@ -45,7 +47,7 @@ describe('InventoryReservationsPage', () => {
   })
 
   it('renders the loaded reservation queue', async () => {
-    mockListReservations.mockResolvedValue({ items: [reservation()], nextCursor: null, hasMore: false })
+    mockListReservations.mockResolvedValue({ items: [reservation()], nextCursor: null, hasMore: false, totalCount: 40 })
 
     const { wrapper } = mountPage()
     await flushPromises()
@@ -61,7 +63,7 @@ describe('InventoryReservationsPage', () => {
         reservation({ publicId: 'r2', status: 'Consumed', availableActions: [] }),
       ],
       nextCursor: null,
-      hasMore: false,
+      hasMore: false, totalCount: 40,
     })
 
     const { wrapper } = mountPage()
@@ -73,7 +75,7 @@ describe('InventoryReservationsPage', () => {
 
   /** A-12: 人工釋放需要理由與備註，且送出前有二次確認（globalThis.confirm）。 */
   it('requires a reason and note, confirms, then releases with the reservation RowVersion', async () => {
-    mockListReservations.mockResolvedValue({ items: [reservation()], nextCursor: null, hasMore: false })
+    mockListReservations.mockResolvedValue({ items: [reservation()], nextCursor: null, hasMore: false, totalCount: 40 })
     mockReleaseReservation.mockResolvedValueOnce(undefined)
     vi.spyOn(globalThis, 'confirm').mockReturnValue(true)
 
@@ -100,7 +102,7 @@ describe('InventoryReservationsPage', () => {
   })
 
   it('does not release when the confirmation dialog is dismissed', async () => {
-    mockListReservations.mockResolvedValue({ items: [reservation()], nextCursor: null, hasMore: false })
+    mockListReservations.mockResolvedValue({ items: [reservation()], nextCursor: null, hasMore: false, totalCount: 40 })
     vi.spyOn(globalThis, 'confirm').mockReturnValue(false)
 
     const { wrapper } = mountPage()
@@ -115,11 +117,11 @@ describe('InventoryReservationsPage', () => {
     expect(mockReleaseReservation).not.toHaveBeenCalled()
   })
 
-  it('appends items when loading more instead of replacing the list', async () => {
+  it('changes to the selected page without leaving actionable rows from the previous page', async () => {
     mockListReservations.mockResolvedValueOnce({
       items: [reservation({ publicId: 'r1' })],
       nextCursor: 'cursor-2',
-      hasMore: true,
+      hasMore: true, totalCount: 40,
     })
 
     const { wrapper } = mountPage()
@@ -129,13 +131,13 @@ describe('InventoryReservationsPage', () => {
     mockListReservations.mockResolvedValueOnce({
       items: [reservation({ publicId: 'r2', order: { publicId: 'o2', orderNumber: 'ORD-2' } })],
       nextCursor: null,
-      hasMore: false,
+      hasMore: false, totalCount: 40,
     })
-    const loadMoreButton = wrapper.findAll('button').find((button) => button.text() === '載入更多')
+    const loadMoreButton = wrapper.findAll('button').find((button) => button.text() === '2')
     await loadMoreButton!.trigger('click')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('ORD-1')
+    expect(wrapper.text()).not.toContain('ORD-1')
     expect(wrapper.text()).toContain('ORD-2')
   })
 
@@ -145,48 +147,48 @@ describe('InventoryReservationsPage', () => {
    * on top of themselves, since the watcher only checked "is cursor.value set", not "have I
    * already loaded this page's items".
    */
-  it('does not duplicate rows when a refetch replays the loaded pages with the same items', async () => {
+  it('does not duplicate current-page rows on refetch', async () => {
     // The infinite query refetches EVERY loaded page on invalidate, so the mock must answer by
     // cursor instead of by call order.
-    const page1 = { items: [reservation({ publicId: 'r1' })], nextCursor: 'cursor-2', hasMore: true }
+    const page1 = { items: [reservation({ publicId: 'r1' })], nextCursor: 'cursor-2', hasMore: true, totalCount: 40 }
     const page2 = {
       items: [reservation({ publicId: 'r2', order: { publicId: 'o2', orderNumber: 'ORD-2' } })],
       nextCursor: null,
-      hasMore: false,
+      hasMore: false, totalCount: 40,
     }
-    mockListReservations.mockImplementation(async ({ cursor }) => (cursor === 'cursor-2' ? page2 : page1))
+    mockListReservations.mockImplementation(async ({ pageNumber }) => (pageNumber === 2 ? page2 : page1))
 
     const { wrapper, queryClient } = mountPage()
     await flushPromises()
-    await wrapper.findAll('button').find((button) => button.text() === '載入更多')!.trigger('click')
+    await wrapper.findAll('button').find((button) => button.text() === '2')!.trigger('click')
     await flushPromises()
-    expect(wrapper.findAll('tbody > tr').length).toBe(2)
+    expect(wrapper.findAll('tbody > tr').length).toBe(1)
 
     // A background refetch (refocus/invalidate) replays both pages with unchanged content — the
     // list must not grow.
     await queryClient.invalidateQueries()
     await flushPromises()
 
-    expect(wrapper.findAll('tbody > tr').length).toBe(2)
+    expect(wrapper.findAll('tbody > tr').length).toBe(1)
   })
 
   /** 組長 PR #37 round-2 review, item 2: a refetched row with the same publicId may carry a newer
    * Status/RowVersion/expiry — the merge must upsert it, not drop it, or the admin keeps acting on
    * a stale RowVersion. */
   it('updates an already-loaded row in place when a refetch returns it with newer content', async () => {
-    const page1 = { items: [reservation({ publicId: 'r1' })], nextCursor: 'cursor-2', hasMore: true }
+    const page1 = { items: [reservation({ publicId: 'r1' })], nextCursor: 'cursor-2', hasMore: true, totalCount: 40 }
     let page2 = {
       items: [reservation({ publicId: 'r2', order: { publicId: 'o2', orderNumber: 'ORD-2' } })],
       nextCursor: null as string | null,
-      hasMore: false,
+      hasMore: false, totalCount: 40,
     }
-    mockListReservations.mockImplementation(async ({ cursor }) => (cursor === 'cursor-2' ? page2 : page1))
+    mockListReservations.mockImplementation(async ({ pageNumber }) => (pageNumber === 2 ? page2 : page1))
 
     const { wrapper, queryClient } = mountPage()
     await flushPromises()
-    await wrapper.findAll('button').find((button) => button.text() === '載入更多')!.trigger('click')
+    await wrapper.findAll('button').find((button) => button.text() === '2')!.trigger('click')
     await flushPromises()
-    expect(wrapper.findAll('tbody > tr').length).toBe(2)
+    expect(wrapper.findAll('tbody > tr').length).toBe(1)
 
     // The same r2 comes back from a background refetch, but its status has moved on.
     page2 = {
@@ -198,12 +200,12 @@ describe('InventoryReservationsPage', () => {
         availableActions: [],
       })],
       nextCursor: null,
-      hasMore: false,
+      hasMore: false, totalCount: 40,
     }
     await queryClient.invalidateQueries()
     await flushPromises()
 
-    expect(wrapper.findAll('tbody > tr').length).toBe(2)
+    expect(wrapper.findAll('tbody > tr').length).toBe(1)
     // The refreshed status is rendered in the ROW — asserting on wrapper.text() would false-pass
     // because the status <select> also contains the literal 'Consumed' as an option.
     const r2Row = wrapper.findAll('tbody > tr').find((row) => row.text().includes('ORD-2'))!
@@ -215,36 +217,38 @@ describe('InventoryReservationsPage', () => {
   /** 組長 PR #37 round-3 review (P2): a refresh must re-validate EVERY loaded page, not only the
    * current cursor's. The old self-accumulated list only re-ran the latest page's query, so a
    * page-1 row whose Status/RowVersion/expiry changed server-side stayed stale forever. */
-  it('refreshes previously loaded pages so an updated page-1 row does not stay stale', async () => {
-    let page1 = { items: [reservation({ publicId: 'r1' })], nextCursor: 'cursor-2' as string | null, hasMore: true }
+  it('refreshes page one before allowing actions when returning from page two', async () => {
+    let page1 = { items: [reservation({ publicId: 'r1' })], nextCursor: 'cursor-2' as string | null, hasMore: true, totalCount: 40 }
     const page2 = {
       items: [reservation({ publicId: 'r2', order: { publicId: 'o2', orderNumber: 'ORD-2' } })],
       nextCursor: null,
-      hasMore: false,
+      hasMore: false, totalCount: 40,
     }
-    mockListReservations.mockImplementation(async ({ cursor }) => (cursor === 'cursor-2' ? page2 : page1))
+    mockListReservations.mockImplementation(async ({ pageNumber }) => (pageNumber === 2 ? page2 : page1))
 
     const { wrapper, queryClient } = mountPage()
     await flushPromises()
-    await wrapper.findAll('button').find((button) => button.text() === '載入更多')!.trigger('click')
+    await wrapper.findAll('button').find((button) => button.text() === '2')!.trigger('click')
     await flushPromises()
-    expect(wrapper.findAll('tbody > tr').length).toBe(2)
+    expect(wrapper.findAll('tbody > tr').length).toBe(1)
 
     // r1 is consumed on the server AFTER its page was loaded and the admin moved on to page 2 —
     // a refresh of the current view must not keep offering to release it.
     page1 = {
       items: [reservation({ publicId: 'r1', status: 'Consumed', rowVersion: 'BBB=', availableActions: [] })],
       nextCursor: 'cursor-2',
-      hasMore: true,
+      hasMore: true, totalCount: 40,
     }
     await queryClient.invalidateQueries()
     await flushPromises()
 
+    await wrapper.findAll('button').find(button => button.text() === '1')!.trigger('click')
+    await flushPromises()
     const r1Row = wrapper.findAll('tbody > tr').find((row) => row.text().includes('ORD-1'))!
     expect(r1Row.text()).toContain('已使用')
     expect(r1Row.findAll('button').filter((button) => button.text() === '釋放')).toHaveLength(0)
     // And page 2 is still rendered — the refresh replayed the whole page list, not just page 1.
-    expect(wrapper.findAll('tbody > tr').length).toBe(2)
+    expect(wrapper.findAll('tbody > tr').length).toBe(1)
   })
 
   /** 組長 PR #37 round-2 review, item 3: changing the status filter while on page two must not
@@ -254,7 +258,7 @@ describe('InventoryReservationsPage', () => {
     mockListReservations.mockResolvedValueOnce({
       items: [reservation({ publicId: 'r1' })],
       nextCursor: 'cursor-2',
-      hasMore: true,
+      hasMore: true, totalCount: 40,
     })
     const { wrapper } = mountPage()
     await flushPromises()
@@ -262,21 +266,21 @@ describe('InventoryReservationsPage', () => {
     mockListReservations.mockResolvedValueOnce({
       items: [reservation({ publicId: 'r2', order: { publicId: 'o2', orderNumber: 'ORD-2' } })],
       nextCursor: null,
-      hasMore: false,
+      hasMore: false, totalCount: 40,
     })
-    await wrapper.findAll('button').find((button) => button.text() === '載入更多')!.trigger('click')
+    await wrapper.findAll('button').find((button) => button.text() === '2')!.trigger('click')
     await flushPromises()
     const callsBefore = mockListReservations.mock.calls.length
 
     // 下拉選單立即套用，但 query key 同時重建，因此不會沿用舊 cursor。
-    mockListReservations.mockResolvedValueOnce({ items: [], nextCursor: null, hasMore: false })
+    mockListReservations.mockResolvedValueOnce({ items: [], nextCursor: null, hasMore: false, totalCount: 40 })
     await wrapper.find('select[aria-label="狀態"]').setValue('Active')
     await flushPromises()
     expect(mockListReservations.mock.calls.length).toBeGreaterThan(callsBefore)
 
     // 即時查詢帶新狀態且沒有 cursor，絕不會送出「Active + cursor-2」。
     const lastCall = mockListReservations.mock.calls.at(-1)![0]
-    expect(lastCall).toMatchObject({ status: 'Active' })
+    expect(lastCall).toMatchObject({ status: 'Active', pageNumber: 1 })
     expect(lastCall.cursor).toBeUndefined()
     expect(mockListReservations.mock.calls.every(
       (call) => !(call[0].status === 'Active' && call[0].cursor === 'cursor-2'))).toBe(true)

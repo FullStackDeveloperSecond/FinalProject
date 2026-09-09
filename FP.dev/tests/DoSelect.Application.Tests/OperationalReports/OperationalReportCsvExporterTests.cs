@@ -38,6 +38,7 @@ public sealed class OperationalReportCsvExporterTests
             (definition, query) =>
             {
                 calls.Add(query.Cursor);
+                Assert.Null(query.PageNumber);
                 return query.Cursor is null
                     ? Result(definition, query, [SalesRow("2026-09-01")], true, "next")
                     : Result(definition, query, [SalesRow("2026-09-02")], false, null);
@@ -45,7 +46,7 @@ public sealed class OperationalReportCsvExporterTests
 
         var export = await exporter.ExportAsync(
             OperationalReportCatalog.Require(OperationalReportKeys.SalesOverview),
-            Query() with { Cursor = "ignored" },
+            Query() with { Cursor = "ignored", PageNumber = 8 },
             CancellationToken.None);
 
         Assert.Equal([null, "next"], calls);

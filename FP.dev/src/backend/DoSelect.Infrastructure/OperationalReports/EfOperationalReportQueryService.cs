@@ -366,6 +366,7 @@ public sealed partial class EfOperationalReportQueryService : IOperationalReport
         var candidates = rows
             .Where(row => afterBucket is null ||
                 string.CompareOrdinal(row.Bucket, afterBucket) > 0)
+            .Skip(((query.PageNumber ?? 1) - 1) * query.PageSize)
             .Take(query.PageSize + 1)
             .ToArray();
         var hasMore = candidates.Length > query.PageSize;
@@ -376,7 +377,10 @@ public sealed partial class EfOperationalReportQueryService : IOperationalReport
                 fingerprint)
             : null;
 
-        return new CursorPage<ReportRowDto>(items, nextCursor, hasMore);
+        return new CursorPage<ReportRowDto>(items, nextCursor, hasMore)
+        {
+            TotalCount = query.PageNumber.HasValue ? rows.Count : null,
+        };
     }
 
     private static SalesOverviewReportRowDto ToRow(

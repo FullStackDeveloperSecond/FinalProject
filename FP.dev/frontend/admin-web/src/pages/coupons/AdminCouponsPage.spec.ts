@@ -1,4 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import PrimeVue from 'primevue/config'
+import { chinesePaginationLocale } from '@doselect/web-shared/theme'
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import { ApiError } from '@doselect/web-shared/api'
@@ -87,7 +89,7 @@ function mountPage(router: Router = createTestRouter()) {
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
   return mount(AdminCouponsPage, {
-    global: { plugins: [[VueQueryPlugin, { queryClient }], router] },
+    global: { plugins: [[PrimeVue, { locale: chinesePaginationLocale }], [VueQueryPlugin, { queryClient }], router] },
   })
 }
 
@@ -330,6 +332,7 @@ describe('AdminCouponsPage', () => {
     mockSearchProductOptions.mockResolvedValue({
       items: [productOption()],
       hasMore: false,
+      totalCount: 1,
     })
     mockResolveProductOptions.mockResolvedValue({})
 

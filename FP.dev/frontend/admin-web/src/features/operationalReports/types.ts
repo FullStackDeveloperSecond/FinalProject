@@ -15,6 +15,7 @@ export type OperationalReportResult = components['schemas']['ReportResultDto']
 export type OperationalReportRow = components['schemas']['ReportRowDto']
 
 export interface OperationalReportFilters {
+  pageNumber?: number
   fromDate: string
   toDate: string
   timeZone: 'Asia/Taipei'

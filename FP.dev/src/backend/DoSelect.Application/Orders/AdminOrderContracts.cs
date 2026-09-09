@@ -165,7 +165,8 @@ public sealed record AdminOrderQuery(
     IReadOnlyList<string>? SummaryStatus,
     IReadOnlyList<string>? Badge,
     string? Cursor,
-    int PageSize);
+    int PageSize,
+    int? PageNumber = null);
 
 /// <summary>
 /// API Endpoint目錄.md 沒有列出 POST /api/v1/admin/orders/{id}/actions/{action} 的白名單

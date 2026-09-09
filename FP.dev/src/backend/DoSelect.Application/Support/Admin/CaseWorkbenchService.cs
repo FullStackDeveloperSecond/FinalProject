@@ -33,6 +33,11 @@ public sealed class CaseWorkbenchService : ICaseWorkbenchService
         bool canSupervise,
         CancellationToken cancellationToken)
     {
+        if (query.PageNumber is < 1 or > 1_000_000 ||
+            (query.PageNumber.HasValue && !string.IsNullOrWhiteSpace(query.Cursor)))
+        {
+            throw DomainProblemException.Validation("頁碼必須介於 1 至 1000000，且不能與游標同時使用。");
+        }
         if (query.PageSize is < 1 or > 100)
         {
             throw DomainProblemException.Validation("pageSize must be between 1 and 100.");
@@ -129,7 +134,8 @@ public sealed class CaseWorkbenchService : ICaseWorkbenchService
             after,
             adminUserId,
             canSupervise,
-            cancellationToken);
+            cancellationToken,
+            query.PageNumber);
 
         string? nextCursor = null;
         if (page.HasMore && page.Items.Count > 0)

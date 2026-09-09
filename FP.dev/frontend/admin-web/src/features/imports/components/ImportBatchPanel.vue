@@ -9,9 +9,9 @@
  * 唯一不共用的是預覽列的欄位：庫存匯入的列是明確型別（Before／Delta／After／原因／說明），管理員
  * 要在原子確認前核對實際庫存變化；商品匯入的列只有鍵值與動作。
  */
-import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
+import { EmptyState, ErrorState, LoadingState, PagePager } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { describeApiError } from '../../shared/errorMessages'
 import { isInventoryImportRow, isProductImportRow, type AnyImportRow, type InventoryImportRowDto } from '../types'
 import { useConfirmImport, useDownloadImportErrors, useImportBatch, useImportRows, type ImportKind } from '../useImports'
@@ -24,24 +24,22 @@ const props = defineProps<{
 const emit = defineEmits<{ committed: [] }>()
 
 const errorsOnly = ref(false)
+const pageNumber = ref(1)
+watch([errorsOnly, () => props.batchId], () => { pageNumber.value = 1 }, { flush: 'sync' })
 
 const { data: batch, isPending: isBatchPending, isError: isBatchError, error: batchError, refetch: refetchBatch }
   = useImportBatch(props.kind, () => props.batchId)
 
-const rowsFilter = computed(() => ({ errorsOnly: errorsOnly.value, pageSize: 50 }))
+const rowsFilter = computed(() => ({ errorsOnly: errorsOnly.value, pageSize: 50, pageNumber: pageNumber.value }))
 const {
   data: rowPages,
   isPending: isRowsPending,
   isError: isRowsError,
   error: rowsError,
   refetch: refetchRows,
-  fetchNextPage,
-  hasNextPage,
-  isFetchingNextPage,
 } = useImportRows(props.kind, () => props.batchId, rowsFilter)
 
-// 組長 PR #89 item 5：所有已載入的頁攤平顯示，「載入更多」只往後加，不覆蓋前面的列。
-const rowItems = computed<AnyImportRow[]>(() => rowPages.value?.pages.flatMap(page => page.items as AnyImportRow[]) ?? [])
+const rowItems = computed<AnyImportRow[]>(() => rowPages.value?.items ?? [])
 const inventoryRows = computed(() => rowItems.value.filter(isInventoryImportRow))
 const productRows = computed(() => rowItems.value.filter(isProductImportRow))
 const isInventory = computed(() => props.kind === 'inventory')
@@ -331,15 +329,14 @@ function formatDelta(value: InventoryImportRowDto['delta']): string {
             </tr>
           </tbody>
         </table>
-        <button
-          v-if="hasNextPage"
-          type="button"
-          :disabled="isFetchingNextPage"
-          @click="fetchNextPage()"
-        >
-          {{ isFetchingNextPage ? '載入中…' : '載入更多' }}
-        </button>
       </template>
+      <PagePager
+        v-if="rowPages?.totalCount != null && !isRowsPending && !isRowsError"
+        v-model:page="pageNumber"
+        :page-size="50"
+        :total-records="Number(rowPages.totalCount)"
+        aria-label="匯入預覽分頁"
+      />
     </template>
   </section>
 </template>

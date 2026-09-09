@@ -15,6 +15,11 @@ public static class OperationalReportQueryValidator
     public static ValidatedReportQuery Normalize(ReportQuery query)
     {
         ArgumentNullException.ThrowIfNull(query);
+        if (query.PageNumber is < 1 or > 1_000_000 ||
+            (query.PageNumber.HasValue && !string.IsNullOrWhiteSpace(query.Cursor)))
+        {
+            ThrowInvalid("頁碼必須介於 1 至 1000000，且不能與游標同時使用。");
+        }
 
         if (query.FromDate >= query.ToDate)
         {
@@ -51,7 +56,8 @@ public static class OperationalReportQueryValidator
             orderStatuses,
             granularity,
             cursor,
-            query.PageSize);
+            query.PageSize,
+            query.PageNumber);
     }
 
     private static string? NormalizeDimensionCode(string? value, string parameterName)

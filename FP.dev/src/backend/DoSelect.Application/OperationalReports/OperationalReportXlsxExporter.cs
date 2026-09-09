@@ -23,7 +23,7 @@ public sealed class OperationalReportXlsxExporter(
         string? cursor = null;
         do
         {
-            var pageQuery = query with { Cursor = cursor, PageSize = ExportPageSize };
+            var pageQuery = query with { Cursor = cursor, PageSize = ExportPageSize, PageNumber = null };
             var result = await queryService.QueryAsync(definition, pageQuery, cancellationToken);
             firstResult ??= result;
             rows.AddRange(result.Rows.Items);

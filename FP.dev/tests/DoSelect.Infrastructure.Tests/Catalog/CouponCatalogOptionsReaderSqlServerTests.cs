@@ -120,6 +120,7 @@ public sealed class CouponCatalogOptionsReaderSqlServerTests
 
         Assert.Contains(found.Items, item => item.PublicId == live.PublicId);
         Assert.DoesNotContain(found.Items, item => item.PublicId == dead.PublicId);
+        Assert.Equal(1, found.TotalCount);
     }
 
     [SqlServerFact]
@@ -232,6 +233,9 @@ public sealed class CouponCatalogOptionsReaderSqlServerTests
         Assert.True(first.HasMore);
         Assert.True(second.HasMore);
         Assert.False(third.HasMore);
+        Assert.Equal(5, first.TotalCount);
+        Assert.Equal(5, second.TotalCount);
+        Assert.Equal(5, third.TotalCount);
 
         // 三頁加起來剛好是全部五筆，而且沒有一筆重複 —— 兩者都要驗：
         // 只驗「沒重複」的話，漏掉一筆也會通過。
@@ -252,6 +256,7 @@ public sealed class CouponCatalogOptionsReaderSqlServerTests
 
         var beyond = await reader.SearchProductsAsync(keyword, pageNumber: 9, pageSize: 20);
 
+        Assert.Equal(1, beyond.TotalCount);
         Assert.Empty(beyond.Items);
         Assert.False(beyond.HasMore);
     }
@@ -273,8 +278,9 @@ public sealed class CouponCatalogOptionsReaderSqlServerTests
         Assert.Empty(page.Items);
         Assert.False(page.HasMore);
 
-        // 超出範圍就不該送 SQL —— 這也順便證明不是靠資料庫回空集合矇過去。
-        Assert.Equal(0, counter.Count);
+        // 超出 offset 範圍只查真實總數，不送明細 SQL。
+        Assert.Equal(1, page.TotalCount);
+        Assert.Equal(1, counter.Count);
     }
 
     [SqlServerFact]

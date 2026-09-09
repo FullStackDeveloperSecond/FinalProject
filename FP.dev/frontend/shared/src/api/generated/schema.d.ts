@@ -3119,6 +3119,7 @@ export interface paths {
         get: {
             parameters: {
                 query?: {
+                    PageNumber?: number | string;
                     SummaryStatus?: string[];
                     Badge?: string[];
                     Cursor?: string;
@@ -3801,6 +3802,7 @@ export interface paths {
                     Granularity?: string;
                     Cursor?: string;
                     PageSize?: number | string;
+                    PageNumber?: number | string;
                 };
                 header?: never;
                 path: {
@@ -3877,6 +3879,7 @@ export interface paths {
                     Granularity?: string;
                     Cursor?: string;
                     PageSize?: number | string;
+                    PageNumber?: number | string;
                 };
                 header?: never;
                 path: {
@@ -3954,6 +3957,7 @@ export interface paths {
                     Granularity?: string;
                     Cursor?: string;
                     PageSize?: number | string;
+                    PageNumber?: number | string;
                 };
                 header?: never;
                 path: {
@@ -5015,6 +5019,7 @@ export interface paths {
         get: {
             parameters: {
                 query?: {
+                    PageNumber?: number | string;
                     Cursor?: string;
                     Status?: string;
                     PageSize?: number | string;
@@ -5518,6 +5523,7 @@ export interface paths {
                     errorsOnly?: boolean;
                     cursor?: string;
                     pageSize?: number | string;
+                    pageNumber?: number | string;
                 };
                 header?: never;
                 path: {
@@ -5753,6 +5759,7 @@ export interface paths {
                     errorsOnly?: boolean;
                     cursor?: string;
                     pageSize?: number | string;
+                    pageNumber?: number | string;
                 };
                 header?: never;
                 path: {
@@ -6956,6 +6963,7 @@ export interface paths {
                     Keyword?: string;
                     Cursor?: string;
                     PageSize?: number | string;
+                    PageNumber?: number | string;
                 };
                 header?: never;
                 path?: never;
@@ -11603,6 +11611,8 @@ export interface components {
         CouponProductSearchResult: {
             items: components["schemas"]["CouponProductOption"][];
             hasMore: boolean;
+            /** Format: int32 */
+            totalCount: number | string;
         };
         CouponScopeDto: {
             scopeType: components["schemas"]["CouponScopeType"];
@@ -11859,26 +11869,36 @@ export interface components {
             items: components["schemas"]["AdminOrderSummaryDto"][];
             nextCursor: null | string;
             hasMore: boolean;
+            /** Format: int32 */
+            totalCount?: null | number | string;
         };
         CursorPageOfImportRowDto: {
             items: components["schemas"]["ImportRowDto"][];
             nextCursor: null | string;
             hasMore: boolean;
+            /** Format: int32 */
+            totalCount?: null | number | string;
         };
         CursorPageOfInventoryImportRowDto: {
             items: components["schemas"]["InventoryImportRowDto"][];
             nextCursor: null | string;
             hasMore: boolean;
+            /** Format: int32 */
+            totalCount?: null | number | string;
         };
         CursorPageOfInventoryReservationDto: {
             items: components["schemas"]["InventoryReservationDto"][];
             nextCursor: null | string;
             hasMore: boolean;
+            /** Format: int32 */
+            totalCount?: null | number | string;
         };
         CursorPageOfReportRowDto: {
             items: components["schemas"]["ReportRowDto"][];
             nextCursor: null | string;
             hasMore: boolean;
+            /** Format: int32 */
+            totalCount?: null | number | string;
         };
         DeleteBuildListRequest: {
             /** Format: byte */

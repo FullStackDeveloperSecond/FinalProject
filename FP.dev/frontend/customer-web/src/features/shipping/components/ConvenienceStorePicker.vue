@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { ErrorState, LoadingState } from '@doselect/web-shared/components'
+import { ErrorState, LoadingState, PagePager } from '@doselect/web-shared/components'
 import { useConvenienceStoreRegions, useConvenienceStoreSearch } from '../useShipping'
 import type { ConvenienceStoreOptionDto } from '../types'
 
@@ -172,26 +172,15 @@ function selectStore(event: Event): void {
         >
           沒有符合條件的{{ entry.label }}，請重新選擇。
         </p>
-        <nav
-          v-if="Number(entry.query.data.value?.totalPages ?? 0) > 1"
+        <PagePager
+          v-if="entry.query.data.value && (Number(entry.query.data.value.totalPages) > 1 || entry.page > 1)"
           :aria-label="`${entry.label}分頁`"
-        >
-          <button
-            type="button"
-            :disabled="entry.page <= 1"
-            @click="entry.change(entry.page - 1)"
-          >
-            上一頁{{ entry.label }}
-          </button>
-          <span>{{ entry.page }} / {{ entry.query.data.value?.totalPages }}</span>
-          <button
-            type="button"
-            :disabled="entry.page >= Number(entry.query.data.value?.totalPages ?? 0)"
-            @click="entry.change(entry.page + 1)"
-          >
-            下一頁{{ entry.label }}
-          </button>
-        </nav>
+          :page="entry.page"
+          :page-size="1"
+          :total-records="Number(entry.query.data.value?.totalPages ?? 0)"
+          :busy="entry.query.isPending.value"
+          @update:page="entry.change"
+        />
       </template>
     </template>
     <p

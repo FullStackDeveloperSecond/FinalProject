@@ -1,3 +1,5 @@
+import PrimeVue from 'primevue/config'
+import { chinesePaginationLocale } from '@doselect/web-shared/theme'
 import { flushPromises, mount } from '@vue/test-utils'
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -26,7 +28,7 @@ const Parent = defineComponent({
   template: '<form><ConvenienceStorePicker v-if="visible" v-model="id" v-model:selected-summary="summary" /></form>',
 })
 function mountPicker() {
-  return mount(Parent, { global: { plugins: [[VueQueryPlugin, {
+  return mount(Parent, { global: { plugins: [[PrimeVue, { locale: chinesePaginationLocale }], [VueQueryPlugin, {
     queryClient: new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } }),
   }]] } })
 }
@@ -122,13 +124,24 @@ describe('超商級聯下拉選單', () => {
     mocks.search.mockResolvedValueOnce(page([store], 2)).mockResolvedValueOnce(page([{ ...store, publicId: 'store-2', name: '第二頁門市' }], 2, 2))
     const wrapper = mountPicker()
     await chooseRegion(wrapper)
-    await wrapper.findAll('button').find(b => b.text() === '下一頁門市')!.trigger('click')
+    await wrapper.findAll('button').find(b => b.text() === '下一頁')!.trigger('click')
     await vi.waitFor(() => expect(wrapper.text()).toContain('第二頁門市'))
     expect(mocks.search).toHaveBeenLastCalledWith(expect.objectContaining({ pageNumber: 2 }))
     expect(wrapper.text()).not.toContain('展示門市')
     wrapper.unmount()
   })
-  it('地區查詢失败可重試，不開放無結果的選單', async () => {
+  it('若門市清單縮減為單頁，會自動回第一頁重新查詢', async () => {
+    mocks.search.mockResolvedValueOnce(page([store], 2))
+      .mockResolvedValueOnce(page([], 1, 2))
+      .mockResolvedValue(page([store], 1))
+    const wrapper = mountPicker()
+    await chooseRegion(wrapper)
+    await wrapper.get('[aria-label="第 2 頁"]').trigger('click')
+    await vi.waitFor(() => expect(mocks.search).toHaveBeenCalledTimes(3))
+    expect(mocks.search).toHaveBeenLastCalledWith(expect.objectContaining({ pageNumber: 1 }))
+    wrapper.unmount()
+  })
+  it('地區查詢失敗可重試，不開放無結果的選單', async () => {
     mocks.regions.mockRejectedValueOnce(new Error('offline'))
     const wrapper = mountPicker()
     await wrapper.get('[aria-label="超商品牌"]').setValue('7-11')

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
+import { EmptyState, ErrorState, LoadingState, PagePager } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -62,10 +62,7 @@ const filters = reactive({
   keyword: queryValue(route.query.keyword),
 })
 
-// Keyset (cursor) pagination has no "page N" concept — a stack of visited cursors is the
-// simplest way to support "上一頁" without asking the backend for a total count. Mirrors
-// SupportSlaQueuePage.vue's own pagination pattern exactly.
-const cursorStack = ref<(string | undefined)[]>([undefined])
+const pageNumber = ref(1)
 const filterFingerprint = computed(() => JSON.stringify({
   caseType: filters.caseType,
   priority: filters.priority,
@@ -79,15 +76,8 @@ const filterFingerprint = computed(() => JSON.stringify({
   overdueOnly: filters.overdueOnly,
   keyword: filters.keyword.trim(),
 }))
-const cursorFilterFingerprint = ref(filterFingerprint.value)
-const currentCursor = computed(() =>
-  cursorFilterFingerprint.value === filterFingerprint.value
-    ? cursorStack.value[cursorStack.value.length - 1]
-    : undefined)
-
 function resetPagination() {
-  cursorStack.value = [undefined]
-  cursorFilterFingerprint.value = filterFingerprint.value
+  pageNumber.value = 1
 }
 
 function syncUrl() {
@@ -106,8 +96,7 @@ function syncUrl() {
   void router.replace({ query })
 }
 
-// flush:sync plus the fingerprint guard above guarantees a changed filter can never be paired
-// with a cursor issued for the previous filter set, even during the same input event.
+// 篩選變更同步回第一頁，不以舊頁碼查詢新條件。
 watch(filterFingerprint, () => {
   resetPagination()
   syncUrl()
@@ -125,28 +114,11 @@ const queryFilters = computed(() => ({
   sort: filters.sort,
   overdueOnly: filters.overdueOnly || undefined,
   keyword: filters.keyword.trim() || undefined,
-  cursor: currentCursor.value,
+  pageNumber: pageNumber.value,
   pageSize: defaultCaseWorkbenchPageSize,
 }))
 
 const { data, isPending, isError, error, refetch } = useCaseWorkbenchQuery(queryFilters)
-
-const canGoPrevious = computed(() => cursorStack.value.length > 1)
-const canGoNext = computed(() => Boolean(data.value?.hasMore))
-
-function goToNextPage() {
-  const nextCursor = data.value?.nextCursor
-  if (nextCursor) {
-    cursorFilterFingerprint.value = filterFingerprint.value
-    cursorStack.value = [...cursorStack.value, nextCursor]
-  }
-}
-
-function goToPreviousPage() {
-  if (canGoPrevious.value) {
-    cursorStack.value = cursorStack.value.slice(0, -1)
-  }
-}
 
 function setSort(sort: CaseWorkbenchSortOrder) {
   filters.sort = sort
@@ -484,24 +456,14 @@ const errorTitle = computed(() => {
           </tbody>
         </table>
       </div>
-
-      <div class="case-workbench__pagination">
-        <button
-          type="button"
-          :disabled="!canGoPrevious"
-          @click="goToPreviousPage"
-        >
-          上一頁
-        </button>
-        <button
-          type="button"
-          :disabled="!canGoNext"
-          @click="goToNextPage"
-        >
-          下一頁
-        </button>
-      </div>
     </template>
+    <PagePager
+      v-if="data && !isPending && !isError"
+      v-model:page="pageNumber"
+      :page-size="defaultCaseWorkbenchPageSize"
+      :total-records="Number(data.totalCount)"
+      aria-label="案件工作台分頁"
+    />
   </section>
 </template>
 

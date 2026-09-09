@@ -413,7 +413,8 @@ public sealed class M14BReadModelAcceptanceTests
             CaseWorkbenchCursorPosition? after,
             string adminUserId,
             bool canSupervise,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            int? pageNumber = null)
         {
             CallCount++;
             CaseTypes = caseTypes;

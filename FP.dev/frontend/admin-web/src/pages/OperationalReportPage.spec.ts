@@ -1,4 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import PrimeVue from 'primevue/config'
+import { chinesePaginationLocale } from '@doselect/web-shared/theme'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -33,7 +35,7 @@ async function mountPage() {
   })
   await router.push('/reports/sales-overview')
   await router.isReady()
-  return mount(OperationalReportPage, { global: { plugins: [router] } })
+  return mount(OperationalReportPage, { global: { plugins: [[PrimeVue, { locale: chinesePaginationLocale }], router] } })
 }
 
 function reportResult(rows: unknown[] = [{
@@ -58,11 +60,18 @@ function reportResult(rows: unknown[] = [{
     asOfUtc: '2026-09-01T00:00:00Z',
     summary: [{ metricKey: 'net_revenue', value: 1250, unit: 'currency' }],
     series: [{ bucket: '2026-08-01', metrics: [{ metricKey: 'net_revenue', value: 1250, unit: 'currency' }] }],
-    rows: { items: rows, nextCursor: null, hasMore: false },
+    rows: { items: rows, nextCursor: null, hasMore: false, totalCount: 200 },
   }
 }
 
 describe('OperationalReportPage', () => {
+  it('jumps directly to the last page using the applied filters', async () => {
+    const wrapper = await mountPage()
+    await wrapper.get('[aria-label="第 10 頁"]').trigger('click')
+    await flushPromises()
+    expect(mocks.load).toHaveBeenLastCalledWith('sales-overview', expect.objectContaining({ pageNumber: 10, pageSize: 20 }))
+    wrapper.unmount()
+  })
   beforeEach(() => {
     mocks.data.value = reportResult()
     mocks.error.value = null

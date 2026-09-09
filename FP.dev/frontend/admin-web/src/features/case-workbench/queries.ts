@@ -15,6 +15,7 @@ import type {
 } from './types'
 
 export interface CaseWorkbenchFilters {
+  pageNumber?: number
   caseTypes?: CaseWorkbenchCaseType[]
   statuses?: string[]
   priorities?: CasePriority[]
@@ -58,6 +59,7 @@ export function useCaseWorkbenchQuery(filters: MaybeRefOrGetter<CaseWorkbenchFil
             OverdueOnly: current.overdueOnly,
             Keyword: current.keyword,
             Cursor: current.cursor,
+            PageNumber: current.pageNumber,
             PageSize: current.pageSize ?? defaultCaseWorkbenchPageSize,
           },
         },

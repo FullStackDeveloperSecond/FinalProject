@@ -18,6 +18,7 @@ export interface ProductImportFiles {
 }
 
 export interface ImportRowsParams {
+  pageNumber?: number
   errorsOnly?: boolean
   cursor?: string
   pageSize?: number
@@ -155,6 +156,7 @@ function normalizeRowsQuery(params: ImportRowsParams) {
   return {
     errorsOnly: params.errorsOnly || undefined,
     cursor: params.cursor || undefined,
+    pageNumber: params.pageNumber,
     pageSize: params.pageSize,
   }
 }

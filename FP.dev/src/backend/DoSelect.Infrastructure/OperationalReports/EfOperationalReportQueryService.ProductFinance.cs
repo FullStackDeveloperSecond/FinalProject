@@ -238,7 +238,7 @@ public sealed partial class EfOperationalReportQueryService
             query.BrandCode,
             string.Join(",", query.OrderStatuses),
             query.Granularity);
-        var offset = 0;
+        var offset = ((query.PageNumber ?? 1) - 1) * query.PageSize;
 
         if (query.Cursor is not null)
         {
@@ -265,7 +265,10 @@ public sealed partial class EfOperationalReportQueryService
                 new ReportOffsetCursor(offset + items.Length),
                 fingerprint)
             : null;
-        return new CursorPage<ReportRowDto>(items, nextCursor, hasMore);
+        return new CursorPage<ReportRowDto>(items, nextCursor, hasMore)
+        {
+            TotalCount = query.PageNumber.HasValue ? rows.Count : null,
+        };
     }
 
     private sealed record SkuSaleRow(

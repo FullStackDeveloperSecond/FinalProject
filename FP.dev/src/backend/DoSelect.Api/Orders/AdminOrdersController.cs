@@ -31,7 +31,8 @@ public sealed class AdminOrdersController : ControllerBase
             request.SummaryStatus,
             request.Badge,
             request.Cursor,
-            request.PageSize);
+            request.PageSize,
+            request.PageNumber);
 
         try
         {
@@ -122,6 +123,9 @@ public sealed class AdminOrdersController : ControllerBase
 
 public sealed class AdminOrderListRequest
 {
+    [Range(1, 1_000_000)]
+    public int? PageNumber { get; init; }
+
     [MaxLength(4)]
     public IReadOnlyList<string>? SummaryStatus { get; init; }
 

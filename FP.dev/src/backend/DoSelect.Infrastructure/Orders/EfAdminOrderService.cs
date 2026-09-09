@@ -40,6 +40,12 @@ public sealed class EfAdminOrderService : IAdminOrderService
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(query);
+        if (query.PageNumber is < 1 or > 1_000_000 ||
+            (query.PageNumber.HasValue && !string.IsNullOrWhiteSpace(query.Cursor)))
+        {
+            throw new AdminOrderWriteException(AdminOrderWriteException.ErrorCodes.ValidationFailed,
+                "頁碼必須介於 1 至 1000000，且不能與游標同時使用。");
+        }
 
         var summarySet = NormalizeAndValidate(query.SummaryStatus, AdminOrderSummaryStatuses.All, "summaryStatus");
         var badgeSet = NormalizeAndValidate(query.Badge, AdminOrderBadges.All, "badge");
@@ -49,6 +55,7 @@ public sealed class EfAdminOrderService : IAdminOrderService
 
         ordersQuery = ApplySummaryStatusFilter(ordersQuery, summarySet);
         ordersQuery = ApplyBadgeFilter(ordersQuery, badgeSet);
+        int? totalCount = query.PageNumber.HasValue ? await ordersQuery.CountAsync(cancellationToken) : null;
 
         var scopeFingerprint = ComputeScopeFingerprint(summarySet, badgeSet);
         if (!string.IsNullOrWhiteSpace(query.Cursor))
@@ -75,6 +82,7 @@ public sealed class EfAdminOrderService : IAdminOrderService
         var orders = await ordersQuery
             .OrderByDescending(order => order.CreatedAtUtc)
             .ThenByDescending(order => order.PublicId)
+            .Skip(((query.PageNumber ?? 1) - 1) * pageSize)
             .Take(pageSize + 1)
             .ToListAsync(cancellationToken);
 
@@ -85,7 +93,7 @@ public sealed class EfAdminOrderService : IAdminOrderService
             : null;
 
         var items = page.Select(ToSummaryDto).ToList();
-        return new CursorPage<AdminOrderSummaryDto>(items, nextCursor, hasMore);
+        return new CursorPage<AdminOrderSummaryDto>(items, nextCursor, hasMore) { TotalCount = totalCount };
     }
 
     public async Task<AdminOrderDto> GetAsync(Guid orderPublicId, CancellationToken cancellationToken)

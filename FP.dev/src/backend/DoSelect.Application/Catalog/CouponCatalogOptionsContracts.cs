@@ -97,14 +97,11 @@ public sealed record CouponProductOption(
 /// 一頁商品搜尋結果。
 /// </summary>
 /// <param name="HasMore">還有下一頁；呼叫端把 <c>pageNumber</c> 加一再問一次。</param>
-/// <remarks>
-/// <b>刻意沒有總筆數。</b>先前這裡是 <c>TotalCount</c>，但填的是這一頁的筆數 ——
-/// 有下一頁時它不是總數，是個會誤導呼叫端的數字。真正的總數要多一次 <c>COUNT</c>，
-/// 而 picker 只需要知道「還有沒有更多」，所以不提供比提供一個假的好。
-/// </remarks>
+/// <param name="TotalCount">符合相同搜尋與可選狀態條件的總筆數，供頁碼與尾頁使用。</param>
 public sealed record CouponProductSearchResult(
     IReadOnlyList<CouponProductOption> Items,
-    bool HasMore);
+    bool HasMore,
+    int TotalCount);
 
 /// <summary>
 /// 優惠券挑選器的目錄查詢。實作屬 Catalog 的 Infrastructure。

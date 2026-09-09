@@ -68,7 +68,7 @@ public sealed class AdminInventoryController : ControllerBase
     public async Task<ActionResult<CursorPage<InventoryReservationDto>>> ListReservations(
         [FromQuery] InventoryReservationListRequest request, CancellationToken cancellationToken)
     {
-        var query = new InventoryReservationListQuery(request.Cursor, request.Status, request.PageSize);
+        var query = new InventoryReservationListQuery(request.Cursor, request.Status, request.PageSize, request.PageNumber);
         try
         {
             return Ok(await _queryService.ListReservationsAsync(query, cancellationToken));
@@ -259,6 +259,9 @@ public sealed class InventoryMovementListRequest
 
 public sealed class InventoryReservationListRequest
 {
+    [Range(1, 1_000_000)]
+    public int? PageNumber { get; init; }
+
     [StringLength(512)]
     public string? Cursor { get; init; }
 

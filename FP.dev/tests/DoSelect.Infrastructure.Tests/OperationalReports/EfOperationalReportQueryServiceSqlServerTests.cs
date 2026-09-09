@@ -783,6 +783,13 @@ public sealed class EfOperationalReportQueryServiceSqlServerTests
         Assert.Equal(
             ["REPORT-C"],
             second.Rows.Items.Cast<ProductAbcReportRowDto>().Select(row => row.SkuCode));
+        var numbered = await service.QueryAsync(
+            OperationalReportCatalog.Require(OperationalReportKeys.ProductAbc),
+            Wp002Query() with { PageSize = 2, PageNumber = 2 }, CancellationToken.None);
+        Assert.Equal(3, numbered.Rows.TotalCount);
+        Assert.Equal(second.Rows.Items, numbered.Rows.Items);
+        Assert.False(numbered.Rows.HasMore);
+        Assert.Null(first.Rows.TotalCount);
     }
 
     [OperationalReportSqlFact]

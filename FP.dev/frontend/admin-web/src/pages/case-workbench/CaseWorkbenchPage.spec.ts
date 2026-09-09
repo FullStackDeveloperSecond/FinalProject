@@ -1,3 +1,5 @@
+import PrimeVue from 'primevue/config'
+import { chinesePaginationLocale } from '@doselect/web-shared/theme'
 import { ApiError } from '@doselect/web-shared/api'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
@@ -68,7 +70,7 @@ async function mountPage(path = '/cases') {
   await router.push(path)
   await router.isReady()
 
-  return mount(CaseWorkbenchPage, { global: { plugins: [router] } })
+  return mount(CaseWorkbenchPage, { global: { plugins: [[PrimeVue, { locale: chinesePaginationLocale }], router] } })
 }
 
 describe('CaseWorkbenchPage', () => {
@@ -139,31 +141,43 @@ describe('CaseWorkbenchPage', () => {
     expect(hint.attributes('title')).toContain('目前無可用明細')
   })
 
-  it('disables previous on the first page and enables next only when hasMore is true', async () => {
-    workbenchMocks.data.value = { items: [sampleItem()], nextCursor: 'next-cursor', hasMore: true, totalCount: 2 }
+  it('shows numbered pages and disables previous on the first page', async () => {
+    workbenchMocks.data.value = { items: [sampleItem()], nextCursor: 'next-cursor', hasMore: true, totalCount: 40 }
     const wrapper = await mountPage()
 
-    const buttons = wrapper.findAll('.case-workbench__pagination button')
+    const buttons = wrapper.findAll('.ds-page-pager button').filter(b => ['上一頁', '下一頁'].includes(b.text()))
     expect(buttons[0]?.attributes('disabled')).toBeDefined()
     expect(buttons[1]?.attributes('disabled')).toBeUndefined()
 
     await buttons[1]?.trigger('click')
     await flushPromises()
-    expect(workbenchMocks.lastFilters.value?.cursor).toBe('next-cursor')
+    expect(workbenchMocks.lastFilters.value?.pageNumber).toBe(2)
+  })
+
+  it('returns to a valid page if a refresh leaves the last page empty', async () => {
+    workbenchMocks.data.value = { items: [sampleItem()], nextCursor: 'next', hasMore: true, totalCount: 40 }
+    const wrapper = await mountPage()
+    await wrapper.get('[aria-label="第 2 頁"]').trigger('click')
+    await flushPromises()
+    expect(workbenchMocks.lastFilters.value?.pageNumber).toBe(2)
+    workbenchMocks.data.value = { items: [], nextCursor: null, hasMore: false, totalCount: 1 }
+    await flushPromises()
+    expect(workbenchMocks.lastFilters.value?.pageNumber).toBe(1)
+    wrapper.unmount()
   })
 
   it('toggling a case-type filter resets pagination and passes the selection through to the query', async () => {
-    workbenchMocks.data.value = { items: [sampleItem()], nextCursor: 'next-cursor', hasMore: true, totalCount: 2 }
+    workbenchMocks.data.value = { items: [sampleItem()], nextCursor: 'next-cursor', hasMore: true, totalCount: 40 }
     const wrapper = await mountPage()
-    const nextButton = wrapper.findAll('.case-workbench__pagination button')[1]
+    const nextButton = wrapper.findAll('.ds-page-pager button').find(b => b.text() === '下一頁')
     await nextButton?.trigger('click')
     await flushPromises()
-    expect(workbenchMocks.lastFilters.value?.cursor).toBe('next-cursor')
+    expect(workbenchMocks.lastFilters.value?.pageNumber).toBe(2)
 
     await wrapper.get('#case-type-filter').setValue('support')
     await flushPromises()
 
-    expect(workbenchMocks.lastFilters.value?.cursor).toBeUndefined()
+    expect(workbenchMocks.lastFilters.value?.pageNumber).toBe(1)
     expect(workbenchMocks.lastFilters.value?.caseTypes).toEqual(['support'])
   })
 
@@ -181,16 +195,16 @@ describe('CaseWorkbenchPage', () => {
     ['#case-assignee-filter', 'mine'],
     ['#case-created-from', '2026-08-01'],
   ])('clears a second-page cursor synchronously when filter %s changes', async (selector, value) => {
-    workbenchMocks.data.value = { items: [sampleItem()], nextCursor: 'next-cursor', hasMore: true, totalCount: 2 }
+    workbenchMocks.data.value = { items: [sampleItem()], nextCursor: 'next-cursor', hasMore: true, totalCount: 40 }
     const wrapper = await mountPage()
-    await wrapper.findAll('.case-workbench__pagination button')[1]?.trigger('click')
+    await wrapper.findAll('.ds-page-pager button').find(b => b.text() === '下一頁')?.trigger('click')
     await flushPromises()
-    expect(workbenchMocks.lastFilters.value?.cursor).toBe('next-cursor')
+    expect(workbenchMocks.lastFilters.value?.pageNumber).toBe(2)
 
     await wrapper.get(selector).setValue(value)
     await flushPromises()
 
-    expect(workbenchMocks.lastFilters.value?.cursor).toBeUndefined()
+    expect(workbenchMocks.lastFilters.value?.pageNumber).toBe(1)
   })
 
   it('restores readable filters from the URL and writes later changes back to it', async () => {
