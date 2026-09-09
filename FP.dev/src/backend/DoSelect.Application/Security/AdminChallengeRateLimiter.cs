@@ -7,7 +7,7 @@ namespace DoSelect.Application.Security;
 /// <summary>
 /// In-memory、單一 process 內的固定視窗限流實作，跟 <see cref="EmailRequestThrottle"/> 同一套
 /// BCL PartitionedRateLimiter 手法。不持久化——重啟後配額重置。已確認這個取捨在本專案
-/// 成立：[[知識點/07-基礎設施與交付/CI與CD]] 記載 V1 只在單一 Windows 展示電腦執行、
+/// 成立：[[03-架構/05-背景工作與維運/背景工作與Hangfire設計]] 記載 V1 只在單一 Windows 展示電腦執行、
 /// 不部署公網、無水平擴展，不會有多個 API instance 各自維護獨立記憶體配額導致限流被
 /// 繞過的問題（alex review 第二輪 P1#2 確認事項）。
 /// </summary>
