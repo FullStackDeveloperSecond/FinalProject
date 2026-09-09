@@ -248,6 +248,12 @@ describe('AdminReturnDetailPage', () => {
     mocks.data.value = detail(['inspect'], { status: 'received' })
     const wrapper = await mountPage()
 
+    expect(wrapper.get('option[value="Unopened"]').text()).toBe('未拆封')
+    expect(wrapper.get('option[value="MissingAccessories"]').text()).toBe('配件短缺')
+    expect(wrapper.get('option[value="resellable"]').text()).toBe('可轉售')
+    expect(wrapper.get('option[value="quarantine"]').text()).toBe('隔離')
+    expect(wrapper.get('option[value="scrap"]').text()).toBe('報廢')
+
     const submitButton = wrapper.findAll('button').find((btn) => btn.text() === '送出檢查結果')!
     expect(submitButton.attributes('disabled')).toBeDefined()
 

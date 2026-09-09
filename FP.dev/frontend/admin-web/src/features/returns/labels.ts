@@ -23,9 +23,9 @@ export const priorityLabels: Record<string, string> = {
 }
 
 export const restockDispositionLabels: Record<string, string> = {
-  resellable: '可轉售 Resellable',
-  quarantine: '隔離 Quarantine',
-  scrap: '報廢 Scrap',
+  resellable: '可轉售',
+  quarantine: '隔離',
+  scrap: '報廢',
 }
 
 // 文字直接沿用後端 AssemblyFeeDisposition 列舉的 XML 文件註解（RefundCalculation.cs），
@@ -48,6 +48,16 @@ export const conditionCodeOptions = [
   'MissingAccessories',
   'Activated',
 ] as const
+
+export const conditionCodeLabels: Record<typeof conditionCodeOptions[number], string> = {
+  Unopened: '未拆封',
+  OpenedForInspection: '拆封檢查',
+  Installed: '已安裝',
+  Used: '已使用',
+  Damaged: '已損壞',
+  MissingAccessories: '配件短缺',
+  Activated: '已啟用',
+}
 
 export function formatDateTime(value: string | null | undefined): string {
   if (!value) {

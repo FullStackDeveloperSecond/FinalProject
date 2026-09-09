@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
-import { toValue, type MaybeRefOrGetter } from 'vue'
+import { computed, toValue, type MaybeRefOrGetter } from 'vue'
+import type { paths } from '@doselect/web-shared/api'
 import { apiClient } from '../../api/client'
 import type {
   ApproveReturnRequest,
@@ -13,11 +14,15 @@ const returnsKeys = {
   detail: (id: MaybeRefOrGetter<string>) => ['admin-returns', 'detail', toValue(id)] as const,
 }
 
-export function useAdminReturnListQuery() {
+type ReturnListFilters = NonNullable<paths['/api/v1/admin/returns']['get']['parameters']['query']>
+
+export function useAdminReturnListQuery(filters: MaybeRefOrGetter<ReturnListFilters> = {}) {
   return useQuery({
-    queryKey: returnsKeys.list(),
-    queryFn: async () => {
-      const { data, error } = await apiClient.GET('/api/v1/admin/returns', {})
+    queryKey: computed(() => [...returnsKeys.list(), toValue(filters)]),
+    queryFn: async ({ signal }) => {
+      const { data, error } = await apiClient.GET('/api/v1/admin/returns', {
+        params: { query: toValue(filters) }, signal,
+      })
       if (error) {
         throw error
       }

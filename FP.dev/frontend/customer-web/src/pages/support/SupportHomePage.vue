@@ -26,6 +26,13 @@ const ticketsQuery = useSupportTicketsQuery({ pageNumber: 1, pageSize: 10 })
 const grantMutation = useGrantAiConsentMutation()
 const withdrawMutation = useWithdrawAiConsentMutation()
 const sendMutation = useSendAiSupportMessageMutation()
+const orderStatusLabels: Record<string, string> = {
+  pendingPayment: '等待付款',
+  confirmed: '已確認',
+  processing: '處理中',
+  completed: '已完成',
+  cancelled: '已取消',
+}
 
 const remaining = computed(() => Number(
   sendMutation.data.value?.usage.remainingRequests
@@ -43,18 +50,29 @@ const shouldOfferHumanSupport = computed(() => [
 ].includes(sendErrorCode.value ?? ''))
 
 async function grantConsent() {
-  if (!consentAccepted.value) return
-  await grantMutation.mutateAsync({
-    policyVersion: Number(consentQuery.data.value?.policyVersion),
-    locale: 'zh-TW',
-    accepted: true,
-  })
+  if (!consentAccepted.value || grantMutation.isPending.value) return
+  try {
+    await grantMutation.mutateAsync({
+      policyVersion: Number(consentQuery.data.value?.policyVersion),
+      locale: 'zh-TW',
+      accepted: true,
+    })
+  }
+  catch {
+    // 保留 mutation 錯誤供畫面顯示；不得把失敗視為同意成功。
+  }
 }
 
 async function withdrawConsent() {
-  await withdrawMutation.mutateAsync()
-  conversationPublicId.value = null
-  sendMutation.reset()
+  if (withdrawMutation.isPending.value) return
+  try {
+    await withdrawMutation.mutateAsync()
+    conversationPublicId.value = null
+    sendMutation.reset()
+  }
+  catch {
+    // 撤回失敗時保留畫面與輸入，顯示錯誤供使用者重試。
+  }
 }
 
 async function sendMessage() {
@@ -170,6 +188,14 @@ function toggleSelection(values: string[], value: string, checked: boolean) {
         </button>
       </div>
 
+      <p
+        v-if="withdrawMutation.isError.value"
+        role="alert"
+        class="form-error"
+      >
+        {{ isApiError(withdrawMutation.error.value) ? withdrawMutation.error.value.message : '無法撤回同意，請稍後再試。' }}
+      </p>
+
       <form
         class="card ai-support__form"
         @submit.prevent="sendMessage"
@@ -204,7 +230,7 @@ function toggleSelection(values: string[], value: string, checked: boolean) {
                 :disabled="!selectedOrderIds.includes(order.publicId) && selectedOrderIds.length >= 3"
                 @change="toggleSelection(selectedOrderIds, order.publicId, ($event.target as HTMLInputElement).checked)"
               >
-              {{ order.orderNumber }}（{{ order.orderStatus }}）
+              {{ order.orderNumber }}（{{ orderStatusLabels[order.orderStatus] ?? '狀態待確認' }}）
             </label>
           </fieldset>
           <fieldset

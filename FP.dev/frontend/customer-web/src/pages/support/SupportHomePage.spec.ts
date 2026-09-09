@@ -62,6 +62,8 @@ describe('SupportHomePage', () => {
     mocks.grant.error.value = null
     mocks.grant.mutateAsync.mockReset().mockResolvedValue(undefined)
     mocks.withdraw.mutateAsync.mockReset().mockResolvedValue(undefined)
+    mocks.withdraw.isError.value = false
+    mocks.withdraw.error.value = null
     mocks.send.data.value = undefined
     mocks.send.isError.value = false
     mocks.send.error.value = null
@@ -131,5 +133,35 @@ describe('SupportHomePage', () => {
 
     expect(wrapper.text()).toContain('AI 暫時無法使用')
     expect(wrapper.get('a[href="/support/tickets/new"]').text()).toContain('建立人工客服案件')
+  })
+
+  it('handles a failed consent request without an unhandled event rejection', async () => {
+    const errorHandler = vi.fn()
+    mocks.grant.mutateAsync.mockRejectedValue(new Error('network unavailable'))
+    mocks.grant.isError.value = true
+    const wrapper = mount(SupportHomePage, { global: { ...global, config: { errorHandler } } })
+    await wrapper.get('input[type="checkbox"]').setValue(true)
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toContain('無法保存同意')
+    expect(errorHandler).not.toHaveBeenCalled()
+    expect(wrapper.find('textarea').exists()).toBe(false)
+  })
+
+  it('shows a failed withdrawal and preserves the current conversation', async () => {
+    const errorHandler = vi.fn()
+    mocks.consent.data.value = { state: 'granted', policyVersion: 1, locale: 'zh-TW' }
+    mocks.withdraw.mutateAsync.mockRejectedValue(new Error('network unavailable'))
+    mocks.withdraw.isError.value = true
+    const wrapper = mount(SupportHomePage, { global: { ...global, config: { errorHandler } } })
+    await wrapper.get('textarea').setValue('保留未送出的問題')
+    await wrapper.get('button.ai-support__withdraw').trigger('click')
+    await flushPromises()
+    expect(errorHandler).not.toHaveBeenCalled()
+    expect(wrapper.get('[role="alert"]').text()).toContain('無法撤回同意')
+    expect(wrapper.get('textarea').element.value).toBe('保留未送出的問題')
+    expect(mocks.send.reset).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('ORD-001（處理中）')
+    expect(wrapper.text()).not.toContain('processing')
   })
 })

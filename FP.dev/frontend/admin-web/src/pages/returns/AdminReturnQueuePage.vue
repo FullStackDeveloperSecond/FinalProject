@@ -1,10 +1,33 @@
 <script setup lang="ts">
-import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
+import { EmptyState, ErrorState, LoadingState, PagePager } from '@doselect/web-shared/components'
+import { computed, ref, watch } from 'vue'
 import { isApiError } from '@doselect/web-shared/api'
 import { useAdminReturnListQuery } from '../../features/returns/queries'
 import { formatDateTime, priorityLabels, statusLabels } from '../../features/returns/labels'
+import type { AdminReturnSummaryDto } from '../../features/returns/types'
 
-const { data, isPending, isError, error, refetch } = useAdminReturnListQuery()
+const page = ref(1)
+const status = ref<AdminReturnSummaryDto['status'] | ''>('')
+const search = ref('')
+const appliedSearch = ref('')
+watch(search, (value, _previous, cleanup) => {
+  const timer = setTimeout(() => { appliedSearch.value = value.trim(); page.value = 1 }, 300)
+  cleanup(() => clearTimeout(timer))
+})
+watch(status, () => { page.value = 1 })
+const filters = computed(() => ({
+  PageNumber: page.value, PageSize: 20,
+  Statuses: status.value ? [status.value] : undefined,
+  Q: appliedSearch.value || undefined,
+}))
+const { data, isPending, isFetching, isError, error, refetch } = useAdminReturnListQuery(filters)
+
+function deadlineLabel(item: AdminReturnSummaryDto): string {
+  if (!item.needsAttention || item.status !== 'awaitingShipment' || !item.returnShipmentDueAtUtc) return ''
+  const due = Date.parse(item.returnShipmentDueAtUtc)
+  if (!Number.isFinite(due)) return ''
+  return due <= Date.now() ? '已逾期' : '即將逾期'
+}
 </script>
 
 <template>
@@ -12,6 +35,37 @@ const { data, isPending, isError, error, refetch } = useAdminReturnListQuery()
     <h1 id="admin-returns-title">
       退貨案件
     </h1>
+
+    <div
+      class="admin-returns__filters"
+      role="search"
+      aria-label="退貨案件篩選"
+    >
+      <label>
+        退貨編號
+        <input
+          v-model="search"
+          type="search"
+          maxlength="100"
+          aria-label="退貨編號"
+          placeholder="輸入退貨編號"
+        >
+      </label>
+      <label>
+        退貨狀態
+        <select
+          v-model="status"
+          aria-label="退貨狀態"
+        >
+          <option value="">全部狀態</option>
+          <option
+            v-for="(label, value) in statusLabels"
+            :key="value"
+            :value="value"
+          >{{ label }}</option>
+        </select>
+      </label>
+    </div>
 
     <LoadingState v-if="isPending" />
     <ErrorState
@@ -76,9 +130,9 @@ const { data, isPending, isError, error, refetch } = useAdminReturnListQuery()
             <td>
               {{ formatDateTime(item.returnShipmentDueAtUtc) }}
               <span
-                v-if="item.needsAttention"
+                v-if="deadlineLabel(item)"
                 class="admin-returns__attention-badge"
-              >即將逾期</span>
+              >{{ deadlineLabel(item) }}</span>
             </td>
             <td>
               <RouterLink :to="`/returns/${item.publicId}`">
@@ -89,6 +143,14 @@ const { data, isPending, isError, error, refetch } = useAdminReturnListQuery()
         </tbody>
       </table>
     </div>
+    <PagePager
+      v-if="data"
+      v-model:page="page"
+      :page-size="20"
+      :total-records="Number(data.totalCount)"
+      :busy="isFetching"
+      aria-label="退貨案件分頁"
+    />
     <p
       v-if="data"
       class="admin-returns__count"
@@ -99,6 +161,8 @@ const { data, isPending, isError, error, refetch } = useAdminReturnListQuery()
 </template>
 
 <style scoped>
+.admin-returns__filters { display: flex; flex-wrap: wrap; gap: 1rem; margin: 1rem 0; }
+.admin-returns__filters label { display: grid; gap: .4rem; }
 .admin-returns__table {
   width: 100%;
   border-collapse: collapse;

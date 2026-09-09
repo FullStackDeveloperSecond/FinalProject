@@ -132,21 +132,29 @@ describe('OperationalReportPage', () => {
     expect(wrapper.text()).toContain('目前沒有符合條件的資料')
   })
 
-  it('does not query draft filters until submit and then normalizes status values', async () => {
+  it('applies Chinese status selections immediately, retaining normalized filters and resetting the page', async () => {
     const wrapper = await mountPage()
+    await flushPromises()
+    await wrapper.get('[aria-label="第 5 頁"]').trigger('click')
     await flushPromises()
     const initialCalls = mocks.load.mock.calls.length
 
     await wrapper.find('input[placeholder="全部分類"]').setValue(' CPU ')
-    await wrapper.find('input[placeholder="Completed,Cancelled"]').setValue('Completed, Cancelled')
     expect(mocks.load).toHaveBeenCalledTimes(initialCalls)
-
-    await wrapper.find('form').trigger('submit')
+    const statusSelect = wrapper.get('select[aria-label="訂單狀態"]')
+    expect(statusSelect.text()).toContain('已完成')
+    expect(statusSelect.text()).not.toContain('Completed')
+    await statusSelect.setValue(['Completed', 'Cancelled'])
 
     expect(mocks.load).toHaveBeenCalledTimes(initialCalls + 1)
     expect(mocks.load).toHaveBeenLastCalledWith('sales-overview', expect.objectContaining({
       categoryCode: 'CPU',
       orderStatuses: ['Completed', 'Cancelled'],
+      pageNumber: 1,
+    }))
+    await statusSelect.setValue([])
+    expect(mocks.load).toHaveBeenLastCalledWith('sales-overview', expect.objectContaining({
+      orderStatuses: [], pageNumber: 1,
     }))
   })
 

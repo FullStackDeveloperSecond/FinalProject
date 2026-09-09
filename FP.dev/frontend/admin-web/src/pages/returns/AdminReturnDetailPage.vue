@@ -13,6 +13,8 @@ import {
 import {
   assemblyFeeDispositionOptions,
   conditionCodeOptions,
+  conditionCodeLabels,
+  restockDispositionLabels,
   formatDateTime,
   priorityLabels,
   statusLabels,
@@ -419,7 +421,7 @@ function isConflict(err: unknown): boolean {
                 :key="code"
                 :value="code"
               >
-                {{ code }}
+                {{ conditionCodeLabels[code] }}
               </option>
             </select>
           </label>
@@ -427,13 +429,13 @@ function isConflict(err: unknown): boolean {
             <span>回補判定</span>
             <select v-model="ensureInspectionLine(item.publicId).disposition">
               <option value="resellable">
-                可轉售 Resellable
+                {{ restockDispositionLabels.resellable }}
               </option>
               <option value="quarantine">
-                隔離 Quarantine
+                {{ restockDispositionLabels.quarantine }}
               </option>
               <option value="scrap">
-                報廢 Scrap
+                {{ restockDispositionLabels.scrap }}
               </option>
             </select>
           </label>

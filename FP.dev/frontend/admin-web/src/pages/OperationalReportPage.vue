@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import { EmptyState, ErrorState, LoadingState, PagePager } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
 import { useAdminAuthStore } from '../features/auth/stores/useAdminAuthStore'
+import { orderStatusLabel } from '../features/orders/api'
 import { cellsFor, formatMetric, headersFor, metricLabel, unitLabel } from '../features/operationalReports/presentation'
 import {
   isOperationalReportKey,
@@ -50,10 +51,7 @@ function initialFilters(): OperationalReportFilters {
   }
 }
 
-const draft = reactive({
-  ...initialFilters(),
-  orderStatusesText: '',
-})
+const draft = reactive(initialFilters())
 const appliedFilters = ref<OperationalReportFilters>(initialFilters())
 const validationMessage = ref('')
 
@@ -100,7 +98,7 @@ function normalizedFilters(): OperationalReportFilters {
     timeZone: 'Asia/Taipei',
     categoryCode: draft.categoryCode.trim(),
     brandCode: draft.brandCode.trim(),
-    orderStatuses: draft.orderStatusesText.split(',').map((value) => value.trim()).filter(Boolean),
+    orderStatuses: [...draft.orderStatuses],
     granularity: draft.granularity,
     pageSize: draft.pageSize,
     pageNumber: 1,
@@ -214,12 +212,21 @@ async function changePage(pageNumber: number) {
         >
       </label>
       <label>
-        <span>訂單狀態（逗號分隔）</span>
-        <input
-          v-model="draft.orderStatusesText"
-          type="text"
-          placeholder="Completed,Cancelled"
+        <span>訂單狀態（可多選，未選表示全部）</span>
+        <select
+          v-model="draft.orderStatuses"
+          multiple
+          aria-label="訂單狀態"
+          @change="applyFilters"
         >
+          <option
+            v-for="(label, value) in orderStatusLabel"
+            :key="value"
+            :value="value"
+          >
+            {{ label }}
+          </option>
+        </select>
       </label>
       <label>
         <span>粒度</span>
