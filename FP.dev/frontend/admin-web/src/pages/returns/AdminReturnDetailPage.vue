@@ -14,6 +14,7 @@ import {
   assemblyFeeDispositionOptions,
   conditionCodeOptions,
   conditionCodeLabels,
+  inspectionStatusLabels,
   restockDispositionLabels,
   formatDateTime,
   priorityLabels,
@@ -251,7 +252,7 @@ function isConflict(err: unknown): boolean {
             v-for="item in data.return.items"
             :key="item.publicId"
           >
-            {{ item.productNameSnapshot || item.skuCodeSnapshot }}｜數量 {{ item.quantity }}｜檢查狀態 {{ item.inspectionStatus }}
+            {{ item.productNameSnapshot || item.skuCodeSnapshot }}｜數量 {{ item.quantity }}｜檢查狀態 {{ inspectionStatusLabels[item.inspectionStatus] ?? '其他檢查狀態' }}
             <span v-if="item.description">｜品項說明 {{ item.description }}</span>
           </li>
         </ul>

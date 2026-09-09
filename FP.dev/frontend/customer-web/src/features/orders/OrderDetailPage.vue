@@ -12,6 +12,11 @@ import {
 import { fetchOrderInvoice, type SimulatedInvoiceDto } from '../payments/api'
 
 const route = useRoute()
+const shippingMethodLabels: Record<string, string> = {
+  HomeDelivery: '一般宅配', 'home-delivery': '一般宅配',
+  StorePickup: '超商取貨', 'store-pickup': '超商取貨',
+  HomeDeliveryAssembly: '組裝電腦宅配', 'home-delivery-assembly': '組裝電腦宅配',
+}
 const router = useRouter()
 const orderPublicId = computed(() => String(route.params.orderId))
 
@@ -295,7 +300,7 @@ const invoiceStatusLabel: Record<string, string> = {
           配送資訊
         </h2>
         <p>
-          配送方式：{{ order.recipient.shippingMethodCode }}<template v-if="order.recipient.storeName">
+          配送方式：{{ shippingMethodLabels[order.recipient.shippingMethodCode] ?? '配送方式待確認' }}<template v-if="order.recipient.storeName">
             （{{ order.recipient.storeName }}）
           </template>
         </p>

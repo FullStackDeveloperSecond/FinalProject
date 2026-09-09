@@ -83,6 +83,17 @@ describe('CaseWorkbenchPage', () => {
     workbenchMocks.lastFilters.value = null
   })
 
+  it('localizes category codes supplied as Support titles without changing free-text titles', async () => {
+    workbenchMocks.data.value = {
+      items: [sampleItem({ title: 'Logistics' }), sampleItem({ title: '會員補充的問題' })],
+      nextCursor: null, hasMore: false, totalCount: 2,
+    }
+    const wrapper = await mountPage()
+    expect(wrapper.text()).toContain('物流')
+    expect(wrapper.text()).not.toContain('Logistics')
+    expect(wrapper.text()).toContain('會員補充的問題')
+  })
+
   it('shows a loading state while pending', async () => {
     workbenchMocks.isPending.value = true
     const wrapper = await mountPage()

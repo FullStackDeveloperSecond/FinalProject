@@ -117,6 +117,17 @@ describe('OrderDetailPage recipient error/retry', () => {
     orderMocks.refetchRecipient.mockReset()
   })
 
+  it.each([
+    ['HomeDelivery', '一般宅配'], ['home-delivery', '一般宅配'],
+    ['StorePickup', '超商取貨'], ['HomeDeliveryAssembly', '組裝電腦宅配'],
+    ['future-method', '配送方式待確認'],
+  ])('localizes shipping method %s', async (code, label) => {
+    orderMocks.order.value = { ...sampleOrder(), shippingMethodCode: code }
+    const wrapper = await mountPage()
+    expect(wrapper.text()).toContain(label)
+    expect(wrapper.text()).not.toContain(code)
+  })
+
   it('renders order state values in Traditional Chinese', async () => {
     const wrapper = await mountPage()
 
@@ -171,6 +182,53 @@ describe('OrderDetailPage recipient error/retry', () => {
   })
 })
 
+describe('OrderDetailPage assembly progress', () => {
+  beforeEach(() => {
+    orderMocks.order.value = {
+      ...sampleOrder(), assemblyStatus: 'Started', availableActions: [],
+      assemblyJobs: [
+        { publicId: 'job-first', status: 'ReadyToShip', rowVersion: 'first-version', availableActions: [] },
+        { publicId: 'job-second', status: 'Started', rowVersion: 'second-version', availableActions: ['assemblyTesting', 'assemblyFailed'] },
+      ],
+    }
+    orderMocks.orderPending.value = false
+    orderMocks.orderError.value = false
+    orderMocks.actionMutation.isPending.value = false
+    orderMocks.actionMutation.mutateAsync.mockReset().mockResolvedValue(undefined)
+  })
+
+  it('confirms the selected job with both order and job versions, without exposing an unavailable shortcut', async () => {
+    const wrapper = await mountPage()
+    expect(wrapper.text()).not.toContain('測試通過，確認可出貨')
+    const button = wrapper.findAll('button').find(item => item.text() === '組裝完成，開始測試')!
+    await button.trigger('click')
+    expect(orderMocks.actionMutation.mutateAsync).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('僅更新選取的這一台電腦')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(orderMocks.actionMutation.mutateAsync).toHaveBeenCalledExactlyOnceWith({
+      publicId: orderPublicId, actionName: 'assemblyTesting',
+      request: {
+        reasonCode: undefined, note: undefined, rowVersion: 'AAAAAAAAAAE=',
+        assemblyJobPublicId: 'job-second', assemblyJobRowVersion: 'second-version',
+      },
+    })
+  })
+
+  it('requires a failure reason and preserves the form on a concurrency conflict', async () => {
+    orderMocks.actionMutation.mutateAsync.mockRejectedValue(new ApiError('conflict', { status: 409, code: 'concurrency_conflict' }))
+    const wrapper = await mountPage()
+    await wrapper.findAll('button').find(item => item.text() === '標記組裝／測試失敗')!.trigger('click')
+    await wrapper.get('form').trigger('submit')
+    expect(orderMocks.actionMutation.mutateAsync).not.toHaveBeenCalled()
+    await wrapper.get('#action-reason').setValue('other')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toContain('訂單資料已被更新')
+    expect(wrapper.find('form').exists()).toBe(true)
+  })
+})
+
 /** M-11 物流狀態命令（組長 2026-09-04 裁定 A1／C1）：按鈕只照後端 availableActions、必填原因、Idempotency-Key 沿用。 */
 describe('OrderDetailPage shipment status commands', () => {
   function shippedOrder() {
@@ -210,6 +268,8 @@ describe('OrderDetailPage shipment status commands', () => {
     expect(wrapper.text()).toContain('SH-0001')
     expect(wrapper.text()).toContain('TRK-0001')
     expect(wrapper.find('ul[aria-label="物流歷程"]').text()).toContain('已出貨 → 配送中')
+    expect(wrapper.text()).toContain('一般宅配')
+    expect(wrapper.text()).not.toContain('home-delivery')
     const labels = wrapper.findAll('button').map(button => button.text())
     expect(labels).toContain('宅配送達')
     expect(labels).toContain('配送失敗')

@@ -11,7 +11,7 @@ import type {
   CaseWorkbenchSortOrder,
 } from '../../features/case-workbench/types'
 import type { SupportTicketStatus } from '../../features/support/types'
-import { formatDateTime, priorityLabels, statusLabels } from '../../features/support/labels'
+import { categoryLabels, formatDateTime, priorityLabels, statusLabels } from '../../features/support/labels'
 
 // A-24 案件工作台：讀取既有 GET /api/v1/admin/case-workbench，欄位固定 12 欄（不自行擴張 DTO）。
 // This slice is authorized for Support only. Return/Report filters stay hidden until their
@@ -133,6 +133,13 @@ function normalizeCaseType(caseType: string): CaseWorkbenchCaseType | null {
   return caseTypeOptions.some(option => option.value === normalized)
     ? (normalized as CaseWorkbenchCaseType)
     : null
+}
+
+function caseTitleLabel(caseType: string, title: string): string {
+  // vw_CaseWorkbench currently projects the Support category as Title.
+  // Translate only known codes; never replace member-authored free text.
+  if (normalizeCaseType(caseType) !== 'support') return title
+  return Object.entries(categoryLabels).find(([code]) => code.toLowerCase() === title.toLowerCase())?.[1] ?? title
 }
 
 function caseTypeLabel(caseType: string): string {
@@ -421,7 +428,7 @@ const errorTitle = computed(() => {
                 </span>
               </td>
               <td data-label="標題">
-                {{ item.title }}
+                {{ caseTitleLabel(item.caseType, item.title) }}
               </td>
               <td data-label="狀態">
                 <span class="status-pill">{{ statusLabel(item.status) }}</span>

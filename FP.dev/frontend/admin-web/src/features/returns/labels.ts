@@ -59,6 +59,14 @@ export const conditionCodeLabels: Record<typeof conditionCodeOptions[number], st
   Activated: '已啟用',
 }
 
+export const inspectionStatusLabels: Record<string, string> = {
+  NotInspected: '尚未檢查',
+  PendingInspection: '尚未檢查',
+  Resellable: '可重新販售',
+  Quarantine: '隔離保管',
+  Scrap: '報廢',
+}
+
 export function formatDateTime(value: string | null | undefined): string {
   if (!value) {
     return '—'

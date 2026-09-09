@@ -131,6 +131,18 @@ async function mountPage(errorHandler?: (error: unknown) => void) {
 }
 
 describe('AdminReturnDetailPage', () => {
+  it.each([
+    ['NotInspected', '尚未檢查'], ['PendingInspection', '尚未檢查'],
+    ['Resellable', '可重新販售'], ['Quarantine', '隔離保管'], ['Scrap', '報廢'],
+  ])('renders inspection status %s in Chinese rather than exposing the stored code', async (code, label) => {
+    mocks.data.value = detail([], {
+      items: returnRequest().items.map(item => ({ ...item, inspectionStatus: code })),
+    })
+    const wrapper = await mountPage()
+    expect(wrapper.text()).toContain(`檢查狀態 ${label}`)
+    expect(wrapper.text()).not.toContain(code)
+  })
+
   beforeEach(() => {
     mocks.data.value = null
     mocks.isPending.value = false

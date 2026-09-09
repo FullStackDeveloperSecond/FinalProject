@@ -81,6 +81,20 @@ describe('OrderDetailPage', () => {
     routerPush.mockReset()
   })
 
+  it.each([
+    ['HomeDelivery', '一般宅配'], ['home-delivery', '一般宅配'],
+    ['StorePickup', '超商取貨'], ['HomeDeliveryAssembly', '組裝電腦宅配'],
+    ['future-method', '配送方式待確認'],
+  ])('localizes shipping method %s', async (code, label) => {
+    fetchOrder.mockResolvedValueOnce(buildOrder({
+      recipient: { recipientName: '展示會員', shippingMethodCode: code, storeName: null },
+    }))
+    const wrapper = mount(OrderDetailPage)
+    await flushPromises()
+    expect(wrapper.text()).toContain(label)
+    expect(wrapper.text()).not.toContain(code)
+  })
+
   it('renders the shipment summary and history for the owner without any actor details', async () => {
     fetchOrder.mockResolvedValueOnce(buildOrder({
       fulfillmentStatus: 'delivered',

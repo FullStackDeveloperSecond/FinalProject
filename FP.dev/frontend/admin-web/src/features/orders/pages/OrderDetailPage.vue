@@ -23,6 +23,11 @@ import {
 } from '../queries/useAdminOrders'
 
 const route = useRoute()
+const shippingMethodLabels: Record<string, string> = {
+  HomeDelivery: '一般宅配', 'home-delivery': '一般宅配',
+  StorePickup: '超商取貨', 'store-pickup': '超商取貨',
+  HomeDeliveryAssembly: '組裝電腦宅配', 'home-delivery-assembly': '組裝電腦宅配',
+}
 const publicId = computed(() => String(route.params.publicId))
 
 const { data: order, isPending, isError, error, refetch } = useAdminOrderDetailQuery(publicId)
@@ -246,7 +251,7 @@ function formatDateTime(value?: string | null): string {
         <dd>{{ order.buyerType === 'Member' ? '會員' : '訪客' }}／{{ order.maskedBuyerEmail }}</dd>
         <dt>配送方式</dt>
         <dd>
-          {{ order.shippingMethodCode }}<template v-if="order.storeName">
+          {{ shippingMethodLabels[order.shippingMethodCode] ?? '配送方式待確認' }}<template v-if="order.storeName">
             （{{ order.storeName }}）
           </template>
         </dd>
@@ -393,7 +398,7 @@ function formatDateTime(value?: string | null): string {
             <dt>物流狀態</dt>
             <dd>{{ fulfillmentStatusLabel(order.shipment.status) }}</dd>
             <dt>配送方式</dt>
-            <dd>{{ order.shipment.shippingMethodCode }}</dd>
+            <dd>{{ shippingMethodLabels[order.shipment.shippingMethodCode] ?? '配送方式待確認' }}</dd>
             <dt>出貨時間</dt>
             <dd>{{ formatDateTime(order.shipment.shippedAtUtc) }}</dd>
             <dt>送達／取貨時間</dt>
