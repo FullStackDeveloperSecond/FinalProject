@@ -614,6 +614,9 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
             guestHash,
             now,
             cancellationToken);
+        var memberCreatedAtUtc = snapshot.Rule.MemberValidityMonths is not null && command.Actor.MemberUserId is { } memberId
+            ? await _couponRuleReader.GetMemberCreatedAtUtcAsync(memberId, cancellationToken)
+            : (DateTime?)null;
         var result = CouponCalculator.Calculate(new CouponCalculationRequest(
             snapshot.Rule,
             snapshot.Scope,
@@ -628,7 +631,8 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
                 .ToArray(),
             command.Actor.IsMember,
             isAssemblyDelivery,
-            now));
+            now,
+            memberCreatedAtUtc));
         if (!result.IsSuccess)
         {
             throw Conflict(result.ErrorCode!, "The coupon cannot be applied to this Checkout.");
@@ -638,7 +642,9 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
             .Where(line => IsCouponEligible(line, snapshot.Rule, snapshot.Scope))
             .Select(line => line.CartItemPublicId)
             .ToHashSet();
-        return new CalculatedCoupon(snapshot, result, eligibleLineIds);
+        var quantity = lines.Where(line => eligibleLineIds.Contains(line.CartItemPublicId)).Sum(line => (long)line.Quantity);
+        var appliedValue = quantity >= 2 ? snapshot.Rule.MultiItemDiscountValue ?? snapshot.Rule.DiscountValue : snapshot.Rule.DiscountValue;
+        return new CalculatedCoupon(snapshot, result, eligibleLineIds, appliedValue);
     }
 
     private static bool IsCouponEligible(
@@ -997,7 +1003,7 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
             coupon.Snapshot.NameZhTw,
             rule.DiscountType,
             rule.RuleVersion,
-            rule.DiscountValue,
+            coupon.AppliedDiscountValue,
             rule.MinimumSpend,
             coupon.Result.DiscountAmount,
             coupon.Result.EligibleSubtotal,
@@ -1103,7 +1109,8 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
     private sealed record CalculatedCoupon(
         CouponRuleSnapshot Snapshot,
         CouponCalculationResult Result,
-        IReadOnlySet<Guid> EligibleLineIds);
+        IReadOnlySet<Guid> EligibleLineIds,
+        decimal? AppliedDiscountValue);
 
     private sealed record SpecificationSnapshotValue(
         long SkuId,

@@ -1063,6 +1063,70 @@ button:disabled {
   top: auto;
 }
 
+/* 財務工作區：保留品牌色，以間距、白色表面與明確格線區分資料及操作。 */
+.finance-page { min-width: 0; }
+.finance-page h1 { overflow-wrap: anywhere; }
+.finance-page .finance-panel {
+  margin-block: 1.5rem;
+  padding: clamp(1rem, 2vw, 1.5rem);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+.finance-panel > h2 { margin-top: 0; }
+.finance-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 1rem 1.5rem;
+}
+.finance-field {
+  display: grid;
+  gap: .5rem;
+  flex: 1 1 15rem;
+  min-width: 0;
+}
+.finance-field label { font-weight: 600; }
+.finance-field :is(input, select) { width: 100%; min-width: 0; }
+.finance-filter > button { flex: 0 0 auto; }
+.finance-page .finance-summary {
+  display: grid;
+  grid-template-columns: minmax(8rem, 13rem) minmax(0, 1fr);
+  gap: 1px;
+  margin-block: 1.5rem;
+  padding: 1px;
+  background: var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.finance-summary > :is(dt, dd) {
+  margin: 0;
+  padding: .85rem 1rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  background: var(--color-surface);
+}
+.finance-summary > dt { background: var(--color-section); font-weight: 600; }
+.finance-money { font-variant-numeric: tabular-nums; font-weight: 600; }
+.finance-page .table-scroll {
+  margin-block: 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+.finance-page table { min-width: 40rem; margin: 0; border-collapse: collapse; }
+.finance-page :is(th, td) { padding: .85rem 1rem; border: 1px solid var(--color-border-line); vertical-align: top; }
+.finance-page thead th { color: var(--color-text); }
+.finance-command { display: grid; gap: .65rem; max-width: 42rem; }
+.finance-command > label:not(:first-child) { margin-top: .75rem; }
+.finance-command > label:has(input[type="checkbox"]) { display: flex; gap: .65rem; align-items: flex-start; }
+.finance-command :is(select, textarea) { width: 100%; min-width: 0; }
+.finance-command > button { justify-self: start; margin-top: .5rem; }
+@media (max-width: 600px) {
+  .finance-page .finance-summary { grid-template-columns: minmax(7rem, .8fr) minmax(0, 1.2fr); }
+  .finance-summary > :is(dt, dd) { padding: .75rem; }
+  .finance-filter > button { width: 100%; }
+}
+
 /* 3. 報表篩選列在 375px 仍是兩欄（2 × 10rem + gap > 375px），改為單欄。 */
 @media (max-width: 560px) {
   .report-filters {

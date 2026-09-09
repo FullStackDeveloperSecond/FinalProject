@@ -129,6 +129,8 @@ interface CouponFormState {
   discountValue: string | number
   minimumSpend: string | number
   maximumDiscount: string | number
+  multiItemDiscountValue: string | number
+  memberValidityMonths: string | number
   startsAt: string
   endsAt: string
   totalUsageLimit: string | number
@@ -151,6 +153,8 @@ function emptyForm(): CouponFormState {
     discountValue: '',
     minimumSpend: '',
     maximumDiscount: '',
+    multiItemDiscountValue: '',
+    memberValidityMonths: '',
     startsAt: '',
     endsAt: '',
     totalUsageLimit: '',
@@ -207,6 +211,8 @@ function startEdit(coupon: CouponDto) {
         : Number(coupon.discountValue)),
     minimumSpend: coupon.minimumSpend === null ? '' : String(Number(coupon.minimumSpend)),
     maximumDiscount: coupon.maximumDiscount === null ? '' : String(Number(coupon.maximumDiscount)),
+    multiItemDiscountValue: coupon.multiItemDiscountValue == null ? '' : Number(coupon.multiItemDiscountValue) * 100,
+    memberValidityMonths: coupon.memberValidityMonths ?? '',
     startsAt: toLocalInputValue(coupon.startsAtUtc),
     endsAt: toLocalInputValue(coupon.endsAtUtc),
     totalUsageLimit: coupon.usage.totalUsageLimit === null ? '' : String(Number(coupon.usage.totalUsageLimit)),
@@ -266,6 +272,9 @@ function buildRuleFields() {
     totalUsageLimit: optionalNumber(form.totalUsageLimit),
     perMemberLimit: optionalNumber(form.perMemberLimit),
     memberOnly: form.memberOnly,
+    multiItemDiscountValue: form.discountType === 'percentage' && optionalNumber(form.multiItemDiscountValue) !== null
+      ? Number(form.multiItemDiscountValue) / 100 : null,
+    memberValidityMonths: optionalNumber(form.memberValidityMonths),
     excludeSaleItems: form.excludeSaleItems,
     ...toScopeRequestFields(form),
   }
@@ -287,10 +296,14 @@ const scopeProblem = computed(() => describeScopeProblem(form))
  */
 const formProblem = computed(() =>
   scopeProblem.value
+  ?? (editing.value?.multiItemDiscountValue != null && optionalNumber(form.multiItemDiscountValue) === null
+    ? '既有件數折扣不可清空；如需移除規則，請另建優惠券。' : null)
+  ?? (optionalNumber(form.memberValidityMonths) !== null && !form.memberOnly ? '入會期限優惠必須限定會員使用。' : null)
   ?? describeDiscountProblem(
     form.discountType,
     discountValueForApi(),
-    optionalNumber(form.maximumDiscount)))
+    optionalNumber(form.maximumDiscount),
+    optionalNumber(form.multiItemDiscountValue) === null ? null : Number(form.multiItemDiscountValue) / 100))
 
 function submitCreate() {
   if (formProblem.value !== null) {
@@ -482,97 +495,123 @@ function describeError(candidate: unknown): string {
     <p v-else-if="!result?.items.length">
       沒有符合條件的優惠券
     </p>
-    <table v-else>
-      <caption class="sr-only">
-        優惠券列表
-      </caption>
-      <thead>
-        <tr>
-          <th scope="col">
-            優惠碼
-          </th>
-          <th scope="col">
-            名稱
-          </th>
-          <th scope="col">
-            狀態
-          </th>
-          <th scope="col">
-            折扣
-          </th>
-          <th scope="col">
-            期間
-          </th>
-          <th scope="col">
-            使用量
-          </th>
-          <th scope="col">
-            操作
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        <template
-          v-for="coupon in result.items"
-          :key="coupon.publicId"
-        >
+    <div
+      v-else
+      class="table-scroll coupons-table"
+      role="region"
+      aria-label="優惠券清單表格"
+      tabindex="0"
+    >
+      <table>
+        <caption class="sr-only">
+          優惠券列表
+        </caption>
+        <thead>
           <tr>
-            <td>{{ coupon.code }}</td>
-            <td>{{ coupon.nameZhTw }}</td>
-            <td>{{ statusLabels[coupon.status] }}</td>
-            <td>{{ describeDiscount(coupon) }}</td>
-            <td>{{ formatDate(coupon.startsAtUtc) }}～{{ formatDate(coupon.endsAtUtc) }}</td>
-            <td>{{ describeUsage(coupon) }}</td>
-            <td class="coupons-actions">
-              <button
-                type="button"
-                @click="expandedId = expandedId === coupon.publicId ? null : coupon.publicId"
-              >
-                {{ expandedId === coupon.publicId ? '收合規則' : '規則預覽' }}
-              </button>
-              <button
-                v-if="canEditRules(coupon.status)"
-                type="button"
-                @click="startEdit(coupon)"
-              >
-                修改
-              </button>
-              <button
-                v-for="action in availableActions(coupon.status)"
-                :key="action"
-                type="button"
-                :disabled="actionMutation.isPending.value"
-                @click="requestAction(coupon, action)"
-              >
-                {{ actionLabels[action] }}
-              </button>
-            </td>
+            <th scope="col">
+              優惠碼
+            </th>
+            <th scope="col">
+              名稱
+            </th>
+            <th scope="col">
+              狀態
+            </th>
+            <th scope="col">
+              折扣
+            </th>
+            <th scope="col">
+              期間
+            </th>
+            <th scope="col">
+              使用量
+            </th>
+            <th scope="col">
+              操作
+            </th>
           </tr>
-          <tr v-if="expandedId === coupon.publicId">
-            <td colspan="7">
-              <dl class="coupons-rule">
-                <dt>最低消費</dt>
-                <dd>{{ formatMoney(coupon.minimumSpend) }}</dd>
-                <dt>每人限用</dt>
-                <dd>{{ coupon.usage.perMemberLimit === null ? '不限' : coupon.usage.perMemberLimit }}</dd>
-                <dt>剩餘名額</dt>
-                <dd>{{ coupon.usage.remainingCount === null ? '不限' : coupon.usage.remainingCount }}</dd>
-                <dt>限會員</dt>
-                <dd>{{ coupon.memberOnly ? '是' : '否' }}</dd>
-                <dt>排除特價品</dt>
-                <dd>{{ coupon.excludeSaleItems ? '是' : '否' }}</dd>
-                <dt>適用範圍</dt>
-                <dd>{{ describeScope(coupon) }}</dd>
-                <dt>規則版本</dt>
-                <dd>{{ coupon.ruleVersion }}</dd>
-              </dl>
-            </td>
-          </tr>
-        </template>
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          <template
+            v-for="coupon in result.items"
+            :key="coupon.publicId"
+          >
+            <tr>
+              <td>{{ coupon.code }}</td>
+              <td>{{ coupon.nameZhTw }}</td>
+              <td>{{ statusLabels[coupon.status] }}</td>
+              <td>{{ describeDiscount(coupon) }}</td>
+              <td>
+                <template v-if="coupon.memberValidityMonths === 12">
+                  入會日起 1 年內（滿周年到期）
+                </template>
+                <template v-else>
+                  {{ formatDate(coupon.startsAtUtc) }}～{{ formatDate(new Date(new Date(coupon.endsAtUtc).getTime() - 1).toISOString()) }}
+                </template>
+              </td>
+              <td>{{ describeUsage(coupon) }}</td>
+              <td>
+                <div class="coupons-actions">
+                  <button
+                    type="button"
+                    @click="expandedId = expandedId === coupon.publicId ? null : coupon.publicId"
+                  >
+                    {{ expandedId === coupon.publicId ? '收合規則' : '規則預覽' }}
+                  </button>
+                  <button
+                    v-if="canEditRules(coupon.status)"
+                    type="button"
+                    @click="startEdit(coupon)"
+                  >
+                    修改
+                  </button>
+                  <button
+                    v-for="action in availableActions(coupon.status)"
+                    :key="action"
+                    type="button"
+                    :disabled="actionMutation.isPending.value"
+                    @click="requestAction(coupon, action)"
+                  >
+                    {{ actionLabels[action] }}
+                  </button>
+                </div>
+              </td>
+            </tr>
+            <tr v-if="expandedId === coupon.publicId">
+              <td colspan="7">
+                <dl class="coupons-rule">
+                  <dt>最低消費</dt>
+                  <dd>{{ coupon.minimumSpend == null || Number(coupon.minimumSpend) === 0 ? '無限制' : formatMoney(coupon.minimumSpend) }}</dd>
+                  <dt>合併使用</dt>
+                  <dd>不可合併，每筆訂單限用一張優惠券</dd>
+                  <dt>每人限用</dt>
+                  <dd>{{ coupon.usage.perMemberLimit === null ? '不限' : coupon.usage.perMemberLimit }}</dd>
+                  <dt>剩餘名額</dt>
+                  <dd>{{ coupon.usage.remainingCount === null ? '不限' : coupon.usage.remainingCount }}</dd>
+                  <dt>限會員</dt>
+                  <dd>{{ coupon.memberOnly ? '是' : '否' }}</dd>
+                  <dt>排除特價品</dt>
+                  <dd>{{ coupon.excludeSaleItems ? '是' : '否' }}</dd>
+                  <dt>適用範圍</dt>
+                  <dd>{{ describeScope(coupon) }}</dd>
+                  <dt>規則版本</dt>
+                  <dd>{{ coupon.ruleVersion }}</dd>
+                </dl>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
 
-<PagePager v-if="totalPages > 1" :page="filters.pageNumber" :page-size="1" :total-records="totalPages" aria-label="列表分頁" @update:page="goToPage" />
+    <PagePager
+      v-if="totalPages > 1"
+      :page="filters.pageNumber"
+      :page-size="1"
+      :total-records="totalPages"
+      aria-label="列表分頁"
+      @update:page="goToPage"
+    />
 
     <form
       v-if="showCreate || editing"
@@ -629,14 +668,25 @@ function describeError(candidate: unknown): string {
           step="any"
         >
       </label>
+      <label v-if="form.discountType === 'percentage'">2 件以上折扣百分比（選填）
+        <input
+          v-model="form.multiItemDiscountValue"
+          name="multiItemDiscountValue"
+          type="number"
+          min="0"
+          max="100"
+          step="any"
+        >
+        <span>以適用商品總數量計算，同商品多件也計入。5 表示九五折，10 表示九折。</span>
+      </label>
       <label v-if="isAmountDiscount(form.discountType)">
-        {{ form.discountType === 'percentage' ? '最高折抵（必填）' : '最高折抵' }}
+        {{ form.discountType === 'percentage' && optionalNumber(form.multiItemDiscountValue) === null ? '最高折抵（必填）' : '最高折抵（選填，留空為無上限）' }}
         <input
           v-model="form.maximumDiscount"
           name="maximumDiscount"
           type="number"
           step="any"
-          :required="form.discountType === 'percentage'"
+          :required="form.discountType === 'percentage' && optionalNumber(form.multiItemDiscountValue) === null"
         >
       </label>
       <label>開始時間
@@ -668,6 +718,19 @@ function describeError(candidate: unknown): string {
           name="perMemberLimit"
           type="number"
         >
+      </label>
+      <label>會員入會期限
+        <select
+          v-model="form.memberValidityMonths"
+          name="memberValidityMonths"
+        >
+          <option
+            value=""
+            :disabled="editing?.memberValidityMonths != null"
+          >不限制</option>
+          <option :value="12">入會日起 1 年內（包含既有會員）</option>
+        </select>
+        <span v-if="editing?.memberValidityMonths != null">既有入會期限不可移除；如需不同規則請另建優惠券。</span>
       </label>
       <label>
         <input
@@ -744,6 +807,7 @@ function describeError(candidate: unknown): string {
 
 .coupons-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
@@ -751,14 +815,17 @@ function describeError(candidate: unknown): string {
 
 .coupons-filters {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.75rem;
   margin-block: 1rem;
 }
 
 .coupons-filters input {
+  flex: 1 1 16rem;
+  min-width: 0;
   min-height: 2.75rem;
   padding: 0.5rem 0.75rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--color-border);
   border-radius: 0.5rem;
   font: inherit;
 }
@@ -768,7 +835,8 @@ function describeError(candidate: unknown): string {
   flex-wrap: wrap;
   gap: 0.75rem;
   margin-block-end: 1.5rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
   border-radius: 0.5rem;
   padding: 0.75rem;
 }
@@ -782,16 +850,22 @@ function describeError(candidate: unknown): string {
 .coupons-rule {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 0.25rem 1rem;
+  gap: 1px;
+  padding: 1px;
+  background: var(--color-border);
   margin: 0;
 }
 
 .coupons-rule dt {
   font-weight: 600;
+  padding: .65rem 1rem;
+  background: var(--color-section);
 }
 
 .coupons-rule dd {
   margin: 0;
+  padding: .65rem 1rem;
+  background: var(--color-surface);
 }
 
 .coupons-error {
@@ -802,7 +876,8 @@ function describeError(candidate: unknown): string {
   display: grid;
   gap: 0.75rem;
   margin-block-start: 2rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
   border-radius: 0.5rem;
   padding: 1rem;
   max-width: 32rem;
@@ -820,6 +895,12 @@ function describeError(candidate: unknown): string {
   gap: 1rem;
   margin-block-start: 1.5rem;
 }
+
+.coupons-table { border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.coupons-table table { min-width: 58rem; margin: 0; }
+.coupons-table th, .coupons-table td { padding: .85rem 1rem; border-color: var(--color-border-line); vertical-align: top; }
+.coupons-table th { color: var(--color-text); }
+.coupons-statuses label { display: inline-flex; align-items: center; gap: .4rem; padding: .25rem; }
 
 .sr-only {
   position: absolute;

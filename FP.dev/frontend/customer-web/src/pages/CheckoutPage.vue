@@ -1214,8 +1214,10 @@ function receiptKey() {
         <p v-else-if="activeCouponCode && !isShippingError && selectedShippingOption">
           已套用 {{ activeCouponCode }}，折扣 {{ formatTwd(selectedShippingOption.amounts.itemDiscountTotal) }}；應付總額已更新。
         </p>
-        <p>Demo 優惠 CREATOR10：輸入優惠碼後，CPU、顯示卡及記憶體等適用分類商品小計滿 NT$20,000 享九折，最高折抵 NT$2,000；每位會員限用一次。</p>
-        <p>機殼、運費及組裝費不列入本優惠門檻。例：顯示卡 NT$19,900 加機殼 NT$5,000，適用商品仍只有 NT$19,900，未達門檻。其他商品是否適用及可用次數，以本次優惠資格確認結果為準。</p>
+        <p>優惠券不可合併使用，每筆訂單限用一張；輸入優惠碼後確認套用結果。</p>
+        <p>開學季 SCHOOL2026：2026/9/1～9/30，全商品 1 件九五折、2 件以上九折（同商品多件也計入），無最低消費、折抵無上限，會員與訪客每人限用一次。</p>
+        <p>入會禮 MEMBER100：會員商品小計滿 NT$1,000 折 NT$100，每位會員限用一次；包含入會未滿一年的既有會員，滿入會周年時到期。</p>
+        <p>運費與組裝費不參與商品折扣。CREATOR10 為已結束的 8 月活動，不能再使用。開學季部分退貨沿用原成交折扣，只退退貨品項的實付金額。</p>
       </section>
 
       <section aria-labelledby="invoice-title">

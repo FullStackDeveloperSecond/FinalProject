@@ -357,6 +357,53 @@ public sealed class CouponCalculatorTests
         Assert.Equal(3000m, rule.MinimumSpend);
     }
 
+    [Theory]
+    [InlineData(1, 2500)]
+    [InlineData(2, 10000)]
+    [InlineData(3, 15000)]
+    public void QuantityTier_UsesTotalQuantityWithoutACap(int quantity, decimal expected)
+    {
+        var rule = Rule(CouponDiscountType.Percentage, .05m) with { MultiItemDiscountValue = .10m };
+        var result = Calculate(rule, CouponScopeRules.SiteWide,
+            [Line(LineA, quantity, 50000m)]);
+        Assert.True(result.IsSuccess);
+        Assert.Equal(expected, result.DiscountAmount);
+        Assert.Equal(expected, result.Allocations.Sum(item => item.Amount));
+    }
+
+    [Fact]
+    public void QuantityTier_DoesNotCountExcludedProducts()
+    {
+        var rule = Rule(CouponDiscountType.Percentage, .05m) with { MultiItemDiscountValue = .10m };
+        var result = Calculate(rule, CouponScopeRules.SiteWideExcluding([2]),
+            [Line(LineA, 1, 1000m), Line(LineB, 2, 5000m, productId: 2)]);
+        Assert.True(result.IsSuccess);
+        Assert.Equal(50m, result.DiscountAmount);
+    }
+
+    [Theory]
+    [InlineData(-1, true)]
+    [InlineData(0, false)]
+    [InlineData(1, false)]
+    public void MemberGift_ExpiresAtOriginalRegistrationAnniversary(int secondsFromAnniversary, bool succeeds)
+    {
+        var created = EvaluatedAtUtc.AddYears(-1).AddSeconds(-secondsFromAnniversary);
+        var rule = Rule(CouponDiscountType.FixedAmount, 100m, minimumSpend: 1000m, memberOnly: true,
+            perMemberLimit: 1) with { MemberValidityMonths = 12 };
+        var result = CouponCalculator.Calculate(new CouponCalculationRequest(rule,
+            CouponScopeRules.SiteWide, CouponUsageState.Unused, [Line(LineA, 1, 1000m)],
+            true, false, EvaluatedAtUtc, created));
+        Assert.Equal(succeeds, result.IsSuccess);
+    }
+
+    [Fact]
+    public void MemberGift_RequiresTrustedRegistrationTime()
+    {
+        var rule = Rule(CouponDiscountType.FixedAmount, 100m, memberOnly: true) with { MemberValidityMonths = 12 };
+        var result = Calculate(rule, CouponScopeRules.SiteWide, [Line(LineA, 1, 1000m)]);
+        Assert.Equal(CouponCalculationErrorCodes.CouponNotApplicable, result.ErrorCode);
+    }
+
     private static CouponCalculationResult Calculate(
         CouponRule rule,
         CouponScopeRules scope,

@@ -32,6 +32,11 @@ public static class CouponCalculator
         }
 
         var coupon = request.Rule;
+        if (!Coupon.HasValidExtendedRule(coupon.DiscountType, coupon.DiscountValue,
+                coupon.MultiItemDiscountValue, coupon.MemberValidityMonths, coupon.MemberOnly))
+        {
+            return CouponCalculationResult.Failure(CouponCalculationErrorCodes.CouponInvalid);
+        }
 
         if (coupon.Status != CouponStatus.Active ||
             request.EvaluatedAtUtc < coupon.StartsAtUtc ||
@@ -41,6 +46,14 @@ public static class CouponCalculator
         }
 
         if (coupon.MemberOnly && !request.IsAuthenticatedMember)
+        {
+            return CouponCalculationResult.Failure(CouponCalculationErrorCodes.CouponNotApplicable);
+        }
+
+        if (coupon.MemberValidityMonths is { } months &&
+            (request.MemberCreatedAtUtc is not { Kind: DateTimeKind.Utc } created ||
+             created > request.EvaluatedAtUtc || created.Year > 9998 ||
+             request.EvaluatedAtUtc >= created.AddMonths(months)))
         {
             return CouponCalculationResult.Failure(CouponCalculationErrorCodes.CouponNotApplicable);
         }
@@ -94,7 +107,8 @@ public static class CouponCalculator
             CouponDiscountType.FixedAmount => CalculateAmountDiscount(
                 ResolveFixedAmount(coupon, eligibleSubtotal), eligibleSubtotal, eligibleLines),
             CouponDiscountType.Percentage => CalculateAmountDiscount(
-                ResolvePercentageAmount(coupon, eligibleSubtotal), eligibleSubtotal, eligibleLines),
+                ResolvePercentageAmount(coupon, eligibleSubtotal, eligibleLines.Sum(line => (long)line.Quantity)),
+                eligibleSubtotal, eligibleLines),
             _ => CouponCalculationResult.Failure(CouponCalculationErrorCodes.CouponInvalid),
         };
     }
@@ -139,16 +153,19 @@ public static class CouponCalculator
             ? Math.Min(Round(discountValue), eligibleSubtotal)
             : null;
 
-    private static decimal? ResolvePercentageAmount(CouponRule coupon, decimal eligibleSubtotal)
+    private static decimal? ResolvePercentageAmount(CouponRule coupon, decimal eligibleSubtotal, long quantity)
     {
-        // 百分比折扣必須設定最高折抵，避免高價電腦產生不可控折扣。
-        if (coupon.DiscountValue is not { } rate || coupon.MaximumDiscount is not { } maximumDiscount)
+        // 只有明確設定件數級距的券允許無上限；既有百分比券仍保留必填上限。
+        if (coupon.DiscountValue is not (> 0 and <= 1) || coupon.MaximumDiscount is <= 0 ||
+            coupon.MaximumDiscount is null && coupon.MultiItemDiscountValue is null)
         {
             return null;
         }
 
+        var rate = quantity >= 2 ? coupon.MultiItemDiscountValue ?? coupon.DiscountValue.Value : coupon.DiscountValue.Value;
         var discount = Round(eligibleSubtotal * rate);
-        return Math.Min(Math.Min(discount, Round(maximumDiscount)), eligibleSubtotal);
+        return Math.Min(coupon.MaximumDiscount is { } maximumDiscount
+            ? Math.Min(discount, Round(maximumDiscount)) : discount, eligibleSubtotal);
     }
 
     private static CouponCalculationResult CalculateAmountDiscount(

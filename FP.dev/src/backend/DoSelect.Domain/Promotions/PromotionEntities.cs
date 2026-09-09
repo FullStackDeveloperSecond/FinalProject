@@ -15,7 +15,9 @@ public sealed record CouponCreation(
     int? PerMemberLimit,
     bool MemberOnly,
     bool ExcludeSaleItems,
-    CouponScopeType ScopeType);
+    CouponScopeType ScopeType,
+    decimal? MultiItemDiscountValue = null,
+    int? MemberValidityMonths = null);
 
 /// <summary>
 /// 管理員一次送出的完整規則修改。欄位與 <see cref="CouponCreation"/> 相同，語意不同：
@@ -36,7 +38,9 @@ public sealed record CouponRuleRevision(
     int? PerMemberLimit,
     bool MemberOnly,
     bool ExcludeSaleItems,
-    CouponScopeType ScopeType);
+    CouponScopeType ScopeType,
+    decimal? MultiItemDiscountValue = null,
+    int? MemberValidityMonths = null);
 
 /// <summary>
 /// 一次規則修改實際變動的欄位。<see cref="ChangedFields"/> 只帶欄位名稱、不帶值，
@@ -74,6 +78,8 @@ public sealed class Coupon : MutablePublicEntity
             creation.TotalUsageLimit,
             creation.PerMemberLimit,
             nameof(creation));
+        RequireExtendedRule(creation.DiscountType, creation.DiscountValue,
+            creation.MultiItemDiscountValue, creation.MemberValidityMonths, creation.MemberOnly);
 
         Code = CouponCode.Normalize(RequireText(creation.Code, nameof(creation.Code)));
         NameZhTw = RequireText(creation.NameZhTw, nameof(creation.NameZhTw));
@@ -81,6 +87,8 @@ public sealed class Coupon : MutablePublicEntity
         DiscountValue = creation.DiscountValue;
         MinimumSpend = creation.MinimumSpend;
         MaximumDiscount = creation.MaximumDiscount;
+        MultiItemDiscountValue = creation.MultiItemDiscountValue;
+        MemberValidityMonths = creation.MemberValidityMonths;
         StartsAtUtc = RequireUtc(creation.StartsAtUtc, nameof(creation.StartsAtUtc));
         EndsAtUtc = RequireUtc(creation.EndsAtUtc, nameof(creation.EndsAtUtc));
         TotalUsageLimit = creation.TotalUsageLimit;
@@ -98,6 +106,8 @@ public sealed class Coupon : MutablePublicEntity
     public decimal? DiscountValue { get; private set; }
     public decimal? MinimumSpend { get; private set; }
     public decimal? MaximumDiscount { get; private set; }
+    public decimal? MultiItemDiscountValue { get; private set; }
+    public int? MemberValidityMonths { get; private set; }
     public DateTime StartsAtUtc { get; private set; }
     public DateTime EndsAtUtc { get; private set; }
     public int? TotalUsageLimit { get; private set; }
@@ -133,7 +143,8 @@ public sealed class Coupon : MutablePublicEntity
     public bool HasCompleteDiscountRule => DiscountType switch
     {
         CouponDiscountType.FixedAmount => DiscountValue is > 0,
-        CouponDiscountType.Percentage => DiscountValue is > 0 and <= 1 && MaximumDiscount is > 0,
+        CouponDiscountType.Percentage => DiscountValue is > 0 and <= 1 &&
+            (MaximumDiscount is > 0 || MultiItemDiscountValue is not null && MaximumDiscount is null),
         CouponDiscountType.FreeShipping or CouponDiscountType.AssemblyFreeShipping => true,
         _ => false,
     };
@@ -215,6 +226,8 @@ public sealed class Coupon : MutablePublicEntity
             revision.TotalUsageLimit,
             revision.PerMemberLimit,
             nameof(revision));
+        RequireExtendedRule(revision.DiscountType, revision.DiscountValue,
+            revision.MultiItemDiscountValue, revision.MemberValidityMonths, revision.MemberOnly);
 
         var code = CouponCode.Normalize(RequireText(revision.Code, nameof(revision.Code)));
         var name = RequireText(revision.NameZhTw, nameof(revision.NameZhTw));
@@ -252,6 +265,8 @@ public sealed class Coupon : MutablePublicEntity
         Rule(nameof(DiscountValue), revision.DiscountValue != DiscountValue);
         Rule(nameof(MinimumSpend), revision.MinimumSpend != MinimumSpend);
         Rule(nameof(MaximumDiscount), revision.MaximumDiscount != MaximumDiscount);
+        Rule(nameof(MultiItemDiscountValue), revision.MultiItemDiscountValue != MultiItemDiscountValue);
+        Rule(nameof(MemberValidityMonths), revision.MemberValidityMonths != MemberValidityMonths);
         Rule(nameof(StartsAtUtc), startsAtUtc != StartsAtUtc);
         Rule(nameof(EndsAtUtc), endsAtUtc != EndsAtUtc);
         Rule(nameof(TotalUsageLimit), revision.TotalUsageLimit != TotalUsageLimit);
@@ -272,6 +287,8 @@ public sealed class Coupon : MutablePublicEntity
         DiscountValue = revision.DiscountValue;
         MinimumSpend = revision.MinimumSpend;
         MaximumDiscount = revision.MaximumDiscount;
+        MultiItemDiscountValue = revision.MultiItemDiscountValue;
+        MemberValidityMonths = revision.MemberValidityMonths;
         StartsAtUtc = startsAtUtc;
         EndsAtUtc = endsAtUtc;
         TotalUsageLimit = revision.TotalUsageLimit;
@@ -422,6 +439,22 @@ public sealed class Coupon : MutablePublicEntity
     /// 「建立時擋下、修改時放行」的缺口。與資料庫的 `CK_Coupons_Period`、
     /// `CK_Coupons_UsageLimits`、`CK_Coupons_Amounts`、`CK_Coupons_Percentage` 對應。
     /// </summary>
+    public static bool HasValidExtendedRule(CouponDiscountType type, decimal? discountValue,
+        decimal? multiItemDiscountValue, int? memberValidityMonths, bool memberOnly) =>
+        (multiItemDiscountValue is null || type == CouponDiscountType.Percentage &&
+            discountValue is > 0 and <= 1 && multiItemDiscountValue is > 0 and <= 1 &&
+            multiItemDiscountValue >= discountValue) &&
+        (memberValidityMonths is null || memberValidityMonths == 12 && memberOnly);
+
+    private static void RequireExtendedRule(CouponDiscountType type, decimal? value,
+        decimal? multiItemValue, int? validityMonths, bool memberOnly)
+    {
+        if (!HasValidExtendedRule(type, value, multiItemValue, validityMonths, memberOnly))
+        {
+            throw new ArgumentException("The quantity discount or member validity rule is invalid.");
+        }
+    }
+
     private static void RequireWellFormedRule(
         CouponDiscountType discountType,
         decimal? discountValue,

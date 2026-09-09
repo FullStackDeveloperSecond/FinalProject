@@ -102,7 +102,9 @@ public sealed record CouponDto(
     int RuleVersion,
     DateTime CreatedAtUtc,
     DateTime UpdatedAtUtc,
-    byte[] RowVersion);
+    byte[] RowVersion,
+    decimal? MultiItemDiscountValue = null,
+    int? MemberValidityMonths = null);
 
 /// <summary>
 /// 建立優惠券（API DTO與Schema契約第 124 行）。
@@ -128,7 +130,9 @@ public sealed record CreateCouponRequest(
     CouponScopeType ScopeType,
     IReadOnlyList<Guid>? CategoryPublicIds,
     IReadOnlyList<Guid>? ProductPublicIds,
-    IReadOnlyList<Guid>? ExcludedProductPublicIds);
+    IReadOnlyList<Guid>? ExcludedProductPublicIds,
+    decimal? MultiItemDiscountValue = null,
+    int? MemberValidityMonths = null);
 
 /// <summary>
 /// 修改優惠券（API DTO與Schema契約第 125 行）：建立欄位加上 <paramref name="RowVersion"/>。
@@ -154,7 +158,9 @@ public sealed record UpdateCouponRequest(
     IReadOnlyList<Guid>? CategoryPublicIds,
     IReadOnlyList<Guid>? ProductPublicIds,
     IReadOnlyList<Guid>? ExcludedProductPublicIds,
-    [RowVersionRequired] byte[] RowVersion);
+    [RowVersionRequired] byte[] RowVersion,
+    decimal? MultiItemDiscountValue = null,
+    int? MemberValidityMonths = null);
 
 /// <summary>
 /// `activate`／`pause`／`disable` 的共用 Request（API DTO與Schema契約第 126 行）。
@@ -310,7 +316,10 @@ public static class AdminCouponQueryValidator
         CouponScopeType scopeType,
         IReadOnlyList<Guid>? categoryPublicIds,
         IReadOnlyList<Guid>? productPublicIds,
-        IReadOnlyList<Guid>? excludedProductPublicIds)
+        IReadOnlyList<Guid>? excludedProductPublicIds,
+        decimal? multiItemDiscountValue = null,
+        int? memberValidityMonths = null,
+        bool memberOnly = false)
     {
         if (!Enum.IsDefined(discountType))
         {
@@ -322,7 +331,13 @@ public static class AdminCouponQueryValidator
             throw DomainProblemException.Validation("scopeType is not a known value.");
         }
 
-        if (discountType == CouponDiscountType.Percentage && maximumDiscount is not > 0)
+        if (!Coupon.HasValidExtendedRule(discountType, discountValue, multiItemDiscountValue, memberValidityMonths, memberOnly))
+        {
+            throw DomainProblemException.Validation("件數折扣或會員入會期限設定不正確。");
+        }
+
+        if (discountType == CouponDiscountType.Percentage && maximumDiscount is not > 0 &&
+            !(multiItemDiscountValue is not null && maximumDiscount is null))
         {
             throw DomainProblemException.Validation(
                 "A percentage coupon requires a positive maximumDiscount.");

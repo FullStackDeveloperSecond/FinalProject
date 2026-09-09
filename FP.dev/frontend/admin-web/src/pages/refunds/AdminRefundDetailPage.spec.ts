@@ -74,6 +74,10 @@ describe('AdminRefundDetailPage', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('退款上限')
+    const summary = wrapper.get('dl[aria-label="退款摘要"]')
+    expect(summary.classes()).toContain('finance-summary')
+    expect(summary.findAll('dt').length).toBe(summary.findAll('dd').length)
+    expect(wrapper.get('.table-scroll').attributes('tabindex')).toBe('0')
     expect(wrapper.text()).toContain('商品退款')
     expect(wrapper.text()).toContain('優惠追回')
     expect(wrapper.text()).toContain('+NT$500')

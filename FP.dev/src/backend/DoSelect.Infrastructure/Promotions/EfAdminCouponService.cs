@@ -134,7 +134,8 @@ public sealed class EfAdminCouponService : IAdminCouponService
             request.ScopeType,
             request.CategoryPublicIds,
             request.ProductPublicIds,
-            request.ExcludedProductPublicIds);
+            request.ExcludedProductPublicIds,
+            request.MultiItemDiscountValue, request.MemberValidityMonths, request.MemberOnly);
 
         // 最終Schema「範圍規則」：驗證與寫入需於同一 Transaction 完成。
         // 範圍解析（PublicId → 內部主鍵）也是驗證的一部分，因此一併納入。
@@ -165,7 +166,7 @@ public sealed class EfAdminCouponService : IAdminCouponService
                             request.PerMemberLimit,
                             request.MemberOnly,
                             request.ExcludeSaleItems,
-                            request.ScopeType),
+                            request.ScopeType, request.MultiItemDiscountValue, request.MemberValidityMonths),
                         now);
                 }
                 catch (ArgumentException exception)
@@ -230,15 +231,6 @@ public sealed class EfAdminCouponService : IAdminCouponService
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(actor);
-        AdminCouponQueryValidator.RequireValidRule(
-            request.DiscountType,
-            request.DiscountValue,
-            request.MaximumDiscount,
-            request.ScopeType,
-            request.CategoryPublicIds,
-            request.ProductPublicIds,
-            request.ExcludedProductPublicIds);
-
         var publicIdForReload = await InSerializableTransactionAsync(
             async token =>
             {
@@ -247,6 +239,14 @@ public sealed class EfAdminCouponService : IAdminCouponService
                     ?? throw DomainProblemException.NotFound($"Coupon '{publicId}' was not found.");
 
                 RequireCurrentRowVersion(request.RowVersion, coupon.RowVersion);
+
+                // 新欄位未提供時保留原規則，避免舊版管理介面無聲移除入會期限或件數級距。
+                var multiItemDiscountValue = request.MultiItemDiscountValue ?? coupon.MultiItemDiscountValue;
+                var memberValidityMonths = request.MemberValidityMonths ?? coupon.MemberValidityMonths;
+                AdminCouponQueryValidator.RequireValidRule(request.DiscountType, request.DiscountValue,
+                    request.MaximumDiscount, request.ScopeType, request.CategoryPublicIds,
+                    request.ProductPublicIds, request.ExcludedProductPublicIds,
+                    multiItemDiscountValue, memberValidityMonths, request.MemberOnly);
 
                 var now = _timeProvider.GetUtcNow().UtcDateTime;
 
@@ -291,7 +291,7 @@ public sealed class EfAdminCouponService : IAdminCouponService
                             request.PerMemberLimit,
                             request.MemberOnly,
                             request.ExcludeSaleItems,
-                            request.ScopeType),
+                            request.ScopeType, multiItemDiscountValue, memberValidityMonths),
                         hasRedemptions,
                         scopeChanged,
                         now);
@@ -592,7 +592,8 @@ public sealed class EfAdminCouponService : IAdminCouponService
             coupon.RuleVersion,
             AsUtc(coupon.CreatedAtUtc),
             AsUtc(coupon.UpdatedAtUtc),
-            coupon.RowVersion);
+            coupon.RowVersion,
+            coupon.MultiItemDiscountValue, coupon.MemberValidityMonths);
 
     /// <summary>
     /// 把 SQL Server 讀回來的 <c>datetime2</c> 標記為 UTC。

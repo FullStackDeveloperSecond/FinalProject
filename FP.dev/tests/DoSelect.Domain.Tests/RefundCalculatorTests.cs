@@ -420,6 +420,17 @@ public sealed class RefundCalculatorTests
         Assert.Equal(RefundErrorCodes.RefundAmountExceeded, result.ErrorCode);
     }
 
+    [Fact]
+    public void SchoolCoupon_ReturningOneOfTwoItemsPreservesThePaidNinetyPercentPrice()
+    {
+        var order = SnapshotOf([new RefundOrderLine(LineA, 2, 0, 1000m, 200m, true)],
+            shippingMethodBaseFee: 0m, couponDiscountTotal: 200m, couponMinimumSpend: null);
+        var result = Calculate(order, [new RefundLineRequest(LineA, 1)]);
+        Assert.True(result.IsSuccess);
+        Assert.Equal(900m, result.NetRefundAmount);
+        Assert.DoesNotContain(result.Components, item => item.Type == RefundAllocationType.DiscountClawback && item.Amount > 0);
+    }
+
     private static decimal ComponentAmount(
         RefundCalculationResult result,
         RefundAllocationType type) =>

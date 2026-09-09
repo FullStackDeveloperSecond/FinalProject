@@ -94,6 +94,11 @@ export function describeDiscount(coupon: CouponDto): string {
 
   const value = Number(coupon.discountValue ?? 0)
   if (coupon.discountType === 'percentage') {
+    if (coupon.multiItemDiscountValue != null) {
+      const pricePercent = (rate: number) => Math.round((1 - rate) * 1000) / 10
+      return `1 件付 ${pricePercent(value)}%、2 件以上付 ${pricePercent(Number(coupon.multiItemDiscountValue))}%` +
+        (coupon.maximumDiscount == null ? '，折抵無上限' : `，最高折 ${formatMoney(coupon.maximumDiscount)}`)
+    }
     const percent = Math.round(value * 1000) / 10
     const cap = coupon.maximumDiscount === null
       ? ''

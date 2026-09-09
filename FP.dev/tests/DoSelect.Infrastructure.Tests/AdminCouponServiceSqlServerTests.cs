@@ -145,6 +145,39 @@ public sealed class AdminCouponServiceSqlServerTests
     private static readonly DateTime EndsAtUtc = NowUtc.AddDays(30);
 
     [AdminCouponSqlFact]
+    public async Task QuantityRulePersistsWithoutCapAndOldClientsCannotRemoveIt()
+    {
+        await using var context = AdminCouponSqlFixture.CreateContext();
+        var service = CreateService(context);
+        var created = await service.CreateAsync(CreateRequest(UniqueCode()) with
+        {
+            DiscountType = CouponDiscountType.Percentage, DiscountValue = .05m,
+            MaximumDiscount = null, MinimumSpend = null, MultiItemDiscountValue = .10m,
+        });
+        Assert.Equal(.10m, created.MultiItemDiscountValue);
+        Assert.Null(created.MaximumDiscount);
+        var updated = await service.UpdateAsync(created.PublicId, UpdateRequest(created) with { NameZhTw = "件數優惠" });
+        Assert.Equal(.10m, updated.MultiItemDiscountValue);
+        Assert.Equal(created.RuleVersion, updated.RuleVersion);
+        var changed = await service.UpdateAsync(updated.PublicId, UpdateRequest(updated) with { MultiItemDiscountValue = .15m });
+        Assert.Equal(created.RuleVersion + 1, changed.RuleVersion);
+        Assert.True(await context.Set<AuditLog>().AnyAsync(log => log.ResourcePublicId == created.PublicId &&
+            log.Action == AuditActions.CouponUpdate && log.ChangedFieldsJson.Contains("multiItemDiscountValue")));
+    }
+
+    [AdminCouponSqlFact]
+    public async Task MemberValidityPersistsAndCannotBeRemovedByAnOldClient()
+    {
+        await using var context = AdminCouponSqlFixture.CreateContext();
+        var service = CreateService(context);
+        var created = await service.CreateAsync(CreateRequest(UniqueCode()) with { MemberOnly = true, MemberValidityMonths = 12 });
+        var updated = await service.UpdateAsync(created.PublicId, UpdateRequest(created) with { NameZhTw = "入會禮" });
+        Assert.Equal(12, updated.MemberValidityMonths);
+        await Assert.ThrowsAsync<DomainProblemException>(() => service.UpdateAsync(updated.PublicId,
+            UpdateRequest(updated) with { MemberOnly = false }));
+    }
+
+    [AdminCouponSqlFact]
     public async Task CreatingACouponPersistsItAsADraft()
     {
         await using var context = AdminCouponSqlFixture.CreateContext();

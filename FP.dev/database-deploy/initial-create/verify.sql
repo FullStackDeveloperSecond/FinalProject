@@ -114,6 +114,13 @@ IF NOT EXISTS
     THROW 51008, 'dbo.BuildLists.OwnedPartsJson must be nullable nvarchar(max).', 1;
 
 DECLARE @WorkbenchRows bigint;
+IF NOT EXISTS (SELECT 1 FROM dbo.__EFMigrationsHistory WHERE MigrationId = N'20260909164147_AddCouponQuantityAndMembershipRules')
+    THROW 51009, 'Coupon quantity and membership migration is missing.', 1;
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.Coupons') AND name = N'MultiItemDiscountValue' AND system_type_id = TYPE_ID(N'decimal') AND precision = 18 AND scale = 2 AND is_nullable = 1)
+    THROW 51010, 'Coupon quantity discount must be nullable decimal(18,2).', 1;
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.Coupons') AND name = N'MemberValidityMonths' AND system_type_id = TYPE_ID(N'int') AND is_nullable = 1)
+    THROW 51011, 'Coupon member validity must be nullable int.', 1;
+
 SELECT @WorkbenchRows = COUNT_BIG(*) FROM dbo.vw_CaseWorkbench;
 
 SELECT

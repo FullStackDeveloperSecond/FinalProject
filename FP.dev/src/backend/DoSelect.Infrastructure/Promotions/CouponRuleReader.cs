@@ -13,6 +13,16 @@ namespace DoSelect.Infrastructure.Promotions;
 /// </summary>
 public sealed class CouponRuleReader : ICouponRuleReader
 {
+    public async Task<DateTime?> GetMemberCreatedAtUtcAsync(string memberUserId, CancellationToken cancellationToken = default)
+    {
+        var created = await _context.Users.AsNoTracking()
+            .Where(user => user.Id == memberUserId && user.AccountType == DoSelect.Domain.Members.AccountType.Member &&
+                user.AccountStatus == DoSelect.Domain.Members.AccountStatus.Active)
+            .Select(user => (DateTime?)user.CreatedAtUtc)
+            .SingleOrDefaultAsync(cancellationToken);
+        return created is { } value ? DateTime.SpecifyKind(value, DateTimeKind.Utc) : null;
+    }
+
     private readonly DoSelectDbContext _context;
 
     public CouponRuleReader(DoSelectDbContext context)

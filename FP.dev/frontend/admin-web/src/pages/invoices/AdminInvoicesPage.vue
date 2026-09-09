@@ -102,7 +102,10 @@ async function issueSelectedOrder() {
 </script>
 
 <template>
-  <section aria-labelledby="invoice-list-title">
+  <section
+    class="finance-page"
+    aria-labelledby="invoice-list-title"
+  >
     <header>
       <h1 id="invoice-list-title">
         模擬發票管理
@@ -110,24 +113,30 @@ async function issueSelectedOrder() {
       <p>所有資料均為 DEMO 模擬發票，不具稅務或兌獎效力。</p>
     </header>
 
-    <section aria-labelledby="manual-issue-title">
+    <section
+      class="finance-panel"
+      aria-labelledby="manual-issue-title"
+    >
       <h2 id="manual-issue-title">
         手動開立
       </h2>
       <form
+        class="finance-filter"
         aria-label="手動開立模擬發票"
         @submit.prevent="lookupOrder"
       >
-        <label for="invoice-order-public-id">訂單 PublicId</label>
-        <input
-          id="invoice-order-public-id"
-          v-model="orderPublicId"
-          type="text"
-          required
-          autocomplete="off"
-          placeholder="輸入訂單 PublicId"
-          @input="clearIssuanceSnapshot"
-        >
+        <div class="finance-field">
+          <label for="invoice-order-public-id">訂單識別碼（PublicId）</label>
+          <input
+            id="invoice-order-public-id"
+            v-model="orderPublicId"
+            type="text"
+            required
+            autocomplete="off"
+            placeholder="輸入訂單 PublicId"
+            @input="clearIssuanceSnapshot"
+          >
+        </div>
         <button
           type="submit"
           :disabled="issuanceLookup.isPending.value"
@@ -146,7 +155,10 @@ async function issueSelectedOrder() {
         v-else-if="issuanceLookup.data.value"
         aria-live="polite"
       >
-        <dl>
+        <dl
+          class="finance-summary"
+          aria-label="開票資格摘要"
+        >
           <dt>訂單編號</dt>
           <dd>{{ issuanceLookup.data.value.orderNumber }}</dd>
           <dt>付款狀態</dt>
@@ -184,33 +196,38 @@ async function issueSelectedOrder() {
     </section>
 
     <form
+      class="finance-filter finance-panel"
       aria-label="發票搜尋"
       @submit.prevent="search"
     >
-      <label for="invoice-query">發票號碼</label>
-      <input
-        id="invoice-query"
-        v-model="filters.q"
-        type="search"
-        placeholder="例如 DEMO-202609"
-      >
-      <label for="invoice-status">狀態</label>
-      <select
-        id="invoice-status"
-        v-model="selectedStatus"
-        @change="changeStatus"
-      >
-        <option value="">
-          全部狀態
-        </option>
-        <option
-          v-for="status in statusOptions"
-          :key="status"
-          :value="status"
+      <div class="finance-field">
+        <label for="invoice-query">發票號碼</label>
+        <input
+          id="invoice-query"
+          v-model="filters.q"
+          type="search"
+          placeholder="例如 DEMO-202609"
         >
-          {{ invoiceStatusLabels[status] }}
-        </option>
-      </select>
+      </div>
+      <div class="finance-field">
+        <label for="invoice-status">狀態</label>
+        <select
+          id="invoice-status"
+          v-model="selectedStatus"
+          @change="changeStatus"
+        >
+          <option value="">
+            全部狀態
+          </option>
+          <option
+            v-for="status in statusOptions"
+            :key="status"
+            :value="status"
+          >
+            {{ invoiceStatusLabels[status] }}
+          </option>
+        </select>
+      </div>
       <button type="submit">
         搜尋
       </button>
@@ -231,54 +248,61 @@ async function issueSelectedOrder() {
       title="沒有符合條件的模擬發票"
     />
     <template v-else>
-      <table>
-        <caption class="sr-only">
-          模擬發票清單
-        </caption>
-        <thead>
-          <tr>
-            <th scope="col">
-              發票號碼
-            </th>
-            <th scope="col">
-              訂單
-            </th>
-            <th scope="col">
-              狀態
-            </th>
-            <th scope="col">
-              未稅／稅額／含稅
-            </th>
-            <th scope="col">
-              開立時間
-            </th>
-            <th scope="col">
-              操作
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="invoice in result.items"
-            :key="invoice.publicId"
-          >
-            <td>{{ invoice.invoiceNumber }}</td>
-            <td>{{ invoice.orderNumber }}</td>
-            <td>{{ invoiceStatusLabels[invoice.status] }}</td>
-            <td>
-              {{ formatInvoiceMoney(invoice.netAmount) }}／
-              {{ formatInvoiceMoney(invoice.taxAmount) }}／
-              {{ formatInvoiceMoney(invoice.grossAmount) }}
-            </td>
-            <td>{{ formatInvoiceDate(invoice.issuedAtUtc) }}</td>
-            <td>
-              <RouterLink :to="`/invoices/${invoice.publicId}`">
-                查看明細
-              </RouterLink>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <div
+        class="table-scroll"
+        role="region"
+        aria-label="發票清單表格"
+        tabindex="0"
+      >
+        <table>
+          <caption class="sr-only">
+            模擬發票清單
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">
+                發票號碼
+              </th>
+              <th scope="col">
+                訂單
+              </th>
+              <th scope="col">
+                狀態
+              </th>
+              <th scope="col">
+                未稅／稅額／含稅
+              </th>
+              <th scope="col">
+                開立時間
+              </th>
+              <th scope="col">
+                操作
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="invoice in result.items"
+              :key="invoice.publicId"
+            >
+              <td>{{ invoice.invoiceNumber }}</td>
+              <td>{{ invoice.orderNumber }}</td>
+              <td>{{ invoiceStatusLabels[invoice.status] }}</td>
+              <td>
+                {{ formatInvoiceMoney(invoice.netAmount) }}／
+                {{ formatInvoiceMoney(invoice.taxAmount) }}／
+                {{ formatInvoiceMoney(invoice.grossAmount) }}
+              </td>
+              <td>{{ formatInvoiceDate(invoice.issuedAtUtc) }}</td>
+              <td>
+                <RouterLink :to="`/invoices/${invoice.publicId}`">
+                  查看明細
+                </RouterLink>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
 
       <PagePager
         :page="filters.pageNumber"

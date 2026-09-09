@@ -31,7 +31,10 @@ function changeStatus() {
 </script>
 
 <template>
-  <section aria-labelledby="refund-list-title">
+  <section
+    class="finance-page"
+    aria-labelledby="refund-list-title"
+  >
     <header>
       <h1 id="refund-list-title">
         退款管理
@@ -40,35 +43,39 @@ function changeStatus() {
     </header>
 
     <form
+      class="finance-filter finance-panel"
       aria-label="退款搜尋"
       @submit.prevent="search"
     >
-      <label for="refund-query">退款編號</label>
-      <input
-        id="refund-query"
-        v-model="filters.q"
-        type="search"
-        placeholder="例如 RF-202609"
-      >
-
-      <label for="refund-status">狀態</label>
-      <select
-        id="refund-status"
-        v-model="selectedStatus"
-        aria-label="退款狀態"
-        @change="changeStatus"
-      >
-        <option value="">
-          全部狀態
-        </option>
-        <option
-          v-for="status in statusOptions"
-          :key="status"
-          :value="status"
+      <div class="finance-field">
+        <label for="refund-query">退款編號</label>
+        <input
+          id="refund-query"
+          v-model="filters.q"
+          type="search"
+          placeholder="例如 RF-202609"
         >
-          {{ refundStatusLabels[status] }}
-        </option>
-      </select>
+      </div>
+      <div class="finance-field">
+        <label for="refund-status">狀態</label>
+        <select
+          id="refund-status"
+          v-model="selectedStatus"
+          aria-label="退款狀態"
+          @change="changeStatus"
+        >
+          <option value="">
+            全部狀態
+          </option>
+          <option
+            v-for="status in statusOptions"
+            :key="status"
+            :value="status"
+          >
+            {{ refundStatusLabels[status] }}
+          </option>
+        </select>
+      </div>
 
       <button type="submit">
         搜尋
@@ -90,54 +97,61 @@ function changeStatus() {
       title="沒有符合條件的退款"
     />
     <template v-else>
-      <table>
-        <caption class="sr-only">
-          退款清單
-        </caption>
-        <thead>
-          <tr>
-            <th scope="col">
-              退款編號
-            </th>
-            <th scope="col">
-              狀態
-            </th>
-            <th scope="col">
-              申請金額
-            </th>
-            <th scope="col">
-              核准上限
-            </th>
-            <th scope="col">
-              成功退款
-            </th>
-            <th scope="col">
-              建立時間
-            </th>
-            <th scope="col">
-              操作
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="refund in result.items"
-            :key="refund.publicId"
-          >
-            <td>{{ refund.refundNumber }}</td>
-            <td>{{ refundStatusLabels[refund.status] }}</td>
-            <td>{{ formatRefundMoney(refund.requestedAmount) }}</td>
-            <td>{{ formatRefundMoney(refund.approvedAmount) }}</td>
-            <td>{{ formatRefundMoney(refund.succeededAmount) }}</td>
-            <td>{{ formatRefundDate(refund.createdAtUtc) }}</td>
-            <td>
-              <RouterLink :to="`/refunds/${refund.publicId}`">
-                查看明細
-              </RouterLink>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <div
+        class="table-scroll"
+        role="region"
+        aria-label="退款清單表格"
+        tabindex="0"
+      >
+        <table>
+          <caption class="sr-only">
+            退款清單
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">
+                退款編號
+              </th>
+              <th scope="col">
+                狀態
+              </th>
+              <th scope="col">
+                申請金額
+              </th>
+              <th scope="col">
+                核准上限
+              </th>
+              <th scope="col">
+                成功退款
+              </th>
+              <th scope="col">
+                建立時間
+              </th>
+              <th scope="col">
+                操作
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="refund in result.items"
+              :key="refund.publicId"
+            >
+              <td>{{ refund.refundNumber }}</td>
+              <td>{{ refundStatusLabels[refund.status] }}</td>
+              <td>{{ formatRefundMoney(refund.requestedAmount) }}</td>
+              <td>{{ formatRefundMoney(refund.approvedAmount) }}</td>
+              <td>{{ formatRefundMoney(refund.succeededAmount) }}</td>
+              <td>{{ formatRefundDate(refund.createdAtUtc) }}</td>
+              <td>
+                <RouterLink :to="`/refunds/${refund.publicId}`">
+                  查看明細
+                </RouterLink>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
 
       <PagePager
         :page="filters.pageNumber"

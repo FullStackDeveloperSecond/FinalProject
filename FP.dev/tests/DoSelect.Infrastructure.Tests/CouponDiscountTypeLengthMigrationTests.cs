@@ -95,9 +95,14 @@ public sealed class CouponDiscountTypeLengthMigrationSqlServerTests
             await migrator.MigrateAsync(PreviousMigration);
 
             var now = DateTime.UtcNow;
-            var existing = CreateCoupon("BEFOREWIDEN", CouponDiscountType.FixedAmount, 100m, now);
-            context.Coupons.Add(existing);
-            await context.SaveChangesAsync();
+            // Seed the historical schema without asking today's model to insert future columns.
+            await context.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO Coupons
+                    (PublicId, Code, NameZhTw, DiscountType, DiscountValue, MinimumSpend,
+                     StartsAtUtc, EndsAtUtc, CreatedAtUtc, UpdatedAtUtc)
+                VALUES ({Guid.CreateVersion7()}, N'BEFOREWIDEN', N'BEFOREWIDEN', 'FixedAmount',
+                    100, 0, {now.AddDays(-1)}, {now.AddDays(1)}, {now}, {now});
+                """);
 
             await migrator.MigrateAsync();
             context.ChangeTracker.Clear();

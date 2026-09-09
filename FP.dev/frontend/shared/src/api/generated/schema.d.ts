@@ -11596,6 +11596,10 @@ export interface components {
             updatedAtUtc: string;
             /** Format: byte */
             rowVersion: string;
+            /** Format: double */
+            multiItemDiscountValue?: null | number | string;
+            /** Format: int32 */
+            memberValidityMonths?: null | number | string;
         };
         CouponProductOption: {
             /** Format: uuid */
@@ -11696,6 +11700,10 @@ export interface components {
             categoryPublicIds: null | string[];
             productPublicIds: null | string[];
             excludedProductPublicIds: null | string[];
+            /** Format: double */
+            multiItemDiscountValue?: null | number | string;
+            /** Format: int32 */
+            memberValidityMonths?: null | number | string;
         };
         CreateInternalNoteRequest: {
             body?: string;
@@ -13732,6 +13740,10 @@ export interface components {
             excludedProductPublicIds: null | string[];
             /** Format: byte */
             rowVersion: string;
+            /** Format: double */
+            multiItemDiscountValue?: null | number | string;
+            /** Format: int32 */
+            memberValidityMonths?: null | number | string;
         };
         UpdateMemberAddressRequest: {
             /** Format: byte */

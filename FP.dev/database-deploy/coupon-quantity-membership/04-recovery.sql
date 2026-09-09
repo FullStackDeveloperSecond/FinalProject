@@ -1,0 +1,11 @@
+-- Recovery guidance only. No destructive reverse migration is authorized here.
+-- Keep services stopped if migration, verification or campaign maintenance fails.
+-- The schema expansion is transactional; inspect migration history before retrying.
+-- Campaign actions commit individually with audit records. Rerun only after inspecting
+-- existing rules. Matching records are reused; conflicting records are never overwritten.
+-- Prefer roll-forward. Before deploying old application binaries, PAUSE BOTH SCHOOL2026
+-- and MEMBER100 using the current authorized admin workflow: old code does not enforce
+-- the new quantity/member-age rules. Retain the nullable schema expansion.
+-- Down drops the two rule columns and cannot recover their values. Do not execute Down.
+-- If restoring a backup is necessary, first restore to a new isolated database and
+-- reconcile any writes after the backup. Never overwrite the working Demo automatically.

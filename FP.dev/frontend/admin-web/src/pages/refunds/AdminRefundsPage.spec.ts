@@ -64,6 +64,9 @@ describe('AdminRefundsPage', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('RF-202609-000001')
+    expect(wrapper.get('form[aria-label="退款搜尋"]').classes()).toContain('finance-filter')
+    expect(wrapper.get('#refund-query').element.parentElement?.classList.contains('finance-field')).toBe(true)
+    expect(wrapper.get('.table-scroll').attributes('tabindex')).toBe('0')
     expect(wrapper.text()).toContain('已核准')
     expect(wrapper.text()).toContain('NT$480')
   })

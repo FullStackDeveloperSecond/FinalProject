@@ -48,7 +48,10 @@ async function submitVoid() {
 </script>
 
 <template>
-  <section aria-labelledby="invoice-detail-title">
+  <section
+    class="finance-page"
+    aria-labelledby="invoice-detail-title"
+  >
     <LoadingState
       v-if="isPending"
       label="發票明細載入中"
@@ -76,7 +79,10 @@ async function submitVoid() {
       </h1>
       <p><strong>{{ invoice.invoice.demoMarker }}</strong> — 此資料不具稅務或兌獎效力。</p>
 
-      <dl>
+      <dl
+        class="finance-summary"
+        aria-label="發票摘要"
+      >
         <dt>狀態</dt>
         <dd>{{ invoiceStatusLabels[invoice.invoice.status] }}</dd>
         <dt>訂單</dt>
@@ -85,10 +91,16 @@ async function submitVoid() {
         <dd>{{ invoice.invoice.buyerEmailMasked ?? '—' }}</dd>
         <dt>統一編號</dt>
         <dd>{{ invoice.invoice.companyTaxIdMasked ?? '—' }}</dd>
-        <dt>未稅／稅額／含稅</dt>
-        <dd>
-          {{ formatInvoiceMoney(invoice.invoice.netAmount) }}／
-          {{ formatInvoiceMoney(invoice.invoice.taxAmount) }}／
+        <dt>未稅金額</dt>
+        <dd class="finance-money">
+          {{ formatInvoiceMoney(invoice.invoice.netAmount) }}
+        </dd>
+        <dt>稅額</dt>
+        <dd class="finance-money">
+          {{ formatInvoiceMoney(invoice.invoice.taxAmount) }}
+        </dd>
+        <dt>含稅金額</dt>
+        <dd class="finance-money">
           {{ formatInvoiceMoney(invoice.invoice.grossAmount) }}
         </dd>
         <dt>開立時間</dt>
@@ -97,42 +109,55 @@ async function submitVoid() {
         <dd>{{ formatInvoiceDate(invoice.invoice.voidedAtUtc) }}</dd>
       </dl>
 
-      <section aria-labelledby="invoice-items-title">
+      <section
+        class="finance-panel"
+        aria-labelledby="invoice-items-title"
+      >
         <h2 id="invoice-items-title">
           發票明細
         </h2>
-        <table>
-          <thead>
-            <tr>
-              <th scope="col">
-                項目
-              </th>
-              <th scope="col">
-                數量
-              </th>
-              <th scope="col">
-                未稅／稅額／含稅
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="item in invoice.invoice.items"
-              :key="item.publicId"
-            >
-              <td>{{ item.productName }}（{{ item.skuCode }}）</td>
-              <td>{{ item.quantity }}</td>
-              <td>
-                {{ formatInvoiceMoney(item.netAmount) }}／
-                {{ formatInvoiceMoney(item.taxAmount) }}／
-                {{ formatInvoiceMoney(item.grossAmount) }}
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div
+          class="table-scroll"
+          role="region"
+          aria-label="發票品項明細表格"
+          tabindex="0"
+        >
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">
+                  項目
+                </th>
+                <th scope="col">
+                  數量
+                </th>
+                <th scope="col">
+                  未稅／稅額／含稅
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="item in invoice.invoice.items"
+                :key="item.publicId"
+              >
+                <td>{{ item.productName }}（{{ item.skuCode }}）</td>
+                <td>{{ item.quantity }}</td>
+                <td>
+                  {{ formatInvoiceMoney(item.netAmount) }}／
+                  {{ formatInvoiceMoney(item.taxAmount) }}／
+                  {{ formatInvoiceMoney(item.grossAmount) }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </section>
 
-      <section aria-labelledby="invoice-allowances-title">
+      <section
+        class="finance-panel"
+        aria-labelledby="invoice-allowances-title"
+      >
         <h2 id="invoice-allowances-title">
           折讓
         </h2>
@@ -153,13 +178,17 @@ async function submitVoid() {
 
       <section
         v-if="mayVoid"
+        class="finance-panel"
         aria-labelledby="invoice-void-title"
       >
         <h2 id="invoice-void-title">
           作廢發票
         </h2>
         <p>只有訂單已整筆取消且尚未發生成功退款時可作廢；已有退款必須建立折讓。</p>
-        <form @submit.prevent="submitVoid">
+        <form
+          class="finance-command"
+          @submit.prevent="submitVoid"
+        >
           <label for="invoice-void-reason">作廢原因</label>
           <select
             id="invoice-void-reason"

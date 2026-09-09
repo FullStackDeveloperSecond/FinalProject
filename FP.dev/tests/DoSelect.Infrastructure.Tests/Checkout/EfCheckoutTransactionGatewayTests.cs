@@ -41,6 +41,29 @@ public sealed class EfCheckoutTransactionGatewayTests
     private static readonly DateTime NowUtc =
         new(2026, 8, 27, 6, 0, 0, DateTimeKind.Utc);
 
+    [global::DoSelect.Infrastructure.Tests.Idempotency.SqlServerFact]
+    public async Task QuantityCoupon_UsesTwoItemPriceAndSnapshotsTheAppliedRate()
+    {
+        var seed = await SeedAsync(onHandQuantity: 5, withCoupon: true, quantity: 2);
+        await using var context = EfCheckoutTransactionGatewayFixture.CreateContext();
+        var coupon = await context.Coupons.SingleAsync(item => item.Code == seed.Command.CouponCode);
+        coupon.UpdateRules(new CouponRuleRevision(coupon.Code, "開學季測試", CouponDiscountType.Percentage,
+            .05m, null, null, DateTime.SpecifyKind(coupon.StartsAtUtc, DateTimeKind.Utc),
+            DateTime.SpecifyKind(coupon.EndsAtUtc, DateTimeKind.Utc), null, 1, false, false,
+            coupon.ScopeType, MultiItemDiscountValue: .10m), false, false, NowUtc);
+        await context.SaveChangesAsync();
+        await using var transaction = await context.Database.BeginTransactionAsync();
+        var created = await CreateGateway(context).ExecuteAsync(seed.Command);
+        await transaction.CommitAsync();
+        var order = await context.Orders.SingleAsync(item => item.PublicId == created.PublicId);
+        var snapshot = await context.OrderCoupons.SingleAsync(item => item.OrderId == order.Id);
+        Assert.Equal(200m, snapshot.AppliedAmount);
+        Assert.Equal(.10m, snapshot.DiscountValue);
+        Assert.Equal(1950m, order.GrandTotal);
+        var item = await context.OrderItems.SingleAsync(item => item.OrderId == order.Id);
+        Assert.Equal(200m, item.DiscountAllocation);
+    }
+
     /// <summary>
     /// <c>DEC-BATCH-017</c>／<c>DEC-P285</c>：最終應付金額在建立付款嘗試前，
     /// 必須以 <c>AwayFromZero</c> 四捨五入到整數新臺幣。
@@ -950,7 +973,8 @@ public sealed class EfCheckoutTransactionGatewayTests
         int onHandQuantity,
         bool withCoupon = false,
         bool zeroTotalCoupon = false,
-        decimal listPrice = 1_000m)
+        decimal listPrice = 1_000m,
+        int quantity = 1)
     {
         await using var context = EfCheckoutTransactionGatewayFixture.CreateContext();
         var suffix = Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
@@ -1037,7 +1061,7 @@ public sealed class EfCheckoutTransactionGatewayTests
         context.Carts.Add(cart);
         await context.SaveChangesAsync();
         context.CartItems.Add(new CartItem(
-            Guid.CreateVersion7(), cart.Id, sku.Id, 1, null, NowUtc));
+            Guid.CreateVersion7(), cart.Id, sku.Id, quantity, null, NowUtc));
         cart.Touch(NowUtc);
         await context.SaveChangesAsync();
 

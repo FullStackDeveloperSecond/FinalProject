@@ -94,7 +94,10 @@ async function submitApproval() {
 </script>
 
 <template>
-  <section aria-labelledby="refund-detail-title">
+  <section
+    class="finance-page"
+    aria-labelledby="refund-detail-title"
+  >
     <LoadingState
       v-if="isPending"
       label="退款明細載入中"
@@ -121,15 +124,24 @@ async function submitApproval() {
         退款 {{ refund.refundNumber }}
       </h1>
 
-      <dl>
+      <dl
+        class="finance-summary"
+        aria-label="退款摘要"
+      >
         <dt>狀態</dt>
         <dd>{{ refundStatusLabels[refund.status] }}</dd>
         <dt>申請金額</dt>
-        <dd>{{ formatRefundMoney(refund.requestedAmount) }}</dd>
+        <dd class="finance-money">
+          {{ formatRefundMoney(refund.requestedAmount) }}
+        </dd>
         <dt>退款上限（核准金額）</dt>
-        <dd>{{ formatRefundMoney(refund.approvedAmount) }}</dd>
+        <dd class="finance-money">
+          {{ formatRefundMoney(refund.approvedAmount) }}
+        </dd>
         <dt>成功退款金額</dt>
-        <dd>{{ formatRefundMoney(refund.succeededAmount) }}</dd>
+        <dd class="finance-money">
+          {{ formatRefundMoney(refund.succeededAmount) }}
+        </dd>
         <dt>訂單</dt>
         <dd>
           <RouterLink :to="`/orders/${refund.orderPublicId}`">
@@ -154,45 +166,56 @@ async function submitApproval() {
         <dd>{{ formatRefundDate(refund.succeededAtUtc) }}</dd>
       </dl>
 
-      <section aria-labelledby="refund-allocations-title">
+      <section
+        class="finance-panel"
+        aria-labelledby="refund-allocations-title"
+      >
         <h2 id="refund-allocations-title">
           可信分攤明細
         </h2>
         <p>「＋」增加退款，「－」從退款扣回；金額由後端交易快照計算，介面不能修改。</p>
-        <table v-if="refund.allocations.length">
-          <thead>
-            <tr>
-              <th scope="col">
-                類型
-              </th>
-              <th scope="col">
-                商品／數量
-              </th>
-              <th scope="col">
-                金額
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="(allocation, index) in refund.allocations"
-              :key="`${allocation.type}-${allocation.orderItemPublicId ?? index}`"
-            >
-              <td>{{ refundAllocationLabels[allocation.type] }}</td>
-              <td>
-                <template v-if="allocation.orderItemPublicId">
-                  {{ allocation.orderItemPublicId }} × {{ allocation.quantity }}
-                </template>
-                <template v-else>
-                  —
-                </template>
-              </td>
-              <td>
-                {{ allocationSign(allocation.type) }}{{ formatRefundMoney(allocation.amount) }}
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div
+          v-if="refund.allocations.length"
+          class="table-scroll"
+          role="region"
+          aria-label="退款分攤明細表格"
+          tabindex="0"
+        >
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">
+                  類型
+                </th>
+                <th scope="col">
+                  商品／數量
+                </th>
+                <th scope="col">
+                  金額
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="(allocation, index) in refund.allocations"
+                :key="`${allocation.type}-${allocation.orderItemPublicId ?? index}`"
+              >
+                <td>{{ refundAllocationLabels[allocation.type] }}</td>
+                <td>
+                  <template v-if="allocation.orderItemPublicId">
+                    {{ allocation.orderItemPublicId }} × {{ allocation.quantity }}
+                  </template>
+                  <template v-else>
+                    —
+                  </template>
+                </td>
+                <td>
+                  {{ allocationSign(allocation.type) }}{{ formatRefundMoney(allocation.amount) }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <p v-else-if="refund.status === 'cancelled'">
           核准時重算後已無款可退，退款已終止為「已取消」，未產生退款分攤。
         </p>
@@ -201,7 +224,10 @@ async function submitApproval() {
         </p>
       </section>
 
-      <section aria-labelledby="refund-history-title">
+      <section
+        class="finance-panel"
+        aria-labelledby="refund-history-title"
+      >
         <h2 id="refund-history-title">
           處理歷程
         </h2>
@@ -218,13 +244,17 @@ async function submitApproval() {
 
       <section
         v-if="mayApprove"
+        class="finance-panel"
         aria-labelledby="refund-approve-title"
       >
         <h2 id="refund-approve-title">
           核准退款
         </h2>
         <p>此操作要求 FinanceManager／SuperAdmin 且目前登入已通過 TOTP；送出後會留下中央 Audit。核准金額由後端依可信交易快照重新計算，若重算後已無款可退，退款會直接終止為「已取消」，不需要另外處理。</p>
-        <form @submit.prevent="submitApproval">
+        <form
+          class="finance-command"
+          @submit.prevent="submitApproval"
+        >
           <label for="refund-approve-reason">核准原因</label>
           <select
             id="refund-approve-reason"
@@ -284,13 +314,17 @@ async function submitApproval() {
 
       <section
         v-if="mayExecute"
+        class="finance-panel"
         aria-labelledby="refund-execute-title"
       >
         <h2 id="refund-execute-title">
           執行退款
         </h2>
         <p>此操作要求 FinanceManager／SuperAdmin 且目前登入已通過 TOTP；送出後會留下中央 Audit。</p>
-        <form @submit.prevent="submitExecution">
+        <form
+          class="finance-command"
+          @submit.prevent="submitExecution"
+        >
           <label for="refund-reason">執行原因</label>
           <select
             id="refund-reason"

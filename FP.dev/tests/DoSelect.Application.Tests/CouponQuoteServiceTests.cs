@@ -117,6 +117,29 @@ public sealed class CouponQuoteServiceTests
         Assert.Equal(CouponCalculationErrorCodes.CouponNotActive, result.ErrorCode);
     }
 
+    [Theory]
+    [InlineData(-11, true)]
+    [InlineData(-12, false)]
+    public async Task MemberGift_UsesServerRegistrationForAuthenticatedMember(int monthsAgo, bool succeeds)
+    {
+        var snapshot = ActiveCoupon(memberOnly: true);
+        var reader = new FakeCouponRuleReader(snapshot with { Rule = snapshot.Rule with { MemberValidityMonths = 12 } })
+        {
+            MemberCreatedAtUtc = NowUtc.AddMonths(monthsAgo),
+        };
+        var result = await CreateService(reader).QuoteAsync(Request("WELCOME300", memberUserId: "member-1"));
+        Assert.Equal(succeeds, result.IsSuccess);
+        Assert.Equal("member-1", reader.RegistrationLookupMemberId);
+    }
+
+    [Fact]
+    public async Task OrdinaryCoupon_DoesNotReadMemberRegistration()
+    {
+        var reader = new FakeCouponRuleReader(ActiveCoupon());
+        await CreateService(reader).QuoteAsync(Request("WELCOME300", memberUserId: "member-1"));
+        Assert.Null(reader.RegistrationLookupMemberId);
+    }
+
     private static CouponQuoteService CreateService(ICouponRuleReader reader) =>
         new(reader, new FakeTimeProvider(new DateTimeOffset(NowUtc, TimeSpan.Zero)));
 
@@ -155,6 +178,14 @@ public sealed class CouponQuoteServiceTests
 
     private sealed class FakeCouponRuleReader : ICouponRuleReader
     {
+        public DateTime? MemberCreatedAtUtc { get; init; }
+        public string? RegistrationLookupMemberId { get; private set; }
+        public Task<DateTime?> GetMemberCreatedAtUtcAsync(string memberUserId, CancellationToken cancellationToken = default)
+        {
+            RegistrationLookupMemberId = memberUserId;
+            return Task.FromResult(MemberCreatedAtUtc);
+        }
+
         private readonly CouponRuleSnapshot? _snapshot;
         private readonly CouponUsageState _usage;
 

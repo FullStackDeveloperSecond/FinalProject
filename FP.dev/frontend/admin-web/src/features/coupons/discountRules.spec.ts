@@ -2,6 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { describeDiscountProblem } from './discountRules'
 
 describe('describeDiscountProblem', () => {
+  it('allows an uncapped quantity-tier coupon but rejects an invalid tier', () => {
+    expect(describeDiscountProblem('percentage', .05, null, .10)).toBeNull()
+    expect(describeDiscountProblem('percentage', .05, null, .01)).not.toBeNull()
+    expect(describeDiscountProblem('percentage', .05, null, 1.1)).not.toBeNull()
+    expect(describeDiscountProblem('percentage', .05, 0, .10)).not.toBeNull()
+  })
   it('requires a positive maximum discount for a percentage coupon', () => {
     // 後端 RequireValidRule 對 percentage 明確要求 maximumDiscount > 0。
     expect(describeDiscountProblem('percentage', 0.1, null))

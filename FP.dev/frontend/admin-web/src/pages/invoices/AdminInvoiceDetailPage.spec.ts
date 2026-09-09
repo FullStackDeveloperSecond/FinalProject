@@ -100,6 +100,17 @@ describe('AdminInvoiceDetailPage', () => {
     mocks.voidMutation.mutateAsync.mockReset().mockResolvedValue(undefined)
   })
 
+  it('groups aligned invoice summary cells and separates taxable amounts', async () => {
+    const wrapper = await mountPage()
+    const summary = wrapper.get('dl[aria-label="發票摘要"]')
+    expect(summary.classes()).toContain('finance-summary')
+    expect(summary.findAll('dt').map(item => item.text())).toContain('未稅金額')
+    expect(summary.findAll('dt').map(item => item.text())).toContain('稅額')
+    expect(summary.findAll('dt').map(item => item.text())).toContain('含稅金額')
+    expect(summary.findAll('dt').length).toBe(summary.findAll('dd').length)
+    expect(wrapper.get('.table-scroll').attributes('tabindex')).toBe('0')
+  })
+
   it('submits the server row version with the confirmed void reason', async () => {
     const wrapper = await mountPage()
     await wrapper.find('#invoice-void-reason').setValue('order_cancelled')

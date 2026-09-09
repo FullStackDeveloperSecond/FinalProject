@@ -100,6 +100,9 @@ describe('AdminInvoicesPage', () => {
     const wrapper = await mountPage()
 
     expect(wrapper.text()).toContain('DEMO 模擬發票')
+    expect(wrapper.get('form[aria-label="發票搜尋"]').classes()).toContain('finance-filter')
+    expect(wrapper.get('#invoice-query').element.parentElement?.classList.contains('finance-field')).toBe(true)
+    expect(wrapper.get('.table-scroll').attributes('tabindex')).toBe('0')
     expect(wrapper.text()).toContain('DEMO-202609-000001')
     expect(wrapper.text()).toContain('ORD-20260901-0001')
     expect(wrapper.find('a[href="/invoices/018f2e6a-0000-7000-8000-000000000060"]').exists()).toBe(true)

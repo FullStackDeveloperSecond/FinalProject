@@ -376,6 +376,9 @@ public sealed class ApplyCartCouponServiceTests
 
     private sealed class FakeCouponRuleReader : ICouponRuleReader
     {
+        public Task<DateTime?> GetMemberCreatedAtUtcAsync(string memberUserId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<DateTime?>(null);
+
         private readonly CouponRuleSnapshot? _snapshot;
 
         public FakeCouponRuleReader(CouponRuleSnapshot? snapshot) => _snapshot = snapshot;

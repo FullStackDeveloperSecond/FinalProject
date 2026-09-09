@@ -686,6 +686,8 @@ internal static class AuditWritePolicy
                 "discountValue",
                 "minimumSpend",
                 "maximumDiscount",
+                "multiItemDiscountValue",
+                "memberValidityMonths",
                 "startsAtUtc",
                 "endsAtUtc",
                 "totalUsageLimit",

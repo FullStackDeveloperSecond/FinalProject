@@ -20,6 +20,7 @@ public sealed class CouponConfiguration : IEntityTypeConfiguration<Coupon>
         Money(builder.Property(x => x.DiscountValue), false);
         Money(builder.Property(x => x.MinimumSpend), false);
         Money(builder.Property(x => x.MaximumDiscount), false);
+        Money(builder.Property(x => x.MultiItemDiscountValue), false);
         builder.Property(x => x.StartsAtUtc).HasPrecision(3).IsRequired();
         builder.Property(x => x.EndsAtUtc).HasPrecision(3).IsRequired();
         builder.HasIndex(x => x.StartsAtUtc).HasDatabaseName("IX_Coupons_StartsAtUtc");
@@ -36,6 +37,8 @@ public sealed class CouponConfiguration : IEntityTypeConfiguration<Coupon>
             table.HasCheckConstraint("CK_Coupons_UsageLimits", "([TotalUsageLimit] IS NULL OR [TotalUsageLimit] > 0) AND ([PerMemberLimit] IS NULL OR [PerMemberLimit] > 0)");
             table.HasCheckConstraint("CK_Coupons_Amounts", "([DiscountValue] IS NULL OR [DiscountValue] >= 0) AND ([MinimumSpend] IS NULL OR [MinimumSpend] >= 0) AND ([MaximumDiscount] IS NULL OR [MaximumDiscount] >= 0)");
             table.HasCheckConstraint("CK_Coupons_Percentage", "[DiscountType] <> 'Percentage' OR ([DiscountValue] >= 0 AND [DiscountValue] <= 1)");
+            table.HasCheckConstraint("CK_Coupons_MultiItemDiscount", "[MultiItemDiscountValue] IS NULL OR ([DiscountType] = 'Percentage' AND [DiscountValue] IS NOT NULL AND [DiscountValue] > 0 AND [MultiItemDiscountValue] >= [DiscountValue] AND [MultiItemDiscountValue] <= 1)");
+            table.HasCheckConstraint("CK_Coupons_MemberValidity", "[MemberValidityMonths] IS NULL OR ([MemberValidityMonths] = 12 AND [MemberOnly] = 1)");
         });
     }
 

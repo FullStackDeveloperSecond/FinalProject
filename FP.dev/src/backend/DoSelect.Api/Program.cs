@@ -114,6 +114,18 @@ builder.Services.AddScoped<ISupportAttachmentUploadService, SupportAttachmentUpl
 
 var app = builder.Build();
 
+if (args.Contains("--update-demo-coupons", StringComparer.OrdinalIgnoreCase))
+{
+    if (!app.Environment.IsDevelopment())
+        throw new InvalidOperationException("Coupon maintenance is restricted to the local Development CLI.");
+    await using var scope = app.Services.CreateAsyncScope();
+    var updater = new DemoCouponUpdater(scope.ServiceProvider.GetRequiredService<DoSelectDbContext>(),
+        scope.ServiceProvider.GetRequiredService<DoSelect.Application.Promotions.IAdminCouponService>());
+    await updater.UpdateAsync(args.Contains("--disable-legacy-coupons", StringComparer.OrdinalIgnoreCase));
+    Console.WriteLine("Demo campaign update completed; existing orders and redemption records were retained.");
+    return;
+}
+
 if (args.Contains("--seed-minimal", StringComparer.OrdinalIgnoreCase))
 {
     await using var scope = app.Services.CreateAsyncScope();

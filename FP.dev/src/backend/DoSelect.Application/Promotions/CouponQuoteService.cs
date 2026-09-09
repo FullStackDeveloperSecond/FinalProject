@@ -17,6 +17,8 @@ public sealed record CouponRuleSnapshot(
 /// </summary>
 public interface ICouponRuleReader
 {
+    Task<DateTime?> GetMemberCreatedAtUtcAsync(string memberUserId, CancellationToken cancellationToken = default);
+
     Task<CouponRuleSnapshot?> FindByCodeAsync(
         string normalizedCode,
         CancellationToken cancellationToken = default);
@@ -90,6 +92,11 @@ public sealed class CouponQuoteService
             evaluatedAtUtc,
             cancellationToken);
 
+        var memberCreatedAtUtc = snapshot.Rule.MemberValidityMonths is not null &&
+            !string.IsNullOrWhiteSpace(request.MemberUserId)
+            ? await _ruleReader.GetMemberCreatedAtUtcAsync(request.MemberUserId, cancellationToken)
+            : (DateTime?)null;
+
         return CouponCalculator.Calculate(new CouponCalculationRequest(
             snapshot.Rule,
             snapshot.Scope,
@@ -97,6 +104,7 @@ public sealed class CouponQuoteService
             request.Lines,
             IsAuthenticatedMember: !string.IsNullOrWhiteSpace(request.MemberUserId),
             request.IsAssemblyDelivery,
-            evaluatedAtUtc));
+            evaluatedAtUtc,
+            memberCreatedAtUtc));
     }
 }

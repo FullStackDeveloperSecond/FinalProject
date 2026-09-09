@@ -59,7 +59,9 @@ public sealed record CouponRule(
     bool ExcludeSaleItems,
     CouponScopeType ScopeType,
     CouponStatus Status,
-    int RuleVersion)
+    int RuleVersion,
+    decimal? MultiItemDiscountValue = null,
+    int? MemberValidityMonths = null)
 {
     public static CouponRule From(Coupon coupon)
     {
@@ -79,7 +81,9 @@ public sealed record CouponRule(
             coupon.ExcludeSaleItems,
             coupon.ScopeType,
             coupon.Status,
-            coupon.RuleVersion);
+            coupon.RuleVersion,
+            coupon.MultiItemDiscountValue,
+            coupon.MemberValidityMonths);
     }
 }
 
@@ -140,7 +144,8 @@ public sealed record CouponCalculationRequest(
     IReadOnlyList<CouponCalculationLine> Lines,
     bool IsAuthenticatedMember,
     bool IsAssemblyDelivery,
-    DateTime EvaluatedAtUtc);
+    DateTime EvaluatedAtUtc,
+    DateTime? MemberCreatedAtUtc = null);
 
 /// <summary>
 /// 訂單級折扣分攤到單一品項的結果。

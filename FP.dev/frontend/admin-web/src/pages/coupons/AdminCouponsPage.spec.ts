@@ -125,6 +125,44 @@ describe('AdminCouponsPage', () => {
     expect(wrapper.text()).toContain('2 / 100')
   })
 
+  it('shows quantity tiers, unlimited discount and registration-relative expiry', async () => {
+    mockListCoupons.mockResolvedValueOnce(page([
+      coupon({ publicId: 'school', discountType: 'percentage', discountValue: .05, multiItemDiscountValue: .10 }),
+      coupon({ publicId: 'welcome', memberOnly: true, memberValidityMonths: 12 }),
+    ]))
+    const wrapper = mountPage()
+    await flushPromises()
+    expect(wrapper.text()).toContain('1 件付 95%、2 件以上付 90%，折抵無上限')
+    expect(wrapper.text()).toContain('入會日起 1 年內（滿周年到期）')
+  })
+
+  it('submits a tier without a cap and preserves membership rule fields when editing', async () => {
+    mockListCoupons.mockResolvedValueOnce(page([coupon({ memberOnly: true, memberValidityMonths: 12 })]))
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.findAll('button').find(button => button.text() === '修改')!.trigger('click')
+    await wrapper.find('.coupons-form').trigger('submit')
+    expect(mockUpdateCoupon).toHaveBeenCalledWith('c1', expect.objectContaining({ memberValidityMonths: 12 }))
+    await wrapper.find('.coupons-form-actions button[type="button"]').trigger('click')
+    await openCreateForm(wrapper)
+    await wrapper.find('[name="discountType"]').setValue('percentage')
+    await wrapper.find('[name="discountValue"]').setValue(5)
+    await wrapper.find('[name="multiItemDiscountValue"]').setValue(10)
+    await wrapper.find('.coupons-form').trigger('submit')
+    expect(mockCreateCoupon).toHaveBeenCalledWith(expect.objectContaining({ discountValue: .05, multiItemDiscountValue: .10, maximumDiscount: null }))
+  })
+
+  it('does not silently clear an existing quantity tier', async () => {
+    mockListCoupons.mockResolvedValueOnce(page([coupon({ discountType: 'percentage', discountValue: .05, multiItemDiscountValue: .10 })]))
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.findAll('button').find(button => button.text() === '修改')!.trigger('click')
+    await wrapper.find('[name="multiItemDiscountValue"]').setValue('')
+    await wrapper.find('.coupons-form').trigger('submit')
+    expect(wrapper.text()).toContain('既有件數折扣不可清空')
+    expect(mockUpdateCoupon).not.toHaveBeenCalled()
+  })
+
   it('shows a percentage discount as percentage points, not the stored fraction', async () => {
     // Domain 的百分比是 0～1 的比例；直接顯示 0.1 會被讀成「一折」。
     mockListCoupons.mockResolvedValueOnce(page([

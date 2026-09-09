@@ -109,6 +109,28 @@ public sealed class CouponRuleReaderSqlCollection
 [Trait("Category", "RequiresSqlServer")]
 public sealed class CouponRuleReaderSqlServerTests
 {
+    [CouponRuleReaderSqlFact]
+    public async Task RegistrationLookupUsesOriginalCreatedAtOnlyForActiveMembers()
+    {
+        await using var context = CouponRuleReaderSqlFixture.CreateContext();
+        var created = new DateTime(2025, 10, 1, 4, 30, 0, DateTimeKind.Utc);
+        var member = DoSelect.Infrastructure.Persistence.Identity.ApplicationUser.CreateMember(
+            Guid.NewGuid(), $"gift-{Guid.NewGuid():N}@example.invalid", created);
+        member.ConfirmEmail(created.AddMinutes(1));
+        context.Users.Add(member);
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+        var reader = new CouponRuleReader(context);
+        var actual = await reader.GetMemberCreatedAtUtcAsync(member.Id);
+        Assert.Equal(created, actual);
+        Assert.Equal(DateTimeKind.Utc, actual!.Value.Kind);
+        Assert.Null(await reader.GetMemberCreatedAtUtcAsync("missing-member"));
+        var stored = await context.Users.SingleAsync(user => user.Id == member.Id);
+        stored.Suspend(created.AddDays(1));
+        await context.SaveChangesAsync();
+        Assert.Null(await reader.GetMemberCreatedAtUtcAsync(member.Id));
+    }
+
     private static readonly DateTime EvaluatedAtUtc = new(2026, 8, 26, 12, 0, 0, DateTimeKind.Utc);
 
     [CouponRuleReaderSqlFact]

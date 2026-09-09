@@ -19,6 +19,7 @@ export function describeDiscountProblem(
   discountType: CouponDiscountType,
   discountValue: number | null,
   maximumDiscount: number | null,
+  multiItemDiscountValue: number | null = null,
 ): string | null {
   if (!isAmountDiscount(discountType)) {
     return null
@@ -33,6 +34,13 @@ export function describeDiscountProblem(
   if (discountType !== 'percentage') {
     return null
   }
+
+  if (discountValue > 1) return '折扣百分比不得超過 100%。'
+  if (multiItemDiscountValue !== null &&
+      (!Number.isFinite(multiItemDiscountValue) || multiItemDiscountValue < discountValue || multiItemDiscountValue > 1)) {
+    return '2 件以上折扣百分比須介於單件折扣與 100% 之間。'
+  }
+  if (multiItemDiscountValue !== null && maximumDiscount === null) return null
 
   if (maximumDiscount === null || Number.isNaN(maximumDiscount) || maximumDiscount <= 0) {
     return '百分比折扣必須填寫大於 0 的最高折抵。'
