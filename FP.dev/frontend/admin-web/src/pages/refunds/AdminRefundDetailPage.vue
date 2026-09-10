@@ -270,14 +270,14 @@ async function submitApproval() {
             >
               請選擇原因
             </option>
-            <option value="customer_request">
-              顧客退款申請
+            <option value="return_approved">
+              退貨檢查通過，符合退款資格
             </option>
             <option value="merchant_correction">
               商家更正
             </option>
-            <option value="return_approved">
-              退貨已核准
+            <option value="customer_request">
+              客服協議退款
             </option>
           </select>
 

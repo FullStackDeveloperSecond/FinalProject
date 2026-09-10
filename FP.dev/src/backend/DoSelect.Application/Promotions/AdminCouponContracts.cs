@@ -27,7 +27,10 @@ public static class AdminCouponSortOptions
     public const string UpdatedAsc = "updatedAsc";
     public const string CodeAsc = "codeAsc";
     public const string CodeDesc = "codeDesc";
+    public const string StatusAsc = "statusAsc";
+    public const string StatusDesc = "statusDesc";
     public const string EndsAtAsc = "endsAtAsc";
+    public const string EndsAtDesc = "endsAtDesc";
 
     public static readonly IReadOnlyCollection<string> All =
     [
@@ -35,7 +38,10 @@ public static class AdminCouponSortOptions
         UpdatedAsc,
         CodeAsc,
         CodeDesc,
+        StatusAsc,
+        StatusDesc,
         EndsAtAsc,
+        EndsAtDesc,
     ];
 }
 

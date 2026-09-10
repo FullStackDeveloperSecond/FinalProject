@@ -12,7 +12,12 @@ const mockCreateBuildList = vi.fn()
 const mockCheckCompatibility = vi.fn()
 const mockAddBuildToCart = vi.fn()
 const mockGetCart = vi.fn()
+const mockSearchProducts = vi.fn()
 vi.mock('../features/cart/api', () => ({ getCart: (...args: unknown[]) => mockGetCart(...args) }))
+vi.mock('../features/catalog/api', () => ({
+  searchProducts: (...args: unknown[]) => mockSearchProducts(...args),
+  getProductDetail: vi.fn(),
+}))
 
 vi.mock('../features/builds/api', () => ({
   listBuildLists: vi.fn(),
@@ -81,6 +86,7 @@ beforeEach(() => {
   mockCreateBuildList.mockReset()
   mockCheckCompatibility.mockReset()
   mockCheckCompatibility.mockResolvedValue(compatibleResult)
+  mockSearchProducts.mockReset()
   mockLoadGuestBuildDraft.mockReset()
   mockLoadGuestBuildDraft.mockReturnValue({ name: '', items: [] })
   mockSaveGuestBuildDraft.mockReset()
@@ -89,6 +95,60 @@ beforeEach(() => {
 })
 
 describe('NewBuildPage', () => {
+  it('fills every missing required category with one in-stock demo product', async () => {
+    mockSearchProducts.mockImplementation(async ({ category }: { category: string }) => ({
+      items: [{
+        productPublicId: `product-${category}`,
+        defaultSkuPublicId: `sku-${category}`,
+        productCode: `PRODUCT-${category}`,
+        skuCode: `SKU-${category}`,
+        name: `${category} 展示商品`,
+        category: { code: category, name: category },
+        brand: { code: 'DEMO', name: 'Demo' },
+        price: { list: 1000, sale: null },
+        availability: 'inStock',
+        primaryImage: null,
+        badges: [],
+      }],
+      pageNumber: 1,
+      pageSize: 1,
+      totalCount: 1,
+      totalPages: 1,
+    }))
+
+    const { wrapper } = await mountPage()
+    await wrapper.findAll('button').find(button => button.text() === '一鍵帶入 Demo 配置')!.trigger('click')
+    await vi.waitFor(() => expect(mockSearchProducts).toHaveBeenCalledTimes(8))
+
+    expect(mockSearchProducts).toHaveBeenCalledWith(expect.objectContaining({
+      category: 'CPU', inStock: true, sort: 'priceAsc', pageSize: 1,
+    }))
+    expect(wrapper.text()).toContain('已帶入 8 個必要分類')
+    expect(wrapper.findAll('.build-items-editor__slot-items li')).toHaveLength(8)
+    expect(mockSaveGuestBuildDraft).toHaveBeenLastCalledWith(expect.objectContaining({
+      name: 'Demo 一鍵配置',
+      items: expect.arrayContaining([expect.objectContaining({ skuPublicId: 'sku-CPU', categoryCode: 'CPU' })]),
+    }))
+    wrapper.unmount()
+  })
+
+  it('keeps the draft unchanged when a demo category has no sellable product', async () => {
+    mockLoadGuestBuildDraft.mockReturnValue({ name: '原清單', items: [draftItem] })
+    mockSearchProducts.mockImplementation(async ({ category }: { category: string }) => ({
+      items: category === 'GPU' ? [] : [{
+        defaultSkuPublicId: `sku-${category}`, name: `${category} 商品`, skuCode: `SKU-${category}`,
+      }],
+    }))
+
+    const { wrapper } = await mountPage()
+    await wrapper.findAll('button').find(button => button.text() === '一鍵帶入 Demo 配置')!.trigger('click')
+    await vi.waitFor(() => expect(wrapper.text()).toContain('未變更原清單'))
+
+    expect(wrapper.text()).toContain('CPU 測試品')
+    expect(wrapper.text()).not.toContain('MOTHERBOARD 商品')
+    wrapper.unmount()
+  })
+
   it('previews imported owned parts and saves them separately only after confirmation', async () => {
     const owned = { sourceType: 'catalogSku', skuPublicId: 'owned-psu', categoryCode: 'PSU', displayName: '我的電源供應器', specifications: [], quantity: 1, confirmedByUser: true }
     stageBuildImport({ name: '匯入', items: [draftItem], ownedParts: [owned] })

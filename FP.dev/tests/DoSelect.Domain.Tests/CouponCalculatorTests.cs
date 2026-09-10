@@ -389,7 +389,8 @@ public sealed class CouponCalculatorTests
     {
         var created = EvaluatedAtUtc.AddYears(-1).AddSeconds(-secondsFromAnniversary);
         var rule = Rule(CouponDiscountType.FixedAmount, 100m, minimumSpend: 1000m, memberOnly: true,
-            perMemberLimit: 1) with { MemberValidityMonths = 12 };
+            perMemberLimit: 1) with
+        { MemberValidityMonths = 12 };
         var result = CouponCalculator.Calculate(new CouponCalculationRequest(rule,
             CouponScopeRules.SiteWide, CouponUsageState.Unused, [Line(LineA, 1, 1000m)],
             true, false, EvaluatedAtUtc, created));

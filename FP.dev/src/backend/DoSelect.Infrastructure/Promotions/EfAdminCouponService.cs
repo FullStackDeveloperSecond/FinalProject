@@ -87,8 +87,14 @@ public sealed class EfAdminCouponService : IAdminCouponService
                 coupons.OrderBy(coupon => coupon.Code).ThenBy(coupon => coupon.Id),
             AdminCouponSortOptions.CodeDesc =>
                 coupons.OrderByDescending(coupon => coupon.Code).ThenBy(coupon => coupon.Id),
+            AdminCouponSortOptions.StatusAsc =>
+                coupons.OrderBy(coupon => coupon.Status).ThenBy(coupon => coupon.Id),
+            AdminCouponSortOptions.StatusDesc =>
+                coupons.OrderByDescending(coupon => coupon.Status).ThenBy(coupon => coupon.Id),
             AdminCouponSortOptions.EndsAtAsc =>
                 coupons.OrderBy(coupon => coupon.EndsAtUtc).ThenBy(coupon => coupon.Id),
+            AdminCouponSortOptions.EndsAtDesc =>
+                coupons.OrderByDescending(coupon => coupon.EndsAtUtc).ThenBy(coupon => coupon.Id),
             _ =>
                 coupons.OrderByDescending(coupon => coupon.UpdatedAtUtc)
                     .ThenByDescending(coupon => coupon.Id),

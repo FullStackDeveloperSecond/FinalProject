@@ -351,7 +351,15 @@ function actorLabel(reconciliationCase: InventoryReconciliationCaseDto): string 
           </template>
         </tbody>
       </table>
-<PagePager v-if="totalPages > 1" :page="appliedFilters.pageNumber" :page-size="1" :total-records="totalPages" :busy="isRefreshing" aria-label="列表分頁" @update:page="goToPage" />
+      <PagePager
+        v-if="totalPages > 1"
+        :page="appliedFilters.pageNumber"
+        :page-size="1"
+        :total-records="totalPages"
+        :busy="isRefreshing"
+        aria-label="列表分頁"
+        @update:page="goToPage"
+      />
     </template>
   </section>
 </template>

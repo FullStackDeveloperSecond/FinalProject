@@ -27,6 +27,32 @@ function movementTypeLabel(value: string): string {
   return MOVEMENT_TYPE_OPTIONS.find(option => option.value === value)?.label ?? '其他異動'
 }
 
+const MOVEMENT_REASON_LABELS: Readonly<Record<string, string>> = {
+  DemoInitialStock: '展示資料初始庫存',
+  DemoCostSnapshot: '展示資料成本快照',
+  order_checkout: '訂單結帳保留',
+  order_shipped: '訂單出貨',
+  order_cancelled: '訂單取消',
+  customer_cancelled: '顧客取消訂單',
+  duplicate_order: '重複訂單',
+  risk_rejected: '風險審核未通過',
+  inventory_correction: '庫存更正',
+  reconciliation_correction: '庫存對帳更正',
+  sku_unit_cost_changed: 'SKU 單位成本變更',
+  'return-inspection-resellable': '退貨檢查通過並回庫',
+  StocktakeDifference: '盤點差異',
+  Damaged: '商品損壞',
+  Lost: '商品遺失',
+  ReturnRestock: '退貨回庫',
+  DataCorrection: '資料更正',
+  Other: '其他原因',
+  other: '其他原因',
+}
+
+function movementReasonLabel(value: string): string {
+  return MOVEMENT_REASON_LABELS[value] ?? '其他異動原因'
+}
+
 // 組長 PR #37 round-2 review, item 3: the form binds to a *draft* the query never sees; only 搜尋
 // copies it into the applied filters and resets the page in the same tick, so typing or toggling
 // a filter can never fire a query with half-updated conditions (or, on the reservations page, a
@@ -291,7 +317,7 @@ function formatDateTime(value: string): string {
                 <td>{{ movementTypeLabel(movement.movementType) }}</td>
                 <td>{{ Number(movement.onHandDelta) >= 0 ? '+' : '' }}{{ movement.onHandDelta }}</td>
                 <td>{{ Number(movement.reservedDelta) >= 0 ? '+' : '' }}{{ movement.reservedDelta }}</td>
-                <td>{{ movement.reasonCode }}</td>
+                <td>{{ movementReasonLabel(movement.reasonCode) }}</td>
                 <td>{{ movement.actor?.email ?? '系統' }}</td>
               </tr>
             </tbody>

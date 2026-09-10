@@ -319,10 +319,10 @@ public sealed class EfBuildListService : IBuildListService
         var parts = BuildOwnedParts.Validate(input);
         var ids = parts.Where(part => part.SkuPublicId.HasValue).Select(part => part.SkuPublicId!.Value).ToArray();
         var catalog = await (from sku in _dbContext.Skus.AsNoTracking()
-            join product in _dbContext.Products.AsNoTracking() on sku.ProductId equals product.Id
-            join category in _dbContext.Categories.AsNoTracking() on product.CategoryId equals category.Id
-            where ids.Contains(sku.PublicId) && sku.Status == SkuStatus.Published && product.Status == ProductStatus.Published && category.IsActive
-            select new { sku.PublicId, sku.NameZhTw, category.Code }).ToDictionaryAsync(row => row.PublicId, cancellationToken);
+                             join product in _dbContext.Products.AsNoTracking() on sku.ProductId equals product.Id
+                             join category in _dbContext.Categories.AsNoTracking() on product.CategoryId equals category.Id
+                             where ids.Contains(sku.PublicId) && sku.Status == SkuStatus.Published && product.Status == ProductStatus.Published && category.IsActive
+                             select new { sku.PublicId, sku.NameZhTw, category.Code }).ToDictionaryAsync(row => row.PublicId, cancellationToken);
         if (ids.Any(id => !catalog.ContainsKey(id)))
             throw new BuildWriteException(BuildWriteException.ErrorCodes.ValidationFailed, "自有零件的站內商品不存在，請重新選擇或填寫規格。");
         return parts.Select(part => part.SkuPublicId is { } id

@@ -151,8 +151,11 @@ public sealed class AdminCouponServiceSqlServerTests
         var service = CreateService(context);
         var created = await service.CreateAsync(CreateRequest(UniqueCode()) with
         {
-            DiscountType = CouponDiscountType.Percentage, DiscountValue = .05m,
-            MaximumDiscount = null, MinimumSpend = null, MultiItemDiscountValue = .10m,
+            DiscountType = CouponDiscountType.Percentage,
+            DiscountValue = .05m,
+            MaximumDiscount = null,
+            MinimumSpend = null,
+            MultiItemDiscountValue = .10m,
         });
         Assert.Equal(.10m, created.MultiItemDiscountValue);
         Assert.Null(created.MaximumDiscount);
@@ -825,6 +828,49 @@ public sealed class AdminCouponServiceSqlServerTests
 
         Assert.Equal(active.PublicId, Assert.Single(result.Items).PublicId);
         Assert.DoesNotContain(result.Items, item => item.PublicId == draft.PublicId);
+    }
+
+    [AdminCouponSqlFact]
+    public async Task TheListSortsStatusAndEndDateInBothDirections()
+    {
+        await using var context = AdminCouponSqlFixture.CreateContext();
+        var service = CreateService(context);
+
+        var statusMarker = $"STATUS{Guid.NewGuid():N}"[..16];
+        var draft = await service.CreateAsync(
+            CreateRequest(UniqueCode()) with { NameZhTw = $"{statusMarker}-draft" });
+        var active = await service.CreateAsync(
+            CreateRequest(UniqueCode()) with { NameZhTw = $"{statusMarker}-active" });
+        active = await service.ExecuteActionAsync(
+            active.PublicId, AdminCouponActions.Activate, ActionRequest(active));
+
+        var statusAscending = await service.ListAsync(
+            new AdminCouponQuery(statusMarker, null, AdminCouponSortOptions.StatusAsc, 1, 20));
+        var statusDescending = await service.ListAsync(
+            new AdminCouponQuery(statusMarker, null, AdminCouponSortOptions.StatusDesc, 1, 20));
+
+        Assert.Equal([draft.PublicId, active.PublicId], statusAscending.Items.Select(item => item.PublicId));
+        Assert.Equal([active.PublicId, draft.PublicId], statusDescending.Items.Select(item => item.PublicId));
+
+        var periodMarker = $"PERIOD{Guid.NewGuid():N}"[..16];
+        var early = await service.CreateAsync(CreateRequest(UniqueCode()) with
+        {
+            NameZhTw = $"{periodMarker}-early",
+            EndsAtUtc = NowUtc.AddDays(10),
+        });
+        var late = await service.CreateAsync(CreateRequest(UniqueCode()) with
+        {
+            NameZhTw = $"{periodMarker}-late",
+            EndsAtUtc = NowUtc.AddDays(20),
+        });
+
+        var periodAscending = await service.ListAsync(
+            new AdminCouponQuery(periodMarker, null, AdminCouponSortOptions.EndsAtAsc, 1, 20));
+        var periodDescending = await service.ListAsync(
+            new AdminCouponQuery(periodMarker, null, AdminCouponSortOptions.EndsAtDesc, 1, 20));
+
+        Assert.Equal([early.PublicId, late.PublicId], periodAscending.Items.Select(item => item.PublicId));
+        Assert.Equal([late.PublicId, early.PublicId], periodDescending.Items.Select(item => item.PublicId));
     }
 
     [AdminCouponSqlFact]

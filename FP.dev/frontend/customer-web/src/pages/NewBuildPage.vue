@@ -21,6 +21,8 @@ import { addBuildToCart } from '../features/builds/api'
 import { getCart } from '../features/cart/api'
 import { useQueryClient } from '@tanstack/vue-query'
 import type { AddBuildToCartRequest, BuildListDto } from '../features/builds/types'
+import { searchProducts } from '../features/catalog/api'
+import { CATALOG_CATEGORY_CODES } from '../features/catalog/categoryLabels'
 
 const router = useRouter()
 const route = useRoute()
@@ -36,11 +38,67 @@ const showCartPicker = ref(route.query.import === 'cart')
 const importError = ref('')
 const queryClient = useQueryClient()
 const purchasing = ref(false)
+const autoConfiguring = ref(false)
+const autoConfigError = ref('')
+const autoConfigFeedback = ref('')
 let pageActive = true
 const purchaseError = ref('')
 let savedForPurchase: { signature: string, build: BuildListDto } | null = null
 let purchaseAttempt: { publicId: string, request: AddBuildToCartRequest, key: string } | null = null
-const isBusy = computed(() => purchasing.value || createBuildList.isPending.value)
+const isBusy = computed(() => autoConfiguring.value || purchasing.value || createBuildList.isPending.value)
+
+async function applyDemoConfiguration(): Promise<void> {
+  if (isBusy.value) return
+
+  const selectedCategories = new Set([
+    ...items.value.map(item => item.categoryCode),
+    ...ownedParts.value.map(part => part.categoryCode),
+  ].filter((category): category is string => Boolean(category)))
+  const missingCategories = CATALOG_CATEGORY_CODES.filter(category => !selectedCategories.has(category))
+
+  autoConfigError.value = ''
+  autoConfigFeedback.value = ''
+  if (missingCategories.length === 0) {
+    autoConfigFeedback.value = '目前已包含全部必要分類，不需要再帶入。'
+    return
+  }
+
+  autoConfiguring.value = true
+  try {
+    const pages = await Promise.all(missingCategories.map(category => searchProducts({
+      category,
+      inStock: true,
+      sort: 'priceAsc',
+      pageNumber: 1,
+      pageSize: 1,
+    })))
+    const unavailable = missingCategories.filter((_, index) => pages[index]?.items.length !== 1)
+    if (unavailable.length > 0) {
+      throw new Error(`目前找不到可售的 ${unavailable.join('、')} 商品，未變更原清單。`)
+    }
+
+    const additions = pages.map((page, index) => {
+      const product = page.items[0]!
+      return {
+        skuPublicId: product.defaultSkuPublicId,
+        quantity: 1,
+        name: product.name,
+        categoryCode: missingCategories[index]!,
+      }
+    })
+    items.value = [...items.value, ...additions]
+    if (!name.value.trim()) {
+      name.value = 'Demo 一鍵配置'
+    }
+    autoConfigFeedback.value = `已帶入 ${additions.length} 個必要分類的可售商品，可再逐項調整。`
+  }
+  catch (caught) {
+    autoConfigError.value = caught instanceof Error ? caught.message : '一鍵配置失敗，請稍後再試。'
+  }
+  finally {
+    autoConfiguring.value = false
+  }
+}
 
 function previewImport(value: BuildImport): void { pendingImport.value = value; importError.value = '' }
 function applyImport(mode: 'keep' | 'replace' | 'reset'): void {
@@ -225,6 +283,13 @@ watch(() => sessionStore.status, (status) => {
       <button
         type="button"
         :disabled="isBusy"
+        @click="applyDemoConfiguration"
+      >
+        {{ autoConfiguring ? '配置中…' : '一鍵帶入 Demo 配置' }}
+      </button>
+      <button
+        type="button"
+        :disabled="isBusy"
         @click="showCartPicker = !showCartPicker"
       >
         從購物車挑選
@@ -239,6 +304,20 @@ watch(() => sessionStore.status, (status) => {
         前往 AI 靈感站
       </RouterLink>
     </div>
+    <p
+      v-if="autoConfigFeedback"
+      class="new-build-page__auto-feedback"
+      role="status"
+    >
+      {{ autoConfigFeedback }}
+    </p>
+    <p
+      v-if="autoConfigError"
+      class="new-build-page__auto-error"
+      role="alert"
+    >
+      {{ autoConfigError }}
+    </p>
     <CartBuildPicker
       v-if="showCartPicker && !isBusy"
       @select="previewImport"
@@ -422,6 +501,14 @@ watch(() => sessionStore.status, (status) => {
   padding-left: 1.25rem;
   color: var(--color-danger);
   font-size: 0.875rem;
+}
+
+.new-build-page__auto-feedback {
+  color: var(--color-success);
+}
+
+.new-build-page__auto-error {
+  color: var(--color-danger);
 }
 
 .new-build-page__actions {

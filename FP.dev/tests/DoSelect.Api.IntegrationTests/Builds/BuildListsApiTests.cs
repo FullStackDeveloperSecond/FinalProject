@@ -17,11 +17,12 @@ public sealed class BuildListsApiTests
     {
         using var client = await _fixture.CreateAuthenticatedMemberClientAsync();
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/build-lists")
-        { Content = JsonContent.Create(new
         {
-            name = "自有 SSD 清單",
-            items = Array.Empty<object>(),
-            ownedParts = new[] { new
+            Content = JsonContent.Create(new
+            {
+                name = "自有 SSD 清單",
+                items = Array.Empty<object>(),
+                ownedParts = new[] { new
             {
                 sourceType = "structuredManual", categoryCode = "STORAGE", displayName = "我的 SSD",
                 quantity = 1, confirmedByUser = true,
@@ -30,7 +31,8 @@ public sealed class BuildListsApiTests
                     new { semanticKey = "POWER_DRAW_WATTS", @operator = "eq", value = "5", unit = (string?)"W" },
                 },
             } },
-        }) };
+            })
+        };
         using var response = await BuildListsApiFixture.SendWithAntiforgeryAsync(client, request);
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var created = await response.Content.ReadFromJsonAsync<JsonElement>();

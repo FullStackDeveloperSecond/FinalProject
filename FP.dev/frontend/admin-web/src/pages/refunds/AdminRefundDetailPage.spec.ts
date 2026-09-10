@@ -176,6 +176,22 @@ describe('AdminRefundDetailPage', () => {
     )
   })
 
+  it('offers only the three approved refund reasons with clear Chinese labels', async () => {
+    mockGetRefund.mockResolvedValue(refund({ status: 'pendingReview', approvedBy: null }))
+
+    const wrapper = await mountPage()
+    await flushPromises()
+
+    const options = wrapper.findAll('[name="approveReasonCode"] option')
+      .filter(option => option.attributes('value'))
+      .map(option => ({ value: option.attributes('value'), label: option.text().trim() }))
+    expect(options).toEqual([
+      { value: 'return_approved', label: '退貨檢查通過，符合退款資格' },
+      { value: 'merchant_correction', label: '商家更正' },
+      { value: 'customer_request', label: '客服協議退款' },
+    ])
+  })
+
   it('does not show the execute action for a refund still awaiting approval', async () => {
     mockGetRefund.mockResolvedValue(refund({ status: 'pendingReview', approvedBy: null }))
 

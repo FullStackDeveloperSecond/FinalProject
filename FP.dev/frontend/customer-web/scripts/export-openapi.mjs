@@ -13,6 +13,12 @@ if (!response.ok) {
 }
 
 const body = await response.text()
-JSON.parse(body) // fail fast if the API returned something unexpected
-await writeFile(outputPath, body, 'utf8')
+const document = JSON.parse(body) // fail fast if the API returned something unexpected
+const liveServerUrl = document.servers?.[0]?.url
+// The server advertises the address it was started with. Normalize that environment detail so
+// a developer using 127.0.0.1 cannot make the committed contract drift from CI's localhost URL.
+const normalizedBody = typeof liveServerUrl === 'string'
+  ? body.replace(JSON.stringify(liveServerUrl), JSON.stringify('http://localhost:5126/'))
+  : body
+await writeFile(outputPath, normalizedBody.endsWith('\n') ? normalizedBody : `${normalizedBody}\n`, 'utf8')
 console.log(`Wrote ${outputPath}`)

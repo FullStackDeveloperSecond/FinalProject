@@ -41,6 +41,26 @@ describe('InventoryPage', () => {
     expect(wrapper.text()).toContain('Widget')
   })
 
+  it('shows inventory movement reasons in Chinese', async () => {
+    mockListBalances.mockResolvedValue({ items: [], pageNumber: 1, pageSize: 20, totalCount: 0 })
+    mockListMovements.mockResolvedValue({
+      items: [{
+        publicId: 'm1', occurredAtUtc: '2026-09-10T00:00:00Z', movementType: 'StockIn',
+        onHandDelta: 40, reservedDelta: 0, reasonCode: 'DemoInitialStock', actor: null,
+        sku: { skuCode: 'DEMO-SKU-0001' },
+      }],
+      pageNumber: 1,
+      pageSize: 20,
+      totalCount: 1,
+    })
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('展示資料初始庫存')
+    expect(wrapper.text()).not.toContain('DemoInitialStock')
+  })
+
   /** A-11: 低庫存與缺貨要能被辨識（用於畫面標示） — 這裡驗證缺貨列被套上正確的樣式 class。 */
   it('marks an out-of-stock row distinctly from a normal row', async () => {
     mockListBalances.mockResolvedValue({

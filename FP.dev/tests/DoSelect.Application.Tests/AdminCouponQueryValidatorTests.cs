@@ -60,6 +60,17 @@ public sealed class AdminCouponQueryValidatorTests
     }
 
     [Fact]
+    public void SortOptionsCoverBothDirectionsForEverySortableCouponColumn()
+    {
+        Assert.Contains(AdminCouponSortOptions.CodeAsc, AdminCouponSortOptions.All);
+        Assert.Contains(AdminCouponSortOptions.CodeDesc, AdminCouponSortOptions.All);
+        Assert.Contains(AdminCouponSortOptions.StatusAsc, AdminCouponSortOptions.All);
+        Assert.Contains(AdminCouponSortOptions.StatusDesc, AdminCouponSortOptions.All);
+        Assert.Contains(AdminCouponSortOptions.EndsAtAsc, AdminCouponSortOptions.All);
+        Assert.Contains(AdminCouponSortOptions.EndsAtDesc, AdminCouponSortOptions.All);
+    }
+
+    [Fact]
     public void AnUndefinedStatusIsRejected() =>
         Assert.Throws<DomainProblemException>(
             () => AdminCouponQueryValidator.RequireValid(

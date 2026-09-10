@@ -132,11 +132,50 @@ describe('AdminCouponsPage', () => {
     await openCreateForm(wrapper)
 
     const form = wrapper.get('.coupons-form')
+    expect(form.element.closest('dialog')?.getAttribute('aria-label')).toBe('新增優惠券')
     expect(form.classes()).toContain('coupons-form--aligned')
     expect(form.findAll('.coupons-field').length).toBeGreaterThan(8)
     expect(form.get('[name="code"]').classes()).toContain('coupons-control')
     expect(form.get('[name="discountType"]').classes()).toContain('coupons-control')
     expect(form.get('[name="startsAt"]').classes()).toContain('coupons-control')
+  })
+
+  it('sorts coupon code, status and period in both directions', async () => {
+    mockListCoupons.mockResolvedValue(page([coupon()]))
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const expectations = [
+      ['依優惠碼排序', 'codeAsc', 'codeDesc'],
+      ['依狀態排序', 'statusAsc', 'statusDesc'],
+      ['依期間排序', 'endsAtAsc', 'endsAtDesc'],
+    ] as const
+    for (const [label, ascending, descending] of expectations) {
+      const button = wrapper.get(`button[aria-label="${label}"]`)
+      await button.trigger('click')
+      await vi.waitFor(() => expect(mockListCoupons).toHaveBeenLastCalledWith(
+        expect.objectContaining({ sort: ascending, pageNumber: 1 }),
+      ))
+      expect(button.element.closest('th')?.getAttribute('aria-sort')).toBe('ascending')
+
+      await button.trigger('click')
+      await vi.waitFor(() => expect(mockListCoupons).toHaveBeenLastCalledWith(
+        expect.objectContaining({ sort: descending, pageNumber: 1 }),
+      ))
+      expect(button.element.closest('th')?.getAttribute('aria-sort')).toBe('descending')
+    }
+  })
+
+  it('uses readable wrapping cells and a red outline for the irreversible disable action', async () => {
+    mockListCoupons.mockResolvedValue(page([coupon({ status: 'active' })]))
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(wrapper.get('.coupons-cell--nowrap').text()).toBe('新會員')
+    expect(wrapper.findAll('.coupons-discount__segment').length).toBeGreaterThan(0)
+    expect(wrapper.get('.coupons-period__start').text()).toMatch(/～$/)
+    expect(wrapper.findAll('.coupons-actions button').find(button => button.text() === '停用')!
+      .classes()).toContain('coupons-action--danger')
   })
 
   it('shows quantity tiers, unlimited discount and registration-relative expiry', async () => {
