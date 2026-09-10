@@ -17,7 +17,12 @@ public sealed class CouponQuantityMembershipMigrationTests
         var connection = new SqlConnectionStringBuilder(
             Environment.GetEnvironmentVariable("DOSELECT_SQLSERVER_TEST_CONNECTION") ??
             "Server=.\\SQL2025;Database=DoSelect;Trusted_Connection=True;Encrypt=False;")
-        { InitialCatalog = databaseName };
+        {
+            InitialCatalog = databaseName,
+            // sqlcmd does not use MARS. Under MARS, SQL Server forbids BEGIN TRAN in one
+            // GO-delimited batch from remaining active when that batch ends.
+            MultipleActiveResultSets = false,
+        };
         await using var context = new DoSelectDbContext(new DbContextOptionsBuilder<DoSelectDbContext>()
             .UseSqlServer(connection.ConnectionString).Options);
         try

@@ -88,9 +88,23 @@ public sealed class EfAdminCouponService : IAdminCouponService
             AdminCouponSortOptions.CodeDesc =>
                 coupons.OrderByDescending(coupon => coupon.Code).ThenBy(coupon => coupon.Id),
             AdminCouponSortOptions.StatusAsc =>
-                coupons.OrderBy(coupon => coupon.Status).ThenBy(coupon => coupon.Id),
+                coupons.OrderBy(coupon =>
+                        coupon.Status == CouponStatus.Draft ? 0 :
+                        coupon.Status == CouponStatus.Scheduled ? 1 :
+                        coupon.Status == CouponStatus.Active ? 2 :
+                        coupon.Status == CouponStatus.Paused ? 3 :
+                        coupon.Status == CouponStatus.Expired ? 4 :
+                        coupon.Status == CouponStatus.Exhausted ? 5 : 6)
+                    .ThenBy(coupon => coupon.Id),
             AdminCouponSortOptions.StatusDesc =>
-                coupons.OrderByDescending(coupon => coupon.Status).ThenBy(coupon => coupon.Id),
+                coupons.OrderByDescending(coupon =>
+                        coupon.Status == CouponStatus.Draft ? 0 :
+                        coupon.Status == CouponStatus.Scheduled ? 1 :
+                        coupon.Status == CouponStatus.Active ? 2 :
+                        coupon.Status == CouponStatus.Paused ? 3 :
+                        coupon.Status == CouponStatus.Expired ? 4 :
+                        coupon.Status == CouponStatus.Exhausted ? 5 : 6)
+                    .ThenBy(coupon => coupon.Id),
             AdminCouponSortOptions.EndsAtAsc =>
                 coupons.OrderBy(coupon => coupon.EndsAtUtc).ThenBy(coupon => coupon.Id),
             AdminCouponSortOptions.EndsAtDesc =>

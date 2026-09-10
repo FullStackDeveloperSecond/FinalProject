@@ -218,6 +218,14 @@ public sealed class CartCouponApiTests
             builder.ConfigureTestServices(services =>
             {
                 TestAuthHandler.Configure(services);
+                // This endpoint only asks MemberCouponVisibilityService for a read-only
+                // decision. Keep controller activation independent from the production cart
+                // service's database/idempotency graph so the HTTP contract test cannot fail
+                // because an unrelated integration fixture is starting or dropping a database.
+                services.RemoveAll<IIdempotencyExecutor>();
+                services.AddSingleton<IIdempotencyExecutor, UnusedIdempotencyExecutor>();
+                services.RemoveAll<ICartCouponLineReader>();
+                services.AddSingleton<ICartCouponLineReader, MissingCartReader>();
                 services.RemoveAll<ICouponRuleReader>();
                 services.AddSingleton<ICouponRuleReader, UnusedMemberCouponReader>();
             }));

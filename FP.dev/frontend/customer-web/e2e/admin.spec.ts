@@ -2,6 +2,7 @@ import { createHmac, randomUUID } from 'node:crypto'
 import type { APIRequestContext, Page } from '@playwright/test'
 import { captureVisualEvidence } from './visualEvidence.js'
 import { expect, test } from './fixtures.js'
+import { establishGuestCheckoutEmailProof, postBrowserJson } from './guestCheckout.js'
 
 const base32Alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
 
@@ -171,6 +172,7 @@ async function codEligibleSkuPublicId(api: APIRequestContext): Promise<string> {
 }
 
 async function createGuestCodOrder(
+  page: Page,
   api: APIRequestContext,
   skuPublicId: string,
   email: string,
@@ -205,12 +207,8 @@ async function createGuestCodOrder(
   }
 
   const isHomeDelivery = destination.methodCode === 'HomeDelivery'
-  const createResponse = await api.post('/api/v1/orders', {
-    headers: unsafeMemberHeaders(requestToken, {
-      'X-DoSelect-Guest-Cart-Key': guestCartKey,
-      'Idempotency-Key': `e2e-cod-checkout-${randomUUID()}`,
-    }),
-    data: {
+  await establishGuestCheckoutEmailProof(page, email, guestCartKey)
+  const createResponse = await postBrowserJson<CustomerOrderSnapshot>(page, '/api/v1/orders', {
       cartPublicId: cart.publicId,
       cartRowVersion: cart.rowVersion,
       buyer: {
@@ -245,15 +243,16 @@ async function createGuestCodOrder(
         companyName: null,
       },
       acceptPolicyVersions: policies,
-    },
+    }, {
+      'X-DoSelect-Guest-Cart-Key': guestCartKey,
+      'Idempotency-Key': `e2e-cod-checkout-${randomUUID()}`,
   })
-  const responseBody = await createResponse.text()
   expect(
-    createResponse.status(),
-    `The real Checkout endpoint must create the COD order. Response: ${responseBody}`,
+    createResponse.status,
+    `The real Checkout endpoint must create the COD order. Response: ${createResponse.bodyText}`,
   ).toBe(201)
 
-  const order = JSON.parse(responseBody) as CustomerOrderSnapshot
+  const order = createResponse.body
   expect(order.orderStatus).toBe('confirmed')
   expect(order.paymentStatus).toBe('awaitingPayment')
   expect(order.amounts.paidAmount).toBe(0)
@@ -434,6 +433,7 @@ async function markOrderShippedDirectly(page: Page, order: CustomerOrderSnapshot
 }
 
 async function createGuestPrepaidHomeDeliveryOrder(
+  page: Page,
   api: APIRequestContext,
   skuPublicId: string,
   email: string,
@@ -463,12 +463,8 @@ async function createGuestPrepaidHomeDeliveryOrder(
   expect(policyResponse.ok(), 'Checkout policy versions must be available').toBe(true)
   const policies = await policyResponse.json() as { terms: number, return: number, privacy: number }
 
-  const createResponse = await api.post('/api/v1/orders', {
-    headers: unsafeMemberHeaders(requestToken, {
-      'X-DoSelect-Guest-Cart-Key': guestCartKey,
-      'Idempotency-Key': `e2e-refund-checkout-${randomUUID()}`,
-    }),
-    data: {
+  await establishGuestCheckoutEmailProof(page, email, guestCartKey)
+  const createResponse = await postBrowserJson<PrepaidOrderSnapshot>(page, '/api/v1/orders', {
       cartPublicId: cart.publicId,
       cartRowVersion: cart.rowVersion,
       buyer: {
@@ -501,15 +497,16 @@ async function createGuestPrepaidHomeDeliveryOrder(
         companyName: null,
       },
       acceptPolicyVersions: policies,
-    },
+    }, {
+      'X-DoSelect-Guest-Cart-Key': guestCartKey,
+      'Idempotency-Key': `e2e-refund-checkout-${randomUUID()}`,
   })
-  const responseBody = await createResponse.text()
   expect(
-    createResponse.status(),
-    `The real Checkout endpoint must create the prepaid order. Response: ${responseBody}`,
+    createResponse.status,
+    `The real Checkout endpoint must create the prepaid order. Response: ${createResponse.bodyText}`,
   ).toBe(201)
 
-  const order = JSON.parse(responseBody) as PrepaidOrderSnapshot
+  const order = createResponse.body
   // Unlike COD (confirmed immediately, no payment gate), a prepaid order stays pendingPayment
   // until the payment attempt actually succeeds.
   expect(order.orderStatus).toBe('pendingPayment')
@@ -536,6 +533,7 @@ test('a seeded administrator can enroll TOTP, reject a wrong code, and sign in a
   const storeEmail = `cod-store-${randomUUID()}@example.test`
   const returnedEmail = `cod-returned-${randomUUID()}@example.test`
   const homeOrder = await createGuestCodOrder(
+    page,
     api,
     skuPublicId,
     homeEmail,
@@ -543,6 +541,7 @@ test('a seeded administrator can enroll TOTP, reject a wrong code, and sign in a
     { methodCode: 'HomeDelivery' },
   )
   const storeOrder = await createGuestCodOrder(
+    page,
     api,
     skuPublicId,
     storeEmail,
@@ -550,6 +549,7 @@ test('a seeded administrator can enroll TOTP, reject a wrong code, and sign in a
     { methodCode: 'StorePickup', storePublicId },
   )
   const returnedOrder = await createGuestCodOrder(
+    page,
     api,
     skuPublicId,
     returnedEmail,
@@ -915,7 +915,8 @@ test('a delivered order can be returned, refunded and allowed to update the orde
 
   const requestToken = await getMemberAntiforgeryToken(api)
   const email = `refund-journey-${randomUUID()}@example.test`
-  const order = await createGuestPrepaidHomeDeliveryOrder(api, seed.skuPublicId, email, requestToken)
+  const order = await createGuestPrepaidHomeDeliveryOrder(
+    page, api, seed.skuPublicId, email, requestToken)
 
   const customerContext = await browser.newContext({ baseURL: 'http://127.0.0.1:5173' })
   const customerPage = await customerContext.newPage()
@@ -1252,13 +1253,14 @@ test('a partially returned order settles as PartiallyRefunded and a different gu
 
   const requestToken = await getMemberAntiforgeryToken(api)
   const ownerEmail = `partial-refund-owner-${randomUUID()}@example.test`
-  const order = await createGuestPrepaidHomeDeliveryOrder(api, seed.skuPublicId, ownerEmail, requestToken, 2)
+  const order = await createGuestPrepaidHomeDeliveryOrder(
+    page, api, seed.skuPublicId, ownerEmail, requestToken, 2)
 
   // A second, unrelated guest order — used only to prove Actor Scope: a currently-valid guest
   // session for a *different* order must never resolve someone else's order or return.
   const outsiderEmail = `partial-refund-outsider-${randomUUID()}@example.test`
   const outsiderOrder = await createGuestPrepaidHomeDeliveryOrder(
-    api, seed.skuPublicId, outsiderEmail, requestToken)
+    page, api, seed.skuPublicId, outsiderEmail, requestToken)
 
   const ownerContext = await browser.newContext({ baseURL: 'http://127.0.0.1:5173' })
   const ownerPage = await ownerContext.newPage()

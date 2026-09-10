@@ -2,6 +2,7 @@ import { captureVisualEvidence } from './visualEvidence.js'
 import { createHmac, randomUUID } from 'node:crypto'
 import type { APIRequestContext, Page } from '@playwright/test'
 import { expect, test } from './fixtures.js'
+import { establishGuestCheckoutEmailProof, postBrowserJson } from './guestCheckout.js'
 
 const guestAccessPepper = 'e2e-guest-order-access-pepper-32-bytes'
 const base32Alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
@@ -45,6 +46,7 @@ function unsafeHeaders(requestToken: string, extra: Record<string, string> = {})
 }
 
 async function createGuestOrder(
+  page: Page,
   api: APIRequestContext,
   skuPublicId: string,
   email: string,
@@ -80,12 +82,8 @@ async function createGuestOrder(
     privacy: number
   }
 
-  const createResponse = await api.post('/api/v1/orders', {
-    headers: unsafeHeaders(requestToken, {
-      'X-DoSelect-Guest-Cart-Key': guestCartKey,
-      'Idempotency-Key': `e2e-checkout-${randomUUID()}`,
-    }),
-    data: {
+  await establishGuestCheckoutEmailProof(page, email, guestCartKey)
+  const createResponse = await postBrowserJson<OrderSnapshot>(page, '/api/v1/orders', {
       cartPublicId: cart.publicId,
       cartRowVersion: cart.rowVersion,
       buyer: {
@@ -122,14 +120,15 @@ async function createGuestOrder(
         return: policies.return,
         privacy: policies.privacy,
       },
-    },
+    }, {
+      'X-DoSelect-Guest-Cart-Key': guestCartKey,
+      'Idempotency-Key': `e2e-checkout-${randomUUID()}`,
   })
-  const createResponseBody = await createResponse.text()
   expect(
-    createResponse.status(),
-    `The E2E setup must complete a real guest Checkout. Response: ${createResponseBody}`,
+    createResponse.status,
+    `The E2E setup must complete a real guest Checkout. Response: ${createResponse.bodyText}`,
   ).toBe(201)
-  return JSON.parse(createResponseBody) as OrderSnapshot
+  return createResponse.body
 }
 
 function deriveGuestVerificationCode(requestPublicId: string, sendNumber = 1): string {
@@ -357,8 +356,8 @@ test('a guest can verify, view and cancel only the matching order without cross-
   const requestToken = await getAntiforgeryToken(api)
   const targetEmail = `target-${randomUUID()}@example.test`
   const otherEmail = `other-${randomUUID()}@example.test`
-  const targetOrder = await createGuestOrder(api, seed.skuPublicId, targetEmail, requestToken)
-  const otherOrder = await createGuestOrder(api, seed.skuPublicId, otherEmail, requestToken)
+  const targetOrder = await createGuestOrder(page, api, seed.skuPublicId, targetEmail, requestToken)
+  const otherOrder = await createGuestOrder(page, api, seed.skuPublicId, otherEmail, requestToken)
 
   await page.goto('/guest-orders/access')
   await page.getByLabel('訂單編號').fill(targetOrder.orderNumber)
@@ -645,7 +644,7 @@ test('a guest keeps the checkout payment attempt after reloading the payment pag
   // 缺口最具體的後果。付款頁不會再出現建立表單，因為那筆嘗試還在進行中。
   const requestToken = await getAntiforgeryToken(api)
   const email = `payment-restore-${randomUUID()}@example.test`
-  const order = await createGuestOrder(api, seed.skuPublicId, email, requestToken, 'atm')
+  const order = await createGuestOrder(page, api, seed.skuPublicId, email, requestToken, 'atm')
 
   await page.goto('/guest-orders/access')
   await page.getByLabel('訂單編號').fill(order.orderNumber)
@@ -712,6 +711,10 @@ test('a guest completes the prepared cart through checkout payment and invoice',
   await expect(page.getByText('自訂組裝', { exact: true })).toBeVisible()
   await expect(page.getByRole('list', { name: /組裝品項：/ }).getByRole('listitem')).toHaveCount(8)
 
+  await page.getByLabel('優惠碼', { exact: true }).fill('SCHOOL2026')
+  await page.getByRole('button', { name: '套用', exact: true }).click()
+  await expect(page.getByText(/已套用：SCHOOL2026/)).toBeVisible()
+
   const checkoutButton = page.getByRole('button', { name: '前往結帳' })
   await expect(checkoutButton).toBeEnabled()
   await checkoutButton.click()
@@ -719,13 +722,23 @@ test('a guest completes the prepared cart through checkout payment and invoice',
   await expect(page.getByRole('heading', { level: 1, name: '結帳' })).toBeVisible()
   await captureVisualEvidence(page, 'real-customer-checkout')
 
-  await page.getByLabel('Email').fill(email)
+  await expect(page.getByText(/已套用 SCHOOL2026/)).toBeVisible()
+  await page.getByLabel('電子郵件 *').fill(email)
   await page.getByLabel('姓名').fill('核心交易訪客')
-  await page.getByLabel('電話').fill('0912345678')
+  await page.getByLabel('聯絡手機號碼 *').fill('0912345678')
 
-  await page.getByLabel('優惠碼（選填）').fill('CREATOR10')
-  await page.getByRole('button', { name: '套用優惠券' }).click()
-  await expect(page.getByText('已套用 CREATOR10')).toBeVisible()
+  const verificationResponsePromise = page.waitForResponse(response =>
+    response.request().method() === 'POST'
+    && new URL(response.url()).pathname === '/api/v1/checkout/guest-email/verification-requests')
+  await page.getByRole('button', { name: '寄送驗證信' }).click()
+  const verificationResponse = await verificationResponsePromise
+  expect(verificationResponse.status(), await verificationResponse.text()).toBe(202)
+  const verificationRequest = await verificationResponse.json() as { requestPublicId: string }
+  await page.getByLabel(/六位數驗證碼/).fill(
+    deriveGuestVerificationCode(verificationRequest.requestPublicId),
+  )
+  await page.getByRole('button', { name: '確認驗證碼' }).click()
+  await expect(page.getByText('信箱已完成驗證。', { exact: true })).toBeVisible()
 
   await page.getByRole('radio', { name: '組裝電腦宅配' }).check()
   await page.getByLabel('收件人').fill('核心交易訪客')

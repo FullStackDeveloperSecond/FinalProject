@@ -2,6 +2,7 @@ using DoSelect.Application.Idempotency;
 using DoSelect.Application.Shipping;
 using DoSelect.Application.Shopping;
 using DoSelect.Application.Promotions;
+using DoSelect.Domain.Catalog;
 using DoSelect.Domain.Shipping;
 using DoSelect.Domain.Payments;
 using DoSelect.Domain.Promotions;
@@ -165,7 +166,10 @@ public sealed class ShippingOptionsCodDisplayTests
             context, ShippingMethodKinds.HomeDelivery, 150m, 999_999m, true, false);
         var assemblyMethod = await ShippingServiceFixture.SeedShippingMethodAsync(
             context, ShippingMethodKinds.HomeDeliveryAssembly, 300m, 999_999m, false, true);
-        var sku = await ShippingServiceFixture.SeedPublishedSkuAsync(context, listPrice: 5_000m);
+        var sku = await ShippingServiceFixture.SeedPublishedSkuAsync(
+            context,
+            listPrice: 5_000m,
+            categoryCode: CompatibilityCatalogContract.Categories.Case);
         var identity = new CartIdentity(null, ShippingServiceFixture.UniqueGuestKey());
         await AddItemAsync(context, identity, sku, quantity: 1);
         await ShippingServiceFixture.AddAssemblyItemAsync(context, identity.GuestCartKey!, sku);
