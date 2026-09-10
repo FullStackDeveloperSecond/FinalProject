@@ -145,7 +145,7 @@ async function submitApproval() {
         <dt>訂單</dt>
         <dd>
           <RouterLink :to="`/orders/${refund.orderPublicId}`">
-            {{ refund.orderPublicId }}
+            {{ refund.orderNumber ?? refund.orderPublicId }}
           </RouterLink>
         </dd>
         <dt>退貨案件</dt>
@@ -154,7 +154,7 @@ async function submitApproval() {
             v-if="refund.returnPublicId"
             :to="`/returns/${refund.returnPublicId}`"
           >
-            {{ refund.returnPublicId }}
+            {{ refund.returnNumber ?? refund.returnPublicId }}
           </RouterLink>
           <template v-else>
             —
@@ -203,7 +203,9 @@ async function submitApproval() {
                 <td>{{ refundAllocationLabels[allocation.type] }}</td>
                 <td>
                   <template v-if="allocation.orderItemPublicId">
-                    {{ allocation.orderItemPublicId }} × {{ allocation.quantity }}
+                    <strong>{{ allocation.productName ?? '商品' }}</strong>
+                    <span v-if="allocation.skuCode">（SKU：{{ allocation.skuCode }}）</span>
+                    × {{ allocation.quantity }}
                   </template>
                   <template v-else>
                     —

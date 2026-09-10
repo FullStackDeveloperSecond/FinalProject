@@ -212,9 +212,10 @@ public sealed class RefundExecutionReaderTests
             {
                 ["Refunds"] = ["*"],
                 ["RefundAllocations"] = ["*"],
-                ["Orders"] = ["Id", "PublicId"],
-                ["ReturnRequests"] = ["Id", "PublicId"],
-                ["OrderItems"] = ["Id", "PublicId"],
+                ["Orders"] = ["Id", "PublicId", "OrderNumber"],
+                ["ReturnRequests"] = ["Id", "PublicId", "ReturnNumber"],
+                ["OrderItems"] =
+                    ["Id", "PublicId", "ProductNameSnapshot", "SkuCodeSnapshot"],
                 ["Users"] = ["Id", "PublicId", "Email"],
             },
 

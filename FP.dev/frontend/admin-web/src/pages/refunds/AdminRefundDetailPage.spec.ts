@@ -25,13 +25,22 @@ function refund(overrides: Record<string, unknown> = {}) {
     publicId: refundId,
     refundNumber: 'RF-202609-000001',
     orderPublicId: '018f2e6a-0000-7000-8000-000000000030',
+    orderNumber: 'DS202609090030',
     returnPublicId: '018f2e6a-0000-7000-8000-000000000040',
+    returnNumber: 'RT-202609-000040',
     status: 'approved',
     requestedAmount: 500,
     approvedAmount: 480,
     succeededAmount: null,
     allocations: [
-      { orderItemPublicId: 'item-1', quantity: 1, type: 'itemRefund', amount: 500 },
+      {
+        orderItemPublicId: 'item-1',
+        quantity: 1,
+        type: 'itemRefund',
+        amount: 500,
+        productName: '懂選開發用顯示卡',
+        skuCode: 'DEV-GPU-001-16G',
+      },
       { orderItemPublicId: null, quantity: null, type: 'discountClawback', amount: 20 },
     ],
     requestedBy: { publicId: 'admin-1', maskedLabel: 'f***@example.test' },
@@ -82,6 +91,25 @@ describe('AdminRefundDetailPage', () => {
     expect(wrapper.text()).toContain('優惠追回')
     expect(wrapper.text()).toContain('+NT$500')
     expect(wrapper.text()).toContain('-NT$20')
+  })
+
+  it('shows business numbers as links and trusted product snapshots in allocations', async () => {
+    mockGetRefund.mockResolvedValue(refund())
+
+    const wrapper = await mountPage()
+    await flushPromises()
+
+    const summary = wrapper.get('dl[aria-label="退款摘要"]')
+    const orderLink = summary.get(`a[href="/orders/018f2e6a-0000-7000-8000-000000000030"]`)
+    const returnLink = summary.get(`a[href="/returns/018f2e6a-0000-7000-8000-000000000040"]`)
+    expect(orderLink.text()).toBe('DS202609090030')
+    expect(returnLink.text()).toBe('RT-202609-000040')
+
+    const allocationTable = wrapper.get('[aria-label="退款分攤明細表格"]')
+    expect(allocationTable.text()).toContain('懂選開發用顯示卡')
+    expect(allocationTable.text()).toContain('DEV-GPU-001-16G')
+    expect(allocationTable.text()).toContain('× 1')
+    expect(allocationTable.text()).not.toContain('item-1')
   })
 
   it('requires an explicit confirmation before executing the approved refund', async () => {

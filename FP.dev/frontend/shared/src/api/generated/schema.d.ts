@@ -12923,6 +12923,8 @@ export interface components {
             type: components["schemas"]["RefundAllocationType"];
             /** Format: double */
             amount: number | string;
+            productName?: null | string;
+            skuCode?: null | string;
         };
         /** @enum {unknown} */
         RefundAllocationType: "itemRefund" | "discountClawback" | "originalShipping" | "shippingClawback" | "returnShipping" | "assemblyFee" | "otherAdjustment";
@@ -12951,6 +12953,8 @@ export interface components {
             succeededAtUtc: null | string;
             /** Format: byte */
             rowVersion: string;
+            orderNumber?: null | string;
+            returnNumber?: null | string;
         };
         /** @enum {unknown} */
         RefundStatus: "pendingReview" | "approved" | "rejected" | "processing" | "succeeded" | "failed" | "cancelled";

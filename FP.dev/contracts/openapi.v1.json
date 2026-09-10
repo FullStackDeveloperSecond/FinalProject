@@ -25393,6 +25393,18 @@
               "string"
             ],
             "format": "double"
+          },
+          "productName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "skuCode": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -25524,6 +25536,18 @@
           "rowVersion": {
             "type": "string",
             "format": "byte"
+          },
+          "orderNumber": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "returnNumber": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

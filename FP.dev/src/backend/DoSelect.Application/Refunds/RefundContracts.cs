@@ -21,14 +21,18 @@ public sealed record MaskedAdminSummaryDto(Guid PublicId, string MaskedLabel);
 /// <paramref name="Amount"/> **一律為正值**，增加退款或從退款扣回由
 /// <paramref name="Type"/> 決定。<c>itemRefund</c> 必須同時有
 /// <paramref name="OrderItemPublicId"/> 與正整數 <paramref name="Quantity"/>；
-/// 其他六種類型兩欄皆為 <c>null</c>。V1 新寫入禁止 <c>otherAdjustment</c>，
+/// <paramref name="ProductName"/> 與 <paramref name="SkuCode"/> 是同一訂單品項的
+/// 成交快照，供管理員辨識商品；其他六種類型的品項欄位皆為 <c>null</c>。
+/// V1 新寫入禁止 <c>otherAdjustment</c>，
 /// 但既有資料仍可能出現，因此讀取端不得假設它不存在。
 /// </remarks>
 public sealed record RefundAllocationDto(
     Guid? OrderItemPublicId,
     int? Quantity,
     RefundAllocationType Type,
-    decimal Amount);
+    decimal Amount,
+    string? ProductName = null,
+    string? SkuCode = null);
 
 /// <summary>
 /// 退款的正式對外表示（API DTO與Schema契約第 114 行）。
@@ -48,7 +52,9 @@ public sealed record RefundDto(
     MaskedAdminSummaryDto? ExecutedBy,
     DateTime CreatedAtUtc,
     DateTime? SucceededAtUtc,
-    byte[] RowVersion);
+    byte[] RowVersion,
+    string? OrderNumber = null,
+    string? ReturnNumber = null);
 
 /// <summary>後台退款清單查詢（A-21）。</summary>
 /// <remarks>

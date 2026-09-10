@@ -128,18 +128,23 @@ public sealed class RefundReader : IRefundReader
             .Distinct()
             .ToArray();
 
-        var orderPublicIds = await _context.Orders
+        var orderReferences = await _context.Orders
             .AsNoTracking()
             .Where(order => orderIds.Contains(order.Id))
-            .ToDictionaryAsync(order => order.Id, order => order.PublicId, cancellationToken);
+            .ToDictionaryAsync(
+                order => order.Id,
+                order => new OrderReference(order.PublicId, order.OrderNumber),
+                cancellationToken);
 
-        var returnPublicIds = returnIds.Length == 0
-            ? new Dictionary<long, Guid>()
+        var returnReferences = returnIds.Length == 0
+            ? new Dictionary<long, ReturnReference>()
             : await _context.ReturnRequests
                 .AsNoTracking()
                 .Where(request => returnIds.Contains(request.Id))
                 .ToDictionaryAsync(
-                    request => request.Id, request => request.PublicId, cancellationToken);
+                    request => request.Id,
+                    request => new ReturnReference(request.PublicId, request.ReturnNumber),
+                    cancellationToken);
 
         var allocations = await _context.RefundAllocations
             .AsNoTracking()
@@ -159,23 +164,36 @@ public sealed class RefundReader : IRefundReader
             .Distinct()
             .ToArray();
 
-        var itemPublicIds = itemIds.Length == 0
-            ? new Dictionary<long, Guid>()
+        var itemReferences = itemIds.Length == 0
+            ? new Dictionary<long, OrderItemReference>()
             : await _context.OrderItems
                 .AsNoTracking()
                 .Where(item => itemIds.Contains(item.Id))
-                .ToDictionaryAsync(item => item.Id, item => item.PublicId, cancellationToken);
+                .ToDictionaryAsync(
+                    item => item.Id,
+                    item => new OrderItemReference(
+                        item.PublicId,
+                        item.ProductNameSnapshot,
+                        item.SkuCodeSnapshot),
+                    cancellationToken);
 
         var allocationsByRefund = allocations
             .GroupBy(allocation => allocation.RefundId)
             .ToDictionary(
                 group => group.Key,
                 group => (IReadOnlyList<RefundAllocationDto>)[.. group.Select(allocation =>
-                    new RefundAllocationDto(
-                        allocation.OrderItemId is { } itemId ? itemPublicIds[itemId] : null,
+                {
+                    var item = allocation.OrderItemId is { } itemId
+                        ? itemReferences[itemId]
+                        : null;
+                    return new RefundAllocationDto(
+                        item?.PublicId,
                         allocation.Quantity,
                         allocation.AllocationType,
-                        allocation.Amount))]);
+                        allocation.Amount,
+                        item?.ProductName,
+                        item?.SkuCode);
+                })]);
 
         var admins = await ResolveAdminsAsync(
             [.. headers.SelectMany(header => new[]
@@ -188,25 +206,32 @@ public sealed class RefundReader : IRefundReader
 
         return
         [
-            .. headers.Select(header => new RefundDto(
-                header.PublicId,
-                header.RefundNumber,
-                orderPublicIds[header.OrderId],
-                header.ReturnRequestId is { } returnRequestId &&
-                    returnPublicIds.TryGetValue(returnRequestId, out var returnPublicId)
-                        ? returnPublicId
-                        : null,
-                header.Status,
-                header.RequestedAmount,
-                header.ApprovedAmount,
-                header.SucceededAmount,
-                allocationsByRefund.GetValueOrDefault(header.Id) ?? [],
-                Summarize(admins, header.RequestedBy),
-                Summarize(admins, header.ApprovedBy),
-                Summarize(admins, header.ExecutedByAdminUserId),
-                AsUtc(header.CreatedAtUtc),
-                header.SucceededAtUtc is { } succeededAtUtc ? AsUtc(succeededAtUtc) : null,
-                header.RowVersion)),
+            .. headers.Select(header =>
+            {
+                var order = orderReferences[header.OrderId];
+                var returnRequest = header.ReturnRequestId is { } returnRequestId &&
+                    returnReferences.TryGetValue(returnRequestId, out var foundReturn)
+                        ? foundReturn
+                        : null;
+                return new RefundDto(
+                    header.PublicId,
+                    header.RefundNumber,
+                    order.PublicId,
+                    returnRequest?.PublicId,
+                    header.Status,
+                    header.RequestedAmount,
+                    header.ApprovedAmount,
+                    header.SucceededAmount,
+                    allocationsByRefund.GetValueOrDefault(header.Id) ?? [],
+                    Summarize(admins, header.RequestedBy),
+                    Summarize(admins, header.ApprovedBy),
+                    Summarize(admins, header.ExecutedByAdminUserId),
+                    AsUtc(header.CreatedAtUtc),
+                    header.SucceededAtUtc is { } succeededAtUtc ? AsUtc(succeededAtUtc) : null,
+                    header.RowVersion,
+                    order.OrderNumber,
+                    returnRequest?.ReturnNumber);
+            }),
         ];
     }
 
@@ -296,4 +321,13 @@ public sealed class RefundReader : IRefundReader
         int? Quantity,
         DoSelect.Domain.Refunds.RefundAllocationType AllocationType,
         decimal Amount);
+
+    private sealed record OrderReference(Guid PublicId, string OrderNumber);
+
+    private sealed record ReturnReference(Guid PublicId, string ReturnNumber);
+
+    private sealed record OrderItemReference(
+        Guid PublicId,
+        string ProductName,
+        string SkuCode);
 }

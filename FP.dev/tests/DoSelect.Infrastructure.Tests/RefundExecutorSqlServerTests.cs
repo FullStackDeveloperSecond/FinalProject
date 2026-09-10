@@ -211,7 +211,19 @@ public sealed class RefundExecutorSqlServerTests
         var item = Assert.Single(result.Items);
         Assert.Equal(refund.PublicId, item.PublicId);
         Assert.Equal(RefundStatus.Succeeded, item.Status);
-        Assert.NotEmpty(item.Allocations);
+        var order = await queryContext.Orders
+            .AsNoTracking()
+            .SingleAsync(candidate => candidate.Id == refund.OrderId);
+        var returnRequest = await queryContext.ReturnRequests
+            .AsNoTracking()
+            .SingleAsync(candidate => candidate.Id == refund.ReturnRequestId);
+        Assert.Equal(order.OrderNumber, item.OrderNumber);
+        Assert.Equal(returnRequest.ReturnNumber, item.ReturnNumber);
+        var itemAllocation = Assert.Single(
+            item.Allocations,
+            allocation => allocation.Type == RefundAllocationType.ItemRefund);
+        Assert.Equal("Product", itemAllocation.ProductName);
+        Assert.Equal("SKU-1", itemAllocation.SkuCode);
         Assert.NotNull(item.RequestedBy);
         Assert.NotNull(item.ApprovedBy);
         Assert.NotNull(item.ExecutedBy);

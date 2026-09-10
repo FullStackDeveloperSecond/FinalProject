@@ -60,6 +60,11 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<RefundDto>(ResponseJsonOptions);
         Assert.Equal(RefundPublicId, body!.PublicId);
+        Assert.Equal("DS202609090030", body.OrderNumber);
+        Assert.Equal("RT-202609-000040", body.ReturnNumber);
+        var allocation = Assert.Single(body.Allocations);
+        Assert.Equal("懂選開發用顯示卡", allocation.ProductName);
+        Assert.Equal("DEV-GPU-001-16G", allocation.SkuCode);
     }
 
     [Fact]
@@ -731,19 +736,30 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
                 refundPublicId,
                 "RF-202608-000001",
                 new Guid("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
-                ReturnPublicId: null,
+                ReturnPublicId: new Guid("dddddddd-dddd-dddd-dddd-dddddddddddd"),
                 RefundStatus.Succeeded,
                 RequestedAmount: 500m,
                 ApprovedAmount: 500m,
                 SucceededAmount: 500m,
-                Allocations: [],
+                Allocations:
+                [
+                    new RefundAllocationDto(
+                        new Guid("abababab-abab-abab-abab-abababababab"),
+                        Quantity: 1,
+                        RefundAllocationType.ItemRefund,
+                        Amount: 500m,
+                        ProductName: "懂選開發用顯示卡",
+                        SkuCode: "DEV-GPU-001-16G"),
+                ],
                 RequestedBy: null,
                 ApprovedBy: null,
                 ExecutedBy: new MaskedAdminSummaryDto(
                     new Guid("ffffffff-ffff-ffff-ffff-ffffffffffff"), "f*******"),
                 CreatedAtUtc: new DateTime(2026, 8, 27, 0, 0, 0, DateTimeKind.Utc),
                 SucceededAtUtc: new DateTime(2026, 8, 27, 1, 0, 0, DateTimeKind.Utc),
-                RowVersion: [1, 2, 3, 4, 5, 6, 7, 8]);
+                RowVersion: [1, 2, 3, 4, 5, 6, 7, 8],
+                OrderNumber: "DS202609090030",
+                ReturnNumber: "RT-202609-000040");
     }
 
     /// <summary>
