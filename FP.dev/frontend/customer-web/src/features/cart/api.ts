@@ -1,5 +1,10 @@
 import { apiClient } from '../../api/client'
-import type { CartDto, CartMergeResultDto, CartValidationDto } from './types'
+import type {
+  CartDto,
+  CartMergeResultDto,
+  CartValidationDto,
+  MemberCouponVisibilityResponse,
+} from './types'
 
 function guestHeaders(guestCartKey?: string): HeadersInit | undefined {
   return guestCartKey ? { 'X-DoSelect-Guest-Cart-Key': guestCartKey } : undefined
@@ -136,6 +141,19 @@ export async function applyCartCoupon(
 export async function removeCartCoupon(guestCartKey?: string): Promise<CartDto> {
   const { data } = await apiClient.DELETE('/api/v1/cart/coupon', {
     headers: guestHeaders(guestCartKey),
+  })
+  return data!
+}
+
+/**
+ * Whether the signed-in member should currently see a member-only coupon rule.
+ * This is display guidance only; checkout remains the authoritative eligibility check.
+ */
+export async function getMemberCouponVisibility(
+  code: string,
+): Promise<MemberCouponVisibilityResponse> {
+  const { data } = await apiClient.GET('/api/v1/cart/coupon/member-visibility/{code}', {
+    params: { path: { code } },
   })
   return data!
 }

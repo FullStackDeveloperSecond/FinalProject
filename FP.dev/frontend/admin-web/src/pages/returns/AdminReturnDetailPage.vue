@@ -190,7 +190,10 @@ function isConflict(err: unknown): boolean {
 </script>
 
 <template>
-  <section aria-labelledby="admin-return-detail-title">
+  <section
+    class="admin-return-detail"
+    aria-labelledby="admin-return-detail-title"
+  >
     <RouterLink to="/returns">
       ← 返回退貨案件列表
     </RouterLink>
@@ -233,6 +236,7 @@ function isConflict(err: unknown): boolean {
 
       <section
         v-if="data.return.description"
+        class="admin-return-detail__section"
         aria-labelledby="admin-return-description-title"
       >
         <h2 id="admin-return-description-title">
@@ -243,7 +247,10 @@ function isConflict(err: unknown): boolean {
         </p>
       </section>
 
-      <section aria-labelledby="admin-return-items-title">
+      <section
+        class="admin-return-detail__section"
+        aria-labelledby="admin-return-items-title"
+      >
         <h2 id="admin-return-items-title">
           退貨品項
         </h2>
@@ -527,7 +534,10 @@ function isConflict(err: unknown): boolean {
         </button>
       </section>
 
-      <section aria-labelledby="admin-return-refund-title">
+      <section
+        class="admin-return-detail__section"
+        aria-labelledby="admin-return-refund-title"
+      >
         <h2 id="admin-return-refund-title">
           可退款品項預覽
         </h2>
@@ -544,7 +554,10 @@ function isConflict(err: unknown): boolean {
         </ul>
       </section>
 
-      <section aria-labelledby="admin-return-history-title">
+      <section
+        class="admin-return-detail__section"
+        aria-labelledby="admin-return-history-title"
+      >
         <h2 id="admin-return-history-title">
           歷程紀錄
         </h2>
@@ -596,9 +609,26 @@ function isConflict(err: unknown): boolean {
   padding: 1rem;
   border: 1px solid var(--color-border);
   border-radius: 0.5rem;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+}
+
+.admin-return-detail__section {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.admin-return-detail__section > h2 {
+  margin: 0 0 1rem;
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid var(--color-border-line);
 }
 
 .admin-return-detail__action-panel label {

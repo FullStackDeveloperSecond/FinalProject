@@ -374,12 +374,14 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
                 from item in _context.CartItems.AsNoTracking()
                 join sku in _context.Skus.AsNoTracking() on item.SkuId equals sku.Id
                 join product in _context.Products.AsNoTracking() on sku.ProductId equals product.Id
+                join category in _context.Categories.AsNoTracking() on product.CategoryId equals category.Id
                 where item.CartId == cartId
                 select new
                 {
                     Item = item,
                     Sku = sku,
                     Product = product,
+                    CategoryCode = category.Code,
                 })
             .ToListAsync(cancellationToken);
 
@@ -420,6 +422,7 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
                 row.Sku.HeightCm,
                 row.Product.Id,
                 row.Product.CategoryId,
+                row.CategoryCode,
                 row.Product.NameZhTw,
                 row.Item.Quantity,
                 row.Item.AssemblyGroupKey,
@@ -566,7 +569,12 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
                 line.LengthCm,
                 line.WidthCm,
                 line.HeightCm,
-                line.FinalUnitPrice)).ToArray());
+                line.FinalUnitPrice,
+                line.AssemblyGroupKey,
+                string.Equals(
+                    line.CategoryCode,
+                    CompatibilityCatalogContract.Categories.Case,
+                    StringComparison.OrdinalIgnoreCase))).ToArray());
         if (!calculation.IsComplete)
         {
             throw Conflict("shipping_method_not_allowed", "Package dimensions are incomplete for one or more items.");
@@ -1091,6 +1099,7 @@ public sealed class EfCheckoutTransactionGateway : ICheckoutTransactionGateway
         decimal? HeightCm,
         long ProductId,
         long CategoryId,
+        string CategoryCode,
         string ProductName,
         int Quantity,
         Guid? AssemblyGroupKey,

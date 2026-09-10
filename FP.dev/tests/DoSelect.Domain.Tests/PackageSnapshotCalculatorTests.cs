@@ -38,6 +38,42 @@ public sealed class PackageSnapshotCalculatorTests
     }
 
     [Fact]
+    public void Calculate_AssemblyGroup_UsesEnclosureDimensionsAndAllComponentWeights()
+    {
+        var assemblyGroupKey = Guid.NewGuid();
+        var result = PackageSnapshotCalculator.Calculate(
+        [
+            new PackageItemDimensions("CASE", 1, 8m, 50m, 30m, 50m, 5_000m, assemblyGroupKey, true),
+            new PackageItemDimensions("GPU", 1, 3m, null, null, null, 20_000m, assemblyGroupKey),
+            new PackageItemDimensions("CPU", 1, 1m, null, null, null, 10_000m, assemblyGroupKey),
+            new PackageItemDimensions("PSU", 1, 3m, null, null, null, 4_000m, assemblyGroupKey),
+        ]);
+
+        Assert.True(result.IsComplete);
+        Assert.NotNull(result.Package);
+        Assert.Equal(15m, result.Package.WeightKg);
+        Assert.Equal(50m, result.Package.LengthCm);
+        Assert.Equal(50m, result.Package.WidthCm);
+        Assert.Equal(30m, result.Package.HeightCm);
+        Assert.Equal(130m, result.Package.TotalCm);
+        Assert.Equal(39_000m, result.Package.DeclaredValue);
+    }
+
+    [Fact]
+    public void Calculate_AssemblyGroupWithoutAnEnclosure_ReturnsIncomplete()
+    {
+        var assemblyGroupKey = Guid.NewGuid();
+        var result = PackageSnapshotCalculator.Calculate(
+        [
+            new PackageItemDimensions("GPU", 1, 3m, 60m, 40m, 20m, 20_000m, assemblyGroupKey),
+        ]);
+
+        Assert.False(result.IsComplete);
+        Assert.Null(result.Package);
+        Assert.Equal(["GPU"], result.MissingItemKeys);
+    }
+
+    [Fact]
     public void Evaluate_WhenAnySnapshotLimitIsExceeded_ReturnsExceededDimensions()
     {
         var package = new CalculatedPackage(5m, 55m, 40m, 30m, 125m, 4_000m);

@@ -15,7 +15,18 @@ const selected = ref<AdminMember | null>(null)
 const busy = ref(false)
 const message = ref('')
 const reason = ref('')
-const labels: Record<string, string> = { Active: '啟用', Suspended: '停用', PendingEmailVerification: '待驗證信箱', Anonymized: '已匿名化', Disabled: '已關閉' }
+const statusOptions = [
+  { value: 'Active', label: '啟用' },
+  { value: 'Suspended', label: '停用' },
+  { value: 'PendingEmailVerification', label: '待驗證' },
+] as const
+const labels: Record<string, string> = {
+  Active: '啟用',
+  PendingEmailVerification: '待驗證',
+  Suspended: '停用',
+  Anonymized: '停用',
+  Disabled: '停用',
+}
 const canManage = computed(() => auth.currentUser?.roles?.includes('SuperAdmin') ?? false)
 watch(search, (value, _old, cleanup) => {
   const timer = setTimeout(() => { appliedSearch.value = value.trim(); page.value = 1 }, 300)
@@ -66,10 +77,10 @@ async function submit() {
         v-model="status"
         :disabled="busy"
       ><option value="">全部</option><option
-        v-for="(label, value) in labels"
-        :key="value"
-        :value="value"
-      >{{ label }}</option></select></label>
+        v-for="option in statusOptions"
+        :key="option.value"
+        :value="option.value"
+      >{{ option.label }}</option></select></label>
     </div>
     <p
       v-if="message"
@@ -128,28 +139,35 @@ async function submit() {
       <h2 id="member-detail-title">
         {{ selected.displayName }}：會員詳情
       </h2>
-      <p>電子郵件：{{ selected.emailMasked }}／{{ labels[selected.status] }}</p>
-      <p>建立時間：{{ new Date(selected.createdAtUtc).toLocaleString('zh-TW') }}</p>
-      <p>更新時間：{{ new Date(selected.updatedAtUtc).toLocaleString('zh-TW') }}</p>
+      <dl class="member-detail__facts">
+        <div><dt>電子郵件</dt><dd>{{ selected.emailMasked }}</dd></div>
+        <div><dt>帳號狀態</dt><dd>{{ labels[selected.status] ?? '停用' }}</dd></div>
+        <div><dt>建立時間</dt><dd>{{ new Date(selected.createdAtUtc).toLocaleString('zh-TW') }}</dd></div>
+        <div><dt>更新時間</dt><dd>{{ new Date(selected.updatedAtUtc).toLocaleString('zh-TW') }}</dd></div>
+      </dl>
       <form
         v-if="canManage && ['Active', 'Suspended'].includes(selected.status)"
+        class="member-detail__action"
         @submit.prevent="submit"
       >
         <p>{{ selected.status === 'Active' ? '確認停用此會員？停用後現有登入將失效。' : '確認重新啟用此會員？未驗證的信箱仍不可啟用。' }}</p>
-        <label>操作原因 *<select
-          v-model="reason"
-          required
-          :disabled="busy"
-        ><option value="">請選擇</option><option value="user_request">會員要求</option><option value="policy_violation">違反使用規範</option><option value="resolved">問題已處理</option></select></label>
-        <button
-          type="submit"
-          :disabled="busy || !reason"
-        >
-          {{ busy ? '處理中…' : selected.status === 'Active' ? '確認停用' : '確認啟用' }}
-        </button>
+        <div class="member-detail__action-row">
+          <label>操作原因 *<select
+            v-model="reason"
+            required
+            :disabled="busy"
+          ><option value="">請選擇</option><option value="user_request">會員要求</option><option value="policy_violation">違反使用規範</option><option value="resolved">問題已處理</option></select></label>
+          <button
+            type="submit"
+            :disabled="busy || !reason"
+          >
+            {{ busy ? '處理中…' : selected.status === 'Active' ? '確認停用' : '確認啟用' }}
+          </button>
+        </div>
       </form>
       <button
         type="button"
+        class="member-detail__close"
         :disabled="busy"
         @click="selected = null"
       >
@@ -162,4 +180,14 @@ async function submit() {
 <style scoped>
 .members-filters { display: flex; flex-wrap: wrap; gap: 1rem; margin-block: 1rem; }
 .members-filters label { display: grid; gap: .4rem; }
+.member-detail__facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem 1.5rem; margin: 1.5rem 0; }
+.member-detail__facts div { display: grid; gap: .35rem; padding: .9rem 1rem; border: 1px solid var(--color-border-soft); border-radius: .65rem; background: var(--color-surface-strong); }
+.member-detail__facts dt { color: var(--color-text-muted); font-size: .875rem; }
+.member-detail__facts dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.member-detail__action { display: grid; gap: 1rem; padding: 1rem; border: 1px solid var(--color-border-soft); border-radius: .75rem; }
+.member-detail__action > p { margin: 0; }
+.member-detail__action-row { display: flex; flex-wrap: wrap; align-items: end; gap: 1rem; }
+.member-detail__action-row label { display: grid; gap: .4rem; }
+.member-detail__close { margin-top: 1rem; }
+@media (max-width: 42rem) { .member-detail__facts { grid-template-columns: 1fr; } }
 </style>

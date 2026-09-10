@@ -1,6 +1,9 @@
+using System.Security.Claims;
 using DoSelect.Api.Common;
+using DoSelect.Api.Security;
 using DoSelect.Application.Promotions;
 using DoSelect.Application.Shopping;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace DoSelect.Api.Shopping;
@@ -26,11 +29,39 @@ namespace DoSelect.Api.Shopping;
 public sealed class CartCouponController : ControllerBase
 {
     private readonly ApplyCartCouponService _coupons;
+    private readonly MemberCouponVisibilityService _memberCouponVisibility;
 
-    public CartCouponController(ApplyCartCouponService coupons)
+    public CartCouponController(
+        ApplyCartCouponService coupons,
+        MemberCouponVisibilityService memberCouponVisibility)
     {
         ArgumentNullException.ThrowIfNull(coupons);
+        ArgumentNullException.ThrowIfNull(memberCouponVisibility);
         _coupons = coupons;
+        _memberCouponVisibility = memberCouponVisibility;
+    }
+
+    /// <summary>
+    /// Returns whether an authenticated member should currently be shown a member-only coupon.
+    /// This is informational only; checkout still revalidates and reserves the coupon atomically.
+    /// </summary>
+    [HttpGet("member-visibility/{code}")]
+    [Authorize(Policy = DoSelectPolicies.Member)]
+    [ProducesResponseType<MemberCouponVisibilityResponse>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<MemberCouponVisibilityResponse>> GetMemberVisibility(
+        string code,
+        CancellationToken cancellationToken)
+    {
+        var memberUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(memberUserId))
+        {
+            throw new InvalidOperationException(
+                "Authenticated member request is missing its identifier claim.");
+        }
+
+        var shouldDisplay = await _memberCouponVisibility.ShouldDisplayAsync(
+            memberUserId, code, cancellationToken);
+        return Ok(new MemberCouponVisibilityResponse(shouldDisplay));
     }
 
     [HttpPost]
@@ -77,3 +108,5 @@ public sealed class CartCouponController : ControllerBase
             ShoppingWriteException.ErrorCodes.ValidationFailed,
             detail: $"A member session or the '{CartIdentityResolver.GuestCartKeyHeaderName}' header is required."));
 }
+
+public sealed record MemberCouponVisibilityResponse(bool ShouldDisplay);

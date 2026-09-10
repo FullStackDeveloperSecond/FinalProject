@@ -3,6 +3,7 @@ import { computed, watch } from 'vue'
 import {
   addCartItem,
   getCart,
+  getMemberCouponVisibility,
   mergeCartOnLogin,
   removeCartAssemblyGroup,
   removeCartItem,
@@ -130,6 +131,21 @@ export function useCart() {
   })
 }
 
+export function useMemberCouponVisibility(code: string) {
+  const sessionStore = useSessionStore()
+  return useQuery({
+    queryKey: computed(() => [
+      'member-coupon-visibility',
+      sessionStore.user?.publicId ?? 'anonymous',
+      code,
+    ]),
+    queryFn: () => getMemberCouponVisibility(code),
+    enabled: computed(() => sessionStore.isAuthenticated),
+    staleTime: 0,
+    refetchOnMount: 'always',
+  })
+}
+
 // 組長 PR #29 round-4 review, P1: every mutation below used to write its response back with
 // `queryClient.setQueryData(identityKey.value, ...)` inside `onSuccess` — reading the *reactive*
 // current identity at the moment the response arrives, not whatever identity was active when the
@@ -208,7 +224,23 @@ export function useRevalidateCart() {
   const queryClient = useQueryClient()
   const sessionStore = useSessionStore()
   return useMutation({
-    mutationFn: () => revalidateCart(getOrCreateGuestCartKey()),
+    mutationFn: async (params?: { couponCode?: string | null }) => {
+      const guestCartKey = getOrCreateGuestCartKey()
+      const validation = await revalidateCart(guestCartKey)
+      const couponCode = params?.couponCode?.trim()
+      if (!couponCode) {
+        return validation
+      }
+      if (validation.cart.coupon?.code === couponCode.toUpperCase()) {
+        return validation
+      }
+
+      // Coupon previews are intentionally not persisted on the Cart entity. Re-quote the same
+      // code against the newly revalidated RowVersion so automatic price/stock checks do not
+      // silently erase the shopper's discount.
+      const quotedCart = await applyCartCoupon(couponCode, validation.cart.rowVersion, guestCartKey)
+      return { ...validation, cart: quotedCart }
+    },
     onMutate: () => snapshotCartMutationIdentity(sessionStore),
     onSuccess: (validation, _variables, targetKey) => {
       queryClient.setQueryData(targetKey, validation.cart)

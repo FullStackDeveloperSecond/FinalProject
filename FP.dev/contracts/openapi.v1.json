@@ -344,6 +344,45 @@
         }
       }
     },
+    "/api/v1/cart/coupon/member-visibility/{code}": {
+      "get": {
+        "tags": [
+          "CartCoupon"
+        ],
+        "parameters": [
+          {
+            "name": "code",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberCouponVisibilityResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberCouponVisibilityResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberCouponVisibilityResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/cart/coupon": {
       "post": {
         "tags": [
@@ -22598,6 +22637,17 @@
           "rowVersion": {
             "type": "string",
             "format": "byte"
+          }
+        }
+      },
+      "MemberCouponVisibilityResponse": {
+        "required": [
+          "shouldDisplay"
+        ],
+        "type": "object",
+        "properties": {
+          "shouldDisplay": {
+            "type": "boolean"
           }
         }
       },

@@ -8,6 +8,13 @@ function render(reduce = false) {
   vi.stubGlobal('matchMedia', () => ({ matches: reduce, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
   return mount(HomePromotions, { global: { stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } } } })
 }
+it('presents the carousel as city news without the theme-ad label', () => {
+  const wrapper = render()
+  expect(wrapper.text()).toContain('懂選城市快報')
+  expect(wrapper.text()).not.toContain('主題廣告')
+  expect(wrapper.attributes('aria-label')).toBe('懂選城市快報輪播')
+  wrapper.unmount()
+})
 it('rotates, pauses on hover and explicit pause, and cleans up its timer', async () => {
   const wrapper = render()
   await vi.advanceTimersByTimeAsync(6500)

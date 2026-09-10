@@ -20,11 +20,13 @@ const mockGetCart = vi.fn<() => Promise<CartDto>>()
 const mockRevalidateCart = vi.fn<() => Promise<CartValidationDto>>()
 const mockUpdateCartItemQuantity = vi.fn<() => Promise<CartDto>>()
 const mockRemoveCartItem = vi.fn<() => Promise<CartDto>>()
+const mockGetMemberCouponVisibility = vi.fn()
 
 const mockRemoveCartAssemblyGroup = vi.fn<(...args: unknown[]) => Promise<CartDto>>()
 
 vi.mock('../features/cart/api', () => ({
   getCart: () => mockGetCart(),
+  getMemberCouponVisibility: (...args: unknown[]) => mockGetMemberCouponVisibility(...args),
   addCartItem: vi.fn(),
   updateCartItemQuantity: () => mockUpdateCartItemQuantity(),
   removeCartItem: () => mockRemoveCartItem(),
@@ -146,6 +148,8 @@ beforeEach(() => {
   mockUpdateCartItemQuantity.mockReset()
   mockRemoveCartItem.mockReset()
   mockRemoveCartAssemblyGroup.mockReset()
+  mockGetMemberCouponVisibility.mockReset()
+  mockGetMemberCouponVisibility.mockResolvedValue({ shouldDisplay: true })
   mockGetCart.mockResolvedValue(oneItemCart)
   mockApplyCartCoupon.mockReset()
   mockRemoveCartCoupon.mockReset()
@@ -408,8 +412,7 @@ describe('CartPage', () => {
     // Item mutation controls must stay disabled for the duration of the in-flight revalidate.
     const checkoutButton = wrapper.find('.cart-page__checkout')
     expect(checkoutButton.attributes('disabled')).toBeDefined()
-    const toolbarButton = wrapper.find('.cart-page__toolbar button')
-    expect(toolbarButton.attributes('disabled')).toBeDefined()
+    expect(wrapper.find('.cart-page__toolbar').exists()).toBe(false)
 
     // A second trigger while the first is still pending must not start a second network call
     // (the toolbar button is disabled precisely so a real click can't do this either — drive
@@ -644,7 +647,7 @@ describe('CartPage', () => {
     // failed, and revalidate must not have been re-triggered yet (it should only run once the
     // reload actually completes, against the freshly-reloaded cart).
     expect(wrapper.find('.cart-line-item__remove').attributes('disabled')).toBeDefined()
-    expect(wrapper.find('.cart-page__toolbar button').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('.cart-page__toolbar').exists()).toBe(false)
     expect(mockRevalidateCart).toHaveBeenCalledTimes(1)
 
     resolveRefetch({ ...oneItemCart, rowVersion: 'BBBB' })
@@ -913,6 +916,47 @@ describe('CartPage', () => {
     await flushPromises()
 
     expect(mockApplyCartCoupon).toHaveBeenCalledWith('SAVE10', oneItemCart.rowVersion, 'guest-test-key')
+    expect(wrapper.get('.cart-page__coupon').text()).toContain('SAVE10')
+    expect(wrapper.get('.cart-page__original-total').text()).toBe('NT$36,000')
+    expect(wrapper.get('.cart-page__total strong').text()).toBe('NT$32,400')
+  })
+
+  it('keeps coupon rules on the cart, orders them consistently, and hides the member gift from guests', async () => {
+    const guest = await mountCartWithCoupon()
+    const guestRules = guest.get('.cart-page__coupon-rules').text()
+    expect(guestRules).not.toContain('MEMBER100')
+    expect(guestRules.indexOf('SCHOOL2026')).toBeLessThan(guestRules.indexOf('CREATOR10'))
+    expect(guestRules.indexOf('CREATOR10')).toBeLessThan(guestRules.indexOf('不可合併使用'))
+    expect(guestRules.indexOf('不可合併使用')).toBeLessThan(guestRules.indexOf('運費與組裝費'))
+    expect(guest.text()).not.toContain('更新價格與庫存')
+
+    const member = await mountCartPage({ authenticated: true })
+    await vi.waitFor(() => expect(member.find('.cart-page__coupon-rules').exists()).toBe(true))
+    const memberRules = member.get('.cart-page__coupon-rules').text()
+    expect(memberRules.indexOf('MEMBER100')).toBeLessThan(memberRules.indexOf('SCHOOL2026'))
+    expect(memberRules.indexOf('SCHOOL2026')).toBeLessThan(memberRules.indexOf('CREATOR10'))
+  })
+
+  it('hides the member gift when the server reports that it was already used', async () => {
+    mockGetMemberCouponVisibility.mockResolvedValue({ shouldDisplay: false })
+
+    const member = await mountCartPage({ authenticated: true })
+    await vi.waitFor(() => expect(mockGetMemberCouponVisibility).toHaveBeenCalledWith('MEMBER100'))
+    await vi.waitFor(() => expect(member.find('.cart-page__coupon-rules').exists()).toBe(true))
+
+    expect(member.get('.cart-page__coupon-rules').text()).not.toContain('MEMBER100')
+  })
+
+  it('automatically re-quotes an applied coupon after price and stock validation', async () => {
+    const couponed = withCoupon('SAVE10')
+    mockGetCart.mockResolvedValue(couponed)
+    mockRevalidateCart.mockResolvedValue(readyValidation(oneItemCart))
+    mockApplyCartCoupon.mockResolvedValue(couponed)
+
+    const wrapper = await mountCartPage()
+    await vi.waitFor(() => expect(mockApplyCartCoupon).toHaveBeenCalledWith(
+      'SAVE10', oneItemCart.rowVersion, 'guest-test-key'))
+
     expect(wrapper.get('.cart-page__coupon').text()).toContain('SAVE10')
   })
 

@@ -1059,6 +1059,38 @@ public sealed class OpenAiProductSearchClientTests
     }
 
     [Fact]
+    public async Task ExplainAsync_CompleteEightCategoryBuild_ReturnsEveryApprovedReason()
+    {
+        var handler = new RecordingHandler(_ => throw new InvalidOperationException("No explanation HTTP call expected."));
+        var subject = CreateSubject(handler);
+        var intent = Intent() with
+        {
+            Intent = AiProductSearchIntentType.CustomBuild,
+            CategoryCode = null,
+        };
+        var approvedComponents = CompatibilityCatalogContract.Categories.All
+            .Select((categoryCode, index) => Product() with
+            {
+                DefaultSkuPublicId = Guid.Parse($"22222222-2222-2222-2222-{index + 1:000000000000}"),
+                Category = new ProductCategoryRef(categoryCode, categoryCode),
+            })
+            .ToArray();
+
+        var result = await subject.ExplainAsync(
+            intent,
+            approvedComponents,
+            SupportedLocale.ZhTw,
+            default);
+
+        Assert.Equal(AiProductSearchModelStatus.Completed, result.Status);
+        Assert.Equal(CompatibilityCatalogContract.Categories.All.Count, result.Reasons.Count);
+        Assert.Equal(
+            approvedComponents.Select(product => product.DefaultSkuPublicId),
+            result.Reasons.Select(reason => reason.SkuPublicId));
+        Assert.Equal(0, handler.CallCount);
+    }
+
+    [Fact]
     public async Task ExplainAsync_TooManyCandidates_FailsClosedWithoutHttpCall()
     {
         var handler = new RecordingHandler(_ => throw new InvalidOperationException("No explanation HTTP call expected."));

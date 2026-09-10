@@ -153,10 +153,6 @@ function restart() {
   confirmedProposalKeys.value = []
 }
 
-function formatBudget(value: number | string | null): string {
-  return value == null ? '未指定' : `NT$${Number(value).toLocaleString('zh-Hant-TW')}`
-}
-
 function formatMoney(value: number | string): string {
   return `NT$${Number(value).toLocaleString('zh-Hant-TW')}`
 }
@@ -477,23 +473,6 @@ function formatMoney(value: number | string): string {
     </section>
 
     <section
-      v-if="result?.intent"
-      class="card ai-search__intent"
-      aria-labelledby="ai-intent-title"
-    >
-      <h2 id="ai-intent-title">
-        理解到的需求
-      </h2>
-      <dl>
-        <div><dt>類型</dt><dd>{{ result.intent.intent }}</dd></div>
-        <div><dt>用途</dt><dd>{{ result.intent.purposes.join('、') || '未指定' }}</dd></div>
-        <div><dt>預算</dt><dd>{{ formatBudget(result.intent.minimumBudget) }} ～ {{ formatBudget(result.intent.maximumBudget) }}</dd></div>
-        <div><dt>分類</dt><dd>{{ result.intent.categoryCode ?? '未指定' }}</dd></div>
-        <div><dt>偏好</dt><dd>{{ result.intent.preferences.join('、') || '未指定' }}</dd></div>
-      </dl>
-    </section>
-
-    <section
       v-if="result?.resultType === 'recommendations'"
       aria-labelledby="recommendations-title"
     >
@@ -503,10 +482,10 @@ function formatMoney(value: number | string): string {
             懂選推薦
           </h2>
           <p v-if="customBuild">
-            以下完整組裝已由後端確認八類必要零件、價格、可售庫存與確定性相容性。
+            以下完整組裝已確認八類必要零件、價格、可售庫存與確定性相容性。
           </p>
           <p v-else>
-            以下商品已由後端重新確認上架、價格與可售庫存。
+            以下商品已重新確認上架狀態、價格與可售庫存。
           </p>
         </div>
         <span>今日剩餘 {{ remainingRequests }} 次</span>
@@ -651,13 +630,10 @@ function formatMoney(value: number | string): string {
 .ai-search__spec-row select { min-height: 44px; padding: .5rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
 .ai-search__part-actions { display: flex; gap: .75rem; flex-wrap: wrap; }
 .ai-search__actions, .ai-search__result-heading { display: flex; gap: .75rem; align-items: center; justify-content: space-between; flex-wrap: wrap; }
-.ai-search__clarification, .ai-search__intent { display: grid; gap: .5rem; }
+.ai-search__clarification { display: grid; gap: .5rem; }
 .ai-search__proposals { display: grid; gap: .75rem; }
 .ai-search__proposal { display: flex; justify-content: space-between; gap: 1rem; align-items: start; padding-top: .75rem; border-top: 1px solid var(--color-border-soft); }
 .ai-search__proposal span { display: block; color: var(--color-text-muted); }
-.ai-search__intent dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 1rem; margin: 0; }
-.ai-search__intent dt { color: var(--color-text-muted); font-size: .85rem; }
-.ai-search__intent dd { margin: 0; font-weight: 700; }
 .ai-search__recommendations { display: grid; gap: 1rem; }
 .ai-search__recommendation { display: grid; grid-template-columns: minmax(14rem, 22rem) 1fr; gap: 1.25rem; }
 .ai-search__recommendation h3 { margin-top: 0; }

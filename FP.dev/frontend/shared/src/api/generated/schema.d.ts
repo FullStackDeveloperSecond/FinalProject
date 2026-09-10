@@ -283,6 +283,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/cart/coupon/member-visibility/{code}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    code: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["MemberCouponVisibilityResponse"];
+                        "application/json": components["schemas"]["MemberCouponVisibilityResponse"];
+                        "text/json": components["schemas"]["MemberCouponVisibilityResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/cart/coupon": {
         parameters: {
             query?: never;
@@ -12239,6 +12278,9 @@ export interface components {
             updatedAtUtc: string;
             /** Format: byte */
             rowVersion: string;
+        };
+        MemberCouponVisibilityResponse: {
+            shouldDisplay: boolean;
         };
         MemberProfileResponse: {
             /** Format: uuid */

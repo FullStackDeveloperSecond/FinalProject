@@ -80,7 +80,10 @@ public sealed class ShippingOptionsServiceTests
             context, ShippingMethodKinds.HomeDelivery, 150m, 5000m, true, false);
         var assemblyDelivery = await ShippingServiceFixture.SeedShippingMethodAsync(
             context, ShippingMethodKinds.HomeDeliveryAssembly, 300m, 30000m, false, true);
-        var sku = await ShippingServiceFixture.SeedPublishedSkuAsync(context, listPrice: 1000m);
+        var sku = await ShippingServiceFixture.SeedPublishedSkuAsync(
+            context,
+            listPrice: 1000m,
+            categoryCode: DoSelect.Domain.Catalog.CompatibilityCatalogContract.Categories.Case);
         var identity = new CartIdentity(null, ShippingServiceFixture.UniqueGuestKey());
         await AddItemAsync(context, identity, sku, quantity: 1);
         await ShippingServiceFixture.AddAssemblyItemAsync(context, identity.GuestCartKey!, sku);
@@ -95,6 +98,34 @@ public sealed class ShippingOptionsServiceTests
         Assert.Equal("shipping_method_not_allowed", homeDeliveryOption.IneligibleReasonCode);
         var assemblyDeliveryOption = options.Options.Single(option => option.MethodCode == assemblyDelivery.Code);
         Assert.True(assemblyDeliveryOption.IsEligible);
+    }
+
+    [Fact]
+    public async Task GetOptionsForCartAsync_AssemblyPackageUsesCaseDimensionsInsteadOfStackingComponentBoxes()
+    {
+        await using var context = ShippingServiceFixture.CreateContext();
+        await ShippingServiceFixture.ClearShippingMethodsAsync(context);
+        var assemblyDelivery = await ShippingServiceFixture.SeedShippingMethodAsync(
+            context, ShippingMethodKinds.HomeDeliveryAssembly, 300m, 30000m, false, true);
+        var pcCase = await ShippingServiceFixture.SeedPublishedSkuAsync(
+            context,
+            listPrice: 5_000m,
+            weightKg: 8m,
+            sideCm: 50m,
+            categoryCode: DoSelect.Domain.Catalog.CompatibilityCatalogContract.Categories.Case);
+        var gpu = await ShippingServiceFixture.SeedPublishedSkuAsync(
+            context, listPrice: 20_000m, weightKg: 3m, sideCm: 60m);
+        var identity = new CartIdentity(null, ShippingServiceFixture.UniqueGuestKey());
+        var groupKey = Guid.NewGuid();
+        await ShippingServiceFixture.AddAssemblyItemAsync(
+            context, identity.GuestCartKey!, pcCase, assemblyGroupKey: groupKey);
+        await ShippingServiceFixture.AddAssemblyItemAsync(
+            context, identity.GuestCartKey!, gpu, assemblyGroupKey: groupKey);
+
+        var options = await CreateService(context).GetOptionsForCartAsync(identity, CancellationToken.None);
+
+        var option = options.Options.Single(candidate => candidate.MethodCode == assemblyDelivery.Code);
+        Assert.True(option.IsEligible);
     }
 
     [Fact]

@@ -416,29 +416,29 @@ describe('CheckoutPage', () => {
     expect(wrapper.text()).not.toContain('最終金額、折扣、運費及庫存以後端建立訂單時重新計算為準')
   })
 
-  it('re-evaluates shipping fees and COD from the backend after applying a coupon', async () => {
-    mockGetShippingOptions.mockImplementation((_guestCartKey?: string, couponCode?: string) =>
-      Promise.resolve(shippingOptions(
-        couponCode === 'SAVE1000'
-          ? ['creditCard', 'cashOnDelivery']
-          : ['creditCard'],
-      )))
+  it('does not provide a second coupon entry point on checkout', async () => {
+    const { wrapper } = await mountCheckoutPage()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('宅配'))
+
+    expect(wrapper.find('#coupon-code').exists()).toBe(false)
+    expect(wrapper.find('[data-test="apply-coupon"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('請返回購物車輸入')
+    expect(wrapper.text()).not.toContain('SCHOOL2026')
+  })
+
+  it('limits districts to the selected city and clears an incompatible previous choice', async () => {
     const { wrapper } = await mountCheckoutPage()
     await vi.waitFor(() => expect(wrapper.text()).toContain('宅配'))
     await wrapper.get('input[value="HOME_DELIVERY"]').trigger('change')
-    expect(wrapper.find('input[name="payment-method"][value="cashOnDelivery"]').exists()).toBe(false)
 
-    await wrapper.get('#coupon-code').setValue(' save1000 ')
-    await wrapper.get('[data-test="apply-coupon"]').trigger('click')
+    await wrapper.get('#city').setValue('臺北市')
+    expect(wrapper.get('#district').text()).toContain('中正區')
+    expect(wrapper.get('#district').text()).not.toContain('新店區')
+    await wrapper.get('#district').setValue('中正區')
 
-    await vi.waitFor(() => expect(mockGetShippingOptions).toHaveBeenLastCalledWith(
-      'guest-checkout-key',
-      'SAVE1000',
-    ))
-    await vi.waitFor(() => expect(
-      wrapper.find('input[name="payment-method"][value="cashOnDelivery"]').exists(),
-    ).toBe(true))
-    expect(wrapper.text()).toContain('已套用 SAVE1000')
+    await wrapper.get('#city').setValue('新北市')
+    expect((wrapper.get('#district').element as HTMLSelectElement).value).toBe('')
+    expect(wrapper.get('#district').text()).toContain('新店區')
   })
 
   it('submits identifiers and shopper input without client prices, then routes prepaid orders to payment', async () => {
@@ -570,7 +570,8 @@ describe('CheckoutPage', () => {
     const { wrapper } = await mountCheckoutPage({ queryClient })
     await vi.waitFor(() => expect(wrapper.text()).toContain('宅配'))
 
-    expect((wrapper.get('#coupon-code').element as HTMLInputElement).value).toBe('FREESHIP')
+    expect(wrapper.find('#coupon-code').exists()).toBe(false)
+    expect(wrapper.text()).toContain('帶入優惠碼 FREESHIP')
     expect(mockGetShippingOptions).toHaveBeenCalledWith('guest-checkout-key', 'FREESHIP')
   })
 
@@ -586,7 +587,8 @@ describe('CheckoutPage', () => {
     const { wrapper } = await mountCheckoutPage({ queryClient })
     await vi.waitFor(() => expect(wrapper.text()).toContain('宅配'))
 
-    expect((wrapper.get('#coupon-code').element as HTMLInputElement).value).toBe('')
+    expect(wrapper.find('#coupon-code').exists()).toBe(false)
+    expect(wrapper.text()).toContain('未套用優惠券')
     expect(mockGetShippingOptions).toHaveBeenCalledWith('guest-checkout-key', undefined)
   })
 
@@ -595,7 +597,7 @@ describe('CheckoutPage', () => {
     const { wrapper } = await mountCheckoutPage()
     await vi.waitFor(() => expect(wrapper.text()).toContain('宅配'))
 
-    expect((wrapper.get('#coupon-code').element as HTMLInputElement).value).toBe('')
+    expect(wrapper.find('#coupon-code').exists()).toBe(false)
     expect(mockGetShippingOptions).toHaveBeenCalledWith('guest-checkout-key', undefined)
   })
 
@@ -610,7 +612,7 @@ describe('CheckoutPage', () => {
     const { wrapper } = await mountCheckoutPage({ authenticated: true, queryClient })
     await vi.waitFor(() => expect(wrapper.text()).toContain('宅配'))
 
-    expect((wrapper.get('#coupon-code').element as HTMLInputElement).value).toBe('')
+    expect(wrapper.find('#coupon-code').exists()).toBe(false)
   })
 
 
@@ -623,32 +625,14 @@ describe('CheckoutPage', () => {
 
     const { wrapper } = await mountCheckoutPage({ queryClient })
     await vi.waitFor(() => expect(wrapper.text()).toContain('宅配'))
-    expect((wrapper.get('#coupon-code').element as HTMLInputElement).value).toBe('FREESHIP')
+    expect(wrapper.text()).toContain('帶入優惠碼 FREESHIP')
 
     mockGetShippingOptions.mockClear()
     await signInAs('member-1')
     await vi.waitFor(() => expect(wrapper.text()).toContain('宅配'))
 
-    expect((wrapper.get('#coupon-code').element as HTMLInputElement).value).toBe('')
+    expect(wrapper.text()).toContain('未套用優惠券')
     expect(mockGetShippingOptions).not.toHaveBeenCalledWith(expect.anything(), 'FREESHIP')
-  })
-
-  it('drops a coupon typed on the checkout page itself when the account changes', async () => {
-    // 沿用來的代碼與顧客自己在 C-14 打的代碼一樣是「上一個身分的東西」，
-    // 換帳號時兩者都要清掉 —— 這條走的是後者，證明清除不是只針對交接來的值。
-    const { wrapper } = await mountCheckoutPage({ authenticated: true })
-    await vi.waitFor(() => expect(wrapper.text()).toContain('宅配'))
-    await wrapper.get('#coupon-code').setValue('MEMBERA100')
-    await wrapper.get('[data-test="apply-coupon"]').trigger('click')
-    await vi.waitFor(() =>
-      expect(mockGetShippingOptions).toHaveBeenCalledWith(expect.anything(), 'MEMBERA100'))
-
-    mockGetShippingOptions.mockClear()
-    await signInAs('member-2')
-    await vi.waitFor(() => expect(wrapper.text()).toContain('宅配'))
-
-    expect((wrapper.get('#coupon-code').element as HTMLInputElement).value).toBe('')
-    expect(mockGetShippingOptions).not.toHaveBeenCalledWith(expect.anything(), 'MEMBERA100')
   })
 
   it('still carries the coupon when the first load fails halfway and the customer retries', async () => {
@@ -676,7 +660,7 @@ describe('CheckoutPage', () => {
     await wrapper.get('.shared-state--error button').trigger('click')
     await vi.waitFor(() => expect(wrapper.text()).toContain('宅配'))
 
-    expect((wrapper.get('#coupon-code').element as HTMLInputElement).value).toBe('FREESHIP')
+    expect(wrapper.text()).toContain('帶入優惠碼 FREESHIP')
     expect(mockGetShippingOptions).toHaveBeenCalledWith('guest-checkout-key', 'FREESHIP')
   })
 

@@ -110,6 +110,10 @@ function cancelEdit() {
   editing.value = false
 }
 
+function optionalNumber(value: unknown): number | null {
+  return value == null || value === '' ? null : Number(value)
+}
+
 function submit() {
   if (props.operationsDisabled) {
     return
@@ -118,10 +122,10 @@ function submit() {
     nameZhTw: state.nameZhTw,
     listPrice: state.listPrice,
     unitCost: state.unitCost,
-    weightKg: state.weightKg,
-    lengthCm: state.lengthCm,
-    widthCm: state.widthCm,
-    heightCm: state.heightCm,
+    weightKg: optionalNumber(state.weightKg),
+    lengthCm: optionalNumber(state.lengthCm),
+    widthCm: optionalNumber(state.widthCm),
+    heightCm: optionalNumber(state.heightCm),
     status: state.status,
     isDefault: state.isDefault,
     requiresPrepayment: state.requiresPrepayment,
@@ -164,6 +168,10 @@ function remove() {
     <td>{{ sku.nameZhTw }}</td>
     <td>{{ sku.listPrice }}</td>
     <td>{{ sku.unitCost }}</td>
+    <td>{{ sku.weightKg ?? '—' }}</td>
+    <td>{{ sku.lengthCm ?? '—' }}</td>
+    <td>{{ sku.widthCm ?? '—' }}</td>
+    <td>{{ sku.heightCm ?? '—' }}</td>
     <td>{{ formatSkuStatus(sku.status) }}</td>
     <td>{{ sku.isDefault ? '是' : '否' }}</td>
     <td>{{ sku.inventory?.onHandQuantity ?? '—' }}</td>
@@ -216,6 +224,42 @@ function remove() {
       >
     </td>
     <td>
+      <input
+        v-model.number="state.weightKg"
+        type="number"
+        min="0.001"
+        step="0.001"
+        aria-label="重量 (kg)"
+      >
+    </td>
+    <td>
+      <input
+        v-model.number="state.lengthCm"
+        type="number"
+        min="0.01"
+        step="0.01"
+        aria-label="長度 (cm)"
+      >
+    </td>
+    <td>
+      <input
+        v-model.number="state.widthCm"
+        type="number"
+        min="0.01"
+        step="0.01"
+        aria-label="寬度 (cm)"
+      >
+    </td>
+    <td>
+      <input
+        v-model.number="state.heightCm"
+        type="number"
+        min="0.01"
+        step="0.01"
+        aria-label="高度 (cm)"
+      >
+    </td>
+    <td>
       <select
         v-model="state.status"
         aria-label="狀態"
@@ -260,7 +304,7 @@ function remove() {
   </tr>
   <tr v-if="updateMutation.error.value || deleteMutation.error.value">
     <td
-      colspan="8"
+      colspan="12"
       class="sku-editor-row__error"
     >
       {{

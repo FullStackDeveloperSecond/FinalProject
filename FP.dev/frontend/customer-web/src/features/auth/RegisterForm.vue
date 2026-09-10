@@ -4,12 +4,8 @@ import { isApiError } from '@doselect/web-shared/api'
 import { EmptyState } from '@doselect/web-shared/components'
 import { CURRENT_TERMS_VERSION, registerMember, type RegisterAcceptedResponseBody } from './api'
 import PasswordVisibilityToggle from '../../components/PasswordVisibilityToggle.vue'
+import { clearRegistrationDraft, registrationDraft } from './registrationDraft'
 
-const email = ref('')
-const password = ref('')
-const confirmPassword = ref('')
-const displayName = ref('')
-const acceptTerms = ref(false)
 const showPassword = ref(false)
 const showConfirmPassword = ref(false)
 
@@ -27,15 +23,15 @@ const validationMessages: Record<string, string> = {
 }
 const localErrors = computed<Record<string, string[]>>(() => {
   const errors: Record<string, string[]> = {}
-  if (!displayName.value.trim() || displayName.value.trim().length > 100) errors.displayName = [validationMessages.displayName!]
-  if (email.value.trim().length > 320 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value.trim())) errors.email = [validationMessages.email!]
-  if (password.value.length < 12 || password.value.length > 128) errors.password = [validationMessages.password!]
-  if (!confirmPassword.value || confirmPassword.value !== password.value) errors.confirmPassword = [validationMessages.confirmPassword!]
+  if (!registrationDraft.displayName.trim() || registrationDraft.displayName.trim().length > 100) errors.displayName = [validationMessages.displayName!]
+  if (registrationDraft.email.trim().length > 320 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(registrationDraft.email.trim())) errors.email = [validationMessages.email!]
+  if (registrationDraft.password.length < 12 || registrationDraft.password.length > 128) errors.password = [validationMessages.password!]
+  if (!registrationDraft.confirmPassword || registrationDraft.confirmPassword !== registrationDraft.password) errors.confirmPassword = [validationMessages.confirmPassword!]
   return errors
 })
 
 const passwordMismatch = computed(() =>
-  confirmPassword.value.length > 0 && confirmPassword.value !== password.value,
+  registrationDraft.confirmPassword.length > 0 && registrationDraft.confirmPassword !== registrationDraft.password,
 )
 
 function errorsFor(field: string): string[] {
@@ -51,7 +47,7 @@ async function handleSubmit(): Promise<void> {
   if (passwordMismatch.value) {
     clientErrors.confirmPassword = ['密碼與確認密碼不一致。']
   }
-  if (!acceptTerms.value) {
+  if (!registrationDraft.acceptTerms) {
     clientErrors.acceptTermsVersion = ['請先閱讀並同意服務條款與隱私權政策。']
   }
   if (Object.keys(clientErrors).length > 0) {
@@ -62,11 +58,12 @@ async function handleSubmit(): Promise<void> {
   submitting.value = true
   try {
     registered.value = await registerMember({
-      email: email.value.trim(),
-      password: password.value,
-      displayName: displayName.value.trim(),
+      email: registrationDraft.email.trim(),
+      password: registrationDraft.password,
+      displayName: registrationDraft.displayName.trim(),
       acceptTermsVersion: CURRENT_TERMS_VERSION,
     })
+    clearRegistrationDraft()
   } catch (error) {
     if (isApiError(error)) {
       if (error.code === 'account_email_in_use') {
@@ -117,7 +114,7 @@ async function handleSubmit(): Promise<void> {
       <label for="register-display-name">姓名 *</label>
       <input
         id="register-display-name"
-        v-model="displayName"
+        v-model="registrationDraft.displayName"
         type="text"
         autocomplete="name"
         maxlength="100"
@@ -139,7 +136,7 @@ async function handleSubmit(): Promise<void> {
       <label for="register-email">電子郵件 *</label>
       <input
         id="register-email"
-        v-model="email"
+        v-model="registrationDraft.email"
         type="email"
         autocomplete="email"
         required
@@ -162,7 +159,7 @@ async function handleSubmit(): Promise<void> {
       <div class="password-field">
         <input
           id="register-password"
-          v-model="password"
+          v-model="registrationDraft.password"
           :type="showPassword ? 'text' : 'password'"
           autocomplete="new-password"
           minlength="12"
@@ -191,7 +188,7 @@ async function handleSubmit(): Promise<void> {
       <div class="password-field">
         <input
           id="register-confirm-password"
-          v-model="confirmPassword"
+          v-model="registrationDraft.confirmPassword"
           :type="showConfirmPassword ? 'text' : 'password'"
           autocomplete="new-password"
           required
@@ -211,16 +208,14 @@ async function handleSubmit(): Promise<void> {
     <div class="form-checkbox">
       <input
         id="register-accept-terms"
-        v-model="acceptTerms"
+        v-model="registrationDraft.acceptTerms"
         type="checkbox"
       >
       <label for="register-accept-terms">
         我同意<RouterLink
           to="/terms"
-          target="_blank"
         >服務條款</RouterLink>與<RouterLink
           to="/privacy"
-          target="_blank"
         >隱私權政策</RouterLink>
       </label>
     </div>

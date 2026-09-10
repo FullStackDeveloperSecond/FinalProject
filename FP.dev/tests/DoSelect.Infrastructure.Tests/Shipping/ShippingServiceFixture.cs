@@ -165,14 +165,27 @@ public sealed class ShippingServiceFixture : IAsyncLifetime
         decimal listPrice,
         bool requiresPrepayment = false,
         decimal weightKg = 1m,
-        decimal sideCm = 10m)
+        decimal sideCm = 10m,
+        string? categoryCode = null)
     {
         var now = DateTime.UtcNow;
         var brand = new Brand(Guid.CreateVersion7(), UniqueCode("BRAND"), "測試品牌", now);
         context.Brands.Add(brand);
-        var category = new Category(
-            Guid.CreateVersion7(), UniqueCode("CAT"), "cat-" + Guid.NewGuid().ToString("N")[..12], "測試分類", null, now);
-        context.Categories.Add(category);
+        var category = categoryCode is null
+            ? null
+            : context.Categories.Local.FirstOrDefault(candidate => candidate.Code == categoryCode)
+              ?? await context.Categories.FirstOrDefaultAsync(candidate => candidate.Code == categoryCode);
+        if (category is null)
+        {
+            category = new Category(
+                Guid.CreateVersion7(),
+                categoryCode ?? UniqueCode("CAT"),
+                "cat-" + Guid.NewGuid().ToString("N")[..12],
+                "測試分類",
+                null,
+                now);
+            context.Categories.Add(category);
+        }
         await context.SaveChangesAsync();
 
         var product = new Product(Guid.CreateVersion7(), UniqueCode("PROD"), brand.Id, category.Id, "測試商品", now);
@@ -208,13 +221,22 @@ public sealed class ShippingServiceFixture : IAsyncLifetime
         DoSelectDbContext context,
         string guestCartKey,
         Sku sku,
-        int quantity = 1)
+        int quantity = 1,
+        Guid? assemblyGroupKey = null)
     {
         var guestHash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(guestCartKey));
-        var cart = await context.Carts.SingleAsync(candidate =>
+        var cart = await context.Carts.SingleOrDefaultAsync(candidate =>
             candidate.GuestCartKeyHash != null && candidate.GuestCartKeyHash == guestHash);
+        if (cart is null)
+        {
+            cart = Cart.CreateForGuest(
+                Guid.CreateVersion7(), guestHash, DateTime.UtcNow.AddDays(30), DateTime.UtcNow);
+            context.Carts.Add(cart);
+            await context.SaveChangesAsync();
+        }
         context.CartItems.Add(new CartItem(
-            Guid.CreateVersion7(), cart.Id, sku.Id, quantity, Guid.NewGuid(), DateTime.UtcNow));
+            Guid.CreateVersion7(), cart.Id, sku.Id, quantity, assemblyGroupKey ?? Guid.NewGuid(), DateTime.UtcNow));
+        cart.Touch(DateTime.UtcNow);
         await context.SaveChangesAsync();
     }
 

@@ -17,6 +17,7 @@ public sealed class OpenAiProductSearchClient(
     IOptions<OpenAiResponsesOptions> options) : IAiProductSearchModelClient
 {
     public const string PromptVersion = "product-search-v14";
+    private const int MaximumStandardRecommendations = 6;
 
     private static readonly Uri ResponsesEndpoint =
         new("https://api.openai.com/v1/responses", UriKind.Absolute);
@@ -186,7 +187,12 @@ public sealed class OpenAiProductSearchClient(
         ArgumentNullException.ThrowIfNull(intent);
         ArgumentNullException.ThrowIfNull(approvedCandidates);
         cancellationToken.ThrowIfCancellationRequested();
-        if (!Enum.IsDefined(locale) || approvedCandidates.Count is 0 or > 6)
+        var maximumApprovedCandidates = intent.Intent == AiProductSearchIntentType.CustomBuild
+            ? CompatibilityCatalogContract.Categories.All.Count
+            : MaximumStandardRecommendations;
+        if (!Enum.IsDefined(locale) ||
+            approvedCandidates.Count == 0 ||
+            approvedCandidates.Count > maximumApprovedCandidates)
         {
             return Task.FromResult(new AiProductSearchExplanationResult(
                 AiProductSearchModelStatus.InvalidOutput,

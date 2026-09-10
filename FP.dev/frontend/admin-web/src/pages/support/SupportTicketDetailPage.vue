@@ -634,7 +634,7 @@ async function handleClaim() {
       </section>
 
       <section
-        class="support-ticket-detail__messages"
+        class="support-ticket-detail__messages card"
         aria-labelledby="support-ticket-messages-title"
       >
         <h2 id="support-ticket-messages-title">
@@ -672,7 +672,7 @@ async function handleClaim() {
       </section>
 
       <section
-        class="support-ticket-detail__attachments"
+        class="support-ticket-detail__attachments card"
         aria-labelledby="support-ticket-attachments-title"
       >
         <h2 id="support-ticket-attachments-title">

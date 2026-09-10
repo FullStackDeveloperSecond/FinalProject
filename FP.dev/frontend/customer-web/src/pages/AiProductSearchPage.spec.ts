@@ -116,7 +116,10 @@ describe('AiProductSearchPage', () => {
       existingParts: [],
     }))
     expect(wrapper.text()).toContain('在五萬元預算內，適合剪輯用途。')
+    expect(wrapper.text()).toContain('以下商品已重新確認上架狀態、價格與可售庫存。')
+    expect(wrapper.text()).not.toContain('後端')
     expect(wrapper.text()).toContain('今日剩餘 29 次')
+    expect(wrapper.text()).not.toContain('理解到的需求')
   })
 
   it('keeps the original need when submitting an answer to a clarification', async () => {

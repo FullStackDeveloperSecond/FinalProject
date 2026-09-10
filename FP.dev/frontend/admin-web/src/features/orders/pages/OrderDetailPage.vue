@@ -194,7 +194,10 @@ function formatDateTime(value?: string | null): string {
 </script>
 
 <template>
-  <section aria-labelledby="page-title">
+  <section
+    class="record-detail"
+    aria-labelledby="page-title"
+  >
     <LoadingState
       v-if="isPending"
       label="訂單資料載入中"
@@ -226,93 +229,95 @@ function formatDateTime(value?: string | null): string {
     />
 
     <template v-else-if="order">
-      <h1 id="page-title">
-        訂單 {{ order.orderNumber }}
-      </h1>
-      <p>
-        {{ summaryStatusLabel(order.summaryStatus) }}
-        <span
-          v-for="badge in order.badges"
-          :key="badge"
-        >（{{ badgeLabel(badge) }}）</span>
-      </p>
-      <dl>
-        <dt>訂單狀態</dt>
-        <dd>{{ orderStatusLabel[order.orderStatus] ?? order.orderStatus }}</dd>
-        <dt>付款狀態</dt>
-        <dd>{{ paymentStatusLabel[order.paymentStatus] ?? '未知付款狀態' }}</dd>
-        <dt>物流狀態</dt>
-        <dd>{{ fulfillmentStatusLabel(order.fulfillmentStatus) }}</dd>
-        <dt>組裝狀態</dt>
-        <dd>{{ assemblyStatusLabel[order.assemblyStatus] ?? '未知組裝狀態' }}</dd>
-        <dt>退款狀態</dt>
-        <dd>{{ orderRefundStatusLabel[order.orderRefundStatus] ?? '未知退款狀態' }}</dd>
-        <dt>買家</dt>
-        <dd>{{ order.buyerType === 'Member' ? '會員' : '訪客' }}／{{ order.maskedBuyerEmail }}</dd>
-        <dt>配送方式</dt>
-        <dd>
-          {{ shippingMethodLabels[order.shippingMethodCode] ?? '配送方式待確認' }}<template v-if="order.storeName">
-            （{{ order.storeName }}）
-          </template>
-        </dd>
+      <header class="record-detail__header">
+        <div>
+          <h1 id="page-title">
+            訂單 {{ order.orderNumber }}
+          </h1>
+          <p>集中查看訂單、付款、配送與售後處理資訊。</p>
+        </div>
+        <p class="record-detail__status">
+          {{ summaryStatusLabel(order.summaryStatus) }}
+          <span
+            v-for="badge in order.badges"
+            :key="badge"
+          >（{{ badgeLabel(badge) }}）</span>
+        </p>
+      </header>
+      <dl class="record-detail__summary">
+        <div><dt>訂單狀態</dt><dd>{{ orderStatusLabel[order.orderStatus] ?? order.orderStatus }}</dd></div>
+        <div><dt>付款狀態</dt><dd>{{ paymentStatusLabel[order.paymentStatus] ?? '未知付款狀態' }}</dd></div>
+        <div><dt>物流狀態</dt><dd>{{ fulfillmentStatusLabel(order.fulfillmentStatus) }}</dd></div>
+        <div><dt>組裝狀態</dt><dd>{{ assemblyStatusLabel[order.assemblyStatus] ?? '未知組裝狀態' }}</dd></div>
+        <div><dt>退款狀態</dt><dd>{{ orderRefundStatusLabel[order.orderRefundStatus] ?? '未知退款狀態' }}</dd></div>
+        <div><dt>買家</dt><dd>{{ order.buyerType === 'Member' ? '會員' : '訪客' }}／{{ order.maskedBuyerEmail }}</dd></div>
+        <div>
+          <dt>配送方式</dt>
+          <dd>
+            {{ shippingMethodLabels[order.shippingMethodCode] ?? '配送方式待確認' }}<template v-if="order.storeName">
+              （{{ order.storeName }}）
+            </template>
+          </dd>
+        </div>
       </dl>
 
-      <section aria-labelledby="items-title">
+      <section
+        class="record-detail__panel"
+        aria-labelledby="items-title"
+      >
         <h2 id="items-title">
           商品明細
         </h2>
-        <table>
-          <thead>
-            <tr>
-              <th scope="col">
-                商品
-              </th>
-              <th scope="col">
-                數量
-              </th>
-              <th scope="col">
-                單價
-              </th>
-              <th scope="col">
-                折扣
-              </th>
-              <th scope="col">
-                小計
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="item in order.items"
-              :key="item.publicId"
-            >
-              <td>{{ item.productNameSnapshot }}（{{ item.skuNameSnapshot }}）</td>
-              <td>{{ item.quantity }}</td>
-              <td>NT$ {{ item.finalUnitPrice }}</td>
-              <td>NT$ {{ item.discountAllocation }}</td>
-              <td>NT$ {{ item.lineTotal }}</td>
-            </tr>
-          </tbody>
-        </table>
-        <dl>
-          <dt>商品小計</dt>
-          <dd>NT$ {{ order.amounts.merchandiseSubtotal }}</dd>
-          <dt>折扣</dt>
-          <dd>NT$ {{ order.amounts.itemDiscountTotal }}</dd>
-          <dt>運費</dt>
-          <dd>NT$ {{ order.amounts.shippingFee }}</dd>
-          <dt>組裝費</dt>
-          <dd>NT$ {{ order.amounts.assemblyFee }}</dd>
-          <dt>應付總額</dt>
-          <dd>NT$ {{ order.amounts.grandTotal }}</dd>
-          <dt>已付金額</dt>
-          <dd>NT$ {{ order.amounts.paidAmount }}</dd>
-          <dt>已退金額</dt>
-          <dd>NT$ {{ order.amounts.refundedAmount }}</dd>
+        <div class="record-detail__table-wrap">
+          <table aria-label="訂單商品明細">
+            <thead>
+              <tr>
+                <th scope="col">
+                  商品
+                </th>
+                <th scope="col">
+                  數量
+                </th>
+                <th scope="col">
+                  單價
+                </th>
+                <th scope="col">
+                  折扣
+                </th>
+                <th scope="col">
+                  小計
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="item in order.items"
+                :key="item.publicId"
+              >
+                <td>{{ item.productNameSnapshot }}（{{ item.skuNameSnapshot }}）</td>
+                <td>{{ item.quantity }}</td>
+                <td>NT$ {{ item.finalUnitPrice }}</td>
+                <td>NT$ {{ item.discountAllocation }}</td>
+                <td>NT$ {{ item.lineTotal }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <dl class="record-detail__facts record-detail__facts--money">
+          <div><dt>商品小計</dt><dd>NT$ {{ order.amounts.merchandiseSubtotal }}</dd></div>
+          <div><dt>折扣</dt><dd>NT$ {{ order.amounts.itemDiscountTotal }}</dd></div>
+          <div><dt>運費</dt><dd>NT$ {{ order.amounts.shippingFee }}</dd></div>
+          <div><dt>組裝費</dt><dd>NT$ {{ order.amounts.assemblyFee }}</dd></div>
+          <div><dt>應付總額</dt><dd>NT$ {{ order.amounts.grandTotal }}</dd></div>
+          <div><dt>已付金額</dt><dd>NT$ {{ order.amounts.paidAmount }}</dd></div>
+          <div><dt>已退金額</dt><dd>NT$ {{ order.amounts.refundedAmount }}</dd></div>
         </dl>
       </section>
 
-      <section aria-labelledby="recipient-title">
+      <section
+        class="record-detail__panel"
+        aria-labelledby="recipient-title"
+      >
         <h2 id="recipient-title">
           收件資料
         </h2>
@@ -340,26 +345,31 @@ function formatDateTime(value?: string | null): string {
             返回
           </button>
         </template>
-        <dl v-else-if="recipient">
-          <dt>收件人</dt>
-          <dd>{{ recipient.recipientName }}</dd>
-          <dt>電話</dt>
-          <dd>{{ recipient.recipientPhone }}</dd>
-          <dt>Email</dt>
-          <dd>{{ recipient.recipientEmail }}</dd>
-          <dt>地址</dt>
-          <dd>
-            <template v-if="recipient.postalCode">
-              {{ recipient.postalCode }} {{ recipient.recipientCity }}{{ recipient.recipientDistrict }}{{ recipient.addressLine1 }}{{ recipient.addressLine2 }}
-            </template>
-            <template v-else-if="recipient.storeName">
-              超商取貨：{{ recipient.storeName }}（{{ recipient.storeAddress }}）
-            </template>
-          </dd>
+        <dl
+          v-else-if="recipient"
+          class="record-detail__facts"
+        >
+          <div><dt>收件人</dt><dd>{{ recipient.recipientName }}</dd></div>
+          <div><dt>電話</dt><dd>{{ recipient.recipientPhone }}</dd></div>
+          <div><dt>Email</dt><dd>{{ recipient.recipientEmail }}</dd></div>
+          <div>
+            <dt>地址</dt>
+            <dd>
+              <template v-if="recipient.postalCode">
+                {{ recipient.postalCode }} {{ recipient.recipientCity }}{{ recipient.recipientDistrict }}{{ recipient.addressLine1 }}{{ recipient.addressLine2 }}
+              </template>
+              <template v-else-if="recipient.storeName">
+                超商取貨：{{ recipient.storeName }}（{{ recipient.storeAddress }}）
+              </template>
+            </dd>
+          </div>
         </dl>
       </section>
 
-      <section aria-labelledby="history-title">
+      <section
+        class="record-detail__panel"
+        aria-labelledby="history-title"
+      >
         <h2 id="history-title">
           狀態歷程
         </h2>
@@ -367,7 +377,10 @@ function formatDateTime(value?: string | null): string {
           v-if="order.statusHistory.length === 0"
           title="尚無狀態變更紀錄"
         />
-        <ul v-else>
+        <ul
+          v-else
+          class="record-detail__timeline"
+        >
           <li
             v-for="(entry, index) in order.statusHistory"
             :key="index"
@@ -381,7 +394,10 @@ function formatDateTime(value?: string | null): string {
         </ul>
       </section>
 
-      <section aria-labelledby="shipment-title">
+      <section
+        class="record-detail__panel"
+        aria-labelledby="shipment-title"
+      >
         <h2 id="shipment-title">
           物流
         </h2>
@@ -390,19 +406,13 @@ function formatDateTime(value?: string | null): string {
           title="尚未建立物流單"
         />
         <template v-else>
-          <dl>
-            <dt>物流單號</dt>
-            <dd>{{ order.shipment.shipmentNumber }}</dd>
-            <dt>追蹤號碼</dt>
-            <dd>{{ order.shipment.trackingNumber ?? '—' }}</dd>
-            <dt>物流狀態</dt>
-            <dd>{{ fulfillmentStatusLabel(order.shipment.status) }}</dd>
-            <dt>配送方式</dt>
-            <dd>{{ shippingMethodLabels[order.shipment.shippingMethodCode] ?? '配送方式待確認' }}</dd>
-            <dt>出貨時間</dt>
-            <dd>{{ formatDateTime(order.shipment.shippedAtUtc) }}</dd>
-            <dt>送達／取貨時間</dt>
-            <dd>{{ formatDateTime(order.shipment.deliveredAtUtc) }}</dd>
+          <dl class="record-detail__facts">
+            <div><dt>物流單號</dt><dd>{{ order.shipment.shipmentNumber }}</dd></div>
+            <div><dt>追蹤號碼</dt><dd>{{ order.shipment.trackingNumber ?? '—' }}</dd></div>
+            <div><dt>物流狀態</dt><dd>{{ fulfillmentStatusLabel(order.shipment.status) }}</dd></div>
+            <div><dt>配送方式</dt><dd>{{ shippingMethodLabels[order.shipment.shippingMethodCode] ?? '配送方式待確認' }}</dd></div>
+            <div><dt>出貨時間</dt><dd>{{ formatDateTime(order.shipment.shippedAtUtc) }}</dd></div>
+            <div><dt>送達／取貨時間</dt><dd>{{ formatDateTime(order.shipment.deliveredAtUtc) }}</dd></div>
           </dl>
           <h3>物流歷程</h3>
           <EmptyState
@@ -495,7 +505,10 @@ function formatDateTime(value?: string | null): string {
         </template>
       </section>
 
-      <section aria-labelledby="actions-title">
+      <section
+        class="record-detail__panel"
+        aria-labelledby="actions-title"
+      >
         <h2 id="actions-title">
           操作
         </h2>
@@ -506,6 +519,7 @@ function formatDateTime(value?: string | null): string {
         <template v-else>
           <section
             v-if="order.assemblyJobs?.length"
+            class="record-detail__subpanel"
             aria-label="組裝工作進度"
           >
             <h3>組裝工作進度</h3>

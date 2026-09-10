@@ -9,6 +9,8 @@ import { useShippingOptions } from '../features/shipping/useShipping'
 import {
   useApplyCartCoupon,
   useCart,
+  useCartIdentityKey,
+  useMemberCouponVisibility,
   useReloadCart,
   useRemoveCartCoupon,
   useRemoveCartAssemblyGroup,
@@ -21,6 +23,8 @@ import type { CartItemDto, CartIssueDto } from '../features/cart/types'
 
 const sessionStore = useSessionStore()
 const router = useRouter()
+const cartIdentityKey = useCartIdentityKey()
+const memberWelcomeVisibility = useMemberCouponVisibility('MEMBER100')
 
 // 組長 PR #29 review: bare issue codes ("cart_item_requires_attention") aren't something a
 // shopper can act on — CartWarningDto already carries a backend-authored human message, but
@@ -56,6 +60,17 @@ const removeItem = useRemoveCartItem()
 const removeAssemblyGroup = useRemoveCartAssemblyGroup()
 const revalidate = useRevalidateCart()
 const reloadCart = useReloadCart()
+const selectedCouponCode = ref<string | null>(null)
+
+watch(cartIdentityKey, () => {
+  selectedCouponCode.value = null
+}, { flush: 'sync' })
+
+watch(cart, (nextCart) => {
+  if (nextCart?.coupon?.code) {
+    selectedCouponCode.value = nextCart.coupon.code
+  }
+}, { immediate: true })
 
 interface CartItemGroup {
   assemblyGroupKey: string | null
@@ -191,7 +206,9 @@ async function runRevalidate(): Promise<void> {
 
   revalidateError.value = null
   try {
-    const result = await revalidate.mutateAsync()
+    const result = await revalidate.mutateAsync({
+      couponCode: selectedCouponCode.value ?? cart.value?.coupon?.code,
+    })
     issues.value = result.issues
     isCheckoutReady.value = result.isCheckoutReady
     validatedForRowVersion.value = result.cart.rowVersion
@@ -392,6 +409,7 @@ async function submitCoupon(): Promise<void> {
   couponError.value = undefined
   try {
     await applyCoupon.mutateAsync({ code, cartRowVersion: cart.value.rowVersion })
+    selectedCouponCode.value = code.toUpperCase()
     couponCodeInput.value = ''
   }
   catch (error) {
@@ -407,6 +425,7 @@ async function clearCoupon(): Promise<void> {
   couponError.value = undefined
   try {
     await removeCoupon.mutateAsync()
+    selectedCouponCode.value = null
   }
   catch (error) {
     couponError.value = describeCouponError(error)
@@ -442,7 +461,9 @@ function describeCouponError(error: unknown): string {
     <h1 id="cart-page-title">
       購物車
     </h1>
-    <RouterLink to="/builds/new?import=cart">挑選購物車零件，帶到組裝所</RouterLink>
+    <RouterLink to="/builds/new?import=cart">
+      挑選購物車零件，帶到組裝所
+    </RouterLink>
 
     <div
       v-if="sessionStore.status === 'error'"
@@ -480,17 +501,6 @@ function describeCouponError(error: unknown): string {
       v-else-if="cart"
       class="cart-page"
     >
-      <div class="cart-page__toolbar">
-        <button
-          type="button"
-          :disabled="isBusy"
-          @click="runRevalidate"
-        >
-          更新價格與庫存
-        </button>
-      </div>
-      <p>重新確認商品售價、庫存及是否可結帳；商品數量不會因此增加。</p>
-
       <p
         v-if="revalidateError"
         class="cart-page__revalidate-error"
@@ -673,11 +683,31 @@ function describeCouponError(error: unknown): string {
         >
           {{ couponError }}
         </p>
+
+        <div
+          class="cart-page__coupon-rules"
+          aria-label="優惠券規則"
+        >
+          <p v-if="memberWelcomeVisibility.data.value?.shouldDisplay">
+            入會禮 MEMBER100：會員商品小計滿 NT$1,000 折 NT$100，每位會員限用一次；入會日起一年內有效。
+          </p>
+          <p>開學季 SCHOOL2026：2026/9/1～9/30，全商品 1 件九五折、2 件以上九折（同商品多件也計入），無最低消費、折抵無上限，每人限用一次。</p>
+          <p>CREATOR10 是已結束的 8 月活動，目前不能使用。</p>
+          <p>優惠券不可合併使用，每筆訂單限用一張；套用後請確認折扣與合計。</p>
+          <p>運費與組裝費不參與商品折扣；開學季部分退貨沿用原成交折扣，只退退貨品項的實付金額。</p>
+        </div>
       </section>
 
       <div class="cart-page__summary">
         <p class="cart-page__total">
-          合計：{{ formatTwd(cart.amounts.totalEstimate) }}
+          合計：
+          <del
+            v-if="Number(cart.amounts.couponDiscount) > 0"
+            class="cart-page__original-total"
+          >
+            {{ formatTwd(Number(cart.amounts.totalEstimate) + Number(cart.amounts.couponDiscount)) }}
+          </del>
+          <strong>{{ formatTwd(cart.amounts.totalEstimate) }}</strong>
         </p>
         <button
           type="button"
@@ -699,11 +729,6 @@ function describeCouponError(error: unknown): string {
   flex-direction: column;
   gap: 1.5rem;
   max-width: 48rem;
-}
-
-.cart-page__toolbar {
-  display: flex;
-  justify-content: flex-end;
 }
 
 .cart-page__items {
@@ -811,6 +836,18 @@ function describeCouponError(error: unknown): string {
   margin: 0;
 }
 
+.cart-page__coupon-rules {
+  display: grid;
+  gap: .5rem;
+  margin-top: .5rem;
+  padding: 1rem;
+  border: 1px solid var(--color-border-soft);
+  border-radius: .75rem;
+  background: var(--color-surface-strong);
+}
+
+.cart-page__coupon-rules p { margin: 0; }
+
 .cart-page__summary {
   display: flex;
   justify-content: space-between;
@@ -823,6 +860,13 @@ function describeCouponError(error: unknown): string {
   margin: 0;
   font-size: 1.25rem;
   font-weight: 700;
+}
+
+.cart-page__original-total {
+  margin-inline: .4rem;
+  color: var(--color-danger);
+  text-decoration-color: currentColor;
+  text-decoration-thickness: 2px;
 }
 
 .cart-page__checkout:disabled {

@@ -23,6 +23,7 @@ import ShippingOptionList from '../features/shipping/components/ShippingOptionLi
 import ConvenienceStorePicker from '../features/shipping/components/ConvenienceStorePicker.vue'
 import { useShippingOptions } from '../features/shipping/useShipping'
 import type { ConvenienceStoreOptionDto, ShippingOptionDto } from '../features/shipping/types'
+import { districtsForCity, TAIWAN_CITIES } from '../features/shipping/taiwanAdministrativeAreas'
 import { fetchAddresses, fetchProfile, type MemberAddress } from '../features/members/api'
 import LegalDemoPage from './LegalDemoPage.vue'
 
@@ -38,7 +39,6 @@ interface CheckoutForm {
   addressLine1: string
   addressLine2: string
   deliveryNote: string
-  couponCode: string
   invoiceBuyerType: 'personal' | 'company'
   useMobileBarcode: boolean
   carrierValue: string
@@ -135,13 +135,7 @@ const phonePattern = '09[0-9]{8}'
 const emailPattern = '[^\\s@]+@[^\\s@]+\\.[^\\s@]+'
 const carrierPattern = '/[A-Z0-9+.\\-]{7}'
 const postalPattern = '[0-9]{3}(?:[0-9]{2,3})?'
-const districtPattern = '[\\u4e00-\\u9fff]{1,20}[鄉鎮市區]'
-const cities = [
-  '臺北市', '新北市', '桃園市', '臺中市', '臺南市', '高雄市',
-  '基隆市', '新竹市', '嘉義市', '新竹縣', '苗栗縣', '彰化縣',
-  '南投縣', '雲林縣', '嘉義縣', '屏東縣', '宜蘭縣', '花蓮縣',
-  '臺東縣', '澎湖縣', '金門縣', '連江縣',
-]
+const cities: readonly string[] = TAIWAN_CITIES
 const matches = (pattern: string, value: string) => new RegExp(`^${pattern}$`, 'u').test(value.trim())
 
 const form = reactive<CheckoutForm>({
@@ -156,7 +150,6 @@ const form = reactive<CheckoutForm>({
   addressLine1: '',
   addressLine2: '',
   deliveryNote: '',
-  couponCode: '',
   invoiceBuyerType: 'personal',
   useMobileBarcode: false,
   carrierValue: '',
@@ -166,6 +159,7 @@ const form = reactive<CheckoutForm>({
   acceptReturn: false,
   acceptPrivacy: false,
 })
+const selectedDistricts = computed<readonly string[]>(() => districtsForCity(form.city))
 
 // 即時填寫提示不取代伺服器驗證。
 const touchedFields = reactive<Record<string, boolean>>({})
@@ -184,7 +178,7 @@ const fieldErrors = computed<Record<string, string>>(() => {
     check('recipient-phone', form.recipientPhone, '收件手機號碼', phonePattern, mobileError)
     check('postal-code', form.postalCode, '郵遞區號', postalPattern, '郵遞區號請輸入 3、5 或 6 位數字。')
     if (!cities.includes(form.city)) errors.city = '請選擇縣市。'
-    check('district', form.district, '行政區', districtPattern, '請輸入完整鄉鎮市區名稱，例如：中正區。')
+    if (!selectedDistricts.value.includes(form.district)) errors.district = '請選擇此縣市所屬的行政區。'
     check('address-line1', form.addressLine1, '地址')
   }
   if (form.invoiceBuyerType === 'company') {
@@ -240,7 +234,7 @@ const isAddressComplete = computed(() => Boolean(
   && matches(phonePattern, form.recipientPhone)
   && matches(postalPattern, form.postalCode)
   && cities.includes(form.city)
-  && matches(districtPattern, form.district)
+  && selectedDistricts.value.includes(form.district)
   && form.addressLine1.trim(),
 ))
 
@@ -415,7 +409,6 @@ function adoptCartPageCoupon(nextValidation: CartValidationDto): void {
   }
 
   appliedCouponCode.value = candidate.code
-  form.couponCode = candidate.code
   pendingCouponHandoff.value = null
 }
 
@@ -438,7 +431,6 @@ function syncCouponStateToIdentity(): void {
 
   couponIdentityKey.value = identityKey.value
   appliedCouponCode.value = null
-  form.couponCode = ''
 
   const cartPageCart = queryClient.getQueryData<CartDto>(cartIdentityKey.value)
   const code = cartPageCart?.coupon?.code
@@ -477,7 +469,7 @@ async function loadCheckout(): Promise<void> {
 
   try {
     const [nextValidation, nextPolicies] = await Promise.all([
-      revalidateCart.mutateAsync(),
+      revalidateCart.mutateAsync(undefined),
       getCheckoutPolicyVersions(),
     ])
     if (generation !== loadGeneration) {
@@ -567,18 +559,9 @@ function formatTwd(amount: number | string): string {
   return `NT$${Number(amount).toLocaleString('zh-Hant-TW')}`
 }
 
-function applyCoupon(): void {
-  const normalized = form.couponCode.trim().toUpperCase()
-  if (normalized) {
-    appliedCouponCode.value = normalized
-    selectedPaymentMethod.value = null
-  }
-}
-
-function removeCoupon(): void {
-  form.couponCode = ''
-  appliedCouponCode.value = null
-  selectedPaymentMethod.value = null
+function changeCity(): void {
+  form.district = ''
+  touchedFields.district = false
 }
 
 function buildRequest(): CreateOrderRequest {
@@ -1071,6 +1054,7 @@ function receiptKey() {
             v-bind="fieldFeedback('city')"
             v-model="form.city"
             required
+            @change="changeCity"
           >
             <option value="">
               請選擇縣市
@@ -1092,15 +1076,24 @@ function receiptKey() {
             {{ fieldErrors['city'] }}
           </p>
           <label for="district">行政區 *</label>
-          <input
+          <select
             id="district"
             v-bind="fieldFeedback('district')"
             v-model="form.district"
-            :pattern="districtPattern"
-            placeholder="完整鄉鎮市區名稱，例如：中正區"
-            maxlength="50"
+            :disabled="!form.city"
             required
           >
+            <option value="">
+              {{ form.city ? '請選擇行政區' : '請先選擇縣市' }}
+            </option>
+            <option
+              v-for="district in selectedDistricts"
+              :key="district"
+              :value="district"
+            >
+              {{ district }}
+            </option>
+          </select>
           <p
             v-if="touchedFields['district'] && fieldErrors['district']"
             id="district-error"
@@ -1183,28 +1176,6 @@ function receiptKey() {
         <h2 id="coupon-title">
           優惠券
         </h2>
-        <label for="coupon-code">優惠碼（選填）</label>
-        <input
-          id="coupon-code"
-          v-model="form.couponCode"
-          maxlength="64"
-        >
-        <button
-          type="button"
-          data-test="apply-coupon"
-          :disabled="!form.couponCode.trim() || isShippingPending"
-          @click="applyCoupon"
-        >
-          套用優惠券
-        </button>
-        <button
-          v-if="activeCouponCode"
-          type="button"
-          data-test="remove-coupon"
-          @click="removeCoupon"
-        >
-          移除優惠券
-        </button>
         <p
           v-if="activeCouponCode && isShippingPending"
           role="status"
@@ -1214,10 +1185,12 @@ function receiptKey() {
         <p v-else-if="activeCouponCode && !isShippingError && selectedShippingOption">
           已套用 {{ activeCouponCode }}，折扣 {{ formatTwd(selectedShippingOption.amounts.itemDiscountTotal) }}；應付總額已更新。
         </p>
-        <p>優惠券不可合併使用，每筆訂單限用一張；輸入優惠碼後確認套用結果。</p>
-        <p>開學季 SCHOOL2026：2026/9/1～9/30，全商品 1 件九五折、2 件以上九折（同商品多件也計入），無最低消費、折抵無上限，會員與訪客每人限用一次。</p>
-        <p>入會禮 MEMBER100：會員商品小計滿 NT$1,000 折 NT$100，每位會員限用一次；包含入會未滿一年的既有會員，滿入會周年時到期。</p>
-        <p>運費與組裝費不參與商品折扣。CREATOR10 為已結束的 8 月活動，不能再使用。開學季部分退貨沿用原成交折扣，只退退貨品項的實付金額。</p>
+        <p v-else-if="activeCouponCode">
+          已從購物車帶入優惠碼 {{ activeCouponCode }}；選擇配送方式後會顯示折扣結果。
+        </p>
+        <p v-else>
+          未套用優惠券。如需使用優惠碼，請返回購物車輸入。
+        </p>
       </section>
 
       <section aria-labelledby="invoice-title">

@@ -348,7 +348,10 @@ async function addBuildToCart(): Promise<void> {
 </script>
 
 <template>
-  <section aria-labelledby="build-detail-page-title">
+  <section
+    class="build-detail-page"
+    aria-labelledby="build-detail-page-title"
+  >
     <LoadingState
       v-if="isPending"
       label="組裝清單載入中"
@@ -442,6 +445,7 @@ async function addBuildToCart(): Promise<void> {
       />
       <section
         v-if="ownedParts.length"
+        class="build-detail-page__section"
         aria-label="自有零件"
       >
         <h2>自有零件</h2>
@@ -677,6 +681,11 @@ async function addBuildToCart(): Promise<void> {
   grid-template-columns: auto auto;
   gap: 0.25rem 1rem;
   margin-block: 1.5rem;
+  padding: 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
 }
 
 .build-detail-page__totals dt {
@@ -689,9 +698,18 @@ async function addBuildToCart(): Promise<void> {
 }
 
 .build-detail-page__section {
-  margin-block-start: 2rem;
-  padding-block-start: 1.5rem;
-  border-top: 1px solid var(--color-border-soft);
+  margin-block-start: 1.5rem;
+  padding: clamp(1rem, 2vw, 1.5rem);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.build-detail-page__section > h2 {
+  margin: 0 0 1rem;
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid var(--color-border-line);
 }
 
 .build-detail-page__cart-controls {

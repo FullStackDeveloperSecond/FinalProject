@@ -81,6 +81,17 @@ describe('OrderDetailPage', () => {
     routerPush.mockReset()
   })
 
+  it('groups order information into titled panels and a readable item table', async () => {
+    fetchOrder.mockResolvedValueOnce(buildOrder())
+    const wrapper = mount(OrderDetailPage)
+    await flushPromises()
+
+    expect(wrapper.classes()).toContain('record-detail')
+    expect(wrapper.find('.record-detail__header').exists()).toBe(true)
+    expect(wrapper.findAll('.record-detail__panel').length).toBeGreaterThanOrEqual(5)
+    expect(wrapper.find('table[aria-label="訂單商品明細"]').exists()).toBe(true)
+  })
+
   it.each([
     ['HomeDelivery', '一般宅配'], ['home-delivery', '一般宅配'],
     ['StorePickup', '超商取貨'], ['HomeDeliveryAssembly', '組裝電腦宅配'],

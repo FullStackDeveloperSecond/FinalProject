@@ -1,7 +1,8 @@
 import { ApiError } from '@doselect/web-shared/api'
 import { flushPromises, mount } from '@vue/test-utils'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import RegisterForm from './RegisterForm.vue'
+import { clearRegistrationDraft } from './registrationDraft'
 
 const { registerMember } = vi.hoisted(() => ({
   registerMember: vi.fn(),
@@ -26,6 +27,21 @@ async function fillValidForm(wrapper: ReturnType<typeof mount>): Promise<void> {
 }
 
 describe('RegisterForm', () => {
+  beforeEach(() => clearRegistrationDraft())
+
+  it('keeps the in-memory draft when the form is remounted after reading a policy', async () => {
+    const first = mount(RegisterForm, { global: { stubs: globalStubs } })
+    await fillValidForm(first)
+    first.unmount()
+
+    const returned = mount(RegisterForm, { global: { stubs: globalStubs } })
+    expect((returned.get('#register-display-name').element as HTMLInputElement).value).toBe('王小明')
+    expect((returned.get('#register-email').element as HTMLInputElement).value).toBe('member@example.com')
+    expect((returned.get('#register-password').element as HTMLInputElement).value).toBe('correct-horse-battery-staple')
+    expect((returned.get('#register-confirm-password').element as HTMLInputElement).value).toBe('correct-horse-battery-staple')
+    expect((returned.get('#register-accept-terms').element as HTMLInputElement).checked).toBe(true)
+  })
+
   it('blocks submission when the confirm-password field does not match', async () => {
     registerMember.mockClear()
     const wrapper = mount(RegisterForm, { global: { stubs: globalStubs } })

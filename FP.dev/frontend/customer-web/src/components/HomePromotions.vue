@@ -34,7 +34,7 @@ function leaveFocus(event: FocusEvent) {
 <template>
   <section
     class="home-promotions"
-    aria-label="懂選主題廣告"
+    aria-label="懂選城市快報輪播"
     aria-roledescription="輪播"
     @mouseenter="hovered = true"
     @mouseleave="hovered = false"
@@ -42,7 +42,7 @@ function leaveFocus(event: FocusEvent) {
     @focusout="leaveFocus"
   >
     <div class="home-promotions__top">
-      <span>懂選城市快報 <small>・主題廣告</small></span><span>{{ active + 1 }} / {{ slides.length }}</span>
+      <span>懂選城市快報</span><span>{{ active + 1 }} / {{ slides.length }}</span>
     </div>
     <div class="home-promotions__stage">
       <Transition

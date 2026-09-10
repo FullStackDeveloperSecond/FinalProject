@@ -195,7 +195,10 @@ const invoiceStatusLabel: Record<string, string> = {
 </script>
 
 <template>
-  <section aria-labelledby="page-title">
+  <section
+    class="record-detail"
+    aria-labelledby="page-title"
+  >
     <LoadingState
       v-if="pageState === 'loading'"
       label="訂單資料載入中"
@@ -221,37 +224,70 @@ const invoiceStatusLabel: Record<string, string> = {
     />
 
     <template v-else-if="order">
-      <h1 id="page-title">
-        訂單 {{ order.orderNumber }}
-      </h1>
-      <p>
-        狀態：{{ orderStatusLabel[order.orderStatus] ?? order.orderStatus }}
-      </p>
+      <header class="record-detail__header">
+        <div>
+          <h1 id="page-title">
+            訂單 {{ order.orderNumber }}
+          </h1>
+          <p>查看商品、付款、配送與售後進度。</p>
+        </div>
+        <p class="record-detail__status">
+          {{ orderStatusLabel[order.orderStatus] ?? order.orderStatus }}
+        </p>
+      </header>
 
-      <section aria-labelledby="items-title">
+      <section
+        class="record-detail__panel"
+        aria-labelledby="items-title"
+      >
         <h2 id="items-title">
           商品明細
         </h2>
-        <ul>
-          <li
-            v-for="item in order.items"
-            :key="item.publicId"
-          >
-            {{ item.productNameSnapshot }}（{{ item.skuNameSnapshot }}）× {{ item.quantity }}
-            — NT$ {{ item.lineTotal }}
-          </li>
-        </ul>
-        <p>應付總額：NT$ {{ order.amounts.grandTotal }}</p>
+        <div class="record-detail__table-wrap">
+          <table aria-label="訂單商品明細">
+            <thead>
+              <tr>
+                <th scope="col">
+                  商品
+                </th>
+                <th scope="col">
+                  數量
+                </th>
+                <th scope="col">
+                  小計
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="item in order.items"
+                :key="item.publicId"
+              >
+                <td>{{ item.productNameSnapshot }}（{{ item.skuNameSnapshot }}）</td>
+                <td>{{ item.quantity }}</td>
+                <td>NT$ {{ item.lineTotal }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="record-detail__total">
+          應付總額：NT$ {{ order.amounts.grandTotal }}
+        </p>
       </section>
 
-      <section aria-labelledby="payment-summary-title">
+      <section
+        class="record-detail__panel"
+        aria-labelledby="payment-summary-title"
+      >
         <h2 id="payment-summary-title">
           付款與退款
         </h2>
-        <p>付款狀態：{{ paymentStatusLabel[order.paymentStatus] ?? order.paymentStatus }}</p>
-        <p>已付款：NT$ {{ order.amounts.paidAmount }}</p>
-        <p>退款狀態：{{ refundStatusLabel[order.orderRefundStatus] ?? order.orderRefundStatus }}</p>
-        <p>已退款：NT$ {{ order.amounts.refundedAmount }}</p>
+        <dl class="record-detail__facts">
+          <div><dt>付款狀態</dt><dd>{{ paymentStatusLabel[order.paymentStatus] ?? order.paymentStatus }}</dd></div>
+          <div><dt>已付款</dt><dd>NT$ {{ order.amounts.paidAmount }}</dd></div>
+          <div><dt>退款狀態</dt><dd>{{ refundStatusLabel[order.orderRefundStatus] ?? order.orderRefundStatus }}</dd></div>
+          <div><dt>已退款：</dt><dd>NT$ {{ order.amounts.refundedAmount }}</dd></div>
+        </dl>
         <a
           v-if="canPay"
           :href="`/orders/${order.publicId}/payment`"
@@ -262,6 +298,7 @@ const invoiceStatusLabel: Record<string, string> = {
 
       <section
         v-if="order.paymentStatus === 'paid' || order.amounts.refundedAmount > 0"
+        class="record-detail__panel"
         aria-labelledby="invoice-title"
       >
         <h2 id="invoice-title">
@@ -272,15 +309,17 @@ const invoiceStatusLabel: Record<string, string> = {
           label="發票資料載入中"
         />
         <template v-else-if="invoiceState === 'ready' && invoice">
-          <p>{{ invoice.demoMarker }}｜{{ invoice.invoiceNumber }}</p>
-          <p>狀態：{{ invoiceStatusLabel[invoice.status] ?? invoice.status }}</p>
-          <p>含稅總額：NT$ {{ invoice.grossAmount }} {{ invoice.currency }}</p>
-          <p v-if="invoice.buyerEmailMasked">
-            買受人 Email：{{ invoice.buyerEmailMasked }}
-          </p>
-          <p v-if="invoice.allowances.length > 0">
-            折讓筆數：{{ invoice.allowances.length }}
-          </p>
+          <dl class="record-detail__facts">
+            <div><dt>發票號碼</dt><dd>{{ invoice.demoMarker }}｜{{ invoice.invoiceNumber }}</dd></div>
+            <div><dt>狀態</dt><dd>{{ invoiceStatusLabel[invoice.status] ?? invoice.status }}</dd></div>
+            <div><dt>含稅總額</dt><dd>NT$ {{ invoice.grossAmount }} {{ invoice.currency }}</dd></div>
+            <div v-if="invoice.buyerEmailMasked">
+              <dt>買受人 Email</dt><dd>{{ invoice.buyerEmailMasked }}</dd>
+            </div>
+            <div v-if="invoice.allowances.length > 0">
+              <dt>折讓筆數</dt><dd>{{ invoice.allowances.length }}</dd>
+            </div>
+          </dl>
         </template>
         <EmptyState
           v-else-if="invoiceState === 'missing'"
@@ -295,27 +334,38 @@ const invoiceStatusLabel: Record<string, string> = {
         />
       </section>
 
-      <section aria-labelledby="shipment-title">
+      <section
+        class="record-detail__panel"
+        aria-labelledby="shipment-title"
+      >
         <h2 id="shipment-title">
           配送資訊
         </h2>
-        <p>
-          配送方式：{{ shippingMethodLabels[order.recipient.shippingMethodCode] ?? '配送方式待確認' }}<template v-if="order.recipient.storeName">
-            （{{ order.recipient.storeName }}）
-          </template>
-        </p>
+        <dl class="record-detail__facts">
+          <div>
+            <dt>配送方式</dt>
+            <dd>
+              {{ shippingMethodLabels[order.recipient.shippingMethodCode] ?? '配送方式待確認' }}<template v-if="order.recipient.storeName">
+                （{{ order.recipient.storeName }}）
+              </template>
+            </dd>
+          </div>
+        </dl>
         <p v-if="!order.shipment">
           尚未出貨。
         </p>
         <template v-else>
-          <p>物流單號：{{ order.shipment.shipmentNumber }}</p>
-          <p>追蹤號碼：{{ order.shipment.trackingNumber ?? '—' }}</p>
-          <p>物流狀態：{{ fulfillmentStatusLabel[order.shipment.status] ?? order.shipment.status }}</p>
-          <p v-if="order.shipment.deliveredAtUtc">
-            送達／取貨時間：{{ formatDateTime(order.shipment.deliveredAtUtc) }}
-          </p>
+          <dl class="record-detail__facts">
+            <div><dt>物流單號</dt><dd>{{ order.shipment.shipmentNumber }}</dd></div>
+            <div><dt>追蹤號碼</dt><dd>{{ order.shipment.trackingNumber ?? '—' }}</dd></div>
+            <div><dt>物流狀態：</dt><dd>{{ fulfillmentStatusLabel[order.shipment.status] ?? order.shipment.status }}</dd></div>
+            <div v-if="order.shipment.deliveredAtUtc">
+              <dt>送達／取貨時間</dt><dd>{{ formatDateTime(order.shipment.deliveredAtUtc) }}</dd>
+            </div>
+          </dl>
           <ul
             v-if="order.shipment.history.length > 0"
+            class="record-detail__timeline"
             aria-label="物流歷程"
           >
             <li
@@ -330,7 +380,10 @@ const invoiceStatusLabel: Record<string, string> = {
 
       <!-- 同一頁支援會員與已完成查單驗證的訪客；後端會把 GuestOrderAccess Cookie
            限定在驗證時綁定的那一筆訂單，前端顯示條件不是授權邊界。 -->
-      <section aria-labelledby="cancel-title">
+      <section
+        class="record-detail__panel"
+        aria-labelledby="cancel-title"
+      >
         <h2 id="cancel-title">
           取消訂單
         </h2>
@@ -401,7 +454,10 @@ const invoiceStatusLabel: Record<string, string> = {
         </template>
       </section>
 
-      <section aria-labelledby="return-title">
+      <section
+        class="record-detail__panel"
+        aria-labelledby="return-title"
+      >
         <h2 id="return-title">
           退貨
         </h2>

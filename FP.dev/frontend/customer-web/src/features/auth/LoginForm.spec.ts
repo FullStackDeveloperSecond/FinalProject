@@ -51,6 +51,9 @@ describe('LoginForm', () => {
     })
     const wrapper = mount(LoginForm, { global: { stubs: globalStubs } })
 
+    expect(wrapper.text()).not.toContain('Demo 登入工作包')
+    expect(wrapper.find('input[type="file"]').exists()).toBe(false)
+
     await wrapper.get('#login-email').setValue('member@example.com')
     await wrapper.get('#login-password').setValue('correct-horse-battery-staple')
     await wrapper.get('form').trigger('submit')

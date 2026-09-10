@@ -368,10 +368,18 @@ const newSku = reactive({
   nameZhTw: '',
   listPrice: 0,
   unitCost: 0,
+  weightKg: null as number | null,
+  lengthCm: null as number | null,
+  widthCm: null as number | null,
+  heightCm: null as number | null,
   status: 'Draft',
   isDefault: false,
   requiresPrepayment: false,
 })
+
+function optionalSkuNumber(value: unknown): number | null {
+  return value == null || value === '' ? null : Number(value)
+}
 
 // PR #24 review round 7 (P2): a leftover draft in this row would otherwise ride along across a
 // param-only navigation and could be submitted against whichever product the page has since
@@ -392,6 +400,10 @@ watch(() => props.productId, () => {
   newSku.nameZhTw = ''
   newSku.listPrice = 0
   newSku.unitCost = 0
+  newSku.weightKg = null
+  newSku.lengthCm = null
+  newSku.widthCm = null
+  newSku.heightCm = null
   newSku.status = 'Draft'
   newSku.isDefault = false
   newSku.requiresPrepayment = false
@@ -412,10 +424,10 @@ function submitNewSku() {
       nameZhTw: newSku.nameZhTw,
       listPrice: newSku.listPrice,
       unitCost: newSku.unitCost,
-      weightKg: null,
-      lengthCm: null,
-      widthCm: null,
-      heightCm: null,
+      weightKg: optionalSkuNumber(newSku.weightKg),
+      lengthCm: optionalSkuNumber(newSku.lengthCm),
+      widthCm: optionalSkuNumber(newSku.widthCm),
+      heightCm: optionalSkuNumber(newSku.heightCm),
       status: newSku.status,
       isDefault: newSku.isDefault,
       requiresPrepayment: newSku.requiresPrepayment,
@@ -433,6 +445,10 @@ function submitNewSku() {
       newSku.nameZhTw = ''
       newSku.listPrice = 0
       newSku.unitCost = 0
+      newSku.weightKg = null
+      newSku.lengthCm = null
+      newSku.widthCm = null
+      newSku.heightCm = null
       newSku.status = 'Draft'
       newSku.isDefault = false
       newSku.requiresPrepayment = false
@@ -719,97 +735,139 @@ function submitNewSku() {
         >
           商品資料正在儲存中，請稍候再操作 SKU。
         </p>
-        <table class="product-skus__table">
-          <thead>
-            <tr>
-              <th>代碼</th>
-              <th>名稱</th>
-              <th>售價</th>
-              <th>成本</th>
-              <th>狀態</th>
-              <th>預設</th>
-              <th>庫存</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            <SkuEditorRow
-              v-for="sku in product.skus"
-              ref="skuRowRefs"
-              :key="sku.publicId"
-              :sku="sku"
-              :product-public-id="product.publicId"
-              :operations-disabled="skuOperationsDisabled"
-              @sku-mutated="syncRowVersionAfterOwnSkuMutation"
-            />
-            <tr>
-              <td>
-                <input
-                  v-model="newSku.skuCode"
-                  aria-label="新 SKU 代碼"
-                >
-              </td>
-              <td>
-                <input
-                  v-model="newSku.nameZhTw"
-                  aria-label="新 SKU 名稱"
-                >
-              </td>
-              <td>
-                <input
-                  v-model.number="newSku.listPrice"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  aria-label="新 SKU 售價"
-                >
-              </td>
-              <td>
-                <input
-                  v-model.number="newSku.unitCost"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  aria-label="新 SKU 成本"
-                >
-              </td>
-              <td>
-                <select
-                  v-model="newSku.status"
-                  aria-label="新 SKU 狀態"
-                >
-                  <option value="Draft">
-                    草稿
-                  </option>
-                  <option value="Published">
-                    已上架
-                  </option>
-                  <option value="Unpublished">
-                    已下架
-                  </option>
-                </select>
-              </td>
-              <td>
-                <input
-                  v-model="newSku.isDefault"
-                  type="checkbox"
-                  aria-label="設為預設"
-                >
-              </td>
-              <td>—</td>
-              <td>
-                <button
-                  type="button"
-                  :disabled="createSkuMutation.isPending.value || skuOperationsDisabled"
-                  :title="skuOperationsDisabled ? '商品資料有未儲存的變更或正在儲存中，請稍候再操作 SKU' : undefined"
-                  @click="submitNewSku"
-                >
-                  新增 SKU
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div class="product-skus__table-wrap">
+          <table class="product-skus__table">
+            <thead>
+              <tr>
+                <th>代碼</th>
+                <th>名稱</th>
+                <th>售價</th>
+                <th>成本</th>
+                <th>重量 (kg)</th>
+                <th>長 (cm)</th>
+                <th>寬 (cm)</th>
+                <th>高 (cm)</th>
+                <th>狀態</th>
+                <th>預設</th>
+                <th>庫存</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              <SkuEditorRow
+                v-for="sku in product.skus"
+                ref="skuRowRefs"
+                :key="sku.publicId"
+                :sku="sku"
+                :product-public-id="product.publicId"
+                :operations-disabled="skuOperationsDisabled"
+                @sku-mutated="syncRowVersionAfterOwnSkuMutation"
+              />
+              <tr>
+                <td>
+                  <input
+                    v-model="newSku.skuCode"
+                    aria-label="新 SKU 代碼"
+                  >
+                </td>
+                <td>
+                  <input
+                    v-model="newSku.nameZhTw"
+                    aria-label="新 SKU 名稱"
+                  >
+                </td>
+                <td>
+                  <input
+                    v-model.number="newSku.listPrice"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    aria-label="新 SKU 售價"
+                  >
+                </td>
+                <td>
+                  <input
+                    v-model.number="newSku.unitCost"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    aria-label="新 SKU 成本"
+                  >
+                </td>
+                <td>
+                  <input
+                    v-model.number="newSku.weightKg"
+                    type="number"
+                    min="0.001"
+                    step="0.001"
+                    aria-label="新 SKU 重量 (kg)"
+                  >
+                </td>
+                <td>
+                  <input
+                    v-model.number="newSku.lengthCm"
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    aria-label="新 SKU 長度 (cm)"
+                  >
+                </td>
+                <td>
+                  <input
+                    v-model.number="newSku.widthCm"
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    aria-label="新 SKU 寬度 (cm)"
+                  >
+                </td>
+                <td>
+                  <input
+                    v-model.number="newSku.heightCm"
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    aria-label="新 SKU 高度 (cm)"
+                  >
+                </td>
+                <td>
+                  <select
+                    v-model="newSku.status"
+                    aria-label="新 SKU 狀態"
+                  >
+                    <option value="Draft">
+                      草稿
+                    </option>
+                    <option value="Published">
+                      已上架
+                    </option>
+                    <option value="Unpublished">
+                      已下架
+                    </option>
+                  </select>
+                </td>
+                <td>
+                  <input
+                    v-model="newSku.isDefault"
+                    type="checkbox"
+                    aria-label="設為預設"
+                  >
+                </td>
+                <td>—</td>
+                <td>
+                  <button
+                    type="button"
+                    :disabled="createSkuMutation.isPending.value || skuOperationsDisabled"
+                    :title="skuOperationsDisabled ? '商品資料有未儲存的變更或正在儲存中，請稍候再操作 SKU' : undefined"
+                    @click="submitNewSku"
+                  >
+                    新增 SKU
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <p
           v-if="isApiError(createSkuMutation.error.value)"
           class="product-form__error"
@@ -889,7 +947,12 @@ function submitNewSku() {
 
 .product-skus__table {
   width: 100%;
+  min-width: 78rem;
   border-collapse: collapse;
+}
+
+.product-skus__table-wrap {
+  overflow-x: auto;
 }
 
 .product-skus__table th,

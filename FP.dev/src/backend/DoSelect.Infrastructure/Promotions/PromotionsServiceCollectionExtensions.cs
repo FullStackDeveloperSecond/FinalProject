@@ -18,6 +18,7 @@ public static class PromotionsServiceCollectionExtensions
         services.AddScoped<ICouponRuleReader, CouponRuleReader>();
         services.AddScoped<CouponQuoteService>();
         services.AddScoped<ApplyCartCouponService>();
+        services.AddScoped<MemberCouponVisibilityService>();
         services.AddScoped<IAdminCouponService, EfAdminCouponService>();
 
         return services;

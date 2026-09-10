@@ -1,4 +1,5 @@
 using DoSelect.Application.Shopping;
+using DoSelect.Domain.Catalog;
 using DoSelect.Domain.Shipping;
 using DoSelect.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -29,10 +30,21 @@ internal static class CartContentsInspector
         var hasAssemblyItem = cart.Items.Any(item => item.AssemblyGroupKey is not null);
 
         var skuPublicIds = cart.Items.Select(item => item.SkuPublicId).Distinct().ToList();
-        var skus = await dbContext.Skus
-            .AsNoTracking()
-            .Where(sku => skuPublicIds.Contains(sku.PublicId))
-            .Select(sku => new { sku.PublicId, sku.RequiresPrepayment, sku.WeightKg, sku.LengthCm, sku.WidthCm, sku.HeightCm })
+        var skus = await (
+                from sku in dbContext.Skus.AsNoTracking()
+                join product in dbContext.Products.AsNoTracking() on sku.ProductId equals product.Id
+                join category in dbContext.Categories.AsNoTracking() on product.CategoryId equals category.Id
+                where skuPublicIds.Contains(sku.PublicId)
+                select new
+                {
+                    sku.PublicId,
+                    sku.RequiresPrepayment,
+                    sku.WeightKg,
+                    sku.LengthCm,
+                    sku.WidthCm,
+                    sku.HeightCm,
+                    CategoryCode = category.Code,
+                })
             .ToDictionaryAsync(sku => sku.PublicId, cancellationToken);
 
         // Same item shape EfCheckoutTransactionGateway.CalculateAndValidatePackage feeds the
@@ -49,7 +61,12 @@ internal static class CartContentsInspector
                     sku.LengthCm,
                     sku.WidthCm,
                     sku.HeightCm,
-                    item.UnitPrice);
+                    item.UnitPrice,
+                    item.AssemblyGroupKey,
+                    string.Equals(
+                        sku.CategoryCode,
+                        CompatibilityCatalogContract.Categories.Case,
+                        StringComparison.OrdinalIgnoreCase));
             })
             .ToList();
 

@@ -60,6 +60,28 @@ describe('SkuEditorRow', () => {
     expect(statuses).toEqual(['Draft', 'Published', 'Unpublished'])
   })
 
+  it('shows and updates package weight and dimensions', async () => {
+    mockUpdateSku.mockResolvedValueOnce(baseSku())
+    const wrapper = mountRow(baseSku({ weightKg: 8, lengthCm: 50, widthCm: 30, heightCm: 48 }))
+
+    expect(wrapper.text()).toContain('8')
+    expect(wrapper.text()).toContain('50')
+    await wrapper.find('button').trigger('click')
+    await wrapper.find('input[aria-label="重量 (kg)"]').setValue('9.5')
+    await wrapper.find('input[aria-label="長度 (cm)"]').setValue('52')
+    await wrapper.find('input[aria-label="寬度 (cm)"]').setValue('32')
+    await wrapper.find('input[aria-label="高度 (cm)"]').setValue('50')
+    await wrapper.findAll('button').find((button) => button.text() === '儲存')!.trigger('click')
+    await flushPromises()
+
+    expect(mockUpdateSku).toHaveBeenCalledWith('sku-1', expect.objectContaining({
+      weightKg: 9.5,
+      lengthCm: 52,
+      widthCm: 32,
+      heightCm: 50,
+    }))
+  })
+
   /** PR #24 review: a cancelled draft must not linger and get resubmitted on the next edit. */
   it('discards an abandoned edit when reopened after cancel', async () => {
     const wrapper = mountRow(baseSku({ listPrice: 100 }))

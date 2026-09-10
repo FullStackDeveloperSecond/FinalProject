@@ -1,5 +1,4 @@
 export { default as AppButton } from './AppButton.vue'
-export { default as DemoLoginFill } from './DemoLoginFill.vue'
 export { default as BrandIcon, type BrandIconName } from './BrandIcon.vue'
 export { default as BrandMark } from './BrandMark.vue'
 export { default as CursorPager } from './CursorPager.vue'

@@ -5,8 +5,11 @@ using System.Data;
 using DoSelect.Application.Idempotency;
 using DoSelect.Application.Promotions;
 using DoSelect.Application.Shopping;
+using DoSelect.Api.IntegrationTests.Support;
+using DoSelect.Domain.Promotions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -87,6 +90,33 @@ public sealed class CartCouponApiTests
         using var response = await client.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task MemberVisibility_RequiresAnAuthenticatedMember()
+    {
+        using var factory = CreateMemberVisibilityFactory();
+        using var client = factory.CreateClient();
+
+        using var response = await client.GetAsync(
+            "/api/v1/cart/coupon/member-visibility/MEMBER100");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task MemberVisibility_ReturnsTheServerSideUsageDecision()
+    {
+        using var factory = CreateMemberVisibilityFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add(TestAuthHandler.MemberHeaderName, "member-1");
+
+        using var response = await client.GetAsync(
+            "/api/v1/cart/coupon/member-visibility/MEMBER100");
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(body.GetProperty("shouldDisplay").GetBoolean());
     }
 
     /// <summary>
@@ -183,12 +213,62 @@ public sealed class CartCouponApiTests
                 services.AddSingleton<ICartCouponLineReader, MissingCartReader>();
             }));
 
+    private static WebApplicationFactory<Program> CreateMemberVisibilityFactory() =>
+        new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+            builder.ConfigureTestServices(services =>
+            {
+                TestAuthHandler.Configure(services);
+                services.RemoveAll<ICouponRuleReader>();
+                services.AddSingleton<ICouponRuleReader, UnusedMemberCouponReader>();
+            }));
+
     /// <summary>回 <c>null</c>，讓真的服務走到「購物車不存在」那條路。</summary>
     private sealed class MissingCartReader : ICartCouponLineReader
     {
         public Task<CartCouponLines?> FindAsync(
             CartIdentity identity, CancellationToken cancellationToken = default) =>
             Task.FromResult<CartCouponLines?>(null);
+    }
+
+    private sealed class UnusedMemberCouponReader : ICouponRuleReader
+    {
+        private static readonly DateTime NowUtc = DateTime.UtcNow;
+
+        public Task<DateTime?> GetMemberCreatedAtUtcAsync(
+            string memberUserId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<DateTime?>(NowUtc.AddMonths(-1));
+
+        public Task<CouponRuleSnapshot?> FindByCodeAsync(
+            string normalizedCode,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<CouponRuleSnapshot?>(new CouponRuleSnapshot(
+                42,
+                new CouponRule(
+                    "MEMBER100",
+                    CouponDiscountType.FixedAmount,
+                    100m,
+                    1000m,
+                    null,
+                    NowUtc.AddYears(-1),
+                    NowUtc.AddYears(1),
+                    null,
+                    1,
+                    true,
+                    false,
+                    CouponScopeType.All,
+                    CouponStatus.Active,
+                    1,
+                    MemberValidityMonths: 12),
+                CouponScopeRules.SiteWide));
+
+        public Task<CouponUsageState> GetUsageAsync(
+            long couponId,
+            string? memberUserId,
+            byte[]? guestUsageKeyHash,
+            DateTime evaluatedAtUtc,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(CouponUsageState.Unused);
     }
 
     /// <summary>這兩支端點不寫任何東西，冪等執行器只是相依鏈上的必要品。</summary>

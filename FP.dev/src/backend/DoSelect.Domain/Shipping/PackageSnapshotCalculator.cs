@@ -7,7 +7,9 @@ public sealed record PackageItemDimensions(
     decimal? LengthCm,
     decimal? WidthCm,
     decimal? HeightCm,
-    decimal UnitDeclaredValue);
+    decimal UnitDeclaredValue,
+    Guid? AssemblyGroupKey = null,
+    bool IsAssemblyEnclosure = false);
 
 public sealed record CalculatedPackage(
     decimal WeightKg,
@@ -42,19 +44,78 @@ public static class PackageSnapshotCalculator
             }
         }
 
-        var missing = items
-            .Where(item => item.WeightKg is null || item.LengthCm is null ||
-                item.WidthCm is null || item.HeightCm is null)
-            .Select(item => item.ItemKey.Trim())
-            .Distinct(StringComparer.Ordinal)
-            .Order(StringComparer.Ordinal)
-            .ToArray();
-        if (missing.Length > 0)
+        var missing = new HashSet<string>(StringComparer.Ordinal);
+        var physicalPackages = new List<PackageItemDimensions>();
+
+        foreach (var item in items.Where(item => item.AssemblyGroupKey is null))
         {
-            return new PackageCalculationResult(false, null, missing);
+            if (item.WeightKg is null || item.LengthCm is null ||
+                item.WidthCm is null || item.HeightCm is null)
+            {
+                missing.Add(item.ItemKey.Trim());
+                continue;
+            }
+
+            physicalPackages.Add(item);
         }
 
-        var normalized = items.Select(item =>
+        foreach (var group in items
+                     .Where(item => item.AssemblyGroupKey is not null)
+                     .GroupBy(item => item.AssemblyGroupKey!.Value))
+        {
+            var groupedItems = group.ToArray();
+            var enclosures = groupedItems.Where(item => item.IsAssemblyEnclosure).ToArray();
+            if (enclosures.Length != 1 || enclosures[0].Quantity != 1)
+            {
+                foreach (var item in groupedItems)
+                {
+                    missing.Add(item.ItemKey.Trim());
+                }
+
+                continue;
+            }
+
+            var enclosure = enclosures[0];
+            var groupIsComplete = true;
+            if (enclosure.LengthCm is null || enclosure.WidthCm is null || enclosure.HeightCm is null)
+            {
+                missing.Add(enclosure.ItemKey.Trim());
+                groupIsComplete = false;
+            }
+
+            foreach (var item in groupedItems.Where(item => item.WeightKg is null))
+            {
+                missing.Add(item.ItemKey.Trim());
+                groupIsComplete = false;
+            }
+
+            if (!groupIsComplete)
+            {
+                continue;
+            }
+
+            if (groupedItems.Any(item => item.WeightKg <= 0))
+            {
+                throw new ArgumentOutOfRangeException(nameof(items));
+            }
+
+            physicalPackages.Add(new PackageItemDimensions(
+                enclosure.ItemKey,
+                1,
+                groupedItems.Sum(item => item.WeightKg!.Value * item.Quantity),
+                enclosure.LengthCm,
+                enclosure.WidthCm,
+                enclosure.HeightCm,
+                groupedItems.Sum(item => item.UnitDeclaredValue * item.Quantity)));
+        }
+
+        var missingItems = missing.Order(StringComparer.Ordinal).ToArray();
+        if (missingItems.Length > 0)
+        {
+            return new PackageCalculationResult(false, null, missingItems);
+        }
+
+        var normalized = physicalPackages.Select(item =>
         {
             if (item.WeightKg <= 0 || item.LengthCm <= 0 || item.WidthCm <= 0 ||
                 item.HeightCm <= 0)

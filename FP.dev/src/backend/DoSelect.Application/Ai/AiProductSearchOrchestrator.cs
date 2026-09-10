@@ -1,5 +1,8 @@
 using System.Diagnostics;
+using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Unicode;
 using DoSelect.Domain.Members;
 
 namespace DoSelect.Application.Ai;
@@ -12,6 +15,11 @@ public sealed class AiProductSearchOrchestrator(
 {
     private const int MaximumMessageLength = 2_000;
     private const int MaximumExistingParts = 12;
+    private const int MaximumAssistantContentLength = 4_000;
+    private static readonly JsonSerializerOptions AssistantContentJsonOptions = new()
+    {
+        Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
+    };
 
     public async Task<AiProductSearchExecutionResult> ExecuteAsync(
         AiProductSearchExecutionRequest request,
@@ -209,6 +217,9 @@ public sealed class AiProductSearchOrchestrator(
                 intent);
         }
 
+        var boundedContent = CreateBoundedAssistantContent(candidateResult, reasons);
+        reasons = boundedContent.Reasons;
+
         var recommendations = candidateResult.Candidates
             .Select(candidate => new AiProductSearchRecommendation(
                 candidate.Product,
@@ -237,22 +248,10 @@ public sealed class AiProductSearchOrchestrator(
                 candidateResult.CustomBuild.Currency,
                 candidateResult.CustomBuild.CompatibilityStatus,
                 candidateResult.CustomBuild.CompatibilityMessageKeys);
-        var assistantContent = customBuild is null
-            ? JsonSerializer.Serialize(recommendations.Select(item => new
-            {
-                item.Product.DefaultSkuPublicId,
-                item.Reason,
-            }))
-            : JsonSerializer.Serialize(customBuild.Components.Select(item => new
-            {
-                item.SkuPublicId,
-                item.IsExistingPart,
-                item.Reason,
-            }));
         if (!await SaveAsync(
             request,
             intent,
-            assistantContent,
+            boundedContent.AssistantContent,
             usage,
             isDegraded: false,
             fallbackReason: null,
@@ -274,6 +273,81 @@ public sealed class AiProductSearchOrchestrator(
             reservation.State.ResetAtUtc,
             customBuild);
     }
+
+    private static BoundedAssistantContent CreateBoundedAssistantContent(
+        AiProductSearchCandidateResult candidateResult,
+        IReadOnlyDictionary<Guid, AiProductRecommendationReason> originalReasons)
+    {
+        var maximumReasonLength = originalReasons.Count == 0
+            ? 0
+            : originalReasons.Values.Max(reason => reason.Reason.EnumerateRunes().Count());
+
+        while (true)
+        {
+            var boundedReasons = originalReasons.ToDictionary(
+                pair => pair.Key,
+                pair => pair.Value with
+                {
+                    Reason = BoundReason(pair.Value.Reason, maximumReasonLength),
+                });
+            var assistantContent = SerializeAssistantContent(candidateResult, boundedReasons);
+            if (assistantContent.Length <= MaximumAssistantContentLength)
+            {
+                return new BoundedAssistantContent(boundedReasons, assistantContent);
+            }
+
+            if (maximumReasonLength == 0)
+            {
+                throw new InvalidOperationException("The AI interaction summary exceeds its bounded contract.");
+            }
+
+            maximumReasonLength /= 2;
+        }
+    }
+
+    private static string SerializeAssistantContent(
+        AiProductSearchCandidateResult candidateResult,
+        IReadOnlyDictionary<Guid, AiProductRecommendationReason> reasons) =>
+        candidateResult.CustomBuild is null
+            ? JsonSerializer.Serialize(candidateResult.Candidates.Select(candidate => new
+            {
+                candidate.Product.DefaultSkuPublicId,
+                Reason = reasons[candidate.Product.DefaultSkuPublicId].Reason,
+            }), AssistantContentJsonOptions)
+            : JsonSerializer.Serialize(candidateResult.CustomBuild.Components.Select(component => new
+            {
+                component.SkuPublicId,
+                component.IsExistingPart,
+                Reason = component.IsExistingPart || component.Product is null
+                    ? null
+                    : reasons[component.Product.DefaultSkuPublicId].Reason,
+            }), AssistantContentJsonOptions);
+
+    private static string BoundReason(string reason, int maximumLength)
+    {
+        if (maximumLength == 0)
+        {
+            return string.Empty;
+        }
+
+        var runes = reason.EnumerateRunes().ToArray();
+        if (runes.Length <= maximumLength)
+        {
+            return reason;
+        }
+
+        if (maximumLength == 1)
+        {
+            return "…";
+        }
+
+        return string.Concat(runes.Take(maximumLength - 1).Select(rune => rune.ToString()))
+            .TrimEnd() + "…";
+    }
+
+    private sealed record BoundedAssistantContent(
+        Dictionary<Guid, AiProductRecommendationReason> Reasons,
+        string AssistantContent);
 
     private async Task<AiProductSearchExecutionResult> DegradeAsync(
         AiProductSearchExecutionRequest request,

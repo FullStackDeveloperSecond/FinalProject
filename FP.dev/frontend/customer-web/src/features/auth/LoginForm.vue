@@ -2,7 +2,6 @@
 import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { isApiError } from '@doselect/web-shared/api'
-import { DemoLoginFill } from '@doselect/web-shared/components'
 import { useSessionStore } from '../../stores/session'
 import PasswordVisibilityToggle from '../../components/PasswordVisibilityToggle.vue'
 import { resolveSafeRedirect } from '../../router/safeRedirect'
@@ -95,11 +94,6 @@ function resolveErrorMessage(error: unknown): string {
     novalidate
     @submit.prevent="handleSubmit"
   >
-    <DemoLoginFill
-      account-type="member"
-      :disabled="submitting"
-      @fill="account => { email = account.email; password = account.password }"
-    />
     <div
       v-if="topLevelError"
       class="form-banner form-banner--error"

@@ -710,7 +710,15 @@ public sealed class EfCheckoutTransactionGatewayTests
         var allSkus = new[] { cpu, matchingBoard, mismatchedBoard, memory, psu, pcCase, gpu, storage, cooler };
         foreach (var sku in allSkus)
         {
-            sku.UpdatePackageDimensions(1m, 20m, 15m, 10m, NowUtc);
+            // The completed computer ships inside the case carton. Individual component cartons
+            // are intentionally large enough that stacking all eight would exceed this test's
+            // package limit, proving checkout uses the assembled package rather than retail boxes.
+            sku.UpdatePackageDimensions(
+                ReferenceEquals(sku, pcCase) ? 8m : 1m,
+                ReferenceEquals(sku, pcCase) ? 50m : 40m,
+                ReferenceEquals(sku, pcCase) ? 50m : 40m,
+                ReferenceEquals(sku, pcCase) ? 50m : 40m,
+                NowUtc);
             context.InventoryBalances.Add(new DoSelect.Domain.Inventory.InventoryBalance(
                 Guid.CreateVersion7(), sku.Id, onHandQuantity: 10, reorderLevel: 1, NowUtc));
         }

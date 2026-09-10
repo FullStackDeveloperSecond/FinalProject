@@ -122,6 +122,33 @@ describe('ProductEditPage', () => {
     expect(skuStatuses).toEqual(['Draft', 'Published', 'Unpublished'])
   })
 
+  it('creates an additional SKU with editable package weight and dimensions', async () => {
+    mockGetAdminProduct.mockResolvedValue(product)
+    mockListBrands.mockResolvedValue({ items: [{ publicId: 'brand-1', code: 'ACME', nameZhTw: 'Acme' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    mockListCategories.mockResolvedValue({ items: [{ publicId: 'cat-1', code: 'CAT-A', nameZhTw: 'Category A' }], pageNumber: 1, pageSize: 100, totalCount: 1 })
+    mockListTags.mockResolvedValue({ items: [], pageNumber: 1, pageSize: 100, totalCount: 0 })
+    mockCreateSku.mockResolvedValueOnce({ publicId: 'sku-new', skuCode: 'NEW-1', isDefault: false })
+
+    const wrapper = await mountPage()
+    await flushPromises()
+    await wrapper.find('input[aria-label="新 SKU 代碼"]').setValue('NEW-1')
+    await wrapper.find('input[aria-label="新 SKU 名稱"]').setValue('New SKU')
+    await wrapper.find('input[aria-label="新 SKU 重量 (kg)"]').setValue('8.5')
+    await wrapper.find('input[aria-label="新 SKU 長度 (cm)"]').setValue('50')
+    await wrapper.find('input[aria-label="新 SKU 寬度 (cm)"]').setValue('30')
+    await wrapper.find('input[aria-label="新 SKU 高度 (cm)"]').setValue('48')
+    await wrapper.findAll('button').find((button) => button.text() === '新增 SKU')!.trigger('click')
+    await flushPromises()
+
+    expect(mockCreateSku).toHaveBeenCalledWith('p1', expect.objectContaining({
+      weightKg: 8.5,
+      lengthCm: 50,
+      widthCm: 30,
+      heightCm: 48,
+    }))
+    mockCreateSku.mockClear()
+  })
+
   /**
    * PR #24 review: a tag deactivated after being assigned must not silently drop off the
    * form's tagCodes just because it's missing from the isActive-only, page-capped lookup.

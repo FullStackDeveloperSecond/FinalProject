@@ -379,6 +379,7 @@ const isNotFound = computed(() => isApiError(error.value) && error.value.status 
 
     <section
       v-if="product.description"
+      class="product-detail__section"
       aria-labelledby="product-description-title"
     >
       <h2 id="product-description-title">
@@ -387,7 +388,10 @@ const isNotFound = computed(() => isApiError(error.value) && error.value.status 
       <p>{{ product.description }}</p>
     </section>
 
-    <section aria-labelledby="product-reviews-title">
+    <section
+      class="product-detail__section"
+      aria-labelledby="product-reviews-title"
+    >
       <h2 id="product-reviews-title">
         購買者評價
       </h2>
@@ -441,6 +445,7 @@ const isNotFound = computed(() => isApiError(error.value) && error.value.status 
 
     <section
       v-if="selectedSku && selectedSku.specifications.length > 0"
+      class="product-detail__section"
       aria-labelledby="product-specs-title"
     >
       <h2 id="product-specs-title">
@@ -459,6 +464,7 @@ const isNotFound = computed(() => isApiError(error.value) && error.value.status 
 
     <section
       v-if="product.shippingRestrictions.length > 0"
+      class="product-detail__section"
       aria-labelledby="product-shipping-title"
     >
       <h2 id="product-shipping-title">
@@ -478,6 +484,7 @@ const isNotFound = computed(() => isApiError(error.value) && error.value.status 
 
     <section
       v-if="product.tags.length > 0"
+      class="product-detail__section"
       aria-labelledby="product-tags-title"
     >
       <h2 id="product-tags-title">
@@ -597,6 +604,20 @@ const isNotFound = computed(() => isApiError(error.value) && error.value.status 
   padding: 0;
   list-style: none;
   font-size: 0.875rem;
+}
+
+.product-detail__section {
+  padding: clamp(1rem, 2vw, 1.5rem);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.product-detail__section > h2 {
+  margin: 0 0 1rem;
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid var(--color-border-line);
 }
 
 .product-detail__shipping-item--blocked {

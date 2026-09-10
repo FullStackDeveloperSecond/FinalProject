@@ -1,6 +1,8 @@
 using DoSelect.Application.Ai;
 using DoSelect.Application.Catalog;
+using DoSelect.Domain.Catalog;
 using DoSelect.Domain.Members;
+using System.Text.Json;
 
 namespace DoSelect.Application.Tests.Ai;
 
@@ -95,6 +97,63 @@ public sealed class AiProductSearchOrchestratorTests
         Assert.Equal("符合用途與新購預算。", result.CustomBuild.Components[0].Reason);
         Assert.Null(result.CustomBuild.Components[1].Reason);
         Assert.True(result.CustomBuild.Components[1].IsExistingPart);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_EightLongCustomBuildReasons_PersistsTheExactBoundedResponse()
+    {
+        var intent = CreateIntent() with
+        {
+            Intent = AiProductSearchIntentType.CustomBuild,
+            CategoryCode = null,
+        };
+        var products = CompatibilityCatalogContract.Categories.All
+            .Select((categoryCode, index) => CreateProduct() with
+            {
+                DefaultSkuPublicId = Guid.Parse($"50000000-0000-0000-0000-{index + 1:000000000000}"),
+                Name = $"完整組裝零件 {index + 1}",
+                Category = new ProductCategoryRef(categoryCode, categoryCode),
+            })
+            .ToArray();
+        var reasons = products.Select(product => new AiProductRecommendationReason(
+            product.DefaultSkuPublicId,
+            $"推薦 {product.Name}。{new string('說', 700)}"))
+            .ToArray();
+        var customBuild = new AiCustomBuildCandidate(
+            products.Select(product => new AiCustomBuildComponentCandidate(
+                product,
+                product.DefaultSkuPublicId,
+                "catalogSku",
+                product.Category.Code,
+                product.Name,
+                1,
+                IsExistingPart: false)).ToArray(),
+            PurchaseSubtotal: 40_000,
+            AssemblyFee: AiCustomBuildPricing.AssemblyFee,
+            PurchaseTotal: 40_300,
+            Currency: "TWD",
+            AiCompatibilityStatus.Compatible,
+            CompatibilityMessageKeys: []);
+        var store = new StubStore();
+        var subject = new AiProductSearchOrchestrator(
+            new StubAdmission(),
+            new StubModel(intent, reasons),
+            new StubCatalog([], customBuild: customBuild),
+            store);
+
+        var result = await subject.ExecuteAsync(CreateRequest());
+
+        Assert.Equal(AiProductSearchExecutionStatus.Recommendations, result.Status);
+        Assert.NotNull(result.CustomBuild);
+        Assert.Equal(CompatibilityCatalogContract.Categories.All.Count, result.CustomBuild.Components.Count);
+        var persisted = Assert.IsType<string>(store.LastWrite?.AssistantContent);
+        Assert.InRange(persisted.Length, 1, 4_000);
+        using var document = JsonDocument.Parse(persisted);
+        var persistedItems = document.RootElement.EnumerateArray().ToArray();
+        Assert.Equal(result.CustomBuild.Components.Count, persistedItems.Length);
+        Assert.Equal(
+            result.CustomBuild.Components.Select(component => component.Reason),
+            persistedItems.Select(item => item.GetProperty("Reason").GetString()));
     }
 
     [Fact]

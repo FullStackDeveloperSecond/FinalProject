@@ -139,6 +139,15 @@ describe('OrderDetailPage recipient error/retry', () => {
     expect(wrapper.text()).not.toContain('NotRequired')
   })
 
+  it('groups dense order information into a summary and titled panels', async () => {
+    const wrapper = await mountPage()
+
+    expect(wrapper.classes()).toContain('record-detail')
+    expect(wrapper.find('.record-detail__header').exists()).toBe(true)
+    expect(wrapper.findAll('.record-detail__summary > div')).toHaveLength(7)
+    expect(wrapper.findAll('.record-detail__panel').length).toBeGreaterThanOrEqual(5)
+  })
+
   it('shows an ErrorState with a retry action instead of a blank area when the recipient fetch fails', async () => {
     orderMocks.recipientError.value = true
     orderMocks.recipientFailure.value = new ApiError('Internal error', {
