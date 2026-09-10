@@ -32,7 +32,8 @@ public sealed class AdminReturnsController : ControllerBase
     {
         var query = new AdminReturnQuery(
             request.Statuses, request.ReasonCodes, request.From, request.To, request.Q,
-            request.PageNumber ?? 1, request.PageSize ?? 20);
+            request.PageNumber ?? 1, request.PageSize ?? 20,
+            request.Sort ?? AdminReturnSortOrder.UpdatedDesc);
         var result = await _service.ListAsync(query, cancellationToken);
         return Ok(result);
     }
@@ -135,4 +136,5 @@ public sealed record AdminReturnListRequest(
     DateTime? To,
     string? Q,
     int? PageNumber,
-    int? PageSize);
+    int? PageSize,
+    AdminReturnSortOrder? Sort);

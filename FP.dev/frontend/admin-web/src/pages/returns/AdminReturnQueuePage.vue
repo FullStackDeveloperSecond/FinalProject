@@ -1,24 +1,141 @@
 <script setup lang="ts">
 import { EmptyState, ErrorState, LoadingState, PagePager } from '@doselect/web-shared/components'
-import { computed, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { isApiError } from '@doselect/web-shared/api'
 import { useAdminReturnListQuery } from '../../features/returns/queries'
-import { formatDateTime, priorityLabels, statusLabels } from '../../features/returns/labels'
-import type { AdminReturnSummaryDto } from '../../features/returns/types'
+import { formatDateTime, priorityLabels, reasonLabels, statusLabels } from '../../features/returns/labels'
+import type { AdminReturnSortOrder, AdminReturnSummaryDto } from '../../features/returns/types'
+import { endOfLocalDayExclusiveBoundary, startOfLocalDay } from '../../features/inventory/dateRange'
+
+const route = useRoute()
+const router = useRouter()
+const statusOptions = Object.entries(statusLabels)
+const reasonOptions = Object.entries(reasonLabels)
+const sortOptions: Array<{ value: AdminReturnSortOrder, label: string }> = [
+  { value: 'updatedDesc', label: '最近更新優先' },
+  { value: 'updatedAsc', label: '最早更新優先' },
+  { value: 'requestedDesc', label: '最新申請優先' },
+  { value: 'requestedAsc', label: '最早申請優先' },
+  { value: 'shipmentDeadlineAsc', label: '寄回期限近優先' },
+  { value: 'shipmentDeadlineDesc', label: '寄回期限遠優先' },
+]
+const pageSizeOptions = [20, 50, 100] as const
 
 const page = ref(1)
-const status = ref<AdminReturnSummaryDto['status'] | ''>('')
 const search = ref('')
 const appliedSearch = ref('')
+const filtersState = reactive({
+  status: '' as AdminReturnSummaryDto['status'] | '',
+  reason: '',
+  from: '',
+  to: '',
+  sort: 'updatedDesc' as AdminReturnSortOrder,
+  pageSize: 20,
+})
+let restoringFromUrl = false
+
+function queryValue(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
+function dateQueryValue(value: unknown): string {
+  const candidate = queryValue(value)
+  return /^\d{4}-\d{2}-\d{2}$/.test(candidate) ? candidate : ''
+}
+
+function restoreFromUrl() {
+  restoringFromUrl = true
+  const q = queryValue(route.query.q).trim()
+  const status = queryValue(route.query.status)
+  const reason = queryValue(route.query.reason)
+  const sort = queryValue(route.query.sort)
+  const requestedPage = Number(route.query.page)
+  const requestedPageSize = Number(route.query.pageSize)
+
+  search.value = q
+  appliedSearch.value = q
+  filtersState.status = statusOptions.some(([value]) => value === status)
+    ? status as AdminReturnSummaryDto['status']
+    : ''
+  filtersState.reason = reasonOptions.some(([value]) => value === reason) ? reason : ''
+  filtersState.from = dateQueryValue(route.query.from)
+  filtersState.to = dateQueryValue(route.query.to)
+  filtersState.sort = sortOptions.some(option => option.value === sort)
+    ? sort as AdminReturnSortOrder
+    : 'updatedDesc'
+  filtersState.pageSize = pageSizeOptions.includes(requestedPageSize as typeof pageSizeOptions[number])
+    ? requestedPageSize
+    : 20
+  page.value = Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1
+  restoringFromUrl = false
+}
+
+watch(() => route.fullPath, restoreFromUrl, { immediate: true })
+
 watch(search, (value, _previous, cleanup) => {
-  const timer = setTimeout(() => { appliedSearch.value = value.trim(); page.value = 1 }, 300)
+  const normalized = value.trim()
+  if (restoringFromUrl || normalized === appliedSearch.value) return
+  const timer = setTimeout(() => {
+    appliedSearch.value = normalized
+    page.value = 1
+  }, 300)
   cleanup(() => clearTimeout(timer))
 })
-watch(status, () => { page.value = 1 })
+
+watch(
+  () => [
+    filtersState.status,
+    filtersState.reason,
+    filtersState.from,
+    filtersState.to,
+    filtersState.sort,
+    filtersState.pageSize,
+  ],
+  () => {
+    if (!restoringFromUrl) page.value = 1
+  },
+  { flush: 'sync' },
+)
+
+watch(
+  () => ({
+    q: appliedSearch.value,
+    status: filtersState.status,
+    reason: filtersState.reason,
+    from: filtersState.from,
+    to: filtersState.to,
+    sort: filtersState.sort,
+    pageSize: filtersState.pageSize,
+    page: page.value,
+  }),
+  (state) => {
+    if (restoringFromUrl) return
+    const query: Record<string, string> = {}
+    if (state.q) query.q = state.q
+    if (state.status) query.status = state.status
+    if (state.reason) query.reason = state.reason
+    if (state.from) query.from = state.from
+    if (state.to) query.to = state.to
+    if (state.sort !== 'updatedDesc') query.sort = state.sort
+    if (state.pageSize !== 20) query.pageSize = String(state.pageSize)
+    if (state.page > 1) query.page = String(state.page)
+    if (JSON.stringify(query) !== JSON.stringify(route.query)) {
+      void router.replace({ query })
+    }
+  },
+  { deep: true },
+)
+
 const filters = computed(() => ({
-  PageNumber: page.value, PageSize: 20,
-  Statuses: status.value ? [status.value] : undefined,
+  PageNumber: page.value,
+  PageSize: filtersState.pageSize,
+  Statuses: filtersState.status ? [filtersState.status] : undefined,
+  ReasonCodes: filtersState.reason ? [filtersState.reason] : undefined,
+  From: filtersState.from ? startOfLocalDay(filtersState.from).toISOString() : undefined,
+  To: filtersState.to ? endOfLocalDayExclusiveBoundary(filtersState.to).toISOString() : undefined,
   Q: appliedSearch.value || undefined,
+  Sort: filtersState.sort,
 }))
 const { data, isPending, isFetching, isError, error, refetch } = useAdminReturnListQuery(filters)
 
@@ -36,36 +153,98 @@ function deadlineLabel(item: AdminReturnSummaryDto): string {
       退貨案件
     </h1>
 
-    <div
-      class="admin-returns__filters"
+    <form
+      class="admin-returns__filters card"
       role="search"
       aria-label="退貨案件篩選"
+      @submit.prevent
     >
       <label>
-        退貨編號
+        退貨或訂單編號
         <input
           v-model="search"
           type="search"
           maxlength="100"
-          aria-label="退貨編號"
-          placeholder="輸入退貨編號"
+          aria-label="退貨或訂單編號"
+          placeholder="輸入退貨或訂單編號"
         >
       </label>
       <label>
         退貨狀態
         <select
-          v-model="status"
+          v-model="filtersState.status"
           aria-label="退貨狀態"
         >
           <option value="">全部狀態</option>
           <option
-            v-for="(label, value) in statusLabels"
+            v-for="([value, label]) in statusOptions"
             :key="value"
             :value="value"
           >{{ label }}</option>
         </select>
       </label>
-    </div>
+      <label>
+        退貨原因
+        <select
+          v-model="filtersState.reason"
+          aria-label="退貨原因"
+        >
+          <option value="">全部原因</option>
+          <option
+            v-for="([value, label]) in reasonOptions"
+            :key="value"
+            :value="value"
+          >{{ label }}</option>
+        </select>
+      </label>
+      <fieldset class="admin-returns__date-range">
+        <legend>申請日期</legend>
+        <label>
+          從
+          <input
+            v-model="filtersState.from"
+            type="date"
+            aria-label="申請日期從"
+            :max="filtersState.to || undefined"
+          >
+        </label>
+        <label>
+          到
+          <input
+            v-model="filtersState.to"
+            type="date"
+            aria-label="申請日期到"
+            :min="filtersState.from || undefined"
+          >
+        </label>
+      </fieldset>
+      <label>
+        排序
+        <select
+          v-model="filtersState.sort"
+          aria-label="退貨案件排序"
+        >
+          <option
+            v-for="option in sortOptions"
+            :key="option.value"
+            :value="option.value"
+          >{{ option.label }}</option>
+        </select>
+      </label>
+      <label>
+        每頁筆數
+        <select
+          v-model.number="filtersState.pageSize"
+          aria-label="每頁筆數"
+        >
+          <option
+            v-for="value in pageSizeOptions"
+            :key="value"
+            :value="value"
+          >{{ value }} 筆</option>
+        </select>
+      </label>
+    </form>
 
     <LoadingState v-if="isPending" />
     <ErrorState
@@ -78,7 +257,7 @@ function deadlineLabel(item: AdminReturnSummaryDto): string {
     <EmptyState
       v-else-if="data && data.items.length === 0"
       title="目前沒有退貨案件"
-      description="有新的退貨申請時會顯示在這裡。"
+      description="調整篩選條件，或稍後再回來查看。"
     />
     <div
       v-else-if="data"
@@ -146,7 +325,7 @@ function deadlineLabel(item: AdminReturnSummaryDto): string {
     <PagePager
       v-if="data"
       v-model:page="page"
-      :page-size="20"
+      :page-size="filtersState.pageSize"
       :total-records="Number(data.totalCount)"
       :busy="isFetching"
       aria-label="退貨案件分頁"
@@ -161,8 +340,10 @@ function deadlineLabel(item: AdminReturnSummaryDto): string {
 </template>
 
 <style scoped>
-.admin-returns__filters { display: flex; flex-wrap: wrap; gap: 1rem; margin: 1rem 0; }
+.admin-returns__filters { display: flex; flex-wrap: wrap; align-items: end; gap: 1rem; margin: 1rem 0; padding: 1rem; }
 .admin-returns__filters label { display: grid; gap: .4rem; }
+.admin-returns__date-range { display: flex; gap: .75rem; margin: 0; padding: 0; border: 0; }
+.admin-returns__date-range legend { margin-bottom: .4rem; color: var(--color-text-muted); font-size: .875rem; }
 .admin-returns__table {
   width: 100%;
   border-collapse: collapse;

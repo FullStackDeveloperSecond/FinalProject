@@ -1504,6 +1504,7 @@ export interface paths {
                     Q?: string;
                     PageNumber?: number | string;
                     PageSize?: number | string;
+                    Sort?: components["schemas"]["AdminReturnSortOrder"];
                 };
                 header?: never;
                 path?: never;
@@ -10725,6 +10726,8 @@ export interface components {
             history: components["schemas"]["ReturnHistoryEntryDto"][];
             availableActions: string[];
         };
+        /** @enum {unknown} */
+        AdminReturnSortOrder: "updatedDesc" | "updatedAsc" | "requestedDesc" | "requestedAsc" | "shipmentDeadlineAsc" | "shipmentDeadlineDesc" | null;
         AdminReturnSummaryDto: {
             /** Format: uuid */
             publicId: string;

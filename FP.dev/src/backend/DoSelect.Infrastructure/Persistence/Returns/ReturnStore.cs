@@ -266,47 +266,70 @@ public sealed class ReturnStore : IReturnStore
     public async Task<(IReadOnlyList<AdminReturnSummaryDto> Items, int TotalCount)> ListForAdminAsync(
         AdminReturnQuery query, CancellationToken cancellationToken)
     {
-        var filtered = _dbContext.ReturnRequests.AsQueryable();
+        var filtered = _dbContext.ReturnRequests
+            .Join(
+                _dbContext.Orders,
+                r => r.OrderId,
+                o => o.Id,
+                (r, o) => new { Return = r, o.PublicId, o.OrderNumber });
         if (query.Statuses is { Count: > 0 } statuses)
         {
-            filtered = filtered.Where(r => statuses.Contains(r.Status));
+            filtered = filtered.Where(x => statuses.Contains(x.Return.Status));
         }
 
         if (query.ReasonCodes is { Count: > 0 } reasonCodes)
         {
-            filtered = filtered.Where(r => reasonCodes.Contains(r.ReasonCode));
+            filtered = filtered.Where(x => reasonCodes.Contains(x.Return.ReasonCode));
         }
 
         if (query.From is { } from)
         {
-            filtered = filtered.Where(r => r.RequestedAtUtc >= from);
+            filtered = filtered.Where(x => x.Return.RequestedAtUtc >= from);
         }
 
         if (query.To is { } to)
         {
-            filtered = filtered.Where(r => r.RequestedAtUtc <= to);
+            filtered = filtered.Where(x => x.Return.RequestedAtUtc <= to);
         }
 
         if (!string.IsNullOrWhiteSpace(query.Q))
         {
             var q = query.Q.Trim();
-            filtered = filtered.Where(r => r.ReturnNumber.Contains(q));
+            filtered = filtered.Where(x =>
+                x.Return.ReturnNumber.Contains(q) || x.OrderNumber.Contains(q));
         }
 
         var totalCount = await filtered.CountAsync(cancellationToken);
 
-        var joined = filtered
-            .Join(
-                _dbContext.Orders,
-                r => r.OrderId,
-                o => o.Id,
-                (r, o) => new { Return = r, o.PublicId, o.OrderNumber })
-            .OrderByDescending(x => x.Return.UpdatedAtUtc)
-            .ThenByDescending(x => x.Return.PublicId)
+        var ordered = query.Sort switch
+        {
+            AdminReturnSortOrder.UpdatedAsc => filtered
+                .OrderBy(x => x.Return.UpdatedAtUtc)
+                .ThenBy(x => x.Return.PublicId),
+            AdminReturnSortOrder.RequestedDesc => filtered
+                .OrderByDescending(x => x.Return.RequestedAtUtc)
+                .ThenByDescending(x => x.Return.PublicId),
+            AdminReturnSortOrder.RequestedAsc => filtered
+                .OrderBy(x => x.Return.RequestedAtUtc)
+                .ThenBy(x => x.Return.PublicId),
+            AdminReturnSortOrder.ShipmentDeadlineAsc => filtered
+                .OrderBy(x => x.Return.ReturnShipmentDueAtUtc == null)
+                .ThenBy(x => x.Return.ReturnShipmentDueAtUtc)
+                .ThenBy(x => x.Return.PublicId),
+            AdminReturnSortOrder.ShipmentDeadlineDesc => filtered
+                .OrderBy(x => x.Return.ReturnShipmentDueAtUtc == null)
+                .ThenByDescending(x => x.Return.ReturnShipmentDueAtUtc)
+                .ThenByDescending(x => x.Return.PublicId),
+            _ => filtered
+                .OrderByDescending(x => x.Return.UpdatedAtUtc)
+                .ThenByDescending(x => x.Return.PublicId),
+        };
+
+        var paged = ordered
             .Skip((query.PageNumber - 1) * query.PageSize)
             .Take(query.PageSize);
 
-        var rows = await joined
+        var rows = await paged
             .Select(x => new
             {
                 x.Return.PublicId,

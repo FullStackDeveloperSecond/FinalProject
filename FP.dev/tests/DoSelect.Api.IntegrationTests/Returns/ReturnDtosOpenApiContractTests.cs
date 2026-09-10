@@ -117,4 +117,38 @@ public sealed class ReturnDtosOpenApiContractTests : IClassFixture<WebApplicatio
             Assert.Equal(0m, shippingCost.GetProperty("minimum").GetDecimal());
         }
     }
+
+    [Fact]
+    public async Task OpenApiDocument_AdminReturnList_ExposesTheOptionalSortContract()
+    {
+        using var factory = _factory.WithWebHostBuilder(builder => builder.UseEnvironment("Development"));
+        using var client = factory.CreateClient();
+
+        using var response = await client.GetAsync("/openapi/v1.json");
+        response.EnsureSuccessStatusCode();
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = document.RootElement;
+
+        var parameters = root.GetProperty("paths")
+            .GetProperty("/api/v1/admin/returns")
+            .GetProperty("get")
+            .GetProperty("parameters")
+            .EnumerateArray();
+        var sortParameter = parameters.Single(parameter =>
+            parameter.GetProperty("name").GetString() == "Sort");
+        Assert.Equal("#/components/schemas/AdminReturnSortOrder",
+            sortParameter.GetProperty("schema").GetProperty("$ref").GetString());
+
+        var values = root.GetProperty("components")
+            .GetProperty("schemas")
+            .GetProperty("AdminReturnSortOrder")
+            .GetProperty("enum")
+            .EnumerateArray()
+            .Where(value => value.ValueKind == JsonValueKind.String)
+            .Select(value => value.GetString()!)
+            .ToArray();
+        Assert.Equal(
+            ["updatedDesc", "updatedAsc", "requestedDesc", "requestedAsc", "shipmentDeadlineAsc", "shipmentDeadlineDesc"],
+            values);
+    }
 }

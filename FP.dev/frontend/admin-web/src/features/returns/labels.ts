@@ -59,6 +59,14 @@ export const conditionCodeLabels: Record<typeof conditionCodeOptions[number], st
   Activated: '已啟用',
 }
 
+export const reasonLabels: Record<string, string> = {
+  CoolingOff: '一般退貨（猶豫期）',
+  Defective: '商品瑕疵',
+  WrongItem: '寄錯商品',
+  ShippingDamage: '運送損壞',
+  Warranty: '保固處理',
+}
+
 export const inspectionStatusLabels: Record<string, string> = {
   NotInspected: '尚未檢查',
   PendingInspection: '尚未檢查',

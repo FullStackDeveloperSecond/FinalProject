@@ -81,6 +81,16 @@ public sealed record ReturnRequestDto(
 
 // ---- Admin queries ----
 
+public enum AdminReturnSortOrder
+{
+    UpdatedDesc,
+    UpdatedAsc,
+    RequestedDesc,
+    RequestedAsc,
+    ShipmentDeadlineAsc,
+    ShipmentDeadlineDesc,
+}
+
 public sealed record AdminReturnQuery(
     IReadOnlyList<ReturnRequestStatus>? Statuses = null,
     IReadOnlyList<string>? ReasonCodes = null,
@@ -88,7 +98,8 @@ public sealed record AdminReturnQuery(
     DateTime? To = null,
     string? Q = null,
     int PageNumber = 1,
-    int PageSize = 20);
+    int PageSize = 20,
+    AdminReturnSortOrder Sort = AdminReturnSortOrder.UpdatedDesc);
 
 public sealed record AdminReturnSummaryDto(
     Guid PublicId,

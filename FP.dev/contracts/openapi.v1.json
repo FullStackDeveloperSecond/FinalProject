@@ -2073,6 +2073,13 @@
               ],
               "format": "int32"
             }
+          },
+          {
+            "name": "Sort",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/AdminReturnSortOrder"
+            }
           }
         ],
         "responses": {
@@ -16247,6 +16254,17 @@
             }
           }
         }
+      },
+      "AdminReturnSortOrder": {
+        "enum": [
+          "updatedDesc",
+          "updatedAsc",
+          "requestedDesc",
+          "requestedAsc",
+          "shipmentDeadlineAsc",
+          "shipmentDeadlineDesc",
+          null
+        ]
       },
       "AdminReturnSummaryDto": {
         "required": [

@@ -125,6 +125,61 @@ public sealed class ReturnStoreConcurrencyTests
         var resultA = await taskA;
         Assert.Single(resultA.Items);
     }
+
+    [SqlServerFact]
+    public async Task ListForAdminAsync_SearchesOrderNumbersAndAppliesFiltersAndRequestedDateSort()
+    {
+        var olderAtUtc = NowUtc.AddDays(-2);
+        var newerAtUtc = NowUtc.AddDays(-1);
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var returnPrefix = $"RT-LIST-{suffix}";
+
+        await using var context = ReturnStoreConcurrencyFixture.CreateContext();
+        var (olderOrderId, olderOrderItemId) = await SeedOrderWithItemAsync(context, returnableQuantity: 1);
+        var (newerOrderId, newerOrderItemId) = await SeedOrderWithItemAsync(context, returnableQuantity: 1);
+        var newerOrderNumber = await context.Orders
+            .Where(order => order.Id == newerOrderId)
+            .Select(order => order.OrderNumber)
+            .SingleAsync();
+
+        var store = new ReturnStore(context);
+        await store.CreateWithItemsAsync(
+            NewRequest(olderOrderId, $"{returnPrefix}-A", olderAtUtc, "Defective"),
+            [new ReturnItemQuantityBudget(olderOrderItemId, 1, 1)],
+            requestId => [new ReturnItem(Guid.CreateVersion7(), requestId, olderOrderItemId, 1, 0m, "NotInspected", olderAtUtc)],
+            CancellationToken.None);
+        await store.CreateWithItemsAsync(
+            NewRequest(newerOrderId, $"{returnPrefix}-B", newerAtUtc, "WrongItem"),
+            [new ReturnItemQuantityBudget(newerOrderItemId, 1, 1)],
+            requestId => [new ReturnItem(Guid.CreateVersion7(), requestId, newerOrderItemId, 1, 0m, "NotInspected", newerAtUtc)],
+            CancellationToken.None);
+
+        var (sorted, sortedCount) = await store.ListForAdminAsync(
+            new AdminReturnQuery(Q: returnPrefix, PageNumber: 1, PageSize: 20,
+                Sort: AdminReturnSortOrder.RequestedAsc),
+            CancellationToken.None);
+
+        Assert.Equal(2, sortedCount);
+        Assert.Equal([$"{returnPrefix}-A", $"{returnPrefix}-B"], sorted.Select(item => item.ReturnNumber));
+
+        var (byOrderNumber, orderMatchCount) = await store.ListForAdminAsync(
+            new AdminReturnQuery(Q: newerOrderNumber, PageNumber: 1, PageSize: 20),
+            CancellationToken.None);
+        Assert.Equal(1, orderMatchCount);
+        Assert.Equal($"{returnPrefix}-B", Assert.Single(byOrderNumber).ReturnNumber);
+
+        var (filtered, filteredCount) = await store.ListForAdminAsync(
+            new AdminReturnQuery(
+                ReasonCodes: ["WrongItem"],
+                From: newerAtUtc.AddMinutes(-1),
+                To: newerAtUtc.AddMinutes(1),
+                Q: returnPrefix,
+                PageNumber: 1,
+                PageSize: 20),
+            CancellationToken.None);
+        Assert.Equal(1, filteredCount);
+        Assert.Equal($"{returnPrefix}-B", Assert.Single(filtered).ReturnNumber);
+    }
     [SqlServerFact]
     public async Task CreateWithItemsAsync_PersistsMaxLengthAndNullDescriptions_AndReadModelRoundTripsBoth()
     {
@@ -370,8 +425,13 @@ public sealed class ReturnStoreConcurrencyTests
         }
     }
 
-    private static ReturnRequest NewRequest(long orderId, string returnNumber) =>
-        new(Guid.CreateVersion7(), returnNumber, orderId, requesterUserId: null, "Defective", "面板有亮點", policyVersion: 1, NowUtc);
+    private static ReturnRequest NewRequest(
+        long orderId,
+        string returnNumber,
+        DateTime? requestedAtUtc = null,
+        string reasonCode = "Defective") =>
+        new(Guid.CreateVersion7(), returnNumber, orderId, requesterUserId: null, reasonCode, "面板有亮點",
+            policyVersion: 1, requestedAtUtc ?? NowUtc);
 
     private static async Task<(long OrderId, long OrderItemId)> SeedOrderWithItemAsync(DoSelectDbContext context, int returnableQuantity)
     {

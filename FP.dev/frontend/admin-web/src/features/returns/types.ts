@@ -1,6 +1,7 @@
 import type { components } from '@doselect/web-shared/api'
 
 export type AdminReturnSummaryDto = components['schemas']['AdminReturnSummaryDto']
+export type AdminReturnSortOrder = NonNullable<components['schemas']['AdminReturnSortOrder']>
 export type AdminReturnDetailDto = components['schemas']['AdminReturnDetailDto']
 export type ReturnRequestDto = components['schemas']['ReturnRequestDto']
 export type ApproveReturnRequest = components['schemas']['ApproveReturnRequest']
