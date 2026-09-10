@@ -20,17 +20,21 @@ const mocks = await vi.hoisted(async () => {
     issueFailed: ref(false),
     issueError: ref<unknown>(null),
     issue: vi.fn(),
+    listParams: null as { value: Record<string, unknown> } | null,
   }
 })
 
 vi.mock('../../features/invoices/useInvoices', () => ({
-  useInvoiceList: () => ({
-    data: mocks.result,
-    isPending: mocks.pending,
-    isError: mocks.failed,
-    error: mocks.error,
-    refetch: mocks.refetch,
-  }),
+  useInvoiceList: (params: { value: Record<string, unknown> }) => {
+    mocks.listParams = params
+    return {
+      data: mocks.result,
+      isPending: mocks.pending,
+      isError: mocks.failed,
+      error: mocks.error,
+      refetch: mocks.refetch,
+    }
+  },
   useInvoiceIssuanceLookup: () => ({
     data: mocks.issuanceSnapshot,
     isPending: mocks.lookupPending,
@@ -74,6 +78,7 @@ describe('AdminInvoicesPage', () => {
     mocks.issueFailed.value = false
     mocks.issueError.value = null
     mocks.issue.mockReset()
+    mocks.listParams = null
   })
 
   it('renders the masked invoice summary and demo warning', async () => {
@@ -108,13 +113,14 @@ describe('AdminInvoicesPage', () => {
     expect(wrapper.find('a[href="/invoices/018f2e6a-0000-7000-8000-000000000060"]').exists()).toBe(true)
   })
 
-  it('looks up the narrow order snapshot and issues with its row version', async () => {
+  it('looks up the order by its visible order number and issues with the resolved public id', async () => {
     const orderPublicId = '018f2e6a-0000-7000-8000-000000000061'
+    const orderNumber = 'ORD-20260901-0001'
     const rowVersion = 'AQIDBAUGBwg='
     mocks.lookup.mockImplementation(async () => {
       const snapshot = {
         orderPublicId,
-        orderNumber: 'ORD-20260901-0001',
+        orderNumber,
         orderIsPaid: true,
         orderIsCancelled: false,
         rowVersion,
@@ -128,12 +134,13 @@ describe('AdminInvoicesPage', () => {
     })
     const wrapper = await mountPage()
 
-    await wrapper.get('#invoice-order-public-id').setValue(orderPublicId)
+    expect(wrapper.get('label[for="invoice-order-number"]').text()).toBe('訂單號碼')
+    await wrapper.get('#invoice-order-number').setValue(orderNumber)
     await wrapper.get('form[aria-label="手動開立模擬發票"]').trigger('submit')
     await wrapper.vm.$nextTick()
 
-    expect(mocks.lookup).toHaveBeenCalledWith(orderPublicId)
-    expect(wrapper.text()).toContain('ORD-20260901-0001')
+    expect(mocks.lookup).toHaveBeenCalledWith(orderNumber)
+    expect(wrapper.text()).toContain(orderNumber)
     await wrapper.get('[data-test="issue-invoice"]').trigger('click')
 
     expect(mocks.issue).toHaveBeenCalledOnce()
@@ -142,6 +149,40 @@ describe('AdminInvoicesPage', () => {
       request: { orderRowVersion: rowVersion },
     })
     expect(mocks.issue.mock.calls[0]?.[0]?.idempotencyKey).toEqual(expect.any(String))
+  })
+
+  it('requests server-side ascending and descending sorting from sortable headers', async () => {
+    mocks.result.value = {
+      items: [{
+        publicId: '018f2e6a-0000-7000-8000-000000000060',
+        invoiceNumber: 'DEMO-202609-000001',
+        orderPublicId: '018f2e6a-0000-7000-8000-000000000061',
+        orderNumber: 'ORD-20260901-0001',
+        status: 'issued',
+        netAmount: 952,
+        taxAmount: 48,
+        grossAmount: 1000,
+        issuedAtUtc: '2026-09-01T01:00:00Z',
+        demoMarker: 'DEMO-NOT-A-TAX-INVOICE',
+        rowVersion: 'AAAAAAAAAAE=',
+      }],
+      pageNumber: 1,
+      pageSize: 20,
+      totalCount: 1,
+      totalPages: 1,
+    }
+    const wrapper = await mountPage()
+
+    expect(mocks.listParams?.value).toMatchObject({ sort: 'invoiceNumberDesc' })
+    const invoiceNumberHeader = wrapper.get('th[data-sort="invoiceNumber"]')
+    expect(invoiceNumberHeader.attributes('aria-sort')).toBe('descending')
+    await invoiceNumberHeader.get('button').trigger('click')
+    expect(mocks.listParams?.value).toMatchObject({ sort: 'invoiceNumberAsc', pageNumber: 1 })
+    expect(invoiceNumberHeader.attributes('aria-sort')).toBe('ascending')
+
+    const orderNumberHeader = wrapper.get('th[data-sort="orderNumber"]')
+    await orderNumberHeader.get('button').trigger('click')
+    expect(mocks.listParams?.value).toMatchObject({ sort: 'orderNumberAsc', pageNumber: 1 })
   })
 })
 import PrimeVue from 'primevue/config'

@@ -285,6 +285,11 @@ public sealed class IssueInvoiceServiceTests
             CancellationToken cancellationToken = default) =>
             Task.FromResult(_snapshot);
 
+        public Task<InvoiceIssuanceOrderSummary?> FindAdminSummaryByOrderNumberAsync(
+            string orderNumber,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<InvoiceIssuanceOrderSummary?>(null);
+
         public Task<InvoiceIssuanceOrderSummary?> FindAdminSummaryAsync(
             Guid orderPublicId,
             CancellationToken cancellationToken = default) =>

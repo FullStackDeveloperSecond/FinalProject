@@ -125,6 +125,20 @@ describe('AdminCouponsPage', () => {
     expect(wrapper.text()).toContain('2 / 100')
   })
 
+  it('aligns coupon labels and controls on a shared form grid', async () => {
+    mockListCoupons.mockResolvedValueOnce(page([]))
+    const wrapper = mountPage()
+    await flushPromises()
+    await openCreateForm(wrapper)
+
+    const form = wrapper.get('.coupons-form')
+    expect(form.classes()).toContain('coupons-form--aligned')
+    expect(form.findAll('.coupons-field').length).toBeGreaterThan(8)
+    expect(form.get('[name="code"]').classes()).toContain('coupons-control')
+    expect(form.get('[name="discountType"]').classes()).toContain('coupons-control')
+    expect(form.get('[name="startsAt"]').classes()).toContain('coupons-control')
+  })
+
   it('shows quantity tiers, unlimited discount and registration-relative expiry', async () => {
     mockListCoupons.mockResolvedValueOnce(page([
       coupon({ publicId: 'school', discountType: 'percentage', discountValue: .05, multiItemDiscountValue: .10 }),

@@ -62,9 +62,24 @@ public sealed class RefundReader : IRefundReader
                 [], query.PageNumber, query.PageSize, totalCount);
         }
 
-        var headers = await Project(filtered
-                .OrderByDescending(refund => refund.CreatedAtUtc)
-                .ThenByDescending(refund => refund.Id))
+        var ordered = query.Sort switch
+        {
+            AdminRefundSortOptions.RefundNumberAsc =>
+                filtered.OrderBy(refund => refund.RefundNumber).ThenBy(refund => refund.Id),
+            AdminRefundSortOptions.RefundNumberDesc =>
+                filtered.OrderByDescending(refund => refund.RefundNumber).ThenByDescending(refund => refund.Id),
+            AdminRefundSortOptions.StatusAsc =>
+                filtered.OrderBy(refund => refund.Status).ThenBy(refund => refund.Id),
+            AdminRefundSortOptions.StatusDesc =>
+                filtered.OrderByDescending(refund => refund.Status).ThenByDescending(refund => refund.Id),
+            AdminRefundSortOptions.CreatedAtAsc =>
+                filtered.OrderBy(refund => refund.CreatedAtUtc).ThenBy(refund => refund.Id),
+            _ =>
+                filtered.OrderByDescending(refund => refund.CreatedAtUtc)
+                    .ThenByDescending(refund => refund.Id),
+        };
+
+        var headers = await Project(ordered)
             .Skip((int)skip)
             .Take(query.PageSize)
             .ToArrayAsync(cancellationToken);

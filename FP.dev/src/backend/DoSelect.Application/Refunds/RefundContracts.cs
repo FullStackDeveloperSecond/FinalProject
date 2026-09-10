@@ -61,7 +61,28 @@ public sealed record AdminRefundQuery(
     DateTime? ToUtc,
     string? Q,
     int PageNumber,
-    int PageSize);
+    int PageSize,
+    string? Sort = null);
+
+public static class AdminRefundSortOptions
+{
+    public const string RefundNumberAsc = "refundNumberAsc";
+    public const string RefundNumberDesc = "refundNumberDesc";
+    public const string StatusAsc = "statusAsc";
+    public const string StatusDesc = "statusDesc";
+    public const string CreatedAtAsc = "createdAtAsc";
+    public const string CreatedAtDesc = "createdAtDesc";
+
+    public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
+    {
+        RefundNumberAsc,
+        RefundNumberDesc,
+        StatusAsc,
+        StatusDesc,
+        CreatedAtAsc,
+        CreatedAtDesc,
+    };
+}
 
 public static class AdminRefundQueryValidator
 {
@@ -90,6 +111,11 @@ public static class AdminRefundQueryValidator
         if (query.Statuses is not null && query.Statuses.Any(status => !Enum.IsDefined(status)))
         {
             throw DomainProblemException.Validation("statuses contains an unknown refund status.");
+        }
+
+        if (query.Sort is not null && !AdminRefundSortOptions.All.Contains(query.Sort))
+        {
+            throw DomainProblemException.Validation("sort is not a supported option.");
         }
     }
 }

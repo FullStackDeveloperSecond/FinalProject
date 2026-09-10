@@ -14,20 +14,27 @@ import {
   invoiceStatusLabels,
 } from '../../features/invoices/labels'
 import type { SimulatedInvoiceStatus } from '../../features/invoices/types'
+import type { InvoiceSortOption } from '../../features/invoices/api'
 import { useSearchFilters } from '../../features/shared/useSearchFilters'
 
 const { filters, listParams, search, goToPage } = useSearchFilters(20)
 const router = useRouter()
 const selectedStatus = ref<SimulatedInvoiceStatus | ''>('')
 const statusOptions = Object.keys(invoiceStatusLabels) as SimulatedInvoiceStatus[]
+type InvoiceSortField = 'invoiceNumber' | 'orderNumber' | 'status' | 'issuedAt'
+type SortDirection = 'Asc' | 'Desc'
+const sortField = ref<InvoiceSortField>('invoiceNumber')
+const sortDirection = ref<SortDirection>('Desc')
+const sort = computed(() => `${sortField.value}${sortDirection.value}` as InvoiceSortOption)
 const query = computed(() => ({
   ...listParams.value,
   statuses: selectedStatus.value ? [selectedStatus.value] : undefined,
+  sort: sort.value,
 }))
 const { data: result, isPending, isError, error, refetch } = useInvoiceList(query)
 const apiError = computed(() => isApiError(error.value) ? error.value : undefined)
 const totalPages = computed(() => Number(result.value?.totalPages ?? 0))
-const orderPublicId = ref('')
+const orderNumber = ref('')
 const idempotencyKey = ref('')
 const issueFeedback = ref('')
 const issuanceLookup = useInvoiceIssuanceLookup()
@@ -48,6 +55,26 @@ function changeStatus() {
   filters.pageNumber = 1
 }
 
+function setSort(field: InvoiceSortField) {
+  if (sortField.value === field) {
+    sortDirection.value = sortDirection.value === 'Asc' ? 'Desc' : 'Asc'
+  } else {
+    sortField.value = field
+    sortDirection.value = 'Asc'
+  }
+  filters.pageNumber = 1
+}
+
+function ariaSort(field: InvoiceSortField): 'ascending' | 'descending' | 'none' {
+  if (sortField.value !== field) return 'none'
+  return sortDirection.value === 'Asc' ? 'ascending' : 'descending'
+}
+
+function sortIndicator(field: InvoiceSortField): string {
+  if (sortField.value !== field) return '↕'
+  return sortDirection.value === 'Asc' ? '↑' : '↓'
+}
+
 function createIdempotencyKey(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
     return crypto.randomUUID()
@@ -62,11 +89,11 @@ function clearIssuanceSnapshot() {
 }
 
 async function lookupOrder() {
-  const normalizedOrderPublicId = orderPublicId.value.trim()
+  const normalizedOrderNumber = orderNumber.value.trim()
   issueFeedback.value = ''
   idempotencyKey.value = ''
   try {
-    await issuanceLookup.mutateAsync(normalizedOrderPublicId)
+    await issuanceLookup.mutateAsync(normalizedOrderNumber)
     idempotencyKey.value = createIdempotencyKey()
   } catch {
     // Mutation state owns the visible error and retry path.
@@ -126,14 +153,15 @@ async function issueSelectedOrder() {
         @submit.prevent="lookupOrder"
       >
         <div class="finance-field">
-          <label for="invoice-order-public-id">訂單識別碼（PublicId）</label>
+          <label for="invoice-order-number">訂單號碼</label>
           <input
-            id="invoice-order-public-id"
-            v-model="orderPublicId"
+            id="invoice-order-number"
+            v-model="orderNumber"
             type="text"
             required
+            maxlength="64"
             autocomplete="off"
-            placeholder="輸入訂單 PublicId"
+            placeholder="輸入訂單號碼"
             @input="clearIssuanceSnapshot"
           >
         </div>
@@ -260,20 +288,64 @@ async function issueSelectedOrder() {
           </caption>
           <thead>
             <tr>
-              <th scope="col">
-                發票號碼
+              <th
+                scope="col"
+                data-sort="invoiceNumber"
+                :aria-sort="ariaSort('invoiceNumber')"
+              >
+                <button
+                  type="button"
+                  class="finance-sort-button"
+                  aria-label="依發票號碼排序"
+                  @click="setSort('invoiceNumber')"
+                >
+                  發票號碼 <span aria-hidden="true">{{ sortIndicator('invoiceNumber') }}</span>
+                </button>
               </th>
-              <th scope="col">
-                訂單
+              <th
+                scope="col"
+                data-sort="orderNumber"
+                :aria-sort="ariaSort('orderNumber')"
+              >
+                <button
+                  type="button"
+                  class="finance-sort-button"
+                  aria-label="依訂單號碼排序"
+                  @click="setSort('orderNumber')"
+                >
+                  訂單 <span aria-hidden="true">{{ sortIndicator('orderNumber') }}</span>
+                </button>
               </th>
-              <th scope="col">
-                狀態
+              <th
+                scope="col"
+                data-sort="status"
+                :aria-sort="ariaSort('status')"
+              >
+                <button
+                  type="button"
+                  class="finance-sort-button"
+                  aria-label="依發票狀態排序"
+                  @click="setSort('status')"
+                >
+                  狀態 <span aria-hidden="true">{{ sortIndicator('status') }}</span>
+                </button>
               </th>
               <th scope="col">
                 未稅／稅額／含稅
               </th>
-              <th scope="col">
-                開立時間
+              <th
+                scope="col"
+                data-sort="issuedAt"
+                :aria-sort="ariaSort('issuedAt')"
+              >
+                <button
+                  type="button"
+                  class="finance-sort-button"
+                  aria-label="依開立時間排序"
+                  @click="setSort('issuedAt')"
+                >
+                  開立時間 <span aria-hidden="true">{{ sortIndicator('issuedAt') }}</span>
+                </button>
               </th>
               <th scope="col">
                 操作

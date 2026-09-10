@@ -57,6 +57,6 @@ export function useIssueInvoice() {
 
 export function useInvoiceIssuanceLookup() {
   return useMutation({
-    mutationFn: (orderPublicId: string) => getInvoiceIssuanceOrder(orderPublicId),
+    mutationFn: (orderReference: string) => getInvoiceIssuanceOrder(orderReference),
   })
 }

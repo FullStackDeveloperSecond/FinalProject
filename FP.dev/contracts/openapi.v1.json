@@ -2754,6 +2754,15 @@
               ],
               "format": "int32"
             }
+          },
+          {
+            "name": "Sort",
+            "in": "query",
+            "schema": {
+              "maxLength": 32,
+              "minLength": 0,
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -6650,6 +6659,15 @@
               ],
               "format": "int32"
             }
+          },
+          {
+            "name": "Sort",
+            "in": "query",
+            "schema": {
+              "maxLength": 32,
+              "minLength": 0,
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -7007,8 +7025,7 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string",
-              "format": "uuid"
+              "type": "string"
             }
           }
         ],

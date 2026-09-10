@@ -10,15 +10,22 @@ import {
   refundStatusLabels,
 } from '../../features/refunds/labels'
 import type { RefundStatus } from '../../features/refunds/types'
+import type { RefundSortOption } from '../../features/refunds/api'
 import { useSearchFilters } from '../../features/shared/useSearchFilters'
 
 const { filters, listParams, search, goToPage } = useSearchFilters(20)
 const selectedStatus = ref<RefundStatus | ''>('')
 const statusOptions = Object.keys(refundStatusLabels) as RefundStatus[]
+type RefundSortField = 'refundNumber' | 'status' | 'createdAt'
+type SortDirection = 'Asc' | 'Desc'
+const sortField = ref<RefundSortField>('createdAt')
+const sortDirection = ref<SortDirection>('Desc')
+const sort = computed(() => `${sortField.value}${sortDirection.value}` as RefundSortOption)
 
 const query = computed(() => ({
   ...listParams.value,
   statuses: selectedStatus.value ? [selectedStatus.value] : undefined,
+  sort: sort.value,
 }))
 
 const { data: result, isPending, isError, error, refetch } = useRefundList(query)
@@ -27,6 +34,26 @@ const totalPages = computed(() => Number(result.value?.totalPages ?? 0))
 
 function changeStatus() {
   filters.pageNumber = 1
+}
+
+function setSort(field: RefundSortField) {
+  if (sortField.value === field) {
+    sortDirection.value = sortDirection.value === 'Asc' ? 'Desc' : 'Asc'
+  } else {
+    sortField.value = field
+    sortDirection.value = 'Asc'
+  }
+  filters.pageNumber = 1
+}
+
+function ariaSort(field: RefundSortField): 'ascending' | 'descending' | 'none' {
+  if (sortField.value !== field) return 'none'
+  return sortDirection.value === 'Asc' ? 'ascending' : 'descending'
+}
+
+function sortIndicator(field: RefundSortField): string {
+  if (sortField.value !== field) return '↕'
+  return sortDirection.value === 'Asc' ? '↑' : '↓'
 }
 </script>
 
@@ -48,12 +75,11 @@ function changeStatus() {
       @submit.prevent="search"
     >
       <div class="finance-field">
-        <label for="refund-query">退款編號</label>
+        <label for="refund-query">關鍵字</label>
         <input
           id="refund-query"
           v-model="filters.q"
           type="search"
-          placeholder="例如 RF-202609"
         >
       </div>
       <div class="finance-field">
@@ -109,11 +135,33 @@ function changeStatus() {
           </caption>
           <thead>
             <tr>
-              <th scope="col">
-                退款編號
+              <th
+                scope="col"
+                data-sort="refundNumber"
+                :aria-sort="ariaSort('refundNumber')"
+              >
+                <button
+                  type="button"
+                  class="finance-sort-button"
+                  aria-label="依退款編號排序"
+                  @click="setSort('refundNumber')"
+                >
+                  退款編號 <span aria-hidden="true">{{ sortIndicator('refundNumber') }}</span>
+                </button>
               </th>
-              <th scope="col">
-                狀態
+              <th
+                scope="col"
+                data-sort="status"
+                :aria-sort="ariaSort('status')"
+              >
+                <button
+                  type="button"
+                  class="finance-sort-button"
+                  aria-label="依退款狀態排序"
+                  @click="setSort('status')"
+                >
+                  狀態 <span aria-hidden="true">{{ sortIndicator('status') }}</span>
+                </button>
               </th>
               <th scope="col">
                 申請金額
@@ -124,8 +172,19 @@ function changeStatus() {
               <th scope="col">
                 成功退款
               </th>
-              <th scope="col">
-                建立時間
+              <th
+                scope="col"
+                data-sort="createdAt"
+                :aria-sort="ariaSort('createdAt')"
+              >
+                <button
+                  type="button"
+                  class="finance-sort-button"
+                  aria-label="依建立時間排序"
+                  @click="setSort('createdAt')"
+                >
+                  建立時間 <span aria-hidden="true">{{ sortIndicator('createdAt') }}</span>
+                </button>
               </th>
               <th scope="col">
                 操作

@@ -28,9 +28,10 @@ public static class InvoicingServiceCollectionExtensions
         services.AddScoped<InvoiceIssuanceOrderQueryService>();
         services.AddScoped<IssueInvoiceAllowanceService>();
 
-        // M-20 查詢：Reader 只讀 Invoicing 自己的表，訂單那半由 Orders 的埠批次補上，
-        // 兩者在 InvoiceQueryService 合併（Issue #65 A1）。
+        // M-20 一般查詢：Reader 只讀 Invoicing 自己的表，訂單那半由 Orders 的埠批次補上。
+        // 只有依訂單號碼排序需在分頁前跨表，才走窄唯讀投影。
         services.AddScoped<IInvoiceQueryReader, InvoiceQueryReader>();
+        services.AddScoped<IOrderNumberSortedAdminInvoiceReader, OrderNumberSortedAdminInvoiceReader>();
         services.AddScoped<InvoiceQueryService>();
         services.AddScoped<IOrderInvoiceReferenceReader, OrderInvoiceReferenceReader>();
         services.AddScoped<IOrderInvoiceVoidReader, OrderInvoiceVoidReader>();

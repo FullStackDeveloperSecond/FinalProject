@@ -214,6 +214,44 @@ public sealed class InvoiceQueryServiceTests
             new AdminInvoiceQuery(null, null, null, null, 1, 20)));
     }
 
+    [Fact]
+    public async Task ListAsync_DelegatesOrderNumberSortingBeforePagination()
+    {
+        var expected = new PageResult<AdminInvoiceSummaryDto>(
+            [
+                new AdminInvoiceSummaryDto(
+                    InvoicePublicId,
+                    "DEMO-202608-000001",
+                    OrderPublicId,
+                    "DS202609090001",
+                    SimulatedInvoiceStatus.Issued,
+                    952m,
+                    48m,
+                    1000m,
+                    new DateTime(2026, 8, 30, 0, 0, 0, DateTimeKind.Utc),
+                    SimulatedInvoice.RequiredDemoMarker,
+                    [1, 2, 3]),
+            ],
+            1,
+            20,
+            1);
+        var sortedReader = new FakeOrderNumberSortedAdminInvoiceReader(expected);
+        var ordinaryReader = new FakeInvoiceQueryReader(null, []);
+        var service = new InvoiceQueryService(
+            ordinaryReader,
+            new FakeOrderReferenceReader([]),
+            new FakeRefundReferenceReader(),
+            sortedReader);
+        var query = new AdminInvoiceQuery(
+            null, null, null, null, 1, 20, AdminInvoiceSortOptions.OrderNumberAsc);
+
+        var actual = await service.ListAsync(query);
+
+        Assert.Same(expected, actual);
+        Assert.Same(query, sortedReader.LastQuery);
+        Assert.Equal(0, ordinaryReader.ListCalls);
+    }
+
     /// <remarks>
     /// <paramref name="withoutInvoice"/> 是獨立的旗標，不用 <c>invoice: null</c> 表示 ——
     /// 先前用 <c>invoice ?? Row()</c> 當預設值，傳 null 會被悄悄換成預設那一列，
@@ -279,6 +317,8 @@ public sealed class InvoiceQueryServiceTests
             _page = page;
         }
 
+        public int ListCalls { get; private set; }
+
         public Task<InvoiceRow?> FindByOrderAsync(long orderId, CancellationToken cancellationToken = default) =>
             Task.FromResult(_single);
 
@@ -286,8 +326,25 @@ public sealed class InvoiceQueryServiceTests
             Task.FromResult(_single);
 
         public Task<PageResult<InvoiceRow>> ListAsync(
-            AdminInvoiceQuery query, CancellationToken cancellationToken = default) =>
-            Task.FromResult(new PageResult<InvoiceRow>(_page, 1, 20, _page.Count));
+            AdminInvoiceQuery query, CancellationToken cancellationToken = default)
+        {
+            ListCalls++;
+            return Task.FromResult(new PageResult<InvoiceRow>(_page, 1, 20, _page.Count));
+        }
+    }
+
+    private sealed class FakeOrderNumberSortedAdminInvoiceReader(
+        PageResult<AdminInvoiceSummaryDto> result) : IOrderNumberSortedAdminInvoiceReader
+    {
+        public AdminInvoiceQuery? LastQuery { get; private set; }
+
+        public Task<PageResult<AdminInvoiceSummaryDto>> ListAsync(
+            AdminInvoiceQuery query,
+            CancellationToken cancellationToken = default)
+        {
+            LastQuery = query;
+            return Task.FromResult(result);
+        }
     }
 
     private sealed class FakeOrderReferenceReader : IOrderInvoiceReferenceReader

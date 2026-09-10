@@ -2009,6 +2009,7 @@ export interface paths {
                     Q?: string;
                     PageNumber?: number | string;
                     PageSize?: number | string;
+                    Sort?: string;
                 };
                 header?: never;
                 path?: never;
@@ -4493,6 +4494,7 @@ export interface paths {
                     Q?: string;
                     PageNumber?: number | string;
                     PageSize?: number | string;
+                    Sort?: string;
                 };
                 header?: never;
                 path?: never;

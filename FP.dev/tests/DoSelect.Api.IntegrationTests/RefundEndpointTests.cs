@@ -36,7 +36,7 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
         await SignInAsync(client, includeMfa: true, DoSelectRoles.FinanceManager);
 
         using var response = await client.GetAsync(
-            "/api/v1/admin/refunds?statuses=approved&q=RF-202608&pageNumber=2&pageSize=10");
+            "/api/v1/admin/refunds?statuses=approved&q=RF-202608&sort=statusAsc&pageNumber=2&pageSize=10");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.NotNull(reader.LastQuery);
@@ -44,6 +44,7 @@ public sealed class RefundEndpointTests : IClassFixture<WebApplicationFactory<Pr
         Assert.Equal(10, reader.LastQuery.PageSize);
         Assert.Equal("RF-202608", reader.LastQuery.Q);
         Assert.Equal([RefundStatus.Approved], reader.LastQuery.Statuses);
+        Assert.Equal(AdminRefundSortOptions.StatusAsc, reader.LastQuery.Sort);
     }
 
     [Fact]

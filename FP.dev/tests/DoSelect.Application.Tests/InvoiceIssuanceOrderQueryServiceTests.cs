@@ -40,6 +40,23 @@ public sealed class InvoiceIssuanceOrderQueryServiceTests
         Assert.Null(invoices.LastOrderId);
     }
 
+    [Fact]
+    public async Task FindAsync_ResolvesTheVisibleOrderNumber()
+    {
+        var summary = new InvoiceIssuanceOrderSummary(
+            42L, OrderPublicId, "ORD-20260901-0042",
+            OrderIsCancelled: false, OrderIsPaid: true, new byte[8]);
+        var reader = new FakeOrderReader(summary);
+        var service = new InvoiceIssuanceOrderQueryService(
+            reader,
+            new FakeInvoiceExistenceReader(hasInvoice: false));
+
+        var result = await service.FindAsync(" ORD-20260901-0042 ");
+
+        Assert.Equal(OrderPublicId, result!.OrderPublicId);
+        Assert.Equal("ORD-20260901-0042", reader.LastOrderNumber);
+    }
+
     private sealed class FakeOrderReader : IOrderInvoiceIssuanceReader
     {
         private readonly InvoiceIssuanceOrderSummary? _summary;
@@ -55,6 +72,16 @@ public sealed class InvoiceIssuanceOrderQueryServiceTests
             Guid orderPublicId,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(_summary);
+
+        public string? LastOrderNumber { get; private set; }
+
+        public Task<InvoiceIssuanceOrderSummary?> FindAdminSummaryByOrderNumberAsync(
+            string orderNumber,
+            CancellationToken cancellationToken = default)
+        {
+            LastOrderNumber = orderNumber;
+            return Task.FromResult(_summary);
+        }
     }
 
     private sealed class FakeInvoiceExistenceReader : IInvoiceExistenceReader

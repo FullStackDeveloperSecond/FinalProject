@@ -45,7 +45,8 @@ public sealed class RefundsController(
                 request.ToUtc,
                 request.Q,
                 request.PageNumber,
-                request.PageSize),
+                request.PageSize,
+                request.Sort),
             cancellationToken);
 
         return Ok(result);
@@ -259,6 +260,9 @@ public sealed record AdminRefundListRequest
     public int PageNumber { get; init; } = 1;
 
     public int PageSize { get; init; } = 20;
+
+    [StringLength(32)]
+    public string? Sort { get; init; }
 }
 
 /// <summary>

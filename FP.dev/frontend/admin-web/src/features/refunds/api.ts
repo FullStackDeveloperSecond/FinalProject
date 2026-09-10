@@ -6,9 +6,18 @@ export interface RefundListParams {
   statuses?: RefundStatus[]
   fromUtc?: string
   toUtc?: string
+  sort?: RefundSortOption
   pageNumber?: number
   pageSize?: number
 }
+
+export type RefundSortOption =
+  | 'refundNumberAsc'
+  | 'refundNumberDesc'
+  | 'statusAsc'
+  | 'statusDesc'
+  | 'createdAtAsc'
+  | 'createdAtDesc'
 
 export async function listRefunds(params: RefundListParams) {
   const { data } = await apiClient.GET('/api/v1/admin/refunds', {
@@ -18,6 +27,7 @@ export async function listRefunds(params: RefundListParams) {
         Statuses: params.statuses?.length ? params.statuses : undefined,
         FromUtc: params.fromUtc,
         ToUtc: params.toUtc,
+        Sort: params.sort,
         PageNumber: params.pageNumber,
         PageSize: params.pageSize,
       },

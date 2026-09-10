@@ -16,8 +16,8 @@ namespace DoSelect.Infrastructure.Tests.Invoicing;
 /// 發票讀取埠，對真實 SQL Server provider 驗證。
 /// </summary>
 /// <remarks>
-/// 重點有二：<b>不碰 Orders／OrderItems</b>（Issue #65 A1），以及<b>往返次數固定</b> ——
-/// 一頁上有幾張發票都是「發票一次、明細一次、折讓一次、折讓明細一次」。
+/// 一般發票 Reader 不碰 Orders／OrderItems（Issue #65 A1），而且往返次數固定；
+/// 另驗證依訂單號碼排序時，專用後台唯讀投影會在分頁前完成跨表排序。
 /// </remarks>
 [Trait("Category", "RequiresSqlServer")]
 public sealed class InvoiceQueryReaderSqlServerTests : IClassFixture<InvoiceQueryReaderFixture>
@@ -139,6 +139,27 @@ public sealed class InvoiceQueryReaderSqlServerTests : IClassFixture<InvoiceQuer
     }
 
     [SqlServerFact]
+    public async Task OrderNumberSortingHappensBeforePagination()
+    {
+        await using var context = _fixture.CreateContext(out _);
+        var keyword = $"DEMO-2095{Guid.NewGuid():N}"[..14];
+        var first = await SeedInvoiceAsync(context, itemCount: 1, invoiceNumberPrefix: keyword);
+        var second = await SeedInvoiceAsync(context, itemCount: 1, invoiceNumberPrefix: keyword);
+        var reader = new OrderNumberSortedAdminInvoiceReader(context);
+
+        var ascending = await reader.ListAsync(new AdminInvoiceQuery(
+            null, null, null, keyword, 1, 20, AdminInvoiceSortOptions.OrderNumberAsc));
+        var descending = await reader.ListAsync(new AdminInvoiceQuery(
+            null, null, null, keyword, 1, 20, AdminInvoiceSortOptions.OrderNumberDesc));
+
+        var expectedAscending = new[] { first.OrderNumber, second.OrderNumber }
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        Assert.Equal(expectedAscending, ascending.Items.Select(item => item.OrderNumber));
+        Assert.Equal(expectedAscending.Reverse(), descending.Items.Select(item => item.OrderNumber));
+    }
+
+    [SqlServerFact]
     public async Task TheLargestLegalPageNumberComesBackEmptyInsteadOfOverflowing()
     {
         // pageNumber 到 int.MaxValue 時 (page - 1) * size 用 int 會溢位成負 offset。
@@ -154,7 +175,11 @@ public sealed class InvoiceQueryReaderSqlServerTests : IClassFixture<InvoiceQuer
         Assert.Equal(1, page.TotalCount);
     }
 
-    private sealed record SeededInvoice(long OrderId, Guid InvoicePublicId, string InvoiceNumber);
+    private sealed record SeededInvoice(
+        long OrderId,
+        Guid InvoicePublicId,
+        string InvoiceNumber,
+        string OrderNumber);
 
     /// <summary>種一張已付款的訂單，只為了讓發票的外鍵成立。</summary>
     /// <summary>種一張已付款的訂單，只為了讓發票的外鍵成立。</summary>
@@ -163,7 +188,7 @@ public sealed class InvoiceQueryReaderSqlServerTests : IClassFixture<InvoiceQuer
     /// 它不代表 Reader 可以去讀 Orders —— Reader 的查詢裡一次都沒有出現 Orders 或 OrderItems，
     /// 訂單只是為了讓 INSERT 過得去。
     /// </remarks>
-    private static async Task<long> SeedOrderAsync(DoSelectDbContext context)
+    private static async Task<(long Id, string Number)> SeedOrderAsync(DoSelectDbContext context)
     {
         var profile = new ShippingProviderProfile(
             Guid.NewGuid(),
@@ -234,7 +259,7 @@ public sealed class InvoiceQueryReaderSqlServerTests : IClassFixture<InvoiceQuer
         context.Orders.Add(order);
         await context.SaveChangesAsync();
 
-        return order.Id;
+        return (order.Id, order.OrderNumber);
     }
 
 
@@ -248,14 +273,14 @@ public sealed class InvoiceQueryReaderSqlServerTests : IClassFixture<InvoiceQuer
         // SimulatedInvoices.OrderId 對 Orders 有外鍵，所以要先種一張訂單。
         // 外鍵存在正是「窄內部 Key 例外」的理由；它不代表 Reader 可以去讀 Orders ——
         // 這個 Reader 的查詢裡一次都沒有出現 Orders 或 OrderItems。
-        var orderId = await SeedOrderAsync(context);
+        var order = await SeedOrderAsync(context);
         var suffix = Guid.NewGuid().ToString("N")[..6].ToUpperInvariant();
         var invoiceNumber = $"{invoiceNumberPrefix ?? "DEMO-202608"}-{suffix}";
 
         var invoice = new SimulatedInvoice(
             Guid.CreateVersion7(),
             new SimulatedInvoiceCreation(
-                orderId,
+                order.Id,
                 invoiceNumber,
                 SimulatedInvoiceBuyerType.Individual,
                 "buyer@example.test",
@@ -291,7 +316,7 @@ public sealed class InvoiceQueryReaderSqlServerTests : IClassFixture<InvoiceQuer
         }
 
         await context.SaveChangesAsync();
-        return new SeededInvoice(orderId, invoice.PublicId, invoiceNumber);
+        return new SeededInvoice(order.Id, invoice.PublicId, invoiceNumber, order.Number);
     }
 }
 

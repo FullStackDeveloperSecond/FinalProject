@@ -94,7 +94,45 @@ public sealed record AdminInvoiceQuery(
     DateTime? ToUtc,
     string? Q,
     int PageNumber,
-    int PageSize);
+    int PageSize,
+    string? Sort = null);
+
+public static class AdminInvoiceSortOptions
+{
+    public const string InvoiceNumberAsc = "invoiceNumberAsc";
+    public const string InvoiceNumberDesc = "invoiceNumberDesc";
+    public const string OrderNumberAsc = "orderNumberAsc";
+    public const string OrderNumberDesc = "orderNumberDesc";
+    public const string StatusAsc = "statusAsc";
+    public const string StatusDesc = "statusDesc";
+    public const string IssuedAtAsc = "issuedAtAsc";
+    public const string IssuedAtDesc = "issuedAtDesc";
+
+    public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
+    {
+        InvoiceNumberAsc,
+        InvoiceNumberDesc,
+        OrderNumberAsc,
+        OrderNumberDesc,
+        StatusAsc,
+        StatusDesc,
+        IssuedAtAsc,
+        IssuedAtDesc,
+    };
+}
+
+public static class AdminInvoiceQueryValidator
+{
+    public static void RequireValid(AdminInvoiceQuery query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        if (query.Sort is not null && !AdminInvoiceSortOptions.All.Contains(query.Sort))
+        {
+            throw DomainProblemException.Validation("sort is not a supported option.");
+        }
+    }
+}
 
 /// <summary>
 /// 一筆發票的原始讀取結果，<b>帶內部 <c>OrderId</c></b>。
@@ -176,6 +214,20 @@ public interface IInvoiceQueryReader
     /// 所以 <paramref name="query"/> 的 <c>Q</c> 只比對發票號碼。
     /// </remarks>
     Task<PageResult<InvoiceRow>> ListAsync(
+        AdminInvoiceQuery query,
+        CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// 只供後台依訂單號碼排序時使用的跨模組唯讀投影。
+/// </summary>
+/// <remarks>
+/// 訂單號碼屬於 Orders；若先讓 Invoicing 分頁後才補訂單資料，排序只會在單頁內正確。
+/// 此埠把唯一需要跨界的排序限制在後台唯讀清單，不改變開票或明細查詢的邊界。
+/// </remarks>
+public interface IOrderNumberSortedAdminInvoiceReader
+{
+    Task<PageResult<AdminInvoiceSummaryDto>> ListAsync(
         AdminInvoiceQuery query,
         CancellationToken cancellationToken = default);
 }

@@ -147,6 +147,28 @@ public sealed class OrderInvoiceIssuanceReader : IOrderInvoiceIssuanceReader
             .SingleOrDefaultAsync(cancellationToken);
     }
 
+    public Task<InvoiceIssuanceOrderSummary?> FindAdminSummaryByOrderNumberAsync(
+        string orderNumber,
+        CancellationToken cancellationToken = default)
+    {
+        var normalized = orderNumber.Trim();
+        if (normalized.Length == 0)
+        {
+            return Task.FromResult<InvoiceIssuanceOrderSummary?>(null);
+        }
+
+        return _context.Orders.AsNoTracking()
+            .Where(order => order.OrderNumber == normalized)
+            .Select(order => new InvoiceIssuanceOrderSummary(
+                order.Id,
+                order.PublicId,
+                order.OrderNumber,
+                order.OrderStatus == OrderStatus.Cancelled,
+                order.PaymentStatus == PaymentStatus.Paid,
+                order.RowVersion))
+            .SingleOrDefaultAsync(cancellationToken);
+    }
+
     /// <remarks>
     /// <c>SkuCodeSnapshot</c> 用 <see cref="InvoiceLineSkuCodes"/> 的保留值 ——
     /// 發票明細不另外持久化種類欄位，就是靠這個值識別非商品列（DEC-P299）。

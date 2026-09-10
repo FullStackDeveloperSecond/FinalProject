@@ -53,6 +53,22 @@ public sealed class AdminInvoiceCommandsControllerTests
         Assert.False(json.RootElement.GetProperty("hasInvoice").GetBoolean());
     }
 
+    [Fact]
+    public async Task IssuanceSnapshotAcceptsTheVisibleOrderNumber()
+    {
+        var orderPublicId = Guid.NewGuid();
+        var orderNumber = "ORD-20260901-0042";
+        var reader = new FakeOrderReader(Summary(orderPublicId));
+        using var factory = CreateFactory(new FakeWriter(), reader: reader);
+        using var client = CreateAdminClient(factory, DoSelectRoles.FinanceManager);
+
+        using var response = await client.GetAsync(
+            $"/api/v1/admin/orders/{orderNumber}/invoice-issuance");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(orderNumber, reader.LastOrderNumber);
+    }
+
     [Theory]
     [InlineData(DoSelectRoles.OrderManager, false)]
     [InlineData(DoSelectRoles.FinanceManager, true)]
@@ -170,7 +186,8 @@ public sealed class AdminInvoiceCommandsControllerTests
     private WebApplicationFactory<Program> CreateFactory(
         FakeWriter fake,
         InvoiceIssuanceOrderSummary? summary = null,
-        bool hasInvoice = false) =>
+        bool hasInvoice = false,
+        FakeOrderReader? reader = null) =>
         _baseFactory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
         {
             services.AddDataProtection().UseEphemeralDataProtectionProvider();
@@ -178,7 +195,7 @@ public sealed class AdminInvoiceCommandsControllerTests
             services.RemoveAll<IAdminInvoiceWriter>();
             services.AddSingleton<IAdminInvoiceWriter>(fake);
             services.RemoveAll<IOrderInvoiceIssuanceReader>();
-            services.AddSingleton<IOrderInvoiceIssuanceReader>(new FakeOrderReader(summary));
+            services.AddSingleton<IOrderInvoiceIssuanceReader>(reader ?? new FakeOrderReader(summary));
             services.RemoveAll<IInvoiceExistenceReader>();
             services.AddSingleton<IInvoiceExistenceReader>(new FakeExistenceReader(hasInvoice));
         }));
@@ -294,6 +311,16 @@ public sealed class AdminInvoiceCommandsControllerTests
             Guid orderPublicId,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(_summary);
+
+        public string? LastOrderNumber { get; private set; }
+
+        public Task<InvoiceIssuanceOrderSummary?> FindAdminSummaryByOrderNumberAsync(
+            string orderNumber,
+            CancellationToken cancellationToken = default)
+        {
+            LastOrderNumber = orderNumber;
+            return Task.FromResult(_summary);
+        }
     }
 
     private sealed class FakeExistenceReader : IInvoiceExistenceReader

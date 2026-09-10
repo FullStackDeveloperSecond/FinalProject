@@ -13,9 +13,20 @@ export interface InvoiceListParams {
   statuses?: SimulatedInvoiceStatus[]
   fromUtc?: string
   toUtc?: string
+  sort?: InvoiceSortOption
   pageNumber?: number
   pageSize?: number
 }
+
+export type InvoiceSortOption =
+  | 'invoiceNumberAsc'
+  | 'invoiceNumberDesc'
+  | 'orderNumberAsc'
+  | 'orderNumberDesc'
+  | 'statusAsc'
+  | 'statusDesc'
+  | 'issuedAtAsc'
+  | 'issuedAtDesc'
 
 export async function listInvoices(params: InvoiceListParams): Promise<AdminInvoicePage> {
   const { data } = await apiClient.GET('/api/v1/admin/invoices', {
@@ -25,6 +36,7 @@ export async function listInvoices(params: InvoiceListParams): Promise<AdminInvo
         Statuses: params.statuses?.length ? params.statuses : undefined,
         FromUtc: params.fromUtc,
         ToUtc: params.toUtc,
+        Sort: params.sort,
         PageNumber: params.pageNumber,
         PageSize: params.pageSize,
       },
@@ -41,10 +53,10 @@ export async function getInvoice(invoicePublicId: string): Promise<AdminInvoiceD
 }
 
 export async function getInvoiceIssuanceOrder(
-  orderPublicId: string,
+  orderReference: string,
 ): Promise<InvoiceIssuanceOrderDto> {
   const { data } = await apiClient.GET('/api/v1/admin/orders/{orderId}/invoice-issuance', {
-    params: { path: { orderId: orderPublicId } },
+    params: { path: { orderId: orderReference } },
   })
   return data!
 }

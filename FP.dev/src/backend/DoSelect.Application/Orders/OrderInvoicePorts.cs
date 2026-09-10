@@ -122,6 +122,13 @@ public interface IOrderInvoiceIssuanceReader
     Task<InvoiceIssuanceOrderSummary?> FindAdminSummaryAsync(
         Guid orderPublicId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 依管理員畫面可見的訂單號碼取得同一份開票摘要；訂單不存在時回 <c>null</c>。
+    /// </summary>
+    Task<InvoiceIssuanceOrderSummary?> FindAdminSummaryByOrderNumberAsync(
+        string orderNumber,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed record InvoiceVoidOrderSnapshot(bool OrderFullyCancelled);

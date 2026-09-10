@@ -31,6 +31,31 @@ public sealed class InvoiceIssuanceOrderQueryService
         CancellationToken cancellationToken = default)
     {
         var order = await _orders.FindAdminSummaryAsync(orderPublicId, cancellationToken);
+        return await ToDtoAsync(order, cancellationToken);
+    }
+
+    public async Task<InvoiceIssuanceOrderDto?> FindAsync(
+        string orderReference,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(orderReference);
+
+        var normalized = orderReference.Trim();
+        if (normalized.Length == 0 || normalized.Length > 64)
+        {
+            return null;
+        }
+
+        var order = Guid.TryParse(normalized, out var orderPublicId)
+            ? await _orders.FindAdminSummaryAsync(orderPublicId, cancellationToken)
+            : await _orders.FindAdminSummaryByOrderNumberAsync(normalized, cancellationToken);
+        return await ToDtoAsync(order, cancellationToken);
+    }
+
+    private async Task<InvoiceIssuanceOrderDto?> ToDtoAsync(
+        InvoiceIssuanceOrderSummary? order,
+        CancellationToken cancellationToken)
+    {
         if (order is null)
         {
             return null;

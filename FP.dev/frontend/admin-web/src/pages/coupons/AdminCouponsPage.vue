@@ -615,31 +615,34 @@ function describeError(candidate: unknown): string {
 
     <form
       v-if="showCreate || editing"
-      class="coupons-form"
+      class="coupons-form coupons-form--aligned"
       :aria-label="showCreate ? '新增優惠券' : '修改優惠券'"
       @submit.prevent="showCreate ? submitCreate() : submitUpdate()"
     >
       <h2>{{ showCreate ? '新增優惠券' : `修改 ${editing?.code}` }}</h2>
 
-      <label>優惠碼
+      <label class="coupons-field">優惠碼
         <input
           v-model="form.code"
+          class="coupons-control"
           name="code"
           required
           maxlength="64"
         >
       </label>
-      <label>名稱
+      <label class="coupons-field">名稱
         <input
           v-model="form.nameZhTw"
+          class="coupons-control"
           name="nameZhTw"
           required
           maxlength="160"
         >
       </label>
-      <label>折扣類型
+      <label class="coupons-field">折扣類型
         <select
           v-model="form.discountType"
+          class="coupons-control"
           name="discountType"
         >
           <option
@@ -651,26 +654,35 @@ function describeError(candidate: unknown): string {
           </option>
         </select>
       </label>
-      <label v-if="isAmountDiscount(form.discountType)">{{ form.discountType === 'percentage' ? '折扣百分比' : '折扣金額' }}
+      <label
+        v-if="isAmountDiscount(form.discountType)"
+        class="coupons-field"
+      >{{ form.discountType === 'percentage' ? '折扣百分比' : '折扣金額' }}
         <input
           v-model="form.discountValue"
+          class="coupons-control"
           name="discountValue"
           type="number"
           step="any"
           required
         >
       </label>
-      <label>最低消費
+      <label class="coupons-field">最低消費
         <input
           v-model="form.minimumSpend"
+          class="coupons-control"
           name="minimumSpend"
           type="number"
           step="any"
         >
       </label>
-      <label v-if="form.discountType === 'percentage'">2 件以上折扣百分比（選填）
+      <label
+        v-if="form.discountType === 'percentage'"
+        class="coupons-field"
+      >2 件以上折扣百分比（選填）
         <input
           v-model="form.multiItemDiscountValue"
+          class="coupons-control"
           name="multiItemDiscountValue"
           type="number"
           min="0"
@@ -679,49 +691,58 @@ function describeError(candidate: unknown): string {
         >
         <span>以適用商品總數量計算，同商品多件也計入。5 表示九五折，10 表示九折。</span>
       </label>
-      <label v-if="isAmountDiscount(form.discountType)">
+      <label
+        v-if="isAmountDiscount(form.discountType)"
+        class="coupons-field"
+      >
         {{ form.discountType === 'percentage' && optionalNumber(form.multiItemDiscountValue) === null ? '最高折抵（必填）' : '最高折抵（選填，留空為無上限）' }}
         <input
           v-model="form.maximumDiscount"
+          class="coupons-control"
           name="maximumDiscount"
           type="number"
           step="any"
           :required="form.discountType === 'percentage' && optionalNumber(form.multiItemDiscountValue) === null"
         >
       </label>
-      <label>開始時間
+      <label class="coupons-field">開始時間
         <input
           v-model="form.startsAt"
+          class="coupons-control"
           name="startsAt"
           type="datetime-local"
           required
         >
       </label>
-      <label>結束時間
+      <label class="coupons-field">結束時間
         <input
           v-model="form.endsAt"
+          class="coupons-control"
           name="endsAt"
           type="datetime-local"
           required
         >
       </label>
-      <label>總名額
+      <label class="coupons-field">總名額
         <input
           v-model="form.totalUsageLimit"
+          class="coupons-control"
           name="totalUsageLimit"
           type="number"
         >
       </label>
-      <label>每人限用
+      <label class="coupons-field">每人限用
         <input
           v-model="form.perMemberLimit"
+          class="coupons-control"
           name="perMemberLimit"
           type="number"
         >
       </label>
-      <label>會員入會期限
+      <label class="coupons-field">會員入會期限
         <select
           v-model="form.memberValidityMonths"
+          class="coupons-control"
           name="memberValidityMonths"
         >
           <option
@@ -880,7 +901,39 @@ function describeError(candidate: unknown): string {
   background: var(--color-surface);
   border-radius: 0.5rem;
   padding: 1rem;
-  max-width: 32rem;
+  max-width: 46rem;
+}
+
+.coupons-form--aligned {
+  gap: 1rem;
+}
+
+.coupons-field {
+  display: grid;
+  grid-template-columns: 11rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.4rem 1rem;
+  font-weight: 700;
+}
+
+.coupons-control {
+  width: 100%;
+  min-width: 0;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-weight: 400;
+}
+
+.coupons-field > span {
+  grid-column: 2;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  font-weight: 400;
 }
 
 .coupons-form-actions {
@@ -899,6 +952,16 @@ function describeError(candidate: unknown): string {
 .coupons-table { border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
 .coupons-table table { min-width: 58rem; margin: 0; }
 .coupons-table th, .coupons-table td { padding: .85rem 1rem; border-color: var(--color-border-line); vertical-align: top; }
+
+@media (max-width: 48rem) {
+  .coupons-field {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .coupons-field > span {
+    grid-column: 1;
+  }
+}
 .coupons-table th { color: var(--color-text); }
 .coupons-statuses label { display: inline-flex; align-items: center; gap: .4rem; padding: .25rem; }
 

@@ -66,6 +66,8 @@ describe('AdminRefundsPage', () => {
     expect(wrapper.text()).toContain('RF-202609-000001')
     expect(wrapper.get('form[aria-label="退款搜尋"]').classes()).toContain('finance-filter')
     expect(wrapper.get('#refund-query').element.parentElement?.classList.contains('finance-field')).toBe(true)
+    expect(wrapper.get('label[for="refund-query"]').text()).toBe('關鍵字')
+    expect(wrapper.get('#refund-query').attributes('placeholder')).toBeUndefined()
     expect(wrapper.get('.table-scroll').attributes('tabindex')).toBe('0')
     expect(wrapper.text()).toContain('已核准')
     expect(wrapper.text()).toContain('NT$480')
@@ -84,6 +86,36 @@ describe('AdminRefundsPage', () => {
     expect(mockListRefunds).toHaveBeenLastCalledWith(expect.objectContaining({
       statuses: ['succeeded'],
       pageNumber: 1,
+    }))
+  })
+
+  it('uses fuzzy keywords and requests server-side sorting from sortable headers', async () => {
+    mockListRefunds.mockResolvedValue({
+      items: [refund()], pageNumber: 1, pageSize: 20, totalCount: 1, totalPages: 1,
+    })
+    const wrapper = await mountPage()
+    await flushPromises()
+
+    await wrapper.get('#refund-query').setValue('a085')
+    await wrapper.get('form[aria-label="退款搜尋"]').trigger('submit')
+    await flushPromises()
+    expect(mockListRefunds).toHaveBeenLastCalledWith(expect.objectContaining({
+      q: 'a085',
+      sort: 'createdAtDesc',
+    }))
+
+    const refundNumberHeader = wrapper.get('th[data-sort="refundNumber"]')
+    await refundNumberHeader.get('button').trigger('click')
+    await flushPromises()
+    expect(mockListRefunds).toHaveBeenLastCalledWith(expect.objectContaining({
+      sort: 'refundNumberAsc',
+      pageNumber: 1,
+    }))
+
+    await refundNumberHeader.get('button').trigger('click')
+    await flushPromises()
+    expect(mockListRefunds).toHaveBeenLastCalledWith(expect.objectContaining({
+      sort: 'refundNumberDesc',
     }))
   })
 })

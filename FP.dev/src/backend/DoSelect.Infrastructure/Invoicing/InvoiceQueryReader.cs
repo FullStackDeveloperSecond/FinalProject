@@ -66,7 +66,7 @@ public sealed class InvoiceQueryReader : IInvoiceQueryReader
     public async Task<PageResult<InvoiceRow>> ListAsync(
         AdminInvoiceQuery query, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(query);
+        AdminInvoiceQueryValidator.RequireValid(query);
 
         var pageSize = Math.Clamp(query.PageSize, 1, 100);
         var pageNumber = Math.Max(query.PageNumber, 1);
@@ -108,8 +108,24 @@ public sealed class InvoiceQueryReader : IInvoiceQueryReader
             return new PageResult<InvoiceRow>([], pageNumber, pageSize, totalCount);
         }
 
-        // 排序同樣要在投影前。InvoiceNumber 有唯一索引，所以翻頁順序完整且穩定。
-        var ordered = filtered.OrderByDescending(invoice => invoice.InvoiceNumber);
+        // 排序同樣要在投影前，並以 Id 補上穩定同值鍵。訂單號碼排序由
+        // OrderNumberSortedInvoiceReader 的窄跨模組唯讀投影處理。
+        var ordered = query.Sort switch
+        {
+            AdminInvoiceSortOptions.InvoiceNumberAsc =>
+                filtered.OrderBy(invoice => invoice.InvoiceNumber).ThenBy(invoice => invoice.Id),
+            AdminInvoiceSortOptions.StatusAsc =>
+                filtered.OrderBy(invoice => invoice.Status).ThenBy(invoice => invoice.Id),
+            AdminInvoiceSortOptions.StatusDesc =>
+                filtered.OrderByDescending(invoice => invoice.Status).ThenByDescending(invoice => invoice.Id),
+            AdminInvoiceSortOptions.IssuedAtAsc =>
+                filtered.OrderBy(invoice => invoice.IssuedAtUtc).ThenBy(invoice => invoice.Id),
+            AdminInvoiceSortOptions.IssuedAtDesc =>
+                filtered.OrderByDescending(invoice => invoice.IssuedAtUtc).ThenByDescending(invoice => invoice.Id),
+            _ =>
+                filtered.OrderByDescending(invoice => invoice.InvoiceNumber)
+                    .ThenByDescending(invoice => invoice.Id),
+        };
 
         var headers = await Project(ordered)
             .Skip((int)skip)

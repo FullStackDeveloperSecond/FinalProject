@@ -14,7 +14,8 @@ public sealed class AdminRefundQueryValidatorTests
             new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
             "RF-202608",
             PageNumber: 1,
-            PageSize: 20);
+            PageSize: 20,
+            Sort: AdminRefundSortOptions.StatusAsc);
 
         AdminRefundQueryValidator.RequireValid(query);
     }
@@ -46,6 +47,21 @@ public sealed class AdminRefundQueryValidatorTests
             Q: null,
             PageNumber: 1,
             PageSize: 20);
+
+        Assert.ThrowsAny<Exception>(() => AdminRefundQueryValidator.RequireValid(query));
+    }
+
+    [Fact]
+    public void AnUnknownSortOptionIsRejected()
+    {
+        var query = new AdminRefundQuery(
+            Statuses: null,
+            FromUtc: null,
+            ToUtc: null,
+            Q: null,
+            PageNumber: 1,
+            PageSize: 20,
+            Sort: "not-a-sort");
 
         Assert.ThrowsAny<Exception>(() => AdminRefundQueryValidator.RequireValid(query));
     }

@@ -10,11 +10,11 @@ namespace DoSelect.Application.Invoicing;
 /// </summary>
 /// <remarks>
 /// <para>
-/// 合併發生在<b>這一層</b>，不在任何一邊的 Infrastructure：Invoicing 不讀 Orders
-/// （Issue #65 A1），Orders 也不讀 <c>SimulatedInvoices</c>。兩個 Reader 各自只碰自己的表。
+/// 一般查詢的合併發生在<b>這一層</b>：Invoicing 與 Orders 的 Reader 各自只碰自己的表。
+/// 唯一例外是依訂單號碼排序的後台清單；它必須在分頁前跨表排序，因此走專用的窄唯讀投影。
 /// </para>
 /// <para>
-/// 清單一律走 <c>FindManyAsync</c> 批次補訂單，不在迴圈裡逐筆查 —— 那是 alex 明列的驗收條件。
+/// 其他清單一律走 <c>FindManyAsync</c> 批次補訂單，不在迴圈裡逐筆查 —— 那是 alex 明列的驗收條件。
 /// </para>
 /// </remarks>
 public sealed class InvoiceQueryService
@@ -22,11 +22,13 @@ public sealed class InvoiceQueryService
     private readonly IInvoiceQueryReader _invoices;
     private readonly IOrderInvoiceReferenceReader _orders;
     private readonly IRefundInvoiceReferenceReader _refunds;
+    private readonly IOrderNumberSortedAdminInvoiceReader? _orderNumberSortedInvoices;
 
     public InvoiceQueryService(
         IInvoiceQueryReader invoices,
         IOrderInvoiceReferenceReader orders,
-        IRefundInvoiceReferenceReader refunds)
+        IRefundInvoiceReferenceReader refunds,
+        IOrderNumberSortedAdminInvoiceReader? orderNumberSortedInvoices = null)
     {
         ArgumentNullException.ThrowIfNull(invoices);
         ArgumentNullException.ThrowIfNull(orders);
@@ -35,6 +37,7 @@ public sealed class InvoiceQueryService
         _invoices = invoices;
         _orders = orders;
         _refunds = refunds;
+        _orderNumberSortedInvoices = orderNumberSortedInvoices;
     }
 
     /// <summary>
@@ -102,6 +105,20 @@ public sealed class InvoiceQueryService
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(query);
+
+        AdminInvoiceQueryValidator.RequireValid(query);
+
+        if (query.Sort is AdminInvoiceSortOptions.OrderNumberAsc or
+            AdminInvoiceSortOptions.OrderNumberDesc)
+        {
+            if (_orderNumberSortedInvoices is null)
+            {
+                throw new InvalidOperationException(
+                    "Order-number invoice sorting reader is not configured.");
+            }
+
+            return await _orderNumberSortedInvoices.ListAsync(query, cancellationToken);
+        }
 
         var page = await _invoices.ListAsync(query, cancellationToken);
 

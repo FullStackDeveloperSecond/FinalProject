@@ -51,7 +51,8 @@ public sealed class AdminInvoicesController : ControllerBase
                 request.ToUtc,
                 request.Q,
                 request.PageNumber,
-                request.PageSize),
+                request.PageSize,
+                request.Sort),
             cancellationToken);
 
         return Ok(result);
@@ -139,4 +140,7 @@ public sealed class AdminInvoiceListRequest
 
     [Range(1, 100)]
     public int PageSize { get; init; } = 20;
+
+    [StringLength(32)]
+    public string? Sort { get; init; }
 }

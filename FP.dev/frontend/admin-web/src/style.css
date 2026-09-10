@@ -1304,6 +1304,27 @@ button:disabled {
   margin-top: 1rem;
 }
 
+.finance-sort-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  min-height: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+  text-align: left;
+}
+
+.finance-sort-button:hover,
+.finance-sort-button:focus-visible {
+  color: var(--color-primary);
+  text-decoration: underline;
+}
+
 @media (max-width: 640px) {
   .record-detail__header {
     align-items: stretch;

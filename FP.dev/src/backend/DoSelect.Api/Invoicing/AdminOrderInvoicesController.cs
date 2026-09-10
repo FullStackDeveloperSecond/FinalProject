@@ -32,11 +32,11 @@ public sealed class AdminOrderInvoicesController : ControllerBase
         _query = query;
     }
 
-    [HttpGet("{orderId:guid}/invoice-issuance")]
+    [HttpGet("{orderId}/invoice-issuance")]
     [ProducesResponseType<InvoiceIssuanceOrderDto>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<InvoiceIssuanceOrderDto>> GetIssuanceSnapshot(
-        Guid orderId,
+        string orderId,
         CancellationToken cancellationToken)
     {
         var order = await _query.FindAsync(orderId, cancellationToken);
