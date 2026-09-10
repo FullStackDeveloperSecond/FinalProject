@@ -28,6 +28,12 @@ interface OrderSnapshot {
   }
 }
 
+function recordDetailFactValue(page: Page, regionName: string, label: string) {
+  const region = page.getByRole('region', { name: regionName })
+  const fact = region.locator('.record-detail__facts > div').filter({ hasText: label })
+  return fact.locator('dd')
+}
+
 async function getAntiforgeryToken(api: APIRequestContext): Promise<string> {
   const response = await api.get('/api/v1/security/antiforgery-token', {
     headers: { 'X-DoSelect-Client': 'member' },
@@ -359,6 +365,11 @@ test('a guest can verify, view and cancel only the matching order without cross-
   const targetOrder = await createGuestOrder(page, api, seed.skuPublicId, targetEmail, requestToken)
   const otherOrder = await createGuestOrder(page, api, seed.skuPublicId, otherEmail, requestToken)
 
+  // Creating a guest order intentionally grants access to that newly-created order. Remove that
+  // setup Cookie before exercising the separate email-code access flow, otherwise the negative
+  // assertion below observes the setup grant rather than a Cookie issued by the wrong code.
+  await page.context().clearCookies({ name: '.DoSelect.GuestOrderAccess' })
+
   await page.goto('/guest-orders/access')
   await page.getByLabel('訂單編號').fill(targetOrder.orderNumber)
   await page.getByLabel('訂單 Email').fill(targetEmail)
@@ -383,7 +394,7 @@ test('a guest can verify, view and cancel only the matching order without cross-
   await expect(page).toHaveURL(new RegExp(`/orders/${targetOrder.publicId}$`))
   await expect(page.getByRole('heading', { level: 1, name: `訂單 ${targetOrder.orderNumber}` }))
     .toBeVisible()
-  await expect(page.getByText('狀態：等待付款', { exact: true })).toBeVisible()
+  await expect(page.locator('.record-detail__status')).toHaveText('等待付款')
 
   const crossOrderCancelStatus = await page.evaluate(async ({ orderPublicId, rowVersion }) => {
     const tokenResponse = await fetch('/api/v1/security/antiforgery-token', {
@@ -711,7 +722,7 @@ test('a guest completes the prepared cart through checkout payment and invoice',
   await expect(page.getByText('自訂組裝', { exact: true })).toBeVisible()
   await expect(page.getByRole('list', { name: /組裝品項：/ }).getByRole('listitem')).toHaveCount(8)
 
-  await page.getByLabel('優惠碼', { exact: true }).fill('SCHOOL2026')
+  await page.getByRole('textbox', { name: '優惠碼', exact: true }).fill('SCHOOL2026')
   await page.getByRole('button', { name: '套用', exact: true }).click()
   await expect(page.getByText(/已套用：SCHOOL2026/)).toBeVisible()
 
@@ -849,9 +860,9 @@ test('a guest completes the prepared cart through checkout payment and invoice',
   }).toBe(200)
 
   await page.getByRole('link', { name: '← 回訂單詳情' }).click()
-  await expect(page.getByText('付款狀態：已付款', { exact: true })).toBeVisible()
+  await expect(recordDetailFactValue(page, '付款與退款', '付款狀態')).toHaveText('已付款')
   await expect(page.getByText(/DEMO-NOT-A-TAX-INVOICE/)).toBeVisible()
-  await expect(page.getByText('狀態：已開立', { exact: true })).toBeVisible()
+  await expect(recordDetailFactValue(page, '模擬發票', '狀態')).toHaveText('已開立')
 })
 
 test('a shopper can jump from a home category card into that seeded catalog category', async ({ page }) => {
@@ -918,7 +929,8 @@ test('a member can save, share, and add a compatible build to the cart; E2E-RC-0
     await expect(page.getByText(productName, { exact: true })).toBeVisible()
   }
 
-  await expect(page.getByText('相容性檢查結果：相容', { exact: true })).toBeVisible()
+  await expect(page.locator('.compat-findings__overall')).toHaveText(
+    '相容性檢查結果：相容', { timeout: 15_000 })
   await page.getByRole('button', { name: '儲存為我的清單' }).click()
   await expect(page).toHaveURL(/\/builds\/[0-9a-f-]+$/)
 
@@ -1035,7 +1047,8 @@ test('compatibility warnings remain actionable while hard failures and missing e
   }
 
   await startBuild('E2E-RC-04 警告仍可繼續', 4, '懂選開發用顯示卡（組裝用）')
-  await expect(page.getByText('相容性檢查結果：有警告，仍可繼續', { exact: true })).toBeVisible()
+  await expect(page.locator('.compat-findings__overall')).toHaveText(
+    '相容性檢查結果：有警告，仍可繼續', { timeout: 15_000 })
   await expect(page.getByText('安裝後剩餘記憶體插槽數量偏低。', { exact: true })).toBeVisible()
   const warningBuild = await saveAndReadBuild()
   expect(warningBuild.compatibility.overall).toBe('warning')
@@ -1048,7 +1061,8 @@ test('compatibility warnings remain actionable while hard failures and missing e
   await expect(page.getByText('已加入購物車。', { exact: true })).toBeVisible()
 
   await startBuild('E2E-RC-04 硬規則阻擋', 5, '懂選開發用顯示卡（組裝用）')
-  await expect(page.getByText('相容性檢查結果：不相容，無法加入購物車', { exact: true })).toBeVisible()
+  await expect(page.locator('.compat-findings__overall')).toHaveText(
+    '相容性檢查結果：不相容，無法加入購物車', { timeout: 15_000 })
   await expect(page.getByText('記憶體需要 5 個插槽，但主機板只有 4 個。', { exact: true })).toBeVisible()
   const blockedBuild = await saveAndReadBuild()
   expect(blockedBuild.compatibility.overall).toBe('blocked')
@@ -1059,7 +1073,8 @@ test('compatibility warnings remain actionable while hard failures and missing e
   await expect(page.getByRole('button', { name: '加入購物車', exact: true })).toBeDisabled()
 
   await startBuild('E2E-RC-04 缺規格證據', 1, '懂選開發用顯示卡（規格待覆核）')
-  await expect(page.getByText('相容性檢查結果：規格資料不足，無法完整判斷', { exact: true })).toBeVisible()
+  await expect(page.locator('.compat-findings__overall')).toHaveText(
+    '相容性檢查結果：規格資料不足，無法完整判斷', { timeout: 15_000 })
   await expect(page.getByText('缺少計算所需的規格資料，無法判斷相容性。', { exact: true }).first()).toBeVisible()
   const missingEvidenceBuild = await saveAndReadBuild()
   expect(missingEvidenceBuild.compatibility.overall).toBe('insufficientData')

@@ -131,6 +131,12 @@ interface ShipmentCommandCapture {
   requestBody: unknown
 }
 
+function recordDetailFactValue(page: Page, regionName: string, label: string) {
+  const region = page.getByRole('region', { name: regionName })
+  const fact = region.locator('.record-detail__facts > div').filter({ hasText: label })
+  return fact.locator('dd')
+}
+
 async function getMemberAntiforgeryToken(api: APIRequestContext): Promise<string> {
   const response = await api.get('/api/v1/security/antiforgery-token', {
     headers: { 'X-DoSelect-Client': 'member' },
@@ -168,6 +174,17 @@ async function codEligibleSkuPublicId(api: APIRequestContext): Promise<string> {
   }
   const sku = body.items.find(item => item.skuCode === 'DEV-COMPAT-CPU-001')
   expect(sku, 'The COD journey must use the explicit non-prepayment seed SKU').toBeTruthy()
+  return sku!.defaultSkuPublicId
+}
+
+async function prepaidJourneySkuPublicId(api: APIRequestContext): Promise<string> {
+  const response = await api.get('/api/v1/products?q=DEV-COMPAT-GPU-001&pageSize=1')
+  expect(response.ok(), 'The minimal seed must expose the prepaid E2E SKU').toBe(true)
+  const body = await response.json() as {
+    items: Array<{ defaultSkuPublicId: string, skuCode: string }>
+  }
+  const sku = body.items.find(item => item.skuCode === 'DEV-COMPAT-GPU-001')
+  expect(sku, 'The prepaid journey must use the explicit high-stock seed SKU').toBeTruthy()
   return sku!.defaultSkuPublicId
 }
 
@@ -652,8 +669,8 @@ test('a seeded administrator can enroll TOTP, reject a wrong code, and sign in a
   expect(prematureCompletion).toEqual({ status: 409, code: 'payment_state_conflict' })
 
   await customerPage.goto(`/orders/${homeOrder.publicId}`)
-  await expect(customerPage.getByText('付款狀態：等待付款', { exact: true })).toBeVisible()
-  await expect(customerPage.getByText('已付款：NT$ 0', { exact: true })).toBeVisible()
+  await expect(recordDetailFactValue(customerPage, '付款與退款', '付款狀態')).toHaveText('等待付款')
+  await expect(recordDetailFactValue(customerPage, '付款與退款', '已付款')).toHaveText('NT$ 0')
   await expect(customerPage.getByRole('heading', { name: '模擬發票' })).toHaveCount(0)
 
   await shipOrdersThroughAdminUi(page, [homeOrder, storeOrder, returnedOrder])
@@ -756,15 +773,15 @@ test('a seeded administrator can enroll TOTP, reject a wrong code, and sign in a
   expect(homeInvoiceAfterReplay.body?.invoiceNumber).toBe(homeInvoice?.invoiceNumber)
 
   await customerPage.reload()
-  await expect(customerPage.getByText('付款狀態：已付款', { exact: true })).toBeVisible()
-  await expect(customerPage.getByText(`已付款：NT$ ${homeOrder.amounts.grandTotal}`, { exact: true }))
-    .toBeVisible()
+  await expect(recordDetailFactValue(customerPage, '付款與退款', '付款狀態')).toHaveText('已付款')
+  await expect(recordDetailFactValue(customerPage, '付款與退款', '已付款'))
+    .toHaveText(`NT$ ${homeOrder.amounts.grandTotal}`)
   await expect(customerPage.getByText(/DEMO-NOT-A-TAX-INVOICE/)).toBeVisible()
-  await expect(customerPage.getByText('狀態：已開立', { exact: true })).toBeVisible()
+  await expect(recordDetailFactValue(customerPage, '模擬發票', '狀態')).toHaveText('已開立')
 
   await grantGuestOrderAccess(customerPage, storeOrder, storeEmail)
-  await expect(customerPage.getByText('付款狀態：等待付款', { exact: true })).toBeVisible()
-  await expect(customerPage.getByText('已付款：NT$ 0', { exact: true })).toBeVisible()
+  await expect(recordDetailFactValue(customerPage, '付款與退款', '付款狀態')).toHaveText('等待付款')
+  await expect(recordDetailFactValue(customerPage, '付款與退款', '已付款')).toHaveText('NT$ 0')
 
   await page.goto(`./orders/${storeOrder.publicId}`)
   const storeInTransit = await executeShipmentActionThroughAdminUi(page, '配送中', 'in-transit')
@@ -799,10 +816,10 @@ test('a seeded administrator can enroll TOTP, reject a wrong code, and sign in a
   expect(storeInvoice?.grossAmount).toBe(storeOrder.amounts.grandTotal)
 
   await customerPage.reload()
-  await expect(customerPage.getByText('狀態：已完成', { exact: true })).toBeVisible()
-  await expect(customerPage.getByText('付款狀態：已付款', { exact: true })).toBeVisible()
-  await expect(customerPage.getByText(`已付款：NT$ ${storeOrder.amounts.grandTotal}`, { exact: true }))
-    .toBeVisible()
+  await expect(customerPage.locator('.record-detail__status')).toHaveText('已完成')
+  await expect(recordDetailFactValue(customerPage, '付款與退款', '付款狀態')).toHaveText('已付款')
+  await expect(recordDetailFactValue(customerPage, '付款與退款', '已付款'))
+    .toHaveText(`NT$ ${storeOrder.amounts.grandTotal}`)
   await expect(customerPage.getByText(/DEMO-NOT-A-TAX-INVOICE/)).toBeVisible()
 
   // E2E-RC05 chooses the highest data-risk non-happy path left by M-11: a COD home-delivery
@@ -810,8 +827,8 @@ test('a seeded administrator can enroll TOTP, reject a wrong code, and sign in a
   // order, or issue an invoice. The real admin form must enforce reason selection, and both the
   // shipment and order histories returned by the SQL-backed API must record the same transitions.
   await grantGuestOrderAccess(customerPage, returnedOrder, returnedEmail)
-  await expect(customerPage.getByText('付款狀態：等待付款', { exact: true })).toBeVisible()
-  await expect(customerPage.getByText('已付款：NT$ 0', { exact: true })).toBeVisible()
+  await expect(recordDetailFactValue(customerPage, '付款與退款', '付款狀態')).toHaveText('等待付款')
+  await expect(recordDetailFactValue(customerPage, '付款與退款', '已付款')).toHaveText('NT$ 0')
   expect((await readCustomerInvoice(customerPage, returnedOrder.publicId)).status).toBe(404)
 
   await page.goto(`./orders/${returnedOrder.publicId}`)
@@ -882,9 +899,9 @@ test('a seeded administrator can enroll TOTP, reject a wrong code, and sign in a
   await captureVisualEvidence(page, 'e2e-rc-05-admin-shipment-returned')
 
   await customerPage.reload()
-  await expect(customerPage.getByText('物流狀態：已退回', { exact: true })).toBeVisible()
-  await expect(customerPage.getByText('付款狀態：等待付款', { exact: true })).toBeVisible()
-  await expect(customerPage.getByText('已付款：NT$ 0', { exact: true })).toBeVisible()
+  await expect(recordDetailFactValue(customerPage, '配送資訊', '物流狀態')).toHaveText('已退回')
+  await expect(recordDetailFactValue(customerPage, '付款與退款', '付款狀態')).toHaveText('等待付款')
+  await expect(recordDetailFactValue(customerPage, '付款與退款', '已付款')).toHaveText('NT$ 0')
   await expect(customerPage.getByRole('heading', { name: '模擬發票' })).toHaveCount(0)
   expect((await readCustomerInvoice(customerPage, returnedOrder.publicId)).status).toBe(404)
   await captureVisualEvidence(customerPage, 'e2e-rc-05-customer-shipment-returned')
@@ -915,8 +932,9 @@ test('a delivered order can be returned, refunded and allowed to update the orde
 
   const requestToken = await getMemberAntiforgeryToken(api)
   const email = `refund-journey-${randomUUID()}@example.test`
+  const skuPublicId = await prepaidJourneySkuPublicId(api)
   const order = await createGuestPrepaidHomeDeliveryOrder(
-    page, api, seed.skuPublicId, email, requestToken)
+    page, api, skuPublicId, email, requestToken)
 
   const customerContext = await browser.newContext({ baseURL: 'http://127.0.0.1:5173' })
   const customerPage = await customerContext.newPage()
@@ -927,7 +945,7 @@ test('a delivered order can be returned, refunded and allowed to update the orde
   await customerPage.getByRole('button', { name: '模擬付款成功' }).click()
   await expect(customerPage.getByText('付款已完成', { exact: true })).toBeVisible()
   await customerPage.getByRole('link', { name: '← 回訂單詳情' }).click()
-  await expect(customerPage.getByText('付款狀態：已付款', { exact: true })).toBeVisible()
+  await expect(recordDetailFactValue(customerPage, '付款與退款', '付款狀態')).toHaveText('已付款')
 
   // Admin: sign in as the dedicated, pre-enrolled H-R03 admin — see loginAsPreEnrolledAdmin for
   // why this test cannot share the primary admin's live enrollment flow — then ship the prepaid
@@ -1133,9 +1151,9 @@ test('a delivered order can be returned, refunded and allowed to update the orde
   expect(orderAfterRefund.amounts.refundedAmount).toBe(order.amounts.grandTotal)
 
   await customerPage.goto(`/orders/${order.publicId}`)
-  await expect(customerPage.getByText('退款狀態：已全額退款', { exact: true })).toBeVisible()
-  await expect(customerPage.getByText(`已退款：NT$ ${order.amounts.grandTotal}`, { exact: true }))
-    .toBeVisible()
+  await expect(recordDetailFactValue(customerPage, '付款與退款', '退款狀態')).toHaveText('已全額退款')
+  await expect(recordDetailFactValue(customerPage, '付款與退款', '已退款'))
+    .toHaveText(`NT$ ${order.amounts.grandTotal}`)
 
   // Invoice allowance (DES-22): built from the trusted RefundAllocation snapshot, not
   // recomputed from the return. AdminInvoiceDetailPage.vue has no create-allowance form at all
@@ -1253,14 +1271,15 @@ test('a partially returned order settles as PartiallyRefunded and a different gu
 
   const requestToken = await getMemberAntiforgeryToken(api)
   const ownerEmail = `partial-refund-owner-${randomUUID()}@example.test`
+  const skuPublicId = await prepaidJourneySkuPublicId(api)
   const order = await createGuestPrepaidHomeDeliveryOrder(
-    page, api, seed.skuPublicId, ownerEmail, requestToken, 2)
+    page, api, skuPublicId, ownerEmail, requestToken, 2)
 
   // A second, unrelated guest order — used only to prove Actor Scope: a currently-valid guest
   // session for a *different* order must never resolve someone else's order or return.
   const outsiderEmail = `partial-refund-outsider-${randomUUID()}@example.test`
   const outsiderOrder = await createGuestPrepaidHomeDeliveryOrder(
-    page, api, seed.skuPublicId, outsiderEmail, requestToken)
+    page, api, skuPublicId, outsiderEmail, requestToken)
 
   const ownerContext = await browser.newContext({ baseURL: 'http://127.0.0.1:5173' })
   const ownerPage = await ownerContext.newPage()
@@ -1534,8 +1553,9 @@ test('a partially returned order settles as PartiallyRefunded and a different gu
   expect(orderAfterRefund.amounts.paidAmount).toBe(order.amounts.grandTotal)
 
   await ownerPage.goto(`/orders/${order.publicId}`)
-  await expect(ownerPage.getByText('退款狀態：部分退款', { exact: true })).toBeVisible()
-  await expect(ownerPage.getByText(`已退款：NT$ ${refundAmount}`, { exact: true })).toBeVisible()
+  await expect(recordDetailFactValue(ownerPage, '付款與退款', '退款狀態')).toHaveText('部分退款')
+  await expect(recordDetailFactValue(ownerPage, '付款與退款', '已退款'))
+    .toHaveText(`NT$ ${refundAmount}`)
   // The remaining, un-returned unit keeps the return CTA available.
   await expect(ownerPage.getByRole('button', { name: '申請退貨' })).toBeVisible()
 
