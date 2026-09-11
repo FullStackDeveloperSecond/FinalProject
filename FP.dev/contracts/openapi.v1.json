@@ -20643,6 +20643,7 @@
       "CreateAdminAccountRequest": {
         "required": [
           "email",
+          "password",
           "displayName",
           "employeeCode",
           "roles"
@@ -20652,6 +20653,11 @@
           "email": {
             "maxLength": 320,
             "minLength": 3,
+            "type": "string"
+          },
+          "password": {
+            "maxLength": 128,
+            "minLength": 12,
             "type": "string"
           },
           "displayName": {

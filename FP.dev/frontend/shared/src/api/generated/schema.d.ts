@@ -11951,6 +11951,7 @@ export interface components {
         };
         CreateAdminAccountRequest: {
             email: string;
+            password: string;
             displayName: string;
             employeeCode: string;
             roles: string[];

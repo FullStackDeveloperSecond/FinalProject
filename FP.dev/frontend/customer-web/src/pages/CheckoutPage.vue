@@ -25,6 +25,7 @@ import { useShippingOptions } from '../features/shipping/useShipping'
 import type { ConvenienceStoreOptionDto, ShippingOptionDto } from '../features/shipping/types'
 import { districtsForCity, TAIWAN_CITIES } from '../features/shipping/taiwanAdministrativeAreas'
 import { fetchAddresses, fetchProfile, type MemberAddress } from '../features/members/api'
+import { PAYMENT_METHOD_PRESENTATION, sortPaymentMethods } from '../features/payments/presentation'
 import LegalDemoPage from './LegalDemoPage.vue'
 
 interface CheckoutForm {
@@ -58,16 +59,6 @@ type CreatedOrderHandoff = {
 }
 
 type RecentOrderReceipt = { handoff: CreatedOrderHandoff, expiresAt: number }
-
-const PAYMENT_LABELS: Record<PaymentMethod, string> = {
-  creditCard: '信用卡',
-  atm: 'ATM 虛擬帳號',
-  convenienceCode: '超商繳費代碼',
-  cashOnDelivery: '貨到付款',
-  linePay: 'LINE Pay',
-  applePay: 'Apple Pay',
-  googlePay: 'Google Pay',
-}
 
 const ISSUE_MESSAGES: Record<string, string> = {
   sku_unavailable: '購物車中有商品已下架，請回購物車移除。',
@@ -226,7 +217,7 @@ const selectedShippingOption = computed<ShippingOptionDto | null>(() =>
 )
 
 const allowedPaymentMethods = computed<PaymentMethod[]>(() =>
-  selectedShippingOption.value?.allowedPaymentMethods ?? [],
+  sortPaymentMethods(selectedShippingOption.value?.allowedPaymentMethods ?? []),
 )
 
 const isAddressComplete = computed(() => Boolean(
@@ -1168,7 +1159,10 @@ function receiptKey() {
             name="payment-method"
             :value="method"
           >
-          {{ PAYMENT_LABELS[method] }}
+          <span class="checkout-page__payment-copy">
+            <span>{{ PAYMENT_METHOD_PRESENTATION[method].label }}</span>
+            <small>付款期限：{{ PAYMENT_METHOD_PRESENTATION[method].deadline }}</small>
+          </span>
         </label>
       </section>
 
@@ -1483,6 +1477,15 @@ function receiptKey() {
   align-items: center;
   gap: 0.5rem;
   margin-block: 0.5rem;
+}
+
+.checkout-page__payment-copy {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.checkout-page__payment-copy small {
+  color: var(--color-text-muted);
 }
 
 .checkout-page__summary {

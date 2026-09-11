@@ -133,11 +133,12 @@ public sealed class AdminAccountsController(
         var now = clock.GetUtcNow().UtcDateTime;
         var publicId = Guid.CreateVersion7();
         var user = ApplicationUser.CreateAdmin(publicId, email, now);
-        var createResult = await userManager.CreateAsync(user);
+        user.ConfirmEmail(now);
+        var createResult = await userManager.CreateAsync(user, request.Password);
         if (!createResult.Succeeded)
         {
             await transaction.RollbackAsync(cancellationToken);
-            return IdentityError(createResult, ApiErrorCodes.AdminEmailDuplicate);
+            return IdentityError(createResult, ApiErrorCodes.ValidationFailed);
         }
 
         db.AdminProfiles.Add(new AdminProfile(user.Id, publicId, employeeCode, request.DisplayName, now));
@@ -150,14 +151,13 @@ public sealed class AdminAccountsController(
 
         var changes = new List<AuditFieldChange>
         {
-            AuditFieldChange.Code("accountStatus", null, AccountStatus.PendingEmailVerification.ToString()),
+            AuditFieldChange.Code("accountStatus", null, AccountStatus.Active.ToString()),
             AuditFieldChange.Changed("role"),
         };
         AddAudit(actor.Value, AuditActions.AdminAccountCreate, publicId, changes, "admin_account_created");
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
-        await QueueInvitationAsync(user);
         return CreatedAtAction(nameof(Detail), new { publicId }, ToDto(user, request, roles));
     }
 
@@ -416,6 +416,7 @@ public sealed record AdminAccountPage(
 public sealed class CreateAdminAccountRequest
 {
     [Required, EmailAddress, StringLength(320, MinimumLength = 3)] public required string Email { get; init; }
+    [Required, StringLength(128, MinimumLength = 12)] public required string Password { get; init; }
     [Required, StringLength(100, MinimumLength = 1)] public required string DisplayName { get; init; }
     [Required, RegularExpression("^[A-Za-z0-9][A-Za-z0-9_-]{1,63}$")] public required string EmployeeCode { get; init; }
     [Required, MinLength(1)] public required IReadOnlyList<string> Roles { get; init; }

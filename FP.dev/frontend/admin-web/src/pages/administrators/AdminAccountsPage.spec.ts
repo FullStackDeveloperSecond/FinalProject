@@ -62,7 +62,7 @@ describe('AdminAccountsPage', () => {
     }
   })
 
-  it('lists administrators and creates a pending invitation without collecting a password', async () => {
+  it('lists administrators and creates a directly usable account that must enroll TOTP on first login', async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const wrapper = mount(AdminAccountsPage, {
       global: {
@@ -79,10 +79,11 @@ describe('AdminAccountsPage', () => {
 
     const dialog = wrapper.get('dialog')
     expect(dialog.attributes()).toHaveProperty('open')
-    await dialog.get('input:not([type="checkbox"])').setValue('新管理員')
-    const textInputs = dialog.findAll('input:not([type="checkbox"])')
-    await textInputs[1]!.setValue('EMP-NEW')
-    await textInputs[2]!.setValue('new@example.invalid')
+    await dialog.get('#create-display-name').setValue('新管理員')
+    await dialog.get('#create-employee-code').setValue('EMP-NEW')
+    await dialog.get('#create-email').setValue('new@example.invalid')
+    await dialog.get('#create-password').setValue('temporary-passphrase')
+    await dialog.get('#create-password-confirmation').setValue('temporary-passphrase')
     const roleCheckbox = dialog.findAll('input[type="checkbox"]')
       .find(input => input.element.parentElement?.textContent?.includes('訂單與物流'))
     await roleCheckbox!.setValue(true)
@@ -91,12 +92,38 @@ describe('AdminAccountsPage', () => {
 
     expect(api.createAdminAccount).toHaveBeenCalledWith({
       email: 'new@example.invalid',
+      password: 'temporary-passphrase',
       displayName: '新管理員',
       employeeCode: 'EMP-NEW',
       roles: ['OrderManager'],
       confirmSuperAdmin: false,
     })
-    expect(wrapper.text()).toContain('邀請信已交由郵件服務處理')
-    expect(dialog.find('input[type="password"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('首次登入時必須設定 TOTP')
+    expect(dialog.findAll('input[type="password"]')).toHaveLength(2)
+    expect(dialog.findAll('.admin-accounts__control')).toHaveLength(5)
+    expect(dialog.findAll('.admin-accounts__checkbox')).toHaveLength(10)
+  })
+
+  it('does not submit when the password confirmation does not match', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const wrapper = mount(AdminAccountsPage, {
+      global: {
+        plugins: [[VueQueryPlugin, { queryClient }]],
+        stubs: { PagePager: true },
+      },
+    })
+    await flushPromises()
+    await wrapper.get('.admin-accounts__header button').trigger('click')
+
+    const dialog = wrapper.get('dialog')
+    await dialog.get('#create-display-name').setValue('新管理員')
+    await dialog.get('#create-employee-code').setValue('EMP-NEW')
+    await dialog.get('#create-email').setValue('new@example.invalid')
+    await dialog.get('#create-password').setValue('temporary-passphrase')
+    await dialog.get('#create-password-confirmation').setValue('different-passphrase')
+    await dialog.get('form').trigger('submit')
+
+    expect(api.createAdminAccount).not.toHaveBeenCalled()
+    expect(dialog.text()).toContain('兩次輸入的密碼不一致')
   })
 })

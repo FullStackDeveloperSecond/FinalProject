@@ -32,6 +32,7 @@ export interface AdminAccountPage {
 
 export interface CreateAdminAccountBody {
   email: string
+  password: string
   displayName: string
   employeeCode: string
   roles: string[]

@@ -11,6 +11,7 @@ import type {
   AcceptedPolicyVersions,
   CreateOrderRequest,
   OrderDto,
+  PaymentMethod,
 } from '../features/checkout/api'
 
 const mockRevalidateCart = vi.fn<() => Promise<CartValidationDto>>()
@@ -414,6 +415,40 @@ describe('CheckoutPage', () => {
     expect(wrapper.text()).toContain('商品小計：NT$18,000')
     expect(wrapper.text()).toContain('應付總額：NT$18,120')
     expect(wrapper.text()).not.toContain('最終金額、折扣、運費及庫存以後端建立訂單時重新計算為準')
+  })
+
+  it('sorts every payment method consistently and shows its payment deadline', async () => {
+    const apiOrder: PaymentMethod[] = [
+      'cashOnDelivery',
+      'googlePay',
+      'convenienceCode',
+      'atm',
+      'applePay',
+      'linePay',
+      'creditCard',
+    ]
+    mockGetShippingOptions.mockResolvedValue(shippingOptions(apiOrder))
+    const { wrapper } = await mountCheckoutPage()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('宅配'))
+    await wrapper.get('input[value="HOME_DELIVERY"]').trigger('change')
+
+    const choices = wrapper
+      .get('section[aria-labelledby="payment-title"]')
+      .findAll('.checkout-page__choice')
+    expect(choices.map(choice => choice.get('input').attributes('value'))).toEqual([
+      'creditCard',
+      'linePay',
+      'applePay',
+      'googlePay',
+      'atm',
+      'convenienceCode',
+      'cashOnDelivery',
+    ])
+    expect(choices).toHaveLength(7)
+    expect(choices.every(choice => choice.text().includes('付款期限：'))).toBe(true)
+    expect(choices[0]!.text()).toContain('建立付款後 15 分鐘內')
+    expect(choices[4]!.text()).toContain('建立付款後 3 天內')
+    expect(choices[6]!.text()).toContain('收貨或取貨時')
   })
 
   it('does not provide a second coupon entry point on checkout', async () => {

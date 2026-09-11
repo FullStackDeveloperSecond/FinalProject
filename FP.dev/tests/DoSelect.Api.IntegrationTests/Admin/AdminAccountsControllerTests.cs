@@ -38,10 +38,15 @@ public sealed class AdminAccountsControllerTests(AdminAuthApiFixture fixture)
     }
 
     [Fact]
-    public async Task SuperAdminCanCreateAPendingAdministratorWithRolesAndAudit()
+    public async Task SuperAdminCanCreateAnActiveAdministratorWithPasswordRolesAndAudit()
     {
         using var factory = CreateFactory();
         var actorId = await SeedActiveAdminAsync(factory, [DoSelectRoles.SuperAdmin]);
+        await using (var roleScope = factory.Services.CreateAsyncScope())
+        {
+            var roleManager = roleScope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
+            await EnsureRoleAsync(roleManager, DoSelectRoles.OrderManager);
+        }
         using var client = CreateAdminClient(factory, actorId);
         var marker = Guid.NewGuid().ToString("N");
 
@@ -50,6 +55,7 @@ public sealed class AdminAccountsControllerTests(AdminAuthApiFixture fixture)
             new
             {
                 email = $"new-{marker}@example.invalid",
+                password = "temporary-passphrase",
                 displayName = "新管理員",
                 employeeCode = $"EMP-{marker}",
                 roles = new[] { DoSelectRoles.OrderManager },
@@ -61,13 +67,25 @@ public sealed class AdminAccountsControllerTests(AdminAuthApiFixture fixture)
         await using var scope = factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
         var created = await db.Users.SingleAsync(row => row.Email == $"new-{marker}@example.invalid");
-        Assert.Equal(AccountStatus.PendingEmailVerification, created.AccountStatus);
-        Assert.False(created.EmailConfirmed);
+        Assert.Equal(AccountStatus.Active, created.AccountStatus);
+        Assert.True(created.EmailConfirmed);
+        Assert.False(created.TwoFactorEnabled);
         Assert.True(await db.AdminProfiles.AnyAsync(row => row.UserId == created.Id && row.EmployeeCode == $"EMP-{marker}"));
         Assert.True(await db.AuditLogs.AnyAsync(row =>
             row.ResourcePublicId == created.PublicId && row.Action == AuditActions.AdminAccountCreate));
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        Assert.True(await userManager.CheckPasswordAsync(created, "temporary-passphrase"));
         Assert.Equal([DoSelectRoles.OrderManager], await userManager.GetRolesAsync(created));
+
+        using var loginClient = factory.CreateClient();
+        using var loginResponse = await loginClient.PostAsJsonWithAntiforgeryAsync(
+            "/api/v1/admin/auth/login",
+            new { email = $"new-{marker}@example.invalid", password = "temporary-passphrase" },
+            DoSelectClaimValues.Admin);
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+        using var loginJson = JsonDocument.Parse(await loginResponse.Content.ReadAsStringAsync());
+        Assert.True(loginJson.RootElement.GetProperty("requiresEnrollment").GetBoolean());
+        Assert.False(loginJson.RootElement.GetProperty("requiresTwoFactor").GetBoolean());
     }
 
     [Fact]

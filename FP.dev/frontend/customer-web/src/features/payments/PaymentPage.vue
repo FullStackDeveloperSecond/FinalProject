@@ -11,6 +11,7 @@ import {
   type PaymentMethod,
   type SimulatedPaymentOutcome,
 } from './api'
+import { PAYMENT_METHOD_ORDER, PAYMENT_METHOD_PRESENTATION } from './presentation'
 import { useRoute } from 'vue-router'
 
 type PageState = 'loading' | 'ready' | 'unauthenticated' | 'not-found' | 'error'
@@ -31,13 +32,10 @@ let createIdempotencyKey = crypto.randomUUID()
 let simulationKey = crypto.randomUUID()
 
 const paymentMethods: ReadonlyArray<{ value: PaymentMethod; label: string }> = [
-  { value: 'creditCard', label: '信用卡' },
-  { value: 'atm', label: 'ATM 虛擬帳號' },
-  { value: 'convenienceCode', label: '超商代碼' },
-  { value: 'linePay', label: 'LINE Pay' },
-  { value: 'applePay', label: 'Apple Pay' },
-  { value: 'googlePay', label: 'Google Pay' },
-  { value: 'cashOnDelivery', label: '貨到付款' },
+  ...PAYMENT_METHOD_ORDER.map(value => ({
+    value,
+    label: PAYMENT_METHOD_PRESENTATION[value].label,
+  })),
 ]
 
 /** 這筆嘗試已經結束，不會再變。 */
@@ -275,15 +273,19 @@ const attemptStatusLabel: Record<string, string> = {
         <select
           id="payment-method"
           v-model="selectedMethod"
+          aria-describedby="payment-method-deadline"
         >
           <option
             v-for="method in paymentMethods"
             :key="method.value"
             :value="method.value"
           >
-            {{ method.label }}
+            {{ method.label }}｜付款期限：{{ PAYMENT_METHOD_PRESENTATION[method.value].deadline }}
           </option>
         </select>
+        <p id="payment-method-deadline">
+          付款期限：{{ PAYMENT_METHOD_PRESENTATION[selectedMethod].deadline }}
+        </p>
         <button
           type="submit"
           :disabled="isCreating"
@@ -313,6 +315,10 @@ const attemptStatusLabel: Record<string, string> = {
             付款期限：{{ formatDateTime(attempt.instruction.expiresAtUtc) }}
           </p>
         </template>
+
+        <p v-if="!attempt.instruction?.expiresAtUtc">
+          付款期限：{{ PAYMENT_METHOD_PRESENTATION[attempt.method].deadline }}
+        </p>
 
         <p v-if="attempt.method === 'cashOnDelivery'">
           貨到付款會在完成配送或取貨時入帳，不使用前台模擬付款完成。

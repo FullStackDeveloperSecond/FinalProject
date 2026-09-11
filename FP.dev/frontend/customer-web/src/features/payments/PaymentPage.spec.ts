@@ -92,6 +92,24 @@ describe('PaymentPage', () => {
     fetchLatestPaymentAttempt.mockResolvedValue(undefined)
   })
 
+  it('orders every payment method and includes its payment deadline', async () => {
+    fetchOrder.mockResolvedValue(buildOrder())
+    const wrapper = mount(PaymentPage)
+    await flushPromises()
+
+    const options = wrapper.findAll('#payment-method option')
+    expect(options.map(option => option.attributes('value'))).toEqual([
+      'creditCard',
+      'linePay',
+      'applePay',
+      'googlePay',
+      'atm',
+      'convenienceCode',
+      'cashOnDelivery',
+    ])
+    expect(options.every(option => option.text().includes('付款期限：'))).toBe(true)
+  })
+
   it('creates a payment attempt from the trusted order version and shows its instruction', async () => {
     fetchOrder.mockResolvedValue(buildOrder())
     createPaymentAttempt.mockResolvedValue(buildAttempt({
@@ -197,6 +215,7 @@ describe('PaymentPage', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('貨到付款會在完成配送或取貨時入帳')
+    expect(wrapper.text()).toContain('付款期限：收貨或取貨時')
     expect(wrapper.find('[data-test="complete-payment"]').exists()).toBe(false)
   })
 

@@ -56,11 +56,21 @@ const confirmSuperAdmin = ref(false)
 
 const createForm = reactive({
   email: '',
+  password: '',
+  passwordConfirmation: '',
   displayName: '',
   employeeCode: '',
   roles: [] as string[],
   confirmSuperAdmin: false,
 })
+const createPasswordMismatch = computed(() => (
+  createForm.passwordConfirmation.length > 0
+  && createForm.password !== createForm.passwordConfirmation
+))
+const createPasswordReady = computed(() => (
+  createForm.password.length >= 12
+  && createForm.password === createForm.passwordConfirmation
+))
 
 watch(search, (value, _old, cleanup) => {
   const timer = setTimeout(() => { appliedSearch.value = value.trim(); page.value = 1 }, 300)
@@ -89,7 +99,15 @@ function setRole(target: string[], selectedRole: string, event: Event) {
 }
 
 function openCreate() {
-  Object.assign(createForm, { email: '', displayName: '', employeeCode: '', roles: [], confirmSuperAdmin: false })
+  Object.assign(createForm, {
+    email: '',
+    password: '',
+    passwordConfirmation: '',
+    displayName: '',
+    employeeCode: '',
+    roles: [],
+    confirmSuperAdmin: false,
+  })
   message.value = ''
   errorMessage.value = ''
   void nextTick(() => createDialog.value?.showModal())
@@ -120,12 +138,13 @@ function describeError(error: unknown): string {
 }
 
 async function submitCreate() {
-  if (busy.value || createForm.roles.length === 0) return
+  if (busy.value || createForm.roles.length === 0 || !createPasswordReady.value) return
   busy.value = true
   errorMessage.value = ''
   try {
     await createAdminAccount({
       email: createForm.email.trim(),
+      password: createForm.password,
       displayName: createForm.displayName.trim(),
       employeeCode: createForm.employeeCode.trim(),
       roles: [...createForm.roles],
@@ -133,7 +152,7 @@ async function submitCreate() {
     })
     createDialog.value?.close()
     await query.refetch()
-    message.value = '管理員帳號已建立，邀請信已交由郵件服務處理。'
+    message.value = '管理員帳號已建立；首次登入時必須設定 TOTP。'
   } catch (error) {
     errorMessage.value = describeError(error)
   } finally {
@@ -311,28 +330,68 @@ async function resend(account: AdminAccount) {
         @submit.prevent="submitCreate"
       >
         <h2>新增管理員</h2>
-        <label>顯示名稱 *<input
+        <label for="create-display-name">顯示名稱 *<input
+          id="create-display-name"
           v-model="createForm.displayName"
+          class="admin-accounts__control"
+          type="text"
           maxlength="100"
           required
         ></label>
-        <label>員工編號 *<input
+        <label for="create-employee-code">員工編號 *<input
+          id="create-employee-code"
           v-model="createForm.employeeCode"
+          class="admin-accounts__control"
+          type="text"
           maxlength="64"
           pattern="[A-Za-z0-9][A-Za-z0-9_-]{1,63}"
           required
         ></label>
-        <label>電子郵件 *<input
+        <label for="create-email">登入帳號（電子郵件） *<input
+          id="create-email"
           v-model="createForm.email"
+          class="admin-accounts__control"
           type="email"
           maxlength="320"
-          autocomplete="off"
+          autocomplete="username"
           required
         ></label>
+        <label for="create-password">初始密碼 *<input
+          id="create-password"
+          v-model="createForm.password"
+          class="admin-accounts__control"
+          type="password"
+          minlength="12"
+          maxlength="128"
+          autocomplete="new-password"
+          required
+        ></label>
+        <small class="admin-accounts__hint">至少 12 個字元；新管理員首次登入後仍須完成 TOTP 綁定。</small>
+        <label for="create-password-confirmation">確認初始密碼 *<input
+          id="create-password-confirmation"
+          v-model="createForm.passwordConfirmation"
+          class="admin-accounts__control"
+          type="password"
+          minlength="12"
+          maxlength="128"
+          autocomplete="new-password"
+          required
+          :aria-invalid="createPasswordMismatch"
+          :aria-describedby="createPasswordMismatch ? 'create-password-confirmation-error' : undefined"
+        ></label>
+        <p
+          v-if="createPasswordMismatch"
+          id="create-password-confirmation-error"
+          class="admin-accounts__error"
+          role="alert"
+        >
+          兩次輸入的密碼不一致。
+        </p>
         <fieldset>
           <legend>角色 *</legend><label
             v-for="option in roleOptions"
             :key="option[0]"
+            class="admin-accounts__checkbox"
           ><input
             type="checkbox"
             :checked="createForm.roles.includes(option[0])"
@@ -341,7 +400,7 @@ async function resend(account: AdminAccount) {
         </fieldset>
         <label
           v-if="createForm.roles.includes('SuperAdmin')"
-          class="admin-accounts__warning"
+          class="admin-accounts__checkbox admin-accounts__warning"
         ><input
           v-model="createForm.confirmSuperAdmin"
           type="checkbox"
@@ -357,9 +416,9 @@ async function resend(account: AdminAccount) {
         <div class="admin-accounts__form-actions">
           <button
             type="submit"
-            :disabled="busy || createForm.roles.length === 0"
+            :disabled="busy || createForm.roles.length === 0 || !createPasswordReady"
           >
-            {{ busy ? '建立中…' : '建立並寄送邀請' }}
+            {{ busy ? '建立中…' : '建立管理員' }}
           </button><button
             type="button"
             :disabled="busy"
@@ -387,6 +446,7 @@ async function resend(account: AdminAccount) {
           <legend>角色 *</legend><label
             v-for="option in roleOptions"
             :key="option[0]"
+            class="admin-accounts__checkbox"
           ><input
             type="checkbox"
             :checked="editRoles.includes(option[0])"
@@ -403,7 +463,7 @@ async function resend(account: AdminAccount) {
         >{{ option[1] }}</option></select></label>
         <label
           v-if="editRoles.includes('SuperAdmin') && !editing.roles.includes('SuperAdmin')"
-          class="admin-accounts__warning"
+          class="admin-accounts__checkbox admin-accounts__warning"
         ><input
           v-model="confirmSuperAdmin"
           type="checkbox"
@@ -455,8 +515,11 @@ async function resend(account: AdminAccount) {
 .admin-accounts__dialog { width: min(40rem, calc(100vw - 2rem)); max-height: calc(100vh - 2rem); padding: 0; border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); box-shadow: var(--shadow-lg); }
 .admin-accounts__dialog::backdrop { background: rgb(9 30 45 / 55%); }
 .admin-accounts__form { display: grid; gap: 1rem; padding: 1.5rem; }
+.admin-accounts__control { width: 100%; min-width: 0; }
+.admin-accounts__hint { margin-top: -.65rem; color: var(--color-text-muted); }
 .admin-accounts__form fieldset { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem 1rem; padding: 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
-.admin-accounts__form fieldset label { display: flex; align-items: center; gap: .4rem; }
+.admin-accounts__form .admin-accounts__checkbox { display: grid; grid-template-columns: 1.1rem minmax(0, 1fr); align-items: start; gap: .5rem; }
+.admin-accounts__checkbox input[type='checkbox'] { width: 1rem; height: 1rem; margin: .25rem 0 0; }
 .admin-accounts__form-actions { display: flex; justify-content: flex-end; gap: .75rem; }
 @media (max-width: 48rem) { .admin-accounts__header { display: grid; } .admin-accounts__filters, .admin-accounts__form fieldset { grid-template-columns: 1fr; } }
 </style>
