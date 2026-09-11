@@ -84,6 +84,22 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
     }
 
     [Theory]
+    [InlineData("SuperAdmin", HttpStatusCode.OK)]
+    [InlineData("CustomerServiceSupervisor", HttpStatusCode.OK)]
+    [InlineData("CustomerService", HttpStatusCode.Forbidden)]
+    public async Task AssignableAdmins_RequiresSupervisePolicy(string role, HttpStatusCode expected)
+    {
+        var fakes = new SupportHttpFakes();
+        using var factory = CreateFactory(fakes);
+        using var client = CreateClient(factory, role);
+
+        using var response = await client.GetAsync("/api/v1/admin/support-tickets/assignees");
+
+        Assert.Equal(expected, response.StatusCode);
+        Assert.Equal(expected == HttpStatusCode.OK ? 1 : 0, fakes.AssignableAdminCalls);
+    }
+
+    [Theory]
     // A bare SuperAdmin is admitted to Detail via CanSupervise() (GetDetail's imperative
     // "Handle OR Supervise" gate), consistent with Assign/Transfer already granting SuperAdmin
     // through the SupportTicketSupervise policy — SuperAdmin must be able to view a ticket it can
@@ -560,6 +576,15 @@ public sealed class SupportPolicyHttpAcceptanceTests : IClassFixture<WebApplicat
 
     private sealed class SupportHttpFakes : IAdminSupportTicketService, ISupportSlaQueueService, ICaseWorkbenchService
     {
+        public int AssignableAdminCalls { get; private set; }
+
+        public Task<IReadOnlyList<AdminAssigneeSummaryDto>> GetAssignableAdminsAsync(CancellationToken cancellationToken)
+        {
+            AssignableAdminCalls++;
+            return Task.FromResult<IReadOnlyList<AdminAssigneeSummaryDto>>(
+                [new(Guid.NewGuid(), "可指派客服")]);
+        }
+
         public int ClaimCalls { get; private set; }
         public int DetailCalls { get; private set; }
         public int TotalCalls => ClaimCalls + DetailCalls + (SlaQuery is null ? 0 : 1) + (WorkbenchQuery is null ? 0 : 1);

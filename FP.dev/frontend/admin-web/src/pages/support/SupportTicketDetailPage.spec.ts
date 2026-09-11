@@ -31,6 +31,12 @@ const supportMocks = await vi.hoisted(async () => {
     reopen: newMutationMock(),
     internalNote: newMutationMock(),
     publicReply: newMutationMock(),
+    assignableAdmins: ref([
+      { publicId: '018f2e6a-0000-7000-8000-000000000091', displayName: '客服甲' },
+      { publicId: '018f2e6a-0000-7000-8000-000000000092', displayName: '客服乙' },
+    ]),
+    assignableAdminsPending: ref(false),
+    assignableAdminsError: ref(false),
   }
 })
 
@@ -41,6 +47,11 @@ vi.mock('../../features/support/queries', () => ({
     isError: supportMocks.ticketError,
     error: supportMocks.ticketFailure,
     refetch: supportMocks.refetch,
+  }),
+  useAssignableSupportAdminsQuery: () => ({
+    data: supportMocks.assignableAdmins,
+    isPending: supportMocks.assignableAdminsPending,
+    isError: supportMocks.assignableAdminsError,
   }),
   useClaimSupportTicketMutation: () => supportMocks.claim,
   useAssignSupportTicketMutation: () => supportMocks.assign,
@@ -130,6 +141,8 @@ describe('SupportTicketDetailPage', () => {
     supportMocks.ticketError.value = false
     supportMocks.ticketFailure.value = null
     supportMocks.refetch.mockReset()
+    supportMocks.assignableAdminsPending.value = false
+    supportMocks.assignableAdminsError.value = false
     for (const mock of [
       supportMocks.claim,
       supportMocks.assign,
@@ -295,5 +308,38 @@ describe('SupportTicketDetailPage', () => {
     const wrapper = await mountPage()
 
     expect(wrapper.text()).not.toContain('公開回覆會員')
+  })
+
+  it('uses an assignee dropdown and submits the selected administrator without exposing an id input', async () => {
+    supportMocks.ticket.value = sampleTicket(['assign'])
+    const wrapper = await mountPage()
+
+    expect(wrapper.text()).toContain('指派客服')
+    expect(wrapper.text()).toContain('客服甲')
+    expect(wrapper.text()).not.toContain('目標客服 PublicId')
+    expect(wrapper.find('input[placeholder="guid"]').exists()).toBe(false)
+
+    await wrapper.get('select').setValue('018f2e6a-0000-7000-8000-000000000091')
+    await wrapper.get('input[type="text"]').setValue('依案件類型分派')
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+
+    expect(supportMocks.assign.mutateAsync).toHaveBeenCalledWith({
+      targetAdminPublicId: '018f2e6a-0000-7000-8000-000000000091',
+      reason: '依案件類型分派',
+      rowVersion: 'AAAAAAAAAAE=',
+    })
+  })
+
+  it('excludes the current assignee from the transfer dropdown', async () => {
+    supportMocks.ticket.value = {
+      ...sampleTicket(['transfer']),
+      assignee: { publicId: '018f2e6a-0000-7000-8000-000000000091', displayName: '客服甲' },
+    }
+    const wrapper = await mountPage()
+    const optionLabels = wrapper.get('select').findAll('option').map(option => option.text())
+
+    expect(optionLabels).toContain('客服乙')
+    expect(optionLabels).not.toContain('客服甲')
   })
 })

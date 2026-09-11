@@ -4,6 +4,7 @@ import type { MaybeRefOrGetter } from 'vue'
 import { computed, toValue } from 'vue'
 import { apiClient } from '../../api/client'
 import type {
+  AdminAssigneeSummaryDto,
   AdminSupportTicketDetailDto,
   AdminSupportTicketDto,
   AssignSupportTicketRequest,
@@ -20,6 +21,7 @@ import type {
 
 const slaQueueRootKey = 'admin-support-sla-queue'
 const ticketDetailRootKey = 'admin-support-ticket-detail'
+const assignableAdminsKey = 'admin-support-assignable-admins'
 // A-24 Case Workbench (../case-workbench/queries.ts) reads this same key so every action here
 // that can change what the Workbench shows also invalidates it.
 export const caseWorkbenchRootKey = 'admin-case-workbench'
@@ -73,6 +75,17 @@ export function useSupportTicketDetailQuery(ticketId: MaybeRefOrGetter<string>) 
       return data as AdminSupportTicketDetailDto
     },
     enabled: computed(() => Boolean(toValue(ticketId))),
+  })
+}
+
+export function useAssignableSupportAdminsQuery(enabled: MaybeRefOrGetter<boolean> = true) {
+  return useQuery({
+    queryKey: [assignableAdminsKey],
+    queryFn: async (): Promise<AdminAssigneeSummaryDto[]> => {
+      const { data } = await apiClient.GET('/api/v1/admin/support-tickets/assignees')
+      return data ?? []
+    },
+    enabled: computed(() => toValue(enabled)),
   })
 }
 

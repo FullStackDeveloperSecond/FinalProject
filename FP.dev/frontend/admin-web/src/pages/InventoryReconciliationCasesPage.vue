@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { PagePager } from '@doselect/web-shared/components'
+import { formatTaipeiDateTime } from '@doselect/web-shared/datetime'
 /**
  * A-29 (M功能桌面UI與Route規格.md): 對帳案件列表、確認受理、駁回與修正庫存（UC-ADM-INV-01 對帳）。
  * 後端契約是組長 PR #100 的對帳裁定 A1～H1（PR #107）：acknowledge 只帶 RowVersion；dismiss／resolve
@@ -149,7 +150,7 @@ function confirmClose(reconciliationCase: InventoryReconciliationCaseDto) {
 }
 
 function formatDateTime(value: string | null): string {
-  return value ? new Date(value).toLocaleString('zh-Hant-TW') : '—'
+  return formatTaipeiDateTime(value)
 }
 
 function formatQuantities(expected: number | string, actual: number | string): string {

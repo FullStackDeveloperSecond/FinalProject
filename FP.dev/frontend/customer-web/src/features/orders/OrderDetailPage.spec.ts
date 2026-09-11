@@ -4,8 +4,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import OrderDetailPage from './OrderDetailPage.vue'
 import type { OrderDto } from './api'
 
-const { fetchOrder, cancelOrder, fetchOrderInvoice, routerPush } = vi.hoisted(() => ({
+const { fetchOrder, fetchOrderReturns, cancelOrder, fetchOrderInvoice, routerPush } = vi.hoisted(() => ({
   fetchOrder: vi.fn(),
+  fetchOrderReturns: vi.fn(),
   cancelOrder: vi.fn(),
   fetchOrderInvoice: vi.fn(),
   routerPush: vi.fn(),
@@ -13,7 +14,7 @@ const { fetchOrder, cancelOrder, fetchOrderInvoice, routerPush } = vi.hoisted(()
 
 vi.mock('./api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./api')>()
-  return { ...actual, fetchOrder, cancelOrder }
+  return { ...actual, fetchOrder, fetchOrderReturns, cancelOrder }
 })
 
 vi.mock('../payments/api', async (importOriginal) => {
@@ -72,6 +73,8 @@ function buildOrder(overrides: Partial<OrderDto> = {}): OrderDto {
 describe('OrderDetailPage', () => {
   beforeEach(() => {
     fetchOrder.mockReset()
+    fetchOrderReturns.mockReset()
+    fetchOrderReturns.mockResolvedValue([])
     cancelOrder.mockReset()
     fetchOrderInvoice.mockReset()
     fetchOrderInvoice.mockRejectedValue(new ApiError('Not Found', {
@@ -248,6 +251,72 @@ describe('OrderDetailPage', () => {
         }]),
       },
     })
+  })
+
+  it('shows existing return progress and excludes already requested quantities', async () => {
+    fetchOrder.mockResolvedValueOnce(buildOrder({
+      orderStatus: 'completed',
+      fulfillmentStatus: 'delivered',
+      availableActions: ['requestReturn'],
+      items: [
+        {
+          publicId: 'item-1',
+          skuCodeSnapshot: 'SKU-1',
+          productNameSnapshot: '機械鍵盤',
+          skuNameSnapshot: '青軸',
+          quantity: 1,
+          finalUnitPrice: 1990,
+          lineTotal: 1990,
+          returnableQuantity: 1,
+          returnedQuantity: 0,
+        },
+      ],
+    }))
+    fetchOrderReturns.mockResolvedValueOnce([{
+      publicId: 'return-1',
+      returnNumber: 'RT-20260911-000001',
+      status: 'requested',
+      requestedAtUtc: '2026-09-11T04:00:00Z',
+      items: [{ orderItemPublicId: 'item-1', quantity: 1 }],
+    }])
+
+    const wrapper = mount(OrderDetailPage, {
+      global: {
+        stubs: {
+          RouterLink: {
+            props: ['to'],
+            template: '<a :href="to"><slot /></a>',
+          },
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('RT-20260911-000001')
+    expect(wrapper.text()).toContain('已申請 1 件')
+    expect(wrapper.text()).toContain('可退數量皆已提出申請')
+    expect(wrapper.find('a[href="/returns/return-1"]').exists()).toBe(true)
+    expect(wrapper.findAll('button').some(button => button.text() === '申請退貨')).toBe(false)
+  })
+
+  it('disables return submission when progress cannot be loaded', async () => {
+    fetchOrder.mockResolvedValueOnce(buildOrder({
+      orderStatus: 'completed',
+      fulfillmentStatus: 'delivered',
+      availableActions: ['requestReturn'],
+      items: [{
+        ...buildOrder().items[0],
+        returnableQuantity: 1,
+      }],
+    }))
+    fetchOrderReturns.mockRejectedValueOnce(new Error('offline'))
+
+    const wrapper = mount(OrderDetailPage)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('為避免重複申請')
+    expect(wrapper.findAll('button').some(button => button.text() === '申請退貨')).toBe(false)
+    expect(wrapper.findAll('button').some(button => button.text() === '重新載入退貨進度')).toBe(true)
   })
 
   it('shows payment and refund state with a payment entry for an unpaid order', async () => {

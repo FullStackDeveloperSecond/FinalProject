@@ -12,6 +12,14 @@ namespace DoSelect.Application.Support.Admin;
 public interface IAdminSupportTicketStore
 {
     /// <summary>
+    /// Returns active administrators who can receive support assignments. The projection is
+    /// intentionally limited to public profile identity and applies the same support-role gate
+    /// used by AssignAsync and TransferAsync.
+    /// </summary>
+    Task<IReadOnlyList<AssignableSupportAdmin>> GetAssignableAdminsAsync(
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Atomically claims an unassigned Open ticket for <paramref name="adminUserId"/> and
     /// appends one SupportAssignmentHistory(Action=Claim) row, conditioned on the ticket still
     /// matching <paramref name="expectedRowVersion"/>. A tracked SaveChangesAsync cannot
@@ -122,6 +130,8 @@ public interface IAdminSupportTicketStore
         SupportTicketAddPublicReplyCommand command,
         CancellationToken cancellationToken);
 }
+
+public sealed record AssignableSupportAdmin(Guid PublicId, string DisplayName);
 
 /// <summary>
 /// Context common to every DES-23 admin action: who is acting, with which role snapshot (used

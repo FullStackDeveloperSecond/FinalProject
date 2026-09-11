@@ -3,6 +3,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { EmptyState, ErrorState, HttpStatusPage, LoadingState, PagePager } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
+import { formatTaipeiDateTime } from '@doselect/web-shared/datetime'
 import {
   BADGE_OPTIONS,
   SUMMARY_STATUS_OPTIONS,
@@ -49,10 +50,7 @@ function toggleBadge(value: OrderBadge): void {
 }
 
 function formatDateTime(value?: string | null): string {
-  if (!value) {
-    return '—'
-  }
-  return new Date(value).toLocaleString('zh-TW')
+  return formatTaipeiDateTime(value)
 }
 
 // A-14「勾選批次出貨」的入口，導到 A-16。寫入權限與 router 的 Shipping.Manage 同一份清單。

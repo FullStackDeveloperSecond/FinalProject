@@ -12,6 +12,35 @@ namespace DoSelect.Infrastructure.Tests;
 public sealed class DemoAccountActivatorSqlServerTests
 {
     [Fact]
+    public async Task EnsureRolesAsync_IsolatedDatabaseWithoutCompleteSeed_CreatesFormalRoleCatalogue()
+    {
+        var databaseName = $"DoSelectDemo_{Guid.NewGuid():N}";
+        var configuration = BuildConfiguration(databaseName);
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<IConfiguration>(configuration);
+        services.AddDoSelectPersistence(configuration);
+
+        await using var provider = services.BuildServiceProvider();
+        try
+        {
+            await using var scope = provider.CreateAsyncScope();
+            var context = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+            await context.Database.MigrateAsync();
+            var activator = scope.ServiceProvider.GetRequiredService<DemoAccountActivator>();
+
+            Assert.Equal(MinimalDevelopmentSeedDefinitions.RoleNames.Count, await activator.EnsureRolesAsync());
+            Assert.Equal(0, await activator.EnsureRolesAsync());
+        }
+        finally
+        {
+            await using var scope = provider.CreateAsyncScope();
+            var context = scope.ServiceProvider.GetRequiredService<DoSelectDbContext>();
+            await context.Database.EnsureDeletedAsync();
+        }
+    }
+
+    [Fact]
     public async Task ActivateAsync_CompleteDemoSeed_EnablesExistingAccountsWithoutChangingManifest()
     {
         var databaseName = $"DoSelectDemo_{Guid.NewGuid():N}";
@@ -64,6 +93,12 @@ public sealed class DemoAccountActivatorSqlServerTests
                 Assert.True(await userManager.IsInRoleAsync(admin, "SuperAdmin"));
                 Assert.True(await userManager.IsInRoleAsync(admin, "CustomerServiceSupervisor"));
                 Assert.False(await userManager.GetTwoFactorEnabledAsync(admin));
+
+                var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
+                foreach (var roleName in MinimalDevelopmentSeedDefinitions.RoleNames)
+                {
+                    Assert.True(await roleManager.RoleExistsAsync(roleName), $"Demo activation did not create role '{roleName}'.");
+                }
 
                 var validation = await scope.ServiceProvider
                     .GetRequiredService<DemoDataValidator>()

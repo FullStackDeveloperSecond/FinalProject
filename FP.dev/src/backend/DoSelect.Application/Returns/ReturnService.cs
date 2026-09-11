@@ -18,6 +18,11 @@ public interface IReturnService
         Guid returnPublicId,
         CancellationToken cancellationToken);
 
+    Task<IReadOnlyList<OrderReturnSummaryDto>> ListForOrderAsync(
+        ReturnActor actor,
+        Guid orderPublicId,
+        CancellationToken cancellationToken);
+
     Task<ReturnAttachmentDto> UploadAttachmentAsync(
         ReturnActor actor,
         Guid returnPublicId,
@@ -222,6 +227,22 @@ public sealed class ReturnService : IReturnService
             : await _store.ListShipmentEventsAsync(shipment.Id, cancellationToken);
 
         return ToDto(request, items, order.OrderPublicId, order.OrderNumber, attachments, shipment, events);
+    }
+
+    public async Task<IReadOnlyList<OrderReturnSummaryDto>> ListForOrderAsync(
+        ReturnActor actor,
+        Guid orderPublicId,
+        CancellationToken cancellationToken)
+    {
+        var order = await _orderPort.FindByPublicIdAsync(orderPublicId, cancellationToken);
+        if (order is null || !ActorOwnsOrder(actor, order))
+        {
+            throw new ReturnsWriteException(
+                ReturnsWriteException.ErrorCodes.ResourceNotFound,
+                "The referenced order was not found.");
+        }
+
+        return await _store.ListForOrderAsync(order.OrderId, cancellationToken);
     }
 
     public async Task<ReturnAttachmentDto> UploadAttachmentAsync(

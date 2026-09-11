@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { EmptyState, ErrorState, HttpStatusPage, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
+import { formatTaipeiDateTime } from '@doselect/web-shared/datetime'
 import {
   ORDER_ACTION_OPTIONS,
   SHIPMENT_ACTION_OPTIONS,
@@ -186,10 +187,7 @@ function describeShipmentError(code: string): string {
 }
 
 function formatDateTime(value?: string | null): string {
-  if (!value) {
-    return '—'
-  }
-  return new Date(value).toLocaleString('zh-TW')
+  return formatTaipeiDateTime(value)
 }
 </script>
 

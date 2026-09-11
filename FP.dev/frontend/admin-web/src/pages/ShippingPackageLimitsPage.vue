@@ -2,6 +2,7 @@
 /** A-18 (M功能桌面UI與Route規格.md): 超商／宅配限制版本、草稿、排程發布及歷史（UC-ADM-SHIP-01）。 */
 import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
+import { formatTaipeiDateTime } from '@doselect/web-shared/datetime'
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import {
   useCreatePackageLimitVersion,
@@ -147,7 +148,7 @@ function confirmPublish(version: PackageLimitVersionDto) {
   }
 
   const takesEffect = version.effectiveFromUtc
-    ? new Date(version.effectiveFromUtc).toLocaleString('zh-Hant-TW')
+    ? formatTaipeiDateTime(version.effectiveFromUtc)
     : '立即'
   if (!globalThis.confirm(`確定要發布 ${PROVIDER_LABELS[providerCode.value]} 的版本 ${version.version} 嗎？生效時間：${takesEffect}。發布後目前生效的版本會在該時間點交棒，購物車的超取資格將依新版本重新計算。`)) {
     return
@@ -169,7 +170,7 @@ const mutationError = computed(() => {
 })
 
 function formatDateTime(value: string | null | undefined): string {
-  return value ? new Date(value).toLocaleString('zh-Hant-TW') : '—'
+  return formatTaipeiDateTime(value)
 }
 
 /**

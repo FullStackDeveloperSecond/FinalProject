@@ -28,6 +28,18 @@ export type AssemblyStatus =
   | 'failed'
   | 'cancelled'
 export type OrderRefundStatus = 'none' | 'pending' | 'partiallyRefunded' | 'refunded'
+export type ReturnRequestStatus =
+  | 'requested'
+  | 'underReview'
+  | 'approved'
+  | 'awaitingShipment'
+  | 'inTransit'
+  | 'received'
+  | 'inspecting'
+  | 'awaitingRefund'
+  | 'completed'
+  | 'rejected'
+  | 'cancelled'
 
 export interface OrderItemDto {
   publicId: string
@@ -126,6 +138,19 @@ export interface CancelOrderRequestBody {
   orderRowVersion: string
 }
 
+export interface OrderReturnItemSummaryDto {
+  orderItemPublicId: string
+  quantity: number
+}
+
+export interface OrderReturnSummaryDto {
+  publicId: string
+  returnNumber: string
+  status: ReturnRequestStatus
+  requestedAtUtc: string | null
+  items: OrderReturnItemSummaryDto[]
+}
+
 /**
  * 退貨與退款政策.md 只定義「顧客可選理由」這個限制，沒有列出正式代碼表 —
  * 對應後端 OrderContracts.cs 的 OrderCancellationReasonCodes，兩邊需同步維護。
@@ -164,6 +189,14 @@ interface OrdersPaths {
       }
     }
   }
+  '/api/v1/orders/{orderId}/returns': {
+    get: {
+      parameters: { path: { orderId: string } }
+      responses: {
+        200: { content: { 'application/json': OrderReturnSummaryDto[] } }
+      }
+    }
+  }
 }
 
 const client = createApiClient<OrdersPaths>()
@@ -180,6 +213,13 @@ export async function fetchOrder(orderPublicId: string): Promise<OrderDto> {
     params: { path: { id: orderPublicId } },
   })
   return data as OrderDto
+}
+
+export async function fetchOrderReturns(orderPublicId: string): Promise<OrderReturnSummaryDto[]> {
+  const { data } = await client.GET('/api/v1/orders/{orderId}/returns', {
+    params: { path: { orderId: orderPublicId } },
+  })
+  return data as OrderReturnSummaryDto[]
 }
 
 export async function cancelOrder(

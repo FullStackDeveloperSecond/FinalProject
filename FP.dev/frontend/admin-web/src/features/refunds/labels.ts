@@ -1,3 +1,4 @@
+import { formatTaipeiDateTime } from '@doselect/web-shared/datetime'
 import type { RefundAllocationType, RefundStatus } from './types'
 
 export const refundStatusLabels: Record<RefundStatus, string> = {
@@ -37,5 +38,5 @@ export function formatRefundMoney(value: number | string | null | undefined): st
 }
 
 export function formatRefundDate(value: string | null | undefined): string {
-  return value ? new Date(value).toLocaleString('zh-TW') : '—'
+  return formatTaipeiDateTime(value)
 }

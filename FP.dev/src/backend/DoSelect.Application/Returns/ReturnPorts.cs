@@ -143,6 +143,13 @@ public interface IReturnStore
     /// <summary>Unscoped lookup for admin surfaces (already gated by Policy at the Controller).</summary>
     Task<ReturnRequest?> FindByPublicIdAsync(Guid returnPublicId, CancellationToken cancellationToken);
 
+    /// <summary>Customer-safe history for an already ownership-checked order. Includes terminal
+    /// requests so the order page can show the complete progress while only non-rejected and
+    /// non-cancelled quantities consume the remaining return allowance.</summary>
+    Task<IReadOnlyList<OrderReturnSummaryDto>> ListForOrderAsync(
+        long orderId,
+        CancellationToken cancellationToken);
+
     /// <summary>Raw tracked entities — used internally for admin inspection writes.</summary>
     Task<IReadOnlyList<ReturnItem>> ListItemsAsync(long returnRequestId, CancellationToken cancellationToken);
 

@@ -3,6 +3,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { EmptyState, ErrorState, LoadingState, PagePager } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
+import { formatTaipeiDateTime } from '@doselect/web-shared/datetime'
 import { useAdminAuthStore } from '../features/auth/stores/useAdminAuthStore'
 import { orderStatusLabel } from '../features/orders/api'
 import { cellsFor, formatMetric, headersFor, metricLabel, unitLabel } from '../features/operationalReports/presentation'
@@ -229,7 +230,7 @@ async function changePage(pageNumber: number) {
         </select>
       </label>
       <label>
-        <span>粒度</span>
+        <span>統計週期</span>
         <select
           v-model="draft.granularity"
           @change="applyFilters"
@@ -271,7 +272,7 @@ async function changePage(pageNumber: number) {
     <template v-else-if="report.data.value">
       <div class="report-metadata">
         <span>時間基準：{{ timeBasisLabel(report.data.value.timeBasis) }}</span>
-        <span>資料截至：{{ new Date(report.data.value.asOfUtc).toLocaleString('zh-TW') }}</span>
+        <span>資料截至：{{ formatTaipeiDateTime(report.data.value.asOfUtc) }}</span>
       </div>
 
       <div class="report-summary">

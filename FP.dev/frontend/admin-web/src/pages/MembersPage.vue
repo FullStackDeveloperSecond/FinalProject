@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
 import { isApiError } from '@doselect/web-shared/api'
 import { PagePager } from '@doselect/web-shared/components'
+import { formatTaipeiDateTime } from '@doselect/web-shared/datetime'
 import { listMembers, getMember, changeMemberStatus, type AdminMember } from '../features/members/api'
 import { useAdminAuthStore } from '../features/auth/stores/useAdminAuthStore'
 
@@ -182,8 +183,8 @@ async function submit() {
                           <dl class="member-detail__facts">
                             <div><dt>電子郵件</dt><dd>{{ selected.emailMasked }}</dd></div>
                             <div><dt>帳號狀態</dt><dd>{{ labels[selected.status] ?? '停用' }}</dd></div>
-                            <div><dt>建立時間</dt><dd>{{ new Date(selected.createdAtUtc).toLocaleString('zh-TW') }}</dd></div>
-                            <div><dt>更新時間</dt><dd>{{ new Date(selected.updatedAtUtc).toLocaleString('zh-TW') }}</dd></div>
+                            <div><dt>建立時間</dt><dd>{{ formatTaipeiDateTime(selected.createdAtUtc) }}</dd></div>
+                            <div><dt>更新時間</dt><dd>{{ formatTaipeiDateTime(selected.updatedAtUtc) }}</dd></div>
                           </dl>
                           <form
                             v-if="canManage && ['Active', 'Suspended'].includes(selected.status)"

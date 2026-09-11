@@ -10,6 +10,10 @@ namespace DoSelect.Application.Support.Admin;
 /// </summary>
 public interface IAdminSupportTicketService
 {
+    /// <summary>Lists active, qualified administrators for assignment controls.</summary>
+    Task<IReadOnlyList<AdminAssigneeSummaryDto>> GetAssignableAdminsAsync(
+        CancellationToken cancellationToken);
+
     /// <summary>
     /// Claims an unassigned Open ticket for the calling admin. Throws DomainProblemException
     /// with ResourceNotFound (404), SupportTicketAssignmentConflict (409) when the ticket is no

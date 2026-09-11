@@ -184,6 +184,21 @@ if (args.Contains("--activate-demo-accounts", StringComparer.OrdinalIgnoreCase))
     return;
 }
 
+if (args.Contains("--ensure-demo-roles", StringComparer.OrdinalIgnoreCase))
+{
+    if (!app.Environment.IsDevelopment())
+    {
+        throw new InvalidOperationException(
+            "The demo role repair command is restricted to the Development environment.");
+    }
+
+    await using var scope = app.Services.CreateAsyncScope();
+    var activator = scope.ServiceProvider.GetRequiredService<DemoAccountActivator>();
+    var rolesCreated = await activator.EnsureRolesAsync();
+    Console.WriteLine($"DEMO_ROLE_REPAIR:{rolesCreated}");
+    return;
+}
+
 if (args.Contains("--validate-demo", StringComparer.OrdinalIgnoreCase))
 {
     if (!app.Environment.IsDevelopment())

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
+import { formatTaipeiDateTime } from '@doselect/web-shared/datetime'
 import { useAdminAiUsageQuery } from '../features/aiUsage/queries'
 
 const query = useAdminAiUsageQuery()
@@ -57,7 +58,7 @@ function resultLabel(value: string): string {
       <div class="card ai-summary">
         <span>累計估算成本</span>
         <strong>{{ formatCost(query.data.value.cumulativeCostUsd) }}</strong>
-        <small>資料截至 {{ new Date(query.data.value.dataAsOfUtc).toLocaleString('zh-TW') }}</small>
+        <small>資料截至 {{ formatTaipeiDateTime(query.data.value.dataAsOfUtc) }}</small>
       </div>
 
       <EmptyState

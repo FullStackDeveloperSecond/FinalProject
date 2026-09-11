@@ -1,3 +1,4 @@
+import { formatTaipeiDate } from '@doselect/web-shared/datetime'
 import type { CouponAction, CouponDiscountType, CouponDto, CouponStatus } from './types'
 
 export const statusLabels: Record<CouponStatus, string> = {
@@ -128,7 +129,7 @@ export function formatMoney(value: number | string | null): string {
 
 /** 只顯示日期部分；後端一律回 UTC ISO 字串。 */
 export function formatDate(value: string): string {
-  return new Date(value).toLocaleDateString('zh-TW')
+  return formatTaipeiDate(value)
 }
 
 /**

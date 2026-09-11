@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { EmptyState, ErrorState, LoadingState, PagePager } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
+import { formatTaipeiDate } from '@doselect/web-shared/datetime'
 import { fetchOrders, type OrderSummaryDto } from './api'
 
 const pageSize = 10
@@ -92,7 +93,7 @@ function closureLabel(status: string): string {
 }
 
 function formatDate(value: string): string {
-  return new Intl.DateTimeFormat('zh-TW', { dateStyle: 'medium' }).format(new Date(value))
+  return formatTaipeiDate(value)
 }
 
 function formatAmount(amount: number, currency: string): string {

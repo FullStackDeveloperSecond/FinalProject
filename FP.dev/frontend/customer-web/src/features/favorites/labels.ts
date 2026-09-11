@@ -6,5 +6,6 @@ export const favoriteAvailabilityLabels: Record<string, string> = {
 }
 
 export function formatFavoritedDate(value: string | null | undefined): string {
-  return value ? new Intl.DateTimeFormat('zh-Hant-TW', { dateStyle: 'medium' }).format(new Date(value)) : '—'
+  return formatTaipeiDate(value)
 }
+import { formatTaipeiDate } from '@doselect/web-shared/datetime'

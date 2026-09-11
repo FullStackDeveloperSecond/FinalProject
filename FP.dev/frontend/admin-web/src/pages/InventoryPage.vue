@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { PagePager } from '@doselect/web-shared/components'
+import { formatTaipeiDateTime } from '@doselect/web-shared/datetime'
 /** A-11 (M功能桌面UI與Route規格.md): SKU 庫存餘額、低庫存與異動明細。 */
 import { EmptyState, ErrorState, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
@@ -117,7 +118,7 @@ function goToMovementPage(nextPage: number) {
 }
 
 function formatDateTime(value: string): string {
-  return new Date(value).toLocaleString('zh-Hant-TW')
+  return formatTaipeiDateTime(value)
 }
 </script>
 

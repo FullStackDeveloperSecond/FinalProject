@@ -2,6 +2,7 @@
 /** A-12 (M功能桌面UI與Route規格.md): Cursor 保留佇列、二次確認、理由及人工釋放。 */
 import { EmptyState, ErrorState, LoadingState, PagePager } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
+import { formatTaipeiDateTime } from '@doselect/web-shared/datetime'
 import { computed, reactive, ref } from 'vue'
 import { useInventoryReservationList, useReleaseReservation } from '../features/inventory/useInventory'
 import type { InventoryReservationDto } from '../features/inventory/types'
@@ -84,7 +85,7 @@ function confirmRelease(reservation: InventoryReservationDto) {
 }
 
 function formatDateTime(value: string | null): string {
-  return value ? new Date(value).toLocaleString('zh-Hant-TW') : '—'
+  return formatTaipeiDateTime(value)
 }
 </script>
 

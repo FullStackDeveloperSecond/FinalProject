@@ -26,6 +26,24 @@ public sealed class AdminSupportTicketSuperviseStoreTests
 
     public AdminSupportTicketSuperviseStoreTests(SupportAuditSqlServerFixture fixture) => _factory = fixture.Factory;
 
+    [Fact]
+    public async Task GetAssignableAdminsAsync_ReturnsOnlyActiveSupportHandlers()
+    {
+        var activeHandler = await SeedAdminAsync(active: true, role: AuditRoleNames.CustomerService);
+        var activeSupervisor = await SeedAdminAsync(active: true, role: AuditRoleNames.CustomerServiceSupervisor);
+        var unrelated = await SeedAdminAsync(active: true, role: AuditRoleNames.CatalogManager);
+        var inactiveHandler = await SeedAdminAsync(active: false, role: AuditRoleNames.CustomerService);
+
+        using var scope = _factory.Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IAdminSupportTicketStore>();
+        var result = await store.GetAssignableAdminsAsync(CancellationToken.None);
+
+        Assert.Contains(result, admin => admin.PublicId == activeHandler.PublicId);
+        Assert.Contains(result, admin => admin.PublicId == activeSupervisor.PublicId);
+        Assert.DoesNotContain(result, admin => admin.PublicId == unrelated.PublicId);
+        Assert.DoesNotContain(result, admin => admin.PublicId == inactiveHandler.PublicId);
+    }
+
     // ---- assign ---------------------------------------------------------
 
     [Fact]

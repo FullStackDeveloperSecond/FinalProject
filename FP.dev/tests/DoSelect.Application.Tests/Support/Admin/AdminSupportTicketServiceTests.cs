@@ -11,6 +11,21 @@ public sealed class AdminSupportTicketServiceTests
     private static readonly DateTimeOffset Now = new(2026, 8, 19, 8, 30, 0, TimeSpan.Zero);
 
     [Fact]
+    public async Task GetAssignableAdminsAsync_MapsOnlyPublicProfileIdentity()
+    {
+        var first = new AssignableSupportAdmin(Guid.NewGuid(), "客服甲");
+        var second = new AssignableSupportAdmin(Guid.NewGuid(), "客服乙");
+        var store = new StubAdminSupportTicketStore { AssignableAdmins = [first, second] };
+
+        var result = await new AdminSupportTicketService(store, new FixedTimeProvider(Now))
+            .GetAssignableAdminsAsync(CancellationToken.None);
+
+        Assert.Collection(result,
+            item => Assert.Equal((first.PublicId, first.DisplayName), (item.PublicId, item.DisplayName)),
+            item => Assert.Equal((second.PublicId, second.DisplayName), (item.PublicId, item.DisplayName)));
+    }
+
+    [Fact]
     public async Task ClaimAsync_WhenStoreClaims_MapsPublicIdsAndForwardsCurrentTime()
     {
         var ticketId = Guid.NewGuid();
@@ -566,6 +581,11 @@ public sealed class AdminSupportTicketServiceTests
 
     private sealed class StubAdminSupportTicketStore : IAdminSupportTicketStore
     {
+        public IReadOnlyList<AssignableSupportAdmin> AssignableAdmins { get; init; } = [];
+
+        public Task<IReadOnlyList<AssignableSupportAdmin>> GetAssignableAdminsAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(AssignableAdmins);
+
         public SupportTicketClaimResult Result { get; init; } = SupportTicketClaimResult.NotFound;
         public string? AdminUserId { get; private set; }
         public byte[]? ExpectedRowVersion { get; private set; }

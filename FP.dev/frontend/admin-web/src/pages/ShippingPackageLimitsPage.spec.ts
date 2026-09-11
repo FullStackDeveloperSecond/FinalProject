@@ -1,4 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import { formatTaipeiDateTime } from '@doselect/web-shared/datetime'
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@doselect/web-shared/api'
@@ -121,7 +122,7 @@ describe('ShippingPackageLimitsPage', () => {
     const message = confirmSpy.mock.calls.at(-1)![0] as string
     expect(message).toContain('超商取貨')
     expect(message).not.toContain('undefined')
-    expect(message).toContain(new Date(scheduled).toLocaleString('zh-Hant-TW'))
+    expect(message).toContain(formatTaipeiDateTime(scheduled))
   })
 
   it('does not publish when the confirmation is dismissed', async () => {

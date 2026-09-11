@@ -30,6 +30,7 @@ internal sealed class FakeReturnStore : IReturnStore, IReturnInventoryPort
     public List<ReturnInspection> Inspections { get; } = [];
     public List<ReturnShipment> Shipments { get; } = [];
     public List<ReturnShipmentEvent> ShipmentEvents { get; } = [];
+    public Dictionary<long, Guid> OrderItemPublicIds { get; } = [];
     public List<ReturnToStockInstruction> ReturnToStockInstructions { get; } = [];
     public Guid? ReturnToStockReturnPublicId { get; private set; }
     public string? ReturnToStockAdminUserId { get; private set; }
@@ -85,6 +86,26 @@ internal sealed class FakeReturnStore : IReturnStore, IReturnInventoryPort
 
     public Task<ReturnRequest?> FindByPublicIdAsync(Guid returnPublicId, CancellationToken cancellationToken) =>
         Task.FromResult(Requests.SingleOrDefault(r => r.PublicId == returnPublicId));
+
+    public Task<IReadOnlyList<OrderReturnSummaryDto>> ListForOrderAsync(
+        long orderId,
+        CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<OrderReturnSummaryDto>>(
+        [
+            .. Requests.Where(request => request.OrderId == orderId)
+                .OrderByDescending(request => request.RequestedAtUtc)
+                .Select(request => new OrderReturnSummaryDto(
+                    request.PublicId,
+                    request.ReturnNumber,
+                    request.Status,
+                    request.RequestedAtUtc,
+                    [
+                        .. Items.Where(item => item.ReturnRequestId == request.Id)
+                            .Select(item => new OrderReturnItemSummaryDto(
+                                OrderItemPublicIds[item.OrderItemId],
+                                item.Quantity)),
+                    ])),
+        ]);
 
     public Task<IReadOnlyList<ReturnItem>> ListItemsAsync(long returnRequestId, CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<ReturnItem>>([.. Items.Where(i => i.ReturnRequestId == returnRequestId)]);

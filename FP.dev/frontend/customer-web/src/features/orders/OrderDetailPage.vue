@@ -3,13 +3,17 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { EmptyState, ErrorState, HttpStatusPage, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
+import { formatTaipeiDateTime } from '@doselect/web-shared/datetime'
 import {
   CANCELLATION_REASON_OPTIONS,
   cancelOrder,
   fetchOrder,
+  fetchOrderReturns,
   type OrderDto,
+  type OrderReturnSummaryDto,
 } from './api'
 import { fetchOrderInvoice, type SimulatedInvoiceDto } from '../payments/api'
+import { statusLabels as returnStatusLabels } from '../returns/labels'
 
 const route = useRoute()
 const shippingMethodLabels: Record<string, string> = {
@@ -24,7 +28,10 @@ type PageState = 'loading' | 'ready' | 'unauthenticated' | 'not-found' | 'error'
 
 const pageState = ref<PageState>('loading')
 const order = ref<OrderDto | undefined>(undefined)
+const orderReturns = ref<OrderReturnSummaryDto[]>([])
 const loadErrorProps = ref<{ correlationId?: string; traceId?: string }>({})
+type ReturnsState = 'idle' | 'loading' | 'ready' | 'error'
+const returnsState = ref<ReturnsState>('idle')
 
 const cancelForm = reactive({
   reasonCode: '',
@@ -42,6 +49,7 @@ async function loadOrder(): Promise<void> {
   try {
     order.value = await fetchOrder(orderPublicId.value)
     pageState.value = 'ready'
+    await loadOrderReturns()
     if (order.value.paymentStatus === 'paid' || order.value.amounts.refundedAmount > 0) {
       await loadInvoice()
     }
@@ -62,6 +70,17 @@ async function loadOrder(): Promise<void> {
   }
 }
 
+async function loadOrderReturns(): Promise<void> {
+  returnsState.value = 'loading'
+  try {
+    orderReturns.value = await fetchOrderReturns(orderPublicId.value)
+    returnsState.value = 'ready'
+  }
+  catch {
+    returnsState.value = 'error'
+  }
+}
+
 async function loadInvoice(): Promise<void> {
   invoiceState.value = 'loading'
   try {
@@ -76,9 +95,36 @@ async function loadInvoice(): Promise<void> {
 onMounted(loadOrder)
 
 const canCancel = computed(() => order.value?.availableActions.includes('cancel') ?? false)
-const canRequestReturn = computed(() => order.value?.availableActions.includes('requestReturn') ?? false)
+const nonConsumingReturnStatuses = new Set(['rejected', 'cancelled'])
+const requestedQuantityByOrderItem = computed(() => {
+  const quantities = new Map<string, number>()
+  for (const request of orderReturns.value) {
+    if (nonConsumingReturnStatuses.has(request.status)) {
+      continue
+    }
+    for (const item of request.items) {
+      quantities.set(item.orderItemPublicId, (quantities.get(item.orderItemPublicId) ?? 0) + item.quantity)
+    }
+  }
+  return quantities
+})
+
+function remainingReturnQuantity(item: OrderDto['items'][number]): number {
+  return Math.max(
+    0,
+    item.returnableQuantity
+      - item.returnedQuantity
+      - (requestedQuantityByOrderItem.value.get(item.publicId) ?? 0),
+  )
+}
+
 const returnableItems = computed(
-  () => order.value?.items.filter(item => item.returnableQuantity > item.returnedQuantity) ?? [],
+  () => order.value?.items.filter(item => remainingReturnQuantity(item) > 0) ?? [],
+)
+const canRequestReturn = computed(() =>
+  returnsState.value === 'ready'
+  && (order.value?.availableActions.includes('requestReturn') ?? false)
+  && returnableItems.value.length > 0,
 )
 const canPay = computed(() =>
   order.value?.orderStatus === 'pendingPayment' && order.value.paymentStatus !== 'paid',
@@ -135,17 +181,14 @@ async function startReturn(): Promise<void> {
       items: JSON.stringify(returnableItems.value.map(item => ({
         orderItemPublicId: item.publicId,
         skuName: item.skuNameSnapshot,
-        maxQuantity: item.returnableQuantity - item.returnedQuantity,
+        maxQuantity: remainingReturnQuantity(item),
       }))),
     },
   })
 }
 
 function formatDateTime(value?: string | null): string {
-  if (!value) {
-    return '—'
-  }
-  return new Date(value).toLocaleString('zh-TW')
+  return formatTaipeiDateTime(value)
 }
 
 const orderStatusLabel: Record<string, string> = {
@@ -256,6 +299,9 @@ const invoiceStatusLabel: Record<string, string> = {
                 <th scope="col">
                   小計
                 </th>
+                <th scope="col">
+                  退貨狀態
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -266,6 +312,14 @@ const invoiceStatusLabel: Record<string, string> = {
                 <td>{{ item.productNameSnapshot }}（{{ item.skuNameSnapshot }}）</td>
                 <td>{{ item.quantity }}</td>
                 <td>NT$ {{ item.lineTotal }}</td>
+                <td>
+                  <template v-if="(requestedQuantityByOrderItem.get(item.publicId) ?? 0) > 0">
+                    已申請 {{ requestedQuantityByOrderItem.get(item.publicId) }} 件
+                  </template>
+                  <template v-else>
+                    尚未申請
+                  </template>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -461,6 +515,36 @@ const invoiceStatusLabel: Record<string, string> = {
         <h2 id="return-title">
           退貨
         </h2>
+        <p v-if="returnsState === 'loading'">
+          退貨進度載入中…
+        </p>
+        <div
+          v-else-if="returnsState === 'error'"
+          role="alert"
+        >
+          <p>目前無法確認退貨進度，為避免重複申請，請重新載入後再試。</p>
+          <button
+            type="button"
+            @click="loadOrderReturns"
+          >
+            重新載入退貨進度
+          </button>
+        </div>
+        <div v-else-if="orderReturns.length > 0">
+          <h3>退貨進度</h3>
+          <ul class="record-detail__return-progress">
+            <li
+              v-for="returnRequest in orderReturns"
+              :key="returnRequest.publicId"
+            >
+              <RouterLink :to="`/returns/${returnRequest.publicId}`">
+                {{ returnRequest.returnNumber }}
+              </RouterLink>
+              ｜{{ returnStatusLabels[returnRequest.status] ?? returnRequest.status }}
+              ｜{{ formatDateTime(returnRequest.requestedAtUtc) }}
+            </li>
+          </ul>
+        </div>
         <template v-if="canRequestReturn">
           <p v-if="order.returnRequestDeadlineUtc">
             一般猶豫期退貨申請期限：{{ formatDateTime(order.returnRequestDeadlineUtc) }}
@@ -472,7 +556,7 @@ const invoiceStatusLabel: Record<string, string> = {
               :key="item.publicId"
             >
               {{ item.productNameSnapshot }}（{{ item.skuNameSnapshot }}）
-              可退 {{ item.returnableQuantity - item.returnedQuantity }} 件
+              可退 {{ remainingReturnQuantity(item) }} 件
             </li>
           </ul>
           <button
@@ -483,9 +567,11 @@ const invoiceStatusLabel: Record<string, string> = {
           </button>
         </template>
         <EmptyState
-          v-else
-          title="目前沒有可退貨商品"
-          description="商品送達後才能申請退貨；若商品有瑕疵或寄錯，送達後一樣可以在這裡申請。"
+          v-else-if="returnsState === 'ready'"
+          :title="orderReturns.length > 0 ? '可退數量皆已提出申請' : '目前沒有可退貨商品'"
+          :description="orderReturns.length > 0
+            ? '請由上方退貨案件查看審核、寄回與退款進度。'
+            : '商品送達後才能申請退貨；若商品有瑕疵或寄錯，送達後一樣可以在這裡申請。'"
         />
       </section>
     </template>

@@ -38,6 +38,8 @@ const addToCartSucceeded = ref(false)
 const quantity = ref(1)
 const quantityLimit = computed(() => Math.max(0, Math.floor(Number(selectedSku.value?.maxPurchasableQuantity ?? 0))))
 const quantityValid = computed(() => Number.isInteger(quantity.value) && quantity.value >= 1 && quantity.value <= quantityLimit.value)
+const isSelectedSkuOutOfStock = computed(() =>
+  selectedSku.value?.availability === 'outOfStock' || Number(selectedSku.value?.maxPurchasableQuantity ?? 0) <= 0)
 watch(() => selectedSku.value?.publicId, () => { quantity.value = 1 })
 
 const ADD_TO_CART_ERROR_MESSAGES: Record<string, string> = {
@@ -73,7 +75,7 @@ const isAddToCartDisabled = computed(() => {
   if (!quantityValid.value || !selectedSku.value || addCartItemMutation.isPending.value || isCartIdentityUnresolved.value) {
     return true
   }
-  return selectedSku.value.availability === 'outOfStock' || Number(selectedSku.value.maxPurchasableQuantity) <= 0
+  return isSelectedSkuOutOfStock.value
 })
 
 // 組長 PR #29 review round 5, P2: the SKU selector stays interactive while a mutation is in
@@ -347,6 +349,8 @@ const isNotFound = computed(() => isApiError(error.value) && error.value.status 
       </p>
       <button
         type="button"
+        class="product-detail__add-to-cart"
+        :class="{ 'product-detail__add-to-cart--unavailable': isSelectedSkuOutOfStock }"
         :disabled="isAddToCartDisabled"
         @click="onAddToCart"
       >
@@ -692,6 +696,14 @@ button[disabled] {
   background: var(--color-text-faint);
   border-color: var(--color-text-faint);
   cursor: not-allowed;
+}
+
+.product-detail__add-to-cart.product-detail__add-to-cart--unavailable:disabled {
+  opacity: 1;
+  background: #e2e8f0;
+  border-color: #cbd5e1;
+  color: #64748b;
+  box-shadow: none;
 }
 
 .product-detail__add-to-cart-success {

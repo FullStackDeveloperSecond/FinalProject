@@ -79,6 +79,15 @@ public sealed record ReturnRequestDto(
     IReadOnlyList<string> AvailableActions,
     byte[] RowVersion);
 
+public sealed record OrderReturnItemSummaryDto(Guid OrderItemPublicId, int Quantity);
+
+public sealed record OrderReturnSummaryDto(
+    Guid PublicId,
+    string ReturnNumber,
+    ReturnRequestStatus Status,
+    DateTime? RequestedAtUtc,
+    IReadOnlyList<OrderReturnItemSummaryDto> Items);
+
 // ---- Admin queries ----
 
 public enum AdminReturnSortOrder

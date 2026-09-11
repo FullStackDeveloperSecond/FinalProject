@@ -373,6 +373,8 @@ describe('ProductDetailPage', () => {
 
     const addButton = wrapper.findAll('button').find((button) => button.text().includes('加入購物車'))!
     expect(addButton.attributes('disabled')).toBeDefined()
+    expect(addButton.classes()).toContain('product-detail__add-to-cart--unavailable')
+    expect(addButton.text()).toBe('加入購物車')
 
     await addButton.trigger('click')
     await flushPromises()

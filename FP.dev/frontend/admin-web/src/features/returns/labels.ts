@@ -1,3 +1,5 @@
+import { formatTaipeiDateTime } from '@doselect/web-shared/datetime'
+
 // The shared ApiFoundationExtensions now registers a global JsonStringEnumConverter
 // (JsonNamingPolicy.CamelCase, allowIntegerValues: false) — added by the merged Support PR —
 // so every enum on the wire is a camelCase string, not a raw ordinal int.
@@ -76,13 +78,5 @@ export const inspectionStatusLabels: Record<string, string> = {
 }
 
 export function formatDateTime(value: string | null | undefined): string {
-  if (!value) {
-    return '—'
-  }
-
-  return new Intl.DateTimeFormat('zh-TW', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-    timeZone: 'Asia/Taipei',
-  }).format(new Date(value))
+  return formatTaipeiDateTime(value)
 }

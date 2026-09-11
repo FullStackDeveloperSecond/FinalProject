@@ -7,5 +7,6 @@ export const reviewStatusLabels: Record<string, string> = {
   withdrawn: '已撤回',
 }
 export function formatReviewDate(value: string | null | undefined): string {
-  return value ? new Intl.DateTimeFormat('zh-Hant-TW', { dateStyle: 'medium' }).format(new Date(value)) : '—'
+  return formatTaipeiDate(value)
 }
+import { formatTaipeiDate } from '@doselect/web-shared/datetime'

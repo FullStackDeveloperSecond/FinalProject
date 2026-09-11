@@ -16,6 +16,13 @@ public sealed class AdminSupportTicketService : IAdminSupportTicketService
         _timeProvider = timeProvider;
     }
 
+    public async Task<IReadOnlyList<AdminAssigneeSummaryDto>> GetAssignableAdminsAsync(
+        CancellationToken cancellationToken)
+    {
+        var admins = await _store.GetAssignableAdminsAsync(cancellationToken);
+        return [.. admins.Select(admin => new AdminAssigneeSummaryDto(admin.PublicId, admin.DisplayName))];
+    }
+
     public async Task<AdminSupportTicketDto> ClaimAsync(
         string adminUserId,
         Guid ticketPublicId,

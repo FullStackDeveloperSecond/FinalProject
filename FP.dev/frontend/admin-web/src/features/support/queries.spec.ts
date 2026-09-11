@@ -46,6 +46,27 @@ describe('admin support queries', () => {
     wrapper.unmount()
   }, 10_000)
 
+  it('loads public-safe assignable administrator options for the supervisor dropdown', async () => {
+    const response = [{ publicId: '018f2e6a-0000-7000-8000-000000000099', displayName: '客服甲' }]
+    const fetchStub = vi.fn<typeof fetch>().mockResolvedValue(Response.json(response))
+    vi.stubGlobal('fetch', fetchStub)
+    const { useAssignableSupportAdminsQuery } = await import('./queries')
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    runHarness = () => useAssignableSupportAdminsQuery(true)
+    const wrapper = mount(Harness, {
+      global: { plugins: [[VueQueryPlugin, { queryClient }]] },
+    })
+
+    await vi.waitFor(() => expect(fetchStub).toHaveBeenCalledOnce())
+    const [input, init] = fetchStub.mock.calls[0] ?? []
+    const request = input instanceof Request ? input : new Request(String(input), init)
+    expect(new URL(request.url).pathname).toBe('/api/v1/admin/support-tickets/assignees')
+    expect(request.credentials).toBe('include')
+    expect(request.headers.get('X-Correlation-ID')).toMatch(/^[0-9a-f]{32}$/)
+
+    wrapper.unmount()
+  })
+
   it('claims with the current RowVersion and refreshes detail and SLA data on success', async () => {
     const claimedTicket = {
       publicId: ticketId,

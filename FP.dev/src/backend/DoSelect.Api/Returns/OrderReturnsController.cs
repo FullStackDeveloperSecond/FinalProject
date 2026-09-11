@@ -49,6 +49,27 @@ public sealed class OrderReturnsController : ControllerBase
         }
     }
 
+    [HttpGet]
+    public async Task<ActionResult<IReadOnlyList<OrderReturnSummaryDto>>> List(
+        Guid orderId,
+        CancellationToken cancellationToken)
+    {
+        var actor = await _actorResolver.ResolveForOrderAsync(HttpContext, orderId, cancellationToken);
+        if (actor is null)
+        {
+            return IdentityRequiredProblem();
+        }
+
+        try
+        {
+            return Ok(await _returnService.ListForOrderAsync(actor, orderId, cancellationToken));
+        }
+        catch (ReturnsWriteException exception)
+        {
+            return exception.ToActionResult(HttpContext);
+        }
+    }
+
     private ActionResult IdentityRequiredProblem()
     {
         var problem = ApiProblemDetailsFactory.Create(

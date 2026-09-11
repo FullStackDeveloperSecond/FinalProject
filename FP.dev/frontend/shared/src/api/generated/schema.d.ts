@@ -1872,7 +1872,30 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orderId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["OrderReturnSummaryDto"][];
+                        "application/json": components["schemas"]["OrderReturnSummaryDto"][];
+                        "text/json": components["schemas"]["OrderReturnSummaryDto"][];
+                    };
+                };
+            };
+        };
         put?: never;
         post: {
             parameters: {
@@ -6037,6 +6060,43 @@ export interface paths {
                 };
             };
         };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/support-tickets/assignees": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AdminAssigneeSummaryDto"][];
+                        "application/json": components["schemas"]["AdminAssigneeSummaryDto"][];
+                        "text/json": components["schemas"]["AdminAssigneeSummaryDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -12688,6 +12748,21 @@ export interface components {
         };
         /** @enum {unknown} */
         OrderRefundStatus: "none" | "pending" | "partiallyRefunded" | "refunded";
+        OrderReturnItemSummaryDto: {
+            /** Format: uuid */
+            orderItemPublicId: string;
+            /** Format: int32 */
+            quantity: number | string;
+        };
+        OrderReturnSummaryDto: {
+            /** Format: uuid */
+            publicId: string;
+            returnNumber: string;
+            status: components["schemas"]["ReturnRequestStatus"];
+            /** Format: date-time */
+            requestedAtUtc: null | string;
+            items: components["schemas"]["OrderReturnItemSummaryDto"][];
+        };
         OrderShipmentDto: {
             shipmentNumber: string;
             trackingNumber: null | string;

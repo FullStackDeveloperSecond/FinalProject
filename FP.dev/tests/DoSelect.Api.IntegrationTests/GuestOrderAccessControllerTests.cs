@@ -861,6 +861,12 @@ public sealed class GuestOrderAccessControllerTests(GuestOrderAccessApiFixture f
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
+        public Task<IReadOnlyList<OrderReturnSummaryDto>> ListForOrderAsync(
+            ReturnActor actor,
+            Guid orderPublicId,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
         public Task<ReturnAttachmentDto> UploadAttachmentAsync(
             ReturnActor actor,
             Guid returnPublicId,

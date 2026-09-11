@@ -25,6 +25,31 @@ public sealed class AdminSupportTicketStore : IAdminSupportTicketStore
         _outboxWriter = outboxWriter;
     }
 
+    public async Task<IReadOnlyList<AssignableSupportAdmin>> GetAssignableAdminsAsync(
+        CancellationToken cancellationToken)
+    {
+        var eligibleRoleNames = new[]
+        {
+            AuditRoleNames.CustomerService,
+            AuditRoleNames.CustomerServiceSupervisor,
+        };
+
+        return await _dbContext.AdminProfiles
+            .AsNoTracking()
+            .Where(profile => profile.IsActive)
+            .Where(profile =>
+                (from userRole in _dbContext.UserRoles
+                 join role in _dbContext.Roles on userRole.RoleId equals role.Id
+                 where userRole.UserId == profile.UserId &&
+                     role.Name != null &&
+                     eligibleRoleNames.Contains(role.Name)
+                 select userRole).Any())
+            .OrderBy(profile => profile.DisplayName)
+            .ThenBy(profile => profile.PublicId)
+            .Select(profile => new AssignableSupportAdmin(profile.PublicId, profile.DisplayName))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<SupportTicketClaimResult> ClaimAsync(
         Guid ticketPublicId,
         string adminUserId,

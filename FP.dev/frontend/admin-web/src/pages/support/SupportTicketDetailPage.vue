@@ -12,6 +12,7 @@ import {
   useChangeSupportTicketStatusMutation,
   useClaimSupportTicketMutation,
   useReopenSupportTicketMutation,
+  useAssignableSupportAdminsQuery,
   useSupportTicketDetailQuery,
   useTransferSupportTicketMutation,
 } from '../../features/support/queries'
@@ -53,6 +54,11 @@ const canCancel = computed(() => hasAction('cancel'))
 const canReopen = computed(() => hasAction('reopen'))
 const canAddInternalNote = computed(() => hasAction('internal-note'))
 const canReply = computed(() => hasAction('reply'))
+const needsAssigneeOptions = computed(() => canAssign.value || canTransfer.value)
+const assignableAdminsQuery = useAssignableSupportAdminsQuery(needsAssigneeOptions)
+const assignableAdmins = computed(() => assignableAdminsQuery.data.value ?? [])
+const transferTargets = computed(() =>
+  assignableAdmins.value.filter(admin => admin.publicId !== ticket.value?.assignee?.publicId))
 
 const priorityOptions: CasePriority[] = ['low', 'normal', 'high', 'urgent']
 const statusOptions: SupportTicketStatus[] = [
@@ -71,6 +77,12 @@ const cancelForm = reactive({ reason: '' })
 const reopenForm = reactive({ reason: '' })
 const internalNoteForm = reactive({ body: '' })
 const publicReplyForm = reactive({ body: '' })
+const isAssignDisabled = computed(() =>
+  assignMutation.isPending.value || assignableAdminsQuery.isPending.value ||
+  assignableAdminsQuery.isError.value || !assignForm.targetAdminPublicId || !assignForm.reason)
+const isTransferDisabled = computed(() =>
+  transferMutation.isPending.value || assignableAdminsQuery.isPending.value ||
+  assignableAdminsQuery.isError.value || !transferForm.targetAdminPublicId || !transferForm.reason)
 
 function isConflict(candidateError: unknown): boolean {
   return isApiError(candidateError) && candidateError.status === 409
@@ -398,13 +410,44 @@ async function handleClaim() {
         >
           <h3>指派客服</h3>
           <label>
-            目標客服 PublicId
-            <input
+            負責人
+            <select
               v-model="assignForm.targetAdminPublicId"
-              type="text"
-              placeholder="guid"
             >
+              <option
+                value=""
+                disabled
+              >
+                請選擇負責人
+              </option>
+              <option
+                v-for="admin in assignableAdmins"
+                :key="admin.publicId"
+                :value="admin.publicId"
+              >
+                {{ admin.displayName }}
+              </option>
+            </select>
           </label>
+          <p
+            v-if="assignableAdminsQuery.isPending.value"
+            class="support-ticket-detail__form-hint"
+          >
+            正在載入可指派人員…
+          </p>
+          <p
+            v-else-if="assignableAdminsQuery.isError.value"
+            class="form-error"
+            role="alert"
+          >
+            無法載入可指派人員，請重新整理後再試。
+          </p>
+          <p
+            v-else-if="assignableAdmins.length === 0"
+            class="support-ticket-detail__form-hint"
+          >
+            目前沒有可指派的客服人員。
+          </p>
           <label>
             理由
             <input
@@ -414,7 +457,7 @@ async function handleClaim() {
           </label>
           <button
             type="button"
-            :disabled="assignMutation.isPending.value"
+            :disabled="isAssignDisabled"
             @click="handleAssign"
           >
             {{ assignMutation.isPending.value ? '指派中…' : '指派' }}
@@ -434,13 +477,44 @@ async function handleClaim() {
         >
           <h3>轉派案件</h3>
           <label>
-            目標客服 PublicId
-            <input
+            新負責人
+            <select
               v-model="transferForm.targetAdminPublicId"
-              type="text"
-              placeholder="guid"
             >
+              <option
+                value=""
+                disabled
+              >
+                請選擇新負責人
+              </option>
+              <option
+                v-for="admin in transferTargets"
+                :key="admin.publicId"
+                :value="admin.publicId"
+              >
+                {{ admin.displayName }}
+              </option>
+            </select>
           </label>
+          <p
+            v-if="assignableAdminsQuery.isPending.value"
+            class="support-ticket-detail__form-hint"
+          >
+            正在載入可轉派人員…
+          </p>
+          <p
+            v-else-if="assignableAdminsQuery.isError.value"
+            class="form-error"
+            role="alert"
+          >
+            無法載入可轉派人員，請重新整理後再試。
+          </p>
+          <p
+            v-else-if="transferTargets.length === 0"
+            class="support-ticket-detail__form-hint"
+          >
+            目前沒有其他可轉派的客服人員。
+          </p>
           <label>
             理由
             <input
@@ -450,7 +524,7 @@ async function handleClaim() {
           </label>
           <button
             type="button"
-            :disabled="transferMutation.isPending.value"
+            :disabled="isTransferDisabled"
             @click="handleTransfer"
           >
             {{ transferMutation.isPending.value ? '轉派中…' : '轉派' }}

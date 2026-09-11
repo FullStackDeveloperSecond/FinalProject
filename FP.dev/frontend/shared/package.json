@@ -12,6 +12,7 @@
     "./api": "./src/api/index.ts",
     "./compatibility": "./src/compatibility/index.ts",
     "./components": "./src/components/index.ts",
+    "./datetime": "./src/datetime/index.ts",
     "./motion": "./src/motion/index.ts",
     "./motion/MotionDevSwitcher.vue": "./src/motion/MotionDevSwitcher.vue",
     "./query": "./src/query/index.ts",

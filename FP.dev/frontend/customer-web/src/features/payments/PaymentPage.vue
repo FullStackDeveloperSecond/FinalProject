@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { EmptyState, ErrorState, HttpStatusPage, LoadingState } from '@doselect/web-shared/components'
 import { isApiError } from '@doselect/web-shared/api'
+import { formatTaipeiDateTime } from '@doselect/web-shared/datetime'
 import { fetchOrder, type OrderDto } from '../orders/api'
 import {
   completeSimulatedPayment,
@@ -192,7 +193,7 @@ function describePaymentError(error: unknown, fallback: string): string {
 }
 
 function formatDateTime(value?: string | null): string {
-  return value ? new Date(value).toLocaleString('zh-TW') : '—'
+  return formatTaipeiDateTime(value)
 }
 
 /**

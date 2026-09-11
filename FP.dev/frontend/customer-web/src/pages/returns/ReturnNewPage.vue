@@ -35,6 +35,7 @@ interface LineState {
   orderItemPublicId: string
   skuName: string
   quantity: number
+  maxQuantity: number
   reasonCode: string
   description: string
 }
@@ -78,6 +79,7 @@ const lines = reactive<LineState[]>(handoffItems.map((item, index) => ({
   orderItemPublicId: item.orderItemPublicId,
   skuName: item.skuName,
   quantity: 1,
+  maxQuantity: item.maxQuantity,
   reasonCode: 'Defective',
   description: '',
 })))
@@ -97,22 +99,48 @@ const canSubmit = computed(() =>
   && lines.every((line) => Number(line.quantity) > 0)
   && !mutation.isPending.value)
 
+const submitErrorMessage = computed(() => {
+  const error = mutation.error.value
+  if (!isApiError(error)) {
+    return '送出失敗，請稍後再試。'
+  }
+
+  switch (error.code) {
+    case 'return_quantity_exceeded':
+      return '部分商品已經提出退貨申請，請返回訂單詳情查看最新退貨進度。'
+    case 'concurrency_conflict':
+      return '訂單資料已更新，請返回訂單詳情重新選擇可退商品。'
+    case 'return_deadline_expired':
+      return '這筆申請已超過退貨期限。'
+    case 'return_state_conflict':
+      return '這筆訂單目前無法申請退貨。'
+    default:
+      return error.message
+  }
+})
+
 async function handleSubmit() {
   if (!hasTrustedHandoff || orderRowVersion === null) {
     return
   }
 
-  const created = await mutation.mutateAsync({
-    items: lines.map((line) => ({
-      orderItemPublicId: line.orderItemPublicId,
-      quantity: line.quantity,
-      reasonCode: line.reasonCode,
-      description: line.description,
-    })),
-    requestReason: requestReason.value.trim(),
-    orderRowVersion,
-  })
-  await router.push(`/returns/${created.publicId}`)
+  try {
+    const created = await mutation.mutateAsync({
+      items: lines.map((line) => ({
+        orderItemPublicId: line.orderItemPublicId,
+        quantity: line.quantity,
+        reasonCode: line.reasonCode,
+        description: line.description,
+      })),
+      requestReason: requestReason.value.trim(),
+      orderRowVersion,
+    })
+    await router.push(`/returns/${created.publicId}`)
+  }
+  catch {
+    // Vue Query keeps the typed error for the inline retry state below. Handling the rejected
+    // promise here prevents a duplicate global "unhandled rejection" warning in the browser.
+  }
 }
 </script>
 
@@ -154,6 +182,7 @@ async function handleSubmit() {
             v-model.number="line.quantity"
             type="number"
             min="1"
+            :max="line.maxQuantity"
             required
           >
         </label>
@@ -201,8 +230,15 @@ async function handleSubmit() {
         class="return-form__error"
         role="alert"
       >
-        {{ isApiError(mutation.error.value) ? mutation.error.value.message : '送出失敗，請稍後再試。' }}
+        {{ submitErrorMessage }}
       </p>
+
+      <RouterLink
+        v-if="mutation.isError.value"
+        :to="`/orders/${orderId}`"
+      >
+        返回訂單詳情
+      </RouterLink>
 
       <button
         type="submit"

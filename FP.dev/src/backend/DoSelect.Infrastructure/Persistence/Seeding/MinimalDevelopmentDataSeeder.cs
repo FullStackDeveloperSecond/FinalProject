@@ -1258,6 +1258,7 @@ public sealed class MinimalDevelopmentDataSeeder(
             cancellationToken);
         if (coupon is null)
         {
+            var couponStartsAtUtc = new DateTime(2026, 8, 31, 16, 0, 0, DateTimeKind.Utc);
             coupon = new Coupon(
                 MinimalDevelopmentSeedDefinitions.School2026CouponPublicId,
                 new CouponCreation(
@@ -1267,7 +1268,7 @@ public sealed class MinimalDevelopmentDataSeeder(
                     0.05m,
                     null,
                     null,
-                    new DateTime(2026, 8, 31, 16, 0, 0, DateTimeKind.Utc),
+                    couponStartsAtUtc,
                     new DateTime(2026, 9, 30, 16, 0, 0, DateTimeKind.Utc),
                     null,
                     1,
@@ -1278,7 +1279,7 @@ public sealed class MinimalDevelopmentDataSeeder(
                 MinimalDevelopmentSeedDefinitions.CreatedAtUtc);
             coupon.ActivateNow(
                 CouponUsageState.Unused,
-                MinimalDevelopmentSeedDefinitions.CreatedAtUtc);
+                couponStartsAtUtc);
             dbContext.Coupons.Add(coupon);
             await dbContext.SaveChangesAsync(cancellationToken);
         }

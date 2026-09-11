@@ -91,15 +91,10 @@ public sealed class DemoAccountActivator(
             await dbContext.Database.BeginTransactionAsync(cancellationToken);
 
         var rolesAssigned = 0;
+        await EnsureFormalRolesAsync();
+
         foreach (var roleName in AdminRoles)
         {
-            if (!await roleManager.RoleExistsAsync(roleName))
-            {
-                EnsureSucceeded(
-                    $"create role '{roleName}'",
-                    await roleManager.CreateAsync(new IdentityRole(roleName)));
-            }
-
             if (!await userManager.IsInRoleAsync(admin, roleName))
             {
                 EnsureSucceeded(
@@ -128,6 +123,42 @@ public sealed class DemoAccountActivator(
             RolesAssigned: rolesAssigned,
             MainBusinessRecordTotal: countsAfter.Values.Sum(),
             AdminPublicId: admin.PublicId);
+    }
+
+    /// <summary>
+    /// Repairs only the formal Identity role catalogue in an isolated local Demo database.
+    /// Unlike full account activation this intentionally does not require an untouched seed,
+    /// because a Demo that has accumulated test orders or tickets still needs to create admins.
+    /// It never changes users, passwords, profiles, role assignments, or business records.
+    /// </summary>
+    public async Task<int> EnsureRolesAsync(CancellationToken cancellationToken = default)
+    {
+        DemoDatabaseSafety.EnsureAllowedIsolatedLocalDatabase(dbContext);
+
+        await using var transaction =
+            await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        var created = await EnsureFormalRolesAsync();
+        await transaction.CommitAsync(cancellationToken);
+        return created;
+    }
+
+    private async Task<int> EnsureFormalRolesAsync()
+    {
+        var created = 0;
+        foreach (var roleName in MinimalDevelopmentSeedDefinitions.RoleNames)
+        {
+            if (await roleManager.RoleExistsAsync(roleName))
+            {
+                continue;
+            }
+
+            EnsureSucceeded(
+                $"create role '{roleName}'",
+                await roleManager.CreateAsync(new IdentityRole(roleName)));
+            created++;
+        }
+
+        return created;
     }
 
     private async Task<ApplicationUser> FindRequiredUserAsync(

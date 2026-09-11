@@ -37,6 +37,15 @@ public sealed class AdminSupportTicketsController : ControllerBase
         _slaQueueService = slaQueueService;
     }
 
+    [Authorize(Policy = DoSelectPolicies.SupportTicketSupervise)]
+    [HttpGet("assignees")]
+    public async Task<ActionResult<IReadOnlyList<AdminAssigneeSummaryDto>>> GetAssignableAdmins(
+        CancellationToken cancellationToken)
+    {
+        var result = await _service.GetAssignableAdminsAsync(cancellationToken);
+        return Ok(result);
+    }
+
     [Authorize(Policy = DoSelectPolicies.Admin)]
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<AdminSupportTicketDetailDto>> GetDetail(

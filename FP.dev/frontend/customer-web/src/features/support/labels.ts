@@ -1,6 +1,7 @@
 // The API only ever sends stable English tokens (see 資料字典/API DTO契約) — the frontend
 // owns turning them into Traditional Chinese labels. Keep these in sync with the enum values
 // in the generated schema; nothing here should be treated as authoritative business meaning.
+import { formatTaipeiDateTime } from '@doselect/web-shared/datetime'
 import type { CasePriority, SupportTicketCategory, SupportTicketStatus } from './types'
 
 export const categoryLabels: Record<SupportTicketCategory, string> = {
@@ -32,13 +33,5 @@ export const priorityLabels: Record<CasePriority, string> = {
 }
 
 export function formatDateTime(value: string | null | undefined): string {
-  if (!value) {
-    return '—'
-  }
-
-  return new Intl.DateTimeFormat('zh-TW', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-    timeZone: 'Asia/Taipei',
-  }).format(new Date(value))
+  return formatTaipeiDateTime(value)
 }

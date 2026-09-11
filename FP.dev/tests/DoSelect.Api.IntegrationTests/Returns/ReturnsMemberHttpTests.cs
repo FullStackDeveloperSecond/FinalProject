@@ -71,6 +71,40 @@ public sealed class ReturnsMemberHttpTests
     }
 
     [Fact]
+    public async Task ListOrderReturns_AsOwner_ShowsCreatedProgressAndConsumedItemQuantity()
+    {
+        var (client, _, orderPublicId, orderItemPublicId, orderRowVersion) =
+            await _fixture.CreateAuthenticatedMemberWithDeliveredOrderAsync(returnableQuantity: 2);
+        var returnPublicId = await CreateReturnAsync(client, orderPublicId, orderItemPublicId, orderRowVersion);
+
+        using var response = await client.GetAsync($"/api/v1/orders/{orderPublicId}/returns");
+        response.EnsureSuccessStatusCode();
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        var summary = Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal(returnPublicId, summary.GetProperty("publicId").GetGuid());
+        Assert.Equal("requested", summary.GetProperty("status").GetString());
+        var item = Assert.Single(summary.GetProperty("items").EnumerateArray());
+        Assert.Equal(orderItemPublicId, item.GetProperty("orderItemPublicId").GetGuid());
+        Assert.Equal(1, item.GetProperty("quantity").GetInt32());
+    }
+
+    [Fact]
+    public async Task ListOrderReturns_WhenAnotherMemberOwnsOrder_Returns404()
+    {
+        var (_, _, orderPublicId, _, _) =
+            await _fixture.CreateAuthenticatedMemberWithDeliveredOrderAsync();
+        var (otherClient, _, _, _, _) =
+            await _fixture.CreateAuthenticatedMemberWithDeliveredOrderAsync();
+
+        using var response = await otherClient.GetAsync($"/api/v1/orders/{orderPublicId}/returns");
+        var problem = await ReturnsApiFixture.ReadProblemAsync(response);
+
+        Assert.Equal((int)HttpStatusCode.NotFound, problem.Status);
+        Assert.Equal("resource_not_found", problem.Code);
+    }
+
+    [Fact]
     public async Task UploadAttachment_AsAuthenticatedMemberWithCookieAndAntiforgery_PersistsAttachmentOnDisk()
     {
         var (client, memberUserId, orderPublicId, orderItemPublicId, orderRowVersion) =

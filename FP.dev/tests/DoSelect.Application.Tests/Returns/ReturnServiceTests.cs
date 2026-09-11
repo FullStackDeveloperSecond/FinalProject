@@ -54,6 +54,7 @@ public sealed class ReturnServiceTests
         orderPort.Register(new OrderEligibilitySnapshot(
             1, orderPublicId, "ORD-1", "member-a", deliveredAtUtc ?? DeliveredAtUtc, 1, [1, 2, 3, 4, 5, 6, 7, 8],
             [new EligibleOrderItem(10, orderItemPublicId, "SKU-1", "27型螢幕", returnableQuantity, 0, null, false, 100m)]));
+        store.OrderItemPublicIds[10] = orderItemPublicId;
 
         var service = new ReturnService(store, orderPort, fileStorage, new FixedTimeProvider(NowOffset));
         return (service, store, orderPort, orderPublicId, orderItemPublicId);
@@ -251,6 +252,38 @@ public sealed class ReturnServiceTests
         var stranger = new ReturnActor("member-b", null);
         var exception = await Assert.ThrowsAsync<ReturnsWriteException>(() =>
             service.GetDetailAsync(stranger, created.PublicId, CancellationToken.None));
+
+        Assert.Equal(ReturnsWriteException.ErrorCodes.ResourceNotFound, exception.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ListForOrderAsync_ReturnsOwnedProgressAndItemQuantities()
+    {
+        var (service, _, _, orderPublicId, orderItemPublicId) = CreateSut();
+        var actor = new ReturnActor("member-a", null);
+        var created = await service.CreateAsync(
+            actor,
+            orderPublicId,
+            DefectiveRequest(orderItemPublicId, 1, [1, 2, 3, 4, 5, 6, 7, 8]),
+            CancellationToken.None);
+
+        var result = await service.ListForOrderAsync(actor, orderPublicId, CancellationToken.None);
+
+        var summary = Assert.Single(result);
+        Assert.Equal(created.PublicId, summary.PublicId);
+        Assert.Equal(ReturnRequestStatus.Requested, summary.Status);
+        var item = Assert.Single(summary.Items);
+        Assert.Equal(orderItemPublicId, item.OrderItemPublicId);
+        Assert.Equal(1, item.Quantity);
+    }
+
+    [Fact]
+    public async Task ListForOrderAsync_WhenNotOwnedByCaller_ThrowsNotFound()
+    {
+        var (service, _, _, orderPublicId, _) = CreateSut();
+
+        var exception = await Assert.ThrowsAsync<ReturnsWriteException>(() =>
+            service.ListForOrderAsync(new ReturnActor("member-b", null), orderPublicId, CancellationToken.None));
 
         Assert.Equal(ReturnsWriteException.ErrorCodes.ResourceNotFound, exception.ErrorCode);
     }

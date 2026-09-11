@@ -1,3 +1,4 @@
+import { formatTaipeiDateTime } from '@doselect/web-shared/datetime'
 import type { SimulatedInvoiceStatus } from './types'
 
 export const invoiceStatusLabels: Record<SimulatedInvoiceStatus, string> = {
@@ -17,6 +18,5 @@ export function formatInvoiceMoney(value: number | string): string {
 }
 
 export function formatInvoiceDate(value?: string | null): string {
-  return value ? new Intl.DateTimeFormat('zh-TW', { dateStyle: 'medium', timeStyle: 'short' })
-    .format(new Date(value)) : '—'
+  return formatTaipeiDateTime(value)
 }

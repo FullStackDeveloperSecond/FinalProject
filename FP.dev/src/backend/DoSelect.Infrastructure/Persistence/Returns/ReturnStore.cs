@@ -146,6 +146,66 @@ public sealed class ReturnStore : IReturnStore
     public Task<ReturnRequest?> FindByPublicIdAsync(Guid returnPublicId, CancellationToken cancellationToken) =>
         _dbContext.ReturnRequests.SingleOrDefaultAsync(r => r.PublicId == returnPublicId, cancellationToken);
 
+    public async Task<IReadOnlyList<OrderReturnSummaryDto>> ListForOrderAsync(
+        long orderId,
+        CancellationToken cancellationToken)
+    {
+        var requests = await _dbContext.ReturnRequests
+            .AsNoTracking()
+            .Where(request => request.OrderId == orderId)
+            .OrderByDescending(request => request.RequestedAtUtc)
+            .ThenByDescending(request => request.Id)
+            .Select(request => new
+            {
+                request.Id,
+                request.PublicId,
+                request.ReturnNumber,
+                request.Status,
+                request.RequestedAtUtc,
+            })
+            .ToListAsync(cancellationToken);
+
+        if (requests.Count == 0)
+        {
+            return [];
+        }
+
+        var requestIds = requests.Select(request => request.Id).ToList();
+        var items = await _dbContext.ReturnItems
+            .AsNoTracking()
+            .Where(item => requestIds.Contains(item.ReturnRequestId))
+            .Join(
+                _dbContext.OrderItems,
+                item => item.OrderItemId,
+                orderItem => orderItem.Id,
+                (item, orderItem) => new
+                {
+                    item.ReturnRequestId,
+                    orderItem.PublicId,
+                    item.Quantity,
+                })
+            .OrderBy(item => item.ReturnRequestId)
+            .ThenBy(item => item.PublicId)
+            .ToListAsync(cancellationToken);
+
+        var itemsByRequest = items
+            .GroupBy(item => item.ReturnRequestId)
+            .ToDictionary(
+                group => group.Key,
+                group => (IReadOnlyList<OrderReturnItemSummaryDto>)
+                    [.. group.Select(item => new OrderReturnItemSummaryDto(item.PublicId, item.Quantity))]);
+
+        return
+        [
+            .. requests.Select(request => new OrderReturnSummaryDto(
+                request.PublicId,
+                request.ReturnNumber,
+                request.Status,
+                request.RequestedAtUtc,
+                itemsByRequest.GetValueOrDefault(request.Id) ?? [])),
+        ];
+    }
+
     public async Task<IReadOnlyList<ReturnItem>> ListItemsAsync(long returnRequestId, CancellationToken cancellationToken) =>
         await _dbContext.ReturnItems
             .Where(i => i.ReturnRequestId == returnRequestId)
